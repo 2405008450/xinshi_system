@@ -94,7 +94,6 @@ const mentionCandidates = computed(() => group.eligibleUsers.filter(u => u.name.
 let mentionTrigger = -1
 const selected = ref([]), selectionMessage = ref(null), inviteIds = ref([]), mentionIds = ref([])
 const files = ref([]), sending = ref(false), retryPayload = ref(null), sendError = ref(''), composing = ref(false)
-const sendTopicId = ref(null)
 const inviting = ref(false), followingBusy = ref(false), searchOpen = ref(false)
 const loading = ref(false), loadingEarlier = ref(false), hasEarlier = ref(false), error = ref('')
 const pendingNew = ref(0), viewingHistory = ref(false), highlighted = ref('')
@@ -373,10 +372,10 @@ async function send() {
   if (!canSend.value) return
   sending.value = true; sendError.value = ''
   closeMention()
-  const payload = retryPayload.value || { topicId: sendTopicId.value, content: content.value, mentionedUserIds: mentionIds.value.filter(id => group.eligibleUsers.some(u => u.id === id && content.value.includes(`@${u.name} `))), attachmentIds: files.value.map(f => f.data.id), replyToMessageId: replyTo.value?.id || null, clientMessageId: newMessageId() }
+  const payload = retryPayload.value || { content: content.value, mentionedUserIds: mentionIds.value.filter(id => group.eligibleUsers.some(u => u.id === id && content.value.includes(`@${u.name} `))), attachmentIds: files.value.map(f => f.data.id), replyToMessageId: replyTo.value?.id || null, clientMessageId: newMessageId() }
   try {
     const message = await createProjectChatMessage(props.projectId, payload, props.projectType)
-    retryPayload.value = null; content.value = ''; files.value = []; replyTo.value = null; mentionIds.value = []; sendTopicId.value = null
+    retryPayload.value = null; content.value = ''; files.value = []; replyTo.value = null; mentionIds.value = []
     if (viewingHistory.value) await search()
     merge([message]); await bottom(); await loadGroup()
   } catch (e) { retryPayload.value = payload; sendError.value = detail(e) }
@@ -388,7 +387,7 @@ async function cancelRetry() {
   try {
     const result = await request(props.projectId, `sent/${retryPayload.value.clientMessageId}`)
     if (result.message) {
-      merge([result.message]); content.value = ''; files.value = []; replyTo.value = null; mentionIds.value = []; sendTopicId.value = null
+      merge([result.message]); content.value = ''; files.value = []; replyTo.value = null; mentionIds.value = []
       ElMessage.success('已确认上一条消息发送成功')
     }
     retryPayload.value = null; sendError.value = ''
@@ -397,7 +396,6 @@ async function cancelRetry() {
 }
 function foreground() { scheduleRead(); sync() }
 function topicChanged(event) { const row = messages.value.find(value => value.id === event.detail.id); if (row) Object.assign(row, event.detail) }
-provide('chatSendTopic', sendTopicId)
 watch(() => props.active, active => { if (active) { sync(); scheduleRead() } else closeMention() })
 onMounted(async () => {
   window.addEventListener('chat-topic-message-changed', topicChanged)

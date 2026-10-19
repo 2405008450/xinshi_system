@@ -70,6 +70,12 @@ export function useAnnotationCustomerProgress({ projectId, active, busy, entryRe
       : draft.source || draftSource.value
     await focusEntry()
   }
+  // 归属转移由调用方完成冲突确认；此处只接收完整草稿，不触发保存。
+  const setDraft = (draft) => {
+    if (editingId.value) throw new Error('请先保存或取消客户进度编辑，再切换进度归属')
+    Object.assign(form, { changeNote: draft.changeNote, effectiveOn: draft.effectiveOn })
+    draftSource.value = draft.source || null
+  }
   const save = async () => {
     if (validating.value || submitting.value || busy.value || loading.value || loadError.value) return
     // 在异步校验前锁定提交，防止连续点击发出多次写入。
@@ -93,5 +99,5 @@ export function useAnnotationCustomerProgress({ projectId, active, busy, entryRe
   watch(projectId, reset, { flush: 'sync' })
   watch([active, projectId], ([enabled, id]) => { if (enabled && id && loadedProject !== id && !loading.value) void reload() }, { immediate: true })
   onBeforeUnmount(() => { controller?.abort(); requestId++ })
-  return reactive({ loading, validating, submitting, loadError, rows, form, editingId, draftSource, reload, hasDraft, getDraft, clearDraft, reset, acceptDraft, save, edit })
+  return reactive({ loading, validating, submitting, loadError, rows, form, editingId, draftSource, reload, ensureLoaded, hasDraft, getDraft, clearDraft, reset, acceptDraft, setDraft, save, edit })
 }

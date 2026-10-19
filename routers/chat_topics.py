@@ -57,6 +57,7 @@ def create(payload: TopicCreate, db=Depends(ready), user=Depends(actor)):
     result = service.serialize_topic(row, index)
     service.audit(db, user, row.id, 'topic.create', {}, result)
     commit(db)
+    service.notify_menu_changed(db)
     return result
 
 
@@ -80,6 +81,7 @@ def update(topic_id: UUID, payload: TopicUpdate, db=Depends(ready), user=Depends
     after = service.serialize_topic(row, index)
     service.audit(db, user, row.id, 'topic.update', before, after)
     commit(db)
+    service.notify_menu_changed(db)
     return after
 
 

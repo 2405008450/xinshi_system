@@ -1,22 +1,30 @@
 """平台账号每日统筹；候选读取实时需求，历史内容保存名称快照。"""
 from copy import deepcopy
+from hashlib import sha256
+import json
 from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy import Text, cast, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only, selectinload
 
 from interpretation_models import InterpretationLanguage
-from models import AppUser
+from models import AppUser, Client, SubClient
 from resource_development_models import DevelopmentArrangement as Day, DevelopmentArrangementCell as Cell, DevelopmentOption as Option
-from resource_development_service import active_user, audit, can_delegate, lock_writes, snapshot, user_name
+from resource_development_service import active_user, can_delegate, lock_writes, snapshot, user_name
+from resource_arrangement_audit import audit, cell_operations, cell_history
 from resource_request_models import ResourceRequest
-from resource_request_service import SOURCE_MODELS, _request_options, list_source_project_options
+from resource_request_service import SOURCE_MODELS, _request_options
 from business_time import business_now, business_iso
 
 
 def target_key(target):
     return (target['kind'], str(target.get('request_id') or ''), str(target.get('language_id') or ''))
+
+
+def target_content_key(target):
+    return (*target_key(target), tuple(sorted(item['key'] for item in target.get('scope', []))),
+            target.get('arrangement_note') or '')
 
 
 def project_key(project):
@@ -52,12 +60,122 @@ def source_snapshot(db, source_type, project_id):
             'parent_project_id': str(getattr(project, 'parent_project_id', None) or '')}
 
 
+def arrangement_project_options(db, source_type, keyword=None):
+    """候选批量带出各订单自己的语言；子订单不从名称推断或沿用母订单语言。"""
+    model, _field = SOURCE_MODELS[source_type]
+    columns = [model.id, model.order_no, model.project_name, model.updated_at]
+    relation = getattr(model, 'language_items' if source_type == 'annotation' else 'language_directions', None)
+    if source_type == 'annotation':
+        columns.append(model.parent_project_id)
+    if source_type == 'translation':
+        columns.append(model.language_pair)
+    query = db.query(model).options(load_only(*columns))
+    direction_model = relation.property.mapper.class_ if relation is not None else None
+    if relation is not None:
+        direction_load = selectinload(relation).load_only(direction_model.source_language_id, direction_model.target_language_id)
+        query = query.options(direction_load)
+        if hasattr(direction_model, 'extra_languages'):
+            query = query.options(direction_load.selectinload(direction_model.extra_languages))
+    if source_type == 'translation':
+        query = query.filter(model.annotation_migrated_at.is_(None))
+    if keyword and keyword.strip():
+        pattern = '%' + keyword.strip() + '%'
+        query = query.outerjoin(Client, model.client_id == Client.id).outerjoin(SubClient, model.sub_client_id == SubClient.id)
+        matches = [model.order_no.ilike(pattern), model.project_name.ilike(pattern),
+                   Client.client_short_name.ilike(pattern), SubClient.client_short_name.ilike(pattern)]
+        if relation is not None:
+            language_ids = db.query(InterpretationLanguage.id).filter(InterpretationLanguage.label.ilike(pattern))
+            directions = [direction_model.source_language_id.in_(language_ids), direction_model.target_language_id.in_(language_ids)]
+            if hasattr(direction_model, 'extra_languages'):
+                extra_model = direction_model.extra_languages.property.mapper.class_
+                directions.append(direction_model.extra_languages.any(extra_model.language_id.in_(language_ids)))
+            matches.append(relation.any(or_(*directions)))
+        else:
+            matches.append(model.language_pair.ilike(pattern))
+        query = query.filter(or_(*matches))
+    projects = query.order_by(model.updated_at.desc(), model.id.desc()).limit(50).all()
+    ids_by_project = {}
+    for project in projects:
+        items = getattr(project, relation.key) if relation is not None else []
+        ids_by_project[project.id] = [[value for value in [item.source_language_id, item.target_language_id,
+            *(extra.language_id for extra in getattr(item, 'extra_languages', []))] if value] for item in items]
+    ids = {value for directions in ids_by_project.values() for direction in directions for value in direction}
+    labels = dict(db.query(InterpretationLanguage.id, InterpretationLanguage.label).filter(InterpretationLanguage.id.in_(ids)).all()) if ids else {}
+    result = []
+    for project in projects:
+        languages = [' → '.join(labels[value] for value in direction if value in labels) for direction in ids_by_project[project.id]]
+        if source_type == 'translation':
+            languages = [value.strip() for value in (project.language_pair or '').replace('；', ';').split(';')]
+        result.append({'source_type': source_type, 'project_id': str(project.id), 'order_no': project.order_no or '',
+                       'project_name': project.project_name or '',
+                       'parent_project_id': str(getattr(project, 'parent_project_id', None) or ''),
+                       'languages': list(dict.fromkeys(value for value in languages if value))})
+    return result
+
+
 def request_project(db, request):
     source = SOURCE_MODELS.get(request.source_type)
     if not source:
         return None
     project_id = getattr(request, source[1])
     return source_snapshot(db, request.source_type, project_id) if project_id else None
+
+
+def request_scope_options(db, request):
+    """按项目原有语言项及其地区生成选项，不交叉拼接语言和城市。"""
+    source = SOURCE_MODELS.get(request.source_type)
+    project_id = getattr(request, source[1], None) if source else None
+    project = db.get(source[0], project_id) if project_id else None
+    rows = []
+    if project and request.source_type == 'annotation' and project.language_items:
+        for item in project.language_items:
+            ids = [str(value) for value in (item.source_language_id, item.target_language_id) if value]
+            labels = [item.source_language_label]
+            if item.target_language_id:
+                labels.append(item.target_language_label)
+            for region in item.regions or [{}]:
+                rows.append((str(item.id), ids, ' → '.join(labels), region))
+    else:
+        from resource_request_service import get_resource_request_source_prefill
+        prefill = get_resource_request_source_prefill(db, request.source_type, project_id) if project else None
+        items = prefill['items'] if prefill else request.items
+        for index, item in enumerate(items):
+            if isinstance(item, dict):
+                ids = item.get('language_ids') or [item.get('source_language_id'), item.get('target_language_id')]
+            else:
+                ids = item.language_ids
+            ids = [str(value) for value in ids if value]
+            languages = [db.get(InterpretationLanguage, UUID(value)) for value in ids]
+            label = ' → '.join(language.label for language in languages if language)
+            # 招聘工作地点是该项目所有语言方向的共同约束。
+            regions = [{'city': project.work_location}] if project and request.source_type == 'recruitment' else [{}]
+            if project and request.source_type == 'interpretation':
+                regions = [{'city': location} for location in project.locations or []] or [{}]
+            for region in regions:
+                rows.append((str(index), ids, label, region))
+    result = {}
+    for item_id, ids, language, region in rows:
+        place = {key: str(region.get(key) or '').strip() for key in ('city', 'district', 'street')}
+        identity = [request.source_type, str(project_id or request.id), item_id, ids, place]
+        key = sha256(json.dumps(identity, ensure_ascii=False, sort_keys=True).encode('utf-8')).hexdigest()
+        result[key] = {'key': key, 'language_ids': ids, 'language_label': language or '未配置语种', **place,
+                       'label': f"{language or '未配置语种'} · {' / '.join(v for v in place.values() if v) or '未配置城市'}"}
+    return list(result.values())
+
+
+def request_scope_target(db, request, payload, existing=None):
+    """只接受选择标识；快照由服务端生成，旧客户端遗漏字段时保留原值。"""
+    target = deepcopy(existing) if existing else request_project_target(db, request)
+    explicit_scope = payload.selected_scope_keys is not None
+    if explicit_scope or not existing:
+        options = {item['key']: item for item in request_scope_options(db, request)}
+        keys = payload.selected_scope_keys if explicit_scope else list(options)
+        if len(keys) != len(set(keys)) or (options and not keys) or any(key not in options for key in keys):
+            raise HTTPException(409, '项目语言或城市已变化，请重新加载并选择安排内容')
+        target['scope'] = [options[key] for key in keys]
+    if payload.arrangement_note is not None or not existing:
+        target['arrangement_note'] = (payload.arrangement_note or '').strip()
+    return target
 
 
 def request_project_target(db, request):
@@ -125,7 +243,9 @@ def arrangement_request_detail(db, request_id):
     request = db.query(ResourceRequest).options(*_request_options()).filter_by(id=request_id).one_or_none()
     if not request:
         raise HTTPException(404, '需求不存在')
-    return request_summary(db, request, request_arrangements(db, [request_id])[str(request_id)])
+    return request_summary(db, request, request_arrangements(db, [request_id])[str(request_id)]) | {
+        'scope_options': request_scope_options(db, request),
+    }
 
 
 def assign_request(db, user, request_id, work_date, payload):
@@ -155,18 +275,32 @@ def assign_request(db, user, request_id, work_date, payload):
         cell = cells.get(key)
         targets = deepcopy(cell.targets) if cell else []
         if key in selected:
-            if not any(t['kind'] == 'request_project' and str(t.get('request_id')) == str(request_id) for t in targets):
-                targets.append({'kind': 'request_project', 'request_id': str(request_id)})
+            existing = next((t for t in targets if t['kind'] == 'request_project' and str(t.get('request_id')) == str(request_id)), None)
+            updated = request_scope_target(db, request, payload, existing)
+            if existing:
+                targets = [updated if t is existing else t for t in targets]
+            else:
+                targets.append(updated)
         else:
             targets = [t for t in targets if str(t.get('request_id')) != str(request_id)]
         if len(targets) > 100:
             raise HTTPException(422, '该账号的开拓方向已达100项，请先整理已有安排')
         writes.append({'platform_id': key, 'owner_id': cell.owner_id if cell else None,
-                       'targets': [{k: t.get(k) for k in ('kind', 'request_id', 'language_id')} for t in targets],
+                       'targets': [target_write(t) for t in targets],
                        'role_tags': cell.role_tags if cell else [],
                        'projects': [{k: p[k] for k in ('source_type', 'project_id')} for p in cell.projects] if cell else [],
                        'remarks': cell.remarks if cell else ''})
+    # 先携带快照进入统一保存路径，由统一归一化再次核对选项。
     return save_arrangement(db, user, work_date, ArrangementWrite(revision=payload.revision, cells=writes))
+
+
+def target_write(target):
+    value = {k: target.get(k) for k in ('kind', 'request_id', 'language_id')}
+    if 'scope' in target:
+        value['selected_scope_keys'] = [item['key'] for item in target['scope']]
+    if 'arrangement_note' in target:
+        value['arrangement_note'] = target['arrangement_note']
+    return value
 
 
 def target_status(db, target):
@@ -187,6 +321,10 @@ def target_status(db, target):
     if target['kind'] == 'request_project':
         if request.source_type in SOURCE_MODELS and not request_project(db, request):
             return False, '来源项目已删除'
+        if 'scope' in target:
+            current = {item['key'] for item in request_scope_options(db, request)}
+            if any(item['key'] not in current for item in target['scope']):
+                return False, '项目语言或城市已调整'
         return True, ''
     if not language_in_request(request, target['language_id']):
         return False, '需求语种已调整'
@@ -196,28 +334,46 @@ def target_status(db, target):
     return True, ''
 
 
-def serialize_cell(db, cell, user):
+def serialize_cell(db, cell, user, operations=None):
     result = snapshot(cell)
     result['targets'] = []
     projects = {project_key(p): deepcopy(p) for p in cell.projects}
     for target in cell.targets:
         active, reason = target_status(db, target)
-        result['targets'].append(deepcopy(target) | {'active': active, 'inactive_reason': reason})
+        displayed = deepcopy(target) | {'active': active, 'inactive_reason': reason}
+        if target['kind'] == 'request_project':
+            displayed['scope_recorded'] = 'scope' in target
+            request = db.get(ResourceRequest, UUID(target['request_id']))
+            if 'scope' not in displayed:
+                displayed['scope'] = request_scope_options(db, request) if request else []
+            displayed.setdefault('arrangement_note', '')
+        result['targets'].append(displayed)
         if target.get('project'):
             projects.setdefault(project_key(target['project']), deepcopy(target['project']))
     result['manual_projects'] = deepcopy(cell.projects)
     result['projects'] = list(projects.values())
     result['can_edit'] = can_delegate(db, user) or cell.owner_id == user.id
+    result['operations'] = operations or {'created': None, 'edited': None, 'status': None}
     return result
 
 
 def read_arrangement(db, user, work_date, day=None):
     day = day or get_day(db, work_date)
+    cells = get_cells(db, day)
+    operations = cell_operations(db, cells)
     return {'work_date': work_date.isoformat(), 'revision': day.revision if day else 0,
             'remarks': day.remarks if day else '', 'updated_at': business_iso(day.updated_at) if day else None,
             'updated_by_name': user_name(db, day.updated_by) if day else '',
             'can_manage': can_delegate(db, user),
-            'cells': [serialize_cell(db, cell, user) for cell in get_cells(db, day)]}
+            'cells': [serialize_cell(db, cell, user, operations.get(cell.id)) for cell in cells]}
+
+
+def arrangement_history(db, work_date, platform_id, skip=0, limit=20):
+    day = get_day(db, work_date)
+    cell = db.query(Cell).filter_by(arrangement_id=day.id, platform_id=platform_id).one_or_none() if day else None
+    if not cell:
+        raise HTTPException(404, '该账号尚未保存安排')
+    return cell_history(db, cell, skip, limit)
 
 
 def list_arrangements(db, user, start=None, end=None, skip=0, limit=14):
@@ -241,7 +397,7 @@ def arrangement_options(db, source_type=None, keyword=None):
     targets, request_projects = [], []
     for request in requests:
         project = request_project(db, request)
-        request_projects.append(request_project_target(db, request))
+        request_projects.append(request_project_target(db, request) | {'demand_status': request.demand_status})
         seen = set()
         for item in request.items:
             for language_id, label in zip(item.language_ids, item.language_labels):
@@ -249,14 +405,13 @@ def arrangement_options(db, source_type=None, keyword=None):
                     continue
                 seen.add(str(language_id))
                 targets.append({'kind': 'request', 'request_id': str(request.id), 'language_id': str(language_id),
-                                'label': label, 'request_no': request.request_no,
+                                'label': label, 'request_no': request.request_no, 'demand_status': request.demand_status,
                                 'source_name': request.source_project_name_snapshot, 'project': project})
     projects = []
     if source_type:
         if source_type not in SOURCE_MODELS:
             raise HTTPException(422, '不支持的项目类型')
-        for project in list_source_project_options(db, source_type, keyword=keyword, limit=50):
-            projects.append(source_snapshot(db, source_type, project['id']))
+        projects = arrangement_project_options(db, source_type, keyword)
     return {'targets': targets, 'request_projects': request_projects, 'projects': projects}
 
 
@@ -294,7 +449,8 @@ def carry_preview(db, user, work_date):
             if target.get('project'):
                 projects.setdefault(project_key(target['project']), target['project'])
         cell.update(projects=list(projects.values()), completed=False, completed_by=None,
-                    completed_by_name='', completed_at=None, can_edit=True)
+                    completed_by_name='', completed_at=None, can_edit=True,
+                    operations={'created': None, 'edited': None, 'status': None})
         cell.pop('id', None)
         cell.pop('arrangement_id', None)
     draft.update(work_date=work_date.isoformat(), revision=0, carried_from=source.work_date.isoformat(),
@@ -306,11 +462,20 @@ def normalize_targets(db, payloads, existing):
     old = {target_key(t): t for t in existing}
     result = []
     for payload in payloads:
-        value = payload.model_dump(mode='json')
+        value = payload.model_dump(mode='json', exclude={'selected_scope_keys', 'arrangement_note'})
         key = target_key(value)
         if key in old:
             # 已保存的失效来源可以保留，历史快照不能由前端伪造或覆盖。
-            result.append(deepcopy(old[key]))
+            previous = old[key]
+            scope_unchanged = payload.selected_scope_keys is None or payload.selected_scope_keys == [item['key'] for item in previous.get('scope', [])]
+            note_unchanged = payload.arrangement_note is None or payload.arrangement_note == previous.get('arrangement_note', '')
+            if payload.kind != 'request_project' or (scope_unchanged and note_unchanged):
+                result.append(deepcopy(previous))
+                continue
+            request = db.query(ResourceRequest).filter_by(id=payload.request_id).with_for_update().populate_existing().one_or_none()
+            if not request_active(request):
+                raise HTTPException(409, '需求已暂停、已取消或尚未发送，请刷新后重试')
+            result.append(request_scope_target(db, request, payload, previous))
             continue
         if payload.kind == 'internal':
             result.append(value | {'label': '内部招聘'})
@@ -319,7 +484,7 @@ def normalize_targets(db, payloads, existing):
             request = db.query(ResourceRequest).filter_by(id=payload.request_id).with_for_update().populate_existing().one_or_none()
             if not request_active(request):
                 raise HTTPException(409, '所选需求已暂停、已取消或尚未发送，请刷新后重试')
-            result.append(request_project_target(db, request))
+            result.append(request_scope_target(db, request, payload))
             continue
         language = db.get(InterpretationLanguage, payload.language_id)
         if not language or not language.is_active:
@@ -407,7 +572,7 @@ def save_arrangement(db: Session, user, work_date, payload):
                         owner_name='', targets=[], role_tags=[], projects=[], remarks='', completed=False, completed_by_name='')
             db.add(cell)
         business_changed = (cell.owner_id != value.owner_id
-                            or {target_key(t) for t in cell.targets} != {target_key(t) for t in targets}
+                            or {target_content_key(t) for t in cell.targets} != {target_content_key(t) for t in targets}
                             or set(cell.role_tags) != set(role_tags)
                             or {project_key(p) for p in cell.projects} != {project_key(p) for p in projects})
         cell.owner_id, cell.owner_name = value.owner_id, owner_label
@@ -416,7 +581,7 @@ def save_arrangement(db: Session, user, work_date, payload):
         if business_changed:
             reset_completion(cell)
         if before is None or before != snapshot(cell):
-            audit(db, user, cell, 'create' if before is None else 'update', before)
+            audit(db, user, cell, 'create' if before is None else 'update', before, carried_from=payload.carried_from)
             changed = True
     if payload.remarks is not None and payload.remarks != day.remarks:
         day.remarks = payload.remarks

@@ -1,5 +1,5 @@
 <template>
-  <el-popover trigger="click" placement="left" :width="760" :popper-options="popoverOptions" :title="account ? `${account.name} · 安排详情` : `${chineseDate(day.work_date)} · 每日安排详情`" popper-class="development-detail arrangement-detail">
+  <el-popover v-model:visible="opened" trigger="click" placement="left" :width="760" :popper-options="popoverOptions" :title="account ? `${account.name} · 安排详情` : `${chineseDate(day.work_date)} · 每日安排详情`" popper-class="development-detail arrangement-detail">
     <template #reference><el-button link type="primary">查看详情</el-button></template>
     <div class="development-detail-body">
       <el-descriptions :column="2" border size="small">
@@ -19,19 +19,26 @@
           <el-descriptions-item label="平台／账号情况说明" :span="2">{{ item.description || '-' }}</el-descriptions-item>
           <el-descriptions-item label="语种／开拓方向" :span="2"><span v-for="(target, index) in item.cell?.targets || []" :key="arrangementTargetKey(target)">{{ index ? '、' : '' }}{{ target.label }}{{ target.active === false ? `（${target.inactive_reason}）` : '' }}</span><span v-if="!item.cell?.targets?.length">-</span></el-descriptions-item>
           <el-descriptions-item label="岗位目标" :span="2">{{ item.cell?.role_tags?.join('、') || '-' }}</el-descriptions-item>
+          <template v-for="target in (item.cell?.targets || []).filter(t => t.kind === 'request_project')" :key="target.request_id">
+            <el-descriptions-item :label="`${target.request_no || '需求'} · 语言城市`" :span="2">{{ target.scope?.map(scope => scope.label).join('；') || '未配置语种与城市' }}</el-descriptions-item>
+            <el-descriptions-item label="安排备注" :span="2">{{ target.arrangement_note || '-' }}</el-descriptions-item>
+          </template>
           <el-descriptions-item label="关联项目" :span="2"><DevelopmentArrangementProject v-for="project in item.cell?.projects || []" :key="arrangementProjectKey(project)" :project="project" /><span v-if="!item.cell?.projects?.length">-</span></el-descriptions-item>
           <el-descriptions-item label="账号备注" :span="2">{{ item.cell?.remarks || '-' }}</el-descriptions-item>
           <el-descriptions-item label="完成操作人">{{ item.cell?.completed_by_name || '-' }}</el-descriptions-item>
           <el-descriptions-item label="完成时间">{{ chineseTime(item.cell?.completed_at) }}</el-descriptions-item>
         </el-descriptions>
+        <DevelopmentArrangementHistory v-if="opened && item.cell?.id" :day="day" :cell="item.cell" />
       </section>
     </div>
   </el-popover>
 </template>
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { arrangementProjectKey, arrangementTargetKey, arrangementChineseDate as chineseDate, arrangementChineseTime as chineseTime, groupArrangementAccounts, arrangementTableRows, arrangementPopoverOptions as popoverOptions } from '@/utils/resourceArrangements'
 import DevelopmentArrangementProject from './DevelopmentArrangementProject.vue'
+import DevelopmentArrangementHistory from './DevelopmentArrangementHistory.vue'
+const opened = ref(false)
 const props = defineProps({ day: { type: Object, required: true }, account: { type: Object, default: null }, options: { type: Object, default: () => ({}) } })
 const accounts = computed(() => props.account ? [props.account] : arrangementTableRows(groupArrangementAccounts(props.options, props.day.cells, { includeUnarranged: false, includeEmpty: false })))
 </script>

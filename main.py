@@ -271,6 +271,8 @@ from routers import resource_issues
 app.include_router(resource_issues.router)
 from routers import chat_topics
 app.include_router(chat_topics.router)
+from routers import chat_session_categories
+app.include_router(chat_session_categories.router)
 from routers import teams
 app.include_router(teams.router)
 from routers import referral_development

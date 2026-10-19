@@ -33,15 +33,14 @@
         <SidebarNavigationItem v-if="showConsultations" index="/consultations" :icon="ChatDotRound" label="新咨询管理" />
 
         <SidebarNavigationItem v-if="canViewProjects" index="/translation-details" :icon="Document" label="笔译项目" />
-        <SidebarNavigationItem v-if="canViewProjects" index="/interpretation-details" :icon="Headset" label="口译项目" />
-        <SidebarNavigationItem v-if="canViewAnnotation" index="/annotation-details" :icon="EditPen" label="标注项目" />
+        <SidebarNavigationItem v-if="canViewProjects" index="/interpretation-details" :icon="SpeakingProfileIcon" label="口译项目" />
+        <SidebarNavigationItem v-if="canViewAnnotation" index="/annotation-details" :icon="Headset" label="标注项目" />
         <SidebarNavigationItem v-if="canViewProjects" index="/recruitment-details" :icon="UserFilled" label="招聘项目" />
         <SidebarNavigationItem v-if="canViewManuscript" index="/manuscript-arrangements" :icon="Calendar" label="稿件安排" />
 
         <!-- 协作资源：客户、资源需求与人才资源池 -->
         <li v-if="showResourceGroup && !isCollapse" class="menu-group-label" role="presentation"><span>资源协作</span></li>
         <SidebarNavigationItem v-if="showClients" index="/clients" :icon="OfficeBuilding" label="客户信息" />
-        <SidebarNavigationItem v-if="showResourceRequests" index="/resource-requests" :icon="Tickets" label="需求管理" />
         <SidebarNavigationItem v-if="showResourceManagement" :index="resourceManagementPath" :icon="Avatar" label="人才资源管理" />
 
         <!-- 账户、扩展能力和管理员入口统一归入平台设置 -->
@@ -139,7 +138,7 @@
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { ref, computed, defineAsyncComponent, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { User, UserFilled, Setting, Document, Headset, EditPen, Calendar, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, ChatDotRound, Tickets, QuestionFilled, Fold, Expand } from '@element-plus/icons-vue'
+import { User, UserFilled, Setting, Document, Headset, Calendar, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, ChatDotRound, QuestionFilled, Fold, Expand } from '@element-plus/icons-vue'
 import {
   canViewManuscriptArrangements,
   canViewTalentResourceLibrary,
@@ -154,6 +153,7 @@ import { useResourceNotesDock } from '@/composables/useResourceNotesDock'
 import { useResourceIssues } from '@/composables/useResourceIssues'
 import UiZoomControl from '../components/UiZoomControl.vue'
 import SidebarNavigationItem from '@/components/common/SidebarNavigationItem.vue'
+import SpeakingProfileIcon from '@/components/common/SpeakingProfileIcon.vue'
 import { useUiZoom } from '../composables/useUiZoom'
 import { logout } from '@/api/auth'
 import { clearAuthSession } from '@/utils/authSession'
@@ -234,12 +234,11 @@ const showClients = computed(() => hasPermission('clients:read'))
 const showConsultations = computed(() => hasPermission('consultations:read'))
 const showResourceManagement = computed(() => canViewTalentResourceLibrary() || issueAccess.can_enter)
 const resourceManagementPath = computed(() => canViewTalentResourceLibrary() ? '/resource-management/talent-overview' : '/resource-management/resource-development?section=issues')
-const showResourceRequests = computed(() => canViewProjects.value)
 const showBusinessGroup = computed(() => (
   showConsultations.value || canViewProjects.value || canViewAnnotation.value
 ))
 const showResourceGroup = computed(() => (
-  showClients.value || showResourceManagement.value || showResourceRequests.value
+  showClients.value || showResourceManagement.value
 ))
 // 数据看板已移入待完善模块，因此所有登录用户都保留该入口。
 const showPendingModules = computed(() => true)

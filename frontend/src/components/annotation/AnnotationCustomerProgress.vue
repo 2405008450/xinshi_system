@@ -11,12 +11,13 @@
       已从项目沟通带入客户进度：{{ draftSource.messageCount }} 条消息 · {{ draftSource.senderSummary }}，保存前可编辑
       <el-button link type="primary" :disabled="busy" @click="$emit('transfer')">转到项目进度</el-button>
     </div>
-    <AppForm ref="formRef" :model="form" :rules="rules" label-width="76px" size="small" class="progress-entry-form" :disabled="saving || loading || Boolean(loadError)">
+    <AppForm ref="formRef" :model="form" :rules="rules" label-width="76px" size="small" class="progress-entry-form" :disabled="saving">
       <el-form-item label="节点时间" prop="effectiveOn">
-        <el-date-picker v-model="form.effectiveOn" :validate-event="!busy" type="datetime" format="YYYY-MM-DD HH:mm" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" />
+        <el-date-picker v-model="form.effectiveOn" :disabled="loading || Boolean(loadError)" :validate-event="!busy && active" type="datetime" format="YYYY-MM-DD HH:mm" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" />
       </el-form-item>
-      <el-form-item label="具体进度" prop="changeNote">
-        <el-input ref="noteRef" v-model="form.changeNote" :validate-event="!busy" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" maxlength="10000" show-word-limit placeholder="例如：报价已发，等待客户确认；客户预计周五反馈试标结果" />
+      <el-form-item label="具体进度" prop="changeNote" label-width="124px" class="annotation-progress-note-item">
+        <template #label><slot name="note-label">具体进度</slot></template>
+        <el-input ref="noteRef" v-model="form.changeNote" :disabled="loading || Boolean(loadError)" :validate-event="!busy && active" type="textarea" aria-label="客户具体进度" :autosize="{ minRows: 2, maxRows: 4 }" maxlength="10000" show-word-limit placeholder="例如：报价已发，等待客户确认；客户预计周五反馈试标结果" />
       </el-form-item>
     </AppForm>
     <div class="progress-entry-actions">
@@ -29,7 +30,7 @@
 import { nextTick, ref } from 'vue'
 import { focusFormTarget, scrollFormTarget } from '@/utils/formNavigation'
 
-defineProps({ form: { type: Object, required: true }, editingId: String, draftSource: Object, loading: Boolean, loadError: String, busy: Boolean, saving: Boolean, submitLoading: Boolean, submitDisabled: Boolean, submitLabel: { type: String, default: '添加客户进度' } })
+defineProps({ form: { type: Object, required: true }, active: { type: Boolean, default: true }, editingId: String, draftSource: Object, loading: Boolean, loadError: String, busy: Boolean, saving: Boolean, submitLoading: Boolean, submitDisabled: Boolean, submitLabel: { type: String, default: '添加客户进度' } })
 defineEmits(['cancel-edit', 'retry', 'transfer', 'submit'])
 const formRef = ref(), entryRef = ref(), noteRef = ref()
 const rules = {

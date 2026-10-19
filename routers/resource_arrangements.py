@@ -12,7 +12,7 @@ from resource_development_schemas import ArrangementWrite, ArrangementCompletion
 from resource_arrangement_service import (
     arrangement_options, carry_preview, complete_arrangement, list_arrangements,
     project_detail, read_arrangement, save_arrangement,
-    list_arrangement_requests, arrangement_request_detail, assign_request,
+    list_arrangement_requests, arrangement_request_detail, assign_request, arrangement_history,
 )
 
 router = APIRouter()
@@ -86,3 +86,9 @@ def save_completion(work_date: date, platform_id: UUID, payload: ArrangementComp
     row = complete_arrangement(db, user, work_date, platform_id, payload)
     db.commit()
     return read_arrangement(db, user, work_date, row)
+
+
+@router.get('/arrangements/{work_date}/cells/{platform_id}/history')
+def read_history(work_date: date, platform_id: UUID, skip: int = Query(0, ge=0),
+                 limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db)):
+    return arrangement_history(db, work_date, platform_id, skip, limit)

@@ -70,6 +70,20 @@ test('客户草稿仅修改时间也需要关闭保护，恢复后不再提示',
   assert.equal(c.progress.hasDraft(), false)
 })
 
+test('归属转移只接收草稿且不写接口，客户编辑模式拒绝覆盖', async (t) => {
+  const c = mount(); t.after(c.unmount)
+  const draft = { changeNote: '  保留原文\n以及换行  ', effectiveOn: '2026-10-19 10:26:09', source: { messageCount: 1, senderSummary: 'Jimmy' } }
+  c.progress.setDraft(draft)
+  assert.equal(c.progress.form.changeNote, draft.changeNote)
+  assert.equal(c.progress.form.effectiveOn, draft.effectiveOn)
+  assert.equal(c.calls.filter(([kind]) => ['create', 'update'].includes(kind)).length, 0)
+  c.progress.clearDraft()
+  await c.progress.edit(row)
+  assert.throws(() => c.progress.setDraft(draft), /保存或取消/)
+  assert.equal(c.progress.form.changeNote, row.changeNote)
+  assert.equal(c.progress.editingId, row.id)
+})
+
 test('首次加载与沟通带入并发时复用请求，等待后追加来源与内容', async (t) => {
   const loading = deferred(), calls = []
   const c = mount({ api: { get: (...args) => { calls.push(args); return loading.promise } } }); t.after(c.unmount)

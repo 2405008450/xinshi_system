@@ -141,6 +141,8 @@ def run():
             parent.get_by_role('button', name='发到每日安排', exact=True).click()
             expect(child).to_be_visible()
             expect(child.locator('label.el-checkbox').filter(has_text='测试账号A')).to_be_visible()
+            # 等待开启动画结束，再读取拖拽坐标和焦点，避免动画中间帧造成误报。
+            page.wait_for_function("!document.querySelector('.request-arrangement-dialog').closest('.el-overlay').className.includes('dialog-fade')")
 
         def close_child():
             child.get_by_role('button', name='取消', exact=True).click()
@@ -174,7 +176,7 @@ def run():
         relevant = [p for method, p in calls[before:] if method == 'PUT' or '/arrangement-requests/' in p or '/arrangements/' in p]
         assert relevant[0] == '/resource-requests/' + rows['annotation']['id'], relevant
         assert saves[-1][1]['request_detail'] == '修改后的需求，安排前应保存'
-        expect(child.locator('.el-date-editor input')).to_have_value(TODAY)
+        expect(child.locator('.el-date-editor input')).to_have_value((datetime.fromisoformat(TODAY) + timedelta(days=1)).date().isoformat())
         expect(child.get_by_role('textbox').nth(1)).to_have_value(rows['annotation']['source_order_no_snapshot'])
         expect(parent.get_by_role('button', name='保存', exact=True)).to_be_disabled()
         assert text.is_disabled()
@@ -223,8 +225,7 @@ def run():
         shortcut()
         assert abs(child.bounding_box()['x'] - original['x']) < 2
         assert abs(child.bounding_box()['y'] - original['y']) < 2
-        focused = child.evaluate('el => el.contains(document.activeElement)')
-        assert focused
+        page.wait_for_function("document.querySelector('.request-arrangement-dialog').contains(document.activeElement)")
         page.keyboard.press('Escape')
         expect(child).not_to_be_visible()
         expect(parent).to_be_visible()
@@ -316,7 +317,7 @@ def run():
         expect(child.locator('.el-form-item').filter(has=page.locator('label', has_text='平台账号'))).to_be_in_viewport()
         page.screenshot(path=str(output / 'arrangement-mobile.png'))
         close_child()
-        assert page.url == BASE + '/resource-requests'
+        assert page.url == BASE + '/resource-management/resource-development?section=requests'
         assert not errors, errors
         (output / 'result.json').write_text(json.dumps(dict(checks='passed', api_calls=len(calls), request_saves=sum(t == 'request' for t, _ in saves),
                                                            arrangement_saves=sum(t == 'arrangement' for t, _ in saves), page_errors=errors), ensure_ascii=False, indent=2), encoding='utf-8')

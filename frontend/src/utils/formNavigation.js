@@ -91,7 +91,9 @@ export function findScrollableFormContainer(target, preferredRoot) {
 }
 
 export function focusFormTarget(target) {
-  const control = target?.querySelector?.(FORM_CONTROL_SELECTOR)
+  // 标签中可能包含归属选择等辅助控件，校验失败应聚焦正文里的字段。
+  const content = target?.matches?.('.el-form-item') ? target.querySelector?.('.el-form-item__content') : null
+  const control = (content || target)?.querySelector?.(FORM_CONTROL_SELECTOR)
   if (!control || control.getAttribute?.('aria-disabled') === 'true') return false
   try {
     control.focus?.({ preventScroll: true })

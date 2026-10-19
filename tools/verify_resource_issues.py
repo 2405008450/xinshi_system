@@ -14,8 +14,16 @@ ROOT=Path(__file__).resolve().parents[1]
 
 
 def port():
-    with socket.socket() as probe:
-        probe.bind(('127.0.0.1',0));return probe.getsockname()[1]
+    # 使用高位专用端口，避免系统分配到浏览器禁止访问的1720等协议端口。
+    for _ in range(100):
+        candidate = 40000 + secrets.randbelow(20000)
+        with socket.socket() as probe:
+            try:
+                probe.bind(('127.0.0.1', candidate))
+            except OSError:
+                continue
+            return candidate
+    raise RuntimeError('无法找到可用的隔离端口')
 
 
 def run():
@@ -24,7 +32,7 @@ def run():
         raise SystemExit('仅允许PC使用项目虚拟环境执行')
     binary=shutil.which('pg_ctl.exe')
     if not binary:raise SystemExit('缺少本机PostgreSQL，不得回退业务数据库')
-    pg=Path(binary).parent;output=ROOT/('.tmp/chat-topics-qa' if '--topics-ui' in sys.argv else '.tmp/chat-topics-regression-qa' if '--current-build' in sys.argv else '.tmp/resource-issues-qa');output.mkdir(parents=True,exist_ok=True)
+    pg=Path(binary).parent;output=ROOT/('.tmp/chat-session-categories-qa' if '--categories-ui' in sys.argv else '.tmp/chat-topics-qa' if '--topics-ui' in sys.argv else '.tmp/chat-topics-regression-qa' if '--current-build' in sys.argv else '.tmp/resource-issues-qa');output.mkdir(parents=True,exist_ok=True)
     data=Path(tempfile.mkdtemp(prefix='postgres-',dir=output));pg_port,api_port,web_port=port(),port(),port()
     children=[];logs=[];flags=subprocess.CREATE_NO_WINDOW
     def command(*args,env=None,name='command.log',timeout=180):
@@ -52,7 +60,7 @@ def run():
              RESOURCE_ISSUES_QA='1',RUN_RESOURCE_DEVELOPMENT_DB_TESTS='1',PYTHONUTF8='1',LOCAL_SCHEMA_MIGRATIONS_ENABLED='false',
              VITE_API_PROXY_TARGET=f'http://127.0.0.1:{api_port}',ISSUE_UI_BASE=f'http://localhost:{web_port}')
     env['ISSUE_UI_OUTPUT']=str(output)
-    if '--topics-ui' in sys.argv: env['CHAT_TOPICS_UI']='1'
+    if '--topics-ui' in sys.argv or '--categories-ui' in sys.argv: env['CHAT_TOPICS_UI']='1'
     try:
         command(pg/'createdb.exe','-h','127.0.0.1','-p',pg_port,'-U','issue_test','issues_test',name='createdb.log')
         setup='''
@@ -66,7 +74,7 @@ with engine.begin() as connection:
     connection.execute(text('CREATE EXTENSION IF NOT EXISTS pg_trgm'))
     connection.execute(text('CREATE SEQUENCE chat_message_sequence'))
 # 迁移负责创建新表及其SQL默认值，不能先让ORM创建同名表。
-Base.metadata.create_all(engine,tables=[table for table in Base.metadata.sorted_tables if table.name not in ('resource_development_issue','resource_development_issue_task','chat_topic','chat_message_topic','chat_topic_audit')])
+Base.metadata.create_all(engine,tables=[table for table in Base.metadata.sorted_tables if table.name not in ('resource_development_issue','resource_development_issue_task','chat_topic','chat_message_topic','chat_topic_audit','chat_session_category','chat_session_category_link')])
 sql=Path('data/migrations/20261012_resource_development_issues.sql').read_text(encoding='utf-8')
 with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as connection:
     connection.exec_driver_sql(sql)
@@ -74,6 +82,9 @@ with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as connect
     topics=Path('data/migrations/20261012_chat_topics.sql').read_text(encoding='utf-8')
     connection.exec_driver_sql(topics)
     connection.exec_driver_sql(topics)
+    categories=Path('data/migrations/20261019_chat_session_categories.sql').read_text(encoding='utf-8')
+    connection.exec_driver_sql(categories)
+    connection.exec_driver_sql(categories)
     connection.exec_driver_sql(Path('data/migrations/20261011_auto_talent_resource_code.sql').read_text(encoding='utf-8'))
 print('开拓问题迁移首次及重复执行通过')
 '''
@@ -82,6 +93,8 @@ print('开拓问题迁移首次及重复执行通过')
             tests=['tests/test_resource_issues.py','tests/test_resource_arrangements.py','tests/test_resource_development.py','tests/test_resource_follow_up.py','tests/test_resource_request_daily_notes.py']
             if (ROOT/'tests/test_chat_topics.py').is_file():
                 tests.insert(0,'tests/test_chat_topics.py')
+            if '--categories-ui' in sys.argv:
+                tests=['tests/test_chat_topics.py','tests/test_chat_session_categories.py']
             print(command(sys.executable,'-m','pytest',*tests,'-q','--tb=short',env=env,name='pytest.log',timeout=300),flush=True)
         if '--backend-only' in sys.argv:return
         seed='''
@@ -128,9 +141,10 @@ print('重复迁移保留24条记录及任务')
         print(command(sys.executable,'-c',seed,env=env,name='seed.log'),flush=True)
         start([sys.executable,'-m','uvicorn','tools.issues_isolated_app:app','--host','127.0.0.1','--port',api_port],env,ROOT,'backend.log')
         ready(f'http://127.0.0.1:{api_port}/openapi.json')
-        start(['node','node_modules/vite/bin/vite.js','preview','--outDir','dist' if '--topics-ui' in sys.argv or '--current-build' in sys.argv else '../.tmp/resource-issues-dist','--host','127.0.0.1','--port',web_port,'--strictPort'],env,ROOT/'frontend','frontend.log')
+        start(['node','node_modules/vite/bin/vite.js','preview','--outDir','dist' if '--topics-ui' in sys.argv or '--categories-ui' in sys.argv or '--current-build' in sys.argv else '../.tmp/resource-issues-dist','--host','127.0.0.1','--port',web_port,'--strictPort'],env,ROOT/'frontend','frontend.log')
         ready(env['ISSUE_UI_BASE'])
-        print(command(sys.executable,'tools/verify_chat_topics_ui.py' if '--topics-ui' in sys.argv else 'tools/verify_resource_issues_ui.py',env=env,name='browser.log',timeout=300),flush=True)
+        script='tools/verify_chat_session_categories_ui.py' if '--categories-ui' in sys.argv else 'tools/verify_chat_topics_ui.py' if '--topics-ui' in sys.argv else 'tools/verify_resource_issues_ui.py'
+        print(command(sys.executable,script,env=env,name='browser.log',timeout=300),flush=True)
         print(f'开拓问题隔离验收通过：{output}',flush=True)
     finally:
         for child in reversed(children):

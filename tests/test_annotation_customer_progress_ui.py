@@ -27,6 +27,7 @@ def test_customer_progress_browser_workflow(environment):
     output.mkdir(parents=True, exist_ok=True)
     page_errors, api_errors, held_saves, writes = [], [], [], []
     hold_customer_save = False
+    fail_next_customer_load = True
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(channel='msedge', headless=True)
         context = browser.new_context(viewport={'width':954,'height':884}, timezone_id='America/Los_Angeles')
@@ -34,12 +35,17 @@ def test_customer_progress_browser_workflow(environment):
                 'user_full_name':users[0].full_name, 'user_permissions':json.dumps(['projects:read','projects:write']), 'user_roles':'[]'}
         context.add_init_script('Object.entries('+json.dumps(info)+').forEach(([key,value])=>localStorage.setItem(key,value))')
         def route_api(route):
+            nonlocal fail_next_customer_load
             request = route.request
             split = urlsplit(request.url)
             # 任何业务请求都只进入本轮隔离数据库；不使用日常代理后端。
             assert split.path.startswith('/api/')
             path = split.path[4:] + ('?' + split.query if split.query else '')
             print(f'UI API {request.method} {split.path[4:]}', flush=True)
+            if fail_next_customer_load and request.method == 'GET' and split.path.endswith('/customer-progress'):
+                fail_next_customer_load = False
+                route.fulfill(status=503, content_type='application/json', body=json.dumps({'detail':'隔离测试模拟加载失败'}))
+                return
             if request.method in {'POST', 'PATCH', 'PUT', 'DELETE'}:
                 writes.append((request.method, path, request.post_data_json))
             if hold_customer_save and request.method == 'POST' and split.path.endswith('/customer-progress'):
@@ -67,10 +73,15 @@ def test_customer_progress_browser_workflow(environment):
             page.get_by_role('button', name=parent.project_name, exact=True).click()
             print('UI: 双线草稿', flush=True)
             dialog = page.locator('.annotation-progress-dialog')
-            def choose_track(label):
-                expect(dialog.locator('.progress-track-switch input').first).to_be_enabled()
-                dialog.locator('.progress-track-switch').get_by_text(label, exact=True).click()
-                expect(dialog.locator('.progress-track-switch .el-radio-button').filter(has_text=label)).to_have_class(re.compile('is-active'))
+            def choose_track(label, completed=True):
+                selector = dialog.locator('.annotation-progress-track-select:visible')
+                expect(selector.get_by_role('combobox')).to_be_enabled()
+                selector.click()
+                list_id = selector.get_by_role('combobox').get_attribute('aria-controls')
+                page.locator('#' + list_id).get_by_role('option').filter(has_text=label).click()
+                if completed:
+                    expect(dialog.locator('.annotation-progress-track-select:visible')).to_contain_text(label)
+                    expect(dialog.locator('.annotation-progress-track-select:visible').get_by_role('combobox')).to_be_enabled()
             def choose_mode(label):
                 expect(dialog.locator('.progress-entry-mode input').first).to_be_enabled()
                 dialog.locator('.progress-entry-mode').get_by_text(label, exact=True).click()
@@ -78,7 +89,8 @@ def test_customer_progress_browser_workflow(environment):
             expect(dialog).to_be_visible()
             expect(dialog.locator('.progress-history-header')).to_have_text('项目进度记录')
             expect(dialog.locator('.progress-history-header .el-radio-group')).to_have_count(0)
-            expect(dialog.locator('.progress-track-switch .el-radio-button').filter(has_text='项目进度')).to_have_class(re.compile('is-active'))
+            expect(dialog.locator('.progress-track-switch')).to_have_count(0)
+            expect(dialog.locator('.annotation-progress-track-select:visible')).to_contain_text('项目进度')
             project_note = dialog.locator('.progress-entry-panel textarea').first
             project_entry = dialog.locator('.progress-entry-panel').first
             project_note.fill('项目线独立草稿')
@@ -87,7 +99,7 @@ def test_customer_progress_browser_workflow(environment):
             choose_mode('切换状态')
             expect(project_note).to_have_value('')
             project_note.fill('状态变更独立草稿')
-            project_entry.locator('.el-select').click()
+            project_entry.locator('.el-select').first.click()
             page.get_by_role('option', name='试标中', exact=True).click()
             expect(project_entry.locator('.progress-current-status')).to_have_text('当前状态：试标准备')
             choose_mode('补充进度')
@@ -97,15 +109,23 @@ def test_customer_progress_browser_workflow(environment):
             dialog.locator('.progress-stage-add').first.click()
             expect(project_note).to_have_value('项目线独立草稿')
             expect(project_entry.locator('.el-date-editor input')).to_have_value('2026-10-16 18:45')
+            choose_track('客户进度', completed=False)
+            expect(page.locator('.el-message').filter(has_text='隔离测试模拟加载失败')).to_be_visible()
+            expect(dialog.locator('.annotation-progress-track-select:visible')).to_contain_text('项目进度')
+            expect(project_note).to_have_value('项目线独立草稿')
+            expect(project_entry.locator('.el-date-editor input')).to_have_value('2026-10-16 18:45')
             choose_track('客户进度')
             customer = dialog.locator('.customer-progress-entry')
             customer_history = dialog.locator('.customer-progress-history')
-            expect(dialog.locator('.progress-history-header')).to_have_text('客户进度记录')
+            expect(dialog.locator('.progress-history-header b')).to_have_text('客户进度记录')
             expect(dialog.locator('.progress-timeline')).not_to_be_visible()
             customer_note = customer.locator('textarea')
+            expect(customer_note).to_have_value('项目线独立草稿')
+            expect(customer.locator('.el-date-editor input')).to_have_value('2026-10-16 18:45')
             customer_note.fill('客户线独立草稿')
             choose_track('项目进度')
-            expect(project_note).to_have_value('项目线独立草稿')
+            expect(project_note).to_have_value('客户线独立草稿')
+            expect(project_entry.locator('.el-date-editor input')).to_have_value('2026-10-16 18:45')
             choose_track('客户进度')
             expect(customer_note).to_have_value('客户线独立草稿')
             dialog.get_by_role('button', name='关闭', exact=True).click()
@@ -117,7 +137,7 @@ def test_customer_progress_browser_workflow(environment):
             customer.locator('.el-date-editor input').press('Enter')
             hold_customer_save = True
             customer.get_by_role('button', name='添加客户进度', exact=True).click()
-            expect(dialog.locator('.progress-track-switch input').first).to_be_disabled()
+            expect(dialog.locator('.annotation-progress-track-select:visible').get_by_role('combobox')).to_be_disabled()
             expect(customer.get_by_role('button', name='添加客户进度', exact=True)).to_be_disabled()
             footer_submit = dialog.locator('.el-dialog__footer').get_by_role('button', name='添加客户进度', exact=True)
             expect(footer_submit).to_be_disabled()
@@ -134,16 +154,24 @@ def test_customer_progress_browser_workflow(environment):
             expect(customer_history.locator('.progress-child-note').filter(has_text='客户等待确认报价')).to_be_visible()
             assert db.query(AnnotationProjectStatusHistory).count() == 1
             choose_track('项目进度')
-            expect(project_note).to_have_value('项目线独立草稿')
+            expect(project_note).to_have_value('')
             choose_mode('切换状态')
             expect(project_note).to_have_value('状态变更独立草稿')
-            expect(project_entry.locator('.el-select')).to_contain_text('试标中')
+            expect(project_entry.locator('.el-select').first).to_contain_text('试标中')
             choose_mode('补充进度')
+            project_note.fill('项目线独立草稿')
+            # 将状态草稿转到客户线，补充进度草稿仍独立保留。
+            choose_mode('切换状态')
             choose_track('客户进度')
-            # 保存只清除客户草稿，项目草稿保留；编辑覆盖版本而不新增记录。
             target = customer_history.locator('.el-timeline-item').filter(has_text='客户等待确认报价')
             target.get_by_role('button', name='编辑', exact=True).click()
+            page.get_by_role('button', name='放弃并编辑', exact=True).click()
             customer_note.fill('客户已确认报价')
+            # 编辑已保存客户记录时不能转成一条新项目进度。
+            choose_track('项目进度', completed=False)
+            expect(page.get_by_text('请先保存或取消客户进度编辑，再切换进度归属', exact=True)).to_be_visible()
+            expect(dialog.locator('.annotation-progress-track-select:visible')).to_contain_text('客户进度')
+            expect(customer_note).to_have_value('客户已确认报价')
             customer.get_by_role('button', name='保存客户进度', exact=True).click()
             expect(customer_note).to_have_value('')
             expect(customer_history.locator('.el-timeline-item').filter(has_text='客户已确认报价')).to_contain_text('修改人')
@@ -154,10 +182,23 @@ def test_customer_progress_browser_workflow(environment):
             message.locator('.el-checkbox').click()
             dialog.get_by_role('button', name=re.compile('转进度')).click()
             expect(customer_note).to_have_value(re.compile('客户预计周五确认报价'))
-            customer.get_by_role('button', name='转到项目进度', exact=True).click()
+            current_note = customer_note.input_value()
+            current_time = customer.locator('.el-date-editor input').input_value()
+            customer_note.fill('甲' * 10000)
+            choose_track('项目进度', completed=False)
+            expect(page.get_by_text(re.compile('合并后的具体进度超过 10000 字'))).to_be_visible()
+            expect(customer_note).to_have_value('甲' * 10000)
+            customer_note.fill(current_note)
+            choose_track('项目进度', completed=False)
             expect(page.locator('.el-message-box')).to_contain_text('项目进度已有草稿')
-            page.get_by_role('button', name='追加并转入', exact=True).click()
+            page.get_by_role('button', name='取消切换', exact=True).click()
+            expect(customer_note).to_have_value(re.compile('客户预计周五确认报价'))
+            expect(customer.locator('.el-date-editor input')).to_have_value(current_time)
+            choose_track('项目进度', completed=False)
+            expect(page.locator('.el-message-box')).to_contain_text('节点时间使用当前填写')
+            page.get_by_role('button', name='追加并切换', exact=True).click()
             expect(project_note).to_have_value(re.compile(r'项目线独立草稿[\s\S]*客户预计周五确认报价'))
+            expect(project_entry.locator('.el-date-editor input')).to_have_value(current_time)
             expect(customer_note).to_have_value('')
             dialog.get_by_role('button', name='转到客户进度', exact=True).click()
             expect(customer_note).to_have_value(re.compile('项目线独立草稿'))
@@ -180,7 +221,8 @@ def test_customer_progress_browser_workflow(environment):
             expect(dialog).to_be_visible()
             choose_track('项目进度')
             choose_mode('切换状态')
-            expect(project_note).to_have_value('状态变更独立草稿')
+            expect(project_note).to_have_value('')
+            project_note.fill('关闭保护状态草稿')
             dialog.locator('.el-dialog__headerbtn').click()
             page.get_by_role('button', name='放弃并关闭', exact=True).click()
             expect(dialog).not_to_be_visible()
@@ -196,7 +238,7 @@ def test_customer_progress_browser_workflow(environment):
             customer_note.fill('状态切换期间保留的客户草稿')
             choose_track('项目进度')
             choose_mode('切换状态')
-            project_entry.locator('.el-select').click()
+            project_entry.locator('.el-select').first.click()
             page.get_by_role('option', name='试标中', exact=True).click()
             project_entry.get_by_role('button', name='确认切换项目状态', exact=True).click()
             expect(project_entry).to_contain_text('请填写变更说明')
@@ -211,7 +253,8 @@ def test_customer_progress_browser_workflow(environment):
             status_write = [item for item in writes if item[1].endswith('/status')][-1][2]
             assert status_write['progress_only'] is False and status_write['effective_on'].endswith('+08:00')
             choose_mode('补充进度')
-            expect(project_note).to_have_value('实际项目补充进度')
+            expect(project_note).to_have_value('状态切换期间保留的客户草稿')
+            project_note.fill('实际项目补充进度')
             project_entry.get_by_role('button', name='添加项目进度', exact=True).click()
             expect(project_note).to_have_value('')
             expect(dialog.locator('.progress-child-note').filter(has_text='实际项目补充进度')).to_be_visible()
@@ -221,14 +264,22 @@ def test_customer_progress_browser_workflow(environment):
             assert parent.project_status == 'trial_in_progress'
             assert db.query(AnnotationProjectStatusHistory).count() == 3
             choose_track('客户进度')
-            expect(customer_note).to_have_value('状态切换期间保留的客户草稿')
-            customer_note.fill('')
+            expect(customer_note).to_have_value('')
             choose_track('项目进度')
             expect(project_entry.locator('.el-form-item.is-error')).to_have_count(0)
+            page.set_viewport_size({'width':1130,'height':884})
+            selector_box = project_entry.locator('.annotation-progress-track-select').bounding_box()
+            note_box = project_note.bounding_box()
+            assert selector_box['x'] + selector_box['width'] <= note_box['x']
+            expect(page.locator('.el-message')).to_have_count(0)
             page.screenshot(path=str(output/'project-progress-desktop.png'), full_page=True, animations='disabled')
             page.set_viewport_size({'width':390,'height':844})
             expect(project_entry.get_by_role('button', name='添加项目进度', exact=True)).to_be_visible()
             expect(dialog.locator('.el-dialog__footer').get_by_role('button', name='添加项目进度', exact=True)).to_be_visible()
+            selector_box = project_entry.locator('.annotation-progress-track-select').bounding_box()
+            note_box = project_note.bounding_box()
+            assert selector_box['y'] + selector_box['height'] <= note_box['y']
+            assert abs(selector_box['x'] - note_box['x']) <= 1
             for button in project_entry.locator('.progress-entry-actions').get_by_role('button').all():
                 bounds = button.bounding_box()
                 assert bounds['x'] >= 0 and bounds['x'] + bounds['width'] <= 390
@@ -267,6 +318,8 @@ def test_customer_progress_browser_workflow(environment):
             search_dialog.locator('.progress-search-item').first.get_by_role('button', name='查看上下文').click()
             expect(customer_history).to_be_visible()
             expect(customer_history.locator('.is-progress-search-target')).to_have_count(1)
+            dialog.locator('.el-dialog__body').evaluate('(element)=>element.scrollTop=0')
+            expect(page.locator('.el-message')).to_have_count(0)
             page.screenshot(path=str(output/'customer-progress-desktop.png'), full_page=True, animations='disabled')
             page.set_viewport_size({'width':390,'height':844})
             expect(dialog.get_by_role('button', name='关闭', exact=True)).to_be_visible()
@@ -295,11 +348,11 @@ def test_customer_progress_browser_workflow(environment):
             client = api_client(db, users[2])
             page.reload(wait_until='networkidle')
             page.get_by_role('button', name=parent.project_name, exact=True).click()
-            expect(dialog.locator('.progress-track-switch')).to_be_visible()
+            expect(dialog.locator('.progress-history-header .annotation-progress-track-select')).to_be_visible()
             expect(dialog.locator('.progress-entry-panel')).to_have_count(0)
             expect(dialog.get_by_role('button', name='添加项目进度', exact=True)).to_have_count(0)
             choose_track('客户进度')
-            expect(dialog.locator('.progress-history-header')).to_have_text('客户进度记录')
+            expect(dialog.locator('.progress-history-header b')).to_have_text('客户进度记录')
             expect(customer_history.locator('.progress-child-note').first).to_be_visible()
             expect(customer_history.get_by_role('button', name='编辑', exact=True)).to_have_count(0)
             dialog.get_by_role('button', name='关闭', exact=True).click()

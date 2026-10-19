@@ -28,6 +28,7 @@ export const developmentApi = {
   removeScreenshot: id => api.delete(`${base}/screenshots/${id}`),
   arrangements: (params, signal) => api.get(`${base}/arrangements`, { params, signal }),
   arrangement: (day, signal) => api.get(`${base}/arrangements/${day}`, { signal }),
+  arrangementHistory: (day, platform, params, signal) => api.get(`${base}/arrangements/${day}/cells/${platform}/history`, { params, signal }),
   carryArrangement: day => api.get(`${base}/arrangements/${day}/carry-preview`),
   saveArrangement: (day, data) => api.put(`${base}/arrangements/${day}`, data),
   completeArrangement: (day, platform, data) => api.patch(`${base}/arrangements/${day}/cells/${platform}/completion`, data),

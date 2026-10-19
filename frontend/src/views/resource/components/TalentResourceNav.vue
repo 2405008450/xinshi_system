@@ -8,7 +8,7 @@
         :class="{ 'is-current': isActiveView(item) }"
         :aria-current="route.path === item.path ? 'page' : undefined"
         text
-        @click="router.push(item.path === developmentPath && !issueAccess.can_resource ? `${item.path}?section=issues` : item.path)"
+        @click="router.push(item.path)"
       >
         {{ item.label }}
       </el-button>

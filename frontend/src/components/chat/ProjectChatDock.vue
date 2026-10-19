@@ -41,6 +41,7 @@
           @header-dblclick="onWorkspaceDblClick"
           @retry="refreshFollowed"
           @preference="updatePreference"
+          @categories-changed="categoriesChanged"
           @contact-opened="onContactOpened"
         />
       </div>
@@ -270,6 +271,13 @@ const sessions = computed(() => {
 async function updatePreference({ session, data }) {
   try { await chatRequest(`sessions/${session.projectType}/${session.projectId}/preferences`, { method: 'put', data }); await refreshFollowed() }
   catch (e) { ElMessage.error(e.detail || e.message || '更新会话偏好失败') }
+}
+function categoriesChanged(change) {
+  if (change?.key) {
+    const opened = state.windows.find(row => row.key === change.key)
+    if (opened) opened.categoryIds = change.categoryIds
+  }
+  refreshFollowed()
 }
 function updateTitle() {
   const cleanTitle = document.title.replace(/^\[有人@我\]\s*/, '')

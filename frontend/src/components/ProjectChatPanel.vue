@@ -420,7 +420,6 @@
         </div>
 
         <div v-if="settings.enabled && !conversationMode" class="chat-composer">
-          <div class="chat-topic-compose"><ChatTopicSelect v-model="sendTopicId" :disabled="sending" /></div>
           <div class="chat-composer__header">
             <span>发送消息</span>
             <div class="chat-composer__mention-wrap">
@@ -477,7 +476,6 @@
 
         <div v-if="settings.enabled && conversationMode" class="chat-composer chat-composer--conversation" @paste.capture="handleComposerPaste">
           <button type="button" class="chat-composer-resize" aria-label="调整输入区高度" title="拖动调整输入区高度" @pointerdown="startComposerResize" @keydown="resizeComposerByKeyboard" />
-          <div class="chat-topic-compose"><ChatTopicSelect v-model="sendTopicId" :disabled="sending" size="small" /></div>
           <div v-if="composer.mentionedUserIds.length" class="chat-composer__mention-tags">
             <el-tag
               v-for="userId in composer.mentionedUserIds"
@@ -576,7 +574,6 @@ let projectChatUsersRequest = null
 <script setup>
 import ChatMessageContextMenu from './chat/ChatMessageContextMenu.vue'
 import { chatAvatarText, chatClock, chatDayKey, chatDateLabel, chatGroupStart } from '@/utils/chatLayout'
-import ChatTopicSelect from './chat/ChatTopicSelect.vue'
 import { topicApi } from '@/api/chatTopics'
 import { useChatTopics } from '@/composables/useChatTopics'
 import { messageTopicPatch, newChatRequestId } from '@/utils/chatTopics'
@@ -635,8 +632,7 @@ const chatListRef = ref(null)
 const composerInputRef = ref(null)
 const mentionSelectRef = ref(null)
 const sending = ref(false)
-const sendTopicId = ref(null)
-const { topics } = useChatTopics()
+const { topics, refresh: refreshTopics } = useChatTopics()
 let sendFingerprint = '', sendRequestId = ''
 let unsubscribeTopicChanged
 const pendingImages = reactive([])
@@ -1415,12 +1411,11 @@ const handleSend = async () => {
           mentionedUserIds: composer.mentionedUserIds,
           attachmentIds: pendingImages.map(item => item.attachment.id)
         }
-    const fingerprint = JSON.stringify({ ...payload, topicId: sendTopicId.value })
+    const fingerprint = JSON.stringify(payload)
     if (fingerprint !== sendFingerprint) { sendRequestId = newChatRequestId(); sendFingerprint = fingerprint }
-    await createProjectChatMessage(props.projectId, { ...payload, topicId: sendTopicId.value, clientMessageId: sendRequestId }, props.projectType)
+    await createProjectChatMessage(props.projectId, { ...payload, clientMessageId: sendRequestId }, props.projectType)
     if (generation !== composerGeneration) return
     composer.content = ''
-    sendTopicId.value = null
     sendRequestId = ''; sendFingerprint = ''
     composer.contentJson = { type: 'doc', content: [{ type: 'paragraph' }] }
     composer.mentionedUserIds = []
@@ -1616,7 +1611,7 @@ const setupPolling = () => {
 }
 
 watch(() => [props.projectId, props.projectType], async () => {
-  sendTopicId.value = null; sendFingerprint = ''; sendRequestId = ''
+  sendFingerprint = ''; sendRequestId = ''
   resetChatState()
   if (props.projectId) {
     await refreshChat()
@@ -1651,6 +1646,7 @@ watch(() => props.canAddToProgress, canAdd => {
 })
 
 onMounted(() => {
+  refreshTopics().catch(() => {})
   window.addEventListener('chat-topic-message-changed', localTopicChanged)
   unsubscribeTopicChanged = subscribe('chat_message_topic_changed', realtimeTopicChanged)
   if (props.targetMessageId) locateMessage(props.targetMessageId)
@@ -2528,10 +2524,10 @@ onBeforeUnmount(() => {
 </style>
 
 <style scoped>
-.chat-topic-compose{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}.chat-topic-compose>.el-select{width:min(230px,100%)}.chat-visible-topic{margin-top:6px;max-width:100%;height:auto;white-space:normal;overflow-wrap:anywhere}
+.chat-visible-topic{margin-top:6px;max-width:100%;height:auto;white-space:normal;overflow-wrap:anywhere}
 </style>
 
 <style scoped>
 .chat-toolbar--header{padding:0!important;border:0!important;flex:none;gap:4px}.chat-toolbar--header .chat-toolbar__title .el-tag{font-size:10px;height:20px}.chat-toolbar--header .chat-toolbar__actions{flex-wrap:nowrap}
-.chat-composer--conversation{position:relative;margin:10px 12px 14px;padding:8px 10px;border:1px solid #dfe5ee;border-radius:12px;background:white;display:flex;flex-direction:column;gap:6px}.chat-composer--conversation:focus-within{border-color:var(--el-color-primary);box-shadow:0 0 0 2px var(--el-color-primary-light-9)}.chat-composer__input-row{display:flex;flex-wrap:wrap;justify-content:flex-end}.chat-composer__input-row .el-input,.chat-composer__input-row .el-textarea{flex:1 0 100%;width:100%}.chat-composer--conversation :deep(.el-textarea__inner){box-shadow:none;background:transparent;line-height:1.6;padding:6px 8px}.chat-composer-resize{position:absolute;top:-5px;left:20%;width:60%;height:8px;padding:0;border:0;background:transparent;cursor:ns-resize;touch-action:none}.chat-topic-compose{display:flex;align-items:center;gap:6px}.chat-topic-compose :deep(.el-select){width:180px}.chat-conversation-item__time{opacity:0}.chat-conversation-item:hover .chat-conversation-item__time,.chat-conversation-item:focus-within .chat-conversation-item__time{opacity:1}
+.chat-composer--conversation{position:relative;margin:10px 12px 14px;padding:8px 10px;border:1px solid #dfe5ee;border-radius:12px;background:white;display:flex;flex-direction:column;gap:6px}.chat-composer--conversation:focus-within{border-color:var(--el-color-primary);box-shadow:0 0 0 2px var(--el-color-primary-light-9)}.chat-composer__input-row{display:flex;flex-wrap:wrap;justify-content:flex-end}.chat-composer__input-row .el-input,.chat-composer__input-row .el-textarea{flex:1 0 100%;width:100%}.chat-composer--conversation :deep(.el-textarea__inner){box-shadow:none;background:transparent;line-height:1.6;padding:6px 8px}.chat-composer-resize{position:absolute;top:-5px;left:20%;width:60%;height:8px;padding:0;border:0;background:transparent;cursor:ns-resize;touch-action:none}.chat-conversation-item__time{opacity:0}.chat-conversation-item:hover .chat-conversation-item__time,.chat-conversation-item:focus-within .chat-conversation-item__time{opacity:1}
 </style>

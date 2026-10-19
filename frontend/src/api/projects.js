@@ -45,8 +45,8 @@ export const exportTranslationProjects = (params) => exportProjectWorkbook('tran
 export const exportTranslationReconciliation = (params) => exportProjectWorkbook('translation', 'reconciliation', params)
 export const exportTranslationTranslatorReconciliation = (params) => exportProjectWorkbook('translation', 'translator_reconciliation', params)
 
-export const getProject = (id) => {
-    return api.get(`/projects/translation/${id}`).then(res => convertKeys(res, toCamelCase))
+export const getProject = (id, config = {}) => {
+    return api.get(`/projects/translation/${id}`, config).then(res => convertKeys(res, toCamelCase))
 }
 
 export const createProject = async (data, idempotencyKey) => {

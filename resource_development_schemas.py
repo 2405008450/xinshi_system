@@ -121,6 +121,8 @@ class ArrangementTargetWrite(CleanModel):
     kind: Literal["request", "request_project", "manual", "internal"]
     request_id: UUID | None = None
     language_id: UUID | None = None
+    selected_scope_keys: list[str] | None = Field(default=None, max_length=1000)
+    arrangement_note: str | None = Field(default=None, max_length=20000)
 
     @model_validator(mode="after")
     def validate_source(self):
@@ -186,6 +188,8 @@ class ArrangementCompletionWrite(CleanModel):
 class RequestArrangementWrite(CleanModel):
     revision: int = Field(ge=0)
     platform_ids: list[UUID] = Field(max_length=200)
+    selected_scope_keys: list[str] | None = Field(default=None, max_length=1000)
+    arrangement_note: str | None = Field(default=None, max_length=20000)
 
     @field_validator('platform_ids')
     @classmethod

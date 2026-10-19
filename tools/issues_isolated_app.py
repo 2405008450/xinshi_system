@@ -13,7 +13,7 @@ from database import engine, get_db
 from models import AppUser
 from permission_service import get_user_permission_codes
 from crud import get_user_roles_with_role_names
-from routers import auth, resource_issues, resource_development, project_chat, direct_chat, chat_sessions, chat_topics
+from routers import auth, resource_issues, resource_development, project_chat, direct_chat, chat_sessions, chat_topics, chat_session_categories
 from tools.resource_issues_fixture import IDS
 from error_localization import localize_http_detail, localize_validation_errors
 
@@ -30,7 +30,7 @@ def current_user(authorization: str = Header(''), db=Depends(get_db)):
 
 app=FastAPI()
 app.dependency_overrides[auth.get_current_user]=current_user
-for router in (resource_issues.router,resource_development.router,project_chat.router,direct_chat.router,chat_sessions.router,chat_topics.router):
+for router in (resource_issues.router,resource_development.router,project_chat.router,direct_chat.router,chat_sessions.router,chat_topics.router,chat_session_categories.router):
     app.include_router(router)
 
 

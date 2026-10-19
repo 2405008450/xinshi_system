@@ -28,7 +28,7 @@ export const getRecruitmentProjectCount = (params, config = {}) => (
 export const getRecruitmentProjectPage = (params, config = {}) => (
   api.get('/projects/recruitment/page', { ...config, params }).then(fromApi)
 )
-export const getRecruitmentProject = (id) => api.get(`/projects/recruitment/${id}`).then(fromApi)
+export const getRecruitmentProject = (id, config = {}) => api.get(`/projects/recruitment/${id}`, config).then(fromApi)
 export const createRecruitmentProject = async (data, idempotencyKey) => {
   const payload = toApi(data)
   const key = resolveIdempotencyKey(projectCreateState, payload, idempotencyKey)

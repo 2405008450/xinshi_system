@@ -96,6 +96,11 @@ def audit(db, user, entity_id, action, before, after):
     db.add(ChatTopicAudit(entity_id=entity_id, actor_id=user.id, action=action, before=before, after=after))
 
 
+def notify_menu_changed(db):
+    from notification_ws import broadcast_to_users
+    broadcast_to_users([uid for uid, in db.query(AppUser.id).filter(AppUser.is_active.is_(True))], {'type': 'chat_topics_changed'})
+
+
 def set_message_topic(db, user, message, topic_id, revision=None):
     require_ready(db)
     if message.sender_user_id != user.id and not user_has_permission(db, user.id, 'chat_topics:classify'):

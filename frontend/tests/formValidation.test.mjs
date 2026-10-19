@@ -39,6 +39,20 @@ test('表单没有错误字段时不滚动、不聚焦', async () => {
   assert.equal(await focusFirstInvalidField(form), false)
 })
 
+test('字段标签包含下拉框时，校验错误仍聚焦正文输入框', async () => {
+  const focused = []
+  const auxiliary = { getAttribute: () => null, focus: () => focused.push('label-select') }
+  const textarea = { getAttribute: () => null, focus: () => focused.push('textarea') }
+  const content = { querySelector: () => textarea }
+  const errorItem = {
+    matches: (selector) => selector === '.el-form-item',
+    querySelector: (selector) => selector === '.el-form-item__content' ? content : auxiliary,
+    scrollIntoView() {},
+  }
+  assert.equal(await focusFirstInvalidField({ querySelector: () => errorItem }), true)
+  assert.deepEqual(focused, ['textarea'])
+})
+
 test('错误项只有不可聚焦控件时仍完成滚动定位', async () => {
   let scrolled = false
   const errorItem = {

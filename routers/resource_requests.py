@@ -97,6 +97,7 @@ def read_request_page(
     priority: Optional[str] = None,
     owner_id: Optional[UUID] = None,
     field_filters: Optional[str] = Query(None),
+    include_arrangements: bool = False,
     db: Session = Depends(get_db),
 ):
     filters = _filters(
@@ -104,6 +105,10 @@ def read_request_page(
         owner_id, _field_filters(field_filters),
     )
     items = list_resource_requests(db, skip=skip, limit=limit, **filters)
+    if include_arrangements:
+        from resource_arrangement_service import request_arrangements
+        summaries = request_arrangements(db, [row['id'] for row in items])
+        items = [row | {'arrangements': summaries[str(row['id'])]} for row in items]
     return {
         "items": items,
         "total": resolve_page_total(

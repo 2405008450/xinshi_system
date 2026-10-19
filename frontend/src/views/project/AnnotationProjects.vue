@@ -65,7 +65,7 @@
             <div class="order-cell-secondary">
               <el-tag v-if="row.parentProjectId" size="small" type="warning">{{ row.orderLevel === 2 ? '三级订单' : '子订单' }}</el-tag>
               <el-button v-if="row.orderLevel < (supportsGrandchildOrders ? 2 : 1)" link type="primary" @click="goChildManagement(row.id, row.orderLevel)">{{ row.orderLevel === 1 ? '三级订单' : '子订单' }} {{ row.childCount || 0 }}</el-button>
-              <el-popover trigger="click" placement="left" :width="760" :popper-options="materialPopoverOptions" title="项目资料" popper-class="annotation-material-popover" @show="materialViewId = row.id" @hide="materialViewId = null"><template #reference><el-button link type="primary">项目资料</el-button></template><div class="material-readonly-content"><AnnotationMaterialManager v-if="materialViewId === row.id" :project-id="row.id" readonly /></div></el-popover>
+              <AnnotationMaterialPopover :project-id="row.id" />
             </div>
           </div>
         </template>
@@ -229,14 +229,6 @@
       </template>
       <el-tabs v-model="progressDialogTab" class="annotation-progress-tabs">
         <el-tab-pane label="进度记录" name="progress">
-      <div class="progress-track-switch progress-entry-switch">
-        <span class="progress-switch-label">进度类型</span>
-        <el-radio-group v-model="entryTrack" :disabled="progressBusy" size="small" aria-label="进度类型">
-          <el-radio-button value="project"><span>项目进度</span><small v-if="canWrite && hasProjectProgressDraft" class="progress-draft-indicator">未保存</small></el-radio-button>
-          <el-radio-button value="customer"><span>客户进度</span><small v-if="canWrite && customerProgress.hasDraft()" class="progress-draft-indicator">未保存</small></el-radio-button>
-        </el-radio-group>
-        <span>{{ entryTrack === 'customer' ? '记录本项目的客户确认、反馈和后续安排' : '记录项目执行情况和状态流转' }}</span>
-      </div>
       <section v-if="canWrite" v-show="entryTrack === 'project'" ref="progressEntryPanelRef" class="progress-entry-panel">
         <div class="progress-entry-panel__header">
           <div class="progress-entry-panel__title">
@@ -249,11 +241,11 @@
           已从项目沟通带入项目进度：{{ progressDraftSource.messageCount }} 条消息 · {{ progressDraftSource.senderSummary }}，保存前可编辑
           <el-button link type="primary" :disabled="progressBusy" @click="transferProjectDraftToCustomer">转到客户进度</el-button>
         </div>
-        <AppForm :key="statusEntryMode" ref="statusFormRef" :model="statusForm" :rules="statusRules" :disabled="progressWriting" label-width="76px" size="small" class="progress-entry-form">
+        <AppForm :key="statusEntryMode" ref="statusFormRef" :model="statusForm" :rules="statusRules" :disabled="progressWriting || progressTrackSwitching" label-width="76px" size="small" class="progress-entry-form">
           <el-row :gutter="14">
             <el-col :xs="24" :sm="12">
               <el-form-item :label="statusEntryMode === 'progress' ? '所属状态' : '新状态'" prop="projectStatus">
-                <el-select v-model="statusForm.projectStatus" :validate-event="!progressBusy" :loading="statusEntryMode === 'progress' && progressLoading" style="width:100%" @change="handleProgressStatusSelect">
+                <el-select v-model="statusForm.projectStatus" :validate-event="!progressBusy && entryTrack === 'project'" :loading="statusEntryMode === 'progress' && progressLoading" style="width:100%" @change="handleProgressStatusSelect">
                   <el-option v-for="item in availableEntryStatusOptions" :key="item.value" :label="item.label" :value="item.value" :disabled="statusEntryMode === 'status' && item.value === activeProgressProject?.projectStatus" />
                 </el-select>
                 <div v-if="statusEntryMode === 'progress'" class="progress-status-hint">仅展示项目已经流转到的状态，也可在下方流程节点直接点击“补充进度”</div>
@@ -261,13 +253,16 @@
             </el-col>
             <el-col :xs="24" :sm="12">
               <el-form-item :label="statusEntryMode === 'progress' ? '节点时间' : '生效时间'" prop="effectiveOn">
-                <el-date-picker v-model="statusForm.effectiveOn" :validate-event="!progressBusy" type="datetime" format="YYYY-MM-DD HH:mm" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" />
+                <el-date-picker v-model="statusForm.effectiveOn" :validate-event="!progressBusy && entryTrack === 'project'" type="datetime" format="YYYY-MM-DD HH:mm" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" />
               </el-form-item>
             </el-col>
           </el-row>
-          <el-form-item :label="statusEntryMode === 'progress' ? '具体进度' : '变更说明'" prop="changeNote" class="progress-note-item">
+          <el-form-item :label="statusEntryMode === 'progress' ? '具体进度' : '变更说明'" prop="changeNote" label-width="124px" class="progress-note-item annotation-progress-note-item">
+            <template #label>
+              <AnnotationProgressTrackSelect :model-value="entryTrack" :disabled="progressBusy" :project-has-draft="hasProjectProgressDraft" :customer-has-draft="customerProgress.hasDraft()" @change="handleProgressTrackChange" />
+            </template>
             <div class="progress-note-control">
-              <el-input ref="progressNoteInputRef" v-model="statusForm.changeNote" :validate-event="!progressBusy" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" :maxlength="statusEntryMode === 'progress' ? 10000 : 500" show-word-limit :placeholder="statusEntryMode === 'progress' ? '例如：一个语种暂时找不到合适人员' : '填写本次项目状态变化的原因或说明'" />
+              <el-input ref="progressNoteInputRef" v-model="statusForm.changeNote" :validate-event="!progressBusy && entryTrack === 'project'" type="textarea" :aria-label="statusEntryMode === 'progress' ? '项目具体进度' : '变更说明'" :autosize="{ minRows: 2, maxRows: 4 }" :maxlength="statusEntryMode === 'progress' ? 10000 : 500" show-word-limit :placeholder="statusEntryMode === 'progress' ? '例如：一个语种暂时找不到合适人员' : '填写本次项目状态变化的原因或说明'" />
             </div>
           </el-form-item>
         </AppForm>
@@ -284,15 +279,21 @@
       </section>
       <AnnotationCustomerProgress
         v-if="canWrite && activeProgressProject?.id" v-show="entryTrack === 'customer'" ref="customerProgressEntryRef"
+        :active="entryTrack === 'customer'"
         :form="customerProgress.form" :editing-id="customerProgress.editingId" :draft-source="customerProgress.draftSource"
-        :loading="customerProgress.loading" :load-error="customerProgress.loadError" :busy="progressBusy" :saving="progressWriting"
+        :loading="customerProgress.loading" :load-error="customerProgress.loadError" :busy="progressBusy" :saving="progressWriting || progressTrackSwitching"
         :submit-label="progressSubmitLabel" @submit="submitProgressEntry"
         :submit-loading="progressSubmitLoading" :submit-disabled="progressSubmitDisabled"
         @cancel-edit="customerProgress.clearDraft" @retry="customerProgress.reload"
-        @transfer="transferCustomerDraftToProject(customerProgress.getDraft())"
-      />
+        @transfer="transferCustomerDraftToProject"
+      >
+        <template #note-label>
+          <AnnotationProgressTrackSelect :model-value="entryTrack" :disabled="progressBusy" :project-has-draft="hasProjectProgressDraft" :customer-has-draft="customerProgress.hasDraft()" @change="handleProgressTrackChange" />
+        </template>
+      </AnnotationCustomerProgress>
       <div class="progress-history-header">
         <b>{{ entryTrack === 'project' ? '项目进度记录' : '客户进度记录' }}</b>
+        <AnnotationProgressTrackSelect v-if="!canWrite" :model-value="entryTrack" :disabled="progressBusy" @change="handleProgressTrackChange" />
       </div>
       <div v-show="entryTrack === 'project'">
       <el-timeline v-loading="progressLoading" class="progress-timeline progress-timeline--grouped">
@@ -631,6 +632,7 @@ import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
 import AnnotationMaterialManager from '@/components/annotation/AnnotationMaterialManager.vue'
+import AnnotationMaterialPopover from '@/components/annotation/AnnotationMaterialPopover.vue'
 
 import ProjectListRowActions from '@/components/common/ProjectListRowActions.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
@@ -641,11 +643,13 @@ import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import AnnotationProjectDetailPopover from '@/components/annotation/AnnotationProjectDetailPopover.vue'
 import AnnotationProgressSearchDialog from '@/components/annotation/AnnotationProgressSearchDialog.vue'
 import AnnotationCustomerProgress from '@/components/annotation/AnnotationCustomerProgress.vue'
+import AnnotationProgressTrackSelect from '@/components/annotation/AnnotationProgressTrackSelect.vue'
 import AnnotationCustomerProgressTimeline from '@/components/annotation/AnnotationCustomerProgressTimeline.vue'
 import { useAnnotationCustomerProgress } from '@/composables/useAnnotationCustomerProgress'
 import { useAnnotationProgressEntryDrafts } from '@/composables/useAnnotationProgressEntryDrafts'
 import { focusFormTarget, scrollFormTarget } from '@/utils/formNavigation'
 import { appendProgressDraft, progressChatDraft } from '@/utils/annotationCustomerProgress'
+import { combineAnnotationProgressDrafts } from '@/utils/annotationProgressDraftTransfer'
 import AnnotationProjectArrangementQuickDialog from '@/components/annotation/AnnotationProjectArrangementQuickDialog.vue'
 import AnnotationManagerTransferDialog from '@/components/annotation/AnnotationManagerTransferDialog.vue'
 import AnnotationManagerSelect from '@/components/annotation/AnnotationManagerSelect.vue'
@@ -869,9 +873,9 @@ const statusValidating=ref(false), statusSubmitting=ref(false), statusFormRef=re
 const projectEntryDrafts=useAnnotationProgressEntryDrafts()
 const {mode:statusEntryMode,form:statusForm,source:progressDraftSource,stageKey:selectedProgressStageKey}=projectEntryDrafts
 const hasProjectProgressDraft=computed(()=>projectEntryDrafts.hasDraft('progress')||projectEntryDrafts.hasDraft('status'))
-const entryTrack=ref('project'), customerProgressEntryRef=ref()
+const entryTrack=ref('project'), customerProgressEntryRef=ref(), progressTrackSwitching=ref(false)
 const progressWriting=computed(()=>statusSubmitting.value || customerProgress.submitting || progressDeleteSubmitting.value)
-const progressBusy=computed(()=>progressWriting.value || statusValidating.value || customerProgress.validating)
+const progressBusy=computed(()=>progressWriting.value || statusValidating.value || customerProgress.validating || progressTrackSwitching.value)
 const statusRules={
   projectStatus:[
     {required:true,message:'请选择项目状态',trigger:'change'},
@@ -896,9 +900,7 @@ const orderNoRules={
 }
 const dialogTitle=ref('新增标注项目'), formRef=ref(), dialogBodyRef=ref(), detailLoadingId=ref(null), projectTableRef=ref(null), progressSearchDialogRef=ref(null)
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,locateDialogFieldByLabel,clearFieldSearch}=useDialogFieldSearch(dialogBodyRef)
-const materialEditorRef=ref(), materialViewId=ref(null)
-// 左侧空间不足时仍把整个资料小窗约束在视口内。
-const materialPopoverOptions = { modifiers: [{ name: 'preventOverflow', options: { rootBoundary: 'viewport', altAxis: true, tether: false, padding: 16 } }] }
+const materialEditorRef=ref()
 const expandedProjectIds = ref([])
 const handleProjectExpandChange = (_row, expandedRows) => {
   expandedProjectIds.value = expandedRows.filter((row) => !row.parentProjectId && row.childCount > 0).map((row) => row.id)
@@ -1077,29 +1079,54 @@ const acceptProjectChatDraft=async(draft)=>{
   }:draft.source||previous
   await nextTick();statusFormRef.value?.clearValidate();await focusProjectProgressEntry()
 }
-const transferProjectDraftToCustomer=async()=>{
-  if(progressBusy.value)return
+// 下拉选择修改当前内容的归属，完成加载和冲突确认后才一起移动草稿。
+const handleProgressTrackChange=async(nextTrack)=>{
+  if(nextTrack===entryTrack.value||progressBusy.value)return false
+  if(!canWrite){entryTrack.value=nextTrack;return true}
+  const previousTrack=entryTrack.value,projectId=activeProgressProject.value?.id,sourceMode=statusEntryMode.value
+  const source=previousTrack==='customer'?customerProgress.getDraft():{...statusForm.value,source:progressDraftSource.value}
+  const sourceHasDraft=previousTrack==='customer'?customerProgress.hasDraft():projectEntryDrafts.hasDraft(sourceMode)
+  progressTrackSwitching.value=true
   try{
-    const existing=customerProgress.getDraft()
-    if(existing?.editingId)throw new Error('请先保存或取消客户进度编辑，再转入草稿')
-    appendProgressDraft(existing?.changeNote,statusForm.value.changeNote)
-    if(existing?.changeNote?.trim())await ElMessageBox.confirm('客户进度已有草稿，是否追加这份项目沟通草稿？','转到客户进度',{confirmButtonText:'追加并转入',cancelButtonText:'取消',type:'warning'})
-    entryTrack.value='customer';await nextTick()
-    await customerProgress.acceptDraft({...statusForm.value,source:progressDraftSource.value})
-    projectEntryDrafts.clear('progress',statusForm.value.projectStatus)
-  }catch(error){if(error==='cancel'||error==='close')return;ElMessage.warning(error?.message||'转入客户进度失败')}
+    if(customerProgress.editingId&&(previousTrack==='customer'||sourceHasDraft))throw new Error('请先保存或取消客户进度编辑，再切换进度归属')
+    if(sourceHasDraft){
+      if(nextTrack==='customer')await customerProgress.ensureLoaded()
+      const projectDraft=projectEntryDrafts.drafts.progress
+      const target=nextTrack==='customer'?customerProgress.getDraft():{...projectDraft.form,source:projectDraft.source}
+      const targetHasDraft=nextTrack==='customer'?customerProgress.hasDraft():projectEntryDrafts.hasDraft('progress')
+      const combined=combineAnnotationProgressDrafts(targetHasDraft?target:{},source)
+      if(targetHasDraft){
+        const label=nextTrack==='customer'?'客户进度':'项目进度'
+        await ElMessageBox.confirm(`${label}已有草稿，将保留原文并追加当前内容。合并后节点时间使用当前填写的 ${formatDateTime(source.effectiveOn)}。是否继续？`,'进度草稿合并',{confirmButtonText:'追加并切换',cancelButtonText:'取消切换',type:'warning'})
+      }
+      if(activeProgressProject.value?.id!==projectId||!progressVisible.value)return false
+      if(nextTrack==='customer'){
+        customerProgress.setDraft(combined)
+        projectEntryDrafts.clear(sourceMode,source.projectStatus)
+      }else{
+        statusEntryMode.value='progress'
+        Object.assign(statusForm.value,{changeNote:combined.changeNote,effectiveOn:combined.effectiveOn})
+        progressDraftSource.value=combined.source
+        customerProgress.clearDraft()
+      }
+    }
+    if(nextTrack==='project')statusEntryMode.value='progress'
+    targetProgressRecordId.value='';entryTrack.value=nextTrack
+    return true
+  }catch(error){
+    if(error!=='cancel'&&error!=='close')ElMessage.warning(error?.message||'进度归属切换失败，原草稿已保留')
+    return false
+  }finally{
+    progressTrackSwitching.value=false
+    if(entryTrack.value!==previousTrack){
+      await nextTick()
+      if(entryTrack.value==='customer')await customerProgressEntryRef.value?.focusEntry()
+      else await focusProjectProgressEntry()
+    }
+  }
 }
-const transferCustomerDraftToProject=async(draft)=>{
-  if(progressBusy.value)return
-  try{
-    const existing=projectEntryDrafts.drafts.progress.form.changeNote
-    appendProgressDraft(existing,draft.changeNote)
-    if(String(existing||'').trim())await ElMessageBox.confirm('项目进度已有草稿，是否追加这份客户沟通草稿？','转到项目进度',{confirmButtonText:'追加并转入',cancelButtonText:'取消',type:'warning'})
-    entryTrack.value='project';await nextTick()
-    await acceptProjectChatDraft(draft)
-    customerProgress.clearDraft()
-  }catch(error){if(error==='cancel'||error==='close')return;ElMessage.warning(error?.message||'转入项目进度失败')}
-}
+const transferProjectDraftToCustomer=()=>handleProgressTrackChange('customer')
+const transferCustomerDraftToProject=()=>handleProgressTrackChange('project')
 const closeProgressDialog=async(done)=>{
   if(progressBusy.value){ElMessage.warning('进度正在保存，请稍候');return false}
   if(hasProjectProgressDraft.value||customerProgress.hasDraft()){
@@ -1336,9 +1363,4 @@ onBeforeUnmount(()=>{parentFilterController?.abort();clearTimeout(searchTimer);c
 
 <style>
 .annotation-languages-popover,.annotation-advanced-popover,.annotation-detail-popover,.annotation-client-popover,.annotation-language-reserve-popover{max-width:calc(100vw - 32px)!important}.annotation-advanced-popover{max-height:calc(100vh - 32px);overflow:hidden}.annotation-advanced-popover .advanced-panel{max-height:calc(100vh - 64px);overflow-y:auto}.annotation-detail-popover{display:flex;max-height:calc(100vh - 32px);flex-direction:column;overflow:hidden}.annotation-detail-popover .detail-content{flex:1;min-height:0;overflow-y:auto}.annotation-detail-popover .el-descriptions__content,.annotation-client-popover .el-descriptions__content,.annotation-language-reserve-popover .el-descriptions__content{white-space:normal;word-break:break-word}.annotation-progress-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}.annotation-progress-dialog .el-dialog__header,.annotation-progress-dialog .el-dialog__footer{flex:none}.annotation-progress-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto}.annotation-progress-dialog .el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}.annotation-editor-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}.annotation-editor-dialog .el-dialog__header,.annotation-editor-dialog .el-dialog__footer{flex:0 0 auto}.annotation-editor-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto;padding-top:12px}.annotation-editor-dialog .el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}
-</style>
-
-<style>
-.annotation-material-popover { max-width: calc(100vw - 32px); }
-.material-readonly-content { max-height: min(560px, calc(100vh - 120px)); overflow-y: auto; }
 </style>

@@ -27,8 +27,9 @@ test('子客户仅更新独立展示字段，不参与项目名称生成', () =>
 })
 
 test('列表详情和筛选均提供独立母子客户字段', () => {
-  assert.match(page, /label: '客户全称', key: 'clientName'/)
-  assert.match(page, /label: '子客户全称', key: 'subClientName'/)
+  const detailFields = readFileSync(new URL('../src/utils/translationProjectDetail.js', import.meta.url), 'utf8')
+  assert.match(detailFields, /label: '客户全称', key: 'clientName'/)
+  assert.match(detailFields, /label: '子客户全称', key: 'subClientName'/)
   assert.match(page, /key: 'subClientShortName', label: '子客户简称', type: 'text'/)
   assert.match(page, /key: 'subClientCode', label: '子客户编号', type: 'text'/)
   assert.match(page, /:items="getTranslationClientDetailItems\(projectDetailItems, row\)"/)

@@ -1,7 +1,8 @@
 """每日安排回归；只在显式启用的隔离/局域网数据库中运行。"""
 import os
+from copy import deepcopy
 from datetime import date
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import HTTPException
@@ -20,6 +21,83 @@ def test_target_validation_and_no_actor_spoofing():
     platform = uuid4()
     with pytest.raises(ValidationError):
         ArrangementWrite(revision=0, cells=[dict(platform_id=platform), dict(platform_id=platform)])
+    with pytest.raises(ValidationError):
+        ArrangementCellWrite(platform_id=platform, operations={'edited': {'actor_name': '伪造'}})
+
+
+def test_row_operation_history_edit_complete_reopen_reset_and_carry(db, context):
+    from resource_arrangement_service import complete_arrangement, read_arrangement, arrangement_history, carry_preview
+    from resource_development_models import DevelopmentAudit
+    manager, owner, _, platforms, _ = context
+    payload = dict(platform_id=platforms[0].id, owner_id=owner.id, role_tags=['客服'])
+    day = save(db, context, cells=[payload])
+    def row():
+        db.flush()
+        return read_arrangement(db, manager, day.work_date)['cells'][0]
+    created = row()['operations']['created']
+    assert created['actor_name'] == '统筹' and created['operated_at'].endswith('+08:00')
+    original = row()['operations']['edited']
+    count = db.query(DevelopmentAudit).count()
+    save(db, context, revision=day.revision, cells=[payload])
+    assert db.query(DevelopmentAudit).count() == count  # 原样保存不产生操作历史。
+    complete_arrangement(db, owner, day.work_date, platforms[0].id, ArrangementCompletionWrite(revision=day.revision, completed=True))
+    assert row()['operations']['status']['actor_name'] == '负责人'
+    assert row()['operations']['edited'] == original  # 勾选不覆盖内容修改人。
+    complete_arrangement(db, manager, day.work_date, platforms[0].id, ArrangementCompletionWrite(revision=day.revision, completed=False))
+    assert row()['completed_at'] is None
+    assert row()['operations']['status']['action'] == 'reopen'
+    complete_arrangement(db, owner, day.work_date, platforms[0].id, ArrangementCompletionWrite(revision=day.revision, completed=True))
+    save(db, context, revision=day.revision, cells=[payload | dict(role_tags=['译员'])])
+    assert row()['operations']['status']['action'] == 'reset'
+    save(db, context, user=owner, revision=day.revision, cells=[payload | dict(role_tags=['译员'], remarks='补充说明')])
+    assert row()['operations']['status']['action'] == 'reset'  # 后续改备注仍保留重置证据。
+    assert row()['operations']['edited']['actor_name'] == '负责人'
+    manager.full_name = '统筹新名称'
+    assert row()['operations']['created']['actor_name'] == '统筹'  # 新记录保存操作时的姓名。
+    history = arrangement_history(db, day.work_date, platforms[0].id)
+    assert history['total'] == 6
+    assert history['items'][0]['changes'][0]['label'] == '账号备注'
+    assert any(event['label'] == '安排变更，完成状态自动重置' for event in history['items'])
+    assert all(event['operated_at'].endswith('+08:00') for event in history['items'])
+    page = arrangement_history(db, day.work_date, platforms[0].id, skip=1, limit=2)
+    assert page['items'] == history['items'][1:3] and page['total'] == history['total']
+    draft = carry_preview(db, manager, date(2026, 10, 9))
+    assert draft['cells'][0]['operations'] == {'created': None, 'edited': None, 'status': None}
+    carried = save(db, context, day=date(2026, 10, 9), cells=[payload], carried_from=day.work_date)
+    carried_event = read_arrangement(db, manager, carried.work_date)['cells'][0]['operations']['created']
+    assert carried_event['label'] == '沿用安排' and carried_event['actor_name'] == '统筹新名称'
+    assert carried_event['carried_from'] == day.work_date.isoformat()
+    with pytest.raises(HTTPException) as error:
+        arrangement_history(db, day.work_date, uuid4())
+    assert error.value.status_code == 404
+
+
+def test_operation_history_preserves_legacy_and_missing_evidence(db, context):
+    from resource_arrangement_service import read_arrangement, arrangement_history
+    from resource_development_models import DevelopmentAudit
+    manager, owner, _, platforms, _ = context
+    day = save(db, context, cells=[dict(platform_id=platforms[0].id, owner_id=owner.id)])
+    cell = read_arrangement(db, manager, day.work_date)['cells'][0]
+    entry = db.query(DevelopmentAudit).filter_by(entity_id=UUID(cell['id']), entity_type='arrangement_cell').one()
+    entry.after = {key: value for key, value in entry.after.items() if key != '_operation'}
+    assert arrangement_history(db, day.work_date, platforms[0].id)['items'][0]['actor_name'] == '统筹'
+    db.delete(entry); db.flush()
+    assert read_arrangement(db, manager, day.work_date)['cells'][0]['operations']['created'] is None
+    assert arrangement_history(db, day.work_date, platforms[0].id) == {'items': [], 'total': 0}
+
+
+def test_operation_people_are_isolated_per_account(db, context):
+    from resource_arrangement_service import read_arrangement, complete_arrangement
+    manager, owner, _, platforms, _ = context
+    entries = [dict(platform_id=p.id, owner_id=owner.id, remarks='原备注') for p in platforms]
+    day = save(db, context, cells=entries)
+    save(db, context, user=owner, revision=day.revision, cells=[entries[0] | dict(remarks='负责人修改')])
+    complete_arrangement(db, manager, day.work_date, platforms[1].id, ArrangementCompletionWrite(revision=day.revision, completed=True))
+    values = {row['platform_id']: row for row in read_arrangement(db, manager, day.work_date)['cells']}
+    assert values[str(platforms[0].id)]['operations']['edited']['actor_name'] == '负责人'
+    assert values[str(platforms[0].id)]['operations']['status'] is None
+    assert values[str(platforms[1].id)]['operations']['edited']['actor_name'] == '统筹'
+    assert values[str(platforms[1].id)]['operations']['status']['actor_name'] == '统筹'
 
 
 def test_role_tag_normalization_and_limits():
@@ -511,10 +589,19 @@ def test_http_routes_permissions_and_incremental_save(db,context,monkeypatch):
         assert complete.json()['cells'][0]['completed_by']==str(owner.id)
         assert complete.json()['cells'][0]['completed_at'].endswith('+08:00')
         assert complete.json()['updated_at'].endswith('+08:00')
+        history_path = path + f'/cells/{platforms[0].id}/history'
+        history = client.get(history_path)
+        assert history.status_code == 200 and history.json()['total'] == 2
+        assert history.json()['items'][0]['actor_name'] == '负责人'
+        assert history.json()['items'][0]['operated_at'].endswith('+08:00')
+        assert client.get(history_path, params={'limit': 1}).json()['items'] == history.json()['items'][:1]
+        assert client.get(history_path, params={'limit': 101}).status_code == 422
+        assert client.get(path + f'/cells/{uuid4()}/history').status_code == 404
         assert client.put(path,json={'revision':1,'cells':[]}).status_code==409
         assert client.put(path,json={'revision':2,'cells':[{'platform_id':str(platforms[0].id),'owner_id':str(other.id)}]}).status_code==403
         current['codes']=[]
         assert client.get(path).status_code==403
+        assert client.get(history_path).status_code == 403
 
 
 def assign(db, context, request, accounts, revision=0, day=date(2026, 10, 12), user=None):
@@ -662,3 +749,212 @@ def test_sent_project_request_enters_arrangement_queue(db, context):
     assert row['id'] == str(request.id) and row['order_no'] == project.order_no
     assign(db, context, request, [p.id for p in context[3]])
     assert len(arrangement_request_detail(db, request.id)['arrangements']) == 2
+
+
+def scoped_request(db, context):
+    from annotation_models import AnnotationProjectLanguageItem
+    from interpretation_models import InterpretationLanguage
+    request, project = request_context(db, context)
+    second = InterpretationLanguage(id=uuid4(), label='普通话' + uuid4().hex, language_type='language', is_active=True)
+    db.add(second); db.flush()
+    project.language_items = [
+        AnnotationProjectLanguageItem(id=uuid4(), sequence_no=1, source_language_id=context[4].id,
+                                      regions=[{'city': '广州', 'district': '天河', 'street': ''}, {'city': '深圳'}]),
+        AnnotationProjectLanguageItem(id=uuid4(), sequence_no=2, source_language_id=second.id, regions=[{'city': '北京'}]),
+    ]
+    db.flush()
+    return request, project
+
+
+def test_project_options_child_languages_are_independent_and_searchable(db, context):
+    from annotation_models import AnnotationProject, AnnotationProjectLanguageItem
+    from interpretation_models import InterpretationLanguage
+    from resource_arrangement_service import arrangement_project_options
+    _, parent = scoped_request(db, context)
+    language = InterpretationLanguage(id=uuid4(), label='闽南方言' + uuid4().hex, language_type='dialect', is_active=True)
+    db.add(language); db.flush()
+    child = AnnotationProject(id=uuid4(), order_no=parent.order_no + '-01', project_name=parent.project_name,
+                              parent_project_id=parent.id, child_sequence_no=1)
+    child.language_items = [AnnotationProjectLanguageItem(id=uuid4(), sequence_no=1, source_language_id=language.id, regions=[])]
+    db.add(child); db.flush()
+    options = {item['project_id']: item for item in arrangement_project_options(db, 'annotation')}
+    assert options[str(child.id)]['languages'] == [language.label]
+    assert language.label not in options[str(parent.id)]['languages']
+    assert len(options[str(parent.id)]['languages']) == 2
+    assert options[str(child.id)]['parent_project_id'] == str(parent.id)
+    assert options[str(parent.id)]['parent_project_id'] == ''
+    found = arrangement_project_options(db, 'annotation', keyword=language.label)
+    assert [item['project_id'] for item in found] == [str(child.id)]
+    assert arrangement_project_options(db, 'annotation', keyword=child.order_no)[0]['project_id'] == str(child.id)
+    child.language_items = []; db.flush()
+    empty = arrangement_project_options(db, 'annotation', keyword=child.order_no)[0]
+    assert empty['languages'] == []  # 不从名称或母订单补猜语种。
+
+
+def test_direction_candidates_only_confirmed_but_history_is_preserved(db, context):
+    from resource_arrangement_service import arrangement_options, read_arrangement
+    confirmed, _ = request_context(db, context)
+    paused, _ = request_context(db, context)
+    day = assign(db, context, paused, [context[3][0].id])
+    paused.demand_status = 'paused'
+    request_context(db, context, status='draft')
+    request_context(db, context, status='cancelled')
+    db.flush()
+    options = arrangement_options(db)
+    for group in ['targets', 'request_projects']:
+        assert {item['request_id'] for item in options[group]} == {str(confirmed.id)}
+        assert all(item['demand_status'] == 'confirmed' for item in options[group])
+    history = read_arrangement(db, context[0], day.work_date)['cells'][0]['targets']
+    assert history[0]['request_id'] == str(paused.id) and history[0]['active'] is False
+
+
+def test_project_options_language_directions_and_translation_text(db, context):
+    from interpretation_models import InterpretationLanguage, InterpretationProject, InterpretationProjectLanguageDirection
+    from recruitment_models import RecruitmentProject, RecruitmentProjectLanguageDirection
+    from models import TranslationProject
+    from resource_arrangement_service import arrangement_project_options
+    language = context[4]
+    second = InterpretationLanguage(id=uuid4(), label='英语' + uuid4().hex, language_type='language', is_active=True)
+    db.add(second); db.flush()
+    interpretation = InterpretationProject(id=uuid4(), order_no='IP-QA-' + uuid4().hex, project_name='口译候选')
+    interpretation.language_directions = [InterpretationProjectLanguageDirection(id=uuid4(), sequence_no=1, source_language_id=language.id, target_language_id=second.id)]
+    recruitment = RecruitmentProject(id=uuid4(), order_no='RP-QA-' + uuid4().hex, project_name='招聘候选')
+    recruitment.language_directions = [RecruitmentProjectLanguageDirection(id=uuid4(), sequence_no=1, direction_type='translation', source_language_id=language.id, target_language_id=second.id)]
+    translation = TranslationProject(id=uuid4(), order_no='TP-QA-' + uuid4().hex, project_name='笔译候选', language_pair='中文→英语；英语→日语')
+    db.add_all([interpretation, recruitment, translation]); db.flush()
+    for kind in ['interpretation', 'recruitment']:
+        assert arrangement_project_options(db, kind, language.label)[0]['languages'] == [language.label + ' → ' + second.label]
+    assert arrangement_project_options(db, 'translation', '日语')[0]['languages'] == ['中文→英语', '英语→日语']
+
+
+def test_scope_combinations_stable_read_only_and_project_fallback(db, context):
+    from resource_arrangement_service import request_scope_options, arrangement_request_detail
+    request, project = scoped_request(db, context)
+    before = [deepcopy(item.regions) for item in project.language_items]
+    options = arrangement_request_detail(db, request.id)['scope_options']
+    assert len(options) == 3
+    assert [o['city'] for o in options] == ['广州', '深圳', '北京']
+    assert options[0]['language_ids'] == options[1]['language_ids'] != options[2]['language_ids']
+    project.language_items[0].regions = list(reversed(project.language_items[0].regions)); db.flush()
+    assert {o['key'] for o in request_scope_options(db, request)} == {o['key'] for o in options}
+    assert before[1] == project.language_items[1].regions
+    request.source_type = 'other'; request.annotation_project_id = None
+    assert request_scope_options(db, request)[0]['city'] == ''
+    assert '未配置城市' in request_scope_options(db, request)[0]['label']
+
+
+def test_scope_shared_accounts_readback_replacement_and_other_request_preserved(db, context):
+    from resource_arrangement_service import assign_request, arrangement_request_detail, get_cells, read_arrangement
+    from resource_development_schemas import RequestArrangementWrite
+    request, project = scoped_request(db, context)
+    other, _ = request_context(db, context)
+    options = arrangement_request_detail(db, request.id)['scope_options']
+    accounts = [p.id for p in context[3]]
+    day = assign(db, context, other, [accounts[0]])
+    cells = get_cells(db, day)
+    cells[0].remarks = '保留账号备注'; db.flush()
+    day = assign_request(db, context[0], request.id, day.work_date, RequestArrangementWrite(
+        revision=day.revision, platform_ids=accounts, selected_scope_keys=[options[1]['key']], arrangement_note='  优先深圳  '))
+    for cell in get_cells(db, day):
+        target = next(t for t in cell.targets if t['request_id'] == str(request.id))
+        assert target['scope'] == [options[1]] and target['arrangement_note'] == '优先深圳'
+    assert next(c for c in get_cells(db, day) if c.platform_id == accounts[0]).remarks == '保留账号备注'
+    assert project.language_items[0].regions[0]['city'] == '广州' and request.request_detail == '需求'
+    # 旧客户端省略新增字段必须保留内容。
+    day = assign(db, context, request, accounts, day.revision)
+    assert all(next(t for t in c['targets'] if t['request_id'] == str(request.id))['arrangement_note'] == '优先深圳'
+               for c in read_arrangement(db, context[0], day.work_date)['cells'])
+    day = assign(db, context, request, [], day.revision)
+    assert arrangement_request_detail(db, request.id)['arrangements'] == []
+    assert any(t['request_id'] == str(other.id) for c in get_cells(db, day) for t in c.targets)
+
+
+def test_scope_full_day_carry_completion_and_date_isolation(db, context):
+    from resource_arrangement_service import assign_request, arrangement_request_detail, carry_preview, get_cells, target_write, save_arrangement
+    from resource_development_schemas import RequestArrangementWrite
+    request, _ = scoped_request(db, context)
+    options = arrangement_request_detail(db, request.id)['scope_options']
+    day = assign_request(db, context[0], request.id, date(2026, 10, 12), RequestArrangementWrite(
+        revision=0, platform_ids=[context[3][0].id], selected_scope_keys=[options[0]['key']], arrangement_note='明日安排'))
+    cell = get_cells(db, day)[0]
+    # 整日旧载荷不提供新增字段；仍不得清除已存选择。
+    save(db, context, day=day.work_date, revision=day.revision, cells=[dict(platform_id=cell.platform_id,
+        targets=[dict(kind='request_project', request_id=request.id)], remarks='账号说明')])
+    assert cell.targets[0]['arrangement_note'] == '明日安排'
+    preview = carry_preview(db, context[0], date(2026, 10, 13))
+    copied = preview['cells'][0]
+    next_day = save_arrangement(db, context[0], date(2026, 10, 13), ArrangementWrite(revision=0, carried_from=day.work_date,
+        cells=[dict(platform_id=copied['platform_id'], targets=[target_write(t) for t in copied['targets']])]))
+    assert get_cells(db, next_day)[0].targets[0]['scope'] == [options[0]]
+    assign_request(db, context[0], request.id, next_day.work_date, RequestArrangementWrite(revision=next_day.revision,
+        platform_ids=[cell.platform_id], selected_scope_keys=[options[2]['key']], arrangement_note='后天安排'))
+    assert cell.targets[0]['arrangement_note'] == '明日安排'
+
+
+def test_scope_rejects_foreign_empty_or_changed_choices(db, context):
+    from resource_arrangement_service import assign_request, arrangement_request_detail
+    from resource_development_schemas import RequestArrangementWrite
+    request, project = scoped_request(db, context)
+    options = arrangement_request_detail(db, request.id)['scope_options']
+    for keys in [[], ['forged-key'], [options[0]['key']] * 2]:
+        with pytest.raises(HTTPException) as error:
+            assign_request(db, context[0], request.id, date(2026, 10, 12), RequestArrangementWrite(
+                revision=0, platform_ids=[context[3][0].id], selected_scope_keys=keys))
+        assert error.value.status_code == 409
+    project.language_items[0].regions = [{'city': '佛山'}]; db.flush()
+    with pytest.raises(HTTPException):
+        assign_request(db, context[0], request.id, date(2026, 10, 12), RequestArrangementWrite(
+            revision=0, platform_ids=[context[3][0].id], selected_scope_keys=[options[0]['key']]))
+
+
+def test_all_status_page_with_batch_platform_summary(db, context, monkeypatch):
+    from routers.resource_requests import read_request_page
+    confirmed, _ = request_context(db, context)
+    draft, _ = request_context(db, context, status='draft')
+    paused, _ = request_context(db, context, status='paused')
+    cancelled, _ = request_context(db, context, status='cancelled')
+    assign(db, context, confirmed, [context[3][0].id])
+    # 路由直接调用需显式给出 Query 参数，避免使用 FastAPI 的参数描述对象。
+    page = read_request_page(skip=0, limit=5, field_filters=None, include_arrangements=True, db=db)
+    assert page['total'] == 4
+    assert {row['id'] for row in page['items']} == {r.id for r in [confirmed, draft, paused, cancelled]}
+    assert next(row for row in page['items'] if row['id'] == confirmed.id)['arrangements'][0]['platform_name']
+
+
+def test_scope_legacy_read_does_not_write_and_invalid_carry_is_skipped(db, context):
+    from resource_arrangement_service import assign_request, arrangement_request_detail, get_cells, read_arrangement, carry_preview
+    from resource_development_schemas import RequestArrangementWrite
+    request, project = scoped_request(db, context)
+    day = assign(db, context, request, [context[3][0].id])
+    cell = get_cells(db, day)[0]
+    legacy = deepcopy(cell.targets)
+    legacy[0].pop('scope'); legacy[0].pop('arrangement_note')
+    cell.targets = legacy; db.flush()
+    before, revision = deepcopy(cell.targets), day.revision
+    assert len(read_arrangement(db, context[0], day.work_date)['cells'][0]['targets'][0]['scope']) == 3
+    assert read_arrangement(db, context[0], day.work_date)['cells'][0]['targets'][0]['scope_recorded'] is False
+    assert cell.targets == before and day.revision == revision
+    option = arrangement_request_detail(db, request.id)['scope_options'][0]
+    day = assign_request(db, context[0], request.id, day.work_date, RequestArrangementWrite(
+        revision=day.revision, platform_ids=[cell.platform_id], selected_scope_keys=[option['key']], arrangement_note='保留历史'))
+    project.language_items[0].regions = [{'city': '佛山'}]; db.flush()
+    displayed = read_arrangement(db, context[0], day.work_date)['cells'][0]['targets'][0]
+    assert displayed['scope'] == [option] and not displayed['active']
+    preview = carry_preview(db, context[0], date(2026, 10, 13))
+    assert preview['cells'][0]['targets'] == [] and any('语言或城市' in text for text in preview['warnings'])
+
+
+def test_scope_change_resets_completion_and_repeat_preserves_completion(db, context):
+    from resource_arrangement_service import assign_request, arrangement_request_detail, complete_arrangement, get_cells
+    from resource_development_schemas import RequestArrangementWrite
+    request, _ = scoped_request(db, context)
+    options = arrangement_request_detail(db, request.id)['scope_options']
+    day = save(db, context, day=date(2026, 10, 12))
+    cell = get_cells(db, day)[0]
+    def write(note):
+        return assign_request(db, context[0], request.id, day.work_date, RequestArrangementWrite(revision=day.revision,
+            platform_ids=[cell.platform_id], selected_scope_keys=[options[0]['key']], arrangement_note=note))
+    write('初次安排')
+    complete_arrangement(db, context[1], day.work_date, cell.platform_id, ArrangementCompletionWrite(revision=day.revision, completed=True))
+    write('初次安排'); assert cell.completed
+    write('新增要求'); assert not cell.completed

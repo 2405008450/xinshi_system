@@ -1,10 +1,46 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { arrangementCellChanged, arrangementCellPayload, arrangementProjectRoute, arrangementTargetKey, normalizeArrangementRoles, arrangementChineseTime, groupArrangementAccounts, arrangementTableRows, arrangementTableSpan } from '../src/utils/resourceArrangements.js'
+import { arrangementProjectScopes } from '../src/utils/resourceArrangements.js'
+
+test('项目展示只使用安排范围并保留语种城市配对，旧安排不推测城市', () => {
+  assert.deepEqual(arrangementProjectScopes([{ kind: 'request_project', scope: [
+    { language_label: '粤语', city: '广州', district: '天河' },
+    { language_label: '闽南语', city: '厦门' },
+    { language_label: '粤语', city: '广州', district: '天河' },
+  ] }]), ['粤语 · 广州 / 天河', '闽南语 · 厦门'])
+  assert.deepEqual(arrangementProjectScopes([{ kind: 'request', label: '官话' }]), ['官话 · 城市未配置'])
+  assert.deepEqual(arrangementProjectScopes([{ kind: 'request_project', label: '项目名称' }]), ['语种未配置 · 城市未配置'])
+  assert.deepEqual(arrangementProjectScopes([]), [])
+  assert.deepEqual(arrangementProjectScopes([{ kind: 'request_project', scope_recorded: false, scope: [{ language_label: '当前项目语种', city: '当前项目城市' }] }]), ['语种、城市范围未记录'])
+})
+import { arrangementCellChanged, arrangementCellPayload, arrangementProjectRoute, arrangementTargetKey, normalizeArrangementRoles, arrangementChineseTime, groupArrangementAccounts, arrangementTableRows, arrangementTableSpan, arrangementTomorrow } from '../src/utils/resourceArrangements.js'
+import { arrangementTargetLabel } from '../src/utils/resourceArrangements.js'
+
+test('安排下拉项仅显示一次项目名称，订单号留在详情', () => {
+  const project = { project_name: '对话采集项目', order_no: 'AP-001' }
+  assert.equal(arrangementTargetLabel({ kind: 'request_project', label: '对话采集项目', project }), '对话采集项目')
+  assert.equal(arrangementTargetLabel({ kind: 'request', label: '粤语', project }), '粤语 · 对话采集项目')
+  assert.equal(arrangementTargetLabel({ kind: 'request_project', label: '旧名称', project }), '对话采集项目')
+  assert.equal(arrangementTargetLabel({ kind: 'request_project', label: '其他项目', request_no: 'RR-001' }), '其他项目')
+  assert.equal(arrangementTargetLabel({ kind: 'request_project', project, active: false, inactive_reason: '需求已暂停' }), '对话采集项目（需求已暂停）')
+})
 
 test('同语种不同需求和自选方向互不混淆', () => {
   const values = [{kind:'request',request_id:'one',language_id:'dialect'}, {kind:'request',request_id:'two',language_id:'dialect'}, {kind:'manual',language_id:'dialect'}, {kind:'internal'}, {kind:'request_project',request_id:'one'}]
   assert.equal(new Set(values.map(arrangementTargetKey)).size,5)
+})
+
+test('整日保存和沿用只发送安排选择标识及备注，快照由后端生成', () => {
+  const cell = { platform_id: 'p', targets: [{ kind: 'request_project', request_id: 'r', scope: [{ key: 'a', label: '粤语 · 广州' }], arrangement_note: '优先广州', project: { id: 'forged' } }] }
+  assert.deepEqual(arrangementCellPayload(cell).targets, [{ kind: 'request_project', request_id: 'r', language_id: null, selected_scope_keys: ['a'], arrangement_note: '优先广州' }])
+  assert.equal(arrangementCellChanged({ ...cell, targets: [{ ...cell.targets[0], arrangement_note: '调整备注' }] }, cell), true)
+  assert.equal(arrangementCellChanged({ ...cell, targets: [{ ...cell.targets[0], scope: [{ key: 'b' }] }] }, cell), true)
+})
+
+test('明天按香港日期计算，覆盖 UTC 跨日、跨月与跨年', () => {
+  assert.equal(arrangementTomorrow(new Date('2026-10-19T16:30:00Z')), '2026-10-21')
+  assert.equal(arrangementTomorrow(new Date('2026-10-31T01:00:00Z')), '2026-11-01')
+  assert.equal(arrangementTomorrow(new Date('2026-12-31T01:00:00Z')), '2027-01-01')
 })
 test('保存载荷不提交名称快照、完成信息或其他账号', () => {
   const cell={platform_id:'p',owner_id:'u',owner_name:'负责人',targets:[{kind:'request',request_id:'r',language_id:'l',label:'旧快照',active:false}],manual_projects:[{source_type:'annotation',project_id:'child',project_name:'子订单'}],remarks:'备注',completed:true,completed_by:'actor'}

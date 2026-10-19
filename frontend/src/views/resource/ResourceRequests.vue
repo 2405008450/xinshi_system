@@ -1,11 +1,11 @@
 <template>
   <div class="resource-request-page">
-    <el-card class="common-page-card compact-list-card">
-      <template #header>
+    <component :is="embedded ? 'section' : ElCard" :class="embedded ? 'resource-request-panel' : 'common-page-card compact-list-card'">
+      <div class="resource-request-toolbar">
         <div class="header">
-          <div>
-            <h2>资源需求管理</h2>
-            <p>统一跟踪标注、招聘、口译、笔译及其他资源请求</p>
+          <div v-if="!embedded || arrangementMode">
+            <h2>{{ arrangementMode ? '需求管理' : '资源需求管理' }}</h2>
+            <p v-if="!arrangementMode">统一跟踪标注、招聘、口译、笔译及其他资源请求</p>
           </div>
           <div class="header-actions">
             <el-button v-if="!deleteMode" @click="openNotes">需求说明</el-button>
@@ -13,14 +13,14 @@
               v-model="selectedColumnKeys"
               :columns="tableColumns"
               :column-count="2"
-              hint="序号和操作列固定显示；客户编号等低频字段默认隐藏，可按需启用。"
+              :hint="arrangementMode ? '序号、详情和操作列固定显示；客户编号等低频字段默认隐藏，可按需启用。' : '序号和操作列固定显示；客户编号等低频字段默认隐藏，可按需启用。'"
               @reset="resetColumns"
             />
             <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
             <el-button v-if="canWrite && !deleteMode" type="primary" @click="openEditor()">新增资源需求</el-button>
           </div>
         </div>
-      </template>
+      </div>
 
       <AppForm :inline="true" :model="searchForm" class="search-form project-list-search-form">
         <div class="project-list-primary-filters">
@@ -81,42 +81,24 @@
             <span v-else>{{ column.label }}</span>
           </template>
           <template #default="{ row }">
-            <el-popover
+            <ResourceRequestDetailPopover
               v-if="column.key === 'requestNo'"
-              trigger="click"
-              placement="left"
-              :width="760"
-              :fallback-placements="['bottom', 'top', 'right']"
-              :popper-options="{ modifiers: [{ name: 'preventOverflow', options: { padding: 16, boundary: 'viewport' } }] }"
-              title="资源需求详情"
-              popper-class="resource-detail-popover"
+              :request="detailOf(row)"
+              :model-value="activeRequestDetailId === row.id"
+              @update:model-value="value => activeRequestDetailId = value ? row.id : ''"
               @show="loadDetail(row)"
               @hide="cancelInlineDetailEdit"
             >
-              <template #reference>
-                <el-button link type="primary" class="request-no-link business-clickable-cell" :title="`${row.requestNo || '-'}（点击查看详情）`" @click.stop>
-                  {{ row.requestNo || '-' }}
-                </el-button>
-              </template>
+              <template #default="{ openProject, hasProject }">
               <div class="detail" v-loading="detailLoading === row.id">
-                <el-descriptions :column="2" border size="small">
-                  <el-descriptions-item label="请求编号">{{ detailOf(row).requestNo || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="需求状态">{{ demandStatusLabels[detailOf(row).demandStatus] || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="项目类型">{{ projectTypesText(detailOf(row)) }}</el-descriptions-item>
-                  <el-descriptions-item label="项目状态">{{ projectStatusText(detailOf(row)) }}</el-descriptions-item>
-                  <el-descriptions-item label="请求状态">{{ statusLabels[detailOf(row).requestStatus] || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="需求项目订单号">{{ detailOf(row).currentOrderNo || detailOf(row).sourceOrderNoSnapshot || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="需求项目">{{ detailOf(row).currentProjectName || detailOf(row).sourceProjectNameSnapshot || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="客户编号">{{ detailOf(row).clientCodeSnapshot || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="客户简称">{{ detailOf(row).clientShortNameSnapshot || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="负责人">{{ ownerName(detailOf(row)) }}</el-descriptions-item>
-                  <el-descriptions-item label="优先级">{{ priorityLabels[detailOf(row).priority] || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="发起时间">{{ formatDate(detailOf(row).requestedAt) }}</el-descriptions-item>
-                  <el-descriptions-item label="需求详情" :span="2"><InlineTextField :model-value="detailOf(row).requestDetail" :editable="canWrite && !deleteMode" :empty-as-null="false" label="需求详情" multiline :save-field="(value) => saveRequestTextField(row, value)" @conflict="loadDetail(row, true)" /></el-descriptions-item>
-                  <el-descriptions-item label="语种、人数及要求" :span="2"><LanguageItemsPopover :items="detailOf(row).items || []" :languages="languages" mode="all" :request-detail="detailOf(row).requestDetail" :always-expanded="true" :editable="canWrite && !deleteMode" :save-item="(item, value) => saveRequestItemTextField(row, item, value)" :on-conflict="() => loadDetail(row, true)" /></el-descriptions-item>
-                </el-descriptions>
+                <ResourceRequestDetailContent :request="detailOf(row)" :project-types="projectTypesText(detailOf(row))" :project-status="projectStatusText(detailOf(row))" :owner-label="ownerName(detailOf(row))">
+                  <template #project><el-button v-if="hasProject" link type="primary" class="associated-project-link" title="点击查看项目详情" @click.stop="openProject($event.currentTarget)">{{ detailOf(row).currentProjectName || detailOf(row).sourceProjectNameSnapshot || '-' }}</el-button><span v-else>{{ detailOf(row).currentProjectName || detailOf(row).sourceProjectNameSnapshot || '-' }}</span></template>
+                  <template #detail><InlineTextField :model-value="detailOf(row).requestDetail" :editable="canWrite && !deleteMode" :empty-as-null="false" label="需求详情" multiline :save-field="(value) => saveRequestTextField(row, value)" @conflict="loadDetail(row, true)" /></template>
+                  <template #items><LanguageItemsPopover :items="detailOf(row).items || []" :languages="languages" mode="all" :request-detail="detailOf(row).requestDetail" :always-expanded="true" :editable="canWrite && !deleteMode" :save-item="(item, value) => saveRequestItemTextField(row, item, value)" :on-conflict="() => loadDetail(row, true)" /></template>
+                </ResourceRequestDetailContent>
               </div>
-            </el-popover>
+              </template>
+            </ResourceRequestDetailPopover>
             <span v-else-if="column.key === 'sourceType'">{{ sourceLabels[row.sourceType] || '-' }}</span>
             <el-tag v-else-if="column.key === 'demandStatus'" :type="demandStatusType(row.demandStatus)" size="small">{{ demandStatusLabels[row.demandStatus] || '-' }}</el-tag>
             <span v-else-if="column.key === 'projectType'">{{ projectTypesText(row) }}</span>
@@ -133,17 +115,32 @@
             <el-progress v-else-if="column.key === 'progress'" :percentage="row.progressPercent" :stroke-width="10" />
             <el-tag v-else-if="column.key === 'requestStatus'" :type="statusType(row.requestStatus)" size="small">{{ statusLabels[row.requestStatus] || '-' }}</el-tag>
             <span v-else-if="column.key === 'requestedAt'">{{ formatDate(row.requestedAt) }}</span>
+            <span v-else-if="column.key === 'arrangedPlatforms'">{{ [...new Set((row.arrangements || []).map(item => item.platformName))].join('、') || '暂未安排' }}</span>
           </template>
         </el-table-column>
-        <el-table-column v-if="canWrite && !deleteMode" label="操作" width="150" fixed="right" align="center">
+        <el-table-column v-if="arrangementMode" label="详情" width="90" fixed="right" align="center">
           <template #default="{ row }">
-            <PrimaryEditButton @click="openEditor(row)" />
-            <el-button link type="primary" :disabled="row.demandStatus === 'paused'" @click="openProgress(row)">更新进度</el-button>
+            <ResourceRequestDetailPopover :request="detailOf(row)" reference-label="查看详情" :model-value="activeRequestDetailId === `${row.id}:details`" @update:model-value="value => activeRequestDetailId = value ? `${row.id}:details` : ''" @show="loadDetail(row)">
+              <template #default="{ openProject, hasProject }">
+                <div class="detail" v-loading="detailLoading === row.id">
+                  <ResourceRequestDetailContent :request="detailOf(row)" :project-types="projectTypesText(detailOf(row))" :project-status="projectStatusText(detailOf(row))" :owner-label="ownerName(detailOf(row))">
+                    <template #project><el-button v-if="hasProject" link type="primary" @click.stop="openProject($event.currentTarget)">{{ detailOf(row).currentProjectName || detailOf(row).sourceProjectNameSnapshot || '-' }}</el-button><span v-else>{{ detailOf(row).currentProjectName || detailOf(row).sourceProjectNameSnapshot || '-' }}</span></template>
+                  </ResourceRequestDetailContent>
+                </div>
+              </template>
+            </ResourceRequestDetailPopover>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="(canWrite || (arrangementMode && arrangementOptions.can_delegate)) && !deleteMode" label="操作" width="160" fixed="right" align="center">
+          <template #default="{ row }">
+            <PrimaryEditButton v-if="canWrite" @click="openEditor(row)" />
+            <el-button v-if="!arrangementMode" link type="primary" :disabled="row.demandStatus === 'paused'" @click="openProgress(row)">更新进度</el-button>
+            <el-button v-else-if="arrangementOptions.can_delegate" link type="primary" :disabled="row.demandStatus !== 'confirmed' || row.requestStatus === 'cancelled' || arranging" @click="openRowArrangement(row)">每日安排</el-button>
           </template>
         </el-table-column>
       </el-table>
-      <el-pagination class="pagination" v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" layout="total, sizes, prev, pager, next" @change="fetchData" />
-    </el-card>
+      <el-pagination class="pagination" v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :page-sizes="arrangementMode ? [5, 10, 20, 50] : [10, 20, 50, 100]" :total="pagination.total" layout="total, sizes, prev, pager, next" @size-change="pageSizeChanged" @current-change="pageChanged" />
+    </component>
 
     <DraggableFormDialog v-model="dialogVisible" :title="form.id ? '编辑资源需求' : '新增资源需求'" width="min(960px, calc(100vw - 32px))" top="5vh" class="resource-dialog" :show-close="!editorBusy" :before-close="beforeEditorClose" @closed="onEditorClosed">
       <template #header>
@@ -271,17 +268,21 @@
 <script setup>
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElButton, ElMessage, ElMessageBox, ElPopover, ElTable, ElTableColumn } from 'element-plus'
+import { ElButton, ElCard, ElMessage, ElMessageBox, ElPopover, ElTable, ElTableColumn } from 'element-plus'
 // 手动导入及 h() 渲染的组件不会自动补齐样式，必须显式声明依赖。
 import 'element-plus/es/components/button/style/css'
+import 'element-plus/es/components/card/style/css'
 import 'element-plus/es/components/popover/style/css'
 import 'element-plus/es/components/table/style/css'
 import 'element-plus/es/components/table-column/style/css'
 import { CircleClose, Plus } from '@element-plus/icons-vue'
 import * as api from '@/api/resourceRequests'
 import { developmentApi } from '@/api/resourceDevelopment'
-import { arrangementToday } from '@/utils/resourceArrangements'
+import { arrangementTomorrow } from '@/utils/resourceArrangements'
 import RequestArrangementDialog from './components/RequestArrangementDialog.vue'
+import ResourceRequestDetailPopover from './components/ResourceRequestDetailPopover.vue'
+import ResourceRequestDetailContent from './components/ResourceRequestDetailContent.vue'
+import { projectTypeLabels } from '@/utils/resourceRequestProjectTypes'
 import { createProjectLanguage, getProjectLanguages } from '@/api/projectLanguages'
 import { getUserOptions } from '@/api/users'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
@@ -305,6 +306,10 @@ import { canPauseDemand, canSendDemand, demandStatusLabels, demandStatusText, de
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import { getCachedOptions } from '@/utils/optionCache'
+
+const props = defineProps({ embedded: { type: Boolean, default: false }, arrangementMode: Boolean })
+const emit = defineEmits(['arrangement-saved', 'requests-changed'])
+const activeRequestDetailId = ref('')
 
 const languageText = (items, languages) => {
   const label = (id) => languages.find((item) => item.id === id)?.label || '-'
@@ -389,7 +394,7 @@ const {
   locateDialogField,
   clearFieldSearch,
 } = useDialogFieldSearch(editorBodyRef)
-const pagination = reactive({ page: 1, limit: 10, total: 0 })
+const pagination = reactive({ page: 1, limit: props.arrangementMode ? 5 : 10, total: 0 })
 const tableRef = ref(null)
 const canWrite = hasPermission('projects:write')
 const searchForm = reactive({ keyword: '' })
@@ -402,10 +407,6 @@ const sourceLabels = { annotation: '标注', recruitment: '招聘', interpretati
 const categoryLabels = { annotation_trial: '标注试标', annotation_formal: '标注正式', recruitment: '招聘', interpretation: '口译', translation: '笔译', other: '其他' }
 const statusLabels = { draft: '草稿', submitted: '已提交', in_progress: '进行中', fulfilled: '已完成', cancelled: '已取消' }
 const priorityLabels = { high: '高', medium: '中', low: '低' }
-const projectTypeLabels = {
-  audio_collection: '音频采集', audio_annotation: '音频标注', audio_evaluation: '音频评测', text_evaluation: '文本评测', text_annotation: '文本标注', quality_inspection: '质检', listening_test: '测听', slot_deduction: '扣槽', generalization: '泛化', translation: '翻译', ai_evaluation: 'ai评测',
-  onsite: '现场口译', booth: '展会摊位口译', exhibition_escort: '展会陪同口译', escort: '陪同口译', small_business_meeting: '小型商务会议口译', small_non_business_meeting: '小型（非商务）会议口译', consecutive: '会议交传口译', simultaneous: '会议同传口译', online_meeting: '线上会议口译', online_simultaneous: '线上同传口译',
-}
 const projectStatusLabels = {
   initial_consultation: '初步咨询', consultation_no_result: '初步咨询后无结果', resource_sourcing: '资源开拓', resource_sourcing_cancelled: '取消资源开拓', trial_preparation: '试标准备', trial_in_progress: '试标中', trial_submitted: '试标已提交', trial_passed: '试标通过', trial_failed: '试标未通过', trial_partially_passed: '部分试标通过', project_in_progress: '项目进行中', sent_to_client: '已发客户', client_feedback: '客户反馈', partially_cancelled: '已部分取消', actively_abandoned: '主动放弃',
   pending_setup: '待启动', sourcing: '寻访中', recommending: '推荐中', interviewing: '面试中', offer_negotiation: 'Offer协商中', pending_onboard: '待入职', probation: '试用期', full_time_dispatch: '全职外派', cancelled: '项目取消', closed: '已关闭',
@@ -456,15 +457,16 @@ const tableColumns = [
   { key: 'requestStatus', label: '请求状态', width: 100 },
   { key: 'requestedAt', label: '发起时间', width: 165 },
 ]
+if (props.arrangementMode) tableColumns.push({ key: 'arrangedPlatforms', label: '已安排平台', minWidth: 160 })
 const legacyDefaultColumnKeys = ['projectType', 'projectStatus', 'projectName', 'clientShortName', 'languages', 'requiredCount', 'requestDetail']
-const defaultColumnKeys = ['requestNo', 'demandStatus', ...legacyDefaultColumnKeys]
+const defaultColumnKeys = ['requestNo', 'demandStatus', ...legacyDefaultColumnKeys, ...(props.arrangementMode ? ['arrangedPlatforms'] : [])]
 const { selectedKeys: selectedColumnKeys, reset: resetColumns } = useTableColumns(
-  'resource-requests',
+  props.arrangementMode ? 'daily-arrangement-requests' : 'resource-requests',
   tableColumns,
   defaultColumnKeys,
   { legacyDefaultKeys: [legacyDefaultColumnKeys, ['requestNo', ...legacyDefaultColumnKeys]] }
 )
-const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows,tableRef,pagination,deleteRow:(row)=>api.deleteResourceRequest(row.id),getLabel:(row)=>row.requestNo||row.currentProjectName||row.id,reload:()=>fetchData(),onDeleted:(row)=>{delete detailCache[row.id]},entityName:'资源需求'})
+const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows,tableRef,pagination,deleteRow:(row)=>api.deleteResourceRequest(row.id),getLabel:(row)=>row.requestNo||row.currentProjectName||row.id,reload:async()=>{await fetchData(); emit('requests-changed')},onDeleted:(row)=>{delete detailCache[row.id]},entityName:'资源需求'})
 const visibleColumns = computed(() => tableColumns.filter((column) => selectedColumnKeys.value.includes(column.key)))
 const advancedCount = computed(() => countActiveFilters(filterModel, advancedFilterFields))
 const resourceRequestHeaderFieldMap = { ownerName: 'ownerId' }
@@ -499,12 +501,14 @@ const fetchData = async () => {
   try {
     const filters = params()
     const page = await api.getResourceRequestPage(
-      { skip: (pagination.page - 1) * pagination.limit, limit: pagination.limit, ...filters },
+      { skip: (pagination.page - 1) * pagination.limit, limit: pagination.limit, ...filters, ...(props.arrangementMode ? { include_arrangements: true } : {}) },
       { signal: controller.signal },
     )
     if (current !== requestId) return
     rows.value = page?.items || []
     pagination.total = page?.total || 0
+    const lastPage = Math.max(1, Math.ceil(pagination.total / pagination.limit))
+    if (pagination.page > lastPage) { pagination.page = lastPage; return fetchData() }
   } catch (error) {
     if (error.code !== 'ERR_CANCELED' && current === requestId) {
       listError.value = error.detail || '网络异常，资源需求列表未刷新，请检查网络后重试'
@@ -515,7 +519,9 @@ const fetchData = async () => {
   }
 }
 const search = () => { exitDeleteMode(); clearTimeout(timer); pagination.page = 1; fetchData() }
-const onKeyword = (value) => { clearTimeout(timer); if (!value) return search(); timer = setTimeout(search, 400) }
+const pageChanged = () => { exitDeleteMode(); fetchData() }
+const pageSizeChanged = () => { exitDeleteMode(); pagination.page = 1; fetchData() }
+const onKeyword = (value) => { clearTimeout(timer); controller?.abort(); requestId++; loading.value = false; if (!value) return search(); timer = setTimeout(search, 400) }
 const updateConfiguredFilter = (key, value) => { filterModel[key] = value }
 const onConfiguredText = (_definition, value) => onKeyword(value)
 const reset = () => { searchForm.keyword = ''; resetFilterModel(filterModel, filterFields); search() }
@@ -725,6 +731,7 @@ const performPersistDraft = async ({ automatic = false } = {}) => {
     nextTick(() => { applyingSavedValue = false })
   }
   delete detailCache[saved.id]
+  emit('requests-changed')
   savedRevision = revision
   if (automatic) {
     autoSaveState.value = 'saved'
@@ -765,6 +772,7 @@ watch(form, () => {
 
 const saveDraftManually = async () => {
   if (submitLocked || editorBusy.value) return
+  const creating = !form.id
   submitLocked = true
   clearTimeout(autoSaveTimer)
   saving.value = true
@@ -774,6 +782,7 @@ const saveDraftManually = async () => {
     clearDraft()
     dialogVisible.value = false
     ElMessage.success(saved.demandStatus === 'draft' ? '草稿已保存' : '需求内容已保存')
+    if (creating) pagination.page = 1
     await fetchData()
   } catch (error) {
     ElMessage.error(error.detail || '保存草稿失败')
@@ -794,6 +803,7 @@ const sendDemand = async () => {
     if (!saved) throw new Error('请先选择来源项目')
     const sent = await api.sendResourceRequest(saved.id)
     applySavedRequest(sent)
+    emit('requests-changed')
     clearDraft()
     dialogVisible.value = false
     ElMessage.success('需求已发送')
@@ -821,6 +831,7 @@ const cancelDemand = async () => {
     await persistDraft()
     const cancelled = await api.cancelResourceRequest(form.id)
     applySavedRequest(cancelled)
+    emit('requests-changed')
     clearDraft()
     dialogVisible.value = false
     ElMessage.success('需求已取消')
@@ -854,6 +865,7 @@ const submitLifecycleChange = async () => {
       ? await api.resumeResourceRequest(saved.id, saved.updatedAt)
       : await api.pauseResourceRequest(saved.id, lifecycleForm.reason, saved.updatedAt)
     applySavedRequest(result)
+    emit('requests-changed')
     delete detailCache[result.id]
     clearDraft()
     lifecycleDialog.value = false
@@ -870,7 +882,7 @@ const submitLifecycleChange = async () => {
 }
 
 const loadArrangementOptions = async () => {
-  if (!canWrite || !hasPermission(['talents:read', 'talents:write', 'translators:read', 'translators:write', 'resource_development:delegate'])) {
+  if ((!canWrite && !props.arrangementMode) || !hasPermission(['talents:read', 'talents:write', 'translators:read', 'translators:write', 'resource_development:delegate'])) {
     arrangementOptions.can_delegate = false
     return
   }
@@ -893,7 +905,7 @@ const openDailyArrangement = async () => {
     clearDraft()
     const request = await developmentApi.arrangementRequest(saved.id)
     if (request.demand_status !== 'confirmed' || request.request_status === 'cancelled') throw new Error('需求已暂停、已取消或尚未发送，请刷新后重试')
-    await arrangementRef.value.open(request, arrangementToday())
+    await arrangementRef.value.open(request, arrangementTomorrow())
   } catch (error) {
     failure = error
     ElMessage.error(getLocalizedErrorMessage(error, '打开每日安排失败，请重试'))
@@ -905,10 +917,23 @@ const openDailyArrangement = async () => {
   if (failure) await formRef.value?.applyServerErrors(failure)
 }
 
-const arrangementSaved = async () => {
-  delete detailCache[form.id]
-  await fetchData()
+const openRowArrangement = async (row) => {
+  if (arranging.value || row.demandStatus !== 'confirmed' || row.requestStatus === 'cancelled') return
+  arranging.value = true
+  try {
+    await loadArrangementOptions()
+    if (!arrangementOptions.can_delegate) throw new Error('当前账号没有资源安排权限')
+    const request = await developmentApi.arrangementRequest(row.id)
+    await arrangementRef.value.open(request, arrangementTomorrow())
+  } catch (error) { ElMessage.error(getLocalizedErrorMessage(error, '打开每日安排失败，请重试')) }
+  finally { arranging.value = false }
 }
+const arrangementSaved = async (day) => {
+  for (const key of Object.keys(detailCache)) delete detailCache[key]
+  await fetchData()
+  emit('arrangement-saved', day)
+}
+defineExpose({ reload: fetchData })
 watch(arrangementVisible, visible => { if (!visible) scheduleAutoSave() })
 
 const flushPendingDraft = async () => {
@@ -927,31 +952,52 @@ const beforeEditorClose = async (done) => { if (!submitLocked && !editorBusy.val
 const openProgress = (row) => { if (row.demandStatus === 'paused') return ElMessage.warning('请先恢复需求再更新进度'); Object.assign(progressForm, { id: row.id, progressPercent: row.progressPercent, progressNote: '' }); progressDialog.value = true }
 const saveProgress = async () => { try { await api.updateResourceProgress(progressForm.id, progressForm); delete detailCache[progressForm.id]; progressDialog.value = false; ElMessage.success('进度已更新'); await fetchData() } catch (error) { ElMessage.error(error.detail || '更新失败') } }
 
+let sourceReady = false, sourceDisposed = false, sourceNavigationSequence = 0
+let sourceNavigationQueue = Promise.resolve()
+const sourceQueryKey = () => JSON.stringify([route.query.sourceType, route.query.sourceProjectId, route.query.requestCategory])
+const handleSourceNavigation = () => {
+  const sequence = ++sourceNavigationSequence
+  sourceNavigationQueue = sourceNavigationQueue.then(async () => {
+    if (!sourceReady || sourceDisposed || sequence !== sourceNavigationSequence) return
+    const sourceType = String(route.query.sourceType || '')
+    const sourceProjectId = String(route.query.sourceProjectId || '')
+    const requestCategory = String(route.query.requestCategory || '')
+    const key = sourceQueryKey()
+    if (!sourceProjectId || !Object.hasOwn(sourceLabels, sourceType) || sourceType === 'other') return
+    const existing = await api.getResourceRequestBySource(sourceType, sourceProjectId)
+    if (sourceDisposed || sequence !== sourceNavigationSequence || key !== sourceQueryKey()) return
+    if (existing) await openEditor(existing)
+    else await openEditor(null, { sourceType, sourceProjectId, requestCategory })
+    if (sourceDisposed || sequence !== sourceNavigationSequence || key !== sourceQueryKey()) return
+    const query = { ...route.query }
+    delete query.sourceType
+    delete query.sourceProjectId
+    delete query.requestCategory
+    await router.replace({ query, hash: route.hash })
+  }).catch(error => { if (!sourceDisposed) ElMessage.error(getLocalizedErrorMessage(error, '打开来源资源需求失败，请重试')) })
+  return sourceNavigationQueue
+}
+watch(sourceQueryKey, handleSourceNavigation)
+
 onMounted(async () => {
+  if (props.arrangementMode) loadArrangementOptions().catch(error => ElMessage.error(getLocalizedErrorMessage(error, '加载每日安排权限失败')))
   const listPromise = fetchData()
   const results = await Promise.allSettled([getProjectLanguages(), getUserOptions({ limit: 50 })])
   languages.value = results[0].value || []
   users.value = (results[1].value || []).map((item) => ({ ...item, fullName: item.display_name }))
   Object.assign(form, emptyForm())
   await listPromise
-  const sourceType = String(route.query.sourceType || '')
-  const sourceProjectId = String(route.query.sourceProjectId || '')
-  if (sourceProjectId && Object.hasOwn(sourceLabels, sourceType) && sourceType !== 'other') {
-    const existing = await api.getResourceRequestBySource(sourceType, sourceProjectId)
-    if (existing) await openEditor(existing)
-    else await openEditor(null, { sourceType, sourceProjectId, requestCategory: String(route.query.requestCategory || '') })
-    const query = { ...route.query }
-    delete query.sourceType
-    delete query.sourceProjectId
-    delete query.requestCategory
-    await router.replace({ query })
-  }
+  sourceReady = true
+  await handleSourceNavigation()
 })
-onBeforeUnmount(() => { clearTimeout(timer); clearTimeout(autoSaveTimer); clearTimeout(sourceOptionTimer); controller?.abort(); sourceOptionController?.abort() })
+onBeforeUnmount(() => { sourceDisposed = true; sourceNavigationSequence++; clearTimeout(timer); clearTimeout(autoSaveTimer); clearTimeout(sourceOptionTimer); controller?.abort(); sourceOptionController?.abort() })
 </script>
 
 <style scoped>
 .resource-request-page { min-height: 0; }
+.resource-request-toolbar { margin-bottom: 14px; }
+.resource-request-panel .header { justify-content: flex-end; }
+.resource-request-panel .header-actions { flex-wrap: wrap; justify-content: flex-end; }
 .header, .header-actions, .advanced__header, .section-title, .item-title { display: flex; align-items: center; }
 .header, .advanced__header, .section-title, .item-title { justify-content: space-between; }
 .header-actions { gap: 8px; }
@@ -966,6 +1012,7 @@ onBeforeUnmount(() => { clearTimeout(timer); clearTimeout(autoSaveTimer); clearT
 .advanced__header { position: sticky; top: 0; z-index: 1; margin-bottom: 12px; background: var(--el-bg-color-overlay); }
 .pagination { margin-top: 16px; }
 .detail { max-height: 560px; overflow-y: auto; }
+.associated-project-link { display: inline; height: auto; white-space: normal; text-align: left; line-height: inherit; overflow-wrap: anywhere; }
 .request-no-link { display: block; width: 100%; height: auto; min-width: 0; padding: 0; text-align: left; white-space: nowrap; }
 .pre { white-space: pre-wrap; word-break: break-word; }
 .cell-summary { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

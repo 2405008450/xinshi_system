@@ -27,9 +27,15 @@
       </div>
     </template>
     <TalentResourceNav />
-    <el-tabs v-model="activeSection" @tab-change="sectionChanged"><el-tab-pane v-if="issueAccess.can_resource" label="开拓日志" name="logs" /><el-tab-pane v-if="issueAccess.can_resource" label="每日安排" name="arrangements" /><el-tab-pane v-if="issueAccess.can_enter" label="开拓问题" name="issues" /></el-tabs>
+    <el-tabs v-model="activeSection" @tab-change="sectionChanged">
+      <el-tab-pane v-if="canRequests" label="需求管理" name="requests" />
+      <el-tab-pane v-if="issueAccess.can_resource" label="开拓日志" name="logs" />
+      <el-tab-pane v-if="issueAccess.can_resource" label="每日安排" name="arrangements" />
+      <el-tab-pane v-if="issueAccess.can_enter" label="开拓问题" name="issues" />
+    </el-tabs>
+    <ResourceRequests v-if="activeSection === 'requests' && canRequests" embedded />
     <DevelopmentIssuePanel v-if="activeSection === 'issues'" />
-    <DevelopmentArrangementPanel v-if="activeSection === 'arrangements'" :options="options" @add-platform="settingsRef.addPlatform()" />
+    <DevelopmentArrangementPanel v-if="activeSection === 'arrangements' && optionsReady" :options="options" @add-platform="settingsRef.addPlatform()" />
     <template v-if="activeSection === 'logs'">
     <div class="development-filters search-bar">
       <el-date-picker v-model="filters.range" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" clearable @change="query" />
@@ -83,7 +89,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useResourceIssues } from '@/composables/useResourceIssues'
 import { ElMessage } from 'element-plus'
@@ -103,12 +109,22 @@ import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useDevelopmentFilters } from '@/composables/useDevelopmentFilters'
 import { developmentApi as api } from '@/api/resourceDevelopment'
 import { developmentColumns, defaultDevelopmentColumns, cleanColumns, statusOptions } from '@/utils/resourceDevelopment'
+import { hasPermission } from '@/utils/permission'
+import { resolveDevelopmentSection } from '@/utils/resourceDevelopmentNavigation'
+const ResourceRequests = defineAsyncComponent(() => import('./ResourceRequests.vue'))
 const options = reactive({ options: [], users: [], languages: [], user_id: '', is_admin: false, can_write: false })
 const route = useRoute(), router = useRouter()
-const { access: issueAccess, refreshIssueAccess } = useResourceIssues()
-const activeSection = ref(route.query.section === 'issues' ? 'issues' : 'logs')
-function sectionChanged(value) { exitDeleteMode(); router.replace({ query: { ...route.query, section: value } }) }
-watch(() => route.query.section, value => { activeSection.value = !issueAccess.can_resource ? 'issues' : ['logs','arrangements','issues'].includes(value) ? value : 'logs' })
+const { access: issueAccess } = useResourceIssues()
+const canRequests = computed(() => hasPermission('projects:read'))
+const resolvedSection = computed(() => resolveDevelopmentSection(route.query.section, {
+  canRequests: canRequests.value, canResource: issueAccess.can_resource, canIssues: issueAccess.can_enter,
+}))
+const activeSection = ref(resolvedSection.value)
+function sectionChanged(value) {
+  exitDeleteMode()
+  if (value && value !== resolvedSection.value) router.replace({ query: { ...route.query, section: value }, hash: route.hash })
+}
+watch(resolvedSection, value => { activeSection.value = value })
 const editorRef = ref(), workRef = ref(), settingsRef = ref(), tableRef = ref(), friendPanelRef = ref(), statusRecordsRef = ref()
 // 默认不限定日期，自动展开最近有开拓记录的日期。
 const { filters, columnFilters, activeColumnKeys, params, setColumnFilter, clearCommonColumn, resetFilters } = useDevelopmentFilters()
@@ -118,6 +134,7 @@ function columnTextInput(key, value) { setColumnFilter(key, value); keywordChang
 const days = ref([]), rows = ref([]), activeDay = ref(''), dayPage = ref(1), recordPage = ref(1), dayTotal = ref(0), recordTotal = ref(0), loading = ref(false), recordsLoading = ref(false), advanced = ref(false)
 const dayPageSize = ref(3), recordPageSize = ref(10)
 const selectedColumns = ref([...defaultDevelopmentColumns])
+const optionsReady = ref(false)
 const platforms = computed(() => options.options.filter(o => o.kind === 'platform')), accounts = computed(() => options.options.filter(o => o.kind === 'account'))
 const advancedCount = computed(() => ['platform_id','account_id','state'].filter(k => filters[k]).length)
 const columnKey = () => `resource-development:columns:${options.user_id}`
@@ -169,8 +186,31 @@ async function recordSaved() { await Promise.all([reload(), statusRecordsRef.val
 async function openEditor(row, channel, status) { try { await loadOptions(); await editorRef.value.open(row, channel, status) } catch (e) { ElMessage.error(e.message) } }
 async function openWork(day, owner) { try { await workRef.value.open(day, owner) } catch (e) { ElMessage.error(e.message) } }
 const chineseDate = value => value ? new Date(`${String(value).slice(0,10)}T00:00:00`).toLocaleDateString('zh-CN') : '-'
-onMounted(async () => { try { await refreshIssueAccess(true); if (!issueAccess.can_resource) { activeSection.value = 'issues'; return } await loadOptions(); const raw = localStorage.getItem(columnKey()); try { selectedColumns.value = raw ? cleanColumns(JSON.parse(raw)) : [...defaultDevelopmentColumns] } catch { localStorage.removeItem(columnKey()); selectedColumns.value = [...defaultDevelopmentColumns] } await nextTick(); await reload() } catch (e) { ElMessage.error(e.message) } })
-onBeforeUnmount(() => { clearTimeout(timer); listController?.abort(); recordController?.abort(); listSeq++; recordSeq++ })
+let optionsPromise, disposed = false
+async function ensureOptions() {
+  if (optionsReady.value) return
+  if (!optionsPromise) optionsPromise = (async () => {
+    await loadOptions()
+    if (disposed) return
+    const raw = localStorage.getItem(columnKey())
+    try { selectedColumns.value = raw ? cleanColumns(JSON.parse(raw)) : [...defaultDevelopmentColumns] }
+    catch { localStorage.removeItem(columnKey()); selectedColumns.value = [...defaultDevelopmentColumns] }
+    optionsReady.value = true
+  })().finally(() => { optionsPromise = null })
+  await optionsPromise
+}
+watch(resolvedSection, async section => {
+  exitDeleteMode(); clearTimeout(timer); listController?.abort(); recordController?.abort(); listSeq++; recordSeq++
+  loading.value = false; recordsLoading.value = false
+  if (!['logs', 'arrangements'].includes(section)) return
+  try {
+    await ensureOptions()
+    if (disposed || resolvedSection.value !== section) return
+    await nextTick()
+    if (section === 'logs') await reload()
+  } catch (e) { if (!disposed && resolvedSection.value === section) ElMessage.error(e.message) }
+}, { immediate: true })
+onBeforeUnmount(() => { disposed = true; clearTimeout(timer); listController?.abort(); recordController?.abort(); listSeq++; recordSeq++ })
 </script>
 
 <style>

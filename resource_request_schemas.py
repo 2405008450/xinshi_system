@@ -144,6 +144,7 @@ class ResourceRequestResponse(ResourceRequestWrite):
     current_project_status: Optional[str] = None
     current_order_no: Optional[str] = None
     current_project_name: Optional[str] = None
+    arrangements: list[dict] = Field(default_factory=list)
     items: list[ResourceRequestItemResponse] = Field(default_factory=list)
     model_config = ConfigDict(from_attributes=True)
 

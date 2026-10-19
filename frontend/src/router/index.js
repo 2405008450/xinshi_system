@@ -1,12 +1,14 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import {
   canAccessRoute,
+  hasPermission,
   getDefaultRoute,
   MANUSCRIPT_VIEW_ROLES,
   setStoredAccess
 } from '../utils/permission'
 import { getCurrentSession } from '../api/auth'
 import { refreshIssueAccess } from '@/composables/useResourceIssues'
+import { resourceRequestsLocation, resolveDevelopmentSection } from '@/utils/resourceDevelopmentNavigation'
 
 const routes = [
   {
@@ -143,8 +145,7 @@ const routes = [
       {
         path: 'resource-requests',
         name: 'ResourceRequests',
-        component: () => import('../views/resource/ResourceRequests.vue'),
-        meta: { title: '资源需求管理', permissions: ['projects:read'], chatContext: 'resource' }
+        redirect: resourceRequestsLocation,
       },
       {
         path: 'recruitment',
@@ -214,7 +215,7 @@ const routes = [
             path: 'resource-development',
             name: 'ResourceDevelopment',
             component: () => import('../views/resource/ResourceDevelopment.vue'),
-            meta: { title: '资源开拓', roles: ['*'], permissions: ['talents:read', 'talents:write', 'translators:read', 'translators:write', 'resource_development:delegate'] }
+            meta: { title: '资源开拓', roles: ['*'], permissions: ['projects:read', 'talents:read', 'talents:write', 'translators:read', 'translators:write', 'resource_development:delegate'] }
           },
           {
             path: 'resource-channels',
@@ -440,15 +441,23 @@ router.beforeEach(async (to, from, next) => {
   }
 
   if (to.name === 'ResourceDevelopment') {
+    let access
     try {
-      const access = await refreshIssueAccess(true)
-      if (!access.can_enter) { next(getDefaultRoute()); return }
-      if (!access.can_resource && to.query.section !== 'issues') { next({ path: to.path, query: { ...to.query, section: 'issues' } }); return }
-      next(); return
+      access = await refreshIssueAccess(true)
     } catch {
-      // 尚未更新接口时，旧资源用户仍按原路由权限进入。
-      if (!canAccessRoute(to)) { next(getDefaultRoute()); return }
+      // 开拓权限接口不可用时，需求入口仍可按自身读取权限访问。
+      access = { can_resource: false, can_enter: false }
     }
+    const section = resolveDevelopmentSection(to.query.section, {
+      canRequests: hasPermission('projects:read'),
+      canResource: access.can_resource,
+      canIssues: access.can_enter,
+    })
+    if (!section) { next(getDefaultRoute()); return }
+    if (section !== to.query.section && !(section === 'logs' && !to.query.section)) {
+      next({ path: to.path, query: { ...to.query, section }, hash: to.hash, replace: true }); return
+    }
+    next(); return
   }
 
   if (!canAccessRoute(to)) {

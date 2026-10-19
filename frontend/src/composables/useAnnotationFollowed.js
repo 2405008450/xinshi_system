@@ -2,6 +2,9 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { chatRequest } from '@/api/projectChat'
 import { subscribe, ensureConnected } from '@/utils/realtimeSocket'
 import { useProjectChatDock, refreshOpenAnnotationStatuses } from '@/composables/useProjectChatDock'
+import { applySessionCategories } from '@/composables/useChatSessionCategories'
+import { useChatTopics } from '@/composables/useChatTopics'
+const { refresh: refreshTopics } = useChatTopics()
 
 const sessions = ref([])
 const followed = computed(() => sessions.value.filter(s => s.kind === 'annotation' && s.following !== false).map(s => ({ ...s, projectName: s.title, orderNo: s.subtitle })))
@@ -33,6 +36,8 @@ async function refresh() {
     const data = await chatRequest('sessions', { signal: controller.signal })
     if (version !== generation || userId !== localStorage.getItem('user_id')) return
     sessions.value = data.items || []
+    applySessionCategories(data.sessionCategories)
+    refreshTopics().catch(() => {})
     phaseOneEnabled.value = !!data.phaseOneEnabled
     mentionTotal.value = data.mentionTotal || 0
     mentionHistoryTotal.value = data.mentionHistoryTotal || 0
@@ -64,6 +69,7 @@ function start() {
     subscribe('annotation_chat_changed', refresh),
     subscribe('direct_chat_changed', refresh),
     subscribe('chat_sessions_changed', refresh),
+    subscribe('chat_topics_changed', () => refreshTopics(true).catch(() => {})),
     subscribe('chat_message', refresh),
     subscribe('notification', refresh),
     subscribe('connected', refresh),
@@ -76,6 +82,7 @@ function stop() {
   ++generation
   controller?.abort()
   sessions.value = []
+  applySessionCategories(null)
   total.value = 0
   mentionTotal.value = 0
   mentionHistoryTotal.value = 0

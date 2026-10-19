@@ -88,58 +88,7 @@
               <template #reference>
                 <el-button type="primary" link class="order-no-link business-clickable-cell" :title="row.orderNo" @click.stop>{{ row.orderNo }}</el-button>
               </template>
-              <div class="detail-content" v-loading="detailLoadingId === row.id">
-                <el-descriptions :column="2" border size="small">
-                  <el-descriptions-item label="订单号">{{ textValue(detailRow(row).orderNo) }}</el-descriptions-item>
-                  <el-descriptions-item label="项目状态">{{ statusLabel(detailRow(row).projectStatus) }}</el-descriptions-item>
-                  <el-descriptions-item label="项目名称" :span="2">{{ textValue(detailRow(row).projectName) }}</el-descriptions-item>
-                  <el-descriptions-item label="内部协作角色" :span="2">{{ internalRolesText(detailRow(row)) }}</el-descriptions-item>
-                  <el-descriptions-item label="具体任务" :span="2"><InlineTextField :model-value="detailRow(row).taskDescription" :editable="canWrite && !deleteMode" label="具体任务" multiline :save-field="(value) => saveDetailTextField(row, 'taskDescription', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
-                  <el-descriptions-item label="项目类型" :span="2">{{ projectTypesText(detailRow(row)) }}</el-descriptions-item>
-                  <el-descriptions-item label="客户简称">{{ textValue(detailRow(row).clientShortName) }}</el-descriptions-item>
-                  <el-descriptions-item label="客户编号">{{ textValue(detailRow(row).clientCode) }}</el-descriptions-item>
-                  <el-descriptions-item label="客户全称">{{ textValue(detailRow(row).clientFullName) }}</el-descriptions-item>
-                  <el-descriptions-item label="客户领域">{{ textValue(detailRow(row).clientDomain) }}</el-descriptions-item>
-                  <el-descriptions-item label="现客户经理">{{ textValue(detailRow(row).currentClientManager) }}</el-descriptions-item>
-                  <el-descriptions-item label="客户经理联系方式">{{ textValue(detailRow(row).managerContact) }}</el-descriptions-item>
-                  <el-descriptions-item label="子客户/联系人"><InlineTextField :model-value="detailRow(row).contactName" :display-value="detailRow(row).contactName || detailRow(row).subClientContact" :editable="canWrite && !deleteMode" label="子客户/联系人" :maxlength="255" :save-field="(value) => saveDetailTextField(row, 'contactName', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
-                  <el-descriptions-item label="客户单号/项目标识" :span="2"><InlineTextField :model-value="detailRow(row).customerOrderNo" :editable="canWrite && !deleteMode" label="客户单号/项目标识" :maxlength="150" :save-field="(value) => saveDetailTextField(row, 'customerOrderNo', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
-                  <el-descriptions-item label="项目时间" :span="2">{{ timeRangesText(detailRow(row).timeRanges) }}</el-descriptions-item>
-                  <el-descriptions-item label="项目地点" :span="2">{{ arrayText(detailRow(row).locations, '、') }}</el-descriptions-item>
-                  <el-descriptions-item label="口译方向" :span="2">{{ textValue(detailRow(row).languageDirectionsDisplay) }}</el-descriptions-item>
-                  <el-descriptions-item label="客户预算" :span="2"><InlineTextField :model-value="detailRow(row).customerBudget" :editable="canWrite && !deleteMode" label="客户预算" multiline :maxlength="500" :save-field="(value) => saveDetailTextField(row, 'customerBudget', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
-                  <el-descriptions-item label="客户咨询时间">{{ formatDateTime(detailRow(row).customerConsultationTime) }}</el-descriptions-item>
-                  <el-descriptions-item label="客户确认时间">{{ formatDateTime(detailRow(row).customerConfirmationTime) }}</el-descriptions-item>
-                  <el-descriptions-item label="口译领域" :span="2"><InlineTextField :model-value="detailRow(row).interpretationDomain" :editable="canWrite && !deleteMode" label="口译领域" multiline :save-field="(value) => saveDetailTextField(row, 'interpretationDomain', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
-                  <el-descriptions-item label="口译内容" :span="2"><InlineTextField :model-value="detailRow(row).interpretationContent" :editable="canWrite && !deleteMode" label="口译内容" multiline :save-field="(value) => saveDetailTextField(row, 'interpretationContent', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
-                  <el-descriptions-item label="总需求人数">{{ textValue(detailRow(row).requiredInterpreterCount) }}</el-descriptions-item>
-                  <el-descriptions-item label="译员性别">{{ textValue(detailRow(row).requiredInterpreterGender) }}</el-descriptions-item>
-                  <el-descriptions-item label="口译水平">{{ textValue(detailRow(row).requiredInterpretationLevel) }}</el-descriptions-item>
-                  <el-descriptions-item label="特殊要求"><InlineTextField :model-value="detailRow(row).interpreterSpecialRequirements" :editable="canWrite && !deleteMode" label="特殊要求" multiline :save-field="(value) => saveDetailTextField(row, 'interpreterSpecialRequirements', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
-                  <el-descriptions-item label="译员身高"><InlineTextField :model-value="detailRow(row).interpreterHeightRequirement" :editable="canWrite && !deleteMode" label="译员身高" :maxlength="100" :save-field="(value) => saveDetailTextField(row, 'interpreterHeightRequirement', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
-                  <el-descriptions-item label="译员相貌"><InlineTextField :model-value="detailRow(row).interpreterAppearanceRequirement" :editable="canWrite && !deleteMode" label="译员相貌" :maxlength="255" :save-field="(value) => saveDetailTextField(row, 'interpreterAppearanceRequirement', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
-                  <el-descriptions-item label="着装要求" :span="2"><InlineTextField :model-value="detailRow(row).interpreterDressRequirement" :editable="canWrite && !deleteMode" label="着装要求" :maxlength="255" multiline :save-field="(value) => saveDetailTextField(row, 'interpreterDressRequirement', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
-                  <el-descriptions-item label="译员安排" :span="2">{{ textValue(detailRow(row).assignedInterpretersDisplay) }}</el-descriptions-item>
-                  <el-descriptions-item label="译员编号" :span="2">{{ textValue(detailRow(row).translatorCodes) }}</el-descriptions-item>
-                  <el-descriptions-item label="项目文件路径" :span="2"><InlineTextField :model-value="detailRow(row).filePath" :editable="canWrite && !deleteMode" label="项目文件路径" multiline :save-field="(value) => saveDetailTextField(row, 'filePath', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
-                  <el-descriptions-item label="报价单路径" :span="2"><InlineTextField :model-value="detailRow(row).quotationPath" :editable="canWrite && !deleteMode" label="报价单路径" multiline :save-field="(value) => saveDetailTextField(row, 'quotationPath', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
-                  <el-descriptions-item label="合同路径" :span="2"><InlineTextField :model-value="detailRow(row).contractPath" :editable="canWrite && !deleteMode" label="合同路径" multiline :save-field="(value) => saveDetailTextField(row, 'contractPath', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
-                  <el-descriptions-item label="客户对信实评价">{{ textValue(detailRow(row).clientRating) }}</el-descriptions-item>
-                  <el-descriptions-item label="评价备注"><InlineTextField :model-value="detailRow(row).clientRatingNote" :editable="canWrite && !deleteMode" label="评价备注" multiline :save-field="(value) => saveDetailTextField(row, 'clientRatingNote', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
-                  <el-descriptions-item label="客户对译员评价" :span="2">
-                    {{ interpreterRatingsText(detailRow(row).interpreterAssignments) }}
-                  </el-descriptions-item>
-                  <el-descriptions-item label="发圈请求" :span="2"><InlineTextField :model-value="detailRow(row).socialPostRequest" :editable="canWrite && !deleteMode" label="发圈请求" multiline :save-field="(value) => saveDetailTextField(row, 'socialPostRequest', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
-                  <el-descriptions-item label="资源请求" :span="2"><InlineTextField :model-value="detailRow(row).resourceRequest" :editable="canWrite && !deleteMode" label="资源请求" multiline :save-field="(value) => saveDetailTextField(row, 'resourceRequest', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
-                  <el-descriptions-item label="来源咨询 ID" :span="2">{{ textValue(detailRow(row).consultationId) }}</el-descriptions-item>
-                  <el-descriptions-item label="创建时间">{{ formatDateTime(detailRow(row).createdAt) }}</el-descriptions-item>
-                  <el-descriptions-item label="更新时间">{{ formatDateTime(detailRow(row).updatedAt) }}</el-descriptions-item>
-                  <el-descriptions-item label="备注" :span="2">
-                    <InlineTextField :model-value="detailRow(row).remarks" :editable="canWrite && !deleteMode" label="备注" multiline :save-field="(value) => saveDetailTextField(row, 'remarks', value)" @conflict="loadDetail(row.id, true)" />
-                  </el-descriptions-item>
-                  <el-descriptions-item label="邮件主题预览" :span="2"><InlineTextField :model-value="detailRow(row).emailSubjectPreview" :editable="canWrite && !deleteMode" label="邮件主题预览" multiline :save-field="(value) => saveDetailTextField(row, 'emailSubjectPreview', value)" @conflict="loadDetail(row.id, true)" /></el-descriptions-item>
-                </el-descriptions>
-              </div>
+              <InterpretationProjectDetailContent :row="detailRow(row)" :editable="canWrite && !deleteMode" :loading="detailLoadingId === row.id" :save-field="(field, value) => saveDetailTextField(row, field, value)" @conflict="loadDetail(row.id, true)" />
             </el-popover>
             <PathActionButtons @open="openProjectPath(row)" @copy="copyProjectPath(row)" />
           </div>
@@ -622,6 +571,8 @@
 </template>
 
 <script setup>
+import InterpretationProjectDetailContent from '@/components/project/InterpretationProjectDetailContent.vue'
+import { projectTypeOptions, ratingOptions, statusLabel, statusType, textValue, internalRolesText, arrayText, formatRange, timeRangesText, projectTypesText, ratingText, interpreterRatingsText } from '@/utils/interpretationProjectDetail'
 import ProjectExportMenu from '@/components/common/ProjectExportMenu.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -660,7 +611,7 @@ import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete
 import { copyTextToClipboard } from '@/utils/clipboard'
 import { launchOpenPath } from '@/utils/openPath'
 import { createIdempotencyKey } from '@/utils/idempotency'
-import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
+import { formatBusinessDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 import { groupProjectProgressRows } from '@/utils/annotationProgress'
 
@@ -731,18 +682,7 @@ let requestController = null
 let requestId = 0
 let namePreviewRequestId = 0
 
-const projectTypeOptions = [
-  { value: 'onsite', label: '现场口译' },
-  { value: 'booth', label: '展会摊位口译' },
-  { value: 'exhibition_escort', label: '展会陪同口译' },
-  { value: 'escort', label: '陪同口译' },
-  { value: 'small_business_meeting', label: '小型商务会议口译' },
-  { value: 'small_non_business_meeting', label: '小型（非商务）会议口译' },
-  { value: 'consecutive', label: '会议交传口译' },
-  { value: 'simultaneous', label: '会议同传口译' },
-  { value: 'online_meeting', label: '线上会议口译' },
-  { value: 'online_simultaneous', label: '线上同传口译' },
-]
+
 const projectTypeMap = Object.fromEntries(projectTypeOptions.map((item) => [item.value, item.label]))
 const statusOptions = [
   { value: 'initial_follow_up', label: '初步跟进中' },
@@ -774,13 +714,7 @@ const statusRules = {
     return note.length <= maxLength ? callback() : callback(new Error(`${statusEntryMode.value === 'progress' ? '具体进度' : '变更说明'}不能超过 ${maxLength} 字`))
   }, trigger: ['blur', 'change'] }],
 }
-const ratingOptions = [
-  { value: 'very_satisfied', label: '非常满意' },
-  { value: 'satisfied', label: '满意' },
-  { value: 'basically_satisfied', label: '基本满意' },
-  { value: 'dissatisfied', label: '不满意' },
-  { value: 'very_dissatisfied', label: '非常不满意' },
-]
+
 const ratingMap = Object.fromEntries(ratingOptions.map((item) => [item.value, item.label]))
 
 const tableColumns = [
@@ -975,25 +909,6 @@ const selectableLanguages = computed(() => languages.value.filter(
   (item) => item.isActive !== false || selectedLanguageIds.value.has(item.id)
 ))
 
-const statusLabel = (value) => statusMap[value] || value || '-'
-const statusType = (value) => ({ initial_follow_up: 'warning', deal_pending_execution: 'primary', in_progress: 'primary', cancelled: 'danger', partially_cancelled: 'warning', ended: 'success', settled: 'success' }[value] || 'info')
-const textValue = (value) => value === null || value === undefined || value === '' ? '-' : String(value)
-const internalRolesText = (row) => {
-  const labels = { project_manager: '项目经理', project_specialist: '项目专员', project_assistant: '项目助理' }
-  return (row.roleAssignments || []).map((item) => `${labels[item.roleCode] || item.roleName}：${item.assigneeName || '未分配'}`).join('；') || '-'
-}
-const arrayText = (value, separator = '；') => Array.isArray(value) && value.length ? value.join(separator) : '-'
-const formatRange = (item) => {
-  const scheduled = `${formatDateTime(item.scheduledStart)} 至 ${formatDateTime(item.scheduledEnd)}`
-  const actual = item.actualStart || item.actualEnd ? `；实际 ${formatDateTime(item.actualStart)} 至 ${formatDateTime(item.actualEnd)}` : ''
-  return `${scheduled}${actual}`
-}
-const timeRangesText = (items) => Array.isArray(items) && items.length ? items.map(formatRange).join('；') : '-'
-const projectTypesText = (row) => Array.isArray(row.projectTypes) && row.projectTypes.length ? row.projectTypes.map((value) => projectTypeMap[value] || value).join('；') : '-'
-const ratingText = (rating, note) => [ratingMap[rating] || rating, note].filter(Boolean).join('：') || '-'
-const interpreterRatingsText = (items) => Array.isArray(items) && items.length
-  ? items.map((item) => `${item.translatorName}：${ratingText(item.customerRating, item.evaluationNote)}`).join('；')
-  : '-'
 const tableCellText = (row, key) => {
   if (key === 'projectTypes') return projectTypesText(row)
   if (key === 'timeRanges') return timeRangesText(row.timeRanges)

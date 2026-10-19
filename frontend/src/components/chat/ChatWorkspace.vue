@@ -33,7 +33,15 @@
         <template v-if="pane === 'messages'">
           <div class="chat-workspace__session-tools">
             <div class="chat-workspace__search"><el-input v-model="keyword" clearable size="small" placeholder="搜索名称、订单号、消息" @keyup.enter="applyKeyword"><template #prefix><el-button link :icon="Search" aria-label="查询会话" title="查询" @click="applyKeyword" /></template></el-input></div>
-            <div class="chat-workspace__tabs"><el-popover v-model:visible="groupsVisible" trigger="click" placement="bottom-end" :width="220" popper-class="chat-session-popover"><template #reference><el-button text size="small" class="chat-workspace__filter" :aria-label="`会话分组 ${groups.find(g => g.key === tab)?.label || '消息'}`" :title="groups.find(g => g.key === tab)?.label"><el-icon><Filter /></el-icon><span class="chat-workspace__filter-label">{{ groups.find(g => g.key === tab)?.label }}</span></el-button></template><div class="chat-session-groups"><el-button v-for="group in groups" :key="group.key" link :type="tab === group.key ? 'primary' : ''" @click="tab = group.key; groupsVisible = false">{{ group.label }} ({{ groupCount(group.key) }})</el-button></div></el-popover></div>
+            <div class="chat-workspace__tabs">
+              <el-popover v-model:visible="groupsVisible" trigger="click" placement="bottom-end" :width="280" popper-class="chat-session-popover">
+                <template #reference><el-button text size="small" class="chat-workspace__filter" :aria-label="`会话分组 ${currentGroupLabel}`" :title="currentGroupLabel"><el-icon><Filter /></el-icon><span class="chat-workspace__filter-label">{{ currentGroupLabel }}</span></el-button></template>
+                <div class="chat-session-groups">
+                  <el-button v-for="group in groups" :key="group.key" link :type="tab === group.key ? 'primary' : ''" @click="tab = group.key; groupsVisible = false">{{ group.label }} ({{ groupCount(group.key) }})</el-button>
+                  <ChatSessionCategoryMenu :sessions="sessions" :selected="tab" @select="tab = $event; groupsVisible = false" @changed="emit('categories-changed')" @editing="groupsVisible = true" />
+                </div>
+              </el-popover>
+            </div>
           </div>
           <div v-if="tab === 'annotation'" class="chat-workspace__annotation-filters">
             <button type="button" class="chat-workspace__status-toggle" :aria-expanded="statusOptionsExpanded" aria-controls="chat-annotation-status-options" :aria-label="statusOptionsExpanded ? '收起状态筛选' : '展开状态筛选'" :title="statusFilterSummary" @click="toggleStatusOptions">
@@ -71,7 +79,7 @@
               </span>
               <el-icon v-if="session.pinned" title="已置顶" class="chat-session-pin"><Top /></el-icon>
               <span class="chat-workspace__session-hover" @click.stop @keydown.stop>
-                <el-popover trigger="click" placement="bottom-end" :width="150" popper-class="chat-session-popover"><template #reference><el-button link aria-label="会话操作">⋯</el-button></template><div class="chat-session-groups"><el-button link @click="emit('preference', { session, data: { pinned: !session.pinned } })">{{ session.pinned ? '取消置顶' : '置顶' }}</el-button><el-button link @click="emit('preference', { session, data: { starred: !session.starred } })">{{ session.starred ? '取消特别关注' : '特别关注' }}</el-button><el-button link @click="emit('preference', { session, data: { markRead: true } })">标为已读</el-button></div></el-popover>
+                <el-popover trigger="click" placement="bottom-end" :width="150" popper-class="chat-session-popover"><template #reference><el-button link aria-label="会话操作">⋯</el-button></template><div class="chat-session-groups"><el-button link @click="emit('preference', { session, data: { pinned: !session.pinned } })">{{ session.pinned ? '取消置顶' : '置顶' }}</el-button><el-button link @click="emit('preference', { session, data: { starred: !session.starred } })">{{ session.starred ? '取消特别关注' : '特别关注' }}</el-button><el-button v-if="categories.ready" link @click="categoryAssignment.open(session)">设置分类</el-button><el-button link @click="emit('preference', { session, data: { markRead: true } })">标为已读</el-button></div></el-popover>
                 <el-button v-if="session.opened" link class="chat-workspace__session-close" aria-label="关闭会话" title="关闭" @click="emit('close', session)"><el-icon><Close /></el-icon></el-button>
               </span>
             </div>
@@ -82,6 +90,7 @@
         <div v-show="pane === 'topics'" class="chat-workspace__topic-panel"><ChatTopicNavigation :project-id="projectId" :project-type="projectType" all-allowed @annotation="showAnnotation" /></div>
       </aside>
       <div class="chat-workspace__stage"><div v-if="!activeKey" class="chat-workspace__empty"><el-icon><ChatDotRound /></el-icon><strong>开始沟通</strong><span>选择会话，或从通讯录发起私聊</span></div></div>
+      <ChatSessionCategoryAssignment ref="categoryAssignment" @changed="emit('categories-changed', $event)" />
     </div>
   </div>
 </template>
@@ -98,6 +107,9 @@ import ProjectMentionPopover from './ProjectMentionPopover.vue'
 import ChatProjectActions from './ChatProjectActions.vue'
 import ChatWindowStateMenu from './ChatWindowStateMenu.vue'
 import ChatTopicNavigation from './ChatTopicNavigation.vue'
+import ChatSessionCategoryMenu from './ChatSessionCategoryMenu.vue'
+import ChatSessionCategoryAssignment from './ChatSessionCategoryAssignment.vue'
+import { categoryKey, useChatSessionCategories } from '@/composables/useChatSessionCategories'
 
 const props = defineProps({
   projectId: { type: String, default: '' },
@@ -119,7 +131,7 @@ const props = defineProps({
 })
 const emit = defineEmits([
   'browse-project-mentions', 'select-project-mention', 'more-project-mentions', 'retry-project-mentions',
-  'preference', 'select', 'open', 'locate-mention', 'close', 'close-active', 'minimize', 'cycle-size', 'toggle-maximize', 'toggle-layout',
+  'preference', 'categories-changed', 'select', 'open', 'locate-mention', 'close', 'close-active', 'minimize', 'cycle-size', 'toggle-maximize', 'toggle-layout',
   'open-search', 'toggle-sidebar', 'header-mousedown', 'header-dblclick', 'retry', 'pin', 'resize', 'fullscreen', 'contact-opened',
 ])
 
@@ -136,10 +148,16 @@ const typeLabel = type => type === 'direct' ? '单聊' : type === 'annotation' ?
 function contactOpened() { pane.value = 'messages'; tab.value = 'all'; emit('contact-opened') }
 const sessionStamp = value => { const normalized = businessDateTimeInputValue(value); return normalized ? Date.parse(normalized.replace(' ', 'T') + '+08:00') : 0 }
 const groups = [{ key: 'all', label: '消息' }, { key: 'pinned', label: '置顶' }, { key: 'unread', label: '未读' }, { key: 'mention', label: '@我' }, { key: 'direct', label: '单聊' }, { key: 'starred', label: '特别关注' }, { key: 'project', label: '项目群' }, { key: 'annotation', label: '标注项目群' }, { key: 'translation', label: '笔译项目群' }, { key: 'creator', label: '我创建的' }]
+const { categories } = useChatSessionCategories()
+const categoryAssignment = ref()
+const currentGroupLabel = computed(() => groups.find(group => group.key === tab.value)?.label || categories.items.find(row => categoryKey(row.id) === tab.value)?.name || '消息')
 const storageKey = `xinshi.chatGroup.${localStorage.getItem('user_id') || 'anonymous'}`
 let saved = 'all'
 try { saved = localStorage.getItem(storageKey) || 'all' } catch { /* 存储不可用时使用默认分组。 */ }
-const tab = ref(groups.some(g => g.key === saved) ? saved : 'all')
+const tab = ref(groups.some(g => g.key === saved) || saved.startsWith('category:') ? saved : 'all')
+watch(() => [categories.loaded, categories.ready, categories.items.map(row => `${row.id}:${row.active}`).join(',')], ([loaded, ready]) => {
+  if (loaded && tab.value.startsWith('category:') && (!ready || !categories.items.some(row => row.active && categoryKey(row.id) === tab.value))) tab.value = 'all'
+})
 const groupsVisible = ref(false)
 const annotationStatus = ref('')
 const annotationMentions = ref(false)
@@ -185,6 +203,7 @@ function selectMoreStatus(value) { annotationStatus.value = value; moreStatusesV
 watch(tab, () => { moreStatusesVisible.value = false; groupsVisible.value = false })
 watch(tab, value => { try { localStorage.setItem(storageKey, value) } catch { /* 本次选择仍然生效。 */ } })
 function inGroup(session, key) {
+  if (key.startsWith('category:')) return !!session.categoryIds?.includes(key.slice('category:'.length))
   if (key === 'all') return true
   if (key === 'creator') return !!session.isCreator
   if (key === 'project') return session.projectType !== 'direct'

@@ -29,8 +29,8 @@ export const getInterpretationProjectPage = (params, config = {}) => (
   api.get('/projects/interpretation/page', { ...config, params }).then((res) => convertKeys(res, toCamelCase))
 )
 
-export const getInterpretationProject = (id) => (
-  api.get(`/projects/interpretation/${id}`).then((res) => convertKeys(res, toCamelCase))
+export const getInterpretationProject = (id, config = {}) => (
+  api.get(`/projects/interpretation/${id}`, config).then((res) => convertKeys(res, toCamelCase))
 )
 
 export const createInterpretationProject = async (data, idempotencyKey) => {

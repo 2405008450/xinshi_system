@@ -11,7 +11,7 @@ test('表单以真实文件名作为唯一项目名称，保存时同步兼容�
   assert.match(source, /label="项目名称" prop="sourceFileName" data-field-key="sourceFileName"/)
   assert.match(source, /v-model="form\.sourceFileName"/)
   assert.match(source, /sourceFileName: ''/)
-  assert.match(source, /label: '项目名称', key: 'sourceFileName', span: 2, editable: true, required: true, maxlength: 255/)
+  assert.match(read('src/utils/translationProjectDetail.js'), /label: '项目名称', key: 'sourceFileName', span: 2, editable: true, required: true, maxlength: 255/)
   assert.match(source, /key: 'sourceFileName', label: '项目名称', type: 'text'/)
   assert.match(source, /NULLABLE_FIELDS = \['sourceFileName'/)
   assert.match(source, /v-model:source-file-name="form\.sourceFileName"/)
@@ -26,7 +26,7 @@ test('表单以真实文件名作为唯一项目名称，保存时同步兼容�
 
 test('列表和详情的项目名称仅使用文件名，客户简称去掉母字', () => {
   const source = read('src/views/project/translation/ProjectDetails.vue')
-  const details = source.slice(source.indexOf('const projectDetailItems = ['), source.indexOf('const subOrderDetailItems = ['))
+  const details = read('src/utils/translationProjectDetail.js')
   const filters = source.slice(source.indexOf('const translationFilterFields = ['), source.indexOf('Object.assign(searchForm'))
 
   assert.doesNotMatch(details, /key: 'projectName'|母订单文件名称|母客户简称/)
