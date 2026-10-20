@@ -4,6 +4,7 @@
       <div v-show="workspaceVisible" class="chat-workspace-shell" :class="{ 'chat-workspace-shell--maximized': state.workspaceMaximized }" :style="workspaceShellStyle" @mousedown="focusWorkspace">
         <ChatWorkspace
           :sessions="sessions"
+          @pane-change="workspacePane = $event"
           :mention-history-total="mentionHistoryTotal"
           :project-mentions="mentionPreview"
           @browse-project-mentions="previewProject = $event"
@@ -48,7 +49,7 @@
 
       <section
         v-for="chatWindow in state.windows"
-        v-show="isChatWindowVisible(chatWindow) && !(state.layout === 'workspace' && workspaceNarrow && sidebarOpen)"
+        v-show="isChatWindowVisible(chatWindow) && !(state.layout === 'workspace' && (workspacePane === 'topics' || (workspaceNarrow && sidebarOpen)))"
         :key="chatWindow.key"
         class="project-chat-window"
         :class="windowClass(chatWindow)"
@@ -101,7 +102,7 @@
             :project-id="chatWindow.projectId"
             :target-message-id="chatWindow.targetMessageId"
             :project-type="chatWindow.projectType"
-            :active="isChatWindowVisible(chatWindow)"
+            :active="isChatWindowVisible(chatWindow) && !(state.layout === 'workspace' && workspacePane === 'topics')"
             :history-placement="historyPlacement(chatWindow)"
             :toolbar-target="state.layout === 'workspace' ? '#chat-workspace-session-tools' : `#chat-tools-${chatWindow.key.replace(':', '-')}`"
             conversation-mode
@@ -215,6 +216,7 @@ const WORKSPACE_HEADER = 52
 const isCompactScreen = ref(false)
 const viewportSize = ref({ width: window.innerWidth, height: window.innerHeight })
 const draggingKey = ref('')
+const workspacePane = ref('messages')
 const sidebarOpen = ref(true)
 const panelRefs = new Map()
 const mentionRefs = new Map()

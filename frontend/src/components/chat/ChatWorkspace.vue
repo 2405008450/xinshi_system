@@ -3,18 +3,18 @@
     <header class="chat-workspace__header" :class="{ 'chat-workspace__header--dragging': dragging, 'chat-workspace__header--pinned': maximized }" @mousedown="emit('header-mousedown', $event)" @dblclick="emit('header-dblclick', $event)">
       <el-button v-if="narrow" link aria-label="会话列表" title="会话列表" @click="emit('toggle-sidebar')"><el-icon><ChatDotRound /></el-icon></el-button>
       <div class="chat-workspace__heading" @mousedown.stop @dblclick.stop>
-        <strong :title="[title, subtitle].filter(Boolean).join(' · ')">{{ title || '沟通' }}</strong>
-        <el-tag v-if="projectType && !narrow" size="small" effect="plain">{{ typeLabel(projectType) }}</el-tag>
-        <span v-if="projectType === 'direct' && subtitle && subtitle !== '内部私聊'" class="chat-workspace__subtitle">{{ subtitle }}</span>
+        <strong :title="[title, subtitle].filter(Boolean).join(' · ')">{{ pane === 'topics' ? '主题消息' : title || '沟通' }}</strong>
+        <el-tag v-if="pane !== 'topics' && projectType && !narrow" size="small" effect="plain">{{ typeLabel(projectType) }}</el-tag>
+        <span v-if="pane !== 'topics' && projectType === 'direct' && subtitle && subtitle !== '内部私聊'" class="chat-workspace__subtitle">{{ subtitle }}</span>
       </div>
       <div class="chat-workspace__actions">
-        <div id="chat-workspace-session-tools" class="chat-header-session-tools" />
-        <ChatTopicNavigation v-if="activeKey" compact icon-only :project-id="projectId" :project-type="projectType" />
-        <ChatProjectActions :project-id="projectId" :project-type="projectType" icon-only />
-        <el-button v-if="activeKey" link aria-label="聊天记录" title="聊天记录" @click="emit('open-search')"><el-icon><Search /></el-icon></el-button>
+        <div v-show="pane !== 'topics'" id="chat-workspace-session-tools" class="chat-header-session-tools" />
+        <ChatTopicNavigation v-if="activeKey && pane !== 'topics'" compact icon-only :project-id="projectId" :project-type="projectType" />
+        <ChatProjectActions v-if="pane !== 'topics'" :project-id="projectId" :project-type="projectType" icon-only />
+        <el-button v-if="activeKey && pane !== 'topics'" link aria-label="聊天记录" title="聊天记录" @click="emit('open-search')"><el-icon><Search /></el-icon></el-button>
         <span class="chat-header-divider" />
-        <el-button v-if="activeKey && !narrow" link aria-label="固定小窗" title="固定当前小窗，边聊边工作" @click="emit('pin')"><el-icon><Position /></el-icon></el-button>
-        <ChatWindowStateMenu v-if="!narrow" icon-only :size-mode="sizeMode" :maximized="maximized" workspace :has-session="!!activeKey" @resize="emit('resize', $event)" @fullscreen="emit('fullscreen')" @pin="emit('pin')" />
+        <el-button v-if="activeKey && !narrow && pane !== 'topics'" link aria-label="固定小窗" title="固定当前小窗，边聊边工作" @click="emit('pin')"><el-icon><Position /></el-icon></el-button>
+        <ChatWindowStateMenu v-if="!narrow" icon-only :size-mode="sizeMode" :maximized="maximized" workspace :has-session="!!activeKey && pane !== 'topics'" @resize="emit('resize', $event)" @fullscreen="emit('fullscreen')" @pin="emit('pin')" />
         <el-button link :aria-label="maximized ? '还原窗口' : '最大化'" :title="maximized ? '退出全屏，恢复原窗口' : '全屏沟通'" @click="emit('toggle-maximize')"><span class="chat-max-icon" :class="{ 'chat-max-icon--restore': maximized }" aria-hidden="true" /></el-button>
         <el-button link aria-label="最小化沟通" title="最小化" @click="emit('minimize')"><el-icon><Minus /></el-icon></el-button>
         <el-button link aria-label="关闭聊天大屏" title="关闭大屏，保留会话" @click="emit('minimize')"><el-icon><Close /></el-icon></el-button>
@@ -87,9 +87,9 @@
           </div>
         </template>
         <ChatContacts v-show="pane === 'contacts'" :active="pane === 'contacts'" @opened="contactOpened" />
-        <div v-show="pane === 'topics'" class="chat-workspace__topic-panel"><ChatTopicNavigation :project-id="projectId" :project-type="projectType" all-allowed @annotation="showAnnotation" /></div>
+        <div v-show="pane === 'topics'" class="chat-workspace__topic-panel"><ChatTopicNavigation :project-id="projectId" :project-type="projectType" :selected-id="selectedTopic?.id" all-allowed @select="selectTopic" @annotation="showAnnotation" /></div>
       </aside>
-      <div class="chat-workspace__stage"><div v-if="!activeKey" class="chat-workspace__empty"><el-icon><ChatDotRound /></el-icon><strong>开始沟通</strong><span>选择会话，或从通讯录发起私聊</span></div></div>
+      <div class="chat-workspace__stage"><ChatTopicResults v-if="pane === 'topics'" :topic="selectedTopic" :active="pane === 'topics'" all-allowed :project-id="projectId" :project-type="projectType" @locate="pane = 'messages'" /><div v-else-if="!activeKey" class="chat-workspace__empty"><el-icon><ChatDotRound /></el-icon><strong>开始沟通</strong><span>选择会话，或从通讯录发起私聊</span></div></div>
       <ChatSessionCategoryAssignment ref="categoryAssignment" @changed="emit('categories-changed', $event)" />
     </div>
   </div>
@@ -107,6 +107,7 @@ import ProjectMentionPopover from './ProjectMentionPopover.vue'
 import ChatProjectActions from './ChatProjectActions.vue'
 import ChatWindowStateMenu from './ChatWindowStateMenu.vue'
 import ChatTopicNavigation from './ChatTopicNavigation.vue'
+import ChatTopicResults from './ChatTopicResults.vue'
 import ChatSessionCategoryMenu from './ChatSessionCategoryMenu.vue'
 import ChatSessionCategoryAssignment from './ChatSessionCategoryAssignment.vue'
 import { categoryKey, useChatSessionCategories } from '@/composables/useChatSessionCategories'
@@ -131,7 +132,7 @@ const props = defineProps({
 })
 const emit = defineEmits([
   'browse-project-mentions', 'select-project-mention', 'more-project-mentions', 'retry-project-mentions',
-  'preference', 'categories-changed', 'select', 'open', 'locate-mention', 'close', 'close-active', 'minimize', 'cycle-size', 'toggle-maximize', 'toggle-layout',
+  'pane-change', 'preference', 'categories-changed', 'select', 'open', 'locate-mention', 'close', 'close-active', 'minimize', 'cycle-size', 'toggle-maximize', 'toggle-layout',
   'open-search', 'toggle-sidebar', 'header-mousedown', 'header-dblclick', 'retry', 'pin', 'resize', 'fullscreen', 'contact-opened',
 ])
 
@@ -142,6 +143,9 @@ let savedPane = 'messages'
 try { savedPane = localStorage.getItem(paneStorageKey) || 'messages' } catch { /* 存储不可用时仍允许切换面板。 */ }
 const pane = ref(panes.some(item => item.key === savedPane) ? savedPane : 'messages')
 watch(pane, value => { try { localStorage.setItem(paneStorageKey, value) } catch { /* 本次选择仍然生效。 */ } })
+watch(pane, value => emit('pane-change', value), { immediate: true })
+const selectedTopic = ref(null)
+function selectTopic(row) { selectedTopic.value = row; if (props.narrow && props.sidebarOpen) emit('toggle-sidebar') }
 const unreadTotal = computed(() => props.sessions.reduce((sum, row) => sum + (Number(row.unread) || 0), 0))
 const mentionTotal = computed(() => props.sessions.reduce((sum, row) => sum + (Number(row.mentionUnread) || 0), 0))
 const typeLabel = type => type === 'direct' ? '单聊' : type === 'annotation' ? '标注' : '笔译'
