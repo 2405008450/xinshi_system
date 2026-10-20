@@ -30,7 +30,7 @@
         <TableExpandButton v-if="row.orderLevel < (supportsGrandchildOrders ? 2 : 1)" :expanded="expanded.includes(row.id)" :expand-label="row.orderLevel === 1 ? '展开三级订单' : '展开子订单'" collapse-label="收起下级订单" @click="tableRef.toggleRowExpansion(row)" />
       </div></template>
     </el-table-column>
-    <el-table-column label="订单号" width="200" :fixed="nested ? false : 'left'"><template #header><slot name="header" :column="{key:'orderNo',label:'订单号'}" /></template><template #default="{ row }"><slot name="order" :row="row" /></template></el-table-column>
+    <el-table-column label="订单号" :width="nested || rows.some(row => row.parentProjectId) ? 240 : 200" :fixed="nested ? false : 'left'"><template #header><slot name="header" :column="{key:'orderNo',label:'订单号'}" /></template><template #default="{ row }"><slot name="order" :row="row" /></template></el-table-column>
     <el-table-column v-for="column in columns" :key="column.key" :prop="column.key" :label="column.label" :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="!['projectName','projectStatus'].includes(column.key)">
       <template #header><slot name="header" :column="column" /></template><template #default="{ row }"><slot name="cell" :row="row" :column="column" /></template>
     </el-table-column>

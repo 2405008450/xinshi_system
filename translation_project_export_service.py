@@ -145,7 +145,7 @@ def _word_count_value(item: Any, dimension: str, metric: str) -> Any:
     return _read(values, metric)
 
 
-def _word_count_columns() -> list[ExportColumn]:
+def _word_count_columns(dimensions=WORD_COUNT_DIMENSIONS) -> list[ExportColumn]:
     return [
         ExportColumn(
             f"{dimension_label}-{metric_label}",
@@ -153,7 +153,7 @@ def _word_count_columns() -> list[ExportColumn]:
             kind="integer",
             width=18 if metric not in {"characters_no_spaces", "cjk_chars_korean_words"} else 24,
         )
-        for dimension, dimension_label in WORD_COUNT_DIMENSIONS
+        for dimension, dimension_label in dimensions
         for metric, metric_label in WORD_COUNT_METRICS
     ]
 
@@ -346,8 +346,8 @@ def _translator_project_name(item: tuple[Any, Any, Any]) -> Any:
     return _effective_file_name(project, detail)
 
 
-def _translator_business_status(item: tuple[Any, Any, Any]) -> Any:
-    project, detail, _assignment = item
+def _order_business_status(item: tuple) -> Any:
+    project, detail = item[:2]
     status = _read(detail, "status") if _read(detail, "sub_order_no") else None
     return _status_label(status or _read(project, "project_status"))
 
@@ -370,7 +370,7 @@ RECONCILIATION_COLUMNS = [
     ExportColumn("客户接单时间", lambda item: _read(item[0], "customer_reception_time"), "datetime", 20),
     ExportColumn("客户交稿时间", lambda item: _detail_value(item, "customer_deadline_time"), "datetime", 20),
     ExportColumn("翻译方向", lambda item: _detail_value(item, "language_pair"), width=24),
-    ExportColumn("字数", lambda item: _charge_value(item, "quantity"), "integer", 16),
+    ExportColumn("字数", lambda item: _word_count_value(item[1], "customer", "words"), "integer", 16),
     ExportColumn("含税单价", lambda item: _charge_value(item, "unit_price_incl_tax"), "decimal", 16),
     ExportColumn("不含税单价", lambda item: _charge_value(item, "unit_price_excl_tax"), "decimal", 16),
     ExportColumn("含税总价", lambda item: _charge_value(item, "total_incl_tax"), "money", 16),
@@ -381,6 +381,30 @@ RECONCILIATION_COLUMNS = [
     ExportColumn("字数口径", _charge_metric_label, width=24),
     ExportColumn("每计价单位", lambda item: _charge_value(item, "unit_size"), "decimal", 16),
     ExportColumn("币种", lambda item: _charge_value(item, "currency"), width=10),
+    ExportColumn("计费数量", lambda item: _charge_value(item, "quantity"), "integer", 16),
+    ExportColumn(
+        "计价模式",
+        lambda item: {"metric": "按数量", "fixed": "固定收费"}.get(
+            _charge_value(item, "pricing_mode"), _charge_value(item, "pricing_mode")
+        ),
+        width=14,
+    ),
+    ExportColumn("母订单号", lambda item: _read(item[0], "order_no"), "identifier", 20),
+    ExportColumn("客户单号", lambda item: _read(item[0], "customer_order_no"), "identifier", 20),
+    ExportColumn("客户简称", lambda item: _effective_customer_short_name(item[0]), width=24),
+    ExportColumn("项目经理", lambda item: _read(item[0], "project_manager_name")),
+    ExportColumn("状态", _order_business_status, width=16),
+    ExportColumn("订单备注", lambda item: _read(item[1], "remarks"), width=36),
+    # 字数独立于收费项导出，固定收费和待补记录也保留已有统计；子订单不借用母订单数据。
+    *[
+        ExportColumn(
+            column.label,
+            lambda item, getter=column.getter: getter(item[1]),
+            column.kind,
+            column.width,
+        )
+        for column in _word_count_columns(WORD_COUNT_DIMENSIONS[:2])
+    ],
 ]
 
 
@@ -395,7 +419,7 @@ TRANSLATOR_RECONCILIATION_COLUMNS = [
     ExportColumn("客户单号", lambda item: _read(item[0], "customer_order_no"), "identifier", 20),
     ExportColumn("项目名称", _translator_project_name, "filename", 36),
     ExportColumn("客户简称", lambda item: _effective_customer_short_name(item[0]), width=24),
-    ExportColumn("状态", _translator_business_status, width=16),
+    ExportColumn("状态", _order_business_status, width=16),
     ExportColumn("翻译方向", lambda item: _detail_value(item, "language_pair"), width=24),
     ExportColumn("译员", lambda item: _read(item[2], "translator_name"), width=18),
     ExportColumn("实际数量", _translator_actual_quantity, width=38),
@@ -497,7 +521,7 @@ def _missing_reconciliation_fields(item: tuple[Any, Any, Any | None]) -> list[st
         missing.append("账单月份")
     if _charge_value(item, "pricing_mode") == "metric":
         for label, field in (
-            ("字数", "quantity"),
+            ("计费数量", "quantity"),
             ("含税单价", "unit_price_incl_tax"),
             ("不含税单价", "unit_price_excl_tax"),
         ):

@@ -1,19 +1,29 @@
-# OS files
+# ============================================================
+# 操作系统 / 编辑器
+# ============================================================
 .DS_Store
 Thumbs.db
 Desktop.ini
-
-# Editors and IDEs
 .idea/
 .vscode/
 *.code-workspace
-.claude/settings.local.json
+*.swp
+*.swo
 
+# ============================================================
+# AI 助手 / 自动化工具本地目录
+# ============================================================
+.claude/
+.codex_tmp*
+.playwright/
+.playwright-cli/
+.playwright-mcp/
+
+# ============================================================
 # Python
+# ============================================================
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
 .python-version
 .pytest_cache/
 .mypy_cache/
@@ -24,71 +34,82 @@ __pycache__/
 .coverage
 .coverage.*
 htmlcov/
-
-# Virtual environments
-.venv/
-venv/
-env/
-ENV/
-
-# Logs and temp files
-*.log
-*.tmp
-*.temp
-*.bak
-*.swp
-*.swo
-
-# Local environment files
-.env
-.env.*
-!.env.example
-
-# Node / frontend
-node_modules/
-frontend/node_modules/
-frontend/dist/
-dist/
-.vite/
-*.tsbuildinfo
-
-# Build / package artifacts
 build/
 *.egg-info/
 .eggs/
 
-# Runtime data / local outputs
+# 虚拟环境（项目统一使用 .venv，见 AGENTS.md）
+.venv/
+venv/
+env/
+ENV/
+.conda_env/
+
+# ============================================================
+# Node / 前端
+# ============================================================
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# ============================================================
+# 本地环境配置（含凭据，禁止提交）
+# ============================================================
+.env
+.env.*
+!.env.example
+
+# ============================================================
+# 日志 / 临时文件
+# ============================================================
+*.log
+*.tmp
+*.temp
+*.bak
+/logs/
+/.tmp/
+/*-pg-*/
+
+# ============================================================
+# 测试与验收产物
+# ============================================================
+test-results/
+playwright-report/
+blob-report/
+/artifacts/*
+!/artifacts/cloud-release-ecc47e6/
+/wb-*.png
+/workbench-*.png
+/wechat-contacts-test.png
+*.http
+
+# ============================================================
+# 运行数据 / 数据库导出 / 本地输出
+# ============================================================
 /outputs/
 *.db
 *.db-journal
 *.sqlite
 *.sqlite3
+*.dump
 /xinshi_system.sql
 /backups/*.sql
-/backups/*.dump
+/tp.json
+/db_inspect_output.txt
+
+# 运行时上传与归档目录
 /data/annotation_custom_field_images/
 /data/annotation_materials/
 /data/talent_review_archives/
+/data/company_management_uploads/
+/data/annotation_notice_uploads/
+/data/project_notice_uploads/
+/data/team_uploads/
 
-# Browser automation and test artifacts
-.playwright/
-.playwright-cli/
-.playwright-mcp/
-test-results/
-playwright-report/
-blob-report/
-
-# Local UI verification screenshots
-/wb-*.png
-/workbench-*.png
-/wechat-contacts-test.png
-
-# Local inspection / scratch files
-/db_inspect_output.txt
-*.http
-.claude/
-docs/
-!/docs/
+# ============================================================
+# 文档：默认忽略，仅白名单内文档入库
+# ============================================================
 /docs/*
 !/docs/annotation-materials.md
 !/docs/标注项目语种地区.md
@@ -97,14 +118,17 @@ docs/
 !/docs/人才概览企微大群管理.md
 !/docs/人才总库备注规范化回填.md
 !/docs/人才总库备注规范化验收记录_20260930.md
+!/docs/人才总库外部表导入规范.md
 !/docs/资源开拓账号同步说明.md
 !/docs/资源开拓每日安排说明.md
 !/docs/资源开拓问题说明.md
 !/docs/沟通主题分类与开拓事项.md
 !/docs/团队资源使用与验收.md
 !/docs/项目须知.md
-
-data/company_management_uploads/
-data/annotation_notice_uploads/
-data/project_notice_uploads/
-data/team_uploads/
+!/docs/前端交互规范.md
+!/docs/时间与日志时区规范.md
+!/docs/database/
+!/docs/deploy_release_guide.md
+!/docs/infra.md
+!/docs/前端优化.md
+!/docs/项目业务与逻辑框架分析.md

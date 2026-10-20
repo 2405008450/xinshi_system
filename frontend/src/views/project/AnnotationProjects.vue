@@ -66,6 +66,7 @@
               <el-tag v-if="row.parentProjectId" size="small" type="warning">{{ row.orderLevel === 2 ? '三级订单' : '子订单' }}</el-tag>
               <el-button v-if="row.orderLevel < (supportsGrandchildOrders ? 2 : 1)" link type="primary" @click="goChildManagement(row.id, row.orderLevel)">{{ row.orderLevel === 1 ? '三级订单' : '子订单' }} {{ row.childCount || 0 }}</el-button>
               <AnnotationMaterialPopover :project-id="row.id" />
+              <PathActionButtons class="annotation-copy-path" :show-open="false" @copy="copyProjectPath(row)" />
             </div>
           </div>
         </template>
@@ -633,6 +634,8 @@ import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
 import AnnotationMaterialManager from '@/components/annotation/AnnotationMaterialManager.vue'
 import AnnotationMaterialPopover from '@/components/annotation/AnnotationMaterialPopover.vue'
+import PathActionButtons from '@/components/common/PathActionButtons.vue'
+import { copyTextToClipboard } from '@/utils/clipboard'
 
 import ProjectListRowActions from '@/components/common/ProjectListRowActions.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
@@ -1017,6 +1020,23 @@ const headerFilterDefinition=(key)=>{
 
 const userLabel=(item)=>item.full_name||item.fullName||item.username
 const textValue=(value)=>value===null||value===undefined||value===''?'-':String(value)
+const copyProjectPath = async (row) => {
+  const path = String(row.projectPath ?? '').trim()
+  if (!path) {
+    ElMessage.warning('该订单暂无可用文件路径')
+    return
+  }
+  try {
+    const copied = await copyTextToClipboard(path)
+    if (!copied) {
+      ElMessage.error('复制失败，请手工复制')
+      return
+    }
+    ElMessage.success('项目路径已复制')
+  } catch {
+    ElMessage.error('复制失败，请手工复制')
+  }
+}
 const customFieldText=(value)=>Array.isArray(value)?value.join('、'):value===true?'是':value===false?'否':textValue(value)
 const roleAssignmentIds=(row,roleCode)=>(row.roleAssignments||[]).filter((item)=>(item.roleCode||item.role_code)===roleCode).map((item)=>item.assigneeId||item.assignee_id).filter(Boolean)
 const roleAssignmentNames=(row,roleCode)=>(row.roleAssignments||[]).filter((item)=>(item.roleCode||item.role_code)===roleCode).map((item)=>item.assigneeName||item.assignee_name).filter(Boolean)
@@ -1348,7 +1368,8 @@ onBeforeUnmount(()=>{parentFilterController?.abort();clearTimeout(searchTimer);c
 /* 编号独占首行，辅助入口在第二行；避免按钮相互挤压导致编号逐字换行。 */
 .annotation-table.project-detail-list-table .order-cell { display: flex; flex-direction: column; align-items: stretch; gap: 4px; }
 .annotation-table.project-detail-list-table .order-no-link { display: block; width: 100%; overflow: hidden; overflow-wrap: normal; white-space: nowrap; text-overflow: ellipsis; height: 20px; min-height: 20px; line-height: 20px; }
-.order-cell-secondary { display: flex; align-items: center; gap: 12px; }
+.order-cell-secondary { display: flex; align-items: center; gap: 6px; }
+.order-cell-secondary .annotation-copy-path { width: 22px; min-width: 22px; }
 .order-cell-secondary .el-button { margin-left: 0; height: 24px; min-height: 24px; padding: 0; font-size: 12px; }
 .annotation-language-summary { min-height: 24px; display: flex; width: 100%; min-width: 0; height: auto; justify-content: flex-start; padding: 0; }
 .annotation-language-summary :deep(>span) { display: flex; width: 100%; min-width: 0; align-items: center; gap: 5px; }

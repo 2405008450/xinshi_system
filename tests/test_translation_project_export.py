@@ -32,7 +32,7 @@ def sample_project(*, project_name="示例项目", with_sub_order=True):
         status="translator_assigned",
         word_count_matrix={
             "company": {"words": 500},
-            "customer": {},
+            "customer": {"words": 800},
             "translator_estimate": {},
         },
         customer_deadline_time=datetime(2026, 9, 6, 17, 0),
@@ -295,7 +295,66 @@ def test_reconciliation_charge_detail_keeps_each_currency_and_numeric_values():
     assert records[0]["不含税总价"] == 88
     assert records[1]["不含税总价"] == 50
     assert records[1]["含税总价"] == 53
-    assert records[1]["字数"] is None
+    assert records[1]["字数"] == 800
+    assert records[1]["计费数量"] is None
+    assert records[1]["计价模式"] == "固定收费"
+
+
+@pytest.mark.parametrize("with_sub_order", [False, True])
+@pytest.mark.parametrize("pricing_mode", ["metric", "fixed", None])
+def test_reconciliation_keeps_order_counts_independent_of_billing(with_sub_order, pricing_mode):
+    project = sample_project(with_sub_order=with_sub_order)
+    detail = project.sub_orders[0] if with_sub_order else project
+    detail.word_count_matrix = {
+        "company": {metric: index for index, (metric, _label) in enumerate(export_service.WORD_COUNT_METRICS)},
+        "customer": {metric: 100 + index for index, (metric, _label) in enumerate(export_service.WORD_COUNT_METRICS)},
+    }
+    detail.remarks = "订单备注"
+    charge = sample_project().sub_orders[0].customer_charge_items[0]
+    charge.pricing_mode = pricing_mode
+    charge.metric_type = "pages" if pricing_mode == "metric" else None
+    charge.quantity = 105 if pricing_mode == "metric" else None
+    detail.customer_charge_items = [charge] if pricing_mode else []
+    workbook = load_workbook(BytesIO(export_service.translation_reconciliation_to_xlsx([[project]])))
+    sheet = workbook["对账单" if pricing_mode else "待补数据"]
+    headers, row = row_by_headers(sheet)
+
+    assert len(headers) == len(set(headers))
+    assert row["字数"] == 100
+    assert row["计费数量"] == (105 if pricing_mode == "metric" else None)
+    assert row["计价模式"] == {"metric": "按数量", "fixed": "固定收费"}.get(pricing_mode)
+    assert row["字数口径"] == ("页数" if pricing_mode == "metric" else None)
+    for dimension, label in export_service.WORD_COUNT_DIMENSIONS[:2]:
+        for metric, metric_label in export_service.WORD_COUNT_METRICS:
+            assert row[f"{label}-{metric_label}"] == detail.word_count_matrix[dimension][metric]
+            cell = sheet.cell(2, headers.index(f"{label}-{metric_label}") + 1)
+            assert cell.data_type == "n"
+            assert cell.number_format == "#,##0"
+    assert row["母订单号"] == project.order_no
+    assert row["客户单号"] == "PO-20260901"
+    assert row["客户简称"] == "子客户"
+    assert row["项目经理"] == "王经理"
+    assert row["状态"] == ("已排译员" if with_sub_order else "已确认")
+    assert row["订单备注"] == "订单备注"
+
+
+def test_reconciliation_does_not_replace_missing_child_counts_with_parent_or_billing_quantity():
+    project = sample_project()
+    project.word_count_matrix["customer"]["words"] = 9999
+    child = project.sub_orders[0]
+    child.word_count_matrix = {"customer": {"pages": 8}}
+    charge = child.customer_charge_items[0]
+    charge.metric_type = "pages"
+    charge.quantity = None
+    workbook = load_workbook(BytesIO(export_service.translation_reconciliation_to_xlsx([[project]])))
+    row = row_by_headers(workbook["待补数据"])[1]
+
+    assert row["字数"] is None
+    assert row["客户-字数"] is None
+    assert row["我司-字数"] is None
+    assert row["客户-页数"] == 8
+    assert row["计费数量"] is None
+    assert row["缺失原因"] == "缺少计费数量"
 
 
 def test_reconciliation_exports_parent_charge_and_uses_snapshot_file_fallback():

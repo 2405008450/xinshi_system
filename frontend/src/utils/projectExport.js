@@ -24,7 +24,8 @@ const modules = {
       { value: 'created_at', label: '创建时间' },
     ],
     projectHint: '继承当前全部筛选，导出所有匹配项目，不受分页和列表字段设置限制；Excel 包含母订单、子订单、子订单客户收费 3 个工作表。项目名称为真实文件名，子订单文件名称单独展示。',
-    reconciliationHint: '将继承当前关键词和高级筛选；完整收费项进入“对账单”，缺少账单月份、税价或业务资料的记录进入“待补数据”。',
+    reconciliationHint: '将继承当前关键词和高级筛选；导出我司及客户的字数、字符数、外文字数、份数、页数，并单列计费数量、计价模式和客户单号等核对信息。字数取客户字数统计，计费数量按收费项口径展示；同一订单的统计会在各收费项行重复，不应直接求和。缺少账单月份、税价或业务资料的记录进入“待补数据”。',
+    clientReconciliationHint: '包含我司及客户的字数、字符数、外文字数、份数、页数，以及计费数量、计价模式和客户单号等核对信息。字数取客户字数统计，计费数量按收费项口径展示；同一订单的统计会在各收费项行重复，不应直接求和。缺少结算依据的记录进入“待补数据”。',
     fourthType: 'translator_reconciliation',
     fourthLabel: '导出译员对账单',
     fourthHint: '将继承当前关键词和高级筛选；仅导出已确认且未取消的当前有效译员安排，一位译员一行。',
@@ -66,7 +67,7 @@ export function getProjectExportConfig(module) {
     modes: [
       { type: 'projects', label: '导出项目 Excel', title: `导出${config.name}`, action: '导出 Excel', prefix: `${config.name}导出`, hint: config.projectHint },
       { type: 'reconciliation', label: '按时间导出客户对账单', title: `导出${config.name}客户对账单`, action: '导出客户对账单', prefix: `${config.name}${module === 'translation' ? '对账单' : '客户对账单'}`, hint: reconciliationHint },
-      { type: 'client_reconciliation', label: '按客户导出客户对账单', title: `按客户导出${config.name}对账单`, action: '导出客户对账单', prefix: `${config.name}${module === 'translation' ? '对账单' : '客户对账单'}`, hint: `按所选${config.clientLabel || '母客户'}精确匹配，包含该${config.clientLabel || '母客户'}及其子客户的全部项目，不受当前列表筛选和时间范围限制。${module === 'translation' ? '' : '缺少结算依据的记录进入“待补数据”。'}` },
+      { type: 'client_reconciliation', label: '按客户导出客户对账单', title: `按客户导出${config.name}对账单`, action: '导出客户对账单', prefix: `${config.name}${module === 'translation' ? '对账单' : '客户对账单'}`, hint: `按所选${config.clientLabel || '母客户'}精确匹配，包含该${config.clientLabel || '母客户'}及其子客户的全部项目，不受当前列表筛选和时间范围限制。${config.clientReconciliationHint || '缺少结算依据的记录进入“待补数据”。'}` },
       { type: config.fourthType, label: config.fourthLabel, title: `导出${config.name}${config.fourthLabel.slice(2)}`, action: config.fourthLabel, prefix: `${config.name}${config.fourthLabel.slice(2)}`, hint: config.fourthHint },
     ],
   }
