@@ -1,3 +1,4 @@
+from search_matching import keyword_ilike
 import datetime as dt
 import json
 from typing import Optional
@@ -383,7 +384,7 @@ def list_project_chat_messages(
             ChatProjectMessage.favorites.any(ChatProjectMessageFavorite.user_id == current_user_id)
         )
     if keyword:
-        query = query.filter(ChatProjectMessage.content.ilike(f'%{keyword.strip()}%'))
+        query = query.filter(keyword_ilike(ChatProjectMessage.content, f'%{keyword.strip()}%'))
     if sender_user_id:
         query = query.filter(ChatProjectMessage.sender_user_id == sender_user_id)
     if date_from:
@@ -510,7 +511,7 @@ def list_annotation_project_chat_messages(
             ChatProjectMessage.favorites.any(ChatProjectMessageFavorite.user_id == current_user_id)
         )
     if keyword:
-        query = query.filter(ChatProjectMessage.content.ilike(f'%{keyword.strip()}%'))
+        query = query.filter(keyword_ilike(ChatProjectMessage.content, f'%{keyword.strip()}%'))
     if sender_user_id:
         query = query.filter(ChatProjectMessage.sender_user_id == sender_user_id)
     if date_from:

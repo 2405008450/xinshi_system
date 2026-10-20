@@ -1,5 +1,5 @@
 <template>
-  <div v-if="projectId && projectType !== 'direct'" class="chat-project-actions" @mousedown.stop @dblclick.stop>
+  <div v-if="projectId && ['annotation', 'translation'].includes(projectType)" class="chat-project-actions" @mousedown.stop @dblclick.stop>
     <AnnotationProjectDetailPopover v-if="projectType === 'annotation'" :project-id="projectId" :editable="false" trigger="click" placement="bottom-end" popper-class="chat-project-popover">
       <template #reference><el-button link size="small" aria-label="项目详情" title="项目详情"><el-icon v-if="iconOnly"><Document /></el-icon><template v-else>项目详情</template></el-button></template>
     </AnnotationProjectDetailPopover>

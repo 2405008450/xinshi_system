@@ -13,6 +13,8 @@
   </div>
 </template>
 <script setup>
+import { matchesSearch } from '@/utils/searchMatching'
+
 import { computed, defineComponent, h, onMounted, ref, watch } from 'vue'
 import { Collection, Setting, Plus, Search } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
@@ -44,7 +46,7 @@ function choose(row) {
 function openManager() { managerRef.value.open().catch(e => ElMessage.error(e.message)) }
 const TopicMenu = defineComponent({ setup: () => () => {
   const term = filter.value.trim().toLocaleLowerCase()
-  const matches = row => row.name.toLocaleLowerCase().includes(term)
+  const matches = row => matchesSearch(row.name, term)
   const business = roots.value.filter(row => row.kind === 'annotation' && matches(row))
   const discussions = roots.value.filter(row => row.kind !== 'annotation').map(root => {
     const children = topics.items.filter(row => row.parent_id === root.id && row.active)

@@ -29,6 +29,8 @@
 </template>
 
 <script setup>
+import { matchesSearch } from '@/utils/searchMatching'
+
 import { computed, reactive, watch } from 'vue'
 import ListFilterControl from './ListFilterControl.vue'
 import { emptyFilterValue } from '@/utils/listFieldFilters'
@@ -49,7 +51,7 @@ const options = field => {
     ? { label: item.label ?? item.name ?? String(item.value ?? item.id), value: item.value ?? item.id }
     : { label: String(item), value: item })
 }
-const filteredOptions = field => options(field).filter(item => String(item.label).toLocaleLowerCase().includes((keywords[field.key] || '').trim().toLocaleLowerCase()))
+const filteredOptions = field => options(field).filter(item => matchesSearch(item.label, keywords[field.key]))
 const selectAll = field => { drafts[field.key] = [...new Set([...(drafts[field.key] || []), ...filteredOptions(field).map(item => item.value)])] }
 const confirm = () => {
   props.definition.fields.filter(isMultiple).forEach(field => emit('update-field', field.key, [...(drafts[field.key] || [])]))

@@ -1,4 +1,5 @@
 """项目沟通历史检索：全部消息、图片、链接和文件共用同一套筛选与游标。"""
+from search_matching import keyword_ilike, keyword_or
 import base64
 import datetime as dt
 import json
@@ -99,12 +100,12 @@ def _filtered_messages(
 
 def _with_text_keyword(query, keyword: str):
     pattern = _ilike_pattern(keyword)
-    name_match = ChatProjectMessage.attachment_links.any(
-        ChatProjectMessageAttachment.attachment.has(
-            ChatProjectAttachment.original_name.ilike(pattern, escape='\\')
-        )
-    )
-    return query.filter(or_(ChatProjectMessage.content.ilike(pattern, escape='\\'), name_match))
+    return query.filter(keyword_or(lambda part: or_(
+        keyword_ilike(ChatProjectMessage.content, part, escape='\\'),
+        ChatProjectMessage.attachment_links.any(ChatProjectMessageAttachment.attachment.has(
+            keyword_ilike(ChatProjectAttachment.original_name, part, escape='\\')
+        )),
+    ), pattern))
 
 
 def _attachment_query(message_query, *, images: bool, keyword: str):
@@ -121,17 +122,17 @@ def _attachment_query(message_query, *, images: bool, keyword: str):
         query = query.filter(~ChatProjectAttachment.content_type.ilike('image/%'))
     if keyword:
         pattern = _ilike_pattern(keyword)
-        query = query.filter(or_(
-            ChatProjectMessage.content.ilike(pattern, escape='\\'),
-            ChatProjectAttachment.original_name.ilike(pattern, escape='\\'),
-        ))
+        query = query.filter(keyword_or(lambda _search_part: or_(
+            keyword_ilike(ChatProjectMessage.content, _search_part, escape='\\'),
+            keyword_ilike(ChatProjectAttachment.original_name, _search_part, escape='\\'),
+        ), pattern))
     return query
 
 
 def _link_query(message_query, keyword: str):
     query = message_query.filter(ChatProjectMessage.content.op('~*')(LINK_REGEX))
     if keyword:
-        query = query.filter(ChatProjectMessage.content.ilike(_ilike_pattern(keyword), escape='\\'))
+        query = query.filter(keyword_ilike(ChatProjectMessage.content, _ilike_pattern(keyword), escape='\\'))
     return query
 
 

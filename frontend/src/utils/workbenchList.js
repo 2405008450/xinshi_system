@@ -1,3 +1,4 @@
+import { matchesSearchFields } from './searchMatching.js'
 export const WORKBENCH_PAGE_SIZE_OPTIONS = Object.freeze([10, 20, 50])
 
 export function paginateWorkbenchRows(rows, page = 1, pageSize = 10) {
@@ -16,7 +17,7 @@ export function getWorkbenchLastPage(total, pageSize = 10) {
 export function workbenchFieldsInclude(row, fields, keyword) {
   const normalized = String(keyword || '').trim().toLocaleLowerCase('zh-CN')
   if (!normalized) return true
-  return fields.some(field => String(row?.[field] || '').toLocaleLowerCase('zh-CN').includes(normalized))
+  return matchesSearchFields(fields.map(field => row?.[field]), normalized)
 }
 
 export function countActiveWorkbenchFilterGroups(model, keys) {

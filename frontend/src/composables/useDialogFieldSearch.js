@@ -1,3 +1,4 @@
+import { matchesSearch, matchesSearchFields, searchTerms } from '@/utils/searchMatching'
 import { nextTick, onBeforeUnmount, ref } from 'vue'
 import {
   focusFormTarget,
@@ -99,14 +100,14 @@ export const useDialogFieldSearch = (editorBodyRef) => {
     if (aliases.some((value) => value === keyword)) return 1
     if (label.startsWith(keyword)) return 2
     if (aliases.some((value) => value.startsWith(keyword))) return 3
-    if (label.includes(keyword)) return 4
-    if (aliases.some((value) => value.includes(keyword))) return 5
-    if (location.includes(keyword)) return 6
+    if (matchesSearch(label, keyword)) return 4
+    if (aliases.some((value) => matchesSearch(value, keyword))) return 5
+    if (matchesSearchFields([label, ...aliases, location], keyword)) return 6
     return Number.POSITIVE_INFINITY
   }
 
   const fetchFieldSuggestions = (queryString, callback) => {
-    const keyword = normalize(queryString)
+    const keyword = searchTerms(queryString).map(normalize).join(' ')
     if (!keyword) return callback([])
     const matches = collectFields()
       .map((item, index) => ({ item, index, score: scoreField(item, keyword) }))
@@ -137,7 +138,7 @@ export const useDialogFieldSearch = (editorBodyRef) => {
 
   const locateDialogFieldByLabel = async (label, occurrence = 1) => {
     const normalizedLabel = normalize(label)
-    const matches = collectFields().filter((item) => normalize(item.searchLabel).includes(normalizedLabel))
+    const matches = collectFields().filter((item) => matchesSearch(normalize(item.searchLabel), normalizedLabel))
     return await locateDialogField(matches[Math.max(0, occurrence - 1)])
   }
 

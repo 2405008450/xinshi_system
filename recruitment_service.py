@@ -1,6 +1,7 @@
 """招聘项目查询、编号、命名及咨询联动。"""
 
 from __future__ import annotations
+from search_matching import keyword_ilike, keyword_like, keyword_or
 
 from datetime import datetime, time
 from decimal import Decimal
@@ -67,7 +68,7 @@ def generate_recruitment_order_no(db: Session, current_time: Optional[datetime] 
         )
     last = (
         db.query(RecruitmentProject.order_no)
-        .filter(RecruitmentProject.order_no.like(f"{prefix}%"))
+        .filter(keyword_like(RecruitmentProject.order_no, f"{prefix}%"))
         .order_by(RecruitmentProject.order_no.desc())
         .limit(1)
         .scalar()
@@ -126,18 +127,18 @@ def _apply_filters(
 ):
     if keyword and keyword.strip():
         pattern = f"%{keyword.strip()}%"
-        query = query.filter(or_(
-            RecruitmentProject.order_no.ilike(pattern),
-            RecruitmentProject.project_name.ilike(pattern),
-            RecruitmentProject.position_title.ilike(pattern),
-            RecruitmentProject.job_description.ilike(pattern),
-            RecruitmentProject.work_location.ilike(pattern),
-            RecruitmentProject.customer_order_no.ilike(pattern),
-            Client.client_name.ilike(pattern),
-            Client.client_short_name.ilike(pattern),
-            SubClient.client_name.ilike(pattern),
-            SubClient.client_short_name.ilike(pattern),
-        ))
+        query = query.filter(keyword_or(lambda _search_part: or_(
+            keyword_ilike(RecruitmentProject.order_no, _search_part),
+            keyword_ilike(RecruitmentProject.project_name, _search_part),
+            keyword_ilike(RecruitmentProject.position_title, _search_part),
+            keyword_ilike(RecruitmentProject.job_description, _search_part),
+            keyword_ilike(RecruitmentProject.work_location, _search_part),
+            keyword_ilike(RecruitmentProject.customer_order_no, _search_part),
+            keyword_ilike(Client.client_name, _search_part),
+            keyword_ilike(Client.client_short_name, _search_part),
+            keyword_ilike(SubClient.client_name, _search_part),
+            keyword_ilike(SubClient.client_short_name, _search_part),
+        ), pattern))
     if project_status:
         query = query.filter(RecruitmentProject.project_status == project_status)
     if client_id:
@@ -194,7 +195,7 @@ def _apply_filters(
                 "client_domain": (func.concat_ws(" / ", Client.field_level1, Client.field_level2), func.concat_ws(" / ", SubClient.field_level1, SubClient.field_level2)),
             }[field]
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
-            query = query.filter(or_(parent_column.ilike(pattern), sub_column.ilike(pattern)))
+            query = query.filter(keyword_or(lambda _search_part: or_(keyword_ilike(parent_column, _search_part), keyword_ilike(sub_column, _search_part)), pattern))
         elif field == "language_id":
             values = [UUID(str(value)) for value in descriptor.get("value") or []]
             query = query.join(RecruitmentProjectLanguageDirection, RecruitmentProjectLanguageDirection.project_id == RecruitmentProject.id).filter(or_(RecruitmentProjectLanguageDirection.source_language_id.in_(values), RecruitmentProjectLanguageDirection.target_language_id.in_(values)))

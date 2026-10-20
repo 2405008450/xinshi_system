@@ -1,5 +1,6 @@
 """稿件安排模块的业务逻辑。"""
 from __future__ import annotations
+from search_matching import keyword_ilike, keyword_or
 
 import datetime
 import re
@@ -1054,16 +1055,16 @@ def _get_active_manuscript_projects(
     if keyword:
         pattern = f"%{keyword.strip()}%"
         query = query.filter(
-            or_(
-                TranslationProject.order_no.ilike(pattern),
-                TranslationProject.project_name.ilike(pattern),
-                TranslationProject.source_file_name.ilike(pattern),
-                TranslationSubOrder.sub_order_no.ilike(pattern),
-                TranslationSubOrder.sub_project_name.ilike(pattern),
-                Client.client_short_name.ilike(pattern),
-                AppUser.full_name.ilike(pattern),
-                AppUser.username.ilike(pattern),
-            )
+            keyword_or(lambda _search_part: or_(
+                keyword_ilike(TranslationProject.order_no, _search_part),
+                keyword_ilike(TranslationProject.project_name, _search_part),
+                keyword_ilike(TranslationProject.source_file_name, _search_part),
+                keyword_ilike(TranslationSubOrder.sub_order_no, _search_part),
+                keyword_ilike(TranslationSubOrder.sub_project_name, _search_part),
+                keyword_ilike(Client.client_short_name, _search_part),
+                keyword_ilike(AppUser.full_name, _search_part),
+                keyword_ilike(AppUser.username, _search_part),
+            ), pattern)
         )
 
     field_filters = field_filters or {}
@@ -1071,16 +1072,16 @@ def _get_active_manuscript_projects(
         if field == "order_no":
             value = str(descriptor.get("value") or "").strip()
             if value:
-                query = query.filter(effective_order_no.ilike(f"%{value}%"))
+                query = query.filter(keyword_ilike(effective_order_no, f"%{value}%"))
         elif field == "project_summary":
             value = str(descriptor.get("value") or "").strip()
             if value:
                 pattern = f"%{value}%"
-                query = query.filter(or_(
-                    TranslationProject.project_name.ilike(pattern),
-                    TranslationSubOrder.sub_project_name.ilike(pattern),
-                    Client.client_short_name.ilike(pattern),
-                ))
+                query = query.filter(keyword_or(lambda _search_part: or_(
+                    keyword_ilike(TranslationProject.project_name, _search_part),
+                    keyword_ilike(TranslationSubOrder.sub_project_name, _search_part),
+                    keyword_ilike(Client.client_short_name, _search_part),
+                ), pattern))
         elif field == "project_assistant_id":
             values = [UUID(str(value)) for value in descriptor.get("value") or []]
             if values:
@@ -1092,11 +1093,11 @@ def _get_active_manuscript_projects(
         elif field == "language_pair":
             value = str(descriptor.get("value") or "").strip()
             if value:
-                query = query.filter(func.coalesce(
+                query = query.filter(keyword_ilike(func.coalesce(
                     TranslationSubOrder.language_pair,
                     TranslationProject.language_pair,
                     "",
-                ).ilike(f"%{value}%"))
+                ), f"%{value}%"))
         elif field == "customer_deadline_time":
             start_value = descriptor.get("from")
             end_value = descriptor.get("to")
@@ -1471,16 +1472,16 @@ def list_dispatches(
         matching_dispatch_ids = (
             db.query(ManuscriptArrangement.dispatch_id)
             .filter(
-                or_(
-                    ManuscriptArrangement.translator_name_snapshot.ilike(pattern),
-                    ManuscriptArrangement.recipient_email.ilike(pattern),
-                )
+                keyword_or(lambda _search_part: or_(
+                    keyword_ilike(ManuscriptArrangement.translator_name_snapshot, _search_part),
+                    keyword_ilike(ManuscriptArrangement.recipient_email, _search_part),
+                ), pattern)
             )
         )
         query = query.filter(
             or_(
-                ManuscriptDispatch.order_no_snapshot.ilike(pattern),
-                ManuscriptDispatch.project_name_snapshot.ilike(pattern),
+                keyword_ilike(ManuscriptDispatch.order_no_snapshot, pattern),
+                keyword_ilike(ManuscriptDispatch.project_name_snapshot, pattern),
                 ManuscriptDispatch.id.in_(matching_dispatch_ids),
             )
         )
@@ -1489,16 +1490,16 @@ def list_dispatches(
         if field == "order_no":
             value = str(descriptor.get("value") or "").strip()
             if value:
-                query = query.filter(ManuscriptDispatch.order_no_snapshot.ilike(f"%{value}%"))
+                query = query.filter(keyword_ilike(ManuscriptDispatch.order_no_snapshot, f"%{value}%"))
         elif field == "project_name":
             value = str(descriptor.get("value") or "").strip()
             if value:
-                query = query.filter(ManuscriptDispatch.project_name_snapshot.ilike(f"%{value}%"))
+                query = query.filter(keyword_ilike(ManuscriptDispatch.project_name_snapshot, f"%{value}%"))
         elif field == "translator_name":
             value = str(descriptor.get("value") or "").strip()
             if value:
                 query = query.filter(ManuscriptDispatch.arrangements.any(
-                    ManuscriptArrangement.translator_name_snapshot.ilike(f"%{value}%")
+                    keyword_ilike(ManuscriptArrangement.translator_name_snapshot, f"%{value}%")
                 ))
         elif field == "status":
             values = [str(value) for value in descriptor.get("value") or []]
@@ -1586,12 +1587,12 @@ def list_arrangements(
     if keyword:
         pattern = f"%{keyword.strip()}%"
         query = query.filter(
-            or_(
-                ManuscriptArrangement.order_no_snapshot.ilike(pattern),
-                ManuscriptArrangement.project_name_snapshot.ilike(pattern),
-                ManuscriptArrangement.translator_name_snapshot.ilike(pattern),
-                ManuscriptArrangement.recipient_email.ilike(pattern),
-            )
+            keyword_or(lambda _search_part: or_(
+                keyword_ilike(ManuscriptArrangement.order_no_snapshot, _search_part),
+                keyword_ilike(ManuscriptArrangement.project_name_snapshot, _search_part),
+                keyword_ilike(ManuscriptArrangement.translator_name_snapshot, _search_part),
+                keyword_ilike(ManuscriptArrangement.recipient_email, _search_part),
+            ), pattern)
         )
     rows = (
         query.order_by(ManuscriptArrangement.created_at.desc())

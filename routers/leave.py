@@ -1,4 +1,5 @@
 """员工请假、工作台概览与实时请假状态接口。"""
+from search_matching import keyword_ilike, keyword_or
 from datetime import date, datetime, time, timedelta
 from typing import List, Optional
 from uuid import UUID
@@ -130,7 +131,7 @@ def list_leave_records(
         query = query.filter(EmployeeLeave.start_date < normalize_business_datetime(end_date))
     if employee_keyword and employee_keyword.strip():
         pattern = f"%{employee_keyword.strip()}%"
-        query = query.filter(or_(AppUser.full_name.ilike(pattern), AppUser.username.ilike(pattern)))
+        query = query.filter(keyword_or(lambda _search_part: or_(keyword_ilike(AppUser.full_name, _search_part), keyword_ilike(AppUser.username, _search_part)), pattern))
     moment = business_now()
     if status_filter == "active":
         query = query.filter(EmployeeLeave.start_date <= moment, EmployeeLeave.end_date > moment)

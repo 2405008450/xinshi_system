@@ -2,6 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from crud import (
     count_unread_notifications,
@@ -77,23 +78,13 @@ async def notifications_ws(websocket: WebSocket, token: str = Query(default=""))
         await websocket.close(code=1008)
         return
 
-    db = SessionLocal()
-    db_released = False
     user_id = None
     try:
-        user = get_user_from_token_value(db, token)
-        if user is None:
+        snapshot = await run_in_threadpool(_socket_snapshot, token)
+        if snapshot is None:
             await websocket.close(code=1008)
             return
-
-        # SQLAlchemy 的首次查询会自动开启事务。WebSocket 连接可能持续数小时，
-        # 因此只复制后续所需的标量值，并在进入收包循环前结束事务、归还连接。
-        user_id = user.id
-        unread = count_unread_notifications(db, user_id)
-        business_unread = count_unread_notifications(db, user_id, channel='business')
-        db.rollback()
-        db.close()
-        db_released = True
+        user_id, unread, business_unread = snapshot
 
         await notification_manager.connect(user_id, websocket)
         await websocket.send_json({"type": "snapshot", "unread_count": unread, "business_unread_count": business_unread})
@@ -104,8 +95,7 @@ async def notifications_ws(websocket: WebSocket, token: str = Query(default=""))
             except asyncio.TimeoutError:
                 message = None
             # 即使客户端不发送心跳，也定期重新鉴权，关闭改密后已失效的连接。
-            with SessionLocal() as check_db:
-                valid = get_user_from_token_value(check_db, token) is not None
+            valid = await run_in_threadpool(_socket_token_valid, token)
             if not valid:
                 notification_manager.disconnect(user_id, websocket)
                 await websocket.close(code=1008)
@@ -116,14 +106,11 @@ async def notifications_ws(websocket: WebSocket, token: str = Query(default=""))
                 await websocket.send_json({"type": "pong"})
             else:
                 import json
-                from annotation_chat_service import require_project
                 try:
                     payload = json.loads(message)
                     if payload.get('type') == 'annotation_chat_watch':
                         project_id = UUID(payload.get('projectId', ''))
-                        with SessionLocal() as check_db:
-                            current = get_user_from_token_value(check_db, token)
-                            require_project(check_db, project_id, current)
+                        await run_in_threadpool(_authorize_annotation_watch, token, project_id)
                         notification_manager.watch_annotation(user_id, websocket, project_id, bool(payload.get('active')))
                 except (ValueError, TypeError, HTTPException):
                     await websocket.send_json({'type': 'annotation_chat_watch_error'})
@@ -134,7 +121,27 @@ async def notifications_ws(websocket: WebSocket, token: str = Query(default=""))
         if user_id is not None:
             notification_manager.disconnect(user_id, websocket)
         await websocket.close(code=1011)
-    finally:
-        if not db_released:
-            db.rollback()
-        db.close()
+
+
+def _socket_snapshot(token):
+    # 整个同步事务在线程池内完成，关闭 Session 后才返回标量快照。
+    # 不能在 WebSocket 事件循环上等待数据库连接，否则会阻塞 HTTP 响应及连接归还。
+    with SessionLocal() as db:
+        user = get_user_from_token_value(db, token)
+        if user is None:
+            return None
+        user_id = user.id
+        return (user_id, count_unread_notifications(db, user_id),
+                count_unread_notifications(db, user_id, channel='business'))
+
+
+def _socket_token_valid(token):
+    with SessionLocal() as db:
+        return get_user_from_token_value(db, token) is not None
+
+
+def _authorize_annotation_watch(token, project_id):
+    from annotation_chat_service import require_project
+    with SessionLocal() as db:
+        current = get_user_from_token_value(db, token)
+        require_project(db, project_id, current)

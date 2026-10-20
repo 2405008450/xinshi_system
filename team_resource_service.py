@@ -1,4 +1,5 @@
 """团队查询、原子写入和审计，事务由路由统一提交。"""
+from search_matching import keyword_ilike, keyword_or
 from datetime import datetime
 from uuid import uuid4
 
@@ -60,7 +61,7 @@ def filtered_teams(db, keyword=None, team_type=None, resource_types=None, contac
     query = db.query(Team)
     if keyword and keyword.strip():
         value = keyword.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        query = query.filter(or_(Team.short_name.ilike(f"%{value}%", escape="\\"), Team.full_name.ilike(f"%{value}%", escape="\\")))
+        query = query.filter(keyword_or(lambda _search_part: or_(keyword_ilike(Team.short_name, _search_part, escape="\\"), keyword_ilike(Team.full_name, _search_part, escape="\\")), f"%{value}%"))
     if team_type:
         query = query.filter(Team.team_type == team_type)
     if resource_types:

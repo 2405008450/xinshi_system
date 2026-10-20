@@ -1,3 +1,4 @@
+import { matchesSearch } from '@/utils/searchMatching'
 import { computed, reactive, ref } from 'vue'
 
 import { getProjects } from '@/api/projects'
@@ -248,9 +249,9 @@ export function useEntityPicker({
       if (entityType && row._type !== entityType) return false
       if (keyword) {
         const haystack = [row.orderNoDisplay, row.projectNameDisplay, row.clientShortName].join(' ').toLowerCase()
-        if (!haystack.includes(keyword)) return false
+        if (!matchesSearch(haystack, keyword)) return false
       }
-      if (clientShortName && !String(row.clientShortName || '').toLowerCase().includes(clientShortName)) return false
+      if (clientShortName && !matchesSearch(row.clientShortName, clientShortName)) return false
       if (projectStatus && row.projectStatus !== projectStatus) return false
       if (startDate && endDate) {
         const value = String(row[dateField] || '')

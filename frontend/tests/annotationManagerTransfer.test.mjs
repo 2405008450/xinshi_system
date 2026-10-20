@@ -16,7 +16,7 @@ const apiSource = readFileSync(
 )
 
 test('标注项目所有查看用户可查看记录，批量交接仍限超级管理员', () => {
-  assert.match(viewSource, /const canDirectTransferManager = isSuperAdmin\(\)/)
+  assert.match(viewSource, /const canDirectTransferManager = !props\.conversationPicker && isSuperAdmin\(\)/)
   assert.match(viewSource, /v-if="canAdjustManagers && !deleteMode"/)
   assert.match(viewSource, /:can-transfer="canDirectTransferManager"/)
   assert.match(dialogSource, /v-if="canTransfer" label="批量交接"/)

@@ -4,6 +4,8 @@ from datetime import date
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy import create_engine, text
+from crud import _apply_client_filters
 from sqlalchemy.dialects import postgresql
 
 from annotation_models import AnnotationProject
@@ -28,6 +30,20 @@ USER_ID = UUID("00000000-0000-0000-0000-000000000001")
 CLIENT_ID = UUID("00000000-0000-0000-0000-000000000002")
 SUB_CLIENT_ID = UUID("00000000-0000-0000-0000-000000000003")
 LANGUAGE_ID = UUID("00000000-0000-0000-0000-000000000004")
+
+
+def test_client_multi_keyword_runs_on_isolated_sqlite_across_names_and_preserves_literal_wildcards():
+    engine = create_engine('sqlite:///:memory:')
+    with engine.begin() as db:
+        db.execute(text('CREATE TABLE client (id VARCHAR(32), client_name TEXT, client_short_name TEXT)'))
+        db.execute(text('CREATE TABLE sub_client (id VARCHAR(32), parent_client_id VARCHAR(32), client_name TEXT, client_short_name TEXT)'))
+        for index, (name, short) in enumerate([('AABB', ''), ('AAA BBB', ''), ('AA', 'BB'), ('AA', ''), ('100%_x', '')], 1):
+            db.execute(text('INSERT INTO client VALUES (:id,:name,:short)'), {'id': UUID(int=index).hex, 'name': name, 'short': short})
+        stmt = _apply_client_filters(select(Client.id), client_name='AA BB')
+        assert list(db.execute(stmt.order_by(Client.id)).scalars()) == [UUID(int=i) for i in (1, 2, 3)]
+        literal = _apply_client_filters(select(Client.id), client_name='% _')
+        assert list(db.execute(literal).scalars()) == [UUID(int=5)]
+    engine.dispose()
 
 
 def _base_query(model):

@@ -28,7 +28,7 @@
           @open="openFollowed"
           @locate-mention="locateMention"
           @close="closeChat($event.key)"
-          @close-active="activeWindow && closeChat(activeWindow.key)"
+          @close-active="closeWorkspaceSession"
           @minimize="minimizeWorkspace"
           @cycle-size="cycleWorkspaceSize"
           @resize="setWorkspaceSize"
@@ -67,7 +67,7 @@
             <div class="project-chat-window__title-row">
               <strong :title="chatWindow.title">{{ chatWindow.title }}</strong>
               <el-tag size="small" effect="plain" :type="chatWindow.projectType === 'annotation' ? 'success' : 'primary'">
-                {{ chatWindow.projectType === 'direct' ? '单聊' : chatWindow.projectType === 'annotation' ? '标注' : '笔译' }}
+                {{ chatWindow.projectType === 'discussion' ? '讨论' : chatWindow.projectType === 'direct' ? '单聊' : chatWindow.projectType === 'annotation' ? '标注' : '笔译' }}
               </el-tag>
             </div>
             <div class="project-chat-window__subtitle-row" :title="chatWindow.subtitle">
@@ -80,7 +80,7 @@
           </div>
           <div class="project-chat-window__actions">
             <div :id="`chat-tools-${chatWindow.key.replace(':', '-')}`" class="chat-header-session-tools" />
-            <ChatTopicNavigation compact icon-only :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" />
+            <ChatTopicNavigation v-if="chatWindow.projectType !== 'discussion'" compact icon-only :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" />
             <ChatProjectActions icon-only :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" />
             <el-button link aria-label="聊天记录" title="聊天记录" @click="openSearch(chatWindow.key)">
               <el-icon><Search /></el-icon>
@@ -97,7 +97,7 @@
         </header>
         <div class="project-chat-window__body">
           <component
-            :is="chatWindow.projectType === 'direct' ? DirectChat : chatWindow.projectType === 'annotation' ? AnnotationGroupChat : ProjectChatPanel"
+            :is="chatWindow.projectType === 'discussion' ? DiscussionConversation : chatWindow.projectType === 'direct' ? DirectChat : chatWindow.projectType === 'annotation' ? AnnotationGroupChat : ProjectChatPanel"
             :ref="(el) => setPanelRef(chatWindow.key, el)"
             :project-id="chatWindow.projectId"
             :target-message-id="chatWindow.targetMessageId"
@@ -165,6 +165,7 @@ import ProjectChatPanel from '@/components/ProjectChatPanel.vue'
 import { chatRequest } from '@/api/projectChat'
 import { ElMessage } from 'element-plus'
 import DirectChat from './DirectChat.vue'
+import DiscussionConversation from './DiscussionConversation.vue'
 import ChatProjectActions from './ChatProjectActions.vue'
 import AnnotationGroupChat from '@/components/chat/AnnotationGroupChat.vue'
 import ChatWorkspace from '@/components/chat/ChatWorkspace.vue'
@@ -187,6 +188,7 @@ const {
   state,
   openChat,
   closeChat,
+  closeWorkspaceSession,
   closeAllChats,
   minimizeChat,
   restoreChat,
@@ -271,7 +273,7 @@ const sessions = computed(() => {
   return rows.map(row => ({ ...row, mentionHistoryCount: row.projectType === 'annotation' ? counts.get(String(row.projectId)) || 0 : 0 }))
 })
 async function updatePreference({ session, data }) {
-  try { await chatRequest(`sessions/${session.projectType}/${session.projectId}/preferences`, { method: 'put', data }); await refreshFollowed() }
+  try { await chatRequest(session.projectType === 'discussion' ? `discussions/${session.projectId}/preferences` : `sessions/${session.projectType}/${session.projectId}/preferences`, { method: 'put', data }); await refreshFollowed() }
   catch (e) { ElMessage.error(e.detail || e.message || '更新会话偏好失败') }
 }
 function categoriesChanged(change) {

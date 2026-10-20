@@ -1,4 +1,5 @@
 """开拓记录保存、权限、查重、统计及日报来源。事务由 API 统一提交。"""
+from search_matching import keyword_ilike, keyword_or
 from datetime import date, datetime, timedelta, timezone
 from uuid import UUID, uuid4, uuid5, NAMESPACE_URL
 
@@ -468,10 +469,10 @@ def filtered_records(db, user, start, end, keyword=None, owner_id=None, platform
         q = q.filter(or_(current_contact_status("wechat").in_(states), current_contact_status("enterprise").in_(states)))
     if keyword and keyword.strip():
         pattern = f"%{keyword.strip()}%"
-        language_match = db.query(Language).join(InterpretationLanguage, InterpretationLanguage.id == Language.language_id).filter(Language.record_id == Record.id, InterpretationLanguage.label.ilike(pattern)).exists()
-        platform_match = db.query(Option).filter(Option.id == Record.platform_id, Option.kind == "platform", Option.name.ilike(pattern)).exists()
-        common = [Record.full_name.ilike(pattern), Record.greeting_no.ilike(pattern), language_match, platform_match]
-        contacts = or_(Record.phone.ilike(pattern), Record.wechat.ilike(pattern), Record.xiaohongshu.ilike(pattern))
+        language_match = db.query(Language).join(InterpretationLanguage, InterpretationLanguage.id == Language.language_id).filter(Language.record_id == Record.id, keyword_ilike(InterpretationLanguage.label, pattern)).exists()
+        platform_match = db.query(Option).filter(Option.id == Record.platform_id, Option.kind == "platform", keyword_ilike(Option.name, pattern)).exists()
+        common = [keyword_ilike(Record.full_name, pattern), keyword_ilike(Record.greeting_no, pattern), language_match, platform_match]
+        contacts = keyword_or(lambda _search_part: or_(keyword_ilike(Record.phone, _search_part), keyword_ilike(Record.wechat, _search_part), keyword_ilike(Record.xiaohongshu, _search_part)), pattern)
         q = q.filter(or_(*common, contacts if can_delegate(db, user) else and_(Record.owner_id == user.id, contacts)))
     unrestricted = can_delegate(db, user)
     for key, value in (column_filters or {}).items():
@@ -503,21 +504,21 @@ def filtered_records(db, user, start, end, keyword=None, owner_id=None, platform
             current = current_contact_status(channels[key]) if channels[key] in {"wechat", "enterprise"} else func.coalesce(latest, fallback)
             q = q.filter(current.in_(status_filter_values(values, channels[key])))
         elif key == 'friend_accounts_text':
-            q = q.filter(cast(Record.friend_accounts, String).ilike(pattern))
+            q = q.filter(keyword_ilike(cast(Record.friend_accounts, String), pattern))
         elif key == 'resource_code':
-            q = q.filter(db.query(ResourcePerson).filter(ResourcePerson.id == Record.person_id, ResourcePerson.resource_code.ilike(pattern)).exists())
+            q = q.filter(db.query(ResourcePerson).filter(ResourcePerson.id == Record.person_id, keyword_ilike(ResourcePerson.resource_code, pattern)).exists())
         elif key in {'latest_follow_up', 'follow_up'}:
             latest = db.query(FollowUp.id).filter(FollowUp.record_id == Record.id).order_by(FollowUp.created_at.desc(), FollowUp.id.desc()).limit(1).correlate(Record).scalar_subquery()
             current_match = db.query(FollowUp).join(AppUser, AppUser.id == FollowUp.operator_id).filter(
-                FollowUp.id == latest, or_(FollowUp.content.ilike(pattern),
-                    func.coalesce(func.nullif(AppUser.full_name, ''), AppUser.username).ilike(pattern),
-                    cast(FollowUp.created_at, String).ilike(pattern),
-                    func.to_char(FollowUp.created_at, 'YYYY"年"MM"月"DD"日" HH24:MI:SS').ilike(pattern))).exists()
-            q = q.filter(or_(current_match, and_(latest.is_(None), Record.follow_up.ilike(pattern))))
+                FollowUp.id == latest, keyword_or(lambda _search_part: or_(keyword_ilike(FollowUp.content, _search_part),
+                    keyword_ilike(func.coalesce(func.nullif(AppUser.full_name, ''), AppUser.username), _search_part),
+                    keyword_ilike(cast(FollowUp.created_at, String), _search_part),
+                    keyword_ilike(func.to_char(FollowUp.created_at, 'YYYY"年"MM"月"DD"日" HH24:MI:SS'), _search_part)), pattern)).exists()
+            q = q.filter(or_(current_match, and_(latest.is_(None), keyword_ilike(Record.follow_up, pattern))))
             if not unrestricted:
                 q = q.filter(Record.owner_id == user.id)
         elif key in {'full_name','greeting_no','phone','wechat','xiaohongshu','work_date','follow_up','remarks','updated_at'}:
-            q = q.filter(cast(getattr(Record, key), String).ilike(pattern))
+            q = q.filter(keyword_ilike(cast(getattr(Record, key), String), pattern))
             if key in {'phone','wechat','xiaohongshu','follow_up','remarks'} and not unrestricted:
                 q = q.filter(Record.owner_id == user.id)
     return q

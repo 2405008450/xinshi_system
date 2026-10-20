@@ -1,6 +1,7 @@
 """口译项目业务逻辑、查询与命名。"""
 
 from __future__ import annotations
+from search_matching import keyword_ilike, keyword_like, keyword_or
 
 from datetime import datetime, time
 from typing import Optional
@@ -98,7 +99,7 @@ def generate_interpretation_order_no(db: Session, current_time: Optional[datetim
         )
     last_order_no = (
         db.query(InterpretationProject.order_no)
-        .filter(InterpretationProject.order_no.like(f"{prefix}%"))
+        .filter(keyword_like(InterpretationProject.order_no, f"{prefix}%"))
         .order_by(InterpretationProject.order_no.desc())
         .limit(1)
         .scalar()
@@ -294,16 +295,16 @@ def _apply_filters(
 ):
     if keyword and keyword.strip():
         pattern = f"%{keyword.strip()}%"
-        query = query.filter(or_(
-            InterpretationProject.order_no.ilike(pattern),
-            InterpretationProject.project_name.ilike(pattern),
-            InterpretationProject.task_description.ilike(pattern),
-            InterpretationProject.customer_order_no.ilike(pattern),
-            Client.client_name.ilike(pattern),
-            Client.client_short_name.ilike(pattern),
-            SubClient.client_name.ilike(pattern),
-            SubClient.client_short_name.ilike(pattern),
-        ))
+        query = query.filter(keyword_or(lambda _search_part: or_(
+            keyword_ilike(InterpretationProject.order_no, _search_part),
+            keyword_ilike(InterpretationProject.project_name, _search_part),
+            keyword_ilike(InterpretationProject.task_description, _search_part),
+            keyword_ilike(InterpretationProject.customer_order_no, _search_part),
+            keyword_ilike(Client.client_name, _search_part),
+            keyword_ilike(Client.client_short_name, _search_part),
+            keyword_ilike(SubClient.client_name, _search_part),
+            keyword_ilike(SubClient.client_short_name, _search_part),
+        ), pattern))
     if project_status:
         query = query.filter(InterpretationProject.project_status == project_status)
     if project_type:
@@ -382,15 +383,15 @@ def _apply_filters(
                 "manager_contact": (Client.manager_contact, SubClient.manager_contact),
             }[field]
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
-            query = query.filter(or_(parent_column.ilike(pattern), sub_column.ilike(pattern)))
+            query = query.filter(keyword_or(lambda _search_part: or_(keyword_ilike(parent_column, _search_part), keyword_ilike(sub_column, _search_part)), pattern))
         elif field == "locations":
-            query = query.filter(cast(InterpretationProject.locations, String).ilike(f"%{str(descriptor.get('value') or '').strip()}%"))
+            query = query.filter(keyword_ilike(cast(InterpretationProject.locations, String), f"%{str(descriptor.get('value') or '').strip()}%"))
         elif field == "translator_codes":
             keyword = str(descriptor.get("value") or "").strip()
             if keyword:
                 query = query.filter(InterpretationProject.interpreter_assignments.any(
                     InterpretationProjectInterpreter.translator.has(
-                        Translator.translator_code.ilike(f"%{keyword}%")
+                        keyword_ilike(Translator.translator_code, f"%{keyword}%")
                     )
                 ))
         elif field in {"scheduled_date", "language_id", "translator_id"}:

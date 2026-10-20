@@ -1,3 +1,4 @@
+from search_matching import keyword_ilike, keyword_or
 from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -115,11 +116,11 @@ def read_user_options(
         query = query.filter(AppUser.is_active.is_(True))
     if keyword and keyword.strip():
         pattern = f"%{keyword.strip()}%"
-        query = query.filter(or_(
-            AppUser.username.ilike(pattern),
-            AppUser.full_name.ilike(pattern),
-            AppUser.department.ilike(pattern),
-        ))
+        query = query.filter(keyword_or(lambda _search_part: or_(
+            keyword_ilike(AppUser.username, _search_part),
+            keyword_ilike(AppUser.full_name, _search_part),
+            keyword_ilike(AppUser.department, _search_part),
+        ), pattern))
     rows = query.order_by(AppUser.full_name.asc(), AppUser.username.asc()).limit(limit).all()
     return [
         {

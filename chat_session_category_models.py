@@ -36,3 +36,11 @@ class ChatSessionCategoryLink(Base):
     direct_conversation_id = mapped_column(Uuid, ForeignKey('chat_direct_conversation.id', ondelete='CASCADE'))
     updated_by = mapped_column(Uuid, ForeignKey('app_user.id'), nullable=False)
     updated_at = mapped_column(DateTime(timezone=True), nullable=False, default=category_now)
+
+
+class ChatSessionCategoryFolder(Base):
+    """独立保存目录层级，兼容原有的一层分类及会话关联。"""
+    __tablename__ = 'chat_session_category_folder'
+    category_id = mapped_column(Uuid, ForeignKey('chat_session_category.id'), primary_key=True)
+    # 内置一级目录为稳定的虚拟 UUID，不需要启动时向业务库写入种子数据。
+    parent_key = mapped_column(String(36))

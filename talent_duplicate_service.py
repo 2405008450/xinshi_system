@@ -1,5 +1,6 @@
 """同名核重：确定性比对、事务内归档和有条件撤销。"""
 from __future__ import annotations
+from search_matching import matches_keywords
 
 import copy
 import hashlib
@@ -357,8 +358,8 @@ def groups(db, keyword="", status="pending", skip=0, limit=20, contacts_visible=
         decisions = _pair_decisions(members, by_key.get(key, []))
         pairs = [tuple(sorted((str(a.id), str(b.id)))) for a, b in itertools.combinations(members, 2)]
         state = "pending" if any(pair not in decisions for pair in pairs) else "deferred" if "defer" in decisions.values() else "different"
-        if keyword.strip().lower() and not any(keyword.strip().lower() in str(value or "").lower()
-                                             for person in members for value in (person.full_name, person.resource_code)):
+        if keyword.strip() and not matches_keywords(' '.join(str(value or '')
+                                             for person in members for value in (person.full_name, person.resource_code)), keyword):
             continue
         agent = group_review(agent_report, key, members, conclusions=decisions) if contacts_visible else None
         if agent:

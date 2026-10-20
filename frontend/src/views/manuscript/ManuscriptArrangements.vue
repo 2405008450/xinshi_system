@@ -1931,6 +1931,8 @@
 </template>
 
 <script setup>
+import { matchesSearchFields } from '@/utils/searchMatching'
+
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute } from 'vue-router'
@@ -2716,16 +2718,16 @@ const filteredTranslators = computed(() => {
     if (translatorTab.value !== 'all' && cooperationGroup(row) !== translatorTab.value) {
       return false
     }
-    if (keyword && ![
+    if (keyword && !matchesSearchFields([
       row.translator_name,
       row.translator_code,
       row.languages,
       row.direction,
       row.translation_type
-    ].some((value) => String(value || '').toLowerCase().includes(keyword))) return false
+    ], keyword)) return false
     const textMatches = (key, values) => {
       const filterValue = String(translatorFilterModel[key] || '').trim().toLowerCase()
-      return !filterValue || values.some((value) => String(value || '').toLowerCase().includes(filterValue))
+      return !filterValue || matchesSearchFields(values, filterValue)
     }
     if (!textMatches('translatorCode', [row.translator_code])) return false
     if (!textMatches('translatorName', [row.translator_name])) return false

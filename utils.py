@@ -1,3 +1,4 @@
+from search_matching import keyword_like
 import datetime
 import re
 from sqlalchemy.orm import Session
@@ -34,7 +35,7 @@ def generate_order_no(db: Session) -> str:
     # 查询今天最大的订单号（匹配新格式，排除子订单）
     last_project = (
         db.query(TranslationProject)
-        .filter(TranslationProject.order_no.like(f"TP-{today_str}-%"))
+        .filter(keyword_like(TranslationProject.order_no, f"TP-{today_str}-%"))
         .filter(~TranslationProject.order_no.like("%.%"))
         .order_by(TranslationProject.order_no.desc())
         .first()
@@ -67,7 +68,7 @@ def generate_sub_order_no(db: Session, parent_order_no: str) -> str:
     sub_pattern = f"{parent_order_no}.%"
     last_sub = (
         db.query(TranslationProject)
-        .filter(TranslationProject.order_no.like(sub_pattern))
+        .filter(keyword_like(TranslationProject.order_no, sub_pattern))
         .order_by(TranslationProject.order_no.desc())
         .first()
     )

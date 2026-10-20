@@ -41,6 +41,8 @@
 </template>
 
 <script setup>
+import { matchesSearch } from '@/utils/searchMatching'
+
 import { provide, computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Paperclip, User, Star, StarFilled, Search } from '@element-plus/icons-vue'
@@ -90,7 +92,7 @@ const group = reactive({ members: [], eligibleUsers: [], following: false })
 const messages = ref([]), list = ref(null), input = ref(null), content = ref(''), replyTo = ref(null)
 const composer = ref(null), mentionMenu = ref(null), mentionOpen = ref(false), mentionQuery = ref(''), mentionIndex = ref(0), mentionStyle = ref({})
 const mentionListId = `mention-${newMessageId()}`
-const mentionCandidates = computed(() => group.eligibleUsers.filter(u => u.name.toLocaleLowerCase().includes(mentionQuery.value.toLocaleLowerCase())))
+const mentionCandidates = computed(() => group.eligibleUsers.filter(u => matchesSearch(u.name, mentionQuery.value)))
 let mentionTrigger = -1
 const selected = ref([]), selectionMessage = ref(null), inviteIds = ref([]), mentionIds = ref([])
 const files = ref([]), sending = ref(false), retryPayload = ref(null), sendError = ref(''), composing = ref(false)

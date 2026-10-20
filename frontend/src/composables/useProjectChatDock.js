@@ -281,7 +281,7 @@ const openChat = ({ projectId, projectType = 'translation', title = '', subtitle
     return key
   }
 
-  const needsMeta = projectType !== 'direct' && (!title || !subtitle || (projectType === 'annotation' && !projectStatus))
+  const needsMeta = !['direct', 'discussion'].includes(projectType) && (!title || !subtitle || (projectType === 'annotation' && !projectStatus))
   const sizeMode = normalizeSize(sizePreference[projectType])
   const chatWindow = reactive({
     key,
@@ -543,6 +543,14 @@ const closeAllChats = () => {
   state.workspaceOpened = false
 }
 
+const closeWorkspaceSession = () => {
+  if (state.activeKey) closeChat(state.activeKey)
+  if (!state.windows.length) {
+    state.workspaceOpened = false
+    state.workspaceMinimized = false
+  }
+}
+
 const minimizeChat = (key) => {
   const chatWindow = state.windows.find(item => item.key === key)
   if (chatWindow) chatWindow.minimized = true
@@ -588,6 +596,7 @@ export const useProjectChatDock = () => ({
   openChat,
   closeChat,
   closeAllChats,
+  closeWorkspaceSession,
   minimizeChat,
   restoreChat,
   focusChat,

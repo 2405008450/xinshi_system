@@ -1,6 +1,7 @@
 """标注平台账号、试标、计价和状态履历服务。"""
 
 from __future__ import annotations
+from search_matching import keyword_ilike, keyword_or, matches_keywords
 
 import logging
 import math
@@ -221,14 +222,14 @@ def _account_query(
     normalized_keyword = (keyword or "").strip()
     if normalized_keyword:
         pattern = f"%{normalized_keyword}%"
-        query = query.filter(or_(
-            ResourcePerson.resource_code.ilike(pattern),
-            ResourcePerson.full_name.ilike(pattern),
-            AnnotationPlatformAccount.nickname.ilike(pattern),
-            AnnotationPlatformAccount.login_account.ilike(pattern),
-            AnnotationPlatform.platform_name.ilike(pattern),
-            AnnotationPlatform.platform_url.ilike(pattern),
-        ))
+        query = query.filter(keyword_or(lambda _search_part: or_(
+            keyword_ilike(ResourcePerson.resource_code, _search_part),
+            keyword_ilike(ResourcePerson.full_name, _search_part),
+            keyword_ilike(AnnotationPlatformAccount.nickname, _search_part),
+            keyword_ilike(AnnotationPlatformAccount.login_account, _search_part),
+            keyword_ilike(AnnotationPlatform.platform_name, _search_part),
+            keyword_ilike(AnnotationPlatform.platform_url, _search_part),
+        ), pattern))
     return query
 
 
@@ -904,14 +905,14 @@ def _trial_query(
     normalized_keyword = (keyword or "").strip()
     if normalized_keyword:
         pattern = f"%{normalized_keyword}%"
-        query = query.filter(or_(
-            ResourcePerson.resource_code.ilike(pattern),
-            ResourcePerson.full_name.ilike(pattern),
-            AnnotationTrialRecord.willingness_text.ilike(pattern),
-            AnnotationTrialRecord.result_note.ilike(pattern),
-            AnnotationProject.order_no.ilike(pattern),
-            AnnotationProject.project_name.ilike(pattern),
-        ))
+        query = query.filter(keyword_or(lambda _search_part: or_(
+            keyword_ilike(ResourcePerson.resource_code, _search_part),
+            keyword_ilike(ResourcePerson.full_name, _search_part),
+            keyword_ilike(AnnotationTrialRecord.willingness_text, _search_part),
+            keyword_ilike(AnnotationTrialRecord.result_note, _search_part),
+            keyword_ilike(AnnotationProject.order_no, _search_part),
+            keyword_ilike(AnnotationProject.project_name, _search_part),
+        ), pattern))
     if trial_status:
         query = query.filter(AnnotationTrialRecord.trial_status == trial_status)
     if person_id:
@@ -1274,12 +1275,12 @@ def list_annotation_workflow(
     normalized_keyword = (keyword or "").strip()
     if normalized_keyword:
         pattern = f"%{normalized_keyword}%"
-        query = query.filter(or_(
-            ResourcePerson.resource_code.ilike(pattern),
-            ResourcePerson.full_name.ilike(pattern),
-            AnnotationProjectAssignee.project.has(AnnotationProject.order_no.ilike(pattern)),
-            AnnotationProjectAssignee.project.has(AnnotationProject.project_name.ilike(pattern)),
-        ))
+        query = query.filter(keyword_or(lambda _search_part: or_(
+            keyword_ilike(ResourcePerson.resource_code, _search_part),
+            keyword_ilike(ResourcePerson.full_name, _search_part),
+            AnnotationProjectAssignee.project.has(keyword_ilike(AnnotationProject.order_no, _search_part)),
+            AnnotationProjectAssignee.project.has(keyword_ilike(AnnotationProject.project_name, _search_part)),
+        ), pattern))
     return [_workflow_dict(row) for row in query.order_by(AnnotationProjectAssignee.updated_at.desc(), AnnotationProjectAssignee.sequence_no).all()]
 
 
@@ -1629,14 +1630,14 @@ def _arrangement_project_query(
         )
     if keyword and keyword.strip():
         pattern = f"%{_escape_like_keyword(keyword.strip())}%"
-        query = query.filter(or_(
-            AnnotationProject.order_no.ilike(pattern, escape="\\"),
-            AnnotationProject.project_name.ilike(pattern, escape="\\"),
-            Client.client_name.ilike(pattern, escape="\\"),
-            Client.client_short_name.ilike(pattern, escape="\\"),
-            SubClient.client_name.ilike(pattern, escape="\\"),
-            SubClient.client_short_name.ilike(pattern, escape="\\"),
-        ))
+        query = query.filter(keyword_or(lambda _search_part: or_(
+            keyword_ilike(AnnotationProject.order_no, _search_part, escape="\\"),
+            keyword_ilike(AnnotationProject.project_name, _search_part, escape="\\"),
+            keyword_ilike(Client.client_name, _search_part, escape="\\"),
+            keyword_ilike(Client.client_short_name, _search_part, escape="\\"),
+            keyword_ilike(SubClient.client_name, _search_part, escape="\\"),
+            keyword_ilike(SubClient.client_short_name, _search_part, escape="\\"),
+        ), pattern))
     if client_id:
         query = query.filter(AnnotationProject.client_id == client_id)
     if project_type:
@@ -1933,9 +1934,9 @@ def get_arrangement_workloads(
     for assignee in _arrangement_assignees(db):
         if assignee_id and assignee["id"] != assignee_id:
             continue
-        if normalized_keyword and normalized_keyword not in " ".join(filter(None, (
+        if normalized_keyword and not matches_keywords(" ".join(filter(None, (
             assignee["display_name"], assignee.get("department"),
-        ))).casefold():
+        ))).casefold(), normalized_keyword):
             continue
         task_count, project_count = counts.get(assignee["id"], (0, 0))
         if load_state == "assigned" and not task_count:
@@ -2220,7 +2221,7 @@ def search_status_history(
         AnnotationProjectStatusHistory.effective_on < end_at,
         AnnotationProjectStatusHistory.change_note.isnot(None),
         func.btrim(AnnotationProjectStatusHistory.change_note) != "",
-        AnnotationProjectStatusHistory.change_note.ilike(pattern, escape="\\"),
+        keyword_ilike(AnnotationProjectStatusHistory.change_note, pattern, escape="\\"),
     )
     rows = (
         query.order_by(

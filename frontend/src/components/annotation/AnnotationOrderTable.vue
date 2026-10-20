@@ -10,10 +10,10 @@
             <span>{{ row.orderLevel === 1 ? '三级订单' : '子订单' }} · 共 {{ totals[row.id] ?? row.childCount ?? 0 }} 条</span>
             <el-button v-if="editable && !deleteMode" @click="$emit('create', row, true)">新增{{ row.orderLevel === 1 ? '三级订单' : '子订单' }}</el-button>
             <el-button v-if="editable && !deleteMode" @click="$emit('create', row, false)">批量新增{{ row.orderLevel === 1 ? '三级订单' : '子订单' }}</el-button>
-            <el-button @click="$emit('manage', row)">管理全部</el-button>
+            <el-button v-if="!conversationPicker" @click="$emit('manage', row)">管理全部</el-button>
           </div>
           <el-alert v-if="errors[row.id]" :title="errors[row.id]" type="error" :closable="false"><el-button link @click="load(row)">重试</el-button></el-alert>
-          <AnnotationOrderTable :rows="children[row.id] || []" :columns="columns" :editable="editable" :delete-mode="deleteMode" nested
+          <AnnotationOrderTable :rows="children[row.id] || []" :columns="columns" :editable="editable" :delete-mode="deleteMode" :conversation-picker="conversationPicker" nested
             :revision="revision" :area-ids="areaIds" :supports-grandchild-orders="supportsGrandchildOrders" @create="(...args) => $emit('create', ...args)" @manage="$emit('manage', $event)" @updated="$emit('updated', $event)">
             <template #header="scope"><slot name="header" v-bind="scope" /></template>
             <template #cell="scope"><slot name="cell" v-bind="scope" /></template>
@@ -30,12 +30,12 @@
         <TableExpandButton v-if="row.orderLevel < (supportsGrandchildOrders ? 2 : 1)" :expanded="expanded.includes(row.id)" :expand-label="row.orderLevel === 1 ? '展开三级订单' : '展开子订单'" collapse-label="收起下级订单" @click="tableRef.toggleRowExpansion(row)" />
       </div></template>
     </el-table-column>
-    <el-table-column label="订单号" width="200" :fixed="nested ? false : 'left'"><template #header><slot name="header" :column="{key:'orderNo',label:'订单号'}" /></template><template #default="{ row }"><slot name="order" :row="row" /></template></el-table-column>
+    <el-table-column label="订单号" width="200" :fixed="nested ? false : 'left'"><template #header><slot name="header" :column="{key:'orderNo',label:'订单号'}" /></template><template #default="{ row }"><slot name="order" :row="row" :toggle="() => tableRef.toggleRowExpansion(row)" /></template></el-table-column>
     <el-table-column v-for="column in columns" :key="column.key" :prop="column.key" :label="column.label" :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="!['projectName','projectStatus'].includes(column.key)">
       <template #header><slot name="header" :column="column" /></template><template #default="{ row }"><slot name="cell" :row="row" :column="column" /></template>
     </el-table-column>
-    <el-table-column label="详情" width="100" fixed="right"><template #default="{ row }"><AnnotationProjectDetailPopover v-if="row.id" :project-id="row.id" :summary="row" :editable="editable && !deleteMode" @updated="$emit('updated', $event)"><template #reference><el-button link type="primary">查看详情</el-button></template></AnnotationProjectDetailPopover></template></el-table-column>
-    <el-table-column v-if="!deleteMode" label="操作" width="120" fixed="right"><template #default="{ row }"><slot name="actions" :row="row" /></template></el-table-column>
+    <el-table-column v-if="!conversationPicker" label="详情" width="100" fixed="right"><template #default="{ row }"><AnnotationProjectDetailPopover v-if="row.id" :project-id="row.id" :summary="row" :editable="editable && !deleteMode" @updated="$emit('updated', $event)"><template #reference><el-button link type="primary">查看详情</el-button></template></AnnotationProjectDetailPopover></template></el-table-column>
+    <el-table-column v-if="!deleteMode" :label="conversationPicker ? '加入会话' : '操作'" width="120" fixed="right"><template #default="{ row }"><slot name="actions" :row="row" /></template></el-table-column>
   </el-table>
 </template>
 
@@ -44,7 +44,7 @@ import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { getAnnotationChildren } from '@/api/annotationProjects'
 import AnnotationProjectDetailPopover from './AnnotationProjectDetailPopover.vue'
 import TableExpandButton from '@/components/common/TableExpandButton.vue'
-const props = defineProps({ rows: {type:Array,default:()=>[]}, columns: {type:Array,default:()=>[]}, editable:Boolean, deleteMode:Boolean, nested:Boolean, revision:Number, areaIds:Array, rowClass:Function, supportsGrandchildOrders:{type:Boolean,default:true} })
+const props = defineProps({ rows: {type:Array,default:()=>[]}, columns: {type:Array,default:()=>[]}, editable:Boolean, deleteMode:Boolean, nested:Boolean, conversationPicker:Boolean, revision:Number, areaIds:Array, rowClass:Function, supportsGrandchildOrders:{type:Boolean,default:true} })
 const emit = defineEmits(['selection-change','create','manage','updated'])
 const tableRef = ref(), expanded = ref([]), loadingIds = reactive(new Set())
 const containerWidth=ref(0)

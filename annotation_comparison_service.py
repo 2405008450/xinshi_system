@@ -1,6 +1,7 @@
 """标注项目比较组查询与维护服务。"""
 
 from __future__ import annotations
+from search_matching import keyword_ilike, keyword_or
 
 from datetime import datetime
 from uuid import UUID
@@ -86,10 +87,10 @@ def list_comparison_groups(
     normalized = str(keyword or "").strip()
     if normalized:
         pattern = f"%{normalized}%"
-        query = query.filter(or_(
-            AnnotationProjectComparisonGroup.name.ilike(pattern),
-            AnnotationProjectComparisonGroup.description.ilike(pattern),
-        ))
+        query = query.filter(keyword_or(lambda _search_part: or_(
+            keyword_ilike(AnnotationProjectComparisonGroup.name, _search_part),
+            keyword_ilike(AnnotationProjectComparisonGroup.description, _search_part),
+        ), pattern))
     rows = query.order_by(
         AnnotationProjectComparisonGroup.created_at.desc(),
         AnnotationProjectComparisonGroup.id.desc(),
@@ -102,10 +103,10 @@ def count_comparison_groups(db: Session, *, keyword: str | None = None) -> int:
     normalized = str(keyword or "").strip()
     if normalized:
         pattern = f"%{normalized}%"
-        query = query.filter(or_(
-            AnnotationProjectComparisonGroup.name.ilike(pattern),
-            AnnotationProjectComparisonGroup.description.ilike(pattern),
-        ))
+        query = query.filter(keyword_or(lambda _search_part: or_(
+            keyword_ilike(AnnotationProjectComparisonGroup.name, _search_part),
+            keyword_ilike(AnnotationProjectComparisonGroup.description, _search_part),
+        ), pattern))
     return query.count()
 
 

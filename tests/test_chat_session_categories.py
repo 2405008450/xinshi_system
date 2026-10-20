@@ -113,7 +113,7 @@ def test_unmigrated_schema_degrades_without_querying_missing_tables(environment,
     db, data = environment
     monkeypatch.setattr(service, 'schema_ready', lambda _db: False)
     result = sessions(db, data['users']['collector'])
-    assert result['session_categories'] == {'ready': False, 'can_manage': False, 'items': []}
+    assert result['session_categories'] == {'ready': False, 'hierarchy_ready': False, 'can_manage': False, 'items': []}
     assert all(item['category_ids'] == [] for item in result['items'])
     assert client_for(db, data['users']['admin']).post('/chat/session-categories', json={'name': '待迁移'}).status_code == 503
 

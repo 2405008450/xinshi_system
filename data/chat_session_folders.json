@@ -1,0 +1,13 @@
+[
+  {"id":"dcb1f917-6000-4000-8000-000000000001","name":"资源开拓讨论","ruleKey":"resource","parentKey":null},
+  {"id":"dcb1f917-6000-4000-8000-000000000002","name":"标注项目","ruleKey":"annotation","parentKey":null},
+  {"id":"dcb1f917-6000-4000-8000-000000000003","name":"笔译项目","ruleKey":"translation","parentKey":null},
+  {"id":"dcb1f917-6000-4000-8000-000000000004","name":"口译项目","ruleKey":"interpretation","parentKey":null},
+  {"id":"dcb1f917-6000-4000-8000-000000000005","name":"招聘项目","ruleKey":"recruitment","parentKey":null},
+  {"id":"dcb1f917-6000-4000-8000-000000000006","name":"平台讨论","ruleKey":"discussion","parentKey":"dcb1f917-6000-4000-8000-000000000001"},
+  {"id":"dcb1f917-6000-4000-8000-000000000007","name":"资源讨论","ruleKey":"discussion","parentKey":"dcb1f917-6000-4000-8000-000000000001"},
+  {"id":"dcb1f917-6000-4000-8000-000000000008","name":"企微管理","ruleKey":"discussion","parentKey":"dcb1f917-6000-4000-8000-000000000001"},
+  {"id":"dcb1f917-6000-4000-8000-000000000009","name":"发布需求","ruleKey":"discussion","parentKey":"dcb1f917-6000-4000-8000-000000000001"},
+  {"id":"dcb1f917-6000-4000-8000-000000000010","name":"高校渠道","ruleKey":"discussion","parentKey":"dcb1f917-6000-4000-8000-000000000001"},
+  {"id":"dcb1f917-6000-4000-8000-000000000011","name":"其他渠道","ruleKey":"discussion","parentKey":"dcb1f917-6000-4000-8000-000000000001"}
+]

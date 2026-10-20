@@ -1,5 +1,6 @@
 """渠道、平台分组与账号分工；保留原账号 ID 及全部业务关联。"""
 from uuid import uuid4
+from search_matching import keyword_any, matches_keywords, search_terms
 
 from fastapi import HTTPException
 from sqlalchemy import func, inspect, or_, select
@@ -101,12 +102,12 @@ def list_channels(db, keyword=None, category=None, maintainer_ids=None, user_ids
     if available:
         query = query.filter(~Option.id.in_(select(Link.account_id)))
     if keyword and keyword.strip():
-        value = keyword.strip()
-        matching = select(Option.id).where(or_(Option.name.icontains(value, autoescape=True), Option.purpose.icontains(value, autoescape=True)))
-        conditions = [Option.id.in_(matching)]
-        if available:
-            conditions.append(Option.id.in_(select(Link.parent_id).where(Link.account_id.in_(matching))))
-        query = query.filter(or_(*conditions))
+        for term in search_terms(keyword):
+            matching = select(Option.id).where(keyword_any([Option.name, Option.purpose], term))
+            conditions = [Option.id.in_(matching)]
+            if available:
+                conditions.append(Option.id.in_(select(Link.parent_id).where(Link.account_id.in_(matching))))
+            query = query.filter(or_(*conditions))
     if category:
         query = query.filter(Option.category == category)
     for role, ids in (("maintainer", maintainer_ids), ("user", user_ids)):
@@ -125,7 +126,7 @@ def list_channels(db, keyword=None, category=None, maintainer_ids=None, user_ids
     items = serialize_channels(db, rows)
     value = (keyword or "").strip().casefold()
     for item in items:
-        item["expand_accounts"] = bool(value and any(value in account["name"].casefold() or value in account["purpose"].casefold() for account in item["accounts"]))
+        item["expand_accounts"] = bool(value and any(matches_keywords(f"{account['name']} {account['purpose']}", term) for term in search_terms(value) for account in item["accounts"]))
     return {"items": items, "total": total, "hierarchy_available": available}
 
 
