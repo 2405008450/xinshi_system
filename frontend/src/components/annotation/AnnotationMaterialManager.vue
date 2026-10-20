@@ -15,6 +15,8 @@
         v-if="category.key === 'project'" :key="`${projectId}:${active}`" v-model:folder-id="selectedFolderId"
         :folders="allFolders" :files="categoryRows('project')" :pending="categoryPending('project')"
         :readonly="readonly" :disabled="disabled || loading || !!loadError" :format-size="sizeText" :format-time="timeText"
+        :online-edit="canOnlineEdit" :edit-blocked="editBlocked" :create-blocked="createBlocked"
+        @edit="editOnline" @create-document="openDocumentCreator"
         @create="openFolderCreator" @upload="files => addFiles(files, 'project')"
         @replace="({ files, fileId }) => addFiles(files, 'project', fileId)"
         @download="download" @history="showHistory" @remove="remove" @retry="send" @discard="discard"
@@ -67,7 +69,10 @@ import AppForm from '@/components/common/AppForm.vue'
 import AnnotationMaterialExplorer from '@/components/annotation/AnnotationMaterialExplorer.vue'
 import * as api from '@/api/annotationMaterials'
 import { formatDateTimeMinute } from '@/utils/dateTime'
-import { folderNameError, folderParentId, newFolderId, withDefaultProjectFolder } from '@/utils/annotationMaterialFolders'
+import { folderNameError, folderParentId, folderPath, newFolderId, withDefaultProjectFolder } from '@/utils/annotationMaterialFolders'
+import { onlineEditBlocker } from '@/utils/materialDocument'
+import { useMaterialEditor } from '@/composables/useMaterialEditor'
+import { hasPermission } from '@/utils/permission'
 
 const props = defineProps({ projectId: { type: String, default: '' }, readonly: Boolean, active: { type: Boolean, default: true }, disabled: Boolean })
 const categories = [{ key: 'project', label: '项目资料' }, { key: 'quotation', label: '报价单' }, { key: 'contract', label: '合同' }]
@@ -88,6 +93,36 @@ const folderRules = {
   }, trigger: 'blur' }],
 }
 const history = ref([]), historyVisible = ref(false), historyLoading = ref(false)
+
+// 在线编辑即时生成新版本，不依赖项目表单保存；只读浮层中有写权限也可使用。
+const { state: editorState, openMaterialEditor } = useMaterialEditor()
+const canOnlineEdit = computed(() => Boolean(props.projectId) && hasPermission('projects:write'))
+const editBlocked = row => {
+  if (props.disabled || loading.value || loadError.value) return '资料加载或项目保存中，请稍候'
+  if (hasReplacement(row.file_id)) return '该文件有待保存的新版，请先保存项目或取消上传'
+  return onlineEditBlocker(row)
+}
+const currentFolder = computed(() => allFolders.value.find(folder => folder.id === selectedFolderId.value))
+const currentFolderName = computed(() => folderPath(allFolders.value, selectedFolderId.value))
+const createBlocked = computed(() => {
+  if (props.disabled || loading.value || loadError.value) return '资料加载或项目保存中，请稍候'
+  return currentFolder.value?.pending || currentFolder.value?.default ? '当前文件夹尚未保存，请先保存项目后再新建文档' : ''
+})
+function editOnline(row) {
+  const reason = editBlocked(row)
+  if (reason) { ElMessage.warning(reason); return }
+  if (!openMaterialEditor({ projectId: props.projectId, file: row })) ElMessage.warning('已有正在在线编辑的文件，请先保存或关闭')
+}
+function openDocumentCreator(kind) {
+  if (createBlocked.value) { ElMessage.warning(createBlocked.value); return }
+  // 文件名在全局编辑器内填写：资料浮层关闭后命名和编辑内容仍然保留。
+  const siblingNames = [
+    ...rows.value.filter(row => row.category === 'project' && (row.folder_id || null) === selectedFolderId.value).map(row => row.original_name),
+    ...pending.value.filter(item => item.category === 'project' && !item.fileId && item.folder_id === selectedFolderId.value).map(item => item.file.name),
+  ]
+  const create = { kind, folderId: selectedFolderId.value, folderName: currentFolderName.value, siblingNames }
+  if (!openMaterialEditor({ projectId: props.projectId, create })) ElMessage.warning('已有正在在线编辑的文件，请先保存或关闭')
+}
 let generation = 0, requestId = 0, nextKey = 0
 const sizeText = size => size >= 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(size / 1024)} KB`
 // 后端资料时间使用 UTC，显式标记时区后交给公共格式化函数。
@@ -200,6 +235,8 @@ function changes() {
 }
 function saved() { pending.value = []; removed.value = []; createdFolders.value = []; void reload() }
 watch(() => [props.projectId, props.active], () => { reset(); if (props.active) void reload() }, { immediate: true })
+// 在线编辑保存后刷新同一项目的全部资料组件，保留表单中未保存的暂存与目录。
+watch(() => editorState.savedTicks[props.projectId], (value, old) => { if (value && value !== old && props.active) { historyVisible.value = false; void reload() } })
 onBeforeUnmount(reset)
 defineExpose({ validate, changes, saved, reload })
 </script>

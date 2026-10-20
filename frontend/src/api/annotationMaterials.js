@@ -26,3 +26,9 @@ export async function downloadMaterial(projectId, row) {
   // 留出浏览器启动下载的时间。
   window.setTimeout(() => URL.revokeObjectURL(url), 60000)
 }
+
+export const readMaterialVersion = (projectId, row) => api.get(`${base}/${projectId}/materials/${row.file_id}/versions/${row.id}/download`, {
+  responseType: 'blob', timeout: 300000,
+})
+export const commitOnlineVersion = (projectId, fileId, data) => api.post(`${base}/${projectId}/materials/${fileId}/online-versions`, data)
+export const createOnlineFile = (projectId, data) => api.post(`${base}/${projectId}/materials/online-files`, data)

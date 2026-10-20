@@ -589,3 +589,97 @@ def test_postgres_folder_migration_preserves_existing_files(env):
     row = service.versions(db, project)[0]
     assert row['file_id'] == file_id and row['folder_id'] is None and row['version_no'] == 1
     assert service.storage_path(upload.storage_key).read_bytes() == b'content'
+
+
+def online_file(db, user, project, name='在线.docx', folder_id=None):
+    upload = stage(db, user, name)
+    material, version = service.attach_upload(db, project, upload.id, user.id, 'project', folder_id=folder_id)
+    db.commit()
+    return material.id, version.id
+
+
+def test_online_version_appends_and_consumes(env, client):
+    db, user, project, _ = env
+    file_id, base_id = online_file(db, user, project)
+    upload = stage(db, user, '在线-编辑.DOCX')
+    url = f'/projects/annotation/{project}/materials/{file_id}/online-versions'
+    result = client.post(url, json={'upload_id': str(upload.id), 'base_version_id': str(base_id)})
+    assert result.status_code == 201, result.text
+    body = result.json()
+    assert body['version_no'] == 2 and body['file_id'] == str(file_id) and body['category'] == 'project'
+    assert db.get(Upload, upload.id).consumed_at is not None
+    # 基于旧版本再次保存视为冲突，暂存不被消费。
+    stale = stage(db, user, '在线.docx')
+    result = client.post(url, json={'upload_id': str(stale.id), 'base_version_id': str(base_id)})
+    assert result.status_code == 409 and result.json()['detail'] == '文件已被他人更新，请刷新后重试'
+    db.expire_all()
+    assert db.get(Upload, stale.id).consumed_at is None
+    assert [row['version_no'] for row in service.versions(db, project, file_id)] == [2, 1]
+
+
+def test_online_version_rejects_cross_project_and_bad_uploads(env, client):
+    db, user, project, other_project = env
+    file_id, base_id = online_file(db, user, project)
+    payload = lambda upload: {'upload_id': str(upload.id), 'base_version_id': str(base_id)}
+    url = f'/projects/annotation/{project}/materials/{file_id}/online-versions'
+    assert client.post(f'/projects/annotation/{other_project}/materials/{file_id}/online-versions',
+                       json=payload(stage(db, user))).status_code == 404
+    assert client.post(f'/projects/annotation/{project}/materials/{uuid4()}/online-versions',
+                       json=payload(stage(db, user))).status_code == 404
+    other = SimpleNamespace(id=uuid4(), full_name='他人')
+    db.execute(text('INSERT INTO app_user VALUES (:id)'), {'id': other.id.hex}); db.commit()
+    foreign = stage(db, other, '在线.docx')
+    expired = stage(db, user, '在线.docx', expired=True)
+    used = stage(db, user, '在线.docx')
+    service.attach_upload(db, project, used.id, user.id, 'project'); db.commit()
+    for upload in (foreign, expired, used):
+        result = client.post(url, json=payload(upload))
+        assert result.status_code == 400 and '暂存文件' in result.json()['detail']
+    for name in ('在线.txt', '在线.pdf'):
+        assert client.post(url, json=payload(stage(db, user, name))).status_code == 400
+    pdf_id, pdf_base = online_file(db, user, project, '扫描.pdf')
+    result = client.post(f'/projects/annotation/{project}/materials/{pdf_id}/online-versions',
+                         json={'upload_id': str(stage(db, user, '扫描.pdf').id), 'base_version_id': str(pdf_base)})
+    assert result.status_code == 400
+    assert [row['version_no'] for row in service.versions(db, project, file_id)] == [1]
+
+
+def test_online_file_created_in_root_or_folder(env, client):
+    db, user, project, other_project = env
+    folder_id, foreign_folder = uuid4(), uuid4()
+    service.apply_changes(db, project, MaterialChanges(created_folders=[{'id': folder_id, 'name': '目录'}]), user.id)
+    service.apply_changes(db, other_project, MaterialChanges(created_folders=[{'id': foreign_folder, 'name': '目录'}]), user.id)
+    db.commit()
+    url = f'/projects/annotation/{project}/materials/online-files'
+    root = client.post(url, json={'upload_id': str(stage(db, user, '新建.md').id)})
+    assert root.status_code == 201, root.text
+    assert root.json()['folder_id'] is None and root.json()['category'] == 'project' and root.json()['version_no'] == 1
+    upload = stage(db, user, '新建.txt')
+    nested = client.post(url, json={'upload_id': str(upload.id), 'folder_id': str(folder_id)})
+    assert nested.status_code == 201 and nested.json()['folder_id'] == str(folder_id)
+    assert db.get(Upload, upload.id).consumed_at is not None
+    for target in (foreign_folder, uuid4()):
+        result = client.post(url, json={'upload_id': str(stage(db, user, '新建.txt').id), 'folder_id': str(target)})
+        assert result.status_code == 400
+    assert client.post(url, json={'upload_id': str(stage(db, user, '新建.xlsx').id)}).status_code == 400
+    assert client.post(url, json={'upload_id': str(stage(db, user, '新建.md', expired=True).id)}).status_code == 400
+    assert db.query(Material).filter_by(project_id=project).count() == 2
+
+
+def test_online_endpoints_require_write_permission(env, monkeypatch):
+    db, user, project, _ = env
+    from routers import auth
+    file_id, base_id = online_file(db, user, project)
+    app = FastAPI()
+    app.include_router(routes.router)
+    app.dependency_overrides[routes.get_db] = lambda: db
+    app.dependency_overrides[routes.get_current_user] = lambda: user
+    monkeypatch.setattr(auth, 'user_has_permission', lambda _db, _user, permission: permission == 'projects:read')
+    monkeypatch.setattr(routes, 'require_project', lambda *_args: None)
+    upload = stage(db, user, '在线.docx')
+    with TestClient(app) as client:
+        assert client.post(f'/projects/annotation/{project}/materials/{file_id}/online-versions',
+                           json={'upload_id': str(upload.id), 'base_version_id': str(base_id)}).status_code == 403
+        assert client.post(f'/projects/annotation/{project}/materials/online-files',
+                           json={'upload_id': str(upload.id)}).status_code == 403
+    assert db.get(Upload, upload.id).consumed_at is None

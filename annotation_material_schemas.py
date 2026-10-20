@@ -52,3 +52,13 @@ class MaterialChanges(BaseModel):
         if len(set(folders)) != len(folders):
             raise ValueError('同一次保存不能重复创建同一文件夹')
         return self
+
+
+class OnlineVersionCreate(BaseModel):
+    upload_id: UUID
+    base_version_id: UUID
+
+
+class OnlineFileCreate(BaseModel):
+    upload_id: UUID
+    folder_id: UUID | None = None

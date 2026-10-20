@@ -1,5 +1,6 @@
 """项目资料接口，复用标注项目模块权限，不授予聊天访问者写资料权限。"""
 import hashlib
+import os
 import uuid
 from datetime import datetime, timedelta
 from uuid import UUID
@@ -12,12 +13,31 @@ from database import get_db
 from models import AppUser
 from annotation_models import AnnotationProject
 from routers.auth import get_current_user, require_module_access, require_permission
-from annotation_material_models import AnnotationMaterialUpload as Upload, AnnotationMaterialFile as Material, AnnotationMaterialVersion as Version
-from annotation_material_service import MAX_BYTES, storage_path, serialize_upload, versions, folders, queue_upload_deletion
+from annotation_material_models import AnnotationMaterialUpload as Upload, AnnotationMaterialFile as Material, AnnotationMaterialVersion as Version, AnnotationMaterialFolder as Folder
+from annotation_material_schemas import OnlineVersionCreate, OnlineFileCreate
+from annotation_material_service import MAX_BYTES, storage_path, serialize_upload, versions, folders, queue_upload_deletion, attach_upload
 from annotation_material_storage import remote_origin, forward_upload, forward_delete, forward_download
 
 router = APIRouter(prefix='/projects/annotation', tags=['annotation_materials'],
                    dependencies=[Depends(require_module_access('projects:read', 'projects:write'))])
+
+
+ONLINE_EDIT_EXTENSIONS = {'.docx', '.txt', '.md'}
+
+
+def extension(name):
+    return os.path.splitext(name or '')[1].lower()
+
+
+def online_upload_extension(db, upload_id, user):
+    # 只校验当前用户可用的暂存；其他情况交给 attach_upload 给出统一提示。
+    upload = db.get(Upload, upload_id)
+    if upload is None or upload.uploaded_by != user.id:
+        return None
+    suffix = extension(upload.original_name)
+    if suffix not in ONLINE_EDIT_EXTENSIONS:
+        raise HTTPException(400, '在线编辑仅支持 .docx、.txt、.md 文件')
+    return suffix
 
 
 def require_project(db, project_id):
@@ -137,3 +157,47 @@ async def download(project_id: UUID, file_id: UUID, version_id: UUID, request: R
         raise HTTPException(404, '资料文件缺失，请联系管理员')
     return FileResponse(path, filename=upload.original_name, media_type='application/octet-stream',
                         headers={'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff'})
+
+
+@router.post('/{project_id}/materials/online-files', status_code=201, dependencies=[Depends(require_permission('projects:write'))])
+def create_online_file(project_id: UUID, payload: OnlineFileCreate, db: Session = Depends(get_db),
+                       user: AppUser = Depends(get_current_user)):
+    # 在线新建只写资料表，不更新项目修改时间；remote 模式两端共用业务库，无需转发。
+    require_project(db, project_id)
+    if payload.folder_id is not None and db.query(Folder.id).filter_by(id=payload.folder_id, project_id=project_id).first() is None:
+        raise HTTPException(400, '文件夹不属于当前项目或不存在')
+    online_upload_extension(db, payload.upload_id, user)
+    try:
+        material, _version = attach_upload(db, project_id, payload.upload_id, user.id, 'project', folder_id=payload.folder_id)
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(400, str(exc)) from exc
+    return versions(db, project_id, material.id)[0]
+
+
+@router.post('/{project_id}/materials/{file_id}/online-versions', status_code=201, dependencies=[Depends(require_permission('projects:write'))])
+def create_online_version(project_id: UUID, file_id: UUID, payload: OnlineVersionCreate, db: Session = Depends(get_db),
+                          user: AppUser = Depends(get_current_user)):
+    require_project(db, project_id)
+    # 锁住逻辑文件，串行化同一文件的并发在线保存，避免基于同一版本各自追加。
+    material = db.query(Material).filter_by(id=file_id, project_id=project_id).with_for_update().populate_existing().first()
+    if material is None:
+        raise HTTPException(404, '资料不属于当前项目或已移除')
+    latest = db.query(Version, Upload).join(Upload, Upload.id == Version.upload_id).filter(
+        Version.file_id == file_id).order_by(Version.version_no.desc()).first()
+    if latest is None or latest[0].id != payload.base_version_id:
+        db.rollback()
+        raise HTTPException(409, '文件已被他人更新，请刷新后重试')
+    current = extension(latest[1].original_name)
+    suffix = online_upload_extension(db, payload.upload_id, user)
+    if current not in ONLINE_EDIT_EXTENSIONS or (suffix is not None and suffix != current):
+        db.rollback()
+        raise HTTPException(400, '在线编辑文件格式必须与当前版本一致，且仅支持 .docx、.txt、.md')
+    try:
+        attach_upload(db, project_id, payload.upload_id, user.id, material.category, file_id=file_id)
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(400, str(exc)) from exc
+    return versions(db, project_id, file_id)[0]

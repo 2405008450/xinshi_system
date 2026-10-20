@@ -131,6 +131,7 @@
       </template>
     </ProjectChatDock>
     <ChatIssueCollector v-if="issueCollectorLoaded" />
+    <AnnotationMaterialEditor v-if="materialEditor.loaded" />
   </el-container>
 </template>
 
@@ -150,6 +151,7 @@ import ProjectChatDock from '@/components/chat/ProjectChatDock.vue'
 import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { useResourceNotesDock } from '@/composables/useResourceNotesDock'
+import { useMaterialEditor } from '@/composables/useMaterialEditor'
 import { useResourceIssues } from '@/composables/useResourceIssues'
 import UiZoomControl from '../components/UiZoomControl.vue'
 import SidebarNavigationItem from '@/components/common/SidebarNavigationItem.vue'
@@ -167,6 +169,8 @@ watch(() => issueCollector.visible, value => { if (value) issueCollectorLoaded.v
 const { openFullscreen } = useProjectChatDock()
 const { sessions: chatSessions, mentionTotal: chatMentionTotal } = useAnnotationFollowed()
 const chatUnreadTotal = computed(() => chatSessions.value.reduce((sum, row) => sum + (Number(row.unread) || 0), 0))
+const { state: materialEditor } = useMaterialEditor()
+const AnnotationMaterialEditor = defineAsyncComponent(() => import('@/components/annotation/AnnotationMaterialEditor.vue'))
 const ResourceRequestDailyNotesDialog = defineAsyncComponent(() => import('@/views/resource/components/ResourceRequestDailyNotesDialog.vue'))
 const { state: notesState, openNotes, minimizeNotes, closeNotes } = useResourceNotesDock()
 const canEditNotes = computed(() => hasPermission('projects:write'))

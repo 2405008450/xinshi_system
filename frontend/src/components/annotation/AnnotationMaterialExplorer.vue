@@ -10,14 +10,22 @@
         </el-dropdown>
         <label class="explorer-upload" :class="{ disabled }"><el-icon><Upload /></el-icon>上传文件<input type="file" multiple :disabled="disabled" aria-label="上传项目资料" @change="uploadFiles"></label>
       </div>
+      <div v-if="onlineEdit" class="explorer-commands">
+        <el-dropdown trigger="click" :disabled="!!createBlocked" @command="kind => $emit('create-document', kind)">
+          <el-button size="small" :icon="DocumentAdd" :disabled="!!createBlocked" :title="createBlocked || '在当前目录新建文档并在线编辑'">新建文档</el-button>
+          <template #dropdown><el-dropdown-menu><el-dropdown-item command="docx">Word 文档（.docx）</el-dropdown-item><el-dropdown-item command="markdown">Markdown（.md）</el-dropdown-item><el-dropdown-item command="text">文本文件（.txt）</el-dropdown-item></el-dropdown-menu></template>
+        </el-dropdown>
+      </div>
       <div class="explorer-commands explorer-selection-actions">
         <el-button size="small" :icon="Download" :disabled="!selectedFile" @click="$emit('download', selectedFile)">下载</el-button>
+        <el-button v-if="onlineEdit" class="explorer-desktop-action" size="small" :icon="EditPen" :disabled="!selectedFile || !!editBlocked(selectedFile)" :title="selectedFile ? editBlocked(selectedFile) || '在线编辑并保存为新版本' : ''" @click="$emit('edit', selectedFile)">在线编辑</el-button>
         <el-button class="explorer-desktop-action" size="small" :disabled="!selectedFile" @click="$emit('history', selectedFile)">历史版本</el-button>
         <el-button v-if="!readonly" class="explorer-desktop-action" size="small" :disabled="disabled || !selectedFile || hasReplacement(selectedFile.file_id)" @click="replaceFile(selectedFile)">上传新版</el-button>
         <el-button v-if="!readonly" class="explorer-desktop-action" size="small" type="danger" plain :disabled="disabled || !selectedFile" @click="$emit('remove', selectedFile)">移除</el-button>
         <el-dropdown class="explorer-mobile-action" trigger="click" :disabled="!selectedFile" @command="command => entryCommand(command, selectedEntry)">
           <el-button size="small" :disabled="!selectedFile" aria-label="选中文件的更多操作">更多</el-button>
           <template #dropdown><el-dropdown-menu>
+            <el-dropdown-item v-if="onlineEdit" command="edit" :disabled="!selectedFile || !!editBlocked(selectedFile)">在线编辑</el-dropdown-item>
             <el-dropdown-item command="history">历史版本</el-dropdown-item>
             <el-dropdown-item v-if="!readonly" command="replace" :disabled="disabled || !selectedFile || hasReplacement(selectedFile.file_id)">上传新版</el-dropdown-item>
             <el-dropdown-item v-if="!readonly" command="remove" :disabled="disabled" divided>移除文件</el-dropdown-item>
@@ -71,6 +79,7 @@
                       <el-dropdown-item v-if="entry.kind === 'folder'" command="open">打开文件夹</el-dropdown-item>
                       <template v-if="entry.kind === 'file'">
                         <el-dropdown-item command="download">下载</el-dropdown-item>
+                        <el-dropdown-item v-if="onlineEdit" command="edit" :disabled="!!editBlocked(entry.file)">在线编辑</el-dropdown-item>
                         <el-dropdown-item command="history">历史版本</el-dropdown-item>
                         <el-dropdown-item v-if="!readonly" command="replace" :disabled="disabled || hasReplacement(entry.file.file_id)">上传新版</el-dropdown-item>
                         <el-dropdown-item v-if="!readonly" command="remove" :disabled="disabled" divided>移除文件</el-dropdown-item>
@@ -98,11 +107,11 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, ArrowRight, Top, Folder, FolderAdd, FolderOpened, Upload, Download, Document, Picture, Headset, Film, MoreFilled } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, Top, Folder, FolderAdd, FolderOpened, Upload, Download, Document, DocumentAdd, EditPen, Picture, Headset, Film, MoreFilled } from '@element-plus/icons-vue'
 import { buildFolderTree, folderBreadcrumbs, materialFileType } from '@/utils/annotationMaterialFolders'
 
-const props = defineProps({ folders: { type: Array, default: () => [] }, folderId: { type: String, default: null }, files: { type: Array, default: () => [] }, pending: { type: Array, default: () => [] }, readonly: Boolean, disabled: Boolean, formatSize: { type: Function, required: true }, formatTime: { type: Function, required: true } })
-const emit = defineEmits(['update:folderId', 'create', 'upload', 'replace', 'download', 'history', 'remove', 'retry', 'discard'])
+const props = defineProps({ folders: { type: Array, default: () => [] }, folderId: { type: String, default: null }, files: { type: Array, default: () => [] }, pending: { type: Array, default: () => [] }, readonly: Boolean, disabled: Boolean, onlineEdit: Boolean, editBlocked: { type: Function, default: () => '' }, createBlocked: { type: String, default: '' }, formatSize: { type: Function, required: true }, formatTime: { type: Function, required: true } })
+const emit = defineEmits(['update:folderId', 'create', 'create-document', 'edit', 'upload', 'replace', 'download', 'history', 'remove', 'retry', 'discard'])
 const folderTree = computed(() => buildFolderTree(props.folders))
 const breadcrumbs = computed(() => folderBreadcrumbs(props.folders, props.folderId))
 const childFolders = computed(() => props.folders.filter(folder => (folder.parent_id || null) === props.folderId))
@@ -178,6 +187,7 @@ function entryCommand(command, entry) {
   if (command === 'open') openEntry(entry)
   else if (command === 'replace') replaceFile(entry.file)
   else if (['download', 'history'].includes(command)) emit(command, entry.file)
+  else if (command === 'edit') { if (props.onlineEdit && !props.editBlocked(entry.file)) emit('edit', entry.file) }
   else if (!props.disabled && !props.readonly) emit(command, entry.file || entry.upload)
 }
 function isFileDrag(event) { return Array.from(event.dataTransfer?.types || []).includes('Files') }
@@ -198,10 +208,11 @@ function dropFiles(event) {
 <style scoped>
 .material-explorer { border: 1px solid var(--el-border-color-lighter); border-radius: 8px; overflow: hidden; background: #fff; }
 .explorer-commandbar,.explorer-addressbar,.explorer-commands,.explorer-navigation { display: flex; align-items: center; gap: 8px; }
-.explorer-commandbar { flex-wrap: wrap; justify-content: space-between; padding: 10px 12px; background: #f8fafc; border-bottom: 1px solid var(--el-border-color-lighter); }
+.explorer-commandbar { flex-wrap: wrap; justify-content: flex-start; padding: 10px 12px; background: #f8fafc; border-bottom: 1px solid var(--el-border-color-lighter); }
 .explorer-commands { flex-wrap: wrap; gap: 6px; }
 .explorer-commands .el-button + .el-button,.explorer-navigation .el-button + .el-button { margin-left: 0; }
 .explorer-mobile-action { display: none; }
+.explorer-selection-actions { margin-left: auto; }
 .explorer-upload { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; border: 1px solid var(--el-border-color); border-radius: 4px; font-size: 12px; cursor: pointer; position: relative; background: white; }
 .explorer-upload input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
 .explorer-upload.disabled { opacity: .5; cursor: not-allowed; }

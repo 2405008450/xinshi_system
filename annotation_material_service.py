@@ -123,6 +123,31 @@ def remove_project_materials(db, project_id):
     db.query(Folder).filter_by(project_id=project_id, parent_id=None).delete(synchronize_session=False)
 
 
+def attach_upload(db, project_id, upload_id, user_id, category, file_id=None, folder_id=None):
+    """锁定并消费暂存，追加为已有文件的新版本或新建逻辑文件；不提交事务。"""
+    upload = db.query(Upload).filter_by(id=upload_id).with_for_update().populate_existing().first()
+    if (upload is None or upload.uploaded_by != user_id or upload.consumed_at is not None
+            or upload.expires_at <= datetime.utcnow()):
+        raise ValueError('暂存文件已过期、已使用或不属于当前用户，请重新上传')
+    if file_id:
+        material = db.query(Material).filter_by(id=file_id, project_id=project_id).first()
+        if material is None or material.category != category:
+            raise ValueError('新版文件不属于当前项目或资料分类不匹配')
+        if folder_id is not None and folder_id != material.folder_id:
+            raise ValueError('上传新版不能改变文件所属目录')
+    else:
+        if folder_id is not None and db.query(Folder.id).filter_by(id=folder_id, project_id=project_id).first() is None:
+            raise ValueError('文件夹不属于当前项目或不存在')
+        material = Material(project_id=project_id, category=category, folder_id=folder_id)
+        db.add(material)
+        db.flush()
+    last = db.query(func.max(Version.version_no)).filter_by(file_id=material.id).scalar() or 0
+    version = Version(file_id=material.id, upload_id=upload.id, version_no=last + 1)
+    db.add(version)
+    upload.consumed_at = datetime.utcnow()
+    return material, version
+
+
 def apply_changes(db, project_id, changes, user_id):
     if changes is None:
         ensure_default_folder(db, project_id)
@@ -136,26 +161,8 @@ def apply_changes(db, project_id, changes, user_id):
             raise ValueError('待移除文件不属于当前项目或已被移除')
         remove_material(db, material)
     for item in sorted(changes.additions, key=lambda item: str(item.upload_id)):
-        folder_id = folder_mapping.get(item.folder_id, item.folder_id)
-        upload = db.query(Upload).filter_by(id=item.upload_id).with_for_update().populate_existing().first()
-        if (upload is None or upload.uploaded_by != user_id or upload.consumed_at is not None
-                or upload.expires_at <= datetime.utcnow()):
-            raise ValueError('暂存文件已过期、已使用或不属于当前用户，请重新上传')
-        if item.file_id:
-            material = db.query(Material).filter_by(id=item.file_id, project_id=project_id).first()
-            if material is None or material.category != item.category:
-                raise ValueError('新版文件不属于当前项目或资料分类不匹配')
-            if folder_id is not None and folder_id != material.folder_id:
-                raise ValueError('上传新版不能改变文件所属目录')
-        else:
-            if folder_id is not None and db.query(Folder.id).filter_by(id=folder_id, project_id=project_id).first() is None:
-                raise ValueError('文件夹不属于当前项目或不存在')
-            material = Material(project_id=project_id, category=item.category, folder_id=folder_id)
-            db.add(material)
-            db.flush()
-        last = db.query(func.max(Version.version_no)).filter_by(file_id=material.id).scalar() or 0
-        db.add(Version(file_id=material.id, upload_id=upload.id, version_no=last + 1))
-        upload.consumed_at = datetime.utcnow()
+        attach_upload(db, project_id, item.upload_id, user_id, item.category, item.file_id,
+                      folder_mapping.get(item.folder_id, item.folder_id))
     db.flush()
 
 
