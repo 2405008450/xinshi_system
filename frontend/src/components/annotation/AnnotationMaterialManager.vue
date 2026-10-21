@@ -16,7 +16,7 @@
         :folders="allFolders" :files="categoryRows('project')" :pending="categoryPending('project')"
         :readonly="readonly" :disabled="disabled || loading || !!loadError" :format-size="sizeText" :format-time="timeText"
         :online-edit="canOnlineEdit" :edit-blocked="editBlocked" :create-blocked="createBlocked"
-        @edit="editOnline" @create-document="openDocumentCreator"
+        @edit="editOnline" @edit-window="row => editOnline(row, true)" @create-document="openDocumentCreator"
         @create="openFolderCreator" @upload="files => addFiles(files, 'project')"
         @replace="({ files, fileId }) => addFiles(files, 'project', fileId)"
         @download="download" @history="showHistory" @remove="remove" @retry="send" @discard="discard"
@@ -73,6 +73,7 @@ import { folderNameError, folderParentId, folderPath, newFolderId, withDefaultPr
 import { onlineEditBlocker } from '@/utils/materialDocument'
 import { useMaterialEditor } from '@/composables/useMaterialEditor'
 import { hasPermission } from '@/utils/permission'
+import { openOfficePage } from '@/utils/officePage'
 
 const props = defineProps({ projectId: { type: String, default: '' }, readonly: Boolean, active: { type: Boolean, default: true }, disabled: Boolean })
 const categories = [{ key: 'project', label: '项目资料' }, { key: 'quotation', label: '报价单' }, { key: 'contract', label: '合同' }]
@@ -110,10 +111,16 @@ const createBlocked = computed(() => {
   if (props.disabled || loading.value || loadError.value) return '资料加载或项目保存中，请稍候'
   return currentFolder.value?.pending || currentFolder.value?.default ? '当前文件夹尚未保存，请先保存项目后再新建文档' : ''
 })
-function editOnline(row) {
+function editOnline(row, smallWindow = false) {
   const reason = editBlocked(row)
   if (reason) { ElMessage.warning(reason); return }
-  if (!openMaterialEditor({ projectId: props.projectId, file: row })) ElMessage.warning('已有正在在线编辑的文件，请先保存或关闭')
+  openEditor({ projectId: props.projectId, file: row }, smallWindow)
+}
+function openEditor(request, smallWindow = false) {
+  const office = ['docx', 'xlsx'].includes(request.create?.kind) || /\.(docx|xlsx)$/i.test(request.file?.original_name || '')
+  if (office && !smallWindow) {
+    if (!openOfficePage(request)) ElMessage.warning('浏览器阻止了新标签页，请允许此站点打开弹出窗口后重试，或在文件菜单选择“小窗编辑”')
+  } else if (!openMaterialEditor(request)) ElMessage.warning('已有正在在线编辑的文件，请先保存或关闭')
 }
 function openDocumentCreator(kind) {
   if (createBlocked.value) { ElMessage.warning(createBlocked.value); return }
@@ -123,7 +130,7 @@ function openDocumentCreator(kind) {
     ...pending.value.filter(item => item.category === 'project' && !item.fileId && item.folder_id === selectedFolderId.value).map(item => item.file.name),
   ]
   const create = { kind, folderId: selectedFolderId.value, folderName: currentFolderName.value, siblingNames }
-  if (!openMaterialEditor({ projectId: props.projectId, create })) ElMessage.warning('已有正在在线编辑的文件，请先保存或关闭')
+  openEditor({ projectId: props.projectId, create })
 }
 let generation = 0, requestId = 0, nextKey = 0
 let reloadController = null, refreshTimer = null

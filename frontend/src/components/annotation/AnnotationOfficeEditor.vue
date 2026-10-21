@@ -1,7 +1,5 @@
 <template>
-  <DraggableFormDialog :model-value="state.open" width="min(1400px, calc(100vw - 32px))" top="5vh"
-    append-to-body destroy-on-close maximizable class="material-office-dialog" :close-on-click-modal="false"
-    :before-close="beforeClose" @update:model-value="value => { if (!value) closeMaterialEditor() }">
+  <OfficeEditorSurface :standalone="standalone" :open="state.open" :before-close="beforeClose" @close="finish(false)">
     <template #header><div class="office-title"><strong>{{ creating ? `新建 ${officeLabel}` : '在线编辑' }}</strong>
       <span class="office-title__name" @mousedown.stop>{{ fileName }}</span>
       <el-tag v-if="session?.mode === 'view'" type="info" size="small">只读</el-tag>
@@ -26,13 +24,14 @@
       <el-button v-if="session?.mode !== 'view'" type="primary" :loading="saving || loading"
         :disabled="expired || syncing || (!!session && !ready)" @click="session ? save() : open()">{{ !session && creating ? '开始编辑' : creating ? '保存文件' : '保存为新版本' }}</el-button>
     </template>
-  </DraggableFormDialog>
+  </OfficeEditorSurface>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
+import OfficeEditorSurface from './OfficeEditorSurface.vue'
 import AppForm from '@/components/common/AppForm.vue'
 import { useMaterialEditor } from '@/composables/useMaterialEditor'
 import { documentFileName, documentNameError, onlineEditKind } from '@/utils/materialDocument'
@@ -40,8 +39,11 @@ import { loadOfficeScript } from '@/utils/officeScript'
 import { newFolderId } from '@/utils/annotationMaterialFolders'
 import * as api from '@/api/annotationMaterials'
 
+const props = defineProps({ standalone: Boolean, editorRequest: Object })
+const emit = defineEmits(['close'])
 const { state, closeMaterialEditor, notifyMaterialSaved } = useMaterialEditor()
-const request = computed(() => state.request)
+const request = computed(() => props.editorRequest || state.request)
+function finish(saved, versionId) { if (props.standalone) emit('close', { saved, versionId }); else closeMaterialEditor() }
 const creating = computed(() => Boolean(request.value?.create))
 const kind = computed(() => request.value?.create?.kind || onlineEditKind(request.value?.file?.original_name))
 const officeLabel = computed(() => kind.value === 'xlsx' ? 'Excel' : 'Word')
@@ -133,13 +135,13 @@ async function save() {
     if (result.save_state !== 'complete') throw new Error(result.error || '保存尚未完成，请保留窗口后重试')
     dirty.value = false; notifyMaterialSaved(projectId)
     ElMessage.success(creating.value ? `${officeLabel.value} 文件已保存` : `${officeLabel.value} 文件已保存，历史版本保留`)
-    closeMaterialEditor()
+    finish(true, result.version_id)
   } catch (failure) { error.value = errorText(failure) }
   finally { saving.value = false }
 }
 async function discard() {
   if (session.value) await api.discardOfficeSession(session.value.id)
-  dirty.value = false; closeMaterialEditor()
+  dirty.value = false; finish(false)
 }
 async function confirmClose() {
   if (saving.value) return false
@@ -154,10 +156,17 @@ async function beforeClose(done) { if (await confirmClose()) done() }
 async function requestClose() { await confirmClose() }
 async function download() { try { await api.downloadMaterial(request.value.projectId, request.value.file) } catch (failure) { ElMessage.error(errorText(failure)) } }
 function beforeUnload(event) { if (dirty.value || saving.value) { event.preventDefault(); event.returnValue = '' } }
-onMounted(() => { window.addEventListener('beforeunload', beforeUnload); if (!creating.value) void open() })
+onBeforeRouteLeave(() => props.standalone ? confirmClose() : true)
+onBeforeRouteUpdate(() => props.standalone ? confirmClose() : true)
+function pageHide(event) {
+  // 关闭标签页时普通异步请求可能被取消，keepalive 尽快释放锁；断网仍由租约兜底。
+  if (!event.persisted && session.value && !saving.value) api.releaseOfficeSessionOnExit(session.value.id)
+}
+onMounted(() => { window.addEventListener('beforeunload', beforeUnload); window.addEventListener('pagehide', pageHide); if (!creating.value) void open() })
 onBeforeUnmount(() => {
   destroyed = true; serial++; stopEditor(); window.clearTimeout(pollTimer); pendingPoll?.()
   window.removeEventListener('beforeunload', beforeUnload)
+  window.removeEventListener('pagehide', pageHide)
   if (session.value) void api.discardOfficeSession(session.value.id).catch(() => {})
 })
 </script>
@@ -170,6 +179,10 @@ onBeforeUnmount(() => {
 .office-frame > div { height: 100%; }
 .office-status { margin-right: auto; color: var(--el-text-color-secondary); font-size: 12px; }
 .office-hint { color: var(--el-text-color-secondary); font-size: 12px; }
+.office-editor-page .office-frame { height: auto; min-height: 0; }
+.office-editor-page .office-body > .el-alert { flex-shrink: 0; border-radius: 0; padding: 4px 12px; }
+.office-editor-page .office-body { gap: 0; }
+.office-editor-page .el-form { padding: 12px; }
 </style>
 <style>
 .el-dialog.material-office-dialog { display: flex; flex-direction: column; height: 90vh; max-height: 90vh; overflow: hidden; }
@@ -178,6 +191,6 @@ onBeforeUnmount(() => {
 .material-office-dialog .el-dialog__footer { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--el-border-color-lighter); background: #f8fafc; }
 @media (max-width: 600px) {
   .material-office-dialog .el-dialog__footer { justify-content: flex-end; }
-  .material-office-dialog .office-status { flex-basis: 100%; margin-right: 0; text-align: left; }
+  .material-office-dialog .office-status,.office-editor-page .office-status { flex-basis: 100%; margin-right: 0; text-align: left; }
 }
 </style>

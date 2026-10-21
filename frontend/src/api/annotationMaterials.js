@@ -38,3 +38,10 @@ export const officeSessionStatus = id => api.get(`${base}/office/sessions/${id}`
 export const heartbeatOfficeSession = id => api.post(`${base}/office/sessions/${id}/heartbeat`)
 export const saveOfficeSession = (id, saveId, revision) => api.post(`${base}/office/sessions/${id}/save`, { save_id: saveId, revision }, { timeout: 25000 })
 export const discardOfficeSession = id => api.post(`${base}/office/sessions/${id}/discard`)
+export function releaseOfficeSessionOnExit(id) {
+  const token = localStorage.getItem('token')
+  if (!token) return
+  void fetch(`/api${base}/office/sessions/${id}/discard`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}` }, keepalive: true,
+  }).catch(() => {})
+}

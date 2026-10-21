@@ -18,7 +18,7 @@
       </div>
       <div class="explorer-commands explorer-selection-actions">
         <el-button size="small" :icon="Download" :disabled="!selectedFile" @click="$emit('download', selectedFile)">下载</el-button>
-        <el-button v-if="onlineEdit" class="explorer-desktop-action" size="small" :icon="EditPen" :disabled="!selectedFile || !!editBlocked(selectedFile)" :title="selectedFile ? editBlocked(selectedFile) || '在线编辑并保存为新版本' : ''" @click="$emit('edit', selectedFile)">在线编辑</el-button>
+        <el-button v-if="onlineEdit" class="explorer-desktop-action" size="small" :icon="EditPen" :disabled="!selectedFile || !!editBlocked(selectedFile)" :title="selectedFile ? editBlocked(selectedFile) || (/\.(docx|xlsx)$/i.test(selectedFile.original_name) ? '在新标签页编辑并保存为新版本' : '在线编辑并保存为新版本') : ''" @click="$emit('edit', selectedFile)">在线编辑</el-button>
         <el-button class="explorer-desktop-action" size="small" :disabled="!selectedFile" @click="$emit('history', selectedFile)">历史版本</el-button>
         <el-button v-if="!readonly" class="explorer-desktop-action" size="small" :disabled="disabled || !selectedFile || hasReplacement(selectedFile.file_id)" @click="replaceFile(selectedFile)">上传新版</el-button>
         <el-button v-if="!readonly" class="explorer-desktop-action" size="small" type="danger" plain :disabled="disabled || !selectedFile" @click="$emit('remove', selectedFile)">移除</el-button>
@@ -26,6 +26,7 @@
           <el-button size="small" :disabled="!selectedFile" aria-label="选中文件的更多操作">更多</el-button>
           <template #dropdown><el-dropdown-menu>
             <el-dropdown-item v-if="onlineEdit" command="edit" :disabled="!selectedFile || !!editBlocked(selectedFile)">在线编辑</el-dropdown-item>
+            <el-dropdown-item v-if="onlineEdit && /\.(docx|xlsx)$/i.test(selectedFile?.original_name || '')" command="edit-window" :disabled="!!editBlocked(selectedFile)">小窗编辑</el-dropdown-item>
             <el-dropdown-item command="history">历史版本</el-dropdown-item>
             <el-dropdown-item v-if="!readonly" command="replace" :disabled="disabled || !selectedFile || hasReplacement(selectedFile.file_id)">上传新版</el-dropdown-item>
             <el-dropdown-item v-if="!readonly" command="remove" :disabled="disabled" divided>移除文件</el-dropdown-item>
@@ -80,6 +81,7 @@
                       <template v-if="entry.kind === 'file'">
                         <el-dropdown-item command="download">下载</el-dropdown-item>
                         <el-dropdown-item v-if="onlineEdit" command="edit" :disabled="!!editBlocked(entry.file)">在线编辑</el-dropdown-item>
+                        <el-dropdown-item v-if="onlineEdit && /\.(docx|xlsx)$/i.test(entry.name)" command="edit-window" :disabled="!!editBlocked(entry.file)">小窗编辑</el-dropdown-item>
                         <el-dropdown-item command="history">历史版本</el-dropdown-item>
                         <el-dropdown-item v-if="!readonly" command="replace" :disabled="disabled || hasReplacement(entry.file.file_id)">上传新版</el-dropdown-item>
                         <el-dropdown-item v-if="!readonly" command="remove" :disabled="disabled" divided>移除文件</el-dropdown-item>
@@ -112,7 +114,7 @@ import { buildFolderTree, folderBreadcrumbs, materialFileType } from '@/utils/an
 import { materialOpenAction } from '@/utils/materialDocument'
 
 const props = defineProps({ folders: { type: Array, default: () => [] }, folderId: { type: String, default: null }, files: { type: Array, default: () => [] }, pending: { type: Array, default: () => [] }, readonly: Boolean, disabled: Boolean, onlineEdit: Boolean, editBlocked: { type: Function, default: () => '' }, createBlocked: { type: String, default: '' }, formatSize: { type: Function, required: true }, formatTime: { type: Function, required: true } })
-const emit = defineEmits(['update:folderId', 'create', 'create-document', 'edit', 'upload', 'replace', 'download', 'history', 'remove', 'retry', 'discard'])
+const emit = defineEmits(['update:folderId', 'create', 'create-document', 'edit', 'edit-window', 'upload', 'replace', 'download', 'history', 'remove', 'retry', 'discard'])
 const folderTree = computed(() => buildFolderTree(props.folders))
 const breadcrumbs = computed(() => folderBreadcrumbs(props.folders, props.folderId))
 const childFolders = computed(() => props.folders.filter(folder => (folder.parent_id || null) === props.folderId))
@@ -192,7 +194,7 @@ function entryCommand(command, entry) {
   if (command === 'open') openEntry(entry)
   else if (command === 'replace') replaceFile(entry.file)
   else if (['download', 'history'].includes(command)) emit(command, entry.file)
-  else if (command === 'edit') { if (props.onlineEdit && !props.editBlocked(entry.file)) emit('edit', entry.file) }
+  else if (['edit', 'edit-window'].includes(command)) { if (props.onlineEdit && entry.file && !props.editBlocked(entry.file)) emit(command, entry.file) }
   else if (!props.disabled && !props.readonly) emit(command, entry.file || entry.upload)
 }
 function isFileDrag(event) { return Array.from(event.dataTransfer?.types || []).includes('Files') }

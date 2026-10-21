@@ -12,6 +12,12 @@ import { resourceRequestsLocation, resolveDevelopmentSection } from '@/utils/res
 
 const routes = [
   {
+    path: '/annotation-office',
+    name: 'AnnotationOfficePage',
+    component: () => import('../views/project/AnnotationOfficePage.vue'),
+    meta: { title: '文档在线编辑', permissions: ['projects:read', 'projects:write'] }
+  },
+  {
     path: '/login',
     name: 'Login',
     component: () => import('../views/auth/Login.vue')

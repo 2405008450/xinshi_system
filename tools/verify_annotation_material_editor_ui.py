@@ -111,8 +111,8 @@ def run():
                 else:
                     old = latest(session['file_id']) if session['file_id'] else None
                     new = add_row(session['name'], docx_bytes, session['file_id'], session['folder_id'], old['version_no'] + 1 if old else 1)
-                    session.update(state='saved', save_state='complete', error=None)
-                    office_content[0] = page.locator('.office-mock-content').input_value()
+                    session.update(state='saved', save_state='complete', error=None, version_id=new['id'])
+                    office_content[0] = request.frame.page.locator('.office-mock-content').input_value()
                     if old: commits.append(dict(file=session['name'], data=docx_bytes))
                     else: creations.append(dict(name=session['name'], folder_id=session['folder_id'], data=docx_bytes))
             elif len(pieces) > 1 and pieces[1] == 'discard' and session['state'] != 'saved':
@@ -219,6 +219,26 @@ window.DocsAPI = { DocEditor: class {
             def select(manager, name):
                 manager.locator('.explorer-table tbody tr').filter(has_text=name).first.click()
 
+            def open_small(manager, name):
+                if not manager.count(): page.get_by_role('button', name='项目资料', exact=True).first.click()
+                manager.locator('tbody tr').filter(has_text=name).get_by_role('button', name=f'{name}的更多操作', exact=True).click()
+                page.get_by_role('menuitem', name='小窗编辑', exact=True).click()
+
+            def create_office(manager, label, name, content):
+                manager.get_by_role('button', name='新建文档').click()
+                with context.expect_page() as popup:
+                    page.get_by_role('menuitem', name=label, exact=True).click()
+                child = popup.value
+                expect(child.locator('.office-editor-page')).to_be_visible()
+                child.get_by_role('button', name='开始编辑', exact=True).click()
+                expect(child.locator('.el-form-item__error')).to_contain_text('文件名不能为空')
+                child.get_by_placeholder('请输入文件名称，扩展名自动补充').fill(name)
+                child.get_by_role('button', name='开始编辑', exact=True).click()
+                child.locator('.office-mock-content').fill(content)
+                child.get_by_role('button', name='保存文件', exact=True).click()
+                expect(child.get_by_text('文件已保存', exact=True)).to_be_visible()
+                child.close()
+
             def check_maximize(dialog, content):
                 original_viewport = page.viewport_size
                 page.set_viewport_size({'width': 1920, 'height': 1080})
@@ -290,7 +310,7 @@ window.DocsAPI = { DocEditor: class {
 
             # 3. 上传来源的 Word 双击直接打开，失败保留内容，显式下载仍然可用。
             word = page.locator('.material-office-dialog')
-            manager.locator('tbody tr').filter(has_text='项目说明.docx').dblclick()
+            open_small(manager, '项目说明.docx')
             prose = word.locator('.office-mock-content')
             expect(prose).to_have_value('项目详情说明\n原始段落\n语种：英语')
             prose.fill('项目详情说明\n原始段落，在线补充')
@@ -303,10 +323,10 @@ window.DocsAPI = { DocEditor: class {
             word.get_by_role('button', name='保存为新版本').click()
             expect(word).not_to_be_visible()
             assert commits[-1]['data'] == docx_bytes
-            checks += ['上传 Word 双击在线打开', '保存失败保留编辑内容', '保存成功刷新历史版本']
+            checks += ['上传 Word 小窗在线打开', '保存失败保留编辑内容', '保存成功刷新历史版本']
 
             # 4. Word 弹窗拖动、边界、可复制标题及重新打开复位。
-            manager.locator('tbody tr').filter(has_text='项目说明.docx').press('Enter')
+            open_small(manager, '项目说明.docx')
             expect(prose).to_contain_text('')
             expect(prose).to_have_value('项目详情说明\n原始段落，在线补充')
             page.wait_for_timeout(350)
@@ -323,7 +343,7 @@ window.DocsAPI = { DocEditor: class {
             assert word.locator('.office-title__name').evaluate('el => getComputedStyle(el).userSelect') == 'text'
             word.locator('.el-dialog__headerbtn').click()
             expect(word).not_to_be_visible()
-            manager.locator('tbody tr').filter(has_text='项目说明.docx').dblclick()
+            open_small(manager, '项目说明.docx')
             expect(prose).to_be_visible(); page.wait_for_timeout(350)
             assert abs(word.bounding_box()['x'] - initial['x']) < 3
             prose.fill('尚未提交的修改')
@@ -333,11 +353,11 @@ window.DocsAPI = { DocEditor: class {
             word.get_by_role('button', name='取消', exact=True).click()
             page.locator('.el-message-box:visible').get_by_role('button', name='放弃修改').click()
             expect(word).not_to_be_visible()
-            checks += ['Word 回车在线打开', 'Word 拖动及视口边界', 'Word 标题可复制及位置复位', 'Word 放弃修改不提交']
+            checks += ['Word 小窗菜单在线打开', 'Word 拖动及视口边界', 'Word 标题可复制及位置复位', 'Word 放弃修改不提交']
 
             # 只读与服务故障：显示原因，下载保持独立。
             office_readonly[0] = True
-            manager.locator('tbody tr').filter(has_text='项目说明.docx').dblclick()
+            open_small(manager, '项目说明.docx')
             expect(word).to_contain_text('其他编辑者 正在编辑')
             expect(prose).to_have_attribute('readonly', '')
             assert word.get_by_role('button', name='保存为新版本').count() == 0
@@ -346,7 +366,7 @@ window.DocsAPI = { DocEditor: class {
             word.get_by_role('button', name='关闭', exact=True).click()
             office_readonly[0] = False
             office_unavailable[0] = True
-            manager.locator('tbody tr').filter(has_text='项目说明.docx').dblclick()
+            open_small(manager, '项目说明.docx')
             expect(word).to_contain_text('尚未启用')
             expect(word.get_by_role('button', name='最大化窗口', exact=True)).to_be_visible()
             expect(word).not_to_have_class(re.compile(r'is-maximized'))
@@ -387,22 +407,12 @@ window.DocsAPI = { DocEditor: class {
             # 7. 新建 Word，保存后仍能双击重新编辑；资料浮层关闭后编辑器保留。
             page.get_by_role('button', name='项目资料', exact=True).first.click()
             popover = page.locator('.annotation-material-popover:visible')
-            popover.get_by_role('button', name='新建文档').click()
-            page.get_by_role('menuitem', name='Word 文档（.docx）').click()
-            expect(word).to_be_visible()
-            word.get_by_role('button', name='开始编辑').click()
-            expect(word.locator('.el-form-item__error')).to_contain_text('文件名不能为空')
-            word.get_by_placeholder('请输入文件名称，扩展名自动补充').fill('新建说明')
-            word.get_by_role('button', name='开始编辑').click()
-            expect(prose).to_be_visible()
-            prose.fill('新建 Word 的正文')
-            word.get_by_role('button', name='保存文件').click()
-            expect(word).not_to_be_visible()
+            create_office(popover, 'Word 文档（.docx）', '新建说明', '新建 Word 的正文')
             assert creations[-1]['name'] == '新建说明.docx'
             if not page.locator('.annotation-material-popover:visible').count():
                 page.get_by_role('button', name='项目资料', exact=True).first.click()
             popover = page.locator('.annotation-material-popover:visible')
-            popover.locator('tbody tr').filter(has_text='新建说明.docx').dblclick()
+            open_small(popover, '新建说明.docx')
             expect(prose).to_have_value('新建 Word 的正文')
             page.wait_for_timeout(350)
             box = word.bounding_box()
@@ -443,7 +453,7 @@ window.DocsAPI = { DocEditor: class {
             # 小屏 Word 固定操作栏，以及真正通过上传入口保存项目后再在线打开。
             if not page.locator('.annotation-material-popover:visible').count():
                 page.get_by_role('button', name='项目资料', exact=True).first.click()
-            popover.locator('tbody tr').filter(has_text='项目说明.docx').dblclick()
+            open_small(popover, '项目说明.docx')
             expect(word.locator('.office-mock-content')).to_be_visible()
             box = word.bounding_box(); footer = word.locator('.el-dialog__footer').bounding_box()
             assert box['width'] <= 359 and footer['y'] + footer['height'] <= 845
@@ -461,7 +471,7 @@ window.DocsAPI = { DocEditor: class {
             expect(dialog).not_to_be_visible(timeout=10000)
             page.get_by_role('button', name='项目资料', exact=True).first.click()
             popover = page.locator('.annotation-material-popover:visible')
-            popover.locator('tbody tr').filter(has_text='直接上传.docx').dblclick()
+            open_small(popover, '直接上传.docx')
             expect(word.locator('.office-mock-content')).to_be_visible()
             word.locator('.office-mock-content').fill('上传后在线补充')
             word.get_by_role('button', name='保存为新版本').click()
@@ -488,34 +498,25 @@ window.DocsAPI = { DocEditor: class {
             add_row('预算.xlsx', docx_bytes)
             page.evaluate("window.dispatchEvent(new Event('focus'))")
             expect(manager.get_by_text('预算.xlsx', exact=True)).to_be_visible()
-            manager.locator('tbody tr').filter(has_text='预算.xlsx').dblclick()
+            open_small(manager, '预算.xlsx')
             expect(prose).to_be_visible()
             prose.fill('Excel 模拟修改：A1=42')
             check_maximize(word, prose)
             word.get_by_role('button', name='保存为新版本').click()
             expect(word).not_to_be_visible()
             assert commits[-1]['file'] == '预算.xlsx'
-            manager.locator('tbody tr').filter(has_text='预算.xlsx').press('Enter')
+            open_small(manager, '预算.xlsx')
             expect(prose).to_have_value('Excel 模拟修改：A1=42')
             word.get_by_role('button', name='取消', exact=True).click()
             office_readonly[0] = True
-            manager.locator('tbody tr').filter(has_text='预算.xlsx').dblclick()
+            open_small(manager, '预算.xlsx')
             expect(word.get_by_text('只读', exact=True)).to_be_visible()
             assert word.get_by_role('button', name='保存为新版本').count() == 0
             word.get_by_role('button', name='关闭', exact=True).click()
             office_readonly[0] = False
-            manager.get_by_role('button', name='新建文档').click()
-            page.get_by_role('menuitem', name='Excel 工作簿（.xlsx）').click()
-            expect(word).to_contain_text('新建 Excel')
-            word.get_by_placeholder('请输入文件名称，扩展名自动补充').fill('新建预算')
-            expect(word.locator('.office-title__name')).to_have_text('新建预算.xlsx')
-            word.get_by_role('button', name='开始编辑', exact=True).click()
-            expect(prose).to_be_visible()
-            prose.fill('新表数据')
-            word.get_by_role('button', name='保存文件', exact=True).click()
-            expect(word).not_to_be_visible()
+            create_office(manager, 'Excel 工作簿（.xlsx）', '新建预算', '新表数据')
             assert creations[-1]['name'] == '新建预算.xlsx'
-            checks += ['Excel双击及回车在线编辑', 'Excel最大化还原和保存新版本', 'Excel占用只读无保存入口', '新建Excel菜单及扩展名和保存']
+            checks += ['Excel小窗菜单在线编辑', 'Excel最大化还原和保存新版本', 'Excel占用只读无保存入口', '新建Excel菜单及扩展名和保存']
 
             assert not errors, errors
             report = {'verification': '模拟 ONLYOFFICE SDK 与 API，非真实排版验收', 'status': 'passed', 'checks': checks, 'page_errors': errors}
