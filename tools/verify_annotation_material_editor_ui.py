@@ -236,7 +236,7 @@ window.DocsAPI = { DocEditor: class {
                 child.get_by_role('button', name='开始编辑', exact=True).click()
                 child.locator('.office-mock-content').fill(content)
                 child.get_by_role('button', name='保存文件', exact=True).click()
-                expect(child.get_by_role('button', name='保存为新版本', exact=True)).to_be_disabled()
+                expect(child.get_by_text('已保存，可继续编辑', exact=True)).to_be_visible()
                 child.get_by_role('button', name='关闭', exact=True).click()
                 expect(child.get_by_text('编辑已结束', exact=True)).to_be_visible()
                 child.close()
