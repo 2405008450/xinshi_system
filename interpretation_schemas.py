@@ -147,6 +147,7 @@ class InterpretationProjectWrite(BaseModel):
     client_name: Optional[str] = None
     client_short_name: Optional[str] = None
     client_code: Optional[str] = None
+    current_client_manager: Optional[str] = Field(default=None, max_length=100)
     manager_contact: Optional[str] = Field(default=None, max_length=100)
     contact_name: Optional[str] = None
     customer_order_no: Optional[str] = None

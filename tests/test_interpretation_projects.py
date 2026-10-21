@@ -43,6 +43,49 @@ def time_range(start, end):
     return InterpretationTimeRangeInput(scheduled_start=start, scheduled_end=end)
 
 
+@pytest.mark.parametrize("sub_client", [False, True])
+def test_current_client_manager_updates_selected_client_only(monkeypatch, sub_client):
+    from models import Client, SubClient
+    selected = SimpleNamespace(client_manager="历史人员", updated_at=None)
+    queried_models = []
+
+    class ClientDb:
+        def query(self, model):
+            queried_models.append(model)
+            return self
+
+        def filter(self, *_args):
+            return self
+
+        def with_for_update(self):
+            return self
+
+        def first(self):
+            return selected
+
+    monkeypatch.setattr("workflow_crud.get_client_manager_candidates", lambda _db: [
+        SimpleNamespace(full_name="客户专员甲", username="specialist"),
+    ])
+    db = ClientDb()
+    args = (db, uuid4(), uuid4() if sub_client else None)
+    # 不再属于候选名单的历史人员仍可原样保存。
+    assert not interpretation_service.update_interpretation_client_manager(*args, "历史人员")
+    with pytest.raises(ValueError, match="启用的客户专员"):
+        interpretation_service.update_interpretation_client_manager(*args, "项目经理乙")
+    assert selected.client_manager == "历史人员"
+    assert interpretation_service.update_interpretation_client_manager(*args, "客户专员甲")
+    assert selected.client_manager == "客户专员甲"
+    assert selected.updated_at is not None
+    assert interpretation_service.update_interpretation_client_manager(*args, None)
+    assert selected.client_manager is None
+    assert set(queried_models) == {SubClient if sub_client else Client}
+
+
+def test_current_client_manager_requires_a_client():
+    with pytest.raises(ValueError, match="请先选择或填写客户"):
+        interpretation_service.update_interpretation_client_manager(None, None, None, "客户专员甲")
+
+
 def test_name_uses_same_day_period_all_locations_directions_and_types():
     payload = InterpretationNamePreviewRequest(
         time_ranges=[time_range(datetime(2026, 8, 2, 8), datetime(2026, 8, 2, 11, 30))],

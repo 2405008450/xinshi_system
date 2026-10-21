@@ -101,7 +101,7 @@
         :label="column.label"
         :width="column.width"
         :min-width="column.minWidth"
-        :show-overflow-tooltip="!['projectName', 'projectStatus'].includes(column.key)"
+        :show-overflow-tooltip="!['projectName', 'projectStatus', 'currentClientManager'].includes(column.key)"
       >
         <template #header>
           <ConfiguredColumnHeaderFilter v-if="headerFilterDefinition(column.key)" :definition="headerFilterDefinition(column.key)" :model-value="searchForm[headerFilterDefinition(column.key).key]" @update:model-value="searchForm[headerFilterDefinition(column.key).key] = $event" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch">
@@ -110,8 +110,18 @@
           <template v-else><ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" /><span v-else>{{ column.label }}</span></template>
         </template>
         <template #default="{ row }">
+          <CustomerSpecialistSelect
+            v-if="column.key === 'currentClientManager' && canWrite && !deleteMode"
+            :model-value="row.currentClientManager || ''"
+            :options="customerSpecialists"
+            :loading="customerSpecialistsLoading"
+            size="small"
+            :save-field="value => saveCurrentClientManager(row, value)"
+            @conflict="fetchData"
+            @click.stop
+          />
           <el-button
-            v-if="column.key === 'projectStatus'"
+            v-else-if="column.key === 'projectStatus'"
             type="primary"
             link
             class="project-progress-link"
@@ -441,6 +451,9 @@
               </el-col>
             </el-row>
             <el-form-item label="客户预算"><el-input v-model="form.customerBudget" placeholder="可填写金额、计价单位及差旅说明" /></el-form-item>
+            <el-form-item label="现客户经理" prop="currentClientManager">
+              <CustomerSpecialistSelect v-model="form.currentClientManager" :options="customerSpecialists" :loading="customerSpecialistsLoading" />
+            </el-form-item>
             <el-row :gutter="16">
               <el-col :xs="24" :md="8"><el-form-item label="客户全称"><ReadonlyField :model-value="form.clientFullName" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '新客户可补充全称'" @update:model-value="form.clientFullName = $event" /></el-form-item></el-col>
               <el-col :xs="24" :md="8"><el-form-item label="客户编号"><ReadonlyField :model-value="form.clientCode" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '新客户不填则自动生成'" @update:model-value="form.clientCode = $event" /></el-form-item></el-col>
@@ -598,6 +611,8 @@ import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import BusinessMailComposer from '@/components/common/BusinessMailComposer.vue'
 import InternalProjectRolesForm from '@/components/common/InternalProjectRolesForm.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
+import CustomerSpecialistSelect from '@/components/common/CustomerSpecialistSelect.vue'
+import { getProjectRoleCandidatesAPI } from '@/api/workflow'
 import InlineTextField from '@/components/common/InlineTextField.vue'
 import InterpretationDirectionEditor from './components/InterpretationDirectionEditor.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
@@ -616,6 +631,8 @@ import { countActiveFilters, createFilterModel, resetFilterModel, serializeField
 import { groupProjectProgressRows } from '@/utils/annotationProgress'
 
 const canWrite = hasPermission('projects:write')
+const customerSpecialists = ref([])
+const customerSpecialistsLoading = ref(false)
 const mailComposerVisible = ref(false)
 const mailProjectId = ref('')
 const mailConsultationId = ref('')
@@ -722,7 +739,7 @@ const tableColumns = [
   { key: 'projectName', label: '项目名称', minWidth: PROJECT_LIST_COLUMN_WIDTHS.projectName },
   { key: 'projectTypes', label: '项目类型', minWidth: 150 },
   { key: 'taskDescription', label: '具体任务', minWidth: PROJECT_LIST_COLUMN_WIDTHS.longText },
-  { key: 'currentClientManager', label: '现客户经理', width: 92 },
+  { key: 'currentClientManager', label: '现客户经理', width: 160 },
   { key: 'projectStatus', label: '项目状态', width: PROJECT_LIST_COLUMN_WIDTHS.projectStatus },
   { key: 'clientShortName', label: '客户简称', width: PROJECT_LIST_COLUMN_WIDTHS.clientShortName, clickHint: '点击客户简称查看关联信息' },
   { key: 'clientCode', label: '客户编号', width: 100 },
@@ -966,14 +983,19 @@ const resetSearch = () => { searchForm.keyword = ''; resetFilterModel(searchForm
 const clearAdvanced = () => { resetFilterModel(searchForm, interpretationAdvancedFilterFields); handleSearch() }
 
 const loadReferenceData = async () => {
-  const [clientRows, translatorRows, languageRows] = await Promise.allSettled([
+  customerSpecialistsLoading.value = true
+  const [clientRows, translatorRows, languageRows, specialistRows] = await Promise.allSettled([
     clientApi.getClients({ skip: 0, limit: 500, frequent_first: true }),
     getProjectTalentOptions('interpretation'),
     projectApi.getInterpretationLanguages({ include_inactive: true }),
+    getProjectRoleCandidatesAPI('customer_specialist'),
   ])
   clients.value = clientRows.status === 'fulfilled' && Array.isArray(clientRows.value) ? clientRows.value : []
   translators.value = translatorRows.status === 'fulfilled' && Array.isArray(translatorRows.value) ? translatorRows.value : []
   languages.value = languageRows.status === 'fulfilled' && Array.isArray(languageRows.value) ? languageRows.value : []
+  customerSpecialists.value = specialistRows.status === 'fulfilled' && Array.isArray(specialistRows.value) ? specialistRows.value : []
+  customerSpecialistsLoading.value = false
+  if (specialistRows.status === 'rejected') ElMessage.error('加载客户专员失败，请刷新后重试')
 }
 const loadDetail = async (id, force = false) => {
   if (!id) return null
@@ -999,6 +1021,13 @@ const saveDetailTextField = async (row, field, value) => {
   Object.assign(row, updated)
   if (Object.values(buildFilters()).some(Boolean)) void fetchData()
   return updated
+}
+const saveCurrentClientManager = async (row, value) => {
+  await saveDetailTextField(row, 'currentClientManager', value)
+  // 同一客户可能在当前列表出现多次，重新读取列表及关联详情。
+  Object.keys(detailCache).forEach(id => { delete detailCache[id] })
+  await loadReferenceData()
+  await fetchData()
 }
 const projectRowClass = ({ row }) => String(row.id) === highlightedProjectId.value ? 'workbench-target-row' : ''
 const focusRouteProject = async (editorReady = Promise.resolve()) => {
@@ -1207,6 +1236,7 @@ const buildPayload = () => {
     clientName: form.clientFullName?.trim() || null,
     clientShortName: form.clientShortName?.trim() || null,
     clientCode: form.clientCode?.trim() || null,
+    currentClientManager: form.currentClientManager?.trim() || null,
     managerContact: form.managerContact?.trim() || null,
     contactName: form.contactName?.trim() || null,
     customerOrderNo: form.customerOrderNo?.trim() || null,
@@ -1303,8 +1333,8 @@ const handleSubmit = async (sendAfterSave = false) => {
     const saved = form.id
       ? await projectApi.updateInterpretationProject(form.id, payload)
       : await projectApi.createInterpretationProject(payload, projectCreateIdempotencyKey.value)
-    if (form.id) delete detailCache[form.id]
-    if (saved?.id) detailCache[saved.id] = saved
+    // 客户经理写回客户档案后，其他项目的缓存也需要失效。
+    Object.keys(detailCache).forEach(id => { delete detailCache[id] })
     ElMessage.success(form.id ? '口译项目已更新' : '口译项目已创建')
     clearDraft()
     dialogVisible.value = false
@@ -1313,7 +1343,7 @@ const handleSubmit = async (sendAfterSave = false) => {
       mailConsultationId.value = saved?.consultationId || form.consultationId || ''
       mailComposerVisible.value = true
     }
-    await fetchData()
+    await Promise.all([fetchData(), loadReferenceData()])
   } catch (error) {
     await formRef.value?.applyServerErrors(error)
     const message = getLocalizedErrorMessage(error, '保存失败')

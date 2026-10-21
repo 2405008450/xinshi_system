@@ -442,8 +442,31 @@ def _resolve_client(db: Session, data: dict) -> None:
         data["sub_client_id"] = sub_client_id
 
 
-WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact"}
+WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact", "current_client_manager"}
 NESTED_FIELDS = {"time_ranges", "language_directions", "interpreter_assignments", "role_assignments"}
+
+
+def update_interpretation_client_manager(db: Session, client_id, sub_client_id, value) -> bool:
+    """沿用客户档案语义，子客户优先；历史人员可保留，新选择限启用客户专员。"""
+    from business_time import business_now
+    from workflow_crud import get_client_manager_candidates
+
+    model, selected_id = (SubClient, sub_client_id) if sub_client_id else (Client, client_id)
+    selected = db.query(model).filter(model.id == selected_id).with_for_update().first() if selected_id else None
+    if selected is None:
+        if value:
+            raise ValueError("请先选择或填写客户，再设置现客户经理")
+        return False
+    value = value.strip() or None if isinstance(value, str) else value
+    if (selected.client_manager or None) == value:
+        return False
+    if value is not None and not any(
+        (user.full_name or user.username) == value for user in get_client_manager_candidates(db)
+    ):
+        raise ValueError("现客户经理请选择系统中启用的客户专员")
+    selected.client_manager = value
+    selected.updated_at = business_now()
+    return True
 
 
 def _direction_required_total(payload) -> Optional[int]:
@@ -524,6 +547,8 @@ def create_interpretation_project(
     data = payload.model_dump(exclude=NESTED_FIELDS)
     data["required_interpreter_count"] = _direction_required_total(payload)
     _resolve_client(db, data)
+    if "current_client_manager" in payload.model_fields_set:
+        update_interpretation_client_manager(db, data.get("client_id"), data.get("sub_client_id"), data.get("current_client_manager"))
     for key in WRITE_ONLY_CLIENT_FIELDS:
         data.pop(key, None)
     order_no = generate_interpretation_order_no(db)
@@ -570,6 +595,8 @@ def update_interpretation_project(
     data = payload.model_dump(exclude=NESTED_FIELDS | {VERSION_FIELD})
     data["required_interpreter_count"] = _direction_required_total(payload)
     _resolve_client(db, data)
+    if "current_client_manager" in payload.model_fields_set:
+        update_interpretation_client_manager(db, data.get("client_id"), data.get("sub_client_id"), data.get("current_client_manager"))
     for key in WRITE_ONLY_CLIENT_FIELDS:
         data.pop(key, None)
     previous_status = project.project_status

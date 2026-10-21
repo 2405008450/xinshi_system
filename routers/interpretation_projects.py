@@ -368,7 +368,17 @@ def update_project_text_field(
     if not project:
         raise HTTPException(status_code=404, detail="口译项目不存在")
     try:
-        changed = apply_text_field_update(project, payload, INTERPRETATION_TEXT_FIELDS)
+        if payload.field == "current_client_manager":
+            from concurrency import assert_fresh
+            from business_time import business_now
+            from interpretation_service import update_interpretation_client_manager
+
+            assert_fresh(project, payload.expected_updated_at)
+            changed = update_interpretation_client_manager(db, project.client_id, project.sub_client_id, payload.value)
+            if changed:
+                project.updated_at = business_now()
+        else:
+            changed = apply_text_field_update(project, payload, INTERPRETATION_TEXT_FIELDS)
         if changed:
             db.commit()
     except ValueError as exc:
