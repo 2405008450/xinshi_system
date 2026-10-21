@@ -195,10 +195,10 @@ window.DocsAPI = { DocEditor: class {
 } };
 """))
 
-            context.add_init_script("""localStorage.setItem('token','isolated-qa');localStorage.setItem('user_id','%s');
-              localStorage.setItem('user_roles','["admin"]');localStorage.setItem('user_permissions','["projects:read","projects:write"]')""" % UID)
+            context.add_init_script("""if(location.protocol==='http:'){localStorage.setItem('token','isolated-qa');localStorage.setItem('user_id','%s');
+              localStorage.setItem('user_roles','["admin"]');localStorage.setItem('user_permissions','["projects:read","projects:write"]')}""" % UID)
+            context.on('page', lambda tab: tab.on('pageerror', lambda error: errors.append(str(error))))
             page = context.new_page()
-            page.on('pageerror', lambda error: errors.append(str(error)))
             editor = page.locator('.material-editor-dialog')
 
             def open_form():

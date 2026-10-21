@@ -156,3 +156,10 @@ sudo docker-compose --env-file .env -f deploy/docker-compose.cloud.yml -f deploy
 ```
 
 使用隔离前端预览12421端口，模拟 API 与 SDK；报告及截图在 `.tmp/office-page-ui/`。原编辑器小窗回归使用 `tools/verify_annotation_material_editor_ui.py`，通过明确的“小窗编辑”入口测试。
+
+
+独立页于2026-10-21同步发布到云端和局域网，运行前端代码提交 `f0e4110`，不修改后端、数据库结构、开关或文档服务；两端保留旧哈希资源供已打开的页面继续使用。前端17项单元测试、完整构建及预算检查通过；独立页26项、原编辑器46项、资料浏览器27项模拟检查通过，均无页面脚本错误。
+
+两端真实浏览器验收23项及补充回归4项通过：Word在云端独立页实际输入并保存至V4，Excel在局域网独立页实际修改数量并保存至V4，下载后正文／单元格和跨表公式重算均正确，原版本字节不变。双向跨端以及同账号另一标签页均只有一位编辑者；保存后列表自动刷新，直接关闭干净标签页的keepalive释放锁后另一端可立即编辑。80%／125%界面缩放仍铺满视口，大屏和小屏底部操作始终可见；原Excel小窗拖动、最大化和还原通过，补充浏览未增加版本。
+
+真实报告在本机 `.tmp/office-page/real-report.json`、`smoke-report.json`，截图含 `word-full-page.png` 和 `xlsx-standalone.png`。仅使用既有专项验收项目，未修改其他业务资料；两个临时验收账号已停用，活动专项编辑会话为0，临时凭据已删除。前端回滚备份分别位于云端 `backups/releases/office-page-20261021-161455+0800` 和局域网 `backups/releases/office-page-20261021-161520+0800`；本次不需要数据库回滚。
