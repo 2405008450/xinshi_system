@@ -10,7 +10,7 @@
 
 ## 独立文档服务准备
 
-在单独的受支持 Linux 或 Windows Server 上通过官方安装包安装 ONLYOFFICE Docs，不在本机 Windows 11 上安装文档服务，不使用 Docker。项目后端继续使用 PC 上现有虚拟环境及 `deploy/start_local.ps1`。安装步骤与版本系统要求以[官方安装指南](https://helpcenter.onlyoffice.com/docs/installation)为准；正式使用前确认适用许可，开发验证可用官方试用版，不默认采购。
+ONLYOFFICE Docs 统一部署在云端 Linux，使用官方镜像并固定 digest；PC 和局域网 Windows 不安装文档服务，继续沿用现有 Python／Node 启动方式。云端部署叠加 `deploy/docker-compose.office.yml`，只重建所需服务，不重启 PostgreSQL 或其他业务容器。安装方式参考[官方安装指南](https://helpcenter.onlyoffice.com/docs/installation/docs-community-install-docker.aspx)；适用许可单独落实，不自动采购。
 
 为文档服务准备独立 HTTPS 域名、受信任证书、持久化缓存、磁盘监控以及与实际 Word 文件匹配的中文字体。反向代理示例见 `deploy/onlyoffice-nginx.conf.example`，需要 WebSocket 和长连接。禁止开启公开测试示例或关闭 JWT 验证。
 
@@ -23,7 +23,7 @@ ANNOTATION_OFFICE_PUBLIC_ORIGIN=https://oa.example.invalid
 ANNOTATION_OFFICE_JWT_SECRET=
 ```
 
-- `SERVER_ORIGIN` 为浏览器和存储端均可访问的文档服务 HTTPS 来源，不含路径。命令和回传文件从该来源获取；回传路径限制在 `/cache/files/`，不跟随重定向。
+- `SERVER_ORIGIN` 为浏览器和存储端均可访问的文档服务 HTTPS 地址，支持官方虚拟目录部署，如 `https://www.oa.xinshify.com.cn/office`。只允许普通目录名，禁止查询串、凭据和路径穿越。命令和回传文件从该地址获取；回传路径限制在对应目录下的 `/cache/files/`，不跟随重定向。
 - `PUBLIC_ORIGIN` 为**资料存储端应用**的 HTTPS 来源，不含 `/api`。文档服务器须能够读取签名源文件并向此地址回调，不能填 PC 的 localhost 地址。
 - JWT 密钥至少32字符，通过受保护环境提供，并与文档服务器 browser、inbox、outbox 签名配置保持一致。回调使用标准 Authorization Bearer 或回调体 token；不转发应用用户的登录令牌给文档服务。
 - PC 的资料存储若为 remote，浏览器的 Office 控制请求使用原有登录凭据转发到存储端。PC 不保存 Office 文件，不需要配置文档服务密钥；PC 与存储端均需运行同一版本并同步启用 `ANNOTATION_OFFICE_ENABLED`，保证各端上传新版和删除都会检查共享数据库中的锁。上线窗口内暂停旧版本后端的资料写入，不能让未接入锁的旧服务继续修改同一资料库。
@@ -78,7 +78,23 @@ Set-Location ..
 4. 验证故障重试、回调重复和迟到、锁过期、浏览器重开、弹窗拖拽边界／复位、小屏 Office 界面及固定底部操作。
 5. 确认许可证、备份、迁移、网络、字体与所有验收通过后，按单独发布流程启用开关；未满足条件保持关闭。
 
-本次未提供独立文档服务器地址，真实 Office 服务和真实排版验收待完成。
+最初接入时未配置真实文档服务，下方本机记录为模拟验收；云端部署后的真实验收单独记录，不能混用。
+
+### 云端共用服务运维
+
+两端文件、业务版本和会话锁均以云端为准。局域网使用 remote 资料存储，只启用开关，不配置 Office JWT 密钥。当前入口为 `https://www.oa.xinshify.com.cn/office/`，复用现有可信证书；网关根据官方虚拟目录代理示例透传 `X-Forwarded-Host` 和 WebSocket，不需要额外公网端口或 DNS 记录。
+
+云端启动文档服务：
+
+```bash
+sudo docker-compose --env-file .env -f deploy/docker-compose.cloud.yml -f deploy/docker-compose.cloud.local.yml -f deploy/docker-compose.office.yml up -d --no-deps onlyoffice
+```
+
+`ANNOTATION_OFFICE_IMAGE` 应固定验收通过的版本和 digest。JWT 在受保护的云端 `.env` 中生成，保持与文档服务一致，不在终端或日志输出。文档缓存、日志、配置、内部数据库及附加字体使用持久卷；仅 Office 内部自动保存不会生成业务版本。Noto CJK 字体用于中文回退；未安装的商业字体不能视为已匹配。
+
+项目资料组件在当前项目处于打开且页面可见时每5秒拉取最新资料，切回窗口立即刷新；后台页面暂停请求，组件关闭后注销监听并取消未完成请求。静默刷新不覆盖待保存上传、移除标记或新目录；资料版本变化时关闭旧历史列表，重新打开获取新版本。两端编辑锁始终由云端 PostgreSQL 事务和唯一索引控制，不依赖刷新周期。
+
+启用前先备份数据库、两端 `.env` 和实际 Nginx 配置，再显式执行 Office 两表迁移；`LOCAL_SCHEMA_MIGRATIONS_ENABLED` 始终为 false。回滚先关闭所有端的 Office 开关，再恢复备份的应用镜像／静态资源及代理配置；保留 Office 表、资料和历史版本，不执行 DROP TABLE，不移除持久卷。
 
 ### 本机验收记录（2026-10-21）
 

@@ -436,6 +436,19 @@ window.DocsAPI = { DocEditor: class {
             assert commits[-1]['file'] == '直接上传.docx'
             checks += ['非编辑文件双击下载', '小屏 Word 宽度及固定操作栏', '上传 Word 待保存不可编辑', '上传并保存项目后双击编辑和保存新版']
 
+            # 不发送本窗口保存事件，模拟另一端更新云端后自动发现变化。
+            dialog, manager = open_form()
+            add_row('跨端新增.txt', b'remote update')
+            expect(manager.get_by_text('跨端新增.txt', exact=True)).to_be_visible(timeout=9000)
+            manager.get_by_label('上传项目资料', exact=True).set_input_files({'name': '本地待保存.txt', 'mimeType': 'text/plain', 'buffer': b'pending'})
+            expect(manager.get_by_text('已暂存，等待保存项目')).to_be_visible()
+            add_row('切回页面刷新.txt', b'focus update')
+            page.evaluate("window.dispatchEvent(new Event('focus'))")
+            expect(manager.get_by_text('切回页面刷新.txt', exact=True)).to_be_visible()
+            expect(manager.get_by_text('本地待保存.txt', exact=True)).to_be_visible()
+            expect(manager.get_by_text('已暂存，等待保存项目')).to_be_visible()
+            checks += ['另一端新增文件后5秒自动刷新', '切回页面即时刷新', '跨端刷新保留待保存上传']
+
             assert not errors, errors
             report = {'verification': '模拟 ONLYOFFICE SDK 与 API，非真实排版验收', 'status': 'passed', 'checks': checks, 'page_errors': errors}
             (out / 'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')

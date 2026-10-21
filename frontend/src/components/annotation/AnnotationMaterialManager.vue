@@ -62,7 +62,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import AppForm from '@/components/common/AppForm.vue'
@@ -126,6 +126,7 @@ function openDocumentCreator(kind) {
   if (!openMaterialEditor({ projectId: props.projectId, create })) ElMessage.warning('已有正在在线编辑的文件，请先保存或关闭')
 }
 let generation = 0, requestId = 0, nextKey = 0
+let reloadController = null, refreshTimer = null
 const sizeText = size => size >= 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(size / 1024)} KB`
 // 后端资料时间使用 UTC，显式标记时区后交给公共格式化函数。
 const timeText = value => formatBusinessDateTimeMinute(value && !/(Z|[+-]\d{2}:\d{2})$/.test(value) ? `${value}Z` : value)
@@ -156,23 +157,36 @@ async function confirmFolder() {
   } finally { creatingFolder = false }
 }
 
-async function reload() {
+async function reload(options = {}) {
+  const silent = options.silent === true
+  if (silent && (reloadController || !props.active || document.hidden || props.disabled)) return
+  reloadController?.abort()
   const serial = ++requestId
   if (!props.projectId) { rows.value = []; savedFolders.value = []; loading.value = false; loadError.value = ''; return }
-  loading.value = true; loadError.value = ''
+  const controller = new AbortController()
+  reloadController = controller
+  if (!silent) { loading.value = true; loadError.value = '' }
   try {
-    const [result, directories] = await Promise.all([api.listMaterials(props.projectId), api.listMaterialFolders(props.projectId)])
-    if (serial === requestId) { rows.value = result; savedFolders.value = directories }
+    const config = { signal: controller.signal }
+    const [result, directories] = await Promise.all([api.listMaterials(props.projectId, config), api.listMaterialFolders(props.projectId, config)])
+    if (serial === requestId) {
+      const changed = JSON.stringify(rows.value) !== JSON.stringify(result)
+      rows.value = result; savedFolders.value = directories; loadError.value = ''
+      // 只更新云端已保存资料，保留当前表单的待上传文件、移除标记和新建目录。
+      if (changed && historyVisible.value) { historyVisible.value = false; history.value = [] }
+    }
   }
-  catch (error) { if (serial === requestId) loadError.value = error.detail || '项目资料加载失败' }
-  finally { if (serial === requestId) loading.value = false }
+  catch (error) { if (serial === requestId && !controller.signal.aborted && !silent) loadError.value = error.detail || '项目资料加载失败' }
+  finally { if (serial === requestId) { loading.value = false; reloadController = null } }
 }
+function refreshVisible() { if (props.active && props.projectId && !document.hidden) void reload({ silent: true }) }
 
 function release(id) {
   if (id) void api.cancelMaterialUpload(id).catch(() => { /* 断网时由云端24小时过期清理兜底。 */ })
 }
 function reset() {
   generation += 1; requestId += 1
+  reloadController?.abort(); reloadController = null
   pending.value.forEach(item => { item.controller?.abort(); release(item.upload?.id) })
   pending.value = []; removed.value = []; rows.value = []; historyVisible.value = false; loadError.value = ''; loading.value = false
   savedFolders.value = []; createdFolders.value = []; selectedFolderId.value = null; folderCreatorVisible.value = false
@@ -239,7 +253,17 @@ function saved() { pending.value = []; removed.value = []; createdFolders.value 
 watch(() => [props.projectId, props.active], () => { reset(); if (props.active) void reload() }, { immediate: true })
 // 在线编辑保存后刷新同一项目的全部资料组件，保留表单中未保存的暂存与目录。
 watch(() => editorState.savedTicks[props.projectId], (value, old) => { if (value && value !== old && props.active) { historyVisible.value = false; void reload() } })
-onBeforeUnmount(reset)
+onMounted(() => {
+  refreshTimer = window.setInterval(refreshVisible, 5000)
+  window.addEventListener('focus', refreshVisible)
+  document.addEventListener('visibilitychange', refreshVisible)
+})
+onBeforeUnmount(() => {
+  window.clearInterval(refreshTimer)
+  window.removeEventListener('focus', refreshVisible)
+  document.removeEventListener('visibilitychange', refreshVisible)
+  reset()
+})
 defineExpose({ validate, changes, saved, reload })
 </script>
 

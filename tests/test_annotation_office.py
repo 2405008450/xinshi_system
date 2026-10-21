@@ -309,6 +309,26 @@ def test_result_download_bytes_redirect_and_limits(ctx, monkeypatch):
     assert exc.value.status_code == 400
 
 
+def test_virtual_path_preserves_result_allowlist(ctx, monkeypatch):
+    monkeypatch.setenv('ANNOTATION_OFFICE_SERVER_ORIGIN', 'https://office.example.test/office/')
+    assert office.settings()['server'] == 'https://office.example.test/office'
+    session = start(ctx)
+    assert office.describe(ctx[0], session, config=True)['script_url'].startswith('https://office.example.test/office/')
+    original = httpx.AsyncClient
+    monkeypatch.setattr(office.httpx, 'AsyncClient', lambda **kwargs: original(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, content=ctx[-1])), **kwargs))
+    assert asyncio.run(office.fetch_result('https://office.example.test/office/cache/files/a.docx')) == ctx[-1]
+    for path in ['/cache/files/a.docx', '/office/cache/files/../../../api/a',
+                 '/office/cache/files/%2e%2e/api/a', '/office2/cache/files/a.docx']:
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(office.fetch_result('https://office.example.test' + path))
+        assert exc.value.status_code == 403
+    for path in ['/office/../api', '/office%2fapi', '/office?x=1']:
+        monkeypatch.setenv('ANNOTATION_OFFICE_SERVER_ORIGIN', 'https://office.example.test' + path)
+        with pytest.raises(HTTPException):
+            office.settings()
+
+
 def test_expired_url_and_access_log_redaction(ctx):
     session = start(ctx)
     token = office.sign({'sid': str(session.id), 'scope': 'source', 'exp': 1})

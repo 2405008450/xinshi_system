@@ -2,6 +2,7 @@
 import hashlib
 import io
 import os
+import re
 import uuid
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -38,10 +39,11 @@ def enabled():
     return os.getenv('ANNOTATION_OFFICE_ENABLED', '').lower() in ('1', 'true')
 
 
-def origin(name):
+def origin(name, allow_path=False):
     value = os.getenv(name, '').strip().rstrip('/')
     parts = urlsplit(value)
-    if parts.scheme != 'https' or not parts.hostname or parts.username or parts.password or parts.path or parts.query or parts.fragment:
+    path_ok = not parts.path or (allow_path and re.fullmatch(r'(?:/[A-Za-z0-9_-]+)+', parts.path))
+    if parts.scheme != 'https' or not parts.hostname or parts.username or parts.password or not path_ok or parts.query or parts.fragment:
         raise HTTPException(503, f'Office 服务配置无效：{name}')
     return value
 
@@ -52,7 +54,7 @@ def settings():
     secret = os.getenv('ANNOTATION_OFFICE_JWT_SECRET', '')
     if len(secret) < 32:
         raise HTTPException(503, 'Office 签名密钥尚未配置')
-    return {'server': origin('ANNOTATION_OFFICE_SERVER_ORIGIN'),
+    return {'server': origin('ANNOTATION_OFFICE_SERVER_ORIGIN', allow_path=True),
             'public': origin('ANNOTATION_OFFICE_PUBLIC_ORIGIN'), 'secret': secret}
 
 
@@ -353,7 +355,8 @@ async def fetch_result(url):
         raise HTTPException(400, 'Office 回传文件地址无效')
     parts = urlsplit(url)
     expected = urlsplit(cfg['server'])
-    if (parts.scheme, parts.netloc) != (expected.scheme, expected.netloc) or parts.username or parts.password or not parts.path.startswith('/cache/files/') or parts.fragment:
+    cache_prefix = expected.path + '/cache/files/'
+    if (parts.scheme, parts.netloc) != (expected.scheme, expected.netloc) or parts.username or parts.password or not parts.path.startswith(cache_prefix) or parts.fragment or any(segment in ('.', '..') for segment in parts.path.split('/')) or '%' in parts.path or '\\' in parts.path:
         raise HTTPException(403, 'Office 回传文件地址不在允许范围')
     data = bytearray()
     try:
