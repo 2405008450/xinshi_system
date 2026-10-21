@@ -20,8 +20,8 @@ from annotation_material_storage import remote_origin, forward_upload, forward_d
 from pydantic import BaseModel, ConfigDict
 import annotation_material_trash_service as trash_service
 
-router = APIRouter(prefix='/projects/annotation', tags=['annotation_materials'],
-                   dependencies=[Depends(require_module_access('projects:read', 'projects:write'))])
+router = APIRouter(prefix='/projects/annotation', tags=['annotation_materials'])
+legacy_router = APIRouter(dependencies=[Depends(require_module_access('projects:read', 'projects:write'))])
 
 
 ONLINE_EDIT_EXTENSIONS = {'.docx', '.txt', '.md'}
@@ -48,7 +48,7 @@ def require_project(db, project_id):
         raise HTTPException(404, '标注项目不存在')
 
 
-@router.post('/material-uploads', status_code=201, dependencies=[Depends(require_permission('projects:write'))])
+@legacy_router.post('/material-uploads', status_code=201, dependencies=[Depends(require_permission('projects:write'))])
 async def upload_material(request: Request, file: UploadFile = File(...), original_name: str | None = Form(None),
                           db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     origin = remote_origin()
@@ -102,7 +102,7 @@ async def upload_material(request: Request, file: UploadFile = File(...), origin
         await file.close()
 
 
-@router.delete('/material-uploads/{upload_id}', status_code=204, dependencies=[Depends(require_permission('projects:write'))])
+@legacy_router.delete('/material-uploads/{upload_id}', status_code=204, dependencies=[Depends(require_permission('projects:write'))])
 async def cancel_upload(upload_id: UUID, request: Request, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     origin = remote_origin()
     if origin:
@@ -121,7 +121,7 @@ async def cancel_upload(upload_id: UUID, request: Request, db: Session = Depends
     return Response(status_code=204)
 
 
-@router.get('/{project_id}/materials')
+@legacy_router.get('/{project_id}/materials')
 def list_materials(project_id: UUID, db: Session = Depends(get_db)):
     require_project(db, project_id)
     latest = {}
@@ -130,13 +130,13 @@ def list_materials(project_id: UUID, db: Session = Depends(get_db)):
     return list(latest.values())
 
 
-@router.get('/{project_id}/material-folders')
+@legacy_router.get('/{project_id}/material-folders')
 def list_material_folders(project_id: UUID, db: Session = Depends(get_db)):
     require_project(db, project_id)
     return folders(db, project_id)
 
 
-@router.get('/{project_id}/materials/{file_id}/versions')
+@legacy_router.get('/{project_id}/materials/{file_id}/versions')
 def list_versions(project_id: UUID, file_id: UUID, db: Session = Depends(get_db)):
     require_project(db, project_id)
     material = db.query(Material).filter_by(id=file_id, project_id=project_id).first()
@@ -147,7 +147,7 @@ def list_versions(project_id: UUID, file_id: UUID, db: Session = Depends(get_db)
     return versions(db, project_id, file_id)
 
 
-@router.get('/{project_id}/materials/{file_id}/versions/{version_id}/download')
+@legacy_router.get('/{project_id}/materials/{file_id}/versions/{version_id}/download')
 async def download(project_id: UUID, file_id: UUID, version_id: UUID, request: Request, db: Session = Depends(get_db)):
     require_project(db, project_id)
     upload = db.query(Upload).join(Version, Version.upload_id == Upload.id).join(Material, Material.id == Version.file_id).filter(
@@ -164,7 +164,7 @@ async def download(project_id: UUID, file_id: UUID, version_id: UUID, request: R
                         headers={'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff'})
 
 
-@router.post('/{project_id}/materials/online-files', status_code=201, dependencies=[Depends(require_permission('projects:write'))])
+@legacy_router.post('/{project_id}/materials/online-files', status_code=201, dependencies=[Depends(require_permission('projects:write'))])
 def create_online_file(project_id: UUID, payload: OnlineFileCreate, db: Session = Depends(get_db),
                        user: AppUser = Depends(get_current_user)):
     # 在线新建只写资料表，不更新项目修改时间；remote 模式两端共用业务库，无需转发。
@@ -181,7 +181,7 @@ def create_online_file(project_id: UUID, payload: OnlineFileCreate, db: Session 
     return versions(db, project_id, material.id)[0]
 
 
-@router.post('/{project_id}/materials/{file_id}/online-versions', status_code=201, dependencies=[Depends(require_permission('projects:write'))])
+@legacy_router.post('/{project_id}/materials/{file_id}/online-versions', status_code=201, dependencies=[Depends(require_permission('projects:write'))])
 def create_online_version(project_id: UUID, file_id: UUID, payload: OnlineVersionCreate, db: Session = Depends(get_db),
                           user: AppUser = Depends(get_current_user)):
     require_project(db, project_id)
@@ -206,6 +206,9 @@ def create_online_version(project_id: UUID, file_id: UUID, payload: OnlineVersio
         db.rollback()
         raise HTTPException(400, str(exc)) from exc
     return versions(db, project_id, file_id)[0]
+
+
+router.include_router(legacy_router)
 
 
 class TrashToken(BaseModel):

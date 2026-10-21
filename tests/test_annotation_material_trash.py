@@ -142,6 +142,10 @@ def test_api_access_download_history_tokens_and_idempotency(env, web, monkeypatc
     assert web.get(file+f"/versions/{row['id']}/download").status_code == 404
     assert web.post(file+'/online-versions', json={'upload_id': str(uuid4()), 'base_version_id': str(row['id'])}).status_code == 404
     assert web.get(base+'/material-trash').json()['total'] == 1
+    # 新增回收站接口只要求写权限，不额外依赖历史资料 GET 的读权限。
+    monkeypatch.setattr(auth, 'user_has_permission', lambda db, uid, code: code == 'projects:write')
+    assert web.get(base+'/material-trash').status_code == 200
+    monkeypatch.setattr(auth, 'user_has_permission', lambda *args: True)
     assert web.post(file+'/restore', json={'trash_token': str(uuid4())}).status_code == 409
     db.rollback()
     assert web.post(file+'/restore', json={'trash_token': token}).status_code == 200
