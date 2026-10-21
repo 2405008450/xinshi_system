@@ -1,10 +1,10 @@
 <template>
   <div class="batch-delete-toolbar">
     <el-button v-if="!active" type="danger" plain @click="$emit('enter')">
-      删除管理
+      {{ enterLabel }}
     </el-button>
     <template v-else>
-      <el-tag type="danger" effect="plain">删除模式</el-tag>
+      <el-tag type="danger" effect="plain">{{ modeLabel }}</el-tag>
       <span class="selected-count">已选 {{ selectedCount }} 条</span>
       <el-button :disabled="loading" @click="$emit('exit')">退出</el-button>
       <el-button
@@ -13,7 +13,7 @@
         :loading="loading"
         @click="$emit('confirm')"
       >
-        删除所选（{{ selectedCount }}）
+        {{ confirmLabel }}（{{ selectedCount }}）
       </el-button>
     </template>
   </div>
@@ -24,6 +24,9 @@ defineProps({
   active: { type: Boolean, default: false },
   selectedCount: { type: Number, default: 0 },
   loading: { type: Boolean, default: false },
+  enterLabel: { type: String, default: '删除管理' },
+  modeLabel: { type: String, default: '删除模式' },
+  confirmLabel: { type: String, default: '删除所选' },
 })
 
 defineEmits(['enter', 'exit', 'confirm'])

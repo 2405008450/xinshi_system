@@ -1,0 +1,5 @@
+/* 资料确认框必须高于聊天资料浮层和全局历史/回收站弹窗。 */
+.el-overlay.material-action-confirm { z-index: 120000 !important; }
+.el-message.material-action-message { z-index: 120010 !important; }
+/* 聊天资料浮层固定为 100000；其传送到 body 的文件菜单须高于父层。 */
+.el-popper.material-file-menu { z-index: 100010 !important; }

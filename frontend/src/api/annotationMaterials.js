@@ -3,7 +3,11 @@ import api from './index'
 const base = '/projects/annotation'
 export const listMaterials = (projectId, config = {}) => api.get(`${base}/${projectId}/materials`, config)
 export const listMaterialFolders = (projectId, config = {}) => api.get(`${base}/${projectId}/material-folders`, config)
-export const listMaterialVersions = (projectId, fileId) => api.get(`${base}/${projectId}/materials/${fileId}/versions`)
+export const listMaterialVersions = (projectId, fileId, config = {}) => api.get(`${base}/${projectId}/materials/${fileId}/versions`, config)
+export const trashMaterial = (projectId, fileId) => api.post(`${base}/${projectId}/materials/${fileId}/trash`)
+export const listMaterialTrash = (projectId, params, config = {}) => api.get(`${base}/${projectId}/material-trash`, { ...config, params })
+export const restoreMaterial = (projectId, row) => api.post(`${base}/${projectId}/materials/${row.file_id}/restore`, { trash_token: row.trash_token })
+export const purgeMaterial = (projectId, row) => api.delete(`${base}/${projectId}/material-trash/${row.file_id}`, { data: { trash_token: row.trash_token } })
 export const cancelMaterialUpload = id => api.delete(`${base}/material-uploads/${id}`, { timeout: 300000 })
 
 export function uploadMaterial(file, onUploadProgress, signal) {

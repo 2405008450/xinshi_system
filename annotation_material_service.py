@@ -46,7 +46,7 @@ def serialize_upload(row):
 
 def versions(db, project_id, file_id=None):
     query = db.query(Material, Version, Upload).join(Version, Version.file_id == Material.id).join(
-        Upload, Upload.id == Version.upload_id).filter(Material.project_id == project_id)
+        Upload, Upload.id == Version.upload_id).filter(Material.project_id == project_id, Material.deleted_at.is_(None))
     if file_id:
         query = query.filter(Material.id == file_id)
     result = []
@@ -136,7 +136,7 @@ def attach_upload(db, project_id, upload_id, user_id, category, file_id=None, fo
         raise ValueError('暂存文件已过期、已使用或不属于当前用户，请重新上传')
     if file_id:
         material = db.query(Material).filter_by(id=file_id, project_id=project_id).first()
-        if material is None or material.category != category:
+        if material is None or material.deleted_at is not None or material.category != category:
             raise ValueError('新版文件不属于当前项目或资料分类不匹配')
         if folder_id is not None and folder_id != material.folder_id:
             raise ValueError('上传新版不能改变文件所属目录')
@@ -164,7 +164,8 @@ def apply_changes(db, project_id, changes, user_id):
         material = db.query(Material).filter_by(id=file_id, project_id=project_id).first()
         if material is None:
             raise ValueError('待移除文件不属于当前项目或已被移除')
-        remove_material(db, material)
+        from annotation_material_trash_service import trash_file
+        trash_file(db, material, user_id)
     for item in sorted(changes.additions, key=lambda item: str(item.upload_id)):
         attach_upload(db, project_id, item.upload_id, user_id, item.category, item.file_id,
                       folder_mapping.get(item.folder_id, item.folder_id))

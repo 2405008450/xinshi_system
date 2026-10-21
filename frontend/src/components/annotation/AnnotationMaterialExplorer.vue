@@ -4,14 +4,14 @@
       <div v-if="!readonly" class="explorer-commands">
         <el-button class="explorer-desktop-action" size="small" :icon="FolderAdd" :disabled="disabled" @click="$emit('create', 1)">新建一级文件夹</el-button>
         <el-button class="explorer-desktop-action" size="small" :icon="FolderAdd" :disabled="disabled || !folders.some(folder => !folder.parent_id)" @click="$emit('create', 2)">新建二级文件夹</el-button>
-        <el-dropdown class="explorer-mobile-action" trigger="click" :disabled="disabled" @command="level => $emit('create', level)">
+        <el-dropdown popper-class="material-file-menu" class="explorer-mobile-action" trigger="click" :disabled="disabled" @command="level => $emit('create', level)">
           <el-button size="small" :icon="FolderAdd" :disabled="disabled" aria-label="新建文件夹">新建</el-button>
           <template #dropdown><el-dropdown-menu><el-dropdown-item :command="1">新建一级文件夹</el-dropdown-item><el-dropdown-item :command="2" :disabled="!folders.some(folder => !folder.parent_id)">新建二级文件夹</el-dropdown-item></el-dropdown-menu></template>
         </el-dropdown>
         <label class="explorer-upload" :class="{ disabled }"><el-icon><Upload /></el-icon>上传文件<input type="file" multiple :disabled="disabled" aria-label="上传项目资料" @change="uploadFiles"></label>
       </div>
       <div v-if="onlineEdit" class="explorer-commands">
-        <el-dropdown trigger="click" :disabled="!!createBlocked" @command="kind => $emit('create-document', kind)">
+        <el-dropdown popper-class="material-file-menu" trigger="click" :disabled="!!createBlocked" @command="kind => $emit('create-document', kind)">
           <el-button size="small" :icon="DocumentAdd" :disabled="!!createBlocked" :title="createBlocked || '在当前目录新建文档并在线编辑'">新建文档</el-button>
           <template #dropdown><el-dropdown-menu><el-dropdown-item command="docx">Word 文档（.docx）</el-dropdown-item><el-dropdown-item command="xlsx">Excel 工作簿（.xlsx）</el-dropdown-item><el-dropdown-item command="markdown">Markdown（.md）</el-dropdown-item><el-dropdown-item command="text">文本文件（.txt）</el-dropdown-item></el-dropdown-menu></template>
         </el-dropdown>
@@ -22,7 +22,7 @@
         <el-button class="explorer-desktop-action" size="small" :disabled="!selectedFile" @click="$emit('history', selectedFile)">历史版本</el-button>
         <el-button v-if="!readonly" class="explorer-desktop-action" size="small" :disabled="disabled || !selectedFile || hasReplacement(selectedFile.file_id)" @click="replaceFile(selectedFile)">上传新版</el-button>
         <el-button v-if="!readonly" class="explorer-desktop-action" size="small" type="danger" plain :disabled="disabled || !selectedFile" @click="$emit('remove', selectedFile)">移除</el-button>
-        <el-dropdown class="explorer-mobile-action" trigger="click" :disabled="!selectedFile" @command="command => entryCommand(command, selectedEntry)">
+        <el-dropdown popper-class="material-file-menu" class="explorer-mobile-action" trigger="click" :disabled="!selectedFile" @command="command => entryCommand(command, selectedEntry)">
           <el-button size="small" :disabled="!selectedFile" aria-label="选中文件的更多操作">更多</el-button>
           <template #dropdown><el-dropdown-menu>
             <el-dropdown-item v-if="onlineEdit" command="edit" :disabled="!selectedFile || !!editBlocked(selectedFile)">在线编辑</el-dropdown-item>
@@ -59,9 +59,10 @@
         <div v-if="dragDepth > 0" class="explorer-drop-overlay"><el-icon><Upload /></el-icon><span>松开上传到“{{ breadcrumbs.at(-1).name }}”</span></div>
         <div class="explorer-table-scroll">
           <table class="explorer-table" aria-label="当前目录内容">
-            <thead><tr><th scope="col">名称</th><th scope="col" class="explorer-modified">修改时间</th><th scope="col" class="explorer-type">类型</th><th scope="col" class="explorer-size">大小</th><th scope="col" class="explorer-more"><span class="explorer-sr-only">操作</span></th></tr></thead>
+            <thead><tr><th v-if="deleteMode" scope="col" style="width:42px">选择</th><th scope="col">名称</th><th scope="col" class="explorer-modified">修改时间</th><th scope="col" class="explorer-type">类型</th><th scope="col" class="explorer-size">大小</th><th scope="col" class="explorer-more"><span class="explorer-sr-only">操作</span></th></tr></thead>
             <tbody>
               <tr v-for="entry in entries" :key="entry.key" :data-entry-key="entry.key" :data-entry-kind="entry.kind" :class="{ 'is-selected': selectedKey === entry.key }" :aria-selected="selectedKey === entry.key" tabindex="0" @click="selectEntry(entry)" @dblclick="openEntry(entry)" @contextmenu.prevent.stop="contextEntry(entry)" @keydown.enter.prevent="openEntry(entry)" @keydown.space.prevent="selectEntry(entry)">
+                <td v-if="deleteMode" @click.stop @dblclick.stop><el-checkbox v-if="entry.kind === 'file'" :model-value="checkedIds.includes(entry.file.file_id)" :disabled="disabled" :aria-label="`选择删除${entry.name}`" @change="$emit('toggle-delete', entry.file)" /></td>
                 <td class="explorer-name">
                   <div class="explorer-name-content"><el-icon :class="entry.kind === 'folder' ? 'explorer-folder-icon' : 'explorer-file-icon'"><component :is="entryIcon(entry)" /></el-icon><span :title="entry.name">{{ entry.name }}</span><el-tag v-if="entry.kind === 'folder' && entry.folder.pending" size="small" type="info">待保存</el-tag><el-tag v-if="entry.kind === 'pending'" size="small" :type="entry.upload.status === 'failed' ? 'danger' : 'info'">{{ entry.upload.fileId ? '待保存新版' : '待保存新文件' }}</el-tag></div>
                   <template v-if="entry.kind === 'pending'">
@@ -74,7 +75,7 @@
                 <td class="explorer-type">{{ entry.kind === 'folder' ? '文件夹' : materialFileType(entry.name).label }}</td>
                 <td class="explorer-size">{{ entry.kind === 'folder' ? '-' : formatSize(entry.file?.file_size ?? entry.upload?.file.size) }}</td>
                 <td class="explorer-more" @click.stop @dblclick.stop>
-                  <el-dropdown :ref="element => registerDropdown(entry.key, element)" trigger="click" @command="command => entryCommand(command, entry)">
+                  <el-dropdown popper-class="material-file-menu" v-if="!deleteMode" :ref="element => registerDropdown(entry.key, element)" trigger="click" @command="command => entryCommand(command, entry)">
                     <el-button link :icon="MoreFilled" :aria-label="`${entry.name}的更多操作`" @click="selectEntry(entry)" />
                     <template #dropdown><el-dropdown-menu>
                       <el-dropdown-item v-if="entry.kind === 'folder'" command="open">打开文件夹</el-dropdown-item>
@@ -113,8 +114,8 @@ import { ArrowLeft, ArrowRight, Top, Folder, FolderAdd, FolderOpened, Upload, Do
 import { buildFolderTree, folderBreadcrumbs, materialFileType } from '@/utils/annotationMaterialFolders'
 import { materialOpenAction } from '@/utils/materialDocument'
 
-const props = defineProps({ folders: { type: Array, default: () => [] }, folderId: { type: String, default: null }, files: { type: Array, default: () => [] }, pending: { type: Array, default: () => [] }, readonly: Boolean, disabled: Boolean, onlineEdit: Boolean, editBlocked: { type: Function, default: () => '' }, createBlocked: { type: String, default: '' }, formatSize: { type: Function, required: true }, formatTime: { type: Function, required: true } })
-const emit = defineEmits(['update:folderId', 'create', 'create-document', 'edit', 'edit-window', 'upload', 'replace', 'download', 'history', 'remove', 'retry', 'discard'])
+const props = defineProps({ folders: { type: Array, default: () => [] }, folderId: { type: String, default: null }, files: { type: Array, default: () => [] }, pending: { type: Array, default: () => [] }, readonly: Boolean, disabled: Boolean, deleteMode: Boolean, checkedIds: {type:Array,default:()=>[]}, onlineEdit: Boolean, editBlocked: { type: Function, default: () => '' }, createBlocked: { type: String, default: '' }, formatSize: { type: Function, required: true }, formatTime: { type: Function, required: true } })
+const emit = defineEmits(['toggle-delete', 'update:folderId', 'create', 'create-document', 'edit', 'edit-window', 'upload', 'replace', 'download', 'history', 'remove', 'retry', 'discard'])
 const folderTree = computed(() => buildFolderTree(props.folders))
 const breadcrumbs = computed(() => folderBreadcrumbs(props.folders, props.folderId))
 const childFolders = computed(() => props.folders.filter(folder => (folder.parent_id || null) === props.folderId))
@@ -132,7 +133,7 @@ const replacementInputs = new Map(), dropdowns = new Map()
 const hasReplacement = id => props.pending.some(upload => upload.fileId === id)
 const entryIcon = entry => entry.kind === 'folder' ? Folder : ({ image: Picture, audio: Headset, video: Film }[materialFileType(entry.name).family] || Document)
 
-function navigate(id) { emit('update:folderId', id || null) }
+function navigate(id) { if (!props.disabled) emit('update:folderId', id || null) }
 function selectEntry(entry) { selectedKey.value = entry.key }
 function registerDropdown(key, element) { if (element) dropdowns.set(key, element); else dropdowns.delete(key) }
 function contextEntry(entry) {
@@ -144,6 +145,7 @@ function openEntry(entry) {
   selectEntry(entry)
   if (entry.kind === 'folder') navigate(entry.folder.id)
   else if (entry.kind === 'file') {
+    if (props.deleteMode) return
     const result = materialOpenAction(entry.file, props.onlineEdit, props.editBlocked(entry.file))
     if (result.action === 'blocked') ElMessage.warning(result.reason)
     else emit(result.action, entry.file)

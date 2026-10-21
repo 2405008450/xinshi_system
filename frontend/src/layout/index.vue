@@ -132,6 +132,7 @@
     </ProjectChatDock>
     <ChatIssueCollector v-if="issueCollectorLoaded" />
     <AnnotationMaterialEditor v-if="materialEditor.loaded" />
+    <AnnotationMaterialDialogs v-if="materialDialogs.loaded" />
   </el-container>
 </template>
 
@@ -152,6 +153,7 @@ import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { useResourceNotesDock } from '@/composables/useResourceNotesDock'
 import { useMaterialEditor } from '@/composables/useMaterialEditor'
+import { useMaterialDialogs } from '@/composables/useMaterialDialogs'
 import { useResourceIssues } from '@/composables/useResourceIssues'
 import UiZoomControl from '../components/UiZoomControl.vue'
 import SidebarNavigationItem from '@/components/common/SidebarNavigationItem.vue'
@@ -170,6 +172,8 @@ const { openFullscreen } = useProjectChatDock()
 const { sessions: chatSessions, mentionTotal: chatMentionTotal } = useAnnotationFollowed()
 const chatUnreadTotal = computed(() => chatSessions.value.reduce((sum, row) => sum + (Number(row.unread) || 0), 0))
 const { state: materialEditor } = useMaterialEditor()
+const { state: materialDialogs } = useMaterialDialogs()
+const AnnotationMaterialDialogs = defineAsyncComponent(() => import('@/components/annotation/AnnotationMaterialDialogs.vue'))
 const AnnotationMaterialEditor = defineAsyncComponent(() => import('@/components/annotation/AnnotationMaterialEditor.vue'))
 const ResourceRequestDailyNotesDialog = defineAsyncComponent(() => import('@/views/resource/components/ResourceRequestDailyNotesDialog.vue'))
 const { state: notesState, openNotes, minimizeNotes, closeNotes } = useResourceNotesDock()

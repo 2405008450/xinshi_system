@@ -33,12 +33,12 @@ def env(tmp_path, monkeypatch):
         engine = create_engine(postgres_url, connect_args={'options': f'-csearch_path={schema}'})
         with engine.begin() as connection:
             connection.execute(text(f'CREATE SCHEMA {schema}'))
-            connection.execute(text('CREATE TABLE app_user (id UUID PRIMARY KEY)'))
+            connection.execute(text('CREATE TABLE app_user (id UUID PRIMARY KEY, username TEXT, full_name TEXT)'))
             connection.execute(text('CREATE TABLE annotation_project (id UUID PRIMARY KEY)'))
             migration = (Path(__file__).resolve().parents[1] / 'data/migrations/20261013_annotation_materials.sql').read_text(encoding='utf-8').strip().removeprefix('BEGIN;').removesuffix('COMMIT;')
             connection.execute(text(migration))
             connection.execute(text(migration))  # 迁移可重复执行。
-            for filename in ('20261015_annotation_material_shared_versions.sql', '20261016_annotation_material_folders.sql'):
+            for filename in ('20261015_annotation_material_shared_versions.sql', '20261016_annotation_material_folders.sql', '20261021_annotation_material_trash.sql'):
                 sql = (Path(__file__).resolve().parents[1] / 'data/migrations' / filename).read_text(encoding='utf-8').strip().removeprefix('BEGIN;').removesuffix('COMMIT;')
                 connection.execute(text(sql))
                 connection.execute(text(sql))
@@ -46,13 +46,13 @@ def env(tmp_path, monkeypatch):
         engine = create_engine('sqlite://', poolclass=StaticPool, connect_args={'check_same_thread': False})
         with engine.begin() as connection:
             connection.execute(text('PRAGMA foreign_keys=ON'))
-            connection.execute(text('CREATE TABLE app_user (id CHAR(32) PRIMARY KEY)'))
+            connection.execute(text('CREATE TABLE app_user (id CHAR(32) PRIMARY KEY, username TEXT, full_name TEXT)'))
             connection.execute(text('CREATE TABLE annotation_project (id CHAR(32) PRIMARY KEY)'))
         for table in MATERIAL_TABLES:
             table.create(engine)
     user_id, project_id, other_project = uuid4(), uuid4(), uuid4()
     with Session(engine) as db:
-        db.execute(text('INSERT INTO app_user VALUES (:id)'), {'id': user_id.hex})
+        db.execute(text('INSERT INTO app_user (id, username, full_name) VALUES (:id, :name, :name)'), {'id': user_id.hex, 'name': '资料测试'})
         for value in (project_id, other_project):
             db.execute(text('INSERT INTO annotation_project VALUES (:id)'), {'id': value.hex})
         db.commit()
@@ -128,6 +128,10 @@ def test_removal_only_after_commit_and_cleanup_retry(env, monkeypatch):
     service.apply_changes(db, project, changes, user.id); db.commit()
     assert not service.versions(db, project)
     assert service.storage_path(key).exists()
+    assert db.get(Material, file_id).deleted_at is not None
+    service.cleanup(db)
+    assert service.storage_path(key).exists()  # 回收站没有自动保留期限。
+    service.remove_material(db, db.get(Material, file_id)); db.commit()
     from pathlib import Path
     original = Path.unlink
     monkeypatch.setattr(Path, 'unlink', lambda *_args, **_kwargs: (_ for _ in ()).throw(PermissionError('busy')))
@@ -627,7 +631,7 @@ def test_online_version_rejects_cross_project_and_bad_uploads(env, client):
     assert client.post(f'/projects/annotation/{project}/materials/{uuid4()}/online-versions',
                        json=payload(stage(db, user))).status_code == 404
     other = SimpleNamespace(id=uuid4(), full_name='他人')
-    db.execute(text('INSERT INTO app_user VALUES (:id)'), {'id': other.id.hex}); db.commit()
+    db.execute(text('INSERT INTO app_user (id) VALUES (:id)'), {'id': other.id.hex}); db.commit()
     foreign = stage(db, other, '在线.docx')
     expired = stage(db, user, '在线.docx', expired=True)
     used = stage(db, user, '在线.docx')

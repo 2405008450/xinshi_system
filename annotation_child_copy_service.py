@@ -69,7 +69,7 @@ def copy_materials(db, parent_id, child_id):
         db.add(cloned)
         db.flush()
         folder_mapping[original.id] = cloned.id
-    originals = db.query(Material).filter_by(project_id=parent_id).order_by(Material.id).all()
+    originals = db.query(Material).filter_by(project_id=parent_id, deleted_at=None).order_by(Material.id).all()
     for original in originals:
         versions = db.query(Version).filter_by(file_id=original.id).order_by(Version.version_no).all()
         # 锁住不可变上传对象，避免复制与最后一个引用的删除并发。

@@ -20,7 +20,7 @@ PID, UID, LID = str(uuid4()), str(uuid4()), str(uuid4())
 NOW = '2026-09-29T08:00:00'
 
 
-def run():
+def run(verify_extra=None):
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
     if socket.gethostname().upper() != 'PC' or (ROOT != Path('E:/xinshi_system') and 'xinshi_validation' not in str(ROOT)):
@@ -28,7 +28,7 @@ def run():
     out = ROOT / '.tmp' / 'material-ui'
     out.mkdir(parents=True, exist_ok=True)
     log = (out / 'preview.log').open('w', encoding='utf-8')
-    process = subprocess.Popen(['node', 'node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', '12419', '--strictPort', '--outDir', '../.tmp/office-build'],
+    process = subprocess.Popen(['node', 'node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', '12419', '--strictPort', '--outDir', os.environ.get('MATERIAL_UI_DIST', '../.tmp/office-build')],
                                cwd=ROOT / 'frontend', stdout=log, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW)
     project = dict(id=PID, order_no='AP-QA-MATERIAL', project_name='资料验收项目', project_types=['text_annotation'],
                    task_description='资料管理隔离验收', client_short_name='测试客户', client_manager_id=UID,
@@ -125,6 +125,14 @@ def run():
             context.add_init_script("localStorage.setItem('token','isolated-qa');localStorage.setItem('user_roles','[\"admin\"]')")
             page = context.new_page()
             page.on('pageerror', lambda error: errors.append(str(error)))
+            if verify_extra:
+                try:
+                    verify_extra(page, context, project, rows, folders, out, errors)
+                except BaseException:
+                    page.screenshot(path=str(out / 'extra-failure.png'), full_page=True)
+                    raise
+                browser.close()
+                return
 
             def edit():
                 page.goto(BASE + f'/annotation-details?projectId={PID}&openEditor=1')

@@ -91,6 +91,24 @@ async def forward_delete(origin, request, upload_id):
         raise HTTPException(503, '云端资料服务暂不可用') from exc
 
 
+async def forward_material_operation(origin, request, path, payload=None, params=None):
+    """回收站元数据与文件清理统一由云端处理，不转发任意地址。"""
+    try:
+        async with client() as connection:
+            response = await connection.request(request.method, origin + '/api/projects/annotation/' + path,
+                headers=forwarding_headers(request), json=payload, params=params)
+            if response.status_code in (400, 403, 404, 409, 410):
+                try:
+                    detail = response.json().get('detail', '资料操作失败')
+                except ValueError:
+                    detail = '资料操作失败'
+                raise HTTPException(response.status_code, detail)
+            check(response)
+            return None if response.status_code == 204 else response.json()
+    except httpx.HTTPError as exc:
+        raise HTTPException(503, '云端资料服务暂不可用，请重试') from exc
+
+
 async def forward_download(origin, request, project_id, file_id, version_id):
     connection = client()
     response = None

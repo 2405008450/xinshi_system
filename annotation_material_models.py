@@ -46,6 +46,11 @@ class AnnotationMaterialFile(Base):
     category = Column(String(20), nullable=False)
     folder_id = Column(Uuid, ForeignKey('annotation_material_folder.id', ondelete='SET NULL', name='fk_annotation_material_file_folder'), index=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    deleted_at = Column(DateTime(timezone=True), index=True)
+    deleted_by = Column(Uuid, ForeignKey('app_user.id', ondelete='SET NULL'))
+    deleted_by_name = Column(String(255))
+    deleted_folder_path = Column(String(500))
+    trash_token = Column(Uuid)
 
 
 class AnnotationMaterialVersion(Base):

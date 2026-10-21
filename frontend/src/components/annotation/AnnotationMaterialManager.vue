@@ -1,5 +1,10 @@
 <template>
   <div class="material-manager" v-loading="loading">
+    <div v-if="canManageSaved" class="material-heading material-manager-toolbar">
+      <BatchDeleteToolbar :active="deleteMode" :selected-count="selectedIds.length" :loading="deleting" @enter="enterDelete" @exit="exitDelete" @confirm="deleteSelected" />
+      <el-button :disabled="deleting" @click="openTrash(projectId)">回收站</el-button>
+    </div>
+    <el-alert v-if="deleteError" :title="deleteError" type="error" :closable="false" />
     <el-alert v-if="loadError" :title="loadError" type="error" :closable="false">
       <el-button link type="primary" @click="reload">重新加载</el-button>
     </el-alert>
@@ -14,8 +19,9 @@
       <AnnotationMaterialExplorer
         v-if="category.key === 'project'" :key="`${projectId}:${active}`" v-model:folder-id="selectedFolderId"
         :folders="allFolders" :files="categoryRows('project')" :pending="categoryPending('project')"
-        :readonly="readonly" :disabled="disabled || loading || !!loadError" :format-size="sizeText" :format-time="timeText"
-        :online-edit="canOnlineEdit" :edit-blocked="editBlocked" :create-blocked="createBlocked"
+        :readonly="readonly" :disabled="disabled || deleting || loading || !!loadError" :format-size="sizeText" :format-time="timeText"
+        :online-edit="canOnlineEdit && !deleteMode" :edit-blocked="editBlocked" :create-blocked="createBlocked"
+        :delete-mode="deleteMode" :checked-ids="selectedIds" @toggle-delete="toggleDelete"
         @edit="editOnline" @edit-window="row => editOnline(row, true)" @create-document="openDocumentCreator"
         @create="openFolderCreator" @upload="files => addFiles(files, 'project')"
         @replace="({ files, fileId }) => addFiles(files, 'project', fileId)"
@@ -23,6 +29,7 @@
       />
       <div v-else>
           <div v-for="row in categoryRows(category.key)" :key="row.file_id" class="material-row">
+            <el-checkbox v-if="deleteMode" :model-value="selectedIds.includes(row.file_id)" :disabled="deleting" :aria-label="`选择删除${row.original_name}`" @change="toggleDelete(row)" />
             <div class="material-info"><span>{{ row.original_name }}</span><small>{{ sizeText(row.file_size) }} · V{{ row.version_no }} · {{ row.uploader_name }} · {{ timeText(row.created_at) }}</small></div>
             <div class="material-actions">
               <el-button link type="primary" @click="download(row)">下载</el-button>
@@ -43,7 +50,7 @@
           <small v-if="!categoryRows(category.key).length && !categoryPending(category.key).length" class="material-hint">暂无文件</small>
       </div>
     </section>
-    <div v-if="removed.length" class="material-hint">{{ removed.length }} 个文件将在保存后移除（含全部版本）。<el-button link :disabled="disabled" @click="removed = []">撤销移除</el-button></div>
+    <div v-if="removed.length" class="material-hint">{{ removed.length }} 个文件将在保存后移入回收站（含全部版本）。<el-button link :disabled="disabled" @click="removed = []">撤销移除</el-button></div>
     <DraggableFormDialog v-model="folderCreatorVisible" :title="folderLevel === 1 ? '新建一级文件夹' : '新建二级文件夹'" width="min(480px, calc(100vw - 32px))" append-to-body class="material-folder-dialog">
       <AppForm ref="folderFormRef" :model="folderForm" :rules="folderRules" label-width="90px" @submit.prevent="confirmFolder">
         <el-form-item v-if="folderLevel === 2" label="一级文件夹" prop="parentId"><el-select v-model="folderForm.parentId" style="width:100%" placeholder="请选择一级文件夹"><el-option v-for="folder in rootFolders" :key="folder.id" :label="folder.name" :value="folder.id" /></el-select></el-form-item>
@@ -51,12 +58,6 @@
         <p class="material-hint">创建后随项目保存生效，取消编辑不会保存文件夹。</p>
       </AppForm>
       <template #footer><el-button @click="folderCreatorVisible = false">取消</el-button><el-button type="primary" :disabled="disabled" @click="confirmFolder">创建</el-button></template>
-    </DraggableFormDialog>
-    <DraggableFormDialog v-model="historyVisible" title="资料历史版本" width="min(760px, calc(100vw - 32px))" append-to-body>
-      <div v-loading="historyLoading" class="material-history">
-        <div v-for="row in history" :key="row.id" class="material-row"><div class="material-info"><span>V{{ row.version_no }} · {{ row.original_name }}</span><small>{{ sizeText(row.file_size) }} · {{ row.uploader_name }} · {{ timeText(row.created_at) }}</small></div><el-button link type="primary" @click="download(row)">下载</el-button></div>
-      </div>
-      <template #footer><el-button @click="historyVisible = false">关闭</el-button></template>
     </DraggableFormDialog>
   </div>
 </template>
@@ -67,15 +68,46 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import AppForm from '@/components/common/AppForm.vue'
 import AnnotationMaterialExplorer from '@/components/annotation/AnnotationMaterialExplorer.vue'
+import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import * as api from '@/api/annotationMaterials'
 import { formatBusinessDateTimeMinute } from '@/utils/dateTime'
 import { folderNameError, folderParentId, folderPath, newFolderId, withDefaultProjectFolder } from '@/utils/annotationMaterialFolders'
 import { onlineEditBlocker } from '@/utils/materialDocument'
 import { useMaterialEditor } from '@/composables/useMaterialEditor'
+import { useMaterialDialogs } from '@/composables/useMaterialDialogs'
 import { hasPermission } from '@/utils/permission'
 import { openOfficePage } from '@/utils/officePage'
 
 const props = defineProps({ projectId: { type: String, default: '' }, readonly: Boolean, active: { type: Boolean, default: true }, disabled: Boolean })
+const emit = defineEmits(['busy'])
+const { openHistory, openTrash } = useMaterialDialogs()
+const canManageSaved = computed(() => props.readonly && !!props.projectId && hasPermission('projects:write'))
+const deleteMode = ref(false), deleting = ref(false), selectedIds = ref([]), deleteError = ref('')
+function exitDelete() { if (!deleting.value) { deleteMode.value = false; selectedIds.value = []; deleteError.value = '' } }
+function enterDelete() { if (!props.disabled && !loading.value && !loadError.value) { exitDelete(); deleteMode.value = true } }
+function toggleDelete(row) { if (!deleting.value) selectedIds.value = selectedIds.value.includes(row.file_id) ? selectedIds.value.filter(id => id !== row.file_id) : [...selectedIds.value, row.file_id] }
+async function deleteSelected() {
+  if (deleting.value || !selectedIds.value.length || !canManageSaved.value) return
+  const targets = rows.value.filter(row => selectedIds.value.includes(row.file_id)), project = props.projectId
+  if (!targets.length) { exitDelete(); return }
+  emit('busy', true); deleting.value = true
+  try {
+    const message = targets.length === 1 ? `将“${targets[0].original_name}”及全部历史版本移入回收站？` : `将所选 ${targets.length} 个文件及全部历史版本移入回收站？请输入“删除”继续。`
+    try {
+      if (targets.length === 1) await ElMessageBox.confirm(message, '删除文件', { type: 'warning', modalClass: 'material-action-confirm' })
+      else await ElMessageBox.prompt(message, '批量删除文件', { type: 'warning', modalClass: 'material-action-confirm', inputValidator: value => value === '删除' || '请输入“删除”' })
+    } catch { return }
+    const failures = []; let count = 0
+    for (const row of targets) {
+      try { await api.trashMaterial(project, row.file_id); count++ }
+      catch (error) { failures.push({ id: row.file_id, text: `${row.original_name}：${error.detail || error.message || '删除失败'}` }) }
+    }
+    if (count) { notifyMaterialSaved(project); await reload(); ElMessage.success({ message: `已将 ${count} 个文件移入回收站`, customClass: 'material-action-message' }) }
+    selectedIds.value = failures.map(item => item.id)
+    deleteError.value = failures.map(item => item.text).join('；')
+    if (!failures.length) deleteMode.value = false
+  } finally { deleting.value = false; emit('busy', false) }
+}
 const categories = [{ key: 'project', label: '项目资料' }, { key: 'quotation', label: '报价单' }, { key: 'contract', label: '合同' }]
 const rows = ref([]), pending = ref([]), removed = ref([]), loading = ref(false), loadError = ref('')
 const savedFolders = ref([]), createdFolders = ref([]), selectedFolderId = ref(null)
@@ -93,10 +125,9 @@ const folderRules = {
     callback(error ? new Error(error) : undefined)
   }, trigger: 'blur' }],
 }
-const history = ref([]), historyVisible = ref(false), historyLoading = ref(false)
 
 // 在线编辑即时生成新版本，不依赖项目表单保存；只读浮层中有写权限也可使用。
-const { state: editorState, openMaterialEditor } = useMaterialEditor()
+const { state: editorState, openMaterialEditor, notifyMaterialSaved } = useMaterialEditor()
 const canOnlineEdit = computed(() => Boolean(props.projectId) && (hasPermission('projects:read') || hasPermission('projects:write')))
 const editBlocked = row => {
   if (props.disabled || loading.value || loadError.value) return '资料加载或项目保存中，请稍候'
@@ -177,10 +208,8 @@ async function reload(options = {}) {
     const config = { signal: controller.signal }
     const [result, directories] = await Promise.all([api.listMaterials(props.projectId, config), api.listMaterialFolders(props.projectId, config)])
     if (serial === requestId) {
-      const changed = JSON.stringify(rows.value) !== JSON.stringify(result)
       rows.value = result; savedFolders.value = directories; loadError.value = ''
       // 只更新云端已保存资料，保留当前表单的待上传文件、移除标记和新建目录。
-      if (changed && historyVisible.value) { historyVisible.value = false; history.value = [] }
     }
   }
   catch (error) { if (serial === requestId && !controller.signal.aborted && !silent) loadError.value = error.detail || '项目资料加载失败' }
@@ -195,7 +224,8 @@ function reset() {
   generation += 1; requestId += 1
   reloadController?.abort(); reloadController = null
   pending.value.forEach(item => { item.controller?.abort(); release(item.upload?.id) })
-  pending.value = []; removed.value = []; rows.value = []; historyVisible.value = false; loadError.value = ''; loading.value = false
+  pending.value = []; removed.value = []; rows.value = []; loadError.value = ''; loading.value = false
+  exitDelete()
   savedFolders.value = []; createdFolders.value = []; selectedFolderId.value = null; folderCreatorVisible.value = false
   defaultFolderId.value = newFolderId()
 }
@@ -235,17 +265,12 @@ function addFiles(files, category, fileId = null) {
 }
 function discard(item) { item.controller?.abort(); release(item.upload?.id); pending.value = pending.value.filter(row => row !== item) }
 async function remove(row) {
-  try { await ElMessageBox.confirm(`保存后将移除“${row.original_name}”及其全部历史版本，无法恢复。是否标记移除？`, '移除项目资料', { type: 'warning' }) } catch { return }
+  try { await ElMessageBox.confirm(`保存项目后将“${row.original_name}”及其全部历史版本移入回收站，可恢复。是否标记移除？`, '移除项目资料', { type: 'warning' }) } catch { return }
   pending.value.filter(item => item.fileId === row.file_id).forEach(discard)
   removed.value.push(row.file_id)
 }
 async function download(row) { try { await api.downloadMaterial(props.projectId, row) } catch (error) { ElMessage.error(error.detail || '资料下载失败') } }
-async function showHistory(row) {
-  historyVisible.value = true; historyLoading.value = true; history.value = []
-  try { history.value = await api.listMaterialVersions(props.projectId, row.file_id) }
-  catch (error) { ElMessage.error(error.detail || '历史版本加载失败') }
-  finally { historyLoading.value = false }
-}
+function showHistory(row) { openHistory(props.projectId, row) }
 function validate() {
   if (loading.value || loadError.value) { ElMessage.warning('请等待资料加载完成或重新加载后保存'); return false }
   const unfinished = pending.value.find(item => item.status !== 'ready')
@@ -259,7 +284,8 @@ function changes() {
 function saved() { pending.value = []; removed.value = []; createdFolders.value = []; void reload() }
 watch(() => [props.projectId, props.active], () => { reset(); if (props.active) void reload() }, { immediate: true })
 // 在线编辑保存后刷新同一项目的全部资料组件，保留表单中未保存的暂存与目录。
-watch(() => editorState.savedTicks[props.projectId], (value, old) => { if (value && value !== old && props.active) { historyVisible.value = false; void reload() } })
+watch(() => editorState.savedTicks[props.projectId], (value, old) => { if (value && value !== old && props.active) void reload() })
+watch(selectedFolderId, exitDelete)
 onMounted(() => {
   refreshTimer = window.setInterval(refreshVisible, 5000)
   window.addEventListener('focus', refreshVisible)
@@ -276,6 +302,7 @@ defineExpose({ validate, changes, saved, reload })
 
 <style scoped>
 .material-manager { width: 100%; min-width: 0; }
+.material-manager-toolbar{margin-bottom:8px;flex-wrap:wrap}.material-manager-toolbar :deep(.batch-delete-toolbar){flex-wrap:wrap;white-space:normal}
 .material-category { padding: 12px 0; border-bottom: 1px solid var(--el-border-color-lighter); }
 .material-heading,.material-row,.material-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .material-heading { justify-content: space-between; margin-bottom: 8px; }

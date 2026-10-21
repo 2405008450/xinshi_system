@@ -5,18 +5,20 @@ import uuid
 from datetime import datetime, timedelta
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, Response, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from database import get_db
 from models import AppUser
 from annotation_models import AnnotationProject
-from routers.auth import get_current_user, require_module_access, require_permission
+from routers.auth import get_current_user, require_module_access, require_permission, require_super_admin
 from annotation_material_models import AnnotationMaterialUpload as Upload, AnnotationMaterialFile as Material, AnnotationMaterialVersion as Version, AnnotationMaterialFolder as Folder
 from annotation_material_schemas import OnlineVersionCreate, OnlineFileCreate
 from annotation_material_service import MAX_BYTES, storage_path, serialize_upload, versions, folders, queue_upload_deletion, attach_upload
-from annotation_material_storage import remote_origin, forward_upload, forward_delete, forward_download
+from annotation_material_storage import remote_origin, forward_upload, forward_delete, forward_download, forward_material_operation
+from pydantic import BaseModel, ConfigDict
+import annotation_material_trash_service as trash_service
 
 router = APIRouter(prefix='/projects/annotation', tags=['annotation_materials'],
                    dependencies=[Depends(require_module_access('projects:read', 'projects:write'))])
@@ -42,7 +44,7 @@ def online_upload_extension(db, upload_id, user):
 
 def require_project(db, project_id):
     # 与标注项目详情接口保持同一可见性：模块权限 + 项目存在。
-    if db.get(AnnotationProject, project_id) is None:
+    if db.query(AnnotationProject.id).filter_by(id=project_id).first() is None:
         raise HTTPException(404, '标注项目不存在')
 
 
@@ -137,8 +139,11 @@ def list_material_folders(project_id: UUID, db: Session = Depends(get_db)):
 @router.get('/{project_id}/materials/{file_id}/versions')
 def list_versions(project_id: UUID, file_id: UUID, db: Session = Depends(get_db)):
     require_project(db, project_id)
-    if db.query(Material).filter_by(id=file_id, project_id=project_id).first() is None:
+    material = db.query(Material).filter_by(id=file_id, project_id=project_id).first()
+    if material is None:
         raise HTTPException(404, '资料不属于当前项目或已移除')
+    if material.deleted_at is not None:
+        raise HTTPException(410, '文件已进入回收站，请恢复后查看历史版本')
     return versions(db, project_id, file_id)
 
 
@@ -146,7 +151,7 @@ def list_versions(project_id: UUID, file_id: UUID, db: Session = Depends(get_db)
 async def download(project_id: UUID, file_id: UUID, version_id: UUID, request: Request, db: Session = Depends(get_db)):
     require_project(db, project_id)
     upload = db.query(Upload).join(Version, Version.upload_id == Upload.id).join(Material, Material.id == Version.file_id).filter(
-        Material.project_id == project_id, Material.id == file_id, Version.id == version_id).first()
+        Material.project_id == project_id, Material.id == file_id, Material.deleted_at.is_(None), Version.id == version_id).first()
     if upload is None:
         raise HTTPException(404, '资料版本不存在或不属于当前项目')
     origin = remote_origin()
@@ -181,7 +186,7 @@ def create_online_version(project_id: UUID, file_id: UUID, payload: OnlineVersio
                           user: AppUser = Depends(get_current_user)):
     require_project(db, project_id)
     # 锁住逻辑文件，串行化同一文件的并发在线保存，避免基于同一版本各自追加。
-    material = db.query(Material).filter_by(id=file_id, project_id=project_id).with_for_update().populate_existing().first()
+    material = db.query(Material).filter_by(id=file_id, project_id=project_id, deleted_at=None).with_for_update().populate_existing().first()
     if material is None:
         raise HTTPException(404, '资料不属于当前项目或已移除')
     latest = db.query(Version, Upload).join(Upload, Upload.id == Version.upload_id).filter(
@@ -201,3 +206,61 @@ def create_online_version(project_id: UUID, file_id: UUID, payload: OnlineVersio
         db.rollback()
         raise HTTPException(400, str(exc)) from exc
     return versions(db, project_id, file_id)[0]
+
+
+class TrashToken(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    trash_token: UUID
+
+
+@router.post('/{project_id}/materials/{file_id}/trash', dependencies=[Depends(require_permission('projects:write'))])
+async def trash_material(project_id: UUID, file_id: UUID, request: Request, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    origin = remote_origin()
+    if origin:
+        return await forward_material_operation(origin, request, f'{project_id}/materials/{file_id}/trash')
+    try:
+        material = trash_service.lock_file(db, project_id, file_id)
+        trash_service.trash_file(db, material, user.id, user.full_name or user.username)
+        db.commit()
+        return dict(file_id=material.id, trash_token=material.trash_token, deleted_at=trash_service.business_iso(material.deleted_at))
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.get('/{project_id}/material-trash', dependencies=[Depends(require_permission('projects:write'))])
+async def list_trash(project_id: UUID, request: Request, keyword: str = Query('', max_length=200), page: int = Query(1, ge=1),
+                     limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db)):
+    origin = remote_origin()
+    if origin:
+        return await forward_material_operation(origin, request, f'{project_id}/material-trash', params=dict(keyword=keyword, page=page, limit=limit))
+    require_project(db, project_id)
+    return trash_service.catalog(db, project_id, keyword, page, limit)
+
+
+@router.post('/{project_id}/materials/{file_id}/restore', dependencies=[Depends(require_permission('projects:write'))])
+async def restore_material(project_id: UUID, file_id: UUID, payload: TrashToken, request: Request, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    origin = remote_origin()
+    if origin:
+        return await forward_material_operation(origin, request, f'{project_id}/materials/{file_id}/restore', payload=payload.model_dump(mode='json'))
+    material = trash_service.lock_file(db, project_id, file_id)
+    trash_service.restore_file(db, material, payload.trash_token, user.id)
+    db.commit()
+    return dict(file_id=material.id, restored=True)
+
+
+@router.delete('/{project_id}/material-trash/{file_id}', status_code=204)
+async def purge_material(project_id: UUID, file_id: UUID, payload: TrashToken, request: Request, db: Session = Depends(get_db), user: AppUser = Depends(require_super_admin)):
+    origin = remote_origin()
+    if origin:
+        await forward_material_operation(origin, request, f'{project_id}/material-trash/{file_id}', payload=payload.model_dump(mode='json'))
+        return Response(status_code=204)
+    try:
+        material = trash_service.lock_file(db, project_id, file_id, missing_ok=True)
+        if material:
+            trash_service.purge_file(db, material, payload.trash_token, user.id)
+        db.commit()
+        return Response(status_code=204)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(409, str(exc)) from exc

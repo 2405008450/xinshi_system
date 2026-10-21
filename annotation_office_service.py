@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 import httpx
 from fastapi import HTTPException
 from jose import JWTError, jwt
-from sqlalchemy import select, func
+from sqlalchemy import select, func, inspect
 
 from business_time import BUSINESS_TIMEZONE, business_iso
 from models import AppUser
@@ -94,7 +94,7 @@ def expire(session):
 
 
 def assert_file_unlocked(db, file_id, session_id=None):
-    if not enabled():
+    if not enabled() and not inspect(db.connection()).has_table('annotation_office_session'):
         return
     # 所有修改入口先锁逻辑文件，再锁会话，顺序与保存回调保持一致。
     db.execute(select(Material.id).where(Material.id == file_id).with_for_update()).first()
@@ -151,7 +151,7 @@ def create_session(db, project_id, user, file_id=None, name=None, folder_id=None
                             owner_name=user.full_name or user.username, mode='edit', state='open',
                             document_key=uuid.uuid4().hex, created_at=now(), lease_until=now() + timedelta(seconds=LEASE_SECONDS))
     if file_id:
-        material = db.query(Material).filter_by(id=file_id, project_id=project_id, category='project').with_for_update().first()
+        material = db.query(Material).filter_by(id=file_id, project_id=project_id, category='project', deleted_at=None).with_for_update().first()
         if not material:
             raise HTTPException(404, '项目资料不存在')
         latest = db.query(Version, Upload).join(Upload, Upload.id == Version.upload_id).filter(Version.file_id == file_id).order_by(Version.version_no.desc()).first()
@@ -201,11 +201,13 @@ def owned_session(db, session_id, user, lock=False):
     return session
 
 
-def lock_session(db, session):
+def lock_session(db, session, allow_deleted=False):
     # 新建文档锁项目，已有文档锁文件；始终先锁业务对象再锁会话。
     target, target_id = (Material, session.file_id) if session.file_id else (AnnotationProject, session.project_id)
     if not db.execute(select(target.id).where(target.id == target_id).with_for_update()).first():
         raise HTTPException(404, '项目资料已移除')
+    if not allow_deleted and session.file_id and db.query(Material.deleted_at).filter_by(id=session.file_id).scalar() is not None:
+        raise HTTPException(410, '文件已进入回收站，请恢复后重新打开')
     if db.query(OfficeSession).filter_by(id=session.id).with_for_update().populate_existing().first() is None:
         raise HTTPException(404, 'Office 会话已移除')
 
@@ -400,7 +402,7 @@ async def callback(db, session_id, payload):
         data = await fetch_result(payload.get('url', ''), file_kind(session.original_name))
     else:
         data = None
-    lock_session(db, session)
+    lock_session(db, session, allow_deleted=True)
     expire(session)
     if session.state not in ACTIVE:
         db.commit()

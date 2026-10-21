@@ -1,18 +1,20 @@
 <template>
   <el-popover
     ref="popoverRef"
+    :visible="visible"
+    @update:visible="updateVisible"
     trigger="click"
-    placement="left"
+    :placement="placement"
     :width="760"
     :popper-options="popperOptions"
     title="项目资料"
-    popper-class="annotation-material-popover"
+    :popper-class="['annotation-material-popover', popperClass].filter(Boolean).join(' ')"
     @before-enter="handleOpen"
     @before-leave="handleClose"
   >
-    <template #reference><el-button link type="primary">项目资料</el-button></template>
+    <template #reference><slot name="reference"><el-button link type="primary">项目资料</el-button></slot></template>
     <div ref="contentRef" class="annotation-material-popover__content">
-      <AnnotationMaterialManager v-if="opened" :project-id="projectId" readonly />
+      <AnnotationMaterialManager v-if="opened" :project-id="projectId" readonly @busy="busy = $event" />
     </div>
   </el-popover>
 </template>
@@ -21,7 +23,13 @@
 import { nextTick, onBeforeUnmount, onDeactivated, ref } from 'vue'
 import AnnotationMaterialManager from './AnnotationMaterialManager.vue'
 
-defineProps({ projectId: { type: String, required: true } })
+defineProps({ projectId: { type: String, required: true }, placement: {type:String,default:'left'}, popperClass: {type:String,default:''} })
+const visible = ref(false), busy = ref(false)
+function updateVisible(value) {
+  // 确认框及其退出动画的点击属于当前操作，不能触发父浮层销毁。
+  if (!value && (busy.value || document.querySelector('.el-overlay-message-box'))) return
+  visible.value = value
+}
 
 const popoverRef = ref(null), contentRef = ref(null), opened = ref(false)
 const popperOptions = {
@@ -56,6 +64,7 @@ async function handleOpen() {
 }
 
 function handleClose() {
+  visible.value = false
   generation += 1
   opened.value = false
   observer?.disconnect()

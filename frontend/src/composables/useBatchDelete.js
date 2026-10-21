@@ -15,6 +15,7 @@ export function useBatchDelete({
   reload,
   onDeleted,
   entityName = '记录',
+  additionalWarning = '',
 }) {
   const deleteMode = ref(false)
   const deleting = ref(false)
@@ -43,7 +44,7 @@ export function useBatchDelete({
   const confirmSelection = async (selection) => {
     if (selection.length === 1) {
       await ElMessageBox.confirm(
-        `确定删除${entityName}“${labelOf(selection[0])}”吗？删除后无法恢复。`,
+        `确定删除${entityName}“${labelOf(selection[0])}”吗？删除后无法恢复。${additionalWarning}`,
         '删除确认',
         { type: 'warning', confirmButtonText: '确定删除', cancelButtonText: '取消' },
       )
@@ -53,7 +54,7 @@ export function useBatchDelete({
     const preview = selection.slice(0, 5).map((row) => labelOf(row)).join('、')
     const remaining = selection.length > 5 ? `等 ${selection.length} 条` : `共 ${selection.length} 条`
     await ElMessageBox.prompt(
-      `即将删除${entityName}${remaining}：${preview}。此操作无法恢复，请输入“删除”继续。`,
+      `即将删除${entityName}${remaining}：${preview}。此操作无法恢复。${additionalWarning}请输入“删除”继续。`,
       '批量删除确认',
       {
         type: 'warning',
