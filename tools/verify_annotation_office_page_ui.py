@@ -111,7 +111,7 @@ def run():
                 else:
                     old = latest(session['file_id']) if session['file_id'] else None
                     new = add_row(session['name'], docx_bytes, session['file_id'], session['folder_id'], old['version_no'] + 1 if old else 1)
-                    session.update(state='saved', save_state='complete', error=None, version_id=new['id'])
+                    session.update(state='open', save_state='complete', error=None, version_id=new['id'], file_id=new['file_id'])
                     office_content[0] = request.frame.page.locator('.office-mock-content').input_value()
                     if old: commits.append(dict(file=session['name'], data=docx_bytes))
                     else: creations.append(dict(name=session['name'], folder_id=session['folder_id'], data=docx_bytes))
@@ -219,7 +219,7 @@ window.DocsAPI = { DocEditor: class {
                 field=tab.locator('.office-mock-content');expect(field).to_be_visible();return field
 
             def close_clean(tab):
-                tab.get_by_role('button',name='关闭' if tab.get_by_text('只读',exact=True).count() else '取消',exact=True).click()
+                tab.get_by_role('button',name='关闭',exact=True).click()
                 expect(tab.get_by_text('编辑已结束',exact=True)).to_be_visible();tab.close()
 
             def ensure_materials():
@@ -244,17 +244,24 @@ window.DocsAPI = { DocEditor: class {
             dialog.get_by_role('button',name='取消',exact=True).click()
             expect(field).to_have_value('独立页面修改')
             checks+=['关闭项目资料后新页编辑现场保留']
-            tab.get_by_role('button',name='取消',exact=True).click()
+            tab.get_by_role('button',name='关闭',exact=True).click()
             tab.locator('.el-message-box:visible').get_by_role('button',name='继续编辑').click()
             expect(field).to_have_value('独立页面修改')
             conflict_next[0]=True
             tab.get_by_role('button',name='保存为新版本').click()
             expect(tab.get_by_text(re.compile('已被他人更新'))).to_be_visible();expect(field).to_have_value('独立页面修改')
             tab.get_by_role('button',name='保存为新版本').click()
-            expect(tab.get_by_text('文件已保存',exact=True)).to_be_visible()
+            expect(tab.locator('.el-message--success').last).to_contain_text('文件已保存')
             assert commits[-1]['file']=='项目说明.docx'
-            tab.get_by_role('button',name='继续编辑',exact=True).click();expect(ready(tab)).to_have_value('独立页面修改')
-            checks+=['关闭未保存二次确认及继续编辑','独立页面保存失败保留现场','保存新版本成功结果页','保存后可继续编辑最新版本']
+            expect(ready(tab)).to_have_value('独立页面修改')
+            node=field.element_handle();count=len(office_sessions);committed=len(commits)
+            expect(tab.get_by_role('button',name='保存为新版本')).to_be_disabled()
+            field.fill('同一编辑器继续修改')
+            tab.get_by_role('button',name='保存为新版本').click()
+            expect(tab.get_by_role('button',name='保存为新版本')).to_be_disabled()
+            assert node.evaluate('el=>el.isConnected') and len(office_sessions)==count and len(commits)==committed+1
+            expect(field).to_have_value('同一编辑器继续修改')
+            checks+=['关闭未保存二次确认及继续编辑','独立页面保存失败保留现场','保存新版本成功提示且不退出','同一编辑器连续保存不重建会话且保留写锁','无新修改禁用保存']
             close_clean(tab)
 
             # Excel 回车、工具栏、菜单统一打开独立页，跨标签页同用户也只能一个写者。
@@ -275,10 +282,10 @@ window.DocsAPI = { DocEditor: class {
                 assert box['width']==width and box['height']==height and footer['y']+footer['height']<=height+1
             assert len(office_sessions)==count and node.evaluate('el=>el.isConnected')
             tab.screenshot(path=str(out/'standalone-excel.png'))
-            tab.get_by_role('button',name='保存为新版本').click();expect(tab.get_by_text('文件已保存',exact=True)).to_be_visible()
+            tab.get_by_role('button',name='保存为新版本').click();expect(tab.get_by_role('button',name='保存为新版本')).to_be_disabled()
             # 同源新页面通知来源页，列表立即刷新，不需要等定时轮询。
             expect(manager.locator('.explorer-statusbar')).to_contain_text('V2',timeout=4000)
-            tab.close()
+            close_clean(tab)
             checks+=['Excel回车和在线编辑按钮打开独立页','同账号第二个标签页只读','只读无保存入口','大屏及手机宽高占满视口','底部操作栏固定可见','调整窗口保留内容和Office会话','独立页保存通知原列表刷新']
 
             excel.get_by_role('button',name='预算.xlsx的更多操作').click()
@@ -307,11 +314,16 @@ window.DocsAPI = { DocEditor: class {
                 expect(tab.locator('.el-form-item__error')).to_be_visible()
                 tab.get_by_placeholder('请输入文件名称，扩展名自动补充').fill('独立新建'+kind)
                 tab.get_by_role('button',name='开始编辑',exact=True).click();ready(tab).fill('新文档内容')
-                tab.get_by_role('button',name='保存文件',exact=True).click();expect(tab.get_by_text('文件已保存',exact=True)).to_be_visible()
-                tab.get_by_role('button',name='继续编辑',exact=True).click();expect(ready(tab)).to_have_value('新文档内容')
+                tab.get_by_role('button',name='保存文件',exact=True).click();expect(tab.get_by_role('button',name='保存为新版本')).to_be_disabled()
+                expect(ready(tab)).to_have_value('新文档内容')
+                node=ready(tab).element_handle();count=len(office_sessions)
+                ready(tab).fill('新文档保存后继续修改')
+                tab.get_by_role('button',name='保存为新版本',exact=True).click()
+                expect(tab.get_by_role('button',name='保存为新版本')).to_be_disabled()
+                assert node.evaluate('el=>el.isConnected') and len(office_sessions)==count
                 assert 'file=' in tab.url and 'create=' not in tab.url
                 close_clean(tab)
-            checks+=['弹窗被拦截有明确提示且不占锁','新建Word与Excel独立页文件名校验','新建保存后可定位并继续编辑']
+            checks+=['弹窗被拦截有明确提示且不占锁','新建Word与Excel独立页文件名校验','新建首次保存更新地址且同一编辑器连续生成版本']
 
             office_unavailable[0]=True
             ensure_materials()

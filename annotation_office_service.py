@@ -217,7 +217,8 @@ def describe(db, session, config=False):
     result = {'id': str(session.id), 'mode': session.mode, 'state': session.state, 'occupant': owner[0] if owner else None,
               'lease_until': business_iso(aware(session.lease_until)), 'save_id': str(task.id) if task else None,
               'save_state': ('pending' if task.state == 'pending_snapshot' else task.state) if task else None, 'error': task.error if task else None,
-              'version_id': str(session.saved_version_id) if session.saved_version_id else None}
+              'version_id': str(session.saved_version_id) if session.saved_version_id else None,
+              'file_id': str(session.file_id) if session.file_id else None}
     if config:
         cfg = settings()
         root = f"{cfg['public']}/api/projects/annotation/office/sessions/{session.id}"
@@ -275,7 +276,10 @@ def commit_staged(db, session, task, upload_id):
     material, version = attach_upload(db, session.project_id, upload_id, session.owner_id, 'project',
                                      file_id=session.file_id, folder_id=session.folder_id, office_session_id=session.id)
     db.flush()
-    session.file_id, session.saved_version_id, session.state = material.id, version.id, 'saved'
+    # 保存只是当前会话的检查点。保留文档 key 与写租约，下一次保存基于刚提交的版本。
+    session.file_id, session.saved_version_id, session.base_version_id = material.id, version.id, version.id
+    session.source_upload_id, session.state = upload_id, 'open'
+    session.staged_upload_id, session.staged_revision = None, None
     task.state, task.version_id, task.completed_at, task.error = 'complete', version.id, now(), None
 
 
@@ -290,6 +294,21 @@ async def request_save(db, session, save_id, revision=0):
     require_access(db, session.owner_id, write=True)
     if session.state != 'open':
         raise HTTPException(409, '会话已结束或正在保存')
+    # 同一编辑器连续保存使用递增 revision；无新修改不能再次追加相同的业务版本。
+    previous = db.query(OfficeSave).filter_by(session_id=session.id, state='complete',
+        version_id=session.base_version_id).order_by(OfficeSave.created_at.desc()).first() if session.file_id else None
+    if previous and revision <= previous.revision:
+        expire(session)
+        if session.state != 'open':
+            raise HTTPException(409, '编辑会话已过期')
+        latest = db.query(Version).filter_by(file_id=session.file_id).order_by(Version.version_no.desc()).first()
+        if not latest or latest.id != session.base_version_id:
+            raise HTTPException(409, '文件已被更新，请重新打开')
+        db.add(OfficeSave(id=save_id, session_id=session.id, state='complete', revision=previous.revision,
+            version_id=session.base_version_id, created_at=now(), completed_at=now()))
+        session.active_save_id = save_id
+        db.commit()
+        return
     task = OfficeSave(id=save_id, session_id=session.id, state='pending', revision=revision, created_at=now())
     db.add(task)
     session.state, session.active_save_id = 'saving', task.id
@@ -313,7 +332,7 @@ async def request_save(db, session, save_id, revision=0):
                 latest = db.query(Version).filter_by(file_id=session.file_id).order_by(Version.version_no.desc()).first()
                 if not latest or latest.id != session.base_version_id:
                     raise HTTPException(409, '文件已被更新，请重新打开')
-                session.state, session.saved_version_id = 'saved', session.base_version_id
+                session.state, session.saved_version_id = 'open', session.base_version_id
                 task.state, task.version_id, task.completed_at = 'complete', session.base_version_id, now()
             else:
                 commit_staged(db, session, task, session.staged_upload_id or session.source_upload_id)
@@ -375,6 +394,8 @@ async def callback(db, session_id, payload):
             return
         if not incoming or incoming.session_id != session.id:
             return
+        if incoming.state == 'complete':
+            return  # 已提交检查点的重复或迟到回调，不能污染后续保存的暂存文件。
     if status in (2, 6):
         data = await fetch_result(payload.get('url', ''), file_kind(session.original_name))
     else:
@@ -384,7 +405,13 @@ async def callback(db, session_id, payload):
     if session.state not in ACTIVE:
         db.commit()
         return
+    if incoming:
+        db.refresh(incoming)
+        if incoming.state == 'complete':
+            return  # 下载回传文件期间，其他进程可能已完成同一任务。
     task = db.get(OfficeSave, session.active_save_id) if session.active_save_id else None
+    if task and task is not incoming:
+        db.refresh(task)
     if incoming and task and incoming.revision != task.revision:
         return  # 编辑内容已经发生变化，旧快照不能覆盖本次保存。
     matches = task and task.state in ('pending', 'pending_snapshot') and incoming and incoming.id == task.id and status in (6, 7)

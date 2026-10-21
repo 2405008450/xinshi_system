@@ -14,15 +14,15 @@
       <el-alert v-else-if="session" type="info" :closable="false" title="修改先暂存在文档服务，点击底部保存按钮后才生成资料版本；取消将放弃本次修改。" />
       <el-alert v-if="error" type="error" :closable="false" show-icon :title="error">
         <el-button v-if="!dirty && !saving" link type="primary" @click="open">重新加载</el-button>
-        <el-button v-if="request.file" link type="primary" @click="download">下载已保存版本</el-button>
+        <el-button v-if="file" link type="primary" @click="download">下载已保存版本</el-button>
       </el-alert>
       <div class="office-frame" :inert="saving || expired || undefined"><div :id="hostId" /></div>
     </div>
     <template #footer>
       <span class="office-status">{{ expired ? '会话已失效，请重新打开' : syncing ? '正在同步修改到文档服务…' : dirty ? '有未保存的修改' : session?.mode === 'view' ? '只读查看' : '保存后生成新版本，原文件保留' }}</span>
-      <el-button :disabled="saving" @click="requestClose">{{ session?.mode === 'view' ? '关闭' : '取消' }}</el-button>
+      <el-button :disabled="saving" @click="requestClose">{{ standalone || session?.mode === 'view' ? '关闭' : '取消' }}</el-button>
       <el-button v-if="session?.mode !== 'view'" type="primary" :loading="saving || loading"
-        :disabled="expired || syncing || (!!session && !ready)" @click="session ? save() : open()">{{ !session && creating ? '开始编辑' : creating ? '保存文件' : '保存为新版本' }}</el-button>
+        :disabled="expired || syncing || (!!session && !ready) || (standalone && !!session && !creating && !dirty)" @click="session ? save() : open()">{{ !session && creating ? '开始编辑' : creating ? '保存文件' : '保存为新版本' }}</el-button>
     </template>
   </OfficeEditorSurface>
 </template>
@@ -40,19 +40,21 @@ import { newFolderId } from '@/utils/annotationMaterialFolders'
 import * as api from '@/api/annotationMaterials'
 
 const props = defineProps({ standalone: Boolean, editorRequest: Object })
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'saved'])
 const { state, closeMaterialEditor, notifyMaterialSaved } = useMaterialEditor()
 const request = computed(() => props.editorRequest || state.request)
 function finish(saved, versionId) { if (props.standalone) emit('close', { saved, versionId }); else closeMaterialEditor() }
-const creating = computed(() => Boolean(request.value?.create))
-const kind = computed(() => request.value?.create?.kind || onlineEditKind(request.value?.file?.original_name))
+const savedFile = ref(null)
+const file = computed(() => savedFile.value || request.value?.file)
+const creating = computed(() => !file.value && Boolean(request.value?.create))
+const kind = computed(() => onlineEditKind(file.value?.original_name) || request.value?.create?.kind)
 const officeLabel = computed(() => kind.value === 'xlsx' ? 'Excel' : 'Word')
 const form = reactive({ name: '' }), formRef = ref(null)
 const rules = { name: [{ validator: (_rule, value, done) => {
   const message = documentNameError(value, kind.value, request.value?.create?.siblingNames || [])
   done(message ? new Error(message) : undefined)
 }, trigger: 'blur' }] }
-const fileName = computed(() => request.value?.file?.original_name || (form.name.trim() ? documentFileName(form.name, kind.value) : `未命名.${kind.value}`))
+const fileName = computed(() => file.value?.original_name || (form.name.trim() ? documentFileName(form.name, kind.value) : `未命名.${kind.value}`))
 const session = ref(null), error = ref(''), loading = ref(false), saving = ref(false), ready = ref(false)
 const dirty = ref(false), syncing = ref(false), expired = ref(false)
 const hostId = `material-office-${newFolderId()}`
@@ -89,7 +91,7 @@ async function open() {
     stopEditor(); session.value = null; revision = 0
     const result = await api.openOfficeSession(request.value.projectId, creating.value
       ? { name: fileName.value, folder_id: request.value.create.folderId || null }
-      : { file_id: request.value.file.file_id })
+      : { file_id: file.value.file_id })
     if (destroyed || current !== serial) { void api.discardOfficeSession(result.id).catch(() => {}); return }
     session.value = result
     leaseDeadline = Date.now() + 110000
@@ -118,10 +120,10 @@ function delay() {
 async function save() {
   if (!session.value || !ready.value || syncing.value || expired.value || saving.value) return
   saving.value = true; error.value = ''
-  const projectId = request.value.projectId, id = session.value.id, saveId = newFolderId()
+  const projectId = request.value.projectId, id = session.value.id, saveId = newFolderId(), savingRevision = revision
   try {
     let result
-    try { result = await api.saveOfficeSession(id, saveId, revision) }
+    try { result = await api.saveOfficeSession(id, saveId, savingRevision) }
     catch (failure) {
       // 命令超时不代表保存未发生，先查询持久化任务，再决定是否重试。
       result = await api.officeSessionStatus(id)
@@ -133,9 +135,13 @@ async function save() {
     }
     if (destroyed) return
     if (result.save_state !== 'complete') throw new Error(result.error || '保存尚未完成，请保留窗口后重试')
-    dirty.value = false; notifyMaterialSaved(projectId)
+    dirty.value = revision > savingRevision; notifyMaterialSaved(projectId)
     ElMessage.success(creating.value ? `${officeLabel.value} 文件已保存` : `${officeLabel.value} 文件已保存，历史版本保留`)
-    finish(true, result.version_id)
+    if (props.standalone && result.state === 'open') {
+      savedFile.value = { ...file.value, file_id: result.file_id, id: result.version_id, original_name: fileName.value }
+      session.value = { ...session.value, ...result }
+      emit('saved', { file: savedFile.value })
+    } else finish(true, result.version_id)
   } catch (failure) { error.value = errorText(failure) }
   finally { saving.value = false }
 }
@@ -154,10 +160,14 @@ async function confirmClose() {
 }
 async function beforeClose(done) { if (await confirmClose()) done() }
 async function requestClose() { await confirmClose() }
-async function download() { try { await api.downloadMaterial(request.value.projectId, request.value.file) } catch (failure) { ElMessage.error(errorText(failure)) } }
+async function download() { try { await api.downloadMaterial(request.value.projectId, file.value) } catch (failure) { ElMessage.error(errorText(failure)) } }
 function beforeUnload(event) { if (dirty.value || saving.value) { event.preventDefault(); event.returnValue = '' } }
 onBeforeRouteLeave(() => props.standalone ? confirmClose() : true)
-onBeforeRouteUpdate(() => props.standalone ? confirmClose() : true)
+onBeforeRouteUpdate(to => {
+  // 新文档首次保存后只更新地址中的文件标识，不重建编辑器或释放写锁。
+  if (props.standalone && to.path === '/annotation-office' && to.query.project === request.value.projectId && to.query.file === file.value?.file_id && !to.query.create) return true
+  return props.standalone ? confirmClose() : true
+})
 function pageHide(event) {
   // 关闭标签页时普通异步请求可能被取消，keepalive 尽快释放锁；断网仍由租约兜底。
   if (!event.persisted && session.value && !saving.value) api.releaseOfficeSessionOnExit(session.value.id)

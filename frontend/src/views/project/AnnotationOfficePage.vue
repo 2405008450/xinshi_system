@@ -1,6 +1,6 @@
 <template>
   <div class="annotation-office-route" v-loading="loading" element-loading-text="正在读取项目资料…">
-    <AnnotationOfficeEditor v-if="request" :key="generation" standalone :editor-request="request" @close="finish" />
+    <AnnotationOfficeEditor v-if="request" :key="generation" standalone :editor-request="request" @close="finish" @saved="saved" />
     <el-result v-else-if="error" icon="error" title="无法打开文档" :sub-title="error">
       <template #extra><el-button @click="returnToProject">返回项目</el-button><el-button type="primary" @click="load">重试</el-button></template>
     </el-result>
@@ -57,6 +57,13 @@ async function load() {
   finally { if (current === generation.value) loading.value = false }
 }
 function finish(result) { request.value = null; completed.value = result }
+function saved({ file }) {
+  request.value = { projectId: request.value.projectId, file }
+  document.title = `${file.original_name} - 在线编辑`
+  if (route.query.file !== file.file_id || route.query.create) {
+    void router.replace({ path: '/annotation-office', query: { project: request.value.projectId, file: file.file_id } })
+  }
+}
 function returnToProject() {
   // 用户可保留编辑结果页，也可以回到项目；关闭浏览器标签页同样会释放会话。
   void router.replace({ path: '/annotation-details', query: { projectId: text(route.query.project) } })
@@ -72,7 +79,10 @@ async function continueEditing() {
   } catch (failure) { error.value = failure.detail || failure.message || '读取项目资料失败' }
   finally { loading.value = false }
 }
-watch(() => route.fullPath, load, { immediate: true })
+watch(() => route.fullPath, () => {
+  if (request.value?.file && route.query.project === request.value.projectId && route.query.file === request.value.file.file_id && !route.query.create) return
+  void load()
+}, { immediate: true })
 onBeforeUnmount(() => controller?.abort())
 </script>
 

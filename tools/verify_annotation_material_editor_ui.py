@@ -111,7 +111,7 @@ def run():
                 else:
                     old = latest(session['file_id']) if session['file_id'] else None
                     new = add_row(session['name'], docx_bytes, session['file_id'], session['folder_id'], old['version_no'] + 1 if old else 1)
-                    session.update(state='saved', save_state='complete', error=None, version_id=new['id'])
+                    session.update(state='open', save_state='complete', error=None, version_id=new['id'], file_id=new['file_id'])
                     office_content[0] = request.frame.page.locator('.office-mock-content').input_value()
                     if old: commits.append(dict(file=session['name'], data=docx_bytes))
                     else: creations.append(dict(name=session['name'], folder_id=session['folder_id'], data=docx_bytes))
@@ -236,7 +236,9 @@ window.DocsAPI = { DocEditor: class {
                 child.get_by_role('button', name='开始编辑', exact=True).click()
                 child.locator('.office-mock-content').fill(content)
                 child.get_by_role('button', name='保存文件', exact=True).click()
-                expect(child.get_by_text('文件已保存', exact=True)).to_be_visible()
+                expect(child.get_by_role('button', name='保存为新版本', exact=True)).to_be_disabled()
+                child.get_by_role('button', name='关闭', exact=True).click()
+                expect(child.get_by_text('编辑已结束', exact=True)).to_be_visible()
                 child.close()
 
             def check_maximize(dialog, content):

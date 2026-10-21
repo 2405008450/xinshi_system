@@ -97,7 +97,7 @@ def test_xlsx_uploaded_save_lock_and_mime(xlsx_ctx, monkeypatch):
     task = force(xlsx_ctx, session, monkeypatch, revision=1)
     result(xlsx_ctx, session, task, monkeypatch)
     result(xlsx_ctx, session, task, monkeypatch)
-    assert session.state == 'saved' and db.query(Version).count() == 2
+    assert session.state == 'open' and db.query(Version).count() == 2
     saved = db.get(Version, session.saved_version_id)
     upload = db.get(Upload, saved.upload_id)
     assert upload.original_name.endswith('.XLSX') and upload.content_type == office.FORMATS['xlsx']['mime']
@@ -117,8 +117,8 @@ def test_xlsx_new_readonly_and_cancel(xlsx_ctx, monkeypatch):
     assert db.query(Version).count() == 1
     new = office.create_session(db, project, user, name='新建预算.xlsx')
     force(xlsx_ctx, new, monkeypatch, code=4)
-    assert new.state == 'saved' and new.file_id
-    assert office.create_session(db, project, user, file_id=new.file_id).mode == 'edit'
+    assert new.state == 'open' and new.file_id
+    assert office.create_session(db, project, user, file_id=new.file_id).mode == 'view'
 
 
 def test_xlsx_format_mismatch_and_invalid_parts(ctx, monkeypatch):
@@ -178,7 +178,7 @@ def test_save_callback_idempotent_and_history_retained(ctx, monkeypatch):
     assert session.state == 'saving'
     assert db.query(Version).count() == 1
     result(ctx, session, task_id, monkeypatch)
-    assert session.state == 'saved'
+    assert session.state == 'open'
     assert db.get(OfficeSave, task_id).state == 'complete'
     assert db.query(Version).count() == 2
     result(ctx, session, task_id, monkeypatch)
@@ -221,12 +221,12 @@ def test_no_changes_and_new_word(ctx, monkeypatch):
     db, user, project, *_ = ctx
     old = start(ctx)
     force(ctx, old, monkeypatch, code=4)
-    assert old.state == 'saved' and db.query(Version).count() == 1
+    assert old.state == 'open' and db.query(Version).count() == 1
     new = office.create_session(db, project, user, name='新建文档.docx')
     force(ctx, new, monkeypatch, code=4)
-    assert new.state == 'saved' and new.file_id
+    assert new.state == 'open' and new.file_id
     assert db.query(Version).count() == 2
-    assert office.create_session(db, project, user, file_id=new.file_id).mode == 'edit'
+    assert office.create_session(db, project, user, file_id=new.file_id).mode == 'view'
 
 
 def test_new_word_name_conflict_uses_current_version(ctx, monkeypatch):
@@ -236,7 +236,7 @@ def test_new_word_name_conflict_uses_current_version(ctx, monkeypatch):
     # 已经更名的历史文件名可重新使用；最新文件名仍然拒绝重名。
     new = office.create_session(db, project, user, name='上传的说明.docx')
     force(ctx, new, monkeypatch, code=4)
-    assert new.state == 'saved'
+    assert new.state == 'open'
     duplicate = office.create_session(db, project, user, name='更名说明.docx')
     with pytest.raises(HTTPException) as exc:
         force(ctx, duplicate, monkeypatch, code=4)
@@ -337,7 +337,7 @@ def test_no_changes_response_waits_for_matching_inflight_snapshot(ctx, monkeypat
     assert session.state == 'saving' and db.query(Version).count() == 1
     result(ctx, session, old_id, monkeypatch)
     assert db.get(OfficeSave, new_id).state == 'complete'
-    assert session.state == 'saved' and db.query(Version).count() == 2
+    assert session.state == 'open' and db.query(Version).count() == 2
 
 
 def test_access_revocation_and_foreign_owner(ctx, monkeypatch):
@@ -457,3 +457,84 @@ def test_postgres_parallel_windows_obtain_one_write_lease(ctx):
     with ThreadPoolExecutor(max_workers=2) as pool:
         first, second = pool.submit(open_window), pool.submit(open_window)
         assert sorted([first.result(timeout=15), second.result(timeout=15)]) == ['edit', 'view']
+
+
+@pytest.mark.parametrize('fixture', ['ctx', 'xlsx_ctx'])
+def test_continuous_checkpoints_keep_editor_lock_and_ignore_old_callbacks(request, fixture, monkeypatch):
+    ctx = request.getfixturevalue(fixture)
+    db, user, project, _, material, _, _ = ctx
+    session = start(ctx)
+    session_id, key = session.id, session.document_key
+    first = force(ctx, session, monkeypatch, revision=1)
+    result(ctx, session, first, monkeypatch)
+    version2 = session.saved_version_id
+    assert session.state == 'open' and session.base_version_id == version2
+    assert session.staged_upload_id is None and session.staged_revision is None
+    assert session.source_upload_id == db.get(Version, version2).upload_id
+    assert start(ctx).mode == 'view'
+    with pytest.raises(ValueError, match='在线编辑'):
+        materials.remove_material(db, material)
+    db.rollback()
+    second = force(ctx, session, monkeypatch, revision=2)
+    result(ctx, session, first, monkeypatch)
+    assert session.state == 'saving' and db.query(Version).count() == 2
+    assert session.staged_upload_id is None
+    result(ctx, session, second, monkeypatch)
+    assert session.id == session_id and session.document_key == key and session.state == 'open'
+    assert session.saved_version_id != version2 and session.base_version_id == session.saved_version_id
+    assert db.query(Version).count() == 3 and start(ctx).mode == 'view'
+    result(ctx, session, second, monkeypatch)
+    result(ctx, session, first, monkeypatch)
+    asyncio.run(office.request_save(db, session, first, revision=1))
+    assert db.query(Version).count() == 3 and db.get(OfficeSave, second).state == 'complete'
+    description = office.describe(db, session)
+    assert description['file_id'] == str(material.id) and description['version_id'] == str(session.saved_version_id)
+    # 没有修改再次保存不发 forcesave、不增加版本，也不能倒退已保存的修订计数。
+    async def forbidden_command(_data):
+        raise AssertionError('No changes must not issue another forcesave')
+    monkeypatch.setattr(office, 'command', forbidden_command)
+    for revision in (2, 0, 2):
+        save_id = uuid4()
+        asyncio.run(office.request_save(db, session, save_id, revision=revision))
+        assert db.get(OfficeSave, save_id).state == 'complete' and db.get(OfficeSave, save_id).revision == 2
+    assert db.query(Version).count() == 3
+    session.state = 'discarded'; db.commit()
+    assert start(ctx).mode == 'edit'
+    assert db.query(Version).count() == 3
+
+
+def test_new_word_checkpoint_then_save_existing_file_and_expire(ctx, monkeypatch):
+    db, user, project, *_ = ctx
+    session = office.create_session(db, project, user, name='连续保存.docx')
+    first = force(ctx, session, monkeypatch, code=4)
+    file_id = session.file_id
+    assert file_id and session.state == 'open' and session.base_version_id == session.saved_version_id
+    second = force(ctx, session, monkeypatch, revision=1)
+    result(ctx, session, first, monkeypatch)
+    assert session.state == 'saving'
+    result(ctx, session, second, monkeypatch)
+    assert session.file_id == file_id and db.query(Version).filter_by(file_id=file_id).count() == 2
+    session.lease_until = office.now() - timedelta(seconds=1); db.commit()
+    replacement = office.create_session(db, project, user, file_id=file_id)
+    assert replacement.mode == 'edit' and session.state == 'expired'
+    result(ctx, session, second, monkeypatch)
+    assert db.query(Version).filter_by(file_id=file_id).count() == 2
+    with pytest.raises(HTTPException):
+        force(ctx, session, monkeypatch, revision=2)
+
+
+def test_continuous_save_failure_and_version_conflict_preserve_checkpoint(ctx, monkeypatch):
+    db = ctx[0]
+    session = start(ctx)
+    first = force(ctx, session, monkeypatch, revision=1)
+    result(ctx, session, first, monkeypatch)
+    checkpoint = session.saved_version_id
+    failed = force(ctx, session, monkeypatch, revision=2)
+    result(ctx, session, failed, monkeypatch, status=7)
+    assert session.state == 'open' and session.base_version_id == checkpoint
+    retried = force(ctx, session, monkeypatch, revision=2)
+    # 模拟绕过编辑锁的旧入口，提交时仍须拒绝覆盖。
+    db.add(Version(file_id=session.file_id, upload_id=session.source_upload_id, version_no=3)); db.commit()
+    result(ctx, session, retried, monkeypatch)
+    assert db.get(OfficeSave, retried).state == 'failed' and session.staged_upload_id
+    assert session.base_version_id == checkpoint and db.query(Version).count() == 3
