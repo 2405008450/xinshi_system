@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { decodeText, documentFileName, documentNameError, encodeText, onlineEditBlocker, onlineEditKind } from '../src/utils/materialDocument.js'
+import { decodeText, documentFileName, documentNameError, encodeText, onlineEditBlocker, onlineEditKind, materialOpenAction } from '../src/utils/materialDocument.js'
 import { docxToHtml, imageSize, tiptapJsonToDocx } from '../src/utils/materialDocx.js'
 
 test('只识别 docx、md、txt，超过大小限制时提示本地编辑', () => {
@@ -21,6 +21,16 @@ test('新建文档名自动补扩展名，校验路径字符和同目录重名',
   assert.match(documentNameError('  ', 'text'), /不能为空/)
   assert.match(documentNameError('说明', 'docx', ['说明.DOCX']), /同名/)
   assert.equal(documentNameError('说明', 'docx', ['说明.md']), '')
+})
+
+test('双击文档优先在线打开，阻止条件明确提示，其他文件保留下载', () => {
+  for (const name of ['上传.DOCX', '系统新建.docx', '说明.md', '说明.txt']) {
+    assert.equal(materialOpenAction({ original_name: name }, true).action, 'edit')
+    assert.equal(materialOpenAction({ original_name: name }, true, '请先保存项目').action, 'blocked')
+  }
+  assert.equal(materialOpenAction({ original_name: '扫描.pdf' }, true).action, 'download')
+  assert.equal(materialOpenAction({ original_name: '说明.docx' }, false).action, 'download')
+  assert.match(onlineEditBlocker({ original_name: '旧版.doc' }), /另存为/)
 })
 
 test('文本解码识别 UTF-8 BOM、GBK 回退和 CRLF，保存时还原换行符', () => {

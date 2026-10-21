@@ -32,3 +32,9 @@ export const readMaterialVersion = (projectId, row) => api.get(`${base}/${projec
 })
 export const commitOnlineVersion = (projectId, fileId, data) => api.post(`${base}/${projectId}/materials/${fileId}/online-versions`, data)
 export const createOnlineFile = (projectId, data) => api.post(`${base}/${projectId}/materials/online-files`, data)
+
+export const openOfficeSession = (projectId, data) => api.post(`${base}/${projectId}/office/sessions`, data)
+export const officeSessionStatus = id => api.get(`${base}/office/sessions/${id}`)
+export const heartbeatOfficeSession = id => api.post(`${base}/office/sessions/${id}/heartbeat`)
+export const saveOfficeSession = (id, saveId, revision) => api.post(`${base}/office/sessions/${id}/save`, { save_id: saveId, revision }, { timeout: 25000 })
+export const discardOfficeSession = id => api.post(`${base}/office/sessions/${id}/discard`)

@@ -112,6 +112,7 @@ blob-report/
 # ============================================================
 /docs/*
 !/docs/annotation-materials.md
+!/docs/annotation-office.md
 !/docs/标注项目语种地区.md
 !/docs/标注母子订单.md
 !/docs/人才操作溯源迁移.md

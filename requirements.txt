@@ -13,3 +13,4 @@ python-dotenv>=1.0.0
 openpyxl
 Pillow>=10.0.0
 httpx>=0.27,<1.0
+defusedxml>=0.7.1,<1.0

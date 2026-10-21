@@ -103,6 +103,8 @@ def queue_upload_deletion(db, upload):
 
 
 def remove_material(db, material):
+    from annotation_office_service import assert_file_unlocked
+    assert_file_unlocked(db, material.id)
     rows = db.query(Version, Upload).join(Upload, Upload.id == Version.upload_id).filter(
         Version.file_id == material.id).all()
     uploads = db.query(Upload).filter(Upload.id.in_([upload.id for _, upload in rows])).order_by(Upload.id).with_for_update().all()
@@ -123,8 +125,11 @@ def remove_project_materials(db, project_id):
     db.query(Folder).filter_by(project_id=project_id, parent_id=None).delete(synchronize_session=False)
 
 
-def attach_upload(db, project_id, upload_id, user_id, category, file_id=None, folder_id=None):
+def attach_upload(db, project_id, upload_id, user_id, category, file_id=None, folder_id=None, office_session_id=None):
     """锁定并消费暂存，追加为已有文件的新版本或新建逻辑文件；不提交事务。"""
+    if file_id:
+        from annotation_office_service import assert_file_unlocked
+        assert_file_unlocked(db, file_id, office_session_id)
     upload = db.query(Upload).filter_by(id=upload_id).with_for_update().populate_existing().first()
     if (upload is None or upload.uploaded_by != user_id or upload.consumed_at is not None
             or upload.expires_at <= datetime.utcnow()):

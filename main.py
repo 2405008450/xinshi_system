@@ -258,6 +258,8 @@ app.include_router(translation_projects.router)
 app.include_router(interpretation_projects.router)
 from routers import annotation_materials
 app.include_router(annotation_materials.router)
+from routers import annotation_office
+app.include_router(annotation_office.router)
 app.include_router(annotation_projects.router)
 app.include_router(annotation_comparisons.router)
 app.include_router(annotation_notices.router)
@@ -1912,6 +1914,9 @@ def run_runtime_migrations():
     AnnotationProject.__table__.create(bind=engine, checkfirst=True)
     from annotation_material_models import MATERIAL_TABLES
     for table in MATERIAL_TABLES:
+        table.create(bind=engine, checkfirst=True)
+    from annotation_office_models import OFFICE_TABLES
+    for table in OFFICE_TABLES:
         table.create(bind=engine, checkfirst=True)
     folder_sql = (Path(__file__).parent / 'data/migrations/20261016_annotation_material_folders.sql').read_text(encoding='utf-8')
     with engine.begin() as conn:

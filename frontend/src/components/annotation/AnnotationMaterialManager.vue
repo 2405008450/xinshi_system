@@ -68,7 +68,7 @@ import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import AppForm from '@/components/common/AppForm.vue'
 import AnnotationMaterialExplorer from '@/components/annotation/AnnotationMaterialExplorer.vue'
 import * as api from '@/api/annotationMaterials'
-import { formatDateTimeMinute } from '@/utils/dateTime'
+import { formatBusinessDateTimeMinute } from '@/utils/dateTime'
 import { folderNameError, folderParentId, folderPath, newFolderId, withDefaultProjectFolder } from '@/utils/annotationMaterialFolders'
 import { onlineEditBlocker } from '@/utils/materialDocument'
 import { useMaterialEditor } from '@/composables/useMaterialEditor'
@@ -96,15 +96,17 @@ const history = ref([]), historyVisible = ref(false), historyLoading = ref(false
 
 // 在线编辑即时生成新版本，不依赖项目表单保存；只读浮层中有写权限也可使用。
 const { state: editorState, openMaterialEditor } = useMaterialEditor()
-const canOnlineEdit = computed(() => Boolean(props.projectId) && hasPermission('projects:write'))
+const canOnlineEdit = computed(() => Boolean(props.projectId) && (hasPermission('projects:read') || hasPermission('projects:write')))
 const editBlocked = row => {
   if (props.disabled || loading.value || loadError.value) return '资料加载或项目保存中，请稍候'
   if (hasReplacement(row.file_id)) return '该文件有待保存的新版，请先保存项目或取消上传'
+  if (!/\.docx$/i.test(row.original_name) && !hasPermission('projects:write')) return '没有在线编辑权限，请使用下载功能'
   return onlineEditBlocker(row)
 }
 const currentFolder = computed(() => allFolders.value.find(folder => folder.id === selectedFolderId.value))
 const currentFolderName = computed(() => folderPath(allFolders.value, selectedFolderId.value))
 const createBlocked = computed(() => {
+  if (!hasPermission('projects:write')) return '没有新建文档权限'
   if (props.disabled || loading.value || loadError.value) return '资料加载或项目保存中，请稍候'
   return currentFolder.value?.pending || currentFolder.value?.default ? '当前文件夹尚未保存，请先保存项目后再新建文档' : ''
 })
@@ -126,7 +128,7 @@ function openDocumentCreator(kind) {
 let generation = 0, requestId = 0, nextKey = 0
 const sizeText = size => size >= 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(size / 1024)} KB`
 // 后端资料时间使用 UTC，显式标记时区后交给公共格式化函数。
-const timeText = value => formatDateTimeMinute(value && !/(Z|[+-]\d{2}:\d{2})$/.test(value) ? `${value}Z` : value)
+const timeText = value => formatBusinessDateTimeMinute(value && !/(Z|[+-]\d{2}:\d{2})$/.test(value) ? `${value}Z` : value)
 const inCurrentFolder = row => row.category !== 'project' || (row.folder_id || null) === selectedFolderId.value
 const categoryRows = category => rows.value.filter(row => row.category === category && inCurrentFolder(row) && !removed.value.includes(row.file_id))
 const categoryPending = category => pending.value.filter(item => item.category === category && inCurrentFolder(item))

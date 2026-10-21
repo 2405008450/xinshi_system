@@ -3,6 +3,7 @@ import json
 import os
 import re
 import socket
+import sys
 import subprocess
 import time
 from datetime import datetime, timedelta
@@ -20,12 +21,14 @@ NOW = '2026-09-29T08:00:00'
 
 
 def run():
-    if socket.gethostname().upper() != 'PC' or 'xinshi_validation' not in str(ROOT):
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
+    if socket.gethostname().upper() != 'PC' or (ROOT != Path('E:/xinshi_system') and 'xinshi_validation' not in str(ROOT)):
         raise SystemExit('仅允许在本机隔离验证目录执行')
     out = ROOT / '.tmp' / 'material-ui'
     out.mkdir(parents=True, exist_ok=True)
     log = (out / 'preview.log').open('w', encoding='utf-8')
-    process = subprocess.Popen(['node', 'node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', '12419', '--strictPort'],
+    process = subprocess.Popen(['node', 'node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', '12419', '--strictPort', '--outDir', '../.tmp/office-build'],
                                cwd=ROOT / 'frontend', stdout=log, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW)
     project = dict(id=PID, order_no='AP-QA-MATERIAL', project_name='资料验收项目', project_types=['text_annotation'],
                    task_description='资料管理隔离验收', client_short_name='测试客户', client_manager_id=UID,
@@ -36,6 +39,7 @@ def run():
     file_id = str(uuid4())
     rows = [dict(id=str(uuid4()), file_id=file_id, category='project', version_no=1, original_name='历史资料.txt', file_size=5, uploader_name='验收用户', created_at=NOW)]
     uploads, saves, cancels, errors, folders = {}, [], [], [], []
+    folders.append(dict(id=str(uuid4()), parent_id=None, name='1. 项目详情', created_at=NOW))
     fail_next = [False]
     fail_save_next, hold_upload = [False], [False]
     delayed_uploads = []
@@ -212,7 +216,7 @@ def run():
             dialog = page.locator('.annotation-editor-dialog:visible')
             manager = dialog.locator('.material-manager')
             manager.scroll_into_view_if_needed()
-            expect(manager.get_by_role('button', name='新建二级文件夹', exact=True)).to_be_disabled()
+            expect(manager.get_by_role('button', name='新建二级文件夹', exact=True)).to_be_enabled()
 
             def create_folder(level, name):
                 manager.get_by_role('button', name=f'新建{level}级文件夹', exact=True).click()
@@ -228,7 +232,7 @@ def run():
             expect(manager.get_by_text('已暂存，等待保存项目')).to_be_visible()
             dialog.get_by_role('button', name='取消', exact=True).click()
             expect(dialog).not_to_be_visible()
-            assert folders == [] and len(saves) == 1
+            assert len(folders) == 1 and len(saves) == 1
 
             dialog = edit()
             manager = dialog.locator('.material-manager')
@@ -294,10 +298,10 @@ def run():
             dialog.get_by_role('button', name='保存', exact=True).click()
             expect(dialog.get_by_text('模拟项目版本冲突，请重试', exact=True)).to_be_visible()
             expect(dialog).to_be_visible()
-            assert folders == [] and len(saves) == 1
+            assert len(folders) == 1 and len(saves) == 1
             dialog.get_by_role('button', name='保存', exact=True).click()
             expect(dialog).not_to_be_visible(timeout=10000)
-            assert len(folders) == 4 and len(saves) == 2
+            assert len(folders) == 5 and len(saves) == 2
             created = saves[-1]['material_changes']['created_folders']
             root_id = next(folder['id'] for folder in created if folder['name'] == '标注规范')
             child_id = next(folder['id'] for folder in created if folder['parent_id'] == root_id)
@@ -362,7 +366,7 @@ def run():
             page.screenshot(path=str(out / 'folders-readonly.png'))
             # 资源管理器习惯：列表显示子目录，单击选中、双击进入及文件下载。
             popover.locator('.explorer-breadcrumb').get_by_role('button', name='项目资料', exact=True).click()
-            expect(popover.locator('.explorer-table tbody tr[data-entry-kind=folder]')).to_have_count(2)
+            expect(popover.locator('.explorer-table tbody tr[data-entry-kind=folder]')).to_have_count(3)
             folder_row = popover.locator('.explorer-table tbody tr[data-entry-kind=folder]').filter(has_text='标注规范')
             folder_row.click()
             expect(popover.locator('.explorer-breadcrumb')).not_to_contain_text('标注规范')
@@ -373,7 +377,7 @@ def run():
             file_row.click()
             expect(popover.locator('.explorer-selection-actions').get_by_role('button', name='下载', exact=True)).to_be_enabled()
             with page.expect_download() as download:
-                file_row.dblclick()
+                popover.locator('.explorer-selection-actions').get_by_role('button', name='下载', exact=True).click()
             assert download.value.suggested_filename == '目录新版.txt'
             popover.get_by_role('button', name='返回上一级', exact=True).click()
             expect(popover.locator('.explorer-breadcrumb')).not_to_contain_text('中文规范')
@@ -420,7 +424,7 @@ def run():
             dialog.get_by_role('button', name='取消', exact=True).click()
             assert len(saves) == 3
             assert not errors, errors
-            report = {'status': 'passed', 'checks': ['取消上传不保存', '失败阻止保存及重试', '新版随保存生效', '历史下载', '拖动及视口边界', '重开复位', '小屏固定底部', '只读资料浮层', '新增态上传', '新增态两级目录及取消', '目录表单校验与焦点', '目录弹窗拖拽边界及复位', '一级及二级默认父目录', '上传中切换目录归属稳定', '同父重名及异父同名', '保存失败保留目录及重试', '目录持久化及新版归属', '目录历史下载', '目录小屏上下布局及固定底部', '只读浮层分级浏览', '单击选中及双击进入目录', '选中文件工具栏及双击下载', '上一级后退前进及路径导航', '键盘打开及Alt快捷导航', '拖放上传及文件类型识别', '取消拖放上传', '右键菜单移除及撤销'], 'page_errors': errors}
+            report = {'status': 'passed', 'checks': ['取消上传不保存', '失败阻止保存及重试', '新版随保存生效', '历史下载', '拖动及视口边界', '重开复位', '小屏固定底部', '只读资料浮层', '新增态上传', '新增态两级目录及取消', '目录表单校验与焦点', '目录弹窗拖拽边界及复位', '一级及二级默认父目录', '上传中切换目录归属稳定', '同父重名及异父同名', '保存失败保留目录及重试', '目录持久化及新版归属', '目录历史下载', '目录小屏上下布局及固定底部', '只读浮层分级浏览', '单击选中及双击进入目录', '选中文件工具栏下载', '上一级后退前进及路径导航', '键盘打开及Alt快捷导航', '拖放上传及文件类型识别', '取消拖放上传', '右键菜单移除及撤销'], 'page_errors': errors}
             (out / 'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
             print(json.dumps(report, ensure_ascii=False))
             browser.close()

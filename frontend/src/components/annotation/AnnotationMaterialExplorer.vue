@@ -100,7 +100,7 @@
         </div>
       </div>
     </div>
-    <div class="explorer-statusbar"><span>{{ childFolders.length }} 个文件夹 · {{ files.length + pending.filter(upload => !upload.fileId).length }} 个文件</span><span v-if="selectedFile">已选中：{{ selectedFile.original_name }} · V{{ selectedFile.version_no }} · {{ selectedFile.uploader_name }}</span><span v-else-if="selectedEntry">已选中：{{ selectedEntry.name }}</span><span v-else>{{ readonly ? '双击文件夹打开，双击文件下载' : '双击打开 · 支持拖放文件上传' }}</span></div>
+    <div class="explorer-statusbar"><span>{{ childFolders.length }} 个文件夹 · {{ files.length + pending.filter(upload => !upload.fileId).length }} 个文件</span><span v-if="selectedFile">已选中：{{ selectedFile.original_name }} · V{{ selectedFile.version_no }} · {{ selectedFile.uploader_name }}</span><span v-else-if="selectedEntry">已选中：{{ selectedEntry.name }}</span><span v-else>{{ onlineEdit ? '双击文档在线打开，其他文件下载' : '双击文件夹打开，双击文件下载' }}</span></div>
   </div>
 </template>
 
@@ -109,6 +109,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, ArrowRight, Top, Folder, FolderAdd, FolderOpened, Upload, Download, Document, DocumentAdd, EditPen, Picture, Headset, Film, MoreFilled } from '@element-plus/icons-vue'
 import { buildFolderTree, folderBreadcrumbs, materialFileType } from '@/utils/annotationMaterialFolders'
+import { materialOpenAction } from '@/utils/materialDocument'
 
 const props = defineProps({ folders: { type: Array, default: () => [] }, folderId: { type: String, default: null }, files: { type: Array, default: () => [] }, pending: { type: Array, default: () => [] }, readonly: Boolean, disabled: Boolean, onlineEdit: Boolean, editBlocked: { type: Function, default: () => '' }, createBlocked: { type: String, default: '' }, formatSize: { type: Function, required: true }, formatTime: { type: Function, required: true } })
 const emit = defineEmits(['update:folderId', 'create', 'create-document', 'edit', 'upload', 'replace', 'download', 'history', 'remove', 'retry', 'discard'])
@@ -140,7 +141,11 @@ function contextEntry(entry) {
 function openEntry(entry) {
   selectEntry(entry)
   if (entry.kind === 'folder') navigate(entry.folder.id)
-  else if (entry.kind === 'file') emit('download', entry.file)
+  else if (entry.kind === 'file') {
+    const result = materialOpenAction(entry.file, props.onlineEdit, props.editBlocked(entry.file))
+    if (result.action === 'blocked') ElMessage.warning(result.reason)
+    else emit(result.action, entry.file)
+  } else ElMessage.info('文件尚未保存，请先保存项目后再打开')
 }
 function goUp() { navigate(props.folders.find(folder => folder.id === props.folderId)?.parent_id || null) }
 function travel(step) {
