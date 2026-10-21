@@ -1,4 +1,5 @@
 """统一会话目录、用户搜索和用户级偏好。"""
+from search_matching import keyword_ilike, keyword_or
 from uuid import UUID
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -74,11 +75,11 @@ def users(keyword: str = '', limit: int = Query(50, ge=1, le=100), scope: str = 
     query = db.query(AppUser).filter(AppUser.is_active.is_(True), AppUser.id != user.id)
     if keyword.strip():
         text = '%' + keyword.strip().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
-        query = query.filter(or_(
-            AppUser.full_name.ilike(text, escape='\\'),
-            AppUser.username.ilike(text, escape='\\'),
-            AppUser.department.ilike(text, escape='\\'),
-        ))
+        query = query.filter(keyword_or(lambda _search_part: or_(
+            keyword_ilike(AppUser.full_name, _search_part, escape='\\'),
+            keyword_ilike(AppUser.username, _search_part, escape='\\'),
+            keyword_ilike(AppUser.department, _search_part, escape='\\'),
+        ), text))
     if scope == 'directory':
         department_key = func.nullif(func.btrim(AppUser.department), '')
         query = query.order_by(department_key.asc().nullslast(), AppUser.full_name.asc().nullslast(), AppUser.username.asc(), AppUser.id.asc())
@@ -150,6 +151,8 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
             rows.append(dict(key=f'annotation:{p.id}', kind='annotation', project_id=p.id, title=p.project_name or '未命名项目',
                 subtitle=p.order_no, project_status=p.project_status, following=bool(m and m.following), pinned=bool(ready and m and m.pinned), starred=bool(ready and m and m.starred), is_creator=user.id in (p.created_by, p.client_manager_id), **stats[p.id]))
     if not ready:
+        import discussion_chat_service
+        rows.extend(discussion_chat_service.catalog(db, user))
         session_categories.decorate_sessions(db, rows)
         return {'phase_one_enabled': False, 'items': rows, 'total': sum(r['unread'] for r in rows), 'mention_history_total': history_total,
             'session_categories': session_categories.catalog(db, user),
@@ -177,6 +180,8 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
         target = targets[p.user_high_id if p.user_low_id == user.id else p.user_low_id]
         rows.append(dict(key=f'direct:{p.id}', kind='direct', project_id=p.id, title=target.full_name or target.username,
             subtitle=((target.department or '').strip() + ('' if target.is_active else '（账号已停用）')), department=_department(target.department), pinned=m.pinned, starred=m.starred, is_creator=False, **stats[p.id]))
+    import discussion_chat_service
+    rows.extend(discussion_chat_service.catalog(db, user))
     session_categories.decorate_sessions(db, rows)
     return {'phase_one_enabled': True, 'items': rows, 'session_categories': session_categories.catalog(db, user), 'total': sum(r['unread'] for r in rows), 'mention_history_total': history_total, 'mention_total': sum(r['mention_unread'] for r in rows), 'annotation_mention_counts': annotation_counts}
 

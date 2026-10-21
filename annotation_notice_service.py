@@ -1,6 +1,7 @@
 """标注须知树形栏目、正文与全文检索。"""
 
 from __future__ import annotations
+from search_matching import keyword_ilike, keyword_or, matches_keywords
 
 from collections import defaultdict
 from datetime import datetime
@@ -343,10 +344,10 @@ def search_annotation_notice_sections(
     query = db.query(AnnotationNoticeSection).filter(AnnotationNoticeSection.is_active.is_(True))
     if normalized:
         pattern = f"%{_escape_like_keyword(normalized)}%"
-        query = query.filter(or_(
-            AnnotationNoticeSection.title.ilike(pattern, escape="\\"),
-            AnnotationNoticeSection.search_text.ilike(pattern, escape="\\"),
-        ))
+        query = query.filter(keyword_or(lambda _search_part: or_(
+            keyword_ilike(AnnotationNoticeSection.title, _search_part, escape="\\"),
+            keyword_ilike(AnnotationNoticeSection.search_text, _search_part, escape="\\"),
+        ), pattern))
     rows = query.all()
     all_rows = _active_rows(db)
     labels = _display_titles(all_rows)
@@ -356,9 +357,9 @@ def search_annotation_notice_sections(
     order_index = {row.id: index for index, row in enumerate(_ordered_rows(all_rows))}
     for row in rows:
         display = labels[row.id]
-        matched_title = needle in display.casefold() or needle in row.title.casefold()
-        matched_content = row.has_content and needle in (row.search_text or "").casefold()
-        if not matched_title and not matched_content:
+        matched_title = matches_keywords(display.casefold(), needle) or matches_keywords(row.title.casefold(), needle)
+        matched_content = row.has_content and matches_keywords((row.search_text or "").casefold(), needle)
+        if not matches_keywords(" ".join([display, row.title, row.search_text or "" if row.has_content else ""]), needle):
             continue
         parent = by_id.get(row.parent_id)
         matches.append((not matched_title, order_index[row.id], {

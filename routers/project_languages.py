@@ -1,4 +1,5 @@
 """跨项目类型共享语种目录。"""
+from search_matching import matches_keywords, search_terms
 
 from difflib import SequenceMatcher
 from typing import List, Literal, Optional
@@ -66,7 +67,7 @@ def read_languages(
         InterpretationLanguage.is_custom.asc(), InterpretationLanguage.label.asc()
     ).all()
     variants = {item["label"]: item for item in get_searchable_language_variants()}
-    normalized_query = normalize_language_search_text(keyword)
+    normalized_query = ' '.join(filter(None, (normalize_language_search_text(term) for term in search_terms(keyword))))
     ranked = []
     for language in languages:
         fallback = variants.get(language.label, {})
@@ -86,6 +87,8 @@ def read_languages(
         ]
         score, matched_alias, match_type = 0.0, None, None
         if normalized_query:
+            if len(search_terms(normalized_query)) > 1 and not matches_keywords(' '.join(normalize_language_search_text(value) for value, _ in candidates), normalized_query):
+                continue
             for candidate, candidate_type in candidates:
                 normalized_candidate = normalize_language_search_text(candidate)
                 if not normalized_candidate:
@@ -94,16 +97,20 @@ def read_languages(
                     candidate_score = 100
                 elif normalized_candidate.startswith(normalized_query):
                     candidate_score = 80
-                elif normalized_query in normalized_candidate:
+                elif matches_keywords(normalized_candidate, normalized_query):
                     candidate_score = 60
-                elif len(normalized_query) >= 3:
+                elif len(search_terms(normalized_query)) == 1 and len(normalized_query) >= 3:
                     candidate_score = SequenceMatcher(None, normalized_query, normalized_candidate).ratio() * 50
                 else:
                     candidate_score = 0
                 if candidate_score > score:
                     score, matched_alias, match_type = candidate_score, candidate, candidate_type
+            # 多词可分别命中规范名称、代码和别名，不能只保留同一字段命中的结果。
             if score < 25:
-                continue
+                if len(search_terms(normalized_query)) > 1:
+                    score, match_type = 50, 'keywords'
+                else:
+                    continue
         ranked.append((score, language.is_custom, language.label, {
             **InterpretationLanguageResponse.model_validate(language).model_dump(),
             "code": language.code or fallback.get("code"),

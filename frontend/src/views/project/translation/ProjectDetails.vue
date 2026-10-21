@@ -1025,6 +1025,8 @@
 </template>
 
 <script setup>
+import { matchesSearchFields } from '@/utils/searchMatching'
+
 import { translationProjectDetailItems, formatAssignedTranslators, formatTranslatorReturnTimes, formatTranslatorCompletionRemarks } from '@/utils/translationProjectDetail'
 import ProjectExportMenu from '@/components/common/ProjectExportMenu.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
@@ -1893,8 +1895,7 @@ const fetchSubClientSuggestions = (queryString, callback) => {
   const keyword = String(queryString || '').trim().toLowerCase()
   callback(availableSubClients.value.filter((item) => {
     if (!keyword) return true
-    return [item.client_short_name, item.client_name, item.sub_client_code]
-      .some((value) => String(value || '').toLowerCase().includes(keyword))
+    return matchesSearchFields([item.client_short_name, item.client_name, item.sub_client_code], keyword)
   }))
 }
 const loadSubClients = async (clientId) => {

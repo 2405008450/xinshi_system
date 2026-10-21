@@ -153,6 +153,8 @@
 </template>
 
 <script setup>
+import { matchesSearchFields } from '@/utils/searchMatching'
+
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
 const props = defineProps({
@@ -226,9 +228,7 @@ const filteredUsers = computed(() => {
     if (mailGroupUserIds && !mailGroupUserIds.has(user.id)) return false
     if (activeDepartment.value && departmentLabel(user) !== activeDepartment.value) return false
     if (!keyword) return true
-    return [user.full_name, user.username, user.email, user.department]
-      .filter(Boolean)
-      .some((value) => String(value).toLocaleLowerCase('zh-CN').includes(keyword))
+    return matchesSearchFields([user.full_name, user.username, user.email, user.department], keyword)
   })
 })
 const allFilteredSelected = computed(() => filteredUsers.value.length > 0

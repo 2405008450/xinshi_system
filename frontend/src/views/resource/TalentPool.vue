@@ -292,6 +292,8 @@
 </template>
 
 <script setup>
+import { matchesSearch, searchTerms } from '@/utils/searchMatching'
+
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElDescriptions, ElDescriptionsItem, ElMessage, ElMessageBox } from 'element-plus'
@@ -599,7 +601,7 @@ const queuedAttachments=reactive({photo:[],audio:[]})
 const recordKey=()=>`${Date.now()}-${Math.random().toString(36).slice(2)}`
 const languageDisplay=item=>[item.nameZh||item.label,item.nameEn,item.code].filter(Boolean).join(' / ')
 const normalizeLanguageSearch=value=>String(value||'').toLocaleLowerCase().replace(/[\s_./()（）·-]+/g,'')
-const filteredLanguages=computed(()=>{const keyword=normalizeLanguageSearch(languageKeyword.value);if(!keyword)return languages.value;if(languageSearchResults.value.length)return languageSearchResults.value;return languages.value.filter(item=>normalizeLanguageSearch([item.label,item.nameZh,item.nameEn,item.code,...(item.aliases||[]),...(item.shortcuts||[])].join('|')).includes(keyword))})
+const filteredLanguages=computed(()=>{const keyword=searchTerms(languageKeyword.value).map(normalizeLanguageSearch).join(' ');if(!keyword)return languages.value;if(languageSearchResults.value.length)return languageSearchResults.value;return languages.value.filter(item=>matchesSearch(normalizeLanguageSearch([item.label,item.nameZh,item.nameEn,item.code,...(item.aliases||[]),...(item.shortcuts||[])].join('|')),keyword))})
 let languageSearchTimer=null
 const filterTalentLanguages=value=>{languageKeyword.value=value||'';languageSearchResults.value=[];clearTimeout(languageSearchTimer);if(String(value||'').trim().length<2)return;languageSearchTimer=setTimeout(async()=>{try{languageSearchResults.value=await searchProjectLanguages(value,50)}catch{languageSearchResults.value=[]}},250)}
 const calculatedAge=computed(()=>{const match=String(form.birthYearMonth||'').match(/^(\d{4})-(\d{2})$/);if(!match)return '';const now=new Date();return now.getFullYear()-Number(match[1])-(now.getMonth()+1<Number(match[2])?1:0)})

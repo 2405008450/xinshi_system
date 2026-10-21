@@ -1,19 +1,35 @@
 """团队归类共享，授权和目录范围始终由原会话决定。"""
 from fastapi import HTTPException
+import json
+from pathlib import Path
+from uuid import UUID
 from sqlalchemy import inspect, or_
 from sqlalchemy.exc import IntegrityError
 from business_time import business_iso
 from models import AppUser, TranslationProject
 from permission_service import user_has_permission
 from notification_ws import broadcast_to_users
-from chat_session_category_models import ChatSessionCategory as Category, ChatSessionCategoryLink as Link
+from chat_session_category_models import ChatSessionCategory as Category, ChatSessionCategoryLink as Link, ChatSessionCategoryFolder as Folder
+
+BUILTIN_FOLDERS = json.loads((Path(__file__).parent / 'data/chat_session_folders.json').read_text(encoding='utf-8'))
+BUILTIN_INDEX = {row['id']: row for row in BUILTIN_FOLDERS}
+
+
+def folder_schema_ready(db):
+    return inspect(db.connection()).has_table(Folder.__tablename__)
+
+
+def can_manage_folders(db, user):
+    # 使用真实账号名，不能用可修改的显示名授予 Jimmy 的专属权限。
+    return bool(user.is_active and ((user.username or '').casefold() == 'jimmy'
+                or user_has_permission(db, user.id, '*')))
 
 SYSTEM_NAMES = frozenset(('消息', '置顶', '未读', '@我', '单聊', '特别关注', '项目群', '标注项目群', '笔译项目群', '我创建的'))
 TARGETS = {'translation': Link.project_id, 'annotation': Link.annotation_project_id, 'direct': Link.direct_conversation_id}
 
 
 def schema_ready(db):
-    inspector = inspect(db.get_bind())
+    inspector = inspect(db.connection())
     return all(inspector.has_table(name) for name in ('chat_session_category', 'chat_session_category_link'))
 
 
@@ -29,16 +45,46 @@ def serialize(row):
 
 def catalog(db, user):
     ready = schema_ready(db)
-    return dict(ready=ready, can_manage=ready and user_has_permission(db, user.id, 'chat_topics:manage'),
-                items=[serialize(row) for row in db.query(Category).order_by(Category.created_at, Category.id)] if ready else [])
+    hierarchy_ready = ready and folder_schema_ready(db)
+    parents = {str(row.category_id): row.parent_key for row in db.query(Folder)} if hierarchy_ready else {}
+    return dict(ready=ready, hierarchy_ready=hierarchy_ready, can_manage=ready and can_manage_folders(db, user),
+                items=[dict(serialize(row), parent_key=parents.get(str(row.id)))
+                       for row in db.query(Category).order_by(Category.created_at, Category.id)] if ready else [])
 
 
-def validate_name(db, name, except_id=None):
+def validate_parent(db, parent_key):
+    if not parent_key:
+        return None
+    if not folder_schema_ready(db):
+        raise HTTPException(503, '二级目录尚未完成数据库迁移')
+    key = str(parent_key)
+    builtin = BUILTIN_INDEX.get(key)
+    if builtin:
+        if builtin['parentKey']:
+            raise HTTPException(422, '最多只能建立两级目录')
+        return key
+    parent = db.query(Category).filter_by(id=parent_key).with_for_update().first()
+    if not parent or not parent.active:
+        raise HTTPException(422, '一级目录不存在或已停用')
+    location = db.get(Folder, parent.id)
+    if location and location.parent_key:
+        raise HTTPException(422, '最多只能建立两级目录')
+    return key
+
+
+def validate_name(db, name, except_id=None, parent_key=None):
     normalized = name.strip()
     if not normalized or len(normalized) > 80:
         raise HTTPException(422, '分类名称须为1至80个字符')
     if normalized in SYSTEM_NAMES:
         raise HTTPException(409, '不能与系统会话筛选同名')
+    # 保留旧库的全局唯一索引，避免上线前后名称冲突规则不一致。
+    if any(row['name'].casefold() == normalized.casefold() for row in BUILTIN_FOLDERS):
+        raise HTTPException(409, '不能与内置目录同名')
+    if parent_key == 'dcb1f917-6000-4000-8000-000000000002':
+        from annotation_schemas import ANNOTATION_PROJECT_STATUS_LABELS
+        if normalized in ANNOTATION_PROJECT_STATUS_LABELS.values():
+            raise HTTPException(409, '不能与内置状态目录同名')
     if any(row.id != except_id and row.name.casefold() == normalized.casefold() for row in db.query(Category)):
         raise HTTPException(409, '已有同名团队分类（包含已停用分类）')
     return normalized
@@ -46,8 +92,8 @@ def validate_name(db, name, except_id=None):
 
 def require_manager(db, user):
     require_ready(db)
-    if not user_has_permission(db, user.id, 'chat_topics:manage'):
-        raise HTTPException(403, '没有团队分类维护权限')
+    if not can_manage_folders(db, user):
+        raise HTTPException(403, '仅超级管理员和 Jimmy 可以新增或维护会话目录')
 
 
 def changed(db):
@@ -73,10 +119,16 @@ def require_category(db, category_id):
 
 def set_membership(db, user, kind, conversation_id, category_id, adding):
     require_ready(db)
+    require_conversation(db, user, kind, conversation_id)
     category = require_category(db, category_id)
     if adding and not category.active:
         raise HTTPException(409, '团队分类已停用，请重新选择')
-    require_conversation(db, user, kind, conversation_id)
+    if adding and folder_schema_ready(db):
+        location = db.get(Folder, category.id)
+        if location and location.parent_key and location.parent_key not in BUILTIN_INDEX:
+            parent = db.get(Category, UUID(location.parent_key))
+            if not parent or not parent.active:
+                raise HTTPException(409, '一级目录已停用')
     column = TARGETS[kind]
     link = db.query(Link).filter(Link.category_id == category_id, column == conversation_id).first()
     if adding and not link:

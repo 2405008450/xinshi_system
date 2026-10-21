@@ -275,6 +275,8 @@ from routers import chat_topics
 app.include_router(chat_topics.router)
 from routers import chat_session_categories
 app.include_router(chat_session_categories.router)
+from routers import discussion_chat
+app.include_router(discussion_chat.router)
 from routers import teams
 app.include_router(teams.router)
 from routers import referral_development

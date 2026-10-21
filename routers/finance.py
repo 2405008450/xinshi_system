@@ -1,3 +1,4 @@
+from search_matching import keyword_ilike
 from typing import List, Optional
 from uuid import UUID
 import uuid as uuid_lib
@@ -100,9 +101,9 @@ def list_finance_records(
     if invoice_status:
         query = query.filter(FinanceRecord.invoice_status == invoice_status)
     if project_name:
-        query = query.filter(TranslationProject.project_name.ilike(f"%{project_name}%"))
+        query = query.filter(keyword_ilike(TranslationProject.project_name, f"%{project_name}%"))
     if order_no:
-        query = query.filter(TranslationProject.order_no.ilike(f"%{order_no}%"))
+        query = query.filter(keyword_ilike(TranslationProject.order_no, f"%{order_no}%"))
 
     rows = query.order_by(FinanceRecord.updated_at.desc()).offset(skip).limit(limit).all()
     return [_build_display_item(row, db) for row in rows]
@@ -122,9 +123,9 @@ def count_finance_records(
     if invoice_status:
         query = query.filter(FinanceRecord.invoice_status == invoice_status)
     if project_name:
-        query = query.filter(TranslationProject.project_name.ilike(f"%{project_name}%"))
+        query = query.filter(keyword_ilike(TranslationProject.project_name, f"%{project_name}%"))
     if order_no:
-        query = query.filter(TranslationProject.order_no.ilike(f"%{order_no}%"))
+        query = query.filter(keyword_ilike(TranslationProject.order_no, f"%{order_no}%"))
     return {"total": query.count()}
 
 

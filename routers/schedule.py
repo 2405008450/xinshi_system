@@ -2,6 +2,7 @@
 排班管理 API 路由
 支持按日期 CRUD 操作，项目经理每日微调排班数据
 """
+from search_matching import keyword_ilike, keyword_or
 from datetime import date, datetime, time, timedelta
 from io import BytesIO
 import json
@@ -779,7 +780,7 @@ def get_employee_shifts(
             current_user_only = True
     if keyword and keyword.strip():
         pattern = f"%{keyword.strip()}%"
-        query = query.filter(or_(AppUser.full_name.ilike(pattern), AppUser.username.ilike(pattern)))
+        query = query.filter(keyword_or(lambda _search_part: or_(keyword_ilike(AppUser.full_name, _search_part), keyword_ilike(AppUser.username, _search_part)), pattern))
     users = query.order_by(AppUser.department.asc().nullsfirst(), AppUser.full_name.asc(), AppUser.username.asc()).all()
     return {
         "date_from": date_from.isoformat(),
@@ -1131,7 +1132,7 @@ def get_translator_availability_grid(
     if direction:
         query = query.filter(or_(Translator.direction == direction, Translator.direction == "both", Translator.direction.is_(None)))
     if keyword and keyword.strip():
-        query = query.filter(Translator.translator_name.ilike(f"%{keyword.strip()}%"))
+        query = query.filter(keyword_ilike(Translator.translator_name, f"%{keyword.strip()}%"))
     translators = query.order_by(Translator.default_priority.asc().nullslast(), Translator.translator_name.asc()).all()
     translator_ids = [item.id for item in translators]
     schedule_rows = db.query(TranslatorSchedule).filter(

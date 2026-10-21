@@ -2,6 +2,7 @@
   <ElementForm
     ref="innerFormRef"
     v-bind="$attrs"
+    @submit.prevent
     :scroll-to-error="false"
     :scroll-into-view-options="scrollOptions"
   >

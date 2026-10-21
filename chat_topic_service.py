@@ -1,4 +1,5 @@
 """分类和检索均使用原会话权限，不根据主题扩展数据可见范围。"""
+from search_matching import keyword_ilike
 from time import monotonic
 from weakref import WeakKeyDictionary
 from fastapi import HTTPException
@@ -18,7 +19,7 @@ def schema_ready(db):
     cached = _ready.get(bind)
     if cached and monotonic() - cached[0] < 5:
         return cached[1]
-    inspector = inspect(bind)
+    inspector = inspect(db.connection())
     result = all(inspector.has_table(name) for name in ('chat_topic', 'chat_message_topic', 'chat_topic_audit'))
     _ready[bind] = monotonic(), result
     return result
@@ -164,7 +165,7 @@ def search(db, user, topic_id, scope, conversation_type, conversation_id, keywor
         query = query.filter(column == conversation_id)
     if keyword.strip():
         escaped = keyword.strip().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
-        query = query.filter(ChatProjectMessage.content.ilike(f'%{escaped}%', escape='\\'))
+        query = query.filter(keyword_ilike(ChatProjectMessage.content, f'%{escaped}%', escape='\\'))
     total = query.count()
     if before:
         query = query.filter(ChatProjectMessage.sequence_no < before)

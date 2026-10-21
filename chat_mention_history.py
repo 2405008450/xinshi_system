@@ -1,4 +1,5 @@
 """当前用户的历史提及收件箱；阅读位置只影响未读标记，不影响列表。"""
+from search_matching import keyword_ilike, keyword_or
 from sqlalchemy import and_, case, false, func, literal, or_
 
 import annotation_chat_service as annotation
@@ -50,8 +51,8 @@ def mention_query(db, user, keyword='', *, project_type=None, project_status=Non
         query = query.filter(AnnotationProject.project_status == project_status)
     if keyword.strip():
         pattern = '%' + keyword.strip().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
-        query = query.filter(or_(*(column.ilike(pattern, escape='\\') for column in
-                                  (title, subtitle, message.sender_name, message.content))))
+        query = query.filter(keyword_or(lambda _search_part: or_(*(keyword_ilike(column, _search_part, escape='\\') for column in
+                                  (title, subtitle, message.sender_name, message.content))), pattern))
     return query
 
 

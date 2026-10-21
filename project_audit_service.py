@@ -1,6 +1,7 @@
 """项目操作审计写入与只读查询。"""
 
 from __future__ import annotations
+from search_matching import keyword_ilike, keyword_or
 
 from datetime import datetime
 from typing import Optional
@@ -80,21 +81,21 @@ def list_project_operation_audits(
     query = db.query(ProjectOperationAudit)
     if keyword and keyword.strip():
         pattern = f"%{keyword.strip()}%"
-        query = query.filter(or_(
-            ProjectOperationAudit.order_no.ilike(pattern),
-            ProjectOperationAudit.previous_order_no.ilike(pattern),
-            ProjectOperationAudit.project_name.ilike(pattern),
-        ))
+        query = query.filter(keyword_or(lambda _search_part: or_(
+            keyword_ilike(ProjectOperationAudit.order_no, _search_part),
+            keyword_ilike(ProjectOperationAudit.previous_order_no, _search_part),
+            keyword_ilike(ProjectOperationAudit.project_name, _search_part),
+        ), pattern))
     if project_type:
         query = query.filter(ProjectOperationAudit.project_type == project_type)
     if operation_type:
         query = query.filter(ProjectOperationAudit.operation_type == operation_type)
     if operator_keyword and operator_keyword.strip():
         pattern = f"%{operator_keyword.strip()}%"
-        query = query.filter(or_(
-            ProjectOperationAudit.actor_name_snapshot.ilike(pattern),
-            ProjectOperationAudit.actor_username_snapshot.ilike(pattern),
-        ))
+        query = query.filter(keyword_or(lambda _search_part: or_(
+            keyword_ilike(ProjectOperationAudit.actor_name_snapshot, _search_part),
+            keyword_ilike(ProjectOperationAudit.actor_username_snapshot, _search_part),
+        ), pattern))
     if occurred_from:
         query = query.filter(ProjectOperationAudit.occurred_at >= occurred_from)
     if occurred_to:

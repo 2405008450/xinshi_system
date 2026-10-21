@@ -57,7 +57,7 @@ test('概览 API、安排池和弹窗日期覆盖均已接入', () => {
   assert.match(dialog, /props\.defaultExecutionDate/)
   assert.match(dialog, /: tomorrowString\(\)/)
   assert.match(api, /setProjectArrangementMembership/)
-  assert.match(projects, /canManageArrangementPool = isSuperAdmin\(\)/)
+  assert.match(projects, /canManageArrangementPool = !props\.conversationPicker && isSuperAdmin\(\)/)
   assert.match(projects, /加入安排/)
   assert.match(projects, /移出/)
 })

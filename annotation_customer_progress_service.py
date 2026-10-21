@@ -1,4 +1,5 @@
 """客户进度写入、集合摘要与双线检索。"""
+from search_matching import keyword_ilike
 
 from datetime import datetime, time, timedelta
 
@@ -210,7 +211,7 @@ def search_progress_records(db, *, track, skip=0, limit=10, keyword=None, date_f
     if keyword is not None:
         escaped = keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         query = query.where(
-            records.c.change_note.ilike(f"%{escaped}%", escape="\\"),
+            keyword_ilike(records.c.change_note, f"%{escaped}%", escape="\\"),
             records.c.effective_on >= datetime.combine(date_from, time.min, BUSINESS_TIMEZONE),
             records.c.effective_on < datetime.combine(date_to + timedelta(days=1), time.min, BUSINESS_TIMEZONE),
         )

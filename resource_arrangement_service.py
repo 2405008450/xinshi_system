@@ -1,4 +1,5 @@
 """平台账号每日统筹；候选读取实时需求，历史内容保存名称快照。"""
+from search_matching import keyword_ilike, keyword_or
 from copy import deepcopy
 from hashlib import sha256
 import json
@@ -81,17 +82,17 @@ def arrangement_project_options(db, source_type, keyword=None):
     if keyword and keyword.strip():
         pattern = '%' + keyword.strip() + '%'
         query = query.outerjoin(Client, model.client_id == Client.id).outerjoin(SubClient, model.sub_client_id == SubClient.id)
-        matches = [model.order_no.ilike(pattern), model.project_name.ilike(pattern),
-                   Client.client_short_name.ilike(pattern), SubClient.client_short_name.ilike(pattern)]
+        matches = [keyword_ilike(model.order_no, pattern), keyword_ilike(model.project_name, pattern),
+                   keyword_ilike(Client.client_short_name, pattern), keyword_ilike(SubClient.client_short_name, pattern)]
         if relation is not None:
-            language_ids = db.query(InterpretationLanguage.id).filter(InterpretationLanguage.label.ilike(pattern))
+            language_ids = db.query(InterpretationLanguage.id).filter(keyword_ilike(InterpretationLanguage.label, pattern))
             directions = [direction_model.source_language_id.in_(language_ids), direction_model.target_language_id.in_(language_ids)]
             if hasattr(direction_model, 'extra_languages'):
                 extra_model = direction_model.extra_languages.property.mapper.class_
                 directions.append(direction_model.extra_languages.any(extra_model.language_id.in_(language_ids)))
             matches.append(relation.any(or_(*directions)))
         else:
-            matches.append(model.language_pair.ilike(pattern))
+            matches.append(keyword_ilike(model.language_pair, pattern))
         query = query.filter(or_(*matches))
     projects = query.order_by(model.updated_at.desc(), model.id.desc()).limit(50).all()
     ids_by_project = {}
@@ -232,7 +233,7 @@ def list_arrangement_requests(db, keyword=None, skip=0, limit=5):
         for model, field in SOURCE_MODELS.values():
             query = query.outerjoin(model, getattr(ResourceRequest, field) == model.id)
             fields.extend([model.order_no, model.project_name])
-        query = query.filter(or_(*(field.ilike(pattern) for field in fields)))
+        query = query.filter(keyword_or(lambda _search_part: or_(*(keyword_ilike(field, _search_part) for field in fields)), pattern))
     total = query.count()
     requests = query.order_by(ResourceRequest.requested_at.desc(), ResourceRequest.id).offset(skip).limit(limit).all()
     arrangements = request_arrangements(db, [r.id for r in requests])

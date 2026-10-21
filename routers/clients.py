@@ -1,3 +1,4 @@
+from search_matching import keyword_ilike, keyword_or
 from form_errors import integrity_error_detail
 import logging
 from datetime import date
@@ -46,13 +47,13 @@ def read_client_options(
     query = db.query(Client)
     if keyword and keyword.strip():
         pattern = f"%{keyword.strip()}%"
-        query = query.filter(or_(
-            Client.client_code.ilike(pattern),
-            Client.client_name.ilike(pattern),
-            Client.client_short_name.ilike(pattern),
-            Client.english_name.ilike(pattern),
-            Client.english_short_name.ilike(pattern),
-        ))
+        query = query.filter(keyword_or(lambda _search_part: or_(
+            keyword_ilike(Client.client_code, _search_part),
+            keyword_ilike(Client.client_name, _search_part),
+            keyword_ilike(Client.client_short_name, _search_part),
+            keyword_ilike(Client.english_name, _search_part),
+            keyword_ilike(Client.english_short_name, _search_part),
+        ), pattern))
     rows = query.order_by(Client.updated_at.desc(), Client.id.desc()).limit(limit).all()
     return [
         {

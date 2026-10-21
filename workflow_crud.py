@@ -2,6 +2,7 @@
 工作流 CRUD 操作
 包含阶段定义、难度过滤逻辑、推进/打回/初始化等核心业务方法
 """
+from search_matching import matches_keywords
 from decimal import Decimal
 import datetime
 from typing import Optional, List
@@ -711,7 +712,7 @@ def get_transferable_tasks(
                 'order_no', 'project_name', 'sub_project_name', 'client_name',
                 'client_short_name', 'current_assignee_name',
             )).casefold()
-            if normalized_keyword not in haystack:
+            if not matches_keywords(haystack, normalized_keyword):
                 continue
         result.append(item)
     from project_workbench_service import get_transferable_responsibility_tasks

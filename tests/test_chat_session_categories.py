@@ -72,7 +72,11 @@ def test_unauthorized_membership_and_catalog_do_not_expand_access(environment, k
     assert outsider.get('/chat/session-categories').status_code == 200
     for method, path in [('get', base), ('put', f'{base}/{cid}'), ('delete', f'{base}/{cid}')]:
         assert getattr(outsider, method)(path).status_code in (403, 404)
-    assert sessions(db, data['users']['outsider'])['items'] == []
+    # 该账号有资源读取权限，可访问新讨论，但不能看到无关联的项目或私聊。
+    visible = sessions(db, data['users']['outsider'])['items']
+    assert len(visible) == 6
+    assert all(row['kind'] == 'discussion' for row in visible)
+    assert all(row['project_id'] != str(target) for row in visible)
     if kind == 'direct':
         with pytest.raises(HTTPException):
             service.memberships(db, data['users']['admin'], kind, target)
@@ -113,7 +117,7 @@ def test_unmigrated_schema_degrades_without_querying_missing_tables(environment,
     db, data = environment
     monkeypatch.setattr(service, 'schema_ready', lambda _db: False)
     result = sessions(db, data['users']['collector'])
-    assert result['session_categories'] == {'ready': False, 'can_manage': False, 'items': []}
+    assert result['session_categories'] == {'ready': False, 'hierarchy_ready': False, 'can_manage': False, 'items': []}
     assert all(item['category_ids'] == [] for item in result['items'])
     assert client_for(db, data['users']['admin']).post('/chat/session-categories', json={'name': '待迁移'}).status_code == 503
 

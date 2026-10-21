@@ -66,6 +66,8 @@
 </template>
 
 <script setup>
+import { matchesSearch } from '@/utils/searchMatching'
+
 import { computed, ref } from 'vue'
 import ColumnHeaderFilter from './ColumnHeaderFilter.vue'
 import ListFilterControl from './ListFilterControl.vue'
@@ -100,7 +102,7 @@ const resolvedOptions = computed(() => {
 const filteredOptions = computed(() => {
   const keyword = filterKeyword.value.trim().toLocaleLowerCase()
   if (!keyword) return resolvedOptions.value
-  return resolvedOptions.value.filter((option) => String(option.label).toLocaleLowerCase().includes(keyword))
+  return resolvedOptions.value.filter((option) => matchesSearch(option.label, keyword))
 })
 const prepareDraft = () => {
   groupOpenVersion.value++

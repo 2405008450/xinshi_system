@@ -1,6 +1,7 @@
 """统一人才资源库查询、写入、兼容同步与历史回填。"""
 
 from __future__ import annotations
+from search_matching import search_terms, keyword_ilike, keyword_or, matches_keywords
 
 import re
 from datetime import date, datetime
@@ -212,16 +213,16 @@ def _education_summary_condition(keyword: str):
         value for value, label in EDUCATION_LABELS.items()
         if normalized in value.casefold() or normalized in label.casefold()
     ]
-    highest_education_conditions = [ResourcePerson.highest_education.ilike(pattern)]
+    highest_education_conditions = [keyword_ilike(ResourcePerson.highest_education, pattern)]
     if matching_levels:
         highest_education_conditions.append(ResourcePerson.highest_education.in_(matching_levels))
     return or_(
         *highest_education_conditions,
-        ResourcePerson.education_experiences.any(or_(
-            ResourceEducationExperience.institution.ilike(pattern),
-            ResourceEducationExperience.major.ilike(pattern),
-            ResourceEducationExperience.minor_major.ilike(pattern),
-        )),
+        ResourcePerson.education_experiences.any(keyword_or(lambda _search_part: or_(
+            keyword_ilike(ResourceEducationExperience.institution, _search_part),
+            keyword_ilike(ResourceEducationExperience.major, _search_part),
+            keyword_ilike(ResourceEducationExperience.minor_major, _search_part),
+        ), pattern)),
     )
 
 
@@ -239,49 +240,49 @@ def _project_situation_condition(keyword: str, *, include_archived: bool = False
     project_people = union_all(
         select(linked_person_id).select_from(TranslationProject).join(
             Translator, Translator.id == TranslationProject.translator_id,
-        ).where(or_(
-            TranslationProject.project_name.ilike(pattern),
-            TranslationProject.order_no.ilike(pattern),
-        )),
+        ).where(keyword_or(lambda _search_part: or_(
+            keyword_ilike(TranslationProject.project_name, _search_part),
+            keyword_ilike(TranslationProject.order_no, _search_part),
+        ), pattern)),
         select(linked_person_id).select_from(TranslationSubOrder).join(
             Translator, Translator.id == TranslationSubOrder.translator_id,
-        ).where(or_(
-            TranslationSubOrder.sub_project_name.ilike(pattern),
-            TranslationSubOrder.sub_order_no.ilike(pattern),
-        )),
+        ).where(keyword_or(lambda _search_part: or_(
+            keyword_ilike(TranslationSubOrder.sub_project_name, _search_part),
+            keyword_ilike(TranslationSubOrder.sub_order_no, _search_part),
+        ), pattern)),
         select(linked_person_id).select_from(ManuscriptArrangement).join(
             Translator, Translator.id == ManuscriptArrangement.translator_id,
-        ).where(or_(
-            ManuscriptArrangement.project_name_snapshot.ilike(pattern),
-            ManuscriptArrangement.order_no_snapshot.ilike(pattern),
-        )),
+        ).where(keyword_or(lambda _search_part: or_(
+            keyword_ilike(ManuscriptArrangement.project_name_snapshot, _search_part),
+            keyword_ilike(ManuscriptArrangement.order_no_snapshot, _search_part),
+        ), pattern)),
         select(linked_person_id).select_from(InterpretationProjectInterpreter).join(
             Translator, Translator.id == InterpretationProjectInterpreter.translator_id,
         ).join(
             InterpretationProject,
             InterpretationProject.id == InterpretationProjectInterpreter.project_id,
-        ).where(or_(
-            InterpretationProject.project_name.ilike(pattern),
-            InterpretationProject.order_no.ilike(pattern),
-        )),
+        ).where(keyword_or(lambda _search_part: or_(
+            keyword_ilike(InterpretationProject.project_name, _search_part),
+            keyword_ilike(InterpretationProject.order_no, _search_part),
+        ), pattern)),
         select(AnnotationProjectAssignee.person_id.label("person_id")).join(
             AnnotationProject, AnnotationProject.id == AnnotationProjectAssignee.project_id,
-        ).where(or_(
-            AnnotationProject.project_name.ilike(pattern),
-            AnnotationProject.order_no.ilike(pattern),
-        )),
+        ).where(keyword_or(lambda _search_part: or_(
+            keyword_ilike(AnnotationProject.project_name, _search_part),
+            keyword_ilike(AnnotationProject.order_no, _search_part),
+        ), pattern)),
         select(AnnotationTrialRecord.person_id.label("person_id")).join(
             AnnotationProject, AnnotationProject.id == AnnotationTrialRecord.project_id,
-        ).where(or_(
-            AnnotationProject.project_name.ilike(pattern),
-            AnnotationProject.order_no.ilike(pattern),
-        )),
+        ).where(keyword_or(lambda _search_part: or_(
+            keyword_ilike(AnnotationProject.project_name, _search_part),
+            keyword_ilike(AnnotationProject.order_no, _search_part),
+        ), pattern)),
         select(RecruitmentCandidate.person_id.label("person_id")).join(
             RecruitmentProject, RecruitmentProject.id == RecruitmentCandidate.project_id,
-        ).where(or_(
-            RecruitmentProject.project_name.ilike(pattern),
-            RecruitmentProject.order_no.ilike(pattern),
-        )),
+        ).where(keyword_or(lambda _search_part: or_(
+            keyword_ilike(RecruitmentProject.project_name, _search_part),
+            keyword_ilike(RecruitmentProject.order_no, _search_part),
+        ), pattern)),
     ).subquery("talent_project_people")
     if include_archived:
         from sqlalchemy.orm import aliased
@@ -326,7 +327,7 @@ def _apply_talent_detail_filters(query, field_filters):
         if language_field in field_filters:
             value = str(field_filters[language_field].get("value") or "").strip()
             if value:
-                conditions = conditions.where(model.language.has(InterpretationLanguage.label.ilike(f"%{value}%")))
+                conditions = conditions.where(model.language.has(keyword_ilike(InterpretationLanguage.label, f"%{value}%")))
         if conditions.whereclause is not None:
             query = query.filter(relationship.any(conditions.whereclause))
     return query
@@ -353,35 +354,36 @@ def _talent_query(
             ResourceCapability.status == (capability_status or "active"),
         )))
     if keyword:
-        pattern = f"%{keyword.strip()}%"
-        keyword_columns = [
-            ResourcePerson.resource_code.ilike(pattern),
-            ResourcePerson.full_name.ilike(pattern),
-            ResourcePerson.chinese_name.ilike(pattern),
-            ResourcePerson.english_name.ilike(pattern),
-            ResourcePerson.nickname.ilike(pattern),
-            cast(ResourcePerson.other_names, String).ilike(pattern),
-        ]
-        if include_contact_search:
-            keyword_columns.extend([
-                ResourcePerson.primary_phone.ilike(pattern),
-                ResourcePerson.primary_email.ilike(pattern),
-                ResourcePerson.wechat.ilike(pattern),
-                ResourcePerson.whatsapp.ilike(pattern),
-                ResourcePerson.skype.ilike(pattern),
-                ResourcePerson.line.ilike(pattern),
-                ResourcePerson.contact_info.ilike(pattern),
-            ])
-            if review_ready(db):
-                from sqlalchemy.orm import aliased
-                source = aliased(ResourcePerson)
-                keyword_columns.append(db.query(source.id).filter(
-                    source.archived_into_id == ResourcePerson.id,
-                    or_(*(getattr(source, field).ilike(pattern) for field in (
-                        "primary_phone", "secondary_phone", "primary_email", "secondary_email",
-                        "wechat", "whatsapp", "skype", "line", "contact_info", "other_contact"))),
-                ).exists())
-        query = query.filter(or_(*keyword_columns))
+        for term in search_terms(keyword):
+            pattern = f"%{term}%"
+            keyword_columns = [
+                keyword_ilike(ResourcePerson.resource_code, pattern),
+                keyword_ilike(ResourcePerson.full_name, pattern),
+                keyword_ilike(ResourcePerson.chinese_name, pattern),
+                keyword_ilike(ResourcePerson.english_name, pattern),
+                keyword_ilike(ResourcePerson.nickname, pattern),
+                keyword_ilike(cast(ResourcePerson.other_names, String), pattern),
+            ]
+            if include_contact_search:
+                keyword_columns.extend([
+                    keyword_ilike(ResourcePerson.primary_phone, pattern),
+                    keyword_ilike(ResourcePerson.primary_email, pattern),
+                    keyword_ilike(ResourcePerson.wechat, pattern),
+                    keyword_ilike(ResourcePerson.whatsapp, pattern),
+                    keyword_ilike(ResourcePerson.skype, pattern),
+                    keyword_ilike(ResourcePerson.line, pattern),
+                    keyword_ilike(ResourcePerson.contact_info, pattern),
+                ])
+                if review_ready(db):
+                    from sqlalchemy.orm import aliased
+                    source = aliased(ResourcePerson)
+                    keyword_columns.append(db.query(source.id).filter(
+                        source.archived_into_id == ResourcePerson.id,
+                        keyword_or(lambda _search_part: or_(*(keyword_ilike(getattr(source, field), _search_part) for field in (
+                            "primary_phone", "secondary_phone", "primary_email", "secondary_email",
+                            "wechat", "whatsapp", "skype", "line", "contact_info", "other_contact"))), pattern),
+                    ).exists())
+            query = query.filter(or_(*keyword_columns))
     if status:
         query = query.filter(ResourcePerson.status == status)
     elif statuses:
@@ -390,7 +392,7 @@ def _talent_query(
         query = query.filter(ResourcePerson.cooperation_type == cooperation_type)
     if industry_keyword:
         query = query.filter(ResourcePerson.career_profile.has(
-            ResourceCareerProfile.industries.cast(String).ilike(f"%{industry_keyword.strip()}%")
+            keyword_ilike(ResourceCareerProfile.industries.cast(String), f"%{industry_keyword.strip()}%")
         ))
     if review_required is not None:
         query = query.filter(or_(
@@ -437,20 +439,20 @@ def _talent_query(
             )))
         elif field == "language_directions":
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
-            query = query.filter(or_(
-                ResourcePerson.written_profile.has(WrittenTranslationProfile.languages.ilike(pattern)),
-                ResourcePerson.interpretation_profile.has(InterpretationProfile.languages.ilike(pattern)),
-            ))
+            query = query.filter(keyword_or(lambda _search_part: or_(
+                ResourcePerson.written_profile.has(keyword_ilike(WrittenTranslationProfile.languages, _search_part)),
+                ResourcePerson.interpretation_profile.has(keyword_ilike(InterpretationProfile.languages, _search_part)),
+            ), pattern))
         elif field == "annotation_language_directions":
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
-            query = query.filter(ResourcePerson.annotation_language_skills.any(or_(
-                ResourceAnnotationLanguageSkill.source_language.has(InterpretationLanguage.label.ilike(pattern)),
-                ResourceAnnotationLanguageSkill.target_language.has(InterpretationLanguage.label.ilike(pattern)),
-            )))
+            query = query.filter(ResourcePerson.annotation_language_skills.any(keyword_or(lambda _search_part: or_(
+                ResourceAnnotationLanguageSkill.source_language.has(keyword_ilike(InterpretationLanguage.label, _search_part)),
+                ResourceAnnotationLanguageSkill.target_language.has(keyword_ilike(InterpretationLanguage.label, _search_part)),
+            ), pattern)))
         elif field in {"industries", "job_titles"}:
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
             column = ResourceCareerProfile.industries if field == "industries" else ResourceCareerProfile.job_titles
-            query = query.filter(ResourcePerson.career_profile.has(cast(column, String).ilike(pattern)))
+            query = query.filter(ResourcePerson.career_profile.has(keyword_ilike(cast(column, String), pattern)))
         elif field == "years_experience":
             conditions = []
             if descriptor.get("min") not in (None, ""):
@@ -480,29 +482,29 @@ def _talent_query(
                 ))
         elif field in {"dialects", "dialect_regions"}:
             column = ResourcePerson.dialects if field == "dialects" else ResourcePerson.dialect_regions
-            query = query.filter(cast(column, String).ilike(f"%{str(descriptor.get('value') or '').strip()}%"))
+            query = query.filter(keyword_ilike(cast(column, String), f"%{str(descriptor.get('value') or '').strip()}%"))
         elif field == "region_summary":
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
-            query = query.filter(or_(
-                ResourcePerson.ancestral_home.ilike(pattern),
-                ResourcePerson.native_place.ilike(pattern),
-                ResourcePerson.residence_address.ilike(pattern),
-            ))
+            query = query.filter(keyword_or(lambda _search_part: or_(
+                keyword_ilike(ResourcePerson.ancestral_home, _search_part),
+                keyword_ilike(ResourcePerson.native_place, _search_part),
+                keyword_ilike(ResourcePerson.residence_address, _search_part),
+            ), pattern))
         elif field == "education_summary":
             value = str(descriptor.get("value") or "").strip()
             query = query.filter(_education_summary_condition(value))
         elif field == "language_summary":
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
-            query = query.filter(or_(
+            query = query.filter(keyword_or(lambda _search_part: or_(
                 ResourcePerson.language_skills.any(
-                    ResourceLanguageSkill.language.has(InterpretationLanguage.label.ilike(pattern))
+                    ResourceLanguageSkill.language.has(keyword_ilike(InterpretationLanguage.label, _search_part))
                 ),
                 ResourcePerson.certificates.any(or_(
-                    ResourceCertificate.name.ilike(pattern),
-                    ResourceCertificate.issuer.ilike(pattern),
-                    ResourceCertificate.language.has(InterpretationLanguage.label.ilike(pattern)),
+                    keyword_ilike(ResourceCertificate.name, _search_part),
+                    keyword_ilike(ResourceCertificate.issuer, _search_part),
+                    ResourceCertificate.language.has(keyword_ilike(InterpretationLanguage.label, _search_part)),
                 )),
-            ))
+            ), pattern))
         elif field == "project_situation":
             value = str(descriptor.get("value") or "").strip()
             query = query.filter(_project_situation_condition(value, include_archived=review_ready(db)))
@@ -795,10 +797,9 @@ def get_talent_project_history_page(
     rows = get_talent_project_history(db, person_id)
     normalized_keyword = (keyword or "").strip().casefold()
     if normalized_keyword:
-        rows = [item for item in rows if any(
-            normalized_keyword in str(value or "").casefold()
-            for value in (item.get("project_name"), item.get("order_no"), item.get("role"))
-        )]
+        rows = [item for item in rows if matches_keywords(' '.join(
+            str(value or '') for value in (item.get("project_name"), item.get("order_no"), item.get("role"))
+        ), normalized_keyword)]
     if project_type:
         rows = [item for item in rows if item.get("project_type") == project_type]
     if status:

@@ -11,7 +11,11 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       vue(),
-      Components({ resolvers: [ElementPlusResolver()] })
+      Components({ resolvers: [
+        name => ({ ElSelect: 'SearchSelect', ElCascader: 'SearchCascader', ElTransfer: 'SearchTransfer' }[name]
+          ? { name: { ElSelect: 'SearchSelect', ElCascader: 'SearchCascader', ElTransfer: 'SearchTransfer' }[name], from: fileURLToPath(new URL('./src/components/common/searchableControls.js', import.meta.url)).replaceAll('\\', '/'), sideEffects: `element-plus/es/components/${name.slice(2).toLowerCase()}/style/css` } : undefined),
+        ElementPlusResolver(),
+      ] })
     ],
     resolve: {
       alias: {

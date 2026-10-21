@@ -1,6 +1,7 @@
 from uuid import UUID
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.exc import IntegrityError
 from database import get_db
 from routers.chat_topics import actor
 from chat_session_category_models import ChatSessionCategory, category_now
@@ -12,6 +13,7 @@ router = APIRouter(prefix='/chat', tags=['chat_session_categories'])
 class CategoryCreate(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     name: str = Field(min_length=1, max_length=80)
+    parent_key: UUID | None = None
 
 
 class CategoryUpdate(BaseModel):
@@ -29,10 +31,19 @@ def catalog(db=Depends(get_db), user=Depends(actor)):
 @router.post('/session-categories', status_code=201)
 def create(payload: CategoryCreate, db=Depends(get_db), user=Depends(actor)):
     service.require_manager(db, user)
-    row = ChatSessionCategory(name=service.validate_name(db, payload.name), updated_by=user.id)
+    parent_key = service.validate_parent(db, payload.parent_key)
+    row = ChatSessionCategory(name=service.validate_name(db, payload.name, parent_key=parent_key), updated_by=user.id)
     db.add(row)
+    try:
+        db.flush()
+    except IntegrityError as error:
+        db.rollback()
+        from fastapi import HTTPException
+        raise HTTPException(409, '已有同名目录，请重新检查名称') from error
+    if parent_key:
+        db.add(service.Folder(category_id=row.id, parent_key=parent_key))
     service.commit(db)
-    return service.serialize(row)
+    return dict(service.serialize(row), parent_key=parent_key)
 
 
 @router.put('/session-categories/{category_id}')
@@ -40,16 +51,21 @@ def update(category_id: UUID, payload: CategoryUpdate, db=Depends(get_db), user=
     from fastapi import HTTPException
     service.require_manager(db, user)
     row = service.require_category(db, category_id)
+    if str(row.id) in service.BUILTIN_INDEX:
+        from fastapi import HTTPException
+        raise HTTPException(422, '内置目录不可修改')
     if row.revision != payload.revision:
         raise HTTPException(409, '分类已被其他人修改，请重新加载后重试')
     if payload.name is not None:
-        row.name = service.validate_name(db, payload.name, row.id)
+        location = db.get(service.Folder, row.id) if service.folder_schema_ready(db) else None
+        row.name = service.validate_name(db, payload.name, row.id, location.parent_key if location else None)
     if payload.active is not None:
         row.active = payload.active
     row.revision += 1
     row.updated_by, row.updated_at = user.id, category_now()
     service.commit(db)
-    return service.serialize(row)
+    location = db.get(service.Folder, row.id) if service.folder_schema_ready(db) else None
+    return dict(service.serialize(row), parent_key=location.parent_key if location else None)
 
 
 @router.put('/sessions/{kind}/{conversation_id}/categories/{category_id}')

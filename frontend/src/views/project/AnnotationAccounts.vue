@@ -206,6 +206,8 @@
 </template>
 
 <script setup>
+import { matchesSearch } from '@/utils/searchMatching'
+
 import AnnotationOrderContext from '@/components/annotation/AnnotationOrderContext.vue'
 import { refreshAfterSave } from '@/utils/postSaveRefresh.js'
 import { computed, defineAsyncComponent, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
@@ -297,7 +299,7 @@ const languageItems=computed(()=>selectedProject.value?.languageItems||clientPro
 const filterLanguageItems=computed(()=>selectedProject.value?.languageItems||clientProjects.value.flatMap(item=>item.languageItems||[]))
 const accountFormProjects=computed(()=>accountForm.clientId?projects.value.filter(item=>item.clientId===accountForm.clientId):projects.value)
 const accountFormLanguageItems=computed(()=>projects.value.find(item=>item.id===accountForm.projectId)?.languageItems||[])
-const filteredTalents=computed(()=>{const keyword=talentKeyword.value.trim().toLocaleLowerCase();return keyword?talents.value.filter(item=>talentOptionLabel(item).toLocaleLowerCase().includes(keyword)):talents.value})
+const filteredTalents=computed(()=>{const keyword=talentKeyword.value.trim().toLocaleLowerCase();return keyword?talents.value.filter(item=>matchesSearch(talentOptionLabel(item), keyword)):talents.value})
 const advancedCount=computed(()=>Object.values(filters).filter(Boolean).length)
 const sheetLocked=computed(()=>viewMode.value==='project'&&sheetDirtyCount.value>0)
 let timer,controller,requestId=0,clientSearchTimer,clientSearchController,clientSearchRequestId=0

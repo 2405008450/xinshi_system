@@ -174,6 +174,7 @@
 </template>
 
 <script setup>
+
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as clientContactApi from '@/api/clientContacts'
@@ -236,28 +237,31 @@ const fetchData = async () => {
   }
 }
 
+let clientSearchSequence = 0
+let clientSearchController
 const searchClients = async (query) => {
+  const sequence = ++clientSearchSequence
+  clientSearchController?.abort()
+  clientSearchController = new AbortController()
   if (!query) {
     clientOptions.value = []
     return
   }
   try {
-    const res = await clientApi.getClients({ skip: 0, limit: 20 })
-    clientOptions.value = res?.filter(client => 
-      client.client_code?.includes(query) || 
-      client.client_name?.includes(query)
-    ) || []
+    const res = await clientApi.getClientOptions({ keyword: query, limit: 20 }, { signal: clientSearchController.signal })
+    if (sequence === clientSearchSequence) clientOptions.value = res || []
   } catch (error) {
-    clientOptions.value = []
+    if (sequence === clientSearchSequence) clientOptions.value = []
   }
 }
 
 const handleClientChange = async (clientCode) => {
   if (!clientCode) return
   try {
-    const clients = await clientApi.getClients({ skip: 0, limit: 100 })
-    const client = clients?.find(c => c.client_code === clientCode)
-    if (client) {
+    const option = clientOptions.value.find(item => item.client_code === clientCode)
+    const client = option?.id ? await clientApi.getClient(option.id)
+      : (await clientApi.getClients({ client_code: clientCode, limit: 20 }))?.find(item => item.client_code === clientCode)
+    if (client && form.client_code === clientCode) {
       form.client_name = client.client_name || ''
       form.client_short_name = client.client_short_name || ''
       form.client_manager = client.client_manager || ''

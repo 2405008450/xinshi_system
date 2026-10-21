@@ -1,6 +1,7 @@
 """标注项目查询、写入、咨询联动与历史迁移服务。"""
 
 from __future__ import annotations
+from search_matching import search_terms, keyword_ilike, keyword_like, keyword_or
 
 import re
 import hashlib
@@ -177,7 +178,7 @@ def generate_annotation_order_no(
         db.query(ProjectOrderNoReservation.order_no)
         .filter(
             ProjectOrderNoReservation.project_type == "annotation",
-            ProjectOrderNoReservation.order_no.like(f"{prefix}%"),
+            keyword_like(ProjectOrderNoReservation.order_no, f"{prefix}%"),
         )
         .all()
     )
@@ -326,7 +327,7 @@ def _annotation_region_match(terms, *, match_any=False, language_ids=None, langu
         if value is None or not str(value).strip():
             continue
         literal = str(value).strip().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
-        conditions.append(entries.c.value[key].astext.ilike(f'%{literal}%', escape='\\'))
+        conditions.append(keyword_ilike(entries.c.value[key].astext, f'%{literal}%', escape='\\'))
     match = select(1).select_from(language_item).join(entries, true()).where(
         language_item.project_id == AnnotationProject.id)
     if language_ids:
@@ -388,42 +389,43 @@ def _apply_filters(
                 child.parent_project_id == AnnotationProject.id, grandchild.area_id.in_(area_ids))),
         ))
     if keyword and keyword.strip():
-        normalized_keyword = keyword.strip()
-        pattern = f"%{normalized_keyword}%"
-        project_type_values = _keyword_enum_values(
-            normalized_keyword, ANNOTATION_PROJECT_TYPE_LABELS,
-        )
-        status_values = _keyword_enum_values(
-            normalized_keyword, ANNOTATION_PROJECT_STATUS_LABELS,
-        )
-        priority_values = _keyword_enum_values(
-            normalized_keyword, ANNOTATION_PROJECT_PRIORITY_LABELS,
-        )
-        keyword_conditions = [
-            AnnotationProject.order_no.ilike(pattern),
-            AnnotationProject.project_name.ilike(pattern),
-            AnnotationProject.customer_order_no.ilike(pattern),
-            AnnotationProject.contact_name.ilike(pattern),
-            AnnotationProject.language_region.ilike(pattern),
-            AnnotationProject.project_status.ilike(pattern),
-            AnnotationProject.priority.ilike(pattern),
-            Client.client_code.ilike(pattern),
-            Client.client_name.ilike(pattern),
-            Client.client_short_name.ilike(pattern),
-            SubClient.sub_client_code.ilike(pattern),
-            SubClient.client_name.ilike(pattern),
-            SubClient.client_short_name.ilike(pattern),
-            _annotation_region_match({key: normalized_keyword for key in ('city', 'district', 'street')}, match_any=True),
-        ]
-        keyword_conditions.extend(
-            AnnotationProject.project_types.contains([value])
-            for value in project_type_values
-        )
-        if status_values:
-            keyword_conditions.append(AnnotationProject.project_status.in_(status_values))
-        if priority_values:
-            keyword_conditions.append(AnnotationProject.priority.in_(priority_values))
-        query = query.filter(or_(*keyword_conditions))
+        for term in search_terms(keyword):
+            normalized_keyword = term
+            pattern = f"%{normalized_keyword}%"
+            project_type_values = _keyword_enum_values(
+                normalized_keyword, ANNOTATION_PROJECT_TYPE_LABELS,
+            )
+            status_values = _keyword_enum_values(
+                normalized_keyword, ANNOTATION_PROJECT_STATUS_LABELS,
+            )
+            priority_values = _keyword_enum_values(
+                normalized_keyword, ANNOTATION_PROJECT_PRIORITY_LABELS,
+            )
+            keyword_conditions = [
+                keyword_ilike(AnnotationProject.order_no, pattern),
+                keyword_ilike(AnnotationProject.project_name, pattern),
+                keyword_ilike(AnnotationProject.customer_order_no, pattern),
+                keyword_ilike(AnnotationProject.contact_name, pattern),
+                keyword_ilike(AnnotationProject.language_region, pattern),
+                keyword_ilike(AnnotationProject.project_status, pattern),
+                keyword_ilike(AnnotationProject.priority, pattern),
+                keyword_ilike(Client.client_code, pattern),
+                keyword_ilike(Client.client_name, pattern),
+                keyword_ilike(Client.client_short_name, pattern),
+                keyword_ilike(SubClient.sub_client_code, pattern),
+                keyword_ilike(SubClient.client_name, pattern),
+                keyword_ilike(SubClient.client_short_name, pattern),
+                _annotation_region_match({key: normalized_keyword for key in ('city', 'district', 'street')}, match_any=True),
+            ]
+            keyword_conditions.extend(
+                AnnotationProject.project_types.contains([value])
+                for value in project_type_values
+            )
+            if status_values:
+                keyword_conditions.append(AnnotationProject.project_status.in_(status_values))
+            if priority_values:
+                keyword_conditions.append(AnnotationProject.priority.in_(priority_values))
+            query = query.filter(or_(*keyword_conditions))
     if project_status:
         query = query.filter(AnnotationProject.project_status == project_status)
     if project_type:
@@ -494,7 +496,7 @@ def _apply_filters(
                 "client_full_name": (Client.client_name, SubClient.client_name),
             }[field]
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
-            query = query.filter(or_(parent_column.ilike(pattern), sub_column.ilike(pattern)))
+            query = query.filter(keyword_or(lambda _search_part: or_(keyword_ilike(parent_column, _search_part), keyword_ilike(sub_column, _search_part)), pattern))
         elif field == "language_id":
             values = [UUID(str(value)) for value in descriptor.get("value") or []]
             query = query.join(AnnotationProjectLanguageItem, AnnotationProjectLanguageItem.project_id == AnnotationProject.id).filter(or_(AnnotationProjectLanguageItem.source_language_id.in_(values), AnnotationProjectLanguageItem.target_language_id.in_(values)))
@@ -531,10 +533,10 @@ def _apply_filters(
             expression = AnnotationProject.custom_values[custom_id].astext
             data_type = descriptor.get("data_type")
             if descriptor.get("op") == "contains":
-                query = query.filter(cast(expression, String).ilike(f"%{str(descriptor.get('value') or '').strip()}%"))
+                query = query.filter(keyword_ilike(cast(expression, String), f"%{str(descriptor.get('value') or '').strip()}%"))
             elif descriptor.get("op") == "in":
                 values = descriptor.get("value") or []
-                query = query.filter(or_(*(cast(expression, String).ilike(f"%{value}%") for value in values)))
+                query = query.filter(or_(*(keyword_ilike(cast(expression, String), f"%{value}%") for value in values)))
             elif descriptor.get("op") == "eq" and data_type == "boolean":
                 query = query.filter(expression == ("true" if descriptor.get("value") else "false"))
             elif descriptor.get("op") == "between":
@@ -639,8 +641,8 @@ def _next_child_number(db, parent):
     reserved = db.query(ProjectOrderNoReservation.order_no).filter(
         ProjectOrderNoReservation.project_type == "annotation",
         or_(*(condition for number in parent_numbers for condition in (
-            ProjectOrderNoReservation.order_no.like(f"{number}-S%"),
-            ProjectOrderNoReservation.order_no.like(f"{number}.%"),
+            keyword_like(ProjectOrderNoReservation.order_no, f"{number}-S%"),
+            keyword_like(ProjectOrderNoReservation.order_no, f"{number}.%"),
         ))),
     ).all()
     sequences = [int(match.group(1)) for (number,) in reserved for pattern in patterns if (match := pattern.fullmatch(number))]
@@ -673,7 +675,7 @@ def create_annotation_children(db, parent_id, items, actor_id, idempotency_key):
     batch_key = hashlib.sha256(f"{parent_id}:{idempotency_key}".encode()).hexdigest()
     digest = hashlib.sha256(signature.encode()).hexdigest()[:16]
     prefix = f"child:{batch_key}:"
-    existing = db.query(AnnotationProject).filter(AnnotationProject.idempotency_key.like(f"{prefix}%")).order_by(AnnotationProject.child_sequence_no).all()
+    existing = db.query(AnnotationProject).filter(keyword_like(AnnotationProject.idempotency_key, f"{prefix}%")).order_by(AnnotationProject.child_sequence_no).all()
     if existing:
         if len(existing) != len(items) or any(f":{digest}:" not in row.idempotency_key for row in existing):
             raise ValueError("同一幂等键对应的创建内容已改变，请重新发起创建")

@@ -1,6 +1,7 @@
 """列表字段筛选的公共解析、校验与 SQLAlchemy 标量条件构造。"""
 
 from __future__ import annotations
+from search_matching import keyword_ilike
 
 import json
 from datetime import date, datetime, time, timedelta
@@ -132,7 +133,7 @@ def apply_scalar_filter(query, expression, descriptor: Mapping[str, Any], *, val
         if value_type != "string":
             raise HTTPException(status_code=422, detail="该字段不支持包含匹配")
         value = str(descriptor.get("value") or "").strip()
-        return query if not value else query.filter(expression.ilike(f"%{value}%"))
+        return query if not value else query.filter(keyword_ilike(expression, f"%{value}%"))
     if operator == "eq":
         return query.filter(expression == _coerce(descriptor.get("value"), value_type))
     if operator == "in":

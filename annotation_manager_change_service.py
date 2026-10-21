@@ -1,6 +1,7 @@
 """标注项目负责人变更日志写入与查询。"""
 
 from __future__ import annotations
+from search_matching import keyword_ilike, keyword_or
 
 from datetime import datetime
 from typing import Optional
@@ -124,15 +125,15 @@ def list_annotation_manager_changes(
     normalized = (keyword or "").strip()
     if normalized:
         pattern = f"%{normalized}%"
-        query = query.filter(or_(
-            AnnotationManagerChangeLog.order_no.ilike(pattern),
-            AnnotationManagerChangeLog.project_name.ilike(pattern),
-            AnnotationManagerChangeLog.previous_manager_name.ilike(pattern),
-            AnnotationManagerChangeLog.new_manager_name.ilike(pattern),
-            AnnotationManagerChangeLog.actor_name_snapshot.ilike(pattern),
-            AnnotationManagerChangeLog.actor_username_snapshot.ilike(pattern),
-            AnnotationManagerChangeLog.reason.ilike(pattern),
-        ))
+        query = query.filter(keyword_or(lambda _search_part: or_(
+            keyword_ilike(AnnotationManagerChangeLog.order_no, _search_part),
+            keyword_ilike(AnnotationManagerChangeLog.project_name, _search_part),
+            keyword_ilike(AnnotationManagerChangeLog.previous_manager_name, _search_part),
+            keyword_ilike(AnnotationManagerChangeLog.new_manager_name, _search_part),
+            keyword_ilike(AnnotationManagerChangeLog.actor_name_snapshot, _search_part),
+            keyword_ilike(AnnotationManagerChangeLog.actor_username_snapshot, _search_part),
+            keyword_ilike(AnnotationManagerChangeLog.reason, _search_part),
+        ), pattern))
     if manager_role:
         query = query.filter(AnnotationManagerChangeLog.manager_role == manager_role)
     if change_mode:

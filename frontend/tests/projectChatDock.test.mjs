@@ -56,6 +56,40 @@ function workspaceVisibility(state, followedItems = [{ projectId: 'followed-proj
   })
 }
 
+test('群聊和单聊关闭当前会话，最后一个关闭后退出大屏，不产生最小化任务', () => {
+  for (const projectType of ['annotation', 'direct']) {
+    const { dock: instance, visible } = createDockHarness()
+    const key = instance.openChat({ projectId: 'close-me', projectType, title: '待关闭会话', subtitle: '测试' })
+    instance.openFullscreen()
+    assert.equal(visible(instance.state.windows[0]), true)
+    instance.closeWorkspaceSession()
+    assert.equal(instance.state.windows.some(row => row.key === key), false)
+    assert.equal(instance.state.activeKey, '')
+    assert.equal(workspaceVisibility(instance.state).visible, false)
+    assert.equal(workspaceVisibility(instance.state).task, false)
+    instance.openFullscreen()
+    instance.closeWorkspaceSession()
+    assert.equal(workspaceVisibility(instance.state).visible, false)
+  }
+})
+
+test('关闭当前会话不删除其他已打开会话；减号仍只最小化', () => {
+  const { dock: instance } = createDockHarness()
+  const first = instance.openChat({ projectId: 'group', projectType: 'annotation', title: '群聊', subtitle: 'A-001' })
+  const second = instance.openChat({ projectId: 'person', projectType: 'direct', title: '单聊', subtitle: '客户部' })
+  instance.openFullscreen()
+  instance.closeWorkspaceSession()
+  assert.deepEqual(Array.from(instance.state.windows, row => row.key), [first])
+  assert.equal(instance.state.activeKey, first)
+  assert.notEqual(instance.state.activeKey, second)
+  assert.equal(workspaceVisibility(instance.state).visible, true)
+  instance.minimizeWorkspace()
+  assert.equal(instance.state.windows.length, 1)
+  assert.equal(workspaceVisibility(instance.state).task, true)
+  assert.match(workspace, /@click="emit\('close-active'\)"/)
+  assert.match(dock, /@close-active="closeWorkspaceSession"/)
+})
+
 test('历史提及只标记原目录及临时打开的项目，不能加入目录外项目', () => {
   const source = dock.slice(dock.indexOf('const sessions = computed'), dock.indexOf('async function updatePreference'))
   const rows = runInNewContext(`${source}\n;sessions.value`, {

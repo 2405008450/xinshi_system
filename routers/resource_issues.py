@@ -1,4 +1,5 @@
 """独立认证路由；关联人员无资源模块权限时也能访问本人记录。"""
+from search_matching import keyword_ilike, keyword_or
 from datetime import date
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -77,11 +78,13 @@ def listing(keyword: str | None = Query(None, max_length=255), category: IssueCa
     if keyword and keyword.strip():
         escaped = keyword.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         pattern = f"%{escaped}%"
-        def contains(column):
-            return column.ilike(pattern, escape="\\")
-        task_match = db.query(Task.id).filter(Task.issue_id == Issue.id, or_(*[
-            contains(c) for c in (Task.content, Task.progress, Task.remarks, Task.executor_name)])).exists()
-        q = q.filter(or_(*[contains(c) for c in (Issue.content, Issue.remarks, Issue.source_title, Issue.proposer_name)], task_match))
+        def match_part(part):
+            def contains(column):
+                return keyword_ilike(column, part, escape="\\")
+            task_match = db.query(Task.id).filter(Task.issue_id == Issue.id, or_(*[
+                contains(c) for c in (Task.content, Task.progress, Task.remarks, Task.executor_name)])).exists()
+            return or_(*[contains(c) for c in (Issue.content, Issue.remarks, Issue.source_title, Issue.proposer_name)], task_match)
+        q = q.filter(keyword_or(match_part, pattern))
     total = q.count()
     rows = q.order_by(Issue.created_at.desc(), Issue.id.desc()).offset(skip).limit(limit).all()
     # 一次加载当页任务和权限，避免每行重复查询远程业务数据库。

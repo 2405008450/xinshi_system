@@ -1,6 +1,7 @@
 """跨业务资源需求服务。"""
 
 from __future__ import annotations
+from search_matching import keyword_ilike, keyword_like, keyword_or
 
 from datetime import date, datetime
 from typing import Optional
@@ -65,12 +66,12 @@ def list_source_project_options(
         query = query.filter(model.annotation_migrated_at.is_(None))
     if keyword and keyword.strip():
         pattern = f"%{keyword.strip()}%"
-        query = query.filter(or_(
-            model.order_no.ilike(pattern),
-            model.project_name.ilike(pattern),
-            Client.client_short_name.ilike(pattern),
-            SubClient.client_short_name.ilike(pattern),
-        ))
+        query = query.filter(keyword_or(lambda _search_part: or_(
+            keyword_ilike(model.order_no, _search_part),
+            keyword_ilike(model.project_name, _search_part),
+            keyword_ilike(Client.client_short_name, _search_part),
+            keyword_ilike(SubClient.client_short_name, _search_part),
+        ), pattern))
     rows = (
         query.order_by(model.updated_at.desc(), model.id.desc())
         .limit(min(max(limit, 1), 50))
@@ -237,7 +238,7 @@ def generate_resource_request_no(db: Session, current_time: Optional[datetime] =
         db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"resource-request:{day}"})
     last_no = (
         db.query(ResourceRequest.request_no)
-        .filter(ResourceRequest.request_no.like(f"{prefix}%"))
+        .filter(keyword_like(ResourceRequest.request_no, f"{prefix}%"))
         .order_by(ResourceRequest.request_no.desc())
         .limit(1)
         .scalar()

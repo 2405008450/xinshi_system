@@ -18,7 +18,7 @@ function harness() {
     clearTimeout: id => timers.delete(id), setInterval: () => ++serial, clearInterval: () => {},
     chatRequest: (path, options) => new Promise((resolve, reject) => requests.push({ path, ...options, resolve, reject })),
   }
-  runInNewContext(source.replace(/^import .+\n/gm, '').replace('export function', 'function'), context)
+  runInNewContext(source.replace(/^import .+\r?\n/gm, '').replace('export function', 'function'), context)
   const keyword = { value: '' }, active = { value: true }, filters = { value: {} }
   const state = context.useChatMentions(keyword, active, filters)
   const change = async (target, value) => {

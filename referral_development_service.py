@@ -1,5 +1,6 @@
 """推荐奖励台账服务；事务提交由路由负责。"""
 from datetime import datetime, timedelta, timezone
+from search_matching import keyword_contains, search_terms
 
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
@@ -128,11 +129,12 @@ def filtered_records(db, user, *, start=None, end=None, keyword=None, payment_st
         if value:
             query = query.filter(field == value)
     if keyword and keyword.strip():
-        term = keyword.strip()
-        wx_match = Record.wechat.icontains(term, autoescape=True)
-        if not can_delegate(db, user):
-            wx_match = and_(Record.created_by == user.id, wx_match)
-        query = query.filter(or_(Record.full_name.icontains(term, autoescape=True), wx_match))
+        delegate = can_delegate(db, user)
+        for term in search_terms(keyword):
+            wx_match = keyword_contains(Record.wechat, term)
+            if not delegate:
+                wx_match = and_(Record.created_by == user.id, wx_match)
+            query = query.filter(or_(keyword_contains(Record.full_name, term), wx_match))
     return query
 
 

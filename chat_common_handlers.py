@@ -1,4 +1,5 @@
 """群聊与私聊共用稳定时间线与文件校验上传。"""
+from search_matching import keyword_ilike
 import uuid
 import os
 from pathlib import Path
@@ -22,7 +23,7 @@ def chat_timeline(service, project_id: UUID, before: int | None = None, after: i
     service.require_project(db, project_id, user)
     query = service.message_query(db, project_id)
     if keyword.strip():
-        query = query.filter(ChatProjectMessage.recalled_at.is_(None), ChatProjectMessage.content.ilike('%' + keyword.strip().replace('\\','\\\\').replace('%','\\%').replace('_','\\_') + '%', escape='\\'))
+        query = query.filter(ChatProjectMessage.recalled_at.is_(None), keyword_ilike(ChatProjectMessage.content, '%' + keyword.strip().replace('\\','\\\\').replace('%','\\%').replace('_','\\_') + '%', escape='\\'))
     if sender_user_id:
         query = query.filter(ChatProjectMessage.sender_user_id == sender_user_id)
     if favorites_only:

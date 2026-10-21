@@ -4,6 +4,7 @@
       <div class="card-header">
         <span>{{ props.orderScope === 'child' ? (effectiveOrderScope === 'grandchild' ? '标注三级订单管理' : '标注子订单管理') : '标注项目管理' }}</span>
         <div class="header-actions">
+          <template v-if="!props.conversationPicker">
           <ProjectExportMenu v-if="!deleteMode" module="annotation" :build-filters="buildFilters" />
           <el-button v-if="props.orderScope === 'child'" @click="router.push({ name: 'AnnotationProjectDetails' })">返回订单列表</el-button>
           <el-button v-if="props.orderScope !== 'child'" @click="goChildManagement()">子订单管理</el-button>
@@ -12,10 +13,13 @@
           <el-button v-if="props.orderScope === 'child' && canWrite && !deleteMode" @click="openChildCreate(null, false)">{{ effectiveOrderScope === 'grandchild' ? '批量新增三级订单' : '批量新增子订单' }}</el-button>
           <el-button @click="progressSearchVisible = true">进度记录</el-button>
           <CustomFieldManager v-if="canWrite" table-code="project" @changed="loadProjectCustomFields" />
+          </template>
           <TableColumnSettings v-model="visibleColumnKeys" :columns="configurableTableColumns" :column-count="2" hint="订单号始终显示，点击可查看详情。" @reset="resetColumns" />
+          <template v-if="!props.conversationPicker">
           <el-button v-if="canAdjustManagers && !deleteMode" @click="managerTransferVisible = true">交接</el-button>
           <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
           <el-button v-if="canWrite && !deleteMode && props.orderScope !== 'child'" type="primary" @click="handleAdd">新增标注项目</el-button>
+          </template>
         </div>
       </div>
     </template>
@@ -49,7 +53,7 @@
 
     <el-alert v-if="capabilitiesLoaded && !supportsGrandchildOrders" title="当前后端尚未启用三级订单、片区和字段继承；订单、子订单仍可正常使用。" type="info" :closable="false" show-icon />
     <el-alert v-if="capabilitiesLoaded && !supportsLanguageRegions" title="当前后端尚未启用语种地区，暂不能录入城市、区县、街道；其他项目字段仍可正常使用。" type="info" :closable="false" show-icon />
-    <AnnotationOrderTable ref="projectTableRef" :supports-grandchild-orders="supportsGrandchildOrders" :rows="tableData" :columns="visibleTableColumns" :editable="canWrite" :delete-mode="deleteMode" :revision="childRevision" :area-ids="supportsGrandchildOrders ? searchForm.areaIds : []" :row-class="projectRowClass" v-loading="loading" class="annotation-table" @selection-change="handleDeleteSelectionChange" @create="openChildCreate" @manage="row => goChildManagement(row.id, row.orderLevel)" @updated="handleOrderUpdated">
+    <AnnotationOrderTable :conversation-picker="props.conversationPicker" ref="projectTableRef" :supports-grandchild-orders="supportsGrandchildOrders" :rows="tableData" :columns="visibleTableColumns" :editable="canWrite" :delete-mode="deleteMode" :revision="childRevision" :area-ids="supportsGrandchildOrders ? searchForm.areaIds : []" :row-class="projectRowClass" v-loading="loading" class="annotation-table" @selection-change="handleDeleteSelectionChange" @create="openChildCreate" @manage="row => goChildManagement(row.id, row.orderLevel)" @updated="handleOrderUpdated">
       <template #header="{ column }">
           <AnnotationRegionColumnHeader v-if="column.key === 'regionSummary'" v-model:level="regionDisplayLevel" :definition="regionFilterDefinition" :model="searchForm" @update-field="(key,value)=>searchForm[key]=value" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch" />
           <ConfiguredColumnHeaderFilter v-else-if="headerFilterDefinition(column.key)" :definition="headerFilterDefinition(column.key)" :model-value="searchForm[headerFilterDefinition(column.key).key]" @update:model-value="searchForm[headerFilterDefinition(column.key).key]=$event" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch">
@@ -57,14 +61,14 @@
           </ConfiguredColumnHeaderFilter>
           <template v-else><ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" /><span v-else>{{ column.label }}</span></template>
         </template>
-      <template #order="{ row }">
+      <template #order="{ row, toggle }">
           <div class="order-cell">
             <AnnotationProjectDetailPopover v-if="row.id" :project-id="row.id" :summary="row" :editable="canWrite && !deleteMode" @updated="handleOrderUpdated">
               <template #reference><el-button type="primary" link class="order-no-link business-clickable-cell" :title="row.orderNo" @click.stop>{{ row.orderNo }}</el-button></template>
             </AnnotationProjectDetailPopover>
             <div class="order-cell-secondary">
               <el-tag v-if="row.parentProjectId" size="small" type="warning">{{ row.orderLevel === 2 ? '三级订单' : '子订单' }}</el-tag>
-              <el-button v-if="row.orderLevel < (supportsGrandchildOrders ? 2 : 1)" link type="primary" @click="goChildManagement(row.id, row.orderLevel)">{{ row.orderLevel === 1 ? '三级订单' : '子订单' }} {{ row.childCount || 0 }}</el-button>
+              <el-button v-if="row.orderLevel < (supportsGrandchildOrders ? 2 : 1)" link type="primary" @click="props.conversationPicker ? toggle() : goChildManagement(row.id, row.orderLevel)">{{ row.orderLevel === 1 ? '三级订单' : '子订单' }} {{ row.childCount || 0 }}</el-button>
               <AnnotationMaterialPopover :project-id="row.id" />
               <PathActionButtons class="annotation-copy-path" :show-open="false" @copy="copyProjectPath(row)" />
             </div>
@@ -72,7 +76,7 @@
         </template>
       <template #cell="{ row, column }">
           <el-button
-            v-if="column.key === 'projectStatus'"
+            v-if="column.key === 'projectStatus' && !props.conversationPicker"
             type="primary"
             link
             class="project-progress-link"
@@ -89,6 +93,7 @@
               <el-icon class="status-switch-caret"><EditPen /></el-icon>
             </el-tag>
           </el-button>
+          <el-tag v-else-if="column.key === 'projectStatus'" :type="statusType(row.projectStatus)" size="small">{{ statusLabel(row.projectStatus) }}</el-tag>
           <el-button v-else-if="column.key === 'latestCustomerProgressNote'" link type="primary" class="customer-progress-summary-link" @click.stop="openProgress(row, '', 'progress', 'customer')">{{ row.latestCustomerProgressNote || '-' }}</el-button>
           <el-dropdown
             v-else-if="column.key === 'priority' && canWrite"
@@ -171,7 +176,8 @@
           <span v-else>{{ textValue(row[column.key]) }}</span>
         </template>
       <template #actions="{ row }">
-          <div class="annotation-row-actions">
+          <el-button v-if="props.conversationPicker" link type="primary" :disabled="props.joinedProjectIds.includes(row.id)" :loading="props.joiningProjectIds.includes(row.id)" @click="emit('join-conversation', row)">{{ props.joinedProjectIds.includes(row.id) ? '已加入' : '加入会话' }}</el-button>
+          <div v-else class="annotation-row-actions">
             <span class="arrangement-status-slot">
               <el-tooltip
                 v-if="row.arrangementIncluded"
@@ -682,14 +688,15 @@ import { businessDateTimeInputValue, formatBusinessDateTimeMinute as formatDateT
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 import { isValidAnnotationOrderNo, normalizeAnnotationOrderNo } from '@/utils/annotationOrderNo'
 
-const canWrite = hasPermission('projects:write')
-const canAdjustManagers = hasPermission(['projects:read', 'projects:write'])
+const props = defineProps({ orderScope: { type: String, default: 'parent' }, conversationPicker: Boolean, joinedProjectIds: { type: Array, default: () => [] }, joiningProjectIds: { type: Array, default: () => [] } })
+const emit = defineEmits(['join-conversation'])
+const canWrite = !props.conversationPicker && hasPermission('projects:write')
+const canAdjustManagers = !props.conversationPicker && hasPermission(['projects:read', 'projects:write'])
 const managerReasonDialog = ref(null), managerEditBaseline = ref(null), annotationManagerUsers = ref([])
-const canDirectTransferManager = isSuperAdmin()
-const canManageArrangementPool = isSuperAdmin()
+const canDirectTransferManager = !props.conversationPicker && isSuperAdmin()
+const canManageArrangementPool = !props.conversationPicker && isSuperAdmin()
 const canChangeOrderNo = canWrite && hasPermission('projects:order_no:write')
 const canViewAccounts = hasPermission(['annotation_accounts:read', 'annotation_accounts:write'])
-const props = defineProps({ orderScope: { type: String, default: 'parent' } })
 const childCreateSplit = ref(false)
 const childCreateVisible = ref(false), childCreateParent = ref(null), childCreateSingle = ref(false), childRevision = ref(0), editorTab = ref('form')
 const parentFilterId = ref(''), parentFilterOptions = ref([])
@@ -1281,8 +1288,8 @@ const closeMaterialEditor=(done)=>{if(submitLoading.value){ElMessage.warning('�
 
 watch(()=>[form.clientShortName,[...form.projectTypes],form.languageItems.map((item)=>`${item.mode}:${item.sourceLanguageId}:${item.targetLanguageId}`).join('|')],()=>{clearTimeout(autoNameTimer);if(nameManuallyEdited.value||!dialogVisible.value)return;autoNameTimer=setTimeout(()=>{form.projectName=buildGeneratedProjectName()},300)},{deep:true})
 
-onMounted(async()=>{try{const capabilities=await annotationApi.getAnnotationListCapabilities();supportsGrandchildOrders.value=capabilities.grandchildOrders;supportsLanguageRegions.value=capabilities.languageRegions;supportsRegionFilters.value=capabilities.regionFilters}catch{supportsGrandchildOrders.value=false}finally{capabilitiesLoaded.value=true}parentFilterId.value=String(route.query.parentProjectId||'');if(props.orderScope==='child')void searchParentFilters();const editorReady=Promise.all([loadReferenceData(),loadAreas(),loadProjectCustomFields(),loadResourceRequestStatuses()]);if(route.query.projectId){await focusRouteProject(editorReady);return}await Promise.all([fetchData(),editorReady])})
-watch(()=>[route.query.projectId,route.query.openEditor,route.query.openProgress,route.query.tab],([projectId,openEditor,openProgress,tab],[previousProjectId,previousOpenEditor,previousOpenProgress,previousTab])=>{if(projectId&&(projectId!==previousProjectId||(openEditor==='1'&&previousOpenEditor!=='1')||(openProgress==='1'&&previousOpenProgress!=='1')||(tab==='chat'&&previousTab!=='chat')))void focusRouteProject()})
+onMounted(async()=>{try{const capabilities=await annotationApi.getAnnotationListCapabilities();supportsGrandchildOrders.value=capabilities.grandchildOrders;supportsLanguageRegions.value=capabilities.languageRegions;supportsRegionFilters.value=capabilities.regionFilters}catch{supportsGrandchildOrders.value=false}finally{capabilitiesLoaded.value=true}parentFilterId.value=String(route.query.parentProjectId||'');if(props.orderScope==='child')void searchParentFilters();const editorReady=Promise.all([loadReferenceData(),loadAreas(),loadProjectCustomFields(),loadResourceRequestStatuses()]);if(!props.conversationPicker && route.query.projectId){await focusRouteProject(editorReady);return}await Promise.all([fetchData(),editorReady])})
+watch(()=>[route.query.projectId,route.query.openEditor,route.query.openProgress,route.query.tab],([projectId,openEditor,openProgress,tab],[previousProjectId,previousOpenEditor,previousOpenProgress,previousTab])=>{if(!props.conversationPicker&&projectId&&(projectId!==previousProjectId||(openEditor==='1'&&previousOpenEditor!=='1')||(openProgress==='1'&&previousOpenProgress!=='1')||(tab==='chat'&&previousTab!=='chat')))void focusRouteProject()})
 watch(()=>[route.query.parentProjectId,route.query.orderScope],([id])=>{parentFilterId.value=String(id||'');if(props.orderScope==='child'){void searchParentFilters();handleSearch()}})
 onBeforeUnmount(()=>{parentFilterController?.abort();clearTimeout(searchTimer);clearTimeout(autoNameTimer);requestController?.abort();languageReserveRequestId+=1})
 </script>

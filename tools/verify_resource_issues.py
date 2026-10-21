@@ -74,7 +74,7 @@ with engine.begin() as connection:
     connection.execute(text('CREATE EXTENSION IF NOT EXISTS pg_trgm'))
     connection.execute(text('CREATE SEQUENCE chat_message_sequence'))
 # 迁移负责创建新表及其SQL默认值，不能先让ORM创建同名表。
-Base.metadata.create_all(engine,tables=[table for table in Base.metadata.sorted_tables if table.name not in ('resource_development_issue','resource_development_issue_task','chat_topic','chat_message_topic','chat_topic_audit','chat_session_category','chat_session_category_link')])
+Base.metadata.create_all(engine,tables=[table for table in Base.metadata.sorted_tables if table.name not in ('resource_development_issue','resource_development_issue_task','chat_topic','chat_message_topic','chat_topic_audit','chat_session_category','chat_session_category_link','chat_session_category_folder','chat_discussion_message','chat_discussion_member')])
 sql=Path('data/migrations/20261012_resource_development_issues.sql').read_text(encoding='utf-8')
 with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as connection:
     connection.exec_driver_sql(sql)
@@ -85,6 +85,12 @@ with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as connect
     categories=Path('data/migrations/20261019_chat_session_categories.sql').read_text(encoding='utf-8')
     connection.exec_driver_sql(categories)
     connection.exec_driver_sql(categories)
+    folders=Path('data/migrations/20261020_chat_session_folders.sql').read_text(encoding='utf-8')
+    connection.exec_driver_sql(folders)
+    connection.exec_driver_sql(folders)
+    discussions=Path('data/migrations/20261020_resource_discussion_rooms.sql').read_text(encoding='utf-8')
+    connection.exec_driver_sql(discussions)
+    connection.exec_driver_sql(discussions)
     connection.exec_driver_sql(Path('data/migrations/20261011_auto_talent_resource_code.sql').read_text(encoding='utf-8'))
 print('开拓问题迁移首次及重复执行通过')
 '''

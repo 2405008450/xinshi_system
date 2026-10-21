@@ -5,21 +5,23 @@
     <AppForm ref="formRef" :model="form" @submit.prevent="save">
       <el-form-item label="团队分类" prop="ids">
         <el-checkbox-group v-model="form.ids" :disabled="saving" class="assignment-options">
-          <el-checkbox v-for="row in categories.items.filter(item => item.active)" :key="row.id" :value="row.id">{{ row.name }}</el-checkbox>
+          <el-checkbox v-for="row in folderOptions" :key="row.id" :value="row.id">{{ row.label }}</el-checkbox>
         </el-checkbox-group>
-        <span v-if="!categories.items.some(row => row.active)">暂无可用分类，请联系主题管理员新增。</span>
+        <span v-if="!folderOptions.length">暂无可用目录，请联系超级管理员或 Jimmy 新增。</span>
       </el-form-item>
     </AppForm>
     <template #footer><el-button :disabled="saving" @click="visible = false">取消</el-button><el-button type="primary" :loading="saving" :disabled="!loaded" @click="save">确定</el-button></template>
   </DraggableFormDialog>
 </template>
 <script setup>
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { chatRequest } from '@/api/projectChat'
 import { useChatSessionCategories } from '@/composables/useChatSessionCategories'
+import { assignableSessionFolders } from '@/utils/chatSessionFolders'
 import '@/views/resource/components/issueDialogs.css'
 const emit = defineEmits(['changed'])
 const { categories, refresh } = useChatSessionCategories()
+const folderOptions = computed(() => assignableSessionFolders(categories.items).filter(row => !row.builtin || categories.hierarchyReady))
 const visible = ref(false), saving = ref(false), loaded = ref(false), error = ref(''), formRef = ref(), form = reactive({ ids: [] })
 let session, original = new Set()
 async function open(row) {
@@ -34,7 +36,7 @@ async function save() {
   if (saving.value || !loaded.value || !await formRef.value.validate().catch(() => false)) return
   saving.value = true; error.value = ''
   const desired = new Set(form.ids)
-  const operations = categories.items.filter(row => row.active && original.has(row.id) !== desired.has(row.id))
+  const operations = folderOptions.value.filter(row => original.has(row.id) !== desired.has(row.id))
   const failures = []
   for (const row of operations) {
     const adding = desired.has(row.id)

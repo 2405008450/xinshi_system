@@ -1,3 +1,4 @@
+from search_matching import keyword_ilike, keyword_like, keyword_or
 from typing import List, Optional
 from uuid import UUID
 from datetime import date, datetime, time, timedelta
@@ -94,9 +95,9 @@ def get_users(
 ) -> List[AppUser]:
     query = db.query(AppUser)
     if username:
-        query = query.filter(AppUser.username.ilike(f"%{username}%"))
+        query = query.filter(keyword_ilike(AppUser.username, f"%{username}%"))
     if full_name:
-        query = query.filter(AppUser.full_name.ilike(f"%{full_name}%"))
+        query = query.filter(keyword_ilike(AppUser.full_name, f"%{full_name}%"))
     if department:
         query = query.filter(AppUser.department.in_(department_filter_values(department)))
     rows = (
@@ -121,9 +122,9 @@ def count_users(
 ) -> int:
     query = db.query(AppUser.id)
     if username:
-        query = query.filter(AppUser.username.ilike(f"%{username}%"))
+        query = query.filter(keyword_ilike(AppUser.username, f"%{username}%"))
     if full_name:
-        query = query.filter(AppUser.full_name.ilike(f"%{full_name}%"))
+        query = query.filter(keyword_ilike(AppUser.full_name, f"%{full_name}%"))
     if department:
         query = query.filter(AppUser.department.in_(department_filter_values(department)))
     return query.count()
@@ -241,7 +242,7 @@ def generate_client_code(db: Session) -> str:
     last_records = [
         (
             db.query(Client)
-            .filter(Client.client_code.like(f"{current_prefix}%"))
+            .filter(keyword_like(Client.client_code, f"{current_prefix}%"))
             .order_by(Client.client_code.desc())
             .first()
         )
@@ -302,31 +303,31 @@ def _apply_client_filters(
     for value, client_column, sub_client_column in text_filters:
         if value and value.strip():
             pattern = f"%{value.strip()}%"
-            query = query.filter(or_(
-                client_column.ilike(pattern),
-                Client.sub_clients.any(sub_client_column.ilike(pattern)),
-            ))
+            query = query.filter(keyword_or(lambda _search_part: or_(
+                keyword_ilike(client_column, _search_part),
+                Client.sub_clients.any(keyword_ilike(sub_client_column, _search_part)),
+            ), pattern))
 
     if client_name and client_name.strip():
         pattern = f"%{client_name.strip()}%"
-        query = query.filter(or_(
-            Client.client_name.ilike(pattern),
-            Client.client_short_name.ilike(pattern),
+        query = query.filter(keyword_or(lambda _search_part: or_(
+            keyword_ilike(Client.client_name, _search_part),
+            keyword_ilike(Client.client_short_name, _search_part),
             Client.sub_clients.any(or_(
-                SubClient.client_name.ilike(pattern),
-                SubClient.client_short_name.ilike(pattern),
+                keyword_ilike(SubClient.client_name, _search_part),
+                keyword_ilike(SubClient.client_short_name, _search_part),
             )),
-        ))
+        ), pattern))
     if english_name and english_name.strip():
         pattern = f"%{english_name.strip()}%"
-        query = query.filter(or_(
-            Client.english_name.ilike(pattern),
-            Client.english_short_name.ilike(pattern),
+        query = query.filter(keyword_or(lambda _search_part: or_(
+            keyword_ilike(Client.english_name, _search_part),
+            keyword_ilike(Client.english_short_name, _search_part),
             Client.sub_clients.any(or_(
-                SubClient.english_name.ilike(pattern),
-                SubClient.english_short_name.ilike(pattern),
+                keyword_ilike(SubClient.english_name, _search_part),
+                keyword_ilike(SubClient.english_short_name, _search_part),
             )),
-        ))
+        ), pattern))
     if client_status:
         query = query.filter(or_(
             Client.client_status == client_status,
@@ -360,17 +361,17 @@ def _apply_client_filters(
             continue
         if field == "client_name" and descriptor.get("op") == "contains":
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
-            query = query.filter(or_(
-                Client.client_name.ilike(pattern), Client.client_short_name.ilike(pattern),
-                Client.sub_clients.any(or_(SubClient.client_name.ilike(pattern), SubClient.client_short_name.ilike(pattern))),
-            ))
+            query = query.filter(keyword_or(lambda _search_part: or_(
+                keyword_ilike(Client.client_name, _search_part), keyword_ilike(Client.client_short_name, _search_part),
+                Client.sub_clients.any(or_(keyword_ilike(SubClient.client_name, _search_part), keyword_ilike(SubClient.client_short_name, _search_part))),
+            ), pattern))
             continue
         if field == "english_name" and descriptor.get("op") == "contains":
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
-            query = query.filter(or_(
-                Client.english_name.ilike(pattern), Client.english_short_name.ilike(pattern),
-                Client.sub_clients.any(or_(SubClient.english_name.ilike(pattern), SubClient.english_short_name.ilike(pattern))),
-            ))
+            query = query.filter(keyword_or(lambda _search_part: or_(
+                keyword_ilike(Client.english_name, _search_part), keyword_ilike(Client.english_short_name, _search_part),
+                Client.sub_clients.any(or_(keyword_ilike(SubClient.english_name, _search_part), keyword_ilike(SubClient.english_short_name, _search_part))),
+            ), pattern))
             continue
         columns = {
             "client_code": (Client.client_code, SubClient.sub_client_code),
@@ -388,7 +389,7 @@ def _apply_client_filters(
         }.get(field)
         if columns and descriptor.get("op") == "contains":
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
-            query = query.filter(or_(columns[0].ilike(pattern), Client.sub_clients.any(columns[1].ilike(pattern))))
+            query = query.filter(keyword_or(lambda _search_part: or_(keyword_ilike(columns[0], _search_part), Client.sub_clients.any(keyword_ilike(columns[1], _search_part))), pattern))
     return query
 
 def get_clients(
@@ -627,7 +628,7 @@ def generate_sub_client_code(db: Session, parent_id: UUID) -> str:
     last = (
         db.query(SubClient)
         .filter(SubClient.parent_client_id == parent_id)
-        .filter(SubClient.sub_client_code.like(f"{base_no}.%"))
+        .filter(keyword_like(SubClient.sub_client_code, f"{base_no}.%"))
         .order_by(SubClient.sub_client_code.desc())
         .first()
     )
@@ -730,13 +731,13 @@ def _apply_translator_filters(
             ResourceCapability.status == "active",
         )
     if translator_code:
-        query = query.filter(Translator.translator_code.ilike(f"%{translator_code}%"))
+        query = query.filter(keyword_ilike(Translator.translator_code, f"%{translator_code}%"))
     if translator_name:
-        query = query.filter(Translator.translator_name.ilike(f"%{translator_name}%"))
+        query = query.filter(keyword_ilike(Translator.translator_name, f"%{translator_name}%"))
     if cooperation_type:
         query = query.filter(Translator.cooperation_type == cooperation_type)
     if languages:
-        query = query.filter(Translator.languages.ilike(f"%{languages}%"))
+        query = query.filter(keyword_ilike(Translator.languages, f"%{languages}%"))
     if translation_type:
         query = query.filter(Translator.translation_type == translation_type)
     if direction:
@@ -744,25 +745,25 @@ def _apply_translator_filters(
     if status:
         query = query.filter(Translator.status == status)
     if available_time_slot:
-        query = query.filter(Translator.available_time_slot.ilike(f"%{available_time_slot}%"))
+        query = query.filter(keyword_ilike(Translator.available_time_slot, f"%{available_time_slot}%"))
     if domain_keyword:
-        query = query.filter(Translator.domain_skills.cast(String).ilike(f"%{domain_keyword}%"))
+        query = query.filter(keyword_ilike(Translator.domain_skills.cast(String), f"%{domain_keyword}%"))
     if contact_keyword and contact_keyword.strip():
         pattern = f"%{contact_keyword.strip()}%"
-        query = query.filter(or_(
-            Translator.contact_info.ilike(pattern),
-            Translator.phone.ilike(pattern),
-            Translator.phone2.ilike(pattern),
-            Translator.email1.ilike(pattern),
-            Translator.email2.ilike(pattern),
-            Translator.other_contact.ilike(pattern),
-        ))
+        query = query.filter(keyword_or(lambda _search_part: or_(
+            keyword_ilike(Translator.contact_info, _search_part),
+            keyword_ilike(Translator.phone, _search_part),
+            keyword_ilike(Translator.phone2, _search_part),
+            keyword_ilike(Translator.email1, _search_part),
+            keyword_ilike(Translator.email2, _search_part),
+            keyword_ilike(Translator.other_contact, _search_part),
+        ), pattern))
     if quality_score and quality_score.strip():
-        query = query.filter(Translator.quality_score.ilike(f"%{quality_score.strip()}%"))
+        query = query.filter(keyword_ilike(Translator.quality_score, f"%{quality_score.strip()}%"))
     if gender and gender.strip():
-        query = query.filter(Translator.gender.ilike(f"%{gender.strip()}%"))
+        query = query.filter(keyword_ilike(Translator.gender, f"%{gender.strip()}%"))
     if nationality and nationality.strip():
-        query = query.filter(Translator.nationality.ilike(f"%{nationality.strip()}%"))
+        query = query.filter(keyword_ilike(Translator.nationality, f"%{nationality.strip()}%"))
     if can_cloud_edit is not None:
         query = query.filter(Translator.can_cloud_edit == can_cloud_edit)
     if can_revision is not None:
@@ -1721,28 +1722,28 @@ def _apply_translation_project_filters(
 ):
     if keyword and keyword.strip():
         pattern = f"%{keyword.strip()}%"
-        query = query.filter(or_(
-            TranslationProject.order_no.ilike(pattern),
+        query = query.filter(keyword_or(lambda _search_part: or_(
+            keyword_ilike(TranslationProject.order_no, _search_part),
             TranslationProject.sub_orders.any(
-                TranslationSubOrder.sub_order_no.ilike(pattern)
+                keyword_ilike(TranslationSubOrder.sub_order_no, _search_part)
             ),
             TranslationProject.sub_orders.any(
-                TranslationSubOrder.sub_project_name.ilike(pattern)
+                keyword_ilike(TranslationSubOrder.sub_project_name, _search_part)
             ),
-            TranslationProject.project_name.ilike(pattern),
-            TranslationProject.source_file_name.ilike(pattern),
-            TranslationProject.customer_order_no.ilike(pattern),
-            Client.client_name.ilike(pattern),
-            Client.client_short_name.ilike(pattern),
-            SubClient.client_name.ilike(pattern),
-            SubClient.client_short_name.ilike(pattern),
-        ))
+            keyword_ilike(TranslationProject.project_name, _search_part),
+            keyword_ilike(TranslationProject.source_file_name, _search_part),
+            keyword_ilike(TranslationProject.customer_order_no, _search_part),
+            keyword_ilike(Client.client_name, _search_part),
+            keyword_ilike(Client.client_short_name, _search_part),
+            keyword_ilike(SubClient.client_name, _search_part),
+            keyword_ilike(SubClient.client_short_name, _search_part),
+        ), pattern))
     if created_by:
         query = query.filter(TranslationProject.created_by == created_by)
     if project_name:
-        query = query.filter(TranslationProject.project_name.ilike(f"%{project_name}%"))
+        query = query.filter(keyword_ilike(TranslationProject.project_name, f"%{project_name}%"))
     if order_no:
-        query = query.filter(TranslationProject.order_no.ilike(f"%{order_no}%"))
+        query = query.filter(keyword_ilike(TranslationProject.order_no, f"%{order_no}%"))
     if project_status:
         query = query.filter(or_(
             TranslationProject.project_status == project_status,
@@ -1751,7 +1752,7 @@ def _apply_translation_project_filters(
             ),
         ))
     if client_short_name:
-        query = query.filter(Client.client_short_name.ilike(f"%{client_short_name}%"))
+        query = query.filter(keyword_ilike(Client.client_short_name, f"%{client_short_name}%"))
     if task_type:
         query = query.filter(TranslationProject.task_type == task_type)
     if service_content:
@@ -1859,7 +1860,7 @@ def _apply_translation_project_filters(
                 "sub_client_code": SubClient.sub_client_code,
             }[field]
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
-            query = query.filter(column.ilike(pattern))
+            query = query.filter(keyword_ilike(column, pattern))
         elif field in {"word_count", "word_count_dimension", "word_count_metric_type", "translator_return_time"}:
             continue
         elif field == "translator_name":
@@ -1872,13 +1873,13 @@ def _apply_translation_project_filters(
                 confirmed_arrangement = db_exists().where(and_(
                     ManuscriptArrangement.translation_project_id == TranslationProject.id,
                     ManuscriptArrangement.status != "cancelled",
-                    ManuscriptArrangement.translator_name_snapshot.ilike(pattern),
+                    keyword_ilike(ManuscriptArrangement.translator_name_snapshot, pattern),
                     ManuscriptDispatch.id == ManuscriptArrangement.dispatch_id,
                     ManuscriptDispatch.status != "cancelled",
                     ManuscriptDispatch.confirmed_at.is_not(None),
                 ))
                 query = query.filter(or_(
-                    TranslationProject.translator.has(Translator.translator_name.ilike(pattern)),
+                    TranslationProject.translator.has(keyword_ilike(Translator.translator_name, pattern)),
                     confirmed_arrangement,
                 ))
         elif field == "translator_id":
@@ -1908,9 +1909,9 @@ def _apply_translation_project_filters(
             keyword = str(descriptor.get("value") or "").strip()
             query = query.filter(TranslationProject.project_role_assignments.any(and_(
                 ProjectRoleAssignment.role_code == role_code,
-                ProjectRoleAssignment.assignee.has(or_(
-                    AppUser.full_name.ilike(f"%{keyword}%"), AppUser.username.ilike(f"%{keyword}%")
-                )),
+                ProjectRoleAssignment.assignee.has(keyword_or(lambda _search_part: or_(
+                    keyword_ilike(AppUser.full_name, _search_part), keyword_ilike(AppUser.username, _search_part)
+                ), f"%{keyword}%")),
             )))
         elif field in {"project_specialist_id", "project_assistant_id", "layout_specialist_id"}:
             role_code = {
@@ -1937,7 +1938,7 @@ def _apply_translation_project_filters(
                 "project_file_difficulty": ProjectFile.file_difficulty,
             }[field]
             keyword = str(descriptor.get("value") or "").strip()
-            query = query.filter(TranslationProject.project_file.any(file_column.ilike(f"%{keyword}%")))
+            query = query.filter(TranslationProject.project_file.any(keyword_ilike(file_column, f"%{keyword}%")))
         elif field in {"translator_delivery_progress", "pre_review_qc_progress", "review1_progress", "review2_progress", "post_review_qc_progress", "layout_progress", "consolidation_progress"}:
             expression = getattr(TranslationProject, field)
             numeric = cast(func.nullif(func.replace(expression, "%", ""), ""), Integer)
@@ -2830,7 +2831,7 @@ def get_project_files(db: Session, skip: int = 0, limit: int = 100, order_no: Op
     q = db.query(ProjectFile).options(joinedload(ProjectFile.translation_project))
     if order_no:
         q = q.join(ProjectFile.translation_project).filter(
-            TranslationProject.order_no.ilike(f'%{order_no}%')
+            keyword_ilike(TranslationProject.order_no, f'%{order_no}%')
         )
     return q.offset(skip).limit(limit).all()
 
@@ -2839,7 +2840,7 @@ def count_project_files(db: Session, order_no: Optional[str] = None) -> int:
     q = db.query(ProjectFile.id)
     if order_no:
         q = q.join(ProjectFile.translation_project).filter(
-            TranslationProject.order_no.ilike(f'%{order_no}%')
+            keyword_ilike(TranslationProject.order_no, f'%{order_no}%')
         )
     return q.count()
 
@@ -2938,7 +2939,7 @@ def generate_consultation_code(db: Session) -> str:
 
     last_consultation = (
         db.query(Consultation)
-        .filter(Consultation.consultation_code.like(f"EQ-{today_str}-%"))
+        .filter(keyword_like(Consultation.consultation_code, f"EQ-{today_str}-%"))
         .order_by(Consultation.consultation_code.desc())
         .first()
     )
@@ -3029,27 +3030,27 @@ def _apply_consultation_filters(
 ):
     if keyword and keyword.strip():
         keyword_pattern = f"%{keyword.strip()}%"
-        query = query.filter(or_(
-            Consultation.consultation_code.ilike(keyword_pattern),
-            Consultation.project_name.ilike(keyword_pattern),
-            Consultation.customer_order_no.ilike(keyword_pattern),
-            Client.client_name.ilike(keyword_pattern),
-            Client.client_short_name.ilike(keyword_pattern),
-            SubClient.client_name.ilike(keyword_pattern),
-            SubClient.client_short_name.ilike(keyword_pattern),
-        ))
+        query = query.filter(keyword_or(lambda _search_part: or_(
+            keyword_ilike(Consultation.consultation_code, _search_part),
+            keyword_ilike(Consultation.project_name, _search_part),
+            keyword_ilike(Consultation.customer_order_no, _search_part),
+            keyword_ilike(Client.client_name, _search_part),
+            keyword_ilike(Client.client_short_name, _search_part),
+            keyword_ilike(SubClient.client_name, _search_part),
+            keyword_ilike(SubClient.client_short_name, _search_part),
+        ), keyword_pattern))
     if consultation_code:
-        query = query.filter(Consultation.consultation_code.ilike(f"%{consultation_code}%"))
+        query = query.filter(keyword_ilike(Consultation.consultation_code, f"%{consultation_code}%"))
     if client_name:
         client_keyword = client_name.strip()
         if client_keyword:
             keyword_pattern = f"%{client_keyword}%"
-            query = query.filter(or_(
-                Client.client_name.ilike(keyword_pattern),
-                Client.client_short_name.ilike(keyword_pattern),
-                SubClient.client_name.ilike(keyword_pattern),
-                SubClient.client_short_name.ilike(keyword_pattern),
-            ))
+            query = query.filter(keyword_or(lambda _search_part: or_(
+                keyword_ilike(Client.client_name, _search_part),
+                keyword_ilike(Client.client_short_name, _search_part),
+                keyword_ilike(SubClient.client_name, _search_part),
+                keyword_ilike(SubClient.client_short_name, _search_part),
+            ), keyword_pattern))
     if status:
         query = query.filter(Consultation.status == status)
     if consultation_date_start:
@@ -3066,7 +3067,7 @@ def _apply_consultation_filters(
         type_values = CONSULTATION_TYPE_FILTER_ALIASES.get(consultation_type, (consultation_type,))
         query = query.filter(Consultation.consultation_type.in_(type_values))
     if client_source and client_source.strip():
-        query = query.filter(Consultation.client_source.ilike(f"%{client_source.strip()}%"))
+        query = query.filter(keyword_ilike(Consultation.client_source, f"%{client_source.strip()}%"))
     if customer_service_id:
         query = query.filter(Consultation.customer_service_id == customer_service_id)
     if sales_person_id:
@@ -3074,7 +3075,7 @@ def _apply_consultation_filters(
     if follow_up_person_id:
         query = query.filter(Consultation.follow_up_person_id == follow_up_person_id)
     if follow_up_status and follow_up_status.strip():
-        query = query.filter(Consultation.follow_up_status.ilike(f"%{follow_up_status.strip()}%"))
+        query = query.filter(keyword_ilike(Consultation.follow_up_status, f"%{follow_up_status.strip()}%"))
     field_filters = field_filters or {}
     query = apply_scalar_specs(query, field_filters, {
         "consultation_code": (Consultation.consultation_code, "string"),
@@ -3105,7 +3106,7 @@ def _apply_consultation_filters(
             }[field]
             keyword_value = str(descriptor.get("value") or "").strip()
             if keyword_value:
-                query = query.filter(column.ilike(f"%{keyword_value}%"))
+                query = query.filter(keyword_ilike(column, f"%{keyword_value}%"))
         elif field == "consultation_type":
             values = []
             for value in descriptor.get("value") or []:
@@ -3363,7 +3364,7 @@ def generate_sub_order_no(db: Session, parent_project_id: UUID) -> str:
     last = (
         db.query(TranslationSubOrder)
         .filter(TranslationSubOrder.parent_project_id == parent_project_id)
-        .filter(TranslationSubOrder.sub_order_no.like(f"{base_no}.%"))
+        .filter(keyword_like(TranslationSubOrder.sub_order_no, f"{base_no}.%"))
         .order_by(TranslationSubOrder.sub_order_no.desc())
         .first()
     )
@@ -3415,9 +3416,9 @@ def get_all_sub_orders(db: Session, skip: int = 0, limit: int = 200, sub_order_n
         selectinload(TranslationSubOrder.customer_charge_items),
     )
     if sub_order_no:
-        q = q.filter(TranslationSubOrder.sub_order_no.ilike(f'%{sub_order_no}%'))
+        q = q.filter(keyword_ilike(TranslationSubOrder.sub_order_no, f'%{sub_order_no}%'))
     if project_name:
-        q = q.filter(TranslationSubOrder.sub_project_name.ilike(f'%{project_name}%'))
+        q = q.filter(keyword_ilike(TranslationSubOrder.sub_project_name, f'%{project_name}%'))
     sub_orders = q.offset(skip).limit(limit).all()
     _attach_manuscript_assignees(db, sub_orders=sub_orders)
     return sub_orders
