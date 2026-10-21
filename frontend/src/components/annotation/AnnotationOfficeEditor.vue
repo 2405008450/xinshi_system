@@ -2,13 +2,13 @@
   <DraggableFormDialog :model-value="state.open" width="min(1400px, calc(100vw - 32px))" top="5vh"
     append-to-body destroy-on-close maximizable class="material-office-dialog" :close-on-click-modal="false"
     :before-close="beforeClose" @update:model-value="value => { if (!value) closeMaterialEditor() }">
-    <template #header><div class="office-title"><strong>{{ creating ? '新建 Word' : '在线编辑' }}</strong>
+    <template #header><div class="office-title"><strong>{{ creating ? `新建 ${officeLabel}` : '在线编辑' }}</strong>
       <span class="office-title__name" @mousedown.stop>{{ fileName }}</span>
       <el-tag v-if="session?.mode === 'view'" type="info" size="small">只读</el-tag>
     </div></template>
-    <div v-loading="loading || saving" class="office-body" :element-loading-text="saving ? '正在保存，请稍候…' : '正在打开 Word…'">
+    <div v-loading="loading || saving" class="office-body" :element-loading-text="saving ? '正在保存，请稍候…' : `正在打开 ${officeLabel}…`">
       <AppForm v-if="creating && !session" ref="formRef" :model="form" :rules="rules" label-width="80px" @submit.prevent="open">
-        <el-form-item label="文件名称" prop="name"><el-input v-model="form.name" maxlength="250" placeholder="请输入文件名称，扩展名自动补充" :disabled="loading"><template #append>.docx</template></el-input></el-form-item>
+        <el-form-item label="文件名称" prop="name"><el-input v-model="form.name" maxlength="250" placeholder="请输入文件名称，扩展名自动补充" :disabled="loading"><template #append>.{{ kind }}</template></el-input></el-form-item>
         <p class="office-hint">保存到“{{ request.create.folderName }}”。填写名称后点击“开始编辑”。</p>
       </AppForm>
       <el-alert v-if="session?.mode === 'view'" type="info" :closable="false" show-icon
@@ -35,7 +35,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import AppForm from '@/components/common/AppForm.vue'
 import { useMaterialEditor } from '@/composables/useMaterialEditor'
-import { documentFileName, documentNameError } from '@/utils/materialDocument'
+import { documentFileName, documentNameError, onlineEditKind } from '@/utils/materialDocument'
 import { loadOfficeScript } from '@/utils/officeScript'
 import { newFolderId } from '@/utils/annotationMaterialFolders'
 import * as api from '@/api/annotationMaterials'
@@ -43,12 +43,14 @@ import * as api from '@/api/annotationMaterials'
 const { state, closeMaterialEditor, notifyMaterialSaved } = useMaterialEditor()
 const request = computed(() => state.request)
 const creating = computed(() => Boolean(request.value?.create))
+const kind = computed(() => request.value?.create?.kind || onlineEditKind(request.value?.file?.original_name))
+const officeLabel = computed(() => kind.value === 'xlsx' ? 'Excel' : 'Word')
 const form = reactive({ name: '' }), formRef = ref(null)
 const rules = { name: [{ validator: (_rule, value, done) => {
-  const message = documentNameError(value, 'docx', request.value?.create?.siblingNames || [])
+  const message = documentNameError(value, kind.value, request.value?.create?.siblingNames || [])
   done(message ? new Error(message) : undefined)
 }, trigger: 'blur' }] }
-const fileName = computed(() => request.value?.file?.original_name || (form.name.trim() ? documentFileName(form.name, 'docx') : '未命名.docx'))
+const fileName = computed(() => request.value?.file?.original_name || (form.name.trim() ? documentFileName(form.name, kind.value) : `未命名.${kind.value}`))
 const session = ref(null), error = ref(''), loading = ref(false), saving = ref(false), ready = ref(false)
 const dirty = ref(false), syncing = ref(false), expired = ref(false)
 const hostId = `material-office-${newFolderId()}`
@@ -100,11 +102,11 @@ async function open() {
         syncing.value = Boolean(event.data)
         if (event.data) { dirty.value = true; revision++ }
       },
-      onError: () => { if (destroyed || current !== serial) return; loading.value = false; error.value = 'Word 编辑器发生错误，请保留当前内容后重试；原文件未改变' },
+      onError: () => { if (destroyed || current !== serial) return; loading.value = false; error.value = `${officeLabel.value} 编辑器发生错误，请保留当前内容后重试；原文件未改变` },
       onRequestClose: () => { if (!destroyed && current === serial) void requestClose() },
     } }
     docEditor = new sdk.DocEditor(hostId, config)
-    if (!ready.value) readyTimeout = window.setTimeout(() => { loading.value = false; error.value = 'Word 文档打开超时，请检查文档服务连接' }, 45000)
+    if (!ready.value) readyTimeout = window.setTimeout(() => { loading.value = false; error.value = `${officeLabel.value} 文件打开超时，请检查文档服务连接` }, 45000)
   } catch (failure) { error.value = errorText(failure); loading.value = false }
 }
 
@@ -130,7 +132,7 @@ async function save() {
     if (destroyed) return
     if (result.save_state !== 'complete') throw new Error(result.error || '保存尚未完成，请保留窗口后重试')
     dirty.value = false; notifyMaterialSaved(projectId)
-    ElMessage.success(creating.value ? 'Word 文件已保存' : 'Word 文件已保存，历史版本保留')
+    ElMessage.success(creating.value ? `${officeLabel.value} 文件已保存` : `${officeLabel.value} 文件已保存，历史版本保留`)
     closeMaterialEditor()
   } catch (failure) { error.value = errorText(failure) }
   finally { saving.value = false }

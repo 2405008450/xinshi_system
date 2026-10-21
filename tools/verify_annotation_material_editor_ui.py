@@ -483,6 +483,40 @@ window.DocsAPI = { DocEditor: class {
             checks += ['另一端新增文件后5秒自动刷新', '切回页面即时刷新', '跨端刷新保留待保存上传']
             checks += ['Word和文本编辑器最大化及还原', '放大保留未保存内容及编辑节点', '放大不重建Office会话', '大屏及小屏底部操作栏固定', '只读窗口可放大且重开默认小窗']
 
+            # Excel 复用真实页面中的 Office 入口，独立验证格式路由、保存及菜单。
+            dialog, manager = open_form()
+            add_row('预算.xlsx', docx_bytes)
+            page.evaluate("window.dispatchEvent(new Event('focus'))")
+            expect(manager.get_by_text('预算.xlsx', exact=True)).to_be_visible()
+            manager.locator('tbody tr').filter(has_text='预算.xlsx').dblclick()
+            expect(prose).to_be_visible()
+            prose.fill('Excel 模拟修改：A1=42')
+            check_maximize(word, prose)
+            word.get_by_role('button', name='保存为新版本').click()
+            expect(word).not_to_be_visible()
+            assert commits[-1]['file'] == '预算.xlsx'
+            manager.locator('tbody tr').filter(has_text='预算.xlsx').press('Enter')
+            expect(prose).to_have_value('Excel 模拟修改：A1=42')
+            word.get_by_role('button', name='取消', exact=True).click()
+            office_readonly[0] = True
+            manager.locator('tbody tr').filter(has_text='预算.xlsx').dblclick()
+            expect(word.get_by_text('只读', exact=True)).to_be_visible()
+            assert word.get_by_role('button', name='保存为新版本').count() == 0
+            word.get_by_role('button', name='关闭', exact=True).click()
+            office_readonly[0] = False
+            manager.get_by_role('button', name='新建文档').click()
+            page.get_by_role('menuitem', name='Excel 工作簿（.xlsx）').click()
+            expect(word).to_contain_text('新建 Excel')
+            word.get_by_placeholder('请输入文件名称，扩展名自动补充').fill('新建预算')
+            expect(word.locator('.office-title__name')).to_have_text('新建预算.xlsx')
+            word.get_by_role('button', name='开始编辑', exact=True).click()
+            expect(prose).to_be_visible()
+            prose.fill('新表数据')
+            word.get_by_role('button', name='保存文件', exact=True).click()
+            expect(word).not_to_be_visible()
+            assert creations[-1]['name'] == '新建预算.xlsx'
+            checks += ['Excel双击及回车在线编辑', 'Excel最大化还原和保存新版本', 'Excel占用只读无保存入口', '新建Excel菜单及扩展名和保存']
+
             assert not errors, errors
             report = {'verification': '模拟 ONLYOFFICE SDK 与 API，非真实排版验收', 'status': 'passed', 'checks': checks, 'page_errors': errors}
             (out / 'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')

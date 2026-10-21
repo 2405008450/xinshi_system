@@ -13,7 +13,7 @@
       <div v-if="onlineEdit" class="explorer-commands">
         <el-dropdown trigger="click" :disabled="!!createBlocked" @command="kind => $emit('create-document', kind)">
           <el-button size="small" :icon="DocumentAdd" :disabled="!!createBlocked" :title="createBlocked || '在当前目录新建文档并在线编辑'">新建文档</el-button>
-          <template #dropdown><el-dropdown-menu><el-dropdown-item command="docx">Word 文档（.docx）</el-dropdown-item><el-dropdown-item command="markdown">Markdown（.md）</el-dropdown-item><el-dropdown-item command="text">文本文件（.txt）</el-dropdown-item></el-dropdown-menu></template>
+          <template #dropdown><el-dropdown-menu><el-dropdown-item command="docx">Word 文档（.docx）</el-dropdown-item><el-dropdown-item command="xlsx">Excel 工作簿（.xlsx）</el-dropdown-item><el-dropdown-item command="markdown">Markdown（.md）</el-dropdown-item><el-dropdown-item command="text">文本文件（.txt）</el-dropdown-item></el-dropdown-menu></template>
         </el-dropdown>
       </div>
       <div class="explorer-commands explorer-selection-actions">

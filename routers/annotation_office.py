@@ -47,7 +47,7 @@ class SaveOffice(BaseModel):
 
 async def forward(request):
     if not office.enabled():
-        raise HTTPException(503, 'Word 在线编辑尚未启用，请联系管理员；可使用下载功能')
+        raise HTTPException(503, 'Office 在线编辑尚未启用，请联系管理员；可使用下载功能')
     origin = remote_origin()
     if not origin:
         return None
@@ -157,11 +157,11 @@ def source(session_id: UUID, token: str, db: Session = Depends(get_db)):
     office.require_access(db, session.owner_id)
     upload = db.get(Upload, session.source_upload_id)
     if not upload:
-        raise HTTPException(404, 'Word 源文件不存在')
+        raise HTTPException(404, 'Office 源文件不存在')
     path = office.storage_path(upload.storage_key)
     if not path.is_file():
-        raise HTTPException(404, 'Word 源文件缺失')
-    return FileResponse(path, media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        raise HTTPException(404, 'Office 源文件缺失')
+    return FileResponse(path, media_type=office.FORMATS[office.file_kind(session.original_name)]['mime'],
                         headers={'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff'})
 
 

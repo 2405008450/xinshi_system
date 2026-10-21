@@ -63,11 +63,87 @@ def force(ctx, session, monkeypatch, code=0, revision=0):
 
 
 def result(ctx, session, task_id, monkeypatch, status=6):
-    async def fetch(_url):
+    async def fetch(_url, _kind='docx'):
         return ctx[-1]
     monkeypatch.setattr(office, 'fetch_result', fetch)
     asyncio.run(office.callback(ctx[0], session.id, {'key': session.document_key, 'status': status,
-        'url': 'https://office.example.test/cache/files/result.docx', 'userdata': str(task_id)}))
+        'url': 'https://office.example.test/cache/files/result.' + office.file_kind(session.original_name), 'userdata': str(task_id)}))
+
+
+@pytest.fixture
+def xlsx_ctx(ctx):
+    db, user, project, other, material, base, _ = ctx
+    upload = db.get(Upload, base.upload_id)
+    data = office.blank_xlsx()
+    upload.original_name = '上传的预算.XLSX'
+    upload.content_type = office.FORMATS['xlsx']['mime']
+    upload.file_size = len(data)
+    materials.storage_path(upload.storage_key).write_bytes(data)
+    db.commit()
+    return db, user, project, other, material, base, data
+
+
+def test_xlsx_uploaded_save_lock_and_mime(xlsx_ctx, monkeypatch):
+    db, user, project, _, material, base, data = xlsx_ctx
+    session = start(xlsx_ctx)
+    config = office.describe(db, session, config=True)['config']
+    assert config['documentType'] == 'cell' and config['document']['fileType'] == 'xlsx'
+    assert start(xlsx_ctx).mode == 'view'
+    with pytest.raises(ValueError, match='在线编辑'):
+        materials.remove_material(db, material)
+    db.rollback()
+    source = routes.source(session.id, office.scope_token(session, 'source'), db)
+    assert source.media_type == office.FORMATS['xlsx']['mime']
+    task = force(xlsx_ctx, session, monkeypatch, revision=1)
+    result(xlsx_ctx, session, task, monkeypatch)
+    result(xlsx_ctx, session, task, monkeypatch)
+    assert session.state == 'saved' and db.query(Version).count() == 2
+    saved = db.get(Version, session.saved_version_id)
+    upload = db.get(Upload, saved.upload_id)
+    assert upload.original_name.endswith('.XLSX') and upload.content_type == office.FORMATS['xlsx']['mime']
+    assert materials.storage_path(upload.storage_key).read_bytes() == data
+
+
+def test_xlsx_new_readonly_and_cancel(xlsx_ctx, monkeypatch):
+    db, user, project, *_ = xlsx_ctx
+    session = start(xlsx_ctx)
+    viewer = start(xlsx_ctx)
+    with pytest.raises(HTTPException) as exc:
+        force(xlsx_ctx, viewer, monkeypatch)
+    assert exc.value.status_code == 403
+    task = force(xlsx_ctx, session, monkeypatch)
+    session.state = 'discarded'; db.commit()
+    result(xlsx_ctx, session, task, monkeypatch)
+    assert db.query(Version).count() == 1
+    new = office.create_session(db, project, user, name='新建预算.xlsx')
+    force(xlsx_ctx, new, monkeypatch, code=4)
+    assert new.state == 'saved' and new.file_id
+    assert office.create_session(db, project, user, file_id=new.file_id).mode == 'edit'
+
+
+def test_xlsx_format_mismatch_and_invalid_parts(ctx, monkeypatch):
+    with pytest.raises(HTTPException):
+        office.validate_office(ctx[-1], 'xlsx')
+    with pytest.raises(HTTPException):
+        office.validate_docx(office.blank_xlsx())
+    for part, value in [('xl/vbaProject.bin', b'macro'),
+                        ('xl/worksheets/sheet1.xml', b'<not-a-worksheet/>'),
+                        ('xl/workbook.xml', b'<!DOCTYPE foo [<!ENTITY x "boom">]><foo>&x;</foo>'),
+                        ('xl/_rels/workbook.xml.rels', b'<Relationships/>')]:
+        output = io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(office.blank_xlsx())) as source, zipfile.ZipFile(output, 'w') as target:
+            for item in source.infolist():
+                if item.filename != part:
+                    target.writestr(item.filename, source.read(item.filename))
+            target.writestr(part, value)
+        with pytest.raises(HTTPException) as exc:
+            office.validate_office(output.getvalue(), 'xlsx')
+        assert exc.value.status_code == 400
+    original = httpx.AsyncClient
+    monkeypatch.setattr(office.httpx, 'AsyncClient', lambda **kwargs: original(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, content=ctx[-1])), **kwargs))
+    with pytest.raises(HTTPException):
+        asyncio.run(office.fetch_result('https://office.example.test/cache/files/renamed.xlsx', 'xlsx'))
 
 
 def test_uploaded_word_open_source_and_single_writer(ctx):
@@ -115,7 +191,7 @@ def test_save_callback_idempotent_and_history_retained(ctx, monkeypatch):
 def test_autosave_only_stages_and_discard_fences_late_callback(ctx, monkeypatch):
     db = ctx[0]
     session = start(ctx)
-    async def fetch(_url):
+    async def fetch(_url, _kind='docx'):
         return ctx[-1]
     monkeypatch.setattr(office, 'fetch_result', fetch)
     asyncio.run(office.callback(db, session.id, {'key': session.document_key, 'status': 6,

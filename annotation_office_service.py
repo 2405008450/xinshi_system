@@ -18,10 +18,10 @@ from models import AppUser
 from annotation_models import AnnotationProject
 from annotation_material_models import AnnotationMaterialFile as Material, AnnotationMaterialVersion as Version, AnnotationMaterialUpload as Upload, AnnotationMaterialFolder as Folder
 from annotation_office_models import AnnotationOfficeSession as OfficeSession, AnnotationOfficeSave as OfficeSave
+from annotation_office_formats import FORMATS, LIMIT, file_kind, validate_office, blank_xlsx
 from annotation_material_service import attach_upload, storage_path
 from permission_service import user_has_permission
 
-LIMIT = 20 * 1024 * 1024
 LEASE_SECONDS = 120
 ACTIVE = ('open', 'saving')
 
@@ -50,7 +50,7 @@ def origin(name, allow_path=False):
 
 def settings():
     if not enabled():
-        raise HTTPException(503, 'Word 在线编辑尚未启用，请联系管理员；可使用下载功能')
+        raise HTTPException(503, 'Office 在线编辑尚未启用，请联系管理员；可使用下载功能')
     secret = os.getenv('ANNOTATION_OFFICE_JWT_SECRET', '')
     if len(secret) < 32:
         raise HTTPException(503, 'Office 签名密钥尚未配置')
@@ -108,26 +108,7 @@ def assert_file_unlocked(db, file_id, session_id=None):
 
 
 def validate_docx(data):
-    if not data or len(data) > LIMIT:
-        raise HTTPException(413, 'Word 文件不能为空或超过20MB')
-    try:
-        with zipfile.ZipFile(io.BytesIO(data)) as archive:
-            entries = archive.infolist()
-            if len(entries) > 10000 or sum(item.file_size for item in entries) > 200 * 1024 * 1024:
-                raise ValueError('文档解压大小超限')
-            for name in ('[Content_Types].xml', 'word/document.xml'):
-                item = archive.getinfo(name)
-                if item.file_size > 20 * 1024 * 1024 or item.flag_bits & 1:
-                    raise ValueError('文档无效或加密')
-                from defusedxml.ElementTree import fromstring
-                root = fromstring(archive.read(name))
-                if name == 'word/document.xml' and root.tag != '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}document':
-                    raise ValueError('无效 Word 正文')
-            if any(item.filename.lower().endswith('vbaproject.bin') for item in entries):
-                raise ValueError('不允许宏文档')
-    except Exception as exc:
-        # XML 解析异常也统一处理，不暴露文档内容或底层路径。
-        raise HTTPException(400, '文件不是有效的未加密 .docx 文档') from exc
+    validate_office(data, 'docx')
 
 
 def blank_docx():
@@ -140,13 +121,14 @@ def blank_docx():
 
 
 def stage_bytes(db, session, data):
-    validate_docx(data)
+    kind = file_kind(session.original_name)
+    validate_office(data, kind)
     key = uuid.uuid4().hex
     path = storage_path(key)
     path.write_bytes(data)
     row = Upload(id=uuid.uuid4(), uploaded_by=session.owner_id, uploader_name=session.owner_name,
                  original_name=session.original_name, storage_key=key, file_size=len(data),
-                 content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                 content_type=FORMATS[kind]['mime'],
                  sha256=hashlib.sha256(data).hexdigest(),
                  # 旧资料表已确认使用无时区 UTC；新会话表使用带时区业务时间。
                  created_at=now().astimezone(timezone.utc).replace(tzinfo=None),
@@ -173,15 +155,16 @@ def create_session(db, project_id, user, file_id=None, name=None, folder_id=None
         if not material:
             raise HTTPException(404, '项目资料不存在')
         latest = db.query(Version, Upload).join(Upload, Upload.id == Version.upload_id).filter(Version.file_id == file_id).order_by(Version.version_no.desc()).first()
-        if not latest or not latest[1].original_name.lower().endswith('.docx'):
-            raise HTTPException(400, 'Word 在线编辑仅支持 .docx')
+        if not latest:
+            raise HTTPException(404, 'Office 源文件不存在')
+        kind = file_kind(latest[1].original_name)
         if latest[1].file_size > LIMIT:
-            raise HTTPException(413, 'Word 文件超过20MB，请下载后编辑')
+            raise HTTPException(413, 'Office 文件超过20MB，请下载后编辑')
         try:
             with storage_path(latest[1].storage_key).open('rb') as source:
-                validate_docx(source.read(LIMIT + 1))
+                validate_office(source.read(LIMIT + 1), kind)
         except OSError as exc:
-            raise HTTPException(404, 'Word 源文件缺失，请联系管理员') from exc
+            raise HTTPException(404, 'Office 源文件缺失，请联系管理员') from exc
         session.file_id, session.base_version_id, session.source_upload_id = file_id, latest[0].id, latest[1].id
         session.original_name, session.folder_id = latest[1].original_name, material.folder_id
         try:
@@ -194,12 +177,13 @@ def create_session(db, project_id, user, file_id=None, name=None, folder_id=None
         db.execute(select(AnnotationProject.id).where(AnnotationProject.id == session.project_id).with_for_update()).first()
         require_access(db, user.id, write=True)
         name = (name or '').strip()
-        if not name or len(name) > 255 or any(ord(char) < 32 or char in '/\\' for char in name) or not name.lower().endswith('.docx'):
-            raise HTTPException(400, '请输入有效的 .docx 文件名称')
+        if not name or len(name) > 255 or any(ord(char) < 32 or char in '/\\' for char in name):
+            raise HTTPException(400, '请输入有效的 .docx 或 .xlsx 文件名称')
+        kind = file_kind(name)
         if folder_id and not db.query(Folder.id).filter_by(id=folder_id, project_id=project_id).first():
             raise HTTPException(400, '文件夹不属于当前项目或尚未保存')
         session.original_name, session.folder_id = name, folder_id
-        session.source_upload_id = stage_bytes(db, session, blank_docx()).id
+        session.source_upload_id = stage_bytes(db, session, blank_xlsx() if kind == 'xlsx' else blank_docx()).id
     db.add(session)
     db.commit()
     return session
@@ -237,8 +221,9 @@ def describe(db, session, config=False):
     if config:
         cfg = settings()
         root = f"{cfg['public']}/api/projects/annotation/office/sessions/{session.id}"
-        editor = {'documentType': 'word', 'type': 'desktop', 'width': '100%', 'height': '100%',
-                  'document': {'fileType': 'docx', 'key': session.document_key, 'title': session.original_name,
+        kind = file_kind(session.original_name)
+        editor = {'documentType': FORMATS[kind]['editor'], 'type': 'desktop', 'width': '100%', 'height': '100%',
+                  'document': {'fileType': kind, 'key': session.document_key, 'title': session.original_name,
                                'url': root + '/source?token=' + scope_token(session, 'source'),
                                'permissions': {'edit': session.mode == 'edit', 'review': session.mode == 'edit',
                                                'comment': session.mode == 'edit', 'chat': False}},
@@ -349,7 +334,7 @@ async def request_save(db, session, save_id, revision=0):
         raise
 
 
-async def fetch_result(url):
+async def fetch_result(url, kind='docx'):
     cfg = settings()
     if not isinstance(url, str):
         raise HTTPException(400, 'Office 回传文件地址无效')
@@ -369,7 +354,7 @@ async def fetch_result(url):
                         raise HTTPException(413, 'Office 回传文件超过20MB')
     except httpx.HTTPError as exc:
         raise HTTPException(503, 'Office 文件回传失败，请重试保存') from exc
-    validate_docx(data)
+    validate_office(data, kind)
     return bytes(data)
 
 
@@ -391,7 +376,7 @@ async def callback(db, session_id, payload):
         if not incoming or incoming.session_id != session.id:
             return
     if status in (2, 6):
-        data = await fetch_result(payload.get('url', ''))
+        data = await fetch_result(payload.get('url', ''), file_kind(session.original_name))
     else:
         data = None
     lock_session(db, session)

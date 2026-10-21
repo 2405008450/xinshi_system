@@ -1,6 +1,7 @@
 // 项目资料在线编辑：格式识别、文本编解码和文件名校验；不依赖浏览器 DOM，便于 node 测试。
 export const ONLINE_EDIT_KINDS = {
   docx: { extension: '.docx', label: 'Word 文档', limit: 20 * 1024 * 1024 },
+  xlsx: { extension: '.xlsx', label: 'Excel 工作簿', limit: 20 * 1024 * 1024 },
   markdown: { extension: '.md', label: 'Markdown', limit: 5 * 1024 * 1024 },
   text: { extension: '.txt', label: '文本文件', limit: 5 * 1024 * 1024 },
 }
@@ -9,6 +10,7 @@ export const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordproc
 export function onlineEditKind(name) {
   const value = String(name || '').toLowerCase()
   if (value.endsWith('.docx')) return 'docx'
+  if (value.endsWith('.xlsx')) return 'xlsx'
   if (value.endsWith('.md')) return 'markdown'
   if (value.endsWith('.txt')) return 'text'
   return null
@@ -16,16 +18,18 @@ export function onlineEditKind(name) {
 
 export function onlineEditBlocker(row) {
   if (String(row?.original_name || '').toLowerCase().endsWith('.doc')) return '旧版 Word 请先另存为 .docx 后上传'
+  if (String(row?.original_name || '').toLowerCase().endsWith('.xls')) return '旧版 Excel 请先另存为 .xlsx 后上传'
+  if (/\.xls[mb]$/i.test(row?.original_name || '')) return '暂不支持宏或二进制 Excel，请另存为无宏的 .xlsx 后上传'
   const kind = onlineEditKind(row?.original_name)
-  if (!kind) return '仅支持在线编辑 docx、md、txt 文件'
+  if (!kind) return '仅支持在线编辑 docx、xlsx、md、txt 文件'
   if (row.file_size > ONLINE_EDIT_KINDS[kind].limit) return `文件超过 ${ONLINE_EDIT_KINDS[kind].limit / 1024 / 1024}MB，请下载后在本地编辑`
   return ''
 }
 
 // 双击与回车共用打开策略；可编辑格式被阻止时提示原因，不悄悄下载。
 export function materialOpenAction(row, onlineEdit, blocker = '') {
-  const word = /\.docx?$/i.test(row?.original_name || '')
-  if (word || (onlineEdit && onlineEditKind(row?.original_name))) {
+  const office = /\.(docx?|xlsx?|xlsm|xlsb)$/i.test(row?.original_name || '')
+  if (office || (onlineEdit && onlineEditKind(row?.original_name))) {
     if (blocker) return { action: 'blocked', reason: blocker }
     return onlineEdit ? { action: 'edit' } : { action: 'download' }
   }

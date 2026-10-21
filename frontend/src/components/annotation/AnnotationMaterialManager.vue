@@ -100,7 +100,7 @@ const canOnlineEdit = computed(() => Boolean(props.projectId) && (hasPermission(
 const editBlocked = row => {
   if (props.disabled || loading.value || loadError.value) return '资料加载或项目保存中，请稍候'
   if (hasReplacement(row.file_id)) return '该文件有待保存的新版，请先保存项目或取消上传'
-  if (!/\.docx$/i.test(row.original_name) && !hasPermission('projects:write')) return '没有在线编辑权限，请使用下载功能'
+  if (!/\.(docx|xlsx)$/i.test(row.original_name) && !hasPermission('projects:write')) return '没有在线编辑权限，请使用下载功能'
   return onlineEditBlocker(row)
 }
 const currentFolder = computed(() => allFolders.value.find(folder => folder.id === selectedFolderId.value))

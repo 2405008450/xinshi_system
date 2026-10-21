@@ -3,8 +3,12 @@ import assert from 'node:assert/strict'
 import { decodeText, documentFileName, documentNameError, encodeText, onlineEditBlocker, onlineEditKind, materialOpenAction } from '../src/utils/materialDocument.js'
 import { docxToHtml, imageSize, tiptapJsonToDocx } from '../src/utils/materialDocx.js'
 
-test('只识别 docx、md、txt，超过大小限制时提示本地编辑', () => {
+test('识别 docx、xlsx、md、txt，超过大小限制时提示本地编辑', () => {
   assert.equal(onlineEditKind('规范.DOCX'), 'docx')
+  assert.equal(onlineEditKind('预算.XLSX'), 'xlsx')
+  assert.match(onlineEditBlocker({ original_name: '预算.xlsx', file_size: 21 * 1024 * 1024 }), /20MB/)
+  assert.match(onlineEditBlocker({ original_name: '旧版.xls' }), /另存为/)
+  assert.match(onlineEditBlocker({ original_name: '宏表.xlsm' }), /无宏/)
   assert.equal(onlineEditKind('说明.md'), 'markdown')
   assert.equal(onlineEditKind('a.txt'), 'text')
   assert.equal(onlineEditKind('旧版.doc'), null)
@@ -16,6 +20,7 @@ test('只识别 docx、md、txt，超过大小限制时提示本地编辑', () =
 test('新建文档名自动补扩展名，校验路径字符和同目录重名', () => {
   assert.equal(documentFileName(' 交付说明 ', 'markdown'), '交付说明.md')
   assert.equal(documentFileName('交付说明.docx', 'docx'), '交付说明.docx')
+  assert.equal(documentFileName('预算', 'xlsx'), '预算.xlsx')
   assert.equal(documentFileName('笔记.md', 'text'), '笔记.md.txt')
   assert.match(documentNameError('a/b', 'text'), /路径分隔符/)
   assert.match(documentNameError('  ', 'text'), /不能为空/)
@@ -24,7 +29,7 @@ test('新建文档名自动补扩展名，校验路径字符和同目录重名',
 })
 
 test('双击文档优先在线打开，阻止条件明确提示，其他文件保留下载', () => {
-  for (const name of ['上传.DOCX', '系统新建.docx', '说明.md', '说明.txt']) {
+  for (const name of ['上传.DOCX', '系统新建.docx', '预算.XLSX', '说明.md', '说明.txt']) {
     assert.equal(materialOpenAction({ original_name: name }, true).action, 'edit')
     assert.equal(materialOpenAction({ original_name: name }, true, '请先保存项目').action, 'blocked')
   }
