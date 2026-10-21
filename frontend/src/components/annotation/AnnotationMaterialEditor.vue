@@ -6,6 +6,7 @@
     top="5vh"
     append-to-body
     destroy-on-close
+    maximizable
     class="material-editor-dialog"
     :close-on-click-modal="false"
     :before-close="beforeClose"

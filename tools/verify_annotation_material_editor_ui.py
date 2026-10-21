@@ -219,6 +219,33 @@ window.DocsAPI = { DocEditor: class {
             def select(manager, name):
                 manager.locator('.explorer-table tbody tr').filter(has_text=name).first.click()
 
+            def check_maximize(dialog, content):
+                original_viewport = page.viewport_size
+                page.set_viewport_size({'width': 1920, 'height': 1080})
+                initial = dialog.bounding_box()
+                value = content.input_value()
+                node = content.element_handle()
+                sessions_before = len(office_sessions)
+                dialog.get_by_role('button', name='最大化窗口', exact=True).click()
+                expect(dialog).to_have_class(re.compile(r'is-maximized'))
+                maximized = dialog.bounding_box()
+                footer = dialog.locator('.el-dialog__footer').bounding_box()
+                assert maximized['width'] >= 1887 and maximized['height'] >= 1047, maximized
+                assert footer['y'] + footer['height'] <= 1065
+                assert node.evaluate('el => el.isConnected') and content.input_value() == value
+                assert len(office_sessions) == sessions_before, '放大不得重新创建 Office 会话'
+                page.set_viewport_size({'width': 500, 'height': 760})
+                page.wait_for_timeout(80)
+                small = dialog.bounding_box(); footer = dialog.locator('.el-dialog__footer').bounding_box()
+                assert small['width'] <= 469 and footer['y'] + footer['height'] <= 745, (small, footer)
+                dialog.get_by_role('button', name='还原窗口', exact=True).click()
+                expect(dialog).not_to_have_class(re.compile(r'is-maximized'))
+                page.set_viewport_size({'width': 1920, 'height': 1080})
+                restored = dialog.bounding_box()
+                assert abs(restored['width'] - initial['width']) < 2, (initial, restored)
+                assert content.input_value() == value and node.evaluate('el => el.isConnected')
+                page.set_viewport_size(original_viewport)
+
             # 1. GBK + CRLF 文本：提示编码转换，保存为 UTF-8 并保留 CRLF。
             dialog, manager = open_form()
             select(manager, '报价.pdf')
@@ -249,6 +276,7 @@ window.DocsAPI = { DocEditor: class {
             assert preview.locator('script').count() == 0
             source.fill('# 交付标准\n\n- 第一条\n- 第二条')
             expect(preview.locator('li')).to_have_count(2)
+            check_maximize(editor, source)
             editor.get_by_role('button', name='取消', exact=True).click()
             box = page.locator('.el-message-box:visible')
             expect(box).to_contain_text('尚未保存')
@@ -266,6 +294,7 @@ window.DocsAPI = { DocEditor: class {
             prose = word.locator('.office-mock-content')
             expect(prose).to_have_value('项目详情说明\n原始段落\n语种：英语')
             prose.fill('项目详情说明\n原始段落，在线补充')
+            check_maximize(word, prose)
             expect(word.get_by_role('button', name='保存为新版本')).to_be_enabled()
             conflict_next[0] = True
             word.get_by_role('button', name='保存为新版本').click()
@@ -283,11 +312,11 @@ window.DocsAPI = { DocEditor: class {
             page.wait_for_timeout(350)
             initial = word.bounding_box()
             header = word.locator('.el-dialog__header').bounding_box()
-            page.mouse.move(header['x'] + header['width'] - 100, header['y'] + 12); page.mouse.down()
-            page.mouse.move(header['x'] + header['width'] - 60, header['y'] + 45, steps=8); page.mouse.up()
+            page.mouse.move(header['x'] + header['width'] * .6, header['y'] + 12); page.mouse.down()
+            page.mouse.move(header['x'] + header['width'] * .6 + 40, header['y'] + 45, steps=8); page.mouse.up()
             moved = word.bounding_box()
             assert abs(moved['x'] - initial['x']) > 10, (initial, moved)
-            page.mouse.move(moved['x'] + moved['width'] - 100, moved['y'] + 12); page.mouse.down()
+            page.mouse.move(moved['x'] + moved['width'] * .6, moved['y'] + 12); page.mouse.down()
             page.mouse.move(3000, 2000, steps=8); page.mouse.up()
             bounded = word.bounding_box()
             assert bounded['x'] >= -1 and bounded['y'] >= -1 and bounded['x'] + bounded['width'] <= 1441
@@ -312,11 +341,15 @@ window.DocsAPI = { DocEditor: class {
             expect(word).to_contain_text('其他编辑者 正在编辑')
             expect(prose).to_have_attribute('readonly', '')
             assert word.get_by_role('button', name='保存为新版本').count() == 0
+            word.get_by_role('button', name='最大化窗口', exact=True).click()
+            expect(word).to_have_class(re.compile(r'is-maximized'))
             word.get_by_role('button', name='关闭', exact=True).click()
             office_readonly[0] = False
             office_unavailable[0] = True
             manager.locator('tbody tr').filter(has_text='项目说明.docx').dblclick()
             expect(word).to_contain_text('尚未启用')
+            expect(word.get_by_role('button', name='最大化窗口', exact=True)).to_be_visible()
+            expect(word).not_to_have_class(re.compile(r'is-maximized'))
             with page.expect_download() as download:
                 word.get_by_role('button', name='下载已保存版本').click()
             assert download.value.suggested_filename == '项目说明.docx'
@@ -448,6 +481,7 @@ window.DocsAPI = { DocEditor: class {
             expect(manager.get_by_text('本地待保存.txt', exact=True)).to_be_visible()
             expect(manager.get_by_text('已暂存，等待保存项目')).to_be_visible()
             checks += ['另一端新增文件后5秒自动刷新', '切回页面即时刷新', '跨端刷新保留待保存上传']
+            checks += ['Word和文本编辑器最大化及还原', '放大保留未保存内容及编辑节点', '放大不重建Office会话', '大屏及小屏底部操作栏固定', '只读窗口可放大且重开默认小窗']
 
             assert not errors, errors
             report = {'verification': '模拟 ONLYOFFICE SDK 与 API，非真实排版验收', 'status': 'passed', 'checks': checks, 'page_errors': errors}

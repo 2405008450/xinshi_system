@@ -1,6 +1,6 @@
 <template>
   <DraggableFormDialog :model-value="state.open" width="min(1400px, calc(100vw - 32px))" top="5vh"
-    append-to-body destroy-on-close class="material-office-dialog" :close-on-click-modal="false"
+    append-to-body destroy-on-close maximizable class="material-office-dialog" :close-on-click-modal="false"
     :before-close="beforeClose" @update:model-value="value => { if (!value) closeMaterialEditor() }">
     <template #header><div class="office-title"><strong>{{ creating ? '新建 Word' : '在线编辑' }}</strong>
       <span class="office-title__name" @mousedown.stop>{{ fileName }}</span>
