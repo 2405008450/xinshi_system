@@ -190,3 +190,10 @@ sudo docker-compose --env-file .env -f deploy/docker-compose.cloud.yml -f deploy
 更新云端实际挂载的 `deploy/nginx-gateway.cloud.local.conf` 时须合并 `deploy/nginx-cloud-gateway.conf` 中两项map和Office代理的三项转发／替换设置；保留原配置差异，先 `nginx -t` 后reload。HTML上游禁用压缩以支持注入，其他资源保持原压缩协商。脚本文件名包含版本号，后续修改桥脚本应更换文件名并同步引用，以兼容静态资源长期缓存。局域网仍访问云端同一编辑器，无需修改局域网代理、重启后端或迁移数据库。仅新增快捷键监听到外层页面不足以完成此功能，必须同步云端网关注入配置。
 
 官方原生快捷键见[ONLYOFFICE键盘快捷键](https://helpcenter.onlyoffice.com/docs/userguides/document_editor/keyboardshortcuts.aspx)，强制保存的协议继续沿用[官方保存机制](https://api.onlyoffice.com/docs/docs-api/get-started/how-it-works/saving-file/)。浏览器专项模拟命令为 `.\.venv\Scripts\python.exe tools/verify_annotation_office_shortcut_ui.py`，使用独立12422端口和真实跨域iframe但模拟SDK／业务接口；报告在 `.tmp/office-shortcut-ui/`，不得等同真实编辑引擎验收。
+
+
+快捷键和顶部操作于2026-10-21同步发布，运行前端代码 `65ea8b8`；云端实际网关配置已合并并通过 `nginx -t` 后热加载。仅更新两端静态前端及云端网关配置，未重启业务后端或ONLYOFFICE，不执行数据库迁移。备份分别位于云端 `backups/releases/office-shortcut-20261021-171721+0800` 和局域网 `backups/releases/office-shortcut-20261021-171756+0800`；网关reload完成后检查两个真实编辑器入口均只注入一次桥脚本。
+
+21项前端单元测试、完整构建与预算通过；独立页27项、原编辑器46项、跨域快捷键18项模拟检查通过。真实验收验证正文内Ctrl+S、单元格尚未按回车时Ctrl+S、重复快捷键仅保存一次、顶部小按钮连续保存、编辑现场与写租约保留、两端列表同步、只读禁止提交和大小屏操作可见。文档复制自既有专项样本，均生成两个新业务版本，下载文件包含实际输入和正确重算结果。
+
+本轮发现既有样本正由其他用户编辑，保持其写锁并改用两份唯一命名的“快捷键隔离验收”副本，未改变其他用户的会话或文件。真实报告、截图及副本名称在本机 `.tmp/office-shortcut/`；临时验收账号已停用，活动专项会话为0，临时凭据已删除。正在打开的旧页面需重新打开编辑页后使用新快捷键。
