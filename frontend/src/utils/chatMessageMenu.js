@@ -7,7 +7,7 @@ export function clampMessageMenu(point, size, viewport, gap = 8) {
   }
 }
 
-export function buildMessageMenu(message, { handlers = {}, currentUserId = '', canCollect = false, canProgress = false, selecting = false, excerpt = '' } = {}) {
+export function buildMessageMenu(message, { handlers = {}, currentUserId = '', canCollect = false, canProgress = false, annotationProgress = false, selecting = false, excerpt = '' } = {}) {
   if (!message || message.recalledAt) return []
   const normal = !message.messageType || message.messageType === 'user'
   const text = !!message.content?.trim()
@@ -18,9 +18,9 @@ export function buildMessageMenu(message, { handlers = {}, currentUserId = '', c
   if (normal && handlers.acknowledge && message.senderUserId !== currentUserId && (!handlers.canAcknowledge || handlers.canAcknowledge(message))) {
     items.push({ id: 'acknowledge', label: message.isAcknowledged ? '取消收到' : '收到', icon: 'acknowledge' })
   }
-  if (normal && message.canClassify) items.push({ id: 'classify', label: '分类', icon: 'classify', separator: true })
-  if (normal && text && canCollect) items.push({ id: 'collect', label: '收录到开拓问题', icon: 'collect', submenu: true, separator: !message.canClassify })
-  if (text && canProgress && handlers.progress) items.push({ id: 'progress', label: excerpt ? '添加选中内容为进度' : '添加为进度', icon: 'progress', separator: true })
+  if (normal && text && canCollect) items.push({ id: 'collect', label: '分类保存和通知', icon: 'collect', submenu: true, separator: true })
+  if (normal && text && annotationProgress) items.push({id:'annotation-progress',label:'添加进度',icon:'progress',submenu:true,separator:true})
+  else if (text && canProgress && handlers.progress) items.push({ id: 'progress', label: excerpt ? '添加选中内容为进度' : '添加为进度', icon: 'progress', separator: true })
   if (text && canProgress && handlers.select) items.push({ id: 'select', label: selecting ? '选择这条消息' : '多选', icon: 'select' })
   if (normal && message.canRecall && handlers.recall) items.push({ id: 'recall', label: message.senderUserId === currentUserId ? '撤回' : '移除', icon: 'recall', danger: true, separator: true })
   return items

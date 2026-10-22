@@ -212,8 +212,13 @@ app.add_middleware(
     allow_origins=_configured_cors_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "Idempotency-Key"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "Idempotency-Key", "X-Screenshot-Grants"],
+    expose_headers=["X-Screenshot-Grant", "X-Screenshot-Grant-Expires"],
 )
+from editor_screenshot_middleware import EditorScreenshotMiddleware
+from routers import editor_screenshots
+app.include_router(editor_screenshots.router)
+app.add_middleware(EditorScreenshotMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
 
 
@@ -253,6 +258,8 @@ async def add_security_headers(request: Request, call_next):
 # 注册路由
 app.include_router(auth.router)
 app.include_router(users.router)
+from routers import departments
+app.include_router(departments.router)
 app.include_router(roles.router)
 app.include_router(translation_projects.router)
 app.include_router(interpretation_projects.router)

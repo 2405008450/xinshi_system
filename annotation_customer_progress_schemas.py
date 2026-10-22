@@ -7,9 +7,11 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 from annotation_progress_time import business_datetime, business_now
+from annotation_progress_chat import ProgressChatDelivery
 
 
 class CustomerProgressWrite(BaseModel):
+    chat_delivery: ProgressChatDelivery | None = None
     change_note: str = Field(min_length=1, max_length=10000)
     effective_on: datetime = Field(default_factory=business_now)
 

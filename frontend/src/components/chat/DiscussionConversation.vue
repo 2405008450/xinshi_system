@@ -7,39 +7,52 @@
       <div v-if="loading" class="discussion-chat__hint">正在加载消息…</div>
       <el-empty v-else-if="!messages.length && !error" :description="keyword ? '没有匹配的消息' : '暂无消息，开始讨论吧'" :image-size="50" />
       <template v-for="(message, index) in messages" :key="message.id">
-        <div v-if="!index || chatDayKey(message.createdAt) !== chatDayKey(messages[index - 1].createdAt)" class="discussion-chat__date">{{ chatDateLabel(message.createdAt, new Date(), true) }}</div>
-        <article class="discussion-chat__message" :class="{ 'is-own': message.senderUserId === currentUserId }">
+        <div v-if="showMessageDates && (!index || chatDayKey(message.createdAt) !== chatDayKey(messages[index - 1].createdAt))" class="discussion-chat__date">{{ formatMessageDay(message.createdAt) }}</div>
+        <article :data-message-id="message.id" :ref="el=>messageInteractions.observe(el,message)" class="discussion-chat__message" :class="{ 'is-own': message.senderUserId === currentUserId }">
+          <div class="discussion-chat__meta"><strong v-if="!message.recalledAt">{{ message.senderName }}</strong><time v-if="showMessageTime" :title="chatMessageTime(message.createdAt)">{{ chatMessageTime(message.createdAt) }}</time></div>
           <p v-if="message.recalledAt" class="discussion-chat__recalled">{{ message.senderName }}撤回了一条消息</p>
           <template v-else>
-            <div class="discussion-chat__meta"><strong>{{ message.senderName }}</strong><time :title="formatBusinessDateTime(message.createdAt)">{{ chatClock(message.createdAt) }}</time></div>
-            <div class="discussion-chat__bubble"><blockquote v-if="message.reply">{{ message.reply.senderName }}：{{ message.reply.content }}</blockquote><p>{{ message.content }}</p></div>
+            <div class="discussion-chat__bubble"><blockquote v-if="message.reply" role="button" tabindex="0" @click="references.open(message.reply.id,$event)" @keydown.enter="references.open(message.reply.id,$event)">{{ message.reply.senderName }}：{{ screenshotPreview(message.reply.content) }}</blockquote><p @click="openMessageReferences(message,$event)"><ScreenshotText :text="message.content" :chat-message-id="message.id" chat-kind="discussion" /></p></div>
             <div class="discussion-chat__message-actions"><el-button link size="small" @click="replyTo = message; input?.focus()">引用</el-button><el-button v-if="message.canRecall" link size="small" @click="recall(message)">撤回</el-button></div>
+            <ChatMessageActions :message="message" :current-user-id="currentUserId" :stats="messageInteractions.stats[message.id]" :views-available="messageInteractions.viewsAvailable.value" :acknowledge-enabled="false" @reply="replyTo=$event;nextTick(()=>input?.focus())" @references="(id,event)=>references.open(id,event)" />
           </template>
         </article>
       </template>
     </div>
     <el-button v-if="pendingNew" class="discussion-chat__new" @click="goBottom()">有新消息，点击查看</el-button>
     <div class="discussion-chat__composer">
-      <div v-if="replyTo" class="discussion-chat__reply">回复 {{ replyTo.senderName }}：{{ replyTo.content }}<el-button link :disabled="sending" @click="replyTo = null">取消引用</el-button></div>
-      <el-input ref="input" v-model="content" type="textarea" :rows="3" resize="none" maxlength="10000" placeholder="输入讨论消息" :disabled="!storageReady || sending || !!retryPayload" @keydown="keydown" />
+      <div v-if="replyTo" class="discussion-chat__reply">回复 {{ replyTo.senderName }}：{{ screenshotPreview(replyTo.content) }}<el-button link :disabled="sending" @click="replyTo = null">取消引用</el-button></div>
+      <el-input ref="input" v-model="content" @uploading-change="screenshotUploading=$event" type="textarea" :rows="3" resize="none" maxlength="10000" placeholder="输入讨论消息" :disabled="!storageReady || sending || !!retryPayload" @keydown="keydown" />
       <div class="discussion-chat__footer"><span>Enter 发送 · Shift+Enter 换行</span><el-button v-if="retryPayload" :disabled="sending" @click="retryPayload = null; sendError = ''">继续编辑</el-button><el-button type="primary" :disabled="!storageReady || !canSend" :loading="sending" @click="send">{{ retryPayload ? '重试发送' : '发送' }}</el-button></div>
       <p v-if="sendError" class="discussion-chat__error" role="alert">{{ sendError }}</p>
     </div>
+    <ChatMessageReferences ref="references" :project-id="projectId" project-type="discussion" @locate="locate" />
   </section>
 </template>
 <script setup>
+import { screenshotPreview } from '@/utils/screenshotReferences'
+import ChatMessageActions from './ChatMessageActions.vue'
+import ScreenshotText from '@/components/common/ScreenshotText.vue'
+import ChatMessageReferences from './ChatMessageReferences.vue'
+import { useChatMessageInteractions } from '@/composables/useChatMessageInteractions'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { chatRequest } from '@/api/projectChat'
-import { chatClock, chatDateLabel, chatDayKey } from '@/utils/chatLayout'
+import { chatDayKey } from '@/utils/chatLayout'
+import { useChatTimeDisplay } from '@/composables/useChatTimeDisplay'
+const { formatMessageTime: chatMessageTime, formatMessageDay, showMessageTime, showMessageDates } = useChatTimeDisplay()
 import { formatBusinessDateTime } from '@/utils/dateTime'
 import { subscribe } from '@/utils/realtimeSocket'
 const props = defineProps({ projectId: { type: String, required: true }, active: Boolean })
 const currentUserId = localStorage.getItem('user_id') || ''
 const messages = ref([]), list = ref(), input = ref(), content = ref(''), replyTo = ref(null)
+const references=ref()
+const messageInteractions=useChatMessageInteractions({projectId:computed(()=>props.projectId),projectType:computed(()=>'discussion'),messages,active:computed(()=>props.active)})
+function openMessageReferences(message,event){if(message.reply||messageInteractions.stats[message.id]?.replyCount)references.value.open(message.reply?.id||message.id,event)}
 const loading = ref(false), loadingEarlier = ref(false), hasEarlier = ref(false), storageReady = ref(false)
 const error = ref(''), sendError = ref(''), sending = ref(false), retryPayload = ref(null), pendingNew = ref(false)
 const searchOpen = ref(false), keyword = ref('')
-const canSend = computed(() => !sending.value && (!!retryPayload.value || !!content.value.trim()))
+const screenshotUploading=ref(false)
+const canSend = computed(() => !screenshotUploading.value && !sending.value && (!!retryPayload.value || !!content.value.trim()))
 const base = `discussions/${props.projectId}`
 let disposed = false, reading = false, requestVersion = 0, controller, pollTimer, searchTimer, readVersion = '0'
 const atBottom = () => !list.value || list.value.scrollHeight - list.value.scrollTop - list.value.clientHeight < 50
@@ -109,8 +122,19 @@ watch(keyword, value => { clearTimeout(searchTimer); controller?.abort(); ++requ
 watch(() => props.active, active => { clearInterval(pollTimer); if (active) { refresh(!messages.value.length); pollTimer = setInterval(() => refresh(), 5000) } else { controller?.abort(); ++requestVersion; loading.value = false } }, { immediate: true })
 const unsubscribe = subscribe('chat_sessions_changed', () => { if (props.active && !sending.value) refresh() })
 onBeforeUnmount(() => { disposed = true; controller?.abort(); clearInterval(pollTimer); clearTimeout(searchTimer); unsubscribe() })
-defineExpose({ openSearch: () => { searchOpen.value = true } })
+async function locate(id) {
+  try {
+    const target=String(id)
+    if(!messages.value.some(row=>row.id===target)){
+      const [older,newer]=await Promise.all([chatRequest(`${base}/messages`,{params:{before:(BigInt(target)+1n).toString(),limit:30}}),chatRequest(`${base}/messages`,{params:{after:target,limit:30}})])
+      merge([...(older.items||[]),...(newer.items||[])])
+    }
+    await nextTick();list.value?.querySelector(`[data-message-id="${target}"]`)?.scrollIntoView({block:'center'})
+  }catch(e){error.value=e.detail||e.message||'定位消息失败'}
+}
+defineExpose({ openSearch: () => { searchOpen.value = true }, locate })
 </script>
 <style scoped>
+.discussion-chat__meta{flex-wrap:wrap}.discussion-chat__meta time{overflow-wrap:anywhere}
 .discussion-chat{display:flex;flex-direction:column;height:100%;min-height:0;background:#f6f8fb;color:#334155;font-size:13px}.discussion-chat__search{display:flex;gap:8px;padding:10px;background:white}.discussion-chat__timeline{flex:1;min-height:0;overflow-y:auto;padding:16px;overflow-anchor:none}.discussion-chat__date{text-align:center;color:#94a3b8;font-size:11px;margin:12px 0}.discussion-chat__message{margin:12px 0}.discussion-chat__meta{display:flex;align-items:center;gap:8px;margin-bottom:5px;color:#64748b;font-size:11px}.discussion-chat__meta strong{font-weight:500}.discussion-chat__bubble{width:fit-content;max-width:85%;padding:10px 13px;border:1px solid #e2e8f0;border-radius:12px;background:white;overflow-wrap:anywhere}.discussion-chat__bubble p{white-space:pre-wrap;line-height:1.7;margin:0;user-select:text}.discussion-chat__bubble blockquote{margin:0 0 7px;padding:5px 8px;border-left:2px solid #94a3b8;background:#f1f5f9;color:#64748b;white-space:pre-wrap;font-size:11px}.discussion-chat__message.is-own .discussion-chat__meta,.discussion-chat__message.is-own .discussion-chat__message-actions{justify-content:flex-end}.discussion-chat__message.is-own .discussion-chat__bubble{margin-left:auto;background:#e9f0fb;border-color:#d4e0f3}.discussion-chat__message-actions{display:flex;gap:8px;opacity:0}.discussion-chat__message:hover .discussion-chat__message-actions,.discussion-chat__message:focus-within .discussion-chat__message-actions{opacity:1}.discussion-chat__message-actions .el-button{font-size:10px;color:#94a3b8}.discussion-chat__recalled,.discussion-chat__hint{text-align:center;color:#94a3b8;font-size:12px}.discussion-chat__composer{flex:none;margin:10px 14px 14px;padding:10px;border:1px solid #dfe5ee;border-radius:12px;background:white}.discussion-chat__composer :deep(.el-textarea__inner){box-shadow:none;background:#fff}.discussion-chat__footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:8px}.discussion-chat__footer>span{margin-right:auto;font-size:11px;color:#94a3b8}.discussion-chat__reply{display:flex;align-items:center;justify-content:space-between;max-height:65px;overflow:auto;padding:5px 8px;background:#f1f5f9;font-size:12px;overflow-wrap:anywhere}.discussion-chat__error{color:#b91c1c;font-size:12px;margin:5px 0}.discussion-chat__new{align-self:center}@media(max-width:600px){.discussion-chat__footer>span{display:none}.discussion-chat__bubble{max-width:94%}}
 </style>

@@ -6,7 +6,7 @@ import { chatRequest } from '@/api/projectChat'
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { subscribe } from '@/utils/realtimeSocket'
 import { showDesktopNotification } from '@/utils/desktopNotifications'
-import { isChatNotification, isChatMentionNotification } from '@/utils/notificationChannels'
+import { isChatNotification, isChatMentionNotification, isChatAttentionNotification } from '@/utils/notificationChannels'
 
 /** 聊天独立承接留言、提及和群邀请，通知铃铛仅负责业务提醒。 */
 export function useChatNotifications() {
@@ -44,7 +44,7 @@ export function useChatNotifications() {
     return true
   }
   function display(notification) {
-    if (disposed || notification.is_read || !isChatNotification(notification)) return
+    if (disposed || notification.is_read || !isChatAttentionNotification(notification)) return
     const persistent = isChatMentionNotification(notification) || String(notification.notification_type).endsWith('_invite')
     const id = String(notification.id)
     if (activeMentionNotifications.has(id)) return

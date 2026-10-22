@@ -229,7 +229,7 @@ import LeaveManagementPanel from './components/LeaveManagementPanel.vue'
 
 // ==================== 常量 ====================
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
-const DEPARTMENTS = DEPARTMENT_NAMES.map((name) => ({ key: name, label: name }))
+const DEPARTMENTS = computed(() => DEPARTMENT_NAMES.map((name) => ({ key: name, label: name })))
 
 // ==================== 状态 ====================
 const currentDate = new Date()
@@ -409,10 +409,15 @@ async function loadScheduleForDate(date) {
 
 // ==================== 暂不安排 ====================
 const notScheduledTasks = ref([])
+watch(() => DEPARTMENT_NAMES.join('|'), () => {
+  activeDept.value = normalizeDepartment(activeDept.value)
+  deptPersonData.value = normalizeDeptPersonDataForUi(deptPersonData.value)
+  notScheduledTasks.value = normalizeNotScheduledTasksForUi(notScheduledTasks.value)
+})
 
 // ==================== 部门统计 ====================
 const deptStats = computed(() => {
-  return DEPARTMENTS.map((d) => ({
+  return DEPARTMENTS.value.map((d) => ({
     name: d.label,
     count: deptPersonData.value.filter((p) => p.dept === d.key && p.status === 'scheduled').length
   }))

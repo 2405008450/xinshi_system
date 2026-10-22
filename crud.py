@@ -99,7 +99,8 @@ def get_users(
     if full_name:
         query = query.filter(keyword_ilike(AppUser.full_name, f"%{full_name}%"))
     if department:
-        query = query.filter(AppUser.department.in_(department_filter_values(department)))
+        from organization_service import department_condition
+        query = query.filter(department_condition(db, [department]))
     rows = (
         query.add_columns(func.count(AppUser.id).over().label("_page_total"))
         .order_by(AppUser.created_at.desc(), AppUser.id.desc())
@@ -126,11 +127,13 @@ def count_users(
     if full_name:
         query = query.filter(keyword_ilike(AppUser.full_name, f"%{full_name}%"))
     if department:
-        query = query.filter(AppUser.department.in_(department_filter_values(department)))
+        from organization_service import department_condition
+        query = query.filter(department_condition(db, [department]))
     return query.count()
 
 
 def create_user(db: Session, user: AppUserCreate) -> AppUser:
+    from department_service import canonical_name
     hashed = hash_password(user.password)
     db_user = AppUser(
         username=user.username,
@@ -138,11 +141,15 @@ def create_user(db: Session, user: AppUserCreate) -> AppUser:
         full_name=user.full_name,
         email=normalize_user_email(user.email),
         is_active=user.is_active,
-        department=user.department,
+        department=canonical_name(db,user.department),
     )
     db.add(db_user)
+    from organization_service import sync_primary
+    sync_primary(db, db_user)
     db.commit()
     db.refresh(db_user)
+    from organization_service import publish
+    publish(db)
     return db_user
 
 
@@ -151,16 +158,26 @@ def update_user(db: Session, user_id: UUID, user_update: AppUserUpdate) -> Optio
     if not db_user:
         return None
     
+    previous_department = db_user.department
     update_data = user_update.model_dump(exclude_unset=True)
+    if 'department' in update_data:
+        from department_service import canonical_name
+        update_data['department'] = canonical_name(db,update_data['department'])
     if "email" in update_data:
         update_data["email"] = normalize_user_email(update_data["email"])
 
     for field, value in update_data.items():
         setattr(db_user, field, value)
 
+    if "department" in update_data:
+        from organization_service import sync_primary
+        sync_primary(db, db_user, previous_department)
     remove_unavailable_user_memberships(db, db_user)
     db.commit()
     db.refresh(db_user)
+    if 'department' in update_data:
+        from organization_service import publish
+        publish(db)
     return db_user
 
 
@@ -2567,6 +2584,8 @@ def get_notifications(
     from notification_channels import filter_notification_channel
     query = db.query(AppNotification).filter(AppNotification.recipient_user_id == recipient_user_id)
     query = filter_notification_channel(query, AppNotification, channel)
+    from notification_channels import filter_notification_visibility
+    query = filter_notification_visibility(query, AppNotification, db, recipient_user_id)
     if unread_only:
         query = query.filter(AppNotification.is_read == False)
     return query.order_by(AppNotification.created_at.desc()).offset(skip).limit(limit).all()
@@ -2581,7 +2600,8 @@ def count_unread_notifications(db: Session, recipient_user_id: UUID, channel: st
             AppNotification.is_read == False,
         )
     )
-    return filter_notification_channel(query, AppNotification, channel).count()
+    from notification_channels import filter_notification_visibility
+    return filter_notification_visibility(filter_notification_channel(query, AppNotification, channel), AppNotification, db, recipient_user_id).count()
 
 
 def create_notification(

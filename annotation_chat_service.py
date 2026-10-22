@@ -23,6 +23,12 @@ def can_view(db, user):
 
 
 def require_project(db, project_id, user, *, lock=False):
+    from chat_access_service import require_member
+    require_member(db, 'annotation', project_id, user)
+    return require_project_record(db, project_id, user, lock=lock)
+
+
+def require_project_record(db, project_id, user, *, lock=False):
     if not can_view(db, user):
         raise HTTPException(403, '没有查看项目的权限')
     query = db.query(AnnotationProject).filter(AnnotationProject.id == project_id)
@@ -49,11 +55,7 @@ def add_member(db, project_id, user_id, *, following=True, baseline=None):
 
 
 def ensure_default_members(db, project_id):
-    from project_chat_crud import _chat_participant_user_ids
-    for user_id in _chat_participant_user_ids(db, annotation_project_id=project_id):
-        member = add_member(db, project_id, user_id)
-        if not member.explicit_unfollow:
-            member.following = True
+    # 默认参与人只在显式发起新会话时添加；读取和发言不能扩大会话访问范围。
     db.flush()
 
 
@@ -72,6 +74,8 @@ def publish(db, project_id, kind='changed', message_id=None):
     ids = {row.user_id for row in db.query(AnnotationChatMember).filter_by(
         project_id=project_id, following=True).all()}
     ids.update(notification_manager.annotation_viewers(str(project_id)))
+    from chat_access_service import member_ids
+    ids.intersection_update(member_ids(db, 'annotation', project_id))
     valid = [user.id for user in eligible_users(db, ids)] if ids else []
     broadcast_to_users(valid, {'type': 'annotation_chat_changed', 'projectId': str(project_id),
                               'kind': kind, 'messageId': str(message_id) if message_id else None})
@@ -131,7 +135,7 @@ def serialize_many(db, rows, user):
     return result
 
 
-def send_message(db, project_id, user, payload):
+def send_message(db, project_id, user, payload, *, commit=True, max_mentions=20):
     from project_chat_crud import _create_chat_mentions, _push_notifications
     project = require_project(db, project_id, user, lock=True)
     # 同一项目写入串行化，保证阅读序号和幂等重试不会越过尚未提交的消息。
@@ -179,7 +183,7 @@ def send_message(db, project_id, user, payload):
         from chat_topic_service import set_message_topic
         set_message_topic(db, user, message, payload.topic_id)
     db.add_all(ChatProjectMessageAttachment(message_id=message.id, attachment_id=a.id) for a in attachments)
-    mentioned = _create_chat_mentions(db, message, user, mentioned_user_ids=list(mention_ids))
+    mentioned = _create_chat_mentions(db, message, user, mentioned_user_ids=list(mention_ids), max_mentions=max_mentions)
     notifications = []
     if mentioned:
         # 通知不缓存正文，撤回后不会在桌面通知或旧缓存泄露消息内容。
@@ -189,10 +193,14 @@ def send_message(db, project_id, user, payload):
             related_entity_id=project_id, commit=False)
     from chat_notification_target import link_notifications
     link_notifications(db, notifications, message.id)
-    db.commit()
-    _push_notifications(notifications)
-    publish(db, project_id, 'message', message.id)
-    notify_state(user.id, project_id)
+    if commit:
+        db.commit()
+        _push_notifications(notifications)
+        publish(db, project_id, 'message', message.id)
+        notify_state(user.id, project_id)
+    else:
+        db.flush()
+        db.info.setdefault('progress_chat_events', []).append((project_id, user.id, message.id, notifications))
     return message_query(db, project_id).filter(ChatProjectMessage.id == message.id).one()
 
 
@@ -247,6 +255,15 @@ def authorize_attachment(db, attachment_id, user):
             raise HTTPException(403, '没有访问附件的权限')
         if attachment.annotation_project_id:
             require_project(db, attachment.annotation_project_id, user)
-    elif not any((not ready or not row.direct_conversation_id) and not row.recalled_at and can_view(db, user) for row in links):
+    elif not any((not ready or not row.direct_conversation_id) and not row.recalled_at and can_view(db, user) and _can_access_attachment_message(db, row, user) for row in links):
         raise HTTPException(404, '附件已撤回或不可访问')
     return attachment
+
+
+def _can_access_attachment_message(db, message, user):
+    from chat_access_service import is_member
+    if message.annotation_project_id:
+        return is_member(db, 'annotation', message.annotation_project_id, user)
+    if message.project_id:
+        return is_member(db, 'translation', message.project_id, user)
+    return False

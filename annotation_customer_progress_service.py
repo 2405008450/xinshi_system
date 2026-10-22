@@ -98,7 +98,10 @@ def create_customer_progress(db, project_id, payload, user_id):
         changed_at=now, updated_at=now,
     )
     db.add(row)
+    from annotation_progress_chat import enqueue, after_commit
+    enqueue(db, project_id, user_id, payload.chat_delivery, track='customer', note=payload.change_note, effective_on=payload.effective_on)
     db.commit()
+    after_commit(db)
     db.refresh(row)
     return _response_rows(db, [row])[0]
 
@@ -122,7 +125,10 @@ def update_customer_progress(db, record_id, payload, user_id):
     row.updated_by = user_id
     # 确保连续操作也生成不同版本，保留原填写时间和填写人。
     row.updated_at = max(business_now(), business_datetime(row.updated_at) + timedelta(microseconds=1))
+    from annotation_progress_chat import enqueue, after_commit
+    enqueue(db, row.project_id, user_id, payload.chat_delivery, track='customer', note=payload.change_note, effective_on=payload.effective_on)
     db.commit()
+    after_commit(db)
     db.refresh(row)
     return _response_rows(db, [row])[0]
 

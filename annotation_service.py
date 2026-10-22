@@ -592,7 +592,7 @@ def count_annotation_projects(db: Session, *, sort: str = "order_no_desc", **fil
 
 
 WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact"}
-NESTED_FIELDS = {"language_items", "price_items", "assignees", "role_assignments", "material_changes"}
+NESTED_FIELDS = {"language_items", "price_items", "assignees", "role_assignments", "material_changes", "task_image_upload_ids", "chat_delivery"}
 
 # 订单仅提供创建时的快照，子订单保存后独立维护。
 CHILD_CREATE_CONTROL_FIELDS = {"copy_source_language_item_id", "expected_parent_updated_at", "copy_parent_materials"}
@@ -864,6 +864,14 @@ def create_annotation_project(
         raise ValueError('片区只能设置在三级订单上')
     _validate_write_references(db, payload)
     data = payload.model_dump(exclude=NESTED_FIELDS | CHILD_CREATE_CONTROL_FIELDS)
+    if parent and not parent.parent_project_id and (
+        not data.get('project_name') or data['project_name'].strip() == (parent.project_name or '').strip()
+    ):
+        from annotation_child_copy_service import child_project_name
+        direction = payload.language_items[0]
+        source = db.get(InterpretationLanguage, direction.source_language_id)
+        target = db.get(InterpretationLanguage, direction.target_language_id) if direction.target_language_id else None
+        data['project_name'] = child_project_name(parent.project_name, source.label, target.label if target else None)
     from annotation_custom_field_service import validate_custom_values
     data["custom_values"] = validate_custom_values(
         db, "project", None, data.get("custom_values") or {}, parent.custom_values if parent else None,
@@ -928,6 +936,8 @@ def create_annotation_project(
             copy_materials(db, parent.id, project.id)
     from annotation_material_service import apply_changes
     apply_changes(db, project.id, payload.material_changes, created_by)
+    from annotation_task_images import apply_images
+    apply_images(db,project,payload.task_image_upload_ids,created_by)
     if parent:
         from annotation_inheritance_service import initialize_inheritance
         initialize_inheritance(db, parent, project)
@@ -941,7 +951,11 @@ def create_annotation_project(
         from annotation_direction_service import ensure_direction_children
         auto_count = len(ensure_direction_children(db, project, created_by))
     if commit:
+        from annotation_creation_chat import send_creation
+        from annotation_progress_chat import after_commit
+        send_creation(db,get_annotation_project(db,project.id),created_by,payload.chat_delivery)
         db.commit()
+        after_commit(db)
         result = get_annotation_project(db, project.id)
         result.auto_created_child_count = auto_count
         return result
@@ -1035,6 +1049,8 @@ def update_annotation_project(
     if payload.material_changes is not None and payload.expected_updated_at is None:
         raise ValueError('保存项目资料必须携带项目版本，请刷新后重试')
     apply_changes(db, project.id, payload.material_changes, changed_by)
+    from annotation_task_images import apply_images
+    apply_images(db,project,payload.task_image_upload_ids,changed_by)
     project.updated_at = business_now().replace(tzinfo=None)
     record_annotation_manager_change(
         db,
@@ -1133,6 +1149,7 @@ def update_annotation_project_status(
     change_note: Optional[str] = None,
     changed_by: Optional[UUID] = None,
     progress_only: bool = False,
+    chat_delivery=None,
 ) -> Optional[AnnotationProject]:
     _lock_annotation_order_numbers(db)
     db.query(AnnotationProject).filter_by(id=project_id).with_for_update().populate_existing().first()
@@ -1180,7 +1197,10 @@ def update_annotation_project_status(
         from project_workbench_service import ensure_active_project_responsibilities
         ensure_active_project_responsibilities(db, 'annotation', project.id, project_status)
         finish_inline_change(db, project, before, changed_by)
+    from annotation_progress_chat import enqueue, after_commit
+    enqueue(db, project.id, changed_by, chat_delivery, track='project', note=change_note or '', effective_on=effective_on)
     db.commit()
+    after_commit(db)
     return get_annotation_project(db, project.id)
 
 

@@ -1,37 +1,47 @@
 <template>
   <el-dialog
     ref="dialogRef"
-    v-bind="maximizable ? { ...$attrs, fullscreen: maximized } : $attrs"
-    :model-value="modelValue"
+    v-bind="$attrs"
+    :model-value="modelValue && !minimized"
     class="draggable-form-dialog"
     :class="{ 'is-maximized': maximizable && maximized }"
     :draggable="draggable"
     :overflow="false"
+    :show-close="false"
+    :destroy-on-close="minimized ? false : ($attrs.destroyOnClose ?? $attrs['destroy-on-close'])"
+    :style="geometryStyle"
     @update:model-value="handleModelValueUpdate"
     @open="handleOpen"
+    @opened="handleOpened"
+    @close="!minimized && emit('close')"
+    @closed="handleClosed"
+    @mousedown.capture="headerDrag"
     @focusout.capture="handleFocusOut"
     @keydown.capture="handleKeydown"
   >
-    <template v-for="slotName in forwardedSlotNames()" #[slotName]="slotProps">
-      <slot :name="slotName" v-bind="slotProps" />
-    </template>
-    <template v-if="maximizable" #header="slotProps">
-      <div class="draggable-form-dialog__heading">
-        <div class="draggable-form-dialog__heading-content">
-          <slot name="header" v-bind="slotProps"><span class="el-dialog__title">{{ $attrs.title }}</span></slot>
-        </div>
-        <el-button link class="draggable-form-dialog__maximize" :aria-label="maximized ? '还原窗口' : '最大化窗口'"
-          :title="maximized ? '还原窗口' : '最大化窗口'" :aria-pressed="maximized" @mousedown.stop @dblclick.stop @click="toggleMaximized">
-          <span class="dialog-maximize-icon" :class="{ 'dialog-maximize-icon--restore': maximized }" aria-hidden="true" />
-          {{ maximized ? '还原' : '最大化' }}
-        </el-button>
+    <template #header="slotProps">
+      <div class="app-window-drag-strip" aria-label="拖动窗口" @mousedown="geometry.start($event)" />
+      <div class="draggable-form-dialog__heading-content">
+        <slot name="header" v-bind="slotProps"><span :id="slotProps.titleId" class="el-dialog__title">{{ $attrs.title }}</span></slot>
+      </div>
+      <div class="app-window-controls" @mousedown.stop @dblclick.stop>
+        <button type="button" title="最小化" aria-label="最小化窗口" @click="minimize">−</button>
+        <button type="button" title="最大化" aria-label="最大化窗口" :disabled="geometry.state.maximized" @click="geometry.maximize">□</button>
+        <button type="button" title="正常大小" aria-label="恢复正常大小" @click="geometry.restore">▣</button>
+        <button type="button" title="关闭" aria-label="关闭此对话框" @click="handleClose">×</button>
       </div>
     </template>
+    <template v-for="slotName in Object.keys($slots).filter(name=>!['header','default'].includes(name))" #[slotName]="slotProps">
+      <slot :name="slotName" v-bind="slotProps" />
+    </template>
+    <template #default><slot /><Teleport v-if="contentElement" :to="contentElement"><i v-for="edge in ['n','s','w','e','nw','ne','sw','se']" :key="edge" class="app-window-resize" :class="`app-window-resize--${edge}`" title="拖动调整窗口大小" @mousedown="geometry.start($event,edge)" /></Teleport></template>
   </el-dialog>
+  <Teleport to="body"><div v-if="modelValue && minimized" class="app-window-minibar" :style="{right:'16px',bottom:`${12+minibarIndex*46}px`}"><button type="button" @click="restoreMinimized">{{ minimizedTitle }} · 恢复</button><button type="button" aria-label="关闭已最小化窗口" @click="closeMinimized">×</button></div></Teleport>
 </template>
 
 <script setup>
-import { nextTick, onMounted, ref, useSlots } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useAttrs, watch } from 'vue'
+import { useWindowGeometry } from '@/composables/useWindowGeometry'
 
 defineOptions({
   name: 'DraggableFormDialog',
@@ -46,21 +56,30 @@ const props = defineProps({
   maximizable: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['update:modelValue', 'open'])
+const emit = defineEmits(['update:modelValue', 'open','opened','close','closed'])
 const dialogRef = ref(null)
-const maximized = ref(false)
-const slots = useSlots()
-const forwardedSlotNames = () => Object.keys(slots).filter(name => !props.maximizable || name !== 'header')
-
-const resetPosition = () => nextTick(() => dialogRef.value?.resetPosition?.())
-const handleClose = () => dialogRef.value?.handleClose?.()
-
-async function toggleMaximized() {
-  // 使用 Dialog 原生布局切换，保留正文节点、Office iframe 和未保存内容。
-  maximized.value = !maximized.value
-  await nextTick()
-  if (!maximized.value) await resetPosition()
+const contentElement=ref(null)
+const attrs=useAttrs(),minimized=ref(false),restoring=ref(false),minimizedTitle=ref('窗口')
+const minibarIndex=ref(0)
+const geometry=useWindowGeometry(()=>dialogRef.value?.dialogContentRef?.$el||dialogRef.value?.$el?.querySelector?.('.el-dialog'))
+const maximized = computed(() => geometry.state.maximized)
+const geometryStyle=computed(()=>geometry.state.rect?{position:'fixed',left:`${geometry.state.rect.x}px`,top:`${geometry.state.rect.y}px`,width:`${geometry.state.rect.width}px`,height:`${geometry.state.rect.height}px`,margin:0,transform:'none',maxWidth:'calc(100vw - 16px)',maxHeight:'calc(100vh - 16px)'}:{})
+function headerDrag(event){
+  if(!props.draggable||!event.target.closest('.el-dialog__header')||event.target.closest('button,a,input,textarea,select,[contenteditable],.is-copyable-title,.dialog-field-search-header__search'))return
+  if(event.target.closest('.app-window-drag-strip'))return
+  if(getComputedStyle(event.target).userSelect==='text')return
+  geometry.start(event)
 }
+function minimize(){const el=dialogRef.value?.dialogContentRef?.$el;minimizedTitle.value=attrs.title||el?.querySelector('.el-dialog__header')?.innerText?.split('\n')[0]||'窗口';minimized.value=true;minibarIndex.value=document.querySelectorAll('.app-window-minibar').length}
+function restoreMinimized(){restoring.value=true;minimized.value=false}
+function closeMinimized(){const done=()=>{minimized.value=false;emit('update:modelValue',false);emit('close');emit('closed')};const before=attrs.beforeClose??attrs['before-close'];if(before)before(done);else done()}
+function handleOpened(){contentElement.value=dialogRef.value?.dialogContentRef?.$el;if(restoring.value){restoring.value=false;return}emit('opened')}
+function handleClosed(){if(!minimized.value)emit('closed')}
+watch(()=>props.modelValue,value=>{if(!value){minimized.value=false;restoring.value=false;geometry.reset();contentElement.value=null}})
+onBeforeUnmount(()=>{minimized.value=false})
+
+const resetPosition = () => {geometry.reset();return nextTick(() => dialogRef.value?.resetPosition?.())}
+const handleClose = () => dialogRef.value?.handleClose?.()
 
 // 无模态小窗允许焦点离开；普通业务弹窗继续使用 Element Plus 的焦点锁定。
 const handleFocusOut = (event) => {
@@ -72,11 +91,12 @@ const handleKeydown = (event) => {
 }
 
 const handleModelValueUpdate = (value) => {
+  if(minimized.value)return
   emit('update:modelValue', value)
 }
 
 const handleOpen = async () => {
-  if (props.maximizable) maximized.value = false
+  if(restoring.value)return
   if (props.resetOnOpen) await resetPosition()
   else await nextTick()
   if (props.nonModal) {
@@ -95,10 +115,11 @@ onMounted(() => {
   if (props.modelValue) handleOpen()
 })
 
-defineExpose({ resetPosition, handleClose })
+defineExpose({ resetPosition, handleClose, minimize, restore:restoreMinimized, maximize:geometry.maximize })
 </script>
 
 <style>
+.app-window-controls{position:absolute;top:4px;right:4px;display:flex;z-index:5;gap:2px}.app-window-controls button{width:30px;height:28px;border:0;border-radius:4px;background:transparent;color:#475569;font-size:19px;cursor:pointer}.app-window-controls button:hover{background:#e2e8f0}.app-window-controls button:last-child:hover{background:#fee2e2;color:#dc2626}.app-window-controls button:disabled{opacity:.4;cursor:default}.app-window-drag-strip{position:absolute;left:0;right:140px;top:0;height:24px;cursor:grab;z-index:3}.app-window-resize{position:absolute;z-index:8;display:block}.app-window-resize--n,.app-window-resize--s{height:6px;left:8px;right:8px;cursor:ns-resize}.app-window-resize--n{top:0}.app-window-resize--s{bottom:0}.app-window-resize--w,.app-window-resize--e{width:6px;top:8px;bottom:8px;cursor:ew-resize}.app-window-resize--w{left:0}.app-window-resize--e{right:0}.app-window-resize--nw,.app-window-resize--ne,.app-window-resize--sw,.app-window-resize--se{width:12px;height:12px}.app-window-resize--nw{left:0;top:0;cursor:nwse-resize}.app-window-resize--ne{right:0;top:0;cursor:nesw-resize}.app-window-resize--sw{left:0;bottom:0;cursor:nesw-resize}.app-window-resize--se{right:0;bottom:0;cursor:nwse-resize;background:linear-gradient(135deg,transparent 50%,#94a3b8 50%,#94a3b8 58%,transparent 58%,transparent 70%,#94a3b8 70%,#94a3b8 78%,transparent 78%)}.app-window-minibar{position:fixed;bottom:12px;z-index:200000;display:flex;max-width:210px;padding:5px;background:#fff;box-shadow:0 3px 16px #0f172a30;border:1px solid #cbd5e1;border-radius:8px}.app-window-minibar button{border:0;background:none;cursor:pointer;color:#334155;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:7px}.app-window-minibar button:first-child{max-width:175px}
 .el-dialog.draggable-form-dialog {
   display: flex;
   flex-direction: column;
@@ -109,6 +130,10 @@ defineExpose({ resetPosition, handleClose })
 }
 
 .el-dialog.draggable-form-dialog > .el-dialog__header {
+  position:relative;
+  padding-top:26px;
+  min-height:54px;
+  padding-right:144px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--el-border-color-lighter);
 }
@@ -135,7 +160,7 @@ defineExpose({ resetPosition, handleClose })
 }
 
 .draggable-form-dialog__heading { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.draggable-form-dialog__heading-content { flex: 1; min-width: 0; }
+.draggable-form-dialog__heading-content { position: relative; z-index: 4; flex: 1; min-width: 0; }
 .draggable-form-dialog__maximize { flex-shrink: 0; margin-right: 28px; gap: 6px; }
 .dialog-maximize-icon { position: relative; display: inline-block; width: 13px; height: 11px; border: 1px solid currentColor; box-sizing: border-box; margin-right: 6px; }
 .dialog-maximize-icon--restore { width: 10px; height: 9px; margin-top: 3px; margin-right: 9px; }

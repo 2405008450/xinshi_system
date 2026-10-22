@@ -41,8 +41,8 @@ const routes = [
       {
         path: 'users',
         name: 'Users',
-        component: () => import('../views/system/Users.vue'),
-        meta: { title: '用户管理', permissions: ['system:users:read'] }
+        component: () => import('../views/system/Organization.vue'),
+        meta: { title: '组织架构', organizationManagement: true }
       },
       {
         path: 'roles',
@@ -51,6 +51,12 @@ const routes = [
         meta: { title: '角色管理', permissions: ['system:roles:read'] }
       },
       // 项目管理 - 翻译路由
+      {
+        path: 'departments',
+        name: 'Departments',
+        redirect: '/users',
+        meta: { title: '组织架构', organizationManagement: true }
+      },
       {
         path: 'translation',
         name: 'TranslationProjects',

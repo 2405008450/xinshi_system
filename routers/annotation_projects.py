@@ -39,6 +39,8 @@ from annotation_service import (
     update_annotation_project_status,
 )
 from database import get_db
+
+
 from annotation_models import AnnotationProject
 from annotation_models import AnnotationArea
 from annotation_inheritance_service import snapshot, finish_inline_change
@@ -79,6 +81,15 @@ router = APIRouter(
     tags=["annotation_projects"],
     dependencies=[Depends(_annotation_module_access)],
 )
+
+
+@router.get('/{project_id}/task-images')
+def task_images(project_id: UUID, db: Session = Depends(get_db)):
+    project=db.get(AnnotationProject,project_id)
+    if project is None:raise HTTPException(404,'标注项目不存在')
+    from annotation_task_images import image_rows
+    return [dict(id=str(upload.id),fileId=str(file_id),versionId=str(version_id),originalName=upload.original_name,
+        contentType=upload.content_type,fileSize=upload.file_size) for upload,file_id,version_id in image_rows(db,project)]
 
 
 class AnnotationManagerOption(BaseModel):
@@ -736,6 +747,7 @@ def update_project_status(
             payload.change_note,
             current_user.id,
             payload.progress_only,
+            payload.chat_delivery,
         )
     except ValueError as exc:
         db.rollback()

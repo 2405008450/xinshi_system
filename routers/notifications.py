@@ -56,6 +56,10 @@ def read_notification(
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
+    from models import AppNotification
+    from notification_channels import filter_notification_visibility
+    if not filter_notification_visibility(db.query(AppNotification.id).filter(AppNotification.id == notification_id, AppNotification.recipient_user_id == current_user.id), AppNotification, db, current_user.id).first():
+        raise HTTPException(404, '通知不存在')
     notification = mark_notification_read(db, notification_id, current_user.id)
     if not notification:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="通知不存在")

@@ -34,6 +34,9 @@ def schema_ready(db):
 def room_specs(db):
     rows = [dict(id=row['id'], name=row['name']) for row in BUILTIN_FOLDERS if row['parentKey'] == RESOURCE_ROOT]
     if folder_schema_ready(db):
+        overrides = {str(row.id): row.name for row in db.query(Category).filter(Category.id.in_([UUID(row['id']) for row in rows]))}
+        for row in rows:
+            row['name'] = overrides.get(row['id'], row['name'])
         existing = {row['id'] for row in rows}
         rows.extend(dict(id=str(row.id), name=row.name) for row in db.query(Category).join(Folder).filter(
             Category.active.is_(True), Folder.parent_key == RESOURCE_ROOT).order_by(Category.created_at, Category.id)
@@ -49,6 +52,8 @@ def require_room(db, user, room_id, *, storage=True):
         raise HTTPException(404, '讨论会话不存在或已停用')
     if storage and not schema_ready(db):
         raise HTTPException(503, '讨论会话暂未启用，请联系系统管理员')
+    from chat_access_service import require_member
+    require_member(db, 'discussion', room_id, user)
     return row
 
 
@@ -65,7 +70,12 @@ def catalog(db, user):
         return []
     rooms = room_specs(db)
     ready = schema_ready(db)
+    if not ready:
+        return []
     members = {str(row.room_id): row for row in db.query(Member).filter_by(user_id=user.id)} if ready else {}
+    rooms = [row for row in rooms if row['id'] in members]
+    if not rooms:
+        return []
     latest = {}
     unread = {}
     if ready:

@@ -12,7 +12,7 @@ export const getAnnotationListCapabilities = () => api.get('/openapi.json').then
 }))
 export const getAnnotationLanguageRegionCapabilities = () => api.get('/openapi.json').then(supportsAnnotationLanguageRegions)
 export const getAnnotationOrderCapabilities = () => api.get('/openapi.json').then(supportsAnnotationGrandchildOrders)
-export const getAnnotationManagerOptions = () => api.get('/projects/annotation/manager-options')
+export const getAnnotationManagerOptions = (config = {}) => api.get('/projects/annotation/manager-options', config)
 export const getAnnotationAreas = () => api.get('/projects/annotation/areas')
 export const createAnnotationArea = label => api.post('/projects/annotation/areas', {label})
 export const resetAnnotationProjectIdempotency = () => resetIdempotencyKey(projectCreateState)
@@ -67,6 +67,7 @@ export const createAnnotationProject = async (data, idempotencyKey) => {
   const key = resolveIdempotencyKey(projectCreateState, payload, idempotencyKey)
   const response = await api.post('/projects/annotation/', payload, {
     headers: { 'X-Idempotency-Key': key },
+      ...(data.chatDelivery?.sendToChat?{timeout:60000}:{}),
   })
   clearIdempotencyKey(projectCreateState, key)
   invalidateOptionCache('source-projects:annotation:')
@@ -93,7 +94,7 @@ export const updateAnnotationCustomTextField = (id, definition, value, expectedU
 )
 
 export const updateAnnotationProjectStatus = (id, payload) => (
-  api.patch(`/projects/annotation/${id}/status`, convertKeys(payload, toSnakeCase)).then((res) => convertKeys(res, toCamelCase))
+  api.patch(`/projects/annotation/${id}/status`, convertKeys(payload, toSnakeCase), payload.chatDelivery?.sendToChat?{timeout:60000}:{}).then((res) => convertKeys(res, toCamelCase))
 )
 
 export const updateAnnotationProjectPriority = (id, priority) => (

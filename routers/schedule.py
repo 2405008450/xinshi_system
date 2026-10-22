@@ -742,6 +742,12 @@ def _employee_shift_department_options(db: Session):
             has_unassigned = True
 
     options = [{"value": value, "label": value} for value in sorted(departments)]
+    from organization_service import ready as memberships_ready
+    if memberships_ready(db):
+        from department_models import Department, DepartmentMember
+        extra = db.query(Department.name).join(DepartmentMember, DepartmentMember.department_id == Department.id).join(AppUser, AppUser.id == DepartmentMember.user_id).filter(AppUser.is_active.is_(True)).distinct().all()
+        departments.update(name for name, in extra)
+        options = [{"value": value, "label": value} for value in sorted(departments)]
     if has_unassigned:
         options.append({"value": "__unassigned__", "label": "未分部门"})
     return options
@@ -768,11 +774,12 @@ def get_employee_shifts(
         query = query.filter(or_(AppUser.department.is_(None), AppUser.department == ""))
         effective_department = "__unassigned__"
     elif department:
-        query = query.filter(AppUser.department.in_(department_filter_values(department)))
+        from organization_service import department_condition
+        query = query.filter(department_condition(db, [department]))
         effective_department = normalize_department(department)
     elif not show_all:
         if current_user.department:
-            query = query.filter(AppUser.department.in_(department_filter_values(current_user.department)))
+            query = query.filter(AppUser.department.in_(department_filter_values(current_user.department,db)))
             effective_department = normalize_department(current_user.department)
         else:
             # 未设置部门的账号默认只读取本人，避免退化为全员查询。
@@ -1046,7 +1053,7 @@ def get_my_employee_shift(
             db.query(AppUser)
             .filter(
                 AppUser.is_active == True,
-                AppUser.department.in_(department_filter_values(current_user.department)),
+                AppUser.department.in_(department_filter_values(current_user.department,db)),
             )
             .order_by(AppUser.full_name.asc(), AppUser.username.asc())
             .all()
@@ -1603,6 +1610,8 @@ def upsert_schedule(
     """创建或更新某日的排班数据（Upsert）"""
     record = db.query(WorkSchedule).filter(WorkSchedule.schedule_date == schedule_date).first()
     payload = _normalize_schedule_payload(data.model_dump(exclude_unset=True))
+    from department_service import rename_fields, alias_map
+    payload = rename_fields(payload,alias_map(db))
 
     if record:
         update_data = payload
@@ -1631,7 +1640,10 @@ def copy_schedule(
         raise HTTPException(status_code=404, detail="源日期暂无排班数据")
 
     normalized_dept_person_data = [_normalize_dept_person(p) for p in (source.dept_person_data or [])]
+    from department_service import rename_fields, alias_map
+    normalized_dept_person_data = rename_fields(normalized_dept_person_data,alias_map(db))
     normalized_not_scheduled_tasks = [_normalize_not_scheduled(i) for i in (source.not_scheduled_tasks or [])]
+    normalized_not_scheduled_tasks = rename_fields(normalized_not_scheduled_tasks,alias_map(db))
 
     existing = db.query(WorkSchedule).filter(WorkSchedule.schedule_date == target_date).first()
     if existing:

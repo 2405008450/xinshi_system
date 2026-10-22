@@ -126,6 +126,7 @@ class AnnotationProject(Base):
         JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
     )
     task_description: Mapped[Optional[str]] = mapped_column(Text)
+    task_image_upload_ids: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"), deferred=True)
     consultation_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     client_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     sub_client_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)

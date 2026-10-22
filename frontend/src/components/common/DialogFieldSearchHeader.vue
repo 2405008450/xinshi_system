@@ -2,6 +2,7 @@
   <div class="dialog-field-search-header">
     <div class="dialog-field-search-header__heading">
       <span class="dialog-field-search-header__title" :class="{ 'is-copyable-title': copyableTitle }" @mousedown="copyableTitle && $event.stopPropagation()">{{ title }}</span>
+      <span v-if="$slots.actions" class="dialog-field-search-header__extra" @mousedown.stop><slot name="actions" /></span>
       <span v-if="subtitle" class="dialog-field-search-header__subtitle">{{ subtitle }}</span>
     </div>
     <div class="dialog-field-search-header__search" @mousedown.stop>
@@ -63,10 +64,13 @@ defineExpose({ blur: () => autocompleteRef.value?.blur?.() })
 .dialog-field-search-header__heading {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
   flex-direction: column;
   min-width: max-content;
   gap: 3px;
 }
+.dialog-field-search-header__subtitle{flex-basis:100%}
+.dialog-field-search-header__heading:has(.dialog-field-search-header__extra){flex-direction:row;align-items:center;gap:12px}
 .dialog-field-search-header__title {
   color: var(--el-text-color-primary);
   font-size: var(--el-dialog-title-font-size);

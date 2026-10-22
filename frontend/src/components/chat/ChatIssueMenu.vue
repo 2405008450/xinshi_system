@@ -1,6 +1,6 @@
 <template>
   <el-dropdown v-if="access.can_collect && eligible" trigger="click" popper-class="chat-topic-select-popper" @command="category => collect(message.id, category)">
-    <el-button link size="small" type="primary" @click.stop>收录到开拓问题</el-button>
+    <el-button link size="small" type="primary" @click.stop>分类保存和通知</el-button>
     <template #dropdown><el-dropdown-menu><el-dropdown-item v-for="category in issueCategories" :key="category.value" :command="category.value">{{ category.label }}</el-dropdown-item></el-dropdown-menu></template>
   </el-dropdown>
 </template>

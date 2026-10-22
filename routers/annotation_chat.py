@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 import annotation_chat_service as service
@@ -18,9 +19,67 @@ from routers.auth import get_current_user
 
 router = APIRouter(prefix='/annotation')
 
+from annotation_progress_chat import MentionSelection
+
+
+@router.get('/progress-mention-defaults')
+def progress_mention_defaults(scope: str = Query('progress',pattern='^(progress|creation)$'), db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    from annotation_progress_chat import options
+    return options(db, user, scope)
+
+
+@router.put('/progress-mention-defaults')
+def save_progress_mention_defaults(payload: MentionSelection, scope: str = Query('progress',pattern='^(progress|creation)$'), db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    from annotation_progress_chat import save_defaults
+    return save_defaults(db, user, payload, scope)
+
 
 class FollowRequest(BaseModel):
     following: bool
+
+
+class RestoreFavoritesRequest(BaseModel):
+    project_ids: list[UUID] = Field(min_length=1, max_length=10)
+
+
+@router.get('/unfollowed-projects')
+def unfollowed_projects(offset: int = Query(0, ge=0), limit: int = Query(10, ge=1, le=50), db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    if not service.can_view(db, user):
+        raise HTTPException(403, '没有项目沟通权限')
+    query = db.query(AnnotationProject).join(AnnotationChatMember, AnnotationChatMember.project_id == AnnotationProject.id).filter(
+        AnnotationChatMember.user_id == user.id, AnnotationChatMember.following.is_(False), AnnotationChatMember.explicit_unfollow.is_(True))
+    total = query.count()
+    rows = query.order_by(AnnotationProject.order_no.desc(), AnnotationProject.id).offset(offset).limit(limit).all()
+    return {'total': total, 'items': [dict(project_id=row.id, project_name=row.project_name, order_no=row.order_no) for row in rows]}
+
+
+@router.post('/restore-favorites')
+def restore_favorites(payload: RestoreFavoritesRequest, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    if not service.can_view(db, user):
+        raise HTTPException(403, '没有项目沟通权限')
+    restored, failed = [], []
+    for project_id in dict.fromkeys(payload.project_ids):
+        try:
+            service.require_project(db, project_id, user, lock=True)
+            member = db.get(AnnotationChatMember, (project_id, user.id))
+            if not member.following and not member.explicit_unfollow:
+                raise HTTPException(409, '该项目不在取消关注列表中')
+            member.following = True
+            member.explicit_unfollow = False
+            # 恢复收藏不等于阅读，保留原有未读游标。
+            db.commit()
+        except HTTPException as error:
+            db.rollback()
+            failed.append(dict(project_id=project_id, reason=error.detail))
+            continue
+        except SQLAlchemyError:
+            db.rollback()
+            failed.append(dict(project_id=project_id, reason='保存失败，请重试'))
+            continue
+        restored.append(project_id)
+        service.publish(db, project_id, 'members')
+        service.notify_state(user.id, project_id)
+    return {'restored': restored, 'failed': failed}
 
 
 class InviteRequest(BaseModel):
@@ -35,22 +94,46 @@ class RefreshRequest(BaseModel):
     message_ids: list[UUID] = Field(default_factory=list, max_length=200)
 
 
+class DefaultParticipantsWrite(BaseModel):
+    user_ids: list[UUID] = Field(default_factory=list, max_length=1000)
+
+
+@router.get('/default-participants')
+def default_participants(db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    import chat_default_participant_service as defaults
+    if not service.can_view(db, user):
+        raise HTTPException(403, '没有项目沟通权限')
+    return defaults.catalog(db, user)
+
+
+@router.put('/default-participants')
+def save_default_participants(payload: DefaultParticipantsWrite, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    import chat_default_participant_service as defaults
+    return defaults.save(db, user, payload.user_ids)
+
+
+@router.post('/{project_id}/start')
+def start(project_id: UUID, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    project = service.require_project_record(db, project_id, user, lock=True)
+    if db.query(AnnotationChatMember).filter_by(project_id=project_id).first():
+        service.require_project(db, project_id, user)
+        return {'project_id': project.id}
+    if db.query(ChatProjectMessage.id).filter_by(annotation_project_id=project_id).first():
+        raise HTTPException(404, '历史会话尚未配置参与人，请联系管理员')
+    import chat_default_participant_service as defaults
+    ids = set(defaults.default_user_ids(db)) | {user.id}
+    eligible = {row.id for row in service.eligible_users(db, ids)}
+    for uid in ids & eligible:
+        service.add_member(db, project_id, uid)
+    db.commit()
+    service.publish(db, project_id, 'members')
+    return {'project_id': project.id}
+
+
 @router.get('/unread')
 def unread(db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     if not service.can_view(db, user):
         raise HTTPException(403, '没有查看项目的权限')
-    from sqlalchemy import or_
-    from workflow_models import ProjectWorkbenchResponsibility
-    assigned = db.query(ProjectWorkbenchResponsibility.annotation_project_id).filter(
-        ProjectWorkbenchResponsibility.assignee_id == user.id,
-        ProjectWorkbenchResponsibility.annotation_project_id.is_not(None))
-    responsible = db.query(AnnotationProject.id).filter(or_(AnnotationProject.created_by == user.id,
-        AnnotationProject.client_manager_id == user.id, AnnotationProject.id.in_(assigned))).all()
-    for (project_id,) in responsible:
-        member = service.add_member(db, project_id, user.id)
-        db.query(AnnotationChatMember).filter_by(project_id=project_id, user_id=user.id,
-            explicit_unfollow=False).update({'following': True}, synchronize_session=False)
-    db.commit()
     count = func.count(ChatProjectMessage.id)
     rows = db.query(AnnotationProject.id, AnnotationProject.project_name, AnnotationProject.order_no, count).join(
         AnnotationChatMember, AnnotationChatMember.project_id == AnnotationProject.id).outerjoin(
@@ -71,13 +154,14 @@ def group(project_id: UUID, db: Session = Depends(get_db), user: AppUser = Depen
     service.ensure_default_members(db, project_id)
     db.commit()
     users = service.eligible_users(db)
-    members = {m.user_id for m in db.query(AnnotationChatMember).filter_by(project_id=project_id, following=True).all()}
+    members = {m.user_id for m in db.query(AnnotationChatMember).filter_by(project_id=project_id).all()}
     me = db.get(AnnotationChatMember, (project_id, user.id))
     return {'project_name': project.project_name, 'order_no': project.order_no,
             'following': bool(me and me.following),
             'last_read_sequence': me.last_read_sequence if me else 0,
             'members': [{'id': u.id, 'name': u.full_name or u.username} for u in users if u.id in members],
-            'eligible_users': [{'id': u.id, 'name': u.full_name or u.username} for u in users]}
+            'eligible_users': [{'id': u.id, 'name': u.full_name or u.username} for u in users if u.id in members],
+            'invitable_users': [{'id': u.id, 'name': u.full_name or u.username} for u in users if u.id not in members]}
 
 
 @router.put('/{project_id}/following')
@@ -206,6 +290,12 @@ async def download(project_id: UUID, attachment_id: UUID, request: Request, db: 
     from models import ChatProjectMessageAttachment
     service.require_project(db, project_id, user)
     attachment = service.authorize_attachment(db, attachment_id, user)
+    from chat_screenshot_storage import read_attachment
+    stored=read_attachment(db,attachment)
+    if stored is not None:return stored
+    if attachment.storage_name.startswith('material:'):
+        from annotation_task_images import download_chat_image
+        return await download_chat_image(db,project_id,attachment.storage_name,request)
     if attachment.annotation_project_id and attachment.annotation_project_id != project_id:
         raise HTTPException(404, '附件不属于当前项目')
     links = db.query(ChatProjectMessage).join(ChatProjectMessageAttachment,

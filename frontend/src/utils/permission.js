@@ -135,6 +135,8 @@ export function getDefaultRoute() {
  * @returns {boolean}
  */
 export function canAccessRoute(route) {
+  if (route.meta?.organizationManagement) return canManageDepartments() || hasPermission('system:users:read')
+  if (route.meta?.departmentManagement) return canManageDepartments()
   const userRoles = getStoredRoles()
   if (isSuperAdmin(userRoles)) return true
 
@@ -148,6 +150,10 @@ export function canAccessRoute(route) {
   const permissionAllowed = !hasPermissionRule || hasPermission(metaPermissions)
   const roleAllowed = !hasRoleRule || metaRoles.includes('*') || metaRoles.some((role) => userRoles.includes(role))
   return permissionAllowed && roleAllowed
+}
+
+export function canManageDepartments() {
+  return isSuperAdmin() || ['ethan', 'jimmy'].includes((localStorage.getItem('user_name') || '').trim().toLowerCase())
 }
 
 /**

@@ -11,6 +11,7 @@ import { TextColor, YellowHighlight } from '@/utils/richTextMarks'
 import { linkifyDocument, noticeLinkOptions } from '@/utils/richTextLinks'
 import { createAuthenticatedImage } from '@/utils/richTextImages'
 import '@/styles/rich-text-images.css'
+import { screenshotImageApi } from '@/utils/screenshotImageApi'
 
 const props = defineProps({
   document: { type: Object, default: null },
@@ -24,7 +25,7 @@ const editor = props.document
       content: props.enableLinks ? linkifyDocument(props.document) : props.document,
       editable: false,
       extensions: [StarterKit.configure({ link: props.enableLinks ? noticeLinkOptions : false }), TextColor, YellowHighlight,
-        ...(props.imageApi ? [createAuthenticatedImage(props.imageApi.read)] : [])]
+        createAuthenticatedImage((props.imageApi||screenshotImageApi).read)]
     })
   : null
 

@@ -21,7 +21,6 @@
             <span class="chat-contact__avatar" aria-hidden="true">{{ chatAvatarText(user.name) }}</span>
             <span class="chat-contact__text"><strong>{{ user.name }}</strong><small>{{ detailLine(user) }}</small></span>
             <span class="chat-contact__side">
-              <span v-if="unread(user)" class="chat-contact__unread">{{ unread(user) > 99 ? '99+' : unread(user) }}</span>
               <span class="chat-contact__send">发消息</span>
             </span>
           </button>
@@ -33,6 +32,7 @@
   </div>
 </template>
 <script setup>
+import { normalizeDepartment } from '@/constants/departments'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -44,7 +44,7 @@ import { chatAvatarText } from '@/utils/chatLayout'
 
 const props = defineProps({ active: { type: Boolean, default: false } })
 const emit = defineEmits(['opened'])
-const { refresh, sessions, phaseOneEnabled } = useAnnotationFollowed()
+const { refresh, phaseOneEnabled } = useAnnotationFollowed()
 const keyword = ref('')
 const appliedKeyword = ref('')
 const directory = ref([])
@@ -67,13 +67,13 @@ let stopRecent = () => {}
 const selfDetail = computed(() => {
   const user = selfUser.value
   if (!user) return ''
-  return [user.name, user.username, user.department].filter((item, index, list) => item && list.indexOf(item) === index).join(' · ')
+  return [user.name, user.username, normalizeDepartment(user.department)].filter((item, index, list) => item && list.indexOf(item) === index).join(' · ')
 })
-const detailLine = user => [user.username, user.department].filter(Boolean).join(' · ')
+const detailLine = user => [user.username, normalizeDepartment(user.department)].filter(Boolean).join(' · ')
 const groups = computed(() => {
   const departments = new Map()
   users.value.forEach((user) => {
-    const name = user.department?.trim() || '未分配部门'
+    const name = normalizeDepartment(user.department) || '未分配部门'
     if (!departments.has(name)) departments.set(name, [])
     departments.get(name).push(user)
   })
@@ -82,7 +82,6 @@ const groups = computed(() => {
   const contacts = recent.value.map(row => directory.value.find(user => user.id === row.userId) || users.value.find(user => user.id === row.userId)).filter(Boolean)
   return contacts.length ? [{ name: '最近联系', items: contacts }, ...rows] : rows
 })
-const unread = user => sessions.value.find(row => row.key === `direct:${user.conversationId}`)?.unread || 0
 const isCollapsed = name => !appliedKeyword.value && collapsed.value.includes(name)
 const toggle = name => {
   if (appliedKeyword.value) return

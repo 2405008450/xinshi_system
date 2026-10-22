@@ -1,7 +1,7 @@
 """开拓问题及独立的后续任务；聊天删除不级联删除已收录的业务快照。"""
 from uuid import uuid4
 
-from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, Uuid, text
+from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, Uuid, text, JSON
 from sqlalchemy.orm import mapped_column
 from models import Base
 from chat_topic_models import ChatTopic  # 注册主题表，支持独立导入模型后的元数据解析。
@@ -17,7 +17,7 @@ class DevelopmentIssue(Base):
     __tablename__ = "resource_development_issue"
     __table_args__ = (
         UniqueConstraint("source_message_id", "category", name="uq_development_issue_source_category"),
-        CheckConstraint("category IN ('arrangement','execution','problem','idea')", name="ck_development_issue_category"),
+        CheckConstraint("category IN ('arrangement','request','idea','decision','execution','problem','risk','standard')", name="ck_development_issue_category"),
         CheckConstraint("source_type IN ('translation','annotation','direct','manual')", name="ck_development_issue_source_type"),
         Index("ix_development_issue_created", "created_at", "id"),
         Index('uq_issue_manual_request', 'collected_by', 'client_request_id', unique=True,
@@ -27,6 +27,7 @@ class DevelopmentIssue(Base):
     category = mapped_column(String(20), nullable=False)
     content = mapped_column(Text, nullable=False)
     remarks = mapped_column(Text, nullable=False, default="")
+    summary_data = mapped_column(JSON, nullable=False, default=dict, server_default=text("'{}'"))
     source_message_id = mapped_column(Uuid)
     topic_id = mapped_column(Uuid, ForeignKey('chat_topic.id'), index=True)
     topic_path = mapped_column(String(200), nullable=False, default='')
@@ -43,6 +44,14 @@ class DevelopmentIssue(Base):
     created_at = mapped_column(DateTime(timezone=True), nullable=False, default=business_now)
     updated_at = mapped_column(DateTime(timezone=True), nullable=False, default=business_now)
     revision = mapped_column(Integer, nullable=False, default=1)
+
+
+class DevelopmentIssueAudience(Base):
+    __tablename__ = 'resource_issue_audience'
+    issue_id = mapped_column(Uuid, ForeignKey('resource_development_issue.id',ondelete='CASCADE'), primary_key=True)
+    kind = mapped_column(String(24),primary_key=True)
+    target_id = mapped_column(Uuid,primary_key=True)
+    __table_args__ = (CheckConstraint("kind IN ('follower','notify_user','notify_department')",name='ck_issue_audience_kind'),Index('ix_issue_audience_target','kind','target_id','issue_id'))
 
 
 class DevelopmentIssueTask(Base):

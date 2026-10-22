@@ -13,6 +13,8 @@ from permission_service import user_has_permission
 from resource_development_service import is_admin, can_delegate, active_user, check_revision
 from resource_development_models import DevelopmentAudit
 from resource_issue_models import DevelopmentIssue as Issue, DevelopmentIssueTask as Task, business_now
+from resource_issue_models import DevelopmentIssueAudience as Audience
+import resource_summary_service as summary_service
 
 RESOURCE_PERMISSIONS = ("talents:read", "talents:write", "translators:read", "translators:write", "resource_development:delegate")
 
@@ -35,7 +37,7 @@ def schema_ready(bind):
     inspector = inspect(bind)
     ready = inspector.has_table(Issue.__tablename__) and inspector.has_table(Task.__tablename__)
     if ready:
-        ready = {'topic_id', 'topic_path', 'client_request_id'} <= {c['name'] for c in inspector.get_columns(Issue.__tablename__)}
+        ready = {'topic_id', 'topic_path', 'client_request_id','summary_data'} <= {c['name'] for c in inspector.get_columns(Issue.__tablename__)} and inspector.has_table(Audience.__tablename__) and inspector.has_table('system_department')
     _schema_cache[bind] = (monotonic(), ready)
     return ready
 
@@ -49,7 +51,8 @@ def visible_query(db, user):
     q = db.query(Issue)
     if not can_delegate(db, user):
         assigned = db.query(Task.id).filter(Task.issue_id == Issue.id, Task.executor_id == user.id).exists()
-        q = q.filter(or_(Issue.proposer_id == user.id, Issue.collected_by == user.id, assigned))
+        summary_member=db.query(Audience.issue_id).filter(Audience.issue_id==Issue.id,Audience.kind.in_(['follower','notify_user']),Audience.target_id==user.id).exists()
+        q = q.filter(or_(Issue.proposer_id == user.id, Issue.collected_by == user.id, assigned,summary_member))
     return q
 
 
@@ -58,7 +61,7 @@ def capabilities(db, user):
     module = resource_access(db, user)
     collect = can_collect(db, user)
     associated = ready and visible_query(db, user).first() is not None
-    return dict(ready=ready, can_enter=module or associated, can_collect=collect and ready,
+    return dict(ready=ready,summary_ready=ready, can_enter=module or associated, can_collect=collect and ready,
                 can_manage=can_delegate(db, user), can_resource=module, user_id=str(user.id), user_name=user.full_name or user.username)
 
 
@@ -111,6 +114,8 @@ def source_preview(db, user, message_id, *, lock=False):
         from routers.project_chat import _require_project
         from project_chat_crud import get_project_chat_settings
         project = _require_project(db, message.project_id)
+        from chat_access_service import require_member
+        require_member(db, 'translation', project.id, user)
         settings = get_project_chat_settings(db, project.id)
         if not settings or not settings.enabled:
             raise HTTPException(403, "原项目沟通未开启")
@@ -146,15 +151,16 @@ def tasks(db, row):
     return db.query(Task).filter(Task.issue_id == row.id).order_by(Task.created_at, Task.id).all()
 
 
-def serialize(db, user, row, *, detail=False, children=None, authority=None):
+def serialize(db, user, row, *, detail=False, children=None, authority=None, summary_info=None):
     result = snapshot(row)
+    result.update(summary_info or summary_service.display_data(db,[row])[row.id])
     if children is None:
         children = tasks(db, row)
     if authority is None:
         authority = dict(manage=can_delegate(db, user), collect=can_collect(db, user), admin=is_admin(db, user))
     result.update(can_edit=authority['manage'] or (authority['collect'] and user.id in (row.proposer_id, row.collected_by)),
                   can_delete=authority['admin'] or (row.collected_by == user.id and authority['collect']),
-                  task_count=len(children), executor_names=list(dict.fromkeys(t.executor_name for t in children)),
+                  task_count=len(children), executor_names=list(dict.fromkeys([*result.get('follower_names',[]),*[t.executor_name for t in children]])),
                   task_status_counts={status: sum(t.status == status for t in children)
                                       for status in ("pending", "in_progress", "completed", "cancelled")})
     if detail:
@@ -162,6 +168,7 @@ def serialize(db, user, row, *, detail=False, children=None, authority=None):
                                 can_update_progress=result["can_edit"] or t.executor_id == user.id) for t in children]
     else:
         result.pop("source_content")
+    result['can_update_progress']=result['can_edit'] or summary_service.progress_allowed(user,row)
     return result
 
 
@@ -197,6 +204,7 @@ def create_issue(db, user, payload):
             raise HTTPException(409, "该消息已按此类别收录，你没有查看该记录的权限")
         return dict(serialize(db, user, accessible, detail=True), already_collected=True)
     row = db.get(Issue, inserted)
+    summary_service.write_summary(db,row,payload.summary)
     audit(db, user, row, "create")
     return dict(serialize(db, user, row, detail=True), already_collected=False)
 
@@ -211,6 +219,7 @@ def update_issue(db, user, issue_id, payload):
     check_revision(row, payload.revision)
     before = snapshot(row)
     row.content, row.remarks = payload.content, payload.remarks
+    summary_service.write_summary(db,row,payload.summary)
     if 'topic_id' in payload.model_fields_set and payload.topic_id != row.topic_id:
         if payload.topic_id:
             from chat_topic_service import issue_topic

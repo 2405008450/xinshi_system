@@ -12,12 +12,16 @@ from routers.discussion_chat import MessageCreate, PreferenceWrite, recall
 @pytest.fixture
 def rooms(local_db, monkeypatch):
     engine = local_db.get_bind()
-    Message.__table__.create(engine)
-    Member.__table__.create(engine)
+    Message.__table__.create(engine, checkfirst=True)
+    Member.__table__.create(engine, checkfirst=True)
     monkeypatch.setattr(service, 'publish', lambda db: None)
     monkeypatch.setattr(service, 'get_user_permission_codes', lambda db, uid: ['talents:read'])
     monkeypatch.setattr(service, 'user_has_permission', lambda db, uid, code: False)
-    return local_db, UUID(service.room_specs(local_db)[0]['id']), actor()
+    user = actor()
+    for room in service.room_specs(local_db):
+        local_db.add(Member(room_id=UUID(room['id']), user_id=user.id, last_read_id=0, pinned=False, starred=False))
+    local_db.flush()
+    return local_db, UUID(service.room_specs(local_db)[0]['id']), user
 
 
 def send(db, room, user, text='讨论内容', **kwargs):
@@ -68,6 +72,7 @@ def test_idempotent_send_snapshot_timezone_and_stable_pagination(rooms):
 def test_reply_read_and_recall_stay_in_the_current_room(rooms):
     db, room, user = rooms
     peer = actor('peer')
+    db.add(Member(room_id=room, user_id=peer.id, last_read_id=0, pinned=False, starred=False)); db.flush()
     first = send(db, room, peer, '原消息')
     reply = send(db, room, user, '回复', reply_to_id=int(first['id']))
     assert reply['reply']['id'] == first['id']

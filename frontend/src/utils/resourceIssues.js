@@ -1,6 +1,8 @@
 export const issueCategories = [
-  { value: 'arrangement', label: '安排类' }, { value: 'execution', label: '执行类' },
-  { value: 'problem', label: '问题类' }, { value: 'idea', label: '想法类' },
+  { value: 'arrangement', label: '信息同步' }, { value: 'request', label: '提出需求' },
+  { value: 'idea', label: '想法讨论' }, { value: 'decision', label: '决策批复' },
+  { value: 'execution', label: '任务执行' }, { value: 'problem', label: '问题/异常' },
+  { value: 'risk', label: '风险隐患' }, { value: 'standard', label: '规则标准' },
 ]
 export const issueStatuses = [
   { value: 'pending', label: '未开始' }, { value: 'in_progress', label: '进行中' },
@@ -10,14 +12,15 @@ export const issueCategoryLabel = value => issueCategories.find(x => x.value ===
 export const issueStatusLabel = value => issueStatuses.find(x => x.value === value)?.label || '-'
 export const issueColumns = [
   { key: 'content', label: '内容', width: 260 }, { key: 'category', label: '类别', width: 100 },
-  { key: 'topic_path', label: '讨论主题', width: 210 },
+  { key: 'specific_classification', label: '具体分类', width: 160 },
   { key: 'source_title', label: '来源', width: 240 }, { key: 'proposer_name', label: '提出人', width: 120 },
-  { key: 'task_count', label: '后续安排', width: 125 }, { key: 'executor_names', label: '执行人', width: 160 },
-  { key: 'task_status_counts', label: '实际进度', width: 220 }, { key: 'remarks', label: '备注', width: 200 },
-  { key: 'collected_by_name', label: '收录人', width: 120 }, { key: 'created_at', label: '收录时间', width: 180 },
+  { key: 'executor_names', label: '跟进人', width: 160 }, { key: 'planned_completion_at', label: '预定完成时间', width: 180 },
+  { key: 'actual_progress', label: '实际进度', width: 220 }, { key: 'notify_department_names', label: '同步部门', width: 160 },
+  { key: 'notify_user_names', label: '同步人员', width: 160 }, { key: 'remarks', label: '备注', width: 200 },
+  { key: 'collected_by_name', label: '保存人', width: 120 }, { key: 'created_at', label: '保存时间', width: 180 },
   { key: 'updated_at', label: '更新时间', width: 180 },
 ]
-export const defaultIssueColumns = ['content', 'category', 'topic_path', 'proposer_name', 'task_count', 'executor_names', 'task_status_counts']
+export const defaultIssueColumns = ['content', 'category', 'specific_classification', 'proposer_name', 'executor_names', 'planned_completion_at', 'actual_progress', 'created_at']
 export function cleanIssueColumns(value) {
   if (!Array.isArray(value)) throw new Error('字段设置格式无效')
   return [...new Set(value.filter(key => issueColumns.some(c => c.key === key)))]
@@ -28,6 +31,7 @@ export function issueParams(filters, pagination) {
     ...(filters.topic_id ? {topic_id:filters.topic_id} : {}),
     proposer_id: filters.proposer_id || undefined, executor_id: filters.executor_id || undefined,
     status: filters.status || undefined, planned_start: filters.range?.[0], planned_end: filters.range?.[1],
+    ...(filters.department_id?{department_id:filters.department_id}:{}),...(filters.saved_range?{saved_start:filters.saved_range[0],saved_end:filters.saved_range[1]}:{}),
     skip: (pagination.page - 1) * pagination.limit, limit: pagination.limit,
   }
 }

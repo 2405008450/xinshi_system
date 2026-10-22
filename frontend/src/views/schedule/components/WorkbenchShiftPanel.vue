@@ -55,6 +55,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { normalizeDepartment } from '@/constants/departments'
 
 const props = defineProps({
   loading: { type: Boolean, default: false },
@@ -66,7 +67,7 @@ const props = defineProps({
 
 const hasDepartment = computed(() => Boolean(props.myDepartment))
 
-const visibleMembers = computed(() => props.departmentMembers)
+const visibleMembers = computed(() => props.departmentMembers.map(row=>({...row,department:normalizeDepartment(row.department)})))
 
 function dayOf(row) {
   return row?.days?.[0] || null

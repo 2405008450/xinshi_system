@@ -33,7 +33,7 @@
 
     <div class="daily-arrangement__body">
       <template v-if="editing">
-        <RichTextComposer
+        <RichTextComposer @uploading-change="imageUploading=$event"
           :key="selectedDate"
           v-model="draftContent"
           format-colors
@@ -42,7 +42,7 @@
         />
         <div class="daily-arrangement__editor-actions">
           <el-button :disabled="saving" @click="cancelEditing">取消</el-button>
-          <el-button type="primary" :loading="saving" @click="saveNote">保存</el-button>
+          <el-button type="primary" :loading="saving||imageUploading" @click="saveNote">保存</el-button>
         </div>
       </template>
 
@@ -121,11 +121,12 @@ const today = computed(() => {
 })
 const selectedDate = ref(today.value)
 const formatNoteDate = value => value.replace(/(\d{4})-(\d{2})-(\d{2})/, '$1年$2月$3日')
+const imageUploading=ref(false)
 const fullscreenActive = computed(() => nativeFullscreen.value || fallbackFullscreen.value)
 const isDirty = computed(() => editing.value && JSON.stringify(draftContent.value) !== originalContent.value)
 
 function hasContent(document) {
-  const containsText = node => Boolean(node?.text?.trim()) || (node?.content || []).some(containsText)
+  const containsText = node => node?.type==='image' || Boolean(node?.text?.trim()) || (node?.content || []).some(containsText)
   return Boolean(document && containsText(document))
 }
 
@@ -205,7 +206,7 @@ async function cancelEditing() {
 }
 
 async function saveNote() {
-  if (saving.value || loading.value || !noteLoaded.value) return
+  if (imageUploading.value || saving.value || loading.value || !noteLoaded.value) return
   if (!hasContent(draftContent.value)) {
     ElMessage.warning('请输入当日安排内容')
     return

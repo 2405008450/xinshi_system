@@ -42,6 +42,13 @@ def create(payload: CategoryCreate, db=Depends(get_db), user=Depends(actor)):
         raise HTTPException(409, '已有同名目录，请重新检查名称') from error
     if parent_key:
         db.add(service.Folder(category_id=row.id, parent_key=parent_key))
+        from discussion_chat_service import RESOURCE_ROOT, schema_ready
+        if str(parent_key) == RESOURCE_ROOT:
+            if not schema_ready(db):
+                from fastapi import HTTPException
+                raise HTTPException(503, '资源讨论参与人配置尚未就绪')
+            from discussion_chat_models import DiscussionMember
+            db.add(DiscussionMember(room_id=row.id, user_id=user.id, last_read_id=0, pinned=False, starred=False))
     service.commit(db)
     return dict(service.serialize(row), parent_key=parent_key)
 
@@ -51,6 +58,7 @@ def update(category_id: UUID, payload: CategoryUpdate, db=Depends(get_db), user=
     from fastapi import HTTPException
     service.require_manager(db, user)
     row = service.require_category(db, category_id)
+    service.protect_resource_discussion(db, category_id, payload.active)
     if str(row.id) in service.BUILTIN_INDEX:
         from fastapi import HTTPException
         raise HTTPException(422, '内置目录不可修改')

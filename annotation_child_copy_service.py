@@ -5,6 +5,20 @@ from annotation_models import AnnotationProjectAssignee
 from annotation_ops_models import AnnotationAssigneeRate, AnnotationCustomFieldDefinition
 
 
+def child_project_name(parent_name, source_label, target_label=None):
+    """使用子订单实际方向命名，不使用复制来源方向。"""
+    name = (parent_name or '').strip()
+    source = (source_label or '').strip()
+    target = (target_label or '').strip()
+    if not name or not source:
+        return name or None
+    direction = f'{source}→{target}' if target else source
+    result = f'{direction}-{name}'
+    if len(result) > 500:
+        raise ValueError('添加语言方向后的子订单项目名称超过 500 字，请缩短项目名称')
+    return result
+
+
 def source_direction(parent, payload):
     items = list(parent.language_items)
     if payload.copy_source_language_item_id:

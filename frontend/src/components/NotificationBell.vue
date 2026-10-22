@@ -88,7 +88,8 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { useRouter } from 'vue-router'
 import { Bell } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
@@ -210,6 +211,7 @@ const markItemRead = async (item, showError = false) => {
 }
 
 const navigateToNotification = async (item) => {
+  if(item.notification_type==='chat_summary'&&item.related_entity_id){useProjectChatDock().openFullscreen();await nextTick();window.dispatchEvent(new CustomEvent('chat-open-summary',{detail:{issueId:item.related_entity_id}}));return}
   if (['workflow_handover_pending', 'project_manager_handover_pending'].includes(item.notification_type)) {
     await router.push('/workbench')
     return

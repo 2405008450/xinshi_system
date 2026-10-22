@@ -1,28 +1,6 @@
 <template>
-  <Teleport to="body">
-    <div
-      v-if="visible"
-      class="shift-matrix-host"
-      :class="{ 'is-modal': !pinned, 'is-pinned': pinned, 'is-collapsed': collapsed }"
-      @mousedown.self="handleBackdropClick"
-    >
-      <el-button
-        v-if="pinned && collapsed"
-        type="primary"
-        class="collapsed-trigger"
-        @click="collapsed = false"
-      >
-        班次矩阵
-        <el-badge v-if="onLeaveCount" :value="onLeaveCount" type="danger" />
-      </el-button>
-
-      <section
-        v-else
-        class="shift-matrix-window"
-        role="dialog"
-        :aria-modal="pinned ? 'false' : 'true'"
-        aria-labelledby="shift-matrix-title"
-      >
+  <DraggableFormDialog ref="matrixDialog" v-model="visible" :title="dialogTitle" :modal="!pinned" :modal-penetrable="pinned" :non-modal="pinned" :lock-scroll="!pinned" width="min(1080px, calc(100vw - 32px))" top="5vh" append-to-body class="shift-matrix-dialog" @close="closePanel">
+    <template #header>
         <header class="window-header">
           <div class="window-heading">
             <strong id="shift-matrix-title">{{ dialogTitle }}</strong>
@@ -33,17 +11,15 @@
               <el-button :icon="Lock" circle aria-label="固定到右侧" @click="setPinned(true)" />
             </el-tooltip>
             <el-tooltip v-if="pinned" content="收起固定面板" placement="bottom">
-              <el-button :icon="Minus" circle aria-label="收起固定面板" @click="collapsed = true" />
+              <el-button :icon="Minus" circle aria-label="收起固定面板" @click="matrixDialog?.minimize()" />
             </el-tooltip>
             <el-tooltip v-if="pinned" content="解除固定" placement="bottom">
               <el-button :icon="Unlock" circle aria-label="解除固定" @click="setPinned(false)" />
             </el-tooltip>
-            <el-tooltip content="关闭" placement="bottom">
-              <el-button :icon="Close" circle aria-label="关闭班次矩阵" @click="closePanel" />
-            </el-tooltip>
+
           </div>
         </header>
-
+    </template>
         <div class="window-body">
           <el-tabs v-model="activeTab" class="shift-matrix-tabs">
             <el-tab-pane label="部门班次矩阵" name="matrix">
@@ -179,9 +155,7 @@
             </el-tab-pane>
           </el-tabs>
         </div>
-      </section>
-    </div>
-  </Teleport>
+  </DraggableFormDialog>
 </template>
 
 <script setup>
@@ -204,6 +178,7 @@ const visible = computed({
   set: value => emit('update:modelValue', value)
 })
 
+const matrixDialog=ref()
 const activeTab = ref('matrix')
 const loading = ref(false)
 const employees = ref([])
@@ -384,7 +359,7 @@ function formatDateTime(value) {
 
 function syncBodyScroll() {
   if (typeof document === 'undefined') return
-  document.body.classList.toggle('shift-matrix-modal-open', visible.value && !pinned.value)
+  document.body.classList.remove('shift-matrix-modal-open')
 }
 
 function setPinned(value) {
@@ -405,7 +380,7 @@ function handleBackdropClick() {
 }
 
 function handleKeydown(event) {
-  if (event.key === 'Escape' && visible.value && !pinned.value) closePanel()
+  // 普通弹窗的 ESC 及最小化焦点由公共窗口统一处理。
 }
 
 function handleDesktopChange(event) {

@@ -104,6 +104,9 @@ async def upload(project_id: UUID, request: Request, file: UploadFile = File(...
 async def download(project_id: UUID, attachment_id: UUID, request: Request, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     service.require_project(db, project_id, user)
     attachment = service.authorize_attachment(db, attachment_id, user)
+    from chat_screenshot_storage import read_attachment
+    stored=read_attachment(db,attachment)
+    if stored is not None:return stored
     if attachment.direct_conversation_id != project_id:
         raise HTTPException(404, '附件不属于当前会话')
     from chat_attachment_storage import remote_attachment_url, read_remote_attachment

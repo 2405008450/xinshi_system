@@ -5,7 +5,7 @@ import { businessDateTimeInputValue } from '@/utils/dateTime'
 import { appendProgressDraft } from '@/utils/annotationCustomerProgress'
 
 // 录入区和记录区共享一个控制器，切换展示时不销毁草稿或重复请求。
-export function useAnnotationCustomerProgress({ projectId, active, busy, entryRef, onSaved, onEdit }) {
+export function useAnnotationCustomerProgress({ projectId, active, busy, entryRef, onSaved, onEdit, beforeSave }) {
   const loading = ref(false), validating = ref(false), submitting = ref(false), loadError = ref(''), rows = ref([])
   const editingId = ref(''), expectedUpdatedAt = ref(''), draftSource = ref(null)
   const form = reactive({ effectiveOn: businessDateTimeInputValue(), changeNote: '' })
@@ -82,8 +82,10 @@ export function useAnnotationCustomerProgress({ projectId, active, busy, entryRe
     validating.value = true
     try {
       if (!await entryRef.value?.validate().catch(() => false)) return
+      const chatDelivery=beforeSave?await beforeSave():undefined
+      if(beforeSave&&!chatDelivery)return
       submitting.value = true; validating.value = false
-      const payload = { ...form, effectiveOn: form.effectiveOn.replace(' ', 'T') + '+08:00', changeNote: form.changeNote.trim() }
+      const payload = { ...form, effectiveOn: form.effectiveOn.replace(' ', 'T') + '+08:00', changeNote: form.changeNote.trim(), ...(chatDelivery?{chatDelivery}:{}) }
       const saved = editingId.value ? await api.updateCustomerProgress(editingId.value, { ...payload, expectedUpdatedAt: expectedUpdatedAt.value }) : await api.createCustomerProgress(projectId.value, payload)
       clearDraft(); ElMessage.success('客户进度已保存')
       // 写入成功与刷新失败分开处理，避免提示失败后重复提交已经保存的记录。

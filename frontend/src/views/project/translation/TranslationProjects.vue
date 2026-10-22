@@ -325,11 +325,12 @@
       </el-tab-pane>
     </el-tabs>
 
-    <el-drawer
+    <DraggableFormDialog
       v-model="chatDrawerVisible"
       class="project-chat-drawer"
-      direction="rtl"
-      size="560px"
+      width="min(700px, calc(100vw - 32px))"
+      top="5vh"
+      non-modal
       :modal="false"
       :lock-scroll="false"
       @close="handleChatDrawerClose"
@@ -342,12 +343,14 @@
           </div>
         </div>
       </template>
+      <div v-if="separateChatOpened"><span>该项目会话已在独立窗口打开</span><el-button type="primary" link @click="openChat({ projectId: currentProjectId, projectType: 'translation', title: currentProject?.projectName, subtitle: currentProject?.orderNo })">切换到会话</el-button></div>
       <ProjectChatPanel
+        v-show="!separateChatOpened"
         :project-id="currentProjectId"
-        :active="chatDrawerVisible && currentEntityType === 'project'"
+        :active="chatDrawerVisible && currentEntityType === 'project' && !separateChatOpened"
         :drawer-mode="true"
       />
-    </el-drawer>
+    </DraggableFormDialog>
   </el-card>
 </template>
 
@@ -357,6 +360,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 
 import ProjectChatPanel from '@/components/ProjectChatPanel.vue'
+import { useProjectChatDock } from '@/composables/useProjectChatDock'
+const { state: chatDockState, openChat } = useProjectChatDock()
+const separateChatOpened = computed(() => chatDockState.windows.some(item => item.projectType === 'translation' && item.projectId === String(currentProjectId.value)))
 import { getProject } from '@/api/projects'
 import { getSubOrder } from '@/api/subOrders'
 import { getStoredRoles } from '@/utils/permission'

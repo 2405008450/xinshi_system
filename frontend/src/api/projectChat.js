@@ -75,9 +75,10 @@ export const unacknowledgeProjectChatMessage = (messageId) => {
   return api.delete(`/project-chat/messages/${messageId}/acknowledgement`).then(res => convertKeys(res, toCamelCase))
 }
 
-export const uploadProjectChatAttachment = (file) => {
+export const uploadProjectChatAttachment = (file, retention='business') => {
   const formData = new FormData()
   formData.append('file', file)
+  formData.append('retention',retention)
   return api.post('/project-chat/attachments', formData, {
     timeout: 60000,
     headers: { 'Content-Type': 'multipart/form-data' }

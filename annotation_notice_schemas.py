@@ -48,13 +48,17 @@ def validate_tiptap_document(value: Any, *, image_validator: Callable[[dict], No
 
     def visit(node: Any) -> None:
         if not isinstance(node, dict) or (node.get("type") not in ALLOWED_NODE_TYPES
-                and not (node.get("type") == "image" and image_validator is not None)):
+                and node.get("type") != "image"):
             raise ValueError("须知内容包含不支持的节点")
         if node.get("type") == "text" and not isinstance(node.get("text"), str):
             raise ValueError("须知文本格式无效")
         attrs = node.get("attrs")
         if node.get("type") == "image":
-            image_validator(node)
+            if image_validator:image_validator(node)
+            else:
+                if not isinstance(attrs,dict) or set(attrs)-{'src','alt','title','width','height'} or not re.fullmatch(r'screenshot://[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?:#[0-9a-fA-F]{64})?',str(attrs.get('src',''))):raise ValueError('截图引用无效')
+                if attrs.get('width') is not None or attrs.get('height') is not None or node.get('content') or node.get('marks'):raise ValueError('截图包含不支持的属性')
+                if any(attrs.get(key) is not None and (not isinstance(attrs[key],str) or len(attrs[key])>255) for key in ('alt','title')):raise ValueError('截图说明不能超过255字符')
         elif attrs is not None:
             if node.get("type") == "heading":
                 if not isinstance(attrs, dict) or attrs.get("level") not in {1, 2, 3}:

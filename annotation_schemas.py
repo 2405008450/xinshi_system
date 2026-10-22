@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, field_serial
 from path_security import validate_managed_path
 from schemas import ProjectRoleAssignmentInput, ProjectRoleAssignmentResponse
 from annotation_material_schemas import MaterialChanges
+from annotation_progress_chat import ProgressChatDelivery
 
 
 ANNOTATION_PROJECT_TYPE_LABELS = {
@@ -252,6 +253,7 @@ class AnnotationAssigneeResponse(AnnotationAssigneeInput):
 
 
 class AnnotationProjectWrite(BaseModel):
+    task_image_upload_ids: list[UUID] | None = Field(default=None, max_length=9)
     area_id: Optional[UUID] = None
     material_changes: Optional[MaterialChanges] = None
     project_name: Optional[str] = None
@@ -360,6 +362,7 @@ class AnnotationProjectWrite(BaseModel):
 
 
 class AnnotationProjectCreate(AnnotationProjectWrite):
+    chat_delivery: Optional['ProgressChatDelivery'] = None
     parent_project_id: Optional[UUID] = None
     copy_source_language_item_id: Optional[UUID] = None
     expected_parent_updated_at: Optional[datetime] = None
@@ -417,6 +420,7 @@ class AnnotationProjectOrderNoUpdate(BaseModel):
 
 
 class AnnotationProjectStatusUpdate(BaseModel):
+    chat_delivery: ProgressChatDelivery | None = None
     project_status: str
     effective_on: datetime = Field(default_factory=lambda: project_progress_datetime(business_now()))
     change_note: str = Field(min_length=1, max_length=10000)
@@ -549,6 +553,7 @@ class AnnotationDirectionSummary(BaseModel):
 
 
 class AnnotationProjectDetailResponse(AnnotationProjectListResponse):
+    task_image_upload_ids: list[UUID] = Field(default_factory=list)
     direction_summary: Optional[AnnotationDirectionSummary] = None
     consultation_id: Optional[UUID] = None
     consultation_code: Optional[str] = None
