@@ -35,7 +35,7 @@
       <template #header><slot name="header" :column="column" /></template><template #default="{ row }"><slot name="cell" :row="row" :column="column" /></template>
     </el-table-column>
     <el-table-column v-if="!conversationPicker" label="详情" width="100" fixed="right"><template #default="{ row }"><AnnotationProjectDetailPopover v-if="row.id" :project-id="row.id" :summary="row" :editable="editable && !deleteMode" @updated="$emit('updated', $event)"><template #reference><el-button link type="primary">查看详情</el-button></template></AnnotationProjectDetailPopover></template></el-table-column>
-    <el-table-column v-if="!deleteMode" :label="conversationPicker ? '加入会话' : '操作'" width="120" fixed="right"><template #default="{ row }"><slot name="actions" :row="row" /></template></el-table-column>
+    <el-table-column v-if="!deleteMode" :label="conversationPicker ? '加入关注' : '操作'" width="120" fixed="right"><template #default="{ row }"><slot name="actions" :row="row" /></template></el-table-column>
   </el-table>
 </template>
 

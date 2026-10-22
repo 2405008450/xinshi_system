@@ -1522,6 +1522,8 @@ def _arrangement_task_dict(row: AnnotationProjectArrangementTask) -> dict:
 
 
 def _arrangement_assignees(db: Session) -> list[dict]:
+    from department_service import alias_map
+    hr_department = alias_map(db).get('HR部','HR部')
     users = db.query(AppUser).filter(AppUser.is_active.is_(True)).all()
     manager_ids = {
         user_id for (user_id,) in db.query(UserRole.user_id).join(
@@ -1532,7 +1534,7 @@ def _arrangement_assignees(db: Session) -> list[dict]:
     def group(user):
         if user.id in manager_ids:
             return "project_manager"
-        if (user.department or "").strip() == "HR部":
+        if (user.department or "").strip() == hr_department:
             return "hr"
         return "other"
 

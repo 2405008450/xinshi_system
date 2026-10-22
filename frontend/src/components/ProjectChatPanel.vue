@@ -1,5 +1,5 @@
 <template>
-  <div :class="['project-chat-panel', { 'project-chat-panel--drawer': drawerMode, 'project-chat-panel--compact': compact, 'project-chat-panel--conversation': conversationMode, 'project-chat-panel--search-side': searchOpen && historyPlacement === 'side' }]">
+  <div ref="interactionRoot" :class="['project-chat-panel', { 'project-chat-panel--drawer': drawerMode, 'project-chat-panel--compact': compact, 'project-chat-panel--conversation': conversationMode, 'project-chat-panel--search-side': searchOpen && historyPlacement === 'side' }]">
     <el-empty v-if="!projectId" description="请先选择项目" :image-size="compact ? 56 : 72" />
     <div v-else class="project-chat-panel__main">
       <Teleport :to="headerReady && toolbarTarget ? toolbarTarget : 'body'" :disabled="!toolbarTarget || !headerReady"><div v-show="!toolbarTarget || active" class="chat-toolbar" :class="{ 'chat-toolbar--header': toolbarTarget }">
@@ -127,7 +127,7 @@
             <div v-if="loadingEarlier" class="chat-conversation__notice">正在加载更早的消息…</div>
             <div v-else-if="!hasEarlierMessages && messages.length > conversationPageSize" class="chat-conversation__notice">已经到最早的消息了</div>
             <template v-for="item in conversationItems" :key="item.key">
-              <div v-if="item.type === 'date'" class="chat-date-divider"><span>{{ item.label }}</span></div>
+              <div v-if="item.type === 'date'" v-show="showMessageDates" class="chat-date-divider"><span>{{ item.label }}</span></div>
               <div v-else-if="item.isSystem" class="chat-system-message">
                 <div class="chat-system-message__bar">
                   <el-tag size="small" :type="item.message.messageType === 'claim' ? 'warning' : 'success'" effect="plain">
@@ -142,11 +142,11 @@
                     <span>{{ task.fromUserName }} → {{ task.toUserName }}</span>
                   </div>
                 </div>
-                <span class="chat-system-message__time">{{ formatDateTime(item.message.createdAt) }}</span>
+                <span v-if="showMessageTime" class="chat-system-message__time">{{ chatMessageTime(item.message.createdAt) }}</span>
               </div>
               <div
                 v-else
-                class="chat-conversation-item"
+                class="chat-conversation-item" :ref="el=>messageInteractions.observe(el,item.message)"
                 :data-message-id="item.message.id"
                 :class="{ 'chat-conversation-item--own': item.isOwn, 'chat-conversation-item--grouped': !item.groupStart, 'chat-conversation-item--highlight': highlightedMessageId === String(item.message.id), 'chat-conversation-item--mentioned': mentionsMe(item.message) }"
               >
@@ -154,9 +154,9 @@
                   <span v-if="item.groupStart" class="chat-avatar">{{ avatarText(item.message.senderName) }}</span>
                 </div>
                 <div class="chat-conversation-item__main">
-                  <div v-if="item.groupStart" class="chat-conversation-item__meta">
-                    <strong v-if="!item.isOwn">{{ item.message.senderName || '未知用户' }}</strong>
-                    <span class="chat-conversation-item__time" :title="formatDateTime(item.message.createdAt)">{{ chatClock(item.message.createdAt) }}</span>
+                  <div class="chat-conversation-item__meta">
+                    <strong v-if="!item.isOwn && item.groupStart">{{ item.message.senderName || '未知用户' }}</strong>
+                    <span v-if="showMessageTime" class="chat-conversation-item__time" :title="chatMessageTime(item.message.createdAt)">{{ chatMessageTime(item.message.createdAt) }}</span>
                     <el-tag
                       v-for="mention in messageMentions(item.message).slice(0, 3)"
                       :key="mention.mentionedUserId"
@@ -176,8 +176,9 @@
                   </div>
                   <div class="chat-conversation-item__bubble-row">
                     <div class="chat-bubble" :class="{ 'chat-bubble--own': item.isOwn }" tabindex="0" data-message-menu-anchor @contextmenu="messageMenuRef.open($event,item.message)" @keydown="messageMenuRef.openKeyboard($event,item.message)">
-                      <div v-if="textOnly" class="chat-bubble__text">{{ item.message.content }}</div>
-                      <RichTextContent v-else :document="highlightedMentionDocument(item.message)" :fallback="item.message.content" />
+                      <button v-if="item.message.reply" class="group-reply" @click="references.open(item.message.reply.id,$event)">{{ item.message.reply.senderName }}：{{ item.message.reply.content }}</button>
+                      <div @click="openMessageReferences(item.message,$event)"><div v-if="textOnly" class="chat-bubble__text"><ScreenshotText :text="item.message.content" :chat-message-id="item.message.id" /></div>
+                      <ScreenshotText v-else-if="screenshotIds(item.message.content).length" :text="item.message.content" :chat-message-id="item.message.id" /><RichTextContent v-else :document="highlightedMentionDocument(item.message)" :fallback="item.message.content" /></div>
                       <el-tag v-if="item.message.topicPath" size="small" effect="plain" class="chat-visible-topic">{{ item.message.topicPath }}</el-tag>
                       <div v-if="item.message.attachments?.length" class="message-attachments">
                         <div v-for="attachment in item.message.attachments" :key="attachment.id" class="message-attachment">
@@ -198,37 +199,7 @@
                       <button type="button" class="chat-message-more" aria-label="消息操作" @click="messageMenuRef.open($event,item.message)">⋯</button>
                     </div>
                   </div>
-                  <div
-                    v-if="shouldShowAcknowledgement(item.message)"
-                    class="chat-acknowledgement-row"
-                    :class="{
-                      'chat-acknowledgement-row--own': item.isOwn,
-                      'chat-acknowledgement-row--empty': !messageAcknowledgements(item.message).length
-                    }"
-                  >
-                    <el-tooltip
-                      :content="acknowledgementTooltip(item.message)"
-                      placement="top"
-                      :disabled="!messageAcknowledgements(item.message).length"
-                    >
-                      <button
-                        v-if="canAcknowledgeMessage(item.message)"
-                        type="button"
-                        class="chat-acknowledgement-chip"
-                        :class="{ 'is-active': item.message.isAcknowledged }"
-                        :disabled="acknowledgementSavingIds.has(item.message.id)"
-                        :aria-label="item.message.isAcknowledged ? '取消收到' : '标记收到'"
-                        @click.stop="handleAcknowledgementToggle(item.message)"
-                      >
-                        <span aria-hidden="true">👌</span>
-                        <span class="chat-acknowledgement-chip__label">{{ acknowledgementLabel(item.message) }}</span>
-                      </button>
-                      <span v-else class="chat-acknowledgement-chip chat-acknowledgement-chip--readonly">
-                        <span aria-hidden="true">👌</span>
-                        <span class="chat-acknowledgement-chip__label">{{ acknowledgementLabel(item.message) }}</span>
-                      </span>
-                    </el-tooltip>
-                  </div>
+                  <ChatMessageActions v-if="item.message.messageType === 'user'" :message="item.message" :current-user-id="currentUserId" :stats="messageInteractions.stats[item.message.id]" :views-available="messageInteractions.viewsAvailable.value" :acknowledging="acknowledgementSavingIds.has(item.message.id)" @reply="startMessageReply" @acknowledge="handleAcknowledgementToggle" @references="(id,event)=>references.open(id,event)" />
                 </div>
               </div>
             </template>
@@ -278,7 +249,7 @@
             <div
               v-for="message in messages"
               :key="message.id"
-              class="chat-message-card"
+              class="chat-message-card" :ref="el=>messageInteractions.observe(el,message)"
               :class="{
                 'chat-message-card--selected': isProgressMessageSelected(message),
                 'chat-message-card--selectable': progressSelectionMode && String(message.content || '').trim(),
@@ -319,7 +290,7 @@
                   </el-tooltip>
                 </div>
                 <div class="chat-message-card__tools">
-                  <span>{{ formatDateTime(message.createdAt) }}</span>
+                  <span v-if="showMessageTime">{{ chatMessageTime(message.createdAt) }}</span>
                   <el-tag v-if="message.topicPath" size="small" effect="plain" class="chat-visible-topic">{{ message.topicPath }}</el-tag>
                   <button type="button" class="chat-message-more" aria-label="消息操作" @click.stop="messageMenuRef.open($event,message)">⋯</button>
                 </div>
@@ -327,8 +298,8 @@
               <div
                 v-if="textOnly"
                 class="chat-message-card__content"
-              >{{ message.content }}</div>
-              <RichTextContent v-else :document="message.contentJson" :fallback="message.content" />
+              ><ScreenshotText :text="message.content" :chat-message-id="message.id" /></div>
+              <ScreenshotText v-else-if="screenshotIds(message.content).length" :text="message.content" :chat-message-id="message.id" /><RichTextContent v-else :document="message.contentJson" :fallback="message.content" />
               <div v-if="message.metadata?.tasks?.length" class="handover-task-list">
                 <div v-for="task in message.metadata.tasks" :key="task.workflowInstanceId">
                   <strong>{{ task.orderNo }}</strong>
@@ -350,34 +321,7 @@
                           </template>
                         </div>
               </div>
-              <div
-                v-if="shouldShowAcknowledgement(message)"
-                class="chat-acknowledgement-row"
-                :class="{ 'chat-acknowledgement-row--empty': !messageAcknowledgements(message).length }"
-              >
-                <el-tooltip
-                  :content="acknowledgementTooltip(message)"
-                  placement="top"
-                  :disabled="!messageAcknowledgements(message).length"
-                >
-                  <button
-                    v-if="canAcknowledgeMessage(message)"
-                    type="button"
-                    class="chat-acknowledgement-chip"
-                    :class="{ 'is-active': message.isAcknowledged }"
-                    :disabled="acknowledgementSavingIds.has(message.id)"
-                    :aria-label="message.isAcknowledged ? '取消收到' : '标记收到'"
-                    @click.stop="handleAcknowledgementToggle(message)"
-                  >
-                    <span aria-hidden="true">👌</span>
-                    <span class="chat-acknowledgement-chip__label">{{ acknowledgementLabel(message) }}</span>
-                  </button>
-                  <span v-else class="chat-acknowledgement-chip chat-acknowledgement-chip--readonly">
-                    <span aria-hidden="true">👌</span>
-                    <span class="chat-acknowledgement-chip__label">{{ acknowledgementLabel(message) }}</span>
-                  </span>
-                </el-tooltip>
-              </div>
+              <ChatMessageActions v-if="message.messageType === 'user'" :message="message" :current-user-id="currentUserId" :stats="messageInteractions.stats[message.id]" :views-available="messageInteractions.viewsAvailable.value" :acknowledging="acknowledgementSavingIds.has(message.id)" @reply="startMessageReply" @acknowledge="handleAcknowledgementToggle" @references="(id,event)=>references.open(id,event)" />
             </div>
           </div>
           <el-empty v-else description="暂无沟通记录" :image-size="compact ? 56 : 72" />
@@ -420,6 +364,7 @@
         </div>
 
         <div v-if="settings.enabled && !conversationMode" class="chat-composer">
+          <div v-if="replyToMessage" class="group-compose-reply">回复 {{ replyToMessage.senderName }}：{{ replyToMessage.content }}<el-button link @click="replyToMessage=null">取消引用</el-button></div>
           <div class="chat-composer__header">
             <span>发送消息</span>
             <div class="chat-composer__mention-wrap">
@@ -435,12 +380,12 @@
                 placeholder="@提醒用户（可多选）"
                 class="chat-composer__mention"
               >
-                <el-option v-for="user in userOptions" :key="user.id" :label="user.full_name || user.username" :value="user.id" />
+                <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id" /></el-option-group>
               </el-select>
               <span class="chat-composer__mention-count">{{ composer.mentionedUserIds.length }}/20</span>
             </div>
           </div>
-          <div class="chat-composer__body" @paste.capture="handleComposerPaste">
+          <div class="chat-composer__body" data-screenshot-editor="own" @paste.capture="handleComposerPaste">
             <el-input
               v-if="textOnly"
               v-model="composer.content"
@@ -452,7 +397,7 @@
               show-word-limit
               placeholder="输入项目沟通内容…"
             />
-            <RichTextComposer
+            <RichTextComposer external-images
               v-else
               v-model="composer.contentJson"
               :disabled="sending"
@@ -474,7 +419,8 @@
             @add="addComposerImages" @retry="imageQueue.retry" @remove="imageQueue.remove" />
         </div>
 
-        <div v-if="settings.enabled && conversationMode" class="chat-composer chat-composer--conversation" @paste.capture="handleComposerPaste">
+        <div v-if="settings.enabled && conversationMode" class="chat-composer chat-composer--conversation" data-screenshot-editor="own" @paste.capture="handleComposerPaste">
+          <div v-if="replyToMessage" class="group-compose-reply">回复 {{ replyToMessage.senderName }}：{{ replyToMessage.content }}<el-button link @click="replyToMessage=null">取消引用</el-button></div>
           <button type="button" class="chat-composer-resize" aria-label="调整输入区高度" title="拖动调整输入区高度" @pointerdown="startComposerResize" @keydown="resizeComposerByKeyboard" />
           <div v-if="composer.mentionedUserIds.length" class="chat-composer__mention-tags">
             <el-tag
@@ -514,7 +460,7 @@
                   style="width: 100%"
                   @change="handleMentionSelectionChange"
                 >
-                  <el-option v-for="user in userOptions" :key="user.id" :label="user.full_name || user.username" :value="user.id" />
+                  <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id" /></el-option-group>
                 </el-select>
               </div>
             </el-popover>
@@ -532,7 +478,7 @@
               @compositionend="handleComposerCompositionEnd"
               @keydown="handleComposerKeydown"
             />
-            <RichTextComposer
+            <RichTextComposer external-images
               v-else
               v-model="composer.contentJson"
               :disabled="sending"
@@ -562,24 +508,27 @@
       :placement="historyPlacement"
       @locate="locateMessage"
     />
+    <ChatMessageReferences ref="references" :project-id="projectId" :project-type="projectType" @locate="locateMessage" />
     <ChatMessageContextMenu ref="messageMenuRef" :messages="messages" :current-user-id="currentUserId" :handlers="messageMenuHandlers" :can-progress="canAddToProgress" :selecting="progressSelectionMode" :active="active" />
   </div>
 </template>
 
-<script>
-let projectChatUsersCache = null
-let projectChatUsersRequest = null
-</script>
-
 <script setup>
+import ScreenshotText from '@/components/common/ScreenshotText.vue'
+import { screenshotIds } from '@/utils/screenshotReferences'
+import { useChatMessageInteractions } from '@/composables/useChatMessageInteractions'
+import ChatMessageActions from './chat/ChatMessageActions.vue'
+import ChatMessageReferences from './chat/ChatMessageReferences.vue'
+
 import ChatMessageContextMenu from './chat/ChatMessageContextMenu.vue'
-import { chatAvatarText, chatClock, chatDayKey, chatDateLabel, chatGroupStart } from '@/utils/chatLayout'
+import { chatAvatarText, chatDayKey, chatGroupStart } from '@/utils/chatLayout'
+import { useChatTimeDisplay } from '@/composables/useChatTimeDisplay'
+const { formatMessageTime: chatMessageTime, formatMessageDay, showMessageTime, showMessageDates } = useChatTimeDisplay()
 import { topicApi } from '@/api/chatTopics'
 import { useChatTopics } from '@/composables/useChatTopics'
 import { messageTopicPatch, newChatRequestId } from '@/utils/chatTopics'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getUsers } from '@/api/users'
 import { useChatComposerHeight } from '@/composables/useChatComposerHeight'
 import { formatBusinessDateTime as formatDateTime } from '@/utils/dateTime'
 import { chatRequest } from '@/api/projectChat'
@@ -639,7 +588,7 @@ const pendingImages = reactive([])
 const attachmentsEnabled = computed(() => !props.textOnly || props.projectType === 'annotation')
 const imagesBlocked = computed(() => pendingImages.some(item => item.status !== 'ready'))
 const imageQueue = createChatImageQueue(pendingImages, {
-  upload: uploadProjectChatAttachment,
+  upload: file=>uploadProjectChatAttachment(file,'chat'),
   createUrl: file => URL.createObjectURL(file),
   revokeUrl: url => URL.revokeObjectURL(url),
   warn: message => ElMessage.warning(message)
@@ -663,7 +612,17 @@ const handleComposerPaste = event => {
   addComposerImages(files)
 }
 const userOptions = ref([])
+const memberUserIds = ref([])
+const mentionUserGroups = computed(() => [
+  { label: '群组参与人', users: userOptions.value.filter(user => String(user.id) !== currentUserId && memberUserIds.value.includes(String(user.id))) },
+  { label: '未参与人员 · 发送后自动加入', users: userOptions.value.filter(user => String(user.id) !== currentUserId && !memberUserIds.value.includes(String(user.id))) },
+])
 const messages = ref([])
+const interactionRoot = ref(), references = ref(), replyToMessage = ref(null)
+const messageInteractions = useChatMessageInteractions({projectId:computed(()=>String(props.projectId)),projectType:computed(()=>props.projectType),messages,active:computed(()=>props.active)})
+async function startMessageReply(message) { replyToMessage.value=message;await nextTick();interactionRoot.value?.querySelector('.chat-composer textarea, .chat-composer [contenteditable="true"]')?.focus() }
+function openMessageReferences(message,event) { if(message.reply || messageInteractions.stats[message.id]?.replyCount)references.value.open(message.reply?.id||message.id,event) }
+
 const favoriteSavingIds = ref(new Set())
 const acknowledgementSavingIds = ref(new Set())
 const filterPopoverVisible = ref(false)
@@ -823,6 +782,7 @@ const handleAddSelectedToProgress = () => {
 
 const closeProgressTextMenu = () => messageMenuRef.value?.close()
 const messageMenuHandlers = {
+  reply: message=>startMessageReply(message),
   copy: async (message, excerpt) => {
     const copied = await copyTextToClipboard(excerpt || message.content || (message.attachments || []).map(file => file.originalName).join('\n'))
     copied ? ElMessage.success('已复制') : ElMessage.error('复制失败，请使用 Ctrl+C')
@@ -1056,7 +1016,7 @@ const handleNewMessageTipClick = async () => {
 }
 
 const conversationDayKey = chatDayKey
-const formatConversationDateSeparator = value => chatDateLabel(value, new Date(), true)
+const formatConversationDateSeparator = value => formatMessageDay(value)
 const avatarText = chatAvatarText
 
 // 时间正序 + 日期分隔线 + 同发送人连续消息合并头像与姓名。
@@ -1237,7 +1197,7 @@ const resetChatState = () => {
   highlightedMessageId.value = ''
   clearProgressSelection(true)
   closeProgressTextMenu()
-  composer.content = ''
+  composer.content = ''; replyToMessage.value = null
   composer.contentJson = { type: 'doc', content: [{ type: 'paragraph' }] }
   composer.mentionedUserIds = []
   clearComposerImages()
@@ -1246,30 +1206,16 @@ const resetChatState = () => {
   clearPolling()
 }
 
+let userOptionsVersion = 0
 const ensureUsersLoaded = async () => {
-  if (userOptions.value.length) return
+  if (!props.projectId) return
+  const version = ++userOptionsVersion
   try {
-    if (projectChatUsersCache) {
-      userOptions.value = projectChatUsersCache
-      return
-    }
-    if (!projectChatUsersRequest) {
-      projectChatUsersRequest = getUsers({ skip: 0, limit: 500 })
-        .then(res => {
-          projectChatUsersCache = Array.isArray(res)
-            ? res.filter(user => user.isActive !== false && user.is_active !== false)
-            : []
-          return projectChatUsersCache
-        })
-        .catch(error => {
-          projectChatUsersRequest = null
-          throw error
-        })
-    }
-    userOptions.value = await projectChatUsersRequest
-  } catch (error) {
-    console.error('加载用户失败', error)
-  }
+    const data = await chatRequest(`conversations/${props.projectType}/${props.projectId}/participants`)
+    if (version !== userOptionsVersion) return
+    memberUserIds.value = data.members.map(user => String(user.id))
+    userOptions.value = [...data.members, ...data.eligibleUsers].map(user => ({ ...user, full_name: user.name, username: user.name }))
+  } catch (error) { console.error('加载会话人员失败', error) }
 }
 
 const loadSettings = async () => {
@@ -1411,11 +1357,12 @@ const handleSend = async () => {
           mentionedUserIds: composer.mentionedUserIds,
           attachmentIds: pendingImages.map(item => item.attachment.id)
         }
+    payload.replyToMessageId = replyToMessage.value?.id || null
     const fingerprint = JSON.stringify(payload)
     if (fingerprint !== sendFingerprint) { sendRequestId = newChatRequestId(); sendFingerprint = fingerprint }
     await createProjectChatMessage(props.projectId, { ...payload, clientMessageId: sendRequestId }, props.projectType)
     if (generation !== composerGeneration) return
-    composer.content = ''
+    composer.content = ''; replyToMessage.value = null
     sendRequestId = ''; sendFingerprint = ''
     composer.contentJson = { type: 'doc', content: [{ type: 'paragraph' }] }
     composer.mentionedUserIds = []
@@ -1423,6 +1370,7 @@ const handleSend = async () => {
     closeMentionPopover()
     pagination.page = 1
     await loadMessages()
+    await ensureUsersLoaded()
     ElMessage.success('消息已发送')
   } catch (error) {
     ElMessage.error(getLocalizedErrorMessage(error, '发送消息失败'))
@@ -2529,5 +2477,5 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .chat-toolbar--header{padding:0!important;border:0!important;flex:none;gap:4px}.chat-toolbar--header .chat-toolbar__title .el-tag{font-size:10px;height:20px}.chat-toolbar--header .chat-toolbar__actions{flex-wrap:nowrap}
-.chat-composer--conversation{position:relative;margin:10px 12px 14px;padding:8px 10px;border:1px solid #dfe5ee;border-radius:12px;background:white;display:flex;flex-direction:column;gap:6px}.chat-composer--conversation:focus-within{border-color:var(--el-color-primary);box-shadow:0 0 0 2px var(--el-color-primary-light-9)}.chat-composer__input-row{display:flex;flex-wrap:wrap;justify-content:flex-end}.chat-composer__input-row .el-input,.chat-composer__input-row .el-textarea{flex:1 0 100%;width:100%}.chat-composer--conversation :deep(.el-textarea__inner){box-shadow:none;background:transparent;line-height:1.6;padding:6px 8px}.chat-composer-resize{position:absolute;top:-5px;left:20%;width:60%;height:8px;padding:0;border:0;background:transparent;cursor:ns-resize;touch-action:none}.chat-conversation-item__time{opacity:0}.chat-conversation-item:hover .chat-conversation-item__time,.chat-conversation-item:focus-within .chat-conversation-item__time{opacity:1}
+.chat-composer--conversation{position:relative;margin:10px 12px 14px;padding:8px 10px;border:1px solid #dfe5ee;border-radius:12px;background:white;display:flex;flex-direction:column;gap:6px}.chat-composer--conversation:focus-within{border-color:var(--el-color-primary);box-shadow:0 0 0 2px var(--el-color-primary-light-9)}.chat-composer__input-row{display:flex;flex-wrap:wrap;justify-content:flex-end}.chat-composer__input-row .el-input,.chat-composer__input-row .el-textarea{flex:1 0 100%;width:100%}.chat-composer--conversation :deep(.el-textarea__inner){box-shadow:none;background:transparent;line-height:1.6;padding:6px 8px}.chat-composer-resize{position:absolute;top:-5px;left:20%;width:60%;height:8px;padding:0;border:0;background:transparent;cursor:ns-resize;touch-action:none}.chat-conversation-item__time{white-space:normal;overflow-wrap:anywhere}
 </style>

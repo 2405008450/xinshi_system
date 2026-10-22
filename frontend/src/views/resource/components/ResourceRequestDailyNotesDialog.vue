@@ -49,7 +49,7 @@
           @update:model-value="switchDate"
         />
       </div>
-      <RichTextComposer
+      <RichTextComposer @uploading-change="imageUploading=$event"
         v-if="modelValue"
         :key="editorDate"
         v-model="draftContent"
@@ -102,7 +102,7 @@
         <span v-else></span>
         <div>
           <el-button :disabled="saving" @click="requestClose">关闭</el-button>
-          <el-button v-if="canEdit" type="primary" :loading="saving" @click="saveNote">保存说明</el-button>
+          <el-button v-if="canEdit" type="primary" :loading="saving||imageUploading" @click="saveNote">保存说明</el-button>
         </div>
       </div>
     </template>
@@ -239,12 +239,13 @@ async function editNote(note) {
   editorSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
+const imageUploading=ref(false)
 function containsText(node) {
-  return Boolean(node?.text?.trim()) || (node?.content || []).some(containsText)
+  return node?.type==='image' || Boolean(node?.text?.trim()) || (node?.content || []).some(containsText)
 }
 
 async function saveNote() {
-  if (saving.value) return
+  if (saving.value||imageUploading.value) return
   if (!containsText(draftContent.value)) {
     ElMessage.warning('请输入需求说明内容')
     return

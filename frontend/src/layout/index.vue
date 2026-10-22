@@ -53,7 +53,7 @@
             <el-icon><Setting /></el-icon>
             <span>系统管理</span>
           </template>
-          <SidebarNavigationItem v-if="canViewUsers" index="/users" label="用户管理" />
+          <SidebarNavigationItem v-if="canViewUsers || canViewDepartments" index="/users" label="组织架构" />
           <SidebarNavigationItem v-if="canViewRoles" index="/roles" label="角色管理" />
           <SidebarNavigationItem v-if="canViewMailSettings" index="/mail-settings" label="项目邮件设置" />
           <SidebarNavigationItem v-if="canViewProjectAudits" index="/project-operation-audits" label="项目操作审计" />
@@ -87,7 +87,7 @@
         </div>
         <div class="header-right">
           <UiZoomControl />
-          <el-badge :value="chatUnreadTotal" :max="99" :hidden="!chatUnreadTotal" class="header-chat-badge"><el-button class="header-chat-entry" text aria-label="聊天大屏" title="群聊与私聊；未读消息和提及提醒" @click="openFullscreen"><el-icon :size="18"><ChatDotRound /></el-icon><span class="header-chat-label">聊天</span><b v-if="chatMentionTotal" class="header-chat-mention">@</b></el-button></el-badge>
+          <el-badge :value="chatMentionTotal" :max="99" :hidden="!chatMentionTotal" class="header-chat-badge" @click="openHeaderChat"><el-button class="header-chat-entry" text aria-label="聊天大屏" :title="chatMentionTotal ? `${chatMentionTotal} 条未读 @我，点击查看` : '打开聊天窗口'" @click.stop="openHeaderChat"><el-icon :size="18"><ChatDotRound /></el-icon><span class="header-chat-label">聊天</span><b v-if="chatMentionTotal" class="header-chat-mention">@</b></el-button></el-badge>
           <AnnotationChatInbox />
           <NotificationBell />
           <el-dropdown @command="handleCommand">
@@ -149,6 +149,11 @@ import AnnotationChatInbox from '@/components/chat/AnnotationChatInbox.vue'
 import ProjectChatDock from '@/components/chat/ProjectChatDock.vue'
 import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
+import { filterClosedSessions, mentionUnreadCount } from '@/utils/chatSessionList'
+import { chatEntryContext } from '@/utils/chatEntryContext'
+import { canManageDepartments } from '@/utils/permission'
+import { useDepartmentCatalog } from '@/composables/useDepartmentCatalog'
+useDepartmentCatalog()
 import { useResourceNotesDock } from '@/composables/useResourceNotesDock'
 import { useResourceIssues } from '@/composables/useResourceIssues'
 import UiZoomControl from '../components/UiZoomControl.vue'
@@ -164,9 +169,15 @@ const { access: issueAccess, collector: issueCollector, refreshIssueAccess } = u
 const issueCollectorLoaded = ref(false)
 const ChatIssueCollector = defineAsyncComponent(() => import('@/components/chat/ChatIssueCollector.vue'))
 watch(() => issueCollector.visible, value => { if (value) issueCollectorLoaded.value = true })
-const { openFullscreen } = useProjectChatDock()
-const { sessions: chatSessions, mentionTotal: chatMentionTotal } = useAnnotationFollowed()
-const chatUnreadTotal = computed(() => chatSessions.value.reduce((sum, row) => sum + (Number(row.unread) || 0), 0))
+const { openFullscreen, state: chatDockState } = useProjectChatDock()
+const { sessions: chatSessions } = useAnnotationFollowed()
+const chatMentionTotal = computed(() => mentionUnreadCount(filterClosedSessions(chatSessions.value, chatDockState.closedSessionKeys)))
+async function openHeaderChat() {
+  const mentions = chatMentionTotal.value > 0
+  openFullscreen()
+  await nextTick()
+  window.dispatchEvent(new CustomEvent('chat-show-messages', { detail: { mentions, context: chatEntryContext(route) } }))
+}
 const ResourceRequestDailyNotesDialog = defineAsyncComponent(() => import('@/views/resource/components/ResourceRequestDailyNotesDialog.vue'))
 const { state: notesState, openNotes, minimizeNotes, closeNotes } = useResourceNotesDock()
 const canEditNotes = computed(() => hasPermission('projects:write'))
@@ -215,10 +226,11 @@ onMounted(() => {
 onBeforeUnmount(() => window.removeEventListener('resize', syncResponsiveSidebar))
 
 const canViewUsers = computed(() => hasPermission('system:users:read'))
+const canViewDepartments = computed(() => canManageDepartments())
 const canViewRoles = computed(() => hasPermission('system:roles:read'))
 const canViewMailSettings = computed(() => hasPermission('system:mail_settings:read'))
 const canViewProjectAudits = computed(() => hasPermission('system:audit:read'))
-const showSystemMenu = computed(() => canViewUsers.value || canViewRoles.value || canViewMailSettings.value || canViewProjectAudits.value)
+const showSystemMenu = computed(() => canViewDepartments.value || canViewUsers.value || canViewRoles.value || canViewMailSettings.value || canViewProjectAudits.value)
 
 /** 是否显示「工作台」（所有员工） */
 const showWorkbench = computed(() => hasPermission(['projects:read', 'tasks:read']))
@@ -292,7 +304,7 @@ const resolveActiveMenu = (path) => {
 }
 
 const resolveActiveGroup = (menuIndex) => {
-  if (['/users', '/roles', '/mail-settings', '/project-operation-audits'].includes(menuIndex)) return SYSTEM_MENU_INDEX
+  if (['/users', '/departments', '/roles', '/mail-settings', '/project-operation-audits'].includes(menuIndex)) return SYSTEM_MENU_INDEX
   return ''
 }
 

@@ -5,13 +5,13 @@
     <div v-if="loading && !items.length" class="chat-mention-inbox__status" role="status">正在加载提及消息…</div>
     <el-empty v-else-if="!items.length && !error" :description="keyword ? '没有匹配的提及消息' : '暂无提及我的消息'" :image-size="48" />
     <button v-for="item in items" :key="item.messageId" type="button" class="chat-mention-inbox__message"
-      :class="{ 'is-active': selectedMessageId === item.messageId }" :title="`${item.title} · ${item.senderName}：${item.preview}`"
+      :class="{ 'is-active': selectedMessageId === item.messageId }" :title="`${item.title} · ${item.senderName}：${screenshotPreview(item.preview)}`"
       @click="select(item)">
       <span class="chat-mention-inbox__avatar" aria-hidden="true">{{ chatAvatarText(item.senderName) }}</span>
       <span class="chat-mention-inbox__content">
         <span class="chat-mention-inbox__title"><strong>{{ item.title }}</strong><time :title="formatBusinessDateTime(item.createdAt)">{{ chatDateLabel(item.createdAt) }}</time></span>
         <span class="chat-mention-inbox__sender">{{ item.senderName }}<b v-if="item.unread">未读</b></span>
-        <span class="chat-mention-inbox__preview"><mark>@我</mark> {{ item.preview }}</span>
+        <span class="chat-mention-inbox__preview"><mark>@我</mark> {{ screenshotPreview(item.preview) }}</span>
         <small class="chat-mention-inbox__source">{{ item.projectType === 'annotation' ? '标注项目群' : '笔译项目群' }}<template v-if="item.subtitle"> · {{ item.subtitle }}</template></small>
       </span>
     </button>
@@ -20,6 +20,7 @@
 </template>
 
 <script setup>
+import { screenshotPreview } from '@/utils/screenshotReferences'
 import { ref, toRef, watch } from 'vue'
 import { useChatMentions } from '@/composables/useChatMentions'
 import { chatAvatarText, chatDateLabel } from '@/utils/chatLayout'

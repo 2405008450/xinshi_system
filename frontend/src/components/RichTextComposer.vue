@@ -1,5 +1,5 @@
 <template>
-  <div class="rich-editor">
+  <div ref="root" class="rich-editor">
     <fieldset v-if="editor" class="rich-editor__toolbar" :disabled="imageUploading || disabled">
       <el-button-group>
         <el-button size="small" :type="editor.isActive('bold') ? 'primary' : ''" @click="editor.chain().focus().toggleBold().run()">加粗</el-button>
@@ -32,7 +32,8 @@
       </template>
       <el-button size="small" @click="editor.chain().focus().undo().run()">撤销</el-button>
       <el-button size="small" @click="editor.chain().focus().redo().run()">重做</el-button>
-      <span v-if="imageApi" class="rich-editor__color-label" role="status">{{ imageUploading ? '图片上传中，请稍候…' : '支持粘贴截图及图片（PNG、JPEG、WebP，单张最多20MB）' }}</span>
+      <label v-if="imageApi" class="rich-editor__upload">插入截图<input type="file" accept="image/png,image/jpeg,image/webp" multiple :disabled="imageUploading||disabled" @change="chooseImages" /></label>
+      <span v-if="imageApi" class="rich-editor__color-label" role="status">{{ imageUploading ? '图片上传中，请稍候…' : props.imageApi?'支持粘贴截图及图片（PNG、JPEG、WebP，单张最多20MB）':'支持粘贴截图，长期保存（单张最多10MB）' }}</span>
     </fieldset>
     <EditorContent :editor="editor" class="rich-editor__content" />
   </div>
@@ -49,6 +50,8 @@ import { handleWebLinkClick, linkifyDocument, noticeLinkOptions } from '@/utils/
 import { clipboardImageTokens, createAuthenticatedImage, imageFileKey, imagePasteSlice, pasteImageFile } from '@/utils/richTextImages'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import '@/styles/rich-text-images.css'
+import { screenshotImageApi } from '@/utils/screenshotImageApi'
+import { registerScreenshotUpload } from '@/utils/screenshotUploads'
 
 const props = defineProps({
   modelValue: { type: Object, default: null },
@@ -57,6 +60,7 @@ const props = defineProps({
   plainTextPaste: Boolean,
   enableLinks: Boolean,
   imageApi: { type: Object, default: null },
+  externalImages: Boolean,
   imageSectionId: { type: String, default: '' },
   disabled: Boolean,
   minHeight: { type: String, default: '132px' }
@@ -69,6 +73,8 @@ const minHeight = computed(() => props.minHeight)
 const selectedColor = ref('#1f2937')
 const predefinedColors = ['#1f2937', '#475569', '#2563eb', '#0f766e', '#b45309', '#b91c1c', '#7e22ce']
 const imageUploading = ref(false)
+const root=ref(),imageApi=computed(()=>props.externalImages?null:props.imageApi||screenshotImageApi)
+let finishUpload
 const uploadedImages = new Map()
 let pasteController
 let disposed = false
@@ -76,6 +82,8 @@ let pasteSequence = 0
 
 function setUploading(value) {
   imageUploading.value = value
+  if(value)registerScreenshotUpload(root.value,new Promise(resolve=>{finishUpload=resolve}))
+  else finishUpload?.(true)
   editor.value?.setEditable(!value && !props.disabled)
   emit('uploading-change', value)
 }
@@ -84,7 +92,7 @@ async function removeDraft(id) {
   const entry = uploadedImages.get(id)
   if (!entry) return
   uploadedImages.delete(id)
-  try { await props.imageApi.removeDraft(entry.sectionId, id) } catch { /* 中断或失联的草稿由服务端24小时清理兜底。 */ }
+  try { await imageApi.value.removeDraft(entry.sectionId, id) } catch { /* 中断或失联的草稿由服务端24小时清理兜底。 */ }
 }
 
 function cleanupDraftImages() {
@@ -107,7 +115,7 @@ function markImagesSaved(document) {
 }
 
 function handleImagePaste(view, event) {
-  if (!props.imageApi) return false
+  if (!imageApi.value) return false
   if (imageUploading.value || props.disabled) { event.preventDefault(); return true }
   const tokens = clipboardImageTokens(event.clipboardData)
   if (!tokens) return false
@@ -127,13 +135,13 @@ function handleImagePaste(view, event) {
         let timer
         try {
           timer = setTimeout(() => controller.abort(), 120000)
-          const file = await pasteImageFile(token.image, controller.signal, props.imageApi.read)
+          const file = await pasteImageFile(token.image, controller.signal, imageApi.value.read)
           const hash = await imageFileKey(file)
           if (disposed || current !== pasteSequence) return
           let saved = savedByHash.get(hash)
           if (saved && token.image.supplemental) continue
           if (!saved) {
-            saved = await props.imageApi.upload(sectionId, file, controller.signal)
+            saved = await imageApi.value.upload(sectionId, file, controller.signal)
             uploadedImages.set(saved.id, { sectionId, src: saved.src })
             if (disposed || current !== pasteSequence) { await removeDraft(saved.id); return }
             savedByHash.set(hash, saved)
@@ -156,6 +164,7 @@ function handleImagePaste(view, event) {
   })()
   return true
 }
+function chooseImages(event){const files=Array.from(event.target.files||[]);event.target.value='';if(files.length)handleImagePaste(editor.value.view,{clipboardData:{files,getData:()=>''},preventDefault(){}})}
 
 const editor = useEditor({
   content: (props.enableLinks ? linkifyDocument(props.modelValue) : props.modelValue) || emptyDocument(),
@@ -166,11 +175,11 @@ const editor = useEditor({
     }),
     TextColor,
     YellowHighlight,
-    ...(props.imageApi ? [createAuthenticatedImage(props.imageApi.read)] : [])
+    ...(imageApi.value ? [createAuthenticatedImage(imageApi.value.read)] : [])
   ],
   editorProps: {
     handleDOMEvents: { paste: handleImagePaste },
-    handleDrop: () => Boolean(props.imageApi),
+    handleDrop: (view,event) => {const files=Array.from(event.dataTransfer?.files||[]).filter(file=>file.type.startsWith('image/'));return files.length&&imageApi.value?handleImagePaste(view,{clipboardData:{files,getData:()=>''},preventDefault:()=>event.preventDefault()}):false},
     handleClick: (view, pos, event) => props.enableLinks ? handleWebLinkClick(view, pos, event) : false,
     handlePaste: (view, event, slice) => props.plainTextPaste
       ? pasteWithoutFormatting(view, event, slice)
@@ -290,3 +299,5 @@ onBeforeUnmount(() => { disposed = true; cleanupDraftImages() })
   margin: 4px 0 10px;
 }
 </style>
+
+<style scoped>.rich-editor__upload{font-size:12px;color:var(--el-color-primary);cursor:pointer}.rich-editor__upload input{display:none}</style>

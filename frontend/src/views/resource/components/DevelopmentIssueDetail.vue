@@ -1,12 +1,15 @@
 <template>
-  <el-popover trigger="click" placement="left" :width="760" title="开拓问题详情" popper-class="issue-detail-popover" @show="load">
+  <el-popover trigger="click" placement="left" :width="760" title="总结详情" popper-class="issue-detail-popover" @show="load">
     <template #reference><el-button link type="primary">查看详情</el-button></template>
     <div v-loading="loading" class="issue-detail-body">
       <el-alert v-if="error" :title="error" type="error" :closable="false"><el-button text @click="load">重试</el-button></el-alert>
       <template v-if="detail">
         <el-descriptions :column="2" border size="small">
           <el-descriptions-item label="内容" :span="2">{{ detail.content }}</el-descriptions-item>
-          <el-descriptions-item label="讨论主题" :span="2">{{ detail.topic_path || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="具体分类" :span="2">{{ detail.specific_classification || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="跟进人">{{ detail.follower_names?.join('、') || '-' }}</el-descriptions-item><el-descriptions-item label="预定完成时间">{{ formatBusinessDateTime(detail.planned_completion_at) }}</el-descriptions-item>
+          <el-descriptions-item label="实际进度" :span="2">{{ detail.actual_progress || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="需同步部门">{{ detail.notify_department_names?.join('、') || '-' }}</el-descriptions-item><el-descriptions-item label="需同步人员">{{ detail.notify_user_names?.join('、') || '-' }}</el-descriptions-item>
           <el-descriptions-item label="类别">{{ issueCategoryLabel(detail.category) }}</el-descriptions-item><el-descriptions-item label="提出人">{{ detail.proposer_name || '-' }}</el-descriptions-item>
           <el-descriptions-item label="来源" :span="2"><span v-if="detail.source_type==='manual'">手工新增</span><el-button v-else link type="primary" class="issue-source" @click="$emit('source', detail)">{{ detail.source_title }}</el-button></el-descriptions-item>
           <el-descriptions-item label="原始消息" :span="2">{{ detail.source_content || '-' }}</el-descriptions-item>
@@ -14,8 +17,7 @@
           <el-descriptions-item label="收录人">{{ detail.collected_by_name }}</el-descriptions-item><el-descriptions-item label="收录时间">{{ formatBusinessDateTime(detail.created_at) }}</el-descriptions-item>
           <el-descriptions-item label="更新时间" :span="2">{{ formatBusinessDateTime(detail.updated_at) }}</el-descriptions-item>
         </el-descriptions>
-        <h4>后续安排（{{ detail.tasks.length }}）</h4>
-        <p v-if="!detail.tasks.length">-</p>
+        <h4 v-if="detail.tasks.length">历史任务（只读，{{ detail.tasks.length }} 条）</h4>
         <el-descriptions v-for="task in detail.tasks" :key="task.id" :column="2" border size="small" class="issue-task-detail">
           <el-descriptions-item label="安排内容" :span="2">{{ task.content }}</el-descriptions-item><el-descriptions-item label="执行人">{{ task.executor_name }}</el-descriptions-item>
           <el-descriptions-item label="实际进度">{{ issueStatusLabel(task.status) }}</el-descriptions-item>

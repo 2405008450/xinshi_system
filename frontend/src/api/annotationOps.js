@@ -9,9 +9,9 @@ const convert = (value, keyFn) => Array.isArray(value)
     : value
 
 const get = (url, params, config = {}) => api.get(url, { ...config, params: convert(params, snake) }).then((res) => convert(res, camel))
-const post = (url, data) => api.post(url, convert(data, snake)).then((res) => convert(res, camel))
+const post = (url, data, config = {}) => api.post(url, convert(data, snake), config).then((res) => convert(res, camel))
 const put = (url, data) => api.put(url, convert(data, snake)).then((res) => convert(res, camel))
-const patch = (url, data) => api.patch(url, convert(data, snake)).then((res) => convert(res, camel))
+const patch = (url, data, config = {}) => api.patch(url, convert(data, snake), config).then((res) => convert(res, camel))
 
 export const getPlatforms = (clientId, params = {}, config = {}) => get('/annotation-ops/platforms', { client_id: clientId || undefined, ...params }, config)
 export const createPlatform = (data) => post('/annotation-ops/platforms', data)
@@ -62,8 +62,8 @@ export const updateAnnotationWorkflow = (projectId, assigneeId, data) => put(`/a
 export const deleteAnnotationWorkflow = (projectId, assigneeId) => api.delete(`/annotation-ops/projects/${projectId}/workflow/${assigneeId}`)
 export const getStatusHistory = (projectId, config = {}) => get(`/annotation-ops/projects/${projectId}/status-history`, undefined, config)
 export const getCustomerProgress = (projectId, config = {}) => get(`/annotation-ops/projects/${projectId}/customer-progress`, {}, config)
-export const createCustomerProgress = (projectId, data) => post(`/annotation-ops/projects/${projectId}/customer-progress`, data)
-export const updateCustomerProgress = (id, data) => patch(`/annotation-ops/customer-progress/${id}`, data)
+export const createCustomerProgress = (projectId, data) => post(`/annotation-ops/projects/${projectId}/customer-progress`, data, data.chatDelivery?.sendToChat?{timeout:60000}:{})
+export const updateCustomerProgress = (id, data) => patch(`/annotation-ops/customer-progress/${id}`, data, data.chatDelivery?.sendToChat?{timeout:60000}:{})
 export const deleteCustomerProgress = (id, data) => api.delete(`/annotation-ops/customer-progress/${id}`, { data: convert(data, snake) })
 export const getRecentStatusHistory = (params = {}, config = {}) => get('/annotation-ops/status-history/recent', params, config)
 export const searchStatusHistory = (params, config = {}) => get('/annotation-ops/status-history/search', params, config)

@@ -10,7 +10,9 @@ from annotation_material_service import cleanup, storage_mode
 
 def cleanup_once():
     with Session(engine) as db:
-        cleanup(db)
+        if storage_mode()=='local':cleanup(db)
+        from editor_screenshot_service import cleanup as cleanup_screenshots
+        cleanup_screenshots(db)
 
 
 @asynccontextmanager
@@ -28,7 +30,7 @@ async def material_lifespan(app):
             except asyncio.TimeoutError:
                 pass
 
-    task = asyncio.create_task(worker()) if storage_mode() == 'local' else None
+    task = asyncio.create_task(worker())
     try:
         yield
     finally:

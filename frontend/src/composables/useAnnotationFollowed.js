@@ -46,8 +46,8 @@ async function refresh() {
     error.value = ''
     const { state } = useProjectChatDock()
     state.windows.forEach((item) => {
-      const session = sessions.value.find(row => row.key === item.key)
-      if (session) { item.unread = session.unread; item.mentionUnread = session.mentionUnread; item.projectStatus = session.projectStatus || '' }
+      const session = sessions.value.find(row => row.key === (item.conversationKey || item.key))
+      if (session) { item.unread = session.unread; item.mentionUnread = session.mentionUnread; item.projectStatus = session.projectStatus || ''; if (item.projectType === 'discussion') item.title = session.title }
     })
     await refreshOpenAnnotationStatuses(sessions.value)
   } catch {
@@ -69,6 +69,10 @@ function start() {
     subscribe('annotation_chat_changed', refresh),
     subscribe('direct_chat_changed', refresh),
     subscribe('chat_sessions_changed', refresh),
+    subscribe('chat_conversation_removed', event => {
+      window.dispatchEvent(new CustomEvent('chat-conversation-access-denied', { detail: { projectType: event.projectType, projectId: event.projectId } }))
+      refresh()
+    }),
     subscribe('chat_topics_changed', () => refreshTopics(true).catch(() => {})),
     subscribe('chat_message', refresh),
     subscribe('notification', refresh),

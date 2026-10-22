@@ -191,7 +191,7 @@ class ResourceRequestDailyNoteWrite(BaseModel):
             raise ValueError(str(exc).replace("须知", "需求说明")) from exc
 
         def contains_text(node) -> bool:
-            return bool(node.get("text", "").strip()) or any(
+            return node.get("type")=="image" or bool(node.get("text", "").strip()) or any(
                 contains_text(child) for child in node.get("content", [])
             )
 

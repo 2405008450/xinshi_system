@@ -1,11 +1,11 @@
 <template>
   <el-config-provider :z-index="10000">
-    <DraggableFormDialog :model-value="modelValue" title="标注项目管理 · 加入会话" width="min(1440px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close class="chat-annotation-picker" :close-on-click-modal="false" @update:model-value="$emit('update:modelValue', $event)">
+    <DraggableFormDialog :model-value="modelValue" title="标注项目管理 · 加入关注" width="min(1440px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close class="chat-annotation-picker" :close-on-click-modal="false" @update:model-value="$emit('update:modelValue', $event)">
       <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" />
       <AnnotationProjects v-if="modelValue && canRead" conversation-picker :joined-project-ids="joinedIds" :joining-project-ids="[...joining]" @join-conversation="join" />
       <el-alert v-else-if="!canRead" title="没有标注项目查看权限" type="warning" :closable="false" />
       <template #footer>
-        <span class="chat-annotation-picker__feedback" role="status">{{ feedback || '加入后按项目当前状态自动归类，可连续加入多个项目。' }}</span>
+        <span class="chat-annotation-picker__feedback" role="status">{{ feedback || '关注后加入收藏夹，并按项目当前状态归类，可连续关注多个项目。' }}</span>
         <el-button :disabled="joining.size > 0" @click="$emit('update:modelValue', false)">完成</el-button>
       </template>
     </DraggableFormDialog>
@@ -38,13 +38,14 @@ async function join(row) {
   joining.value = new Set([...joining.value, row.id]); error.value = ''
   try {
     const project = await getAnnotationProject(row.id)
+    await annotationChatRequest(row.id, 'start', { method: 'post' })
     await annotationChatRequest(row.id, 'following', { method: 'put', data: { following: true } })
     joined.value = new Set([...joined.value, row.id])
     await refresh()
     const projectStatus = project.projectStatus || row.projectStatus
     emit('joined', { ...row, ...project, projectStatus })
     feedback.value = `已加入“${row.projectName || row.orderNo}” → 标注项目 / ${annotationStatusLabels[normalizeAnnotationStatus(projectStatus)] || '其他状态'}`
-  } catch (e) { error.value = e.detail || e.message || '加入会话失败，请重试' }
+  } catch (e) { error.value = e.detail || e.message || '加入关注失败，请重试' }
   finally { joining.value = new Set([...joining.value].filter(id => id !== row.id)) }
 }
 </script>

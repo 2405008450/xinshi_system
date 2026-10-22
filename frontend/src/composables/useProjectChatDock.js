@@ -1,8 +1,9 @@
 import { reactive } from 'vue'
+import { sessionListKey } from '@/utils/chatSessionList'
 import { getProject } from '@/api/projects'
 import { getAnnotationProject } from '@/api/annotationProjects'
 
-const MAX_EXPANDED_WINDOWS = 3
+const MAX_EXPANDED_WINDOWS = 6
 const WINDOW_WIDTH = 420
 const WINDOW_HEIGHT = 640
 const VIEWPORT_MARGIN = 8
@@ -12,11 +13,15 @@ const COMPACT_SCREEN_WIDTH = 768
 const SIZE_MODES = ['small', 'medium', 'large']
 
 let sequence = 0
+let duplicateSequence = 0
 let zSequence = DOCK_Z_BASE
 
 const state = reactive({
   windows: [],
+  closedSessionKeys: [],
+  recentClosedSessions: [],
   layout: 'float',
+  tileMode: '',
   workspaceMinimized: false,
   workspaceOpened: false,
   pinnedKey: '',
@@ -67,6 +72,8 @@ const persistPreferences = () => {
       layout: state.workspaceMaximized ? state.maximizedFrom : state.layout,
       workspaceSize: state.workspaceSize,
       sizeByType: { ...sizePreference },
+      closedSessionKeys: [...state.closedSessionKeys],
+      recentClosedSessions: state.recentClosedSessions,
     }))
   } catch {
     // 隐私模式或存储配额不足时仍允许本次会话使用当前档位。
@@ -78,6 +85,10 @@ const ensurePreferences = () => {
   state.preferencesReady = true
   try {
     const saved = JSON.parse(localStorage.getItem(preferenceStorageKey()) || '{}')
+    state.closedSessionKeys = Array.isArray(saved.closedSessionKeys)
+      ? [...new Set(saved.closedSessionKeys.filter(key => typeof key === 'string' && /^(annotation|translation|direct):.+$/.test(key)))] : []
+    state.recentClosedSessions = Array.isArray(saved.recentClosedSessions) ? saved.recentClosedSessions.filter(item =>
+      item && typeof item.key === 'string' && /^(annotation|translation|direct):.+$/.test(item.key) && typeof item.projectId === 'string').slice(0, 10) : []
     // 兼容旧版全屏偏好，刷新后恢复普通布局，不自动遮住业务页面。
     const savedLayout = saved.workspaceMaximized === true ? saved.maximizedFrom : saved.layout
     if (savedLayout === 'workspace' || savedLayout === 'float') state.layout = savedLayout
@@ -86,6 +97,7 @@ const ensurePreferences = () => {
       sizePreference.translation = normalizeSize(saved.sizeByType.translation)
       sizePreference.annotation = normalizeSize(saved.sizeByType.annotation)
     }
+    persistPreferences()
   } catch {
     state.layout = 'float'
   }
@@ -130,12 +142,12 @@ const touchWindow = (chatWindow) => {
 
 const enforceExpandedLimit = (preferredKey) => {
   if (state.layout === 'workspace') return
+  const limit = state.tileMode === 'medium' ? 3 : MAX_EXPANDED_WINDOWS
+  const oldestFirst = items => items.filter(item => item.key !== preferredKey).sort((a, b) => a.lastActiveOrder - b.lastActiveOrder)
+  const medium = state.windows.filter(item => !item.minimized && item.sizeMode !== 'small')
+  oldestFirst(medium).slice(0, Math.max(0, medium.length - 3)).forEach(item => { item.minimized = true })
   const expanded = state.windows.filter(item => !item.minimized)
-  if (expanded.length <= MAX_EXPANDED_WINDOWS) return
-  const oldest = expanded
-    .filter(item => item.key !== preferredKey)
-    .sort((left, right) => left.lastActiveOrder - right.lastActiveOrder)[0]
-  if (oldest) oldest.minimized = true
+  oldestFirst(expanded).slice(0, Math.max(0, expanded.length - limit)).forEach(item => { item.minimized = true })
 }
 
 const clampPosition = (x, y, width = WINDOW_WIDTH, height = WINDOW_HEIGHT) => {
@@ -260,33 +272,43 @@ const activateWorkspace = (key) => {
   focusWorkspace()
 }
 
-const openChat = ({ projectId, projectType = 'translation', title = '', subtitle = '', messageId = '', projectStatus = '' }) => {
+const openChat = ({ projectId, projectType = 'translation', title = '', subtitle = '', messageId = '', projectStatus = '', allowDuplicate = false }) => {
   if (!projectId) return null
   ensurePreferences()
-  const key = `${projectType}:${projectId}`
-  const existing = state.windows.find(item => item.key === key)
+  const conversationKey = `${projectType}:${projectId}`
+  const key = allowDuplicate ? `${conversationKey}:copy-${++duplicateSequence}` : conversationKey
+  state.recentClosedSessions = state.recentClosedSessions.filter(item => !(item.sessionKeys || [item.key]).includes(conversationKey))
+  if (state.closedSessionKeys.includes(conversationKey)) {
+    state.closedSessionKeys = state.closedSessionKeys.filter(item => item !== conversationKey)
+    persistPreferences()
+  }
+  persistPreferences()
+  const existing = !allowDuplicate && (state.windows.find(item => item.key === state.activeKey && item.projectType === projectType && item.projectId === String(projectId)) || state.windows.find(item => item.projectType === projectType && item.projectId === String(projectId)))
   if (existing) {
     if (messageId) existing.targetMessageId = messageId
     if (title) existing.title = title
     if (subtitle) existing.subtitle = subtitle
     if (projectStatus) existing.projectStatus = projectStatus
     existing.minimized = false
-    if (state.pinnedKey && state.layout === 'float') state.pinnedKey = key
+    if (state.layout === 'float' && state.tileMode) existing.sizeMode = state.tileMode
+    if (state.pinnedKey && state.layout === 'float') state.pinnedKey = existing.key
     existing.unread = 0
-    state.activeKey = key
-    focusChat(key)
-    activateWorkspace(key)
-    enforceExpandedLimit(key)
+    state.activeKey = existing.key
+    focusChat(existing.key)
+    activateWorkspace(existing.key)
+    enforceExpandedLimit(existing.key)
     if (!title || !subtitle || (projectType === 'annotation' && !existing.projectStatus)) fillChatWindowMeta(existing, true)
-    return key
+    return existing.key
   }
 
   const needsMeta = !['direct', 'discussion'].includes(projectType) && (!title || !subtitle || (projectType === 'annotation' && !projectStatus))
-  const sizeMode = normalizeSize(sizePreference[projectType])
+  const sizeMode = state.layout === 'float' && state.tileMode ? state.tileMode : normalizeSize(sizePreference[projectType])
   const chatWindow = reactive({
     key,
+    conversationKey,
     projectId: String(projectId),
     projectType,
+    accessConfirmed: false,
     projectStatus,
     targetMessageId: messageId,
     title: title || (needsMeta ? '正在加载项目信息…' : '项目沟通'),
@@ -354,6 +376,7 @@ const applySize = (chatWindow, mode) => {
   persistPreferences()
   const size = resolveChatSize(next)
   Object.assign(chatWindow, clampPosition(chatWindow.x, chatWindow.y, size.width, size.height))
+  enforceExpandedLimit(chatWindow.key)
 }
 
 const cycleSize = (key) => {
@@ -365,7 +388,7 @@ const cycleSize = (key) => {
 
 const setSize = (key, mode) => {
   const chatWindow = state.windows.find(item => item.key === key)
-  if (chatWindow) applySize(chatWindow, mode)
+  if (chatWindow) { applySize(chatWindow, mode); enforceExpandedLimit(key) }
 }
 
 const setWorkspaceSize = (mode) => {
@@ -460,6 +483,7 @@ const openFullscreen = () => {
 const pinChat = (key = state.activeKey) => {
   const chatWindow = state.windows.find(item => item.key === key)
   if (!chatWindow) return
+  state.tileMode = ''
   restoreFloatWindows()
   state.layout = 'float'
   state.workspaceMaximized = false
@@ -526,7 +550,30 @@ const incrementUnread = (key) => {
   chatWindow.unread += 1
 }
 
-const closeChat = (key) => {
+const rememberClosedSession = (session, sessionKeys = [session.key]) => {
+  if (!session?.key || session.projectType === 'discussion' || session.key.startsWith('discussion:')) return
+  const entry = {
+    key: session.key, projectId: String(session.projectId || session.key.slice(session.key.indexOf(':') + 1)),
+    projectType: session.projectType || session.kind || session.key.split(':')[0],
+    title: session.title || session.subtitle || '未命名会话', subtitle: session.subtitle || '',
+    projectStatus: session.projectStatus || '', categoryIds: session.categoryIds || [], sessionKeys,
+  }
+  const previous = state.recentClosedSessions.filter(item => sessionListKey(item) === sessionListKey(entry))
+  entry.sessionKeys = [...new Set([...sessionKeys, ...previous.flatMap(item => item.sessionKeys || [item.key])])]
+  state.recentClosedSessions = [entry, ...state.recentClosedSessions.filter(item => sessionListKey(item) !== sessionListKey(entry))].slice(0, 10)
+}
+
+const closeChat = (key, { session, recordRecent = true } = {}) => {
+  if (!key) return
+  ensurePreferences()
+  const closing = state.windows.find(item => item.key === key)
+  const conversationKey = closing?.conversationKey || key
+  const hasAnother = state.windows.some(item => item.key !== key && (item.conversationKey || item.key) === conversationKey)
+  if (!conversationKey.startsWith('discussion:') && !hasAnother) {
+    if (recordRecent) rememberClosedSession({ ...(session || closing || { key }), key: conversationKey }, [conversationKey])
+    if (!state.closedSessionKeys.includes(conversationKey)) state.closedSessionKeys.push(conversationKey)
+  }
+  persistPreferences()
   const index = state.windows.findIndex(item => item.key === key)
   if (index >= 0) state.windows.splice(index, 1)
   if (state.pinnedKey === key) state.pinnedKey = '__empty__'
@@ -536,7 +583,42 @@ const closeChat = (key) => {
   }
 }
 
+const closeSessionEntry = (session) => {
+  ensurePreferences()
+  if (session.projectType === 'discussion') return
+  const keys = session.catalogKeys || [session.key]
+  rememberClosedSession(session, keys)
+  for (const key of keys) {
+    const windows = state.windows.filter(item => (item.conversationKey || item.key) === key)
+    if (windows.length) for (const item of windows) closeChat(item.key, { recordRecent: false })
+    else closeChat(key, { recordRecent: false })
+  }
+}
+
+const restoreClosedSession = (session) => {
+  ensurePreferences()
+  const keys = session.sessionKeys || [session.key]
+  state.closedSessionKeys = state.closedSessionKeys.filter(key => !keys.includes(key))
+  const key = openChat(session)
+  persistPreferences()
+  return key
+}
+
+const syncClosedSessionCatalog = (catalog) => {
+  ensurePreferences()
+  if (state.recentClosedSessions.length || !catalog.length) return
+  const known = new Set(state.recentClosedSessions.flatMap(item => item.sessionKeys || [item.key]))
+  // 为升级前只记录了 ID 的关闭项补齐名称，不改变原有关闭顺序。
+  for (const key of state.closedSessionKeys) {
+    if (known.has(key)) continue
+    const session = catalog.find(item => item.key === key)
+    if (session) rememberClosedSession({ ...session, projectType: session.projectType || session.kind })
+  }
+  persistPreferences()
+}
+
 const closeAllChats = () => {
+  state.tileMode = ''
   state.windows.splice(0, state.windows.length)
   state.activeKey = ''
   state.pinnedKey = ''
@@ -544,11 +626,10 @@ const closeAllChats = () => {
 }
 
 const closeWorkspaceSession = () => {
+  if (!state.activeKey) return
   if (state.activeKey) closeChat(state.activeKey)
-  if (!state.windows.length) {
-    state.workspaceOpened = false
-    state.workspaceMinimized = false
-  }
+  state.workspaceOpened = true
+  state.workspaceMinimized = false
 }
 
 const minimizeChat = (key) => {
@@ -572,12 +653,12 @@ const restoreWorkspace = () => {
 }
 
 const selectSession = (key) => {
-  const chatWindow = state.windows.find(item => item.key === key)
+  const chatWindow = state.windows.find(item => item.key === key) || state.windows.find(item => item.conversationKey === key)
   if (!chatWindow) return
   chatWindow.minimized = false
   chatWindow.unread = 0
   state.workspaceMinimized = false
-  focusChat(key)
+  focusChat(chatWindow.key)
   if (state.layout === 'workspace') ensureWorkspacePlaced()
 }
 
@@ -591,10 +672,42 @@ const restoreChat = (key) => {
   enforceExpandedLimit(key)
 }
 
+const openTiledSessions = (sessions, mode = 'small') => {
+  const unique = [...new Map(sessions.map(item => [`${item.projectType || item.kind}:${item.projectId}`, item])).values()]
+  const limit = mode === 'medium' ? 3 : 6
+  if (!unique.length || unique.length > limit) return false
+  ensurePreferences()
+  floatWindowSnapshot = null
+  state.layout = 'float'; state.tileMode = mode === 'medium' ? 'medium' : 'small'
+  state.workspaceMaximized = false; state.workspaceOpened = false; state.pinnedKey = ''
+  const keys = unique.map(item => openChat({ ...item, projectType: item.projectType || item.kind }))
+  state.windows.forEach(item => { item.minimized = !keys.includes(item.key); if (!item.minimized) item.sizeMode = state.tileMode })
+  state.activeKey = keys[0]
+  persistPreferences()
+  return true
+}
+
+const exitTiling = () => { state.tileMode = ''; setLayout('workspace') }
+
+const duplicateChat = (key = state.activeKey) => {
+  const source = state.windows.find(item => item.key === key)
+  if (!source || !['annotation', 'translation'].includes(source.projectType)) return null
+  floatWindowSnapshot = null
+  state.layout = 'float'; state.tileMode = source.sizeMode === 'medium' ? 'medium' : 'small'
+  state.workspaceMaximized = false; state.workspaceOpened = false; state.pinnedKey = ''; source.minimized = false
+  return openChat({ projectId: source.projectId, projectType: source.projectType, title: source.title, subtitle: source.subtitle, projectStatus: source.projectStatus, allowDuplicate: true })
+}
+
 export const useProjectChatDock = () => ({
+  openTiledSessions,
+  exitTiling,
+  duplicateChat,
   state,
   openChat,
   closeChat,
+  closeSessionEntry,
+  restoreClosedSession,
+  syncClosedSessionCatalog,
   closeAllChats,
   closeWorkspaceSession,
   minimizeChat,

@@ -85,6 +85,13 @@ async def upload_chat_file(service, scope, project_id: UUID, request: Request, f
         raise HTTPException(415, 'Office文件格式无效')
     if suffix in {'.txt', '.csv'} and (b'\x00' in content[:4096] or content.startswith(b'MZ')):
         raise HTTPException(415, '文本文件格式无效')
+    if is_image:
+        import editor_screenshot_service
+        if editor_screenshot_service.ready(db):
+            from chat_screenshot_storage import save_attachment
+            from chat_time import api_time
+            row=save_attachment(db,user,content,file.filename,scope=scope,project_id=project_id)
+            return {'id':row.id,'original_name':row.original_name,'content_type':row.content_type,'file_size':row.file_size,'created_at':api_time(row.created_at)}
     from chat_attachment_storage import remote_attachment_url, upload_remote_attachment
     remote_url = remote_attachment_url()
     if remote_url:

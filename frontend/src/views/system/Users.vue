@@ -3,7 +3,7 @@
     <template #header>
       <div class="card-header">
         <div>
-          <span class="header-title">用户管理</span>
+          <span class="header-title">人员管理</span>
         </div>
         <div class="header-actions">
           <TableColumnSettings v-model="visibleColumnKeys" :columns="userColumns" title="用户列表字段" @reset="resetColumns" />
@@ -59,8 +59,8 @@
       <el-table-column v-if="isColumnVisible('full_name')" prop="full_name" label="姓名" min-width="100" show-overflow-tooltip>
         <template #default="{ row }">{{ row.full_name || '-' }}</template>
       </el-table-column>
-      <el-table-column v-if="isColumnVisible('department')" prop="department" label="部门" width="110" show-overflow-tooltip>
-        <template #default="{ row }">{{ normalizeDepartment(row.department) || '未分部门' }}</template>
+      <el-table-column v-if="isColumnVisible('department')" prop="department" label="所属部门" min-width="230">
+        <template #default="{ row }"><DepartmentMemberships :user-id="row.id" :primary="row.department" :people="organizationPeople" /></template>
       </el-table-column>
       <el-table-column v-if="isColumnVisible('email')" prop="email" label="邮箱" min-width="220" show-overflow-tooltip>
         <template #default="{ row }">{{ row.email || '-' }}</template>
@@ -130,7 +130,7 @@
                 <el-descriptions :column="2" border size="small">
                   <el-descriptions-item label="用户名">{{ row.username || '-' }}</el-descriptions-item>
                   <el-descriptions-item label="姓名">{{ row.full_name || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="部门">{{ normalizeDepartment(row.department) || '未分部门' }}</el-descriptions-item>
+                  <el-descriptions-item label="部门"><DepartmentMemberships :user-id="row.id" :primary="row.department" :people="organizationPeople" /></el-descriptions-item>
                   <el-descriptions-item label="状态">{{ row.is_active ? '启用' : '禁用' }}</el-descriptions-item>
                   <el-descriptions-item label="邮箱" :span="2">{{ row.email || '-' }}</el-descriptions-item>
                   <el-descriptions-item label="角色" :span="2">{{ row.roles?.map(role => role.role_name).join('、') || '未分配角色' }}</el-descriptions-item>
@@ -418,7 +418,7 @@
 </template>
 
 <script setup>
-import { computed, ref, reactive, onBeforeUnmount, onMounted } from 'vue'
+import { computed, ref, reactive, onBeforeUnmount, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import * as userApi from '@/api/users'
@@ -434,6 +434,9 @@ import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { useBatchDelete } from '@/composables/useBatchDelete'
+import DepartmentMemberships from '@/components/common/DepartmentMemberships.vue'
+import { useOrganizationDirectory } from '@/composables/useOrganizationDirectory'
+const { people: organizationPeople }=useOrganizationDirectory()
 
 const loading = ref(false)
 const userTableRef = ref(null)
@@ -553,6 +556,10 @@ const form = reactive({
   is_active: true
 })
 
+watch(() => DEPARTMENT_NAMES.join('|'), () => {
+  form.department = normalizeDepartment(form.department)
+  searchForm.department = normalizeDepartment(searchForm.department)
+})
 const validateEmail = async (_rule, value) => {
   const email = String(value || '').trim()
   if (!email) return

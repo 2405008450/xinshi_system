@@ -4,6 +4,21 @@
 
 ## 阅读说明
 
+### 2026-10-21 会话参与人访问边界
+
+- `annotation_chat_member`、`chat_project_member_pref`、`chat_discussion_member` 中的记录分别表示标注、笔译、资源讨论的参与资格；模块查看权限、创建人身份、历史发言、关注和置顶不能在读取时新增参与人。单聊仍限定双方账号。
+- `annotation_chat_default_participant`：所有账号共用的标注会话默认参与人名单，只在显式发起新会话时复制，并自动加入发起人；不修改已有会话参与人。
+- 标注和笔译消息显式 @非参与人时，在同一发送事务中加入该人员；发送失败时一并回滚。新成员阅读基线设在本条消息之前，保留该条提及的未读提醒。
+- 移出参与人或主动退出群组会删除对应成员记录并立即收回访问权，保留历史消息和附件；只有现有成员能够重新邀请，单纯退出会话窗口不改变成员资格。
+
+| 字段 | 类型 | 约束 / 语义 |
+| --- | --- | --- |
+| user_id | uuid | PK，FK → app_user.id，删除账号时级联删除默认配置 |
+| updated_by | uuid | NOT NULL，FK → app_user.id，最后配置人 |
+| updated_at | timestamptz | NOT NULL，明确携带 UTC+8 的业务时间 |
+
+显式迁移入口：`tools/apply_chat_participants_migration.py`。迁移不修改消息、附件、原有参与记录及默认参与人配置；可重复执行。首次迁移将原笔译项目负责人/历史参与人，以及原公共资源讨论的有权有效账号固化为参与记录。此后新账号不自动获得既有会话访问权。执行业务库迁移仍需单独授权。
+
 - `PK`：主键；`FK`：外键；`UQ`：唯一约束；`组合 UQ`：字段参与组合唯一约束。
 - 所有 `timestamp` 均为 PostgreSQL `timestamp without time zone`；应用连接会话时区固定为 `Asia/Hong_Kong`。
 - JSONB 字段保存结构化快照或可扩展数据，具体 JSON 形状由应用层 schema/服务代码约束。
@@ -1230,3 +1245,73 @@
 ### `v_finance_record_display`
 
 财务展示视图：以 `finance_record` 为主表，连接 `translation_project` 和 `client`，输出订单号、客户简称、项目名称、项目状态、报价金额、开票状态等列表展示字段。
+
+
+### chat_message_view（逐条消息阅读回执）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| conversation_kind | varchar(20), PK | annotation / translation / direct / discussion |
+| conversation_id | UUID, PK | 当前独立会话 ID，主子订单互相隔离 |
+| message_id | varchar(64), PK | 项目/私聊 UUID 消息号或讨论整数消息号；读取与写入均核对所属会话 |
+| user_id | UUID, PK, FK app_user | 实际查看者；按当前参与人筛选统计，不包含发送者 |
+| seen_at | timestamptz | 首次实际可见且页面前台聚焦的时间；UTC+8 接口展示 |
+
+迁移：`tools/apply_chat_message_views_migration.py`，幂等创建空表，不回填历史阅读，不与关注/未读游标/收到确认混用；需显式数据库维护授权后执行。
+
+### system_department（统一部门目录）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | UUID, PK | 稳定部门标识 |
+| name | varchar(50), unique | 当前部门名称 |
+| aliases | JSON | 本部门历史名称，供历史数据和旧请求映射 |
+| revision | integer | 并发编辑版本号 |
+| updated_by | UUID | 最近编辑账号 |
+| created_at / updated_at | timestamptz | UTC+8 业务时间 |
+
+管理仅允许实际登录用户名 ethan、jimmy（不区分大小写）和 admin/超级管理员角色；所有登录用户可读取部门选项。改名在同一事务同步 app_user.department 以及 work_schedule JSON 内 dept/department 字段，不修改任务、备注和历史审计自由文本。旧名称保留映射。迁移 `tools/apply_department_catalog_migration.py` 幂等创建目录，导入预置及现有非空部门；初始化不修改人员、排班，须另获明确数据库迁移授权后执行。
+
+### 八类聊天总结（resource_development_issue 扩展）
+
+`category`：arrangement=信息同步、request=提出需求、idea=想法讨论、decision=决策批复、execution=任务执行、problem=问题/异常、risk=风险隐患、standard=规则标准。沿用原四类编码，不删除或合并历史事项。
+
+新增 `summary_data JSON NOT NULL DEFAULT '{}'`：specific_classification（具体分类，200字）、planned_completion_at（预定完成时刻，明确+08:00）、follower_user_ids（跟进人UUID数组）、actual_progress（实际进度，10000字）、notify_user_ids（显式选择的同步人员）、notify_department_ids（同步部门，稳定目录UUID）。任务时间、跟进人与进度仅适用于 execution。created_at 为保存时间，筛选日期按 UTC+8 的闭开区间查询。
+
+新增 `resource_issue_audience`：issue_id UUID（FK resource_development_issue，级联删除）、kind varchar(24)（follower / notify_user / notify_department）、target_id UUID；三者组成主键，按 kind/target_id/issue_id 建索引。部门保存时解析当前有效成员，notify_user 保存去重后的实际通知及授权对象，不因部门后续新增人员自动开放历史总结。
+
+保存与业务通知在同一事务内落库，提交后再推送；通知类型 chat_summary，目标实体为总结ID，业务通知可打开对应总结。跟进人仅可单独更新任务进度，不能修改正文或通知范围；来源聊天仍独立验证原会话参与人权限。迁移 `tools/apply_chat_summary_migration.py` 只扩展字段/约束及范围表，不补发历史通知；须明确数据库迁移授权。
+# 标注进度默认提及配置（2026-10-22）
+
+`annotation_progress_mention_defaults`：所有账号共用的标注项目默认 @ 名单。id=1 为进度发送默认名单，id=2 为新增项目默认名单；后者首次使用预选有效账号“赵震锋”，保存后使用人工配置。仅由显式保存设置维护，不修改历史会话或参与人。
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| id | integer PK | 1=进度；2=新增标注项目 |
+| user_ids | JSON | 默认人员 UUID 列表 |
+| department_ids | JSON | 默认部门 UUID 列表；发送时展开有效人员 |
+| updated_by | UUID FK app_user | 最后修改人 |
+| updated_at | timestamptz | 最后修改实际时间，接口 UTC+8 |
+
+迁移入口：`tools/apply_annotation_progress_mentions_migration.py`。每次结构迁移先取得用户单独确认。客户／项目进度可携带 `chat_delivery`：`send_to_chat`、`user_ids`、`department_ids`；进度和对应订单消息在同一事务保存，发送后沿用会话 @ 提醒、自动邀请规则，不修改主／子订单归属。
+
+`annotation_project.task_image_upload_ids`：JSONB，非空、默认 `[]`，最多9个具体任务截图的资料上传 UUID。复用 `annotation_material_upload/file/version` 及文件授权、生命周期；只接收 PNG/JPEG/GIF/WebP，每张最多10MB。截图归入项目资料“具体任务截图”，文本继续保存在原 `task_description`，不将图片编码写入文本。
+
+迁移入口：`tools/apply_annotation_task_images_migration.py`，执行前每次单独确认。新增项目的 `chat_delivery` 仅控制本订单通知；消息正文保留九项字段的可搜索文本，`content_json.type=annotation_creation` 保存字段卡片，截图通过 `chat_project_attachment` 的 `material:<upload UUID>:<随机 UUID>` 引用当前订单资料。下载须先验证会话参与权限及当前订单的资料版本关联。
+
+
+### 通用编辑截图（2026-10-22 经用户确认建表）
+
+- `editor_screenshot_blob`：`sha256 varchar(64)` 主键，`content bytea` 压缩图片（延迟加载），`content_type varchar(40)`、`byte_size integer`。相同图片内容去重，单图压缩后不超过2MB。
+- `editor_screenshot`：`id uuid` 主键，`blob_sha256 varchar(64)` 可空外键，`uploaded_by uuid` 人员外键，`created_at timestamptz`，`retention_kind varchar(16)`（business/chat），`expires_at timestamptz` 可空。业务图片永久；聊天截图30天后清除内容引用、保留过期占位。业务表中的原文字字段保存 `![截图](screenshot://UUID#签名)` 引用（签名阻止旧接口伪造图片引用；认证签名密钥轮换时须一并规划图片引用兼容），原历史文字不转换。
+- `editor_screenshot_grant`：`id uuid` 主键，`user_id uuid` 人员外键，`image_ids json`，`expires_at timestamptz`。只有已通过业务接口授权且实际返回的图片才能获得10分钟读取授权；授权与账号绑定，过期清理。聊天图片下载额外按原消息参与权限和消息时间验证。
+- 将聊天截图保存到业务记录后，该引用提升为长期保存；聊天内仍按消息创建时间限制30天。清理图片字节不删除文字、业务资料及非图片文件。现有云端文件附件不在此建表迁移中删除。
+- 可重复迁移：`tools/apply_editor_screenshots_migration.py`；服务启动不创建或迁移表。
+
+### 组织架构与跨部门人员（2026-10-22，经用户确认创建并初始化）
+
+`system_department_member`：`department_id uuid`（FK system_department，级联删除）、`user_id uuid`（FK app_user，级联删除）组成主键；`position varchar(50)` 非空默认空串，部门内业务职务，不赋予任何系统权限；`created_at`、`updated_at timestamptz`，UTC+8。按 user_id 建索引，以便查看一个人的全部部门。
+
+迁移 `tools/apply_organization_members_migration.py` 导入现有主部门归属，保留 `app_user.department` 作为主部门，不改历史排班或权限。显式 `--initialize-annotation` 时仅在“标注项目部”不存在时创建并加入已核对的17位人员和职务；重复运行不恢复之后人工移出的标注项目部成员。结构变更必须先获得用户单独确认，不由服务启动触发。
+
+系统管理统一入口为“组织架构”，人员管理与部门名册在同一板块。`GET /departments/organization` 返回姓名、账号、主部门及全部部门/职务；`PUT /departments/{id}/members` 仅 ethan、jimmy、超级管理员可保存，通过部门 revision 防止覆盖他人修改。移出主部门时使用其余部门作为主部门或置空。人员筛选、部门通知及标注默认@按跨部门名册匹配并去重。

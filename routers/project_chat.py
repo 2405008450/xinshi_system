@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -46,7 +46,16 @@ from schemas import (
 
 def require_chat_access(request: Request, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     from permission_service import user_has_permission
+    from chat_access_service import require_member
     annotation = '/project-chat/annotation/' in request.url.path
+    project_id = request.path_params.get('project_id')
+    if project_id:
+        kind = 'annotation' if annotation else 'translation'
+        creating = annotation and request.url.path.endswith('/start')
+        if kind == 'translation' and request.method == 'POST' and request.url.path.endswith('/settings'):
+            creating = get_project_chat_settings(db, UUID(str(project_id))) is None
+        if not creating:
+            require_member(db, kind, UUID(str(project_id)), user)
     message_id = request.path_params.get('message_id')
     if message_id:
         try:
@@ -57,6 +66,8 @@ def require_chat_access(request: Request, db: Session = Depends(get_db), user: A
                 require_project(db, message.direct_conversation_id, user)
                 return
             annotation = bool(message and message.annotation_project_id)
+            if message and (message.annotation_project_id or message.project_id):
+                require_member(db, 'annotation' if annotation else 'translation', message.annotation_project_id or message.project_id, user)
         except ValueError:
             pass
     annotation_upload = request.url.path.rstrip('/').endswith('/project-chat/attachments')
@@ -149,7 +160,16 @@ def _serialize_message(
         for link in attachment_links
         if link.attachment
     ]
+    reply_data = None
+    if project_type == 'translation' and message.reply_to_message_id and not message.recalled_at:
+        from sqlalchemy.orm import object_session
+        session = object_session(message)
+        parent = session.get(ChatProjectMessage, message.reply_to_message_id) if session else None
+        if parent and parent.project_id == message.project_id:
+            reply_data = dict(id=str(parent.id), sender_name=parent.sender_name,
+                content='消息已撤回' if parent.recalled_at else parent.content[:200] or '[附件]')
     return ProjectChatMessageResponse(
+        reply=reply_data,
         **message_metadata(message, current_user_id),
         sequence_no=message.sequence_no,
         id=message.id,
@@ -351,6 +371,7 @@ def unacknowledge_message_endpoint(
 async def upload_attachment_endpoint(
     request: Request,
     file: UploadFile = File(...),
+    retention: str = Form('business'),
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
@@ -369,6 +390,13 @@ async def upload_attachment_endpoint(
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail='单张图片不能超过 10MB')
     if not validator(content):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='图片格式与文件内容不匹配')
+
+    if retention=='chat':
+        import editor_screenshot_service
+        if editor_screenshot_service.ready(db):
+            from chat_screenshot_storage import save_attachment
+            attachment=save_attachment(db,current_user,content,file.filename)
+            return ProjectChatAttachmentResponse(id=attachment.id,original_name=attachment.original_name,content_type=attachment.content_type,file_size=attachment.file_size,created_at=attachment.created_at)
 
     if remote_url:
         return await upload_remote_attachment(
@@ -412,6 +440,9 @@ async def read_attachment_endpoint(
 ):
     from annotation_chat_service import authorize_attachment
     attachment = authorize_attachment(db, attachment_id, current_user)
+    from chat_screenshot_storage import read_attachment
+    stored=read_attachment(db,attachment)
+    if stored is not None:return stored
     remote_url = remote_attachment_url()
     if remote_url:
         return await read_remote_attachment(
@@ -595,6 +626,7 @@ def create_message_endpoint(
             attachment_ids=payload.attachment_ids,
             topic_id=payload.topic_id,
             client_message_id=payload.client_message_id,
+            reply_to_message_id=payload.reply_to_message_id,
         )
     except ValueError as exc:
         db.rollback()

@@ -78,8 +78,9 @@ def visible_messages(db, user):
                                                           ChatDirectConversation.user_high_id == user.id))
     clauses = [ChatProjectMessage.direct_conversation_id.in_(direct)]
     if user_has_permission(db, user.id, 'projects:read'):
-        clauses += [ChatProjectMessage.annotation_project_id.in_(db.query(AnnotationProject.id)),
-                    ChatProjectMessage.project_id.in_(db.query(TranslationProject.id).join(ChatProjectEnabled,
+        from chat_access_service import visible_ids
+        clauses += [ChatProjectMessage.annotation_project_id.in_(visible_ids(db, 'annotation', user)),
+                    ChatProjectMessage.project_id.in_(db.query(TranslationProject.id).filter(TranslationProject.id.in_(visible_ids(db, 'translation', user))).join(ChatProjectEnabled,
                         ChatProjectEnabled.project_id == TranslationProject.id).filter(ChatProjectEnabled.enabled.is_(True)))]
     return db.query(ChatProjectMessage).filter(or_(*clauses), ChatProjectMessage.recalled_at.is_(None),
                                              ChatProjectMessage.message_type == 'user')

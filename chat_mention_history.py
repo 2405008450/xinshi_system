@@ -37,8 +37,9 @@ def mention_query(db, user, keyword='', *, project_type=None, project_status=Non
     # 沿用各会话的查看权限与笔译群启用规则；退订不会删除有权查看的历史提及。
     if not annotation.can_view(db, user):
         return query.filter(false())
-    query = query.filter(or_(AnnotationProject.id.is_not(None),
-                            and_(TranslationProject.id.is_not(None), ChatProjectEnabled.enabled.is_(True))))
+    from chat_access_service import visible_ids
+    query = query.filter(or_(and_(AnnotationProject.id.is_not(None), AnnotationChatMember.user_id == user.id),
+                            and_(TranslationProject.id.in_(visible_ids(db, 'translation', user)), ChatProjectEnabled.enabled.is_(True))))
     if project_type == 'annotation':
         query = query.filter(annotation_scope)
     elif project_type == 'translation':

@@ -6,7 +6,9 @@ test('字段配置保留全部取消，清理历史键及重复键',()=>{
   assert.deepEqual(cleanIssueColumns([]),[])
   assert.deepEqual(cleanIssueColumns(['content','deleted','content','remarks']),['content','remarks'])
   assert.throws(()=>cleanIssueColumns({}))
-  assert.ok(defaultIssueColumns.includes('task_count'))
+  assert.ok(defaultIssueColumns.includes('planned_completion_at'))
+  assert.ok(defaultIssueColumns.includes('actual_progress'))
+  assert.ok(defaultIssueColumns.includes('proposer_name'))
 })
 test('分页与所有高级条件使用同一份参数',()=>{
   const filters={keyword:' 资源 ',category:'problem',proposer_id:'a',executor_id:'b',status:'completed',range:['2026-10-01','2026-10-12']}

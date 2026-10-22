@@ -2,6 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
+import { filterClosedSessions, sessionListKey, mentionUnreadCount } from '../src/utils/chatSessionList.js'
+import { chatTileLayout } from '../src/utils/chatTiling.js'
 
 const dock = readFileSync(new URL('../src/components/chat/ProjectChatDock.vue', import.meta.url), 'utf8')
 const dockStore = readFileSync(new URL('../src/composables/useProjectChatDock.js', import.meta.url), 'utf8')
@@ -11,6 +13,8 @@ const historyPanel = readFileSync(new URL('../src/components/chat/ChatHistorySea
 const annotationChat = readFileSync(new URL('../src/components/chat/ChatConversation.vue', import.meta.url), 'utf8')
 const followedStore = readFileSync(new URL('../src/composables/useAnnotationFollowed.js', import.meta.url), 'utf8')
 const chatPanel = readFileSync(new URL('../src/components/ProjectChatPanel.vue', import.meta.url), 'utf8')
+const favorites = readFileSync(new URL('../src/components/chat/AnnotationChatInbox.vue', import.meta.url), 'utf8')
+const managersSummary = readFileSync(new URL('../src/components/chat/ChatProjectManagersSummary.vue', import.meta.url), 'utf8')
 const annotationPage = readFileSync(new URL('../src/views/project/AnnotationProjects.vue', import.meta.url), 'utf8')
 const layout = readFileSync(new URL('../src/layout/index.vue', import.meta.url), 'utf8')
 const notificationBell = readFileSync(new URL('../src/components/NotificationBell.vue', import.meta.url), 'utf8')
@@ -23,6 +27,7 @@ function createDockHarness(storage = new Map(), annotationLoader = async () => (
   const source = dockStore.replace(/^import .*\r?\n/gm, '').replace(/export const /g, 'const ')
   const { dock: instance, size, visible, refreshStatuses } = runInNewContext(`${source}\n;({ dock: useProjectChatDock(), size: resolveChatSize, visible: isChatWindowVisible, refreshStatuses: refreshOpenAnnotationStatuses })`, {
     reactive: value => value,
+    sessionListKey,
     getProject: async () => ({ projectName: '笔译项目', orderNo: 'T-001' }),
     getAnnotationProject: annotationLoader,
     window: viewport,
@@ -56,7 +61,93 @@ function workspaceVisibility(state, followedItems = [{ projectId: 'followed-proj
   })
 }
 
-test('群聊和单聊关闭当前会话，最后一个关闭后退出大屏，不产生最小化任务', () => {
+test('关闭会话按当前用户记住移出状态，刷新后不复现，从项目重新打开可恢复', () => {
+  const storage = new Map()
+  const first = createDockHarness(storage).dock
+  const key = first.openChat({ projectId: 'parent', projectType: 'annotation', title: '测试项目', subtitle: 'AP-261007-001', projectStatus: 'trial_preparation' })
+  first.closeChat(key)
+  assert.equal(first.state.windows.length, 0)
+  assert.equal(first.state.activeKey, '')
+  assert.deepEqual(Array.from(first.state.closedSessionKeys), [key])
+  const second = createDockHarness(storage).dock
+  second.ensurePreferences()
+  assert.deepEqual(Array.from(second.state.closedSessionKeys), [key])
+  second.openChat({ projectId: 'parent', projectType: 'annotation', title: '测试项目', subtitle: 'AP-261007-001', projectStatus: 'trial_preparation' })
+  assert.deepEqual(Array.from(second.state.closedSessionKeys), [])
+  assert.equal(second.state.windows.length, 1)
+})
+
+test('关闭未打开的目录会话仍可移出，重复关闭不会新增记录', () => {
+  const { dock: instance } = createDockHarness()
+  instance.closeChat('annotation:catalog-only')
+  instance.closeChat('annotation:catalog-only')
+  assert.deepEqual(Array.from(instance.state.closedSessionKeys), ['annotation:catalog-only'])
+  assert.equal(instance.state.windows.length, 0)
+})
+
+test('最近关闭按关闭顺序保留10个系列，重复关闭前移，点击恢复仅打开目标订单', () => {
+  const { dock: instance, storage } = createDockHarness()
+  const sessions = Array.from({ length: 12 }, (_, i) => ({ key: `annotation:${i}`, projectId: String(i), projectType: 'annotation', title: `会话${i}`, subtitle: `AP-261021-${String(i + 1).padStart(3, '0')}`, projectStatus: 'trial_preparation' }))
+  for (const session of sessions) instance.closeSessionEntry(session)
+  assert.equal(instance.state.recentClosedSessions.length, 10)
+  assert.equal(instance.state.recentClosedSessions[0].key, 'annotation:11')
+  instance.closeSessionEntry(sessions[5])
+  assert.equal(instance.state.recentClosedSessions[0].key, 'annotation:5')
+  assert.equal(new Set(instance.state.recentClosedSessions.map(row => row.key)).size, 10)
+  const restored = createDockHarness(storage).dock
+  restored.ensurePreferences()
+  assert.equal(restored.state.recentClosedSessions.length, 10)
+  restored.restoreClosedSession(restored.state.recentClosedSessions[0])
+  assert.deepEqual(Array.from(restored.state.windows, row => row.key), ['annotation:5'])
+  assert.equal(restored.state.recentClosedSessions.length, 9)
+  assert.equal(restored.state.closedSessionKeys.includes('annotation:5'), false)
+})
+
+test('资源讨论自动恢复旧关闭项，后续关闭窗口不会移出列表或加入最近关闭', () => {
+  const storage = new Map([['xinshi.chatDock.anonymous', JSON.stringify({ closedSessionKeys: ['discussion:resource', 'annotation:a'], recentClosedSessions: [{ key: 'discussion:resource', projectId: 'resource', projectType: 'discussion' }] })]])
+  const { dock: instance } = createDockHarness(storage)
+  instance.ensurePreferences()
+  assert.deepEqual(Array.from(instance.state.closedSessionKeys), ['annotation:a'])
+  assert.equal(instance.state.recentClosedSessions.length, 0)
+  instance.openChat({ projectId: 'resource', projectType: 'discussion', title: '资源讨论' })
+  instance.closeChat('discussion:resource')
+  assert.equal(instance.state.windows.length, 0)
+  assert.equal(instance.state.closedSessionKeys.includes('discussion:resource'), false)
+  assert.equal(instance.state.recentClosedSessions.length, 0)
+})
+
+test('主子订单先后关闭合成一条最近记录，恢复入口但只打开最后关闭的订单', () => {
+  const { dock: instance } = createDockHarness()
+  const parent = { key: 'annotation:p', projectId: 'p', projectType: 'annotation', title: '主订单', subtitle: 'AP-261021-001', projectStatus: 'trial_preparation' }
+  const child = { key: 'annotation:c', projectId: 'c', projectType: 'annotation', title: '子订单', subtitle: 'AP-261021-001.001', projectStatus: 'trial_preparation' }
+  instance.closeSessionEntry(parent)
+  assert.equal(instance.state.recentClosedSessions.length, 1)
+  instance.closeSessionEntry(child)
+  assert.equal(instance.state.recentClosedSessions.length, 1)
+  assert.deepEqual(new Set(instance.state.recentClosedSessions[0].sessionKeys), new Set([parent.key, child.key]))
+  instance.restoreClosedSession(instance.state.recentClosedSessions[0])
+  assert.deepEqual(Array.from(instance.state.windows, row => row.key), [child.key])
+  assert.equal(instance.state.closedSessionKeys.length, 0)
+})
+
+test('从主订单或子订单发起聊天只创建该订单窗口，异步补齐资料和打开大屏不创建关联订单窗口', async () => {
+  for (const [projectId, orderNo] of [['parent', 'AP-261007-001'], ['child', 'AP-261007-001.001']]) {
+    const requested = []
+    const { dock: instance } = createDockHarness(new Map(), async id => {
+      requested.push(id)
+      return { projectName: '同名项目', orderNo, projectStatus: 'trial_preparation', parentProjectId: projectId === 'child' ? 'parent' : null }
+    })
+    const key = instance.openChat({ projectId, projectType: 'annotation', title: '同名项目', subtitle: orderNo })
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+    instance.openFullscreen()
+    assert.deepEqual(Array.from(instance.state.windows, row => row.projectId), [projectId])
+    assert.deepEqual(requested, [projectId])
+    assert.equal(instance.state.activeKey, key)
+    instance.closeAllChats()
+  }
+})
+
+test('群聊和单聊关闭当前会话，最后一个关闭后保留大屏，由退出按钮单独退出', () => {
   for (const projectType of ['annotation', 'direct']) {
     const { dock: instance, visible } = createDockHarness()
     const key = instance.openChat({ projectId: 'close-me', projectType, title: '待关闭会话', subtitle: '测试' })
@@ -65,10 +156,12 @@ test('群聊和单聊关闭当前会话，最后一个关闭后退出大屏，�
     instance.closeWorkspaceSession()
     assert.equal(instance.state.windows.some(row => row.key === key), false)
     assert.equal(instance.state.activeKey, '')
-    assert.equal(workspaceVisibility(instance.state).visible, false)
+    assert.equal(workspaceVisibility(instance.state).visible, true)
     assert.equal(workspaceVisibility(instance.state).task, false)
     instance.openFullscreen()
     instance.closeWorkspaceSession()
+    assert.equal(workspaceVisibility(instance.state).visible, true)
+    instance.closeAllChats()
     assert.equal(workspaceVisibility(instance.state).visible, false)
   }
 })
@@ -86,13 +179,34 @@ test('关闭当前会话不删除其他已打开会话；减号仍只最小化',
   instance.minimizeWorkspace()
   assert.equal(instance.state.windows.length, 1)
   assert.equal(workspaceVisibility(instance.state).task, true)
-  assert.match(workspace, /@click="emit\('close-active'\)"/)
+  assert.match(workspace, /@click.stop="emit\('close-active'\)"/)
   assert.match(dock, /@close-active="closeWorkspaceSession"/)
+})
+
+test('一键恢复跨分组最新十项，恢复时列表变化也不跳项，最新会话成为当前项', () => {
+  const { dock: instance } = createDockHarness()
+  for (let i = 0; i < 12; i++) {
+    const key = instance.openChat({ projectId: String(i), projectType: i % 2 ? 'annotation' : 'direct', title: `会话${i}` })
+    instance.closeChat(key)
+  }
+  const latest = instance.state.recentClosedSessions[0].key
+  const source = workspace.slice(workspace.indexOf('function restoreAllRecent()'), workspace.indexOf('const recentInFolder'))
+  runInNewContext(`${source};restoreAllRecent()`, {
+    props: { get recentClosed() { return instance.state.recentClosedSessions } },
+    recentClosedVisible: { value: true },
+    emit: (event, item) => instance.restoreClosedSession(item),
+  })
+  assert.equal(instance.state.windows.length, 10)
+  assert.equal(instance.state.recentClosedSessions.length, 0)
+  assert.equal(instance.state.activeKey, latest)
+  assert.equal(instance.state.closedSessionKeys.length, 2)
 })
 
 test('历史提及只标记原目录及临时打开的项目，不能加入目录外项目', () => {
   const source = dock.slice(dock.indexOf('const sessions = computed'), dock.indexOf('async function updatePreference'))
   const rows = runInNewContext(`${source}\n;sessions.value`, {
+    onMounted: () => {}, onBeforeUnmount: () => {},
+    filterClosedSessions,
     computed: getter => ({ get value() { return getter() } }),
     followed: { value: [
       { key: 'annotation:a', kind: 'annotation', projectId: 'a' },
@@ -204,12 +318,11 @@ test('项目沟通 Dock 全局挂载并支持多窗、最小化和关闭', () =>
   assert.doesNotMatch(annotationPage, /@click="openProjectChat\(row\)">沟通<\/el-button>/)
   assert.match(annotationPage, /projectType:\s*'annotation'/)
   assert.match(dock, /<Teleport to="body">/)
-  assert.match(dock, /v-show="isChatWindowVisible\(chatWindow\)/)
+  assert.match(dock, /v-show="chatWindow.accessConfirmed !== false && isChatWindowVisible\(chatWindow\)/)
   assert.match(dock, /minimizeChat\(chatWindow\.key\)/)
   assert.match(dock, /restoreChat\(chatWindow\.key\)/)
   assert.match(dock, /closeChat\(chatWindow\.key\)/)
-  assert.match(dockStore, /MAX_EXPANDED_WINDOWS\s*=\s*3/)
-  assert.match(dockStore, /oldest\.minimized\s*=\s*true/)
+  assert.match(dockStore, /MAX_EXPANDED_WINDOWS\s*=\s*6/)
   assert.match(dockStore, /const closeAllChats = \(\) =>/)
   assert.match(dock, /closeAllChats\(\)/)
 })
@@ -274,9 +387,10 @@ test('项目信息按 projectType:projectId 缓存并异步补全标题与订单
   assert.match(dockStore, /正在加载项目信息…/)
 })
 
-test('最小化会话在任务栏胶囊展示未读并在恢复时清零', () => {
+test('最小化任务只展示未读提及数字，普通未读继续在内部保留用于会话圆点', () => {
   assert.match(dockStore, /if \(!chatWindow \|\| isChatWindowVisible\(chatWindow\)\) return/)
-  assert.match(dock, /chatWindow\.unread > 99 \? '99\+' : chatWindow\.unread/)
+  assert.match(dock, /chatWindow\.mentionUnread > 99 \? '99\+' : chatWindow\.mentionUnread/)
+  assert.doesNotMatch(dock, /v-if="chatWindow\.unread"/)
   assert.match(dock, /project-chat-task__unread/)
 })
 
@@ -413,4 +527,165 @@ test('固定小窗只显示当前会话，重新进入大屏再还原不展开�
   assert.equal(instance.state.windows.find(item => item.key === third).minimized, true)
   assert.equal(instance.state.windows.find(item => item.key === second).minimized, false)
   assert.equal(instance.state.windows.filter(visible).map(item => item.key).join(','), second)
+})
+
+
+test('@候选按群内与未参与分区，重名用户按 ID 保持独立且搜索不中断分区', () => {
+  const segment = annotationChat.slice(annotationChat.indexOf('const mentionCandidates = computed'), annotationChat.indexOf('let mentionTrigger'))
+  const group = {members:[{id:'a',name:'甲'}], eligibleUsers:[{id:'a',name:'甲'}], invitableUsers:[{id:'a',name:'甲'},{id:'b',name:'甲'},{id:'c',name:'乙'}]}
+  const result = runInNewContext(segment+';mentionCandidates.value', {group, currentUserId:'self', computed:fn=>({value:fn()}),mentionQuery:{value:'甲'},matchesSearch:(name,query)=>name.includes(query)})
+  assert.deepEqual(Array.from(result,row=>[row.id,row.outside]), [['a',false],['b',true]])
+})
+
+
+test('@候选在群内、群外和搜索结果中均排除本人，重名其他人仍可选择', () => {
+  const segment = annotationChat.slice(annotationChat.indexOf('const mentionCandidates = computed'), annotationChat.indexOf('let mentionTrigger'))
+  const group = { members: [{id: 1}], eligibleUsers: [{id: 1, name: '同名'}, {id: 2, name: '同名'}], invitableUsers: [{id: 1, name: '同名'}, {id: 3, name: '同名'}] }
+  const result = runInNewContext(segment + ';mentionCandidates.value', {group, currentUserId: '1', computed: fn => ({value: fn()}), mentionQuery: {value: '同名'}, matchesSearch: (name, query) => name.includes(query)})
+  assert.deepEqual(Array.from(result, row => row.id), [2, 3])
+  const panelSegment = chatPanel.slice(chatPanel.indexOf('const mentionUserGroups = computed'), chatPanel.indexOf('const messages = ref'))
+  const groups = runInNewContext(panelSegment + ';mentionUserGroups.value', {currentUserId: '1', userOptions: {value: group.eligibleUsers.concat({id: 3, name: '同名'})}, memberUserIds: {value: ['1', '2']}, computed: fn => ({value: fn()})})
+  assert.deepEqual(Array.from(groups, section => Array.from(section.users, user => user.id)), [[2], [3]])
+})
+
+test('收藏项目名称和沟通按钮使用同一准确项目 ID，详情直接打开项目沟通', () => {
+  const methods = favorites.slice(favorites.indexOf('function open(item)'), favorites.indexOf('watch(favoritesVisible'))
+  const opened = [], routes = []
+  const context = {favoritesVisible: {value: true}, openChat: item => opened.push(item), router: {push: target => routes.push(target)}}
+  runInNewContext(methods + ';for (const item of [{projectId:"parent",orderNo:"AP-261007-001"},{projectId:"child",orderNo:"AP-261007-001.001"}]) {open(item);locateProject(item)}', context)
+  assert.deepEqual(opened.map(item => item.projectId), ['parent', 'child'])
+  assert.deepEqual(routes.map(item => item.query.projectId), ['parent', 'child'])
+  assert.ok(routes.every(item => item.query.tab === 'chat' && !item.query.openProgress))
+  assert.equal(context.favoritesVisible.value, false)
+})
+
+test('会话经理摘要保留多位及同名经理，按人员去重，空值和旧接口有合理回退', () => {
+  const expressions = managersSummary.slice(managersSummary.indexOf('const clientManager = computed'), managersSummary.indexOf('let controller'))
+  const evaluate = value => runInNewContext(expressions + ';({client:clientManager.value,names:names.value})', { project: { value }, computed: fn => ({get value() {return fn()}}) })
+  const result = evaluate({clientManagerName:'客户负责人', roleAssignments:[
+    {roleCode:'project_manager',assigneeId:'a',assigneeName:'同名'},
+    {roleCode:'project_manager',assigneeId:'a',assigneeName:'同名'},
+    {role_code:'project_manager',assignee_id:'b',assignee_name:'同名'},
+    {roleCode:'reviewer',assigneeId:'c',assigneeName:'审校'},
+  ]})
+  assert.equal(result.client,'客户负责人')
+  assert.deepEqual(Array.from(result.names),['同名','同名'])
+  assert.equal(evaluate(null).client,'未设置')
+  assert.deepEqual(Array.from(evaluate({clientManager:'客户经理',projectManagerName:'历史经理'}).names),['历史经理'])
+})
+
+test('平铺一次可打开六个小窗或三个中窗，超限不修改窗口，重复会话去重', () => {
+  const { dock: instance } = createDockHarness()
+  const items = Array.from({length:7},(_,i)=>({projectId:String(i),projectType:'annotation',title:`项目${i}`,subtitle:`AP-261022-00${i}`,projectStatus:'trial_preparation'}))
+  assert.equal(instance.openTiledSessions(items,'small'),false)
+  assert.equal(instance.state.windows.length,0)
+  assert.equal(instance.openTiledSessions([...items.slice(0,6),items[0]],'small'),true)
+  assert.equal(instance.state.layout,'float')
+  assert.equal(instance.state.tileMode,'small')
+  assert.equal(instance.state.windows.filter(item=>!item.minimized).length,6)
+  assert.equal(instance.openTiledSessions(items.slice(0,4),'medium'),false)
+  assert.equal(instance.state.tileMode,'small')
+  assert.equal(instance.openTiledSessions(items.slice(0,3),'medium'),true)
+  assert.equal(instance.state.windows.filter(item=>!item.minimized).length,3)
+  assert.ok(instance.state.windows.filter(item=>!item.minimized).every(item=>item.sizeMode==='medium'))
+  instance.exitTiling()
+  assert.equal(instance.state.tileMode,'')
+  assert.equal(instance.state.layout,'workspace')
+})
+
+test('平铺按屏幕调整列数，窄屏保留输入空间并允许内部滚动', () => {
+  const wide=chatTileLayout(6,'small',1920,1080)
+  assert.equal(wide.columns,3);assert.equal(wide.rows,2);assert.ok(wide.rowHeight>=400)
+  assert.equal(chatTileLayout(3,'medium',1920,1080).columns,3)
+  assert.equal(chatTileLayout(6,'small',700,871).columns,2)
+  assert.equal(chatTileLayout(6,'small',375,800).columns,1)
+  assert.equal(chatTileLayout(3,'medium',700,871).columns,1)
+  assert.ok(chatTileLayout(6,'small',375,800).rowHeight>=400)
+})
+
+test('Tab 按窗口排列循环切换输入框，Shift+Tab 反向，其他字段与输入法不拦截', () => {
+  const handler=dock.slice(dock.indexOf('function cycleComposer(event)'),dock.indexOf('const draggingKey'))
+  const calls=[], keys=['a','b','c'], state={layout:'float'}
+  const inputs=keys.map(key=>({disabled:false,getBoundingClientRect:()=>({width:300}),closest:()=>({style:{display:''},dataset:{chatKey:key}}),matches:()=>true,focus:()=>calls.push(`focus:${key}`),scrollIntoView:()=>{}}))
+  const root={querySelectorAll:()=>inputs}
+  const event={key:'Tab',target:inputs[0],currentTarget:root,preventDefault:()=>calls.push('prevent'),stopPropagation:()=>{}}
+  const context={state,focusChat:key=>calls.push(key),event}
+  runInNewContext(handler+';cycleComposer(event)',context)
+  assert.deepEqual(calls,['prevent','b','focus:b'])
+  calls.length=0;event.shiftKey=true
+  runInNewContext(handler+';cycleComposer(event)',context)
+  assert.deepEqual(calls,['prevent','c','focus:c'])
+  calls.length=0;event.isComposing=true
+  runInNewContext(handler+';cycleComposer(event)',context)
+  assert.deepEqual(calls,[])
+  event.isComposing=false;event.target={matches:()=>false}
+  runInNewContext(handler+';cycleComposer(event)',context)
+  assert.deepEqual(calls,[])
+})
+
+test('普通入口复用项目窗口，仅显式重复打开生成新窗口；关闭副本不关闭另一个窗口', () => {
+  const { dock: instance } = createDockHarness()
+  const input = {projectId:'same',projectType:'annotation',title:'同一项目',subtitle:'AP-261022-001',projectStatus:'trial_preparation'}
+  const original = instance.openChat(input)
+  assert.equal(instance.openChat(input),original)
+  assert.equal(instance.state.windows.length,1)
+  const duplicate = instance.duplicateChat(original)
+  assert.notEqual(duplicate,original)
+  assert.equal(instance.state.windows.length,2)
+  assert.equal(instance.state.tileMode,'small')
+  assert.equal(instance.openChat(input),duplicate)
+  assert.equal(instance.state.windows.length,2)
+  assert.ok(instance.state.windows.every(item=>item.projectId==='same' && item.conversationKey===original))
+  instance.closeChat(original)
+  assert.equal(instance.state.windows.length,1)
+  assert.ok(!instance.state.closedSessionKeys.includes(original))
+  assert.equal(instance.openChat(input),duplicate)
+  instance.closeChat(duplicate)
+  assert.deepEqual(Array.from(instance.state.closedSessionKeys),[original])
+  assert.equal(instance.state.recentClosedSessions[0].key,original)
+})
+
+test('副本窗口不会生成重复会话列表项或重复计算未读提及', () => {
+  const code=dock.slice(dock.indexOf('const sessions = computed'),dock.indexOf('function closeSessionGroup'))
+  const original={key:'annotation:a',conversationKey:'annotation:a',projectId:'a',projectType:'annotation',mentionUnread:2,accessConfirmed:true}
+  const copy={...original,key:'annotation:a:copy-1'}
+  const rows=runInNewContext(code+';sessions.value',{state:{windows:[original,copy],closedSessionKeys:[]},followed:{value:[]},annotationMentionCounts:{value:[]},filterClosedSessions,computed:fn=>({get value(){return fn()}})})
+  assert.equal(rows.length,1)
+  assert.equal(rows[0].key,'annotation:a')
+  assert.equal(mentionUnreadCount(rows),2)
+})
+
+test('收藏夹取消关注只修改当前订单关注状态，不退出会话；失败保留重试', async () => {
+  const handler=favorites.slice(favorites.indexOf('async function unfollowFavorite()'),favorites.indexOf('watch(favoritesVisible'))
+  const calls=[], messages=[], item={projectId:'child',orderNo:'AP-261007-001.001'}, context={
+    favoriteMenuItem:{value:item},unfollowing:{value:false},favoriteMenuVisible:{value:true},
+    annotationChatRequest:async(...args)=>calls.push(args),refresh:async()=>calls.push('refresh'),
+    ElMessage:{success:text=>messages.push(text),error:text=>messages.push(text)},
+  }
+  await runInNewContext(handler+';unfollowFavorite()',context)
+  assert.equal(calls[0][0],'child');assert.equal(calls[0][1],'following')
+  assert.equal(calls[0][2].data.following,false)
+  assert.equal(calls[1],'refresh');assert.equal(context.favoriteMenuVisible.value,false)
+  assert.equal(context.unfollowing.value,false)
+  context.favoriteMenuVisible.value=true;context.annotationChatRequest=async()=>{throw {detail:'连接失败'}}
+  await runInNewContext(handler+';unfollowFavorite()',context)
+  assert.equal(context.favoriteMenuVisible.value,true)
+  assert.equal(context.unfollowing.value,false)
+  assert.equal(messages.at(-1),'连接失败')
+})
+
+test('顶部聊天与侧栏共用未读提及口径，忽略普通未读并去除重复会话', () => {
+  const rows=[{key:'a',unread:8,mentionUnread:2},{key:'a',unread:8,mentionUnread:2},{key:'b',unread:1,mentionUnread:0}]
+  assert.equal(mentionUnreadCount(rows),2)
+  assert.equal(mentionUnreadCount(filterClosedSessions(rows,['a'])),0)
+})
+
+test('顶部聊天等待窗口挂载后跳转 @我，零未读时进入消息面板', async () => {
+  const method=layout.slice(layout.indexOf('async function openHeaderChat()'),layout.indexOf('const ResourceRequestDailyNotesDialog'))
+  for(const count of [0,3]) {
+    const events=[]
+    await runInNewContext(method+';openHeaderChat()', {chatMentionTotal:{value:count},openFullscreen:()=>events.push('open'),nextTick:async()=>events.push('mounted'),CustomEvent:class {constructor(type,options){this.type=type;this.detail=options.detail}},window:{dispatchEvent:event=>events.push(event)}})
+    assert.equal(events[0],'open');assert.equal(events[1],'mounted')
+    assert.equal(events[2].type,'chat-show-messages');assert.equal(events[2].detail.mentions,count>0)
+  }
 })

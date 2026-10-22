@@ -148,6 +148,7 @@ def test_automatic_create_single_and_multiple_directions(context):
     assert parent.auto_created_child_count == parent.child_count == 3
     children = service.get_annotation_projects(db, parent_project_id=parent.id)
     assert len(children) == 3 and all(len(child.language_items) == 1 for child in children)
+    assert all(child.project_name == f'{child.language_items[0].display}-自动订单' for child in children)
     assert {(child.language_items[0].source_language_id, child.language_items[0].target_language_id)
             for child in children} == {(language_id, None), (language_id, second), (second, language_id)}
     assert parent.direction_summary['missing_directions'] == []
@@ -374,7 +375,7 @@ def test_full_snapshot_direction_remapping_and_override(context, monkeypatch):
     assigned.rate = AnnotationAssigneeRate(amount=3, currency='CNY', unit='item', remarks='人员单价')
     db.commit()
     child = service.create_annotation_children(db, parent_id, [item(other_language.id, copy_source_language_item_id=direction.id, expected_parent_updated_at=parent.updated_at)], None, 'snapshot-key')[0]
-    assert child.project_name == parent.project_name
+    assert child.project_name == f'{other_language.label}-{parent.project_name}'
     assert child.priority == 'high' and child.project_status == 'project_in_progress'
     assert child.potential_demand == parent.potential_demand and child.project_path == parent.project_path
     assert child.task_submitted_at == parent.task_submitted_at and child.custom_values == parent.custom_values

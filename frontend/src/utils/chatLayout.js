@@ -4,6 +4,18 @@ export const chatAvatarText = name => String(name || '').match(/[\p{L}\p{N}]/u)?
 export const chatDayKey = value => businessDateTimeInputValue(value).slice(0, 10)
 export const chatClock = value => businessDateTimeInputValue(value).slice(11, 16)
 
+export function chatMessageTime(value, now = new Date(), mode = 'full') {
+  if (mode === 'hidden') return ''
+  const formatted = businessDateTimeInputValue(value)
+  if (!formatted) return '-'
+  if (mode === 'time') return formatted.slice(11, 19)
+  const day = formatted.slice(0, 10), today = chatDayKey(now)
+  const label = mode === 'no-year' ? day.slice(5).replace('-', '月') + '日' : day.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$1年$2月$3日')
+  const difference = Date.parse(`${today}T00:00:00+08:00`) - Date.parse(`${day}T00:00:00+08:00`)
+  const date = difference === 0 ? `今天（${label}）` : difference === 86400000 ? `昨天（${label}）` : label
+  return `${date} ${formatted.slice(11, 19)}`
+}
+
 export function chatDateLabel(value, now = new Date(), withWeekday = false) {
   const day = chatDayKey(value), today = chatDayKey(now)
   if (!day) return ''

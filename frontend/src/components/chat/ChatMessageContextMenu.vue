@@ -5,11 +5,12 @@
         <el-icon><component :is="icons[item.icon]" /></el-icon><span>{{ item.label }}</span><span v-if="item.submenu" aria-hidden="true" class="chat-message-context-menu__arrow">›</span>
       </button>
     </div>
-    <div v-if="visible && submenu === 'collect'" ref="submenuRef" class="chat-message-context-menu chat-message-context-menu--submenu" role="menu" aria-label="收录类别" :style="{left:`${subPosition.left}px`,top:`${subPosition.top}px`}" @mousedown.prevent @contextmenu.prevent @keydown="onKeydown">
-      <button v-for="category in issueCategories" :key="category.value" type="button" role="menuitem" class="chat-message-context-menu__item" @click="collectIssue(category.value)">{{ category.label }}</button>
+    <div v-if="visible && submenu" ref="submenuRef" class="chat-message-context-menu chat-message-context-menu--submenu" role="menu" :aria-label="submenu==='annotation-progress'?'添加进度类型':'收录类别'" :style="{left:`${subPosition.left}px`,top:`${subPosition.top}px`}" @mousedown.prevent @contextmenu.prevent @keydown="onKeydown">
+      <template v-if="submenu==='annotation-progress'"><button type="button" role="menuitem" class="chat-message-context-menu__item" @click="addAnnotationProgress('project')">项目进度</button><button type="button" role="menuitem" class="chat-message-context-menu__item" @click="addAnnotationProgress('customer')">客户进度</button></template>
+      <template v-else><button v-for="category in issueCategories" :key="category.value" type="button" role="menuitem" class="chat-message-context-menu__item" @click="collectIssue(category.value)">{{ category.label }}</button></template>
     </div>
   </Teleport>
-  <ChatMessageTopic v-if="message" ref="topicRef" :message="message" programmatic :show-tag="false" />
+  <ChatAnnotationProgressDialog ref="annotationProgressRef" />
 </template>
 <script setup>
 import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
@@ -19,14 +20,17 @@ import { useResourceIssues } from '@/composables/useResourceIssues'
 import { issueCategories } from '@/utils/resourceIssues'
 import { buildMessageMenu, clampMessageMenu, nativeMessageContextSelector } from '@/utils/chatMessageMenu'
 import ChatMessageTopic from './ChatMessageTopic.vue'
-const props = defineProps({ currentUserId: {type:String,default:''}, handlers:{type:Object,default:()=>({})}, canProgress:Boolean, selecting:Boolean, messages:{type:Array,default:()=>[]}, active:{type:Boolean,default:true} })
+import ChatAnnotationProgressDialog from './ChatAnnotationProgressDialog.vue'
+import { hasPermission } from '@/utils/permission'
+const props = defineProps({ currentUserId: {type:String,default:''}, handlers:{type:Object,default:()=>({})}, projectType:String,projectId:[String,Number],canProgress:Boolean, selecting:Boolean, messages:{type:Array,default:()=>[]}, active:{type:Boolean,default:true} })
 const { access, collect } = useResourceIssues()
 const instanceId = getCurrentInstance().uid
 const icons = {copy:CopyDocument,reply:ChatLineRound,favorite:Star,acknowledge:CircleCheck,classify:PriceTag,collect:DocumentAdd,progress:CirclePlus,select:Select,recall:Delete}
 const visible=ref(false), message=ref(null), excerpt=ref(''), menuRef=ref(), submenuRef=ref(), topicRef=ref(), submenu=ref('')
 const position=reactive({left:0,top:0}), subPosition=reactive({left:0,top:0})
 let origin, point={x:0,y:0}, openVersion=0
-const items=computed(()=>buildMessageMenu(message.value,{handlers:props.handlers,currentUserId:props.currentUserId,canCollect:access.can_collect,canProgress:props.canProgress,selecting:props.selecting,excerpt:excerpt.value}))
+const items=computed(()=>buildMessageMenu(message.value,{handlers:props.handlers,currentUserId:props.currentUserId,canCollect:access.can_collect,canProgress:props.canProgress,annotationProgress:props.projectType==='annotation'&&!!props.projectId&&hasPermission('projects:write'),selecting:props.selecting,excerpt:excerpt.value}))
+const annotationProgressRef=ref()
 const activeMessageId=computed(()=>visible.value ? String(message.value?.id || '') : '')
 function close(restore=false) {
   visible.value=false; submenu.value=''; openVersion++
@@ -64,8 +68,8 @@ async function open(event,row) {
 function openKeyboard(event,row) {
   if (event.key==='ContextMenu' || (event.shiftKey && event.key==='F10')) open(event,row)
 }
-async function showSubmenu(event,focus=false) {
-  submenu.value='collect'
+async function showSubmenu(event,focus=false,id='collect') {
+  submenu.value=id
   const rect=event.currentTarget.getBoundingClientRect()
   await nextTick()
   if (!visible.value || !submenuRef.value) return
@@ -74,9 +78,9 @@ async function showSubmenu(event,focus=false) {
   Object.assign(subPosition,clampMessageMenu({x,y:rect.top},size,{width:window.innerWidth,height:window.innerHeight}))
   if (focus) submenuRef.value.querySelector('[role="menuitem"]')?.focus({preventScroll:true})
 }
-function hover(item,event) { if (item.submenu) showSubmenu(event); else submenu.value='' }
+function hover(item,event) { if (item.submenu) showSubmenu(event,false,item.id); else submenu.value='' }
 async function activate(item,event) {
-  if (item.submenu) { await showSubmenu(event,true); return }
+  if (item.submenu) { await showSubmenu(event,true,item.id); return }
   const row=message.value, text=excerpt.value
   if (item.id==='classify') {
     const rect=event.currentTarget.getBoundingClientRect()
@@ -89,6 +93,7 @@ async function activate(item,event) {
   try { await props.handlers[item.id]?.(row,text) } catch(e) { ElMessage.error(e.detail || e.message || '操作失败，请重试') }
 }
 function collectIssue(category) { const id=message.value.id; close(); collect(id,category) }
+function addAnnotationProgress(track){const row=message.value,text=excerpt.value,id=props.projectId;close();void annotationProgressRef.value.open(id,row,track,text)}
 function onKeydown(event) {
   if (event.key==='Tab') { close(); return }
   const root=event.currentTarget, buttons=[...root.querySelectorAll('[role="menuitem"]')], index=buttons.indexOf(document.activeElement)
@@ -97,7 +102,7 @@ function onKeydown(event) {
     event.preventDefault(); const next=event.key==='Home' ? 0 : event.key==='End' ? buttons.length-1 : (index+(event.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length
     buttons[next]?.focus(); return
   }
-  if (event.key==='ArrowRight' && root===menuRef.value && items.value[index]?.submenu) { event.preventDefault(); showSubmenu({currentTarget:buttons[index]},true) }
+  if (event.key==='ArrowRight' && root===menuRef.value && items.value[index]?.submenu) { event.preventDefault(); showSubmenu({currentTarget:buttons[index]},true,items.value[index].id) }
   if (event.key==='ArrowLeft' && root===submenuRef.value) { event.preventDefault(); submenu.value=''; nextTick(()=>menuRef.value?.querySelector('[aria-haspopup="menu"]')?.focus()) }
 }
 function outside(event) { if (visible.value && !menuRef.value?.contains(event.target) && !submenuRef.value?.contains(event.target)) close() }

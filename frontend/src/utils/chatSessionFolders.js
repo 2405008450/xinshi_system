@@ -1,4 +1,5 @@
 import defaults from '../../../data/chat_session_folders.json'
+import { sessionListKey } from './chatSessionList.js'
 import { annotationStatusLabels, normalizeAnnotationStatus } from './annotationStatus.js'
 
 export const annotationFolderId = defaults.find(row => row.ruleKey === 'annotation').id
@@ -31,7 +32,16 @@ export function sessionMatchesFolder(session, id, nodes) {
 }
 
 export function sessionFolderCount(sessions, id, nodes) {
-  return new Set(sessions.filter(row => (row.projectType || row.kind) !== 'direct' && sessionMatchesFolder(row, id, nodes)).map(row => row.key || `${row.projectType || row.kind}:${row.projectId}`)).size
+  return new Set(sessions.filter(row => (row.projectType || row.kind) !== 'direct' && sessionMatchesFolder(row, id, nodes)).map(sessionListKey)).size
+}
+
+export function sessionFolderMentionUnread(sessions, id, nodes) {
+  const counts = new Map()
+  for (const row of sessions) {
+    if ((row.projectType || row.kind) === 'direct' || !sessionMatchesFolder(row, id, nodes)) continue
+    counts.set(row.key, Math.max(counts.get(row.key) || 0, Number(row.mentionUnread) || 0))
+  }
+  return [...counts.values()].reduce((sum, count) => sum + count, 0)
 }
 
 export function assignableSessionFolders(items) {

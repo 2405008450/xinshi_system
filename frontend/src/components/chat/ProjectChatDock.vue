@@ -2,16 +2,20 @@
   <Teleport to="body">
     <div v-if="state.windows.length || hasExtraTasks || workspaceVisible || showWorkspaceTask" class="project-chat-dock" :class="{ 'project-chat-dock--immersive': workspaceVisible && state.workspaceMaximized }" aria-label="全局悬浮窗口">
       <div v-show="workspaceVisible" class="chat-workspace-shell" :class="{ 'chat-workspace-shell--maximized': state.workspaceMaximized }" :style="workspaceShellStyle" @mousedown="focusWorkspace">
+        <WindowFrameHandles ref="workspaceFrame" :disabled="state.workspaceMaximized" @change="resizeWorkspaceRect" />
         <ChatWorkspace
           :sessions="sessions"
+          :recent-closed="state.recentClosedSessions.filter(item => followed.some(row => (item.sessionKeys || [item.key]).includes(row.key)))"
+          @restore-closed="restoreClosedSession"
           @pane-change="workspacePane = $event"
+          @context-empty="state.activeKey = ''"
           :mention-history-total="mentionHistoryTotal"
           :project-mentions="mentionPreview"
           @browse-project-mentions="previewProject = $event"
           @select-project-mention="selectPreviewMention"
           @more-project-mentions="mentionPreview.loadMore"
           @retry-project-mentions="mentionPreview.refresh"
-          :active-key="state.activeKey"
+          :active-key="activeWindow?.conversationKey || state.activeKey"
           :error="followedError"
           :narrow="workspaceNarrow"
           :sidebar-open="sidebarOpen"
@@ -27,14 +31,18 @@
           @select="selectWorkspaceSession($event.key)"
           @open="openFollowed"
           @locate-mention="locateMention"
-          @close="closeChat($event.key)"
+          @close="closeSessionGroup"
           @close-active="closeWorkspaceSession"
+          @exit-workspace="closeAllChats"
+          @open-multiple="multiPicker.open(state.tileMode || 'small')"
+          @duplicate-window="duplicateChat(state.activeKey)"
           @minimize="minimizeWorkspace"
           @cycle-size="cycleWorkspaceSize"
           @resize="setWorkspaceSize"
           @fullscreen="openFullscreen"
           @pin="pinChat()"
           @toggle-maximize="toggleWorkspaceMaximize"
+          @normal-size="normalWorkspace"
           @toggle-layout="setLayout('float')"
           @open-search="openSearch(state.activeKey)"
           @toggle-sidebar="sidebarOpen = !sidebarOpen"
@@ -47,15 +55,26 @@
         />
       </div>
 
+      <div v-if="tiled" class="chat-tile-toolbar">
+        <strong>{{ state.tileMode === 'medium' ? '中窗' : '小窗' }}平铺 · {{ tileWindows.length }}/{{ state.tileMode === 'medium' ? 3 : 6 }}</strong>
+        <el-button size="small" @click="multiPicker.open(state.tileMode)">选择会话</el-button>
+        <el-button size="small" @click="multiPicker.open(state.tileMode === 'small' ? 'medium' : 'small')">切换{{ state.tileMode === 'small' ? '中窗' : '小窗' }}</el-button>
+        <span>Tab 下一输入框 · Shift+Tab 上一输入框</span>
+        <el-button size="small" title="退出整个会话窗口，保留聊天记录" @click="closeAllChats">退出会话窗口</el-button>
+        <el-button size="small" @click="exitTiling">退出多窗状态</el-button>
+      </div>
+      <div :class="{ 'chat-tile-grid': tiled }" :style="tiled ? tileGridStyle : undefined" @keydown.capture="cycleComposer">
       <section
         v-for="chatWindow in state.windows"
-        v-show="isChatWindowVisible(chatWindow) && !(state.layout === 'workspace' && (workspacePane === 'topics' || (workspaceNarrow && sidebarOpen)))"
+        v-show="chatWindow.accessConfirmed !== false && isChatWindowVisible(chatWindow) && !(state.layout === 'workspace' && (['topics','summary'].includes(workspacePane) || (workspaceNarrow && sidebarOpen)))"
         :key="chatWindow.key"
+        :data-chat-key="chatWindow.key"
         class="project-chat-window"
         :class="windowClass(chatWindow)"
         :style="windowStyle(chatWindow)"
         @mousedown="onWindowMouseDown(chatWindow)"
       >
+        <WindowFrameHandles v-if="state.layout!=='workspace'" :ref="el=>el?windowFrames.set(chatWindow.key,el):windowFrames.delete(chatWindow.key)" @change="rect=>resizeChatRect(chatWindow,rect)" />
         <header
           v-show="state.layout !== 'workspace'"
           class="project-chat-window__header"
@@ -64,7 +83,8 @@
           @dblclick="onHeaderDblClick($event, chatWindow)"
         >
           <div class="project-chat-window__heading">
-            <div class="project-chat-window__title-row">
+            <ChatOrderIdentity v-if="['annotation', 'translation'].includes(chatWindow.projectType)" :title="chatWindow.title" :order-no="chatWindow.subtitle" :project-type="chatWindow.projectType" :project-id="chatWindow.projectId" show-managers />
+            <div v-else class="project-chat-window__title-row">
               <strong :title="chatWindow.title">{{ chatWindow.title }}</strong>
               <el-tag size="small" effect="plain" :type="chatWindow.projectType === 'annotation' ? 'success' : 'primary'">
                 {{ chatWindow.projectType === 'discussion' ? '讨论' : chatWindow.projectType === 'direct' ? '单聊' : chatWindow.projectType === 'annotation' ? '标注' : '笔译' }}
@@ -78,8 +98,14 @@
 
             </div>
           </div>
+          <div class="chat-header-command-row" title="横向滚动查看更多操作" @mousedown.stop>
+          <el-button class="project-chat-window__exit-button" size="small" @mousedown.stop @dblclick.stop @click.stop="closeAllChats">退出会话窗口</el-button>
+          <el-button v-if="['annotation', 'translation'].includes(chatWindow.projectType)" size="small" class="chat-duplicate-entry" @click="duplicateChat(chatWindow.key)">重复打开</el-button>
+          <el-button size="small" class="chat-multi-entry" @mousedown.stop @click="multiPicker.open(state.tileMode || 'small')">多窗平铺</el-button>
+          <ChatAnnotationManagers v-if="chatWindow.projectType === 'annotation'" :key="chatWindow.projectId" :project-id="chatWindow.projectId" />
           <div class="project-chat-window__actions">
-            <div :id="`chat-tools-${chatWindow.key.replace(':', '-')}`" class="chat-header-session-tools" />
+            <div :id="`chat-tools-${chatWindow.key.replaceAll(':', '-')}`" class="chat-header-session-tools" />
+            <ChatConversationParticipants v-if="['translation', 'discussion'].includes(chatWindow.projectType)" :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" />
             <ChatTopicNavigation v-if="chatWindow.projectType !== 'discussion'" compact icon-only :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" />
             <ChatProjectActions icon-only :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" />
             <el-button link aria-label="聊天记录" title="聊天记录" @click="openSearch(chatWindow.key)">
@@ -90,10 +116,9 @@
             <el-button link aria-label="最小化项目沟通" title="最小化" @click="minimizeChat(chatWindow.key)">
               <el-icon><Minus /></el-icon>
             </el-button>
-            <el-button link aria-label="关闭项目沟通" title="关闭" @click="closeChat(chatWindow.key)">
-              <el-icon><Close /></el-icon>
-            </el-button>
           </div>
+          </div>
+          <div class="chat-fixed-window-controls" @mousedown.stop @dblclick.stop><button type="button" title="最小化" @click="minimizeChat(chatWindow.key)">−</button><button type="button" title="最大化" @click="maximizeChat(chatWindow.key)">□</button><button type="button" title="正常大小" @click="normalChat(chatWindow)">▣</button><button type="button" aria-label="关闭项目沟通" title="关闭当前订单会话，保留聊天记录" @click.stop="closeChat(chatWindow.key)">×</button></div>
         </header>
         <div class="project-chat-window__body">
           <component
@@ -102,9 +127,9 @@
             :project-id="chatWindow.projectId"
             :target-message-id="chatWindow.targetMessageId"
             :project-type="chatWindow.projectType"
-            :active="isChatWindowVisible(chatWindow) && !(state.layout === 'workspace' && workspacePane === 'topics')"
+            :active="isChatWindowVisible(chatWindow) && !(state.layout === 'workspace' && ['topics','summary'].includes(workspacePane))"
             :history-placement="historyPlacement(chatWindow)"
-            :toolbar-target="state.layout === 'workspace' ? '#chat-workspace-session-tools' : `#chat-tools-${chatWindow.key.replace(':', '-')}`"
+            :toolbar-target="state.layout === 'workspace' ? '#chat-workspace-session-tools' : `#chat-tools-${chatWindow.key.replaceAll(':', '-')}`"
             conversation-mode
             compact
             :text-only="chatWindow.projectType === 'annotation'"
@@ -119,6 +144,8 @@
           </component>
         </div>
       </section>
+      </div>
+      <ChatMultiWindowPicker ref="multiPicker" :sessions="sessions" />
 
       <div v-if="minimizedWindows.length || showWorkspaceTask || hasExtraTasks" class="project-chat-dock__taskbar">
         <div v-if="minimizedWindows.length || showWorkspaceTask" class="project-chat-dock__chat-tasks">
@@ -130,7 +157,7 @@
             @click="restoreWorkspace"
           >
             <el-icon><ChatDotRound /></el-icon>
-            <span>沟通</span><span v-if="mentionTotal" class="project-chat-task__unread">@</span>
+            <span>沟通</span>
             <span v-if="workspaceUnread" class="project-chat-task__unread">
               {{ workspaceUnread > 99 ? '99+' : workspaceUnread }}
             </span>
@@ -146,8 +173,8 @@
             <el-icon><ChatDotRound /></el-icon>
             <span>{{ chatWindow.title }}</span>
             <span v-if="chatWindow.subtitle" class="project-chat-task__subtitle">{{ chatWindow.subtitle }}</span>
-            <span v-if="chatWindow.unread" class="project-chat-task__unread">
-              {{ chatWindow.unread > 99 ? '99+' : chatWindow.unread }}
+            <span v-if="chatWindow.mentionUnread" class="project-chat-task__unread">
+              {{ chatWindow.mentionUnread > 99 ? '99+' : chatWindow.mentionUnread }}
             </span>
           </button>
         </div>
@@ -158,23 +185,30 @@
 </template>
 
 <script setup>
+import ChatOrderIdentity from './ChatOrderIdentity.vue'
+import ChatMultiWindowPicker from './ChatMultiWindowPicker.vue'
+import { chatTileLayout } from '@/utils/chatTiling'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { ChatDotRound, Close, Minus, Search } from '@element-plus/icons-vue'
+import { ChatDotRound, Minus, Search } from '@element-plus/icons-vue'
 import ProjectChatPanel from '@/components/ProjectChatPanel.vue'
 import { chatRequest } from '@/api/projectChat'
+import { filterClosedSessions, mentionUnreadCount } from '@/utils/chatSessionList'
 import { ElMessage } from 'element-plus'
 import DirectChat from './DirectChat.vue'
 import DiscussionConversation from './DiscussionConversation.vue'
 import ChatProjectActions from './ChatProjectActions.vue'
 import AnnotationGroupChat from '@/components/chat/AnnotationGroupChat.vue'
 import ChatWorkspace from '@/components/chat/ChatWorkspace.vue'
+import ChatConversationParticipants from './ChatConversationParticipants.vue'
+import ChatAnnotationManagers from './ChatAnnotationManagers.vue'
 import ProjectMentionCorner from './ProjectMentionCorner.vue'
 import { useChatMentions } from '@/composables/useChatMentions'
 import ChatTopicNavigation from './ChatTopicNavigation.vue'
 import ChatWindowStateMenu from '@/components/chat/ChatWindowStateMenu.vue'
 import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
 import { useChatNotifications } from '@/composables/useChatNotifications'
+import WindowFrameHandles from '@/components/common/WindowFrameHandles.vue'
 import {
   isChatWindowVisible,
   resolveChatSize,
@@ -186,8 +220,13 @@ useChatNotifications()
 
 const {
   state,
+  exitTiling,
+  duplicateChat,
   openChat,
   closeChat,
+  closeSessionEntry,
+  restoreClosedSession,
+  syncClosedSessionCatalog,
   closeWorkspaceSession,
   closeAllChats,
   minimizeChat,
@@ -212,11 +251,41 @@ const {
   ensurePreferences,
 } = useProjectChatDock()
 const { sessions: followed, mentionTotal, mentionHistoryTotal, annotationMentionCounts, error: followedError, refresh: refreshFollowed } = useAnnotationFollowed()
+watch(followed, syncClosedSessionCatalog, { immediate: true })
 
 const COMPACT_SCREEN_WIDTH = 768
-const WORKSPACE_HEADER = 52
+const WORKSPACE_HEADER = 100
+const workspaceRect=ref(null),chatRects=ref({})
+const workspaceFrame=ref(),windowFrames=new Map()
+function resizeWorkspaceRect(rect){focusWorkspace();workspaceRect.value=rect;state.workspaceX=rect.x;state.workspaceY=rect.y}
+function resizeChatRect(chat,rect){if(tiled.value)state.tileMode='';focusChat(chat.key);chatRects.value[chat.key]=rect;chat.x=rect.x;chat.y=rect.y}
+function normalWorkspace(){const active=state.activeKey;workspaceRect.value=null;if(state.workspaceMaximized)toggleWorkspaceMaximize();else setWorkspaceSize(state.workspaceSize);if(state.layout==='float'&&active)restoreChat(active)}
+function normalChat(chat){if(tiled.value)exitTiling();delete chatRects.value[chat.key];setSize(chat.key,chat.sizeMode)}
+watch(()=>state.workspaceMaximized,()=>{workspaceRect.value=null})
+watch(()=>state.workspaceSize,()=>{workspaceRect.value=null})
+watch(()=>state.windows.map(row=>row.key),keys=>{for(const key of Object.keys(chatRects.value))if(!keys.includes(key))delete chatRects.value[key]})
 const isCompactScreen = ref(false)
 const viewportSize = ref({ width: window.innerWidth, height: window.innerHeight })
+const multiPicker = ref(null)
+const tiled = computed(() => state.layout === 'float' && !!state.tileMode)
+const tileWindows = computed(() => state.windows.filter(item => !item.minimized && item.accessConfirmed !== false))
+const tileGridStyle = computed(() => {
+  const layout = chatTileLayout(tileWindows.value.length, state.tileMode, viewportSize.value.width, viewportSize.value.height)
+  return { gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`, gridAutoRows: `${layout.rowHeight}px` }
+})
+function cycleComposer(event) {
+  if (event.key !== 'Tab' || event.ctrlKey || event.altKey || event.metaKey || event.isComposing || state.layout !== 'float') return
+  const selector = '.group-composer textarea, .chat-composer--conversation textarea, .discussion-chat__composer textarea, .chat-composer--conversation [contenteditable="true"]'
+  const currentInput = event.target.matches(selector) ? event.target : event.target.closest?.(selector)
+  if (!currentInput) return
+  const root = event.currentTarget
+  const inputs = [...root.querySelectorAll(selector)].filter(input => !input.disabled && input.getBoundingClientRect().width > 0 && input.closest('.project-chat-window')?.style.display !== 'none')
+  if (inputs.length < 2) return
+  event.preventDefault(); event.stopPropagation()
+  const current = inputs.indexOf(currentInput), next = inputs[(current + (event.shiftKey ? -1 : 1) + inputs.length) % inputs.length]
+  focusChat(next.closest('.project-chat-window').dataset.chatKey)
+  next.focus({ preventScroll: true }); next.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+}
 const draggingKey = ref('')
 const workspacePane = ref('messages')
 const sidebarOpen = ref(true)
@@ -228,7 +297,7 @@ const previewQuery = useChatMentions(ref(''), computed(() => !!previewProject.va
   projectType: previewProject.value?.projectType, projectId: previewProject.value?.projectId,
 })))
 const mentionPreview = reactive({ project: previewProject, ...previewQuery })
-const mentionSession = chatWindow => sessions.value.find(row => row.key === chatWindow.key) || chatWindow
+const mentionSession = chatWindow => sessions.value.find(row => row.key === (chatWindow.conversationKey || chatWindow.key)) || chatWindow
 async function selectPreviewMention(item) {
   const key = openChat({ projectId: item.projectId, projectType: item.projectType, title: item.title, subtitle: item.subtitle })
   if (workspaceNarrow.value) sidebarOpen.value = false
@@ -241,7 +310,7 @@ const setPanelRef = (key, el) => {
   else panelRefs.delete(key)
 }
 
-const workspaceNarrow = computed(() => viewportSize.value.width < 640 || resolveChatSize(state.workspaceMaximized ? 'maximized' : state.workspaceSize).width < 640)
+const workspaceNarrow = computed(() => viewportSize.value.width < 640 || (!state.workspaceMaximized && workspaceRect.value?.width || resolveChatSize(state.workspaceMaximized ? 'maximized' : state.workspaceSize).width) < 640)
 const workspaceVisible = computed(() => (
   state.layout === 'workspace'
   && !state.workspaceMinimized
@@ -262,15 +331,39 @@ const sidebarWidth = computed(() => {
   if (workspaceNarrow.value) return 0
   return state.workspaceMaximized ? 300 : 280
 })
-const activeWindow = computed(() => state.windows.find(item => item.key === state.activeKey) || null)
+const activeWindow = computed(() => state.windows.find(item => item.key === state.activeKey && item.accessConfirmed !== false) || null)
 const sessions = computed(() => {
-  const rows = followed.value.map(s => ({ ...s, projectType: s.kind, opened: state.windows.some(w => w.key === s.key) }))
+  const rows = followed.value.map(s => ({ ...s, projectType: s.kind, opened: state.windows.some(w => (w.conversationKey || w.key) === s.key) }))
   for (const item of state.windows) {
-    if (!rows.some(s => s.key === item.key)) rows.push({ ...item, opened: true })
+    if (item.accessConfirmed === false) continue
+    const conversationKey = item.conversationKey || item.key
+    if (!rows.some(s => s.key === conversationKey)) rows.push({ ...item, key: conversationKey, opened: true })
   }
   const counts = new Map(annotationMentionCounts.value.map(item => [String(item.projectId), item.count]))
   // 先保持现有目录范围，再补充个人提及信息；历史提及不能把未关注项目带入目录。
-  return rows.map(row => ({ ...row, mentionHistoryCount: row.projectType === 'annotation' ? counts.get(String(row.projectId)) || 0 : 0 }))
+  return filterClosedSessions(rows.map(row => ({ ...row, mentionHistoryCount: row.projectType === 'annotation' ? counts.get(String(row.projectId)) || 0 : 0 })), state.closedSessionKeys)
+})
+function closeSessionGroup(session) {
+  closeSessionEntry(session)
+}
+function onChatAccessGranted(event) {
+  const key = `${event.detail.projectType}:${event.detail.projectId}`
+  state.windows.filter(row => (row.conversationKey || row.key) === key).forEach(item => { item.accessConfirmed = true })
+}
+function onChatAccessDenied(event) {
+  const key = `${event.detail.projectType}:${event.detail.projectId}`
+  const matches = state.windows.filter(row => (row.conversationKey || row.key) === key)
+  for (const item of matches) closeChat(item.key, { recordRecent: false })
+  state.recentClosedSessions = state.recentClosedSessions.filter(item => !(item.sessionKeys || [item.key]).includes(key))
+  refreshFollowed()
+}
+onMounted(() => {
+  window.addEventListener('chat-conversation-access-granted', onChatAccessGranted)
+  window.addEventListener('chat-conversation-access-denied', onChatAccessDenied)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('chat-conversation-access-granted', onChatAccessGranted)
+  window.removeEventListener('chat-conversation-access-denied', onChatAccessDenied)
 })
 async function updatePreference({ session, data }) {
   try { await chatRequest(session.projectType === 'discussion' ? `discussions/${session.projectId}/preferences` : `sessions/${session.projectType}/${session.projectId}/preferences`, { method: 'put', data }); await refreshFollowed() }
@@ -292,12 +385,12 @@ const route = useRoute()
 watch(() => route.fullPath, () => nextTick(updateTitle))
 onMounted(() => { window.addEventListener('focus', updateTitle); window.addEventListener('blur', updateTitle) })
 onBeforeUnmount(() => { window.removeEventListener('focus', updateTitle); window.removeEventListener('blur', updateTitle); document.title = document.title.replace(/^\[有人@我\]\s*/, '') })
-const workspaceUnread = computed(() => sessions.value.reduce((sum, item) => sum + (Number(item.unread) || 0), 0))
+const workspaceUnread = computed(() => mentionUnreadCount(sessions.value))
 const workspaceFrameMode = computed(() => (state.workspaceMaximized ? 'maximized' : state.workspaceSize))
 const workspaceShellStyle = computed(() => {
   // 视口变化也须使尺寸计算失效，不能只依赖窗口档位。
   void viewportSize.value
-  const size = resolveChatSize(workspaceFrameMode.value)
+  const size = !state.workspaceMaximized && workspaceRect.value || resolveChatSize(workspaceFrameMode.value)
   return {
     left: `${state.workspaceX}px`,
     top: `${state.workspaceY}px`,
@@ -308,7 +401,7 @@ const workspaceShellStyle = computed(() => {
 })
 const contentRect = computed(() => {
   void viewportSize.value
-  const size = resolveChatSize(workspaceFrameMode.value)
+  const size = !state.workspaceMaximized && workspaceRect.value || resolveChatSize(workspaceFrameMode.value)
   const side = sidebarWidth.value + (state.workspaceMaximized && !workspaceNarrow.value ? 56 : 0)
   return {
     x: state.workspaceX + side,
@@ -327,7 +420,7 @@ const frameSize = chatWindow => {
   return state.workspaceMaximized ? 'large' : state.workspaceSize
 }
 const windowClass = chatWindow => ({
-  'project-chat-window--solo': isCompactScreen.value && state.layout !== 'workspace',
+  'project-chat-window--solo': !tiled.value && isCompactScreen.value && state.layout !== 'workspace',
   'project-chat-window--embedded': state.layout === 'workspace',
   'project-chat-window--pinned': state.layout === 'float' && state.pinnedKey === chatWindow.key,
   'project-chat-window--immersive': state.workspaceMaximized && state.layout === 'workspace',
@@ -376,6 +469,7 @@ const onContactOpened = () => {
 }
 
 const windowStyle = (chatWindow) => {
+  if (tiled.value) return { position: 'relative', left: 'auto', top: 'auto', width: '100%', height: '100%', maxWidth: 'none', maxHeight: 'none', minWidth: '0', zIndex: 1 }
   if (state.layout === 'workspace') {
     const rect = contentRect.value
     return {
@@ -387,6 +481,7 @@ const windowStyle = (chatWindow) => {
       borderRadius: state.workspaceMaximized ? '0' : (sidebarWidth.value ? '0 0 12px 0' : '0 0 12px 12px'),
     }
   }
+  if(chatRects.value[chatWindow.key]){const r=chatRects.value[chatWindow.key];return {left:`${r.x}px`,top:`${r.y}px`,width:`${r.width}px`,height:`${r.height}px`,zIndex:chatWindow.zIndex,position:'fixed',maxWidth:'none',maxHeight:'none'}}
   if (isCompactScreen.value) return { zIndex: chatWindow.zIndex }
   const size = resolveChatSize(chatWindow.sizeMode || 'small')
   return {
@@ -430,17 +525,18 @@ const beginDrag = (event, key, originX, originY) => {
 
 // 仅标题栏空白区域作为拖拽手柄；项目名、订单号和按钮保留文字选择与点击。
 const startDrag = (event, chatWindow) => {
+  if (tiled.value) return
   if (isCompactScreen.value || event.button !== 0) return
   if (event.target.closest('.project-chat-window__heading, .project-chat-window__actions, button, a')) return
   focusChat(chatWindow.key)
-  beginDrag(event, chatWindow.key, chatWindow.x, chatWindow.y)
+  windowFrames.get(chatWindow.key)?.start(event)
 }
 
 const startWorkspaceDrag = (event) => {
   if (isCompactScreen.value || state.workspaceMaximized || event.button !== 0) return
   if (event.target.closest('.chat-workspace__heading, .chat-workspace__actions, button, a, input')) return
   focusWorkspace()
-  beginDrag(event, '__workspace__', state.workspaceX, state.workspaceY)
+  workspaceFrame.value?.start(event)
 }
 
 const onHeaderDblClick = (event, chatWindow) => {
@@ -463,6 +559,7 @@ const onWindowMouseDown = (chatWindow) => {
 
 // 小屏幕只保留最近使用的会话展开，其余自动最小化。工作区模式按当前会话显示，不改各窗口的最小化标记。
 const enforceSoloWindow = () => {
+  if (tiled.value) return
   if (!isCompactScreen.value || state.layout === 'workspace') return
   const expanded = state.windows
     .filter(item => !item.minimized)
@@ -506,6 +603,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.project-chat-window__close-button{position:absolute;z-index:2;right:8px;top:8px;display:flex;align-items:center;justify-content:center;width:36px;height:36px;box-sizing:border-box;padding:0;border:1px solid #cbd5e1;border-radius:6px;background:#f8fafc;color:#334155;font:26px/1 Arial,sans-serif;cursor:pointer;opacity:1;visibility:visible}.project-chat-window__close-button:hover{color:#dc2626;border-color:#fca5a5;background:#fef2f2}.project-chat-window__close-button:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:2px}
 .project-chat-dock {
   position: fixed;
   inset: 0;
@@ -750,6 +848,8 @@ onBeforeUnmount(() => {
 .project-chat-window--solo .project-chat-window__header {
   cursor: default;
 }
+.project-chat-window__header{position:relative;padding-right:52px}.project-chat-window__actions{min-width:0;flex-shrink:1;overflow-x:auto;scrollbar-width:none}.project-chat-window__actions::-webkit-scrollbar{display:none}
+.project-chat-window__exit-button{flex:none;margin:0;font-size:11px;padding:6px 8px}
 </style>
 
 <style scoped>
@@ -758,4 +858,32 @@ onBeforeUnmount(() => {
 .project-chat-window__actions :deep(.el-button){margin:0;width:28px;height:28px;padding:4px}.chat-header-session-tools{display:flex;align-items:center;flex:none}.chat-header-divider{width:1px;height:20px;background:#e2e8f0;margin:0 5px}
 .project-chat-window--immersive :deep(.chat-composer--conversation){margin:10px 24px 16px;padding:10px 12px}
 @media(max-width:600px){.project-chat-window__title-row .el-tag{display:none}.project-chat-window__actions :deep(.el-button){width:25px}.project-chat-window__header{gap:4px;padding:0 5px}}
+.project-chat-window__exit-button{flex:none;margin:0;font-size:11px;padding:6px 8px}
 </style>
+
+<style scoped>
+.project-chat-window__header{height:112px;min-height:112px;flex-wrap:wrap;align-content:center;gap:5px 8px;padding-top:5px;padding-bottom:5px}
+.project-chat-window__heading{flex:0 0 100%;height:64px;min-width:0;overflow:hidden}
+.project-chat-window__actions{flex:1;justify-content:flex-end}
+:global(body:has(.project-chat-dock--immersive) .el-notification){margin-top:112px}
+</style>
+
+<style scoped>
+.chat-tile-toolbar{position:fixed;inset:0 0 auto 0;min-height:46px;box-sizing:border-box;padding:7px 10px;display:flex;align-items:center;gap:7px;flex-wrap:wrap;background:white;border-bottom:1px solid #cbd5e1;pointer-events:auto;z-index:3}
+.chat-tile-toolbar strong{font-size:13px}.chat-tile-toolbar>span{font-size:11px;color:#64748b}.chat-tile-toolbar .el-button{margin:0}
+.chat-tile-grid{position:fixed;inset:78px 0 0;display:grid;align-content:start;gap:10px;padding:10px;overflow:auto;box-sizing:border-box;pointer-events:auto;background:#e8edf4}
+.chat-tile-grid .project-chat-window{box-sizing:border-box;box-shadow:0 2px 8px #0f172a12}
+.chat-tile-grid .project-chat-window:focus-within{outline:2px solid #3b82f6;outline-offset:-2px}
+.chat-tile-grid :deep(.group-composer textarea),.chat-tile-grid :deep(.chat-composer--conversation textarea){max-height:80px!important}
+.chat-multi-entry{flex:none;margin:0!important;font-size:11px;padding:6px 8px}
+@media(min-width:1000px){.chat-tile-grid{top:48px}}
+</style>
+
+<style scoped>.chat-tile-grid .project-chat-window__exit-button,.chat-tile-grid .chat-multi-entry{display:none}</style>
+
+<style scoped>
+.chat-tile-grid :deep(.rich-editor__toolbar){max-height:54px;overflow-y:auto}
+.chat-tile-grid :deep(.rich-editor__content .tiptap){min-height:48px!important;max-height:80px;overflow-y:auto}
+</style>
+
+<style scoped src="./chatHeader.css" />

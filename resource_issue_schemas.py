@@ -1,17 +1,43 @@
 """开拓问题写入白名单；来源与人员快照只由后端生成。"""
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-IssueCategory = Literal["arrangement", "execution", "problem", "idea"]
+IssueCategory = Literal['arrangement','request','idea','decision','execution','problem','risk','standard']
 IssueTaskStatus = Literal["pending", "in_progress", "completed", "cancelled"]
+
+
+class SummaryFields(BaseModel):
+    model_config = ConfigDict(extra='forbid',str_strip_whitespace=True)
+    specific_classification: str = Field(default='',max_length=200)
+    planned_completion_at: datetime | None = None
+    follower_user_ids: list[UUID] = Field(default_factory=list,max_length=2000)
+    actual_progress: str = Field(default='',max_length=10000)
+    notify_user_ids: list[UUID] = Field(default_factory=list,max_length=2000)
+    notify_department_ids: list[UUID] = Field(default_factory=list,max_length=500)
+
+    @field_validator('planned_completion_at')
+    @classmethod
+    def explicit_timezone(cls,value):
+        if value is not None:
+            if value.utcoffset() is None:raise ValueError('预定完成时间必须带时区')
+            from business_time import BUSINESS_TIMEZONE
+            return value.astimezone(BUSINESS_TIMEZONE)
+        return value
 
 
 class IssueWrite(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     content: str = Field(min_length=1, max_length=20000)
     remarks: str = Field(default="", max_length=10000)
+    summary: SummaryFields | None = None
+
+
+class IssueProgressWrite(BaseModel):
+    model_config = ConfigDict(extra='forbid',str_strip_whitespace=True)
+    revision: int = Field(ge=1)
+    actual_progress: str = Field(max_length=10000)
 
 
 class IssueCreate(IssueWrite):

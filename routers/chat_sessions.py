@@ -23,9 +23,113 @@ from chat_mention_history import list_mentions, mention_count, annotation_mentio
 import chat_session_category_service as session_categories
 
 router = APIRouter(prefix='/chat', tags=['chat_sessions'])
+from routers.chat_message_interactions import router as interactions_router
+router.include_router(interactions_router)
 
 DIRECTORY_LIMIT = 1000
 RECENT_LIMIT = 8
+
+
+class ConversationInviteWrite(BaseModel):
+    user_ids: list[UUID]
+
+
+def _require_participant_scope(db, user, kind, conversation_id):
+    from chat_access_service import require_member
+    require_member(db, kind, conversation_id, user)
+    if kind == 'discussion':
+        import discussion_chat_service
+        discussion_chat_service.require_room(db, user, conversation_id)
+    elif not annotation.can_view(db, user):
+        raise HTTPException(403, '没有项目沟通权限')
+
+
+@router.get('/conversations/{kind}/{conversation_id}/participants')
+def conversation_participants(kind: Literal['annotation', 'translation', 'discussion'], conversation_id: UUID,
+                              db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    _require_participant_scope(db, user, kind, conversation_id)
+    from chat_access_service import member_ids
+    ids = member_ids(db, kind, conversation_id)
+    users = db.query(AppUser).order_by(AppUser.full_name, AppUser.username).all()
+    import discussion_chat_service
+    eligible = [row for row in users if row.is_active and (discussion_chat_service.can_view(db, row) if kind == 'discussion' else annotation.can_view(db, row))]
+    item = lambda row: dict(id=row.id, name=row.full_name or row.username)
+    return dict(members=[item(row) for row in users if row.id in ids], eligible_users=[item(row) for row in eligible if row.id not in ids])
+
+
+@router.post('/conversations/{kind}/{conversation_id}/invitations')
+def conversation_invite(kind: Literal['translation', 'discussion'], conversation_id: UUID, payload: ConversationInviteWrite,
+                        db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    _require_participant_scope(db, user, kind, conversation_id)
+    if not payload.user_ids or len(payload.user_ids) > 1000:
+        raise HTTPException(422, '每次请选择1至1000位人员')
+    targets = db.query(AppUser).filter(AppUser.id.in_(set(payload.user_ids)), AppUser.is_active.is_(True)).all()
+    import discussion_chat_service
+    if len(targets) != len(set(payload.user_ids)) or any(not (discussion_chat_service.can_view(db, target) if kind == 'discussion' else annotation.can_view(db, target)) for target in targets):
+        raise HTTPException(422, '邀请对象已停用或没有相应模块权限')
+    from chat_access_service import MEMBERS
+    model, column = MEMBERS[kind]
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+    insert_member = pg_insert if db.get_bind().dialect.name == 'postgresql' else sqlite_insert
+    for target in targets:
+        db.execute(insert_member(model).values(**{column.key: conversation_id, 'user_id': target.id,
+            'pinned': False, 'starred': False, 'last_read_id' if kind == 'discussion' else 'last_read_sequence': 0}).on_conflict_do_nothing())
+    db.commit()
+    broadcast_to_users([user.id, *[target.id for target in targets]], {'type': 'chat_sessions_changed'})
+    return conversation_participants(kind, conversation_id, db, user)
+
+
+@router.post('/conversations/{kind}/{conversation_id}/participants/remove')
+def conversation_remove_participants(kind: Literal['annotation', 'translation', 'discussion'], conversation_id: UUID,
+                                    payload: ConversationInviteWrite, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    if not payload.user_ids or len(payload.user_ids) > 1000:
+        raise HTTPException(422, '请选择需要移出的参与人')
+    if user.id in payload.user_ids:
+        raise HTTPException(400, '不能通过删除参与人移出自己')
+    if kind == 'annotation':
+        annotation.require_project(db, conversation_id, user, lock=True)
+    else:
+        _require_participant_scope(db, user, kind, conversation_id)
+        if kind == 'translation':
+            db.query(TranslationProject).filter_by(id=conversation_id).with_for_update().first()
+    from chat_access_service import MEMBERS, member_ids, require_member
+    require_member(db, kind, conversation_id, user)
+    before = member_ids(db, kind, conversation_id)
+    targets = set(payload.user_ids)
+    if not targets.issubset(before):
+        raise HTTPException(400, '部分人员已经不在会话中，请刷新后重试')
+    model, column = MEMBERS[kind]
+    db.query(model).filter(column == conversation_id, model.user_id.in_(targets)).delete(synchronize_session=False)
+    db.commit()
+    broadcast_to_users(list(before), {'type': 'chat_sessions_changed'})
+    broadcast_to_users(list(targets), {'type': 'chat_conversation_removed', 'projectType': kind, 'projectId': str(conversation_id)})
+    if kind == 'annotation':
+        annotation.publish(db, conversation_id, 'members')
+        for uid in targets:
+            annotation.notify_state(uid, conversation_id)
+    return {'removed_count': len(targets)}
+
+
+@router.post('/conversations/{kind}/{conversation_id}/participants/leave')
+def conversation_leave(kind: Literal['annotation', 'translation', 'discussion'], conversation_id: UUID,
+                       db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    if kind == 'annotation':
+        annotation.require_project(db, conversation_id, user, lock=True)
+    else:
+        _require_participant_scope(db, user, kind, conversation_id)
+        if kind == 'translation':
+            db.query(TranslationProject).filter_by(id=conversation_id).with_for_update().first()
+    from chat_access_service import MEMBERS, member_ids
+    before = member_ids(db, kind, conversation_id)
+    model, column = MEMBERS[kind]
+    db.query(model).filter(column == conversation_id, model.user_id == user.id).delete(synchronize_session=False)
+    db.commit()
+    broadcast_to_users(list(before), {'type': 'chat_sessions_changed'})
+    broadcast_to_users([user.id], {'type': 'chat_conversation_removed', 'projectType': kind, 'projectId': str(conversation_id)})
+    if kind == 'annotation':
+        annotation.publish(db, conversation_id, 'members')
+    return {'left': True}
 
 
 def _department(value):
@@ -145,7 +249,7 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
         if ready:
             conditions.extend([AnnotationChatMember.pinned.is_(True), AnnotationChatMember.starred.is_(True)])
         projects = db.query(AnnotationProject, AnnotationChatMember).outerjoin(AnnotationChatMember,
-            and_(AnnotationChatMember.project_id == AnnotationProject.id, AnnotationChatMember.user_id == user.id)).filter(or_(*conditions)).all()
+            and_(AnnotationChatMember.project_id == AnnotationProject.id, AnnotationChatMember.user_id == user.id)).filter(AnnotationChatMember.user_id == user.id, or_(*conditions)).all()
         stats = summaries(db, ChatProjectMessage.annotation_project_id, [p.id for p, m in projects], {p.id: m.last_read_sequence if m else 0 for p, m in projects}, user.id)
         for p, m in projects:
             rows.append(dict(key=f'annotation:{p.id}', kind='annotation', project_id=p.id, title=p.project_name or '未命名项目',
@@ -160,7 +264,8 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
             'mention_total': sum(r['mention_unread'] for r in rows)}
     if annotation.can_view(db, user):
         prefs = {m.project_id: m for m in db.query(ChatProjectMemberPref).filter_by(user_id=user.id)}
-        projects = db.query(TranslationProject).outerjoin(ChatProjectEnabled,
+        from chat_access_service import visible_ids
+        projects = db.query(TranslationProject).filter(TranslationProject.id.in_(visible_ids(db, 'translation', user))).outerjoin(ChatProjectEnabled,
             ChatProjectEnabled.project_id == TranslationProject.id).filter(or_(ChatProjectEnabled.enabled.is_(True),
             TranslationProject.id.in_(prefs), TranslationProject.created_by == user.id,
             TranslationProject.id.in_(db.query(ChatProjectMessage.project_id).filter(ChatProjectMessage.project_id.is_not(None), ChatProjectMessage.message_type == 'user')))).all()
@@ -222,6 +327,8 @@ def preferences(kind: str, project_id: UUID, payload: PreferenceRequest, db: Ses
         member = annotation.add_member(db, project_id, user.id)
         column = ChatProjectMessage.annotation_project_id
     elif kind == 'translation':
+        from chat_access_service import require_member
+        require_member(db, 'translation', project_id, user)
         if not user_has_permission(db, user.id, 'projects:read'):
             raise HTTPException(403, '没有项目查看权限')
         if not db.query(TranslationProject).filter_by(id=project_id).with_for_update().first():
@@ -253,6 +360,10 @@ def mention_target(notification_id: UUID, db: Session = Depends(get_db), user: A
     notification = db.query(AppNotification).filter_by(id=notification_id, recipient_user_id=user.id).first()
     if not notification:
         raise HTTPException(404, '通知不存在')
+    from chat_access_service import require_member
+    kind = notification.related_project_type
+    if kind in {'annotation', 'translation'}:
+        require_member(db, kind, notification.related_entity_id or notification.related_project_id, user)
     if phase_one_ready(db):
         from models import ChatMentionNotificationTarget
         target = db.get(ChatMentionNotificationTarget, notification_id)

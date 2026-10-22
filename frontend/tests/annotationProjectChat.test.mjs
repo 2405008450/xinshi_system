@@ -62,8 +62,8 @@ test('标注和笔译聊天统一支持多人提醒与私有收藏', () => {
 })
 
 test('标注和笔译聊天统一支持共享收到回执', () => {
-  assert.match(chatPanel, /shouldShowAcknowledgement\(item\.message\)/)
-  assert.match(chatPanel, /shouldShowAcknowledgement\(message\)/)
+  assert.match(chatPanel, /<ChatMessageActions[^>]*:message="item\.message"/)
+  assert.match(chatPanel, /<ChatMessageActions[^>]*:message="message"/)
   assert.match(chatPanel, /不能标记自己发送的消息|senderUserId/)
   assert.match(chatPanel, /acknowledgementLabel/)
   assert.match(chatPanel, /acknowledgementTooltip/)

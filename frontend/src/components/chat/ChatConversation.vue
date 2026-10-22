@@ -2,14 +2,15 @@
   <section @dragenter.prevent="dragEnter" @dragover.prevent="dragOver" @dragleave="dragLeave" @drop.prevent="dropFiles" class="annotation-group" :class="{ 'annotation-group--embedded': !conversationMode, 'annotation-group--search-side': searchOpen && historyPlacement === 'side' }">
     <div class="annotation-group__main">
     <Teleport :to="headerReady && toolbarTarget ? toolbarTarget : 'body'" :disabled="!toolbarTarget || !headerReady"><div v-show="!toolbarTarget || active" class="group-toolbar" :class="{ 'group-toolbar--header': toolbarTarget }">
-      <el-popover v-if="!isDirect" trigger="click" placement="bottom-end" :width="340" popper-class="annotation-members-popover annotation-participants-popover">
-        <template #reference><el-button text size="small" class="group-participants" :icon="User" aria-label="参与人" title="参与人"><template v-if="!toolbarTarget">参与人</template> <span class="group-member-count">{{ group.members.length }}</span></el-button></template>
-        <p class="group-hint">{{ isDirect ? '仅双方可以访问此会话。' : '有项目查看权限的用户均可发言，参与人会持续收到未读提醒。' }}</p>
+      <el-popover v-if="!isDirect" :z-index="participantsZ" trigger="click" placement="bottom-end" :width="340" popper-class="annotation-members-popover annotation-participants-popover">
+        <template #reference><el-button text size="small" class="group-participants" :icon="User" aria-label="参与人" title="参与人" @click="participantsZ = chatOverlayZIndex($event.currentTarget)"><template v-if="!toolbarTarget">参与人</template> <span class="group-member-count">{{ group.members.length }}</span></el-button></template>
+        <p class="group-hint">仅会话参与人可以查看和发言；取消关注只停止未读提醒。</p>
         <div class="group-members"><el-button v-for="member in group.members" :key="member.id" link :disabled="member.id === currentUserId" @click="startDirect(member)">{{ member.name }}</el-button></div>
         <el-select v-if="!isDirect" v-model="inviteIds" multiple filterable :teleported="false" placeholder="选择邀请用户" style="width:100%">
-          <el-option v-for="user in group.eligibleUsers" :key="user.id" :value="user.id" :label="user.name" />
+          <el-option v-for="user in group.invitableUsers" :key="user.id" :value="user.id" :label="user.name" />
         </el-select>
         <el-button type="primary" size="small" v-if="!isDirect" :loading="inviting" :disabled="!inviteIds.length" @click="invite">邀请参与</el-button>
+        <ChatParticipantActions :project-type="projectType" :project-id="projectId" :members="group.members" @changed="loadGroup" />
       </el-popover>
       <span v-if="!toolbarTarget" class="group-toolbar-spacer" />
       <el-button text size="small" v-if="!isDirect" class="group-follow" :class="{ 'is-following': group.following }" :icon="group.following ? StarFilled : Star" :loading="followingBusy" :title="group.following ? '取消关注，不再接收普通消息未读提醒' : '关注后加入右上角收藏夹，并接收未读提醒'" :aria-label="group.following ? '取消关注' : '关注项目'" @click="toggleFollow"><template v-if="!toolbarTarget">{{ group.following ? '已关注' : '关注' }}</template></el-button>
@@ -42,6 +43,9 @@
 
 <script setup>
 import { matchesSearch } from '@/utils/searchMatching'
+import ChatParticipantActions from './ChatParticipantActions.vue'
+import { chatOverlayZIndex } from '@/utils/chatOverlay'
+import { useChatMessageInteractions } from '@/composables/useChatMessageInteractions'
 
 import { provide, computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -88,11 +92,16 @@ const newMessageId = () => {
   const hex = [...bytes].map(b => b.toString(16).padStart(2, '0')).join('')
   return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`
 }
-const group = reactive({ members: [], eligibleUsers: [], following: false })
+const group = reactive({ members: [], eligibleUsers: [], invitableUsers: [], following: false })
+const participantsZ = ref(2110)
 const messages = ref([]), list = ref(null), input = ref(null), content = ref(''), replyTo = ref(null)
+const interactions = useChatMessageInteractions({ projectId: computed(() => props.projectId), projectType: computed(() => props.projectType), messages, active: computed(() => props.active) })
 const composer = ref(null), mentionMenu = ref(null), mentionOpen = ref(false), mentionQuery = ref(''), mentionIndex = ref(0), mentionStyle = ref({})
 const mentionListId = `mention-${newMessageId()}`
-const mentionCandidates = computed(() => group.eligibleUsers.filter(u => matchesSearch(u.name, mentionQuery.value)))
+const mentionCandidates = computed(() => [
+  ...group.eligibleUsers.map(u => ({ ...u, outside: false })),
+  ...group.invitableUsers.filter(u => !group.members.some(member => member.id === u.id)).map(u => ({ ...u, outside: true })),
+].filter(u => String(u.id) !== String(currentUserId) && matchesSearch(u.name, mentionQuery.value)))
 let mentionTrigger = -1
 const selected = ref([]), selectionMessage = ref(null), inviteIds = ref([]), mentionIds = ref([])
 const files = ref([]), sending = ref(false), retryPayload = ref(null), sendError = ref(''), composing = ref(false)
@@ -101,7 +110,8 @@ const loading = ref(false), loadingEarlier = ref(false), hasEarlier = ref(false)
 const pendingNew = ref(0), viewingHistory = ref(false), highlighted = ref('')
 const imageUrls = reactive({}), imageErrors = reactive({}), imageRequests = new Set()
 const historySenders = computed(() => group.eligibleUsers.map(user => ({ id: user.id, name: user.name })))
-const canSend = computed(() => !sending.value && (retryPayload.value || (!files.value.some(f => f.status !== 'ready') && (!!content.value.trim() || files.value.length > 0))))
+const screenshotUploading=ref(false)
+const canSend = computed(() => !screenshotUploading.value && !sending.value && (retryPayload.value || (!files.value.some(f => f.status !== 'ready') && (!!content.value.trim() || files.value.length > 0))))
 const detail = e => e?.detail || e?.message || '操作失败，请重试'
 const sizeLabel = bytes => bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)}KB` : `${(bytes / 1024 / 1024).toFixed(1)}MB`
 let disposed = false, generation = 0, searchController, searchTimer, syncTimer, syncing = false, syncAgain = false, unwatch, observer, readTimer
@@ -187,7 +197,7 @@ async function loadEarlier() {
   } catch (e) { error.value = detail(e) } finally { loadingEarlier.value = false }
 }
 async function sync() {
-  if (disposed || !props.projectId || loading.value) return
+  if (disposed || !initialized || !props.projectId || loading.value) return
   if (syncing) { syncAgain = true; return }
   syncing = true
   const version = generation, wasBottom = atBottom()
@@ -244,7 +254,8 @@ async function locate(id) {
   setTimeout(() => { if (requestVersion === locateVersion) highlighted.value = '' }, 1800)
   return true
 }
-function observeMessage(el) {
+function observeMessage(el, message) {
+  interactions.observe(el, message)
   if (el && observer && !observedElements.has(el)) { observedElements.add(el); observer.observe(el) }
 }
 function scheduleRead() { clearTimeout(readTimer); readTimer = setTimeout(markRead, 350) }
@@ -314,7 +325,17 @@ function addFiles(chosen) {
 async function uploadFile(row) {
   row.status = 'uploading'; row.error = ''
   const data = new FormData(); data.append('file', row.file)
-  try { row.data = await request(props.projectId, 'files', { method: 'post', data }); row.status = 'ready' }
+  try {
+    if(row.file.type.startsWith('image/')){
+      const {uploadEditorScreenshot}=await import('@/utils/uploadEditorScreenshot')
+      const {screenshotIds,screenshotText,screenshotValue}=await import('@/utils/screenshotReferences')
+      if(screenshotIds(content.value).length>=9)throw new Error('每条消息最多9张截图')
+      const image=await uploadEditorScreenshot(row.file,'chat')
+      if(screenshotIds(content.value).length>=9)throw new Error('每条消息最多9张截图')
+      content.value=screenshotValue(screenshotText(content.value),[...screenshotIds(content.value),image.id]);removeFile(row);return
+    }
+    row.data = await request(props.projectId, 'files', { method: 'post', data }); row.status = 'ready'
+  }
   catch (e) { row.status = 'failed'; row.error = detail(e) }
 }
 function removeFile(file) { files.value = files.value.filter(f => f.key !== file.key) }
@@ -363,6 +384,7 @@ function positionMention() {
   mentionStyle.value = { width: `${width}px`, left: `${Math.max(8, Math.min(x - root.left, root.width - width - 8))}px`, bottom: `${root.bottom - y + 6}px`, maxHeight: `${Math.max(60, Math.min(250, y - 12))}px` }
 }
 async function selectMention(user) {
+  if (String(user.id) === String(currentUserId)) return
   if (mentionTrigger < 0) return
   if (!mentionIds.value.includes(user.id) && mentionIds.value.length >= 20) { ElMessage.warning('每条消息最多提及20人'); return }
   const cursor = input.value.textarea.selectionStart, text = `@${user.name} `, end = mentionTrigger + text.length
@@ -374,7 +396,7 @@ async function send() {
   if (!canSend.value) return
   sending.value = true; sendError.value = ''
   closeMention()
-  const payload = retryPayload.value || { content: content.value, mentionedUserIds: mentionIds.value.filter(id => group.eligibleUsers.some(u => u.id === id && content.value.includes(`@${u.name} `))), attachmentIds: files.value.map(f => f.data.id), replyToMessageId: replyTo.value?.id || null, clientMessageId: newMessageId() }
+  const payload = retryPayload.value || { content: content.value, mentionedUserIds: mentionIds.value.filter(id => [...group.eligibleUsers, ...group.invitableUsers].some(u => u.id === id && content.value.includes(`@${u.name} `))), attachmentIds: files.value.map(f => f.data.id), replyToMessageId: replyTo.value?.id || null, clientMessageId: newMessageId() }
   try {
     const message = await createProjectChatMessage(props.projectId, payload, props.projectType)
     retryPayload.value = null; content.value = ''; files.value = []; replyTo.value = null; mentionIds.value = []
@@ -403,11 +425,15 @@ onMounted(async () => {
   window.addEventListener('chat-topic-message-changed', topicChanged)
   observer = new IntersectionObserver(entries => { entries.forEach(entry => { const id = entry.target.dataset.messageId; if (entry.isIntersecting && entry.intersectionRatio >= 0.5) visibleMessages.set(id, Number(entry.target.dataset.sequence)); else visibleMessages.delete(id) }); scheduleRead() }, { root: list.value, threshold: [0, 0.5, 1] })
   if (!isDirect.value) unwatch = watchAnnotationChat(props.projectId)
-  cleanup.push(subscribe(isDirect.value ? 'direct_chat_changed' : 'annotation_chat_changed', event => { if (event.projectId !== String(props.projectId)) return; if (event.kind === 'members' || event.kind === 'message') loadGroup(); if (event.kind !== 'state') sync() }))
-  cleanup.push(subscribe('connected', () => { sync(); loadGroup() }))
+  cleanup.push(subscribe(isDirect.value ? 'direct_chat_changed' : 'annotation_chat_changed', event => { if (!initialized || event.projectId !== String(props.projectId)) return; if (event.kind === 'members' || event.kind === 'message') loadGroup(); if (event.kind !== 'state') sync() }))
+  cleanup.push(subscribe('connected', () => { if (initialized) { sync(); loadGroup() } }))
   cleanup.push(subscribe('chat_message_acknowledgement', event => { if (event.projectId === String(props.projectId)) sync() }))
   document.addEventListener('visibilitychange', foreground); window.addEventListener('focus', foreground)
   window.addEventListener('resize', closeMention)
+  if (!isDirect.value) {
+    try { await annotationChatRequest(props.projectId, 'start', { method: 'post' }) }
+    catch (e) { error.value = detail(e); resolveReady(); return }
+  }
   await loadGroup(); await search()
   initialized = true; resolveReady()
   if (props.targetMessageId) await locate(props.targetMessageId)
@@ -424,7 +450,7 @@ onBeforeUnmount(() => {
 })
 function openSearch() { searchOpen.value = !searchOpen.value }
 function onSearchLocate(messageId) { return locate(messageId) }
-provide('chatController', { props, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, download, copy, replyTo, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
+provide('chatController', { props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, download, copy, replyTo, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, screenshotUploading, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
 defineExpose({ openSearch, locate, cancelLocate, toggleFilters: openSearch })
 </script>
 

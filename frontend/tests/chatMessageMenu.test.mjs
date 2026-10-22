@@ -5,7 +5,8 @@ import { parseTopicNavigation, topicNavigationKey } from '../src/composables/use
 const handlers = Object.fromEntries(['copy','reply','favorite','acknowledge','progress','select','recall'].map(key=>[key,()=>{}]))
 test('消息菜单按照消息状态和权限限制操作',()=>{
   const row={content:'正文',messageType:'user',senderUserId:'other',canClassify:true,canRecall:true}
-  assert.deepEqual(buildMessageMenu(row,{handlers,currentUserId:'me',canCollect:true,canProgress:true}).map(x=>x.id),['copy','reply','favorite','acknowledge','classify','collect','progress','select','recall'])
+  assert.deepEqual(buildMessageMenu(row,{handlers,currentUserId:'me',canCollect:true,canProgress:true}).map(x=>x.id),['copy','reply','favorite','acknowledge','collect','progress','select','recall'])
+  assert.equal(buildMessageMenu(row,{canCollect:true}).find(x=>x.id==='collect').label,'分类保存和通知')
   assert.deepEqual(buildMessageMenu({...row,recalledAt:'已撤回'},{handlers}),[])
   assert.deepEqual(buildMessageMenu({...row,messageType:'handover'},{handlers,canCollect:true}).map(x=>x.id),['copy','favorite'])
   assert.deepEqual(buildMessageMenu({...row,canClassify:false,canRecall:false,senderUserId:'me'},{handlers,currentUserId:'me'}).map(x=>x.id),['copy','reply','favorite'])

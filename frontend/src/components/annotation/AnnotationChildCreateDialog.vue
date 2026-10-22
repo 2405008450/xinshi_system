@@ -46,6 +46,7 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { businessDateTimeInputValue } from '@/utils/dateTime'
 import { createIdempotencyKey } from '@/utils/idempotency'
+import { annotationChildName } from '@/utils/annotationChildName'
 import { ElMessage } from 'element-plus'
 import { getAnnotationProject, getAnnotationProjectPage, createAnnotationChildren } from '@/api/annotationProjects'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
@@ -78,6 +79,19 @@ const clone = value => JSON.parse(JSON.stringify(value ?? {}))
 const sourceItem = item => currentParent.value?.languageItems?.find(direction => direction.id === item.copySourceLanguageItemId)
 const sourcePrices = item => (currentParent.value?.priceItems || []).filter(price => !price.sourceLanguageId || (price.sourceLanguageId === sourceItem(item)?.sourceLanguageId && (price.targetLanguageId || '') === (sourceItem(item)?.targetLanguageId || '')))
 const sourcePeople = item => (currentParent.value?.assignees || []).filter(person => !person.languageItemId || person.languageItemId === item.copySourceLanguageItemId)
+const defaultName = item => {
+  const parentName = currentParent.value?.projectName || '标注任务'
+  if (isGrandchild.value) return parentName
+  const label = id => props.languages.find(language => language.id === id)?.label || ''
+  return annotationChildName(parentName, label(item.sourceLanguageId), label(item.targetLanguageId))
+}
+watch(() => form.items.map(item => [item.sourceLanguageId, item.targetLanguageId]), () => {
+  for (const item of form.items) {
+    const generated = defaultName(item)
+    if (item.generatedName === undefined || item.projectName === item.generatedName) item.projectName = generated
+    item.generatedName = generated
+  }
+}, { flush: 'sync' })
 const addRow = (languageId = '', targetId = '', sourceId = '') => {
   if (form.items.length >= 100) return ElMessage.warning('每次最多创建 100 个子订单')
   const parent = currentParent.value

@@ -9,6 +9,7 @@ export const issueApi = {
   detail: (id, signal) => api.get(`${base}/${id}`, { signal }),
   create: data => api.post(base, data),
   update: (id, data) => api.put(`${base}/${id}`, data),
+  updateProgress:(id,data)=>api.patch(`${base}/${id}/progress`,data),
   remove: row => api.delete(`${base}/${row.id}`, { params: { revision: row.revision } }),
   saveTask: (id, data, taskId) => taskId ? api.patch(`${base}/${id}/tasks/${taskId}`, data) : api.post(`${base}/${id}/tasks`, data),
   removeTask: (id, taskId, revision) => api.delete(`${base}/${id}/tasks/${taskId}`, { params: { revision } }),

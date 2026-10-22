@@ -168,7 +168,7 @@ def _serialize_realtime_message(message: ChatProjectMessage, project_type: str) 
     }
 
 
-def _chat_participant_user_ids(
+def _legacy_chat_participant_user_ids(
     db: Session,
     *,
     annotation_project_id: Optional[UUID] = None,
@@ -246,6 +246,16 @@ def _chat_participant_user_ids(
     return participants
 
 
+def _chat_participant_user_ids(db, *, annotation_project_id=None, project_id=None, exclude_user_id=None):
+    if bool(annotation_project_id) == bool(project_id):
+        raise ValueError('必须且只能指定一种项目类型')
+    from chat_access_service import member_ids
+    participants = member_ids(db, 'annotation' if annotation_project_id else 'translation', annotation_project_id or project_id)
+    if exclude_user_id:
+        participants.discard(exclude_user_id)
+    return participants
+
+
 def _broadcast_chat_message(
     db: Session,
     message: ChatProjectMessage,
@@ -261,6 +271,9 @@ def _broadcast_chat_message(
         exclude_user_id=message.sender_user_id,
     )
     participants.update(mentioned_user_ids)
+    if project_type in {'annotation', 'translation'}:
+        from chat_access_service import member_ids
+        participants.intersection_update(member_ids(db, project_type, project_id))
     if message.sender_user_id:
         participants.discard(message.sender_user_id)
     broadcast_to_users(
@@ -301,7 +314,11 @@ def _broadcast_chat_acknowledgement(
         from annotation_chat_service import eligible_users
         from notification_ws import notification_manager
         participants.update(notification_manager.annotation_viewers(str(project_id)))
+        from chat_access_service import member_ids
+        participants.intersection_update(member_ids(db, 'annotation', project_id))
         participants = {member.id for member in eligible_users(db, participants)}
+    from chat_access_service import member_ids
+    participants.intersection_update(member_ids(db, project_type, project_id))
     broadcast_to_users(
         participants,
         {
@@ -329,7 +346,8 @@ def set_project_chat_settings(
     enabled: bool,
     operator_id: Optional[UUID] = None,
 ) -> ChatProjectEnabled:
-    now = dt.datetime.utcnow()
+    from business_time import business_now
+    now = business_now().replace(tzinfo=None)
     settings = get_project_chat_settings(db, project_id)
     if settings is None:
         settings = ChatProjectEnabled(
@@ -340,6 +358,14 @@ def set_project_chat_settings(
             updated_at=now,
         )
         db.add(settings)
+        if enabled:
+            from models import ChatProjectMemberPref
+            ids = _legacy_chat_participant_user_ids(db, project_id=project_id)
+            if operator_id:
+                ids.add(operator_id)
+            for uid in ids:
+                if not db.get(ChatProjectMemberPref, (project_id, uid)):
+                    db.add(ChatProjectMemberPref(project_id=project_id, user_id=uid))
     else:
         settings.enabled = enabled
         settings.enabled_by = operator_id
@@ -533,6 +559,7 @@ def _normalize_mentioned_user_ids(
     sender_user_id: UUID,
     mentioned_user_id: Optional[UUID] = None,
     mentioned_user_ids: Optional[list[UUID]] = None,
+    max_mentions: int = 20,
 ) -> list[UUID]:
     """兼容旧单值字段，按请求顺序去重，并自动排除发送者本人。"""
     normalized: list[UUID] = []
@@ -542,8 +569,8 @@ def _normalize_mentioned_user_ids(
             continue
         seen.add(user_id)
         normalized.append(user_id)
-    if len(normalized) > 20:
-        raise ValueError('每条消息最多可提及 20 名用户')
+    if len(normalized) > max_mentions:
+        raise ValueError(f'每条消息最多可提及 {max_mentions} 名用户')
     return normalized
 
 
@@ -553,11 +580,13 @@ def _create_chat_mentions(
     sender: AppUser,
     mentioned_user_id: Optional[UUID] = None,
     mentioned_user_ids: Optional[list[UUID]] = None,
+    max_mentions: int = 20,
 ) -> list[AppUser]:
     normalized_ids = _normalize_mentioned_user_ids(
         sender.id,
         mentioned_user_id=mentioned_user_id,
         mentioned_user_ids=mentioned_user_ids,
+        max_mentions=max_mentions,
     )
     if not normalized_ids:
         return []
@@ -573,6 +602,11 @@ def _create_chat_mentions(
         raise ValueError('被提及的用户不存在或已停用')
 
     ordered_users = [users_by_id[user_id] for user_id in normalized_ids]
+    if message.annotation_project_id or message.project_id:
+        from chat_access_service import invite_mentioned_users
+        invite_mentioned_users(db, 'annotation' if message.annotation_project_id else 'translation',
+            message.annotation_project_id or message.project_id, sender, ordered_users,
+            baseline=max(0, (message.sequence_no or 0) - 1))
     db.add_all([
         ChatProjectMention(
             message_id=message.id,
@@ -800,6 +834,7 @@ def create_project_chat_message(
     notify: bool = True,
     topic_id: Optional[UUID] = None,
     client_message_id: Optional[UUID] = None,
+    reply_to_message_id: Optional[UUID] = None,
 ) -> ChatProjectMessage:
     settings = get_project_chat_settings(db, project_id)
     if not bypass_enabled and (settings is None or not settings.enabled):
@@ -822,6 +857,10 @@ def create_project_chat_message(
         if existing:
             return existing
 
+    if reply_to_message_id:
+        reply = db.query(ChatProjectMessage).filter_by(id=reply_to_message_id, project_id=project_id).first()
+        if not reply or reply.recalled_at:
+            raise ValueError('引用消息不存在或已撤回')
     normalized_json = normalize_rich_text_json(content_json)
     if normalized_json and len(json.dumps(normalized_json, ensure_ascii=False)) > 100000:
         raise ValueError('消息内容过长')
@@ -840,6 +879,7 @@ def create_project_chat_message(
         content_json=normalized_json,
         message_type=message_type,
         client_message_id=client_message_id,
+        reply_to_message_id=reply_to_message_id,
         event_data=event_data or {},
     )
     db.add(message)
@@ -902,6 +942,8 @@ def create_project_chat_message(
         return created
 
     default_recipients = set(get_default_chat_recipient_ids(db, project))
+    from chat_access_service import member_ids
+    default_recipients.intersection_update(member_ids(db, 'translation', project_id))
     default_recipients.discard(sender.id)
 
     mention_recipients = {user.id for user in mention_users}

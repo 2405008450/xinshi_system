@@ -79,7 +79,7 @@ def validate_name(db, name, except_id=None, parent_key=None):
     if normalized in SYSTEM_NAMES:
         raise HTTPException(409, '不能与系统会话筛选同名')
     # 保留旧库的全局唯一索引，避免上线前后名称冲突规则不一致。
-    if any(row['name'].casefold() == normalized.casefold() for row in BUILTIN_FOLDERS):
+    if any(row['id'] != str(except_id) and row['name'].casefold() == normalized.casefold() for row in BUILTIN_FOLDERS):
         raise HTTPException(409, '不能与内置目录同名')
     if parent_key == 'dcb1f917-6000-4000-8000-000000000002':
         from annotation_schemas import ANNOTATION_PROJECT_STATUS_LABELS
@@ -94,6 +94,17 @@ def require_manager(db, user):
     require_ready(db)
     if not can_manage_folders(db, user):
         raise HTTPException(403, '仅超级管理员和 Jimmy 可以新增或维护会话目录')
+
+
+def protect_resource_discussion(db, category_id, active):
+    if active is not False:
+        return
+    builtin = BUILTIN_INDEX.get(str(category_id))
+    location = db.get(Folder, category_id) if folder_schema_ready(db) else None
+    parent = builtin['parentKey'] if builtin else str(location.parent_key) if location else None
+    resource_root = next(row['id'] for row in BUILTIN_FOLDERS if row['ruleKey'] == 'resource')
+    if parent == resource_root:
+        raise HTTPException(422, '资源开拓讨论会话只能修改名称，不能删除或停用')
 
 
 def changed(db):
@@ -148,6 +159,8 @@ def require_conversation(db, user, kind, conversation_id):
         import annotation_chat_service
         annotation_chat_service.require_project(db, conversation_id, user, lock=True)
     elif kind == 'translation':
+        from chat_access_service import require_member
+        require_member(db, kind, conversation_id, user)
         if not user_has_permission(db, user.id, 'projects:read'):
             raise HTTPException(403, '没有项目查看权限')
         if not db.query(TranslationProject).filter_by(id=conversation_id).with_for_update().first():

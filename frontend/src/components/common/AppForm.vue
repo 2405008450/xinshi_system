@@ -18,6 +18,7 @@ import { ElForm as ElementForm } from 'element-plus'
 import 'element-plus/theme-chalk/el-form.css'
 import { focusFirstInvalidField } from '../../utils/formValidation'
 import { resolveServerFieldErrors } from '../../utils/formServerErrors.js'
+import { waitForScreenshotUploads } from '../../utils/screenshotUploads.js'
 
 defineOptions({
   name: 'AppForm',
@@ -36,6 +37,12 @@ const locateFirstError = async () => {
 const validate = async (callback) => {
   if (!innerFormRef.value) return false
   serverError.value = ''
+
+  if(!await waitForScreenshotUploads(innerFormRef.value.$el)){
+    serverError.value='截图上传失败，请处理提示后重新保存。'
+    if(typeof callback==='function'){await callback(false,{});return false}
+    throw new Error(serverError.value)
+  }
 
   if (typeof callback === 'function') {
     const valid = await innerFormRef.value.validate(callback)

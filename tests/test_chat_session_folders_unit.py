@@ -25,6 +25,9 @@ def local_db(monkeypatch):
         connection.execute(text('CREATE TABLE chat_session_category_link (id CHAR(32) PRIMARY KEY)'))
     Category.__table__.create(engine)
     Folder.__table__.create(engine)
+    from discussion_chat_models import DiscussionMember, DiscussionMessage
+    DiscussionMember.__table__.create(engine)
+    DiscussionMessage.__table__.create(engine)
     monkeypatch.setattr(service, 'changed', lambda db: None)
     monkeypatch.setattr(service, 'user_has_permission', lambda db, uid, permission: False)
     with Session(engine) as db:
@@ -34,6 +37,35 @@ def local_db(monkeypatch):
 
 def actor(username='Jimmy', active=True):
     return SimpleNamespace(id=uuid4(), username=username, full_name='', is_active=active)
+
+
+def test_resource_discussions_cannot_be_disabled_but_can_be_renamed(local_db):
+    resource = next(row['id'] for row in service.BUILTIN_FOLDERS if row['ruleKey'] == 'resource')
+    user = actor()
+    discussion = api.create(api.CategoryCreate(name='不可删除的讨论', parent_key=resource), local_db, user)
+    with pytest.raises(HTTPException) as denied:
+        api.update(UUID(discussion['id']), api.CategoryUpdate(revision=1, active=False), local_db, user)
+    assert denied.value.status_code == 422
+    saved = api.update(UUID(discussion['id']), api.CategoryUpdate(revision=1, name='改名后的讨论'), local_db, user)
+    assert saved['name'] == '改名后的讨论'
+    assert saved['active'] is True
+
+
+def test_builtin_resource_discussion_name_override_keeps_identity(local_db, monkeypatch):
+    import discussion_chat_service as discussions
+    from routers.discussion_chat import DiscussionNameWrite, rename
+    monkeypatch.setattr(discussions, 'can_view', lambda db, user: True)
+    user = actor()
+    builtin = next(row for row in service.BUILTIN_FOLDERS if row['parentKey'] == discussions.RESOURCE_ROOT)
+    room_id = UUID(builtin['id'])
+    from discussion_chat_models import DiscussionMember
+    local_db.add(DiscussionMember(room_id=room_id, user_id=user.id, last_read_id=0, pinned=False, starred=False)); local_db.flush()
+    saved = rename(room_id, DiscussionNameWrite(name='固定讨论改名'), local_db, user)
+    assert saved['id'] == builtin['id']
+    assert next(row for row in discussions.room_specs(local_db) if row['id'] == builtin['id'])['name'] == '固定讨论改名'
+    with pytest.raises(HTTPException) as denied:
+        api.update(room_id, api.CategoryUpdate(revision=saved['revision'], active=False), local_db, user)
+    assert denied.value.status_code == 422
 
 
 def test_only_super_admin_or_real_jimmy_account_can_manage(local_db, monkeypatch):

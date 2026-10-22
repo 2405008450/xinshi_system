@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator, field_serializer
 from path_security import validate_managed_path
 
 from language_catalog import normalize_language_pairs
@@ -1476,6 +1476,13 @@ class NotificationResponse(BaseModel):
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer('created_at',when_used='json')
+    def summary_notification_time(self,value):
+        if self.notification_type=='chat_summary' and value:
+            from business_time import business_iso
+            return business_iso(value)
+        return value
 
 class ProjectChatSettingsUpdateRequest(BaseModel):
     enabled: bool
