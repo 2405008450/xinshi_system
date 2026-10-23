@@ -238,9 +238,10 @@ const hasFilteredSelection = computed(() => filteredUsers.value.some((user) => s
 
 const displayName = (user) => user.mail_display_name || user.full_name || user.username || '未命名成员'
 const departmentLabel = (user) => normalizeDepartment(user.department) || '未设置部门'
-watch(() => departmentGroups.value.map(row=>row.key).join('|'), () => { activeDepartment.value = normalizeDepartment(activeDepartment.value) })
 const userLabel = (user) => `${displayName(user)} · ${user.email}`
 const userInitial = (user) => Array.from(displayName(user))[0] || '员'
+// watch 注册时会立即求值部门分组，必须先初始化排序依赖的 userLabel。
+watch(() => departmentGroups.value.map(row=>row.key).join('|'), () => { activeDepartment.value = normalizeDepartment(activeDepartment.value) })
 const updateSelected = (value) => emit('update:modelValue', [...new Set(value || [])].filter((id) => availableIdSet.value.has(id)))
 const setUserSelected = (userId, checked) => {
   const next = new Set(selectedIds.value)
