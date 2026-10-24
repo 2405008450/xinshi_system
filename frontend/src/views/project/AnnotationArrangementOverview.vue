@@ -273,6 +273,7 @@
 </template>
 
 <script setup>
+import {pairedProjectTypes} from "@/utils/annotationPaired"
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -336,7 +337,7 @@ const filters = reactive({
 
 const statusOptions = getProjectStatusOptions('annotation')
 const projectTypeOptions = [
-  ['audio_collection','音频采集'],['audio_annotation','音频标注'],['audio_evaluation','音频评测'],
+  ...pairedProjectTypes.map(item=>[item.value,item.label]),['audio_collection','音频采集'],['audio_annotation','音频标注'],['audio_evaluation','音频评测'],
   ['text_evaluation','文本评测'],['text_annotation','文本标注'],['quality_inspection','质检'],
   ['listening_test','测听'],['slot_deduction','扣槽'],['generalization','泛化'],['translation','翻译'],['ai_evaluation','AI评测'],
 ].map(([value,label]) => ({ value,label }))

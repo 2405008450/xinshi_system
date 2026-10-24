@@ -131,7 +131,7 @@ const PAGE_SIZE_OPTIONS = [
 const ALL_BATCH_SIZE = 100
 const STATUS_LABELS = {
   initial_consultation: '初步咨询', consultation_no_result: '初步咨询后无结果', resource_sourcing: '资源开拓',
-  resource_sourcing_cancelled: '取消资源开拓', trial_preparation: '试标准备', trial_in_progress: '试标中', trial_submitted: '试标已提交',
+  resource_sourcing_cancelled: '取消资源开拓', assessment_preparation:'准备考核',assessment_in_progress:'考核中',assessment_completed:'考核结束',trial_preparation: '试标准备', trial_in_progress: '试标中', trial_submitted: '试标已提交',
   trial_passed: '试标通过', trial_failed: '试标未通过', trial_partially_passed: '部分试标通过',
   project_in_progress: '项目进行中', sent_to_client: '已发客户', client_feedback: '客户反馈',
   cancelled: '已取消', partially_cancelled: '已部分取消', paused: '暂停', actively_abandoned: '主动放弃', ended: '已结束',

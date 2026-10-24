@@ -18,6 +18,7 @@ from models import Base
 
 
 STATUS_VALUES_SQL = (
+    "'assessment_preparation','assessment_in_progress','assessment_completed',"
     "'initial_consultation','consultation_no_result','resource_sourcing',"
     "'resource_sourcing_cancelled','trial_preparation','trial_in_progress','trial_submitted',"
     "'trial_passed','trial_failed','trial_partially_passed','project_in_progress',"
@@ -216,6 +217,7 @@ class AnnotationPlatform(Base):
     origin_project_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     platform_name: Mapped[Optional[str]] = mapped_column(String(150))
     platform_url: Mapped[str] = mapped_column(Text, nullable=False)
+    platform_url2: Mapped[Optional[str]] = mapped_column(Text, deferred=True)
     platform_url_normalized: Mapped[str] = mapped_column(Text, nullable=False)
     login_notes: Mapped[Optional[str]] = mapped_column(Text)
     sequence_no: Mapped[int] = mapped_column(Integer, nullable=False)

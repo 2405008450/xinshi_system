@@ -1,0 +1,20 @@
+import api from './index'
+const base = projectId => `/annotation-ops/projects/${projectId}/paired-workspace`
+export const getWorkspace = id => api.get(base(id))
+export const initialize = id => api.post(`${base(id)}/initialize`)
+export const updateWorkspace = (id, data) => api.put(base(id), data)
+export const getPeople = id => api.get(`${base(id)}/people`)
+export const getStaff = id => api.get(`${base(id)}/staff`)
+export const getCandidates = (id, params, signal) => api.get(`${base(id)}/candidates`, {params, signal})
+export const list = (id, kind, params, signal) => api.get(`${base(id)}/list/${kind}`, {params, signal, paramsSerializer:{indexes:null}})
+export const save = (id, kind, rowId, data) => rowId ? api.put(`${base(id)}/${kind}/${rowId}`,data) : api.post(`${base(id)}/${kind}`,data)
+export const deleteRow = (id,kind,rowId) => api.delete(`${base(id)}/entities/${kind}/${rowId}`)
+export const transfer = (id,data) => api.post(`${base(id)}/transfer`,data)
+export const getRecords = (id, taskId) => api.get(`${base(id)}/tasks/${taskId}/records`)
+export const saveRecord = (id,taskId,rowId,data) => rowId ? api.put(`${base(id)}/tasks/${taskId}/records/${rowId}`,data) : api.post(`${base(id)}/tasks/${taskId}/records`,data)
+export const getHistory = (id, params) => api.get(`${base(id)}/history`,{params})
+export const followUp = (id,rowId,data) => api.post(`${base(id)}/contacts/${rowId}/follow-ups`,data)
+export const createTalent = (id,data) => api.post(`${base(id)}/talents`,data)
+export const saveAccent = (id,personId,skillId,data) => api.put(`${base(id)}/people/${personId}/languages/${skillId}`,data)
+export const uploadAttachment = (id,rowId,file) => { const data=new FormData();data.append('file',file);return api.post(`${base(id)}/contacts/${rowId}/attachments`,data,{headers:{'Content-Type':'multipart/form-data'}}) }
+export const downloadAttachment = (id,rowId,attachmentId) => api.get(`${base(id)}/contacts/${rowId}/attachments/${attachmentId}`,{responseType:'blob'})

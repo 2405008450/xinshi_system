@@ -241,6 +241,13 @@ def _attach_child_statistics(db: Session, projects) -> None:
     ids = [project.id for project in projects]
     if not ids:
         return
+    from sqlalchemy import inspect as sa_inspect
+    paired_ids = set()
+    if sa_inspect(db.connection()).has_table("annotation_paired_workspace"):
+        from annotation_paired_models import PairedWorkspace
+        paired_ids = {row[0] for row in db.query(PairedWorkspace.project_id).filter(PairedWorkspace.project_id.in_(ids))}
+    for project in projects:
+        project.paired_workspace_available = project.id in paired_ids
     counts = {}
     for parent_id, status, count in db.query(
         AnnotationProject.parent_project_id, AnnotationProject.project_status,
@@ -980,6 +987,14 @@ def update_annotation_project(
     from annotation_inheritance_service import snapshot, mark_changes, apply_restore, propagate
     before = snapshot(project)
     payload = apply_restore(db, parent, project, payload)
+    if "paired_collection_annotation" in (project.project_types or []) and "paired_collection_annotation" not in payload.project_types:
+        from annotation_paired_models import PairedWorkspace
+        from sqlalchemy import inspect as sa_inspect
+        # 未部署新结构时，旧订单编辑仍保持兼容。
+        if sa_inspect(db.connection()).has_table("annotation_paired_workspace"):
+            paired = db.get(PairedWorkspace, project.id)
+            if paired and not paired.archived:
+                raise ValueError("请先归档双人采标工作区，再取消该项目类型")
     if project.order_level == 2:
         if not payload.area_id:
             raise ValueError('三级订单必须选择片区')
@@ -1320,6 +1335,13 @@ def delete_annotation_project(
         return False
     if db.query(AnnotationProject.id).filter(AnnotationProject.parent_project_id == project.id).first():
         raise AnnotationProjectDeleteConflict("请先删除该订单的全部下级订单")
+    from sqlalchemy import inspect as sa_inspect
+    if sa_inspect(db.connection()).has_table("annotation_paired_workspace"):
+        from annotation_paired_models import PairedWorkspace, PairedAudit
+        if db.get(PairedWorkspace, project_id) and db.query(PairedAudit.id).filter(
+            PairedAudit.project_id == project_id, PairedAudit.action != "initialize",
+        ).first():
+            raise AnnotationProjectDeleteConflict("该订单存在双人采标工作区及操作历史，请归档保留，不可直接删除订单")
 
     resource_requests = db.query(ResourceRequest).filter(
         ResourceRequest.annotation_project_id == project_id,

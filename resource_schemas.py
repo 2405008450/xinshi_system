@@ -151,6 +151,8 @@ class LanguageSkillInput(BaseModel):
     role: LanguageRole
     priority: int = Field(default=0, ge=0, le=9)
     proficiency: Optional[LanguageProficiency] = None
+    accent: Optional[str] = Field(default=None, max_length=255)
+    expected_accent: Optional[str] = Field(default=None, max_length=255, exclude=True)
     remarks: Optional[str] = None
     sort_order: int = Field(default=0, ge=0)
 
@@ -459,6 +461,7 @@ class TalentAnnotationAssignmentPerformanceResponse(BaseModel):
 
 
 class TalentAnnotationProjectPerformanceResponse(BaseModel):
+    paired_records: list[dict] = Field(default_factory=list)
     person_id: UUID
     project: TalentProjectHistoryResponse
     trial_fields: list[TalentProjectCustomFieldResponse] = Field(default_factory=list)

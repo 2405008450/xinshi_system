@@ -349,6 +349,7 @@ class ResourceLanguageSkill(Base):
     role: Mapped[str] = mapped_column(String(30), nullable=False)
     priority: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     proficiency: Mapped[Optional[str]] = mapped_column(String(30))
+    accent: Mapped[Optional[str]] = mapped_column(String(255), deferred=True)
     remarks: Mapped[Optional[str]] = mapped_column(Text)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
 

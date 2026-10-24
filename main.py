@@ -273,6 +273,8 @@ app.include_router(annotation_notices.router)
 app.include_router(project_notices.router)
 app.include_router(company_management.router)
 app.include_router(annotation_ops.router)
+from routers import annotation_paired
+app.include_router(annotation_paired.router)
 app.include_router(resource_requests.router)
 from routers import resource_development
 app.include_router(resource_development.router)

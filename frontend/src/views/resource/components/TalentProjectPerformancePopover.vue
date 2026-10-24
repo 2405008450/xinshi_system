@@ -27,6 +27,7 @@
       <template v-if="project.projectType === 'annotation'">
         <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
         <template v-else-if="performance">
+          <section v-if="performance.pairedRecords?.length"><h4>双人采标项目表现</h4><div v-for="record in performance.pairedRecords" :key="record.id" class="performance-record"><strong>{{record.stage==='collection'?'采集':'标注'}} · {{record.taskName}} · {{record.title}}</strong><p class="pre-wrap">{{record.data?.result || record.data?.content || '-'}}</p></div></section>
           <section>
             <h4>试标 / 试采表现</h4>
             <div v-if="performance.trials?.length" class="performance-record-list">
@@ -137,7 +138,7 @@ const projectTypeLabel = value => ({ translation:'笔译', interpretation:'口�
 const roleText = row => row.roles?.length ? row.roles.map(assignmentRoleLabel).join('、') : (assignmentRoleLabel(row.role) || '-')
 const statusLabel = value => ({
   initial_consultation:'初步咨询', consultation_no_result:'初步咨询后无结果', resource_sourcing:'资源开拓',
-  resource_sourcing_cancelled:'取消资源开拓', trial_preparation:'试标准备', trial_in_progress:'试标中',
+  resource_sourcing_cancelled:'取消资源开拓', assessment_preparation:'准备考核',assessment_in_progress:'考核中',assessment_completed:'考核结束',trial_preparation:'试标准备', trial_in_progress:'试标中',
   trial_submitted:'试标已提交', trial_passed:'试标通过', trial_failed:'试标未通过',
   trial_partially_passed:'部分试标通过', project_in_progress:'项目进行中', sent_to_client:'已发客户',
   client_feedback:'客户反馈', cancelled:'已取消', partially_cancelled:'已部分取消', paused:'暂停',

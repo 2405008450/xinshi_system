@@ -34,6 +34,7 @@ export const PROJECT_STATUS_OPTIONS = {
     { value: 'settled', label: '已结款' },
   ],
   annotation: [
+    {value:"assessment_preparation",label:"准备考核"},{value:"assessment_in_progress",label:"考核中"},{value:"assessment_completed",label:"考核结束"},
     { value: 'initial_consultation', label: '初步咨询' },
     { value: 'consultation_no_result', label: '初步咨询后无结果' },
     { value: 'resource_sourcing', label: '资源开拓' },

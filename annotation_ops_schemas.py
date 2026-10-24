@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, field_serializer, model_validator
 
 from annotation_schemas import AnnotationProjectListResponse, AnnotationAssigneeRateInput
 from annotation_notice_schemas import validate_tiptap_document
@@ -19,6 +19,7 @@ class PlatformWrite(BaseModel):
     origin_project_id: Optional[UUID] = None
     platform_name: Optional[str] = Field(default=None, max_length=150)
     platform_url: str = Field(min_length=1)
+    platform_url2: Optional[str] = Field(default=None, max_length=2000)
     login_notes: Optional[str] = None
     sequence_no: Optional[int] = Field(default=None, gt=0)
     is_active: bool = True
@@ -32,6 +33,11 @@ class PlatformResponse(PlatformWrite):
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("created_at", "updated_at")
+    def business_times(self, value):
+        from business_time import business_iso
+        return business_iso(value)
 
 
 class AccountWrite(BaseModel):

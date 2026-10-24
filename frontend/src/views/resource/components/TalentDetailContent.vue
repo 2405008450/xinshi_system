@@ -37,7 +37,7 @@
         <el-descriptions-item label="操作时间">{{ formatOperationTime(detail.operatedAt) }}</el-descriptions-item>
         <el-descriptions-item label="来源">{{ show(detail.registrationSource) }}</el-descriptions-item>
         <el-descriptions-item label="所在微信">{{ formatWechatAccounts(detail.wechatAccounts, detail.wechatAccount) || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="所在微信群" :span="2"><div class="pre-wrap">{{ show(detail.wechatGroups) }}</div></el-descriptions-item>
+        <el-descriptions-item label="所在企微小群" :span="2"><div class="pre-wrap">{{ show(detail.wechatGroups) }}</div></el-descriptions-item>
         <el-descriptions-item label="档案状态">{{ statusLabel(detail.status) }}</el-descriptions-item>
         <el-descriptions-item v-if="showAnnotationWillingness" label="标注意愿">{{ performanceLevelLabel(detail.annotationWillingness) || '-' }}</el-descriptions-item>
         <el-descriptions-item label="性别">{{ show(detail.gender) }}</el-descriptions-item>

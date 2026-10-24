@@ -15,6 +15,14 @@ from annotation_progress_chat import ProgressChatDelivery
 
 
 ANNOTATION_PROJECT_TYPE_LABELS = {
+    "paired_collection_annotation": "双人采标",
+    "single_collection_annotation": "单人采标",
+    "multi_collection_annotation": "多人采标",
+    "single_audio_collection": "单人音频采集",
+    "paired_audio_collection": "双人音频采集",
+    "multi_audio_collection": "多人音频采集",
+    "online_dispatch": "线上派遣",
+    "onsite_dispatch": "驻场派遣",
     "audio_collection": "音频采集",
     "audio_annotation": "音频标注",
     "audio_evaluation": "音频评测",
@@ -28,6 +36,9 @@ ANNOTATION_PROJECT_TYPE_LABELS = {
     "ai_evaluation": "ai评测",
 }
 ANNOTATION_PROJECT_STATUS_LABELS = {
+    "assessment_preparation": "准备考核",
+    "assessment_in_progress": "考核中",
+    "assessment_completed": "考核结束",
     "initial_consultation": "初步咨询",
     "consultation_no_result": "初步咨询后无结果",
     "resource_sourcing": "资源开拓",
@@ -486,6 +497,7 @@ class AnnotationProjectManagersUpdate(BaseModel):
 
 
 class AnnotationProjectListResponse(BaseModel):
+    paired_workspace_available: bool = False
     manager_assignment_history: dict[str, bool] = Field(default_factory=dict)
     @field_serializer('*', when_used='json')
     def serialize_business_time(self, value):

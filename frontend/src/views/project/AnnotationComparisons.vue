@@ -124,7 +124,7 @@ const submit=async()=>{const valid=await formRef.value?.validate().catch(()=>fal
         await formRef.value?.applyServerErrors(error)
 ElMessage.error(error.detail||'项目比较组保存失败')}finally{submitting.value=false}}
 
-const projectTypeMap={audio_collection:'音频采集',audio_annotation:'音频标注',audio_evaluation:'音频评测',text_evaluation:'文本评测',text_annotation:'文本标注',quality_inspection:'质检',listening_test:'测听',slot_deduction:'扣槽',generalization:'泛化',translation:'翻译',ai_evaluation:'ai评测'}
+const projectTypeMap={paired_collection_annotation:'双人采标',single_collection_annotation:'单人采标',multi_collection_annotation:'多人采标',single_audio_collection:'单人音频采集',paired_audio_collection:'双人音频采集',multi_audio_collection:'多人音频采集',online_dispatch:'线上派遣',onsite_dispatch:'驻场派遣',audio_collection:'音频采集',audio_annotation:'音频标注',audio_evaluation:'音频评测',text_evaluation:'文本评测',text_annotation:'文本标注',quality_inspection:'质检',listening_test:'测听',slot_deduction:'扣槽',generalization:'泛化',translation:'翻译',ai_evaluation:'ai评测'}
 const comparisonFields=[{key:'orderNo',label:'订单号'},{key:'client',label:'客户'},{key:'projectTypes',label:'项目类型'},{key:'languageItemsDisplay',label:'语言方向'},{key:'customerPriceSummary',label:'客户单价'},{key:'clientManagerName',label:'客户经理'},{key:'projectManagerName',label:'项目经理'},{key:'projectStatus',label:'项目进度'},{key:'potentialDemand',label:'（潜在）需求量'}]
 const fieldValue=(project,field)=>{let value=project[field.key];if(field.key==='client')value=project.clientShortName||project.clientFullName;if(field.key==='projectTypes')value=(project.projectTypes||[]).map((item)=>projectTypeMap[item]||item).join('；');return value===null||value===undefined||value===''?'-':String(value)}
 onMounted(fetchGroups)

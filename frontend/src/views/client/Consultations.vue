@@ -1272,6 +1272,7 @@
 </template>
 
 <script setup>
+import {pairedProjectTypes} from "@/utils/annotationPaired"
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -1790,6 +1791,7 @@ const interpretationTypeOptions = [
   { value: 'online_simultaneous', label: '线上同传口译' },
 ]
 const annotationTypeOptions = [
+  ...pairedProjectTypes,
   { value: 'audio_collection', label: '音频采集' },
   { value: 'audio_annotation', label: '音频标注' },
   { value: 'audio_evaluation', label: '音频评测' },

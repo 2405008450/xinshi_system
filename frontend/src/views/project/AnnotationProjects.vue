@@ -613,6 +613,7 @@
     />
     <DraggableFormDialog v-model="departmentRosterVisible" title="标注项目部" width="min(1000px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close><DepartmentRoster department-name="标注项目部" /><template #footer><el-button @click="departmentRosterVisible=false">关闭</el-button></template></DraggableFormDialog>
   </el-card>
+  <AnnotationPairedWorkspace v-if="pairedWorkspaceProject" v-model="pairedWorkspaceVisible" :project="pairedWorkspaceProject" />
 </template>
 
 <script setup>
@@ -620,6 +621,8 @@ import DepartmentRoster from '@/components/common/DepartmentRoster.vue'
 const departmentRosterVisible=ref(false)
 import ProjectExportMenu from '@/components/common/ProjectExportMenu.vue'
 import { annotationStatusLabel as statusLabel, annotationStatusType as statusType } from '@/utils/annotationStatus'
+import AnnotationPairedWorkspace from '@/components/annotation/AnnotationPairedWorkspace.vue'
+import {pairedProjectTypes,assessmentStatuses} from '@/utils/annotationPaired'
 import AnnotationOrderTable from '@/components/annotation/AnnotationOrderTable.vue'
 import AnnotationAreaSelect from '@/components/annotation/AnnotationAreaSelect.vue'
 import AnnotationInheritancePanel from '@/components/annotation/AnnotationInheritancePanel.vue'
@@ -758,12 +761,14 @@ const openProjectChat = (row) => openChat({
   title: row.projectName || '未命名标注项目',
   subtitle: row.orderNo || '',
 })
+const pairedWorkspaceVisible=ref(false),pairedWorkspaceProject=ref(null)
 const projectExtraActions = [
   { command: 'project-chat', label: '沟通' },
   { command: 'trial-workspace', label: '试标/试采管理' },
   ...(canViewAccounts ? [{ command: 'account-sheet', label: '进入项目账号表' }] : []),
 ]
 const projectRowExtraActions = (row) => [
+  ...((row.pairedWorkspaceAvailable || (row.projectTypes||[]).includes('paired_collection_annotation')) ? [{command:'paired-workspace',label:'双人采标管理'}] : []),
   ...(canManageArrangementPool && !row.arrangementIncluded
     ? [{ command: 'arrangement-add', label: '加入安排', disabled: arrangementMembershipSavingIds.value.has(row.id) }]
     : []),
@@ -776,6 +781,7 @@ const projectRowExtraActions = (row) => [
     : []),
 ]
 const handleProjectExtraAction = (command, row) => {
+  if(command==='paired-workspace'){pairedWorkspaceProject.value=row;pairedWorkspaceVisible.value=true;return}
   if (command === 'arrangement-add') {
     setArrangementMembership(row, true)
     return
@@ -805,7 +811,7 @@ const startChildResourceRequest = (row) => {
   startResourceRequest(row)
 }
 const handleChildProjectExtraAction = (command, row) => {
-  if (['trial-workspace', 'account-sheet', 'project-chat'].includes(command)) dialogVisible.value = false
+  if (['trial-workspace', 'account-sheet', 'project-chat', 'paired-workspace'].includes(command)) dialogVisible.value = false
   handleProjectExtraAction(command, row)
 }
 const highlightedProjectId = ref('')
@@ -814,11 +820,13 @@ const mailComposerVisible = ref(false)
 const mailProjectId = ref('')
 const mailConsultationId = ref('')
 const projectTypeOptions = [
+  ...pairedProjectTypes.map(item=>[item.value,item.label]),
   ['audio_collection','音频采集'],['audio_annotation','音频标注'],['audio_evaluation','音频评测'],['text_evaluation','文本评测'],['text_annotation','文本标注'],['quality_inspection','质检'],['listening_test','测听'],['slot_deduction','扣槽'],['generalization','泛化'],['translation','翻译'],['ai_evaluation','ai评测'],
 ].map(([value,label]) => ({ value,label }))
 const projectTypeMap = Object.fromEntries(projectTypeOptions.map((item) => [item.value,item.label]))
 const statusOptions = [
-  ['initial_consultation','初步咨询'],['consultation_no_result','初步咨询后无结果'],['resource_sourcing','资源开拓'],['resource_sourcing_cancelled','取消资源开拓'],['trial_preparation','试标准备'],['trial_in_progress','试标中'],['trial_submitted','试标已提交'],['trial_passed','试标通过'],['trial_failed','试标未通过'],['trial_partially_passed','部分试标通过'],['project_in_progress','项目进行中'],['sent_to_client','已发客户'],['client_feedback','客户反馈'],['cancelled','已取消'],['partially_cancelled','已部分取消'],['paused','暂停'],['actively_abandoned','主动放弃'],['ended','已结束'],
+  ...assessmentStatuses.map(item=>[item.value,item.label]),
+  ['initial_consultation','初步咨询'],['consultation_no_result','初步咨询后无结果'],['resource_sourcing','资源开拓'],['resource_sourcing_cancelled','取消资源开拓'],['assessment_preparation','准备考核'],['assessment_in_progress','考核中'],['assessment_completed','考核结束'],['trial_preparation','试标准备'],['trial_in_progress','试标中'],['trial_submitted','试标已提交'],['trial_passed','试标通过'],['trial_failed','试标未通过'],['trial_partially_passed','部分试标通过'],['project_in_progress','项目进行中'],['sent_to_client','已发客户'],['client_feedback','客户反馈'],['cancelled','已取消'],['partially_cancelled','已部分取消'],['paused','暂停'],['actively_abandoned','主动放弃'],['ended','已结束'],
 ].map(([value,label]) => ({ value,label }))
 const statusMap = Object.fromEntries(statusOptions.map((item) => [item.value,item.label]))
 const priorityOptions = [

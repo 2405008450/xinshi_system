@@ -80,7 +80,7 @@ const displayRow = computed(() => props.row)
 const visibleCustomFields = computed(() => props.customFields.filter(field => !['项目经理', '跟进状态'].includes(field.fieldLabel?.trim())))
 const saveText = (field, value) => props.saveTextField(field, value)
 const saveCustom = (field, value) => props.saveCustomField(field, value)
-const projectTypeMap = { audio_collection:'音频采集',audio_annotation:'音频标注',audio_evaluation:'音频评测',text_evaluation:'文本评测',text_annotation:'文本标注',quality_inspection:'质检',listening_test:'测听',slot_deduction:'扣槽',generalization:'泛化',translation:'翻译',ai_evaluation:'ai评测' }
+const projectTypeMap = { paired_collection_annotation:'双人采标',single_collection_annotation:'单人采标',multi_collection_annotation:'多人采标',single_audio_collection:'单人音频采集',paired_audio_collection:'双人音频采集',multi_audio_collection:'多人音频采集',online_dispatch:'线上派遣',onsite_dispatch:'驻场派遣',audio_collection:'音频采集',audio_annotation:'音频标注',audio_evaluation:'音频评测',text_evaluation:'文本评测',text_annotation:'文本标注',quality_inspection:'质检',listening_test:'测听',slot_deduction:'扣槽',generalization:'泛化',translation:'翻译',ai_evaluation:'ai评测' }
 const textValue = (value) => value === null || value === undefined || value === '' ? '-' : String(value)
 const customFieldText = (value) => Array.isArray(value) ? value.join('、') : value === true ? '是' : value === false ? '否' : textValue(value)
 const projectTypesText = (values) => Array.isArray(values) && values.length ? values.map((value) => projectTypeMap[value] || value).join('；') : '-'

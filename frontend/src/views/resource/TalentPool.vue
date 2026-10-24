@@ -188,7 +188,7 @@
               <small class="wechat-account-hint">删除标记表示对应渠道有删友情况，账号名称仍保留；取消“已删微信/企微”会将关联开拓记录对应渠道恢复为“已添加”。</small>
             </el-form-item>
           </el-col></el-row>
-          <el-row :gutter="16"><el-col :span="24"><el-form-item label="所在微信群" prop="wechatGroups"><el-input v-model="form.wechatGroups" type="textarea" :autosize="{minRows:2,maxRows:5}" maxlength="4000" show-word-limit placeholder="一行填写一个微信群，可保留已退群等说明" /></el-form-item></el-col></el-row>
+          <el-row :gutter="16"><el-col :span="24"><el-form-item label="所在企微小群" prop="wechatGroups"><el-input v-model="form.wechatGroups" type="textarea" :autosize="{minRows:2,maxRows:5}" maxlength="4000" show-word-limit placeholder="一行填写一个企微小群，可保留已退群等说明" /></el-form-item></el-col></el-row>
           <el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="来源" prop="registrationSource"><el-input v-model="form.registrationSource" maxlength="255" placeholder="例如：2609资源整合行动" /></el-form-item></el-col></el-row>
           <el-row :gutter="16"><el-col :xs="24" :md="6"><el-form-item label="性别"><el-select v-model="form.gender" clearable filterable allow-create style="width:100%"><el-option label="男" value="男" /><el-option label="女" value="女" /></el-select></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="出生年月"><el-date-picker v-model="form.birthYearMonth" type="month" value-format="YYYY-MM" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="年龄" prop="reportedAge"><ReadonlyField v-if="form.birthYearMonth || form.birthDate" :model-value="calculatedAge" source="auto" tooltip="根据出生年月自动计算" /><el-input-number v-else v-model="form.reportedAge" :min="0" :max="120" :precision="0" controls-position="right" placeholder="登记年龄" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="合作形式"><el-select v-model="form.cooperationType" clearable style="width:100%"><el-option v-for="item in cooperationOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item></el-col></el-row>
           <el-row :gutter="16"><el-col :xs="24" :md="6"><el-form-item label="国籍"><el-input v-model="form.nationality" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="民族"><el-input v-model="form.ethnicity" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="身高"><el-input v-model="form.height" placeholder="例如：175cm" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="容貌"><el-input v-model="form.appearance" /></el-form-item></el-col></el-row>
@@ -208,8 +208,8 @@
 
         <div class="form-section"><h3>语言情况与证书</h3>
           <el-alert title="新建人才默认添加“汉语 / Chinese”为母语，请按实际情况调整。" type="info" :closable="false" show-icon />
-          <div v-for="(item,index) in form.languageSkills" :key="item._key || item.id" class="sub-record">
-            <el-row :gutter="12"><el-col :xs="24" :md="8"><el-form-item label="语言"><el-select v-model="item.languageId" filterable :filter-method="filterTalentLanguages" @visible-change="visible=>!visible&&(languageKeyword='')" style="width:100%"><el-option v-for="language in filteredLanguages" :key="language.id" :label="languageDisplay(language)" :value="language.id" /></el-select></el-form-item></el-col><el-col :xs="24" :md="5"><el-form-item label="类型"><el-select v-model="item.role" @change="normalizeLanguagePriorities" style="width:100%"><el-option v-for="option in languageRoleOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></el-form-item></el-col><el-col :xs="24" :md="4"><el-form-item label="顺序"><el-input-number v-model="item.priority" :min="0" :max="9" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="5"><el-form-item label="熟悉程度"><el-select v-model="item.proficiency" clearable style="width:100%"><el-option v-for="option in proficiencyOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></el-form-item></el-col><el-col :xs="24" :md="2"><el-button type="danger" link @click="removeLanguage(index)">删除</el-button></el-col></el-row>
+          <div v-for="(item,index) in form.languageSkills" :key="item._key || item.id" class="sub-record" data-dialog-field-search-group><span data-dialog-field-search-group-title>语言记录 {{index+1}}</span>
+            <el-row :gutter="12"><el-col :xs="24" :md="8"><el-form-item label="语言"><el-select v-model="item.languageId" filterable :filter-method="filterTalentLanguages" @visible-change="visible=>!visible&&(languageKeyword='')" style="width:100%"><el-option v-for="language in filteredLanguages" :key="language.id" :label="languageDisplay(language)" :value="language.id" /></el-select></el-form-item></el-col><el-col :xs="24" :md="5"><el-form-item label="类型"><el-select v-model="item.role" @change="normalizeLanguagePriorities" style="width:100%"><el-option v-for="option in languageRoleOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></el-form-item></el-col><el-col :xs="24" :md="4"><el-form-item label="顺序"><el-input-number v-model="item.priority" :min="0" :max="9" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="5"><el-form-item label="熟悉程度"><el-select v-model="item.proficiency" clearable style="width:100%"><el-option v-for="option in proficiencyOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="口音"><el-input v-model="item.accent" maxlength="255" placeholder="该语言的口音" /></el-form-item></el-col><el-col :xs="24" :md="2"><el-button type="danger" link @click="removeLanguage(index)">删除</el-button></el-col></el-row>
           </div>
           <el-button @click="addLanguage">添加语言</el-button>
           <el-divider />
@@ -278,7 +278,7 @@
         <div class="talent-editor-footer">
           <div v-if="canContinueCreate" class="talent-batch-options">
             <el-checkbox v-model="keepBatchInfo" :disabled="saving">沿用本批公共信息</el-checkbox>
-            <span class="section-hint">仅沿用：来源、所在微信、所在微信群</span>
+            <span class="section-hint">仅沿用：来源、所在微信、所在企微小群</span>
           </div>
           <div class="talent-editor-actions">
             <el-button :disabled="saving" @click="editorVisible=false">取消</el-button>
@@ -423,7 +423,7 @@ const tableColumns=[
   {key:'resourceCode',label:'人才编号',width:130},
   {key:'registrationSource',label:'来源',width:190},
   {key:'wechatAccount',label:'所在微信',width:160},
-  {key:'wechatGroups',label:'所在微信群',width:240},
+  {key:'wechatGroups',label:'所在企微小群',width:240},
   {key:'fullName',label:'姓名',width:160,tooltip:false,clickHint:'点击姓名查看人才详情'},
   {key:'gender',label:'性别',width:80},
   {key:'nationality',label:'国籍',width:100},
@@ -508,7 +508,7 @@ const talentFilterFields=[
   {key:'employmentStatus',label:'职业状态',type:'select',options:employmentOptions},{key:'highestEducation',label:'最高学历',type:'select',options:educationOptions},
   {key:'registrationSource',label:'来源',type:'text'},
   {key:'wechatAccount',label:'所在微信',type:'text'},
-  {key:'wechatGroups',label:'所在微信群',type:'text'},
+  {key:'wechatGroups',label:'所在企微小群',type:'text'},
   {key:'ancestralHome',label:'籍贯',type:'text'},
   {key:'nativePlace',label:'主要成长地',type:'text'},{key:'residenceAddress',label:'现居地址',type:'text'},
   {key:'dialects',label:'掌握方言',type:'text'},{key:'dialectRegions',label:'方言区域',type:'text'},
@@ -664,7 +664,7 @@ async function openCreate() {
   editorVisible.value = true
   await beginDraft('create')
 }
-function fromDetail(d){const base=emptyForm();const inferredChinese=!d.chineseName&&!d.englishName&&/[\u3400-\u9fff]/.test(d.fullName||'')?d.fullName:'';const inferredEnglish=!d.chineseName&&!d.englishName&&!inferredChinese?d.fullName:'';return {...base,...d,id:d.id,wechatAccounts:normalizeWechatAccounts(d.wechatAccounts,d.wechatAccount),wechatAccountsOriginal:normalizeWechatAccounts(d.wechatAccounts,d.wechatAccount),wechatAccountsRevision:d.wechatAccountsRevision||1,chineseName:d.chineseName||inferredChinese,englishName:d.englishName||inferredEnglish,birthYearMonth:d.birthYearMonth||String(d.birthDate||'').slice(0,7)||null,capabilityTypes:d.capabilityTypes||[],educationExperiences:(d.educationExperiences||[]).map(item=>({...item,_key:recordKey()})),languageSkills:normalizeForeignLanguagePriorities(d.languageSkills||[]).map(item=>({...item,_key:recordKey()})),certificates:(d.certificates||[]).map(item=>({...item,_key:recordKey()})),attachments:d.attachments||[],writtenProfile:{...base.writtenProfile,...(d.writtenProfile||{})},interpretationProfile:{...base.interpretationProfile,...(d.interpretationProfile||{})},annotationProfile:{...base.annotationProfile,...(d.annotationProfile||{})},annotationLanguageSkills:(d.annotationLanguageSkills||[]).map(item=>({sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.targetLanguageId||null})),careerProfile:{...base.careerProfile,...(d.careerProfile||{})}}}
+function fromDetail(d){const base=emptyForm();const inferredChinese=!d.chineseName&&!d.englishName&&/[\u3400-\u9fff]/.test(d.fullName||'')?d.fullName:'';const inferredEnglish=!d.chineseName&&!d.englishName&&!inferredChinese?d.fullName:'';return {...base,...d,id:d.id,wechatAccounts:normalizeWechatAccounts(d.wechatAccounts,d.wechatAccount),wechatAccountsOriginal:normalizeWechatAccounts(d.wechatAccounts,d.wechatAccount),wechatAccountsRevision:d.wechatAccountsRevision||1,chineseName:d.chineseName||inferredChinese,englishName:d.englishName||inferredEnglish,birthYearMonth:d.birthYearMonth||String(d.birthDate||'').slice(0,7)||null,capabilityTypes:d.capabilityTypes||[],educationExperiences:(d.educationExperiences||[]).map(item=>({...item,_key:recordKey()})),languageSkills:normalizeForeignLanguagePriorities(d.languageSkills||[]).map(item=>({...item,expectedAccent:item.accent||'',_key:recordKey()})),certificates:(d.certificates||[]).map(item=>({...item,_key:recordKey()})),attachments:d.attachments||[],writtenProfile:{...base.writtenProfile,...(d.writtenProfile||{})},interpretationProfile:{...base.interpretationProfile,...(d.interpretationProfile||{})},annotationProfile:{...base.annotationProfile,...(d.annotationProfile||{})},annotationLanguageSkills:(d.annotationLanguageSkills||[]).map(item=>({sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.targetLanguageId||null})),careerProfile:{...base.careerProfile,...(d.careerProfile||{})}}}
 async function openEdit(row){const detail=await loadDetail(row.id);if(!detail)return;if(detail.archivedIntoId){ElMessage.info('此档案已归档，请打开保留档案');return}pauseDraft();resetForm();creatingTalent.value=false;keepBatchInfo.value=false;Object.assign(form,fromDetail(detail));nameFieldsExpanded.value=false;editorTitle.value=`编辑人才：${displayTalentName(detail,'人才')}`;editorVisible.value=true;await beginDraft(`edit:${detail.id}`)}
 const cleanChild=item=>Object.fromEntries(Object.entries(item).filter(([key])=>key!=='_key'&&key!=='languageLabel'))
 const payload=(allowDuplicate=false)=>{

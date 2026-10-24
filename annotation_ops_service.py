@@ -91,16 +91,19 @@ def save_platform(db: Session, payload, created_by: UUID | None, platform_id: UU
     row.origin_project_id = payload.origin_project_id
     row.platform_name = (payload.platform_name or "").strip() or None
     row.platform_url = payload.platform_url.strip()
+    if "platform_url2" in payload.model_fields_set:
+        row.platform_url2 = _normalize_url(payload.platform_url2) if payload.platform_url2 else None
     row.platform_url_normalized = normalized_url
     row.login_notes = (payload.login_notes or "").strip() or None
     row.is_active = payload.is_active
     if not platform_id:
+        row.created_at = business_now().replace(tzinfo=None)
         client_condition = AnnotationPlatform.client_id.is_(None) if payload.client_id is None else AnnotationPlatform.client_id == payload.client_id
         row.sequence_no = payload.sequence_no or _next_sequence(db, AnnotationPlatform, client_condition)
         db.add(row)
     elif payload.sequence_no:
         row.sequence_no = payload.sequence_no
-    row.updated_at = datetime.now()
+    row.updated_at = business_now().replace(tzinfo=None)
     db.commit()
     db.refresh(row)
     return row

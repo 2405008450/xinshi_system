@@ -752,6 +752,11 @@ def get_talent_project_histories(
             role="试标/试采", source="trial", status=project.project_status,
             participated_at=trial.created_at, trial_increment=1,
         )
+    from annotation_paired_service import talent_participations
+    for participant_id, project, stage, moment in talent_participations(db, requested_ids):
+        add(participant_id, ("annotation", project.id), project_type="annotation", project_id=project.id,
+            project_name=project.project_name, order_no=project.order_no, role="采集" if stage == "collection" else "标注",
+            source="paired_workspace", status=project.project_status, participated_at=moment)
     for candidate, project in db.query(
         RecruitmentCandidate, RecruitmentProject,
     ).join(
@@ -835,7 +840,9 @@ def get_talent_annotation_project_performance(
         AnnotationProjectAssignee.project_id == project_id,
         AnnotationProjectAssignee.person_id.in_(related_person_ids),
     ).order_by(AnnotationProjectAssignee.sequence_no).all()
-    if not trials and not assignments:
+    from annotation_paired_service import talent_records
+    paired_records = talent_records(db, related_person_ids, project_id)
+    if not trials and not assignments and not paired_records:
         return None
     definitions = db.query(AnnotationCustomFieldDefinition).filter(
         AnnotationCustomFieldDefinition.project_id == project_id,
@@ -853,6 +860,9 @@ def get_talent_annotation_project_performance(
         sources.append("formal_assignment")
     if trials:
         sources.append("trial")
+    if paired_records:
+        sources.append("paired_workspace")
+        roles.extend(dict.fromkeys("采集" if item["stage"] == "collection" else "标注" for item in paired_records))
     timestamps = [
         item.created_at for item in [*trials, *assignments] if item.created_at is not None
     ]
@@ -873,6 +883,7 @@ def get_talent_annotation_project_performance(
     ]
     return {
         "person_id": person_id,
+        "paired_records": paired_records,
         "project": project_summary,
         "trial_fields": field_rows("trial"),
         "assignment_fields": field_rows("assignment"),
@@ -1074,10 +1085,14 @@ def _sync_owned_collections(db: Session, person: ResourcePerson, payload) -> Non
                 items.remove(row)
         for value in incoming:
             data = value.model_dump(exclude={"id"})
+            if model is ResourceLanguageSkill and "accent" not in value.model_fields_set:
+                data.pop("accent", None)
             if value.id is None:
                 items.append(model(**data))
             else:
                 row = existing[value.id]
+                if model is ResourceLanguageSkill and "expected_accent" in value.model_fields_set and (row.accent or "") != (value.expected_accent or ""):
+                    raise ValueError("语言口音已被其他人修改，请保留草稿并重新加载人才资料")
                 for key, field_value in data.items():
                     setattr(row, key, field_value)
 

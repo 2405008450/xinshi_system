@@ -83,7 +83,7 @@ const projectTypeOptions = [
 ]
 const statusLabels = {
   initial_consultation:'初步咨询', consultation_no_result:'初步咨询后无结果', resource_sourcing:'资源开拓',
-  resource_sourcing_cancelled:'取消资源开拓', trial_preparation:'试标准备', trial_in_progress:'试标中',
+  resource_sourcing_cancelled:'取消资源开拓', assessment_preparation:'准备考核',assessment_in_progress:'考核中',assessment_completed:'考核结束',trial_preparation:'试标准备', trial_in_progress:'试标中',
   trial_submitted:'试标已提交', trial_passed:'试标通过', trial_failed:'试标未通过',
   trial_partially_passed:'部分试标通过', project_in_progress:'项目进行中', sent_to_client:'已发客户',
   client_feedback:'客户反馈', pending:'待处理', in_progress:'进行中', completed:'已完成', cancelled:'已取消',

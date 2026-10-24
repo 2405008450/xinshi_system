@@ -181,7 +181,7 @@
   </el-card>
 
   <DraggableFormDialog v-model="platformDialog" @closed="platformFormRef?.clearValidate()" :title="platformForm.id ? '编辑平台' : '新增平台'" width="min(680px, calc(100vw - 32px))" top="5vh" class="long-dialog" append-to-body>
-    <AppForm ref="platformFormRef" :model="platformForm" :rules="platformRules" label-width="100px"><el-form-item label="平台名称" prop="platformName"><el-input v-model="platformForm.platformName" /></el-form-item><el-form-item label="平台链接" prop="platformUrl"><el-input v-model="platformForm.platformUrl" /></el-form-item><el-form-item label="登录说明"><el-input v-model="platformForm.loginNotes" type="textarea" :rows="4" /></el-form-item><el-form-item label="启用"><el-switch v-model="platformForm.isActive" /></el-form-item></AppForm>
+    <AppForm ref="platformFormRef" :model="platformForm" :rules="platformRules" label-width="100px"><el-form-item label="平台名称" prop="platformName"><el-input v-model="platformForm.platformName" /></el-form-item><el-form-item label="平台链接" prop="platformUrl"><el-input v-model="platformForm.platformUrl" /></el-form-item><el-form-item label="平台链接2"><el-input v-model="platformForm.platformUrl2" /></el-form-item><el-form-item label="登录说明"><el-input v-model="platformForm.loginNotes" type="textarea" :rows="4" /></el-form-item><el-form-item label="启用"><el-switch v-model="platformForm.isActive" /></el-form-item></AppForm>
     <template #footer><el-button @click="platformDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="savePlatform">保存</el-button></template>
   </DraggableFormDialog>
 
@@ -264,7 +264,7 @@ const accountRules=computed(()=>({
   languageItemIds:accountForm.personId?[{type:'array',required:true,min:1,message:'绑定标注员前请选择账号适用语言',trigger:'change'}]:[],
   personId:[{validator:(_rule,_value,callback)=>{const message=draftPersonError(accountForm);callback(message?new Error(message):undefined)},trigger:'change'}],
 }))
-const platformForm=reactive({id:'',clientId:'',platformName:'',platformUrl:'',loginNotes:'',isActive:true})
+const platformForm=reactive({id:'',clientId:'',platformName:'',platformUrl:'',platformUrl2:'',loginNotes:'',isActive:true})
 const accountForm=reactive({id:'',clientId:'',platformId:'',parentAccountId:null,ownerId:currentUserId,nickname:'',loginAccount:'',password:'',accountStatus:'available',registrationStatus:'unregistered',accountSource:'client_provided',expiresOn:null,remarks:'',customValues:{},assignmentCustomValues:{},personId:'',originalPersonId:'',projectId:'',originalProjectId:'',languageItemIds:[]})
 const assignmentCustomFieldInputs=ref(null),accountFormCustomFields=ref([])
 const accountStatusLabels={available:'可用',assigned:'已分配',suspended:'暂停',banned:'封禁',retired:'已退役'}
@@ -526,7 +526,7 @@ const discardDrafts=async()=>{
   }
   return true
 }
-const openPlatform=row=>{Object.assign(platformForm,{id:row?.id||'',clientId:effectiveClientId.value,platformName:row?.platformName||'',platformUrl:row?.platformUrl||'',loginNotes:row?.loginNotes||'',isActive:row?.isActive??true});platformDialog.value=true}
+const openPlatform=row=>{Object.assign(platformForm,{id:row?.id||'',clientId:effectiveClientId.value,platformName:row?.platformName||'',platformUrl:row?.platformUrl||'',platformUrl2:row?.platformUrl2||'',loginNotes:row?.loginNotes||'',isActive:row?.isActive??true});platformDialog.value=true}
 const savePlatform=async()=>{if(saving.value)return;if(!await platformFormRef.value?.validate().catch(()=>false))return;if(saving.value)return;saving.value=true;try{platformForm.id?await ops.updatePlatform(platformForm.id,{...platformForm,clientId:platformForm.clientId||null}):await ops.createPlatform({...platformForm,clientId:platformForm.clientId||null});platformDialog.value=false;ElMessage.success('平台已保存');await refreshAfterSave(async()=>{await loadPlatforms();await reload()})}catch(error){await platformFormRef.value?.applyServerErrors(error);ElMessage.error(error.detail||'保存失败')}finally{saving.value=false}}
 const removePlatform=async row=>{try{await ElMessageBox.confirm(`删除平台“${platformName(row)}”及其全部账号？`,'确认删除');await ops.deletePlatform(row.id);await loadPlatforms();await reload()}catch(error){if(!['cancel','close'].includes(error))ElMessage.error(error.detail||'删除失败')}}
 const openAccount=async row=>{
