@@ -344,6 +344,36 @@ def test_new_resource_counts_use_success_action_date_and_dedupe_channels(setup):
     assert len(result['items'][0]['added_sources'])==2 and result['items'][0]['joined']
 
 
+def test_candidates_batch_load_language_and_accent(setup):
+    from sqlalchemy import event
+    from interpretation_models import InterpretationLanguage
+    from resource_models import ResourceLanguageSkill
+    from routers.annotation_paired import candidates
+    db, pid, actor, people = setup
+    language_id = db.query(InterpretationLanguage.id).first()[0]
+    for talent in people:
+        db.add(ResourceLanguageSkill(person_id=talent.id, language_id=language_id,
+                                     role='native', accent='演示口音'))
+    db.commit()
+    db.expire_all()
+    statements = []
+    def capture(connection, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+    bind = db.get_bind()
+    event.listen(bind, 'before_cursor_execute', capture)
+    try:
+        result = candidates(project_id=pid, keyword='', language_id=None, channel='',
+                            company_account='', only_new=False, added_date=None,
+                            skip=0, limit=100, db=db, actor=actor)
+    finally:
+        event.remove(bind, 'before_cursor_execute', capture)
+    assert len(result['items']) >= len(people)
+    assert all(item['language_skills'][0]['accent'] == '演示口音'
+               for item in result['items'] if item['id'] in {str(person.id) for person in people})
+    # 人数增加时仍只有一次语言明细查询，口音与语言名称一并加载。
+    assert sum('FROM resource_language_skill' in sql for sql in statements) == 1
+
+
 def test_stage_account_permission_cannot_be_bypassed(setup,monkeypatch):
     from routers.annotation_paired import check_account_permission
     import permission_service

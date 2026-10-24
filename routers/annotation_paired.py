@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError, ProgrammingError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from database import get_db
 from models import AppUser
@@ -128,6 +128,11 @@ def candidates(project_id: UUID, keyword: str = "", language_id: UUID | None = N
     items = []
     from talent_privacy import can_view_talent_contacts, CONTACT_MASK
     visible = can_view_talent_contacts(db, actor)
+    # 远程业务库必须批量读取语言及口音，避免每位人才、每条语言分别请求数据库。
+    query = query.options(
+        selectinload(ResourcePerson.language_skills).undefer(ResourceLanguageSkill.accent),
+        selectinload(ResourcePerson.language_skills).joinedload(ResourceLanguageSkill.language),
+    )
     for row in query.order_by(ResourcePerson.resource_code.asc().nullslast(), ResourcePerson.id).offset(skip).limit(limit):
         item = service.person_summary(db, row.id)
         item.update(wechat=row.wechat if visible else CONTACT_MASK, phone=row.primary_phone if visible else CONTACT_MASK, email=row.primary_email if visible else CONTACT_MASK, contact_restricted=not visible,
