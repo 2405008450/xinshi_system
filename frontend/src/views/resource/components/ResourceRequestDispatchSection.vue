@@ -18,6 +18,7 @@ import { computed,ref,watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api'
 import { sendResourceRequest } from '@/api/resourceRequests'
+import { createIdempotencyKey } from '@/utils/idempotency'
 import ResourceRequestSendHistory from './ResourceRequestSendHistory.vue'
 const props=defineProps({kind:{type:String,required:true},label:{type:String,required:true},prepare:{type:Function,required:true},disabled:Boolean,active:{type:Boolean,default:true},records:{type:Array,default:()=>[]},historyLoading:Boolean})
 const emit=defineEmits(['busy','sent'])
@@ -36,7 +37,7 @@ async function send(){
     const saved=await props.prepare()
     if(!saved?.id)throw new Error('请先保存有效的资源需求')
     const signature=JSON.stringify([saved.id,saved.updatedAt,props.kind,[...ids.value].sort()])
-    if(signature!==retrySignature){retryKey=crypto.randomUUID();retrySignature=signature}
+    if(signature!==retrySignature){retryKey=createIdempotencyKey();retrySignature=signature}
     const result = props.kind === 'development'
       ? await sendResourceRequest(saved.id,retryKey,ids.value)
       : await api.post(`/resource-requests/${saved.id}/dispatch`,{kind:props.kind,user_ids:ids.value,idempotency_key:retryKey})

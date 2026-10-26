@@ -54,6 +54,7 @@ const props = defineProps({
   htmlValue: { type: String, default: '' },
   images: { type: Array, default: () => [] },
   imageOnly: Boolean,
+  retainDraftImages: Boolean,
   readonly: Boolean,
   minHeight: { type: String, default: '220px' }
 })
@@ -67,6 +68,8 @@ const syncing = ref(false)
 const draftImageIds = new Set()
 const objectUrls = new Map()
 const fileQueue = []
+let hydrationId = 0
+let disposed = false
 
 const MailImage = Image.extend({
   addAttributes() {
@@ -228,16 +231,28 @@ async function removeDraftOnServer(id) {
 
 async function hydrateImages() {
   if (!editor.value) return
-  for (const image of props.images) {
+  const requestId = ++hydrationId
+  const missing = new Set()
+  for (const image of [...props.images]) {
     const key = String(image.id)
+    if (props.retainDraftImages) draftImageIds.add(key)
     if (objectUrls.has(key)) continue
     try {
       const blob = await getMailInlineImageContent(image.id)
+      if (disposed || requestId !== hydrationId) return
       objectUrls.set(key, URL.createObjectURL(blob))
-    } catch { /* 编辑器仍保留 alt 文本，发送端会再次校验 */ }
+    } catch (error) {
+      if (disposed || requestId !== hydrationId) return
+      if ([404, 410].includes(error.response?.status || error.status)) missing.add(key)
+      // 网络暂时失败不代表图片失效，保留内容供重试。
+    }
   }
-  const json = editor.value.getJSON()
+  if (disposed || requestId !== hydrationId || !editor.value) return
+  // ProseMirror 的 JSON 属性可能引用当前节点，须克隆后修改，避免事务无法检测图片变化。
+  const json = JSON.parse(JSON.stringify(editor.value.getJSON()))
   const replaceSources = node => {
+    if (node.content) node.content = node.content.filter(child =>
+      child.type !== 'image' || !missing.has(String(child.attrs?.mailImageId)))
     if (node.type === 'image' && node.attrs?.mailImageId) {
       node.attrs.src = objectUrls.get(String(node.attrs.mailImageId)) || node.attrs.src || ''
     }
@@ -245,26 +260,34 @@ async function hydrateImages() {
   }
   replaceSources(json)
   syncing.value = true
-  editor.value.commands.setContent(json, false)
+  editor.value.commands.setContent(json, { emitUpdate: false })
   syncing.value = false
+  if (missing.size) {
+    missing.forEach(id => draftImageIds.delete(id))
+    emit('update:images', props.images.filter(image => !missing.has(String(image.id))))
+    emit('update:htmlValue', editor.value.getHTML())
+    ElMessage.warning('部分草稿图片已失效，请重新插入')
+  }
 }
 
 watch(() => props.readonly, value => editor.value?.setEditable(!value))
 watch(() => props.images, hydrateImages, { deep: true, immediate: true })
+watch(editor, value => { if (value) hydrateImages() })
 watch(() => [props.htmlValue, props.modelValue], ([htmlValue, modelValue]) => {
   if (!editor.value || syncing.value) return
   const incoming = htmlValue || (props.imageOnly ? '<p><br></p>' : textToHtml(modelValue))
   const currentIds = extractImageIds(editor.value.getJSON()).join(',')
   const incomingIds = [...incoming.matchAll(/data-mail-image-id=["']([^"']+)["']/g)].map(item => item[1]).join(',')
-  if (incomingIds !== currentIds || (!incomingIds && incoming !== editor.value.getHTML())) {
+  if (incomingIds !== currentIds || incoming !== editor.value.getHTML()) {
     syncing.value = true
-    editor.value.commands.setContent(incoming, false)
+    editor.value.commands.setContent(incoming, { emitUpdate: false })
     syncing.value = false
     hydrateImages()
   }
 })
 
 async function cleanupDraftImages() {
+  if (props.retainDraftImages) return
   await Promise.all([...draftImageIds].map(removeDraftOnServer))
 }
 
@@ -275,6 +298,8 @@ function markImagesSaved() {
 defineExpose({ cleanupDraftImages, markImagesSaved })
 
 onBeforeUnmount(() => {
+  disposed = true
+  hydrationId += 1
   cleanupDraftImages()
   objectUrls.forEach(url => URL.revokeObjectURL(url))
   objectUrls.clear()

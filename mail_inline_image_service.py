@@ -16,6 +16,7 @@ from uuid import UUID
 from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy.orm import Session
 
+from business_time import business_now
 from mail_inline_image_models import MailInlineImage, MailInlineImageBinding
 from mail_service import MailInlineImagePart
 from mail_html_security import safe_css_color, safe_mail_href
@@ -216,10 +217,11 @@ def delete_draft_image(db: Session, image_id: UUID, uploaded_by: UUID) -> bool:
 def cleanup_orphan_inline_images(
     db: Session,
     *,
-    older_than_hours: int = 24,
+    older_than_hours: int = 168,
     prune_missing_scopes: bool = False,
 ) -> int:
-    cutoff = datetime.datetime.utcnow() - datetime.timedelta(hours=older_than_hours)
+    # created_at 由香港时区数据库会话写入无时区字段，按同一业务本地时间比较。
+    cutoff = business_now() - datetime.timedelta(hours=older_than_hours)
     bindings_removed = False
     if prune_missing_scopes:
         # 该检查仅在显式维护/迁移时执行，避免普通上传请求遍历全部历史绑定。

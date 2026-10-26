@@ -22,6 +22,7 @@
 import {onBeforeUnmount,ref,reactive,watch} from 'vue'
 import {ElMessage} from 'element-plus'
 import {getDispatchChannels,sendDispatchExecution} from '@/api/resourceRequests'
+import {createIdempotencyKey} from '@/utils/idempotency'
 import {developmentApi as api} from '@/api/resourceDevelopment'
 import {useBatchDelete} from '@/composables/useBatchDelete'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
@@ -39,7 +40,7 @@ let sequence=0,retryKey='',signature=''
 const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows,tableRef:table,deleteRow:api.removeChannel,getLabel:r=>r.name,reload:load,entityName:'渠道'})
 function selectionChanged(values){ids.value=values.map(r=>r.id);handleDeleteSelectionChange(values)}
 async function load(){const seq=++sequence;loading.value=true;error.value='';try{const result=await getDispatchChannels(props.batchId);if(seq!==sequence)return;rows.value=result.items;options.user_id=result.user_id;options.hierarchy_available=result.hierarchy_available;options.can_write=result.can_manage;ids.value=[];if(result.can_manage){const people=await api.channelPeople();if(seq===sequence)options.users=people}}catch(e){if(seq===sequence)error.value=e.detail||e.message}finally{if(seq===sequence)loading.value=false}}
-async function reply(){if(sending.value||props.disabled||loading.value)return;if(deleteMode.value){ElMessage.warning('请先退出渠道删除管理');return}if(!await executionRef.value?.validate().catch(()=>false))return;sending.value=true;error.value='';try{const next=JSON.stringify([props.batchId,[...ids.value].sort(),content.value]);if(next!==signature){signature=next;retryKey=crypto.randomUUID()}const result=await sendDispatchExecution(props.batchId,{platform_ids:ids.value,content:content.value,idempotency_key:retryKey});retryKey='';signature='';content.value='';table.value?.clearSelection();emit('replied',result);ElMessage.success('执行回执已发送并标记已处理')}catch(e){error.value=e.detail||e.message}finally{sending.value=false}}
+async function reply(){if(sending.value||props.disabled||loading.value)return;if(deleteMode.value){ElMessage.warning('请先退出渠道删除管理');return}if(!await executionRef.value?.validate().catch(()=>false))return;sending.value=true;error.value='';try{const next=JSON.stringify([props.batchId,[...ids.value].sort(),content.value]);if(next!==signature){signature=next;retryKey=createIdempotencyKey()}const result=await sendDispatchExecution(props.batchId,{platform_ids:ids.value,content:content.value,idempotency_key:retryKey});retryKey='';signature='';content.value='';table.value?.clearSelection();emit('replied',result);ElMessage.success('执行回执已发送并标记已处理')}catch(e){error.value=e.detail||e.message}finally{sending.value=false}}
 defineExpose({reply})
 watch(()=>props.batchId,()=>{content.value='';retryKey='';signature='';load()},{immediate:true})
 onBeforeUnmount(()=>{sequence++})

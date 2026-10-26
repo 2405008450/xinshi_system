@@ -71,7 +71,7 @@ test('稿件安排按译员勾选派稿文件并提交文件清单', () => {
   assert.match(selector, /import DraggableFormDialog/)
   assert.match(selector, /<DraggableFormDialog[\s\S]*?append-to-body[\s\S]*?class="file-selector-dialog"/)
   assert.match(selector, /<el-descriptions-item label="文件名称">[\s\S]*?fileName \|\| '-'/)
-  assert.equal((source.match(/:file-name="dispatchForm\.file_name \|\| selectedProject\.file_name \|\| ''"/g) || []).length, 4)
+  assert.equal((source.match(/:file-name="dispatchForm\.file_name \|\| selectedProject\??\.file_name \|\| ''"/g) || []).length, 4)
   assert.doesNotMatch(selector, /<el-popover/)
 })
 

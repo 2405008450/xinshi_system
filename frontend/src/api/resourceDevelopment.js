@@ -20,6 +20,10 @@ export const developmentApi = {
   saveGroupAction: (id, data) => api.post(`${base}/records/${id}/group-actions`, data),
   duplicates: data => api.post(`${base}/duplicates`, data),
   recordDuplicates: (params, signal) => api.get(`${base}/record-duplicates`, { params, signal }),
+  importPreview: file => {
+    const form = new FormData(); form.append('file', file)
+    return api.post(`${base}/import-preview`, form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 60000 })
+  },
   remove: row => api.delete(`${base}/records/${row.id}`, { params: { revision: row.revision } }),
   work: params => api.get(`${base}/work`, { params }),
   saveWork: data => api.put(`${base}/work`, data),

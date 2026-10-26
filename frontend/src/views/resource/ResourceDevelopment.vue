@@ -17,6 +17,7 @@
           <el-button v-if="!deleteMode" @click="friendPanelRef.open(activeDay || filters.range?.[1])">新增统计</el-button>
           <template v-if="options.can_write">
             <template v-if="!deleteMode">
+              <el-button v-if="options.can_delegate" @click="importPreviewRef.open()">导入预览</el-button>
               <el-button @click="settingsRef.open()">平台与选项</el-button>
               <el-button @click="openWork()">每日工作</el-button>
               <el-button type="primary" @click="openEditor()">新增</el-button>
@@ -82,6 +83,7 @@
     <template v-if="issueAccess.can_resource">
     <DevelopmentStatusRecordsDialog ref="statusRecordsRef" :options="options" @edit="openEditor" @saved="recordSaved" />
     <DevelopmentRecordEditor ref="editorRef" :options="options" @saved="recordSaved" />
+    <DevelopmentImportPreview ref="importPreviewRef" />
     <DevelopmentWorkEditor ref="workRef" :options="options" @saved="reload" />
     <DevelopmentSettings ref="settingsRef" :options="options" @saved="loadOptions" />
     </template>
@@ -96,6 +98,7 @@ import { ElMessage } from 'element-plus'
 import TalentResourceNav from './components/TalentResourceNav.vue'
 import DevelopmentFriendDailyPanel from './components/DevelopmentFriendDailyPanel.vue'
 import DevelopmentRecordEditor from './components/DevelopmentRecordEditor.vue'
+import DevelopmentImportPreview from './components/DevelopmentImportPreview.vue'
 import DevelopmentWorkEditor from './components/DevelopmentWorkEditor.vue'
 import DevelopmentSettings from './components/DevelopmentSettings.vue'
 import DevelopmentRecordsTable from './components/DevelopmentRecordsTable.vue'
@@ -125,7 +128,7 @@ function sectionChanged(value) {
   if (value && value !== resolvedSection.value) router.replace({ query: { ...route.query, section: value }, hash: route.hash })
 }
 watch(resolvedSection, value => { activeSection.value = value })
-const editorRef = ref(), workRef = ref(), settingsRef = ref(), tableRef = ref(), friendPanelRef = ref(), statusRecordsRef = ref()
+const editorRef = ref(), workRef = ref(), settingsRef = ref(), tableRef = ref(), friendPanelRef = ref(), statusRecordsRef = ref(), importPreviewRef = ref()
 // 默认不限定日期，自动展开最近有开拓记录的日期。
 const { filters, columnFilters, activeColumnKeys, params, setColumnFilter, clearCommonColumn, resetFilters } = useDevelopmentFilters()
 function clearColumns() { Object.keys(columnFilters).forEach(k => delete columnFilters[k]); query() }

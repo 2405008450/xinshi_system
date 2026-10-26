@@ -1,9 +1,12 @@
 import io
+import datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 from PIL import Image
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, registry
 
 import mail_service
 import mail_inline_image_service
@@ -16,6 +19,48 @@ from mail_inline_image_service import (
     sanitize_body_html,
 )
 from mail_service import MailAttachment, MailConfigurationError, MailInlineImagePart, SmtpSettings, send_text_email
+
+
+def test_orphan_images_keep_seven_days_and_preserve_bound_images(tmp_path, monkeypatch):
+    from mail_inline_image_models import MailInlineImage as ImageModel, MailInlineImageBinding as BindingModel
+
+    # 独立映射仅使用两张真实表的结构，不触发其他业务模型的关系配置。
+    mapping = registry()
+    class MailInlineImage:
+        pass
+    class MailInlineImageBinding:
+        pass
+    mapping.map_imperatively(MailInlineImage, ImageModel.__table__)
+    mapping.map_imperatively(MailInlineImageBinding, BindingModel.__table__)
+    monkeypatch.setattr(mail_inline_image_service, 'MailInlineImage', MailInlineImage)
+    monkeypatch.setattr(mail_inline_image_service, 'MailInlineImageBinding', MailInlineImageBinding)
+
+    # 仅使用内存隔离库，不连接服务数据库。
+    engine = create_engine('sqlite:///:memory:')
+    MailInlineImage.__table__.create(engine)
+    MailInlineImageBinding.__table__.create(engine)
+    now = datetime.datetime(2026, 10, 26, 16, 0)
+    monkeypatch.setattr(mail_inline_image_service, 'business_now', lambda: now)
+    monkeypatch.setattr(mail_inline_image_service, 'get_mail_inline_image_dir', lambda: tmp_path)
+    with Session(engine) as db:
+        images = []
+        for index, age in enumerate([datetime.timedelta(days=6), datetime.timedelta(days=7),
+                                     datetime.timedelta(days=7, seconds=1), datetime.timedelta(days=9)]):
+            image = MailInlineImage(id=uuid4(), uploaded_by=uuid4(), original_name='验收.png',
+                                    storage_name=f'{index}.png', content_type='image/png', file_size=1,
+                                    width=1, height=1, created_at=now - age)
+            (tmp_path / image.storage_name).write_bytes(b'x')
+            images.append(image)
+            db.add(image)
+        db.add(MailInlineImageBinding(id=uuid4(), image_id=images[-1].id,
+                                     scope_type='business_mail', scope_id=uuid4(), created_at=now))
+        db.commit()
+        assert mail_inline_image_service.cleanup_orphan_inline_images(db) == 1
+        assert {image.storage_name for image in db.query(MailInlineImage).all()} == {'0.png', '1.png', '3.png'}
+        assert not (tmp_path / '2.png').exists()
+        assert (tmp_path / '3.png').exists()
+    engine.dispose()
+    mapping.dispose()
 
 
 class _FakeSmtp:

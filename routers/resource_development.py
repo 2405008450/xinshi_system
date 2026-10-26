@@ -22,6 +22,7 @@ from routers.resource_arrangements import router as arrangement_router
 from routers.resource_channels import router as channel_router
 from resource_channel_schemas import ChannelWrite
 from resource_channel_service import arrangement_platforms, save_channel, save_description
+from resource_development_import_preview import preview_workbook
 
 
 router = APIRouter(prefix="/resource-development", tags=["resource_development"],
@@ -29,6 +30,16 @@ router = APIRouter(prefix="/resource-development", tags=["resource_development"]
 write = Depends(require_any_permission("talents:write", "translators:write", "resource_development:delegate"))
 router.include_router(arrangement_router)
 router.include_router(channel_router)
+
+
+@router.post("/import-preview", dependencies=[write])
+async def import_preview(file: UploadFile = File(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
+    if not can_delegate(db, user):
+        raise HTTPException(403, "仅资源开拓代录人员可预览批量导入")
+    if not (file.filename or "").lower().endswith(".xlsx"):
+        raise HTTPException(422, "请选择 .xlsx 文件")
+    content = await file.read(10 * 1024 * 1024 + 1)
+    return preview_workbook(content, db)
 
 
 @router.get("/options")

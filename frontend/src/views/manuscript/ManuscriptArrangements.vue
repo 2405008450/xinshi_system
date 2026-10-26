@@ -1568,7 +1568,7 @@
           <div>
             <ManuscriptFileSelector
               :project-id="mailSendPreview.dispatch.translation_project_id"
-              :file-name="dispatchForm.file_name || selectedProject.file_name || ''"
+              :file-name="dispatchForm.file_name || selectedProject?.file_name || ''"
               :model-value="mailSendPreview.assignment.selected_files || []"
               :disabled="mailSendPreviewSending || selectedFilesSavingId === mailSendPreview.assignment.id"
               @update:model-value="updatePreviewSelectedFiles"
@@ -1595,11 +1595,13 @@
             show-word-limit
             :disabled="mailSendPreviewSending"
           />
+          <MailDraftRestoredAlert :saved-at="manuscriptMailDraft.restoredAt.value" :disabled="mailSendPreviewLoading || mailSendPreviewSending" @reset="resetManuscriptMailContent" />
           <label>邮件正文</label>
           <div class="mail-send-preview-editor">
             <MailBodyEditor
               v-if="mailSendPreviewMode === 'single'"
               ref="mailBodyEditorRef"
+              retain-draft-images
               v-model="mailSendPreview.preview.body"
               v-model:html-value="mailSendPreview.preview.body_html"
               :images="mailSendPreview.preview.inline_images"
@@ -1625,6 +1627,7 @@
               <label>批量正文图片（统一追加到每封邮件末尾）</label>
               <MailBodyEditor
                 ref="mailBodyEditorRef"
+                retain-draft-images
                 v-model:html-value="mailSendPreview.batch_image_html"
                 :images="mailSendPreview.batch_inline_images"
                 image-only
@@ -1960,6 +1963,8 @@ import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import TableExpandButton from '@/components/common/TableExpandButton.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
+import MailDraftRestoredAlert from '@/components/common/MailDraftRestoredAlert.vue'
+import { useMailDraftCache } from '@/composables/useMailDraftCache'
 import MailBodyEditor from '@/components/common/MailBodyEditor.vue'
 import ManuscriptFileSelector from './components/ManuscriptFileSelector.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
@@ -2308,8 +2313,31 @@ function resetMailPathForm() {
   mailPathsDirty.value = false
 }
 
+const manuscriptMailDraft = useMailDraftCache()
+const manuscriptMailFields = () => mailSendPreviewMode.value === 'batch'
+  ? { subject: mailSendPreview.preview.subject, body: mailSendPreview.preview.body,
+      batch_image_html: mailSendPreview.batch_image_html, batch_inline_images: mailSendPreview.batch_inline_images }
+  : { subject: mailSendPreview.preview.subject, body: mailSendPreview.preview.body,
+      body_html: mailSendPreview.preview.body_html, inline_images: mailSendPreview.preview.inline_images }
+const applyManuscriptMailFields = fields => {
+  const allowed = Object.fromEntries(Object.entries(fields).filter(([key]) => key in manuscriptMailFields()))
+  const { batch_image_html, batch_inline_images, ...previewFields } = allowed
+  Object.assign(mailSendPreview.preview, previewFields)
+  if (mailSendPreviewMode.value === 'batch') {
+    mailSendPreview.batch_image_html = batch_image_html || ''
+    mailSendPreview.batch_inline_images = batch_inline_images || []
+  }
+}
+const resetManuscriptMailContent = async () => {
+  manuscriptMailDraft.clear()
+  mailSendPreview.batch_image_html = ''
+  mailSendPreview.batch_inline_images = []
+  await openMailPreviewDialog(mailSendPreview.dispatch, mailSendPreview.assignment, mailSendPreviewMode.value)
+}
+watch(mailSendPreviewDialogVisible, value => { if (!value) manuscriptMailDraft.pause() }, { flush: 'sync' })
+
 function clearMailSendPreview() {
-  mailBodyEditorRef.value?.cleanupDraftImages()
+  manuscriptMailDraft.pause()
   mailSendPreviewRequestId += 1
   mailSendPreviewLoading.value = false
   mailSendPreviewError.value = ''
@@ -2382,6 +2410,7 @@ async function openMailPreviewDialog(dispatch, assignment, mode = 'single') {
     return
   }
 
+  manuscriptMailDraft.pause()
   const requestId = ++mailSendPreviewRequestId
   mailSendPreviewMode.value = mode
   mailSendPreview.dispatch = dispatch
@@ -2401,6 +2430,9 @@ async function openMailPreviewDialog(dispatch, assignment, mode = 'single') {
     Object.assign(mailSendPreview.preview, preview || {})
     mailBatchOriginalSubject.value = mode === 'batch' ? (preview?.subject || '') : ''
     mailBatchOriginalBody.value = mode === 'batch' ? (preview?.body || '') : ''
+    const draftKey = mode === 'batch' ? `manuscript:batch:${dispatch.id}` : `manuscript:assignment:${assignment.id}`
+    const draft = manuscriptMailDraft.track(draftKey, manuscriptMailFields, manuscriptMailFields())
+    if (draft) applyManuscriptMailFields(draft.fields)
   } catch (error) {
     if (requestId !== mailSendPreviewRequestId) return
     mailSendPreviewError.value = error.detail || '加载邮件预览失败'
@@ -3797,6 +3829,7 @@ async function sendBatch(row) {
       inlineImageIds: mailSendPreview.batch_inline_images.map(item => item.id)
     })
     mailBodyEditorRef.value?.markImagesSaved()
+    if (!result.failed_count && result.sent_count > 0) manuscriptMailDraft.clear()
     if (result.failed_count) {
       ElMessage.warning(`发送完成：成功 ${result.sent_count}，失败 ${result.failed_count}，跳过 ${result.skipped_count}`)
     } else {
@@ -3832,6 +3865,7 @@ async function sendAssignment(dispatch, assignment) {
       }
     )
     mailBodyEditorRef.value?.markImagesSaved()
+    manuscriptMailDraft.clear()
     ElMessage.success('邮件发送成功')
     await Promise.all([loadContext(), loadDispatches()])
     return true

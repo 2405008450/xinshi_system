@@ -1234,9 +1234,11 @@
           <el-form-item label="邮件主题" required>
             <el-input v-model="confirmationForm.emailSubject" type="textarea" :rows="2" maxlength="1000" />
           </el-form-item>
+          <MailDraftRestoredAlert :saved-at="confirmationMailDraft.restoredAt.value" :disabled="confirmationPreviewLoading || confirmationSubmitting" @reset="resetConfirmationMailContent" />
           <el-form-item label="邮件正文" required>
             <MailBodyEditor
               ref="confirmationBodyEditorRef"
+              retain-draft-images
               v-model="confirmationForm.emailBody"
               v-model:html-value="confirmationForm.emailBodyHtml"
               :images="confirmationForm.inlineImages"
@@ -1299,6 +1301,8 @@ import { useFormDraft } from '@/composables/useFormDraft'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import InternalMailRecipientSelector from '@/components/common/InternalMailRecipientSelector.vue'
+import MailDraftRestoredAlert from '@/components/common/MailDraftRestoredAlert.vue'
+import { useMailDraftCache } from '@/composables/useMailDraftCache'
 import MailBodyEditor from '@/components/common/MailBodyEditor.vue'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
@@ -2664,7 +2668,24 @@ const handleSubmit = async (continueCreate = false) => {
   })
 }
 
+const confirmationMailDraft = useMailDraftCache()
+const confirmationMailFields = () => ({
+  emailBody: confirmationForm.emailBody,
+  emailBodyHtml: confirmationForm.emailBodyHtml,
+  inlineImages: confirmationForm.inlineImages,
+})
+let confirmationMailBaseline = null
+let confirmationMailTracking = false
+const resetConfirmationMailContent = async () => {
+  confirmationMailDraft.clear()
+  confirmationMailBaseline = null
+  confirmationMailTracking = false
+  await refreshConfirmationMailPreview()
+}
+
 const applyConfirmationPreview = (preview, { preserveRecipients = false } = {}) => {
+  const wasRestored = !!confirmationMailDraft.restoredAt.value
+  if (confirmationMailTracking) confirmationMailDraft.pause()
   Object.assign(confirmationPreview, {
     project_type: preview?.project_type || '',
     order_no: preview?.order_no || '',
@@ -2692,11 +2713,31 @@ const applyConfirmationPreview = (preview, { preserveRecipients = false } = {}) 
   confirmationForm.managerContact = preview?.manager_contact || ''
   confirmationForm.languagePair = preview?.language_pair || confirmationForm.languagePair
   confirmationForm.emailSubject = preview?.email_subject_preview || ''
-  if (!confirmationForm.inlineImages.length) {
+  const current = confirmationMailFields()
+  const edited = confirmationMailBaseline && JSON.stringify(current) !== JSON.stringify(confirmationMailBaseline)
+  const defaults = {
+    emailBody: preview?.email_body || '',
+    emailBodyHtml: preview?.email_body_html || '',
+    inlineImages: preview?.inline_images || [],
+  }
+  if (!edited && !wasRestored) {
     confirmationForm.emailBody = preview?.email_body || ''
     confirmationForm.emailBodyHtml = preview?.email_body_html || ''
     confirmationForm.inlineImages = preview?.inline_images || []
   }
+  // 刷新前先保存旧基线下的手工修改，更新基线时保留当前内容。
+  confirmationMailBaseline = JSON.parse(JSON.stringify(defaults))
+  const draft = confirmationMailDraft.track(
+    `consultation:${confirmationContext.consultationId || 'create'}`,
+    confirmationMailFields,
+    defaults,
+  )
+  if (!confirmationMailTracking && draft) Object.assign(confirmationForm, {
+    emailBody: draft.fields.emailBody ?? defaults.emailBody,
+    emailBodyHtml: draft.fields.emailBodyHtml ?? defaults.emailBodyHtml,
+    inlineImages: draft.fields.inlineImages ?? defaults.inlineImages,
+  })
+  confirmationMailTracking = true
   if (!preserveRecipients) {
     confirmationForm.toUserIds = (preview?.to_users || []).map((item) => item.user_id)
     confirmationForm.ccUserIds = (preview?.cc_users || []).map((item) => item.user_id)
@@ -2803,6 +2844,9 @@ const openMailProfile = () => {
 }
 
 const openConfirmationDialog = async ({ mode, consultationId, consultationPayload, row, previewSource, continueCreate = false }) => {
+  confirmationMailDraft.pause()
+  confirmationMailBaseline = null
+  confirmationMailTracking = false
   const { requestId, signal } = beginConfirmationPreviewRequest()
   Object.assign(confirmationContext, { mode, consultationId, consultationPayload, row, continueCreate })
   Object.assign(confirmationForm, {
@@ -2940,6 +2984,7 @@ const handleConfirmConsultation = async (sendEmail) => {
       }
     }
     if (sendEmail && result?.mail) confirmationBodyEditorRef.value?.markImagesSaved()
+    if (sendEmail && result?.mail?.status === 'sent') confirmationMailDraft.clear()
     confirmationDialogVisible.value = false
     if (!sendEmail) {
       ElMessage.success(`${confirmationTypeLabel.value}咨询已确认，项目已生成（未发送内部邮件）`)
@@ -2977,7 +3022,9 @@ const handleConfirmConsultation = async (sendEmail) => {
 }
 
 const resetConfirmationDraft = () => {
-  confirmationBodyEditorRef.value?.cleanupDraftImages()
+  confirmationMailDraft.pause()
+  confirmationMailBaseline = null
+  confirmationMailTracking = false
   confirmationMailPreviewController?.abort()
   confirmationMailPreviewController = null
   if (confirmationManagerContactPreviewTimer) {

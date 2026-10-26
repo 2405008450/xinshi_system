@@ -85,9 +85,11 @@
           :closable="false"
           show-icon
         />
+        <MailDraftRestoredAlert :saved-at="mailDraft.restoredAt.value" :disabled="loading || sending" @reset="resetMailDraft" />
         <el-form-item label="邮件正文" required>
           <MailBodyEditor
             ref="bodyEditorRef"
+            retain-draft-images
             v-model="form.body"
             v-model:html-value="form.bodyHtml"
             :images="form.inlineImages"
@@ -128,6 +130,8 @@ import * as mailApi from '@/api/businessMails'
 import * as userApi from '@/api/users'
 import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 import InternalMailRecipientSelector from '@/components/common/InternalMailRecipientSelector.vue'
+import MailDraftRestoredAlert from '@/components/common/MailDraftRestoredAlert.vue'
+import { useMailDraftCache } from '@/composables/useMailDraftCache'
 import MailBodyEditor from '@/components/common/MailBodyEditor.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 
@@ -169,8 +173,17 @@ const statusLabel = (value) => ({ sent: '已发送', failed: '发送失败', pen
 const makeIdempotencyKey = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
 const openProfile = () => { visible.value = false; router.push('/profile') }
 
+const mailDraft = useMailDraftCache()
+const mailFields = () => ({ subject: form.subject, body: form.body, bodyHtml: form.bodyHtml, inlineImages: form.inlineImages })
+let mailPreviewRequestId = 0
+const resetMailDraft = async () => {
+  mailDraft.clear()
+  await loadPreview()
+}
 const loadPreview = async () => {
   if (!props.projectId) return
+  const requestId = ++mailPreviewRequestId
+  mailDraft.pause()
   loading.value = true
   try {
     const [mailPreview, users, groups, rows] = await Promise.all([
@@ -179,6 +192,7 @@ const loadPreview = async () => {
       mailApi.getAvailableMailGroups(),
       mailApi.getProjectMailHistory({ project_type: props.projectType, project_id: props.projectId }),
     ])
+    if (requestId !== mailPreviewRequestId || !visible.value) return
     Object.assign(preview, mailPreview)
     form.toUserIds = mailPreview.to_users.map((item) => item.user_id)
     form.ccUserIds = mailPreview.cc_users.map((item) => item.user_id)
@@ -186,13 +200,15 @@ const loadPreview = async () => {
     form.body = mailPreview.body || ''
     form.bodyHtml = mailPreview.body_html || ''
     form.inlineImages = mailPreview.inline_images || []
+    const draft = mailDraft.track(`project:${props.projectType}:${props.projectId}`, mailFields, mailFields())
+    if (draft) Object.assign(form, Object.fromEntries(Object.entries(draft.fields).filter(([key]) => key in mailFields())))
     availableUsers.value = (users || []).filter((item) => item.is_active && item.email)
     recipientGroups.value = groups || []
     history.value = rows || []
   } catch (error) {
-    ElMessage.error(error.detail || '加载邮件预览失败')
+    if (requestId === mailPreviewRequestId) ElMessage.error(error.detail || '加载邮件预览失败')
   } finally {
-    loading.value = false
+    if (requestId === mailPreviewRequestId) loading.value = false
   }
 }
 
@@ -226,6 +242,7 @@ const submitMail = async () => {
       idempotency_key: makeIdempotencyKey(),
     })
     if (result.status === 'sent') {
+      mailDraft.clear()
       bodyEditorRef.value?.markImagesSaved()
       ElMessage.success('内部项目邮件已发送')
       visible.value = false
@@ -241,7 +258,10 @@ const submitMail = async () => {
 }
 
 watch(visible, (isVisible, wasVisible) => {
-  if (!isVisible && wasVisible) bodyEditorRef.value?.cleanupDraftImages()
+  if (!isVisible && wasVisible) {
+    mailPreviewRequestId += 1
+    mailDraft.pause()
+  }
 })
 
 const retryFailedMail = async () => {
