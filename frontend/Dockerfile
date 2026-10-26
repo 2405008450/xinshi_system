@@ -11,6 +11,8 @@ RUN npm install
 
 # 复制前端源代码
 COPY frontend/ .
+# 前端会引用仓库根目录中的会话分组默认配置。
+COPY data/chat_session_folders.json /data/chat_session_folders.json
 
 # 构建
 ARG VITE_OPENPATH_ALLOWED_ROOTS=""
@@ -29,3 +31,4 @@ COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
 
 CMD ["nginx", "-g", "daemon off;"]
+
