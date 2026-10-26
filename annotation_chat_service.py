@@ -18,8 +18,17 @@ from permission_service import user_has_permission
 from permission_registry import SUPER_ROLE_NAMES
 
 
+def annotation_department_member(db, user):
+    if not user or not user.is_active:
+        return False
+    from department_models import Department, DepartmentMember
+    return user.department == '标注项目部' or db.query(DepartmentMember.user_id).join(
+        Department, Department.id == DepartmentMember.department_id).filter(
+        DepartmentMember.user_id == user.id, Department.name == '标注项目部').first() is not None
+
+
 def can_view(db, user):
-    return bool(user and user.is_active and user_has_permission(db, user.id, 'projects:read'))
+    return bool(user and user.is_active and (user_has_permission(db, user.id, 'projects:read') or annotation_department_member(db, user)))
 
 
 def require_project(db, project_id, user, *, lock=False):
@@ -60,9 +69,11 @@ def ensure_default_members(db, project_id):
 
 
 def eligible_users(db, ids=None):
-    query = db.query(AppUser).join(UserRole, UserRole.user_id == AppUser.id).join(
+    from department_models import Department, DepartmentMember
+    department_ids = db.query(DepartmentMember.user_id).join(Department).filter(Department.name == '标注项目部')
+    query = db.query(AppUser).outerjoin(UserRole, UserRole.user_id == AppUser.id).outerjoin(
         Role, Role.id == UserRole.role_id).outerjoin(RolePermission, RolePermission.role_id == Role.id).filter(
-        AppUser.is_active.is_(True), or_(Role.role_name.in_(SUPER_ROLE_NAMES),
+        AppUser.is_active.is_(True), or_(AppUser.department == '标注项目部', AppUser.id.in_(department_ids), Role.role_name.in_(SUPER_ROLE_NAMES),
         RolePermission.permission_code.in_(['projects:read', '*'])))
     if ids is not None:
         query = query.filter(AppUser.id.in_(ids))

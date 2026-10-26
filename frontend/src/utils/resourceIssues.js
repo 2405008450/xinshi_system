@@ -17,10 +17,11 @@ export const issueColumns = [
   { key: 'executor_names', label: '跟进人', width: 160 }, { key: 'planned_completion_at', label: '预定完成时间', width: 180 },
   { key: 'actual_progress', label: '实际进度', width: 220 }, { key: 'notify_department_names', label: '同步部门', width: 160 },
   { key: 'notify_user_names', label: '同步人员', width: 160 }, { key: 'remarks', label: '备注', width: 200 },
+  { key: 'notified_user_names', label: '谁被通知', width: 180 },
   { key: 'collected_by_name', label: '保存人', width: 120 }, { key: 'created_at', label: '保存时间', width: 180 },
   { key: 'updated_at', label: '更新时间', width: 180 },
 ]
-export const defaultIssueColumns = ['content', 'category', 'specific_classification', 'proposer_name', 'executor_names', 'planned_completion_at', 'actual_progress', 'created_at']
+export const defaultIssueColumns = ['content', 'category', 'specific_classification', 'proposer_name', 'notified_user_names', 'executor_names', 'planned_completion_at', 'actual_progress', 'created_at']
 export function cleanIssueColumns(value) {
   if (!Array.isArray(value)) throw new Error('字段设置格式无效')
   return [...new Set(value.filter(key => issueColumns.some(c => c.key === key)))]
@@ -29,6 +30,7 @@ export function issueParams(filters, pagination) {
   return {
     keyword: filters.keyword.trim() || undefined, category: filters.category || undefined,
     ...(filters.topic_id ? {topic_id:filters.topic_id} : {}),
+    ...(filters.notified_me ? {notified_me:true} : {}), ...(filters.created_by_me ? {created_by_me:true} : {}),
     proposer_id: filters.proposer_id || undefined, executor_id: filters.executor_id || undefined,
     status: filters.status || undefined, planned_start: filters.range?.[0], planned_end: filters.range?.[1],
     ...(filters.department_id?{department_id:filters.department_id}:{}),...(filters.saved_range?{saved_start:filters.saved_range[0],saved_end:filters.saved_range[1]}:{}),

@@ -18,7 +18,7 @@ export function useChatSessionCategories() {
     if (identity === `${localStorage.getItem('user_id')}:${localStorage.getItem('token')}`) applySessionCategories(data)
   }
   function accept(row) { const index = sessionCategories.items.findIndex(item => item.id === row.id); if (index < 0) sessionCategories.items.push(row); else sessionCategories.items[index] = row }
-  const create = async (name, parentKey = null) => { const row = await chatRequest('session-categories', { method: 'post', data: { name, parentKey } }); accept(row); await refresh().catch(() => {}); return row }
+  const create = async (name, parentKey = null, conversation = false, directory = false) => { const row = await chatRequest('session-categories', { method: 'post', data: { name, parentKey, conversation, directory } }); accept(row); await refresh().catch(() => {}); return row }
   const update = async (row, data) => { const saved = await chatRequest(`session-categories/${row.id}`, { method: 'put', data: { ...data, revision: row.revision } }); accept(saved); await refresh().catch(() => {}); return saved }
   return { categories: sessionCategories, refresh, create, update }
 }

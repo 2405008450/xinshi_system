@@ -14,6 +14,8 @@ class CategoryCreate(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     name: str = Field(min_length=1, max_length=80)
     parent_key: UUID | None = None
+    conversation: bool = False
+    directory: bool = False
 
 
 class CategoryUpdate(BaseModel):
@@ -31,7 +33,12 @@ def catalog(db=Depends(get_db), user=Depends(actor)):
 @router.post('/session-categories', status_code=201)
 def create(payload: CategoryCreate, db=Depends(get_db), user=Depends(actor)):
     service.require_manager(db, user)
-    parent_key = service.validate_parent(db, payload.parent_key)
+    if payload.directory and payload.conversation:
+        from fastapi import HTTPException
+        raise HTTPException(422, '二级菜单和会话不能同时创建')
+    parent_key = service.validate_parent(db, payload.parent_key, conversation=payload.conversation)
+    from discussion_chat_service import ANNOTATION_ROOT
+    is_conversation = bool(not payload.directory and (payload.conversation or parent_key and str(parent_key) != ANNOTATION_ROOT))
     row = ChatSessionCategory(name=service.validate_name(db, payload.name, parent_key=parent_key), updated_by=user.id)
     db.add(row)
     try:
@@ -42,15 +49,16 @@ def create(payload: CategoryCreate, db=Depends(get_db), user=Depends(actor)):
         raise HTTPException(409, '已有同名目录，请重新检查名称') from error
     if parent_key:
         db.add(service.Folder(category_id=row.id, parent_key=parent_key))
-        from discussion_chat_service import RESOURCE_ROOT, schema_ready
-        if str(parent_key) == RESOURCE_ROOT:
-            if not schema_ready(db):
-                from fastapi import HTTPException
-                raise HTTPException(503, '资源讨论参与人配置尚未就绪')
-            from discussion_chat_models import DiscussionMember
-            db.add(DiscussionMember(room_id=row.id, user_id=user.id, last_read_id=0, pinned=False, starred=False))
+    if is_conversation:
+        from discussion_chat_service import schema_ready
+        if not schema_ready(db):
+            from fastapi import HTTPException
+            raise HTTPException(503, '会话参与人配置尚未就绪')
+        from discussion_chat_models import DiscussionMember
+        db.add(DiscussionMember(room_id=row.id, user_id=user.id, last_read_id=0, pinned=False, starred=False))
     service.commit(db)
-    return dict(service.serialize(row), parent_key=parent_key)
+    return dict(service.serialize(row), parent_key=parent_key,
+                is_conversation=is_conversation)
 
 
 @router.put('/session-categories/{category_id}')

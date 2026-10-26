@@ -266,12 +266,15 @@ app.include_router(interpretation_projects.router)
 from routers import annotation_materials
 app.include_router(annotation_materials.router)
 app.include_router(annotation_projects.router)
+from routers.annotation_annotator_progress import router as annotator_progress_router
+app.include_router(annotator_progress_router)
 app.include_router(annotation_comparisons.router)
 app.include_router(annotation_notices.router)
 app.include_router(project_notices.router)
 app.include_router(company_management.router)
 app.include_router(annotation_ops.router)
 app.include_router(resource_requests.router)
+app.include_router(resource_requests.dispatch_router)
 from routers import resource_development
 app.include_router(resource_development.router)
 from routers import resource_issues

@@ -8,7 +8,7 @@ const picker = readFileSync(new URL('../src/components/chat/ChatAnnotationProjec
 function harness({ permitted = true, sessions = [], request, refresh } = {}) {
   const calls = [], events = [], state = { value: sessions }
   const context = {
-    defineAsyncComponent: () => ({}), defineProps: () => ({ modelValue: true }), defineEmits: () => (...args) => events.push(args),
+    defineAsyncComponent: () => ({}), defineProps: () => ({ modelValue: true, favoriteMode: true }), defineEmits: () => (...args) => events.push(args),
     ref: value => ({ value }), computed: fn => ({ get value() { return fn() } }), watch: () => {},
     hasPermission: () => permitted, annotationStatusLabels, normalizeAnnotationStatus,
     getAnnotationProject: async id => ({ id, projectStatus: 'project_in_progress' }),

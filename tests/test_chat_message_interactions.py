@@ -91,6 +91,37 @@ def test_all_direct_references_paginate_and_recalled_content_is_hidden(environme
     assert result['items'] == []
 
 
+def test_reference_window_follows_original_and_contains_all_branches(environment):
+    import chat_message_interactions as service
+    from models import ChatProjectMessage
+    db,(owner,member,_),project_row,original=setup_messages(environment)
+    def reply(parent,minute,content):
+        row=ChatProjectMessage(id=uuid4(),annotation_project_id=project_row.id,sender_user_id=member.id,
+            sender_name=member.username,content=content,message_type='user',sequence_no=minute+2,
+            reply_to_message_id=parent.id,created_at=datetime(2026,10,22,11,minute))
+        db.add(row);db.flush();return row
+    first=reply(original,0,'直接引用一')
+    nested=reply(first,1,'继续引用一')
+    deepest=reply(nested,2,'再次引用')
+    sibling=reply(original,3,'直接引用二')
+    db.commit()
+    result=service.references(db,'annotation',project_row.id,owner,str(nested.id),0,2)
+    assert result['original']['id']==str(original.id)
+    assert result['selected_message_id']==str(nested.id)
+    assert result['total']==4 and result['direct_count']==2 and result['has_more']
+    second=service.references(db,'annotation',project_row.id,owner,str(nested.id),2,2)
+    rows={row['id']:row for row in result['items']+second['items']}
+    assert set(rows)=={str(row.id) for row in [first,nested,deepest,sibling]}
+    assert rows[str(nested.id)]['parent_id']==str(first.id)
+    assert rows[str(nested.id)]['parent_reference_number']==rows[str(first.id)]['reference_number']
+    assert rows[str(deepest.id)]['depth']==3
+    assert rows[str(deepest.id)]['ancestor_ids']==[str(first.id),str(nested.id)]
+    first.recalled_at=datetime(2026,10,22,12);db.commit()
+    safe=service.references(db,'annotation',project_row.id,owner,str(original.id))
+    nested_safe=next(row for row in safe['items'] if row['id']==str(nested.id))
+    assert nested_safe['parent']['content']=='消息已撤回'
+
+
 def test_missing_migration_does_not_break_replies_or_fabricate_reads_and_migration_is_repeatable(environment):
     import chat_message_interactions as service
     from chat_message_view_models import ChatMessageView

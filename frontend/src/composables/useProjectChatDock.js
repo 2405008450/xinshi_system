@@ -595,10 +595,15 @@ const closeSessionEntry = (session) => {
   }
 }
 
-const restoreClosedSession = (session) => {
+const revealSession = (session) => {
   ensurePreferences()
   const keys = session.sessionKeys || [session.key]
   state.closedSessionKeys = state.closedSessionKeys.filter(key => !keys.includes(key))
+  state.recentClosedSessions = state.recentClosedSessions.filter(item => !(item.sessionKeys || [item.key]).some(key => keys.includes(key)))
+  persistPreferences()
+}
+const restoreClosedSession = (session) => {
+  revealSession(session)
   const key = openChat(session)
   persistPreferences()
   return key
@@ -699,6 +704,7 @@ const duplicateChat = (key = state.activeKey) => {
 }
 
 export const useProjectChatDock = () => ({
+  revealSession,
   openTiledSessions,
   exitTiling,
   duplicateChat,

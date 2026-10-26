@@ -6,8 +6,12 @@
       </button>
     </div>
     <div v-if="visible && submenu" ref="submenuRef" class="chat-message-context-menu chat-message-context-menu--submenu" role="menu" :aria-label="submenu==='annotation-progress'?'添加进度类型':'收录类别'" :style="{left:`${subPosition.left}px`,top:`${subPosition.top}px`}" @mousedown.prevent @contextmenu.prevent @keydown="onKeydown">
-      <template v-if="submenu==='annotation-progress'"><button type="button" role="menuitem" class="chat-message-context-menu__item" @click="addAnnotationProgress('project')">项目进度</button><button type="button" role="menuitem" class="chat-message-context-menu__item" @click="addAnnotationProgress('customer')">客户进度</button></template>
-      <template v-else><button v-for="category in issueCategories" :key="category.value" type="button" role="menuitem" class="chat-message-context-menu__item" @click="collectIssue(category.value)">{{ category.label }}</button></template>
+      <template v-if="submenu==='annotation-progress'">
+        <button type="button" role="menuitem" class="chat-message-context-menu__item" @click="addAnnotationProgress('project')"><el-icon aria-hidden="true"><TrendCharts /></el-icon><span>项目进度</span></button>
+        <button type="button" role="menuitem" class="chat-message-context-menu__item" @click="addAnnotationProgress('customer')"><el-icon aria-hidden="true"><User /></el-icon><span>客户进度</span></button>
+        <button type="button" role="menuitem" class="chat-message-context-menu__item" @click="addAnnotationProgress('annotator')"><el-icon aria-hidden="true"><UserFilled /></el-icon><span>标注员情况</span></button>
+      </template>
+      <template v-else><button v-for="category in issueCategories" :key="category.value" type="button" role="menuitem" class="chat-message-context-menu__item" @click="collectIssue(category.value)"><el-icon aria-hidden="true"><component :is="categoryIcons[category.value]" /></el-icon><span>{{ category.label }}</span></button></template>
     </div>
   </Teleport>
   <ChatAnnotationProgressDialog ref="annotationProgressRef" />
@@ -15,7 +19,7 @@
 <script setup>
 import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { CopyDocument, ChatLineRound, Star, CircleCheck, PriceTag, DocumentAdd, CirclePlus, Select, Delete } from '@element-plus/icons-vue'
+import { CopyDocument, ChatLineRound, Star, CircleCheck, PriceTag, DocumentAdd, CirclePlus, Select, Delete, TrendCharts, User, UserFilled, Refresh, ChatDotRound, Checked, List, Warning, Bell, Tickets } from '@element-plus/icons-vue'
 import { useResourceIssues } from '@/composables/useResourceIssues'
 import { issueCategories } from '@/utils/resourceIssues'
 import { buildMessageMenu, clampMessageMenu, nativeMessageContextSelector } from '@/utils/chatMessageMenu'
@@ -26,6 +30,7 @@ const props = defineProps({ currentUserId: {type:String,default:''}, handlers:{t
 const { access, collect } = useResourceIssues()
 const instanceId = getCurrentInstance().uid
 const icons = {copy:CopyDocument,reply:ChatLineRound,favorite:Star,acknowledge:CircleCheck,classify:PriceTag,collect:DocumentAdd,progress:CirclePlus,select:Select,recall:Delete}
+const categoryIcons = {arrangement:Refresh,request:DocumentAdd,idea:ChatDotRound,decision:Checked,execution:List,problem:Warning,risk:Bell,standard:Tickets}
 const visible=ref(false), message=ref(null), excerpt=ref(''), menuRef=ref(), submenuRef=ref(), topicRef=ref(), submenu=ref('')
 const position=reactive({left:0,top:0}), subPosition=reactive({left:0,top:0})
 let origin, point={x:0,y:0}, openVersion=0
@@ -135,6 +140,7 @@ defineExpose({open,openKeyboard,close,activeMessageId})
 .chat-message-context-menu{position:fixed;z-index:100000;width:218px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow-y:auto;padding:6px;background:var(--el-bg-color-overlay,#fff);border:1px solid var(--el-border-color-light);border-radius:7px;box-shadow:0 6px 24px rgb(15 23 42 / 18%);box-sizing:border-box}
 .chat-message-context-menu--submenu{width:168px;z-index:100001}
 .chat-message-context-menu__item{display:flex;align-items:center;gap:10px;width:100%;min-height:34px;padding:7px 10px;border:0;background:transparent;color:var(--el-text-color-primary);font:inherit;font-size:13px;text-align:left;cursor:pointer;border-radius:4px;white-space:nowrap}
+.chat-message-context-menu__item>.el-icon{flex:none;width:16px;height:16px;font-size:16px}
 .chat-message-context-menu__item:hover,.chat-message-context-menu__item:focus-visible,.chat-message-context-menu__item.is-active{background:var(--el-color-primary-light-9);color:var(--el-color-primary);outline:none}.chat-message-context-menu__item.is-danger{color:var(--el-color-danger)}.chat-message-context-menu__item.has-separator{border-top:1px solid var(--el-border-color-lighter);border-radius:0;margin-top:4px;padding-top:10px}.chat-message-context-menu__arrow{margin-left:auto;font-size:20px;line-height:12px}
 .chat-message-more{flex:none;border:0;border-radius:5px;background:transparent;color:var(--el-text-color-secondary);cursor:pointer;padding:3px 7px;font-size:19px;line-height:22px;opacity:0}.chat-message-more:hover,.chat-message-more:focus-visible{opacity:1;background:var(--el-fill-color-light);outline:2px solid var(--el-color-primary-light-7)}.group-message:hover .chat-message-more,.group-message:focus-within .chat-message-more,.chat-conversation-item:hover .chat-message-more,.chat-conversation-item:focus-within .chat-message-more,.chat-message-card:hover .chat-message-more,.chat-message-card:focus-within .chat-message-more{opacity:1}
 @media(max-width:420px){.chat-message-context-menu--submenu{width:152px}}

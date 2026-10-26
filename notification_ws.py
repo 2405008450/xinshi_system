@@ -3,6 +3,9 @@ from collections import defaultdict
 from collections.abc import Iterable
 from typing import Dict, Set
 from uuid import UUID
+from time import monotonic
+from threading import RLock
+import re
 
 from fastapi import WebSocket
 
@@ -14,6 +17,22 @@ class NotificationConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, Set[WebSocket]] = defaultdict(set)
         self.annotation_subscriptions = {}
+        self.connection_presence = {}
+        self.presence_lock = RLock()
+
+    def touch(self, user_id, websocket):
+        with self.presence_lock:
+            key = (str(user_id), websocket)
+            if key in self.connection_presence:
+                kind, _ = self.connection_presence[key]
+                self.connection_presence[key] = (kind, monotonic())
+
+    def desktop_presence(self, user_ids):
+        now = monotonic()
+        with self.presence_lock:
+            online = {uid for (uid, _), (kind, seen) in self.connection_presence.items()
+                      if kind == 'desktop' and now - seen < 75}
+        return {str(uid): str(uid) in online for uid in user_ids}
 
     def annotation_viewers(self, project_id):
         return {UUID(user_id) for (user_id, _), projects in list(self.annotation_subscriptions.items()) if project_id in projects}
@@ -26,13 +45,20 @@ class NotificationConnectionManager:
         else:
             projects.discard(str(project_id))
 
-    async def connect(self, user_id: UUID, websocket: WebSocket) -> None:
+    async def connect(self, user_id: UUID, websocket: WebSocket, client_type: str = '') -> None:
         global _main_event_loop
         _main_event_loop = asyncio.get_running_loop()
         await websocket.accept()
         self.active_connections[str(user_id)].add(websocket)
+        agent = getattr(websocket, 'headers', {}).get('user-agent', '')
+        kind = client_type if client_type in ('desktop', 'mobile') else (
+            'mobile' if re.search(r'Android|iPhone|iPad|iPod|Mobile', agent, re.I) else 'desktop' if agent else 'unknown')
+        with self.presence_lock:
+            self.connection_presence[(str(user_id), websocket)] = (kind, monotonic())
 
     def disconnect(self, user_id: UUID, websocket: WebSocket) -> None:
+        with self.presence_lock:
+            self.connection_presence.pop((str(user_id), websocket), None)
         self.annotation_subscriptions.pop((str(user_id), websocket), None)
         user_connections = self.active_connections.get(str(user_id))
         if not user_connections:

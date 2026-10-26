@@ -252,6 +252,8 @@ def _attach_child_statistics(db: Session, projects) -> None:
     for project in projects:
         project.child_status_counts = counts.get(project.id, {})
         project.child_count = sum(project.child_status_counts.values())
+    from annotation_child_progress import attach_counts
+    attach_counts(db, projects)
     # 一次查询当前页自身、孩子和三级订单的片区，不逐行加载。
     child = aliased(AnnotationProject)
     grandchild = aliased(AnnotationProject)
@@ -461,6 +463,8 @@ def _apply_filters(
         if end_value:
             query = query.filter(field <= datetime.combine(end_value, time.max))
     field_filters = field_filters or {}
+    from managed_project_filters import apply_managed_filter
+    query = apply_managed_filter(query, 'annotation', field_filters)
     region_terms = {key: field_filters[f'region_{key}']['value'] for key in ('city', 'district', 'street')
                     if f'region_{key}' in field_filters and str(field_filters[f'region_{key}'].get('value') or '').strip()}
     if region_terms:

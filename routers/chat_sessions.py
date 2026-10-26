@@ -4,6 +4,7 @@ from uuid import UUID
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from pydantic import Field
 from sqlalchemy import func, or_, and_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
@@ -25,6 +26,27 @@ import chat_session_category_service as session_categories
 router = APIRouter(prefix='/chat', tags=['chat_sessions'])
 from routers.chat_message_interactions import router as interactions_router
 router.include_router(interactions_router)
+
+
+class PresenceRequest(BaseModel):
+    user_ids: list[UUID] = Field(min_length=1, max_length=200)
+
+
+@router.post('/presence')
+def desktop_presence(payload: PresenceRequest, db=Depends(get_db), user=Depends(get_current_user)):
+    if not user.is_active:
+        raise HTTPException(403, '账号已停用')
+    ids = [uid for uid, in db.query(AppUser.id).filter(AppUser.id.in_(set(payload.user_ids)), AppUser.is_active.is_(True))]
+    from notification_ws import notification_manager
+    statuses = notification_manager.desktop_presence(ids)
+    return dict(items=[dict(user_id=str(uid), desktop_online=statuses[str(uid)]) for uid in ids])
+
+
+@router.get('/messages/search')
+def global_message_search(keyword: str = Query('', max_length=200), offset: int = Query(0, ge=0),
+                          limit: int = Query(30, ge=1, le=100), db=Depends(get_db), user=Depends(get_current_user)):
+    from chat_global_search import search_messages
+    return search_messages(db, user, keyword, offset=offset, limit=limit)
 
 DIRECTORY_LIMIT = 1000
 RECENT_LIMIT = 8
@@ -52,7 +74,8 @@ def conversation_participants(kind: Literal['annotation', 'translation', 'discus
     ids = member_ids(db, kind, conversation_id)
     users = db.query(AppUser).order_by(AppUser.full_name, AppUser.username).all()
     import discussion_chat_service
-    eligible = [row for row in users if row.is_active and (discussion_chat_service.can_view(db, row) if kind == 'discussion' else annotation.can_view(db, row))]
+    room = discussion_chat_service.require_room(db, user, conversation_id) if kind == 'discussion' else None
+    eligible = [row for row in users if row.is_active and (discussion_chat_service.can_view_room(db, row, room) if kind == 'discussion' else annotation.can_view(db, row))]
     item = lambda row: dict(id=row.id, name=row.full_name or row.username)
     return dict(members=[item(row) for row in users if row.id in ids], eligible_users=[item(row) for row in eligible if row.id not in ids])
 
@@ -65,7 +88,8 @@ def conversation_invite(kind: Literal['translation', 'discussion'], conversation
         raise HTTPException(422, '每次请选择1至1000位人员')
     targets = db.query(AppUser).filter(AppUser.id.in_(set(payload.user_ids)), AppUser.is_active.is_(True)).all()
     import discussion_chat_service
-    if len(targets) != len(set(payload.user_ids)) or any(not (discussion_chat_service.can_view(db, target) if kind == 'discussion' else annotation.can_view(db, target)) for target in targets):
+    room = discussion_chat_service.require_room(db, user, conversation_id) if kind == 'discussion' else None
+    if len(targets) != len(set(payload.user_ids)) or any(not (discussion_chat_service.can_view_room(db, target, room) if kind == 'discussion' else annotation.can_view(db, target)) for target in targets):
         raise HTTPException(422, '邀请对象已停用或没有相应模块权限')
     from chat_access_service import MEMBERS
     model, column = MEMBERS[kind]
@@ -229,6 +253,19 @@ def summaries(db, column, ids, baselines, user_id):
     return result
 
 
+def decorate_member_counts(db, rows):
+    from chat_access_service import MEMBERS
+    for kind, (model, column) in MEMBERS.items():
+        ids = {row['project_id'] for row in rows if row['kind'] == kind}
+        if not ids:
+            continue
+        counts = dict(db.query(column, func.count(model.user_id)).join(AppUser, AppUser.id == model.user_id).filter(
+            column.in_(ids), AppUser.is_active.is_(True)).group_by(column).all())
+        for row in rows:
+            if row['kind'] == kind:
+                row['member_count'] = counts.get(row['project_id'], 0)
+
+
 @router.get('/sessions')
 def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     ready = phase_one_ready(db)
@@ -257,6 +294,7 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
     if not ready:
         import discussion_chat_service
         rows.extend(discussion_chat_service.catalog(db, user))
+        decorate_member_counts(db, rows)
         session_categories.decorate_sessions(db, rows)
         return {'phase_one_enabled': False, 'items': rows, 'total': sum(r['unread'] for r in rows), 'mention_history_total': history_total,
             'session_categories': session_categories.catalog(db, user),
@@ -287,6 +325,7 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
             subtitle=((target.department or '').strip() + ('' if target.is_active else '（账号已停用）')), department=_department(target.department), pinned=m.pinned, starred=m.starred, is_creator=False, **stats[p.id]))
     import discussion_chat_service
     rows.extend(discussion_chat_service.catalog(db, user))
+    decorate_member_counts(db, rows)
     session_categories.decorate_sessions(db, rows)
     return {'phase_one_enabled': True, 'items': rows, 'session_categories': session_categories.catalog(db, user), 'total': sum(r['unread'] for r in rows), 'mention_history_total': history_total, 'mention_total': sum(r['mention_unread'] for r in rows), 'annotation_mention_counts': annotation_counts}
 

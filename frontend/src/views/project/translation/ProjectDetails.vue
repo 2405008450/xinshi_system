@@ -1025,6 +1025,8 @@
 </template>
 
 <script setup>
+const props=defineProps({embedded:Boolean,myProjects:Boolean})
+import { managedProjectFilters } from "@/utils/managedProjectFilters"
 import { matchesSearchFields } from '@/utils/searchMatching'
 
 import { translationProjectDetailItems, formatAssignedTranslators, formatTranslatorReturnTimes, formatTranslatorCompletionRemarks } from '@/utils/translationProjectDetail'
@@ -1765,7 +1767,7 @@ const assignReactive = (target, defaultsFactory, values = {}) => {
 }
 const buildFilterParams = () => ({
   keyword: searchForm.keyword.trim() || undefined,
-  field_filters: serializeFieldFilters(searchForm, translationFilterFields),
+  field_filters: managedProjectFilters(serializeFieldFilters(searchForm, translationFilterFields), props.myProjects, localStorage.getItem('user_id')),
 })
 let searchTimer = null
 let requestController = null
@@ -2324,7 +2326,7 @@ const saveAllInlineNames = async (scope, projectId = null) => {
   }
 }
 onMounted(async () => {
-  if (route.query.projectId) {
+  if (!props.embedded && route.query.projectId) {
     await Promise.all([focusRouteProject(), loadResourceRequestStatuses()])
     return
   }
@@ -2333,7 +2335,7 @@ onMounted(async () => {
 watch(
   () => [route.query.projectId, route.query.openEditor],
   ([projectId, openEditor], [previousProjectId, previousOpenEditor]) => {
-    if (projectId && (projectId !== previousProjectId || (openEditor === '1' && previousOpenEditor !== '1'))) {
+    if (!props.embedded && projectId && (projectId !== previousProjectId || (openEditor === '1' && previousOpenEditor !== '1'))) {
       void focusRouteProject()
     }
   }

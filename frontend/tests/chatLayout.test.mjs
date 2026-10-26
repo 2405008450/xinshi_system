@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { chatAvatarText, chatClock, chatDayKey, chatDateLabel, chatMessageTime, chatGroupStart } from '../src/utils/chatLayout.js'
+import { chatAvatarText, chatClock, chatDayKey, chatDateLabel, chatMessageTime, chatGroupStart, chatTimestampIndexes } from '../src/utils/chatLayout.js'
 
 test('每条留言时间显示完整日期、时分秒，今天昨天按UTC+8自然日判断', () => {
   const now = new Date('2026-10-21T08:00:00Z')
@@ -55,4 +55,28 @@ test('连续消息只合并同发送人、同业务日期且相隔五分钟以�
     { ...previous, recalledAt: '2026-10-09T17:01:00+08:00' },
   ]) assert.equal(chatGroupStart(message, previous), true)
   assert.equal(chatGroupStart(previous), true)
+})
+
+
+test('默认显示按UTC+8区分今天、昨天、同年日期和往年日期', () => {
+  const now = new Date('2026-10-23T12:00:00+08:00')
+  for (const [value, expected] of [
+    ['2026-10-23T01:02:03+08:00', '01:02:03'],
+    ['2026-10-22T01:02:03+08:00', '昨天 01:02:03'],
+    ['2026-10-21T01:02:03+08:00', '10月21日 01:02:03'],
+    ['2025-10-21T01:02:03+08:00', '2025年10月21日 01:02:03'],
+    ['2026-10-22T17:02:03Z', '01:02:03'],
+  ]) assert.equal(chatMessageTime(value, now, 'default'), expected)
+  assert.equal(chatMessageTime('2026-12-31T23:59:00+08:00', new Date('2027-01-01T00:01:00+08:00'), 'default'), '昨天 23:59:00')
+})
+
+test('十分钟以最后显示时间为锚点，持续聊天也会按间隔显示，支持跨日与异常时间', () => {
+  const messages = [0, 5, 9, 10, 19, 20].map(minute => ({ createdAt: `2026-10-23T10:${String(minute).padStart(2, '0')}:00+08:00` }))
+  assert.deepEqual([...chatTimestampIndexes(messages)], [0, 3, 5])
+  assert.deepEqual([...chatTimestampIndexes([
+    {createdAt: '2026-10-22T23:59:00+08:00'},
+    {createdAt: '2026-10-23T00:01:00+08:00'},
+    {createdAt: '2026-10-23T00:09:00+08:00'},
+    {createdAt: 'bad'}, {createdAt: '2026-10-23T00:08:00+08:00'},
+  ])], [0, 2, 3, 4])
 })

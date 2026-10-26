@@ -22,6 +22,41 @@ let socketToken = ''
 let reconnectTimer = null
 let heartbeatTimer = null
 let allowReconnect = true
+let lastActivityAt = 0
+let lastResumeAt = 0
+let lifecycleBound = false
+let wasHidden = false
+
+// 手机页面可能冻结后保留 OPEN 状态；恢复时不能只看 readyState。
+const resumeConnection = event => {
+  if (document.visibilityState === 'hidden') { wasHidden = true; return }
+  if (!allowReconnect || !localStorage.getItem('token')) return
+  const now = Date.now()
+  const reconnect = wasHidden || event.type === 'online' || event.type === 'resume' || !!event.persisted
+  wasHidden = false
+  if (!reconnect && lastResumeAt && now - lastResumeAt < 750) return
+  lastResumeAt = now
+  const stale = socket && now - lastActivityAt > (socket.readyState === WebSocket.CONNECTING ? 15000 : 45000)
+  ensureConnected({ force: !!stale || reconnect })
+  emit('foreground', { type: 'foreground' })
+}
+
+const bindLifecycle = () => {
+  if (lifecycleBound) return
+  lifecycleBound = true
+  wasHidden = document.visibilityState === 'hidden'
+  document.addEventListener('visibilitychange', resumeConnection)
+  document.addEventListener('resume', resumeConnection)
+  for (const event of ['pageshow', 'online', 'focus']) window.addEventListener(event, resumeConnection)
+}
+
+const unbindLifecycle = () => {
+  if (!lifecycleBound) return
+  lifecycleBound = false
+  document.removeEventListener('visibilitychange', resumeConnection)
+  document.removeEventListener('resume', resumeConnection)
+  for (const event of ['pageshow', 'online', 'focus']) window.removeEventListener(event, resumeConnection)
+}
 
 const emit = (type, payload) => {
   const handlers = subscribers.get(type)
@@ -55,14 +90,14 @@ const scheduleReconnect = () => {
   }, 3000)
 }
 
-export const ensureConnected = () => {
+export const ensureConnected = ({ force = false } = {}) => {
   const token = localStorage.getItem('token') || ''
   if (!token) {
     closeSocket()
     return null
   }
   if (
-    socketToken === token
+    !force && socketToken === token
     && socket
     && [WebSocket.CONNECTING, WebSocket.OPEN].includes(socket.readyState)
   ) {
@@ -70,15 +105,21 @@ export const ensureConnected = () => {
   }
 
   allowReconnect = true
+  bindLifecycle()
   clearReconnectTimer()
   clearHeartbeatTimer()
-  if (socket) socket.close()
+  const previous = socket
+  socket = null
+  if (previous) previous.close()
 
   const currentSocket = createNotificationSocket(token)
   socket = currentSocket
   socketToken = token
+  lastActivityAt = Date.now()
 
   currentSocket.onmessage = (event) => {
+    if (socket !== currentSocket) return
+    lastActivityAt = Date.now()
     try {
       const payload = JSON.parse(event.data)
       if (!payload?.type || payload.type === 'pong') return
@@ -90,10 +131,15 @@ export const ensureConnected = () => {
 
   currentSocket.onopen = () => {
     if (socket !== currentSocket) return
+    lastActivityAt = Date.now()
     clearHeartbeatTimer()
     annotationWatches.forEach((_, id) => sendAnnotationWatch(id, true))
     heartbeatTimer = window.setInterval(() => {
-      if (currentSocket.readyState === WebSocket.OPEN) currentSocket.send('ping')
+      if (socket !== currentSocket) return
+      if (Date.now() - lastActivityAt > 75000) { ensureConnected({ force: true }); return }
+      if (currentSocket.readyState === WebSocket.OPEN) {
+        try { currentSocket.send('ping') } catch { currentSocket.close() }
+      }
     }, 25000)
     emit('connected', { type: 'connected' })
   }
@@ -124,6 +170,9 @@ export const closeSocket = () => {
   allowReconnect = false
   clearReconnectTimer()
   clearHeartbeatTimer()
+  unbindLifecycle()
+  lastResumeAt = 0
+  wasHidden = false
   const currentSocket = socket
   socket = null
   socketToken = ''

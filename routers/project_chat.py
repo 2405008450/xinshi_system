@@ -71,6 +71,10 @@ def require_chat_access(request: Request, db: Session = Depends(get_db), user: A
         except ValueError:
             pass
     annotation_upload = request.url.path.rstrip('/').endswith('/project-chat/attachments')
+    if annotation:
+        from annotation_chat_service import can_view
+        if can_view(db, user):
+            return
     permission = 'projects:read' if annotation or annotation_upload or request.method in {'GET', 'HEAD', 'OPTIONS'} else 'workflow:operate'
     if not user_has_permission(db, user.id, permission):
         raise HTTPException(403, '没有项目沟通权限')

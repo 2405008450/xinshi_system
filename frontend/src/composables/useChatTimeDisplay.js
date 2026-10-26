@@ -1,10 +1,10 @@
 import { computed, ref, watch } from 'vue'
 import { chatDateLabel, chatMessageTime } from '@/utils/chatLayout'
 
-const modes = ['full', 'hidden', 'no-year', 'time']
+const modes = ['default', 'full', 'hidden', 'no-year', 'time']
 const preferences = new Map()
 const prefix = 'xinshi.chatTimeDisplay.'
-const normalize = value => modes.includes(value) ? value : 'full'
+const normalize = value => modes.includes(value) ? value : 'default'
 
 if (typeof window !== 'undefined') window.addEventListener('storage', event => {
   if (event.key?.startsWith(prefix) && preferences.has(event.key)) preferences.get(event.key).value = normalize(event.newValue)
@@ -15,7 +15,7 @@ export function useChatTimeDisplay() {
   try { userId = localStorage.getItem('user_id') || userId } catch { /* 使用本次会话偏好。 */ }
   const key = prefix + userId
   if (!preferences.has(key)) {
-    let saved = 'full'
+    let saved = 'default'
     try { saved = normalize(localStorage.getItem(key)) } catch { /* 保持默认显示。 */ }
     const mode = ref(saved)
     watch(mode, value => {

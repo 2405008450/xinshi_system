@@ -93,7 +93,7 @@ def get_users(
     full_name: Optional[str] = None,
     department: Optional[str] = None,
 ) -> List[AppUser]:
-    query = db.query(AppUser)
+    query = db.query(AppUser).filter(AppUser.is_deleted.is_(False))
     if username:
         query = query.filter(keyword_ilike(AppUser.username, f"%{username}%"))
     if full_name:
@@ -121,7 +121,7 @@ def count_users(
     full_name: Optional[str] = None,
     department: Optional[str] = None,
 ) -> int:
-    query = db.query(AppUser.id)
+    query = db.query(AppUser.id).filter(AppUser.is_deleted.is_(False))
     if username:
         query = query.filter(keyword_ilike(AppUser.username, f"%{username}%"))
     if full_name:
@@ -155,7 +155,7 @@ def create_user(db: Session, user: AppUserCreate) -> AppUser:
 
 def update_user(db: Session, user_id: UUID, user_update: AppUserUpdate) -> Optional[AppUser]:
     db_user = get_user(db, user_id)
-    if not db_user:
+    if not db_user or db_user.is_deleted:
         return None
     
     previous_department = db_user.department
@@ -183,7 +183,7 @@ def update_user(db: Session, user_id: UUID, user_update: AppUserUpdate) -> Optio
 
 def reset_user_password(db: Session, user_id: UUID, new_password: str) -> Optional[AppUser]:
     db_user = get_user(db, user_id)
-    if not db_user:
+    if not db_user or db_user.is_deleted:
         return None
 
     db_user.password_hash = hash_password(new_password)
@@ -193,11 +193,20 @@ def reset_user_password(db: Session, user_id: UUID, new_password: str) -> Option
 
 
 def delete_user(db: Session, user_id: UUID) -> bool:
-    db_user = get_user(db, user_id)
+    # 不物理删除：历史请假、排班、消息、项目和审计继续指向原人员。
+    db_user = db.query(AppUser).filter(AppUser.id == user_id).with_for_update().first()
     if not db_user:
         return False
-    db.delete(db_user)
+    if not db_user.is_deleted:
+        from chat_time import now
+        from business_time import business_now
+        db_user.is_active = False
+        db_user.is_deleted = True
+        db_user.deleted_at = now()
+        db_user.updated_at = business_now()
     db.commit()
+    from organization_service import publish
+    publish(db)
     return True
 
 
@@ -1787,6 +1796,8 @@ def _apply_translation_project_filters(
         if end_value:
             query = query.filter(field <= datetime.combine(end_value, time.max))
     field_filters = field_filters or {}
+    from managed_project_filters import apply_managed_filter
+    query = apply_managed_filter(query, 'translation', field_filters)
     query = apply_scalar_specs(query, field_filters, {
         "client_id": (TranslationProject.client_id, "uuid"),
         "order_no": (TranslationProject.order_no, "string"),
@@ -2580,18 +2591,27 @@ def get_notifications(
     limit: int = 20,
     unread_only: bool = False,
     channel: str = 'all',
+    notification_type: Optional[str] = None,
+    notification_types: Optional[List[str]] = None,
 ) -> List[AppNotification]:
     from notification_channels import filter_notification_channel
     query = db.query(AppNotification).filter(AppNotification.recipient_user_id == recipient_user_id)
     query = filter_notification_channel(query, AppNotification, channel)
     from notification_channels import filter_notification_visibility
     query = filter_notification_visibility(query, AppNotification, db, recipient_user_id)
+    if notification_type:
+        query = query.filter(AppNotification.notification_type == notification_type)
+    if notification_types:
+        query = query.filter(AppNotification.notification_type.in_(notification_types))
     if unread_only:
         query = query.filter(AppNotification.is_read == False)
-    return query.order_by(AppNotification.created_at.desc()).offset(skip).limit(limit).all()
+    rows = query.order_by(AppNotification.created_at.desc()).offset(skip).limit(limit).all()
+    from resource_request_dispatch import annotate_sender_entries
+    annotate_sender_entries(db, recipient_user_id, rows)
+    return rows
 
 
-def count_unread_notifications(db: Session, recipient_user_id: UUID, channel: str = 'all') -> int:
+def count_unread_notifications(db: Session, recipient_user_id: UUID, channel: str = 'all', notification_type: Optional[str] = None, notification_types: Optional[List[str]] = None) -> int:
     from notification_channels import filter_notification_channel
     query = (
         db.query(AppNotification.id)
@@ -2600,6 +2620,10 @@ def count_unread_notifications(db: Session, recipient_user_id: UUID, channel: st
             AppNotification.is_read == False,
         )
     )
+    if notification_type:
+        query = query.filter(AppNotification.notification_type == notification_type)
+    if notification_types:
+        query = query.filter(AppNotification.notification_type.in_(notification_types))
     from notification_channels import filter_notification_visibility
     return filter_notification_visibility(filter_notification_channel(query, AppNotification, channel), AppNotification, db, recipient_user_id).count()
 
@@ -3097,6 +3121,8 @@ def _apply_consultation_filters(
     if follow_up_status and follow_up_status.strip():
         query = query.filter(keyword_ilike(Consultation.follow_up_status, f"%{follow_up_status.strip()}%"))
     field_filters = field_filters or {}
+    from managed_project_filters import apply_managed_filter
+    query = apply_managed_filter(query, 'consultation', field_filters)
     query = apply_scalar_specs(query, field_filters, {
         "consultation_code": (Consultation.consultation_code, "string"),
         "status": (Consultation.status, "string"),
@@ -3266,6 +3292,8 @@ def create_consultation(
         'client_short_name',
         'manager_contact',
     })
+    from consultation_work_report import preserve_capture
+    consultation_data['project_intake'] = preserve_capture(None, consultation_data.get('project_intake'))
     if not consultation_data.get('client_id') and (consultation.client_short_name or '').strip():
         client_id, _sub_client_id, _created = _resolve_or_create_project_client(
             db,
@@ -3309,6 +3337,9 @@ def update_consultation(
         exclude={'client_code', 'client_name', 'client_short_name', 'manager_contact', VERSION_FIELD},
     )
     assert_fresh(db_consultation, consultation_update.expected_updated_at)
+    if 'project_intake' in update_data:
+        from consultation_work_report import preserve_capture
+        update_data['project_intake'] = preserve_capture(db_consultation.project_intake, update_data['project_intake'])
     has_client_input = bool(
         (consultation_update.client_short_name or '').strip()
         or (consultation_update.client_code or '').strip()

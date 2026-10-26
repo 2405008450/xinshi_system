@@ -370,6 +370,7 @@
             <div class="chat-composer__mention-wrap">
               <el-select
                 v-model="composer.mentionedUserIds"
+                @visible-change="desktopPresenceOpen = $event"
                 multiple
                 clearable
                 filterable
@@ -380,7 +381,7 @@
                 placeholder="@提醒用户（可多选）"
                 class="chat-composer__mention"
               >
-                <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id" /></el-option-group>
+                <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id"><span>{{ user.full_name || user.username }}</span><ChatDesktopPresence class="mention-desktop-state" :online="desktopPresence[user.id]" :loading="desktopPresenceLoading" /></el-option></el-option-group>
               </el-select>
               <span class="chat-composer__mention-count">{{ composer.mentionedUserIds.length }}/20</span>
             </div>
@@ -450,6 +451,7 @@
                 <el-select
                   ref="mentionSelectRef"
                   v-model="composer.mentionedUserIds"
+                @visible-change="desktopPresenceOpen = $event"
                   multiple
                   filterable
                   :automatic-dropdown="automaticMentionActive"
@@ -460,7 +462,7 @@
                   style="width: 100%"
                   @change="handleMentionSelectionChange"
                 >
-                  <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id" /></el-option-group>
+                  <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id"><span>{{ user.full_name || user.username }}</span><ChatDesktopPresence class="mention-desktop-state" :online="desktopPresence[user.id]" :loading="desktopPresenceLoading" /></el-option></el-option-group>
                 </el-select>
               </div>
             </el-popover>
@@ -514,6 +516,8 @@
 </template>
 
 <script setup>
+import ChatDesktopPresence from '@/components/chat/ChatDesktopPresence.vue'
+import { useDesktopPresence } from '@/composables/useDesktopPresence'
 import ScreenshotText from '@/components/common/ScreenshotText.vue'
 import { screenshotIds } from '@/utils/screenshotReferences'
 import { useChatMessageInteractions } from '@/composables/useChatMessageInteractions'
@@ -613,6 +617,8 @@ const handleComposerPaste = event => {
 }
 const userOptions = ref([])
 const memberUserIds = ref([])
+const desktopPresenceOpen = ref(false)
+const { statuses: desktopPresence, loading: desktopPresenceLoading } = useDesktopPresence(computed(() => userOptions.value.map(user => user.id)), computed(() => props.active && desktopPresenceOpen.value))
 const mentionUserGroups = computed(() => [
   { label: '群组参与人', users: userOptions.value.filter(user => String(user.id) !== currentUserId && memberUserIds.value.includes(String(user.id))) },
   { label: '未参与人员 · 发送后自动加入', users: userOptions.value.filter(user => String(user.id) !== currentUserId && !memberUserIds.value.includes(String(user.id))) },
@@ -2479,3 +2485,5 @@ onBeforeUnmount(() => {
 .chat-toolbar--header{padding:0!important;border:0!important;flex:none;gap:4px}.chat-toolbar--header .chat-toolbar__title .el-tag{font-size:10px;height:20px}.chat-toolbar--header .chat-toolbar__actions{flex-wrap:nowrap}
 .chat-composer--conversation{position:relative;margin:10px 12px 14px;padding:8px 10px;border:1px solid #dfe5ee;border-radius:12px;background:white;display:flex;flex-direction:column;gap:6px}.chat-composer--conversation:focus-within{border-color:var(--el-color-primary);box-shadow:0 0 0 2px var(--el-color-primary-light-9)}.chat-composer__input-row{display:flex;flex-wrap:wrap;justify-content:flex-end}.chat-composer__input-row .el-input,.chat-composer__input-row .el-textarea{flex:1 0 100%;width:100%}.chat-composer--conversation :deep(.el-textarea__inner){box-shadow:none;background:transparent;line-height:1.6;padding:6px 8px}.chat-composer-resize{position:absolute;top:-5px;left:20%;width:60%;height:8px;padding:0;border:0;background:transparent;cursor:ns-resize;touch-action:none}.chat-conversation-item__time{white-space:normal;overflow-wrap:anywhere}
 </style>
+
+<style scoped>.mention-desktop-state{float:right;margin-left:12px}</style>

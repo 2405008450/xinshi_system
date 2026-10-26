@@ -14,7 +14,8 @@
             title="渠道列表字段"
             @reset="selectedColumns = [...defaultChannelColumns]"
           />
-          <el-button v-if="options.can_write" type="primary" @click="openEditor()">新增渠道</el-button>
+          <BatchDeleteToolbar v-if="options.can_write" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" /><el-button @click="auditRef.open()">我的操作记录</el-button>
+          <el-button v-if="options.can_write && !deleteMode" type="primary" @click="openEditor()">新增渠道</el-button>
         </div>
       </div>
     </template>
@@ -30,18 +31,19 @@
         </div>
       </AdvancedFilterPopover>
     </div>
-    <el-table ref="tableRef" v-loading="loading" :data="rows" :expand-row-keys="expandedIds" border row-key="id" empty-text="暂无符合条件的渠道" @expand-change="expandedChanged">
+    <el-table ref="tableRef" v-loading="loading" :data="rows" :expand-row-keys="expandedIds" border row-key="id" empty-text="暂无符合条件的渠道" @expand-change="expandedChanged" @selection-change="handleDeleteSelectionChange">
+      <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column type="expand" width="1" class-name="channel-expand-column" label-class-name="channel-expand-column">
         <template #default="{ row }">
           <div v-if="row.accounts?.length" class="channel-account-panel">
-            <div class="channel-account-heading"><strong>{{ row.name }} · 账号明细</strong><el-button v-if="options.can_write" link type="primary" @click="openEditor(null, row)">新增账号</el-button></div>
+            <div class="channel-account-heading"><strong>{{ row.name }} · 账号明细</strong><el-button v-if="options.can_write && !deleteMode" link type="primary" @click="openEditor(null, row)">新增账号</el-button></div>
             <el-table :data="row.accounts" row-key="id" border size="small">
               <el-table-column label="账号名称" min-width="160"><template #default="{ row: account }">{{ account.name }}</template></el-table-column>
               <el-table-column label="维护人" min-width="150"><template #default="{ row: account }">{{ channelMembersText(account.maintainers) }}</template></el-table-column>
               <el-table-column label="使用人" min-width="150"><template #default="{ row: account }">{{ channelMembersText(account.users) }}</template></el-table-column>
               <el-table-column label="账号情况说明" min-width="260"><template #default="{ row: account }"><ChannelTextPreview :text="account.description" :name="account.name" /></template></el-table-column>
               <el-table-column label="详情" :width="compactViewport ? 70 : 110" fixed="right"><template #default="{ row: account }"><ChannelDetailPopover :row="account" /></template></el-table-column>
-              <el-table-column v-if="options.can_write" label="操作" :width="compactViewport ? 80 : 90" fixed="right"><template #default="{ row: account }"><el-button link type="primary" @click="openEditor(account)">编辑账号</el-button></template></el-table-column>
+              <el-table-column v-if="options.can_write && !deleteMode" label="操作" :width="compactViewport ? 80 : 90" fixed="right"><template #default="{ row: account }"><el-button link type="primary" @click="openEditor(account)">编辑账号</el-button></template></el-table-column>
             </el-table>
           </div>
         </template>
@@ -59,16 +61,19 @@
           <ChannelDetailPopover :row="row" />
         </template>
       </el-table-column>
-      <el-table-column label="操作" :width="compactViewport ? 80 : fittedViewport ? 90 : 120" fixed="right"><template #default="{ row }"><template v-if="options.can_write"><el-button link type="primary" @click="openEditor(row)">编辑</el-button><el-button v-if="options.hierarchy_available" link type="primary" @click="openEditor(null, row)">新增账号</el-button></template><span v-else class="channel-muted">-</span></template></el-table-column>
+      <el-table-column v-if="!deleteMode" label="操作" :width="compactViewport ? 80 : fittedViewport ? 90 : 120" fixed="right"><template #default="{ row }"><template v-if="options.can_write && !deleteMode"><el-button link type="primary" @click="openEditor(row)">编辑</el-button><el-button v-if="options.hierarchy_available" link type="primary" @click="openEditor(null, row)">新增账号</el-button></template><span v-else class="channel-muted">-</span></template></el-table-column>
     </el-table>
     <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :page-sizes="[10,20,50,100]" :total="total" layout="total, sizes, prev, pager, next, jumper" @current-change="loadList" @size-change="query" />
-    <ChannelEditor ref="editorRef" :options="options" @saved="saved" />
+    <ChannelAuditDialog ref="auditRef" /><ChannelEditor ref="editorRef" :options="options" @saved="saved" />
   </el-card>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
+import {useBatchDelete} from '@/composables/useBatchDelete'
+import ChannelAuditDialog from './components/ChannelAuditDialog.vue'
 import TalentResourceNav from './components/TalentResourceNav.vue'
 import ChannelEditor from './components/ChannelEditor.vue'
 import ChannelTextPreview from './components/ChannelTextPreview.vue'
@@ -83,6 +88,9 @@ import { channelColumns, defaultChannelColumns, cleanChannelColumns, channelMemb
 const options = reactive({ users: [], can_write: false, user_id: '', hierarchy_available: false })
 const filters = reactive({ keyword: '', category: '', maintainer_ids: [], user_ids: [] })
 const rows = ref([]), total = ref(0), page = ref(1), pageSize = ref(20), loading = ref(false), advanced = ref(false), filterPeople = ref([]), editorRef = ref(null), tableRef = ref(null), expandedIds = ref([])
+const auditRef=ref(null)
+const deletionPagination=reactive({get page(){return page.value},set page(value){page.value=value},get limit(){return pageSize.value},get total(){return total.value}})
+const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows,tableRef,pagination:deletionPagination,deleteRow:api.removeChannel,getLabel:r=>r.name,reload:loadList,entityName:'渠道'})
 const selectedColumns = ref([...defaultChannelColumns])
 const viewportQuery = window.matchMedia('(max-width: 640px)')
 const compactViewport = ref(viewportQuery.matches)

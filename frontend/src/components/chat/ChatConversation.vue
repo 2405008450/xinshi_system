@@ -1,9 +1,9 @@
 <template>
   <section @dragenter.prevent="dragEnter" @dragover.prevent="dragOver" @dragleave="dragLeave" @drop.prevent="dropFiles" class="annotation-group" :class="{ 'annotation-group--embedded': !conversationMode, 'annotation-group--search-side': searchOpen && historyPlacement === 'side' }">
     <div class="annotation-group__main">
-    <Teleport :to="headerReady && toolbarTarget ? toolbarTarget : 'body'" :disabled="!toolbarTarget || !headerReady"><div v-show="!toolbarTarget || active" class="group-toolbar" :class="{ 'group-toolbar--header': toolbarTarget }">
+    <Teleport :to="headerReady && toolbarTarget ? toolbarTarget : 'body'" :disabled="!toolbarTarget || !headerReady"><div v-show="!toolbarTarget || active" class="group-toolbar" :class="{ 'group-toolbar--header': toolbarTarget, 'group-toolbar--menu':toolbarMenu }">
       <el-popover v-if="!isDirect" :z-index="participantsZ" trigger="click" placement="bottom-end" :width="340" popper-class="annotation-members-popover annotation-participants-popover">
-        <template #reference><el-button text size="small" class="group-participants" :icon="User" aria-label="参与人" title="参与人" @click="participantsZ = chatOverlayZIndex($event.currentTarget)"><template v-if="!toolbarTarget">参与人</template> <span class="group-member-count">{{ group.members.length }}</span></el-button></template>
+        <template #reference><el-button text size="small" class="group-participants" :icon="User" aria-label="参与人" title="参与人" @click="participantsZ = chatOverlayZIndex($event.currentTarget)"><template v-if="!toolbarTarget || toolbarMenu">参与人</template> <span class="group-member-count">{{ group.members.length }}</span></el-button></template>
         <p class="group-hint">仅会话参与人可以查看和发言；取消关注只停止未读提醒。</p>
         <div class="group-members"><el-button v-for="member in group.members" :key="member.id" link :disabled="member.id === currentUserId" @click="startDirect(member)">{{ member.name }}</el-button></div>
         <el-select v-if="!isDirect" v-model="inviteIds" multiple filterable :teleported="false" placeholder="选择邀请用户" style="width:100%">
@@ -13,7 +13,7 @@
         <ChatParticipantActions :project-type="projectType" :project-id="projectId" :members="group.members" @changed="loadGroup" />
       </el-popover>
       <span v-if="!toolbarTarget" class="group-toolbar-spacer" />
-      <el-button text size="small" v-if="!isDirect" class="group-follow" :class="{ 'is-following': group.following }" :icon="group.following ? StarFilled : Star" :loading="followingBusy" :title="group.following ? '取消关注，不再接收普通消息未读提醒' : '关注后加入右上角收藏夹，并接收未读提醒'" :aria-label="group.following ? '取消关注' : '关注项目'" @click="toggleFollow"><template v-if="!toolbarTarget">{{ group.following ? '已关注' : '关注' }}</template></el-button>
+      <el-button text size="small" v-if="!isDirect" class="group-follow" :class="{ 'is-following': group.following }" :icon="group.following ? StarFilled : Star" :loading="followingBusy" :title="group.following ? '取消关注，不再接收普通消息未读提醒' : '关注后加入右上角收藏夹，并接收未读提醒'" :aria-label="group.following ? '取消关注' : '关注项目'" @click="toggleFollow"><template v-if="!toolbarTarget || toolbarMenu">{{ group.following ? '已关注' : '关注' }}</template></el-button>
       <el-button v-if="!toolbarTarget" text size="small" :icon="Search" aria-label="聊天记录" title="聊天记录" @click="openSearch">聊天记录</el-button>
       <el-button v-if="canAddToProgress" size="small" :disabled="!selected.length" @click="toProgress">转进度 {{ selected.length || '' }}</el-button>
     </div></Teleport>
@@ -69,6 +69,7 @@ const props = defineProps({
   active: Boolean,
   conversationMode: Boolean,
   toolbarTarget: { type: String, default: '' },
+  toolbarMenu: Boolean,
   canAddToProgress: Boolean,
   historyPlacement: { type: String, default: 'overlay' },
 })
@@ -473,3 +474,5 @@ defineExpose({ openSearch, locate, cancelLocate, toggleFilters: openSearch })
 <style scoped>
 .group-toolbar--header{padding:0;border:0;flex-wrap:nowrap;gap:2px;align-items:center;background:transparent}.group-toolbar--header .el-button{width:28px;height:28px;padding:4px;margin:0}.group-toolbar--header .group-participants{width:auto;gap:2px}.group-toolbar--header .group-member-count{margin:0;font-size:10px;padding:0 3px}.chat-file-drop{position:absolute;inset:8px;z-index:30;display:grid;place-items:center;pointer-events:none;border:2px dashed var(--color-primary);border-radius:12px;background:rgb(241 245 249 / 95%);color:var(--color-primary);font-size:15px}.group-mention-jump{top:8px}
 </style>
+
+<style scoped>.group-toolbar--menu .el-button{width:100%;height:34px;min-height:34px;padding:8px 10px;justify-content:flex-start}.group-toolbar--menu .group-participants{width:100%;gap:10px}.group-toolbar--menu .group-member-count{margin-left:auto}.group-toolbar--menu .group-follow.is-following{color:#b7791f}</style>

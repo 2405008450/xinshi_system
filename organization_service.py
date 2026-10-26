@@ -25,7 +25,7 @@ def directory(db, user):
     import department_service as departments
     result = departments.catalog(db, user)
     aliases = result['aliases']
-    people = db.query(AppUser).order_by(AppUser.full_name, AppUser.username).all()
+    people = db.query(AppUser).filter(AppUser.is_deleted.is_(False)).order_by(AppUser.full_name, AppUser.username).all()
     links = db.query(DepartmentMember).all() if ready(db) else []
     by_id = {str(d['id']): d for d in result['items']}
     memberships = {}
@@ -63,7 +63,7 @@ def save_members(db, user, department_id, entries, revision):
     requested = {entry.user_id: entry.position.strip() for entry in entries}
     if len(requested) != len(entries):
         raise HTTPException(422, '同一人员不能重复添加到同一部门')
-    users = {u.id: u for u in db.query(AppUser).filter(AppUser.id.in_(requested)).all()}
+    users = {u.id: u for u in db.query(AppUser).filter(AppUser.id.in_(requested), AppUser.is_deleted.is_(False)).all()}
     if len(users) != len(requested):
         raise HTTPException(422, '部分人员不存在，请刷新后重选')
     current = db.query(DepartmentMember).filter_by(department_id=dept.id).all()

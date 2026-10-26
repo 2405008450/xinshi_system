@@ -47,12 +47,15 @@ def catalog(db, user):
     ready = schema_ready(db)
     hierarchy_ready = ready and folder_schema_ready(db)
     parents = {str(row.category_id): row.parent_key for row in db.query(Folder)} if hierarchy_ready else {}
+    from discussion_chat_service import schema_ready as discussion_ready
+    from discussion_chat_models import DiscussionMember
+    rooms = {str(room) for room, in db.query(DiscussionMember.room_id).distinct()} if ready and discussion_ready(db) else set()
     return dict(ready=ready, hierarchy_ready=hierarchy_ready, can_manage=ready and can_manage_folders(db, user),
-                items=[dict(serialize(row), parent_key=parents.get(str(row.id)))
+                items=[dict(serialize(row), parent_key=parents.get(str(row.id)), is_conversation=str(row.id) in rooms)
                        for row in db.query(Category).order_by(Category.created_at, Category.id)] if ready else [])
 
 
-def validate_parent(db, parent_key):
+def validate_parent(db, parent_key, *, conversation=False):
     if not parent_key:
         return None
     if not folder_schema_ready(db):
@@ -66,9 +69,20 @@ def validate_parent(db, parent_key):
     parent = db.query(Category).filter_by(id=parent_key).with_for_update().first()
     if not parent or not parent.active:
         raise HTTPException(422, '一级目录不存在或已停用')
+    from discussion_chat_models import DiscussionMember
+    from discussion_chat_service import schema_ready as discussion_ready
+    if discussion_ready(db) and db.query(DiscussionMember.room_id).filter_by(room_id=parent.id).first():
+        raise HTTPException(422, '会话下面不能创建目录或会话')
     location = db.get(Folder, parent.id)
     if location and location.parent_key:
-        raise HTTPException(422, '最多只能建立两级目录')
+        if not conversation:
+            raise HTTPException(422, '最多只能建立两级目录')
+        ancestor_key = str(location.parent_key)
+        if ancestor_key not in BUILTIN_INDEX:
+            ancestor = db.get(Category, UUID(ancestor_key))
+            ancestor_location = db.get(Folder, UUID(ancestor_key))
+            if not ancestor or not ancestor.active or (ancestor_location and ancestor_location.parent_key):
+                raise HTTPException(422, '上级目录不存在、已停用或超过层级限制')
     return key
 
 
@@ -178,7 +192,7 @@ def memberships(db, user, kind, conversation_id):
 def decorate_sessions(db, rows):
     """只批量查询当前授权目录的关联，不补入被隐藏或未关注的会话。"""
     for row in rows:
-        row['category_ids'] = []
+        row['category_ids'] = row.get('category_ids', []) if row['kind'] == 'discussion' else []
     if not rows or not schema_ready(db):
         return
     by_key = {row['key']: row for row in rows}

@@ -27,6 +27,7 @@
       <el-table-column v-if="showRowActions" label="操作" width="80" fixed="right" align="center">
         <template #default="{ row }">
           <ProjectListRowActions
+            :annotation-project-id="row.id"
             :editable="editable"
             edit-in-more
             :show-start-request="editable"

@@ -1,5 +1,5 @@
 import { defineComponent, h, Text, cloneVNode } from 'vue'
-import { ElTableColumn, ElDescriptionsItem } from 'element-plus'
+import { ElTableColumn, ElDescriptions, ElDescriptionsItem } from 'element-plus'
 import ScreenshotText from './ScreenshotText.vue'
 import { screenshotIds } from '@/utils/screenshotReferences'
 
@@ -32,6 +32,11 @@ export const ScreenshotTableColumn=defineComponent({
   }
 })
 export const ScreenshotDescriptionsItem=defineComponent({
+  name:'ElDescriptionsItem',
   inheritAttrs:false,
   setup(_, {attrs,slots}) {return ()=>h(ElDescriptionsItem,attrs,{...slots,default:()=>renderNodes(slots.default?.())})}
+})
+export const ScreenshotDescriptions=defineComponent({
+  inheritAttrs:false,
+  setup(_, {attrs,slots}) {return ()=>h(ElDescriptions,attrs,{...slots,default:()=>renderNodes(slots.default?.())})}
 })

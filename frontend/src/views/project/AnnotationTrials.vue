@@ -1,5 +1,5 @@
 <template>
-  <el-card class="common-page-card compact-list-card">
+  <el-card v-if="!workspaceOnly" class="common-page-card compact-list-card">
     <template #header>
       <div class="card-header">
         <div><h2>试标/试采流程</h2><p>跨项目查看候选进度；选择项目后可打开项目级管理窗口</p></div>
@@ -138,6 +138,8 @@ import { hasPermission } from '@/utils/permission'
 import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 
 const route=useRoute(),router=useRouter(),canWrite=hasPermission('projects:write')
+const props=defineProps({workspaceOnly:Boolean,workspaceProjectId:String})
+const emit=defineEmits(['workspace-closed'])
 const projects=ref([]),talents=ref([]),rows=ref([]),customFields=ref([]),editorFields=ref([]),accountOptions=ref([])
 const projectId=ref(''),loading=ref(false),accountLoading=ref(false),advancedVisible=ref(false),trialTableRef=ref(null)
 const pagination=reactive({page:1,limit:20,total:0})
@@ -183,8 +185,8 @@ const reserves=reactive({})
 const activeProjectLabel=computed(()=>activeProject.value?projectLabel(activeProject.value):'')
 const loadWorkspaceContext=async()=>{if(!activeProject.value?.id)return;workspaceLoading.value=true;try{const languageIds=[...new Set((activeProject.value.languageItems||[]).flatMap(item=>[item.sourceLanguageId,item.targetLanguageId]).filter(Boolean))];const [strategyRows,summary,reserveResult]=await Promise.all([ops.getTrialStrategies(activeProject.value.id),ops.getTrialSummary(activeProject.value.id),languageIds.length?projectApi.lookupAnnotationLanguageReserves(languageIds):Promise.resolve({items:[]})]);strategies.value=strategyRows||[];trialSummary.value=summary||{total:0,items:[]};for(const key of Object.keys(reserves))delete reserves[key];for(const item of reserveResult?.items||[])reserves[item.languageId]=item}catch(error){ElMessage.error(error.detail||'加载试标/试采管理信息失败')}finally{workspaceLoading.value=false}}
 const languageSummaries=computed(()=>{const summaryMap=Object.fromEntries((trialSummary.value.items||[]).map(item=>[item.languageItemId,item]));const strategyMap=Object.fromEntries((strategies.value||[]).map(item=>[item.languageItemId,item]));return(activeProject.value?.languageItems||[]).map(language=>{const strategy=strategyMap[language.id]||{plannedHeadcount:1,conversionRate:0.1,suggestedContactCount:10};const summary=summaryMap[language.id]||{candidateCount:0,contactedCount:0,confirmedCount:0,submittedCount:0,passedCount:0};const endpointIds=[...new Set([language.sourceLanguageId,language.targetLanguageId].filter(Boolean))];const reserveTotal=endpointIds.reduce((total,id)=>total+Number(reserves[id]?.total||0),0);return{languageItemId:language.id,languageDisplay:language.display,reserveTotal,...strategy,...summary}})})
-const openWorkspaceById=async()=>{if(!projectId.value)return ElMessage.warning('请先选择标注项目');workspaceVisible.value=true;workspaceLoading.value=true;try{activeProject.value=await projectApi.getAnnotationProject(projectId.value);await Promise.all([loadWorkspaceContext(),fetchRows()])}catch(error){ElMessage.error(error.detail||'打开试标/试采管理失败')}finally{workspaceLoading.value=false}}
-const closeWorkspace=()=>{workspaceMaximized.value=false;activeProject.value=null;strategies.value=[];trialSummary.value={total:0,items:[]}}
+const openWorkspaceById=async()=>{if(!projectId.value)return ElMessage.warning('请先选择标注项目');workspaceVisible.value=true;workspaceLoading.value=true;try{activeProject.value=await projectApi.getAnnotationProject(projectId.value);if(props.workspaceOnly)projects.value=[activeProject.value];await Promise.all([loadWorkspaceContext(),fetchRows()])}catch(error){ElMessage.error(error.detail||'打开试标/试采管理失败')}finally{workspaceLoading.value=false}}
+const closeWorkspace=()=>{if(props.workspaceOnly)emit('workspace-closed');workspaceMaximized.value=false;activeProject.value=null;strategies.value=[];trialSummary.value={total:0,items:[]}}
 const strategyFormRef=ref(null),strategyVisible=ref(false),strategySaving=ref(false),strategyDrafts=ref([])
 const openStrategyEditor=()=>{strategyDrafts.value=languageSummaries.value.map(item=>({languageItemId:item.languageItemId,languageDisplay:item.languageDisplay,plannedHeadcount:item.plannedHeadcount||1,conversionPercent:conversionPercent(item.conversionRate),strategyNote:item.strategyNote||''}));strategyVisible.value=true}
 const suggestedContact=item=>Math.ceil(Number(item.plannedHeadcount||1)/(Number(item.conversionPercent||10)/100))
@@ -233,8 +235,8 @@ const educationText=row=>{const item=(row.educationExperiences||[]).find(value=>
 const projectSituationText=row=>row.projectSituation?.primary?.projectName?`${row.projectSituation.primary.projectName}${row.projectSituation.total>1?` +${row.projectSituation.total-1}`:''}`:'-'
 
 const applyRoute=async()=>{const nextProjectId=String(route.query.projectId||'');filters.personId=String(route.query.personId||'');if(nextProjectId){projectId.value=nextProjectId;await search();if(route.query.section==='trials')await openWorkspaceById()}}
-onMounted(async()=>{try{const[projectRows,talentRows]=await Promise.all([projectApi.getAnnotationProjects({skip:0,limit:500}),talentApi.getProjectTalentOptions('annotation')]);projects.value=projectRows||[];talents.value=talentRows||[];await applyRoute();if(!route.query.projectId)await fetchRows()}catch(error){ElMessage.error(error.detail||'加载试标/试采基础数据失败')}})
-watch(()=>[route.query.projectId,route.query.personId],async([nextProject,nextPerson],[previousProject,previousPerson])=>{if(nextProject===previousProject&&nextPerson===previousPerson)return;projectId.value=String(nextProject||'');filters.personId=String(nextPerson||'');filters.languageItemId='';await search()})
+onMounted(async()=>{if(props.workspaceOnly){projectId.value=props.workspaceProjectId||'';try{const talentPromise=talentApi.getProjectTalentOptions('annotation').then(value=>{talents.value=value||[]});await Promise.all([openWorkspaceById(),talentPromise])}catch(error){ElMessage.error(error.detail||'加载试标/试采基础数据失败')}return}try{const[projectRows,talentRows]=await Promise.all([projectApi.getAnnotationProjects({skip:0,limit:500}),talentApi.getProjectTalentOptions('annotation')]);projects.value=projectRows||[];talents.value=talentRows||[];await applyRoute();if(!route.query.projectId)await fetchRows()}catch(error){ElMessage.error(error.detail||'加载试标/试采基础数据失败')}})
+watch(()=>[route.query.projectId,route.query.personId],async([nextProject,nextPerson],[previousProject,previousPerson])=>{if(props.workspaceOnly)return;if(nextProject===previousProject&&nextPerson===previousPerson)return;projectId.value=String(nextProject||'');filters.personId=String(nextPerson||'');filters.languageItemId='';await search()})
 onBeforeUnmount(()=>{clearTimeout(searchTimer);requestController?.abort()})
 </script>
 

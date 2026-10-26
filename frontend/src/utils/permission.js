@@ -135,7 +135,7 @@ export function getDefaultRoute() {
  * @returns {boolean}
  */
 export function canAccessRoute(route) {
-  if (route.meta?.organizationManagement) return canManageDepartments() || hasPermission('system:users:read')
+  if (route.meta?.organizationManagement) return canManageDepartments() || hasPermission('system:users:read') || canConfigureWorkReports()
   if (route.meta?.departmentManagement) return canManageDepartments()
   const userRoles = getStoredRoles()
   if (isSuperAdmin(userRoles)) return true
@@ -150,6 +150,12 @@ export function canAccessRoute(route) {
   const permissionAllowed = !hasPermissionRule || hasPermission(metaPermissions)
   const roleAllowed = !hasRoleRule || metaRoles.includes('*') || metaRoles.some((role) => userRoles.includes(role))
   return permissionAllowed && roleAllowed
+}
+
+/** 仅用于入口显示，后端独立验证当前账号。 */
+export function canConfigureWorkReports() {
+  storedAccessRevision.value
+  return localStorage.getItem('user_name') === 'williamzhao'
 }
 
 export function canManageDepartments() {

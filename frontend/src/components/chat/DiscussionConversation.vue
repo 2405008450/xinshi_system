@@ -9,7 +9,7 @@
       <template v-for="(message, index) in messages" :key="message.id">
         <div v-if="showMessageDates && (!index || chatDayKey(message.createdAt) !== chatDayKey(messages[index - 1].createdAt))" class="discussion-chat__date">{{ formatMessageDay(message.createdAt) }}</div>
         <article :data-message-id="message.id" :ref="el=>messageInteractions.observe(el,message)" class="discussion-chat__message" :class="{ 'is-own': message.senderUserId === currentUserId }">
-          <div class="discussion-chat__meta"><strong v-if="!message.recalledAt">{{ message.senderName }}</strong><time v-if="showMessageTime" :title="chatMessageTime(message.createdAt)">{{ chatMessageTime(message.createdAt) }}</time></div>
+          <div class="discussion-chat__meta"><strong v-if="!message.recalledAt">{{ message.senderName }}</strong><time v-if="showMessageTime && timestampIndexes.has(index)" :title="chatMessageTime(message.createdAt)">{{ chatMessageTime(message.createdAt) }}</time></div>
           <p v-if="message.recalledAt" class="discussion-chat__recalled">{{ message.senderName }}撤回了一条消息</p>
           <template v-else>
             <div class="discussion-chat__bubble"><blockquote v-if="message.reply" role="button" tabindex="0" @click="references.open(message.reply.id,$event)" @keydown.enter="references.open(message.reply.id,$event)">{{ message.reply.senderName }}：{{ screenshotPreview(message.reply.content) }}</blockquote><p @click="openMessageReferences(message,$event)"><ScreenshotText :text="message.content" :chat-message-id="message.id" chat-kind="discussion" /></p></div>
@@ -37,14 +37,15 @@ import ChatMessageReferences from './ChatMessageReferences.vue'
 import { useChatMessageInteractions } from '@/composables/useChatMessageInteractions'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { chatRequest } from '@/api/projectChat'
-import { chatDayKey } from '@/utils/chatLayout'
+import { chatDayKey, chatTimestampIndexes } from '@/utils/chatLayout'
 import { useChatTimeDisplay } from '@/composables/useChatTimeDisplay'
 const { formatMessageTime: chatMessageTime, formatMessageDay, showMessageTime, showMessageDates } = useChatTimeDisplay()
 import { formatBusinessDateTime } from '@/utils/dateTime'
 import { subscribe } from '@/utils/realtimeSocket'
-const props = defineProps({ projectId: { type: String, required: true }, active: Boolean })
+const props = defineProps({ projectId: { type: String, required: true }, active: Boolean, targetMessageId: { type: String, default: '' } })
 const currentUserId = localStorage.getItem('user_id') || ''
 const messages = ref([]), list = ref(), input = ref(), content = ref(''), replyTo = ref(null)
+const timestampIndexes = computed(() => chatTimestampIndexes(messages.value))
 const references=ref()
 const messageInteractions=useChatMessageInteractions({projectId:computed(()=>props.projectId),projectType:computed(()=>'discussion'),messages,active:computed(()=>props.active)})
 function openMessageReferences(message,event){if(message.reply||messageInteractions.stats[message.id]?.replyCount)references.value.open(message.reply?.id||message.id,event)}
@@ -121,6 +122,10 @@ async function recall(message) {
 watch(keyword, value => { clearTimeout(searchTimer); controller?.abort(); ++requestVersion; searchTimer = setTimeout(() => refresh(true), value ? 400 : 0) })
 watch(() => props.active, active => { clearInterval(pollTimer); if (active) { refresh(!messages.value.length); pollTimer = setInterval(() => refresh(), 5000) } else { controller?.abort(); ++requestVersion; loading.value = false } }, { immediate: true })
 const unsubscribe = subscribe('chat_sessions_changed', () => { if (props.active && !sending.value) refresh() })
+let locatedTarget = ''
+watch(() => [props.active, props.targetMessageId, loading.value, storageReady.value], ([active, id, busy, ready]) => {
+  if (active && id && !busy && ready && locatedTarget !== id) { locatedTarget = id; locate(id) }
+}, { flush: 'post' })
 onBeforeUnmount(() => { disposed = true; controller?.abort(); clearInterval(pollTimer); clearTimeout(searchTimer); unsubscribe() })
 async function locate(id) {
   try {
@@ -129,7 +134,7 @@ async function locate(id) {
       const [older,newer]=await Promise.all([chatRequest(`${base}/messages`,{params:{before:(BigInt(target)+1n).toString(),limit:30}}),chatRequest(`${base}/messages`,{params:{after:target,limit:30}})])
       merge([...(older.items||[]),...(newer.items||[])])
     }
-    await nextTick();list.value?.querySelector(`[data-message-id="${target}"]`)?.scrollIntoView({block:'center'})
+    await nextTick();const element=list.value?.querySelector(`[data-message-id="${target}"]`);element?.scrollIntoView({block:'center'});element?.animate([{background:'#fef3c7'},{background:'transparent'}],{duration:2200})
   }catch(e){error.value=e.detail||e.message||'定位消息失败'}
 }
 defineExpose({ openSearch: () => { searchOpen.value = true }, locate })

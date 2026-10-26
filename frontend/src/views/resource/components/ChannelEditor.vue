@@ -1,5 +1,5 @@
 <template>
-  <DraggableFormDialog v-model="visible" width="min(960px, calc(100vw - 32px))" top="5vh" class="channel-dialog" destroy-on-close>
+  <DraggableFormDialog v-model="visible" width="min(960px, calc(100vw - 32px))" top="5vh" class="channel-dialog" append-to-body destroy-on-close>
     <template #header>
       <DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="editId ? (isAccount ? '编辑账号' : '编辑渠道') : (isAccount ? '新增账号' : '新增渠道')" placeholder="搜索字段，如维护人" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" />
     </template>
@@ -43,7 +43,7 @@ import { categoryOptions } from '@/utils/resourceDevelopment'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import { aggregateChannelMembers, channelMembersText } from '@/utils/resourceChannels'
 
-const props = defineProps({ options: { type: Object, required: true } })
+const props = defineProps({ options: { type: Object, required: true }, defaultUserId: {type:String,default:''} })
 const emit = defineEmits(['saved'])
 const visible = ref(false), loading = ref(false), saving = ref(false), editId = ref(null), formRef = ref(null), bodyRef = ref(null), conflict = ref(false), failed = ref(false), draft = ref(null)
 const retained = reactive({ maintainers: [], users: [] })
@@ -95,7 +95,7 @@ async function readLatest() {
 }
 async function open(row, category = '', parent = null) {
   request?.abort(); sequence++; editId.value = row?.id || null
-  Object.assign(form, empty(), { category }); Object.assign(retained, { maintainers: [], users: [] })
+  Object.assign(form, empty(), { category, user_ids: props.defaultUserId ? [props.defaultUserId] : [] }); Object.assign(retained, { maintainers: [], users: [] })
   originalAccounts.value = []; accountCandidates.value = []; parentName.value = parent?.name || ''; loading.value = false
   if (parent) Object.assign(form, { category: parent.category, parent_id: parent.id, parent_revision: parent.revision, is_group: false })
   draft.value = null; conflict.value = false; failed.value = false; clearFieldSearch(); visible.value = true

@@ -19,13 +19,14 @@ def rename(room_id: UUID, payload: DiscussionNameWrite, db=Depends(get_db), user
     import chat_session_category_service as categories
     from chat_session_category_models import ChatSessionCategory, ChatSessionCategoryFolder, category_now
     categories.require_manager(db, user)
-    service.require_room(db, user, room_id, storage=False)
+    room = service.require_room(db, user, room_id, storage=False)
     if not categories.folder_schema_ready(db):
         raise HTTPException(503, '讨论名称配置尚未就绪')
     row = db.query(ChatSessionCategory).filter_by(id=room_id).with_for_update().first()
     if row is not None and row.revision != payload.revision:
         raise HTTPException(409, '讨论名称已被其他人修改，请重新加载后重试')
-    name = categories.validate_name(db, payload.name, room_id, service.RESOURCE_ROOT)
+    parent_key = room.get('parent_key', service.RESOURCE_ROOT)
+    name = categories.validate_name(db, payload.name, room_id, parent_key)
     if row is None:
         row = ChatSessionCategory(id=room_id, name=name, updated_by=user.id)
         db.add(row)
@@ -41,7 +42,7 @@ def rename(room_id: UUID, payload: DiscussionNameWrite, db=Depends(get_db), user
         row.revision += 1
         row.updated_by, row.updated_at = user.id, category_now()
     categories.commit(db)
-    return dict(categories.serialize(row), parent_key=service.RESOURCE_ROOT)
+    return dict(categories.serialize(row), parent_key=parent_key)
 
 
 class MessageCreate(BaseModel):

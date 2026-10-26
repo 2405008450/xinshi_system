@@ -1,5 +1,5 @@
 <template>
-  <el-menu-item :index="index" class="sidebar-navigation-item">
+  <el-menu-item :index="index" :aria-label="label" :title="label" class="sidebar-navigation-item">
     <el-icon v-if="icon"><component :is="icon" /></el-icon>
     <template #title>
       <span class="sidebar-navigation-title">

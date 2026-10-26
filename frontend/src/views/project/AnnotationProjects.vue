@@ -1,12 +1,12 @@
 <template>
-  <el-card class="common-page-card annotation-card compact-list-card">
+  <el-card class="common-page-card annotation-card compact-list-card" :style="progressOnly || createOnly || editorOnly ? {display:'none'} : undefined">
     <template #header>
       <div class="card-header">
         <span>{{ props.orderScope === 'child' ? (effectiveOrderScope === 'grandchild' ? '标注三级订单管理' : '标注子订单管理') : '标注项目管理' }}</span>
         <div class="header-actions">
           <template v-if="!props.conversationPicker">
           <ProjectExportMenu v-if="!deleteMode" module="annotation" :build-filters="buildFilters" />
-          <el-button v-if="props.orderScope === 'child'" @click="router.push({ name: 'AnnotationProjectDetails' })">返回订单列表</el-button>
+          <el-button v-if="props.orderScope === 'child'" @click="props.embedded ? emit('close-child-management') : router.push({ name: 'AnnotationProjectDetails' })">返回订单列表</el-button>
           <el-button v-if="props.orderScope !== 'child'" @click="departmentRosterVisible=true">标注项目部</el-button>
           <el-button v-if="props.orderScope !== 'child'" @click="goChildManagement()">子订单管理</el-button>
           <el-button v-if="props.orderScope === 'child' && effectiveOrderScope !== 'grandchild' && canWrite && !deleteMode" @click="openChildCreate(null, false, true)">分拆订单</el-button>
@@ -17,7 +17,7 @@
           </template>
           <TableColumnSettings v-model="visibleColumnKeys" :columns="configurableTableColumns" :column-count="2" hint="订单号始终显示，点击可查看详情。" @reset="resetColumns" />
           <template v-if="!props.conversationPicker">
-          <el-button v-if="canAdjustManagers && !deleteMode" @click="managerTransferVisible = true">交接</el-button>
+          <el-button v-if="canAdjustManagers && !deleteMode" @click="managerTransferVisible = true">交接与记录</el-button>
           <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
           <el-button v-if="canWrite && !deleteMode && props.orderScope !== 'child'" type="primary" @click="handleAdd">新增标注项目</el-button>
           </template>
@@ -54,7 +54,7 @@
 
     <el-alert v-if="capabilitiesLoaded && !supportsGrandchildOrders" title="当前后端尚未启用三级订单、片区和字段继承；订单、子订单仍可正常使用。" type="info" :closable="false" show-icon />
     <el-alert v-if="capabilitiesLoaded && !supportsLanguageRegions" title="当前后端尚未启用语种地区，暂不能录入城市、区县、街道；其他项目字段仍可正常使用。" type="info" :closable="false" show-icon />
-    <AnnotationOrderTable :conversation-picker="props.conversationPicker" ref="projectTableRef" :supports-grandchild-orders="supportsGrandchildOrders" :rows="tableData" :columns="visibleTableColumns" :editable="canWrite" :delete-mode="deleteMode" :revision="childRevision" :area-ids="supportsGrandchildOrders ? searchForm.areaIds : []" :row-class="projectRowClass" v-loading="loading" class="annotation-table" @selection-change="handleDeleteSelectionChange" @create="openChildCreate" @manage="row => goChildManagement(row.id, row.orderLevel)" @updated="handleOrderUpdated">
+    <AnnotationOrderTable :conversation-picker="props.conversationPicker" :picker-action-label="props.pickerActionLabel" ref="projectTableRef" :supports-grandchild-orders="supportsGrandchildOrders" :rows="tableData" :columns="visibleTableColumns" :editable="canWrite" :delete-mode="deleteMode" :revision="childRevision" :area-ids="supportsGrandchildOrders ? searchForm.areaIds : []" :row-class="projectRowClass" v-loading="loading" class="annotation-table" @selection-change="handleDeleteSelectionChange" @create="openChildCreate" @manage="row => goChildManagement(row.id, row.orderLevel)" @updated="handleOrderUpdated">
       <template #header="{ column }">
           <AnnotationRegionColumnHeader v-if="column.key === 'regionSummary'" v-model:level="regionDisplayLevel" :definition="regionFilterDefinition" :model="searchForm" @update-field="(key,value)=>searchForm[key]=value" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch" />
           <ConfiguredColumnHeaderFilter v-else-if="headerFilterDefinition(column.key)" :definition="headerFilterDefinition(column.key)" :model-value="searchForm[headerFilterDefinition(column.key).key]" @update:model-value="searchForm[headerFilterDefinition(column.key).key]=$event" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch">
@@ -67,6 +67,7 @@
             <AnnotationProjectDetailPopover v-if="row.id" :project-id="row.id" :summary="row" :editable="canWrite && !deleteMode" @updated="handleOrderUpdated">
               <template #reference><el-button type="primary" link class="order-no-link business-clickable-cell" :title="row.orderNo" @click.stop>{{ row.orderNo }}</el-button></template>
             </AnnotationProjectDetailPopover>
+            <div v-if="row.childProgressCount > 0" class="order-cell-progress-read"><AnnotationChildProgressNotice :project-id="row.id" :count="row.childProgressCount || 0" :record-keys="row.childProgressKeys || []" :has-children="row.childCount > 0" /></div>
             <div class="order-cell-secondary">
               <el-tag v-if="row.parentProjectId" size="small" type="warning">{{ row.orderLevel === 2 ? '三级订单' : '子订单' }}</el-tag>
               <el-button v-if="row.orderLevel < (supportsGrandchildOrders ? 2 : 1)" link type="primary" @click="props.conversationPicker ? toggle() : goChildManagement(row.id, row.orderLevel)">{{ row.orderLevel === 1 ? '三级订单' : '子订单' }} {{ row.childCount || 0 }}</el-button>
@@ -176,7 +177,8 @@
           <span v-else>{{ textValue(row[column.key]) }}</span>
         </template>
       <template #actions="{ row }">
-          <el-button v-if="props.conversationPicker" link type="primary" :disabled="props.joinedProjectIds.includes(row.id)" :loading="props.joiningProjectIds.includes(row.id)" @click="emit('join-conversation', row)">{{ props.joinedProjectIds.includes(row.id) ? '已关注' : '加入关注' }}</el-button>
+          <AnnotationConversationEntry v-if="props.conversationPicker && props.pickerActionLabel !== '加入关注'" :project-id="row.id" @joined="emit('join-conversation',row)" />
+          <el-button v-else-if="props.conversationPicker" link type="primary" :disabled="props.joinedProjectIds.includes(row.id)" :loading="props.joiningProjectIds.includes(row.id)" @click="emit('join-conversation', row)">{{ props.joinedProjectIds.includes(row.id) ? props.pickerJoinedLabel : props.pickerActionLabel }}</el-button>
           <div v-else class="annotation-row-actions">
             <span class="arrangement-status-slot">
               <el-tooltip
@@ -188,10 +190,11 @@
               </el-tooltip>
             </span>
             <ProjectListRowActions
+              :annotation-project-id="row.id"
               :editable="canWrite"
               edit-in-more
               :show-start-request="canWrite"
-              :start-request-label="resourceRequestActionLabel(row.id)"
+              :start-request-label="'资源需求'"
               :extra-actions="projectRowExtraActions(row)"
               @edit="handleEdit(row)"
               @start-request="startResourceRequest(row)"
@@ -217,7 +220,7 @@
       @project-change-rejected="arrangementProject = $event"
     />
 
-    <DraggableFormDialog v-model="progressVisible" width="min(760px, calc(100vw - 32px))" top="5vh" class="annotation-progress-dialog" :before-close="closeProgressDialog" @closed="resetProgressDialog">
+    <DraggableFormDialog v-model="progressVisible" :append-to-body="embedded" :z-index="embedded ? 9995 : undefined" width="min(760px, calc(100vw - 32px))" top="5vh" class="annotation-progress-dialog" :before-close="closeProgressDialog" @closed="resetProgressDialog">
       <template #header>
         <div class="progress-dialog-heading">
           <span class="progress-dialog-title">项目进度</span>
@@ -244,12 +247,8 @@
           </div>
           <span v-if="statusEntryMode === 'status'" class="progress-current-status">当前状态：{{ statusLabel(activeProgressProject?.projectStatus) }}</span>
         </div>
-        <div v-if="progressDraftSource" class="progress-chat-source">
-          已从项目沟通带入项目进度：{{ progressDraftSource.messageCount }} 条消息 · {{ progressDraftSource.senderSummary }}，保存前可编辑
-          <el-button link type="primary" :disabled="progressBusy" @click="transferProjectDraftToCustomer">转到客户进度</el-button>
-        </div>
         <AppForm :key="statusEntryMode" ref="statusFormRef" :model="statusForm" :rules="statusRules" :disabled="progressWriting || progressTrackSwitching" label-width="76px" size="small" class="progress-entry-form">
-          <el-row :gutter="14">
+          <el-row :gutter="14" class="progress-entry-metadata">
             <el-col :xs="24" :sm="12">
               <el-form-item :label="statusEntryMode === 'progress' ? '所属状态' : '新状态'" prop="projectStatus">
                 <el-select v-model="statusForm.projectStatus" :validate-event="!progressBusy && entryTrack === 'project'" :loading="statusEntryMode === 'progress' && progressLoading" style="width:100%" @change="handleProgressStatusSelect">
@@ -269,10 +268,14 @@
               <AnnotationProgressTrackSelect :model-value="entryTrack" :disabled="progressBusy" :project-has-draft="hasProjectProgressDraft" :customer-has-draft="customerProgress.hasDraft()" @change="handleProgressTrackChange" />
             </template>
             <div class="progress-note-control">
-              <el-input ref="progressNoteInputRef" v-model="statusForm.changeNote" :validate-event="!progressBusy && entryTrack === 'project'" type="textarea" :aria-label="statusEntryMode === 'progress' ? '项目具体进度' : '变更说明'" :autosize="{ minRows: 2, maxRows: 4 }" :maxlength="statusEntryMode === 'progress' ? 10000 : 500" show-word-limit :placeholder="statusEntryMode === 'progress' ? '例如：一个语种暂时找不到合适人员' : '填写本次项目状态变化的原因或说明'" />
+              <el-input ref="progressNoteInputRef" v-model="statusForm.changeNote" :validate-event="!progressBusy && entryTrack === 'project'" type="textarea" :aria-label="statusEntryMode === 'progress' ? '项目具体进度' : '变更说明'" :rows="3" :maxlength="statusEntryMode === 'progress' ? 10000 : 500" show-word-limit :placeholder="statusEntryMode === 'progress' ? '例如：一个语种暂时找不到合适人员' : '填写本次项目状态变化的原因或说明'" />
             </div>
           </el-form-item>
         </AppForm>
+        <div v-if="progressDraftSource" class="progress-chat-source">
+          已从项目沟通带入项目进度：{{ progressDraftSource.messageCount }} 条消息 · {{ progressDraftSource.senderSummary }}，保存前可编辑
+          <el-button link type="primary" :disabled="progressBusy" @click="transferProjectDraftToCustomer">转到客户进度</el-button>
+        </div>
         <div class="progress-entry-actions">
           <div class="progress-entry-mode">
             <span class="progress-entry-mode__label">操作类型</span>
@@ -281,12 +284,11 @@
               <el-radio-button value="status"><span>切换状态</span><small v-if="projectEntryDrafts.hasDraft('status')" class="progress-draft-indicator">未保存</small></el-radio-button>
             </el-radio-group>
           </div>
-          <el-button type="primary" :loading="progressSubmitLoading" :disabled="progressSubmitDisabled" @click="submitProgressEntry">{{ progressSubmitLabel }}</el-button>
         </div>
       </section>
       <AnnotationCustomerProgress
         v-if="canWrite && activeProgressProject?.id" v-show="entryTrack === 'customer'" ref="customerProgressEntryRef"
-        :active="entryTrack === 'customer'"
+        :active="entryTrack === 'customer'" :project-status-label="statusLabel(activeProgressProject?.projectStatus)"
         :form="customerProgress.form" :editing-id="customerProgress.editingId" :draft-source="customerProgress.draftSource"
         :loading="customerProgress.loading" :load-error="customerProgress.loadError" :busy="progressBusy" :saving="progressWriting || progressTrackSwitching"
         :submit-label="progressSubmitLabel" @submit="submitProgressEntry"
@@ -298,7 +300,12 @@
           <AnnotationProgressTrackSelect :model-value="entryTrack" :disabled="progressBusy" :project-has-draft="hasProjectProgressDraft" :customer-has-draft="customerProgress.hasDraft()" @change="handleProgressTrackChange" />
         </template>
       </AnnotationCustomerProgress>
-      <div class="progress-history-header">
+      <AnnotationAnnotatorProgress v-if="activeProgressProject?.id" v-show="entryTrack === 'annotator'" ref="annotatorProgressRef" :project-id="activeProgressProject.id" :project-title="`${activeProgressProject.orderNo} · ${activeProgressProject.projectName}`" :active="progressVisible && progressDialogTab === 'progress' && entryTrack === 'annotator'" :editable="canWrite" :project-status-label="statusLabel(activeProgressProject?.projectStatus)">
+        <template #history-notice><AnnotationChildProgressNotice show-label :project-id="activeProgressProject.id" :count="activeProgressProject.childProgressCount || 0" :record-keys="activeProgressProject.childProgressKeys || []" :has-children="activeProgressProject.childCount > 0" /></template>
+        <template #track><AnnotationProgressTrackSelect :model-value="entryTrack" :disabled="progressBusy" @change="handleProgressTrackChange" /></template>
+      </AnnotationAnnotatorProgress>
+      <AnnotationChildProgressNotice show-label v-if="activeProgressProject?.id && entryTrack !== 'annotator'" :project-id="activeProgressProject.id" :count="activeProgressProject.childProgressCount || 0" :record-keys="activeProgressProject.childProgressKeys || []" :has-children="activeProgressProject.childCount > 0" />
+      <div v-if="entryTrack !== 'annotator'" class="progress-history-header">
         <b>{{ entryTrack === 'project' ? '项目进度记录' : '客户进度记录' }}</b>
         <AnnotationProgressTrackSelect v-if="!canWrite" :model-value="entryTrack" :disabled="progressBusy" @change="handleProgressTrackChange" />
       </div>
@@ -382,11 +389,14 @@
       </el-tabs>
       <AnnotationProgressDeliveryDialog ref="progressDeliveryRef" />
       <template #footer>
+        <el-button :disabled="!activeProgressProject?.id" @click="progressComparisonRef.open(activeProgressProject)">三进度对比</el-button>
         <el-button v-if="canWrite && progressDialogTab === 'progress'" type="primary" :loading="progressSubmitLoading" :disabled="progressSubmitDisabled" @click="submitProgressEntry">{{ progressSubmitLabel }}</el-button>
         <el-button v-if="progressSearchReturnAvailable" :disabled="progressBusy" @click="returnToProgressSearch">返回检索结果</el-button>
         <el-button :disabled="progressBusy" @click="closeProgressDialog">关闭</el-button>
       </template>
     </DraggableFormDialog>
+
+    <AnnotationProgressComparison ref="progressComparisonRef" />
 
     <DraggableFormDialog
       v-model="progressDeleteVisible"
@@ -412,7 +422,7 @@
       </template>
     </DraggableFormDialog>
 
-    <DraggableFormDialog v-model="dialogVisible" class="annotation-editor-dialog" width="min(1080px, calc(100vw - 32px))" top="5vh" :before-close="closeMaterialEditor" @closed="onEditorClosed">
+    <DraggableFormDialog v-model="dialogVisible" :append-to-body="embedded" class="annotation-editor-dialog" width="min(1080px, calc(100vw - 32px))" top="5vh" :before-close="closeMaterialEditor" @closed="onEditorClosed">
       <template #header>
         <DialogFieldSearchHeader
           ref="fieldSearchRef"
@@ -579,7 +589,7 @@
           </el-tab-pane>
           <el-tab-pane v-if="form.orderLevel < (supportsGrandchildOrders ? 2 : 1)" :label="form.orderLevel === 1 ? '三级订单' : '子订单'" name="children" lazy>
             <AnnotationChildOrderPanel v-if="form.id" :parent="form" :editable="canWrite" :revision="childRevision"
-              :row-extra-actions="projectRowExtraActions" :start-request-label="resourceRequestActionLabel"
+              :row-extra-actions="projectRowExtraActions" :start-request-label="() => '资源需求'"
               @create="openChildCreate" @navigate="dialogVisible=false" @start-request="startChildResourceRequest" @extra-command="handleChildProjectExtraAction" />
             <el-alert v-else title="请先保存订单，再创建子订单。" type="info" :closable="false" />
           </el-tab-pane>
@@ -610,11 +620,16 @@
       :can-transfer="canDirectTransferManager"
       @transferred="handleOrderUpdated"
     />
-    <DraggableFormDialog v-model="departmentRosterVisible" title="标注项目部" width="min(1000px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close><DepartmentRoster department-name="标注项目部" /><template #footer><el-button @click="departmentRosterVisible=false">关闭</el-button></template></DraggableFormDialog>
+    <DraggableFormDialog v-model="departmentRosterVisible" title="标注项目部" class="department-roster-dialog" width="min(1000px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close><DepartmentRoster department-name="标注项目部" /><template #footer><el-button @click="departmentRosterVisible=false">关闭</el-button></template></DraggableFormDialog>
+    <ResourceRequestEditor v-if="resourceRequestSource" editor-only :source-request="resourceRequestSource" @requests-changed="loadResourceRequestStatuses" @editor-closed="resourceRequestSource=null;loadResourceRequestStatuses()" />
   </el-card>
 </template>
 
 <script setup>
+import { managedProjectFilters } from "@/utils/managedProjectFilters"
+import AnnotationProgressComparison from '@/components/annotation/AnnotationProgressComparison.vue'
+import AnnotationAnnotatorProgress from '@/components/annotation/AnnotationAnnotatorProgress.vue'
+import AnnotationConversationEntry from '@/components/chat/AnnotationConversationEntry.vue'
 import DepartmentRoster from '@/components/common/DepartmentRoster.vue'
 const departmentRosterVisible=ref(false)
 import ProjectExportMenu from '@/components/common/ProjectExportMenu.vue'
@@ -625,7 +640,7 @@ import AnnotationInheritancePanel from '@/components/annotation/AnnotationInheri
 import AnnotationChildOrderPanel from '@/components/annotation/AnnotationChildOrderPanel.vue'
 import AnnotationChildCreateDialog from '@/components/annotation/AnnotationChildCreateDialog.vue'
 import { customFieldRules } from '@/utils/annotationCustomFieldRules.js'
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CaretBottom, Check, EditPen, MagicStick } from '@element-plus/icons-vue'
@@ -660,6 +675,8 @@ import AnnotationProjectDetailPopover from '@/components/annotation/AnnotationPr
 import AnnotationProgressSearchDialog from '@/components/annotation/AnnotationProgressSearchDialog.vue'
 import AnnotationCustomerProgress from '@/components/annotation/AnnotationCustomerProgress.vue'
 import AnnotationProgressTrackSelect from '@/components/annotation/AnnotationProgressTrackSelect.vue'
+import AnnotationChildProgressNotice from '@/components/annotation/AnnotationChildProgressNotice.vue'
+import '@/components/annotation/annotationProgressHistory.css'
 import AnnotationCustomerProgressTimeline from '@/components/annotation/AnnotationCustomerProgressTimeline.vue'
 import { useAnnotationCustomerProgress } from '@/composables/useAnnotationCustomerProgress'
 import AnnotationProgressDeliveryDialog from '@/components/chat/AnnotationProgressDeliveryDialog.vue'
@@ -697,8 +714,8 @@ import { businessDateTimeInputValue, formatBusinessDateTimeMinute as formatDateT
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 import { isValidAnnotationOrderNo, normalizeAnnotationOrderNo } from '@/utils/annotationOrderNo'
 
-const props = defineProps({ orderScope: { type: String, default: 'parent' }, conversationPicker: Boolean, joinedProjectIds: { type: Array, default: () => [] }, joiningProjectIds: { type: Array, default: () => [] } })
-const emit = defineEmits(['join-conversation'])
+const props = defineProps({ embedded: Boolean, myProjects: Boolean, createOnly: Boolean, editorOnly: Boolean, editorProjectId: String, createRequest: Number, childParentId: String, childOrderScope: {type:String,default:'child'}, progressOnly: Boolean, progressProjectId: String, orderScope: { type: String, default: 'parent' }, conversationPicker: Boolean, pickerActionLabel: {type:String,default:'加入会话'}, pickerJoinedLabel: {type:String,default:'已加入会话'}, joinedProjectIds: { type: Array, default: () => [] }, joiningProjectIds: { type: Array, default: () => [] } })
+const emit = defineEmits(['join-conversation', 'open-conversation','progress-closed','open-child-management','close-child-management'])
 const canWrite = !props.conversationPicker && hasPermission('projects:write')
 const canAdjustManagers = !props.conversationPicker && hasPermission(['projects:read', 'projects:write'])
 const managerReasonDialog = ref(null), managerEditBaseline = ref(null), annotationManagerUsers = ref([])
@@ -711,10 +728,11 @@ const childCreateVisible = ref(false), childCreateParent = ref(null), childCreat
 const parentFilterId = ref(''), parentFilterOptions = ref([])
 let parentFilterController, parentFilterRequestId = 0
 const supportsGrandchildOrders = ref(false), capabilitiesLoaded = ref(false)
-const effectiveOrderScope = computed(()=>props.orderScope === 'child' ? (supportsGrandchildOrders.value && route.query.orderScope === 'grandchild' ? 'grandchild' : 'child') : props.orderScope)
+const effectiveOrderScope = computed(()=>props.orderScope === 'child' ? (supportsGrandchildOrders.value && (props.embedded ? props.childOrderScope : route.query.orderScope) === 'grandchild' ? 'grandchild' : 'child') : props.orderScope)
 const areaOptions=ref([])
 const loadAreas=async()=>{if(!supportsGrandchildOrders.value)return;try{areaOptions.value=await annotationApi.getAnnotationAreas()}catch(error){ElMessage.error(error.detail||'片区加载失败')}}
 const handleOrderUpdated=async()=>{for(const id of Object.keys(detailCache))delete detailCache[id];await fetchData()}
+defineExpose({refresh:handleOrderUpdated})
 let stopManagerSync = () => {}
 onMounted(() => { stopManagerSync = subscribeAnnotationManagersUpdated(() => { void handleOrderUpdated() }) })
 onBeforeUnmount(() => stopManagerSync())
@@ -731,7 +749,7 @@ const searchParentFilters = async (keyword = '') => {
   }
   catch (error) { if (error.code !== 'ERR_CANCELED') ElMessage.error(error.detail || '上级订单加载失败') }
 }
-const goChildManagement = (id, level = 0) => router.push({ name: 'AnnotationChildOrders', query: { ...(id ? { parentProjectId: id } : {}), ...(level === 1 ? { orderScope: 'grandchild' } : {}) } })
+const goChildManagement = (id, level = 0) => props.embedded ? emit('open-child-management',{parentProjectId:id||'',orderScope:level===1?'grandchild':'child'}) : router.push({ name: 'AnnotationChildOrders', query: { ...(id ? { parentProjectId: id } : {}), ...(level === 1 ? { orderScope: 'grandchild' } : {}) } })
 const openParent = async (row) => { const parent = await annotationApi.getAnnotationProject(row.parentProjectId); await handleEdit(parent,true) }
 const openChildCreate = async (parent, single = false, split = false) => {
   try { childCreateParent.value = parent?.id ? await annotationApi.getAnnotationProject(parent.id) : parentFilterId.value ? await annotationApi.getAnnotationProject(parentFilterId.value) : null; if(!supportsGrandchildOrders.value && childCreateParent.value?.orderLevel === 1){ElMessage.info('当前后端尚未启用三级订单');return} childCreateSingle.value = single; childCreateSplit.value = split; childCreateVisible.value = true }
@@ -748,13 +766,21 @@ const route = useRoute()
 const router = useRouter()
 const { openChat, state: chatDockState } = useProjectChatDock()
 const { load: loadResourceRequestStatuses, actionLabel: resourceRequestActionLabel } = useResourceRequestStatuses('annotation')
-const startResourceRequest = (row) => router.push({ name: 'ResourceRequests', query: { sourceType: 'annotation', sourceProjectId: row.id } })
-const openProjectChat = (row) => openChat({
+const ResourceRequestEditor = defineAsyncComponent(() => import('@/views/resource/ResourceRequests.vue'))
+const resourceRequestSource = ref(null)
+const startResourceRequest = (row) => {
+  if (!resourceRequestSource.value) resourceRequestSource.value = { sourceType: 'annotation', sourceProjectId: row.id }
+}
+const openProjectChat = (row) => {
+  const key = openChat({
   projectId: row.id,
   projectType: 'annotation',
   title: row.projectName || '未命名标注项目',
   subtitle: row.orderNo || '',
-})
+  })
+  if (props.embedded) emit('open-conversation')
+  return key
+}
 const projectExtraActions = [
   { command: 'project-chat', label: '沟通' },
   { command: 'trial-workspace', label: '试标/试采管理' },
@@ -798,7 +824,6 @@ const handleProjectExtraAction = (command, row) => {
   }
 }
 const startChildResourceRequest = (row) => {
-  dialogVisible.value = false
   startResourceRequest(row)
 }
 const handleChildProjectExtraAction = (command, row) => {
@@ -895,10 +920,11 @@ const statusValidating=ref(false), statusSubmitting=ref(false), statusFormRef=re
 const projectEntryDrafts=useAnnotationProgressEntryDrafts()
 const {mode:statusEntryMode,form:statusForm,source:progressDraftSource,stageKey:selectedProgressStageKey}=projectEntryDrafts
 const hasProjectProgressDraft=computed(()=>projectEntryDrafts.hasDraft('progress')||projectEntryDrafts.hasDraft('status'))
+const annotatorProgressRef=ref()
 const entryTrack=ref('project'), customerProgressEntryRef=ref(), progressTrackSwitching=ref(false)
 const progressDeliveryRef=ref()
 const chooseProgressDelivery=()=>progressDeliveryRef.value.request(`${activeProgressProject.value?.orderNo||''} · ${activeProgressProject.value?.projectName||''}`,activeProgressProject.value?.id)
-const progressWriting=computed(()=>statusSubmitting.value || customerProgress.submitting || progressDeleteSubmitting.value)
+const progressWriting=computed(()=>statusSubmitting.value || customerProgress.submitting || !!annotatorProgressRef.value?.busy || progressDeleteSubmitting.value)
 const progressBusy=computed(()=>progressWriting.value || statusValidating.value || customerProgress.validating || progressTrackSwitching.value)
 const statusRules={
   projectStatus:[
@@ -938,6 +964,7 @@ const languageReserveById=reactive({}), languageReserveLoading=ref(false), langu
 const projectStatusSavingIds=ref(new Set())
 const prioritySavingIds=ref(new Set())
 const detailCache=reactive({}), statusHistoryCache=reactive({}), assignmentCustomFields=ref([]), pagination=reactive({page:1,limit:10,total:0})
+const progressComparisonRef=ref()
 const progressVisible=ref(false), progressLoading=ref(false), progressRows=ref([]), activeProgressProject=ref(null), progressDialogTab=ref('progress')
 const separateChatOpened = computed(() => chatDockState.windows.some(item => item.projectType === 'annotation' && item.projectId === String(activeProgressProject.value?.id)))
 const progressSearchVisible=ref(false), queuedProgressSearchItem=ref(null), progressSearchReturnAvailable=ref(false), returnToSearchAfterProgressClose=ref(false)
@@ -950,10 +977,10 @@ const customerProgress=useAnnotationCustomerProgress({
   onEdit:()=>{entryTrack.value='customer'},
   onSaved:async()=>{targetProgressRecordId.value='';entryTrack.value='customer';await refreshCustomerProgressSummary()},
 })
-const progressSubmitLabel=computed(()=>entryTrack.value==='customer'?(customerProgress.editingId?'保存客户进度':'添加客户进度'):(statusEntryMode.value==='progress'?'添加项目进度':'确认切换项目状态'))
-const progressSubmitLoading=computed(()=>statusSubmitting.value||customerProgress.submitting)
-const progressSubmitDisabled=computed(()=>progressBusy.value||(entryTrack.value==='customer'&&(customerProgress.loading||Boolean(customerProgress.loadError))))
-const submitProgressEntry=()=>entryTrack.value==='customer'?customerProgress.save():confirmStatusChange()
+const progressSubmitLabel=computed(()=>entryTrack.value==='annotator'?'添加标注员情况':entryTrack.value==='customer'?(customerProgress.editingId?'保存客户进度':'添加客户进度'):(statusEntryMode.value==='progress'?'添加项目进度':'确认切换项目状态'))
+const progressSubmitLoading=computed(()=>statusSubmitting.value||customerProgress.submitting||!!annotatorProgressRef.value?.busy)
+const progressSubmitDisabled=computed(()=>progressBusy.value||(entryTrack.value==='annotator'&&!!annotatorProgressRef.value?.unavailable)||(entryTrack.value==='customer'&&(customerProgress.loading||Boolean(customerProgress.loadError))))
+const submitProgressEntry=()=>entryTrack.value==='annotator'?annotatorProgressRef.value?.save():entryTrack.value==='customer'?customerProgress.save():confirmStatusChange()
 const progressGroups=computed(()=>groupAnnotationProgressRows(progressRows.value,activeProgressProject.value?.projectStatus))
 const progressStatusOptions=computed(()=>{const reached=new Set(progressGroups.value.map((group)=>group.status));if(activeProgressProject.value?.projectStatus)reached.add(activeProgressProject.value.projectStatus);return statusOptions.filter((item)=>reached.has(item.value))})
 const availableEntryStatusOptions=computed(()=>statusEntryMode.value==='progress'?progressStatusOptions.value:statusOptions)
@@ -1057,10 +1084,10 @@ const languageItemLabel=(item)=>item.mode==='direction'?`${languageName(item.sou
 const buildGeneratedProjectName=()=>{const labels=form.languageItems.map(languageItemLabel).filter(Boolean);const directionSummary=labels.length>3?`${labels.slice(0,3).join('、')}等方向`:labels.join('、');const typeSummary=form.projectTypes.map((value)=>projectTypeMap[value]||value).join('、');const clientName=form.clientShortName?.trim();if(!clientName&&!directionSummary&&!typeSummary)return '';return `【${[clientName,projectNameDate().replaceAll('-',''),directionSummary,typeSummary].filter(Boolean).join('-')}】`}
 const detailRow=(row)=>detailCache[row.id]||row
 
-const buildFilters=()=>{ensureDynamicFilterModel();return {keyword:searchForm.keyword.trim()||undefined,field_filters:serializeFieldFilters(searchForm,annotationFilterFields.value.filter(item=>item.key!=='areaIds')),sort:listSort.value,order_scope:effectiveOrderScope.value,area_ids:supportsGrandchildOrders.value && searchForm.areaIds?.length?searchForm.areaIds:undefined,parent_project_id:props.orderScope === 'child' ? (parentFilterId.value || undefined) : undefined}}
+const buildFilters=()=>{ensureDynamicFilterModel();return {conversation_picker:props.conversationPicker ? '1' : undefined,keyword:searchForm.keyword.trim()||undefined,field_filters:managedProjectFilters(serializeFieldFilters(searchForm,annotationFilterFields.value.filter(item=>item.key!=='areaIds')), props.myProjects, localStorage.getItem('user_id')),sort:listSort.value,order_scope:effectiveOrderScope.value,area_ids:supportsGrandchildOrders.value && searchForm.areaIds?.length?searchForm.areaIds:undefined,parent_project_id:props.orderScope === 'child' ? (parentFilterId.value || undefined) : undefined}}
 const pageLanguageIds=(rows)=>[...new Set((rows||[]).flatMap((row)=>(row.languageItems||[]).flatMap((item)=>[item.sourceLanguageId,item.targetLanguageId])).filter(Boolean))]
 const loadPageLanguageReserves=async(rows)=>{const ids=pageLanguageIds(rows);const current=++languageReserveRequestId;languageReserveLoading.value=Boolean(ids.length);languageReserveError.value='';for(const key of Object.keys(languageReserveById))delete languageReserveById[key];if(!ids.length)return;try{const result=await annotationApi.lookupAnnotationLanguageReserves(ids);if(current!==languageReserveRequestId)return;for(const item of result?.items||[])languageReserveById[item.languageId]=item}catch(error){if(current!==languageReserveRequestId)return;languageReserveError.value=error?.detail||'请稍后重试'}finally{if(current===languageReserveRequestId)languageReserveLoading.value=false}}
-const fetchData=async()=>{requestController?.abort();requestController=new AbortController();const current=++requestId;loading.value=true;const filters=buildFilters();try{const page=await annotationApi.getAnnotationProjectPage({skip:(pagination.page-1)*pagination.limit,limit:pagination.limit,...filters},{signal:requestController.signal});if(current!==requestId)return;tableData.value=Array.isArray(page?.items)?page.items:[];expandedProjectIds.value=expandedProjectIds.value.filter((id)=>tableData.value.some((row)=>row.id===id && row.childCount>0));pagination.total=page?.total||0;childRevision.value++;await loadPageLanguageReserves(tableData.value)}catch(error){if(current!==requestId||error?.code==='ERR_CANCELED')return;ElMessage.error(error.detail||'网络异常，标注项目列表未刷新，请检查网络后重试')}finally{if(current===requestId)loading.value=false}}
+const fetchData=async()=>{if(props.progressOnly)return;requestController?.abort();requestController=new AbortController();const current=++requestId;loading.value=true;const filters=buildFilters();try{const page=await annotationApi.getAnnotationProjectPage({skip:(pagination.page-1)*pagination.limit,limit:pagination.limit,...filters},{signal:requestController.signal});if(current!==requestId)return;tableData.value=Array.isArray(page?.items)?page.items:[];expandedProjectIds.value=expandedProjectIds.value.filter((id)=>tableData.value.some((row)=>row.id===id && row.childCount>0));pagination.total=page?.total||0;childRevision.value++;await loadPageLanguageReserves(tableData.value)}catch(error){if(current!==requestId||error?.code==='ERR_CANCELED')return;ElMessage.error(error.detail||'网络异常，标注项目列表未刷新，请检查网络后重试')}finally{if(current===requestId)loading.value=false}}
 const handleSearch=()=>{exitDeleteMode();clearTimeout(searchTimer);pagination.page=1;fetchData()}
 const toggleProgressSort=()=>{listSort.value=progressSortActive.value?'order_no_desc':'latest_progress_desc';handleSearch()}
 const handleTextSearch=(value)=>{clearTimeout(searchTimer);if(!value?.trim())return handleSearch();searchTimer=setTimeout(handleSearch,400)}
@@ -1070,7 +1097,7 @@ const clearAdvanced=()=>{resetFilterModel(searchForm,annotationAdvancedFilterFie
 const resetSearch=()=>{searchForm.keyword='';listSort.value='order_no_desc';resetFilterModel(searchForm,annotationFilterFields.value);handleSearch()}
 const loadReferenceData=async()=>{const results=await Promise.allSettled([clientApi.getClients({skip:0,limit:500,frequent_first:true}),userApi.getUsers({skip:0,limit:500}),getProjectLanguages(),talentApi.getProjectTalentOptions('annotation'),annotationApi.getAnnotationManagerOptions()]);clients.value=results[0].status==='fulfilled'&&Array.isArray(results[0].value)?results[0].value:[];users.value=results[1].status==='fulfilled'&&Array.isArray(results[1].value)?results[1].value:[];languages.value=results[2].status==='fulfilled'?results[2].value:[];annotationTalents.value=results[3].status==='fulfilled'&&Array.isArray(results[3].value)?results[3].value:[];annotationManagerUsers.value=results[4].status==='fulfilled'&&Array.isArray(results[4].value)?results[4].value:[];projectManagerOptions.value=annotationManagerUsers.value}
 const loadDetail=async(id,force=false)=>{if(!force&&detailCache[id])return detailCache[id];detailLoadingId.value=id;try{const detail=await annotationApi.getAnnotationProject(id);detailCache[id]=detail;return detail}catch(error){ElMessage.error(error.detail||'加载项目详情失败');return null}finally{detailLoadingId.value=null}}
-const resetProgressDialog=()=>{entryTrack.value='project';customerProgress.reset();const shouldReturn=returnToSearchAfterProgressClose.value;activeProgressProject.value=null;progressRows.value=[];progressDialogTab.value='progress';targetProgressRecordId.value='';progressSearchReturnAvailable.value=false;returnToSearchAfterProgressClose.value=false;projectEntryDrafts.reset();statusFormRef.value?.clearValidate();if(route.query.tab==='chat'){const query={...route.query};delete query.tab;router.replace({query}).catch(()=>{})}if(shouldReturn){progressSearchDialogRef.value?.preserveNextOpen();progressSearchVisible.value=true}}
+const resetProgressDialog=()=>{if(props.progressOnly)emit('progress-closed');entryTrack.value='project';customerProgress.reset();const shouldReturn=returnToSearchAfterProgressClose.value;activeProgressProject.value=null;progressRows.value=[];progressDialogTab.value='progress';targetProgressRecordId.value='';progressSearchReturnAvailable.value=false;returnToSearchAfterProgressClose.value=false;projectEntryDrafts.reset();statusFormRef.value?.clearValidate();if(!props.embedded && route.query.tab==='chat'){const query={...route.query};delete query.tab;router.replace({query}).catch(()=>{})}if(shouldReturn){progressSearchDialogRef.value?.preserveNextOpen();progressSearchVisible.value=true}}
 const focusProjectProgressEntry=async()=>{await nextTick();const target=progressNoteInputRef.value?.$el;scrollFormTarget(target);focusFormTarget(target)}
 const handleStatusEntryModeChange=async(mode)=>{if(mode===statusEntryMode.value||progressBusy.value)return;statusEntryMode.value=mode;await nextTick();statusFormRef.value?.clearValidate()}
 const handleProgressStatusSelect=()=>{if(statusEntryMode.value==='progress')selectedProgressStageKey.value=''}
@@ -1108,7 +1135,7 @@ const acceptProjectChatDraft=async(draft)=>{
 // 下拉选择修改当前内容的归属，完成加载和冲突确认后才一起移动草稿。
 const handleProgressTrackChange=async(nextTrack)=>{
   if(nextTrack===entryTrack.value||progressBusy.value)return false
-  if(!canWrite){entryTrack.value=nextTrack;return true}
+  if(!canWrite || nextTrack==='annotator' || entryTrack.value==='annotator'){targetProgressRecordId.value='';entryTrack.value=nextTrack;return true}
   const previousTrack=entryTrack.value,projectId=activeProgressProject.value?.id,sourceMode=statusEntryMode.value
   const source=previousTrack==='customer'?customerProgress.getDraft():{...statusForm.value,source:progressDraftSource.value}
   const sourceHasDraft=previousTrack==='customer'?customerProgress.hasDraft():projectEntryDrafts.hasDraft(sourceMode)
@@ -1144,18 +1171,15 @@ const handleProgressTrackChange=async(nextTrack)=>{
     return false
   }finally{
     progressTrackSwitching.value=false
-    if(entryTrack.value!==previousTrack){
-      await nextTick()
-      if(entryTrack.value==='customer')await customerProgressEntryRef.value?.focusEntry()
-      else await focusProjectProgressEntry()
-    }
+    // 切换归属只更新表单与记录，不滚动或抢占输入焦点。
+    await nextTick()
   }
 }
 const transferProjectDraftToCustomer=()=>handleProgressTrackChange('customer')
 const transferCustomerDraftToProject=()=>handleProgressTrackChange('project')
 const closeProgressDialog=async(done)=>{
   if(progressBusy.value){ElMessage.warning('进度正在保存，请稍候');return false}
-  if(hasProjectProgressDraft.value||customerProgress.hasDraft()){
+  if(hasProjectProgressDraft.value||customerProgress.hasDraft()||annotatorProgressRef.value?.hasDraft()){
     try{await ElMessageBox.confirm('有未保存的进度内容，关闭后将丢失，是否关闭？','未保存的进度',{confirmButtonText:'放弃并关闭',cancelButtonText:'继续填写',type:'warning'})}catch{return false}
   }
   if(typeof done==='function')done();else progressVisible.value=false
@@ -1183,7 +1207,7 @@ const openProgress=async(row,targetRecordId='',initialTab='progress',initialTrac
   activeProgressProject.value=row;progressRows.value=[];projectEntryDrafts.reset(row.projectStatus||'')
   progressVisible.value=true;progressLoading.value=true;await nextTick();customerProgress.clearDraft();statusFormRef.value?.clearValidate()
   try{
-    const [detail,history]=await Promise.all([loadDetail(row.id),annotationOpsApi.getStatusHistory(row.id)])
+    const [detail,history]=await Promise.all([loadDetail(row.id,true),annotationOpsApi.getStatusHistory(row.id)])
     if(activeProgressProject.value?.id!==row.id)return
     if(detail){activeProgressProject.value=detail;projectEntryDrafts.setInitialProjectStatus(detail.projectStatus||row.projectStatus||'')}
     progressRows.value=Array.isArray(history)?history:[];statusHistoryCache[row.id]=progressRows.value
@@ -1197,7 +1221,8 @@ const returnToProgressSearch=async()=>{if(await closeProgressDialog()){returnToS
 
 const loadAssignmentCustomFields=async()=>{assignmentCustomFields.value=form.id?await annotationOpsApi.getCustomFields('assignment',form.id):[]}
 const projectRowClass=({row})=>String(row.id)===highlightedProjectId.value?'workbench-target-row':''
-const focusRouteProject=async(editorReady=Promise.resolve())=>{const projectId=String(route.query.projectId||'');if(!projectId)return;const detail=await loadDetail(projectId);if(!detail)return;if(detail.parentProjectId && props.orderScope !== 'child'){await router.replace({name:'AnnotationChildOrders',query:{...route.query,parentProjectId:detail.parentProjectId,...(detail.orderLevel===2?{orderScope:'grandchild'}:{})}});return;}highlightedProjectId.value=projectId;searchForm.keyword=detail.orderNo||'';pagination.page=1;const listPromise=fetchData();if(route.query.tab==='chat'){await listPromise;await openProgress(detail,'','chat')}else if(route.query.openProgress==='1'){await listPromise;await openProgress(detail);const query={...route.query};delete query.openProgress;await router.replace({query})}else if(route.query.openEditor==='1'){await editorReady;await handleEdit(detail,true);const query={...route.query};delete query.openEditor;await router.replace({query})}await Promise.all([listPromise,editorReady])}
+const isProjectListRoute=()=>!props.embedded && route.name === (props.orderScope==='child' ? 'AnnotationChildOrders' : 'AnnotationProjectDetails') && (!route.query.section || route.query.section==='projects')
+const focusRouteProject=async(editorReady=Promise.resolve())=>{if(!isProjectListRoute())return;const projectId=String(route.query.projectId||'');if(!projectId)return;const detail=await loadDetail(projectId);if(!detail || !isProjectListRoute())return;if(detail.parentProjectId && props.orderScope !== 'child'){await router.replace({name:'AnnotationChildOrders',query:{...route.query,parentProjectId:detail.parentProjectId,...(detail.orderLevel===2?{orderScope:'grandchild'}:{})}});return;}highlightedProjectId.value=projectId;searchForm.keyword=detail.orderNo||'';pagination.page=1;const listPromise=fetchData();if(route.query.tab==='chat'){await listPromise;await openProgress(detail,'','chat')}else if(route.query.openProgress==='1'){await listPromise;await openProgress(detail);const query={...route.query};delete query.openProgress;await router.replace({query})}else if(route.query.openEditor==='1'){await editorReady;await handleEdit(detail,true);const query={...route.query};delete query.openEditor;await router.replace({query})}await Promise.all([listPromise,editorReady])}
 
 const fetchClientSuggestions=fetchProjectClientSuggestions
 const handleClientSelect=(client)=>{form.clientId=client.parent_client_id||client.id||'';form.subClientId=client.sub_client_id||'';form.clientShortName=client.client_short_name||'';form.clientFullName=client.client_name||'';form.clientCode=client.client_code||'';form.managerContact=client.manager_contact||''}
@@ -1217,12 +1242,12 @@ const generateEmailSubject=()=>notifyEmailSubjectGenerated(form,ElMessage)
 const assignForm=(detail)=>{const client=clients.value.find((item)=>item.id===detail.clientId);Object.assign(form,emptyForm(),{...detail,taskImageUploadIds:detail.taskImageUploadIds||[],projectName:detail.projectName||'',clientId:detail.clientId||'',subClientId:detail.subClientId||'',clientShortName:detail.clientShortName||'',clientCode:detail.clientCode||'',clientFullName:detail.clientFullName||'',managerContact:detail.managerContact||client?.manager_contact||'',contactName:detail.contactName||'',customerOrderNo:detail.customerOrderNo||'',emailSubjectPreview:detail.emailSubjectPreview||'',statusEffectiveOn:businessDateTimeInputValue(detail.statusEffectiveOn||null)||localDateTimeValue(),languageRegion:detail.languageRegion||'',customValues:detail.customValues||{},potentialDemand:detail.potentialDemand||'',projectPath:detail.projectPath||'',quotationPath:detail.quotationPath||'',contractPath:detail.contractPath||'',taskDispatchedAt:businessDateTimeInputValue(detail.taskDispatchedAt||null)||'',taskSubmittedAt:businessDateTimeInputValue(detail.taskSubmittedAt||null)||'',taskSubmittedAtPending:!detail.taskSubmittedAt,clientManagerId:detail.clientManagerId||'',languageItems:detail.languageItems?.length?detail.languageItems.map((item)=>({id:item.id,mode:item.targetLanguageId?'direction':'single',sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.targetLanguageId||'',regions:copyLanguageRegions(item.regions)})):[emptyLanguageItem()],priceItems:(detail.priceItems||[]).map((item)=>({id:item.id,projectType:item.projectType||'',languageKey:item.sourceLanguageId?`${item.sourceLanguageId}:${item.targetLanguageId||''}`:'',amount:Number(item.amount),currency:item.currency||'',unit:item.unit||'',remarks:item.remarks||''})),assignees:(detail.assignees||[]).map(item=>({id:item.id,personId:item.personId,assignmentRole:item.assignmentRole||'annotator',languageItemId:item.languageItemId||null,audioDurationValue:item.audioDurationValue===null?null:Number(item.audioDurationValue),audioDurationUnit:item.audioDurationUnit||null,customValues:item.customValues||{},assignmentStatus:item.assignmentStatus||'assigned',qualityScore:item.qualityScore||'',evaluationNote:item.evaluationNote||'',rate:{id:item.rate?.id||null,amount:item.rate?.amount==null?null:Number(item.rate.amount),currency:item.rate?.currency||'',unit:item.rate?.unit||'',qualityAmount:item.rate?.qualityAmount==null?null:Number(item.rate.qualityAmount),qualityUnit:item.rate?.qualityUnit||'',remarks:item.rate?.remarks||''}}))});form.subjectPrefix=extractSubjectPrefix(detail.emailSubjectPreview,form);nameManuallyEdited.value=!!detail.projectName}
 const resetEditorScroll=async()=>{await nextTick();dialogBodyRef.value?.parentElement?.scrollTo({top:0,behavior:'auto'})}
 const handleAdd=async()=>{editorTab.value='form';dialogTitle.value='新增标注项目';resetForm();annotationApi.resetAnnotationProjectIdempotency();nameManuallyEdited.value=false;dialogVisible.value=true;await resetEditorScroll();await beginDraft('create')}
-const handleEdit=async(row,useProvidedDetail=false)=>{editorTab.value='form';const detail=useProvidedDetail?row:await loadDetail(row.id,true);if(!detail)return;dialogTitle.value=`编辑标注项目 · ${detail.orderNo}`;assignForm(detail);managerEditBaseline.value=JSON.parse(JSON.stringify(detail));await loadAssignmentCustomFields();dialogVisible.value=true;await resetEditorScroll();await beginDraft(`edit:${detail.id}`)}
+const handleEdit=async(row,useProvidedDetail=false)=>{editorTab.value='form';const detail=useProvidedDetail?row:await loadDetail(row.id,true);if(!detail)return;dialogTitle.value=`项目编辑 · ${detail.orderNo}`;assignForm(detail);managerEditBaseline.value=JSON.parse(JSON.stringify(detail));await loadAssignmentCustomFields();dialogVisible.value=true;await resetEditorScroll();await beginDraft(`edit:${detail.id}`)}
 const resetOrderNoForm=()=>{Object.assign(orderNoForm,{newOrderNo:'',reason:''});orderNoFormRef.value?.clearValidate()}
 const normalizeOrderNoInput=()=>{orderNoForm.newOrderNo=normalizeAnnotationOrderNo(orderNoForm.newOrderNo)}
 const openOrderNoDialog=()=>{resetOrderNoForm();orderNoDialogVisible.value=true}
 const confirmOrderNoChange=async()=>{normalizeOrderNoInput();const valid=await orderNoFormRef.value?.validate().catch(()=>false);if(!valid)return;if(orderNoForm.newOrderNo===form.orderNo)return ElMessage.warning('新订单号不能与当前订单号相同');if (orderNoSubmitting.value) return
-  orderNoSubmitting.value=true;try{const updated=await annotationApi.updateAnnotationProjectOrderNo(form.id,{newOrderNo:orderNoForm.newOrderNo,reason:orderNoForm.reason.trim(),expectedUpdatedAt:form.updatedAt||null});form.orderNo=updated.orderNo;form.emailSubjectPreview=updated.emailSubjectPreview||'';form.updatedAt=updated.updatedAt;dialogTitle.value=`编辑标注项目 · ${updated.orderNo}`;const row=tableData.value.find((item)=>item.id===updated.id);if(row)Object.assign(row,updated);detailCache[updated.id]=updated;orderNoDialogVisible.value=false;ElMessage.success('订单号已修改并记录审计')}catch(error){
+  orderNoSubmitting.value=true;try{const updated=await annotationApi.updateAnnotationProjectOrderNo(form.id,{newOrderNo:orderNoForm.newOrderNo,reason:orderNoForm.reason.trim(),expectedUpdatedAt:form.updatedAt||null});form.orderNo=updated.orderNo;form.emailSubjectPreview=updated.emailSubjectPreview||'';form.updatedAt=updated.updatedAt;dialogTitle.value=`项目编辑 · ${updated.orderNo}`;const row=tableData.value.find((item)=>item.id===updated.id);if(row)Object.assign(row,updated);detailCache[updated.id]=updated;orderNoDialogVisible.value=false;ElMessage.success('订单号已修改并记录审计')}catch(error){
         await orderNoFormRef.value?.applyServerErrors(error)
 ElMessage.error(getLocalizedErrorMessage(error,'订单号修改失败'))}finally{orderNoSubmitting.value=false}}
 const scrollEditorToTop=async()=>{await nextTick();if(await formRef.value?.locateFirstError?.())return;dialogBodyRef.value?.parentElement?.scrollTo({top:0,behavior:'smooth'})}
@@ -1288,13 +1313,18 @@ const closeMaterialEditor=(done)=>{if(submitLoading.value){ElMessage.warning('�
 
 watch(()=>[form.clientShortName,[...form.projectTypes],form.languageItems.map((item)=>`${item.mode}:${item.sourceLanguageId}:${item.targetLanguageId}`).join('|')],()=>{clearTimeout(autoNameTimer);if(nameManuallyEdited.value||!dialogVisible.value)return;autoNameTimer=setTimeout(()=>{form.projectName=buildGeneratedProjectName()},300)},{deep:true})
 
-onMounted(async()=>{try{const capabilities=await annotationApi.getAnnotationListCapabilities();supportsGrandchildOrders.value=capabilities.grandchildOrders;supportsLanguageRegions.value=capabilities.languageRegions;supportsRegionFilters.value=capabilities.regionFilters}catch{supportsGrandchildOrders.value=false}finally{capabilitiesLoaded.value=true}parentFilterId.value=String(route.query.parentProjectId||'');if(props.orderScope==='child')void searchParentFilters();const editorReady=Promise.all([loadReferenceData(),loadAreas(),loadProjectCustomFields(),loadResourceRequestStatuses()]);if(!props.conversationPicker && route.query.projectId){await focusRouteProject(editorReady);return}await Promise.all([fetchData(),editorReady])})
-watch(()=>[route.query.projectId,route.query.openEditor,route.query.openProgress,route.query.tab],([projectId,openEditor,openProgress,tab],[previousProjectId,previousOpenEditor,previousOpenProgress,previousTab])=>{if(!props.conversationPicker&&projectId&&(projectId!==previousProjectId||(openEditor==='1'&&previousOpenEditor!=='1')||(openProgress==='1'&&previousOpenProgress!=='1')||(tab==='chat'&&previousTab!=='chat')))void focusRouteProject()})
-watch(()=>[route.query.parentProjectId,route.query.orderScope],([id])=>{parentFilterId.value=String(id||'');if(props.orderScope==='child'){void searchParentFilters();handleSearch()}})
+const openStandaloneEditor=async()=>{try{if(props.editorOnly){if(props.editorProjectId)await handleEdit({id:props.editorProjectId})}else await handleAdd()}catch(error){ElMessage.error(error?.detail||error?.message||'打开项目编辑失败')}}
+const createEditorReady=ref(false)
+watch(()=>props.createRequest,()=>{if((props.createOnly||props.editorOnly)&&createEditorReady.value&&canWrite&&!dialogVisible.value)void openStandaloneEditor()})
+onMounted(async()=>{if((props.createOnly||props.editorOnly)&&canWrite){createEditorReady.value=true;void openStandaloneEditor()}if(props.progressOnly){if(props.progressProjectId)await openProgress({id:props.progressProjectId});return}try{const capabilities=await annotationApi.getAnnotationListCapabilities();supportsGrandchildOrders.value=capabilities.grandchildOrders;supportsLanguageRegions.value=capabilities.languageRegions;supportsRegionFilters.value=capabilities.regionFilters}catch{supportsGrandchildOrders.value=false}finally{capabilitiesLoaded.value=true}parentFilterId.value=props.embedded?(props.childParentId||''):String(route.query.parentProjectId||'');if(props.orderScope==='child')void searchParentFilters();const editorReady=Promise.all([loadReferenceData(),loadAreas(),loadProjectCustomFields(),loadResourceRequestStatuses()]);if(props.createOnly||props.editorOnly){await editorReady;return}if(!props.embedded && !props.conversationPicker && route.query.projectId){await focusRouteProject(editorReady);return}await Promise.all([fetchData(),editorReady])})
+watch(()=>[route.query.projectId,route.query.openEditor,route.query.openProgress,route.query.tab],([projectId,openEditor,openProgress,tab],[previousProjectId,previousOpenEditor,previousOpenProgress,previousTab])=>{if(!props.embedded&&!props.conversationPicker&&projectId&&(projectId!==previousProjectId||(openEditor==='1'&&previousOpenEditor!=='1')||(openProgress==='1'&&previousOpenProgress!=='1')||(tab==='chat'&&previousTab!=='chat')))void focusRouteProject()})
+watch(()=>[route.query.parentProjectId,route.query.orderScope],([id])=>{if(props.embedded)return;parentFilterId.value=String(id||'');if(props.orderScope==='child'){void searchParentFilters();handleSearch()}})
 async function syncChatProgress(event){
   const id=event.detail?.projectId;if(!id)return
   delete detailCache[id];delete statusHistoryCache[id]
-  try{if(progressVisible.value&&activeProgressProject.value?.id===id){if(event.detail.track==='customer')await customerProgress.reload();else progressRows.value=await annotationOpsApi.getStatusHistory(id)}await fetchData()}catch{ /* 已保存的进度在下次打开或刷新时继续加载。 */ }
+  for(const row of tableData.value)if(row.childCount)delete detailCache[row.id]
+  if(progressVisible.value&&activeProgressProject.value?.childCount){const parentId=activeProgressProject.value.id;delete detailCache[parentId];try{const fresh=await loadDetail(parentId);if(activeProgressProject.value?.id===parentId&&fresh)Object.assign(activeProgressProject.value,{childProgressCount:fresh.childProgressCount||0,childProgressKeys:fresh.childProgressKeys||[]})}catch{}}
+  try{if(progressVisible.value&&activeProgressProject.value?.id===id){if(event.detail.track==='annotator')await annotatorProgressRef.value?.reload();else if(event.detail.track==='customer')await customerProgress.reload();else progressRows.value=await annotationOpsApi.getStatusHistory(id)}await fetchData()}catch{ /* 已保存的进度在下次打开或刷新时继续加载。 */ }
 }
 onMounted(()=>window.addEventListener('annotation-chat-progress-saved',syncChatProgress))
 onBeforeUnmount(()=>window.removeEventListener('annotation-chat-progress-saved',syncChatProgress))
@@ -1355,7 +1385,7 @@ onBeforeUnmount(()=>{parentFilterController?.abort();clearTimeout(searchTimer);c
 .status-timeline{padding-left:6px}.history-note{margin-left:8px;color:var(--el-text-color-secondary)}
 .project-progress-link{height:auto;padding:0}
 .annotation-progress-tabs{min-height:360px}.annotation-progress-tabs :deep(.el-tab-pane){padding-top:4px}
-.progress-history-header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:20px 0 16px;padding-top:16px;border-top:1px solid var(--el-border-color-lighter)}.progress-switch-label{font-weight:600;color:var(--el-text-color-primary)!important}.progress-track-switch{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}.progress-track-switch>span{font-size:12px;color:var(--el-text-color-secondary)}.customer-progress-summary-link{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.progress-dialog-heading{display:flex;min-width:0;align-items:baseline;gap:16px;padding-right:36px}.progress-dialog-title{flex:none;color:var(--el-text-color-primary);font-size:18px;font-weight:600}.progress-dialog-project{display:flex;min-width:0;align-items:baseline;gap:10px;color:var(--el-text-color-secondary);font-size:12px}.progress-dialog-project__item{display:inline-flex;min-width:0;align-items:baseline;gap:5px;cursor:text;user-select:text}.progress-dialog-project__item--name{flex:1}.progress-dialog-project__label{flex:none;color:var(--el-text-color-placeholder)}.progress-dialog-project__order-no{color:var(--el-color-primary);font-variant-numeric:tabular-nums}.progress-dialog-project__name{min-width:0;overflow:hidden;color:var(--el-text-color-regular);font-weight:500;text-overflow:ellipsis;white-space:nowrap}.progress-dialog-project__separator{width:1px;height:12px;flex:none;background:var(--el-border-color)}.progress-entry-panel{padding:12px 14px 4px;border:1px solid var(--el-color-primary-light-7);border-radius:8px;background:var(--el-color-primary-light-9);scroll-margin-top:16px}.progress-entry-panel__header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.progress-entry-panel__title{min-width:0;color:var(--el-text-color-primary);font-weight:600;white-space:nowrap}.progress-entry-panel__selection{color:var(--el-color-primary)}.progress-entry-mode{display:flex;flex:none;align-items:center;gap:8px}.progress-entry-mode__label{color:var(--el-text-color-secondary);font-size:12px}.progress-entry-form :deep(.el-form-item){margin-bottom:10px}.progress-entry-form :deep(.el-form-item__label){padding-right:10px}.progress-status-hint{width:100%;margin-top:3px;color:var(--el-text-color-secondary);font-size:11px;line-height:1.35}.progress-note-control{display:flex;width:100%;align-items:flex-end;gap:10px}.progress-note-control .el-textarea{min-width:0;flex:1}.progress-note-control .el-button{flex:none}.progress-timeline{padding:4px 0 0 8px}.progress-stage-item{padding-bottom:24px}.progress-stage-item.is-progress-target .progress-stage-heading{margin-left:-8px;padding-left:8px;border-radius:6px;background:var(--el-color-primary-light-9)}.progress-stage-dot{display:block;width:16px;height:16px;border:3px solid var(--el-color-primary-light-5);border-radius:50%;background:var(--el-color-primary)}.progress-stage-heading{padding:1px 0 10px;transition:background-color .15s ease}.progress-stage-title{display:flex;align-items:center;gap:8px;font-size:16px;line-height:1.5}.progress-stage-add{margin-left:auto}.progress-stage-meta,.progress-child-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--el-text-color-secondary);font-size:12px}.progress-stage-meta{margin-top:4px}.progress-child-list{margin:2px 0 0 10px;padding-left:20px;border-left:1px dashed var(--el-border-color)}.progress-child-item{position:relative;padding:8px 0 8px 8px;border-radius:6px;transition:background-color .2s ease,box-shadow .2s ease}.progress-child-item.is-progress-search-target{margin-left:-8px;padding-left:16px;background:var(--el-color-warning-light-9);box-shadow:inset 3px 0 0 var(--el-color-warning)}.progress-child-dot{position:absolute;top:15px;left:-25px;width:8px;height:8px;border:2px solid var(--el-color-primary-light-5);border-radius:50%;background:#fff}.progress-child-note{color:var(--el-text-color-primary);line-height:1.6;white-space:pre-wrap;word-break:break-word}.progress-child-meta{margin-top:5px}.progress-stage-empty{margin:2px 0 0 18px;color:var(--el-text-color-placeholder);font-size:12px}
+.progress-switch-label{font-weight:600;color:var(--el-text-color-primary)!important}.progress-track-switch{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}.progress-track-switch>span{font-size:12px;color:var(--el-text-color-secondary)}.customer-progress-summary-link{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.progress-dialog-heading{display:flex;min-width:0;align-items:baseline;gap:16px;padding-right:36px}.progress-dialog-title{flex:none;color:var(--el-text-color-primary);font-size:18px;font-weight:600}.progress-dialog-project{display:flex;min-width:0;align-items:baseline;gap:10px;color:var(--el-text-color-secondary);font-size:12px}.progress-dialog-project__item{display:inline-flex;min-width:0;align-items:baseline;gap:5px;cursor:text;user-select:text}.progress-dialog-project__item--name{flex:1}.progress-dialog-project__label{flex:none;color:var(--el-text-color-placeholder)}.progress-dialog-project__order-no{color:var(--el-color-primary);font-variant-numeric:tabular-nums}.progress-dialog-project__name{min-width:0;overflow:hidden;color:var(--el-text-color-regular);font-weight:500;text-overflow:ellipsis;white-space:nowrap}.progress-dialog-project__separator{width:1px;height:12px;flex:none;background:var(--el-border-color)}.progress-entry-panel{padding:12px 14px 4px;border:1px solid var(--el-color-primary-light-7);border-radius:8px;background:var(--el-color-primary-light-9);scroll-margin-top:16px}.progress-entry-panel__header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.progress-entry-panel__title{min-width:0;color:var(--el-text-color-primary);font-weight:600;white-space:nowrap}.progress-entry-panel__selection{color:var(--el-color-primary)}.progress-entry-mode{display:flex;flex:none;align-items:center;gap:8px}.progress-entry-mode__label{color:var(--el-text-color-secondary);font-size:12px}.progress-entry-form :deep(.el-form-item){margin-bottom:10px}.progress-entry-form :deep(.el-form-item__label){padding-right:10px}.progress-status-hint{width:100%;margin-top:3px;color:var(--el-text-color-secondary);font-size:11px;line-height:1.35}.progress-note-control{display:flex;width:100%;align-items:flex-end;gap:10px}.progress-note-control .el-textarea{min-width:0;flex:1}.progress-note-control .el-button{flex:none}.progress-timeline{padding:4px 0 0 8px}.progress-stage-item{padding-bottom:24px}.progress-stage-item.is-progress-target .progress-stage-heading{margin-left:-8px;padding-left:8px;border-radius:6px;background:var(--el-color-primary-light-9)}.progress-stage-dot{display:block;width:16px;height:16px;border:3px solid var(--el-color-primary-light-5);border-radius:50%;background:var(--el-color-primary)}.progress-stage-heading{padding:1px 0 10px;transition:background-color .15s ease}.progress-stage-title{display:flex;align-items:center;gap:8px;font-size:16px;line-height:1.5}.progress-stage-add{margin-left:auto}.progress-stage-meta,.progress-child-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--el-text-color-secondary);font-size:12px}.progress-stage-meta{margin-top:4px}.progress-child-list{margin:2px 0 0 10px;padding-left:20px;border-left:1px dashed var(--el-border-color)}.progress-child-item{position:relative;padding:8px 0 8px 8px;border-radius:6px;transition:background-color .2s ease,box-shadow .2s ease}.progress-child-item.is-progress-search-target{margin-left:-8px;padding-left:16px;background:var(--el-color-warning-light-9);box-shadow:inset 3px 0 0 var(--el-color-warning)}.progress-child-dot{position:absolute;top:15px;left:-25px;width:8px;height:8px;border:2px solid var(--el-color-primary-light-5);border-radius:50%;background:#fff}.progress-child-note{color:var(--el-text-color-primary);line-height:1.6;white-space:pre-wrap;word-break:break-word}.progress-child-meta{margin-top:5px}.progress-stage-empty{margin:2px 0 0 18px;color:var(--el-text-color-placeholder);font-size:12px}
 .progress-child-delete{margin-left:auto}.progress-delete-preview{margin-top:14px;padding:10px 12px;border:1px solid var(--el-border-color-lighter);border-radius:6px;background:var(--el-fill-color-light)}.progress-delete-preview__meta{color:var(--el-text-color-secondary);font-size:12px}.progress-delete-preview__note{margin-top:6px;max-height:120px;overflow-y:auto;color:var(--el-text-color-primary);line-height:1.6;white-space:pre-wrap;word-break:break-word}.progress-delete-form{margin-top:18px}
 .progress-chat-source{margin:-2px 0 10px;padding:7px 10px;border:1px solid var(--el-color-primary-light-7);border-radius:6px;color:var(--el-color-primary-dark-2);background:rgba(255,255,255,.72);font-size:12px;line-height:1.5}
 .inline-manager-select{width:100%}.order-no-field{display:flex;width:100%;align-items:center;gap:8px}.order-no-field>:first-child{min-width:0;flex:1}.order-no-change-form{margin-top:18px}
@@ -1397,4 +1427,9 @@ onBeforeUnmount(()=>{parentFilterController?.abort();clearTimeout(searchTimer);c
 
 <style>
 .annotation-languages-popover,.annotation-advanced-popover,.annotation-detail-popover,.annotation-client-popover,.annotation-language-reserve-popover{max-width:calc(100vw - 32px)!important}.annotation-advanced-popover{max-height:calc(100vh - 32px);overflow:hidden}.annotation-advanced-popover .advanced-panel{max-height:calc(100vh - 64px);overflow-y:auto}.annotation-detail-popover{display:flex;max-height:calc(100vh - 32px);flex-direction:column;overflow:hidden}.annotation-detail-popover .detail-content{flex:1;min-height:0;overflow-y:auto}.annotation-detail-popover .el-descriptions__content,.annotation-client-popover .el-descriptions__content,.annotation-language-reserve-popover .el-descriptions__content{white-space:normal;word-break:break-word}.annotation-progress-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}.annotation-progress-dialog .el-dialog__header,.annotation-progress-dialog .el-dialog__footer{flex:none}.annotation-progress-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto}.annotation-progress-dialog .el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}.annotation-editor-dialog{display:flex;max-height:90vh;flex-direction:column;overflow:hidden}.annotation-editor-dialog .el-dialog__header,.annotation-editor-dialog .el-dialog__footer{flex:0 0 auto}.annotation-editor-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto;padding-top:12px}.annotation-editor-dialog .el-dialog__footer{border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgba(0,0,0,.04)}
+</style>
+
+<style scoped>
+.order-cell-progress-read{display:flex;justify-content:flex-start;min-height:0;margin-top:4px;margin-bottom:-9.5px}
+.order-cell-progress-read :deep(.child-progress-notice){font-size:8px;line-height:12px;height:12px;min-height:12px}
 </style>

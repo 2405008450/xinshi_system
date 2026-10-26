@@ -17,8 +17,8 @@ export const createWorkEntry = (data) => api.post('/work-entries', data)
 export const getWorkEntries = (params) => api.get('/work-entries', { params })
 export const updateWorkEntry = (id, data) => api.patch(`/work-entries/${id}`, data)
 
-export const previewDailyReport = (reportDate, refresh = false) =>
-  api.get('/daily-reports/preview', { params: { report_date: reportDate, refresh } })
+export const previewDailyReport = (reportDate, refresh = false, config = {}) =>
+  api.get('/daily-reports/preview', { ...config, params: { report_date: reportDate, refresh } })
 export const saveDailyReport = (reportDate, data) =>
   api.put(`/daily-reports/${reportDate}`, data)
 export const finalizeDailyReport = (reportDate, data) =>
@@ -38,3 +38,20 @@ export const sendDailyReportMail = (reportDate, data) =>
   api.post(`/daily-reports/${reportDate}/send`, data, { timeout: 30000 })
 export const getDailyReportDeliveries = (reportDate) =>
   api.get(`/daily-reports/${reportDate}/deliveries`)
+
+export const getDailyReportEditorContext = () => api.get('/daily-reports/editor-context')
+export const createDailyReportCategory = data => api.post('/daily-reports/categories', data)
+export const getReportAccessContext = () => api.get('/daily-reports/access-context')
+export const getReportAccessSettings = () => api.get('/daily-reports/access-settings')
+export const createReportAccessRule = data => api.post('/daily-reports/access-settings', data)
+export const updateReportAccessRule = (id, data) => api.put(`/daily-reports/access-settings/${id}`, data)
+export const getReceivedReportSenders = () => api.get('/daily-reports/received-senders')
+export const getReceivedReports = (params, config = {}) => api.get('/daily-reports/received', {...config, params})
+export const getReceivedReport = id => api.get(`/daily-reports/received/${id}`)
+export const getReportReviewDirectory = () => api.get('/daily-reports/review-directory')
+export const getReportStatistics = (params,config={}) => api.get('/daily-reports/statistics',{...config,params})
+export const getReportFeedback = id => api.get(`/daily-reports/feedback/${id}`)
+export const addReportFeedback = (id,data) => api.post(`/daily-reports/feedback/${id}`,data)
+export const getReportFeedbackInbox = params => api.get('/daily-reports/feedback-inbox',{params})
+export const getReportRevisionHistory = id => api.get(`/daily-reports/history/${id}`)
+export const amendDailyReport = (date,data) => api.post(`/daily-reports/${date}/amend`,data)

@@ -14,15 +14,16 @@
       </el-button>
       <template #dropdown>
         <el-dropdown-menu>
-          <el-dropdown-item v-if="editable && editInMore" command="edit">编辑</el-dropdown-item>
+          <el-dropdown-item v-if="editable && editInMore" command="edit">{{ annotationProjectId ? '项目编辑' : '编辑' }}</el-dropdown-item>
           <el-dropdown-item v-if="showStartRequest" command="start-request">{{ startRequestLabel }}</el-dropdown-item>
           <el-dropdown-item
             v-for="item in extraActions"
             :key="item.command"
-            :command="item.command"
+            :command="annotationProjectId && item.command === 'project-chat' ? undefined : item.command"
             :disabled="item.disabled"
           >
-            {{ item.label }}
+            <AnnotationConversationEntry v-if="annotationProjectId && item.command === 'project-chat'" :project-id="annotationProjectId" inline />
+            <template v-else>{{ item.label }}</template>
           </el-dropdown-item>
         </el-dropdown-menu>
       </template>
@@ -34,8 +35,10 @@
 import { computed } from 'vue'
 import { MoreFilled } from '@element-plus/icons-vue'
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
+import AnnotationConversationEntry from '@/components/chat/AnnotationConversationEntry.vue'
 
 const props = defineProps({
+  annotationProjectId: {type:String,default:''},
   editable: { type: Boolean, default: true },
   showStartRequest: { type: Boolean, default: true },
   startRequestLabel: { type: String, default: '发起需求' },
@@ -51,6 +54,7 @@ const hasMoreActions = computed(() => (
 ))
 
 const handleCommand = (command) => {
+  if(!command)return
   if (command === 'edit') emit('edit')
   else if (command === 'start-request') emit('start-request')
   else emit('extra-command', command)

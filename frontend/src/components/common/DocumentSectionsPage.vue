@@ -110,54 +110,16 @@
       </div>
 
       <el-select v-if="!isDrilldown" v-model="activeId" class="notice-page__mobile-select" placeholder="请选择主题" @change="selectSectionById">
-        <template v-for="root in noticeTree" :key="root.id">
-          <el-option v-if="root.hasContent || allowGroupSelection" :label="root.title" :value="root.id" />
-          <el-option-group v-if="root.children?.length" :label="root.title">
-            <el-option v-for="child in root.children" :key="child.id" :label="child.title" :value="child.id" />
-          </el-option-group>
-        </template>
+        <el-option v-for="node in flatNotices.filter(item=>item.hasContent || allowGroupSelection)" :key="node.id" :label="sectionPath(noticeTree,node.id).map(item=>item.title).join(' / ')" :value="node.id" />
       </el-select>
 
       <div v-if="activeNotice" class="notice-layout" :class="{ 'notice-layout--drilldown': isDrilldown }">
         <nav v-if="!isDrilldown" class="notice-nav" :aria-label="`${pageTitle}主题`">
-          <div v-for="root in noticeTree" :key="root.id" class="notice-nav__root">
-            <div class="notice-nav__row">
-              <button
-                type="button"
-                :class="[root.hasContent ? 'notice-nav__item' : 'notice-nav__group', { 'is-active': root.id === activeId, 'has-active-child': rootHasActiveChild(root) }]"
-                :aria-expanded="root.children?.length ? isExpanded(root.id) : undefined"
-                @click="(root.hasContent || allowGroupSelection) ? selectSection(root) : toggleRoot(root.id)"
-              >
-                <span>{{ root.title }}</span>
-                <el-icon v-if="!root.hasContent && !allowGroupSelection && root.children?.length" class="notice-nav__arrow" :class="{ 'is-expanded': isExpanded(root.id) }"><ArrowDown /></el-icon>
-              </button>
-              <button
-                v-if="(root.hasContent || allowGroupSelection) && root.children?.length"
-                type="button"
-                class="notice-nav__toggle"
-                :aria-label="`${isExpanded(root.id) ? '收起' : '展开'}${root.title}`"
-                :aria-expanded="isExpanded(root.id)"
-                @click="toggleRoot(root.id)"
-              >
-                <el-icon class="notice-nav__arrow" :class="{ 'is-expanded': isExpanded(root.id) }"><ArrowDown /></el-icon>
-              </button>
-            </div>
-            <el-collapse-transition>
-              <div v-show="isExpanded(root.id)" v-if="root.children?.length" class="notice-nav__children">
-                <button
-                  v-for="child in root.children"
-                  :key="child.id"
-                  type="button"
-                  :class="['notice-nav__item', 'notice-nav__item--child', { 'is-active': child.id === activeId }]"
-                  @click="selectSection(child)"
-                >{{ child.title }}</button>
-              </div>
-            </el-collapse-transition>
-          </div>
+          <DocumentSectionNav :nodes="noticeTree" :active-id="activeId" :expanded-ids="expandedIds" :allow-group-selection="allowGroupSelection" @select="selectSection" @toggle="toggleRoot" />
         </nav>
 
         <section class="notice-content" v-loading="detailLoading">
-          <div v-if="isDrilldown && activeNotice.children?.length" class="notice-section-cards notice-section-cards--children" aria-label="二级栏目">
+          <div v-if="isDrilldown && activeNotice.children?.length" class="notice-section-cards notice-section-cards--children" aria-label="下级栏目">
             <article
               v-for="(child, index) in activeNotice.children"
               :key="child.id"
@@ -234,7 +196,8 @@ import RichTextContent from '@/components/RichTextContent.vue'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import { hasPermission } from '@/utils/permission'
 import { formatBusinessDateTime as formatDateTime } from '@/utils/dateTime'
-import { sectionPath, sectionQuery } from '@/utils/documentSectionNavigation'
+import DocumentSectionNav from './DocumentSectionNav.vue'
+import { sectionPath, sectionQuery, flattenSections } from '@/utils/documentSectionNavigation'
 
 const props = defineProps({
   pageTitle: { type: String, required: true },
@@ -325,7 +288,7 @@ function patchTreePreview(id, saved) {
   }
   visit(noticeTree.value)
 }
-const flatNotices = computed(() => noticeTree.value.flatMap(root => [root, ...(root.children || [])]))
+const flatNotices = computed(() => flattenSections(noticeTree.value))
 const activeNotice = computed(() => flatNotices.value.find(item => item.id === activeId.value) || null)
 const activePath = computed(() => sectionPath(noticeTree.value, activeId.value))
 const activeDetail = computed(() => activeId.value ? detailCache.value[activeId.value] || null : null)
@@ -356,7 +319,7 @@ async function loadTree() {
     const result = await props.adapter.tree()
     noticeTree.value = Array.isArray(result) ? result : []
     treeReady.value = true
-    expandedIds.value = new Set(noticeTree.value.filter(item => item.children?.length).map(item => item.id))
+    expandedIds.value = new Set(flattenSections(noticeTree.value).filter(item => item.children?.length).map(item => item.id))
     if (isDrilldown.value) {
       await syncRouteSection()
     } else {
@@ -542,8 +505,8 @@ function highlight(text) {
 async function openSearchResult(row) {
   const item = flatNotices.value.find(section => section.id === row.id)
   if (!item) return
-  const parent = noticeTree.value.find(root => (root.children || []).some(child => child.id === row.id))
-  if (parent) expandedIds.value = new Set([...expandedIds.value, parent.id])
+  const parents=sectionPath(noticeTree.value,row.id).slice(0,-1)
+  expandedIds.value = new Set([...expandedIds.value,...parents.map(item=>item.id)])
   searchKeyword.value = ''
   clearSearch()
   if (isDrilldown.value || item.hasContent || props.allowGroupSelection) await selectSection(item)

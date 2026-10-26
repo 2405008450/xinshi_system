@@ -54,8 +54,8 @@ def normalize_business_datetime(value: datetime.datetime | None) -> datetime.dat
 
 
 def day_range(day: datetime.date) -> tuple[datetime.datetime, datetime.datetime]:
-    start = datetime.datetime.combine(day, datetime.time.min)
-    return start, start + datetime.timedelta(days=1)
+    from work_report_dates import report_day_range
+    return report_day_range(day)
 
 
 def display_user(user: AppUser | None) -> str:
@@ -720,7 +720,13 @@ def derive_daily_report_items(
 
 
 def _serialize_report(report: DailyReport) -> dict:
+    from sqlalchemy.orm import object_session
+    from work_report_collaboration import revision_status
+    session=object_session(report)
+    available,used=revision_status(session,report.id) if session else (False,False)
     return {
+        'amendment_used':used,
+        'can_amend':available and not used and report.status=='finalized',
         "id": report.id,
         "user_id": report.user_id,
         "user_name": display_user(report.user),
@@ -759,6 +765,7 @@ def preview_daily_report(
         return _serialize_report(report)
     if report:
         derived_items = derive_daily_report_items(db, user.id, report_date)
+        derived_items.extend({key:getattr(item,key) for key in ['source_type','source_id','task_type','task_name','progress_content','result_content','duration_minutes','display_metadata']} for item in report.items if (item.display_metadata or {}).get('source') == 'consultation_handoff')
         return {
             "id": report.id,
             "user_id": report.user_id,
@@ -798,13 +805,28 @@ def save_daily_report(
     payload: DailyReportSaveRequest,
     *,
     finalize: bool = False,
+    amend: bool = False,
 ) -> DailyReport:
+    from work_report_categories import validate_categories
+    validate_categories(db, user, payload.items)
+    db.query(AppUser.id).filter(AppUser.id == user.id).with_for_update().first()
     report = (
         db.query(DailyReport)
         .filter(DailyReport.user_id == user.id, DailyReport.report_date == report_date)
+        .with_for_update()
         .first()
     )
-    if report and report.status == "finalized":
+    from work_report_collaboration import ReportRevision,revision_status,assign_item_keys,item_key
+    from fastapi.encoders import jsonable_encoder
+    from chat_time import api_time
+    before_data=None
+    if amend:
+        if not report or report.status!='finalized' or not finalize:raise ValueError('仅已确认报告可以进行一次修订')
+        available,used=revision_status(db,report.id)
+        if not available:raise ValueError('报告修订表尚未初始化')
+        if used:raise ValueError('本日报告的一次修改机会已使用，不能再次修改')
+        before_data=jsonable_encoder(api_time(_serialize_report(report)))
+    if report and report.status == "finalized" and not amend:
         raise ValueError("日报已确认，不能继续修改或重复确认")
     now = business_now()
     if not report:
@@ -818,14 +840,33 @@ def save_daily_report(
         )
         db.add(report)
         db.flush()
-    report.supplemental_note = payload.supplemental_note
     if payload.items is not None:
+        derived_items=derive_daily_report_items(db,user.id,report_date) if not amend else [{key:getattr(item,key) for key in ['source_type','source_id','task_type','task_name','progress_content','result_content','duration_minutes','display_metadata']} for item in report.items if item.source_type=='system_event']
         raw_items = merge_daily_report_items(
             [item.model_dump() for item in payload.items],
-            derive_daily_report_items(db, user.id, report_date),
+            derived_items,
         )
     else:
-        raw_items = derive_daily_report_items(db, user.id, report_date)
+        raw_items = [{key:getattr(item,key) for key in ['source_type','source_id','task_type','task_name','progress_content','result_content','duration_minutes']} | {'display_metadata':{**(item.display_metadata or {}),'_feedback_key':item_key(item)}} for item in report.items] if amend else derive_daily_report_items(db, user.id, report_date)
+    # 陈旧编辑窗口或重新汇总不能删除已自动追加的新咨询记录。
+    for existing in report.items:
+        metadata = existing.display_metadata or {}
+        if metadata.get('source') != 'consultation_handoff':
+            continue
+        incoming = next((item for item in raw_items if (item.get('display_metadata') or {}).get('_feedback_key') == item_key(existing)), None)
+        if incoming is None:
+            raw_items.append({key:getattr(existing,key) for key in ['source_type','source_id','task_type','task_name','progress_content','result_content','duration_minutes']} | {'display_metadata':dict(metadata)})
+        else:
+            incoming['display_metadata'] = {**incoming.get('display_metadata', {}), **{key:metadata[key] for key in ['source','consultation_id','consultation_code','added_at','_feedback_key'] if key in metadata}}
+    assign_item_keys(report.id,raw_items,report.items)
+    from work_report_hierarchy import normalize_hierarchy
+    raw_items = normalize_hierarchy(raw_items)
+    if amend:
+        def comparable(items):
+            return [{key:item.get(key) for key in ['source_type','source_id','task_type','task_name','progress_content','result_content','duration_minutes']} | {'display_metadata':{k:v for k,v in (item.get('display_metadata') or {}).items() if k!='_feedback_key'}} for item in items]
+        if jsonable_encoder(comparable(raw_items))==comparable(before_data['items']) and (payload.supplemental_note or '')==(report.supplemental_note or ''):
+            raise ValueError('报告内容没有变化，未使用修改机会')
+    report.supplemental_note = payload.supplemental_note
     report.items.clear()
     db.flush()
     for index, item in enumerate(raw_items):
@@ -835,6 +876,10 @@ def save_daily_report(
     report.status = "finalized" if finalize else "draft"
     report.finalized_at = now if finalize else None
     report.updated_at = now
+    if amend:
+        after_data=jsonable_encoder(api_time(_serialize_report(report)))
+        after_data.update(amendment_used=True,can_amend=False)
+        db.add(ReportRevision(report_id=report.id,before_data=before_data,after_data=after_data,created_by=user.id))
     db.commit()
     return (
         db.query(DailyReport)
@@ -845,6 +890,14 @@ def save_daily_report(
 
 def merge_daily_report_items(client_items: list[dict], derived_items: list[dict]) -> list[dict]:
     """保留用户内容，但用数据库派生事件替换全部客户端系统事件。"""
+    def event_identity(item):
+        metadata=item.get('display_metadata') or {}
+        return (str(item.get('source_id')),metadata.get('source'),metadata.get('event_type'),item.get('task_name'),item.get('progress_content'))
+    client_keys={event_identity(item):(item.get('display_metadata') or {}).get('_feedback_key') for item in client_items if item.get('source_type')=='system_event'}
+    for item in derived_items:
+        key=client_keys.get(event_identity(item))
+        if key:
+            item['display_metadata']={**(item.get('display_metadata') or {}),'_feedback_key':key}
     result = [item for item in client_items if item.get("source_type") != "system_event"]
     result.extend(
         {**item, "duration_minutes": item["duration_minutes"] if (item.get("display_metadata") or {}).get("source") == "resource_development" else 0}
@@ -867,6 +920,9 @@ def withdraw_daily_report(
         raise LookupError("日报不存在")
     if report.status != "finalized":
         raise ValueError("只有已确认日报可以撤回")
+    from work_report_collaboration import revision_status
+    if revision_status(db,report.id)[0]:
+        raise ValueError('报告确认后请使用一次修订，不能撤回绕过修改次数限制')
     sent = db.query(DailyReportMailDelivery.id).filter(
         DailyReportMailDelivery.report_id == report.id,
         DailyReportMailDelivery.status == "sent",
@@ -883,78 +939,51 @@ def withdraw_daily_report(
 def report_to_xlsx(report: DailyReport) -> bytes:
     workbook = Workbook()
     sheet = workbook.active
-    sheet.title = "个人日报"
-    sheet.sheet_view.showGridLines = False
+    sheet.title = "我的工作报告"
     sheet.freeze_panes = "A5"
-
-    sheet.merge_cells("A1:G1")
-    sheet["A1"] = f"{display_user(report.user)}个人工作日报"
-    sheet["A1"].font = Font(name="微软雅黑", size=16, bold=True, color="FFFFFF")
-    sheet["A1"].fill = PatternFill("solid", fgColor="1F4E78")
-    sheet["A1"].alignment = Alignment(horizontal="center", vertical="center")
-    sheet.row_dimensions[1].height = 28
-
-    sheet["A2"] = "日期"
-    sheet["B2"] = report.report_date
-    sheet["B2"].number_format = "yyyy-mm-dd"
-    sheet["D2"] = "状态"
-    sheet["E2"] = "已确认" if report.status == "finalized" else "草稿"
+    sheet.merge_cells("A1:H1")
+    sheet["A1"] = f"{display_user(report.user)}的工作报告"
+    weekday = "一二三四五六日"[report.report_date.weekday()]
+    sheet["A2"] = f"日期：{report.report_date.isoformat()} 星期{weekday}"
+    sheet["D2"] = f"姓名：{display_user(report.user)}"
+    sheet["F2"] = f"部门：{report.user.department or '-'}"
     sheet["A3"] = "补充说明"
-    sheet.merge_cells("B3:G3")
+    sheet.merge_cells("B3:H3")
     sheet["B3"] = report.supplemental_note or ""
-
-    headers = ["任务类型", "任务名称", "工作进展", "工作成果", "耗时（分钟）", "项目/订单", "来源"]
-    for col, value in enumerate(headers, 1):
-        cell = sheet.cell(row=4, column=col, value=value)
-        cell.font = Font(name="微软雅黑", bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="5B9BD5")
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-
-    source_labels = {"project": "项目任务", "non_project": "非项目任务", "manual": "手工补充"}
-    for row_index, item in enumerate(report.items, 5):
+    headers = ["序号", "任务/项目类型", "订单号", "项目名称", "具体任务", "工作量", "单位", "耗时"]
+    sheet.append(headers)
+    from work_report_hierarchy import outline_numbers
+    outline = outline_numbers(report.items)
+    for index, item in enumerate(report.items, 1):
         metadata = item.display_metadata or {}
-        order_info = metadata.get("order_no") or metadata.get("project_name") or ""
-        values = [
-            item.task_type,
-            item.task_name,
-            item.progress_content,
-            item.result_content or "",
-            item.duration_minutes,
-            order_info,
-            source_labels.get(item.source_type, item.source_type),
-        ]
-        for col, value in enumerate(values, 1):
-            cell = sheet.cell(row=row_index, column=col, value=value)
-            cell.font = Font(name="微软雅黑", size=10)
-            cell.alignment = Alignment(
-                vertical="top",
-                wrap_text=col in {2, 3, 4},
-                horizontal="right" if col == 5 else "left",
-            )
-        sheet.cell(row=row_index, column=5).number_format = "0"
-
-    total_minutes = sum(max(0, int(item.duration_minutes or 0)) for item in report.items)
-    total_hours = f"{total_minutes / 60:.2f}".rstrip("0").rstrip(".")
+        types = metadata.get("report_types") or [item.task_type]
+        type_label = "、".join(str(value).replace('::', ' / ') for value in types)
+        if metadata.get("custom_project_type"):
+            type_label += f"（{metadata['custom_project_type']}）"
+        unit = metadata.get("quantity_unit_other") if metadata.get("quantity_unit") == "其他" else metadata.get("quantity_unit", "")
+        minutes = item.duration_minutes or 0
+        duration = f"{minutes}分钟" if minutes <= 60 else f"{minutes / 60:.1f}小时"
+        sheet.append([outline[index-1], type_label, metadata.get("order_no", ""), item.task_name, item.progress_content, str(metadata.get("quantity", "")) if metadata.get("quantity") is not None else "", unit, duration])
+        if metadata.get('parent_item_key'):
+            for cell in sheet[sheet.max_row]:cell.fill=PatternFill('solid',fgColor='EFF6FF')
     summary_row = 5 + len(report.items)
-    sheet.merge_cells(start_row=summary_row, start_column=1, end_row=summary_row, end_column=4)
-    sheet.cell(row=summary_row, column=1, value="当日工作耗时合计")
-    sheet.cell(row=summary_row, column=5, value=f"{total_hours} 小时（{total_minutes} 分钟）")
-    sheet.merge_cells(start_row=summary_row, start_column=6, end_row=summary_row, end_column=7)
-    for col in range(1, 8):
-        cell = sheet.cell(row=summary_row, column=col)
-        cell.font = Font(name="微软雅黑", size=10, bold=True, color="166534")
-        cell.fill = PatternFill("solid", fgColor="ECFDF5")
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    sheet.row_dimensions[summary_row].height = 28
-
-    widths = [14, 28, 38, 32, 14, 22, 14]
-    for index, width in enumerate(widths, 1):
+    sheet.cell(summary_row, 1, "合计")
+    total = sum(item.duration_minutes or 0 for item in report.items)
+    sheet.cell(summary_row, 8, f"{total / 60:.1f}小时（{total}分钟）")
+    for row in sheet.iter_rows():
+        for cell in row:
+            if isinstance(cell.value, str) and cell.value.startswith('='):
+                cell.data_type = 's'
+            cell.font = Font(name="微软雅黑", size=11, bold=cell.row in (1, 4, summary_row))
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+            if cell.row in (1, 4):
+                cell.fill = PatternFill("solid", fgColor="E2E8F0")
+    for index, width in enumerate([8, 30, 22, 40, 60, 14, 14, 22], 1):
         sheet.column_dimensions[get_column_letter(index)].width = width
-    sheet.auto_filter.ref = f"A4:G{max(4, 4 + len(report.items))}"
+    sheet.auto_filter.ref = f"A4:H{max(4,4+len(report.items))}"
     sheet.page_setup.orientation = "landscape"
     sheet.page_setup.fitToWidth = 1
     sheet.sheet_properties.pageSetUpPr.fitToPage = True
-
     output = BytesIO()
     workbook.save(output)
     return output.getvalue()

@@ -1,6 +1,6 @@
 <template>
   <el-popover :z-index="participantsZ" trigger="click" placement="bottom-end" :width="340" @show="load">
-    <template #reference><el-button link :icon="User" aria-label="参与人" title="参与人" @click="participantsZ = chatOverlayZIndex($event.currentTarget)" /></template>
+    <template #reference><el-button link :icon="User" aria-label="参与人" title="参与人" @click="participantsZ = chatOverlayZIndex($event.currentTarget)"><span v-if="menuLayout">参与人</span></el-button></template>
     <div v-loading="loading" class="chat-conversation-participants">
       <p>仅会话参与人可以查看和发言。</p>
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
@@ -20,7 +20,7 @@ import AppForm from '@/components/common/AppForm.vue'
 import ChatParticipantActions from './ChatParticipantActions.vue'
 import { chatOverlayZIndex } from '@/utils/chatOverlay'
 import { chatRequest } from '@/api/projectChat'
-const props = defineProps({ projectType: String, projectId: String })
+const props = defineProps({ projectType: String, projectId: String,menuLayout:Boolean })
 const members = ref([]), eligibleUsers = ref([]), form = reactive({ userIds: [] }), formRef = ref()
 const participantsZ = ref(2110)
 const loading = ref(false), inviting = ref(false), error = ref('')

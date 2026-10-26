@@ -12,7 +12,7 @@ import { isChatNotification, isChatMentionNotification, isChatAttentionNotificat
 export function useChatNotifications() {
   const { openChat } = useProjectChatDock()
   const seen = new Set(), activeMentionNotifications = new Map(), reading = new Set()
-  let timer, controller, loading = false, disposed = false
+  let timer, controller, loading = false, disposed = false, generation = 0, pendingInitial = false
   const cleanups = []
   const remember = id => {
     if (!id || seen.has(String(id))) return false
@@ -63,20 +63,23 @@ export function useChatNotifications() {
     })
     activeMentionNotifications.set(id, instance)
   }
-  async function poll(initial = false) {
-    if (loading || !localStorage.getItem('token')) return
-    loading = true; controller = new AbortController()
+  async function poll(initial = false, force = false) {
+    if (disposed || !localStorage.getItem('token')) return
+    if (force) { controller?.abort(); loading = false; pendingInitial = false }
+    if (loading) { pendingInitial ||= initial; return }
+    const version = ++generation, current = new AbortController()
+    loading = true; controller = current
     const actor = localStorage.getItem('user_id')
     try {
-      const rows = await getNotifications({ channel: 'chat', limit: initial ? 100 : 10, ...(initial ? { unread_only: true } : {}) }, { signal: controller.signal })
-      if (disposed || actor !== localStorage.getItem('user_id')) return
+      const rows = await getNotifications({ channel: 'chat', limit: initial ? 100 : 10, ...(initial ? { unread_only: true } : {}) }, { signal: current.signal })
+      if (disposed || version !== generation || actor !== localStorage.getItem('user_id')) return
       const items = (Array.isArray(rows) ? rows : []).filter(isChatNotification)
       for (const item of items.slice().reverse()) {
         const fresh = remember(item.id)
         if (initial ? isChatMentionNotification(item) || String(item.notification_type).endsWith('_invite') : fresh) display(item)
       }
     } catch { /* 离线时保留会话未读与现有提醒，后续轮询重试。 */ }
-    finally { loading = false }
+    finally { if (version === generation) { loading = false; if (pendingInitial) { pendingInitial = false; poll(true) } } }
   }
   onMounted(() => {
     poll(true); timer = window.setInterval(() => poll(), 10000)
@@ -85,9 +88,10 @@ export function useChatNotifications() {
       if (item && isChatNotification(item) && remember(item.id)) display(item)
     }))
     cleanups.push(subscribe('connected', () => poll(true)))
+    cleanups.push(subscribe('foreground', () => poll(true, true)))
   })
   onBeforeUnmount(() => {
-    disposed = true; controller?.abort(); window.clearInterval(timer); cleanups.forEach(cleanup => cleanup())
+    disposed = true; ++generation; controller?.abort(); window.clearInterval(timer); cleanups.forEach(cleanup => cleanup())
     const instances = [...activeMentionNotifications.values()]; activeMentionNotifications.clear(); instances.forEach(instance => instance.close())
   })
 }

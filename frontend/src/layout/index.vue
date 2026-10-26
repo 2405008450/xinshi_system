@@ -25,14 +25,15 @@
         :collapse-transition="false"
       >
         <!-- 工作台 -->
-        <SidebarNavigationItem v-if="showWorkbench" index="/workbench" :icon="ChatLineRound" label="工作台" />
+        <SidebarNavigationItem v-if="showWorkbench" index="/workbench" :icon="DataBoard" label="工作台" />
         <SidebarNavigationItem index="/company-management" :icon="OfficeBuilding" label="公司管理" />
+        <li class="el-menu-item sidebar-session-item" role="menuitem" tabindex="0" aria-label="会话" title="会话" @click="openHeaderChat" @keydown.enter.prevent="openHeaderChat" @keydown.space.prevent="openHeaderChat"><el-badge :value="chatMentionTotal" :max="99" :hidden="!chatMentionTotal"><el-icon><ChatDotRound /></el-icon></el-badge><span v-show="!isCollapse" class="sidebar-session-title"><span>会话</span><a :href="sessionNewTabHref" target="_blank" rel="noopener noreferrer" class="sidebar-session-open" title="在新标签页打开" aria-label="会话：在新标签页打开" @click.stop @keydown.stop><TopRight aria-hidden="true" /></a></span></li>
 
         <!-- 业务链路：从新咨询到项目执行 -->
         <li v-if="showBusinessGroup && !isCollapse" class="menu-group-label" role="presentation"><span>业务管理</span></li>
-        <SidebarNavigationItem v-if="showConsultations" index="/consultations" :icon="ChatDotRound" label="新咨询管理" />
+        <SidebarNavigationItem v-if="showConsultations" index="/consultations" :icon="Phone" label="新咨询管理" />
 
-        <SidebarNavigationItem v-if="canViewProjects" index="/translation-details" :icon="Document" label="笔译项目" />
+        <SidebarNavigationItem v-if="canViewProjects" index="/translation-details" :icon="EditPen" label="笔译项目" />
         <SidebarNavigationItem v-if="canViewProjects" index="/interpretation-details" :icon="SpeakingProfileIcon" label="口译项目" />
         <SidebarNavigationItem v-if="canViewAnnotation" index="/annotation-details" :icon="Headset" label="标注项目" />
         <SidebarNavigationItem v-if="canViewProjects" index="/recruitment-details" :icon="UserFilled" label="招聘项目" />
@@ -53,7 +54,7 @@
             <el-icon><Setting /></el-icon>
             <span>系统管理</span>
           </template>
-          <SidebarNavigationItem v-if="canViewUsers || canViewDepartments" index="/users" label="组织架构" />
+          <SidebarNavigationItem v-if="canViewUsers || canViewDepartments || canViewReportSettings" index="/users" label="组织架构" />
           <SidebarNavigationItem v-if="canViewRoles" index="/roles" label="角色管理" />
           <SidebarNavigationItem v-if="canViewMailSettings" index="/mail-settings" label="项目邮件设置" />
           <SidebarNavigationItem v-if="canViewProjectAudits" index="/project-operation-audits" label="项目操作审计" />
@@ -87,7 +88,7 @@
         </div>
         <div class="header-right">
           <UiZoomControl />
-          <el-badge :value="chatMentionTotal" :max="99" :hidden="!chatMentionTotal" class="header-chat-badge" @click="openHeaderChat"><el-button class="header-chat-entry" text aria-label="聊天大屏" :title="chatMentionTotal ? `${chatMentionTotal} 条未读 @我，点击查看` : '打开聊天窗口'" @click.stop="openHeaderChat"><el-icon :size="18"><ChatDotRound /></el-icon><span class="header-chat-label">聊天</span><b v-if="chatMentionTotal" class="header-chat-mention">@</b></el-button></el-badge>
+          <el-badge :value="chatMentionTotal" :max="99" :hidden="!chatMentionTotal" class="header-chat-badge" @click="openHeaderChat"><el-button class="header-chat-entry" text aria-label="会话" :title="chatMentionTotal ? `${chatMentionTotal} 条未读 @我，点击查看` : '打开会话窗口'" @click.stop="openHeaderChat"><el-icon :size="18"><ChatDotRound /></el-icon><span class="header-chat-label">会话</span><b v-if="chatMentionTotal" class="header-chat-mention">@</b></el-button></el-badge>
           <AnnotationChatInbox />
           <NotificationBell />
           <el-dropdown @command="handleCommand">
@@ -138,7 +139,7 @@
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { ref, computed, defineAsyncComponent, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { User, UserFilled, Setting, Document, Headset, Calendar, Avatar, OfficeBuilding, ArrowDown, ChatLineRound, ChatDotRound, QuestionFilled, Fold, Expand } from '@element-plus/icons-vue'
+import { User, UserFilled, Setting, Document, EditPen, Headset, Calendar, Avatar, OfficeBuilding, ArrowDown, DataBoard, Phone, ChatDotRound, QuestionFilled, Fold, Expand, TopRight } from '@element-plus/icons-vue'
 import {
   canViewManuscriptArrangements,
   canViewTalentResourceLibrary,
@@ -151,7 +152,7 @@ import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { filterClosedSessions, mentionUnreadCount } from '@/utils/chatSessionList'
 import { chatEntryContext } from '@/utils/chatEntryContext'
-import { canManageDepartments } from '@/utils/permission'
+import { canManageDepartments, canConfigureWorkReports } from '@/utils/permission'
 import { useDepartmentCatalog } from '@/composables/useDepartmentCatalog'
 useDepartmentCatalog()
 import { useResourceNotesDock } from '@/composables/useResourceNotesDock'
@@ -172,11 +173,12 @@ watch(() => issueCollector.visible, value => { if (value) issueCollectorLoaded.v
 const { openFullscreen, state: chatDockState } = useProjectChatDock()
 const { sessions: chatSessions } = useAnnotationFollowed()
 const chatMentionTotal = computed(() => mentionUnreadCount(filterClosedSessions(chatSessions.value, chatDockState.closedSessionKeys)))
+const sessionNewTabHref = computed(() => router.resolve({ path: '/workbench', query: { openSession: '1', ...(chatEntryContext(route) ? { sessionContext: chatEntryContext(route) } : {}) } }).href)
 async function openHeaderChat() {
   const mentions = chatMentionTotal.value > 0
   openFullscreen()
   await nextTick()
-  window.dispatchEvent(new CustomEvent('chat-show-messages', { detail: { mentions, context: chatEntryContext(route) } }))
+  window.dispatchEvent(new CustomEvent('chat-show-messages', { detail: { mentions, context: route.query?.openSession === '1' && ['annotation','translation','interpretation','recruitment'].includes(route.query?.sessionContext) ? route.query.sessionContext : chatEntryContext(route) } }))
 }
 const ResourceRequestDailyNotesDialog = defineAsyncComponent(() => import('@/views/resource/components/ResourceRequestDailyNotesDialog.vue'))
 const { state: notesState, openNotes, minimizeNotes, closeNotes } = useResourceNotesDock()
@@ -221,16 +223,18 @@ onMounted(() => {
   refreshIssueAccess().catch(() => {})
   syncResponsiveSidebar()
   window.addEventListener('resize', syncResponsiveSidebar)
+  if (route.query.openSession === '1') void openHeaderChat()
 })
 
 onBeforeUnmount(() => window.removeEventListener('resize', syncResponsiveSidebar))
 
 const canViewUsers = computed(() => hasPermission('system:users:read'))
 const canViewDepartments = computed(() => canManageDepartments())
+const canViewReportSettings = computed(() => canConfigureWorkReports())
 const canViewRoles = computed(() => hasPermission('system:roles:read'))
 const canViewMailSettings = computed(() => hasPermission('system:mail_settings:read'))
 const canViewProjectAudits = computed(() => hasPermission('system:audit:read'))
-const showSystemMenu = computed(() => canViewDepartments.value || canViewUsers.value || canViewRoles.value || canViewMailSettings.value || canViewProjectAudits.value)
+const showSystemMenu = computed(() => canViewDepartments.value || canViewUsers.value || canViewReportSettings.value || canViewRoles.value || canViewMailSettings.value || canViewProjectAudits.value)
 
 /** 是否显示「工作台」（所有员工） */
 const showWorkbench = computed(() => hasPermission(['projects:read', 'tasks:read']))
@@ -848,3 +852,10 @@ const handleLogout = async () => {
 </style>
 
 <style scoped>.header-chat-mention{color:var(--el-color-danger);font-size:12px;margin-left:4px}.header-chat-badge{display:inline-flex;align-items:center}</style>
+
+<style scoped>.sidebar-session-item{cursor:pointer}.sidebar-session-item .el-badge{display:inline-flex;align-items:center;margin-right:5px}.sidebar-session-item:focus-visible{outline:2px solid #93c5fd;outline-offset:-2px}</style>
+
+<style scoped>
+.sidebar-session-title{display:inline-flex;flex:1;align-items:center;gap:4px;min-width:0;max-width:260px}.sidebar-session-title>span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sidebar-session-open{display:inline-flex;flex:0 0 20px;align-items:center;justify-content:center;width:20px;height:20px;border-radius:4px;color:inherit;opacity:.35;text-decoration:none}.sidebar-session-item:hover .sidebar-session-open{opacity:.65}.sidebar-session-open:hover,.sidebar-session-open:focus-visible{background:rgba(148,163,184,.12);opacity:1}.sidebar-session-open svg{width:12px;height:12px}.sidebar-session-open:focus-visible{outline:2px solid #93c5fd;outline-offset:1px}
+</style>

@@ -28,6 +28,8 @@ def list_notifications(
     limit: int = Query(20, ge=1, le=100),
     unread_only: bool = False,
     channel: NotificationChannel = 'all',
+    notification_type: str | None = Query(None, max_length=100),
+    notification_types: list[str] | None = Query(None, max_length=20),
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
@@ -38,16 +40,20 @@ def list_notifications(
         limit=limit,
         unread_only=unread_only,
         channel=channel,
+        notification_type=notification_type,
+        notification_types=notification_types,
     )
 
 
 @router.get("/unread-count")
 def unread_count(
     channel: NotificationChannel = 'all',
+    notification_type: str | None = Query(None, max_length=100),
+    notification_types: list[str] | None = Query(None, max_length=20),
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
-    return {"count": count_unread_notifications(db, current_user.id, channel=channel)}
+    return {"count": count_unread_notifications(db, current_user.id, channel=channel, notification_type=notification_type,notification_types=notification_types)}
 
 
 @router.post("/{notification_id}/read", response_model=NotificationResponse)
@@ -77,7 +83,7 @@ def read_all_notifications(
 
 
 @router.websocket("/ws")
-async def notifications_ws(websocket: WebSocket, token: str = Query(default="")):
+async def notifications_ws(websocket: WebSocket, token: str = Query(default=""), client_type: str = Query(default='', max_length=16)):
     if not token:
         await websocket.close(code=1008)
         return
@@ -90,7 +96,7 @@ async def notifications_ws(websocket: WebSocket, token: str = Query(default=""))
             return
         user_id, unread, business_unread = snapshot
 
-        await notification_manager.connect(user_id, websocket)
+        await notification_manager.connect(user_id, websocket, client_type)
         await websocket.send_json({"type": "snapshot", "unread_count": unread, "business_unread_count": business_unread})
 
         while True:
@@ -106,6 +112,7 @@ async def notifications_ws(websocket: WebSocket, token: str = Query(default=""))
                 return
             if message is None:
                 continue
+            notification_manager.touch(user_id, websocket)
             if message == 'ping':
                 await websocket.send_json({"type": "pong"})
             else:

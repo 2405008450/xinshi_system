@@ -4,7 +4,10 @@
       <div v-show="workspaceVisible" class="chat-workspace-shell" :class="{ 'chat-workspace-shell--maximized': state.workspaceMaximized }" :style="workspaceShellStyle" @mousedown="focusWorkspace">
         <WindowFrameHandles ref="workspaceFrame" :disabled="state.workspaceMaximized" @change="resizeWorkspaceRect" />
         <ChatWorkspace
+          :active="workspaceVisible"
+          :wide-header="contentRect.wideHeader"
           :sessions="sessions"
+          :search-sessions="followed.map(row => ({...row,projectType:row.kind}))"
           :recent-closed="state.recentClosedSessions.filter(item => followed.some(row => (item.sessionKeys || [item.key]).includes(row.key)))"
           @restore-closed="restoreClosedSession"
           @pane-change="workspacePane = $event"
@@ -34,6 +37,7 @@
           @close="closeSessionGroup"
           @close-active="closeWorkspaceSession"
           @exit-workspace="closeAllChats"
+          @project-navigate="minimizeWorkspace"
           @open-multiple="multiPicker.open(state.tileMode || 'small')"
           @duplicate-window="duplicateChat(state.activeKey)"
           @minimize="minimizeWorkspace"
@@ -66,7 +70,7 @@
       <div :class="{ 'chat-tile-grid': tiled }" :style="tiled ? tileGridStyle : undefined" @keydown.capture="cycleComposer">
       <section
         v-for="chatWindow in state.windows"
-        v-show="chatWindow.accessConfirmed !== false && isChatWindowVisible(chatWindow) && !(state.layout === 'workspace' && (['topics','summary'].includes(workspacePane) || (workspaceNarrow && sidebarOpen)))"
+        v-show="chatWindow.accessConfirmed !== false && isChatWindowVisible(chatWindow) && !(state.layout === 'workspace' && (['topics','summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(workspacePane) || (workspaceNarrow && sidebarOpen)))"
         :key="chatWindow.key"
         :data-chat-key="chatWindow.key"
         class="project-chat-window"
@@ -99,37 +103,32 @@
             </div>
           </div>
           <div class="chat-header-command-row" title="横向滚动查看更多操作" @mousedown.stop>
-          <el-button class="project-chat-window__exit-button" size="small" @mousedown.stop @dblclick.stop @click.stop="closeAllChats">退出会话窗口</el-button>
-          <el-button v-if="['annotation', 'translation'].includes(chatWindow.projectType)" size="small" class="chat-duplicate-entry" @click="duplicateChat(chatWindow.key)">重复打开</el-button>
-          <el-button size="small" class="chat-multi-entry" @mousedown.stop @click="multiPicker.open(state.tileMode || 'small')">多窗平铺</el-button>
-          <ChatAnnotationManagers v-if="chatWindow.projectType === 'annotation'" :key="chatWindow.projectId" :project-id="chatWindow.projectId" />
+
           <div class="project-chat-window__actions">
-            <div :id="`chat-tools-${chatWindow.key.replaceAll(':', '-')}`" class="chat-header-session-tools" />
-            <ChatConversationParticipants v-if="['translation', 'discussion'].includes(chatWindow.projectType)" :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" />
             <ChatTopicNavigation v-if="chatWindow.projectType !== 'discussion'" compact icon-only :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" />
-            <ChatProjectActions icon-only :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" />
-            <el-button link aria-label="聊天记录" title="聊天记录" @click="openSearch(chatWindow.key)">
-              <el-icon><Search /></el-icon>
-            </el-button>
+            <ChatConversationMore :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" :can-duplicate="['annotation','translation'].includes(chatWindow.projectType)" @duplicate="duplicateChat(chatWindow.key)" @multiple="multiPicker.open(state.tileMode || 'small')">
+            <div :id="`chat-tools-${chatWindow.key.replaceAll(':', '-')}`" class="chat-header-session-tools" />
+            <ChatConversationParticipants menu-layout v-if="['translation', 'discussion'].includes(chatWindow.projectType)" :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" />
+            <AnnotationChatInbox menu-layout @navigate="minimizeChat(chatWindow.key)" />
+            </ChatConversationMore>
             <span class="chat-header-divider" />
-            <ChatWindowStateMenu icon-only v-if="!isCompactScreen" :size-mode="chatWindow.sizeMode" :pinned="state.pinnedKey === chatWindow.key" @resize="setSize(chatWindow.key, $event)" @workspace="setLayout('workspace')" @fullscreen="maximizeChat(chatWindow.key)" @pin="pinChat(chatWindow.key)" />
-            <el-button link aria-label="最小化项目沟通" title="最小化" @click="minimizeChat(chatWindow.key)">
-              <el-icon><Minus /></el-icon>
-            </el-button>
+            <el-button v-if="!isCompactScreen" link aria-label="固定小窗" title="固定当前小窗，边聊边工作" @click="pinChat(chatWindow.key)"><el-icon><ChatPinIcon /></el-icon></el-button>
+
           </div>
           </div>
-          <div class="chat-fixed-window-controls" @mousedown.stop @dblclick.stop><button type="button" title="最小化" @click="minimizeChat(chatWindow.key)">−</button><button type="button" title="最大化" @click="maximizeChat(chatWindow.key)">□</button><button type="button" title="正常大小" @click="normalChat(chatWindow)">▣</button><button type="button" aria-label="关闭项目沟通" title="关闭当前订单会话，保留聊天记录" @click.stop="closeChat(chatWindow.key)">×</button></div>
+          <div class="chat-fixed-window-controls" @mousedown.stop @dblclick.stop><ChatProjectEntry :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" @navigate="minimizeChat(chatWindow.key)" /><el-button link aria-label="聊天记录" title="聊天记录" @click="openSearch(chatWindow.key)"><el-icon><Search /></el-icon></el-button><button type="button" aria-label="最小化会话窗口" title="最小化" @click="minimizeChat(chatWindow.key)">−</button><button type="button" aria-label="最大化会话窗口" title="最大化" @click="maximizeChat(chatWindow.key)">□</button><button type="button" aria-label="退出整个会话窗口" title="退出整个会话窗口，保留聊天记录" @click.stop="closeAllChats">×</button></div>
         </header>
         <div class="project-chat-window__body">
+          <div class="chat-conversation-close-row"><button type="button" aria-label="关闭当前会话" title="关闭当前会话，保留聊天记录" @click.stop="state.layout === 'workspace' ? closeWorkspaceSession() : closeChat(chatWindow.key)">×</button></div>
           <component
             :is="chatWindow.projectType === 'discussion' ? DiscussionConversation : chatWindow.projectType === 'direct' ? DirectChat : chatWindow.projectType === 'annotation' ? AnnotationGroupChat : ProjectChatPanel"
             :ref="(el) => setPanelRef(chatWindow.key, el)"
             :project-id="chatWindow.projectId"
             :target-message-id="chatWindow.targetMessageId"
             :project-type="chatWindow.projectType"
-            :active="isChatWindowVisible(chatWindow) && !(state.layout === 'workspace' && ['topics','summary'].includes(workspacePane))"
+            :active="isChatWindowVisible(chatWindow) && !(state.layout === 'workspace' && ['topics','summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(workspacePane))"
             :history-placement="historyPlacement(chatWindow)"
-            :toolbar-target="state.layout === 'workspace' ? '#chat-workspace-session-tools' : `#chat-tools-${chatWindow.key.replaceAll(':', '-')}`"
+            :toolbar-menu="true" :toolbar-target="state.layout === 'workspace' ? '#chat-workspace-session-tools' : `#chat-tools-${chatWindow.key.replaceAll(':', '-')}`"
             conversation-mode
             compact
             :text-only="chatWindow.projectType === 'annotation'"
@@ -190,22 +189,23 @@ import ChatMultiWindowPicker from './ChatMultiWindowPicker.vue'
 import { chatTileLayout } from '@/utils/chatTiling'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { ChatDotRound, Minus, Search } from '@element-plus/icons-vue'
+import { ChatDotRound, Search } from '@element-plus/icons-vue'
 import ProjectChatPanel from '@/components/ProjectChatPanel.vue'
 import { chatRequest } from '@/api/projectChat'
 import { filterClosedSessions, mentionUnreadCount } from '@/utils/chatSessionList'
 import { ElMessage } from 'element-plus'
 import DirectChat from './DirectChat.vue'
 import DiscussionConversation from './DiscussionConversation.vue'
-import ChatProjectActions from './ChatProjectActions.vue'
+import ChatConversationMore from './ChatConversationMore.vue'
+import ChatPinIcon from './ChatPinIcon.vue'
 import AnnotationGroupChat from '@/components/chat/AnnotationGroupChat.vue'
 import ChatWorkspace from '@/components/chat/ChatWorkspace.vue'
+import AnnotationChatInbox from './AnnotationChatInbox.vue'
+import ChatProjectEntry from './ChatProjectEntry.vue'
 import ChatConversationParticipants from './ChatConversationParticipants.vue'
-import ChatAnnotationManagers from './ChatAnnotationManagers.vue'
 import ProjectMentionCorner from './ProjectMentionCorner.vue'
 import { useChatMentions } from '@/composables/useChatMentions'
 import ChatTopicNavigation from './ChatTopicNavigation.vue'
-import ChatWindowStateMenu from '@/components/chat/ChatWindowStateMenu.vue'
 import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
 import { useChatNotifications } from '@/composables/useChatNotifications'
 import WindowFrameHandles from '@/components/common/WindowFrameHandles.vue'
@@ -254,13 +254,11 @@ const { sessions: followed, mentionTotal, mentionHistoryTotal, annotationMention
 watch(followed, syncClosedSessionCatalog, { immediate: true })
 
 const COMPACT_SCREEN_WIDTH = 768
-const WORKSPACE_HEADER = 100
 const workspaceRect=ref(null),chatRects=ref({})
 const workspaceFrame=ref(),windowFrames=new Map()
 function resizeWorkspaceRect(rect){focusWorkspace();workspaceRect.value=rect;state.workspaceX=rect.x;state.workspaceY=rect.y}
 function resizeChatRect(chat,rect){if(tiled.value)state.tileMode='';focusChat(chat.key);chatRects.value[chat.key]=rect;chat.x=rect.x;chat.y=rect.y}
 function normalWorkspace(){const active=state.activeKey;workspaceRect.value=null;if(state.workspaceMaximized)toggleWorkspaceMaximize();else setWorkspaceSize(state.workspaceSize);if(state.layout==='float'&&active)restoreChat(active)}
-function normalChat(chat){if(tiled.value)exitTiling();delete chatRects.value[chat.key];setSize(chat.key,chat.sizeMode)}
 watch(()=>state.workspaceMaximized,()=>{workspaceRect.value=null})
 watch(()=>state.workspaceSize,()=>{workspaceRect.value=null})
 watch(()=>state.windows.map(row=>row.key),keys=>{for(const key of Object.keys(chatRects.value))if(!keys.includes(key))delete chatRects.value[key]})
@@ -403,11 +401,15 @@ const contentRect = computed(() => {
   void viewportSize.value
   const size = !state.workspaceMaximized && workspaceRect.value || resolveChatSize(workspaceFrameMode.value)
   const side = sidebarWidth.value + (state.workspaceMaximized && !workspaceNarrow.value ? 56 : 0)
+  const width = Math.max(160, size.width - side)
+  const wideHeader = width >= 840
+  const headerHeight = wideHeader ? 100 : 150
   return {
     x: state.workspaceX + side,
-    y: state.workspaceY + WORKSPACE_HEADER,
-    width: Math.max(160, size.width - side),
-    height: Math.max(160, size.height - WORKSPACE_HEADER),
+    y: state.workspaceY + headerHeight,
+    width,
+    height: Math.max(160, size.height - headerHeight),
+    wideHeader,
   }
 })
 
@@ -887,3 +889,10 @@ onBeforeUnmount(() => {
 </style>
 
 <style scoped src="./chatHeader.css" />
+
+<style scoped>
+.project-chat-window__body{position:relative;display:flex;flex-direction:column;min-height:0}
+.project-chat-window__body>:deep(.annotation-group),.project-chat-window__body>:deep(.project-chat-panel),.project-chat-window__body>:deep(.project-chat),.project-chat-window__body>:deep(.discussion-chat){flex:1;min-height:0}
+.chat-conversation-close-row{display:flex;justify-content:flex-end;flex:none;height:28px;background:#f1f5f9;padding-right:8px;z-index:2}
+.chat-conversation-close-row button{width:30px;height:26px;line-height:24px;border:0;border-radius:4px;background:transparent;font-size:22px;color:#64748b;cursor:pointer}.chat-conversation-close-row button:hover{background:#fee2e2;color:#dc2626}
+</style>

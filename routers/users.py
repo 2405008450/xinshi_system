@@ -111,7 +111,7 @@ def read_user_options(
     limit: int = Query(50, ge=1, le=50),
     db: Session = Depends(get_db),
 ):
-    query = db.query(AppUser)
+    query = db.query(AppUser).filter(AppUser.is_deleted.is_(False))
     if not include_inactive:
         query = query.filter(AppUser.is_active.is_(True))
     if keyword and keyword.strip():
@@ -422,7 +422,9 @@ def reset_user_password_endpoint(
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_permission("system:users:write"))])
-def delete_user_endpoint(user_id: UUID, db: Session = Depends(get_db)):
+def delete_user_endpoint(user_id: UUID, db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user)):
+    if user_id == current_user.id:
+        raise HTTPException(409, "不能删除当前登录账号")
     success = delete_user(db, user_id=user_id)
     if not success:
         raise HTTPException(

@@ -1,6 +1,6 @@
 <template>
   <div class="resource-request-page">
-    <component :is="embedded ? 'section' : ElCard" :class="embedded ? 'resource-request-panel' : 'common-page-card compact-list-card'">
+    <component v-if="!editorOnly" :is="embedded ? 'section' : ElCard" :class="embedded ? 'resource-request-panel' : 'common-page-card compact-list-card'">
       <div class="resource-request-toolbar">
         <div class="header">
           <div v-if="!embedded || arrangementMode">
@@ -28,7 +28,7 @@
             <el-input
               v-model="searchForm.keyword"
               clearable
-              placeholder="搜索请求编号、项目、客户或需求详情"
+              placeholder="搜索需求编号、项目、客户或需求详情"
               @input="onKeyword"
               @keyup.enter="search"
             />
@@ -93,7 +93,6 @@
               <div class="detail" v-loading="detailLoading === row.id">
                 <ResourceRequestDetailContent :request="detailOf(row)" :project-types="projectTypesText(detailOf(row))" :project-status="projectStatusText(detailOf(row))" :owner-label="ownerName(detailOf(row))">
                   <template #project><el-button v-if="hasProject" link type="primary" class="associated-project-link" title="点击查看项目详情" @click.stop="openProject($event.currentTarget)">{{ detailOf(row).currentProjectName || detailOf(row).sourceProjectNameSnapshot || '-' }}</el-button><span v-else>{{ detailOf(row).currentProjectName || detailOf(row).sourceProjectNameSnapshot || '-' }}</span></template>
-                  <template #detail><InlineTextField :model-value="detailOf(row).requestDetail" :editable="canWrite && !deleteMode" :empty-as-null="false" label="需求详情" multiline :save-field="(value) => saveRequestTextField(row, value)" @conflict="loadDetail(row, true)" /></template>
                   <template #items><LanguageItemsPopover :items="detailOf(row).items || []" :languages="languages" mode="all" :request-detail="detailOf(row).requestDetail" :always-expanded="true" :editable="canWrite && !deleteMode" :save-item="(item, value) => saveRequestItemTextField(row, item, value)" :on-conflict="() => loadDetail(row, true)" /></template>
                 </ResourceRequestDetailContent>
               </div>
@@ -118,19 +117,6 @@
             <span v-else-if="column.key === 'arrangedPlatforms'">{{ [...new Set((row.arrangements || []).map(item => item.platformName))].join('、') || '暂未安排' }}</span>
           </template>
         </el-table-column>
-        <el-table-column v-if="arrangementMode" label="详情" width="90" fixed="right" align="center">
-          <template #default="{ row }">
-            <ResourceRequestDetailPopover :request="detailOf(row)" reference-label="查看详情" :model-value="activeRequestDetailId === `${row.id}:details`" @update:model-value="value => activeRequestDetailId = value ? `${row.id}:details` : ''" @show="loadDetail(row)">
-              <template #default="{ openProject, hasProject }">
-                <div class="detail" v-loading="detailLoading === row.id">
-                  <ResourceRequestDetailContent :request="detailOf(row)" :project-types="projectTypesText(detailOf(row))" :project-status="projectStatusText(detailOf(row))" :owner-label="ownerName(detailOf(row))">
-                    <template #project><el-button v-if="hasProject" link type="primary" @click.stop="openProject($event.currentTarget)">{{ detailOf(row).currentProjectName || detailOf(row).sourceProjectNameSnapshot || '-' }}</el-button><span v-else>{{ detailOf(row).currentProjectName || detailOf(row).sourceProjectNameSnapshot || '-' }}</span></template>
-                  </ResourceRequestDetailContent>
-                </div>
-              </template>
-            </ResourceRequestDetailPopover>
-          </template>
-        </el-table-column>
         <el-table-column v-if="(canWrite || (arrangementMode && arrangementOptions.can_delegate)) && !deleteMode" label="操作" width="160" fixed="right" align="center">
           <template #default="{ row }">
             <PrimaryEditButton v-if="canWrite" @click="openEditor(row)" />
@@ -142,7 +128,7 @@
       <el-pagination class="pagination" v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :page-sizes="arrangementMode ? [5, 10, 20, 50] : [10, 20, 50, 100]" :total="pagination.total" layout="total, sizes, prev, pager, next" @size-change="pageSizeChanged" @current-change="pageChanged" />
     </component>
 
-    <DraggableFormDialog v-model="dialogVisible" :title="form.id ? '编辑资源需求' : '新增资源需求'" width="min(960px, calc(100vw - 32px))" top="5vh" class="resource-dialog" :show-close="!editorBusy" :before-close="beforeEditorClose" @closed="onEditorClosed">
+    <DraggableFormDialog v-model="dialogVisible" :title="form.id ? '编辑资源需求' : '新增资源需求'" width="min(960px, calc(100vw - 32px))" top="5vh" class="resource-dialog" append-to-body :show-close="!editorBusy" :before-close="beforeEditorClose" @closed="onEditorClosed">
       <template #header>
         <DialogFieldSearchHeader
           ref="fieldSearchRef"
@@ -169,7 +155,14 @@
           <el-col :xs="24" :md="12"><el-form-item label="请求类别" prop="requestCategory"><el-select v-model="form.requestCategory" style="width: 100%"><el-option v-for="item in availableCategories" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
         </el-row>
         <el-form-item v-if="form.sourceType !== 'other'" label="来源项目" prop="sourceProjectId">
-          <el-select v-model="form.sourceProjectId" filterable remote :remote-method="searchSourceProjects" style="width: 100%" :loading="sourceOptionsLoading || prefillLoading" @change="sourceProjectChanged">
+          <div v-if="form.sourceType==='annotation' && form.sourceProjectId" class="source-project-reference">
+            <ReadonlyField :model-value="sourceInfo.orderNo" source="auto" />
+            <AnnotationProjectDetailPopover :key="form.sourceProjectId" :project-id="form.sourceProjectId" :summary="sourceInfo" placement="bottom" :teleported="false">
+              <template #reference><el-button link type="primary" class="source-project-name" title="点击查看项目详情" @click.stop>{{ sourceInfo.projectName || '查看项目详情' }}</el-button></template>
+            </AnnotationProjectDetailPopover>
+            <AnnotationConversationEntry :key="form.sourceProjectId" :project-id="form.sourceProjectId" />
+          </div>
+          <el-select v-else v-model="form.sourceProjectId" filterable remote :remote-method="searchSourceProjects" style="width: 100%" :loading="sourceOptionsLoading || prefillLoading" @change="sourceProjectChanged">
             <el-option v-for="item in availableProjects" :key="item.id" :label="`${item.orderNo || ''} ${item.projectName || '未命名'}`.trim()" :value="item.id" />
           </el-select>
         </el-form-item>
@@ -179,32 +172,27 @@
           </el-select>
         </el-form-item>
 
-        <el-descriptions v-if="sourceInfo.projectName" class="source-summary" title="自动获取的项目信息" :column="2" border size="small">
-          <el-descriptions-item label="项目类型">{{ sourceInfo.projectTypes.map(projectTypeLabel).join('、') || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="项目状态">{{ projectStatusLabel(sourceInfo.projectStatus) }}</el-descriptions-item>
-          <el-descriptions-item label="订单号">{{ sourceInfo.orderNo || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="项目名称">{{ sourceInfo.projectName || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="客户编号">{{ sourceInfo.clientCode || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="客户简称">{{ sourceInfo.clientShortName || '-' }}</el-descriptions-item>
-        </el-descriptions>
+
 
         <el-row :gutter="16">
           <el-col :xs="24" :md="12"><el-form-item label="优先级"><el-select v-model="form.priority" style="width: 100%"><el-option label="高" value="high" /><el-option label="中" value="medium" /><el-option label="低" value="low" /></el-select></el-form-item></el-col>
-          <el-col :xs="24" :md="12"><el-form-item label="负责人"><el-select v-model="form.ownerId" clearable filterable style="width: 100%"><el-option v-for="user in users" :key="user.id" :label="userName(user)" :value="user.id" /></el-select></el-form-item></el-col>
+          <el-col :xs="24" :md="12"><el-form-item :label="form.sourceType==='annotation' ? '项目经理' : '负责人'"><ReadonlyField v-if="form.sourceType==='annotation'" :model-value="projectManagers.map(p=>p.name).join('、') || '尚未登记项目经理'" source="auto" /><el-select v-else v-model="form.ownerId" clearable filterable style="width: 100%"><el-option v-for="user in users" :key="user.id" :label="userName(user)" :value="user.id" /></el-select></el-form-item></el-col>
         </el-row>
-        <el-form-item v-if="form.requestDetail || showRequestDetail" label="需求详情">
-          <el-input v-model="form.requestDetail" type="textarea" :rows="4" placeholder="已从来源项目自动获取，可继续补充；无内容时列表自动隐藏" />
-        </el-form-item>
-        <div v-else class="show-detail-row"><el-button link type="primary" @click="showRequestDetail = true">补充需求详情</el-button></div>
 
         <section class="items">
           <div class="section-title">
             <div><strong>需求语种、人数及详情</strong><div class="section-hint">已自动获取来源项目内容；方言或未收录语种可直接输入后创建。</div></div>
             <el-button type="primary" plain @click="addItem">添加明细</el-button>
           </div>
+          <el-form-item label="总体需求" prop="requestDetail"><el-input v-model="form.requestDetail" type="textarea" :rows="5" placeholder="填写整个需求的总体说明，支持粘贴截图" /></el-form-item>
+          <el-alert v-if="form.partialRequested" title="已删除语种明细，本次将按“部分语种”编号发送，可继续发起下一批需求。" type="info" :closable="false" />
           <el-empty v-if="!form.items.length" description="暂无结构化明细" :image-size="64" />
-          <div v-for="(item, index) in form.items" :key="item.id || index" class="item-card">
-            <div class="item-title"><span>明细 {{ index + 1 }}</span><el-button link type="danger" @click="form.items.splice(index, 1)">删除</el-button></div>
+          <template v-for="(group, groupIndex) in [form.items.slice(0, 1), form.items.slice(1)]" :key="`${editorLayoutKey}-${groupIndex}`">
+            <component :is="groupIndex === 0 ? 'div' : 'details'" v-if="group.length" :class="{'other-request-items': groupIndex > 0}">
+              <summary v-if="groupIndex > 0">其他明细（{{ group.length }}项，点击展开）</summary>
+          <details v-for="(item, localIndex) in group" :key="item.id || localIndex" class="item-card">
+            <summary>{{ `明细 ${localIndex+groupIndex+1} · ${languageText([item], languages).join('、')}` }}<el-button link type="danger" :disabled="editorBusy" :aria-label="`删除明细${localIndex + groupIndex + 1}`" @click.stop.prevent="removeRequestItem(localIndex + groupIndex)">删除</el-button></summary>
+            <div class="item-title"><span>明细 {{ localIndex + groupIndex + 1 }}</span><el-button link type="danger" @click="removeRequestItem(localIndex + groupIndex)">删除</el-button></div>
             <div class="request-language-row">
               <div class="request-language-chain">
                 <template v-for="(_languageId, languageIndex) in item.languageIds" :key="languageIndex">
@@ -213,7 +201,7 @@
                     <el-select v-model="item.languageIds[languageIndex]" clearable filterable allow-create default-first-option :placeholder="languageIndex ? `语种 ${languageIndex + 1}` : '需求语种/源语种'">
                       <el-option v-for="language in languages" :key="language.id" :label="languageOptionLabel(language)" :value="language.id" />
                     </el-select>
-                    <el-button v-if="languageIndex >= 2" class="request-language-remove" link type="danger" :icon="CircleClose" :aria-label="`移除语种 ${languageIndex + 1}`" @click="item.languageIds.splice(languageIndex, 1)" />
+                    <el-button v-if="languageIndex >= 2" class="request-language-remove" link type="danger" :icon="CircleClose" :aria-label="`移除语种 ${languageIndex + 1}`" @click="removeItemLanguage(item, languageIndex)" />
                   </div>
                 </template>
                 <el-button link type="primary" :icon="Plus" :disabled="item.languageIds.length >= 5" @click="item.languageIds.push(null)">{{ item.languageIds.length >= 5 ? '最多 5 个' : '增加语种' }}</el-button>
@@ -221,8 +209,18 @@
               <el-input-number v-model="item.requiredCount" :min="1" placeholder="需求人数（可空）" class="request-language-count" />
             </div>
             <el-input v-model="item.requirementDetail" type="textarea" :rows="2" placeholder="该语种具体要求；完整需求默认放在第一条明细" style="margin-top: 10px" />
-          </div>
+          </details>
+            </component>
+          </template>
         </section>
+        <ResourceRequestVersions v-model="form.requestContent.versions" editable :disabled="editorBusy" />
+        <el-button link :loading="sendHistory.loading.value" @click="sendHistory.refresh">刷新发送及执行记录</el-button>
+        <template v-if="form.sourceType==='annotation'">
+          <ResourceRequestDispatchSection :active="dialogVisible" kind="circle" label="发圈需求" :prepare="prepareDispatch" :disabled="editorBusy || !!sendHistory.error.value" :records="sendHistory.records.value.circle" :history-loading="sendHistory.loading.value" @sent="sendHistory.refresh" @busy="dispatchBusy=$event" />
+          <ResourceRequestDispatchSection :active="dialogVisible" kind="post" label="发帖需求" :prepare="prepareDispatch" :disabled="editorBusy || !!sendHistory.error.value" :records="sendHistory.records.value.post" :history-loading="sendHistory.loading.value" @sent="sendHistory.refresh" @busy="dispatchBusy=$event" />
+        </template>
+        <el-alert v-if="sendHistory.error.value" :title="sendHistory.error.value" type="error" :closable="false"><el-button link @click="sendHistory.refresh">重新加载发送记录</el-button></el-alert>
+        <ResourceRequestDispatchSection :active="dialogVisible" kind="development" label="资源开拓 · 需求管理" :prepare="prepareDispatch" :disabled="editorBusy || !canSendDemand(form) || !!sendHistory.error.value" :records="sendHistory.records.value.development" :history-loading="sendHistory.loading.value" @sent="managementSent" @busy="dispatchBusy=$event" />
         </AppForm>
       </div>
       <template #footer>
@@ -236,7 +234,6 @@
             <el-button :disabled="editorBusy" @click="requestEditorClose">关闭</el-button>
             <el-button :loading="saving" :disabled="editorBusy" @click="saveDraftManually">保存</el-button>
             <el-button v-if="canArrangeDemand" type="primary" :loading="arranging" :disabled="editorBusy" @click="openDailyArrangement">发到每日安排</el-button>
-            <el-button v-if="canSendDemand(form)" type="primary" :loading="sending" :disabled="editorBusy" @click="sendDemand">{{ form.demandStatus === 'cancelled' ? '重新发送' : '发送' }}</el-button>
           </div>
         </div>
       </template>
@@ -266,6 +263,7 @@
 </template>
 
 <script setup>
+import AnnotationConversationEntry from '@/components/chat/AnnotationConversationEntry.vue'
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElButton, ElCard, ElMessage, ElMessageBox, ElPopover, ElTable, ElTableColumn } from 'element-plus'
@@ -300,15 +298,28 @@ import { useTableColumns } from '@/composables/useTableColumns'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useFormDraft } from '@/composables/useFormDraft'
+import ReadonlyField from '@/components/common/ReadonlyField.vue'
+import ResourceRequestVersions from './components/ResourceRequestVersions.vue'
+import { useResourceRequestSendHistory } from '@/composables/useResourceRequestSendHistory'
+import AnnotationProjectDetailPopover from '@/components/annotation/AnnotationProjectDetailPopover.vue'
+const editorLayoutKey = ref(0)
+import { mergeTaskVersions } from '@/utils/resourceRequestVersions'
+import ResourceRequestDispatchSection from './components/ResourceRequestDispatchSection.vue'
+const projectManagers=ref([]),collapseLanguages=ref(false),dispatchBusy=ref(false)
+const canSendDemand=row=>baseCanSendDemand(row)||row.demandStatus==='confirmed'||Boolean(row.partialRequested && row.demandStatus==='confirmed' && !row.partialSequence)
+function removeRequestItem(index){if(collapseLanguages.value)form.partialRequested=true;form.items.splice(index,1)}
+function removeItemLanguage(item,index){if(collapseLanguages.value)form.partialRequested=true;item.languageIds.splice(index,1)}
+async function prepareDispatch(){await formRef.value.validate();return form.id && editorRevision===savedRevision ? {...form} : persistDraft()}
+
 import { hasPermission } from '@/utils/permission'
 import { formatBusinessDateTimeMinute as formatDate, businessDateTimeInputValue } from '@/utils/dateTime'
-import { canPauseDemand, canSendDemand, demandStatusLabels, demandStatusText, demandStatusType } from '@/utils/resourceRequestLifecycle'
+import { canPauseDemand, canSendDemand as baseCanSendDemand, demandStatusLabels, demandStatusText, demandStatusType } from '@/utils/resourceRequestLifecycle'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import { getCachedOptions } from '@/utils/optionCache'
 
-const props = defineProps({ embedded: { type: Boolean, default: false }, arrangementMode: Boolean })
-const emit = defineEmits(['arrangement-saved', 'requests-changed'])
+const props = defineProps({ embedded: { type: Boolean, default: false }, arrangementMode: Boolean, editorOnly: Boolean, sourceRequest: {type:Object,default:null} })
+const emit = defineEmits(['arrangement-saved', 'requests-changed', 'editor-closed'])
 const activeRequestDetailId = ref('')
 
 const languageText = (items, languages) => {
@@ -378,7 +389,7 @@ const arranging = ref(false)
 const arrangementVisible = ref(false)
 const arrangementRef = ref(null)
 const arrangementOptions = reactive({ options: [], arrangement_platforms: [], can_delegate: false })
-const editorBusy = computed(() => saving.value || sending.value || cancelling.value || arranging.value || arrangementVisible.value || lifecycleDialog.value || lifecycleSaving.value)
+const editorBusy = computed(() => dispatchBusy.value || saving.value || sending.value || cancelling.value || arranging.value || arrangementVisible.value || lifecycleDialog.value || lifecycleSaving.value)
 const autoSaveState = ref('idle')
 const lastAutoSavedAt = ref('')
 let submitLocked = false
@@ -399,6 +410,7 @@ const tableRef = ref(null)
 const canWrite = hasPermission('projects:write')
 const searchForm = reactive({ keyword: '' })
 const form = reactive({})
+const sendHistory=useResourceRequestSendHistory(()=>form.id)
 const canArrangeDemand = computed(() => canWrite && arrangementOptions.can_delegate && form.id && form.demandStatus === 'confirmed' && form.requestStatus !== 'cancelled')
 const sourceInfo = reactive({ projectTypes: [], orderNo: '', projectName: '', projectStatus: '', clientCode: '', clientShortName: '' })
 const progressForm = reactive({ id: '', progressPercent: 0, progressNote: '' })
@@ -416,7 +428,7 @@ const projectStatusLabels = {
 
 const optionsOf = (map) => Object.entries(map).map(([value, label]) => ({ value, label }))
 const filterFields = [
-  { key: 'requestNo', label: '请求编号', type: 'text' },
+  { key: 'requestNo', label: '需求编号', type: 'text' },
   { key: 'demandStatus', label: '需求状态', type: 'select', options: () => optionsOf(demandStatusLabels) },
   { key: 'sourceType', label: '来源', type: 'select', options: () => optionsOf(sourceLabels) },
   { key: 'requestCategory', label: '请求类别', type: 'select', options: () => optionsOf(categoryLabels) },
@@ -439,7 +451,7 @@ const filterModel = reactive(createFilterModel(filterFields))
 const advancedFilterFields = filterFields.filter((item) => !['requestNo', 'requestStatus'].includes(item.key))
 
 const tableColumns = [
-  { key: 'requestNo', label: '请求编号', width: PROJECT_LIST_COLUMN_WIDTHS.orderNo },
+  { key: 'requestNo', label: '需求编号', width: PROJECT_LIST_COLUMN_WIDTHS.orderNo },
   { key: 'demandStatus', label: '需求状态', width: 110 },
   { key: 'projectType', label: '项目类型', minWidth: 120 },
   { key: 'sourceType', label: '来源', width: 82 },
@@ -488,11 +500,12 @@ let controller
 let requestId = 0
 let sourceOptionController = null
 let sourceOptionTimer = null
-const emptyForm = () => ({ id: '', sourceType: 'annotation', requestCategory: 'annotation_trial', sourceProjectId: '', otherProjectTypes: [], requestDetail: '', priority: 'medium', requestStatus: 'draft', demandStatus: 'draft', ownerId: '', items: [] })
+const emptyForm = () => ({ id: '', sourceType: 'annotation', requestCategory: 'annotation_trial', sourceProjectId: '', otherProjectTypes: [], requestDetail: '', priority: 'medium', requestStatus: 'draft', demandStatus: 'draft', ownerId: '', requestContent:{versions:[{name:'发帖',content:''},{name:'询问',content:''}]}, partialRequested:false, partialSequence:0, items: [] })
 const { beginDraft, pauseDraft, clearDraft } = useFormDraft({ namespace: 'resource-request', form, createDefault: emptyForm, formRef })
 const resetSourceInfo = () => Object.assign(sourceInfo, { projectTypes: [], orderNo: '', projectName: '', projectStatus: '', clientCode: '', clientShortName: '' })
 const params = () => ({ keyword: searchForm.keyword.trim() || undefined, field_filters: serializeFieldFilters(filterModel, filterFields) })
 const fetchData = async () => {
+  if (props.editorOnly) return
   controller?.abort()
   controller = new AbortController()
   const current = ++requestId
@@ -609,15 +622,27 @@ const searchSourceProjects = (keyword) => {
   sourceOptionTimer = setTimeout(() => loadSourceOptions(keyword), 400)
 }
 const sourceChanged = () => { form.sourceProjectId = ''; form.otherProjectTypes = []; form.requestCategory = form.sourceType === 'annotation' ? 'annotation_trial' : form.sourceType; form.requestDetail = ''; form.items = []; showRequestDetail.value = false; resetSourceInfo(); void loadSourceOptions(); nextTick(() => formRef.value?.clearValidate()) }
+let previousTaskCopy=''
 const sourceProjectChanged = async (projectId) => {
   if (!projectId) return resetSourceInfo()
   prefillLoading.value = true
   try {
-    const value = await api.getResourceRequestSourcePrefill(form.sourceType, projectId)
+    const sourceType=form.sourceType
+    const value = await api.getResourceRequestSourcePrefill(sourceType, projectId)
+    if(form.sourceType!==sourceType || form.sourceProjectId!==projectId)return
+    if(sourceType==='annotation'){
+      const sourceVersions=value.requestContent?.versions || []
+      form.requestContent.versions=mergeTaskVersions(form.requestContent.versions,sourceVersions,previousTaskCopy)
+      previousTaskCopy=sourceVersions[0]?.content || ''
+    }
+    projectManagers.value=value.projectManagers||[];collapseLanguages.value=Boolean(value.collapseLanguages)
+    if(form.sourceType==='annotation')form.ownerId=projectManagers.value[0]?.id||''
     form.requestCategory = value.requestCategory || form.requestCategory
     Object.assign(sourceInfo, { projectTypes: value.sourceProjectTypes || [], orderNo: value.orderNo || '', projectName: value.projectName || '', projectStatus: value.projectStatus || '', clientCode: value.clientCode || '', clientShortName: value.clientShortName || '' })
-    form.requestDetail = value.requestDetail || ''
-    form.items = (value.items || []).map((item) => ({ id: null, languageIds: item.languageIds?.length ? [...item.languageIds] : [item.sourceLanguageId, item.targetLanguageId].filter(Boolean), requiredCount: item.requiredCount || null, requirementDetail: item.requirementDetail || '' }))
+    const selectedProject = { id: projectId, orderNo: sourceInfo.orderNo, projectName: sourceInfo.projectName, projectStatus: sourceInfo.projectStatus, clientShortName: sourceInfo.clientShortName }
+    projects[form.sourceType] = [selectedProject, ...availableProjects.value.filter(item => item.id !== projectId)]
+    form.requestDetail = sourceType==='annotation' ? '' : (value.requestDetail || '')
+    form.items = (value.items || []).map((item) => ({ id: null, languageIds: item.languageIds?.length ? [...item.languageIds] : [item.sourceLanguageId, item.targetLanguageId].filter(Boolean), requiredCount: item.requiredCount || null, requirementDetail: sourceType==='annotation' ? '' : (item.requirementDetail || '') }))
     showRequestDetail.value = Boolean(form.requestDetail)
   } catch (error) { ElMessage.error(error.detail || '自动获取项目需求信息失败') } finally { prefillLoading.value = false }
 }
@@ -626,7 +651,11 @@ const openEditor = async (row = null, source = null) => {
   let value = row
   if (row?.id) value = await api.getResourceRequest(row.id)
   editorReady = false
+  previousTaskCopy=''
+  editorLayoutKey.value++
   Object.assign(form, emptyForm(), value || {})
+  form.requestContent={versions:value?.requestContent?.versions?.length ? value.requestContent.versions : [{name:'发帖',content:''},{name:'询问',content:''}]}
+  projectManagers.value=value?.projectManagers||[];collapseLanguages.value=Boolean(value?.collapseLanguages)
   resetSourceInfo()
   if (value) {
     form.sourceProjectId = value[`${value.sourceType}ProjectId`] || ''
@@ -643,12 +672,15 @@ const openEditor = async (row = null, source = null) => {
   await Promise.all([loadSourceOptions(), loadArrangementOptions().catch(error => {
     ElMessage.error(getLocalizedErrorMessage(error, '加载每日安排权限失败，请重新打开需求窗口重试'))
   })])
+  showRequestDetail.value = Boolean(form.requestDetail)
+  if (source?.sourceProjectId) await sourceProjectChanged(source.sourceProjectId)
+  else if(value?.id && form.sourceType==='annotation' && form.sourceProjectId && form.requestContent.versions.some(v=>['发帖','询问'].includes(v.name.replace(/版$/,'')) && !String(v.content||'').trim())){
+    try{const prefill=await api.getResourceRequestSourcePrefill('annotation',form.sourceProjectId);form.requestContent.versions=mergeTaskVersions(form.requestContent.versions,prefill.requestContent?.versions || [])}catch(e){ElMessage.error(e.detail || '具体任务自动复制失败，可重新打开窗口重试')}
+  }
   if (form.sourceProjectId && !availableProjects.value.some((item) => item.id === form.sourceProjectId)) {
     projects[form.sourceType].unshift({ id: form.sourceProjectId, orderNo: sourceInfo.orderNo, projectName: sourceInfo.projectName, projectStatus: sourceInfo.projectStatus, clientShortName: sourceInfo.clientShortName })
   }
-  showRequestDetail.value = Boolean(form.requestDetail)
   dialogVisible.value = true
-  if (source?.sourceProjectId) await sourceProjectChanged(source.sourceProjectId)
   await nextTick()
   const draftKey = value?.id
     ? `edit:${value.id}`
@@ -656,6 +688,10 @@ const openEditor = async (row = null, source = null) => {
       ? `create:${source.sourceType}:${source.sourceProjectId}`
       : 'create'
   await beginDraft(draftKey)
+  // 恢复旧草稿后补齐空版本，避免旧草稿把刚复制的两版内容覆盖为空。
+  if(form.sourceType==='annotation' && form.sourceProjectId && form.requestContent.versions.some(v=>['发帖','询问'].includes(v.name.replace(/版$/,'')) && !String(v.content||'').trim())){
+    try{const prefill=await api.getResourceRequestSourcePrefill('annotation',form.sourceProjectId);form.requestContent.versions=mergeTaskVersions(form.requestContent.versions,prefill.requestContent?.versions || [])}catch(e){ElMessage.error(e.detail || '具体任务自动复制失败，请重新打开窗口重试')}
+  }
   editorRevision = 0
   savedRevision = 0
   autoSaveState.value = 'idle'
@@ -663,7 +699,7 @@ const openEditor = async (row = null, source = null) => {
   editorReady = true
 }
 const resetEditor = () => { clearFieldSearch(); formRef.value?.clearValidate(); Object.assign(form, emptyForm()); resetSourceInfo(); showRequestDetail.value = false }
-const onEditorClosed = () => { editorReady = false; clearTimeout(autoSaveTimer); pauseDraft(); resetEditor() }
+const onEditorClosed = () => { editorReady = false; clearTimeout(autoSaveTimer); pauseDraft(); resetEditor(); emit('editor-closed') }
 const addItem = () => form.items.push({ id: null, languageIds: [null], requiredCount: null, requirementDetail: '' })
 
 const ensureLanguageId = async (value) => {
@@ -686,7 +722,7 @@ const normalizeItems = async () => {
   })))
 }
 const payload = async () => {
-  const data = { sourceType: form.sourceType, requestCategory: form.requestCategory, annotationProjectId: null, recruitmentProjectId: null, interpretationProjectId: null, translationProjectId: null, otherSourceName: form.sourceType === 'other' ? form.otherProjectTypes.map((item) => item.trim()).filter(Boolean).join(',') : null, requestDetail: form.requestDetail.trim(), priority: form.priority, requestStatus: form.requestStatus, ownerId: form.ownerId || null, items: await normalizeItems() }
+  const data = { sourceType: form.sourceType, requestCategory: form.requestCategory, annotationProjectId: null, recruitmentProjectId: null, interpretationProjectId: null, translationProjectId: null, otherSourceName: form.sourceType === 'other' ? form.otherProjectTypes.map((item) => item.trim()).filter(Boolean).join(',') : null, requestDetail: form.requestDetail.trim(), requestContent:form.requestContent, partialRequested:form.partialRequested, priority: form.priority, requestStatus: form.requestStatus, ownerId: form.ownerId || null, items: await normalizeItems() }
   if (form.sourceType !== 'other') data[`${form.sourceType}ProjectId`] = form.sourceProjectId
   return data
 }
@@ -715,9 +751,11 @@ const performPersistDraft = async ({ automatic = false } = {}) => {
   const revision = editorRevision
   if (automatic) autoSaveState.value = 'saving'
   const data = await payload()
-  if (!form.id) data.requestStatus = 'draft'
+  const newPartialBatch=form.demandStatus==='confirmed' && form.partialRequested && !form.partialSequence
+  if(newPartialBatch)data.items=data.items.map(item=>({...item,id:null}))
+  if (!form.id || newPartialBatch) data.requestStatus = 'draft'
   else data.expectedUpdatedAt = form.updatedAt
-  const saved = form.id ? await api.updateResourceRequest(form.id, data) : await api.createResourceRequest(data)
+  const saved = form.id && !newPartialBatch ? await api.updateResourceRequest(form.id, data) : await api.createResourceRequest(data)
   if (editorRevision === revision) applySavedRequest(saved)
   else {
     applyingSavedValue = true
@@ -792,29 +830,9 @@ const saveDraftManually = async () => {
   }
 }
 
-const sendDemand = async () => {
-  if (submitLocked || editorBusy.value || !canSendDemand(form)) return
-  submitLocked = true
-  clearTimeout(autoSaveTimer)
-  try { await formRef.value?.validate() } catch { submitLocked = false; return }
-  sending.value = true
-  try {
-    const saved = await persistDraft()
-    if (!saved) throw new Error('请先选择来源项目')
-    const sent = await api.sendResourceRequest(saved.id)
-    applySavedRequest(sent)
-    emit('requests-changed')
-    clearDraft()
-    dialogVisible.value = false
-    ElMessage.success('需求已发送')
-    await fetchData()
-  } catch (error) {
-    await formRef.value?.applyServerErrors(error)
-    ElMessage.error(getLocalizedErrorMessage(error, '发送需求失败'))
-  } finally {
-    sending.value = false
-    submitLocked = false
-  }
+const managementSent = async (saved) => {
+  if (saved?.id) { applySavedRequest(saved); emit('requests-changed'); clearDraft(); await fetchData() }
+  await sendHistory.refresh()
 }
 
 const cancelDemand = async () => {
@@ -956,6 +974,7 @@ let sourceReady = false, sourceDisposed = false, sourceNavigationSequence = 0
 let sourceNavigationQueue = Promise.resolve()
 const sourceQueryKey = () => JSON.stringify([route.query.sourceType, route.query.sourceProjectId, route.query.requestCategory])
 const handleSourceNavigation = () => {
+  if (props.editorOnly) return
   const sequence = ++sourceNavigationSequence
   sourceNavigationQueue = sourceNavigationQueue.then(async () => {
     if (!sourceReady || sourceDisposed || sequence !== sourceNavigationSequence) return
@@ -987,6 +1006,28 @@ onMounted(async () => {
   users.value = (results[1].value || []).map((item) => ({ ...item, fullName: item.display_name }))
   Object.assign(form, emptyForm())
   await listPromise
+  if (sourceDisposed) return
+  if (props.editorOnly) {
+    try {
+      const source = props.sourceRequest
+      if (source?.dispatchBatchId) {
+        const request = await api.getResourceDispatchRequest(source.dispatchBatchId)
+        if (!sourceDisposed) await openEditor(request)
+        return
+      }
+      if (!source?.sourceProjectId) throw new Error('请选择来源项目')
+      const existing = await api.getResourceRequestBySource(source.sourceType, source.sourceProjectId)
+      if (sourceDisposed) return
+      if (existing) await openEditor(existing)
+      else await openEditor(null, source)
+    } catch (error) {
+      if (!sourceDisposed) {
+        ElMessage.error(getLocalizedErrorMessage(error, '打开资源需求失败，请重试'))
+        emit('editor-closed')
+      }
+    }
+    return
+  }
   sourceReady = true
   await handleSourceNavigation()
 })
@@ -1066,3 +1107,17 @@ onBeforeUnmount(() => { sourceDisposed = true; sourceNavigationSequence++; clear
   }
 }
 </style>
+
+<style scoped>
+.source-project-reference{display:flex;align-items:center;gap:10px;width:100%;padding:4px 8px;box-sizing:border-box;background:#f1f5f9;border-radius:4px;flex-wrap:wrap}
+.source-project-reference>:deep(.el-input){flex:0 0 180px}
+.source-project-name{height:auto;white-space:normal;text-align:left;line-height:1.6;max-width:100%;overflow-wrap:anywhere}
+.other-request-items{margin-top:12px;border:1px solid #e2e8f0;border-radius:8px;padding:12px}
+.other-request-items>summary{cursor:pointer;font-weight:600;color:#475569}
+</style>
+
+<style scoped>
+.item-card>summary .el-button{float:right;margin-left:12px}
+</style>
+
+<style scoped>.request-management-send{border:1px solid #dbe3ef;border-radius:8px;padding:14px;margin:16px 0}.request-management-send>p{font-size:12px;color:#64748b;line-height:1.7}</style>

@@ -14,6 +14,7 @@ from permission_registry import SUPER_ROLE_NAMES
 from permission_service import get_user_permission_codes, user_has_permission
 
 RESOURCE_ROOT = next(row['id'] for row in BUILTIN_FOLDERS if row['ruleKey'] == 'resource')
+ANNOTATION_ROOT = next(row['id'] for row in BUILTIN_FOLDERS if row['ruleKey'] == 'annotation')
 VIEW_PERMISSIONS = ('talents:read', 'talents:write', 'translators:read', 'translators:write', 'resource_development:delegate')
 
 
@@ -24,6 +25,12 @@ def can_view(db, user):
         return True
     permissions = set(get_user_permission_codes(db, user.id))
     return '*' in permissions or bool(permissions.intersection(VIEW_PERMISSIONS))
+
+
+def can_view_room(db, user, room):
+    if room.get('parent_key', RESOURCE_ROOT) == RESOURCE_ROOT:
+        return can_view(db, user)
+    return bool(user and user.is_active)
 
 
 def schema_ready(db):
@@ -38,18 +45,25 @@ def room_specs(db):
         for row in rows:
             row['name'] = overrides.get(row['id'], row['name'])
         existing = {row['id'] for row in rows}
-        rows.extend(dict(id=str(row.id), name=row.name) for row in db.query(Category).join(Folder).filter(
-            Category.active.is_(True), Folder.parent_key == RESOURCE_ROOT).order_by(Category.created_at, Category.id)
+        rows.extend(dict(id=str(row.id), name=row.name, parent_key=location.parent_key if location else None) for row, location in db.query(Category, Folder).outerjoin(Folder).filter(
+            Category.active.is_(True),
+            db.query(Member.room_id).filter(Member.room_id == Category.id).exists()).order_by(Category.created_at, Category.id)
                     if str(row.id) not in existing)
-    return rows
+    root_ids = {row['id'] for row in BUILTIN_FOLDERS if not row['parentKey']}
+    active_categories = {str(row.id) for row in db.query(Category).filter(Category.active.is_(True))}
+    locations = {str(row.category_id): str(row.parent_key) for row in db.query(Folder)} if folder_schema_ready(db) else {}
+    visible = root_ids | {key for key in active_categories if not locations.get(key)}
+    for _ in range(2):
+        visible |= {key for key in active_categories if locations.get(key) in visible}
+    return [row for row in rows if row.get('parent_key', RESOURCE_ROOT) is None or row.get('parent_key', RESOURCE_ROOT) in visible]
 
 
 def require_room(db, user, room_id, *, storage=True):
-    if not can_view(db, user):
-        raise HTTPException(403, '没有资源讨论访问权限')
     row = next((row for row in room_specs(db) if row['id'] == str(room_id)), None)
     if row is None:
         raise HTTPException(404, '讨论会话不存在或已停用')
+    if not can_view_room(db, user, row):
+        raise HTTPException(403, '没有会话访问权限')
     if storage and not schema_ready(db):
         raise HTTPException(503, '讨论会话暂未启用，请联系系统管理员')
     from chat_access_service import require_member
@@ -58,17 +72,15 @@ def require_room(db, user, room_id, *, storage=True):
 
 
 def publish(db):
-    ids = [uid for uid, in db.query(AppUser.id).outerjoin(UserRole, UserRole.user_id == AppUser.id).outerjoin(
-        Role, Role.id == UserRole.role_id).outerjoin(RolePermission, RolePermission.role_id == Role.id).filter(
-        AppUser.is_active.is_(True), or_(func.lower(AppUser.username) == 'jimmy', Role.role_name.in_(SUPER_ROLE_NAMES),
-        RolePermission.permission_code.in_((*VIEW_PERMISSIONS, '*')))).distinct()]
+    # 事件不携带消息内容；每个账号重新按自己的参与人权限读取目录。
+    ids = [uid for uid, in db.query(AppUser.id).filter(AppUser.is_active.is_(True))]
     broadcast_to_users(ids, {'type': 'chat_sessions_changed'})
 
 
 def catalog(db, user):
-    if not can_view(db, user):
+    if not user or not user.is_active:
         return []
-    rooms = room_specs(db)
+    rooms = [room for room in room_specs(db) if can_view_room(db, user, room)]
     ready = schema_ready(db)
     if not ready:
         return []
@@ -89,7 +101,8 @@ def catalog(db, user):
     for room in rooms:
         mid = room['id']; member = members.get(mid); last = latest.get(mid)
         rows.append(dict(key=f'discussion:{mid}', kind='discussion', project_id=mid, title=room['name'],
-            subtitle='资源开拓讨论', storage_ready=ready, pinned=bool(member and member.pinned),
+            subtitle='资源开拓讨论' if room.get('parent_key', RESOURCE_ROOT) == RESOURCE_ROOT else '群聊',
+            category_ids=[mid], storage_ready=ready, pinned=bool(member and member.pinned),
             starred=bool(member and member.starred), unread=unread.get(mid, 0), mention_unread=0,
             last_message=dict(id=str(last.id), sender_name=last.sender_name, preview='消息已撤回' if last.recalled_at else last.content[:140],
                               created_at=business_iso(last.created_at)) if last else None))

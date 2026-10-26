@@ -1098,11 +1098,11 @@
 
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button v-if="!form.id" :disabled="formSubmitting" @click="handleSubmit(true)">保存并继续新增</el-button>
-        <el-button type="primary" :loading="formSubmitting" @click="handleSubmit()">确定</el-button>
+        <el-button type="primary" :loading="formSubmitting" @click="handleSubmit()">保存</el-button>
       </template>
     </DraggableFormDialog>
 
+    <ConsultationWorkReportDialog v-if="pendingWorkReportId" :key="pendingWorkReportId" :consultation-id="pendingWorkReportId" @saved="handleWorkReportSaved" />
     <!-- 四类咨询确认、建项与内部邮件发送中间层 -->
     <DraggableFormDialog
       v-model="confirmationDialogVisible"
@@ -1272,8 +1272,11 @@
 </template>
 
 <script setup>
+const props=defineProps({embedded:Boolean,myProjects:Boolean})
+import { managedProjectFilters } from "@/utils/managedProjectFilters"
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, onBeforeRouteLeave } from 'vue-router'
+import ConsultationWorkReportDialog from './components/ConsultationWorkReportDialog.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, Plus } from '@element-plus/icons-vue'
 import * as consultationApi from '@/api/consultations'
@@ -1314,6 +1317,20 @@ import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 
 const router = useRouter()
+const pendingWorkReportId = ref(null)
+async function restorePendingWorkReport(){
+  const rows=await consultationApi.getPendingConsultationReports()
+  pendingWorkReportId.value=rows[0]?.id||null
+}
+async function handleWorkReportSaved({result,continueCreate}){
+  pendingWorkReportId.value=null
+  ElMessage.success(`已加入 ${result.report_date} 工作报告`)
+  await restorePendingWorkReport()
+  if(!pendingWorkReportId.value && continueCreate)await handleAdd()
+  await fetchData()
+}
+function pendingBeforeUnload(event){if(pendingWorkReportId.value){event.preventDefault();event.returnValue=''}}
+onBeforeRouteLeave(()=>{if(!pendingWorkReportId.value)return true;ElMessage.warning('请先保存本次新咨询工作报告');return false})
 const loading = ref(false)
 const dialogVisible = ref(false)
 const dialogTitle = ref('新增咨询')
@@ -2283,7 +2300,7 @@ const handleLocateConsultationField = async (item) => {
 const buildSearchFilters = () => {
   return {
     keyword: searchForm.keyword?.trim() || undefined,
-    field_filters: serializeFieldFilters(searchForm, consultationFilterFields),
+    field_filters: managedProjectFilters(serializeFieldFilters(searchForm, consultationFilterFields), props.myProjects, localStorage.getItem('user_id')),
   }
 }
 
@@ -2386,6 +2403,7 @@ const loadClientDetail = async (clientId) => {
 }
 
 const handleAdd = async () => {
+  if(pendingWorkReportId.value){ElMessage.warning('请先保存本次新咨询工作报告');return}
   editorSessionId += 1
   subClientRequestId += 1
   editorLoading.value = false
@@ -2597,6 +2615,12 @@ const handleSubmit = async (continueCreate = false) => {
         }
       }
       clearDraft()
+      if (!isUpdate && savedConsultation?.id) {
+        pendingWorkReportId.value = savedConsultation.id
+        dialogVisible.value = false
+        await fetchData()
+        return
+      }
       if (shouldContinueCreate) {
         // 连续录入：保持弹窗打开并重置表单，草稿键切回 create 以继续记录新草稿。
         resetForm()
@@ -2892,6 +2916,7 @@ const handleConfirmConsultation = async (sendEmail) => {
           confirmation
         )
     // 关闭确认弹窗会重置 confirmationContext，跳转判断必须先保存快照。
+    const createdConsultationId = confirmationContext.mode === 'create' ? result?.consultation?.id : null
     const shouldContinueCreate = (
       confirmationContext.mode === 'create'
       && confirmationContext.continueCreate
@@ -2922,6 +2947,12 @@ const handleConfirmConsultation = async (sendEmail) => {
           ? `${confirmationTypeLabel.value}咨询已确认，项目已生成且内部邮件已发送`
           : `${confirmationTypeLabel.value}咨询已确认，项目已生成，但邮件发送失败：${result?.mail?.send_error || '未知错误'}`
       )
+    }
+    if (createdConsultationId) {
+      dialogVisible.value = false
+      pendingWorkReportId.value = createdConsultationId
+      await fetchData()
+      return
     }
     const navigated = shouldContinueCreate
       ? false
@@ -2994,6 +3025,7 @@ const isEditableTarget = (target) => {
 }
 
 const handleGlobalKeydown = (event) => {
+  if (pendingWorkReportId.value) return
   if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return
   if (event.key?.toLowerCase() !== 'n') return
   if (isEditableTarget(event.target)) return
@@ -3004,10 +3036,12 @@ const handleGlobalKeydown = (event) => {
 
 onMounted(async () => {
   window.addEventListener('keydown', handleGlobalKeydown)
-  await Promise.allSettled([fetchData(), loadUsers(), loadLanguages()])
+  window.addEventListener('beforeunload', pendingBeforeUnload)
+  await Promise.allSettled([fetchData(), loadUsers(), loadLanguages(), restorePendingWorkReport()])
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', pendingBeforeUnload)
   window.removeEventListener('keydown', handleGlobalKeydown)
   if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
   if (confirmationManagerContactPreviewTimer) clearTimeout(confirmationManagerContactPreviewTimer)

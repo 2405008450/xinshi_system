@@ -344,6 +344,8 @@ def _apply_filters(
             InterpretationProjectDirectionExtraLanguage.language_id == language_id,
         ))
     field_filters = field_filters or {}
+    from managed_project_filters import apply_managed_filter
+    query = apply_managed_filter(query, 'interpretation', field_filters)
     query = apply_scalar_specs(query, field_filters, {
         "order_no": (InterpretationProject.order_no, "string"),
         "project_name": (InterpretationProject.project_name, "string"),

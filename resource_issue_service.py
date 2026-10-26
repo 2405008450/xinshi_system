@@ -3,7 +3,7 @@ from time import monotonic
 from weakref import WeakKeyDictionary
 from uuid import uuid4
 from fastapi import HTTPException
-from sqlalchemy import inspect, or_
+from sqlalchemy import inspect, or_, and_
 from sqlalchemy.dialects.postgresql import insert
 from fastapi.encoders import jsonable_encoder
 
@@ -52,7 +52,19 @@ def visible_query(db, user):
     if not can_delegate(db, user):
         assigned = db.query(Task.id).filter(Task.issue_id == Issue.id, Task.executor_id == user.id).exists()
         summary_member=db.query(Audience.issue_id).filter(Audience.issue_id==Issue.id,Audience.kind.in_(['follower','notify_user']),Audience.target_id==user.id).exists()
-        q = q.filter(or_(Issue.proposer_id == user.id, Issue.collected_by == user.id, assigned,summary_member))
+        legacy = or_(Issue.proposer_id == user.id, assigned, summary_member)
+        from department_models import Department, DepartmentMember
+        from department_utils import department_filter_values
+        from organization_service import ready as memberships_ready
+        primary_names = department_filter_values(user.department or '', db)
+        department_ids = {item.id for item in db.query(Department).filter(Department.name.in_(primary_names))}
+        if memberships_ready(db):
+            department_ids.update(uid for uid, in db.query(DepartmentMember.department_id).filter(DepartmentMember.user_id == user.id))
+        selected = [Issue.summary_data['view_user_ids'].as_string().contains(f'"{user.id}"')]
+        selected.extend(Issue.summary_data['view_department_ids'].as_string().contains(f'"{uid}"') for uid in department_ids)
+        scope = Issue.summary_data['view_all'].as_boolean()
+        q = q.filter(or_(Issue.collected_by == user.id, scope.is_(True),
+                         and_(scope.is_(False), or_(*selected)), and_(scope.is_(None), legacy)))
     return q
 
 

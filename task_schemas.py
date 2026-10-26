@@ -205,24 +205,82 @@ class DailyReportItemInput(BaseModel):
     source_type: Literal["project", "non_project", "manual", "system_event"]
     source_id: Optional[UUID] = None
     task_type: str = Field(min_length=1, max_length=50)
-    task_name: str = Field(min_length=1, max_length=255)
+    task_name: str = Field(max_length=255)
     progress_content: str = Field(min_length=1, max_length=10000)
     result_content: Optional[str] = Field(default=None, max_length=10000)
     duration_minutes: int = Field(default=0, ge=0, le=1440)
     display_metadata: Optional[dict[str, Any]] = None
 
 
+    @model_validator(mode="after")
+    def validate_report_form(self):
+        import math
+        metadata = self.display_metadata or {}
+        quantity = metadata.get("quantity")
+        if quantity not in (None, ""):
+            try:
+                numeric = float(quantity)
+            except (TypeError, ValueError):
+                raise ValueError("工作量须为非负数字")
+            if isinstance(quantity, bool) or not math.isfinite(numeric) or numeric < 0:
+                raise ValueError("工作量须为非负数字")
+            if not str(metadata.get("quantity_unit") or "").strip():
+                raise ValueError("填写工作量后请选择单位")
+            if metadata.get("quantity_unit") == "其他" and not str(metadata.get("quantity_unit_other") or "").strip():
+                raise ValueError("请填写具体单位")
+        if "report_types" in metadata:
+            from work_report_categories import DEFAULT_CATEGORIES
+            allowed = set(DEFAULT_CATEGORIES['项目工作']) | set(DEFAULT_CATEGORIES)
+            types = metadata["report_types"]
+            def valid_type(value):
+                if not isinstance(value, str):
+                    return False
+                if value in allowed:
+                    return True
+                parent, separator, name = value.partition('::')
+                return bool(separator and parent in DEFAULT_CATEGORIES and name.strip() and len(name) <= 80 and '::' not in name)
+            if not isinstance(types, list) or not types or any(not valid_type(value) for value in types):
+                raise ValueError("请选择有效的任务/项目类型")
+            if "其他项目" in types and not str(metadata.get("custom_project_type") or "").strip():
+                raise ValueError("其他项目须填写具体项目类型")
+            if self.source_type != 'system_event':
+                needs_identity = any(value != '非项目工作' and not value.startswith('非项目工作::') for value in types)
+                if needs_identity and (not self.task_name.strip() or not str(metadata.get('order_no') or '').strip()):
+                    raise ValueError('除非项目工作外，订单号和项目名称均为必填')
+                if not self.progress_content.strip():
+                    raise ValueError('请填写具体任务')
+                if quantity in (None, '') or not str(metadata.get('quantity_unit') or '').strip() or self.duration_minutes <= 0:
+                    raise ValueError('请填写工作量、单位和耗时')
+        elif not self.task_name.strip():
+            raise ValueError('请填写工作名称')
+        return self
+
+
 class DailyReportSaveRequest(BaseModel):
     supplemental_note: Optional[str] = Field(default=None, max_length=10000)
     items: Optional[list[DailyReportItemInput]] = None
+
+    @model_validator(mode='after')
+    def reject_screenshots(self):
+        import json
+        if 'screenshot://' in json.dumps(self.model_dump(mode='json'), ensure_ascii=False).lower() or 'data:image/' in json.dumps(self.model_dump(mode='json'), ensure_ascii=False).lower():
+            raise ValueError('工作报告所有字段禁止粘贴截图，请填写文字或数字')
+        return self
 
 
 class DailyReportItemResponse(DailyReportItemInput):
     id: Optional[UUID] = None
     sort_order: int = 0
 
+    @model_validator(mode='after')
+    def validate_report_form(self):
+        # 必填规则用于写入；历史草稿和系统汇总仍需正常返回以供补全。
+        return self
+
 
 class DailyReportResponse(BaseModel):
+    amendment_used: bool = False
+    can_amend: bool = False
     id: Optional[UUID] = None
     user_id: UUID
     user_name: str

@@ -1,0 +1,2 @@
+/* 三类进度统一使用相同的记录区分隔线及间距。 */
+.progress-history-header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:20px 0 16px;padding-top:16px;border-top:1px solid var(--el-border-color-lighter)}

@@ -14,7 +14,7 @@ from models import AppUser, Base
 
 
 class CompanyManagementSection(Base):
-    """公司知识库中的两级自定义栏目。"""
+    """公司知识库中的三级自定义栏目。"""
 
     __tablename__ = "company_management_section"
     __table_args__ = (

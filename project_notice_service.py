@@ -3,6 +3,7 @@
 from __future__ import annotations
 from search_matching import keyword_ilike, keyword_or, matches_keywords
 
+from document_section_tree import section_depth, validate_section_depths, ordered_sections, section_breadcrumb
 from collections import defaultdict
 from datetime import datetime
 from uuid import UUID, uuid4
@@ -55,11 +56,7 @@ def _ordered_rows(rows: list[ProjectNoticeSection]) -> list[ProjectNoticeSection
         children[row.parent_id].append(row)
     for siblings in children.values():
         siblings.sort(key=lambda item: (item.sort_order, str(item.id)))
-    ordered: list[ProjectNoticeSection] = []
-    for root in children[None]:
-        ordered.append(root)
-        ordered.extend(children[root.id])
-    return ordered
+    return ordered_sections(children)
 
 
 def _display_titles(rows: list[ProjectNoticeSection]) -> dict[UUID, str]:
@@ -131,8 +128,9 @@ def create_section(
         parent = require_section(db, module, payload.parent_id, lock=True)
         if not parent or not parent.is_active:
             raise ValueError("父级栏目不存在")
-        if parent.parent_id is not None:
-            raise ValueError("项目须知最多支持两级栏目")
+        ancestors = {row.id: row for row in db.query(ProjectNoticeSection).filter(ProjectNoticeSection.is_active.is_(True)).filter(ProjectNoticeSection.module == module).all()}
+        if section_depth(parent.id, ancestors) >= 3:
+            raise ValueError('最多支持三级栏目')
     siblings = db.query(ProjectNoticeSection).filter(
         ProjectNoticeSection.module == module,
         ProjectNoticeSection.parent_id == payload.parent_id,
@@ -186,7 +184,7 @@ def delete_section(db: Session, module: str, section_id: UUID) -> bool:
         ProjectNoticeSection.is_active.is_(True),
     ).first()
     if has_children:
-        raise ValueError("该一级栏目下仍有二级栏目，请先移动或删除二级栏目")
+        raise ValueError("该栏目下仍有子栏目，请先移动或删除子栏目")
     row.is_active = False
     row.structure_updated_at = datetime.now(BUSINESS_TIMEZONE)
     db.commit()
@@ -204,16 +202,13 @@ def reorder_sections(db: Session, module: str, payload: AnnotationNoticeReorder)
     if set(placements) != set(by_id):
         raise ValueError("栏目结构已变化，请刷新后重新排序")
 
+    validate_section_depths(placements)
     sibling_orders: dict[UUID | None, set[int]] = defaultdict(set)
     for item in payload.placements:
         row = by_id[item.id]
         _assert_version(row.structure_updated_at, item.expected_structure_updated_at)
         if item.parent_id == item.id:
             raise ValueError("栏目不能作为自己的父级")
-        if item.parent_id is not None:
-            parent = by_id.get(item.parent_id)
-            if parent is None or placements[parent.id].parent_id is not None:
-                raise ValueError("项目须知最多支持两级栏目")
         if item.sort_order in sibling_orders[item.parent_id]:
             raise ValueError("同级栏目排序不能重复")
         sibling_orders[item.parent_id].add(item.sort_order)
@@ -290,7 +285,7 @@ def search_sections(
             "section_key": row.section_key,
             "display_title": display,
             "parent_title": parent.title if parent else None,
-            "breadcrumb": f"{parent.title} / {display}" if parent else display,
+            "breadcrumb": section_breadcrumb(row, by_id),
             "snippet": _snippet(row.search_text, normalized) if matched_content else "栏目名称命中",
             "matched_title": matched_title,
             "matched_content": matched_content,
