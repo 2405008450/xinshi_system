@@ -12,6 +12,10 @@ export function chatMessageTime(value, now = new Date(), mode = 'full') {
   const day = formatted.slice(0, 10), today = chatDayKey(now)
   const label = mode === 'no-year' ? day.slice(5).replace('-', '月') + '日' : day.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$1年$2月$3日')
   const difference = Date.parse(`${today}T00:00:00+08:00`) - Date.parse(`${day}T00:00:00+08:00`)
+  if (mode === 'default') {
+    const date = difference === 0 ? '' : difference === 86400000 ? '昨天' : Number(day.slice(0, 4)) < Number(today.slice(0, 4)) ? label : day.slice(5).replace('-', '月') + '日'
+    return `${date ? date + ' ' : ''}${formatted.slice(11, 19)}`
+  }
   const date = difference === 0 ? `今天（${label}）` : difference === 86400000 ? `昨天（${label}）` : label
   return `${date} ${formatted.slice(11, 19)}`
 }
@@ -33,4 +37,19 @@ export function chatGroupStart(message, previous) {
   const stamp = value => Date.parse(businessDateTimeInputValue(value).replace(' ', 'T') + '+08:00')
   const gap = stamp(message.createdAt) - stamp(previous.createdAt)
   return !Number.isFinite(gap) || gap < 0 || gap > 5 * 60000
+}
+
+// 以最后一次实际显示的时间为起点，避免连续消息使时间永久隐藏。
+export function chatTimestampIndexes(messages, interval = 10 * 60000) {
+  const indexes = new Set()
+  let lastShown = null
+  messages.forEach((message, index) => {
+    const formatted = businessDateTimeInputValue(message.createdAt)
+    const stamp = formatted ? Date.parse(formatted.replace(' ', 'T') + '+08:00') : NaN
+    if (lastShown === null || !Number.isFinite(stamp) || stamp < lastShown || stamp - lastShown >= interval) {
+      indexes.add(index)
+      lastShown = Number.isFinite(stamp) ? stamp : null
+    }
+  })
+  return indexes
 }

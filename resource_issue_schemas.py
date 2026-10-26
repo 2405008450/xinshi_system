@@ -16,6 +16,9 @@ class SummaryFields(BaseModel):
     actual_progress: str = Field(default='',max_length=10000)
     notify_user_ids: list[UUID] = Field(default_factory=list,max_length=2000)
     notify_department_ids: list[UUID] = Field(default_factory=list,max_length=500)
+    view_all: bool | None = None
+    view_user_ids: list[UUID] = Field(default_factory=list,max_length=2000)
+    view_department_ids: list[UUID] = Field(default_factory=list,max_length=500)
 
     @field_validator('planned_completion_at')
     @classmethod

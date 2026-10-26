@@ -3,8 +3,16 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 const source = readFileSync(new URL('../src/utils/documentSectionNavigation.js', import.meta.url), 'utf8')
-const { sectionPath, sectionQuery } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
+const { sectionPath, sectionQuery, flattenSections, sectionHeight, sectionPlacements } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
 const tree = [{ id: 'a', title: '一级', children: [{ id: 'b', title: '二级' }] }, { id: 'c', title: '其他' }]
+
+test('三级栏目路径、导航及排序均保留全部层级',()=>{
+  const nested=[{id:'a',title:'一级',children:[{id:'b',title:'二级',children:[{id:'d',title:'三级'}]}]}]
+  assert.deepEqual(sectionPath(nested,'d').map(row=>row.title),['一级','二级','三级'])
+  assert.deepEqual(flattenSections(nested).map(row=>row.id),['a','b','d'])
+  assert.equal(sectionHeight(nested[0]),3)
+  assert.deepEqual(sectionPlacements(nested).map(({id,parentId,sortOrder})=>({id,parentId,sortOrder})),[{id:'a',parentId:null,sortOrder:1},{id:'b',parentId:'a',sortOrder:1},{id:'d',parentId:'b',sortOrder:1}])
+})
 
 test('首页、一级、二级及失效路径', () => {
   assert.deepEqual(sectionPath(tree, null), [])

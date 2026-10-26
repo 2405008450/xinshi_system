@@ -7,12 +7,12 @@
       <div v-if="showMessageDates && (index === 0 || chatDayKey(message.createdAt) !== chatDayKey(messages[index - 1].createdAt))" class="group-date-divider">{{ formatMessageDay(message.createdAt) }}</div>
       <article :ref="el => observeMessage(el, message)" :data-message-id="message.id" :data-sequence="message.sequenceNo"
         class="group-message" :class="{ 'group-message--own': message.senderUserId === currentUserId, 'group-message--grouped': !chatGroupStart(message, messages[index - 1]), 'group-message--highlight': highlighted === message.id, 'group-message--mentioned': mentionsMe(message) }">
-        <div class="group-message-meta"><el-checkbox v-if="!message.recalledAt && props.canAddToProgress && message.content" v-model="selected" :value="message.id" :label="message.id"><span class="sr-only">选择消息</span></el-checkbox><strong v-if="!message.recalledAt && message.senderUserId !== currentUserId && chatGroupStart(message, messages[index - 1])">{{ message.senderName }}</strong><time v-if="showMessageTime" :title="showMessageTime ? chatMessageTime(message.createdAt) : ''">{{ chatMessageTime(message.createdAt) }}</time></div>
+        <div class="group-message-meta"><el-checkbox v-if="!message.recalledAt && props.canAddToProgress && message.content" v-model="selected" :value="message.id" :label="message.id"><span class="sr-only">选择消息</span></el-checkbox><strong v-if="!message.recalledAt && message.senderUserId !== currentUserId && chatGroupStart(message, messages[index - 1])">{{ message.senderName }}</strong><time v-if="showMessageTime && timestampIndexes.has(index)" :title="showMessageTime && timestampIndexes.has(index) ? chatMessageTime(message.createdAt) : ''">{{ chatMessageTime(message.createdAt) }}</time></div>
         <div v-if="message.recalledAt" class="group-recalled">{{ message.recallLabel }}</div>
         <template v-else>
           <span v-if="message.senderUserId !== currentUserId && chatGroupStart(message, messages[index - 1])" class="group-message-avatar" aria-hidden="true">{{ chatAvatarText(message.senderName) }}</span>
           <div class="group-message-main">
-          <div class="group-bubble" tabindex="0" data-message-menu-anchor :title="showMessageTime ? chatMessageTime(message.createdAt) : ''" @contextmenu="messageMenu.open($event,message)" @keydown="messageMenu.openKeyboard($event,message)">
+          <div class="group-bubble" tabindex="0" data-message-menu-anchor :title="showMessageTime && timestampIndexes.has(index) ? chatMessageTime(message.createdAt) : ''" @contextmenu="messageMenu.open($event,message)" @keydown="messageMenu.openKeyboard($event,message)">
             <button v-if="message.reply" class="group-reply" @click.stop="references.open(message.reply.id,$event)">{{ message.reply.senderName }}：{{ screenshotPreview(message.reply.content) }}</button>
             <AnnotationCreationCard v-if="message.contentJson?.type==='annotation_creation'" :card="message.contentJson" :chat-message-id="message.id" />
             <ScreenshotText v-else-if="screenshotIds(message.content).length" :text="message.content" :chat-message-id="message.id" />
@@ -37,17 +37,18 @@
 </template>
 <script setup>
 import { screenshotPreview } from '@/utils/screenshotReferences'
-import { inject, nextTick, ref } from 'vue'
+import { computed, inject, nextTick, ref } from 'vue'
 import ChatMessageContextMenu from './ChatMessageContextMenu.vue'
 import AnnotationCreationCard from './AnnotationCreationCard.vue'
 import ScreenshotText from '@/components/common/ScreenshotText.vue'
 import { screenshotIds } from '@/utils/screenshotReferences'
 import ChatMessageActions from './ChatMessageActions.vue'
 import ChatMessageReferences from './ChatMessageReferences.vue'
-import { chatAvatarText, chatDayKey, chatGroupStart } from '@/utils/chatLayout'
+import { chatAvatarText, chatDayKey, chatGroupStart, chatTimestampIndexes } from '@/utils/chatLayout'
 import { useChatTimeDisplay } from '@/composables/useChatTimeDisplay'
 const { formatMessageTime: chatMessageTime, formatMessageDay, showMessageTime, showMessageDates } = useChatTimeDisplay()
 const { props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, download, copy, replyTo, favorite, acknowledge, recall, mentionsMe, mentionParts, input, toProgress } = inject('chatController')
+const timestampIndexes = computed(() => chatTimestampIndexes(messages.value))
 const messageMenu = ref(), references = ref(), ackBusy = ref(new Set())
 function openReferences(message,event) { if(message.reply || interactions.stats[message.id]?.replyCount) references.value.open(message.reply?.id || message.id,event) }
 async function confirmReceived(message) {

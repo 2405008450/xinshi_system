@@ -56,6 +56,16 @@ class ResourceRequestItemResponse(ResourceRequestItemWrite):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ResourceDetailVersion(BaseModel):
+    name: str = Field(min_length=1, max_length=50)
+    content: str = Field(default='', max_length=100000)
+    copied_from_task: bool = False
+
+
+class ResourceRequestContent(BaseModel):
+    versions: list[ResourceDetailVersion] = Field(default_factory=list, max_length=20)
+
+
 class ResourceRequestWrite(BaseModel):
     source_type: str
     request_category: str
@@ -65,6 +75,8 @@ class ResourceRequestWrite(BaseModel):
     translation_project_id: Optional[UUID] = None
     other_source_name: Optional[str] = Field(default=None, max_length=500)
     request_detail: str = ""
+    request_content: ResourceRequestContent = Field(default_factory=ResourceRequestContent)
+    partial_requested: bool = False
     priority: str = "medium"
     request_status: str = "submitted"
     owner_id: Optional[UUID] = None
@@ -121,10 +133,16 @@ class ResourceRequestSourcePrefillResponse(BaseModel):
     client_short_name: Optional[str] = None
     request_detail: str = ""
     items: list[ResourceRequestItemWrite] = Field(default_factory=list)
+    project_managers: list[dict] = Field(default_factory=list)
+    collapse_languages: bool = False
+    request_content: ResourceRequestContent = Field(default_factory=ResourceRequestContent)
 
 
 class ResourceRequestResponse(ResourceRequestWrite):
     id: UUID
+    partial_sequence: int = 0
+    project_managers: list[dict] = Field(default_factory=list)
+    collapse_languages: bool = False
     request_no: str
     demand_status: str = "confirmed"
     source_project_types_snapshot: list = Field(default_factory=list)

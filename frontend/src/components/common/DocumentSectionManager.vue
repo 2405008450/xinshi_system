@@ -11,7 +11,8 @@
     <div class="notice-manager-toolbar">
       <el-button type="primary" :icon="Plus" @click="openCreate(null)">新增一级栏目</el-button>
       <el-button :disabled="!selected || selected.parentId" @click="openCreate(selected?.id)">新增二级栏目</el-button>
-      <span>可拖拽调整同级顺序，或将无子栏目的栏目移动到其他一级栏目。</span>
+      <el-button :disabled="selectedDepth !== 2" @click="openCreate(selected?.id)">新增三级栏目</el-button>
+      <span>选中父栏目后新增下级；支持拖拽移动，最多三级。</span>
     </div>
     <div class="notice-manager-layout" v-loading="savingOrder">
       <div class="notice-manager-tree">
@@ -41,7 +42,7 @@
               <el-input v-model="editForm.title" maxlength="100" show-word-limit />
             </el-form-item>
             <el-form-item label="栏目层级">
-              <span>{{ selected.parentId ? '二级栏目' : '一级栏目' }}</span>
+              <span>{{ levelName(selectedDepth) }}栏目</span>
             </el-form-item>
             <el-form-item label="正文内容">
               <el-switch v-model="editForm.hasContent" active-text="允许编辑正文" />
@@ -60,7 +61,7 @@
 
   <DraggableFormDialog
     v-model="createVisible"
-    :title="createForm.parentId ? '新增二级栏目' : '新增一级栏目'"
+    :title="`新增${levelName(createForm.parentId ? sectionPath(localTree,createForm.parentId).length + 1 : 1)}栏目`"
     width="min(520px, calc(100vw - 32px))"
     append-to-body
     :close-on-click-modal="false"
@@ -81,7 +82,8 @@
 </template>
 
 <script setup>
-import { reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
+import { sectionPath, sectionHeight, sectionPlacements } from '@/utils/documentSectionNavigation'
 import { Delete, Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
@@ -108,6 +110,8 @@ const createForm = reactive({ title: '', parentId: null, hasContent: true })
 const rules = { title: [{ required: true, message: '请输入栏目名称', trigger: 'blur' }] }
 
 const cloneTree = value => JSON.parse(JSON.stringify(value || []))
+const levelName = depth => ['','一级','二级','三级'][depth] || ''
+const selectedDepth=computed(()=>selected.value ? sectionPath(localTree.value,selected.value.id).length : 0)
 
 watch(() => props.modelValue, value => { visible.value = value }, { immediate: true })
 watch(visible, value => emit('update:modelValue', value))
@@ -191,23 +195,13 @@ async function removeSelected() {
 }
 
 function allowDrop(draggingNode, droppingNode, type) {
-  const draggedHasChildren = Boolean(draggingNode.data.children?.length)
-  if (type === 'inner') return !droppingNode.data.parentId && !draggedHasChildren
-  return !(droppingNode.data.parentId && draggedHasChildren)
+  if(sectionPath([draggingNode.data],droppingNode.data.id).length)return false
+  const depth=sectionPath(localTree.value,droppingNode.data.id).length
+  return (type==='inner'?depth:depth-1)+sectionHeight(draggingNode.data)<=3
 }
 
 function collectPlacements(tree) {
-  const placements = []
-  tree.forEach((root, rootIndex) => {
-    placements.push({ id: root.id, parentId: null, sortOrder: rootIndex + 1, expectedStructureUpdatedAt: root.structureUpdatedAt })
-    ;(root.children || []).forEach((child, childIndex) => placements.push({
-      id: child.id,
-      parentId: root.id,
-      sortOrder: childIndex + 1,
-      expectedStructureUpdatedAt: child.structureUpdatedAt
-    }))
-  })
-  return placements
+  return sectionPlacements(tree)
 }
 
 async function saveOrder() {

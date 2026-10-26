@@ -55,7 +55,7 @@ test('标准业务列表的非默认可配置列也能解析公共漏斗定义',
 
 test('新咨询和稿件安排复用统一筛选序列化与公共漏斗组件', () => {
   assert.match(consultationsSource, /const consultationFilterFields = \[/)
-  assert.match(consultationsSource, /field_filters: serializeFieldFilters\(searchForm, consultationFilterFields\)/)
+  assert.match(consultationsSource, /field_filters: managedProjectFilters\(serializeFieldFilters\(searchForm, consultationFilterFields\), props.myProjects, localStorage.getItem\(\x27user_id\x27\)\)/)
   assert.match(consultationsSource, /<ConfiguredColumnHeaderFilter/)
   assert.match(manuscriptSource, /const projectFilterFields = \[/)
   assert.match(manuscriptSource, /const translatorFilterFields = \[/)

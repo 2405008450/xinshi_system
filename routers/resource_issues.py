@@ -60,11 +60,17 @@ def listing(keyword: str | None = Query(None, max_length=255), category: IssueCa
             planned_start: date | None = None, planned_end: date | None = None,
             department_id: UUID | None = None, saved_start:date|None=None,saved_end:date|None=None,
             specific_classification:str|None=Query(None,max_length=200),
+            notified_me: bool = False, created_by_me: bool = False,
             skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100), db=Depends(ready), actor=Depends(user)):
     if planned_start and planned_end and planned_start > planned_end:
         raise HTTPException(422, "预定完成日期范围无效")
     if saved_start and saved_end and saved_start>saved_end:raise HTTPException(422,'保存时间范围无效')
     q = service.visible_query(db, actor)
+    if notified_me:
+        q = q.filter(db.query(Audience.issue_id).filter(Audience.issue_id == Issue.id,
+            Audience.kind == 'notify_user', Audience.target_id == actor.id).exists())
+    if created_by_me:
+        q = q.filter(Issue.collected_by == actor.id)
     if category:
         q = q.filter(Issue.category == category)
     if topic_id:

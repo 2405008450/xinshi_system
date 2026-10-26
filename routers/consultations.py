@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import get_db
+import consultation_work_report as report_capture
 from translation_email_subject import build_translation_email_subject
 from crud import (
     count_consultations, get_consultation, get_consultations,
@@ -75,6 +76,7 @@ CONSULTATION_TEXT_FIELDS = {
 }
 
 CONSULTATION_FILTER_FIELDS = {
+    "managed_user_id",
     "consultation_code", "client_code", "client_name", "client_short_name", "status",
     "consultation_time", "consultation_method", "consultation_type", "client_source",
     "source_keyword", "handling_method", "customer_service_id", "sales_person_id",
@@ -90,7 +92,7 @@ def _field_filters(raw: Optional[str]):
     ranges = {
         "consultation_time", "follow_up_count", "follow_up_time", "created_at", "updated_at",
     }
-    enums = {
+    enums = {"managed_user_id",
         "status", "consultation_method", "consultation_type", "customer_service_id",
         "sales_person_id", "editor_id", "follow_up_person_id",
     }
@@ -652,7 +654,7 @@ def _confirm_consultation_project(
         if client:
             client.manager_contact = _clean_text(confirmation.manager_contact) or None
     if confirmation.project_intake or confirmation_project_type == "interpretation":
-        consultation.project_intake = next_project_intake
+        consultation.project_intake = report_capture.preserve_capture(consultation.project_intake, next_project_intake)
         if confirmation_project_type == "interpretation":
             consultation.project_intake_version = 2
 
@@ -812,6 +814,7 @@ def create_confirmed_consultation(
             current_user.id,
             current_user=current_user,
         )
+        report_capture.mark_pending(consultation, current_user)
         db.commit()
         mail = _send_confirmation_mail(
             db, consultation, project, preview, body.confirmation, current_user
@@ -938,6 +941,7 @@ def create_consultation_endpoint(
             ensure_recruitment_project_for_consultation(
                 db, db_consultation, current_user.id
             )
+        report_capture.mark_pending(db_consultation, current_user)
         db.commit()
         return _attach_linked_project_ids(
             db, get_consultation(db, db_consultation.id)
@@ -1077,6 +1081,21 @@ def read_consultations(
     )
 
 
+@router.get("/work-report/pending")
+def pending_consultation_reports(db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user)):
+    return report_capture.pending(db, current_user)
+
+
+@router.get("/{consultation_id}/work-report")
+def consultation_report_context(consultation_id: UUID, db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user)):
+    return report_capture.capture_context(db, current_user, consultation_id)
+
+
+@router.post("/{consultation_id}/work-report")
+def save_consultation_report(consultation_id: UUID, payload: report_capture.ConsultationReportWrite, db: Session = Depends(get_db), current_user: AppUser = Depends(require_any_permission("consultations:write"))):
+    return report_capture.submit(db, current_user, consultation_id, payload)
+
+
 @router.get("/{consultation_id}", response_model=ConsultationResponse)
 def read_consultation(consultation_id: UUID, db: Session = Depends(get_db)):
     db_consultation = get_consultation(db, consultation_id=consultation_id)
@@ -1140,7 +1159,7 @@ def update_consultation_intake_text_field(
         merged[payload.field] = value
         normalized = validated_intake(project_type, merged)
         if normalized != (consultation.project_intake or {}):
-            consultation.project_intake = normalized
+            consultation.project_intake = report_capture.preserve_capture(consultation.project_intake, normalized)
             consultation.updated_at = datetime.now()
             db.commit()
     except ValueError as exc:

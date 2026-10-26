@@ -26,6 +26,8 @@ class AppUser(Base):
     full_name: Mapped[Optional[str]] = mapped_column(String(255))
     email: Mapped[Optional[str]] = mapped_column(String(255))
     is_active: Mapped[Optional[bool]] = mapped_column(Boolean, server_default=text('true'))
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text('false'))
+    deleted_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True))
     department: Mapped[Optional[str]] = mapped_column(String(50))
     fixed_tasks: Mapped[Optional[dict]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))

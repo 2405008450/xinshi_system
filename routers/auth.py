@@ -138,7 +138,7 @@ def authenticate_user(
             raise throttle_exception(failure_decision)
         raise _credential_exception(failure_decision)
 
-    if not verify_password(password, user.password_hash) or not user.is_active:
+    if not verify_password(password, user.password_hash) or not user.is_active or getattr(user, 'is_deleted', False):
         failure_decision = record_login_failure(db, attempt_context)
         if failure_decision.blocked:
             raise throttle_exception(failure_decision)
@@ -190,7 +190,7 @@ def get_user_from_token_value(db: Session, token: str):
         return None
 
     user = get_user_by_username(db, username=username)
-    if user is None or not user.is_active:
+    if user is None or not user.is_active or getattr(user, 'is_deleted', False):
         return None
     version = payload.get("pwdv")
     if payload.get("user_id") != str(user.id) or not isinstance(version, str):

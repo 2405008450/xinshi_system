@@ -7,6 +7,9 @@ export const resetResourceRequestIdempotency = () => resetIdempotencyKey(request
 const snake = (value) => value.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
 const camel = (value) => value.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase())
 const convert = (value, keyFn) => Array.isArray(value) ? value.map((item) => convert(item, keyFn)) : value && value.constructor === Object ? Object.fromEntries(Object.entries(value).map(([key, item]) => [keyFn(key), convert(item, keyFn)])) : value
+export const getResourceDispatchRequest = id => api.get(`/resource-request-dispatches/${id}/resource-request`).then(res=>convert(res,camel))
+export const getResourceDispatch = id => api.get(`/resource-request-dispatches/${id}`).then(res=>convert(res,camel))
+export const respondResourceDispatch = (id,status) => api.put(`/resource-request-dispatches/${id}/receipt`,{status}).then(res=>convert(res,camel))
 
 export const getResourceRequests = (params, config = {}) => api.get('/resource-requests/', { ...config, params }).then((res) => convert(res, camel))
 export const getResourceRequestCount = (params, config = {}) => api.get('/resource-requests/count', { ...config, params })
@@ -31,7 +34,8 @@ export const createResourceRequest = async (data, idempotencyKey) => {
   return convert(response, camel)
 }
 export const updateResourceRequest = (id, data) => api.put(`/resource-requests/${id}`, convert(data, snake)).then((res) => convert(res, camel))
-export const sendResourceRequest = (id) => api.post(`/resource-requests/${id}/send`).then((res) => convert(res, camel))
+export const getResourceRequestSendHistory = (id,config={}) => api.get(`/resource-requests/${id}/send-history`,config).then(res=>convert(res,camel))
+export const sendResourceRequest = (id,key,userIds) => api.post(`/resource-requests/${id}/send`,userIds?{user_ids:userIds}:null,key?{headers:{'Idempotency-Key':key}}:{}).then((res) => convert(res, camel))
 export const cancelResourceRequest = (id) => api.post(`/resource-requests/${id}/cancel`).then((res) => convert(res, camel))
 export const pauseResourceRequest = (id, reason, expectedUpdatedAt) => api.post(`/resource-requests/${id}/pause`, {
   reason: reason?.trim() || null, expected_updated_at: expectedUpdatedAt,
@@ -48,3 +52,6 @@ export const updateResourceRequestItemTextField = (id, itemId, field, value, exp
 export const updateResourceProgress = (id, data) => api.patch(`/resource-requests/${id}/progress`, convert(data, snake)).then((res) => convert(res, camel))
 export const getResourceProgressLogs = (id) => api.get(`/resource-requests/${id}/progress-logs`).then((res) => convert(res, camel))
 export const deleteResourceRequest = (id) => api.delete(`/resource-requests/${id}`)
+
+export const getDispatchChannels = id => api.get(`/resource-request-dispatches/${id}/channels`)
+export const sendDispatchExecution = (id,data) => api.post(`/resource-request-dispatches/${id}/execution`,data).then(res=>convert(res,camel))

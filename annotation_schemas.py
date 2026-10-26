@@ -514,6 +514,8 @@ class AnnotationProjectListResponse(BaseModel):
     parent_order_no: Optional[str] = None
     parent_project_name: Optional[str] = None
     child_count: int = 0
+    child_progress_count: int = 0
+    child_progress_keys: list[str] = Field(default_factory=list)
     auto_created_child_count: int = 0
     child_status_counts: dict[str, int] = Field(default_factory=dict)
     project_name: Optional[str] = None

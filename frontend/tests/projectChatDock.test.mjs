@@ -61,6 +61,18 @@ function workspaceVisibility(state, followedItems = [{ projectId: 'followed-proj
   })
 }
 
+test('重新加入已关闭会话会清除隐藏标记及最近关闭记录，并持久保留恢复结果', () => {
+  const {dock:instance,storage}=createDockHarness()
+  instance.closeChat('annotation:closed-project')
+  assert.ok(instance.state.closedSessionKeys.includes('annotation:closed-project'))
+  instance.revealSession({key:'annotation:closed-project'})
+  assert.ok(!instance.state.closedSessionKeys.includes('annotation:closed-project'))
+  assert.ok(!instance.state.recentClosedSessions.some(row=>row.key==='annotation:closed-project'))
+  const restored=createDockHarness(storage)
+  restored.dock.openFullscreen()
+  assert.ok(!restored.dock.state.closedSessionKeys.includes('annotation:closed-project'))
+})
+
 test('关闭会话按当前用户记住移出状态，刷新后不复现，从项目重新打开可恢复', () => {
   const storage = new Map()
   const first = createDockHarness(storage).dock
@@ -179,7 +191,8 @@ test('关闭当前会话不删除其他已打开会话；减号仍只最小化',
   instance.minimizeWorkspace()
   assert.equal(instance.state.windows.length, 1)
   assert.equal(workspaceVisibility(instance.state).task, true)
-  assert.match(workspace, /@click.stop="emit\('close-active'\)"/)
+  assert.match(workspace, /aria-label="退出整个会话窗口"[^>]*@click.stop="emit\('exit-workspace'\)"/)
+  assert.match(dock, /aria-label="关闭当前会话"[^>]*closeWorkspaceSession\(\)/)
   assert.match(dock, /@close-active="closeWorkspaceSession"/)
 })
 
@@ -454,8 +467,8 @@ test('沟通窗口支持小中大三档、会话列表布局，并按用户记�
   assert.match(dockStore, /workspaceSize === 'medium' \? 'large' : 'medium'/)
   assert.match(dockStore, /mode === 'maximized'/)
   assert.match(dockStore, /const toggleWorkspaceMaximize = \(\) =>/)
-  assert.match(windowMenu, /aria-label="窗口状态"/)
-  assert.match(windowMenu, /全屏聊天/)
+  assert.match(windowMenu, /aria-label="窗口大小"/)
+  assert.doesNotMatch(windowMenu, /choose\('fullscreen'\)/)
   assert.match(workspace, /还原窗口/)
   assert.match(windowMenu, /会话工作区/)
   assert.match(dock, /v-if="!isCompactScreen"/)
@@ -466,7 +479,7 @@ test('沟通窗口支持小中大三档、会话列表布局，并按用户记�
   assert.match(workspace, /未读/)
   assert.match(workspace, /setTimeout\(applyKeyword, 400\)/)
   assert.match(workspace, /if \(!value\)/)
-  assert.match(followedStore, /chatRequest\('sessions', \{ signal: controller\.signal \}\)/)
+  assert.match(followedStore, /chatRequest\('sessions', \{ signal: current\.signal \}\)/)
   assert.match(followedStore, /setInterval\(refresh, 15000\)/)
   assert.match(historyPanel, /全部/)
   assert.match(historyPanel, /图片/)
@@ -501,7 +514,7 @@ test('顶栏可直接打开空会话大屏，多次点击保持大屏打开', ()
   instance.minimizeWorkspace()
   instance.openFullscreen()
   assert.equal(instance.state.workspaceMinimized, false)
-  assert.match(layout, /aria-label="聊天大屏"/)
+  assert.match(layout, /aria-label="会话"/)
 })
 
 test('固定小窗只显示当前会话，重新进入大屏再还原不展开其他窗口', () => {
@@ -551,7 +564,7 @@ test('@候选在群内、群外和搜索结果中均排除本人，重名其他�
 test('收藏项目名称和沟通按钮使用同一准确项目 ID，详情直接打开项目沟通', () => {
   const methods = favorites.slice(favorites.indexOf('function open(item)'), favorites.indexOf('watch(favoritesVisible'))
   const opened = [], routes = []
-  const context = {favoritesVisible: {value: true}, openChat: item => opened.push(item), router: {push: target => routes.push(target)}}
+  const context = {emit:()=>{}, favoritesVisible: {value: true}, openChat: item => opened.push(item), router: {push: target => routes.push(target)}}
   runInNewContext(methods + ';for (const item of [{projectId:"parent",orderNo:"AP-261007-001"},{projectId:"child",orderNo:"AP-261007-001.001"}]) {open(item);locateProject(item)}', context)
   assert.deepEqual(opened.map(item => item.projectId), ['parent', 'child'])
   assert.deepEqual(routes.map(item => item.query.projectId), ['parent', 'child'])
@@ -684,7 +697,7 @@ test('顶部聊天等待窗口挂载后跳转 @我，零未读时进入消息面
   const method=layout.slice(layout.indexOf('async function openHeaderChat()'),layout.indexOf('const ResourceRequestDailyNotesDialog'))
   for(const count of [0,3]) {
     const events=[]
-    await runInNewContext(method+';openHeaderChat()', {chatMentionTotal:{value:count},openFullscreen:()=>events.push('open'),nextTick:async()=>events.push('mounted'),chatEntryContext:()=>({}),route:{},CustomEvent:class {constructor(type,options){this.type=type;this.detail=options.detail}},window:{dispatchEvent:event=>events.push(event)}})
+    await runInNewContext(method+';openHeaderChat()', {route:{meta:{}},chatEntryContext:()=>'',chatMentionTotal:{value:count},openFullscreen:()=>events.push('open'),nextTick:async()=>events.push('mounted'),CustomEvent:class {constructor(type,options){this.type=type;this.detail=options.detail}},window:{dispatchEvent:event=>events.push(event)}})
     assert.equal(events[0],'open');assert.equal(events[1],'mounted')
     assert.equal(events[2].type,'chat-show-messages');assert.equal(events[2].detail.mentions,count>0)
   }

@@ -1,5 +1,28 @@
 # 数据字典
 
+## 标注会话创建登记（annotation_chat_conversation）
+
+显式创建入口登记独立状态；历史默认参与人不能代替创建记录。已有聊天消息的项目视为已创建，但不补造历史创建时间。历史仅有成员、没有消息及创建登记的项目显示未创建，成员与关注数据保留。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| project_id | uuid | 主键，关联标注订单，一个订单仅一个会话 |
+| created_by | uuid | 显式创建人，关联 app_user |
+| created_at | timestamptz | 实际登记时间，UTC+8，不回填历史 |
+
+## 标注员情况记录（annotation_annotator_progress）
+
+聊天“添加进度 → 标注员情况”与标注项目管理进度窗口共用本表，按准确的主／子订单 ID 隔离。独立于客户进度和项目状态，不回填历史记录；由显式迁移脚本初始化，不在服务启动时建表。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | uuid | 记录主键 |
+| project_id | uuid | 标注订单 ID，关联 annotation_project |
+| change_note | text | 标注员情况正文，1～10000 字，支持统一截图引用 |
+| effective_on | timestamptz | 业务节点时间，UTC+8 |
+| changed_at / changed_by | timestamptz / uuid | 首次登记时间／人员 |
+| updated_at / updated_by | timestamptz / uuid | 版本时间／更新人员 |
+
 > 目标结构快照：2026-08-27 中国标准时间；来源：ORM 与账号资产库迁移 DDL。部署后可再次运行 `tools/generate_database_docs.py` 以实际 PostgreSQL 为准复核。
 
 ## 阅读说明
@@ -1315,3 +1338,94 @@
 迁移 `tools/apply_organization_members_migration.py` 导入现有主部门归属，保留 `app_user.department` 作为主部门，不改历史排班或权限。显式 `--initialize-annotation` 时仅在“标注项目部”不存在时创建并加入已核对的17位人员和职务；重复运行不恢复之后人工移出的标注项目部成员。结构变更必须先获得用户单独确认，不由服务启动触发。
 
 系统管理统一入口为“组织架构”，人员管理与部门名册在同一板块。`GET /departments/organization` 返回姓名、账号、主部门及全部部门/职务；`PUT /departments/{id}/members` 仅 ethan、jimmy、超级管理员可保存，通过部门 revision 防止覆盖他人修改。移出主部门时使用其余部门作为主部门或置空。人员筛选、部门通知及标注默认@按跨部门名册匹配并去重。
+
+### 资源需求多版本与通知回执（2026-10-23，经用户确认完成结构初始化）
+
+- `resource_request.request_detail` 保留历史内容，界面改称总体需求；新增 `request_content JSONB NOT NULL DEFAULT '{}'`，保存 `versions:[{name,content}]`，不改写历史详情。新增 `partial_requested boolean NOT NULL DEFAULT false`、`partial_sequence integer NOT NULL DEFAULT 0`。仅母订单且有子订单可标记部分语种；发送时锁来源项目，以来源项目分配递增批次，标题保存为“部分语种（n）原项目名”。项目名本体不修改。`uq_resource_request_partial_batch` 对 annotation_project_id/partial_sequence（大于0）唯一。
+- `resource_request_dispatch`：id UUID PK；request_id UUID FK resource_request（RESTRICT），sender_id UUID FK app_user（RESTRICT），kind varchar(16)（circle/post/development），idempotency_key varchar(128) 全局唯一，snapshot JSON 不可变完整需求快照，created_at timestamptz。按 request_id、sender_id 建索引。
+- `resource_request_dispatch_recipient`：dispatch_id UUID FK dispatch（CASCADE）与 user_id UUID FK app_user（RESTRICT）联合主键；received_at、processed_at timestamptz，可空。按 user_id/dispatch_id 建索引。回执仅本人操作，已处理必须先已收到；同状态重试不重复通知。
+- 发送人及指定接收人可读快照；仅 active 的标注项目部成员可作为新发送目标。通知类型 `resource_request_dispatch` 属业务通知，继续使用红色未读数字。发送、接收和处理通知含项目名称；快照及新回执使用 UTC+8。通知入库与批次/回执同事务，提交后推送。
+- 显式迁移：`tools/apply_resource_request_dispatch_migration.py`。仅新增三列、唯一索引和两表，不补发历史通知，不填造历史回执；每次执行云端结构迁移前单独确认。
+
+资源需求三种发送方式分别最多5次；development 复用现有批次和回执表，快照的 send_log_id 关联原发送进度日志。历史发送只按原日志统计，不补造接收人和回执。重复请求使用幂等标识，不重复计数或通知。此次扩展不新增表或字段。
+
+### 人员逻辑删除（2026-10-23，已单独确认并执行迁移）
+app_user 新增 is_deleted boolean NOT NULL DEFAULT false、deleted_at timestamptz NULL。删除时停用账号并写入 UTC+8 删除时间；人员列表及组织架构排除已删除人员，历史业务外键、姓名、排班、请假、消息及审计保留。用户名和邮箱继续保留唯一性，避免历史身份被新人员复用。
+
+### 发帖平台执行回执（已单独确认并执行迁移）
+resource_request_execution_reply：id UUID PK，dispatch_id UUID FK resource_request_dispatch（RESTRICT）并索引，user_id UUID FK app_user（RESTRICT），platforms JSON（平台 id/name/parent_name 快照），content TEXT，idempotency_key varchar(128) UNIQUE，created_at timestamptz。每次回复独立保留，不因渠道后续编辑或删除改写。
+
+### 标注业务默认接收人（已单独确认并执行迁移）
+resource_request_dispatch_default：kind varchar(16) PK（circle/post/development），user_ids JSON NULL（NULL 按初始规则生成，[] 明确清空），revision integer，updated_by UUID FK app_user，updated_at timestamptz。发帖可选全公司启用人员；发圈、需求可选标注项目部。共用配置不改写已发送通知。
+
+资源需求 request_content.versions 的每个版本新增 copied_from_task 布尔 JSON 属性（默认 false），标记发帖版、询问版是否自动复制自标注项目 task_description；页面按此属性在内容首行显示红色加粗提示。复用现有 JSON 字段，无数据库结构变更；人工正文不会被覆盖。
+
+
+### work_report_category（工作报告自定义二级分类）
+
+通过 `tools/apply_work_report_categories_migration.py` 显式初始化，不随服务启动迁移。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | UUID | 主键，应用生成 |
+| scope | varchar(36) | 项目分类使用 `*` 全局共享，其余分类使用用户 UUID 隔离 |
+| parent | varchar(20) | 项目工作、非项目工作、外勤工作、管理工作 |
+| name | varchar(80) | 自定义二级分类名称 |
+
+`scope + parent + name` 唯一。默认分类由代码提供。只有超级管理员可新增项目分类；其他类别用户自行新增。
+日报 `display_metadata.report_types` 保留旧项目值，新二级分类使用 `一级::二级`。仅纯非项目工作允许订单号、项目名称为空；其他手工行的订单号、项目名称、具体任务、工作量、单位、耗时必填。所有工作报告字段禁止截图引用。
+
+
+### work_report_access_rule（工作报告查看匹配规则）
+
+通过 `tools/apply_work_report_access_migration.py` 显式初始化；不在启动时建表，不自动写入授权规则。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | UUID | 应用生成的规则主键 |
+| name | varchar(100) | 匹配规则名称 |
+| viewers_all | boolean | 是否允许全体在职启用人员查看 |
+| viewer_ids | JSONB | 查看人 UUID 数组；保存时保留赵震锋 |
+| senders_all | boolean | 全体启用成员（包括无部门人员） |
+| all_departments | boolean | 当前目录全部部门，随名册动态变化 |
+| department_ids | JSONB | 指定发送人部门 UUID 数组 |
+| sender_ids | JSONB | 额外指定发送人 UUID 数组 |
+| enabled | boolean | 规则启用状态 |
+| revision | integer | 乐观锁版本，从 1 开始 |
+| updated_at | timestamptz | UTC+8 业务时钟写入，接口携带 +08:00 |
+| updated_by | UUID | 最后配置人 |
+
+设置读写仅限已核对的赵震锋账号 `williamzhao`，超级管理员角色无额外绕过权限。查看范围是启用规则的并集；同一规则中部门与个人发送范围取并集。部门按当前主部门、历史别名和跨部门成员动态匹配；已停用/删除人员排除。只共享已确认日报，列表、可选发送人和详情都在后端应用同一范围，撤回和规则停用立即阻断新请求。初始查看人预选为 Ethan、Thomas、卢少妃、Lulu、黄运坚、刘家铭、梁翠珍、李宇琪及赵震锋；只在配置人显式保存规则后生效。本功能不自动发送邮件，沿用现有邮件发送操作。
+
+
+### work_report_feedback（逐项反馈与来回沟通）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | UUID | 消息主键 |
+| report_id | UUID | 所属日报，外键 daily_report，删除时级联 |
+| item_key | varchar(36) | 工作项稳定标识；新版保存于 display_metadata._feedback_key，历史行回退为明细 UUID |
+| item_snapshot | JSONB | 原始工作类型、名称、具体任务；工作行删除或改写后仍保留沟通语境 |
+| author_id | UUID | 发言人，外键 app_user |
+| author_name | varchar(255) | 发言时姓名快照 |
+| content | text | 纯文字沟通，最多4000字 |
+| created_at | timestamptz | UTC+8 业务时钟；接口 +08:00 |
+
+索引 report_id + item_key + created_at。当前有权查看人可发起反馈，报告作者可回复既有反馈，双方可多次沟通。赵震锋、Lulu 可查看全部沟通；该监督权不自动授予整份报告的查看权。普通查看人撤权后不能继续读取或回复；作者仍可查看自己的沟通。历史工作项删除后消息保留。
+
+### work_report_revision（一次修订快照）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | UUID | 主键 |
+| report_id | UUID | 所属日报，唯一约束 uq_work_report_one_revision，外键 daily_report |
+| before_data | JSONB | 修订前完整报告快照 |
+| after_data | JSONB | 修订后完整报告快照 |
+| created_by | UUID | 报告作者 |
+| created_at | timestamptz | 修订时间，UTC+8 |
+
+报告确认后最多修订一次（包括已发邮件报告），以日报行锁和唯一约束限制并发；保存前后快照与正文在同一事务中提交。无实际修改不消耗机会。已确认报告不再通过撤回绕过次数限制。修订后可再次发送，既有邮件投递快照保留。系统记录修订时沿用已确认快照，不重新汇总。所有新表由 tools/apply_work_report_review_migration.py 显式创建，不随启动建表。
+
+### 工作日报告统计口径
+
+仅赵震锋及当前行政部（主部门或跨部门成员）可以统计。仅已确认报告计为已写；当前启用未删除人员，自账号创建日期起统计，未来日期不计。2025、2026 年使用国务院公布的放假及调休安排，未知年份拒绝统计，不按普通周末推测。按日给出应写、已写、未写人数与人员 UUID；按周/月返回每人缺报的全部具体工作日。部门及姓名筛选在同一查询范围内应用，跨部门人员去重。人员范围采用当前名册，不以此替代历史劳动关系或请假考勤。

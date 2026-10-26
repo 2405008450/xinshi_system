@@ -8,7 +8,7 @@ from typing import Optional
 
 from sqlalchemy import (
     CheckConstraint, Date, DateTime, ForeignKeyConstraint, Index, Integer, PrimaryKeyConstraint,
-    SmallInteger, String, Text, UniqueConstraint, Uuid, text,
+    SmallInteger, String, Text, UniqueConstraint, Uuid, text, Boolean,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -69,6 +69,9 @@ class ResourceRequest(Base):
     client_code_snapshot: Mapped[Optional[str]] = mapped_column(String(60))
     client_short_name_snapshot: Mapped[Optional[str]] = mapped_column(String(100))
     request_detail: Mapped[str] = mapped_column(Text, nullable=False)
+    request_content: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    partial_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text('false'))
+    partial_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text('0'))
     progress_percent: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default=text("0"))
     priority: Mapped[str] = mapped_column(String(10), nullable=False, server_default=text("'medium'"))
     request_status: Mapped[str] = mapped_column(String(30), nullable=False, server_default=text("'submitted'"))

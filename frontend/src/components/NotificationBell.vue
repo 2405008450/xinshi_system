@@ -85,10 +85,13 @@
       </el-scrollbar>
     </div>
   </el-popover>
+  <ResourceRequestDispatchDialog v-if="dispatchBatchId" :batch-id="dispatchBatchId" @close="dispatchBatchId=''" />
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+const ResourceRequestDispatchDialog=defineAsyncComponent(()=>import('@/views/resource/components/ResourceRequestDispatchDialog.vue'))
+const dispatchBatchId=ref('')
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { useRouter } from 'vue-router'
 import { Bell } from '@element-plus/icons-vue'
@@ -197,6 +200,7 @@ const markItemRead = async (item, showError = false) => {
   try {
     await markNotificationRead(item.id)
     item.is_read = true
+    window.dispatchEvent(new CustomEvent('business-notifications-changed'))
     const listItem = notifications.value.find((candidate) => String(candidate.id) === id)
     if (listItem) listItem.is_read = true
     unreadCount.value = Math.max(0, unreadCount.value - 1)
@@ -211,6 +215,7 @@ const markItemRead = async (item, showError = false) => {
 }
 
 const navigateToNotification = async (item) => {
+  if(item.notification_type==='resource_request_dispatch' && item.related_entity_id){popoverVisible.value=false;dispatchBatchId.value=String(item.related_entity_id);return}
   if(item.notification_type==='chat_summary'&&item.related_entity_id){useProjectChatDock().openFullscreen();await nextTick();window.dispatchEvent(new CustomEvent('chat-open-summary',{detail:{issueId:item.related_entity_id}}));return}
   if (['workflow_handover_pending', 'project_manager_handover_pending'].includes(item.notification_type)) {
     await router.push('/workbench')
@@ -364,6 +369,7 @@ const handleMarkAllRead = async () => {
     await markAllNotificationsRead({ channel: 'business' })
     notifications.value = notifications.value.map((item) => ({ ...item, is_read: true }))
     unreadCount.value = 0
+    window.dispatchEvent(new CustomEvent('business-notifications-changed'))
   } catch (error) {
     ElMessage.error(getLocalizedErrorMessage(error, '批量已读失败'))
   }
@@ -377,10 +383,12 @@ onMounted(() => {
   unsubscribeNotification = subscribe('notification', handleSocketNotification)
   ensureConnected()
   startNotificationPolling()
+  window.addEventListener('business-notifications-changed', handlePopoverShow)
   window.addEventListener('focus', syncDesktopNotificationState)
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('business-notifications-changed', handlePopoverShow)
   unsubscribeSnapshot?.()
   unsubscribeNotification?.()
   closeSocket()

@@ -36,10 +36,14 @@ test('标注进度提交保持子订单ID，项目进度与客户进度使用独
   const calls=[]
   const save=runInNewContext(source+';saveAnnotationChatProgress',{
     createCustomerProgress:async(id,data)=>{calls.push({type:'customer',id,data})},
+    createAnnotatorProgress:async(id,data)=>{calls.push({type:'annotator',id,data})},
     updateAnnotationProjectStatus:async(id,data)=>{calls.push({type:'project',id,data})},
   })
   const input={projectId:'exact-child-id',projectStatus:'project_in_progress',changeNote:' 消息进度 ',effectiveOn:'2026-10-22 15:00:00'}
   await save({...input,track:'customer'});await save({...input,track:'project'})
+  await save({...input,track:'annotator'})
+  assert.equal(calls[2].type,'annotator');assert.equal(calls[2].id,'exact-child-id')
+  assert.equal(calls[2].data.changeNote,'消息进度');assert.equal(calls[2].data.projectStatus,undefined)
   assert.equal(calls[0].type,'customer');assert.equal(calls[1].type,'project')
   assert.equal(calls[0].id,'exact-child-id');assert.equal(calls[1].id,'exact-child-id')
   assert.equal(calls[0].data.effectiveOn,'2026-10-22T15:00:00+08:00')

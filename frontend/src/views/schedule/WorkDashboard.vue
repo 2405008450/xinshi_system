@@ -127,7 +127,7 @@
         <el-tab-pane name="daily-report" lazy>
           <template #label>
             <span class="daily-report-tab-label">
-              个人工作日报
+              我的工作报告
               <el-tag
                 v-if="dailyReportStatusTag"
                 :type="dailyReportStatusTag.type"
@@ -139,8 +139,9 @@
               </el-tag>
             </span>
           </template>
-          <DailyReportPanel :report-date="scheduleDate" @status-change="onDailyReportStatus" />
+          <DailyReportPanel :report-date="scheduleDate" @update:report-date="scheduleDate = $event" @status-change="onDailyReportStatus" />
         </el-tab-pane>
+        <el-tab-pane v-if="canReceiveReports" name="received-reports" label="查看工作报告" lazy><ReceivedWorkReports /></el-tab-pane>
       </el-tabs>
     </div>
 
@@ -155,10 +156,12 @@
 <script setup>
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import {reportWeekday} from '@/utils/workReportForm'
+import {businessDateTimeInputValue} from '@/utils/dateTime'
 import { ArrowDown } from '@element-plus/icons-vue'
 import ScheduleHeader from './components/ScheduleHeader.vue'
 import MyShiftStatus from './components/MyShiftStatus.vue'
-import { getMyWorkItems } from '@/api/tasks'
+import { getMyWorkItems, getReportAccessContext } from '@/api/tasks'
 import { getOnLeaveUsers } from '@/api/leave'
 import { getMyEmployeeShift } from '@/api/schedule'
 import { hasPermission, hasRole, isSuperAdmin } from '@/utils/permission'
@@ -167,6 +170,11 @@ import { isDefaultVisibleWorkItem } from '@/utils/workItemScope'
 
 const UnifiedTasksPanel = defineAsyncComponent(() => import('./components/UnifiedTasksPanel.vue'))
 const DailyReportPanel = defineAsyncComponent(() => import('./components/DailyReportPanel.vue'))
+const ReceivedWorkReports = defineAsyncComponent(() => import('./components/ReceivedWorkReports.vue'))
+const canReceiveReports=ref(false)
+async function refreshReportAccess(){try{canReceiveReports.value=(await getReportAccessContext()).can_receive}catch{canReceiveReports.value=false}if(!canReceiveReports.value&&activeSection.value==='received-reports')activeSection.value='tasks'}
+onMounted(()=>{refreshReportAccess();window.addEventListener('focus',refreshReportAccess)})
+onBeforeUnmount(()=>window.removeEventListener('focus',refreshReportAccess))
 const ShiftMatrixDialog = defineAsyncComponent(() => import('./components/ShiftMatrixDialog.vue'))
 const PendingHandoversPanel = defineAsyncComponent(() => import('./components/PendingHandoversPanel.vue'))
 const ProjectManagerHandoverPanel = defineAsyncComponent(() => import('./components/ProjectManagerHandoverPanel.vue'))
@@ -182,7 +190,7 @@ const managementExpanded = ref(true)
 const executionExpanded = ref(true)
 
 const MAIN_TAB_STORAGE_KEY = 'workbench_main_tab'
-const MAIN_TAB_NAMES = ['tasks', 'daily-report']
+const MAIN_TAB_NAMES = ['tasks', 'daily-report', 'received-reports']
 
 function readInitialMainTab() {
   try {
@@ -245,7 +253,7 @@ watch(activeSection, (value) => {
 
 const weekdayLabel = computed(() => {
   if (!scheduleDate.value) return ''
-  return new Date(scheduleDate.value).toLocaleDateString('zh-CN', { weekday: 'long' })
+  return reportWeekday(scheduleDate.value)
 })
 
 function handleOpenProjectChat(projectId) {
@@ -369,8 +377,7 @@ onBeforeUnmount(() => {
 
 onMounted(() => {
   initCurrentUserName()
-  const today = getReferenceDate()
-  scheduleDate.value = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+  scheduleDate.value = businessDateTimeInputValue().slice(0,10)
   loadMyWorkItems()
 })
 </script>

@@ -14,7 +14,9 @@ export function sessionFolderNodes(items = []) {
   const custom = items.filter(row => !builtinIds.has(row.id) && row.parentKey !== resourceFolderId).map(row => ({ ...row, assignable: true }))
   const all = [...builtins, ...statuses, ...custom]
   const roots = new Set(all.filter(row => row.active && !row.parentKey).map(row => row.id))
-  return all.filter(row => row.active && (!row.parentKey || roots.has(row.parentKey)))
+  const visible = new Set(roots)
+  for (let depth = 0; depth < 2; depth++) for (const row of all) if (row.active && visible.has(row.parentKey)) visible.add(row.id)
+  return all.filter(row => row.active && visible.has(row.id))
 }
 
 export function sessionMatchesFolder(session, id, nodes) {
@@ -22,13 +24,15 @@ export function sessionMatchesFolder(session, id, nodes) {
   const node = nodes.find(row => row.id === id)
   if (!node) return false
   const type = session.projectType || session.kind
-  if (id === resourceFolderId && type === 'discussion') return true
+  if (id === resourceFolderId && type === 'discussion') return !session.subtitle || session.subtitle === '资源开拓讨论'
   const matches = row => {
     if (session.categoryIds?.includes(row.id)) return true
     if (row.ruleKey?.startsWith('status:')) return type === 'annotation' && normalizeAnnotationStatus(session.projectStatus) === row.ruleKey.slice(7)
     return ['annotation', 'translation', 'interpretation', 'recruitment'].includes(row.ruleKey) && type === row.ruleKey
   }
-  return matches(node) || nodes.some(row => row.parentKey === id && matches(row))
+  const descendants = new Set([id])
+  for (let depth = 0; depth < 2; depth++) for (const row of nodes) if (descendants.has(row.parentKey)) descendants.add(row.id)
+  return nodes.some(row => descendants.has(row.id) && matches(row))
 }
 
 export function sessionFolderCount(sessions, id, nodes) {

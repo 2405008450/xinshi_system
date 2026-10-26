@@ -195,7 +195,7 @@ const managerLabel = computed(() => isClientManagerTransfer.value ? '客户经�
 const sourceLabel = computed(() => `原${managerLabel.value}`)
 const targetLabel = computed(() => `新${managerLabel.value}`)
 const dialogTitle = computed(() => activeTab.value === 'history'
-  ? '标注项目负责人交接'
+  ? '标注项目交接与记录'
   : `${managerLabel.value}离职交接`)
 const alertTitle = computed(() => (
   `该操作由超级管理员直接生效，无需接收人确认；仅交接所选订单，各级订单独立管理。可交接全部状态的标注项目，只会变更${managerLabel.value}，不会修改客户及其他项目角色。`

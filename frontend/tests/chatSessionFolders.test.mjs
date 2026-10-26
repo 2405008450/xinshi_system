@@ -10,6 +10,20 @@ const statusSource = readFileSync(new URL('../src/utils/annotationStatus.js', im
 const { annotationStatusLabels, normalizeAnnotationStatus } = runInNewContext(statusSource.replaceAll('export ', '') + '\n;({annotationStatusLabels, normalizeAnnotationStatus})')
 const api = runInNewContext(source.replace(/^import .*\r?\n/gm, '').replaceAll('export ', '') + '\n;({sessionFolderMentionUnread, sessionFolderNodes, sessionMatchesFolder, sessionFolderCount, assignableSessionFolders, annotationFolderId, resourceFolderId})', { defaults, annotationStatusLabels, normalizeAnnotationStatus, sessionListKey })
 
+test('二级分类下会话可见，数量与未读汇总到分类及一级分组，停用分类隐藏后代', () => {
+  const root = defaults.find(row => row.ruleKey === 'translation').id
+  const folder = {id:'folder',name:'业务分类',parentKey:root,active:true}
+  const room = {id:'room',name:'分类内会话',parentKey:'folder',active:true,isConversation:true}
+  const nodes = api.sessionFolderNodes([folder,room])
+  const sessions = [{key:'discussion:room',projectType:'discussion',subtitle:'群聊',categoryIds:['room'],mentionUnread:2}]
+  assert.equal(nodes.some(row=>row.id==='room'),true)
+  for(const id of [root,'folder','room']) {
+    assert.equal(api.sessionFolderCount(sessions,id,nodes),1)
+    assert.equal(api.sessionFolderMentionUnread(sessions,id,nodes),2)
+  }
+  assert.equal(api.sessionFolderNodes([{...folder,active:false},room]).some(row=>row.id==='room'),false)
+})
+
 test('标注分组数量按主订单系列统计，与会话列表保持一致', () => {
   const sessions = ['AP-261007-001', 'AP-261007-001.001', 'AP-261007-001.001.001', 'AP-261007-002']
     .map((subtitle, index) => ({ key: `annotation:${index}`, projectType: 'annotation', subtitle }))
@@ -22,6 +36,15 @@ test('默认五个一级分组、全部标注状态；六个资源讨论不是�
   assert.equal(nodes.filter(row => row.parentKey === api.annotationFolderId).length, Object.keys(annotationStatusLabels).length)
   assert.equal(nodes.some(row => row.name === '平台讨论'), false)
   assert.equal(api.sessionMatchesFolder({ projectType: 'discussion' }, api.resourceFolderId, nodes), true)
+})
+
+test('自建群聊只显示于所属分组，不混入资源讨论', () => {
+  const parent = defaults.find(row => row.ruleKey === 'translation').id
+  const nodes = api.sessionFolderNodes([{ id: 'room', name: '企业管理', parentKey: parent, active: true, isConversation: true }])
+  const session = { key: 'discussion:room', projectType: 'discussion', subtitle: '群聊', categoryIds: ['room'] }
+  assert.equal(api.sessionMatchesFolder(session, parent, nodes), true)
+  assert.equal(api.sessionMatchesFolder(session, 'room', nodes), true)
+  assert.equal(api.sessionMatchesFolder(session, api.resourceFolderId, nodes), false)
 })
 
 test('按业务类型和当前状态自动归类，兼容历史驼峰值', () => {
@@ -85,4 +108,17 @@ test('未读提及数字汇总到父分组及状态分组，同一订单重复�
   assert.equal(api.sessionFolderMentionUnread(rows, api.annotationFolderId, nodes), 6)
   assert.equal(api.sessionFolderMentionUnread(rows, 'status:trial_preparation', nodes), 5)
   assert.equal(api.sessionFolderMentionUnread(rows, api.resourceFolderId, nodes), 0)
+})
+
+
+test('一级会话与一级目录平级，按自身会话汇总数量与提及', () => {
+  const room = {id:'root-room',name:'一级会话',parentKey:null,active:true,isConversation:true}
+  const folder = {id:'root-folder',name:'一级目录',parentKey:null,active:true}
+  const nodes = api.sessionFolderNodes([room,folder])
+  assert.equal(nodes.find(row=>row.id===room.id).parentKey,null)
+  assert.equal(nodes.find(row=>row.id===room.id).isConversation,true)
+  const sessions = [{key:'discussion:root-room',projectType:'discussion',subtitle:'群聊',categoryIds:[room.id],mentionUnread:2}]
+  assert.equal(api.sessionFolderCount(sessions,room.id,nodes),1)
+  assert.equal(api.sessionFolderMentionUnread(sessions,room.id,nodes),2)
+  assert.equal(api.sessionFolderCount(sessions,folder.id,nodes),0)
 })

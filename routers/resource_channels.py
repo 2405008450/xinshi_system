@@ -37,6 +37,12 @@ def read_account_options(db: Session = Depends(get_db)):
     return account_options(db)
 
 
+@router.get('/operation-history')
+def actor_history(db:Session=Depends(get_db),user=Depends(get_current_user)):
+    from resource_channel_service import actor_channel_history
+    return actor_channel_history(db,user)
+
+
 @router.get("/{platform_id}")
 def read_detail(platform_id: UUID, db: Session = Depends(get_db)):
     return read_channel(db, platform_id)
@@ -70,3 +76,18 @@ def update_description(platform_id: UUID, payload: ChannelDescriptionWrite, db: 
     result = save_description(db, user, platform_id, payload.description, payload.revision)
     db.commit()
     return result
+
+
+@router.delete('/{platform_id}',status_code=204,dependencies=[write])
+def remove_channel(platform_id:UUID,revision:int=Query(...,ge=1),db:Session=Depends(get_db),user=Depends(get_current_user)):
+    from resource_channel_service import delete_channel
+    try:
+        delete_channel(db,user,platform_id,revision);db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409,'该渠道已有关联业务记录，不能删除；可在平台情况说明中标记停用') from exc
+
+@router.get('/{platform_id}/history')
+def channel_changes(platform_id:UUID,db:Session=Depends(get_db)):
+    from resource_channel_service import channel_history
+    return channel_history(db,platform_id)

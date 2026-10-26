@@ -14,7 +14,7 @@ from models import AppUser, Base
 
 
 class AnnotationNoticeSection(Base):
-    """标注业务知识库中的两级自定义栏目。"""
+    """标注业务知识库中的三级自定义栏目。"""
 
     __tablename__ = "annotation_notice_section"
     __table_args__ = (

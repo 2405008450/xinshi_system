@@ -244,3 +244,36 @@ def save_description(db, user, platform_id, description, revision):
         parent.updated_by, parent.updated_at = user.id, row.updated_at
         record_audit(db, user, parent, parent_before)
     return record_audit(db, user, row, before)
+
+
+def delete_channel(db,user,platform_id,revision):
+    lock_writes(db)
+    row=channel(db,platform_id)
+    check_revision(row,revision)
+    before=read_channel(db,row.id)
+    if before['account_count']:
+        raise HTTPException(409,'该平台下还有账号，请先解除账号归属后再删除')
+    # 历史开拓、安排等业务引用由数据库外键保护，不级联删除业务记录。
+    db.query(Member).filter_by(platform_id=row.id).delete(synchronize_session=False)
+    if hierarchy_available(db):
+        db.query(Link).filter_by(account_id=row.id).delete(synchronize_session=False)
+    parent_id=before['parent_id']
+    db.delete(row);db.flush()
+    db.add(Audit(entity_id=platform_id,entity_type='option',actor_id=user.id,action='delete',before=before,after={},created_at=business_now()))
+    if parent_id:
+        from uuid import UUID
+        parent=channel(db,UUID(parent_id));parent.revision+=1;parent.updated_by=user.id;parent.updated_at=business_now()
+    return True
+
+
+def channel_history(db,platform_id):
+    from business_time import business_iso
+    rows=db.query(Audit).filter_by(entity_id=platform_id,entity_type='option').order_by(Audit.created_at.desc(),Audit.id.desc()).all()
+    people={p.id:p.full_name or p.username for p in db.query(AppUser).filter(AppUser.id.in_({a.actor_id for a in rows}))} if rows else {}
+    return [dict(id=str(a.id),action=a.action,actor_name=people.get(a.actor_id,'历史人员'),created_at=business_iso(a.created_at),before=a.before,after=a.after) for a in rows]
+
+
+def actor_channel_history(db,user):
+    from business_time import business_iso
+    rows=db.query(Audit).filter_by(actor_id=user.id,entity_type='option').order_by(Audit.created_at.desc(),Audit.id.desc()).limit(200).all()
+    return [dict(id=str(a.id),action=a.action,actor_name=user.full_name or user.username,created_at=business_iso(a.created_at),before=a.before,after=a.after) for a in rows]

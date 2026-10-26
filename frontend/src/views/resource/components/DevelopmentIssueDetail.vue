@@ -1,6 +1,6 @@
 <template>
   <el-popover trigger="click" placement="left" :width="760" title="总结详情" popper-class="issue-detail-popover" @show="load">
-    <template #reference><el-button link type="primary">查看详情</el-button></template>
+    <template #reference><slot name="reference"><el-button link type="primary">查看详情</el-button></slot></template>
     <div v-loading="loading" class="issue-detail-body">
       <el-alert v-if="error" :title="error" type="error" :closable="false"><el-button text @click="load">重试</el-button></el-alert>
       <template v-if="detail">
@@ -10,6 +10,8 @@
           <el-descriptions-item label="跟进人">{{ detail.follower_names?.join('、') || '-' }}</el-descriptions-item><el-descriptions-item label="预定完成时间">{{ formatBusinessDateTime(detail.planned_completion_at) }}</el-descriptions-item>
           <el-descriptions-item label="实际进度" :span="2">{{ detail.actual_progress || '-' }}</el-descriptions-item>
           <el-descriptions-item label="需同步部门">{{ detail.notify_department_names?.join('、') || '-' }}</el-descriptions-item><el-descriptions-item label="需同步人员">{{ detail.notify_user_names?.join('、') || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="谁被通知" :span="2">{{ detail.notified_user_names?.join('、') || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="查看权限" :span="2">{{ detail.summary?.view_all === true ? '全体' : detail.summary?.view_all === false ? [...(detail.view_department_names || []),...(detail.view_user_names || [])].join('、') || '仅保存人与统筹管理人员' : '沿用原权限' }}</el-descriptions-item>
           <el-descriptions-item label="类别">{{ issueCategoryLabel(detail.category) }}</el-descriptions-item><el-descriptions-item label="提出人">{{ detail.proposer_name || '-' }}</el-descriptions-item>
           <el-descriptions-item label="来源" :span="2"><span v-if="detail.source_type==='manual'">手工新增</span><el-button v-else link type="primary" class="issue-source" @click="$emit('source', detail)">{{ detail.source_title }}</el-button></el-descriptions-item>
           <el-descriptions-item label="原始消息" :span="2">{{ detail.source_content || '-' }}</el-descriptions-item>

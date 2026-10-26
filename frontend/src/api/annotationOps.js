@@ -12,6 +12,8 @@ const get = (url, params, config = {}) => api.get(url, { ...config, params: conv
 const post = (url, data, config = {}) => api.post(url, convert(data, snake), config).then((res) => convert(res, camel))
 const put = (url, data) => api.put(url, convert(data, snake)).then((res) => convert(res, camel))
 const patch = (url, data, config = {}) => api.patch(url, convert(data, snake), config).then((res) => convert(res, camel))
+export const getAnnotatorProgress = (id,config={}) => get(`/projects/annotation/${id}/annotator-progress`,{},config)
+export const createAnnotatorProgress = (id,data) => post(`/projects/annotation/${id}/annotator-progress`,data)
 
 export const getPlatforms = (clientId, params = {}, config = {}) => get('/annotation-ops/platforms', { client_id: clientId || undefined, ...params }, config)
 export const createPlatform = (data) => post('/annotation-ops/platforms', data)

@@ -15,7 +15,7 @@
         <div class="group-mention-options">
           <template v-for="(user, index) in mentionCandidates" :key="user.id">
             <div v-if="!index || user.outside !== mentionCandidates[index - 1].outside" class="group-mention-section" :class="{ 'is-outside': user.outside }">{{ user.outside ? '未参与人员 · 发送后自动加入' : '群组参与人' }}</div>
-            <button :id="`${mentionListId}-${index}`" type="button" role="option" :aria-selected="index === mentionIndex" :class="{ 'is-active': index === mentionIndex, 'is-outside': user.outside }" @mouseenter="mentionIndex=index" @click="selectMention(user)"><span class="group-mention-avatar">{{ user.name.slice(0, 1) }}</span><span>{{ user.name }}</span><small v-if="user.outside">邀请入群</small></button>
+            <button :id="`${mentionListId}-${index}`" type="button" role="option" :aria-selected="index === mentionIndex" :class="{ 'is-active': index === mentionIndex, 'is-outside': user.outside }" @mouseenter="mentionIndex=index" @click="selectMention(user)"><span class="group-mention-avatar">{{ user.name.slice(0, 1) }}</span><span>{{ user.name }}</span><ChatDesktopPresence :online="desktopPresence[user.id]" :loading="desktopPresenceLoading" /><small v-if="user.outside">邀请入群</small></button>
           </template>
           <div v-if="!mentionCandidates.length" class="group-mention-empty">没有匹配的用户</div>
         </div>
@@ -26,11 +26,14 @@
 </template>
 <script setup>
 import { screenshotPreview } from '@/utils/screenshotReferences'
-import { inject, nextTick } from 'vue'
+import { computed, inject, nextTick } from 'vue'
+import ChatDesktopPresence from './ChatDesktopPresence.vue'
+import { useDesktopPresence } from '@/composables/useDesktopPresence'
 import { Paperclip, Picture } from '@element-plus/icons-vue'
 import { useChatComposerHeight } from '@/composables/useChatComposerHeight'
 const { inputStyle, start, resizeByKeyboard } = useChatComposerHeight()
 const { props, composer, replyTo, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, screenshotUploading, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect } = inject('chatController')
+const { statuses: desktopPresence, loading: desktopPresenceLoading } = useDesktopPresence(computed(() => mentionCandidates.value.map(user => user.id)), computed(() => props.active && mentionOpen.value))
 function keepMentionFocus(event) {
   // 搜索框需要获得焦点；候选按钮保留输入光标，确保选择时替换正确的 @ 文本。
   if (!event.target.closest('input')) event.preventDefault()

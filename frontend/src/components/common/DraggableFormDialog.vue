@@ -4,7 +4,7 @@
     v-bind="$attrs"
     :model-value="modelValue && !minimized"
     class="draggable-form-dialog"
-    :class="{ 'is-maximized': maximizable && maximized }"
+    :class="{ 'is-maximized': maximizable && maximized, 'is-draggable': draggable, 'is-dragging': geometry.state.dragging }"
     :draggable="draggable"
     :overflow="false"
     :show-close="false"
@@ -24,23 +24,20 @@
       <div class="draggable-form-dialog__heading-content">
         <slot name="header" v-bind="slotProps"><span :id="slotProps.titleId" class="el-dialog__title">{{ $attrs.title }}</span></slot>
       </div>
-      <div class="app-window-controls" @mousedown.stop @dblclick.stop>
-        <button type="button" title="最小化" aria-label="最小化窗口" @click="minimize">−</button>
-        <button type="button" title="最大化" aria-label="最大化窗口" :disabled="geometry.state.maximized" @click="geometry.maximize">□</button>
-        <button type="button" title="正常大小" aria-label="恢复正常大小" @click="geometry.restore">▣</button>
-        <button type="button" title="关闭" aria-label="关闭此对话框" @click="handleClose">×</button>
-      </div>
+      <WindowControls :maximized="geometry.state.maximized" @minimize="minimize" @maximize="geometry.maximize" @restore="geometry.restore" @close="handleClose" />
     </template>
     <template v-for="slotName in Object.keys($slots).filter(name=>!['header','default'].includes(name))" #[slotName]="slotProps">
       <slot :name="slotName" v-bind="slotProps" />
     </template>
     <template #default><slot /><Teleport v-if="contentElement" :to="contentElement"><i v-for="edge in ['n','s','w','e','nw','ne','sw','se']" :key="edge" class="app-window-resize" :class="`app-window-resize--${edge}`" title="拖动调整窗口大小" @mousedown="geometry.start($event,edge)" /></Teleport></template>
   </el-dialog>
-  <Teleport to="body"><div v-if="modelValue && minimized" class="app-window-minibar" :style="{right:'16px',bottom:`${12+minibarIndex*46}px`}"><button type="button" @click="restoreMinimized">{{ minimizedTitle }} · 恢复</button><button type="button" aria-label="关闭已最小化窗口" @click="closeMinimized">×</button></div></Teleport>
+  <WindowMinibar v-if="modelValue && minimized" :title="minimizedTitle" @restore="restoreMinimized" @close="closeMinimized" />
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useAttrs, watch } from 'vue'
+import WindowControls from './WindowControls.vue'
+import WindowMinibar from './WindowMinibar.vue'
 import { useWindowGeometry } from '@/composables/useWindowGeometry'
 
 defineOptions({
@@ -60,7 +57,6 @@ const emit = defineEmits(['update:modelValue', 'open','opened','close','closed']
 const dialogRef = ref(null)
 const contentElement=ref(null)
 const attrs=useAttrs(),minimized=ref(false),restoring=ref(false),minimizedTitle=ref('窗口')
-const minibarIndex=ref(0)
 const geometry=useWindowGeometry(()=>dialogRef.value?.dialogContentRef?.$el||dialogRef.value?.$el?.querySelector?.('.el-dialog'))
 const maximized = computed(() => geometry.state.maximized)
 const geometryStyle=computed(()=>geometry.state.rect?{position:'fixed',left:`${geometry.state.rect.x}px`,top:`${geometry.state.rect.y}px`,width:`${geometry.state.rect.width}px`,height:`${geometry.state.rect.height}px`,margin:0,transform:'none',maxWidth:'calc(100vw - 16px)',maxHeight:'calc(100vh - 16px)'}:{})
@@ -70,7 +66,7 @@ function headerDrag(event){
   if(getComputedStyle(event.target).userSelect==='text')return
   geometry.start(event)
 }
-function minimize(){const el=dialogRef.value?.dialogContentRef?.$el;minimizedTitle.value=attrs.title||el?.querySelector('.el-dialog__header')?.innerText?.split('\n')[0]||'窗口';minimized.value=true;minibarIndex.value=document.querySelectorAll('.app-window-minibar').length}
+function minimize(){const el=dialogRef.value?.dialogContentRef?.$el;minimizedTitle.value=attrs.title||el?.querySelector('.el-dialog__header')?.innerText?.split('\n')[0]||'窗口';minimized.value=true}
 function restoreMinimized(){restoring.value=true;minimized.value=false}
 function closeMinimized(){const done=()=>{minimized.value=false;emit('update:modelValue',false);emit('close');emit('closed')};const before=attrs.beforeClose??attrs['before-close'];if(before)before(done);else done()}
 function handleOpened(){contentElement.value=dialogRef.value?.dialogContentRef?.$el;if(restoring.value){restoring.value=false;return}emit('opened')}
@@ -131,8 +127,8 @@ defineExpose({ resetPosition, handleClose, minimize, restore:restoreMinimized, m
 
 .el-dialog.draggable-form-dialog > .el-dialog__header {
   position:relative;
-  padding-top:26px;
-  min-height:54px;
+  padding-top:8px;
+  min-height:36px;
   padding-right:144px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--el-border-color-lighter);

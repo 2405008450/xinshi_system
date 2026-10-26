@@ -1,4 +1,5 @@
 """资源需求管理 API。"""
+from resource_request_dispatch import ManagementSendWrite
 
 from datetime import date, datetime
 from typing import List, Optional
@@ -49,6 +50,41 @@ router = APIRouter(
     prefix="/resource-requests", tags=["resource_requests"],
     dependencies=[Depends(require_module_access("projects:read", "projects:write"))],
 )
+
+import resource_request_dispatch as dispatch_service
+dispatch_router = APIRouter(prefix='/resource-request-dispatches', tags=['resource_requests'], dependencies=[Depends(get_current_user)])
+
+
+from resource_request_dispatch_defaults import DefaultWrite
+@router.get('/dispatch-defaults/{kind}')
+def dispatch_default_options(kind:str,db:Session=Depends(get_db),user:AppUser=Depends(get_current_user)):
+    from resource_request_dispatch_defaults import catalog
+    return catalog(db,user,kind)
+
+@router.put('/dispatch-defaults/{kind}')
+def dispatch_default_save(kind:str,payload:DefaultWrite,db:Session=Depends(get_db),user:AppUser=Depends(get_current_user)):
+    from resource_request_dispatch_defaults import save
+    return save(db,user,kind,payload)
+
+
+@router.get('/dispatch-options')
+def dispatch_options(db:Session=Depends(get_db)):
+    return dispatch_service.options(db)
+
+
+@router.post('/{request_id}/dispatch')
+def dispatch_request(request_id:UUID,payload:dispatch_service.DispatchWrite,db:Session=Depends(get_db),user:AppUser=Depends(get_current_user)):
+    return dispatch_service.send(db,user,request_id,payload)
+
+
+@dispatch_router.get('/{batch_id}')
+def dispatch_detail(batch_id:UUID,db:Session=Depends(get_db),user:AppUser=Depends(get_current_user)):
+    return dispatch_service.detail(db,user,batch_id)
+
+
+@dispatch_router.put('/{batch_id}/receipt')
+def dispatch_receipt(batch_id:UUID,payload:dispatch_service.ReceiptWrite,db:Session=Depends(get_db),user:AppUser=Depends(get_current_user)):
+    return dispatch_service.receipt(db,user,batch_id,payload.status)
 
 
 RESOURCE_REQUEST_TEXT_FIELDS = {
@@ -149,7 +185,7 @@ def read_source_request(source_type: str, source_project_id: UUID, db: Session =
         row = get_resource_request_by_source(db, source_type, source_project_id)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
-    return get_resource_request(db, row.id) if row else None
+    return get_resource_request(db, row.id) if row and not (row.partial_sequence and row.demand_status == 'confirmed') else None
 
 
 @router.get("/source-statuses")
@@ -291,8 +327,10 @@ def edit_request(request_id: UUID, payload: ResourceRequestUpdate, db: Session =
 
 
 @router.post("/{request_id}/send", response_model=ResourceRequestResponse, dependencies=[Depends(require_any_permission("projects:write"))])
-def send_request(request_id: UUID, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
-    row = send_resource_request(db, request_id, user.id)
+def send_request(request_id: UUID, payload: Optional[ManagementSendWrite] = None, idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key", min_length=16, max_length=128), db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    if idempotency_key and payload is None:
+        raise HTTPException(422, "请选择被通知人")
+    row = send_resource_request(db, request_id, user.id, idempotency_key, payload.user_ids if payload else None)
     if not row:
         raise HTTPException(404, "资源需求不存在")
     return row
@@ -340,3 +378,26 @@ def progress_logs(request_id: UUID, db: Session = Depends(get_db)):
 @router.delete("/{request_id}", status_code=204, dependencies=[Depends(require_any_permission("projects:write"))])
 def remove_request(request_id: UUID, db: Session = Depends(get_db)):
     if not delete_resource_request(db, request_id): raise HTTPException(404, "资源需求不存在")
+
+
+@dispatch_router.get('/{batch_id}/resource-request', response_model=ResourceRequestResponse, dependencies=[Depends(require_any_permission('projects:write'))])
+def dispatch_sender_request(batch_id: UUID, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return dispatch_service.sender_request(db, user, batch_id)
+
+
+@router.get('/{request_id}/send-history')
+def request_send_history(request_id: UUID, db: Session = Depends(get_db)):
+    from resource_request_send_history import history
+    return history(db, request_id)
+
+
+from resource_request_execution import ExecutionWrite
+@dispatch_router.get('/{batch_id}/channels')
+def dispatch_channels(batch_id:UUID,db:Session=Depends(get_db),user:AppUser=Depends(get_current_user)):
+    from resource_request_execution import channels
+    return channels(db,user,batch_id)
+
+@dispatch_router.post('/{batch_id}/execution')
+def dispatch_execution(batch_id:UUID,payload:ExecutionWrite,db:Session=Depends(get_db),user:AppUser=Depends(get_current_user)):
+    from resource_request_execution import send
+    return send(db,user,batch_id,payload)

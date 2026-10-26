@@ -1475,6 +1475,8 @@ class NotificationResponse(BaseModel):
     related_entity_id: Optional[UUID] = None
     created_at: Optional[datetime] = None
 
+    can_open_resource_request: bool = False
+
     model_config = ConfigDict(from_attributes=True)
 
     @field_serializer('created_at',when_used='json')

@@ -70,6 +70,10 @@ from talent_overview_service import lookup_language_reserves
 
 
 def _annotation_module_access(request: Request, current_user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    if request.method == 'GET' and request.query_params.get('conversation_picker') == '1' and request.scope['route'].path in {'/projects/annotation/page', '/projects/annotation/{project_id}/children'}:
+        from annotation_chat_service import annotation_department_member
+        if annotation_department_member(db, current_user):
+            return current_user
     # 只放宽经理专用接口，其他项目写入继续要求 projects:write。
     if request.method == 'PATCH' and request.scope['route'].path == '/projects/annotation/{project_id}/managers':
         return require_any_permission('projects:read', 'projects:write')(current_user=current_user, db=db)
@@ -118,6 +122,7 @@ ANNOTATION_TEXT_FIELDS = {
 }
 
 ANNOTATION_FILTER_FIELDS = {
+    "managed_user_id",
     "order_no", "project_name", "project_types", "task_description", "project_status", "priority",
     "client_short_name", "client_code", "client_full_name", "contact_name", "customer_order_no",
     "language_id", "language_region", "region_city", "region_district", "region_street",
@@ -174,7 +179,7 @@ def _field_filters(raw: Optional[str], db: Session):
     value = parse_field_filters(raw)
     ensure_filter_fields(value, ANNOTATION_FILTER_FIELDS, allow_custom=True)
     ranges = {"customer_price", "task_dispatched_at", "task_submitted_at", "customer_consultation_time", "customer_confirmation_time", "created_at", "updated_at", "latest_progress_effective_on"}
-    enums = {
+    enums = {"managed_user_id",
         "project_types", "project_status", "priority", "language_id", "assignee_person_id",
         "client_manager_id", "project_manager_id",
     }
@@ -529,6 +534,15 @@ def create_child(project_id: UUID, payload: AnnotationProjectCreate, db: Session
 @router.post("/{project_id}/children/batch", response_model=List[AnnotationProjectDetailResponse], status_code=201, dependencies=[Depends(require_any_permission("projects:write"))])
 def create_children(project_id: UUID, payload: AnnotationChildBatchCreate, db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user), idempotency_key: str = Header(alias="X-Idempotency-Key", min_length=8, max_length=128)):
     return _create_children(project_id, payload.items, db, current_user, idempotency_key)
+
+
+@router.get('/{project_id}/child-progress', dependencies=[Depends(require_permission('projects:read'))])
+def child_progress(project_id: UUID, skip: int = Query(0,ge=0), limit: int = Query(20,ge=1,le=100), db: Session = Depends(get_db)):
+    from annotation_models import AnnotationProject
+    if db.get(AnnotationProject,project_id) is None:
+        raise HTTPException(404,'标注项目不存在')
+    from annotation_child_progress import listing
+    return listing(db,project_id,skip,limit)
 
 
 @router.get("/{project_id}", response_model=AnnotationProjectDetailResponse)

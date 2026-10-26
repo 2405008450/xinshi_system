@@ -27,6 +27,10 @@ from daily_report_mail_service import (
     verify_mail_account,
 )
 from models import AppUser
+from pydantic import BaseModel, Field
+from work_report_categories import add_category, category_catalog
+import work_report_access as report_access
+import work_report_collaboration as report_collaboration
 from permission_service import user_has_permission
 from routers.auth import get_current_user, require_permission
 from task_models import DailyReport, NonProjectTaskRecurrence
@@ -285,6 +289,103 @@ def edit_work_entry(
         raise _http_error(exc) from exc
 
 
+@reports_router.get('/access-context')
+def report_access_context(db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return report_access.access_context(db, user)
+
+
+@reports_router.get('/access-settings')
+def report_access_settings(db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return report_access.settings(db, user)
+
+
+@reports_router.post('/access-settings')
+def create_report_access_rule(payload: report_access.AccessRuleWrite, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return report_access.save_rule(db, user, payload)
+
+
+@reports_router.put('/access-settings/{rule_id}')
+def update_report_access_rule(rule_id: UUID, payload: report_access.AccessRuleWrite, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return report_access.save_rule(db, user, payload, rule_id)
+
+
+@reports_router.get('/review-directory')
+def report_review_directory(db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return report_access.review_directory(db,user)
+
+
+@reports_router.get('/statistics')
+def work_report_statistics(anchor: date, period: str='day', department_id: Optional[UUID]=None, keyword: Optional[str]=None,sender_id:Optional[UUID]=None, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return report_access.report_statistics(db,user,anchor,period,department_id,keyword,sender_id)
+
+
+@reports_router.get('/feedback-inbox')
+def work_report_feedback_inbox(date_from: Optional[date]=None,date_to: Optional[date]=None,page:int=Query(1,ge=1),page_size:int=Query(20,ge=1,le=100),db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return report_collaboration.feedback_inbox(db,user,date_from,date_to,page,page_size)
+
+
+@reports_router.get('/feedback/{report_id}')
+def work_report_feedback(report_id:UUID,db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return report_collaboration.feedback_rows(db,user,report_id)
+
+
+@reports_router.post('/feedback/{report_id}')
+def write_work_report_feedback(report_id:UUID,payload:report_collaboration.FeedbackWrite,db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return report_collaboration.add_feedback(db,user,report_id,payload)
+
+
+@reports_router.get('/history/{report_id}')
+def work_report_history(report_id:UUID,db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return report_collaboration.revision_history(db,user,report_id)
+
+
+@reports_router.post('/{report_date}/amend',response_model=DailyReportResponse,dependencies=[Depends(require_permission('reports:read'))])
+def amend_work_report(report_date:date,payload:DailyReportSaveRequest,db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    try:return serialize_report(save_daily_report(db,user,report_date,payload,finalize=True,amend=True))
+    except (ValueError,PermissionError) as exc:raise _http_error(exc) from exc
+
+
+@reports_router.get('/received-senders')
+def received_report_senders(db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    ids = report_access.sender_ids_for_rules(db, report_access.receiving_rules(db, user))
+    return [{'id': str(person.id), 'name': person.full_name or person.username, 'username': person.username} for person in report_access.active_people(db).filter(AppUser.id.in_(ids)).order_by(AppUser.full_name, AppUser.username)]
+
+
+@reports_router.get('/received')
+def list_received_reports(date_from: Optional[date] = None, date_to: Optional[date] = None, sender_id: Optional[UUID] = None, department_id:Optional[UUID]=None,keyword:Optional[str]=None,page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100), db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return report_access.received_reports(db, user, date_from, date_to, sender_id, page, page_size,department_id,keyword)
+
+
+@reports_router.get('/received/{report_id}')
+def read_received_report(report_id: UUID, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return report_access.received_report(db, user, report_id)
+
+
+@reports_router.get("/editor-context", dependencies=[Depends(require_permission("reports:read"))])
+def report_editor_context(db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user)):
+    from department_models import Department, DepartmentMember
+    from organization_service import ready
+    from task_models import DailyReportItem
+    names = [current_user.department] if current_user.department else []
+    if ready(db):
+        names.extend(name for name, in db.query(Department.name).join(DepartmentMember, Department.id == DepartmentMember.department_id).filter(DepartmentMember.user_id == current_user.id).order_by(Department.name))
+    history = db.query(DailyReportItem.progress_content).join(DailyReport, DailyReport.id == DailyReportItem.report_id).filter(DailyReport.user_id == current_user.id).order_by(DailyReport.report_date.desc(), DailyReportItem.sort_order).limit(500).all()
+    return {"user_name": current_user.full_name or current_user.username, "departments": list(dict.fromkeys(names)), "task_history": list(dict.fromkeys(text.strip() for text, in history if text and text.strip()))[:200], **category_catalog(db, current_user)}
+
+
+class ReportCategoryCreate(BaseModel):
+    parent: str = Field(max_length=20)
+    name: str = Field(min_length=1, max_length=80)
+
+
+@reports_router.post('/categories', dependencies=[Depends(require_permission('reports:read'))])
+def create_report_category(payload: ReportCategoryCreate, db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user)):
+    try:
+        return add_category(db, current_user, payload.parent, payload.name)
+    except (ValueError, PermissionError) as exc:
+        raise _http_error(exc) from exc
+
+
 @reports_router.get(
     "/preview",
     response_model=DailyReportResponse,
@@ -371,7 +472,7 @@ def save_report(
         return serialize_report(
             save_daily_report(db, current_user, report_date, payload)
         )
-    except ValueError as exc:
+    except (ValueError, PermissionError) as exc:
         raise _http_error(exc) from exc
 
 
@@ -392,7 +493,7 @@ def finalize_report(
                 db, current_user, report_date, payload, finalize=True
             )
         )
-    except ValueError as exc:
+    except (ValueError, PermissionError) as exc:
         raise _http_error(exc) from exc
 
 

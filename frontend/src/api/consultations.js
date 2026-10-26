@@ -1,5 +1,9 @@
 import api from './index'
 
+export const getPendingConsultationReports = () => api.get('/consultations/work-report/pending')
+export const getConsultationReportContext = id => api.get(`/consultations/${id}/work-report`)
+export const saveConsultationReport = (id, data) => api.post(`/consultations/${id}/work-report`, data)
+
 export const getConsultations = (params, config = {}) => {
   return api.get('/consultations/', { ...config, params })
 }

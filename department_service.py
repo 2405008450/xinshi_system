@@ -58,15 +58,15 @@ def catalog(db, user):
     from department_models import DepartmentMember
     available = ready(db)
     rows = db.query(Department).order_by(Department.created_at, Department.id).all() if available else []
-    counts = dict(db.query(AppUser.department, func.count(AppUser.id)).group_by(AppUser.department).all())
+    counts = dict(db.query(AppUser.department, func.count(AppUser.id)).filter(AppUser.is_deleted.is_(False)).group_by(AppUser.department).all())
     members = {row.id: set() for row in rows}
     names = {name: row.id for row in rows for name in [row.name, *(row.aliases or [])]}
     if available:
-        for uid, name in db.query(AppUser.id, AppUser.department):
+        for uid, name in db.query(AppUser.id, AppUser.department).filter(AppUser.is_deleted.is_(False)):
             if name in names:
                 members[names[name]].add(uid)
         if memberships_ready(db):
-            for department_id, uid in db.query(DepartmentMember.department_id, DepartmentMember.user_id):
+            for department_id, uid in db.query(DepartmentMember.department_id, DepartmentMember.user_id).join(AppUser, AppUser.id == DepartmentMember.user_id).filter(AppUser.is_deleted.is_(False)):
                 if department_id in members:
                     members[department_id].add(uid)
     return {'ready': available, 'canManage': can_manage(db,user), 'aliases': alias_map(db),

@@ -15,9 +15,10 @@ test('标注须知使用后端树形栏目并按需加载正文', () => {
   assert.match(noticePage, /detailCache/)
 })
 
-test('栏目管理支持两级新增、拖拽、编辑和删除', () => {
+test('栏目管理支持三级新增、拖拽、编辑和删除', () => {
   assert.match(noticeManager, /新增一级栏目/)
   assert.match(noticeManager, /新增二级栏目/)
+  assert.match(noticeManager, /新增三级栏目/)
   assert.match(noticeManager, /draggable/)
   assert.match(noticeManager, /:allow-drop="allowDrop"/)
   assert.match(noticeManager, /props\.adapter\.reorder/)

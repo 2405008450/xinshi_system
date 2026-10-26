@@ -5,6 +5,7 @@ import { convertAnnotationKeys as convertKeys } from '@/utils/annotationStatus'
 import { normalizeAnnotationOrderLevel, supportsAnnotationGrandchildOrders, supportsAnnotationLanguageRegions, supportsAnnotationRegionFilters } from '@/utils/annotationOrderCapabilities'
 
 const projectCreateState = { key: '', signature: '' }
+export const getAnnotationChildProgress = (id, params = {}, config = {}) => api.get(`/projects/annotation/${id}/child-progress`,{...config,params}).then(res=>convertKeys(res,toCamelCase))
 export const getAnnotationListCapabilities = () => api.get('/openapi.json').then(schema => ({
   grandchildOrders: supportsAnnotationGrandchildOrders(schema),
   languageRegions: supportsAnnotationLanguageRegions(schema),

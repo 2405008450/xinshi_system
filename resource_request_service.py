@@ -226,7 +226,9 @@ def get_resource_request_source_prefill(db: Session, source_type: str, source_pr
         "client_code": client_snapshot["client_code_snapshot"],
         "client_short_name": client_snapshot["client_short_name_snapshot"],
         "request_detail": detail,
+        "request_content": {"versions": [dict(name=name,content=project.task_description or '',copied_from_task=bool(project.task_description)) for name in ['发帖','询问']]} if source_type=='annotation' else {"versions":[]},
         "items": raw_items,
+        **(__import__('resource_request_content').annotation_context(db, project.id) if source_type == 'annotation' else {}),
     }
 
 
@@ -332,6 +334,8 @@ def create_resource_request(
     db: Session, payload, user_id: Optional[UUID], idempotency_key: Optional[str] = None,
 ):
     data = payload.model_dump(exclude={"items"}) | _source_snapshot(db, payload)
+    from resource_request_content import prepare_data
+    data = prepare_data(db, payload, data)
     row = ResourceRequest(
         request_no=generate_resource_request_no(db), requested_by=user_id,
         requested_at=business_now(), created_at=business_now(), updated_at=business_now(),
@@ -342,6 +346,9 @@ def create_resource_request(
     _sync_items(db, row, payload.items)
     db.add(row)
     db.flush()
+    if row.demand_status != 'draft':
+        from resource_request_content import allocate_partial
+        allocate_partial(db, row)
     note = "资源需求草稿已创建" if row.demand_status == "draft" else "资源需求已发送"
     db.add(ResourceRequestProgressLog(request_id=row.id, progress_percent=0, progress_note=note, changed_by=user_id, changed_at=business_now()))
     db.commit()
@@ -366,6 +373,8 @@ def update_resource_request(db: Session, request_id: UUID, payload):
     if row.demand_status == "paused" and payload.request_status != row.request_status:
         raise HTTPException(409, "需求已暂停，请先恢复需求再更新进度")
     data = payload.model_dump(exclude={"items", "expected_updated_at"}) | _source_snapshot(db, payload)
+    from resource_request_content import prepare_data
+    data = prepare_data(db, payload, data, row)
     for key, value in data.items():
         setattr(row, key, value)
     _sync_items(db, row, payload.items)
@@ -404,25 +413,49 @@ def list_resource_request_source_statuses(db: Session, source_type: str) -> dict
     return result
 
 
-def send_resource_request(db: Session, request_id: UUID, user_id: Optional[UUID]):
+def send_resource_request(db: Session, request_id: UUID, user_id: Optional[UUID], idempotency_key: Optional[str] = None, user_ids=None):
     row = db.get(ResourceRequest, request_id, with_for_update=True, populate_existing=True)
     if not row:
         return None
-    if row.demand_status == "paused":
-        raise HTTPException(409, "需求已暂停，请使用“恢复需求”继续处理")
-    row.demand_status = "confirmed"
-    row.request_status = "submitted"
+    if row.demand_status == 'paused':
+        raise HTTPException(409, '需求已暂停，请使用“恢复需求”继续处理')
+    from resource_request_dispatch_models import ResourceRequestDispatch as Batch, ResourceRequestDispatchRecipient as Recipient
+    from resource_request_dispatch import eligible, publish, commit, LABELS
+    ids = set(user_ids or [])
+    if idempotency_key:
+        previous = db.query(Batch).filter_by(idempotency_key=idempotency_key).first()
+        if previous:
+            if previous.request_id != request_id or previous.sender_id != user_id or previous.kind != 'development' or {uid for uid, in db.query(Recipient.user_id).filter_by(dispatch_id=previous.id)} != ids:
+                raise HTTPException(409, '发送标识已被其他操作使用，请重新发送')
+            return get_resource_request(db, row.id)
+    elif row.demand_status == 'confirmed':
+        # 兼容旧客户端的重复请求；新入口每次显式发送使用独立幂等标识。
+        return get_resource_request(db, row.id)
+    if ids and not ids <= {p.id for p in eligible(db)}:
+        raise HTTPException(422, '部分人员已不在标注项目部或已停用，请重新选择')
+    from resource_request_send_history import assert_limit, snapshot
+    assert_limit(db, row.id, 'development')
+    from resource_request_content import allocate_partial
+    allocate_partial(db, row)
+    first_or_reopened = row.demand_status != 'confirmed'
+    row.demand_status = 'confirmed'
+    if first_or_reopened:
+        row.request_status = 'submitted'
+        row.completed_at = None
     row.requested_at = business_now()
-    row.completed_at = None
     row.updated_at = business_now()
-    db.add(ResourceRequestProgressLog(
-        request_id=row.id,
-        progress_percent=row.progress_percent,
-        progress_note="资源需求已发送",
-        changed_by=user_id,
-        changed_at=business_now(),
-    ))
-    db.commit()
+    from uuid import uuid4
+    log = ResourceRequestProgressLog(id=uuid4(), request_id=row.id, progress_percent=row.progress_percent, progress_note='资源需求已发送', changed_by=user_id, changed_at=business_now())
+    db.add(log); db.flush()
+    if user_id:
+        content = snapshot(db, row.id)
+        content['send_log_id'] = str(log.id)
+        batch = Batch(request_id=row.id, sender_id=user_id, kind='development', idempotency_key=idempotency_key or str(uuid4()), snapshot=content)
+        db.add(batch); db.flush()
+        db.add_all([Recipient(dispatch_id=batch.id, user_id=uid) for uid in ids])
+        if ids:
+            publish(db, list(ids), LABELS['development'], batch)
+    commit(db)
     return get_resource_request(db, row.id)
 
 
@@ -503,7 +536,12 @@ def _current_values(db: Session, row: ResourceRequest) -> dict:
 
 def _detail_dict(db: Session, row: ResourceRequest) -> dict:
     columns = [column.name for column in ResourceRequest.__table__.columns]
-    return {name: getattr(row, name) for name in columns} | _current_values(db, row) | {"items": row.items}
+    result = {name: getattr(row, name) for name in columns} | _current_values(db, row) | {"items": row.items}
+    if row.source_type == 'annotation':
+        from resource_request_content import annotation_context, display_name
+        result.update(annotation_context(db, row.annotation_project_id))
+        result['current_project_name'] = display_name(row, result['current_project_name'])
+    return result
 
 
 def get_resource_request(db: Session, request_id: UUID):
@@ -621,7 +659,11 @@ def list_resource_requests(db: Session, *, skip=0, limit=100, keyword=None, sour
     if request_ids:
         requests = db.query(ResourceRequest).options(*_request_options()).filter(ResourceRequest.id.in_(request_ids)).all()
         items_by_request = {row.id: list(row.items) for row in requests}
-    return [row | {"items": items_by_request.get(row["id"], [])} for row in result]
+    by_id = {item.id: item for item in requests} if request_ids else {}
+    from resource_request_content import display_name
+    return [row | {"items": items_by_request.get(row["id"], []), 'request_content': by_id[row['id']].request_content,
+                   'partial_requested': by_id[row['id']].partial_requested, 'partial_sequence': by_id[row['id']].partial_sequence,
+                   'current_project_name': display_name(by_id[row['id']], row.get('current_project_name'))} for row in result]
 
 
 def count_resource_requests(db: Session, **filters) -> int:

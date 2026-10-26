@@ -22,18 +22,20 @@ let cleanup = []
 let generation = 0
 let controller
 
-async function refresh() {
+async function refresh(options = {}) {
   if (!localStorage.getItem('user_id')) return
+  if (options?.force) { controller?.abort(); pending = false; rerun = false }
   if (pending) {
     rerun = true
     return
   }
   pending = true
-  const version = generation
+  const version = ++generation
   const userId = localStorage.getItem('user_id')
-  controller = new AbortController()
+  const current = new AbortController()
+  controller = current
   try {
-    const data = await chatRequest('sessions', { signal: controller.signal })
+    const data = await chatRequest('sessions', { signal: current.signal })
     if (version !== generation || userId !== localStorage.getItem('user_id')) return
     sessions.value = data.items || []
     applySessionCategories(data.sessionCategories)
@@ -51,12 +53,14 @@ async function refresh() {
     })
     await refreshOpenAnnotationStatuses(sessions.value)
   } catch {
-    if (version === generation && !controller.signal.aborted) error.value = '未读消息暂时无法加载'
+    if (version === generation && !current.signal.aborted) error.value = '未读消息暂时无法加载'
   } finally {
-    pending = false
-    if (rerun) {
-      rerun = false
-      refresh()
+    if (version === generation) {
+      pending = false
+      if (rerun) {
+        rerun = false
+        refresh()
+      }
     }
   }
 }
@@ -77,6 +81,7 @@ function start() {
     subscribe('chat_message', refresh),
     subscribe('notification', refresh),
     subscribe('connected', refresh),
+    subscribe('foreground', () => refresh({ force: true })),
   ]
   timer = window.setInterval(refresh, 15000)
 }
@@ -85,6 +90,7 @@ function stop() {
   if (users !== 0) return
   ++generation
   controller?.abort()
+  pending = false; rerun = false
   sessions.value = []
   applySessionCategories(null)
   total.value = 0

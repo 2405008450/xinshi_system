@@ -15,6 +15,7 @@ from chat_history_search import ChatHistoryError, search_chat_history
 from database import get_db
 from models import AnnotationChatMember, AppUser, ChatProjectMessage, ChatProjectMessageFavorite, ChatProjectAttachment
 from annotation_models import AnnotationProject
+from annotation_chat_conversation import AnnotationChatConversation, created_ids, ready as conversation_registry_ready
 from routers.auth import get_current_user
 
 router = APIRouter(prefix='/annotation')
@@ -112,12 +113,40 @@ def save_default_participants(payload: DefaultParticipantsWrite, db: Session = D
     return defaults.save(db, user, payload.user_ids)
 
 
+class ConversationStatusRequest(BaseModel):
+    project_ids: list[UUID] = Field(min_length=1, max_length=100)
+
+
+@router.get('/conversation-capabilities')
+def conversation_capabilities(db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return {'can_create': service.can_view(db, user), 'can_join_existing': service.annotation_department_member(db, user)}
+
+
+@router.post('/conversation-status')
+def conversation_status(payload: ConversationStatusRequest, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    if not service.can_view(db, user):
+        raise HTTPException(403, '没有项目沟通权限')
+    ids = set(payload.project_ids)
+    projects = db.query(AnnotationProject.id).filter(AnnotationProject.id.in_(ids)).all()
+    created = created_ids(db,ids)
+    joined = created & {pid for pid, in db.query(AnnotationChatMember.project_id).filter(AnnotationChatMember.project_id.in_(ids), AnnotationChatMember.user_id == user.id)}
+    can_join = service.annotation_department_member(db, user)
+    return {'items': [dict(project_id=pid, created=pid in created, joined=pid in joined,
+        can_join=pid in joined or can_join or pid not in created) for pid, in projects]}
+
+
 @router.post('/{project_id}/start')
 def start(project_id: UUID, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     project = service.require_project_record(db, project_id, user, lock=True)
-    if db.query(AnnotationChatMember).filter_by(project_id=project_id).first():
-        service.require_project(db, project_id, user)
-        return {'project_id': project.id}
+    if project_id in created_ids(db,[project_id]) and db.query(AnnotationChatMember).filter_by(project_id=project_id).first():
+        from chat_access_service import is_member
+        if not is_member(db, 'annotation', project_id, user):
+            if not service.annotation_department_member(db, user):
+                service.require_project(db, project_id, user)
+            service.add_member(db, project_id, user.id, baseline=0)
+            db.commit()
+            service.publish(db, project_id, 'members')
+        return {'project_id': project.id, 'created': True, 'joined': True}
     if db.query(ChatProjectMessage.id).filter_by(annotation_project_id=project_id).first():
         raise HTTPException(404, '历史会话尚未配置参与人，请联系管理员')
     import chat_default_participant_service as defaults
@@ -125,9 +154,11 @@ def start(project_id: UUID, db: Session = Depends(get_db), user: AppUser = Depen
     eligible = {row.id for row in service.eligible_users(db, ids)}
     for uid in ids & eligible:
         service.add_member(db, project_id, uid)
+    if conversation_registry_ready(db) and not db.get(AnnotationChatConversation,project_id):
+        db.add(AnnotationChatConversation(project_id=project_id,created_by=user.id))
     db.commit()
     service.publish(db, project_id, 'members')
-    return {'project_id': project.id}
+    return {'project_id': project.id, 'created': True, 'joined': True}
 
 
 @router.get('/unread')

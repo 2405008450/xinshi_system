@@ -1,9 +1,10 @@
 <template>
-  <el-popover v-if="allowed" v-model:visible="favoritesVisible" trigger="click" placement="bottom-end" :width="380" popper-class="annotation-favorites-popover">
+  <el-config-provider :z-index="favoritesZ">
+  <el-popover :z-index="favoritesZ" v-if="allowed" v-model:visible="favoritesVisible" trigger="click" placement="bottom-end" :width="380" popper-class="annotation-favorites-popover">
     <template #reference>
       <el-badge is-dot :hidden="!mentionTotal">
-        <el-button class="annotation-favorites-trigger" text circle aria-label="收藏夹" :title="mentionTotal ? `收藏夹 · ${mentionTotal} 条未读 @我` : '收藏夹 · 已关注的项目'" @click.stop="favoritesVisible = !favoritesVisible">
-          <el-icon :size="18"><Star /></el-icon>
+        <el-button class="annotation-favorites-trigger" text :circle="!menuLayout" aria-label="收藏夹" :title="mentionTotal ? `收藏夹 · ${mentionTotal} 条未读 @我` : '收藏夹 · 已关注的项目'" @click.stop="toggleFavorites">
+          <el-icon :size="18"><Star /></el-icon><span v-if="menuLayout">收藏夹</span>
         </el-button>
       </el-badge>
     </template>
@@ -21,10 +22,12 @@
   <el-popover v-model:visible="favoriteMenuVisible" :virtual-ref="favoriteMenuAnchor" :z-index="favoriteMenuZ" virtual-triggering :trigger="[]" placement="bottom-start" :width="180">
     <el-button text :loading="unfollowing" :disabled="unfollowing" @click="unfollowFavorite">取消关注</el-button>
   </el-popover>
-  <ChatAnnotationProjectPicker v-model="projectPickerVisible" @joined="refresh" />
+  <ChatAnnotationProjectPicker favorite-mode v-model="projectPickerVisible" @joined="refresh" />
   <ChatFavoriteRecovery v-model="recoveryVisible" @restored="refresh" />
+  </el-config-provider>
 </template>
 <script setup>
+defineProps({menuLayout:Boolean})
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import ChatAnnotationProjectPicker from './ChatAnnotationProjectPicker.vue'
@@ -36,6 +39,9 @@ import { useRouter } from 'vue-router'
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
 import { hasPermission } from '@/utils/permission'
+const emit = defineEmits(['conversation-opened','navigate'])
+const favoritesZ = ref(2110)
+function toggleFavorites(event) { favoritesZ.value = chatOverlayZIndex(event.currentTarget); favoritesVisible.value = !favoritesVisible.value }
 const { openChat } = useProjectChatDock()
 const { followed, mentionTotal, error, refresh } = useAnnotationFollowed()
 const favoritesVisible = ref(false)
@@ -43,12 +49,12 @@ const recoveryVisible = ref(false)
 const projectPickerVisible = ref(false), favoriteMenuVisible = ref(false), favoriteMenuAnchor = ref(null), favoriteMenuItem = ref(null), favoriteMenuZ = ref(2110), unfollowing = ref(false)
 const router = useRouter()
 const allowed = computed(() => hasPermission('projects:read'))
-function open(item) { openChat({ projectId: item.projectId, projectType: 'annotation', title: item.projectName, subtitle: item.orderNo }); favoritesVisible.value = false }
+function open(item) { openChat({ projectId: item.projectId, projectType: 'annotation', title: item.projectName, subtitle: item.orderNo }); favoritesVisible.value = false; emit('conversation-opened') }
 function orderLabel(orderNo) {
   const depth = String(orderNo || '').split('.').length - 1
   return depth > 1 ? '孙订单' : depth === 1 ? '子订单' : '主订单'
 }
-function locateProject(item) { favoritesVisible.value = false; router.push({ path: '/annotation-details', query: { projectId: String(item.projectId), tab: 'chat' } }) }
+function locateProject(item) { favoritesVisible.value = false; emit('navigate'); router.push({ path: '/annotation-details', query: { projectId: String(item.projectId), tab: 'chat' } }) }
 function openProjectPicker() { favoriteMenuVisible.value = false; favoritesVisible.value = false; projectPickerVisible.value = true }
 function showFavoriteMenu(event, item) {
   favoriteMenuAnchor.value = event.currentTarget; favoriteMenuItem.value = item

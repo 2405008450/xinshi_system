@@ -1,7 +1,7 @@
 """消息引用与真实阅读回执；全部入口遵守当前会话参与人边界。"""
 from uuid import UUID
 from fastapi import HTTPException
-from sqlalchemy import inspect
+from sqlalchemy import inspect, select
 from models import AppUser, ChatProjectMessage, ChatDirectMember
 from discussion_chat_models import DiscussionMessage
 from chat_access_service import MEMBERS, member_ids
@@ -106,13 +106,42 @@ def mark_views(db, kind, conversation_id, user, values):
 def references(db, kind, conversation_id, user, message_id, offset=0, limit=30):
     query, model, _ = scope(db, kind, conversation_id, user)
     mid = message_ids(kind, [message_id])[0]
-    original = query.filter(model.id == mid).first()
-    if not original:
+    selected = query.filter(model.id == mid).first()
+    if not selected:
         raise HTTPException(404, '消息不属于当前会话')
     field = model.reply_to_id if kind == 'discussion' else model.reply_to_message_id
-    replies = query.filter(field == mid, model.recalled_at.is_(None)).order_by(model.created_at, model.id)
+    parent_id = lambda row: row.reply_to_id if kind == 'discussion' else row.reply_to_message_id
+    # 从任意一次引用进入，都回到同一条原消息；父节点必须仍属于当前会话。
+    original, visited = selected, {selected.id}
+    while parent_id(original) is not None and parent_id(original) not in visited:
+        parent = query.filter(model.id == parent_id(original)).first()
+        if parent is None:
+            break
+        visited.add(parent.id)
+        original = parent
     if original.recalled_at:
         return dict(original=brief(original, kind), items=[], total=0, has_more=False)
-    total = replies.count()
+    # UNION 去重防止异常循环；递归范围始终受会话与成员权限约束。
+    chain = query.with_entities(model.id.label('id'), field.label('parent_id')).filter(model.id == original.id).cte('message_reference_chain', recursive=True)
+    chain = chain.union(query.with_entities(model.id, field).join(chain, field == chain.c.id).statement)
+    replies = query.filter(model.id.in_(select(chain.c.id)), model.id != original.id, model.recalled_at.is_(None)).order_by(model.created_at, model.id)
+    catalog = replies.with_entities(model.id, field).all()
+    numbers = {rid: index + 1 for index, (rid, _) in enumerate(catalog)}
+    parents = dict(db.query(chain.c.id, chain.c.parent_id).all())
+    total = len(catalog)
     rows = replies.offset(offset).limit(limit).all()
-    return dict(original=brief(original, kind), items=[brief(row, kind) for row in rows], total=total, has_more=offset + len(rows) < total)
+    parent_rows = {row.id: row for row in query.filter(model.id.in_({parent_id(row) for row in rows})).all()} if rows else {}
+    items = []
+    for row in rows:
+        pid = parent_id(row)
+        path, seen = [], {row.id}
+        current = pid
+        while current is not None and current != original.id and current not in seen:
+            seen.add(current); path.append(current); current = parents.get(current)
+        items.append(dict(brief(row, kind), parent_id=str(pid) if pid else None,
+            reference_number=numbers[row.id], parent_reference_number=numbers.get(pid), depth=len(path)+1,
+            ancestor_ids=[str(value) for value in reversed(path)],
+            parent=brief(parent_rows[pid], kind) if pid in parent_rows else None))
+    return dict(original=brief(original, kind), selected_message_id=str(mid),
+        selected_reference_number=numbers.get(mid), items=items, total=total,
+        direct_count=sum(pid == original.id for _, pid in catalog), has_more=offset + len(rows) < total)

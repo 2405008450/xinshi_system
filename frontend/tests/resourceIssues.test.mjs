@@ -15,6 +15,17 @@ test('分页与所有高级条件使用同一份参数',()=>{
   assert.deepEqual(issueParams(filters,{page:3,limit:20}),{keyword:'资源',category:'problem',proposer_id:'a',executor_id:'b',status:'completed',planned_start:'2026-10-01',planned_end:'2026-10-12',skip:40,limit:20})
   assert.equal(issueParams({...filters,keyword:' ',range:null},{page:1,limit:10}).keyword,undefined)
 })
+
+test('总结快捷条件可同时启用，与分页和关键字共用参数',()=>{
+  const filters={keyword:' 通知 ',notified_me:true,created_by_me:true}
+  const params=issueParams(filters,{page:2,limit:10})
+  assert.equal(params.notified_me,true)
+  assert.equal(params.created_by_me,true)
+  assert.equal(params.skip,10)
+  assert.equal(params.keyword,'通知')
+  assert.equal(issueParams({...filters,notified_me:false,created_by_me:false},{page:1,limit:10}).notified_me,undefined)
+  assert.ok(defaultIssueColumns.includes('notified_user_names'))
+})
 test('香港当天跨日及纯日期展示不依赖浏览器时区',()=>{
   assert.equal(hongKongToday(new Date('2026-10-11T16:00:00Z')),'2026-10-12')
   assert.equal(hongKongToday(new Date('2026-10-11T15:59:59Z')),'2026-10-11')

@@ -135,6 +135,39 @@ def test_reading_builtin_group_catalog_does_not_create_categories(local_db):
     assert local_db.query(Category).count() == 0
 
 
+def test_create_conversation_below_legacy_secondary_folder_and_preserve_on_delete(local_db):
+    from discussion_chat_models import DiscussionMember
+    import discussion_chat_service as discussions
+    user = actor()
+    root = next(row['id'] for row in service.BUILTIN_FOLDERS if row['ruleKey'] == 'translation')
+    folder = Category(name='笔译业务测试', updated_by=user.id)
+    local_db.add(folder); local_db.flush()
+    local_db.add(Folder(category_id=folder.id, parent_key=root)); local_db.commit()
+    room = api.create(api.CategoryCreate(name='分类内会话', parent_key=folder.id, conversation=True), local_db, user)
+    assert room['is_conversation'] is True
+    assert room['parent_key'] == str(folder.id)
+    assert local_db.query(DiscussionMember).filter_by(room_id=UUID(room['id']), user_id=user.id).count() == 1
+    assert any(row['id'] == room['id'] for row in discussions.room_specs(local_db))
+    with pytest.raises(HTTPException) as denied:
+        api.create(api.CategoryCreate(name='会话内不得再创建', parent_key=room['id'], conversation=True), local_db, user)
+    assert denied.value.status_code == 422
+    api.update(folder.id, api.CategoryUpdate(revision=folder.revision, active=False), local_db, user)
+    assert local_db.get(Category, UUID(room['id'])).active is True
+    assert local_db.query(DiscussionMember).filter_by(room_id=UUID(room['id'])).count() == 1
+    assert not any(row['id'] == room['id'] for row in discussions.room_specs(local_db))
+    with pytest.raises(HTTPException) as inactive:
+        api.create(api.CategoryCreate(name='停用分类不可新建', parent_key=folder.id, conversation=True), local_db, user)
+    assert inactive.value.status_code == 422
+
+
+def test_secondary_folder_create_and_delete_require_existing_manager_permission(local_db):
+    user = actor('ordinary')
+    with pytest.raises(HTTPException) as denied:
+        api.create(api.CategoryCreate(name='无权创建', parent_key=uuid4(), conversation=True), local_db, user)
+    assert denied.value.status_code == 403
+    with pytest.raises(HTTPException) as denied:
+        api.update(uuid4(), api.CategoryUpdate(revision=1, active=False), local_db, user)
+    assert denied.value.status_code == 403
 def test_folder_migration_is_repeatable_and_does_not_seed_categories(local_db):
     Folder.__table__.drop(local_db.get_bind())
     sql = (Path(__file__).resolve().parents[1] / 'data/migrations/20261020_chat_session_folders.sql').read_text(encoding='utf-8')
@@ -146,3 +179,51 @@ def test_folder_migration_is_repeatable_and_does_not_seed_categories(local_db):
         raw.close()
     assert service.folder_schema_ready(local_db)
     assert local_db.query(Category).count() == 0
+
+
+def test_create_secondary_directory_without_conversation_and_create_room_inside(local_db):
+    from discussion_chat_models import DiscussionMember
+    import discussion_chat_service as discussions
+    user = actor()
+    root = next(row['id'] for row in service.BUILTIN_FOLDERS if row['ruleKey'] == 'translation')
+    folder = api.create(api.CategoryCreate(name='新建笔译二级菜单', parent_key=root, directory=True), local_db, user)
+    assert folder['is_conversation'] is False
+    assert local_db.query(DiscussionMember).filter_by(room_id=UUID(folder['id'])).count() == 0
+    assert not any(row['id'] == folder['id'] for row in discussions.room_specs(local_db))
+    room = api.create(api.CategoryCreate(name='新菜单中的会话', parent_key=folder['id'], conversation=True), local_db, user)
+    assert room['is_conversation'] is True
+    assert any(row['id'] == room['id'] for row in discussions.room_specs(local_db))
+    catalog = service.catalog(local_db, user)['items']
+    assert next(row for row in catalog if row['id'] == folder['id'])['is_conversation'] is False
+    with pytest.raises(HTTPException):
+        api.create(api.CategoryCreate(name='不能建第三级菜单', parent_key=folder['id'], directory=True), local_db, user)
+    with pytest.raises(HTTPException):
+        api.create(api.CategoryCreate(name='无权限新菜单', parent_key=root, directory=True), local_db, actor('ordinary'))
+
+
+def test_root_conversation_is_peer_of_folders_and_cannot_have_children(local_db):
+    from discussion_chat_models import DiscussionMember
+    import discussion_chat_service as discussions
+    user = actor()
+    folder = api.create(api.CategoryCreate(name='一级文件夹'), local_db, user)
+    room = api.create(api.CategoryCreate(name='一级会话', conversation=True), local_db, user)
+    assert room['parent_key'] is None and room['is_conversation'] is True
+    assert local_db.get(Folder, UUID(room['id'])) is None
+    assert local_db.query(DiscussionMember).filter_by(room_id=UUID(room['id']), user_id=user.id).count() == 1
+    rooms = discussions.room_specs(local_db)
+    assert next(row for row in rooms if row['id'] == room['id'])['parent_key'] is None
+    assert not any(row['id'] == folder['id'] for row in rooms)
+    assert discussions.require_room(local_db, user, UUID(room['id']))['id'] == room['id']
+    catalog = service.catalog(local_db, user)['items']
+    assert next(row for row in catalog if row['id'] == room['id'])['is_conversation'] is True
+    for conversation in (True, False):
+        with pytest.raises(HTTPException) as blocked:
+            api.create(api.CategoryCreate(name='会话下不允许创建', parent_key=room['id'], conversation=conversation), local_db, user)
+        assert blocked.value.status_code == 422
+    renamed = api.update(UUID(room['id']), api.CategoryUpdate(name='一级会话改名', revision=1), local_db, user)
+    assert renamed['name'] == '一级会话改名'
+    api.update(UUID(room['id']), api.CategoryUpdate(active=False, revision=2), local_db, user)
+    assert not any(row['id'] == room['id'] for row in discussions.room_specs(local_db))
+    with pytest.raises(HTTPException) as blocked:
+        api.create(api.CategoryCreate(name='无权限一级会话', conversation=True), local_db, actor('ordinary'))
+    assert blocked.value.status_code == 403

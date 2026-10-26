@@ -1,6 +1,6 @@
 <template>
   <div v-if="!message.recalledAt" class="chat-message-actions" :class="{'is-own': own}">
-    <button type="button" @click="$emit('reply', message)">回复</button>
+    <button type="button" @click="$emit('reply', message)">引用</button>
     <button v-if="!own && acknowledgeEnabled" type="button" :disabled="acknowledging" :class="{'is-active':message.isAcknowledged}" :title="message.isAcknowledged ? '再次点击可取消收到确认' : '让发送者知道你已确认收到'" @click="$emit('acknowledge',message)">{{ message.isAcknowledged ? '✓ 已收到' : '收到' }}</button>
     <span v-if="message.acknowledgements?.length" :title="message.acknowledgements.map(row => `${row.userName} · ${formatBusinessDateTime(row.acknowledgedAt)}`).join('\n')">{{ message.acknowledgements.map(row=>row.userName).join('、') }} 已收到</span>
     <button v-if="message.reply || stats?.replyCount" type="button" :title="stats?.replyUsers?.map(row=>row.name).join('、')" @click="$emit('references', stats?.replyCount ? message.id : message.reply?.id || message.id, $event)">{{ stats?.hasReplied ? '我已回复 · ' : '' }}{{ stats?.replyCount ? `${stats.replyCount} 条回复` : '查看引用' }}</button>

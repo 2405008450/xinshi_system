@@ -17,7 +17,7 @@ test('未读提及排在普通置顶会话之前，消息入口清除筛选并�
   const pane = { value: 'settings' }, selectedFolder = { value: 'old-folder' }, tab = { value: 'starred' }
   const annotationMode = { value: 'direct' }, keyword = { value: '旧搜索' }, appliedKeyword = { value: '旧搜索' }, events = []
   const sessionList = { value: { scrollTop: 250 } }
-  const handler = source.slice(source.indexOf('function openUnreadMentionConversations()'), source.indexOf('function selectPane'))
+  const handler = source.slice(source.indexOf('function openUnreadMentionConversations()'), source.indexOf('function openMobileSessions'))
   const result = runInNewContext(expression + ';' + handler + ';openUnreadMentionConversations();visibleSessions.value.map(row => row.key)', {
     props: { sessions, narrow: false, sidebarOpen: true }, computed: fn => ({ get value() { return fn() } }),
     pane, selectedFolder, tab, annotationMode, keyword, appliedKeyword, sessionList, nextTick: fn => fn(),
@@ -41,7 +41,7 @@ test('顶部聊天和左侧消息入口共用打开未读会话逻辑，无未�
   const header = source.match(/function showHeaderMessages\(event\) \{[^\n]+/)[0]
   let opened = 0
   const pane = { value: 'settings' }, mentionTotal = { value: 2 }
-  const context = { pane, mentionTotal, openUnreadMentionConversations: () => { opened++ } }
+  const context = { pane, mentionTotal, projectMine: { value: false }, projectMenuVisible: { value: false }, openUnreadMentionConversations: () => { opened++ } }
   runInNewContext(select + ';' + header + ';selectPane("messages");showHeaderMessages({detail:{mentions:true}})', context)
   assert.equal(opened, 2)
   mentionTotal.value = 0
@@ -57,16 +57,16 @@ function search(folder, keyword) {
     { key: 'd', projectType: 'direct', title: 'AABB', folder: '' },
   ]
   return runInNewContext(expression + '; visibleSessions.value.map(row => row.key)', {
-    props: { sessions }, computed: fn => ({ value: fn() }), annotationMode: { value: 'group' },
+    props: { sessions, searchSessions: [] }, computed: fn => ({ value: fn() }), annotationMode: { value: 'group' },
     selectedFolder: { value: folder }, folderNodes: { value: [] }, tab: { value: 'all' }, annotationMentionView: { value: false },
     appliedKeyword: { value: keyword }, matchesSearch, groupSessionList, sessionStamp: () => 0,
     sessionMatchesFolder: (session, id) => !id || session.folder === id,
   })
 }
-test('搜索先限定分组，再执行多关键词 AND；全部分组可跨组，群聊不混入私聊', () => {
-  assert.deepEqual(Array.from(search('annotation', 'AA BB')), ['a'])
-  assert.deepEqual(Array.from(search('resource', 'AA BB')), ['b'])
-  assert.deepEqual(Array.from(search('', 'AA BB')), ['a', 'b'])
+test('关键词执行全局多关键词 AND 搜索；清空后恢复当前分组与群聊筛选', () => {
+  assert.deepEqual(Array.from(search('annotation', 'AA BB')), ['a', 'b', 'd'])
+  assert.deepEqual(Array.from(search('resource', 'AA BB')), ['a', 'b', 'd'])
+  assert.deepEqual(Array.from(search('', 'AA BB')), ['a', 'b', 'd'])
   assert.deepEqual(Array.from(search('annotation', '')), ['a', 'c'])
 })
 
@@ -101,7 +101,7 @@ test('通讯录发消息后切换消息单聊，清空原分组和搜索，仅�
 test('消息数字入口跳到全局 @我，清除旧分组和搜索并展开窄屏列表', () => {
   const pane={value:'contacts'}, selectedFolder={value:'status:trial_preparation'}, tab={value:'unread'}, annotationMode={value:'group'}, keyword={value:'旧关键词'}
   let applied=false, expanded=false
-  const fn=source.slice(source.indexOf('function showMentionInbox()'),source.indexOf('const typeLabel'))
+  const fn=source.slice(source.indexOf('function showMentionInbox()'),source.indexOf('function openUnreadMentionConversations()'))
   runInNewContext(fn+';showMentionInbox()', {pane,selectedFolder,tab,annotationMode,keyword,mentionTotal:{value:2},applyKeyword:()=>{applied=true},props:{narrow:true,sidebarOpen:false},emit:()=>{expanded=true}})
   assert.equal(pane.value,'messages'); assert.equal(selectedFolder.value,''); assert.equal(tab.value,'mention')
   assert.equal(annotationMode.value,'mention'); assert.equal(keyword.value,''); assert.ok(applied && expanded)

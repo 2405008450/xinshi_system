@@ -1,5 +1,5 @@
 <template>
-  <DraggableFormDialog v-model="visible" title="标注项目 · 默认参与人" width="min(680px, calc(100vw - 32px))" top="8vh" append-to-body destroy-on-close class="chat-default-participants" @open="load">
+  <DraggableFormDialog v-model="visible" title="标注项目 · 默认参与人设置" width="min(680px, calc(100vw - 32px))" top="8vh" append-to-body destroy-on-close class="chat-default-participants" @open="load">
     <p class="chat-default-participants__hint">此名单由所有账号共用，仅用于新发起的标注会话。发起人自动加入，已有会话的参与人保持不变。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
     <AppForm ref="formRef" :model="form" v-loading="loading" @submit.prevent="save">

@@ -61,6 +61,13 @@ export async function revealFormTarget(target) {
     await waitForLayout()
   }
 
+  for (const item of ancestors(target, 'details')) {
+    if (item.open) continue
+    item.open = true
+    changed = true
+    await waitForLayout()
+  }
+
   if (changed) await waitForLayout()
   return changed
 }

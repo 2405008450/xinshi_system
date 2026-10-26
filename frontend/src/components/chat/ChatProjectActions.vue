@@ -1,13 +1,13 @@
 <template>
-  <div v-if="projectId && ['annotation', 'translation'].includes(projectType)" class="chat-project-actions" @mousedown.stop @dblclick.stop>
-    <AnnotationProjectDetailPopover v-if="projectType === 'annotation'" :project-id="projectId" :editable="false" trigger="click" placement="bottom-end" popper-class="chat-project-popover">
-      <template #reference><el-button link size="small" aria-label="项目详情" title="项目详情"><el-icon v-if="iconOnly"><Document /></el-icon><template v-else>项目详情</template></el-button></template>
+  <div v-if="projectId && ['annotation', 'translation'].includes(projectType)" class="chat-project-actions" :class="{'chat-project-actions--menu':menuLayout}" @mousedown.stop @dblclick.stop>
+    <AnnotationProjectDetailPopover v-if="!hideDetails && projectType === 'annotation'" :project-id="projectId" :editable="false" trigger="click" placement="bottom-end" popper-class="chat-project-popover">
+      <template #reference><slot name="detail-reference"><el-button link size="small" aria-label="项目详情" title="项目详情"><el-icon v-if="iconOnly || menuLayout"><Document /></el-icon><template v-if="!iconOnly">项目详情</template></el-button></slot></template>
     </AnnotationProjectDetailPopover>
-    <BusinessDetailPopover v-else :row="project" title="笔译项目详情" placement="bottom-end" popper-class="business-detail-popover chat-project-popover" :items="translationFields" :loading="loading" @show="loadProject">
-      <template #reference><el-button link size="small" aria-label="项目详情" title="项目详情"><el-icon v-if="iconOnly"><Document /></el-icon><template v-else>项目详情</template></el-button></template>
+    <BusinessDetailPopover v-else-if="!hideDetails" :row="project" title="笔译项目详情" placement="bottom-end" popper-class="business-detail-popover chat-project-popover" :items="translationFields" :loading="loading" @show="loadProject">
+      <template #reference><slot name="detail-reference"><el-button link size="small" aria-label="项目详情" title="项目详情"><el-icon v-if="iconOnly || menuLayout"><Document /></el-icon><template v-if="!iconOnly">项目详情</template></el-button></slot></template>
     </BusinessDetailPopover>
-    <AnnotationMaterialPopover v-if="projectType === 'annotation'" :project-id="projectId" placement="bottom-end" popper-class="chat-project-popover">
-      <template #reference><el-button link size="small" aria-label="项目资料" title="项目资料"><el-icon v-if="iconOnly"><FolderOpened /></el-icon><template v-else>项目资料</template></el-button></template>
+    <AnnotationMaterialPopover v-if="!hideMaterials && projectType === 'annotation'" :project-id="projectId" placement="bottom-end" popper-class="chat-project-popover">
+      <template #reference><el-button link size="small" aria-label="项目资料" title="项目资料"><el-icon v-if="iconOnly || menuLayout"><FolderOpened /></el-icon><template v-if="!iconOnly">项目资料</template></el-button></template>
     </AnnotationMaterialPopover>
   </div>
 </template>
@@ -20,7 +20,7 @@ import AnnotationMaterialPopover from '@/components/annotation/AnnotationMateria
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import { getProject } from '@/api/projects'
 import { formatBusinessDateTime } from '@/utils/dateTime'
-const props = defineProps({ projectId: String, projectType: String, iconOnly: Boolean })
+const props = defineProps({ projectId: String, projectType: String, iconOnly: Boolean, menuLayout: Boolean, hideDetails: Boolean, hideMaterials: Boolean })
 const project = ref({}), materials = ref(false), loading = ref(false)
 let version = 0
 const translationFields = [
@@ -42,6 +42,8 @@ async function loadProject() {
 <style scoped>
 .chat-project-actions{display:flex;gap:8px;align-items:center;flex-shrink:0}.chat-project-materials{max-height:min(560px,calc(100vh - 120px));overflow:auto}
 .chat-project-actions :deep(.el-button){height:18px;margin-left:0;line-height:18px}
+.chat-project-actions--menu{flex-direction:column;align-items:stretch;gap:2px}
+.chat-project-actions--menu :deep(.el-button){width:100%;height:34px;min-height:34px;justify-content:flex-start;padding:8px 10px}
 </style>
 <style>
 .chat-project-popover,.chat-session-popover,.annotation-members-popover{z-index:100000!important;max-width:calc(100vw - 32px)!important}

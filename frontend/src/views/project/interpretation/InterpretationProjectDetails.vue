@@ -584,6 +584,8 @@
 </template>
 
 <script setup>
+const props=defineProps({embedded:Boolean,myProjects:Boolean})
+import { managedProjectFilters } from "@/utils/managedProjectFilters"
 import InterpretationProjectDetailContent from '@/components/project/InterpretationProjectDetailContent.vue'
 import { projectTypeOptions, ratingOptions, statusLabel, statusType, textValue, internalRolesText, arrayText, formatRange, timeRangesText, projectTypesText, ratingText, interpreterRatingsText } from '@/utils/interpretationProjectDetail'
 import ProjectExportMenu from '@/components/common/ProjectExportMenu.vue'
@@ -947,7 +949,7 @@ const translatorOptionLabel = (item) => {
 const buildFilters = () => {
   return {
     keyword: searchForm.keyword.trim() || undefined,
-    field_filters: serializeFieldFilters(searchForm, interpretationFilterFields),
+    field_filters: managedProjectFilters(serializeFieldFilters(searchForm, interpretationFilterFields), props.myProjects, localStorage.getItem('user_id')),
   }
 }
 const fetchData = async () => {
@@ -1487,7 +1489,7 @@ const copyProjectPath = async (row) => copyPathValue(await projectPath(row))
 
 onMounted(async () => {
   const editorReady = Promise.all([loadReferenceData(), loadResourceRequestStatuses()])
-  if (route.query.projectId) {
+  if (!props.embedded && route.query.projectId) {
     await focusRouteProject(editorReady)
     return
   }
@@ -1497,7 +1499,7 @@ onMounted(async () => {
 watch(
   () => [route.query.projectId, route.query.openEditor],
   ([projectId, openEditor], [previousProjectId, previousOpenEditor]) => {
-    if (projectId && (projectId !== previousProjectId || (openEditor === '1' && previousOpenEditor !== '1'))) {
+    if (!props.embedded && projectId && (projectId !== previousProjectId || (openEditor === '1' && previousOpenEditor !== '1'))) {
       void focusRouteProject()
     }
   }

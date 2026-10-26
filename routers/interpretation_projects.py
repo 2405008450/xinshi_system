@@ -69,6 +69,7 @@ INTERPRETATION_TEXT_FIELDS = {
 }
 
 INTERPRETATION_FILTER_FIELDS = {
+    "managed_user_id",
     "order_no", "project_name", "project_types", "task_description", "current_client_manager",
     "project_status", "client_short_name", "client_code", "client_full_name", "client_domain",
     "manager_contact", "contact_name", "customer_order_no", "scheduled_date", "locations",
@@ -84,7 +85,7 @@ def _field_filters(raw: Optional[str]):
     value = parse_field_filters(raw)
     ensure_filter_fields(value, INTERPRETATION_FILTER_FIELDS)
     ranges = {"scheduled_date", "required_interpreter_count", "customer_consultation_time", "customer_confirmation_time", "created_at", "updated_at"}
-    enums = {"project_types", "project_status", "language_id", "translator_id", "client_rating"}
+    enums = {"managed_user_id", "project_types", "project_status", "language_id", "translator_id", "client_rating"}
     ensure_filter_operators(value, {field: ({"between"} if field in ranges else {"in"} if field in enums else {"contains"}) for field in INTERPRETATION_FILTER_FIELDS})
     return value
 
