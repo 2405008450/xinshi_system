@@ -260,13 +260,13 @@
           </div>
           <div class="progress-entry-mode">
             <span class="progress-entry-mode__label">记录类型</span>
-            <el-radio-group v-model="statusEntryMode" size="small" @change="handleStatusEntryModeChange">
+            <el-radio-group v-model="statusEntryMode" :disabled="statusSubmitting" size="small" @change="handleStatusEntryModeChange">
               <el-radio-button value="progress">补充进度</el-radio-button>
               <el-radio-button value="status">切换状态</el-radio-button>
             </el-radio-group>
           </div>
         </div>
-        <AppForm ref="statusFormRef" :model="statusForm" :rules="statusRules" label-width="76px" size="small" class="progress-entry-form">
+        <AppForm ref="statusFormRef" :model="statusForm" :rules="statusRules" :disabled="statusSubmitting" label-width="76px" size="small" class="progress-entry-form">
           <el-row :gutter="14">
             <el-col :xs="24" :sm="12">
               <el-form-item :label="statusEntryMode === 'progress' ? '所属状态' : '新状态'" prop="projectStatus">
@@ -284,7 +284,7 @@
           </el-row>
           <el-form-item :label="statusEntryMode === 'progress' ? '具体进度' : '变更说明'" prop="changeNote" class="progress-note-item">
             <div class="progress-note-control">
-              <el-input ref="progressNoteInputRef" v-model="statusForm.changeNote" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" :maxlength="statusEntryMode === 'progress' ? 10000 : 500" show-word-limit :placeholder="statusEntryMode === 'progress' ? '填写该时间节点的具体进展' : '填写本次项目状态变化的原因或说明'" />
+              <el-input ref="progressNoteInputRef" v-model="statusForm.changeNote" :disabled="statusSubmitting" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" :maxlength="statusEntryMode === 'progress' ? 10000 : 500" show-word-limit :placeholder="statusEntryMode === 'progress' ? '填写该时间节点的具体进展' : '填写本次项目状态变化的原因或说明'" />
               <el-button type="primary" :loading="statusSubmitting" @click="confirmStatusChange">{{ statusEntryMode === 'progress' ? '添加具体进度' : '确认切换状态' }}</el-button>
             </div>
           </el-form-item>
@@ -312,7 +312,7 @@
             <div v-for="child in group.children" :key="child.key" class="progress-child-item">
               <span class="progress-child-dot" />
               <div class="progress-child-content">
-                <div class="progress-child-note">{{ child.changeNote }}</div>
+                <div class="progress-child-note"><ScreenshotText :text="child.changeNote" /></div>
                 <div class="progress-child-meta">
                   <span>{{ formatDateTime(child.effectiveOn) }}</span>
                   <span>{{ child.changedByName || '系统' }}</span>
@@ -605,6 +605,7 @@ import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHe
 import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
+import ScreenshotText from '@/components/common/ScreenshotText.vue'
 import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
 import PathActionButtons from '@/components/common/PathActionButtons.vue'
 import PathInput from '@/components/common/PathInput.vue'
@@ -1423,15 +1424,15 @@ const openProgress = async (row) => {
 }
 const confirmStatusChange = async () => {
   const project = activeProgressProject.value
-  if (!project) return
-  const valid = await statusFormRef.value?.validate().catch(() => false)
-  if (!valid) return
-  const progressOnly = statusEntryMode.value === 'progress'
-  const selectedStatus = statusForm.projectStatus
-  if (statusSubmitting.value) return
+  if (!project || statusSubmitting.value) return
   statusSubmitting.value = true
-  setProjectStatusSaving(project.id, true)
+  let progressOnly = statusEntryMode.value === 'progress'
   try {
+    if (!await statusFormRef.value?.validate().catch(() => false)) return
+    if (!progressVisible.value || activeProgressProject.value?.id !== project.id) return
+    progressOnly = statusEntryMode.value === 'progress'
+    const selectedStatus = statusForm.projectStatus
+    setProjectStatusSaving(project.id, true)
     const updated = await projectApi.updateInterpretationProjectStatus(project.id, {
       ...statusForm,
       changeNote: statusForm.changeNote.trim(),

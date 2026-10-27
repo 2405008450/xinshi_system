@@ -47,6 +47,7 @@
 
     <WorkflowStageCard
       ref="stageCardRef"
+      :busy="stageSubmitting"
       :current-project="currentProject"
       :current-entity-type="currentEntityType"
       :current-sub-order="currentSubOrder"
@@ -88,20 +89,26 @@
       v-model="rollbackDialogVisible"
       :title="rollbackDialogTitle"
       width="480px"
+      :before-close="done => { if (!rollbackSubmitting) done() }"
       @close="handleRollbackDialogClose"
     >
       <p class="rollback-hint">请填写打回原因，便于上一环节负责人知悉并重新处理。该记录将保留在操作日志中。</p>
+      <AppForm ref="rollbackFormRef" :model="{ note: rollbackNote }">
+      <el-form-item label="打回原因" prop="note" :rules="[{required:true,whitespace:true,message:'请填写打回原因',trigger:'blur'}]">
       <el-input
         v-model="rollbackNote"
+        :disabled="rollbackSubmitting"
         type="textarea"
         :rows="4"
-        placeholder="请输入打回原因（必填）..."
+        placeholder="请输入打回原因，支持粘贴截图"
         maxlength="300"
         show-word-limit
       />
+      </el-form-item>
+      </AppForm>
       <template #footer>
-        <el-button @click="rollbackDialogVisible = false">取消</el-button>
-        <el-button type="warning" :disabled="!rollbackNote.trim()" @click="confirmRollback">
+        <el-button :disabled="rollbackSubmitting" @click="rollbackDialogVisible = false">取消</el-button>
+        <el-button type="warning" :loading="rollbackSubmitting" @click="confirmRollback">
           确认打回
         </el-button>
       </template>
@@ -315,7 +322,7 @@
                 <el-tag v-else type="success" size="small">推进</el-tag>
                 {{ entry.description }}
               </p>
-              <p v-if="entry.note" class="log-note">{{ entry.note }}</p>
+              <p v-if="entry.note" class="log-note"><ScreenshotText :text="entry.note" /></p>
               <p v-if="entry.nextAssigneeUserName" class="log-operator">下一负责人：{{ entry.nextAssigneeUserName }}</p>
               <p v-if="entry.operator" class="log-operator">操作人：{{ entry.operator }}</p>
             </el-card>
@@ -356,6 +363,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import ScreenshotText from '@/components/common/ScreenshotText.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 
@@ -388,6 +396,23 @@ const currentEntityKey = ref('')
 const activeTab = ref('my_tasks')
 const chatDrawerVisible = ref(false)
 const stageCardRef = ref(null)
+const stageSubmitting = ref(false), rollbackSubmitting = ref(false), rollbackFormRef = ref()
+
+// 提交交接前等待当前表单的截图，避免阶段推进后丢失尚未上传的图片。
+function withStageScreenshotValidation(action) {
+  return async () => {
+    if (stageSubmitting.value) return
+    stageSubmitting.value = true
+    const entityId = currentProjectId.value, stageKey = workflowState.value.currentStageKey
+    try {
+      if (!await stageCardRef.value?.validate().catch(() => false)) return
+      if (currentProjectId.value !== entityId || workflowState.value.currentStageKey !== stageKey) return
+      await action()
+    } finally {
+      stageSubmitting.value = false
+    }
+  }
+}
 
 const stageUiState = reactive({
   handoverNote: '',
@@ -902,7 +927,7 @@ function onMyTaskRowClick(row) {
   selectProject(projectId)
 }
 
-async function confirmDifficulty() {
+const confirmDifficulty = withStageScreenshotValidation(async () => {
   if (!workflowState.value.currentStageKey) return
   if (!stageUiState.pendingDifficulty || stageUiState.pendingFileEditable === null) return
   if (!receptionAssignReady.value || !canOperateCurrentStage.value) return
@@ -935,10 +960,10 @@ async function confirmDifficulty() {
   } catch (error) {
     ElMessage.error(`操作失败：${getLocalizedErrorMessage(error, '请稍后重试')}`)
   }
-}
+})
 
 async function saveCurrentStageProgress() {
-  if (!workflowState.value.currentStageKey || !canOperateCurrentStage.value) return
+  if (stageSubmitting.value || !workflowState.value.currentStageKey || !canOperateCurrentStage.value) return
 
   try {
     await saveStageData(currentEntityType.value, currentProjectId.value, {
@@ -950,7 +975,7 @@ async function saveCurrentStageProgress() {
   }
 }
 
-async function completeCurrentStage() {
+const completeCurrentStage = withStageScreenshotValidation(async () => {
   if (!workflowState.value.currentStageKey || !canOperateCurrentStage.value) return
 
   const currentIndex = effectiveSteps.value.findIndex((item) => item.key === workflowState.value.currentStageKey)
@@ -994,13 +1019,16 @@ async function completeCurrentStage() {
   } catch (error) {
     ElMessage.error(`操作失败：${getLocalizedErrorMessage(error, '请稍后重试')}`)
   }
-}
+})
 
 async function confirmRollback() {
-  const note = rollbackNote.value?.trim()
-  if (!note || !workflowState.value.currentStageKey) return
-
+  if (rollbackSubmitting.value || !workflowState.value.currentStageKey) return
+  rollbackSubmitting.value=true
+  const entityId=currentProjectId.value
   try {
+    if(!await rollbackFormRef.value?.validate().catch(()=>false))return
+    if(!rollbackDialogVisible.value||currentProjectId.value!==entityId)return
+    const note=rollbackNote.value.trim()
     await rollbackStage(currentEntityType.value, currentProjectId.value, {
       steps: rollbackSteps.value,
       to_start: rollbackToStart.value,
@@ -1014,6 +1042,8 @@ async function confirmRollback() {
     loadProjects()
   } catch (error) {
     ElMessage.error(`操作失败：${getLocalizedErrorMessage(error, '请稍后重试')}`)
+  } finally {
+    rollbackSubmitting.value=false
   }
 }
 

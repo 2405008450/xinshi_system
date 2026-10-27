@@ -14,6 +14,12 @@ from company_management_attachment_service import (
 from company_management_image_service import save_image, get_image, delete_draft
 from company_management_schemas import CompanyManagementSectionUpdate
 from company_management_image_storage import remote_origin, forward_json, forward_image
+from company_management_attachment_storage import (
+    remote_origin as attachment_remote_origin,
+    forward_upload as forward_attachment_upload,
+    forward_download as forward_attachment_download,
+    forward_delete as forward_attachment_delete,
+)
 
 from annotation_notice_schemas import (
     AnnotationNoticeReorder,
@@ -163,14 +169,20 @@ def read_attachments(section_id: UUID, db: Session = Depends(get_db)):
     status_code=201,
 )
 async def upload_attachment(
-    section_id: UUID, file: UploadFile = File(...),
+    section_id: UUID, request: Request, file: UploadFile = File(...),
     db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user),
 ):
+    origin = attachment_remote_origin()
+    if origin:
+        return await forward_attachment_upload(origin, request, f"/sections/{section_id}/attachments", file)
     return await save_attachment(db, section_id, file, current_user.id)
 
 
 @router.get("/sections/{section_id}/attachments/{attachment_id}")
-def download_attachment(section_id: UUID, attachment_id: UUID, db: Session = Depends(get_db)):
+async def download_attachment(section_id: UUID, attachment_id: UUID, request: Request, db: Session = Depends(get_db)):
+    origin = attachment_remote_origin()
+    if origin:
+        return await forward_attachment_download(origin, request, f"/sections/{section_id}/attachments/{attachment_id}")
     row = get_attachment(db, section_id, attachment_id)
     path = attachment_path(row.storage_name)
     if not path.is_file():
@@ -182,7 +194,11 @@ def download_attachment(section_id: UUID, attachment_id: UUID, db: Session = Dep
 
 
 @router.delete("/sections/{section_id}/attachments/{attachment_id}", status_code=204)
-def remove_attachment(section_id: UUID, attachment_id: UUID, db: Session = Depends(get_db)):
+async def remove_attachment(section_id: UUID, attachment_id: UUID, request: Request, db: Session = Depends(get_db)):
+    origin = attachment_remote_origin()
+    if origin:
+        await forward_attachment_delete(origin, request, f"/sections/{section_id}/attachments/{attachment_id}")
+        return
     delete_attachment(db, section_id, attachment_id)
 
 

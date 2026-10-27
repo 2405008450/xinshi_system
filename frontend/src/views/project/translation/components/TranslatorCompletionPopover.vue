@@ -32,7 +32,7 @@
         </button>
       </template>
 
-      <div class="translator-completion-panel">
+      <AppForm ref="completionFormRef" :model="{ draft }" :disabled="saving" class="translator-completion-panel">
         <div class="translator-completion-panel__header">
           <strong>译员回稿及结算信息</strong>
           <span>修改会同步回写当前项目对应的稿件安排，并影响回稿提醒和紧急度排序</span>
@@ -99,6 +99,7 @@
                 <el-input
                   v-if="editable"
                   v-model="item.completionRemarks"
+                  :disabled="saving"
                   type="textarea"
                   :autosize="{ minRows: 2, maxRows: 4 }"
                   maxlength="255"
@@ -107,7 +108,7 @@
                   placeholder="请输入该译员的任务完成情况"
                 />
                 <div v-else class="translator-completion-row__readonly">
-                  {{ item.completionRemarks || '-' }}
+                  <ScreenshotText :text="item.completionRemarks || '-'" />
                 </div>
               </label>
             </div>
@@ -115,10 +116,10 @@
         </div>
 
         <div class="translator-completion-panel__footer">
-          <el-button @click="visible = false">{{ editable ? '取消' : '关闭' }}</el-button>
+          <el-button :disabled="saving" @click="visible = false">{{ editable ? '取消' : '关闭' }}</el-button>
           <el-button v-if="editable" type="primary" :loading="saving" @click="handleSave">保存</el-button>
         </div>
-      </div>
+      </AppForm>
     </el-popover>
     <button
       v-if="deadlineItems.length > DEADLINE_PREVIEW_COUNT"
@@ -138,6 +139,8 @@ import { computed, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, ArrowUp } from '@element-plus/icons-vue'
 import DeadlineHintCell from '@/components/common/DeadlineHintCell.vue'
+import ScreenshotText from '@/components/common/ScreenshotText.vue'
+const completionFormRef=ref()
 import { formatBusinessDateTime } from '@/utils/deadlineDisplay'
 import {
   buildTranslatorAssignmentDetailUpdates,
@@ -199,6 +202,8 @@ const handleSave = async () => {
   if (saving.value) return
   saving.value = true
   try {
+    if(!await completionFormRef.value?.validate().catch(()=>false))return
+    if(!visible.value)return
     const details = buildTranslatorAssignmentDetailUpdates(draft.value)
     const updated = await props.save(details)
     emit('saved', updated)

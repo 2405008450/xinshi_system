@@ -2,7 +2,7 @@
   <el-card class="common-page-card compact-list-card duplicate-review-page">
     <template #header>
       <div class="card-header">
-        <div><span class="page-title">同名核重</span><p class="page-subtitle">支持逐条核对，或按客户姓名规则批量合并</p></div>
+        <div><span class="page-title">同名核重</span><p class="page-subtitle">同名组可包含多个不同的人；按身份子组分别核对与预览</p></div>
         <div class="header-actions"><el-button v-if="canOperate" type="primary" :disabled="!ready || !nameMergeAvailable || !originalDataAvailable" :title="nameMergeAvailable && originalDataAvailable ? '扫描全库并展示合并预览' : '本机后端重新加载后启用'" @click="nameMergeVisible = true">按姓名批量合并</el-button><el-button @click="returnToList">返回人才列表</el-button><el-button @click="openHistory">处理历史</el-button></div>
       </div>
     </template>
@@ -16,7 +16,9 @@
       <el-form-item><el-button type="primary" @click="searchNow">查询</el-button><el-button @click="reset">重置</el-button></el-form-item>
     </AppForm>
     <div class="group-counts">待核对 {{ counts.pending || 0 }} 组 · 已区分 {{ counts.different || 0 }} 组 · 暂缓 {{ counts.deferred || 0 }} 组</div>
+    <div v-if="canOperate" class="group-counts">当前筛选：建议合并 {{ identityCounts.recommended_subgroups || 0 }} 个子组 · {{ identityCounts.unresolved_pairs || 0 }} 对关系未完成核对（包含待确认建议与暂缓关系）</div>
     <div v-if="canOperate && agentSummary?.created_at" class="agent-summary">当前 Agent 已初筛 · {{ formatBusinessDateTime(agentSummary.created_at) }} · 高置信度同一人 {{ agentSummary.counts.high_same || 0 }} 组 · 二次核对 {{ agentSummary.counts.uncertain || 0 }} 组（同组可包含不同结论）</div>
+    <el-alert v-if="canOperate && (agentSummary?.source_complete === false || (Number.isInteger(agentSummary?.reviewed_pair_count) && agentSummary.reviewed_pair_count < agentSummary.pair_count))" :title="`本次初筛尚未全部完成；报告覆盖 ${agentSummary.group_count || 0} 个姓名组，已逐对判断 ${agentSummary.reviewed_pair_count || 0} / ${agentSummary.pair_count || 0} 对，其余保持待核。`" type="warning" :closable="false" />
     <div v-if="pageError" class="load-error"><el-alert :title="pageError" type="error" :closable="false" /><el-button @click="searchNow">重新加载</el-button></div>
     <div class="review-layout">
       <aside v-loading="loading" class="group-pane">
@@ -24,6 +26,7 @@
         <button v-for="group in items" :key="group.key" class="group-item" :class="{ active: currentKey === group.key }" @click="selectGroup(group.key)">
           <div><strong>{{ group.name }}</strong><el-tag size="small">{{ group.count }} 条</el-tag></div>
           <div>{{ reviewStateLabels[group.status] }}</div><small>{{ group.summary }}</small>
+          <small v-if="group.identity_counts">{{ group.identity_counts.recommended_subgroups }} 个建议子组 · {{ group.identity_counts.unresolved_pairs }} 对未决关系</small>
           <el-tag v-if="group.agent_review?.buckets.includes('high_same')" size="small" type="success">Agent：有高置信度重复</el-tag>
           <el-tag v-else-if="group.agent_review?.state === 'stale'" size="small" type="warning">初筛已过期，需重新核对</el-tag>
         </button>
@@ -34,8 +37,9 @@
         <el-empty v-if="!detail && !detailLoading" description="选择左侧姓名组开始比对" />
         <template v-if="detail">
           <h3>{{ currentKey }} · {{ detail.members.length }} 条档案</h3>
+          <TalentIdentitySubgroups v-if="canOperate && detail.identity_review" :group-key="currentKey" :identity="detail.identity_review" :members="detail.members" :pairs="detail.pairs" :agent="detail.agent_review" :selected-ids="selectedIds" :can-operate="canOperate" :ready="ready" @compare="compareSubgroup" @preview="previewSubgroup" @distinguish="distinguishSubgroups" />
           <div class="member-selection">
-            <el-checkbox-group v-model="selectedIds" @change="clearPreview">
+            <el-checkbox-group v-model="selectedIds" @change="selectionChanged">
               <el-checkbox v-for="member in detail.members" :key="member.id" :value="member.id">
                 {{ member.full_name }}（{{ member.resource_code || member.id.slice(0, 8) }}）· {{ member.project_situation?.total || 0 }} 个项目
               </el-checkbox>
@@ -44,6 +48,8 @@
           <div class="comparison-controls"><span>已选择 {{ selectedIds.length }} 条；请选择至少两条进行处理</span><el-switch v-model="differencesOnly" active-text="只看差异（含互补）" /></div>
           <div v-if="canOperate && detail.agent_review" class="agent-results">
             <el-alert v-if="detail.agent_review.state === 'stale'" title="资料或组成员已变化，旧初筛建议已失效。" type="warning" :closable="false" />
+            <el-alert v-if="detail.agent_review.state === 'partial'" title="部分关系尚未初筛或证据已变化；其他仍有效的建议可以继续核对。" type="warning" :closable="false" />
+            <p v-if="detail.agent_review.created_at">初筛快照：{{ formatBusinessDateTime(detail.agent_review.created_at) }} · {{ detail.agent_review.reviewer }}</p>
             <template v-for="(suggestion,index) in detail.agent_review.pairs" :key="index">
               <div class="agent-pair"><el-tag :type="suggestion.bucket === 'high_same' ? 'success' : 'warning'" size="small">{{ agentBucketLabels[suggestion.bucket] }}</el-tag> {{ suggestion.person_ids.map(memberLabel).join(' ↔ ') }}</div>
               <div class="agent-reason">{{ suggestion.reason }}<div v-for="caution in suggestion.cautions" :key="caution">需核对：{{ caution }}</div></div>
@@ -56,6 +62,7 @@
               <el-tag v-if="pair.decision" size="small">{{ actionLabels[pair.decision] }}</el-tag>
               <el-tag v-for="match in pair.contact_matches || []" :key="match" type="success" size="small">{{ contactLabels[match] || match }}匹配</el-tag>
               <el-tag v-for="conflict in pair.identity_conflicts || []" :key="conflict" type="danger" size="small">{{ conflict }}</el-tag>
+              <el-tag v-if="pair.shared_contact_warning" type="warning" size="small">联系方式被超过两份有效档案共用，不能单独据此认定同一人</el-tag>
               <span v-if="pair.complement_count">{{ pair.complement_count }} 项资料互补</span>
             </div>
           </div>
@@ -66,7 +73,7 @@
             </el-table>
           </div>
           <div v-if="canOperate && ready" class="review-actions">
-            <el-button :disabled="selectedIds.length < 2" @click="beginAction('different')">确认不同人</el-button>
+            <el-button :disabled="selectedIds.length !== 2" title="仅区分选中的两条；区分两个子组请使用上方入口" @click="beginAction('different')">确认这两条不同人</el-button>
             <el-button :disabled="selectedIds.length < 2" @click="beginAction('defer')">暂缓处理</el-button>
             <el-button :disabled="selectedIds.length < 2" @click="beginAction('keep')">保留一条</el-button>
             <el-button type="primary" :disabled="selectedIds.length < 2" @click="beginAction('merge')">合并资料</el-button>
@@ -75,7 +82,7 @@
       </main>
     </div>
 
-    <DraggableFormDialog v-model="actionVisible" width="min(1120px, calc(100vw - 32px))" top="5vh" class="review-action-dialog" :close-on-click-modal="!saving" :close-on-press-escape="!saving" :show-close="!saving" @closed="clearPreview">
+    <DraggableFormDialog v-model="actionVisible" width="min(1120px, calc(100vw - 32px))" top="5vh" class="review-action-dialog" :before-close="beforeActionClose" :close-on-click-modal="!saving" :close-on-press-escape="!saving" :show-close="!saving" @closed="clearPreview">
       <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :inert="saving" copyable-title :title="`${actionLabels[action]} · ${currentKey}`" :fetch-suggestions="fetchFieldSuggestions" placeholder="定位冲突字段，如性别" @select="locateDialogField" @clear="clearFieldSearch" /></template>
       <div ref="actionBodyRef" v-loading="previewLoading" class="action-body" :inert="saving">
         <AppForm :model="actionForm" label-position="top">
@@ -84,7 +91,7 @@
           </el-form-item>
           <el-form-item label="处理说明"><el-input v-model="note" type="textarea" :rows="2" maxlength="2000" @input="invalidatePreview" /></el-form-item>
         </AppForm>
-        <el-alert v-if="action === 'different'" title="仅确认选中记录之间为不同人员，所有档案保留。资料变化后会重新提示核对。" type="info" :closable="false" />
+        <el-alert v-if="action === 'different'" :title="actionContext.decisionPairs ? '仅确认以下跨子组记录对为不同人员，不区分子组内部记录。所有档案保留。' : '仅确认选中两条记录为不同人员，所有档案保留。资料变化后会重新提示核对。'" type="info" :closable="false" />
         <el-alert v-if="action === 'defer'" title="暂缓所选记录之间的判断；可随时重新打开，资料变化后重新进入待核。" type="info" :closable="false" />
         <el-alert v-if="action === 'keep'" title="仅保留主档当前资料，其余所选档案归档，未并入的资料仍保留在原档案。" type="warning" :closable="false" />
         <el-alert v-if="action === 'merge'" title="空值补充、多值合并；每个冲突必须明确选择。原档案及业务历史均保留。" type="info" :closable="false" />
@@ -102,6 +109,8 @@
         </div>
         <template v-if="previewResult">
           <h4>处理预览</h4>
+          <div v-if="previewResult.decision_pairs" class="decision-pair-preview"><strong>本次只处理 {{ previewResult.decision_pairs.length }} 对关系：</strong><div v-for="(pair,index) in previewResult.decision_pairs" :key="index">{{ pair.map(memberLabel).join(' ↔ ') }}</div></div>
+          <p>{{ previewResult.review_context?.agent_report ? '使用 Agent 建议辅助核对，最终由当前用户确认。' : '本次为人工选择与确认，不将 Agent 建议视为已确认身份。' }}</p>
           <div>归档：{{ previewResult.archive_ids.map(memberLabel).join('、') || '无' }}</div>
           <p>{{ previewResult.history_policy }}</p>
           <el-table v-if="previewResult.fields.length" :data="previewResult.fields" border size="small">
@@ -121,6 +130,7 @@
         <el-table-column label="状态" width="80"><template #default="{ row }">{{ row.undone_at ? '已撤销' : '已处理' }}</template></el-table-column>
         <el-table-column v-if="canOperate" label="详情" width="165" fixed="right"><template #default="{ row }">
           <el-button v-if="['merge','keep'].includes(row.action)" link type="primary" @click="openAudit(row)">合并记录</el-button>
+          <el-button v-else link type="primary" @click="openAudit(row)">核对依据</el-button>
           <el-button v-if="['merge','keep'].includes(row.action)" link type="primary" :disabled="!originalDataAvailable" @click="openAudit(row, 'original')">合并前原始资料</el-button>
           <el-popover v-for="(id,index) in row.person_ids" :key="id" trigger="click" placement="left" :width="760" title="人才核重档案详情" @show="loadHistoryTalent(id)">
             <template #reference><el-button link type="primary">档案 {{ index + 1 }} 当前详情</el-button></template>
@@ -135,7 +145,11 @@
     <DraggableFormDialog v-model="auditVisible" title="人才同名合并记录" width="min(1120px, calc(100vw - 32px))" top="5vh" class="review-action-dialog" append-to-body>
       <div v-loading="auditLoading">
         <el-alert v-if="auditError" :title="auditError" type="error" :closable="false" />
-        <template v-if="auditOperation"><p>{{ auditOperation.actor_name }} · {{ formatBusinessDateTime(auditOperation.created_at) }} · {{ auditOperation.undone_at ? '已撤销' : '已处理' }}</p><p>{{ auditOperation.note }}</p><el-tabs v-model="auditTab"><el-tab-pane label="逐字段合并记录" name="audit"><TalentMergeAuditTable v-if="auditOperation.audit" :audit="auditOperation.audit" /><el-alert v-else title="此旧操作尚无逐字段日志；原档案和处理前快照仍保留。" type="info" :closable="false" /></el-tab-pane><el-tab-pane label="合并前原始资料" name="original" :disabled="!originalDataAvailable"><TalentOriginalData v-if="auditTab === 'original' && originalDataAvailable" :key="auditOperation.id" :operation-id="auditOperation.id" /></el-tab-pane></el-tabs></template>
+        <template v-if="auditOperation"><p>{{ auditOperation.actor_name }} · {{ formatBusinessDateTime(auditOperation.created_at) }} · {{ auditOperation.undone_at ? '已撤销' : '已处理' }}</p><p>{{ auditOperation.note }}</p>
+          <div v-if="auditOperation.review_context?.agent_report"><strong>Agent 辅助建议，用户确认提交</strong><p>{{ auditOperation.review_context.agent_report.reviewer }} · {{ formatBusinessDateTime(auditOperation.review_context.agent_report.created_at) }}</p><div v-for="(pair,index) in auditOperation.review_context.agent_report.pairs" :key="index" class="matrix-value">{{ pair.reason }}<div v-for="caution in pair.cautions" :key="caution">需核对：{{ caution }}</div></div></div>
+          <p v-else>人工确认操作；未记录采用 Agent 建议。</p>
+          <div v-for="(pair,index) in auditOperation.decision_pairs || []" :key="index" class="matrix-value">区分记录对：{{ pair.join(' ↔ ') }}</div>
+          <el-tabs v-if="['merge','keep'].includes(auditOperation.action)" v-model="auditTab"><el-tab-pane label="逐字段合并记录" name="audit"><TalentMergeAuditTable v-if="auditOperation.audit" :audit="auditOperation.audit" /><el-alert v-else title="此旧操作尚无逐字段日志；原档案和处理前快照仍保留。" type="info" :closable="false" /></el-tab-pane><el-tab-pane label="合并前原始资料" name="original" :disabled="!originalDataAvailable"><TalentOriginalData v-if="auditTab === 'original' && originalDataAvailable" :key="auditOperation.id" :operation-id="auditOperation.id" /></el-tab-pane></el-tabs></template>
       </div>
       <template #footer><el-button @click="auditVisible = false">关闭</el-button></template>
     </DraggableFormDialog>
@@ -153,6 +167,7 @@ import TalentDetailContent from '@/views/resource/components/TalentDetailContent
 import TalentNameMergeDialog from '@/views/resource/components/TalentNameMergeDialog.vue'
 import TalentMergeAuditTable from '@/views/resource/components/TalentMergeAuditTable.vue'
 import TalentOriginalData from '@/views/resource/components/TalentOriginalData.vue'
+import TalentIdentitySubgroups from '@/views/resource/components/TalentIdentitySubgroups.vue'
 import { getTalent } from '@/api/talents'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { formatBusinessDateTime } from '@/utils/dateTime'
@@ -164,7 +179,8 @@ const actionBodyRef = ref(null)
 const { fieldSearchRef, fieldSearchKeyword, fetchFieldSuggestions, locateDialogField, locateDialogFieldByLabel, clearFieldSearch } = useDialogFieldSearch(actionBodyRef)
 const canOperate = computed(() => isSuperAdmin())
 const agentBucketLabels = { all:'全部结果', high_same:'高置信度同一人', likely_same:'可能同一人，需复核', different:'疑似不同人，需复核', uncertain:'证据不足，二次核对', unreviewed:'未初筛／资料已变化' }
-const filters = reactive({ keyword: '', status: 'pending', agent_bucket: 'all' }), counts = ref({}), agentSummary = ref(null)
+const filters = reactive({ keyword: '', status: 'pending', agent_bucket: 'all' }), counts = ref({}), agentSummary = ref(null), identityCounts = ref({})
+const selectionContext = ref({}), actionContext = ref({})
 const items = ref([]), total = ref(0), page = ref(1), loading = ref(false), ready = ref(true), pageError = ref('')
 const nameMergeAvailable = ref(false)
 const originalDataAvailable = ref(false)
@@ -185,6 +201,7 @@ async function loadGroups() {
     if (sequence !== listSequence) return
     items.value = result.items; total.value = result.total; counts.value = result.counts; ready.value = result.ready
     agentSummary.value = result.agent_summary || null
+    identityCounts.value = result.identity_counts || {}
     nameMergeAvailable.value = Boolean(result.name_merge_available)
     originalDataAvailable.value = Boolean(result.original_data_available)
     if (!items.value.length && page.value > 1 && total.value) { page.value = Math.max(1, Math.ceil(total.value / 20)); return loadGroups() }
@@ -200,7 +217,7 @@ async function selectGroup(key) {
   try {
     const result = await getDuplicateGroup(key, detailController.signal)
     if (sequence !== detailSequence) return
-    detail.value = result; ready.value = result.ready; selectedIds.value = result.members.slice(0, 4).map(member => member.id)
+    detail.value = result; ready.value = result.ready; selectedIds.value = []; selectionContext.value = {}; actionContext.value = {}
   } catch (error) { if (!cancelled(error) && sequence === detailSequence) detailError.value = errorText(error) }
   finally { if (sequence === detailSequence) detailLoading.value = false }
 }
@@ -210,11 +227,21 @@ const actionVisible = ref(false), action = ref('merge'), targetId = ref(''), not
 const decisions = ref({}), choiceIds = ref({}), customValues = ref({}), previewResult = ref(null), previewDirty = ref(false), acknowledged = ref(false), actionError = ref(''), previewLoading = ref(false), saving = ref(false)
 let idempotencyKey = ''
 const unresolvedCount = computed(() => (previewResult.value?.conflicts || []).filter(conflict => !decisions.value[conflict.key]).length)
+function beforeActionClose(done) { if (!saving.value) done() }
 function invalidatePreview() { previewDirty.value = true; acknowledged.value = false; ++previewSequence; previewLoading.value = false; idempotencyKey = '' }
 function clearPreview() { previewResult.value = null; decisions.value = {}; choiceIds.value = {}; customValues.value = {}; acknowledged.value = false; previewDirty.value = false; ++previewSequence; previewLoading.value = false; idempotencyKey = '' }
 function targetChanged() { clearPreview(); refreshPreview() }
-async function beginAction(value) { action.value = value; clearPreview(); note.value = ''; targetId.value = selectedIds.value.includes(detail.value.recommended_target_id) ? detail.value.recommended_target_id : selectedMembers.value[0].id; actionVisible.value = true; await refreshPreview() }
-async function useAgentSuggestion(suggestion) { selectedIds.value = [...suggestion.person_ids]; clearPreview(); if (suggestion.confidence === 'high') await beginAction('merge') }
+function selectionChanged() { selectionContext.value = {}; actionContext.value = {}; clearPreview() }
+function compareSubgroup(group) { selectedIds.value = [...group.person_ids]; selectionChanged(); selectionContext.value = { reportId: group.manual ? null : group.report_id, targetId: group.target_id } }
+async function previewSubgroup(group) { compareSubgroup(group); await beginAction('merge') }
+async function distinguishSubgroups(group) { selectedIds.value = [...group.person_ids]; selectionChanged(); await beginAction('different', { decisionPairs: group.decision_pairs }) }
+async function beginAction(value, context = null) {
+  action.value = value; clearPreview(); note.value = ''
+  actionContext.value = context || (['merge','keep'].includes(value) ? { reportId: selectionContext.value.reportId } : {})
+  targetId.value = selectedIds.value.includes(selectionContext.value.targetId) ? selectionContext.value.targetId : selectedIds.value.includes(detail.value.recommended_target_id) ? detail.value.recommended_target_id : selectedMembers.value[0].id
+  actionVisible.value = true; await refreshPreview()
+}
+async function useAgentSuggestion(suggestion) { compareSubgroup({ ...suggestion, report_id: detail.value.agent_review.report_id }); if (suggestion.confidence === 'high') await beginAction('merge') }
 function chooseConflict(conflict, index) {
   choiceIds.value[conflict.key] = index
   if (index === 'custom') { decisions.value[conflict.key] = { value: null }; customValues.value[conflict.key] = '' }
@@ -222,7 +249,7 @@ function chooseConflict(conflict, index) {
   invalidatePreview()
 }
 function customChanged(key, value) { let parsed = value; try { parsed = JSON.parse(value) } catch {} decisions.value[key] = { value: parsed }; invalidatePreview() }
-function payload() { return buildReviewPayload(action.value, selectedIds.value, targetId.value, decisions.value, note.value) }
+function payload() { return buildReviewPayload(action.value, selectedIds.value, targetId.value, decisions.value, note.value, actionContext.value) }
 async function refreshPreview() {
   const sequence = ++previewSequence; previewLoading.value = true; actionError.value = ''; acknowledged.value = false
   try { const result = await previewDuplicateReview(payload()); if (sequence !== previewSequence || !actionVisible.value) return; previewResult.value = result; previewDirty.value = false; idempotencyKey = crypto.randomUUID() }
@@ -275,4 +302,5 @@ onBeforeUnmount(() => { clearTimeout(timer); listController?.abort(); detailCont
 </style>
 <style>
 .review-action-dialog { display:flex; flex-direction:column; max-height:90vh; overflow:hidden }.review-action-dialog .el-dialog__header,.review-action-dialog .el-dialog__footer { flex-shrink:0 }.review-action-dialog .el-dialog__body { flex:1; min-height:0; overflow-y:auto }.review-action-dialog .el-dialog__footer { border-top:1px solid #e2e8f0; background:#f8fafc; display:flex; justify-content:flex-end; align-items:center; gap:8px; flex-wrap:wrap }
+@media(max-width:600px) { .review-action-dialog .dialog-field-search-header { flex-direction:column; align-items:stretch; gap:8px; padding-right:0 }.review-action-dialog .dialog-field-search-header__heading { min-width:0 }.review-action-dialog .dialog-field-search-header__title { white-space:normal; overflow-wrap:anywhere }.review-action-dialog .dialog-field-search-header__search { width:100% } }
 </style>

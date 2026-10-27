@@ -1,5 +1,6 @@
 """资源开拓 API；联系方式、截图和写入权限均由服务端控制。"""
 from datetime import date
+from functools import lru_cache
 import json
 from io import BytesIO
 from uuid import UUID, uuid4
@@ -15,7 +16,7 @@ from models import AppUser
 from routers.auth import get_current_user, require_any_permission
 from resource_development_models import DevelopmentAction as Action, DevelopmentOption as Option, DevelopmentRecord as Record, DevelopmentScreenshot as Screenshot, DevelopmentWork as Work
 from resource_development_schemas import GroupActionWrite, LanguageWrite, OptionWrite, RecordWrite, WorkWrite
-from resource_development_service import active_user, audit, check_revision, duplicates, filtered_records, is_admin, lock_writes, owns, previous_workday, refresh_draft, require_owner, save_record, save_work, serialize_record, snapshot, work_result
+from resource_development_service import active_user, audit, check_revision, duplicates, filtered_records, is_admin, lock_writes, option, owns, previous_workday, refresh_draft, require_owner, save_record, save_work, serialize_record, snapshot, user_name, work_result
 from permission_service import user_has_permission
 from resource_development_service import can_delegate, can_delete_record
 from routers.resource_arrangements import router as arrangement_router
@@ -150,13 +151,15 @@ def days(params=Depends(filters), skip: int = Query(0, ge=0), limit: int = Query
     total = db.query(func.count()).select_from(dates).scalar()
     selected = db.query(dates.c.work_date).order_by(dates.c.work_date.desc()).offset(skip).limit(limit).all()
     result = []
+    delegate = can_delegate(db, user)
+    name_lookup = lru_cache(maxsize=None)(lambda user_id: user_name(db, user_id))
     for (day,) in selected:
         counts = dict(q.filter(Record.work_date == day).with_entities(Record.owner_id, func.count(Record.id)).group_by(Record.owner_id).all())
         if include_work:
             for (owner,) in works.filter(Work.work_date == day).with_entities(Work.owner_id):
                 counts.setdefault(owner, 0)
         result.append({"date": day, "count": sum(counts.values()), "people": [
-            {**work_result(db, user, day, owner), "count": count} for owner, count in counts.items()]})
+            {**work_result(db, user, day, owner, delegate=delegate, name_lookup=name_lookup), "count": count} for owner, count in counts.items()]})
     return {"items": result, "total": total}
 
 
@@ -164,7 +167,11 @@ def days(params=Depends(filters), skip: int = Query(0, ge=0), limit: int = Query
 def records(params=Depends(filters), skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100),
             db: Session = Depends(get_db), user=Depends(get_current_user)):
     q = filtered_records(db, user, **params)
-    return {"items": [serialize_record(db, user, row) for row in q.order_by(Record.work_date.desc(), Record.updated_at.desc(), Record.id.desc()).offset(skip).limit(limit)],
+    delegate, admin = can_delegate(db, user), is_admin(db, user)
+    name_lookup = lru_cache(maxsize=None)(lambda user_id: user_name(db, user_id))
+    option_lookup = lru_cache(maxsize=None)(lambda option_id, kind: option(db, option_id, kind))
+    return {"items": [serialize_record(db, user, row, delegate=delegate, admin=admin, name_lookup=name_lookup, option_lookup=option_lookup)
+                     for row in q.order_by(Record.work_date.desc(), Record.updated_at.desc(), Record.id.desc()).offset(skip).limit(limit)],
             "total": q.count()}
 
 

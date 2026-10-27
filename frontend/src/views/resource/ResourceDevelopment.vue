@@ -158,7 +158,13 @@ async function loadRecords() {
     const last = Math.max(1, Math.ceil(data.total / recordPageSize.value))
     if (recordPage.value > last) { recordPage.value = last; return loadRecords() }
     rows.value = data.items
-  } catch (e) { if (!cancelled(e) && seq === recordSeq) ElMessage.error(e.message) } finally { if (seq === recordSeq) recordsLoading.value = false }
+  } catch (e) {
+    if (!cancelled(e) && seq === recordSeq) {
+      rows.value = []
+      recordTotal.value = 0
+      ElMessage.error(e.message)
+    }
+  } finally { if (seq === recordSeq) recordsLoading.value = false }
 }
 async function reload(keepDelete = false) {
   clearTimeout(timer); listController?.abort(); recordController?.abort(); ++recordSeq

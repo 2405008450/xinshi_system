@@ -1,11 +1,23 @@
-<template><span class="screenshot-text"><span v-if="showText" class="screenshot-plain">{{ plain }}</span><span class="screenshot-previews"><span v-for="id in ids" :key="id" class="screenshot-preview"><el-image v-if="urls[id]" :src="urls[id]" :preview-src-list="Object.values(urls)" preview-teleported fit="contain" @click.stop /><span v-else>{{ errors[id]||'正在加载截图…' }}</span><button v-if="removable" type="button" aria-label="移除截图" @click.stop="$emit('remove',id)">×</button></span></span></span></template>
+<template><span ref="root" class="screenshot-text" @click.capture="preparePreview"><span v-if="showText" class="screenshot-plain">{{ plain }}</span><span class="screenshot-previews"><span v-for="id in ids" :key="id" class="screenshot-preview"><el-image v-if="urls[id]" :src="urls[id]" :preview-src-list="Object.values(urls)" :z-index="previewZIndex" preview-teleported fit="contain" @click.stop /><span v-else>{{ errors[id]||'正在加载截图…' }}</span><button v-if="removable" type="button" aria-label="移除截图" @click.stop="$emit('remove',id)">×</button></span></span></span></template>
 <script setup>
 import { computed,onBeforeUnmount,ref,watch } from 'vue'
+import { useZIndex } from 'element-plus'
 import api from '@/api'
 import { screenshotIds,screenshotText } from '@/utils/screenshotReferences'
 const props=defineProps({text:{type:String,default:''},showText:{type:Boolean,default:true},removable:Boolean,chatMessageId:[String,Number],chatKind:String})
 defineEmits(['remove'])
 const ids=computed(()=>screenshotIds(props.text)),plain=computed(()=>screenshotText(props.text)),urls=ref({}),errors=ref({})
+const root=ref(null),previewZIndex=ref(),{nextZIndex}=useZIndex()
+function preparePreview(event){
+  if(!event.target.closest('.el-image'))return
+  // 预览挂到 body，必须高于进度窗口及其嵌套弹窗的自定义层级。
+  let level=nextZIndex()
+  for(let element=root.value;element;element=element.parentElement){
+    const parentLevel=Number.parseInt(getComputedStyle(element).zIndex,10)
+    if(Number.isFinite(parentLevel))level=Math.max(level,parentLevel+1)
+  }
+  previewZIndex.value=level
+}
 let version=0
 watch(()=>[props.text,props.chatMessageId],async()=>{const current=++version;for(const id of Object.keys(urls.value))if(!ids.value.includes(id)){URL.revokeObjectURL(urls.value[id]);delete urls.value[id]}
   await Promise.all(ids.value.map(async id=>{if(urls.value[id])return;try{const blob=await api.get(`/editor-screenshots/${id}`,{responseType:'blob',timeout:60000,screenshotIds:[id],params:props.chatMessageId?{chat_message_id:props.chatMessageId,chat_kind:props.chatKind||'project'}:{}});if(current===version)urls.value[id]=URL.createObjectURL(blob)}catch(e){if(current===version)errors.value[id]=[404,410].includes(e.response?.status||e.status)?'截图已过期或不存在':e.detail||'请重新打开记录以查看截图'}}))

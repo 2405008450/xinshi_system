@@ -136,28 +136,28 @@
                   <el-tag :type="statusType(group.status)" size="small">{{ statusLabel(group.status) }}</el-tag>
                   <span>{{ formatDateTime(group.effectiveOn) }}</span>
                   <el-tag v-if="group.isCurrent" type="success" size="small" effect="plain">当前状态</el-tag>
-                  <el-button v-if="canWrite" type="primary" link size="small" @click="startNewProgress(project, group)">补充进度</el-button>
+                  <el-button v-if="canWrite" type="primary" link size="small" :disabled="progressSavingIds.has(project.id)" @click="startNewProgress(project, group)">补充进度</el-button>
                 </div>
                 <div v-if="group.children.length" class="progress-items">
                   <div v-for="record in group.children" :key="record.key" class="progress-item">
-                    <div><span class="progress-time">{{ formatDateTime(record.effectiveOn) }}</span>{{ record.changeNote }}</div>
-                    <el-button v-if="canWrite && record.kind === 'progress'" type="primary" link size="small" @click="startEditProgress(project, record)">编辑</el-button>
+                    <div><span class="progress-time">{{ formatDateTime(record.effectiveOn) }}</span><ScreenshotText :text="record.changeNote" /></div>
+                    <el-button v-if="canWrite && record.kind === 'progress'" type="primary" link size="small" :disabled="progressSavingIds.has(project.id)" @click="startEditProgress(project, record)">编辑</el-button>
                   </div>
                 </div>
                 <span v-else class="muted">暂无具体进度</span>
               </div>
               <el-empty v-if="!progressLoadingIds.has(project.id) && !progressGroups(project).length" description="暂无项目进度" :image-size="52" />
             </div>
-            <AppForm v-if="canWrite && progressEditors[project.id]" :model="progressEditors[project.id]" label-width="76px" size="small" class="progress-editor">
+            <AppForm v-if="canWrite && progressEditors[project.id]" :ref="el => setProgressFormRef(project.id, el)" :model="progressEditors[project.id]" :disabled="progressSavingIds.has(project.id)" label-width="76px" size="small" class="progress-editor">
               <el-row :gutter="12">
                 <el-col :xs="24" :sm="8">
                   <el-form-item label="所属状态"><ReadonlyField :model-value="statusLabel(progressEditors[project.id].projectStatus)" source="auto" /></el-form-item>
                 </el-col>
                 <el-col :xs="24" :sm="8">
-                  <el-form-item label="节点时间"><el-date-picker v-model="progressEditors[project.id].effectiveOn" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" format="YYYY-MM-DD HH:mm" style="width:100%" /></el-form-item>
+                  <el-form-item label="节点时间" prop="effectiveOn" :rules="requiredRule('请选择节点时间', 'change')"><el-date-picker v-model="progressEditors[project.id].effectiveOn" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" format="YYYY-MM-DD HH:mm" style="width:100%" /></el-form-item>
                 </el-col>
               </el-row>
-              <el-form-item label="具体进度">
+              <el-form-item label="具体进度" prop="changeNote" :rules="[{ required: true, whitespace: true, message: '请填写具体进度', trigger: 'blur' }]">
                 <el-input v-model="progressEditors[project.id].changeNote" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" maxlength="10000" show-word-limit />
               </el-form-item>
               <div class="progress-editor__actions">
@@ -239,6 +239,7 @@ import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 import AppForm from '@/components/common/AppForm.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
+import ScreenshotText from '@/components/common/ScreenshotText.vue'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -269,6 +270,11 @@ const progressLoadingIds = ref(new Set())
 const progressSavingIds = ref(new Set())
 const progressRows = reactive({})
 const progressEditors = reactive({})
+const progressFormRefs = new Map()
+function setProgressFormRef(projectId, form) {
+  if (form) progressFormRefs.set(projectId, form)
+  else progressFormRefs.delete(projectId)
+}
 let searchTimer = null
 let searchController = null
 let searchRequestId = 0
@@ -501,18 +507,26 @@ async function loadProgress(project, force = false) {
 }
 const progressGroups = (project) => groupAnnotationProgressRows(progressRows[project.id] || [], project.projectStatus)
 function startNewProgress(project, group) {
+  if (progressSavingIds.value.has(project.id)) return
   progressEditors[project.id] = { historyId:'', projectStatus:group.status, effectiveOn:localDateTimeValue(), changeNote:'', expectedUpdatedAt:null }
 }
 function startEditProgress(project, record) {
+  if (progressSavingIds.value.has(project.id)) return
   progressEditors[project.id] = { historyId:record.id, projectStatus:record.toStatus, effectiveOn:String(record.effectiveOn || '').replace('T',' ').slice(0,19), changeNote:record.changeNote || '', expectedUpdatedAt:record.updatedAt || record.changedAt }
 }
-function cancelProgressEdit(projectId) { delete progressEditors[projectId] }
+function cancelProgressEdit(projectId) {
+  if (!progressSavingIds.value.has(projectId)) delete progressEditors[projectId]
+}
 async function saveProgress(project) {
-  const editor = progressEditors[project.id]
-  if (!editor?.effectiveOn) return ElMessage.warning('请选择节点时间')
-  if (!editor.changeNote.trim()) return ElMessage.warning('请填写具体进度')
+  if (progressSavingIds.value.has(project.id)) return
+  const form = progressFormRefs.get(project.id)
+  if (!form) return
   setLoadingId(progressSavingIds, project.id, true)
   try {
+    // 表单校验会等待当前编辑器的截图上传，完成后再读取最新内容。
+    if (!await form.validate().catch(() => false)) return
+    const editor = progressEditors[project.id]
+    if (!editor || progressFormRefs.get(project.id) !== form) return
     if (editor.historyId) {
       progressRows[project.id] = await annotationOpsApi.updateStatusHistoryProgress(editor.historyId, { effectiveOn:editor.effectiveOn, changeNote:editor.changeNote.trim(), expectedUpdatedAt:editor.expectedUpdatedAt })
     } else {

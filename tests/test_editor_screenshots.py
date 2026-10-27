@@ -148,3 +148,73 @@ def test_expired_chat_image_cannot_be_promoted_back_to_permanent(environment):
     row=db.get(Image,uid);row.expires_at=service.now()-timedelta(seconds=1);db.commit()
     service.promote_business_references(db,{uid});db.commit();db.expire_all()
     assert db.get(Image,uid).retention_kind=='chat'
+
+
+def test_separate_backend_instances_share_image_bytes_and_grants(environment, monkeypatch, tmp_path):
+    """不同工作目录、独立请求会话共享数据库，无需复制各实例的 uploads 目录。"""
+    from fastapi import Depends, Request
+    from sqlalchemy.orm import Session
+    from database import get_db
+    from routers.auth import get_current_user
+    from routers.editor_screenshots import router
+    import editor_screenshot_middleware as middleware
+
+    db, (owner, member, outsider) = environment
+    engine = db.get_bind()
+    user_ids = {'owner': owner.id, 'member': member.id, 'outsider': outsider.id}
+    monkeypatch.setattr(middleware, 'engine', engine)
+    monkeypatch.setattr('routers.auth.get_user_from_token_value',
+                        lambda session, token: session.get(type(owner), user_ids.get(token)))
+    reference = ''
+
+    def make_instance():
+        app = FastAPI()
+        app.add_middleware(middleware.EditorScreenshotMiddleware)
+        app.include_router(router)
+
+        def session():
+            with Session(engine) as connection:
+                yield connection
+
+        def user(request: Request, connection=Depends(get_db)):
+            return connection.get(type(owner), user_ids[request.headers['authorization'].removeprefix('Bearer ')])
+
+        app.dependency_overrides[get_db] = session
+        app.dependency_overrides[get_current_user] = user
+
+        @app.get('/business-record')
+        def record(current=Depends(get_current_user)):
+            if current.id not in {owner.id, member.id}:
+                raise HTTPException(403, '无权查看记录')
+            return {'note': reference}
+
+        return TestClient(app)
+
+    first, second = make_instance(), make_instance()
+    local_a, local_b = tmp_path / 'backend-a', tmp_path / 'backend-b'
+    local_a.mkdir(); local_b.mkdir()
+    monkeypatch.chdir(local_a)
+    uploaded = first.post('/editor-screenshots', headers={'Authorization': 'Bearer owner'},
+                          files={'file': ('screen.png', png(), 'image/png')})
+    assert uploaded.status_code == 201
+    reference = uploaded.json()['reference']
+    image_id = uploaded.json()['id']
+    path = f'/editor-screenshots/{image_id}'
+    monkeypatch.chdir(local_b)
+    assert second.get(path, headers={'Authorization': 'Bearer member'}).status_code == 403
+    record = second.get('/business-record', headers={'Authorization': 'Bearer member'})
+    grant = record.headers['x-screenshot-grant']
+    headers = {'Authorization': 'Bearer member', 'X-Screenshot-Grants': grant}
+    read_on_b = second.get(path, headers=headers)
+    assert read_on_b.status_code == 200
+    monkeypatch.chdir(local_a)
+    read_on_a = first.get(path, headers=headers)
+    assert read_on_a.status_code == 200 and read_on_a.content == read_on_b.content
+    assert read_on_a.headers['cache-control'] == 'private, no-store'
+    assert not list(local_a.iterdir()) and not list(local_b.iterdir())
+    assert second.get('/business-record', headers={'Authorization': 'Bearer outsider'}).status_code == 403
+    assert second.get(path, headers={'Authorization': 'Bearer outsider', 'X-Screenshot-Grants': grant}).status_code == 403
+
+    # 密钥不一致时保持拒绝授权，不能为兼容多部署而绕过签名检查。
+    monkeypatch.setattr('routers.auth.SECRET_KEY', 'isolated-test-different-instance-secret')
+    assert 'x-screenshot-grant' not in second.get('/business-record', headers={'Authorization': 'Bearer member'}).headers

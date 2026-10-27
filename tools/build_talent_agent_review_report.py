@@ -13,8 +13,13 @@ from business_time import business_iso, business_now
 def build(source, decisions, destination):
     data = json.loads(source.read_text(encoding="utf-8"))
     judgments = json.loads(decisions.read_text(encoding="utf-8"))
+    version = 2 if data.get("format_version") == 2 else 1
+    default = judgments.get("default", {"classification": "uncertain", "confidence": "low", "reason": "尚未经当前 Agent 逐对判断"})
+    if version == 2 and (default.get("classification"), default.get("confidence")) != ("uncertain", "low"):
+        raise ValueError("未逐对判断的资料只能保留为未初筛，不能默认高置信度")
     overrides = {}
     for judgment in judgments["pairs"]:
+        judgment = dict(judgment)
         index = tuple(judgment.pop("index"))
         if index in overrides or judgment["classification"] not in {"same", "different", "uncertain"} or judgment["confidence"] not in {"high", "medium", "low"}:
             raise ValueError("判断重复或格式无效")
@@ -24,19 +29,25 @@ def build(source, decisions, destination):
         pairs = []
         for pair_index, pair in enumerate(group["pairs"]):
             index = (group_index, pair_index)
-            judgment = overrides.get(index, judgments["default"])
+            judgment = overrides.get(index, default)
             if index in overrides:
                 applied.add(index)
-            pairs.append({"person_ids": pair["person_ids"], "codes": pair["codes"], **judgment})
+            if version == 2 and not pair.get("evidence_version"):
+                raise ValueError("新版初筛必须有逐对证据版本")
+            pairs.append({**judgment, "person_ids": pair["person_ids"], "codes": pair["codes"],
+                          **({"evidence_version": pair["evidence_version"], "reviewed": index in overrides} if version == 2 else {})})
             counts[judgment["classification"] + ":" + judgment["confidence"]] += 1
         groups.append({"key": group["key"], "fingerprints": group["fingerprints"], "pairs": pairs})
     if applied != set(overrides):
         raise ValueError("判断引用了不存在的记录对")
-    report = {"format_version": 1, "reviewer": judgments["reviewer"], "created_at": business_iso(business_now()),
+    report = {"format_version": version, "reviewer": judgments["reviewer"], "created_at": business_iso(business_now()),
               "source_created_at": data["created_at"], "scope_note": judgments["scope_note"],
-              "counts": dict(counts), "group_count": len(groups), "pair_count": sum(len(g["pairs"]) for g in groups), "groups": groups}
+              "counts": dict(counts), "reviewed_pair_count": len(applied), "source_complete": data.get("complete", True),
+              "group_count": len(groups), "pair_count": sum(len(g["pairs"]) for g in groups), "groups": groups}
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary = destination.with_suffix(destination.suffix + ".tmp")
+    temporary.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(destination)
     lines = ["# 当前 Agent 人才同名初筛报告", "", "生成时间：" + report["created_at"], "",
              report["scope_note"], "", f"覆盖 {report['group_count']} 组、{report['pair_count']} 对。", "",
              "| 分流 | 记录对数 |", "| --- | ---: |"]
@@ -48,7 +59,7 @@ def build(source, decisions, destination):
             if pair["classification"] == "same" and pair["confidence"] == "high":
                 reason = "；".join(value.rstrip("。；") for value in [pair["reason"], *pair.get("cautions", [])] if value) + "。"
                 lines.append(f"| {group['key']} | {' / '.join(pair['codes'])} | {reason.replace('|', '／')} |")
-    lines += ["", "同一组可同时包含高置信度候选和待复核成员。本报告不进行传递式身份认定，不修改人才档案或归档关系。置信度为当前 Agent 对证据的分档判断，不是已验证的概率。工作台在资料或成员变化后使该组旧建议失效。"]
+    lines += ["", "同组可包含多个独立人员。建议不传递、不修改人才档案；新版按记录对及证据版本失效，未受影响的建议可以继续核对。置信度为证据分档，不是概率；未逐对判断的内容仍为未初筛。"]
     destination.with_suffix(".md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(json.dumps({"groups": len(groups), "pairs": report["pair_count"], "counts": dict(counts), "report": str(destination)}, ensure_ascii=False))
 

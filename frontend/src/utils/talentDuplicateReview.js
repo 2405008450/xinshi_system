@@ -32,6 +32,29 @@ export function selectedFieldState(values) {
   if (new Set(nonempty.map(value => JSON.stringify(value))).size > 1) return 'conflict'
   return nonempty.length === values.length ? 'same' : 'complement'
 }
-export function buildReviewPayload(action, personIds, targetId, decisions = {}, note = '') {
-  return { action, person_ids: [...personIds], target_id: ['keep', 'merge'].includes(action) ? targetId : null, decisions, note }
+export function buildReviewPayload(action, personIds, targetId, decisions = {}, note = '', context = {}) {
+  return { action, person_ids: [...personIds], target_id: ['keep', 'merge'].includes(action) ? targetId : null, decisions, note,
+    ...(context.decisionPairs ? { decision_pairs: context.decisionPairs } : {}),
+    ...(context.reportId ? { agent_report_id: context.reportId } : {}) }
+}
+
+export function crossDecisionPairs(left, right) {
+  if (!left.length || !right.length || new Set([...left, ...right]).size !== left.length + right.length) throw new Error('请选择两个互不重叠的子组')
+  return left.flatMap(a => right.map(b => [a, b]))
+}
+
+export function validateIdentityDraft(ids, drafts, editingId = null) {
+  if (ids.length < 2 || new Set(ids).size !== ids.length) return '一个合并子组至少需要两条不同档案'
+  if (drafts.some(group => group.id !== editingId && group.person_ids.some(id => ids.includes(id)))) return '同一档案不能进入两个准备提交的子组，请先调整原子组'
+  return ''
+}
+
+export function pairRelation(pair, suggestion) {
+  if (pair?.decision === 'different') return { label: '已确认不同人', type: 'info' }
+  if (pair?.decision === 'defer') return { label: '已暂缓', type: 'warning' }
+  if (pair?.identity_conflicts?.length) return { label: '身份冲突', type: 'danger' }
+  if (!suggestion) return { label: '待初筛', type: 'info' }
+  const level = { high: '高', medium: '中', low: '低' }[suggestion.confidence]
+  return { label: `${{ same: '疑似同一人', different: '疑似不同人', uncertain: '证据不足' }[suggestion.classification]}·${level}`,
+    type: suggestion.classification === 'same' && suggestion.confidence === 'high' ? 'success' : 'warning' }
 }

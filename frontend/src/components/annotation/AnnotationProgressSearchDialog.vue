@@ -70,6 +70,7 @@
             <template v-for="(segment, index) in highlight(row.changeNote)" :key="`${row.id}:${index}`">
               <mark v-if="segment.matched">{{ segment.text }}</mark><span v-else>{{ segment.text }}</span>
             </template>
+            <ScreenshotText :text="row.changeNote" :show-text="false" />
           </div>
           <div class="progress-search-item__meta">
             <el-tag size="small" effect="plain">{{ row.track === 'customer' ? '客户进度' : '项目进度' }}</el-tag>
@@ -116,6 +117,8 @@ import { ElMessage } from 'element-plus'
 import * as annotationOpsApi from '@/api/annotationOps'
 import { formatBusinessDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 import { defaultProgressSearchRange, isProgressSearchRangeValid, splitKeywordMatches } from '@/utils/annotationProgressSearch'
+import ScreenshotText from '@/components/common/ScreenshotText.vue'
+import { screenshotText } from '@/utils/screenshotReferences'
 
 const props = defineProps({ modelValue: { type: Boolean, default: false } })
 const emit = defineEmits(['update:modelValue', 'open-context', 'closed'])
@@ -162,7 +165,7 @@ const statusType = (value) => ({
   sent_to_client: 'success', client_feedback: 'warning', cancelled: 'danger', partially_cancelled: 'warning',
   paused: 'warning', actively_abandoned: 'danger', ended: 'success',
 }[value] || 'info')
-const highlight = (content) => splitKeywordMatches(content, filters.keyword)
+const highlight = (content) => splitKeywordMatches(screenshotText(content), filters.keyword)
 
 const cancelRequest = () => {
   requestController?.abort()

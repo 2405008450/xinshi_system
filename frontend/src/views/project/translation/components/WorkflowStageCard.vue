@@ -88,14 +88,17 @@
 
       <div class="section-label">处理备注 / 交接留言</div>
       <p class="handover-hint">向下一阶段负责人传递关键信息，提交后将推进流程并锁定本阶段备注。</p>
+      <AppForm ref="handoverFormRef" :model="uiState">
       <el-input
         v-model="uiState.handoverNote"
+        :disabled="busy"
         type="textarea"
         :rows="4"
         placeholder="请输入本阶段处理说明、注意事项或交接给下一阶段的留言..."
         maxlength="500"
         show-word-limit
       />
+      </AppForm>
 
       <template v-if="nextStageAfterReception">
         <div class="section-label">下一环节负责人</div>
@@ -148,6 +151,7 @@
         <el-button
           type="primary"
           :disabled="!uiState.pendingDifficulty || uiState.pendingFileEditable === null || !receptionAssignReady"
+          :loading="busy"
           @click="$emit('confirm-difficulty')"
         >
           确认难度并进入下一环节
@@ -214,14 +218,17 @@
       <div v-if="!isCurrentStageDone" class="stage-handover">
         <div class="section-label">处理备注 / 交接留言</div>
         <p class="handover-hint">向下一阶段负责人传递关键信息，提交后将推进流程并锁定本阶段备注。</p>
+        <AppForm ref="handoverFormRef" :model="uiState">
         <el-input
           v-model="uiState.handoverNote"
+          :disabled="busy"
           type="textarea"
           :rows="4"
           placeholder="请输入本阶段处理说明、注意事项或交接给下一阶段的留言..."
           maxlength="500"
           show-word-limit
         />
+        </AppForm>
         <template v-if="nextStageForAssignee">
           <div class="section-label">下一环节负责人</div>
           <p class="handover-hint">指定由哪位同事处理下一环节「{{ nextStageForAssignee.title }}」，或选择同组指派给整个角色组。</p>
@@ -267,7 +274,7 @@
           </el-alert>
         </div>
         <div v-else class="stage-actions stage-actions-multi">
-          <el-button type="primary" :disabled="!!nextStageForAssignee && !transitionAssignReady" @click="$emit('complete-stage')">
+          <el-button type="primary" :loading="busy" :disabled="!!nextStageForAssignee && !transitionAssignReady" @click="$emit('complete-stage')">
             完成本阶段并提交
           </el-button>
           <el-button v-if="canRollbackOne" type="warning" plain @click="$emit('rollback', 1, false)">
@@ -284,7 +291,7 @@
 
       <div v-else class="stage-handover-readonly">
         <div class="section-label">本阶段交接留言</div>
-        <div class="readonly-note">{{ stageNoteForCurrentStage || '（无）' }}</div>
+        <div class="readonly-note"><ScreenshotText :text="stageNoteForCurrentStage || '（无）'" /></div>
         <div v-if="canRollbackOne || canRollbackTwo || canRollbackToStart" class="stage-actions" style="margin-top: 12px">
           <el-button v-if="canRollbackOne" type="warning" plain @click="$emit('rollback', 1, false)">
             打回上一环节
@@ -302,9 +309,14 @@
 </template>
 
 <script setup>
+import { ref } from 'vue'
+import ScreenshotText from '@/components/common/ScreenshotText.vue'
+const handoverFormRef=ref()
+defineExpose({ validate: () => handoverFormRef.value?.validate() ?? Promise.resolve(true) })
 defineEmits(['save-progress', 'confirm-difficulty', 'complete-stage', 'rollback'])
 
 defineProps({
+  busy: Boolean,
   currentProject: {
     type: Object,
     default: null

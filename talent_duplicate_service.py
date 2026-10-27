@@ -14,11 +14,11 @@ from uuid import UUID, uuid4
 from fastapi import HTTPException
 from sqlalchemy import Column, MetaData, Table, func, inspect, or_, select, text
 from sqlalchemy.exc import NoInspectionAvailable, UnboundExecutionError
-from sqlalchemy.orm import load_only, undefer
+from sqlalchemy.orm import defaultload, load_only, undefer
 from sqlalchemy.orm.attributes import set_committed_value
 
 from business_time import BUSINESS_TIMEZONE, business_iso, business_now
-from resource_models import ResourcePerson
+from resource_models import ResourceLanguageSkill, ResourcePerson
 from resource_schemas import ResourcePersonDetailResponse, ResourcePersonUpdate
 from talent_duplicate_models import TalentDuplicateOperation
 from talent_privacy import RESOURCE_CONTACT_FIELDS, serialize_with_contact_access
@@ -99,6 +99,16 @@ def name_key(value):
     return (stripped or normalized).lower()
 
 
+def mask_embedded_contacts(value):
+    value = re.sub(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", "******", str(value or ""))
+    return re.sub(r"\+?\d[\d ()-]{5,}\d", "******", value)
+
+
+def public_group_key(key):
+    # 历史姓名可能错误混入邮箱/电话；路由键也不能泄露联系信息。
+    return "~" + digest(key) if mask_embedded_contacts(key) != key else key
+
+
 def review_ready(db):
     """仅检查结构；不在服务启动或请求中执行迁移。每个会话只检查一次。"""
     if not hasattr(db, "info") or not hasattr(db, "connection"):
@@ -125,6 +135,11 @@ def active_query(db, query):
 
 def archive_options(db):
     return (undefer(ResourcePerson.archived_into_id), undefer(ResourcePerson.archived_at)) if review_ready(db) else ()
+
+
+def review_options(db):
+    # 核对快照需要口音字段，批量取出，避免每个语种明细再借连接查询。
+    return (*archive_options(db), defaultload(ResourcePerson.language_skills).undefer(ResourceLanguageSkill.accent))
 
 
 def prepare_person(db, person):
@@ -247,7 +262,7 @@ def _load_people(db, ids):
     """一次批量读取档案及明细，每次调用仍刷新 ORM 状态。"""
     from resource_service import _person_options
     return {person.id: person for person in db.query(ResourcePerson).filter(ResourcePerson.id.in_(ids))
-            .options(*_person_options(), *archive_options(db)).populate_existing().all()}
+            .options(*_person_options(), *review_options(db)).populate_existing().all()}
 
 
 def full_snapshot(db, ids):
@@ -288,40 +303,97 @@ def field_state(values):
     return "same" if len(nonempty) == len(values) else "complement"
 
 
-def pair_evidence(left, right):
-    a, b = contact_identifiers(left), contact_identifiers(right)
+class ContactUsage(dict):
+    def __init__(self):
+        super().__init__()
+        self.by_person = {}
+        self.sources = {}
+
+
+def contact_usage_index(db):
+    """仅批量读取联系字段；按有效主档计数，归档来源不重复计人。"""
+    from types import SimpleNamespace
+    columns = [ResourcePerson.id, ResourcePerson.resource_code, *[getattr(ResourcePerson, field) for field in RESOURCE_CONTACT_FIELDS]]
+    if review_ready(db):
+        columns.append(ResourcePerson.archived_into_id)
+    usage = ContactUsage()
+    for row in db.query(*columns).all():
+        values = dict(row._mapping)
+        owner = str(values.get("archived_into_id") or values["id"])
+        for kind, tokens in contact_identifiers(SimpleNamespace(**values)).items():
+            usage.by_person.setdefault(owner, {}).setdefault(kind, set()).update(tokens)
+            for token in tokens:
+                usage.setdefault((kind, token), set()).add(owner)
+        if values.get("archived_into_id"):
+            for field in RESOURCE_CONTACT_FIELDS:
+                if str(values.get(field) or "").strip().lower() not in PLACEHOLDERS | {""}:
+                    usage.sources.setdefault(owner, []).append({"source_code": values["resource_code"],
+                        "field": field_label(field), "value": values[field]})
+    return usage
+
+
+def pair_evidence(left, right, usage=None):
+    inherited = getattr(usage, "by_person", {})
+    a = inherited.get(str(left.id), contact_identifiers(left))
+    b = inherited.get(str(right.id), contact_identifiers(right))
     matches = [key for key in a if a[key] & b[key]]
     identity_conflicts = []
-    if left.gender and right.gender and left.gender != right.gender:
+    if (str(left.gender or "").strip().lower() not in PLACEHOLDERS | {""}
+            and str(right.gender or "").strip().lower() not in PLACEHOLDERS | {""} and left.gender != right.gender):
         identity_conflicts.append("性别不同")
     a_birth = str(left.birth_year_month or left.birth_date or "")[:7]
     b_birth = str(right.birth_year_month or right.birth_date or "")[:7]
     if a_birth and b_birth and a_birth != b_birth:
         identity_conflicts.append("出生年月不同")
+    elif left.birth_date and right.birth_date and str(left.birth_date) != str(right.birth_date):
+        identity_conflicts.append("出生日期不同")
     values_a, values_b = _business_values(left), _business_values(right)
     complements = sum(field_state([values_a.get(key), values_b.get(key)]) == "complement" for key in values_a.keys() | values_b.keys())
+    shared_counts = {kind: max((len(usage.get((kind, token), ())) for token in a[kind] & b[kind]), default=0)
+                     for kind in matches} if usage is not None else {}
+    context = {"shared_contact_counts": shared_counts, "identity_conflicts": identity_conflicts,
+               "contacts": {str(p.id): {kind: sorted(tokens) for kind, tokens in values.items()}
+                            for p, values in ((left, a), (right, b))}}
     return {"person_ids": [str(left.id), str(right.id)], "contact_matches": matches,
+            "shared_contact_counts": shared_counts, "shared_contact_warning": any(count > 2 for count in shared_counts.values()),
+            "evidence_version": digest(context),
             "identity_conflicts": identity_conflicts, "complement_count": complements,
             "category": "identity_conflict" if identity_conflicts else "contact_match" if matches else "complement" if complements else "name_only"}
 
 
-def _pair_decisions(people, operations):
+def _pair_decisions(people, operations, usage=None):
     fingerprints = {str(person.id): comparison_fingerprint(person) for person in people}
     states = {}
+    by_id = {str(person.id): person for person in people}
+    evidence_versions = {}
     for op in operations:
         if op.undone_at or op.action not in {"different", "defer"}:
             continue
-        for a, b in itertools.combinations(sorted(op.person_ids), 2):
+        # 新操作可以仅区分跨子组的明确记录对；旧操作仍解释为所选记录两两区分。
+        pairs = op.decisions.get("decision_pairs")
+        if pairs is None:
+            pairs = itertools.combinations(sorted(op.person_ids), 2)
+        for pair in pairs:
+            a, b = sorted(pair)
             if a not in fingerprints or b not in fingerprints:
                 continue
             old = op.decisions.get("fingerprints", {})
             if old.get(a) == fingerprints[a] and old.get(b) == fingerprints[b]:
+                versions = op.decisions.get("decision_evidence_versions")
+                if versions is not None:
+                    if usage is None:
+                        continue
+                    pair = (a, b)
+                    if pair not in evidence_versions:
+                        evidence_versions[pair] = pair_evidence(by_id[a], by_id[b], usage)["evidence_version"]
+                    if versions.get(digest([a, b])) != evidence_versions[pair]:
+                        continue
                 states[(a, b)] = op.action
     return states
 
 
 def _decision_query(db):
-    return db.query(TalentDuplicateOperation).options(load_only(
+    return db.query(TalentDuplicateOperation).filter(TalentDuplicateOperation.action.in_(["different", "defer"])).options(load_only(
         TalentDuplicateOperation.id, TalentDuplicateOperation.action, TalentDuplicateOperation.name_key,
         TalentDuplicateOperation.person_ids, TalentDuplicateOperation.decisions, TalentDuplicateOperation.created_at,
         TalentDuplicateOperation.undone_at,
@@ -330,16 +402,17 @@ def _decision_query(db):
 
 def groups(db, keyword="", status="pending", skip=0, limit=20, contacts_visible=False, agent_bucket="all"):
     from resource_service import _person_options
-    from talent_agent_review_service import load_report, group_review, BUCKETS
+    from talent_agent_review_service import load_report, group_review, identity_subgroups, BUCKETS
     agent_report = load_report() if contacts_visible else {}
     agent_counts = dict.fromkeys(BUCKETS, 0)
+    identity_counts = {"recommended_subgroups": 0, "unresolved_pairs": 0}
     ready = review_ready(db)
     query = active_query(db, db.query(ResourcePerson))
     if ready and db.get_bind().dialect.name == "postgresql":
         normalized = func.resource_person_duplicate_name_key(ResourcePerson.full_name)
         duplicate_keys = active_query(db, db.query(normalized)).group_by(normalized).having(func.count(ResourcePerson.id) > 1)
         query = query.filter(normalized.in_(duplicate_keys))
-    people = query.options(*_person_options(), *archive_options(db)).populate_existing().all()
+    people = query.options(*_person_options(), *review_options(db)).populate_existing().all()
     grouped = {}
     for person in people:
         prepare_person(db, person)
@@ -350,18 +423,22 @@ def groups(db, keyword="", status="pending", skip=0, limit=20, contacts_visible=
     by_key = {}
     for operation in operations:
         by_key.setdefault(operation.name_key, []).append(operation)
+    usage = contact_usage_index(db) if (contacts_visible and agent_report.get("format_version") == 2
+        or any(op.decisions.get("decision_evidence_versions") is not None for op in operations)) else None
     items = []
     counts = {"pending": 0, "different": 0, "deferred": 0}
     for key, members in grouped.items():
         if len(members) < 2:
             continue
-        decisions = _pair_decisions(members, by_key.get(key, []))
+        decisions = _pair_decisions(members, by_key.get(key, []), usage)
         pairs = [tuple(sorted((str(a.id), str(b.id)))) for a, b in itertools.combinations(members, 2)]
         state = "pending" if any(pair not in decisions for pair in pairs) else "deferred" if "defer" in decisions.values() else "different"
         if keyword.strip() and not matches_keywords(' '.join(str(value or '')
                                              for person in members for value in (person.full_name, person.resource_code)), keyword):
             continue
-        agent = group_review(agent_report, key, members, conclusions=decisions) if contacts_visible else None
+        evidence = [pair_evidence(a, b, usage) for a, b in itertools.combinations(members, 2)] if contacts_visible else []
+        agent = group_review(agent_report, key, members, conclusions=decisions, evidence=evidence) if contacts_visible else None
+        identities = identity_subgroups([p.id for p in members], evidence, agent, decisions) if agent else None
         if agent:
             for bucket in agent["buckets"]:
                 agent_counts[bucket] += 1
@@ -370,29 +447,38 @@ def groups(db, keyword="", status="pending", skip=0, limit=20, contacts_visible=
         counts[state] += 1
         if status != "all" and state != status:
             continue
+        if identities:
+            for count_key in identity_counts:
+                identity_counts[count_key] += identities["counts"][count_key]
         # 普通用户不返回联系方式匹配类型或相关排序，避免侧信道泄露。
-        contact_match = contacts_visible and any(any(contact_identifiers(a)[kind] & contact_identifiers(b)[kind]
-                                                    for kind in contact_identifiers(a)) for a, b in itertools.combinations(members, 2))
+        contact_match = contacts_visible and any(pair["contact_matches"] for pair in evidence)
         comparison_values = [_business_values(person) for person in members]
         complement = any(field_state([value.get(field) for value in comparison_values]) == "complement"
                          for field in comparison_values[0]
                          if contacts_visible or field in PUBLIC_COMPARE_FIELDS)
-        items.append({"key": key, "name": members[0].full_name, "count": len(members), "status": state,
+        items.append({"key": key if contacts_visible else public_group_key(key),
+                      "name": members[0].full_name if contacts_visible else mask_embedded_contacts(members[0].full_name), "count": len(members), "status": state,
                       **({"agent_review": {"state": agent["state"], "buckets": agent["buckets"]}} if agent else {}),
+                      **({"identity_counts": identities["counts"]} if identities else {}),
                       "summary": "存在联系方式匹配，需结合身份核对" if contact_match else "资料存在互补，请逐条核对" if complement else "仅姓名相同，请核对身份",
                       "priority": 0 if contact_match else 1 if complement else 2})
     items.sort(key=lambda item: (item["priority"], -item["count"], item["key"]))
     return {"items": items[skip:skip + limit], "total": len(items), "counts": counts, "ready": ready,
-            **({"name_merge_available": ready, "original_data_available": ready, "agent_summary": {"counts": agent_counts, "created_at": agent_report.get("created_at"),
-                                   "reviewer": agent_report.get("reviewer")}} if contacts_visible else {})}
+            **({"identity_counts": identity_counts, "name_merge_available": ready, "original_data_available": ready, "agent_summary": {"counts": agent_counts, "created_at": agent_report.get("created_at"),
+                                   "reviewer": agent_report.get("reviewer"), "source_complete": agent_report.get("source_complete", True),
+                                   "group_count": agent_report.get("group_count"), "pair_count": agent_report.get("pair_count"),
+                                   "reviewed_pair_count": agent_report.get("reviewed_pair_count")}} if contacts_visible else {})}
 
 
 def group_detail(db, key, contacts_visible=False):
     from resource_service import _person_options, get_talent_project_situations
     query = active_query(db, db.query(ResourcePerson))
+    if re.fullmatch(r"~[a-f0-9]{64}", key):
+        keys = {name_key(row[0]) for row in active_query(db, db.query(ResourcePerson.full_name)).distinct().all()}
+        key = next((value for value in keys if public_group_key(value) == key), "")
     if review_ready(db) and db.get_bind().dialect.name == "postgresql":
         query = query.filter(func.resource_person_duplicate_name_key(ResourcePerson.full_name) == key)
-    people = query.options(*_person_options(), *archive_options(db)).populate_existing().all()
+    people = query.options(*_person_options(), *review_options(db)).populate_existing().all()
     members = [prepare_person(db, person) for person in people if name_key(person.full_name) == key]
     if not members:
         raise HTTPException(404, "同名组已变化或不存在")
@@ -432,19 +518,29 @@ def group_detail(db, key, contacts_visible=False):
         if not contacts_visible:
             # 原始备注/自由文本可能夹带联系方式；核重页面只返回白名单矩阵。
             row = {field: row.get(field) for field in ("id", "resource_code", "full_name", "gender", "nationality", "created_at")}
+            for field in ("full_name", "gender", "nationality"):
+                row[field] = redact(row[field])
         row["project_situation"] = situations.get(person.id, {"total": 0})
         serialized.append(plain(row))
-    decisions = _pair_decisions(members, _decision_query(db).filter_by(name_key=key).order_by(TalentDuplicateOperation.created_at).all()) if review_ready(db) else {}
+    operations = _decision_query(db).filter_by(name_key=key).order_by(TalentDuplicateOperation.created_at, TalentDuplicateOperation.id).all() if review_ready(db) else []
+    usage = contact_usage_index(db) if contacts_visible or any(op.decisions.get("decision_evidence_versions") is not None for op in operations) else None
+    decisions = _pair_decisions(members, operations, usage)
     pairs = []
+    if usage and contacts_visible:
+        inherited = [usage.sources.get(str(person.id), []) for person in members]
+        if any(inherited):
+            rows.append({"key": "archived_contact_sources", "label": "归档来源联系信息", "state": field_state(inherited), "values": inherited})
     for a, b in itertools.combinations(members, 2):
-        evidence = pair_evidence(a, b) if contacts_visible else {"person_ids": [str(a.id), str(b.id)]}
+        evidence = pair_evidence(a, b, usage) if contacts_visible else {"person_ids": [str(a.id), str(b.id)]}
         evidence["decision"] = decisions.get(tuple(sorted((str(a.id), str(b.id)))))
         pairs.append(evidence)
     agent = {}
     if contacts_visible:
-        from talent_agent_review_service import load_report, group_review
-        agent["agent_review"] = group_review(load_report(), key, members, conclusions=decisions)
-    return {"key": key, "members": serialized, "fields": rows, "pairs": pairs, **agent, "recommended_target_id": str(members[0].id),
+        from talent_agent_review_service import load_report, group_review, identity_subgroups
+        agent["agent_review"] = group_review(load_report(), key, members, conclusions=decisions, evidence=pairs)
+        agent["identity_review"] = identity_subgroups([p.id for p in members], pairs, agent["agent_review"], decisions)
+        agent["identity_review"]["member_versions"] = {str(p.id): comparison_fingerprint(p) for p in members}
+    return {"key": key if contacts_visible else public_group_key(key), "members": serialized, "fields": rows, "pairs": pairs, **agent, "recommended_target_id": str(members[0].id),
             "ready": review_ready(db), "can_commit": contacts_visible and review_ready(db)}
 
 
@@ -557,6 +653,44 @@ def _validated_payload(values, target):
     return payload
 
 
+def review_request_values(request, exclude=None):
+    values = request.model_dump(exclude=exclude or set(), mode="json")
+    # 未使用的新参数不改变旧客户端的幂等散列。
+    for key in ("decision_pairs", "agent_report_id"):
+        if values.get(key) is None:
+            values.pop(key, None)
+    return values
+
+
+def selected_review_context(db, request, people, usage=None):
+    if not request.agent_report_id:
+        return {"mode": "manual", "agent_report": None}
+    from talent_agent_review_service import load_report, group_review
+    report = load_report()
+    if report.get("report_id") != request.agent_report_id:
+        raise HTTPException(409, "初筛报告已更新，请重新打开姓名组")
+    members = people
+    if report.get("format_version") == 1:
+        # 兼容旧报告时仍核验整个姓名组。
+        from resource_service import _person_options
+        key = name_key(people[0].full_name)
+        query = active_query(db, db.query(ResourcePerson))
+        if db.get_bind().dialect.name == "postgresql":
+            query = query.filter(func.resource_person_duplicate_name_key(ResourcePerson.full_name) == key)
+        members = [p for p in query.options(*_person_options(), *review_options(db)).all() if name_key(p.full_name) == key]
+    usage = usage if usage is not None else contact_usage_index(db)
+    evidence = [pair_evidence(a, b, usage) for a, b in itertools.combinations(members, 2)]
+    review = group_review(report, name_key(people[0].full_name), members, evidence=evidence)
+    selected = {str(p.id) for p in people}
+    pairs = [pair for pair in review["pairs"] if set(pair["person_ids"]) <= selected]
+    expected = {tuple(sorted((str(a.id), str(b.id)))) for a, b in itertools.combinations(people, 2)}
+    if {tuple(sorted(pair["person_ids"])) for pair in pairs} != expected:
+        raise HTTPException(409, "选中档案的初筛证据已变化或不完整，请重新核对")
+    return {"mode": "agent_assisted_user_confirmed", "agent_report": {
+        "report_id": report["report_id"], "created_at": report.get("created_at"),
+        "reviewer": report.get("reviewer"), "pairs": pairs}, "selected_person_ids": sorted(selected)}
+
+
 def preview(db, request):
     require_ready(db)
     loaded = _load_people(db, request.person_ids)
@@ -566,6 +700,13 @@ def preview(db, request):
     keys = {name_key(person.full_name) for person in people}
     if len(keys) != 1:
         raise HTTPException(409, "姓名分组已变化，请重新选择同名档案")
+    usage = contact_usage_index(db) if request.agent_report_id or request.action in {"different", "defer"} else None
+    review_context = selected_review_context(db, request, people, usage)
+    decision_evidence_versions = None
+    if request.action in {"different", "defer"}:
+        by_id = {str(person.id): person for person in people}
+        pairs = request.decision_pairs if request.decision_pairs is not None else itertools.combinations(request.person_ids, 2)
+        decision_evidence_versions = {digest(sorted([str(a), str(b)])): pair_evidence(by_id[str(a)], by_id[str(b)], usage)["evidence_version"] for a, b in pairs}
     target = next((person for person in people if person.id == request.target_id), None)
     affected = set(request.person_ids)
     if target:
@@ -594,7 +735,10 @@ def preview(db, request):
         fields = [{"key": key, "label": field_label(key), "value": value,
                    "options": [{"person_id": str(target.id), "value": value}], "state": "same"}
                   for key, value in values.items() if value is not None and value != "" and value != []]
-    token = digest({"snapshot": snapshot, "request": request.model_dump(exclude={"preview_token", "idempotency_key"}, mode="json")})
+    token_data = {"snapshot": snapshot, "request": review_request_values(request, {"preview_token", "idempotency_key"})}
+    if decision_evidence_versions is not None:
+        token_data["decision_evidence_versions"] = decision_evidence_versions
+    token = digest(token_data)
     return {"preview_token": token, "name_key": next(iter(keys)), "action": request.action,
             "target_id": str(request.target_id) if target else None, "affected_ids": [str(i) for i in sorted(affected, key=str)],
             "archive_ids": [str(person.id) for person in people if target and person.id != target.id], "fields": fields,
@@ -604,7 +748,8 @@ def preview(db, request):
                                 for person in people if target and person.id != target.id] if request.action == "keep" else [],
             "reference_counts": {key: len(value) for key, value in snapshot["references"].items()},
             "history_policy": "原业务关联保留；保留档案汇总来源档案的项目与附件，来源附件只读。",
-            "before_snapshot": snapshot}
+            "decision_pairs": plain(request.decision_pairs) if request.decision_pairs is not None else None,
+            "review_context": review_context, "decision_evidence_versions": decision_evidence_versions, "before_snapshot": snapshot}
 
 
 def _apply_merge(db, target, payload, actor):
@@ -726,7 +871,7 @@ def commit(db, request, actor, audit_metadata=None):
     require_ready(db)
     from talent_wechat_accounts import lock_account_writes
     lock_account_writes(db)
-    request_hash = digest(request.model_dump(mode="json"))
+    request_hash = digest(review_request_values(request))
     previous = db.query(TalentDuplicateOperation).filter_by(idempotency_key=request.idempotency_key).first()
     if previous:
         if previous.request_hash != request_hash or previous.actor_id != actor.id:
@@ -766,6 +911,9 @@ def commit(db, request, actor, audit_metadata=None):
                                  action=request.action, name_key=current["name_key"], person_ids=[str(i) for i in request.person_ids],
                                  target_id=request.target_id, actor_id=actor.id, actor_name=actor.full_name or actor.username,
                                  decisions={"fields": request.decisions, "note": request.note, "fingerprints": fingerprints,
+                                            "decision_pairs": plain(request.decision_pairs) if request.decision_pairs is not None else None,
+                                            "decision_evidence_versions": current["decision_evidence_versions"],
+                                            "review_context": current["review_context"],
                                             "merge_audit": merge_audit(current, request.decisions) if request.action in {"merge", "keep"} else None,
                                             **(audit_metadata or {}), "retention": retention},
                                  before_snapshot=current["before_snapshot"], after_snapshot=after,
@@ -775,8 +923,8 @@ def commit(db, request, actor, audit_metadata=None):
     return operation_result(op)
 
 
-def operation_result(op):
-    return {"id": str(op.id), "action": op.action, "name_key": op.name_key, "person_ids": op.person_ids,
+def operation_result(op, contacts_visible=True):
+    return {"id": str(op.id), "action": op.action, "name_key": op.name_key if contacts_visible else mask_embedded_contacts(op.name_key), "person_ids": op.person_ids,
             "target_id": str(op.target_id) if op.target_id else None, "actor_name": op.actor_name,
             "created_at": business_iso(op.created_at), "undone_at": business_iso(op.undone_at)}
 
@@ -790,12 +938,12 @@ def history(db, skip=0, limit=20, contacts_visible=False, person_id=None):
         TalentDuplicateOperation.created_at, TalentDuplicateOperation.undone_at,
     )).order_by(TalentDuplicateOperation.created_at.desc(), TalentDuplicateOperation.id.desc())
     if not person_id:
-        return {"items": [operation_result(op) for op in query.offset(skip).limit(limit).all()], "total": query.count()}
+        return {"items": [operation_result(op, contacts_visible) for op in query.offset(skip).limit(limit).all()], "total": query.count()}
     operations = query.all()
     if person_id:
         operations = [op for op in operations if str(person_id) in op.before_snapshot["people"]]
     # 历史只返回操作摘要；原始敏感快照不出接口。
-    return {"items": [operation_result(op) for op in operations[skip:skip + limit]], "total": len(operations)}
+    return {"items": [operation_result(op, contacts_visible) for op in operations[skip:skip + limit]], "total": len(operations)}
 
 
 def operation_detail(db, operation_id):
@@ -804,6 +952,7 @@ def operation_detail(db, operation_id):
     if op is None:
         raise HTTPException(404, "核重操作不存在")
     return {**operation_result(op), "note": op.decisions.get("note", ""),
+            "review_context": op.decisions.get("review_context"), "decision_pairs": op.decisions.get("decision_pairs"),
             "audit": op.decisions.get("merge_audit"), "field_decisions": op.decisions.get("fields", {}),
             "audit_available": bool(op.decisions.get("merge_audit"))}
 
@@ -817,14 +966,15 @@ def annotate_review_states(db, people):
     keys = {name_key(person.full_name) for person in people if person.name_duplicate}
     if not keys:
         return
-    query = active_query(db, db.query(ResourcePerson)).options(*_person_options(), *archive_options(db))
+    query = active_query(db, db.query(ResourcePerson)).options(*_person_options(), *review_options(db))
     if db.get_bind().dialect.name == "postgresql":
         query = query.filter(func.resource_person_duplicate_name_key(ResourcePerson.full_name).in_(keys))
     members = [p for p in query.all() if name_key(p.full_name) in keys]
     operations = _decision_query(db).filter(TalentDuplicateOperation.name_key.in_(keys)).order_by(TalentDuplicateOperation.created_at).all()
+    usage = contact_usage_index(db) if any(op.decisions.get("decision_evidence_versions") is not None for op in operations) else None
     for key in keys:
         grouped = [p for p in members if name_key(p.full_name) == key]
-        decisions = _pair_decisions(grouped, [op for op in operations if op.name_key == key])
+        decisions = _pair_decisions(grouped, [op for op in operations if op.name_key == key], usage)
         for person in grouped:
             others = [tuple(sorted((str(person.id), str(other.id)))) for other in grouped if other.id != person.id]
             person.__dict__["name_review_state"] = "different" if others and all(decisions.get(pair) == "different" for pair in others) else "pending"

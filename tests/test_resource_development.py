@@ -273,6 +273,19 @@ def test_historical_import_and_edit_never_enroll(db, context):
         RecordWrite(**(payload.model_dump() | {"historical_only": True}))
 
 
+def test_historical_raw_markers_do_not_break_record_list(db, context):
+    from resource_development_service import save_record, serialize_record
+    user, other, _ = context
+    markers = {"wechat": {"status": "已添加"}, "已加微信": {"raw": "原表自由文本"}}
+    row = save_record(db, user, make_payload(context), historical_markers=markers)
+    own = serialize_record(db, user, row)
+    assert own["progress"]["wechat"]["status"] == "已添加"
+    assert "已加微信" not in own["progress"]
+    assert own["historical_markers"]["已加微信"] == {"raw": "原表自由文本"}
+    masked = serialize_record(db, other, row)
+    assert masked["historical_markers"] == {}
+
+
 def action(user, status="已发请求", channel="wechat"):
     return dict(id=uuid4(), channel=channel, status=status, action_date=date(2026, 9, 24), operator_id=user.id)
 

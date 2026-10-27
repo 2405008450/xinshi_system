@@ -383,8 +383,10 @@ def current_contact_status(channel):
     return func.coalesce(Record.contact_state[channel]["status"].as_string(), getattr(Record, f"{channel}_status"))
 
 
-def serialize_record(db, user, row, detail=False):
-    allowed = owns(db, user, row.owner_id)
+def serialize_record(db, user, row, detail=False, *, delegate=None, admin=None, name_lookup=None, option_lookup=None):
+    allowed = user.id == row.owner_id or (can_delegate(db, user) if delegate is None else delegate)
+    name_lookup = name_lookup or (lambda user_id: user_name(db, user_id))
+    option_lookup = option_lookup or (lambda option_id, kind: option(db, option_id, kind))
     result = snapshot(row)
     for key in ["wechat_status", "enterprise_status"]:
         result[key] = progress_status(result[key], key.removesuffix("_status"))
@@ -397,18 +399,21 @@ def serialize_record(db, user, row, detail=False):
     for key in ["remarks", "follow_up", "duplicate_note"]:
         if not allowed and result[key]:
             result[key] = "受限内容"
-    result.update(can_edit=allowed, can_delete=can_delete_record(db, user, row.owner_id), contact_restricted=not allowed,
-                  owner_name=user_name(db, row.owner_id), platform_name=option(db, row.platform_id, "platform").name,
-                  account_name=option(db, row.account_id, "account").name if row.account_id else "")
+    can_delete = user.id == row.owner_id or (is_admin(db, user) if admin is None else admin)
+    result.update(can_edit=allowed, can_delete=can_delete, contact_restricted=not allowed,
+                  owner_name=name_lookup(row.owner_id), platform_name=option_lookup(row.platform_id, "platform").name,
+                  account_name=option_lookup(row.account_id, "account").name if row.account_id else "")
     langs = db.query(InterpretationLanguage).join(Language, Language.language_id == InterpretationLanguage.id).filter(Language.record_id == row.id).all()
     result["language_ids"] = [str(lang.id) for lang in langs]
     result["language_names"] = "、".join(lang.label for lang in langs)
     person = db.get(ResourcePerson, row.person_id) if row.person_id else None
     result["resource_code"] = person.resource_code if person else None
     actions = db.query(Action).filter_by(record_id=row.id).order_by(Action.created_at, Action.id).all()
+    # 历史导入会在此字段保留原表的自由文本标记（仅有 raw）；它们不是渠道进展。
     result["progress"] = {key: {"status": progress_status(value["status"], key) if allowed or value["status"] in STANDARD_PROGRESS_STATUSES else "自定义状态", "action_date": value.get("action_date"),
                                "operator_name": value.get("operator_name") or "原表未填写", "request_number": 0}
-                          for key, value in (row.historical_markers or {}).items()}
+                          for key, value in (row.historical_markers or {}).items()
+                          if isinstance(value, dict) and isinstance(value.get("status"), str) and value["status"]}
     # 只读人员也能追溯标准群状态；不暴露历史导入原文中的联系方式。
     result["historical_progress"] = {key: dict(value) for key, value in result["progress"].items() if key in GROUP_STATUSES}
     # 来源原文可能含联系方式，未授权人员只看标准进展。
@@ -418,7 +423,7 @@ def serialize_record(db, user, row, detail=False):
     for action in actions:
         result["progress"][action.channel] = {
             "status": progress_status(action.status, action.channel) if allowed or action.status in STANDARD_PROGRESS_STATUSES else "自定义状态",
-            "action_date": action.action_date.isoformat(), "operator_name": user_name(db, action.operator_id),
+            "action_date": action.action_date.isoformat(), "operator_name": name_lookup(action.operator_id),
         }
     for channel, value in (row.contact_state or {}).items():
         if channel in {"wechat", "enterprise"}:
@@ -429,28 +434,28 @@ def serialize_record(db, user, row, detail=False):
     result.pop("contact_state", None)
     result["friend_accounts_text"] = "、".join(row.friend_accounts or [])
     friend_latest = next((a for a in reversed(actions) if a.channel in {'wechat', 'enterprise'}), None)
-    result['add_friend_follow_up'] = (f'{progress_status(friend_latest.status, friend_latest.channel)} · {friend_latest.action_date:%Y-%m-%d} · {user_name(db, friend_latest.operator_id)} · {labels[friend_latest.channel]}' if friend_latest else '')
+    result['add_friend_follow_up'] = (f'{progress_status(friend_latest.status, friend_latest.channel)} · {friend_latest.action_date:%Y-%m-%d} · {name_lookup(friend_latest.operator_id)} · {labels[friend_latest.channel]}' if friend_latest else '')
     if friend_latest and not allowed and progress_status(friend_latest.status, friend_latest.channel) not in FRIEND_STATUSES:
-        result['add_friend_follow_up'] = f'自定义状态 · {friend_latest.action_date:%Y-%m-%d} · {user_name(db, friend_latest.operator_id)} · {labels[friend_latest.channel]}'
+        result['add_friend_follow_up'] = f'自定义状态 · {friend_latest.action_date:%Y-%m-%d} · {name_lookup(friend_latest.operator_id)} · {labels[friend_latest.channel]}'
     follow_ups = db.query(FollowUp).filter_by(record_id=row.id).order_by(FollowUp.created_at.desc(), FollowUp.id.desc())
     latest = follow_ups.first()
     def follow_up_result(entry):
         return {"id": str(entry.id), "content": entry.content if allowed else "受限内容",
-                "operator_name": user_name(db, entry.operator_id),
+                "operator_name": name_lookup(entry.operator_id),
                 "created_at": entry.created_at.replace(tzinfo=timezone(timedelta(hours=8))).isoformat()}
     result["latest_follow_up"] = (latest.content if allowed else "受限内容") if latest else result["follow_up"]
     result["latest_follow_up_entry"] = follow_up_result(latest) if latest else None
     result["follow_up_count"] = follow_ups.count()
     if detail:
         result["follow_ups"] = [follow_up_result(entry) for entry in follow_ups.all()]
-        result["actions"] = [{**snapshot(a), "status": progress_status(a.status, a.channel), "operator_name": user_name(db, a.operator_id),
-                              "created_by_name": user_name(db, a.created_by), "updated_by_name": user_name(db, a.updated_by)}
+        result["actions"] = [{**snapshot(a), "status": progress_status(a.status, a.channel), "operator_name": name_lookup(a.operator_id),
+                              "created_by_name": name_lookup(a.created_by), "updated_by_name": name_lookup(a.updated_by)}
                              for a in actions]
         if not allowed:
             for action in result["actions"]:
                 if action["status"] not in STANDARD_PROGRESS_STATUSES:
                     action["status"] = "自定义状态"
-        result["audit"] = [{**snapshot(a), "actor_name": user_name(db, a.actor_id)}
+        result["audit"] = [{**snapshot(a), "actor_name": name_lookup(a.actor_id)}
                            for a in db.query(Audit).filter(Audit.entity_id.in_([row.id, *[UUID(a["id"]) for a in result["actions"]], *[UUID(a["id"]) for a in result["follow_ups"]]])).order_by(Audit.created_at)] if allowed else []
     return result
 
@@ -524,12 +529,12 @@ def filtered_records(db, user, start, end, keyword=None, owner_id=None, platform
     return q
 
 
-def work_result(db, user, work_date, owner_id):
+def work_result(db, user, work_date, owner_id, *, delegate=None, name_lookup=None):
     row = db.query(Work).filter_by(work_date=work_date, owner_id=owner_id).first()
-    allowed = owns(db, user, owner_id)
+    allowed = user.id == owner_id or (can_delegate(db, user) if delegate is None else delegate)
     result = snapshot(row) if row else dict(work_date=work_date.isoformat(), owner_id=str(owner_id), periods=[], deduction=0,
                                            completed=None, explanation="", duration_minutes=0, revision=0)
-    result.update(owner_name=user_name(db, owner_id), can_edit=allowed, screenshots=[])
+    result.update(owner_name=name_lookup(owner_id) if name_lookup else user_name(db, owner_id), can_edit=allowed, screenshots=[])
     if row and allowed:
         result["screenshots"] = [{"id": str(s.id), "name": s.name} for s in db.query(Screenshot.id, Screenshot.name).filter_by(work_id=row.id)]
     if not allowed:

@@ -1251,3 +1251,157 @@ def test_catalog_labels_contact_lookup_and_review_tag(db):
     process(db, [a.id, b.id], a.id)
     assert find_duplicate_talents(db, email="archive@example.org")[0]["id"] == str(a.id)
     assert not find_duplicate_talents(db, email="archive@example.org", exclude_id=a.id)
+
+
+def test_explicit_cross_subgroup_decisions_do_not_mark_internal_pairs(db):
+    from pydantic import ValidationError
+    from talent_duplicate_service import _pair_decisions, _decision_query
+    a,b,c,d,e = [person(db,'Anna') for _ in range(5)]
+    cross = [(x.id,y.id) for x in (a,b) for y in (c,d)]
+    request = DuplicateReviewRequest(action='different',person_ids=[a.id,b.id,c.id,d.id],decision_pairs=cross)
+    proposed = preview(db,request)
+    assert len(proposed['decision_pairs']) == 4 and not proposed['archive_ids']
+    payload = DuplicateReviewCommit(**request.model_dump(),preview_token=proposed['preview_token'],idempotency_key=uuid4().hex)
+    result = commit(db,payload,ACTOR)
+    assert commit(db,payload,ACTOR)['id'] == result['id']
+    detail = group_detail(db,'anna',contacts_visible=True)
+    decided = [pair for pair in detail['pairs'] if pair['decision'] == 'different']
+    assert len(decided) == 4
+    assert all(not set(pair['person_ids']) <= {str(a.id),str(b.id)} for pair in decided)
+    assert detail['identity_review']['counts']['unresolved_pairs'] == 6
+    assert groups(db,status='pending')['total'] == 1
+    with pytest.raises(ValidationError):
+        DuplicateReviewRequest(action='different',person_ids=[a.id,b.id,c.id],decision_pairs=[(a.id,b.id)])
+    with pytest.raises(ValidationError):
+        DuplicateReviewRequest(action='different',person_ids=[a.id,b.id],decision_pairs=[(a.id,b.id),(b.id,a.id)])
+    undo(db,UUID(result['id']),ACTOR)
+    assert not _pair_decisions([a,b,c,d,e],_decision_query(db).all())
+
+
+def test_v2_subgroup_preview_retention_and_partial_merge_lifecycle(db,monkeypatch):
+    import itertools
+    import talent_agent_review_service as agent
+    from talent_duplicate_service import comparison_fingerprint, pair_evidence, contact_usage_index, operation_detail
+    a,b = [person(db,'李明',wechat='synthetic_pair_ab') for _ in range(2)]
+    c,d = [person(db,'李明',wechat='synthetic_pair_cd') for _ in range(2)]
+    e = person(db,'李明')
+    members = [a,b,c,d,e]
+    usage = contact_usage_index(db)
+    pairs = []
+    for left,right in itertools.combinations(members,2):
+        facts = pair_evidence(left,right,usage)
+        same = {left.id,right.id} in ({a.id,b.id},{c.id,d.id})
+        pairs.append(dict(person_ids=facts['person_ids'],classification='same' if same else 'uncertain',
+            confidence='high' if same else 'low',reason='合成个人账号匹配' if same else '没有充分身份依据',
+            evidence_version=facts['evidence_version']))
+    report = dict(format_version=2,report_id='c'*64,created_at='2026-10-27T10:00:00+08:00',reviewer='当前 Agent',
+        groups={'李明':dict(fingerprints={str(p.id):comparison_fingerprint(p) for p in members},pairs=pairs)})
+    monkeypatch.setattr(agent,'load_report',lambda:report)
+    detail = group_detail(db,'李明',contacts_visible=True)
+    assert detail['identity_review']['counts'] == dict(recommended_subgroups=2,standalone_records=1,unresolved_pairs=10)
+    assert groups(db,contacts_visible=True)['identity_counts']['recommended_subgroups'] == 2
+    assert 'identity_review' not in group_detail(db,'李明',contacts_visible=False)
+    request = DuplicateReviewRequest(action='keep',person_ids=[a.id,b.id],target_id=a.id,agent_report_id=report['report_id'])
+    proposed = preview(db,request)
+    assert proposed['review_context']['agent_report']['pairs'][0]['reason'] == '合成个人账号匹配'
+    payload = DuplicateReviewCommit(**request.model_dump(),preview_token=proposed['preview_token'],idempotency_key=uuid4().hex)
+    result = commit(db,payload,ACTOR)
+    assert operation_detail(db,UUID(result['id']))['review_context']['mode'] == 'agent_assisted_user_confirmed'
+    operation = db.get(TalentDuplicateOperation,UUID(result['id']))
+    assert operation.decisions['retention']['before_sha256'] == digest(operation.before_snapshot)
+    remaining = group_detail(db,'李明',contacts_visible=True)
+    assert [set(group['person_ids']) for group in remaining['identity_review']['subgroups']] == [{str(c.id),str(d.id)}]
+    assert get_talent(db,e.id).archived_into_id is None
+    fresh = DuplicateReviewRequest(action='keep',person_ids=[c.id,d.id],target_id=c.id,agent_report_id=report['report_id'])
+    pending = preview(db,fresh)
+    c.gender = '女'
+    db.commit()
+    stale = DuplicateReviewCommit(**fresh.model_dump(),preview_token=pending['preview_token'],idempotency_key=uuid4().hex)
+    with pytest.raises(HTTPException) as error:
+        commit(db,stale,ACTOR)
+    assert error.value.status_code == 409
+    db.rollback()
+    assert get_talent(db,d.id).archived_into_id is None
+
+
+def test_readonly_scan_page_releases_connection_and_excludes_confirmed_pairs(db,monkeypatch):
+    from tools.export_talent_agent_review import read_page,serialize_groups,ScanPaused
+    a,b,c = [person(db,'Anna',primary_email='synthetic-shared@example.org') for _ in range(3)]
+    process(db,[a.id,b.id],action='different')
+    db.rollback()
+    keys,people,decisions,usage = read_page(db.get_bind(),'',5)
+    assert db.get_bind().pool.checkedout() == 0
+    output = serialize_groups(keys,people,decisions,usage)
+    assert len(output) == 1 and len(output[0]['pairs']) == 2
+    assert all(pair['shared_contact_warning'] for pair in output[0]['pairs'])
+    assert 'synthetic-shared@example.org' not in str(output)
+    import tools.export_talent_agent_review as scanner
+    def busy(_):
+        raise ScanPaused('合成高负载')
+    monkeypatch.setattr(scanner,'assert_scan_capacity',busy)
+    with pytest.raises(ScanPaused):
+        read_page(db.get_bind(),'',5)
+    assert db.get_bind().pool.checkedout() == 0
+
+
+def test_inherited_personal_contacts_are_evidence_and_invalidate_distinction_when_shared_context_changes(db):
+    from talent_duplicate_service import contact_usage_index,pair_evidence
+    a = person(db,'Anna')
+    b = person(db,'Anna',wechat='synthetic_shared_wechat')
+    source = person(db,'旧来源',wechat='synthetic_shared_wechat')
+    source.archived_into_id = a.id
+    source.archived_at = business_now()
+    db.commit()
+    assert pair_evidence(a,b,contact_usage_index(db))['contact_matches'] == ['wechat']
+    detail = group_detail(db,'anna',contacts_visible=True)
+    assert any(row['key'] == 'archived_contact_sources' for row in detail['fields'])
+    assert not any(row['key'] == 'archived_contact_sources' for row in group_detail(db,'anna',contacts_visible=False)['fields'])
+    process(db,[a.id,b.id],action='different')
+    assert groups(db,status='different')['total'] == 1
+    # 原归档资料仍保持只读；新增第三个使用相同账号的人会改变共用证据。
+    person(db,'其他姓名',wechat='synthetic_shared_wechat')
+    assert groups(db,status='pending')['total'] == 1
+    assert group_detail(db,'anna',contacts_visible=False)['pairs'][0]['decision'] is None
+
+
+def test_birth_day_conflict_and_identity_placeholders(db):
+    from datetime import date
+    from talent_duplicate_service import pair_evidence
+    a = person(db,'李明',gender='未知',birth_date=date(1990,1,1))
+    b = person(db,'李明',gender='男',birth_date=date(1990,1,2))
+    facts = pair_evidence(a,b)
+    assert facts['identity_conflicts'] == ['出生日期不同']
+
+
+def test_public_review_masks_contacts_embedded_in_historical_names_and_route_keys(db):
+    name = 'Anna synthetic-name@example.org'
+    a,b = [person(db,name) for _ in range(2)]
+    listed = groups(db,contacts_visible=False)
+    assert 'synthetic-name@example.org' not in str(listed)
+    key = listed['items'][0]['key']
+    assert key.startswith('~')
+    detail = group_detail(db,key,contacts_visible=False)
+    assert 'synthetic-name@example.org' not in str(detail)
+    assert {member['resource_code'] for member in detail['members']} == {a.resource_code,b.resource_code}
+    assert all(member['created_at'].startswith('20') for member in detail['members'])
+    process(db,[a.id,b.id],action='different')
+    from talent_duplicate_service import history
+    assert 'synthetic-name@example.org' not in str(history(db,contacts_visible=False))
+
+
+def test_review_eager_loads_deferred_language_accent_before_releasing_session(db):
+    from interpretation_models import InterpretationLanguage
+    from sqlalchemy import inspect
+    from talent_duplicate_service import _load_people,_business_values
+    a=person(db,'李明')
+    language=InterpretationLanguage(id=uuid4(),label='合成测试语种')
+    db.add(language)
+    db.flush()
+    db.add_all([ResourceLanguageSkill(id=uuid4(),person_id=a.id,language_id=language.id,role='foreign',priority=i,accent='合成口音') for i in range(6)])
+    db.commit()
+    with Session(db.get_bind()) as reader:
+        loaded=_load_people(reader,[a.id])[a.id]
+        assert all('accent' not in inspect(skill).unloaded for skill in loaded.language_skills)
+        reader.expunge_all()
+        reader.rollback()
+    assert [row['accent'] for row in _business_values(loaded)['language_skills']] == ['合成口音']*6

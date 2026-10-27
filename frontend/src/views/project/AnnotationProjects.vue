@@ -339,7 +339,7 @@
             >
               <span class="progress-child-dot" />
               <div class="progress-child-content">
-                <div class="progress-child-note">{{ child.changeNote }}</div>
+                <div class="progress-child-note"><ScreenshotText :text="child.changeNote" /></div>
                 <div class="progress-child-meta">
                   <span>{{ formatDateTime(child.effectiveOn) }}</span>
                   <span>{{ child.changedByName || '系统' }}</span>
@@ -665,6 +665,7 @@ import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue
 import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
+import ScreenshotText from '@/components/common/ScreenshotText.vue'
 import GeneratedProjectNameInput from '@/components/common/GeneratedProjectNameInput.vue'
 import AnnotationMaterialManager from '@/components/annotation/AnnotationMaterialManager.vue'
 import AnnotationMaterialPopover from '@/components/annotation/AnnotationMaterialPopover.vue'

@@ -5,7 +5,7 @@
     </el-alert>
     <el-timeline class="customer-progress-timeline">
       <el-timeline-item v-for="row in rows" :key="`customer:${row.id}`" :data-progress-record-id="row.id" data-progress-track="customer" :class="{ 'is-progress-search-target': String(row.id) === String(targetRecordId) }">
-        <div class="progress-child-note">{{ row.changeNote }}</div>
+        <div class="progress-child-note"><ScreenshotText :text="row.changeNote" /></div>
         <div class="progress-child-meta">
           <span>{{ formatBusinessDateTimeMinute(row.effectiveOn) }}</span>
           <span>填写人：{{ row.changedByName || '系统' }}</span>
@@ -24,6 +24,7 @@
 
 <script setup>
 import { formatBusinessDateTimeMinute } from '@/utils/dateTime'
+import ScreenshotText from '@/components/common/ScreenshotText.vue'
 defineProps({ rows: { type: Array, default: () => [] }, loading: Boolean, loadError: String, canWrite: Boolean, busy: Boolean, targetRecordId: String })
 defineEmits(['retry', 'edit', 'delete'])
 </script>

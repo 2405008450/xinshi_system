@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import socket
+import shutil
 import subprocess
 import time
 from urllib.parse import unquote, urlparse, parse_qs
@@ -32,7 +33,16 @@ def run():
               dict(key="residence_address", label="现居地", state="complement", values=[None, "北京"]),
               dict(key="primary_email", label="邮箱", state="same", values=["synthetic@example.org"] * 2)]
     group = dict(key="王测试", name="王测试", count=2, status="pending", summary="存在联系方式匹配，需结合身份核对")
-    requests, commits, errors, deferred = [], [], [], []
+    requests, commits, errors, deferred, previews = [], [], [], [], []
+    identity_mode = [False]
+    identities = [str(uuid4()) for _ in range(5)]
+    identity_members = [dict(member, id=id, resource_code=f'ID{i+1:03}',full_name='Anna',gender=None) for i,id in enumerate(identities) for member in [members[0]]]
+    identity_pairs = [dict(person_ids=[left,right],contact_matches=[],identity_conflicts=[],complement_count=1,decision=None)
+                      for i,left in enumerate(identities) for right in identities[i+1:]]
+    identity_suggestions = [dict(person_ids=pair['person_ids'],classification='same' if set(pair['person_ids']) in (set(identities[:2]),set(identities[2:4])) else 'uncertain',
+        confidence='high' if set(pair['person_ids']) in (set(identities[:2]),set(identities[2:4])) else 'low',reason='合成的独立身份线索',cautions=[]) for pair in identity_pairs]
+    identity_review = dict(subgroups=[dict(id=f'subgroup-{i}',person_ids=ids,basis=[identity_suggestions[0 if i == 0 else 7]],report_id='d'*64) for i,ids in enumerate([identities[:2],identities[2:4]])],
+        standalone_ids=identities[4:],ambiguous_pairs=[],member_versions={id:'v1' for id in identities},counts=dict(recommended_subgroups=2,standalone_records=1,unresolved_pairs=10))
     restricted, readiness, error_next, name_availability = [False], [True], [False], [True]
     operation = dict(id=str(uuid4()), action="merge", name_key="王测试", person_ids=[a, b], target_id=a,
                      actor_name="验收人员", created_at="2026-10-09T20:00:00+08:00", undone_at=None)
@@ -56,6 +66,20 @@ def run():
         query = parse_qs(urlparse(req.url).query)
         requests.append((req.method, path, query))
         result = {}
+        if identity_mode[0] and path == '/talents/duplicate-review/groups':
+            route.fulfill(status=200,json=dict(items=[dict(group,key='anna',name='Anna',count=5,identity_counts=identity_review['counts'])],total=1,counts=dict(pending=1),identity_counts=identity_review['counts'],ready=True))
+            return
+        if identity_mode[0] and path.startswith('/talents/duplicate-review/groups/'):
+            route.fulfill(status=200,json=dict(key='anna',members=identity_members,fields=[dict(key='remarks',label='备注',state='complement',values=['原资料A',None,'原资料C',None,None])],pairs=identity_pairs,recommended_target_id=identities[0],ready=True,
+                agent_review=dict(state='reviewed',report_id='d'*64,created_at='2026-10-27T12:00:00+08:00',reviewer='当前 Agent',pairs=identity_suggestions,buckets=['high_same','uncertain']),identity_review=identity_review))
+            return
+        if identity_mode[0] and path == '/talents/duplicate-review/preview':
+            payload = req.post_data_json
+            previews.append(payload)
+            route.fulfill(status=200,json=dict(preview_token='e'*64,archive_ids=[id for id in payload['person_ids'] if id != payload['target_id']] if payload['target_id'] else [],
+                conflicts=[],fields=[dict(label=f'合成资料{i}',value='保留来源和原文 '*10,options=[]) for i in range(30)] if payload['action'] == 'merge' else [],
+                omitted_fields=[],history_policy='保留原始资料、附件及业务关联。',decision_pairs=payload.get('decision_pairs'),review_context=dict(agent_report=dict(report_id='d'*64)) if payload.get('agent_report_id') else dict(mode='manual')))
+            return
         if path == "/auth/session":
             result = dict(user_id=user_id, username="qa", full_name="验收人员", roles=["普通用户"] if restricted[0] else ["admin"], permissions=["talents:read"])
         elif path == "/talents/page":
@@ -120,7 +144,10 @@ def run():
         route.fulfill(status=200, json=result)
 
     log = (output / "preview.log").open("w", encoding="utf-8")
-    process = subprocess.Popen(["node", "node_modules/vite/bin/vite.js", "preview", "--host", "127.0.0.1", "--port", str(port), "--strictPort"], cwd=ROOT / "frontend", stdout=log, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW)
+    # 验收固定构建副本，避免其他任务重建 dist 时动态模块文件被替换。
+    snapshot = output / ('dist-' + uuid4().hex)
+    shutil.copytree(ROOT / 'frontend/dist',snapshot)
+    process = subprocess.Popen(["node", "node_modules/vite/bin/vite.js", "preview", "--outDir", str(snapshot), "--host", "127.0.0.1", "--port", str(port), "--strictPort"], cwd=ROOT / "frontend", stdout=log, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW)
     try:
         for _ in range(60):
             if process.poll() is not None:
@@ -142,7 +169,14 @@ def run():
             page.goto(BASE + "/resource-management/talents")
             expect(page.get_by_role("button", name="同名核重", exact=True)).to_be_visible()
             page.locator(".duplicate-review-link").first.click()
+            page.wait_for_timeout(150)
+            if len(context.pages) > 1:
+                page = context.pages[-1]
+                page.on('pageerror',lambda error:errors.append(str(error)))
             expect(page.get_by_role("heading", name="王测试 · 2 条档案")).to_be_visible()
+            expect(page.locator('.member-selection input:checked')).to_have_count(0)
+            page.locator('.member-selection .el-checkbox').nth(0).click()
+            page.locator('.member-selection .el-checkbox').nth(1).click()
             expect(page.locator(".comparison-matrix")).to_contain_text("现居地")
             expect(page.locator(".comparison-matrix")).not_to_contain_text("synthetic@example.org")
             page.locator(".review-query .el-form-item").filter(has_text="Agent 初筛").locator(".el-select").click()
@@ -168,7 +202,7 @@ def run():
             page.mouse.move(dragged_header["x"] + 15, dragged_header["y"] + dragged_header["height"] - 3); page.mouse.down(); page.mouse.move(2000, 1800, steps=10); page.mouse.up()
             bounded = dialog.bounding_box()
             assert bounded["x"] >= -1 and bounded["y"] >= -1 and bounded["x"] + bounded["width"] <= 1441 and bounded["y"] + bounded["height"] <= 901
-            dialog.locator(".el-dialog__headerbtn").click()
+            dialog.get_by_role("button", name="关闭窗口", exact=True).click()
             page.get_by_role("button", name="合并资料", exact=True).click()
             expect(dialog).to_be_visible()
             page.wait_for_timeout(350)
@@ -196,6 +230,8 @@ def run():
             history_dialog.get_by_role("button", name="关闭", exact=True).click()
             page.set_viewport_size(dict(width=700, height=700))
             expect(page.locator(".group-pane")).to_be_visible()
+            page.locator('.member-selection .el-checkbox').nth(0).click()
+            page.locator('.member-selection .el-checkbox').nth(1).click()
             page.get_by_role("button", name="合并资料", exact=True).click()
             expect(dialog).to_be_visible()
             dialog.locator(".el-dialog__body").evaluate("element => { element.scrollTop = element.scrollHeight }")
@@ -243,7 +279,7 @@ def run():
             origin = name_dialog.bounding_box(); handle = name_dialog.locator(".el-dialog__header").bounding_box()
             page.mouse.move(handle["x"]+15,handle["y"]+handle["height"]-3); page.mouse.down(); page.mouse.move(handle["x"]+70,handle["y"]+handle["height"]+40,steps=6); page.mouse.up()
             assert name_dialog.bounding_box()["x"] > origin["x"] + 20
-            name_dialog.locator(".el-dialog__headerbtn").click()
+            name_dialog.get_by_role("button", name="关闭窗口", exact=True).click()
             page.get_by_role("button", name="按姓名批量合并", exact=True).click()
             expect(name_dialog).to_be_visible(); page.wait_for_timeout(350)
             assert abs(name_dialog.bounding_box()["x"]-origin["x"]) < 2
@@ -288,6 +324,49 @@ def run():
             expect(original_panel).to_contain_text("来源原备注")
             audit_dialog.get_by_role("button",name="关闭",exact=True).click()
             history_dialog.get_by_role("button",name="关闭",exact=True).click()
+            # 新子组流程只预览，不触发任何业务提交；所有接口仍被合成路由拦截。
+            identity_mode[0] = True
+            page.goto(BASE + '/resource-management/talent-duplicate-review?name=anna')
+            expect(page.locator('.subgroup-card')).to_have_count(2)
+            expect(page.locator('.identity-summary')).to_contain_text('5 条档案 · 2 个建议合并子组 · 1 条单独保留')
+            expect(page.locator('.member-selection input:checked')).to_have_count(0)
+            page.get_by_role('button',name='对照此子组',exact=True).first.click()
+            expect(page.locator('.member-selection input:checked')).to_have_count(2)
+            expect(page.get_by_role('button',name='确认这两条不同人',exact=True)).to_be_enabled()
+            page.get_by_role('button',name='预览合并',exact=True).first.click()
+            expect(dialog).to_be_visible()
+            expect(dialog.get_by_role('button',name='确认合并资料',exact=True)).to_be_disabled()
+            assert set(previews[-1]['person_ids']) == set(identities[:2]) and previews[-1]['agent_report_id'] == 'd'*64
+            dialog.locator('.el-dialog__body').evaluate('element => { element.scrollTop = element.scrollHeight }')
+            expect(dialog.get_by_role('button',name='取消',exact=True)).to_be_in_viewport()
+            dialog.get_by_role('button',name='取消',exact=True).click()
+            page.locator('.different-groups .el-select').nth(0).click()
+            page.get_by_role('listbox',name='左侧子组',exact=True).get_by_role('option',name='子组 1（2 条）',exact=True).click()
+            page.locator('.different-groups .el-select').nth(1).click()
+            page.get_by_role('listbox',name='右侧子组',exact=True).get_by_role('option',name='子组 2（2 条）',exact=True).click()
+            page.get_by_role('button',name='预览确认不同人',exact=True).click()
+            expect(dialog).to_contain_text('本次只处理 4 对关系')
+            assert {tuple(pair) for pair in previews[-1]['decision_pairs']} == {(left,right) for left in identities[:2] for right in identities[2:4]}
+            expect(dialog).to_contain_text('不区分子组内部记录')
+            dialog.get_by_role('button',name='取消',exact=True).click()
+            page.set_viewport_size(dict(width=520,height=740))
+            matrix = page.locator('.identity-pair-matrix .el-table__body-wrapper .el-scrollbar__wrap')
+            assert matrix.evaluate('element => element.scrollWidth > element.clientWidth')
+            page.get_by_role('button',name='预览合并',exact=True).nth(1).click()
+            expect(dialog).to_be_visible()
+            dialog.locator('.el-dialog__body').evaluate('element => { element.scrollTop = element.scrollHeight }')
+            expect(dialog.get_by_role('button',name='取消',exact=True)).to_be_in_viewport()
+            assert dialog.bounding_box()['width'] <= 488.5
+            page.wait_for_timeout(350)
+            page.screenshot(path=str(output / 'identity-subgroups-small-screen.png'))
+            dialog.get_by_role('button',name='取消',exact=True).click()
+            assert len(commits) == 1, '子组预览不应提交合并或区分结论'
+            (output / 'identity-result.json').write_text(json.dumps(dict(ok=True,checks=['五条档案拆为两个重复子组和一条单独保留','初始不勾选档案','逐对子组矩阵横向滚动','跨子组只区分四对关系','子组预览不提交','小屏固定底栏'],business_writes=0),ensure_ascii=False,indent=2),encoding='utf-8')
+            page.set_viewport_size(dict(width=1440,height=900))
+            page.wait_for_timeout(350)
+            page.locator('.identity-summary').scroll_into_view_if_needed()
+            page.screenshot(path=str(output / 'identity-subgroups.png'))
+            identity_mode[0] = False
             name_availability[0] = False
             page.reload()
             expect(page.get_by_role("button",name="按姓名批量合并",exact=True)).to_be_disabled()
