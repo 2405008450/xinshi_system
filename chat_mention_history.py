@@ -114,25 +114,77 @@ def history_query(db,user,keyword='',*,project_type=None,project_status=None,pro
     return union_all(*sources).subquery()
 
 
-def list_mentions(db, user, *, keyword='', before=None, limit=50, project_type=None, project_status=None, project_id=None):
+def mention_session_statistics(db, user):
+    """目录总数、分组计数和排序时间共用一次权限过滤及聚合。"""
+    table = history_query(db, user)
+    from uuid import UUID
+    return {(kind, str(UUID(pid))): (count, stamp) for kind, pid, count, stamp in db.query(
+        table.c.kind, table.c.project_id, func.count(), func.max(table.c.stamp)
+    ).group_by(table.c.kind, table.c.project_id).all()}
+
+
+def decorate_mention_sessions(db, user, rows, stats=None):
+    """只为当前可见目录补充个人提及时间与客户，普通消息不会改变提及排序。"""
+    if stats is None:
+        stats = mention_session_statistics(db, user)
+    from models import Client
+    customers = {}
+    for kind, model in [('annotation', AnnotationProject), ('translation', TranslationProject)]:
+        ids = [row['project_id'] for row in rows if row['kind'] == kind]
+        if ids:
+            customers.update({(kind, str(pid)): short or name or '' for pid, short, name in db.query(
+                model.id, Client.client_short_name, Client.client_name
+            ).outerjoin(Client, Client.id == model.client_id).filter(model.id.in_(ids)).all()})
+    for row in rows:
+        key = (row['kind'], str(row['project_id']))
+        count, stamp = stats.get(key, (0, None))
+        row.update(mention_history_count=count, latest_mention_at=api_time(stamp), customer_name=customers.get(key, ''))
+
+
+def list_mentions(db, user, *, keyword='', before=None, limit=50, project_type=None, project_status=None, project_id=None, sort='time_desc'):
     import base64,json
     from datetime import datetime
     from uuid import UUID
     from fastapi import HTTPException
     table=history_query(db,user,keyword,project_type=project_type,project_status=project_status,project_id=project_id)
+    from sqlalchemy import String, cast, select
+    from models import Client
+    # 关联真实客户字段；无客户的讨论和私聊排在客户项目之后。
+    names = []
+    for kind, model in [('annotation', AnnotationProject), ('translation', TranslationProject)]:
+        name = select(func.coalesce(func.nullif(Client.client_short_name, ''), Client.client_name, '')).select_from(model).outerjoin(
+            Client, Client.id == model.client_id).where(cast(model.id, String) == table.c.project_id).scalar_subquery()
+        names.append((table.c.kind == kind, name))
+    table = db.query(table, func.coalesce(case(*names, else_=''), '').label('customer_name')).subquery()
     query=db.query(table)
     total=query.count()
+    ascending = sort == 'time_asc'
+    customer_sort = sort.startswith('customer_')
+    if sort not in ('time_desc', 'time_asc', 'customer_asc', 'customer_desc'):
+        raise HTTPException(422, '无效的提及排序')
+    # 未读始终优先；仅在未读/已读分区内部改变客户与时间排序。
+    unread_order = case((table.c.unread, 1), else_=0)
+    columns = [unread_order, table.c.stamp, table.c.kind, table.c.sequence_no]
+    directions = [False, ascending, ascending, ascending]
+    values_from = lambda row: [int(bool(row.unread)), row.stamp.isoformat(), row.kind, row.sequence_no]
+    if customer_sort:
+        columns = [unread_order, case((table.c.customer_name == '', 1), else_=0), table.c.customer_name, table.c.stamp, table.c.kind, table.c.sequence_no]
+        directions = [False, True, sort == 'customer_asc', False, False, False]
+        values_from = lambda row: [int(bool(row.unread)), int(not row.customer_name), row.customer_name, row.stamp.isoformat(), row.kind, row.sequence_no]
     if before is not None:
         token=str(before)
         if token.isdecimal():query=query.filter(table.c.sequence_no<int(token))
         else:
             try:
-                stamp,kind,sequence=json.loads(base64.urlsafe_b64decode(token[3:].encode()).decode())
-                if not token.startswith('v2.'):raise ValueError()
-                stamp=datetime.fromisoformat(stamp);sequence=int(sequence)
+                decoded=json.loads(base64.urlsafe_b64decode(token[3:].encode()).decode())
+                if token.startswith('v2.') and sort == 'time_desc': values=[0, *decoded]
+                elif token.startswith('v3.') and decoded[0] == sort: values=decoded[1:]
+                else: raise ValueError()
+                if len(values) != len(columns): raise ValueError()
+                values[-3]=datetime.fromisoformat(values[-3]);values[-1]=int(values[-1])
             except Exception as exc:raise HTTPException(422,'无效的提及分页游标') from exc
-            query=query.filter(or_(table.c.stamp<stamp,and_(table.c.stamp==stamp,table.c.kind<kind),and_(table.c.stamp==stamp,table.c.kind==kind,table.c.sequence_no<sequence)))
-    rows=query.order_by(table.c.stamp.desc(),table.c.kind.desc(),table.c.sequence_no.desc()).limit(limit+1).all()
+            query=query.filter(or_(*(and_(*[columns[j] == values[j] for j in range(i)], column > values[i] if directions[i] else column < values[i]) for i, column in enumerate(columns))))
+    rows=query.order_by(*[column.asc() if asc else column.desc() for column, asc in zip(columns, directions)]).limit(limit+1).all()
     items=[]
     for row in rows[:limit]:
         pid=UUID(row.project_id)
@@ -140,5 +192,5 @@ def list_mentions(db, user, *, keyword='', before=None, limit=50, project_type=N
     has_more=len(rows)>limit
     cursor=None
     if has_more and items:
-        last=rows[limit-1];cursor='v2.'+base64.urlsafe_b64encode(json.dumps([last.stamp.isoformat(),last.kind,last.sequence_no]).encode()).decode()
+        last=rows[limit-1];cursor='v3.'+base64.urlsafe_b64encode(json.dumps([sort, *values_from(last)]).encode()).decode()
     return dict(items=items,total=total,has_more=has_more,next_before=cursor)

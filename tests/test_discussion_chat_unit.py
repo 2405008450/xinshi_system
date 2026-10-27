@@ -104,3 +104,14 @@ def test_search_treats_percent_as_literal_and_rejects_sender_spoofing(rooms):
             MessageCreate(content=content, client_message_id=uuid4())
     with pytest.raises(ValidationError):
         MessageCreate(content='伪造发送人', client_message_id=uuid4(), sender_id=user.id)
+def test_legacy_display_selection_is_ignored_but_unknown_fields_are_rejected():
+    from uuid import uuid4
+    from pydantic import ValidationError
+    from routers.discussion_chat import MessageCreate
+    import pytest
+    payload = dict(content='测试', client_message_id=uuid4(), selected_users=[{'id':'not-a-recipient'}])
+    result = MessageCreate.model_validate(payload)
+    assert result.mentioned_user_ids == [] and not result.mention_all
+    assert 'selected_users' not in result.model_dump()
+    with pytest.raises(ValidationError): MessageCreate.model_validate({**payload, 'unknown_field': True})
+    with pytest.raises(ValidationError): MessageCreate.model_validate({**payload, 'mentioned_user_ids':['invalid']})

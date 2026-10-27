@@ -1,10 +1,12 @@
 """业务接口授权结果携带短期截图授权；阻止伪造或反射他人的截图引用。"""
 import logging
+from functools import partial
+import anyio
 from urllib.parse import unquote
 from sqlalchemy.orm import Session
 from starlette.responses import JSONResponse
-from starlette.concurrency import run_in_threadpool
 from database import engine
+from screenshot_database import screenshot_engine
 import editor_screenshot_service as service
 
 
@@ -12,7 +14,10 @@ class ScreenshotDenied(Exception):pass
 
 
 class EditorScreenshotMiddleware:
-    def __init__(self,app):self.app=app
+    def __init__(self,app):
+        self.app=app
+        # 响应授权使用独立的线程额度，避免普通请求等连接时占满默认线程池。
+        self.grant_limiter=anyio.CapacityLimiter(4)
 
     async def __call__(self,scope,receive,send):
         if scope['type']!='http':return await self.app(scope,receive,send)
@@ -22,14 +27,14 @@ class EditorScreenshotMiddleware:
         checked=set();tail=b'';blocked=False;start=None;parts=[];passthrough=False
         def authorize(ids):
             from routers.auth import get_user_from_token_value
-            with Session(engine) as db:
+            with Session(screenshot_engine(engine)) as db:
                 user=get_user_from_token_value(db,token) if token else None
                 return bool(user and service.permitted_ids(db,user.id,ids,grants)==ids)
         async def check(ids):
             nonlocal blocked
             needed=ids-checked
             if needed:
-                if not await run_in_threadpool(authorize,needed):blocked=True;raise ScreenshotDenied()
+                if not await anyio.to_thread.run_sync(partial(authorize,needed),limiter=self.grant_limiter):blocked=True;raise ScreenshotDenied()
                 checked.update(needed)
         async def guarded_receive():
             nonlocal tail
@@ -40,7 +45,7 @@ class EditorScreenshotMiddleware:
             return message
         def make_grant(ids):
             from routers.auth import get_user_from_token_value
-            with Session(engine) as db:
+            with Session(screenshot_engine(engine)) as db:
                 user=get_user_from_token_value(db,token) if token else None
                 if user and service.ready(db):
                     path=scope.get('path','')
@@ -63,7 +68,7 @@ class EditorScreenshotMiddleware:
                     body=b''.join(parts);ids=service.valid_references(body)
                     if ids or checked:
                         try:
-                            result=await run_in_threadpool(make_grant,ids)
+                            result=await anyio.to_thread.run_sync(partial(make_grant,ids),limiter=self.grant_limiter)
                             if result:start['headers']=[*start.get('headers',[]),(b'x-screenshot-grant',result[0].encode()),(b'x-screenshot-grant-expires',str(result[1]).encode())]
                         except Exception:logging.getLogger(__name__).exception('生成业务截图读取授权失败')
                     await send(start);await send({'type':'http.response.body','body':body,'more_body':False})

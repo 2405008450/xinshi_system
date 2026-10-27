@@ -23,7 +23,7 @@
     <div class="discussion-chat__composer">
       <div v-if="replyTo" class="discussion-chat__reply">回复 {{ replyTo.senderName }}：{{ screenshotPreview(replyTo.content) }}<el-button link :disabled="sending" @click="replyTo = null">取消引用</el-button></div>
       <DiscussionMentionInput ref="input" v-model="content" :users="mentionUsers" :selected-users="mentionSelection.selectedUsers||[]" :disabled="!storageReady || sending || !!retryPayload" @selection="mentionSelection=$event" @uploading-change="screenshotUploading=$event" @send="send" />
-      <small v-if="draft.error.value" role="alert">{{draft.error.value}}</small><small v-else-if="draft.saved.value">草稿已自动保存到本机</small>
+      <small v-if="draft.error.value" role="alert">{{draft.error.value}}</small>
       <div class="discussion-chat__footer"><span>Enter 发送 · Shift+Enter 换行</span><el-button v-if="retryPayload" :disabled="sending" @click="retryPayload = null; sendError = ''">继续编辑</el-button><el-button type="primary" :disabled="!storageReady || !canSend" :loading="sending" @click="send">{{ retryPayload ? '重试发送' : '发送' }}</el-button></div>
       <p v-if="sendError" class="discussion-chat__error" role="alert">{{ sendError }}</p>
     </div>
@@ -41,6 +41,7 @@ import ChatMessageReferences from './ChatMessageReferences.vue'
 import { useChatMessageInteractions } from '@/composables/useChatMessageInteractions'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { chatRequest } from '@/api/projectChat'
+import { discussionMessagePayload } from '@/utils/discussionMessagePayload'
 import { chatDayKey, chatTimestampIndexes } from '@/utils/chatLayout'
 import { useChatTimeDisplay } from '@/composables/useChatTimeDisplay'
 const { formatMessageTime: chatMessageTime, formatMessageDay, showMessageTime, showMessageDates } = useChatTimeDisplay()
@@ -110,7 +111,7 @@ function newClientId() {
 }
 async function send() {
   if (!storageReady.value || !canSend.value) return
-  const payload = retryPayload.value || { content: content.value.trim(), clientMessageId: newClientId(), ...mentionSelection.value, replyToId: replyTo.value?.id || null }
+  const payload = discussionMessagePayload(retryPayload.value || { content: content.value.trim(), clientMessageId: newClientId(), ...mentionSelection.value, replyToId: replyTo.value?.id || null })
   sending.value = true; sendError.value = ''
   try {
     const row = await chatRequest(`${base}/messages`, { method: 'post', data: payload })

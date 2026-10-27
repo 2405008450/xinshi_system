@@ -1,6 +1,6 @@
 <template>
   <div class="chat-mention-inbox">
-    <div class="chat-mention-inbox__heading"><span>{{ keyword ? '搜索结果' : '最新的消息' }}</span><small>{{ total }} 条</small></div>
+    <div class="chat-mention-inbox__heading" title="右键可调整排序；未读始终优先"><span>{{ keyword ? '搜索结果' : sortLabel }} · 未读优先</span><small>{{ total }} 条</small></div>
     <p v-if="error" class="chat-mention-inbox__error" role="alert">{{ error }} <el-button link @click="reload">重试</el-button></p>
     <div v-if="loading && !items.length" class="chat-mention-inbox__status" role="status">正在加载提及消息…</div>
     <el-empty v-else-if="!items.length && !error" :description="keyword ? '没有匹配的提及消息' : '暂无提及我的消息'" :image-size="48" />
@@ -21,7 +21,8 @@
 
 <script setup>
 import { screenshotPreview } from '@/utils/screenshotReferences'
-import { ref, toRef, watch } from 'vue'
+import { computed, ref, toRef, watch } from 'vue'
+import { mentionSortOptions } from '@/utils/chatMentionSort'
 import { useChatMentions } from '@/composables/useChatMentions'
 import { chatAvatarText, chatDateLabel } from '@/utils/chatLayout'
 import { formatBusinessDateTime } from '@/utils/dateTime'
@@ -29,6 +30,7 @@ import { formatBusinessDateTime } from '@/utils/dateTime'
 const props = defineProps({ keyword: { type: String, default: '' }, active: { type: Boolean, default: true }, filters: { type: Object, default: () => ({}) } })
 const emit = defineEmits(['locate', 'total'])
 const selectedMessageId = ref('')
+const sortLabel = computed(() => mentionSortOptions.find(option => option.value === (props.filters.sort || 'time_desc'))?.label)
 const { items, total, loading, error, hasMore, reload, loadMore } = useChatMentions(toRef(props, 'keyword'), toRef(props, 'active'), toRef(props, 'filters'))
 watch(total, value => emit('total', value), { immediate: true })
 watch([() => props.keyword, () => props.filters], () => { selectedMessageId.value = '' })

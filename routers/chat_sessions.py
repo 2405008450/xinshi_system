@@ -20,7 +20,7 @@ from notification_ws import broadcast_to_users
 import annotation_chat_service as annotation
 import direct_chat_service as direct
 from chat_schema import phase_one_ready, require_phase_one
-from chat_mention_history import list_mentions, mention_count, annotation_mention_counts
+from chat_mention_history import list_mentions, mention_count, annotation_mention_counts, decorate_mention_sessions, mention_session_statistics
 import chat_session_category_service as session_categories
 
 router = APIRouter(prefix='/chat', tags=['chat_sessions'])
@@ -256,26 +256,25 @@ def summaries(db, column, ids, baselines, user_id):
 def decorate_member_counts(db, rows):
     from chat_access_service import MEMBERS
     for kind, (model, column) in MEMBERS.items():
-        ids = {row['project_id'] for row in rows if row['kind'] == kind}
+        ids = {UUID(str(row['project_id'])) for row in rows if row['kind'] == kind}
         if not ids:
             continue
-        counts = dict(db.query(column, func.count(model.user_id)).join(AppUser, AppUser.id == model.user_id).filter(
-            column.in_(ids), AppUser.is_active.is_(True)).group_by(column).all())
+        counts = {str(pid): count for pid, count in db.query(column, func.count(model.user_id)).join(AppUser, AppUser.id == model.user_id).filter(
+            column.in_(ids), AppUser.is_active.is_(True)).group_by(column).all()}
         for row in rows:
             if row['kind'] == kind:
-                row['member_count'] = counts.get(row['project_id'], 0)
+                row['member_count'] = counts.get(str(row['project_id']), 0)
 
 
 @router.get('/sessions')
 def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     ready = phase_one_ready(db)
-    history_total = mention_count(db, user)
-    annotation_counts = annotation_mention_counts(db, user)
+    mention_stats = mention_session_statistics(db, user)
+    history_total = sum(count for count, _stamp in mention_stats.values())
+    annotation_counts = [dict(project_id=UUID(pid), count=count) for (kind, pid), (count, _stamp) in mention_stats.items() if kind == 'annotation']
     rows = []
     if annotation.can_view(db, user):
-        # 保留已有自动关注和主动退订规则。
-        from routers.annotation_chat import unread
-        unread(db, user)
+        # 直接沿用关注与退订条件，不重复执行结果未使用的未读查询。
         mentioned_projects = db.query(ChatProjectMessage.annotation_project_id).join(ChatProjectMention,
             ChatProjectMention.message_id == ChatProjectMessage.id).outerjoin(AnnotationChatMember,
             and_(AnnotationChatMember.project_id == ChatProjectMessage.annotation_project_id, AnnotationChatMember.user_id == user.id)).filter(
@@ -296,6 +295,7 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
         rows.extend(discussion_chat_service.catalog(db, user))
         decorate_member_counts(db, rows)
         session_categories.decorate_sessions(db, rows)
+        decorate_mention_sessions(db, user, rows, mention_stats)
         return {'phase_one_enabled': False, 'items': rows, 'total': sum(r['unread'] for r in rows), 'mention_history_total': history_total,
             'session_categories': session_categories.catalog(db, user),
             'annotation_mention_counts': annotation_counts,
@@ -327,6 +327,7 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
     rows.extend(discussion_chat_service.catalog(db, user))
     decorate_member_counts(db, rows)
     session_categories.decorate_sessions(db, rows)
+    decorate_mention_sessions(db, user, rows, mention_stats)
     return {'phase_one_enabled': True, 'items': rows, 'session_categories': session_categories.catalog(db, user), 'total': sum(r['unread'] for r in rows), 'mention_history_total': history_total, 'mention_total': sum(r['mention_unread'] for r in rows), 'annotation_mention_counts': annotation_counts}
 
 
@@ -334,6 +335,7 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
 def mentions(keyword: str = Query('', max_length=200), before: str | None = Query(None,max_length=400),
              limit: int = Query(50, ge=1, le=100), project_type: Literal['annotation', 'translation', 'discussion', 'direct'] | None = None,
              project_status: str | None = None, project_id: UUID | None = None,
+             sort: Literal['time_desc', 'time_asc', 'customer_asc', 'customer_desc'] = 'time_desc',
              db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     if project_id is not None and project_type is None:
         raise HTTPException(422, '指定项目时必须同时指定项目类型')
@@ -342,7 +344,7 @@ def mentions(keyword: str = Query('', max_length=200), before: str | None = Quer
     if project_status and project_type == 'translation':
         raise HTTPException(422, '标注项目状态不能用于笔译项目')
     return list_mentions(db, user, keyword=keyword, before=before, limit=limit,
-                         project_type=project_type, project_status=project_status, project_id=project_id)
+                         project_type=project_type, project_status=project_status, project_id=project_id, sort=sort)
 
 
 class PreferenceRequest(BaseModel):

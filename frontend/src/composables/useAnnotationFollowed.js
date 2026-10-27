@@ -35,7 +35,7 @@ async function refresh(options = {}) {
   const current = new AbortController()
   controller = current
   try {
-    const data = await chatRequest('sessions', { signal: current.signal })
+    const data = await chatRequest('sessions', { signal: current.signal, timeout: 20000 })
     if (version !== generation || userId !== localStorage.getItem('user_id')) return
     sessions.value = data.items || []
     applySessionCategories(data.sessionCategories)
@@ -52,8 +52,11 @@ async function refresh(options = {}) {
       if (session) { item.unread = session.unread; item.mentionUnread = session.mentionUnread; item.projectStatus = session.projectStatus || ''; if (item.projectType === 'discussion') item.title = session.title }
     })
     await refreshOpenAnnotationStatuses(sessions.value)
-  } catch {
-    if (version === generation && !current.signal.aborted) error.value = '未读消息暂时无法加载'
+  } catch (cause) {
+    if (version === generation && !current.signal.aborted) {
+      console.warn('会话目录刷新失败', JSON.stringify({ code: cause.code, status: cause.response?.status, message: cause.message }))
+      error.value = '未读消息暂时无法加载'
+    }
   } finally {
     if (version === generation) {
       pending = false
@@ -80,7 +83,7 @@ function start() {
     subscribe('chat_topics_changed', () => refreshTopics(true).catch(() => {})),
     subscribe('chat_message', refresh),
     subscribe('notification', refresh),
-    subscribe('connected', refresh),
+    subscribe('connected', () => refresh({ force: true })),
     subscribe('foreground', () => refresh({ force: true })),
   ]
   timer = window.setInterval(refresh, 15000)

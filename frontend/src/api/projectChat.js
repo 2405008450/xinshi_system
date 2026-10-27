@@ -1,4 +1,4 @@
-﻿import api from './index'
+import api from './index'
 
 function toCamelCase(str) {
   return str.replace(/([-_][a-z])/g, (group) => group.toUpperCase().replace('-', '').replace('_', ''))
@@ -27,9 +27,9 @@ export const annotationChatRequest = (projectId, suffix, { method = 'get', data,
     ...(data instanceof FormData ? { timeout: 60000, headers: { 'Content-Type': 'multipart/form-data' } } : {})
   }).then(res => responseType === 'blob' ? res : convertKeys(res, toCamelCase))
 
-export const chatRequest = (suffix, { method = 'get', data, params, signal, responseType } = {}) =>
+export const chatRequest = (suffix, { method = 'get', data, params, signal, responseType, timeout } = {}) =>
   api.request({ url: `/chat/${suffix}`, method, data: data instanceof FormData ? data : convertKeys(data, toSnakeCase),
-    params, signal, responseType, ...(data instanceof FormData ? { timeout: 60000, headers: { 'Content-Type': 'multipart/form-data' } } : {})
+    params, signal, responseType, ...(timeout == null ? {} : { timeout }), ...(data instanceof FormData ? { timeout: 60000, headers: { 'Content-Type': 'multipart/form-data' } } : {})
   }).then(res => responseType === 'blob' ? res : convertKeys(res, toCamelCase))
 export const directChatRequest = (id, suffix, options) => chatRequest(`direct/${id}/${suffix}`, options)
 
