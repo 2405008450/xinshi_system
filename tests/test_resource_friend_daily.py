@@ -70,13 +70,11 @@ def test_stale_and_permission(db, setup):
     with pytest.raises(HTTPException) as exc:
         save_daily(db, user, day, FriendWrite(rows=[line(lang, account, 8)]))
     assert exc.value.status_code == 409
-    with pytest.raises(HTTPException) as exc:
-        save_daily(db, other, day, FriendWrite(revision=1, rows=[]))
-    assert exc.value.status_code == 403
+    assert save_daily(db, other, day, FriendWrite(revision=1, rows=[])).revision == 2
     with pytest.raises(HTTPException) as exc:
         add_account(db, other, FriendAccountWrite(channel='wechat', name='HR100'))
     assert exc.value.status_code == 403
-    assert not get_options(db, other)['can_write']
+    assert get_options(db, other)['can_write'] and not get_options(db, other)['can_configure']
 
 
 def test_duplicates_and_channel_mismatch_rollback(db, setup):
@@ -222,8 +220,6 @@ def test_http_roundtrip_and_read_only_access(db, setup):
     app = FastAPI(); app.include_router(router)
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_current_user] = lambda: user
-    access = router.dependencies[0].dependency
-    app.dependency_overrides[access] = lambda: None
     client = TestClient(app)
     path = '/resource-development/friend-daily/' + day.isoformat()
     assert client.get(path).json()['revision'] == 0
@@ -236,9 +232,9 @@ def test_http_roundtrip_and_read_only_access(db, setup):
     assert client.get(path).json()['rows'][0]['count'] == 6
     app.dependency_overrides[get_current_user] = lambda: other
     assert client.get(path).status_code == 200
-    assert client.put(path, json={'revision': 1, 'rows': []}).status_code == 403
-    del app.dependency_overrides[access]
-    assert client.get(path).status_code == 403
+    assert client.put(path, json={'revision': 1, 'rows': []}).status_code == 200
+    del app.dependency_overrides[get_current_user]
+    assert client.get(path).status_code == 401
 
 
 def test_existing_hr_account_names_do_not_duplicate(db, setup):

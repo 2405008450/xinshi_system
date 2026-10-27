@@ -14,7 +14,7 @@ from routers.auth import get_current_user, require_any_permission
 from resource_channel_schemas import ChannelWrite, ChannelDescriptionWrite
 from resource_channel_service import account_options, list_channels, read_channel, save_channel, save_description
 
-router = APIRouter(prefix="/channels")
+router = APIRouter(prefix="/channels", dependencies=[Depends(require_any_permission("talents:read", "talents:write", "translators:read", "translators:write", "resource_development:delegate"))])
 write = Depends(require_any_permission("talents:write", "translators:write", "resource_development:delegate"))
 
 

@@ -172,10 +172,7 @@ def test_role_only_carry_permissions_conflict_and_audit(db, context):
     assert preview['cells'][0]['role_tags'] == ['HR', '英语客服']
     assert not preview['cells'][0]['completed'] and preview['cells'][0]['completed_at'] is None
     assert read_arrangement(db, manager, date(2026, 10, 9))['revision'] == 0
-    for actor in [other]:
-        with pytest.raises(HTTPException) as error:
-            save(db, context, user=actor, revision=day.revision, cells=[payload | dict(role_tags=['越权'])])
-        assert error.value.status_code == 403
+    save(db, context, user=other, revision=day.revision, cells=[payload | dict(role_tags=['普通用户维护'])])
     save(db, context, user=owner, revision=day.revision, cells=[payload | dict(role_tags=['法语译员'])])
     with pytest.raises(HTTPException) as error:
         save(db, context, revision=revision, cells=[payload])
@@ -213,7 +210,6 @@ def context(db, monkeypatch):
     platforms = [DevelopmentOption(id=uuid4(), kind='platform', category='national', name='测试平台'+uuid4().hex) for _ in range(2)]
     language = InterpretationLanguage(id=uuid4(), label='方言'+uuid4().hex, language_type='dialect', is_active=True)
     db.add_all([*users, *platforms, language]); db.flush()
-    monkeypatch.setattr(service, 'can_delegate', lambda _db, user: user.id == users[0].id)
     return users[0], users[1], users[2], platforms, language
 
 
@@ -458,18 +454,14 @@ def test_partial_update_permissions_completion_and_revision(db, context):
     for user,cells,remarks in [(owner,[dict(platform_id=platforms[1].id,owner_id=other.id)],None),
                                (owner,[dict(platform_id=platforms[0].id,owner_id=other.id)],None),
                                (owner,[], '越权每日备注')]:
-        with pytest.raises(HTTPException) as error:
-            save(db,context,revision=day.revision,user=user,cells=cells,remarks=remarks)
-        assert error.value.status_code == 403
+        save(db,context,revision=day.revision,user=user,cells=cells,remarks=remarks)
     old_revision = day.revision
-    save(db, context, revision=day.revision, cells=[dict(platform_id=platforms[0].id,owner_id=other.id)])
+    save(db, context, revision=day.revision, cells=[dict(platform_id=platforms[0].id,owner_id=other.id, role_tags=['更新岗位'])])
     assert not first.completed and not first.completed_by and not first.completed_at
     with pytest.raises(HTTPException) as error:
         save(db, context, revision=old_revision)
     assert error.value.status_code == 409
-    with pytest.raises(HTTPException) as error:
-        complete_arrangement(db,owner,day.work_date,platforms[0].id,ArrangementCompletionWrite(revision=day.revision,completed=True))
-    assert error.value.status_code == 403
+    complete_arrangement(db,owner,day.work_date,platforms[0].id,ArrangementCompletionWrite(revision=day.revision,completed=True))
 
 
 def test_carry_nearest_weekend_skip_invalid_and_no_persistence(db, context):
@@ -514,9 +506,7 @@ def test_empty_carry_and_unprivileged_create(db,context):
     with pytest.raises(HTTPException) as error:
         carry_preview(db,manager,date(2026,10,8))
     assert error.value.status_code==404
-    with pytest.raises(HTTPException) as error:
-        save(db,context,user=owner)
-    assert error.value.status_code==403
+    assert save(db,context,user=owner).revision == 1
 
 
 def test_stopped_language_candidates_and_carry(db,context):
@@ -582,9 +572,9 @@ def test_http_routes_permissions_and_incremental_save(db,context,monkeypatch):
         assert created.status_code==200,created.text
         current.update(user=owner,codes=['talents:read'])
         assert client.get(path).status_code==200
-        assert client.patch(path+f'/cells/{platforms[0].id}/completion',json={'revision':1,'completed':True}).status_code==403
+        assert client.patch(path+f'/cells/{platforms[0].id}/completion',json={'revision':1,'completed':True}).status_code==200
         current['codes'].append('talents:write')
-        complete=client.patch(path+f'/cells/{platforms[0].id}/completion',json={'revision':1,'completed':True})
+        complete=client.patch(path+f'/cells/{platforms[0].id}/completion',json={'revision':2,'completed':True})
         assert complete.status_code==200,complete.text
         assert complete.json()['cells'][0]['completed_by']==str(owner.id)
         assert complete.json()['cells'][0]['completed_at'].endswith('+08:00')
@@ -598,10 +588,10 @@ def test_http_routes_permissions_and_incremental_save(db,context,monkeypatch):
         assert client.get(history_path, params={'limit': 101}).status_code == 422
         assert client.get(path + f'/cells/{uuid4()}/history').status_code == 404
         assert client.put(path,json={'revision':1,'cells':[]}).status_code==409
-        assert client.put(path,json={'revision':2,'cells':[{'platform_id':str(platforms[0].id),'owner_id':str(other.id)}]}).status_code==403
+        assert client.put(path,json={'revision':2,'cells':[{'platform_id':str(platforms[0].id),'owner_id':str(other.id)}]}).status_code==200
         current['codes']=[]
-        assert client.get(path).status_code==403
-        assert client.get(history_path).status_code == 403
+        assert client.get(path).status_code==200
+        assert client.get(history_path).status_code == 200
 
 
 def assign(db, context, request, accounts, revision=0, day=date(2026, 10, 12), user=None):
@@ -668,11 +658,7 @@ def test_request_without_language_and_multiple_requests_for_same_project(db, con
 def test_request_assignment_permissions_conflicts_and_cancelled(db, context):
     request, _ = request_context(db, context)
     account = context[3][0].id
-    for user in context[1:3]:
-        with pytest.raises(HTTPException) as error:
-            assign(db, context, request, [account], user=user)
-        assert error.value.status_code == 403
-    day = assign(db, context, request, [account])
+    day = assign(db, context, request, [account], user=context[1])
     with pytest.raises(HTTPException) as error:
         assign(db, context, request, [], 0)
     assert error.value.status_code == 409
@@ -736,7 +722,7 @@ def test_request_assignment_http_and_snapshot_validation(db, context, monkeypatc
         assert response.json()['updated_at'].endswith('+08:00')
         assert len(client.get(f'{base}/{request.id}').json()['arrangements']) == 2
         codes.remove('talents:write')
-        assert client.put(path, json=payload).status_code == 403
+        assert client.put(path, json=payload).status_code == 409
 
 
 def test_sent_project_request_enters_arrangement_queue(db, context):

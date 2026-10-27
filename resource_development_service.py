@@ -25,6 +25,7 @@ from resource_development_contacts import contact_data, save_contacts
 from resource_development_custom_fields import serialize_custom_fields, save_custom_fields, account_value_match
 from permission_service import user_has_permission
 from talent_wechat_accounts import lock_account_writes, merge_development_accounts, sync_development_channels
+from business_time import business_now, business_iso
 
 
 def previous_workday(today: date) -> date:
@@ -61,6 +62,43 @@ def require_owner(db, user, owner_id):
         raise HTTPException(403, "只能维护本人名下的开拓记录，代录需要资源开拓代录权限")
 
 
+def require_daily_editor(user):
+    """日常维护面向所有在用登录账号，不授予代录或敏感信息访问权。"""
+    if not user or not user.is_active:
+        raise HTTPException(403, "请使用在用账号登录")
+
+
+def protect_restricted_record(db, user, payload, row):
+    """跨人员维护只接受公开字段与新增跟进，原有受限数据由服务端保留。"""
+    if not row or owns(db, user, row.owner_id):
+        return payload
+    if payload.owner_id != row.owner_id:
+        raise HTTPException(403, "无敏感信息查看权限时不能转移记录归属，请联系原开拓人员或代录人员")
+    contacts = contact_data(db, row.id)
+    updates = {key: getattr(row, key) for key in
+               ("phone", "wechat", "xiaohongshu", "remarks", "duplicate_note", "follow_up")}
+    updates.update(whatsapp=contacts["whatsapp"], custom_accounts=[], custom_fields={})
+    # 已保存操作可能包含自定义敏感原文，禁止借编辑或提交脱敏文本改写历史。
+    existing = {item.id: item for item in db.query(Action).filter_by(record_id=row.id)}
+    from resource_development_schemas import ActionWrite
+    updates["actions"] = [ActionWrite(**{key: getattr(item, key) for key in ActionWrite.model_fields})
+                          for item in existing.values()]
+    for entry in payload.actions:
+        if entry.id not in existing:
+            if entry.status not in STANDARD_PROGRESS_STATUSES:
+                raise HTTPException(422, "跨人员维护请选择标准进度状态")
+            updates["actions"].append(entry)
+    updates["follow_ups"] = []
+    for entry in payload.follow_ups:
+        saved = db.get(FollowUp, entry.id)
+        if saved and saved.record_id != row.id:
+            raise HTTPException(409, "跟进标识冲突，请重新加载")
+        if saved is None:
+            updates["follow_ups"].append(entry)
+    # 不调用账号与自定义内容保存器，避免全量表单清空不可见的原值。
+    return payload.model_copy(update=updates)
+
+
 def active_user(db, user_id):
     user = db.get(AppUser, user_id)
     if not user or not user.is_active:
@@ -83,10 +121,8 @@ def option(db, option_id, kind):
 def snapshot(row):
     from fastapi.encoders import jsonable_encoder
     values = {c.name: getattr(row, c.name) for c in row.__table__.columns if c.name != "content"}
-    if row.__tablename__ in {'resource_development_arrangement', 'resource_development_arrangement_cell'}:
-        from business_time import business_iso
-        # 每日安排既有无时区字段采用 UTC+8 本地时间，仅补接口偏移，不改历史值。
-        values = {key: business_iso(value) if isinstance(value, datetime) else value for key, value in values.items()}
+    # 开拓既有无时区字段沿用 UTC+8 本地存储语义，仅补接口偏移。
+    values = {key: business_iso(value) if isinstance(value, datetime) else value for key, value in values.items()}
     return jsonable_encoder(values)
 
 
@@ -245,10 +281,11 @@ def sync_person(db, row, payload, languages, *, eligible, actor=None):
 
 def save_record(db, user, payload, *, historical_markers=None, defer_refresh=False):
     lock_writes(db)
+    require_daily_editor(user)
     row = db.get(Record, payload.id)
-    require_owner(db, user, payload.owner_id)
+    restricted = row is not None and not owns(db, user, row.owner_id)
+    payload = protect_restricted_record(db, user, payload, row)
     if row:
-        require_owner(db, user, row.owner_id)
         # 客户端 UUID 作为创建幂等键，响应丢失后重试不重复写历史或建档。
         if payload.revision == 0:
             return row
@@ -281,13 +318,14 @@ def save_record(db, user, payload, *, historical_markers=None, defer_refresh=Fal
         row.friend_accounts = payload.friend_accounts
     if before is None:
         row.follow_up = payload.follow_up
-    row.updated_by, row.updated_at = user.id, datetime.now()
+    row.updated_by, row.updated_at = user.id, business_now()
     row.revision += 1
     # flush 前先填满记录的所有必填字段。
     db.flush()
     db.query(Language).filter_by(record_id=row.id).delete(synchronize_session=False)
-    save_contacts(db, user, row.id, payload)
-    save_custom_fields(db, user, row.id, payload)
+    if not restricted:
+        save_contacts(db, user, row.id, payload)
+        save_custom_fields(db, user, row.id, payload)
     db.add_all([Language(record_id=row.id, language_id=lang.id) for lang in languages])
     last_follow_up_time = db.query(func.max(FollowUp.created_at)).filter(FollowUp.record_id == row.id).scalar()
     for entry in payload.follow_ups:
@@ -332,14 +370,14 @@ def save_record(db, user, payload, *, historical_markers=None, defer_refresh=Fal
         if not action:
             if db.get(Action, entry.id):
                 raise HTTPException(409, "操作标识冲突，请重新打开表单")
-            action = Action(id=entry.id, record_id=row.id, created_by=user.id, created_at=datetime.now())
+            action = Action(id=entry.id, record_id=row.id, created_by=user.id, created_at=business_now())
             db.add(action)
         elif all(getattr(action, key) == value for key, value in values.items()):
             # 快捷追加跟进不改写既有历史的真实修改人和时间。
             continue
         for key, value in values.items():
             setattr(action, key, value)
-        action.updated_by, action.updated_at = user.id, datetime.now()
+        action.updated_by, action.updated_at = user.id, business_now()
         audit(db, user, action, "update" if action_before else "create", action_before)
     db.flush()
     # 按录入顺序而非可修改的业务日期确定次数，历史修正不会重排其他申请。
@@ -410,7 +448,7 @@ def serialize_record(db, user, row, detail=False, *, delegate=None, admin=None, 
         if not allowed and result[key]:
             result[key] = "受限内容"
     can_delete = user.id == row.owner_id or (is_admin(db, user) if admin is None else admin)
-    result.update(can_edit=allowed, can_delete=can_delete, contact_restricted=not allowed,
+    result.update(can_edit=bool(user.is_active), can_delete=can_delete, contact_restricted=not allowed,
                   owner_name=name_lookup(row.owner_id), platform_name=option_lookup(row.platform_id, "platform").name,
                   account_name=option_lookup(row.account_id, "account").name if row.account_id else "")
     langs = db.query(InterpretationLanguage).join(Language, Language.language_id == InterpretationLanguage.id).filter(Language.record_id == row.id).all()
@@ -437,8 +475,10 @@ def serialize_record(db, user, row, detail=False, *, delegate=None, admin=None, 
         }
     for channel, value in (row.contact_state or {}).items():
         if channel in {"wechat", "enterprise"}:
-            result[f"{channel}_status"] = value["status"]
+            status = value["status"] if allowed or value["status"] in STANDARD_PROGRESS_STATUSES else "自定义状态"
+            result[f"{channel}_status"] = status
             result["progress"][channel] = {key: value.get(key) for key in ["status", "action_date", "operator_name", "source", "updated_at"]}
+            result["progress"][channel]["status"] = status
             result["progress"][channel]["synchronized"] = True
     # 同步来源记录 ID 仅供审计，不在普通响应中暴露其他人员记录标识。
     result.pop("contact_state", None)
@@ -480,6 +520,8 @@ def filtered_records(db, user, start, end, keyword=None, owner_id=None, platform
         if value:
             q = q.filter(field == value)
     if state:
+        if state not in STANDARD_PROGRESS_STATUSES and not can_delegate(db, user):
+            q = q.filter(Record.owner_id == user.id)
         states = status_filter_values([state], "wechat")
         q = q.filter(or_(current_contact_status("wechat").in_(states), current_contact_status("enterprise").in_(states)))
     if keyword and keyword.strip():
@@ -563,7 +605,7 @@ def work_result(db, user, work_date, owner_id, *, delegate=None, name_lookup=Non
     allowed = user.id == owner_id or (can_delegate(db, user) if delegate is None else delegate)
     result = snapshot(row) if row else dict(work_date=work_date.isoformat(), owner_id=str(owner_id), periods=[], deduction=0,
                                            completed=None, explanation="", duration_minutes=0, revision=0)
-    result.update(owner_name=name_lookup(owner_id) if name_lookup else user_name(db, owner_id), can_edit=allowed, screenshots=[])
+    result.update(owner_name=name_lookup(owner_id) if name_lookup else user_name(db, owner_id), can_edit=bool(user.is_active), contact_restricted=not allowed, screenshots=[])
     if row and allowed:
         result["screenshots"] = [{"id": str(s.id), "name": s.name} for s in db.query(Screenshot.id, Screenshot.name).filter_by(work_id=row.id)]
     if not allowed:
@@ -606,7 +648,7 @@ def refresh_draft(db, owner_id, work_date):
 
 def save_work(db, user, payload):
     lock_writes(db)
-    require_owner(db, user, payload.owner_id)
+    require_daily_editor(user)
     active_user(db, payload.owner_id)
     row = db.query(Work).filter_by(work_date=payload.work_date, owner_id=payload.owner_id).first()
     before = snapshot(row) if row else None
@@ -619,7 +661,9 @@ def save_work(db, user, payload):
         db.add(row)
     row.periods = [p.model_dump() for p in payload.periods]
     row.deduction, row.duration_minutes = payload.deduction, payload.duration_minutes
-    row.completed, row.explanation = payload.completed, payload.explanation
+    row.completed = payload.completed
+    if before is None or owns(db, user, payload.owner_id):
+        row.explanation = payload.explanation
     row.updated_by, row.revision = user.id, row.revision + 1
     audit(db, user, row, "update" if before else "create", before)
     db.flush()

@@ -12,7 +12,7 @@
       <template #default="{ row }">
         <DevelopmentGroupProgress v-if="isGroupChannel(progressColumnChannel[column.key])" :row="row" :channel="progressColumnChannel[column.key]" :editable="editable(row)" @saved="$emit('saved')" @edit="(record, channel, status) => $emit('edit', record, channel, status)" />
         <el-button v-else-if="progressColumnChannel[column.key] && editable(row)" link type="primary" class="development-progress" @click="$emit('edit', row, progressColumnChannel[column.key])">{{ display(row, column.key) }}</el-button>
-        <el-button v-else-if="!crossDate && column.key === 'platform_name' && options.can_write && !deleteMode" link type="primary" @click="$emit('platform', row.platform_id)">{{ row.platform_name }}</el-button>
+        <el-button v-else-if="!crossDate && column.key === 'platform_name' && options.can_configure && !deleteMode" link type="primary" @click="$emit('platform', row.platform_id)">{{ row.platform_name }}</el-button>
         <el-button v-else-if="!crossDate && column.key === 'owner_name' && editable(row)" link type="primary" :aria-label="`填写${row.owner_name}的每日工时`" @click="$emit('work', row.work_date, row.owner_id)">{{ display(row, column.key) }}</el-button>
         <el-button v-else-if="!crossDate && column.key === 'work_date'" link type="primary" @click="$emit('statistic', row.work_date)">{{ display(row, column.key) }}</el-button>
         <el-button v-else-if="column.key === 'latest_follow_up' && editable(row)" link type="primary" class="development-progress" :title="row.latest_follow_up_entry?.content ?? row.latest_follow_up ?? row.follow_up ?? ''" @click="$emit('edit', row, 'follow_up')">{{ followUpText(row) || '填写后续跟进情况' }}</el-button>

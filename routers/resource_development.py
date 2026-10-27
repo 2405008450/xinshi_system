@@ -17,7 +17,7 @@ from routers.auth import get_current_user, require_any_permission
 from resource_development_models import DevelopmentAction as Action, DevelopmentOption as Option, DevelopmentRecord as Record, DevelopmentScreenshot as Screenshot, DevelopmentWork as Work
 from resource_development_schemas import CustomFieldWrite, GroupActionWrite, LanguageWrite, OptionWrite, RecordWrite, WorkWrite
 from resource_development_custom_fields import account_columns
-from resource_development_service import active_user, audit, check_revision, duplicates, filtered_records, is_admin, lock_writes, option, owns, previous_workday, refresh_draft, require_owner, save_record, save_work, serialize_record, snapshot, user_name, work_result
+from resource_development_service import active_user, audit, check_revision, duplicates, filtered_records, is_admin, lock_writes, option, owns, previous_workday, refresh_draft, require_owner, save_record, save_work, serialize_record, snapshot, user_name, work_result, require_daily_editor, protect_restricted_record
 from permission_service import user_has_permission
 from resource_development_service import can_delegate, can_delete_record
 from routers.resource_arrangements import router as arrangement_router
@@ -28,7 +28,7 @@ from resource_development_import_preview import preview_workbook
 
 
 router = APIRouter(prefix="/resource-development", tags=["resource_development"],
-                   dependencies=[Depends(require_any_permission("talents:read", "talents:write", "translators:read", "translators:write", "resource_development:delegate"))])
+                   dependencies=[Depends(get_current_user)])
 write = Depends(require_any_permission("talents:write", "translators:write", "resource_development:delegate"))
 router.include_router(arrangement_router)
 router.include_router(channel_router)
@@ -54,7 +54,8 @@ def options(db: Session = Depends(get_db), user=Depends(get_current_user)):
             "user_id": str(user.id), "is_admin": is_admin(db, user),
             "custom_account_fields": account_columns(db),
             "can_delegate": can_delegate(db, user),
-            "can_write": can_delegate(db, user) or user_has_permission(db, user.id, "talents:write") or user_has_permission(db, user.id, "translators:write"),
+            "can_write": bool(user.is_active),
+            "can_configure": can_delegate(db, user) or user_has_permission(db, user.id, "talents:write") or user_has_permission(db, user.id, "translators:write"),
             "default_date": business_now().date().isoformat()}
 
 
@@ -189,7 +190,7 @@ def records(params=Depends(filters), skip: int = Query(0, ge=0), limit: int = Qu
             "total": q.count()}
 
 
-@router.get("/record-duplicates", dependencies=[write])
+@router.get("/record-duplicates")
 def check_record_name_duplicates(full_name: str = Query(..., min_length=1, max_length=255),
                                  skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100),
                                  db: Session = Depends(get_db), user=Depends(get_current_user)):
@@ -197,16 +198,16 @@ def check_record_name_duplicates(full_name: str = Query(..., min_length=1, max_l
     return record_name_duplicates(db, user, full_name, skip, limit)
 
 
-@router.post("/duplicates", dependencies=[write])
+@router.post("/duplicates")
 def check_duplicates(payload: RecordWrite, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    require_owner(db, user, payload.owner_id)
+    require_daily_editor(user)
     row = db.get(Record, payload.id)
-    if row:
-        require_owner(db, user, row.owner_id)
+    payload = protect_restricted_record(db, user, payload, row)
+    # 查重结果只含档案名称、编号和匹配字段，不返回任何联系方式。
     return {"items": duplicates(db, payload.full_name, payload.phone, payload.wechat)}
 
 
-@router.post("/records", dependencies=[write])
+@router.post("/records")
 def write_record(payload: RecordWrite, db: Session = Depends(get_db), user=Depends(get_current_user)):
     row = save_record(db, user, payload)
     db.commit()
@@ -221,7 +222,7 @@ def read_record(record_id: UUID, db: Session = Depends(get_db), user=Depends(get
     return serialize_record(db, user, row, True)
 
 
-@router.post("/records/{record_id}/group-actions", dependencies=[write])
+@router.post("/records/{record_id}/group-actions")
 def write_group_action(record_id: UUID, payload: GroupActionWrite, db: Session = Depends(get_db), user=Depends(get_current_user)):
     from resource_development_service import GROUP_STATUSES, group_action_date, progress_status
     from resource_development_models import DevelopmentLanguage
@@ -229,7 +230,7 @@ def write_group_action(record_id: UUID, payload: GroupActionWrite, db: Session =
     row = db.get(Record, record_id)
     if not row:
         raise HTTPException(404, "开拓记录不存在")
-    require_owner(db, user, row.owner_id)
+    require_daily_editor(user)
     if payload.status not in GROUP_STATUSES[payload.channel]:
         raise HTTPException(422, "请选择该群类型支持的状态")
     existing = db.get(Action, payload.id)
@@ -274,7 +275,7 @@ def read_work(work_date: date, owner_id: UUID, db: Session = Depends(get_db), us
     return work_result(db, user, work_date, owner_id)
 
 
-@router.put("/work", dependencies=[write])
+@router.put("/work")
 def write_work(payload: WorkWrite, db: Session = Depends(get_db), user=Depends(get_current_user)):
     row = save_work(db, user, payload)
     db.commit()

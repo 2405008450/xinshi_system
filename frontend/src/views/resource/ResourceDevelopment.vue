@@ -18,11 +18,11 @@
           <template v-if="options.can_write">
             <template v-if="!deleteMode">
               <el-button v-if="options.can_delegate" @click="importPreviewRef.open()">导入预览</el-button>
-              <el-button @click="settingsRef.open()">平台与选项</el-button>
+              <el-button v-if="options.can_configure" @click="settingsRef.open()">平台与选项</el-button>
               <el-button @click="openWork()">每日工作</el-button>
               <el-button type="primary" title="左键：表格录入；右键：原表单录入" @click="openBatchEditor" @contextmenu.prevent="openEditor()">新增</el-button>
             </template>
-            <BatchDeleteToolbar :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
+            <BatchDeleteToolbar v-if="options.can_configure" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
           </template>
         </div>
       </div>
@@ -30,8 +30,8 @@
     <TalentResourceNav />
     <el-tabs v-model="activeSection" @tab-change="sectionChanged">
       <el-tab-pane v-if="canRequests" label="需求管理" name="requests" />
-      <el-tab-pane v-if="issueAccess.can_resource" label="开拓日志" name="logs" />
-      <el-tab-pane v-if="issueAccess.can_resource" label="每日安排" name="arrangements" />
+      <el-tab-pane v-if="canResource" label="开拓日志" name="logs" />
+      <el-tab-pane v-if="canResource" label="每日安排" name="arrangements" />
       <el-tab-pane v-if="issueAccess.can_enter" label="开拓问题" name="issues" />
     </el-tabs>
     <ResourceRequests v-if="activeSection === 'requests' && canRequests" embedded />
@@ -80,7 +80,7 @@
       </div>
     </div>
     </template>
-    <template v-if="issueAccess.can_resource">
+    <template v-if="canResource">
     <DevelopmentStatusRecordsDialog ref="statusRecordsRef" :options="options" @edit="openEditor" @saved="recordSaved" />
     <DevelopmentRecordEditor ref="editorRef" :options="options" @saved="recordSaved" @language-created="languageCreated" @custom-field-created="customFieldCreated" />
     <DevelopmentBatchEntryDialog ref="batchEditorRef" :options="options" @saved="recordSaved" @language-created="languageCreated" @custom-field-created="customFieldCreated" />
@@ -122,9 +122,10 @@ const options = reactive({ options: [], users: [], languages: [], user_id: '', i
 const developmentColumns = computed(() => buildDevelopmentColumns(options))
 const route = useRoute(), router = useRouter()
 const { access: issueAccess } = useResourceIssues()
+const canResource = true
 const canRequests = computed(() => hasPermission('projects:read'))
 const resolvedSection = computed(() => resolveDevelopmentSection(route.query.section, {
-  canRequests: canRequests.value, canResource: issueAccess.can_resource, canIssues: issueAccess.can_enter,
+  canRequests: canRequests.value, canResource, canIssues: issueAccess.can_enter,
 }))
 const activeSection = ref(resolvedSection.value)
 function sectionChanged(value) {
@@ -241,6 +242,7 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer); listController?.ab
 .development-status-entry{display:flex;gap:10px;margin-left:auto}.development-status-entry .el-button+.el-button{margin-left:0}
 .development-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 20px}.development-form-grid .wide{grid-column:1/-1}.development-form-grid .el-select,.development-form-grid .el-date-editor{width:100%}
 .development-dialog{display:flex;flex-direction:column;max-height:90vh;overflow:hidden}.development-dialog>.el-dialog__header,.development-dialog>.el-dialog__footer{flex-shrink:0}.development-dialog>.el-dialog__body{flex:1;min-height:0;overflow-y:auto}.development-dialog>.el-dialog__footer{border-top:1px solid var(--el-border-color-light);background:#f8fafc;padding:16px}
+.el-dialog.development-dialog{max-width:calc(100vw - 32px)!important;max-height:90vh!important}
 .development-action{padding:14px;margin:12px 0;border:1px solid var(--el-border-color);border-radius:6px}.development-action>.development-form-grid{margin-top:12px}.development-dialog h3{margin:20px 0 12px}.development-dialog .el-alert{margin:12px 0}
 .development-advanced,.development-detail{max-width:calc(100vw - 32px)!important}.development-advanced-body{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.development-advanced-body .development-actions{margin-top:20px;justify-content:flex-end}.development-advanced-body label{display:block;margin:10px 0}
 .el-popover.development-detail{padding:18px 20px;border-radius:12px;box-shadow:0 12px 36px #1e293b26}.development-detail>.el-popover__title{font-size:12px;color:#8491a3;margin-bottom:12px}.development-detail-body{height:min(560px,calc(100vh - 140px));max-height:560px;padding-right:8px;scrollbar-gutter:stable;overflow-y:auto;overflow-wrap:anywhere}.development-detail-body .el-descriptions__content{white-space:pre-wrap;overflow-wrap:anywhere}.development-detail-body small{display:block;color:var(--el-text-color-secondary)}.history-line{padding:8px 0;border-bottom:1px solid var(--el-border-color-light)}

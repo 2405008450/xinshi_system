@@ -115,7 +115,7 @@ def test_options_default_is_current_hong_kong_date(monkeypatch):
     monkeypatch.setattr(router, 'user_has_permission', lambda *args: False)
     db = MagicMock()
     db.query.return_value.filter.return_value.order_by.return_value = []
-    result = router.options(db, SimpleNamespace(id=uuid4()))
+    result = router.options(db, SimpleNamespace(id=uuid4(), is_active=True))
     assert result['default_date'] == '2026-10-26'
 
 

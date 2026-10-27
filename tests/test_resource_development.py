@@ -245,7 +245,7 @@ def test_record_name_duplicates_api_permissions_and_validation(db, context):
     app.dependency_overrides[get_current_user] = lambda: user
     with TestClient(app) as client:
         with patch("routers.auth.get_user_permission_codes", return_value=["talents:read"]):
-            assert client.get("/resource-development/record-duplicates", params={"full_name": name}).status_code == 403
+            assert client.get("/resource-development/record-duplicates", params={"full_name": name}).status_code == 200
         with patch("routers.auth.get_user_permission_codes", return_value=["talents:write"]):
             result = client.get("/resource-development/record-duplicates", params={"full_name": name})
             assert result.status_code == 200 and result.json()["total"] == 1
@@ -367,9 +367,8 @@ def test_independent_progress_preserves_history_and_does_not_enroll(db, context)
     assert detail['progress']['project']['operator_name'] == other.full_name
     assert detail['latest_follow_up'] == '' and detail['follow_up_count'] == 0
     assert len(detail['actions']) == 4
-    with pytest.raises(HTTPException) as error:
-        save_record(db, other, updated.model_copy(update={'revision': row.revision}))
-    assert error.value.status_code == 403
+    save_record(db, other, updated.model_copy(update={'revision': row.revision}))
+    assert serialize_record(db, other, row)['can_edit']
 
 
 def test_delegate_permission_is_module_scoped_and_preserves_owner(db, context):
@@ -402,8 +401,8 @@ def test_delegate_permission_is_module_scoped_and_preserves_owner(db, context):
     assert error.value.status_code == 403
     db.query(RolePermission).filter_by(role_id=role.id).delete(); db.flush()
     assert serialize_record(db, user, row)['phone'] == '******'
-    with pytest.raises(HTTPException):
-        save_record(db, user, payload.model_copy(update={'revision': row.revision}))
+    save_record(db, user, payload.model_copy(update={'revision': row.revision}))
+    assert row.phone == '13977774321'
 
 
 def test_column_filters_combine_and_match_latest_progress(db, context):
@@ -730,10 +729,10 @@ def test_group_quick_action_permissions_conflict_and_idempotency(db, context):
     row = save_record(db, user, make_payload(context))
     payload = GroupActionWrite(id=uuid4(), revision=row.revision, channel='group_large', status='已发码')
     with patch('resource_development_service.can_delegate', return_value=False):
-        with pytest.raises(HTTPException) as exc:
-            write_group_action(row.id, payload, db, other)
-        assert exc.value.status_code == 403
-    result = write_group_action(row.id, payload, db, user)
+        result = write_group_action(row.id, payload, db, other)
+    assert result['contact_restricted']
+    # 同一操作 UUID 的幂等重试仍要求原保存人。
+    user = other
     assert result['progress']['group_large']['status'] == '已发码'
     assert len(write_group_action(row.id, payload, db, user)['actions']) == 1
     with pytest.raises(HTTPException) as exc:

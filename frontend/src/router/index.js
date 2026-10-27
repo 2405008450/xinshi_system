@@ -227,7 +227,7 @@ const routes = [
             path: 'resource-development',
             name: 'ResourceDevelopment',
             component: () => import('../views/resource/ResourceDevelopment.vue'),
-            meta: { title: '资源开拓', roles: ['*'], permissions: ['projects:read', 'talents:read', 'talents:write', 'translators:read', 'translators:write', 'resource_development:delegate'] }
+            meta: { title: '资源开拓', roles: ['*'] }
           },
           {
             path: 'resource-channels',
@@ -457,12 +457,12 @@ router.beforeEach(async (to, from, next) => {
     try {
       access = await refreshIssueAccess(true)
     } catch {
-      // 开拓权限接口不可用时，需求入口仍可按自身读取权限访问。
+      // 问题权限接口不可用时，日常开拓仍对已登录用户开放。
       access = { can_resource: false, can_enter: false }
     }
     const section = resolveDevelopmentSection(to.query.section, {
       canRequests: hasPermission('projects:read'),
-      canResource: access.can_resource,
+      canResource: true,
       canIssues: access.can_enter,
     })
     if (!section) { next(getDefaultRoute()); return }

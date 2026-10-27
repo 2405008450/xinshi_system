@@ -4,6 +4,7 @@ import re
 from datetime import date, datetime
 from uuid import UUID, uuid4
 from typing import Literal
+from business_time import business_now, business_iso
 from fastapi import HTTPException
 from pydantic import Field, StrictInt
 from sqlalchemy.dialects.postgresql import insert
@@ -11,7 +12,7 @@ from interpretation_models import InterpretationLanguage
 from language_catalog import normalize_language_search_text
 from resource_development_models import DevelopmentFriendDaily as Daily, DevelopmentAudit as Audit
 from resource_development_schemas import CleanModel
-from resource_development_service import audit, snapshot, user_name, can_delegate, lock_writes
+from resource_development_service import audit, snapshot, user_name, can_delegate, require_daily_editor, lock_writes
 from talent_overview_models import TalentOverviewSnapshot
 from talent_overview_service import get_talent_overview, load_talent_overview_data, _storage_payload, resolve_overview_for_language, _validate_language_identifiers
 
@@ -62,7 +63,7 @@ def get_options(db, user):
         matched, mode = resolve_overview_for_language(l, data=data)
         languages.append({'id': str(l.id), 'label': l.label, 'language_type': l.language_type,
                           'overview_key': matched['overview_key'] if matched else '', 'overview_label': matched['language'] if matched else '', 'match_type': mode})
-    return {'accounts': accounts(data), 'languages': languages, 'overview_rows': [{'key': r['overview_key'], 'label': r['language']} for r in data['rows']], 'can_write': can_delegate(db, user)}
+    return {'accounts': accounts(data), 'languages': languages, 'overview_rows': [{'key': r['overview_key'], 'label': r['language']} for r in data['rows']], 'can_write': bool(user.is_active), 'can_configure': can_delegate(db, user)}
 
 
 def totals(rows):
@@ -71,10 +72,10 @@ def totals(rows):
 
 def serialize(db, row, day, user, detail=True):
     result = {'work_date': day.isoformat(), 'revision': row.revision if row else 0, 'rows': row.rows if row else [],
-              'totals': totals(row.rows if row else []), 'updated_at': row.updated_at if row else None,
-              'updated_by_name': user_name(db, row.updated_by) if row else '', 'can_write': can_delegate(db, user)}
+              'totals': totals(row.rows if row else []), 'updated_at': business_iso(row.updated_at) if row else None,
+              'updated_by_name': user_name(db, row.updated_by) if row else '', 'can_write': bool(user.is_active), 'can_configure': can_delegate(db, user)}
     if detail:
-        result['audit'] = [{'at': x.created_at, 'actor': user_name(db, x.actor_id), 'totals': totals(x.after.get('rows', []))} for x in db.query(Audit).filter_by(entity_id=row.id).order_by(Audit.created_at.desc())] if row else []
+        result['audit'] = [{'at': business_iso(x.created_at), 'actor': user_name(db, x.actor_id), 'totals': totals(x.after.get('rows', []))} for x in db.query(Audit).filter_by(entity_id=row.id).order_by(Audit.created_at.desc())] if row else []
     return result
 
 
@@ -106,7 +107,7 @@ def add_account(db, user, payload):
 
 
 def save_daily(db, user, day, payload):
-    require_writer(db, user); lock_writes(db)
+    require_daily_editor(user); lock_writes(db)
     old = db.query(Daily).filter_by(work_date=day).with_for_update().one_or_none()
     # 修订号阻止整日表单被其他人的旧草稿覆盖；重复提交不重复记账。
     if (old.revision if old else 0) != payload.revision:
@@ -185,9 +186,9 @@ def save_daily(db, user, day, payload):
         target['counts'][ck] = value; target['updated_at'] = max(target.get('updated_at') or '', day.isoformat())
     before = snapshot(old) if old else None
     row = old or Daily(id=uuid4(), work_date=day, created_by=user.id, revision=0)
-    row.rows = normalized_rows; row.applied = applied; row.revision += 1; row.updated_by = user.id; row.updated_at = datetime.now()
+    row.rows = normalized_rows; row.applied = applied; row.revision += 1; row.updated_by = user.id; row.updated_at = business_now()
     if not old: db.add(row)
-    snap.payload = data; snap.revision += 1; snap.updated_by = user.id; snap.updated_at = datetime.now()
+    snap.payload = data; snap.revision += 1; snap.updated_by = user.id; snap.updated_at = business_now()
     audit(db, user, row, 'update' if old else 'create', before)
     db.flush()
     return row

@@ -23,7 +23,7 @@
         </div>
         <div class="friend-grid-toolbar"><el-button v-if="options.can_write" :disabled="saving || loading" @click="addLine">＋ 增加语种行</el-button><span>Tab 横向填写，Enter 向下填写；可粘贴连续账号人数（不含小计）。</span></div>
       </AppForm>
-      <el-popover v-if="options.can_write" v-model:visible="accountVisible" trigger="click" placement="top-start" :width="340" popper-class="friend-account-popover"><template #reference><el-button link type="primary">新增微信 / 企微账号</el-button></template>
+      <el-popover v-if="options.can_configure" v-model:visible="accountVisible" trigger="click" placement="top-start" :width="340" popper-class="friend-account-popover"><template #reference><el-button link type="primary">新增微信 / 企微账号</el-button></template>
         <AppForm ref="accountFormRef" :model="newAccount" :rules="{ name: required('请填写账号名') }" label-position="top"><el-form-item label="账号类型"><el-radio-group v-model="newAccount.channel"><el-radio value="wechat">微信</el-radio><el-radio value="enterprise">企微</el-radio></el-radio-group></el-form-item><el-form-item label="账号名" prop="name"><el-input v-model="newAccount.name" maxlength="60" placeholder="例如 HR7" @keyup.enter="createAccount" /></el-form-item></AppForm><p class="friend-daily-hint">同步增加人才概览对应账号列，已有账号不会重复创建。</p><el-button type="primary" :loading="accountSaving" @click="createAccount">新增账号</el-button>
       </el-popover>
       <p class="friend-daily-hint" v-if="updated">最近更新：{{ updated.name }} · {{ formatTime(updated.at) }}</p>

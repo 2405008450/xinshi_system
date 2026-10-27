@@ -1,10 +1,10 @@
 <template>
   <div class="arrangement-panel">
-    <DevelopmentDemandPanel ref="demandRef" @saved="saved" @changed="load(false)" />
+    <DevelopmentDemandPanel v-if="hasPermission('projects:read')" ref="demandRef" @saved="saved" @changed="load(false)" />
     <div class="development-filters search-bar">
       <el-date-picker v-model="range" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" :clearable="false" @change="query" />
       <el-button type="primary" @click="query">查询</el-button><el-button @click="selectTomorrow">明天</el-button>
-      <template v-if="options.can_delegate"><el-date-picker v-model="editDate" value-format="YYYY-MM-DD" :clearable="false" aria-label="新增或编辑安排日期" /><el-button @click="openDate">明天/第二天</el-button><el-button @click="carry">沿用最近一次安排</el-button><el-button @click="emit('add-platform')">增加平台</el-button></template>
+      <template v-if="options.can_write"><el-date-picker v-model="editDate" value-format="YYYY-MM-DD" :clearable="false" aria-label="新增或编辑安排日期" /><el-button @click="openDate">明天/第二天</el-button><el-button @click="carry">沿用最近一次安排</el-button><el-button v-if="options.can_configure" @click="emit('add-platform')">增加平台</el-button></template>
     </div>
     <p class="muted">每个账号每天一位负责人，多个语种和岗位统一确认完成；已完成表示当天安排已执行。沿用后可调整，保存才生效。</p>
     <div v-loading="loading">
@@ -15,7 +15,7 @@
             <div class="arrangement-day-heading">
               <strong>{{ chineseDate(day.work_date) }}</strong>
               <el-tag size="small" :type="day.revision ? 'success' : 'info'" effect="plain">{{ day.revision ? '已保存' : '尚未保存' }}</el-tag>
-              <el-button v-if="options.can_delegate" link type="primary" @click.stop="edit(day)">编辑当日</el-button>
+              <el-button v-if="options.can_write" link type="primary" @click.stop="edit(day)">编辑当日</el-button>
             </div>
           </template>
           <p class="arrangement-day-remarks">每日备注：{{ day.remarks || '-' }}</p>
@@ -41,7 +41,7 @@
               </template>
             </el-table-column>
             <el-table-column label="详情" width="80" fixed="right"><template #default="{row}"><DevelopmentArrangementDetail v-if="!row.empty" :day="day" :account="row" :options="options" /></template></el-table-column>
-            <el-table-column label="操作" width="90" fixed="right"><template #default="{row}"><el-button v-if="!row.empty && !row.placeholder && (options.can_delegate || canEdit(row.cell))" link type="primary" @click="edit(day, row.id)">编辑安排</el-button><span v-else-if="!row.empty" class="muted">-</span></template></el-table-column>
+            <el-table-column label="操作" width="90" fixed="right"><template #default="{row}"><el-button v-if="!row.empty && !row.placeholder && (options.can_write || canEdit(row.cell))" link type="primary" @click="edit(day, row.id)">编辑安排</el-button><span v-else-if="!row.empty" class="muted">-</span></template></el-table-column>
           </el-table>
         </el-collapse-item>
       </el-collapse>
@@ -54,6 +54,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { developmentApi as api } from '@/api/resourceDevelopment'
+import { hasPermission } from '@/utils/permission'
 import { arrangementTargetKey, arrangementToday, arrangementTomorrow, arrangementChineseDate as chineseDate, arrangementChineseTime as chineseTime, groupArrangementAccounts, arrangementTableRows, arrangementTableSpan } from '@/utils/resourceArrangements'
 import DevelopmentArrangementEditor from './DevelopmentArrangementEditor.vue'
 import DevelopmentArrangementDetail from './DevelopmentArrangementDetail.vue'

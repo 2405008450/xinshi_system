@@ -16,7 +16,7 @@ from resource_arrangement_service import (
 )
 
 router = APIRouter()
-write = Depends(require_any_permission('talents:write', 'translators:write', 'resource_development:delegate'))
+write = Depends(get_current_user)
 
 
 @router.get('/arrangement-requests')

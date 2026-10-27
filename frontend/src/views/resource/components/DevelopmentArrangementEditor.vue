@@ -18,7 +18,7 @@
                 <small class="muted"><el-icon><MagicStick /></el-icon> 从平台情况说明自动带出（只读），可记录年付情况、赠送额度及使用规则。</small>
               </el-form-item>
               <el-form-item label="负责人" :prop="`cells.${index}.owner_id`">
-                <el-select v-model="cell.owner_id" clearable filterable :disabled="!options.can_delegate" placeholder="暂未分配">
+                <el-select v-model="cell.owner_id" clearable filterable :disabled="!options.can_write" placeholder="暂未分配">
                   <el-option v-for="person in ownerOptions(cell)" :key="person.id" :label="person.name" :value="person.id" :disabled="person.inactive" />
                 </el-select>
               </el-form-item>
@@ -67,7 +67,7 @@
             </section>
           </section>
         </section>
-        <el-form-item v-if="wholeDay && options.can_delegate" label="每日备注" prop="remarks"><el-input v-model="form.remarks" type="textarea" :rows="3" maxlength="20000" /></el-form-item>
+        <el-form-item v-if="wholeDay && options.can_write" label="每日备注" prop="remarks"><el-input v-model="form.remarks" type="textarea" :rows="3" maxlength="20000" /></el-form-item>
       </AppForm>
     </div>
     <template #footer><el-button :disabled="saving" @click="beforeClose(() => visible = false)">取消</el-button><el-button type="primary" :loading="saving" :disabled="conflict" @click="save">保存</el-button></template>
@@ -153,7 +153,7 @@ async function save() {
     await refreshTargets()
     const previous = new Map(originalDay.cells.map(c => [c.platform_id, c]))
     const cells = form.cells.filter(c => form.carried_from || arrangementCellChanged(c, previous.get(c.platform_id))).map(arrangementCellPayload)
-    const payload = { revision: form.revision, cells, ...(form.carried_from ? { carried_from:form.carried_from } : {}), ...(wholeDay.value && props.options.can_delegate ? { remarks:form.remarks } : {}) }
+    const payload = { revision: form.revision, cells, ...(form.carried_from ? { carried_from:form.carried_from } : {}), ...(wholeDay.value && props.options.can_write ? { remarks:form.remarks } : {}) }
     const day = await api.saveArrangement(form.work_date, payload)
     visible.value = false; emit('saved', day); ElMessage.success('每日安排已保存')
   } catch (e) {

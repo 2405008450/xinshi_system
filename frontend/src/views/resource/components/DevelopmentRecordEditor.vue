@@ -9,7 +9,7 @@
         <div class="development-form-grid">
           <el-form-item label="开拓平台" prop="platform_id"><el-select v-model="form.platform_id" filterable><el-option-group v-for="group in categoryOptions" :key="group.value" :label="group.label"><el-option v-for="p in platforms.filter(p => p.category === group.value)" :key="p.id" :label="p.name" :value="p.id" /></el-option-group></el-select></el-form-item>
           <el-form-item label="日期" prop="work_date"><el-date-picker v-model="form.work_date" value-format="YYYY-MM-DD" :clearable="false" /></el-form-item>
-          <el-form-item label="开拓人员" prop="owner_id"><el-select v-model="form.owner_id" filterable :disabled="!options.can_delegate"><el-option v-for="u in options.users" :key="u.id" :label="u.name" :value="u.id" /></el-select></el-form-item>
+          <el-form-item label="开拓人员" prop="owner_id"><el-select v-model="form.owner_id" filterable :disabled="restricted"><el-option v-for="u in options.users" :key="u.id" :label="u.name" :value="u.id" /></el-select></el-form-item>
           <el-form-item label="交换账号"><el-select v-model="form.account_id" clearable filterable @clear="form.account_id = null"><el-option v-for="a in accounts" :key="a.id" :label="a.name" :value="a.id" /></el-select></el-form-item>
           <el-form-item label="加微账号" prop="friend_accounts"><CompanyWechatAccountSelect v-model="form.friend_accounts" /></el-form-item>
         </div>
@@ -45,16 +45,16 @@
           <el-form-item label="资源语种/方言" class="wide">
             <div class="development-language-field">
               <el-select v-model="form.language_ids" multiple filterable><el-option v-for="l in languageOptions" :key="l.id" :label="`${l.label}${l.language_type === 'dialect' ? '（方言）' : ''}`" :value="l.id" /></el-select>
-              <el-button v-if="options.can_write" @click="languageDialogRef.open()">增加语言/方言</el-button>
+              <el-button v-if="options.can_configure" @click="languageDialogRef.open()">增加语言/方言</el-button>
             </div>
           </el-form-item>
-          <el-form-item label="资源手机" prop="phone"><el-input v-model="form.phone" maxlength="100" /></el-form-item>
-          <el-form-item label="资源 WhatsApp 号" prop="whatsapp"><el-input v-model="form.whatsapp" maxlength="100" /></el-form-item>
-          <el-form-item label="资源微信号" prop="wechat"><el-input v-model="form.wechat" maxlength="100" /></el-form-item>
-          <el-form-item label="资源小红书号" prop="xiaohongshu"><el-input v-model="form.xiaohongshu" maxlength="100" /></el-form-item>
-          <div class="wide"><DevelopmentResourceAccounts v-model="form.custom_accounts" /></div>
-          <el-form-item v-for="field in customFieldOptions" :key="field.id" :label="field.name" :prop="['custom_fields',field.id]"><el-input v-model="form.custom_fields[field.id]" maxlength="20000" /></el-form-item>
-          <div class="wide"><el-button v-if="options.can_write" @click="customFieldDialogRef.open()">增加自定义字段</el-button></div>
+          <el-form-item label="资源手机" prop="phone"><ReadonlyField v-if="restricted" :model-value="'无权查看或修改'" source="locked" /><el-input v-else v-model="form.phone" maxlength="100" /></el-form-item>
+          <el-form-item label="资源 WhatsApp 号" prop="whatsapp"><ReadonlyField v-if="restricted" :model-value="'无权查看或修改'" source="locked" /><el-input v-else v-model="form.whatsapp" maxlength="100" /></el-form-item>
+          <el-form-item label="资源微信号" prop="wechat"><ReadonlyField v-if="restricted" :model-value="'无权查看或修改'" source="locked" /><el-input v-else v-model="form.wechat" maxlength="100" /></el-form-item>
+          <el-form-item label="资源小红书号" prop="xiaohongshu"><ReadonlyField v-if="restricted" :model-value="'无权查看或修改'" source="locked" /><el-input v-else v-model="form.xiaohongshu" maxlength="100" /></el-form-item>
+          <div class="wide"><ReadonlyField v-if="restricted" :model-value="'自定义联系方式受限'" source="locked" /><DevelopmentResourceAccounts v-else v-model="form.custom_accounts" /></div>
+          <el-form-item v-for="field in customFieldOptions" :key="field.id" :label="field.name" :prop="['custom_fields',field.id]"><ReadonlyField v-if="restricted" :model-value="'受限内容'" source="locked" /><el-input v-else v-model="form.custom_fields[field.id]" maxlength="20000" /></el-form-item>
+          <div class="wide"><el-button v-if="options.can_configure" @click="customFieldDialogRef.open()">增加自定义字段</el-button></div>
         </div>
         </template>
         <h3>跟进进展</h3>
@@ -63,11 +63,11 @@
         <div v-for="(action, index) in form.actions" v-show="!quickMode || !savedActionIds.includes(action.id)" :key="action.id" class="development-action" data-dialog-field-search-group>
           <div data-dialog-field-search-group-title>操作 {{ index + 1 }}<span v-if="action.request_number"> · 第 {{ action.request_number }} 次请求</span></div>
           <div class="development-form-grid">
-            <el-form-item label="跟进类型" :prop="`actions.${index}.channel`" :rules="required('请选择跟进类型')"><el-select v-model="action.channel" :disabled="isGroupChannel(action.channel) && savedActionIds.includes(action.id)" @change="changeActionChannel(action)"><el-option v-for="(label, value) in progressChannels" :key="value" :label="label" :value="value" /></el-select></el-form-item>
-            <el-form-item label="跟进状态" :prop="`actions.${index}.status`" :rules="required('请选择跟进状态')"><ReadonlyField v-if="isGroupChannel(action.channel) && savedActionIds.includes(action.id)" :model-value="action.status" source="auto" /><el-select v-else v-model="action.status" filterable :allow-create="!isGroupChannel(action.channel)" default-first-option><el-option v-for="s in progressStatuses(action.channel)" :key="s" :label="s" :value="s" /></el-select></el-form-item>
-            <el-form-item label="操作日期" :prop="`actions.${index}.action_date`" :rules="required('请选择操作日期')"><ReadonlyField v-if="isGroupChannel(action.channel)" :model-value="action.action_date" source="auto" /><el-date-picker v-else v-model="action.action_date" value-format="YYYY-MM-DD" /></el-form-item>
-            <el-form-item label="操作人员" :prop="`actions.${index}.operator_id`" :rules="required('请选择操作人员')"><ReadonlyField v-if="isGroupChannel(action.channel)" :model-value="options.users.find(u => u.id === action.operator_id)?.name || action.operator_name || '-'" source="auto" /><el-select v-else v-model="action.operator_id" filterable><el-option v-for="u in options.users" :key="u.id" :label="u.name" :value="u.id" /></el-select></el-form-item>
-            <el-form-item label="操作账号"><el-select v-model="action.account_id" :disabled="isGroupChannel(action.channel) && savedActionIds.includes(action.id)" clearable filterable @clear="action.account_id = null"><el-option v-for="a in accounts" :key="a.id" :label="a.name" :value="a.id" /></el-select></el-form-item>
+            <el-form-item label="跟进类型" :prop="`actions.${index}.channel`" :rules="required('请选择跟进类型')"><el-select v-model="action.channel" :disabled="(restricted || isGroupChannel(action.channel)) && savedActionIds.includes(action.id)" @change="changeActionChannel(action)"><el-option v-for="(label, value) in progressChannels" :key="value" :label="label" :value="value" /></el-select></el-form-item>
+            <el-form-item label="跟进状态" :prop="`actions.${index}.status`" :rules="required('请选择跟进状态')"><ReadonlyField v-if="isGroupChannel(action.channel) && savedActionIds.includes(action.id)" :model-value="action.status" source="auto" /><el-select v-else :disabled="restricted && savedActionIds.includes(action.id)" v-model="action.status" filterable :allow-create="!restricted && !isGroupChannel(action.channel)" default-first-option><el-option v-for="s in progressStatuses(action.channel)" :key="s" :label="s" :value="s" /></el-select></el-form-item>
+            <el-form-item label="操作日期" :prop="`actions.${index}.action_date`" :rules="required('请选择操作日期')"><ReadonlyField v-if="isGroupChannel(action.channel)" :model-value="action.action_date" source="auto" /><el-date-picker v-else :disabled="restricted && savedActionIds.includes(action.id)" v-model="action.action_date" value-format="YYYY-MM-DD" /></el-form-item>
+            <el-form-item label="操作人员" :prop="`actions.${index}.operator_id`" :rules="required('请选择操作人员')"><ReadonlyField v-if="isGroupChannel(action.channel)" :model-value="options.users.find(u => u.id === action.operator_id)?.name || action.operator_name || '-'" source="auto" /><el-select v-else :disabled="restricted && savedActionIds.includes(action.id)" v-model="action.operator_id" filterable><el-option v-for="u in options.users" :key="u.id" :label="u.name" :value="u.id" /></el-select></el-form-item>
+            <el-form-item label="操作账号"><el-select v-model="action.account_id" :disabled="(restricted || isGroupChannel(action.channel)) && savedActionIds.includes(action.id)" clearable filterable @clear="action.account_id = null"><el-option v-for="a in accounts" :key="a.id" :label="a.name" :value="a.id" /></el-select></el-form-item>
           </div>
           <el-button v-if="!savedActionIds.includes(action.id)" text type="danger" @click="form.actions.splice(index, 1)">移除此条未保存操作</el-button>
           <small v-else class="muted">录入：{{ action.created_by_name }}；最近修改：{{ action.updated_by_name }}</small>
@@ -97,7 +97,7 @@
         <el-alert v-if="versionConflict" type="warning" :closable="false" title="记录已变化，草稿已保留。重新加载最新资料后再保存；其他未保存的资料和状态修改将被重新加载替换。">
           <el-button :loading="saving" @click="reloadWithDrafts">重新加载（保留文字草稿）</el-button>
         </el-alert>
-        <el-form-item v-if="!quickMode" label="备注"><el-input v-model="form.remarks" type="textarea" :rows="5" maxlength="20000" /></el-form-item>
+        <el-form-item v-if="!quickMode" label="备注"><ReadonlyField v-if="restricted" :model-value="'受限内容'" source="locked" /><el-input v-else v-model="form.remarks" type="textarea" :rows="5" maxlength="20000" /></el-form-item>
       </AppForm>
     </div>
     <template #footer><span class="muted">Ctrl / ⌘ + Enter：{{ form.revision ? '保存' : '保存并继续新增' }}</span><el-button :disabled="saving" @click="visible = false">取消</el-button><el-button v-if="!form.revision" type="primary" :loading="saving" @click="save(true)">保存并继续新增</el-button><el-button :type="form.revision ? 'primary' : 'default'" :loading="saving" @click="save(false)">保存</el-button></template>
@@ -149,6 +149,7 @@ const historicalOnly = ref(false), originalActions = ref([])
 const greetingNo = ref(''), personId = ref(null), resourceCode = ref(''), savedActionIds = ref([]), nameCandidates = ref([])
 const { fieldSearchRef, fieldSearchKeyword, fetchFieldSuggestions, locateDialogField, locateDialogFieldByLabel, clearFieldSearch } = useDialogFieldSearch(bodyRef)
 const empty = () => ({ id: newDevelopmentId(), revision: 0, platform_id: '', work_date: dateText(new Date()), owner_id: props.options.user_id, full_name: '', account_id: null, friend_accounts: [], phone: '', wechat: '', xiaohongshu: '', whatsapp: '', custom_accounts: [], custom_fields: {}, language_ids: [], follow_up: '', follow_ups: [], remarks: '', actions: [], capabilities: [], link_person_id: null, duplicate_note: '' })
+const restricted = ref(false)
 const form = reactive(empty())
 const recordCandidates = ref([]), recordTotal = ref(0), recordPage = ref(1), recordChecking = ref(false), recordCheckFailed = ref(false), recordPopover = ref(false)
 let recordTimer, recordController, recordSequence = 0, recordQueryKey = ''
@@ -216,6 +217,7 @@ async function reloadWithDrafts() {
 }
 async function open(row, channel, status) {
   const data = row ? await api.detail(row.id) : null
+  restricted.value = Boolean(data?.contact_restricted)
   Object.assign(form, empty()); nameCandidates.value = []; clearFieldSearch(); checkSequence++
   if (!data) Object.assign(form, readBatch(), { work_date: dateText(new Date()) })
   if (data) for (const key of Object.keys(form)) if (key !== 'follow_ups' && key in data) form[key] = data[key]

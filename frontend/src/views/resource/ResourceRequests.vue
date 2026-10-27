@@ -118,11 +118,11 @@
             <span v-else-if="column.key === 'arrangedPlatforms'">{{ [...new Set((row.arrangements || []).map(item => item.platformName))].join('、') || '暂未安排' }}</span>
           </template>
         </el-table-column>
-        <el-table-column v-if="(canWrite || (arrangementMode && arrangementOptions.can_delegate)) && !deleteMode" label="操作" width="160" fixed="right" align="center">
+        <el-table-column v-if="(canWrite || (arrangementMode && canArrangeExisting)) && !deleteMode" label="操作" width="160" fixed="right" align="center">
           <template #default="{ row }">
             <PrimaryEditButton v-if="canWrite" @click="openEditor(row)" />
             <el-button v-if="!arrangementMode" link type="primary" :disabled="row.demandStatus === 'paused'" @click="openProgress(row)">更新进度</el-button>
-            <el-button v-else-if="arrangementOptions.can_delegate" link type="primary" :disabled="row.demandStatus !== 'confirmed' || row.requestStatus === 'cancelled' || arranging" @click="openRowArrangement(row)">每日安排</el-button>
+            <el-button v-else-if="canArrangeExisting" link type="primary" :disabled="row.demandStatus !== 'confirmed' || row.requestStatus === 'cancelled' || arranging" @click="openRowArrangement(row)">每日安排</el-button>
           </template>
         </el-table-column>
       </OrderedTableColumns>
@@ -391,7 +391,8 @@ const lifecycleRules = { reason: [{ max: 500, message: '暂停原因不能超过
 const arranging = ref(false)
 const arrangementVisible = ref(false)
 const arrangementRef = ref(null)
-const arrangementOptions = reactive({ options: [], arrangement_platforms: [], can_delegate: false })
+const arrangementOptions = reactive({ options: [], arrangement_platforms: [], can_delegate: false, can_write: false })
+const canArrangeExisting = computed(() => props.arrangementMode ? arrangementOptions.can_write : arrangementOptions.can_delegate)
 const editorBusy = computed(() => dispatchBusy.value || saving.value || sending.value || cancelling.value || arranging.value || arrangementVisible.value || lifecycleDialog.value || lifecycleSaving.value)
 const autoSaveState = ref('idle')
 const lastAutoSavedAt = ref('')
@@ -903,7 +904,7 @@ const submitLifecycleChange = async () => {
 }
 
 const loadArrangementOptions = async () => {
-  if ((!canWrite && !props.arrangementMode) || !hasPermission(['talents:read', 'talents:write', 'translators:read', 'translators:write', 'resource_development:delegate'])) {
+  if (!props.arrangementMode && (!canWrite || !hasPermission(['talents:read', 'talents:write', 'translators:read', 'translators:write', 'resource_development:delegate']))) {
     arrangementOptions.can_delegate = false
     return
   }
@@ -943,7 +944,7 @@ const openRowArrangement = async (row) => {
   arranging.value = true
   try {
     await loadArrangementOptions()
-    if (!arrangementOptions.can_delegate) throw new Error('当前账号没有资源安排权限')
+    if (!canArrangeExisting.value) throw new Error('当前账号没有资源安排权限')
     const request = await developmentApi.arrangementRequest(row.id)
     await arrangementRef.value.open(request, arrangementTomorrow())
   } catch (error) { ElMessage.error(getLocalizedErrorMessage(error, '打开每日安排失败，请重试')) }

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, load_only, selectinload
 from interpretation_models import InterpretationLanguage
 from models import AppUser, Client, SubClient
 from resource_development_models import DevelopmentArrangement as Day, DevelopmentArrangementCell as Cell, DevelopmentOption as Option
-from resource_development_service import active_user, can_delegate, lock_writes, snapshot, user_name
+from resource_development_service import active_user, require_daily_editor, lock_writes, snapshot, user_name
 from resource_arrangement_audit import audit, cell_operations, cell_history
 from resource_request_models import ResourceRequest
 from resource_request_service import SOURCE_MODELS, _request_options
@@ -252,8 +252,7 @@ def arrangement_request_detail(db, request_id):
 def assign_request(db, user, request_id, work_date, payload):
     from resource_development_schemas import ArrangementWrite
     from resource_channel_service import arrangement_platforms
-    if not can_delegate(db, user):
-        raise HTTPException(403, '分配项目需求需要资源开拓代录权限')
+    require_daily_editor(user)
     lock_writes(db)
     day = get_day(db, work_date, locked=True)
     check_day_revision(day, payload.revision)
@@ -353,7 +352,7 @@ def serialize_cell(db, cell, user, operations=None):
             projects.setdefault(project_key(target['project']), deepcopy(target['project']))
     result['manual_projects'] = deepcopy(cell.projects)
     result['projects'] = list(projects.values())
-    result['can_edit'] = can_delegate(db, user) or cell.owner_id == user.id
+    result['can_edit'] = bool(user.is_active)
     result['operations'] = operations or {'created': None, 'edited': None, 'status': None}
     return result
 
@@ -365,7 +364,7 @@ def read_arrangement(db, user, work_date, day=None):
     return {'work_date': work_date.isoformat(), 'revision': day.revision if day else 0,
             'remarks': day.remarks if day else '', 'updated_at': business_iso(day.updated_at) if day else None,
             'updated_by_name': user_name(db, day.updated_by) if day else '',
-            'can_manage': can_delegate(db, user),
+            'can_manage': bool(user.is_active),
             'cells': [serialize_cell(db, cell, user, operations.get(cell.id)) for cell in cells]}
 
 
@@ -417,8 +416,7 @@ def arrangement_options(db, source_type=None, keyword=None):
 
 
 def carry_preview(db, user, work_date):
-    if not can_delegate(db, user):
-        raise HTTPException(403, '沿用整日安排需要资源开拓代录权限')
+    require_daily_editor(user)
     if get_day(db, work_date):
         raise HTTPException(409, '该日期已有安排，不能被沿用操作覆盖')
     source = db.query(Day).filter(Day.work_date < work_date).order_by(Day.work_date.desc()).first()
@@ -534,14 +532,10 @@ def save_arrangement(db: Session, user, work_date, payload):
     lock_writes(db)
     day = get_day(db, work_date, locked=True)
     check_day_revision(day, payload.revision)
-    manager = can_delegate(db, user)
-    if not day and not manager:
-        raise HTTPException(403, '新建整日安排需要资源开拓代录权限')
+    require_daily_editor(user)
     if payload.carried_from:
-        if not manager or day or payload.carried_from >= work_date or not get_day(db, payload.carried_from):
+        if day or payload.carried_from >= work_date or not get_day(db, payload.carried_from):
             raise HTTPException(409, '沿用来源或目标日期已发生变化，请重新加载')
-    if payload.remarks is not None and not manager and payload.remarks != day.remarks:
-        raise HTTPException(403, '每日备注仅由统筹人员维护')
     if not day:
         day = Day(work_date=work_date, remarks='', revision=1, created_by=user.id, updated_by=user.id)
         db.add(day)
@@ -556,8 +550,6 @@ def save_arrangement(db: Session, user, work_date, payload):
         platform = db.get(Option, value.platform_id)
         if not platform or platform.kind != 'platform':
             raise HTTPException(422, '请选择有效的开拓平台账号')
-        if not manager and (not cell or cell.owner_id != user.id or value.owner_id != cell.owner_id):
-            raise HTTPException(403, '只能维护本人被分配的账号，不能转交负责人')
         if value.owner_id and (not cell or value.owner_id != cell.owner_id):
             owner = active_user(db, value.owner_id)
             owner_label = owner.full_name or owner.username
@@ -606,8 +598,7 @@ def complete_arrangement(db, user, work_date, platform_id, payload):
     cell = db.query(Cell).filter_by(arrangement_id=day.id, platform_id=platform_id).one_or_none()
     if not cell:
         raise HTTPException(404, '该账号尚未保存安排')
-    if not can_delegate(db, user) and cell.owner_id != user.id:
-        raise HTTPException(403, '只能修改本人被分配账号的完成状态')
+    require_daily_editor(user)
     if payload.completed and not cell.owner_id:
         raise HTTPException(422, '请先分配负责人再标记完成')
     if cell.completed != payload.completed:
