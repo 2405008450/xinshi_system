@@ -112,4 +112,55 @@ const handleFocusModeChange = (value) => {
   height: 36px;
   font-size: 15px;
 }
+
+@media (max-width: 768px) {
+  .annotation-workspace--projects {
+    height: auto;
+    min-height: 0;
+  }
+
+  .workspace-navigation :deep(.el-card__body) {
+    padding: 0 8px;
+  }
+
+  .workspace-navigation :deep(.el-tabs__item) {
+    padding: 0 12px;
+    font-size: 14px;
+  }
+
+  /* 其余页签沿用桌面表格：取消粘性固定列，让表格在自身容器内整体横向滑动。 */
+  .annotation-workspace :deep(.el-table-fixed-column--left),
+  .annotation-workspace :deep(.el-table-fixed-column--right) {
+    position: static !important;
+    z-index: auto !important;
+    left: auto !important;
+    right: auto !important;
+  }
+
+  .annotation-workspace :deep(.el-card:not(.workspace-navigation) > .el-card__header) {
+    padding: 8px 10px;
+  }
+
+  .annotation-workspace :deep(.el-card:not(.workspace-navigation) > .el-card__body) {
+    padding: 10px;
+  }
+
+  .annotation-workspace :deep(:is(.search-bar, .filters, .search-area) > :is(.el-select, .el-input, .el-date-editor)) {
+    flex: 1 1 140px;
+    width: auto !important;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .annotation-workspace :deep(.el-pagination) {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;
+  }
+
+  .annotation-workspace :deep(.el-pagination__sizes),
+  .annotation-workspace :deep(.el-pagination__jump) {
+    display: none;
+  }
+}
 </style>

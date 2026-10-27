@@ -180,7 +180,7 @@ def run(legacy=False, verify_layout=None):
         page.wait_for_timeout(1500)
         page.screenshot(path=str(output / 'initial.png'), full_page=True)
         print(json.dumps(dict(url=page.url, errors=errors, requests=requests[-15:]), ensure_ascii=False), flush=True)
-        page.get_by_role('button', name='聊天大屏', exact=True).click()
+        page.locator('button[aria-label="会话"], button[aria-label="聊天大屏"]').first.click()
         workspace = page.locator('.chat-workspace-shell:visible')
         expect(workspace).to_be_visible()
         if verify_layout:
@@ -311,7 +311,7 @@ def run(legacy=False, verify_layout=None):
             page.locator('.chat-workspace__brand').click()
         # 分组选择跨刷新保存；另一账号仍保持独立的消息分组。
         page.reload()
-        page.get_by_role('button', name='聊天大屏', exact=True).click()
+        page.locator('button[aria-label="会话"], button[aria-label="聊天大屏"]').first.click()
         expect(workspace.locator('.chat-workspace__filter')).to_contain_text('我创建的')
         expect(workspace.locator('.chat-workspace__session')).to_have_count(1)
         expect(page2.locator('.chat-workspace__filter')).to_contain_text('消息')
@@ -410,7 +410,7 @@ def run(legacy=False, verify_layout=None):
         page.locator('.chat-window-state-menu:visible').get_by_role('button', name='全屏聊天').click()
         pane_button(workspace, '通讯录').click()
         page.reload()
-        page.get_by_role('button', name='聊天大屏', exact=True).click()
+        page.locator('button[aria-label="会话"], button[aria-label="聊天大屏"]').first.click()
         expect(pane_button(workspace, '通讯录')).to_have_attribute('aria-pressed', 'true')
         assert page.evaluate("localStorage.getItem('xinshi.chatPane.' + localStorage.getItem('user_id'))") == 'contacts'
         assert page2.evaluate("localStorage.getItem('xinshi.chatPane.' + localStorage.getItem('user_id'))") in (None, 'messages')

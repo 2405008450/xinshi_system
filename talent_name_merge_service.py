@@ -87,9 +87,9 @@ def list_groups(db, skip=0, limit=20):
             "created_at": business_iso(business_now())}
 
 
-def _automatic_request(members):
+def _automatic_request(members, preserve_language_roles=False):
     target = members[0]
-    _, _, conflicts = _merge_values(members, target, {})
+    _, _, conflicts = _merge_values(members, target, {}, preserve_language_roles)
     decisions = {}
     order = {str(person.id): index for index, person in enumerate(members)}
     for conflict in conflicts:
@@ -97,7 +97,7 @@ def _automatic_request(members):
         chosen = min(options, key=lambda row: order[row["person_id"]])
         decisions[conflict["key"]] = {"person_id": chosen["person_id"],
                                        **({"value_hash": chosen["value_hash"]} if "value_hash" in chosen else {})}
-    values, _, conflicts = _merge_values(members, target, decisions)
+    values, _, conflicts = _merge_values(members, target, decisions, preserve_language_roles)
     # 短字段不能装下拼接文本时保留优先来源原值，其余值继续在来源档案及日志中保留，绝不截断。
     for key, value in values.items():
         if "." in key:
@@ -115,7 +115,8 @@ def _automatic_request(members):
                 raise HTTPException(422, "来源资料超过字段容量，请先修正原档案")
             decisions[key] = {"person_id": str(chosen[0].id)}
     return DuplicateReviewRequest(action="merge", person_ids=[p.id for p in members], target_id=target.id,
-                                  decisions=decisions, note=f"按客户姓名规则批量合并（{RULE}）；冲突及原值保留在来源档案与逐字段日志。")
+                                  decisions=decisions, preserve_language_roles=preserve_language_roles,
+                                  note=f"按客户姓名规则批量合并（{RULE}）；冲突及原值保留在来源档案与逐字段日志。")
 
 
 def preview_group(db, request):

@@ -42,6 +42,7 @@
 </template>
 
 <script setup>
+import { chatFileCategory, chatFileMaxBytes, chatFileHint, chatFileSupported } from '@/utils/chatFileTypes'
 import { matchesSearch } from '@/utils/searchMatching'
 import ChatParticipantActions from './ChatParticipantActions.vue'
 import { chatOverlayZIndex } from '@/utils/chatOverlay'
@@ -302,8 +303,8 @@ function toProgress(customRows) {
   if (rows.reduce((sum, m) => sum + m.content.length + m.senderName.length + 6, 0) > 10000) return ElMessage.warning('所选消息超过具体进度10000字限制')
   emit('add-to-progress', rows)
 }
-async function fileBlob(file) {
-  try { return await request(props.projectId, `files/${file.id}`, { responseType: 'blob' }) }
+async function fileBlob(file, signal) {
+  try { return await request(props.projectId, `files/${file.id}`, { responseType: 'blob', signal, timeout: 300000 }) }
   catch (e) { if (file.contentType.startsWith('image/')) return getProjectChatAttachmentBlob(file.id); throw e }
 }
 async function loadImage(file) {
@@ -321,16 +322,18 @@ function addFiles(chosen) {
   if (sending.value || retryPayload.value) return
   for (const file of chosen) {
     if (files.value.length >= 9) { ElMessage.warning('每条消息最多9个附件'); break }
-    const max = file.type.startsWith('image/') ? 10 : 20
-    if (!file.size || file.size > max * 1024 * 1024) { ElMessage.warning(`文件不能为空，图片最多10MB，其他文件最多20MB：${file.name}`); continue }
-    const row = reactive({ key: newMessageId(), file, status: 'uploading', data: null, error: '' }); files.value.push(row); uploadFile(row)
+    if (!chatFileSupported(file.name)) { ElMessage.warning(`不支持此文件格式：${file.name}；${chatFileHint}`); continue }
+    if (!file.size || file.size > chatFileMaxBytes(file.name)) { ElMessage.warning(`文件不能为空；${chatFileHint}：${file.name}`); continue }
+    const row = reactive({ key: newMessageId(), file, status: 'uploading', progress: 0, data: null, error: '' }); files.value.push(row); uploadFile(row)
   }
 }
 async function uploadFile(row) {
-  row.status = 'uploading'; row.error = ''
+  row.controller?.abort()
+  const controller = new AbortController(); row.controller = controller
+  row.status = 'uploading'; row.progress = 0; row.error = ''
   const data = new FormData(); data.append('file', row.file)
   try {
-    if(row.file.type.startsWith('image/')){
+    if(chatFileCategory(row.file.name) === 'image'){
       const {uploadEditorScreenshot}=await import('@/utils/uploadEditorScreenshot')
       const {screenshotIds,screenshotText,screenshotValue}=await import('@/utils/screenshotReferences')
       if(screenshotIds(content.value).length>=9)throw new Error('每条消息最多9张截图')
@@ -338,11 +341,17 @@ async function uploadFile(row) {
       if(screenshotIds(content.value).length>=9)throw new Error('每条消息最多9张截图')
       content.value=screenshotValue(screenshotText(content.value),[...screenshotIds(content.value),image.id]);removeFile(row);return
     }
-    row.data = await request(props.projectId, 'files', { method: 'post', data }); row.status = 'ready'
+    const result = await request(props.projectId, 'files', {
+      method: 'post', data, signal: controller.signal,
+      onUploadProgress: event => {
+        if (!controller.signal.aborted) row.progress = Math.min(100, Math.round(event.loaded / (event.total || row.file.size) * 100))
+      },
+    })
+    if (!controller.signal.aborted && !disposed) { row.data = result; row.status = 'ready' }
   }
-  catch (e) { row.status = 'failed'; row.error = detail(e) }
+  catch (e) { if (!controller.signal.aborted) { row.status = 'failed'; row.error = detail(e) } }
 }
-function removeFile(file) { files.value = files.value.filter(f => f.key !== file.key) }
+function removeFile(file) { file.controller?.abort(); files.value = files.value.filter(f => f.key !== file.key) }
 function paste(event) { const images = [...(event.clipboardData?.files || [])].filter(f => f.type.startsWith('image/')); if (images.length) { if (!event.clipboardData.getData('text/plain')) event.preventDefault(); addFiles(images) } }
 function onKeydown(event) {
   if (event.isComposing || composing.value || event.keyCode === 229) return
@@ -446,6 +455,7 @@ onMounted(async () => {
 const draft=useChatDraft(computed(()=>[props.projectType,props.projectId]),()=>({content:content.value,mentionIds:mentionIds.value,replyTo:replyTo.value,files:draftFiles(files.value),retryPayload:retryPayload.value}),data=>{content.value=data.content;mentionIds.value=data.mentionIds||[];replyTo.value=data.replyTo||null;files.value=data.files||[];retryPayload.value=data.retryPayload||null})
 onBeforeUnmount(() => {
   window.removeEventListener('chat-topic-message-changed', topicChanged)
+  files.value.forEach(row => row.controller?.abort())
   disposed = true; ++generation; searchController?.abort(); clearTimeout(searchTimer); clearTimeout(readTimer); clearInterval(syncTimer)
   cancelLocate(); resolveReady()
   unwatch?.(); cleanup.forEach(fn => fn()); observer?.disconnect()
@@ -455,7 +465,7 @@ onBeforeUnmount(() => {
 })
 function openSearch() { searchOpen.value = !searchOpen.value }
 function onSearchLocate(messageId) { return locate(messageId) }
-provide('chatController', { draft, props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, download, copy, replyTo, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, screenshotUploading, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
+provide('chatController', { draft, props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, fileBlob, download, copy, replyTo, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, screenshotUploading, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
 defineExpose({ openSearch, locate, cancelLocate, toggleFilters: openSearch })
 </script>
 

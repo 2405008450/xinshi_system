@@ -12,6 +12,7 @@ class DuplicateReviewRequest(BaseModel):
     note: str = Field(default="", max_length=2000)
     decision_pairs: list[tuple[UUID, UUID]] | None = Field(default=None, max_length=4950)
     agent_report_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    preserve_language_roles: bool = False
 
     @model_validator(mode="after")
     def validate_selection(self):
@@ -29,6 +30,8 @@ class DuplicateReviewRequest(BaseModel):
                 raise ValueError("记录对不能重复或指向同一档案")
             if {identifier for pair in self.decision_pairs for identifier in pair} != set(self.person_ids):
                 raise ValueError("记录对必须且只能覆盖本次选中的档案")
+        if self.preserve_language_roles and self.action != "merge":
+            raise ValueError("只有合并资料可以保留多种语种角色")
         return self
 
 

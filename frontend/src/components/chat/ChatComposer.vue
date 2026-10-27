@@ -5,9 +5,10 @@
       <div class="group-compose-tools">
         <el-button text size="small" aria-label="提及用户" title="提及用户" :disabled="sending || !!retryPayload" @click="insertMention">@</el-button>
         <el-upload :show-file-list="false" :auto-upload="false" multiple :disabled="sending || !!retryPayload" accept=".jpg,.jpeg,.png,.gif,.webp" :on-change="chooseFile"><el-button text size="small" :icon="Picture" :disabled="sending || !!retryPayload" aria-label="发送图片" title="发送图片" /></el-upload>
-        <el-upload :show-file-list="false" :auto-upload="false" multiple :disabled="sending || !!retryPayload" :on-change="chooseFile"><el-button text size="small" :icon="Paperclip" :disabled="sending || !!retryPayload" aria-label="发送文件" title="发送文件" /></el-upload>
+        <el-upload :show-file-list="false" :auto-upload="false" multiple :disabled="sending || !!retryPayload" :accept="chatFileAccept" :on-change="chooseFile"><el-button text size="small" :icon="Paperclip" :disabled="sending || !!retryPayload" aria-label="发送文件" title="发送文件" /></el-upload>
       </div>
-      <div v-if="files.length" class="group-file-queue"><div v-for="file in files" :key="file.key">{{ file.file.name }} · {{ file.status === 'uploading' ? '上传中…' : file.status === 'failed' ? '上传失败' : '待发送' }}<el-button v-if="file.status==='failed'" link @click="uploadFile(file)">重试</el-button><el-button link :disabled="sending || !!retryPayload" @click="removeFile(file)">移除</el-button><span v-if="file.error" class="group-error">{{ file.error }}</span></div></div>
+      <small class="chat-file-hint">{{ chatFileHint }}</small>
+      <div v-if="files.length" class="group-file-queue"><div v-for="file in files" :key="file.key">{{ file.file.name }} · {{ file.status === 'uploading' ? `上传中 ${file.progress || 0}%`  : file.status === 'failed' ? '上传失败' : '待发送' }}<el-button v-if="file.status==='failed'" link @click="uploadFile(file)">重试</el-button><el-button link :disabled="sending || !!retryPayload" @click="removeFile(file)">移除</el-button><span v-if="file.error" class="group-error">{{ file.error }}</span></div></div>
       <el-input ref="input" v-model="content" @uploading-change="screenshotUploading=$event" type="textarea" :rows="3" :input-style="inputStyle" resize="none" maxlength="10000" :disabled="sending || !!retryPayload" :placeholder="isDirect ? '输入消息' : '输入消息，@ 提及用户'" :aria-expanded="mentionOpen" aria-autocomplete="list" :aria-controls="mentionOpen ? mentionListId : undefined" :aria-activedescendant="mentionOpen && mentionCandidates.length ? `${mentionListId}-${mentionIndex}` : undefined" @input="onInput" @click="onInput" @keyup.left="onInput" @keyup.right="onInput" @scroll.capture="closeMention" @blur="onMentionBlur" @keydown="onKeydown" @compositionstart="composing=true; closeMention()" @compositionend="finishComposition" @paste="paste" />
       <div v-if="mentionOpen" :id="mentionListId" ref="mentionMenu" class="group-mention-menu" :style="mentionStyle" role="listbox" aria-label="选择提及用户" @mousedown="keepMentionFocus">
         <div class="group-mention-heading">提及用户<span>↑↓ 选择 · Enter 确认</span></div>
@@ -26,6 +27,7 @@
     </div>
 </template>
 <script setup>
+import { chatFileAccept, chatFileHint } from '@/utils/chatFileTypes'
 import { screenshotPreview } from '@/utils/screenshotReferences'
 import { computed, inject, nextTick } from 'vue'
 import ChatDesktopPresence from './ChatDesktopPresence.vue'
@@ -51,6 +53,6 @@ async function insertMention() {
 }
 </script>
 <style scoped src="./chatConversation.css" />
-<style scoped>.group-composer{margin:10px 12px 14px;border:1px solid #dfe5ee;border-radius:12px;padding:8px 10px;box-shadow:0 2px 6px #0f172a03}.group-composer:focus-within{border-color:var(--el-color-primary);box-shadow:0 0 0 2px var(--el-color-primary-light-9)}.group-compose-tools{flex-wrap:wrap;gap:6px}.group-compose-footer{justify-content:flex-end;gap:10px}.group-compose-footer>span{margin-right:auto}.chat-composer-resize{position:absolute;top:-5px;left:20%;width:60%;height:8px;padding:0;border:0;background:transparent;cursor:ns-resize;touch-action:none}.chat-composer-resize:focus-visible{outline:2px solid var(--el-color-primary)}.group-mention-search{flex-shrink:0;margin-bottom:5px}.group-mention-section{position:sticky;top:0;padding:7px;background:#eff6ff;color:#1d4ed8;font-size:11px;font-weight:600;border-bottom:1px solid #dbeafe}.group-mention-section.is-outside{background:#fff7ed;color:#9a3412;border-top:2px solid #fed7aa;border-bottom-color:#ffedd5}.group-mention-options button small{margin-left:auto;flex:none;color:#9a3412;font-size:10px}
+<style scoped>.chat-file-hint{display:block;color:var(--el-text-color-secondary);font-size:11px;overflow-wrap:anywhere}.group-composer{margin:10px 12px 14px;border:1px solid #dfe5ee;border-radius:12px;padding:8px 10px;box-shadow:0 2px 6px #0f172a03}.group-composer:focus-within{border-color:var(--el-color-primary);box-shadow:0 0 0 2px var(--el-color-primary-light-9)}.group-compose-tools{flex-wrap:wrap;gap:6px}.group-compose-footer{justify-content:flex-end;gap:10px}.group-compose-footer>span{margin-right:auto}.chat-composer-resize{position:absolute;top:-5px;left:20%;width:60%;height:8px;padding:0;border:0;background:transparent;cursor:ns-resize;touch-action:none}.chat-composer-resize:focus-visible{outline:2px solid var(--el-color-primary)}.group-mention-search{flex-shrink:0;margin-bottom:5px}.group-mention-section{position:sticky;top:0;padding:7px;background:#eff6ff;color:#1d4ed8;font-size:11px;font-weight:600;border-bottom:1px solid #dbeafe}.group-mention-section.is-outside{background:#fff7ed;color:#9a3412;border-top:2px solid #fed7aa;border-bottom-color:#ffedd5}.group-mention-options button small{margin-left:auto;flex:none;color:#9a3412;font-size:10px}
 </style>
 

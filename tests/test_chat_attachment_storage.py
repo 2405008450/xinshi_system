@@ -70,7 +70,7 @@ def test_timeout_and_loop_fail_closed(monkeypatch):
     def handler(request):
         raise httpx.ReadTimeout('timeout', request=request)
     mock_client(monkeypatch, handler)
-    with pytest.raises(HTTPException, match='图片服务暂不可用'):
+    with pytest.raises(HTTPException, match='附件服务暂不可用'):
         asyncio.run(storage.upload_remote_attachment('https://cloud/api/project-chat/attachments',
                     b'png', 'test.png', 'image/png', 'Bearer test-token', None))
     with pytest.raises(HTTPException, match='循环'):
@@ -137,7 +137,7 @@ def test_remote_read_unauthorized_is_gateway_error_not_local_logout(monkeypatch)
         asyncio.run(storage.read_remote_attachment('https://cloud/api/project-chat/attachments',
                                                   uuid4(), 'Bearer valid-local-token', None))
     assert error.value.status_code == 502
-    assert '云端图片服务认证失败' in error.value.detail
+    assert '云端附件服务认证失败' in error.value.detail
 
 
 def test_missing_local_token_remains_unauthorized():

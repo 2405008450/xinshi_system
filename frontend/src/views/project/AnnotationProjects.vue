@@ -205,7 +205,7 @@
         </template>
     </AnnotationOrderTable>
 
-    <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" class="pagination" @size-change="handlePageSizeChange" @current-change="handlePageChange" />
+    <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" :layout="isMobile ? 'total, prev, pager, next' : 'total, sizes, prev, pager, next, jumper'" :small="isMobile" :pager-count="isMobile ? 5 : 7" class="pagination" @size-change="handlePageSizeChange" @current-change="handlePageChange" />
 
     <AnnotationProgressSearchDialog
       ref="progressSearchDialogRef"
@@ -706,6 +706,7 @@ import { useFormDraft } from '@/composables/useFormDraft'
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { useResourceRequestStatuses } from '@/composables/useResourceRequestStatuses'
 import { hasPermission, isSuperAdmin } from '@/utils/permission'
+import { useMobileViewport } from '@/composables/useMobileViewport'
 import { notifyEmailSubjectGenerated, extractSubjectPrefix } from '@/utils/emailSubject'
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
 
@@ -716,6 +717,7 @@ import { isValidAnnotationOrderNo, normalizeAnnotationOrderNo } from '@/utils/an
 
 const props = defineProps({ embedded: Boolean, myProjects: Boolean, createOnly: Boolean, editorOnly: Boolean, editorProjectId: String, createRequest: Number, childParentId: String, childOrderScope: {type:String,default:'child'}, progressOnly: Boolean, progressProjectId: String, orderScope: { type: String, default: 'parent' }, conversationPicker: Boolean, pickerActionLabel: {type:String,default:'加入会话'}, pickerJoinedLabel: {type:String,default:'已加入会话'}, joinedProjectIds: { type: Array, default: () => [] }, joiningProjectIds: { type: Array, default: () => [] } })
 const emit = defineEmits(['join-conversation', 'open-conversation','progress-closed','open-child-management','close-child-management'])
+const { isMobile } = useMobileViewport()
 const canWrite = !props.conversationPicker && hasPermission('projects:write')
 const canAdjustManagers = !props.conversationPicker && hasPermission(['projects:read', 'projects:write'])
 const managerReasonDialog = ref(null), managerEditBaseline = ref(null), annotationManagerUsers = ref([])
@@ -1066,7 +1068,7 @@ const annotationFilterFields=computed(()=>[
 ])
 const regionFilterKeys=['regionCity','regionDistrict','regionStreet','languageRegion','areaIds']
 const regionFilterDefinition=computed(()=>({key:'regionSummary',label:'地区',type:'group',headerWidth:320,fields:annotationFilterFields.value.filter(item=>regionFilterKeys.includes(item.key))}))
-const annotationAdvancedFilterFields=computed(()=>annotationFilterFields.value.filter((item)=>!['projectStatus',...regionFilterKeys].includes(item.key)))
+const annotationAdvancedFilterFields=computed(()=>annotationFilterFields.value.filter((item)=>isMobile.value||!['projectStatus',...regionFilterKeys].includes(item.key)))
 Object.assign(searchForm,createFilterModel(baseAnnotationFilterFields),{keyword:''})
 const ensureDynamicFilterModel=()=>annotationFilterFields.value.forEach((field)=>{if(!(field.key in searchForm))searchForm[field.key]=createFilterModel([field])[field.key]})
 const advancedCount=computed(()=>{ensureDynamicFilterModel();return countActiveFilters(searchForm,annotationAdvancedFilterFields.value)})
@@ -1457,4 +1459,28 @@ onBeforeUnmount(()=>{parentFilterController?.abort();clearTimeout(searchTimer);c
 <style scoped>
 .order-cell-progress-read{display:flex;justify-content:flex-start;min-height:0;margin-top:4px;margin-bottom:-9.5px}
 .order-cell-progress-read :deep(.child-progress-notice){font-size:8px;line-height:12px;height:12px;min-height:12px}
+
+/* 手机端：页面随内容自然滚动，订单以卡片呈现，标题栏与查询栏纵向排布。 */
+@media (max-width: 768px) {
+  .annotation-card { height: auto; min-height: 0; }
+  .annotation-card :deep(> .el-card__header) { padding: 8px 10px; }
+  .annotation-card :deep(> .el-card__body) { display: block; overflow: visible; padding: 8px 10px; }
+  .annotation-card :deep(> .el-card__body > .search-form) { padding: 8px; }
+  .annotation-card .card-header { align-items: flex-start; gap: 8px; }
+  .annotation-card .card-header > span { flex: 1 0 100%; font-size: 16px; font-weight: 600; }
+  .annotation-card .header-actions { justify-content: flex-start; gap: 6px; width: 100%; }
+  .annotation-card .header-actions :deep(.el-button) { padding: 5px 9px; font-size: 12px; }
+  .annotation-card .annotation-search-toolbar { flex-direction: column; align-items: stretch; gap: 8px; }
+  .annotation-card .annotation-search-toolbar .project-list-primary-filters { flex-direction: column; gap: 8px; width: 100%; }
+  .annotation-card .project-list-keyword-filter { width: 100%; margin-right: 0; }
+  .annotation-card .project-list-keyword-filter :deep(.el-form-item__content) { flex: 1; min-width: 0; }
+  .annotation-card .annotation-search-toolbar .el-select { width: 100% !important; }
+  .annotation-card .annotation-search-actions { width: 100%; margin-right: 0; }
+  .annotation-card .annotation-search-actions :deep(.el-form-item__content) { flex-wrap: wrap; gap: 6px; }
+  .annotation-card .annotation-table { flex: none; min-height: 0; margin-top: 8px; }
+  .annotation-card :deep(> .el-card__body > .pagination) { justify-content: center; margin-top: 12px; }
+  .annotation-card :deep(.order-cell) { flex-direction: column; align-items: stretch; gap: 4px; }
+  .annotation-card :deep(.order-no-link) { height: 22px; line-height: 22px; font-size: 15px; font-weight: 600; }
+  .annotation-card :deep(.annotation-row-actions) { width: auto; grid-template-columns: 16px auto; }
+}
 </style>

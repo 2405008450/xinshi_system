@@ -192,4 +192,65 @@ defineExpose({ resetPosition, handleClose, minimize, restore:restoreMinimized, m
     cursor: default;
   }
 }
+
+@media (max-width: 768px) {
+  .el-dialog.draggable-form-dialog {
+    width: calc(100vw - 16px) !important;
+    max-width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+
+  .el-dialog.draggable-form-dialog > .el-dialog__header,
+  .el-dialog.draggable-form-dialog > .el-dialog__body,
+  .el-dialog.draggable-form-dialog > .el-dialog__footer {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .el-dialog.draggable-form-dialog > .el-dialog__header {
+    padding-right: 96px;
+  }
+
+  .el-dialog.draggable-form-dialog > .el-dialog__footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .el-dialog.draggable-form-dialog > .el-dialog__footer .el-button {
+    margin-left: 0;
+  }
+
+  .el-dialog.draggable-form-dialog .app-window-resize {
+    display: none;
+  }
+
+  /* 表单标签改为置顶，避免窄屏下标签与控件左右挤压。 */
+  .el-dialog.draggable-form-dialog .el-form:not(.el-form--inline) .el-form-item {
+    display: block;
+  }
+
+  .el-dialog.draggable-form-dialog .el-form:not(.el-form--inline) .el-form-item__label {
+    display: block;
+    width: auto !important;
+    height: auto;
+    padding: 0 0 4px;
+    line-height: 1.5;
+    text-align: left;
+  }
+
+  .el-dialog.draggable-form-dialog .el-form:not(.el-form--inline) .el-form-item__content {
+    margin-left: 0 !important;
+  }
+
+  .el-dialog.draggable-form-dialog .el-row {
+    flex-wrap: wrap;
+  }
+
+  .el-dialog.draggable-form-dialog .el-row > [class*='el-col-'] {
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+}
 </style>

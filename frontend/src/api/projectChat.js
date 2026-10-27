@@ -21,15 +21,15 @@ function convertKeys(obj, converter) {
   return obj
 }
 
-export const annotationChatRequest = (projectId, suffix, { method = 'get', data, params, signal, responseType } = {}) =>
+export const annotationChatRequest = (projectId, suffix, { method = 'get', data, params, signal, responseType, onUploadProgress, timeout } = {}) =>
   api.request({ url: `/project-chat/annotation/${projectId ? `${projectId}/` : ''}${suffix}`,
-    method, data: data instanceof FormData ? data : convertKeys(data, toSnakeCase), params, signal, responseType,
-    ...(data instanceof FormData ? { timeout: 60000, headers: { 'Content-Type': 'multipart/form-data' } } : {})
+    method, data: data instanceof FormData ? data : convertKeys(data, toSnakeCase), params, signal, responseType, onUploadProgress, timeout: timeout ?? (responseType === 'blob' ? 300000 : 10000),
+    ...(data instanceof FormData ? { timeout: 300000, headers: { 'Content-Type': 'multipart/form-data' } } : {})
   }).then(res => responseType === 'blob' ? res : convertKeys(res, toCamelCase))
 
-export const chatRequest = (suffix, { method = 'get', data, params, signal, responseType } = {}) =>
+export const chatRequest = (suffix, { method = 'get', data, params, signal, responseType, onUploadProgress, timeout } = {}) =>
   api.request({ url: `/chat/${suffix}`, method, data: data instanceof FormData ? data : convertKeys(data, toSnakeCase),
-    params, signal, responseType, ...(data instanceof FormData ? { timeout: 60000, headers: { 'Content-Type': 'multipart/form-data' } } : {})
+    params, signal, responseType, onUploadProgress, timeout: timeout ?? (responseType === 'blob' ? 300000 : 10000), ...(data instanceof FormData ? { timeout: 300000, headers: { 'Content-Type': 'multipart/form-data' } } : {})
   }).then(res => responseType === 'blob' ? res : convertKeys(res, toCamelCase))
 export const directChatRequest = (id, suffix, options) => chatRequest(`direct/${id}/${suffix}`, options)
 

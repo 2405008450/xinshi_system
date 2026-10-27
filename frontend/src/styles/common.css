@@ -149,6 +149,33 @@
   .common-page-card > .el-card__body > .el-pagination {
     justify-content: flex-start;
   }
+
+  .common-page-card .card-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* iOS 在输入控件字号小于 16px 时聚焦会自动放大页面，窄屏统一抬高。 */
+  .el-input__inner,
+  .el-textarea__inner,
+  .el-select__input,
+  .el-input-number .el-input__inner {
+    font-size: 16px;
+  }
+
+  .el-button:not(.is-link):not(.is-text) {
+    min-height: 32px;
+  }
+
+  .el-message-box {
+    width: calc(100vw - 32px);
+  }
+
+  .el-popper.el-popover,
+  .el-select__popper,
+  .el-picker__popper {
+    max-width: calc(100vw - 16px);
+  }
 }
 
 .page-card {

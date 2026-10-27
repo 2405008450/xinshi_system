@@ -53,11 +53,7 @@ def chat_timeline(service, project_id: UUID, before: int | None = None, after: i
     return {'items': api_time(service.serialize_many(db, rows, user)), 'has_more': len(rows) >= limit}
 
 
-FILE_TYPES = {'.pdf': 'application/pdf', '.txt': 'text/plain', '.csv': 'text/csv', '.zip': 'application/zip',
-    '.doc': 'application/msword', '.xls': 'application/vnd.ms-excel', '.ppt': 'application/vnd.ms-powerpoint',
-    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation'}
+from chat_file_types import FILE_TYPES, MEDIA_TYPES, MEDIA_MAX_BYTES, FILE_HINT, validate_media
 
 
 async def upload_chat_file(service, scope, project_id: UUID, request: Request, file: UploadFile = File(...), db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
@@ -69,12 +65,13 @@ async def upload_chat_file(service, scope, project_id: UUID, request: Request, f
     image_types = {v: k for k, v in IMAGE_EXTENSIONS.items()} | {'.jpeg': 'image/jpeg'}
     content_type = image_types.get(suffix) or FILE_TYPES.get(suffix)
     if not content_type:
-        raise HTTPException(415, '支持图片、PDF、Office、TXT、CSV、ZIP文件')
+        raise HTTPException(415, FILE_HINT)
     is_image = content_type in IMAGE_SIGNATURES
-    max_bytes = (10 if is_image else 20) * 1024 * 1024
+    max_bytes = MEDIA_MAX_BYTES if suffix in MEDIA_TYPES else (10 if is_image else 20) * 1024 * 1024
     content = await file.read(max_bytes + 1)
     if not content or len(content) > max_bytes:
-        raise HTTPException(413, '文件不能为空，图片最多10MB，其他文件最多20MB')
+        raise HTTPException(413, '文件不能为空；' + FILE_HINT)
+    validate_media(suffix, content)
     if is_image and not IMAGE_SIGNATURES[content_type](content):
         raise HTTPException(415, '图片格式与内容不匹配')
     if suffix == '.pdf' and not content.startswith(b'%PDF-'):
@@ -96,7 +93,12 @@ async def upload_chat_file(service, scope, project_id: UUID, request: Request, f
     remote_url = remote_attachment_url()
     if remote_url:
         # 图片兼容旧云端接口；其他文件通过本次新增的云端文件接口保存。
-        target = remote_url if is_image and scope == 'annotation' else remote_url.removesuffix('/attachments') + f'/{scope}/{project_id}/files'
+        if is_image and scope == 'annotation':
+            target = remote_url
+        elif scope == 'direct':
+            target = remote_url.removesuffix('/project-chat/attachments') + f'/chat/direct/{project_id}/files'
+        else:
+            target = remote_url.removesuffix('/attachments') + f'/{scope}/{project_id}/files'
         result = await upload_remote_attachment(target, content, file.filename, content_type,
             request.headers.get('authorization'), request.headers.get('x-chat-attachment-forwarded'))
         attachment = db.get(ChatProjectAttachment, result.id, populate_existing=True)

@@ -301,11 +301,7 @@ def recall(project_id: UUID, message_id: UUID, db: Session = Depends(get_db), us
     return service.serialize_many(db, [row], user)[0]
 
 
-FILE_TYPES = {'.pdf': 'application/pdf', '.txt': 'text/plain', '.csv': 'text/csv', '.zip': 'application/zip',
-    '.doc': 'application/msword', '.xls': 'application/vnd.ms-excel', '.ppt': 'application/vnd.ms-powerpoint',
-    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation'}
+from chat_file_types import FILE_TYPES
 
 
 @router.post('/{project_id}/files', status_code=201)

@@ -1,6 +1,7 @@
 <template>
   <el-container class="layout-container">
-    <el-aside :width="sidebarWidth" class="sidebar" :class="{ 'sidebar--collapsed': isCollapse }">
+    <div v-if="isMobileViewport && mobileNavOpen" class="sidebar-mask" aria-hidden="true" @click="mobileNavOpen = false" />
+    <el-aside :width="sidebarWidth" class="sidebar" :class="{ 'sidebar--collapsed': isCollapse, 'sidebar--drawer': isMobileViewport, 'is-open': mobileNavOpen }">
       <div class="logo">
         <div class="logo-icon">
           <img src="/favicon.svg" alt="平台标识" class="logo-mark" />
@@ -67,15 +68,11 @@
     <el-container>
       <el-header class="header">
         <div class="header-left">
-          <el-tooltip
-            :content="isMobileViewport ? '窄屏模式下菜单保持收起' : (isCollapse ? '展开菜单' : '收起菜单')"
-            placement="bottom"
-          >
+          <el-tooltip :content="collapseLabel" placement="bottom" :disabled="isMobileViewport">
             <el-button
               class="collapse-btn"
-              :icon="isCollapse ? Expand : Fold"
-              :aria-label="isMobileViewport ? '窄屏模式下菜单保持收起' : (isCollapse ? '展开菜单' : '收起菜单')"
-              :disabled="isMobileViewport"
+              :icon="isMobileViewport ? (mobileNavOpen ? Fold : Expand) : (isCollapse ? Expand : Fold)"
+              :aria-label="collapseLabel"
               circle
               text
               @click="toggleCollapse"
@@ -165,6 +162,7 @@ import UiZoomControl from '../components/UiZoomControl.vue'
 import SidebarNavigationItem from '@/components/common/SidebarNavigationItem.vue'
 import SpeakingProfileIcon from '@/components/common/SpeakingProfileIcon.vue'
 import { useUiZoom } from '../composables/useUiZoom'
+import { useMobileViewport } from '@/composables/useMobileViewport'
 import { logout } from '@/api/auth'
 import { clearAuthSession } from '@/utils/authSession'
 
@@ -200,27 +198,33 @@ const appVersion = 'V1.7'
 const appUpdatedAt = '2026-09-23 19:55'
 
 /** 侧边栏是否折叠 */
-const isCollapse = ref(false)
-const isMobileViewport = ref(false)
+const { isMobile: isMobileViewport } = useMobileViewport()
 const preferredCollapse = ref(false)
+const mobileNavOpen = ref(false)
+const isCollapse = computed(() => !isMobileViewport.value && preferredCollapse.value)
 const sidebarMenuRef = ref()
 
-/** 侧边栏宽度 */
-const sidebarWidth = computed(() => (isCollapse.value ? '64px' : '200px'))
+/** 侧边栏宽度；手机端为离屏抽屉，宽度由样式固定。 */
+const sidebarWidth = computed(() => (isMobileViewport.value ? '240px' : isCollapse.value ? '64px' : '200px'))
 
 function toggleCollapse() {
-  if (isMobileViewport.value) return
-  isCollapse.value = !isCollapse.value
-  preferredCollapse.value = isCollapse.value
+  if (isMobileViewport.value) {
+    mobileNavOpen.value = !mobileNavOpen.value
+    return
+  }
+  preferredCollapse.value = !preferredCollapse.value
   try {
-    localStorage.setItem(STORAGE_COLLAPSE_KEY, isCollapse.value ? '1' : '0')
+    localStorage.setItem(STORAGE_COLLAPSE_KEY, preferredCollapse.value ? '1' : '0')
   } catch {}
 }
 
-function syncResponsiveSidebar() {
-  isMobileViewport.value = window.innerWidth <= 768
-  isCollapse.value = isMobileViewport.value ? true : preferredCollapse.value
-}
+const collapseLabel = computed(() => {
+  if (isMobileViewport.value) return mobileNavOpen.value ? '关闭菜单' : '打开菜单'
+  return isCollapse.value ? '展开菜单' : '收起菜单'
+})
+
+watch(() => route.fullPath, () => { mobileNavOpen.value = false })
+watch(isMobileViewport, () => { mobileNavOpen.value = false })
 
 onMounted(() => {
   try {
@@ -229,12 +233,8 @@ onMounted(() => {
   } catch {}
   syncFromStorage()
   refreshIssueAccess().catch(() => {})
-  syncResponsiveSidebar()
-  window.addEventListener('resize', syncResponsiveSidebar)
   if (route.query.openSession === '1') void openHeaderChat()
 })
-
-onBeforeUnmount(() => window.removeEventListener('resize', syncResponsiveSidebar))
 
 const canViewUsers = computed(() => hasPermission('system:users:read'))
 const canViewDepartments = computed(() => canManageDepartments())
@@ -803,50 +803,60 @@ const handleLogout = async () => {
 }
 
 @media (max-width: 768px) {
-  .sidebar {
-    width: 64px !important;
-    flex: 0 0 64px;
+  /* 手机端侧边栏为离屏抽屉，由头部按钮打开，不再常驻占用屏幕宽度。 */
+  .sidebar--drawer {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 2100;
+    width: min(240px, 82vw) !important;
+    transform: translateX(-100%);
+    transition: transform 220ms ease;
+    box-shadow: none;
   }
 
-  .sidebar .logo {
-    padding: 0 12px;
-    justify-content: center;
+  .sidebar--drawer.is-open {
+    transform: translateX(0);
+    box-shadow: 6px 0 24px rgba(15, 23, 42, 0.28);
   }
 
-  .sidebar .logo-icon {
-    margin-right: 0;
-  }
-
-  .sidebar .logo-text,
-  .sidebar-menu :deep(.el-menu-item span),
-  .sidebar-menu :deep(.el-sub-menu__title span),
-  .sidebar-menu :deep(.el-sub-menu__icon-arrow) {
-    display: none;
+  .sidebar-mask {
+    position: fixed;
+    inset: 0;
+    z-index: 2090;
+    background: rgba(15, 23, 42, 0.45);
   }
 
   .sidebar-menu :deep(.el-menu-item),
   .sidebar-menu :deep(.el-sub-menu__title) {
-    justify-content: center;
-    margin-left: 8px;
-    margin-right: 8px;
-    padding: 0 !important;
+    height: 48px;
+    line-height: 48px;
   }
 
-  .sidebar-menu :deep(.el-menu-item .el-icon),
-  .sidebar-menu :deep(.el-sub-menu__title .el-icon) {
-    margin-right: 0;
-  }
-  
   .logo h2 {
     font-size: 16px;
   }
-  
+
   .header {
-    padding: 0 16px;
+    height: 52px;
+    padding: 0 8px;
   }
-  
+
+  .header-left {
+    gap: 4px;
+  }
+
+  .header-right {
+    gap: 8px;
+  }
+
+  .header-right :deep(.ui-zoom-control) {
+    display: none;
+  }
+
   .main-content {
-    padding: 12px 16px 16px;
+    padding: 8px;
   }
 
   .username {

@@ -556,7 +556,7 @@ def _collection_key(field, row):
     return digest([row["education_level"], row.get("institution"), row.get("major"), row.get("graduation_year")])
 
 
-def _merge_values(people, target, decisions):
+def _merge_values(people, target, decisions, preserve_language_roles=False):
     all_values = {str(person.id): _business_values(person) for person in people}
     target_values = all_values[str(target.id)]
     keys = list(dict.fromkeys(key for values in all_values.values() for key in values))
@@ -569,7 +569,8 @@ def _merge_values(people, target, decisions):
             variants = {}
             for option in options:
                 for value in option["value"] or []:
-                    variants.setdefault(_collection_key(key, value), {}).setdefault(digest(value), {"person_id": option["person_id"], "value": value})
+                    identity = digest([value['language_id'], value['role']]) if key == 'language_skills' and preserve_language_roles else _collection_key(key, value)
+                    variants.setdefault(identity, {}).setdefault(digest(value), {"person_id": option["person_id"], "value": value})
             merged = []
             for identity, variants_by_hash in variants.items():
                 choice_key = f"{key}:{identity}"
@@ -659,6 +660,8 @@ def review_request_values(request, exclude=None):
     for key in ("decision_pairs", "agent_report_id"):
         if values.get(key) is None:
             values.pop(key, None)
+    if not values.get('preserve_language_roles'):
+        values.pop('preserve_language_roles',None)
     return values
 
 
@@ -714,7 +717,7 @@ def preview(db, request):
     snapshot = full_snapshot(db, affected)
     conflicts, fields, values = [], [], None
     if request.action == "merge":
-        values, fields, conflicts = _merge_values(people, target, request.decisions)
+        values, fields, conflicts = _merge_values(people, target, request.decisions, request.preserve_language_roles)
         if not conflicts:
             normalized = _validated_payload(values, target)
             # 普通表单会清理文本、邮箱并按结构化姓名生成显示名，预览必须展示相同结果。
@@ -776,12 +779,14 @@ def _apply_merge(db, target, payload, actor):
         model = relationship.mapper.class_
         existing = list(getattr(target, key))
         # 保留原主档明细 ID，来源明细创建独立副本，避免移动原始资料。
-        by_identity = {_collection_key(key, plain({k: v for k, v in _columns(row).items() if k not in SYSTEM_FIELDS})): row for row in existing}
+        def storage_identity(data):
+            return digest([str(data['language_id']),data['role']]) if key == 'language_skills' else _collection_key(key, plain(data))
+        by_identity = {storage_identity({k: v for k, v in _columns(row).items() if k not in SYSTEM_FIELDS}): row for row in existing}
         selected = []
         assignments = []
         for index, incoming in enumerate(getattr(payload, key)):
             data = incoming.model_dump(exclude={"id"})
-            identity = _collection_key(key, plain({k: v for k, v in data.items() if k not in SYSTEM_FIELDS}))
+            identity = storage_identity({k: v for k, v in data.items() if k not in SYSTEM_FIELDS})
             row = by_identity.get(identity)
             if row is None:
                 row = model(id=uuid4(), person_id=target.id)

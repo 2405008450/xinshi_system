@@ -10,8 +10,8 @@ from starlette.background import BackgroundTask
 
 from schemas import ProjectChatAttachmentResponse
 
-SERVICE_ERROR = '图片服务暂不可用，请稍后重试'
-TIMEOUT = httpx.Timeout(connect=5, read=45, write=45, pool=5)
+SERVICE_ERROR = '附件服务暂不可用，请稍后重试'
+TIMEOUT = httpx.Timeout(connect=5, read=300, write=300, pool=5)
 
 
 def remote_attachment_url():
@@ -19,7 +19,7 @@ def remote_attachment_url():
     if mode == 'local':
         return None
     if mode != 'remote':
-        raise HTTPException(503, '图片存储模式配置错误')
+        raise HTTPException(503, '附件存储模式配置错误')
     origin = os.getenv('CHAT_REMOTE_ORIGIN', '').strip().rstrip('/')
     try:
         parsed = urlsplit(origin)
@@ -29,7 +29,7 @@ def remote_attachment_url():
     except ValueError:
         valid = False
     if not valid:
-        raise HTTPException(503, '图片远程服务地址配置错误')
+        raise HTTPException(503, '附件远程服务地址配置错误')
     return origin + '/api/project-chat/attachments'
 
 
@@ -40,7 +40,7 @@ def make_client():
 
 def request_headers(authorization, forwarded):
     if forwarded:
-        raise HTTPException(503, '图片服务转发配置形成循环')
+        raise HTTPException(503, '附件服务转发配置形成循环')
     if not authorization or not authorization.startswith('Bearer '):
         raise HTTPException(401, '登录凭证无效或已过期')
     return {'Authorization': authorization, 'X-Chat-Attachment-Forwarded': '1', 'Accept-Encoding': 'identity'}
@@ -51,10 +51,10 @@ def check_response(response, expected):
         return
     # 本机已经校验用户登录；上游 401 表示服务间认证失败，不能让前端据此清除本机登录。
     if response.status_code == 401:
-        raise HTTPException(502, '云端图片服务认证失败，请联系管理员检查两端登录配置')
-    details = {403: '没有访问图片的权限',
-               404: '图片不存在或文件缺失', 413: '单张图片不能超过 10MB',
-               415: '仅支持 JPEG、PNG、GIF、WebP 图片', 400: '图片请求无效'}
+        raise HTTPException(502, '云端附件服务认证失败，请联系管理员检查两端登录配置')
+    details = {403: '没有访问附件的权限',
+               404: '附件不存在或文件缺失', 413: '图片最多10MB，音视频最多100MB，其他文件最多20MB',
+               415: '附件格式不支持或文件内容无效', 400: '附件请求无效'}
     raise HTTPException(response.status_code if response.status_code in details else 503,
                         details.get(response.status_code, SERVICE_ERROR))
 
@@ -89,7 +89,7 @@ async def read_remote_attachment(url, attachment_id: UUID, authorization, forwar
         content_type = response.headers.get('content-type', '').split(';')[0].lower()
         allowed = {'image/png', 'image/jpeg', 'image/gif', 'image/webp'}
         if allow_files:
-            from routers.annotation_chat import FILE_TYPES
+            from chat_file_types import FILE_TYPES
             allowed.update(FILE_TYPES.values())
         if content_type not in allowed:
             raise HTTPException(503, SERVICE_ERROR)

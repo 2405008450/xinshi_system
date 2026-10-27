@@ -21,6 +21,7 @@
             <div v-if="message.mentions?.some(m => !message.content?.includes(`@${m.mentionedUserName}`))" class="group-mentions">{{ message.mentions.filter(m => !message.content?.includes(`@${m.mentionedUserName}`)).map(m => `@${m.mentionedUserName}`).join(' ') }}</div>
             <div v-for="file in message.attachments" :key="file.id" class="group-file">
               <el-image v-if="file.contentType.startsWith('image/') && imageUrls[file.id]" :src="imageUrls[file.id]" :preview-src-list="[imageUrls[file.id]]" preview-teleported fit="contain" />
+              <ChatMediaAttachment v-else-if="file.contentType.startsWith('audio/') || file.contentType.startsWith('video/')" :key="`${props.projectType}:${props.projectId}:${file.id}`" :file="file" :fetch-blob="fileBlob" :size-label="sizeLabel" :active="props.active" />
               <el-button v-else link type="primary" @click="download(file)">{{ file.originalName }} · {{ sizeLabel(file.fileSize) }}</el-button>
               <el-button v-if="file.contentType.startsWith('image/') && imageErrors[file.id]" link @click="loadImage(file)">重新加载图片</el-button>
             </div>
@@ -36,6 +37,7 @@
     <ChatMessageReferences ref="references" :project-id="props.projectId" :project-type="props.projectType" @locate="locate" />
 </template>
 <script setup>
+import ChatMediaAttachment from './ChatMediaAttachment.vue'
 import { screenshotPreview } from '@/utils/screenshotReferences'
 import { computed, inject, nextTick, ref } from 'vue'
 import ChatMessageContextMenu from './ChatMessageContextMenu.vue'
@@ -47,7 +49,7 @@ import ChatMessageReferences from './ChatMessageReferences.vue'
 import { chatAvatarText, chatDayKey, chatGroupStart, chatTimestampIndexes } from '@/utils/chatLayout'
 import { useChatTimeDisplay } from '@/composables/useChatTimeDisplay'
 const { formatMessageTime: chatMessageTime, formatMessageDay, showMessageTime, showMessageDates } = useChatTimeDisplay()
-const { props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, download, copy, replyTo, favorite, acknowledge, recall, mentionsMe, mentionParts, input, toProgress } = inject('chatController')
+const { props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, fileBlob, download, copy, replyTo, favorite, acknowledge, recall, mentionsMe, mentionParts, input, toProgress } = inject('chatController')
 const timestampIndexes = computed(() => chatTimestampIndexes(messages.value))
 const messageMenu = ref(), references = ref(), ackBusy = ref(new Set())
 function openReferences(message,event) { if(message.reply || interactions.stats[message.id]?.replyCount) references.value.open(message.reply?.id || message.id,event) }

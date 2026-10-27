@@ -1405,3 +1405,96 @@ def test_review_eager_loads_deferred_language_accent_before_releasing_session(db
         reader.expunge_all()
         reader.rollback()
     assert [row['accent'] for row in _business_values(loaded)['language_skills']] == ['合成口音']*6
+
+
+def test_contact_rule_merges_only_matching_subset_and_retains_originals(db):
+    from talent_contact_merge_service import discover,preview_candidate,commit_candidate
+    a=person(db,'夏优',wechat='synthetic_distinct_account')
+    b=person(db,'夏优',wechat='synthetic_matching_account',gender='女')
+    c=person(db,'夏优',wechat='synthetic_matching_account',gender='女',residence_address='合成地区')
+    plan=discover(db)
+    assert len(plan['candidates'])==1
+    candidate=plan['candidates'][0]
+    assert set(candidate['person_ids'])=={str(b.id),str(c.id)}
+    proposed=preview_candidate(db,candidate)
+    key=uuid4().hex
+    result=commit_candidate(db,candidate,proposed['preview_token'],key,ACTOR)
+    assert commit_candidate(db,candidate,proposed['preview_token'],key,ACTOR)['id']==result['id']
+    assert count_talents(db)==2 and get_talent(db,a.id).archived_into_id is None
+    op=db.get(TalentDuplicateOperation,UUID(result['id']))
+    assert op.decisions['contact_merge']['rule']=='same-name-personal-contact-v1'
+    assert op.decisions['retention']['before_sha256']==digest(op.before_snapshot)
+    assert op.decisions['review_context']['mode']=='user_authorized_contact_rule'
+    assert op.decisions['merge_audit']['archive_ids']
+    undo(db,UUID(result['id']),ACTOR)
+    assert count_talents(db)==3
+
+
+def test_contact_rule_skips_shared_accounts_identity_conflicts_chains_and_manual_conclusions(db):
+    from talent_contact_merge_service import discover,preview_candidate
+    # 同一姓名组五条记录中存在两对重复和一条独立记录。
+    pairs=[person(db,'Anna',wechat=account) for account in ('synthetic_pair_ab','synthetic_pair_ab','synthetic_pair_cd','synthetic_pair_cd','synthetic_solo')]
+    assert len(discover(db)['candidates'])==2
+    person(db,'另一姓名',wechat='synthetic_pair_ab')
+    plan=discover(db)
+    assert len(plan['candidates'])==1 and set(plan['candidates'][0]['person_ids'])=={str(pairs[2].id),str(pairs[3].id)}
+    process(db,[pairs[2].id,pairs[3].id],action='different')
+    with pytest.raises(HTTPException,match='') as error:
+        preview_candidate(db,plan['candidates'][0])
+    assert error.value.status_code==422
+    a=person(db,'李明',wechat='synthetic_conflict',gender='男')
+    b=person(db,'李明',wechat='synthetic_conflict',gender='女')
+    x=person(db,'王明',primary_email='chain@example.org')
+    y=person(db,'王明',primary_email='chain@example.org',wechat='synthetic_chain')
+    z=person(db,'王明',wechat='synthetic_chain')
+    skipped={row['key']:row['reason'] for row in discover(db)['skipped']}
+    assert skipped['李明']=='identity_conflict' and skipped['王明']=='overlapping_or_transitive_contacts'
+
+
+def test_contact_rule_rechecks_scope_and_rejects_logical_detail_conflicts(db):
+    from talent_contact_merge_service import discover,preview_candidate,commit_candidate
+    a,b=[person(db,'夏优',wechat='synthetic_same') for _ in range(2)]
+    candidate=discover(db)['candidates'][0]
+    proposed=preview_candidate(db,candidate)
+    person(db,'另一个人',wechat='synthetic_same')
+    with pytest.raises(HTTPException) as error:
+        commit_candidate(db,candidate,proposed['preview_token'],uuid4().hex,ACTOR)
+    assert error.value.status_code==409
+    db.rollback()
+    assert get_talent(db,b.id).archived_into_id is None
+    from interpretation_models import InterpretationLanguage
+    language=InterpretationLanguage(id=uuid4(),label='合成语种')
+    db.add(language);db.commit()
+    c,d=[person(db,'张明',wechat='synthetic_details') for _ in range(2)]
+    db.add_all([ResourceLanguageSkill(id=uuid4(),person_id=c.id,language_id=language.id,role='foreign',priority=0,proficiency='familiar'),
+                ResourceLanguageSkill(id=uuid4(),person_id=d.id,language_id=language.id,role='foreign',priority=0,proficiency='very_familiar')])
+    db.commit()
+    candidate=next(row for row in discover(db)['candidates'] if row['key']=='张明')
+    with pytest.raises(HTTPException) as error:
+        preview_candidate(db,candidate)
+    assert error.value.status_code==422
+
+
+def test_contact_rule_preserves_existing_language_roles_and_source_remark_variants(db):
+    from interpretation_models import InterpretationLanguage
+    from talent_contact_merge_service import discover,preview_candidate,commit_candidate
+    language=InterpretationLanguage(id=uuid4(),label='合成中文')
+    db.add(language);db.commit()
+    a,b=[person(db,'夏优',wechat='synthetic_roles') for _ in range(2)]
+    db.add_all([ResourceLanguageSkill(id=uuid4(),person_id=a.id,language_id=language.id,role='dialect_ethnic',priority=0,proficiency='very_familiar',remarks='来源A：汉语'),
+        ResourceLanguageSkill(id=uuid4(),person_id=b.id,language_id=language.id,role='dialect_ethnic',priority=0,proficiency='very_familiar',remarks='来源B：中文'),
+        ResourceLanguageSkill(id=uuid4(),person_id=b.id,language_id=language.id,role='native',priority=1,remarks='来源B：母语中文')])
+    db.commit()
+    candidate=discover(db)['candidates'][0]
+    proposed=preview_candidate(db,candidate)
+    assert proposed['automatic_request']['preserve_language_roles'] is True
+    result=commit_candidate(db,candidate,proposed['preview_token'],uuid4().hex,ACTOR)
+    target=get_talent(db,UUID(result['target_id']))
+    assert {skill.role for skill in target.language_skills}=={'native','dialect_ethnic'}
+    assert len(target.language_skills)==2
+    assert next(skill for skill in target.language_skills if skill.role=='dialect_ethnic').proficiency=='very_familiar'
+    from tools.run_talent_contact_merge_slow import verify_success
+    db.rollback()
+    assert verify_success(db.get_bind(),result)['archive_targets'] is True
+    undo(db,UUID(result['id']),ACTOR)
+    assert count_talents(db)==2
