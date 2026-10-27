@@ -48,7 +48,7 @@
             <div class="chat-workspace__annotation-mode" role="group" aria-label="消息范围">
               <button type="button" :aria-pressed="annotationMode === 'group'" :class="{ 'is-active': annotationMode === 'group' }" @click="annotationMode = 'group'">群聊</button>
               <button type="button" :aria-pressed="annotationMode === 'direct'" :class="{ 'is-active': annotationMode === 'direct' }" @click="annotationMode = 'direct'">单聊</button>
-              <button type="button" :aria-pressed="annotationMode === 'mention'" :class="{ 'is-active': annotationMode === 'mention' }" @click="annotationMode = 'mention'">@我</button>
+              <button type="button" :aria-pressed="annotationMode === 'mention'" :class="{ 'is-active': annotationMode === 'mention' }" @click="annotationMode = 'mention'" @contextmenu="mentionSortMenu?.open($event)" @keydown.shift.f10="mentionSortMenu?.open($event)">@我</button>
             </div>
           </div>
           <ChatSessionFolderTree ref="folderTreeRef" v-if="annotationMode !== 'direct'" :selected="selectedFolder" :active="active" :sessions="sessions" @select="selectFolder" @changed="emit('categories-changed')" @browse-annotation="annotationPickerVisible = true" @open-conversation="emit('open', $event)" />
@@ -66,14 +66,14 @@
             </el-popover>
           </div>
           <p v-if="error" class="chat-workspace__error" role="alert">{{ error }} <el-button link @click="emit('retry')">重试</el-button></p>
-          <div ref="sessionList" class="chat-workspace__list">
-            <ChatMessageSearchResults v-if="searchMode === 'messages'" :keyword="appliedKeyword" :revision="searchRevision" @locate="emit('locate-mention', $event)" /><ChatMentionInbox v-else-if="showMentions" :keyword="appliedKeyword" :active="pane === 'messages'" @total="filteredMentionTotal = $event" @locate="emit('locate-mention', $event)" />
+          <div ref="sessionList" class="chat-workspace__list" @contextmenu="annotationMentionView && mentionSortMenu?.open($event)" @keydown.shift.f10="annotationMentionView && mentionSortMenu?.open($event)">
+            <ChatMessageSearchResults v-if="searchMode === 'messages'" :keyword="appliedKeyword" :revision="searchRevision" @locate="emit('locate-mention', $event)" /><ChatMentionInbox v-else-if="showMentions" :keyword="appliedKeyword" :filters="mentionFilters" :active="pane === 'messages'" @total="filteredMentionTotal = $event" @locate="emit('locate-mention', $event)" />
             <template v-else>
             <el-empty v-if="!visibleSessions.length" :description="annotationMentionView ? '当前筛选中没有提及我的项目' : tab === 'unread' ? '没有未读消息' : '暂无会话'" :image-size="48" />
             <div v-for="session in visibleSessions" :key="session.key" class="chat-workspace__session" :class="{ 'is-active': session.opened && session.key === activeKey, 'is-pinned': session.pinned, 'has-unread-mention': !!session.mentionUnread }" role="button" tabindex="0" :title="[session.title, session.subtitle].filter(Boolean).join(' · ')" @click="emit(session.opened ? 'select' : 'open', session)" @keydown.enter.self="emit(session.opened ? 'select' : 'open', session)" @keydown.space.self.prevent="emit(session.opened ? 'select' : 'open', session)">
               <span class="chat-workspace__session-left"><span v-if="session.projectType !== 'direct' && Number.isFinite(session.memberCount)" class="chat-session-member-count" :title="`当前会话 ${session.memberCount} 位参与人`" :aria-label="`当前会话 ${session.memberCount} 人`">{{ session.memberCount }}人</span><span class="chat-workspace__avatar" :class="`chat-workspace__avatar--${session.projectType}`" aria-hidden="true">{{ chatAvatarText(session.title) }}<small>{{ typeLabel(session.projectType) }}</small></span></span>
               <span class="chat-workspace__session-main">
-                <span class="chat-workspace__session-title"><strong>{{ session.title || '未命名项目' }}</strong><el-icon v-if="session.starred" title="特别关注" class="chat-session-star"><StarFilled /></el-icon><time v-if="session.lastMessage?.createdAt" :title="formatBusinessDateTime(session.lastMessage?.createdAt)">{{ chatDateLabel(session.lastMessage?.createdAt) }}</time></span>
+                <span class="chat-workspace__session-title"><strong>{{ session.title || '未命名项目' }}</strong><el-icon v-if="session.starred" title="特别关注" class="chat-session-star"><StarFilled /></el-icon><time v-if="sessionDisplayTime(session)" :title="formatBusinessDateTime(sessionDisplayTime(session))">{{ chatDateLabel(sessionDisplayTime(session)) }}</time></span>
                 <ChatOrderIdentity :order-no="session.subtitle" :project-type="session.projectType" />
                 <span v-if="renamingDiscussion?.key === session.key" @click.stop @keydown.stop @mousedown.stop><ChatInlineNameEditor :initial-name="session.title" class="chat-compact-rename" label="会话名称" :saving="renameSaving" :error="renameError" @save="saveDiscussionName" @cancel="renamingDiscussion = null" /></span>
                 <span class="chat-workspace__preview-row"><small class="chat-session-preview"><b v-if="session.mentionUnread" class="chat-mention-label">[有人@我] </b><mark v-else-if="session.lastMessage?.mentionsMe" class="chat-mention-preview">[@我]</mark>{{ session.lastMessage ? `${session.lastMessage.senderName}：${screenshotPreview(session.lastMessage.preview)}` : session.projectType === 'discussion' && session.storageReady !== true ? '讨论暂未启用' : '暂无消息' }}</small><span v-if="session.mentionUnread" class="chat-session-unread" :aria-label="`${session.mentionUnread} 条未读提及`" title="未读 @我">{{ session.mentionUnread > 99 ? '99+' : session.mentionUnread }}</span><span v-if="sessionUnreadSignal(session).ordinary" class="chat-session-unread-dot" role="status" aria-label="有普通未读消息" title="有普通未读消息" /></span>
@@ -105,6 +105,7 @@
       </aside>
       <div class="chat-workspace__stage"><template v-if="['summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(pane)"><div v-if="!maximized||narrow" class="chat-workspace__pane-tabs" role="tablist" aria-label="沟通导航"><button v-for="item in panes" :key="item.key" :aria-label="item.label" @click="selectPane(item.key)" @contextmenu="openProjectMenu($event,item.key)" @keydown.shift.f10="openProjectMenu($event,item.key)">{{ item.label }}<span v-if="item.key === 'messages' && messageBadgeTotal" class="chat-pane-count">@{{ messageBadgeTotal > 99 ? '99+' : messageBadgeTotal }}</span></button></div><div class="chat-summary-content"><ChatRequestNotifications v-if="pane==='notifications'" :feed="notificationFeed" /><ChatAnnotationProjects v-else-if="pane==='annotation-projects'" :key="`annotation:${projectMine}`" :my-projects="projectMine" @navigate="emit('project-navigate')" @open-conversation="pane='messages'" /><ChatManagedProjects v-else-if="isProjectPane(pane)" :key="`${pane}:${projectMine}`" :module="projectModule(pane)" :my-projects="projectMine" /><DevelopmentIssuePanel v-else :open-issue-id="summaryIssueId" /></div></template><div v-else-if="!activeKey" class="chat-workspace__empty"><el-icon><ChatDotRound /></el-icon><strong>开始沟通</strong><span>选择会话，或从通讯录发起私聊</span></div></div>
       <el-popover v-model:visible="projectMenuVisible" :virtual-ref="projectMenuAnchor" virtual-triggering :trigger="[]" placement="right-start" :width="150" :z-index="100050"><el-button text @click="selectMyProjects">我的项目</el-button></el-popover>
+      <ChatMentionSortMenu ref="mentionSortMenu" v-model="mentionSort" />
       <ChatSessionCategoryAssignment ref="categoryAssignment" @changed="emit('categories-changed', $event)" />
       <ChatAnnotationProjectPicker v-model="annotationPickerVisible" @joined="joinedAnnotation" />
     </div>
@@ -120,6 +121,8 @@ import ChatOrderIdentity from './ChatOrderIdentity.vue'
 import { chatRequest } from '@/api/projectChat'
 import ChatInlineNameEditor from './ChatInlineNameEditor.vue'
 import { canStartChatNameEditing } from '@/composables/useChatNameEditing'
+import ChatMentionSortMenu from './ChatMentionSortMenu.vue'
+import { compareMentionSessions, latestMentionAt } from '@/utils/chatMentionSort'
 import { groupSessionList, sessionListKey, mentionUnreadCount, sessionUnreadSignal, firstUnreadMentionSession } from '@/utils/chatSessionList'
 
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -311,6 +314,8 @@ const searchPlaceholder = computed(() => searchMode.value === 'messages' ? '搜�
 watch(selectedFolder, value => { try { localStorage.setItem(folderStorageKey, value) } catch { /* 本次选择仍生效。 */ } })
 watch(() => [categories.loaded, ...folderNodes.value.map(row => row.id)], ([loaded]) => { if (loaded && selectedFolder.value && !folderNodes.value.some(row => row.id === selectedFolder.value)) selectedFolder.value = categories.items.find(row => row.id === selectedFolder.value)?.parentKey === resourceFolderId ? resourceFolderId : '' }, { immediate: true })
 function selectFolder(id) { tab.value = 'all'; selectedFolder.value = id }
+const mentionSort = ref('time_desc'), mentionSortMenu = ref(null)
+const mentionFilters = computed(() => ({ sort: mentionSort.value }))
 const annotationMode = ref(tab.value === 'direct' ? 'direct' : tab.value === 'mention' ? 'mention' : 'group')
 const showMentions = computed(() => annotationMode.value === 'mention' && !selectedFolder.value)
 const annotationMentionView = computed(() => annotationMode.value === 'mention')
@@ -347,6 +352,7 @@ watch(keyword, (value) => {
 
 watch(searchMode, () => applyKeyword())
 
+const sessionDisplayTime = session => annotationMentionView.value ? latestMentionAt(session) : session.lastMessage?.createdAt
 const visibleSessions = computed(() => groupSessionList((appliedKeyword.value ? [...new Map([...props.searchSessions,...props.sessions].map(row=>[row.key,row])).values()] : props.sessions).filter((session) => {
   const directMode = annotationMode.value === 'direct'
   if (!appliedKeyword.value) {
@@ -358,7 +364,7 @@ const visibleSessions = computed(() => groupSessionList((appliedKeyword.value ? 
   if (!appliedKeyword.value) return true
   return matchesSearch(`${session.title || ''} ${session.subtitle || ''} ${session.lastMessage?.preview || ''} ${session.lastMessage?.senderName || ''}`, appliedKeyword.value)
 }).sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || sessionStamp(b.lastMessage?.createdAt) - sessionStamp(a.lastMessage?.createdAt)), props.activeKey)
-  .sort((a, b) => Number(!!b.mentionUnread) - Number(!!a.mentionUnread) || Number(!!b.pinned) - Number(!!a.pinned) || sessionStamp(b.lastMessage?.createdAt) - sessionStamp(a.lastMessage?.createdAt)))
+  .sort((a, b) => annotationMentionView.value ? compareMentionSessions(a, b, mentionSort.value) : Number(!!b.mentionUnread) - Number(!!a.mentionUnread) || Number(!!b.pinned) - Number(!!a.pinned) || sessionStamp(b.lastMessage?.createdAt) - sessionStamp(a.lastMessage?.createdAt)))
 function syncActiveConversation(context,external=false){
  if(!context.projectId)return
  const session=props.sessions.find(row=>String(row.projectId)===String(context.projectId)&&row.projectType===context.projectType)||{...context,categoryIds:[]}

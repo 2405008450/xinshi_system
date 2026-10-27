@@ -55,6 +55,9 @@ def test_discussion_mentions_all_and_explicit_invite_idempotency_read_recall(cha
     assert service.send(db,sender,room,payload)['id']==result['id']
     assert db.query(AppNotification).count()==1
     catalog=service.catalog(db,receiver);row=next(row for row in catalog if row['project_id']==str(room))
+    from routers.chat_sessions import decorate_member_counts
+    decorate_member_counts(db, catalog)
+    assert row['member_count'] == 2
     assert row['mention_unread']==1 and row['last_message']['mentions_me']
     inbox=list_mentions(db,receiver,project_type='discussion');assert inbox['total']==1
     assert inbox['items'][0]['message_id']==result['id']
@@ -109,6 +112,48 @@ def test_direct_mentions_are_pair_only_and_global_inbox_cursor(chat_env):
     assert {first['items'][0]['project_type'],second['items'][0]['project_type']}=={'discussion','direct'}
     assert list_mentions(db,receiver,keyword='第二条')['total']==1
     assert list_mentions(db,outsider)['total']==0
+
+
+def test_mention_sort_unread_first_customer_and_cursor(chat_env):
+    db, (sender, receiver, outsider) = chat_env
+    from models import Client, AnnotationChatMember, ChatProjectMessage
+    from annotation_models import AnnotationProject
+    from schemas import AnnotationProjectChatMessageCreate
+    from chat_mention_history import list_mentions, decorate_mention_sessions
+    import annotation_chat_service as service
+    projects, messages = [], []
+    for index, customer in enumerate(['B', 'A', 'C']):
+        client = Client(id=uuid4(), client_code=f'C{index}', client_name=customer, client_short_name=customer)
+        project = AnnotationProject(id=uuid4(), order_no=f'AP-SORT-{index}', project_name=f'项目{index}', client_id=client.id)
+        db.add(client); db.add(project); db.flush()
+        db.add_all([AnnotationChatMember(project_id=project.id, user_id=user.id, following=True, last_read_sequence=0) for user in [sender, receiver]])
+        db.commit()
+        message = service.send_message(db, project.id, sender, AnnotationProjectChatMessageCreate(content='@所有人 排序', mention_all=True, client_message_id=uuid4()))
+        message.created_at = datetime(2026, 10, 25 + index, 9)
+        projects.append(project); messages.append(message)
+    db.get(AnnotationChatMember, (projects[2].id, receiver.id)).last_read_sequence = messages[2].sequence_no
+    # 后续普通消息比所有提及都新，不能拿它当作 @我的时间。
+    ordinary = service.send_message(db, projects[0].id, sender, AnnotationProjectChatMessageCreate(content='普通消息'))
+    ordinary.created_at = datetime(2026, 10, 28, 9)
+    db.commit()
+    for sort, expected in [('time_desc', [1,0,2]), ('time_asc', [0,1,2]), ('customer_asc', [1,0,2]), ('customer_desc', [0,1,2])]:
+        ids, cursor = [], None
+        while True:
+            page = list_mentions(db, receiver, sort=sort, before=cursor, limit=1)
+            assert page['total'] == 3
+            ids.extend(item['project_id'] for item in page['items'])
+            if not page['has_more']: break
+            cursor = page['next_before']
+        assert ids == [projects[index].id for index in expected]
+    rows = [dict(kind='annotation', project_id=project.id) for project in projects]
+    decorate_mention_sessions(db, receiver, rows)
+    assert rows[0]['customer_name'] == 'B'
+    assert rows[0]['mention_history_count'] == 1
+    assert rows[0]['latest_mention_at'].day == 25
+    ordinary.recalled_at = datetime(2026, 10, 28, 10)
+    messages[1].recalled_at = datetime(2026, 10, 28, 10)
+    db.commit()
+    assert list_mentions(db, receiver)['total'] == 2
 
 
 def test_migration_is_create_only_repeatable(chat_env):

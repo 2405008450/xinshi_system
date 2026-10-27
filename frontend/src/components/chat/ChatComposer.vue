@@ -21,7 +21,7 @@
           <div v-if="!mentionCandidates.length" class="group-mention-empty">没有匹配的用户</div>
         </div>
       </div>
-      <small v-if="draft.error.value" role="alert">{{draft.error.value}}</small><small v-else-if="draft.saved.value">草稿已自动保存到本机</small>
+      <small v-if="draft.error.value" role="alert">{{draft.error.value}}</small>
       <div class="group-compose-footer"><span>Enter发送 · Shift+Enter换行</span><el-button v-if="retryPayload" size="small" @click="cancelRetry">继续编辑</el-button><el-button type="primary" size="small" :loading="sending" :disabled="!canSend" @click="send">{{ retryPayload ? '发送失败，重试' : '发送' }}</el-button></div>
       <div v-if="sendError" class="group-error" role="alert">{{ sendError }}</div>
     </div>

@@ -510,7 +510,7 @@
       :placement="historyPlacement"
       @locate="locateMessage"
     />
-    <small v-if="draft.error.value" role="alert">{{draft.error.value}}</small><small v-else-if="draft.saved.value">草稿已自动保存到本机</small>
+    <small v-if="draft.error.value" role="alert">{{draft.error.value}}</small>
     <ChatMessageReferences ref="references" :project-id="projectId" :project-type="projectType" @locate="locateMessage" />
     <ChatMessageContextMenu ref="messageMenuRef" :messages="messages" :current-user-id="currentUserId" :handlers="messageMenuHandlers" :can-progress="canAddToProgress" :selecting="progressSelectionMode" :active="active" />
   </div>

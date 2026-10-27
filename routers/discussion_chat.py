@@ -1,6 +1,6 @@
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from database import get_db
 from routers.chat_topics import actor
 import discussion_chat_service as service
@@ -52,6 +52,14 @@ class MessageCreate(BaseModel):
     reply_to_id: int | None = Field(default=None, ge=1)
     mentioned_user_ids: list[UUID] = Field(default_factory=list,max_length=20)
     mention_all: bool = False
+
+    @model_validator(mode='before')
+    @classmethod
+    def discard_legacy_display_state(cls, value):
+        # 旧页面会把 @ 候选人的显示资料放进请求；它不能决定实际收件人。
+        if isinstance(value, dict) and 'selected_users' in value:
+            return {key: item for key, item in value.items() if key != 'selected_users'}
+        return value
 
 
 class PreferenceWrite(BaseModel):

@@ -137,8 +137,11 @@ test('前台恢复立即补查会话，旧挂起请求迟到也不能覆盖新�
   h.requests[0].resolve({ items: [], mentionTotal: 0 }); await flush()
   assert.equal(store.mentionTotal.value, 4)
   store.refresh(); assert.equal(h.requests.length, 3)
+  h.subscribers.get('connected')()
+  assert.equal(h.requests.length, 4)
+  assert.equal(h.requests[2].signal.aborted, true)
   h.unmounts.forEach(fn => fn())
-  h.requests[2].resolve({ items: [], mentionTotal: 99 }); await flush()
+  h.requests[3].resolve({ items: [], mentionTotal: 99 }); await flush()
   assert.equal(store.mentionTotal.value, 0)
 })
 

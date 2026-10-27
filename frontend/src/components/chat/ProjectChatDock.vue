@@ -339,7 +339,7 @@ const sessions = computed(() => {
   }
   const counts = new Map(annotationMentionCounts.value.map(item => [String(item.projectId), item.count]))
   // 先保持现有目录范围，再补充个人提及信息；历史提及不能把未关注项目带入目录。
-  return filterClosedSessions(rows.map(row => ({ ...row, mentionHistoryCount: row.projectType === 'annotation' ? counts.get(String(row.projectId)) || 0 : 0 })), state.closedSessionKeys)
+  return filterClosedSessions(rows.map(row => ({ ...row, mentionHistoryCount: row.mentionHistoryCount ?? (row.projectType === 'annotation' ? counts.get(String(row.projectId)) || 0 : 0) })), state.closedSessionKeys)
 })
 function closeSessionGroup(session) {
   closeSessionEntry(session)
