@@ -19,9 +19,10 @@ export function buildMessageMenu(message, { handlers = {}, currentUserId = '', c
     items.push({ id: 'acknowledge', label: message.isAcknowledged ? '取消收到' : '收到', icon: 'acknowledge' })
   }
   if (normal && text && canCollect) items.push({ id: 'collect', label: '分类保存和通知', icon: 'collect', submenu: true, separator: true })
+  if (normal && text && handlers.technical) items.push({id:'technical',label:'添加技术需求',icon:'technical',separator:true})
   if (normal && text && annotationProgress) items.push({id:'annotation-progress',label:'添加进度',icon:'progress',submenu:true,separator:true})
   else if (text && canProgress && handlers.progress) items.push({ id: 'progress', label: excerpt ? '添加选中内容为进度' : '添加为进度', icon: 'progress', separator: true })
   if (text && canProgress && handlers.select) items.push({ id: 'select', label: selecting ? '选择这条消息' : '多选', icon: 'select' })
-  if (normal && message.canRecall && handlers.recall) items.push({ id: 'recall', label: message.senderUserId === currentUserId ? '撤回' : '移除', icon: 'recall', danger: true, separator: true })
+  if (normal && message.senderUserId === currentUserId && message.canRecall && handlers.recall) items.push({ id: 'recall', label: '撤回', icon: 'recall', danger: true, separator: true })
   return items
 }

@@ -47,10 +47,17 @@ def options(db=Depends(ready), actor=Depends(user)):
 
 
 @router.get("/source/{message_id}")
-def source(message_id: UUID, db=Depends(ready), actor=Depends(user)):
+def source(message_id: str, discussion_room_id: UUID | None = None, db=Depends(ready), actor=Depends(user)):
     if not service.can_collect(db, actor):
         raise HTTPException(403, "没有开拓收录权限")
-    return service.source_preview(db, actor, message_id)
+    if discussion_room_id:
+        from discussion_issue_sources import preview
+        try: mid=int(message_id)
+        except ValueError: raise HTTPException(422,'讨论消息编号无效')
+        return preview(db,actor,discussion_room_id,mid)
+    try: mid=UUID(message_id)
+    except ValueError: raise HTTPException(422,'来源消息编号无效')
+    return service.source_preview(db, actor, mid)
 
 
 @router.get("")
@@ -127,7 +134,9 @@ def listing(keyword: str | None = Query(None, max_length=255), category: IssueCa
             grouped[task.issue_id].append(task)
     authority = dict(manage=service.can_delegate(db, actor), collect=service.can_collect(db, actor), admin=service.is_admin(db, actor))
     displays=summary_service.display_data(db,rows)
-    return {"items": [service.serialize(db, actor, row, children=grouped[row.id], authority=authority,summary_info=displays[row.id]) for row in rows], "total": total}
+    from discussion_issue_sources import for_issues
+    discussion_sources=for_issues(db,[row.id for row in rows])
+    return {"items": [service.serialize(db, actor, row, children=grouped[row.id], authority=authority,summary_info=displays[row.id],discussion_source=discussion_sources.get(row.id,{})) for row in rows], "total": total}
 
 
 @router.post("")
@@ -140,6 +149,14 @@ def create(payload: IssueCreate, db=Depends(ready), actor=Depends(user)):
 @router.get("/{issue_id}/source")
 def locate_source(issue_id: UUID, db=Depends(ready), actor=Depends(user)):
     row = service.get_issue(db, actor, issue_id)
+    import discussion_issue_sources as discussion_sources
+    discussion_source=discussion_sources.for_issues(db,[row.id]).get(row.id)
+    if discussion_source:
+        try:
+            source=discussion_sources.preview(db,actor,discussion_source.room_id,discussion_source.message_id)
+            return dict(source,source_message_id=str(discussion_source.message_id),available=True)
+        except HTTPException as error:
+            return {'available':False,'reason':error.detail}
     if not row.source_message_id:
         return {'available': False, 'reason': '手工新增事项没有来源聊天消息'}
     try:

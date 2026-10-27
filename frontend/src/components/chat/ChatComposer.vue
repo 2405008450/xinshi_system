@@ -1,7 +1,7 @@
 <template>
     <div ref="composer" class="group-composer">
       <button type="button" class="chat-composer-resize" aria-label="调整输入区高度" title="拖动调整输入区高度" @pointerdown="start" @keydown="resizeByKeyboard" />
-      <div v-if="replyTo" class="group-compose-reply">回复 {{ replyTo.senderName }}：{{ screenshotPreview(replyTo.content) || '[附件]' }}<el-button link :disabled="sending || !!retryPayload" @click="replyTo=null">取消引用</el-button></div>
+      <div v-if="replyTo" class="group-compose-reply">回复 {{ replyTo.senderName }}：{{ screenshotPreview(replyTo.content) || '[附件]' }}<el-button link :disabled="sending || !!retryPayload" @click="cancelQuote">取消引用</el-button></div>
       <div class="group-compose-tools">
         <el-button text size="small" aria-label="提及用户" title="提及用户" :disabled="sending || !!retryPayload" @click="insertMention">@</el-button>
         <el-upload :show-file-list="false" :auto-upload="false" multiple :disabled="sending || !!retryPayload" accept=".jpg,.jpeg,.png,.gif,.webp" :on-change="chooseFile"><el-button text size="small" :icon="Picture" :disabled="sending || !!retryPayload" aria-label="发送图片" title="发送图片" /></el-upload>
@@ -33,7 +33,7 @@ import { useDesktopPresence } from '@/composables/useDesktopPresence'
 import { Paperclip, Picture } from '@element-plus/icons-vue'
 import { useChatComposerHeight } from '@/composables/useChatComposerHeight'
 const { inputStyle, start, resizeByKeyboard } = useChatComposerHeight()
-const { draft, props, composer, replyTo, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, screenshotUploading, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect } = inject('chatController')
+const { draft, props, composer, replyTo, cancelQuote, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, screenshotUploading, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect } = inject('chatController')
 const { statuses: desktopPresence, loading: desktopPresenceLoading } = useDesktopPresence(computed(() => mentionCandidates.value.filter(user=>!user.all).map(user => user.id)), computed(() => props.active && mentionOpen.value))
 function keepMentionFocus(event) {
   // 搜索框需要获得焦点；候选按钮保留输入光标，确保选择时替换正确的 @ 文本。
@@ -53,4 +53,3 @@ async function insertMention() {
 <style scoped src="./chatConversation.css" />
 <style scoped>.group-composer{margin:10px 12px 14px;border:1px solid #dfe5ee;border-radius:12px;padding:8px 10px;box-shadow:0 2px 6px #0f172a03}.group-composer:focus-within{border-color:var(--el-color-primary);box-shadow:0 0 0 2px var(--el-color-primary-light-9)}.group-compose-tools{flex-wrap:wrap;gap:6px}.group-compose-footer{justify-content:flex-end;gap:10px}.group-compose-footer>span{margin-right:auto}.chat-composer-resize{position:absolute;top:-5px;left:20%;width:60%;height:8px;padding:0;border:0;background:transparent;cursor:ns-resize;touch-action:none}.chat-composer-resize:focus-visible{outline:2px solid var(--el-color-primary)}.group-mention-search{flex-shrink:0;margin-bottom:5px}.group-mention-section{position:sticky;top:0;padding:7px;background:#eff6ff;color:#1d4ed8;font-size:11px;font-weight:600;border-bottom:1px solid #dbeafe}.group-mention-section.is-outside{background:#fff7ed;color:#9a3412;border-top:2px solid #fed7aa;border-bottom-color:#ffedd5}.group-mention-options button small{margin-left:auto;flex:none;color:#9a3412;font-size:10px}
 </style>
-

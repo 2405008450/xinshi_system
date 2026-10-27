@@ -2,7 +2,8 @@ import api from './index'
 import { chatClientType } from '@/utils/chatDevice'
 
 export const getNotifications = (params = {}, config = {}) => api.get('/notifications/', { ...config, params,paramsSerializer:{indexes:null} })
-export const getUnreadNotificationCount = (params = {}) => api.get('/notifications/unread-count', { params,paramsSerializer:{indexes:null} })
+export const getNotificationPage = (params = {}, config = {}) => api.get('/notifications/page', { ...config, params,paramsSerializer:{indexes:null} })
+export const getUnreadNotificationCount = (params = {}, config = {}) => api.get('/notifications/unread-count', { ...config,params,paramsSerializer:{indexes:null} })
 export const markNotificationRead = (notificationId) => api.post(`/notifications/${notificationId}/read`)
 export const markAllNotificationsRead = (params = {}) => api.post('/notifications/read-all', null, { params })
 

@@ -7,6 +7,7 @@
           <p class="page-subtitle">统一维护团队与企业资源档案</p>
         </div>
         <div class="header-actions">
+          <TalentResourceTools />
           <TableColumnSettings settings-key="resource-teams" v-model="selectedColumns" :columns="teamColumns" :column-count="2" title="团队列表字段" @reset="selectedColumns = [...defaultTeamColumns]" />
           <BatchDeleteToolbar v-if="options.can_write" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
           <el-button v-if="options.can_write && !deleteMode" type="primary" @click="openEditor()">新增团队</el-button>
@@ -58,6 +59,7 @@
 </template>
 
 <script setup>
+import TalentResourceTools from './components/TalentResourceTools.vue'
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'

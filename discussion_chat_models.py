@@ -5,6 +5,24 @@ from models import Base
 from chat_session_category_models import category_now
 
 
+class DiscussionMessageAction(Base):
+    __tablename__ = 'chat_discussion_message_action'
+    message_id = mapped_column(BigInteger, ForeignKey('chat_discussion_message.id', ondelete='CASCADE'), primary_key=True)
+    user_id = mapped_column(Uuid, ForeignKey('app_user.id', ondelete='CASCADE'), primary_key=True)
+    user_name = mapped_column(String(255), nullable=False)
+    favorited_at = mapped_column(DateTime(timezone=True))
+    acknowledged_at = mapped_column(DateTime(timezone=True))
+
+
+class DiscussionIssueSource(Base):
+    __tablename__ = 'chat_discussion_issue_source'
+    __table_args__ = (UniqueConstraint('message_id', 'category', name='uq_discussion_issue_category'),)
+    issue_id = mapped_column(Uuid, ForeignKey('resource_development_issue.id', ondelete='CASCADE'), primary_key=True)
+    room_id = mapped_column(Uuid, nullable=False, index=True)
+    message_id = mapped_column(BigInteger, ForeignKey('chat_discussion_message.id', ondelete='RESTRICT'), nullable=False)
+    category = mapped_column(String(20), nullable=False)
+
+
 class DiscussionMessage(Base):
     __tablename__ = 'chat_discussion_message'
     __table_args__ = (

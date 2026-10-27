@@ -131,7 +131,7 @@ def recall_message(db, project_id, message_id, user):
     if message.recalled_at:
         return message
     if not group_service.can_recall(message, user.id):
-        raise HTTPException(403, '只能撤回本人24小时内的消息')
+        raise HTTPException(403, '只能撤回本人一小时内发送的消息')
     message.recalled_at = now().replace(tzinfo=None)
     message.recalled_by = user.id
     message.recall_label = f'{message.sender_name}撤回了一条消息'

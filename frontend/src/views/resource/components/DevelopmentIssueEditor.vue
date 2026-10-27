@@ -52,15 +52,16 @@ function applyForm(data){const meta=data.summary||data.summary_data||{};Object.a
 const {fieldSearchRef, fieldSearchKeyword, fetchFieldSuggestions, locateDialogField, clearFieldSearch} = useDialogFieldSearch(bodyRef)
 const { access } = useResourceIssues()
 let baseline = '', sourceMessageId = '', sourceCategory = '', clientRequestId = ''
+let sourceDiscussionRoomId = null
 let openVersion = 0
 const draft = () => JSON.stringify({content:form.content, remarks:form.remarks, category:form.category,specific_classification:form.specific_classification,planned_completion_at:form.planned_completion_at,follower_user_ids:form.follower_user_ids,actual_progress:form.actual_progress,notify_user_ids:form.notify_user_ids,notify_department_ids:form.notify_department_ids,view_all:form.view_all,view_user_ids:form.view_user_ids,view_department_ids:form.view_department_ids})
-async function open(row, messageId, category) {
+async function open(row, messageId, category, discussionRoomId = null) {
   const version = ++openVersion
-  visible.value = true; loading.value = true; conflict.value = false; clearFieldSearch(); sourceMessageId = messageId; sourceCategory = category
+  visible.value = true; loading.value = true; conflict.value = false; clearFieldSearch(); sourceMessageId = messageId; sourceCategory = category; sourceDiscussionRoomId = discussionRoomId
   Object.keys(form).forEach(key => delete form[key])
   try {
     clientRequestId = newChatRequestId()
-    const [data,options,departmentOptions]=await Promise.all([row?.id ? issueApi.detail(row.id) : messageId ? issueApi.source(messageId).then(source=>({...source,category,remarks:''})) : Promise.resolve({category:category||'problem',content:'',remarks:'',source_type:'manual',source_title:'手工新增',proposer_name:access.user_name||'当前用户'}),issueApi.options(),refreshDepartments()])
+    const [data,options,departmentOptions]=await Promise.all([row?.id ? issueApi.detail(row.id) : messageId ? issueApi.source(messageId,sourceDiscussionRoomId).then(source=>({...source,category,remarks:''})) : Promise.resolve({category:category||'problem',content:'',remarks:'',source_type:'manual',source_title:'手工新增',proposer_name:access.user_name||'当前用户'}),issueApi.options(),refreshDepartments()])
     if (version !== openVersion) return
     users.value=options.users;departments.value=options.departments||departmentOptions.items||[]
     applyForm({...data,content:data.content??data.source_content}); baseline = draft()
@@ -79,7 +80,7 @@ async function save(close = true) {
     const execution=form.category==='execution'
     const summary={view_all:form.view_all,view_user_ids:form.view_user_ids||[],view_department_ids:form.view_department_ids||[],specific_classification:form.specific_classification||'',notify_user_ids:form.notify_user_ids||[],notify_department_ids:form.notify_department_ids||[],follower_user_ids:execution?form.follower_user_ids||[]:[],planned_completion_at:execution&&form.planned_completion_at?form.planned_completion_at.replace(' ','T')+'+08:00':null,actual_progress:execution?form.actual_progress||'':''}
     const values = {content:form.content, remarks:form.remarks, summary}
-    const data = form.id ? await issueApi.update(form.id, {...values, revision:form.revision}) : await issueApi.create({...values, source_message_id:sourceMessageId || null, category:form.category, ...(!sourceMessageId ? {client_request_id:clientRequestId} : {})})
+    const data = form.id ? await issueApi.update(form.id, {...values, revision:form.revision}) : await issueApi.create({...values, source_message_id:sourceDiscussionRoomId ? null : sourceMessageId || null, ...(sourceDiscussionRoomId ? {source_discussion_room_id:sourceDiscussionRoomId,source_discussion_message_id:sourceMessageId} : {}), category:form.category, ...(!sourceMessageId ? {client_request_id:clientRequestId} : {})})
     applyForm(data); baseline = draft(); emit('saved', data); refreshIssueAccess(true).catch(() => {})
     ElMessage.success(data.already_collected ? '该消息已保存过，已打开已有总结' : hasNotifyAudience.value ? '总结已保存并通知' : '总结已保存')
     if (close) visible.value = false
@@ -88,7 +89,7 @@ async function save(close = true) {
 }
 async function reloadDraft() {
   try { await ElMessageBox.confirm('重新加载会替换当前草稿，是否继续？','重新加载',{type:'warning',customClass:'chat-issue-message-box'}) } catch { return }
-  await open(form.id ? {id:form.id} : null, sourceMessageId, sourceCategory)
+  await open(form.id ? {id:form.id} : null, sourceMessageId, sourceCategory, sourceDiscussionRoomId)
 }
 defineExpose({open})
 </script>

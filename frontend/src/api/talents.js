@@ -17,6 +17,15 @@ export const getTalents = (params, config = {}) => api.get('/talents/', { ...con
 export const getTalentCount = (params, config = {}) => api.get('/talents/count', { ...config, params })
 export const getTalentPage = (params, config = {}) => api.get('/talents/page', { ...config, params }).then(fromApi)
 export const getTalentPathPage = (params, config = {}) => api.get('/talents/path-page', { ...config, params }).then(fromApi)
+// 匹配条件使用固定 snake_case 协议；不递归改写来源表格内容。
+export const matchTalentRegions = (payload, config = {}) => api.post('/talents/region-match', payload, { timeout: 180000, ...config }).then(fromApi)
+export const getRegionMatchPage = (payload, params, config = {}) => api.post('/talents/region-match/page', payload, { ...config, params, timeout: 60000 }).then(fromApi)
+export const importTalentRegions = (file, sheet, header, config = {}) => {
+  const form = new FormData()
+  form.append('file', file); form.append('header', String(header))
+  if (sheet) form.append('sheet_name', sheet)
+  return api.post('/talents/region-match/import', form, { ...config, timeout: 60000, headers: { 'Content-Type': 'multipart/form-data' } })
+}
 export const patchTalentPathFields = (id, data) => api.patch(`/talents/${id}/path-fields`, toApi(data)).then(fromApi)
 export const getTalentPathHistory = (id, params, config = {}) => api.get(`/talents/${id}/path-history`, { ...config, params }).then(fromApi)
 export const getTalentOverview = () => api.get('/talents/overview').then(fromApi)
@@ -52,7 +61,7 @@ export const saveTalentOverview = (data) => api.put('/talents/overview', {
     counts: Object.fromEntries(Object.entries(row.counts || {})),
   })),
 }).then(fromApi)
-export const getTalent = (id) => api.get(`/talents/${id}`).then(fromApi)
+export const getTalent = (id, config = {}) => api.get(`/talents/${id}`, config).then(fromApi)
 export const createTalent = async (data) => {
   const payload = toApi(data)
   const key = resolveIdempotencyKey(talentCreateState, payload)
@@ -67,7 +76,7 @@ export const patchTalentName = (id, fullName) => api.patch(`/talents/${id}/name`
 export const patchTalentStatus = (id, status) => api.patch(`/talents/${id}/status`, toApi({ status })).then(fromApi)
 export const deleteTalent = (id) => api.delete(`/talents/${id}`)
 export const checkTalentDuplicates = (params) => api.get('/talents/duplicates', { params }).then(fromApi)
-export const getTalentProjects = (id) => api.get(`/talents/${id}/projects`).then(fromApi)
+export const getTalentProjects = (id, config = {}) => api.get(`/talents/${id}/projects`, config).then(fromApi)
 export const getTalentProjectPage = (id, params = {}, config = {}) => api.get(
   `/talents/${id}/projects/page`, { ...config, params: toApi(params) },
 ).then(fromApi)

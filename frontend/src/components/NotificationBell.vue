@@ -8,7 +8,7 @@
     @show="handlePopoverShow"
   >
     <template #reference>
-      <el-badge :value="unreadCount" :hidden="unreadCount === 0" :max="99">
+      <el-badge :value="badgeTotal" :hidden="badgeTotal === 0" :max="99" @click.capture="openMentionBadge">
         <el-button class="notification-trigger" circle text aria-label="业务通知" title="业务通知：交接、待处理事项及关键业务动态">
           <el-icon :size="18"><Bell /></el-icon>
         </el-button>
@@ -93,6 +93,7 @@ import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, r
 const ResourceRequestDispatchDialog=defineAsyncComponent(()=>import('@/views/resource/components/ResourceRequestDispatchDialog.vue'))
 const dispatchBatchId=ref('')
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
+import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
 import { useRouter } from 'vue-router'
 import { Bell } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
@@ -119,6 +120,14 @@ import {
 const router = useRouter()
 const notifications = ref([])
 const unreadCount = ref(0)
+const { mentionTotal } = useAnnotationFollowed()
+const badgeTotal = computed(()=>unreadCount.value+mentionTotal.value)
+async function openMentionBadge(event){
+  if(!mentionTotal.value||!event.target.closest('.el-badge__content'))return
+  event.preventDefault();event.stopPropagation();popoverVisible.value=false
+  useProjectChatDock().openFullscreen();await nextTick()
+  window.dispatchEvent(new CustomEvent('chat-show-messages',{detail:{mentions:true}}))
+}
 const popoverVisible = ref(false)
 const permissionRequesting = ref(false)
 const desktopNotificationState = ref(getDesktopNotificationState())

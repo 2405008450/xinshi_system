@@ -127,6 +127,7 @@ def _serialize_message(
     current_user_id: UUID | None = None,
 ) -> ProjectChatMessageResponse:
     from chat_time import api_time
+    from annotation_chat_service import can_recall
     from chat_topic_service import message_metadata
     mention_rows = sorted(
         getattr(message, 'mentions', None) or [],
@@ -185,6 +186,9 @@ def _serialize_message(
         content_json=None if getattr(message, 'recalled_at', None) else message.content_json,
         message_type=message.message_type,
         metadata=message.event_data or {},
+        recalled_at=api_time(message.recalled_at),
+        recall_label=message.recall_label,
+        can_recall=can_recall(message,current_user_id),
         created_at=api_time(message.created_at),
         updated_at=api_time(message.updated_at),
         mentioned_user_id=mention.mentioned_user_id if mention else None,
@@ -304,6 +308,26 @@ def list_annotation_messages_endpoint(
         enabled=True,
         can_manage=False,
     )
+
+
+@router.post('/{project_id}/messages/{message_id}/recall', response_model=ProjectChatMessageResponse)
+def recall_translation_message(project_id: UUID, message_id: UUID, db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user)):
+    from chat_access_service import require_member
+    from annotation_chat_service import can_recall, chat_now
+    require_member(db,'translation',project_id,current_user)
+    _require_project(db,project_id)
+    row=db.query(ChatProjectMessage).filter_by(id=message_id,project_id=project_id).with_for_update().first()
+    if row is None: raise HTTPException(404,'消息不存在')
+    if row.sender_user_id != current_user.id: raise HTTPException(403,'不能撤回他人的消息')
+    if not row.recalled_at:
+        if not can_recall(row,current_user.id): raise HTTPException(403,'只能撤回本人一小时内发送的消息')
+        row.recalled_at=chat_now();row.recalled_by=current_user.id
+        row.recall_label=f'{row.sender_name}撤回了一条消息';row.content='';row.content_json=None;row.updated_at=chat_now()
+        db.commit()
+        from notification_ws import broadcast_to_users
+        from chat_access_service import member_ids
+        broadcast_to_users(member_ids(db,'translation',project_id),{'type':'chat_sessions_changed'})
+    return _serialize_message(row,'translation',None,current_user.id)
 
 
 @router.post('/annotation/{project_id}/messages', response_model=ProjectChatMessageResponse, status_code=status.HTTP_201_CREATED)

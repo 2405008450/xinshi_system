@@ -9,17 +9,18 @@
           <button v-if="!root.isConversation && root.id !== resourceFolderId" type="button" class="chat-folder-tree__toggle" :aria-label="`${expanded.has(root.id) ? '收起' : '展开'}${root.name}`" :aria-expanded="expanded.has(root.id)" @click="toggle(root.id)"><el-icon><ArrowDown v-if="expanded.has(root.id)" /><ArrowRight v-else /></el-icon></button>
           <span v-else class="chat-folder-tree__toggle" aria-hidden="true"><el-icon v-if="root.isConversation"><ChatDotRound /></el-icon><template v-else>#</template></span>
           <span class="chat-folder-tree__grip" title="拖动调整分组顺序" aria-hidden="true">⠿</span>
-          <button type="button" class="chat-folder-tree__name" :aria-pressed="selected === root.id" :data-folder-id="root.id" :aria-haspopup="root.id === annotationFolderId ? 'dialog' : undefined" :title="root.id === annotationFolderId ? '右键搜索标注项目，加入会话' : undefined" @click="openChild(root)"><span>{{ root.name }}</span><small class="chat-folder-tree__count" :aria-label="`${count(root.id)} 个对话`">{{ count(root.id) }}</small><b v-if="mentionCount(root.id)" class="chat-folder-tree__mention" :aria-label="`${mentionCount(root.id)} 条未读提及`">{{ mentionCount(root.id) > 99 ? '99+' : mentionCount(root.id) }}</b></button>
+          <button type="button" class="chat-folder-tree__name" :aria-pressed="selected === root.id" :data-folder-id="root.id" :aria-haspopup="root.id === annotationFolderId ? 'dialog' : undefined" :title="root.id === annotationFolderId ? '右键搜索标注项目，加入会话' : undefined" @click="openChild(root)"><span>{{ root.name }}</span><small class="chat-folder-tree__count" :aria-label="`${count(root.id)} 个对话`">{{ count(root.id) }}</small><b v-if="mentionCount(root.id)" class="chat-folder-tree__mention" :aria-label="`${mentionCount(root.id)} 条未读提及`" role="button" tabindex="0" @click.stop.prevent="emit('unread',root.id)" @keydown.enter.stop.prevent="emit('unread',root.id)" @keydown.space.stop.prevent="emit('unread',root.id)">{{ mentionCount(root.id) > 99 ? '99+' : mentionCount(root.id) }}</b></button>
           <el-button v-if="categories.canManage && !root.isConversation" link :disabled="!!editing || !categories.hierarchyReady" :aria-label="`在${root.name}下新建${root.id === resourceFolderId ? '讨论' : '会话'}`" :title="root.id === resourceFolderId ? '新建讨论' : '创建会话'" @click="start(root.id, null, true)"><el-icon><Plus /></el-icon></el-button>
           <el-button v-if="categories.canManage && !root.isConversation && root.id !== resourceFolderId" link :disabled="!!editing || !categories.hierarchyReady" :aria-label="`在${root.name}下创建二级菜单`" title="创建二级菜单" @click="start(root.id, null, false, true)"><el-icon><FolderAdd /></el-icon></el-button>
           <el-button v-if="categories.canManage && !root.builtin" link :disabled="!!editing" :aria-label="`重命名${root.name}`" @click="start(root.parentKey, root)"><el-icon><Edit /></el-icon></el-button>
           <el-button v-if="categories.canManage && !root.builtin" link :disabled="!!editing || saving" :aria-label="`${root.isConversation ? '删除会话' : '移除'}${root.name}`" @click="remove(root)"><el-icon><Close /></el-icon></el-button>
         </div>
         <div v-if="root.id !== resourceFolderId && expanded.has(root.id) || editing?.parentKey === root.id" class="chat-folder-tree__children">
+          <el-button v-if="root.id===annotationFolderId" link class="chat-technical-entry" @click="technicalPicker.open()">技术需求</el-button>
           <template v-for="child in visibleChildren(root.id)" :key="child.id">
           <div class="chat-folder-tree__row" :style="child.parentKey !== root.id ? {marginLeft:'18px'} : undefined" :class="{ 'is-active': selected === child.id }" :draggable="!editing" @contextmenu="openCategoryMenu($event, child)" @keydown.shift.f10="openCategoryMenu($event, child)" @dragstart.stop="beginDrag($event, child.id)" @dragover.prevent @drop.stop.prevent="drop(child.id)" @dragend="dragged = ''">
             <span class="chat-folder-tree__grip" title="拖动调整分类顺序" aria-hidden="true">⠿</span>
-            <button type="button" class="chat-folder-tree__name" :aria-pressed="selected === child.id" @click="openChild(child)"><el-icon v-if="child.isConversation"><ChatDotRound /></el-icon><span>{{ child.name }}</span><small class="chat-folder-tree__count" :aria-label="`${count(child.id)} 个对话`">{{ count(child.id) }}</small><b v-if="mentionCount(child.id)" class="chat-folder-tree__mention" :aria-label="`${mentionCount(child.id)} 条未读提及`">{{ mentionCount(child.id) > 99 ? '99+' : mentionCount(child.id) }}</b></button>
+            <button type="button" class="chat-folder-tree__name" :aria-pressed="selected === child.id" @click="openChild(child)"><el-icon v-if="child.isConversation"><ChatDotRound /></el-icon><span>{{ child.name }}</span><small class="chat-folder-tree__count" :aria-label="`${count(child.id)} 个对话`">{{ count(child.id) }}</small><b v-if="mentionCount(child.id)" class="chat-folder-tree__mention" :aria-label="`${mentionCount(child.id)} 条未读提及`" role="button" tabindex="0" @click.stop.prevent="emit('unread',child.id)" @keydown.enter.stop.prevent="emit('unread',child.id)" @keydown.space.stop.prevent="emit('unread',child.id)">{{ mentionCount(child.id) > 99 ? '99+' : mentionCount(child.id) }}</b></button>
             <el-button v-if="categories.canManage && !child.builtin && !child.isConversation && child.parentKey === root.id" link :disabled="!!editing || !categories.hierarchyReady" :aria-label="`在${child.name}下新建会话`" title="新建会话" @click="start(child.id, null, true)"><el-icon><Plus /></el-icon></el-button>
             <el-button v-if="categories.canManage && !child.builtin" link :disabled="!!editing" :aria-label="`重命名${child.name}`" @click="start(child.parentKey, child)"><el-icon><Edit /></el-icon></el-button><el-button v-if="categories.canManage && !child.builtin && child.parentKey !== resourceFolderId" link :disabled="!!editing || saving" :aria-label="`${child.isConversation ? '删除会话' : '删除分类'}${child.name}`" title="删除" @click="remove(child)"><el-icon><Close /></el-icon></el-button>
           </div>
@@ -35,8 +36,9 @@
     <div class="chat-folder-tree__resize" role="separator" aria-label="调整分组区域高度" aria-orientation="horizontal" tabindex="0" :aria-valuenow="panelHeight" :aria-valuemin="100" :aria-valuemax="maxHeight()" @pointerdown="beginResize" @keydown.up.prevent="resizeBy(-20)" @keydown.down.prevent="resizeBy(20)" />
     <el-popover v-model:visible="annotationMenuVisible" :virtual-ref="annotationMenuAnchor" :z-index="annotationMenuZ" virtual-triggering :trigger="[]" placement="right-start" :width="160">
       <div v-if="categoryMenuTarget" class="chat-folder-tree__context-menu"><el-button v-if="!categoryMenuTarget.isConversation" text @click="categoryCommand('create')">新建会话</el-button><el-button text @click="categoryCommand('rename')">重命名</el-button><el-button text type="danger" @click="categoryCommand('delete')">删除</el-button></div>
-      <div v-else class="chat-folder-tree__context-menu"><el-button text @click="annotationMenuVisible = false; emit('browse-annotation')">项目搜索</el-button><el-button v-if="hasPermission('projects:write')" text @click="annotationMenuVisible = false; createRequest++">新增项目</el-button></div>
+      <div v-else class="chat-folder-tree__context-menu"><el-button text @click="annotationMenuVisible = false; emit('browse-annotation')">项目搜索</el-button><el-button v-if="hasPermission('projects:write')" text @click="annotationMenuVisible = false; createRequest++">新增项目</el-button><el-button text @click="annotationMenuVisible=false;technicalPicker.open()">技术需求</el-button></div>
     </el-popover>
+    <TechnicalRequirementsPicker ref="technicalPicker" />
     <el-config-provider v-if="createRequest" :z-index="annotationMenuZ+10"><AnnotationProjectCreator embedded create-only :create-request="createRequest" /></el-config-provider>
   </section>
 </template>
@@ -49,8 +51,10 @@ import { annotationFolderId, resourceFolderId, sessionFolderCount, sessionFolder
 import { hasPermission } from '@/utils/permission'
 import { canStartChatNameEditing } from '@/composables/useChatNameEditing'
 import ChatInlineNameEditor from './ChatInlineNameEditor.vue'
+import TechnicalRequirementsPicker from './TechnicalRequirementsPicker.vue'
+const technicalPicker=ref()
 const props = defineProps({ active: { type: Boolean, default: true }, selected: { type: String, default: '' }, sessions: { type: Array, default: () => [] } })
-const emit = defineEmits(['select', 'changed', 'browse-annotation', 'open-conversation'])
+const emit = defineEmits(['select', 'changed', 'browse-annotation', 'open-conversation', 'unread'])
 function openProjects(event, row) {
   if (row.isConversation) return openCategoryMenu(event, row)
   if (row.id !== annotationFolderId || !hasPermission('projects:read')) return

@@ -1,5 +1,5 @@
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from database import get_db
 from routers.chat_topics import actor
@@ -16,6 +16,10 @@ class DiscussionNameWrite(BaseModel):
 
 @router.put('/{room_id}/name')
 def rename(room_id: UUID, payload: DiscussionNameWrite, db=Depends(get_db), user=Depends(actor)):
+    from technical_requirements import ready as technical_ready
+    from technical_requirement_models import TechnicalRoom
+    if technical_ready(db) and db.query(TechnicalRoom).filter_by(room_id=room_id).first():
+        raise HTTPException(403,'技术需求会话名称随项目自动生成，请编辑项目名称')
     import chat_session_category_service as categories
     from chat_session_category_models import ChatSessionCategory, ChatSessionCategoryFolder, category_now
     categories.require_manager(db, user)
@@ -70,6 +74,15 @@ class PreferenceWrite(BaseModel):
     read_message_id: int | None = Field(default=None, ge=1)
 
 
+@router.put('/{room_id}/message-actions/{message_id}/{action}')
+@router.delete('/{room_id}/message-actions/{message_id}/{action}')
+def message_action(room_id: UUID, message_id: int, action: str, request: Request, db=Depends(get_db), user=Depends(actor)):
+    if action not in ('favorite','acknowledgement'):
+        raise HTTPException(404,'操作不存在')
+    from discussion_message_actions import set_action
+    return set_action(db,user,room_id,message_id,action,request.method == 'PUT')
+
+
 @router.get('/{room_id}/group')
 def group(room_id: UUID, db=Depends(get_db), user=Depends(actor)):
     from discussion_mentions import group
@@ -78,10 +91,10 @@ def group(room_id: UUID, db=Depends(get_db), user=Depends(actor)):
 
 @router.get('/{room_id}/messages')
 def messages(room_id: UUID, before: int | None = Query(None, ge=1), after: int | None = Query(None, ge=1),
-             limit: int = Query(50, ge=1, le=100), keyword: str = Query('', max_length=200), db=Depends(get_db), user=Depends(actor)):
+             limit: int = Query(50, ge=1, le=100), keyword: str = Query('', max_length=200), favorites_only: bool = False, db=Depends(get_db), user=Depends(actor)):
     if before is not None and after is not None:
         raise HTTPException(422, '不能同时指定向前和向后翻页')
-    return service.messages(db, user, room_id, before, after, limit, keyword)
+    return service.messages(db, user, room_id, before, after, limit, keyword, favorites_only)
 
 
 @router.post('/{room_id}/messages', status_code=201)
@@ -101,9 +114,11 @@ def recall(room_id: UUID, message_id: int, db=Depends(get_db), user=Depends(acto
     if not row:
         raise HTTPException(404, '消息不存在')
     if row.recalled_at:
+        if row.sender_id != user.id:
+            raise HTTPException(403, '不能撤回他人的消息')
         return service.serialize(db, row, user)
     if not service.serialize(db, row, user)['can_recall']:
-        raise HTTPException(403, '仅本人可在24小时内撤回，或由超级管理员处理')
+        raise HTTPException(403, '只能撤回本人一小时内发送的消息')
     row.recalled_at = service.category_now()
     db.commit(); service.publish(db)
     return service.serialize(db, row, user)

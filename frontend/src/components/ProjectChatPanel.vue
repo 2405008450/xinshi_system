@@ -533,7 +533,7 @@ import { topicApi } from '@/api/chatTopics'
 import { useChatTopics } from '@/composables/useChatTopics'
 import { messageTopicPatch, newChatRequestId } from '@/utils/chatTopics'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useChatComposerHeight } from '@/composables/useChatComposerHeight'
 import { formatBusinessDateTime as formatDateTime } from '@/utils/dateTime'
 import { chatRequest } from '@/api/projectChat'
@@ -547,6 +547,7 @@ import { ensureConnected, subscribe } from '@/utils/realtimeSocket'
 import {
   acknowledgeProjectChatMessage,
   createProjectChatMessage,
+  recallProjectChatMessage,
   favoriteProjectChatMessage,
   getProjectChatAttachmentBlob,
   getProjectChatMessages,
@@ -792,6 +793,10 @@ const handleAddSelectedToProgress = () => {
 
 const closeProgressTextMenu = () => messageMenuRef.value?.close()
 const messageMenuHandlers = {
+  recall: async message=>{
+    try{await ElMessageBox.confirm('撤回后其他用户将无法查看该消息，确定撤回？','确认撤回',{type:'warning',customClass:'chat-confirm-message-box'});Object.assign(message,await recallProjectChatMessage(props.projectId,message.id))}
+    catch(e){if(e!=='cancel'&&e!=='close')ElMessage.error(e.message||'撤回失败')}
+  },
   reply: message=>startMessageReply(message),
   copy: async (message, excerpt) => {
     const copied = await copyTextToClipboard(excerpt || message.content || (message.attachments || []).map(file => file.originalName).join('\n'))

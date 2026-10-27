@@ -55,6 +55,9 @@ def room_specs(db):
     visible = root_ids | {key for key in active_categories if not locations.get(key)}
     for _ in range(2):
         visible |= {key for key in active_categories if locations.get(key) in visible}
+    from technical_requirements import specs
+    technical={row['id']:row for row in specs(db)}
+    rows=[{**row,**technical.get(row['id'],{})} for row in rows]
     return [row for row in rows if row.get('parent_key', RESOURCE_ROOT) is None or row.get('parent_key', RESOURCE_ROOT) in visible]
 
 
@@ -109,6 +112,7 @@ def catalog(db, user):
     for room in rooms:
         mid = room['id']; member = members.get(mid); last = latest.get(mid)
         rows.append(dict(key=f'discussion:{mid}', kind='discussion', project_id=mid, title=room['name'],
+            technical_project_id=room.get('technical_project_id'),technical_order_no=room.get('technical_order_no'),
             subtitle='资源开拓讨论' if room.get('parent_key', RESOURCE_ROOT) == RESOURCE_ROOT else '群聊',
             category_ids=[mid], storage_ready=ready, pinned=bool(member and member.pinned),
             starred=bool(member and member.starred), unread=unread.get(mid, 0), mention_unread=len(mentioned.get(mid,[])),mention_message_ids=mentioned.get(mid,[]),
@@ -117,7 +121,7 @@ def catalog(db, user):
     return rows
 
 
-def serialize(db, row, user, *, admin=None, replies=None, mention_cache=None):
+def serialize(db, row, user, *, admin=None, replies=None, mention_cache=None, action_cache=None):
     reply = (replies.get(row.reply_to_id) if replies is not None else db.get(Message, row.reply_to_id)) if row.reply_to_id else None
     if admin is None:
         admin = user_has_permission(db, user.id, '*')
@@ -128,17 +132,25 @@ def serialize(db, row, user, *, admin=None, replies=None, mention_cache=None):
         created = created.replace(tzinfo=BUSINESS_TIMEZONE)
     from discussion_mentions import serialize as mentions
     mention_rows = [] if row.recalled_at else mention_cache.get(row.id,[]) if mention_cache is not None else mentions(db,row.id)
-    return dict(mentions=mention_rows,metadata={'mention_all':any(item['is_all'] for item in mention_rows)},id=str(row.id), sequence_no=str(row.id), sender_user_id=str(row.sender_id), sender_name=row.sender_name,
+    from chat_recall_policy import can_recall_own
+    from discussion_message_actions import load
+    actions = {} if row.recalled_at else (action_cache if action_cache is not None else load(db,[row.id],user.id)).get(row.id,{})
+    return dict(**actions,mentions=mention_rows,metadata={'mention_all':any(item['is_all'] for item in mention_rows)},id=str(row.id), sequence_no=str(row.id), sender_user_id=str(row.sender_id), sender_name=row.sender_name,
         content='' if row.recalled_at else row.content, created_at=business_iso(row.created_at),
-        recalled_at=business_iso(row.recalled_at), can_recall=not row.recalled_at and (
-            admin or (row.sender_id == user.id and now <= created + timedelta(hours=24))),
+        recalled_at=business_iso(row.recalled_at), can_recall=can_recall_own(row.sender_id,user.id,row.created_at,row.recalled_at),
         reply=dict(id=str(reply.id), sender_name=reply.sender_name, content='消息已撤回' if reply.recalled_at else reply.content[:200])
               if reply and not row.recalled_at and reply.room_id == row.room_id else None)
 
 
-def messages(db, user, room_id, before=None, after=None, limit=50, keyword=''):
+def messages(db, user, room_id, before=None, after=None, limit=50, keyword='', favorites_only=False):
     require_room(db, user, room_id)
     query = db.query(Message).filter_by(room_id=room_id)
+    if favorites_only:
+        from discussion_chat_models import DiscussionMessageAction
+        from discussion_message_actions import ready
+        if not ready(db): raise HTTPException(503,'讨论收藏尚未初始化')
+        query=query.filter(Message.recalled_at.is_(None),db.query(DiscussionMessageAction.message_id).filter(
+            DiscussionMessageAction.message_id==Message.id,DiscussionMessageAction.user_id==user.id,DiscussionMessageAction.favorited_at.is_not(None)).exists())
     if keyword.strip():
         query = query.filter(Message.recalled_at.is_(None), keyword_contains(Message.content, keyword))
     if before is not None:
@@ -159,7 +171,9 @@ def messages(db, user, room_id, before=None, after=None, limit=50, keyword=''):
     if mentions_ready(db):
         for mention in db.query(DiscussionMention).filter(DiscussionMention.message_id.in_([row.id for row in rows])):
             mention_cache.setdefault(mention.message_id,[]).append(dict(mentioned_user_id=str(mention.user_id),mentioned_user_name=mention.user_name,is_all=mention.is_all))
-    return dict(items=[serialize(db, row, user, admin=admin, replies=replies,mention_cache=mention_cache) for row in rows], has_more=more)
+    from discussion_message_actions import load
+    action_cache=load(db,[row.id for row in rows],user.id)
+    return dict(items=[serialize(db, row, user, admin=admin, replies=replies,mention_cache=mention_cache,action_cache=action_cache) for row in rows], has_more=more)
 
 
 def send(db, user, room_id, payload):

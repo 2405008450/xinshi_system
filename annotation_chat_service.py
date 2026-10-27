@@ -106,9 +106,8 @@ def chat_now():
 
 
 def can_recall(message, user_id, admin=False, now=None):
-    return bool(message.message_type == 'user' and not message.recalled_at and (
-        admin or (message.sender_user_id == user_id and message.created_at and
-                  (now or chat_now()) <= message.created_at + timedelta(hours=24))))
+    from chat_recall_policy import can_recall_own
+    return message.message_type == 'user' and can_recall_own(message.sender_user_id, user_id, message.created_at, message.recalled_at, now)
 
 
 def message_query(db, project_id):
@@ -226,11 +225,11 @@ def recall_message(db, project_id, message_id, user):
         raise HTTPException(404, '消息不存在')
     admin = is_admin(db, user)
     if message.recalled_at:
-        if message.sender_user_id != user.id and not admin:
+        if message.sender_user_id != user.id:
             raise HTTPException(403, '不能撤回他人的消息')
         return message
     if not can_recall(message, user.id, admin):
-        raise HTTPException(403, '只能撤回本人24小时内发送的消息')
+        raise HTTPException(403, '只能撤回本人一小时内发送的消息')
     message.recalled_at = chat_now()
     message.recalled_by = user.id
     message.recall_label = (f'{message.sender_name}撤回了一条消息' if message.sender_user_id == user.id

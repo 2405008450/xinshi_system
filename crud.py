@@ -2544,16 +2544,16 @@ def get_notification(db: Session, notification_id: UUID) -> Optional[AppNotifica
     return db.query(AppNotification).filter(AppNotification.id == notification_id).first()
 
 
-def get_notifications(
+def _notification_query(
     db: Session,
     recipient_user_id: UUID,
-    skip: int = 0,
-    limit: int = 20,
     unread_only: bool = False,
     channel: str = 'all',
     notification_type: Optional[str] = None,
     notification_types: Optional[List[str]] = None,
-) -> List[AppNotification]:
+    keyword: Optional[str] = None,
+    read_status: str = 'all',
+):
     from notification_channels import filter_notification_channel
     query = db.query(AppNotification).filter(AppNotification.recipient_user_id == recipient_user_id)
     query = filter_notification_channel(query, AppNotification, channel)
@@ -2565,10 +2565,29 @@ def get_notifications(
         query = query.filter(AppNotification.notification_type.in_(notification_types))
     if unread_only:
         query = query.filter(AppNotification.is_read == False)
-    rows = query.order_by(AppNotification.created_at.desc()).offset(skip).limit(limit).all()
+    if read_status in {'read', 'unread'}:
+        query = query.filter(AppNotification.is_read == (read_status == 'read'))
+    if keyword:
+        from search_matching import keyword_any
+        query = query.filter(keyword_any([AppNotification.title, AppNotification.content], keyword))
+    return query
+
+
+def get_notifications(
+    db: Session, recipient_user_id: UUID, skip: int = 0, limit: int = 20,
+    unread_only: bool = False, channel: str = 'all',
+    notification_type: Optional[str] = None, notification_types: Optional[List[str]] = None,
+    keyword: Optional[str] = None, read_status: str = 'all',
+) -> List[AppNotification]:
+    query = _notification_query(db, recipient_user_id, unread_only, channel, notification_type, notification_types, keyword, read_status)
+    rows = query.order_by(AppNotification.created_at.desc(), AppNotification.id.desc()).offset(skip).limit(limit).all()
     from resource_request_dispatch import annotate_sender_entries
     annotate_sender_entries(db, recipient_user_id, rows)
     return rows
+
+
+def count_notifications(db: Session, recipient_user_id: UUID, **filters) -> int:
+    return _notification_query(db, recipient_user_id, **filters).count()
 
 
 def count_unread_notifications(db: Session, recipient_user_id: UUID, channel: str = 'all', notification_type: Optional[str] = None, notification_types: Optional[List[str]] = None) -> int:

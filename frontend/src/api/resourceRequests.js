@@ -24,7 +24,7 @@ export const saveResourceRequestDailyNote = (noteDate, contentJson, expectedUpda
   content_json: contentJson,
   expected_updated_at: expectedUpdatedAt,
 }).then((res) => convert(res, camel))
-export const getResourceRequest = (id) => api.get(`/resource-requests/${id}`).then((res) => convert(res, camel))
+export const getResourceRequest = (id,config={}) => api.get(`/resource-requests/${id}`,config).then((res) => convert(res, camel))
 export const createResourceRequest = async (data, idempotencyKey) => {
   const payload = convert(data, snake)
   const key = resolveIdempotencyKey(requestCreateState, payload, idempotencyKey)

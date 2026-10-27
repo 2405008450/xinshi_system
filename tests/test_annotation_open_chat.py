@@ -11,12 +11,13 @@ from annotation_chat_service import can_recall
 
 
 def test_recall_deadline_and_ownership():
-    now, sender = datetime.now(), uuid4()
-    message = SimpleNamespace(message_type='user', recalled_at=None, sender_user_id=sender, created_at=now-timedelta(hours=24))
+    from chat_time import now as business_now
+    now, sender = business_now().replace(tzinfo=None), uuid4()
+    message = SimpleNamespace(message_type='user', recalled_at=None, sender_user_id=sender, created_at=now-timedelta(hours=1))
     assert can_recall(message, sender, now=now)
     assert not can_recall(message, sender, now=now+timedelta(microseconds=1))
     assert not can_recall(message, uuid4(), now=now)
-    assert can_recall(message, uuid4(), admin=True, now=now+timedelta(days=30))
+    assert not can_recall(message, uuid4(), admin=True, now=now+timedelta(days=30))
     message.recalled_at = now
     assert not can_recall(message, sender, admin=True)
     message.recalled_at = None

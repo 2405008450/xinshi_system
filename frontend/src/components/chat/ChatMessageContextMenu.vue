@@ -27,9 +27,9 @@ import ChatMessageTopic from './ChatMessageTopic.vue'
 import ChatAnnotationProgressDialog from './ChatAnnotationProgressDialog.vue'
 import { hasPermission } from '@/utils/permission'
 const props = defineProps({ currentUserId: {type:String,default:''}, handlers:{type:Object,default:()=>({})}, projectType:String,projectId:[String,Number],canProgress:Boolean, selecting:Boolean, messages:{type:Array,default:()=>[]}, active:{type:Boolean,default:true} })
-const { access, collect } = useResourceIssues()
+const { access, collect, refreshIssueAccess } = useResourceIssues()
 const instanceId = getCurrentInstance().uid
-const icons = {copy:CopyDocument,reply:ChatLineRound,favorite:Star,acknowledge:CircleCheck,classify:PriceTag,collect:DocumentAdd,progress:CirclePlus,select:Select,recall:Delete}
+const icons = {copy:CopyDocument,reply:ChatLineRound,favorite:Star,acknowledge:CircleCheck,classify:PriceTag,collect:DocumentAdd,progress:CirclePlus,technical:DocumentAdd,select:Select,recall:Delete}
 const categoryIcons = {arrangement:Refresh,request:DocumentAdd,idea:ChatDotRound,decision:Checked,execution:List,problem:Warning,risk:Bell,standard:Tickets}
 const visible=ref(false), message=ref(null), excerpt=ref(''), menuRef=ref(), submenuRef=ref(), topicRef=ref(), submenu=ref('')
 const position=reactive({left:0,top:0}), subPosition=reactive({left:0,top:0})
@@ -48,6 +48,7 @@ function reposition() {
 }
 async function open(event,row) {
   if (!row || row.recalledAt) return
+  refreshIssueAccess().catch(()=>{})
   const context=event.type==='contextmenu' || event.type==='keydown'
   if (context && event.target?.closest?.(nativeMessageContextSelector)) return
   const selection=window.getSelection?.(), root=event.currentTarget
@@ -97,7 +98,7 @@ async function activate(item,event) {
   close(!['reply','progress','select','recall'].includes(item.id))
   try { await props.handlers[item.id]?.(row,text) } catch(e) { ElMessage.error(e.detail || e.message || '操作失败，请重试') }
 }
-function collectIssue(category) { const id=message.value.id; close(); collect(id,category) }
+function collectIssue(category) { const id=message.value.id; close(); collect(id,category,props.projectType==='discussion'?props.projectId:null) }
 function addAnnotationProgress(track){const row=message.value,text=excerpt.value,id=props.projectId;close();void annotationProgressRef.value.open(id,row,track,text)}
 function onKeydown(event) {
   if (event.key==='Tab') { close(); return }
@@ -124,7 +125,9 @@ watch(()=>props.messages,rows=>{
 })
 watch(()=>[message.value?.recalledAt,message.value?.canClassify],()=>{ if(message.value?.recalledAt){close();topicRef.value?.close()} else if(!message.value?.canClassify) topicRef.value?.close() })
 watch(()=>props.active,value=>{if(!value){close();topicRef.value?.close()}})
+watch(items,()=>{if(visible.value)nextTick(reposition)})
 onMounted(()=>{
+  refreshIssueAccess().catch(()=>{})
   document.addEventListener('pointerdown',outside,true); document.addEventListener('scroll',scroll,true)
   document.addEventListener('chat-message-menu-opened',otherOpened); document.addEventListener('app-dialog-opened',leave)
   window.addEventListener('resize',leave); window.addEventListener('blur',leave)

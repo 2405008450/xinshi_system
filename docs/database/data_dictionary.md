@@ -1544,3 +1544,16 @@ resource_request_dispatch_default：kind varchar(16) PK（circle/post/developmen
 说明与每个人的具体任务分别保存。批量安排可在同一事务中保存说明和个人任务；说明版本冲突则全部不提交。修改共同说明须有 projects:write，使用与任务编辑一致的项目锁顺序，并记录安排历史的 before/after 快照。今日任务及有权查看任务的人可查看共同说明；完成任务加入工作报告时，仍以个人任务内容作为“具体任务”，不以共同说明代替。历史快照只在项目级保存说明，避免在每个任务中重复存储。旧任务无说明时返回空文字，无历史内容回填。
 
 迁移：tools/apply_arrangement_instruction_migration.py，仅新建说明表，不修改已有任务表结构或业务记录；执行前后按长期授权醒目提示目标与结果。
+
+### 讨论消息操作与总结来源（2026-10-27）
+
+- `chat_discussion_message_action`：复合主键 `message_id`（讨论消息 bigint 外键）、`user_id`（用户 UUID 外键）；`user_name` 为人员快照，`favorited_at`、`acknowledged_at` 为 UTC+8 带时区时间。收藏按用户隔离，收到回执仅当前会话成员可读。
+- `chat_discussion_issue_source`：`issue_id` 为总结 UUID 主键及外键，`room_id` 为会话 UUID（索引），`message_id` 为讨论消息 bigint 外键，`category` 为收录类别；`message_id + category` 唯一，防止重复保存。保留既有总结来源枚举结构不变，讨论来源通过此表识别，接口返回真实 `discussion` 来源及消息编号。聊天撤回后保留已保存总结快照，但跳转原消息受当前成员权限和撤回状态约束。
+- 迁移：`tools/apply_discussion_actions_migration.py` 仅幂等创建上述新表及必要约束、索引，不更改已有表。
+
+
+### 项目技术需求（2026-10-27）
+
+- `annotation_technical_room`：`project_id` 为标注项目 UUID 主键/外键，每项目一个独立技术会话；`room_id` 为独立讨论分类 UUID 唯一外键。`requirements` 是可编辑的需求汇总，`revision` 为乐观锁版本；`created_by/updated_by`、`created_at/updated_at` 记录人员与 UTC+8 带时区时间。默认加入点击者、当前项目经理、黎涛/黄萌/伟豪/赵震锋以及 IT 部全体现有有效员工；额外人员从有效员工目录多选。实际访问仍校验讨论成员。
+- `annotation_technical_append`：`id` UUID 主键；`room_id` 技术会话 UUID 外键，`request_id` 与会话联合唯一，`message_id` 为来源讨论消息 bigint 外键，`created_by/created_at` 记录加入人和 UTC+8 时间。追加请求重试不重复写入；不同段落之间使用空行。
+- 迁移 `tools/apply_technical_requirements_migration.py` 仅幂等创建上述两表及必要索引、约束，不修改已有表。

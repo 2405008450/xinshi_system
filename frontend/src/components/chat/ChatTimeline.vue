@@ -47,7 +47,7 @@ import ChatMessageReferences from './ChatMessageReferences.vue'
 import { chatAvatarText, chatDayKey, chatGroupStart, chatTimestampIndexes } from '@/utils/chatLayout'
 import { useChatTimeDisplay } from '@/composables/useChatTimeDisplay'
 const { formatMessageTime: chatMessageTime, formatMessageDay, showMessageTime, showMessageDates } = useChatTimeDisplay()
-const { props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, download, copy, replyTo, favorite, acknowledge, recall, mentionsMe, mentionParts, input, toProgress } = inject('chatController')
+const { props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, download, copy, replyTo, favorite, acknowledge, recall, mentionsMe, mentionParts, input, toProgress, quoteMessage } = inject('chatController')
 const timestampIndexes = computed(() => chatTimestampIndexes(messages.value))
 const messageMenu = ref(), references = ref(), ackBusy = ref(new Set())
 function openReferences(message,event) { if(message.reply || interactions.stats[message.id]?.replyCount) references.value.open(message.reply?.id || message.id,event) }
@@ -58,7 +58,7 @@ async function confirmReceived(message) {
 }
 const menuHandlers = {
   copy, favorite, acknowledge, recall,
-  reply: async message => { replyTo.value = message; await nextTick(); input.value?.focus() },
+  reply: async message => { await quoteMessage(message) },
   progress: (message, excerpt) => toProgress([{ ...message, content: excerpt || message.content }]),
   select: message => { if (!selected.value.includes(message.id)) selected.value.push(message.id) },
 }

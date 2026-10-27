@@ -26,11 +26,11 @@
       <nav v-if="maximized && !narrow" class="chat-workspace__rail" aria-label="沟通导航">
         <span class="chat-workspace__user-avatar" title="我的沟通">{{ chatAvatarText(currentUserName) }}</span>
         <button v-for="item in panes" :key="item.key" type="button" :title="item.key === 'messages' && mentionTotal ? `${mentionTotal} 条未读 @我，点击查看` : item.label" :aria-label="item.label" :aria-pressed="pane === item.key" :class="{ 'is-active': pane === item.key }" @click="selectPane(item.key)" @contextmenu="openProjectMenu($event,item.key)" @keydown.shift.f10="openProjectMenu($event,item.key)">
-          <el-badge :value="item.key === 'notifications' ? notificationFeed.unread.value : messageBadgeTotal" :max="99" :hidden="item.key === 'notifications' ? !notificationFeed.unread.value : item.key !== 'messages' || !messageBadgeTotal" @click.stop="selectPane(item.key)"><el-icon><component :is="item.icon" /></el-icon></el-badge><small><b v-if="item.key === 'messages' && mentionTotal" class="chat-mention-label">@</b>{{ item.label }}</small>
+          <el-badge :value="item.key === 'notifications' ? notificationBadgeTotal : messageBadgeTotal" :max="99" :hidden="item.key === 'notifications' ? !notificationBadgeTotal : item.key !== 'messages' || !messageBadgeTotal" @click.stop="badgeClick(item.key)"><el-icon><component :is="item.icon" /></el-icon></el-badge><small><b v-if="item.key === 'messages' && mentionTotal" class="chat-mention-label">@</b>{{ item.label }}</small>
         </button>
       </nav>
       <aside v-show="!['summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(pane) && (!narrow || sidebarOpen)" class="chat-workspace__sessions" :style="{ width: `${sessionWidth}px` }">
-        <div v-if="!maximized || narrow" class="chat-workspace__pane-tabs" role="tablist" aria-label="沟通导航"><button v-for="item in panes" :key="item.key" type="button" :aria-label="item.label" :aria-pressed="pane === item.key" :class="{ 'is-active': pane === item.key }" @click="selectPane(item.key)" @contextmenu="openProjectMenu($event,item.key)" @keydown.shift.f10="openProjectMenu($event,item.key)"><span>{{ item.label }}</span><b v-if="item.key === 'messages' && mentionTotal" class="chat-mention-label">@</b><span v-if="item.key === 'notifications' && notificationFeed.unread.value" class="chat-pane-count">{{ notificationFeed.unread.value > 99 ? '99+' : notificationFeed.unread.value }}</span><span v-if="item.key === 'messages' && messageBadgeTotal" class="chat-pane-count">{{ messageBadgeTotal > 99 ? '99+' : messageBadgeTotal }}</span></button></div>
+        <div v-if="!maximized || narrow" class="chat-workspace__pane-tabs" role="tablist" aria-label="沟通导航"><button v-for="item in panes" :key="item.key" type="button" :aria-label="item.label" :aria-pressed="pane === item.key" :class="{ 'is-active': pane === item.key }" @click="selectPane(item.key)" @contextmenu="openProjectMenu($event,item.key)" @keydown.shift.f10="openProjectMenu($event,item.key)"><span>{{ item.label }}</span><b v-if="item.key === 'messages' && mentionTotal" class="chat-mention-label">@</b><span v-if="item.key === 'notifications' && notificationBadgeTotal" class="chat-pane-count" @click.stop="badgeClick(item.key)">{{ notificationBadgeTotal > 99 ? '99+' : notificationBadgeTotal }}</span><span v-if="item.key === 'messages' && messageBadgeTotal" class="chat-pane-count">{{ messageBadgeTotal > 99 ? '99+' : messageBadgeTotal }}</span></button></div>
         <div v-else class="chat-workspace__brand"><strong>{{ pane === 'messages' && (showMentions || annotationMentionView) ? '@我' : panes.find(item => item.key === pane)?.label }}</strong><small>{{ pane === 'messages' ? showMentions ? `${filteredMentionTotal} 条提及` : '' : pane === 'contacts' ? '内部通讯录' : '' }}</small></div>
         <template v-if="pane === 'messages'">
           <div class="chat-workspace__session-tools">
@@ -51,7 +51,7 @@
               <button type="button" :aria-pressed="annotationMode === 'mention'" :class="{ 'is-active': annotationMode === 'mention' }" @click="annotationMode = 'mention'" @contextmenu="mentionSortMenu?.open($event)" @keydown.shift.f10="mentionSortMenu?.open($event)">@我</button>
             </div>
           </div>
-          <ChatSessionFolderTree ref="folderTreeRef" v-if="annotationMode !== 'direct'" :selected="selectedFolder" :active="active" :sessions="sessions" @select="selectFolder" @changed="emit('categories-changed')" @browse-annotation="annotationPickerVisible = true" @open-conversation="emit('open', $event)" />
+          <ChatSessionFolderTree ref="folderTreeRef" v-if="annotationMode !== 'direct'" :selected="selectedFolder" :active="active" :sessions="allMentionSessions" @select="selectFolder" @unread="openFolderUnread" @changed="emit('categories-changed')" @browse-annotation="annotationPickerVisible = true" @open-conversation="emit('open', $event)" />
           <div class="chat-workspace__recent-closed">
             <el-popover v-model:visible="recentClosedVisible" :z-index="recentMenuZ" trigger="click" placement="right-start" :width="300">
               <template #reference><el-button text size="small" @click="prepareRecentMenu">最近关闭（{{ recentInFolder.length }}/10）</el-button></template>
@@ -91,7 +91,7 @@
               </span>
               <el-icon v-if="session.pinned" title="已置顶" class="chat-session-pin"><Top /></el-icon>
               <span class="chat-workspace__session-controls" @click.stop @keydown.stop @mousedown.stop>
-                <template v-if="session.projectType === 'discussion'"><el-button v-if="categories.canManage" link class="chat-rename-button" :aria-label="`修改名称 ${session.title}`" @click="startDiscussionRename(session)">修改名称</el-button><el-button v-if="categories.canManage && session.subtitle !== '资源开拓讨论'" link class="chat-rename-button" type="danger" @click="deleteDiscussion(session)">删除会话</el-button><small v-if="!categories.canManage" class="chat-discussion-protected">固定讨论</small></template>
+                <template v-if="session.projectType === 'discussion'"><el-button v-if="categories.canManage && !session.technicalProjectId" link class="chat-rename-button" :aria-label="`修改名称 ${session.title}`" @click="startDiscussionRename(session)">修改名称</el-button><el-button v-if="categories.canManage && session.subtitle !== '资源开拓讨论'" link class="chat-rename-button" type="danger" @click="deleteDiscussion(session)">删除会话</el-button><small v-if="!categories.canManage" class="chat-discussion-protected">固定讨论</small></template>
                 <template v-else>
                   <el-popover trigger="click" placement="bottom-end" :width="150" popper-class="chat-session-popover"><template #reference><el-button link aria-label="会话操作">⋯</el-button></template><div class="chat-session-groups"><el-button link @click="emit('preference', { session, data: { pinned: !session.pinned } })">{{ session.pinned ? '取消置顶' : '置顶' }}</el-button><el-button link @click="emit('preference', { session, data: { starred: !session.starred } })">{{ session.starred ? '取消特别关注' : '特别关注' }}</el-button><el-button v-if="categories.ready" link @click="categoryAssignment.open(session)">设置分类</el-button><el-button link @click="emit('preference', { session, data: { markRead: true } })">标为已读</el-button></div></el-popover>
                 </template>
@@ -191,8 +191,17 @@ const sessionList = ref(null)
 const summaryIssueId=ref('')
 watch(pane, value => { try { localStorage.setItem(paneStorageKey, value) } catch { /* 本次选择仍然生效。 */ } })
 watch(pane, value => emit('pane-change', value), { immediate: true })
-const mentionTotal = computed(() => mentionUnreadCount(props.sessions))
+const allMentionSessions = computed(()=>[...new Map([...props.sessions,...props.searchSessions.filter(row=>Number(row.mentionUnread)>0)].map(row=>[row.key,row])).values()])
+const mentionTotal = computed(() => mentionUnreadCount(allMentionSessions.value))
 const messageBadgeTotal = computed(() => mentionTotal.value)
+const notificationBadgeTotal = computed(()=>notificationFeed.unread.value+mentionTotal.value)
+function openFolderUnread(id){
+ pane.value='messages';selectedFolder.value=id;tab.value='all';annotationMode.value='mention';keyword.value='';applyKeyword();
+ const target=firstUnreadMentionSession(visibleSessions.value);
+ if(props.narrow&&!props.sidebarOpen)emit('toggle-sidebar');
+ if(target?.messageId)emit('locate-mention',target);else if(target)emit(target.opened?'select':'open',target);
+}
+function badgeClick(key){if(key==='notifications'&&mentionTotal.value)openUnreadMentionConversations();else selectPane(key)}
 function showMentionInbox() {
   pane.value = 'messages'; selectedFolder.value = ''; tab.value = 'mention'; annotationMode.value = 'mention'
   keyword.value = ''; applyKeyword()
@@ -203,8 +212,9 @@ function openUnreadMentionConversations() {
   keyword.value = ''; applyKeyword()
   nextTick(() => { if (sessionList.value) sessionList.value.scrollTop = 0 })
   if (props.narrow && !props.sidebarOpen) emit('toggle-sidebar')
-  const target = firstUnreadMentionSession(visibleSessions.value)
+  const target = firstUnreadMentionSession([...allMentionSessions.value].sort((a,b)=>compareMentionSessions(a,b)))
   if (!target) return
+  if(target.projectType==='direct')annotationMode.value='direct'
   if (target.messageId) emit('locate-mention', target)
   else emit(target.opened ? 'select' : 'open', target)
 }
@@ -353,7 +363,7 @@ watch(keyword, (value) => {
 watch(searchMode, () => applyKeyword())
 
 const sessionDisplayTime = session => annotationMentionView.value ? latestMentionAt(session) : session.lastMessage?.createdAt
-const visibleSessions = computed(() => groupSessionList((appliedKeyword.value ? [...new Map([...props.searchSessions,...props.sessions].map(row=>[row.key,row])).values()] : props.sessions).filter((session) => {
+const visibleSessions = computed(() => groupSessionList((appliedKeyword.value ? [...new Map([...props.searchSessions,...props.sessions].map(row=>[row.key,row])).values()] : annotationMentionView.value ? allMentionSessions.value : props.sessions).filter((session) => {
   const directMode = annotationMode.value === 'direct'
   if (!appliedKeyword.value) {
     if (directMode ? session.projectType !== 'direct' : session.projectType === 'direct') return false

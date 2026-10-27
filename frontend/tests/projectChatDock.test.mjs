@@ -481,7 +481,7 @@ test('沟通窗口支持小中大三档、会话列表布局，并按用户记�
   assert.match(workspace, /未读/)
   assert.match(workspace, /setTimeout\(applyKeyword, 400\)/)
   assert.match(workspace, /if \(!value\)/)
-  assert.match(followedStore, /chatRequest\('sessions', \{ signal: current\.signal \}\)/)
+  assert.match(followedStore, /chatRequest\('sessions', \{ signal: current\.signal, timeout: 20000 \}\)/)
   assert.match(followedStore, /setInterval\(refresh, 15000\)/)
   assert.match(historyPanel, /全部/)
   assert.match(historyPanel, /图片/)
