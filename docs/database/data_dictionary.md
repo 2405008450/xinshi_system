@@ -1474,3 +1474,73 @@ resource_request_dispatch_default：kind varchar(16) PK（circle/post/developmen
 | notification_id | UUID，可空、唯一、外键 | 对应 app_notification.id；通知删除后置空 |
 
 索引：ix_discussion_mention_user_message(user_id, message_id)。讨论消息本身不改结构，纯文本 @ 不产生记录；撤回消息不进入 @我 和未读统计。新增通知类型 discussion_chat_mention 归入聊天提醒。项目群及私聊沿用 chat_project_mention，并在消息 event_data.mention_all 标记全体提醒，无须修改已有表。
+
+## 笔译项目安排（2026-10-25）
+
+### translation_project_arrangement
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | uuid PK | 人员任务 ID |
+| project_id | uuid FK | 笔译母项目，项目删除时级联删除 |
+| assignee_id | uuid FK | 被安排人员，禁止删除引用人员 |
+| assigned_by | uuid FK | 安排人 |
+| content | text | 可修改的具体任务，必填 |
+| work_date | date | 安排日期；默认使用工作报告 UTC+8 七点换日业务日 |
+| estimated_minutes | integer | 预计需要时间，0 表示未填，最大 1440 分钟 |
+| actual_minutes | integer | 实际花费时间，完成时取已验证报告耗时 |
+| status | varchar(20) | pending 待进行、in_progress 进行中、completed 已完成 |
+| revision | integer | 更新及完成请求必须携带的乐观锁版本 |
+| created_at / updated_at / completed_at | timestamptz | 业务时刻，接口按 +08:00 序列化 |
+| report_item_id | uuid nullable | 完成时创建的日报明细 ID；报告重写后通过 metadata.arrangement_id 追溯 |
+
+索引：assignee_id + work_date；project_id。完成任务必须使用完整工作报告行校验，禁止直接设置 completed；任务状态与追加报告在单事务中提交。报告行以 manual 来源存储，source_id 为任务 ID，display_metadata.source 为 project_arrangement，带 arrangement_id、order_no、project_type 及稳定反馈键。陈旧报告编辑窗口或重新汇总不得丢弃该来源的现有记录。已确认日报先撤回才能继续追加，不自动撤回或修改已确认报告。
+
+查看他人任务严格复用工作报告 receiving_rules / sender_ids_for_rules，按当前部门成员关系解析，不因项目写权限、统计权限或超级管理员身份扩大个人任务查看范围。项目列表中的项目安排仅供具有 projects:read 的账号查看，修改安排需 projects:write；本人可填写用时、更新执行状态，只有本人可完成并录入自己的工作报告。
+
+迁移入口：tools/apply_project_arrangement_migration.py。仅显式执行，无启动自动迁移；执行云端结构调整须另行确认。
+
+### translation_arrangement_plan（项目安排执行顺序）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| project_id | uuid PK / FK | 笔译项目；同项目全部安排批次共用执行顺序 |
+| ordered_task_ids | json | 按执行先后保存任务 UUID 字符串，新安排追加末尾 |
+| revision | integer | 方案并发版本，排序必须匹配所见版本 |
+| updated_by | uuid nullable | 最近修改人 |
+| updated_at | timestamptz | 最近修改时刻，接口按 +08:00 输出 |
+
+### translation_arrangement_history（不可覆盖的安排快照）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | uuid PK | 历史记录 ID |
+| project_id | uuid FK | 笔译项目 |
+| revision | integer | 与 project_id 组成唯一约束的历史版本 |
+| operation | varchar(30) | assign 新增安排、edit 修改内容/状态/用时、reorder 调整顺序、complete 完成并入报告、baseline 已有安排首次快照 |
+| actor_id / actor_name | uuid / varchar(255) | 操作人及姓名快照 |
+| before_snapshot / after_snapshot | json | 前后项目状态、有序任务明细、安排人、日期、内容、状态和用时 |
+| created_at | timestamptz | 操作时刻，接口按 +08:00 输出 |
+
+索引：project_id + created_at。历史通过新增快照保存，不提供编辑或删除历史接口。第一次修改旧安排时补录 baseline，不伪造此前无法追溯的操作。
+
+安排、修改、完成与排序先锁定项目；快照和变更在同一事务提交。排序必须提交全部任务 ID，拒绝遗漏、重复、跨项目及过期版本。个人今日任务返回步骤、姓名、状态和 ID 组成的顺序，不随序列返回其他人的任务内容。
+
+项目状态新增 arranged（已安排），沿用现有字符字段，无须变更旧表。保存新安排时仅将前期状态改为已安排，不覆盖暂停、取消、交付等后续状态。历史安排不做批量状态改写。
+
+迁移：tools/apply_arrangement_history_migration.py，仅创建上述两张新表，不修改原表或已有业务记录；按用户 2026-10-25 长期授权，执行前后醒目提示。
+
+
+### translation_arrangement_instruction（项目安排共同说明，2026-10-25）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| project_id | uuid PK/FK | translation_project.id，项目删除时级联删除 |
+| content | text | 本项目所有被安排人员可见的共同说明；最多 10000 字 |
+| revision | integer | 共同说明独立乐观锁版本 |
+| updated_by | uuid | 最近编辑人 |
+| updated_at | timestamptz | UTC+8 编辑时间 |
+
+说明与每个人的具体任务分别保存。批量安排可在同一事务中保存说明和个人任务；说明版本冲突则全部不提交。修改共同说明须有 projects:write，使用与任务编辑一致的项目锁顺序，并记录安排历史的 before/after 快照。今日任务及有权查看任务的人可查看共同说明；完成任务加入工作报告时，仍以个人任务内容作为“具体任务”，不以共同说明代替。历史快照只在项目级保存说明，避免在每个任务中重复存储。旧任务无说明时返回空文字，无历史内容回填。
+
+迁移：tools/apply_arrangement_instruction_migration.py，仅新建说明表，不修改已有任务表结构或业务记录；执行前后按长期授权醒目提示目标与结果。

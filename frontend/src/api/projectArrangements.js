@@ -1,0 +1,11 @@
+import api from './index'
+export const getArrangementDirectory = () => api.get('/project-arrangements/directory')
+export const getArrangementPersonnel = () => api.get('/departments/organization')
+export const getTaskReviewDirectory = () => api.get('/project-arrangements/review-directory')
+export const getArrangementTasks = (params, config = {}) => api.get('/project-arrangements', {...config, params, paramsSerializer: {indexes: null}})
+export const assignProjectTasks = (id, items, instruction={}) => api.post(`/project-arrangements/project/${id}`, {items,...instruction})
+export const saveProjectArrangementInstruction = (id,data) => api.put(`/project-arrangements/project/${id}/instruction`,data)
+export const editArrangementTask = (id, data) => api.patch(`/project-arrangements/${id}`, data)
+export const completeArrangementTask = (id, data) => api.post(`/project-arrangements/${id}/complete`, data)
+export const getProjectArrangementDetail = (id, params = {}, config = {}) => api.get(`/project-arrangements/project/${id}/detail`, {...config,params})
+export const reorderProjectArrangements = (id, data) => api.put(`/project-arrangements/project/${id}/order`, data)

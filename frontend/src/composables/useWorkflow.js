@@ -38,6 +38,7 @@ const PROJECT_STATUS_OPTIONS = [
 ]
 
 const STATUS_LABEL_MAP = {
+  arranged: '已安排',
   pending: '待启动',
   in_progress: '进行中',
   completed: '已完成',
@@ -46,6 +47,7 @@ const STATUS_LABEL_MAP = {
 }
 
 const STATUS_TYPE_MAP = {
+  arranged: 'primary',
   pending: 'info',
   in_progress: 'warning',
   completed: 'success',

@@ -851,13 +851,13 @@ def save_daily_report(
     # 陈旧编辑窗口或重新汇总不能删除已自动追加的新咨询记录。
     for existing in report.items:
         metadata = existing.display_metadata or {}
-        if metadata.get('source') != 'consultation_handoff':
+        if metadata.get('source') not in ('consultation_handoff', 'project_arrangement'):
             continue
         incoming = next((item for item in raw_items if (item.get('display_metadata') or {}).get('_feedback_key') == item_key(existing)), None)
         if incoming is None:
             raw_items.append({key:getattr(existing,key) for key in ['source_type','source_id','task_type','task_name','progress_content','result_content','duration_minutes']} | {'display_metadata':dict(metadata)})
         else:
-            incoming['display_metadata'] = {**incoming.get('display_metadata', {}), **{key:metadata[key] for key in ['source','consultation_id','consultation_code','added_at','_feedback_key'] if key in metadata}}
+            incoming['display_metadata'] = {**incoming.get('display_metadata', {}), **{key:metadata[key] for key in ['source','consultation_id','consultation_code','added_at','_feedback_key','arrangement_id'] if key in metadata}}
     assign_item_keys(report.id,raw_items,report.items)
     from work_report_hierarchy import normalize_hierarchy
     raw_items = normalize_hierarchy(raw_items)
