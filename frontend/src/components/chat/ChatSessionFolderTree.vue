@@ -1,5 +1,18 @@
 <template>
-  <section ref="panel" class="chat-folder-tree" aria-label="会话分组" :style="{ height: `${panelHeight}px` }">
+  <section v-if="compact" class="chat-folder-chips" aria-label="会话分组">
+    <div class="chat-folder-chips__row">
+      <button type="button" class="chat-folder-chips__chip" :class="{ 'is-active': !selected }" :aria-pressed="!selected" @click="$emit('select', '')">全部</button>
+      <button v-for="root in roots" :key="root.id" type="button" class="chat-folder-chips__chip" :class="{ 'is-active': activeRootId === root.id }" :aria-pressed="activeRootId === root.id" @click="openChild(root)">
+        <span>{{ root.name }}</span><small>{{ count(root.id) }}</small><b v-if="mentionCount(root.id)" :aria-label="`${mentionCount(root.id)} 条未读提及`">{{ mentionCount(root.id) > 99 ? '99+' : mentionCount(root.id) }}</b>
+      </button>
+    </div>
+    <div v-if="subFolders.length" class="chat-folder-chips__row chat-folder-chips__row--sub">
+      <button v-for="child in subFolders" :key="child.id" type="button" class="chat-folder-chips__chip" :class="{ 'is-active': selected === child.id }" :aria-pressed="selected === child.id" @click="openChild(child)">
+        <span>{{ child.name }}</span><small>{{ count(child.id) }}</small><b v-if="mentionCount(child.id)" :aria-label="`${mentionCount(child.id)} 条未读提及`">{{ mentionCount(child.id) > 99 ? '99+' : mentionCount(child.id) }}</b>
+      </button>
+    </div>
+  </section>
+  <section v-else ref="panel" class="chat-folder-tree" aria-label="会话分组" :style="{ height: `${panelHeight}px` }">
     <div class="chat-folder-tree__heading"><strong>会话分组</strong><span class="chat-folder-tree__heading-actions"><el-button v-if="categories.canManage" link :disabled="!!editing" @click="start(null, null, true)"><el-icon><ChatDotRound /></el-icon>新建一级会话</el-button><el-button v-if="categories.canManage" link :disabled="!!editing" @click="start()"><el-icon><Plus /></el-icon>新建分组</el-button></span></div>
     <p v-if="categories.canManage && !categories.hierarchyReady" class="chat-folder-tree__hint">分类管理暂未就绪，请联系系统管理员</p>
     <div class="chat-folder-tree__scroll">
@@ -49,7 +62,7 @@ import { annotationFolderId, resourceFolderId, sessionFolderCount, sessionFolder
 import { hasPermission } from '@/utils/permission'
 import { canStartChatNameEditing } from '@/composables/useChatNameEditing'
 import ChatInlineNameEditor from './ChatInlineNameEditor.vue'
-const props = defineProps({ active: { type: Boolean, default: true }, selected: { type: String, default: '' }, sessions: { type: Array, default: () => [] } })
+const props = defineProps({ active: { type: Boolean, default: true }, selected: { type: String, default: '' }, sessions: { type: Array, default: () => [] }, compact: { type: Boolean, default: false } })
 const emit = defineEmits(['select', 'changed', 'browse-annotation', 'open-conversation'])
 function openProjects(event, row) {
   if (row.isConversation) return openCategoryMenu(event, row)
@@ -117,6 +130,16 @@ function beginResize(event) {
 onBeforeUnmount(() => stopResize())
 const children = id => nodes.value.filter(row => row.parentKey === id).sort((a, b) => rank(a.id) - rank(b.id))
 const visibleChildren = id => children(id).flatMap(row => [row, ...children(row.id)])
+const activeRootId = computed(() => {
+  let row = nodes.value.find(item => item.id === props.selected)
+  while (row?.parentKey) {
+    const parent = nodes.value.find(item => item.id === row.parentKey)
+    if (!parent) break
+    row = parent
+  }
+  return row?.id || ''
+})
+const subFolders = computed(() => (activeRootId.value && activeRootId.value !== resourceFolderId ? visibleChildren(activeRootId.value) : []))
 const count = id => sessionFolderCount(props.sessions, id, nodes.value)
 const expanded = ref(new Set())
 watch(() => props.active, active => { if (active) expanded.value = new Set() })
@@ -168,6 +191,18 @@ async function save(name) {
   } finally { saving.value = false }
 }
 </script>
+<style scoped>
+.chat-folder-chips{flex:none;padding:6px 0 4px;border-bottom:1px solid #e6eaf0;background:#fff}
+.chat-folder-chips__row{display:flex;gap:8px;padding:2px 10px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.chat-folder-chips__row::-webkit-scrollbar{display:none}
+.chat-folder-chips__row--sub{padding-top:6px}
+.chat-folder-chips__chip{display:inline-flex;flex:none;align-items:center;gap:4px;height:30px;padding:0 12px;border:1px solid #dce3ed;border-radius:15px;background:#f7f8fa;color:#475569;font:inherit;font-size:13px;white-space:nowrap;cursor:pointer}
+.chat-folder-chips__row--sub .chat-folder-chips__chip{height:26px;padding:0 10px;font-size:12px;background:#fff}
+.chat-folder-chips__chip.is-active{border-color:var(--color-primary);background:var(--color-primary-soft);color:var(--color-primary-hover);font-weight:600}
+.chat-folder-chips__chip small{min-width:16px;padding:0 5px;border-radius:8px;background:#e9eef5;color:#64748b;font-size:10px;line-height:16px;text-align:center}
+.chat-folder-chips__chip b{min-width:16px;padding:0 5px;border-radius:8px;background:#dc2626;color:#fff;font-size:10px;line-height:16px;text-align:center}
+.chat-folder-chips__chip:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:1px}
+</style>
 <style scoped>
 .chat-folder-tree__context-menu{display:flex;flex-direction:column;align-items:stretch;gap:6px}
 .chat-folder-tree__context-menu .el-button{margin:0;justify-content:flex-start}

@@ -80,18 +80,47 @@ def test_restricted_update_preserves_all_existing_contact_fields():
         assert getattr(protected, field) == f"existing-{field}"
 
 
-def test_restricted_create_rejects_contact_values(monkeypatch):
-    monkeypatch.setattr(talents, "can_view_talent_contacts", lambda _db, _user: False)
-    payload = ResourcePersonCreate(full_name="测试人才", primary_phone="13800138000")
-    assert has_contact_values(payload, RESOURCE_CONTACT_FIELDS) is True
-    with pytest.raises(HTTPException) as exc_info:
-        talents.create_talent_endpoint(
-            payload,
-            db=object(),
-            current_user=SimpleNamespace(id="1"),
-            idempotency_key=None,
-        )
-    assert exc_info.value.status_code == 403
+def test_restricted_create_accepts_contact_values_and_masks_response(monkeypatch):
+    monkeypatch.setattr(talents, "can_view_talent_contacts", lambda *_: False)
+    captured = {}
+    def create(_db, payload, **_kwargs):
+        captured["phone"] = payload.primary_phone
+        return {"full_name": payload.full_name, "primary_phone": payload.primary_phone}
+    monkeypatch.setattr(talents, "create_talent", create)
+    monkeypatch.setattr(talents, "ResourcePersonDetailResponse", _ContactResponse)
+    result = talents.create_talent_endpoint(
+        ResourcePersonCreate(full_name="测试人才", primary_phone="13800138000"),
+        db=object(), current_user=SimpleNamespace(id="1"), idempotency_key=None,
+    )
+    assert captured["phone"] == "13800138000"
+    assert result["primary_phone"] == CONTACT_MASK
+    assert result["contact_restricted"] is True
+
+
+@pytest.mark.parametrize("recruitment", [False, True])
+@pytest.mark.parametrize("value,expected,check", [
+    (None, "existing-phone", False), ("", "existing-phone", False),
+    ("   ", "existing-phone", False), (CONTACT_MASK, "existing-phone", False),
+    ("13800138000", "13800138000", True),
+])
+def test_restricted_edit_accepts_input_preserves_unentered_and_masks(monkeypatch, recruitment, value, expected, check):
+    monkeypatch.setattr(talents, "can_view_talent_contacts", lambda *_: False)
+    existing = SimpleNamespace(**{field: f"existing-{field}" for field in RESOURCE_CONTACT_FIELDS})
+    existing.primary_phone = "existing-phone"
+    monkeypatch.setattr(talents, "get_talent", lambda *_: existing)
+    monkeypatch.setattr(talents, "ResourcePersonDetailResponse", _ContactResponse)
+    def update(_db, _id, payload, **kwargs):
+        assert payload.primary_phone == expected
+        assert payload.primary_email == "existing-primary_email"
+        assert kwargs["check_contact_duplicates"] is check
+        return {"full_name": "测试人才", "primary_phone": expected}
+    name = "update_recruitment_talent" if recruitment else "update_talent"
+    monkeypatch.setattr(talents, name, update)
+    endpoint = talents.update_recruitment_talent_endpoint if recruitment else talents.update_talent_endpoint
+    result = endpoint("1", ResourcePersonUpdate(full_name="测试人才", primary_phone=value),
+                      db=object(), current_user=SimpleNamespace(id="1"))
+    assert result["primary_phone"] == CONTACT_MASK
+    assert result["contact_restricted"] is True
 
 
 def test_restricted_contact_filter_is_rejected():

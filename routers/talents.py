@@ -64,8 +64,7 @@ from pagination_schemas import PageResponse, resolve_page_total
 from talent_privacy import (
     RESOURCE_CONTACT_FIELDS,
     can_view_talent_contacts,
-    has_contact_values,
-    preserve_contact_fields,
+    preserve_unentered_contact_fields,
     redact_contact_mapping,
     serialize_with_contact_access,
 )
@@ -362,11 +361,6 @@ def create_talent_endpoint(
     current_user=Depends(get_current_user),
 ):
     contacts_visible = can_view_talent_contacts(db, current_user)
-    if not contacts_visible and has_contact_values(payload, RESOURCE_CONTACT_FIELDS):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="只有超级管理员可以录入人才联系方式",
-        )
     if idempotency_key:
         existing = db.query(ResourcePerson).filter(
             ResourcePerson.idempotency_key == idempotency_key
@@ -539,17 +533,21 @@ def update_talent_endpoint(
     current_user=Depends(get_current_user),
 ):
     contacts_visible = can_view_talent_contacts(db, current_user)
+    check_contacts = contacts_visible or any(
+        str(getattr(payload, field, None) or "").strip() not in ("", "******")
+        for field in RESOURCE_CONTACT_FIELDS
+    )
     if not contacts_visible:
         existing = get_talent(db, person_id)
         if not existing:
             raise HTTPException(status_code=404, detail="人才档案不存在")
-        payload = preserve_contact_fields(payload, existing, RESOURCE_CONTACT_FIELDS)
+        payload = preserve_unentered_contact_fields(payload, existing, RESOURCE_CONTACT_FIELDS)
     try:
         person = update_talent(
             db,
             person_id,
             payload,
-            check_contact_duplicates=contacts_visible,
+            check_contact_duplicates=check_contacts,
             actor=current_user,
         )
     except TalentDuplicateError as exc:
@@ -657,17 +655,21 @@ def update_recruitment_talent_endpoint(
 ):
     """招聘端编辑时保留原专业能力，能力只能由人才总库权限管理。"""
     contacts_visible = can_view_talent_contacts(db, current_user)
+    check_contacts = contacts_visible or any(
+        str(getattr(payload, field, None) or "").strip() not in ("", "******")
+        for field in RESOURCE_CONTACT_FIELDS
+    )
     if not contacts_visible:
         existing = get_talent(db, person_id)
         if not existing:
             raise HTTPException(status_code=404, detail="人才档案不存在")
-        payload = preserve_contact_fields(payload, existing, RESOURCE_CONTACT_FIELDS)
+        payload = preserve_unentered_contact_fields(payload, existing, RESOURCE_CONTACT_FIELDS)
     try:
         person = update_recruitment_talent(
             db,
             person_id,
             payload,
-            check_contact_duplicates=contacts_visible,
+            check_contact_duplicates=check_contacts,
             actor=current_user,
         )
     except TalentDuplicateError as exc:

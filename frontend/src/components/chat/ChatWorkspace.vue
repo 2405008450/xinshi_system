@@ -1,14 +1,14 @@
 <template>
-  <div class="chat-workspace__frame" :class="{ 'chat-workspace--maximized': maximized, 'chat-workspace--wide-header': wideHeader, 'chat-workspace--narrow': narrow, 'chat-workspace--compact-header': pane === 'summary','chat-workspace--summary':['summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(pane) }" :style="{ '--chat-session-width': `${narrow ? 0 : sessionWidth}px` }">
+  <div class="chat-workspace__frame" :class="{ 'chat-workspace--maximized': maximized, 'chat-workspace--wide-header': wideHeader, 'chat-workspace--narrow': narrow, 'chat-workspace--mobile': mobile, 'chat-workspace--list': listView, 'chat-workspace--chat': chatView, 'chat-workspace--compact-header': pane === 'summary','chat-workspace--summary':['summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(pane) }" :style="{ '--chat-session-width': `${narrow ? 0 : sessionWidth}px` }">
     <header class="chat-workspace__header" :class="{ 'chat-workspace__header--dragging': dragging, 'chat-workspace__header--pinned': maximized }" @mousedown="emit('header-mousedown', $event)" @dblclick="emit('header-dblclick', $event)">
-      <el-button v-if="narrow" link aria-label="会话列表" :title="messageBadgeTotal ? `${messageBadgeTotal} 条未读 @我，点击查看会话列表` : '会话列表'" @click="openMobileSessions"><el-badge :value="messageBadgeTotal" :max="99" :hidden="!messageBadgeTotal"><el-icon><ChatDotRound /></el-icon></el-badge></el-button>
+      <el-button v-if="narrow && !listView" link :aria-label="mobile ? '返回会话列表' : '会话列表'" :title="messageBadgeTotal ? `${messageBadgeTotal} 条未读 @我，点击查看会话列表` : (mobile ? '返回会话列表' : '会话列表')" @click="openMobileSessions"><el-badge :value="messageBadgeTotal" :max="99" :hidden="!messageBadgeTotal"><el-icon><ArrowLeft v-if="mobile" /><ChatDotRound v-else /></el-icon></el-badge></el-button>
       <div class="chat-workspace__heading" @mousedown.stop @dblclick.stop>
-        <ChatOrderIdentity v-if="!['summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(pane) && ['annotation', 'translation'].includes(projectType) && subtitle" :title="title" :order-no="subtitle" :project-type="projectType" :project-id="projectId" show-managers />
-        <strong v-else :title="title">{{ pane==='summary'?'总结':pane==='notifications'?'通知':isProjectPane(pane)?`${projectMine ? '我的' : ''}${panes.find(item=>item.key===pane)?.label || ''}`:title || '沟通' }}</strong>
+        <ChatOrderIdentity v-if="!listView && !['summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(pane) && ['annotation', 'translation'].includes(projectType) && subtitle" :title="title" :order-no="subtitle" :project-type="projectType" :project-id="projectId" show-managers />
+        <strong v-else :title="title">{{ listView ? mobileListTitle : pane==='summary'?'总结':pane==='notifications'?'通知':isProjectPane(pane)?`${projectMine ? '我的' : ''}${panes.find(item=>item.key===pane)?.label || ''}`:title || '沟通' }}</strong>
         <el-tag v-if="projectType && !narrow" size="small" effect="plain">{{ typeLabel(projectType) }}</el-tag>
         <span v-if="projectType === 'direct' && subtitle && subtitle !== '内部私聊'" class="chat-workspace__subtitle">{{ subtitle }}</span>
       </div>
-      <div v-show="pane !== 'summary'" class="chat-header-command-row" title="横向滚动查看更多操作" @mousedown.stop>
+      <div v-show="pane !== 'summary' && !listView" class="chat-header-command-row" title="横向滚动查看更多操作" @mousedown.stop>
 
       <div class="chat-workspace__actions">
         <ChatConversationMore :project-id="projectId" :project-type="projectType" :can-duplicate="['annotation','translation'].includes(projectType) && !!activeKey" @duplicate="emit('duplicate-window')" @multiple="emit('open-multiple')">
@@ -20,7 +20,7 @@
         <el-button v-if="activeKey && !narrow" link aria-label="固定小窗" title="固定当前小窗，边聊边工作" @click="emit('pin')"><el-icon><ChatPinIcon /></el-icon></el-button>
       </div>
       </div>
-      <div class="chat-fixed-window-controls" @mousedown.stop @dblclick.stop><ChatProjectEntry v-if="pane !== 'summary'" :project-id="projectId" :project-type="projectType" @navigate="emit('project-navigate')" /><el-button v-if="pane !== 'summary' && activeKey" link aria-label="聊天记录" title="聊天记录" @click="emit('open-search')"><el-icon><Search /></el-icon></el-button><button type="button" aria-label="最小化会话窗口" title="最小化" @click="emit('minimize')">−</button><button v-if="!maximized" type="button" aria-label="最大化会话窗口" title="最大化" @click="emit('toggle-maximize')">□</button><button v-else type="button" aria-label="还原会话窗口" title="还原窗口（正常大小）" @click="emit('normal-size')">▣</button><button type="button" aria-label="退出整个会话窗口" title="退出整个会话窗口，保留聊天记录" @click.stop="emit('exit-workspace')">×</button></div>
+      <div class="chat-fixed-window-controls" @mousedown.stop @dblclick.stop><ChatProjectEntry v-if="pane !== 'summary' && !listView" :project-id="projectId" :project-type="projectType" @navigate="emit('project-navigate')" /><el-button v-if="pane !== 'summary' && activeKey && !listView" link aria-label="聊天记录" title="聊天记录" @click="emit('open-search')"><el-icon><Search /></el-icon></el-button><button type="button" aria-label="最小化会话窗口" title="最小化" @click="emit('minimize')">−</button><button v-if="!maximized" type="button" aria-label="最大化会话窗口" title="最大化" @click="emit('toggle-maximize')">□</button><button v-else type="button" aria-label="还原会话窗口" title="还原窗口（正常大小）" @click="emit('normal-size')">▣</button><button type="button" aria-label="退出整个会话窗口" title="退出整个会话窗口，保留聊天记录" @click.stop="emit('exit-workspace')">×</button></div>
     </header>
     <div class="chat-workspace__body">
       <nav v-if="maximized && !narrow" class="chat-workspace__rail" aria-label="沟通导航">
@@ -51,7 +51,7 @@
               <button type="button" :aria-pressed="annotationMode === 'mention'" :class="{ 'is-active': annotationMode === 'mention' }" @click="annotationMode = 'mention'" @contextmenu="mentionSortMenu?.open($event)" @keydown.shift.f10="mentionSortMenu?.open($event)">@我</button>
             </div>
           </div>
-          <ChatSessionFolderTree ref="folderTreeRef" v-if="annotationMode !== 'direct'" :selected="selectedFolder" :active="active" :sessions="sessions" @select="selectFolder" @changed="emit('categories-changed')" @browse-annotation="annotationPickerVisible = true" @open-conversation="emit('open', $event)" />
+          <ChatSessionFolderTree ref="folderTreeRef" v-if="annotationMode !== 'direct'" :compact="mobile" :selected="selectedFolder" :active="active" :sessions="sessions" @select="selectFolder" @changed="emit('categories-changed')" @browse-annotation="annotationPickerVisible = true" @open-conversation="emit('open', $event)" />
           <div class="chat-workspace__recent-closed">
             <el-popover v-model:visible="recentClosedVisible" :z-index="recentMenuZ" trigger="click" placement="right-start" :width="300">
               <template #reference><el-button text size="small" @click="prepareRecentMenu">最近关闭（{{ recentInFolder.length }}/10）</el-button></template>
@@ -126,7 +126,7 @@ import { compareMentionSessions, latestMentionAt } from '@/utils/chatMentionSort
 import { groupSessionList, sessionListKey, mentionUnreadCount, sessionUnreadSignal, firstUnreadMentionSession } from '@/utils/chatSessionList'
 
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Bell, ChatDotRound, Collection, Headset, Filter, Search, Setting, StarFilled, Top, User, EditPen, Microphone, Phone } from '@element-plus/icons-vue'
+import { Bell, ArrowLeft, ChatDotRound, Collection, Headset, Filter, Search, Setting, StarFilled, Top, User, EditPen, Microphone, Phone } from '@element-plus/icons-vue'
 const DevelopmentIssuePanel=defineAsyncComponent(()=>import('@/views/resource/components/DevelopmentIssuePanel.vue'))
 import ChatSettings from './ChatSettings.vue'
 import { hasPermission } from '@/utils/permission'
@@ -165,6 +165,7 @@ const props = defineProps({
   activeKey: { type: String, default: '' },
   error: { type: String, default: '' },
   narrow: { type: Boolean, default: false },
+  mobile: { type: Boolean, default: false },
   sidebarOpen: { type: Boolean, default: true },
   sizeMode: { type: String, default: 'medium' },
   maximized: { type: Boolean, default: false },
@@ -192,6 +193,11 @@ const summaryIssueId=ref('')
 watch(pane, value => { try { localStorage.setItem(paneStorageKey, value) } catch { /* 本次选择仍然生效。 */ } })
 watch(pane, value => emit('pane-change', value), { immediate: true })
 const mentionTotal = computed(() => mentionUnreadCount(props.sessions))
+const summaryPaneKeys = ['summary', 'notifications', 'annotation-projects', 'translation-projects', 'interpretation-projects', 'consultations']
+// 手机端采用“列表 → 会话”两级导航：列表页只显示分类与会话，进入会话后只显示当前会话。
+const listView = computed(() => props.mobile && props.sidebarOpen && !summaryPaneKeys.includes(pane.value))
+const chatView = computed(() => props.mobile && !props.sidebarOpen && !summaryPaneKeys.includes(pane.value))
+const mobileListTitle = computed(() => (pane.value === 'messages' && showMentions.value ? '@我' : panes.find(item => item.key === pane.value)?.label || '沟通'))
 const messageBadgeTotal = computed(() => mentionTotal.value)
 function showMentionInbox() {
   pane.value = 'messages'; selectedFolder.value = ''; tab.value = 'mention'; annotationMode.value = 'mention'
@@ -488,6 +494,44 @@ onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventLis
 
 <style>
 .chat-search-mode-options{z-index:100030!important}
+</style>
+
+<style scoped>
+/* 手机端：仿微信的两级导航。列表页全屏显示分类与会话，点击后仅显示当前会话，左上角返回。 */
+.chat-workspace--mobile{background:#fff}
+.chat-workspace--mobile .chat-workspace__header{position:relative;display:flex;flex-wrap:nowrap;align-items:center;gap:2px;height:52px;min-height:52px;padding:0 6px;border-bottom:1px solid #e6eaf0;cursor:default}
+.chat-workspace--mobile .chat-workspace__header>.el-button{flex:none;width:36px;height:36px;margin:0;padding:6px;font-size:20px}
+.chat-workspace--mobile .chat-workspace__heading{display:block;flex:1 1 auto;min-width:0;height:auto;overflow:hidden;align-self:center}
+.chat-workspace--mobile .chat-workspace__heading>strong{display:block;font-size:17px;font-weight:600;line-height:28px;padding-left:6px}
+.chat-workspace--mobile .chat-workspace__heading :deep(.chat-order-identity){display:block;min-width:0}
+.chat-workspace--mobile .chat-workspace__heading :deep(.chat-order-identity__title){height:22px;font-size:15px;font-weight:600;line-height:22px}
+.chat-workspace--mobile .chat-workspace__heading :deep(.chat-order-identity__details){height:18px;margin-top:0;overflow:hidden;font-size:11px;line-height:18px}
+.chat-workspace--mobile .chat-workspace__heading :deep(.chat-project-managers){display:none}
+.chat-workspace--mobile .chat-header-command-row{flex:none;height:36px;overflow:visible;background:transparent}
+.chat-workspace--mobile .chat-fixed-window-controls{flex:none;height:36px;margin-left:0;background:transparent}
+.chat-workspace--mobile .chat-fixed-window-controls>button[aria-label="最小化会话窗口"],
+.chat-workspace--mobile .chat-fixed-window-controls>button[aria-label="最大化会话窗口"],
+.chat-workspace--mobile .chat-fixed-window-controls>button[aria-label="还原会话窗口"]{display:none}
+.chat-workspace--chat .chat-fixed-window-controls>button[aria-label="退出整个会话窗口"]{display:none}
+.chat-workspace--mobile .chat-workspace__body{min-height:0}
+.chat-workspace--mobile .chat-workspace__sessions{position:static;top:auto;flex:1 1 auto;width:100%!important;max-width:none;border-right:0;background:#fff;box-shadow:none}
+.chat-workspace--list .chat-workspace__stage{display:none}
+.chat-workspace--mobile .chat-workspace__session-tools{padding:8px 10px 6px}
+.chat-workspace--mobile .chat-workspace__annotation-filters{padding:0 10px 6px;border-bottom:0}
+.chat-workspace--mobile .chat-workspace__annotation-mode{margin-top:4px}
+.chat-workspace--mobile .chat-workspace__annotation-mode button{padding:7px 0;font-size:13px}
+.chat-workspace--mobile .chat-workspace__recent-closed{padding:2px 10px}
+.chat-workspace--mobile .chat-workspace__list{padding:0 0 6px}
+.chat-workspace--mobile .chat-workspace__session{min-height:68px;padding:10px 12px;border-bottom:1px solid #f1f3f6;border-radius:0}
+.chat-workspace--mobile .chat-workspace__session:hover{background:transparent}
+.chat-workspace--mobile .chat-workspace__session:active{background:#edf1f7}
+.chat-workspace--mobile .chat-workspace__session-title strong{font-size:15px}
+.chat-workspace--mobile .chat-session-preview{font-size:12px}
+.chat-workspace--mobile .chat-workspace__pane-tabs{overflow-x:auto;gap:0;padding:4px;scrollbar-width:none;background:#f7f8fa}
+.chat-workspace--mobile .chat-workspace__pane-tabs::-webkit-scrollbar{display:none}
+.chat-workspace--mobile .chat-workspace__pane-tabs button{flex:0 0 auto;min-width:68px;padding:9px 10px;font-size:13px}
+.chat-workspace--mobile .chat-workspace__sessions>.chat-workspace__pane-tabs{order:99;border-top:1px solid #e6eaf0;padding-bottom:calc(4px + env(safe-area-inset-bottom))}
+.chat-workspace--mobile.chat-workspace--summary .chat-workspace__stage{flex:1}
 </style>
 
 <style scoped>

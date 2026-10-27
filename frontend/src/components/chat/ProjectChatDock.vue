@@ -1,10 +1,11 @@
 <template>
   <Teleport to="body">
     <div v-if="state.windows.length || hasExtraTasks || workspaceVisible || showWorkspaceTask" class="project-chat-dock" :class="{ 'project-chat-dock--immersive': workspaceVisible && state.workspaceMaximized }" aria-label="全局悬浮窗口">
-      <div v-show="workspaceVisible" class="chat-workspace-shell" :class="{ 'chat-workspace-shell--maximized': state.workspaceMaximized }" :style="workspaceShellStyle" @mousedown="focusWorkspace">
-        <WindowFrameHandles ref="workspaceFrame" :disabled="state.workspaceMaximized" @change="resizeWorkspaceRect" />
+      <div v-show="workspaceVisible" class="chat-workspace-shell" :class="{ 'chat-workspace-shell--maximized': state.workspaceMaximized, 'chat-workspace-shell--mobile': workspaceMobile }" :style="workspaceShellStyle" @mousedown="focusWorkspace">
+        <WindowFrameHandles ref="workspaceFrame" :disabled="state.workspaceMaximized || workspaceMobile" @change="resizeWorkspaceRect" />
         <ChatWorkspace
           :active="workspaceVisible"
+          :mobile="workspaceMobile"
           :wide-header="contentRect.wideHeader"
           :sessions="sessions"
           :search-sessions="followed.map(row => ({...row,projectType:row.kind}))"
@@ -35,7 +36,7 @@
           @open="openFollowed"
           @locate-mention="locateMention"
           @close="closeSessionGroup"
-          @close-active="closeWorkspaceSession"
+          @close-active="closeActiveSession"
           @exit-workspace="closeAllChats"
           @project-navigate="minimizeWorkspace"
           @open-multiple="multiPicker.open(state.tileMode || 'small')"
@@ -309,6 +310,13 @@ const setPanelRef = (key, el) => {
 }
 
 const workspaceNarrow = computed(() => viewportSize.value.width < 640 || (!state.workspaceMaximized && workspaceRect.value?.width || resolveChatSize(state.workspaceMaximized ? 'maximized' : state.workspaceSize).width) < 640)
+// 手机视口：会话窗口铺满屏幕，列表与会话分两级页面显示。
+const workspaceMobile = computed(() => viewportSize.value.width < 640)
+const MOBILE_CHAT_HEADER = 52
+function closeActiveSession() {
+  closeWorkspaceSession()
+  if (workspaceMobile.value) sidebarOpen.value = true
+}
 const workspaceVisible = computed(() => (
   state.layout === 'workspace'
   && !state.workspaceMinimized
@@ -388,6 +396,7 @@ const workspaceFrameMode = computed(() => (state.workspaceMaximized ? 'maximized
 const workspaceShellStyle = computed(() => {
   // 视口变化也须使尺寸计算失效，不能只依赖窗口档位。
   void viewportSize.value
+  if (workspaceMobile.value) return { left: '0', top: '0', width: '100vw', height: '100dvh', zIndex: state.workspaceZ }
   const size = !state.workspaceMaximized && workspaceRect.value || resolveChatSize(workspaceFrameMode.value)
   return {
     left: `${state.workspaceX}px`,
@@ -473,6 +482,9 @@ const onContactOpened = () => {
 const windowStyle = (chatWindow) => {
   if (tiled.value) return { position: 'relative', left: 'auto', top: 'auto', width: '100%', height: '100%', maxWidth: 'none', maxHeight: 'none', minWidth: '0', zIndex: 1 }
   if (state.layout === 'workspace') {
+    if (workspaceMobile.value) {
+      return { left: '0', top: `${MOBILE_CHAT_HEADER}px`, width: '100vw', height: `calc(100dvh - ${MOBILE_CHAT_HEADER}px)`, maxWidth: 'none', maxHeight: 'none', zIndex: state.workspaceZ, borderRadius: '0' }
+    }
     const rect = contentRect.value
     return {
       left: `${rect.x}px`,
@@ -586,8 +598,14 @@ watch(() => state.windows.length, () => {
   enforceSoloWindow()
 })
 watch(workspaceNarrow, (narrow) => {
-  if (narrow) sidebarOpen.value = false
+  if (narrow) sidebarOpen.value = workspaceMobile.value && !state.activeKey
 }, { immediate: true })
+watch(workspaceVisible, (visible) => {
+  if (visible && workspaceMobile.value) sidebarOpen.value = !state.activeKey
+})
+watch(() => state.activeKey, (key) => {
+  if (!key && workspaceMobile.value) sidebarOpen.value = true
+})
 
 onMounted(() => {
   ensurePreferences()
@@ -627,6 +645,12 @@ onBeforeUnmount(() => {
 .chat-workspace-shell--maximized {
   border-radius: 0;
   outline: 0;
+}
+
+.chat-workspace-shell--mobile {
+  border-radius: 0;
+  outline: 0;
+  box-shadow: none;
 }
 
 /* 持续的提及提醒也必须避开全屏标题栏，确保还原、最小化、关闭始终可点击。 */

@@ -1,7 +1,7 @@
 <template>
   <div v-if="type==='textarea'" ref="root" class="app-screenshot-input" :data-screenshot-uploading="uploading" @paste.capture="paste" @drop.capture="drop" @dragover.prevent>
     <BaseInput ref="control" v-bind="$attrs" :type="type" :maxlength="effectiveMax" :model-value="enabled?plain:modelValue" @update:model-value="update" @input="value=>$emit('input',outputValue(value))" @change="value=>$emit('change',outputValue(value))"><template v-for="(_,name) in $slots" #[name]="data"><slot :name="name" v-bind="data" /></template></BaseInput>
-    <div v-if="enabled && !readonly" class="app-screenshot-tools"><label><span>{{ uploading?'正在上传…':'插入截图' }}</span><input type="file" accept="image/*" multiple :disabled="uploading" @change="choose" /></label><small>{{ chat?'聊天截图保留30天':'支持粘贴截图，长期保存' }}</small></div>
+    <div v-if="enabled && !readonly && (showScreenshotTools || uploading)" class="app-screenshot-tools"><label><span>{{ uploading?'正在上传…':'插入截图' }}</span><input type="file" accept="image/*" multiple :disabled="uploading" @change="choose" /></label><small>{{ chat?'聊天截图保留30天':'支持粘贴截图，长期保存' }}</small></div>
     <ScreenshotText v-if="enabled && ids.length" :text="String(modelValue||'')" :show-text="false" :removable="!readonly&&!uploading" @remove="remove" />
     <span v-if="error" role="alert" class="app-screenshot-error">{{ error }}<button type="button" @click="error=''">×</button></span>
   </div>
@@ -15,7 +15,7 @@ import { screenshotIds,screenshotText,screenshotValue } from '@/utils/screenshot
 import { registerScreenshotUpload } from '@/utils/screenshotUploads'
 defineOptions({inheritAttrs:false})
 const ScreenshotText=defineAsyncComponent(()=>import('./ScreenshotText.vue'))
-const props=defineProps({modelValue:[String,Number],type:{type:String,default:'text'}})
+const props=defineProps({modelValue:[String,Number],type:{type:String,default:'text'},showScreenshotTools:{type:Boolean,default:true}})
 const emit=defineEmits(['update:modelValue','input','change','uploading-change'])
 const attrs=useAttrs(),control=ref(),root=ref(),enabled=ref(true),chat=ref(false),uploading=ref(false),error=ref('')
 const ids=computed(()=>screenshotIds(props.modelValue)),plain=computed(()=>screenshotText(props.modelValue)),readonly=computed(()=>attrs.disabled!==undefined&&attrs.disabled!==false||attrs.readonly!==undefined&&attrs.readonly!==false)

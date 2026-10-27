@@ -24,8 +24,10 @@ test('受限联系方式固定显示遮罩并阻止常规复制', () => {
   assert.match(component, /user-select:\s*none/)
 })
 
-test('普通用户不显示联系方式表单和筛选，也不提交联系方式', () => {
-  assert.match(pool, /v-if="canViewContacts" class="form-section"><h3>联系方式/)
+test('普通用户可录入联系方式，已有值不回填，空值不提交，筛选仍受限', () => {
+  assert.match(pool, /<div class="form-section"><h3>联系方式/ )
+  assert.match(pool, /if\(d.contactRestricted\)d=/)
+  assert.match(pool, /if\(!String\(result\[key\]\|\|''\).trim\(\)\)delete result\[key\]/)
   assert.match(pool, /filter\(item=>canViewContacts\.value\|\|!contactColumnKeys\.has\(item\.key\)\)/)
   assert.match(pool, /if\(!canViewContacts\.value\)contactPayloadKeys\.forEach/)
   assert.match(pool, /SensitiveContactValue/)

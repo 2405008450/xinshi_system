@@ -61,6 +61,19 @@ def preserve_contact_fields(
     })
 
 
+def preserve_unentered_contact_fields(
+    payload: ModelT,
+    existing: Any,
+    fields: Iterable[str],
+) -> ModelT:
+    """受限用户可录入新值；空值或脱敏占位符保留数据库原值。"""
+    return payload.model_copy(update={
+        field: getattr(existing, field, None)
+        for field in fields
+        if str(getattr(payload, field, None) or "").strip() in ("", CONTACT_MASK)
+    })
+
+
 def serialize_with_contact_access(
     value: Any,
     schema: type[ModelT],
