@@ -8,14 +8,15 @@
         </div>
         <div class="header-actions">
           <el-button v-if="!deleteMode" @click="openDuplicateReview()">同名核重</el-button>
-          <TableColumnSettings v-model="settingsVisibleColumnKeys" :columns="settingsColumns" :column-count="2" @reset="resetColumns" />
+          <TableColumnSettings :settings-key="`talent-pool:${isRecruitmentPool ? 'recruitment' : (capabilityType || 'all')}`" v-model="settingsVisibleColumnKeys" :columns="settingsColumns" :column-count="2" @reset="resetColumns" />
           <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
           <el-button v-if="canWrite && !deleteMode" type="primary" @click="openCreate">新增人才</el-button>
         </div>
       </div>
     </template>
 
-    <TalentResourceNav />
+    <TalentResourceNav><template v-if="!isRecruitmentPool" #actions><el-button @click="pathFilterRef.open()">路径筛选</el-button></template></TalentResourceNav>
+    <TalentPathFilterDialog v-if="!isRecruitmentPool" ref="pathFilterRef" :can-write="canWrite" @saved="pathRecordSaved" />
 
     <AppForm :inline="true" :model="search" class="search-form project-list-search-form">
       <div class="project-list-primary-filters">
@@ -53,6 +54,7 @@
     </AppForm>
 
     <el-table ref="talentTableRef" :data="rows" v-loading="loading" border row-key="id" @selection-change="handleDeleteSelectionChange">
+<OrderedTableColumns :settings-key="`talent-pool:${isRecruitmentPool ? 'recruitment' : (capabilityType || 'all')}`">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column type="index" label="序号" width="64" align="center" fixed="left" />
       <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :label="column.label" :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="column.tooltip !== false">
@@ -142,7 +144,8 @@
           </div>
         </template>
       </el-table-column>
-    </el-table>
+    </OrderedTableColumns>
+</el-table>
     <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" class="pagination" @current-change="fetchData" @size-change="handleSizeChange" />
 
     <DraggableFormDialog v-model="editorVisible" width="min(1120px, calc(100vw - 32px))" top="5vh" class="talent-editor-dialog" :before-close="beforeEditorClose" :close-on-click-modal="!saving" :close-on-press-escape="!saving" @open="onEditorOpened" @closed="onEditorClosed">
@@ -292,6 +295,7 @@
 </template>
 
 <script setup>
+import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { matchesSearch, searchTerms } from '@/utils/searchMatching'
 
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
@@ -315,6 +319,7 @@ import CompanyWechatAccountSelect from '@/components/common/CompanyWechatAccount
 import { normalizeWechatAccounts, formatWechatAccounts, sameWechatAccounts } from '@/utils/companyWechatAccounts'
 import SensitiveContactValue from '@/components/common/SensitiveContactValue.vue'
 import TalentResourceNav from '@/views/resource/components/TalentResourceNav.vue'
+import TalentPathFilterDialog from '@/views/resource/components/TalentPathFilterDialog.vue'
 import TalentDetailContent from '@/views/resource/components/TalentDetailContent.vue'
 import TalentProjectSituationPopover from '@/views/resource/components/TalentProjectSituationPopover.vue'
 import { getProjectLanguages, searchProjectLanguages } from '@/api/projectLanguages'
@@ -329,6 +334,8 @@ import { normalizeForeignLanguagePriorities } from '@/utils/talentLanguageSkills
 import { focusFormTarget } from '@/utils/formNavigation'
 
 const route = useRoute()
+const pathFilterRef = ref(null)
+function pathRecordSaved(id) { delete detailCache[id]; delete projectCache[id]; void fetchData() }
 const router = useRouter()
 function duplicateNameKey(value) { const normalized = String(value || '').replace(/\s+/g, ' ').trim(); return (normalized.replace(/(?:\s*[(（][^()（）]*[)）]\s*)+$/, '').trim() || normalized).toLowerCase() }
 function openDuplicateReview(row) { router.push({ name: 'TalentDuplicateReview', query: { return: route.fullPath, ...(row ? { name: duplicateNameKey(row.fullName) } : {}) } }) }
@@ -428,7 +435,9 @@ const tableColumns=[
   {key:'gender',label:'性别',width:80},
   {key:'nationality',label:'国籍',width:100},
   {key:'employmentStatus',label:'职业状态',width:110},
-  {key:'regionSummary',label:'区域信息',width:150,tooltip:false,clickHint:'点击查看籍贯、主要成长地与目前所在地'},
+  {key:'ancestralHome',label:'籍贯',width:150},
+  {key:'nativePlace',label:'主要成长地',width:150},
+  {key:'residenceAddress',label:'目前所在地',width:180},
   {key:'educationSummary',label:'学历信息',width:190,tooltip:false,clickHint:'点击查看完整学历经历'},
   {key:'languageSummary',label:'语言与证书',width:190,tooltip:false,clickHint:'点击查看语言与证书'},
   {key:'capabilityTypes',label:'专业能力',width:130,tooltip:false},
@@ -443,9 +452,6 @@ const tableColumns=[
   {key:'primaryPhone',label:'主要电话',width:140},
   {key:'primaryEmail',label:'主要邮箱',width:200},
   {key:'age',label:'年龄',width:80},
-  {key:'ancestralHome',label:'籍贯',width:150},
-  {key:'nativePlace',label:'主要成长地',width:150},
-  {key:'residenceAddress',label:'现居地址',width:180},
   {key:'dialects',label:'掌握方言',width:180},
   {key:'dialectRegions',label:'方言区域',width:180},
   {key:'overallRating',label:'总体评价',width:240,tooltip:false,performance:true},
@@ -464,9 +470,9 @@ const legacyDefaultColumnKeys=[
   ['resourceCode','fullName','capabilityTypes','languageDirections','industries','status','cooperationType','primaryPhone','primaryEmail','duplicateReviewRequired'],
   ['resourceCode','fullName','capabilityTypes','languageDirections','industries','yearsExperience','status','cooperationType','primaryPhone','primaryEmail','duplicateReviewRequired']
 ]
-const defaultColumnKeys=['fullName','gender','nationality','employmentStatus','regionSummary','educationSummary','languageSummary','capabilityTypes','annotationWillingness','overallRating','projectSituation','status','duplicateReviewRequired','operatorName','operatedAt']
+const defaultColumnKeys=['fullName','gender','nationality','employmentStatus','ancestralHome','nativePlace','residenceAddress','educationSummary','languageSummary','capabilityTypes','annotationWillingness','overallRating','projectSituation','status','duplicateReviewRequired','operatorName','operatedAt']
 const contactColumnKeys=new Set(['primaryPhone','primaryEmail'])
-const {selectedKeys:visibleColumnKeys,isVisible,reset:resetColumns}=useTableColumns('resource-talents-v4',tableColumns,defaultColumnKeys,{legacyDefaultKeys:legacyDefaultColumnKeys})
+const {selectedKeys:visibleColumnKeys,isVisible,reset:resetColumns}=useTableColumns('resource-talents-v4',tableColumns,defaultColumnKeys,{legacyDefaultKeys:legacyDefaultColumnKeys,keyAliases:{regionSummary:['ancestralHome','nativePlace','residenceAddress']}})
 const availableToCurrentPool=item=>!isRecruitmentPool.value||(!item.performance&&!item.talentManaged)
 const settingsColumns=computed(()=>tableColumns.filter(availableToCurrentPool))
 const settingsVisibleColumnKeys=computed({
@@ -507,10 +513,11 @@ const talentFilterFields=[
   {key:'gender',label:'性别',type:'text'},{key:'age',label:'年龄',type:'number-range',wide:true,min:0,max:120},
   {key:'employmentStatus',label:'职业状态',type:'select',options:employmentOptions},{key:'highestEducation',label:'最高学历',type:'select',options:educationOptions},
   {key:'registrationSource',label:'来源',type:'text'},
+  {key:'resumePathRegistered',label:'路径登记',type:'boolean',options:[{value:true,label:'有'},{value:false,label:'无'}],placeholder:'全部'},
   {key:'wechatAccount',label:'所在微信',type:'text'},
   {key:'wechatGroups',label:'所在企微小群',type:'text'},
   {key:'ancestralHome',label:'籍贯',type:'text'},
-  {key:'nativePlace',label:'主要成长地',type:'text'},{key:'residenceAddress',label:'现居地址',type:'text'},
+  {key:'nativePlace',label:'主要成长地',type:'text'},{key:'residenceAddress',label:'目前所在地',type:'text'},
   {key:'dialects',label:'掌握方言',type:'text'},{key:'dialectRegions',label:'方言区域',type:'text'},
   {key:'nationality',label:'国籍',type:'text'},
   {key:'overallRating',label:'总体评价',type:'text',performance:true},

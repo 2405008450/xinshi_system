@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 const annotationPage = readFileSync(new URL('../src/views/project/AnnotationProjects.vue', import.meta.url), 'utf8')
-const translationPage = readFileSync(new URL('../src/views/project/translation/ProjectDetails.vue', import.meta.url), 'utf8')
+const translationPage = readFileSync(new URL('../src/views/project/translation/components/TranslationProjectFieldCell.vue', import.meta.url), 'utf8')
 const interpretationPage = readFileSync(new URL('../src/views/project/interpretation/InterpretationProjectDetails.vue', import.meta.url), 'utf8')
 const recruitmentPage = readFileSync(new URL('../src/views/project/RecruitmentProjects.vue', import.meta.url), 'utf8')
 const consultationPage = readFileSync(new URL('../src/views/client/Consultations.vue', import.meta.url), 'utf8')

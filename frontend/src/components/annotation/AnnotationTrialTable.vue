@@ -1,5 +1,6 @@
 <template>
   <el-table ref="tableRef" :data="rows" v-loading="loading" border row-key="id" @selection-change="$emit('selection-change',$event)">
+<OrderedTableColumns settings-key="annotation-trials">
     <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
     <el-table-column type="index" label="序号" width="65" fixed="left" />
     <el-table-column v-for="column in columns" :key="column.key" :label="column.label" :prop="column.key" :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="column.tooltip!==false">
@@ -23,10 +24,12 @@
     <el-table-column v-if="!deleteMode" label="操作" width="210" fixed="right" align="center">
       <template #default="{row}"><div class="trial-row-actions"><el-button link type="primary" @click="$emit('follow-up',row)">跟进</el-button><el-button link type="primary" @click="$emit('accounts',row)">账号</el-button><PrimaryEditButton v-if="canWrite" @click="$emit('edit',row)" /></div></template>
     </el-table-column>
-  </el-table>
+  </OrderedTableColumns>
+</el-table>
 </template>
 
 <script setup>
+import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { ref } from 'vue'
 import AnnotationTrialDetail from './AnnotationTrialDetail.vue'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'

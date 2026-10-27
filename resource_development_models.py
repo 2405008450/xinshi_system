@@ -76,6 +76,22 @@ class DevelopmentRecord(Base):
     revision = mapped_column(Integer, nullable=False, default=1)
 
 
+class DevelopmentResourceContact(Base):
+    """开拓资源的扩展账号，与交换账号、加微账号分开保存。"""
+    __tablename__ = "resource_development_resource_contact"
+    record_id = mapped_column(Uuid, ForeignKey("resource_development_record.id", ondelete="CASCADE"), primary_key=True)
+    whatsapp = mapped_column(String(100), nullable=False, default="", server_default="")
+    custom_accounts = mapped_column(JSON, nullable=False, default=list, server_default="[]")
+
+
+class DevelopmentCustomValue(Base):
+    """自定义字段定义复用 option(kind=custom_field)，此表只存各记录的填写内容。"""
+    __tablename__ = "resource_development_custom_value"
+    record_id = mapped_column(Uuid, ForeignKey("resource_development_record.id", ondelete="CASCADE"), primary_key=True)
+    field_id = mapped_column(Uuid, ForeignKey("resource_development_option.id", ondelete="CASCADE"), primary_key=True)
+    value = mapped_column(Text, nullable=False, default="", server_default="")
+
+
 class DevelopmentLanguage(Base):
     __tablename__ = "resource_development_language"
     record_id = mapped_column(Uuid, ForeignKey("resource_development_record.id", ondelete="CASCADE"), primary_key=True)

@@ -151,6 +151,7 @@ test('恢复补查未读提醒，忽略旧响应并避免实时事件和补查�
     getNotifications: (params, options) => h.request({ params, ...options }),
     useProjectChatDock: () => ({ openChat() {} }), showDesktopNotification: () => false,
     isChatNotification, isChatMentionNotification, isChatAttentionNotification,
+    notificationAcknowledgements:{has:()=>false,acknowledge:()=>{},subscribe:()=>()=>{}},
   })
   useNotifications(); h.mounts.forEach(fn => fn())
   h.subscribers.get('foreground')()

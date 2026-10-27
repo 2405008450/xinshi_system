@@ -16,6 +16,9 @@ const toApi = (value) => convertKeys(value, toSnakeCase)
 export const getTalents = (params, config = {}) => api.get('/talents/', { ...config, params }).then(fromApi)
 export const getTalentCount = (params, config = {}) => api.get('/talents/count', { ...config, params })
 export const getTalentPage = (params, config = {}) => api.get('/talents/page', { ...config, params }).then(fromApi)
+export const getTalentPathPage = (params, config = {}) => api.get('/talents/path-page', { ...config, params }).then(fromApi)
+export const patchTalentPathFields = (id, data) => api.patch(`/talents/${id}/path-fields`, toApi(data)).then(fromApi)
+export const getTalentPathHistory = (id, params, config = {}) => api.get(`/talents/${id}/path-history`, { ...config, params }).then(fromApi)
 export const getTalentOverview = () => api.get('/talents/overview').then(fromApi)
 const overviewLanguagePath = key => `/talents/overview/languages/${encodeURIComponent(key)}`
 const overviewGroupPath = id => `/talents/overview/groups/${id}`

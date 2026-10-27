@@ -323,6 +323,8 @@ app.include_router(tasks.work_items_router)
 app.include_router(tasks.tasks_router)
 app.include_router(tasks.entries_router)
 app.include_router(tasks.reports_router)
+from routers.project_arrangements import router as project_arrangements_router
+app.include_router(project_arrangements_router)
 app.include_router(manuscript_arrangements.router)
 app.include_router(word_counts.router)
 app.include_router(business_mails.settings_router)

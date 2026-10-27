@@ -627,6 +627,7 @@ def create_message_endpoint(
             content_json=payload.content_json,
             mentioned_user_id=payload.mentioned_user_id,
             mentioned_user_ids=payload.mentioned_user_ids,
+            mention_all=payload.mention_all,
             attachment_ids=payload.attachment_ids,
             topic_id=payload.topic_id,
             client_message_id=payload.client_message_id,

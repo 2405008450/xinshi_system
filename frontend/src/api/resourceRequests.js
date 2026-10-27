@@ -10,6 +10,7 @@ const convert = (value, keyFn) => Array.isArray(value) ? value.map((item) => con
 export const getResourceDispatchRequest = id => api.get(`/resource-request-dispatches/${id}/resource-request`).then(res=>convert(res,camel))
 export const getResourceDispatch = id => api.get(`/resource-request-dispatches/${id}`).then(res=>convert(res,camel))
 export const respondResourceDispatch = (id,status) => api.put(`/resource-request-dispatches/${id}/receipt`,{status}).then(res=>convert(res,camel))
+export const cancelResourceDispatches = (id,kind) => api.post(`/resource-requests/${id}/dispatch/${kind}/cancel`).then(res=>convert(res,camel))
 
 export const getResourceRequests = (params, config = {}) => api.get('/resource-requests/', { ...config, params }).then((res) => convert(res, camel))
 export const getResourceRequestCount = (params, config = {}) => api.get('/resource-requests/count', { ...config, params })

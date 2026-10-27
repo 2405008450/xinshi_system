@@ -12,7 +12,7 @@
         <span class="chat-mention-inbox__title"><strong>{{ item.title }}</strong><time :title="formatBusinessDateTime(item.createdAt)">{{ chatDateLabel(item.createdAt) }}</time></span>
         <span class="chat-mention-inbox__sender">{{ item.senderName }}<b v-if="item.unread">未读</b></span>
         <span class="chat-mention-inbox__preview"><mark>@我</mark> {{ screenshotPreview(item.preview) }}</span>
-        <small class="chat-mention-inbox__source">{{ item.projectType === 'annotation' ? '标注项目群' : '笔译项目群' }}<template v-if="item.subtitle"> · {{ item.subtitle }}</template></small>
+        <small class="chat-mention-inbox__source">{{ ({annotation:'标注项目群',translation:'笔译项目群',discussion:'讨论会话',direct:'私聊'})[item.projectType] || '会话' }}<template v-if="item.subtitle"> · {{ item.subtitle }}</template></small>
       </span>
     </button>
     <div v-if="hasMore" class="chat-mention-inbox__status"><el-button link type="primary" :loading="loading" @click="loadMore">加载更多</el-button></div>

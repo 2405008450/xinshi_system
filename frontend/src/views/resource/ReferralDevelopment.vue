@@ -7,7 +7,7 @@
           <p class="page-subtitle">按推荐人与日期记录推广奖励、凭证和付款情况</p>
         </div>
         <div class="header-actions">
-          <TableColumnSettings
+          <TableColumnSettings settings-key="resource-referrals"
             v-model="selectedColumns"
             :columns="referralColumns"
             :column-count="2"
@@ -34,6 +34,7 @@
       </AdvancedFilterPopover>
     </div>
     <el-table ref="tableRef" v-loading="loading" :data="rows" row-key="id" border @selection-change="handleDeleteSelectionChange">
+<OrderedTableColumns settings-key="resource-referrals">
       <el-table-column v-if="deleteMode" type="selection" width="48" :selectable="row => row.can_delete" />
       <el-table-column label="序号" type="index" width="65" :index="index => (pagination.page - 1) * pagination.limit + index + 1" />
       <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :label="column.label" :min-width="column.width" show-overflow-tooltip>
@@ -46,13 +47,15 @@
         </el-popover>
       </template></el-table-column>
       <el-table-column v-if="!deleteMode" label="操作" fixed="right" width="185"><template #default="{ row }"><el-button v-if="row.can_edit" link type="primary" @click="editorRef.open(row)">编辑</el-button><el-button v-if="row.can_edit" link type="primary" @click="editorRef.open(row, 'payment')">{{ row.payment_status === 'paid' ? '更正付款' : '登记付款' }}</el-button><span v-if="!row.can_edit" class="referral-muted">只读</span></template></el-table-column>
-    </el-table>
+    </OrderedTableColumns>
+</el-table>
     <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :page-sizes="[10,20,50,100]" :total="pagination.total" layout="total, sizes, prev, pager, next, jumper" @current-change="pageChanged" @size-change="sizeChanged" />
     <ReferralRecordEditor ref="editorRef" @saved="recordSaved" />
   </el-card>
 </template>
 
 <script setup>
+import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import TalentResourceNav from './components/TalentResourceNav.vue'

@@ -26,6 +26,7 @@
         <el-option label="删除" value="delete" />
         <el-option label="修改订单号" value="order_no_change" />
         <el-option label="删除具体进度" value="progress_delete" />
+        <el-option label="编辑项目进度" value="progress_edit" />
       </el-select>
       <el-button type="primary" @click="search">查询</el-button>
       <el-button @click="resetFilters">重置</el-button>
@@ -154,6 +155,7 @@ const sourceLabels = {
   legacy_import: '历史导入',
   project_order_no_change: '订单号修改',
   progress_record_delete: '项目进度记录',
+  progress_record_edit: '项目进度记录编辑',
   customer_progress_record_delete: '客户进度记录',
 }
 const fieldLabels = {
@@ -175,8 +177,8 @@ let requestController
 let requestSequence = 0
 
 const projectTypeLabel = value => projectTypeOptions.find(item => item.value === value)?.label || value || '-'
-const operationLabel = value => ({create:'新增',delete:'删除',order_no_change:'修改订单号',progress_delete:'删除具体进度'}[value] || value || '-')
-const operationTagType = value => ({create:'success',delete:'danger',order_no_change:'warning',progress_delete:'danger'}[value] || 'info')
+const operationLabel = value => ({create:'新增',delete:'删除',order_no_change:'修改订单号',progress_delete:'删除具体进度',progress_edit:'编辑项目进度'}[value] || value || '-')
+const operationTagType = value => ({create:'success',delete:'danger',order_no_change:'warning',progress_delete:'danger',progress_edit:'warning'}[value] || 'info')
 const sourceLabel = value => sourceLabels[value] || value || '-'
 const actorLabel = row => row.actor_name_snapshot || row.actor_username_snapshot || '未知用户'
 const indexMethod = index => (pagination.page - 1) * pagination.pageSize + index + 1

@@ -22,7 +22,7 @@
       <div v-else class="header card-header">
         <div><h2>标注员账号预览</h2><p>集中查看各客户平台账号、当前分配状态及标注员分配履历</p></div>
         <div class="actions header-actions">
-          <TableColumnSettings v-model="visibleColumnKeys" :columns="tableColumns" @reset="resetColumns" />
+          <TableColumnSettings :settings-key="`annotation-accounts:${viewMode}:${viewMode === 'project' ? projectId : 'library'}`" v-model="visibleColumnKeys" :columns="tableColumns" @reset="resetColumns" />
           <el-popover v-if="canWrite" v-model:visible="platformManagerVisible" trigger="click" placement="bottom-end" :width="560" popper-class="platform-manager-popper">
             <template #reference><el-button :disabled="!effectiveClientId">平台管理</el-button></template>
             <div class="platform-manager">
@@ -124,14 +124,15 @@
     </ProjectAccountSpreadsheet>
 
     <el-table ref="accountTableRef" v-else :data="rows" v-loading="loading" border row-key="id" @selection-change="handleDeleteSelectionChange">
+<OrderedTableColumns :settings-key="`annotation-accounts:${viewMode}:${viewMode === 'project' ? projectId : 'library'}`">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column v-if="viewMode==='assets'" key="asset-index" type="index" label="序号" width="65" />
       <el-table-column v-else key="project-data-number" label="数据编号" min-width="120" fixed="left"><template #default="{row}">{{ projectValue(row,'external_data_no') }}</template></el-table-column>
-      <el-table-column v-if="isVisible('platform')" :label="viewMode==='project' ? '平台' : '平台链接'" min-width="180"><template #default="{row}"><span v-if="viewMode==='project'">{{ row.platformName || host(row.platformUrl) }}</span><el-link v-else class="platform-link" type="primary" :href="row.platformUrl" target="_blank" rel="noopener noreferrer" :title="row.platformUrl">{{ row.platformUrl || '-' }}</el-link></template></el-table-column>
-      <el-table-column v-if="viewMode==='assets' && isVisible('nickname')" prop="nickname" label="账号昵称" min-width="130"><template #default="{row}">{{ row.nickname || '-' }}</template></el-table-column>
+      <el-table-column column-key="platform" v-if="isVisible('platform')" :label="viewMode==='project' ? '平台' : '平台链接'" min-width="180"><template #default="{row}"><span v-if="viewMode==='project'">{{ row.platformName || host(row.platformUrl) }}</span><el-link v-else class="platform-link" type="primary" :href="row.platformUrl" target="_blank" rel="noopener noreferrer" :title="row.platformUrl">{{ row.platformUrl || '-' }}</el-link></template></el-table-column>
+      <el-table-column column-key="nickname" v-if="viewMode==='assets' && isVisible('nickname')" prop="nickname" label="账号昵称" min-width="130"><template #default="{row}">{{ row.nickname || '-' }}</template></el-table-column>
       <el-table-column label="登录账号" min-width="190"><template #default="{row}">{{ row.loginAccount || '-' }}</template></el-table-column>
       <el-table-column label="密码" min-width="150"><template #default="{row}">{{ row.password || '-' }}</template></el-table-column>
-      <el-table-column v-if="isVisible('person')" :label="viewMode==='project' ? '分配人员' : '标注员'" min-width="220"><template #default="{row}">
+      <el-table-column column-key="person" v-if="isVisible('person')" :label="viewMode==='project' ? '分配人员' : '标注员'" min-width="220"><template #default="{row}">
         <el-select
           :model-value="row.personId || ''"
           clearable
@@ -153,11 +154,11 @@
       <el-table-column v-if="viewMode==='project'" label="价格" min-width="100"><template #default="{row}">{{ projectValue(row,'price') }}</template></el-table-column>
       <el-table-column v-if="viewMode==='project'" label="错误点/问题" min-width="180" show-overflow-tooltip><template #default="{row}">{{ projectValue(row,'error_feedback') }}</template></el-table-column>
       <el-table-column v-if="viewMode==='project'" label="标红需反馈" min-width="180" show-overflow-tooltip><template #default="{row}">{{ projectValue(row,'highlight_feedback') }}</template></el-table-column>
-      <el-table-column v-if="viewMode==='assets' && isVisible('project')" prop="projectName" label="当前项目" min-width="160"><template #default="{row}">{{ row.projectName || '-' }}</template></el-table-column>
-      <el-table-column v-if="isVisible('language')" label="语言方向" min-width="160"><template #default="{row}">{{ row.languageLabels?.join('、') || '-' }}</template></el-table-column>
-      <el-table-column v-if="viewMode==='assets' && isVisible('accountStatus')" label="账号状态" width="100"><template #default="{row}"><el-tag size="small" :type="statusTag(row.accountStatus)">{{ accountStatusLabels[row.accountStatus] || row.accountStatus }}</el-tag></template></el-table-column>
-      <el-table-column v-if="viewMode==='assets' && isVisible('owner')" label="负责人" min-width="120"><template #default="{row}">{{ row.ownerName || '-' }}</template></el-table-column>
-      <el-table-column v-if="viewMode==='assets' && isVisible('expiresOn')" prop="expiresOn" label="到期日" width="120"><template #default="{row}">{{ row.expiresOn || '-' }}</template></el-table-column>
+      <el-table-column column-key="project" v-if="viewMode==='assets' && isVisible('project')" prop="projectName" label="当前项目" min-width="160"><template #default="{row}">{{ row.projectName || '-' }}</template></el-table-column>
+      <el-table-column column-key="language" v-if="isVisible('language')" label="语言方向" min-width="160"><template #default="{row}">{{ row.languageLabels?.join('、') || '-' }}</template></el-table-column>
+      <el-table-column column-key="accountStatus" v-if="viewMode==='assets' && isVisible('accountStatus')" label="账号状态" width="100"><template #default="{row}"><el-tag size="small" :type="statusTag(row.accountStatus)">{{ accountStatusLabels[row.accountStatus] || row.accountStatus }}</el-tag></template></el-table-column>
+      <el-table-column column-key="owner" v-if="viewMode==='assets' && isVisible('owner')" label="负责人" min-width="120"><template #default="{row}">{{ row.ownerName || '-' }}</template></el-table-column>
+      <el-table-column column-key="expiresOn" v-if="viewMode==='assets' && isVisible('expiresOn')" prop="expiresOn" label="到期日" width="120"><template #default="{row}">{{ row.expiresOn || '-' }}</template></el-table-column>
       <template v-if="viewMode!=='assets'">
         <el-table-column v-for="field in visibleProjectCustomFields" :key="`assignment-view:${field.id}`" :label="field.fieldLabel" min-width="140" show-overflow-tooltip><template #default="{row}">{{ formatValue(row.assignmentCustomValues?.[field.id]) }}</template></el-table-column>
       </template>
@@ -176,7 +177,8 @@
         </BusinessDetailPopover>
       </template></el-table-column>
       <el-table-column v-if="canWrite && !deleteMode" label="操作" width="120" fixed="right" align="center"><template #default="{row}"><PrimaryEditButton @click="openAccount(row)" /></template></el-table-column>
-    </el-table>
+    </OrderedTableColumns>
+</el-table>
     <div v-if="viewMode==='assets'" class="pagination"><el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[20,50,100]" layout="total, sizes, prev, pager, next, jumper" @current-change="reload" @size-change="pageSizeChanged" /></div>
   </el-card>
 
@@ -206,6 +208,7 @@
 </template>
 
 <script setup>
+import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { matchesSearch } from '@/utils/searchMatching'
 
 import AnnotationOrderContext from '@/components/annotation/AnnotationOrderContext.vue'

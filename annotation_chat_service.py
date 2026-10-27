@@ -180,6 +180,10 @@ def send_message(db, project_id, user, payload, *, commit=True, max_mentions=20)
     for user_id in mention_ids:
         if not can_view(db, db.get(AppUser, user_id)):
             raise HTTPException(400, '提及的用户无项目查看权限或已停用')
+    all_members = bool(getattr(payload, 'mention_all', False))
+    if all_members:
+        from chat_mention_recipients import resolve_mentions
+        mention_ids = set(resolve_mentions(db, 'annotation', project_id, user, mention_ids, True))
     ensure_default_members(db, project_id)
     member = add_member(db, project_id, user.id)
     if not member.explicit_unfollow:
@@ -187,14 +191,14 @@ def send_message(db, project_id, user, payload, *, commit=True, max_mentions=20)
     message = ChatProjectMessage(annotation_project_id=project_id, sender_user_id=user.id,
         sender_name=user.full_name or user.username, content=payload.content.strip(), message_type='user',
         client_message_id=payload.client_message_id, reply_to_message_id=payload.reply_to_message_id,
-        event_data={})
+        event_data={'mention_all': True} if all_members else {})
     db.add(message)
     db.flush()
     if payload.topic_id:
         from chat_topic_service import set_message_topic
         set_message_topic(db, user, message, payload.topic_id)
     db.add_all(ChatProjectMessageAttachment(message_id=message.id, attachment_id=a.id) for a in attachments)
-    mentioned = _create_chat_mentions(db, message, user, mentioned_user_ids=list(mention_ids), max_mentions=max_mentions)
+    mentioned = _create_chat_mentions(db, message, user, mentioned_user_ids=list(mention_ids), max_mentions=max(max_mentions, len(mention_ids)) if all_members else max_mentions)
     notifications = []
     if mentioned:
         # 通知不缓存正文，撤回后不会在桌面通知或旧缓存泄露消息内容。

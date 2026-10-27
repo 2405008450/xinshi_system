@@ -538,6 +538,29 @@ class ResourcePersonListResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class TalentPathRecordResponse(BaseModel):
+    """路径筛选窗口专用投影，不加载人才项目、能力及附件明细。"""
+    id: UUID
+    resource_code: Optional[str] = None
+    full_name: str
+    ancestral_home: Optional[str] = None
+    native_place: Optional[str] = None
+    residence_address: Optional[str] = None
+    resume_path: Optional[str] = None
+    primary_phone: Optional[str] = None
+    secondary_phone: Optional[str] = None
+    primary_email: Optional[str] = None
+    secondary_email: Optional[str] = None
+    wechat: Optional[str] = None
+    whatsapp: Optional[str] = None
+    skype: Optional[str] = None
+    line: Optional[str] = None
+    other_contact: Optional[str] = None
+    contact_info: Optional[str] = None
+    contact_restricted: bool = False
+    model_config = ConfigDict(from_attributes=True)
+
+
 class TalentOptionResponse(BaseModel):
     """项目人员选择器仅返回识别所需字段，不泄露联系方式等敏感信息。"""
 

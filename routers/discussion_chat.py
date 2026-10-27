@@ -50,6 +50,8 @@ class MessageCreate(BaseModel):
     content: str = Field(min_length=1, max_length=10000)
     client_message_id: UUID
     reply_to_id: int | None = Field(default=None, ge=1)
+    mentioned_user_ids: list[UUID] = Field(default_factory=list,max_length=20)
+    mention_all: bool = False
 
 
 class PreferenceWrite(BaseModel):
@@ -58,6 +60,12 @@ class PreferenceWrite(BaseModel):
     starred: bool | None = None
     mark_read: bool = False
     read_message_id: int | None = Field(default=None, ge=1)
+
+
+@router.get('/{room_id}/group')
+def group(room_id: UUID, db=Depends(get_db), user=Depends(actor)):
+    from discussion_mentions import group
+    return group(db,user,room_id)
 
 
 @router.get('/{room_id}/messages')

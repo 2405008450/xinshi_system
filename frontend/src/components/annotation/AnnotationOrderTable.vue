@@ -2,6 +2,7 @@
   <el-table ref="tableRef" :data="rows" :height="nested ? undefined : '100%'" row-key="id" border
     :size="nested ? 'small' : undefined" :expand-row-keys="expanded" :row-class-name="rowClass"
     class="annotation-order-table project-detail-list-table" @expand-change="expandChanged" @selection-change="$emit('selection-change', $event)">
+<OrderedTableColumns :settings-key="columnSettingsKey">
     <el-table-column v-if="deleteMode && !nested" type="selection" width="48" fixed="left" />
     <el-table-column type="expand" width="1" class-name="annotation-expand-column" label-class-name="annotation-expand-column">
       <template #default="{ row }">
@@ -13,7 +14,7 @@
             <el-button v-if="!conversationPicker" @click="$emit('manage', row)">管理全部</el-button>
           </div>
           <el-alert v-if="errors[row.id]" :title="errors[row.id]" type="error" :closable="false"><el-button link @click="load(row)">重试</el-button></el-alert>
-          <AnnotationOrderTable :rows="children[row.id] || []" :columns="columns" :editable="editable" :delete-mode="deleteMode" :conversation-picker="conversationPicker" :picker-action-label="pickerActionLabel" nested
+          <AnnotationOrderTable :column-settings-key="columnSettingsKey" :rows="children[row.id] || []" :columns="columns" :editable="editable" :delete-mode="deleteMode" :conversation-picker="conversationPicker" :picker-action-label="pickerActionLabel" nested
             :revision="revision" :area-ids="areaIds" :supports-grandchild-orders="supportsGrandchildOrders" @create="(...args) => $emit('create', ...args)" @manage="$emit('manage', $event)" @updated="$emit('updated', $event)">
             <template #header="scope"><slot name="header" v-bind="scope" /></template>
             <template #cell="scope"><slot name="cell" v-bind="scope" /></template>
@@ -35,14 +36,16 @@
       <template #header><slot name="header" :column="column" /></template><template #default="{ row }"><slot name="cell" :row="row" :column="column" /></template>
     </el-table-column>
     <el-table-column v-if="!deleteMode" :label="conversationPicker ? pickerActionLabel : '操作'" width="120" fixed="right"><template #default="{ row }"><slot name="actions" :row="row" /></template></el-table-column>
-  </el-table>
+  </OrderedTableColumns>
+</el-table>
 </template>
 
 <script setup>
+import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { getAnnotationChildren } from '@/api/annotationProjects'
 import TableExpandButton from '@/components/common/TableExpandButton.vue'
-const props = defineProps({ rows: {type:Array,default:()=>[]}, columns: {type:Array,default:()=>[]}, editable:Boolean, deleteMode:Boolean, nested:Boolean, conversationPicker:Boolean, pickerActionLabel:{type:String,default:'加入会话'}, revision:Number, areaIds:Array, rowClass:Function, supportsGrandchildOrders:{type:Boolean,default:true} })
+const props = defineProps({ columnSettingsKey: { type: String, default: 'annotation-projects' }, rows: {type:Array,default:()=>[]}, columns: {type:Array,default:()=>[]}, editable:Boolean, deleteMode:Boolean, nested:Boolean, conversationPicker:Boolean, pickerActionLabel:{type:String,default:'加入会话'}, revision:Number, areaIds:Array, rowClass:Function, supportsGrandchildOrders:{type:Boolean,default:true} })
 const emit = defineEmits(['selection-change','create','manage','updated'])
 const tableRef = ref(), expanded = ref([]), loadingIds = reactive(new Set())
 const containerWidth=ref(0)

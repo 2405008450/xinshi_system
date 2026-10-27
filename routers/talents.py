@@ -22,6 +22,7 @@ from resource_schemas import (
     TalentAnnotationProjectPerformanceResponse,
     TalentAttachmentResponse,
     TalentProjectHistoryResponse,
+    TalentPathRecordResponse,
 )
 from resource_service import (
     TalentDuplicateError,
@@ -36,6 +37,7 @@ from resource_service import (
     get_talent_project_history_page,
     get_talent_project_situations,
     get_talents,
+    get_talent_path_page,
     update_recruitment_talent,
     update_talent,
     update_talent_name,
@@ -67,6 +69,7 @@ from talent_privacy import (
     redact_contact_mapping,
     serialize_with_contact_access,
 )
+from talent_path_edit import TalentPathEdit, save_path_fields, path_history
 
 
 router = APIRouter(
@@ -102,7 +105,7 @@ TALENT_FILTER_FIELDS = {
     "region_summary", "education_summary", "language_summary", "project_situation",
     "overall_score", "overall_rating", "audio_annotation_score",
     "non_audio_annotation_score", "collection_score", "first_contact_date", "updated_at", "operator_name", "operated_at",
-    "duplicate_review_required",
+    "duplicate_review_required", "resume_path_registered",
 }
 
 TALENT_SORT_PATTERN = (
@@ -158,7 +161,7 @@ def _field_filters(raw: Optional[str], *, allow_contact_filters: bool = True):
         "employment_status", "highest_education",
         "education_level", "language_role", "language_proficiency", "certificate_type",
     }
-    booleans = {"duplicate_review_required", "certificate_received"}
+    booleans = {"duplicate_review_required", "certificate_received", "resume_path_registered"}
     ensure_filter_operators(value, {field: ({"between"} if field in ranges else {"in"} if field in enums else {"eq"} if field in booleans else {"contains"}) for field in TALENT_FILTER_FIELDS})
     return value
 
@@ -194,6 +197,38 @@ def _duplicate_error_detail(exc: TalentDuplicateError, *, contacts_visible: bool
             for item in exc.duplicates
         ],
     }
+
+
+@router.get("/path-page", response_model=PageResponse[TalentPathRecordResponse])
+def read_talent_path_page(
+    registered: Optional[bool] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    result = get_talent_path_page(db, registered=registered, skip=skip, limit=limit)
+    visible = can_view_talent_contacts(db, current_user)
+    result["items"] = [serialize_with_contact_access(item, TalentPathRecordResponse, RESOURCE_CONTACT_FIELDS, contacts_visible=visible) for item in result["items"]]
+    return result
+
+
+@router.patch('/{person_id}/path-fields', response_model=TalentPathRecordResponse, dependencies=talent_write_dependencies)
+def patch_talent_path_fields(person_id: UUID, payload: TalentPathEdit, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    visible = can_view_talent_contacts(db, current_user)
+    try:
+        person = save_path_fields(db, person_id, payload, current_user, contacts_visible=visible)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, '编号或联系方式与已有资料冲突，请核实后重试')
+    return serialize_with_contact_access(person, TalentPathRecordResponse, RESOURCE_CONTACT_FIELDS, contacts_visible=visible)
+
+
+@router.get('/{person_id}/path-history')
+def read_talent_path_history(person_id: UUID, skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100),
+                             db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    return path_history(db, person_id, skip=skip, limit=limit, contacts_visible=can_view_talent_contacts(db, current_user))
 
 
 @router.get("/", response_model=List[ResourcePersonListResponse], deprecated=True)

@@ -1429,3 +1429,118 @@ resource_request_dispatch_default：kind varchar(16) PK（circle/post/developmen
 ### 工作日报告统计口径
 
 仅赵震锋及当前行政部（主部门或跨部门成员）可以统计。仅已确认报告计为已写；当前启用未删除人员，自账号创建日期起统计，未来日期不计。2025、2026 年使用国务院公布的放假及调休安排，未知年份拒绝统计，不按普通周末推测。按日给出应写、已写、未写人数与人员 UUID；按周/月返回每人缺报的全部具体工作日。部门及姓名筛选在同一查询范围内应用，跨部门人员去重。人员范围采用当前名册，不以此替代历史劳动关系或请假考勤。
+
+## 标注项目进度编辑与删除留痕（2026-10-25）
+
+复用 `project_operation_audit`，`operation_type` 增加 `progress_edit`，保留原有 `progress_delete`；迁移脚本为 `tools/apply_annotation_progress_edit_audit_migration.py`，仅调整 `ck_project_operation_audit_operation` 约束，无新增列。未经单独授权不执行云端迁移。
+
+`operation_source` 分别为 `progress_record_edit` / `progress_record_delete`。`project_snapshot` 保存 `record_part`（`progress` / `status_note`）、编辑前后 `before_progress_record` / `after_progress_record` 或删除前 `deleted_progress_record`。快照包含记录 ID、正文、节点时间、原创建人与更新时间；新快照时间明确携带 `+08:00`。审计操作人及操作时间沿用既有字段。
+
+状态变更说明删除只清空说明，不删除状态节点或改变当前状态；普通进度删除后从审计重建只读占位和历史入口。所有有项目查看权限的登录用户可编辑、删除项目进度记录及查看其留痕，不授予其他项目管理权限。读取既有删除审计兼容旧无时区时间，按项目既有 UTC+8 本地时间解释，不回写历史值。
+
+
+
+## 资源开拓自定义字段（2026-10-26）
+
+字段定义复用 `resource_development_option`，`kind=custom_field`、`name` 为名称（最多100字），不修改选项表结构；同名忽略大小写复用，最多100个字段。新建 `resource_development_custom_value`：`record_id` UUID 与 `field_id` UUID 为联合主键，分别外键指向开拓记录与选项表，均 ON DELETE CASCADE；`value` TEXT 非空默认空串，单字段最多20000字。通过 `tools/apply_development_custom_fields_migration.py` 显式幂等初始化，启动自动迁移保持关闭。
+
+录入接口 `custom_fields` 为字段 UUID 到文本的映射；未提交字段保留旧值，显式空串清空。值与主记录同事务保存，记录到现有 `resource_development_audit`（`entity_type=record_custom_fields`），非授权人员的自由文本按受限内容展示。字段设置使用 `custom_field:<UUID>` 独立列；自定义资源账号使用 `custom_account:<小写名称>` 独立列，从已登记账号中只读汇总名称，不迁移历史账号。两类动态列都按本人或代录权限进行值筛选。
+
+## 人才路径窗口修改记录（2026-10-26）
+
+`talent_path_change`：`id` UUID 主键；`person_id` UUID 非空外键指向 `resource_person.id`（ON DELETE CASCADE）；`actor_id` UUID 可空外键指向 `app_user.id`（ON DELETE SET NULL）；`actor_name` VARCHAR(255) 非空保存操作人姓名快照；`changes` JSON 非空，按字段键保存 `{before, after}`；`created_at` TIMESTAMP 非空，使用业务 UTC+8 本地时间生成，接口带 `+08:00`。索引 `ix_talent_path_change_person_time(person_id, created_at, id)`。使用 `tools/apply_talent_path_history_migration.py` 显式幂等创建，不启用启动自动迁移。
+
+路径窗口 PATCH `/talents/{id}/path-fields` 只允许人才编号、姓名、三种区域信息、路径及既有联系方式字段；`changes` 与 `expected_values` 字段集合须相同，逐字段核对原值防止并发覆盖，仅写入实际改动并与修改记录同事务提交。联系方式编辑及历史明文继续仅超级管理员可用，非授权用户历史值遮罩。GET `/talents/{id}/path-history` 分页查看本窗口自功能启用后的修改记录，不生成历史补记。
+
+## 资源开拓扩展账号（2026-10-26）
+
+新增表 `resource_development_resource_contact`，以 `record_id`（UUID）为主键及指向 `resource_development_record.id` 的外键，删除记录时级联删除扩展账号。`whatsapp` 为 VARCHAR(100)，非空默认空串；`custom_accounts` 为 JSON，非空默认空数组，元素为 `{name, value}`，名称最多 50 字、账号最多 100 字，每条开拓记录最多 30 个自定义账号，名称忽略大小写去重。旧客户端未提交时保留既有值，显式空值清空。保存与开拓记录处于同一事务，修改记录写入现有审计表（entity_type=`record_contacts`）。权限与资源手机、微信号一致；无权访问时账号值遮罩，账号检索限本人或有代录权限者。原记录表不增加列，不更改历史数据。使用 `tools/apply_resource_development_contacts_migration.py` 显式幂等初始化，不在启动时自动迁移。
+
+人才总库“路径登记”复用 `resource_person.resume_path`，去除首尾空格、制表、换行及全角空格后非空为“有”，NULL、空串及纯空白为“无”；不检查文件或 UNC 的实际存在性，无结构变更。接口 field_filters 字段 `resume_path_registered`，布尔 eq，统一用于列表与总数。
+
+## 资源需求三类发送说明（2026-10-26）
+
+复用 `resource_request.request_content` JSONB 的 `dispatch_notes` 对象；`circle`、`post`、`development` 分别保存发圈需求、发帖需求、资源开拓需求管理的可选说明，每项最长 10000 字，默认空字符串，无新增表、列或数据库迁移。旧客户端未提交的说明保留原值，显式空字符串清空对应说明。发送批次继续冻结完整 `request_content` 快照，接收人查看本次对应类型的说明，后续修改不回写历史通知。
+
+
+### chat_discussion_mention（讨论提及关系，2026-10-27）
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| message_id | BIGINT，联合主键，外键 | chat_discussion_message.id；随消息删除级联 |
+| user_id | UUID，联合主键，外键 | 被提及的有效用户；发送者自动排除 |
+| user_name | VARCHAR(255) | 发送时的被提及姓名快照 |
+| is_all | BOOLEAN | 是否由 @所有人 展开；仅当前会话有效成员 |
+| notification_id | UUID，可空、唯一、外键 | 对应 app_notification.id；通知删除后置空 |
+
+索引：ix_discussion_mention_user_message(user_id, message_id)。讨论消息本身不改结构，纯文本 @ 不产生记录；撤回消息不进入 @我 和未读统计。新增通知类型 discussion_chat_mention 归入聊天提醒。项目群及私聊沿用 chat_project_mention，并在消息 event_data.mention_all 标记全体提醒，无须修改已有表。
+
+## 笔译项目安排（2026-10-25）
+
+### translation_project_arrangement
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | uuid PK | 人员任务 ID |
+| project_id | uuid FK | 笔译母项目，项目删除时级联删除 |
+| assignee_id | uuid FK | 被安排人员，禁止删除引用人员 |
+| assigned_by | uuid FK | 安排人 |
+| content | text | 可修改的具体任务，必填 |
+| work_date | date | 安排日期；默认使用工作报告 UTC+8 七点换日业务日 |
+| estimated_minutes | integer | 预计需要时间，0 表示未填，最大 1440 分钟 |
+| actual_minutes | integer | 实际花费时间，完成时取已验证报告耗时 |
+| status | varchar(20) | pending 待进行、in_progress 进行中、completed 已完成 |
+| revision | integer | 更新及完成请求必须携带的乐观锁版本 |
+| created_at / updated_at / completed_at | timestamptz | 业务时刻，接口按 +08:00 序列化 |
+| report_item_id | uuid nullable | 完成时创建的日报明细 ID；报告重写后通过 metadata.arrangement_id 追溯 |
+
+索引：assignee_id + work_date；project_id。完成任务必须使用完整工作报告行校验，禁止直接设置 completed；任务状态与追加报告在单事务中提交。报告行以 manual 来源存储，source_id 为任务 ID，display_metadata.source 为 project_arrangement，带 arrangement_id、order_no、project_type 及稳定反馈键。陈旧报告编辑窗口或重新汇总不得丢弃该来源的现有记录。已确认日报先撤回才能继续追加，不自动撤回或修改已确认报告。
+
+查看他人任务严格复用工作报告 receiving_rules / sender_ids_for_rules，按当前部门成员关系解析，不因项目写权限、统计权限或超级管理员身份扩大个人任务查看范围。项目列表中的项目安排仅供具有 projects:read 的账号查看，修改安排需 projects:write；本人可填写用时、更新执行状态，只有本人可完成并录入自己的工作报告。
+
+迁移入口：tools/apply_project_arrangement_migration.py。仅显式执行，无启动自动迁移；执行云端结构调整须另行确认。
+
+### translation_arrangement_plan（项目安排执行顺序）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| project_id | uuid PK / FK | 笔译项目；同项目全部安排批次共用执行顺序 |
+| ordered_task_ids | json | 按执行先后保存任务 UUID 字符串，新安排追加末尾 |
+| revision | integer | 方案并发版本，排序必须匹配所见版本 |
+| updated_by | uuid nullable | 最近修改人 |
+| updated_at | timestamptz | 最近修改时刻，接口按 +08:00 输出 |
+
+### translation_arrangement_history（不可覆盖的安排快照）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | uuid PK | 历史记录 ID |
+| project_id | uuid FK | 笔译项目 |
+| revision | integer | 与 project_id 组成唯一约束的历史版本 |
+| operation | varchar(30) | assign 新增安排、edit 修改内容/状态/用时、reorder 调整顺序、complete 完成并入报告、baseline 已有安排首次快照 |
+| actor_id / actor_name | uuid / varchar(255) | 操作人及姓名快照 |
+| before_snapshot / after_snapshot | json | 前后项目状态、有序任务明细、安排人、日期、内容、状态和用时 |
+| created_at | timestamptz | 操作时刻，接口按 +08:00 输出 |
+
+索引：project_id + created_at。历史通过新增快照保存，不提供编辑或删除历史接口。第一次修改旧安排时补录 baseline，不伪造此前无法追溯的操作。
+
+安排、修改、完成与排序先锁定项目；快照和变更在同一事务提交。排序必须提交全部任务 ID，拒绝遗漏、重复、跨项目及过期版本。个人今日任务返回步骤、姓名、状态和 ID 组成的顺序，不随序列返回其他人的任务内容。
+
+项目状态新增 arranged（已安排），沿用现有字符字段，无须变更旧表。保存新安排时仅将前期状态改为已安排，不覆盖暂停、取消、交付等后续状态。历史安排不做批量状态改写。
+
+迁移：tools/apply_arrangement_history_migration.py，仅创建上述两张新表，不修改原表或已有业务记录；按用户 2026-10-25 长期授权，执行前后醒目提示。
+
+
+### translation_arrangement_instruction（项目安排共同说明，2026-10-25）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| project_id | uuid PK/FK | translation_project.id，项目删除时级联删除 |
+| content | text | 本项目所有被安排人员可见的共同说明；最多 10000 字 |
+| revision | integer | 共同说明独立乐观锁版本 |
+| updated_by | uuid | 最近编辑人 |
+| updated_at | timestamptz | UTC+8 编辑时间 |
+
+说明与每个人的具体任务分别保存。批量安排可在同一事务中保存说明和个人任务；说明版本冲突则全部不提交。修改共同说明须有 projects:write，使用与任务编辑一致的项目锁顺序，并记录安排历史的 before/after 快照。今日任务及有权查看任务的人可查看共同说明；完成任务加入工作报告时，仍以个人任务内容作为“具体任务”，不以共同说明代替。历史快照只在项目级保存说明，避免在每个任务中重复存储。旧任务无说明时返回空文字，无历史内容回填。
+
+迁移：tools/apply_arrangement_instruction_migration.py，仅新建说明表，不修改已有任务表结构或业务记录；执行前后按长期授权醒目提示目标与结果。

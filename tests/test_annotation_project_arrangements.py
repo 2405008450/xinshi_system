@@ -218,6 +218,7 @@ def test_only_progress_history_can_be_edited(monkeypatch):
         update_progress_history(ProgressDb(row), row.id, payload, uuid4())
 
     row.entry_kind = "progress"
+    monkeypatch.setattr(annotation_ops_service, 'record_project_operation', lambda *args, **kwargs: None)
     monkeypatch.setattr(annotation_ops_service, "list_status_history", lambda _db, value: [value])
     db = ProgressDb(row)
     result = update_progress_history(db, row.id, payload, uuid4())

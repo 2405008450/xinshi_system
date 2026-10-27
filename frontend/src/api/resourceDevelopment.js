@@ -13,6 +13,7 @@ export const developmentApi = {
   saveChannelDescription: (id, data) => api.put(`${base}/channels/${id}/description`, data),
   saveOption: (data, id) => id ? api.put(`${base}/options/${id}`, data) : api.post(`${base}/options`, data),
   addLanguage: data => api.post(`${base}/languages`, data),
+  addCustomField: data => api.post(`${base}/custom-fields`, data),
   days: (params, signal) => api.get(`${base}/days`, { params, signal }),
   records: (params, signal) => api.get(`${base}/records`, { params, signal }),
   detail: (id, signal) => api.get(`${base}/records/${id}`, { signal }),

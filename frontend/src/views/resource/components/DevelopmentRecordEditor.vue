@@ -5,7 +5,7 @@
       <AppForm ref="formRef" :model="form" :rules="rules" label-position="top">
         <template v-if="!quickMode">
         <h3>本批次录入信息</h3>
-        <p class="muted">当天再次新增时沿用上次保存的日期、开拓人员、平台和账号。业绩与日报归属开拓人员，实际录入人由系统自动记录。</p>
+        <p class="muted">每次新增默认当天日期；连续录入时沿用本批次日期、开拓人员、平台和账号。业绩与日报归属开拓人员，实际录入人由系统自动记录。</p>
         <div class="development-form-grid">
           <el-form-item label="开拓平台" prop="platform_id"><el-select v-model="form.platform_id" filterable><el-option-group v-for="group in categoryOptions" :key="group.value" :label="group.label"><el-option v-for="p in platforms.filter(p => p.category === group.value)" :key="p.id" :label="p.name" :value="p.id" /></el-option-group></el-select></el-form-item>
           <el-form-item label="日期" prop="work_date"><el-date-picker v-model="form.work_date" value-format="YYYY-MM-DD" :clearable="false" /></el-form-item>
@@ -42,10 +42,19 @@
               </template>
             </div>
           </el-form-item>
-          <el-form-item label="资源语种/方言" class="wide"><el-select v-model="form.language_ids" multiple filterable><el-option v-for="l in options.languages" :key="l.id" :label="`${l.label}${l.language_type === 'dialect' ? '（方言）' : ''}`" :value="l.id" /></el-select></el-form-item>
-          <el-form-item label="资源手机" prop="phone" class="wide"><el-input v-model="form.phone" maxlength="100" /></el-form-item>
+          <el-form-item label="资源语种/方言" class="wide">
+            <div class="development-language-field">
+              <el-select v-model="form.language_ids" multiple filterable><el-option v-for="l in languageOptions" :key="l.id" :label="`${l.label}${l.language_type === 'dialect' ? '（方言）' : ''}`" :value="l.id" /></el-select>
+              <el-button v-if="options.can_write" @click="languageDialogRef.open()">增加语言/方言</el-button>
+            </div>
+          </el-form-item>
+          <el-form-item label="资源手机" prop="phone"><el-input v-model="form.phone" maxlength="100" /></el-form-item>
+          <el-form-item label="资源 WhatsApp 号" prop="whatsapp"><el-input v-model="form.whatsapp" maxlength="100" /></el-form-item>
           <el-form-item label="资源微信号" prop="wechat"><el-input v-model="form.wechat" maxlength="100" /></el-form-item>
           <el-form-item label="资源小红书号" prop="xiaohongshu"><el-input v-model="form.xiaohongshu" maxlength="100" /></el-form-item>
+          <div class="wide"><DevelopmentResourceAccounts v-model="form.custom_accounts" /></div>
+          <el-form-item v-for="field in customFieldOptions" :key="field.id" :label="field.name" :prop="['custom_fields',field.id]"><el-input v-model="form.custom_fields[field.id]" maxlength="20000" /></el-form-item>
+          <div class="wide"><el-button v-if="options.can_write" @click="customFieldDialogRef.open()">增加自定义字段</el-button></div>
         </div>
         </template>
         <h3>跟进进展</h3>
@@ -93,6 +102,8 @@
     </div>
     <template #footer><span class="muted">Ctrl / ⌘ + Enter：{{ form.revision ? '保存' : '保存并继续新增' }}</span><el-button :disabled="saving" @click="visible = false">取消</el-button><el-button v-if="!form.revision" type="primary" :loading="saving" @click="save(true)">保存并继续新增</el-button><el-button :type="form.revision ? 'primary' : 'default'" :loading="saving" @click="save(false)">保存</el-button></template>
   </DraggableFormDialog>
+  <DevelopmentLanguageDialog ref="languageDialogRef" @created="languageCreated" />
+  <DevelopmentCustomFieldDialog ref="customFieldDialogRef" @created="customFieldCreated" />
 </template>
 
 <script setup>
@@ -102,11 +113,28 @@ import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import CompanyWechatAccountSelect from '@/components/common/CompanyWechatAccountSelect.vue'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import DevelopmentFollowUpHistory from './DevelopmentFollowUpHistory.vue'
+import DevelopmentLanguageDialog from './DevelopmentLanguageDialog.vue'
+import DevelopmentResourceAccounts from './DevelopmentResourceAccounts.vue'
+import DevelopmentCustomFieldDialog from './DevelopmentCustomFieldDialog.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { developmentApi as api } from '@/api/resourceDevelopment'
-import { categoryOptions, progressChannels, progressStatuses, defaultProgressStatus, hasNewPrivateEntry, continueDevelopmentValues, restoreDevelopmentBatch, newDevelopmentId, dateText, previousWorkday, isGroupChannel, developmentDateRange } from '@/utils/resourceDevelopment'
+import { categoryOptions, progressChannels, progressStatuses, defaultProgressStatus, hasNewPrivateEntry, continueDevelopmentValues, restoreDevelopmentBatch, newDevelopmentId, dateText, isGroupChannel, developmentDateRange } from '@/utils/resourceDevelopment'
 const props = defineProps({ options: { type: Object, required: true } })
-const emit = defineEmits(['saved'])
+const emit = defineEmits(['saved', 'language-created', 'custom-field-created'])
+const customFieldDialogRef = ref(null)
+const customFieldOptions = computed(() => props.options.options.filter(item => item.kind === 'custom_field'))
+async function customFieldCreated(field) { emit('custom-field-created', field); await nextTick(); await locateDialogFieldByLabel(field.name) }
+const languageDialogRef = ref(null), addedLanguages = ref([])
+const languageOptions = computed(() => {
+  const languages = new Map((props.options.languages || []).map(language => [language.id, language]))
+  for (const language of addedLanguages.value) languages.set(language.id, language)
+  return [...languages.values()]
+})
+function languageCreated(language) {
+  addedLanguages.value = [...addedLanguages.value.filter(item => item.id !== language.id), language]
+  if (!form.language_ids.includes(language.id)) form.language_ids.push(language.id)
+  emit('language-created', language)
+}
 const visible = ref(false), saving = ref(false), checking = ref(false), formRef = ref(null), bodyRef = ref(null)
 const quickMode = ref(false), followUpMode = ref(false), followUpHistory = ref([]), versionConflict = ref(false)
 const batchKey = () => `resource-development:entry-batch:${props.options.user_id}`
@@ -120,7 +148,7 @@ function saveShortcut(event) {
 const historicalOnly = ref(false), originalActions = ref([])
 const greetingNo = ref(''), personId = ref(null), resourceCode = ref(''), savedActionIds = ref([]), nameCandidates = ref([])
 const { fieldSearchRef, fieldSearchKeyword, fetchFieldSuggestions, locateDialogField, locateDialogFieldByLabel, clearFieldSearch } = useDialogFieldSearch(bodyRef)
-const empty = () => ({ id: newDevelopmentId(), revision: 0, platform_id: '', work_date: props.options.default_date || previousWorkday(), owner_id: props.options.user_id, full_name: '', account_id: null, friend_accounts: [], phone: '', wechat: '', xiaohongshu: '', language_ids: [], follow_up: '', follow_ups: [], remarks: '', actions: [], capabilities: [], link_person_id: null, duplicate_note: '' })
+const empty = () => ({ id: newDevelopmentId(), revision: 0, platform_id: '', work_date: dateText(new Date()), owner_id: props.options.user_id, full_name: '', account_id: null, friend_accounts: [], phone: '', wechat: '', xiaohongshu: '', whatsapp: '', custom_accounts: [], custom_fields: {}, language_ids: [], follow_up: '', follow_ups: [], remarks: '', actions: [], capabilities: [], link_person_id: null, duplicate_note: '' })
 const form = reactive(empty())
 const recordCandidates = ref([]), recordTotal = ref(0), recordPage = ref(1), recordChecking = ref(false), recordCheckFailed = ref(false), recordPopover = ref(false)
 let recordTimer, recordController, recordSequence = 0, recordQueryKey = ''
@@ -189,7 +217,7 @@ async function reloadWithDrafts() {
 async function open(row, channel, status) {
   const data = row ? await api.detail(row.id) : null
   Object.assign(form, empty()); nameCandidates.value = []; clearFieldSearch(); checkSequence++
-  if (!data) Object.assign(form, readBatch())
+  if (!data) Object.assign(form, readBatch(), { work_date: dateText(new Date()) })
   if (data) for (const key of Object.keys(form)) if (key !== 'follow_ups' && key in data) form[key] = data[key]
   followUpHistory.value = data?.follow_ups || []; versionConflict.value = false
   historicalOnly.value = Boolean(data?.historical_only)
@@ -239,6 +267,9 @@ defineExpose({ open })
 </script>
 
 <style>
+.development-language-field{display:flex;align-items:flex-start;gap:8px;width:100%;flex-wrap:wrap}
+.development-language-field>.el-select{flex:1 1 240px;min-width:0}
+.development-language-field>.el-button{flex:none}
 .record-name-check{width:100%;font-size:12px;line-height:1.6;margin-top:4px;overflow-wrap:anywhere}
 .record-name-check .el-button{margin-left:8px}.record-name-warning{color:var(--el-color-warning-dark-2)}
 .record-name-duplicates-popover{max-width:calc(100vw - 32px);box-sizing:border-box}

@@ -5,7 +5,7 @@
         <span>招聘项目管理</span>
         <div class="header-actions">
           <ProjectExportMenu v-if="!deleteMode" module="recruitment" :build-filters="buildFilters" />
-          <TableColumnSettings v-model="visibleColumnKeys" :columns="tableColumns" :column-count="2" @reset="resetColumns" />
+          <TableColumnSettings settings-key="recruitment-projects" v-model="visibleColumnKeys" :columns="tableColumns" :column-count="2" @reset="resetColumns" />
           <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
           <el-button v-if="canWrite && !deleteMode" type="primary" @click="openAdd">新增招聘项目</el-button>
         </div>
@@ -26,6 +26,7 @@
     </AppForm>
 
     <el-table ref="projectTableRef" :data="rows" v-loading="loading" :row-class-name="projectRowClass" border row-key="id" class="recruitment-list-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
+<OrderedTableColumns settings-key="recruitment-projects">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center"><template #default="{ $index }">{{ (pagination.page - 1) * pagination.limit + $index + 1 }}</template></el-table-column>
       <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :label="column.label" :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="column.key !== 'projectName' && column.tooltip !== false">
@@ -108,7 +109,8 @@
         </template>
       </el-table-column>
       <el-table-column v-if="!deleteMode" label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center"><template #default="{ row }"><ProjectListRowActions v-if="canWrite" :start-request-label="resourceRequestActionLabel(row.id)" @edit="openEdit(row)" @start-request="startResourceRequest(row)" /></template></el-table-column>
-    </el-table>
+    </OrderedTableColumns>
+</el-table>
     <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" class="pagination" @current-change="fetchData" @size-change="handleSizeChange" />
 
     <DraggableFormDialog v-model="editorVisible" width="min(1000px, calc(100vw - 32px))" top="5vh" class="recruitment-editor" @closed="onEditorClosed">
@@ -358,6 +360,7 @@
 </template>
 
 <script setup>
+import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { recruitmentProjectDetailItems, formatDate, formatDateTime, headcountText, languageText, fullPeriodText, periodText, feeText } from '@/utils/recruitmentProjectDetail'
 import ProjectExportMenu from '@/components/common/ProjectExportMenu.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'

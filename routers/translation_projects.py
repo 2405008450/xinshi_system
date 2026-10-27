@@ -54,7 +54,7 @@ TRANSLATION_TEXT_FIELDS = {
 }
 
 TRANSLATION_FILTER_FIELDS = {
-    "managed_user_id",
+    "managed_user_id", "excluded_project_status",
     "order_no", "project_name", "source_file_name", "service_content", "task_type", "client_name", "client_short_name",
     "client_code", "sub_client_name", "sub_client_short_name", "sub_client_code", "customer_order_no", "project_manager_id", "client_manager",
     "manager_contact", "project_status", "file_type_secondary", "project_contract_type",
@@ -79,7 +79,7 @@ def _field_filters(raw: Optional[str]):
     value = parse_field_filters(raw)
     ensure_filter_fields(value, TRANSLATION_FILTER_FIELDS)
     ranges = {"word_count", "customer_reception_time", "customer_deadline_time", "translator_return_time", "sent_to_client_time", "translator_assignment_time", "created_at", "updated_at", "translator_delivery_progress", "pre_review_qc_progress", "review1_progress", "review2_progress", "post_review_qc_progress", "layout_progress", "consolidation_progress"}
-    enums = {"managed_user_id", "service_content", "task_type", "project_manager_id", "project_status", "priority", "translator_id", "pm_confirmed_by", "word_count_dimension", "word_count_metric_type", "project_specialist_id", "project_assistant_id", "layout_specialist_id"}
+    enums = {"excluded_project_status", "managed_user_id", "service_content", "task_type", "project_manager_id", "project_status", "priority", "translator_id", "pm_confirmed_by", "word_count_dimension", "word_count_metric_type", "project_specialist_id", "project_assistant_id", "layout_specialist_id"}
     booleans = {"quotation_required"}
     ensure_filter_operators(value, {field: ({"between"} if field in ranges else {"in"} if field in enums else {"eq"} if field in booleans else {"contains"}) for field in TRANSLATION_FILTER_FIELDS})
     return value
@@ -239,7 +239,7 @@ def read_project_page(
     created_date_end: Optional[date] = None,
     sort: Optional[Literal[
         "order_no_desc", "unfinished_first_order_no_desc",
-        "customer_deadline_time_asc", "translator_return_time_asc",
+        "customer_deadline_time_asc", "translator_return_time_asc", "customer_deadline_time_desc", "translator_return_time_desc", "assigned_translator_name_asc", "assigned_translator_name_desc",
     ]] = None,
     field_filters: Optional[str] = Query(None),
     db: Session = Depends(get_db),
@@ -286,7 +286,7 @@ def read_projects(
         "order_no_desc",
         "unfinished_first_order_no_desc",
         "customer_deadline_time_asc",
-        "translator_return_time_asc",
+        "translator_return_time_asc", "customer_deadline_time_desc", "translator_return_time_desc", "assigned_translator_name_asc", "assigned_translator_name_desc",
     ]] = None,
     field_filters: Optional[str] = Query(None),
     db: Session = Depends(get_db)
@@ -329,7 +329,7 @@ def export_projects(
         "order_no_desc",
         "unfinished_first_order_no_desc",
         "customer_deadline_time_asc",
-        "translator_return_time_asc",
+        "translator_return_time_asc", "customer_deadline_time_desc", "translator_return_time_desc", "assigned_translator_name_asc", "assigned_translator_name_desc",
     ]] = None,
     field_filters: Optional[str] = Query(None),
     db: Session = Depends(get_db),
@@ -382,7 +382,7 @@ def export_reconciliation(
         "order_no_desc",
         "unfinished_first_order_no_desc",
         "customer_deadline_time_asc",
-        "translator_return_time_asc",
+        "translator_return_time_asc", "customer_deadline_time_desc", "translator_return_time_desc", "assigned_translator_name_asc", "assigned_translator_name_desc",
     ]] = None,
     field_filters: Optional[str] = Query(None),
     db: Session = Depends(get_db),
@@ -453,7 +453,7 @@ def export_translator_reconciliation(
         "order_no_desc",
         "unfinished_first_order_no_desc",
         "customer_deadline_time_asc",
-        "translator_return_time_asc",
+        "translator_return_time_asc", "customer_deadline_time_desc", "translator_return_time_desc", "assigned_translator_name_asc", "assigned_translator_name_desc",
     ]] = None,
     field_filters: Optional[str] = Query(None),
     db: Session = Depends(get_db),

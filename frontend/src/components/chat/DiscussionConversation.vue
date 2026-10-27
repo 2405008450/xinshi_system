@@ -12,7 +12,7 @@
           <div class="discussion-chat__meta"><strong v-if="!message.recalledAt">{{ message.senderName }}</strong><time v-if="showMessageTime && timestampIndexes.has(index)" :title="chatMessageTime(message.createdAt)">{{ chatMessageTime(message.createdAt) }}</time></div>
           <p v-if="message.recalledAt" class="discussion-chat__recalled">{{ message.senderName }}撤回了一条消息</p>
           <template v-else>
-            <div class="discussion-chat__bubble"><blockquote v-if="message.reply" role="button" tabindex="0" @click="references.open(message.reply.id,$event)" @keydown.enter="references.open(message.reply.id,$event)">{{ message.reply.senderName }}：{{ screenshotPreview(message.reply.content) }}</blockquote><p @click="openMessageReferences(message,$event)"><ScreenshotText :text="message.content" :chat-message-id="message.id" chat-kind="discussion" /></p></div>
+            <div class="discussion-chat__bubble"><blockquote v-if="message.reply" role="button" tabindex="0" @click="references.open(message.reply.id,$event)" @keydown.enter="references.open(message.reply.id,$event)">{{ message.reply.senderName }}：{{ screenshotPreview(message.reply.content) }}</blockquote><p @click="openMessageReferences(message,$event)"><span v-for="(part,partIndex) in mentionParts(message,currentUserId)" :key="partIndex" :class="{'discussion-mention-highlight':part.highlight}"><ScreenshotText :text="part.text" :chat-message-id="message.id" chat-kind="discussion" /></span></p></div>
             <div class="discussion-chat__message-actions"><el-button link size="small" @click="replyTo = message; input?.focus()">引用</el-button><el-button v-if="message.canRecall" link size="small" @click="recall(message)">撤回</el-button></div>
             <ChatMessageActions :message="message" :current-user-id="currentUserId" :stats="messageInteractions.stats[message.id]" :views-available="messageInteractions.viewsAvailable.value" :acknowledge-enabled="false" @reply="replyTo=$event;nextTick(()=>input?.focus())" @references="(id,event)=>references.open(id,event)" />
           </template>
@@ -22,7 +22,8 @@
     <el-button v-if="pendingNew" class="discussion-chat__new" @click="goBottom()">有新消息，点击查看</el-button>
     <div class="discussion-chat__composer">
       <div v-if="replyTo" class="discussion-chat__reply">回复 {{ replyTo.senderName }}：{{ screenshotPreview(replyTo.content) }}<el-button link :disabled="sending" @click="replyTo = null">取消引用</el-button></div>
-      <el-input ref="input" v-model="content" @uploading-change="screenshotUploading=$event" type="textarea" :rows="3" resize="none" maxlength="10000" placeholder="输入讨论消息" :disabled="!storageReady || sending || !!retryPayload" @keydown="keydown" />
+      <DiscussionMentionInput ref="input" v-model="content" :users="mentionUsers" :selected-users="mentionSelection.selectedUsers||[]" :disabled="!storageReady || sending || !!retryPayload" @selection="mentionSelection=$event" @uploading-change="screenshotUploading=$event" @send="send" />
+      <small v-if="draft.error.value" role="alert">{{draft.error.value}}</small><small v-else-if="draft.saved.value">草稿已自动保存到本机</small>
       <div class="discussion-chat__footer"><span>Enter 发送 · Shift+Enter 换行</span><el-button v-if="retryPayload" :disabled="sending" @click="retryPayload = null; sendError = ''">继续编辑</el-button><el-button type="primary" :disabled="!storageReady || !canSend" :loading="sending" @click="send">{{ retryPayload ? '重试发送' : '发送' }}</el-button></div>
       <p v-if="sendError" class="discussion-chat__error" role="alert">{{ sendError }}</p>
     </div>
@@ -30,6 +31,9 @@
   </section>
 </template>
 <script setup>
+import {useChatDraft} from '@/composables/useChatDraft'
+import DiscussionMentionInput from './DiscussionMentionInput.vue'
+import {mentionParts} from '@/utils/chatMentions'
 import { screenshotPreview } from '@/utils/screenshotReferences'
 import ChatMessageActions from './ChatMessageActions.vue'
 import ScreenshotText from '@/components/common/ScreenshotText.vue'
@@ -53,6 +57,8 @@ const loading = ref(false), loadingEarlier = ref(false), hasEarlier = ref(false)
 const error = ref(''), sendError = ref(''), sending = ref(false), retryPayload = ref(null), pendingNew = ref(false)
 const searchOpen = ref(false), keyword = ref('')
 const screenshotUploading=ref(false)
+const mentionUsers=ref([]),mentionSelection=ref({mentionedUserIds:[],mentionAll:false})
+async function loadMentionUsers(){try{const group=await chatRequest(`${base}/group`);mentionUsers.value=[...(group.eligibleUsers||[]),...(group.invitableUsers||[]).map(person=>({...person,outside:true}))]}catch{mentionUsers.value=[]}}
 const canSend = computed(() => !screenshotUploading.value && !sending.value && (!!retryPayload.value || !!content.value.trim()))
 const base = `discussions/${props.projectId}`
 let disposed = false, reading = false, requestVersion = 0, controller, pollTimer, searchTimer, readVersion = '0'
@@ -104,7 +110,7 @@ function newClientId() {
 }
 async function send() {
   if (!storageReady.value || !canSend.value) return
-  const payload = retryPayload.value || { content: content.value.trim(), clientMessageId: newClientId(), replyToId: replyTo.value?.id || null }
+  const payload = retryPayload.value || { content: content.value.trim(), clientMessageId: newClientId(), ...mentionSelection.value, replyToId: replyTo.value?.id || null }
   sending.value = true; sendError.value = ''
   try {
     const row = await chatRequest(`${base}/messages`, { method: 'post', data: payload })
@@ -120,12 +126,13 @@ async function recall(message) {
   catch (e) { if (!disposed) error.value = e.message }
 }
 watch(keyword, value => { clearTimeout(searchTimer); controller?.abort(); ++requestVersion; searchTimer = setTimeout(() => refresh(true), value ? 400 : 0) })
-watch(() => props.active, active => { clearInterval(pollTimer); if (active) { refresh(!messages.value.length); pollTimer = setInterval(() => refresh(), 5000) } else { controller?.abort(); ++requestVersion; loading.value = false } }, { immediate: true })
-const unsubscribe = subscribe('chat_sessions_changed', () => { if (props.active && !sending.value) refresh() })
+watch(() => props.active, active => { clearInterval(pollTimer); if (active) { loadMentionUsers();refresh(!messages.value.length); pollTimer = setInterval(() => refresh(), 5000) } else { controller?.abort(); ++requestVersion; loading.value = false } }, { immediate: true })
+const unsubscribe = subscribe('chat_sessions_changed', () => { if (props.active && !sending.value) {refresh();loadMentionUsers()} })
 let locatedTarget = ''
 watch(() => [props.active, props.targetMessageId, loading.value, storageReady.value], ([active, id, busy, ready]) => {
   if (active && id && !busy && ready && locatedTarget !== id) { locatedTarget = id; locate(id) }
 }, { flush: 'post' })
+const draft=useChatDraft(computed(()=>['discussion',props.projectId]),()=>({content:content.value,mentionSelection:mentionSelection.value,replyTo:replyTo.value,retryPayload:retryPayload.value}),data=>{content.value=data.content;mentionSelection.value=data.mentionSelection||{mentionedUserIds:[],mentionAll:false};replyTo.value=data.replyTo||null;retryPayload.value=data.retryPayload||null})
 onBeforeUnmount(() => { disposed = true; controller?.abort(); clearInterval(pollTimer); clearTimeout(searchTimer); unsubscribe() })
 async function locate(id) {
   try {
@@ -140,6 +147,6 @@ async function locate(id) {
 defineExpose({ openSearch: () => { searchOpen.value = true }, locate })
 </script>
 <style scoped>
-.discussion-chat__meta{flex-wrap:wrap}.discussion-chat__meta time{overflow-wrap:anywhere}
+.discussion-mention-highlight{background:#fef3c7;color:#92400e;border-radius:3px}.discussion-chat__meta{flex-wrap:wrap}.discussion-chat__meta time{overflow-wrap:anywhere}
 .discussion-chat{display:flex;flex-direction:column;height:100%;min-height:0;background:#f6f8fb;color:#334155;font-size:13px}.discussion-chat__search{display:flex;gap:8px;padding:10px;background:white}.discussion-chat__timeline{flex:1;min-height:0;overflow-y:auto;padding:16px;overflow-anchor:none}.discussion-chat__date{text-align:center;color:#94a3b8;font-size:11px;margin:12px 0}.discussion-chat__message{margin:12px 0}.discussion-chat__meta{display:flex;align-items:center;gap:8px;margin-bottom:5px;color:#64748b;font-size:11px}.discussion-chat__meta strong{font-weight:500}.discussion-chat__bubble{width:fit-content;max-width:85%;padding:10px 13px;border:1px solid #e2e8f0;border-radius:12px;background:white;overflow-wrap:anywhere}.discussion-chat__bubble p{white-space:pre-wrap;line-height:1.7;margin:0;user-select:text}.discussion-chat__bubble blockquote{margin:0 0 7px;padding:5px 8px;border-left:2px solid #94a3b8;background:#f1f5f9;color:#64748b;white-space:pre-wrap;font-size:11px}.discussion-chat__message.is-own .discussion-chat__meta,.discussion-chat__message.is-own .discussion-chat__message-actions{justify-content:flex-end}.discussion-chat__message.is-own .discussion-chat__bubble{margin-left:auto;background:#e9f0fb;border-color:#d4e0f3}.discussion-chat__message-actions{display:flex;gap:8px;opacity:0}.discussion-chat__message:hover .discussion-chat__message-actions,.discussion-chat__message:focus-within .discussion-chat__message-actions{opacity:1}.discussion-chat__message-actions .el-button{font-size:10px;color:#94a3b8}.discussion-chat__recalled,.discussion-chat__hint{text-align:center;color:#94a3b8;font-size:12px}.discussion-chat__composer{flex:none;margin:10px 14px 14px;padding:10px;border:1px solid #dfe5ee;border-radius:12px;background:white}.discussion-chat__composer :deep(.el-textarea__inner){box-shadow:none;background:#fff}.discussion-chat__footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:8px}.discussion-chat__footer>span{margin-right:auto;font-size:11px;color:#94a3b8}.discussion-chat__reply{display:flex;align-items:center;justify-content:space-between;max-height:65px;overflow:auto;padding:5px 8px;background:#f1f5f9;font-size:12px;overflow-wrap:anywhere}.discussion-chat__error{color:#b91c1c;font-size:12px;margin:5px 0}.discussion-chat__new{align-self:center}@media(max-width:600px){.discussion-chat__footer>span{display:none}.discussion-chat__bubble{max-width:94%}}
 </style>

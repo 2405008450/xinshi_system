@@ -145,9 +145,12 @@ def test_mention_normalization_deduplicates_and_excludes_sender():
 
 @pytest.mark.parametrize("image_only", [False, True])
 def test_annotation_chat_saves_plain_text_and_only_notifies_mentioned_user(monkeypatch, image_only):
+    # 本用例隔离格式化/通知；真实成员权限由参与人矩阵和 @所有人集成用例覆盖。
+    monkeypatch.setattr('chat_access_service.invite_mentioned_users',lambda *args,**kwargs:None)
     project_id = uuid4()
     sender = SimpleNamespace(id=uuid4(), full_name="发送人", username="sender")
     mentioned = SimpleNamespace(id=uuid4(), full_name="被提醒人", username="mentioned")
+    monkeypatch.setattr('chat_access_service.member_ids',lambda *args:{mentioned.id})
     project = SimpleNamespace(id=project_id, order_no="AP-260908-001", project_name="语音标注")
     saved = {}
     attachment = SimpleNamespace(id=uuid4(), original_name="截图.png", content_type="image/png", file_size=12, created_at=None)

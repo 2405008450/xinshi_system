@@ -77,8 +77,9 @@ def send_message(db, project_id, user, payload):
     other_id = conversation.user_high_id if user.id == conversation.user_low_id else conversation.user_low_id
     if not db.get(AppUser, other_id).is_active:
         raise HTTPException(400, '对方账号已停用')
-    if payload.mentioned_user_ids or payload.mentioned_user_id:
-        raise HTTPException(400, '私聊不支持提及')
+    from chat_mention_recipients import resolve_mentions
+    mentioned_ids = resolve_mentions(db, 'direct', project_id, user,
+        [*(payload.mentioned_user_ids or []), *([payload.mentioned_user_id] if payload.mentioned_user_id else [])], getattr(payload,'mention_all',False))
     if payload.client_message_id:
         existing = message_query(db, project_id).filter_by(sender_user_id=user.id, client_message_id=payload.client_message_id).first()
         if existing:
@@ -97,16 +98,25 @@ def send_message(db, project_id, user, payload):
     message = ChatProjectMessage(direct_conversation_id=project_id, sender_user_id=user.id,
         sender_name=user.full_name or user.username, content=payload.content.strip(), message_type='user',
         created_at=stamp.replace(tzinfo=None), updated_at=stamp.replace(tzinfo=None),
-        client_message_id=payload.client_message_id, reply_to_message_id=payload.reply_to_message_id, event_data={})
+        client_message_id=payload.client_message_id, reply_to_message_id=payload.reply_to_message_id, event_data={'mention_all':True} if getattr(payload,'mention_all',False) else {})
     db.add(message); db.flush()
     if payload.topic_id:
         from chat_topic_service import set_message_topic
         set_message_topic(db, user, message, payload.topic_id)
     db.add_all(ChatProjectMessageAttachment(message_id=message.id, attachment_id=a.id) for a in attachments)
+    from project_chat_crud import _create_chat_mentions, _push_notifications
+    from crud import create_notifications_for_users
+    from chat_notification_target import link_notifications
+    mentioned = _create_chat_mentions(db,message,user,mentioned_user_ids=mentioned_ids)
+    notifications = create_notifications_for_users(db,[person.id for person in mentioned],title='私聊提及提醒',
+        content=f'{message.sender_name} 在私聊中 @了你',notification_type='direct_chat_mention',
+        related_project_type='direct',related_entity_id=project_id,commit=False) if mentioned else []
+    link_notifications(db,notifications,message.id)
     conversation.last_message_at = stamp
     for member in db.query(ChatDirectMember).filter_by(conversation_id=project_id):
         member.hidden_at = None
     db.commit()
+    _push_notifications(notifications)
     publish(db, project_id, 'message', message.id)
     return message_query(db, project_id).filter_by(id=message.id).one()
 

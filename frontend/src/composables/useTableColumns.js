@@ -5,7 +5,7 @@ export function useTableColumns(moduleKey, columns, defaultKeys, options = {}) {
   const validKeys = computed(() => new Set(resolvedColumns.value.map((column) => column.key)))
   const normalizeKeys = (keys) => {
     const aliases = unref(options.keyAliases) || {}
-    const mapped = keys.map((key) => Object.hasOwn(aliases, key) ? aliases[key] : key)
+    const mapped = keys.flatMap((key) => Object.hasOwn(aliases, key) ? aliases[key] : key)
     return [...new Set(mapped)].filter((key) => validKeys.value.has(key))
   }
   const normalizedDefaults = computed(() => normalizeKeys(unref(defaultKeys) || []))

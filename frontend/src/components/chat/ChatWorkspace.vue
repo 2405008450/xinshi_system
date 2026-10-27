@@ -114,6 +114,7 @@
 <script setup>
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { screenshotPreview } from '@/utils/screenshotReferences'
+import {activeConversationFolder} from '@/utils/chatActiveFolder'
 import { matchesSearch } from '@/utils/searchMatching'
 import ChatOrderIdentity from './ChatOrderIdentity.vue'
 import { chatRequest } from '@/api/projectChat'
@@ -358,6 +359,21 @@ const visibleSessions = computed(() => groupSessionList((appliedKeyword.value ? 
   return matchesSearch(`${session.title || ''} ${session.subtitle || ''} ${session.lastMessage?.preview || ''} ${session.lastMessage?.senderName || ''}`, appliedKeyword.value)
 }).sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || sessionStamp(b.lastMessage?.createdAt) - sessionStamp(a.lastMessage?.createdAt)), props.activeKey)
   .sort((a, b) => Number(!!b.mentionUnread) - Number(!!a.mentionUnread) || Number(!!b.pinned) - Number(!!a.pinned) || sessionStamp(b.lastMessage?.createdAt) - sessionStamp(a.lastMessage?.createdAt)))
+function syncActiveConversation(context,external=false){
+ if(!context.projectId)return
+ const session=props.sessions.find(row=>String(row.projectId)===String(context.projectId)&&row.projectType===context.projectType)||{...context,categoryIds:[]}
+ if(!external&&pane.value!=='messages')return
+ if(!external&&showMentions.value)return
+ const target=activeConversationFolder(session,folderNodes.value,selectedFolder.value)
+ if(external){pendingContextFolder='';pane.value='messages';keyword.value='';applyKeyword()}
+ if(context.projectType==='direct'){annotationMode.value='direct';tab.value='direct';selectedFolder.value=''}
+ else{if(annotationMode.value==='direct'||selectedFolder.value&&target!==selectedFolder.value||external&&!showMentions.value){annotationMode.value='group';tab.value='all'}selectedFolder.value=target}
+ nextTick(()=>{folderTreeRef.value?.reveal(target);const element=sessionList.value?.querySelector('.chat-workspace__session.is-active');element?.scrollIntoView({block:'nearest'})})
+}
+function activateFromOutside(event){nextTick(()=>syncActiveConversation(event.detail||{},true))}
+watch(()=>[props.activeKey,props.projectId,props.projectType],()=>{if(props.activeKey)syncActiveConversation({projectId:props.projectId,projectType:props.projectType})},{flush:'post'})
+onMounted(()=>window.addEventListener('chat-conversation-activated',activateFromOutside))
+onBeforeUnmount(()=>window.removeEventListener('chat-conversation-activated',activateFromOutside))
 function showAnnotation() { pane.value = 'messages'; annotationMode.value = 'group'; selectFolder(annotationFolderId) }
 function showSummary(event){pane.value='summary';summaryIssueId.value='';nextTick(()=>{summaryIssueId.value=event.detail?.issueId||''})}
 let pendingContextFolder = ''

@@ -1502,10 +1502,12 @@ class ProjectChatSettingsResponse(BaseModel):
 class ProjectChatMessageCreate(BaseModel):
     topic_id: Optional[UUID] = None
     client_message_id: Optional[UUID] = None
+    reply_to_message_id: Optional[UUID] = None
     content: str = Field(default='', max_length=10000)
     content_json: Optional[dict] = None
     mentioned_user_id: Optional[UUID] = None
     mentioned_user_ids: list[UUID] = Field(default_factory=list, max_length=20)
+    mention_all: bool = False
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=9)
 
 
@@ -1518,6 +1520,7 @@ class AnnotationProjectChatMessageCreate(BaseModel):
     reply_to_message_id: Optional[UUID] = None
     mentioned_user_id: Optional[UUID] = None
     mentioned_user_ids: list[UUID] = Field(default_factory=list, max_length=20)
+    mention_all: bool = False
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=9)
     model_config = ConfigDict(extra='forbid')
 

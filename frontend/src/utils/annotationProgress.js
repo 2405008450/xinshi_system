@@ -14,7 +14,7 @@ export const groupProjectProgressRows = (rows = [], currentStatus = '') => {
     changedAt: row.changedAt,
     changedByName: row.changedByName,
     synthetic: false,
-    children: row.changeNote
+    children: row.changeNote || row.noteDeleted
       ? [{ ...row, key: `status-note:${row.id}`, kind: 'status-note' }]
       : [],
   }))
@@ -45,7 +45,7 @@ export const groupProjectProgressRows = (rows = [], currentStatus = '') => {
         parent.changedAt = row.changedAt
       }
     }
-    if (row.changeNote) {
+    if (row.changeNote || row.isDeleted) {
       parent.children.push({ ...row, key: `progress:${row.id}`, kind: 'progress' })
     }
   })

@@ -5,7 +5,7 @@
         <span>口译项目管理</span>
         <div class="header-actions">
           <ProjectExportMenu v-if="!deleteMode" module="interpretation" :build-filters="buildFilters" />
-          <TableColumnSettings
+          <TableColumnSettings settings-key="interpretation-projects"
             v-model="visibleColumnKeys"
             :columns="tableColumns"
             :column-count="2"
@@ -66,9 +66,10 @@
     </AppForm>
 
     <el-table ref="projectTableRef" :data="tableData" v-loading="loading" row-key="id" :row-class-name="projectRowClass" border class="interpretation-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
+<OrderedTableColumns settings-key="interpretation-projects">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column type="index" label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center" fixed="left" />
-      <el-table-column v-if="isVisible('orderNo')" label="订单号" :width="PROJECT_LIST_COLUMN_WIDTHS.orderNo" fixed="left">
+      <el-table-column column-key="orderNo" v-if="isVisible('orderNo')" label="订单号" :width="PROJECT_LIST_COLUMN_WIDTHS.orderNo" fixed="left">
         <template #header>
           <ConfiguredColumnHeaderFilter :definition="headerFilterDefinition('orderNo')" :model-value="searchForm.orderNo" @update:model-value="searchForm.orderNo = $event" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch">
             <template #label><ClickableColumnHeader label="订单号" hint="点击订单号查看口译项目管理" /></template>
@@ -222,7 +223,8 @@
           />
         </template>
       </el-table-column>
-    </el-table>
+    </OrderedTableColumns>
+</el-table>
 
     <el-pagination
       v-model:current-page="pagination.page"
@@ -584,6 +586,7 @@
 </template>
 
 <script setup>
+import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 const props=defineProps({embedded:Boolean,myProjects:Boolean})
 import { managedProjectFilters } from "@/utils/managedProjectFilters"
 import InterpretationProjectDetailContent from '@/components/project/InterpretationProjectDetailContent.vue'

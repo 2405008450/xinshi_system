@@ -99,6 +99,7 @@ import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import { formatBusinessDateTimeMinute as formatTime } from '@/utils/dateTime'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import { isBusinessNotification } from '@/utils/notificationChannels'
+import { notificationAcknowledgements } from '@/utils/notificationAcknowledgements'
 import {
   getNotifications,
   getUnreadNotificationCount,
@@ -128,6 +129,12 @@ let unsubscribeSnapshot = null
 
 const seenNotificationIds = new Set()
 const readingNotificationIds = new Set()
+const activeNotificationPopups = new Map()
+let unsubscribeAcknowledgements = null
+const closeNotificationPopup = id => {
+  const popup = activeNotificationPopups.get(String(id))
+  activeNotificationPopups.delete(String(id)); popup?.close()
+}
 const MAX_SEEN_NOTIFICATIONS = 200
 const NOTIFICATION_POLL_INTERVAL_MS = 10 * 1000
 
@@ -243,6 +250,8 @@ const navigateToNotification = async (item) => {
 }
 
 const activateNotification = async (item, showError = false) => {
+  notificationAcknowledgements.acknowledge(item.id)
+  closeNotificationPopup(item.id)
   window.focus()
   await markItemRead(item, showError)
   try {
@@ -256,16 +265,20 @@ const activateNotification = async (item, showError = false) => {
 }
 
 const displayIncomingNotification = (notification) => {
-  if (!isBusinessNotification(notification) || notification.is_read) return
+  if (!isBusinessNotification(notification) || notification.is_read || notificationAcknowledgements.has(notification.id)) return
   const displayed = showDesktopNotification(notification, () => activateNotification(notification))
 
   if (displayed) return
-  ElNotification({
+  const id = String(notification.id)
+  const popup = ElNotification({
     title: notification.title,
     message: notification.content,
     position: 'top-right',
     duration: 4000,
+    onClick: () => activateNotification(notification, true),
+    onClose: () => activeNotificationPopups.delete(id),
   })
+  activeNotificationPopups.set(id, popup)
 }
 
 // WebSocket 连接只在当前后端进程内生效。轮询用于补偿局域网与云端后端之间的通知同步。
@@ -367,6 +380,7 @@ const handleDisableDesktopNotifications = () => {
 const handleMarkAllRead = async () => {
   try {
     await markAllNotificationsRead({ channel: 'business' })
+    for (const id of [...activeNotificationPopups.keys(), ...notifications.value.map(item => item.id)]) notificationAcknowledgements.acknowledge(id)
     notifications.value = notifications.value.map((item) => ({ ...item, is_read: true }))
     unreadCount.value = 0
     window.dispatchEvent(new CustomEvent('business-notifications-changed'))
@@ -376,6 +390,7 @@ const handleMarkAllRead = async () => {
 }
 
 onMounted(() => {
+  unsubscribeAcknowledgements = notificationAcknowledgements.subscribe(closeNotificationPopup)
   syncDesktopNotificationState()
   loadNotifications()
   loadUnreadCount()
@@ -388,6 +403,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  unsubscribeAcknowledgements?.()
+  const popups = [...activeNotificationPopups.values()]; activeNotificationPopups.clear(); popups.forEach(popup => popup.close())
   window.removeEventListener('business-notifications-changed', handlePopoverShow)
   unsubscribeSnapshot?.()
   unsubscribeNotification?.()

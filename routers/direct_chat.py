@@ -33,7 +33,7 @@ def group(project_id: UUID, db: Session = Depends(get_db), user: AppUser = Depen
     row = service.require_project(db, project_id, user)
     members = [db.get(AppUser, uid) for uid in (row.user_low_id, row.user_high_id)]
     return {'members': [{'id': u.id, 'name': u.full_name or u.username} for u in members],
-        'eligible_users': [], 'following': True, 'last_read_sequence': db.get(ChatDirectMember, (project_id, user.id)).last_read_sequence}
+        'eligible_users': [{'id':u.id,'name':u.full_name or u.username} for u in members if u.is_active], 'following': True, 'last_read_sequence': db.get(ChatDirectMember, (project_id, user.id)).last_read_sequence}
 
 
 @router.get('/{project_id}/timeline')

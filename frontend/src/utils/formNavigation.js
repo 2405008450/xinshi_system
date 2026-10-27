@@ -112,9 +112,16 @@ export function focusFormTarget(target) {
 
 export function scrollFormTarget(target, preferredRoot, options = DEFAULT_SCROLL_OPTIONS) {
   if (!target) return false
+  let horizontal = target.parentElement
+  while (horizontal) {
+    const style = typeof window !== 'undefined' ? window.getComputedStyle(horizontal) : null
+    if (style && /(auto|scroll)/.test(style.overflowX) && horizontal.scrollWidth > horizontal.clientWidth) break
+    if (horizontal.classList?.contains('el-dialog')) { horizontal = null; break }
+    horizontal = horizontal.parentElement
+  }
   const container = findScrollableFormContainer(target, preferredRoot)
   if (!container?.getBoundingClientRect || !target.getBoundingClientRect || !container.scrollTo) {
-    target.scrollIntoView?.(options)
+    target.scrollIntoView?.(horizontal ? { ...options, inline: 'center' } : options)
     return true
   }
 
@@ -122,7 +129,17 @@ export function scrollFormTarget(target, preferredRoot, options = DEFAULT_SCROLL
   const targetRect = target.getBoundingClientRect()
   const targetTop = container.scrollTop + targetRect.top - containerRect.top
     - Math.max(0, (container.clientHeight - targetRect.height) / 2)
-  container.scrollTo({ top: Math.max(0, targetTop), behavior: options.behavior || 'smooth' })
+  const request = { top: Math.max(0, targetTop), behavior: options.behavior || 'smooth' }
+  // 表格表单可能同时横向滚动；字段搜索与校验定位也要将目标列带入视口。
+  if (horizontal?.scrollTo) {
+    const rect = horizontal.getBoundingClientRect()
+    if (targetRect.left < rect.left || targetRect.right > rect.left + horizontal.clientWidth) {
+      const left = Math.max(0, horizontal.scrollLeft + targetRect.left - rect.left - Math.max(0, (horizontal.clientWidth - targetRect.width) / 2))
+      if (horizontal === container) request.left = left
+      else horizontal.scrollTo({ left, behavior: options.behavior || 'smooth' })
+    }
+  }
+  container.scrollTo(request)
   return true
 }
 

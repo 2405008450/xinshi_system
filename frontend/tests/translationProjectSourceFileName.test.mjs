@@ -33,7 +33,7 @@ test('列表和详情的项目名称仅使用文件名，客户简称去掉母�
   assert.doesNotMatch(filters, /key: 'projectName'|母订单文件名称|母客户简称/)
   assert.match(details, /label: '客户简称', key: 'clientShortName'/)
   assert.match(filters, /key: 'clientShortName', label: '客户简称'/)
-  assert.match(source, /column\.key === 'sourceFileName'[^\n]+:title="row\.sourceFileName \|\| '-'">\{\{ row\.sourceFileName \|\| '-' \}\}/)
+  assert.match(read('src/views/project/translation/components/TranslationProjectFieldCell.vue'), /column\.key === 'sourceFileName'[^\n]+:title="row\.sourceFileName \|\| '-'">\{\{ row\.sourceFileName \|\| '-' \}\}/)
   assert.doesNotMatch(source, /column\.key === 'projectName'/)
 })
 

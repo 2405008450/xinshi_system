@@ -130,7 +130,7 @@
           <div class="table-toolbar">
             <span>{{ selectedDateLabel }} · 共 {{ projectPagination.total }} 个项目</span>
             <div class="table-toolbar-actions">
-              <TableColumnSettings v-model="visibleColumnKeys" :columns="tableColumns" :column-count="2" @reset="resetColumns" />
+              <TableColumnSettings settings-key="annotation-arrangement-overview" v-model="visibleColumnKeys" :columns="tableColumns" :column-count="2" @reset="resetColumns" />
               <el-select v-model="filters.sort" class="sort-select" @change="loadOverview">
                 <el-option label="订单号倒序" value="order_no_desc" />
                 <el-option label="订单号正序" value="order_no_asc" />
@@ -140,6 +140,7 @@
             </div>
           </div>
           <el-table v-loading="overviewLoading" :data="projects" row-key="id" border>
+<OrderedTableColumns settings-key="annotation-arrangement-overview">
             <el-table-column type="expand" width="48">
               <template #default="{ row }">
                 <div class="expanded-tasks">
@@ -182,7 +183,8 @@
                 <span v-if="!canWrite && !(canManageArrangementPool && row.arrangementScopeState === 'included')">-</span>
               </template>
             </el-table-column>
-          </el-table>
+          </OrderedTableColumns>
+</el-table>
           <el-pagination
             v-model:current-page="projectPagination.page"
             v-model:page-size="projectPagination.limit"
@@ -274,6 +276,8 @@
 
 <script setup>
 import {pairedProjectTypes} from "@/utils/annotationPaired"
+
+import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'

@@ -4,7 +4,7 @@
       <div class="card-header">
         <span>新咨询管理</span>
         <div class="header-actions">
-          <TableColumnSettings
+          <TableColumnSettings settings-key="client-consultations"
             v-model="visibleColumnKeys"
             :columns="consultationColumnOptions"
             :column-count="2"
@@ -64,6 +64,7 @@
     </AppForm>
 
     <el-table ref="consultationTableRef" :data="tableData" v-loading="loading" row-key="id" border class="consultation-list-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
+<OrderedTableColumns settings-key="client-consultations">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column type="index" label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center" />
       <el-table-column prop="consultation_code" label="咨询编号" width="160">
@@ -341,7 +342,8 @@
           <PrimaryEditButton @click="handleEdit(row)" />
         </template>
       </el-table-column>
-    </el-table>
+    </OrderedTableColumns>
+</el-table>
 
     <el-pagination
       class="consultations-pagination"
@@ -1275,6 +1277,8 @@
 
 <script setup>
 import {pairedProjectTypes} from "@/utils/annotationPaired"
+
+import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 const props=defineProps({embedded:Boolean,myProjects:Boolean})
 import { managedProjectFilters } from "@/utils/managedProjectFilters"
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'

@@ -1371,7 +1371,7 @@ def delete_annotation_workflow(db: Session, project_id: UUID, assignee_id: UUID)
 def list_status_history(db: Session, project_id: UUID):
     rows = db.query(AnnotationProjectStatusHistory).filter(AnnotationProjectStatusHistory.project_id == project_id).order_by(AnnotationProjectStatusHistory.effective_on.desc(), AnnotationProjectStatusHistory.changed_at.desc()).all()
     users = {row.changed_by: db.get(AppUser, row.changed_by) for row in rows if row.changed_by}
-    return [{
+    records = [{
         "id": row.id, "project_id": row.project_id, "from_status": row.from_status,
         "to_status": row.to_status, "effective_on": row.effective_on, "changed_at": row.changed_at,
         "changed_by": row.changed_by, "changed_by_name": getattr(users.get(row.changed_by), "full_name", None) or getattr(users.get(row.changed_by), "username", None),
@@ -1380,35 +1380,56 @@ def list_status_history(db: Session, project_id: UUID):
         "updated_at": getattr(row, "updated_at", None) or row.changed_at,
         "updated_by": getattr(row, "updated_by", None),
     } for row in rows]
+    from annotation_progress_record_audit import include_deleted_records
+    return include_deleted_records(db, project_id, records)
+
+
+def _locked_progress_record(db, history_id):
+    if isinstance(db, Session):
+        return db.query(AnnotationProjectStatusHistory).filter_by(id=history_id).with_for_update().populate_existing().first()
+    return db.get(AnnotationProjectStatusHistory, history_id)
 
 
 def update_progress_history(db: Session, history_id: UUID, payload, user_id: UUID):
-    row = db.get(AnnotationProjectStatusHistory, history_id)
+    row = _locked_progress_record(db, history_id)
     if not row:
         return None
     entry_kind = getattr(row, "entry_kind", None) or (
         "progress" if row.from_status == row.to_status else "status"
     )
-    if entry_kind != "progress":
+    is_note = getattr(payload, 'record_part', 'progress') == 'status_note'
+    if entry_kind != "progress" and not is_note:
         raise ValueError("状态流转记录不可在项目安排中修改")
     assert_fresh(row, payload.expected_updated_at)
-    row.effective_on = payload.effective_on
+    from annotation_progress_record_audit import require_edit_audit_ready, record_snapshot
+    require_edit_audit_ready(db)
+    project = db.get(AnnotationProject, row.project_id)
+    if not project:
+        return None
+    before = record_snapshot(row)
+    # 状态说明编辑不更改状态的发生时间，也不修改当前项目状态。
+    if entry_kind == 'progress':
+        row.effective_on = payload.effective_on
     row.change_note = payload.change_note
-    row.entry_kind = "progress"
     row.updated_by = user_id
     row.updated_at = business_now().replace(tzinfo=None)
+    record_project_operation(db, project_type='annotation', operation_type='progress_edit', project=project,
+        actor_user_id=user_id, operation_source='progress_record_edit', change_reason=getattr(payload, 'reason', None),
+        snapshot_extra={'before_progress_record': before, 'after_progress_record': record_snapshot(row),
+                        'record_part': 'status_note' if entry_kind != 'progress' else 'progress'})
     db.commit()
     return list_status_history(db, row.project_id)
 
 
 def delete_progress_history(db: Session, history_id: UUID, payload, user_id: UUID):
-    row = db.get(AnnotationProjectStatusHistory, history_id)
+    row = _locked_progress_record(db, history_id)
     if not row:
         return None
     entry_kind = getattr(row, "entry_kind", None) or (
         "progress" if row.from_status == row.to_status else "status"
     )
-    if entry_kind != "progress":
+    is_note = getattr(payload, 'record_part', 'progress') == 'status_note'
+    if entry_kind != "progress" and not is_note:
         raise ValueError("状态流转记录不可删除")
     assert_fresh(row, payload.expected_updated_at)
     project = db.get(AnnotationProject, row.project_id)
@@ -1424,6 +1445,7 @@ def delete_progress_history(db: Session, history_id: UUID, payload, user_id: UUI
         operation_source="progress_record_delete",
         change_reason=payload.reason,
         snapshot_extra={
+            "record_part": 'status_note' if entry_kind != 'progress' else 'progress',
             "deleted_progress_record": {
                 "id": row.id,
                 "from_status": row.from_status,
@@ -1439,7 +1461,12 @@ def delete_progress_history(db: Session, history_id: UUID, payload, user_id: UUI
         },
     )
     project_id = row.project_id
-    db.delete(row)
+    if entry_kind == 'progress':
+        db.delete(row)
+    else:
+        row.change_note = None
+        row.updated_by = user_id
+        row.updated_at = business_now().replace(tzinfo=None)
     db.commit()
     return list_status_history(db, project_id)
 

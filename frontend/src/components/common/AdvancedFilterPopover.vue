@@ -24,7 +24,7 @@
         </div>
       </div>
       <div class="advanced-filter-body" :class="{ 'is-compact': compact }">
-        <slot />
+        <AdvancedFilterFieldSearch :active="visible"><slot /></AdvancedFilterFieldSearch>
       </div>
     </div>
   </el-popover>
@@ -32,6 +32,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import AdvancedFilterFieldSearch from './AdvancedFilterFieldSearch.vue'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },

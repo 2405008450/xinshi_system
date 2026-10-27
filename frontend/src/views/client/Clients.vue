@@ -7,7 +7,7 @@
           <small class="header-hint">母客户与子客户统一管理</small>
         </div>
         <div class="header-actions">
-          <TableColumnSettings
+          <TableColumnSettings settings-key="client-information"
             v-model="visibleColumnKeys"
             :columns="clientColumnOptions"
             :column-count="2"
@@ -82,6 +82,7 @@
       @expand-change="handleExpandChange"
       @selection-change="handleDeleteSelectionChange"
     >
+<OrderedTableColumns settings-key="client-information">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column
         type="expand"
@@ -235,7 +236,8 @@
           <PrimaryEditButton @click="handleEdit(row)" />
         </template>
       </el-table-column>
-    </el-table>
+    </OrderedTableColumns>
+</el-table>
 
     <el-pagination
       v-model:current-page="pagination.page"
@@ -490,6 +492,7 @@
 </template>
 
 <script setup>
+import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { refreshAfterSave } from '@/utils/postSaveRefresh.js'
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'

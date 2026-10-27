@@ -36,7 +36,11 @@ def replies(db,batch_ids):
     return [dict(id=str(r.id),dispatch_id=str(r.dispatch_id),user_id=str(r.user_id),name=people.get(r.user_id,'历史人员'),platforms=r.platforms,content=r.content,created_at=stamp(r.created_at)) for r in db.query(Reply).filter(Reply.dispatch_id.in_(batch_ids)).order_by(Reply.created_at.desc(),Reply.id.desc())]
 
 def send(db,user,batch_id,payload):
+    from resource_request_cancellation import lock_request, assert_active
+    candidate=db.get(Batch,batch_id)
+    if candidate:lock_request(db,candidate.request_id)
     batch,recipient=access(db,user,batch_id,True)
+    assert_active(db,batch)
     ids=set(payload.platform_ids)
     old=db.query(Reply).filter_by(idempotency_key=payload.idempotency_key).first()
     if old:

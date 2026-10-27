@@ -3,7 +3,7 @@
     <div class="issue-panel-heading">
       <p class="issue-hint">保存聊天中的信息、需求、讨论、决策、任务、异常、风险及标准。仅显示你有权查看的总结。</p>
       <div class="issue-panel-actions">
-        <TableColumnSettings
+        <TableColumnSettings settings-key="resource-development-issues"
           v-model="columns"
           :columns="issueColumns"
           :column-count="2"
@@ -39,6 +39,7 @@
       </div>
       <el-alert v-if="error" :title="error" type="error" :closable="false"><el-button text @click="reload">重试</el-button></el-alert>
       <el-table :row-class-name="({row})=>row.id===openIssueId?'summary-notification-target':''" ref="tableRef" v-loading="loading" :data="rows" row-key="id" border @selection-change="handleDeleteSelectionChange">
+<OrderedTableColumns settings-key="resource-development-issues">
         <el-table-column v-if="deleteMode" type="selection" width="48" :selectable="row=>row.can_delete" />
         <el-table-column label="序号" width="70"><template #default="{ $index }">{{ (pagination.page-1)*pagination.limit+$index+1 }}</template></el-table-column>
         <el-table-column v-for="column in visibleColumns" :key="column.key" :label="column.label" :min-width="column.width" show-overflow-tooltip>
@@ -50,13 +51,15 @@
           </template>
         </el-table-column>
         <el-table-column v-if="!deleteMode" label="操作" fixed="right" width="170"><template #default="{row}"><el-button v-if="row.can_edit" link type="primary" @click="editorRef.open(row)">编辑</el-button><el-button v-if="row.category==='execution' && row.can_update_progress" link type="primary" @click="progressRef.open(row)">更新进度</el-button></template></el-table-column>
-      </el-table>
+      </OrderedTableColumns>
+</el-table>
       <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" @current-change="pageChanged" @size-change="sizeChanged" />
     </template>
     <DevelopmentIssueEditor ref="editorRef" @saved="saved" /><IssueProgressEditor ref="progressRef" @saved="saved" />
   </section>
 </template>
 <script setup>
+import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { issueApi } from '@/api/resourceIssues'

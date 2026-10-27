@@ -30,7 +30,7 @@ test('标注文字编辑模式支持独立图片附件', () => {
 })
 
 test('标注聊天提醒独立打开会话，同时保留项目沟通页签入口', () => {
-  assert.match(chatNotifications, /openChat\(\{ projectId, projectType, messageId \}\)/)
+  assert.match(chatNotifications, /openChat\(\{ projectId, projectType, messageId, syncSidebar: true \}\)/)
   assert.doesNotMatch(notificationBell, /query\.tab = 'chat'/)
   assert.match(annotationPage, /route\.query\.tab==='chat'/)
   assert.match(annotationPage, /openProgress\(detail,'','chat'\)/)

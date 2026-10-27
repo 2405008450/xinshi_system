@@ -26,11 +26,13 @@ TIME_FIELD_LABELS = {
 }
 
 STATUS_LABELS = {
+    "initial_consultation": "初步咨询",
     "pending": "待确认",
     "pending_confirmation": "待确认",
     "confirmed": "已确认",
     "in_progress": "已确认",
     "organized": "已整理",
+    "arranged": "已安排",
     "translator_assigned": "已排译员",
     "sent_to_translator": "已发译员",
     "translator_returned": "译员发回",

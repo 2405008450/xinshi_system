@@ -57,7 +57,7 @@ export const translationProjectDetailItems = [
   { label: '排版专员', key: 'layoutSpecialistName' },
   { label: '客户经理', key: 'clientManager' },
   { label: '客户经理联系方式', key: 'managerContact' },
-  { label: '状态', key: 'projectStatus', type: 'status' },
+  { label: '项目状态', key: 'projectStatus', type: 'status' },
   { label: '文本类型', key: 'fileTypeSecondary', editable: true, maxlength: 100 },
   { label: '翻译文本领域一级', key: 'projectFileTranslationDomainLevel1' },
   { label: '翻译文本领域二级', key: 'projectFileTranslationDomainLevel2' },

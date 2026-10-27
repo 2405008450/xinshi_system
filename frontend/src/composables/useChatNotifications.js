@@ -7,6 +7,7 @@ import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { subscribe } from '@/utils/realtimeSocket'
 import { showDesktopNotification } from '@/utils/desktopNotifications'
 import { isChatNotification, isChatMentionNotification, isChatAttentionNotification } from '@/utils/notificationChannels'
+import { notificationAcknowledgements } from '@/utils/notificationAcknowledgements'
 
 /** 聊天独立承接留言、提及和群邀请，通知铃铛仅负责业务提醒。 */
 export function useChatNotifications() {
@@ -25,6 +26,8 @@ export function useChatNotifications() {
     activeMentionNotifications.delete(String(id)); instance?.close()
   }
   async function activateNotification(item, showError = false) {
+    notificationAcknowledgements.acknowledge(item.id)
+    closeMentionNotification(item.id)
     const projectType = item.related_project_type || (String(item.notification_type).startsWith('direct_chat') ? 'direct' : 'translation')
     const projectId = item.related_entity_id || item.related_project_id
     if (!projectId) { if (showError) ElMessage.info('关联会话已不可用'); return false }
@@ -34,7 +37,7 @@ export function useChatNotifications() {
       catch { /* 原消息已删除时仍可打开会话。 */ }
     }
     if (disposed) return false
-    window.focus(); openChat({ projectId, projectType, messageId })
+    window.focus(); openChat({ projectId, projectType, messageId, syncSidebar: true })
     if (!item.is_read && !reading.has(String(item.id))) {
       reading.add(String(item.id))
       try { await markNotificationRead(item.id); item.is_read = true; closeMentionNotification(item.id) }
@@ -44,7 +47,7 @@ export function useChatNotifications() {
     return true
   }
   function display(notification) {
-    if (disposed || notification.is_read || !isChatAttentionNotification(notification)) return
+    if (disposed || notification.is_read || notificationAcknowledgements.has(notification.id) || !isChatAttentionNotification(notification)) return
     const persistent = isChatMentionNotification(notification) || String(notification.notification_type).endsWith('_invite')
     const id = String(notification.id)
     if (activeMentionNotifications.has(id)) return
@@ -59,7 +62,10 @@ export function useChatNotifications() {
       type: 'info', position: 'top-right', duration: persistent ? 0 : 4000, showClose: true,
       customClass: 'mention-notification',
       onClick: () => activateNotification(notification, true),
-      onClose: () => activeMentionNotifications.delete(id),
+      onClose: () => {
+        // 同步关闭和组件卸载会先移出 Map；只有用户关闭持续提醒才确认。
+        if (activeMentionNotifications.delete(id) && persistent) notificationAcknowledgements.acknowledge(id)
+      },
     })
     activeMentionNotifications.set(id, instance)
   }
@@ -82,6 +88,7 @@ export function useChatNotifications() {
     finally { if (version === generation) { loading = false; if (pendingInitial) { pendingInitial = false; poll(true) } } }
   }
   onMounted(() => {
+    cleanups.push(notificationAcknowledgements.subscribe(closeMentionNotification))
     poll(true); timer = window.setInterval(() => poll(), 10000)
     cleanups.push(subscribe('notification', payload => {
       const item = payload?.notification

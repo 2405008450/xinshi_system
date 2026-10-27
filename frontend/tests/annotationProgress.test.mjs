@@ -13,6 +13,17 @@ const row = (id, fromStatus, toStatus, effectiveOn, changeNote, changedAt = `${e
   changeNote,
 })
 
+test('删除项仍在原状态附近显示历史入口，已删除说明仍保留所属状态', () => {
+  const groups=groupAnnotationProgressRows([
+    {...row('stage','trial_preparation','trial_in_progress','2026-10-24',null),noteDeleted:true},
+    {...row('deleted','trial_in_progress','trial_in_progress','2026-10-25',null),isDeleted:true,entryKind:'progress'},
+  ],'trial_in_progress')
+  assert.equal(groups.length,1)
+  assert.equal(groups[0].children.length,2)
+  assert.equal(groups[0].children.find(item=>item.id==='stage').noteDeleted,true)
+  assert.equal(groups[0].children.find(item=>item.id==='deleted').isDeleted,true)
+})
+
 test('具体进度缩进归入对应状态阶段，状态变更说明也作为子节点', () => {
   const groups = groupAnnotationProgressRows([
     row('progress', 'trial_in_progress', 'trial_in_progress', '2026-09-02', '一个语种找不到人'),

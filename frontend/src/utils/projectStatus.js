@@ -7,9 +7,11 @@ const TRANSLATION_STATUS_ALIASES = {
 
 export const PROJECT_STATUS_OPTIONS = {
   translation: [
+    { value: 'initial_consultation', label: '初步咨询' },
     { value: 'pending_confirmation', label: '待确认' },
     { value: 'confirmed', label: '已确认' },
     { value: 'organized', label: '已整理' },
+    { value: 'arranged', label: '已安排' },
     { value: 'translator_assigned', label: '已排译员' },
     { value: 'sent_to_translator', label: '已发译员' },
     { value: 'translator_returned', label: '译员发回' },
@@ -72,6 +74,7 @@ const PROJECT_STATUS_TYPES = {
   pending_confirmation: 'info',
   confirmed: 'primary',
   organized: 'primary',
+  arranged: 'primary',
   translator_assigned: 'warning',
   sent_to_translator: 'warning',
   translator_returned: 'primary',
@@ -127,10 +130,12 @@ export function resolveProjectId(row) {
 
 export function normalizeProjectStatus(projectType, status) {
   if (!status) return ''
+  const value = String(status).trim()
   if ((projectType || 'translation') === 'translation') {
-    return TRANSLATION_STATUS_ALIASES[status] || status
+    const normalized = value === '已安排' ? 'arranged' : value === '初步咨询' ? 'initial_consultation' : value.toLowerCase()
+    return TRANSLATION_STATUS_ALIASES[normalized] || normalized
   }
-  return status
+  return value
 }
 
 export function filterTranslationSubOrdersByStatus(subOrders, selectedStatuses) {

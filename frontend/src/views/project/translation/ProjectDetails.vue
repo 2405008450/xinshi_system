@@ -1,11 +1,11 @@
 <template>
   <el-card class="common-page-card compact-list-card">
-    <template #header>
+    <template v-if="!arrangementMode" #header>
       <div class="card-header">
-        <span>笔译项目管理</span>
-        <div class="header-actions">
+        <span>{{ arrangementMode ? '项目安排' : '笔译项目管理' }}</span>
+        <div v-if="!arrangementMode" class="header-actions">
           <ProjectExportMenu v-if="!deleteMode" module="translation" :build-filters="buildFilterParams" :sort="sortMode" />
-          <TableColumnSettings
+          <TableColumnSettings settings-key="translation-projects"
             v-model="visibleColumnKeys"
             v-model:secondary-model-value="visibleSubOrderColumnKeys"
             title="笔译项目字段"
@@ -32,12 +32,14 @@
       </div>
     </template>
 
+    <ProjectArrangementLayout v-model="arrangementPeople" :enabled="arrangementMode" :can-write="canWriteProjects">
+    <ArrangementFilterToolbar v-if="arrangementMode" v-model:excluded="excludedArrangementStatuses" v-model:reception="searchForm.customerReceptionTime" v-model:deadline="searchForm.customerDeadlineTime" v-model:column-keys="arrangementColumnKeys" :statuses="projectStatusOptions" :columns="arrangementColumns" @reset-columns="resetArrangementColumns" @search="handleSearch" />
     <AppForm :inline="true" :model="searchForm" class="search-form project-list-search-form">
       <div class="project-list-primary-filters">
         <el-form-item label="关键词" class="project-list-keyword-filter">
           <el-input v-model="searchForm.keyword" placeholder="母/子订单号、项目名称、文件名称、客户名称或客户单号" clearable @input="handleTextSearch" @keyup.enter="handleSearch" />
         </el-form-item>
-        <el-form-item label="状态" class="project-list-status-filter">
+        <el-form-item label="项目状态" class="project-list-status-filter">
           <el-select v-model="searchForm.projectStatus" multiple collapse-tags :max-collapse-tags="1" placeholder="请选择状态" clearable @change="handleSearch">
             <el-option v-for="item in projectStatusOptions" :key="item.value" :label="item.label" :value="item.value" />
           </el-select>
@@ -46,6 +48,7 @@
       <el-form-item class="project-list-search-actions">
         <el-button type="primary" @click="handleSearch">查询</el-button>
         <el-button @click="resetSearch">重置</el-button>
+        <ProjectStatusExclusionControl v-if="!arrangementMode" :model-value="excludedArrangementStatuses" :statuses="projectStatusOptions" @update:model-value="updateExcludedStatuses" />
         <AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedFilterCount" popper-class="translation-advanced-filter-popover" @clear="clearAdvancedFilters" @reset="resetSearch">
           <CompactFilterGrid
             :fields="translationAdvancedFilterFields"
@@ -59,7 +62,11 @@
       </el-form-item>
     </AppForm>
 
-    <el-table
+    <ProjectArrangementTable v-if="arrangementMode" :projects="tableData" :columns="visibleArrangementColumns" :people="arrangementPeople" :can-write="canWriteProjects && !deleteMode" :loading="loading" :offset="(pagination.page-1)*pagination.limit" :format-returns="formatTranslatorReturnTimes" :status-label="getStatusLabel" @changed="fetchData()">
+      <template #header="{column}"><TranslationProjectColumnHeader :column="column" :context="projectFieldContext" /></template>
+      <template #field="{row,column}"><TranslationProjectFieldCell :row="row" :column="column" :context="projectFieldContext" /></template>
+    </ProjectArrangementTable>
+    <el-table v-else
       ref="projectTableRef"
       class="project-table project-detail-list-table"
       :data="tableData"
@@ -70,7 +77,9 @@
       :expand-row-keys="expandedProjectRowKeys"
       @expand-change="handleProjectExpandChange"
       @selection-change="handleDeleteSelectionChange"
+      @row-contextmenu="openArrangementHistory"
     >
+<OrderedTableColumns settings-key="translation-projects">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column
         type="expand"
@@ -95,6 +104,7 @@
               </div>
             </div>
             <el-table class="sub-order-table" :data="getVisibleSubOrders(row)" border size="small">
+<OrderedTableColumns settings-key="translation-projects" section="secondary">
               <el-table-column label="子订单号" min-width="180">
                 <template #header><ClickableColumnHeader label="子订单号" hint="点击子订单号查看详情" /></template>
                 <template #default="{ row: subRow }">
@@ -107,7 +117,7 @@
                   </BusinessDetailPopover>
                 </template>
               </el-table-column>
-              <el-table-column v-if="isSubOrderColumnVisible('subProjectName')" min-width="220">
+              <el-table-column column-key="subProjectName" v-if="isSubOrderColumnVisible('subProjectName')" min-width="220">
                 <template #header>
                   <div class="sub-order-name-header">
                     <span>文件名称</span>
@@ -134,13 +144,13 @@
                   />
                 </template>
               </el-table-column>
-              <el-table-column v-if="isSubOrderColumnVisible('status')" prop="status" label="状态" min-width="120">
+              <el-table-column column-key="status" v-if="isSubOrderColumnVisible('status')" prop="status" label="状态" min-width="120">
                 <template #default="{ row: subRow }">
                   <el-tag :type="getStatusType(subRow.status)" size="small">{{ getStatusLabel(subRow.status) }}</el-tag>
                 </template>
               </el-table-column>
-              <el-table-column v-if="isSubOrderColumnVisible('languagePair')" prop="languagePair" label="翻译方向" min-width="120" />
-              <el-table-column v-if="isSubOrderColumnVisible('wordCountMatrix')" label="字数统计" width="132" min-width="120">
+              <el-table-column column-key="languagePair" v-if="isSubOrderColumnVisible('languagePair')" prop="languagePair" label="翻译方向" min-width="120" />
+              <el-table-column column-key="wordCountMatrix" v-if="isSubOrderColumnVisible('wordCountMatrix')" label="字数统计" width="132" min-width="120">
                 <template #header><ClickableColumnHeader label="字数统计" hint="点击查看子订单字数统计" /></template>
                 <template #default="{ row: subRow }">
                   <div class="word-count-list-cell">
@@ -165,10 +175,10 @@
                   </div>
                 </template>
               </el-table-column>
-              <el-table-column v-if="isSubOrderColumnVisible('assignedTranslators')" label="译员安排" min-width="180" show-overflow-tooltip>
+              <el-table-column column-key="assignedTranslators" v-if="isSubOrderColumnVisible('assignedTranslators')" label="译员安排" min-width="180" show-overflow-tooltip>
                 <template #default="{ row: subRow }">{{ formatAssignedTranslators(subRow.assignedTranslators, subRow.translatorName) }}</template>
               </el-table-column>
-              <el-table-column v-if="isSubOrderColumnVisible('translatorReturnTime')" label="译员回稿时间" min-width="190">
+              <el-table-column column-key="translatorReturnTime" v-if="isSubOrderColumnVisible('translatorReturnTime')" label="译员回稿时间" min-width="190">
                 <template #header><ClickableColumnHeader label="译员回稿时间" hint="点击回稿时间编辑译员任务完成情况及价格" /></template>
                 <template #default="{ row: subRow }">
                   <TranslatorCompletionPopover
@@ -184,7 +194,8 @@
                   <PrimaryEditButton v-if="canWriteProjects" @click="openSubOrderEditorFromList(row, subRow)" />
                 </template>
               </el-table-column>
-            </el-table>
+            </OrderedTableColumns>
+</el-table>
           </div>
         </template>
       </el-table-column>
@@ -213,150 +224,8 @@
         :class-name="getSortColumnClass(column.key)"
         :label-class-name="getSortColumnClass(column.key)"
       >
-        <template #header>
-          <div class="project-column-header">
-            <ConfiguredColumnHeaderFilter
-              v-if="headerFilterDefinition(column.key)"
-              :definition="headerFilterDefinition(column.key)"
-              :model-value="searchForm[headerFilterDefinition(column.key).key]"
-              @update:model-value="searchForm[headerFilterDefinition(column.key).key] = $event"
-              @text-input="handleConfiguredTextInput"
-              @change="handleSearch"
-              @enter="handleSearch"
-              @clear="handleSearch"
-            >
-              <template #label>
-                <ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" />
-                <span v-else>{{ column.label }}</span>
-              </template>
-            </ConfiguredColumnHeaderFilter>
-            <template v-else>
-              <ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" />
-              <span v-else>{{ column.label }}</span>
-            </template>
-            <button
-              v-if="getTimeSortMode(column.key)"
-              type="button"
-              class="time-column-sort-trigger"
-              :class="{ 'is-active': isTimeSortActive(column.key) }"
-              :aria-label="getTimeSortTitle(column)"
-              :aria-pressed="isTimeSortActive(column.key)"
-              :title="getTimeSortTitle(column)"
-              @click.stop="toggleTimeSort(column.key)"
-            >
-              <el-icon><SortUp /></el-icon>
-            </button>
-          </div>
-        </template>
-        <template #default="{ row }">
-          <div v-if="column.key === 'orderNo'" class="order-no-actions">
-            <BusinessDetailPopover
-              :row="row"
-              title="项目详情"
-              :items="getTranslationClientDetailItems(projectDetailItems, row)"
-              :status-label="getStatusLabel"
-              :status-type="getStatusType"
-              :editable="canWriteProjects && !deleteMode"
-              :save-field="(field, value) => saveProjectTextField(row, field, value)"
-              @conflict="fetchData"
-            >
-              <template #reference>
-                <el-button type="primary" link class="order-no-link business-clickable-cell" :title="`${row.orderNo}（点击查看详情）`" @click.stop>
-                  {{ row.orderNo }}
-                </el-button>
-              </template>
-            </BusinessDetailPopover>
-            <PathActionButtons v-if="canReadProjectFiles" @open="openOriginalPath(row)" @copy="copyOriginalPath(row)" />
-          </div>
-          <span v-else-if="column.key === 'sourceFileName'" class="project-name-ellipsis" :title="row.sourceFileName || '-'">{{ row.sourceFileName || '-' }}</span>
-          <el-dropdown
-            v-else-if="column.key === 'projectStatus' && canWriteProjects"
-            trigger="click"
-            :disabled="projectStatusSavingIds.has(row.id)"
-            @command="(command) => changeProjectStatus(row, command)"
-          >
-            <el-tag
-              :type="getStatusType(row.projectStatus)"
-              size="small"
-              class="status-switch-tag"
-              :class="{ 'is-updating': projectStatusSavingIds.has(row.id) }"
-            >
-              <span class="status-switch-text">{{ getStatusLabel(row.projectStatus) }}</span>
-              <el-icon class="status-switch-caret"><CaretBottom /></el-icon>
-            </el-tag>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item
-                  v-for="item in projectStatusOptions"
-                  :key="item.value"
-                  :command="item.value"
-                  :disabled="item.value === normalizeStatus(row.projectStatus) || item.value === 'pending_confirmation' || projectStatusSavingIds.has(row.id)"
-                >
-                  <span class="status-option-row">
-                    <el-tag :type="getStatusType(item.value)" size="small" effect="plain" class="status-option-tag">{{ item.label }}</el-tag>
-                    <el-icon v-if="item.value === normalizeStatus(row.projectStatus)" class="status-current-icon"><Check /></el-icon>
-                  </span>
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-          <el-tag v-else-if="column.key === 'projectStatus'" :type="getStatusType(row.projectStatus)">
-            {{ getStatusLabel(row.projectStatus) }}
-          </el-tag>
-          <DeadlineHintCell
-            v-else-if="column.key === 'customerDeadlineTime'"
-            :deadline="row.customerDeadlineTime"
-            :status="row.projectStatus"
-          />
-          <TranslatorCompletionPopover
-            v-else-if="column.key === 'translatorReturnTime'"
-            :translators="row.assignedTranslators"
-            :status="row.projectStatus"
-            :editable="canWriteProjects && !deleteMode"
-            :save="(completions) => saveProjectTranslatorCompletions(row, completions)"
-          />
-          <div
-            v-else-if="column.key === 'languagePair'"
-            class="compact-cell-value"
-            :title="row.languagePair || '-'"
-          >
-            <span class="compact-cell-value__primary">{{ getLanguagePairSummary(row.languagePair).primary }}</span>
-            <span v-if="getLanguagePairSummary(row.languagePair).extraCount" class="compact-cell-value__count">
-              +{{ getLanguagePairSummary(row.languagePair).extraCount }}
-            </span>
-          </div>
-          <div
-            v-else-if="column.key === 'assignedTranslators'"
-            class="compact-cell-value"
-            :title="formatAssignedTranslators(row.assignedTranslators, row.translatorName)"
-          >
-            <span class="compact-cell-value__primary">{{ getAssignedTranslatorSummary(row).primary }}</span>
-            <span v-if="getAssignedTranslatorSummary(row).extraCount" class="compact-cell-value__count">
-              +{{ getAssignedTranslatorSummary(row).extraCount }}
-            </span>
-          </div>
-          <div v-else-if="column.key === 'wordCountMatrix'" class="word-count-list-cell">
-            <WordCountMatrixPopover
-              v-model="row.wordCountMatrix"
-              entity-type="project"
-              :entity-id="row.id"
-              title="项目字数统计"
-              @saved="fetchData"
-            >
-              <template #reference>
-                <el-button type="primary" link class="word-count-compact-link business-clickable-cell" :title="getWordCountListSummary(row).title">
-                  <span class="compact-cell-value">
-                    <span class="compact-cell-value__primary">{{ getWordCountListSummary(row).primary }}</span>
-                    <span v-if="getWordCountListSummary(row).extraCount" class="compact-cell-value__count">
-                      +{{ getWordCountListSummary(row).extraCount }}
-                    </span>
-                  </span>
-                </el-button>
-              </template>
-            </WordCountMatrixPopover>
-          </div>
-          <span v-else>{{ formatTableColumnValue(row, column) }}</span>
-        </template>
+        <template #header><TranslationProjectColumnHeader :column="column" :context="projectFieldContext" /></template>
+        <template #default="{ row }"><TranslationProjectFieldCell :row="row" :column="column" :context="projectFieldContext" /></template>
       </el-table-column>
       <el-table-column v-if="!deleteMode" label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center">
         <template #default="{ row }">
@@ -368,7 +237,8 @@
           />
         </template>
       </el-table-column>
-    </el-table>
+    </OrderedTableColumns>
+</el-table>
 
     <el-pagination
       v-model:current-page="pagination.page"
@@ -380,7 +250,12 @@
       @size-change="applyPagination"
       @current-change="applyPagination"
     />
+    </ProjectArrangementLayout>
 
+    <DraggableFormDialog v-model="arrangementHistoryVisible" class="arrangement-history-dialog" :title="`项目安排 · ${arrangementHistoryProject?.orderNo || ''}`" width="min(1120px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close>
+      <ArrangementPlanPanel v-if="arrangementHistoryVisible && arrangementHistoryProject" :project-id="arrangementHistoryProject.id" :can-write="canWriteProjects" @changed="fetchData()" />
+      <template #footer><el-button @click="arrangementHistoryVisible=false">关闭</el-button></template>
+    </DraggableFormDialog>
     <DraggableFormDialog
       v-model="dialogVisible"
       class="project-editor-dialog"
@@ -803,6 +678,7 @@
                 />
 
                 <el-table class="sub-order-table" :data="getVisibleSubOrders({ subOrders: currentProjectSubOrders })" border size="small">
+<OrderedTableColumns settings-key="translation-projects" section="secondary">
                   <el-table-column prop="subOrderNo" label="子订单号" min-width="180" />
                   <el-table-column min-width="220">
                     <template #header>
@@ -867,7 +743,8 @@
                       <TableActionButton v-if="canWriteProjects" action="delete" @click="handleDeleteSubOrder(row)" />
                     </template>
                   </el-table-column>
-                </el-table>
+                </OrderedTableColumns>
+</el-table>
               </template>
               <el-alert v-else title="请先保存母订单，再在此 Tab 中新增或批量新增子订单。" type="info" :closable="false" show-icon />
             </el-tab-pane>
@@ -1025,16 +902,31 @@
 </template>
 
 <script setup>
-const props=defineProps({embedded:Boolean,myProjects:Boolean})
+import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
+import ProjectArrangementLayout from './components/ProjectArrangementLayout.vue'
+import ProjectArrangementTable from './components/ProjectArrangementTable.vue'
+import ArrangementPlanPanel from './components/ArrangementPlanPanel.vue'
+import TranslationProjectFieldCell from './components/TranslationProjectFieldCell.vue'
+import TranslationProjectColumnHeader from './components/TranslationProjectColumnHeader.vue'
+import ArrangementFilterToolbar from './components/ArrangementFilterToolbar.vue'
+import {DEFAULT_ARRANGEMENT_EXCLUSIONS,withArrangementExclusions} from '@/utils/arrangementFilters'
+const props=defineProps({embedded:Boolean,myProjects:Boolean,arrangement:Boolean})
 import { managedProjectFilters } from "@/utils/managedProjectFilters"
 import { matchesSearchFields } from '@/utils/searchMatching'
 
 import { translationProjectDetailItems, formatAssignedTranslators, formatTranslatorReturnTimes, formatTranslatorCompletionRemarks } from '@/utils/translationProjectDetail'
 import ProjectExportMenu from '@/components/common/ProjectExportMenu.vue'
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+const arrangementMode = computed(() => props.arrangement)
+const arrangementPeople = ref([])
+const excludedArrangementStatuses=ref(props.arrangement?[...DEFAULT_ARRANGEMENT_EXCLUSIONS]:[])
+import ProjectStatusExclusionControl from './components/ProjectStatusExclusionControl.vue'
+const arrangementHistoryVisible=ref(false),arrangementHistoryProject=ref(null)
+function openArrangementHistory(row,_column,event){if(normalizeStatus(row.projectStatus)!=='arranged')return;event.preventDefault();arrangementHistoryProject.value=row;arrangementHistoryVisible.value=true}
+function openArrangementFromStatus(event,row){if(normalizeStatus(row.projectStatus)!=='arranged')return;event.stopPropagation();openArrangementHistory(row,null,event)}
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { CaretBottom, Check, MagicStick, SortUp } from '@element-plus/icons-vue'
+import { Check, MagicStick } from '@element-plus/icons-vue'
 import { getProjectPage, getProject, createProject, updateProject, updateProjectTextField, deleteProject, getNextOrderNo } from '@/api/projects'
 import { getProjectFilesByProject } from '@/api/projectFiles'
 import { createSubOrder, deleteSubOrder, getSubOrdersByProject, updateSubOrder } from '@/api/subOrders'
@@ -1050,14 +942,12 @@ import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
-import DeadlineHintCell from '@/components/common/DeadlineHintCell.vue'
 import BusinessMailComposer from '@/components/common/BusinessMailComposer.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
-import PathActionButtons from '@/components/common/PathActionButtons.vue'
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import ProjectListRowActions from '@/components/common/ProjectListRowActions.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
@@ -1077,12 +967,11 @@ import { buildTranslationEmailSubject, extractTranslationSubjectPrefix } from '@
 import { copyTextToClipboard } from '@/utils/clipboard'
 import { launchOpenPath } from '@/utils/openPath'
 import { resolvePreferredProjectPath } from '@/utils/projectPath'
-import { filterTranslationSubOrdersByStatus } from '@/utils/projectStatus'
+import { filterTranslationSubOrdersByStatus, normalizeProjectStatus } from '@/utils/projectStatus'
 import { getTranslationClientDetailItems } from '@/utils/translationClientLabels'
 import { createIdempotencyKey } from '@/utils/idempotency'
 import {
   formatBusinessDateTime as formatDateTime,
-  isTranslatorReturnTerminalStatus,
 } from '@/utils/deadlineDisplay'
 
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
@@ -1090,9 +979,9 @@ import {
   DEFAULT_TRANSLATION_PROJECT_SORT,
   TRANSLATION_PROJECT_TIME_SORT_MODES,
   getTranslationProjectTimeSortMode,
+  getTranslationProjectSortDirection,
   getTranslationProjectTimeSortTitle,
   getTranslationSubOrderEarliestReturnTime,
-  hasTranslationSubOrderReturnTime,
   isTranslationProjectTimeSortActive,
   nextTranslationProjectTimeSortMode,
 } from '@/utils/translationProjectTimeSort'
@@ -1114,9 +1003,11 @@ const projectDialogTab = ref('basic')
 const projectBasicExpandedSections = ref(['project', 'business', 'execution'])
 const subOrderDialogTab = ref('basic')
 const projectStatusOptions = [
+  { label: '初步咨询', value: 'initial_consultation' },
   { label: '待确认', value: 'pending_confirmation' },
   { label: '已确认', value: 'confirmed' },
   { label: '已整理', value: 'organized' },
+  { label: '已安排', value: 'arranged' },
   { label: '已排译员', value: 'translator_assigned' },
   { label: '已发译员', value: 'sent_to_translator' },
   { label: '译员发回', value: 'translator_returned' },
@@ -1296,7 +1187,7 @@ const translationFilterFields = [
   { key: 'layoutSpecialistId', apiKey: 'layout_specialist_id', label: '排版专员', type: 'select', options: () => projectManagerOptions.value.map((item) => ({ label: item.full_name || item.username, value: item.id })) },
   { key: 'clientManager', label: '客户经理', type: 'text' },
   { key: 'managerContact', label: '客户经理联系方式', type: 'text' },
-  { key: 'projectStatus', label: '状态', type: 'select', options: projectStatusOptions },
+  { key: 'projectStatus', label: '项目状态', type: 'select', options: projectStatusOptions },
   { key: 'fileTypeSecondary', label: '文本类型', type: 'text' },
   { key: 'projectFileTranslationDomainLevel1', label: '翻译文本领域一级', type: 'text' },
   { key: 'projectFileTranslationDomainLevel2', label: '翻译文本领域二级', type: 'text' },
@@ -1319,8 +1210,8 @@ const translationFilterFields = [
   { key: 'wordCountDimension', apiKey: 'word_count_dimension', label: '字数统计口径', type: 'select', options: [{value:'company',label:'我司'},{value:'customer',label:'客户'},{value:'translator_estimate',label:'译员预估'}] },
   { key: 'wordCountMetricType', apiKey: 'word_count_metric_type', label: '字数统计指标', type: 'select', options: [{value:'words',label:'字数'},{value:'characters_no_spaces',label:'字符数（不计空格）'},{value:'cjk_chars_korean_words',label:'中文字符和朝鲜语单词'},{value:'foreign_words',label:'外文字数'},{value:'documents',label:'份数'},{value:'pages',label:'页数'}] },
   { key: 'wordCountMatrix', apiKey: 'word_count', label: '字数与预估', type: 'number-range', wide: true, min: 0 },
-  { key: 'customerReceptionTime', label: '客户接单时间', type: 'date-range', wide: true },
-  { key: 'customerDeadlineTime', label: '客户交稿时间', type: 'date-range', wide: true },
+  { key: 'customerReceptionTime', label: props.arrangement?'客户来稿时间':'客户接单时间', type: 'date-range', wide: true },
+  { key: 'customerDeadlineTime', label: props.arrangement?'客户回稿时间':'客户交稿时间', type: 'date-range', wide: true },
   { key: 'translatorReturnTime', label: '译员回稿时间', type: 'date-range', wide: true },
   { key: 'sentToClientTime', label: '发客户时间', type: 'date-range', wide: true },
   { key: 'pmConfirmedBy', label: 'PM确认人', type: 'select', options: () => projectManagerOptions.value.map((item) => ({ label: item.full_name || item.username, value: item.id })) },
@@ -1358,7 +1249,7 @@ const tableColumnOverrides = {
   projectManagerName: { minWidth: 90 },
   clientManager: { minWidth: 110 },
   managerContact: { minWidth: 150 },
-  projectStatus: { minWidth: PROJECT_LIST_COLUMN_WIDTHS.projectStatus, showOverflowTooltip: false },
+  projectStatus: { label: '项目状态', minWidth: PROJECT_LIST_COLUMN_WIDTHS.projectStatus, showOverflowTooltip: false },
   fileTypeSecondary: { minWidth: 110 },
   projectFileTranslationDomainLevel1: { minWidth: 180 },
   projectFileTranslationDomainLevel2: { minWidth: 180 },
@@ -1419,16 +1310,17 @@ const legacyTranslationDefaultColumnKeys = ['orderNo', 'projectName', 'clientSho
 const legacyTranslationDefaultColumnKeysWithReturnTime = [...legacyTranslationDefaultColumnKeys]
 legacyTranslationDefaultColumnKeysWithReturnTime.splice(5, 0, 'translatorReturnTime')
 const previousTranslationDefaultColumnKeys = legacyTranslationDefaultColumnKeysWithReturnTime.filter((key) => key !== 'assignedTranslators')
-const translationDefaultColumnKeys = previousTranslationDefaultColumnKeys
+const previousTranslationDisplayKeys = previousTranslationDefaultColumnKeys
   .filter((key) => key !== 'projectManagerName')
   .map((key) => key === 'projectName' ? 'sourceFileName' : key)
+const translationDefaultColumnKeys=[...previousTranslationDisplayKeys,'assignedTranslators']
 const { selectedKeys: visibleColumnKeys, isVisible: isColumnVisible, reset: resetColumns } = useTableColumns(
   'translation-details-v4',
   tableColumns,
   translationDefaultColumnKeys,
   {
     keyAliases: { projectName: 'sourceFileName' },
-    legacyDefaultKeys: [legacyTranslationDefaultColumnKeys, legacyTranslationDefaultColumnKeysWithReturnTime, previousTranslationDefaultColumnKeys],
+    legacyDefaultKeys: [previousTranslationDisplayKeys,legacyTranslationDefaultColumnKeys, legacyTranslationDefaultColumnKeysWithReturnTime, previousTranslationDefaultColumnKeys],
   }
 )
 const {
@@ -1442,9 +1334,13 @@ const {
   { legacyDefaultKeys: [legacySubOrderDefaultColumnKeys] },
 )
 const visibleTableColumns = computed(() => tableColumns.filter((column) => isColumnVisible(column.key)))
-watch(visibleColumnKeys, (keys) => {
+const arrangementColumns=tableColumns.map(column=>({...column,label:column.key==='customerReceptionTime'?'客户来稿时间':column.key==='customerDeadlineTime'?'客户回稿时间':column.label}))
+const arrangementDefaultColumnKeys=['orderNo','sourceFileName','clientShortName','projectStatus','languagePair','translatorReturnTime','customerDeadlineTime','assignedTranslators']
+const {selectedKeys:arrangementColumnKeys,reset:resetArrangementColumns}=useTableColumns('translation-arrangements-v1',arrangementColumns,arrangementDefaultColumnKeys,{legacyDefaultKeys:[arrangementDefaultColumnKeys.filter(key=>key!=='assignedTranslators'),arrangementDefaultColumnKeys.filter(key=>!['assignedTranslators','customerDeadlineTime'].includes(key))]})
+const visibleArrangementColumns=computed(()=>arrangementColumns.filter(column=>arrangementColumnKeys.value.includes(column.key)))
+watch(()=>arrangementMode.value?arrangementColumnKeys.value:visibleColumnKeys.value, (keys) => {
   const activeColumnKey = Object.keys(TIME_SORT_MODES)
-    .find((key) => TIME_SORT_MODES[key] === sortMode.value)
+    .find((key) => isTranslationProjectTimeSortActive(sortMode.value,key))
   if (activeColumnKey && !keys.includes(activeColumnKey)) {
     sortMode.value = DEFAULT_SORT_MODE
     handleSortChange()
@@ -1522,18 +1418,13 @@ const rules = {
 }
 const subOrderRules = { subProjectName: [{ required: true, message: '请输入文件名称', trigger: 'blur' }] }
 const NULLABLE_FIELDS = ['sourceFileName', 'emailSubjectPreview', 'serviceContent', 'taskType', 'consultationId', 'clientId', 'subClientId', 'projectManagerId', 'customerOrderNo', 'customerReceptionTime', 'customerDeadlineTime', 'sentToClientTime', 'pmConfirmedBy', 'translatorId', 'translatorAssignmentTime', 'clientFeedback', 'referenceFilePathOne', 'fileTypeSecondary', 'projectContractType', 'projectContractStatus', 'quotationStatus', 'quotationPath', 'customerRequirementProfessional', 'customerRequirementSpecial', 'languagePair', 'priority', 'remarks', 'subProjectName']
-const legacyStatusMap = {
-  pending: 'pending_confirmation',
-  in_progress: 'confirmed',
-  completed: 'sent_to_client',
-  terminated: 'cancelled'
-}
-const normalizeStatus = (status) => legacyStatusMap[status] || status
+const normalizeStatus = (status) => normalizeProjectStatus('translation',status)
 const getStatusLabel = (status) => projectStatusOptions.find(item => item.value === normalizeStatus(status))?.label || status || '-'
 const getStatusType = (status) => ({
   pending_confirmation: 'info',
   confirmed: 'primary',
   organized: 'primary',
+  arranged: 'primary',
   translator_assigned: 'warning',
   sent_to_translator: 'warning',
   translator_returned: 'primary',
@@ -1641,21 +1532,8 @@ const hasSubOrderStatusFilter = () => (
     ? searchForm.projectStatus.length > 0
     : Boolean(searchForm.projectStatus)
 )
-const hasTranslatorReturnSubOrderFilter = () => (
-  sortMode.value === TRANSLATION_PROJECT_TIME_SORT_MODES.translatorReturnTime
-)
-const hasSubOrderListFilter = () => (
-  hasSubOrderStatusFilter() || hasTranslatorReturnSubOrderFilter()
-)
-const getFilteredSubOrders = (row) => {
-  const statusMatched = filterTranslationSubOrdersByStatus(
-    row?.subOrders,
-    searchForm.projectStatus,
-  )
-  return hasTranslatorReturnSubOrderFilter()
-    ? statusMatched.filter(hasTranslationSubOrderReturnTime)
-    : statusMatched
-}
+const hasSubOrderListFilter = () => hasSubOrderStatusFilter()
+const getFilteredSubOrders = (row) => filterTranslationSubOrdersByStatus(row?.subOrders,searchForm.projectStatus)
 const getSubOrderCount = (row) => getFilteredSubOrders(row).length
 const getTotalSubOrderCount = (row) => Array.isArray(row?.subOrders) ? row.subOrders.length : 0
 const clearProjectExpansion = () => {
@@ -1681,23 +1559,17 @@ const toggleProjectExpansion = (row) => {
   projectTableRef.value?.toggleRowExpansion(row, !isProjectExpanded(row))
 }
 const hasMoreSubOrders = (row) => getSubOrderCount(row) > SUB_ORDER_PREVIEW_LIMIT
-const getSubOrderReturnSortRank = (row) => {
-  if (isTranslatorReturnTerminalStatus(row?.status)) return 2
-  return hasTranslationSubOrderReturnTime(row) ? 0 : 1
+const compareSubOrdersByTranslatorReturn = (left,right) => {
+  const direction=getTranslationProjectSortDirection(sortMode.value,'translatorReturnTime')
+  if(direction!=='none'){
+    const a=getTranslationSubOrderEarliestReturnTime(left),b=getTranslationSubOrderEarliestReturnTime(right)
+    if(!Number.isFinite(a)&&Number.isFinite(b))return 1
+    if(Number.isFinite(a)&&!Number.isFinite(b))return -1
+    if(Number.isFinite(a)&&Number.isFinite(b)&&a!==b)return (a-b)*(direction==='ascending'?1:-1)
+  }
+  return String(left?.subOrderNo||'').localeCompare(String(right?.subOrderNo||''))
 }
-const compareSubOrdersByTranslatorReturn = (left, right) => {
-  const rankDifference = getSubOrderReturnSortRank(left) - getSubOrderReturnSortRank(right)
-  if (rankDifference) return rankDifference
-  const deadlineDifference = getTranslationSubOrderEarliestReturnTime(left)
-    - getTranslationSubOrderEarliestReturnTime(right)
-  if (Number.isFinite(deadlineDifference) && deadlineDifference) return deadlineDifference
-  return String(left?.subOrderNo || '').localeCompare(String(right?.subOrderNo || ''))
-}
-const getVisibleSubOrders = (row) => (
-  [...getFilteredSubOrders(row)]
-    .sort(compareSubOrdersByTranslatorReturn)
-    .slice(0, SUB_ORDER_PREVIEW_LIMIT)
-)
+const getVisibleSubOrders = (row) => [...getFilteredSubOrders(row)].sort(compareSubOrdersByTranslatorReturn).slice(0, SUB_ORDER_PREVIEW_LIMIT)
 const applyPagination = () => {
   clearProjectExpansion()
   fetchData({ expandSubOrders: hasSubOrderListFilter() })
@@ -1767,7 +1639,7 @@ const assignReactive = (target, defaultsFactory, values = {}) => {
 }
 const buildFilterParams = () => ({
   keyword: searchForm.keyword.trim() || undefined,
-  field_filters: managedProjectFilters(serializeFieldFilters(searchForm, translationFilterFields), props.myProjects, localStorage.getItem('user_id')),
+  field_filters: managedProjectFilters(withArrangementExclusions(serializeFieldFilters(searchForm, translationFilterFields),excludedArrangementStatuses.value), props.myProjects, localStorage.getItem('user_id')),
 })
 let searchTimer = null
 let requestController = null
@@ -2038,14 +1910,21 @@ const toggleTimeSort = (columnKey) => {
   sortMode.value = nextTranslationProjectTimeSortMode(sortMode.value, columnKey)
   handleSortChange({ expandSubOrders: true })
 }
-const getSortColumnClass = (columnKey) => {
-  if (sortMode.value === 'translator_return_time_asc' && columnKey === 'translatorReturnTime') return 'is-active-sort-column'
-  if (sortMode.value === 'customer_deadline_time_asc' && columnKey === 'customerDeadlineTime') return 'is-active-sort-column'
-  return ''
-}
+const getSortDirection = columnKey=>getTranslationProjectSortDirection(sortMode.value,columnKey)
+const getSortColumnClass = columnKey=>isTimeSortActive(columnKey)?'is-active-sort-column':''
 const updateConfiguredFilter = (key, value) => { searchForm[key] = value }
 const handleConfiguredTextInput = (value) => handleTextSearch(value)
-const resetSearch = () => { searchForm.keyword = ''; sortMode.value = DEFAULT_SORT_MODE; resetFilterModel(searchForm, translationFilterFields); handleSearch() }
+const resetSearch = () => { searchForm.keyword = ''; sortMode.value = DEFAULT_SORT_MODE; excludedArrangementStatuses.value=arrangementMode.value?[...DEFAULT_ARRANGEMENT_EXCLUSIONS]:[]; resetFilterModel(searchForm, translationFilterFields); handleSearch() }
+function updateExcludedStatuses(values){excludedArrangementStatuses.value=values;handleSearch()}
+function restoreDefaultExclusions(){
+  const defaults=arrangementMode.value?DEFAULT_ARRANGEMENT_EXCLUSIONS:[]
+  const current=excludedArrangementStatuses.value
+  if(current.length===defaults.length&&defaults.every(value=>current.includes(value)))return
+  excludedArrangementStatuses.value=[...defaults]
+  handleSearch()
+}
+defineExpose({restoreDefaultExclusions})
+onActivated(()=>{if(!arrangementMode.value)restoreDefaultExclusions()})
 const clearAdvancedFilters = () => { resetFilterModel(searchForm, translationAdvancedFilterFields); handleSearch() }
 const clearSearch = () => {
   searchForm.keyword = ''
@@ -2325,6 +2204,7 @@ const saveAllInlineNames = async (scope, projectId = null) => {
     saving.value = false
   }
 }
+const projectFieldContext=computed(()=>({getTranslationClientDetailItems,projectDetailItems,getStatusLabel,getStatusType,canWriteProjects,deleteMode:deleteMode.value,saveProjectTextField,fetchData,canReadProjectFiles,openOriginalPath,copyOriginalPath,projectStatusSavingIds:projectStatusSavingIds.value,changeProjectStatus,normalizeStatus,openArrangementFromStatus,projectStatusOptions,saveProjectTranslatorCompletions,getLanguagePairSummary,formatAssignedTranslators,getAssignedTranslatorSummary,getWordCountListSummary,formatTableColumnValue,headerFilterDefinition,searchForm,handleConfiguredTextInput,handleSearch,getTimeSortMode,getSortDirection,isTimeSortActive,getTimeSortTitle,toggleTimeSort}))
 onMounted(async () => {
   if (!props.embedded && route.query.projectId) {
     await Promise.all([focusRouteProject(), loadResourceRequestStatuses()])

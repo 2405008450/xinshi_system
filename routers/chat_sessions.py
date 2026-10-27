@@ -331,8 +331,8 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
 
 
 @router.get('/mentions')
-def mentions(keyword: str = Query('', max_length=200), before: int | None = Query(None, ge=1),
-             limit: int = Query(50, ge=1, le=100), project_type: Literal['annotation', 'translation'] | None = None,
+def mentions(keyword: str = Query('', max_length=200), before: str | None = Query(None,max_length=400),
+             limit: int = Query(50, ge=1, le=100), project_type: Literal['annotation', 'translation', 'discussion', 'direct'] | None = None,
              project_status: str | None = None, project_id: UUID | None = None,
              db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     if project_id is not None and project_type is None:
@@ -403,6 +403,13 @@ def mention_target(notification_id: UUID, db: Session = Depends(get_db), user: A
     kind = notification.related_project_type
     if kind in {'annotation', 'translation'}:
         require_member(db, kind, notification.related_entity_id or notification.related_project_id, user)
+    if kind == 'discussion':
+        import discussion_chat_service
+        from discussion_mentions import ready as discussion_mentions_ready
+        from discussion_chat_models import DiscussionMention, DiscussionMessage
+        discussion_chat_service.require_room(db,user,notification.related_entity_id)
+        target=db.query(DiscussionMention).join(DiscussionMessage,DiscussionMessage.id==DiscussionMention.message_id).filter(DiscussionMention.notification_id==notification.id,DiscussionMention.user_id==user.id,DiscussionMessage.room_id==notification.related_entity_id,DiscussionMessage.recalled_at.is_(None)).first() if discussion_mentions_ready(db) else None
+        return {'message_id':str(target.message_id) if target else None}
     if phase_one_ready(db):
         from models import ChatMentionNotificationTarget
         target = db.get(ChatMentionNotificationTarget, notification_id)

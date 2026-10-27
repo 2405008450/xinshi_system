@@ -93,7 +93,7 @@
     <div class="task-toolbar">
       <span class="filter-result-summary">筛选结果 {{ filteredTasks.length }} 条</span>
       <div class="task-toolbar__actions">
-        <TableColumnSettings
+        <TableColumnSettings settings-key="workbench-execution-tasks"
           v-model="visibleColumnKeys"
           title="执行层字段"
           hint="勾选结果仅对当前用户生效；序号、跟进明细和操作列固定保留。"
@@ -151,6 +151,7 @@
       @selection-change="selectedTasks = $event"
       @row-click="toggleTaskRowSelection"
     >
+<OrderedTableColumns settings-key="workbench-execution-tasks">
       <template #empty>
         <span class="table-filter-empty">没有符合当前查询条件的任务，请调整查询或高级筛选条件</span>
       </template>
@@ -254,24 +255,24 @@
           <span v-else>-</span>
         </template>
       </el-table-column>
-      <el-table-column v-if="isColumnVisible('orderNo')" prop="order_no" :label="WORKBENCH_FIELD_LABELS.orderNo" :width="WORKBENCH_COLUMN_WIDTHS.orderNo" show-overflow-tooltip />
-      <el-table-column v-if="isColumnVisible('projectType')" :label="WORKBENCH_FIELD_LABELS.projectType" :width="WORKBENCH_COLUMN_WIDTHS.projectType">
+      <el-table-column column-key="orderNo" v-if="isColumnVisible('orderNo')" prop="order_no" :label="WORKBENCH_FIELD_LABELS.orderNo" :width="WORKBENCH_COLUMN_WIDTHS.orderNo" show-overflow-tooltip />
+      <el-table-column column-key="projectType" v-if="isColumnVisible('projectType')" :label="WORKBENCH_FIELD_LABELS.projectType" :width="WORKBENCH_COLUMN_WIDTHS.projectType">
         <template #default="{ row }"><el-tag type="info" size="small" effect="plain">{{ row.project_type_label || '笔译项目' }}</el-tag></template>
       </el-table-column>
-      <el-table-column v-if="isColumnVisible('projectTask')" :label="WORKBENCH_FIELD_LABELS.projectTask" :width="WORKBENCH_COLUMN_WIDTHS.projectTask">
+      <el-table-column column-key="projectTask" v-if="isColumnVisible('projectTask')" :label="WORKBENCH_FIELD_LABELS.projectTask" :width="WORKBENCH_COLUMN_WIDTHS.projectTask">
         <template #default="{ row }">
           <WorkbenchProjectTaskCell :row="row" />
         </template>
       </el-table-column>
-      <el-table-column v-if="isColumnVisible('client')" :label="WORKBENCH_FIELD_LABELS.client" :width="WORKBENCH_COLUMN_WIDTHS.client" show-overflow-tooltip>
+      <el-table-column column-key="client" v-if="isColumnVisible('client')" :label="WORKBENCH_FIELD_LABELS.client" :width="WORKBENCH_COLUMN_WIDTHS.client" show-overflow-tooltip>
         <template #default="{ row }">{{ row.client_short_name || '-' }}</template>
       </el-table-column>
-      <el-table-column v-if="isColumnVisible('projectNode')" :label="WORKBENCH_FIELD_LABELS.projectNode" :width="WORKBENCH_COLUMN_WIDTHS.customerDeadline">
+      <el-table-column column-key="projectNode" v-if="isColumnVisible('projectNode')" :label="WORKBENCH_FIELD_LABELS.projectNode" :width="WORKBENCH_COLUMN_WIDTHS.customerDeadline">
         <template #default="{ row }">
           <DeadlineHintCell :deadline="getTaskDeadline(row)" :status="row.project_status" />
         </template>
       </el-table-column>
-      <el-table-column v-if="isColumnVisible('projectStatus')" prop="project_status" :label="WORKBENCH_FIELD_LABELS.projectStatus" :width="WORKBENCH_COLUMN_WIDTHS.projectStatus">
+      <el-table-column column-key="projectStatus" v-if="isColumnVisible('projectStatus')" prop="project_status" :label="WORKBENCH_FIELD_LABELS.projectStatus" :width="WORKBENCH_COLUMN_WIDTHS.projectStatus">
         <template #default="{ row }">
           <ProjectStatusSwitch
             :project-type="resolveProjectType(row)"
@@ -282,12 +283,12 @@
           />
         </template>
       </el-table-column>
-      <el-table-column v-if="isColumnVisible('languageDirection')" prop="language_pair" :label="WORKBENCH_FIELD_LABELS.languageDirection" :width="WORKBENCH_COLUMN_WIDTHS.languagePair">
+      <el-table-column column-key="languageDirection" v-if="isColumnVisible('languageDirection')" prop="language_pair" :label="WORKBENCH_FIELD_LABELS.languageDirection" :width="WORKBENCH_COLUMN_WIDTHS.languagePair">
         <template #default="{ row }">
           <LanguagePairText :value="row.language_pair" />
         </template>
       </el-table-column>
-      <el-table-column v-if="isColumnVisible('translatorReturn')" :label="WORKBENCH_FIELD_LABELS.translatorReturn" :width="WORKBENCH_COLUMN_WIDTHS.translatorReturn">
+      <el-table-column column-key="translatorReturn" v-if="isColumnVisible('translatorReturn')" :label="WORKBENCH_FIELD_LABELS.translatorReturn" :width="WORKBENCH_COLUMN_WIDTHS.translatorReturn">
         <template #default="{ row }">
           <div v-if="getTranslatorReturnSummary(row)" class="translator-return-summary">
             <span class="translator-return-summary__name">{{ getTranslatorReturnSummary(row).translatorName }}</span>
@@ -305,7 +306,7 @@
           <span v-else>{{ row.translator_execution ? '暂无待回稿' : '-' }}</span>
         </template>
       </el-table-column>
-      <el-table-column v-if="isColumnVisible('taskCompletion')" :label="WORKBENCH_FIELD_LABELS.taskCompletion" :width="WORKBENCH_COLUMN_WIDTHS.taskCompletion">
+      <el-table-column column-key="taskCompletion" v-if="isColumnVisible('taskCompletion')" :label="WORKBENCH_FIELD_LABELS.taskCompletion" :width="WORKBENCH_COLUMN_WIDTHS.taskCompletion">
         <template #default="{ row }">
           <el-tooltip v-if="getCompletionSummaries(row).length" placement="top" effect="dark">
             <template #content>
@@ -321,7 +322,7 @@
           <span v-else>-</span>
         </template>
       </el-table-column>
-      <el-table-column v-if="isColumnVisible('currentAssignee')" prop="current_assignee_name" :label="WORKBENCH_FIELD_LABELS.currentAssignee" :width="WORKBENCH_COLUMN_WIDTHS.currentAssignee">
+      <el-table-column column-key="currentAssignee" v-if="isColumnVisible('currentAssignee')" prop="current_assignee_name" :label="WORKBENCH_FIELD_LABELS.currentAssignee" :width="WORKBENCH_COLUMN_WIDTHS.currentAssignee">
         <template #default="{ row }">
           <div class="assignee-cell">
             <ProjectRoleAssigneesPopover
@@ -344,10 +345,10 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column v-if="isColumnVisible('currentRole')" prop="current_stage_role_name" :label="WORKBENCH_FIELD_LABELS.currentRole" :width="WORKBENCH_COLUMN_WIDTHS.currentRole" show-overflow-tooltip>
+      <el-table-column column-key="currentRole" v-if="isColumnVisible('currentRole')" prop="current_stage_role_name" :label="WORKBENCH_FIELD_LABELS.currentRole" :width="WORKBENCH_COLUMN_WIDTHS.currentRole" show-overflow-tooltip>
         <template #default="{ row }">{{ row.current_stage_role_name || formatStage(row.current_stage_role_code) }}</template>
       </el-table-column>
-      <el-table-column v-if="isColumnVisible('assignmentMethod')" :label="WORKBENCH_FIELD_LABELS.assignmentMethod" :width="WORKBENCH_COLUMN_WIDTHS.assignmentMethod">
+      <el-table-column column-key="assignmentMethod" v-if="isColumnVisible('assignmentMethod')" :label="WORKBENCH_FIELD_LABELS.assignmentMethod" :width="WORKBENCH_COLUMN_WIDTHS.assignmentMethod">
         <template #default="{ row }">
           <el-tag :type="assignmentTagType(row)" size="small" effect="plain">
             {{ assignmentLabel(row) }}
@@ -375,7 +376,8 @@
           <el-button v-if="hasAction(row, 'return_delegation')" type="warning" link size="small" @click="returnDelegation(row)">归还任务</el-button>
         </template>
       </el-table-column>
-    </el-table>
+    </OrderedTableColumns>
+</el-table>
     <div v-if="filteredTasks.length" class="task-pagination">
       <el-pagination
         v-model:current-page="currentPage"
@@ -532,6 +534,7 @@
 </template>
 
 <script setup>
+import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import TransferNoteEditor from '@/components/TransferNoteEditor.vue'

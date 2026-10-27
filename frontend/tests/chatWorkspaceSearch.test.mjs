@@ -6,7 +6,7 @@ import { matchesSearch } from '../src/utils/searchMatching.js'
 import { groupSessionList, mentionUnreadCount, firstUnreadMentionSession } from '../src/utils/chatSessionList.js'
 
 const source = readFileSync(new URL('../src/components/chat/ChatWorkspace.vue', import.meta.url), 'utf8')
-const expression = source.slice(source.indexOf('const visibleSessions ='), source.indexOf('\nfunction showAnnotation'))
+const expression = source.slice(source.indexOf('const visibleSessions ='), source.indexOf('\nfunction syncActiveConversation'))
 
 test('未读提及排在普通置顶会话之前，消息入口清除筛选并打开第一条未读提及', () => {
   const sessions = [

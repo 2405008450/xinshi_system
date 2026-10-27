@@ -1,5 +1,6 @@
 <template>
   <el-table ref="tableRef" v-loading="loading" :data="rows" :height="height" row-key="id" border stripe @selection-change="$emit('selection-change', $event)">
+<OrderedTableColumns :settings-key="columnSettingsKey">
     <el-table-column v-if="deleteMode" type="selection" width="48" :selectable="row => row.can_delete" fixed="left" />
     <el-table-column type="index" :index="index => (page - 1) * pageSize + index + 1" label="序号" width="65" />
     <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :label="column.label" :min-width="column.width" show-overflow-tooltip>
@@ -15,6 +16,10 @@
         <el-button v-else-if="!crossDate && column.key === 'owner_name' && editable(row)" link type="primary" :aria-label="`填写${row.owner_name}的每日工时`" @click="$emit('work', row.work_date, row.owner_id)">{{ display(row, column.key) }}</el-button>
         <el-button v-else-if="!crossDate && column.key === 'work_date'" link type="primary" @click="$emit('statistic', row.work_date)">{{ display(row, column.key) }}</el-button>
         <el-button v-else-if="column.key === 'latest_follow_up' && editable(row)" link type="primary" class="development-progress" :title="row.latest_follow_up_entry?.content ?? row.latest_follow_up ?? row.follow_up ?? ''" @click="$emit('edit', row, 'follow_up')">{{ followUpText(row) || '填写后续跟进情况' }}</el-button>
+        <div v-else-if="['wechat', 'xiaohongshu', 'whatsapp', 'custom_accounts_text'].includes(column.key) || column.key.startsWith('custom_account:') || column.key.startsWith('custom_field:')" class="development-copy-cell">
+          <span class="development-copy-text">{{ display(row, column.key) }}</span>
+          <el-button v-if="!row.contact_restricted && developmentColumnValue(row, column.key)" link type="primary" size="small" class="development-copy-button" :icon="CopyDocument" :title="`复制${column.label}`" :aria-label="`复制${column.label}`" @click.stop="copyContact(row, column)" />
+        </div>
         <span v-else>{{ display(row, column.key) }}</span>
       </template>
     </el-table-column>
@@ -29,19 +34,23 @@
     <el-table-column v-if="!deleteMode" label="操作" width="90" fixed="right">
       <template #default="{ row }"><el-button v-if="editable(row)" link type="primary" @click="$emit('edit', row)">编辑</el-button><span v-else class="muted">只读</span></template>
     </el-table-column>
-  </el-table>
+  </OrderedTableColumns>
+</el-table>
 </template>
 
 <script setup>
+import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { CopyDocument } from '@element-plus/icons-vue'
+import { copyTextToClipboard } from '@/utils/clipboard'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import DevelopmentDetailContent from './DevelopmentDetailContent.vue'
 import DevelopmentGroupProgress from './DevelopmentGroupProgress.vue'
 import { developmentApi as api } from '@/api/resourceDevelopment'
-import { developmentColumns, progressColumnChannel, progressText, progressStatuses, isGroupChannel, followUpText } from '@/utils/resourceDevelopment'
+import { buildDevelopmentColumns, developmentColumnValue, progressColumnChannel, progressText, progressStatuses, isGroupChannel, followUpText } from '@/utils/resourceDevelopment'
 
-const props = defineProps({
+const props = defineProps({ columnSettingsKey: { type: String, default: 'resource-development' },
   rows: { type: Array, required: true }, options: { type: Object, required: true },
   selectedColumns: { type: Array, required: true }, columnFilters: { type: Object, required: true },
   page: { type: Number, default: 1 }, pageSize: { type: Number, default: 10 },
@@ -52,13 +61,21 @@ const tableRef = ref()
 const details = reactive({}), detailLoading = reactive({}), controllers = new Map()
 let generation = 0
 const visibleColumns = computed(() => {
-  const columns = developmentColumns.filter(column => props.selectedColumns.includes(column.key))
+  const columns = buildDevelopmentColumns(props.options).filter(column => props.selectedColumns.includes(column.key))
   // 跨日结果优先显示业务日期，用户无需横向滚动就能区分记录来源日期。
   return props.crossDate ? [...columns.filter(column => column.key === 'work_date'), ...columns.filter(column => column.key !== 'work_date')] : columns
 })
 const platforms = computed(() => props.options.options.filter(option => option.kind === 'platform'))
 const accounts = computed(() => props.options.options.filter(option => option.kind === 'account'))
 const editable = row => props.options.can_write && row.can_edit && !props.deleteMode
+async function copyContact(row, column) {
+  const value = developmentColumnValue(row, column.key)
+  if (row.contact_restricted || !value) return
+  try {
+    if (await copyTextToClipboard(value)) ElMessage.success(`${column.label}已复制`)
+    else ElMessage.error('复制失败，请手动复制')
+  } catch { ElMessage.error('复制失败，请手动复制') }
+}
 function columnDefinition(column) {
   const selects = { platform_name: platforms.value, owner_name: props.options.users, account_name: accounts.value, language_names: props.options.languages }
   const channel = progressColumnChannel[column.key]
@@ -68,7 +85,7 @@ function columnDefinition(column) {
 }
 const chineseDate = value => value ? new Date(`${String(value).slice(0, 10)}T00:00:00`).toLocaleDateString('zh-CN') : '-'
 const chineseTime = value => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'
-const display = (row, key) => key === 'latest_follow_up' ? followUpText(row) || '-' : progressColumnChannel[key] ? progressText(row, progressColumnChannel[key]) : key === 'work_date' ? chineseDate(row[key]) : key === 'updated_at' ? chineseTime(row[key]) : row[key] || '-'
+const display = (row, key) => key === 'latest_follow_up' ? followUpText(row) || '-' : progressColumnChannel[key] ? progressText(row, progressColumnChannel[key]) : key === 'work_date' ? chineseDate(row[key]) : key === 'updated_at' ? chineseTime(row[key]) : developmentColumnValue(row, key) || '-'
 function invalidateDetails() {
   generation++
   controllers.forEach(controller => controller.abort()); controllers.clear()
@@ -93,6 +110,9 @@ defineExpose({ invalidateDetails, clearSelection: () => tableRef.value?.clearSel
 </script>
 
 <style scoped>
+.development-copy-cell{position:relative;min-height:40px;padding-bottom:18px;box-sizing:border-box}
+.development-copy-text{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.development-copy-button{position:absolute;right:0;bottom:0;padding:2px;min-height:20px}
 .development-progress{max-width:100%;min-width:0;white-space:nowrap;text-align:left}
 .development-progress :deep(> span){display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 </style>

@@ -60,4 +60,9 @@ def history(db, request_id):
     executions=replies(db,[b.id for b in batches if b.kind=='post'])
     for record in result['post']:
         record['execution_replies']=[r for r in executions if r['dispatch_id']==record['id']]
+    from resource_request_cancellation import summary
+    for kind, records in result.items():
+        for record in records:
+            batch = next((b for b in batches if (str(b.id) == record['id'] if kind != 'development' else b.kind == 'development' and b.snapshot.get('send_log_id') == record['id'])), None)
+            record['cancellation'] = summary(db, batch) if batch else None
     return dict(limit=LIMIT, records=result)

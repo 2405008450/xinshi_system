@@ -8,6 +8,7 @@ export const developmentColumns = [
   ['group_status', '企微小群', 140], ['group_large_status', '企微大群', 140], ['communication_status', '沟通', 140], ['project_status', '入项', 140],
   ['greeting_no', '招呼编号', 190],
   ['phone', '资源手机', 150], ['resource_code', '资源编号', 160],
+  ['whatsapp', '资源 WhatsApp 号', 170], ['custom_accounts_text', '自定义资源账号', 240],
   ['work_date', '日期', 130], ['remarks', '备注', 240], ['updated_at', '更新时间', 190],
 ].map(([key, label, width]) => ({ key, label, width }))
 export const defaultDevelopmentColumns = [
@@ -15,6 +16,16 @@ export const defaultDevelopmentColumns = [
   'account_name', 'friend_accounts_text', 'wechat_status', 'enterprise_status', 'latest_follow_up',
   'group_status', 'group_large_status', 'communication_status', 'project_status',
 ]
+export const buildDevelopmentColumns = (options = {}) => [
+  ...developmentColumns,
+  ...(options.custom_account_fields || []).map(field => ({ key: field.key, label: `资源${field.name}号`, width: 180, accountName: field.name })),
+  ...(options.options || []).filter(field => field.kind === 'custom_field').map(field => ({ key: `custom_field:${field.id}`, label: field.name, width: 200, customFieldId: field.id })),
+]
+export const developmentColumnValue = (row, key) => {
+  if (key.startsWith('custom_field:')) return row.custom_fields?.[key.slice('custom_field:'.length)] || ''
+  if (key.startsWith('custom_account:')) return row.custom_accounts?.find(item => item.name.trim().toLocaleLowerCase() === key.slice('custom_account:'.length))?.value || ''
+  return row[key]
+}
 export const progressChannels = { wechat: '添加微信', enterprise: '添加企微', group: '企微小群', group_large: '企微大群', communication: '沟通', project: '入项' }
 export const progressColumnChannel = { wechat_status: 'wechat', enterprise_status: 'enterprise', group_status: 'group', group_large_status: 'group_large', communication_status: 'communication', project_status: 'project' }
 export const isGroupChannel = channel => ['group', 'group_large'].includes(channel)
@@ -38,7 +49,8 @@ export const restoreDevelopmentBatch = (saved, options, today = dateText(new Dat
 }
 export const dateText = value => {
   const d = new Date(value)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Hong_Kong', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d).map(part => [part.type, part.value]))
+  return `${parts.year}-${parts.month}-${parts.day}`
 }
 export const recentDays = (today = new Date()) => {
   const start = new Date(today); start.setDate(start.getDate() - 2)
@@ -55,7 +67,7 @@ export const newDevelopmentId = () => {
   const hex = [...bytes].map(b => b.toString(16).padStart(2, '0')).join('')
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
-export const cleanColumns = (value, defaults = defaultDevelopmentColumns) => {
+export const cleanColumns = (value, defaults = defaultDevelopmentColumns, columns = developmentColumns) => {
   const oldDefault = ['platform_name', 'greeting_no', 'full_name', 'language_names', 'owner_name', 'account_name', 'wechat_status', 'enterprise_status']
   if (!Array.isArray(value)) return [...defaults]
   // 升级已知的旧默认组合；自定义选择（包括全部隐藏）继续保留。
@@ -67,7 +79,7 @@ export const cleanColumns = (value, defaults = defaultDevelopmentColumns) => {
   }
   if (previousDefaults.some(columns => JSON.stringify(value) === JSON.stringify(columns))) return [...defaults]
   value = value.map(key => key === 'follow_up' ? 'latest_follow_up' : key)
-  return developmentColumns.filter(c => value.includes(c.key)).map(c => c.key)
+  return columns.filter(c => value.includes(c.key)).map(c => c.key)
 }
 
 export const followUpTime = value => {

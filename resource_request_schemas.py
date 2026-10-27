@@ -62,8 +62,15 @@ class ResourceDetailVersion(BaseModel):
     copied_from_task: bool = False
 
 
+class ResourceRequestDispatchNotes(BaseModel):
+    circle: str = Field(default='', max_length=10000)
+    post: str = Field(default='', max_length=10000)
+    development: str = Field(default='', max_length=10000)
+
+
 class ResourceRequestContent(BaseModel):
     versions: list[ResourceDetailVersion] = Field(default_factory=list, max_length=20)
+    dispatch_notes: ResourceRequestDispatchNotes = Field(default_factory=ResourceRequestDispatchNotes)
 
 
 class ResourceRequestWrite(BaseModel):

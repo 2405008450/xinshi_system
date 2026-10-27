@@ -10,11 +10,12 @@ const page = fs.readFileSync(
 test('笔译项目默认列表不显示项目经理，并迁移上一版默认配置', () => {
   assert.match(
     page,
-    /const translationDefaultColumnKeys = previousTranslationDefaultColumnKeys\s+\.filter\(\(key\) => key !== 'projectManagerName'\)\s+\.map\(\(key\) => key === 'projectName' \? 'sourceFileName' : key\)/,
+    /const previousTranslationDisplayKeys = previousTranslationDefaultColumnKeys\s+\.filter\(\(key\) => key !== 'projectManagerName'\)\s+\.map\(\(key\) => key === 'projectName' \? 'sourceFileName' : key\)/,
   )
+  assert.match(page, /const translationDefaultColumnKeys=\[\.\.\.previousTranslationDisplayKeys,'assignedTranslators'\]/)
   assert.match(
     page,
-    /legacyDefaultKeys: \[legacyTranslationDefaultColumnKeys, legacyTranslationDefaultColumnKeysWithReturnTime, previousTranslationDefaultColumnKeys\]/,
+    /legacyDefaultKeys: \[previousTranslationDisplayKeys,legacyTranslationDefaultColumnKeys, legacyTranslationDefaultColumnKeysWithReturnTime, previousTranslationDefaultColumnKeys\]/,
   )
 })
 

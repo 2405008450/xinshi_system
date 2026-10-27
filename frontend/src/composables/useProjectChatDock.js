@@ -1,4 +1,4 @@
-import { reactive } from 'vue'
+import { nextTick, reactive } from 'vue'
 import { sessionListKey } from '@/utils/chatSessionList'
 import { getProject } from '@/api/projects'
 import { getAnnotationProject } from '@/api/annotationProjects'
@@ -272,9 +272,10 @@ const activateWorkspace = (key) => {
   focusWorkspace()
 }
 
-const openChat = ({ projectId, projectType = 'translation', title = '', subtitle = '', messageId = '', projectStatus = '', allowDuplicate = false }) => {
+const openChat = ({ projectId, projectType = 'translation', title = '', subtitle = '', messageId = '', projectStatus = '', allowDuplicate = false, syncSidebar = false }) => {
   if (!projectId) return null
   ensurePreferences()
+  const announce=()=>syncSidebar&&nextTick(()=>{const active=state.windows.find(row=>row.key===state.activeKey);if(active?.projectType===projectType&&active?.projectId===String(projectId))window.dispatchEvent(new CustomEvent('chat-conversation-activated',{detail:{projectType,projectId:String(projectId)}}))})
   const conversationKey = `${projectType}:${projectId}`
   const key = allowDuplicate ? `${conversationKey}:copy-${++duplicateSequence}` : conversationKey
   state.recentClosedSessions = state.recentClosedSessions.filter(item => !(item.sessionKeys || [item.key]).includes(conversationKey))
@@ -298,6 +299,7 @@ const openChat = ({ projectId, projectType = 'translation', title = '', subtitle
     activateWorkspace(existing.key)
     enforceExpandedLimit(existing.key)
     if (!title || !subtitle || (projectType === 'annotation' && !existing.projectStatus)) fillChatWindowMeta(existing, true)
+    announce()
     return existing.key
   }
 
@@ -332,6 +334,7 @@ const openChat = ({ projectId, projectType = 'translation', title = '', subtitle
   activateWorkspace(key)
   enforceExpandedLimit(key)
   if (needsMeta) fillChatWindowMeta(chatWindow)
+  announce()
   return key
 }
 
