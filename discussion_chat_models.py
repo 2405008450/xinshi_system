@@ -29,3 +29,14 @@ class DiscussionMember(Base):
     last_read_id = mapped_column(BigInteger, nullable=False, default=0)
     pinned = mapped_column(Boolean, nullable=False, default=False)
     starred = mapped_column(Boolean, nullable=False, default=False)
+
+
+class DiscussionMention(Base):
+    """显式的讨论提及关系；纯文本 @ 不产生提醒。"""
+    __tablename__ = 'chat_discussion_mention'
+    __table_args__ = (Index('ix_discussion_mention_user_message', 'user_id', 'message_id'),)
+    message_id = mapped_column(BigInteger, ForeignKey('chat_discussion_message.id', ondelete='CASCADE'), primary_key=True)
+    user_id = mapped_column(Uuid, ForeignKey('app_user.id', ondelete='CASCADE'), primary_key=True)
+    user_name = mapped_column(String(255), nullable=False)
+    is_all = mapped_column(Boolean, nullable=False, default=False)
+    notification_id = mapped_column(Uuid, ForeignKey('app_notification.id', ondelete='SET NULL'), unique=True)

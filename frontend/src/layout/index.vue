@@ -42,7 +42,7 @@
         <!-- 协作资源：客户、资源需求与人才资源池 -->
         <li v-if="showResourceGroup && !isCollapse" class="menu-group-label" role="presentation"><span>资源协作</span></li>
         <SidebarNavigationItem v-if="showClients" index="/clients" :icon="OfficeBuilding" label="客户信息" />
-        <SidebarNavigationItem v-if="showResourceManagement" :index="resourceManagementPath" :icon="Avatar" label="人才资源管理" />
+        <SidebarNavigationItem v-if="showResourceManagement" :index="resourceManagementPath" :icon="Avatar" label="资源管理" />
 
         <!-- 账户、扩展能力和管理员入口统一归入平台设置 -->
         <li v-if="!isCollapse" class="menu-group-label" role="presentation"><span>平台设置</span></li>

@@ -81,11 +81,15 @@ account_router = APIRouter(dependencies=[Depends(require_any_permission(
     "annotation_accounts:read", "annotation_accounts:write",
 ))])
 project_router = APIRouter(dependencies=[Depends(require_module_access("projects:read", "projects:write"))])
+progress_record_router = APIRouter(dependencies=[Depends(require_any_permission('projects:read', 'projects:write'))])
 
 
 def _run(db: Session, callback):
     try:
         return callback()
+    except StaleUpdateError as exc:
+        db.rollback()
+        raise HTTPException(409, str(exc))
     except (ValueError, IntegrityError) as exc:
         db.rollback()
         if isinstance(exc, IntegrityError):
@@ -485,9 +489,8 @@ def customer_progress_remove(record_id: UUID, payload: CustomerProgressDelete, d
     _customer_progress_run(db, lambda: delete_customer_progress(db, record_id, payload, user.id))
 
 
-@project_router.patch(
+@progress_record_router.patch(
     "/status-history/{history_id}/progress", response_model=List[StatusHistoryResponse],
-    dependencies=[Depends(require_any_permission("projects:write"))],
 )
 def edit_progress_history(
     history_id: UUID,
@@ -501,9 +504,8 @@ def edit_progress_history(
     return rows
 
 
-@project_router.delete(
+@progress_record_router.delete(
     "/status-history/{history_id}/progress", response_model=List[StatusHistoryResponse],
-    dependencies=[Depends(require_any_permission("projects:write"))],
 )
 def remove_progress_history(
     history_id: UUID,
@@ -515,6 +517,21 @@ def remove_progress_history(
     if rows is None:
         raise HTTPException(404, "项目进度记录不存在")
     return rows
+
+
+@progress_record_router.get('/projects/{project_id}/progress-record-audits')
+def progress_record_audits(project_id: UUID, db: Session = Depends(get_db)):
+    from annotation_progress_record_audit import project_record_audits, audit_response
+    from annotation_models import AnnotationProject
+    if not db.get(AnnotationProject, project_id):
+        raise HTTPException(404, '标注项目不存在')
+    return [audit_response(row) for row in project_record_audits(db, project_id)]
+
+
+@progress_record_router.get('/progress-record-capabilities')
+def progress_record_capabilities(db: Session = Depends(get_db)):
+    from annotation_progress_record_audit import edit_audit_ready
+    return {'edit_audit_ready': edit_audit_ready(db)}
 
 
 @project_router.get("/project-arrangements/context", response_model=ArrangementContextResponse)
@@ -851,3 +868,4 @@ def remove_pending_custom_field_image(
 
 router.include_router(account_router)
 router.include_router(project_router)
+router.include_router(progress_record_router)

@@ -15,7 +15,7 @@
           <el-button @click="progressSearchVisible = true">进度记录</el-button>
           <CustomFieldManager v-if="canWrite" table-code="project" @changed="loadProjectCustomFields" />
           </template>
-          <TableColumnSettings v-model="visibleColumnKeys" :columns="configurableTableColumns" :column-count="2" hint="订单号始终显示，点击可查看详情。" @reset="resetColumns" />
+          <TableColumnSettings :settings-key="props.orderScope === 'child' ? 'annotation-child-orders' : 'annotation-projects'" v-model="visibleColumnKeys" :columns="configurableTableColumns" :column-count="2" hint="订单号始终显示，点击可查看详情。" @reset="resetColumns" />
           <template v-if="!props.conversationPicker">
           <el-button v-if="canAdjustManagers && !deleteMode" @click="managerTransferVisible = true">交接与记录</el-button>
           <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
@@ -54,7 +54,7 @@
 
     <el-alert v-if="capabilitiesLoaded && !supportsGrandchildOrders" title="当前后端尚未启用三级订单、片区和字段继承；订单、子订单仍可正常使用。" type="info" :closable="false" show-icon />
     <el-alert v-if="capabilitiesLoaded && !supportsLanguageRegions" title="当前后端尚未启用语种地区，暂不能录入城市、区县、街道；其他项目字段仍可正常使用。" type="info" :closable="false" show-icon />
-    <AnnotationOrderTable :conversation-picker="props.conversationPicker" :picker-action-label="props.pickerActionLabel" ref="projectTableRef" :supports-grandchild-orders="supportsGrandchildOrders" :rows="tableData" :columns="visibleTableColumns" :editable="canWrite" :delete-mode="deleteMode" :revision="childRevision" :area-ids="supportsGrandchildOrders ? searchForm.areaIds : []" :row-class="projectRowClass" v-loading="loading" class="annotation-table" @selection-change="handleDeleteSelectionChange" @create="openChildCreate" @manage="row => goChildManagement(row.id, row.orderLevel)" @updated="handleOrderUpdated">
+    <AnnotationOrderTable :column-settings-key="props.orderScope === 'child' ? 'annotation-child-orders' : 'annotation-projects'" :conversation-picker="props.conversationPicker" :picker-action-label="props.pickerActionLabel" ref="projectTableRef" :supports-grandchild-orders="supportsGrandchildOrders" :rows="tableData" :columns="visibleTableColumns" :editable="canWrite" :delete-mode="deleteMode" :revision="childRevision" :area-ids="supportsGrandchildOrders ? searchForm.areaIds : []" :row-class="projectRowClass" v-loading="loading" class="annotation-table" @selection-change="handleDeleteSelectionChange" @create="openChildCreate" @manage="row => goChildManagement(row.id, row.orderLevel)" @updated="handleOrderUpdated">
       <template #header="{ column }">
           <AnnotationRegionColumnHeader v-if="column.key === 'regionSummary'" v-model:level="regionDisplayLevel" :definition="regionFilterDefinition" :model="searchForm" @update-field="(key,value)=>searchForm[key]=value" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch" />
           <ConfiguredColumnHeaderFilter v-else-if="headerFilterDefinition(column.key)" :definition="headerFilterDefinition(column.key)" :model-value="searchForm[headerFilterDefinition(column.key).key]" @update:model-value="searchForm[headerFilterDefinition(column.key).key]=$event" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch">
@@ -338,21 +338,13 @@
             >
               <span class="progress-child-dot" />
               <div class="progress-child-content">
-                <div class="progress-child-note">{{ child.changeNote }}</div>
+                <div class="progress-child-note">{{ child.isDeleted || child.noteDeleted ? '该条记录已删除' : child.changeNote }}</div>
                 <div class="progress-child-meta">
                   <span>{{ formatDateTime(child.effectiveOn) }}</span>
                   <span>{{ child.changedByName || '系统' }}</span>
                   <el-tag size="small" effect="plain">{{ child.kind === 'status-note' ? '变更说明' : '具体进度' }}</el-tag>
-                  <el-button
-                    v-if="canWrite && child.kind === 'progress'"
-                    type="danger"
-                    link
-                    size="small"
-                    class="progress-child-delete"
-                    :disabled="progressBusy"
-                    @click="openProgressDeleteDialog(child)"
-                  >删除</el-button>
                 </div>
+                <AnnotationProgressRecordActions :project-id="activeProgressProject.id" :record="child" :disabled="progressBusy" @updated="onProgressRecordUpdated" @busy="progressRecordBusy=$event" />
               </div>
             </div>
           </div>
@@ -677,6 +669,7 @@ import AnnotationCustomerProgress from '@/components/annotation/AnnotationCustom
 import AnnotationProgressTrackSelect from '@/components/annotation/AnnotationProgressTrackSelect.vue'
 import AnnotationChildProgressNotice from '@/components/annotation/AnnotationChildProgressNotice.vue'
 import '@/components/annotation/annotationProgressHistory.css'
+import AnnotationProgressRecordActions from '@/components/annotation/AnnotationProgressRecordActions.vue'
 import AnnotationCustomerProgressTimeline from '@/components/annotation/AnnotationCustomerProgressTimeline.vue'
 import { useAnnotationCustomerProgress } from '@/composables/useAnnotationCustomerProgress'
 import AnnotationProgressDeliveryDialog from '@/components/chat/AnnotationProgressDeliveryDialog.vue'
@@ -924,7 +917,8 @@ const annotatorProgressRef=ref()
 const entryTrack=ref('project'), customerProgressEntryRef=ref(), progressTrackSwitching=ref(false)
 const progressDeliveryRef=ref()
 const chooseProgressDelivery=()=>progressDeliveryRef.value.request(`${activeProgressProject.value?.orderNo||''} · ${activeProgressProject.value?.projectName||''}`,activeProgressProject.value?.id)
-const progressWriting=computed(()=>statusSubmitting.value || customerProgress.submitting || !!annotatorProgressRef.value?.busy || progressDeleteSubmitting.value)
+const progressRecordBusy=ref(false)
+const progressWriting=computed(()=>statusSubmitting.value || customerProgress.submitting || !!annotatorProgressRef.value?.busy || progressDeleteSubmitting.value || progressRecordBusy.value)
 const progressBusy=computed(()=>progressWriting.value || statusValidating.value || customerProgress.validating || progressTrackSwitching.value)
 const statusRules={
   projectStatus:[
@@ -1281,6 +1275,7 @@ const confirmStatusChange=async()=>{
   finally{statusValidating.value=false;statusSubmitting.value=false;setProjectStatusSaving(project.id,false)}
 }
 const resetProgressDeleteDialog=()=>{progressDeleteTarget.value=null;progressDeleteForm.reason='';progressDeleteFormRef.value?.clearValidate()}
+const onProgressRecordUpdated=async rows=>{const id=activeProgressProject.value?.id;if(!id)return;progressRows.value=Array.isArray(rows)?rows:[];statusHistoryCache[id]=progressRows.value;delete detailCache[id];await fetchData()}
 const openProgressDeleteDialog=(row)=>{progressDeleteTarget.value=row;progressDeleteForm.reason='';progressDeleteVisible.value=true;nextTick(()=>progressDeleteFormRef.value?.clearValidate())}
 const confirmProgressDelete=async()=>{
   const target=progressDeleteTarget.value,project=activeProgressProject.value

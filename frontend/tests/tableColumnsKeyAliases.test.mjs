@@ -85,3 +85,12 @@ test('未启用映射的模块继续过滤失效字段，不自动显示文件�
   assert.deepEqual(open({}).selectedKeys.value, ['orderNo', 'emailSubjectPreview'])
   assert.deepEqual(JSON.parse(values.get(storageKey())), ['orderNo', 'emailSubjectPreview'])
 })
+
+test('一列拆分多列时保留用户其他选择，去重并持久化，全部隐藏仍保持', (t) => {
+  const { values, open } = setup(t, JSON.stringify(['projectName', 'clientShortName', 'emailSubjectPreview']))
+  const splitOptions = {keyAliases:{projectName:['sourceFileName','clientShortName']}}
+  assert.deepEqual(open(splitOptions).selectedKeys.value, ['sourceFileName','clientShortName','emailSubjectPreview'])
+  assert.deepEqual(JSON.parse(values.get(storageKey())), ['sourceFileName','clientShortName','emailSubjectPreview'])
+  values.set(storageKey(), '[]')
+  assert.deepEqual(open(splitOptions).selectedKeys.value, [])
+})

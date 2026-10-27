@@ -104,18 +104,8 @@ test('子订单状态列位于文件名称和翻译方向之间以对齐母订�
   assert.ok(languagePairColumn > statusColumn)
 })
 
-test('译员回稿时间排序启用时过滤没有有效回稿时间的子订单', () => {
-  assert.match(
-    projectDetailsSource,
-    /const hasTranslatorReturnSubOrderFilter = \(\) => \([\s\S]*?TRANSLATION_PROJECT_TIME_SORT_MODES\.translatorReturnTime[\s\S]*?\)/,
-  )
-  assert.match(
-    projectDetailsSource,
-    /hasSubOrderStatusFilter\(\) \|\| hasTranslatorReturnSubOrderFilter\(\)/,
-  )
-  assert.match(
-    projectDetailsSource,
-    /hasTranslatorReturnSubOrderFilter\(\)[\s\S]*?statusMatched\.filter\(hasTranslationSubOrderReturnTime\)/,
-  )
-  assert.match(projectDetailsSource, /v-if="hasSubOrderListFilter\(\)"/)
+test('时间排序不再作为子订单筛选，不隐藏未填时间的记录',()=>{
+  assert.match(projectDetailsSource,/const hasSubOrderListFilter = \(\) => hasSubOrderStatusFilter\(\)/)
+  assert.doesNotMatch(projectDetailsSource,/statusMatched\.filter\(hasTranslationSubOrderReturnTime\)/)
+  assert.doesNotMatch(projectDetailsSource,/const getSubOrderReturnSortRank/)
 })

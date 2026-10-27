@@ -9,23 +9,21 @@
         <el-popover v-model:visible="advanced" trigger="click" placement="bottom-end" :width="760" popper-class="development-advanced development-status-advanced">
           <template #reference><el-button>高级筛选{{ advancedCount ? `（${advancedCount}）` : '' }}</el-button></template>
           <div ref="advancedBody" class="development-advanced-body">
+            <AdvancedFilterFieldSearch :active="advanced">
             <div class="development-form-grid">
               <div v-for="condition in advancedConditions" :key="condition.key"><label>{{ condition.label }}</label><el-select v-model="filters[condition.key]" clearable filterable :append-to="advancedBody?.parentElement" :aria-label="condition.label" @change="commonChanged(condition.key)"><el-option v-for="option in condition.options" :key="option.id" :label="option.name" :value="option.id" /></el-select></div>
             </div>
+            </AdvancedFilterFieldSearch>
             <div class="development-actions"><el-button @click="clearAdvanced">清空高级条件</el-button><el-button @click="advanced = false">关闭</el-button></div>
           </div>
         </el-popover>
-        <el-popover trigger="click" placement="bottom-end" :width="280" popper-class="development-status-columns">
-          <template #reference><el-button>字段设置</el-button></template>
-          <div class="development-column-options"><el-checkbox-group v-model="selectedColumns"><el-checkbox v-for="column in developmentColumns" :key="column.key" :value="column.key">{{ column.label }}</el-checkbox></el-checkbox-group></div>
-          <el-button text type="primary" @click="selectedColumns = [...defaultColumns]">恢复默认</el-button>
-        </el-popover>
+        <TableColumnSettings settings-key="resource-development-status-records" v-model="selectedColumns" :columns="developmentColumns" title="开拓记录字段" @reset="selectedColumns = [...defaultColumns]" />
       </div>
       <div class="development-actions status-shortcuts"><span class="muted">开拓日期：{{ filters.range?.length ? filters.range.join(' 至 ') : '全部日期' }}</span><el-tooltip v-for="shortcut in developmentDateShortcuts" :key="shortcut.key" :content="shortcut.hint"><el-button size="small" @click="chooseRange(shortcut.key)">{{ shortcut.label }}</el-button></el-tooltip></div>
       <div v-if="activeColumnKeys.length" class="development-actions status-column-tags"><el-tag v-for="key in activeColumnKeys" :key="key" closable @close="delete columnFilters[key]; query()">{{ developmentColumns.find(column => column.key === key)?.label }}：已筛选</el-tag><el-button link @click="clearColumns">清空列筛选</el-button></div>
     </div>
     <div class="status-records-area">
-      <DevelopmentRecordsTable ref="tableRef" :rows="rows" :options="options" :selected-columns="selectedColumns" :column-filters="columnFilters" :page="page" :page-size="pageSize" :loading="loading" height="100%" cross-date
+      <DevelopmentRecordsTable column-settings-key="resource-development-status-records" ref="tableRef" :rows="rows" :options="options" :selected-columns="selectedColumns" :column-filters="columnFilters" :page="page" :page-size="pageSize" :loading="loading" height="100%" cross-date
         @column-filter="setColumnFilter" @text-input="columnTextInput" @query="query" @edit="(row, channel, status) => $emit('edit', row, channel, status)" @saved="$emit('saved')" />
     </div>
     <template #footer><div class="status-records-footer"><el-pagination v-model:current-page="page" v-model:page-size="pageSize" :page-sizes="[10, 20, 50, 100]" :total="total" layout="total, sizes, prev, pager, next, jumper" @size-change="sizeChanged" @current-change="pageChanged" /><el-button @click="visible = false">关闭</el-button></div></template>
@@ -33,14 +31,17 @@
 </template>
 
 <script setup>
+import AdvancedFilterFieldSearch from '@/components/common/AdvancedFilterFieldSearch.vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import DevelopmentRecordsTable from './DevelopmentRecordsTable.vue'
+import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import { useDevelopmentFilters } from '@/composables/useDevelopmentFilters'
 import { developmentApi as api } from '@/api/resourceDevelopment'
-import { developmentColumns, defaultDevelopmentColumns, cleanColumns, statusOptions, developmentDateShortcuts, developmentDateRange } from '@/utils/resourceDevelopment'
+import { buildDevelopmentColumns, defaultDevelopmentColumns, cleanColumns, statusOptions, developmentDateShortcuts, developmentDateRange } from '@/utils/resourceDevelopment'
 
 const props = defineProps({ options: { type: Object, required: true } })
+const developmentColumns = computed(() => buildDevelopmentColumns(props.options))
 defineEmits(['edit', 'saved'])
 const visible = ref(false), entryState = ref('未处理'), advanced = ref(false), tableRef = ref()
 // 下拉浮层属于高级筛选；使用挂载后的实际节点，避免目标尚未挂载或误判为外部点击。
@@ -98,7 +99,7 @@ async function open(state) {
     const raw = localStorage.getItem(columnKey())
     const saved = raw ? JSON.parse(raw) : null
     if (raw && !Array.isArray(saved)) localStorage.removeItem(columnKey())
-    selectedColumns.value = cleanColumns(saved, defaultColumns)
+    selectedColumns.value = cleanColumns(saved, defaultColumns, developmentColumns.value)
   } catch {
     localStorage.removeItem(columnKey()); selectedColumns.value = [...defaultColumns]
   }

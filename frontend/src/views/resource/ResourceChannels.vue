@@ -7,7 +7,7 @@
           <p class="page-subtitle">集中维护开拓平台资料、用途与人员分工</p>
         </div>
         <div class="header-actions">
-          <TableColumnSettings
+          <TableColumnSettings settings-key="resource-channels"
             v-model="selectedColumns"
             :columns="channelColumns"
             :column-count="2"
@@ -32,6 +32,7 @@
       </AdvancedFilterPopover>
     </div>
     <el-table ref="tableRef" v-loading="loading" :data="rows" :expand-row-keys="expandedIds" border row-key="id" empty-text="暂无符合条件的渠道" @expand-change="expandedChanged" @selection-change="handleDeleteSelectionChange">
+<OrderedTableColumns settings-key="resource-channels">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column type="expand" width="1" class-name="channel-expand-column" label-class-name="channel-expand-column">
         <template #default="{ row }">
@@ -62,13 +63,15 @@
         </template>
       </el-table-column>
       <el-table-column v-if="!deleteMode" label="操作" :width="compactViewport ? 80 : fittedViewport ? 90 : 120" fixed="right"><template #default="{ row }"><template v-if="options.can_write && !deleteMode"><el-button link type="primary" @click="openEditor(row)">编辑</el-button><el-button v-if="options.hierarchy_available" link type="primary" @click="openEditor(null, row)">新增账号</el-button></template><span v-else class="channel-muted">-</span></template></el-table-column>
-    </el-table>
+    </OrderedTableColumns>
+</el-table>
     <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :page-sizes="[10,20,50,100]" :total="total" layout="total, sizes, prev, pager, next, jumper" @current-change="loadList" @size-change="query" />
     <ChannelAuditDialog ref="auditRef" /><ChannelEditor ref="editorRef" :options="options" @saved="saved" />
   </el-card>
 </template>
 
 <script setup>
+import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'

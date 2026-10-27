@@ -9,7 +9,7 @@
           </div>
           <div class="header-actions">
             <el-button v-if="!deleteMode" @click="openNotes">需求说明</el-button>
-            <TableColumnSettings
+            <TableColumnSettings settings-key="resource-requests"
               v-model="selectedColumnKeys"
               :columns="tableColumns"
               :column-count="2"
@@ -57,6 +57,7 @@
       </el-alert>
 
       <el-table ref="tableRef" :data="rows" v-loading="loading" border row-key="id" @selection-change="handleDeleteSelectionChange">
+<OrderedTableColumns settings-key="resource-requests">
         <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
         <el-table-column type="index" label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center" fixed="left" :index="rowIndex" />
         <el-table-column
@@ -124,7 +125,8 @@
             <el-button v-else-if="arrangementOptions.can_delegate" link type="primary" :disabled="row.demandStatus !== 'confirmed' || row.requestStatus === 'cancelled' || arranging" @click="openRowArrangement(row)">每日安排</el-button>
           </template>
         </el-table-column>
-      </el-table>
+      </OrderedTableColumns>
+</el-table>
       <el-pagination class="pagination" v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :page-sizes="arrangementMode ? [5, 10, 20, 50] : [10, 20, 50, 100]" :total="pagination.total" layout="total, sizes, prev, pager, next" @size-change="pageSizeChanged" @current-change="pageChanged" />
     </component>
 
@@ -216,11 +218,11 @@
         <ResourceRequestVersions v-model="form.requestContent.versions" editable :disabled="editorBusy" />
         <el-button link :loading="sendHistory.loading.value" @click="sendHistory.refresh">刷新发送及执行记录</el-button>
         <template v-if="form.sourceType==='annotation'">
-          <ResourceRequestDispatchSection :active="dialogVisible" kind="circle" label="发圈需求" :prepare="prepareDispatch" :disabled="editorBusy || !!sendHistory.error.value" :records="sendHistory.records.value.circle" :history-loading="sendHistory.loading.value" @sent="sendHistory.refresh" @busy="dispatchBusy=$event" />
-          <ResourceRequestDispatchSection :active="dialogVisible" kind="post" label="发帖需求" :prepare="prepareDispatch" :disabled="editorBusy || !!sendHistory.error.value" :records="sendHistory.records.value.post" :history-loading="sendHistory.loading.value" @sent="sendHistory.refresh" @busy="dispatchBusy=$event" />
+          <ResourceRequestDispatchSection v-model="form.requestContent.dispatchNotes.circle" :request-id="form.id" :cancel-disabled="editorBusy || !!sendHistory.error.value" :active="dialogVisible" kind="circle" label="发圈需求" :prepare="prepareDispatch" :disabled="editorBusy || !!sendHistory.error.value" :records="sendHistory.records.value.circle" :history-loading="sendHistory.loading.value" @sent="sendHistory.refresh" @busy="dispatchBusy=$event" />
+          <ResourceRequestDispatchSection v-model="form.requestContent.dispatchNotes.post" :request-id="form.id" :cancel-disabled="editorBusy || !!sendHistory.error.value" :active="dialogVisible" kind="post" label="发帖需求" :prepare="prepareDispatch" :disabled="editorBusy || !!sendHistory.error.value" :records="sendHistory.records.value.post" :history-loading="sendHistory.loading.value" @sent="sendHistory.refresh" @busy="dispatchBusy=$event" />
         </template>
         <el-alert v-if="sendHistory.error.value" :title="sendHistory.error.value" type="error" :closable="false"><el-button link @click="sendHistory.refresh">重新加载发送记录</el-button></el-alert>
-        <ResourceRequestDispatchSection :active="dialogVisible" kind="development" label="资源开拓 · 需求管理" :prepare="prepareDispatch" :disabled="editorBusy || !canSendDemand(form) || !!sendHistory.error.value" :records="sendHistory.records.value.development" :history-loading="sendHistory.loading.value" @sent="managementSent" @busy="dispatchBusy=$event" />
+        <ResourceRequestDispatchSection v-model="form.requestContent.dispatchNotes.development" :request-id="form.id" :cancel-disabled="editorBusy || !!sendHistory.error.value" :active="dialogVisible" kind="development" label="资源开拓 · 需求管理" @cancel="cancelDemand" :prepare="prepareDispatch" :disabled="editorBusy || !canSendDemand(form) || !!sendHistory.error.value" :records="sendHistory.records.value.development" :history-loading="sendHistory.loading.value" @sent="managementSent" @busy="dispatchBusy=$event" />
         </AppForm>
       </div>
       <template #footer>
@@ -263,6 +265,7 @@
 </template>
 
 <script setup>
+import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import AnnotationConversationEntry from '@/components/chat/AnnotationConversationEntry.vue'
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -500,7 +503,7 @@ let controller
 let requestId = 0
 let sourceOptionController = null
 let sourceOptionTimer = null
-const emptyForm = () => ({ id: '', sourceType: 'annotation', requestCategory: 'annotation_trial', sourceProjectId: '', otherProjectTypes: [], requestDetail: '', priority: 'medium', requestStatus: 'draft', demandStatus: 'draft', ownerId: '', requestContent:{versions:[{name:'发帖',content:''},{name:'询问',content:''}]}, partialRequested:false, partialSequence:0, items: [] })
+const emptyForm = () => ({ id: '', sourceType: 'annotation', requestCategory: 'annotation_trial', sourceProjectId: '', otherProjectTypes: [], requestDetail: '', priority: 'medium', requestStatus: 'draft', demandStatus: 'draft', ownerId: '', requestContent:{versions:[{name:'发帖',content:''},{name:'询问',content:''}],dispatchNotes:{circle:'',post:'',development:''}}, partialRequested:false, partialSequence:0, items: [] })
 const { beginDraft, pauseDraft, clearDraft } = useFormDraft({ namespace: 'resource-request', form, createDefault: emptyForm, formRef })
 const resetSourceInfo = () => Object.assign(sourceInfo, { projectTypes: [], orderNo: '', projectName: '', projectStatus: '', clientCode: '', clientShortName: '' })
 const params = () => ({ keyword: searchForm.keyword.trim() || undefined, field_filters: serializeFieldFilters(filterModel, filterFields) })
@@ -654,7 +657,7 @@ const openEditor = async (row = null, source = null) => {
   previousTaskCopy=''
   editorLayoutKey.value++
   Object.assign(form, emptyForm(), value || {})
-  form.requestContent={versions:value?.requestContent?.versions?.length ? value.requestContent.versions : [{name:'发帖',content:''},{name:'询问',content:''}]}
+  form.requestContent={versions:value?.requestContent?.versions?.length ? value.requestContent.versions : [{name:'发帖',content:''},{name:'询问',content:''}],dispatchNotes:{circle:'',post:'',development:'',...(value?.requestContent?.dispatchNotes || {})}}
   projectManagers.value=value?.projectManagers||[];collapseLanguages.value=Boolean(value?.collapseLanguages)
   resetSourceInfo()
   if (value) {
@@ -839,7 +842,7 @@ const cancelDemand = async () => {
   if (submitLocked || editorBusy.value) return
   submitLocked = true
   try {
-    await ElMessageBox.confirm('取消后资源需求记录将保留，并标记为“需求取消”。是否继续？', '取消需求', {
+    await ElMessageBox.confirm('取消后将需求状态改为“已取消”，并通知资源开拓需求的原接收人确认收到取消通知。记录将保留，是否继续？', '取消需求', {
       confirmButtonText: '确认取消', cancelButtonText: '返回', type: 'warning',
     })
   } catch { submitLocked = false; return }

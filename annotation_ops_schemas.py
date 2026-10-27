@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -518,6 +518,8 @@ class StatusHistoryResponse(BaseModel):
     entry_kind: str = "status"
     updated_at: Optional[datetime] = None
     updated_by: Optional[UUID] = None
+    is_deleted: bool = False
+    note_deleted: bool = False
 
     @field_validator("effective_on", "changed_at", "updated_at")
     @classmethod
@@ -530,6 +532,8 @@ class StatusHistoryProgressUpdate(BaseModel):
     effective_on: datetime
     change_note: str = Field(min_length=1, max_length=10000)
     expected_updated_at: Optional[datetime] = None
+    record_part: Literal['progress', 'status_note'] = 'progress'
+    reason: Optional[str] = Field(default=None, max_length=500)
 
     @field_validator("effective_on")
     @classmethod
@@ -549,6 +553,7 @@ class StatusHistoryProgressUpdate(BaseModel):
 class StatusHistoryProgressDelete(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
     expected_updated_at: Optional[datetime] = None
+    record_part: Literal['progress', 'status_note'] = 'progress'
 
     @field_validator("reason")
     @classmethod

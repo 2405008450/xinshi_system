@@ -14,7 +14,8 @@ from interpretation_models import InterpretationLanguage
 from models import AppUser
 from routers.auth import get_current_user, require_any_permission
 from resource_development_models import DevelopmentAction as Action, DevelopmentOption as Option, DevelopmentRecord as Record, DevelopmentScreenshot as Screenshot, DevelopmentWork as Work
-from resource_development_schemas import GroupActionWrite, LanguageWrite, OptionWrite, RecordWrite, WorkWrite
+from resource_development_schemas import CustomFieldWrite, GroupActionWrite, LanguageWrite, OptionWrite, RecordWrite, WorkWrite
+from resource_development_custom_fields import account_columns
 from resource_development_service import active_user, audit, check_revision, duplicates, filtered_records, is_admin, lock_writes, owns, previous_workday, refresh_draft, require_owner, save_record, save_work, serialize_record, snapshot, work_result
 from permission_service import user_has_permission
 from resource_development_service import can_delegate, can_delete_record
@@ -39,9 +40,10 @@ def options(db: Session = Depends(get_db), user=Depends(get_current_user)):
             "users": [{"id": str(u.id), "name": u.full_name or u.username} for u in db.query(AppUser).filter(AppUser.is_active.is_(True)).order_by(AppUser.full_name)],
             "languages": [{"id": str(l.id), "label": l.label, "language_type": l.language_type} for l in db.query(InterpretationLanguage).filter(InterpretationLanguage.is_active.is_(True)).order_by(InterpretationLanguage.label)],
             "user_id": str(user.id), "is_admin": is_admin(db, user),
+            "custom_account_fields": account_columns(db),
             "can_delegate": can_delegate(db, user),
             "can_write": can_delegate(db, user) or user_has_permission(db, user.id, "talents:write") or user_has_permission(db, user.id, "translators:write"),
-            "default_date": previous_workday(business_now().date()).isoformat()}
+            "default_date": business_now().date().isoformat()}
 
 
 @router.post("/options", dependencies=[write])
@@ -100,6 +102,18 @@ def create_language(payload: LanguageWrite, db: Session = Depends(get_db), user=
     return {"id": str(row.id), "label": row.label, "language_type": row.language_type}
 
 
+@router.post('/custom-fields', dependencies=[write])
+def create_custom_field(payload: CustomFieldWrite, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    lock_writes(db)
+    row = db.query(Option).filter(Option.kind == 'custom_field', func.lower(Option.name) == payload.name.lower()).first()
+    if row is None:
+        if db.query(Option).filter(Option.kind == 'custom_field').count() >= 100:
+            raise HTTPException(422, '最多可定义100个自定义字段')
+        row = Option(id=uuid4(), kind='custom_field', name=payload.name, category='', description='', revision=1)
+        db.add(row); audit(db, user, row, 'create'); db.commit()
+    return {'id': str(row.id), 'name': row.name, 'kind': row.kind}
+
+
 def filters(start: date | None = None, end: date | None = None, keyword: str | None = Query(None, max_length=255),
             owner_id: UUID | None = None, platform_id: UUID | None = None, account_id: UUID | None = None,
             state: str | None = Query(None, max_length=100), column_filters: str | None = Query(None, max_length=12000)):
@@ -107,8 +121,8 @@ def filters(start: date | None = None, end: date | None = None, keyword: str | N
         raise HTTPException(422, "开始日期不能晚于结束日期")
     try:
         columns = json.loads(column_filters) if column_filters else {}
-        allowed = {'platform_name','full_name','language_names','owner_name','account_name','friend_accounts_text','wechat_status','enterprise_status','group_status','group_large_status','communication_status','project_status','latest_follow_up','greeting_no','phone','wechat','xiaohongshu','resource_code','work_date','follow_up','remarks','updated_at'}
-        if not isinstance(columns, dict) or not set(columns).issubset(allowed):
+        allowed = {'platform_name','full_name','language_names','owner_name','account_name','friend_accounts_text','wechat_status','enterprise_status','group_status','group_large_status','communication_status','project_status','latest_follow_up','greeting_no','phone','wechat','xiaohongshu','whatsapp','custom_accounts_text','resource_code','work_date','follow_up','remarks','updated_at'}
+        if not isinstance(columns, dict) or any(not isinstance(key, str) or (key not in allowed and not key.startswith(('custom_field:', 'custom_account:'))) for key in columns):
             raise ValueError()
         for value in columns.values():
             values = value if isinstance(value, list) else [value]

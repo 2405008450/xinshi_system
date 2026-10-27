@@ -5,7 +5,7 @@
         <div><h2>试标/试采流程</h2><p>跨项目查看候选进度；选择项目后可打开项目级管理窗口</p></div>
         <div class="header-actions">
           <CustomFieldManager v-if="canWrite&&projectId" table-code="trial" :project-id="projectId" @changed="loadFields" />
-          <TableColumnSettings v-model="visibleColumnKeys" :columns="tableColumns" :column-count="3" @reset="resetColumns" />
+          <TableColumnSettings settings-key="annotation-trials" v-model="visibleColumnKeys" :columns="tableColumns" :column-count="3" @reset="resetColumns" />
           <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
           <el-button v-if="canWrite&&!deleteMode" type="primary" :disabled="!projectId" @click="openEditor()">新增候选</el-button>
           <el-button :disabled="!projectId" @click="openWorkspaceById">打开管理窗口</el-button>

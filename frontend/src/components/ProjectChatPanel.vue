@@ -381,7 +381,7 @@
                 placeholder="@提醒用户（可多选）"
                 class="chat-composer__mention"
               >
-                <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id"><span>{{ user.full_name || user.username }}</span><ChatDesktopPresence class="mention-desktop-state" :online="desktopPresence[user.id]" :loading="desktopPresenceLoading" /></el-option></el-option-group>
+                <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id"><span>{{ user.full_name || user.username }}</span><ChatDesktopPresence v-if="user.id!=='__all__'" class="mention-desktop-state" :online="desktopPresence[user.id]" :loading="desktopPresenceLoading" /></el-option></el-option-group>
               </el-select>
               <span class="chat-composer__mention-count">{{ composer.mentionedUserIds.length }}/20</span>
             </div>
@@ -462,7 +462,7 @@
                   style="width: 100%"
                   @change="handleMentionSelectionChange"
                 >
-                  <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id"><span>{{ user.full_name || user.username }}</span><ChatDesktopPresence class="mention-desktop-state" :online="desktopPresence[user.id]" :loading="desktopPresenceLoading" /></el-option></el-option-group>
+                  <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id"><span>{{ user.full_name || user.username }}</span><ChatDesktopPresence v-if="user.id!=='__all__'" class="mention-desktop-state" :online="desktopPresence[user.id]" :loading="desktopPresenceLoading" /></el-option></el-option-group>
                 </el-select>
               </div>
             </el-popover>
@@ -510,6 +510,7 @@
       :placement="historyPlacement"
       @locate="locateMessage"
     />
+    <small v-if="draft.error.value" role="alert">{{draft.error.value}}</small><small v-else-if="draft.saved.value">草稿已自动保存到本机</small>
     <ChatMessageReferences ref="references" :project-id="projectId" :project-type="projectType" @locate="locateMessage" />
     <ChatMessageContextMenu ref="messageMenuRef" :messages="messages" :current-user-id="currentUserId" :handlers="messageMenuHandlers" :can-progress="canAddToProgress" :selecting="progressSelectionMode" :active="active" />
   </div>
@@ -538,6 +539,8 @@ import { formatBusinessDateTime as formatDateTime } from '@/utils/dateTime'
 import { chatRequest } from '@/api/projectChat'
 import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
 import { mentionedDocument } from '@/utils/chatMentions'
+import {useChatDraft} from '@/composables/useChatDraft'
+import {draftImages} from '@/utils/chatDrafts'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import { copyTextToClipboard } from '@/utils/clipboard'
 import { ensureConnected, subscribe } from '@/utils/realtimeSocket'
@@ -620,6 +623,7 @@ const memberUserIds = ref([])
 const desktopPresenceOpen = ref(false)
 const { statuses: desktopPresence, loading: desktopPresenceLoading } = useDesktopPresence(computed(() => userOptions.value.map(user => user.id)), computed(() => props.active && desktopPresenceOpen.value))
 const mentionUserGroups = computed(() => [
+  { label:'群组提醒',users:[{id:'__all__',full_name:'所有人'}] },
   { label: '群组参与人', users: userOptions.value.filter(user => String(user.id) !== currentUserId && memberUserIds.value.includes(String(user.id))) },
   { label: '未参与人员 · 发送后自动加入', users: userOptions.value.filter(user => String(user.id) !== currentUserId && !memberUserIds.value.includes(String(user.id))) },
 ])
@@ -1085,6 +1089,7 @@ const returnToLatest = async () => {
 }
 
 const userNameById = (userId) => {
+  if(userId==='__all__')return '所有人'
   const user = userOptions.value.find(item => String(item.id) === String(userId))
   return user ? (user.full_name || user.username) : '未知用户'
 }
@@ -1354,18 +1359,22 @@ const handleSend = async () => {
     const payload = props.textOnly
       ? {
           content: composer.content.trim(),
-          mentionedUserIds: composer.mentionedUserIds,
+          mentionedUserIds: composer.mentionedUserIds.filter(id=>id!=='__all__'),
+          mentionAll:composer.mentionedUserIds.includes('__all__'),
           ...(attachmentsEnabled.value ? { attachmentIds: pendingImages.map(item => item.attachment.id) } : {})
         }
       : {
           content: composer.content.trim(),
           contentJson: composer.contentJson,
-          mentionedUserIds: composer.mentionedUserIds,
+          mentionedUserIds: composer.mentionedUserIds.filter(id=>id!=='__all__'),
+          mentionAll:composer.mentionedUserIds.includes('__all__'),
           attachmentIds: pendingImages.map(item => item.attachment.id)
         }
+    if(payload.mentionAll&&!payload.content.includes('@所有人')){payload.content='@所有人 '+payload.content;if(payload.contentJson)payload.contentJson={...payload.contentJson,content:[{type:'paragraph',content:[{type:'text',text:'@所有人'}]},...(payload.contentJson.content||[])]}}
     payload.replyToMessageId = replyToMessage.value?.id || null
     const fingerprint = JSON.stringify(payload)
     if (fingerprint !== sendFingerprint) { sendRequestId = newChatRequestId(); sendFingerprint = fingerprint }
+    draft.persistNow()
     await createProjectChatMessage(props.projectId, { ...payload, clientMessageId: sendRequestId }, props.projectType)
     if (generation !== composerGeneration) return
     composer.content = ''; replyToMessage.value = null
@@ -1386,6 +1395,7 @@ const handleSend = async () => {
 }
 
 const messageMentions = (message) => {
+  if(message.metadata?.mentionAll || message.metadata?.mention_all)return [{mentionedUserId:'__all__',mentionedUserName:'所有人'}]
   if (Array.isArray(message?.mentions) && message.mentions.length) return message.mentions
   if (message?.mentionedUserId && message?.mentionedUserName) {
     return [{ mentionedUserId: message.mentionedUserId, mentionedUserName: message.mentionedUserName }]
@@ -1564,6 +1574,11 @@ const setupPolling = () => {
   }, 60000)
 }
 
+const draft=useChatDraft(computed(()=>[props.projectType,props.projectId]),()=>({content:composer.content,contentJson:composer.contentJson,mentionIds:composer.mentionedUserIds,replyTo:replyToMessage.value,images:draftImages(pendingImages),sendRequestId,sendFingerprint}),data=>{
+ composer.content=data.content;composer.contentJson=data.contentJson||{type:'doc',content:[{type:'paragraph'}]};composer.mentionedUserIds=data.mentionIds||[];replyToMessage.value=data.replyTo||null;sendRequestId=data.sendRequestId||'';sendFingerprint=data.sendFingerprint||''
+ pendingImages.splice(0,pendingImages.length,...(data.images||[]))
+ for(const item of pendingImages){getProjectChatAttachmentBlob(item.attachment.id).then(blob=>{if(pendingImages.includes(item))item.url=URL.createObjectURL(blob)}).catch(()=>{})}
+})
 watch(() => [props.projectId, props.projectType], async () => {
   sendFingerprint = ''; sendRequestId = ''
   resetChatState()

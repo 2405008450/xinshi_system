@@ -23,10 +23,12 @@ const realtimeSocket = readFileSync(new URL('../src/utils/realtimeSocket.js', im
 
 // 隔离接口与浏览器存储，直接验证窗口状态转换，避免仅靠源码匹配漏掉还原和缩放回归。
 function createDockHarness(storage = new Map(), annotationLoader = async () => ({ projectName: '标注项目', orderNo: 'A-001', projectStatus: 'trial_preparation' })) {
-  const viewport = { innerWidth: 1440, innerHeight: 950 }
+  const viewport = { innerWidth: 1440, innerHeight: 950, events:[], dispatchEvent(event){this.events.push(event)} }
   const source = dockStore.replace(/^import .*\r?\n/gm, '').replace(/export const /g, 'const ')
   const { dock: instance, size, visible, refreshStatuses } = runInNewContext(`${source}\n;({ dock: useProjectChatDock(), size: resolveChatSize, visible: isChatWindowVisible, refreshStatuses: refreshOpenAnnotationStatuses })`, {
     reactive: value => value,
+    nextTick: callback=>Promise.resolve().then(callback),
+    CustomEvent: class {constructor(type,options){this.type=type;this.detail=options.detail}},
     sessionListKey,
     getProject: async () => ({ projectName: '笔译项目', orderNo: 'T-001' }),
     getAnnotationProject: annotationLoader,
@@ -409,7 +411,7 @@ test('最小化任务只展示未读提及数字，普通未读继续在内部�
 
 test('聊天通知和群邀请统一打开聊天小窗且不再跳转页面', () => {
   assert.match(chatNotifications, /const projectId = item\.related_entity_id \|\| item\.related_project_id/)
-  assert.match(chatNotifications, /openChat\(\{ projectId, projectType, messageId \}\)/)
+  assert.match(chatNotifications, /openChat\(\{ projectId, projectType, messageId, syncSidebar: true \}\)/)
   assert.match(chatNotifications, /if \(!projectId\)/)
   assert.match(dock, /useChatNotifications\(\)/)
   assert.doesNotMatch(notificationBell, /openChatNotification/)
@@ -558,7 +560,7 @@ test('@候选在群内、群外和搜索结果中均排除本人，重名其他�
   assert.deepEqual(Array.from(result, row => row.id), [2, 3])
   const panelSegment = chatPanel.slice(chatPanel.indexOf('const mentionUserGroups = computed'), chatPanel.indexOf('const messages = ref'))
   const groups = runInNewContext(panelSegment + ';mentionUserGroups.value', {currentUserId: '1', userOptions: {value: group.eligibleUsers.concat({id: 3, name: '同名'})}, memberUserIds: {value: ['1', '2']}, computed: fn => ({value: fn()})})
-  assert.deepEqual(Array.from(groups, section => Array.from(section.users, user => user.id)), [[2], [3]])
+  assert.deepEqual(Array.from(groups, section => Array.from(section.users, user => user.id)), [['__all__'], [2], [3]])
 })
 
 test('收藏项目名称和沟通按钮使用同一准确项目 ID，详情直接打开项目沟通', () => {
@@ -701,4 +703,11 @@ test('顶部聊天等待窗口挂载后跳转 @我，零未读时进入消息面
     assert.equal(events[0],'open');assert.equal(events[1],'mounted')
     assert.equal(events[2].type,'chat-show-messages');assert.equal(events[2].detail.mentions,count>0)
   }
+})
+
+
+test('通知重复打开当前会话也会通知侧栏同步，普通会话点击保持原搜索上下文',async()=>{
+ const h=createDockHarness();h.dock.openChat({projectId:'a',projectType:'annotation',title:'项目A',subtitle:'AP-A'});await Promise.resolve();assert.equal(h.viewport.events.length,0)
+ h.dock.openChat({projectId:'a',projectType:'annotation',title:'项目A',subtitle:'AP-A',syncSidebar:true});await Promise.resolve();await Promise.resolve()
+ assert.equal(h.viewport.events.at(-1).type,'chat-conversation-activated');assert.equal(h.viewport.events.at(-1).detail.projectId,'a');h.dock.closeAllChats()
 })

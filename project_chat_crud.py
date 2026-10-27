@@ -825,6 +825,7 @@ def create_project_chat_message(
     content: str,
     mentioned_user_id: Optional[UUID] = None,
     mentioned_user_ids: Optional[list[UUID]] = None,
+    mention_all: bool = False,
     content_json: Optional[dict] = None,
     attachment_ids: Optional[list[UUID]] = None,
     message_type: str = 'user',
@@ -908,12 +909,19 @@ def create_project_chat_message(
             for attachment in attachments
         )
 
+    if mention_all and message_type == 'user':
+        from chat_mention_recipients import resolve_mentions
+        mentioned_user_ids = resolve_mentions(db, 'translation', project_id, sender,
+            [*(mentioned_user_ids or []), *([mentioned_user_id] if mentioned_user_id else [])], True)
+        mentioned_user_id = None
+        message.event_data = {**(message.event_data or {}), 'mention_all': True}
     mention_users = _create_chat_mentions(
         db,
         message,
         sender,
         mentioned_user_id if message_type == 'user' else None,
         mentioned_user_ids if message_type == 'user' else None,
+        max_mentions=max(20,len(mentioned_user_ids or [])) if mention_all else 20,
     )
 
     if commit:

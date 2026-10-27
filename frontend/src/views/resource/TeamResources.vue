@@ -7,7 +7,7 @@
           <p class="page-subtitle">统一维护团队与企业资源档案</p>
         </div>
         <div class="header-actions">
-          <TableColumnSettings v-model="selectedColumns" :columns="teamColumns" :column-count="2" title="团队列表字段" @reset="selectedColumns = [...defaultTeamColumns]" />
+          <TableColumnSettings settings-key="resource-teams" v-model="selectedColumns" :columns="teamColumns" :column-count="2" title="团队列表字段" @reset="selectedColumns = [...defaultTeamColumns]" />
           <BatchDeleteToolbar v-if="options.can_write" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
           <el-button v-if="options.can_write && !deleteMode" type="primary" @click="openEditor()">新增团队</el-button>
         </div>
@@ -29,6 +29,7 @@
       </AdvancedFilterPopover>
     </div>
     <el-table ref="tableRef" v-loading="loading" :data="rows" border row-key="id" empty-text="暂无符合条件的团队资源" @selection-change="handleDeleteSelectionChange">
+<OrderedTableColumns settings-key="resource-teams">
       <el-table-column v-if="deleteMode" type="selection" width="48" />
       <el-table-column label="序号" width="70"><template #default="{ $index }">{{ (pagination.page - 1) * pagination.limit + $index + 1 }}</template></el-table-column>
       <el-table-column v-for="column in visibleColumns" :key="column.key" :label="column.label" :min-width="column.width" show-overflow-tooltip><template #default="{ row }">
@@ -48,7 +49,8 @@
         </BusinessDetailPopover>
       </template></el-table-column>
       <el-table-column v-if="options.can_write && !deleteMode" label="操作" width="90" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="openEditor(row)">编辑</el-button></template></el-table-column>
-    </el-table>
+    </OrderedTableColumns>
+</el-table>
     <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :page-sizes="[10,20,50,100]" :total="pagination.total" layout="total, sizes, prev, pager, next, jumper" @current-change="loadList" @size-change="query" />
     <TeamResourceEditor ref="editorRef" :options="options" @saved="saved" @attachments="openAttachments" />
     <TeamAttachmentsDialog ref="attachmentsRef" :can-edit="options.can_write && !deleteMode" @changed="attachmentsChanged" />
@@ -56,6 +58,7 @@
 </template>
 
 <script setup>
+import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'

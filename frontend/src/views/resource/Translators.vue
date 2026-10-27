@@ -4,7 +4,7 @@
       <div class="card-header">
         <span>译员资源库</span>
         <div class="header-actions">
-          <TableColumnSettings
+          <TableColumnSettings settings-key="resource-translators"
             v-model="visibleColumnKeys"
             :columns="translatorTableColumns"
             :column-count="2"
@@ -44,12 +44,12 @@
         <el-form-item>
           <el-button type="primary" @click="handleSearch">查询</el-button>
           <el-button @click="handleReset">重置</el-button>
-          <el-popover
+          <AdvancedFilterPopover
             v-model:visible="advancedFilterVisible"
-            trigger="click"
-            placement="bottom-end"
-            :width="760"
             popper-class="translator-advanced-filter-popper"
+            :count="advancedFilterCount"
+            @clear="clearAdvancedFilters"
+            @reset="handleReset"
           >
             <template #reference>
               <el-button>
@@ -62,7 +62,6 @@
               </el-button>
             </template>
             <div class="advanced-filter-panel">
-              <div class="advanced-filter-title">高级筛选</div>
               <AppForm :model="advancedFilters" label-width="104px" class="advanced-filter-form">
                 <el-row :gutter="16">
                   <el-col :xs="24" :sm="12">
@@ -186,12 +185,8 @@
                   </el-col>
                 </el-row>
               </AppForm>
-              <div class="advanced-filter-actions">
-                <el-button link type="primary" @click="clearAdvancedFilters">清空高级条件</el-button>
-                <el-button @click="advancedFilterVisible = false">关闭</el-button>
-              </div>
             </div>
-          </el-popover>
+          </AdvancedFilterPopover>
         </el-form-item>
       </AppForm>
     </div>
@@ -204,6 +199,7 @@
       :default-sort="{ prop: 'availability_updated_at', order: 'descending' }"
       @sort-change="handleSortChange"
     >
+<OrderedTableColumns settings-key="resource-translators">
       <el-table-column
         v-for="column in visibleBusinessColumns"
         :key="column.key"
@@ -246,7 +242,8 @@
           <TableActionButton action="delete" @click="handleDelete(row)" />
         </template>
       </el-table-column>
-    </el-table>
+    </OrderedTableColumns>
+</el-table>
 
     <el-pagination
       v-model:current-page="pagination.page"
@@ -549,11 +546,13 @@
 </template>
 
 <script setup>
+import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { computed, defineComponent, h, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElButton, ElDescriptions, ElDescriptionsItem, ElMessage, ElMessageBox, ElPopover, ElTag } from 'element-plus'
 import * as translatorApi from '@/api/translators'
 import * as scheduleApi from '@/api/schedule'
 import { formatDateTimeMinute as formatDetailDatetime } from '@/utils/dateTime'
+import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import { useTableColumns } from '@/composables/useTableColumns'
 
@@ -1221,8 +1220,8 @@ onBeforeUnmount(() => {
   max-width: calc(100vw - 32px);
 }
 :global(.translator-advanced-filter-popper .advanced-filter-panel) {
-  max-height: min(560px, calc(100vh - 120px));
-  overflow-y: auto;
+  max-height: none;
+  overflow: visible;
   padding-right: 4px;
 }
 .detail-popover {

@@ -1,0 +1,5 @@
+export const chatDraftKey=(userId,kind,id)=>`xinshi.chatDraft.v1:${userId}:${kind}:${id}`
+export function readChatDraft(storage,key){try{const data=JSON.parse(storage.getItem(key)||'null');return data?.version===1&&typeof data.content==='string'?data:null}catch{return null}}
+export function writeChatDraft(storage,key,data){if(!data.content?.trim()&&!data.files?.length&&!data.images?.length&&!data.replyTo){storage.removeItem(key);return false}storage.setItem(key,JSON.stringify({...data,version:1}));return true}
+export function draftFiles(files){return files.filter(item=>item.status==='ready'&&item.data?.id).map(item=>({key:item.key,status:'ready',data:item.data,file:{name:item.file?.name||item.data.fileName||'附件',size:item.file?.size||0,type:item.file?.type||''}}))}
+export function draftImages(images){return images.filter(item=>item.status==='ready'&&item.attachment?.id).map(item=>({key:`draft-${item.attachment.id}`,status:'ready',attachment:item.attachment,file:{name:item.file?.name||'图片',size:item.file?.size||0,type:item.file?.type||'image/png'},url:''}))}

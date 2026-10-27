@@ -5,10 +5,13 @@ import test from 'node:test'
 const page = readFileSync(new URL('../src/views/project/AnnotationProjects.vue', import.meta.url), 'utf8')
 const api = readFileSync(new URL('../src/api/annotationOps.js', import.meta.url), 'utf8')
 const auditPage = readFileSync(new URL('../src/views/system/ProjectOperationAudits.vue', import.meta.url), 'utf8')
+const recordActions = readFileSync(new URL('../src/components/annotation/AnnotationProgressRecordActions.vue', import.meta.url), 'utf8')
 
-test('人工补充的具体进度提供删除入口，状态流转说明不可删除', () => {
-  assert.match(page, /v-if="canWrite && child\.kind === 'progress'"/)
-  assert.match(page, /@click="openProgressDeleteDialog\(child\)"/)
+test('所有项目进度和变更说明共用编辑删除入口，删除后保留本条历史入口', () => {
+  assert.match(page, /<AnnotationProgressRecordActions[^>]+:record="child"/)
+  assert.doesNotMatch(page, /v-if="canWrite && child\.kind === 'progress'"/)
+  assert.match(recordActions, /查看编辑 \/ 删除记录/)
+  assert.match(recordActions, /recordPart:statusNote.value\?'status_note':'progress'/)
   assert.ok(page.includes("'删除客户进度' : '删除具体进度'"))
 })
 

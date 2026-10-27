@@ -18,8 +18,11 @@ from resource_development_models import (
     DevelopmentOption as Option, DevelopmentRecord as Record,
     DevelopmentScreenshot as Screenshot, DevelopmentWork as Work,
     DevelopmentFollowUp as FollowUp,
+    DevelopmentResourceContact as ResourceContact,
 )
 from talent_privacy import can_view_talent_contacts
+from resource_development_contacts import contact_data, save_contacts
+from resource_development_custom_fields import serialize_custom_fields, save_custom_fields, account_value_match
 from permission_service import user_has_permission
 from talent_wechat_accounts import lock_account_writes, merge_development_accounts, sync_development_channels
 
@@ -223,8 +226,11 @@ def sync_person(db, row, payload, languages, *, eligible, actor=None):
         raise HTTPException(422, "进入私域时请至少选择一个人才专业分类")
     platform = option(db, row.platform_id, "platform")
     account = option(db, row.account_id, "account") if row.account_id else None
+    resource_contacts = contact_data(db, row.id)
     person_payload = ResourcePersonCreate(
         full_name=row.full_name, primary_phone=row.phone or None, wechat=row.wechat or None,
+        whatsapp=resource_contacts["whatsapp"] or None,
+        other_contact=resource_contacts["custom_accounts_text"] or None,
         wechat_account=account.name if account else None, registration_source=platform.name,
         remarks=row.remarks or None, dialects=[lang.label for lang in languages if lang.language_type == "dialect"],
         capabilities=[{"capability_type": cap} for cap in set(payload.capabilities) if cap != "recruitment"],
@@ -280,6 +286,8 @@ def save_record(db, user, payload, *, historical_markers=None, defer_refresh=Fal
     # flush 前先填满记录的所有必填字段。
     db.flush()
     db.query(Language).filter_by(record_id=row.id).delete(synchronize_session=False)
+    save_contacts(db, user, row.id, payload)
+    save_custom_fields(db, user, row.id, payload)
     db.add_all([Language(record_id=row.id, language_id=lang.id) for lang in languages])
     last_follow_up_time = db.query(func.max(FollowUp.created_at)).filter(FollowUp.record_id == row.id).scalar()
     for entry in payload.follow_ups:
@@ -386,6 +394,8 @@ def current_contact_status(channel):
 def serialize_record(db, user, row, detail=False):
     allowed = owns(db, user, row.owner_id)
     result = snapshot(row)
+    result.update(contact_data(db, row.id, allowed))
+    result.update(serialize_custom_fields(db, row.id, allowed))
     for key in ["wechat_status", "enterprise_status"]:
         result[key] = progress_status(result[key], key.removesuffix("_status"))
         if not allowed and result[key] not in FRIEND_STATUSES:
@@ -472,7 +482,8 @@ def filtered_records(db, user, start, end, keyword=None, owner_id=None, platform
         language_match = db.query(Language).join(InterpretationLanguage, InterpretationLanguage.id == Language.language_id).filter(Language.record_id == Record.id, keyword_ilike(InterpretationLanguage.label, pattern)).exists()
         platform_match = db.query(Option).filter(Option.id == Record.platform_id, Option.kind == "platform", keyword_ilike(Option.name, pattern)).exists()
         common = [keyword_ilike(Record.full_name, pattern), keyword_ilike(Record.greeting_no, pattern), language_match, platform_match]
-        contacts = keyword_or(lambda _search_part: or_(keyword_ilike(Record.phone, _search_part), keyword_ilike(Record.wechat, _search_part), keyword_ilike(Record.xiaohongshu, _search_part)), pattern)
+        contacts = keyword_or(lambda _search_part: or_(keyword_ilike(Record.phone, _search_part), keyword_ilike(Record.wechat, _search_part), keyword_ilike(Record.xiaohongshu, _search_part),
+            db.query(ResourceContact).filter(ResourceContact.record_id == Record.id, or_(keyword_ilike(ResourceContact.whatsapp, _search_part), keyword_ilike(cast(ResourceContact.custom_accounts, String), _search_part))).exists()), pattern)
         q = q.filter(or_(*common, contacts if can_delegate(db, user) else and_(Record.owner_id == user.id, contacts)))
     unrestricted = can_delegate(db, user)
     for key, value in (column_filters or {}).items():
@@ -503,6 +514,24 @@ def filtered_records(db, user, start, end, keyword=None, owner_id=None, platform
                 fallback = func.coalesce(Record.historical_markers[channels[key]]["status"].as_string(), '未处理')
             current = current_contact_status(channels[key]) if channels[key] in {"wechat", "enterprise"} else func.coalesce(latest, fallback)
             q = q.filter(current.in_(status_filter_values(values, channels[key])))
+        elif key.startswith('custom_field:'):
+            from resource_development_models import DevelopmentCustomValue
+            try:
+                field_id = UUID(key.split(':', 1)[1])
+            except ValueError:
+                raise HTTPException(422, '自定义字段标识无效')
+            q = q.filter(db.query(DevelopmentCustomValue).filter(DevelopmentCustomValue.record_id == Record.id, DevelopmentCustomValue.field_id == field_id, keyword_ilike(DevelopmentCustomValue.value, pattern)).exists())
+            if not unrestricted:
+                q = q.filter(Record.owner_id == user.id)
+        elif key.startswith('custom_account:'):
+            q = q.filter(account_value_match(db, key.split(':', 1)[1], pattern))
+            if not unrestricted:
+                q = q.filter(Record.owner_id == user.id)
+        elif key in {'whatsapp', 'custom_accounts_text'}:
+            field = ResourceContact.whatsapp if key == 'whatsapp' else cast(ResourceContact.custom_accounts, String)
+            q = q.filter(db.query(ResourceContact).filter(ResourceContact.record_id == Record.id, keyword_ilike(field, pattern)).exists())
+            if not unrestricted:
+                q = q.filter(Record.owner_id == user.id)
         elif key == 'friend_accounts_text':
             q = q.filter(keyword_ilike(cast(Record.friend_accounts, String), pattern))
         elif key == 'resource_code':

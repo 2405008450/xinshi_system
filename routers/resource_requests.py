@@ -77,6 +77,12 @@ def dispatch_request(request_id:UUID,payload:dispatch_service.DispatchWrite,db:S
     return dispatch_service.send(db,user,request_id,payload)
 
 
+@router.post('/{request_id}/dispatch/{kind}/cancel', dependencies=[Depends(require_any_permission('projects:write'))])
+def cancel_dispatch_kind(request_id: UUID, kind: str, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    from resource_request_cancellation import cancel_kind
+    return cancel_kind(db, user, request_id, kind)
+
+
 @dispatch_router.get('/{batch_id}')
 def dispatch_detail(batch_id:UUID,db:Session=Depends(get_db),user:AppUser=Depends(get_current_user)):
     return dispatch_service.detail(db,user,batch_id)

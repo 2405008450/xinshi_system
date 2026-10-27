@@ -12,7 +12,7 @@
     <el-descriptions-item :label="request.sourceType==='annotation' ? '项目经理' : '负责人'">{{ request.projectManagers?.map(p=>p.name).join('、') || ownerLabel || '-' }}</el-descriptions-item>
     <el-descriptions-item label="优先级">{{ priorities[request.priority] || '-' }}</el-descriptions-item>
     <el-descriptions-item label="发起时间">{{ formatBusinessDateTime(request.requestedAt) }}</el-descriptions-item>
-    <el-descriptions-item label="需求详情" :span="2"><details><summary>总体需求</summary><ScreenshotText :text="request.requestDetail || '-'" /></details><ResourceRequestVersions :model-value="request.requestContent?.versions || []" /></el-descriptions-item>
+    <el-descriptions-item label="需求详情" :span="2"><details><summary>总体需求</summary><ScreenshotText :text="request.requestDetail || '-'" /></details><ResourceRequestVersions :model-value="request.requestContent?.versions || []" /><ResourceRequestDispatchNotes :notes="request.requestContent?.dispatchNotes || {}" /></el-descriptions-item>
     <el-descriptions-item label="语种、人数及要求" :span="2">
       <slot name="items">
         <el-table :data="request.items || []" border size="small" max-height="360">
@@ -27,6 +27,7 @@
 <script setup>
 import ScreenshotText from '@/components/common/ScreenshotText.vue'
 import ResourceRequestVersions from './ResourceRequestVersions.vue'
+import ResourceRequestDispatchNotes from './ResourceRequestDispatchNotes.vue'
 import { demandStatusLabels } from '@/utils/resourceRequestLifecycle'
 import { formatBusinessDateTime } from '@/utils/dateTime'
 import { getProjectStatusLabel } from '@/utils/projectStatus'

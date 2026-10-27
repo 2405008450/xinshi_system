@@ -6,7 +6,7 @@
           <span class="header-title">人员管理</span>
         </div>
         <div class="header-actions">
-          <TableColumnSettings v-model="visibleColumnKeys" :columns="userColumns" title="用户列表字段" @reset="resetColumns" />
+          <TableColumnSettings settings-key="system-users" v-model="visibleColumnKeys" :columns="userColumns" title="用户列表字段" @reset="resetColumns" />
           <BatchDeleteToolbar v-if="canWriteUsers" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
           <el-button v-if="canWriteUsers && !deleteMode" type="primary" :icon="Plus" @click="handleAdd">新增用户</el-button>
         </div>
@@ -54,18 +54,19 @@
     </AppForm>
 
     <el-table ref="userTableRef" :data="tableData" v-loading="loading" row-key="id" border @selection-change="handleDeleteSelectionChange">
+<OrderedTableColumns settings-key="system-users">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
-      <el-table-column v-if="isColumnVisible('username')" prop="username" label="用户名" min-width="120" show-overflow-tooltip />
-      <el-table-column v-if="isColumnVisible('full_name')" prop="full_name" label="姓名" min-width="100" show-overflow-tooltip>
+      <el-table-column column-key="username" v-if="isColumnVisible('username')" prop="username" label="用户名" min-width="120" show-overflow-tooltip />
+      <el-table-column column-key="full_name" v-if="isColumnVisible('full_name')" prop="full_name" label="姓名" min-width="100" show-overflow-tooltip>
         <template #default="{ row }">{{ row.full_name || '-' }}</template>
       </el-table-column>
-      <el-table-column v-if="isColumnVisible('department')" prop="department" label="所属部门" min-width="230">
+      <el-table-column column-key="department" v-if="isColumnVisible('department')" prop="department" label="所属部门" min-width="230">
         <template #default="{ row }"><DepartmentMemberships :user-id="row.id" :primary="row.department" :people="organizationPeople" /></template>
       </el-table-column>
-      <el-table-column v-if="isColumnVisible('email')" prop="email" label="邮箱" min-width="220" show-overflow-tooltip>
+      <el-table-column column-key="email" v-if="isColumnVisible('email')" prop="email" label="邮箱" min-width="220" show-overflow-tooltip>
         <template #default="{ row }">{{ row.email || '-' }}</template>
       </el-table-column>
-      <el-table-column v-if="isColumnVisible('mail_profile')" label="邮件资料" min-width="240">
+      <el-table-column column-key="mail_profile" v-if="isColumnVisible('mail_profile')" label="邮件资料" min-width="240">
         <template #default="{ row }">
           <div class="mail-profile-cell">
             <span class="mail-profile-name" :title="row.mail_display_name || ''">
@@ -78,7 +79,7 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column v-if="isColumnVisible('mail_account')" label="发件邮箱" width="170" align="center">
+      <el-table-column column-key="mail_account" v-if="isColumnVisible('mail_account')" label="发件邮箱" width="170" align="center">
         <template #default="{ row }">
           <div class="mail-account-cell">
             <el-tag
@@ -97,7 +98,7 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column v-if="isColumnVisible('roles')" label="角色" min-width="180">
+      <el-table-column column-key="roles" v-if="isColumnVisible('roles')" label="角色" min-width="180">
         <template #default="{ row }">
           <template v-if="row.roles?.length">
             <el-tag
@@ -112,14 +113,14 @@
           <el-text v-else type="info">未分配角色</el-text>
         </template>
       </el-table-column>
-      <el-table-column v-if="isColumnVisible('is_active')" prop="is_active" label="状态" width="80" align="center">
+      <el-table-column column-key="is_active" v-if="isColumnVisible('is_active')" prop="is_active" label="状态" width="80" align="center">
         <template #default="{ row }">
           <el-tag :type="row.is_active ? 'success' : 'danger'">
             {{ row.is_active ? '启用' : '禁用' }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column v-if="isColumnVisible('created_at')" prop="created_at" label="创建时间" width="170">
+      <el-table-column column-key="created_at" v-if="isColumnVisible('created_at')" prop="created_at" label="创建时间" width="170">
         <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
       </el-table-column>
       <el-table-column label="详情" width="100" fixed="right" align="center">
@@ -157,7 +158,8 @@
           </div>
         </template>
       </el-table-column>
-    </el-table>
+    </OrderedTableColumns>
+</el-table>
 
     <el-pagination
       v-model:current-page="pagination.page"
@@ -418,6 +420,7 @@
 </template>
 
 <script setup>
+import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { computed, ref, reactive, onBeforeUnmount, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'

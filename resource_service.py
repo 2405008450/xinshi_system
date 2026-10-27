@@ -429,6 +429,7 @@ def _talent_query(
         "operator_name": (ResourcePerson.operator_name, "string"),
         "operated_at": (ResourcePerson.operated_at, "datetime"),
         "duplicate_review_required": (ResourcePerson.duplicate_review_required, "boolean"),
+        "resume_path_registered": (func.length(func.trim(func.coalesce(ResourcePerson.resume_path, ""), " \t\r\n\u3000")) > 0, "boolean"),
     })
     for field, descriptor in field_filters.items():
         if field == "capability_types":
@@ -550,6 +551,15 @@ def get_talents(
     from talent_duplicate_service import annotate_review_states
     annotate_review_states(db, people)
     return people
+
+
+def get_talent_path_page(db: Session, *, registered: bool | None, skip: int, limit: int):
+    from resource_schemas import TalentPathRecordResponse
+    filters = {} if registered is None else {"resume_path_registered": {"op": "eq", "value": registered}}
+    query = _talent_query(db, field_filters=filters)
+    columns = [getattr(ResourcePerson, key) for key in TalentPathRecordResponse.model_fields if key != "contact_restricted"]
+    rows = query.with_entities(*columns).order_by(ResourcePerson.updated_at.desc(), ResourcePerson.id.desc()).offset(skip).limit(limit).all()
+    return {"items": [dict(row._mapping) for row in rows], "total": query.count()}
 
 
 def count_talents(db: Session, **filters) -> int:

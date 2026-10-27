@@ -7,7 +7,7 @@
           <p class="page-subtitle">按日期统筹平台安排、记录开拓与跟进</p>
         </div>
         <div v-if="activeSection === 'logs'" class="header-actions">
-          <TableColumnSettings
+          <TableColumnSettings settings-key="resource-development"
             v-model="selectedColumns"
             :columns="developmentColumns"
             :column-count="2"
@@ -19,7 +19,7 @@
             <template v-if="!deleteMode">
               <el-button @click="settingsRef.open()">平台与选项</el-button>
               <el-button @click="openWork()">每日工作</el-button>
-              <el-button type="primary" @click="openEditor()">新增</el-button>
+              <el-button type="primary" title="左键：表格录入；右键：原表单录入" @click="openBatchEditor" @contextmenu.prevent="openEditor()">新增</el-button>
             </template>
             <BatchDeleteToolbar :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
           </template>
@@ -81,7 +81,8 @@
     </template>
     <template v-if="issueAccess.can_resource">
     <DevelopmentStatusRecordsDialog ref="statusRecordsRef" :options="options" @edit="openEditor" @saved="recordSaved" />
-    <DevelopmentRecordEditor ref="editorRef" :options="options" @saved="recordSaved" />
+    <DevelopmentRecordEditor ref="editorRef" :options="options" @saved="recordSaved" @language-created="languageCreated" @custom-field-created="customFieldCreated" />
+    <DevelopmentBatchEntryDialog ref="batchEditorRef" :options="options" @saved="recordSaved" @language-created="languageCreated" @custom-field-created="customFieldCreated" />
     <DevelopmentWorkEditor ref="workRef" :options="options" @saved="reload" />
     <DevelopmentSettings ref="settingsRef" :options="options" @saved="loadOptions" />
     </template>
@@ -96,6 +97,7 @@ import { ElMessage } from 'element-plus'
 import TalentResourceNav from './components/TalentResourceNav.vue'
 import DevelopmentFriendDailyPanel from './components/DevelopmentFriendDailyPanel.vue'
 import DevelopmentRecordEditor from './components/DevelopmentRecordEditor.vue'
+import DevelopmentBatchEntryDialog from './components/DevelopmentBatchEntryDialog.vue'
 import DevelopmentWorkEditor from './components/DevelopmentWorkEditor.vue'
 import DevelopmentSettings from './components/DevelopmentSettings.vue'
 import DevelopmentRecordsTable from './components/DevelopmentRecordsTable.vue'
@@ -108,11 +110,12 @@ import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useDevelopmentFilters } from '@/composables/useDevelopmentFilters'
 import { developmentApi as api } from '@/api/resourceDevelopment'
-import { developmentColumns, defaultDevelopmentColumns, cleanColumns, statusOptions } from '@/utils/resourceDevelopment'
+import { buildDevelopmentColumns, defaultDevelopmentColumns, cleanColumns, statusOptions } from '@/utils/resourceDevelopment'
 import { hasPermission } from '@/utils/permission'
 import { resolveDevelopmentSection } from '@/utils/resourceDevelopmentNavigation'
 const ResourceRequests = defineAsyncComponent(() => import('./ResourceRequests.vue'))
 const options = reactive({ options: [], users: [], languages: [], user_id: '', is_admin: false, can_write: false })
+const developmentColumns = computed(() => buildDevelopmentColumns(options))
 const route = useRoute(), router = useRouter()
 const { access: issueAccess } = useResourceIssues()
 const canRequests = computed(() => hasPermission('projects:read'))
@@ -144,6 +147,12 @@ const setTableRef = el => { if (el) tableRef.value = el }
 let listController, recordController, listSeq = 0, recordSeq = 0, timer
 const cancelled = e => ['ERR_CANCELED','CanceledError','AbortError'].includes(e.code || e.name)
 async function loadOptions() { Object.assign(options, await api.options()) }
+const batchEditorRef = ref(null)
+async function openBatchEditor() { try { await loadOptions(); await batchEditorRef.value.open() } catch (error) { ElMessage.error(error.message) } }
+function languageCreated(language) {
+  options.languages = [...options.languages.filter(item => item.id !== language.id), language]
+}
+function customFieldCreated(field) { options.options = [...options.options.filter(item => item.id !== field.id), field] }
 async function loadRecords() {
   recordController?.abort(); const seq = ++recordSeq
   if (!activeDay.value) { rows.value = []; recordTotal.value = 0; recordsLoading.value = false; return }
@@ -182,7 +191,7 @@ function recordPageChanged() { exitDeleteMode(); rows.value = []; loadRecords() 
 function recordSizeChanged() { recordPage.value = 1; recordPageChanged() }
 function daySizeChanged() { dayPage.value = 1; dayPageChanged() }
 function dayPageChanged() { activeDay.value = ''; reload() }
-async function recordSaved() { await Promise.all([reload(), statusRecordsRef.value?.reload()]) }
+async function recordSaved() { await loadOptions(); await Promise.all([reload(), statusRecordsRef.value?.reload()]) }
 async function openEditor(row, channel, status) { try { await loadOptions(); await editorRef.value.open(row, channel, status) } catch (e) { ElMessage.error(e.message) } }
 async function openWork(day, owner) { try { await workRef.value.open(day, owner) } catch (e) { ElMessage.error(e.message) } }
 const chineseDate = value => value ? new Date(`${String(value).slice(0,10)}T00:00:00`).toLocaleDateString('zh-CN') : '-'
@@ -193,7 +202,7 @@ async function ensureOptions() {
     await loadOptions()
     if (disposed) return
     const raw = localStorage.getItem(columnKey())
-    try { selectedColumns.value = raw ? cleanColumns(JSON.parse(raw)) : [...defaultDevelopmentColumns] }
+    try { selectedColumns.value = raw ? cleanColumns(JSON.parse(raw), defaultDevelopmentColumns, developmentColumns.value) : [...defaultDevelopmentColumns] }
     catch { localStorage.removeItem(columnKey()); selectedColumns.value = [...defaultDevelopmentColumns] }
     optionsReady.value = true
   })().finally(() => { optionsPromise = null })

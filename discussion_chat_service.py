@@ -80,7 +80,8 @@ def publish(db):
 def catalog(db, user):
     if not user or not user.is_active:
         return []
-    rooms = [room for room in room_specs(db) if can_view_room(db, user, room)]
+    resource_visible=can_view(db,user)
+    rooms = [room for room in room_specs(db) if room.get('parent_key',RESOURCE_ROOT)!=RESOURCE_ROOT or resource_visible]
     ready = schema_ready(db)
     if not ready:
         return []
@@ -97,19 +98,26 @@ def catalog(db, user):
         baselines = [and_(Message.room_id == UUID(row['id']), Message.id > (members[row['id']].last_read_id if row['id'] in members else 0)) for row in rooms]
         unread = {str(room): count for room, count in db.query(Message.room_id, func.count(Message.id)).filter(
             or_(*baselines), Message.sender_id != user.id, Message.recalled_at.is_(None)).group_by(Message.room_id)} if baselines else {}
+    from discussion_mentions import ready as mentions_ready
+    from discussion_chat_models import DiscussionMention
+    mentioned = {}
+    if mentions_ready(db):
+        for mid,room_id in db.query(DiscussionMention.message_id,Message.room_id).join(Message,Message.id==DiscussionMention.message_id).filter(DiscussionMention.user_id==user.id,Message.room_id.in_([UUID(room['id']) for room in rooms]),Message.recalled_at.is_(None)):
+            member=members.get(str(room_id))
+            if mid>(member.last_read_id if member else 0):mentioned.setdefault(str(room_id),[]).append(str(mid))
     rows = []
     for room in rooms:
         mid = room['id']; member = members.get(mid); last = latest.get(mid)
         rows.append(dict(key=f'discussion:{mid}', kind='discussion', project_id=mid, title=room['name'],
             subtitle='资源开拓讨论' if room.get('parent_key', RESOURCE_ROOT) == RESOURCE_ROOT else '群聊',
             category_ids=[mid], storage_ready=ready, pinned=bool(member and member.pinned),
-            starred=bool(member and member.starred), unread=unread.get(mid, 0), mention_unread=0,
+            starred=bool(member and member.starred), unread=unread.get(mid, 0), mention_unread=len(mentioned.get(mid,[])),mention_message_ids=mentioned.get(mid,[]),
             last_message=dict(id=str(last.id), sender_name=last.sender_name, preview='消息已撤回' if last.recalled_at else last.content[:140],
-                              created_at=business_iso(last.created_at)) if last else None))
+                              created_at=business_iso(last.created_at),mentions_me=bool(last and str(last.id) in mentioned.get(mid,[]))) if last else None))
     return rows
 
 
-def serialize(db, row, user, *, admin=None, replies=None):
+def serialize(db, row, user, *, admin=None, replies=None, mention_cache=None):
     reply = (replies.get(row.reply_to_id) if replies is not None else db.get(Message, row.reply_to_id)) if row.reply_to_id else None
     if admin is None:
         admin = user_has_permission(db, user.id, '*')
@@ -118,7 +126,9 @@ def serialize(db, row, user, *, admin=None, replies=None):
     if created.tzinfo is None:
         from business_time import BUSINESS_TIMEZONE
         created = created.replace(tzinfo=BUSINESS_TIMEZONE)
-    return dict(id=str(row.id), sequence_no=str(row.id), sender_user_id=str(row.sender_id), sender_name=row.sender_name,
+    from discussion_mentions import serialize as mentions
+    mention_rows = [] if row.recalled_at else mention_cache.get(row.id,[]) if mention_cache is not None else mentions(db,row.id)
+    return dict(mentions=mention_rows,metadata={'mention_all':any(item['is_all'] for item in mention_rows)},id=str(row.id), sequence_no=str(row.id), sender_user_id=str(row.sender_id), sender_name=row.sender_name,
         content='' if row.recalled_at else row.content, created_at=business_iso(row.created_at),
         recalled_at=business_iso(row.recalled_at), can_recall=not row.recalled_at and (
             admin or (row.sender_id == user.id and now <= created + timedelta(hours=24))),
@@ -143,7 +153,13 @@ def messages(db, user, room_id, before=None, after=None, limit=50, keyword=''):
     reply_ids = {row.reply_to_id for row in rows if row.reply_to_id}
     replies = {row.id: row for row in db.query(Message).filter(Message.id.in_(reply_ids), Message.room_id == room_id)} if reply_ids else {}
     admin = user_has_permission(db, user.id, '*')
-    return dict(items=[serialize(db, row, user, admin=admin, replies=replies) for row in rows], has_more=more)
+    from discussion_mentions import ready as mentions_ready
+    from discussion_chat_models import DiscussionMention
+    mention_cache={}
+    if mentions_ready(db):
+        for mention in db.query(DiscussionMention).filter(DiscussionMention.message_id.in_([row.id for row in rows])):
+            mention_cache.setdefault(mention.message_id,[]).append(dict(mentioned_user_id=str(mention.user_id),mentioned_user_name=mention.user_name,is_all=mention.is_all))
+    return dict(items=[serialize(db, row, user, admin=admin, replies=replies,mention_cache=mention_cache) for row in rows], has_more=more)
 
 
 def send(db, user, room_id, payload):
@@ -157,9 +173,15 @@ def send(db, user, room_id, payload):
         reply = db.get(Message, payload.reply_to_id)
         if not reply or reply.room_id != room_id or reply.recalled_at:
             raise HTTPException(422, '引用消息不属于当前讨论或已撤回')
+    from discussion_mentions import recipients,create as create_mentions
+    people,members=recipients(db,user,room_id,payload)
     row = Message(room_id=room_id, sender_id=user.id, sender_name=user.full_name or user.username,
         client_message_id=payload.client_message_id, content=payload.content, reply_to_id=payload.reply_to_id)
-    db.add(row); db.commit(); db.refresh(row)
+    db.add(row); db.flush()
+    notifications=create_mentions(db,user,row,payload,people,members)
+    db.commit(); db.refresh(row)
+    from project_chat_crud import _push_notifications
+    _push_notifications(notifications)
     publish(db)
     return serialize(db, row, user)
 

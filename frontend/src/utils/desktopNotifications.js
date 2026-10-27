@@ -1,3 +1,5 @@
+import { notificationAcknowledgements } from './notificationAcknowledgements.js'
+
 const PREFERENCE_PREFIX = 'desktop_notifications_enabled'
 const GUIDE_PREFIX = 'desktop_notifications_guide_seen'
 
@@ -68,6 +70,7 @@ export const markDesktopNotificationGuideSeen = () => {
  * 展示操作系统通知。返回 false 时调用方应回退到站内浮层通知。
  */
 export const showDesktopNotification = (notification, onClick) => {
+  if (notificationAcknowledgements.has(notification.id)) return true
   if (!getDesktopNotificationState().enabled) return false
 
   try {
@@ -76,9 +79,14 @@ export const showDesktopNotification = (notification, onClick) => {
       icon: '/favicon.svg',
       tag: notification.id ? `xinshi-notification-${notification.id}` : undefined,
     })
+    const unsubscribe = notificationAcknowledgements.subscribe(id => {
+      if (id === String(notification.id)) { unsubscribe(); desktopNotification.close() }
+    })
+    desktopNotification.onclose = unsubscribe
 
     desktopNotification.onclick = (event) => {
       event.preventDefault()
+      notificationAcknowledgements.acknowledge(notification.id)
       window.focus()
       desktopNotification.close()
       Promise.resolve(onClick?.()).catch((error) => {

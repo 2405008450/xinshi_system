@@ -60,6 +60,8 @@ import ChatHistorySearchPanel from '@/components/chat/ChatHistorySearchPanel.vue
 import { subscribe, watchAnnotationChat } from '@/utils/realtimeSocket'
 import { copyTextToClipboard } from '@/utils/clipboard'
 import { formatBusinessDateTime as formatDateTime } from '@/utils/dateTime'
+import {useChatDraft} from '@/composables/useChatDraft'
+import {draftFiles} from '@/utils/chatDrafts'
 import { mentionParts as splitMentionParts } from '@/utils/chatMentions'
 
 const props = defineProps({
@@ -100,6 +102,7 @@ const interactions = useChatMessageInteractions({ projectId: computed(() => prop
 const composer = ref(null), mentionMenu = ref(null), mentionOpen = ref(false), mentionQuery = ref(''), mentionIndex = ref(0), mentionStyle = ref({})
 const mentionListId = `mention-${newMessageId()}`
 const mentionCandidates = computed(() => [
+  {id:'__all__',name:'所有人',all:true,outside:false},
   ...group.eligibleUsers.map(u => ({ ...u, outside: false })),
   ...group.invitableUsers.filter(u => !group.members.some(member => member.id === u.id)).map(u => ({ ...u, outside: true })),
 ].filter(u => String(u.id) !== String(currentUserId) && matchesSearch(u.name, mentionQuery.value)))
@@ -360,7 +363,7 @@ function onKeydown(event) {
 function closeMention() { mentionOpen.value = false; mentionTrigger = -1 }
 function finishComposition() { composing.value = false; nextTick(onInput) }
 async function onInput() {
-  if (composing.value || isDirect.value) return
+  if (composing.value) return
   await nextTick()
   const textarea = input.value?.textarea, cursor = textarea?.selectionStart || 0
   const match = content.value.slice(0, cursor).match(/(?:^|[^A-Za-z0-9@])@([^\s@]*)$/u)
@@ -387,7 +390,7 @@ function positionMention() {
 async function selectMention(user) {
   if (String(user.id) === String(currentUserId)) return
   if (mentionTrigger < 0) return
-  if (!mentionIds.value.includes(user.id) && mentionIds.value.length >= 20) { ElMessage.warning('每条消息最多提及20人'); return }
+  if (user.id!=='__all__' && !mentionIds.value.includes(user.id) && mentionIds.value.filter(id=>id!=='__all__').length >= 20) { ElMessage.warning('每条消息最多提及20人'); return }
   const cursor = input.value.textarea.selectionStart, text = `@${user.name} `, end = mentionTrigger + text.length
   content.value = content.value.slice(0, mentionTrigger) + text + content.value.slice(cursor)
   if (!mentionIds.value.includes(user.id)) mentionIds.value.push(user.id)
@@ -397,7 +400,7 @@ async function send() {
   if (!canSend.value) return
   sending.value = true; sendError.value = ''
   closeMention()
-  const payload = retryPayload.value || { content: content.value, mentionedUserIds: mentionIds.value.filter(id => [...group.eligibleUsers, ...group.invitableUsers].some(u => u.id === id && content.value.includes(`@${u.name} `))), attachmentIds: files.value.map(f => f.data.id), replyToMessageId: replyTo.value?.id || null, clientMessageId: newMessageId() }
+  const payload = retryPayload.value || { content: content.value, mentionAll:mentionIds.value.includes('__all__') && content.value.includes('@所有人 '), mentionedUserIds: mentionIds.value.filter(id => [...group.eligibleUsers, ...group.invitableUsers].some(u => u.id === id && content.value.includes(`@${u.name} `))), attachmentIds: files.value.map(f => f.data.id), replyToMessageId: replyTo.value?.id || null, clientMessageId: newMessageId() }
   try {
     const message = await createProjectChatMessage(props.projectId, payload, props.projectType)
     retryPayload.value = null; content.value = ''; files.value = []; replyTo.value = null; mentionIds.value = []
@@ -440,6 +443,7 @@ onMounted(async () => {
   if (props.targetMessageId) await locate(props.targetMessageId)
   if (!disposed) syncTimer = setInterval(() => { sync(); loadGroup(); scheduleRead() }, 12000)
 })
+const draft=useChatDraft(computed(()=>[props.projectType,props.projectId]),()=>({content:content.value,mentionIds:mentionIds.value,replyTo:replyTo.value,files:draftFiles(files.value),retryPayload:retryPayload.value}),data=>{content.value=data.content;mentionIds.value=data.mentionIds||[];replyTo.value=data.replyTo||null;files.value=data.files||[];retryPayload.value=data.retryPayload||null})
 onBeforeUnmount(() => {
   window.removeEventListener('chat-topic-message-changed', topicChanged)
   disposed = true; ++generation; searchController?.abort(); clearTimeout(searchTimer); clearTimeout(readTimer); clearInterval(syncTimer)
@@ -451,7 +455,7 @@ onBeforeUnmount(() => {
 })
 function openSearch() { searchOpen.value = !searchOpen.value }
 function onSearchLocate(messageId) { return locate(messageId) }
-provide('chatController', { props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, download, copy, replyTo, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, screenshotUploading, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
+provide('chatController', { draft, props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, download, copy, replyTo, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, screenshotUploading, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
 defineExpose({ openSearch, locate, cancelLocate, toggleFilters: openSearch })
 </script>
 

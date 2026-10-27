@@ -94,17 +94,35 @@ def detail(db, user, batch_id):
     from business_time import BUSINESS_TIMEZONE
     stamp = lambda value: value.replace(tzinfo=BUSINESS_TIMEZONE).isoformat() if value and value.tzinfo is None else value.astimezone(BUSINESS_TIMEZONE).isoformat() if value else None
     from resource_request_execution import replies
-    return dict(id=str(batch.id), kind=batch.kind, label=LABELS[batch.kind], snapshot=batch.snapshot, execution_replies=replies(db,[batch.id]) if batch.kind=="post" else [], is_sender=batch.sender_id==user.id,
-        can_respond=recipient is not None, created_at=stamp(batch.created_at), recipients=[dict(user_id=str(r.user_id), name=users[r.user_id].full_name or users[r.user_id].username, received_at=stamp(r.received_at), processed_at=stamp(r.processed_at)) for r in db.query(Recipient).filter_by(dispatch_id=batch.id)])
+    from resource_request_cancellation import summary
+    cancelled = summary(db, batch)
+    kind = batch.snapshot.get('cancelled_kind') if batch.kind == 'cancellation' else batch.kind
+    return dict(id=str(batch.id), kind=kind, label=LABELS.get(kind, '需求') + (' · 取消通知' if batch.kind == 'cancellation' else ''), snapshot=batch.snapshot, execution_replies=replies(db,[batch.id]) if batch.kind=="post" else [], is_sender=batch.sender_id==user.id,
+        is_cancellation=batch.kind=='cancellation', cancellation=cancelled,
+        can_respond=recipient is not None and (batch.kind=='cancellation' or not cancelled), created_at=stamp(batch.created_at), recipients=[dict(user_id=str(r.user_id), name=users[r.user_id].full_name or users[r.user_id].username, received_at=stamp(r.received_at), processed_at=stamp(r.processed_at)) for r in db.query(Recipient).filter_by(dispatch_id=batch.id)])
 
 
 def receipt(db, user, batch_id, status):
-    if status not in {'received', 'processed'}:
+    if status not in {'received', 'processed', 'cancel_received'}:
         raise HTTPException(422, '不支持的回执状态')
     batch = db.get(Batch, batch_id)
-    recipient = db.query(Recipient).filter_by(dispatch_id=batch_id, user_id=user.id).with_for_update().first()
+    from resource_request_cancellation import lock_request, assert_active
+    if batch:
+        lock_request(db, batch.request_id)
+    recipient = db.query(Recipient).filter_by(dispatch_id=batch_id, user_id=user.id).populate_existing().with_for_update().first()
     if not batch or not recipient:
         raise HTTPException(404, '你不是该需求的接收人')
+    if batch.kind == 'cancellation':
+        if status != 'cancel_received':
+            raise HTTPException(422, '请确认收到取消通知')
+        if not recipient.received_at:
+            recipient.received_at = now()
+            publish(db, [batch.sender_id], f'{user.full_name or user.username} · 确认收到取消通知 · {LABELS[batch.snapshot["cancelled_kind"]]}', batch)
+            commit(db)
+        return detail(db, user, batch_id)
+    if status == 'cancel_received':
+        raise HTTPException(422, '该通知不是取消通知')
+    assert_active(db, batch)
     if batch.kind == 'post' and status == 'processed':
         from resource_request_dispatch_models import ResourceRequestExecutionReply
         if not db.query(ResourceRequestExecutionReply.id).filter_by(dispatch_id=batch_id, user_id=user.id).first():

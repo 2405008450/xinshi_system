@@ -16,6 +16,11 @@ def annotation_context(db, project_id):
 
 
 def prepare_data(db, payload, data, existing=None):
+    # 旧客户端只提交需求版本时，不清空已保存的三类说明；显式空串仍可清空。
+    if 'request_content' in data:
+        previous_notes = ((existing.request_content or {}).get('dispatch_notes') or {}) if existing else {}
+        submitted_notes = payload.request_content.dispatch_notes.model_dump(exclude_unset=True)
+        data['request_content']['dispatch_notes'] = {**previous_notes, **submitted_notes}
     if payload.source_type != 'annotation':
         if payload.partial_requested:
             raise HTTPException(422, '仅标注母订单可发送部分语种需求')

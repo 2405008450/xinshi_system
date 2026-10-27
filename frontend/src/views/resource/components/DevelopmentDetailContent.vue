@@ -11,6 +11,9 @@
         <el-descriptions-item v-for="field in fields" :key="field.key" :label="field.label" label-width="96px">{{ field.key === 'work_date' ? date(record[field.key]) : field.key === 'updated_at' ? time(record[field.key]) : record[field.key] || '-' }}</el-descriptions-item>
         <el-descriptions-item label="语种 / 方言" :span="2" label-width="96px">{{ record.language_names || '-' }}</el-descriptions-item>
         <el-descriptions-item label="加微账号" :span="2" label-width="96px">{{ formatWechatAccounts(record.friend_accounts) || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="资源 WhatsApp 号" label-width="96px">{{ record.whatsapp || '-' }}</el-descriptions-item>
+        <el-descriptions-item v-for="field in record.custom_field_items || []" :key="field.id" :label="field.name" label-width="96px">{{ field.value || '-' }}</el-descriptions-item>
+        <el-descriptions-item v-for="(account, index) in record.custom_accounts || []" :key="index" :label="`资源${account.name}号`" label-width="96px">{{ account.value || '-' }}</el-descriptions-item>
       </el-descriptions>
     </section>
     <section class="detail-section">

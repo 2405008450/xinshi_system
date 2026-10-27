@@ -13,6 +13,7 @@
         {{ item.label }}
       </el-button>
     </div>
+    <div v-if="activeChildren.length || $slots.actions" class="resource-nav__lower">
     <div v-if="activeChildren.length" class="resource-nav__secondary" role="group" aria-label="人才总库资源分类">
       <el-button
         v-for="item in activeChildren"
@@ -25,6 +26,8 @@
       >
         {{ item.label }}
       </el-button>
+    </div>
+    <div v-if="$slots.actions" class="resource-nav__actions"><slot name="actions" /></div>
     </div>
   </nav>
 </template>
@@ -60,6 +63,8 @@ const activeChildren = computed(() => TALENT_RESOURCE_VIEWS.find(isActiveView)?.
   align-items: center;
   gap: 6px;
 }
+.resource-nav__lower{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.resource-nav__actions{margin-left:auto;margin-top:8px;display:flex;gap:8px}
 
 .resource-nav__secondary {
   margin-top: 8px;
@@ -73,8 +78,13 @@ const activeChildren = computed(() => TALENT_RESOURCE_VIEWS.find(isActiveView)?.
   border: 1px solid transparent !important;
   border-radius: var(--el-border-radius-base);
   color: var(--el-text-color-regular);
-  font-weight: 500;
+  font-weight: 600;
   transition: color .2s ease, background-color .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+
+.resource-nav__secondary .resource-nav__item,
+.resource-nav__secondary .resource-nav__item.is-current {
+  font-weight: 400;
 }
 
 .resource-nav__item:hover {

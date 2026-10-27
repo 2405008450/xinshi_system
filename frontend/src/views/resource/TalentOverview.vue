@@ -78,13 +78,14 @@
         :height="tableHeight"
         class="overview-table"
       >
+<OrderedTableColumns settings-key="talent-overview">
         <el-table-column type="expand" width="52" fixed="left">
           <template #default="{ row }">
             <TalentOverviewWecomGroups v-if="tableRows.some(item => item.overviewKey === row.overviewKey)" :overview-key="row.overviewKey" :language="row.language" :writable="canWrite && !editing" @changed="refreshGroupSummaries" />
             <p v-else class="overview-note">请先保存新增语种行，再管理企微项目大群。</p>
           </template>
         </el-table-column>
-        <el-table-column v-if="editing || isColumnVisible('language')" prop="language" label="语种/方言" width="190" fixed="left" show-overflow-tooltip>
+        <el-table-column column-key="language" v-if="editing || isColumnVisible('language')" prop="language" label="语种/方言" width="190" fixed="left" show-overflow-tooltip>
           <template #header>
             <ConfiguredColumnHeaderFilter
               v-model="filterValues.language"
@@ -96,7 +97,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column v-if="editing || isColumnVisible('updatedAt')" prop="updatedAt" label="更新日期" width="132" fixed="left" align="center">
+        <el-table-column column-key="updatedAt" v-if="editing || isColumnVisible('updatedAt')" prop="updatedAt" label="更新日期" width="132" fixed="left" align="center">
           <template #header>
             <ConfiguredColumnHeaderFilter
               v-model="filterValues.updatedAt"
@@ -127,7 +128,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column v-if="editing || isColumnVisible('poolPeopleCount')" label="人才总库 · 自动统计" header-align="center">
+        <el-table-column v-if="editing || isColumnVisible('poolPeopleCount')" column-key="poolPeopleCount" label="人才总库 · 自动统计" header-align="center">
           <el-table-column prop="poolPeopleCount" label="总库人数" width="140" align="right" class-name="pool-statistics-cell">
             <template #header>
               <ConfiguredColumnHeaderFilter v-model="poolCountFilter" :definition="poolCountFilterDefinition" />
@@ -136,18 +137,19 @@
           </el-table-column>
         </el-table-column>
 
-        <el-table-column v-if="!editing && isColumnVisible('wecomGroupCounts')" prop="wecomGroupCounts" label="项目群（已建/未建）" width="175" align="center">
+        <el-table-column column-key="wecomGroupCounts" v-if="!editing && isColumnVisible('wecomGroupCounts')" prop="wecomGroupCounts" label="项目群（已建/未建）" width="175" align="center">
           <template #default="{ row }">{{ row.wecomSummary?.builtGroupCount || 0 }} / {{ row.wecomSummary?.unbuiltGroupCount || 0 }}</template>
         </el-table-column>
-        <el-table-column v-if="!editing && isColumnVisible('wecomPeopleCount')" prop="wecomPeopleCount" label="项目群人数（未去重）" width="190" align="right">
+        <el-table-column column-key="wecomPeopleCount" v-if="!editing && isColumnVisible('wecomPeopleCount')" prop="wecomPeopleCount" label="项目群人数（未去重）" width="190" align="right">
           <template #default="{ row }">{{ formatOverviewCount(row.wecomSummary?.peopleCountTotal) }}<small class="wecom-count-coverage">已登记 {{ row.wecomSummary?.recordedGroupCount || 0 }}/{{ row.wecomSummary?.builtGroupCount || 0 }} 群</small></template>
         </el-table-column>
-        <el-table-column v-if="!editing && isColumnVisible('wecomStatisticsDate')" prop="wecomStatisticsDate" label="项目群最新统计日期" width="175">
+        <el-table-column column-key="wecomStatisticsDate" v-if="!editing && isColumnVisible('wecomStatisticsDate')" prop="wecomStatisticsDate" label="项目群最新统计日期" width="175">
           <template #default="{ row }">{{ formatOverviewDate(row.wecomSummary?.latestStatisticsDate) }}</template>
         </el-table-column>
 
         <el-table-column
-          v-for="group in columnGroups"
+          v-for="group in orderedColumnGroups"
+          :column-key="group.orderKey"
           :key="group.key"
           :label="group.label"
           header-align="center"
@@ -156,6 +158,7 @@
             v-for="column in group.columns"
             :key="column.key"
             :prop="`counts.${column.key}`"
+            :column-key="`source:${column.key}`"
             :width="column.width"
             align="right"
             header-align="center"
@@ -223,7 +226,7 @@
           <template #default><span class="structure-placeholder">—</span></template>
         </el-table-column>
 
-        <el-table-column v-if="editing || isColumnVisible('rowTotal')" prop="rowTotal" label="原表合计" width="112" fixed="right" align="right" header-align="center">
+        <el-table-column column-key="rowTotal" v-if="editing || isColumnVisible('rowTotal')" prop="rowTotal" label="原表合计" width="112" fixed="right" align="right" header-align="center">
           <template #header>
             <ConfiguredColumnHeaderFilter
               v-model="filterValues.rowTotal"
@@ -246,7 +249,8 @@
             新增行
           </button>
         </template>
-      </el-table>
+      </OrderedTableColumns>
+</el-table>
     </el-card>
 
     <DraggableFormDialog
@@ -297,6 +301,8 @@
 </template>
 
 <script setup>
+import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
+import { useTableColumnOrder } from '@/composables/useTableColumnOrder'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -396,6 +402,10 @@ const columnGroups = computed(() => Object.entries(groupLabels).map(([key, label
   label,
   columns: displayedColumns.value.filter(column => column.group === key && (editing.value || isColumnVisible(`source:${column.key}`))),
 })).filter(group => group.columns.length))
+const { custom: hasColumnOrder } = useTableColumnOrder('talent-overview')
+const orderedColumnGroups = computed(() => hasColumnOrder.value && !editing.value
+  ? columnGroups.value.flatMap(group => group.columns.map(column => ({ ...group, key: `source:${column.key}`, orderKey: `source:${column.key}`, columns: [column] })))
+  : columnGroups.value)
 const draftSignature = computed(() => JSON.stringify({ columns: draftColumns.value, rows: draftRows.value }))
 const isDirty = computed(() => editing.value && draftSignature.value !== draftBaseline.value)
 const fullscreenActive = computed(() => nativeFullscreen.value || fallbackFullscreen.value)

@@ -22,6 +22,7 @@
         <el-button @click="reset">重置</el-button>
         <el-popover v-model:visible="advancedVisible" trigger="click" placement="bottom-end" :width="760" popper-class="manager-log-advanced-popover">
           <div class="manager-log-advanced-content">
+          <AdvancedFilterFieldSearch :active="advancedVisible">
       <el-form-item label="变更方式">
         <el-select v-model="filters.changeMode" clearable placeholder="全部" class="manager-log-short-filter" @change="search">
           <el-option label="批量交接" value="direct_transfer" />
@@ -42,6 +43,7 @@
           @change="search"
         />
       </el-form-item>
+          </AdvancedFilterFieldSearch>
           <div class="manager-log-advanced-actions"><el-button @click="clearAdvanced">清空高级条件</el-button><el-button @click="advancedVisible = false">关闭</el-button></div>
           </div>
           <template #reference><el-button>高级筛选{{ advancedCount ? `（${advancedCount}）` : '' }}</el-button></template>
@@ -81,6 +83,7 @@
 </template>
 
 <script setup>
+import AdvancedFilterFieldSearch from '@/components/common/AdvancedFilterFieldSearch.vue'
 import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { getAnnotationManagerChangeLogs } from '@/api/annotationProjects'
 import AppForm from '@/components/common/AppForm.vue'

@@ -3,7 +3,7 @@
       <button type="button" class="chat-composer-resize" aria-label="调整输入区高度" title="拖动调整输入区高度" @pointerdown="start" @keydown="resizeByKeyboard" />
       <div v-if="replyTo" class="group-compose-reply">回复 {{ replyTo.senderName }}：{{ screenshotPreview(replyTo.content) || '[附件]' }}<el-button link :disabled="sending || !!retryPayload" @click="replyTo=null">取消引用</el-button></div>
       <div class="group-compose-tools">
-        <el-button v-if="!isDirect" text size="small" aria-label="提及用户" title="提及用户" :disabled="sending || !!retryPayload" @click="insertMention">@</el-button>
+        <el-button text size="small" aria-label="提及用户" title="提及用户" :disabled="sending || !!retryPayload" @click="insertMention">@</el-button>
         <el-upload :show-file-list="false" :auto-upload="false" multiple :disabled="sending || !!retryPayload" accept=".jpg,.jpeg,.png,.gif,.webp" :on-change="chooseFile"><el-button text size="small" :icon="Picture" :disabled="sending || !!retryPayload" aria-label="发送图片" title="发送图片" /></el-upload>
         <el-upload :show-file-list="false" :auto-upload="false" multiple :disabled="sending || !!retryPayload" :on-change="chooseFile"><el-button text size="small" :icon="Paperclip" :disabled="sending || !!retryPayload" aria-label="发送文件" title="发送文件" /></el-upload>
       </div>
@@ -15,11 +15,12 @@
         <div class="group-mention-options">
           <template v-for="(user, index) in mentionCandidates" :key="user.id">
             <div v-if="!index || user.outside !== mentionCandidates[index - 1].outside" class="group-mention-section" :class="{ 'is-outside': user.outside }">{{ user.outside ? '未参与人员 · 发送后自动加入' : '群组参与人' }}</div>
-            <button :id="`${mentionListId}-${index}`" type="button" role="option" :aria-selected="index === mentionIndex" :class="{ 'is-active': index === mentionIndex, 'is-outside': user.outside }" @mouseenter="mentionIndex=index" @click="selectMention(user)"><span class="group-mention-avatar">{{ user.name.slice(0, 1) }}</span><span>{{ user.name }}</span><ChatDesktopPresence :online="desktopPresence[user.id]" :loading="desktopPresenceLoading" /><small v-if="user.outside">邀请入群</small></button>
+            <button :id="`${mentionListId}-${index}`" type="button" role="option" :aria-selected="index === mentionIndex" :class="{ 'is-active': index === mentionIndex, 'is-outside': user.outside }" @mouseenter="mentionIndex=index" @click="selectMention(user)"><span class="group-mention-avatar">{{ user.name.slice(0, 1) }}</span><span>{{ user.name }}</span><ChatDesktopPresence v-if="!user.all" :online="desktopPresence[user.id]" :loading="desktopPresenceLoading" /><small v-if="user.outside">邀请入群</small></button>
           </template>
           <div v-if="!mentionCandidates.length" class="group-mention-empty">没有匹配的用户</div>
         </div>
       </div>
+      <small v-if="draft.error.value" role="alert">{{draft.error.value}}</small><small v-else-if="draft.saved.value">草稿已自动保存到本机</small>
       <div class="group-compose-footer"><span>Enter发送 · Shift+Enter换行</span><el-button v-if="retryPayload" size="small" @click="cancelRetry">继续编辑</el-button><el-button type="primary" size="small" :loading="sending" :disabled="!canSend" @click="send">{{ retryPayload ? '发送失败，重试' : '发送' }}</el-button></div>
       <div v-if="sendError" class="group-error" role="alert">{{ sendError }}</div>
     </div>
@@ -32,8 +33,8 @@ import { useDesktopPresence } from '@/composables/useDesktopPresence'
 import { Paperclip, Picture } from '@element-plus/icons-vue'
 import { useChatComposerHeight } from '@/composables/useChatComposerHeight'
 const { inputStyle, start, resizeByKeyboard } = useChatComposerHeight()
-const { props, composer, replyTo, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, screenshotUploading, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect } = inject('chatController')
-const { statuses: desktopPresence, loading: desktopPresenceLoading } = useDesktopPresence(computed(() => mentionCandidates.value.map(user => user.id)), computed(() => props.active && mentionOpen.value))
+const { draft, props, composer, replyTo, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, screenshotUploading, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect } = inject('chatController')
+const { statuses: desktopPresence, loading: desktopPresenceLoading } = useDesktopPresence(computed(() => mentionCandidates.value.filter(user=>!user.all).map(user => user.id)), computed(() => props.active && mentionOpen.value))
 function keepMentionFocus(event) {
   // 搜索框需要获得焦点；候选按钮保留输入光标，确保选择时替换正确的 @ 文本。
   if (!event.target.closest('input')) event.preventDefault()

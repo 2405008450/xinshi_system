@@ -5,7 +5,7 @@ from search_matching import keyword_ilike, keyword_like, keyword_or
 
 from datetime import date, datetime
 from typing import Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
@@ -465,18 +465,24 @@ def cancel_resource_request(db: Session, request_id: UUID, user_id: Optional[UUI
         return None
     if row.demand_status == "draft":
         raise ValueError("草稿尚未发送，无需取消需求")
+    if row.demand_status == 'cancelled':
+        return get_resource_request(db, row.id)
+    from resource_request_cancellation import cancel_batches
+    cancel_batches(db, row.id, 'development', user_id)
     row.demand_status = "cancelled"
     row.request_status = "cancelled"
     row.completed_at = None
     row.updated_at = business_now()
     db.add(ResourceRequestProgressLog(
+        id=uuid4(),
         request_id=row.id,
         progress_percent=row.progress_percent,
         progress_note="资源需求已取消",
         changed_by=user_id,
         changed_at=business_now(),
     ))
-    db.commit()
+    from resource_request_dispatch import commit
+    commit(db)
     return get_resource_request(db, row.id)
 
 

@@ -403,10 +403,12 @@ def test_translation_return_time_filter_rejects_invalid_dates():
     [
         ("unfinished_first_order_no_desc", "translation_project.project_status in"),
         ("customer_deadline_time_asc", "translation_project.customer_deadline_time asc"),
+        ("customer_deadline_time_desc", "translation_project.customer_deadline_time desc"),
+        ("translator_return_time_desc", "min(manuscript_arrangement.planned_delivery_at)"),
         ("translator_return_time_asc", "min(manuscript_arrangement.planned_delivery_at)"),
     ],
 )
-def test_translation_time_sort_modes_keep_business_priority_ordering(sort_mode, expected_sql):
+def test_translation_time_sort_modes_ignore_business_status_priority(sort_mode, expected_sql):
     db = RecordingTranslationDb()
 
     assert get_translation_projects(db, sort=sort_mode) == []
@@ -414,7 +416,10 @@ def test_translation_time_sort_modes_keep_business_priority_ordering(sort_mode, 
     ordering_sql = " ".join(compiled_sql(item) for item in db.query_instance.ordering)
     assert expected_sql in ordering_sql
     assert "translation_project.order_no" in ordering_sql
-    if sort_mode == "translator_return_time_asc":
+    if sort_mode != "unfinished_first_order_no_desc":
+        assert "translation_project.project_status" not in ordering_sql
+        assert "nulls last" in ordering_sql
+    if sort_mode.startswith("translator_return_time_"):
         assert "manuscript_arrangement.sub_order_id is null" in ordering_sql
         assert "manuscript_dispatch.confirmed_at is not null" in ordering_sql
 

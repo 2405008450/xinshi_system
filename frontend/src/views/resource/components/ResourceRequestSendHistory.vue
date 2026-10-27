@@ -8,6 +8,7 @@
     <div v-for="(item,index) in visibleRecords" :key="item.id" class="request-send-history__item">
       <span><em v-if="index===0" class="request-send-history__latest">最新</em>第 {{ item.number }} 次 · {{ item.senderName }} · {{ formatTime(item.sentAt) }}</span>
       <small v-if="item.recipients?.length">接收人：{{ item.recipients.join('、') }}　已收到 {{ item.receivedCount }}/{{ item.recipients.length }} · 已处理 {{ item.processedCount }}/{{ item.recipients.length }}</small>
+      <template v-if="item.cancellation"><small>已取消 · {{ item.cancellation.cancelledBy }} · {{ formatTime(item.cancellation.cancelledAt) }}　取消通知已确认 {{ item.cancellation.confirmedCount }}/{{ item.cancellation.recipients.length }}</small><details><summary>查看取消确认记录</summary><div v-for="person in item.cancellation.recipients" :key="person.userId">{{ person.name }}：{{ person.confirmedAt ? '确认收到取消通知 · '+formatTime(person.confirmedAt) : '待确认收到取消通知' }}</div></details></template>
       <template v-if="item.executionReplies?.length"><small>执行平台：{{ [...new Set(item.executionReplies.flatMap(r=>r.platforms.map(p=>p.name)))].join('、') }}</small><details><summary>查看执行回执（{{ item.executionReplies.length }} 条）</summary><RequestExecutionReplies :rows="item.executionReplies" /></details></template>
     </div>
     <button v-if="records.length > 1" type="button" class="request-send-history__toggle" :aria-expanded="expanded" @click="expanded=!expanded">

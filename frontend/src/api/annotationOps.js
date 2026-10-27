@@ -70,6 +70,12 @@ export const deleteCustomerProgress = (id, data) => api.delete(`/annotation-ops/
 export const getRecentStatusHistory = (params = {}, config = {}) => get('/annotation-ops/status-history/recent', params, config)
 export const searchStatusHistory = (params, config = {}) => get('/annotation-ops/status-history/search', params, config)
 export const updateStatusHistoryProgress = (id, data) => patch(`/annotation-ops/status-history/${id}/progress`, data)
+export const getProgressRecordAudits = (projectId, config = {}) => get(`/annotation-ops/projects/${projectId}/progress-record-audits`, {}, config)
+let progressRecordCapabilityRequest
+export const getProgressRecordCapabilities = () => {
+  if (!progressRecordCapabilityRequest) progressRecordCapabilityRequest = get('/annotation-ops/progress-record-capabilities').finally(() => { progressRecordCapabilityRequest = undefined })
+  return progressRecordCapabilityRequest
+}
 export const deleteStatusHistoryProgress = (id, data) => api.delete(
   `/annotation-ops/status-history/${id}/progress`,
   { data: convert(data, snake) }

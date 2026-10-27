@@ -1798,6 +1798,16 @@ def _apply_translation_project_filters(
     field_filters = field_filters or {}
     from managed_project_filters import apply_managed_filter
     query = apply_managed_filter(query, 'translation', field_filters)
+    excluded_statuses = field_filters.get('excluded_project_status', {}).get('value') or []
+    if excluded_statuses:
+        # 排除母项目状态，不因子订单状态不同而重新纳入；兼容历史别名及空格。
+        status_value = func.lower(func.trim(func.coalesce(TranslationProject.project_status, '')))
+        status_value = case({'pending':'pending_confirmation', 'in_progress':'confirmed',
+                             'completed':'sent_to_client', 'terminated':'cancelled',
+                             '待确认':'pending_confirmation', '已安排':'arranged', '已发客户':'sent_to_client',
+                             '反馈后发客户':'feedback_sent_to_client', '已暂停':'paused', '已取消':'cancelled'},
+                            value=status_value, else_=status_value)
+        query = query.filter(status_value.notin_(excluded_statuses))
     query = apply_scalar_specs(query, field_filters, {
         "client_id": (TranslationProject.client_id, "uuid"),
         "order_no": (TranslationProject.order_no, "string"),
@@ -2038,7 +2048,8 @@ def get_translation_projects(
         "order_no_desc",
         "unfinished_first_order_no_desc",
         "customer_deadline_time_asc",
-        "translator_return_time_asc",
+        "translator_return_time_asc", "translator_return_time_desc", "customer_deadline_time_desc",
+        "assigned_translator_name_asc", "assigned_translator_name_desc",
     }:
         # 兼容 TP-YYMMDD-NNN 与历史 TP-YYYYMMDD-NNN；异常订单号回退到创建时间。
         order_date_part = func.substring(
@@ -2083,73 +2094,18 @@ def get_translation_projects(
                 else_=0,
             )
             ordering = (ended_rank.asc(), *order_no_ordering)
-        elif sort == "customer_deadline_time_asc":
-            customer_deadline_rank = case(
-                (
-                    TranslationProject.project_status.in_((
-                        "sent_to_client",
-                        "client_feedback",
-                        "feedback_sent_to_client",
-                        "completed",
-                        "cancelled",
-                        "partially_cancelled",
-                        "terminated",
-                        "paused",
-                    )),
-                    2,
-                ),
-                (TranslationProject.customer_deadline_time.is_(None), 1),
-                else_=0,
-            )
-            ordering = (
-                customer_deadline_rank.asc(),
-                TranslationProject.customer_deadline_time.asc().nullslast(),
-                *order_no_ordering,
-            )
-        elif sort == "translator_return_time_asc":
-            # 项目可能同时派给多位译员，以最早的有效回稿时间代表项目紧急度。
-            # 仅统计母项目自身的派稿，与列表“译员回稿时间”列的展示口径一致。
-            ManuscriptArrangement, ManuscriptDispatch, conditions = (
-                _valid_project_translator_return_time_conditions()
-            )
-
-            earliest_translator_return_time = (
-                select(func.min(ManuscriptArrangement.planned_delivery_at))
-                .join(
-                    ManuscriptDispatch,
-                    ManuscriptDispatch.id == ManuscriptArrangement.dispatch_id,
-                )
-                .where(*conditions)
-                .correlate(TranslationProject)
-                .scalar_subquery()
-            )
-            translator_return_rank = case(
-                (
-                    TranslationProject.project_status.in_((
-                        "translator_returned",
-                        "special_checked",
-                        "typeset",
-                        "special_checked_typeset",
-                        "reviewed",
-                        "sent_to_client",
-                        "client_feedback",
-                        "feedback_sent_to_client",
-                        "completed",
-                        "cancelled",
-                        "partially_cancelled",
-                        "terminated",
-                        "paused",
-                    )),
-                    2,
-                ),
-                (earliest_translator_return_time.is_(None), 1),
-                else_=0,
-            )
-            ordering = (
-                translator_return_rank.asc(),
-                earliest_translator_return_time.asc().nullslast(),
-                *order_no_ordering,
-            )
+        elif sort in {'customer_deadline_time_asc','customer_deadline_time_desc'}:
+            column=TranslationProject.customer_deadline_time
+            ordering=((column.asc() if sort.endswith('_asc') else column.desc()).nullslast(),*order_no_ordering)
+        elif sort in {'translator_return_time_asc','translator_return_time_desc'}:
+            ManuscriptArrangement,ManuscriptDispatch,conditions=_valid_project_translator_return_time_conditions()
+            earliest=select(func.min(ManuscriptArrangement.planned_delivery_at)).join(
+                ManuscriptDispatch,ManuscriptDispatch.id==ManuscriptArrangement.dispatch_id).where(*conditions).correlate(TranslationProject).scalar_subquery()
+            ordering=((earliest.asc() if sort.endswith('_asc') else earliest.desc()).nullslast(),*order_no_ordering)
+        elif sort in {'assigned_translator_name_asc','assigned_translator_name_desc'}:
+            from translation_project_sorting import translator_name_sort_expression
+            name_rank=translator_name_sort_expression(db,query)
+            ordering=((name_rank.asc() if sort.endswith('_asc') else name_rank.desc()).nullslast(),*order_no_ordering)
         else:
             ordering = order_no_ordering
     else:
@@ -2172,6 +2128,10 @@ def get_translation_projects(
         _attach_project_client_fields(project)
         _attach_project_file_detail_fields(project)
     _attach_manuscript_assignees(db, projects=projects)
+    if sort in {'assigned_translator_name_asc','assigned_translator_name_desc'}:
+        from translation_project_sorting import translator_name_key
+        for project in projects:
+            project.assigned_translators.sort(key=lambda item:translator_name_key(item.get('translator_name')))
     return projects
 
 
@@ -2742,6 +2702,7 @@ PROJECT_FILE_STATUS_SEQUENCE = {
     'in_progress': 1,
     'confirmed': 1,
     'organized': 2,
+    'arranged': 2,
     'translator_assigned': 3,
     'sent_to_translator': 4,
     'translator_returned': 5,

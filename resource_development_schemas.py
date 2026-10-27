@@ -23,6 +23,18 @@ class FollowUpWrite(CleanModel):
     content: str = Field(min_length=1, max_length=20000)
 
 
+class ResourceAccountWrite(CleanModel):
+    name: str = Field(min_length=1, max_length=50)
+    value: str = Field(min_length=1, max_length=100)
+
+    @field_validator("name")
+    @classmethod
+    def reject_builtin(cls, value):
+        if value.casefold() in {"whatsapp", "whatapp", "whatsapp号", "whatapp号", "资源whatsapp号", "资源whatapp号"}:
+            raise ValueError("WhatsApp 账号请填写资源 WhatsApp 号字段")
+        return value
+
+
 class RecordWrite(CleanModel):
     id: UUID
     revision: int = Field(default=0, ge=0)
@@ -35,6 +47,9 @@ class RecordWrite(CleanModel):
     phone: str = Field(default="", max_length=100)
     wechat: str = Field(default="", max_length=100)
     xiaohongshu: str = Field(default="", max_length=100)
+    whatsapp: str = Field(default="", max_length=100)
+    custom_accounts: list[ResourceAccountWrite] = Field(default_factory=list, max_length=30)
+    custom_fields: dict[UUID, str] = Field(default_factory=dict, max_length=100)
     language_ids: list[UUID] = Field(default_factory=list, max_length=100)
     follow_up: str = Field(default="", max_length=20000)
     remarks: str = Field(default="", max_length=20000)
@@ -46,6 +61,10 @@ class RecordWrite(CleanModel):
 
     @model_validator(mode="after")
     def unique_items(self):
+        if any(len(value) > 20000 for value in self.custom_fields.values()):
+            raise ValueError("每个自定义字段最多20000个字符")
+        if len({a.name.casefold() for a in self.custom_accounts}) != len(self.custom_accounts):
+            raise ValueError("自定义资源账号名称不能重复")
         self.friend_accounts = list(dict.fromkeys(value.strip() for value in self.friend_accounts if value.strip()))
         if any(len(value) > 100 for value in self.friend_accounts):
             raise ValueError("每个加微账号最多100个字符")
@@ -115,6 +134,10 @@ class OptionWrite(CleanModel):
 class LanguageWrite(CleanModel):
     label: str = Field(min_length=1, max_length=100)
     language_type: Literal["language", "dialect"] = "language"
+
+
+class CustomFieldWrite(CleanModel):
+    name: str = Field(min_length=1, max_length=100)
 
 
 class ArrangementTargetWrite(CleanModel):

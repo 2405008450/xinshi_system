@@ -1,4 +1,4 @@
-<template><TableColumnSettings v-model="selectedKeys" :columns="columns" :column-count="2" @reset="reset" /></template>
+<template><TableColumnSettings settings-key="talent-overview" v-model="selectedKeys" :columns="columns" :column-count="2" @reset="reset" /></template>
 <script setup>
 import { computed, watch } from 'vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
