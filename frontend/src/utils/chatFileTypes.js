@@ -8,3 +8,14 @@ export function chatFileCategory(name) {
 export const chatFileMaxBytes = name => ({image:10, media:100, file:20}[chatFileCategory(name)] * 1024 * 1024)
 
 export const chatFileSupported = name => chatFileAccept.split(',').includes('.' + (name || '').split('.').pop().toLowerCase())
+
+// 部分浏览器仅在 items 提供文件；优先 files，避免同一附件被读取两次。
+export function chatClipboardFiles(clipboard) {
+  if (!clipboard) return []
+  const files = Array.from(clipboard.files || [])
+  if (files.length) return files
+  return Array.from(clipboard.items || [])
+    .filter(item => item.kind === 'file')
+    .map(item => item.getAsFile())
+    .filter(Boolean)
+}

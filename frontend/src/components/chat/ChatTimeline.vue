@@ -75,3 +75,13 @@ const menuHandlers = {
 </style>
 
 <style scoped>.group-content.has-references{cursor:pointer}.group-content.has-references:hover{text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px}</style>
+<style scoped>
+/* 手机端：气泡与背景更接近微信，自己发送的消息为绿色。 */
+@media (max-width: 640px) {
+  .group-timeline{padding:10px 10px 6px;background:#ededed}
+  .group-bubble{padding:8px 11px;border:0;border-radius:6px;font-size:15px}
+  .group-message--own .group-bubble{background:#95ec69;border-color:#95ec69}
+  .group-message--mentioned .group-bubble{background:#fff8db;border-left:3px solid #e9ac24}
+  .group-message-main .group-bubble{max-width:calc(100% - 56px)}
+}
+</style>

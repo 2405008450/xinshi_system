@@ -109,6 +109,17 @@
       <ChatSessionCategoryAssignment ref="categoryAssignment" @changed="emit('categories-changed', $event)" />
       <ChatAnnotationProjectPicker v-model="annotationPickerVisible" @joined="joinedAnnotation" />
     </div>
+    <nav v-if="mobile && !chatView" class="chat-mobile-tabbar" aria-label="沟通导航">
+      <button v-for="item in mobileTabs" :key="item.key" type="button" :class="{ 'is-active': pane === item.key }" :aria-pressed="pane === item.key" @click="mobileSelectPane(item.key)">
+        <el-badge :value="item.badge" :max="99" :hidden="!item.badge"><el-icon><component :is="item.icon" /></el-icon></el-badge><span>{{ item.label }}</span>
+      </button>
+      <el-popover v-for="group in mobileGroups" :key="group.label" v-model:visible="mobileGroupVisible[group.label]" trigger="click" placement="top" :width="170" popper-class="chat-mobile-group-popover">
+        <template #reference>
+          <button type="button" :class="{ 'is-active': group.items.some(item => item.key === pane) }"><el-icon><component :is="group.icon" /></el-icon><span>{{ group.label }}</span></button>
+        </template>
+        <div class="chat-mobile-group"><button v-for="item in group.items" :key="item.key" type="button" :class="{ 'is-active': pane === item.key }" @click="mobileGroupVisible[group.label] = false; mobileSelectPane(item.key)">{{ item.label }}</button></div>
+      </el-popover>
+    </nav>
   </div>
 </template>
 
@@ -125,8 +136,8 @@ import ChatMentionSortMenu from './ChatMentionSortMenu.vue'
 import { compareMentionSessions, latestMentionAt } from '@/utils/chatMentionSort'
 import { groupSessionList, sessionListKey, mentionUnreadCount, sessionUnreadSignal, firstUnreadMentionSession } from '@/utils/chatSessionList'
 
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Bell, ArrowLeft, ChatDotRound, Collection, Headset, Filter, Search, Setting, StarFilled, Top, User, EditPen, Microphone, Phone } from '@element-plus/icons-vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { Bell, ArrowLeft, ChatDotRound, Collection, Headset, Filter, MoreFilled, Search, Setting, StarFilled, Top, User, EditPen, Microphone, Phone } from '@element-plus/icons-vue'
 const DevelopmentIssuePanel=defineAsyncComponent(()=>import('@/views/resource/components/DevelopmentIssuePanel.vue'))
 import ChatSettings from './ChatSettings.vue'
 import { hasPermission } from '@/utils/permission'
@@ -198,6 +209,26 @@ const summaryPaneKeys = ['summary', 'notifications', 'annotation-projects', 'tra
 const listView = computed(() => props.mobile && props.sidebarOpen && !summaryPaneKeys.includes(pane.value))
 const chatView = computed(() => props.mobile && !props.sidebarOpen && !summaryPaneKeys.includes(pane.value))
 const mobileListTitle = computed(() => (pane.value === 'messages' && showMentions.value ? '@我' : panes.find(item => item.key === pane.value)?.label || '沟通'))
+// 手机端底部导航：常用入口直接显示，项目类与其余入口收进弹出菜单。
+const mobileProjectKeys = ['annotation-projects', 'translation-projects', 'interpretation-projects', 'consultations']
+const mobileTabs = computed(() => [
+  { key: 'messages', label: '消息', icon: ChatDotRound, badge: messageBadgeTotal.value },
+  { key: 'contacts', label: '通讯录', icon: User, badge: 0 },
+  { key: 'notifications', label: '通知', icon: Bell, badge: notificationFeed.unread.value },
+])
+const mobileGroups = computed(() => [
+  { label: '项目', icon: Headset, items: panes.filter(item => mobileProjectKeys.includes(item.key)) },
+  { label: '更多', icon: MoreFilled, items: panes.filter(item => ['summary', 'settings'].includes(item.key)) },
+].filter(group => group.items.length))
+const mobileGroupVisible = reactive({})
+function mobileSelectPane(key) {
+  projectMine.value = false; projectMenuVisible.value = false
+  if (key === 'summary') summaryIssueId.value = ''
+  if (key === 'notifications') notificationFeed.refresh()
+  pane.value = key
+  // 消息、通讯录、设置位于列表侧栏内，需要保证列表页处于打开状态。
+  if (['messages', 'contacts', 'settings'].includes(key) && !props.sidebarOpen) emit('toggle-sidebar')
+}
 const messageBadgeTotal = computed(() => mentionTotal.value)
 function showMentionInbox() {
   pane.value = 'messages'; selectedFolder.value = ''; tab.value = 'mention'; annotationMode.value = 'mention'
@@ -517,21 +548,41 @@ onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventLis
 .chat-workspace--mobile .chat-workspace__sessions{position:static;top:auto;flex:1 1 auto;width:100%!important;max-width:none;border-right:0;background:#fff;box-shadow:none}
 .chat-workspace--list .chat-workspace__stage{display:none}
 .chat-workspace--mobile .chat-workspace__session-tools{padding:8px 10px 6px}
+.chat-workspace--mobile .chat-search-mode{width:78px}
+.chat-workspace--mobile .chat-workspace__filter-label{display:none}
 .chat-workspace--mobile .chat-workspace__annotation-filters{padding:0 10px 6px;border-bottom:0}
 .chat-workspace--mobile .chat-workspace__annotation-mode{margin-top:4px}
 .chat-workspace--mobile .chat-workspace__annotation-mode button{padding:7px 0;font-size:13px}
-.chat-workspace--mobile .chat-workspace__recent-closed{padding:2px 10px}
-.chat-workspace--mobile .chat-workspace__list{padding:0 0 6px}
-.chat-workspace--mobile .chat-workspace__session{min-height:68px;padding:10px 12px;border-bottom:1px solid #f1f3f6;border-radius:0}
-.chat-workspace--mobile .chat-workspace__session:hover{background:transparent}
-.chat-workspace--mobile .chat-workspace__session:active{background:#edf1f7}
-.chat-workspace--mobile .chat-workspace__session-title strong{font-size:15px}
-.chat-workspace--mobile .chat-session-preview{font-size:12px}
-.chat-workspace--mobile .chat-workspace__pane-tabs{overflow-x:auto;gap:0;padding:4px;scrollbar-width:none;background:#f7f8fa}
-.chat-workspace--mobile .chat-workspace__pane-tabs::-webkit-scrollbar{display:none}
-.chat-workspace--mobile .chat-workspace__pane-tabs button{flex:0 0 auto;min-width:68px;padding:9px 10px;font-size:13px}
-.chat-workspace--mobile .chat-workspace__sessions>.chat-workspace__pane-tabs{order:99;border-top:1px solid #e6eaf0;padding-bottom:calc(4px + env(safe-area-inset-bottom))}
+.chat-workspace--mobile .chat-workspace__recent-closed{display:none}
+.chat-workspace--mobile .chat-workspace__list{padding:0 0 6px;background:#fff}
+.chat-workspace--mobile .chat-workspace__session{min-height:72px;padding:10px 12px;gap:12px;border-bottom:1px solid #f1f3f6;border-radius:0}
+.chat-workspace--mobile .chat-workspace__session:hover,.chat-workspace--mobile .chat-workspace__session.is-active{background:transparent}
+.chat-workspace--mobile .chat-workspace__session.is-pinned{background:#f7f7f7}
+.chat-workspace--mobile .chat-workspace__session:active{background:#ececec}
+.chat-workspace--mobile .chat-workspace__session-left{width:48px;padding-top:0;align-self:center}
+.chat-workspace--mobile .chat-session-member-count{display:none}
+.chat-workspace--mobile .chat-workspace__avatar,.chat-workspace--mobile .chat-workspace__avatar--annotation{width:48px;height:48px;border-radius:6px;font-size:20px}
+.chat-workspace--mobile .chat-workspace__session-left>.chat-workspace__avatar:only-child{margin-top:0}
+.chat-workspace--mobile .chat-workspace__session-main{gap:4px}
+.chat-workspace--mobile .chat-workspace__session-title strong{font-size:16px;font-weight:500;color:#111}
+.chat-workspace--mobile .chat-workspace__session-title time{font-size:12px}
+.chat-workspace--mobile .chat-session-preview{font-size:13px;color:#8a8a8a}
+.chat-workspace--mobile .chat-workspace__session-controls{align-self:center}
+.chat-workspace--mobile .chat-workspace__pane-tabs{display:none}
+.chat-workspace--mobile .chat-workspace__stage{background:#fff}
 .chat-workspace--mobile.chat-workspace--summary .chat-workspace__stage{flex:1}
+.chat-mobile-tabbar{display:flex;flex:none;align-items:stretch;border-top:1px solid #e5e5e5;background:#f7f7f7;padding-bottom:env(safe-area-inset-bottom)}
+.chat-mobile-tabbar>button,.chat-mobile-tabbar>.el-tooltip__trigger{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;height:54px;padding:4px 0;border:0;background:transparent;color:#5c5c5c;font:inherit;font-size:11px;cursor:pointer}
+.chat-mobile-tabbar .el-icon{font-size:24px}
+.chat-mobile-tabbar .is-active{color:#07c160}
+.chat-mobile-tabbar :deep(.el-badge__content){font-size:10px;height:16px;line-height:16px;padding:0 5px}
+</style>
+<style>
+.chat-mobile-group-popover{padding:6px!important}
+.chat-mobile-group{display:flex;flex-direction:column}
+.chat-mobile-group button{height:44px;border:0;border-bottom:1px solid #f1f3f6;background:transparent;color:#334155;font:inherit;font-size:15px;text-align:left;padding:0 12px;cursor:pointer}
+.chat-mobile-group button:last-child{border-bottom:0}
+.chat-mobile-group button.is-active{color:#07c160;font-weight:600}
 </style>
 
 <style scoped>

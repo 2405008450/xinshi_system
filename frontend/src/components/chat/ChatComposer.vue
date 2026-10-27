@@ -1,5 +1,5 @@
 <template>
-    <div ref="composer" class="group-composer">
+    <div ref="composer" class="group-composer" @paste.capture="paste">
       <button type="button" class="chat-composer-resize" aria-label="调整输入区高度" title="拖动调整输入区高度" @pointerdown="start" @keydown="resizeByKeyboard" />
       <div v-if="replyTo" class="group-compose-reply">回复 {{ replyTo.senderName }}：{{ screenshotPreview(replyTo.content) || '[附件]' }}<el-button link :disabled="sending || !!retryPayload" @click="replyTo=null">取消引用</el-button></div>
       <div class="group-compose-tools">
@@ -8,7 +8,7 @@
         <el-upload :show-file-list="false" :auto-upload="false" multiple :disabled="sending || !!retryPayload" :accept="chatFileAccept" :on-change="chooseFile"><el-button text size="small" :icon="Paperclip" :disabled="sending || !!retryPayload" aria-label="发送文件" :title="`发送文件：${chatFileHint}`" /></el-upload>
       </div>
       <div v-if="files.length" class="group-file-queue"><div v-for="file in files" :key="file.key">{{ file.file.name }} · {{ file.status === 'uploading' ? `上传中 ${file.progress || 0}%`  : file.status === 'failed' ? '上传失败' : '待发送' }}<el-button v-if="file.status==='failed'" link @click="uploadFile(file)">重试</el-button><el-button link :disabled="sending || !!retryPayload" @click="removeFile(file)">移除</el-button><span v-if="file.error" class="group-error">{{ file.error }}</span></div></div>
-      <el-input ref="input" v-model="content" :show-screenshot-tools="false" @uploading-change="screenshotUploading=$event" type="textarea" :rows="3" :input-style="inputStyle" resize="none" maxlength="10000" :disabled="sending || !!retryPayload" placeholder="输入消息…" :aria-expanded="mentionOpen" aria-autocomplete="list" :aria-controls="mentionOpen ? mentionListId : undefined" :aria-activedescendant="mentionOpen && mentionCandidates.length ? `${mentionListId}-${mentionIndex}` : undefined" @input="onInput" @click="onInput" @keyup.left="onInput" @keyup.right="onInput" @scroll.capture="closeMention" @blur="onMentionBlur" @keydown="onKeydown" @compositionstart="composing=true; closeMention()" @compositionend="finishComposition" @paste="paste" />
+      <el-input ref="input" v-model="content" :show-screenshot-tools="false" @uploading-change="screenshotUploading=$event" type="textarea" :rows="3" :input-style="inputStyle" resize="none" maxlength="10000" :disabled="sending || !!retryPayload" placeholder="输入消息…" :aria-expanded="mentionOpen" aria-autocomplete="list" :aria-controls="mentionOpen ? mentionListId : undefined" :aria-activedescendant="mentionOpen && mentionCandidates.length ? `${mentionListId}-${mentionIndex}` : undefined" @input="onInput" @click="onInput" @keyup.left="onInput" @keyup.right="onInput" @scroll.capture="closeMention" @blur="onMentionBlur" @keydown="onKeydown" @compositionstart="composing=true; closeMention()" @compositionend="finishComposition" />
       <div v-if="mentionOpen" :id="mentionListId" ref="mentionMenu" class="group-mention-menu" :style="mentionStyle" role="listbox" aria-label="选择提及用户" @mousedown="keepMentionFocus">
         <div class="group-mention-heading">提及用户<span>↑↓ 选择 · Enter 确认</span></div>
         <el-input v-model="mentionQuery" class="group-mention-search" clearable placeholder="搜索要 @ 的人员" aria-label="搜索要提及的人员" @input="mentionIndex = 0" @blur="onMentionBlur" @keydown="onKeydown" />
@@ -53,5 +53,22 @@ async function insertMention() {
 </script>
 <style scoped src="./chatConversation.css" />
 <style scoped>.group-composer{margin:10px 12px 14px;border:1px solid #dfe5ee;border-radius:12px;padding:8px 10px;box-shadow:0 2px 6px #0f172a03}.group-composer:focus-within{border-color:var(--el-color-primary);box-shadow:0 0 0 2px var(--el-color-primary-light-9)}.group-compose-tools{flex-wrap:wrap;gap:6px}.group-compose-footer{justify-content:flex-end;gap:10px}.chat-composer-resize{position:absolute;top:-5px;left:20%;width:60%;height:8px;padding:0;border:0;background:transparent;cursor:ns-resize;touch-action:none}.chat-composer-resize:focus-visible{outline:2px solid var(--el-color-primary)}.group-mention-search{flex-shrink:0;margin-bottom:5px}.group-mention-section{position:sticky;top:0;padding:7px;background:#eff6ff;color:#1d4ed8;font-size:11px;font-weight:600;border-bottom:1px solid #dbeafe}.group-mention-section.is-outside{background:#fff7ed;color:#9a3412;border-top:2px solid #fed7aa;border-bottom-color:#ffedd5}.group-mention-options button small{margin-left:auto;flex:none;color:#9a3412;font-size:10px}
+</style>
+<style scoped>
+/* 手机端输入区仿微信：输入框与发送按钮同一行，快捷工具收在下方一行，贴底固定。 */
+@media (max-width: 640px) {
+  .group-composer{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:'reply reply' 'queue queue' 'input send' 'tools tools' 'error error';align-items:end;gap:6px 8px;margin:0;padding:8px 10px calc(8px + env(safe-area-inset-bottom));border:0;border-top:1px solid #e5e5e5;border-radius:0;background:#f7f7f7;box-shadow:none}
+  .group-composer:focus-within{border-color:#e5e5e5;box-shadow:none}
+  .chat-composer-resize{display:none}
+  .group-compose-reply{grid-area:reply;margin:0}
+  .group-file-queue{grid-area:queue}
+  .group-composer > .el-textarea{grid-area:input;min-width:0}
+  .group-composer :deep(.el-textarea__inner){min-height:40px!important;height:40px!important;max-height:120px!important;field-sizing:content;padding:9px 10px;border-radius:6px;background:#fff;font-size:16px}
+  .group-compose-footer{grid-area:send;margin:0}
+  .group-compose-footer .el-button{height:40px;padding:0 16px;background:#07c160;border-color:#07c160}
+  .group-compose-tools{grid-area:tools;margin:0;flex-wrap:nowrap;gap:2px}
+  .group-compose-tools .el-button{width:36px;height:32px;padding:0;font-size:18px}
+  .group-error,.group-composer > small{grid-area:error}
+}
 </style>
 

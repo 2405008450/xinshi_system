@@ -42,7 +42,7 @@
 </template>
 
 <script setup>
-import { chatFileCategory, chatFileMaxBytes, chatFileHint, chatFileSupported } from '@/utils/chatFileTypes'
+import { chatFileCategory, chatFileMaxBytes, chatFileHint, chatFileSupported, chatClipboardFiles } from '@/utils/chatFileTypes'
 import { matchesSearch } from '@/utils/searchMatching'
 import ChatParticipantActions from './ChatParticipantActions.vue'
 import { chatOverlayZIndex } from '@/utils/chatOverlay'
@@ -352,7 +352,14 @@ async function uploadFile(row) {
   catch (e) { if (!controller.signal.aborted) { row.status = 'failed'; row.error = detail(e) } }
 }
 function removeFile(file) { file.controller?.abort(); files.value = files.value.filter(f => f.key !== file.key) }
-function paste(event) { const images = [...(event.clipboardData?.files || [])].filter(f => f.type.startsWith('image/')); if (images.length) { if (!event.clipboardData.getData('text/plain')) event.preventDefault(); addFiles(images) } }
+function paste(event) {
+  const pastedFiles = chatClipboardFiles(event.clipboardData)
+  if (!pastedFiles.length) return
+  // 在输入组件之前接管文件，避免截图捕获逻辑吞掉文件或重复上传。
+  event.stopPropagation()
+  if (!event.clipboardData.getData('text/plain')) event.preventDefault()
+  addFiles(pastedFiles)
+}
 function onKeydown(event) {
   if (event.isComposing || composing.value || event.keyCode === 229) return
   if (mentionOpen.value) {
