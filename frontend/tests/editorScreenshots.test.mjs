@@ -11,6 +11,13 @@ test('截图引用往返且普通文字空白不改变',()=>{
   const value=screenshotValue('说明',[id])
   assert.deepEqual(screenshotIds(value),[id]);assert.equal(screenshotText(value),'说明')
 })
+test('带截图时文字末尾的空格与换行不被吞掉',()=>{
+  for(const text of ['@张三 ','@张三 @李四 \n','第一行\n\n\n']){
+    const value=screenshotValue(text,[id])
+    assert.equal(screenshotText(value),text)
+  }
+  assert.equal(screenshotText(screenshotValue('',[id])),'')
+})
 test('编辑及移除截图时保留服务端引用签名，界面文字不出现签名',()=>{
   const reference=`screenshot://${id}#${'a'.repeat(64)}`
   const original=`说明\n![截图](${reference})`

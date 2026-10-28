@@ -1,7 +1,8 @@
 export const screenshotPattern=/!\[截图\]\(screenshot:\/\/([0-9a-f-]{36})(?:#[0-9a-f]{64})?\)/gi
 export const screenshotIds=value=>{current();return [...new Set(Array.from(String(value||'').matchAll(/screenshot:\/\/([0-9a-f-]{36})(?:#([0-9a-f]{64}))?/gi),match=>{const id=match[1].toLowerCase();if(match[2])signedRefs.set(id,match[0]);return id}))]}
-export const screenshotText=value=>screenshotIds(value).length?String(value||'').replace(screenshotPattern,'').replace(/\n{3,}/g,'\n\n').trimEnd():String(value??'')
-export const screenshotValue=(text,ids)=>{current();return ids.length?[String(text||'').trimEnd(),...ids.map(id=>`![截图](${String(id).startsWith('screenshot://')?id:signedRefs.get(id)||`screenshot://${id}`})`)].filter(Boolean).join('\n'):String(text??'')}
+const trailingRefs=/\n?(?:!\[截图\]\(screenshot:\/\/[0-9a-f-]{36}(?:#[0-9a-f]{64})?\)\n?)+$/i
+export const screenshotText=value=>{const text=String(value??'');return screenshotIds(text).length?text.replace(trailingRefs,'').replace(screenshotPattern,''):text}
+export const screenshotValue=(text,ids)=>{current();return ids.length?[String(text||''),...ids.map(id=>`![截图](${String(id).startsWith('screenshot://')?id:signedRefs.get(id)||`screenshot://${id}`})`)].filter(Boolean).join('\n'):String(text??'')}
 export const screenshotPreview=value=>String(value??'').replace(/!\[截图\]\(screenshot:\/\/[^\s)]*(?:\)|$)/gi,'[截图]').replace(/screenshot:\/\/[0-9a-f-]*/gi,'[截图]')
 let identity='',entries=new Map(),pending=new Map(),signedRefs=new Map()
 function current(){const storage=globalThis.localStorage,key=storage?`${storage.getItem('user_id')}:${storage.getItem('token')}`:'unit';if(key!==identity){identity=key;entries=new Map();signedRefs=new Map()}}
