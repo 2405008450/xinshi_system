@@ -2553,6 +2553,7 @@ def get_notifications(
     channel: str = 'all',
     notification_type: Optional[str] = None,
     notification_types: Optional[List[str]] = None,
+    notification_ids: Optional[List[UUID]] = None,
 ) -> List[AppNotification]:
     from notification_channels import filter_notification_channel
     query = db.query(AppNotification).filter(AppNotification.recipient_user_id == recipient_user_id)
@@ -2563,6 +2564,8 @@ def get_notifications(
         query = query.filter(AppNotification.notification_type == notification_type)
     if notification_types:
         query = query.filter(AppNotification.notification_type.in_(notification_types))
+    if notification_ids is not None:
+        query = query.filter(AppNotification.id.in_(notification_ids))
     if unread_only:
         query = query.filter(AppNotification.is_read == False)
     rows = query.order_by(AppNotification.created_at.desc()).offset(skip).limit(limit).all()

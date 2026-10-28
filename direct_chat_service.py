@@ -111,6 +111,8 @@ def send_message(db, project_id, user, payload):
     notifications = create_notifications_for_users(db,[person.id for person in mentioned],title='私聊提及提醒',
         content=f'{message.sender_name} 在私聊中 @了你',notification_type='direct_chat_mention',
         related_project_type='direct',related_entity_id=project_id,commit=False) if mentioned else []
+    from chat_message_notifications import ordinary_notifications
+    notifications.extend(ordinary_notifications(db, 'direct', project_id, user, [p.id for p in mentioned], message))
     link_notifications(db,notifications,message.id)
     conversation.last_message_at = stamp
     for member in db.query(ChatDirectMember).filter_by(conversation_id=project_id):
@@ -138,6 +140,8 @@ def recall_message(db, project_id, message_id, user):
     message.content = ''; message.content_json = None; message.updated_at = message.recalled_at
     db.query(ChatProjectMessageFavorite).filter_by(message_id=message.id).delete(synchronize_session=False)
     db.query(ChatProjectMessageAcknowledgement).filter_by(message_id=message.id).delete(synchronize_session=False)
+    from chat_message_notifications import settle_notifications
+    settle_notifications(db, 'direct', project_id, message=message)
     db.commit(); publish(db, project_id, 'recall', message.id)
     return message
 

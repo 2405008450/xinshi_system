@@ -3,7 +3,7 @@ from typing import Literal
 
 NotificationChannel = Literal['all', 'business', 'chat']
 CHAT_NOTIFICATION_TYPES = (
-    'discussion_chat_mention', 'project_chat', 'project_chat_mention', 'annotation_project_chat_mention',
+    'discussion_chat', 'annotation_project_chat', 'discussion_chat_mention', 'project_chat', 'project_chat_mention', 'annotation_project_chat_mention',
     'annotation_project_chat_invite', 'direct_chat', 'direct_chat_mention', 'direct_chat_invite',
 )
 
@@ -32,8 +32,8 @@ def filter_notification_visibility(query, model, db, user_id):
         translation = target.in_(visible_ids(db, 'translation', user))
     return query.filter(or_(
         model.notification_type.notin_(CHAT_NOTIFICATION_TYPES),
-        and_(model.notification_type=='discussion_chat_mention',target.in_(visible_ids(db,'discussion',user))),
-        and_(model.notification_type.in_(('annotation_project_chat_mention', 'annotation_project_chat_invite')), target.in_(visible_ids(db, 'annotation', user))),
+        and_(model.notification_type.in_(('discussion_chat', 'discussion_chat_mention')),target.in_(visible_ids(db,'discussion',user))),
+        and_(model.notification_type.in_(('annotation_project_chat', 'annotation_project_chat_mention', 'annotation_project_chat_invite')), target.in_(visible_ids(db, 'annotation', user))),
         and_(model.notification_type.in_(('project_chat', 'project_chat_mention')), translation),
         and_(model.notification_type.in_(('direct_chat', 'direct_chat_mention', 'direct_chat_invite')), direct),
     ))

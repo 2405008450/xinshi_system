@@ -179,6 +179,8 @@ def send(db, user, room_id, payload):
         client_message_id=payload.client_message_id, content=payload.content, reply_to_id=payload.reply_to_id)
     db.add(row); db.flush()
     notifications=create_mentions(db,user,row,payload,people,members)
+    from chat_message_notifications import ordinary_notifications
+    notifications.extend(ordinary_notifications(db, 'discussion', room_id, user, [p.id for p in people], row))
     db.commit(); db.refresh(row)
     from project_chat_crud import _push_notifications
     _push_notifications(notifications)
@@ -204,5 +206,7 @@ def preferences(db, user, room_id, payload):
         row.last_read_id = max(row.last_read_id, message.id)
     elif payload.mark_read:
         row.last_read_id = max(row.last_read_id, db.query(func.max(Message.id)).filter_by(room_id=room_id).scalar() or 0)
+    from chat_message_notifications import settle_notifications
+    settle_notifications(db, 'discussion', room_id, user_id=user.id, sequence=row.last_read_id)
     db.commit(); publish(db)
     return dict(last_read_id=str(row.last_read_id), pinned=row.pinned, starred=row.starred)

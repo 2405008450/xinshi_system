@@ -16,8 +16,8 @@ test('群聊、私聊、提及与邀请均进入聊天，交接与未知业务�
 })
 
 
-test('普通聊天不弹窗或桌面提醒，@提及和邀请保留主动提醒', () => {
-  for (const type of ['project_chat','direct_chat']) assert.equal(isChatAttentionNotification({notification_type:type}),false)
+test('普通聊天、@提及和邀请均主动提醒', () => {
+  for (const type of ['project_chat','direct_chat','annotation_project_chat','discussion_chat']) assert.equal(isChatAttentionNotification({notification_type:type}),true)
   for (const type of ['project_chat_mention','annotation_project_chat_mention','direct_chat_mention','annotation_project_chat_invite','direct_chat_invite']) assert.equal(isChatAttentionNotification({notification_type:type}),true)
   assert.equal(isChatAttentionNotification({notification_type:'workflow_handover_pending'}),false)
 })

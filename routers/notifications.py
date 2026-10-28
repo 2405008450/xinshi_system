@@ -30,6 +30,7 @@ def list_notifications(
     channel: NotificationChannel = 'all',
     notification_type: str | None = Query(None, max_length=100),
     notification_types: list[str] | None = Query(None, max_length=20),
+    notification_ids: list[UUID] | None = Query(None, max_length=100),
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
@@ -42,6 +43,7 @@ def list_notifications(
         channel=channel,
         notification_type=notification_type,
         notification_types=notification_types,
+        notification_ids=notification_ids,
     )
 
 

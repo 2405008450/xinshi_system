@@ -22,6 +22,7 @@ from models import (
     TranslationProject,
 )
 from notification_ws import broadcast_to_users, dispatch_personal_message
+from chat_time import api_time
 from workflow_models import ProjectWorkbenchResponsibility
 from workflow_crud import STAGE_BY_KEY
 
@@ -95,7 +96,7 @@ def _serialize_notification(notification) -> dict:
         'related_project_id': str(notification.related_project_id) if notification.related_project_id else None,
         'related_project_type': notification.related_project_type,
         'related_entity_id': str(notification.related_entity_id) if notification.related_entity_id else None,
-        'created_at': notification.created_at.isoformat() if notification.created_at else None,
+        'created_at': api_time(notification.created_at).isoformat() if notification.created_at else None,
     }
 
 
@@ -942,42 +943,19 @@ def create_project_chat_message(
         db.flush()
         created = message
 
-    preview = created.content.replace('\r', ' ').replace('\n', ' ').strip()
-    if len(preview) > 60:
-        preview = preview[:57] + '...'
-
     if not notify:
         return created
 
-    default_recipients = set(get_default_chat_recipient_ids(db, project))
-    from chat_access_service import member_ids
-    default_recipients.intersection_update(member_ids(db, 'translation', project_id))
-    default_recipients.discard(sender.id)
-
     mention_recipients = {user.id for user in mention_users}
-    default_recipients.difference_update(mention_recipients)
-
     notifications = []
     if mention_recipients:
         notifications.extend(create_notifications_for_users(
-            db,
-            recipient_user_ids=list(mention_recipients),
-            title='项目沟通提醒',
-            content=f'{created.sender_name} 在项目 {project.order_no} / {project.project_name} 中 @了你：{preview}',
-            notification_type='project_chat_mention',
-            related_project_id=project.id,
-            commit=True,
+            db, recipient_user_ids=list(mention_recipients), title='项目沟通提醒',
+            content=f'{created.sender_name} 在项目 {project.order_no} / {project.project_name} 中 @了你，点击查看消息',
+            notification_type='project_chat_mention', related_project_id=project.id, commit=False,
         ))
-    if default_recipients:
-        notifications.extend(create_notifications_for_users(
-            db,
-            recipient_user_ids=list(default_recipients),
-            title='项目沟通新消息',
-            content=f'{created.sender_name} 在项目 {project.order_no} / {project.project_name} 中发送了新消息：{preview}',
-            notification_type='project_chat',
-            related_project_id=project.id,
-            commit=True,
-        ))
+    from chat_message_notifications import ordinary_notifications
+    notifications.extend(ordinary_notifications(db, 'translation', project_id, sender, mention_recipients, created))
     if notifications:
         from chat_notification_target import link_notifications
         link_notifications(db, notifications, created.id)

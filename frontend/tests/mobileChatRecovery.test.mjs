@@ -1,3 +1,4 @@
+import { createChatNotificationFeed, isPersistentChatNotification, isVisibleConversation } from '../src/utils/chatNotificationPolicy.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -149,6 +150,8 @@ test('恢复补查未读提醒，忽略旧响应并避免实时事件和补查�
   const h = lifecycle(), displayed = []
   const source = readFileSync(new URL('../src/composables/useChatNotifications.js', import.meta.url), 'utf8')
   const useNotifications = runInNewContext(source.replace(/^import .*\r?\n/gm, '').replace('export function ', 'function ') + '\n;useChatNotifications', {
+    createChatNotificationFeed, isPersistentChatNotification, isVisibleConversation,
+    isChatWindowVisible: () => false, document: { visibilityState: 'hidden', hasFocus: () => false },
     ...h, h: (...args) => args, ElMessage: { info() {}, error() {} },
     ElNotification: options => { displayed.push(options); return { close() {} } },
     getNotifications: (params, options) => h.request({ params, ...options }),

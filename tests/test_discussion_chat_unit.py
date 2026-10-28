@@ -11,6 +11,10 @@ from routers.discussion_chat import MessageCreate, PreferenceWrite, recall
 
 @pytest.fixture
 def rooms(local_db, monkeypatch):
+    # 此目录/分页单元夹具只有 app_user.id；完整通知链路由独立通知测试覆盖。
+    import chat_message_notifications
+    monkeypatch.setattr(chat_message_notifications, 'ordinary_notifications', lambda *a, **kw: [])
+    monkeypatch.setattr(chat_message_notifications, 'settle_notifications', lambda *a, **kw: None)
     engine = local_db.get_bind()
     Message.__table__.create(engine, checkfirst=True)
     Member.__table__.create(engine, checkfirst=True)

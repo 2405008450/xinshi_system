@@ -104,6 +104,8 @@ def recall(room_id: UUID, message_id: int, db=Depends(get_db), user=Depends(acto
         return service.serialize(db, row, user)
     if not service.serialize(db, row, user)['can_recall']:
         raise HTTPException(403, '仅本人可在24小时内撤回，或由超级管理员处理')
+    from chat_message_notifications import settle_notifications
+    settle_notifications(db, 'discussion', room_id, message=row)
     row.recalled_at = service.category_now()
     db.commit(); service.publish(db)
     return service.serialize(db, row, user)

@@ -37,6 +37,7 @@
           </div>
           <div class="desktop-notification-card__description">{{ desktopStatus.description }}</div>
         </div>
+        <el-button v-if="desktopNotificationState.enabled" size="small" @click="handleTestDesktopNotification">发送测试通知</el-button>
         <el-button
           v-if="desktopStatus.action === 'enable'"
           size="small"
@@ -64,6 +65,7 @@
         </el-button>
       </div>
 
+      <p v-if="desktopTestStatus" class="notification-panel__hint" role="status">{{ desktopTestStatus }}</p>
       <el-scrollbar max-height="360px">
         <div v-if="notifications.length" class="notification-list">
           <button
@@ -121,11 +123,13 @@ const notifications = ref([])
 const unreadCount = ref(0)
 const popoverVisible = ref(false)
 const permissionRequesting = ref(false)
+const desktopTestStatus = ref('')
 const desktopNotificationState = ref(getDesktopNotificationState())
 let notificationPollTimer = null
 let notificationPollInFlight = false
 let unsubscribeNotification = null
 let unsubscribeSnapshot = null
+let disposed = false
 
 const seenNotificationIds = new Set()
 const readingNotificationIds = new Set()
@@ -150,12 +154,12 @@ const desktopStatus = computed(() => {
     return { type: 'denied', title: '桌面通知已被拒绝', description: '请在浏览器的网站权限中改为允许。', action: 'help' }
   }
   if (state.enabled) {
-    return { type: 'enabled', title: '桌面通知已启用', description: '新通知将显示在 Windows 通知中心。', action: 'disable' }
+    return { type: 'enabled', title: '桌面通知已启用', description: '已允许业务和聊天桌面提醒，可发送测试通知验证显示效果。', action: 'disable' }
   }
   return {
     type: 'disabled',
     title: '桌面通知未启用',
-    description: state.permission === 'granted' ? '浏览器已授权，可随时重新启用。' : '启用后，网页最小化时也能及时看到提醒。',
+    description: state.permission === 'granted' ? '浏览器已授权，可随时重新启用业务和聊天桌面提醒。' : '启用业务和聊天桌面提醒，网页保持打开时有效。',
     action: 'enable',
   }
 })
@@ -266,19 +270,22 @@ const activateNotification = async (item, showError = false) => {
 
 const displayIncomingNotification = (notification) => {
   if (!isBusinessNotification(notification) || notification.is_read || notificationAcknowledgements.has(notification.id)) return
-  const displayed = showDesktopNotification(notification, () => activateNotification(notification))
-
-  if (displayed) return
-  const id = String(notification.id)
-  const popup = ElNotification({
-    title: notification.title,
-    message: notification.content,
-    position: 'top-right',
-    duration: 4000,
-    onClick: () => activateNotification(notification, true),
-    onClose: () => activeNotificationPopups.delete(id),
-  })
-  activeNotificationPopups.set(id, popup)
+  const showFallback = () => {
+    if (disposed) return
+    const id = String(notification.id)
+    if (activeNotificationPopups.has(id) || notificationAcknowledgements.has(id)) return
+    const popup = ElNotification({
+      title: notification.title,
+      message: notification.content,
+      position: 'top-right',
+      duration: 4000,
+      onClick: () => activateNotification(notification, true),
+      onClose: () => activeNotificationPopups.delete(id),
+    })
+    activeNotificationPopups.set(id, popup)
+  }
+  const displayed = showDesktopNotification(notification, () => activateNotification(notification), { onError: showFallback })
+  if (!displayed) showFallback()
 }
 
 // WebSocket 连接只在当前后端进程内生效。轮询用于补偿局域网与云端后端之间的通知同步。
@@ -372,6 +379,16 @@ const handleEnableDesktopNotifications = async () => {
   }
 }
 
+const handleTestDesktopNotification = () => {
+  syncDesktopNotificationState()
+  desktopTestStatus.value = '已发起测试，等待浏览器展示反馈；若未看到，请检查 Windows 通知设置。'
+  const sent = showDesktopNotification({ id: `desktop-test-${crypto.randomUUID()}`, title: '新时系统测试通知', content: '业务和聊天桌面提醒使用同一通知通道。' }, undefined, {
+    onShow: () => { desktopTestStatus.value = '浏览器报告展示成功；请确认 Windows 中实际看到了通知。' },
+    onError: () => { desktopTestStatus.value = '测试失败，请检查浏览器网站权限和 Windows 通知设置。' },
+  })
+  if (!sent) desktopTestStatus.value = '测试未发起，请先允许并启用桌面通知，再检查浏览器和 Windows 通知设置。'
+}
+
 const handleDisableDesktopNotifications = () => {
   desktopNotificationState.value = disableDesktopNotifications()
   ElMessage.success('已关闭本系统的桌面通知')
@@ -403,6 +420,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  disposed = true
   unsubscribeAcknowledgements?.()
   const popups = [...activeNotificationPopups.values()]; activeNotificationPopups.clear(); popups.forEach(popup => popup.close())
   window.removeEventListener('business-notifications-changed', handlePopoverShow)

@@ -18,7 +18,7 @@ quser | Out-Host
 $runner = 'E:\xinshi_system\tools\run_resume_collection_interactive.ps1'
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$runner`" -ConfigFile `"$ConfigFile`"" -WorkingDirectory 'E:\xinshi_system'
 $principal = New-ScheduledTaskPrincipal -UserId 'Administrator' -LogonType Interactive -RunLevel Highest
-$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 24) -AllowStartIfOnBatteries
+$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Days 7) -AllowStartIfOnBatteries
 Register-ScheduledTask -TaskName $TaskName -Action $action -Principal $principal -Settings $settings | Out-Null
 $registered = Get-ScheduledTask -TaskName $TaskName
 if ($registered.Principal.LogonType -ne 'Interactive' -or $registered.Principal.UserId -notmatch 'Administrator$') {

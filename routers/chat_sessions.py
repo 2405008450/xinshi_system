@@ -390,6 +390,8 @@ def preferences(kind: str, project_id: UUID, payload: PreferenceRequest, db: Ses
         if not message:
             raise HTTPException(404, '消息不属于当前会话')
         member.last_read_sequence = max(member.last_read_sequence, message.sequence_no)
+    from chat_message_notifications import settle_notifications
+    settle_notifications(db, kind, project_id, user_id=user.id, sequence=member.last_read_sequence)
     db.commit()
     broadcast_to_users([user.id], {'type': 'chat_sessions_changed'})
     return {'pinned': bool(ready and member.pinned), 'starred': bool(ready and member.starred), 'last_read_sequence': member.last_read_sequence}
@@ -403,6 +405,8 @@ def mention_target(notification_id: UUID, db: Session = Depends(get_db), user: A
         raise HTTPException(404, '通知不存在')
     from chat_access_service import require_member
     kind = notification.related_project_type
+    if kind == 'direct':
+        direct.require_project(db, notification.related_entity_id, user)
     if kind in {'annotation', 'translation'}:
         require_member(db, kind, notification.related_entity_id or notification.related_project_id, user)
     if kind == 'discussion':
@@ -416,7 +420,8 @@ def mention_target(notification_id: UUID, db: Session = Depends(get_db), user: A
         from models import ChatMentionNotificationTarget
         target = db.get(ChatMentionNotificationTarget, notification_id)
         if target:
-            return {'message_id': target.message_id}
+            message = db.get(ChatProjectMessage, target.message_id)
+            return {'message_id': message.id if message and not message.recalled_at else None}
     column = ChatProjectMessage.annotation_project_id if notification.related_project_type == 'annotation' else ChatProjectMessage.project_id
     query = db.query(ChatProjectMessage).join(ChatProjectMention).filter(column == (notification.related_entity_id or notification.related_project_id),
         ChatProjectMention.mentioned_user_id == user.id)

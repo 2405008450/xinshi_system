@@ -207,6 +207,8 @@ def send_message(db, project_id, user, payload, *, commit=True, max_mentions=20)
             notification_type='annotation_project_chat_mention', related_project_type='annotation',
             related_entity_id=project_id, commit=False)
     from chat_notification_target import link_notifications
+    from chat_message_notifications import ordinary_notifications
+    notifications.extend(ordinary_notifications(db, 'annotation', project_id, user, [p.id for p in mentioned], message))
     link_notifications(db, notifications, message.id)
     if commit:
         db.commit()
@@ -244,6 +246,8 @@ def recall_message(db, project_id, message_id, user):
     db.query(AppNotification).filter_by(related_project_type='annotation', related_entity_id=project_id,
         notification_type='annotation_project_chat_mention').update(
             {'content': '项目沟通消息已更新，点击查看当前消息'}, synchronize_session=False)
+    from chat_message_notifications import settle_notifications
+    settle_notifications(db, 'annotation', project_id, message=message)
     db.commit()
     publish(db, project_id, 'recall', message.id)
     return message

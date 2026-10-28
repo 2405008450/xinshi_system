@@ -69,9 +69,10 @@ export const markDesktopNotificationGuideSeen = () => {
 /**
  * 展示操作系统通知。返回 false 时调用方应回退到站内浮层通知。
  */
-export const showDesktopNotification = (notification, onClick) => {
+export const showDesktopNotification = (notification, onClick, { onShow, onError } = {}) => {
   if (notificationAcknowledgements.has(notification.id)) return true
   if (!getDesktopNotificationState().enabled) return false
+  const actor = getCurrentUserKey()
 
   try {
     const desktopNotification = new window.Notification(notification.title || '新通知', {
@@ -79,13 +80,24 @@ export const showDesktopNotification = (notification, onClick) => {
       icon: '/favicon.svg',
       tag: notification.id ? `xinshi-notification-${notification.id}` : undefined,
     })
+    let failed = false
+    const fail = error => {
+      if (failed || actor !== getCurrentUserKey() || notificationAcknowledgements.has(notification.id)) return
+      failed = true
+      unsubscribe()
+      desktopNotification.close()
+      onError?.(error)
+    }
     const unsubscribe = notificationAcknowledgements.subscribe(id => {
       if (id === String(notification.id)) { unsubscribe(); desktopNotification.close() }
     })
     desktopNotification.onclose = unsubscribe
+    desktopNotification.onshow = () => { if (!failed && actor === getCurrentUserKey()) onShow?.() }
+    desktopNotification.onerror = fail
 
     desktopNotification.onclick = (event) => {
       event.preventDefault()
+      if (actor !== getCurrentUserKey()) { desktopNotification.close(); return }
       notificationAcknowledgements.acknowledge(notification.id)
       window.focus()
       desktopNotification.close()
@@ -96,6 +108,7 @@ export const showDesktopNotification = (notification, onClick) => {
     return true
   } catch (error) {
     console.error('展示桌面通知失败', error)
+    onError?.(error)
     return false
   }
 }
