@@ -1,8 +1,9 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { getNotificationPage, getUnreadNotificationCount, markNotificationRead } from '@/api/notifications'
 import { subscribe } from '@/utils/realtimeSocket'
+import { CONVERSATION_NOTIFICATION_TYPES } from '@/utils/notificationChannels'
 
-const types = ['resource_request_dispatch','chat_summary']
+const types = CONVERSATION_NOTIFICATION_TYPES
 const params = { channel: 'business', notification_types: types }
 export function useChatRequestNotifications() {
   const items = ref([]), unread = ref(0), loading = ref(false), error = ref(''), total = ref(0), page = ref(1), pageSize = ref(30)

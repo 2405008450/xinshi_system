@@ -123,7 +123,7 @@ import ChatInlineNameEditor from './ChatInlineNameEditor.vue'
 import { canStartChatNameEditing } from '@/composables/useChatNameEditing'
 import ChatMentionSortMenu from './ChatMentionSortMenu.vue'
 import { compareMentionSessions, latestMentionAt } from '@/utils/chatMentionSort'
-import { groupSessionList, sessionListKey, mentionUnreadCount, sessionUnreadSignal, firstUnreadMentionSession } from '@/utils/chatSessionList'
+import { groupSessionList, sessionListKey, mentionUnreadCount, sessionUnreadSignal, firstUnreadMentionSession, compareSessionActivity } from '@/utils/chatSessionList'
 
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Bell, ChatDotRound, Collection, Headset, Filter, Search, Setting, StarFilled, Top, User, EditPen, Microphone, Phone } from '@element-plus/icons-vue'
@@ -139,7 +139,7 @@ import { useChatRequestNotifications } from '@/composables/useChatRequestNotific
 const notificationFeed = useChatRequestNotifications()
 import ChatConversationParticipants from './ChatConversationParticipants.vue'
 import { chatAvatarText, chatDateLabel } from '@/utils/chatLayout'
-import { formatBusinessDateTime, businessDateTimeInputValue } from '@/utils/dateTime'
+import { formatBusinessDateTime } from '@/utils/dateTime'
 import ChatContacts from './ChatContacts.vue'
 import ChatMentionInbox from './ChatMentionInbox.vue'
 import ChatMessageSearchResults from './ChatMessageSearchResults.vue'
@@ -161,6 +161,7 @@ const props = defineProps({
   searchSessions: { type: Array, default: () => [] },
   recentClosed: { type: Array, default: () => [] },
   mentionHistoryTotal: { type: Number, default: 0 },
+  messageNotificationTotal: { type: Number, default: null },
   projectMentions: { type: Object, default: () => ({}) },
   activeKey: { type: String, default: '' },
   error: { type: String, default: '' },
@@ -192,16 +193,16 @@ const summaryIssueId=ref('')
 watch(pane, value => { try { localStorage.setItem(paneStorageKey, value) } catch { /* 本次选择仍然生效。 */ } })
 watch(pane, value => emit('pane-change', value), { immediate: true })
 const allMentionSessions = computed(()=>[...new Map([...props.sessions,...props.searchSessions.filter(row=>Number(row.mentionUnread)>0)].map(row=>[row.key,row])).values()])
-const mentionTotal = computed(() => mentionUnreadCount(allMentionSessions.value))
+const mentionTotal = computed(() => props.messageNotificationTotal ?? mentionUnreadCount(allMentionSessions.value))
 const messageBadgeTotal = computed(() => mentionTotal.value)
-const notificationBadgeTotal = computed(()=>notificationFeed.unread.value+mentionTotal.value)
+const notificationBadgeTotal = computed(() => notificationFeed.unread.value)
 function openFolderUnread(id){
  pane.value='messages';selectedFolder.value=id;tab.value='all';annotationMode.value='mention';keyword.value='';applyKeyword();
  const target=firstUnreadMentionSession(visibleSessions.value);
  if(props.narrow&&!props.sidebarOpen)emit('toggle-sidebar');
  if(target?.messageId)emit('locate-mention',target);else if(target)emit(target.opened?'select':'open',target);
 }
-function badgeClick(key){if(key==='notifications'&&mentionTotal.value)openUnreadMentionConversations();else selectPane(key)}
+function badgeClick(key){selectPane(key)}
 function showMentionInbox() {
   pane.value = 'messages'; selectedFolder.value = ''; tab.value = 'mention'; annotationMode.value = 'mention'
   keyword.value = ''; applyKeyword()
@@ -245,7 +246,6 @@ function contactOpened() {
   pane.value = 'messages'
   emit('contact-opened')
 }
-const sessionStamp = value => { const normalized = businessDateTimeInputValue(value); return normalized ? Date.parse(normalized.replace(' ', 'T') + '+08:00') : 0 }
 const groups = [{ key: 'all', label: '消息' }, { key: 'pinned', label: '置顶' }, { key: 'unread', label: '未读' }, { key: 'mention', label: '@我' }, { key: 'direct', label: '单聊' }, { key: 'starred', label: '特别关注' }, { key: 'project', label: '项目群' }, { key: 'annotation', label: '标注项目群' }, { key: 'translation', label: '笔译项目群' }, { key: 'creator', label: '我创建的' }]
 const { categories } = useChatSessionCategories()
 const recentClosedVisible = ref(false)
@@ -373,8 +373,8 @@ const visibleSessions = computed(() => groupSessionList((appliedKeyword.value ? 
   }
   if (!appliedKeyword.value) return true
   return matchesSearch(`${session.title || ''} ${session.subtitle || ''} ${session.lastMessage?.preview || ''} ${session.lastMessage?.senderName || ''}`, appliedKeyword.value)
-}).sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || sessionStamp(b.lastMessage?.createdAt) - sessionStamp(a.lastMessage?.createdAt)), props.activeKey)
-  .sort((a, b) => annotationMentionView.value ? compareMentionSessions(a, b, mentionSort.value) : Number(!!b.mentionUnread) - Number(!!a.mentionUnread) || Number(!!b.pinned) - Number(!!a.pinned) || sessionStamp(b.lastMessage?.createdAt) - sessionStamp(a.lastMessage?.createdAt)))
+}).sort(compareSessionActivity), props.activeKey)
+  .sort((a, b) => annotationMentionView.value ? compareMentionSessions(a, b, mentionSort.value) : compareSessionActivity(a, b)))
 function syncActiveConversation(context,external=false){
  if(!context.projectId)return
  const session=props.sessions.find(row=>String(row.projectId)===String(context.projectId)&&row.projectType===context.projectType)||{...context,categoryIds:[]}
@@ -417,6 +417,9 @@ watch(() => props.sessions, openContextFirst)
 function showHeaderMessages(event) { pendingContextFolder = ''; if (event.detail?.context) openContextConversations(event.detail.context); else if (event.detail?.mentions) openUnreadMentionConversations(); else pane.value = 'messages' }
 onMounted(() => window.addEventListener('chat-topic-show-annotation', showAnnotation))
 onMounted(() => window.addEventListener('chat-show-messages', showHeaderMessages))
+const showConversationNotifications = () => selectPane('notifications')
+onMounted(() => window.addEventListener('chat-show-notifications', showConversationNotifications))
+onBeforeUnmount(() => window.removeEventListener('chat-show-notifications', showConversationNotifications))
 onMounted(()=>window.addEventListener('chat-open-summary',showSummary))
 onBeforeUnmount(()=>window.removeEventListener('chat-open-summary',showSummary))
 onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventListener('chat-topic-show-annotation', showAnnotation); window.removeEventListener('chat-show-messages', showHeaderMessages) })

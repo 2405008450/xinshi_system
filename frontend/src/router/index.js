@@ -4,7 +4,7 @@ import {
   hasPermission,
   getDefaultRoute,
   MANUSCRIPT_VIEW_ROLES,
-  setStoredAccess
+  setStoredAccess, setStoredHrAccess
 } from '../utils/permission'
 import { getCurrentSession } from '../api/auth'
 import { refreshIssueAccess } from '@/composables/useResourceIssues'
@@ -326,9 +326,10 @@ const routes = [
       {
         path: 'hr-management',
         component: () => import('../views/hr/HRManagement.vue'),
-        redirect: '/hr-management/attendance',
+        redirect: '/hr-management/shifts',
         meta: { title: '人力资源管理' },
         children: [
+          {path:'shifts',name:'MonthlyShiftManagement',component:()=>import('../views/hr/MonthlyShiftManagement.vue'),meta:{title:'排班管理',hrManagement:true}},
           {
             path: 'attendance',
             name: 'Attendance',
@@ -415,6 +416,7 @@ const syncSessionPermissions = async (force = false) => {
     localStorage.setItem('user_name', session.username || '')
     localStorage.setItem('user_full_name', session.full_name || session.username || '')
     setStoredAccess(session.roles, session.permissions)
+    setStoredHrAccess(session.can_manage_hr)
     sessionPermissionSyncAt = Date.now()
     return true
   } catch {
@@ -483,7 +485,3 @@ router.afterEach((to) => {
 })
 
 export default router
-
-
-
-

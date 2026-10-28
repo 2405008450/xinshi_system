@@ -66,7 +66,7 @@ const menuHandlers = {
 <style scoped src="./chatConversation.css" />
 
 <style scoped>
-.group-message--mentioned .group-bubble{background:#fff8db;border-left:3px solid #e9ac24}.group-content mark{background:#ffe49b;color:#92400e;border-radius:3px}
+.group-message--mentioned .group-bubble{background:#eaf4ff;border-left:3px solid #60a5fa}.group-content mark{background:#ffe49b;color:#92400e;border-radius:3px}
 .group-message-main{display:flex;align-items:center;gap:5px}.group-message--own .group-message-main{flex-direction:row-reverse}.group-message-main .group-bubble{margin-left:0;max-width:calc(94% - 35px)}.group-bubble:focus-visible{outline:2px solid var(--el-color-primary-light-5);outline-offset:2px}
 .group-topic-label{margin-top:6px;max-width:100%;height:auto;white-space:normal;overflow-wrap:anywhere}
 .group-message{position:relative;padding-left:42px;margin:16px 0}.group-message--own{padding-left:0;padding-right:0}.group-message--grouped{margin-top:-9px}.group-message-avatar{position:absolute;left:0;top:1px;display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:#e4ecf8;color:#5274a5;font-size:13px}.group-date-divider{display:flex;align-items:center;justify-content:center;gap:16px;margin:22px 0;color:#94a3b8;font-size:11px}.group-date-divider::before,.group-date-divider::after{content:'';height:1px;width:48px;background:#e2e8f0}.group-message-meta{flex-wrap:wrap}.group-message-meta time{white-space:normal;overflow-wrap:anywhere}.group-message-main .group-bubble{max-width:calc(100% - 30px)}

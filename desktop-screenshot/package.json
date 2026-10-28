@@ -1,0 +1,9 @@
+{
+  "name": "xinshi-screenshot-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "本地系统 Windows 截图桌面入口",
+  "main": "main.cjs",
+  "scripts": { "start": "electron .", "test": "node --test tests/*.test.cjs" },
+  "devDependencies": { "electron": "45.1.0" }
+}

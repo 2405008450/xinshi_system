@@ -31,7 +31,7 @@
 import {computed,onMounted,ref,watch} from 'vue'
 import {getArrangementDirectory, getArrangementPersonnel} from '@/api/projectArrangements'
 import {matchesSearchFields} from '@/utils/searchMatching'
-function dutyCountDistribution(people,counts){const result={};for(const id of new Set(people.map(person=>person.id))){const count=counts[id]||0;result[count]=(result[count]||0)+1}return Object.entries(result).map(([count,people])=>({count:Number(count),people})).sort((a,b)=>a.count-b.count)}
+import {dutyCountDistribution} from '@/utils/weekendDuty'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 const props=defineProps({modelValue:{type:Array,default:()=>[]},disabled:Boolean,monthly:Boolean,schedulePeriod:{type:String,default:'本月'},assignedIds:{type:Array,default:()=>[]},assignmentCounts:{type:Object,default:null},defaultCollapsed:Boolean,directoryLoader:Function,availabilityLoader:Function})
 const emit=defineEmits(['update:modelValue'])

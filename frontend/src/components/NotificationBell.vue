@@ -8,7 +8,7 @@
     @show="handlePopoverShow"
   >
     <template #reference>
-      <el-badge :value="badgeTotal" :hidden="badgeTotal === 0" :max="99" @click.capture="openMentionBadge">
+      <el-badge :value="badgeTotal" :hidden="badgeTotal === 0" :max="99">
         <el-button class="notification-trigger" circle text aria-label="业务通知" title="业务通知：交接、待处理事项及关键业务动态">
           <el-icon :size="18"><Bell /></el-icon>
         </el-button>
@@ -93,13 +93,12 @@ import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, r
 const ResourceRequestDispatchDialog=defineAsyncComponent(()=>import('@/views/resource/components/ResourceRequestDispatchDialog.vue'))
 const dispatchBatchId=ref('')
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
-import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
 import { useRouter } from 'vue-router'
 import { Bell } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatBusinessDateTimeMinute as formatTime } from '@/utils/dateTime'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
-import { isBusinessNotification } from '@/utils/notificationChannels'
+import { isSystemNotification } from '@/utils/notificationChannels'
 import { notificationAcknowledgements } from '@/utils/notificationAcknowledgements'
 import {
   getNotifications,
@@ -120,14 +119,7 @@ import {
 const router = useRouter()
 const notifications = ref([])
 const unreadCount = ref(0)
-const { mentionTotal } = useAnnotationFollowed()
-const badgeTotal = computed(()=>unreadCount.value+mentionTotal.value)
-async function openMentionBadge(event){
-  if(!mentionTotal.value||!event.target.closest('.el-badge__content'))return
-  event.preventDefault();event.stopPropagation();popoverVisible.value=false
-  useProjectChatDock().openFullscreen();await nextTick()
-  window.dispatchEvent(new CustomEvent('chat-show-messages',{detail:{mentions:true}}))
-}
+const badgeTotal = computed(() => unreadCount.value)
 const popoverVisible = ref(false)
 const permissionRequesting = ref(false)
 const desktopNotificationState = ref(getDesktopNotificationState())
@@ -138,12 +130,6 @@ let unsubscribeSnapshot = null
 
 const seenNotificationIds = new Set()
 const readingNotificationIds = new Set()
-const activeNotificationPopups = new Map()
-let unsubscribeAcknowledgements = null
-const closeNotificationPopup = id => {
-  const popup = activeNotificationPopups.get(String(id))
-  activeNotificationPopups.delete(String(id)); popup?.close()
-}
 const MAX_SEEN_NOTIFICATIONS = 200
 const NOTIFICATION_POLL_INTERVAL_MS = 10 * 1000
 
@@ -186,8 +172,8 @@ const rememberNotification = (notificationId) => {
 
 const loadNotifications = async () => {
   try {
-    const data = await getNotifications({ limit: 10, channel: 'business' })
-    notifications.value = Array.isArray(data) ? data.filter(isBusinessNotification) : []
+    const data = await getNotifications({ limit: 10, channel: 'system' })
+    notifications.value = Array.isArray(data) ? data.filter(isSystemNotification) : []
     notifications.value.forEach((item) => rememberNotification(item.id))
   } catch (error) {
     console.error('加载通知失败', error)
@@ -196,7 +182,7 @@ const loadNotifications = async () => {
 
 const loadUnreadCount = async () => {
   try {
-    const data = await getUnreadNotificationCount({ channel: 'business' })
+    const data = await getUnreadNotificationCount({ channel: 'system' })
     unreadCount.value = Number(data?.count || 0)
   } catch (error) {
     console.error('加载未读数失败', error)
@@ -260,7 +246,6 @@ const navigateToNotification = async (item) => {
 
 const activateNotification = async (item, showError = false) => {
   notificationAcknowledgements.acknowledge(item.id)
-  closeNotificationPopup(item.id)
   window.focus()
   await markItemRead(item, showError)
   try {
@@ -274,20 +259,8 @@ const activateNotification = async (item, showError = false) => {
 }
 
 const displayIncomingNotification = (notification) => {
-  if (!isBusinessNotification(notification) || notification.is_read || notificationAcknowledgements.has(notification.id)) return
-  const displayed = showDesktopNotification(notification, () => activateNotification(notification))
-
-  if (displayed) return
-  const id = String(notification.id)
-  const popup = ElNotification({
-    title: notification.title,
-    message: notification.content,
-    position: 'top-right',
-    duration: 4000,
-    onClick: () => activateNotification(notification, true),
-    onClose: () => activeNotificationPopups.delete(id),
-  })
-  activeNotificationPopups.set(id, popup)
+  if (!isSystemNotification(notification) || notification.is_read || notificationAcknowledgements.has(notification.id)) return
+  showDesktopNotification(notification, () => activateNotification(notification))
 }
 
 // WebSocket 连接只在当前后端进程内生效。轮询用于补偿局域网与云端后端之间的通知同步。
@@ -296,8 +269,8 @@ const pollNotifications = async () => {
 
   notificationPollInFlight = true
   try {
-    const data = await getNotifications({ limit: 10, channel: 'business' })
-    const latestNotifications = Array.isArray(data) ? data.filter(isBusinessNotification) : []
+    const data = await getNotifications({ limit: 10, channel: 'system' })
+    const latestNotifications = Array.isArray(data) ? data.filter(isSystemNotification) : []
     const incomingNotifications = latestNotifications.filter((item) => rememberNotification(item.id))
 
     notifications.value = latestNotifications
@@ -323,14 +296,12 @@ const stopNotificationPolling = () => {
   notificationPollTimer = null
 }
 
-const handleSocketSnapshot = (payload) => {
-  if (payload?.business_unread_count === undefined) { loadUnreadCount(); return }
-  unreadCount.value = Number(payload.business_unread_count || 0)
-}
+// 旧快照的 business 数量含会话业务通知，不能用于系统铃铛。
+const handleSocketSnapshot = () => { loadUnreadCount() }
 
 const handleSocketNotification = (payload) => {
   const notification = payload?.notification
-  if (!notification || !isBusinessNotification(notification) || !rememberNotification(notification.id)) return
+  if (!notification || !isSystemNotification(notification) || !rememberNotification(notification.id)) return
   upsertNotification(notification)
   unreadCount.value += notification.is_read ? 0 : 1
   if (notification.notification_type === 'workflow_handover_pending') {
@@ -388,8 +359,8 @@ const handleDisableDesktopNotifications = () => {
 
 const handleMarkAllRead = async () => {
   try {
-    await markAllNotificationsRead({ channel: 'business' })
-    for (const id of [...activeNotificationPopups.keys(), ...notifications.value.map(item => item.id)]) notificationAcknowledgements.acknowledge(id)
+    await markAllNotificationsRead({ channel: 'system' })
+    for (const id of notifications.value.map(item => item.id)) notificationAcknowledgements.acknowledge(id)
     notifications.value = notifications.value.map((item) => ({ ...item, is_read: true }))
     unreadCount.value = 0
     window.dispatchEvent(new CustomEvent('business-notifications-changed'))
@@ -399,7 +370,6 @@ const handleMarkAllRead = async () => {
 }
 
 onMounted(() => {
-  unsubscribeAcknowledgements = notificationAcknowledgements.subscribe(closeNotificationPopup)
   syncDesktopNotificationState()
   loadNotifications()
   loadUnreadCount()
@@ -412,8 +382,6 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  unsubscribeAcknowledgements?.()
-  const popups = [...activeNotificationPopups.values()]; activeNotificationPopups.clear(); popups.forEach(popup => popup.close())
   window.removeEventListener('business-notifications-changed', handlePopoverShow)
   unsubscribeSnapshot?.()
   unsubscribeNotification?.()

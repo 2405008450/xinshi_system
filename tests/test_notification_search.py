@@ -63,3 +63,23 @@ def test_pagination_and_read_move_record_between_filters(environment):
     assert client.post(f'/notifications/{unread["items"][0]["id"]}/read').status_code==200
     assert client.get('/notifications/page',params={**base,'read_status':'unread'}).json()['total']==1
     assert client.get('/notifications/page',params={**base,'read_status':'read'}).json()['total']==2
+
+
+def test_system_bell_excludes_conversation_feed_and_read_all_is_isolated(environment):
+    db, user, client = setup_notifications(environment)
+    from models import AppNotification
+    from business_time import business_now
+    db.add(AppNotification(id=uuid4(),recipient_user_id=user.id,notification_type='direct_chat_mention',is_read=False,title='聊天 @',content='聊天',created_at=business_now()))
+    db.commit()
+    params = {'channel': 'system'}
+    result = client.get('/notifications/page', params=params)
+    assert result.status_code == 200
+    assert result.json()['total'] == 1
+    assert result.json()['items'][0]['notification_type'] == 'workflow'
+    assert client.get('/notifications/unread-count', params=params).json() == {'count': 1}
+    assert [row['notification_type'] for row in client.get('/notifications/', params=params).json()] == ['workflow']
+    assert client.post('/notifications/read-all', params=params).json() == {'updated': 1}
+    feed = {'channel': 'business', 'notification_types': ['resource_request_dispatch', 'chat_summary']}
+    assert client.get('/notifications/unread-count', params=feed).json() == {'count': 3}
+    assert client.get('/notifications/unread-count', params={'channel': 'system'}).json() == {'count': 0}
+    assert db.query(AppNotification).filter(AppNotification.recipient_user_id == user.id, AppNotification.notification_type == 'direct_chat_mention').one().is_read is False

@@ -72,11 +72,16 @@ def stats(db, kind, conversation_id, user, values):
         quoted = grouped.get(mid, []) if not row.recalled_at else []
         reply_users = {str(sender_id(reply, kind)): reply.sender_name for reply in quoted}
         own = author == user.id
+        readable = own and available and not row.recalled_at
+        unread = sorted(recipients - {author} - {view.user_id for view in seen},
+                        key=lambda uid: (names[uid].casefold(), str(uid))) if readable else []
         result.append(dict(message_id=mid, reply_count=len(quoted), has_replied=str(user.id) in reply_users,
             reply_users=[dict(id=uid, name=name) for uid, name in reply_users.items()],
             seen_count=len(seen) if own and available and not row.recalled_at else None,
             recipient_count=len(recipients - {author}) if own else None,
-            seen_users=[dict(id=view.user_id, name=names[view.user_id], seen_at=api_time(view.seen_at)) for view in seen] if own and not row.recalled_at else []))
+            seen_users=[dict(id=view.user_id, name=names[view.user_id], seen_at=api_time(view.seen_at)) for view in seen] if own and not row.recalled_at else [],
+            unread_count=len(unread) if readable else None,
+            unread_users=[dict(id=uid, name=names[uid]) for uid in unread]))
     return dict(views_available=available, items=result)
 
 

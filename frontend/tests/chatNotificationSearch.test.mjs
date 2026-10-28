@@ -2,10 +2,12 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import {runInNewContext} from 'node:vm'
+import { CONVERSATION_NOTIFICATION_TYPES } from '../src/utils/notificationChannels.js'
 function setup(){
  const requests=[],counts=[],timers=new Map();let serial=0
- const source=readFileSync(new URL('../src/composables/useChatRequestNotifications.js',import.meta.url),'utf8').replace(/^import .*\n/gm,'').replace('export function useChatRequestNotifications','function useChatRequestNotifications')+'\nuseChatRequestNotifications()'
+ const source=readFileSync(new URL('../src/composables/useChatRequestNotifications.js',import.meta.url),'utf8').split('\n').filter(line => !line.startsWith('import ')).join('\n').replace('export function useChatRequestNotifications','function useChatRequestNotifications')+'\nuseChatRequestNotifications()'
  const feed=runInNewContext(source,{
+  CONVERSATION_NOTIFICATION_TYPES,
   ref:value=>({value}),reactive:value=>value,computed:fn=>({get value(){return fn()}}),onMounted:()=>{},onBeforeUnmount:()=>{},subscribe:()=>()=>{},
   localStorage:{getItem:()=> 'qa-token'},AbortController,CustomEvent:class{},
   window:{dispatchEvent:()=>{},setInterval:()=>1,clearInterval:()=>{}},

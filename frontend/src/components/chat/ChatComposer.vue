@@ -14,7 +14,7 @@
         <el-input v-model="mentionQuery" class="group-mention-search" clearable placeholder="搜索要 @ 的人员" aria-label="搜索要提及的人员" @input="mentionIndex = 0" @blur="onMentionBlur" @keydown="onKeydown" />
         <div class="group-mention-options">
           <template v-for="(user, index) in mentionCandidates" :key="user.id">
-            <div v-if="!index || user.outside !== mentionCandidates[index - 1].outside" class="group-mention-section" :class="{ 'is-outside': user.outside }">{{ user.outside ? '未参与人员 · 发送后自动加入' : '群组参与人' }}</div>
+            <div v-if="!index || (user.mentionSection || user.outside) !== (mentionCandidates[index - 1].mentionSection || mentionCandidates[index - 1].outside)" class="group-mention-section" :class="{ 'is-outside': user.outside }">{{ user.mentionSection || (user.outside ? '未参与人员 · 发送后自动加入' : '群组参与人') }}</div>
             <button :id="`${mentionListId}-${index}`" type="button" role="option" :aria-selected="index === mentionIndex" :class="{ 'is-active': index === mentionIndex, 'is-outside': user.outside }" @mouseenter="mentionIndex=index" @click="selectMention(user)"><span class="group-mention-avatar">{{ user.name.slice(0, 1) }}</span><span>{{ user.name }}</span><ChatDesktopPresence v-if="!user.all" :online="desktopPresence[user.id]" :loading="desktopPresenceLoading" /><small v-if="user.outside">邀请入群</small></button>
           </template>
           <div v-if="!mentionCandidates.length" class="group-mention-empty">没有匹配的用户</div>

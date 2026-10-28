@@ -64,6 +64,8 @@ import {useChatDraft} from '@/composables/useChatDraft'
 import {draftFiles} from '@/utils/chatDrafts'
 import { mentionParts as splitMentionParts } from '@/utils/chatMentions'
 import { quoteSpeakerMention,clearAutomaticQuoteMention } from '@/utils/quoteSpeakerMention'
+import { projectMentionOrder } from '@/utils/projectMentionOrder'
+import { useAnnotationMentionManagers } from '@/composables/useAnnotationMentionManagers'
 
 const props = defineProps({
   projectType: { type: String, default: 'annotation' },
@@ -102,11 +104,12 @@ const messages = ref([]), list = ref(null), input = ref(null), content = ref('')
 const interactions = useChatMessageInteractions({ projectId: computed(() => props.projectId), projectType: computed(() => props.projectType), messages, active: computed(() => props.active) })
 const composer = ref(null), mentionMenu = ref(null), mentionOpen = ref(false), mentionQuery = ref(''), mentionIndex = ref(0), mentionStyle = ref({})
 const mentionListId = `mention-${newMessageId()}`
-const mentionCandidates = computed(() => [
+const mentionProject = useAnnotationMentionManagers(computed(() => props.projectId), computed(() => props.projectType === 'annotation' && props.active && mentionOpen.value))
+const mentionCandidates = computed(() => projectMentionOrder([
   {id:'__all__',name:'所有人',all:true,outside:false},
   ...group.eligibleUsers.map(u => ({ ...u, outside: false })),
   ...group.invitableUsers.filter(u => !group.members.some(member => member.id === u.id)).map(u => ({ ...u, outside: true })),
-].filter(u => String(u.id) !== String(currentUserId) && matchesSearch(u.name, mentionQuery.value)))
+].filter(u => String(u.id) !== String(currentUserId) && matchesSearch(u.name, mentionQuery.value)), props.projectType === 'annotation' ? mentionProject.value : null))
 let mentionTrigger = -1
 const selected = ref([]), selectionMessage = ref(null), inviteIds = ref([]), mentionIds = ref([])
 const files = ref([]), sending = ref(false), retryPayload = ref(null), sendError = ref(''), composing = ref(false)

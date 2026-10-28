@@ -27,6 +27,8 @@ def test_views_are_explicit_idempotent_and_independent_of_follow_cursor_and_ack(
     initial = service.stats(db, 'annotation', row.id, owner, [str(message.id)])['items'][0]
     assert initial['seen_count'] == 0  # last_read_sequence=999 不是逐条阅读证据。
     assert initial['recipient_count'] == 1
+    assert initial['unread_count'] == 1
+    assert initial['unread_users'] == [dict(id=member.id, name=member.full_name or member.username)]
     service.mark_views(db, 'annotation', row.id, member, [str(message.id), str(message.id)])
     first = db.query(ChatMessageView).one().seen_at
     service.mark_views(db, 'annotation', row.id, member, [str(message.id)])
@@ -35,14 +37,18 @@ def test_views_are_explicit_idempotent_and_independent_of_follow_cursor_and_ack(
     assert db.query(ChatProjectMessageAcknowledgement).count() == 0
     item = service.stats(db, 'annotation', row.id, owner, [str(message.id)])['items'][0]
     assert item['seen_count'] == 1
+    assert item['unread_count'] == 0
+    assert item['unread_users'] == []
     assert item['seen_users'][0]['id'] == member.id
     assert item['seen_users'][0]['seen_at'].utcoffset().total_seconds() == 8 * 3600
     assert service.stats(db, 'annotation', row.id, member, [str(message.id)])['items'][0]['seen_users'] == []
+    assert service.stats(db, 'annotation', row.id, member, [str(message.id)])['items'][0]['unread_users'] == []
     service.mark_views(db, 'annotation', row.id, owner, [str(message.id)])
     assert db.query(ChatMessageView).count() == 1  # 自己不计入已读。
     db.delete(db.get(AnnotationChatMember, (row.id, member.id))); db.commit()
     item = service.stats(db, 'annotation', row.id, owner, [str(message.id)])['items'][0]
     assert item['seen_count'] == item['recipient_count'] == 0
+    assert item['unread_count'] == 0
 
 
 def test_member_and_exact_order_guards_cover_stats_views_and_references(environment, monkeypatch):
@@ -64,6 +70,26 @@ def test_member_and_exact_order_guards_cover_stats_views_and_references(environm
         assert wrong_order.value.status_code == 404
     with pytest.raises(HTTPException):
         service.references(db, 'annotation', other.id, owner, str(message.id))
+
+
+def test_unread_roster_tracks_current_members_and_hides_recalled_or_unavailable_receipts(environment, monkeypatch):
+    import chat_message_interactions as service
+    from models import AnnotationChatMember
+    db, (owner, member, outsider), row, message = setup_messages(environment)
+    db.add(AnnotationChatMember(project_id=row.id, user_id=outsider.id)); db.commit()
+    item = service.stats(db, 'annotation', row.id, owner, [str(message.id)])['items'][0]
+    assert {reader['id'] for reader in item['unread_users']} == {member.id, outsider.id}
+    assert item['seen_count'] + item['unread_count'] == item['recipient_count'] == 2
+    outsider.is_active = False; db.commit()
+    item = service.stats(db, 'annotation', row.id, owner, [str(message.id)])['items'][0]
+    assert [reader['id'] for reader in item['unread_users']] == [member.id]
+    monkeypatch.setattr(service, 'ready', lambda db: False)
+    item = service.stats(db, 'annotation', row.id, owner, [str(message.id)])['items'][0]
+    assert item['unread_count'] is None and item['unread_users'] == []
+    monkeypatch.setattr(service, 'ready', lambda db: True)
+    message.recalled_at = datetime(2026, 10, 28, 17); db.commit()
+    item = service.stats(db, 'annotation', row.id, owner, [str(message.id)])['items'][0]
+    assert item['unread_count'] is None and item['unread_users'] == []
 
 
 def test_all_direct_references_paginate_and_recalled_content_is_hidden(environment):
