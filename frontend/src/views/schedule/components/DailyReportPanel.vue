@@ -278,6 +278,7 @@ async function save(finalize) {
     const data=await (amending.value?amendDailyReport:finalize?finalizeDailyReport:saveDailyReport)(date, payload)
     try{localStorage.removeItem(draftKey(date))}catch{/* 不影响数据库保存结果。 */}
     if(date===props.reportDate)applyReport(data)
+    if(data.status==='finalized')window.dispatchEvent(new Event('work-report-lunch-changed'))
     ElMessage.success(finalize ? '报告已确认' : '草稿已保存')
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') ElMessage.error(getLocalizedErrorMessage(error, '保存日报失败'))

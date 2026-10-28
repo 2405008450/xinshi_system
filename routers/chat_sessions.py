@@ -2,7 +2,7 @@
 from search_matching import keyword_ilike, keyword_or
 from uuid import UUID
 from typing import Literal
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from pydantic import Field
 from sqlalchemy import func, or_, and_
@@ -14,7 +14,7 @@ from models import (AppUser, AnnotationChatMember, ChatDirectConversation, ChatD
     ChatProjectMemberPref, ChatProjectMessage, ChatProjectMention, TranslationProject, ChatProjectEnabled)
 from annotation_models import AnnotationProject
 from annotation_schemas import ANNOTATION_PROJECT_STATUSES
-from chat_time import api_time
+from chat_time import api_time, now
 from permission_service import user_has_permission
 from notification_ws import broadcast_to_users
 import annotation_chat_service as annotation
@@ -32,14 +32,41 @@ class PresenceRequest(BaseModel):
     user_ids: list[UUID] = Field(min_length=1, max_length=200)
 
 
+class PresenceHeartbeat(BaseModel):
+    client_id: UUID
+    sequence: int = Field(ge=1, le=2147483647)
+    active: bool = True
+
+
+@router.post('/presence/heartbeat')
+def desktop_heartbeat(payload: PresenceHeartbeat, request: Request,
+                      db=Depends(get_db), user=Depends(get_current_user)):
+    from attendance_service import desktop_request
+    from chat_presence_registry import record
+    if not user.is_active or user.is_deleted:
+        raise HTTPException(403, '账号已停用')
+    if not desktop_request(request):
+        return dict(recorded=False)
+    return dict(recorded=record(db, user.id, payload.client_id, payload.sequence, payload.active))
+
+
 @router.post('/presence')
 def desktop_presence(payload: PresenceRequest, db=Depends(get_db), user=Depends(get_current_user)):
     if not user.is_active:
         raise HTTPException(403, '账号已停用')
-    ids = [uid for uid, in db.query(AppUser.id).filter(AppUser.id.in_(set(payload.user_ids)), AppUser.is_active.is_(True))]
+    people = db.query(AppUser).filter(AppUser.id.in_(set(payload.user_ids)), AppUser.is_active.is_(True), AppUser.is_deleted.is_(False)).all()
+    ids = [person.id for person in people]
     from notification_ws import notification_manager
-    statuses = notification_manager.desktop_presence(ids)
-    return dict(items=[dict(user_id=str(uid), desktop_online=statuses[str(uid)]) for uid in ids])
+    local_statuses = notification_manager.desktop_presence(ids)
+    from chat_presence_registry import desktop_presence as shared_presence
+    statuses = shared_presence(db, ids)
+    for uid in ids:
+        if local_statuses[str(uid)]:
+            statuses[str(uid)] = True
+    from chat_work_presence import work_presence
+    schedules = work_presence(db, people)
+    return api_time(dict(checked_at=now(), items=[dict(
+        user_id=str(uid), desktop_online=statuses[str(uid)], **schedules[str(uid)]) for uid in ids]))
 
 
 @router.get('/messages/search')

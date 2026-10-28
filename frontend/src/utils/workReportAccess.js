@@ -3,3 +3,7 @@ export function reportScopePeople(scope,people) {
   const departments=new Set(scope.department_ids||[]),senders=new Set(scope.sender_ids||[])
   return people.filter(person=>person.active!==false&&(scope.senders_all||senders.has(person.id)||(person.departments||[]).some(department=>scope.all_departments||departments.has(department.id))))
 }
+
+export function reportViewingPrincipal(catalog,id) {
+  return (catalog.inherited_viewer_ids||[]).includes(id)?catalog.configurator_id:id
+}

@@ -174,6 +174,9 @@ def update_leave_record(
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(require_permission("schedule:write")),
 ):
+    from attendance_models import AttendanceLeave
+    from attendance_service import ready
+    if ready(db) and db.get(AttendanceLeave,leave_id):raise HTTPException(409,'该请假已同步考勤并通知全员，暂不支持通过旧请假管理修改')
     record = db.query(EmployeeLeave).filter(EmployeeLeave.id == leave_id).first()
     if not record:
         raise HTTPException(status_code=404, detail="请假记录不存在")
@@ -206,6 +209,9 @@ def delete_leave_record(
     db: Session = Depends(get_db),
     _current_user: AppUser = Depends(require_permission("schedule:write")),
 ):
+    from attendance_models import AttendanceLeave
+    from attendance_service import ready
+    if ready(db) and db.get(AttendanceLeave,leave_id):raise HTTPException(409,'该请假已同步考勤并通知全员，暂不支持通过旧请假管理删除')
     record = db.query(EmployeeLeave).filter(EmployeeLeave.id == leave_id).first()
     if not record:
         raise HTTPException(status_code=404, detail="请假记录不存在")

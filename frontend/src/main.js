@@ -15,8 +15,10 @@ import AppForm from './components/common/AppForm.vue'
 import DraggableFormDialog from './components/common/DraggableFormDialog.vue'
 import { installChineseMessageGuard } from './utils/errorMessages'
 import { installChineseValidationMessages } from './utils/validationLocale'
+import { installAutoDrafts } from './utils/autoDrafts'
 
 const app = createApp(App)
+installAutoDrafts(app)
 
 installChineseValidationMessages()
 installChineseMessageGuard(ElMessage)

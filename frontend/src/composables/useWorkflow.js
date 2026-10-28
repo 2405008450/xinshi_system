@@ -32,12 +32,14 @@ const FALLBACK_STAGE_DEFINITIONS = [
 ]
 
 const PROJECT_STATUS_OPTIONS = [
+  { label: '初步咨询', value: 'initial_consultation' },
   { label: '进行中', value: 'in_progress' },
   { label: '已暂停', value: 'paused' },
   { label: '已终止', value: 'terminated' }
 ]
 
 const STATUS_LABEL_MAP = {
+  initial_consultation: '初步咨询',
   arranged: '已安排',
   pending: '待启动',
   in_progress: '进行中',
@@ -47,6 +49,7 @@ const STATUS_LABEL_MAP = {
 }
 
 const STATUS_TYPE_MAP = {
+  initial_consultation: 'info',
   arranged: 'primary',
   pending: 'info',
   in_progress: 'warning',

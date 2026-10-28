@@ -371,6 +371,7 @@
               <el-select
                 v-model="composer.mentionedUserIds"
                 @visible-change="desktopPresenceOpen = $event"
+                popper-class="chat-mention-user-options"
                 multiple
                 clearable
                 filterable
@@ -381,7 +382,7 @@
                 placeholder="@提醒用户（可多选）"
                 class="chat-composer__mention"
               >
-                <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id"><span>{{ user.full_name || user.username }}</span><ChatDesktopPresence v-if="user.id!=='__all__'" class="mention-desktop-state" :online="desktopPresence[user.id]" :loading="desktopPresenceLoading" /></el-option></el-option-group>
+                <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id"><span>{{ user.full_name || user.username }}</span><ChatDesktopPresence v-if="user.id!=='__all__'" class="mention-desktop-state" :online="desktopPresence[user.id]" :work-status="workStatuses[user.id]" :loading="desktopPresenceLoading" /></el-option></el-option-group>
               </el-select>
               <span class="chat-composer__mention-count">{{ composer.mentionedUserIds.length }}/20</span>
             </div>
@@ -452,6 +453,7 @@
                   ref="mentionSelectRef"
                   v-model="composer.mentionedUserIds"
                 @visible-change="desktopPresenceOpen = $event"
+                popper-class="chat-mention-user-options"
                   multiple
                   filterable
                   :automatic-dropdown="automaticMentionActive"
@@ -462,7 +464,7 @@
                   style="width: 100%"
                   @change="handleMentionSelectionChange"
                 >
-                  <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id"><span>{{ user.full_name || user.username }}</span><ChatDesktopPresence v-if="user.id!=='__all__'" class="mention-desktop-state" :online="desktopPresence[user.id]" :loading="desktopPresenceLoading" /></el-option></el-option-group>
+                  <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id"><span>{{ user.full_name || user.username }}</span><ChatDesktopPresence v-if="user.id!=='__all__'" class="mention-desktop-state" :online="desktopPresence[user.id]" :work-status="workStatuses[user.id]" :loading="desktopPresenceLoading" /></el-option></el-option-group>
                 </el-select>
               </div>
             </el-popover>
@@ -624,7 +626,7 @@ const handleComposerPaste = event => {
 const userOptions = ref([])
 const memberUserIds = ref([])
 const desktopPresenceOpen = ref(false)
-const { statuses: desktopPresence, loading: desktopPresenceLoading } = useDesktopPresence(computed(() => userOptions.value.map(user => user.id)), computed(() => props.active && desktopPresenceOpen.value))
+const { statuses: desktopPresence, workStatuses, loading: desktopPresenceLoading } = useDesktopPresence(computed(() => userOptions.value.map(user => user.id)), computed(() => props.active && desktopPresenceOpen.value))
 const mentionProject = useAnnotationMentionManagers(computed(() => props.projectId), computed(() => props.projectType === 'annotation' && props.active && desktopPresenceOpen.value))
 const mentionUserGroups = computed(() => {
   const users = [{ id:'__all__',full_name:'所有人',all:true },
@@ -2518,4 +2520,6 @@ onBeforeUnmount(() => {
 .chat-composer--conversation{position:relative;margin:10px 12px 14px;padding:8px 10px;border:1px solid #dfe5ee;border-radius:12px;background:white;display:flex;flex-direction:column;gap:6px}.chat-composer--conversation:focus-within{border-color:var(--el-color-primary);box-shadow:0 0 0 2px var(--el-color-primary-light-9)}.chat-composer__input-row{display:flex;flex-wrap:wrap;justify-content:flex-end}.chat-composer__input-row .el-input,.chat-composer__input-row .el-textarea{flex:1 0 100%;width:100%}.chat-composer--conversation :deep(.el-textarea__inner){box-shadow:none;background:transparent;line-height:1.6;padding:6px 8px}.chat-composer-resize{position:absolute;top:-5px;left:20%;width:60%;height:8px;padding:0;border:0;background:transparent;cursor:ns-resize;touch-action:none}.chat-conversation-item__time{white-space:normal;overflow-wrap:anywhere}
 </style>
 
-<style scoped>.mention-desktop-state{float:right;margin-left:12px}</style>
+<style scoped>.mention-desktop-state{display:flex;margin-top:2px}</style>
+
+<style>.chat-mention-user-options{max-width:calc(100vw - 32px)}.chat-mention-user-options .el-select-dropdown__item{height:auto;min-height:34px;padding-top:6px;padding-bottom:6px;line-height:1.5;white-space:normal}</style>

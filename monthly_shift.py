@@ -82,6 +82,8 @@ def directory(db,user):
 def serialize(db,row,month,weekly=False):
     from fixed_shift import effective
     entries=effective(db,row.assignments if row else [],month,weekly=weekly)
+    from attendance_service import leave_badges
+    entries=leave_badges(db,entries,month,weekly_period=weekly)
     ids=[UUID(entry['user_id']) for entry in entries]
     users={str(person.id):person for person in db.query(AppUser).filter(AppUser.id.in_(ids)).all()} if ids else {}
     actor=db.get(AppUser,row.updated_by) if row else None
@@ -119,4 +121,6 @@ def my_plan(db,user,month):
     # 只取本人信息，不向工作台传输其他人员的排班或姓名。
     from fixed_shift import effective
     entry=next((value for value in effective(db,row.assignments if row else [],day) if value['user_id']==str(user.id)),None)
+    from attendance_service import leave_badges
+    if entry:entry=leave_badges(db,[entry],day)[0]
     return api_time({'ready':ready(db),'month':month,'assignment':{**entry,'name':user.full_name or user.username} if entry else None,'shifts':SHIFTS,'departments':DEPARTMENTS,'updated_at':row.updated_at if row and entry else None})

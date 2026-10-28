@@ -6,6 +6,7 @@
           <span class="header-title">人员管理</span>
         </div>
         <div class="header-actions">
+          <AttendanceRulesPopover annual-only />
           <TableColumnSettings settings-key="system-users" v-model="visibleColumnKeys" :columns="userColumns" title="用户列表字段" @reset="resetColumns" />
           <BatchDeleteToolbar v-if="canWriteUsers" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
           <el-button v-if="canWriteUsers && !deleteMode" type="primary" :icon="Plus" @click="handleAdd">新增用户</el-button>
@@ -61,8 +62,10 @@
         <template #default="{ row }">{{ row.full_name || '-' }}</template>
       </el-table-column>
       <el-table-column column-key="department" v-if="isColumnVisible('department')" prop="department" label="所属部门" min-width="230">
-        <template #default="{ row }"><DepartmentMemberships :user-id="row.id" :primary="row.department" :people="organizationPeople" /></template>
+        <template #default="{ row }"><button v-if="canManageDepartments && !deleteMode" type="button" class="department-cell-button" :aria-label="`调整${row.full_name || row.username}的所属部门`" title="点击调整所属部门" @click="openDepartmentDialog(row)"><DepartmentMemberships :user-id="row.id" :primary="row.department" :people="organizationPeople" /></button><DepartmentMemberships v-else :user-id="row.id" :primary="row.department" :people="organizationPeople" /></template>
       </el-table-column>
+      <el-table-column column-key="hire_date" v-if="isColumnVisible('hire_date')" label="入职时间" min-width="150"><template #default="{row}">{{annualLeaveDateLabel(row.hire_date)}}</template></el-table-column>
+      <el-table-column column-key="annual_leave_days" v-if="isColumnVisible('annual_leave_days')" label="年假额度" min-width="170"><template #default="{row}">{{row.annual_leave_days==null?'待填写入职时间':`${row.annual_leave_days}天`}}</template></el-table-column>
       <el-table-column column-key="email" v-if="isColumnVisible('email')" prop="email" label="邮箱" min-width="220" show-overflow-tooltip>
         <template #default="{ row }">{{ row.email || '-' }}</template>
       </el-table-column>
@@ -172,14 +175,18 @@
       style="margin-top: 20px"
     />
 
+    <UserDepartmentDialog v-model="departmentDialogVisible" :user="departmentTarget" @saved="departmentSaved" />
+
     <!-- 对话框 -->
     <DraggableFormDialog
       v-model="dialogVisible"
       :title="dialogTitle"
-      width="500px"
+      width="min(760px, calc(100vw - 32px))" top="5vh"
+      class="user-employment-dialog"
       @close="resetForm"
     >
-      <AppForm
+      <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="dialogTitle" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
+      <div ref="userDialogBodyRef"><AppForm
         ref="formRef"
         :model="form"
         :rules="rules"
@@ -189,7 +196,7 @@
           <el-input v-model="form.username" />
         </el-form-item>
         <el-form-item label="密码" prop="password" v-if="!form.id">
-          <el-input v-model="form.password" type="password" />
+          <el-input v-model="form.password" type="password" show-password autocomplete="new-password" />
         </el-form-item>
         <el-form-item label="全名" prop="full_name">
           <el-input v-model="form.full_name" />
@@ -202,10 +209,13 @@
             <el-option v-for="department in departments" :key="department" :label="department" :value="department" />
           </el-select>
         </el-form-item>
+        <el-form-item label="入职时间" prop="hire_date"><el-date-picker v-model="form.hire_date" type="date" value-format="YYYY-MM-DD" format="YYYY年MM月DD日" placeholder="选择入职日期" clearable style="width:100%" /></el-form-item>
+        <el-form-item label="当前年假额度"><ReadonlyField :model-value="annualPreview==null?'待填写入职时间':`${annualPreview}天`" source="auto" /></el-form-item>
+        <p class="employment-hint"><span v-if="nextIncrease">下次增加：{{annualLeaveDateLabel(nextIncrease)}}。</span>首年按6月30日划分，此后每满周年再过3个月加1天，上限10天。<AttendanceRulesPopover annual-only /></p>
         <el-form-item label="状态" prop="is_active">
           <el-switch v-model="form.is_active" />
         </el-form-item>
-      </AppForm>
+      </AppForm></div>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="handleSubmit">确定</el-button>
@@ -222,7 +232,7 @@
       @closed="resetMailProfileDialog"
     >
       <div v-loading="mailProfileLoading" class="mail-profile-dialog-body">
-        <el-alert
+    <el-alert
           :title="`当前用户：${mailProfileTargetUser?.full_name || mailProfileTargetUser?.username || ''}`"
           description="邮件显示名用于收件人和抄送栏；启用签名后，系统会在邮件发送时自动追加并保存快照。"
           type="info"
@@ -420,6 +430,11 @@
 </template>
 
 <script setup>
+import AttendanceRulesPopover from '@/components/common/AttendanceRulesPopover.vue'
+import ReadonlyField from '@/components/common/ReadonlyField.vue'
+import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
+import {useDialogFieldSearch} from '@/composables/useDialogFieldSearch'
+import {annualLeaveDays,nextAnnualLeaveIncrease,annualLeaveDateLabel} from '@/utils/annualLeave'
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { computed, ref, reactive, onBeforeUnmount, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -438,8 +453,13 @@ import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue
 import { useTableColumns } from '@/composables/useTableColumns'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import DepartmentMemberships from '@/components/common/DepartmentMemberships.vue'
+import UserDepartmentDialog from '@/components/common/UserDepartmentDialog.vue'
 import { useOrganizationDirectory } from '@/composables/useOrganizationDirectory'
-const { people: organizationPeople }=useOrganizationDirectory()
+const { people: organizationPeople, directory: organizationDirectory, refresh: refreshOrganization }=useOrganizationDirectory()
+const canManageDepartments=computed(()=>Boolean(organizationDirectory.value?.canManage&&organizationDirectory.value?.membershipReady))
+const departmentDialogVisible=ref(false),departmentTarget=ref(null)
+function openDepartmentDialog(row){departmentTarget.value=row;departmentDialogVisible.value=true}
+async function departmentSaved(){await Promise.all([refreshOrganization(),fetchData()])}
 
 const loading = ref(false)
 const userTableRef = ref(null)
@@ -448,6 +468,8 @@ const userColumns = [
   { key: 'username', label: '用户名' },
   { key: 'full_name', label: '姓名' },
   { key: 'department', label: '部门' },
+  { key: 'hire_date', label: '入职时间' },
+  { key: 'annual_leave_days', label: '年假额度' },
   { key: 'email', label: '邮箱' },
   { key: 'mail_profile', label: '邮件资料' },
   { key: 'mail_account', label: '发件邮箱' },
@@ -456,11 +478,13 @@ const userColumns = [
   { key: 'created_at', label: '创建时间' },
 ]
 const { selectedKeys: visibleColumnKeys, isVisible: isColumnVisible, reset: resetColumns } = useTableColumns(
-  'system-users', userColumns, ['username', 'full_name', 'department', 'email', 'mail_account', 'roles', 'is_active'],
+  'system-users', userColumns, ['username', 'full_name', 'department', 'hire_date', 'annual_leave_days', 'email', 'mail_account', 'roles', 'is_active'],
 )
 const dialogVisible = ref(false)
 const dialogTitle = ref('新增用户')
 const formRef = ref(null)
+const userDialogBodyRef=ref(null)
+const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(userDialogBodyRef)
 const roleDialogVisible = ref(false)
 const savingRoles = ref(false)
 const selectedUser = ref(null)
@@ -556,8 +580,12 @@ const form = reactive({
   full_name: '',
   email: '',
   department: '',
+  hire_date: null,
   is_active: true
 })
+
+const annualPreview=computed(()=>annualLeaveDays(form.hire_date)),nextIncrease=computed(()=>nextAnnualLeaveIncrease(form.hire_date))
+watch(dialogVisible,value=>{if(value)clearFieldSearch()})
 
 watch(() => DEPARTMENT_NAMES.join('|'), () => {
   form.department = normalizeDepartment(form.department)
@@ -728,6 +756,7 @@ const handleEdit = (row) => {
     full_name: row.full_name || '',
     email: row.email || '',
     department: normalizeDepartment(row.department),
+    hire_date: row.hire_date||null,
     is_active: row.is_active
   })
   dialogVisible.value = true
@@ -930,7 +959,8 @@ const handleSubmit = async () => {
     try {
       const payload = {
         ...form,
-        email: form.email.trim() || null
+        email: form.email.trim() || null,
+        hire_date: form.hire_date||null
       }
       if (form.id) {
         const updateData = { ...payload }
@@ -959,6 +989,7 @@ const resetForm = () => {
     full_name: '',
     email: '',
     department: '',
+    hire_date: null,
     is_active: true
   })
   formRef.value?.resetFields()
@@ -1063,3 +1094,8 @@ onBeforeUnmount(() => {
   margin-top: 20px;
 }
 </style>
+<style scoped>
+.department-cell-button{display:block;width:100%;text-align:left;border:0;background:transparent;padding:6px 0;color:inherit;font:inherit;cursor:pointer;border-radius:4px}.department-cell-button:hover{background:#eff6ff}.department-cell-button:focus-visible{outline:2px solid #409eff;outline-offset:2px}
+</style>
+
+<style>.user-employment-dialog.el-dialog{display:flex;flex-direction:column;max-height:90vh;overflow:hidden}.user-employment-dialog>.el-dialog__header,.user-employment-dialog>.el-dialog__footer{flex-shrink:0}.user-employment-dialog>.el-dialog__body{flex:1;min-height:0;overflow-y:auto}.user-employment-dialog>.el-dialog__footer{border-top:1px solid #e2e8f0;background:#f8fafc}.employment-hint{font-size:12px;color:#64748b;line-height:1.8}</style>

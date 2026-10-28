@@ -12,6 +12,7 @@ from chat_time import now, api_time
 from models import AppUser, Base
 
 CONFIGURATOR_USERNAME = 'williamzhao'  # 已核对：赵震锋的现有账号。
+SAME_VIEWING_USERNAMES = frozenset({'williamzhao', 'lulu', 'ethan'})
 SUGGESTED_VIEWERS = ['ethan', 'thomas', 'shaofei', 'lulu', 'yunjian', 'jiaming', 'cuizhen', 'yuqi', CONFIGURATOR_USERNAME]
 
 
@@ -58,6 +59,10 @@ def can_configure(user):
     return bool(user and user.is_active and not user.is_deleted and user.username == CONFIGURATOR_USERNAME)
 
 
+def same_viewing_access(user):
+    return bool(user and user.is_active and not user.is_deleted and user.username in SAME_VIEWING_USERNAMES)
+
+
 def require_configurator(user):
     if not can_configure(user):
         raise HTTPException(403, '仅赵震锋可查看和配置工作报告设置')
@@ -85,6 +90,7 @@ def settings(db, user):
         'ready': available,
         'people': people, 'departments': catalog['items'],
         'configurator_id': str(user.id),
+        'inherited_viewer_ids': [p['id'] for p in people if p['username'] in SAME_VIEWING_USERNAMES and p['username'] != CONFIGURATOR_USERNAME],
         'suggested_viewer_ids': [p['id'] for p in people if p['username'].casefold() in SUGGESTED_VIEWERS],
         'rules': [serialize_rule(row) for row in db.query(WorkReportAccessRule).order_by(WorkReportAccessRule.updated_at.desc(), WorkReportAccessRule.id).all()] if available else [],
     }
@@ -127,9 +133,17 @@ def save_rule(db, user, payload, rule_id=None):
 def receiving_rules(db, user):
     if not user.is_active or user.is_deleted or not ready(db):
         return []
+    # Lulu、Ethan 与赵震锋使用同一个查看范围，包含个人专属规则的优先级。
+    # 仅共享读取能力，不开放设置修改权限。
+    viewer_id = user.id
+    if same_viewing_access(user) and user.username != CONFIGURATOR_USERNAME:
+        configurator = active_people(db).filter(AppUser.username == CONFIGURATOR_USERNAME).first()
+        if not configurator:
+            return []
+        viewer_id = configurator.id
     rules = [rule for rule in db.query(WorkReportAccessRule).filter_by(enabled=True).all()
-             if rule.viewers_all or str(user.id) in rule.viewer_ids]
-    return effective_rules(db, user.id, rules)
+             if rule.viewers_all or str(viewer_id) in rule.viewer_ids]
+    return effective_rules(db, viewer_id, rules)
 
 
 def effective_rules(db, viewer_id, rules):
@@ -200,7 +214,7 @@ def received_report(db, user, report_id):
 
 def can_statistics(db,user):
     if not user.is_active or user.is_deleted:return False
-    if can_configure(user):return True
+    if same_viewing_access(user):return True
     from organization_service import department_condition
     return bool(active_people(db).filter(AppUser.id==user.id,department_condition(db,['行政部'])).first())
 

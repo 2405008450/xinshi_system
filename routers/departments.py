@@ -29,6 +29,20 @@ class RosterWrite(BaseModel):
     members: list[MemberWrite] = Field(max_length=2000)
 
 
+class PersonDepartmentsWrite(BaseModel):
+    department_ids: list[UUID] = Field(max_length=2000)
+    primary_department_id: UUID | None = None
+    expected_department_ids: list[UUID] = Field(max_length=2000)
+    expected_primary_department: str | None = None
+    revisions: dict[UUID, int]
+
+
+@router.put('/people/{user_id}/memberships')
+def update_person_departments(user_id: UUID, payload: PersonDepartmentsWrite, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    from organization_service import save_person_departments
+    return save_person_departments(db, user, user_id, payload)
+
+
 @router.get('/organization')
 def organization(db:Session=Depends(get_db),user=Depends(get_current_user)):
     from organization_service import directory

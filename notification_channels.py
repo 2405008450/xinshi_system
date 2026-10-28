@@ -4,18 +4,27 @@ from typing import Literal
 NotificationChannel = Literal['all', 'business', 'chat', 'system']
 CONVERSATION_NOTIFICATION_TYPES = ('resource_request_dispatch', 'chat_summary')
 CHAT_NOTIFICATION_TYPES = (
-    'discussion_chat_mention', 'project_chat', 'project_chat_mention', 'annotation_project_chat_mention',
+    'discussion_chat', 'discussion_chat_mention', 'project_chat', 'project_chat_mention', 'annotation_project_chat', 'annotation_project_chat_mention',
     'annotation_project_chat_invite', 'direct_chat', 'direct_chat_mention', 'direct_chat_invite',
 )
 
 
+def chat_notification_predicate(model):
+    from sqlalchemy import func, or_
+    kind = func.lower(func.trim(func.coalesce(model.notification_type, '')))
+    return or_(kind == 'chat', kind.startswith('chat_', autoescape=True),
+               kind.endswith('_chat', autoescape=True), kind.contains('_chat_', autoescape=True)) & kind.notin_(CONVERSATION_NOTIFICATION_TYPES)
+
+
 def filter_notification_channel(query, model, channel: NotificationChannel = 'all'):
+    from sqlalchemy import func
+    chat = chat_notification_predicate(model)
     if channel == 'chat':
-        return query.filter(model.notification_type.in_(CHAT_NOTIFICATION_TYPES))
+        return query.filter(chat)
     if channel == 'business':
-        return query.filter(model.notification_type.notin_(CHAT_NOTIFICATION_TYPES))
+        return query.filter(~chat)
     if channel == 'system':
-        return query.filter(model.notification_type.notin_(CHAT_NOTIFICATION_TYPES + CONVERSATION_NOTIFICATION_TYPES))
+        return query.filter(~chat, func.lower(func.trim(func.coalesce(model.notification_type, ''))).notin_(CONVERSATION_NOTIFICATION_TYPES))
     return query
 
 
@@ -33,10 +42,12 @@ def filter_notification_visibility(query, model, db, user_id):
         direct = target.in_(db.query(ChatDirectConversation.id).filter(or_(
             ChatDirectConversation.user_low_id == user_id, ChatDirectConversation.user_high_id == user_id)))
         translation = target.in_(visible_ids(db, 'translation', user))
+    chat = chat_notification_predicate(model)
+    kind = func.lower(func.trim(func.coalesce(model.notification_type, '')))
     return query.filter(or_(
-        model.notification_type.notin_(CHAT_NOTIFICATION_TYPES),
-        and_(model.notification_type=='discussion_chat_mention',target.in_(visible_ids(db,'discussion',user))),
-        and_(model.notification_type.in_(('annotation_project_chat_mention', 'annotation_project_chat_invite')), target.in_(visible_ids(db, 'annotation', user))),
-        and_(model.notification_type.in_(('project_chat', 'project_chat_mention')), translation),
-        and_(model.notification_type.in_(('direct_chat', 'direct_chat_mention', 'direct_chat_invite')), direct),
+        ~chat,
+        and_(chat, or_(model.related_project_type == 'discussion', kind.startswith('discussion_chat', autoescape=True)), target.in_(visible_ids(db,'discussion',user))),
+        and_(chat, or_(model.related_project_type == 'annotation', kind.startswith('annotation_project_chat', autoescape=True)), target.in_(visible_ids(db, 'annotation', user))),
+        and_(chat, or_(model.related_project_type == 'translation', kind.startswith('project_chat', autoescape=True)), translation),
+        and_(chat, or_(model.related_project_type == 'direct', kind.startswith('direct_chat', autoescape=True)), direct),
     ))

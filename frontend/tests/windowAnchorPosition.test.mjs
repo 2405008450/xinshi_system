@@ -5,7 +5,7 @@ import { runInNewContext } from 'node:vm'
 import { reactive, watch, nextTick } from 'vue'
 import { notifyWindowAnchors } from '../src/utils/windowAnchorPosition.js'
 
-function harness() {
+function harness(geometryOptions = {}) {
   const viewport = new EventTarget(), frames = new Map(), cleanup = []
   let frameId = 0, updates = 0
   Object.assign(viewport, {
@@ -21,7 +21,7 @@ function harness() {
     reactive, watch, onBeforeUnmount: fn => cleanup.push(fn), notifyWindowAnchors,
     window: viewport, document: { body: { style: { userSelect: '' } } },
   })
-  const geometry = useWindowGeometry(() => root)
+  const geometry = useWindowGeometry(() => root, geometryOptions)
   const fire = (type, values = {}) => viewport.dispatchEvent(Object.assign(new Event(type), values))
   const frame = () => { const batch = [...frames.values()]; frames.clear(); batch.forEach(fn => fn()) }
   return { geometry, viewport, root, fire, frame, frames, updates: () => updates,
@@ -76,4 +76,60 @@ test('卸载取消待执行的浮层刷新，已移除窗口不派发事件', as
   h.root.isConnected = false
   notifyWindowAnchors(h.root)
   assert.equal(h.updates(), 0)
+})
+
+test('最大化覆盖完整视口，视口变化后保持全屏，拖动不触发还原', () => {
+  const h = harness()
+  h.geometry.maximize()
+  assert.equal(h.geometry.state.rect.x, 0)
+  assert.equal(h.geometry.state.rect.y, 0)
+  assert.equal(h.geometry.state.rect.width, 1200)
+  assert.equal(h.geometry.state.rect.height, 900)
+  h.start()
+  h.fire('mousemove', { clientX: 220, clientY: 160 })
+  h.fire('mouseup')
+  assert.equal(h.geometry.state.maximized, true)
+  assert.equal(h.geometry.state.rect.width, 1200)
+  h.viewport.innerWidth = 390; h.viewport.innerHeight = 844
+  h.fire('resize')
+  assert.equal(h.geometry.state.rect.width, 390)
+  assert.equal(h.geometry.state.rect.height, 844)
+  h.geometry.restore()
+  assert.equal(h.geometry.state.maximized, false)
+  assert.equal(h.geometry.state.rect.width, 374)
+  h.dispose()
+})
+
+test('点击标题和轻微抖动不改变窗口尺寸，实际拖动才应用坐标', () => {
+  const h = harness()
+  h.start()
+  h.fire('mousemove', { clientX: 101, clientY: 81 })
+  assert.equal(h.geometry.state.rect, null)
+  assert.equal(h.geometry.state.dragging, false)
+  h.fire('mouseup')
+  assert.equal(h.geometry.state.rect, null)
+  h.start()
+  h.fire('mousemove', { clientX: 110, clientY: 90 })
+  assert.equal(h.geometry.state.rect.width, 600)
+  assert.equal(h.geometry.state.rect.height, 500)
+  assert.equal(h.geometry.state.rect.x, 110)
+  h.fire('mouseup')
+  assert.equal(h.geometry.state.dragging, false)
+  h.dispose()
+})
+
+test('指定内容区后只覆盖该区域，区域变化会同步且不反复刷新相同坐标', () => {
+  let bounds = { x: 220, y: 110, width: 950, height: 750 }
+  const h = harness({ maximizeBounds: () => bounds })
+  h.geometry.maximize()
+  assert.equal(h.geometry.state.rect.x, 220)
+  assert.equal(h.geometry.state.rect.y, 110)
+  const previous = h.geometry.state.rect
+  h.geometry.refreshBounds()
+  assert.equal(h.geometry.state.rect, previous)
+  bounds = { x: 60, y: 95, width: 1110, height: 765 }
+  h.geometry.refreshBounds()
+  assert.equal(h.geometry.state.rect.x, 60)
+  assert.equal(h.geometry.state.rect.width, 1110)
+  h.dispose()
 })

@@ -39,7 +39,6 @@ const moduleGroups = [
     title: '通用模块',
     items: [
       { name: '数据看板', path: '/dashboard', description: '暂时停用，待后续完善', public: true },
-      { name: '排班管理', path: '/work-schedule', description: '暂时停用，待后续完善', permission: 'schedule:read' },
     ],
   },
   {
@@ -58,16 +57,6 @@ const moduleGroups = [
       { name: '技术管理', path: '/technology-management', description: '暂无数据' },
       { name: '营销管理', path: '/marketing', description: '模拟表单' },
       { name: '采购管理', path: '/procurement', description: '模拟表单' },
-    ],
-  },
-  {
-    title: '人力管理',
-    items: [
-      { name: '考勤管理', path: '/hr-management/attendance', description: '模拟表单' },
-      { name: 'KPI 管理', path: '/hr-management/kpi', description: '模拟表单' },
-      { name: '薪酬管理', path: '/hr-management/salary', description: '模拟表单' },
-      { name: '入职管理', path: '/hr-management/onboarding', description: '模拟表单' },
-      { name: '离职管理', path: '/hr-management/offboarding', description: '模拟表单' },
     ],
   },
   {

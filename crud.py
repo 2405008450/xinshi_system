@@ -146,10 +146,14 @@ def create_user(db: Session, user: AppUserCreate) -> AppUser:
     db.add(db_user)
     from organization_service import sync_primary
     sync_primary(db, db_user)
+    from employee_employment import write as write_employment
+    if 'hire_date' in user.model_fields_set:write_employment(db,db_user,user.hire_date)
     db.commit()
     db.refresh(db_user)
     from organization_service import publish
     publish(db)
+    from employee_employment import attach as attach_employment
+    attach_employment(db,[db_user])
     return db_user
 
 
@@ -160,6 +164,8 @@ def update_user(db: Session, user_id: UUID, user_update: AppUserUpdate) -> Optio
     
     previous_department = db_user.department
     update_data = user_update.model_dump(exclude_unset=True)
+    employment_changed='hire_date' in update_data
+    hire_date=update_data.pop('hire_date',None)
     if 'department' in update_data:
         from department_service import canonical_name
         update_data['department'] = canonical_name(db,update_data['department'])
@@ -173,11 +179,16 @@ def update_user(db: Session, user_id: UUID, user_update: AppUserUpdate) -> Optio
         from organization_service import sync_primary
         sync_primary(db, db_user, previous_department)
     remove_unavailable_user_memberships(db, db_user)
+    if employment_changed:
+        from employee_employment import write as write_employment
+        write_employment(db,db_user,hire_date)
     db.commit()
     db.refresh(db_user)
     if 'department' in update_data:
         from organization_service import publish
         publish(db)
+    from employee_employment import attach as attach_employment
+    attach_employment(db,[db_user])
     return db_user
 
 

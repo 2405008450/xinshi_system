@@ -9,7 +9,7 @@
   >
     <template #reference>
       <el-badge :value="badgeTotal" :hidden="badgeTotal === 0" :max="99">
-        <el-button class="notification-trigger" circle text aria-label="业务通知" title="业务通知：交接、待处理事项及关键业务动态">
+        <el-button class="notification-trigger" circle text aria-label="系统通知" title="系统通知：交接、待处理事项及关键业务动态">
           <el-icon :size="18"><Bell /></el-icon>
         </el-button>
       </el-badge>
@@ -17,7 +17,7 @@
 
     <div class="notification-panel">
       <div class="notification-panel__header">
-        <span>业务通知</span>
+        <span>系统通知</span>
         <el-button
           v-if="unreadCount > 0"
           text
@@ -28,7 +28,7 @@
         </el-button>
       </div>
 
-      <p class="notification-panel__hint">交接、待处理事项及关键业务动态；群聊和私聊消息请查看“聊天”。</p>
+      <p class="notification-panel__hint">仅显示系统交接、待处理事项及业务动态。所有群聊、单聊、@ 和会话通知请到左侧“会话”查看。</p>
       <div class="desktop-notification-card" :class="`desktop-notification-card--${desktopStatus.type}`">
         <div class="desktop-notification-card__content">
           <div class="desktop-notification-card__title">
@@ -89,6 +89,8 @@
 </template>
 
 <script setup>
+import { useDesktopHeartbeat } from '@/composables/useDesktopHeartbeat'
+useDesktopHeartbeat()
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 const ResourceRequestDispatchDialog=defineAsyncComponent(()=>import('@/views/resource/components/ResourceRequestDispatchDialog.vue'))
 const dispatchBatchId=ref('')
@@ -217,6 +219,7 @@ const markItemRead = async (item, showError = false) => {
 }
 
 const navigateToNotification = async (item) => {
+  if(['attendance_leave','home_office_application','attendance_delay_start'].includes(item.notification_type)){popoverVisible.value=false;await router.push({path:'/workbench',query:{section:'attendance'}});return}
   if(item.notification_type==='resource_request_dispatch' && item.related_entity_id){popoverVisible.value=false;dispatchBatchId.value=String(item.related_entity_id);return}
   if(item.notification_type==='chat_summary'&&item.related_entity_id){useProjectChatDock().openFullscreen();await nextTick();window.dispatchEvent(new CustomEvent('chat-open-summary',{detail:{issueId:item.related_entity_id}}));return}
   if (['workflow_handover_pending', 'project_manager_handover_pending'].includes(item.notification_type)) {

@@ -61,7 +61,7 @@
 
           <el-table
             v-loading="contextLoading"
-            :data="activeProjects"
+            :data="pagedProjects"
             height="100%"
             size="small"
             border
@@ -70,7 +70,7 @@
             @current-change="selectProject"
             @row-dblclick="selectProject"
           >
-            <el-table-column type="index" label="序号" width="52" align="center" />
+            <el-table-column type="index" :index="projectRowIndex" label="序号" width="52" align="center" />
             <el-table-column prop="order_no" label="订单号" min-width="130" show-overflow-tooltip>
               <template #header><ConfiguredColumnHeaderFilter :definition="projectHeaderFilter('orderNo')" :model-value="projectFilterModel.orderNo" @update:model-value="updateProjectFilter('orderNo', $event)" @text-input="onProjectKeywordInput" @change="loadContext" @enter="loadContext" @clear="loadContext" /></template>
             </el-table-column>
@@ -155,6 +155,14 @@
               </template>
             </el-table-column>
           </el-table>
+          <el-pagination
+            v-model:current-page="projectPage"
+            class="workbench-pagination"
+            :page-size="workbenchPageSize"
+            :total="activeProjects.length"
+            layout="total, prev, pager, next"
+            small
+          />
         </el-card>
 
         <el-card class="legacy-translator-panel" shadow="never">
@@ -197,7 +205,7 @@
           <div class="translator-table-wrap">
             <el-table
               ref="workspaceTranslatorTableRef"
-              :data="filteredTranslators"
+              :data="pagedTranslators"
               row-key="id"
               height="100%"
               size="small"
@@ -244,6 +252,14 @@
               </el-table-column>
             </el-table>
           </div>
+          <el-pagination
+            v-model:current-page="translatorPage"
+            class="workbench-pagination"
+            :page-size="workbenchPageSize"
+            :total="filteredTranslators.length"
+            layout="total, prev, pager, next"
+            small
+          />
         </el-card>
       </div>
 
@@ -968,7 +984,7 @@
         ref="dispatchTableRef"
         v-loading="recordsLoading"
         class="dispatch-records-table"
-        :data="dispatches"
+        :data="pagedDispatches"
         row-key="id"
         border
         size="small"
@@ -1246,6 +1262,14 @@
           </template>
         </el-table-column>
       </el-table>
+      <el-pagination
+        v-model:current-page="dispatchPage"
+        class="dispatch-records-pagination"
+        :page-size="dispatchPageSize"
+        :total="dispatches.length"
+        layout="total, prev, pager, next, jumper"
+        small
+      />
     </el-card>
 
     <DraggableFormDialog
@@ -1987,8 +2011,23 @@ const sendingId = ref('')
 const sendingBatchId = ref('')
 const withdrawingBatchId = ref('')
 const activeProjects = ref([])
+const workbenchPageSize = 10
+const projectPage = ref(1)
+const translatorPage = ref(1)
+const pagedProjects = computed(() => {
+  const start = (projectPage.value - 1) * workbenchPageSize
+  return activeProjects.value.slice(start, start + workbenchPageSize)
+})
+const projectRowIndex = (index) => (projectPage.value - 1) * workbenchPageSize + index + 1
+watch(activeProjects, () => { projectPage.value = 1 })
 const translators = ref([])
 const dispatches = ref([])
+const dispatchPage = ref(1)
+const dispatchPageSize = 10
+const pagedDispatches = computed(() => {
+  const start = (dispatchPage.value - 1) * dispatchPageSize
+  return dispatches.value.slice(start, start + dispatchPageSize)
+})
 const dispatchTableRef = ref(null)
 const expandedDispatchIds = ref(new Set())
 const expandedDispatchRowKeys = computed(() => [...expandedDispatchIds.value])
@@ -2653,9 +2692,11 @@ const settlementForm = reactive({
 })
 
 const PROJECT_STATUS_LABELS = {
+  initial_consultation: '初步咨询',
   pending_confirmation: '待确认',
   confirmed: '已确认',
   organized: '已整理',
+  arranged: '已安排',
   translator_assigned: '已排译员',
   sent_to_translator: '已发译员',
   translator_returned: '译员发回',
@@ -2739,6 +2780,12 @@ const filteredTranslators = computed(() => {
     return true
   })
 })
+
+const pagedTranslators = computed(() => {
+  const start = (translatorPage.value - 1) * workbenchPageSize
+  return filteredTranslators.value.slice(start, start + workbenchPageSize)
+})
+watch(filteredTranslators, () => { translatorPage.value = 1 })
 
 const workspaceSelectedTranslatorSummary = computed(() =>
   workspaceSelectedTranslators.value
@@ -4197,6 +4244,7 @@ function runDispatchSearch() {
 }
 
 async function loadContext() {
+  projectPage.value = 1
   contextController?.abort()
   contextController = new AbortController()
   const requestId = ++contextRequestId
@@ -4232,6 +4280,7 @@ async function loadContext() {
 }
 
 async function loadDispatches() {
+  dispatchPage.value = 1
   dispatchController?.abort()
   dispatchController = new AbortController()
   const requestId = ++dispatchRequestId
@@ -4495,6 +4544,21 @@ onBeforeUnmount(() => {
 
 .records-panel :deep(.el-card__header) {
   padding: 6px 12px;
+}
+
+.dispatch-records-pagination {
+  justify-content: flex-end;
+  margin-top: 16px;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.workbench-pagination {
+  flex-shrink: 0;
+  justify-content: flex-end;
+  margin-top: 8px;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .legacy-project-panel :deep(.el-card__body),

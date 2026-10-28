@@ -82,6 +82,21 @@ test('心跳超时重连，pong 延续存活，挂起的 CONNECTING 连接恢复
   assert.equal(h.sockets.length, 3)
 })
 
+test('后台定时器未触发时仍响应服务端心跳，旧连接不能续报在线', () => {
+  const h = harness(); h.ensureConnected().open()
+  const first = h.sockets[0]
+  h.advance(60000)
+  first.message({ type: 'ping' })
+  assert.deepEqual(first.sent, ['ping'])
+  h.heartbeat()
+  assert.equal(h.sockets.length, 1)
+  h.window.fire('online'); h.sockets[1].open()
+  first.message({ type: 'ping' })
+  assert.deepEqual(first.sent, ['ping', 'ping'])
+  h.sockets[1].message({ type: 'ping' })
+  assert.deepEqual(h.sockets[1].sent, ['ping'])
+})
+
 test('退出登录后前台事件不复活连接，再次登录可恢复监听', () => {
   const h = harness(); h.ensureConnected().open(); h.closeSocket()
   h.advance(100000); h.window.fire('online'); h.document.fire('resume')

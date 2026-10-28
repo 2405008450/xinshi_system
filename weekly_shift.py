@@ -11,6 +11,7 @@ from models import Base,AppUser
 from chat_time import now,api_time
 from hr_access import require_hr
 from monthly_shift import PlanWrite,SHIFTS,DEPARTMENTS,directory,serialize as serialize_month
+import weekly_shift_publication as publication
 
 
 class WeeklyShiftPlan(Base):
@@ -45,23 +46,17 @@ def week_key(value):
 def serialize(db,row,start):
     data=serialize_month(db,row,start,weekly=True)
     data.pop('month',None)
-    return {**data,'ready':ready(db),'week_start':start.isoformat(),'week_end':(start+timedelta(days=6)).isoformat()}
+    return {**data,'ready':ready(db),'week_start':start.isoformat(),'week_end':(start+timedelta(days=6)).isoformat(),**publication.status(db,start,row,data['assignments'])}
 
 
 def get_plan(db,user,week):
     require_hr(db,user);start=week_key(week)
-    return serialize(db,db.get(WeeklyShiftPlan,start) if ready(db) else None,start)
+    draft=db.get(publication.WeeklyShiftDraft,start) if publication.ready(db) else None
+    return serialize(db,draft or (db.get(WeeklyShiftPlan,start) if ready(db) else None),start)
 
 
 def overview(db,user,week):
-    if not user.is_active or user.is_deleted:raise HTTPException(403,'账号不可用')
-    start=week_key(week)
-    data=serialize(db,db.get(WeeklyShiftPlan,start) if ready(db) else None,start)
-    # 工作台公开班次与人员姓名，不公开他人的请假明细。
-    for entry in data['assignments']:
-        entry.pop('leaves',None)
-        entry.pop('leave_minutes',None)
-    return data
+    return publication.published_plan(db,user,week)
 
 
 def lock_weeks(db,starts):
@@ -85,7 +80,10 @@ def transfer_plan(db,user,payload:WeekTransfer):
     if source==target:raise HTTPException(422,'请选择不同的两周')
     if not ready(db):raise HTTPException(503,'每周班次安排表尚未初始化')
     lock_weeks(db,[source,target])
-    rows={row.week_start:row for row in db.query(WeeklyShiftPlan).filter(WeeklyShiftPlan.week_start.in_([source,target])).order_by(WeeklyShiftPlan.week_start).with_for_update().populate_existing().all()}
+    publication.require_ready(db)
+    legacy={row.week_start:row for row in db.query(WeeklyShiftPlan).filter(WeeklyShiftPlan.week_start.in_([source,target])).order_by(WeeklyShiftPlan.week_start).with_for_update().populate_existing().all()}
+    drafts={row.week_start:row for row in db.query(publication.WeeklyShiftDraft).filter(publication.WeeklyShiftDraft.week_start.in_([source,target])).order_by(publication.WeeklyShiftDraft.week_start).with_for_update().populate_existing().all()}
+    rows={**legacy,**drafts}
     for start,revision in [(source,payload.source_revision),(target,payload.target_revision)]:
         if revision!=(rows[start].revision if start in rows else 0):raise HTTPException(409,'两周排班已发生变化，请重新预览并确认')
     from fixed_shift import effective
@@ -97,9 +95,14 @@ def transfer_plan(db,user,payload:WeekTransfer):
     changes=[(target,source_values)]
     if payload.operation!='copy':changes.append((source,target_values if payload.operation=='swap' else []))
     for start,values in changes:
-        row=rows.get(start)
-        if row is None:row=WeeklyShiftPlan(week_start=start,revision=0);db.add(row)
+        publication.assert_editable(db,start)
+    for start,values in changes:
+        previous=rows.get(start)
+        before=list(previous.assignments) if previous else []
+        row=drafts.get(start)
+        if row is None:row=publication.WeeklyShiftDraft(week_start=start,revision=previous.revision if previous else 0);db.add(row)
         row.assignments=values;row.revision+=1;row.updated_by=user.id;row.updated_at=now()
+        publication.audit(db,user,start,payload.operation,row.revision,before,values)
     try:db.commit()
     except IntegrityError:
         db.rollback();raise HTTPException(409,'两周排班已发生变化，请重新预览并确认')
@@ -110,17 +113,23 @@ def save_plan(db,user,week,payload:WeeklyPlanWrite):
     require_hr(db,user);start=week_key(week)
     if not ready(db):raise HTTPException(503,'每周班次安排表尚未初始化')
     lock_weeks(db,[start])
-    row=db.query(WeeklyShiftPlan).filter_by(week_start=start).with_for_update().first()
-    if payload.revision!=(row.revision if row else 0):raise HTTPException(409,'本周排班已被调整，请刷新后重试')
-    previous={entry['user_id']:entry for entry in row.assignments} if row else {}
+    publication.assert_editable(db,start)
+    row=db.query(publication.WeeklyShiftDraft).filter_by(week_start=start).with_for_update().populate_existing().first()
+    legacy=db.get(WeeklyShiftPlan,start) if row is None else None
+    current=row or legacy
+    if payload.revision!=(current.revision if current else 0):raise HTTPException(409,'本周排班已被调整，请刷新后重试')
+    previous={entry['user_id']:entry for entry in current.assignments} if current else {}
     allowed={person['id'] for person in directory(db,user)['people']}
     from fixed_shift import effective
     allowed.update(entry['user_id'] for entry in effective(db,[],start,weekly=True))
     values=[{key:entry[key] for key in ('user_id','department','shift')} for entry in effective(db,[entry.model_dump(mode='json') for entry in payload.assignments],start,weekly=True)]
     for entry in values:
         if entry['user_id'] not in allowed and entry!=previous.get(entry['user_id']):raise HTTPException(422,'所选人员不在参与排班的在用部门名册中')
-    if not row:row=WeeklyShiftPlan(week_start=start,revision=0);db.add(row)
+    if current and publication.canonical(current.assignments)==publication.canonical(values):return serialize(db,current,start)
+    before=list(current.assignments) if current else []
+    if not row:row=publication.WeeklyShiftDraft(week_start=start,revision=current.revision if current else 0);db.add(row)
     row.assignments=values;row.revision+=1;row.updated_by=user.id;row.updated_at=now()
+    publication.audit(db,user,start,'draft_save',row.revision,before,values)
     try:db.commit()
     except IntegrityError:
         db.rollback();raise HTTPException(409,'本周排班已被其他人创建，请刷新后重试')
@@ -128,10 +137,4 @@ def save_plan(db,user,week,payload:WeeklyPlanWrite):
 
 
 def my_plan(db,user,week):
-    start=week_key(week)
-    if not user.is_active or user.is_deleted:raise HTTPException(403,'账号不可用')
-    row=db.get(WeeklyShiftPlan,start) if ready(db) else None
-    from fixed_shift import effective
-    entry=next((value for value in effective(db,row.assignments if row else [],start,weekly=True) if value['user_id']==str(user.id)),None)
-    return api_time({'ready':ready(db),'week_start':start.isoformat(),'week_end':(start+timedelta(days=6)).isoformat(),
-        'assignment':{**entry,'name':user.full_name or user.username} if entry else None,'shifts':SHIFTS,'departments':DEPARTMENTS,'updated_at':row.updated_at if row and entry else None})
+    return publication.published_plan(db,user,week,mine=True)

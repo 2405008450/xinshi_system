@@ -105,6 +105,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:modelValue', 'created'])
 const statusOptions = [
+  ['初步咨询', 'initial_consultation'],
   ['待确认', 'pending_confirmation'], ['已确认', 'confirmed'], ['已整理', 'organized'],
   ['已排译员', 'translator_assigned'], ['已发译员', 'sent_to_translator'], ['译员发回', 'translator_returned'],
   ['已专检', 'special_checked'], ['已排版', 'typeset'], ['专检排版完成', 'special_checked_typeset'], ['已审核', 'reviewed'],

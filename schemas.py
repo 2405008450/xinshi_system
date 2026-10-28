@@ -38,6 +38,7 @@ def normalize_progress_percent(value: Optional[str]) -> Optional[str]:
 
 # Auth Schemas
 class Token(BaseModel):
+    attendance: Optional[dict] = None
     access_token: str
     token_type: str
     user_id: Optional[str] = None
@@ -48,6 +49,7 @@ class Token(BaseModel):
 
 
 class AuthSession(BaseModel):
+    can_manage_hr: bool = False
     user_id: str
     username: str
     full_name: str
@@ -80,6 +82,7 @@ class AppUserBase(BaseModel):
     email: Optional[EmailStr] = None
     is_active: Optional[bool] = True
     department: Optional[str] = None
+    hire_date: Optional[date] = None
 
     @field_validator('email', mode='before')
     @classmethod
@@ -104,6 +107,7 @@ class AppUserUpdate(BaseModel):
     email: Optional[EmailStr] = None
     is_active: Optional[bool] = None
     department: Optional[str] = None
+    hire_date: Optional[date] = None
 
     @field_validator('email', mode='before')
     @classmethod
@@ -130,6 +134,9 @@ class PersonalPasswordChange(BaseModel):
 
 class AppUserResponse(AppUserBase):
     id: UUID
+    annual_leave_year: Optional[int] = None
+    annual_leave_days: Optional[int] = None
+    annual_leave_next_increase: Optional[date] = None
     mail_profile_configured: bool = False
     mail_display_name: Optional[str] = None
     mail_signature_enabled: bool = False
@@ -1481,7 +1488,7 @@ class NotificationResponse(BaseModel):
 
     @field_serializer('created_at',when_used='json')
     def summary_notification_time(self,value):
-        if self.notification_type=='chat_summary' and value:
+        if self.notification_type in ('chat_summary','attendance_leave','attendance_delay_start','home_office_application') and value:
             from business_time import business_iso
             return business_iso(value)
         return value

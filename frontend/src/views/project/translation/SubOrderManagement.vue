@@ -233,6 +233,7 @@ const project = reactive({ id: '', orderNo: '', projectName: '', fileTypeSeconda
 const createSubOrderForm = () => ({ id: '', parentProjectId: projectId, subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: '', preReviewQcProgress: '', review1Progress: '', review2Progress: '', postReviewQcProgress: '', layoutProgress: '', consolidationProgress: '', networkFilePath: '', remarks: '' })
 const subOrderForm = reactive(createSubOrderForm())
 const projectStatusOptions = [
+  { label: '初步咨询', value: 'initial_consultation' },
   { label: '待确认', value: 'pending_confirmation' }, { label: '已确认', value: 'confirmed' },
   { label: '已整理', value: 'organized' }, { label: '已排译员', value: 'translator_assigned' },
   { label: '已发译员', value: 'sent_to_translator' }, { label: '译员发回', value: 'translator_returned' },

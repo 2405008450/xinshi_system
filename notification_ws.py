@@ -13,6 +13,12 @@ from fastapi import WebSocket
 _main_event_loop: asyncio.AbstractEventLoop | None = None
 
 
+def connection_client_type(websocket, client_type=''):
+    agent = getattr(websocket, 'headers', {}).get('user-agent', '')
+    return client_type if client_type in ('desktop', 'mobile') else (
+        'mobile' if re.search(r'Android|iPhone|iPad|iPod|Mobile', agent, re.I) else 'desktop' if agent else 'unknown')
+
+
 class NotificationConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, Set[WebSocket]] = defaultdict(set)
@@ -50,9 +56,7 @@ class NotificationConnectionManager:
         _main_event_loop = asyncio.get_running_loop()
         await websocket.accept()
         self.active_connections[str(user_id)].add(websocket)
-        agent = getattr(websocket, 'headers', {}).get('user-agent', '')
-        kind = client_type if client_type in ('desktop', 'mobile') else (
-            'mobile' if re.search(r'Android|iPhone|iPad|iPod|Mobile', agent, re.I) else 'desktop' if agent else 'unknown')
+        kind = connection_client_type(websocket, client_type)
         with self.presence_lock:
             self.connection_presence[(str(user_id), websocket)] = (kind, monotonic())
 

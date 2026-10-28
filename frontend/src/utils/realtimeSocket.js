@@ -122,6 +122,12 @@ export const ensureConnected = ({ force = false } = {}) => {
     lastActivityAt = Date.now()
     try {
       const payload = JSON.parse(event.data)
+      if (payload?.type === 'ping') {
+        emit('presence-heartbeat', { type: 'presence-heartbeat' })
+        if (currentSocket.readyState === WebSocket.OPEN) currentSocket.send('ping')
+        return
+      }
+      if (payload?.type === 'pong') emit('presence-heartbeat', { type: 'presence-heartbeat' })
       if (!payload?.type || payload.type === 'pong') return
       emit(payload.type, payload)
     } catch (error) {

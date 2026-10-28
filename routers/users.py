@@ -38,6 +38,7 @@ from user_mail_profile_service import (
     save_user_mail_profile,
     serialize_user_mail_profile,
 )
+from employee_employment import attach as attach_employment
 from pagination_schemas import PageResponse, UserOptionResponse, resolve_page_total
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -76,6 +77,10 @@ def _serialize_user(
         "email": user.email,
         "is_active": user.is_active,
         "department": user.department,
+        "hire_date": getattr(user,"hire_date",None),
+        "annual_leave_year": getattr(user,"annual_leave_year",None),
+        "annual_leave_days": getattr(user,"annual_leave_days",None),
+        "annual_leave_next_increase": getattr(user,"annual_leave_next_increase",None),
         "mail_profile_configured": mail_profile is not None,
         "mail_display_name": recipient_display_name(user, mail_profile),
         "mail_signature_enabled": bool(mail_profile and mail_profile.signature_enabled),
@@ -173,6 +178,7 @@ def read_users(
         full_name=full_name,
         department=department,
     )
+    attach_employment(db,users)
     user_ids = [user.id for user in users]
     account_map = {
         account.user_id: account
@@ -224,6 +230,7 @@ def read_user_page(
 ):
     filters = dict(username=username, full_name=full_name, department=department)
     users = get_users(db, skip=skip, limit=limit, **filters)
+    attach_employment(db,users)
     user_ids = [user.id for user in users]
     account_map = {
         account.user_id: account
@@ -269,6 +276,7 @@ def read_user(user_id: UUID, db: Session = Depends(get_db)):
             status_code=status.HTTP_404_NOT_FOUND,
             detail="用户不存在"
         )
+    attach_employment(db,[db_user])
     account = db.query(UserMailAccount).filter(UserMailAccount.user_id == user_id).first()
     return _serialize_user(db_user, account, mail_profile=get_user_mail_profile(db, user_id))
 

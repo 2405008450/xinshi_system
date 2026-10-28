@@ -62,7 +62,11 @@ def test_presence_api_active_accounts_only_and_no_auth_bypass(environment, monke
     asyncio.run(manager.connect(online.id, Socket('Windows'), 'desktop'))
     inactive.is_active = False; db.commit()
     result = desktop_presence(PresenceRequest(user_ids=[online.id, online.id, inactive.id, uuid4()]), db, actor)
-    assert result['items'] == [dict(user_id=str(online.id), desktop_online=True)]
+    assert len(result['items']) == 1
+    assert result['items'][0]['user_id'] == str(online.id)
+    assert result['items'][0]['desktop_online'] is True
+    assert result['items'][0]['work_state'] in ('unscheduled', 'off_hours')
+    assert result['checked_at'].utcoffset().total_seconds() == 8 * 3600
     with pytest.raises(HTTPException) as denied:
         desktop_presence(PresenceRequest(user_ids=[actor.id]), db, inactive)
     assert denied.value.status_code == 403
