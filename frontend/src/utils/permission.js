@@ -113,8 +113,19 @@ export function hasPermission(permissionOrPermissions, userPermissions) {
 /**
  * 登录后和访问根路径时使用的默认页面。
  * 优先进入工作台，避免先跳固定地址后再由路由守卫二次重定向。
+ * 手机窄屏默认附带 openSession=1，由布局在进入后直接打开会话窗口。
  */
 export function getDefaultRoute() {
+  const target = resolveDefaultPath()
+  if (!isPhoneViewport()) return target
+  return `${target}${target.includes('?') ? '&' : '?'}openSession=1`
+}
+
+function isPhoneViewport() {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 640px)').matches
+}
+
+function resolveDefaultPath() {
   if (isSuperAdmin() || hasPermission(['projects:read', 'tasks:read'])) return '/workbench'
   if (hasPermission(['annotation_accounts:read', 'annotation_accounts:write'])) return '/annotation-details?section=accounts'
   if (hasPermission('system:users:read')) return '/users'

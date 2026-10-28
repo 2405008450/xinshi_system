@@ -40,6 +40,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File E:\xinshi_system\tools\s
 
 任务首先核对主机、项目提交、脚本散列、Administrator 桌面 SessionId、实际 UNC 目录只读枚举和输出目录权限。结果见与配置文件同名的 `.status.json`，以及输出目录中的 `report.json`。`LastTaskResult=0` 且状态 `success` 表示本批次完成；非零结果应检查状态阶段和 `report.json`。确认任务结束后执行 `Unregister-ScheduledTask -TaskName XinshiResumeBatch001 -Confirm:$false`。
 
+DOC 转换所需的独立 LibreOffice 配置和临时文件统一写入 `D:\resume_text_collection_temp`；启动前要求 D 盘至少剩余 50 GB。单份 DOC 的转换临时文件超过 1 GB 或处理超时会结束其进程树，记录失败原因并继续其他文件。运行过程中会回收超过 3 分钟的残留转换目录。采集成品仍保存在 E 盘指定的仓库外目录。计划任务停止后，如需人工清理残留临时目录，先确认采集 Python 与对应的 LibreOffice 进程均已退出，再仅清理该目录内的 `resume-doc-*` 子目录。
+
 ## 产物与重跑
 
 - `state.sqlite3`：断点状态；不要删除后要求增量重跑。

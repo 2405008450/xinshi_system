@@ -10,6 +10,8 @@ trap {
     [pscustomobject]@{
         stage = $stage
         error_type = $_.Exception.GetType().Name
+        error_line = $_.InvocationInfo.ScriptLineNumber
+        error_message = $_.Exception.Message
         result = 'failed'
     } | ConvertTo-Json | Set-Content -LiteralPath $statusFile -Encoding UTF8
     exit 1
@@ -56,6 +58,16 @@ if (-not $output.StartsWith('E:\resume_text_collection\', [StringComparison]::Or
 New-Item -ItemType Directory -Path $output -Force | Out-Null
 & icacls.exe $output /inheritance:r /grant:r 'Administrator:(OI)(CI)F' 'SYSTEM:(OI)(CI)F' | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'output_acl_failed' }
+
+# LibreOffice 的独立用户配置、转换文件和系统临时文件统一写入数据盘。
+if (-not (Test-Path -LiteralPath 'D:\' -PathType Container)) { throw 'temp_drive_missing' }
+if (([IO.DriveInfo]::new('D:\')).AvailableFreeSpace -lt 50GB) { throw 'temp_drive_low_space' }
+New-Item -ItemType Directory -Path 'D:\resume_text_collection_temp' -Force | Out-Null
+& icacls.exe 'D:\resume_text_collection_temp' /inheritance:r /grant:r 'Administrator:(OI)(CI)F' 'SYSTEM:(OI)(CI)F' | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'temp_acl_failed' }
+$env:TEMP = 'D:\resume_text_collection_temp'
+$env:TMP = 'D:\resume_text_collection_temp'
+$env:RESUME_TEMP_DIR = 'D:\resume_text_collection_temp'
 
 $stage = 'collect'
 $workers = 2

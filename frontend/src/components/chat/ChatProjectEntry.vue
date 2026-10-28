@@ -1,7 +1,7 @@
 <template>
   <el-config-provider :z-index="10000">
     <el-dropdown v-if="projectType === 'annotation' && projectId && hasPermission('projects:read')" trigger="click" @command="open">
-      <el-button class="chat-project-entry" size="small" aria-label="项目入口" title="项目入口" @mousedown.stop @dblclick.stop><el-icon><Menu /></el-icon></el-button>
+      <el-button class="chat-project-entry" aria-label="项目入口" title="项目入口" @mousedown.stop @dblclick.stop><el-icon><Menu /></el-icon></el-button>
       <template #dropdown><el-dropdown-menu><el-dropdown-item v-if="hasPermission('projects:write')" command="edit">项目编辑</el-dropdown-item><el-dropdown-item command="progress">项目进度</el-dropdown-item><el-dropdown-item v-if="hasPermission('projects:write')" command="request">资源需求</el-dropdown-item><el-dropdown-item command="technical">技术需求</el-dropdown-item><el-dropdown-item command="trials">试标试采管理</el-dropdown-item></el-dropdown-menu></template>
     </el-dropdown>
     <ResourceRequestEditor v-if="source" editor-only :source-request="source" @editor-closed="source=null" />
@@ -42,6 +42,6 @@ async function open(command) {
 }
 </script>
 <style scoped>
-.chat-project-entry{width:32px;height:32px;margin:0;display:inline-flex;align-items:center;justify-content:center;padding:6px}
-.chat-project-entry :deep(>span){display:flex;align-items:center;justify-content:center}.chat-project-entry .el-icon{font-size:18px}
+.chat-project-entry{display:inline-flex;align-items:center;justify-content:center}
+.chat-project-entry :deep(>span){display:flex;align-items:center;justify-content:center}
 </style>

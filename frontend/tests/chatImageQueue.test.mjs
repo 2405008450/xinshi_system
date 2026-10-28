@@ -62,3 +62,32 @@ test('移除、关闭及切换会话后，旧上传成功或失败都不会污�
   resolvers[2].resolve({ id: 'new' }); await tick()
   assert.equal(items[0].attachment.id, 'new')
 })
+
+test('移除与清空会取消上传请求；迟到的响应不得恢复已移除图片', async () => {
+  const signals = [], resolveUpload = []
+  const { queue, items } = setup((file, options) => {
+    signals.push(options.signal)
+    return new Promise(resolve => resolveUpload.push(resolve))
+  })
+  queue.add([file, file])
+  queue.remove(items[0].key)
+  assert.equal(signals[0].aborted, true)
+  assert.equal(signals[1].aborted, false)
+  queue.clear()
+  assert.equal(signals[1].aborted, true)
+  resolveUpload.forEach(resolve => resolve({ id: 'late' }))
+  await tick()
+  assert.equal(items.length, 0)
+})
+
+test('恢复的历史截图也占用图片数量限制', () => {
+  const items = [], warnings = []
+  const queue = createChatImageQueue(items, {
+    upload: () => new Promise(() => {}), createUrl: () => 'blob:test',
+    revokeUrl: () => {}, warn: text => warnings.push(text), limit: () => 2,
+  })
+  queue.add([file, file, file])
+  assert.equal(items.length, 2)
+  assert.equal(warnings.length, 1)
+  queue.clear()
+})

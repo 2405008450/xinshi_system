@@ -2,6 +2,8 @@
 
 import importlib.util
 import json
+import os
+import subprocess
 import zipfile
 from pathlib import Path
 
@@ -73,3 +75,42 @@ def test_failed_file_retries_and_unavailable_root(tmp_path):
     assert module.collect([str(source / "missing")], tmp_path / "other-output", 1, 10) == 1
     report = json.loads((tmp_path / "other-output" / "report.json").read_text(encoding="utf-8"))
     assert report["scan_errors"][0]["reason"] == "root_unavailable"
+
+
+def test_worker_timeout_terminates_process_tree(tmp_path, monkeypatch):
+    source = tmp_path / "stuck.doc"
+    source.write_bytes(b"data")
+    output = tmp_path / "output"
+    for name in ("tmp", "texts", "segments"):
+        (output / name).mkdir(parents=True)
+
+    class StuckProcess:
+        pid = 1234
+
+        def wait(self, timeout):
+            raise subprocess.TimeoutExpired("worker", timeout)
+
+    terminated = []
+    monkeypatch.setattr(module.subprocess, "Popen", lambda *args, **kwargs: StuckProcess())
+    monkeypatch.setattr(module, "terminate_process_tree", lambda process: terminated.append(process.pid))
+
+    result = module.process_one(str(source), str(tmp_path), source.name, source.stat(), output, 5)
+    assert terminated == [1234]
+    assert (result["status"], result["reason"]) == ("failed", "timeout")
+
+
+def test_stale_doc_temp_cleanup_preserves_recent_directory(tmp_path, monkeypatch):
+    temp_root = tmp_path / "doc-temp"
+    temp_root.mkdir()
+    stale = temp_root / "resume-doc-abcdefgh"
+    recent = temp_root / "resume-doc-ijklmnop"
+    stale.mkdir()
+    recent.mkdir()
+    (stale / "lu.tmp").write_bytes(b"temporary")
+    os.utime(stale, (1000, 1000))
+    monkeypatch.setenv("RESUME_TEMP_DIR", str(temp_root))
+
+    module.cleanup_stale_doc_temps()
+
+    assert not stale.exists()
+    assert recent.exists()

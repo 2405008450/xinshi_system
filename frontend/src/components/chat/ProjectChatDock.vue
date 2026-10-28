@@ -118,10 +118,10 @@
 
           </div>
           </div>
-          <div class="chat-fixed-window-controls" @mousedown.stop @dblclick.stop><ChatProjectEntry :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" @navigate="minimizeChat(chatWindow.key)" /><el-button link aria-label="聊天记录" title="聊天记录" @click="openSearch(chatWindow.key)"><el-icon><Search /></el-icon></el-button><button type="button" aria-label="最小化会话窗口" title="最小化" @click="minimizeChat(chatWindow.key)">−</button><button type="button" aria-label="最大化会话窗口" title="最大化" @click="maximizeChat(chatWindow.key)">□</button><button type="button" aria-label="退出整个会话窗口" title="退出整个会话窗口，保留聊天记录" @click.stop="closeAllChats">×</button></div>
+          <ChatWindowControls :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" @navigate="minimizeChat(chatWindow.key)" @search="openSearch(chatWindow.key)" @minimize="minimizeChat(chatWindow.key)" @maximize="maximizeChat(chatWindow.key)" @exit="closeAllChats" />
         </header>
         <div class="project-chat-window__body">
-          <div class="chat-conversation-close-row"><button type="button" aria-label="关闭当前会话" title="关闭当前会话，保留聊天记录" @click.stop="state.layout === 'workspace' ? closeWorkspaceSession() : closeChat(chatWindow.key)">×</button></div>
+          <div class="chat-conversation-close-row"><button type="button" aria-label="关闭当前会话" title="关闭当前会话，保留聊天记录" @click.stop="state.layout === 'workspace' ? closeWorkspaceSession() : closeChat(chatWindow.key)"><el-icon><Close /></el-icon></button></div>
           <component
             :is="chatWindow.projectType === 'discussion' ? DiscussionConversation : chatWindow.projectType === 'direct' ? DirectChat : chatWindow.projectType === 'annotation' ? AnnotationGroupChat : ProjectChatPanel"
             :ref="(el) => setPanelRef(chatWindow.key, el)"
@@ -191,7 +191,7 @@ import ChatMultiWindowPicker from './ChatMultiWindowPicker.vue'
 import { chatTileLayout } from '@/utils/chatTiling'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { ChatDotRound, Search } from '@element-plus/icons-vue'
+import { ChatDotRound, Close } from '@element-plus/icons-vue'
 import ProjectChatPanel from '@/components/ProjectChatPanel.vue'
 import { chatRequest } from '@/api/projectChat'
 import { filterClosedSessions, mentionUnreadCount } from '@/utils/chatSessionList'
@@ -203,7 +203,7 @@ import ChatPinIcon from './ChatPinIcon.vue'
 import AnnotationGroupChat from '@/components/chat/AnnotationGroupChat.vue'
 import ChatWorkspace from '@/components/chat/ChatWorkspace.vue'
 import AnnotationChatInbox from './AnnotationChatInbox.vue'
-import ChatProjectEntry from './ChatProjectEntry.vue'
+import ChatWindowControls from './ChatWindowControls.vue'
 import ChatConversationParticipants from './ChatConversationParticipants.vue'
 import ProjectMentionCorner from './ProjectMentionCorner.vue'
 import { useChatMentions } from '@/composables/useChatMentions'
@@ -623,8 +623,9 @@ onBeforeUnmount(() => {
 })
 </script>
 
+<style src="./chatTokens.css" />
+
 <style scoped>
-.project-chat-window__close-button{position:absolute;z-index:2;right:8px;top:8px;display:flex;align-items:center;justify-content:center;width:36px;height:36px;box-sizing:border-box;padding:0;border:1px solid #cbd5e1;border-radius:6px;background:#f8fafc;color:#334155;font:26px/1 Arial,sans-serif;cursor:pointer;opacity:1;visibility:visible}.project-chat-window__close-button:hover{color:#dc2626;border-color:#fca5a5;background:#fef2f2}.project-chat-window__close-button:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:2px}
 .project-chat-dock {
   position: fixed;
   inset: 0;
@@ -673,7 +674,6 @@ onBeforeUnmount(() => {
 }
 
 .project-chat-window--immersive :deep(.group-composer textarea) {
-  min-height: 110px;
   box-shadow: none;
 }
 
@@ -875,49 +875,33 @@ onBeforeUnmount(() => {
 .project-chat-window--solo .project-chat-window__header {
   cursor: default;
 }
-.project-chat-window__header{position:relative;padding-right:52px}.project-chat-window__actions{min-width:0;flex-shrink:1;overflow-x:auto;scrollbar-width:none}.project-chat-window__actions::-webkit-scrollbar{display:none}
-.project-chat-window__exit-button{flex:none;margin:0;font-size:11px;padding:6px 8px}
-</style>
-
-<style scoped>
-.project-chat-window__header{height:52px;min-height:52px;box-sizing:border-box;padding:0 8px 0 12px;gap:6px;background:white}
-.project-chat-window__heading{flex:1}.project-chat-window__subtitle-row{display:none}.project-chat-window__title-row strong{font-size:13px}.project-chat-window__title-row .el-tag{font-size:10px}
-.project-chat-window__actions :deep(.el-button){margin:0;width:28px;height:28px;padding:4px}.chat-header-session-tools{display:flex;align-items:center;flex:none}.chat-header-divider{width:1px;height:20px;background:#e2e8f0;margin:0 5px}
 .project-chat-window--immersive :deep(.chat-composer--conversation){margin:10px 24px 16px;padding:10px 12px}
-@media(max-width:600px){.project-chat-window__title-row .el-tag{display:none}.project-chat-window__actions :deep(.el-button){width:25px}.project-chat-window__header{gap:4px;padding:0 5px}}
-.project-chat-window__exit-button{flex:none;margin:0;font-size:11px;padding:6px 8px}
-</style>
-
-<style scoped>
-.project-chat-window__header{height:112px;min-height:112px;flex-wrap:wrap;align-content:center;gap:5px 8px;padding-top:5px;padding-bottom:5px}
-.project-chat-window__heading{flex:0 0 100%;height:64px;min-width:0;overflow:hidden}
-.project-chat-window__actions{flex:1;justify-content:flex-end}
 :global(body:has(.project-chat-dock--immersive) .el-notification){margin-top:112px}
-</style>
-
-<style scoped>
-.chat-tile-toolbar{position:fixed;inset:0 0 auto 0;min-height:46px;box-sizing:border-box;padding:7px 10px;display:flex;align-items:center;gap:7px;flex-wrap:wrap;background:white;border-bottom:1px solid #cbd5e1;pointer-events:auto;z-index:3}
-.chat-tile-toolbar strong{font-size:13px}.chat-tile-toolbar>span{font-size:11px;color:#64748b}.chat-tile-toolbar .el-button{margin:0}
+.chat-tile-toolbar{position:fixed;inset:0 0 auto 0;min-height:46px;box-sizing:border-box;padding:7px 10px;display:flex;align-items:center;gap:7px;flex-wrap:wrap;background:white;border-bottom:1px solid var(--chat-border,#e2e8f0);pointer-events:auto;z-index:3}
+.chat-tile-toolbar strong{font-size:13px}.chat-tile-toolbar>span{font-size:11px;color:var(--chat-text-muted,#64748b)}.chat-tile-toolbar .el-button{margin:0}
 .chat-tile-grid{position:fixed;inset:78px 0 0;display:grid;align-content:start;gap:10px;padding:10px;overflow:auto;box-sizing:border-box;pointer-events:auto;background:#e8edf4}
 .chat-tile-grid .project-chat-window{box-sizing:border-box;box-shadow:0 2px 8px #0f172a12}
-.chat-tile-grid .project-chat-window:focus-within{outline:2px solid #3b82f6;outline-offset:-2px}
-.chat-tile-grid :deep(.group-composer textarea),.chat-tile-grid :deep(.chat-composer--conversation textarea){max-height:80px!important}
-.chat-multi-entry{flex:none;margin:0!important;font-size:11px;padding:6px 8px}
-@media(min-width:1000px){.chat-tile-grid{top:48px}}
-</style>
-
-<style scoped>.chat-tile-grid .project-chat-window__exit-button,.chat-tile-grid .chat-multi-entry{display:none}</style>
-
-<style scoped>
+.chat-tile-grid .project-chat-window:focus-within{outline:2px solid var(--color-primary,#334155);outline-offset:-2px}
+.chat-tile-grid :deep(.group-composer){--chat-composer-height:80px!important}
+.chat-tile-grid :deep(.chat-composer--conversation textarea){max-height:80px!important}
 .chat-tile-grid :deep(.rich-editor__toolbar){max-height:54px;overflow-y:auto}
 .chat-tile-grid :deep(.rich-editor__content .tiptap){min-height:48px!important;max-height:80px;overflow-y:auto}
+@media(min-width:1000px){.chat-tile-grid{top:48px}}
 </style>
 
 <style scoped src="./chatHeader.css" />
 
 <style scoped>
+/* 标题栏：副标题行隐藏，标题与大窗保持同一字号（栅格、按钮尺寸见 chatHeader.css） */
+.project-chat-window__subtitle-row{display:none}
+.project-chat-window__title-row strong{font-size:14px;font-weight:600}
+.project-chat-window__title-row .el-tag{font-size:10px}
+@media(max-width:600px){.project-chat-window__title-row .el-tag{display:none}.project-chat-window__header{gap:4px;padding:0 5px}}
 .project-chat-window__body{position:relative;display:flex;flex-direction:column;min-height:0}
 .project-chat-window__body>:deep(.annotation-group),.project-chat-window__body>:deep(.project-chat-panel),.project-chat-window__body>:deep(.project-chat),.project-chat-window__body>:deep(.discussion-chat){flex:1;min-height:0}
-.chat-conversation-close-row{display:flex;justify-content:flex-end;flex:none;height:28px;background:#f1f5f9;padding-right:8px;z-index:2}
-.chat-conversation-close-row button{width:30px;height:26px;line-height:24px;border:0;border-radius:4px;background:transparent;font-size:22px;color:#64748b;cursor:pointer}.chat-conversation-close-row button:hover{background:#fee2e2;color:#dc2626}
+.chat-conversation-close-row{display:flex;align-items:center;justify-content:flex-end;flex:none;height:32px;background:var(--chat-stage-bg,#f1f5f9);padding-right:8px;z-index:2}
+.chat-conversation-close-row button{display:inline-flex;align-items:center;justify-content:center;width:28px;height:24px;padding:0;border:0;border-radius:var(--chat-radius,6px);background:transparent;color:var(--chat-text-muted,#64748b);cursor:pointer}
+.chat-conversation-close-row button .el-icon{font-size:var(--chat-icon-size,16px)}
+.chat-conversation-close-row button:hover{background:var(--chat-danger-bg,#fee2e2);color:var(--chat-danger,#dc2626)}
+.chat-conversation-close-row button:focus-visible{outline:2px solid var(--color-primary,#334155);outline-offset:1px}
 </style>

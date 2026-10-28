@@ -30,6 +30,27 @@ def test_inactive_operator_requires_review():
     assert "状态操作人已停用" in action["issues"]
 
 
+def test_coded_marker_uses_business_year_and_known_operator():
+    user = SimpleNamespace(is_active=True)
+    names = {"宇琪": user, "翠珍": user}
+    regular = action_preview("0911-宇琪", "已加微信", "2026-09-11", names)
+    compact = action_preview("260923-宇琪", "已加微信", "2026-09-23", names)
+    no_separator = action_preview("0930翠珍", "已加企微", "2026-09-29", names)
+    assert (regular["date"], regular["operator"], regular["status"]) == ("2026-09-11", "宇琪", "已添加")
+    assert (compact["date"], compact["operator"], compact["status"]) == ("2026-09-23", "宇琪", "已添加")
+    assert (no_separator["date"], no_separator["operator"], no_separator["status"]) == ("2026-09-30", "翠珍", "已添加")
+
+
+def test_narrative_marker_keeps_original_without_creating_status():
+    user = SimpleNamespace(is_active=True)
+    parsed = action_preview("0930-翠珍（拉小群后她退出不接）", "已加企微", "2026-09-29", {"翠珍": user})
+    assert parsed["raw"] == "0930-翠珍（拉小群后她退出不接）"
+    assert parsed["status"] == ""
+    assert "状态标记还有未解析内容" in parsed["issues"]
+    narrative = action_preview("添加后拉群了。他自己退出不接，并删掉我们", "已加企微", "2026-09-29", {"翠珍": user})
+    assert narrative["status"] == ""
+
+
 def test_multilanguage_keeps_unmatched_original():
     matched, unmatched = match_languages("粤语/西语母语、未知方向", {"粤语", "西班牙语"})
     assert matched == ["粤语", "西班牙语"]

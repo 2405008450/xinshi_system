@@ -7,10 +7,13 @@ import csv
 import hashlib
 import json
 import os
+import re
+import shutil
 import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 import xml.etree.ElementTree as ET
 import zipfile
 from collections import Counter
@@ -25,6 +28,62 @@ NO_OCR = {".jpg", ".jpeg", ".png", ".webp", ".jfif", ".bmp", ".tif", ".tiff"}
 ARCHIVES = {".zip", ".rar", ".7z"}
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+DOC_TEMP_LIMIT_BYTES = 1024 * 1024 * 1024
+STALE_DOC_TEMP_SECONDS = 180
+
+
+class DocTempLimitExceeded(RuntimeError):
+    pass
+
+
+def terminate_process_tree(process: subprocess.Popen) -> None:
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill.exe", "/PID", str(process.pid), "/T", "/F"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10, check=False,
+        )
+    elif process.poll() is None:
+        process.kill()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=5)
+
+
+def directory_size(path: str) -> int:
+    total = 0
+    for directory, _, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.stat(os.path.join(directory, name)).st_size
+            except OSError:
+                continue
+    return total
+
+
+def cleanup_stale_doc_temps() -> None:
+    temp_root = os.environ.get("RESUME_TEMP_DIR")
+    if not temp_root:
+        return
+    root = Path(temp_root).resolve()
+    if not root.is_dir():
+        return
+    threshold = time.time() - STALE_DOC_TEMP_SECONDS
+    with os.scandir(root) as entries:
+        for entry in entries:
+            if not re.fullmatch(r"resume-doc-[a-z0-9_]{8}", entry.name):
+                continue
+            try:
+                if not entry.is_dir(follow_symlinks=False) or entry.stat(follow_symlinks=False).st_mtime > threshold:
+                    continue
+                target = Path(entry.path).resolve()
+                if target.parent != root:
+                    continue
+                shutil.rmtree(target)
+            except OSError:
+                # 刚释放的 Office 文件句柄可能仍被 Windows 占用，下次再试。
+                continue
 
 
 def now_iso() -> str:
@@ -79,14 +138,33 @@ def segments_from_doc(path: str) -> list[dict]:
     office = Path(r"C:\Program Files\LibreOffice\program\soffice.com")
     if not office.is_file():
         raise RuntimeError("libreoffice_missing")
-    with tempfile.TemporaryDirectory(prefix="resume-doc-") as directory:
+    temp_root = os.environ.get("RESUME_TEMP_DIR")
+    if not temp_root or not Path(temp_root).is_dir():
+        raise RuntimeError("resume_temp_dir_missing")
+    with tempfile.TemporaryDirectory(prefix="resume-doc-", dir=temp_root) as directory:
         profile = (Path(directory) / "profile").as_uri()
-        completed = subprocess.run(
+        process = subprocess.Popen(
             [str(office), f"-env:UserInstallation={profile}", "--headless", "--convert-to", "txt:Text (encoded):UTF8", "--outdir", directory, path],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=100, check=False,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
+        started = time.monotonic()
+        try:
+            while process.poll() is None:
+                if directory_size(directory) > DOC_TEMP_LIMIT_BYTES:
+                    raise DocTempLimitExceeded("doc_temp_limit")
+                if time.monotonic() - started > 100:
+                    raise subprocess.TimeoutExpired(process.args, 100)
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    pass
+        except (DocTempLimitExceeded, subprocess.TimeoutExpired):
+            terminate_process_tree(process)
+            raise
+        if directory_size(directory) > DOC_TEMP_LIMIT_BYTES:
+            raise DocTempLimitExceeded("doc_temp_limit")
         converted = Path(directory) / (Path(path).stem + ".txt")
-        if completed.returncode or not converted.is_file():
+        if process.returncode or not converted.is_file():
             raise RuntimeError("doc_conversion_failed")
         return [{"location": "正文", "text": converted.read_text(encoding="utf-8-sig")}]
 
@@ -239,11 +317,16 @@ def process_one(path: str, root: str, relative: str, stat: os.stat_result, outpu
         temp_path = Path(temp)
         result_path, text_path, segments_path = (temp_path / name for name in ("result.json", "text.txt", "segments.json"))
         try:
-            completed = subprocess.run(
+            process = subprocess.Popen(
                 [sys.executable, str(Path(__file__).resolve()), "--worker", path, str(result_path), str(text_path), str(segments_path)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout, check=False,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
-            if completed.returncode or not result_path.exists():
+            try:
+                process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                terminate_process_tree(process)
+                raise
+            if process.returncode or not result_path.exists():
                 result = {"status": "failed", "reason": "worker_exit", "sha256": "", "characters": 0, "segments": 0}
             else:
                 result = json.loads(result_path.read_text(encoding="utf-8"))
@@ -301,6 +384,7 @@ def collect(roots: list[str], output: Path, workers: int, timeout: int) -> int:
         (output / name).mkdir(exist_ok=True)
     connection = sqlite3.connect(output / "state.sqlite3")
     database(connection)
+    cleanup_stale_doc_temps()
     errors: list[dict] = []
     current_paths: set[str] = set()
     current_keys: set[str] = set()
@@ -329,6 +413,8 @@ def collect(roots: list[str], output: Path, workers: int, timeout: int) -> int:
             connection.commit()
         finally:
             processed += 1
+            if processed % 25 == 0:
+                cleanup_stale_doc_temps()
             if processed % 100 == 0:
                 print(f"已处理 {processed}；累计发现 {len(current_paths)} 个文件", flush=True)
 

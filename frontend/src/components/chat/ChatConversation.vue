@@ -62,7 +62,10 @@ import { subscribe, watchAnnotationChat } from '@/utils/realtimeSocket'
 import { copyTextToClipboard } from '@/utils/clipboard'
 import { formatBusinessDateTime as formatDateTime } from '@/utils/dateTime'
 import {useChatDraft} from '@/composables/useChatDraft'
-import {draftFiles} from '@/utils/chatDrafts'
+import {draftFiles, draftImages} from '@/utils/chatDrafts'
+import { createChatImageQueue } from '@/utils/chatImageQueue'
+import { uploadEditorScreenshot } from '@/utils/uploadEditorScreenshot'
+import { screenshotIds, screenshotText, screenshotValue } from '@/utils/screenshotReferences'
 import { mentionParts as splitMentionParts } from '@/utils/chatMentions'
 import { quoteSpeakerMention,clearAutomaticQuoteMention } from '@/utils/quoteSpeakerMention'
 import { projectMentionOrder } from '@/utils/projectMentionOrder'
@@ -115,13 +118,24 @@ let mentionTrigger = -1
 const selected = ref([]), selectionMessage = ref(null), inviteIds = ref([]), mentionIds = ref([])
 const files = ref([]), sending = ref(false), retryPayload = ref(null), sendError = ref(''), composing = ref(false)
 const automaticQuoteMention = ref(null)
+const pendingImages = reactive([])
+const imageQueue = createChatImageQueue(pendingImages, {
+  upload: (file, options) => uploadEditorScreenshot(file, 'chat', options),
+  createUrl: file => URL.createObjectURL(file), revokeUrl: url => URL.revokeObjectURL(url),
+  warn: text => ElMessage.warning(text), limit: () => 9 - screenshotIds(content.value).length,
+})
+const outgoingContent = () => screenshotValue(screenshotText(content.value), [
+  ...screenshotIds(content.value),
+  ...pendingImages.filter(row => row.status === 'ready').map(row => row.attachment.reference || row.attachment.id),
+])
+const contentTooLong = computed(() => outgoingContent().length > 10000)
+
 const inviting = ref(false), followingBusy = ref(false), searchOpen = ref(false)
 const loading = ref(false), loadingEarlier = ref(false), hasEarlier = ref(false), error = ref('')
 const pendingNew = ref(0), viewingHistory = ref(false), highlighted = ref('')
 const imageUrls = reactive({}), imageErrors = reactive({}), imageRequests = new Set()
 const historySenders = computed(() => group.eligibleUsers.map(user => ({ id: user.id, name: user.name })))
-const screenshotUploading=ref(false)
-const canSend = computed(() => !screenshotUploading.value && !sending.value && (retryPayload.value || (!files.value.some(f => f.status !== 'ready') && (!!content.value.trim() || files.value.length > 0))))
+const canSend = computed(() => !sending.value && (retryPayload.value || (!files.value.some(f => f.status !== 'ready') && !pendingImages.some(f => f.status !== 'ready') && !contentTooLong.value && (!!content.value.trim() || files.value.length > 0 || pendingImages.length > 0))))
 const detail = e => e?.detail || e?.message || '操作失败，请重试'
 const sizeLabel = bytes => bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)}KB` : `${(bytes / 1024 / 1024).toFixed(1)}MB`
 let disposed = false, generation = 0, searchController, searchTimer, syncTimer, syncing = false, syncAgain = false, unwatch, observer, readTimer
@@ -326,6 +340,7 @@ function chooseFile(file, uploadFiles) { addFiles([file.raw]); uploadFiles.splic
 function addFiles(chosen) {
   if (sending.value || retryPayload.value) return
   for (const file of chosen) {
+    if (chatFileCategory(file.name) === 'image') { imageQueue.add([file]); continue }
     if (files.value.length >= 9) { ElMessage.warning('每条消息最多9个附件'); break }
     if (!chatFileSupported(file.name)) { ElMessage.warning(`不支持此文件格式：${file.name}；${chatFileHint}`); continue }
     if (!file.size || file.size > chatFileMaxBytes(file.name)) { ElMessage.warning(`文件不能为空；${chatFileHint}：${file.name}`); continue }
@@ -338,14 +353,6 @@ async function uploadFile(row) {
   row.status = 'uploading'; row.progress = 0; row.error = ''
   const data = new FormData(); data.append('file', row.file)
   try {
-    if(chatFileCategory(row.file.name) === 'image'){
-      const {uploadEditorScreenshot}=await import('@/utils/uploadEditorScreenshot')
-      const {screenshotIds,screenshotText,screenshotValue}=await import('@/utils/screenshotReferences')
-      if(screenshotIds(content.value).length>=9)throw new Error('每条消息最多9张截图')
-      const image=await uploadEditorScreenshot(row.file,'chat')
-      if(screenshotIds(content.value).length>=9)throw new Error('每条消息最多9张截图')
-      content.value=screenshotValue(screenshotText(content.value),[...screenshotIds(content.value),image.id]);removeFile(row);return
-    }
     const result = await request(props.projectId, 'files', {
       method: 'post', data, signal: controller.signal,
       onUploadProgress: event => {
@@ -430,10 +437,10 @@ async function send() {
   if (!canSend.value) return
   sending.value = true; sendError.value = ''
   closeMention()
-  const payload = retryPayload.value || { content: content.value, mentionAll:mentionIds.value.includes('__all__') && content.value.includes('@所有人 '), mentionedUserIds: mentionIds.value.filter(id => [...group.eligibleUsers, ...group.invitableUsers].some(u => u.id === id && content.value.includes(`@${u.name} `))), attachmentIds: files.value.map(f => f.data.id), replyToMessageId: replyTo.value?.id || null, clientMessageId: newMessageId() }
+  const payload = retryPayload.value || { content: outgoingContent(), mentionAll:mentionIds.value.includes('__all__') && content.value.includes('@所有人 '), mentionedUserIds: mentionIds.value.filter(id => [...group.eligibleUsers, ...group.invitableUsers].some(u => u.id === id && content.value.includes(`@${u.name} `))), attachmentIds: files.value.map(f => f.data.id), replyToMessageId: replyTo.value?.id || null, clientMessageId: newMessageId() }
   try {
     const message = await createProjectChatMessage(props.projectId, payload, props.projectType)
-    retryPayload.value = null; content.value = ''; files.value = []; replyTo.value = null; mentionIds.value = []
+    retryPayload.value = null; content.value = ''; files.value = []; imageQueue.clear(); replyTo.value = null; mentionIds.value = []
     if (viewingHistory.value) await search()
     merge([message]); await bottom(); await loadGroup()
   } catch (e) { retryPayload.value = payload; sendError.value = detail(e) }
@@ -445,7 +452,7 @@ async function cancelRetry() {
   try {
     const result = await request(props.projectId, `sent/${retryPayload.value.clientMessageId}`)
     if (result.message) {
-      merge([result.message]); content.value = ''; files.value = []; replyTo.value = null; mentionIds.value = []
+      merge([result.message]); content.value = ''; files.value = []; imageQueue.clear(); replyTo.value = null; mentionIds.value = []
       ElMessage.success('已确认上一条消息发送成功')
     }
     retryPayload.value = null; sendError.value = ''
@@ -473,10 +480,26 @@ onMounted(async () => {
   if (props.targetMessageId) await locate(props.targetMessageId)
   if (!disposed) syncTimer = setInterval(() => { sync(); loadGroup(); scheduleRead() }, 12000)
 })
-const draft=useChatDraft(computed(()=>[props.projectType,props.projectId]),()=>({content:content.value,mentionIds:mentionIds.value,replyTo:replyTo.value,automaticQuoteMention:automaticQuoteMention.value,files:draftFiles(files.value),retryPayload:retryPayload.value}),data=>{content.value=data.content;mentionIds.value=data.mentionIds||[];replyTo.value=data.replyTo||null;automaticQuoteMention.value=data.automaticQuoteMention||null;files.value=data.files||[];retryPayload.value=data.retryPayload||null})
+const draft = useChatDraft(
+  computed(() => [props.projectType, props.projectId]),
+  () => ({ content: content.value, mentionIds: mentionIds.value, replyTo: replyTo.value, automaticQuoteMention: automaticQuoteMention.value,
+    files: draftFiles(files.value), images: draftImages(pendingImages), retryPayload: retryPayload.value }),
+  data => {
+    imageQueue.clear()
+    files.value.forEach(row => row.controller?.abort())
+    content.value = data.content
+    mentionIds.value = data.mentionIds || []
+    replyTo.value = data.replyTo || null
+    automaticQuoteMention.value = data.automaticQuoteMention || null
+    files.value = data.files || []
+    pendingImages.push(...(data.images || []))
+    retryPayload.value = data.retryPayload || null
+  },
+)
 onBeforeUnmount(() => {
   window.removeEventListener('chat-topic-message-changed', topicChanged)
   files.value.forEach(row => row.controller?.abort())
+  imageQueue.clear()
   disposed = true; ++generation; searchController?.abort(); clearTimeout(searchTimer); clearTimeout(readTimer); clearInterval(syncTimer)
   cancelLocate(); resolveReady()
   unwatch?.(); cleanup.forEach(fn => fn()); observer?.disconnect()
@@ -486,7 +509,7 @@ onBeforeUnmount(() => {
 })
 function openSearch() { searchOpen.value = !searchOpen.value }
 function onSearchLocate(messageId) { return locate(messageId) }
-provide('chatController', { draft, props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, fileBlob, download, copy, replyTo, quoteMessage, cancelQuote, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, screenshotUploading, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
+provide('chatController', { contentTooLong, pendingImages, imageQueue, draft, props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, fileBlob, download, copy, replyTo, quoteMessage, cancelQuote, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
 defineExpose({ openSearch, locate, cancelLocate, toggleFilters: openSearch })
 </script>
 
@@ -507,7 +530,7 @@ defineExpose({ openSearch, locate, cancelLocate, toggleFilters: openSearch })
 </style>
 
 <style scoped>
-.group-toolbar--header{padding:0;border:0;flex-wrap:nowrap;gap:2px;align-items:center;background:transparent}.group-toolbar--header .el-button{width:28px;height:28px;padding:4px;margin:0}.group-toolbar--header .group-participants{width:auto;gap:2px}.group-toolbar--header .group-member-count{margin:0;font-size:10px;padding:0 3px}.chat-file-drop{position:absolute;inset:8px;z-index:30;display:grid;place-items:center;pointer-events:none;border:2px dashed var(--color-primary);border-radius:12px;background:rgb(241 245 249 / 95%);color:var(--color-primary);font-size:15px}.group-mention-jump{top:8px}
+.group-toolbar--header{padding:0;border:0;flex-wrap:nowrap;gap:2px;align-items:center;background:transparent}.group-toolbar--header .el-button{width:var(--chat-control-h,32px);height:var(--chat-control-h,32px);padding:0;margin:0}.group-toolbar--header .group-participants{width:auto;gap:2px}.group-toolbar--header .group-member-count{margin:0;font-size:10px;padding:0 3px}.chat-file-drop{position:absolute;inset:8px;z-index:30;display:grid;place-items:center;pointer-events:none;border:2px dashed var(--color-primary);border-radius:12px;background:rgb(241 245 249 / 95%);color:var(--color-primary);font-size:15px}.group-mention-jump{top:8px}
 </style>
 
 <style scoped>.group-toolbar--menu .el-button{width:100%;height:34px;min-height:34px;padding:8px 10px;justify-content:flex-start}.group-toolbar--menu .group-participants{width:100%;gap:10px}.group-toolbar--menu .group-member-count{margin-left:auto}.group-toolbar--menu .group-follow.is-following{color:#b7791f}</style>

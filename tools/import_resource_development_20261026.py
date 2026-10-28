@@ -284,7 +284,7 @@ def main():
                         continue
                     action = action_preview(raw, field, day.isoformat(), names)
                     operator = names.get(action["operator"])
-                    if not action["date"] or not operator:
+                    if not action["date"] or not operator or not action["status"]:
                         report["counts"]["unparsed_action_cells"] += 1
                         continue
                     action_day = date.fromisoformat(action["date"])

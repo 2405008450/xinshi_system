@@ -150,13 +150,15 @@ watch(() => props.active, active => { if (active) expanded.value = new Set() })
 const editing = ref(null), saving = ref(false), error = ref(''), editKey = ref(0)
 function toggle(id) { const value = new Set(expanded.value); value.has(id) ? value.delete(id) : value.add(id); expanded.value = value }
 async function reveal(id=props.selected){
+  if (editing.value) return
   const row=nodes.value.find(row=>row.id===id);if(!row)return
   // 自动定位只滚动到分组，不展开二级目录；展开由用户点击箭头控制。
   await nextTick()
   const scroll=panel.value?.querySelector('.chat-folder-tree__scroll'),target=Array.from(panel.value?.querySelectorAll('.chat-folder-tree__row') || []).find(element => element.querySelector('.chat-folder-tree__name')?.getAttribute('data-folder-id') === (row.parentKey || row.id))
   if(scroll&&target){const a=target.getBoundingClientRect(),b=scroll.getBoundingClientRect();if(a.top<b.top||a.bottom>b.bottom)scroll.scrollTo({top:scroll.scrollTop+a.top-b.top,behavior:'smooth'})}
 }
-watch(()=>[props.selected,nodes.value.length],()=>reveal(),{immediate:true,flush:'post'})
+// 分别观察标量，避免轮询替换分组数据时因数组引用变化反复拉回滚动位置。
+watch([()=>props.selected,()=>nodes.value.some(row=>row.id===props.selected)],()=>reveal(),{immediate:true,flush:'post'})
 defineExpose({reveal})
 const mentionCount = id => sessionFolderMentionUnread(props.sessions, id, nodes.value)
 function start(parentKey = null, row = null, conversation = false, directory = false) {
@@ -165,6 +167,15 @@ function start(parentKey = null, row = null, conversation = false, directory = f
   editing.value = row ? { ...row } : { id: null, name: '', parentKey, conversation, directory }
   if (parentKey) expanded.value = new Set([...expanded.value, parentKey, nodes.value.find(item => item.id === parentKey)?.parentKey].filter(Boolean))
   error.value = ''; editKey.value++
+  // 新建入口可能在长列表末尾，仅在打开时将整个编辑区（含操作按钮）带入视口。
+  nextTick(() => {
+    const scroll = panel.value?.querySelector('.chat-folder-tree__scroll')
+    const editor = scroll?.querySelector('.chat-inline-name-editor')
+    if (!scroll || !editor) return
+    const bounds = scroll.getBoundingClientRect(), target = editor.getBoundingClientRect()
+    if (target.bottom > bounds.bottom) scroll.scrollTop += target.bottom - bounds.bottom
+    if (target.top < bounds.top) scroll.scrollTop += target.top - bounds.top
+  })
 }
 function cancel() { if (!saving.value) { editing.value = null; error.value = '' } }
 function openChild(row) {

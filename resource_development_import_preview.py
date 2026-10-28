@@ -75,14 +75,22 @@ def source_values(record):
 def action_preview(raw, field, work_date, users):
     """只提出可核对的动作草案，不把原文视为已经验证的事实。"""
     value = cell(raw)
-    match = re.match(r"^(\d{8}|\d{4})\s*[-－—]\s*(.+)$", value)
+    match = re.fullmatch(r"(?P<digits>\d{8}|\d{6}|\d{4})\s*(?P<separator>[-－—])?\s*(?P<tail>.+)", value)
     result = {"field": field, "channel": ACTION_CHANNELS[field], "raw": value, "date": "", "operator": "", "status": "", "issues": []}
     if not match:
         result["issues"].append("状态标记缺少可识别的日期或操作人")
         return result
-    digits, tail = match.groups()
-    year = work_date[:4] if len(digits) == 4 and work_date else ""
-    result["date"] = parse_date((year + digits) if year else digits)
+    digits, tail = match.group("digits"), match.group("tail").strip()
+    if not match.group("separator") and tail not in users:
+        result["issues"].append("状态标记缺少可识别的日期或操作人")
+        return result
+    if len(digits) == 4:
+        full_date = (work_date[:4] + digits) if work_date else ""
+    elif len(digits) == 6:
+        full_date = "20" + digits
+    else:
+        full_date = digits
+    result["date"] = parse_date(full_date) if full_date else ""
     if not result["date"]:
         result["issues"].append("状态日期无效")
     names = sorted(users, key=len, reverse=True)
@@ -92,12 +100,17 @@ def action_preview(raw, field, work_date, users):
         result["issues"].append("状态操作人未匹配")
     elif not users[name].is_active:
         result["issues"].append("状态操作人已停用")
+    if not name or not result["date"]:
+        return result
+    suffix = tail[len(name):].strip()
+    allowed_suffixes = {"请求", "已发请求", "已加", "已添加"} if field in {"已加微信", "已加企微"} else set()
+    if suffix and suffix not in allowed_suffixes:
+        result["issues"].append("状态标记还有未解析内容")
+        return result
     if field in {"已加微信", "已加企微"}:
-        result["status"] = "一次请求" if "请求" in tail and "已加" not in tail else "已添加"
+        result["status"] = "一次请求" if suffix in {"请求", "已发请求"} else "已添加"
     else:
         result["status"] = {"已邀进群": "已拉群", "已沟通": "已沟通", "已入项": "已入项"}[field]
-    if name and tail[len(name):].strip() and not any(token in tail[len(name):] for token in ("请求", "已加", "已发")):
-        result["issues"].append("状态标记还有未解析内容")
     return result
 
 

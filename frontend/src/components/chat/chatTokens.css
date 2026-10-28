@@ -1,0 +1,25 @@
+/* 聊天模块统一设计变量：在聊天根容器上声明，色值取自 styles/theme.css 的 slate 色系。 */
+.chat-workspace__frame,
+.project-chat-window,
+.chat-tile-grid {
+  --chat-control-h: 32px;
+  --chat-icon-size: 16px;
+  --chat-radius: var(--radius-sm, 6px);
+  --chat-border: var(--color-border, #e2e8f0);
+  --chat-divider: #eef2f6;
+  --chat-hover-bg: var(--color-surface-muted, #f1f5f9);
+  --chat-active-bg: var(--color-primary-soft, #e2e8f0);
+  --chat-sidebar-bg: var(--color-page-bg, #f8fafc);
+  --chat-stage-bg: #f1f5f9;
+  --chat-text: #334155;
+  --chat-text-muted: #64748b;
+  --chat-text-faint: #94a3b8;
+  --chat-danger: #dc2626;
+  --chat-danger-bg: #fee2e2;
+  --chat-danger-border: #fecaca;
+}
+
+.chat-workspace--mobile {
+  --chat-control-h: 36px;
+  --chat-icon-size: 20px;
+}

@@ -36,9 +36,12 @@ function searchableControl(name, component, defaults) {
         const remote = attrs.remote !== undefined && attrs.remote !== false
         const local = attrs.filterable !== undefined && attrs.filterable !== false && !remote && !attrs.filterMethod && !attrs['filter-method']
         const extra = local ? defaults(attrs, keyword) : {}
+        // 多选后清空搜索词；显式配置保留行为时仍以业务调用方为准。
+        const selectionDefaults = component === ElSelect && !('reserveKeyword' in attrs) && !('reserve-keyword' in attrs)
+          ? { reserveKeyword: false } : {}
         const content = local && component === ElSelect && slots.default
           ? { ...slots, default: () => filterSearchOptions(slots.default(), keyword.value) } : slots
-        return h(component, { ...attrs, ...extra, ref: control }, content)
+        return h(component, { ...selectionDefaults, ...attrs, ...extra, ref: control }, content)
       }
     },
   })
