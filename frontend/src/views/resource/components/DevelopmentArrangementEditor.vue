@@ -17,22 +17,23 @@
                 <ReadonlyField :model-value="platformDescription(cell.platform_id)" source="auto" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" placeholder="平台尚未填写情况说明" />
                 <small class="muted"><el-icon><MagicStick /></el-icon> 从平台情况说明自动带出（只读），可记录年付情况、赠送额度及使用规则。</small>
               </el-form-item>
-              <el-form-item label="负责人" :prop="`cells.${index}.owner_id`">
-                <el-select v-model="cell.owner_id" clearable filterable :disabled="!options.can_write" placeholder="暂未分配">
+              <el-form-item label="负责人" :prop="`cells.${index}.owner_ids`">
+                <el-select v-model="cell.owner_ids" multiple clearable filterable :disabled="!options.can_write" placeholder="暂未分配">
                   <el-option v-for="person in ownerOptions(cell)" :key="person.id" :label="person.name" :value="person.id" :disabled="person.inactive" />
                 </el-select>
               </el-form-item>
               <el-form-item label="开拓方向（语种／方言）" :prop="`cells.${index}.targets`">
-                <el-select :model-value="cell.targets.map(arrangementTargetKey)" multiple filterable popper-class="arrangement-target-dropdown" :loading="targetsLoading" placeholder="选择需求确认的项目、自选语种或内部招聘" @update:model-value="keys => setTargets(cell, keys)" @visible-change="opened => targetDropdownChanged(opened, `${index}:targets`)">
+                <el-select :model-value="cell.targets.map(arrangementTargetKey)" multiple filterable remote :remote-method="queueTargetSearch" popper-class="arrangement-target-dropdown" :loading="targetsLoading" placeholder="选择需求确认、全职招聘项目、自选语种或内部招聘" @update:model-value="keys => setTargets(cell, keys)" @visible-change="opened => targetDropdownChanged(opened, `${index}:targets`)">
                   <template #tag>
                     <el-tag v-for="target in cell.targets" :key="arrangementTargetKey(target)" :type="target.active === false ? 'warning' : 'info'" :closable="!saving" @close.stop="cell.targets = cell.targets.filter(item => arrangementTargetKey(item) !== arrangementTargetKey(target))">{{ target.kind === 'manual' ? `${target.label}（自选）` : arrangementTargetLabel(target) }}</el-tag>
                   </template>
                   <el-option-group label="需求确认"><el-option v-for="target in requestOptions()" :key="arrangementTargetKey(target)" :value="arrangementTargetKey(target)" :label="arrangementTargetLabel(target)" :disabled="target.active === false"><div class="arrangement-option-row"><span class="arrangement-option-title" :title="arrangementTargetLabel(target)">{{ arrangementTargetLabel(target) }}</span><el-button link type="primary" class="arrangement-option-more" :aria-label="`${arrangementTargetLabel(target)} 更多信息`" @mousedown.stop.prevent @click.stop="openOptionDetails(target, $event.currentTarget, `${index}:targets`)" @keydown.stop>更多信息</el-button></div></el-option></el-option-group>
-                  <el-option-group label="自选语种／方言"><el-option v-for="language in languageOptions(cell)" :key="language.id" :value="arrangementTargetKey({kind:'manual',language_id:language.id})" :label="`${language.label}（自选${language.inactive ? '，已停用' : ''}）`" :disabled="language.inactive" /></el-option-group>
+                  <el-option-group label="全职招聘项目"><el-option v-for="target in recruitmentTargets" :key="arrangementTargetKey(target)" :value="arrangementTargetKey(target)" :label="recruitmentOptionLabel(target)"><span>{{ target.project.project_name || '未命名项目' }} · {{ target.project.order_no || '无订单号' }} · {{ target.project.languages?.join('、') || '未配置语种' }}</span></el-option></el-option-group>
+                  <el-option-group label="自选语种／方言"><el-option v-for="language in languageOptions(cell).filter(item => !targetKeyword || item.label.includes(targetKeyword))" :key="language.id" :value="arrangementTargetKey({kind:'manual',language_id:language.id})" :label="`${language.label}（自选${language.inactive ? '，已停用' : ''}）`" :disabled="language.inactive" /></el-option-group>
                   <el-option-group label="其他"><el-option label="内部招聘" :value="'internal::'" /></el-option-group>
                   <template #footer><ArrangementOptionDetails v-if="detailContext === `${index}:targets` && detailTarget" v-model="detailVisible" :anchor="detailAnchor" :target="detailTarget" :users="options.users" /></template>
                 </el-select>
-                <small class="muted">项目候选默认仅显示“需求确认”的需求。</small>
+                <small class="muted">需求类候选仅显示“需求确认”；全职招聘候选不含已关闭或已取消项目。</small>
                 <small v-if="cell.targets.some(t => t.active === false)" class="arrangement-warning">已有失效方向仅在已选项中保留，可点击标签 × 移除。</small>
               </el-form-item>
               <el-form-item label="岗位目标" :prop="`cells.${index}.role_tags`" :rules="roleRules">
@@ -85,21 +86,30 @@ import DevelopmentArrangementProject from './DevelopmentArrangementProject.vue'
 import ArrangementOptionDetails from './ArrangementOptionDetails.vue'
 const props = defineProps({ options: { type: Object, required: true } }), emit = defineEmits(['saved'])
 const visible = ref(false), saving = ref(false), conflict = ref(false), wholeDay = ref(false), warnings = ref([])
-const bodyRef = ref(), formRef = ref(), requestTargets = ref([]), targetsLoading = ref(false)
+const bodyRef = ref(), formRef = ref(), requestTargets = ref([]), recruitmentTargets = ref([]), targetsLoading = ref(false), targetKeyword = ref('')
 const form = reactive({ work_date: '', revision: 0, remarks: '', cells: [], carried_from: null })
 const { fieldSearchRef, fieldSearchKeyword, fetchFieldSuggestions, locateDialogField, locateDialogFieldByLabel, clearFieldSearch } = useDialogFieldSearch(bodyRef)
 const projectType = ref('annotation'), projectOptions = ref([]), projectsLoading = ref(false), projectKeyword = ref('')
-let projectSearchTimer
+let projectSearchTimer, targetSearchTimer
+function queueTargetSearch(keyword) {
+  targetKeyword.value = String(keyword || '').trim()
+  clearTimeout(targetSearchTimer); targetController?.abort(); targetSeq++
+  targetSearchTimer = setTimeout(() => refreshTargets(targetKeyword.value).catch(() => {}), targetKeyword.value ? 400 : 0)
+}
 function queueProjectSearch(keyword) {
   projectKeyword.value = String(keyword || ''); clearTimeout(projectSearchTimer); projectController?.abort(); projectSeq++
   if (!projectKeyword.value) return searchProjects('')
   projectSearchTimer = setTimeout(() => searchProjects(projectKeyword.value), 400)
 }
 const projectOptionLabel = project => [project.project_name || '未命名项目', project.parent_project_id ? '子订单' : '', project.languages?.join('、') || '未配置语种'].filter(Boolean).join(' · ')
+const recruitmentOptionLabel = target => [target.project.project_name, target.project.order_no, target.project.languages?.join('、')].filter(Boolean).join(' · ')
 const detailVisible = ref(false), detailContext = ref(''), detailAnchor = shallowRef(), detailTarget = shallowRef(null)
 function openOptionDetails(target, anchor, context) { detailVisible.value = false; detailContext.value = context; detailTarget.value = target; detailAnchor.value = anchor; detailVisible.value = true }
 function closeOptionDetails(context) { if (detailContext.value === context) { detailVisible.value = false; detailTarget.value = null } }
-function targetDropdownChanged(opened, context) { if (opened) refreshTargets().catch(() => {}); else closeOptionDetails(context) }
+function targetDropdownChanged(opened, context) {
+  if (opened) refreshTargets(targetKeyword.value).catch(() => {})
+  else { clearTimeout(targetSearchTimer); targetController?.abort(); targetSeq++; targetKeyword.value = ''; closeOptionDetails(context) }
+}
 function projectDropdownChanged(opened, context) {
   if (opened) searchProjects(projectKeyword.value)
   else { clearTimeout(projectSearchTimer); projectController?.abort(); projectSeq++; projectsLoading.value = false; projectKeyword.value = ''; closeOptionDetails(context) }
@@ -113,17 +123,25 @@ const roleRules = [{ validator: (_rule, value, callback) => {
 }, trigger: 'change' }]
 let baseline = {}, originalDay, editingPlatform, targetController, projectController, targetSeq = 0, projectSeq = 0, openingSeq = 0
 const clone = value => JSON.parse(JSON.stringify(value))
-function ownerOptions(cell) { return props.options.users.some(p => p.id === cell.owner_id) || !cell.owner_id ? props.options.users : [...props.options.users, { id: cell.owner_id, name: `${cell.owner_name}（已停用）`, inactive: true }] }
+function ownerOptions(cell) {
+  const active = new Set(props.options.users.map(person => person.id))
+  return [...props.options.users, ...(cell.owners || []).filter(person => !active.has(person.id)).map(person => ({ ...person, name: `${person.name}（已停用）`, inactive: true }))]
+}
 function languageOptions(cell) { const map = new Map(props.options.languages.map(l => [l.id,l])); for (const t of cell.targets) if (t.kind === 'manual' && !map.has(t.language_id)) map.set(t.language_id,{id:t.language_id,label:t.label,inactive:true}); return [...map.values()] }
-function requestOptions() { return requestTargets.value.filter(t => t.active !== false && (!t.demand_status || t.demand_status === 'confirmed')) }
+function requestOptions() { return requestTargets.value.filter(t => t.active !== false && (!t.demand_status || t.demand_status === 'confirmed') && (!targetKeyword.value || arrangementTargetLabel(t).includes(targetKeyword.value) || t.request_no?.includes(targetKeyword.value))) }
 function setTargets(cell, keys) {
-  const map = new Map([...cell.targets, ...requestTargets.value, ...props.options.languages.map(l => ({kind:'manual',language_id:l.id,label:l.label})), {kind:'internal',label:'内部招聘'}].map(t => [arrangementTargetKey(t), t]))
+  const map = new Map([...cell.targets, ...requestTargets.value, ...recruitmentTargets.value, ...props.options.languages.map(l => ({kind:'manual',language_id:l.id,label:l.label})), {kind:'internal',label:'内部招聘'}].map(t => [arrangementTargetKey(t), t]))
   cell.targets = keys.map(key => map.get(key)).filter(Boolean)
+  const automatic = new Set(cell.targets.filter(target => target.kind === 'recruitment_project' && target.project).map(target => arrangementProjectKey(target.project)))
+  cell.manual_projects = cell.manual_projects.filter(project => !automatic.has(arrangementProjectKey(project)))
 }
 function automaticProjects(cell) { return [...new Map(cell.targets.filter(t => t.project).map(t => [arrangementProjectKey(t.project), t.project])).values()] }
-async function refreshTargets() {
+async function refreshTargets(keyword = '') {
   targetController?.abort(); targetController = new AbortController(); const seq = ++targetSeq; targetsLoading.value = true
-  try { const data = await api.arrangementOptions({}, targetController.signal); if (seq === targetSeq) requestTargets.value = [...data.targets, ...(data.request_projects || [])] }
+  try { const data = await api.arrangementOptions({ recruitment_keyword: keyword }, targetController.signal); if (seq === targetSeq) {
+    requestTargets.value = [...data.targets, ...(data.request_projects || [])]
+    recruitmentTargets.value = (data.recruitment_projects || []).map(project => ({ kind:'recruitment_project', project_id:project.project_id, label:project.project_name, project }))
+  } }
   catch (e) { if (seq === targetSeq && e.code !== 'ERR_CANCELED') { ElMessage.error(e.message); throw e } }
   finally { if (seq === targetSeq) targetsLoading.value = false }
 }
@@ -139,7 +157,7 @@ function applyDay(day, platformId) {
   detailVisible.value = false; detailTarget.value = null
   const accounts = arrangementTableRows(groupArrangementAccounts(props.options, day.cells, { includeEmpty: false }))
   Object.assign(form, { work_date: day.work_date, revision: day.revision, remarks: day.remarks, carried_from: day.carried_from || null,
-    cells: accounts.filter(account => !account.placeholder && (!platformId || account.id === platformId)).map(account => ({ ...clone(account.cell || { platform_id:account.id, platform_name:account.name, owner_id:null, targets:[], manual_projects:[], remarks:'' }), role_tags:normalizeArrangementRoles(account.cell?.role_tags) })) })
+    cells: accounts.filter(account => !account.placeholder && (!platformId || account.id === platformId)).map(account => ({ ...clone(account.cell || { platform_id:account.id, platform_name:account.name, owner_ids:[], owners:[], targets:[], manual_projects:[], remarks:'' }), owner_ids:account.cell?.owner_ids || (account.cell?.owner_id ? [account.cell.owner_id] : []), role_tags:normalizeArrangementRoles(account.cell?.role_tags) })) })
   wholeDay.value = !platformId; warnings.value = day.warnings || []; conflict.value = false
   baseline = clone(form); clearFieldSearch()
 }
@@ -166,7 +184,7 @@ async function save() {
   }
   finally { saving.value = false }
 }
-onBeforeUnmount(() => { clearTimeout(projectSearchTimer); openingSeq++; targetSeq++; projectSeq++; targetController?.abort(); projectController?.abort() })
+onBeforeUnmount(() => { clearTimeout(projectSearchTimer); clearTimeout(targetSearchTimer); openingSeq++; targetSeq++; projectSeq++; targetController?.abort(); projectController?.abort() })
 defineExpose({ open })
 </script>
 <style>

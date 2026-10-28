@@ -6,7 +6,7 @@
       <el-button type="primary" @click="query">查询</el-button><el-button @click="selectTomorrow">明天</el-button>
       <template v-if="options.can_write"><el-date-picker v-model="editDate" value-format="YYYY-MM-DD" :clearable="false" aria-label="新增或编辑安排日期" /><el-button @click="openDate">明天/第二天</el-button><el-button @click="carry">沿用最近一次安排</el-button><el-button v-if="options.can_configure" @click="emit('add-platform')">增加平台</el-button></template>
     </div>
-    <p class="muted">每个账号每天一位负责人，多个语种和岗位统一确认完成；已完成表示当天安排已执行。沿用后可调整，保存才生效。</p>
+    <p class="muted">每个账号每天可由多人负责，多个语种和岗位统一确认完成；已完成表示当天安排已执行。沿用后可调整，保存才生效。</p>
     <div v-loading="loading">
       <el-empty v-if="!loading && !days.length" description="所选日期暂无安排" />
       <el-collapse v-model="expandedDates" class="arrangement-days">
@@ -23,7 +23,7 @@
             <el-table-column label="大类" prop="categoryLabel" width="90" class-name="arrangement-group-cell" />
             <el-table-column label="平台" width="100" class-name="arrangement-group-cell"><template #default="{row}"><span :class="{muted: row.empty}">{{ row.empty ? '暂无平台' : row.platformName }}</span></template></el-table-column>
             <el-table-column label="账号" width="110"><template #default="{row}">{{ row.accountName }}</template></el-table-column>
-            <el-table-column label="负责人" width="80"><template #default="{row}">{{ row.cell?.owner_name || '-' }}</template></el-table-column>
+            <el-table-column label="负责人" min-width="130"><template #default="{row}">{{ row.cell?.owner_name || '-' }}</template></el-table-column>
             <el-table-column label="语种／岗位目标" min-width="160">
               <template #default="{row}">
                 <div class="arrangement-linked-projects"><DevelopmentArrangementProject v-for="project in row.cell?.projects || []" :key="`${project.source_type}:${project.project_id}`" :project="project" :day="day" :cell="row.cell" show-name /></div>
@@ -35,7 +35,7 @@
             </el-table-column>
             <el-table-column label="完成状态" width="150">
               <template #default="{row}">
-                <el-checkbox v-if="row.cell" :model-value="row.cell.completed" :disabled="!canEdit(row.cell) || !row.cell.owner_id || completing" :aria-label="`${day.work_date} ${row.name} 完成`" @update:model-value="value => complete(day, row.id, value)">{{ row.cell.completed ? '已完成' : '未完成' }}</el-checkbox>
+                <el-checkbox v-if="row.cell" :model-value="row.cell.completed" :disabled="!row.cell.can_complete || !row.cell.owner_ids?.length || completing" :aria-label="`${day.work_date} ${row.name} 完成`" @update:model-value="value => complete(day, row.id, value)">{{ row.cell.completed ? '已完成' : '未完成' }}</el-checkbox>
                 <span v-else class="muted">未安排</span>
                 <small v-if="row.cell?.operations?.status || row.cell?.completed_by_name" class="arrangement-status-operation muted">{{ row.cell.operations?.status?.action === 'reopen' ? '取消完成' : row.cell.operations?.status?.action === 'reset' ? '变更重置' : '确认完成' }}：{{ row.cell.operations?.status?.actor_name || row.cell.completed_by_name }}<br>{{ chineseTime(row.cell.operations?.status?.operated_at || row.cell.completed_at) }}</small>
               </template>

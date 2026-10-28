@@ -199,6 +199,8 @@ class DevelopmentArrangementCell(Base):
     platform_name = mapped_column(String(100), nullable=False)
     owner_id = mapped_column(Uuid, ForeignKey("app_user.id"), index=True)
     owner_name = mapped_column(String(255), nullable=False, default="")
+    # 多人负责人快照；旧字段保留首位负责人供旧数据和兼容读取使用。
+    owners = mapped_column(JSON, nullable=False, default=list, server_default="[]")
     # 名称快照由服务端生成，取消需求或改字典名称不会改写历史。
     targets = mapped_column(JSON, nullable=False, default=list)
     role_tags = mapped_column(JSON, nullable=False, default=list, server_default="[]")

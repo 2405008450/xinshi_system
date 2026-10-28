@@ -7,7 +7,7 @@ from resource_development_models import DevelopmentAudit as Audit
 from resource_development_service import snapshot, user_name
 
 
-FIELD_LABELS = {'owner_id': '负责人', 'targets': '语种／城市／开拓方向',
+FIELD_LABELS = {'owners': '负责人', 'targets': '语种／城市／开拓方向',
                 'role_tags': '岗位目标', 'projects': '关联项目', 'remarks': '账号备注'}
 
 
@@ -53,8 +53,9 @@ def operation(entry, names, include_changes=True):
 
 def field_text(key, value):
     raw = value.get(key)
-    if key == 'owner_id':
-        return value.get('owner_name') or '未分配'
+    if key == 'owners':
+        owners = raw or ([{'name': value.get('owner_name')}] if value.get('owner_id') else [])
+        return '、'.join(owner.get('name') or '未命名' for owner in owners) or '未分配'
     if key == 'targets':
         parts = []
         for target in raw or []:

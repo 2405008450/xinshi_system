@@ -141,14 +141,21 @@ class CustomFieldWrite(CleanModel):
 
 
 class ArrangementTargetWrite(CleanModel):
-    kind: Literal["request", "request_project", "manual", "internal"]
+    kind: Literal["request", "request_project", "recruitment_project", "manual", "internal"]
     request_id: UUID | None = None
     language_id: UUID | None = None
+    project_id: UUID | None = None
     selected_scope_keys: list[str] | None = Field(default=None, max_length=1000)
     arrangement_note: str | None = Field(default=None, max_length=20000)
 
     @model_validator(mode="after")
     def validate_source(self):
+        if self.kind == "recruitment_project":
+            if not self.project_id or self.request_id or self.language_id:
+                raise ValueError("招聘项目方向必须且只能包含项目编号")
+            return self
+        if self.project_id:
+            raise ValueError("仅招聘项目方向可包含项目编号")
         if self.kind == "request_project" and (not self.request_id or self.language_id):
             raise ValueError("项目需求必须且只能包含需求编号")
         if self.kind == "request" and (not self.request_id or not self.language_id):
@@ -168,6 +175,7 @@ class ArrangementProjectWrite(CleanModel):
 class ArrangementCellWrite(CleanModel):
     platform_id: UUID
     owner_id: UUID | None = None
+    owner_ids: list[UUID] | None = Field(default=None, max_length=200)
     targets: list[ArrangementTargetWrite] = Field(default_factory=list, max_length=100)
     role_tags: list[str] = Field(default_factory=list, max_length=100)
     projects: list[ArrangementProjectWrite] = Field(default_factory=list, max_length=100)
@@ -183,7 +191,9 @@ class ArrangementCellWrite(CleanModel):
 
     @model_validator(mode="after")
     def unique_sources(self):
-        targets = [(t.kind, t.request_id, t.language_id) for t in self.targets]
+        if self.owner_ids is not None and (self.owner_id is not None or len(set(self.owner_ids)) != len(self.owner_ids)):
+            raise ValueError("负责人不能重复，且不能同时提交单选和多选字段")
+        targets = [(t.kind, t.request_id, t.language_id, t.project_id) for t in self.targets]
         projects = [(p.source_type, p.project_id) for p in self.projects]
         if len(set(targets)) != len(targets) or len(set(projects)) != len(projects):
             raise ValueError("开拓方向和关联项目不能重复")

@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session, load_only, selectinload
 from interpretation_models import InterpretationLanguage
 from models import AppUser, Client, SubClient
 from resource_development_models import DevelopmentArrangement as Day, DevelopmentArrangementCell as Cell, DevelopmentOption as Option
-from resource_development_service import active_user, require_daily_editor, lock_writes, snapshot, user_name
+from resource_development_service import active_user, can_delegate, require_daily_editor, lock_writes, snapshot, user_name
+from recruitment_models import RecruitmentProject
 from resource_arrangement_audit import audit, cell_operations, cell_history
 from resource_request_models import ResourceRequest
 from resource_request_service import SOURCE_MODELS, _request_options
@@ -20,7 +21,21 @@ from business_time import business_now, business_iso
 
 
 def target_key(target):
-    return (target['kind'], str(target.get('request_id') or ''), str(target.get('language_id') or ''))
+    return (target['kind'], str(target.get('request_id') or ''), str(target.get('language_id') or ''),
+            str(target.get('project_id') or ''))
+
+
+def cell_owners(cell):
+    """兼容迁移前的单负责人记录，并保留当时的姓名快照。"""
+    if cell.owners:
+        return deepcopy(cell.owners)
+    return [{'id': str(cell.owner_id), 'name': cell.owner_name}] if cell.owner_id else []
+
+
+def can_complete_cell(db, user, cell):
+    owners = cell_owners(cell)
+    return bool(user.is_active and owners and (str(user.id) in {owner['id'] for owner in owners}
+                                               or can_delegate(db, user)))
 
 
 def target_content_key(target):
@@ -61,7 +76,7 @@ def source_snapshot(db, source_type, project_id):
             'parent_project_id': str(getattr(project, 'parent_project_id', None) or '')}
 
 
-def arrangement_project_options(db, source_type, keyword=None):
+def arrangement_project_options(db, source_type, keyword=None, active_only=False):
     """候选批量带出各订单自己的语言；子订单不从名称推断或沿用母订单语言。"""
     model, _field = SOURCE_MODELS[source_type]
     columns = [model.id, model.order_no, model.project_name, model.updated_at]
@@ -71,6 +86,8 @@ def arrangement_project_options(db, source_type, keyword=None):
     if source_type == 'translation':
         columns.append(model.language_pair)
     query = db.query(model).options(load_only(*columns))
+    if source_type == 'recruitment' and active_only:
+        query = query.filter(~model.project_status.in_(('closed', 'cancelled')))
     direction_model = relation.property.mapper.class_ if relation is not None else None
     if relation is not None:
         direction_load = selectinload(relation).load_only(direction_model.source_language_id, direction_model.target_language_id)
@@ -207,7 +224,8 @@ def request_arrangements(db, request_ids):
             result[request_id].append({'work_date': work_date.isoformat(), 'platform_id': str(cell.platform_id),
                                       'platform_name': definition.get('parent_name') or definition.get('name') or cell.platform_name,
                                       'account_name': cell.platform_name if definition.get('parent_id') else '单账号',
-                                      'owner_name': cell.owner_name, 'completed': cell.completed,
+                                      'owner_name': '、'.join(owner['name'] for owner in cell_owners(cell)),
+                                      'owners': cell_owners(cell), 'completed': cell.completed,
                                       'active': all(target_status(db, t)[0] for t in cell.targets if str(t.get('request_id')) == request_id)})
     return result
 
@@ -285,7 +303,7 @@ def assign_request(db, user, request_id, work_date, payload):
             targets = [t for t in targets if str(t.get('request_id')) != str(request_id)]
         if len(targets) > 100:
             raise HTTPException(422, '该账号的开拓方向已达100项，请先整理已有安排')
-        writes.append({'platform_id': key, 'owner_id': cell.owner_id if cell else None,
+        writes.append({'platform_id': key, 'owner_ids': [owner['id'] for owner in cell_owners(cell)] if cell else [],
                        'targets': [target_write(t) for t in targets],
                        'role_tags': cell.role_tags if cell else [],
                        'projects': [{k: p[k] for k in ('source_type', 'project_id')} for p in cell.projects] if cell else [],
@@ -295,7 +313,7 @@ def assign_request(db, user, request_id, work_date, payload):
 
 
 def target_write(target):
-    value = {k: target.get(k) for k in ('kind', 'request_id', 'language_id')}
+    value = {k: target.get(k) for k in ('kind', 'request_id', 'language_id', 'project_id')}
     if 'scope' in target:
         value['selected_scope_keys'] = [item['key'] for item in target['scope']]
     if 'arrangement_note' in target:
@@ -305,6 +323,13 @@ def target_write(target):
 
 def target_status(db, target):
     if target['kind'] == 'internal':
+        return True, ''
+    if target['kind'] == 'recruitment_project':
+        project = db.get(RecruitmentProject, UUID(target['project_id']))
+        if not project:
+            return False, '招聘项目已删除'
+        if project.project_status in {'closed', 'cancelled'}:
+            return False, '招聘项目已关闭或取消'
         return True, ''
     if target['kind'] == 'manual':
         language = db.get(InterpretationLanguage, UUID(target['language_id']))
@@ -336,6 +361,10 @@ def target_status(db, target):
 
 def serialize_cell(db, cell, user, operations=None):
     result = snapshot(cell)
+    result['owners'] = cell_owners(cell)
+    result['owner_ids'] = [owner['id'] for owner in result['owners']]
+    result['owner_name'] = '、'.join(owner['name'] for owner in result['owners'])
+    result['can_complete'] = can_complete_cell(db, user, cell)
     result['targets'] = []
     projects = {project_key(p): deepcopy(p) for p in cell.projects}
     for target in cell.targets:
@@ -389,7 +418,7 @@ def list_arrangements(db, user, start=None, end=None, skip=0, limit=14):
     return {'items': [read_arrangement(db, user, day.work_date, day) for day in days], 'total': total}
 
 
-def arrangement_options(db, source_type=None, keyword=None):
+def arrangement_options(db, source_type=None, keyword=None, recruitment_keyword=None):
     active_languages = {str(value) for (value,) in db.query(InterpretationLanguage.id).filter(InterpretationLanguage.is_active.is_(True))}
     requests = db.query(ResourceRequest).options(*_request_options()).filter(
         ResourceRequest.demand_status == 'confirmed', ResourceRequest.request_status != 'cancelled'
@@ -412,7 +441,10 @@ def arrangement_options(db, source_type=None, keyword=None):
         if source_type not in SOURCE_MODELS:
             raise HTTPException(422, '不支持的项目类型')
         projects = arrangement_project_options(db, source_type, keyword)
-    return {'targets': targets, 'request_projects': request_projects, 'projects': projects}
+    recruitment_projects = (arrangement_project_options(db, 'recruitment', recruitment_keyword, active_only=True)
+                            if recruitment_keyword is not None else [])
+    return {'targets': targets, 'request_projects': request_projects, 'projects': projects,
+            'recruitment_projects': recruitment_projects}
 
 
 def carry_preview(db, user, work_date):
@@ -425,10 +457,17 @@ def carry_preview(db, user, work_date):
     draft = read_arrangement(db, user, source.work_date, source)
     warnings = []
     for cell in draft['cells']:
-        owner = db.get(AppUser, UUID(cell['owner_id'])) if cell['owner_id'] else None
-        if cell['owner_id'] and (not owner or not owner.is_active):
-            warnings.append(f"{cell['platform_name']}：已跳过停用负责人 {cell['owner_name']}")
-            cell['owner_id'], cell['owner_name'] = None, ''
+        active_owners = []
+        for previous in cell['owners']:
+            owner = db.get(AppUser, UUID(previous['id']))
+            if owner and owner.is_active:
+                active_owners.append(previous)
+            else:
+                warnings.append(f"{cell['platform_name']}：已跳过停用负责人 {previous['name']}")
+        cell['owners'] = active_owners
+        cell['owner_ids'] = [owner['id'] for owner in active_owners]
+        cell['owner_id'] = active_owners[0]['id'] if active_owners else None
+        cell['owner_name'] = '、'.join(owner['name'] for owner in active_owners)
         active_targets = []
         for target in cell['targets']:
             if target['active']:
@@ -478,6 +517,17 @@ def normalize_targets(db, payloads, existing):
             continue
         if payload.kind == 'internal':
             result.append(value | {'label': '内部招聘'})
+            continue
+        if payload.kind == 'recruitment_project':
+            project = db.get(RecruitmentProject, payload.project_id)
+            if not project or project.project_status in {'closed', 'cancelled'}:
+                raise HTTPException(409, '所选招聘项目已关闭、取消或删除，请刷新开拓方向后重试')
+            project_snapshot = source_snapshot(db, 'recruitment', payload.project_id)
+            project_option = next((item for item in arrangement_project_options(db, 'recruitment', project.order_no)
+                                   if item['project_id'] == str(project.id)), None)
+            project_snapshot['languages'] = project_option['languages'] if project_option else []
+            result.append(value | {'label': project.project_name or '未命名招聘项目',
+                                   'project': project_snapshot})
             continue
         if payload.kind == 'request_project':
             request = db.query(ResourceRequest).filter_by(id=payload.request_id).with_for_update().populate_existing().one_or_none()
@@ -550,13 +600,28 @@ def save_arrangement(db: Session, user, work_date, payload):
         platform = db.get(Option, value.platform_id)
         if not platform or platform.kind != 'platform':
             raise HTTPException(422, '请选择有效的开拓平台账号')
-        if value.owner_id and (not cell or value.owner_id != cell.owner_id):
-            owner = active_user(db, value.owner_id)
-            owner_label = owner.full_name or owner.username
+        previous_owners = cell_owners(cell) if cell else []
+        if value.owner_ids is not None:
+            selected_ids = [str(owner_id) for owner_id in value.owner_ids]
+        elif 'owner_id' in value.model_fields_set:
+            selected_ids = [str(value.owner_id)] if value.owner_id else []
+            if len(previous_owners) > 1:
+                raise HTTPException(409, '该账号已有多位负责人，请刷新页面后使用新版表单编辑')
         else:
-            owner_label = cell.owner_name if cell and value.owner_id else ''
+            selected_ids = [owner['id'] for owner in previous_owners]
+        previous_by_id = {owner['id']: owner for owner in previous_owners}
+        owners = []
+        for selected_id in selected_ids:
+            if selected_id in previous_by_id:
+                owners.append(previous_by_id[selected_id])
+            else:
+                person = active_user(db, UUID(selected_id))
+                owners.append({'id': selected_id, 'name': person.full_name or person.username})
         targets = normalize_targets(db, value.targets, cell.targets if cell else [])
-        projects = normalize_projects(db, value.projects, cell.projects if cell else [])
+        automatic_keys = {project_key(target['project']) for target in targets
+                          if target['kind'] == 'recruitment_project' and target.get('project')}
+        projects = [project for project in normalize_projects(db, value.projects, cell.projects if cell else [])
+                    if project_key(project) not in automatic_keys]
         # 老客户端未传岗位字段时保留已有内容，显式空数组才表示清空。
         role_tags = value.role_tags if 'role_tags' in value.model_fields_set else (cell.role_tags if cell else [])
         before = snapshot(cell) if cell else None
@@ -564,11 +629,13 @@ def save_arrangement(db: Session, user, work_date, payload):
             cell = Cell(arrangement_id=day.id, platform_id=platform.id, platform_name=platform.name,
                         owner_name='', targets=[], role_tags=[], projects=[], remarks='', completed=False, completed_by_name='')
             db.add(cell)
-        business_changed = (cell.owner_id != value.owner_id
+        business_changed = ({owner['id'] for owner in cell_owners(cell)} != {owner['id'] for owner in owners}
                             or {target_content_key(t) for t in cell.targets} != {target_content_key(t) for t in targets}
                             or set(cell.role_tags) != set(role_tags)
                             or {project_key(p) for p in cell.projects} != {project_key(p) for p in projects})
-        cell.owner_id, cell.owner_name = value.owner_id, owner_label
+        cell.owners = owners
+        cell.owner_id = UUID(owners[0]['id']) if owners else None
+        cell.owner_name = owners[0]['name'] if owners else ''
         cell.targets, cell.projects, cell.remarks = targets, projects, value.remarks
         cell.role_tags = list(role_tags)
         if business_changed:
@@ -599,8 +666,10 @@ def complete_arrangement(db, user, work_date, platform_id, payload):
     if not cell:
         raise HTTPException(404, '该账号尚未保存安排')
     require_daily_editor(user)
-    if payload.completed and not cell.owner_id:
+    if payload.completed and not cell_owners(cell):
         raise HTTPException(422, '请先分配负责人再标记完成')
+    if not can_complete_cell(db, user, cell):
+        raise HTTPException(403, '仅该账号负责人或统筹人员可确认完成')
     if cell.completed != payload.completed:
         before = snapshot(cell)
         if payload.completed:

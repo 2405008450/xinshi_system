@@ -56,17 +56,20 @@ export const arrangementTableSpan = ({ row, columnIndex }) => {
   return [1, 1]
 }
 
-export const arrangementTargetKey = target => [target.kind, target.request_id || '', target.language_id || ''].join(':')
+export const arrangementTargetKey = target => [target.kind, target.request_id || '', target.language_id || '', target.project_id || ''].join(':')
 export function arrangementTargetLabel(target) {
   const project = target.project?.project_name?.trim() || target.source_name?.trim() || ''
   const label = target.label?.trim() || ''
-  const parts = target.kind === 'request_project' ? [project || label || '未命名需求'] : [...new Set([label, project].filter(Boolean))]
+  const parts = ['request_project', 'recruitment_project'].includes(target.kind)
+    ? [project || label || '未命名项目'] : [...new Set([label, project].filter(Boolean))]
   return `${parts.join(' · ') || '未命名方向'}${target.active === false ? `（${target.inactive_reason || '已失效'}）` : ''}`
 }
 export const arrangementProjectKey = project => `${project.source_type}:${project.project_id}`
 // 只展示本次安排快照中的范围，不将整个项目的城市与语种交叉拼接。
 export function arrangementProjectScopes(targets = []) {
-  return [...new Set(targets.flatMap(target => target.kind === 'request_project' && target.scope_recorded === false
+  return [...new Set(targets.flatMap(target => target.kind === 'recruitment_project'
+    ? (target.project?.languages?.length ? target.project.languages.map(language => `项目语种：${language}`) : ['项目语种未配置'])
+    : target.kind === 'request_project' && target.scope_recorded === false
     ? ['语种、城市范围未记录'] : target.scope?.length
     ? target.scope.map(scope => `${scope.language_label || target.label || '语种未配置'} · ${[scope.city, scope.district, scope.street].filter(Boolean).join(' / ') || '城市未配置'}`)
     : [`${target.kind === 'request_project' ? '语种未配置' : target.label || '语种未配置'} · 城市未配置`]))]
@@ -91,8 +94,9 @@ export const arrangementTomorrow = (now = new Date()) => {
 export const arrangementChineseDate = value => new Date(`${value}T00:00:00+08:00`).toLocaleDateString('zh-CN', { timeZone:'Asia/Hong_Kong' })
 export const arrangementChineseTime = formatBusinessDateTime
 export const arrangementCellPayload = cell => ({
-  platform_id: cell.platform_id, owner_id: cell.owner_id || null,
+  platform_id: cell.platform_id, owner_ids: [...new Set(cell.owner_ids || (cell.owner_id ? [cell.owner_id] : []))],
   targets: (cell.targets || []).map(t => ({ kind: t.kind, request_id: t.request_id || null, language_id: t.language_id || null,
+    ...(t.kind === 'recruitment_project' ? { project_id: t.project_id } : {}),
     ...(t.kind === 'request_project' && t.scope ? { selected_scope_keys: t.scope.map(item => item.key) } : {}),
     ...(t.kind === 'request_project' && t.arrangement_note !== undefined ? { arrangement_note: t.arrangement_note } : {}),
   })),

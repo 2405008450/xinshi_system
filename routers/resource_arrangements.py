@@ -44,8 +44,9 @@ def assign_request_date(request_id: UUID, work_date: date, payload: RequestArran
 
 @router.get('/arrangement-options')
 def read_options(source_type: str | None = None, keyword: str | None = Query(None, max_length=255),
+                 recruitment_keyword: str | None = Query(None, max_length=255),
                  db: Session = Depends(get_db)):
-    return arrangement_options(db, source_type, keyword)
+    return arrangement_options(db, source_type, keyword, recruitment_keyword)
 
 
 @router.get('/arrangement-project-detail', dependencies=[Depends(require_any_permission('projects:read', 'projects:write'))])

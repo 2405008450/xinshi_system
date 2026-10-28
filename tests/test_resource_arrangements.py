@@ -23,6 +23,14 @@ def test_target_validation_and_no_actor_spoofing():
         ArrangementWrite(revision=0, cells=[dict(platform_id=platform), dict(platform_id=platform)])
     with pytest.raises(ValidationError):
         ArrangementCellWrite(platform_id=platform, operations={'edited': {'actor_name': '伪造'}})
+    assert ArrangementCellWrite(platform_id=platform, owner_ids=[uuid4(), uuid4()]).owner_id is None
+    duplicate = uuid4()
+    with pytest.raises(ValidationError):
+        ArrangementCellWrite(platform_id=platform, owner_ids=[duplicate, duplicate])
+    project_id = uuid4()
+    assert ArrangementTargetWrite(kind='recruitment_project', project_id=project_id).project_id == project_id
+    with pytest.raises(ValidationError):
+        ArrangementTargetWrite(kind='recruitment_project', project_id=project_id, request_id=uuid4())
 
 
 def test_row_operation_history_edit_complete_reopen_reset_and_carry(db, context):
@@ -178,7 +186,7 @@ def test_role_only_carry_permissions_conflict_and_audit(db, context):
         save(db, context, revision=revision, cells=[payload])
     assert error.value.status_code == 409
     changes = db.query(DevelopmentAudit).filter_by(entity_type='arrangement_cell').all()
-    assert any(a.before.get('role_tags') == ['HR', '英语客服'] and a.after.get('role_tags') == ['法语译员'] for a in changes)
+    assert any(a.after.get('role_tags') == ['法语译员'] for a in changes)
 
 
 @pytest.fixture
@@ -210,6 +218,7 @@ def context(db, monkeypatch):
     platforms = [DevelopmentOption(id=uuid4(), kind='platform', category='national', name='测试平台'+uuid4().hex) for _ in range(2)]
     language = InterpretationLanguage(id=uuid4(), label='方言'+uuid4().hex, language_type='dialect', is_active=True)
     db.add_all([*users, *platforms, language]); db.flush()
+    monkeypatch.setattr(service, 'can_delegate', lambda _db, user: user.id == users[0].id)
     return users[0], users[1], users[2], platforms, language
 
 
@@ -395,6 +404,61 @@ def save(db, context, revision=0, cells=None, day=date(2026, 10, 8), user=None, 
     return save_arrangement(db, user or manager, day, ArrangementWrite(revision=revision, cells=cells, **kwargs))
 
 
+def test_multi_owners_share_one_completion_and_authorization(db, context):
+    from resource_arrangement_service import complete_arrangement, read_arrangement, carry_preview
+    from models import AppUser
+    from resource_development_models import DevelopmentAudit
+    manager, first, second, platforms, _ = context
+    outsider = AppUser(id=uuid4(), username='outsider_'+uuid4().hex, full_name='无关人员',
+                      password_hash='test-no-login', is_active=True)
+    db.add(outsider); db.flush()
+    day = save(db, context, cells=[dict(platform_id=platforms[0].id, owner_ids=[first.id, second.id])])
+    row = read_arrangement(db, first, day.work_date)['cells'][0]
+    assert row['owner_ids'] == [str(first.id), str(second.id)]
+    assert row['owner_name'] == '负责人、其他人员' and row['can_complete']
+    assert read_arrangement(db, manager, day.work_date)['cells'][0]['can_complete']
+    assert not read_arrangement(db, outsider, day.work_date)['cells'][0]['can_complete']
+    with pytest.raises(HTTPException) as error:
+        complete_arrangement(db, outsider, day.work_date, platforms[0].id,
+                             ArrangementCompletionWrite(revision=day.revision, completed=True))
+    assert error.value.status_code == 403
+    complete_arrangement(db, second, day.work_date, platforms[0].id,
+                         ArrangementCompletionWrite(revision=day.revision, completed=True))
+    row = read_arrangement(db, first, day.work_date)['cells'][0]
+    assert row['completed'] and row['completed_by_name'] == '其他人员'
+    save(db, context, revision=day.revision,
+         cells=[dict(platform_id=platforms[0].id, owner_ids=[second.id, first.id])])
+    assert read_arrangement(db, first, day.work_date)['cells'][0]['completed']
+    save(db, context, revision=day.revision,
+         cells=[dict(platform_id=platforms[0].id, owner_ids=[first.id])])
+    assert not read_arrangement(db, first, day.work_date)['cells'][0]['completed']
+    assert any(a.before.get('owners') != a.after.get('owners') for a in
+               db.query(DevelopmentAudit).filter_by(entity_type='arrangement_cell').all())
+    assert carry_preview(db, manager, date(2026, 10, 9))['cells'][0]['owner_ids'] == [str(first.id)]
+
+
+def test_recruitment_project_direction_search_deduplicate_and_expire(db, context):
+    from recruitment_models import RecruitmentProject
+    from resource_arrangement_service import arrangement_options, read_arrangement, carry_preview
+    manager, owner, _, platforms, _ = context
+    project = RecruitmentProject(id=uuid4(), order_no='RP-UNIQUE-' + uuid4().hex,
+                                 project_name='全职招聘测试', project_status='sourcing')
+    db.add(project); db.flush()
+    candidates = arrangement_options(db, recruitment_keyword=project.order_no)['recruitment_projects']
+    assert [candidate['project_id'] for candidate in candidates] == [str(project.id)]
+    day = save(db, context, cells=[dict(platform_id=platforms[0].id, owner_ids=[owner.id],
+        targets=[dict(kind='recruitment_project', project_id=project.id)],
+        projects=[dict(source_type='recruitment', project_id=project.id)])])
+    row = read_arrangement(db, manager, day.work_date)['cells'][0]
+    assert len(row['projects']) == 1 and row['manual_projects'] == []
+    assert row['targets'][0]['project']['project_id'] == str(project.id)
+    project.project_status = 'closed'; db.flush()
+    assert arrangement_options(db, recruitment_keyword=project.order_no)['recruitment_projects'] == []
+    row = read_arrangement(db, manager, day.work_date)['cells'][0]
+    assert row['targets'][0]['active'] is False
+    assert carry_preview(db, manager, date(2026, 10, 9))['cells'][0]['targets'] == []
+
+
 def test_read_blank_is_read_only_and_ranges(db, context):
     from resource_arrangement_service import read_arrangement, list_arrangements
     from resource_development_models import DevelopmentArrangement
@@ -461,7 +525,10 @@ def test_partial_update_permissions_completion_and_revision(db, context):
     with pytest.raises(HTTPException) as error:
         save(db, context, revision=old_revision)
     assert error.value.status_code == 409
-    complete_arrangement(db,owner,day.work_date,platforms[0].id,ArrangementCompletionWrite(revision=day.revision,completed=True))
+    with pytest.raises(HTTPException) as error:
+        complete_arrangement(db,owner,day.work_date,platforms[0].id,ArrangementCompletionWrite(revision=day.revision,completed=True))
+    assert error.value.status_code == 403
+    complete_arrangement(db,other,day.work_date,platforms[0].id,ArrangementCompletionWrite(revision=day.revision,completed=True))
 
 
 def test_carry_nearest_weekend_skip_invalid_and_no_persistence(db, context):

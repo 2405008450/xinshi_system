@@ -12,6 +12,7 @@ test('项目展示只使用安排范围并保留语种城市配对，旧安排�
   assert.deepEqual(arrangementProjectScopes([{ kind: 'request_project', label: '项目名称' }]), ['语种未配置 · 城市未配置'])
   assert.deepEqual(arrangementProjectScopes([]), [])
   assert.deepEqual(arrangementProjectScopes([{ kind: 'request_project', scope_recorded: false, scope: [{ language_label: '当前项目语种', city: '当前项目城市' }] }]), ['语种、城市范围未记录'])
+  assert.deepEqual(arrangementProjectScopes([{ kind: 'recruitment_project', project: { languages: ['英语 → 日语'] } }]), ['项目语种：英语 → 日语'])
 })
 import { arrangementCellChanged, arrangementCellPayload, arrangementProjectRoute, arrangementTargetKey, normalizeArrangementRoles, arrangementChineseTime, groupArrangementAccounts, arrangementTableRows, arrangementTableSpan, arrangementTomorrow } from '../src/utils/resourceArrangements.js'
 import { arrangementTargetLabel } from '../src/utils/resourceArrangements.js'
@@ -26,8 +27,8 @@ test('安排下拉项仅显示一次项目名称，订单号留在详情', () =>
 })
 
 test('同语种不同需求和自选方向互不混淆', () => {
-  const values = [{kind:'request',request_id:'one',language_id:'dialect'}, {kind:'request',request_id:'two',language_id:'dialect'}, {kind:'manual',language_id:'dialect'}, {kind:'internal'}, {kind:'request_project',request_id:'one'}]
-  assert.equal(new Set(values.map(arrangementTargetKey)).size,5)
+  const values = [{kind:'request',request_id:'one',language_id:'dialect'}, {kind:'request',request_id:'two',language_id:'dialect'}, {kind:'manual',language_id:'dialect'}, {kind:'internal'}, {kind:'request_project',request_id:'one'}, {kind:'recruitment_project',project_id:'rp-1'}]
+  assert.equal(new Set(values.map(arrangementTargetKey)).size,6)
 })
 
 test('整日保存和沿用只发送安排选择标识及备注，快照由后端生成', () => {
@@ -44,9 +45,16 @@ test('明天按香港日期计算，覆盖 UTC 跨日、跨月与跨年', () => 
 })
 test('保存载荷不提交名称快照、完成信息或其他账号', () => {
   const cell={platform_id:'p',owner_id:'u',owner_name:'负责人',targets:[{kind:'request',request_id:'r',language_id:'l',label:'旧快照',active:false}],manual_projects:[{source_type:'annotation',project_id:'child',project_name:'子订单'}],remarks:'备注',completed:true,completed_by:'actor'}
-  assert.deepEqual(arrangementCellPayload(cell),{platform_id:'p',owner_id:'u',targets:[{kind:'request',request_id:'r',language_id:'l'}],role_tags:[],projects:[{source_type:'annotation',project_id:'child'}],remarks:'备注'})
+  assert.deepEqual(arrangementCellPayload(cell),{platform_id:'p',owner_ids:['u'],targets:[{kind:'request',request_id:'r',language_id:'l'}],role_tags:[],projects:[{source_type:'annotation',project_id:'child'}],remarks:'备注'})
   assert.equal(arrangementCellChanged({...cell,completed:false},cell),false)
   assert.equal(arrangementCellChanged({...cell,owner_id:'other'},cell),true)
+})
+test('多人负责人和招聘项目方向只提交标识，不提交姓名或项目快照', () => {
+  const cell = {platform_id:'p',owner_ids:['a','b','a'],owners:[{id:'a',name:'甲'},{id:'b',name:'乙'}],
+    targets:[{kind:'recruitment_project',project_id:'rp',label:'旧名称',project:{project_name:'伪造名称'}}]}
+  assert.deepEqual(arrangementCellPayload(cell).owner_ids,['a','b'])
+  assert.deepEqual(arrangementCellPayload(cell).targets,[{kind:'recruitment_project',request_id:null,language_id:null,project_id:'rp'}])
+  assert.equal(arrangementCellChanged({...cell,owner_ids:['a']},cell),true)
 })
 test('岗位标签独立于语种，兼容旧数据并规范空白与重复项', () => {
   assert.deepEqual(normalizeArrangementRoles([' HR ', '', '客服', 'HR', '  ']), ['HR','客服'])
