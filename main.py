@@ -163,6 +163,8 @@ from routers import business_mails, mail_inline_images, project_audits
 
 logger = logging.getLogger(__name__)
 
+from routers import push
+
 from annotation_material_lifecycle import material_lifespan
 app = FastAPI(lifespan=material_lifespan)
 
@@ -260,6 +262,7 @@ async def add_security_headers(request: Request, call_next):
 # 注册路由
 app.include_router(auth.router)
 app.include_router(users.router)
+app.include_router(push.router)
 from routers import departments
 app.include_router(departments.router)
 app.include_router(roles.router)

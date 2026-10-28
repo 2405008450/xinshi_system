@@ -69,7 +69,7 @@ def read(project_id: UUID, payload: ReadRequest, db: Session = Depends(get_db), 
     if not message:
         raise HTTPException(404, '消息不存在')
     member = db.get(ChatDirectMember, (project_id, user.id))
-    member.last_read_sequence = max(member.last_read_sequence, message.sequence_no)
+    member.last_read_sequence = max(member.last_read_sequence or 0, message.sequence_no or 0)
     db.commit(); service.publish(db, project_id, 'state')
     return {'last_read_sequence': member.last_read_sequence}
 

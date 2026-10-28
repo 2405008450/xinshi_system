@@ -147,9 +147,8 @@ def serialize_many(db, rows, user):
 
 
 def send_message(db, project_id, user, payload, *, commit=True, max_mentions=20):
-    from project_chat_crud import _create_chat_mentions, _push_notifications
+    from project_chat_crud import _create_chat_mentions, _push_notifications, _serialize_realtime_message
     project = require_project(db, project_id, user, lock=True)
-    # 同一项目写入串行化，保证阅读序号和幂等重试不会越过尚未提交的消息。
     if payload.client_message_id:
         existing = message_query(db, project_id).filter(
             ChatProjectMessage.sender_user_id == user.id,
@@ -160,12 +159,16 @@ def send_message(db, project_id, user, payload, *, commit=True, max_mentions=20)
         reply = message_query(db, project_id).filter(ChatProjectMessage.id == payload.reply_to_message_id).first()
         if not reply or reply.recalled_at:
             raise HTTPException(400, '引用消息不存在、已撤回或属于其他项目')
+
     attachment_ids = list(dict.fromkeys(payload.attachment_ids))
-    attachments = db.query(ChatProjectAttachment).filter(ChatProjectAttachment.id.in_(attachment_ids)).with_for_update().all() if attachment_ids else []
+    attachments = db.query(ChatProjectAttachment).filter(
+        ChatProjectAttachment.id.in_(attachment_ids)).with_for_update().all() if attachment_ids else []
     from chat_schema import phase_one_ready
     if phase_one_ready(db) and any(a.direct_conversation_id for a in attachments):
         raise HTTPException(400, '私聊附件不能绑定到项目群，请重新上传')
-    if len(attachments) != len(attachment_ids) or any(a.uploaded_by != user.id or (a.annotation_project_id and a.annotation_project_id != project_id) for a in attachments):
+    if len(attachments) != len(attachment_ids) or any(
+            a.uploaded_by != user.id or (a.annotation_project_id and a.annotation_project_id != project_id) for a in
+            attachments):
         raise HTTPException(400, '附件不存在或不属于当前用户')
     if attachment_ids and db.query(ChatProjectMessageAttachment).filter(
             ChatProjectMessageAttachment.attachment_id.in_(attachment_ids)).first():
@@ -184,38 +187,78 @@ def send_message(db, project_id, user, payload, *, commit=True, max_mentions=20)
     if all_members:
         from chat_mention_recipients import resolve_mentions
         mention_ids = set(resolve_mentions(db, 'annotation', project_id, user, mention_ids, True))
+
     ensure_default_members(db, project_id)
     member = add_member(db, project_id, user.id)
     if not member.explicit_unfollow:
         member.following = True
-    message = ChatProjectMessage(annotation_project_id=project_id, sender_user_id=user.id,
-        sender_name=user.full_name or user.username, content=payload.content.strip(), message_type='user',
-        client_message_id=payload.client_message_id, reply_to_message_id=payload.reply_to_message_id,
-        event_data={'mention_all': True} if all_members else {})
+
+    # 👇 核心修复：生成并分配 sequenceNo
+    current_seq = latest_sequence(db, project_id)
+
+    message = ChatProjectMessage(
+        annotation_project_id=project_id,
+        sender_user_id=user.id,
+        sender_name=user.full_name or user.username,
+        content=payload.content.strip(),
+        message_type='user',
+        sequence_no=current_seq + 1,  # 👈 加上这一行！
+        client_message_id=payload.client_message_id,
+        reply_to_message_id=payload.reply_to_message_id,
+        event_data={'mention_all': True} if all_members else {}
+    )
     db.add(message)
     db.flush()
+
     if payload.topic_id:
         from chat_topic_service import set_message_topic
         set_message_topic(db, user, message, payload.topic_id)
     db.add_all(ChatProjectMessageAttachment(message_id=message.id, attachment_id=a.id) for a in attachments)
-    mentioned = _create_chat_mentions(db, message, user, mentioned_user_ids=list(mention_ids), max_mentions=max(max_mentions, len(mention_ids)) if all_members else max_mentions)
+    mentioned = _create_chat_mentions(db, message, user, mentioned_user_ids=list(mention_ids),
+                                      max_mentions=max(max_mentions, len(mention_ids)) if all_members else max_mentions)
+
     notifications = []
     if mentioned:
-        # 通知不缓存正文，撤回后不会在桌面通知或旧缓存泄露消息内容。
         notifications = create_notifications_for_users(db, recipient_user_ids=[u.id for u in mentioned],
-            title='标注项目沟通提醒', content=f'{message.sender_name} 在项目 {project.order_no} / {project.project_name or "-"} 中 @了你，点击查看消息',
-            notification_type='annotation_project_chat_mention', related_project_type='annotation',
-            related_entity_id=project_id, commit=False)
+                                                       title='标注项目沟通提醒',
+                                                       content=f'{message.sender_name} 在项目 {project.order_no} / {project.project_name or "-"} 中 @了你，点击查看消息',
+                                                       notification_type='annotation_project_chat_mention',
+                                                       related_project_type='annotation',
+                                                       related_entity_id=project_id, commit=False)
     from chat_notification_target import link_notifications
     link_notifications(db, notifications, message.id)
+
     if commit:
         db.commit()
-        _push_notifications(notifications)
+
+        # 👇 核心修复：直接把消息广播给所有人，实现0延迟
+        try:
+            from notification_ws import broadcast_to_users
+            from chat_access_service import member_ids
+            participants = member_ids(db, 'annotation', project_id)
+            if message.sender_user_id:
+                participants.discard(message.sender_user_id)
+            broadcast_to_users(
+                participants,
+                {
+                    'type': 'chat_message',
+                    'projectType': 'annotation',
+                    'projectId': str(project_id),
+                    'message': _serialize_realtime_message(message, 'annotation'),
+                }
+            )
+        except Exception as e:
+            print(f"WebSocket 广播异常: {e}")
+
         publish(db, project_id, 'message', message.id)
         notify_state(user.id, project_id)
+
+        # 异步推送系统通知
+        _push_notifications(notifications)
     else:
         db.flush()
         db.info.setdefault('progress_chat_events', []).append((project_id, user.id, message.id, notifications))
+
     return message_query(db, project_id).filter(ChatProjectMessage.id == message.id).one()
 
 

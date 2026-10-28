@@ -2,7 +2,7 @@
 from fastapi import HTTPException
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import selectinload
-
+from routers.push import send_push_to_user
 from models import (AppUser, ChatDirectConversation, ChatDirectMember, ChatProjectMessage,
                     ChatProjectAttachment, ChatProjectMessageAttachment, ChatProjectMessageFavorite,
                     ChatProjectMessageAcknowledgement)
@@ -72,16 +72,20 @@ def serialize_many(db, rows, user):
     return result
 
 
+from sqlalchemy import func
+from project_chat_crud import _serialize_realtime_message  # 👈 引入这个用于WS推送
+
+
 def send_message(db, project_id, user, payload):
     conversation = require_project(db, project_id, user, lock=True)
     other_id = conversation.user_high_id if user.id == conversation.user_low_id else conversation.user_low_id
     if not db.get(AppUser, other_id).is_active:
         raise HTTPException(400, '对方账号已停用')
-    from chat_mention_recipients import resolve_mentions
-    mentioned_ids = resolve_mentions(db, 'direct', project_id, user,
-        [*(payload.mentioned_user_ids or []), *([payload.mentioned_user_id] if payload.mentioned_user_id else [])], getattr(payload,'mention_all',False))
+    if payload.mentioned_user_ids or payload.mentioned_user_id:
+        raise HTTPException(400, '私聊不支持提及')
     if payload.client_message_id:
-        existing = message_query(db, project_id).filter_by(sender_user_id=user.id, client_message_id=payload.client_message_id).first()
+        existing = message_query(db, project_id).filter_by(sender_user_id=user.id,
+                                                           client_message_id=payload.client_message_id).first()
         if existing:
             return existing
     if payload.reply_to_message_id:
@@ -89,35 +93,71 @@ def send_message(db, project_id, user, payload):
         if not reply or reply.recalled_at:
             raise HTTPException(400, '引用消息不存在、已撤回或属于其他会话')
     ids = set(payload.attachment_ids)
-    attachments = db.query(ChatProjectAttachment).filter(ChatProjectAttachment.id.in_(ids)).with_for_update().all() if ids else []
-    if len(attachments) != len(ids) or any(a.uploaded_by != user.id or a.direct_conversation_id != project_id for a in attachments):
+    attachments = db.query(ChatProjectAttachment).filter(
+        ChatProjectAttachment.id.in_(ids)).with_for_update().all() if ids else []
+    if len(attachments) != len(ids) or any(
+            a.uploaded_by != user.id or a.direct_conversation_id != project_id for a in attachments):
         raise HTTPException(400, '附件不属于当前用户或会话')
-    if ids and db.query(ChatProjectMessageAttachment).filter(ChatProjectMessageAttachment.attachment_id.in_(ids)).first():
+    if ids and db.query(ChatProjectMessageAttachment).filter(
+            ChatProjectMessageAttachment.attachment_id.in_(ids)).first():
         raise HTTPException(400, '附件已经发送，请重新上传')
+
     stamp = now()
-    message = ChatProjectMessage(direct_conversation_id=project_id, sender_user_id=user.id,
-        sender_name=user.full_name or user.username, content=payload.content.strip(), message_type='user',
+    # 👇 1. 获取当前最大序号并 +1
+    current_seq = db.query(func.max(ChatProjectMessage.sequence_no)).filter(
+        ChatProjectMessage.direct_conversation_id == project_id).scalar() or 0
+
+    message = ChatProjectMessage(
+        direct_conversation_id=project_id,
+        sender_user_id=user.id,
+        sender_name=user.full_name or user.username,
+        content=payload.content.strip(),
+        message_type='user',
+        sequence_no=current_seq + 1,  # 👈 补上序号
         created_at=stamp.replace(tzinfo=None), updated_at=stamp.replace(tzinfo=None),
-        client_message_id=payload.client_message_id, reply_to_message_id=payload.reply_to_message_id, event_data={'mention_all':True} if getattr(payload,'mention_all',False) else {})
-    db.add(message); db.flush()
+        client_message_id=payload.client_message_id, reply_to_message_id=payload.reply_to_message_id, event_data={})
+    db.add(message);
+    db.flush()
+
     if payload.topic_id:
         from chat_topic_service import set_message_topic
         set_message_topic(db, user, message, payload.topic_id)
+
     db.add_all(ChatProjectMessageAttachment(message_id=message.id, attachment_id=a.id) for a in attachments)
-    from project_chat_crud import _create_chat_mentions, _push_notifications
-    from crud import create_notifications_for_users
-    from chat_notification_target import link_notifications
-    mentioned = _create_chat_mentions(db,message,user,mentioned_user_ids=mentioned_ids)
-    notifications = create_notifications_for_users(db,[person.id for person in mentioned],title='私聊提及提醒',
-        content=f'{message.sender_name} 在私聊中 @了你',notification_type='direct_chat_mention',
-        related_project_type='direct',related_entity_id=project_id,commit=False) if mentioned else []
-    link_notifications(db,notifications,message.id)
     conversation.last_message_at = stamp
     for member in db.query(ChatDirectMember).filter_by(conversation_id=project_id):
         member.hidden_at = None
+
     db.commit()
-    _push_notifications(notifications)
     publish(db, project_id, 'message', message.id)
+
+    # 👇 2. 修复广播逻辑，直接用 _serialize_realtime_message 序列化
+    try:
+        from notification_ws import broadcast_to_users
+        broadcast_to_users(
+            [conversation.user_low_id, conversation.user_high_id],
+            {
+                'type': 'chat_message',
+                'projectType': 'direct',
+                'projectId': str(project_id),
+                'message': _serialize_realtime_message(message, 'direct')
+            }
+        )
+    except Exception as e:
+        print(f"私聊 WebSocket 广播消息失败: {e}")
+
+    # 异步系统推送
+    try:
+        send_push_to_user(
+            db=db,
+            user_id=other_id,
+            title="收到一条新消息",
+            body=f"{message.sender_name}: {message.content[:20] or '[附件]'}",
+            url="/workbench"
+        )
+    except Exception as e:
+        print(f"推送发送失败: {e}")
+
     return message_query(db, project_id).filter_by(id=message.id).one()
 
 

@@ -168,12 +168,34 @@ async function loadGroup() {
 function merge(rows) {
   const merged = new Map(messages.value.map(m => [m.id, m]))
   rows.forEach(m => merged.set(m.id, m))
-    messages.value = [...merged.values()].sort((a, b) => a.sequenceNo - b.sequenceNo)
+
+  // 👇 双重保险排序：优先用序号，如果没有序号（比如WS推来的）就用时间兜底
+  messages.value = [...merged.values()].sort((a, b) => {
+    const seqA = a.sequenceNo ?? a.sequence_no ?? 0
+    const seqB = b.sequenceNo ?? b.sequence_no ?? 0
+    if (seqA !== seqB) return seqA - seqB
+
+    const timeA = new Date(a.createdAt || a.created_at || 0).getTime()
+    const timeB = new Date(b.createdAt || b.created_at || 0).getTime()
+    if (timeA !== timeB) return timeA - timeB
+
+    return String(a.id).localeCompare(String(b.id))
+  })
+
   selected.value = selected.value.filter(id => merged.has(id) && !merged.get(id).recalledAt)
   if (replyTo.value && merged.get(replyTo.value.id)?.recalledAt) replyTo.value = null
   const validImages = new Set(messages.value.flatMap(m => m.attachments || []).map(f => f.id))
-  Object.keys(imageUrls).forEach(id => { if (!validImages.has(id)) { URL.revokeObjectURL(imageUrls[id]); delete imageUrls[id] } })
-  rows.filter(m => !m.recalledAt).forEach(m => m.attachments?.filter(f => f.contentType.startsWith('image/')).forEach(loadImage))
+  Object.keys(imageUrls).forEach(id => {
+    if (!validImages.has(id)) {
+      URL.revokeObjectURL(imageUrls[id]); delete imageUrls[id]
+    }
+  })
+
+  rows.filter(m => !m.recalledAt).forEach(m => {
+    if (m.attachments && Array.isArray(m.attachments)) {
+      m.attachments.filter(f => f.contentType && f.contentType.startsWith('image/')).forEach(loadImage)
+    }
+  })
 }
 async function search() {
   if (initialized) cancelLocate()
@@ -416,14 +438,33 @@ async function send() {
   if (!canSend.value) return
   sending.value = true; sendError.value = ''
   closeMention()
-  const payload = retryPayload.value || { content: content.value, mentionAll:mentionIds.value.includes('__all__') && content.value.includes('@所有人 '), mentionedUserIds: mentionIds.value.filter(id => [...group.eligibleUsers, ...group.invitableUsers].some(u => u.id === id && content.value.includes(`@${u.name} `))), attachmentIds: files.value.map(f => f.data.id), replyToMessageId: replyTo.value?.id || null, clientMessageId: newMessageId() }
+
+  // 👇 这里是你原本完整的 payload 生成代码，我把它还原了
+  const payload = retryPayload.value || {
+    content: content.value,
+    mentionAll: mentionIds.value.includes('__all__') && content.value.includes('@所有人 '),
+    mentionedUserIds: mentionIds.value.filter(id => [...group.eligibleUsers, ...group.invitableUsers].some(u => u.id === id && content.value.includes(`@${u.name} `))),
+    attachmentIds: files.value.map(f => f.data.id),
+    replyToMessageId: replyTo.value?.id || null,
+    clientMessageId: newMessageId()
+  }
+
   try {
     const message = await createProjectChatMessage(props.projectId, payload, props.projectType)
     retryPayload.value = null; content.value = ''; files.value = []; replyTo.value = null; mentionIds.value = []
     if (viewingHistory.value) await search()
-    merge([message]); await bottom(); await loadGroup()
-  } catch (e) { retryPayload.value = payload; sendError.value = detail(e) }
-  finally { sending.value = false; nextTick(() => input.value?.focus()) }
+
+    // 👇 本地立刻渲染自己发的消息，确保自己能看到
+    if (message) {
+      merge([message])
+    }
+    await bottom(); await loadGroup()
+
+  } catch (e) {
+    retryPayload.value = payload; sendError.value = detail(e)
+  } finally {
+    sending.value = false; nextTick(() => input.value?.focus())
+  }
 }
 async function cancelRetry() {
   if (!retryPayload.value || sending.value) return
@@ -445,7 +486,27 @@ onMounted(async () => {
   window.addEventListener('chat-topic-message-changed', topicChanged)
   observer = new IntersectionObserver(entries => { entries.forEach(entry => { const id = entry.target.dataset.messageId; if (entry.isIntersecting && entry.intersectionRatio >= 0.5) visibleMessages.set(id, Number(entry.target.dataset.sequence)); else visibleMessages.delete(id) }); scheduleRead() }, { root: list.value, threshold: [0, 0.5, 1] })
   if (!isDirect.value) unwatch = watchAnnotationChat(props.projectId)
+
+  // 监听通用的状态变更
   cleanup.push(subscribe(isDirect.value ? 'direct_chat_changed' : 'annotation_chat_changed', event => { if (!initialized || event.projectId !== String(props.projectId)) return; if (event.kind === 'members' || event.kind === 'message') loadGroup(); if (event.kind !== 'state') sync() }))
+
+  // 👇 新增：监听后端推送的完整聊天消息，实现0延迟秒出
+  cleanup.push(subscribe('chat_message', event => {
+    if (!initialized) return
+    if (event.projectType === props.projectType && event.projectId === String(props.projectId)) {
+      merge([event.message])
+      if (atBottom() && props.active) {
+        nextTick(() => bottom())
+      } else if (!props.active || !atBottom()) {
+        pendingNew.value += 1
+      }
+      if (props.active && document.hasFocus()) {
+        scheduleRead()
+      }
+    }
+  }))
+  // 👆 新增结束
+
   cleanup.push(subscribe('connected', () => { if (initialized) { sync(); loadGroup() } }))
   cleanup.push(subscribe('chat_message_acknowledgement', event => { if (event.projectId === String(props.projectId)) sync() }))
   document.addEventListener('visibilitychange', foreground); window.addEventListener('focus', foreground)

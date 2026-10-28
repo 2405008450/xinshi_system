@@ -164,6 +164,7 @@ import SpeakingProfileIcon from '@/components/common/SpeakingProfileIcon.vue'
 import { useUiZoom } from '../composables/useUiZoom'
 import { useMobileViewport } from '@/composables/useMobileViewport'
 import { logout } from '@/api/auth'
+import axios from 'axios'
 import { clearAuthSession } from '@/utils/authSession'
 
 const route = useRoute()
@@ -226,6 +227,58 @@ const collapseLabel = computed(() => {
 watch(() => route.fullPath, () => { mobileNavOpen.value = false })
 watch(isMobileViewport, () => { mobileNavOpen.value = false })
 
+// Web Push 订阅：注册 Service Worker 并向后端登记订阅信息
+async function initWebPush() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    console.warn('当前浏览器不支持 Web Push')
+    return
+  }
+  try {
+    const register = await navigator.serviceWorker.register('/sw.js')
+
+    const permission = await Notification.requestPermission()
+    if (permission !== 'granted') {
+      console.warn('用户未允许通知权限')
+      return
+    }
+
+    const res = await axios.get('/api/push/public_key')
+    const publicKey = res.data?.publicKey
+    if (!publicKey) {
+      console.error('获取公钥失败')
+      return
+    }
+
+    const padding = '='.repeat((4 - (publicKey.length % 4)) % 4)
+    const base64 = (publicKey + padding).replace(/-/g, '+').replace(/_/g, '/')
+    const rawData = window.atob(base64)
+    const outputArray = new Uint8Array(rawData.length)
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i)
+    }
+
+    const subscription = await register.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: outputArray
+    })
+
+    const subData = subscription.toJSON()
+    await axios.post('/api/push/subscribe', {
+      endpoint: subData.endpoint,
+      p256dh: subData.keys.p256dh,
+      auth: subData.keys.auth
+    }, {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem('token') || localStorage.getItem('access_token') || ''}`
+      }
+    })
+
+    console.log('✅ Web Push 订阅成功')
+  } catch (error) {
+    console.error('Web Push 订阅失败:', error)
+  }
+}
+
 onMounted(() => {
   try {
     const saved = localStorage.getItem(STORAGE_COLLAPSE_KEY)
@@ -234,6 +287,11 @@ onMounted(() => {
   syncFromStorage()
   refreshIssueAccess().catch(() => {})
   if (route.query.openSession === '1') void openHeaderChat()
+
+  // 延迟 2 秒调用，避免与登录后的其他接口抢占网络资源
+  setTimeout(() => {
+    initWebPush()
+  }, 2000)
 })
 
 const canViewUsers = computed(() => hasPermission('system:users:read'))

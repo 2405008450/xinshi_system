@@ -1,6 +1,7 @@
 from search_matching import keyword_ilike
 import datetime as dt
 import json
+import threading  # 👈 新增：用于异步发送推送，防止阻塞主线程
 from typing import Optional
 from uuid import UUID
 
@@ -99,16 +100,26 @@ def _serialize_notification(notification) -> dict:
     }
 
 
-
 def _push_notifications(notifications: list) -> None:
-    for notification in notifications:
-        dispatch_personal_message(
-            notification.recipient_user_id,
-            {
-                'type': 'notification',
-                'notification': _serialize_notification(notification),
-            },
-        )
+    """使用多线程异步发送系统通知，彻底防止阻塞接口和聊天广播。"""
+    if not notifications:
+        return
+
+    def run_push():
+        for notification in notifications:
+            try:
+                dispatch_personal_message(
+                    notification.recipient_user_id,
+                    {
+                        'type': 'notification',
+                        'notification': _serialize_notification(notification),
+                    },
+                )
+            except Exception as e:
+                print(f"推送通知异常: {e}")
+
+    # 开启后台线程，瞬间返回
+    threading.Thread(target=run_push).start()
 
 
 def _serialize_realtime_message(message: ChatProjectMessage, project_type: str) -> dict:
@@ -334,10 +345,8 @@ def _broadcast_chat_acknowledgement(
     )
 
 
-
 def get_project_chat_settings(db: Session, project_id: UUID) -> Optional[ChatProjectEnabled]:
     return db.query(ChatProjectEnabled).filter(ChatProjectEnabled.project_id == project_id).first()
-
 
 
 def set_project_chat_settings(
@@ -375,7 +384,6 @@ def set_project_chat_settings(
     db.commit()
     db.refresh(settings)
     return settings
-
 
 
 def list_project_chat_messages(
@@ -655,7 +663,6 @@ def favorite_chat_message(db: Session, message_id: UUID, user_id: UUID) -> ChatP
         db.refresh(favorite)
         return favorite
     except IntegrityError:
-        # 并发重复 PUT 触发唯一约束时，仍按幂等成功处理。
         db.rollback()
         existing = (
             db.query(ChatProjectMessageFavorite)
@@ -777,7 +784,6 @@ def unacknowledge_chat_message(
     return list_chat_message_acknowledgements(db, message.id)
 
 
-
 def _collect_stage_role_users(db: Session, stage_key: Optional[str]) -> list[UUID]:
     if not stage_key:
         return []
@@ -794,7 +800,6 @@ def _collect_stage_role_users(db: Session, stage_key: Optional[str]) -> list[UUI
             if role_name and role_name not in role_names:
                 role_names.append(role_name)
     return [user.id for user in get_users_by_role_names(db, role_names)]
-
 
 
 def get_default_chat_recipient_ids(db: Session, project: TranslationProject) -> list[UUID]:
@@ -815,7 +820,6 @@ def get_default_chat_recipient_ids(db: Session, project: TranslationProject) -> 
             recipients.update(_collect_stage_role_users(db, workflow.current_stage_key))
 
     return list(recipients)
-
 
 
 def create_project_chat_message(
@@ -851,7 +855,6 @@ def create_project_chat_message(
         raise ValueError('项目不存在')
 
     if client_message_id:
-        # 与标注和单聊一致，按项目锁串行化幂等发送及主题写入。
         db.query(TranslationProject).filter_by(id=project_id).with_for_update().one()
         existing = db.query(ChatProjectMessage).filter_by(project_id=project_id, sender_user_id=sender.id,
                                                          client_message_id=client_message_id).first()
@@ -982,14 +985,18 @@ def create_project_chat_message(
         from chat_notification_target import link_notifications
         link_notifications(db, notifications, created.id)
         db.commit()
-        _push_notifications(notifications)
 
+    # 1. 先发 WebSocket 广播，让聊天框秒出
     _broadcast_chat_message(
         db,
         created,
         project_type='translation',
         mentioned_user_ids=[user.id for user in mention_users],
     )
+
+    # 2. 再发系统通知（异步多线程）
+    if notifications:
+        _push_notifications(notifications)
 
     return created
 
@@ -1061,6 +1068,8 @@ def create_annotation_project_chat_message(
     if created is None:
         raise ValueError('消息已创建，但读取消息失败')
 
+    # 👈 修复：提前初始化 notifications 变量，防止 mention_users 为空时未定义报错
+    notifications = []
     if mention_users:
         preview = created.content.replace('\r', ' ').replace('\n', ' ').strip() or '[图片]'
         if len(preview) > 60:
@@ -1075,13 +1084,17 @@ def create_annotation_project_chat_message(
             related_entity_id=project.id,
             commit=True,
         )
-        _push_notifications(notifications)
 
+    # 1. 先发 WebSocket 广播，让聊天框秒出
     _broadcast_chat_message(
         db,
         created,
         project_type='annotation',
         mentioned_user_ids=[user.id for user in mention_users],
     )
+
+    # 2. 再发系统通知（异步多线程）
+    if notifications:
+        _push_notifications(notifications)
 
     return created
