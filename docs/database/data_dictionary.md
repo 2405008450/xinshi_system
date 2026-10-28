@@ -1544,3 +1544,87 @@ resource_request_dispatch_default：kind varchar(16) PK（circle/post/developmen
 说明与每个人的具体任务分别保存。批量安排可在同一事务中保存说明和个人任务；说明版本冲突则全部不提交。修改共同说明须有 projects:write，使用与任务编辑一致的项目锁顺序，并记录安排历史的 before/after 快照。今日任务及有权查看任务的人可查看共同说明；完成任务加入工作报告时，仍以个人任务内容作为“具体任务”，不以共同说明代替。历史快照只在项目级保存说明，避免在每个任务中重复存储。旧任务无说明时返回空文字，无历史内容回填。
 
 迁移：tools/apply_arrangement_instruction_migration.py，仅新建说明表，不修改已有任务表结构或业务记录；执行前后按长期授权醒目提示目标与结果。
+
+### 讨论消息操作与总结来源（2026-10-27）
+
+- `chat_discussion_message_action`：复合主键 `message_id`（讨论消息 bigint 外键）、`user_id`（用户 UUID 外键）；`user_name` 为人员快照，`favorited_at`、`acknowledged_at` 为 UTC+8 带时区时间。收藏按用户隔离，收到回执仅当前会话成员可读。
+- `chat_discussion_issue_source`：`issue_id` 为总结 UUID 主键及外键，`room_id` 为会话 UUID（索引），`message_id` 为讨论消息 bigint 外键，`category` 为收录类别；`message_id + category` 唯一，防止重复保存。保留既有总结来源枚举结构不变，讨论来源通过此表识别，接口返回真实 `discussion` 来源及消息编号。聊天撤回后保留已保存总结快照，但跳转原消息受当前成员权限和撤回状态约束。
+- 迁移：`tools/apply_discussion_actions_migration.py` 仅幂等创建上述新表及必要约束、索引，不更改已有表。
+
+
+### 项目技术需求（2026-10-27）
+
+- `annotation_technical_room`：`project_id` 为标注项目 UUID 主键/外键，每项目一个独立技术会话；`room_id` 为独立讨论分类 UUID 唯一外键。`requirements` 是可编辑的需求汇总，`revision` 为乐观锁版本；`created_by/updated_by`、`created_at/updated_at` 记录人员与 UTC+8 带时区时间。默认加入点击者、当前项目经理、黎涛/黄萌/伟豪/赵震锋以及 IT 部全体现有有效员工；额外人员从有效员工目录多选。实际访问仍校验讨论成员。
+- `annotation_technical_append`：`id` UUID 主键；`room_id` 技术会话 UUID 外键，`request_id` 与会话联合唯一，`message_id` 为来源讨论消息 bigint 外键，`created_by/created_at` 记录加入人和 UTC+8 时间。追加请求重试不重复写入；不同段落之间使用空行。
+- 迁移 `tools/apply_technical_requirements_migration.py` 仅幂等创建上述两表及必要索引、约束，不修改已有表。
+
+### monthly_shift_plan（月度班次安排，2026-10-25）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| month | date PK | 月份首日；界面与接口月份为 YYYY-MM，按 UTC+8 日历月份计算 |
+| assignments | json | user_id、department、shift 数组；同一人员每月仅一项，均经后端校验 |
+| revision | integer | 整月乐观锁版本，调班及撤销均检查版本后统一事务保存 |
+| updated_by | uuid | 最近调整人 |
+| updated_at | timestamptz | UTC+8 操作时间，接口显式 +08:00 |
+
+排班管理归入侧栏“人事管理”，仅在用且未删除的行政部成员可读写，包括当前跨部门名册及部门别名；超级管理员角色不绕过部门限制。工作台“排班安排”接口仅返回本人班次，无他人选择参数及编辑入口。六个排班行组：客户/销售部、HR部、项目部（翻译+标注）、排版部、IT部门、行政部；每周、每月班次及周末值班均包含行政部。客户与销售仅在本模块合并显示，不改组织架构、部门筛选或已有人员归属。班次存储保留全部工作时段，客户部居家晚班包括 21:00–23:00；不推断周末、节假日或请假制度，不改旧日排班数据。
+
+迁移：tools/apply_monthly_shift_migration.py，仅创建新表，不修改旧表及已有业务记录。默认展示下月；快捷上月、本月按 UTC+8 当前日历月份定位。历史月份独立保存，切换月份不复制或覆盖其他月份。
+
+### translation_arrangement_instruction（项目安排共同说明，2026-10-25）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| project_id | uuid PK/FK | translation_project.id，项目删除时级联删除 |
+| content | text | 本项目所有被安排人员可见的共同说明；最多 10000 字 |
+| revision | integer | 共同说明独立乐观锁版本 |
+| updated_by | uuid | 最近编辑人 |
+| updated_at | timestamptz | UTC+8 编辑时间 |
+
+说明与每个人的具体任务分别保存。批量安排可在同一事务中保存说明和个人任务；说明版本冲突则全部不提交。修改共同说明须有 projects:write，使用与任务编辑一致的项目锁顺序，并记录安排历史的 before/after 快照。今日任务及有权查看任务的人可查看共同说明；完成任务加入工作报告时，仍以个人任务内容作为“具体任务”，不以共同说明代替。历史快照只在项目级保存说明，避免在每个任务中重复存储。旧任务无说明时返回空文字，无历史内容回填。
+
+迁移：tools/apply_arrangement_instruction_migration.py，仅新建说明表，不修改已有任务表结构或业务记录；执行前后按长期授权醒目提示目标与结果。
+
+### weekend_duty_plan（周末值班安排，2026-10-25）
+
+仅行政部可读取、调整，与 monthly_shift_plan 独立存储。由 tools/apply_weekend_duty_migration.py 幂等创建；启动不自动建表。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| month | date，主键 | 所属月份第一天，如 2026-11-01 |
+| assignments | JSON | 数组项含 user_id（UUID文本）、department（参与排班分组代码）、date（YYYY-MM-DD） |
+| revision | integer | 乐观锁版本，空月为0，首次保存为1，后续递增 |
+| updated_by | UUID | 最近调整人，复用现有账号目录 |
+| updated_at | timestamptz | UTC+8 当前时刻，接口明确携带 +08:00 |
+
+覆盖当前月所有周六及周日；不将该功能当作法定节假日安排或调休规则，节假日安排暂为待开发。参与分组沿用班次安排：客户/销售、HR、项目（翻译及标注）、排版、IT。相同人员可安排不同日期，每人同日只能出现一次，月份必须匹配；保存校验行政权限、当前参与人员名单、版本与日历范围，锁定月度行，并以月主键处理并发首次创建。停用人员的原安排可保留或移除，不能新增安排。左侧次数为本月右侧出现次数，含0次筛选及各次数人数，跨部门同人统计去重。左侧拖入为增加该日，右侧拖动为移动该次，拖回左侧只撤销对应日期；不修改既有班次表。
+
+接口 GET/PUT /monthly-shifts/weekend-duty?month=YYYY-MM。GET包含 dates、departments、assignments、revision、ready、updated_at；PUT需携带 revision 和完整 assignments，冲突返回409。组织归属不随排班展示分组改变。
+
+### weekly_shift_plan（每周班次安排，2026-10-25）
+
+按香港时间日历周（周一至周日）单独保存，与既有 monthly_shift_plan、weekend_duty_plan 独立。管理入口默认每周安排，本周/上周/下周和月度快捷按钮默认收起、可展开；本人只读视图同步支持每周与月度选择，不混用或自动覆盖历史月度安排。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| week_start | date，主键 | 所属周的周一，跨月、跨年仍为同一条周记录 |
+| assignments | JSON | 数组项 user_id、department、shift；同一人员每周只能安排一个班次，不同周可独立安排 |
+| revision | integer | 版本，未创建为0；写入锁定周记录，冲突返回409 |
+| updated_by | UUID | 最近调整人 |
+| updated_at | timestamptz | UTC+8 当前时刻；接口携带 +08:00 |
+
+GET/PUT /monthly-shifts/weekly?week=YYYY-MM-DD：行政部门可管理，输入周内任意日期归一至周一，响应包含 week_start、week_end、ready、revision、assignments、shifts、departments。GET /monthly-shifts/weekly/mine?week=YYYY-MM-DD：仅返回登录人自己的 assignment，不接受其他用户选择。参与部门及班次沿用 monthly_shift；停用人员旧记录可保留或移除，不允许新增无效人员。周与月保留各自版本及主键，不进行历史数据迁移。由 tools/apply_weekly_shift_migration.py 显式幂等建表，启动不自动迁移。
+
+
+### fixed_shift_config（固定班次人员配置，2026-10-25）
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| id | integer PK | 单例配置键，业务固定为 1 |
+| assignments | json | current 固定人员列表（user_id、department、shift，每人唯一）；versions 按 week_start/month_start 保留生效快照 |
+| revision | integer | 乐观锁版本，防止覆盖其他管理员的修改 |
+| updated_by | uuid | 最后设置的行政部账号 |
+| updated_at | timestamptz | UTC+8 业务更新时间 |
+
+GET/PUT /monthly-shifts/fixed 仅允许在用行政部成员访问。新增配置由 tools/apply_fixed_shift_migration.py 幂等创建，不修改既有表。固定班次按 UTC+8 当前日期应用于本周及以后周、本月及以后月：读取时合并到相同单元格，保存时服务端强制保留固定位置，员工只读视图同步生效。设置前的历史周期不受影响，已自动带入的历史周期按生效快照保留，不随之后改班或取消固定消失；停用或删除账号不再带入当前及未来周期。取消固定后，已保存的周期记录仍保留，未保存周期不再自动带入。周末值班不使用固定班次配置。启动不执行结构迁移。

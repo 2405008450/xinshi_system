@@ -2,7 +2,7 @@ import { reactive } from 'vue'
 import { issueApi } from '@/api/resourceIssues'
 
 const access = reactive({ ready: false,summary_ready:false, can_enter: false, can_collect: false, can_manage: false, can_resource: false, user_id: '', user_name: '' })
-const collector = reactive({ visible: false, messageId: '', category: '' })
+const collector = reactive({ visible: false, messageId: '', category: '', discussionRoomId: null })
 let identity = '', refreshedAt = 0, pending
 
 export async function refreshIssueAccess(force = false) {
@@ -22,6 +22,6 @@ export async function refreshIssueAccess(force = false) {
 }
 
 export function useResourceIssues() {
-  function collect(messageId, category) { Object.assign(collector, { visible: true, messageId, category }) }
+  function collect(messageId, category, discussionRoomId = null) { Object.assign(collector, { visible: true, messageId, category, discussionRoomId }) }
   return { access, collector, collect, refreshIssueAccess }
 }

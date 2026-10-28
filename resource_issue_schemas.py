@@ -45,13 +45,19 @@ class IssueProgressWrite(BaseModel):
 
 class IssueCreate(IssueWrite):
     source_message_id: UUID | None = None
+    source_discussion_room_id: UUID | None = None
+    source_discussion_message_id: int | None = Field(default=None,ge=1)
     client_request_id: UUID | None = None
     topic_id: UUID | None = None
     category: IssueCategory
 
     @model_validator(mode='after')
     def manual_request_id(self):
-        if not self.source_message_id and not self.client_request_id:
+        if bool(self.source_discussion_room_id) != bool(self.source_discussion_message_id):
+            raise ValueError('讨论来源必须同时提供会话与消息编号')
+        if self.source_message_id and self.source_discussion_room_id:
+            raise ValueError('只能指定一种聊天来源')
+        if not self.source_message_id and not self.source_discussion_room_id and not self.client_request_id:
             raise ValueError('手工新增必须提供请求标识')
         return self
 

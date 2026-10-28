@@ -538,6 +538,10 @@ class ResourcePersonListResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class RegionMatchedTalentResponse(ResourcePersonListResponse):
+    match_rate: float = Field(ge=0, le=100)
+
+
 class TalentPathRecordResponse(BaseModel):
     """路径筛选窗口专用投影，不加载人才项目、能力及附件明细。"""
     id: UUID

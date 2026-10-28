@@ -37,6 +37,8 @@ export const getProjectChatSettings = (projectId) => {
   return api.get(`/project-chat/${projectId}/settings`).then(res => convertKeys(res, toCamelCase))
 }
 
+export const recallProjectChatMessage = (projectId,messageId) => api.post(`/project-chat/${projectId}/messages/${messageId}/recall`).then(res=>convertKeys(res,toCamelCase))
+
 export const updateProjectChatSettings = (projectId, data) => {
   return api.post(`/project-chat/${projectId}/settings`, convertKeys(data, toSnakeCase)).then(res => convertKeys(res, toCamelCase))
 }

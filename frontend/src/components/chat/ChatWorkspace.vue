@@ -26,11 +26,11 @@
       <nav v-if="maximized && !narrow" class="chat-workspace__rail" aria-label="沟通导航">
         <span class="chat-workspace__user-avatar" title="我的沟通">{{ chatAvatarText(currentUserName) }}</span>
         <button v-for="item in panes" :key="item.key" type="button" :title="item.key === 'messages' && mentionTotal ? `${mentionTotal} 条未读 @我，点击查看` : item.label" :aria-label="item.label" :aria-pressed="pane === item.key" :class="{ 'is-active': pane === item.key }" @click="selectPane(item.key)" @contextmenu="openProjectMenu($event,item.key)" @keydown.shift.f10="openProjectMenu($event,item.key)">
-          <el-badge :value="item.key === 'notifications' ? notificationFeed.unread.value : messageBadgeTotal" :max="99" :hidden="item.key === 'notifications' ? !notificationFeed.unread.value : item.key !== 'messages' || !messageBadgeTotal" @click.stop="selectPane(item.key)"><el-icon><component :is="item.icon" /></el-icon></el-badge><small><b v-if="item.key === 'messages' && mentionTotal" class="chat-mention-label">@</b>{{ item.label }}</small>
+          <el-badge :value="item.key === 'notifications' ? notificationBadgeTotal : messageBadgeTotal" :max="99" :hidden="item.key === 'notifications' ? !notificationBadgeTotal : item.key !== 'messages' || !messageBadgeTotal" @click.stop="badgeClick(item.key)"><el-icon><component :is="item.icon" /></el-icon></el-badge><small><b v-if="item.key === 'messages' && mentionTotal" class="chat-mention-label">@</b>{{ item.label }}</small>
         </button>
       </nav>
       <aside v-show="!['summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(pane) && (!narrow || sidebarOpen)" class="chat-workspace__sessions" :style="{ width: `${sessionWidth}px` }">
-        <div v-if="!maximized || narrow" class="chat-workspace__pane-tabs" role="tablist" aria-label="沟通导航"><button v-for="item in panes" :key="item.key" type="button" :aria-label="item.label" :aria-pressed="pane === item.key" :class="{ 'is-active': pane === item.key }" @click="selectPane(item.key)" @contextmenu="openProjectMenu($event,item.key)" @keydown.shift.f10="openProjectMenu($event,item.key)"><span>{{ item.label }}</span><b v-if="item.key === 'messages' && mentionTotal" class="chat-mention-label">@</b><span v-if="item.key === 'notifications' && notificationFeed.unread.value" class="chat-pane-count">{{ notificationFeed.unread.value > 99 ? '99+' : notificationFeed.unread.value }}</span><span v-if="item.key === 'messages' && messageBadgeTotal" class="chat-pane-count">{{ messageBadgeTotal > 99 ? '99+' : messageBadgeTotal }}</span></button></div>
+        <div v-if="!maximized || narrow" class="chat-workspace__pane-tabs" role="tablist" aria-label="沟通导航"><button v-for="item in panes" :key="item.key" type="button" :aria-label="item.label" :aria-pressed="pane === item.key" :class="{ 'is-active': pane === item.key }" @click="selectPane(item.key)" @contextmenu="openProjectMenu($event,item.key)" @keydown.shift.f10="openProjectMenu($event,item.key)"><span>{{ item.label }}</span><b v-if="item.key === 'messages' && mentionTotal" class="chat-mention-label">@</b><span v-if="item.key === 'notifications' && notificationBadgeTotal" class="chat-pane-count" @click.stop="badgeClick(item.key)">{{ notificationBadgeTotal > 99 ? '99+' : notificationBadgeTotal }}</span><span v-if="item.key === 'messages' && messageBadgeTotal" class="chat-pane-count">{{ messageBadgeTotal > 99 ? '99+' : messageBadgeTotal }}</span></button></div>
         <div v-else class="chat-workspace__brand"><strong>{{ pane === 'messages' && (showMentions || annotationMentionView) ? '@我' : panes.find(item => item.key === pane)?.label }}</strong><small>{{ pane === 'messages' ? showMentions ? `${filteredMentionTotal} 条提及` : '' : pane === 'contacts' ? '内部通讯录' : '' }}</small></div>
         <template v-if="pane === 'messages'">
           <div class="chat-workspace__session-tools">
@@ -51,7 +51,7 @@
               <button type="button" :aria-pressed="annotationMode === 'mention'" :class="{ 'is-active': annotationMode === 'mention' }" @click="annotationMode = 'mention'" @contextmenu="mentionSortMenu?.open($event)" @keydown.shift.f10="mentionSortMenu?.open($event)">@我</button>
             </div>
           </div>
-          <ChatSessionFolderTree ref="folderTreeRef" v-if="annotationMode !== 'direct'" :compact="mobile" :selected="selectedFolder" :active="active" :sessions="sessions" @select="selectFolder" @changed="emit('categories-changed')" @browse-annotation="annotationPickerVisible = true" @open-conversation="emit('open', $event)" />
+          <ChatSessionFolderTree ref="folderTreeRef" v-if="annotationMode !== 'direct'" :compact="mobile" :selected="selectedFolder" :active="active" :sessions="allMentionSessions" @select="selectFolder" @unread="openFolderUnread" @changed="emit('categories-changed')" @browse-annotation="annotationPickerVisible = true" @open-conversation="emit('open', $event)" />
           <div class="chat-workspace__recent-closed">
             <el-popover v-model:visible="recentClosedVisible" :z-index="recentMenuZ" trigger="click" placement="right-start" :width="300">
               <template #reference><el-button text size="small" @click="prepareRecentMenu">最近关闭（{{ recentInFolder.length }}/10）</el-button></template>
@@ -91,7 +91,7 @@
               </span>
               <el-icon v-if="session.pinned" title="已置顶" class="chat-session-pin"><Top /></el-icon>
               <span class="chat-workspace__session-controls" @click.stop @keydown.stop @mousedown.stop>
-                <template v-if="session.projectType === 'discussion'"><el-button v-if="categories.canManage" link class="chat-rename-button" :aria-label="`修改名称 ${session.title}`" @click="startDiscussionRename(session)">修改名称</el-button><el-button v-if="categories.canManage && session.subtitle !== '资源开拓讨论'" link class="chat-rename-button" type="danger" @click="deleteDiscussion(session)">删除会话</el-button><small v-if="!categories.canManage" class="chat-discussion-protected">固定讨论</small></template>
+                <template v-if="session.projectType === 'discussion'"><el-button v-if="categories.canManage && !session.technicalProjectId" link class="chat-rename-button" :aria-label="`修改名称 ${session.title}`" @click="startDiscussionRename(session)">修改名称</el-button><el-button v-if="categories.canManage && session.subtitle !== '资源开拓讨论'" link class="chat-rename-button" type="danger" @click="deleteDiscussion(session)">删除会话</el-button><small v-if="!categories.canManage" class="chat-discussion-protected">固定讨论</small></template>
                 <template v-else>
                   <el-popover trigger="click" placement="bottom-end" :width="150" popper-class="chat-session-popover"><template #reference><el-button link aria-label="会话操作">⋯</el-button></template><div class="chat-session-groups"><el-button link @click="emit('preference', { session, data: { pinned: !session.pinned } })">{{ session.pinned ? '取消置顶' : '置顶' }}</el-button><el-button link @click="emit('preference', { session, data: { starred: !session.starred } })">{{ session.starred ? '取消特别关注' : '特别关注' }}</el-button><el-button v-if="categories.ready" link @click="categoryAssignment.open(session)">设置分类</el-button><el-button link @click="emit('preference', { session, data: { markRead: true } })">标为已读</el-button></div></el-popover>
                 </template>
@@ -134,7 +134,7 @@ import ChatInlineNameEditor from './ChatInlineNameEditor.vue'
 import { canStartChatNameEditing } from '@/composables/useChatNameEditing'
 import ChatMentionSortMenu from './ChatMentionSortMenu.vue'
 import { compareMentionSessions, latestMentionAt } from '@/utils/chatMentionSort'
-import { groupSessionList, sessionListKey, mentionUnreadCount, sessionUnreadSignal, firstUnreadMentionSession } from '@/utils/chatSessionList'
+import { groupSessionList, sessionListKey, mentionUnreadCount, sessionUnreadSignal, firstUnreadMentionSession, compareSessionActivity } from '@/utils/chatSessionList'
 
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { Bell, ArrowLeft, ChatDotRound, Collection, Headset, Filter, MoreFilled, Search, Setting, StarFilled, Top, User, EditPen, Microphone, Phone } from '@element-plus/icons-vue'
@@ -150,7 +150,7 @@ import { useChatRequestNotifications } from '@/composables/useChatRequestNotific
 const notificationFeed = useChatRequestNotifications()
 import ChatConversationParticipants from './ChatConversationParticipants.vue'
 import { chatAvatarText, chatDateLabel } from '@/utils/chatLayout'
-import { formatBusinessDateTime, businessDateTimeInputValue } from '@/utils/dateTime'
+import { formatBusinessDateTime } from '@/utils/dateTime'
 import ChatContacts from './ChatContacts.vue'
 import ChatMentionInbox from './ChatMentionInbox.vue'
 import ChatMessageSearchResults from './ChatMessageSearchResults.vue'
@@ -172,6 +172,7 @@ const props = defineProps({
   searchSessions: { type: Array, default: () => [] },
   recentClosed: { type: Array, default: () => [] },
   mentionHistoryTotal: { type: Number, default: 0 },
+  messageNotificationTotal: { type: Number, default: null },
   projectMentions: { type: Object, default: () => ({}) },
   activeKey: { type: String, default: '' },
   error: { type: String, default: '' },
@@ -203,7 +204,8 @@ const sessionList = ref(null)
 const summaryIssueId=ref('')
 watch(pane, value => { try { localStorage.setItem(paneStorageKey, value) } catch { /* 本次选择仍然生效。 */ } })
 watch(pane, value => emit('pane-change', value), { immediate: true })
-const mentionTotal = computed(() => mentionUnreadCount(props.sessions))
+const allMentionSessions = computed(()=>[...new Map([...props.sessions,...props.searchSessions.filter(row=>Number(row.mentionUnread)>0)].map(row=>[row.key,row])).values()])
+
 const summaryPaneKeys = ['summary', 'notifications', 'annotation-projects', 'translation-projects', 'interpretation-projects', 'consultations']
 // 手机端采用“列表 → 会话”两级导航：列表页只显示分类与会话，进入会话后只显示当前会话。
 const listView = computed(() => props.mobile && props.sidebarOpen && !summaryPaneKeys.includes(pane.value))
@@ -229,7 +231,16 @@ function mobileSelectPane(key) {
   // 消息、通讯录、设置位于列表侧栏内，需要保证列表页处于打开状态。
   if (['messages', 'contacts', 'settings'].includes(key) && !props.sidebarOpen) emit('toggle-sidebar')
 }
+const mentionTotal = computed(() => props.messageNotificationTotal ?? mentionUnreadCount(allMentionSessions.value))
 const messageBadgeTotal = computed(() => mentionTotal.value)
+const notificationBadgeTotal = computed(() => notificationFeed.unread.value)
+function openFolderUnread(id){
+ pane.value='messages';selectedFolder.value=id;tab.value='all';annotationMode.value='mention';keyword.value='';applyKeyword();
+ const target=firstUnreadMentionSession(visibleSessions.value);
+ if(props.narrow&&!props.sidebarOpen)emit('toggle-sidebar');
+ if(target?.messageId)emit('locate-mention',target);else if(target)emit(target.opened?'select':'open',target);
+}
+function badgeClick(key){selectPane(key)}
 function showMentionInbox() {
   pane.value = 'messages'; selectedFolder.value = ''; tab.value = 'mention'; annotationMode.value = 'mention'
   keyword.value = ''; applyKeyword()
@@ -240,8 +251,9 @@ function openUnreadMentionConversations() {
   keyword.value = ''; applyKeyword()
   nextTick(() => { if (sessionList.value) sessionList.value.scrollTop = 0 })
   if (props.narrow && !props.sidebarOpen) emit('toggle-sidebar')
-  const target = firstUnreadMentionSession(visibleSessions.value)
+  const target = firstUnreadMentionSession([...allMentionSessions.value].sort((a,b)=>compareMentionSessions(a,b)))
   if (!target) return
+  if(target.projectType==='direct')annotationMode.value='direct'
   if (target.messageId) emit('locate-mention', target)
   else emit(target.opened ? 'select' : 'open', target)
 }
@@ -272,7 +284,6 @@ function contactOpened() {
   pane.value = 'messages'
   emit('contact-opened')
 }
-const sessionStamp = value => { const normalized = businessDateTimeInputValue(value); return normalized ? Date.parse(normalized.replace(' ', 'T') + '+08:00') : 0 }
 const groups = [{ key: 'all', label: '消息' }, { key: 'pinned', label: '置顶' }, { key: 'unread', label: '未读' }, { key: 'mention', label: '@我' }, { key: 'direct', label: '单聊' }, { key: 'starred', label: '特别关注' }, { key: 'project', label: '项目群' }, { key: 'annotation', label: '标注项目群' }, { key: 'translation', label: '笔译项目群' }, { key: 'creator', label: '我创建的' }]
 const { categories } = useChatSessionCategories()
 const recentClosedVisible = ref(false)
@@ -390,7 +401,7 @@ watch(keyword, (value) => {
 watch(searchMode, () => applyKeyword())
 
 const sessionDisplayTime = session => annotationMentionView.value ? latestMentionAt(session) : session.lastMessage?.createdAt
-const visibleSessions = computed(() => groupSessionList((appliedKeyword.value ? [...new Map([...props.searchSessions,...props.sessions].map(row=>[row.key,row])).values()] : props.sessions).filter((session) => {
+const visibleSessions = computed(() => groupSessionList((appliedKeyword.value ? [...new Map([...props.searchSessions,...props.sessions].map(row=>[row.key,row])).values()] : annotationMentionView.value ? allMentionSessions.value : props.sessions).filter((session) => {
   const directMode = annotationMode.value === 'direct'
   if (!appliedKeyword.value) {
     if (directMode ? session.projectType !== 'direct' : session.projectType === 'direct') return false
@@ -400,8 +411,8 @@ const visibleSessions = computed(() => groupSessionList((appliedKeyword.value ? 
   }
   if (!appliedKeyword.value) return true
   return matchesSearch(`${session.title || ''} ${session.subtitle || ''} ${session.lastMessage?.preview || ''} ${session.lastMessage?.senderName || ''}`, appliedKeyword.value)
-}).sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || sessionStamp(b.lastMessage?.createdAt) - sessionStamp(a.lastMessage?.createdAt)), props.activeKey)
-  .sort((a, b) => annotationMentionView.value ? compareMentionSessions(a, b, mentionSort.value) : Number(!!b.mentionUnread) - Number(!!a.mentionUnread) || Number(!!b.pinned) - Number(!!a.pinned) || sessionStamp(b.lastMessage?.createdAt) - sessionStamp(a.lastMessage?.createdAt)))
+}).sort(compareSessionActivity), props.activeKey)
+  .sort((a, b) => annotationMentionView.value ? compareMentionSessions(a, b, mentionSort.value) : compareSessionActivity(a, b)))
 function syncActiveConversation(context,external=false){
  if(!context.projectId)return
  const session=props.sessions.find(row=>String(row.projectId)===String(context.projectId)&&row.projectType===context.projectType)||{...context,categoryIds:[]}
@@ -444,6 +455,9 @@ watch(() => props.sessions, openContextFirst)
 function showHeaderMessages(event) { pendingContextFolder = ''; if (event.detail?.context) openContextConversations(event.detail.context); else if (event.detail?.mentions) openUnreadMentionConversations(); else pane.value = 'messages' }
 onMounted(() => window.addEventListener('chat-topic-show-annotation', showAnnotation))
 onMounted(() => window.addEventListener('chat-show-messages', showHeaderMessages))
+const showConversationNotifications = () => selectPane('notifications')
+onMounted(() => window.addEventListener('chat-show-notifications', showConversationNotifications))
+onBeforeUnmount(() => window.removeEventListener('chat-show-notifications', showConversationNotifications))
 onMounted(()=>window.addEventListener('chat-open-summary',showSummary))
 onBeforeUnmount(()=>window.removeEventListener('chat-open-summary',showSummary))
 onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventListener('chat-topic-show-annotation', showAnnotation); window.removeEventListener('chat-show-messages', showHeaderMessages) })

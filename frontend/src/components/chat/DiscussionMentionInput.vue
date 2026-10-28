@@ -16,13 +16,19 @@ import {matchesSearch} from '@/utils/searchMatching'
 const props=defineProps({modelValue:{type:String,default:''},users:{type:Array,default:()=>[]},disabled:Boolean,selectedUsers:{type:Array,default:()=>[]}})
 const emit=defineEmits(['update:modelValue','selection','send','uploading-change'])
 const field=ref(),open=ref(false),query=ref(''),selected=ref(0),composing=ref(false),chosen=ref([...props.selectedUsers])
-watch(()=>props.selectedUsers,value=>{chosen.value=[...value]})
 const current=localStorage.getItem('user_id')||''
 let trigger=-1
 const mentioned=(text,name)=>{const token=`@${name}`;for(let at=text.indexOf(token);at>=0;at=text.indexOf(token,at+1)){if(!/^[\p{L}\p{N}_]/u.test(text.slice(at+token.length,at+token.length+1)))return true}return false}
 const candidates=computed(()=>[{id:'__all__',name:'所有人',all:true},...props.users.filter(person=>person.id!==current)].filter(person=>matchesSearch(person.name,query.value)))
 const {statuses:presence,loading:presenceLoading}=useDesktopPresence(computed(()=>candidates.value.filter(person=>!person.all).map(person=>person.id)),open)
-watch(()=>props.modelValue,value=>{if(!value)chosen.value=[];const valid=chosen.value.filter(person=>mentioned(value,person.name));emit('selection',{mentionedUserIds:valid.filter(person=>!person.all).map(person=>person.id),mentionAll:valid.some(person=>person.all),selectedUsers:valid})})
+watch([()=>props.selectedUsers,()=>props.modelValue],([selectedUsers,value])=>{
+  // 文本与外部选人状态同一轮更新；保留本控件刚选中的人员，避免互相覆盖。
+  const people=[...new Map([...selectedUsers,...chosen.value].map(person=>[person.id,person])).values()]
+  const valid=value?people.filter(person=>mentioned(value,person.name)):[]
+  chosen.value=valid
+  if(valid.length===selectedUsers.length&&valid.every((person,index)=>person.id===selectedUsers[index].id&&person.name===selectedUsers[index].name&&!!person.all===!!selectedUsers[index].all))return
+  emit('selection',{mentionedUserIds:valid.filter(person=>!person.all).map(person=>person.id),mentionAll:valid.some(person=>person.all),selectedUsers:valid})
+},{flush:'post'})
 async function changed(){if(composing.value)return;await nextTick();const input=field.value?.textarea;if(!input)return;const cursor=input.selectionStart;const match=props.modelValue.slice(0,cursor).match(/(?:^|[^A-Za-z0-9@])@([^\s@]*)$/u);if(!match||input.selectionStart!==input.selectionEnd){open.value=false;return}trigger=cursor-match[1].length-1;query.value=match[1];selected.value=0;open.value=true}
 async function choose(person){if(trigger<0)return;if(!person.all&&!chosen.value.some(value=>value.id===person.id)&&chosen.value.filter(value=>!value.all).length>=20){ElMessage.warning('每条消息最多提及20人');return}const input=field.value.textarea;const token=`@${person.name} `;const end=trigger+token.length;if(!chosen.value.some(value=>value.id===person.id))chosen.value.push(person);emit('update:modelValue',props.modelValue.slice(0,trigger)+token+props.modelValue.slice(input.selectionStart));open.value=false;await nextTick();field.value.focus();input.setSelectionRange(end,end)}
 async function insert(){const input=field.value?.textarea;const start=input?.selectionStart??props.modelValue.length,end=input?.selectionEnd??start;const token=(start&&!/\s$/.test(props.modelValue.slice(0,start))?' ':'')+'@';emit('update:modelValue',props.modelValue.slice(0,start)+token+props.modelValue.slice(end));await nextTick();field.value?.focus();input?.setSelectionRange(start+token.length,start+token.length);changed()}

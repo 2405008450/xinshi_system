@@ -291,6 +291,8 @@ from routers import chat_session_categories
 app.include_router(chat_session_categories.router)
 from routers import discussion_chat
 app.include_router(discussion_chat.router)
+from routers import technical_requirements
+app.include_router(technical_requirements.router)
 from routers import teams
 app.include_router(teams.router)
 from routers import referral_development
@@ -327,6 +329,8 @@ app.include_router(tasks.entries_router)
 app.include_router(tasks.reports_router)
 from routers.project_arrangements import router as project_arrangements_router
 app.include_router(project_arrangements_router)
+from routers.monthly_shifts import router as monthly_shifts_router
+app.include_router(monthly_shifts_router)
 app.include_router(manuscript_arrangements.router)
 app.include_router(word_counts.router)
 app.include_router(business_mails.settings_router)

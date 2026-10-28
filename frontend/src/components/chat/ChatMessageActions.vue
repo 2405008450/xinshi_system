@@ -8,7 +8,14 @@
       <template #reference><button type="button" class="chat-message-actions__seen" :title="seenTooltip" aria-label="查看已读人数和阅读时间" @click="readerZ = chatOverlayZIndex($event.currentTarget)">{{ viewsAvailable === false ? '已读统计待启用' : stats?.seenCount != null ? `已读 ${stats.seenCount}/${stats.recipientCount}` : '已读统计加载中…' }}</button></template>
       <strong>阅读详情 · {{ stats?.seenCount || 0 }}/{{ stats?.recipientCount || 0 }} 人已读</strong>
       <p class="chat-reader-hint">不含发送者，显示首次阅读时间（UTC+8）</p>
-      <div class="chat-reader-list"><div v-for="reader in stats?.seenUsers || []" :key="reader.id" class="chat-reader-row"><strong>{{ reader.name }}</strong><time>{{ formatBusinessDateTime(reader.seenAt) }}</time></div><p v-if="!stats?.seenUsers?.length" class="chat-reader-hint">暂无阅读记录</p></div>
+      <el-tabs v-model="readerTab" class="chat-reader-tabs">
+        <el-tab-pane :label="`已读（${stats?.seenCount ?? '-'}）`" name="seen">
+          <div class="chat-reader-list"><div v-for="reader in stats?.seenUsers || []" :key="reader.id" class="chat-reader-row"><strong>{{ reader.name }}</strong><time>{{ formatBusinessDateTime(reader.seenAt) }}</time></div><p v-if="!stats?.seenUsers?.length" class="chat-reader-hint">暂无阅读记录</p></div>
+        </el-tab-pane>
+        <el-tab-pane :label="`未读（${stats?.unreadCount ?? '-'}）`" name="unread">
+          <div class="chat-reader-list"><div v-for="reader in stats?.unreadUsers || []" :key="reader.id" class="chat-reader-row"><strong>{{ reader.name }}</strong></div><p v-if="stats?.unreadCount == null" class="chat-reader-hint">未读名单暂未加载</p><p v-else-if="!stats.unreadCount" class="chat-reader-hint">全部人员已读</p></div>
+        </el-tab-pane>
+      </el-tabs>
     </el-popover>
   </div>
 </template>
@@ -20,6 +27,7 @@ const props = defineProps({ message: {type:Object,required:true}, currentUserId:
 defineEmits(['reply','acknowledge','references'])
 const own = computed(() => String(props.message.senderUserId) === String(props.currentUserId))
 const readerZ = ref(2120)
+const readerTab = ref('seen')
 const seenTooltip = computed(() => props.viewsAvailable === false ? '逐条阅读回执尚未启用；不会按关注状态推算已读' : props.stats?.seenUsers?.length ? props.stats.seenUsers.map(row=>`${row.name} · ${formatBusinessDateTime(row.seenAt)}`).join('\n') : '统计当前其他参与人实际查看此消息的情况，不包含自己')
 </script>
 <style scoped>

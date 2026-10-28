@@ -64,6 +64,9 @@ import { formatBusinessDateTime as formatDateTime } from '@/utils/dateTime'
 import {useChatDraft} from '@/composables/useChatDraft'
 import {draftFiles} from '@/utils/chatDrafts'
 import { mentionParts as splitMentionParts } from '@/utils/chatMentions'
+import { quoteSpeakerMention,clearAutomaticQuoteMention } from '@/utils/quoteSpeakerMention'
+import { projectMentionOrder } from '@/utils/projectMentionOrder'
+import { useAnnotationMentionManagers } from '@/composables/useAnnotationMentionManagers'
 
 const props = defineProps({
   projectType: { type: String, default: 'annotation' },
@@ -102,14 +105,16 @@ const messages = ref([]), list = ref(null), input = ref(null), content = ref('')
 const interactions = useChatMessageInteractions({ projectId: computed(() => props.projectId), projectType: computed(() => props.projectType), messages, active: computed(() => props.active) })
 const composer = ref(null), mentionMenu = ref(null), mentionOpen = ref(false), mentionQuery = ref(''), mentionIndex = ref(0), mentionStyle = ref({})
 const mentionListId = `mention-${newMessageId()}`
-const mentionCandidates = computed(() => [
+const mentionProject = useAnnotationMentionManagers(computed(() => props.projectId), computed(() => props.projectType === 'annotation' && props.active && mentionOpen.value))
+const mentionCandidates = computed(() => projectMentionOrder([
   {id:'__all__',name:'所有人',all:true,outside:false},
   ...group.eligibleUsers.map(u => ({ ...u, outside: false })),
   ...group.invitableUsers.filter(u => !group.members.some(member => member.id === u.id)).map(u => ({ ...u, outside: true })),
-].filter(u => String(u.id) !== String(currentUserId) && matchesSearch(u.name, mentionQuery.value)))
+].filter(u => String(u.id) !== String(currentUserId) && matchesSearch(u.name, mentionQuery.value)), props.projectType === 'annotation' ? mentionProject.value : null))
 let mentionTrigger = -1
 const selected = ref([]), selectionMessage = ref(null), inviteIds = ref([]), mentionIds = ref([])
 const files = ref([]), sending = ref(false), retryPayload = ref(null), sendError = ref(''), composing = ref(false)
+const automaticQuoteMention = ref(null)
 const inviting = ref(false), followingBusy = ref(false), searchOpen = ref(false)
 const loading = ref(false), loadingEarlier = ref(false), hasEarlier = ref(false), error = ref('')
 const pendingNew = ref(0), viewingHistory = ref(false), highlighted = ref('')
@@ -294,7 +299,7 @@ async function acknowledge(message) {
 }
 async function recall(message) {
   try {
-    await ElMessageBox.confirm(message.senderUserId === currentUserId ? '撤回后其他用户将无法查看正文和附件，确定撤回？' : '确定以管理员身份移除此消息？', '确认操作', { type: 'warning', customClass: 'chat-confirm-message-box' })
+    await ElMessageBox.confirm('撤回后其他用户将无法查看正文和附件，确定撤回？', '确认操作', { type: 'warning', customClass: 'chat-confirm-message-box' })
     const data = await request(props.projectId, `messages/${message.id}/recall`, { method: 'post' }); merge([data]); await sync()
   } catch (e) { if (e !== 'cancel' && e !== 'close') ElMessage.error(detail(e)) }
 }
@@ -412,6 +417,15 @@ async function selectMention(user) {
   if (!mentionIds.value.includes(user.id)) mentionIds.value.push(user.id)
   closeMention(); await nextTick(); input.value.focus(); input.value.textarea.setSelectionRange(end, end)
 }
+function selectedMentionPeople(){const people=[{id:'__all__',name:'所有人',all:true},...group.eligibleUsers,...group.invitableUsers,...group.members];return mentionIds.value.map(id=>people.find(person=>person.id===id)||{id})}
+function applyQuoteMention(result){content.value=result.content;mentionIds.value=result.selectedUsers.map(person=>person.id);automaticQuoteMention.value=result.automatic;if(result.warning)ElMessage.warning(result.warning)}
+async function quoteMessage(message){
+  if(sending.value||retryPayload.value)return
+  const result=quoteSpeakerMention({content:content.value,selectedUsers:selectedMentionPeople(),automatic:automaticQuoteMention.value,message,currentUserId,users:[...group.eligibleUsers,...group.members]})
+  replyTo.value=message;applyQuoteMention(result);closeMention();await nextTick();input.value?.focus()
+}
+function cancelQuote(){if(sending.value||retryPayload.value)return;applyQuoteMention(clearAutomaticQuoteMention(content.value,selectedMentionPeople(),automaticQuoteMention.value));replyTo.value=null}
+watch(replyTo,value=>{if(!value&&automaticQuoteMention.value){applyQuoteMention(clearAutomaticQuoteMention(content.value,selectedMentionPeople(),automaticQuoteMention.value))}})
 async function send() {
   if (!canSend.value) return
   sending.value = true; sendError.value = ''
@@ -459,7 +473,7 @@ onMounted(async () => {
   if (props.targetMessageId) await locate(props.targetMessageId)
   if (!disposed) syncTimer = setInterval(() => { sync(); loadGroup(); scheduleRead() }, 12000)
 })
-const draft=useChatDraft(computed(()=>[props.projectType,props.projectId]),()=>({content:content.value,mentionIds:mentionIds.value,replyTo:replyTo.value,files:draftFiles(files.value),retryPayload:retryPayload.value}),data=>{content.value=data.content;mentionIds.value=data.mentionIds||[];replyTo.value=data.replyTo||null;files.value=data.files||[];retryPayload.value=data.retryPayload||null})
+const draft=useChatDraft(computed(()=>[props.projectType,props.projectId]),()=>({content:content.value,mentionIds:mentionIds.value,replyTo:replyTo.value,automaticQuoteMention:automaticQuoteMention.value,files:draftFiles(files.value),retryPayload:retryPayload.value}),data=>{content.value=data.content;mentionIds.value=data.mentionIds||[];replyTo.value=data.replyTo||null;automaticQuoteMention.value=data.automaticQuoteMention||null;files.value=data.files||[];retryPayload.value=data.retryPayload||null})
 onBeforeUnmount(() => {
   window.removeEventListener('chat-topic-message-changed', topicChanged)
   files.value.forEach(row => row.controller?.abort())
@@ -472,7 +486,7 @@ onBeforeUnmount(() => {
 })
 function openSearch() { searchOpen.value = !searchOpen.value }
 function onSearchLocate(messageId) { return locate(messageId) }
-provide('chatController', { draft, props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, fileBlob, download, copy, replyTo, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, screenshotUploading, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
+provide('chatController', { draft, props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, fileBlob, download, copy, replyTo, quoteMessage, cancelQuote, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, screenshotUploading, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
 defineExpose({ openSearch, locate, cancelLocate, toggleFilters: openSearch })
 </script>
 

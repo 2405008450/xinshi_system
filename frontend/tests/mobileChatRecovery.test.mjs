@@ -1,3 +1,4 @@
+import { CONVERSATION_NOTIFICATION_TYPES } from '../src/utils/notificationChannels.js'
 import { createChatNotificationFeed, isPersistentChatNotification, isVisibleConversation } from '../src/utils/chatNotificationPolicy.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -150,17 +151,19 @@ test('恢复补查未读提醒，忽略旧响应并避免实时事件和补查�
   const h = lifecycle(), displayed = []
   const source = readFileSync(new URL('../src/composables/useChatNotifications.js', import.meta.url), 'utf8')
   const useNotifications = runInNewContext(source.replace(/^import .*\r?\n/gm, '').replace('export function ', 'function ') + '\n;useChatNotifications', {
-    createChatNotificationFeed, isPersistentChatNotification, isVisibleConversation,
+    CONVERSATION_NOTIFICATION_TYPES, createChatNotificationFeed, isPersistentChatNotification, isVisibleConversation,
     isChatWindowVisible: () => false, document: { visibilityState: 'hidden', hasFocus: () => false },
     ...h, h: (...args) => args, ElMessage: { info() {}, error() {} },
     ElNotification: options => { displayed.push(options); return { close() {} } },
-    getNotifications: (params, options) => h.request({ params, ...options }),
-    useProjectChatDock: () => ({ openChat() {} }), showDesktopNotification: () => false,
+    getNotifications: (params, options) => params.channel === 'business' ? Promise.resolve([]) : h.request({ params, ...options }),
+    useProjectChatDock: () => ({ openChat() {} }), showDesktopNotification: item => { displayed.push(item); return true },
     isChatNotification, isChatMentionNotification, isChatAttentionNotification,
     notificationAcknowledgements:{has:()=>false,acknowledge:()=>{},subscribe:()=>()=>{}},
   })
   useNotifications(); h.mounts.forEach(fn => fn())
+  await flush()
   h.subscribers.get('foreground')()
+  await flush()
   assert.equal(h.requests[0].signal.aborted, true)
   assert.equal(h.requests[1].params.unread_only, true)
   const item = { id: 'mention-1', notification_type: 'annotation_project_chat_mention', is_read: false }

@@ -28,7 +28,7 @@
         <!-- 工作台 -->
         <SidebarNavigationItem v-if="showWorkbench" index="/workbench" :icon="DataBoard" label="工作台" />
         <SidebarNavigationItem index="/company-management" :icon="OfficeBuilding" label="公司管理" />
-        <li class="el-menu-item sidebar-session-item" role="menuitem" tabindex="0" aria-label="会话" title="会话" @click="openHeaderChat" @keydown.enter.prevent="openHeaderChat" @keydown.space.prevent="openHeaderChat"><el-badge :value="chatMentionTotal" :max="99" :hidden="!chatMentionTotal"><el-icon><ChatDotRound /></el-icon></el-badge><span v-show="!isCollapse" class="sidebar-session-title"><span>会话</span><a :href="sessionNewTabHref" target="_blank" rel="noopener noreferrer" class="sidebar-session-open" title="在新标签页打开" aria-label="会话：在新标签页打开" @click.stop @keydown.stop><TopRight aria-hidden="true" /></a></span></li>
+          <ScreenshotControl />
 
         <!-- 业务链路：从新咨询到项目执行 -->
         <li v-if="showBusinessGroup && !isCollapse" class="menu-group-label" role="presentation"><span>业务管理</span></li>
@@ -45,6 +45,7 @@
         <SidebarNavigationItem v-if="showClients" index="/clients" :icon="OfficeBuilding" label="客户信息" />
         <SidebarNavigationItem v-if="showResourceManagement" :index="resourceManagementPath" :icon="Avatar" label="资源管理" />
 
+        <SidebarNavigationItem v-if="canViewHr" index="/hr-management/shifts" :icon="Management" label="人事管理" />
         <!-- 账户、扩展能力和管理员入口统一归入平台设置 -->
         <li v-if="!isCollapse" class="menu-group-label" role="presentation"><span>平台设置</span></li>
         <SidebarNavigationItem index="/profile" :icon="User" label="个人中心" />
@@ -138,7 +139,7 @@
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { ref, computed, defineAsyncComponent, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { User, UserFilled, Setting, Document, EditPen, Headset, Calendar, Avatar, OfficeBuilding, ArrowDown, DataBoard, Phone, ChatDotRound, QuestionFilled, Fold, Expand, TopRight } from '@element-plus/icons-vue'
+import { User, UserFilled, Management, Setting, Document, EditPen, Headset, Calendar, Avatar, OfficeBuilding, ArrowDown, DataBoard, Phone, ChatDotRound, QuestionFilled, Fold, Expand, TopRight } from '@element-plus/icons-vue'
 import {
   canViewManuscriptArrangements,
   canViewTalentResourceLibrary,
@@ -149,9 +150,8 @@ import AnnotationChatInbox from '@/components/chat/AnnotationChatInbox.vue'
 import ProjectChatDock from '@/components/chat/ProjectChatDock.vue'
 import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
-import { filterClosedSessions, mentionUnreadCount } from '@/utils/chatSessionList'
 import { chatEntryContext } from '@/utils/chatEntryContext'
-import { canManageDepartments, canConfigureWorkReports } from '@/utils/permission'
+import { canManageDepartments, canConfigureWorkReports, canManageHr } from '@/utils/permission'
 import { useDepartmentCatalog } from '@/composables/useDepartmentCatalog'
 useDepartmentCatalog()
 import { useResourceNotesDock } from '@/composables/useResourceNotesDock'
@@ -159,6 +159,7 @@ import { useMaterialEditor } from '@/composables/useMaterialEditor'
 import { useMaterialDialogs } from '@/composables/useMaterialDialogs'
 import { useResourceIssues } from '@/composables/useResourceIssues'
 import UiZoomControl from '../components/UiZoomControl.vue'
+import ScreenshotControl from '../components/ScreenshotControl.vue'
 import SidebarNavigationItem from '@/components/common/SidebarNavigationItem.vue'
 import SpeakingProfileIcon from '@/components/common/SpeakingProfileIcon.vue'
 import { useUiZoom } from '../composables/useUiZoom'
@@ -172,9 +173,8 @@ const { access: issueAccess, collector: issueCollector, refreshIssueAccess } = u
 const issueCollectorLoaded = ref(false)
 const ChatIssueCollector = defineAsyncComponent(() => import('@/components/chat/ChatIssueCollector.vue'))
 watch(() => issueCollector.visible, value => { if (value) issueCollectorLoaded.value = true })
-const { openFullscreen, state: chatDockState } = useProjectChatDock()
-const { sessions: chatSessions } = useAnnotationFollowed()
-const chatMentionTotal = computed(() => mentionUnreadCount(filterClosedSessions(chatSessions.value, chatDockState.closedSessionKeys)))
+const { openFullscreen } = useProjectChatDock()
+const { mentionTotal: chatMentionTotal } = useAnnotationFollowed()
 const { state: materialEditor } = useMaterialEditor()
 const { state: materialDialogs } = useMaterialDialogs()
 const AnnotationMaterialDialogs = defineAsyncComponent(() => import('@/components/annotation/AnnotationMaterialDialogs.vue'))
@@ -236,6 +236,7 @@ onMounted(() => {
   if (route.query.openSession === '1') void openHeaderChat()
 })
 
+const canViewHr = computed(() => canManageHr())
 const canViewUsers = computed(() => hasPermission('system:users:read'))
 const canViewDepartments = computed(() => canManageDepartments())
 const canViewReportSettings = computed(() => canConfigureWorkReports())
@@ -297,6 +298,7 @@ const pendingModulePaths = new Set([
 ])
 
 const resolveActiveMenu = (path) => {
+  if(path==='/hr-management'||path.startsWith('/hr-management/'))return '/hr-management/shifts'
   if (pendingModulePaths.has(path)) return '/pending-modules'
   if (
     path === '/translation' ||

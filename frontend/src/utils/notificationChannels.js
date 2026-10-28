@@ -5,6 +5,13 @@ export const CHAT_NOTIFICATION_TYPES = [
 ]
 export const isChatNotification = item => CHAT_NOTIFICATION_TYPES.includes(String(item?.notification_type || ''))
 export const isBusinessNotification = item => !isChatNotification(item)
+export const CONVERSATION_NOTIFICATION_TYPES = ['resource_request_dispatch', 'chat_summary']
+export const isSystemNotification = item => isBusinessNotification(item) && !CONVERSATION_NOTIFICATION_TYPES.includes(String(item?.notification_type || ''))
 export const isChatMentionNotification = item => isChatNotification(item) && String(item.notification_type).endsWith('_mention')
-// 普通消息、提及与邀请均主动提醒；持续时间由调用方决定。
-export const isChatAttentionNotification = isChatNotification
+// 普通留言只在会话列表显示弱提示；提及和邀请仍可主动提醒。
+export const isChatAttentionNotification = item => isChatMentionNotification(item) || (
+  isChatNotification(item) && String(item.notification_type).endsWith('_invite')
+)
+
+// Windows 提醒与铃铛业务未读、消息 @ 未读保持同一范围；普通聊天和群邀请不主动弹出。
+export const isDesktopAttentionNotification = item => !!item && !item.is_read && (isBusinessNotification(item) || isChatMentionNotification(item))

@@ -1,8 +1,38 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { filterClosedSessions, groupSessionList, sessionListKey, sessionUnreadSignal, firstUnreadMentionSession } from '../src/utils/chatSessionList.js'
+import { filterClosedSessions, groupSessionList, sessionListKey, sessionUnreadSignal, firstUnreadMentionSession, compareSessionActivity, latestSessionMessageAt } from '../src/utils/chatSessionList.js'
 
 const row = (id, order, extra = {}) => ({ key: `annotation:${id}`, projectId: id, projectType: 'annotation', title: '同名项目', subtitle: order, ...extra })
+
+test('群聊与单聊均按最新消息倒序，未读提及及发送人不改变普通会话排序', () => {
+  for (const projectType of ['annotation', 'discussion', 'direct', 'translation']) {
+    const sessions = [
+      { key:'old', projectType, mentionUnread:3, latestMentionAt:'2026-10-29T12:00:00+08:00', lastMessage:{createdAt:'2026-10-28T10:00:00+08:00',senderName:'自己'} },
+      { key:'empty', projectType },
+      { key:'new', projectType, lastMessage:{createdAt:'2026-10-28T03:00:00Z',senderName:'其他人'} },
+    ]
+    assert.deepEqual(sessions.sort(compareSessionActivity).map(s=>s.key), ['new','old','empty'])
+    sessions.find(s=>s.key==='old').lastMessage.createdAt='2026-10-28T12:00:00+08:00'
+    assert.equal(sessions.sort(compareSessionActivity)[0].key,'old')
+  }
+})
+
+test('主子订单合并后按系列最新消息排序，不受当前选中的旧会话影响', () => {
+  const parent=row('parent','AP-261022-001',{opened:true,lastMessage:{createdAt:'2026-10-28 09:00:00'}})
+  const child=row('child','AP-261022-001.001',{lastMessage:{createdAt:'2026-10-28T13:00:00+08:00'}})
+  const other=row('other','AP-261022-002',{lastMessage:{createdAt:'2026-10-28T12:00:00+08:00'}})
+  const grouped=groupSessionList([parent,other,child],parent.key).sort(compareSessionActivity)
+  assert.equal(grouped[0].key,parent.key)
+  assert.equal(latestSessionMessageAt(grouped[0]),child.lastMessage.createdAt)
+  assert.equal(grouped[0].lastMessage,parent.lastMessage)
+})
+
+test('手动置顶保留，同一消息时刻按稳定会话键排列，无效时间置后', () => {
+  const sessions=[{key:'b',lastMessage:{createdAt:'2026-10-28T10:00:00+08:00'}},
+    {key:'a',lastMessage:{createdAt:'2026-10-28T02:00:00Z'}},
+    {key:'invalid',lastMessage:{createdAt:'invalid'}},{key:'pinned',pinned:true}]
+  assert.deepEqual(sessions.sort(compareSessionActivity).map(s=>s.key),['pinned','a','b','invalid'])
+})
 
 test('自动打开未读提及时选择准确子订单和消息，不打开已读主订单', () => {
   const parent = row('parent', 'AP-261022-001', { opened: true, mentionUnread: 0 })

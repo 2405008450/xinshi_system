@@ -335,7 +335,9 @@ def read_current_session(
     db: Session = Depends(get_db),
 ):
     """返回当前账号的实时角色与权限，用于前端刷新会话缓存。"""
+    from hr_access import can_manage_hr
     return {
+        "can_manage_hr": can_manage_hr(db,current_user),
         "user_id": str(current_user.id),
         "username": current_user.username,
         "full_name": current_user.full_name or current_user.username,

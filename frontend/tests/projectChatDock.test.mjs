@@ -1,3 +1,4 @@
+import { projectMentionOrder } from '../src/utils/projectMentionOrder.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -195,7 +196,7 @@ test('关闭当前会话不删除其他已打开会话；减号仍只最小化',
   assert.equal(workspaceVisibility(instance.state).task, true)
   assert.match(workspace, /aria-label="退出整个会话窗口"[^>]*@click.stop="emit\('exit-workspace'\)"/)
   assert.match(dock, /aria-label="关闭当前会话"[^>]*closeWorkspaceSession\(\)/)
-  assert.match(dock, /@close-active="closeWorkspaceSession"/)
+  assert.match(dock, /@close-active="closeActiveSession"/)
 })
 
 test('一键恢复跨分组最新十项，恢复时列表变化也不跳项，最新会话成为当前项', () => {
@@ -417,11 +418,9 @@ test('聊天通知和群邀请统一打开聊天小窗且不再跳转页面', ()
   assert.doesNotMatch(notificationBell, /openChatNotification/)
 })
 
-test('提醒卡片改为白底轻阴影并提供独立关闭按钮与打开提示', () => {
-  assert.match(chatNotifications, /showClose: true/)
-  assert.match(chatNotifications, /点击打开沟通/)
-  assert.match(chatNotifications, /mention-notification__summary/)
-  assert.match(chatNotifications, /mention-notification__hint/)
+test('聊天通知只通过桌面发送，不回退网页提醒卡片', () => {
+  assert.match(chatNotifications, /showDesktopNotification/)
+  assert.doesNotMatch(chatNotifications, /ElNotification|activeMentionNotifications/)
   assert.doesNotMatch(notificationBell, /border: 2px solid var\(--el-color-warning\)/)
 })
 
@@ -548,7 +547,7 @@ test('固定小窗只显示当前会话，重新进入大屏再还原不展开�
 test('@候选按群内与未参与分区，重名用户按 ID 保持独立且搜索不中断分区', () => {
   const segment = annotationChat.slice(annotationChat.indexOf('const mentionCandidates = computed'), annotationChat.indexOf('let mentionTrigger'))
   const group = {members:[{id:'a',name:'甲'}], eligibleUsers:[{id:'a',name:'甲'}], invitableUsers:[{id:'a',name:'甲'},{id:'b',name:'甲'},{id:'c',name:'乙'}]}
-  const result = runInNewContext(segment+';mentionCandidates.value', {group, currentUserId:'self', computed:fn=>({value:fn()}),mentionQuery:{value:'甲'},matchesSearch:(name,query)=>name.includes(query)})
+  const result = runInNewContext(segment+';mentionCandidates.value', {projectMentionOrder, props:{projectType:"annotation"}, mentionProject:{value:null}, group, currentUserId:'self', computed:fn=>({value:fn()}),mentionQuery:{value:'甲'},matchesSearch:(name,query)=>name.includes(query)})
   assert.deepEqual(Array.from(result,row=>[row.id,row.outside]), [['a',false],['b',true]])
 })
 
@@ -556,10 +555,10 @@ test('@候选按群内与未参与分区，重名用户按 ID 保持独立且搜
 test('@候选在群内、群外和搜索结果中均排除本人，重名其他人仍可选择', () => {
   const segment = annotationChat.slice(annotationChat.indexOf('const mentionCandidates = computed'), annotationChat.indexOf('let mentionTrigger'))
   const group = { members: [{id: 1}], eligibleUsers: [{id: 1, name: '同名'}, {id: 2, name: '同名'}], invitableUsers: [{id: 1, name: '同名'}, {id: 3, name: '同名'}] }
-  const result = runInNewContext(segment + ';mentionCandidates.value', {group, currentUserId: '1', computed: fn => ({value: fn()}), mentionQuery: {value: '同名'}, matchesSearch: (name, query) => name.includes(query)})
+  const result = runInNewContext(segment + ';mentionCandidates.value', {projectMentionOrder, props:{projectType:"annotation"}, mentionProject:{value:null}, group, currentUserId: '1', computed: fn => ({value: fn()}), mentionQuery: {value: '同名'}, matchesSearch: (name, query) => name.includes(query)})
   assert.deepEqual(Array.from(result, row => row.id), [2, 3])
   const panelSegment = chatPanel.slice(chatPanel.indexOf('const mentionUserGroups = computed'), chatPanel.indexOf('const messages = ref'))
-  const groups = runInNewContext(panelSegment + ';mentionUserGroups.value', {currentUserId: '1', userOptions: {value: group.eligibleUsers.concat({id: 3, name: '同名'})}, memberUserIds: {value: ['1', '2']}, computed: fn => ({value: fn()})})
+  const groups = runInNewContext(panelSegment + ';mentionUserGroups.value', {projectMentionOrder, props:{projectType:'annotation'}, mentionProject:{value:null}, currentUserId: '1', userOptions: {value: group.eligibleUsers.concat({id: 3, name: '同名'})}, memberUserIds: {value: ['1', '2']}, computed: fn => ({value: fn()})})
   assert.deepEqual(Array.from(groups, section => Array.from(section.users, user => user.id)), [['__all__'], [2], [3]])
 })
 

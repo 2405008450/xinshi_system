@@ -16,6 +16,7 @@ from resource_schemas import (
     ResourcePersonCreate,
     ResourcePersonDetailResponse,
     ResourcePersonListResponse,
+    RegionMatchedTalentResponse,
     ResourcePersonNameUpdate,
     ResourcePersonStatusUpdate,
     ResourcePersonUpdate,
@@ -196,6 +197,40 @@ def _duplicate_error_detail(exc: TalentDuplicateError, *, contacts_visible: bool
             for item in exc.duplicates
         ],
     }
+
+
+from talent_region_matching import RegionMatchWrite
+
+
+@router.post('/region-match/import')
+async def import_region_match(file: UploadFile = File(...), sheet_name: Optional[str] = Form(None), header: bool = Form(True)):
+    from talent_region_matching import import_table, MAX_BYTES
+    from starlette.concurrency import run_in_threadpool
+    try:
+        content = await file.read(MAX_BYTES + 1)
+        return await run_in_threadpool(import_table, content, file.filename, sheet_name, header)
+    finally:
+        await file.close()
+
+
+@router.post('/region-match')
+def region_match(payload: RegionMatchWrite, db: Session = Depends(get_db)):
+    from talent_region_matching import match_summary
+    return match_summary(db, payload)
+
+
+class RegionMatchPageResponse(PageResponse[RegionMatchedTalentResponse]):
+    average_rate: float | None = None
+
+
+@router.post('/region-match/page', response_model=RegionMatchPageResponse)
+def region_match_page(payload: RegionMatchWrite, skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db), user=Depends(get_current_user)):
+    from talent_region_matching import match_page
+    result = match_page(db, payload, skip, limit)
+    visible = can_view_talent_contacts(db, user)
+    situations = get_talent_project_situations(db, [p.id for p in result['items']])
+    items = [{**serialize_with_contact_access(p, ResourcePersonListResponse, RESOURCE_CONTACT_FIELDS, contacts_visible=visible), 'match_rate': round(result['rates'][p.id], 2), 'project_situation': situations.get(p.id, {'total': 0, 'primary': None})} for p in result['items']]
+    return {'items': items, 'total': result['total'], 'average_rate': result['average_rate']}
 
 
 @router.get("/path-page", response_model=PageResponse[TalentPathRecordResponse])

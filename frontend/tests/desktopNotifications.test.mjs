@@ -1,3 +1,4 @@
+import { isDesktopAttentionNotification } from '../src/utils/notificationChannels.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -21,7 +22,7 @@ function setup({ permission = 'granted', enabled = true, throws = false } = {}) 
   }
   const api = runInNewContext(`${source}; ({ showDesktopNotification, enableDesktopNotifications, disableDesktopNotifications })`, {
     window, localStorage: { getItem: key => values.get(key), setItem: (k, v) => values.set(k, v) },
-    notificationAcknowledgements: acknowledgements, console: { error() {} },
+    isDesktopAttentionNotification, notificationAcknowledgements: acknowledgements, console: { error() {} },
   })
   return { ...api, instances, callbacks, acknowledgements }
 }

@@ -135,6 +135,7 @@ export function getDefaultRoute() {
  * @returns {boolean}
  */
 export function canAccessRoute(route) {
+  if (route.meta?.hrManagement) return canManageHr()
   if (route.meta?.organizationManagement) return canManageDepartments() || hasPermission('system:users:read') || canConfigureWorkReports()
   if (route.meta?.departmentManagement) return canManageDepartments()
   const userRoles = getStoredRoles()
@@ -152,14 +153,24 @@ export function canAccessRoute(route) {
   return permissionAllowed && roleAllowed
 }
 
+export function canManageDepartments() {
+  return isSuperAdmin() || ['ethan', 'jimmy'].includes((localStorage.getItem('user_name') || '').trim().toLowerCase())
+}
+
+export function setStoredHrAccess(allowed) {
+  localStorage.setItem('hr_management_user_id',localStorage.getItem('user_id')||'')
+  localStorage.setItem('hr_management_allowed',allowed===true?'1':'0')
+  storedAccessRevision.value++
+}
+export function canManageHr() {
+  storedAccessRevision.value
+  return !!localStorage.getItem('user_id')&&localStorage.getItem('hr_management_user_id')===localStorage.getItem('user_id')&&localStorage.getItem('hr_management_allowed')==='1'
+}
+
 /** 仅用于入口显示，后端独立验证当前账号。 */
 export function canConfigureWorkReports() {
   storedAccessRevision.value
   return localStorage.getItem('user_name') === 'williamzhao'
-}
-
-export function canManageDepartments() {
-  return isSuperAdmin() || ['ethan', 'jimmy'].includes((localStorage.getItem('user_name') || '').trim().toLowerCase())
 }
 
 /**

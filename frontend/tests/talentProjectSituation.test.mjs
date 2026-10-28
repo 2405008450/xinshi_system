@@ -10,7 +10,7 @@ const talentApi = readFileSync(new URL('../src/api/talents.js', import.meta.url)
 
 test('人才总库默认展示项目情况并迁移旧默认列组合', () => {
   assert.match(pool, /key:'projectSituation',label:'项目情况'/)
-  assert.match(pool, /defaultColumnKeys=\[[^\]]*'projectSituation'/)
+  assert.match(readFileSync(new URL('../src/utils/talentTableColumns.js', import.meta.url), 'utf8'), /talentDefaultColumns=\[[^\]]*'projectSituation'/)
   assert.match(pool, /TalentProjectSituationPopover/)
   assert.match(pool, /'overallRating','status','duplicateReviewRequired'/)
 })

@@ -7,6 +7,7 @@
           <span class="page-subtitle">人员基础资料统一维护，专业能力按需启用</span>
         </div>
         <div class="header-actions">
+          <TalentResourceTools @saved="pathRecordSaved" />
           <el-button v-if="!deleteMode" @click="openDuplicateReview()">同名核重</el-button>
           <TableColumnSettings :settings-key="`talent-pool:${isRecruitmentPool ? 'recruitment' : (capabilityType || 'all')}`" v-model="settingsVisibleColumnKeys" :columns="settingsColumns" :column-count="2" @reset="resetColumns" />
           <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
@@ -15,8 +16,7 @@
       </div>
     </template>
 
-    <TalentResourceNav><template v-if="!isRecruitmentPool" #actions><el-button @click="pathFilterRef.open()">路径筛选</el-button></template></TalentResourceNav>
-    <TalentPathFilterDialog v-if="!isRecruitmentPool" ref="pathFilterRef" :can-write="canWrite" @saved="pathRecordSaved" />
+    <TalentResourceNav />
 
     <AppForm :inline="true" :model="search" class="search-form project-list-search-form">
       <div class="project-list-primary-filters">
@@ -296,6 +296,7 @@
 </template>
 
 <script setup>
+import { talentTableColumns as tableColumns, talentDefaultColumns as defaultColumnKeys } from "@/utils/talentTableColumns"
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { matchesSearch, searchTerms } from '@/utils/searchMatching'
 
@@ -320,7 +321,7 @@ import CompanyWechatAccountSelect from '@/components/common/CompanyWechatAccount
 import { normalizeWechatAccounts, formatWechatAccounts, sameWechatAccounts } from '@/utils/companyWechatAccounts'
 import SensitiveContactValue from '@/components/common/SensitiveContactValue.vue'
 import TalentResourceNav from '@/views/resource/components/TalentResourceNav.vue'
-import TalentPathFilterDialog from '@/views/resource/components/TalentPathFilterDialog.vue'
+import TalentResourceTools from '@/views/resource/components/TalentResourceTools.vue'
 import TalentDetailContent from '@/views/resource/components/TalentDetailContent.vue'
 import TalentProjectSituationPopover from '@/views/resource/components/TalentProjectSituationPopover.vue'
 import { getProjectLanguages, searchProjectLanguages } from '@/api/projectLanguages'
@@ -335,7 +336,6 @@ import { normalizeForeignLanguagePriorities } from '@/utils/talentLanguageSkills
 import { focusFormTarget } from '@/utils/formNavigation'
 
 const route = useRoute()
-const pathFilterRef = ref(null)
 function pathRecordSaved(id) { delete detailCache[id]; delete projectCache[id]; void fetchData() }
 const router = useRouter()
 function duplicateNameKey(value) { const normalized = String(value || '').replace(/\s+/g, ' ').trim(); return (normalized.replace(/(?:\s*[(（][^()（）]*[)）]\s*)+$/, '').trim() || normalized).toLowerCase() }
@@ -427,42 +427,7 @@ const summaryHover=(key,row)=>({regionSummary:[row.ancestralHome,row.nativePlace
 
 const ProfileDescription = defineComponent({props:{profile:Object,type:String},setup(props){const items=computed(()=>{const p=props.profile||{};if(props.type==='written')return [['语种方向',p.languages],['翻译方向',p.direction],['领域技能',p.domainSkills],['质量评分',p.qualityScore],['默认优先级',p.defaultPriority],['日产接单数',p.dailyAcceptCount],['时速',p.hourlySpeed],['日产能',p.dailyWordCapacity],['可用时段',p.availableTimeSlot],['排班备注',p.scheduleRemarks],['云编辑',p.canCloudEdit===true?'支持':p.canCloudEdit===false?'不支持':'-'],['审校',p.canRevision===true?'支持':p.canRevision===false?'不支持':'-']];if(props.type==='interpretation')return [['语种方向',p.languages],['翻译方向',p.direction],['口译等级',p.interpretationLevel],['口译方式',(p.interpretationModes||[]).map(v=>v==='simultaneous'?'同传':'交传').join('、')],['领域技能',p.domainSkills],['质量评分',p.qualityScore],['评价概述',p.evaluationSummary]];if(props.type==='annotation')return [['任务类型',p.taskTypes],['数据模态',p.dataModalities],['工具经验',p.tools],['领域技能',p.domainSkills],['质量评分',p.qualityScore],['日产能',p.dailyCapacity],['备注',p.remarks]];return [['行业',p.industries],['职能',p.functions],['岗位',p.jobTitles],['工作年限',p.yearsExperience],['期望地点',p.preferredLocations],['期望薪资',p.expectedSalary],['职业概述',p.summary]]});return()=>h(ElDescriptions,{column:2,border:true,size:'small'},()=>items.value.map(([label,value])=>h(ElDescriptionsItem,{label},()=>display(value))))}})
 
-const tableColumns=[
-  {key:'resourceCode',label:'人才编号',width:130},
-  {key:'registrationSource',label:'来源',width:190},
-  {key:'wechatAccount',label:'所在微信',width:160},
-  {key:'wechatGroups',label:'所在企微小群',width:240},
-  {key:'fullName',label:'姓名',width:160,tooltip:false,clickHint:'点击姓名查看人才详情'},
-  {key:'gender',label:'性别',width:80},
-  {key:'nationality',label:'国籍',width:100},
-  {key:'employmentStatus',label:'职业状态',width:110},
-  {key:'ancestralHome',label:'籍贯',width:150},
-  {key:'nativePlace',label:'主要成长地',width:150},
-  {key:'residenceAddress',label:'目前所在地',width:180},
-  {key:'educationSummary',label:'学历信息',width:190,tooltip:false,clickHint:'点击查看完整学历经历'},
-  {key:'languageSummary',label:'语言与证书',width:190,tooltip:false,clickHint:'点击查看语言与证书'},
-  {key:'capabilityTypes',label:'专业能力',width:130,tooltip:false},
-  {key:'annotationWillingness',label:'标注意愿',width:100,tooltip:false,talentManaged:true},
-  {key:'languageDirections',label:'语种方向',width:180},
-  {key:'annotationLanguageDirections',label:'标注语言方向',width:200},
-  {key:'industries',label:'行业',width:150},
-  {key:'jobTitles',label:'岗位',width:150},
-  {key:'yearsExperience',label:'工作年限',width:100},
-  {key:'status',label:'状态',width:108,tooltip:false},
-  {key:'cooperationType',label:'合作形式',width:100},
-  {key:'primaryPhone',label:'主要电话',width:140},
-  {key:'primaryEmail',label:'主要邮箱',width:200},
-  {key:'age',label:'年龄',width:80},
-  {key:'dialects',label:'掌握方言',width:180},
-  {key:'dialectRegions',label:'方言区域',width:180},
-  {key:'overallRating',label:'总体评价',width:240,tooltip:false,performance:true},
-  {key:'projectSituation',label:'项目情况',width:220,tooltip:false},
-  {key:'firstContactDate',label:'首次联系时间',width:170,type:'datetime'},
-  {key:'updatedAt',label:'最近更新',width:170,type:'datetime'},
-  {key:'operatorName',label:'操作人',width:120},
-  {key:'operatedAt',label:'操作时间',width:190,type:'datetime'},
-  {key:'duplicateReviewRequired',label:'核重状态',width:100}
-]
+
 const legacyDefaultColumnKeys=[
   ['fullName','basicSummary','regionSummary','educationSummary','languageSummary','capabilityTypes','overallRating','projectSituation','status','duplicateReviewRequired'],
   ['fullName','gender','nationality','employmentStatus','regionSummary','educationSummary','languageSummary','capabilityTypes','overallRating','projectSituation','status','duplicateReviewRequired'],
@@ -471,7 +436,7 @@ const legacyDefaultColumnKeys=[
   ['resourceCode','fullName','capabilityTypes','languageDirections','industries','status','cooperationType','primaryPhone','primaryEmail','duplicateReviewRequired'],
   ['resourceCode','fullName','capabilityTypes','languageDirections','industries','yearsExperience','status','cooperationType','primaryPhone','primaryEmail','duplicateReviewRequired']
 ]
-const defaultColumnKeys=['fullName','gender','nationality','employmentStatus','ancestralHome','nativePlace','residenceAddress','educationSummary','languageSummary','capabilityTypes','annotationWillingness','overallRating','projectSituation','status','duplicateReviewRequired','operatorName','operatedAt']
+
 const contactColumnKeys=new Set(['primaryPhone','primaryEmail'])
 const {selectedKeys:visibleColumnKeys,isVisible,reset:resetColumns}=useTableColumns('resource-talents-v4',tableColumns,defaultColumnKeys,{legacyDefaultKeys:legacyDefaultColumnKeys,keyAliases:{regionSummary:['ancestralHome','nativePlace','residenceAddress']}})
 const availableToCurrentPool=item=>!isRecruitmentPool.value||(!item.performance&&!item.talentManaged)

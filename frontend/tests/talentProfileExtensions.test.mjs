@@ -44,7 +44,7 @@ test('人才总库支持维护、展示和筛选低中高标注意愿', () => {
 })
 
 test('人才总库全部可配置列均复用公共漏斗筛选', () => {
-  const tableBlock = source.match(/const tableColumns=\[([\s\S]*?)\n\]/)?.[1] || ''
+  const tableBlock = readFileSync(new URL('../src/utils/talentTableColumns.js', import.meta.url), 'utf8').match(/const talentTableColumns=\[([\s\S]*?)\n\]/)?.[1] || ''
   const filterBlock = source.match(/const talentFilterFields=\[([\s\S]*?)\n\]\.filter/)?.[1] || ''
   const tableKeys = [...tableBlock.matchAll(/\{key:'([^']+)'/g)].map(match => match[1])
   const filterKeys = new Set([...filterBlock.matchAll(/\{key:'([^']+)'/g)].map(match => match[1]))
@@ -122,8 +122,8 @@ test('人才基础字段和总体评价加入默认列并迁移旧默认组合',
   assert.match(source, /\{key:'nationality',label:'国籍'/)
   assert.match(source, /\{key:'employmentStatus',label:'职业状态'/)
   assert.match(source, /column\.key === 'employmentStatus'.*employmentOptions\.find/)
-  assert.match(source, /defaultColumnKeys=\['fullName','gender','nationality','employmentStatus'/)
-  assert.match(source, /defaultColumnKeys=\[[^\]]*'overallRating'/)
+  assert.match(readFileSync(new URL('../src/utils/talentTableColumns.js', import.meta.url), 'utf8'), /talentDefaultColumns=\['fullName','gender','nationality','employmentStatus'/)
+  assert.match(readFileSync(new URL('../src/utils/talentTableColumns.js', import.meta.url), 'utf8'), /talentDefaultColumns=\[[^\]]*'overallRating'/)
   assert.match(source, /legacyDefaultColumnKeys=\[\s*\[\s*'fullName','basicSummary','regionSummary','educationSummary','languageSummary','capabilityTypes','overallRating','projectSituation','status','duplicateReviewRequired'/)
   assert.match(source, /\['fullName','basicSummary','regionSummary','educationSummary','languageSummary','capabilityTypes','status','duplicateReviewRequired'\]/)
   assert.match(source, /overallPerformanceSummary/)

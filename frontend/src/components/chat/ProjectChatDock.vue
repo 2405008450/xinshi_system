@@ -14,6 +14,7 @@
           @pane-change="workspacePane = $event"
           @context-empty="state.activeKey = ''"
           :mention-history-total="mentionHistoryTotal"
+          :message-notification-total="mentionTotal"
           :project-mentions="mentionPreview"
           @browse-project-mentions="previewProject = $event"
           @select-project-mention="selectPreviewMention"

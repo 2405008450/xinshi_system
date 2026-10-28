@@ -519,6 +519,8 @@
 <script setup>
 import ChatDesktopPresence from '@/components/chat/ChatDesktopPresence.vue'
 import { useDesktopPresence } from '@/composables/useDesktopPresence'
+import { projectMentionOrder } from '@/utils/projectMentionOrder'
+import { useAnnotationMentionManagers } from '@/composables/useAnnotationMentionManagers'
 import ScreenshotText from '@/components/common/ScreenshotText.vue'
 import { screenshotIds } from '@/utils/screenshotReferences'
 import { useChatMessageInteractions } from '@/composables/useChatMessageInteractions'
@@ -533,7 +535,7 @@ import { topicApi } from '@/api/chatTopics'
 import { useChatTopics } from '@/composables/useChatTopics'
 import { messageTopicPatch, newChatRequestId } from '@/utils/chatTopics'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useChatComposerHeight } from '@/composables/useChatComposerHeight'
 import { formatBusinessDateTime as formatDateTime } from '@/utils/dateTime'
 import { chatRequest } from '@/api/projectChat'
@@ -547,6 +549,7 @@ import { ensureConnected, subscribe } from '@/utils/realtimeSocket'
 import {
   acknowledgeProjectChatMessage,
   createProjectChatMessage,
+  recallProjectChatMessage,
   favoriteProjectChatMessage,
   getProjectChatAttachmentBlob,
   getProjectChatMessages,
@@ -622,11 +625,21 @@ const userOptions = ref([])
 const memberUserIds = ref([])
 const desktopPresenceOpen = ref(false)
 const { statuses: desktopPresence, loading: desktopPresenceLoading } = useDesktopPresence(computed(() => userOptions.value.map(user => user.id)), computed(() => props.active && desktopPresenceOpen.value))
-const mentionUserGroups = computed(() => [
-  { label:'群组提醒',users:[{id:'__all__',full_name:'所有人'}] },
-  { label: '群组参与人', users: userOptions.value.filter(user => String(user.id) !== currentUserId && memberUserIds.value.includes(String(user.id))) },
-  { label: '未参与人员 · 发送后自动加入', users: userOptions.value.filter(user => String(user.id) !== currentUserId && !memberUserIds.value.includes(String(user.id))) },
-])
+const mentionProject = useAnnotationMentionManagers(computed(() => props.projectId), computed(() => props.projectType === 'annotation' && props.active && desktopPresenceOpen.value))
+const mentionUserGroups = computed(() => {
+  const users = [{ id:'__all__',full_name:'所有人',all:true },
+    ...userOptions.value.filter(user => String(user.id) !== currentUserId && memberUserIds.value.includes(String(user.id))).map(user => ({ ...user, outside: false })),
+    ...userOptions.value.filter(user => String(user.id) !== currentUserId && !memberUserIds.value.includes(String(user.id))).map(user => ({ ...user, outside: true })),
+  ]
+  const ordered = projectMentionOrder(users, props.projectType === 'annotation' ? mentionProject.value : null)
+  const groups = new Map()
+  for (const user of ordered) {
+    const label = user.mentionSection || (user.all ? '群组提醒' : user.outside ? '未参与人员 · 发送后自动加入' : '群组参与人')
+    if (!groups.has(label)) groups.set(label, { label, users: [] })
+    groups.get(label).users.push(user)
+  }
+  return [...groups.values()]
+})
 const messages = ref([])
 const interactionRoot = ref(), references = ref(), replyToMessage = ref(null)
 const messageInteractions = useChatMessageInteractions({projectId:computed(()=>String(props.projectId)),projectType:computed(()=>props.projectType),messages,active:computed(()=>props.active)})
@@ -792,6 +805,10 @@ const handleAddSelectedToProgress = () => {
 
 const closeProgressTextMenu = () => messageMenuRef.value?.close()
 const messageMenuHandlers = {
+  recall: async message=>{
+    try{await ElMessageBox.confirm('撤回后其他用户将无法查看该消息，确定撤回？','确认撤回',{type:'warning',customClass:'chat-confirm-message-box'});Object.assign(message,await recallProjectChatMessage(props.projectId,message.id))}
+    catch(e){if(e!=='cancel'&&e!=='close')ElMessage.error(e.message||'撤回失败')}
+  },
   reply: message=>startMessageReply(message),
   copy: async (message, excerpt) => {
     const copied = await copyTextToClipboard(excerpt || message.content || (message.attachments || []).map(file => file.originalName).join('\n'))
@@ -2489,7 +2506,7 @@ onBeforeUnmount(() => {
 }
 </style>
 <style scoped>
-.chat-mention-jump{position:absolute;right:12px;top:48px;z-index:2}.chat-conversation-item--mentioned :deep(.chat-bubble){background:#fff8db;border-left:3px solid #e9ac24}
+.chat-mention-jump{position:absolute;right:12px;top:48px;z-index:2}.chat-conversation-item--mentioned :deep(.chat-bubble){background:#eaf4ff;border-left:3px solid #60a5fa}
 </style>
 
 <style scoped>

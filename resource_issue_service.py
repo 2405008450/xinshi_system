@@ -163,7 +163,7 @@ def tasks(db, row):
     return db.query(Task).filter(Task.issue_id == row.id).order_by(Task.created_at, Task.id).all()
 
 
-def serialize(db, user, row, *, detail=False, children=None, authority=None, summary_info=None):
+def serialize(db, user, row, *, detail=False, children=None, authority=None, summary_info=None, discussion_source=None):
     result = snapshot(row)
     result.update(summary_info or summary_service.display_data(db,[row])[row.id])
     if children is None:
@@ -181,13 +181,32 @@ def serialize(db, user, row, *, detail=False, children=None, authority=None, sum
     else:
         result.pop("source_content")
     result['can_update_progress']=result['can_edit'] or summary_service.progress_allowed(user,row)
+    import discussion_issue_sources as discussion_sources
+    if discussion_source is None:
+        discussion_source = discussion_sources.for_issues(db,[row.id]).get(row.id)
+    discussion_sources.decorate(result,discussion_source)
     return result
 
 
 def create_issue(db, user, payload):
     if not can_collect(db, user):
         raise HTTPException(403, "没有开拓收录权限")
-    if payload.source_message_id:
+    discussion_source = None
+    if payload.source_discussion_room_id:
+        import discussion_issue_sources as discussion_sources
+        from discussion_chat_models import DiscussionIssueSource
+        if not discussion_sources.ready(db): raise HTTPException(503,'讨论分类保存尚未初始化')
+        source = discussion_sources.preview(db,user,payload.source_discussion_room_id,payload.source_discussion_message_id,lock=True)
+        existing_source = db.query(DiscussionIssueSource).filter_by(message_id=payload.source_discussion_message_id,category=payload.category).first()
+        if existing_source:
+            existing = visible_query(db,user).filter(Issue.id == existing_source.issue_id).first()
+            if not existing: raise HTTPException(409,'该消息已保存，你没有查看权限')
+            return dict(serialize(db,user,existing,detail=True),already_collected=True)
+        # 既有来源枚举不做结构变更；真实讨论来源保存在独立关联表中。
+        source['source_type'] = 'manual'
+        discussion_source = DiscussionIssueSource(room_id=payload.source_discussion_room_id,
+            message_id=payload.source_discussion_message_id,category=payload.category)
+    elif payload.source_message_id:
         source = source_preview(db, user, payload.source_message_id, lock=True)
     else:
         source = dict(source_message_id=None, source_conversation_id=None, source_type='manual',
@@ -204,7 +223,7 @@ def create_issue(db, user, payload):
     values = dict(id=issue_id, **source, category=payload.category, content=payload.content, remarks=payload.remarks,
                   collected_by=user.id, collected_by_name=user.full_name or user.username, updated_by=user.id,
                   created_at=now, updated_at=now, revision=1,
-                  client_request_id=payload.client_request_id if not payload.source_message_id else None)
+                  client_request_id=payload.client_request_id if not payload.source_message_id and not discussion_source else None)
     inserted = db.execute(insert(Issue).values(**values).on_conflict_do_nothing().returning(Issue.id)).scalar_one_or_none()
     if inserted is None:
         if payload.source_message_id:
@@ -216,6 +235,10 @@ def create_issue(db, user, payload):
             raise HTTPException(409, "该消息已按此类别收录，你没有查看该记录的权限")
         return dict(serialize(db, user, accessible, detail=True), already_collected=True)
     row = db.get(Issue, inserted)
+    if discussion_source:
+        discussion_source.issue_id = row.id
+        db.add(discussion_source)
+        db.flush()
     summary_service.write_summary(db,row,payload.summary)
     audit(db, user, row, "create")
     return dict(serialize(db, user, row, detail=True), already_collected=False)

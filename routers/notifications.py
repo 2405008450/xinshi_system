@@ -1,4 +1,5 @@
 from uuid import UUID
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from sqlalchemy.orm import Session
@@ -6,6 +7,7 @@ from starlette.concurrency import run_in_threadpool
 
 from crud import (
     count_unread_notifications,
+    count_notifications,
     get_notifications,
     mark_all_notifications_read,
     mark_notification_read,
@@ -18,8 +20,25 @@ from notification_ws import notification_manager
 from routers.auth import get_current_user, get_user_from_token_value
 from schemas import NotificationResponse
 from notification_channels import NotificationChannel
+from pagination_schemas import PageResponse
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
+
+
+@router.get('/page', response_model=PageResponse[NotificationResponse])
+def notification_page(
+    skip: int = Query(0, ge=0), limit: int = Query(30, ge=1, le=100),
+    keyword: str | None = Query(None, max_length=500),
+    read_status: Literal['all', 'read', 'unread'] = 'all',
+    channel: NotificationChannel = 'all',
+    notification_type: str | None = Query(None, max_length=100),
+    notification_types: list[str] | None = Query(None, max_length=20),
+    db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user),
+):
+    filters = dict(keyword=keyword, read_status=read_status, channel=channel,
+                   notification_type=notification_type, notification_types=notification_types)
+    return {'items': get_notifications(db, current_user.id, skip=skip, limit=limit, **filters),
+            'total': count_notifications(db, current_user.id, **filters)}
 
 
 @router.get("/", response_model=list[NotificationResponse])

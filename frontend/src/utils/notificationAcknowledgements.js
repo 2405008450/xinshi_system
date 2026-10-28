@@ -44,7 +44,12 @@ export function createNotificationAcknowledgements({
       target?.removeEventListener('storage', remote)
     }
   }
-  return { has, acknowledge, subscribe }
+  function rememberRead(items, actor = currentUser()) {
+    // 请求完成前可能已退出或切换账号，不能把旧响应记到新账号。
+    if (!actor || actor !== currentUser()) return
+    for (const item of items || []) if (item?.is_read === true) acknowledge(item.id)
+  }
+  return { has, acknowledge, subscribe, rememberRead, actor: currentUser }
 }
 
 export const notificationAcknowledgements = createNotificationAcknowledgements()

@@ -1,18 +1,19 @@
+import { compareMentionSessions } from '../src/utils/chatMentionSort.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import { matchesSearch } from '../src/utils/searchMatching.js'
-import { groupSessionList, mentionUnreadCount, firstUnreadMentionSession } from '../src/utils/chatSessionList.js'
+import { groupSessionList, mentionUnreadCount, firstUnreadMentionSession, compareSessionActivity } from '../src/utils/chatSessionList.js'
 
 const source = readFileSync(new URL('../src/components/chat/ChatWorkspace.vue', import.meta.url), 'utf8')
 const expression = source.slice(source.indexOf('const visibleSessions ='), source.indexOf('\nfunction syncActiveConversation'))
 
-test('未读提及排在普通置顶会话之前，消息入口清除筛选并打开第一条未读提及', () => {
+test('列表保留置顶顺序，消息入口清除筛选并打开最新未读提及', () => {
   const sessions = [
     { key: 'read', projectType: 'annotation', pinned: true, unread: 5, mentionUnread: 0, lastMessage: { createdAt: 100 } },
-    { key: 'mention-old', projectType: 'annotation', mentionUnread: 2, mentionMessageIds: ['old-message'], lastMessage: { createdAt: 10 } },
-    { key: 'mention-new', projectType: 'annotation', mentionUnread: 1, mentionMessageIds: ['new-message'], lastMessage: { createdAt: 20 } },
+    { key: 'mention-old', latestMentionAt:'2026-10-28T10:00:00+08:00', projectType: 'annotation', mentionUnread: 2, mentionMessageIds: ['old-message'], lastMessage: { createdAt: 10 } },
+    { key: 'mention-new', latestMentionAt:'2026-10-28T11:00:00+08:00', projectType: 'annotation', mentionUnread: 1, mentionMessageIds: ['new-message'], lastMessage: { createdAt: 20 } },
   ]
   const pane = { value: 'settings' }, selectedFolder = { value: 'old-folder' }, tab = { value: 'starred' }
   const annotationMode = { value: 'direct' }, keyword = { value: '旧搜索' }, appliedKeyword = { value: '旧搜索' }, events = []
@@ -22,10 +23,10 @@ test('未读提及排在普通置顶会话之前，消息入口清除筛选并�
     props: { sessions, narrow: false, sidebarOpen: true }, computed: fn => ({ get value() { return fn() } }),
     pane, selectedFolder, tab, annotationMode, keyword, appliedKeyword, sessionList, nextTick: fn => fn(),
     applyKeyword: () => { appliedKeyword.value = keyword.value }, folderNodes: { value: [] }, annotationMentionView: { value: false },
-    matchesSearch, groupSessionList, firstUnreadMentionSession, sessionStamp: value => Number(value), sessionMatchesFolder: () => true,
+    compareMentionSessions, mentionSort:{value:"time_desc"}, compareSessionActivity, allMentionSessions: { value: sessions }, matchesSearch, groupSessionList, firstUnreadMentionSession, sessionStamp: value => Number(value), sessionMatchesFolder: () => true,
     emit: (event, target) => events.push({ event, target }),
   })
-  assert.deepEqual(Array.from(result), ['mention-new', 'mention-old', 'read'])
+  assert.deepEqual(Array.from(result), ['read', 'mention-new', 'mention-old'])
   assert.equal(events.length, 1)
   assert.equal(events[0].event, 'locate-mention')
   assert.equal(events[0].target.key, 'mention-new')
@@ -59,7 +60,7 @@ function search(folder, keyword) {
   return runInNewContext(expression + '; visibleSessions.value.map(row => row.key)', {
     props: { sessions, searchSessions: [] }, computed: fn => ({ value: fn() }), annotationMode: { value: 'group' },
     selectedFolder: { value: folder }, folderNodes: { value: [] }, tab: { value: 'all' }, annotationMentionView: { value: false },
-    appliedKeyword: { value: keyword }, matchesSearch, groupSessionList, sessionStamp: () => 0,
+    appliedKeyword: { value: keyword }, compareSessionActivity, matchesSearch, groupSessionList, sessionStamp: () => 0,
     sessionMatchesFolder: (session, id) => !id || session.folder === id,
   })
 }
@@ -84,7 +85,7 @@ test('通讯录发消息后切换消息单聊，清空原分组和搜索，仅�
         { key: 'direct:2', projectType: 'direct', title: '联系人乙' },
       ] },
       computed: fn => ({ value: fn() }), annotationMentionView: { value: false }, folderNodes: { value: [] },
-      matchesSearch, groupSessionList, sessionStamp: () => 0, sessionMatchesFolder: () => false,
+      compareSessionActivity, matchesSearch, groupSessionList, sessionStamp: () => 0, sessionMatchesFolder: () => false,
     }
     const result = runInNewContext(handler + '; contactOpened();\n' + expression + '; visibleSessions.value.map(row => row.key)', context)
     assert.equal(context.pane.value, 'messages')
@@ -110,7 +111,7 @@ test('消息数字入口跳到全局 @我，清除旧分组和搜索并展开窄
 
 test('消息导航数字只统计未读提及，普通未读不会冒充 @我，读完提及后数字归零', () => {
   const expression=source.slice(source.indexOf('const mentionTotal = computed'),source.indexOf('function showMentionInbox'))
-  const total=sessions=>runInNewContext(expression+';messageBadgeTotal.value',{props:{sessions},mentionUnreadCount,computed:fn=>({get value(){return fn()}})})
+  const total=sessions=>runInNewContext(expression+';messageBadgeTotal.value',{props:{sessions},allMentionSessions:{value:sessions},mentionUnreadCount,computed:fn=>({get value(){return fn()}})})
   assert.equal(total([{unread:1,mentionUnread:0}]),0)
   assert.equal(total([{unread:5,mentionUnread:2},{unread:3,mentionUnread:1}]),3)
   assert.equal(total([{unread:5,mentionUnread:0},{unread:3,mentionUnread:0}]),0)

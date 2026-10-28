@@ -532,10 +532,13 @@ def _talent_ordering(sort: str):
 
 def get_talents(
     db: Session, *, skip: int = 0, limit: int = 100,
-    sort: str = "updated_desc", **filters,
+    sort: str = "updated_desc", person_ids: Optional[list[UUID]] = None, **filters,
 ) -> list[ResourcePerson]:
+    query = _talent_query(db, **filters)
+    if person_ids is not None:
+        query = query.filter(ResourcePerson.id.in_(person_ids))
     rows = (
-        _talent_query(db, **filters)
+        query
         .add_columns(func.count(ResourcePerson.id).over().label("_page_total"))
         .options(*_person_options(), *archive_options(db))
         .order_by(*_talent_ordering(sort))

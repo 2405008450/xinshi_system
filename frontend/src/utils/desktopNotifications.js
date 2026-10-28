@@ -1,3 +1,4 @@
+import { isDesktopAttentionNotification } from './notificationChannels.js'
 import { notificationAcknowledgements } from './notificationAcknowledgements.js'
 
 const PREFERENCE_PREFIX = 'desktop_notifications_enabled'
@@ -67,10 +68,10 @@ export const markDesktopNotificationGuideSeen = () => {
 }
 
 /**
- * 展示操作系统通知。返回 false 时调用方应回退到站内浮层通知。
+ * 仅展示符合未读数字提醒范围的操作系统通知，不提供网页浮层回退。
  */
 export const showDesktopNotification = (notification, onClick, { onShow, onError } = {}) => {
-  if (notificationAcknowledgements.has(notification.id)) return true
+  if (!isDesktopAttentionNotification(notification) || notificationAcknowledgements.has(notification.id)) return false
   if (!getDesktopNotificationState().enabled) return false
   const actor = getCurrentUserKey()
 

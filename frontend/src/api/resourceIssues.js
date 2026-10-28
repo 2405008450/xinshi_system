@@ -3,7 +3,7 @@ const base = '/resource-development/issues'
 export const issueApi = {
   access: () => api.get(`${base}/access`),
   options: () => api.get(`${base}/options`),
-  source: id => api.get(`${base}/source/${id}`),
+  source: (id, discussionRoomId = null) => api.get(`${base}/source/${id}`, {params: discussionRoomId ? {discussion_room_id:discussionRoomId} : undefined}),
   locateSource: id => api.get(`${base}/${id}/source`),
   list: (params, signal) => api.get(base, { params, signal }),
   detail: (id, signal) => api.get(`${base}/${id}`, { signal }),

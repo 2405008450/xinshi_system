@@ -50,6 +50,7 @@
       </div>
 
       <el-tabs v-model="activeSection" type="border-card" class="workbench-tabs">
+        <el-tab-pane name="monthly-shift" label="班次安排" lazy><MyMonthlyShift /></el-tab-pane>
         <el-tab-pane name="tasks">
           <template #label>
             <span>我的任务<template v-if="taskTabCount">（{{ taskTabCount }}）</template></span>
@@ -161,6 +162,7 @@ import {businessDateTimeInputValue} from '@/utils/dateTime'
 import { ArrowDown } from '@element-plus/icons-vue'
 import ScheduleHeader from './components/ScheduleHeader.vue'
 import MyShiftStatus from './components/MyShiftStatus.vue'
+import MyMonthlyShift from './components/MyMonthlyShift.vue'
 import { getMyWorkItems, getReportAccessContext } from '@/api/tasks'
 import { getOnLeaveUsers } from '@/api/leave'
 import { getMyEmployeeShift } from '@/api/schedule'
@@ -190,7 +192,7 @@ const managementExpanded = ref(true)
 const executionExpanded = ref(true)
 
 const MAIN_TAB_STORAGE_KEY = 'workbench_main_tab'
-const MAIN_TAB_NAMES = ['tasks', 'daily-report', 'received-reports']
+const MAIN_TAB_NAMES = ['monthly-shift', 'tasks', 'daily-report', 'received-reports']
 
 function readInitialMainTab() {
   try {

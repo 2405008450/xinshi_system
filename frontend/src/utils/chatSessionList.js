@@ -1,3 +1,23 @@
+import { businessDateTimeInputValue } from './dateTime.js'
+
+const messageStamp = value => {
+  if (!value) return 0
+  const normalized = businessDateTimeInputValue(value)
+  return normalized ? Date.parse(normalized.replace(' ', 'T') + '+08:00') : 0
+}
+
+export function latestSessionMessageAt(session) {
+  return (session.variants || [session]).reduce((latest, row) =>
+    messageStamp(row.lastMessage?.createdAt) > messageStamp(latest) ? row.lastMessage.createdAt : latest, null)
+}
+
+// 普通会话按所有人的最新消息排列；手动置顶仍有效，提及未读不参与排序。
+export function compareSessionActivity(a, b) {
+  return Number(!!b.pinned) - Number(!!a.pinned)
+    || messageStamp(latestSessionMessageAt(b)) - messageStamp(latestSessionMessageAt(a))
+    || String(a.key).localeCompare(String(b.key))
+}
+
 // 标注子订单由主订单号追加 .001 生成；按订单系列收拢，不能按同名项目合并。
 export function sessionListKey(session) {
   const type = session.projectType || session.kind
