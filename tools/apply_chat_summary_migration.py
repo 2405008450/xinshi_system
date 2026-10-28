@@ -15,6 +15,9 @@ def apply_migration(connection):
     if not inspector.has_table('resource_development_issue') or not inspector.has_table('system_department'):
         raise RuntimeError('需要先初始化开拓事项和部门目录')
     connection.execute(text("ALTER TABLE resource_development_issue ADD COLUMN IF NOT EXISTS summary_data JSON NOT NULL DEFAULT '{}'::json"))
+    # 初始 SQL 使用内联 CHECK，PostgreSQL 自动命名的旧约束也必须移除。
+    # 仅更新 ORM 命名约束会让新旧约束同时生效，新增四类仍无法保存。
+    connection.execute(text('ALTER TABLE resource_development_issue DROP CONSTRAINT IF EXISTS resource_development_issue_category_check'))
     constraints=inspector.get_check_constraints('resource_development_issue')
     current=next((row['sqltext'] for row in constraints if row['name']=='ck_development_issue_category'),'')
     if not all(f"'{name}'" in current for name in ['request','decision','risk','standard']):
@@ -40,7 +43,8 @@ def run():
     with engine.begin() as connection:
         if args.check_only:
             inspector=inspect(connection)
-            print(f'summary_data_exists={"summary_data" in {column["name"] for column in inspector.get_columns("resource_development_issue")}} audience_exists={inspector.has_table("resource_issue_audience")}');return
+            constraints={row['name'] for row in inspector.get_check_constraints('resource_development_issue')}
+            print(f'summary_data_exists={"summary_data" in {column["name"] for column in inspector.get_columns("resource_development_issue")}} audience_exists={inspector.has_table("resource_issue_audience")} legacy_category_constraint_exists={"resource_development_issue_category_check" in constraints}');return
         connection.execute(text("SET LOCAL lock_timeout='5s'"));connection.execute(text("SET LOCAL statement_timeout='30s'"))
         apply_migration(connection)
     print('chat summary schema ready; historical records and notifications unchanged')

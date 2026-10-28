@@ -74,7 +74,7 @@ with engine.begin() as connection:
     connection.execute(text('CREATE EXTENSION IF NOT EXISTS pg_trgm'))
     connection.execute(text('CREATE SEQUENCE chat_message_sequence'))
 # 迁移负责创建新表及其SQL默认值，不能先让ORM创建同名表。
-Base.metadata.create_all(engine,tables=[table for table in Base.metadata.sorted_tables if table.name not in ('resource_development_issue','resource_development_issue_task','chat_topic','chat_message_topic','chat_topic_audit','chat_session_category','chat_session_category_link','chat_session_category_folder','chat_discussion_message','chat_discussion_member')])
+Base.metadata.create_all(engine,tables=[table for table in Base.metadata.sorted_tables if table.name not in ('resource_development_issue','resource_development_issue_task','resource_issue_audience','chat_topic','chat_message_topic','chat_topic_audit','chat_session_category','chat_session_category_link','chat_session_category_folder','chat_discussion_message','chat_discussion_member','chat_discussion_mention')])
 sql=Path('data/migrations/20261012_resource_development_issues.sql').read_text(encoding='utf-8')
 with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as connection:
     connection.exec_driver_sql(sql)
@@ -92,6 +92,11 @@ with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as connect
     connection.exec_driver_sql(discussions)
     connection.exec_driver_sql(discussions)
     connection.exec_driver_sql(Path('data/migrations/20261011_auto_talent_resource_code.sql').read_text(encoding='utf-8'))
+Base.metadata.create_all(engine)
+from tools.apply_chat_summary_migration import apply_migration
+with engine.begin() as connection:
+    apply_migration(connection)
+    apply_migration(connection)
 print('开拓问题迁移首次及重复执行通过')
 '''
         print(command(sys.executable,'-c',setup,env=env,name='migration.log'),flush=True)
@@ -101,8 +106,10 @@ print('开拓问题迁移首次及重复执行通过')
                 tests.insert(0,'tests/test_chat_topics.py')
             if '--categories-ui' in sys.argv:
                 tests=['tests/test_chat_topics.py','tests/test_chat_session_categories.py']
+            if '--summary-migration-only' in sys.argv:
+                tests=['tests/test_resource_issues.py', '-k', 'summary_migration or payload_rejects or (three_sources and direct)']
             print(command(sys.executable,'-m','pytest',*tests,'-q','--tb=short',env=env,name='pytest.log',timeout=300),flush=True)
-        if '--backend-only' in sys.argv:return
+        if '--backend-only' in sys.argv or '--summary-migration-only' in sys.argv:return
         seed='''
 import os
 import main

@@ -45,6 +45,35 @@ def test_payload_rejects_spoofing_and_blank_content():
         with pytest.raises(ValidationError):IssueTaskWrite(revision=1,**fields)
 
 
+def test_summary_migration_removes_legacy_category_constraint(environment):
+    """还原线上新旧约束并存状态，验证增量迁移及八类消息实际入库。"""
+    db, data = environment
+    from tools.apply_chat_summary_migration import apply_migration
+    from sqlalchemy import inspect
+    from sqlalchemy.exc import IntegrityError
+    from resource_issue_models import DevelopmentIssue
+
+    db.execute(text("ALTER TABLE resource_development_issue ADD CONSTRAINT resource_development_issue_category_check CHECK (category IN ('arrangement','execution','problem','idea'))"))
+    with pytest.raises(IntegrityError) as blocked:
+        with db.begin_nested():
+            create(db, data, category='request', kind='direct')
+    assert 'resource_development_issue_category_check' in str(blocked.value)
+    # 新约束已存在时，旧脚本会跳过更新，从而遗漏自动命名的旧约束。
+    apply_migration(db.connection())
+    apply_migration(db.connection())
+    names = {item['name'] for item in inspect(db.connection()).get_check_constraints('resource_development_issue')}
+    assert 'resource_development_issue_category_check' not in names
+    assert 'ck_development_issue_category' in names
+    for category in ['arrangement', 'request', 'idea', 'decision', 'execution', 'problem', 'risk', 'standard']:
+        row = create(db, data, category=category, kind='direct')
+        assert row['category'] == category
+    assert db.query(DevelopmentIssue).count() == 8
+    with pytest.raises(IntegrityError) as invalid:
+        with db.begin_nested():
+            db.execute(text("UPDATE resource_development_issue SET category='invalid'"))
+    assert 'ck_development_issue_category' in str(invalid.value)
+
+
 @pytest.mark.parametrize('kind',['translation','annotation','direct'])
 @pytest.mark.parametrize('category',['arrangement','execution','problem','idea'])
 def test_three_sources_four_categories_and_idempotency(environment,kind,category):

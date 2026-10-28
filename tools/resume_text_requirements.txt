@@ -1,0 +1,4 @@
+pypdf>=5,<7
+striprtf>=0.0.28,<1
+xlrd>=2,<3
+openpyxl>=3.1,<4
