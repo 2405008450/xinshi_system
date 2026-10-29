@@ -142,3 +142,22 @@ def test_snapshot_keeps_original_collection_reference(tmp_path: Path):
     assert json.loads((staging / collection.name / "origin.json").read_text(encoding="utf-8"))["collection"] == str(collection)
     with sqlite3.connect(staging / collection.name / "state.sqlite3") as db:
         assert db.execute("SELECT COUNT(*) FROM files").fetchone()[0] == 2
+
+
+def test_prepare_only_uses_dedup_keep_and_review(tmp_path: Path):
+    collection = make_collection(tmp_path / "source", count=3)
+    ids = [row[0] for row in sqlite3.connect(collection / "state.sqlite3").execute("SELECT file_id FROM files ORDER BY path")]
+    dedup = tmp_path / "dedup.sqlite3"
+    with sqlite3.connect(dedup) as db:
+        db.execute("CREATE TABLE files(file_id TEXT PRIMARY KEY)")
+        db.execute("CREATE TABLE decisions(file_id TEXT PRIMARY KEY,status TEXT)")
+        db.executemany("INSERT INTO files VALUES (?)", [(fid,) for fid in ids])
+        db.executemany("INSERT INTO decisions VALUES (?,?)",
+                       [(ids[0], "keep"), (ids[1], "review"), (ids[2], "superseded")])
+    (tmp_path / "report.json").write_text("{}", encoding="utf-8")
+    output = tmp_path / "output"
+    report = stage.run([collection], output, tmp_path / "missing.yaml", stage.DEFAULT_MODEL,
+                       3, 2000, 1, 10, prepare_only=True, dedup_state=dedup)
+    assert report["selected_files"] == 2
+    with sqlite3.connect(output / "state.sqlite3") as db:
+        assert {row[0] for row in db.execute("SELECT file_id FROM selected")} == set(ids[:2])

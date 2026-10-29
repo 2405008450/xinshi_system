@@ -121,13 +121,29 @@ def source_db(collection: Path) -> sqlite3.Connection:
     return db
 
 
-def choose_pilot(collections: list[Path], db: sqlite3.Connection, limit: int) -> None:
+def dedup_allowed(dedup_state: Path) -> set[str]:
+    if not (dedup_state.parent / "report.json").is_file():
+        raise ValueError("dedup_report_missing")
+    with closing(sqlite3.connect(f"file:{dedup_state.as_posix()}?mode=ro", uri=True)) as dedup:
+        total = dedup.execute("SELECT COUNT(*) FROM files").fetchone()[0]
+        decided = dedup.execute("SELECT COUNT(*) FROM decisions").fetchone()[0]
+        if total == 0 or total != decided:
+            raise ValueError("dedup_incomplete")
+        return {row[0] for row in dedup.execute(
+            "SELECT file_id FROM decisions WHERE status IN ('keep','review')")}
+
+
+def choose_pilot(collections: list[Path], db: sqlite3.Connection, limit: int,
+                 dedup_state: Path | None = None) -> None:
     if db.execute("SELECT 1 FROM selected LIMIT 1").fetchone():
         return
+    allowed = dedup_allowed(dedup_state) if dedup_state is not None else None
     candidates: list[tuple[str, str, Path, sqlite3.Row]] = []
     for collection in collections:
         with closing(source_db(collection)) as source:
             for row in source.execute("SELECT * FROM files WHERE status='success' AND sha256 <> '' AND characters BETWEEN 20 AND 200000"):
+                if allowed is not None and row["file_id"] not in allowed:
+                    continue
                 candidates.append((score(row["file_id"]), row["file_id"], collection, row))
     candidates.sort(key=lambda item: item[0])
     selected: dict[str, tuple[str, str, Path, sqlite3.Row]] = {}
@@ -545,13 +561,14 @@ def export_report(output: Path, db: sqlite3.Connection, model: str) -> dict:
 
 def run(collections: list[Path], output: Path, gateway_config: Path, model: str,
         limit: int, max_chars: int, attempts: int, timeout: int,
-        prepare_only: bool = False, provider: str = "gateway") -> dict:
+        prepare_only: bool = False, provider: str = "gateway",
+        dedup_state: Path | None = None) -> dict:
     if REPOSITORY == output.resolve() or REPOSITORY in output.resolve().parents:
         raise ValueError("output_must_be_outside_repository")
     if not 1 <= limit <= 500 or not 1000 <= max_chars <= 50000 or not 1 <= attempts <= 2:
         raise ValueError("pilot_limits_invalid")
     db = open_output(output)
-    choose_pilot(collections, db, limit)
+    choose_pilot(collections, db, limit, dedup_state)
     if prepare_only:
         report = export_report(output, db, model)
         db.close()
@@ -559,9 +576,12 @@ def run(collections: list[Path], output: Path, gateway_config: Path, model: str,
         return report
     url, key = load_gateway(gateway_config, provider)
     gateway_failures = 0
+    allowed = dedup_allowed(dedup_state) if dedup_state is not None else None
     with httpx.Client(timeout=httpx.Timeout(timeout, connect=15)) as client:
         verify_model(client, url, key, model, provider)
         for file_id, collection_name in db.execute("SELECT file_id,collection FROM selected ORDER BY rank").fetchall():
+            if allowed is not None and file_id not in allowed:
+                continue
             collection = Path(collection_name)
             with closing(source_db(collection)) as source:
                 row = source.execute("SELECT * FROM files WHERE file_id=?", (file_id,)).fetchone()
@@ -652,10 +672,12 @@ def main() -> int:
     parser.add_argument("--attempts", type=int, default=2)
     parser.add_argument("--timeout", type=int, default=90)
     parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--dedup-state", type=Path,
+                        help="去重清单 state.sqlite3；只选择保留或待核文件")
     args = parser.parse_args()
     report = run(args.collection, args.output, args.gateway_config, args.model,
                  args.limit, args.max_chars, args.attempts, args.timeout,
-                 args.prepare_only, args.provider)
+                 args.prepare_only, args.provider, args.dedup_state)
     if args.prepare_only:
         return 0
     return 1 if (report["by_status"].get("model_failed", 0)

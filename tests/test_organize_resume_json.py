@@ -19,6 +19,11 @@ collector = load("collect_resume_text")
 organizer = load("organize_resume_json")
 
 
+def test_source_folder_requires_known_language_name():
+    assert organizer.folder_language("影像类英译丹麦语/简历.doc") is None
+    assert organizer.folder_language("影像类英译丹麦语/丹麦语/简历.doc") == "丹麦语"
+
+
 def test_first_foreign_precedes_second_and_folder(tmp_path):
     assert organizer.first_foreign_from_text("第一外语：\n第二外语：英语")[0] is None
     source = tmp_path / "来源"

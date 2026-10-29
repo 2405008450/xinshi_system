@@ -1,10 +1,26 @@
 # 简历原文字段化试点
 
-本阶段从两批采集目录的 `state.sqlite3`、`texts/`、`segments/` 只读取得已成功提取的文本，按人员生成可审核 JSON。不会连接或写入人才总库。原文中的操作性文字仅作为数据。
+本阶段先对两批采集目录的 `state.sqlite3` 和 `texts/` 建立去重清单，再从保留文件中按人员生成可审核 JSON。不会连接或写入人才总库。原文中的操作性文字仅作为数据。
+
+## 原文去重
+
+旧服务器在仓库外运行，输出目录须预先限制为 Administrator 和 SYSTEM 可访问：
+
+```powershell
+& 'E:\xinshi_system\.conda_env\python.exe' 'E:\xinshi_system\tools\deduplicate_resume_text.py' `
+  --collection 'E:\resume_text_collection\translator-resume-library-20261028' `
+  --collection 'E:\resume_text_collection\additional-resume-paths-20261028' `
+  --output 'E:\resume_text_collection\deduplicated-20261029' `
+  --pilot-output 'E:\resume_text_collection\standardized-pilot-20261029\results'
+```
+
+脚本只读采集库和原文，不删除任何来源文件。`manifest.jsonl` 逐文件记录 `keep`、`superseded`、`review` 或 `pending`，被排除文件保留代表文件 ID、原因及相似度。`pending_review.csv` 为待核文件清单，`pilot_audit.jsonl` 只标记已完成试点的去重状态，不修改其人员 JSON。`contact_hmac.key` 仅供此输出目录下的增量重跑使用，须与 `state.sqlite3` 一同妥善保留；状态库只存联系方式 HMAC，不存联系方式明文。普通日志只输出数量与 UTC+8 时间。
+
+自动合并限于明确的单人候选：相同原文件或提取文本；手机号和邮箱同时相同；或单一联系方式相同且去空白标点后的五字片段 Jaccard 相似度达到 0.90。修改时间最新的文件优先；同时间按提取字符数和路径排序。表格、多联系方式、重复姓名标签和被超过 20 份文件共用的联系方式进入待核，不自动丢弃。待核文件仍在字段化保留清单内。
 
 ## 数据流
 
-1. 在旧服务器 `192.168.31.144` 使用 `standardize_resume_text.py --prepare-only` 固定选出最多 500 份试点文件；选择会保存在仓库外的试点 `state.sqlite3`，重跑不会改动样本集合。
+1. 在旧服务器 `192.168.31.144` 完成原文去重后，使用 `standardize_resume_text.py --prepare-only --dedup-state E:\resume_text_collection\deduplicated-20261029\state.sqlite3` 从保留及待核文件中固定选出最多 500 份试点文件；选择会保存在仓库外的试点 `state.sqlite3`，重跑不会改动样本集合。
 2. 在旧服务器使用 `pack_resume_standardization_pilot.py` 把试点文本、段落位置和采集状态打包。打包时检查文件仍处于成功状态及复制前后的文件元数据；变化中的文件留待下轮。
 3. 将打包文件复制到开发机仓库外受限目录，在开发机使用环境变量 `GOOGLE_CLOUD_API_KEY` 调用 Google 官方接口的 `google/gemini-3.8-flash`。密钥不复制到旧服务器，不写入脚本、配置、日志或结果文件。
 4. 核对报告和抽样结果后，把 `results/` 复制回旧服务器仓库外受限目录。服务器上的第一阶段任务继续独立运行。
