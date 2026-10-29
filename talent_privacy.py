@@ -14,6 +14,7 @@ from permission_registry import SUPER_ROLE_NAMES
 CONTACT_MASK = "******"
 
 RESOURCE_CONTACT_FIELDS = (
+    "identity_number",
     "contact_info",
     "primary_phone",
     "secondary_phone",
@@ -85,6 +86,8 @@ def serialize_with_contact_access(
     data = schema.model_validate(value).model_dump()
     data["contact_restricted"] = not contacts_visible
     if not contacts_visible:
+        if 'settlement' in data:
+            data['settlement'] = None
         for field in fields:
             if field in data:
                 data[field] = CONTACT_MASK if data[field] not in (None, "") else None

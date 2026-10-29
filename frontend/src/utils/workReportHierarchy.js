@@ -9,7 +9,7 @@ function inherit(child,parent){
  child.task_type=parent.task_type;child.task_name=parent.task_name
  const target=child.display_metadata,source=parent.display_metadata||{}
  target.parent_item_key=reportRowKey(parent);target.order_no=source.order_no||'';target.report_types=rowTypes(parent)
- for(const key of ['custom_project_type','custom_work_types']){if(source[key]!=null)target[key]=JSON.parse(JSON.stringify(source[key]));else delete target[key]}
+ for(const key of ['custom_project_type','custom_work_types','project_id','selected_project_type','selected_project_name']){if(source[key]!=null)target[key]=JSON.parse(JSON.stringify(source[key]));else delete target[key]}
 }
 export function syncReportChildren(rows){
  ensureReportKeys(rows)

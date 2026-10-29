@@ -12,6 +12,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 from project_notice_models import ProjectNoticeSection
+from project_notice_registry import notice_models, SUPPORTED_NOTICE_MODULES
 from annotation_notice_service import build_notice_preview, extract_notice_text
 from annotation_notice_schemas import (
     AnnotationNoticeReorder,
@@ -27,10 +28,10 @@ from business_time import BUSINESS_TIMEZONE, business_iso
 MODULES = {"translation", "interpretation", "recruitment"}
 
 def require_ready(db: Session, module: str) -> None:
-    if module not in MODULES:
+    if module not in SUPPORTED_NOTICE_MODULES:
         raise HTTPException(404, "项目须知板块不存在")
     inspector = inspect(db.connection())
-    if not all(inspector.has_table(name) for name in ("project_notice_section", "project_notice_attachment")):
+    if not all(inspector.has_table(name) for name in tuple(model.__tablename__ for model in notice_models(module))):
         raise HTTPException(503, "项目须知尚未启用，请联系管理员完成数据库升级")
 
 def _lock_structure(db: Session, module: str) -> None:
@@ -39,10 +40,11 @@ def _lock_structure(db: Session, module: str) -> None:
     db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": "project_notices:" + module})
 
 def require_section(db: Session, module: str, section_id: UUID, *, lock: bool = False):
+    Section, _ = notice_models(module)
     require_ready(db, module)
-    query = db.query(ProjectNoticeSection).filter(
-        ProjectNoticeSection.module == module,
-        ProjectNoticeSection.id == section_id, ProjectNoticeSection.is_active.is_(True),
+    query = db.query(Section).filter(
+        Section.module == module,
+        Section.id == section_id, Section.is_active.is_(True),
     )
     row = (query.with_for_update() if lock else query).first()
     if row is None:
@@ -84,11 +86,12 @@ def _serialize(row: ProjectNoticeSection, labels: dict[UUID, str], *, include_co
 
 
 def _active_rows(db: Session, module: str) -> list[ProjectNoticeSection]:
+    Section, _ = notice_models(module)
     require_ready(db, module)
     return (
-        db.query(ProjectNoticeSection)
-        .options(joinedload(ProjectNoticeSection.editor))
-        .filter(ProjectNoticeSection.module == module, ProjectNoticeSection.is_active.is_(True))
+        db.query(Section)
+        .options(joinedload(Section.editor))
+        .filter(Section.module == module, Section.is_active.is_(True))
         .all()
     )
 
@@ -122,22 +125,23 @@ def get_section(db: Session, module: str, section_id: UUID) -> dict | None:
 def create_section(
     db: Session, module: str, payload: AnnotationNoticeSectionCreate
 ) -> dict:
+    Section, _ = notice_models(module)
     _lock_structure(db, module)
     parent = None
     if payload.parent_id:
         parent = require_section(db, module, payload.parent_id, lock=True)
         if not parent or not parent.is_active:
             raise ValueError("父级栏目不存在")
-        ancestors = {row.id: row for row in db.query(ProjectNoticeSection).filter(ProjectNoticeSection.is_active.is_(True)).filter(ProjectNoticeSection.module == module).all()}
+        ancestors = {row.id: row for row in db.query(Section).filter(Section.is_active.is_(True)).filter(Section.module == module).all()}
         if section_depth(parent.id, ancestors) >= 3:
             raise ValueError('最多支持三级栏目')
-    siblings = db.query(ProjectNoticeSection).filter(
-        ProjectNoticeSection.module == module,
-        ProjectNoticeSection.parent_id == payload.parent_id,
-        ProjectNoticeSection.is_active.is_(True),
+    siblings = db.query(Section).filter(
+        Section.module == module,
+        Section.parent_id == payload.parent_id,
+        Section.is_active.is_(True),
     ).all()
     now = datetime.now(BUSINESS_TIMEZONE)
-    row = ProjectNoticeSection(
+    row = Section(
         module=module,
         section_key=f"custom_{uuid4().hex}",
         title=payload.title,
@@ -170,18 +174,19 @@ def update_structure(
 
 
 def delete_section(db: Session, module: str, section_id: UUID) -> bool:
+    Section, _ = notice_models(module)
     _lock_structure(db, module)
     # 与附件写操作共用父记录锁，避免上传与软删除同时通过校验。
-    row = db.query(ProjectNoticeSection).filter(
-        ProjectNoticeSection.module == module,
-        ProjectNoticeSection.id == section_id
+    row = db.query(Section).filter(
+        Section.module == module,
+        Section.id == section_id
     ).with_for_update().first()
     if not row or not row.is_active:
         return False
-    has_children = db.query(ProjectNoticeSection.id).filter(
-        ProjectNoticeSection.module == module,
-        ProjectNoticeSection.parent_id == row.id,
-        ProjectNoticeSection.is_active.is_(True),
+    has_children = db.query(Section.id).filter(
+        Section.module == module,
+        Section.parent_id == row.id,
+        Section.is_active.is_(True),
     ).first()
     if has_children:
         raise ValueError("该栏目下仍有子栏目，请先移动或删除子栏目")
@@ -192,10 +197,11 @@ def delete_section(db: Session, module: str, section_id: UUID) -> bool:
 
 
 def reorder_sections(db: Session, module: str, payload: AnnotationNoticeReorder) -> list[dict]:
+    Section, _ = notice_models(module)
     _lock_structure(db, module)
-    rows = db.query(ProjectNoticeSection).filter(
-        ProjectNoticeSection.module == module,
-        ProjectNoticeSection.is_active.is_(True)
+    rows = db.query(Section).filter(
+        Section.module == module,
+        Section.is_active.is_(True)
     ).with_for_update().all()
     by_id = {row.id: row for row in rows}
     placements = {item.id: item for item in payload.placements}
@@ -257,14 +263,15 @@ def _snippet(text: str, keyword: str, size: int = 160) -> str:
 def search_sections(
     db: Session, module: str, keyword: str, skip: int = 0, limit: int = 20
 ) -> dict:
+    Section, _ = notice_models(module)
     require_ready(db, module)
     normalized = keyword.strip()
-    query = db.query(ProjectNoticeSection).filter(ProjectNoticeSection.module == module, ProjectNoticeSection.is_active.is_(True))
+    query = db.query(Section).filter(Section.module == module, Section.is_active.is_(True))
     if normalized:
         pattern = f"%{_escape_like_keyword(normalized)}%"
         query = query.filter(keyword_or(lambda _search_part: or_(
-            keyword_ilike(ProjectNoticeSection.title, _search_part, escape="\\"),
-            keyword_ilike(ProjectNoticeSection.search_text, _search_part, escape="\\"),
+            keyword_ilike(Section.title, _search_part, escape="\\"),
+            keyword_ilike(Section.search_text, _search_part, escape="\\"),
         ), pattern))
     rows = query.all()
     all_rows = _active_rows(db, module)
@@ -316,4 +323,3 @@ def update_content(
 ) -> dict | None:
     row = require_section(db, module, section_id, lock=True)
     return _update_content(db, module, row, payload, user_id) if row else None
-

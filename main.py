@@ -207,6 +207,20 @@ async def unexpected_exception_handler(request: Request, exc: Exception):
     )
 
 
+from sqlalchemy.exc import OperationalError, TimeoutError as DatabasePoolTimeoutError
+from database_capacity import capacity_response
+
+
+@app.exception_handler(OperationalError)
+@app.exception_handler(DatabasePoolTimeoutError)
+async def database_connection_error_handler(request: Request, exc: Exception):
+    response=capacity_response(exc)
+    if response is not None:
+        logger.warning('数据库连接名额已满：%s %s',request.method,request.url.path)
+        return response
+    return await unexpected_exception_handler(request,exc)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_configured_cors_origins(),
@@ -331,6 +345,8 @@ from routers.project_arrangements import router as project_arrangements_router
 app.include_router(project_arrangements_router)
 from routers.monthly_shifts import router as monthly_shifts_router
 app.include_router(monthly_shifts_router)
+from routers.attendance import router as attendance_router
+app.include_router(attendance_router)
 app.include_router(manuscript_arrangements.router)
 app.include_router(word_counts.router)
 app.include_router(business_mails.settings_router)

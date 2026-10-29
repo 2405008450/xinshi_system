@@ -2,7 +2,7 @@
   <section class="arrangement-plan-panel" v-loading="loading">
     <div class="common-instruction-editor">
       <strong>给被安排人的共同说明</strong>
-      <p class="plan-tip">本项目所有被安排人员共享此说明；下方各人另填具体任务。点击“保存安排”时会一并保存。</p>
+      <p class="plan-tip">本项目所有被安排人员均可在“今日任务”中查看；下方各人另填具体任务。点击“保存安排”时会一并保存。</p>
       <el-input v-if="canWrite" v-model="instructionDraft" type="textarea" :autosize="{minRows:3,maxRows:8}" :disabled="saving||loading" maxlength="10000" show-word-limit aria-label="项目共同说明" placeholder="填写项目背景、统一要求、注意事项等，所有被安排人员可见" />
       <div v-else class="common-instruction-text">{{data.common_instruction||'未填写共同说明'}}</div>
       <el-button v-if="canWrite" :disabled="saving||loading||instructionDraft===(data.common_instruction||'')" :loading="saving" @click="saveInstruction">保存共同说明</el-button>

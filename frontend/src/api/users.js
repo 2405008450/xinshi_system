@@ -23,3 +23,5 @@ export const deleteUserMailAccount = (id) => api.delete(`/users/${id}/mail-accou
 export const getUserMailProfile = (id) => api.get(`/users/${id}/mail-profile`)
 export const saveUserMailProfile = (id, data) => api.put(`/users/${id}/mail-profile`, data)
 export const deleteUser = (id) => api.delete(`/users/${id}`)
+export const getUserDepartmentDirectory = () => api.get('/departments/organization')
+export const updateUserDepartments = (id, data) => api.put(`/departments/people/${id}/memberships`, data)

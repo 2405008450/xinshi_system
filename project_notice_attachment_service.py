@@ -7,14 +7,14 @@ from uuid import UUID, uuid4
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.orm import Session, joinedload
 
-from project_notice_models import ProjectNoticeAttachment
-from project_notice_service import require_section, MODULES
+from project_notice_registry import notice_models, SUPPORTED_NOTICE_MODULES
+from project_notice_service import require_section
 from business_time import BUSINESS_TIMEZONE, business_iso
 from company_management_attachment_service import ALLOWED_EXTENSIONS, MAX_FILE_BYTES, MAX_FILES_PER_SECTION
 
 
 def upload_dir(module: str) -> Path:
-    if module not in MODULES:
+    if module not in SUPPORTED_NOTICE_MODULES:
         raise HTTPException(404, "项目须知板块不存在")
     return Path(os.getenv("PROJECT_NOTICE_UPLOAD_DIR", "data/project_notice_uploads")).resolve() / module
 
@@ -39,21 +39,23 @@ def serialize_attachment(row) -> dict:
 
 
 def list_attachments(db: Session, module: str, section_id: UUID) -> list[dict]:
+    _, Attachment = notice_models(module)
     require_section(db, module, section_id)
-    rows = db.query(ProjectNoticeAttachment).options(
-        joinedload(ProjectNoticeAttachment.uploader)
-    ).filter(ProjectNoticeAttachment.section_id == section_id).order_by(
-        ProjectNoticeAttachment.uploaded_at.desc(), ProjectNoticeAttachment.id
+    rows = db.query(Attachment).options(
+        joinedload(Attachment.uploader)
+    ).filter(Attachment.section_id == section_id).order_by(
+        Attachment.uploaded_at.desc(), Attachment.id
     ).all()
     return [serialize_attachment(row) for row in rows]
 
 
 async def save_attachment(db: Session, module: str, section_id: UUID, upload: UploadFile, user_id: UUID) -> dict:
+    _, Attachment = notice_models(module)
     destination = None
     try:
         require_section(db, module, section_id, lock=True)
-        count = db.query(ProjectNoticeAttachment).filter(
-            ProjectNoticeAttachment.section_id == section_id
+        count = db.query(Attachment).filter(
+            Attachment.section_id == section_id
         ).count()
         if count >= MAX_FILES_PER_SECTION:
             raise HTTPException(status_code=400, detail="每个栏目最多上传50个附件")
@@ -75,7 +77,7 @@ async def save_attachment(db: Session, module: str, section_id: UUID, upload: Up
                 output.write(chunk)
         if not written:
             raise HTTPException(status_code=400, detail="不能上传空文件")
-        row = ProjectNoticeAttachment(
+        row = Attachment(
             section_id=section_id, original_name=original_name, storage_name=storage_name,
             content_type=(upload.content_type or "application/octet-stream")[:255],
             file_size=written, uploaded_by=user_id, uploaded_at=datetime.now(BUSINESS_TIMEZONE),
@@ -95,10 +97,11 @@ async def save_attachment(db: Session, module: str, section_id: UUID, upload: Up
 
 
 def get_attachment(db: Session, module: str, section_id: UUID, attachment_id: UUID, *, lock: bool = False):
+    _, Attachment = notice_models(module)
     require_section(db, module, section_id, lock=lock)
-    row = db.query(ProjectNoticeAttachment).filter(
-        ProjectNoticeAttachment.id == attachment_id,
-        ProjectNoticeAttachment.section_id == section_id,
+    row = db.query(Attachment).filter(
+        Attachment.id == attachment_id,
+        Attachment.section_id == section_id,
     ).first()
     if not row:
         raise HTTPException(status_code=404, detail="附件不存在")

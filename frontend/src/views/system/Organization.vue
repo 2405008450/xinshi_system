@@ -4,7 +4,7 @@
     <el-tabs v-model="active">
       <el-tab-pane label="部门与人员" name="departments"><Departments /></el-tab-pane>
       <el-tab-pane v-if="canReadUsers" label="人员管理" name="people" lazy><Users /></el-tab-pane>
-      <el-tab-pane v-if="canConfigureReports" label="工作报告设置" name="report-settings" lazy><WorkReportSettings /></el-tab-pane>
+      <el-tab-pane v-if="canConfigureReports" label="工作报告与任务查看设置" name="report-settings" lazy><WorkReportSettings /></el-tab-pane>
     </el-tabs>
   </section>
 </template>

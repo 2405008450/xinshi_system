@@ -1,5 +1,7 @@
 import { onBeforeUnmount, ref, watch } from 'vue'
-import { ElMessageBox } from 'element-plus'
+import { ElMessageBox,ElMessage } from 'element-plus'
+import {markManagedDraft} from '@/utils/autoDrafts'
+import {draftBusinessNow,sanitizeDraft,AUTO_DRAFT_TTL} from '@/utils/autoDraftStore'
 
 // Vue reactive Proxy 不能直接 structuredClone；表单草稿只包含可 JSON 化字段。
 const clone = (value) => JSON.parse(JSON.stringify(value))
@@ -13,7 +15,7 @@ const currentUserKey = () => (
 /**
  * 弹窗表单草稿缓存。
  *
- * 草稿仅保留在当前浏览器会话中，并按模块、用户、创建/记录 ID 隔离。
+ * 草稿保留在当前浏览器本机，并按模块、用户、创建/记录 ID 隔离。
  * 关闭弹窗会保留草稿；保存成功或用户明确放弃恢复时才清除。
  */
 export const useFormDraft = ({
@@ -25,6 +27,7 @@ export const useFormDraft = ({
   legacyStorageKeys = [],
   saveDelay = 400,
 }) => {
+  markManagedDraft(form)
   const storageKey = `form-drafts:${namespace}:${currentUserKey()}`
   const activeDraftKey = ref('')
   const savingEnabled = ref(false)
@@ -32,29 +35,30 @@ export const useFormDraft = ({
 
   const readDrafts = () => {
     try {
-      let raw = sessionStorage.getItem(storageKey)
+      let raw = localStorage.getItem(storageKey)||sessionStorage.getItem(storageKey)
       if (!raw) {
         const legacyKey = legacyStorageKeys.find((key) => sessionStorage.getItem(key))
         if (legacyKey) {
           raw = sessionStorage.getItem(legacyKey)
-          sessionStorage.setItem(storageKey, raw)
+          localStorage.setItem(storageKey, raw)
           sessionStorage.removeItem(legacyKey)
         }
       }
       const value = JSON.parse(raw || '{}')
-      return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+      return value && typeof value === 'object' && !Array.isArray(value) ? Object.fromEntries(Object.entries(value).filter(([,draft])=>!draft.savedAt||Date.now()-Date.parse(draft.savedAt)<AUTO_DRAFT_TTL)) : {}
     } catch {
-      sessionStorage.removeItem(storageKey)
+      localStorage.removeItem(storageKey)
       return {}
     }
   }
 
   const writeDrafts = (drafts) => {
     try {
-      if (Object.keys(drafts).length) sessionStorage.setItem(storageKey, JSON.stringify(drafts))
-      else sessionStorage.removeItem(storageKey)
+      if (Object.keys(drafts).length) localStorage.setItem(storageKey, JSON.stringify(drafts))
+      else localStorage.removeItem(storageKey)
+      sessionStorage.removeItem(storageKey)
     } catch {
-      // 存储空间不足或浏览器禁用会话存储时，不影响正常填写和提交。
+      ElMessage.warning('本机草稿保存失败，可能存储空间不足；请使用正式保存按钮保留内容')
     }
   }
 
@@ -69,8 +73,8 @@ export const useFormDraft = ({
     if (!savingEnabled.value || !activeDraftKey.value) return
     const drafts = readDrafts()
     drafts[activeDraftKey.value] = {
-      form: clone(form),
-      savedAt: new Date().toISOString(),
+      form: sanitizeDraft(form),
+      savedAt: draftBusinessNow(),
     }
     writeDrafts(drafts)
   }
@@ -140,7 +144,7 @@ export const useFormDraft = ({
     activeDraftKey.value = ''
   }
 
-  // 同步阶段只重置轻量计时器，JSON 克隆与 sessionStorage 写入延后执行。
+  // 同步阶段只重置轻量计时器，JSON 克隆与本机存储写入延后执行。
   watch(form, scheduleActiveDraft, { deep: true, flush: 'sync' })
   onBeforeUnmount(flushDraft)
 

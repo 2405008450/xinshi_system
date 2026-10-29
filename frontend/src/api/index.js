@@ -3,6 +3,7 @@ import { normalizeApiError } from '@/utils/errorMessages'
 import { clearAuthSession } from '@/utils/authSession'
 import { chatConversationScope } from '@/utils/chatAccess'
 import { screenshotIds, screenshotGrantHeaders, rememberScreenshotGrant } from '@/utils/screenshotReferences'
+import {draftSubmitSnapshot,completeDraftSubmit} from '@/utils/autoDrafts'
 
 const api = axios.create({
   baseURL: '/api',
@@ -15,6 +16,7 @@ const api = axios.create({
 // 请求拦截器
 api.interceptors.request.use(
   async config => {
+    if(['post','put','patch','delete'].includes(String(config.method).toLowerCase()))config.autoDraftSubmission=draftSubmitSnapshot(config.url)
     const token = localStorage.getItem('token')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
@@ -31,6 +33,7 @@ api.interceptors.request.use(
 // 响应拦截器
 api.interceptors.response.use(
   response => {
+    completeDraftSubmit(response.config?.autoDraftSubmission)
     rememberScreenshotGrant(response)
     const scope = chatConversationScope(response.config?.url)
     if (scope) window.dispatchEvent(new CustomEvent('chat-conversation-access-granted', { detail: scope }))

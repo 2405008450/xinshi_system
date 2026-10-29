@@ -71,6 +71,11 @@ def test_system_bell_excludes_conversation_feed_and_read_all_is_isolated(environ
     from business_time import business_now
     db.add(AppNotification(id=uuid4(),recipient_user_id=user.id,notification_type='direct_chat_mention',is_read=False,title='聊天 @',content='聊天',created_at=business_now()))
     db.commit()
+    legacy = AppNotification(id=uuid4(),recipient_user_id=user.id,notification_type='annotation_project_chat',related_project_type='annotation',is_read=False,title='标注群聊新消息',content='历史普通聊天通知',created_at=business_now())
+    db.add(legacy)
+    for kind in ['discussion_chat', 'interpretation_project_chat', 'recruitment_project_chat_mention', 'new_group_chat_invite', ' CHAT_NEW_MESSAGE ']:
+        db.add(AppNotification(id=uuid4(),recipient_user_id=user.id,notification_type=kind,is_read=False,title='其他会话消息',content='隔离测试',created_at=legacy.created_at))
+    db.commit()
     params = {'channel': 'system'}
     result = client.get('/notifications/page', params=params)
     assert result.status_code == 200
@@ -83,3 +88,21 @@ def test_system_bell_excludes_conversation_feed_and_read_all_is_isolated(environ
     assert client.get('/notifications/unread-count', params=feed).json() == {'count': 3}
     assert client.get('/notifications/unread-count', params={'channel': 'system'}).json() == {'count': 0}
     assert db.query(AppNotification).filter(AppNotification.recipient_user_id == user.id, AppNotification.notification_type == 'direct_chat_mention').one().is_read is False
+
+    db.refresh(legacy)
+    assert legacy.is_read is False
+
+
+def test_chat_channel_rule_covers_all_existing_and_future_chat_families(environment):
+    db, (user, _, _) = environment
+    from models import AppNotification
+    from notification_channels import filter_notification_channel, CHAT_NOTIFICATION_TYPES
+    from business_time import business_now
+    kinds = list(CHAT_NOTIFICATION_TYPES) + ['interpretation_project_chat', 'recruitment_project_chat_mention', 'new_group_chat_invite', ' CHAT_NEW_MESSAGE ']
+    for kind in kinds + ['workflow_chatty_update', 'chat_summary', 'resource_request_dispatch']:
+        db.add(AppNotification(id=uuid4(),recipient_user_id=user.id,notification_type=kind,is_read=False,title='分类测试',content='隔离测试',created_at=business_now()))
+    db.flush()
+    query = db.query(AppNotification).filter(AppNotification.recipient_user_id == user.id)
+    assert {row.notification_type for row in filter_notification_channel(query, AppNotification, 'chat').all()} == set(kinds)
+    assert {row.notification_type for row in filter_notification_channel(query, AppNotification, 'system').all()} == {'workflow_chatty_update'}
+    assert {row.notification_type for row in filter_notification_channel(query, AppNotification, 'business').all()} == {'workflow_chatty_update', 'chat_summary', 'resource_request_dispatch'}

@@ -1,0 +1,57 @@
+<template>
+  <section v-loading="loading">
+    <div class="policy-toolbar"><AttendanceRulesPopover /><el-button @click="load">刷新</el-button><span>审批（请假、调休等）：待开发</span></div>
+    <el-alert v-if="error" :title="error" type="error" :closable="false" />
+    <el-tabs v-model="tab">
+      <el-tab-pane name="makeup" label="补班与调休">
+        <el-alert title="请假原则上须补班：实际多值班先抵补申请请假和迟到折算请假，剩余时长才能申请调休；同一时长不重复使用。调休申请仅预留，审批待开发。" :closable="false" />
+        <p class="policy-note">自入职月份累计至本月（本月暂计）；入职当月剩余自然日含入职当天不超过15天时，该月免1天值班基数，也不计入平均月份分母。累计实际周末值班天数÷计入月份数须大于1；按已完成打卡、班次内真实工作分钟核算，含居家值班。每月按日期排序，首个实际值班日为基数，其余为多值班；免基数月全部计多值班；没有值班的累计月份也须补足每月1天基数。缺少入职时间时不授予额度。</p>
+        <el-table :data="data.balances||[]" border>
+          <el-table-column v-if="admin" prop="name" label="人员" min-width="110" />
+          <el-table-column prop="counted_months" label="累计月份" width="100" />
+          <el-table-column prop="duty_days" label="实际值班天数" width="120" />
+          <el-table-column prop="average_days" label="月均天数" width="100" />
+          <el-table-column label="待补班" min-width="115"><template #default="{row}">{{durationLabel(row.makeup_remaining_minutes)}}</template></el-table-column>
+          <el-table-column label="调休预留" min-width="115"><template #default="{row}">{{durationLabel(row.reserved_minutes)}}</template></el-table-column>
+          <el-table-column label="可申请调休" min-width="125"><template #default="{row}">{{durationLabel(row.available_minutes)}}</template></el-table-column>
+          <el-table-column label="状态" min-width="160"><template #default="{row}">{{!row.hire_date?'待填写入职时间':row.eligible?'平均天数达标':'月均尚未超过1天'}}<span v-if="row.exempt_month">（{{row.exempt_month}}免基数）</span></template></el-table-column>
+          <el-table-column label="详情" fixed="right" width="100"><template #default="{row}"><el-popover trigger="click" placement="left" :width="760"><template #reference><el-button link type="primary">查看详情</el-button></template><div class="policy-detail"><h4>{{row.name}} · 补班与调休详情</h4><el-descriptions :column="2" border size="small"><el-descriptions-item label="入职时间">{{row.hire_date||'待填写'}}</el-descriptions-item><el-descriptions-item label="累计多值班">{{durationLabel(row.extra_minutes)}}</el-descriptions-item></el-descriptions><h4>实际值班与分配</h4><article v-for="duty in row.duties" :key="duty.id"><p>{{duty.day}} · {{duty.home?'居家值班':'公司值班'}} · {{durationLabel(duty.minutes)}} · {{duty.extra?'多值班':'每月1天基数'}}</p><p v-for="(use,index) in duty.uses" :key="index">{{use.kind==='baseline'?'补足累计月份基数':use.kind==='makeup'?'补班':'调休预留'}} {{durationLabel(use.minutes)}}；来源 {{use.source_id}}</p></article><h4>每次请假及补班</h4><article v-for="leave in row.obligations" :key="leave.id"><p>{{leave.day}} · {{leave.source==='lateness'?'迟到折算请假':'申请请假'}} · {{leave.reason}} · {{durationLabel(leave.minutes)}}<span v-if="leave.future">（未来请假预占补班）</span>；已补 {{durationLabel(leave.makeup_minutes)}}，待补 {{durationLabel(leave.remaining_minutes)}}</p><p v-for="link in leave.makeup_links" :key="link.duty_id">由 {{link.day}} 值班补 {{durationLabel(link.minutes)}}</p></article><h4>调休申请</h4><p v-for="request in row.requests" :key="request.id">{{formatBusinessDateTime(request.start_at)}} 至 {{formatBusinessDateTime(request.end_at)}} · {{durationLabel(request.minutes)}} · {{request.reason}} · {{request.status==='pending'?'待审批（审批待开发）':'已批准'}}<span v-if="request.uncovered_minutes">；原额度变化，缺口 {{durationLabel(request.uncovered_minutes)}}，须审批时复核</span><el-button v-if="!admin&&desktop&&request.status==='pending'" link type="primary" @click="cancelRequest(request.id)">撤回申请</el-button></p></div></el-popover></template></el-table-column>
+        </el-table>
+        <el-button v-if="!admin" type="primary" :disabled="!desktop||!mine?.eligible||!mine?.ready||mine.available_minutes<=0" @click="open">申请调休</el-button><p v-if="!desktop&&!admin" class="policy-note">调休申请请在电脑端操作。</p>
+      </el-tab-pane>
+      <el-tab-pane name="bonus" label="年终奖挂钩（待开发）">
+        <div class="policy-toolbar"><el-input-number v-model="year" :min="2000" :max="currentYear" :precision="0" :controls="false" aria-label="年终奖记录年份" @change="load" /><el-checkbox v-model="onlyLinked">仅看已挂钩月份</el-checkbox></div>
+        <el-alert title="年终奖计算与兑现待开发；这里记录达到追责次数的迟到来源，不自动扣款。每次迟到仍全部折算请假，不追责次数不免除请假或补班。" :closable="false" />
+        <p>自然月加班净额≤10小时：1次不追责，第2次起挂钩；>10且≤20小时：3次不追责，第4次起挂钩；>20小时：5次不追责，第6次起挂钩。本月随加班累计重新核算，尚未结算。</p>
+        <el-table :data="monthlyRows" border><el-table-column v-if="admin" prop="name" label="人员" min-width="110" /><el-table-column prop="month" label="月份" width="100" /><el-table-column label="月加班" min-width="110"><template #default="{row}">{{durationLabel(row.overtime_minutes)}}</template></el-table-column><el-table-column prop="late_count" label="迟到次数" width="95" /><el-table-column prop="free_count" label="免追责次数" width="110" /><el-table-column prop="linked_count" label="挂钩次数" width="95" /><el-table-column label="迟到折假" min-width="110"><template #default="{row}">{{durationLabel(row.late_leave_minutes)}}</template></el-table-column><el-table-column label="结算状态" width="110"><template #default="{row}">{{row.provisional?'本月暂计':'按记录核算'}}</template></el-table-column><el-table-column label="详情" fixed="right" width="100"><template #default="{row}"><el-popover trigger="click" placement="left" :width="760"><template #reference><el-button link type="primary">查看详情</el-button></template><div class="policy-detail"><h4>{{row.name}} · {{row.month}} 年终奖挂钩来源（待开发）</h4><el-descriptions :column="2" border size="small"><el-descriptions-item label="月加班净额">{{durationLabel(row.overtime_minutes)}}</el-descriptions-item><el-descriptions-item label="免追责次数">{{row.free_count}}</el-descriptions-item></el-descriptions><article v-for="event in row.events" :key="event.id"><p>第{{event.ordinal}}次 · {{event.day}} · {{durationLabel(event.minutes)}} · <el-tag :type="event.bonus_linked?'danger':'info'">{{event.bonus_linked?'年终奖挂钩（待开发）':'不追责'}}</el-tag></p><p>来源打卡：{{event.clock_id}}</p><p v-for="(span,index) in event.spans" :key="index">{{formatBusinessDateTime(span.start_at)}} 至 {{formatBusinessDateTime(span.end_at)}} · {{durationLabel(span.minutes)}}</p></article></div></el-popover></template></el-table-column></el-table>
+      </el-tab-pane>
+      <el-tab-pane name="holiday" label="节假日值班（待开发）"><el-alert title="节假日值班：100元/天补贴＋调休。待开发" :closable="false" /><p>已记录规则。法定节假日值班认定、补贴、调休额度及批准流程待开发；当前不生成节假日补贴或节假日调休额度。</p></el-tab-pane>
+    </el-tabs>
+    <DraggableFormDialog v-model="visible" title="调休申请" class="comp-time-dialog" width="min(760px, calc(100vw - 32px))" top="5vh" append-to-body :close-on-click-modal="false" :before-close="close">
+      <AppForm ref="formRef" :model="form" :rules="rules" label-position="top"><el-form-item label="开始时间（UTC+8）" prop="start_at"><el-date-picker v-model="form.start_at" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" :disabled="saving" /></el-form-item><el-form-item label="结束时间（UTC+8）" prop="end_at"><el-date-picker v-model="form.end_at" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" :disabled="saving" /></el-form-item><el-form-item label="调休事由" prop="reason"><el-input v-model="form.reason" type="textarea" :rows="3" maxlength="500" show-word-limit :disabled="saving" /></el-form-item></AppForm><el-alert title="按所选应出勤班次时长预留；提交后为待审批，不自动生成已批准请假。批准流程与请假等统一待开发。" :closable="false" /><el-alert v-if="submitError" :title="submitError" type="error" :closable="false" />
+      <template #footer><el-button :disabled="saving" @click="visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="submit">提交待审批</el-button></template>
+    </DraggableFormDialog>
+  </section>
+</template>
+<script setup>
+import {ref,reactive,computed,onMounted,onBeforeUnmount} from 'vue'
+import {ElMessage,ElMessageBox} from 'element-plus'
+import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
+import AttendanceRulesPopover from '@/components/common/AttendanceRulesPopover.vue'
+import {getAttendancePolicy,applyCompTime,cancelCompTime} from '@/api/attendance'
+import {durationLabel} from '@/utils/attendance'
+import {formatBusinessDateTime,businessDateTimeInputValue} from '@/utils/dateTime'
+import {chatClientType} from '@/utils/chatDevice'
+const props=defineProps({admin:Boolean}),tab=ref('makeup'),currentYear=Number(businessDateTimeInputValue(new Date()).slice(0,4)),year=ref(currentYear),onlyLinked=ref(false),data=ref({}),loading=ref(false),error=ref(''),visible=ref(false),saving=ref(false),submitError=ref(''),formRef=ref(),desktop=chatClientType(navigator)==='desktop'
+const mine=computed(()=>data.value.balances?.[0]),monthlyRows=computed(()=>(data.value.monthly_policy||[]).filter(item=>!onlyLinked.value||item.linked_count>0)),form=reactive({id:'comp-time-request',client_id:'',start_at:'',end_at:'',reason:''})
+const rules={start_at:[{required:true,message:'请选择开始时间',trigger:'change'}],end_at:[{required:true,message:'请选择结束时间',trigger:'change'}],reason:[{required:true,whitespace:true,message:'请填写调休事由',trigger:'blur'}]}
+let controller,sequence=0,alive=true
+async function load(){controller?.abort();controller=new AbortController();const id=++sequence;loading.value=true;error.value='';try{const value=await getAttendancePolicy(year.value,props.admin,{signal:controller.signal});if(alive&&id===sequence)data.value=value}catch(e){if(alive&&id===sequence&&e.code!=='ERR_CANCELED')error.value=typeof e.detail==='string'?e.detail:'读取规则记录失败'}finally{if(alive&&id===sequence)loading.value=false}}
+function open(){Object.assign(form,{client_id:crypto.randomUUID(),start_at:'',end_at:'',reason:''});submitError.value='';visible.value=true}
+function close(done){if(!saving.value)done()}
+async function submit(){if(saving.value||!await formRef.value.validate().catch(()=>false))return;saving.value=true;submitError.value='';try{const value=await applyCompTime({client_id:form.client_id,start_at:`${form.start_at}+08:00`,end_at:`${form.end_at}+08:00`,reason:form.reason});ElMessage.success(value.message);visible.value=false;load()}catch(e){submitError.value=typeof e.detail==='string'?e.detail:'调休申请未保存，请重试'}finally{saving.value=false}}
+async function cancelRequest(id){try{await ElMessageBox.confirm('撤回后释放本次调休预留额度，确定撤回？','撤回调休申请',{type:'warning'});const value=await cancelCompTime(id);ElMessage.success(value.message);load()}catch(e){if(e!=='cancel'&&e!=='close')ElMessage.error(typeof e.detail==='string'?e.detail:'撤回失败，请重试')}}
+onMounted(load);onBeforeUnmount(()=>{alive=false;sequence++;controller?.abort()})
+</script>
+<style scoped>.policy-toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:12px 0}.policy-note{font-size:13px;line-height:1.8;color:#64748b}.policy-detail{max-height:560px;overflow-y:auto;overflow-wrap:anywhere}.policy-detail article{border-bottom:1px solid #e2e8f0;padding:6px 0}.el-table{margin:12px 0}</style>
+<style>.comp-time-dialog.el-dialog{display:flex;flex-direction:column;max-height:90vh;overflow:hidden}.comp-time-dialog>.el-dialog__header,.comp-time-dialog>.el-dialog__footer{flex-shrink:0}.comp-time-dialog>.el-dialog__body{flex:1;min-height:0;overflow-y:auto}.comp-time-dialog>.el-dialog__footer{border-top:1px solid #e2e8f0;background:#f8fafc}</style>

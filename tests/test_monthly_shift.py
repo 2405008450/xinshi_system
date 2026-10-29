@@ -17,6 +17,13 @@ def setup(db,users):
 def payload(user,revision=0,department='customer',shift='early'):
     return service.PlanWrite(revision=revision,assignments=[{'user_id':user.id,'department':department,'shift':shift}])
 
+def sync(db,user,week):
+    import weekly_shift as weekly
+    import weekly_shift_publication as publication
+    plan=weekly.get_plan(db,user,week)
+    return publication.publish(db,user,week,publication.SyncWrite(revision=plan['revision'],publication_revision=plan['publication_revision'],fixed_revision=plan['fixed_revision']))
+
+
 def test_administration_participates_in_all_schedule_periods(environment):
     import weekly_shift
     import weekend_duty
@@ -31,6 +38,7 @@ def test_administration_participates_in_all_schedule_periods(environment):
     for result in (monthly,weekly,duty):
         assert result['assignments'][0]['department']=='administration'
         assert {'code':'administration','label':'行政部'} in result['departments']
+    sync(db,admin,'2026-11-02')
     assert weekly_shift.my_plan(db,admin,'2026-11-02')['assignment']['department']=='administration'
 
 def test_admin_only_and_sales_separate_from_customer_globally(environment):

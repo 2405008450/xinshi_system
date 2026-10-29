@@ -94,6 +94,51 @@ def save_members(db, user, department_id, entries, revision):
     return directory(db, user)
 
 
+def save_person_departments(db, user, user_id, payload):
+    """原子调整个人全部部门，保留仍所属部门的职务。"""
+    import department_service as departments
+    if not departments.can_manage(db, user):
+        raise HTTPException(403, '仅 ethan、jimmy 和超级管理员可调整部门')
+    if not ready(db) or not departments.ready(db):
+        raise HTTPException(503, '组织架构存储尚未初始化')
+    rows = db.query(Department).order_by(Department.id).with_for_update().all()
+    catalog = {row.id: row for row in rows}
+    person = db.query(AppUser).filter(AppUser.id == user_id, AppUser.is_deleted.is_(False)).with_for_update().first()
+    if not person:
+        raise HTTPException(404, '人员不存在')
+    requested = set(payload.department_ids)
+    if len(requested) != len(payload.department_ids) or not requested.issubset(catalog):
+        raise HTTPException(422, '部门不存在或重复，请刷新后重新选择')
+    if (requested and payload.primary_department_id not in requested) or (not requested and payload.primary_department_id):
+        raise HTTPException(422, '主部门必须属于已选部门；未分部门时请清空主部门')
+    links = db.query(DepartmentMember).filter_by(user_id=person.id).all()
+    current = {link.department_id for link in links}
+    canonical_primary = departments.alias_map(db).get(person.department, person.department) or None
+    old_primary = next((row for row in rows if row.name == canonical_primary), None)
+    if old_primary:
+        current.add(old_primary.id)
+    if current != set(payload.expected_department_ids) or canonical_primary != payload.expected_primary_department:
+        raise HTTPException(409, '该人员的部门已被修改，请重新打开后调整')
+    affected = current | requested
+    if any(payload.revisions.get(dept_id) != catalog[dept_id].revision for dept_id in affected):
+        raise HTTPException(409, '部门名册已被修改，请重新打开后调整')
+    existing = {link.department_id: link for link in links}
+    for dept_id, link in existing.items():
+        if dept_id not in requested:
+            db.delete(link)
+    for dept_id in requested - existing.keys():
+        db.add(DepartmentMember(department_id=dept_id, user_id=person.id, position=''))
+    person.department = catalog[payload.primary_department_id].name if payload.primary_department_id else None
+    person.updated_at = now().replace(tzinfo=None)
+    for dept_id in affected:
+        catalog[dept_id].revision += 1
+        catalog[dept_id].updated_at = now()
+        catalog[dept_id].updated_by = user.id
+    db.commit()
+    publish(db)
+    return directory(db, user)
+
+
 def sync_primary(db, person, previous=None):
     """人员表更改主部门时保留其他部门；原主部门归属随主部门替换。"""
     if not ready(db):

@@ -34,6 +34,9 @@ from talent_duplicate_service import (
     prepare_person, review_ready,
 )
 from business_time import business_now
+from talent_evaluation_audit import evaluation_snapshot, record_evaluation_changes
+from talent_settlement import save_settlement
+from talent_resume_profile import save_resume_profile
 
 
 PROFILE_FIELDS = {
@@ -44,6 +47,8 @@ PROFILE_FIELDS = {
 }
 
 TALENT_PERFORMANCE_FIELDS = {
+    "interpretation_rating", "interpretation_rating_note", "interpretation_domains", "written_translation_score", "written_translation_evaluation",
+    "talent_grade",
     "overall_score", "overall_rating", "cooperation_level", "cooperation_note",
     "punctuality_level", "punctuality_note", "audio_annotation_score",
     "audio_annotation_evaluation", "non_audio_annotation_score",
@@ -73,6 +78,9 @@ class TalentDeleteConflictError(ValueError):
 
 
 _OWNED_PERSON_TABLES = {
+    "talent_resume_profile",
+    "talent_settlement",
+    "talent_evaluation_change",
     "resource_capability",
     "resource_written_translation_profile",
     "resource_interpretation_profile",
@@ -408,6 +416,8 @@ def _talent_query(
         "cooperation_type": (ResourcePerson.cooperation_type, "string"),
         "primary_phone": (ResourcePerson.primary_phone, "string"),
         "primary_email": (ResourcePerson.primary_email, "string"),
+        "identity_number": (ResourcePerson.identity_number, "string"),
+        "eyesight": (ResourcePerson.eyesight, "string"),
         "gender": (ResourcePerson.gender, "string"),
         "employment_status": (ResourcePerson.employment_status, "string"),
         "highest_education": (ResourcePerson.highest_education, "string"),
@@ -416,11 +426,19 @@ def _talent_query(
         "registration_source": (ResourcePerson.registration_source, "string"),
         "wechat_account": (ResourcePerson.wechat_account, "string"),
         "wechat_groups": (ResourcePerson.wechat_groups, "string"),
+        "wecom_large_groups": (ResourcePerson.wecom_large_groups, "string"),
+        "residence_timezone": (ResourcePerson.residence_timezone, "string"),
+        "contact_availability": (ResourcePerson.contact_availability, "string"),
         "residence_address": (ResourcePerson.residence_address, "string"),
         "nationality": (ResourcePerson.nationality, "string"),
         "annotation_willingness": (ResourcePerson.annotation_willingness, "string"),
         "overall_score": (ResourcePerson.overall_score, "number"),
         "overall_rating": (ResourcePerson.overall_rating, "string"),
+        "interpretation_rating": (ResourcePerson.interpretation_rating, "number"),
+        "interpretation_rating_note": (ResourcePerson.interpretation_rating_note, "string"),
+        "interpretation_domains": (ResourcePerson.interpretation_domains, "string"),
+        "written_translation_score": (ResourcePerson.written_translation_score, "number"),
+        "written_translation_evaluation": (ResourcePerson.written_translation_evaluation, "string"),
         "audio_annotation_score": (ResourcePerson.audio_annotation_score, "number"),
         "non_audio_annotation_score": (ResourcePerson.non_audio_annotation_score, "number"),
         "collection_score": (ResourcePerson.collection_score, "number"),
@@ -1097,7 +1115,7 @@ def _sync_owned_collections(db: Session, person: ResourcePerson, payload) -> Non
             if row.id not in incoming_ids:
                 items.remove(row)
         for value in incoming:
-            data = value.model_dump(exclude={"id"})
+            data = value.model_dump(exclude={"id", "period"})
             if model is ResourceLanguageSkill and "accent" not in value.model_fields_set:
                 data.pop("accent", None)
             if value.id is None:
@@ -1201,7 +1219,7 @@ def create_talent(
     if duplicates and not payload.allow_duplicate:
         raise TalentDuplicateError(duplicates)
     data = payload.model_dump(exclude={
-        "capabilities", "written_profile", "interpretation_profile",
+        "resume_profile", "settlement", "capabilities", "written_profile", "interpretation_profile",
         "annotation_profile", "annotation_language_skills", "career_profile",
         "education_experiences", "language_skills", "certificates", "allow_duplicate",
         *ACCOUNT_FIELDS,
@@ -1219,6 +1237,9 @@ def create_talent(
     _sync_annotation_language_skills(db, person, payload)
     _sync_owned_collections(db, person, payload)
     _sync_display_name(person)
+    save_resume_profile(db, person, payload, actor)
+    save_settlement(db, person, payload, actor)
+    record_evaluation_changes(db, person, {}, actor)
     db.flush()
     _sync_legacy_translator(db, person)
     if commit:
@@ -1280,6 +1301,7 @@ def update_talent(
     assert_writable(db, person)
     if not person:
         return None
+    evaluation_before = evaluation_snapshot(person)
     db.refresh(person, attribute_names=["wechat_account", "wechat_accounts", "wechat_accounts_revision", "wechat_contact_state"])
     write_talent_accounts(db, person, payload, actor=actor)
     duplicates = find_duplicate_talents(
@@ -1288,7 +1310,7 @@ def update_talent(
     if duplicates and not payload.allow_duplicate:
         raise TalentDuplicateError(duplicates)
     data = payload.model_dump(exclude={
-        "capabilities", "written_profile", "interpretation_profile",
+        "resume_profile", "settlement", "capabilities", "written_profile", "interpretation_profile",
         "annotation_profile", "annotation_language_skills", "career_profile",
         "education_experiences", "language_skills", "certificates", "allow_duplicate",
         *ACCOUNT_FIELDS,
@@ -1307,6 +1329,9 @@ def update_talent(
     _sync_annotation_language_skills(db, person, payload)
     _sync_owned_collections(db, person, payload)
     _sync_display_name(person)
+    record_evaluation_changes(db, person, evaluation_before, actor)
+    save_resume_profile(db, person, payload, actor)
+    save_settlement(db, person, payload, actor)
     _record_talent_operation(person, actor)
     person.updated_at = business_now()
     db.flush()
@@ -1337,7 +1362,7 @@ def update_recruitment_talent(
     if duplicates and not payload.allow_duplicate:
         raise TalentDuplicateError(duplicates)
     data = payload.model_dump(exclude={
-        "capabilities", "written_profile", "interpretation_profile",
+        "resume_profile", "settlement", "capabilities", "written_profile", "interpretation_profile",
         "annotation_profile", "annotation_language_skills", "career_profile",
         "education_experiences", "language_skills", "certificates", "allow_duplicate",
         *TALENT_MANAGED_FIELDS,
@@ -1359,6 +1384,8 @@ def update_recruitment_talent(
                 setattr(person.career_profile, key, value)
     _sync_owned_collections(db, person, payload)
     _sync_display_name(person)
+    save_resume_profile(db, person, payload, actor, allow_cat=False)
+    save_settlement(db, person, payload, actor)
     _record_talent_operation(person, actor)
     person.updated_at = business_now()
     db.flush()

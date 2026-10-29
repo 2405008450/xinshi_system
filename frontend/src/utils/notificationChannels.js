@@ -1,13 +1,14 @@
-// 与后端 notification_channels.py 保持一致；未知业务类型继续进入通知。
+// 与后端 notification_channels.py 保持一致；聊天按命名规则识别，避免历史/新增类型漏入系统铃铛。
 export const CHAT_NOTIFICATION_TYPES = [
-  'discussion_chat', 'annotation_project_chat', 'discussion_chat_mention', 'project_chat', 'project_chat_mention', 'annotation_project_chat_mention',
+  'discussion_chat', 'discussion_chat_mention', 'project_chat', 'project_chat_mention', 'annotation_project_chat', 'annotation_project_chat_mention',
   'annotation_project_chat_invite', 'direct_chat', 'direct_chat_mention', 'direct_chat_invite',
 ]
-export const isChatNotification = item => CHAT_NOTIFICATION_TYPES.includes(String(item?.notification_type || ''))
+const notificationType = item => String(item?.notification_type || '').trim().toLowerCase()
+export const isChatNotification = item => /(^|_)chat(_|$)/.test(notificationType(item)) && !CONVERSATION_NOTIFICATION_TYPES.includes(notificationType(item))
 export const isBusinessNotification = item => !isChatNotification(item)
 export const CONVERSATION_NOTIFICATION_TYPES = ['resource_request_dispatch', 'chat_summary']
-export const isSystemNotification = item => isBusinessNotification(item) && !CONVERSATION_NOTIFICATION_TYPES.includes(String(item?.notification_type || ''))
-export const isChatMentionNotification = item => isChatNotification(item) && String(item.notification_type).endsWith('_mention')
+export const isSystemNotification = item => isBusinessNotification(item) && !CONVERSATION_NOTIFICATION_TYPES.includes(notificationType(item))
+export const isChatMentionNotification = item => isChatNotification(item) && notificationType(item).endsWith('_mention')
 // 普通留言只在会话列表显示弱提示；提及和邀请仍可主动提醒。
 export const isChatAttentionNotification = item => isChatMentionNotification(item) || (
   isChatNotification(item) && String(item.notification_type).endsWith('_invite')

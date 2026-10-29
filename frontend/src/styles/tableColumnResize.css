@@ -1,0 +1,8 @@
+.app-column-resize-header { position: relative; }
+.app-column-resize-handle { position: absolute; z-index: 5; top: 0; bottom: 0; right: 0; width: 14px; display: block; cursor: col-resize !important; touch-action: none; user-select: none; }
+.app-column-resize-handle::after { content: ''; position: absolute; right: 0; top: 10%; bottom: 10%; width: 3px; border-radius: 2px; background: transparent; transition: background .12s; }
+.app-column-resize-handle:hover::after, .app-column-resize-handle:focus-visible::after { background: var(--el-color-primary, #409eff); }
+.app-column-resize-handle:focus-visible { outline: 2px solid var(--el-color-primary, #409eff); outline-offset: -2px; }
+.app-column-resize-guide { position: fixed; width: 2px; z-index: 2147483646; background: var(--el-color-primary, #409eff); pointer-events: none; }
+html.app-column-resizing, html.app-column-resizing * { cursor: col-resize !important; user-select: none !important; }
+.app-column-resize-hover, .app-column-resize-hover * { cursor: col-resize !important; }

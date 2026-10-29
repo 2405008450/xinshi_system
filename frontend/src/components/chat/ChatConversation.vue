@@ -70,6 +70,8 @@ import { mentionParts as splitMentionParts } from '@/utils/chatMentions'
 import { quoteSpeakerMention,clearAutomaticQuoteMention } from '@/utils/quoteSpeakerMention'
 import { projectMentionOrder } from '@/utils/projectMentionOrder'
 import { useAnnotationMentionManagers } from '@/composables/useAnnotationMentionManagers'
+import { useRecalledMessageDrafts } from '@/composables/useRecalledMessageDrafts'
+import { combineRecallDraft } from '@/utils/recallDrafts'
 
 const props = defineProps({
   projectType: { type: String, default: 'annotation' },
@@ -96,6 +98,7 @@ onMounted(() => { headerReady.value = true })
 const request = (...args) => (isDirect.value ? directChatRequest : annotationChatRequest)(...args)
 const emit = defineEmits(['add-to-progress', 'unread'])
 const currentUserId = localStorage.getItem('user_id') || ''
+const recallDrafts = useRecalledMessageDrafts(computed(() => [props.projectType, props.projectId]))
 // 局域网 HTTP 下 randomUUID 可能不可用，getRandomValues 仍可生成标准 UUID。
 const newMessageId = () => {
   const bytes = crypto.getRandomValues(new Uint8Array(16)); bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128
@@ -314,8 +317,22 @@ async function acknowledge(message) {
 async function recall(message) {
   try {
     await ElMessageBox.confirm('撤回后其他用户将无法查看正文和附件，确定撤回？', '确认操作', { type: 'warning', customClass: 'chat-confirm-message-box' })
+    await recallDrafts.remember(message, fileBlob)
     const data = await request(props.projectId, `messages/${message.id}/recall`, { method: 'post' }); merge([data]); await sync()
   } catch (e) { if (e !== 'cancel' && e !== 'close') ElMessage.error(detail(e)) }
+}
+async function reeditMessage(message) {
+  if (sending.value || retryPayload.value) return ElMessage.warning('请先处理当前正在发送或发送失败的消息')
+  const recovered = await recallDrafts.restore(message)
+  if (!recovered || sending.value || retryPayload.value) return
+  try {
+    const result = combineRecallDraft({ content: content.value, mentionIds: mentionIds.value, replyTo: replyTo.value }, recovered)
+    content.value = result.content; mentionIds.value = result.mentionIds; replyTo.value = result.replyTo
+    if (recovered.files.length) addFiles(recovered.files)
+    if (recovered.files.length < recovered.attachmentCount) ElMessage.warning('原文已恢复，部分附件暂存不可用，请重新添加')
+    closeMention(); sendError.value = ''; draft.persistNow(); recallDrafts.forget(message)
+    await nextTick(); input.value?.focus()
+  } catch (e) { ElMessage.warning(e.message) }
 }
 function toProgress(customRows) {
   const rows = Array.isArray(customRows) ? customRows : messages.value.filter(m => selected.value.includes(m.id) && !m.recalledAt && m.content)
@@ -518,7 +535,7 @@ onBeforeUnmount(() => {
 })
 function openSearch() { searchOpen.value = !searchOpen.value }
 function onSearchLocate(messageId) { return locate(messageId) }
-provide('chatController', { contentTooLong, pendingImages, imageQueue, draft, props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, fileBlob, download, copy, replyTo, quoteMessage, cancelQuote, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
+provide('chatController', { recallDrafts, reeditMessage, screenshotUploading, contentTooLong, pendingImages, imageQueue, draft, props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, fileBlob, download, copy, replyTo, quoteMessage, cancelQuote, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
 defineExpose({ openSearch, locate, cancelLocate, toggleFilters: openSearch })
 </script>
 

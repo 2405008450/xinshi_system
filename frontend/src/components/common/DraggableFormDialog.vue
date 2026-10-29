@@ -3,9 +3,8 @@
     ref="dialogRef"
     v-bind="$attrs"
     :model-value="modelValue && !minimized"
-    class="draggable-form-dialog"
-    :class="{ 'is-maximized': maximizable && maximized, 'is-draggable': draggable, 'is-dragging': geometry.state.dragging }"
-    :draggable="draggable"
+    :class="['draggable-form-dialog', { 'is-draggable': draggable && !geometry.state.maximized, 'is-dragging': geometry.state.dragging, 'is-maximized': geometry.state.maximized }]"
+    :draggable="false"
     :overflow="false"
     :show-close="false"
     :destroy-on-close="minimized ? false : ($attrs.destroyOnClose ?? $attrs['destroy-on-close'])"
@@ -29,7 +28,7 @@
     <template v-for="slotName in Object.keys($slots).filter(name=>!['header','default'].includes(name))" #[slotName]="slotProps">
       <slot :name="slotName" v-bind="slotProps" />
     </template>
-    <template #default><slot /><Teleport v-if="contentElement" :to="contentElement"><i v-for="edge in ['n','s','w','e','nw','ne','sw','se']" :key="edge" class="app-window-resize" :class="`app-window-resize--${edge}`" title="拖动调整窗口大小" @mousedown="geometry.start($event,edge)" /></Teleport></template>
+    <template #default><slot /><Teleport v-if="contentElement && !geometry.state.maximized" :to="contentElement"><i v-for="edge in ['n','s','w','e','nw','ne','sw','se']" :key="edge" class="app-window-resize" :class="`app-window-resize--${edge}`" :title="'拖动调整窗口大小'" @mousedown="geometry.start($event,edge)" /></Teleport></template>
   </el-dialog>
   <WindowMinibar v-if="modelValue && minimized" :title="minimizedTitle" @restore="restoreMinimized" @close="closeMinimized" />
 </template>
@@ -51,17 +50,42 @@ const props = defineProps({
   nonModal: { type: Boolean, default: false },
   resetOnOpen: { type: Boolean, default: true },
   maximizable: { type: Boolean, default: false },
+  defaultMaximized: { type: Boolean, default: false },
+  maximizeTarget: { type: String, default: '' },
 })
 
 const emit = defineEmits(['update:modelValue', 'open','opened','close','closed'])
 const dialogRef = ref(null)
 const contentElement=ref(null)
 const attrs=useAttrs(),minimized=ref(false),restoring=ref(false),minimizedTitle=ref('窗口')
-const geometry=useWindowGeometry(()=>dialogRef.value?.dialogContentRef?.$el||dialogRef.value?.$el?.querySelector?.('.el-dialog'))
-const maximized = computed(() => geometry.state.maximized)
-const geometryStyle=computed(()=>geometry.state.rect?{position:'fixed',left:`${geometry.state.rect.x}px`,top:`${geometry.state.rect.y}px`,width:`${geometry.state.rect.width}px`,height:`${geometry.state.rect.height}px`,margin:0,transform:'none',maxWidth:'calc(100vw - 16px)',maxHeight:'calc(100vh - 16px)'}:{})
+function maximizeBounds(){
+  const target=props.maximizeTarget&&document.querySelector(props.maximizeTarget)
+  if(!target)return null
+  const bounds=target.getBoundingClientRect()
+  let left=Math.max(0,bounds.left),top=Math.max(0,bounds.top),right=Math.min(window.innerWidth,bounds.right),bottom=window.innerHeight
+  // 内容可能比一屏更长；仅覆盖当前可见区域，保留导航与侧栏。
+  for(let parent=target.parentElement;parent&&parent!==document.body;parent=parent.parentElement){
+    const style=getComputedStyle(parent),rect=parent.getBoundingClientRect()
+    if(/auto|scroll|hidden|clip/.test(style.overflowY)){top=Math.max(top,rect.top);bottom=Math.min(bottom,rect.bottom)}
+    if(/auto|scroll|hidden|clip/.test(style.overflowX)){left=Math.max(left,rect.left);right=Math.min(right,rect.right)}
+  }
+  return {x:left,y:top,width:Math.max(1,right-left),height:Math.max(1,bottom-top)}
+}
+const geometry=useWindowGeometry(()=>dialogRef.value?.dialogContentRef?.$el||dialogRef.value?.$el?.querySelector?.('.el-dialog'),{maximizeBounds})
+let targetObserver
+const refreshTargetBounds=()=>{if(geometry.state.maximized&&props.maximizeTarget)geometry.refreshBounds()}
+function observeTarget(){
+  targetObserver?.disconnect()
+  if(!props.maximizeTarget)return
+  const target=document.querySelector(props.maximizeTarget)
+  if(!target)return
+  targetObserver=new ResizeObserver(refreshTargetBounds)
+  targetObserver.observe(target)
+  if(target.parentElement)targetObserver.observe(target.parentElement)
+}
+const geometryStyle=computed(()=>geometry.state.rect?{position:'fixed',left:`${geometry.state.rect.x}px`,top:`${geometry.state.rect.y}px`,width:`${geometry.state.rect.width}px`,height:`${geometry.state.rect.height}px`,margin:0,transform:'none',boxSizing:'border-box',maxWidth:geometry.state.maximized?'100vw':'calc(100vw - 16px)',maxHeight:geometry.state.maximized?'100vh':'calc(100vh - 16px)'}:{})
 function headerDrag(event){
-  if(!props.draggable||!event.target.closest('.el-dialog__header')||event.target.closest('button,a,input,textarea,select,[contenteditable],.is-copyable-title,.dialog-field-search-header__search'))return
+  if(!props.draggable||geometry.state.maximized||!event.target.closest('.el-dialog__header')||event.target.closest('button,a,input,textarea,select,[contenteditable],.is-copyable-title,.dialog-field-search-header__search'))return
   if(event.target.closest('.app-window-drag-strip'))return
   if(getComputedStyle(event.target).userSelect==='text')return
   geometry.start(event)
@@ -72,7 +96,7 @@ function closeMinimized(){const done=()=>{minimized.value=false;emit('update:mod
 function handleOpened(){contentElement.value=dialogRef.value?.dialogContentRef?.$el;if(restoring.value){restoring.value=false;return}emit('opened')}
 function handleClosed(){if(!minimized.value)emit('closed')}
 watch(()=>props.modelValue,value=>{if(!value){minimized.value=false;restoring.value=false;geometry.reset();contentElement.value=null}})
-onBeforeUnmount(()=>{minimized.value=false})
+onBeforeUnmount(()=>{minimized.value=false;targetObserver?.disconnect();window.removeEventListener('scroll',refreshTargetBounds,true)})
 
 const resetPosition = () => {geometry.reset();return nextTick(() => dialogRef.value?.resetPosition?.())}
 const handleClose = () => dialogRef.value?.handleClose?.()
@@ -95,6 +119,8 @@ const handleOpen = async () => {
   if(restoring.value)return
   if (props.resetOnOpen) await resetPosition()
   else await nextTick()
+  if (props.defaultMaximized) geometry.maximize()
+  observeTarget()
   if (props.nonModal) {
     const content = dialogRef.value?.dialogContentRef?.$el
     content?.closest('[role="dialog"]')?.setAttribute('aria-modal', 'false')
@@ -108,6 +134,7 @@ const handleOpen = async () => {
 
 // 按需挂载的全局小窗初始即打开，Element Plus 此时不会触发 open 事件。
 onMounted(() => {
+  window.addEventListener('scroll',refreshTargetBounds,true)
   if (props.modelValue) handleOpen()
 })
 
@@ -123,6 +150,13 @@ defineExpose({ resetPosition, handleClose, minimize, restore:restoreMinimized, m
   max-height: 90vh;
   overflow: hidden;
   transition: box-shadow 160ms ease;
+}
+
+.el-dialog.draggable-form-dialog.is-maximized {
+  border-radius: 0;
+}
+.el-dialog.draggable-form-dialog.is-maximized > .el-dialog__header {
+  cursor: default;
 }
 
 .el-dialog.draggable-form-dialog > .el-dialog__header {

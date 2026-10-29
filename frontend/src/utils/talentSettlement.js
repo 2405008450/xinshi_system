@@ -1,0 +1,7 @@
+export const settlementCategoryOptions = [{value:'interpretation',label:'口译'},{value:'written_translation',label:'笔译'},{value:'annotation',label:'标注'},{value:'collection',label:'采集'}]
+export const settlementCurrencyOptions = [{value:'CNY',label:'CNY 人民币'},{value:'USD',label:'USD 美元'},{value:'HKD',label:'HKD 港币'},{value:'EUR',label:'EUR 欧元'},{value:'GBP',label:'GBP 英镑'}]
+export const settlementUnitOptions = [{value:'word',label:'字'},{value:'thousand_words',label:'千字'},{value:'hour',label:'小时'},{value:'work_hour',label:'工作小时'},{value:'effective_hour',label:'有效小时'},{value:'day',label:'天'},{value:'occurrence',label:'次'},{value:'item',label:'条'},{value:'second',label:'秒'},{value:'minute',label:'分钟'},{value:'page',label:'页'},{value:'image',label:'张'},{value:'project',label:'项目'}]
+export const settlementLabel = (options,value) => options.find(item=>item.value===value)?.label || value || '-'
+export const emptySettlement = () => ({revision:0,bankAccount:'',paypalAccount:'',payoneerAccount:'',wechatPaymentCode:'',alipayPaymentCode:'',invoiceAvailable:null,invoiceEntity:'',gigPlatformCalculation:false,prices:[]})
+export const settlementForm = value => ({...emptySettlement(),...(value||{}),prices:(value?.prices||[]).map(row=>({...row,amount:row.amount==null?null:Number(row.amount)}))})
+export const newSettlementPrice = () => ({id:crypto.randomUUID(),category:null,amount:null,unit:'',currency:'CNY'})

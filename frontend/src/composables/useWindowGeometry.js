@@ -15,7 +15,7 @@ export function moveWindow(initial,edge,dx,dy,viewport){
   }
   return clampWindow(r,viewport)
 }
-export function useWindowGeometry(element){
+export function useWindowGeometry(element,options={}){
   const state=reactive({rect:null,maximized:false,dragging:false}),saved={rect:null}
   let stop=()=>{}
   let anchorFrame = null
@@ -34,21 +34,26 @@ export function useWindowGeometry(element){
   function measure(){const r=element()?.getBoundingClientRect();return r?{x:r.left,y:r.top,width:r.width,height:r.height}:null}
   function set(rect){state.rect=clampWindow(rect)}
   function reset(){stop();state.rect=null;state.maximized=false;saved.rect=null}
-  function maximize(){if(state.maximized)return;saved.rect=state.rect||measure();state.maximized=true;state.rect={x:8,y:8,width:window.innerWidth-16,height:window.innerHeight-16}}
+  function fullscreenRect(){return options.maximizeBounds?.()||{x:0,y:0,width:window.innerWidth,height:window.innerHeight}}
+  function maximize(){if(state.maximized)return;stop();saved.rect=state.rect||measure();state.maximized=true;state.rect=fullscreenRect()}
   function restore(){if(state.maximized){state.maximized=false;state.rect=saved.rect?clampWindow(saved.rect):null}else reset()}
   function start(event,edge='move'){
     if(event.button!==0||state.maximized)return
     const initial=measure();if(!initial)return
-    event.preventDefault();event.stopPropagation();stop();set(initial)
+    event.preventDefault();event.stopPropagation();stop()
     const x=event.clientX,y=event.clientY,oldSelect=document.body.style.userSelect
-    document.body.style.userSelect='none'
-    state.dragging=true
-    const move=e=>set(moveWindow(initial,edge,e.clientX-x,e.clientY-y))
+    // 只在实际移动后改变几何尺寸，点击标题或轻微抖动不触发布局重算。
+    const move=e=>{
+      const dx=e.clientX-x,dy=e.clientY-y
+      if(!state.dragging&&Math.max(Math.abs(dx),Math.abs(dy))<3)return
+      document.body.style.userSelect='none';state.dragging=true
+      set(moveWindow(initial,edge,dx,dy))
+    }
     stop=()=>{window.removeEventListener('mousemove',move);window.removeEventListener('mouseup',stop);window.removeEventListener('blur',stop);document.body.style.userSelect=oldSelect;state.dragging=false}
     window.addEventListener('mousemove',move);window.addEventListener('mouseup',stop,{once:true});window.addEventListener('blur',stop,{once:true})
   }
-  const viewportChanged=()=>{if(state.maximized)state.rect={x:8,y:8,width:window.innerWidth-16,height:window.innerHeight-16};else if(state.rect)set(state.rect)}
+  const viewportChanged=()=>{if(state.maximized){const rect=fullscreenRect();if(!state.rect||Object.keys(rect).some(key=>rect[key]!==state.rect[key]))state.rect=rect}else if(state.rect)set(state.rect)}
   window.addEventListener('resize',viewportChanged)
   onBeforeUnmount(()=>{stop();stopAnchors();if(anchorFrame!==null)window.cancelAnimationFrame(anchorFrame);window.removeEventListener('resize',viewportChanged)})
-  return {state,reset,maximize,restore,start}
+  return {state,reset,maximize,restore,start,refreshBounds:viewportChanged}
 }

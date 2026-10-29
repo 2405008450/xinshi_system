@@ -36,11 +36,12 @@ import TalentDetailContent from './TalentDetailContent.vue'
 import TalentProjectSituationPopover from './TalentProjectSituationPopover.vue'
 import { getTalent,getTalentProjects } from '@/api/talents'
 import { getTalentDisplayName } from '@/utils/talentNames'
+import { talentStatusLabels } from '@/utils/talentStatus'
 import { formatBusinessDateTime } from '@/utils/dateTime'
 import { formatRegionMatchRate } from '@/utils/regionMatchResults'
 const props=defineProps({rows:{type:Array,required:true},columns:{type:Array,required:true},offset:{type:Number,default:0},settingsKey:{type:String,required:true}})
 const name=row=>getTalentDisplayName(row,'人才')
-const statuses={active:'活跃',standby:'备用',inactive:'停用'},capabilities={written_translation:'笔译',interpretation:'口译',annotation:'标注'}
+const statuses=talentStatusLabels,capabilities={written_translation:'笔译',interpretation:'口译',annotation:'标注'}
 const section=key=>({fullName:'identity',educationSummary:'education',languageSummary:'language',overallRating:'performance'})[key]
 function cell(column,row){
  const value=row[column.key]

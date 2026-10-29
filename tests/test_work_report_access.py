@@ -15,6 +15,30 @@ def configure_user(db, user):
     user.username='williamzhao';user.full_name='赵震锋';db.commit()
 
 
+def test_lulu_ethan_inherit_zhao_viewing_but_cannot_configure(environment):
+    from project_arrangement import allowed_people
+    from work_report_collaboration import supervisor
+    db,(owner,lulu,ethan)=environment
+    configure_user(db,owner)
+    lulu.username='lulu';ethan.username='ethan';db.commit()
+    access.save_rule(db,owner,access.AccessRuleWrite(name='共享全部',viewer_ids=[lulu.id,ethan.id],senders_all=True))
+    access.save_rule(db,owner,access.AccessRuleWrite(name='赵震锋专属范围',viewer_ids=[owner.id],sender_ids=[ethan.id]))
+    # 即使 Lulu 有历史独立规则，也严格跟随赵震锋当前生效范围。
+    access.save_rule(db,owner,access.AccessRuleWrite(name='Lulu旧范围',viewer_ids=[lulu.id],sender_ids=[lulu.id]))
+    row=report(db,ethan,date(2026,10,25))
+    for viewer in (owner,lulu,ethan):
+        assert allowed_people(db,viewer)=={ethan.id}
+        assert access.received_report(db,viewer,row.id)['id']==row.id
+        assert access.can_statistics(db,viewer) and supervisor(viewer)
+    assert set(access.settings(db,owner)['inherited_viewer_ids'])=={str(lulu.id),str(ethan.id)}
+    for viewer in (lulu,ethan):
+        assert not access.can_configure(viewer)
+        with pytest.raises(HTTPException):access.save_rule(db,viewer,payload(viewer))
+        viewer.is_active=False;db.commit()
+        assert access.receiving_rules(db,viewer)==[]
+        assert not access.can_statistics(db,viewer) and not supervisor(viewer)
+
+
 def test_personal_scope_overrides_shared_rule_for_each_viewer(environment):
     db,(owner,viewer,sender)=environment
     configure_user(db,owner)

@@ -30,7 +30,7 @@
         <div class="group-mention-options">
           <template v-for="(user, index) in mentionCandidates" :key="user.id">
             <div v-if="!index || (user.mentionSection || user.outside) !== (mentionCandidates[index - 1].mentionSection || mentionCandidates[index - 1].outside)" class="group-mention-section" :class="{ 'is-outside': user.outside }">{{ user.mentionSection || (user.outside ? '未参与人员 · 发送后自动加入' : '群组参与人') }}</div>
-            <button :id="`${mentionListId}-${index}`" type="button" role="option" :aria-selected="index === mentionIndex" :class="{ 'is-active': index === mentionIndex, 'is-outside': user.outside }" @mouseenter="mentionIndex=index" @click="selectMention(user)"><span class="group-mention-avatar">{{ user.name.slice(0, 1) }}</span><span>{{ user.name }}</span><ChatDesktopPresence v-if="!user.all" :online="desktopPresence[user.id]" :loading="desktopPresenceLoading" /><small v-if="user.outside">邀请入群</small></button>
+            <button :id="`${mentionListId}-${index}`" type="button" role="option" :aria-selected="index === mentionIndex" :class="{ 'is-active': index === mentionIndex, 'is-outside': user.outside }" @mouseenter="mentionIndex=index" @click="selectMention(user)"><span class="group-mention-avatar">{{ user.name.slice(0, 1) }}</span><span class="group-mention-person"><span>{{ user.name }}</span><ChatDesktopPresence v-if="!user.all" :online="desktopPresence[user.id]" :work-status="workStatuses[user.id]" :loading="desktopPresenceLoading" /></span><small v-if="user.outside">邀请入群</small></button>
           </template>
           <div v-if="!mentionCandidates.length" class="group-mention-empty">没有匹配的用户</div>
         </div>
@@ -53,12 +53,12 @@ import { useDesktopPresence } from '@/composables/useDesktopPresence'
 import { Paperclip, Picture } from '@element-plus/icons-vue'
 import { useChatComposerHeight } from '@/composables/useChatComposerHeight'
 const { composerStyle, inputStyle, start, resizeByKeyboard } = useChatComposerHeight()
-const { contentTooLong, pendingImages, imageQueue, draft, props, composer, replyTo, cancelQuote, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError } = inject('chatController')
+const { screenshotUploading, isDirect, contentTooLong, pendingImages, imageQueue, draft, props, composer, replyTo, cancelQuote, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError } = inject('chatController')
 // 仅在发送时组合截图引用，文本框始终只编辑可见文字，兼容历史草稿。
 const legacyImageIds = computed(() => screenshotIds(content.value))
 const plainContent = computed({ get: () => screenshotText(content.value), set: value => { content.value = screenshotValue(value, legacyImageIds.value) } })
 function removeLegacyImage(id) { content.value = screenshotValue(plainContent.value, legacyImageIds.value.filter(value => value !== id)) }
-const { statuses: desktopPresence, loading: desktopPresenceLoading } = useDesktopPresence(computed(() => mentionCandidates.value.filter(user=>!user.all).map(user => user.id)), computed(() => props.active && mentionOpen.value))
+const { statuses: desktopPresence, workStatuses, loading: desktopPresenceLoading } = useDesktopPresence(computed(() => mentionCandidates.value.filter(user=>!user.all).map(user => user.id)), computed(() => props.active && mentionOpen.value))
 function keepMentionFocus(event) {
   // 搜索框需要获得焦点；候选按钮保留输入光标，确保选择时替换正确的 @ 文本。
   if (!event.target.closest('input')) event.preventDefault()
@@ -112,4 +112,8 @@ async function insertMention() {
 .group-image-card :deep(.screenshot-text),.group-image-card :deep(.screenshot-previews),.group-image-card :deep(.screenshot-preview),.group-image-card :deep(.el-image){width:100%;height:100%;min-width:0;max-width:100%;margin:0}
 .group-image-card :deep(.screenshot-previews){overflow:hidden}
 @media(max-width:640px){.group-image-queue{height:80px}.group-image-card{flex-basis:96px}}
+</style>
+<style scoped>
+.group-mention-person{display:flex;flex:1;min-width:0;flex-direction:column;align-items:flex-start;gap:3px}
+.group-mention-avatar{flex-shrink:0}
 </style>

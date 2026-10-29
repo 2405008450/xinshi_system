@@ -128,6 +128,7 @@
             <div v-else-if="!hasEarlierMessages && messages.length > conversationPageSize" class="chat-conversation__notice">已经到最早的消息了</div>
             <template v-for="item in conversationItems" :key="item.key">
               <div v-if="item.type === 'date'" v-show="showMessageDates" class="chat-date-divider"><span>{{ item.label }}</span></div>
+              <ChatRecalledMessage v-else-if="item.message.recalledAt" :message="item.message" :can-reedit="recallDrafts.canReedit(item.message)" @reedit="reeditMessage" />
               <div v-else-if="item.isSystem" class="chat-system-message">
                 <div class="chat-system-message__bar">
                   <el-tag size="small" :type="item.message.messageType === 'claim' ? 'warning' : 'success'" effect="plain">
@@ -259,6 +260,8 @@
                :data-message-id="message.id" tabindex="0" data-message-menu-anchor
               @contextmenu="messageMenuRef.open($event,message)" @keydown="messageMenuRef.openKeyboard($event,message)"
             >
+              <ChatRecalledMessage v-if="message.recalledAt" :message="message" :can-reedit="recallDrafts.canReedit(message)" @reedit="reeditMessage" />
+              <template v-else>
               <div class="chat-message-card__meta">
                 <div class="chat-message-card__author">
                   <el-checkbox
@@ -322,6 +325,7 @@
                         </div>
               </div>
               <ChatMessageActions v-if="message.messageType === 'user'" :message="message" :current-user-id="currentUserId" :stats="messageInteractions.stats[message.id]" :views-available="messageInteractions.viewsAvailable.value" :acknowledging="acknowledgementSavingIds.has(message.id)" @reply="startMessageReply" @acknowledge="handleAcknowledgementToggle" @references="(id,event)=>references.open(id,event)" />
+              </template>
             </div>
           </div>
           <el-empty v-else description="暂无沟通记录" :image-size="compact ? 56 : 72" />
@@ -371,6 +375,7 @@
               <el-select
                 v-model="composer.mentionedUserIds"
                 @visible-change="desktopPresenceOpen = $event"
+                popper-class="chat-mention-user-options"
                 multiple
                 clearable
                 filterable
@@ -381,7 +386,7 @@
                 placeholder="@提醒用户（可多选）"
                 class="chat-composer__mention"
               >
-                <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id"><span>{{ user.full_name || user.username }}</span><ChatDesktopPresence v-if="user.id!=='__all__'" class="mention-desktop-state" :online="desktopPresence[user.id]" :loading="desktopPresenceLoading" /></el-option></el-option-group>
+                <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id"><span>{{ user.full_name || user.username }}</span><ChatDesktopPresence v-if="user.id!=='__all__'" class="mention-desktop-state" :online="desktopPresence[user.id]" :work-status="workStatuses[user.id]" :loading="desktopPresenceLoading" /></el-option></el-option-group>
               </el-select>
               <span class="chat-composer__mention-count">{{ composer.mentionedUserIds.length }}/20</span>
             </div>
@@ -398,7 +403,7 @@
               show-word-limit
               placeholder="输入项目沟通内容…"
             />
-            <RichTextComposer external-images
+            <RichTextComposer ref="richComposerRef" external-images
               v-else
               v-model="composer.contentJson"
               :disabled="sending"
@@ -452,6 +457,7 @@
                   ref="mentionSelectRef"
                   v-model="composer.mentionedUserIds"
                 @visible-change="desktopPresenceOpen = $event"
+                popper-class="chat-mention-user-options"
                   multiple
                   filterable
                   :automatic-dropdown="automaticMentionActive"
@@ -462,7 +468,7 @@
                   style="width: 100%"
                   @change="handleMentionSelectionChange"
                 >
-                  <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id"><span>{{ user.full_name || user.username }}</span><ChatDesktopPresence v-if="user.id!=='__all__'" class="mention-desktop-state" :online="desktopPresence[user.id]" :loading="desktopPresenceLoading" /></el-option></el-option-group>
+                  <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id"><span>{{ user.full_name || user.username }}</span><ChatDesktopPresence v-if="user.id!=='__all__'" class="mention-desktop-state" :online="desktopPresence[user.id]" :work-status="workStatuses[user.id]" :loading="desktopPresenceLoading" /></el-option></el-option-group>
                 </el-select>
               </div>
             </el-popover>
@@ -480,7 +486,7 @@
               @compositionend="handleComposerCompositionEnd"
               @keydown="handleComposerKeydown"
             />
-            <RichTextComposer external-images
+            <RichTextComposer ref="richComposerRef" external-images
               v-else
               v-model="composer.contentJson"
               :disabled="sending"
@@ -519,6 +525,9 @@
 <script setup>
 import ChatDesktopPresence from '@/components/chat/ChatDesktopPresence.vue'
 import { useDesktopPresence } from '@/composables/useDesktopPresence'
+import ChatRecalledMessage from './chat/ChatRecalledMessage.vue'
+import { useRecalledMessageDrafts } from '@/composables/useRecalledMessageDrafts'
+import { combineRecallDraft } from '@/utils/recallDrafts'
 import { projectMentionOrder } from '@/utils/projectMentionOrder'
 import { useAnnotationMentionManagers } from '@/composables/useAnnotationMentionManagers'
 import ScreenshotText from '@/components/common/ScreenshotText.vue'
@@ -589,6 +598,7 @@ const toggleLoading = ref(false)
 const messagesLoading = ref(false)
 const chatListRef = ref(null)
 const composerInputRef = ref(null)
+const richComposerRef = ref(null)
 const mentionSelectRef = ref(null)
 const sending = ref(false)
 const { topics, refresh: refreshTopics } = useChatTopics()
@@ -624,7 +634,7 @@ const handleComposerPaste = event => {
 const userOptions = ref([])
 const memberUserIds = ref([])
 const desktopPresenceOpen = ref(false)
-const { statuses: desktopPresence, loading: desktopPresenceLoading } = useDesktopPresence(computed(() => userOptions.value.map(user => user.id)), computed(() => props.active && desktopPresenceOpen.value))
+const { statuses: desktopPresence, workStatuses, loading: desktopPresenceLoading } = useDesktopPresence(computed(() => userOptions.value.map(user => user.id)), computed(() => props.active && desktopPresenceOpen.value))
 const mentionProject = useAnnotationMentionManagers(computed(() => props.projectId), computed(() => props.projectType === 'annotation' && props.active && desktopPresenceOpen.value))
 const mentionUserGroups = computed(() => {
   const users = [{ id:'__all__',full_name:'所有人',all:true },
@@ -713,6 +723,21 @@ const composer = reactive({
   contentJson: { type: 'doc', content: [{ type: 'paragraph' }] },
   mentionedUserIds: []
 })
+const recallDrafts = useRecalledMessageDrafts(computed(() => [props.projectType, props.projectId]))
+async function reeditMessage(message) {
+  if (sending.value) return
+  const recovered = await recallDrafts.restore(message)
+  if (!recovered || sending.value) return
+  try {
+    const result = combineRecallDraft({ content: composer.content, contentJson: composer.contentJson, mentionIds: composer.mentionedUserIds, replyTo: replyToMessage.value }, recovered)
+    composer.content = result.content; composer.contentJson = result.contentJson
+    composer.mentionedUserIds = result.mentionIds; replyToMessage.value = result.replyTo
+    if (recovered.files.length) addComposerImages(recovered.files)
+    if (recovered.files.length < recovered.attachmentCount) ElMessage.warning('原文已恢复，部分附件暂存不可用，请重新添加')
+    sendRequestId = ''; sendFingerprint = ''; closeMentionPopover(); draft.persistNow(); recallDrafts.forget(message)
+    await nextTick(); props.textOnly ? composerInputRef.value?.focus?.() : richComposerRef.value?.focus?.()
+  } catch (e) { ElMessage.warning(e.message) }
+}
 const attachmentUrls = reactive({})
 const attachmentErrors = reactive({})
 const attachmentLoading = new Set()
@@ -806,7 +831,7 @@ const handleAddSelectedToProgress = () => {
 const closeProgressTextMenu = () => messageMenuRef.value?.close()
 const messageMenuHandlers = {
   recall: async message=>{
-    try{await ElMessageBox.confirm('撤回后其他用户将无法查看该消息，确定撤回？','确认撤回',{type:'warning',customClass:'chat-confirm-message-box'});Object.assign(message,await recallProjectChatMessage(props.projectId,message.id))}
+    try{await ElMessageBox.confirm('撤回后其他用户将无法查看该消息，确定撤回？','确认撤回',{type:'warning',customClass:'chat-confirm-message-box'});await recallDrafts.remember(message, file=>getProjectChatAttachmentBlob(file.id));Object.assign(message,await recallProjectChatMessage(props.projectId,message.id))}
     catch(e){if(e!=='cancel'&&e!=='close')ElMessage.error(e.message||'撤回失败')}
   },
   reply: message=>startMessageReply(message),
@@ -2518,4 +2543,6 @@ onBeforeUnmount(() => {
 .chat-composer--conversation{position:relative;margin:10px 12px 14px;padding:8px 10px;border:1px solid #dfe5ee;border-radius:12px;background:white;display:flex;flex-direction:column;gap:6px}.chat-composer--conversation:focus-within{border-color:var(--el-color-primary);box-shadow:0 0 0 2px var(--el-color-primary-light-9)}.chat-composer__input-row{display:flex;flex-wrap:wrap;justify-content:flex-end}.chat-composer__input-row .el-input,.chat-composer__input-row .el-textarea{flex:1 0 100%;width:100%}.chat-composer--conversation :deep(.el-textarea__inner){box-shadow:none;background:transparent;line-height:1.6;padding:6px 8px}.chat-composer-resize{position:absolute;top:-5px;left:20%;width:60%;height:8px;padding:0;border:0;background:transparent;cursor:ns-resize;touch-action:none}.chat-conversation-item__time{white-space:normal;overflow-wrap:anywhere}
 </style>
 
-<style scoped>.mention-desktop-state{float:right;margin-left:12px}</style>
+<style scoped>.mention-desktop-state{display:flex;margin-top:2px}</style>
+
+<style>.chat-mention-user-options{max-width:calc(100vw - 32px)}.chat-mention-user-options .el-select-dropdown__item{height:auto;min-height:34px;padding-top:6px;padding-bottom:6px;line-height:1.5;white-space:normal}</style>

@@ -216,6 +216,8 @@ class DailyReportItemInput(BaseModel):
     def validate_report_form(self):
         import math
         metadata = self.display_metadata or {}
+        from work_report_lunch import validate_item
+        validate_item(metadata,self.duration_minutes,self.source_type)
         quantity = metadata.get("quantity")
         if quantity not in (None, ""):
             try:
@@ -263,6 +265,8 @@ class DailyReportSaveRequest(BaseModel):
     @model_validator(mode='after')
     def reject_screenshots(self):
         import json
+        from work_report_lunch import validate_report
+        validate_report(self.items)
         if 'screenshot://' in json.dumps(self.model_dump(mode='json'), ensure_ascii=False).lower() or 'data:image/' in json.dumps(self.model_dump(mode='json'), ensure_ascii=False).lower():
             raise ValueError('工作报告所有字段禁止粘贴截图，请填写文字或数字')
         return self

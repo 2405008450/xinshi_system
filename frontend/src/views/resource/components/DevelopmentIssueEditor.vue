@@ -4,6 +4,9 @@
     <div ref="bodyRef" v-loading="loading">
       <el-alert v-if="conflict" title="记录已被其他人修改，当前草稿已保留。请复制需要保留的内容，或重新加载后编辑。" type="warning" :closable="false"><el-button text @click="reloadDraft">重新加载</el-button></el-alert>
       <el-alert v-if="!access.summary_ready" title="总结字段尚未初始化，当前可预览表单，初始化后可保存。" type="info" :closable="false" />
+      <el-descriptions :column="1" border size="small" class="issue-save-person" data-dialog-field-search-label="保存人">
+        <el-descriptions-item label="保存人">{{ savePersonName }}</el-descriptions-item>
+      </el-descriptions>
       <AppForm ref="formRef" :model="form" :rules="rules" label-position="top" :disabled="!!form.id && form.can_edit===false">
         <div class="issue-grid">
           <el-form-item label="内容" prop="content" class="wide"><el-input v-model="form.content" type="textarea" :autosize="{minRows:5,maxRows:12}" maxlength="20000" show-word-limit /></el-form-item>
@@ -51,12 +54,15 @@ function selectFollowers(values){if(values.includes('__all__'))form.follower_use
 function applyForm(data){const meta=data.summary||data.summary_data||{};Object.assign(form,data,{specific_classification:meta.specific_classification??data.topic_path??'',planned_completion_at:meta.planned_completion_at?businessDateTimeInputValue(meta.planned_completion_at):'',follower_user_ids:meta.follower_user_ids||[],actual_progress:meta.actual_progress||'',notify_user_ids:meta.notify_user_ids||[],notify_department_ids:meta.notify_department_ids||[],view_all:meta.view_all??(data.id?null:true),view_user_ids:meta.view_user_ids||[],view_department_ids:meta.view_department_ids||[]})}
 const {fieldSearchRef, fieldSearchKeyword, fetchFieldSuggestions, locateDialogField, clearFieldSearch} = useDialogFieldSearch(bodyRef)
 const { access } = useResourceIssues()
+const currentSaverName = ref('')
+const savePersonName = computed(() => form.id ? form.collected_by_name || '-' : currentSaverName.value || '-')
 let baseline = '', sourceMessageId = '', sourceCategory = '', clientRequestId = ''
 let sourceDiscussionRoomId = null
 let openVersion = 0
 const draft = () => JSON.stringify({content:form.content, remarks:form.remarks, category:form.category,specific_classification:form.specific_classification,planned_completion_at:form.planned_completion_at,follower_user_ids:form.follower_user_ids,actual_progress:form.actual_progress,notify_user_ids:form.notify_user_ids,notify_department_ids:form.notify_department_ids,view_all:form.view_all,view_user_ids:form.view_user_ids,view_department_ids:form.view_department_ids})
 async function open(row, messageId, category, discussionRoomId = null) {
   const version = ++openVersion
+  currentSaverName.value = access.user_name || ''
   visible.value = true; loading.value = true; conflict.value = false; clearFieldSearch(); sourceMessageId = messageId; sourceCategory = category; sourceDiscussionRoomId = discussionRoomId
   Object.keys(form).forEach(key => delete form[key])
   try {
@@ -64,6 +70,7 @@ async function open(row, messageId, category, discussionRoomId = null) {
     const [data,options,departmentOptions]=await Promise.all([row?.id ? issueApi.detail(row.id) : messageId ? issueApi.source(messageId,sourceDiscussionRoomId).then(source=>({...source,category,remarks:''})) : Promise.resolve({category:category||'problem',content:'',remarks:'',source_type:'manual',source_title:'手工新增',proposer_name:access.user_name||'当前用户'}),issueApi.options(),refreshDepartments()])
     if (version !== openVersion) return
     users.value=options.users;departments.value=options.departments||departmentOptions.items||[]
+    currentSaverName.value=options.user_name||access.user_name||''
     applyForm({...data,content:data.content??data.source_content}); baseline = draft()
     await nextTick(); formRef.value?.clearValidate()
   } catch (e) { if (version === openVersion) { visible.value = false; ElMessage.error(e.message) } } finally { if (version === openVersion) loading.value = false }
@@ -93,3 +100,4 @@ async function reloadDraft() {
 }
 defineExpose({open})
 </script>
+<style scoped>.issue-save-person{margin-bottom:16px}</style>

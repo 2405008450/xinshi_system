@@ -1,6 +1,7 @@
 import api from './index'
+import {chatClientType} from '@/utils/chatDevice'
 
-export const login = (data) => api.post('/auth/login/json', data)
+export const login = (data) => api.post('/auth/login/json', data,{headers:{'X-Client-Type':chatClientType(navigator)}})
 export const checkCaptchaRequired = () => api.get('/auth/captcha/required')
 export const fetchCaptcha = () => api.get('/auth/captcha')
 export const getCurrentSession = () => api.get('/auth/session')

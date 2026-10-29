@@ -1,4 +1,4 @@
-from uuid import UUID
+from uuid import UUID, uuid4
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
@@ -16,7 +16,7 @@ import asyncio
 
 from database import SessionLocal, get_db
 from models import AppUser
-from notification_ws import notification_manager
+from notification_ws import notification_manager, connection_client_type
 from routers.auth import get_current_user, get_user_from_token_value
 from schemas import NotificationResponse
 from notification_channels import NotificationChannel
@@ -110,6 +110,8 @@ async def notifications_ws(websocket: WebSocket, token: str = Query(default=""),
         return
 
     user_id = None
+    presence_id, presence_sequence = uuid4(), 0
+    desktop = connection_client_type(websocket, client_type) == 'desktop'
     try:
         snapshot = await run_in_threadpool(_socket_snapshot, token)
         if snapshot is None:
@@ -118,6 +120,9 @@ async def notifications_ws(websocket: WebSocket, token: str = Query(default=""),
         user_id, unread, business_unread = snapshot
 
         await notification_manager.connect(user_id, websocket, client_type)
+        if desktop:
+            presence_sequence += 1
+            await run_in_threadpool(_publish_socket_presence, user_id, presence_id, presence_sequence, True)
         await websocket.send_json({"type": "snapshot", "unread_count": unread, "business_unread_count": business_unread})
 
         while True:
@@ -131,9 +136,15 @@ async def notifications_ws(websocket: WebSocket, token: str = Query(default=""),
                 notification_manager.disconnect(user_id, websocket)
                 await websocket.close(code=1008)
                 return
-            if message is None:
-                continue
+            # 没有业务文本不代表离线；Uvicorn 协议层 ping/pong 独立于浏览器 JS
+            # 定时器，断网会触发 receive_text 的断开事件。仍连接时续期共享租约。
             notification_manager.touch(user_id, websocket)
+            if desktop:
+                presence_sequence += 1
+                await run_in_threadpool(_publish_socket_presence, user_id, presence_id, presence_sequence, True)
+            if message is None:
+                await websocket.send_json({'type': 'ping'})
+                continue
             if message == 'ping':
                 await websocket.send_json({"type": "pong"})
             else:
@@ -153,6 +164,22 @@ async def notifications_ws(websocket: WebSocket, token: str = Query(default=""),
         if user_id is not None:
             notification_manager.disconnect(user_id, websocket)
         await websocket.close(code=1011)
+    finally:
+        if desktop and user_id is not None:
+            notification_manager.disconnect(user_id, websocket)
+            await run_in_threadpool(_publish_socket_presence, user_id, presence_id, presence_sequence + 1, False)
+
+
+def _publish_socket_presence(user_id, client_id, sequence, active):
+    # 兼容已有前端：服务端从已鉴权的电脑连接采集，不依赖新增 HTTP 心跳。
+    from chat_presence_registry import record
+    from sqlalchemy.exc import SQLAlchemyError
+    try:
+        with SessionLocal() as db:
+            return record(db, user_id, client_id, sequence, active)
+    except SQLAlchemyError:
+        # 心跳存储失败不能影响聊天；当前进程仍保留真实连接，后续心跳重试。
+        return False
 
 
 def _socket_snapshot(token):

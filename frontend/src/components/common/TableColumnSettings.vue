@@ -4,6 +4,7 @@
     placement="bottom-end"
     :width="secondaryColumns.length ? 620 : (columnCount > 1 ? 520 : 280)"
     popper-class="table-column-settings-popover"
+    @hide="searchKeyword = ''"
   >
     <template #reference>
       <el-button>字段设置</el-button>
@@ -19,7 +20,11 @@
         </div>
         <ColumnDefaultActions :settings-key="settingsKey" :title="title" :columns="columns" :selected-keys="modelValue" @apply="$emit('update:modelValue', $event)" @reset="reset(false)" />
       </div>
+      <div class="column-settings__search">
+        <el-input v-model="searchKeyword" clearable placeholder="搜索字段名称，支持多个关键词" aria-label="搜索字段名称" :prefix-icon="Search" />
+      </div>
       <div v-if="hint" class="column-settings__hint">{{ hint }}</div>
+      <div v-if="searchKeyword.trim()" class="column-settings__matches">匹配 {{ filteredColumns.length }} 项</div>
       <el-checkbox-group
         :model-value="modelValue"
         :style="{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }"
@@ -30,6 +35,7 @@
           <el-checkbox :value="column.key">{{ column.label }}</el-checkbox>
         </div>
       </el-checkbox-group>
+      <div v-if="!filteredColumns.length" class="column-settings__empty">{{ searchKeyword.trim() ? '没有匹配的字段，请调整关键词' : '暂无可选字段' }}</div>
 
       <template v-if="secondaryColumns.length">
         <el-divider />
@@ -44,6 +50,7 @@
           <ColumnDefaultActions :settings-key="settingsKey" section="secondary" :title="secondaryTitle" :columns="secondaryColumns" :selected-keys="secondaryModelValue" @apply="$emit('update:secondaryModelValue', $event)" @reset="reset(true)" />
         </div>
         <div v-if="secondaryHint" class="column-settings__hint">{{ secondaryHint }}</div>
+        <div v-if="searchKeyword.trim()" class="column-settings__matches">匹配 {{ filteredSecondaryColumns.length }} 项</div>
         <el-checkbox-group
           :model-value="secondaryModelValue"
           :style="{ gridTemplateColumns: `repeat(${secondaryColumnCount}, minmax(0, 1fr))` }"
@@ -54,6 +61,7 @@
             <el-checkbox :value="column.key">{{ column.label }}</el-checkbox>
           </div>
         </el-checkbox-group>
+        <div v-if="!filteredSecondaryColumns.length" class="column-settings__empty">{{ searchKeyword.trim() ? '没有匹配的字段，请调整关键词' : '暂无可选字段' }}</div>
       </template>
       <div class="column-settings__footer">
         <span>拖动 ⠿ 调整顺序，勾选与排序即时生效并自动保存</span>
@@ -64,6 +72,8 @@
 
 <script setup>
 import { computed, ref, watch, onBeforeUnmount } from 'vue'
+import { Search } from '@element-plus/icons-vue'
+import { matchesSearch } from '@/utils/searchMatching'
 import ColumnDefaultActions from './ColumnDefaultActions.vue'
 import { useTableColumnOrder } from '@/composables/useTableColumnOrder'
 import { moveColumn } from '@/utils/tableColumnOrder'
@@ -83,10 +93,11 @@ const props = defineProps({
   secondaryHint: { type: String, default: '' }
 })
 
+const searchKeyword = ref('')
 const mainOrder = useTableColumnOrder(computed(() => props.settingsKey), 'main', computed(() => props.columns))
 const secondaryOrder = useTableColumnOrder(computed(() => props.settingsKey), 'secondary', computed(() => props.secondaryColumns))
-const filteredColumns = computed(() => mainOrder.orderedColumns.value)
-const filteredSecondaryColumns = computed(() => secondaryOrder.orderedColumns.value)
+const filteredColumns = computed(() => mainOrder.orderedColumns.value.filter(column => matchesSearch(column.label, searchKeyword.value)))
+const filteredSecondaryColumns = computed(() => secondaryOrder.orderedColumns.value.filter(column => matchesSearch(column.label, searchKeyword.value)))
 const emit = defineEmits(['update:modelValue', 'update:secondaryModelValue', 'reset', 'resetSecondary'])
 const dropKey = ref(null), dragSecondary = ref(false)
 const settingsRoot = ref(null)
@@ -120,6 +131,9 @@ function reset(secondary) {
 
 <style scoped>
 .column-settings { max-height: min(560px, calc(100vh - 120px)); overflow-y: auto; }
+.column-settings__search { position: sticky; top: 0; z-index: 1; padding: 0 0 12px; background: var(--el-bg-color-overlay); }
+.column-settings__matches { margin-bottom: 6px; color: var(--el-text-color-secondary); font-size: 12px; }
+.column-settings__empty { padding: 18px 8px; color: var(--el-text-color-secondary); font-size: 13px; text-align: center; }
 .column-settings__section-header { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 10px 16px; padding-bottom: 10px; }
 .column-settings__section-title { color: var(--el-text-color-primary); font-weight: 600; }
 .column-settings__summary { display: flex; gap: 16px; margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; }

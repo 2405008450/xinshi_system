@@ -4,7 +4,7 @@ from fastapi import FastAPI,HTTPException
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from test_chat_participant_access import environment
-from test_monthly_shift import setup
+from test_monthly_shift import setup,sync
 import weekly_shift as service
 import monthly_shift as monthly
 
@@ -38,6 +38,7 @@ def test_permissions_personal_privacy_and_validation(environment):
     for value in ['2026-13-01','2026-1-1','bad']:
         with pytest.raises(HTTPException):service.week_key(value)
     service.save_plan(db,admin,'2026-10-19',payload(person))
+    sync(db,admin,'2026-10-19')
     mine=service.my_plan(db,person,'2026-10-25');assert mine['assignment']['user_id']==str(person.id)
     assert 'assignments' not in mine and service.my_plan(db,other,'2026-10-25')['assignment'] is None
     assert service.my_plan(db,person,'2026-10-26')['assignment'] is None
@@ -141,8 +142,9 @@ def test_copy_does_not_propagate_fixed_assignments(environment):
     service.save_plan(db,admin,'2026-12-21',payload(person))
     service.transfer_plan(db,admin,transfer('2026-12-21','2026-12-28',1,0,'copy'))
     from datetime import date
-    raw=db.get(service.WeeklyShiftPlan,date(2026,12,28))
+    raw=db.get(service.publication.WeeklyShiftDraft,date(2026,12,28))
     assert [entry['user_id'] for entry in raw.assignments]==[str(person.id)]
+    sync(db,admin,'2026-12-28')
     effective=service.overview(db,person,'2026-12-28')['assignments']
     assert next(row for row in effective if row['user_id']==str(other.id))['fixed']
 
@@ -153,6 +155,7 @@ def test_workbench_overview_all_users_readonly_without_hr_access(environment):
     from database import get_db
     db,(admin,person,other)=environment;setup(db,[admin,person,other])
     service.save_plan(db,admin,'2026-10-26',service.WeeklyPlanWrite(revision=0,assignments=[*payload(person).assignments,*payload(other).assignments]))
+    sync(db,admin,'2026-10-26')
     app=FastAPI();app.include_router(router);app.dependency_overrides[get_db]=lambda:db;app.dependency_overrides[get_current_user]=lambda:person
     with TestClient(app) as client:
         response=client.get('/monthly-shifts/weekly/overview?week=2026-11-01')

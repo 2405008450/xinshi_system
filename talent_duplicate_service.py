@@ -32,21 +32,23 @@ PROFILES = ("written_profile", "interpretation_profile", "annotation_profile", "
 CONCAT_FIELDS = {"remarks", "overall_rating", "cooperation_note", "punctuality_note", "annotation_experience",
                  "interpretation_experience", "translation_experience", "other_experience",
                  "audio_annotation_evaluation", "non_audio_annotation_evaluation", "collection_evaluation",
-                 "wechat_groups", "registration_source"}
+                 "wechat_groups", "wecom_large_groups", "registration_source", "interpretation_rating_note", "interpretation_domains", "written_translation_evaluation"}
 FIELD_LABELS = {
-    "full_name": "原姓名", "chinese_name": "中文姓名", "english_name": "英文姓名", "nickname": "昵称",
+    "identity_number": "身份证号码", "eyesight": "视力",
+    "full_name": "原姓名", "chinese_name": "中文姓名", "english_name": "外文姓名", "nickname": "昵称",
     "other_names": "其他名字", "primary_phone": "手机", "secondary_phone": "备用电话", "primary_email": "邮箱",
     "secondary_email": "备用邮箱", "contact_info": "兼容联系方式", "other_contact": "其他联系方式",
     "wechat": "个人微信", "whatsapp": "WhatsApp", "skype": "Skype", "line": "Line", "gender": "性别",
     "birth_date": "出生日期", "birth_year_month": "出生年月", "reported_age": "登记年龄", "nationality": "国籍",
     "ethnicity": "民族", "ancestral_home": "籍贯", "native_place": "主要成长地", "residence_address": "现居地",
     "registration_source": "来源", "wechat_account": "所在微信（公司账号）", "wechat_accounts": "所在微信（公司账号）",
-    "wechat_groups": "所在微信群", "highest_education": "最高学历", "employment_status": "职业状态",
+    "wechat_groups": "所在企微小群", "wecom_large_groups": "所在企微大群", "residence_timezone": "时区", "contact_availability": "可联系时段", "highest_education": "最高学历", "employment_status": "职业状态",
     "employment_detail": "职业说明", "remarks": "备注", "resume_path": "简历路径", "status": "档案状态",
     "cooperation_type": "合作形式", "capabilities": "专业能力", "education_experiences": "学历经历",
     "language_skills": "语言情况（类型／熟悉程度）", "certificates": "证书", "annotation_language_skills": "标注语言方向",
     "annotation_experience": "标注经验", "interpretation_experience": "口译经验", "translation_experience": "笔译经验",
-    "other_experience": "其他经验", "overall_score": "总体评分", "overall_rating": "总体评价",
+    "other_experience": "其他经验", "talent_grade": "人才分级", "overall_score": "标注总体评分", "overall_rating": "标注总体评价",
+    "interpretation_domains": "口译领域", "interpretation_rating": "口译员评级", "interpretation_rating_note": "口译说明", "written_translation_score": "笔译总体评价", "written_translation_evaluation": "笔译具体评价",
     "annotation_willingness": "标注意愿", "dialects": "方言", "dialect_regions": "方言地区",
     "cooperation_level": "配合度", "cooperation_note": "配合评价", "punctuality_level": "准时程度",
     "punctuality_note": "准时评价", "height": "身高", "appearance": "容貌", "first_contact_date": "首次联系",
@@ -174,6 +176,8 @@ def contact_identifiers(person):
     """全部主备用联系方式交叉核对；保留国际区号，不猜测本地号码所属国家。"""
     result = {"email": set(), "phone": set(), "wechat": set(), "whatsapp": set(), "skype": set(), "line": set()}
     for field in RESOURCE_CONTACT_FIELDS:
+        if field == 'identity_number':
+            continue  # 身份证属于受限资料，不作为联系方式自动查重。
         value = str(getattr(person, field, None) or "").strip()
         if value.lower() in PLACEHOLDERS or not value:
             continue
@@ -274,7 +278,7 @@ def full_snapshot(db, ids):
 def _business_values(person):
     data = ResourcePersonDetailResponse.model_validate(person).model_dump(mode="json")
     result = {key: data.get(key) for key in ResourcePersonUpdate.model_fields
-              if key not in SYSTEM_FIELDS and key not in {*COLLECTIONS, *PROFILES, "allow_duplicate"}}
+              if key not in SYSTEM_FIELDS and key not in {*COLLECTIONS, *PROFILES, "resume_profile", "settlement", "allow_duplicate"}}
     result.pop("wechat_account", None)  # 旧兼容字符串由公司账号公共能力生成。
     for profile in PROFILES:
         value = data.get(profile)
@@ -756,9 +760,11 @@ def preview(db, request):
 
 
 def _apply_merge(db, target, payload, actor):
+    from talent_evaluation_audit import evaluation_snapshot, record_evaluation_changes
+    evaluation_before = evaluation_snapshot(target)
     from resource_service import PROFILE_FIELDS, _sync_legacy_translator, _sync_display_name
     from talent_wechat_accounts import write_talent_accounts
-    for key, value in payload.model_dump(exclude={*COLLECTIONS, *PROFILES, "allow_duplicate", "resource_code", "wechat_account", "wechat_accounts", "wechat_accounts_revision"}).items():
+    for key, value in payload.model_dump(exclude={*COLLECTIONS, *PROFILES, "resume_profile", "settlement", "allow_duplicate", "resource_code", "wechat_account", "wechat_accounts", "wechat_accounts_revision"}).items():
         if key not in SYSTEM_FIELDS:
             setattr(target, key, value)
     # 合并公司账号仅并集账号，不调用删友状态转换，以免凭档案归档改写历史渠道状态。
@@ -818,6 +824,7 @@ def _apply_merge(db, target, payload, actor):
                 row.created_at = business_now()
             if hasattr(row, "updated_at"):
                 row.updated_at = business_now()
+    record_evaluation_changes(db, target, evaluation_before, actor)
     _sync_display_name(target)
     target.updated_at = business_now()
     target.operated_at = business_now()
@@ -1028,6 +1035,8 @@ def undo(db, operation_id, actor):
     if op.action in {"keep", "merge"}:
         from resource_service import get_talent, _sync_legacy_translator
         # 先解除归档，再恢复明细；不触碰原业务外键。
+        from talent_evaluation_audit import evaluation_snapshot, record_evaluation_changes
+        evaluation_before_restore = {identifier: evaluation_snapshot(get_talent(db, UUID(identifier))) for identifier in op.before_snapshot["people"]}
         restore_rows = sorted(op.before_snapshot["people"].items(), key=lambda item: bool(item[1]["person"]["archived_into_id"]))
         for identifier, snapshot in restore_rows:
             row = get_talent(db, UUID(identifier))
@@ -1081,6 +1090,8 @@ def undo(db, operation_id, actor):
                     original = before_translators[item["id"]]
                     for column in Translator.__table__.columns:
                         setattr(translator, column.key, _typed(column, original[column.key]))
+        for identifier, evaluation_before in evaluation_before_restore.items():
+            record_evaluation_changes(db, get_talent(db, UUID(identifier)), evaluation_before, actor)
     op.undone_at = datetime.now(BUSINESS_TIMEZONE)
     op.undone_by = actor.id
     db.commit()

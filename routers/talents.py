@@ -96,6 +96,9 @@ TALENT_FILTER_FIELDS = {
     "resource_code", "full_name", "capability_types", "language_directions",
     "annotation_language_directions", "industries", "job_titles", "years_experience",
     "status", "cooperation_type", "annotation_willingness", "primary_phone", "primary_email", "gender", "age",
+    "wecom_large_groups", "residence_timezone", "contact_availability",
+    "identity_number", "eyesight",
+    "interpretation_rating", "interpretation_rating_note", "interpretation_domains", "written_translation_score", "written_translation_evaluation",
     "ancestral_home", "native_place", "registration_source", "wechat_account", "residence_address", "dialects", "dialect_regions", "nationality",
     "employment_status", "highest_education", "language_skills", "certificate_received",
     "education_level", "education_institution", "education_major",
@@ -146,7 +149,7 @@ def update_talent_overview(
 def _field_filters(raw: Optional[str], *, allow_contact_filters: bool = True):
     value = parse_field_filters(raw)
     ensure_filter_fields(value, TALENT_FILTER_FIELDS)
-    if not allow_contact_filters and {"primary_phone", "primary_email"} & value.keys():
+    if not allow_contact_filters and {"primary_phone", "primary_email", "identity_number"} & value.keys():
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="联系方式筛选仅超级管理员可用",
@@ -154,11 +157,11 @@ def _field_filters(raw: Optional[str], *, allow_contact_filters: bool = True):
     ranges = {
         "years_experience", "age", "overall_score", "audio_annotation_score",
         "non_audio_annotation_score", "collection_score", "first_contact_date", "updated_at", "operated_at",
-        "education_graduation_year",
+        "education_graduation_year", "interpretation_rating", "written_translation_score",
     }
     enums = {
         "capability_types", "status", "cooperation_type", "annotation_willingness",
-        "employment_status", "highest_education",
+        "employment_status", "highest_education", "gender", "residence_timezone", "contact_availability",
         "education_level", "language_role", "language_proficiency", "certificate_type",
     }
     booleans = {"duplicate_review_required", "certificate_received", "resume_path_registered"}
@@ -456,7 +459,25 @@ def read_talent(
     )
     from talent_duplicate_service import detail_inheritance
     data.update(detail_inheritance(db, person_id, can_view_talent_contacts(db, current_user)))
+    from talent_wecom_group_status import get_talent_wecom_group_status
+    data.update(get_talent_wecom_group_status(db, person_id))
+    from talent_evaluation_audit import latest_evaluations
+    data['evaluation_meta'] = latest_evaluations(db, person_id)
+    from talent_settlement import read_settlement
+    data['settlement'] = read_settlement(db, person_id, visible=can_view_talent_contacts(db, current_user))
+    from talent_resume_profile import read_resume_profile
+    data['resume_profile'] = read_resume_profile(db, person_id)
+    periods=(data['resume_profile'] or {}).get('education_periods') or {}
+    for education in data.get('education_experiences',[]):
+        education['period']=periods.get(str(education['id']))
     return data
+
+
+@router.get('/{person_id}/evaluation-history')
+def read_talent_evaluation_history(person_id: UUID, group_key: str, skip: int = Query(0, ge=0),
+                                   limit: int = Query(10, ge=1, le=100), db: Session = Depends(get_db)):
+    from talent_evaluation_audit import evaluation_history
+    return evaluation_history(db, person_id, group_key, skip=skip, limit=limit)
 
 
 @router.get("/{person_id}/projects", response_model=List[TalentProjectHistoryResponse])
@@ -663,7 +684,9 @@ def create_recruitment_talent_endpoint(
         "interpretation_profile": None,
         "annotation_profile": None,
         "annotation_language_skills": [],
+        "resume_profile": payload.resume_profile.model_copy(update={'cat_tools':None}) if payload.resume_profile else None,
         "annotation_willingness": None,
+        "talent_grade": "pending",
         "overall_score": None,
         "overall_rating": None,
         "cooperation_level": None,
@@ -676,6 +699,11 @@ def create_recruitment_talent_endpoint(
         "non_audio_annotation_evaluation": None,
         "collection_score": None,
         "collection_evaluation": None,
+        "interpretation_rating": None,
+        "interpretation_rating_note": None,
+        "interpretation_domains": None,
+        "written_translation_score": None,
+        "written_translation_evaluation": None,
     })
     return create_talent_endpoint(
         safe_payload, db=db, current_user=current_user, idempotency_key=None,

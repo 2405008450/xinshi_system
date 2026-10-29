@@ -59,3 +59,23 @@ test('系统铃铛与会话铃铛互斥，聊天 @ 均不进入两个铃铛',()=
  }
  assert.equal(isSystemNotification({notification_type:'workflow_handover_pending'}),true)
 })
+
+test('历史 annotation_project_chat 属于普通聊天，不进入系统铃铛或 Windows 通知',()=>{
+ const legacy={id:'legacy-annotation',notification_type:'annotation_project_chat',related_project_type:'annotation',title:'标注群聊新消息',is_read:false}
+ assert.equal(isChatNotification(legacy),true)
+ assert.equal(isBusinessNotification(legacy),false)
+ assert.equal(isSystemNotification(legacy),false)
+ assert.equal(isChatMentionNotification(legacy),false)
+ assert.equal(isDesktopAttentionNotification(legacy),false)
+})
+
+test('所有聊天家族按命名边界统一识别，新增会话类型也不能进入系统铃铛',()=>{
+ for(const kind of [...CHAT_NOTIFICATION_TYPES,'interpretation_project_chat','recruitment_project_chat_mention','new_group_chat_invite',' CHAT_NEW_MESSAGE ']) {
+  const item={notification_type:kind,is_read:false}
+  assert.equal(isChatNotification(item),true,kind)
+  assert.equal(isBusinessNotification(item),false,kind)
+  assert.equal(isSystemNotification(item),false,kind)
+ }
+ for(const kind of ['workflow_chatty_update','chat_summary','resource_request_dispatch']) assert.equal(isChatNotification({notification_type:kind}),false,kind)
+ assert.equal(isSystemNotification({notification_type:'workflow_chatty_update'}),true)
+})

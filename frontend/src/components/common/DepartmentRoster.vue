@@ -9,7 +9,7 @@
       <el-button type="danger" plain :icon="Minus" :disabled="!canEdit || !members.length" @click="edit('remove')">移出人员</el-button>
       <el-button :disabled="!canEdit || !members.length" @click="edit('positions')">调整职务</el-button>
     </div>
-    <p v-if="data && !data.canManage">当前账号可查看名册；人员增减与职务调整由部门管理员操作。</p>
+    <p v-if="data && !data.canManage">当前账号可查看名册；人员增减与职务调整仅限 ethan、jimmy 和超级管理员。</p>
     <div class="roster-tools"><el-input v-model="keyword" clearable placeholder="搜索姓名、账号、职务、部门" @keyup.enter="applySearch" /><el-button @click="applySearch">查询</el-button></div>
     <el-table :data="filtered" border max-height="480">
       <el-table-column label="姓名" min-width="130"><template #default="{row}">{{ row.name }} <el-tag v-if="row.departments.length>1" type="warning" size="small">跨部门 {{ row.departments.length }}</el-tag><el-tag v-if="!row.active" type="info" size="small">已停用</el-tag></template></el-table-column>
@@ -17,11 +17,13 @@
       <el-table-column label="所属全部部门" min-width="220"><template #default="{row}"><div class="department-tags"><el-tag v-for="dept in row.departments" :key="dept.id" :type="dept.name===row.primaryDepartment ? 'primary' : 'info'" size="small">{{ dept.name }}{{ dept.position ? ` · ${dept.position}` : '' }}{{ dept.name===row.primaryDepartment ? '（主）' : '' }}</el-tag></div></template></el-table-column>
     </el-table>
     <DraggableFormDialog v-model="visible" :title="`${editingName} · ${modeTitle}`" class="department-roster-editor" width="min(900px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close :close-on-click-modal="!saving" :before-close="beforeClose">
-      <p>从全公司在用人员中添加，可多选、按姓名或账号搜索；移出仅解除本部门归属。部门职务不会改变系统操作权限。</p>
+      <p>从全公司在用人员中添加，可多选、按姓名或账号搜索；点击“添加并保存”立即保存到本部门，原有部门归属保留。移出仅解除本部门归属，部门职务不会改变系统操作权限。</p>
+      <p class="roster-settings">人员管理权限：ethan、jimmy 和超级管理员，所有部门使用同一规则。此处用于添加已有账号；新员工账号请在组织架构的“人员管理”中创建。</p>
       <div v-if="mode === 'add'" class="roster-tools">
-        <el-select v-model="adding" multiple filterable clearable collapse-tags collapse-tags-tooltip aria-label="从全公司选择添加人员" placeholder="从全公司人员选择（可多选）" :disabled="saving" style="flex:1;min-width:0"><el-option v-for="person in available" :key="person.id" :label="personLabel(person)" :value="person.id" /></el-select>
-        <el-button type="primary" :disabled="saving || !adding.length" @click="add">添加所选</el-button>
+        <el-select v-model="adding" multiple filterable clearable collapse-tags collapse-tags-tooltip aria-label="从全公司选择添加人员" placeholder="从全公司人员选择（可多选）" :disabled="saving" :no-data-text="available.length ? '暂无人员' : '没有可添加的在用人员，已在本部门的人员不会重复列出'" no-match-text="未找到匹配的姓名或账号" style="flex:1;min-width:0"><el-option v-for="person in available" :key="person.id" :label="personLabel(person)" :value="person.id" /></el-select>
+        <el-button type="primary" :loading="saving" :disabled="saving || !adding.length || conflict" @click="save">添加并保存</el-button>
       </div>
+      <p v-if="mode === 'add'">可添加 {{ available.length }} 人，已选择 {{ adding.length }} 人。</p>
       <div v-if="mode === 'remove'" class="roster-tools">
         <el-select v-model="removing" multiple filterable clearable collapse-tags collapse-tags-tooltip aria-label="选择移出人员" placeholder="选择要移出的本部门人员（可多选）" :disabled="saving" style="flex:1;min-width:0"><el-option v-for="row in draft" :key="row.user_id" :label="personLabel(person(row.user_id))" :value="row.user_id" /></el-select>
         <el-button type="danger" plain :disabled="saving || !removing.length" @click="remove">移出所选</el-button>
@@ -50,7 +52,7 @@ const visible=ref(false),draft=ref([]),adding=ref([]),removing=ref([]),saving=re
 const mode=ref('add'),editingId=ref(''),editingName=ref(''),conflict=ref(false)
 const modeTitle=computed(()=>({add:'添加人员',remove:'移出人员',positions:'调整职务'})[mode.value])
 const canEdit=computed(()=>Boolean(data.value?.canManage && data.value.membershipReady && selected.value))
-const positions=['客户经理','高级项目经理','资源经理','资源专员','项目经理','项目助理']
+const positions=['总经理','客户经理','高级项目经理','资源经理','资源专员','项目经理','项目助理']
 const selected=computed(()=>data.value?.items.find(d=>props.departmentName ? d.name===props.departmentName : d.id===selectedId.value))
 const members=computed(()=>(data.value?.people.filter(person=>person.departments.some(d=>d.id===selected.value?.id))||[]).sort((a,b)=>{const rank=p=>{const i=positions.indexOf(position(p));return i<0?positions.length:i};return rank(a)-rank(b)||a.name.localeCompare(b.name,'zh-CN')}))
 const position=person=>person.departments.find(d=>d.id===selected.value?.id)?.position||''

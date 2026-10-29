@@ -1,5 +1,5 @@
 <template>
-  <DraggableFormDialog v-model="visible" title="固定班次人员" width="min(1040px, calc(100vw - 32px))" top="5vh" class="fixed-shift-dialog" :close-on-click-modal="false" :before-close="beforeClose" destroy-on-close>
+  <DraggableFormDialog v-model="visible" title="固定班次人员" data-auto-draft="off" width="min(1040px, calc(100vw - 32px))" top="5vh" class="fixed-shift-dialog" :close-on-click-modal="false" :before-close="beforeClose" destroy-on-close>
     <div v-loading="loading">
       <el-alert title="设置后，本周及以后的周安排、本月及以后的月安排会自动放入固定单元格。历史排班不变；取消固定后，已保存的排班仍保留。" type="info" :closable="false" />
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
@@ -22,14 +22,17 @@
   </DraggableFormDialog>
 </template>
 <script setup>
-import {computed,ref,watch,onBeforeUnmount} from 'vue'
+import {computed,ref,watch,onBeforeUnmount,reactive,toRef} from 'vue'
 import {ElMessage} from 'element-plus'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import AppForm from '@/components/common/AppForm.vue'
 import {getFixedShiftConfig,saveFixedShiftConfig} from '@/api/monthlyShifts'
 import {matchesSearchFields} from '@/utils/searchMatching'
+import {useFormDraft} from '@/composables/useFormDraft'
 const visible=defineModel({type:Boolean,default:false}),emit=defineEmits(['saved'])
-const loading=ref(false),saving=ref(false),error=ref(''),people=ref([]),settings=ref({}),departments=ref({}),selected=ref([]),keyword=ref(''),search=ref(''),onlyFixed=ref(false),batchDepartment=ref(''),batchShift=ref(''),table=ref()
+const fixedDraft=reactive({settings:{},departments:{}}),settings=toRef(fixedDraft,'settings'),departments=toRef(fixedDraft,'departments')
+const {beginDraft,pauseDraft,clearDraft}=useFormDraft({namespace:'fixed-shift-config',form:fixedDraft,createDefault:()=>({settings:{},departments:{}}),applyDraft:data=>{const valid=new Set(people.value.map(person=>person.id));fixedDraft.settings=Object.fromEntries(Object.entries(data.settings||{}).filter(([id])=>valid.has(id)));fixedDraft.departments=Object.fromEntries(Object.entries(data.departments||{}).filter(([id])=>valid.has(id)))}})
+const loading=ref(false),saving=ref(false),error=ref(''),people=ref([]),selected=ref([]),keyword=ref(''),search=ref(''),onlyFixed=ref(false),batchDepartment=ref(''),batchShift=ref(''),table=ref()
 const config=ref({ready:false,revision:0,departments:[],shifts:[]})
 let timer,sequence=0
 function applySearch(){clearTimeout(timer);search.value=keyword.value;table.value?.clearSelection()}
@@ -43,8 +46,8 @@ function setShift(person,shift){if(!shift){delete settings.value[person.id];retu
 function batchSet(){for(const person of selected.value){departments.value[person.id]=batchDepartment.value;settings.value[person.id]={user_id:person.id,department:batchDepartment.value,shift:batchShift.value}}}
 function batchClear(){for(const person of selected.value)delete settings.value[person.id]}
 function beforeClose(done){if(!saving.value)done()}
-watch(visible,async value=>{const id=++sequence;if(!value)return;loading.value=true;error.value='';settings.value={};departments.value={};selected.value=[];keyword.value='';search.value='';onlyFixed.value=false;batchDepartment.value='';batchShift.value='';try{const data=await getFixedShiftConfig();if(id!==sequence)return;config.value=data;people.value=data.people;const valid=new Set(people.value.map(person=>person.id));settings.value=Object.fromEntries(data.assignments.filter(item=>valid.has(item.user_id)).map(item=>[item.user_id,{...item}]));if(!data.ready)error.value='固定班次配置表尚未初始化'}catch(e){if(id===sequence)error.value=e.detail||'读取固定班次失败，请关闭后重试'}finally{if(id===sequence)loading.value=false}})
-async function save(){saving.value=true;try{await saveFixedShiftConfig({revision:config.value.revision,assignments:Object.values(settings.value)});ElMessage.success('固定班次已保存');emit('saved');visible.value=false}catch(e){ElMessage.error(e.detail||'保存失败，请重试')}finally{saving.value=false}}
+watch(visible,async value=>{const id=++sequence;if(!value){pauseDraft();return}loading.value=true;error.value='';settings.value={};departments.value={};selected.value=[];keyword.value='';search.value='';onlyFixed.value=false;batchDepartment.value='';batchShift.value='';try{const data=await getFixedShiftConfig();if(id!==sequence)return;config.value=data;people.value=data.people;const valid=new Set(people.value.map(person=>person.id));settings.value=Object.fromEntries(data.assignments.filter(item=>valid.has(item.user_id)).map(item=>[item.user_id,{...item}]));if(!data.ready)error.value='固定班次配置表尚未初始化';else await beginDraft(`configuration:${data.revision}`)}catch(e){if(id===sequence)error.value=e.detail||'读取固定班次失败，请关闭后重试'}finally{if(id===sequence)loading.value=false}})
+async function save(){saving.value=true;try{await saveFixedShiftConfig({revision:config.value.revision,assignments:Object.values(settings.value)});clearDraft();ElMessage.success('固定班次已保存');emit('saved');visible.value=false}catch(e){ElMessage.error(e.detail||'保存失败，请重试')}finally{saving.value=false}}
 onBeforeUnmount(()=>{clearTimeout(timer);sequence++})
 </script>
 <style scoped>

@@ -463,7 +463,10 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
         user,
         expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer", "roles": role_names, "permissions": permissions, "user_id": str(user.id), "username": user.username, "full_name": user.full_name or user.username}
+    result = {"access_token": access_token, "token_type": "bearer", "roles": role_names, "permissions": permissions, "user_id": str(user.id), "username": user.username, "full_name": user.full_name or user.username}
+    from attendance_service import auto_check_in
+    result['attendance'] = auto_check_in(db,user,request)
+    return result
 
 
 @router.get("/captcha/required", response_model=CaptchaRequirement)
@@ -503,4 +506,7 @@ def login_json(request: Request, login_data: LoginRequest, db: Session = Depends
         user,
         expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer", "roles": role_names, "permissions": permissions, "user_id": str(user.id), "username": user.username, "full_name": user.full_name or user.username}
+    result = {"access_token": access_token, "token_type": "bearer", "roles": role_names, "permissions": permissions, "user_id": str(user.id), "username": user.username, "full_name": user.full_name or user.username}
+    from attendance_service import auto_check_in
+    result['attendance'] = auto_check_in(db,user,request)
+    return result

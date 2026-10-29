@@ -851,13 +851,13 @@ def save_daily_report(
     # 陈旧编辑窗口或重新汇总不能删除已自动追加的新咨询记录。
     for existing in report.items:
         metadata = existing.display_metadata or {}
-        if metadata.get('source') not in ('consultation_handoff', 'project_arrangement'):
+        if metadata.get('source') not in ('consultation_handoff', 'project_arrangement', 'personal_daily_task'):
             continue
         incoming = next((item for item in raw_items if (item.get('display_metadata') or {}).get('_feedback_key') == item_key(existing)), None)
         if incoming is None:
             raw_items.append({key:getattr(existing,key) for key in ['source_type','source_id','task_type','task_name','progress_content','result_content','duration_minutes']} | {'display_metadata':dict(metadata)})
         else:
-            incoming['display_metadata'] = {**incoming.get('display_metadata', {}), **{key:metadata[key] for key in ['source','consultation_id','consultation_code','added_at','_feedback_key','arrangement_id'] if key in metadata}}
+            incoming['display_metadata'] = {**incoming.get('display_metadata', {}), **{key:metadata[key] for key in ['source','consultation_id','consultation_code','added_at','_feedback_key','arrangement_id','personal_task_id'] if key in metadata}}
     assign_item_keys(report.id,raw_items,report.items)
     from work_report_hierarchy import normalize_hierarchy
     raw_items = normalize_hierarchy(raw_items)
@@ -960,6 +960,7 @@ def report_to_xlsx(report: DailyReport) -> bytes:
         type_label = "、".join(str(value).replace('::', ' / ') for value in types)
         if metadata.get("custom_project_type"):
             type_label += f"（{metadata['custom_project_type']}）"
+        if metadata.get("lunch_overtime"):type_label=f"【中午加班 {metadata.get('lunch_start','')}–{metadata.get('lunch_end','')}】"+type_label
         unit = metadata.get("quantity_unit_other") if metadata.get("quantity_unit") == "其他" else metadata.get("quantity_unit", "")
         minutes = item.duration_minutes or 0
         duration = f"{minutes}分钟" if minutes <= 60 else f"{minutes / 60:.1f}小时"

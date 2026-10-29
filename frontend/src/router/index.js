@@ -218,6 +218,12 @@ const routes = [
             meta: { title: '人才概览', roles: ['*'] }
           },
           {
+            path: 'development-notices',
+            name: 'DevelopmentNotices',
+            component: () => import('../views/resource/DevelopmentNotices.vue'),
+            meta: { title: '开拓须知', roles: ['*'] }
+          },
+          {
             path: 'referral-development',
             name: 'ReferralDevelopment',
             component: () => import('../views/resource/ReferralDevelopment.vue'),
@@ -332,15 +338,15 @@ const routes = [
       {
         path: 'hr-management',
         component: () => import('../views/hr/HRManagement.vue'),
-        redirect: '/hr-management/shifts',
-        meta: { title: '人力资源管理' },
+        redirect: '/hr-management/attendance',
+        meta: { title: '人事管理', hrManagement: true },
         children: [
           {path:'shifts',name:'MonthlyShiftManagement',component:()=>import('../views/hr/MonthlyShiftManagement.vue'),meta:{title:'排班管理',hrManagement:true}},
           {
             path: 'attendance',
             name: 'Attendance',
             component: () => import('../views/hr/Attendance.vue'),
-            meta: { title: '考核管理' }
+            meta: { title: '考勤管理' }
           },
           {
             path: 'kpi',

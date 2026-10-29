@@ -2,10 +2,10 @@
   <DocumentSectionsPage
     :page-title="`${moduleLabel}须知`"
     :description="`集中查看和维护${moduleLabel}业务中的报价、注意事项及各类操作流程。`"
-    write-permission="projects:write"
+    :write-permission="writePermission"
     navigation-mode="drilldown"
     section-query-key="noticeSectionId"
-    route-section="notices"
+    :route-section="routeSection"
     allow-group-selection
     :adapter="adapter"
   >
@@ -25,6 +25,6 @@ import DocumentSectionsPage from '@/components/common/DocumentSectionsPage.vue'
 import DocumentSectionAttachments from '@/components/common/DocumentSectionAttachments.vue'
 import { createProjectNoticeAdapter } from '@/api/projectNotices'
 
-const props = defineProps({ module: { type: String, required: true }, moduleLabel: { type: String, required: true } })
+const props = defineProps({ module: { type: String, required: true }, moduleLabel: { type: String, required: true }, writePermission: {type:[String,Array],default:'projects:write'},routeSection:{type:String,default:'notices'} })
 const adapter = createProjectNoticeAdapter(props.module)
 </script>

@@ -4,18 +4,22 @@ import test from 'node:test'
 import { nextTick } from 'vue'
 import { useTableColumns } from '../src/composables/useTableColumns.js'
 import { countTalentNames, getTalentDisplayName } from '../src/utils/talentNames.js'
+import { talentTableColumns, talentDefaultColumns } from '../src/utils/talentTableColumns.js'
 
 const source = readFileSync(new URL('../src/views/resource/TalentPool.vue', import.meta.url), 'utf8')
+const columnsSource = readFileSync(new URL('../src/utils/talentTableColumns.js', import.meta.url), 'utf8')
 const detailSource = readFileSync(new URL('../src/views/resource/components/TalentDetailContent.vue', import.meta.url), 'utf8')
 const fieldSearchSource = readFileSync(new URL('../src/composables/useDialogFieldSearch.js', import.meta.url), 'utf8')
 
-test('人才列表移除基本信息聚合列并提供三类摘要入口和独立详情列', () => {
+test('人才列表提供摘要入口，通过人才编号打开详情窗口', () => {
   assert.doesNotMatch(source, /\{key:'basicSummary',label:'基本信息'/)
   assert.doesNotMatch(source, /summarySectionMap=\{basicSummary:/)
   for (const key of ['regionSummary', 'educationSummary', 'languageSummary']) {
     assert.match(source, new RegExp(`key:'${key}'`))
   }
-  assert.match(source, /label="详情"/)
+  assert.doesNotMatch(source, /<el-table-column label="详情"/)
+  assert.match(source, /column\.key === 'resourceCode'/)
+  assert.match(source, /openTalentDetail\(row\)/)
   assert.match(source, /TalentDetailContent/)
 })
 
@@ -27,9 +31,10 @@ test('人才编辑表单包含结构化姓名、职业、学历、语言、证�
   ]) {
     assert.match(source, new RegExp(`form\\.${field}`))
   }
-  assert.match(source, /queueAttachment\('photo'/)
+  assert.match(source, /queueAttachment\(category\.value,file\)/)
+  assert.match(source, /v-for="category in talentPhotoCategories"/)
   assert.match(source, /queueAttachment\('audio'/)
-  assert.match(detailSource, /label="其他经验"/)
+  assert.match(detailSource, /key:'other',label:'其他经验'/)
 })
 
 test('人才总库支持维护、展示和筛选低中高标注意愿', () => {
@@ -44,9 +49,8 @@ test('人才总库支持维护、展示和筛选低中高标注意愿', () => {
 })
 
 test('人才总库全部可配置列均复用公共漏斗筛选', () => {
-  const tableBlock = readFileSync(new URL('../src/utils/talentTableColumns.js', import.meta.url), 'utf8').match(/const talentTableColumns=\[([\s\S]*?)\n\]/)?.[1] || ''
   const filterBlock = source.match(/const talentFilterFields=\[([\s\S]*?)\n\]\.filter/)?.[1] || ''
-  const tableKeys = [...tableBlock.matchAll(/\{key:'([^']+)'/g)].map(match => match[1])
+  const tableKeys = talentTableColumns.map(column => column.key)
   const filterKeys = new Set([...filterBlock.matchAll(/\{key:'([^']+)'/g)].map(match => match[1]))
 
   assert.ok(tableKeys.length >= 28)
@@ -107,7 +111,8 @@ test('人才综合表现支持结构化录入、详情弹窗和高级评分筛�
 })
 
 test('新增工作经验和综合表现字段进入表单字段搜索索引', () => {
-  assert.match(source, /label="其他经验"/)
+  assert.match(source, /key:'other',label:'其他经验'/)
+  assert.match(source, /:group-title="group\.label"/)
   assert.match(source, /data-dialog-field-search-group/)
   assert.match(source, /data-dialog-field-search-group-title>总体评价/)
   assert.match(source, /data-dialog-field-search-group-title>配合度/)
@@ -118,12 +123,12 @@ test('新增工作经验和综合表现字段进入表单字段搜索索引', ()
 })
 
 test('人才基础字段和总体评价加入默认列并迁移旧默认组合', () => {
-  assert.match(source, /\{key:'gender',label:'性别'/)
-  assert.match(source, /\{key:'nationality',label:'国籍'/)
-  assert.match(source, /\{key:'employmentStatus',label:'职业状态'/)
+  assert.match(columnsSource, /\{key:'gender',label:'性别'/)
+  assert.match(columnsSource, /\{key:'nationality',label:'国籍'/)
+  assert.match(columnsSource, /\{key:'employmentStatus',label:'职业状态'/)
   assert.match(source, /column\.key === 'employmentStatus'.*employmentOptions\.find/)
-  assert.match(readFileSync(new URL('../src/utils/talentTableColumns.js', import.meta.url), 'utf8'), /talentDefaultColumns=\['fullName','gender','nationality','employmentStatus'/)
-  assert.match(readFileSync(new URL('../src/utils/talentTableColumns.js', import.meta.url), 'utf8'), /talentDefaultColumns=\[[^\]]*'overallRating'/)
+  assert.deepEqual(talentDefaultColumns.slice(0,4), ['fullName','gender','nationality','employmentStatus'])
+  assert.ok(talentDefaultColumns.includes('overallRating'))
   assert.match(source, /legacyDefaultColumnKeys=\[\s*\[\s*'fullName','basicSummary','regionSummary','educationSummary','languageSummary','capabilityTypes','overallRating','projectSituation','status','duplicateReviewRequired'/)
   assert.match(source, /\['fullName','basicSummary','regionSummary','educationSummary','languageSummary','capabilityTypes','status','duplicateReviewRequired'\]/)
   assert.match(source, /overallPerformanceSummary/)

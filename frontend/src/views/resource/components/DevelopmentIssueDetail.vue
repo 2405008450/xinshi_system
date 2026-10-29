@@ -16,7 +16,7 @@
           <el-descriptions-item label="来源" :span="2"><span v-if="detail.source_type==='manual'">手工新增</span><el-button v-else link type="primary" class="issue-source" @click="$emit('source', detail)">{{ detail.source_title }}</el-button></el-descriptions-item>
           <el-descriptions-item label="原始消息" :span="2">{{ detail.source_content || '-' }}</el-descriptions-item>
           <el-descriptions-item label="备注" :span="2">{{ detail.remarks || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="收录人">{{ detail.collected_by_name }}</el-descriptions-item><el-descriptions-item label="收录时间">{{ formatBusinessDateTime(detail.created_at) }}</el-descriptions-item>
+          <el-descriptions-item label="保存人">{{ detail.collected_by_name || '-' }}</el-descriptions-item><el-descriptions-item label="保存时间">{{ formatBusinessDateTime(detail.created_at) }}</el-descriptions-item>
           <el-descriptions-item label="更新时间" :span="2">{{ formatBusinessDateTime(detail.updated_at) }}</el-descriptions-item>
         </el-descriptions>
         <h4 v-if="detail.tasks.length">历史任务（只读，{{ detail.tasks.length }} 条）</h4>

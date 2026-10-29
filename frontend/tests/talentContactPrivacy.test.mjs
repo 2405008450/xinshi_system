@@ -35,11 +35,12 @@ test('普通用户可录入联系方式，已有值不回填，空值不提交�
 
 test('人才详情的全部联系方式均经过敏感值组件展示', () => {
   const protectedFields = [
+    'identityNumber',
     'primaryPhone', 'secondaryPhone', 'primaryEmail', 'secondaryEmail',
     'wechat', 'whatsapp', 'skype', 'line', 'otherContact', 'contactInfo',
   ]
   protectedFields.forEach(field => assert.match(detail, new RegExp(`detail\\.${field}`)))
-  assert.equal((detail.match(/<SensitiveContactValue/g) || []).length, 10)
+  assert.equal((detail.match(/<SensitiveContactValue/g) || []).length, 11)
   assert.match(detail, /!contactRestricted && detail\.inheritedContacts\?\.length/)
   assert.match(detail, /<SensitiveContactValue :value="contact\.value"/)
 })

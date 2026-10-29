@@ -34,6 +34,7 @@ from models import Base
 
 CAPABILITY_TYPES = ("written_translation", "interpretation", "annotation")
 RESOURCE_STATUSES = ("active", "standby", "inactive")
+TALENT_STATUSES = ("standby", "active", "dormant", "blacklisted", "pending_activation", "under_observation", "inactive")
 
 
 class ResourcePerson(Base):
@@ -44,7 +45,7 @@ class ResourcePerson(Base):
         UniqueConstraint("resource_code", name="uq_resource_person_code"),
         UniqueConstraint("idempotency_key", name="uq_resource_person_idempotency_key"),
         CheckConstraint(
-            "status IN ('active', 'standby', 'inactive')",
+            "status IN ('standby', 'active', 'dormant', 'blacklisted', 'pending_activation', 'under_observation', 'inactive')",
             name="ck_resource_person_status",
         ),
         Index("ix_resource_person_name", "full_name"),
@@ -53,6 +54,10 @@ class ResourcePerson(Base):
         Index("ix_resource_person_status", "status"),
         Index("ix_resource_person_annotation_willingness", "annotation_willingness"),
         Index("ix_resource_person_overall_score", "overall_score"),
+        CheckConstraint("talent_grade IN ('S', 'A', 'B', 'C', 'pending')", name="ck_resource_person_talent_grade"),
+        CheckConstraint("interpretation_rating IS NULL OR interpretation_rating BETWEEN 1 AND 6", name="ck_resource_person_interpretation_rating"),
+        CheckConstraint("written_translation_score IS NULL OR written_translation_score BETWEEN 1 AND 10", name="ck_resource_person_written_translation_score"),
+        CheckConstraint("contact_availability IS NULL OR contact_availability IN ('anytime', 'morning', 'afternoon', 'evening', 'weekday_daytime', 'weekend', 'appointment')", name="ck_resource_person_contact_availability"),
         Index("ix_resource_person_audio_annotation_score", "audio_annotation_score"),
         Index("ix_resource_person_non_audio_annotation_score", "non_audio_annotation_score"),
         Index("ix_resource_person_collection_score", "collection_score"),
@@ -108,6 +113,8 @@ class ResourcePerson(Base):
     )
     cooperation_type: Mapped[Optional[str]] = mapped_column(String(50))
     contact_info: Mapped[Optional[str]] = mapped_column(String(500))
+    identity_number: Mapped[Optional[str]] = mapped_column(String(50))
+    eyesight: Mapped[Optional[str]] = mapped_column(String(255))
     primary_phone: Mapped[Optional[str]] = mapped_column(String(50))
     secondary_phone: Mapped[Optional[str]] = mapped_column(String(50))
     primary_email: Mapped[Optional[str]] = mapped_column(String(255))
@@ -130,7 +137,10 @@ class ResourcePerson(Base):
     wechat_accounts_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
     wechat_contact_state: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, server_default=text("'{}'"))
     wechat_groups: Mapped[Optional[str]] = mapped_column(Text)
+    wecom_large_groups: Mapped[Optional[str]] = mapped_column(Text)
+    contact_availability: Mapped[Optional[str]] = mapped_column(String(30))
     residence_address: Mapped[Optional[str]] = mapped_column(String(500))
+    residence_timezone: Mapped[Optional[str]] = mapped_column(String(12))
     dialects: Mapped[list] = mapped_column(
         JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
     )
@@ -153,6 +163,7 @@ class ResourcePerson(Base):
     translation_experience: Mapped[Optional[str]] = mapped_column(Text)
     other_experience: Mapped[Optional[str]] = mapped_column(Text)
     annotation_willingness: Mapped[Optional[str]] = mapped_column(String(20))
+    talent_grade: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", server_default=text("'pending'"))
     overall_score: Mapped[Optional[int]] = mapped_column(Integer)
     overall_rating: Mapped[Optional[str]] = mapped_column(Text)
     cooperation_level: Mapped[Optional[str]] = mapped_column(String(20))
@@ -165,6 +176,11 @@ class ResourcePerson(Base):
     non_audio_annotation_evaluation: Mapped[Optional[str]] = mapped_column(Text)
     collection_score: Mapped[Optional[int]] = mapped_column(Integer)
     collection_evaluation: Mapped[Optional[str]] = mapped_column(Text)
+    interpretation_rating: Mapped[Optional[int]] = mapped_column(Integer)
+    interpretation_rating_note: Mapped[Optional[str]] = mapped_column(Text)
+    interpretation_domains: Mapped[Optional[str]] = mapped_column(Text)
+    written_translation_score: Mapped[Optional[int]] = mapped_column(Integer)
+    written_translation_evaluation: Mapped[Optional[str]] = mapped_column(Text)
     first_contact_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     remarks: Mapped[Optional[str]] = mapped_column(Text)
     status: Mapped[str] = mapped_column(

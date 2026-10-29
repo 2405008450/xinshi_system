@@ -50,7 +50,8 @@
       </div>
 
       <el-tabs v-model="activeSection" type="border-card" class="workbench-tabs">
-        <el-tab-pane name="monthly-shift" label="班次安排" lazy><MyMonthlyShift /></el-tab-pane>
+        <el-tab-pane name="today-tasks" label="今日任务" lazy><TodayTasks :day="dailyReportDate" /></el-tab-pane>
+        <el-tab-pane name="monthly-shift" label="排班与考勤" lazy><MyMonthlyShift /></el-tab-pane>
         <el-tab-pane name="tasks">
           <template #label>
             <span>我的任务<template v-if="taskTabCount">（{{ taskTabCount }}）</template></span>
@@ -125,6 +126,7 @@
             </el-collapse-transition>
           </section>
         </el-tab-pane>
+        <el-tab-pane v-if="canReceiveReports" name="review-tasks" label="查看任务" lazy><TodayTasks review :day="dailyReportDate" /></el-tab-pane>
         <el-tab-pane name="daily-report" lazy>
           <template #label>
             <span class="daily-report-tab-label">
@@ -140,7 +142,7 @@
               </el-tag>
             </span>
           </template>
-          <DailyReportPanel :report-date="scheduleDate" @update:report-date="scheduleDate = $event" @status-change="onDailyReportStatus" />
+          <DailyReportPanel :report-date="dailyReportDate" @update:report-date="dailyReportDate = $event" @status-change="onDailyReportStatus" />
         </el-tab-pane>
         <el-tab-pane v-if="canReceiveReports" name="received-reports" label="查看工作报告" lazy><ReceivedWorkReports /></el-tab-pane>
       </el-tabs>
@@ -156,8 +158,8 @@
 
 <script setup>
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
-import {reportWeekday} from '@/utils/workReportForm'
+import { useRouter, useRoute } from 'vue-router'
+import {reportWeekday,reportBusinessDate} from '@/utils/workReportForm'
 import {businessDateTimeInputValue} from '@/utils/dateTime'
 import { ArrowDown } from '@element-plus/icons-vue'
 import ScheduleHeader from './components/ScheduleHeader.vue'
@@ -171,10 +173,11 @@ import { DEADLINE_STATE, getWorkItemDeadlineState, isWorkItemOpen } from '@/util
 import { isDefaultVisibleWorkItem } from '@/utils/workItemScope'
 
 const UnifiedTasksPanel = defineAsyncComponent(() => import('./components/UnifiedTasksPanel.vue'))
+const TodayTasks = defineAsyncComponent(() => import('./components/TodayTasks.vue'))
 const DailyReportPanel = defineAsyncComponent(() => import('./components/DailyReportPanel.vue'))
 const ReceivedWorkReports = defineAsyncComponent(() => import('./components/ReceivedWorkReports.vue'))
 const canReceiveReports=ref(false)
-async function refreshReportAccess(){try{canReceiveReports.value=(await getReportAccessContext()).can_receive}catch{canReceiveReports.value=false}if(!canReceiveReports.value&&activeSection.value==='received-reports')activeSection.value='tasks'}
+async function refreshReportAccess(){try{canReceiveReports.value=(await getReportAccessContext()).can_receive}catch{canReceiveReports.value=false}if(!canReceiveReports.value&&['received-reports','review-tasks'].includes(activeSection.value))activeSection.value='tasks'}
 onMounted(()=>{refreshReportAccess();window.addEventListener('focus',refreshReportAccess)})
 onBeforeUnmount(()=>window.removeEventListener('focus',refreshReportAccess))
 const ShiftMatrixDialog = defineAsyncComponent(() => import('./components/ShiftMatrixDialog.vue'))
@@ -182,7 +185,9 @@ const PendingHandoversPanel = defineAsyncComponent(() => import('./components/Pe
 const ProjectManagerHandoverPanel = defineAsyncComponent(() => import('./components/ProjectManagerHandoverPanel.vue'))
 
 const router = useRouter()
+const attendanceRoute=useRoute()
 const scheduleDate = ref('')
+const dailyReportDate = ref(reportBusinessDate())
 const dayLeaveRecords = ref([])
 const workItems = ref([])
 const currentUserName = ref('')
@@ -192,17 +197,18 @@ const managementExpanded = ref(true)
 const executionExpanded = ref(true)
 
 const MAIN_TAB_STORAGE_KEY = 'workbench_main_tab'
-const MAIN_TAB_NAMES = ['monthly-shift', 'tasks', 'daily-report', 'received-reports']
+const MAIN_TAB_NAMES = ['today-tasks', 'monthly-shift', 'tasks', 'review-tasks', 'daily-report', 'received-reports']
 
 function readInitialMainTab() {
   try {
     const stored = localStorage.getItem(MAIN_TAB_STORAGE_KEY)
     if (stored && MAIN_TAB_NAMES.includes(stored)) return stored
   } catch {}
-  return 'tasks'
+  return 'today-tasks'
 }
 
 const activeSection = ref(readInitialMainTab())
+watch(()=>attendanceRoute.query.section,value=>{if(value==='attendance')activeSection.value='monthly-shift'},{immediate:true})
 const dailyReportStatus = ref(null)
 const canManageProjectOwnership = computed(() => hasRole('项目经理') || isSuperAdmin())
 const canOperateWorkflow = computed(() => hasPermission(['projects:read', 'workflow:operate']))
@@ -237,7 +243,7 @@ const taskTabCount = computed(() => pendingWorkItemCount.value)
 
 const dailyReportStatusTag = computed(() => {
   const status = dailyReportStatus.value
-  if (!status || status.date !== scheduleDate.value) return null
+  if (!status || status.date !== dailyReportDate.value) return null
   return status.status === 'finalized'
     ? { text: '已确认', type: 'success' }
     : { text: '草稿', type: 'info' }
@@ -362,8 +368,9 @@ async function loadMyWorkItems() {
 
 function onDateChange() {}
 
-watch(() => scheduleDate.value, (value) => {
+watch(() => scheduleDate.value, (value, previous) => {
   if (!value) return
+  if (previous) dailyReportDate.value = value
   loadMyShift(value)
   loadDayLeaveRecords(value)
 })

@@ -56,7 +56,7 @@ def table_ready(db,model):
 
 
 def supervisor(user):
-    return bool(user.is_active and not user.is_deleted and user.username in {'williamzhao','lulu'})
+    return access.same_viewing_access(user)
 
 
 def item_key(item):

@@ -8,12 +8,17 @@ from typing import Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, field_serializer, model_validator
+from talent_settlement import TalentSettlementInput, TalentSettlementResponse
+from talent_resume_profile import TalentResumeProfileInput, TalentResumeProfileResponse
 
 
 CapabilityType = Literal["written_translation", "interpretation", "annotation"]
 ResourceStatus = Literal["active", "standby", "inactive"]
+TalentStatus = Literal[
+    "standby", "active", "dormant", "blacklisted", "pending_activation", "under_observation", "inactive",
+]
 InterpretationMode = Literal["simultaneous", "consecutive"]
-EducationLevel = Literal["associate", "bachelor", "second_degree", "master", "doctor"]
+EducationLevel = Literal["primary", "junior_secondary", "senior_secondary", "secondary_vocational", "associate", "bachelor", "second_degree", "master", "doctor", "other"]
 HighestEducation = Literal[
     "high_school_or_below", "secondary_vocational", "associate", "bachelor",
     "master", "doctor", "other",
@@ -23,6 +28,8 @@ LanguageRole = Literal["native", "foreign", "dialect_ethnic"]
 LanguageProficiency = Literal["very_familiar", "familiar", "basic", "listening_mainly", "listening_only"]
 CertificateType = Literal["language", "other"]
 PerformanceLevel = Literal["high", "medium", "low"]
+TalentGrade = Literal["S", "A", "B", "C", "pending"]
+ContactAvailability = Literal["anytime", "morning", "afternoon", "evening", "weekday_daytime", "weekend", "appointment"]
 
 
 def _clean_text(value):
@@ -127,6 +134,7 @@ class CareerProfileInput(BaseModel):
 
 
 class EducationExperienceInput(BaseModel):
+    period: Optional[str] = Field(default=None,max_length=100)
     id: Optional[UUID] = None
     education_level: EducationLevel
     institution: Optional[str] = None
@@ -140,7 +148,7 @@ class EducationExperienceInput(BaseModel):
     sort_order: int = Field(default=0, ge=0)
 
     _normalize_text = field_validator(
-        "institution", "institution_category", "major", "major_category",
+        "period", "institution", "institution_category", "major", "major_category",
         "minor_major", "degree_name", "remarks", mode="before",
     )(_clean_text)
 
@@ -177,6 +185,10 @@ class CertificateInput(BaseModel):
 
 
 class ResourcePersonWrite(BaseModel):
+    resume_profile: Optional[TalentResumeProfileInput] = None
+    identity_number: Optional[str] = Field(default=None, max_length=50)
+    eyesight: Optional[str] = Field(default=None, max_length=255)
+    settlement: Optional[TalentSettlementInput] = None
     resource_code: Optional[str] = None
     full_name: str = Field(min_length=1, max_length=255)
     chinese_name: Optional[str] = None
@@ -206,7 +218,16 @@ class ResourcePersonWrite(BaseModel):
     wechat_accounts: Optional[list[str]] = Field(default=None, max_length=100)
     wechat_accounts_revision: Optional[int] = Field(default=None, ge=1)
     wechat_groups: Optional[str] = Field(default=None, max_length=4000)
+    wecom_large_groups: Optional[str] = Field(default=None, max_length=4000)
+    contact_availability: Optional[ContactAvailability] = None
     residence_address: Optional[str] = None
+    residence_timezone: Optional[str] = Field(default=None, max_length=12)
+
+    @field_validator('residence_timezone', mode='before')
+    @classmethod
+    def validate_residence_timezone(cls, value):
+        from talent_timezone import normalize_talent_timezone
+        return normalize_talent_timezone(value)
     dialects: list[str] = Field(default_factory=list)
     dialect_regions: list[str] = Field(default_factory=list)
     height: Optional[str] = None
@@ -225,6 +246,7 @@ class ResourcePersonWrite(BaseModel):
     translation_experience: Optional[str] = None
     other_experience: Optional[str] = None
     annotation_willingness: Optional[PerformanceLevel] = None
+    talent_grade: TalentGrade = "pending"
     overall_score: Optional[int] = Field(default=None, ge=1, le=10)
     overall_rating: Optional[str] = None
     cooperation_level: Optional[PerformanceLevel] = None
@@ -237,9 +259,14 @@ class ResourcePersonWrite(BaseModel):
     non_audio_annotation_evaluation: Optional[str] = None
     collection_score: Optional[int] = Field(default=None, ge=1, le=10)
     collection_evaluation: Optional[str] = None
+    interpretation_rating: Optional[int] = Field(default=None, ge=1, le=6)
+    interpretation_rating_note: Optional[str] = None
+    interpretation_domains: Optional[str] = None
+    written_translation_score: Optional[int] = Field(default=None, ge=1, le=10)
+    written_translation_evaluation: Optional[str] = None
     first_contact_date: Optional[datetime] = None
     remarks: Optional[str] = None
-    status: ResourceStatus = "standby"
+    status: TalentStatus = "standby"
     capabilities: list[CapabilityInput] = Field(default_factory=list)
     written_profile: Optional[WrittenTranslationProfileInput] = None
     interpretation_profile: Optional[InterpretationProfileInput] = None
@@ -253,14 +280,14 @@ class ResourcePersonWrite(BaseModel):
 
     @field_validator(
         "resource_code", "full_name", "chinese_name", "english_name", "nickname",
-        "cooperation_type", "contact_info",
+        "cooperation_type", "contact_info", "identity_number", "eyesight",
         "primary_phone", "secondary_phone", "primary_email", "secondary_email",
         "other_contact", "wechat", "whatsapp", "skype", "line", "resume_path", "gender",
-        "ancestral_home", "native_place", "registration_source", "wechat_account", "wechat_groups", "residence_address", "height", "appearance", "nationality", "ethnicity",
+        "ancestral_home", "native_place", "registration_source", "wechat_account", "wechat_groups", "wecom_large_groups", "residence_address", "height", "appearance", "nationality", "ethnicity",
         "employment_detail", "student_stage", "student_grade_override", "annotation_experience",
         "interpretation_experience", "translation_experience", "other_experience", "overall_rating",
         "cooperation_note", "punctuality_note", "audio_annotation_evaluation",
-        "non_audio_annotation_evaluation", "collection_evaluation", "remarks", mode="before",
+        "non_audio_annotation_evaluation", "collection_evaluation", "interpretation_rating_note", "interpretation_domains", "written_translation_evaluation", "remarks", mode="before",
     )
     @classmethod
     def normalize_text(cls, value):
@@ -334,7 +361,7 @@ class ResourcePersonNameUpdate(BaseModel):
 
 
 class ResourcePersonStatusUpdate(BaseModel):
-    status: ResourceStatus
+    status: TalentStatus
 
 
 class WrittenTranslationProfileResponse(WrittenTranslationProfileInput):
@@ -391,6 +418,11 @@ class TalentAttachmentResponse(BaseModel):
     file_size: int
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer('created_at', when_used='json')
+    def serialize_attachment_time(self, value):
+        from business_time import business_iso
+        return business_iso(value)
 
 
 class TalentProjectHistoryResponse(BaseModel):
@@ -471,6 +503,8 @@ class TalentAnnotationProjectPerformanceResponse(BaseModel):
 
 
 class ResourcePersonListResponse(BaseModel):
+    identity_number: Optional[str] = None
+    eyesight: Optional[str] = None
     archived_into_id: Optional[UUID] = None
     archived_at: Optional[datetime] = None
     name_review_state: Optional[str] = None
@@ -498,7 +532,7 @@ class ResourcePersonListResponse(BaseModel):
     cooperation_type: Optional[str] = None
     primary_phone: Optional[str] = None
     primary_email: Optional[str] = None
-    status: ResourceStatus
+    status: TalentStatus
     duplicate_review_required: bool = False
     capability_types: list[str] = Field(default_factory=list)
     language_directions: list[str] = Field(default_factory=list)
@@ -521,6 +555,14 @@ class ResourcePersonListResponse(BaseModel):
     wechat_accounts: list[str] = Field(default_factory=list)
     wechat_accounts_revision: int = 1
     wechat_groups: Optional[str] = None
+    wecom_large_groups: Optional[str] = None
+    contact_availability: Optional[ContactAvailability] = None
+    residence_timezone: Optional[str] = None
+    interpretation_domains: Optional[str] = None
+    interpretation_rating: Optional[int] = None
+    interpretation_rating_note: Optional[str] = None
+    written_translation_score: Optional[int] = None
+    written_translation_evaluation: Optional[str] = None
     ancestral_home: Optional[str] = Field(default=None, max_length=255)
     native_place: Optional[str] = None
     residence_address: Optional[str] = None
@@ -528,6 +570,7 @@ class ResourcePersonListResponse(BaseModel):
     dialect_regions: list[str] = Field(default_factory=list)
     nationality: Optional[str] = None
     annotation_willingness: Optional[PerformanceLevel] = None
+    talent_grade: TalentGrade = "pending"
     overall_score: Optional[int] = None
     overall_rating: Optional[str] = None
     first_contact_date: Optional[datetime] = None
@@ -572,7 +615,7 @@ class TalentOptionResponse(BaseModel):
     resource_code: Optional[str] = None
     full_name: str
     cooperation_type: Optional[str] = None
-    status: ResourceStatus
+    status: TalentStatus
     gender: Optional[str] = None
     birth_date: Optional[date] = None
     annotation_language_skills: list[AnnotationLanguageSkillResponse] = Field(default_factory=list)
@@ -580,6 +623,11 @@ class TalentOptionResponse(BaseModel):
 
 
 class ResourcePersonDetailResponse(ResourcePersonListResponse):
+    resume_profile: Optional[TalentResumeProfileResponse] = None
+    settlement: Optional[TalentSettlementResponse] = None
+    evaluation_meta: dict[str, dict] = Field(default_factory=dict)
+    wecom_small_group_status: Optional[str] = None
+    wecom_large_group_status: Optional[str] = None
     inherited_contacts: list[dict] = Field(default_factory=list)
     inherited_attachments: list[dict] = Field(default_factory=list)
     other_names: list[str] = Field(default_factory=list)
@@ -617,6 +665,10 @@ class ResourcePersonDetailResponse(ResourcePersonListResponse):
     collection_score: Optional[int] = None
     collection_evaluation: Optional[str] = None
     overall_rating: Optional[str] = None
+    interpretation_rating: Optional[int] = None
+    interpretation_rating_note: Optional[str] = None
+    written_translation_score: Optional[int] = None
+    written_translation_evaluation: Optional[str] = None
     first_contact_date: Optional[datetime] = None
     remarks: Optional[str] = None
     capabilities: list[CapabilityResponse] = Field(default_factory=list)

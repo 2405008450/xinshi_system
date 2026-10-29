@@ -1342,12 +1342,14 @@
 ### 资源需求多版本与通知回执（2026-10-23，经用户确认完成结构初始化）
 
 - `resource_request.request_detail` 保留历史内容，界面改称总体需求；新增 `request_content JSONB NOT NULL DEFAULT '{}'`，保存 `versions:[{name,content}]`，不改写历史详情。新增 `partial_requested boolean NOT NULL DEFAULT false`、`partial_sequence integer NOT NULL DEFAULT 0`。仅母订单且有子订单可标记部分语种；发送时锁来源项目，以来源项目分配递增批次，标题保存为“部分语种（n）原项目名”。项目名本体不修改。`uq_resource_request_partial_batch` 对 annotation_project_id/partial_sequence（大于0）唯一。
-- `resource_request_dispatch`：id UUID PK；request_id UUID FK resource_request（RESTRICT），sender_id UUID FK app_user（RESTRICT），kind varchar(16)（circle/post/development），idempotency_key varchar(128) 全局唯一，snapshot JSON 不可变完整需求快照，created_at timestamptz。按 request_id、sender_id 建索引。
+- `resource_request_dispatch`：id UUID PK；request_id UUID FK resource_request（RESTRICT），sender_id UUID FK app_user（RESTRICT），kind varchar(16)（circle/post/development/cancellation），idempotency_key varchar(128) 全局唯一，snapshot JSON 不可变完整需求快照，created_at timestamptz。按 request_id、sender_id 建索引。
 - `resource_request_dispatch_recipient`：dispatch_id UUID FK dispatch（CASCADE）与 user_id UUID FK app_user（RESTRICT）联合主键；received_at、processed_at timestamptz，可空。按 user_id/dispatch_id 建索引。回执仅本人操作，已处理必须先已收到；同状态重试不重复通知。
 - 发送人及指定接收人可读快照；仅 active 的标注项目部成员可作为新发送目标。通知类型 `resource_request_dispatch` 属业务通知，继续使用红色未读数字。发送、接收和处理通知含项目名称；快照及新回执使用 UTC+8。通知入库与批次/回执同事务，提交后推送。
 - 显式迁移：`tools/apply_resource_request_dispatch_migration.py`。仅新增三列、唯一索引和两表，不补发历史通知，不填造历史回执；每次执行云端结构迁移前单独确认。
 
 资源需求三种发送方式分别最多5次；development 复用现有批次和回执表，快照的 send_log_id 关联原发送进度日志。历史发送只按原日志统计，不补造接收人和回执。重复请求使用幂等标识，不重复计数或通知。此次扩展不新增表或字段。
+
+取消通知（2026-10-27）：复用批次与接收人表，kind=cancellation，sender_id 为取消操作人；snapshot 在原需求快照上附加 cancelled_kind、original_dispatch_id，幂等键 cancel-dispatch:{原批次UUID}。原批次与回执不改写；取消批次 received_at 表示“确认收到取消通知”，仅原接收人可确认，重复确认不重复通知。取消操作人收到确认通知。发圈／发帖分别取消所有尚未取消批次，资源开拓取消同时更新 demand_status、request_status 为 cancelled；新发送批次独立处理。发送、取消、处理回执按需求行锁串行执行；取消和通知同事务。此次扩展不新增表或字段，不补发历史通知。
 
 ### 人员逻辑删除（2026-10-23，已单独确认并执行迁移）
 app_user 新增 is_deleted boolean NOT NULL DEFAULT false、deleted_at timestamptz NULL。删除时停用账号并写入 UTC+8 删除时间；人员列表及组织架构排除已删除人员，历史业务外键、姓名、排班、请假、消息及审计保留。用户名和邮箱继续保留唯一性，避免历史身份被新人员复用。
@@ -1359,6 +1361,9 @@ resource_request_execution_reply：id UUID PK，dispatch_id UUID FK resource_req
 resource_request_dispatch_default：kind varchar(16) PK（circle/post/development），user_ids JSON NULL（NULL 按初始规则生成，[] 明确清空），revision integer，updated_by UUID FK app_user，updated_at timestamptz。发帖可选全公司启用人员；发圈、需求可选标注项目部。共用配置不改写已发送通知。
 
 资源需求 request_content.versions 的每个版本新增 copied_from_task 布尔 JSON 属性（默认 false），标记发帖版、询问版是否自动复制自标注项目 task_description；页面按此属性在内容首行显示红色加粗提示。复用现有 JSON 字段，无数据库结构变更；人工正文不会被覆盖。
+
+### 总结查看权限（2026-10-24）
+复用 resource_development_issue.summary_data JSON：view_all（true 全体；false 指定范围；null/缺失沿用历史关联权限）、view_user_ids（人员 UUID 字符串数组）、view_department_ids（部门 UUID 字符串数组）。新表单默认全体，历史记录不回填；保存人和已有统筹管理权限保留。部门按当前主部门及多部门成员动态匹配；通知对象必须在指定查看范围内。列表、详情及写入共用权限查询，原会话权限不变。本次无表、列或约束变更。
 
 
 ### work_report_category（工作报告自定义二级分类）
@@ -1430,6 +1435,17 @@ resource_request_dispatch_default：kind varchar(16) PK（circle/post/developmen
 
 仅赵震锋及当前行政部（主部门或跨部门成员）可以统计。仅已确认报告计为已写；当前启用未删除人员，自账号创建日期起统计，未来日期不计。2025、2026 年使用国务院公布的放假及调休安排，未知年份拒绝统计，不按普通周末推测。按日给出应写、已写、未写人数与人员 UUID；按周/月返回每人缺报的全部具体工作日。部门及姓名筛选在同一查询范围内应用，跨部门人员去重。人员范围采用当前名册，不以此替代历史劳动关系或请假考勤。
 
+### 新咨询对接及工作报告二级行（2026-10-24）
+
+复用 consultation.project_intake 的保留键 `_work_report_capture`，不新增数据库字段。该键由后端写入及保护，普通创建、编辑和售前字段更新不得覆盖。保存 owner_id、pending/completed 状态、created_at、item_key；完成时增加 report_id、report_date、completed_at 以及 original_entry 初始录入快照。本人 pending 列表支持刷新恢复必填窗口；提交锁定用户、咨询与日报，重复请求返回同一结果，不重复追加。
+
+新咨询对接写入既有 daily_report_item，display_metadata 保存 source=consultation_handoff、consultation_id、consultation_code、added_at（+08:00）及稳定 _feedback_key。已确认日报直接追加，保留旧明细、确认状态与确认时间，不占用一次修订机会；保存陈旧草稿或重新汇总不得删除自动追加项。有权查看者通过 daily_report_updated 实时通知重新读取；所有实际读取仍重新核验当前权限。
+
+工作报告业务日按 UTC+8 每日 07:00 换日；自动归属及默认今天使用该业务日。显式选择的报告日期和历史记录不批量改写。按发生时刻汇总的事件范围为所选日期 07:00（含）至次日 07:00（不含）；按明确 work_date 填写的记录保持原日期语义。
+
+二级工作项使用 daily_report_item.display_metadata.parent_item_key 指向同份报告父项的 _feedback_key；最多两级，同项目身份（订单号、类型、项目名称）沿用父项，具体任务、工作量、单位和耗时独立填写。后端校验父项属于同一报告、拒绝循环关系，手工重复订单自动归并，并按父项及其子项连续排序；界面、查看快照与 Excel 使用 1、1.1、1.2 编号体现层级。
+
+查看规则复用 work_report_access_rule：除自动保留的赵震锋外仅指定一名查看人的启用规则视为该人的个人专属规则，优先于该人适用的多人共享或全体查看规则；同人的多条专属规则仍取并集。赵震锋仅含本人查看人的规则为其个人范围。停用个人规则后回退共享规则。个人范围可选择全体成员、全部部门，或搜索并多选指定部门及人员；部门与人员取并集并去重。只有赵震锋可以读取和编辑设置；赵震锋及 Lulu 的全部沟通监督权限独立于报告范围。
 ## 标注项目进度编辑与删除留痕（2026-10-25）
 
 复用 `project_operation_audit`，`operation_type` 增加 `progress_edit`，保留原有 `progress_delete`；迁移脚本为 `tools/apply_annotation_progress_edit_audit_migration.py`，仅调整 `ck_project_operation_audit_operation` 约束，无新增列。未经单独授权不执行云端迁移。
@@ -1439,43 +1455,7 @@ resource_request_dispatch_default：kind varchar(16) PK（circle/post/developmen
 状态变更说明删除只清空说明，不删除状态节点或改变当前状态；普通进度删除后从审计重建只读占位和历史入口。所有有项目查看权限的登录用户可编辑、删除项目进度记录及查看其留痕，不授予其他项目管理权限。读取既有删除审计兼容旧无时区时间，按项目既有 UTC+8 本地时间解释，不回写历史值。
 
 
-
-## 资源开拓自定义字段（2026-10-26）
-
-字段定义复用 `resource_development_option`，`kind=custom_field`、`name` 为名称（最多100字），不修改选项表结构；同名忽略大小写复用，最多100个字段。新建 `resource_development_custom_value`：`record_id` UUID 与 `field_id` UUID 为联合主键，分别外键指向开拓记录与选项表，均 ON DELETE CASCADE；`value` TEXT 非空默认空串，单字段最多20000字。通过 `tools/apply_development_custom_fields_migration.py` 显式幂等初始化，启动自动迁移保持关闭。
-
-录入接口 `custom_fields` 为字段 UUID 到文本的映射；未提交字段保留旧值，显式空串清空。值与主记录同事务保存，记录到现有 `resource_development_audit`（`entity_type=record_custom_fields`），非授权人员的自由文本按受限内容展示。字段设置使用 `custom_field:<UUID>` 独立列；自定义资源账号使用 `custom_account:<小写名称>` 独立列，从已登记账号中只读汇总名称，不迁移历史账号。两类动态列都按本人或代录权限进行值筛选。
-
-## 人才路径窗口修改记录（2026-10-26）
-
-`talent_path_change`：`id` UUID 主键；`person_id` UUID 非空外键指向 `resource_person.id`（ON DELETE CASCADE）；`actor_id` UUID 可空外键指向 `app_user.id`（ON DELETE SET NULL）；`actor_name` VARCHAR(255) 非空保存操作人姓名快照；`changes` JSON 非空，按字段键保存 `{before, after}`；`created_at` TIMESTAMP 非空，使用业务 UTC+8 本地时间生成，接口带 `+08:00`。索引 `ix_talent_path_change_person_time(person_id, created_at, id)`。使用 `tools/apply_talent_path_history_migration.py` 显式幂等创建，不启用启动自动迁移。
-
-路径窗口 PATCH `/talents/{id}/path-fields` 只允许人才编号、姓名、三种区域信息、路径及既有联系方式字段；`changes` 与 `expected_values` 字段集合须相同，逐字段核对原值防止并发覆盖，仅写入实际改动并与修改记录同事务提交。联系方式编辑及历史明文继续仅超级管理员可用，非授权用户历史值遮罩。GET `/talents/{id}/path-history` 分页查看本窗口自功能启用后的修改记录，不生成历史补记。
-
-## 资源开拓扩展账号（2026-10-26）
-
-新增表 `resource_development_resource_contact`，以 `record_id`（UUID）为主键及指向 `resource_development_record.id` 的外键，删除记录时级联删除扩展账号。`whatsapp` 为 VARCHAR(100)，非空默认空串；`custom_accounts` 为 JSON，非空默认空数组，元素为 `{name, value}`，名称最多 50 字、账号最多 100 字，每条开拓记录最多 30 个自定义账号，名称忽略大小写去重。旧客户端未提交时保留既有值，显式空值清空。保存与开拓记录处于同一事务，修改记录写入现有审计表（entity_type=`record_contacts`）。权限与资源手机、微信号一致；无权访问时账号值遮罩，账号检索限本人或有代录权限者。原记录表不增加列，不更改历史数据。使用 `tools/apply_resource_development_contacts_migration.py` 显式幂等初始化，不在启动时自动迁移。
-
-人才总库“路径登记”复用 `resource_person.resume_path`，去除首尾空格、制表、换行及全角空格后非空为“有”，NULL、空串及纯空白为“无”；不检查文件或 UNC 的实际存在性，无结构变更。接口 field_filters 字段 `resume_path_registered`，布尔 eq，统一用于列表与总数。
-
-## 资源需求三类发送说明（2026-10-26）
-
-复用 `resource_request.request_content` JSONB 的 `dispatch_notes` 对象；`circle`、`post`、`development` 分别保存发圈需求、发帖需求、资源开拓需求管理的可选说明，每项最长 10000 字，默认空字符串，无新增表、列或数据库迁移。旧客户端未提交的说明保留原值，显式空字符串清空对应说明。发送批次继续冻结完整 `request_content` 快照，接收人查看本次对应类型的说明，后续修改不回写历史通知。
-
-
-### chat_discussion_mention（讨论提及关系，2026-10-27）
-
-| 字段 | 类型 | 含义 |
-| --- | --- | --- |
-| message_id | BIGINT，联合主键，外键 | chat_discussion_message.id；随消息删除级联 |
-| user_id | UUID，联合主键，外键 | 被提及的有效用户；发送者自动排除 |
-| user_name | VARCHAR(255) | 发送时的被提及姓名快照 |
-| is_all | BOOLEAN | 是否由 @所有人 展开；仅当前会话有效成员 |
-| notification_id | UUID，可空、唯一、外键 | 对应 app_notification.id；通知删除后置空 |
-
-索引：ix_discussion_mention_user_message(user_id, message_id)。讨论消息本身不改结构，纯文本 @ 不产生记录；撤回消息不进入 @我 和未读统计。新增通知类型 discussion_chat_mention 归入聊天提醒。项目群及私聊沿用 chat_project_mention，并在消息 event_data.mention_all 标记全体提醒，无须修改已有表。
-
-## 笔译项目安排（2026-10-25）
+## 笔译项目安排与今日任务（2026-10-25）
 
 ### translation_project_arrangement
 
@@ -1530,33 +1510,31 @@ resource_request_dispatch_default：kind varchar(16) PK（circle/post/developmen
 
 迁移：tools/apply_arrangement_history_migration.py，仅创建上述两张新表，不修改原表或已有业务记录；按用户 2026-10-25 长期授权，执行前后醒目提示。
 
-
-### translation_arrangement_instruction（项目安排共同说明，2026-10-25）
+### personal_daily_task（自行填写的今日任务）
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| project_id | uuid PK/FK | translation_project.id，项目删除时级联删除 |
-| content | text | 本项目所有被安排人员可见的共同说明；最多 10000 字 |
-| revision | integer | 共同说明独立乐观锁版本 |
-| updated_by | uuid | 最近编辑人 |
-| updated_at | timestamptz | UTC+8 编辑时间 |
+| id | uuid PK | 自主任务 ID |
+| user_id | uuid FK | 填写人，仅本人可编辑和完成 |
+| work_date | date | 安排日期，默认沿用工作报告 UTC+8 七点换日业务日 |
+| report_row | json | 任务类型、具体任务、项目身份、工作量及单位等填写内容；完成前允许暂不填工作量、单位和耗时 |
+| estimated_minutes / actual_minutes | integer | 预计和实际分钟数，0 表示未填写，范围 0～1440 |
+| status | varchar(20) | pending、in_progress、completed |
+| revision | integer | 编辑、完成时的乐观锁版本 |
+| report_item_id | uuid nullable | 完成时新增的工作报告明细 ID；报告重写后通过 metadata.personal_task_id 追溯 |
+| created_at / updated_at | timestamptz | 创建及修改时刻，接口按 +08:00 输出 |
 
-说明与每个人的具体任务分别保存。批量安排可在同一事务中保存说明和个人任务；说明版本冲突则全部不提交。修改共同说明须有 projects:write，使用与任务编辑一致的项目锁顺序，并记录安排历史的 before/after 快照。今日任务及有权查看任务的人可查看共同说明；完成任务加入工作报告时，仍以个人任务内容作为“具体任务”，不以共同说明代替。历史快照只在项目级保存说明，避免在每个任务中重复存储。旧任务无说明时返回空文字，无历史内容回填。
+索引：user_id + work_date；状态及用时有 CHECK 约束。自行填写不改变项目的人员安排、执行顺序或项目状态。项目类型关联由统一项目身份目录选择，服务端核验类型和项目 ID，并带出规范订单号与项目名称。其他字段由人员填写。
 
-迁移：tools/apply_arrangement_instruction_migration.py，仅新建说明表，不修改已有任务表结构或业务记录；执行前后按长期授权醒目提示目标与结果。
+个人任务完成与追加完整工作报告使用共同事务帮助函数，表单缺项、报告已确认或保存失败时不标记完成。报告来源为 manual，metadata.source=personal_daily_task，带 personal_task_id 和稳定反馈键；陈旧报告编辑器和重新汇总不得丢弃这类记录。
 
-### 讨论消息操作与总结来源（2026-10-27）
+今日任务与分派任务通过数据库 UNION 统一分页、统计；查看他人任务沿用工作报告查看范围与部门筛选规则。默认今日查询包含此前未完成事项，显式日期范围查询严格按安排日期取值且包含已完成任务。昨日、前日为单日，上周和前一周为周一至周日的上一个、上上个自然周。
 
-- `chat_discussion_message_action`：复合主键 `message_id`（讨论消息 bigint 外键）、`user_id`（用户 UUID 外键）；`user_name` 为人员快照，`favorited_at`、`acknowledged_at` 为 UTC+8 带时区时间。收藏按用户隔离，收到回执仅当前会话成员可读。
-- `chat_discussion_issue_source`：`issue_id` 为总结 UUID 主键及外键，`room_id` 为会话 UUID（索引），`message_id` 为讨论消息 bigint 外键，`category` 为收录类别；`message_id + category` 唯一，防止重复保存。保留既有总结来源枚举结构不变，讨论来源通过此表识别，接口返回真实 `discussion` 来源及消息编号。聊天撤回后保留已保存总结快照，但跳转原消息受当前成员权限和撤回状态约束。
-- 迁移：`tools/apply_discussion_actions_migration.py` 仅幂等创建上述新表及必要约束、索引，不更改已有表。
+今日任务表单允许所有人员新增一行或多行，不要求已有分派任务。`POST /project-arrangements/personal-batch` 每次接收 1～100 行；所有行完成类型、项目关联校验后统一事务保存，任一行无效不创建任务。各行独立计时、编辑和完成，保存时保留项目继承值并移除表单内父行引用，不新增表或字段。
 
+工作报告与任务查看共用规则；Lulu（lulu）、Ethan（ethan）使用赵震锋（williamzhao）当前生效的查看规则，包括个人规则优先级，并具有相同的报告统计及沟通查看能力。停用或删除的账号不生效。设置修改仍仅限赵震锋，界面标题统一为“工作报告与任务查看设置”；不改写已有规则数据。
 
-### 项目技术需求（2026-10-27）
-
-- `annotation_technical_room`：`project_id` 为标注项目 UUID 主键/外键，每项目一个独立技术会话；`room_id` 为独立讨论分类 UUID 唯一外键。`requirements` 是可编辑的需求汇总，`revision` 为乐观锁版本；`created_by/updated_by`、`created_at/updated_at` 记录人员与 UTC+8 带时区时间。默认加入点击者、当前项目经理、黎涛/黄萌/伟豪/赵震锋以及 IT 部全体现有有效员工；额外人员从有效员工目录多选。实际访问仍校验讨论成员。
-- `annotation_technical_append`：`id` UUID 主键；`room_id` 技术会话 UUID 外键，`request_id` 与会话联合唯一，`message_id` 为来源讨论消息 bigint 外键，`created_by/created_at` 记录加入人和 UTC+8 时间。追加请求重试不重复写入；不同段落之间使用空行。
-- 迁移 `tools/apply_technical_requirements_migration.py` 仅幂等创建上述两表及必要索引、约束，不修改已有表。
+迁移：tools/apply_personal_daily_task_migration.py，仅创建新表及必要索引、约束，不修改旧表或已有业务数据；按用户长期授权在执行前后醒目提示。
 
 ### monthly_shift_plan（月度班次安排，2026-10-25）
 
@@ -1628,3 +1606,339 @@ GET/PUT /monthly-shifts/weekly?week=YYYY-MM-DD：行政部门可管理，输入�
 | updated_at | timestamptz | UTC+8 业务更新时间 |
 
 GET/PUT /monthly-shifts/fixed 仅允许在用行政部成员访问。新增配置由 tools/apply_fixed_shift_migration.py 幂等创建，不修改既有表。固定班次按 UTC+8 当前日期应用于本周及以后周、本月及以后月：读取时合并到相同单元格，保存时服务端强制保留固定位置，员工只读视图同步生效。设置前的历史周期不受影响，已自动带入的历史周期按生效快照保留，不随之后改班或取消固定消失；停用或删除账号不再带入当前及未来周期。取消固定后，已保存的周期记录仍保留，未保存周期不再自动带入。周末值班不使用固定班次配置。启动不执行结构迁移。
+
+
+### attendance_day / attendance_leave（旧版打卡兼容及现行请假，2026-10-25）
+
+2026-10-28 起自动登录打卡已停用，以下登录打卡描述仅记录旧版字段来源。现行手动打卡及分段确认见 attendance_clock_session；旧已完成打卡不追溯重算。
+
+`attendance_day`：id UUID 主键；user_id UUID 外键 app_user；day 业务自然日（UTC+8）；check_in / check_out timestamptz（首次电脑登录、首次下班按钮提交时间）；shift_snapshot JSON（打卡当日班次与各工作时段）；created_at timestamptz。唯一约束 uq_attendance_user_day(user_id, day)，日期索引 ix_attendance_day_date。重复登录和签退均不覆盖首次记录。
+
+`attendance_leave`：id UUID 主键（同步旧 employee_leave 使用相同 id）；client_id UUID 唯一请求键；user_id UUID 外键 app_user；start_at / end_at timestamptz；reason text（1–500 字）；days JSON（逐日班次及班次内请假分钟快照）；created_at timestamptz。按 user_id/start_at/end_at 建索引。请假日期最多跨 31 天，时段不能重叠，必须至少覆盖一个有效工作班次；不计午休与班间休息。审批待开发，保存即生效。
+
+接口 /attendance/today、/check-out、/leave/preview、/leave、/mine 只处理本人；/attendance/report 仅行政部可读，姓名/账号关键词和组织部门范围同时用于明细、总数、人员累计及周期合计。统计按周一至周日或自然月。工作台“排班安排”更名“排班与考勤”，旧考勤页面只是空数据演示 UI，已替换；本迁移不删除其他现有业务表。
+
+桌面端成功登录或有效会话次日重新进入系统（POST /attendance/arrival）时，由服务端时间生成上班打卡，校验 UA、Client Hints 及客户端设备类型（手机/平板不计）；登录失败不打卡。每日保留首次登录；没有有效班次不生成记录，并返回明确状态。登记失败不伪造成功，不影响正常登录。下班按钮必须成功提交事务并重读后才返回打卡成功；手机禁止签退。跨午夜最多取前一天未签退记录，自然日期独立于工作报告 07:00 规则。
+
+班次优先取每周安排（含固定班次），其次月度；仅节假日/调休日历中的工作日或已安排周末值班的日期统计，无班次不推算迟到。未知年份日历明确报错。迟到时长为缺席的班次工作分钟减 10 分钟宽限，扣除合法请假与休息，超过才算一次；尚未签退不计算加班。加班为实际打卡区间扣除午休 12:00–13:30、其他班间休息和请假后的出勤分钟，减去班次应工作分钟（已扣合法请假），负数取零。每条记录、个人周/月和管理汇总使用同一计算函数。上班班次快照不受后续排班编辑影响。
+
+请假与旧 employee_leave、全体在用未删除人员的业务铃铛通知、逐人私聊会话消息在同一事务落库，失败全部回滚，幂等重试不重复群发；提交后才 WebSocket 提醒。通知正文含请假人、时段、时长、原因。新请假暂不允许从旧管理入口改/删，避免通知与快照不一致。新表初始化使用 tools/apply_attendance_migration.py 显式幂等执行，不启用启动自动迁移。
+## 资源开拓自定义字段（2026-10-26）
+
+字段定义复用 `resource_development_option`，`kind=custom_field`、`name` 为名称（最多100字），不修改选项表结构；同名忽略大小写复用，最多100个字段。新建 `resource_development_custom_value`：`record_id` UUID 与 `field_id` UUID 为联合主键，分别外键指向开拓记录与选项表，均 ON DELETE CASCADE；`value` TEXT 非空默认空串，单字段最多20000字。通过 `tools/apply_development_custom_fields_migration.py` 显式幂等初始化，启动自动迁移保持关闭。
+
+录入接口 `custom_fields` 为字段 UUID 到文本的映射；未提交字段保留旧值，显式空串清空。值与主记录同事务保存，记录到现有 `resource_development_audit`（`entity_type=record_custom_fields`），非授权人员的自由文本按受限内容展示。字段设置使用 `custom_field:<UUID>` 独立列；自定义资源账号使用 `custom_account:<小写名称>` 独立列，从已登记账号中只读汇总名称，不迁移历史账号。两类动态列都按本人或代录权限进行值筛选。
+
+## 人才路径窗口修改记录（2026-10-26）
+
+`talent_path_change`：`id` UUID 主键；`person_id` UUID 非空外键指向 `resource_person.id`（ON DELETE CASCADE）；`actor_id` UUID 可空外键指向 `app_user.id`（ON DELETE SET NULL）；`actor_name` VARCHAR(255) 非空保存操作人姓名快照；`changes` JSON 非空，按字段键保存 `{before, after}`；`created_at` TIMESTAMP 非空，使用业务 UTC+8 本地时间生成，接口带 `+08:00`。索引 `ix_talent_path_change_person_time(person_id, created_at, id)`。使用 `tools/apply_talent_path_history_migration.py` 显式幂等创建，不启用启动自动迁移。
+
+路径窗口 PATCH `/talents/{id}/path-fields` 只允许人才编号、姓名、三种区域信息、路径及既有联系方式字段；`changes` 与 `expected_values` 字段集合须相同，逐字段核对原值防止并发覆盖，仅写入实际改动并与修改记录同事务提交。联系方式编辑及历史明文继续仅超级管理员可用，非授权用户历史值遮罩。GET `/talents/{id}/path-history` 分页查看本窗口自功能启用后的修改记录，不生成历史补记。
+
+## 资源开拓扩展账号（2026-10-26）
+
+新增表 `resource_development_resource_contact`，以 `record_id`（UUID）为主键及指向 `resource_development_record.id` 的外键，删除记录时级联删除扩展账号。`whatsapp` 为 VARCHAR(100)，非空默认空串；`custom_accounts` 为 JSON，非空默认空数组，元素为 `{name, value}`，名称最多 50 字、账号最多 100 字，每条开拓记录最多 30 个自定义账号，名称忽略大小写去重。旧客户端未提交时保留既有值，显式空值清空。保存与开拓记录处于同一事务，修改记录写入现有审计表（entity_type=`record_contacts`）。权限与资源手机、微信号一致；无权访问时账号值遮罩，账号检索限本人或有代录权限者。原记录表不增加列，不更改历史数据。使用 `tools/apply_resource_development_contacts_migration.py` 显式幂等初始化，不在启动时自动迁移。
+
+人才总库“路径登记”复用 `resource_person.resume_path`，去除首尾空格、制表、换行及全角空格后非空为“有”，NULL、空串及纯空白为“无”；不检查文件或 UNC 的实际存在性，无结构变更。接口 field_filters 字段 `resume_path_registered`，布尔 eq，统一用于列表与总数。
+
+## 资源需求三类发送说明（2026-10-26）
+
+复用 `resource_request.request_content` JSONB 的 `dispatch_notes` 对象；`circle`、`post`、`development` 分别保存发圈需求、发帖需求、资源开拓需求管理的可选说明，每项最长 10000 字，默认空字符串，无新增表、列或数据库迁移。旧客户端未提交的说明保留原值，显式空字符串清空对应说明。发送批次继续冻结完整 `request_content` 快照，接收人查看本次对应类型的说明，后续修改不回写历史通知。
+
+
+### chat_discussion_mention（讨论提及关系，2026-10-27）
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| message_id | BIGINT，联合主键，外键 | chat_discussion_message.id；随消息删除级联 |
+| user_id | UUID，联合主键，外键 | 被提及的有效用户；发送者自动排除 |
+| user_name | VARCHAR(255) | 发送时的被提及姓名快照 |
+| is_all | BOOLEAN | 是否由 @所有人 展开；仅当前会话有效成员 |
+| notification_id | UUID，可空、唯一、外键 | 对应 app_notification.id；通知删除后置空 |
+
+索引：ix_discussion_mention_user_message(user_id, message_id)。讨论消息本身不改结构，纯文本 @ 不产生记录；撤回消息不进入 @我 和未读统计。新增通知类型 discussion_chat_mention 归入聊天提醒。项目群及私聊沿用 chat_project_mention，并在消息 event_data.mention_all 标记全体提醒，无须修改已有表。
+
+
+### 讨论消息操作与总结来源（2026-10-27）
+
+- `chat_discussion_message_action`：复合主键 `message_id`（讨论消息 bigint 外键）、`user_id`（用户 UUID 外键）；`user_name` 为人员快照，`favorited_at`、`acknowledged_at` 为 UTC+8 带时区时间。收藏按用户隔离，收到回执仅当前会话成员可读。
+- `chat_discussion_issue_source`：`issue_id` 为总结 UUID 主键及外键，`room_id` 为会话 UUID（索引），`message_id` 为讨论消息 bigint 外键，`category` 为收录类别；`message_id + category` 唯一，防止重复保存。保留既有总结来源枚举结构不变，讨论来源通过此表识别，接口返回真实 `discussion` 来源及消息编号。聊天撤回后保留已保存总结快照，但跳转原消息受当前成员权限和撤回状态约束。
+- 迁移：`tools/apply_discussion_actions_migration.py` 仅幂等创建上述新表及必要约束、索引，不更改已有表。
+
+
+### 项目技术需求（2026-10-27）
+
+- `annotation_technical_room`：`project_id` 为标注项目 UUID 主键/外键，每项目一个独立技术会话；`room_id` 为独立讨论分类 UUID 唯一外键。`requirements` 是可编辑的需求汇总，`revision` 为乐观锁版本；`created_by/updated_by`、`created_at/updated_at` 记录人员与 UTC+8 带时区时间。默认加入点击者、当前项目经理、黎涛/黄萌/伟豪/赵震锋以及 IT 部全体现有有效员工；额外人员从有效员工目录多选。实际访问仍校验讨论成员。
+- `annotation_technical_append`：`id` UUID 主键；`room_id` 技术会话 UUID 外键，`request_id` 与会话联合唯一，`message_id` 为来源讨论消息 bigint 外键，`created_by/created_at` 记录加入人和 UTC+8 时间。追加请求重试不重复写入；不同段落之间使用空行。
+- 迁移 `tools/apply_technical_requirements_migration.py` 仅幂等创建上述两表及必要索引、约束，不修改已有表。
+
+### 聊天电脑在线共享心跳（2026-10-28）
+
+- `chat_desktop_heartbeat`：`user_id`（UUID）、`client_id`（UUID）组成主键，每个电脑页面独立租约；`sequence` 为递增请求序号，防止乱序心跳覆盖退出状态；`active` 表示页面是否主动结束；`last_seen_at` 为服务端生成的 UTC+8 带时区心跳时间，设时间索引。
+- 电脑端独立 HTTP 心跳每 25 秒上报，WebSocket 心跳及恢复前台可触发补报；最近 120 秒内任何一条有效电脑租约或当前进程实时电脑连接存在即显示在线。已观察租约全部失效显示离线；从未观察或共享表未初始化时显示未知。手机不写入电脑租约。
+- `tools/apply_chat_presence_migration.py` 幂等创建新表与索引，不修改已有表及业务数据；常驻服务不自动迁移。
+- 2026-10-28 检测补充：后端自动从已鉴权的电脑 WebSocket 连接采集共享租约，建立、存活检查、断开分别更新，不要求旧前端实现 HTTP 心跳；Uvicorn 协议层 ping/pong 持续核对连接。独立 HTTP 心跳仍提供补偿，页面 pagehide 与退出登录前通过 keepalive 上报结束；每个连接/页面独立编号，关闭其中一个不使其他在线连接离线。无任何采集来源时仍为未知，不用登录时间、排班或未读状态推算电脑在线。
+
+
+### weekly_shift_publication（周班次已同步快照，2026-10-28）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| week_start | date，主键 | 自然周周一；跨月周共用同一主键 |
+| assignments | JSON | 已同步的人员、部门、班次及固定标记；不叠加实时草稿或固定配置 |
+| revision | integer | 同步版本，从1递增 |
+| draft_revision | integer | 本次同步所对应的 weekly_shift_draft.revision |
+| editing_enabled | boolean | 是否已点击“同步后修改”；同步完成后关闭 |
+| published_by | UUID | 同步操作人 |
+| published_at | timestamptz | 实际同步时间，接口明确为 UTC+8 |
+
+weekly_shift_plan 保留既有字段和兼容公开语义；行政管理草稿独立保存在 weekly_shift_draft，只有手动同步才更新旧公开表。停止操作400毫秒后保存草稿；GET /monthly-shifts/weekly/overview 与 /weekly/mine 只读取本快照，未同步的周返回空安排。固定配置变更只影响管理草稿，不自动更新已同步快照。考勤周安排同样读取已同步快照。同步成功后向全部在用人员广播 weekly_shift_published，工作台按所查看周期刷新，无新增高频轮询。
+
+### weekly_shift_audit（周班次修改记录，2026-10-28）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | UUID，主键 | 修改记录标识 |
+| week_start | date，非空 | 所属自然周周一 |
+| action | varchar(32) | draft_save、enable_edit、publish、copy、move、swap |
+| revision | integer | 当时的草稿版本 |
+| publication_revision | integer，可空 | 对应同步版本；为空表示尚未同步，不对普通人员公开 |
+| changes | JSON | 人员姓名与逐人修改前后部门、班次、固定标记；不含请假详情 |
+| actor_id / actor_name | UUID / varchar(255) | 操作人与当时姓名快照 |
+| created_at | timestamptz | 实际操作时间，接口 UTC+8 |
+
+索引 ix_weekly_shift_audit_week_time(week_start, created_at)。修改记录按周分页；行政人员可查看未同步记录，全部人员工作台仅可查看 publication_revision 非空的记录。POST /weekly/sync 校验草稿版本、同步版本和固定配置版本；POST /weekly/enable-edit 开启同步后修改。草稿无实质变化不重复递增版本或写审计。复制、转移、互换仅改变草稿，必须再手动同步。
+
+tools/apply_weekly_shift_publication_migration.py 只幂等创建 weekly_shift_draft、weekly_shift_publication、weekly_shift_audit 三张新表及其索引；不改变旧表、不初始化发布现有排班，不在服务启动时迁移。
+
+### weekly_shift_draft（独立周排班草稿，2026-10-28）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| week_start | date，主键 | 周一，跨月共用 |
+| assignments | JSON | 尚未发布的排班草稿，不供工作台读取 |
+| revision | integer | 草稿乐观锁版本；首次从旧公开表编辑时沿用其基线再递增 |
+| updated_by | UUID | 最近草稿修改人 |
+| updated_at | timestamptz | UTC+8 实际修改时间 |
+
+新草稿、复制、转移和互换均只写本表。尚无独立草稿时，管理端只读旧 weekly_shift_plan 作为编辑基线，不自动复制或改写历史记录。手动同步同时发布快照并更新旧公开表，以免尚未升级的工作台读取到未同步的编辑。同步新建草稿基线属于用户主动同步动作，不由迁移脚本执行。
+
+
+### 周末值班独立保存与同步（2026-10-28）
+
+四张新表由 tools/apply_weekend_duty_management_migration.py 幂等创建；不在启动时迁移，不初始化发布历史数据，不改变已有表结构。
+
+| 表 | 字段 | 类型与语义 |
+| --- | --- | --- |
+| weekend_duty_draft | month / assignments / revision | date 主键（每月首日）/ JSON 逐人逐日安排与固定标记 / integer 乐观锁版本 |
+| weekend_duty_draft | updated_by / updated_at | UUID 最近修改人 / timestamptz UTC+8 实际时间 |
+| weekend_duty_publication | month / assignments / revision / draft_revision | date 主键 / JSON 同步时完整快照 / integer 同步版本及对应草稿版本 |
+| weekend_duty_publication | editing_enabled / published_by / published_at | boolean 同步后锁定、点击“修改”解锁 / UUID 同步人 / timestamptz |
+| weekend_duty_audit | id / month / action / revision / publication_revision | UUID 主键 / date 月份 / varchar(32) draft_save、enable_edit、publish、copy、move、swap / integer 草稿版本 / nullable integer 同步版本 |
+| weekend_duty_audit | changes / actor_id / actor_name / created_at | JSON 姓名与修改前后部门、日期、固定标记 / UUID / varchar(255) / timestamptz |
+| weekend_duty_fixed_config | id / assignments / revision / updated_by / updated_at | integer 主键1 / JSON current 与按 effective_from 记录的 versions / integer 配置版本 / UUID / timestamptz |
+
+索引 ix_weekend_duty_audit_month_time(month, created_at)。固定配置的 weekdays 使用 Python 周序号5（周六）、6（周日），配置自香港时间当天生效。旧日期沿用相应历史配置。固定生成结果只影响管理端待同步内容；工作台和考勤只读取 publication 快照。
+
+停止操作400毫秒后 PUT /monthly-shifts/weekend-duty 只写独立草稿与私有审计，GET 保留无草稿时只读旧 weekend_duty_plan 的基线兼容。POST /weekend-duty/sync 校验草稿、发布与固定配置版本后更新快照及旧公开表，并广播 weekend_duty_published；同步后表单锁定，POST /weekend-duty/enable-edit 开启修改。修改记录随同步向全部在用人员公开，未同步审计仅行政可见。
+
+POST /weekend-duty/transfer 将来源周六、周日对应到目标周六、周日。跨月时原子校验并锁定所有涉及月份与固定配置；只替换目标日期的非固定安排，保留其他日期和固定安排。操作本身不发布，需分别同步涉及的月份。
+
+
+### attendance_clock_session（手动分段打卡及确认，2026-10-28）
+
+由 tools/apply_attendance_clock_migration.py 仅创建新表，不改变 attendance_day / attendance_leave，不回填历史数据。上班打卡由本人阅读早餐提示后主动完成；登录与 /attendance/arrival 不再写入上班打卡。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | UUID 主键 | 打卡段标识，下班确认必须传本人记录ID |
+| user_id | UUID 外键 app_user.id | 所属人员，接口从登录身份取得 |
+| day | date 非空 | UTC+8 上班打卡所属业务日期；跨日下班仍归此日 |
+| segment | integer 非空 | 普通班次0；客户部居家白天0、晚间1 |
+| check_in / check_out | timestamptz | 服务端实际时刻；重复点击保留首次值 |
+| shift_snapshot | JSON | 打卡时班次、固定标记、完整时段和本段时段、clock_policy=manual-v1 |
+| confirmations | JSON | 早餐提示确认、提前到达是否工作、早餐后打卡确认、晚餐选择、是否扣无效时间、分钟数和原因、确认时间；兼容本人主动延续的旧记录ID |
+| created_at | timestamptz | UTC+8 创建时间 |
+
+唯一约束 uq_attendance_clock_segment(user_id,day,segment)，索引 ix_attendance_clock_user_day(user_id,day)。服务端按人员事务锁串行处理，不能代他人打卡，手机端不得上下班打卡。未填写必需的是/否确认不得签退。
+
+客户部居家班次白天包含10:30–12:00、13:30–18:00，晚间21:00–23:00单独打卡；两段不得重叠，第一段签退且预定结束后才能开始第二段。居家班不扣晚餐。固定班次普通单段每天扣20分钟，不与晚班、晚晚班的晚餐选择重复扣。其他晚班、晚晚班选择有进食晚餐扣20分钟，选择无则不扣。
+
+提前于本段预定开始的有效时间，仅在本人签退确认已工作时计加班。加班排除午休、班间休息和请假。确认早餐前打卡则抵扣15分钟并记违纪一次。居家无效时间必须填写正数分钟及说明，从加班扣除。每日净额允许负值，用于同人同自然月抵扣；月累计最低0，尚余抵扣单独显示，不抵扣他人或跨月累计。原额、早餐、晚餐、无效时间和净额在查询时逐项返回，不隐藏抵扣过程。
+
+新旧记录按人员日期去重；旧已完成记录保留原有计算语义，无确认数据不追溯补扣。旧未签退记录仅在本人主动打卡事务中延续并保留来源ID。个人 GET /attendance/mine 仅使用当前登录人ID；公司 GET /attendance/report 使用行政权限。两者共用计算，无自动绩效扣款动作。
+
+
+### employee_employment（人员入职时间及年度年假额度来源，2026-10-28）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| user_id | UUID 主键、外键 app_user.id | 人员唯一对应，不修改 app_user 既有表结构 |
+| hire_date | date 可空 | 组织架构—人员管理的“入职时间”，纯 UTC+8 业务日期；缺失不推定 |
+| updated_at | timestamptz 非空 | 最后修改实际时刻，使用 UTC+8 业务时钟 |
+
+由 tools/apply_employee_employment_migration.py 幂等创建新表，只创建新表及必要主外键，不回填现有人员入职日期。人员新增、编辑时与 AppUser 的变更共用事务；不传 hire_date 保持现值，显式 null 清空。仍遵循 system:users:write 权限。
+
+现行公司年假额度规则：6月30日及以前入职，首年1天；7月1日起入职，首年0天。此后每满一个入职周年，再过3个月增加1天，不按1月1日统一增加。先计算周年日期，再顺延3个月；若目标月无对应日则取月末，闰日非闰年周年取2月末后再顺延。上限10天；未来尚未入职时0天；缺失日期时返回 null 并提示填写。
+
+例如2025-06-30入职，2026-09-29额度1天，2026-09-30额度2天；2025-07-01入职，2026-09-30额度0天，2026-10-01额度1天。额度为年度可享天数，不代表扣除已休年假的余额，未从普通请假原因文字猜测年假使用量。
+
+人员接口以批量读取补充 hire_date、annual_leave_year、annual_leave_days、annual_leave_next_increase；年假额度为按业务日实时推导的只读字段，不另存可被修改的计数。考勤个人接口只带当前人员额度，公司接口在权限内按人员返回。当前年份按当前 UTC+8 业务日计算，历史年度按该年12月31日计算。界面规则说明与表单即时预览采用同一算法，覆盖月底、闰年、首年、周年延迟及封顶边界。
+
+
+### home_office_qualification / home_office_application / home_office_annual_usage（居家办公，2026-10-28）
+
+三张新表由 tools/apply_home_office_migration.py 幂等创建，不改变已有表，不初始化历史居家天数。资格申请和日期申请只保存待审批并通知，审批操作待开发。
+
+| 表 | 字段 | 类型与语义 |
+| --- | --- | --- |
+| home_office_qualification | id / client_id / user_id | UUID 主键 / UUID 唯一幂等标识 / UUID 外键 app_user |
+| home_office_qualification | reason / status / approver_id / created_at | Text 必填理由 / varchar(24) pending / UUID 指定总经理 / timestamptz |
+| home_office_application | id / client_id / user_id | UUID 主键 / UUID 唯一幂等标识 / UUID 外键 app_user |
+| home_office_application | requested_date / reason / status / created_at | date 每次1个工作日 / Text 可选说明 / varchar(24) pending / timestamptz |
+| home_office_annual_usage | user_id / year | UUID 外键 app_user + integer 联合主键 |
+| home_office_annual_usage | used_days / revision / history | integer 普通居家系统外历史天数，可0，可据实记录超额 / integer 乐观锁 / JSON 补录前后、原因、操作人及UTC+8时刻 |
+| home_office_annual_usage | updated_by / updated_at | UUID 外键 app_user / timestamptz |
+
+索引 ix_home_office_qualification_user(user_id,created_at)、ix_home_office_application_user_date(user_id,requested_date)，唯一约束 uq_home_office_user_date(user_id,requested_date)。按人员事务锁串行校验，年度补录与申请使用相同锁，不能通过并发越过额度。
+
+资格：按入职日期顺延日历月，满3个月可提交资格申请，理由必填，批准人为行政部职务“总经理”的赵震锋；满6个月自动有资格。资格申请待审批不视为获批，满6个月自动资格不依赖审批状态。缺入职日期提示填写，不推定资格。tools/configure_home_office_approver.py 仅按用户明确指令配置赵震锋的行政部总经理职务，先唯一匹配在用姓名与行政部，保留其他部门成员、主部门及职务，不更改系统角色。
+
+普通居家额度：按自然月最多2次、自然季度4天、自然半年8天、自然年最多12天，待审批和已批准申请均占用额度。自然季度为1–3月、4–6月、7–9月、10–12月，半年为1–6月、7–12月。年度额度按入职满3个月之后在该年剩余月份折算：一个月覆盖至少20个日历日计1天，不足20日不计；完整年度最多12天。多个上限同时达到时全部提示并阻止新增申请。用户已明确自然年口径，不附加滚动12个月上限。
+
+年度占用＝行政补录的普通居家系统外历史天数＋系统内待审批/已批准日期申请。补录不得重复包含系统已有日期申请，不包含公司要求居家加班；只有年度总数时不编造月、季度或半年分配。当前年度未补录时不能申请，须先登记实际数（含0天）；未来尚未发生的年度按历史数0预留申请。历史超额可据实补录，后续申请一律禁止。补录只允许行政部编辑当前年，记录每次修改，提交后推送 home_office_usage_changed 刷新本人工作台。个人接口只读本人，行政接口可看全体及最近500条申请。
+
+普通有居家申请的日期，打卡快照标记 home_office_day；包括待审批日期也要求签退真实工作声明，但不因此授予资格或批准申请。客户部居家晚班仍两段；其他普通居家按原班次，签退可填写扣除无效分钟及原因。
+
+### 公司要求居家加班（attendance_clock_session.segment=2）
+
+独立类型 work_mode=company_home_overtime，无需居家资格或普通居家申请，不写 home_office_application，不占上述月、季度、半年、年度及补录额度。打卡快照 overtime_only=true、home_office_day=true，实际已打卡时间扣除午休、请假及本人确认的无效时间后计加班；早餐前打卡仍执行既有15分钟抵扣及违纪规则。公司居家加班不出现“提前到达公司”确认，不借用普通居家日期审批状态。
+
+同一日一组独立上下班打卡，不能与尚未结束的普通打卡同时开始，重复点击保留首次时刻。日报统计按实际时刻排序并保留普通班次身份，详细分段明确标识公司要求居家加班。人事管理居家区域另列公司要求居家加班打卡记录，不混入普通居家次数。
+
+### attendance_delay_start（延迟上班申请，2026-10-28）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id / client_id | UUID 主键 / UUID 唯一 | 申请与幂等标识 |
+| user_id | UUID 外键 app_user | 申请人，取当前登录身份 |
+| requested_start | timestamptz | 预计上班时刻，接口必须带时区并转换为UTC+8 |
+| reason | Text | 必填事由 |
+| created_at | timestamptz | 实际申请时刻 |
+
+索引 ix_attendance_delay_start_user_time(user_id,requested_start)。tools/apply_attendance_delay_start_migration.py 仅幂等创建本表，不改变其他表。手机和电脑可申请；提交与全体在用人员的业务铃铛、私聊通知同事务，失败回滚，成功提交后才推送；重试不重复通知。沿用请假全体通知通道。没有定义新的延迟批准流程，申请只留档，不自动改变原班次或免除迟到；本人及权限内公司考勤明细显示申请理由和预计时刻。
+
+排班考勤移动端写入仅允许请假、延迟上班申请；打卡、居家资格、普通居家申请、年度补录及排班写入在服务端阻止手机请求。手机可查看有权限的只读信息。
+
+### 人才联系资料与企微群状态
+
+- 现有 `resource_person.wechat_groups` 继续保存原多行群名，界面名称改为“所在企微小群”，不自动重分类或改写历史文本。
+- `resource_person.wecom_large_groups` TEXT 可空：所在企微大群，接口最多 4000 字，多行手动填写。
+- `resource_person.residence_timezone` VARCHAR(12) 可空：人才所在地固定 UTC 偏移，如 `UTC+8`、`UTC+5:30`、`UTC+5:45`，范围 UTC-12 至 UTC+14。不修改业务时间或日志的 UTC+8 规范，不推断未登记人才时区。
+- `resource_person.contact_availability` VARCHAR(30) 可空：`anytime` 随时可联系、`morning` 上午、`afternoon` 下午、`evening` 晚间、`weekday_daytime` 工作日白天、`weekend` 周末、`appointment` 需提前预约。单选、允许清空，按人才所在地时区理解，不推算具体钟点。
+- 详情响应 `wecom_small_group_status` / `wecom_large_group_status` 只读派生，分别通过开拓记录 `person_id` 及归档来源关联读取 `group` / `group_large` 最近跟进状态；历史 `已邀进群` 映射为 `已拉群`。无关联记录返回空；有关联但无该渠道跟进则显示未处理。未知历史状态只显示自定义状态，避免泄露原文。不开辟状态副本，不反向修改开拓记录及业绩。
+- 使用 `tools/apply_talent_contact_profile_migration.py` 幂等新增三个可空字段及 `ck_resource_person_contact_availability` 检查约束，保留所有现有值，不接入启动自动迁移。云端已有表结构调整须单独授权。
+
+### 人才商务与结算
+
+新增独立表 `talent_settlement`，不增加人员主表字段：`person_id` UUID 主键及外键指向 `resource_person.id`（ON DELETE CASCADE）；`revision` INTEGER 非空从 1 递增；`bank_account`、`paypal_account`、`payoneer_account` VARCHAR(255) 可空，保留前导零及原始账号；`wechat_payment_code`、`alipay_payment_code` TEXT 可空，沿用受权截图引用及长期业务截图存储；`invoice_available` BOOLEAN 可空（未登记/可开票/不可开票），`invoice_entity` VARCHAR(255) 可空（可开票时必填实际实体或名义）；`gig_platform_calculation` BOOLEAN 非空默认业务值 false，表示是否参与灵工平台计算，不在此功能中自动执行结算计算；`prices` JSON 非空、按用户顺序保存价格明细；`updated_by` UUID 可空外键指向 `app_user.id`（ON DELETE SET NULL），`updated_at` TIMESTAMP WITH TIME ZONE 非空，后端 UTC+8 生成。
+
+价格明细每行：`id` UUID 稳定标识；`category` 为 `interpretation` 口译、`written_translation` 笔译、`annotation` 标注、`collection` 采集；`amount` 非负 Decimal，最多 18 位、6 位小数，JSON 保存十进制字符串；`unit` 非空、最多 50 字，提供系统既有次、条、工作小时、有效小时及字、千字、小时、天、秒、分钟、页、张、项目，可填写其他单位；`currency` 使用 CNY/USD/HKD/EUR/GBP。每档案最多 100 行，允许多条同类价格，不自动覆盖项目管理中的正式计价。
+
+主档新增/编辑请求 `settlement` 为可选嵌套对象；不传或为 null 时保留原结算资料。提供时与主档在同一事务内保存，使用 revision 防止旧表单覆盖。沿用人才联系方式查看权限；受限请求不能读取或改写结算资料，普通主档编辑不会清空结算资料。核重不自动合并收款信息，原档案资料保留。协议状态仅界面标记“待开发”，不保存虚构协议数据。
+
+该表已按新表创建授权于 2026-10-29 在 William 对 `43.132.156.72:15432/xinshi_system` 完成初始化。`tools/apply_talent_settlement_migration.py` 幂等创建新表及 `ck_talent_settlement_revision`、`ck_talent_settlement_invoice_entity` 约束，不更改已有表、不回填历史数据、不接入启动自动迁移。
+
+### 人才评价自动署名与修改历史
+
+`talent_evaluation_change`：`id` UUID 主键；`person_id` UUID 非空外键指向 `resource_person.id`（ON DELETE CASCADE）；`group_key` VARCHAR(40) 非空评价分区键；`actor_id` UUID 可空外键指向 `app_user.id`（ON DELETE SET NULL）；`actor_account` VARCHAR(255) 非空保存实际登录账号快照；`before_values` / `after_values` JSON 非空保存分区内各评价字段的原值与新值；`created_at` TIMESTAMP WITH TIME ZONE 非空，后端生成 UTC+8 时间，接口明确携带 `+08:00`。索引 `ix_talent_evaluation_change_person_group_time(person_id, group_key, created_at, id)`。
+
+记录人才分级、标注总体评价、配合度、守时度、音频标注、非音频标注、采集、口译、笔译及三类专业能力评价；同一评价项目的评分与具体评价共用最新评价人/时间，历史保留实际变更字段。新增、编辑、核重合并及撤销中的评价变更均与业务保存使用同一事务；无变化不追加，清空也留痕。历史无署名数据显示“未记录”，不补造历史评价人和时间。客户端不能写入署名、时间或历史。
+
+详情响应 `evaluation_meta` 提供各评价项目最新账号和时间；`GET /talents/{id}/evaluation-history?group_key=...&skip=0&limit=10` 分页返回原值、新值、实际账号、UTC+8 时间，归档来源历史只读汇总。使用 `tools/apply_talent_evaluation_audit_migration.py` 幂等创建新表并验证列；仅新表创建已按 2026-10-25 授权于 2026-10-29 在 William 对 `43.132.156.72:15432/xinshi_system` 完成。启动自动迁移关闭，其余已有表迁移继续待单独授权。
+
+### 人才综合表现分区
+
+原 `overall_score`（1–10 分）与 `overall_rating` 保留字段及历史值，界面移动到“标注”区域的音频标注表现之前；标注区域还含音频、非音频及采集表现。配合度、守时度不改变。
+
+新增 `resource_person.interpretation_rating` INTEGER 可空，一至六星（1–6）；`interpretation_rating_note` TEXT 可空，口译说明；`interpretation_domains` TEXT 可空，口译领域自由文本；`written_translation_score` INTEGER 可空，笔译总体评价（1–10 分）；`written_translation_evaluation` TEXT 可空，笔译具体评价。口译区固定提示“四星以上为可担任大型会议交传与同传”，不自动变更人才专业能力、项目安排资格或历史评级。
+
+五个新字段由人才总库维护，招聘端创建不写入、编辑不覆盖；新增及历史档案默认未评定。使用 `tools/apply_talent_performance_domains_migration.py` 幂等增加字段及 `ck_resource_person_interpretation_rating`、`ck_resource_person_written_translation_score` 检查约束；不改历史数据，不接入启动自动迁移。云端已有表结构调整须单独授权。
+
+### 人才分级与档案状态
+
+人才分级：`resource_person.talent_grade` VARCHAR(20) 非空，数据库及接口默认 `pending`（待评定），可选 `S`、`A`、`B`、`C`、`pending`。表单位于综合表现的总体评价之前，详情同步展示。新增字段时所有存量档案均默认为待评定，不根据评分推算等级。使用 `tools/apply_talent_grade_migration.py` 幂等添加字段及 `ck_resource_person_talent_grade` 约束；重复执行保留已评定等级。人才分级由人才总库维护，招聘端编辑不覆盖。属于已有表结构变更，云端执行需单独授权，禁止接入启动自动迁移。
+
+`resource_person.status`（VARCHAR(20)，默认 `standby`）可选值按顺序为：`standby` 备用、`active` 活跃、`dormant` 休眠、`blacklisted` 黑名单、`pending_activation` 待激活、`under_observation` 待观察。历史 `inactive` 停用继续兼容读取和保存，但不再提供下拉选项。能力状态 `resource_capability.status` 保持原有取值。使用 `tools/apply_talent_status_migration.py` 在事务内幂等更新 `ck_resource_person_status`；不改历史数据，不接入启动自动迁移。此操作修改已有表约束，云端执行须单独授权。
+
+### 工作报告中午加班（现有 DailyReportItem.display_metadata 扩展）
+
+不增加或改变工作报告表结构，使用现有 JSON 字段：lunch_overtime boolean、lunch_overtime_confirmed boolean、lunch_start / lunch_end HH:mm。选择有后先确认“中午确实加班且未顺延下午上班时间”，再创建独立工作行；沿用项目类型、项目搜索、订单、任务、工作量、单位，行内明显标记中午加班。实际时段限定12:00–13:30，耗时必须等于结束减开始，不同项目午间时段不能重叠，服务端同样校验。
+
+报告编辑及只读快照可按项目/订单多关键词筛选、仅看中午加班；筛选不丢弃保存行，校验先显示全部字段。Excel和邮件保留午间标记与时段，快照保留声明。报告确认后，仅与已完成上下班打卡时段重叠的午间分钟计回考勤加班；草稿不计，跨项目时段合并防重，保留原扣午休、计回及实扣明细。不改变13:30等原定下午上班时间，不因午间工作自动顺延。个人与公司考勤、月累计采用同一计算，每次查询推导，不重复写加班计数。
+
+
+### 人才身份证号码、视力与分区样音
+
+`resource_person.identity_number` VARCHAR(50) 可空，在姓名与身份区域编辑，沿用受限资料权限及脱敏；保留前导零、字母，不自动推导生日、性别，不作为联系方式查重依据。`resource_person.eyesight` VARCHAR(255) 可空，基本信息区域自由填写裸眼、矫正或左右眼情况。`tools/apply_talent_identity_migration.py` 幂等新增两列，不回填历史；属于已有表变更，尚未执行，继续待单独授权。
+
+口译及标注区域上传样音复用现有 `resource_person_attachment`，新增分类 `interpretation_sample` / `annotation_sample`；原 category 列 VARCHAR(30) 可容纳，无表结构变更。音视频原样保存，每区域最多10个、单个200MB；支持 MP3/WAV/M4A/AAC/FLAC/OGG/OPUS/WMA/AMR/AIFF 等音频与 MP4/MOV/MKV/AVI/WMV/WEBM/MPEG/3GP/FLV/RMVB 等视频。上传后按各自区域展示，提供浏览器播放及下载；不进行转码，浏览器缺少相应解码器时提示下载。新增状态先选择文件，保存主档后逐条上传，显示进度；已成功文件及时出队，失败保留以便重试，沿用附件权限、归档留存和删除清理。
+
+照片细分补充：附件分类新增 `id_photo`（证件照）、`life_photo`（生活照），复用 `resource_person_attachment.category` VARCHAR(30)，无表结构变更；每类最多10张，JPG/JPEG、PNG、WebP，单张10MB。新增及编辑提供独立上传区和已保存列表，详情按分类展示。原 `photo` 数据保留为“未分类照片（历史）”，不猜测或回写旧照片类别；原音频及专业样音分类不变。
+
+### 人才结构化经历、CAT 与多语言简历
+
+`talent_resume_profile` 新表：`person_id` UUID 主键且外键关联 `resource_person.id`（级联删除）；`revision` INTEGER 非空且 >=1，保存时校验版本避免覆盖；`data` JSON 非空；`updated_by` UUID 可空外键关联 `app_user.id`；`updated_at` TIMESTAMP WITH TIME ZONE 非空，由后端生成 UTC+8 时间。主表保存与扩展资料同一事务。
+
+JSON 的 `internships`、`annotation`、`interpretation`、`translation`、`other` 为经历数组（每类最多100条），每条含 UUID `id`、自由文本 `period`（起止年月日/年月，100字）、`organization` / `position`（255字）及 `description`，两行表格编辑。旧自由文本进入首条说明，不推测单位或日期；保存结构化工作经历时同步原主表摘要，以兼容列表和旧导出。`cat_tools` 为最多50项去重工具名，笔译区提供 Trados Studio、memoQ、Phrase TMS、Wordfast Pro、Smartcat、OmegaT 并允许补充。
+
+中文教育经历继续使用原教育子表，增加初中、高中、小学、中专/职高、其他的字符串枚举；已有列无数据库检查约束，无需结构变更。第一行起止年月日、学校、专业、学历，第二行学习说明（原 remarks），旧毕业年份、院校分类、专业分类、辅修、学位保留。时间段通过新表 JSON `education_periods` 按原子表 ID 记录；不增加旧子表字段。
+
+`versions` 以 `en` 或外文语言代码索引独立简历：姓名、称谓、性别、出生日期、国籍、所在地、成长地、职业、学历、身高、视力、语言、证书、技能、CAT、教育、实习及四类工作经历。简历页签提供中文、英文、31种外文（包括阿拉伯语及东南亚语言）；字段标题中文/English，下拉选项按所选语言显示，阿语、波斯语、希伯来语输入方向 RTL。编号、联系方式、档案状态、项目、评价与结算仍为共用业务资料，不复制到语言版本。后端拒绝语言版本中的业务字段，不自动翻译或复制中文内容。
+
+`tools/apply_talent_resume_profile_migration.py` 幂等建表，通过隔离 SQLite 测试后，按 2026-10-25 新表授权，于2026-10-29 在 William 对 `43.132.156.72:15432/xinshi_system` 执行并校验通过；启动自动迁移关闭，无已有表结构或历史数据变更。
+
+人才总库“新增人才”右键打开快速登记；左键保留完整新增。快速登记采用一人一行的可编辑表格，支持逐行或按数量增加（最多100行）、行内删除；列为所选1～2种姓名、1～2种联系方式（邮箱属于可选类型）、守时度及配合度。逐行保存，成功行移除、失败行保留内容和错误提示；每行独立维护幂等请求键，网络失败后重试不会受其他行保存影响。隐藏字段不提交；必填及邮箱格式校验、联系方式权限、核重与评价自动署名均复用已有能力，无数据库变更。完整新增/编辑表单“其他名字”使用直接输入的文本框，多个名字可换行，仍以原数组字段保存，兼容历史多个别名。
+
+标注经历字段补充：`talent_resume_profile.data.annotation[]` 及各语言 `versions[locale].annotation[]` 增加可空 `workload`（最多255字，去除首尾空白），自由输入数量及单位，如“5000条 / 100小时”。界面将原 organization / position 标题改为“甲方/服务单位”/“标注类型”，不改存储键、不重写旧经历；保存中文标注经历时工作量一并进入原主表标注经验摘要，详情及多语言简历同步展示。复用现有 JSON，无表结构迁移。
+
+简历年份：`talent_resume_profile.data.resume_year` 对应中文版本，各外文版本使用 `versions[locale].resume_year`；可空文本，最多50字，去除首尾空白，留空不自动填写年份。新增/编辑窗口的区域折叠按钮栏右侧直接输入，详情同步显示；按版本独立保存，可清空，省略字段不覆盖已有值。复用现有 JSON，无表结构迁移。
+
+### 开拓须知
+
+人才资源导航在“推荐拓展”右侧新增“开拓须知”，页面路径 `/resource-management/development-notices`，API 使用 `/project-notices/development`。复用笔译等须知的三级栏目、分组、卡片逐级进入、富文本正文、搜索、排序、删除及附件组件；内容以独立新表保存，不扩充或修改原项目须知表的 module 约束。已登录用户可查看，持 `talents:write` 或 `translators:write` 者可管理栏目、正文与附件，前后端一致；原笔译、口译、招聘须知仍沿用 projects 权限。
+
+`development_notice_section`：`id` UUID 主键；`module` VARCHAR(20) 非空且固定 development；`section_key` VARCHAR(80) 非空唯一；`title` VARCHAR(100) 非空；`parent_id` UUID 可空，复合外键 `(module,parent_id)` 指向同表 `(module,id)`，RESTRICT；`sort_order` INTEGER 非空；`has_content` / `is_active` BOOLEAN 非空默认 true；`content_json` JSONB 可空；`search_text` TEXT 非空默认空；`updated_by` UUID 可空外键 app_user.id，SET NULL；`updated_at` / `structure_updated_at` TIMESTAMP WITH TIME ZONE 可空，写入及接口明确 UTC+8。唯一约束 `(module,id)`、索引 `(module,parent_id,sort_order)`；沿用事务级结构锁、正文与结构版本校验、软删除。
+
+`development_notice_attachment`：`id` UUID 主键；`section_id` UUID 非空外键栏目表并索引；`original_name` VARCHAR(255)、`storage_name` VARCHAR(80) 唯一、`content_type` VARCHAR(255)、`file_size` INTEGER 非空（0<大小<=20971520）；`uploaded_by` UUID 可空外键 app_user.id，SET NULL；`uploaded_at` TIMESTAMP WITH TIME ZONE 非空，生成和返回 UTC+8。每栏目最多50个、单个20MB；格式与其他须知相同，文件目录为 PROJECT_NOTICE_UPLOAD_DIR/development，默认 data/project_notice_uploads/development。保留路径校验、栏目归属、权限、事务与文件清理行为。
+
+`tools/apply_development_notices_migration.py` 幂等创建两张新表及必要约束索引；隔离测试通过后，按2026-10-25新表授权，于2026-10-29在 William 对 `43.132.156.72:15432/xinshi_system` 执行并校验通过。原表和历史内容未修改，启动自动迁移关闭。
+
+
+## 迟到折算、补班与调休（2026-10-29）
+
+- `attendance_comp_time_request`：新增调休申请与提交时分配快照表，不改动既有考勤/请假表。
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| id | UUID PK | 申请标识 |
+| client_id | UUID UNIQUE | 重试幂等标识 |
+| user_id | UUID FK app_user.id | 申请人 |
+| start_at / end_at | timestamptz | UTC+8 调休时段 |
+| minutes | integer | 按应出勤班次计算、向上取整的预留分钟 |
+| reason | text | 必填事由 |
+| status | varchar(20) | 当前仅可提交 pending；批准流程待开发 |
+| allocation_snapshot | JSON | 提交时累计值班、每次请假补班来源及既有调休预留、所选班次快照；不嵌套历史申请快照 |
+| created_at | timestamptz | UTC+8 提交时间 |
+
+- 索引 `ix_attendance_comp_time_user_start (user_id, start_at)`。迁移 `tools/apply_attendance_comp_time_migration.py` 幂等只建新表及必要约束索引，关闭启动自动迁移。
+- 迟到从原10分钟宽限后统计，扣除已请假/休息，按 `late:<clock UUID>` 派生可追溯请假来源；与 `AttendanceLeave` 主动申请来源区分，不复制生成正式请假或群发通知。报表请假总额=申请请假+迟到折假，保留各次来源及区间，不双扣。
+- 自然月按同人加班净额判断：≤600分钟免追责1次，>600且≤1200分钟免3次，>1200分钟免5次；超过的每次迟到在年终奖区域记录打卡来源。当前月暂计并随月净额更新，已过月按现有记录重算，不是锁定结算。年终奖计算/兑现待开发，不自动罚款。
+- 自入职月起累计到当前月；入职首月剩余自然日（含入职当天）≤15天免该月1天值班基数，不计平均月份分母。实际累计周末值班天数/计入月份数>1才可申请调休。首月免基数时该月实际值班都作多值班；其余月首个实际值班日作1天基数，后续按日期作多值班。
+- 仅已完成打卡、班次快照 `weekend_duty=true` 的周末值班，含居家；扣除休息、请假和已确认无效时间后按实际班次内分钟计算。同日合并；客户居家两段均完成才计1天。公司居家加班 `overtime_only`、未签退、法定节假日、调休工作日不计普通周末额外值班；未知日历年份不生成此额度。
+- 申请请假（含已提交的未来请假）及迟到折假按日期FIFO先占多值班分钟，再分配已有待审批/已批准调休；同一来源分钟不重复分配。列表明确每次请假已补、待补以及对应值班日期。历史额度变化导致已申请额度不足时显示缺口，须后续批准流程复核。
+- 调休仅本人电脑端提交，用户锁串行化、客户端幂等、校验未来时段/既有请假和调休重叠/应出勤时长/可用额度。pending预留，不生成已批准EmployeeLeave，也不免除打卡。人事公司视图受HR权限保护，个人只看自己。
+- 节假日值班区域先展示“100元/天补贴+调休，待开发”；不生成节假日补贴或节假日调休记录。
+- 历史值班只据系统实际记录，不推算系统外记录；入职时间缺失不授予调休额度。界面汇总和详情明确规则与来源。
+
+- 补充：无值班的累计月份亦须补足每月1天基数，多值班先抵累计缺额，再抵请假、再预留调休，界面逐项显示基数用途。本人可撤回pending申请，保留原快照及cancelled_at/cancelled_by、释放预留；正式请假也校验与调休申请的时段冲突。

@@ -3,7 +3,7 @@ from datetime import datetime,timezone,timedelta
 import pytest
 from fastapi import HTTPException
 from test_chat_participant_access import environment
-from test_monthly_shift import setup,payload
+from test_monthly_shift import setup,payload,sync
 import fixed_shift as fixed
 import monthly_shift as monthly
 import weekly_shift as weekly
@@ -22,6 +22,7 @@ def test_fixed_current_future_history_and_personal_view(environment):
     for week in ['2026-10-19','2026-10-26','2027-01-04']:
         entry=weekly.get_plan(db,admin,week)['assignments'][0]
         assert entry['shift']=='late' and entry['fixed']
+        sync(db,admin,week)
         assert weekly.my_plan(db,person,week)['assignment']['shift']=='late'
         assert weekly.my_plan(db,other,week)['assignment'] is None
     assert weekly.get_plan(db,admin,'2026-10-12')['assignments'][0]['shift']=='early'
@@ -30,12 +31,16 @@ def test_fixed_current_future_history_and_personal_view(environment):
         assert monthly.get_plan(db,admin,month)['assignments'][0]['fixed']
         assert monthly.my_plan(db,person,month)['assignment']['shift']=='late'
     # 即使过时的客户端尝试挪动或移除，服务端仍强制使用当前固定位置。
+    plan=weekly.get_plan(db,admin,'2026-10-26')
+    weekly.publication.enable_edit(db,admin,'2026-10-26',weekly.publication.SyncWrite(revision=plan['revision'],publication_revision=plan['publication_revision'],fixed_revision=plan['fixed_revision']))
     value=weekly.save_plan(db,admin,'2026-10-26',weekly.WeeklyPlanWrite(revision=0,assignments=payload(person).assignments))
     assert value['assignments'][0]['shift']=='late'
     value=monthly.save_plan(db,admin,'2026-11',monthly.PlanWrite(revision=0,assignments=[]))
     assert value['assignments'][0]['shift']=='late'
     fixed.save_config(db,admin,monthly.PlanWrite(revision=1,assignments=[]))
-    assert weekly.get_plan(db,admin,'2027-01-04')['assignments']==[]
+    # 已主动同步的未来周属于已保存安排；取消固定不会撤销其快照。
+    assert weekly.get_plan(db,admin,'2027-01-04')['assignments'][0]['shift']=='late'
+    assert weekly.get_plan(db,admin,'2027-01-11')['assignments']==[]
     assert weekly.get_plan(db,admin,'2026-10-26')['assignments'][0]['shift']=='late'
     assert 'fixed' not in weekly.get_plan(db,admin,'2026-10-26')['assignments'][0]
 

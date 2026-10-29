@@ -14,12 +14,7 @@
         </transition>
       </div>
       <el-menu
-        ref="sidebarMenuRef"
         :default-active="activeMenu"
-        :default-openeds="defaultOpeneds"
-        :unique-opened="false"
-        :show-timeout="isCollapse ? 86400000 : 300"
-        :hide-timeout="isCollapse ? 86400000 : 300"
         router
         class="sidebar-menu"
         :collapse="isCollapse"
@@ -28,7 +23,7 @@
         <!-- 工作台 -->
         <SidebarNavigationItem v-if="showWorkbench" index="/workbench" :icon="DataBoard" label="工作台" />
         <SidebarNavigationItem index="/company-management" :icon="OfficeBuilding" label="公司管理" />
-          <ScreenshotControl />
+        <li class="el-menu-item sidebar-session-item" role="menuitem" tabindex="0" aria-label="会话" title="会话" @click="openHeaderChat" @keydown.enter.prevent="openHeaderChat" @keydown.space.prevent="openHeaderChat"><el-badge :value="chatMentionTotal" :max="99" :hidden="!chatMentionTotal"><el-icon><ChatDotRound /></el-icon></el-badge><span v-show="!isCollapse" class="sidebar-session-title"><span>会话</span><a :href="sessionNewTabHref" target="_blank" rel="noopener noreferrer" class="sidebar-session-open" title="在新标签页打开" aria-label="会话：在新标签页打开" @click.stop @keydown.stop><TopRight aria-hidden="true" /></a></span></li>
 
         <!-- 业务链路：从新咨询到项目执行 -->
         <li v-if="showBusinessGroup && !isCollapse" class="menu-group-label" role="presentation"><span>业务管理</span></li>
@@ -37,30 +32,21 @@
         <SidebarNavigationItem v-if="canViewProjects" index="/translation-details" :icon="EditPen" label="笔译项目" />
         <SidebarNavigationItem v-if="canViewProjects" index="/interpretation-details" :icon="SpeakingProfileIcon" label="口译项目" />
         <SidebarNavigationItem v-if="canViewAnnotation" index="/annotation-details" :icon="Headset" label="标注项目" />
-        <SidebarNavigationItem v-if="canViewProjects" index="/recruitment-details" :icon="UserFilled" label="招聘项目" />
+        <SidebarNavigationItem v-if="canViewProjects" index="/recruitment-details" :icon="Suitcase" label="招聘项目" />
         <SidebarNavigationItem v-if="canViewManuscript" index="/manuscript-arrangements" :icon="Calendar" label="稿件安排" />
 
         <!-- 协作资源：客户、资源需求与人才资源池 -->
         <li v-if="showResourceGroup && !isCollapse" class="menu-group-label" role="presentation"><span>资源协作</span></li>
-        <SidebarNavigationItem v-if="showClients" index="/clients" :icon="OfficeBuilding" label="客户信息" />
+        <SidebarNavigationItem v-if="showClients" index="/clients" :icon="Connection" label="客户信息" />
         <SidebarNavigationItem v-if="showResourceManagement" :index="resourceManagementPath" :icon="Avatar" label="资源管理" />
 
         <SidebarNavigationItem v-if="canViewHr" index="/hr-management/shifts" :icon="Management" label="人事管理" />
         <!-- 账户、扩展能力和管理员入口统一归入平台设置 -->
         <li v-if="!isCollapse" class="menu-group-label" role="presentation"><span>平台设置</span></li>
-        <SidebarNavigationItem index="/profile" :icon="User" label="个人中心" />
+        <SidebarNavigationItem index="/profile" :icon="Postcard" label="个人中心" />
         <SidebarNavigationItem v-if="showPendingModules" index="/pending-modules" :icon="QuestionFilled" label="更多模块" />
 
-        <el-sub-menu v-if="showSystemMenu" :index="SYSTEM_MENU_INDEX" @click="handlePopupToggle(SYSTEM_MENU_INDEX, $event)">
-          <template #title>
-            <el-icon><Setting /></el-icon>
-            <span>系统管理</span>
-          </template>
-          <SidebarNavigationItem v-if="canViewUsers || canViewDepartments || canViewReportSettings" index="/users" label="组织架构" />
-          <SidebarNavigationItem v-if="canViewRoles" index="/roles" label="角色管理" />
-          <SidebarNavigationItem v-if="canViewMailSettings" index="/mail-settings" label="项目邮件设置" />
-          <SidebarNavigationItem v-if="canViewProjectAudits" index="/project-operation-audits" label="项目操作审计" />
-        </el-sub-menu>
+        <SidebarNavigationItem v-if="showSystemMenu" :index="systemNavigation[0].path" :icon="Setting" label="系统管理" />
       </el-menu>
       <transition name="logo-text">
         <div v-show="!isCollapse" class="sidebar-version">{{ appVersion }} · 更新于 {{ appUpdatedAt }}</div>
@@ -86,7 +72,8 @@
         </div>
         <div class="header-right">
           <UiZoomControl />
-          <el-badge :value="chatMentionTotal" :max="99" :hidden="!chatMentionTotal" class="header-chat-badge" @click="openHeaderChat"><el-button class="header-chat-entry" text aria-label="会话" :title="chatMentionTotal ? `${chatMentionTotal} 条未读 @我，点击查看` : '打开会话窗口'" @click.stop="openHeaderChat"><el-icon :size="18"><ChatDotRound /></el-icon><span class="header-chat-label">会话</span><b v-if="chatMentionTotal" class="header-chat-mention">@</b></el-button></el-badge>
+          <AutoDraftCenter :show-entry="false" />
+          <ScreenshotControl />
           <AnnotationChatInbox />
           <NotificationBell />
           <el-dropdown @command="handleCommand">
@@ -106,6 +93,7 @@
         </div>
       </el-header>
       <el-main class="main-content">
+        <RouteSectionNavigation v-if="isSystemSection" :items="systemNavigation" label="系统管理二级导航" class="system-section-navigation" />
         <router-view v-slot="{ Component, route }">
           <transition name="fade-transform" mode="out-in">
             <component v-if="Component" :is="Component" :key="route.path" />
@@ -139,7 +127,7 @@
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { ref, computed, defineAsyncComponent, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { User, UserFilled, Management, Setting, Document, EditPen, Headset, Calendar, Avatar, OfficeBuilding, ArrowDown, DataBoard, Phone, ChatDotRound, QuestionFilled, Fold, Expand, TopRight } from '@element-plus/icons-vue'
+import { User, Suitcase, Connection, Avatar, Management, Postcard, Setting, Document, EditPen, Headset, Calendar, OfficeBuilding, ArrowDown, DataBoard, Phone, ChatDotRound, QuestionFilled, Fold, Expand, TopRight } from '@element-plus/icons-vue'
 import {
   canViewManuscriptArrangements,
   canViewTalentResourceLibrary,
@@ -159,8 +147,10 @@ import { useMaterialEditor } from '@/composables/useMaterialEditor'
 import { useMaterialDialogs } from '@/composables/useMaterialDialogs'
 import { useResourceIssues } from '@/composables/useResourceIssues'
 import UiZoomControl from '../components/UiZoomControl.vue'
+import AutoDraftCenter from '../components/common/AutoDraftCenter.vue'
 import ScreenshotControl from '../components/ScreenshotControl.vue'
 import SidebarNavigationItem from '@/components/common/SidebarNavigationItem.vue'
+import RouteSectionNavigation from '@/components/common/RouteSectionNavigation.vue'
 import SpeakingProfileIcon from '@/components/common/SpeakingProfileIcon.vue'
 import { useUiZoom } from '../composables/useUiZoom'
 import { useMobileViewport } from '@/composables/useMobileViewport'
@@ -193,7 +183,6 @@ onBeforeUnmount(closeNotes)
 const { openPanel, syncFromStorage } = useUiZoom()
 
 const STORAGE_COLLAPSE_KEY = 'sidebar_collapse'
-const SYSTEM_MENU_INDEX = 'system-management'
 const appVersion = 'V1.7'
 const appUpdatedAt = '2026-09-23 19:55'
 
@@ -236,14 +225,22 @@ onMounted(() => {
   if (route.query.openSession === '1') void openHeaderChat()
 })
 
-const canViewHr = computed(() => canManageHr())
 const canViewUsers = computed(() => hasPermission('system:users:read'))
+const canViewHr = computed(() => canManageHr())
 const canViewDepartments = computed(() => canManageDepartments())
 const canViewReportSettings = computed(() => canConfigureWorkReports())
 const canViewRoles = computed(() => hasPermission('system:roles:read'))
 const canViewMailSettings = computed(() => hasPermission('system:mail_settings:read'))
 const canViewProjectAudits = computed(() => hasPermission('system:audit:read'))
 const showSystemMenu = computed(() => canViewDepartments.value || canViewUsers.value || canViewReportSettings.value || canViewRoles.value || canViewMailSettings.value || canViewProjectAudits.value)
+
+const systemNavigation=computed(()=>[
+  ...((canViewUsers.value||canViewDepartments.value||canViewReportSettings.value)?[{path:'/users',label:'组织架构'}]:[]),
+  ...(canViewRoles.value?[{path:'/roles',label:'角色管理'}]:[]),
+  ...(canViewMailSettings.value?[{path:'/mail-settings',label:'项目邮件设置'}]:[]),
+  ...(canViewProjectAudits.value?[{path:'/project-operation-audits',label:'项目操作审计'}]:[])
+])
+const isSystemSection=computed(()=>systemNavigation.value.some(item=>item.path===route.path))
 
 /** 是否显示「工作台」（所有员工） */
 const showWorkbench = computed(() => hasPermission(['projects:read', 'tasks:read']))
@@ -299,6 +296,7 @@ const pendingModulePaths = new Set([
 
 const resolveActiveMenu = (path) => {
   if(path==='/hr-management'||path.startsWith('/hr-management/'))return '/hr-management/shifts'
+  if(systemNavigation.value.some(item=>item.path===path))return systemNavigation.value[0]?.path||path
   if (pendingModulePaths.has(path)) return '/pending-modules'
   if (
     path === '/translation' ||
@@ -317,61 +315,7 @@ const resolveActiveMenu = (path) => {
   return path
 }
 
-const resolveActiveGroup = (menuIndex) => {
-  if (['/users', '/departments', '/roles', '/mail-settings', '/project-operation-audits'].includes(menuIndex)) return SYSTEM_MENU_INDEX
-  return ''
-}
-
-const activeMenu = ref(resolveActiveMenu(route.path))
-const defaultOpeneds = computed(() => {
-  const activeGroup = resolveActiveGroup(activeMenu.value)
-  return activeGroup ? [activeGroup] : []
-})
-
-const openActiveGroup = () => {
-  if (isCollapse.value) return
-  const activeGroup = resolveActiveGroup(activeMenu.value)
-  if (activeGroup) sidebarMenuRef.value?.open(activeGroup)
-}
-
-/** 折叠态下子菜单是弹层且不会因点击外部而关闭，路由跳转后需主动收起，避免滞留遮挡新页面。 */
-const closePopupGroups = () => {
-  sidebarMenuRef.value?.close(SYSTEM_MENU_INDEX)
-}
-
-/**
- * 折叠态（竖向弹层）下 Element Plus 忽略标题点击，弹层纯悬停驱动；
- * 配合超大的 show/hide-timeout 禁用悬停开合后，这里补上手动的点按切换：
- * 点图标开，再点关。以 li 的 is-opened 类为准，避免内部定时器与状态不同步。
- */
-const handlePopupToggle = (index, event) => {
-  if (!isCollapse.value) return
-  const li = event.target?.closest?.('.el-sub-menu')
-  if (!li || !event.target?.closest?.('.el-sub-menu__title')) return
-  if (li.classList.contains('is-opened')) {
-    sidebarMenuRef.value?.close(index)
-  } else {
-    sidebarMenuRef.value?.open(index)
-  }
-}
-
-/** 监听路由变化，更新激活菜单 */
-watch(
-  () => route.path,
-  (newPath) => {
-    // 使用 nextTick 确保 DOM 更新后再设置激活菜单
-    nextTick(() => {
-      activeMenu.value = resolveActiveMenu(newPath)
-      if (isCollapse.value) closePopupGroups()
-      nextTick(openActiveGroup)
-    })
-  },
-  { immediate: true }
-)
-
-watch(isCollapse, (collapsed) => {
-  if (!collapsed) nextTick(openActiveGroup)
-})
+const activeMenu = computed(() => resolveActiveMenu(route.path))
 
 const currentPageTitle = computed(() => {
   if (route.name === 'AnnotationChildOrders' && route.query.orderScope === 'grandchild') return '标注三级订单管理'
@@ -800,7 +744,6 @@ const handleLogout = async () => {
   .header-left { flex: none; }
   .header-left :deep(.el-breadcrumb) { display: none; }
   .header-right { gap: 8px; }
-  .header-chat-label { display: none; }
   .header-right :deep(.ui-zoom-step) { display: none; }
 }
 
@@ -871,7 +814,6 @@ const handleLogout = async () => {
 }
 </style>
 
-<style scoped>.header-chat-mention{color:var(--el-color-danger);font-size:12px;margin-left:4px}.header-chat-badge{display:inline-flex;align-items:center}</style>
 
 <style scoped>.sidebar-session-item{cursor:pointer}.sidebar-session-item .el-badge{display:inline-flex;align-items:center;margin-right:5px}.sidebar-session-item:focus-visible{outline:2px solid #93c5fd;outline-offset:-2px}</style>
 
@@ -879,3 +821,5 @@ const handleLogout = async () => {
 .sidebar-session-title{display:inline-flex;flex:1;align-items:center;gap:4px;min-width:0;max-width:260px}.sidebar-session-title>span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sidebar-session-open{display:inline-flex;flex:0 0 20px;align-items:center;justify-content:center;width:20px;height:20px;border-radius:4px;color:inherit;opacity:.35;text-decoration:none}.sidebar-session-item:hover .sidebar-session-open{opacity:.65}.sidebar-session-open:hover,.sidebar-session-open:focus-visible{background:rgba(148,163,184,.12);opacity:1}.sidebar-session-open svg{width:12px;height:12px}.sidebar-session-open:focus-visible{outline:2px solid #93c5fd;outline-offset:1px}
 </style>
+
+<style scoped>.system-section-navigation{margin-bottom:8px}</style>

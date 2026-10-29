@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { talentDefaultColumns } from '../src/utils/talentTableColumns.js'
 
 const pool = readFileSync(new URL('../src/views/resource/TalentPool.vue', import.meta.url), 'utf8')
 const situation = readFileSync(new URL('../src/views/resource/components/TalentProjectSituationPopover.vue', import.meta.url), 'utf8')
@@ -10,7 +11,7 @@ const talentApi = readFileSync(new URL('../src/api/talents.js', import.meta.url)
 
 test('人才总库默认展示项目情况并迁移旧默认列组合', () => {
   assert.match(pool, /key:'projectSituation',label:'项目情况'/)
-  assert.match(readFileSync(new URL('../src/utils/talentTableColumns.js', import.meta.url), 'utf8'), /talentDefaultColumns=\[[^\]]*'projectSituation'/)
+  assert.ok(talentDefaultColumns.includes('projectSituation'))
   assert.match(pool, /TalentProjectSituationPopover/)
   assert.match(pool, /'overallRating','status','duplicateReviewRequired'/)
 })

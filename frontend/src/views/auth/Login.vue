@@ -214,6 +214,8 @@ const handleLogin = async () => {
     loginStatusText.value = '正在进入系统...'
     await router.replace(getDefaultRoute())
     ElMessage.success('登录成功')
+    if(res.attendance?.status==='success')ElMessage.success(res.attendance.message)
+    if(res.attendance?.status==='unavailable')ElMessage.warning(res.attendance.message)
   } catch (error) {
     // 验证码是一次性的，只要本次提交带过或后端要求补验证码，都换一张新图。
     const serverRequiresCaptcha = error.response?.headers?.['x-login-captcha-required'] === '1'

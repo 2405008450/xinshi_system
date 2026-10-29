@@ -3,9 +3,9 @@
 from uuid import UUID
 from typing import Literal
 
-NoticeModule = Literal["translation", "interpretation", "recruitment"]
+NoticeModule = Literal["translation", "interpretation", "recruitment", "development"]
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -31,12 +31,28 @@ from models import AppUser
 from routers.auth import get_current_user, require_any_permission, require_module_access
 
 
+_project_access = require_module_access('projects:read','projects:write')
+_project_write = require_any_permission('projects:write')
+_development_write = require_any_permission('talents:write','translators:write')
+
+
+def require_notice_access(module: NoticeModule, request: Request,
+                          current_user=Depends(get_current_user), db: Session=Depends(get_db)):
+    if module == 'development':
+        return current_user
+    return _project_access(request,current_user,db)
+
+
+def require_notice_write(module: NoticeModule, current_user=Depends(get_current_user), db: Session=Depends(get_db)):
+    return (_development_write if module=='development' else _project_write)(current_user,db)
+
+
 router = APIRouter(
     prefix="/project-notices/{module}",
     tags=["project_notices"],
-    dependencies=[Depends(require_module_access("projects:read", "projects:write"))],
+    dependencies=[Depends(require_notice_access)],
 )
-write_permission = [Depends(require_any_permission("projects:write"))]
+write_permission = [Depends(require_notice_write)]
 
 
 @router.get("/tree", response_model=list[AnnotationNoticeTreeNodeResponse])
@@ -167,5 +183,3 @@ def download_attachment(module: NoticeModule, section_id: UUID, attachment_id: U
 )
 def remove_attachment(module: NoticeModule, section_id: UUID, attachment_id: UUID, db: Session = Depends(get_db)):
     delete_attachment(db, module, section_id, attachment_id)
-
-

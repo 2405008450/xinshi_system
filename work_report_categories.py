@@ -32,7 +32,7 @@ def can_add_project_category(db, user):
 
 def category_catalog(db, user):
     groups = {parent: list(names) for parent, names in DEFAULT_CATEGORIES.items()}
-    ready = inspect(db.get_bind()).has_table(WorkReportCategory.__tablename__)
+    ready = inspect(db.connection()).has_table(WorkReportCategory.__tablename__)
     if ready:
         rows = db.query(WorkReportCategory).filter(WorkReportCategory.scope.in_(['*', str(user.id)])).order_by(WorkReportCategory.name).all()
         for row in rows:
