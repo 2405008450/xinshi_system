@@ -53,7 +53,7 @@ import { useDesktopPresence } from '@/composables/useDesktopPresence'
 import { Paperclip, Picture } from '@element-plus/icons-vue'
 import { useChatComposerHeight } from '@/composables/useChatComposerHeight'
 const { composerStyle, inputStyle, start, resizeByKeyboard } = useChatComposerHeight()
-const { screenshotUploading, isDirect, contentTooLong, pendingImages, imageQueue, draft, props, composer, replyTo, cancelQuote, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError } = inject('chatController')
+const { contentTooLong, pendingImages, imageQueue, draft, props, composer, replyTo, cancelQuote, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError } = inject('chatController')
 // 仅在发送时组合截图引用，文本框始终只编辑可见文字，兼容历史草稿。
 const legacyImageIds = computed(() => screenshotIds(content.value))
 const plainContent = computed({ get: () => screenshotText(content.value), set: value => { content.value = screenshotValue(value, legacyImageIds.value) } })

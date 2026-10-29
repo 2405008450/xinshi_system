@@ -3,6 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
+import { parse, compileScript } from '@vue/compiler-sfc'
 import { filterClosedSessions, sessionListKey, mentionUnreadCount } from '../src/utils/chatSessionList.js'
 import { chatTileLayout } from '../src/utils/chatTiling.js'
 
@@ -22,6 +23,23 @@ const layout = readFileSync(new URL('../src/layout/index.vue', import.meta.url),
 const notificationBell = readFileSync(new URL('../src/components/NotificationBell.vue', import.meta.url), 'utf8')
 const chatNotifications = readFileSync(new URL('../src/composables/useChatNotifications.js', import.meta.url), 'utf8')
 const realtimeSocket = readFileSync(new URL('../src/utils/realtimeSocket.js', import.meta.url), 'utf8')
+
+test('标注会话提供给子组件的变量均已声明，避免打开会话时整块空白', () => {
+  const { descriptor } = parse(annotationChat)
+  const compiled = compileScript(descriptor, { id: 'annotation-chat-provider-test' })
+  const provider = compiled.scriptSetupAst.find(node =>
+    node.type === 'ExpressionStatement' &&
+    node.expression?.callee?.name === 'provide' &&
+    node.expression.arguments?.[0]?.value === 'chatController'
+  )
+  assert.ok(provider, '找不到聊天控制器的 provide 调用')
+  const provided = provider.expression.arguments[1]
+  assert.equal(provided.type, 'ObjectExpression')
+  const unresolved = provided.properties
+    .filter(property => property.shorthand && !compiled.bindings[property.value.name])
+    .map(property => property.value.name)
+  assert.deepEqual(unresolved, [])
+})
 
 // 隔离接口与浏览器存储，直接验证窗口状态转换，避免仅靠源码匹配漏掉还原和缩放回归。
 function createDockHarness(storage = new Map(), annotationLoader = async () => ({ projectName: '标注项目', orderNo: 'A-001', projectStatus: 'trial_preparation' })) {
