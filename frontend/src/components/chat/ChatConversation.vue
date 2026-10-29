@@ -459,9 +459,12 @@ async function cancelRetry() {
   } catch (e) { sendError.value = `暂时无法确认发送结果，请重试：${detail(e)}` }
   finally { sending.value = false }
 }
-function foreground() { scheduleRead(); sync() }
+function foreground() {
+  if (document.visibilityState !== 'visible' || !props.active) return
+  scheduleRead(); sync(); loadGroup()
+}
 function topicChanged(event) { const row = messages.value.find(value => value.id === event.detail.id); if (row) Object.assign(row, event.detail) }
-watch(() => props.active, active => { if (active) { sync(); scheduleRead() } else closeMention() })
+watch(() => props.active, active => { if (active) foreground(); else closeMention() })
 onMounted(async () => {
   window.addEventListener('chat-topic-message-changed', topicChanged)
   observer = new IntersectionObserver(entries => { entries.forEach(entry => { const id = entry.target.dataset.messageId; if (entry.isIntersecting && entry.intersectionRatio >= 0.5) visibleMessages.set(id, Number(entry.target.dataset.sequence)); else visibleMessages.delete(id) }); scheduleRead() }, { root: list.value, threshold: [0, 0.5, 1] })
@@ -478,7 +481,13 @@ onMounted(async () => {
   await loadGroup(); await search()
   initialized = true; resolveReady()
   if (props.targetMessageId) await locate(props.targetMessageId)
-  if (!disposed) syncTimer = setInterval(() => { sync(); loadGroup(); scheduleRead() }, 12000)
+  // WebSocket 事件即时同步；定时轮询仅兜底当前可见会话，避免最小化窗口持续请求。
+  let pollCount = 0
+  if (!disposed) syncTimer = setInterval(() => {
+    if (!props.active || document.visibilityState !== 'visible') return
+    sync(); scheduleRead()
+    if (++pollCount % 2 === 0) loadGroup()
+  }, 30000)
 })
 const draft = useChatDraft(
   computed(() => [props.projectType, props.projectId]),
