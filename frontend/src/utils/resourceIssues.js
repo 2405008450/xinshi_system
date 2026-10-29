@@ -21,7 +21,7 @@ export const issueColumns = [
   { key: 'collected_by_name', label: '保存人', width: 120 }, { key: 'created_at', label: '保存时间', width: 180 },
   { key: 'updated_at', label: '更新时间', width: 180 },
 ]
-export const defaultIssueColumns = ['content', 'category', 'specific_classification', 'proposer_name', 'notified_user_names', 'executor_names', 'planned_completion_at', 'actual_progress', 'created_at']
+export const defaultIssueColumns = ['content', 'category', 'specific_classification', 'proposer_name', 'collected_by_name', 'notified_user_names', 'executor_names', 'planned_completion_at', 'actual_progress', 'created_at']
 export function cleanIssueColumns(value) {
   if (!Array.isArray(value)) throw new Error('字段设置格式无效')
   return [...new Set(value.filter(key => issueColumns.some(c => c.key === key)))]

@@ -1,4 +1,5 @@
 from datetime import date
+from uuid import UUID
 from fastapi import APIRouter,Depends,Request,Query
 from database import get_db
 from routers.auth import get_current_user
@@ -6,8 +7,18 @@ import attendance_service as service
 import attendance_clock as clock
 import home_office_service as home
 import attendance_delay_start as delay
+import attendance_comp_time as comp_time
 
 router=APIRouter(prefix='/attendance',tags=['attendance'])
+
+@router.get('/policy')
+def policy(year:int=Query(ge=2000,le=9998),db=Depends(get_db),user=Depends(get_current_user)):return comp_time.overview(db,user,year)
+@router.get('/policy/company')
+def company_policy(year:int=Query(ge=2000,le=9998),db=Depends(get_db),user=Depends(get_current_user)):return comp_time.overview(db,user,year,admin=True)
+@router.post('/comp-time')
+def request_comp_time(payload:service.LeaveWrite,request:Request,db=Depends(get_db),user=Depends(get_current_user)):return comp_time.submit(db,user,payload) if service.desktop_request(request) else reject_mobile()
+@router.post('/comp-time/{request_id}/cancel')
+def cancel_comp_time(request_id:UUID,request:Request,db=Depends(get_db),user=Depends(get_current_user)):return comp_time.cancel(db,user,request_id) if service.desktop_request(request) else reject_mobile()
 def reject_mobile():
     from fastapi import HTTPException
     raise HTTPException(403,'手机端仅支持请假和延迟上班申请，其他考勤操作请使用电脑端')

@@ -3,7 +3,7 @@ export function bindColumnDrag(root, resolve, move, highlight = () => {}) {
   const document = root.ownerDocument
   let start = null, active = false, suppressClick = false
   function down(event) {
-    if (event.button !== 0) return
+    if (event.button !== 0 || event.defaultPrevented || event.target.closest?.('.app-column-resize-handle')) return
     const value = resolve(event.target, false, event)
     if (value == null) return
     start = { value, x: event.clientX, y: event.clientY }

@@ -10,12 +10,15 @@ from fastapi import UploadFile
 from sqlalchemy.orm import Session
 
 from resource_models import ResourceCertificate, ResourcePerson, ResourcePersonAttachment
+from talent_media_samples import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS, SAMPLE_CATEGORIES, MAX_SAMPLE_BYTES, sample_content_type
 
 
 UPLOAD_RULES = {
     "photo": ({".jpg", ".jpeg", ".png", ".webp"}, 10 * 1024 * 1024),
     "audio": ({".mp3", ".wav", ".m4a", ".aac", ".ogg"}, 100 * 1024 * 1024),
     "certificate": ({".pdf", ".jpg", ".jpeg", ".png"}, 20 * 1024 * 1024),
+    "interpretation_sample": (AUDIO_EXTENSIONS | VIDEO_EXTENSIONS, MAX_SAMPLE_BYTES),
+    "annotation_sample": (AUDIO_EXTENSIONS | VIDEO_EXTENSIONS, MAX_SAMPLE_BYTES),
 }
 MAX_FILES_PER_CATEGORY = 10
 
@@ -67,7 +70,7 @@ async def save_talent_attachment(
         if not belongs:
             raise ValueError("关联证书不属于当前人才")
     elif certificate_id is not None:
-        raise ValueError("照片和音频不能关联证书")
+        raise ValueError("非证书附件不能关联证书")
 
     original_name = Path(upload.filename or "未命名文件").name
     extension = Path(original_name).suffix.lower()
@@ -84,6 +87,8 @@ async def save_talent_attachment(
                 if written > max_bytes:
                     raise ValueError("文件大小超过限制")
                 output.write(chunk)
+            if category in SAMPLE_CATEGORIES and written == 0:
+                raise ValueError('样音文件不能为空')
     except Exception:
         destination.unlink(missing_ok=True)
         raise
@@ -96,7 +101,7 @@ async def save_talent_attachment(
         category=category,
         original_name=original_name,
         storage_name=storage_name,
-        content_type=upload.content_type or "application/octet-stream",
+        content_type=sample_content_type(extension) if category in SAMPLE_CATEGORIES else upload.content_type or "application/octet-stream",
         file_size=written,
         uploaded_by=uploaded_by,
     )

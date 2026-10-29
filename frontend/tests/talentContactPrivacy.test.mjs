@@ -33,11 +33,12 @@ test('普通用户不显示联系方式表单和筛选，也不提交联系方�
 
 test('人才详情的全部联系方式均经过敏感值组件展示', () => {
   const protectedFields = [
+    'identityNumber',
     'primaryPhone', 'secondaryPhone', 'primaryEmail', 'secondaryEmail',
     'wechat', 'whatsapp', 'skype', 'line', 'otherContact', 'contactInfo',
   ]
   protectedFields.forEach(field => assert.match(detail, new RegExp(`detail\\.${field}`)))
-  assert.equal((detail.match(/<SensitiveContactValue/g) || []).length, 10)
+  assert.equal((detail.match(/<SensitiveContactValue/g) || []).length, 11)
   assert.match(detail, /!contactRestricted && detail\.inheritedContacts\?\.length/)
   assert.match(detail, /<SensitiveContactValue :value="contact\.value"/)
 })

@@ -9,6 +9,8 @@ import 'element-plus/theme-chalk/el-message-box.css'
 import 'element-plus/theme-chalk/el-notification.css'
 import './styles/theme.css'
 import './styles/common.css'
+import './styles/tableColumnResize.css'
+import { installTableColumnResize } from './utils/tableColumnResize'
 import './styles/projectSubOrders.css'
 import TableActionButton from './components/common/TableActionButton.vue'
 import AppForm from './components/common/AppForm.vue'
@@ -18,6 +20,7 @@ import { installChineseValidationMessages } from './utils/validationLocale'
 import { installAutoDrafts } from './utils/autoDrafts'
 
 const app = createApp(App)
+installTableColumnResize(app)
 installAutoDrafts(app)
 
 installChineseValidationMessages()

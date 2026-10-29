@@ -1,9 +1,15 @@
+import { talentStatusLabels } from './talentStatus.js'
+import { talentGradeOptions } from './talentGrade.js'
+import { contactAvailabilityOptions } from './talentContactAvailability.js'
+
 export const reviewStateLabels = { pending: '待核对', different: '已区分', deferred: '暂缓处理' }
 export const fieldStateLabels = { same: '相同', complement: '互补', conflict: '冲突', missing: '缺失' }
 export const actionLabels = { different: '确认不同人', defer: '暂缓处理', keep: '保留一条', merge: '合并资料' }
 const labels = {
   native: '母语', foreign: '外语', dialect_ethnic: '方言／民族语言',
-  active: '活跃', standby: '备用', inactive: '停用',
+  ...talentStatusLabels,
+  ...Object.fromEntries(talentGradeOptions.map(item => [item.value, item.label])),
+  ...Object.fromEntries(contactAvailabilityOptions.map(item => [item.value, item.label])),
   written_translation: '笔译', interpretation: '口译', annotation: '标注',
   very_familiar: '非常熟悉', familiar: '熟悉', basic: '基础交流', listening_mainly: '听懂为主', listening_only: '仅能听懂',
   high: '高', medium: '中', low: '低', male: '男', female: '女',

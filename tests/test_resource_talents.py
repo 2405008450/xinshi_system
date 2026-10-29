@@ -240,7 +240,7 @@ def test_recruitment_update_cannot_overwrite_talent_performance(monkeypatch):
         collection_evaluation="采集评价", career_profile=None,
     )
     payload = ResourcePersonUpdate(
-        full_name="招聘人才已编辑", overall_score=1, overall_rating="不应覆盖",
+        full_name="招聘人才已编辑", talent_grade="C", overall_score=1, overall_rating="不应覆盖",
         cooperation_level="low", remarks="招聘端允许修改的备注",
     )
     db = SimpleNamespace(flush=lambda: None, commit=lambda: None, refresh=lambda *_args, **_kwargs: None)
@@ -251,10 +251,12 @@ def test_recruitment_update_cannot_overwrite_talent_performance(monkeypatch):
     monkeypatch.setattr("resource_service._sync_display_name", lambda *_args: None)
     monkeypatch.setattr("resource_service._sync_legacy_translator", lambda *_args: None)
 
+    person.talent_grade = "S"
     updated = update_recruitment_talent(db, person.id, payload)
 
     assert updated.resource_code == "RC000123"
     assert updated.overall_score == 9
+    assert updated.talent_grade == "S"
     assert updated.overall_rating == "保留评价"
     assert updated.cooperation_level == "high"
     assert updated.remarks == "招聘端允许修改的备注"

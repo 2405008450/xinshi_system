@@ -14,6 +14,7 @@ const fromApi = (value) => convertKeys(value, toCamelCase)
 const toApi = (value) => convertKeys(value, toSnakeCase)
 
 export const getTalents = (params, config = {}) => api.get('/talents/', { ...config, params }).then(fromApi)
+export const getTalentEvaluationHistory = (id, params, config = {}) => api.get(`/talents/${id}/evaluation-history`, { ...config, params }).then(fromApi)
 export const getTalentCount = (params, config = {}) => api.get('/talents/count', { ...config, params })
 export const getTalentPage = (params, config = {}) => api.get('/talents/page', { ...config, params }).then(fromApi)
 export const getTalentPathPage = (params, config = {}) => api.get('/talents/path-page', { ...config, params }).then(fromApi)
@@ -62,9 +63,9 @@ export const saveTalentOverview = (data) => api.put('/talents/overview', {
   })),
 }).then(fromApi)
 export const getTalent = (id, config = {}) => api.get(`/talents/${id}`, config).then(fromApi)
-export const createTalent = async (data) => {
+export const createTalent = async (data, { idempotencyKey = '' } = {}) => {
   const payload = toApi(data)
-  const key = resolveIdempotencyKey(talentCreateState, payload)
+  const key = resolveIdempotencyKey(talentCreateState, payload, idempotencyKey)
   const response = await api.post('/talents/', payload, {
     headers: { 'X-Idempotency-Key': key },
   })
@@ -83,18 +84,19 @@ export const getTalentProjectPage = (id, params = {}, config = {}) => api.get(
 export const getTalentAnnotationProjectPerformance = (personId, projectId, config = {}) => api.get(
   `/talents/${personId}/projects/annotation/${projectId}/performance`, config,
 ).then(fromApi)
-export const uploadTalentAttachment = (id, category, file, certificateId = null) => {
+export const uploadTalentAttachment = (id, category, file, certificateId = null, config = {}) => {
   const form = new FormData()
   form.append('category', category)
   if (certificateId) form.append('certificate_id', certificateId)
   form.append('file', file)
   return api.post(`/talents/${id}/attachments`, form, {
+    ...config,
     headers: { 'Content-Type': 'multipart/form-data' },
   }).then(fromApi)
 }
-export const getTalentAttachmentBlob = (id, attachmentId) => api.get(
+export const getTalentAttachmentBlob = (id, attachmentId, config = {}) => api.get(
   `/talents/${id}/attachments/${attachmentId}`,
-  { responseType: 'blob' },
+  { ...config, responseType: 'blob' },
 )
 export const deleteTalentAttachment = (id, attachmentId) => api.delete(`/talents/${id}/attachments/${attachmentId}`)
 

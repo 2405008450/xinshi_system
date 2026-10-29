@@ -71,6 +71,7 @@ import DevelopmentLanguageDialog from './DevelopmentLanguageDialog.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import { useTableColumnOrder } from '@/composables/useTableColumnOrder'
 import { bindColumnDrag } from '@/utils/columnDragGesture'
+import { bindPlainTableColumnResize } from '@/utils/tableColumnResize'
 import { moveColumn } from '@/utils/tableColumnOrder'
 
 const props = defineProps({ options: { type: Object, required: true } })
@@ -83,14 +84,15 @@ const selectedFields = ref([])
 const fieldSettingsKey = 'resource-development-batch-entry'
 const { orderedColumns, order: columnOrder, setOrder: setColumnOrder } = useTableColumnOrder(fieldSettingsKey, 'main', batchFields)
 const columnHeaderRef = ref(null)
-let unbindColumnDrag
+let unbindColumnDrag, unbindColumnResize
 watch(columnHeaderRef, root => {
-  unbindColumnDrag?.()
+  unbindColumnDrag?.(); unbindColumnResize?.()
   if (!root) return
+  unbindColumnResize = bindPlainTableColumnResize(root)
   unbindColumnDrag = bindColumnDrag(root, element => saving.value ? null : element?.closest('[data-column-key]')?.dataset.columnKey ?? null,
     (from, to) => setColumnOrder(moveColumn(columnOrder.value, from, to)))
 }, { flush: 'post' })
-onBeforeUnmount(() => unbindColumnDrag?.())
+onBeforeUnmount(() => { unbindColumnDrag?.(); unbindColumnResize?.() })
 const visibleFields = computed(() => orderedColumns.value.filter(field => selectedFields.value.includes(field.key)))
 const selectionStorageKey = () => `table-columns:${fieldSettingsKey}:${props.options.user_id}`
 function resetFields() { selectedFields.value = batchFields.value.map(field => field.key) }

@@ -16,3 +16,6 @@ export const saveHomeOfficeUsage=data=>api.put('/attendance/home-office/usage',d
 
 export const getDelayStartApplications=()=>api.get('/attendance/delay-start')
 export const applyDelayStart=data=>api.post('/attendance/delay-start',data,{timeout:90000})
+export const getAttendancePolicy=(year,admin=false,config={})=>api.get(admin?'/attendance/policy/company':'/attendance/policy',{...config,params:{year}})
+export const applyCompTime=data=>api.post('/attendance/comp-time',data,{headers:{'X-Client-Type':chatClientType(navigator)}})
+export const cancelCompTime=id=>api.post(`/attendance/comp-time/${id}/cancel`,{}, {headers:{'X-Client-Type':chatClientType(navigator)}})

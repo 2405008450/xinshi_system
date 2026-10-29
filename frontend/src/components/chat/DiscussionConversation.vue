@@ -11,7 +11,7 @@
         <div v-if="showMessageDates && (!index || chatDayKey(message.createdAt) !== chatDayKey(messages[index - 1].createdAt))" class="discussion-chat__date">{{ formatMessageDay(message.createdAt) }}</div>
         <article :data-message-id="message.id" :ref="el=>messageInteractions.observe(el,message)" class="discussion-chat__message" :class="{ 'is-own': message.senderUserId === currentUserId }">
           <div class="discussion-chat__meta"><strong v-if="!message.recalledAt">{{ message.senderName }}</strong><time v-if="showMessageTime && timestampIndexes.has(index)" :title="chatMessageTime(message.createdAt)">{{ chatMessageTime(message.createdAt) }}</time></div>
-          <p v-if="message.recalledAt" class="discussion-chat__recalled">{{ message.senderName }}撤回了一条消息</p>
+          <ChatRecalledMessage v-if="message.recalledAt" :message="message" :can-reedit="recallDrafts.canReedit(message)" @reedit="reeditMessage" />
           <template v-else>
             <div class="discussion-chat__message-main"><div class="discussion-chat__bubble" tabindex="0" data-message-menu-anchor @contextmenu="messageMenu?.open($event,message)" @keydown="messageMenu?.openKeyboard($event,message)"><blockquote v-if="message.reply" role="button" tabindex="0" @click="references.open(message.reply.id,$event)" @keydown.enter="references.open(message.reply.id,$event)">{{ message.reply.senderName }}：{{ screenshotPreview(message.reply.content) }}</blockquote><p @click="openMessageReferences(message,$event)"><span v-for="(part,partIndex) in mentionParts(message,currentUserId)" :key="partIndex" :class="{'discussion-mention-highlight':part.highlight}"><ScreenshotText :text="part.text" :chat-message-id="message.id" chat-kind="discussion" /></span></p></div>
             <button type="button" class="chat-message-more" aria-label="消息操作" @click="messageMenu?.open($event,message)">⋯</button></div>
@@ -34,6 +34,9 @@
 </template>
 <script setup>
 import {useChatDraft} from '@/composables/useChatDraft'
+import ChatRecalledMessage from './ChatRecalledMessage.vue'
+import { useRecalledMessageDrafts } from '@/composables/useRecalledMessageDrafts'
+import { combineRecallDraft } from '@/utils/recallDrafts'
 import {quoteSpeakerMention,clearAutomaticQuoteMention} from '@/utils/quoteSpeakerMention'
 import DiscussionMentionInput from './DiscussionMentionInput.vue'
 import {mentionParts} from '@/utils/chatMentions'
@@ -56,6 +59,7 @@ import { formatBusinessDateTime } from '@/utils/dateTime'
 import { subscribe } from '@/utils/realtimeSocket'
 const props = defineProps({ projectId: { type: String, required: true }, active: Boolean, targetMessageId: { type: String, default: '' } })
 const currentUserId = localStorage.getItem('user_id') || ''
+const recallDrafts = useRecalledMessageDrafts(computed(() => ['discussion', props.projectId]))
 const messages = ref([]), list = ref(), input = ref(), content = ref(''), replyTo = ref(null)
 const timestampIndexes = computed(() => chatTimestampIndexes(messages.value))
 const references=ref(), messageMenu=ref()
@@ -137,8 +141,21 @@ async function send() {
 }
 function keydown(event) { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) { event.preventDefault(); send() } }
 async function recall(message) {
-  try { await ElMessageBox.confirm('撤回后其他用户将无法查看该消息，确定撤回？','确认撤回',{type:'warning',customClass:'chat-confirm-message-box'}); const row = await chatRequest(`${base}/messages/${message.id}/recall`, { method: 'put' }); if (!disposed) merge([row]) }
+  try { await ElMessageBox.confirm('撤回后其他用户将无法查看该消息，确定撤回？','确认撤回',{type:'warning',customClass:'chat-confirm-message-box'}); await recallDrafts.remember(message); const row = await chatRequest(`${base}/messages/${message.id}/recall`, { method: 'put' }); if (!disposed) merge([row]) }
   catch (e) { if (!disposed && e !== 'cancel' && e !== 'close') error.value = e.message }
+}
+async function reeditMessage(message) {
+  if (sending.value || retryPayload.value) return ElMessage.warning('请先处理当前正在发送或发送失败的消息')
+  const recovered = await recallDrafts.restore(message)
+  if (!recovered || sending.value || retryPayload.value) return
+  try {
+    const result = combineRecallDraft({ content: content.value, mentionIds: [...(mentionSelection.value.mentionedUserIds || []), ...(mentionSelection.value.mentionAll ? ['__all__'] : [])], replyTo: replyTo.value }, recovered)
+    content.value = result.content; replyTo.value = result.replyTo
+    const selectedUsers = result.mentionIds.map(id => id === '__all__' ? { id, name: '所有人', all: true } : mentionUsers.value.find(person => String(person.id) === id) || recovered.mentions.find(person => person.id === id)).filter(Boolean)
+    mentionSelection.value = { selectedUsers, mentionedUserIds: result.mentionIds.filter(id => id !== '__all__'), mentionAll: result.mentionIds.includes('__all__') }
+    sendError.value = ''; draft.persistNow(); recallDrafts.forget(message)
+    await nextTick(); input.value?.focus()
+  } catch (e) { ElMessage.warning(e.message) }
 }
 async function action(message, name, enabled) {
   try { const row=await chatRequest(`${base}/message-actions/${message.id}/${name}`,{method:enabled?'put':'delete'});if(!disposed)merge([row]) }

@@ -161,6 +161,8 @@ def create_leave(db,user,payload):
         if existing.user_id!=user.id:raise HTTPException(409,'请求标识已使用，请重新提交')
         return {'id':str(existing.id),'minutes':sum(row['minutes'] for row in existing.days),'message':'请假记录已保存，全员通知已生成'}
     if not payload.reason.strip():raise HTTPException(422,'请填写请假原因')
+    from attendance_models import AttendanceCompTimeRequest
+    if inspect(db.connection()).has_table(AttendanceCompTimeRequest.__tablename__) and db.query(AttendanceCompTimeRequest.id).filter(AttendanceCompTimeRequest.user_id==user.id,AttendanceCompTimeRequest.status.in_(['pending','approved']),AttendanceCompTimeRequest.start_at<payload.end_at,AttendanceCompTimeRequest.end_at>payload.start_at).first():raise HTTPException(409,'所选时段与已有调休申请重叠，请先撤回待审批调休或调整时段')
     if db.query(EmployeeLeave.id).filter(EmployeeLeave.employee_id==user.id,EmployeeLeave.start_date<payload.end_at.replace(tzinfo=None),EmployeeLeave.end_date>payload.start_at.replace(tzinfo=None)).first():raise HTTPException(409,'所选时段与已有请假重叠')
     preview=preview_leave(db,user,payload)
     if preview['minutes']<=0:raise HTTPException(422,'所选时段没有有效班次，请调整时段或联系行政部安排班次')
@@ -244,7 +246,12 @@ def attendance_report(db,user,anchor,period,*,admin=False,keyword='',department=
         current['raw_overtime_minutes']=current.get('raw_overtime_minutes',current['overtime_minutes'])+credited
         current['overtime_minutes']+=credited
         current.update(lunch_reported_minutes=reported,lunch_overtime_minutes=credited,lunch_original_deducted_minutes=original_lunch,lunch_deducted_minutes=max(0,original_lunch-credited),lunch_projects=value['projects'])
-    totals={key:0 for key in ('late_count','late_minutes','overtime_minutes','leave_minutes','raw_overtime_minutes','breakfast_deduction_minutes','dinner_deduction_minutes','invalid_deduction_minutes','violation_count','lunch_overtime_minutes')}
+    from attendance_clock import monthly_balances
+    balances=[{**value,'name':people[value['user_id']]['name']} for value in monthly_balances(db,ids,start,end)]
+    from attendance_policy import attach_report
+    monthly_policy=attach_report(db,daily,leave_items,people,start,end,balances)
+    for value in daily.values():value.setdefault('requested_leave_minutes',value['leave_minutes'])
+    totals={key:0 for key in ('late_count','late_minutes','overtime_minutes','leave_minutes','requested_leave_minutes','late_leave_minutes','raw_overtime_minutes','breakfast_deduction_minutes','dinner_deduction_minutes','invalid_deduction_minutes','violation_count','lunch_overtime_minutes')}
     summaries={uid:{'user_id':uid,'name':person['name'],'department':'、'.join(row['name'] for row in person['departments']),**totals} for uid,person in people.items()}
     for row in daily.values():
         for key in totals:
@@ -260,9 +267,8 @@ def attendance_report(db,user,anchor,period,*,admin=False,keyword='',department=
     from employee_employment import allowances
     annual_allowances=allowances(db,ids,anchor.year)
     for uid,summary in summaries.items():summary.update(annual_allowances.get(uid,{}))
-    balances=[{**value,'name':people[value['user_id']]['name']} for value in monthly_balances(db,ids,start,end)]
     rows=sorted(daily.values(),key=lambda row:(row['day'],row['name']),reverse=True)
-    return api_time({'start':start,'end':end,'period':period,'annual_leave':annual_allowances.get(str(user.id)) if not admin else None,'monthly_balances':balances,'totals':{key:round(value,2) for key,value in totals.items()},'people':list(summaries.values()),'records':rows[(page-1)*limit:page*limit],'total':len(rows),'leaves':leave_items,'departments':catalog['items'] if admin else [],'note':'迟到从宽限 10 分钟后累计；手动打卡后按确认的真实工作时间计算加班；扣除午休、班间休息、请假及早餐、晚餐、无效时间。每日负净额继续抵扣当月累计加班，最终累计不低于零。'})
+    return api_time({'start':start,'end':end,'period':period,'annual_leave':annual_allowances.get(str(user.id)) if not admin else None,'monthly_policy':monthly_policy,'monthly_balances':balances,'totals':{key:round(value,2) for key,value in totals.items()},'people':list(summaries.values()),'records':rows[(page-1)*limit:page*limit],'total':len(rows),'leaves':leave_items,'departments':catalog['items'] if admin else [],'note':'迟到从宽限10分钟后累计，全部折算请假，与申请请假分开记录；加班按自然月真实工作净额计算，月度追责档位随本月加班累计更新，当前月为暂计。'})
 
 def today_status(db,user):
     from attendance_clock import today_status as clock_status

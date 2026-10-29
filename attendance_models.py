@@ -53,3 +53,18 @@ class AttendanceDelayStart(Base):
     reason:Mapped[str]=mapped_column(Text,nullable=False)
     created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),nullable=False,default=now)
     __table_args__=(Index('ix_attendance_delay_start_user_time','user_id','requested_start'),)
+
+
+class AttendanceCompTimeRequest(Base):
+    __tablename__='attendance_comp_time_request'
+    __table_args__=(Index('ix_attendance_comp_time_user_start','user_id','start_at'),)
+    id:Mapped[UUID]=mapped_column(Uuid,primary_key=True,default=uuid4)
+    client_id:Mapped[UUID]=mapped_column(Uuid,unique=True,nullable=False)
+    user_id:Mapped[UUID]=mapped_column(Uuid,ForeignKey('app_user.id'),nullable=False)
+    start_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),nullable=False)
+    end_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),nullable=False)
+    minutes:Mapped[int]=mapped_column(Integer,nullable=False)
+    reason:Mapped[str]=mapped_column(Text,nullable=False)
+    status:Mapped[str]=mapped_column(String(20),nullable=False,default='pending')
+    allocation_snapshot:Mapped[dict]=mapped_column(JSON,nullable=False)
+    created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),nullable=False,default=now)
