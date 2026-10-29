@@ -5,6 +5,7 @@
       <el-button size="small" @click="setAll(false)">全部折叠</el-button>
       <el-button size="small" title="展开当前收起区域的一半" @click="setHalf(true)">展开一半</el-button>
       <el-button size="small" title="收起当前展开区域的一半" @click="setHalf(false)">折叠一半</el-button>
+      <div v-if="$slots.actions" class="section-expansion-actions"><slot name="actions" /></div>
     </div>
     <el-collapse v-model="expanded"><slot /></el-collapse>
   </div>
@@ -38,6 +39,7 @@ defineExpose({ reset, setAll, setHalf })
 <style scoped>
 .section-expansion-toolbar{position:sticky;top:0;z-index:4;display:flex;gap:6px;flex-wrap:wrap;padding:10px 0;background:var(--el-bg-color)}
 .section-expansion-toolbar .el-button+.el-button{margin-left:0}
+.section-expansion-actions{margin-left:auto;display:flex;align-items:center;gap:8px;max-width:100%;min-width:0}
 .collapsible-sections :deep(.el-collapse-item__header){height:auto;min-height:44px;line-height:1.5;padding:10px 12px;font-size:15px;font-weight:600}
 .collapsible-sections :deep(.el-collapse-item__content){padding-bottom:12px}
 </style>

@@ -2,6 +2,7 @@
   <div class="localized-resume" :class="{'resume-rtl':rtl}">
     <p class="resume-shared-note">简历资料按语言独立保存；人才编号、联系方式、状态、项目、评价与结算共用，可在中文页签维护。</p>
     <CollapsibleSections :reset-key="locale">
+      <template #actions><TalentResumeYear v-model="modelValue.resumeYear" :field-path="`${propPrefix}.resumeYear`" :readonly="readonly" bilingual /></template>
       <el-collapse-item v-for="section in sections" :key="section.key" :name="`localized-${section.key}`" :data-section-key="`localized-${section.key}`" :title="section.label">
         <div v-if="section.key==='basic'" class="form-section"><h3 class="sr-only">基本资料 / Personal details</h3>
           <el-row :gutter="16"><el-col v-for="field in fields" :key="field.key" :xs="24" :md="12"><el-form-item :label="field.label" :prop="`${propPrefix}.${field.key}`">
@@ -15,7 +16,7 @@
           <el-form-item v-for="field in textFields" :key="field.key" :label="field.label" :prop="`${propPrefix}.${field.key}`"><span v-if="readonly" class="localized-value">{{modelValue[field.key]||'—'}}</span><GridInput v-else v-model="modelValue[field.key]" type="textarea" :autosize="{minRows:2,maxRows:8}" maxlength="20000" /></el-form-item>
           <el-form-item label="常用CAT经验 / CAT tools" :prop="`${propPrefix}.catTools`"><span v-if="readonly">{{modelValue.catTools.join(' · ')||'—'}}</span><el-select v-else v-model="modelValue.catTools" multiple filterable allow-create default-first-option placeholder="" no-data-text="—" no-match-text="—"><el-option v-for="item in catToolOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
         </div>
-        <ResumeExperienceGrid v-else v-model="modelValue[section.key]" :prop-prefix="`${propPrefix}.${section.key}`" :education="section.key==='educations'" :degree-options="dictionaries.degree" :readonly="readonly" :rtl="rtl" bilingual :group-title="section.label" />
+        <ResumeExperienceGrid v-else v-model="modelValue[section.key]" :prop-prefix="`${propPrefix}.${section.key}`"  :interpretation="section.key=== 'interpretation'" :annotation="section.key=== 'annotation'" :education="section.key==='educations'" :degree-options="dictionaries.degree" :readonly="readonly" :rtl="rtl" bilingual :group-title="section.label" />
       </el-collapse-item>
     </CollapsibleSections>
   </div>
@@ -24,6 +25,7 @@
 import {computed} from 'vue'
 import {ElInput as GridInput} from 'element-plus'
 import CollapsibleSections from '@/components/common/CollapsibleSections.vue'
+import TalentResumeYear from './TalentResumeYear.vue'
 import ResumeExperienceGrid from './ResumeExperienceGrid.vue'
 import {catToolOptions} from '@/utils/talentResumeProfile'
 import {resumeLocaleOptions,resumeLanguageOptions,isResumeRtl} from '@/utils/talentResumeLocales'

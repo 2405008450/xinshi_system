@@ -203,7 +203,7 @@ const props = defineProps({
   pageTitle: { type: String, required: true },
   description: { type: String, default: '' },
   adapter: { type: Object, required: true },
-  writePermission: { type: String, default: '' },
+  writePermission: { type: [String, Array], default: '' },
   allowAllUsersEdit: { type: Boolean, default: false },
   allowGroupSelection: { type: Boolean, default: false },
   navigationMode: { type: String, default: 'drilldown' },

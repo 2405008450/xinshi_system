@@ -15,6 +15,8 @@ from talent_media_samples import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS, SAMPLE_CATE
 
 UPLOAD_RULES = {
     "photo": ({".jpg", ".jpeg", ".png", ".webp"}, 10 * 1024 * 1024),
+    "id_photo": ({".jpg", ".jpeg", ".png", ".webp"}, 10 * 1024 * 1024),
+    "life_photo": ({".jpg", ".jpeg", ".png", ".webp"}, 10 * 1024 * 1024),
     "audio": ({".mp3", ".wav", ".m4a", ".aac", ".ogg"}, 100 * 1024 * 1024),
     "certificate": ({".pdf", ".jpg", ".jpeg", ".png"}, 20 * 1024 * 1024),
     "interpretation_sample": (AUDIO_EXTENSIONS | VIDEO_EXTENSIONS, MAX_SAMPLE_BYTES),

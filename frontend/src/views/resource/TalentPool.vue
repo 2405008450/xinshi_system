@@ -163,6 +163,7 @@
       </template>
       <div ref="editorBodyRef" class="talent-editor-body" :inert="saving" :aria-busy="saving">
         <AppForm ref="formRef" :model="form" :rules="rules" label-position="top" class="talent-editor-form"><el-tabs v-model="resumeTab"><el-tab-pane label="中文简历" name="zh"><CollapsibleSections :reset-key="editorSectionsKey">
+        <template #actions><TalentResumeYear v-model="form.resumeProfile.resumeYear" field-path="resumeProfile.resumeYear" /></template>
         <el-collapse-item  name="editor-section-1" data-section-key="editor-section-1" title="姓名与身份"><div class="form-section">
           <div class="form-section-header name-section-header">
             <div><h3><span class="required-mark">*</span> 姓名与身份</h3><div class="section-hint">中文姓名、外文姓名、昵称、其他名字至少填写一项</div></div>
@@ -227,7 +228,7 @@
         <el-collapse-item name="editor-education-experience" data-section-key="editor-education-experience" title="教育经历"><div class="form-section"><h3>教育经历</h3><ResumeExperienceGrid v-model="form.educationExperiences" prop-prefix="educationExperiences" education canonical-education group-title="教育经历" /></div></el-collapse-item>
         <el-collapse-item name="editor-internships" data-section-key="editor-internships" title="实习经历"><div class="form-section"><h3>实习经历</h3><ResumeExperienceGrid v-model="form.resumeProfile.internships" prop-prefix="resumeProfile.internships" group-title="实习经历" /></div></el-collapse-item>
         <el-collapse-item name="editor-section-7" data-section-key="editor-section-7" title="工作经验"><div class="form-section"><h3>工作经验</h3>
-          <el-collapse-item v-for="group in resumeWorkGroups" :key="group.key" :name="`editor-work-${group.key}`" :data-section-key="`editor-work-${group.key}`" :title="group.label"><ResumeExperienceGrid v-model="form.resumeProfile[group.key]" :prop-prefix="`resumeProfile.${group.key}`" :group-title="group.label" /></el-collapse-item>
+          <el-collapse-item v-for="group in resumeWorkGroups" :key="group.key" :name="`editor-work-${group.key}`" :data-section-key="`editor-work-${group.key}`" :title="group.label"><ResumeExperienceGrid v-model="form.resumeProfile[group.key]" :prop-prefix="`resumeProfile.${group.key}`" :group-title="group.label" :interpretation="group.key=== 'interpretation'" :annotation="group.key=== 'annotation'" /></el-collapse-item>
         </div></el-collapse-item>
         <el-collapse-item v-if="!isRecruitmentPool" name="editor-section-8" data-section-key="editor-section-8" title="综合表现"><div v-if="!isRecruitmentPool" class="form-section performance-form-section">
           <h3>综合表现</h3>
@@ -301,8 +302,9 @@
         <el-collapse-item  name="editor-section-15" data-section-key="editor-section-15" title="招聘职业档案"><div class="form-section"><h3>招聘职业档案</h3><el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="行业"><el-select v-model="form.careerProfile.industries" multiple filterable allow-create default-first-option style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="职能"><el-select v-model="form.careerProfile.functions" multiple filterable allow-create default-first-option style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="岗位"><el-select v-model="form.careerProfile.jobTitles" multiple filterable allow-create default-first-option style="width:100%" /></el-form-item></el-col></el-row><el-row :gutter="16"><el-col :xs="24" :md="6"><el-form-item label="工作年限"><el-input-number v-model="form.careerProfile.yearsExperience" :min="0" :precision="1" style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="期望地点"><el-select v-model="form.careerProfile.preferredLocations" multiple filterable allow-create default-first-option style="width:100%" /></el-form-item></el-col><el-col :xs="24" :md="6"><el-form-item label="期望薪资"><el-input v-model="form.careerProfile.expectedSalary" /></el-form-item></el-col></el-row><el-form-item label="职业概述"><el-input v-model="form.careerProfile.summary" type="textarea" :rows="2" /></el-form-item></div></el-collapse-item>
         <el-collapse-item v-if="canViewContacts" name="editor-settlement" data-section-key="editor-settlement" title="商务与结算"><div class="form-section"><h3>商务与结算</h3><TalentSettlementEditor :model-value="form.settlement" /></div></el-collapse-item>
         <el-collapse-item  name="editor-section-16" data-section-key="editor-section-16" title="照片与音频"><div class="form-section"><h3>照片与音频</h3>
-          <el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="照片"><el-upload v-model:file-list="queuedAttachments.photo" :auto-upload="false" multiple accept=".jpg,.jpeg,.png,.webp" :on-change="file=>queueAttachment('photo',file)" :on-remove="file=>unqueueAttachment('photo',file)"><el-button>选择照片</el-button><template #tip><div class="el-upload__tip">JPG、PNG、WebP，单个不超过10MB</div></template></el-upload></el-form-item></el-col><el-col :xs="24" :md="12"><el-form-item label="音频"><el-upload v-model:file-list="queuedAttachments.audio" :auto-upload="false" multiple accept=".mp3,.wav,.m4a,.aac,.ogg" :on-change="file=>queueAttachment('audio',file)" :on-remove="file=>unqueueAttachment('audio',file)"><el-button>选择音频</el-button><template #tip><div class="el-upload__tip">MP3、WAV、M4A、AAC、OGG，单个不超过100MB</div></template></el-upload></el-form-item></el-col></el-row>
-          <div v-if="form.attachments?.some(item=>['photo','audio'].includes(item.category))" class="attachment-list"><el-tag v-for="item in form.attachments.filter(item=>['photo','audio'].includes(item.category))" :key="item.id" closable @close="removeSavedAttachment(item)">{{ item.category==='photo'?'照片':'音频' }}：{{ item.originalName }}</el-tag></div>
+          <el-row :gutter="16"><el-col v-for="category in talentPhotoCategories" :key="category.value" :xs="24" :md="12"><el-form-item :label="category.label"><div><el-upload v-model:file-list="queuedAttachments[category.value]" :auto-upload="false" multiple accept=".jpg,.jpeg,.png,.webp" :on-change="file=>queueAttachment(category.value,file)" :on-remove="file=>unqueueAttachment(category.value,file)"><el-button>选择{{category.label}}</el-button><template #tip><div class="el-upload__tip">JPG、PNG、WebP，单个不超过10MB，每类最多10张</div></template></el-upload><div class="attachment-list"><el-tag v-for="item in form.attachments.filter(item=>item.category===category.value)" :key="item.id" closable @close="removeSavedAttachment(item)">{{ item.originalName }}</el-tag></div></div></el-form-item></el-col></el-row>
+          <el-form-item v-if="form.attachments.some(item=>item.category==='photo')" label="未分类照片（历史）"><div class="attachment-list"><el-tag v-for="item in form.attachments.filter(item=>item.category==='photo')" :key="item.id" closable @close="removeSavedAttachment(item)">{{item.originalName}}</el-tag></div></el-form-item>
+          <el-form-item label="音频"><div><el-upload v-model:file-list="queuedAttachments.audio" :auto-upload="false" multiple accept=".mp3,.wav,.m4a,.aac,.ogg" :on-change="file=>queueAttachment('audio',file)" :on-remove="file=>unqueueAttachment('audio',file)"><el-button>选择音频</el-button><template #tip><div class="el-upload__tip">MP3、WAV、M4A、AAC、OGG，单个不超过100MB</div></template></el-upload><div class="attachment-list"><el-tag v-for="item in form.attachments.filter(item=>item.category==='audio')" :key="item.id" closable @close="removeSavedAttachment(item)">{{item.originalName}}</el-tag></div></div></el-form-item>
         </div></el-collapse-item>
         <el-collapse-item  name="editor-section-17" data-section-key="editor-section-17" title="其他资料"><div class="form-section"><h3>其他资料</h3><el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="简历路径"><el-input v-model="form.resumePath" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="首次联系"><el-date-picker v-model="form.firstContactDate" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width:100%" /></el-form-item></el-col><el-col v-if="canViewContacts" :xs="24" :md="8"><el-form-item label="兼容联系方式"><el-input v-model="form.contactInfo" /></el-form-item></el-col></el-row><el-form-item label="备注"><el-input v-model="form.remarks" type="textarea" :rows="2" /></el-form-item></div></el-collapse-item>
         </CollapsibleSections></el-tab-pane><el-tab-pane label="英文简历 / English" name="en"><LocalizedResumeEditor v-if="resumeTab==='en'" v-model="form.resumeProfile.versions.en" locale="en" prop-prefix="resumeProfile.versions.en" /></el-tab-pane><el-tab-pane label="外文简历" name="foreign"><el-form-item label="简历语言 / Resume language"><el-select v-model="foreignResumeLocale" filterable><el-option v-for="language in foreignResumeLanguages" :key="language.value" :label="language.label" :value="language.value" /></el-select></el-form-item><LocalizedResumeEditor v-if="resumeTab==='foreign'" :key="foreignResumeLocale" v-model="form.resumeProfile.versions[foreignResumeLocale]" :locale="foreignResumeLocale" :prop-prefix="`resumeProfile.versions.${foreignResumeLocale}`" /></el-tab-pane></el-tabs></AppForm>
@@ -337,6 +339,7 @@ import { CaretBottom, Check } from '@element-plus/icons-vue'
 import * as talentApi from '@/api/talents'
 import { talentStatusOptions, talentStatusLabel, talentStatusType } from '@/utils/talentStatus'
 import CollapsibleSections from '@/components/common/CollapsibleSections.vue'
+import TalentResumeYear from './components/TalentResumeYear.vue'
 import TalentEvaluationMeta from './components/TalentEvaluationMeta.vue'
 import { evaluationSnapshot } from '@/utils/talentEvaluationAudit'
 import TalentSettlementEditor from './components/TalentSettlementEditor.vue'
@@ -354,6 +357,7 @@ import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
+import {talentPhotoCategories,validTalentPhoto} from '@/utils/talentPhotoCategories'
 import TalentQuickRegisterDialog from './components/TalentQuickRegisterDialog.vue'
 import ResumeExperienceGrid from './components/ResumeExperienceGrid.vue'
 import LocalizedResumeEditor from './components/LocalizedResumeEditor.vue'
@@ -644,7 +648,7 @@ const validateNameGroupField=()=>nextTick(()=>formRef.value?.validateField('name
 const languages=ref([])
 const languageKeyword=ref('')
 const languageSearchResults=ref([])
-const queuedAttachments=reactive({photo:[],audio:[],annotation_sample:[],interpretation_sample:[]})
+const queuedAttachments=reactive({photo:[],id_photo:[],life_photo:[],audio:[],annotation_sample:[],interpretation_sample:[]})
 const recordKey=()=>`${Date.now()}-${Math.random().toString(36).slice(2)}`
 const languageDisplay=item=>[item.nameZh||item.label,item.nameEn,item.code].filter(Boolean).join(' / ')
 const normalizeLanguageSearch=value=>String(value||'').toLocaleLowerCase().replace(/[\s_./()（）·-]+/g,'')
@@ -658,7 +662,15 @@ const removeLanguage=index=>form.languageSkills.splice(index,1)
 const normalizeLanguagePriorities=()=>normalizeForeignLanguagePriorities(form.languageSkills).forEach((item,index)=>{form.languageSkills[index].priority=item.priority})
 const addCertificate=()=>form.certificates.push({id:null,_key:recordKey(),certificateType:'language',name:'',languageId:null,issuer:'',certificateNo:'',issuedOn:null,materialReceived:false,remarks:'',sortOrder:form.certificates.length})
 const removeCertificate=index=>form.certificates.splice(index,1)
-const queueAttachment=(category,file)=>{if(file?.raw&&!queuedAttachments[category].some(item=>item.uid===file.uid))queuedAttachments[category].push(file)}
+const queueAttachment=(category,file)=>{
+  if(!file?.raw)return
+  if(talentPhotoCategories.some(item=>item.value===category)){
+    const selected=queuedAttachments[category]
+    const count=form.attachments.filter(item=>item.category===category).length+selected.length+(selected.some(item=>item.uid===file.uid)?0:1)
+    if(!validTalentPhoto(file.raw)||count>10){unqueueAttachment(category,file);ElMessage.warning(count>10?'每类照片最多10张':'请选择不超过10MB的 JPG、PNG 或 WebP 照片');return}
+  }
+  if(!queuedAttachments[category].some(item=>item.uid===file.uid))queuedAttachments[category].push(file)
+}
 const unqueueAttachment=(category,file)=>{queuedAttachments[category]=queuedAttachments[category].filter(item=>item.uid!==file.uid)}
 const {beginDraft,pauseDraft,clearDraft}=useFormDraft({namespace:'talent',form,createDefault:emptyForm,formRef})
 const editorBodyRef=ref(null)
@@ -676,6 +688,8 @@ function resetForm() {
   Object.assign(form, emptyForm())
   nameFieldsExpanded.value = true
   queuedAttachments.photo = []
+  queuedAttachments.id_photo = []
+  queuedAttachments.life_photo = []
   queuedAttachments.audio = []
   queuedAttachments.annotation_sample = []
   queuedAttachments.interpretation_sample = []
@@ -766,7 +780,7 @@ const payload=(allowDuplicate=false)=>{
 }
 async function savePayload(allowDuplicate=false){const client=talentClient.value;return form.id?client.update(form.id,payload(allowDuplicate)):client.create(payload(allowDuplicate))}
 async function flushQueuedAttachments(personId) {
-  for (const category of ['photo', 'audio', 'interpretation_sample', 'annotation_sample']) {
+  for (const category of ['photo', 'id_photo', 'life_photo', 'audio', 'interpretation_sample', 'annotation_sample']) {
     while (queuedAttachments[category].length) {
       const item = queuedAttachments[category][0]
       item.status='uploading';item.percentage=0

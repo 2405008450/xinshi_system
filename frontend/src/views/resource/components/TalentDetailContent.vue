@@ -1,5 +1,6 @@
 <template>
   <div class="talent-detail-content" :class="{'is-dialog-content':inDialog}"><el-tabs v-model="resumeTab" :class="{'resume-tabs-summary':section!=='all'}"><el-tab-pane label="中文简历" name="zh"><CollapsibleSections ref="sectionPanels" :reset-key="`${detail.id||''}:${section}`">
+    <template v-if="section==='all'" #actions><TalentResumeYear :model-value="resumeProfile.resumeYear" readonly /></template>
     <el-alert v-if="detail.archivedIntoId" title="此档案已归档，原资料只读，历史业务关联保留。" type="info" :closable="false">
       <template #default><el-button link type="primary" @click="openRetained">打开保留档案</el-button></template>
     </el-alert>
@@ -104,7 +105,7 @@
 
     <el-collapse-item v-if="shows('education')" name="detail-education-experience" data-section-key="detail-education-experience" title="教育经历"><ResumeExperienceGrid :model-value="educationRows" education canonical-education readonly group-title="教育经历" /></el-collapse-item>
     <el-collapse-item v-if="shows('experience')" name="detail-internships" data-section-key="detail-internships" title="实习经历"><ResumeExperienceGrid :model-value="resumeProfile.internships" readonly group-title="实习经历" /></el-collapse-item>
-    <el-collapse-item v-if="shows('experience')" name="detail-section-6" data-section-key="detail-section-6" title="工作经验"><el-collapse-item v-for="group in resumeWorkGroups" :key="group.key" :name="`detail-work-${group.key}`" :data-section-key="`detail-work-${group.key}`" :title="group.label"><ResumeExperienceGrid :model-value="resumeProfile[group.key]" readonly :group-title="group.label" /></el-collapse-item></el-collapse-item>
+    <el-collapse-item v-if="shows('experience')" name="detail-section-6" data-section-key="detail-section-6" title="工作经验"><el-collapse-item v-for="group in resumeWorkGroups" :key="group.key" :name="`detail-work-${group.key}`" :data-section-key="`detail-work-${group.key}`" :title="group.label"><ResumeExperienceGrid :model-value="resumeProfile[group.key]" readonly :group-title="group.label" :interpretation="group.key=== 'interpretation'" :annotation="group.key=== 'annotation'" /></el-collapse-item></el-collapse-item>
 
     <el-collapse-item v-if="showPerformance && shows('performance')" name="detail-section-7" data-section-key="detail-section-7" title="综合表现"><section v-if="showPerformance && shows('performance')">
       <h4>综合表现</h4>
@@ -148,6 +149,7 @@
       </el-descriptions>
     </section></el-collapse-item>
 
+    <el-collapse-item v-if="section==='all'" name="detail-photos" data-section-key="detail-photos" title="照片与音频"><el-descriptions :column="1" border size="small"><el-descriptions-item v-for="category in photoDetailCategories" :key="category" :label="photoAttachmentLabel(category)"><template v-for="item in (detail.attachments||[]).filter(file=>file.category===category)" :key="item.id"><el-button link type="primary" @click="downloadInherited({...item,sourceId:detail.id})">{{item.originalName}}</el-button></template><span v-if="!(detail.attachments||[]).some(file=>file.category===category)">-</span></el-descriptions-item></el-descriptions></el-collapse-item>
     <el-collapse-item v-if="!contactRestricted && section==='all'" name="detail-settlement" data-section-key="detail-settlement" title="商务与结算"><section><h4>商务与结算</h4><TalentSettlementDetail :value="detail.settlement" /></section></el-collapse-item>
     <el-collapse-item v-if="shows('projects')" name="detail-section-9" data-section-key="detail-section-9" title="项目情况"><section v-if="shows('projects')">
       <h4>项目情况</h4>
@@ -169,6 +171,8 @@ import ResumeExperienceGrid from './ResumeExperienceGrid.vue'
 import LocalizedResumeEditor from './LocalizedResumeEditor.vue'
 import {resumeProfileForm,educationFormRows,emptyResumeVersion} from '@/utils/talentResumeProfile'
 import {foreignResumeLanguages} from '@/utils/talentResumeLocales'
+import {photoAttachmentLabel} from '@/utils/talentPhotoCategories'
+const photoDetailCategories=['id_photo','life_photo','photo','audio']
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getTalentAttachmentBlob } from '@/api/talents'
@@ -183,6 +187,7 @@ import SensitiveContactValue from '@/components/common/SensitiveContactValue.vue
 import { normalizeForeignLanguagePriorities } from '@/utils/talentLanguageSkills'
 import { talentStatusLabel } from '@/utils/talentStatus'
 import CollapsibleSections from '@/components/common/CollapsibleSections.vue'
+import TalentResumeYear from './TalentResumeYear.vue'
 import TalentEvaluationMeta from './TalentEvaluationMeta.vue'
 import TalentSettlementDetail from './TalentSettlementDetail.vue'
 import TalentMediaSamples from './TalentMediaSamples.vue'

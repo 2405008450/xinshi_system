@@ -20,10 +20,11 @@ class ResumeExperienceEntry(BaseModel):
     period: str | None = Field(default=None,max_length=100)
     organization: str | None = Field(default=None,max_length=255)
     position: str | None = Field(default=None,max_length=255)
+    workload: str | None = Field(default=None,max_length=255)
     description: str | None = None
     degree: str | None = Field(default=None,max_length=50)
 
-    @field_validator('period','organization','position','description','degree',mode='before')
+    @field_validator('period','organization','position','workload','description','degree',mode='before')
     @classmethod
     def trim(cls,value):
         return value.strip() or None if isinstance(value,str) else value
@@ -31,6 +32,7 @@ class ResumeExperienceEntry(BaseModel):
 
 class ResumeLanguageVersion(BaseModel):
     model_config = ConfigDict(extra='forbid')
+    resume_year: str | None = Field(default=None,max_length=50)
     name: str | None = Field(default=None,max_length=255)
     professional_title: str | None = Field(default=None,max_length=255)
     gender: Literal['male','female','unknown','undisclosed'] | None = None
@@ -54,7 +56,7 @@ class ResumeLanguageVersion(BaseModel):
     translation: list[ResumeExperienceEntry] = Field(default_factory=list,max_length=100)
     other: list[ResumeExperienceEntry] = Field(default_factory=list,max_length=100)
 
-    @field_validator('name','professional_title','birth_date','nationality','residence','native_place','height','eyesight','language_notes','certificates','skills',mode='before')
+    @field_validator('resume_year','name','professional_title','birth_date','nationality','residence','native_place','height','eyesight','language_notes','certificates','skills',mode='before')
     @classmethod
     def trim(cls,value):
         return value.strip() or None if isinstance(value,str) else value
@@ -62,6 +64,7 @@ class ResumeLanguageVersion(BaseModel):
 
 class TalentResumeProfileInput(BaseModel):
     revision: int = Field(default=0,ge=0)
+    resume_year: str | None = Field(default=None,max_length=50)
     internships: list[ResumeExperienceEntry] | None = Field(default=None,max_length=100)
     annotation: list[ResumeExperienceEntry] | None = Field(default=None,max_length=100)
     interpretation: list[ResumeExperienceEntry] | None = Field(default=None,max_length=100)
@@ -69,6 +72,11 @@ class TalentResumeProfileInput(BaseModel):
     other: list[ResumeExperienceEntry] | None = Field(default=None,max_length=100)
     cat_tools: list[str] | None = Field(default=None,max_length=50)
     versions: dict[str,ResumeLanguageVersion] | None = None
+
+    @field_validator('resume_year',mode='before')
+    @classmethod
+    def year(cls,value):
+        return value.strip() or None if isinstance(value,str) else value
 
     @field_validator('cat_tools')
     @classmethod
@@ -117,7 +125,7 @@ def read_resume_profile(db,person_id):
 
 
 def _entry_present(row):
-    return any(row.get(key) for key in ['period','organization','position','description','degree'])
+    return any(row.get(key) for key in ['period','organization','position','workload','description','degree'])
 
 
 def save_resume_profile(db,person,payload,actor,*,allow_cat=True):
@@ -130,6 +138,8 @@ def save_resume_profile(db,person,payload,actor,*,allow_cat=True):
     previous=dict(row.data) if row else {}
     normalized=submitted.model_dump(mode='json',exclude={'revision'})
     updates={key:value for key,value in normalized.items() if key in submitted.model_fields_set and value is not None}
+    if 'resume_year' in submitted.model_fields_set and (submitted.resume_year is not None or 'resume_year' in previous):
+        updates['resume_year']=submitted.resume_year
     if not allow_cat:updates.pop('cat_tools',None)
     for key in ['internships',*WORK_FIELDS]:
         if key in updates:updates[key]=[entry for entry in updates[key] if _entry_present(entry)]
@@ -154,7 +164,8 @@ def save_resume_profile(db,person,payload,actor,*,allow_cat=True):
         if key in updates:
             chunks=[]
             for entry in updates[key]:
-                header=' · '.join(entry.get(name) or '' for name in ['period','organization','position']).strip(' ·')
+                header_fields=['period','organization','position']+(['workload'] if key=='annotation' else [])
+                header=' · '.join(entry.get(name) or '' for name in header_fields).strip(' ·')
                 chunks.append('\n'.join(value for value in [header,entry.get('description')] if value))
             setattr(person,field,'\n\n'.join(chunks) or None)
     merged={**previous,**updates}

@@ -66,3 +66,47 @@ def test_new_table_migration_is_idempotent(resume_db):
     db,_,_=resume_db
     from tools.apply_talent_resume_profile_migration import apply_migration
     apply_migration(db.connection());apply_migration(db.connection())
+
+def test_annotation_workload_round_trip_and_localized_version(resume_db):
+    db,person,actor=resume_db
+    payload=ResourcePersonUpdate(full_name='标注测试',resume_profile={'annotation':[{'organization':'甲方公司','position':'图像标注','workload':' 5000条 / 100小时 '}], 'versions':{'en':{'annotation':[{'organization':'Client','position':'Image annotation','workload':'5,000 items'}]}}})
+    save_resume_profile(db,person,payload,actor);db.flush()
+    result=read_resume_profile(db,person.id)
+    assert result['annotation'][0]['workload']=='5000条 / 100小时'
+    assert result['versions']['en']['annotation'][0]['workload']=='5,000 items'
+    assert person.annotation_experience=='甲方公司 · 图像标注 · 5000条 / 100小时'
+    again=ResourcePersonUpdate(full_name='标注测试',resume_profile=result)
+    save_resume_profile(db,person,again,actor)
+    assert person.resume_profile.revision==1
+
+def test_workload_only_row_is_not_discarded(resume_db):
+    db,person,actor=resume_db
+    save_resume_profile(db,person,ResourcePersonUpdate(full_name='标注测试',resume_profile={'annotation':[{'workload':'100小时'}]}),actor)
+    db.flush()
+    result=read_resume_profile(db,person.id)
+    assert result['annotation'][0]['workload']=='100小时'
+    assert person.annotation_experience=='100小时'
+    with pytest.raises(ValidationError):TalentResumeProfileInput(annotation=[{'workload':'量'*256}])
+
+def test_resume_year_is_independent_per_language_and_can_be_cleared(resume_db):
+    db,person,actor=resume_db
+    payload=ResourcePersonUpdate(full_name='年份测试',resume_profile={'resume_year':' 2026 ','versions':{'en':{'resume_year':'2025'},'ar':{'resume_year':'٢٠٢٤'}}})
+    save_resume_profile(db,person,payload,actor);db.flush()
+    result=read_resume_profile(db,person.id)
+    assert result['resume_year']=='2026'
+    assert result['versions']['en']['resume_year']=='2025'
+    assert result['versions']['ar']['resume_year']=='٢٠٢٤'
+    omitted=ResourcePersonUpdate(full_name='年份测试',resume_profile={'revision':1,'cat_tools':['memoQ']})
+    save_resume_profile(db,person,omitted,actor);db.flush()
+    assert read_resume_profile(db,person.id)['resume_year']=='2026'
+    cleared=ResourcePersonUpdate(full_name='年份测试',resume_profile={'revision':2,'resume_year':' '})
+    save_resume_profile(db,person,cleared,actor);db.flush()
+    result=read_resume_profile(db,person.id)
+    assert result['resume_year'] is None
+    assert result['versions']['en']['resume_year']=='2025'
+    with pytest.raises(ValidationError):TalentResumeProfileInput(resume_year='年'*51)
+
+def test_empty_resume_year_does_not_create_profile(resume_db):
+    db,person,actor=resume_db
+    save_resume_profile(db,person,ResourcePersonUpdate(full_name='年份测试',resume_profile={'resume_year':''}),actor)
+    db.flush();assert read_resume_profile(db,person.id) is None

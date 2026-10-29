@@ -212,6 +212,12 @@ const routes = [
             meta: { title: '人才概览', roles: ['*'] }
           },
           {
+            path: 'development-notices',
+            name: 'DevelopmentNotices',
+            component: () => import('../views/resource/DevelopmentNotices.vue'),
+            meta: { title: '开拓须知', roles: ['*'] }
+          },
+          {
             path: 'referral-development',
             name: 'ReferralDevelopment',
             component: () => import('../views/resource/ReferralDevelopment.vue'),

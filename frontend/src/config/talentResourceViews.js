@@ -44,4 +44,8 @@ export const TALENT_RESOURCE_VIEWS = Object.freeze([
     path: '/resource-management/referral-development',
     permissions: ['talents:read', 'talents:write', 'translators:read', 'translators:write', 'resource_development:delegate'],
   },
+  {
+    label: '开拓须知',
+    path: '/resource-management/development-notices',
+  },
 ])

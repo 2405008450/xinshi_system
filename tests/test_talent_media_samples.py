@@ -47,3 +47,20 @@ def test_invalid_sample_does_not_leave_file_or_record(sample_store,name,content)
     with pytest.raises(ValueError):
         asyncio.run(save_talent_attachment(db,uuid4(),'annotation_sample',UploadFile(filename=name,file=BytesIO(content)),uploaded_by=uuid4()))
     assert records==[] and list(directory.iterdir())==[]
+
+
+@pytest.mark.parametrize('category',['id_photo','life_photo','photo'])
+def test_photo_categories_are_saved_separately_and_preserve_legacy(sample_store,category):
+    db,records,directory=sample_store
+    assert UPLOAD_RULES[category]==({'.jpg','.jpeg','.png','.webp'},10*1024*1024)
+    result=asyncio.run(save_talent_attachment(db,uuid4(),category,UploadFile(filename='portrait.PNG',file=BytesIO(b'photo-content')),uploaded_by=uuid4()))
+    assert result.category==category
+    assert (directory/result.storage_name).read_bytes()==b'photo-content'
+
+
+@pytest.mark.parametrize('category',['id_photo','life_photo'])
+def test_photo_categories_reject_video(sample_store,category):
+    db,records,directory=sample_store
+    with pytest.raises(ValueError,match='不支持的文件格式'):
+        asyncio.run(save_talent_attachment(db,uuid4(),category,UploadFile(filename='sample.mp4',file=BytesIO(b'video')),uploaded_by=uuid4()))
+    assert records==[] and list(directory.iterdir())==[]

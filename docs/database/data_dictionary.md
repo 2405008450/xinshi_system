@@ -1884,6 +1884,8 @@ POST /weekend-duty/transfer 将来源周六、周日对应到目标周六、周�
 
 口译及标注区域上传样音复用现有 `resource_person_attachment`，新增分类 `interpretation_sample` / `annotation_sample`；原 category 列 VARCHAR(30) 可容纳，无表结构变更。音视频原样保存，每区域最多10个、单个200MB；支持 MP3/WAV/M4A/AAC/FLAC/OGG/OPUS/WMA/AMR/AIFF 等音频与 MP4/MOV/MKV/AVI/WMV/WEBM/MPEG/3GP/FLV/RMVB 等视频。上传后按各自区域展示，提供浏览器播放及下载；不进行转码，浏览器缺少相应解码器时提示下载。新增状态先选择文件，保存主档后逐条上传，显示进度；已成功文件及时出队，失败保留以便重试，沿用附件权限、归档留存和删除清理。
 
+照片细分补充：附件分类新增 `id_photo`（证件照）、`life_photo`（生活照），复用 `resource_person_attachment.category` VARCHAR(30)，无表结构变更；每类最多10张，JPG/JPEG、PNG、WebP，单张10MB。新增及编辑提供独立上传区和已保存列表，详情按分类展示。原 `photo` 数据保留为“未分类照片（历史）”，不猜测或回写旧照片类别；原音频及专业样音分类不变。
+
 ### 人才结构化经历、CAT 与多语言简历
 
 `talent_resume_profile` 新表：`person_id` UUID 主键且外键关联 `resource_person.id`（级联删除）；`revision` INTEGER 非空且 >=1，保存时校验版本避免覆盖；`data` JSON 非空；`updated_by` UUID 可空外键关联 `app_user.id`；`updated_at` TIMESTAMP WITH TIME ZONE 非空，由后端生成 UTC+8 时间。主表保存与扩展资料同一事务。
@@ -1897,6 +1899,20 @@ JSON 的 `internships`、`annotation`、`interpretation`、`translation`、`othe
 `tools/apply_talent_resume_profile_migration.py` 幂等建表，通过隔离 SQLite 测试后，按 2026-10-25 新表授权，于2026-10-29 在 William 对 `43.132.156.72:15432/xinshi_system` 执行并校验通过；启动自动迁移关闭，无已有表结构或历史数据变更。
 
 人才总库“新增人才”右键打开快速登记；左键保留完整新增。快速登记采用一人一行的可编辑表格，支持逐行或按数量增加（最多100行）、行内删除；列为所选1～2种姓名、1～2种联系方式（邮箱属于可选类型）、守时度及配合度。逐行保存，成功行移除、失败行保留内容和错误提示；每行独立维护幂等请求键，网络失败后重试不会受其他行保存影响。隐藏字段不提交；必填及邮箱格式校验、联系方式权限、核重与评价自动署名均复用已有能力，无数据库变更。完整新增/编辑表单“其他名字”使用直接输入的文本框，多个名字可换行，仍以原数组字段保存，兼容历史多个别名。
+
+标注经历字段补充：`talent_resume_profile.data.annotation[]` 及各语言 `versions[locale].annotation[]` 增加可空 `workload`（最多255字，去除首尾空白），自由输入数量及单位，如“5000条 / 100小时”。界面将原 organization / position 标题改为“甲方/服务单位”/“标注类型”，不改存储键、不重写旧经历；保存中文标注经历时工作量一并进入原主表标注经验摘要，详情及多语言简历同步展示。复用现有 JSON，无表结构迁移。
+
+简历年份：`talent_resume_profile.data.resume_year` 对应中文版本，各外文版本使用 `versions[locale].resume_year`；可空文本，最多50字，去除首尾空白，留空不自动填写年份。新增/编辑窗口的区域折叠按钮栏右侧直接输入，详情同步显示；按版本独立保存，可清空，省略字段不覆盖已有值。复用现有 JSON，无表结构迁移。
+
+### 开拓须知
+
+人才资源导航在“推荐拓展”右侧新增“开拓须知”，页面路径 `/resource-management/development-notices`，API 使用 `/project-notices/development`。复用笔译等须知的三级栏目、分组、卡片逐级进入、富文本正文、搜索、排序、删除及附件组件；内容以独立新表保存，不扩充或修改原项目须知表的 module 约束。已登录用户可查看，持 `talents:write` 或 `translators:write` 者可管理栏目、正文与附件，前后端一致；原笔译、口译、招聘须知仍沿用 projects 权限。
+
+`development_notice_section`：`id` UUID 主键；`module` VARCHAR(20) 非空且固定 development；`section_key` VARCHAR(80) 非空唯一；`title` VARCHAR(100) 非空；`parent_id` UUID 可空，复合外键 `(module,parent_id)` 指向同表 `(module,id)`，RESTRICT；`sort_order` INTEGER 非空；`has_content` / `is_active` BOOLEAN 非空默认 true；`content_json` JSONB 可空；`search_text` TEXT 非空默认空；`updated_by` UUID 可空外键 app_user.id，SET NULL；`updated_at` / `structure_updated_at` TIMESTAMP WITH TIME ZONE 可空，写入及接口明确 UTC+8。唯一约束 `(module,id)`、索引 `(module,parent_id,sort_order)`；沿用事务级结构锁、正文与结构版本校验、软删除。
+
+`development_notice_attachment`：`id` UUID 主键；`section_id` UUID 非空外键栏目表并索引；`original_name` VARCHAR(255)、`storage_name` VARCHAR(80) 唯一、`content_type` VARCHAR(255)、`file_size` INTEGER 非空（0<大小<=20971520）；`uploaded_by` UUID 可空外键 app_user.id，SET NULL；`uploaded_at` TIMESTAMP WITH TIME ZONE 非空，生成和返回 UTC+8。每栏目最多50个、单个20MB；格式与其他须知相同，文件目录为 PROJECT_NOTICE_UPLOAD_DIR/development，默认 data/project_notice_uploads/development。保留路径校验、栏目归属、权限、事务与文件清理行为。
+
+`tools/apply_development_notices_migration.py` 幂等创建两张新表及必要约束索引；隔离测试通过后，按2026-10-25新表授权，于2026-10-29在 William 对 `43.132.156.72:15432/xinshi_system` 执行并校验通过。原表和历史内容未修改，启动自动迁移关闭。
 
 
 ## 迟到折算、补班与调休（2026-10-29）
