@@ -6,6 +6,7 @@ import argparse
 import csv
 import hashlib
 import json
+import ntpath
 import os
 import re
 import shutil
@@ -16,6 +17,7 @@ import tempfile
 import time
 import xml.etree.ElementTree as ET
 import zipfile
+from html.parser import HTMLParser
 from collections import Counter
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from datetime import datetime, timedelta, timezone
@@ -133,6 +135,45 @@ def segments_from_docx(path: str) -> list[dict]:
     return result
 
 
+class ResumeHTMLParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self.hidden = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in {"script", "style"}:
+            self.hidden += 1
+        elif tag in {"br", "p", "div", "li", "tr", "h1", "h2", "h3"}:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"script", "style"} and self.hidden:
+            self.hidden -= 1
+        elif tag in {"p", "div", "li", "tr", "h1", "h2", "h3"}:
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if not self.hidden:
+            self.parts.append(data)
+
+
+def segments_from_html(path: str) -> list[dict]:
+    data = Path(path).read_bytes()
+    for encoding in ("utf-8-sig", "utf-16", "gb18030"):
+        try:
+            content = data.decode(encoding)
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        content = data.decode("latin-1")
+    parser = ResumeHTMLParser()
+    parser.feed(content)
+    text = "\n".join(line.strip() for line in "".join(parser.parts).splitlines() if line.strip())
+    return [{"location": "HTML 正文", "text": text}]
+
+
 def segments_from_doc(path: str) -> list[dict]:
     # 每个子进程使用独立 LibreOffice 配置，避免与服务器桌面 Office 会话争锁。
     office = Path(r"C:\Program Files\LibreOffice\program\soffice.com")
@@ -207,6 +248,23 @@ def segments_from_xlsx(path: str) -> list[dict]:
         book.close()
 
 
+def segments_from_xlsx_disguised_as_xls(path: str) -> list[dict]:
+    from openpyxl import load_workbook
+
+    with open(path, "rb") as source:
+        book = load_workbook(source, read_only=True, data_only=True)
+        try:
+            result = []
+            for sheet in book:
+                for row_index, row in enumerate(sheet.iter_rows(), 1):
+                    values = [f"{cell.coordinate}={cell.value}" for cell in row if cell.value is not None]
+                    if values:
+                        result.append({"location": f"{sheet.title} 第 {row_index} 行", "text": "\t".join(values)})
+            return result
+        finally:
+            book.close()
+
+
 def segments_from_xls(path: str) -> list[dict]:
     import xlrd
 
@@ -248,6 +306,27 @@ EXTRACTORS = {
 }
 
 
+def select_extractor(path: str, extension: str):
+    with open(path, "rb") as source:
+        signature = source.read(32)
+    head = signature.lstrip(b"\xef\xbb\xbf\x00\x20\t\r\n").lower()
+    if extension == ".doc" and head.startswith((b"<html", b"<!doctype", b"<?xml", b"<body")):
+        return segments_from_html
+    if extension in {".doc", ".docx"} and signature.startswith(b"{\\rtf"):
+        return segments_from_rtf
+    if extension == ".docx" and signature.startswith(bytes.fromhex("d0cf11e0a1b11ae1")):
+        return segments_from_doc
+    if extension == ".xlsx" and signature.startswith(bytes.fromhex("d0cf11e0a1b11ae1")):
+        return segments_from_xls
+    if extension == ".xls" and signature.startswith(b"PK"):
+        return segments_from_xlsx_disguised_as_xls
+    if extension == ".doc" and signature.startswith(b"PK"):
+        return segments_from_docx
+    if extension == ".doc" and signature.startswith(b"%PDF"):
+        return segments_from_pdf
+    return EXTRACTORS[extension]
+
+
 def worker(path: str, result_path: str, text_path: str, segments_path: str) -> int:
     try:
         digest = sha256_file(path)
@@ -261,7 +340,10 @@ def worker(path: str, result_path: str, text_path: str, segments_path: str) -> i
         elif extension not in SUPPORTED:
             status, reason, segments = "skipped", "unsupported_format", []
         else:
-            segments = EXTRACTORS[extension](path)
+            segments = select_extractor(path, extension)(path)
+            for segment in segments:
+                # PDF 等来源偶尔含无效代理字符，替换后仍保留其他可读正文。
+                segment["text"] = segment["text"].encode("utf-8", errors="replace").decode("utf-8")
             status = "success" if any(item["text"].strip() for item in segments) else "no_text"
             reason = "" if status == "success" else "empty_or_scanned"
         if status == "success":
@@ -297,17 +379,35 @@ def database(connection: sqlite3.Connection) -> None:
     connection.commit()
 
 
-def iter_files(root: str, errors: list[dict]):
+def is_under_unc(path: str, root: str) -> bool:
+    """按 Windows 路径边界比较，避免把「简历」误判为「简历旧版」的父目录。"""
+    child = ntpath.normcase(ntpath.normpath(path)).rstrip("\\")
+    parent = ntpath.normcase(ntpath.normpath(root)).rstrip("\\")
+    return child == parent or child.startswith(parent + "\\")
+
+
+def iter_files(root: str, errors: list[dict], exclude_roots: list[str] | None = None):
+    excluded = exclude_roots or []
+
     def onerror(exc: OSError):
         errors.append({"root": root, "path": exc.filename or root, "reason": type(exc).__name__})
 
     if os.path.isfile(root):
-        yield root, os.path.basename(root)
+        if not any(is_under_unc(root, item) for item in excluded):
+            yield root, os.path.basename(root)
         return
     for directory, folders, files in os.walk(root, onerror=onerror):
+        if any(is_under_unc(directory, item) for item in excluded):
+            folders.clear()
+            continue
+        folders[:] = [name for name in folders if not any(
+            is_under_unc(os.path.join(directory, name), item) for item in excluded
+        )]
         folders.sort(key=str.casefold)
         for name in sorted(files, key=str.casefold):
             path = os.path.join(directory, name)
+            if any(is_under_unc(path, item) for item in excluded):
+                continue
             yield path, os.path.relpath(path, root)
 
 
@@ -347,7 +447,7 @@ def process_one(path: str, root: str, relative: str, stat: os.stat_result, outpu
     }
 
 
-def export(connection: sqlite3.Connection, output: Path, roots: list[str], scan_errors: list[dict], current_paths: set[str]) -> dict:
+def export(connection: sqlite3.Connection, output: Path, roots: list[str], scan_errors: list[dict], current_paths: set[str], exclude_roots: list[str] | None = None) -> dict:
     columns = ["path", "root", "relative_path", "extension", "size", "mtime_ns", "modified_at", "sha256", "status", "reason", "characters", "segments", "processed_at", "file_id"]
     query = "SELECT " + ",".join(columns) + " FROM files ORDER BY root,relative_path"
     manifest = output / "manifest.jsonl"
@@ -371,13 +471,17 @@ def export(connection: sqlite3.Connection, output: Path, roots: list[str], scan_
         if item["path"] in current_paths:
             counts[item["status"]] += 1
             by_root[item["root"]][item["status"]] += 1
-    report = {"generated_at": now_iso(), "roots": roots, "total": len(current_paths), "counts": dict(counts), "by_root": {root: dict(value) for root, value in by_root.items()}, "scan_errors": scan_errors}
+    report = {"generated_at": now_iso(), "roots": roots, "excluded_roots": exclude_roots or [], "total": len(current_paths), "counts": dict(counts), "by_root": {root: dict(value) for root, value in by_root.items()}, "scan_errors": scan_errors}
     (output / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     return report
 
 
-def collect(roots: list[str], output: Path, workers: int, timeout: int) -> int:
+def collect(roots: list[str], output: Path, workers: int, timeout: int, exclude_roots: list[str] | None = None) -> int:
     roots = [os.path.abspath(root) for root in roots]
+    exclude_roots = [os.path.abspath(root) for root in (exclude_roots or [])]
+    for excluded in exclude_roots:
+        if not any(is_under_unc(excluded, root) for root in roots):
+            raise ValueError("排除目录必须位于输入根目录内")
     ensure_output_safe(output, roots)
     output.mkdir(parents=True, exist_ok=True)
     for name in ("texts", "segments", "tmp"):
@@ -423,7 +527,7 @@ def collect(roots: list[str], output: Path, workers: int, timeout: int) -> int:
             if not os.path.exists(root):
                 errors.append({"root": root, "path": root, "reason": "root_unavailable"})
                 continue
-            for path, relative in iter_files(root, errors):
+            for path, relative in iter_files(root, errors, exclude_roots):
                 key = os.path.normcase(os.path.abspath(path))
                 if key in current_keys:
                     continue
@@ -448,7 +552,7 @@ def collect(roots: list[str], output: Path, workers: int, timeout: int) -> int:
     if errors:
         # 扫描不完整时仍保存已发现结果，但返回非零，避免误报完整采集。
         print(f"目录扫描存在 {len(errors)} 项错误；详见 report.json", file=sys.stderr)
-    report = export(connection, output, roots, errors, current_paths)
+    report = export(connection, output, roots, errors, current_paths, exclude_roots)
     connection.close()
     print(json.dumps(report, ensure_ascii=False), flush=True)
     return 1 if errors or report["counts"].get("failed", 0) else 0
@@ -457,6 +561,7 @@ def collect(roots: list[str], output: Path, workers: int, timeout: int) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", action="append", default=[], help="采集根路径；可重复指定")
+    parser.add_argument("--exclude-root", action="append", default=[], help="已采集的下级目录；可重复指定")
     parser.add_argument("--output", type=Path, help="仓库外输出目录")
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--timeout", type=int, default=120, help="每文件处理超时（秒）")
@@ -468,7 +573,7 @@ def main() -> int:
         parser.error("必须提供 --root 和 --output")
     if not 1 <= args.workers <= 4 or args.timeout < 5:
         parser.error("--workers 须为 1-4，--timeout 不小于 5 秒")
-    return collect(args.root, args.output, args.workers, args.timeout)
+    return collect(args.root, args.output, args.workers, args.timeout, args.exclude_root)
 
 
 if __name__ == "__main__":

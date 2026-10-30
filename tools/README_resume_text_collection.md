@@ -15,6 +15,7 @@
 ```json
 {
   "roots": ["\\\\Win-server\\共享名\\待采集目录"],
+  "exclude_roots": ["\\\\Win-server\\共享名\\待采集目录\\先前已采集子目录"],
   "output": "E:\\resume_text_collection\\batch-001",
   "expected_commit": "服务器当前 Git 短提交号",
   "script_sha256": "服务器 collect_resume_text.py 的 SHA256",
@@ -25,6 +26,7 @@
 ```
 
 `roots` 可含多个 UNC 目录或单文件。脚本递归扫描目录；重叠根目录中的同一文件只处理一次。文件清单保留原始 UNC 路径和相对路径。
+`exclude_roots` 可省略；新输入目录包含先前已完整采集的子目录时，用它在目录遍历阶段剪枝。只排除精确子树，不会把名称相似的相邻目录一并跳过；报告保留排除路径以便复核。
 `workers` 可省略，默认 2；允许 1 至 4。
 配置 `organize_output` 后，采集任务结束时自动运行 JSON 语种归档；即使个别文件提取失败，仍会把其来源路径和失败状态归档，并在报告中列为待处理。
 
@@ -50,6 +52,20 @@ DOC 转换所需的独立 LibreOffice 配置和临时文件统一写入 `D:\resu
 - `pending.csv`：无文本、跳过或失败的文件；`report.json`：按根目录汇总与目录扫描错误。
 
 原目录中文件未变时重跑跳过；变化后重新提取；失败文件重跑会再试。采集期间不改动共享文件。所有自行生成的时间使用 UTC+8 并带 `+08:00`。原文和文件路径可能含个人资料，产物不得复制进仓库或公开日志。
+
+## 失败文件独立补提取
+
+当其他任务正在读取原采集批次或集中语种 JSON 时，使用独立输出目录补提取失败文件，避免改动现有去重输入：
+
+```powershell
+& 'E:\xinshi_system\.conda_env\python.exe' 'E:\xinshi_system\tools\recover_failed_resume_text.py' `
+  --collection 'E:\resume_text_collection\translator-resume-library-20261028' `
+  --collection 'E:\resume_text_collection\additional-resume-paths-20261028' `
+  --output 'E:\resume_text_collection\failed-recovery-20261030' `
+  --workers 2 --timeout 120
+```
+
+此命令必须在拥有共享目录权限的 Administrator 交互式会话中运行。它只读取原批次的失败记录，输出独立的 `state.sqlite3`、`manifest.jsonl`、`texts/`、`segments/`、`pending.csv` 和 `report.json`。可读取的 HTML 格式 `.doc`、RTF 格式 `.docx`、格式与扩展名不一致的表格等会按实际格式尝试提取。已多次触发单文件资源上限或超时的文件，以及 ZIP 结构损坏的文件会保留明确的延期状态，不继续消耗转换临时空间。原批次和 `organized_by_language` 不会被这个命令改写；去重任务读取完成后，再决定如何合并补采结果。
 
 ## 按第一外语归档 JSON
 

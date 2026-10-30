@@ -75,6 +75,7 @@ if ($null -ne $config.workers) { $workers = [int]$config.workers }
 if ($workers -lt 1 -or $workers -gt 4) { throw 'workers_invalid' }
 $arguments = @($script)
 foreach ($root in @($config.roots)) { $arguments += @('--root', [string]$root) }
+foreach ($excluded in @($config.exclude_roots)) { if ($excluded) { $arguments += @('--exclude-root', [string]$excluded) } }
 $arguments += @('--output', $output, '--workers', [string]$workers, '--timeout', '120')
 & $python @arguments
 $collectorCode = $LASTEXITCODE

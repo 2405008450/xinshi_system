@@ -77,6 +77,55 @@ def test_failed_file_retries_and_unavailable_root(tmp_path):
     assert report["scan_errors"][0]["reason"] == "root_unavailable"
 
 
+def test_recovers_mislabeled_readable_formats(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "html.doc").write_text(
+        "<html><body><p>第一外语：法语</p><script>ignore me</script><p>口译经验</p></body></html>",
+        encoding="utf-8",
+    )
+    (source / "rich.docx").write_bytes(b"{\\rtf1\\ansi First foreign language: French}")
+    book = Workbook()
+    book.active["A1"] = "表格内容"
+    xlsx = source / "book.xlsx"
+    book.save(xlsx)
+    xlsx.rename(source / "book.xls")
+
+    output = tmp_path / "output"
+    assert module.collect([str(source)], output, 2, 15) == 0
+    rows = [json.loads(line) for line in (output / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert len(rows) == 3
+    assert all(row["status"] == "success" for row in rows)
+    text_by_name = {
+        Path(row["path"]).name: (output / row["text_file"]).read_text(encoding="utf-8") for row in rows
+    }
+    assert "口译经验" in text_by_name["html.doc"]
+    assert "ignore me" not in text_by_name["html.doc"]
+    assert "French" in text_by_name["rich.docx"]
+    assert "表格内容" in text_by_name["book.xls"]
+
+
+def test_excludes_only_previously_collected_subtree(tmp_path):
+    source = tmp_path / "简历"
+    covered = source / "已采集"
+    sibling = source / "已采集-新"
+    covered.mkdir(parents=True)
+    sibling.mkdir(parents=True)
+    (covered / "旧.txt").write_text("旧记录", encoding="utf-8")
+    (sibling / "新.txt").write_text("新记录", encoding="utf-8")
+    (source / "根目录.txt").write_text("根目录记录", encoding="utf-8")
+
+    output = tmp_path / "output"
+    assert module.collect([str(source)], output, 1, 10, [str(covered)]) == 0
+    manifest = [json.loads(line) for line in (output / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert {Path(row["path"]).name for row in manifest} == {"新.txt", "根目录.txt"}
+    report = json.loads((output / "report.json").read_text(encoding="utf-8"))
+    assert report["total"] == 2
+    assert report["excluded_roots"] == [str(covered)]
+    assert module.is_under_unc(r"\\Win-server\服务器资料7\简历\思达", r"\\win-server\服务器资料7\简历")
+    assert not module.is_under_unc(r"\\Win-server\服务器资料7\简历旧版", r"\\win-server\服务器资料7\简历")
+
+
 def test_worker_timeout_terminates_process_tree(tmp_path, monkeypatch):
     source = tmp_path / "stuck.doc"
     source.write_bytes(b"data")
