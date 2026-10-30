@@ -12,7 +12,7 @@
 import { ref } from 'vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import { getTaskCompletion } from '@/api/technicalIncentives'
-import { formatBusinessDateTimeMinute as formatTime } from '@/utils/datetime'
+import { formatBusinessDateTimeMinute as formatTime } from '@/utils/dateTime'
 const props = defineProps({ taskId: { type: String, required: true } })
 const visible = ref(false), loading = ref(false), value = ref(null), error = ref('')
 async function open() { visible.value = true; value.value = null; loading.value = true; error.value = ''; try { value.value = await getTaskCompletion(props.taskId) } catch (e) { error.value = typeof e.detail === 'string' ? e.detail : '记录加载失败' } finally { loading.value = false } }

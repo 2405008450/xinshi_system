@@ -16,7 +16,7 @@ import TaskCompletionEditor from './TaskCompletionEditor.vue'
 import TaskCompletionHistory from './TaskCompletionHistory.vue'
 import DevelopmentReportDialog from './DevelopmentReportDialog.vue'
 import AllocationProgressEditor from './AllocationProgressEditor.vue'
-import {formatBusinessDateTimeMinute as formatTime} from '@/utils/datetime'
+import {formatBusinessDateTimeMinute as formatTime} from '@/utils/dateTime'
 const props=defineProps({task:{type:Object,required:true}}),emit=defineEmits(['close','changed'])
 const editor=ref(null),reportId=ref(null),items=ref([]),progressId=ref(null)
 watch(()=>props.task.allocations,value=>{items.value=(value||[]).map(item=>({...item}))},{immediate:true,deep:true})
