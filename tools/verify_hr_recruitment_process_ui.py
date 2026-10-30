@@ -20,7 +20,9 @@ def api(route):
     elif path.startswith('/api/hr-recruitment/process/') and request.method=='PUT':
         body=request.post_data_json;writes.append((path,body));rows[0]={**rows[0],**body,'revision':rows[0]['revision']+1};result=serialize(rows[0])
     elif path.startswith('/api/hr-recruitment/process/') and request.method=='DELETE':rows=[];result={'message':'已删除'}
-    elif path.endswith('/process'):result={'items':[serialize(row) for row in rows],'total':len(rows)}
+    elif path.endswith('/process'):
+        placeholder=serialize({'id':'requirement:'+demand['id'],'requirement_id':demand['id'],'applicant_name':'','is_placeholder':True,'revision':0})
+        result={'items':[serialize(row) for row in rows] if rows else [placeholder],'total':len(rows) or 1}
     else:result={'ready':True,'items':[],'people':[],'total':0}
     route.fulfill(content_type='application/json',body=json.dumps(result,ensure_ascii=False))
 
@@ -31,7 +33,9 @@ with sync_playwright() as pw:
     page=context.new_page();page.on('pageerror',lambda error:errors.append(str(error)));page.goto(BASE+'/recruitment-process-ui-check')
     header=page.locator('.el-collapse-item__header').filter(has_text=re.compile('^招聘过程$'));header.click()
     process=page.locator('.el-collapse-item').filter(has=page.locator('.el-collapse-item__header').filter(has_text=re.compile('^招聘过程$')))
-    process.get_by_role('button',name='新增招聘过程',exact=True).click();main=page.get_by_role('dialog',name='新增招聘过程',exact=True)
+    expect(process.locator('.el-table__body')).to_contain_text(demand['demand_no']);expect(process.locator('.el-table__body')).to_contain_text('广州');expect(process.locator('.el-table__body')).to_contain_text('翻译');assert not writes
+    process.locator('.el-table__body').get_by_role('button',name='添加应聘人',exact=True).first.click();candidate=page.get_by_role('dialog',name='应聘人及面试情况',exact=True);expect(candidate).to_be_visible();candidate.get_by_role('button',name='取消',exact=True).click();assert not writes
+    process.locator('.process-header').get_by_role('button',name='添加应聘人',exact=True).click();main=page.get_by_role('dialog',name='添加应聘人',exact=True)
     main.get_by_role('button',name='保存招聘过程',exact=True).click();expect(main.locator('.el-form-item__error')).to_have_count(2)
     def item(dialog,label):return dialog.locator('.el-form-item').filter(has=page.locator('.el-form-item__label').filter(has_text=re.compile('^'+re.escape(label)+'$')))
     item(main,'招聘需求').locator('.el-select').click();page.get_by_role('option',name=re.compile('RT-261029-001')).click()
@@ -60,6 +64,11 @@ with sync_playwright() as pw:
     demand.update(recruitment_city='深圳',position='译审');process.get_by_role('button',name='刷新过程',exact=True).click();expect(process.locator('.el-table__body')).to_contain_text('深圳');expect(process.locator('.el-table__body')).to_contain_text('译审')
     process.get_by_role('button',name='查看详情',exact=True).click();detail=page.locator('.process-detail:visible');expect(detail).to_contain_text('二面通过');expect(detail).to_contain_text('2026-11-05');process.get_by_role('button',name='查看详情',exact=True).click()
     process.get_by_role('button',name='删除管理',exact=True).click();process.locator('.el-table__body-wrapper .el-checkbox').first.click();process.get_by_role('button',name='删除所选（1）',exact=True).click();page.get_by_role('button',name='确定删除',exact=True).click();expect(process.locator('.el-table__body')).not_to_contain_text('候选甲')
+    expect(process.locator('.el-table__body')).to_contain_text(demand['demand_no'])
+    if process.get_by_role('button',name='退出',exact=True).count():process.get_by_role('button',name='退出',exact=True).click()
+    process.locator('.el-table__body').get_by_role('button',name='添加应聘人',exact=True).first.click();candidate=page.get_by_role('dialog',name='应聘人及面试情况',exact=True)
+    item(candidate,'应聘人姓名').locator('input').fill('自动需求下新增人');candidate.get_by_role('button',name='保存应聘人与面试',exact=True).click();expect(candidate).not_to_be_visible()
+    assert writes[-1][0]=='/api/hr-recruitment/process' and writes[-1][1]['requirement_id']==demand['id']
     assert not errors,errors
     print(json.dumps({'requirement_city_job_linked':True,'two_interviews_and_conditional_results':True,'withdrawal_reason_required':True,'yes_sets_onboarding_date':True,'actual_onboarding_reserved':True,'applicant_click_popup_edit':True,'live_source_update':True,'delete_management':True,'nested_dialog_field_search_and_footer':True,'page_errors':errors}))
     browser.close()

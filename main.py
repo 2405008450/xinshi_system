@@ -307,6 +307,15 @@ from routers import discussion_chat
 app.include_router(discussion_chat.router)
 from routers import technical_requirements
 app.include_router(technical_requirements.router)
+from routers import technical_development
+app.include_router(technical_development.router)
+from routers import development_feedback
+app.include_router(development_feedback.router)
+from routers import technical_task_incentives
+app.include_router(technical_task_incentives.router)
+import technical_task_allocations
+from routers import technical_requirement_tasks
+app.include_router(technical_requirement_tasks.router)
 from routers import teams
 app.include_router(teams.router)
 from routers import referral_development
@@ -347,6 +356,10 @@ from routers.monthly_shifts import router as monthly_shifts_router
 app.include_router(monthly_shifts_router)
 from routers.attendance import router as attendance_router
 app.include_router(attendance_router)
+from attendance_corrections import router as attendance_corrections_router
+app.include_router(attendance_corrections_router)
+from weekend_night_duty import router as weekend_night_duty_router
+app.include_router(weekend_night_duty_router)
 from hr_recruitment_requirements import router as hr_recruitment_requirements_router
 app.include_router(hr_recruitment_requirements_router)
 from hr_recruitment_process import router as hr_recruitment_process_router

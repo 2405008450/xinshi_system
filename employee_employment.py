@@ -20,13 +20,19 @@ def ready(db):return inspect(db.connection()).has_table(EmployeeEmployment.__tab
 
 
 def annual_days(hire_date,on_date=None):
-    """首年上半年1天、下半年0天；每个周年再过三个月加1天，上限10天。"""
+    """上半年入职首年1天，下半年入职次年元旦1天；各周年后三个月递增。"""
     day=on_date or now().date()
     if hire_date is None:return None
     if hire_date>day:return 0
-    first_year=int((hire_date.month,hire_date.day)<=(6,30))
+    initial=initial_grant(hire_date)
+    first_year=int(initial is not None and initial<=day)
     increments=sum(grant is not None and grant<=day for grant in (anniversary_grant(hire_date,year) for year in range(1,11)))
     return min(10,first_year+increments)
+
+
+def initial_grant(hire_date):
+    if (hire_date.month,hire_date.day)<=(6,30):return hire_date
+    return date(hire_date.year+1,1,1) if hire_date.year<9999 else None
 
 
 def anniversary_grant(hire_date,years):
@@ -41,7 +47,8 @@ def anniversary_grant(hire_date,years):
 
 def values(hire_date,on_date=None):
     day=on_date or now().date()
-    next_increase=next((grant for grant in (anniversary_grant(hire_date,year) for year in range(1,11)) if grant is not None and grant>day),None) if hire_date and annual_days(hire_date,day)<10 else None
+    grants=[initial_grant(hire_date),*[anniversary_grant(hire_date,year) for year in range(1,11)]] if hire_date else []
+    next_increase=min((grant for grant in grants if grant is not None and grant>day),default=None) if hire_date and annual_days(hire_date,day)<10 else None
     return {'hire_date':hire_date,'annual_leave_year':day.year,'annual_leave_days':annual_days(hire_date,day),'annual_leave_next_increase':next_increase}
 
 

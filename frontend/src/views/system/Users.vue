@@ -215,7 +215,7 @@
         </el-form-item>
         <el-form-item label="入职时间" prop="hire_date"><el-date-picker v-model="form.hire_date" type="date" value-format="YYYY-MM-DD" format="YYYY年MM月DD日" placeholder="选择入职日期" clearable style="width:100%" /></el-form-item>
         <el-form-item label="当前年假额度"><ReadonlyField :model-value="annualPreview==null?'待填写入职时间':`${annualPreview}天`" source="auto" /></el-form-item>
-        <p class="employment-hint"><span v-if="nextIncrease">下次增加：{{annualLeaveDateLabel(nextIncrease)}}。</span>首年按6月30日划分，此后每满周年再过3个月加1天，上限10天。<AttendanceRulesPopover annual-only /></p>
+        <p class="employment-hint"><span v-if="nextIncrease">下次增加：{{annualLeaveDateLabel(nextIncrease)}}。</span>6月30日及之前入职首年1天；之后入职首年0天、次年1月1日获1天。此后每满周年再过3个月加1天，上限10天。<AttendanceRulesPopover annual-only /></p>
         <el-form-item label="状态" prop="is_active">
           <el-switch v-model="form.is_active" />
         </el-form-item>
@@ -476,7 +476,7 @@ function clearOfficeFilter(){officeFilterId.value='';officeFilterActive.value=fa
 const officeFilterLabel=computed(()=>officeCities.value.find(row=>row.id===officeFilterId.value)?.name||'所选办公室')
 const loading = ref(false)
 const userTableRef = ref(null)
-const canWriteUsers = computed(() => hasPermission('system:users:write'))
+const canWriteUsers = computed(() => hasPermission(['system:users:write','system:organization:write']))
 const userColumns = [
   { key: 'username', label: '用户名' },
   { key: 'full_name', label: '姓名' },

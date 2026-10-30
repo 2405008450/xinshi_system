@@ -39,9 +39,16 @@ class RecruitmentRequirementCity(Base):
     city:Mapped[str]=mapped_column(String(100),nullable=False)
 
 
+class RecruitmentRequirementSchedule(Base):
+    __tablename__='hr_recruitment_requirement_schedule'
+    requirement_id:Mapped[UUID]=mapped_column(Uuid,ForeignKey('hr_recruitment_requirement.id'),primary_key=True)
+    planned_onboarding_date:Mapped[date]=mapped_column(Date,nullable=False)
+
+
 class RequirementFields(BaseModel):
     request_date:date
     recruitment_city:str=Field(default='',max_length=100)
+    planned_onboarding_date:date|None=None
     position:str=Field(min_length=1,max_length=200)
     reason:str=Field(min_length=1,max_length=2000)
     headcount:int=Field(ge=1,le=100000,strict=True)
@@ -62,12 +69,15 @@ def ready(db):return inspect(db.connection()).has_table(RecruitmentRequirement._
 def allowed(db,user):
     require_hr(db,user)
     if not ready(db):raise HTTPException(503,'招聘需求表尚未初始化')
-def serialize(row):return api_time({**{key:getattr(row,key) for key in ('id','demand_no','request_date','position','reason','headcount','details','revision','created_at','updated_at')},'recruitment_city':getattr(row,'recruitment_city','')})
+def serialize(row):return api_time({**{key:getattr(row,key) for key in ('id','demand_no','request_date','position','reason','headcount','details','revision','created_at','updated_at')},'recruitment_city':getattr(row,'recruitment_city',''),'planned_onboarding_date':getattr(row,'planned_onboarding_date',None)})
 def cities_ready(db):return inspect(db.connection()).has_table(RecruitmentRequirementCity.__tablename__)
 def attach_cities(db,rows):
     ids=[row.id for row in rows]
     values={item.requirement_id:item.city for item in db.query(RecruitmentRequirementCity).filter(RecruitmentRequirementCity.requirement_id.in_(ids)).all()} if ids and cities_ready(db) else {}
-    for row in rows:row.recruitment_city=values.get(row.id,'')
+    dates={item.requirement_id:item.planned_onboarding_date for item in db.query(RecruitmentRequirementSchedule).filter(RecruitmentRequirementSchedule.requirement_id.in_(ids)).all()} if ids and schedule_ready(db) else {}
+    for row in rows:
+        row.recruitment_city=values.get(row.id,'')
+        row.planned_onboarding_date=dates.get(row.id)
     return rows
 def write_city(db,row,city):
     if not cities_ready(db):
@@ -80,6 +90,22 @@ def write_city(db,row,city):
         if value is None:value=RecruitmentRequirementCity(requirement_id=row.id);db.add(value)
         value.city=city
     row.recruitment_city=city
+def schedule_ready(db):return inspect(db.connection()).has_table(RecruitmentRequirementSchedule.__tablename__)
+
+
+def write_schedule(db,row,planned_date):
+    if not schedule_ready(db):
+        if planned_date is not None:raise HTTPException(503,'计划到岗日期表尚未初始化')
+        return
+    value=db.get(RecruitmentRequirementSchedule,row.id)
+    if planned_date is None:
+        if value:db.delete(value)
+    else:
+        if value is None:value=RecruitmentRequirementSchedule(requirement_id=row.id);db.add(value)
+        value.planned_onboarding_date=planned_date
+    row.planned_onboarding_date=planned_date
+
+
 def get_row(db,uid,lock=False):
     query=db.query(RecruitmentRequirement).filter_by(id=uid,is_deleted=False)
     row=(query.with_for_update().populate_existing() if lock else query).first()
@@ -92,6 +118,8 @@ def list_rows(db,user,keyword='',page=1,limit=20):
     columns=[RecruitmentRequirement.demand_no,cast(RecruitmentRequirement.request_date,String),RecruitmentRequirement.position,RecruitmentRequirement.reason,RecruitmentRequirement.details,cast(RecruitmentRequirement.headcount,String)]
     query=db.query(RecruitmentRequirement)
     if cities_ready(db):query=query.outerjoin(RecruitmentRequirementCity,RecruitmentRequirementCity.requirement_id==RecruitmentRequirement.id);columns.append(RecruitmentRequirementCity.city)
+    if schedule_ready(db):
+        query=query.outerjoin(RecruitmentRequirementSchedule,RecruitmentRequirementSchedule.requirement_id==RecruitmentRequirement.id);columns.append(cast(RecruitmentRequirementSchedule.planned_onboarding_date,String))
     query=query.filter(RecruitmentRequirement.is_deleted.is_(False),keyword_any(columns,keyword))
     total=query.count()
     rows=query.order_by(RecruitmentRequirement.request_date.desc(),RecruitmentRequirement.created_at.desc(),RecruitmentRequirement.demand_no.desc()).offset((page-1)*limit).limit(limit).all()
@@ -101,11 +129,11 @@ def list_rows(db,user,keyword='',page=1,limit=20):
 def create(db,user,payload):
     allowed(db,user);day=payload.request_date
     if db.get_bind().dialect.name=='postgresql':db.execute(text('SELECT pg_advisory_xact_lock(731947,:day)'),{'day':day.toordinal()})
-    values=payload.model_dump(exclude={'client_id','recruitment_city'})
+    values=payload.model_dump(exclude={'client_id','recruitment_city','planned_onboarding_date'})
     existing=db.query(RecruitmentRequirement).filter_by(client_id=payload.client_id).first()
     if existing:
         attach_cities(db,[existing])
-        if existing.created_by!=user.id or existing.is_deleted or existing.recruitment_city!=payload.recruitment_city or any(getattr(existing,key)!=value for key,value in values.items()):raise HTTPException(409,'提交标识已使用，请刷新后重试')
+        if existing.created_by!=user.id or existing.is_deleted or existing.recruitment_city!=payload.recruitment_city or existing.planned_onboarding_date!=payload.planned_onboarding_date or any(getattr(existing,key)!=value for key,value in values.items()):raise HTTPException(409,'提交标识已使用，请刷新后重试')
         return serialize(existing)
     prefix=f'RT-{day:%y%m%d}-'
     numbers=db.query(RecruitmentRequirement.demand_no).filter(RecruitmentRequirement.demand_no.like(prefix+'%')).all()
@@ -113,6 +141,7 @@ def create(db,user,payload):
     row=RecruitmentRequirement(id=uuid4(),client_id=payload.client_id,demand_no=f'{prefix}{number:03d}',**values,created_by=user.id,updated_by=user.id,revision=1,is_deleted=False,created_at=now(),updated_at=now())
     db.add(row)
     write_city(db,row,payload.recruitment_city)
+    write_schedule(db,row,payload.planned_onboarding_date)
     try:db.commit()
     except IntegrityError:
         db.rollback();raise HTTPException(409,'需求编号或提交标识发生冲突，请刷新后重试')
@@ -120,13 +149,15 @@ def create(db,user,payload):
 
 
 def update(db,user,uid,payload):
-    allowed(db,user);row=get_row(db,uid,True);values=payload.model_dump(exclude={'revision','recruitment_city'})
+    allowed(db,user);row=get_row(db,uid,True);values=payload.model_dump(exclude={'revision','recruitment_city','planned_onboarding_date'})
     city=payload.recruitment_city if 'recruitment_city' in payload.model_fields_set else row.recruitment_city
+    planned=payload.planned_onboarding_date if 'planned_onboarding_date' in payload.model_fields_set else row.planned_onboarding_date
     if row.revision!=payload.revision:
-        if row.recruitment_city==city and all(getattr(row,key)==value for key,value in values.items()):return serialize(row)
+        if row.planned_onboarding_date==planned and row.recruitment_city==city and all(getattr(row,key)==value for key,value in values.items()):return serialize(row)
         raise HTTPException(409,'招聘需求已被其他人修改，请刷新后重试')
     for key,value in values.items():setattr(row,key,value)
     if 'recruitment_city' in payload.model_fields_set:write_city(db,row,city)
+    if 'planned_onboarding_date' in payload.model_fields_set:write_schedule(db,row,planned)
     row.revision+=1;row.updated_by=user.id;row.updated_at=now();db.commit();return serialize(row)
 
 

@@ -1,4 +1,4 @@
-"""工作报告查看范围：仅赵震锋配置，按当前部门名册解析发送范围。"""
+"""工作报告查看范围：行政部及赵震锋配置，按当前部门名册解析发送范围。"""
 from datetime import datetime
 from uuid import UUID, uuid4
 
@@ -55,17 +55,23 @@ class AccessRuleWrite(BaseModel):
         return self
 
 
-def can_configure(user):
-    return bool(user and user.is_active and not user.is_deleted and user.username == CONFIGURATOR_USERNAME)
+def can_configure(user,db=None):
+    if not user or not user.is_active or user.is_deleted:return False
+    from permission_service import user_has_permission
+    return user.username == CONFIGURATOR_USERNAME or bool(db is not None and user_has_permission(db,user.id,'system:organization:write'))
+
+
+def configurator(db,fallback):
+    return active_people(db).filter(AppUser.username==CONFIGURATOR_USERNAME).first() or fallback
 
 
 def same_viewing_access(user):
     return bool(user and user.is_active and not user.is_deleted and user.username in SAME_VIEWING_USERNAMES)
 
 
-def require_configurator(user):
-    if not can_configure(user):
-        raise HTTPException(403, '仅赵震锋可查看和配置工作报告设置')
+def require_configurator(user,db=None):
+    if not can_configure(user,db):
+        raise HTTPException(403, '仅行政部及赵震锋可查看和配置工作报告设置')
 
 
 def ready(db):
@@ -81,7 +87,7 @@ def serialize_rule(row):
 
 
 def settings(db, user):
-    require_configurator(user)
+    require_configurator(user,db)
     from organization_service import directory
     catalog = directory(db, user)
     available = ready(db)
@@ -89,7 +95,7 @@ def settings(db, user):
     return {
         'ready': available,
         'people': people, 'departments': catalog['items'],
-        'configurator_id': str(user.id),
+        'configurator_id': str(configurator(db,user).id),
         'inherited_viewer_ids': [p['id'] for p in people if p['username'] in SAME_VIEWING_USERNAMES and p['username'] != CONFIGURATOR_USERNAME],
         'suggested_viewer_ids': [p['id'] for p in people if p['username'].casefold() in SUGGESTED_VIEWERS],
         'rules': [serialize_rule(row) for row in db.query(WorkReportAccessRule).order_by(WorkReportAccessRule.updated_at.desc(), WorkReportAccessRule.id).all()] if available else [],
@@ -97,7 +103,7 @@ def settings(db, user):
 
 
 def save_rule(db, user, payload, rule_id=None):
-    require_configurator(user)
+    require_configurator(user,db)
     if not ready(db):
         raise HTTPException(503, '工作报告设置表尚未初始化')
     from department_models import Department
@@ -119,7 +125,7 @@ def save_rule(db, user, payload, rule_id=None):
         db.add(row)
     row.name = payload.name
     row.viewers_all = payload.viewers_all
-    row.viewer_ids = list(dict.fromkeys([*(str(uid) for uid in payload.viewer_ids), str(user.id)]))
+    row.viewer_ids = list(dict.fromkeys([*(str(uid) for uid in payload.viewer_ids), str(configurator(db,user).id)]))
     row.senders_all = payload.senders_all
     row.all_departments = payload.all_departments
     row.department_ids = list(dict.fromkeys(str(uid) for uid in payload.department_ids))
@@ -181,7 +187,7 @@ def sender_ids_for_rules(db, rules):
 def access_context(db, user):
     from work_report_collaboration import supervisor
     statistics=can_statistics(db,user)
-    return {'can_configure': can_configure(user), 'can_receive': bool(receiving_rules(db, user)) or supervisor(user) or statistics, 'can_statistics':statistics,'can_supervise':supervisor(user)}
+    return {'can_configure': can_configure(user,db), 'can_receive': bool(receiving_rules(db, user)) or supervisor(user) or statistics, 'can_statistics':statistics,'can_supervise':supervisor(user)}
 
 
 def received_reports(db, user, date_from, date_to, sender_id, page, page_size, department_id=None, keyword=None):

@@ -2,13 +2,14 @@
 import calendar
 from datetime import date,datetime,timedelta
 from uuid import UUID,uuid4
+from typing import Literal
 from fastapi import HTTPException
 from pydantic import BaseModel,Field,field_validator
 from sqlalchemy import inspect,text
 from models import AppUser,AppNotification
 from department_models import Department,DepartmentMember
 from employee_employment import EmployeeEmployment
-from home_office_models import HomeOfficeQualification as Qualification,HomeOfficeApplication as Application,HomeOfficeAnnualUsage as AnnualUsage
+from home_office_models import HomeOfficeQualification as Qualification,HomeOfficeApplication as Application,HomeOfficeAnnualUsage as AnnualUsage,HomeOfficeApplicationDuration as Duration
 from chat_time import now,api_time
 from work_report_calendar import is_workday
 
@@ -26,6 +27,7 @@ class QualificationWrite(BaseModel):
 class ApplicationWrite(BaseModel):
     client_id:UUID
     requested_date:date
+    minutes:Literal[120,240,480]=480
     reason:str=Field(default='',max_length=1000)
     @field_validator('reason')
     @classmethod
@@ -91,31 +93,51 @@ def annual_limit(hire,year):
     return min(12,count)
 
 
+def durations(db,rows):
+    ids=[row.id for row in rows]
+    return {row.application_id:row.minutes for row in db.query(Duration).filter(Duration.application_id.in_(ids)).all()} if ids and inspect(db.connection()).has_table(Duration.__tablename__) else {}
+
+
+def application_values(db,rows):
+    lengths=durations(db,rows)
+    return [{'id':str(row.id),'requested_date':row.requested_date,'reason':row.reason,'status':row.status,'created_at':row.created_at,'minutes':lengths.get(row.id,480),'hours':lengths.get(row.id,480)/60,'user_id':str(row.user_id)} for row in rows]
+
+
 def quota(db,user,day):
     hire_row=db.get(EmployeeEmployment,user.id);hire=hire_row.hire_date if hire_row else None
     rows=db.query(Application).filter(Application.user_id==user.id,Application.status.in_(['pending','approved'])).all()
-    dates=[row.requested_date for row in rows]
-    month_count=sum(value.year==day.year and value.month==day.month for value in dates)
-    system_count=sum(value.year==day.year for value in dates);limit=annual_limit(hire,day.year)
+    values=application_values(db,rows)
+    month=[row for row in values if row['requested_date'].year==day.year and row['requested_date'].month==day.month]
+    month_minutes=sum(row['minutes'] for row in month);partial=sum(row['minutes'] for row in month if row['minutes']<480)
+    two_count=sum(row['minutes']==120 for row in month);full_count=sum(row['minutes']==480 for row in month)
+    year_minutes=sum(row['minutes'] for row in values if row['requested_date'].year==day.year);limit=annual_limit(hire,day.year)
     manual=db.get(AnnualUsage,(user.id,day.year));manual_days=manual.used_days if manual else 0
     manual_ready=manual is not None or day.year>now().year
-    annual_count=system_count+manual_days
+    annual_minutes=year_minutes+manual_days*480
     quarter=(day.month-1)//3;half=(day.month-1)//6
-    quarter_count=sum(value.year==day.year and (value.month-1)//3==quarter for value in dates)
-    half_count=sum(value.year==day.year and (value.month-1)//6==half for value in dates)
+    quarter_minutes=sum(row['minutes'] for row in values if row['requested_date'].year==day.year and (row['requested_date'].month-1)//3==quarter)
+    half_minutes=sum(row['minutes'] for row in values if row['requested_date'].year==day.year and (row['requested_date'].month-1)//6==half)
     messages=[]
     if not manual_ready:messages.append('请先联系行政部补录今年已居家天数（含0天）')
-    if month_count>=2:messages.append('本月2次已满')
-    if quarter_count>=4:messages.append('本季度4天已满')
-    if half_count>=8:messages.append('本半年8天已满')
-    if annual_count>=limit:messages.append(f'{day.year}年度额度{limit}天已满')
+    if month_minutes>=960:messages.append('本月16小时已满')
+    if quarter_minutes>=4*480:messages.append('本季度4天已满')
+    if half_minutes>=8*480:messages.append('本半年8天已满')
+    if annual_minutes>=limit*480:messages.append(f'{day.year}年度额度{limit}天已满')
+    options=[]
+    for minutes in (120,240,480):
+        if month_minutes+minutes>960 or quarter_minutes+minutes>4*480 or half_minutes+minutes>8*480 or annual_minutes+minutes>limit*480:continue
+        if minutes==480 and full_count>=1:continue
+        if minutes<480 and partial+minutes>480:continue
+        if minutes==120 and two_count>=2:continue
+        options.append(minutes)
+    if not options and not messages:messages.append('本月剩余时长不满足申请组合或周期剩余额度不足')
     reason='；'.join(messages)+'，不能再申请' if messages else None
-    return {'month_limit':2,'month_used':month_count,'quarter_limit':4,'quarter_used':quarter_count,'half_limit':8,'half_used':half_count,'annual_limit':limit,'annual_used':annual_count,'manual_used_days':manual_days if manual_ready else None,'manual_usage_ready':manual_ready,'system_used_days':system_count,'annual_remaining':max(0,limit-annual_count),'limit_message':reason,'quota_available':reason is None}
+    return {'month_limit':2,'month_used':month_minutes/480,'month_hours':month_minutes/60,'month_hour_limit':16,'partial_hours':partial/60,'two_hour_count':two_count,'full_day_count':full_count,'allowed_minutes':options if manual_ready else [],'quarter_limit':4,'quarter_used':quarter_minutes/480,'half_limit':8,'half_used':half_minutes/480,'annual_limit':limit,'annual_used':annual_minutes/480,'manual_used_days':manual_days if manual_ready else None,'manual_usage_ready':manual_ready,'system_used_days':year_minutes/480,'annual_remaining':max(0,(limit*480-annual_minutes)/480),'limit_message':reason,'quota_available':reason is None}
 
 
 def records(db,user):
     return api_time({'qualification_requests':[{'id':str(row.id),'reason':row.reason,'status':row.status,'created_at':row.created_at} for row in db.query(Qualification).filter_by(user_id=user.id).order_by(Qualification.created_at.desc()).all()],
-        'applications':[{'id':str(row.id),'requested_date':row.requested_date,'reason':row.reason,'status':row.status,'created_at':row.created_at} for row in db.query(Application).filter_by(user_id=user.id).order_by(Application.requested_date.desc()).all()]})
+        'applications':application_values(db,db.query(Application).filter_by(user_id=user.id).order_by(Application.requested_date.desc()).all())})
 
 
 def overview(db,user,requested_date=None):
@@ -133,7 +155,7 @@ def notify(db,user,row,kind):
     if kind=='qualification' and approver and all(target.id!=approver.id for target in recipients):recipients.append(approver)
     if not recipients:raise HTTPException(503,'行政部尚无在用人员，申请未提交，请联系管理员')
     title=f'居家办公{"资格" if kind=="qualification" else ""}申请 · {user.full_name or user.username}'
-    content=f'{user.full_name or user.username} 提交居家办公{"资格" if kind=="qualification" else ""}申请。'+(f'申请日期：{row.requested_date.isoformat()}。' if kind!='qualification' else '批准人：总经理 赵震锋。')+f'理由：{row.reason}。审批：待开发。'
+    content=f'{user.full_name or user.username} 提交居家办公{"资格" if kind=="qualification" else ""}申请。'+(f'申请日期：{row.requested_date.isoformat()}，时长 {getattr(row,"request_minutes",480)/60:g} 小时。' if kind!='qualification' else '批准人：总经理 赵震锋。')+f'理由：{row.reason}。审批：待开发。'
     moment=now();events=[]
     for target in recipients:
         notice=AppNotification(id=uuid4(),recipient_user_id=target.id,title=title,content=content,notification_type='home_office_application',related_entity_id=row.id,is_read=False,created_at=moment.replace(tzinfo=None))
@@ -167,17 +189,23 @@ def apply(db,user,payload):
     active(user);require_ready(db);lock(db,user)
     existing=db.query(Application).filter_by(client_id=payload.client_id).first()
     if existing:
-        if existing.user_id!=user.id:raise HTTPException(409,'申请标识已使用')
+        if existing.user_id!=user.id or existing.requested_date!=payload.requested_date or existing.reason!=payload.reason or durations(db,[existing]).get(existing.id,480)!=payload.minutes:raise HTTPException(409,'申请标识已使用')
         return {'message':'申请已提交，请勿重复提交',**overview(db,user,payload.requested_date)}
     state=eligibility(db,user)
     if not state['qualified']:raise HTTPException(409,'尚未获得居家办公资格；未满6个月须先获资格批准')
     day=payload.requested_date
     if day<now().date():raise HTTPException(422,'不能申请已经过去的日期')
-    if not is_workday(day):raise HTTPException(422,'请选择工作日，每次申请1天')
+    if not is_workday(day):raise HTTPException(422,'请选择工作日，每次可申请2、4或8小时')
     if db.query(Application.id).filter_by(user_id=user.id,requested_date=day).first():raise HTTPException(409,'该日期已提交申请，不能重复申请')
     limits=quota(db,user,day)
     if not limits['quota_available']:raise HTTPException(409,limits['limit_message'])
+    if payload.minutes not in limits['allowed_minutes']:raise HTTPException(409,'本月可拆分8小时限2+2+4或4+4，2小时最多2次，另外8小时须整段申请；当前组合或周期剩余额度不足')
+    if not inspect(db.connection()).has_table(Duration.__tablename__):raise HTTPException(503,'居家申请时长表尚未初始化')
+    if payload.minutes<480:
+        from attendance_models import AttendanceClockSession
+        if inspect(db.connection()).has_table(AttendanceClockSession.__tablename__) and db.query(AttendanceClockSession).filter(AttendanceClockSession.user_id==user.id,AttendanceClockSession.day==day,AttendanceClockSession.segment!=2).count()>2:raise HTTPException(409,'当天已有超过两组的打卡记录，不能按2/4小时居家申请')
     row=Application(id=uuid4(),client_id=payload.client_id,user_id=user.id,requested_date=day,reason=payload.reason,status='pending',created_at=now());db.add(row)
+    db.flush();db.add(Duration(application_id=row.id,minutes=payload.minutes));row.request_minutes=payload.minutes
     try:events=notify(db,user,row,'application');db.commit()
     except Exception:db.rollback();raise
     publish(events)
@@ -192,7 +220,9 @@ def company(db,user):
     from attendance_models import AttendanceClockSession
     overtime=db.query(AttendanceClockSession).filter(AttendanceClockSession.segment==2).order_by(AttendanceClockSession.check_in.desc()).limit(500).all()
     overtime_records=[{'id':row.id,'name':people.get(str(row.user_id),{}).get('name','已删除人员'),'day':row.day,'check_in':row.check_in,'check_out':row.check_out,'invalid_minutes':row.confirmations.get('invalid_minutes',0),'invalid_reason':row.confirmations.get('invalid_reason','')} for row in overtime]
-    return api_time({'company_overtime':overtime_records,'year':now().year,'usage_people':usage_people(db,people),'applications':[{'id':row.id,'name':people.get(str(row.user_id),{}).get('name','已删除人员'),'requested_date':row.requested_date,'reason':row.reason,'status':row.status,'created_at':row.created_at} for row in db.query(Application).order_by(Application.created_at.desc()).limit(500).all()],
+    applications=application_values(db,db.query(Application).order_by(Application.created_at.desc()).limit(500).all())
+    for item in applications:item['name']=people.get(item['user_id'],{}).get('name','已删除人员')
+    return api_time({'company_overtime':overtime_records,'year':now().year,'usage_people':usage_people(db,people),'applications':applications,
         'qualification_requests':[{'id':row.id,'name':people.get(str(row.user_id),{}).get('name','已删除人员'),'reason':row.reason,'status':row.status,'created_at':row.created_at} for row in db.query(Qualification).order_by(Qualification.created_at.desc()).limit(500).all()],'approval_note':'审批：待开发'})
 
 
@@ -201,8 +231,8 @@ def usage_people(db,people):
     usage={str(row.user_id):row for row in db.query(AnnualUsage).filter(AnnualUsage.user_id.in_(ids),AnnualUsage.year==year).all()} if ids else {}
     hires={str(row.user_id):row.hire_date for row in db.query(EmployeeEmployment).filter(EmployeeEmployment.user_id.in_(ids)).all()} if ids else {}
     system={}
-    for row in db.query(Application).filter(Application.user_id.in_(ids),Application.requested_date>=date(year,1,1),Application.requested_date<date(year+1,1,1),Application.status.in_(['pending','approved'])).all() if ids else []:
-        uid=str(row.user_id);system[uid]=system.get(uid,0)+1
+    requests=db.query(Application).filter(Application.user_id.in_(ids),Application.requested_date>=date(year,1,1),Application.requested_date<date(year+1,1,1),Application.status.in_(['pending','approved'])).all() if ids else []
+    for item in application_values(db,requests):system[item['user_id']]=system.get(item['user_id'],0)+item['minutes']/480
     return [{'user_id':uid,'name':person['name'],'year':year,'hire_date':hires.get(uid),'manual_used_days':usage[uid].used_days if uid in usage else None,'revision':usage[uid].revision if uid in usage else 0,'system_used_days':system.get(uid,0),'annual_limit':annual_limit(hires.get(uid),year),'annual_used':(usage[uid].used_days if uid in usage else 0)+system.get(uid,0),'history':usage[uid].history if uid in usage else []} for uid,person in people.items()]
 
 

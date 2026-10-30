@@ -4,7 +4,7 @@ from uuid import UUID,uuid4
 from typing import Literal
 from fastapi import APIRouter,Depends,HTTPException,Query
 from pydantic import BaseModel,Field,StrictBool,ConfigDict,model_validator,field_validator
-from sqlalchemy import Uuid,ForeignKey,String,Text,DateTime,Date,Boolean,Integer,Index,inspect
+from sqlalchemy import Uuid,ForeignKey,String,Text,DateTime,Date,Boolean,Integer,Index,inspect,literal,func
 from sqlalchemy.orm import Mapped,mapped_column
 from sqlalchemy.exc import IntegrityError
 from models import Base
@@ -102,11 +102,32 @@ def serialize(db,row,requirement=None,city=None):
     return api_time({**{key:getattr(row,key) for key in fields},'demand_no':requirement.demand_no,'recruitment_city':city,'position':requirement.position,'requirement_deleted':requirement.is_deleted})
 
 
+def automatic_row(requirement,city):
+    """无应聘人的需求也自动呈现；不写入占位应聘人或伪造面试记录。"""
+    return api_time({'id':f'requirement:{requirement.id}','requirement_id':requirement.id,'demand_no':requirement.demand_no,
+        'recruitment_city':city or '','position':requirement.position,'requirement_deleted':False,'is_placeholder':True,
+        'applicant_name':'','first_interview_at':None,'first_interview_done':False,'first_result':'',
+        'second_interview_at':None,'second_interview_done':False,'second_result':'','willingness':'','willingness_reason':'',
+        'onboarding_date':None,'actual_onboarded':None,'revision':0,'created_at':requirement.created_at,'updated_at':requirement.updated_at})
+
+
 def listing(db,user,keyword='',page=1,limit=20):
     allowed(db,user)
-    query=db.query(HrRecruitmentCandidate,Requirement,City.city).join(Requirement,Requirement.id==HrRecruitmentCandidate.requirement_id).outerjoin(City,City.requirement_id==Requirement.id).filter(HrRecruitmentCandidate.is_deleted.is_(False),keyword_any([Requirement.demand_no,City.city,Requirement.position,HrRecruitmentCandidate.applicant_name,HrRecruitmentCandidate.first_result,HrRecruitmentCandidate.second_result,HrRecruitmentCandidate.willingness_reason],keyword))
-    total=query.count();values=query.order_by(HrRecruitmentCandidate.updated_at.desc(),HrRecruitmentCandidate.id.desc()).offset((page-1)*limit).limit(limit).all()
-    return {'items':[serialize(db,row,requirement,city or '') for row,requirement,city in values],'total':total}
+    candidates=db.query(HrRecruitmentCandidate.id.label('candidate_id'),Requirement.id.label('requirement_id'),HrRecruitmentCandidate.updated_at.label('sort_at')).join(Requirement,Requirement.id==HrRecruitmentCandidate.requirement_id).outerjoin(City,City.requirement_id==Requirement.id).filter(HrRecruitmentCandidate.is_deleted.is_(False),keyword_any([Requirement.demand_no,City.city,Requirement.position,HrRecruitmentCandidate.applicant_name,HrRecruitmentCandidate.first_result,HrRecruitmentCandidate.second_result,HrRecruitmentCandidate.willingness_reason],keyword))
+    has_candidate=db.query(HrRecruitmentCandidate.id).filter(HrRecruitmentCandidate.requirement_id==Requirement.id,HrRecruitmentCandidate.is_deleted.is_(False)).exists()
+    automatic=db.query(literal(None,type_=Uuid).label('candidate_id'),Requirement.id.label('requirement_id'),Requirement.updated_at.label('sort_at')).outerjoin(City,City.requirement_id==Requirement.id).filter(Requirement.is_deleted.is_(False),~has_candidate,keyword_any([Requirement.demand_no,City.city,Requirement.position],keyword))
+    combined=candidates.union_all(automatic).subquery()
+    total=db.query(func.count()).select_from(combined).scalar()
+    keys=db.query(combined).order_by(combined.c.sort_at.desc(),combined.c.requirement_id,combined.c.candidate_id).offset((page-1)*limit).limit(limit).all()
+    ids=[key.candidate_id for key in keys if key.candidate_id is not None]
+    requirements=[key.requirement_id for key in keys if key.candidate_id is None]
+    values={}
+    if ids:
+        for row,requirement,city in db.query(HrRecruitmentCandidate,Requirement,City.city).join(Requirement,Requirement.id==HrRecruitmentCandidate.requirement_id).outerjoin(City,City.requirement_id==Requirement.id).filter(HrRecruitmentCandidate.id.in_(ids)).all():values[row.id]=serialize(db,row,requirement,city or '')
+    automatic_values={}
+    if requirements:
+        for requirement,city in db.query(Requirement,City.city).outerjoin(City,City.requirement_id==Requirement.id).filter(Requirement.id.in_(requirements)).all():automatic_values[requirement.id]=automatic_row(requirement,city)
+    return {'items':[values[key.candidate_id] if key.candidate_id else automatic_values[key.requirement_id] for key in keys],'total':total}
 
 
 def same(row,values):

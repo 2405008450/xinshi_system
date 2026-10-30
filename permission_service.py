@@ -2,7 +2,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from models import Role, RolePermission, UserRole
+from models import AppUser, Role, RolePermission, UserRole
 from permission_registry import ALL_PERMISSION, PERMISSION_CODES, SUPER_ROLE_NAMES, validate_permission_codes
 
 
@@ -60,7 +60,11 @@ def get_user_permission_codes(db: Session, user_id: UUID) -> list[str]:
         .order_by(RolePermission.permission_code)
         .all()
     )
-    return [row.permission_code for row in rows]
+    codes={row.permission_code for row in rows}
+    from hr_access import can_manage_hr
+    if can_manage_hr(db,db.get(AppUser,user_id)):
+        codes.update({'system:users:read','system:organization:write'})
+    return sorted(codes)
 
 
 def user_has_permission(db: Session, user_id: UUID, permission_code: str) -> bool:

@@ -1620,7 +1620,7 @@ GET/PUT /monthly-shifts/fixed 仅允许在用行政部成员访问。新增配�
 
 桌面端成功登录或有效会话次日重新进入系统（POST /attendance/arrival）时，由服务端时间生成上班打卡，校验 UA、Client Hints 及客户端设备类型（手机/平板不计）；登录失败不打卡。每日保留首次登录；没有有效班次不生成记录，并返回明确状态。登记失败不伪造成功，不影响正常登录。下班按钮必须成功提交事务并重读后才返回打卡成功；手机禁止签退。跨午夜最多取前一天未签退记录，自然日期独立于工作报告 07:00 规则。
 
-班次优先取每周安排（含固定班次），其次月度；仅节假日/调休日历中的工作日或已安排周末值班的日期统计，无班次不推算迟到。未知年份日历明确报错。迟到时长为缺席的班次工作分钟减 10 分钟宽限，扣除合法请假与休息，超过才算一次；尚未签退不计算加班。加班为实际打卡区间扣除午休 12:00–13:30、其他班间休息和请假后的出勤分钟，减去班次应工作分钟（已扣合法请假），负数取零。每条记录、个人周/月和管理汇总使用同一计算函数。上班班次快照不受后续排班编辑影响。
+班次优先取每周安排（含固定班次），其次月度；仅节假日/调休日历中的工作日或已安排周末值班的日期统计，无班次不推算迟到。未知年份日历明确报错。迟到时长为缺席的班次工作分钟减 15 分钟宽限，扣除合法请假与休息，超过才算一次；尚未签退不计算加班。加班为实际打卡区间扣除午休 12:00–13:30、其他班间休息和请假后的出勤分钟，减去班次应工作分钟（已扣合法请假），负数取零。每条记录、个人周/月和管理汇总使用同一计算函数。上班班次快照不受后续排班编辑影响。
 
 请假与旧 employee_leave、全体在用未删除人员的业务铃铛通知、逐人私聊会话消息在同一事务落库，失败全部回滚，幂等重试不重复群发；提交后才 WebSocket 提醒。通知正文含请假人、时段、时长、原因。新请假暂不允许从旧管理入口改/删，避免通知与快照不一致。新表初始化使用 tools/apply_attendance_migration.py 显式幂等执行，不启用启动自动迁移。
 ## 资源开拓自定义字段（2026-10-26）
@@ -1779,7 +1779,7 @@ POST /weekend-duty/transfer 将来源周六、周日对应到目标周六、周�
 
 由 tools/apply_employee_employment_migration.py 幂等创建新表，只创建新表及必要主外键，不回填现有人员入职日期。人员新增、编辑时与 AppUser 的变更共用事务；不传 hire_date 保持现值，显式 null 清空。仍遵循 system:users:write 权限。
 
-现行公司年假额度规则：6月30日及以前入职，首年1天；7月1日起入职，首年0天。此后每满一个入职周年，再过3个月增加1天，不按1月1日统一增加。先计算周年日期，再顺延3个月；若目标月无对应日则取月末，闰日非闰年周年取2月末后再顺延。上限10天；未来尚未入职时0天；缺失日期时返回 null 并提示填写。
+现行公司年假额度规则：6月30日及以前入职，首年1天；7月1日起入职，首年0天，次年1月1日先获得1天且只发放一次。所有人员此后每满一个入职周年，再过3个月增加1天；除上述首次元旦发放外，不按每年1月1日重复增加。先计算周年日期，再顺延3个月；若目标月无对应日则取月末，闰日非闰年周年取2月末后再顺延。上限10天；未来尚未入职时0天；缺失日期时返回 null 并提示填写。
 
 例如2025-06-30入职，2026-09-29额度1天，2026-09-30额度2天；2025-07-01入职，2026-09-30额度0天，2026-10-01额度1天。额度为年度可享天数，不代表扣除已休年假的余额，未从普通请假原因文字猜测年假使用量。
 
@@ -1932,7 +1932,7 @@ JSON 的 `internships`、`annotation`、`interpretation`、`translation`、`othe
 | created_at | timestamptz | UTC+8 提交时间 |
 
 - 索引 `ix_attendance_comp_time_user_start (user_id, start_at)`。迁移 `tools/apply_attendance_comp_time_migration.py` 幂等只建新表及必要约束索引，关闭启动自动迁移。
-- 迟到从原10分钟宽限后统计，扣除已请假/休息，按 `late:<clock UUID>` 派生可追溯请假来源；与 `AttendanceLeave` 主动申请来源区分，不复制生成正式请假或群发通知。报表请假总额=申请请假+迟到折假，保留各次来源及区间，不双扣。
+- 迟到从原15分钟宽限后统计，扣除已请假/休息，按 `late:<clock UUID>` 派生可追溯请假来源；与 `AttendanceLeave` 主动申请来源区分，不复制生成正式请假或群发通知。报表请假总额=申请请假+迟到折假，保留各次来源及区间，不双扣。
 - 自然月按同人加班净额判断：≤600分钟免追责1次，>600且≤1200分钟免3次，>1200分钟免5次；超过的每次迟到在年终奖区域记录打卡来源。当前月暂计并随月净额更新，已过月按现有记录重算，不是锁定结算。年终奖计算/兑现待开发，不自动罚款。
 - 自入职月起累计到当前月；入职首月剩余自然日（含入职当天）≤15天免该月1天值班基数，不计平均月份分母。实际累计周末值班天数/计入月份数>1才可申请调休。首月免基数时该月实际值班都作多值班；其余月首个实际值班日作1天基数，后续按日期作多值班。
 - 仅已完成打卡、班次快照 `weekend_duty=true` 的周末值班，含居家；扣除休息、请假和已确认无效时间后按实际班次内分钟计算。同日合并；客户居家两段均完成才计1天。公司居家加班 `overtime_only`、未签退、法定节假日、调休工作日不计普通周末额外值班；未知日历年份不生成此额度。
@@ -2008,3 +2008,140 @@ JSON 的 `internships`、`annotation`、`interpretation`、`translation`、`othe
 - 入职意愿选候选人放弃/信实放弃必须弹窗填原因；选是必须弹窗填入职日期，自动带入主表入职时间；不自动认定是否已入职，不创建人员档案。待确认不填放弃原因或入职日期。是否入职为只读预留，API拒绝写入预留字段及伪造城市/岗位。
 - HR权限沿用行政部，面试弹窗通过公共AppForm动态必填规则、公共拖拽弹窗及字段定位，固定头尾和中部滚动；候选人姓名可点击直接编辑面试。主表字段设置、详情小窗、关键词AND搜索、400ms防抖取消旧请求、分页同条件、删除管理、revision冲突保护和新增client_id幂等。
 - tools/apply_hr_recruitment_process_migration.py幂等仅创建新表及必要索引约束，不ALTER原招聘需求、候选人或人员表；自动迁移保持关闭。
+
+
+### 固定班次类型补充（2026-10-30）
+
+复用 `fixed_shift_config.assignments` JSON 与 `attendance_clock_session`，不新增或修改物理表字段。
+
+- `fixed_early_early`：固定早早班08:30–12:00、13:30–16:00，每天可多组打卡，不限定上下午；`multiple_clock_sessions=true`。每组仍按完整班次08:30–16:00判断加班，仅当天首次打卡判断迟到；续打快照`continuation=true`。已有当日分段记录不改写，新增组使用多组规则。与既有轮班早早班 `early_early`（18:00结束）独立。
+- `management`：管理/管培生08:50–12:00、13:30–20:00。
+- `flexible`：不设预定时间，工作日/休息日均可主动多组打卡；不判迟到，记录 `work_minutes`，无预定时间不自动将全部时长认定为加班。上一组未签退不得开始下一组。普通组序号0、1、3、4……，既有2仍专用于公司要求居家加班；接口 `next_segment` 决定下次序号，`segment_count=null` 表示不限制组数。
+- 上述三类仅在固定配置和本人打卡/考勤呈现，不占每周/月轮班单元格；服务端过滤轮班人员候选及旧公开快照，禁止通过普通排班接口伪造这些班次代码。考勤按生效版本解析，不回写既有打卡快照。
+- `home_rotation`：居家轮班资格标记，保留原周早晚班安排，允许调班/复制/转移/互换，不锁定单元格；快照保留 `home_rotation`、`home_office_day`。签退要求居家有效工作声明和可选无效时间说明；不提示/扣晚餐，不创建普通居家申请或消耗其额度。
+- 固定班次多组打卡每天只扣一次20分钟晚餐，后续快照保存 `dinner_already_deducted` 防止重复；公司要求居家加班仍独立。
+- 指定人员配置入口 `tools/configure_named_fixed_shifts.py`：默认只读预览；显式执行需同时核对主机、项目、Git、数据库、配置版本及8个账号和真实姓名。仅调整指定人员，保留其余人员，不改组织归属、不生成打卡和通知；已应用时不重复提升版本。
+
+
+### 行政部组织架构权限（2026-10-30）
+
+不修改角色关联或数据库结构。在服务端按当前有效主部门、跨部门成员及部门别名，向在用行政部人员动态授予 `system:users:read` 与 `system:organization:write`；移出行政部后立即撤销动态授予，原有角色授权独立保留。新增组织架构权限覆盖部门目录、人员归属/职务、人员基础资料增删改、办公室配置和工作报告/任务查看设置。Ethan、Jimmy和超级管理员的既有部门管理权限保留。不会自动授予系统用户管理、角色分配、密码重置、邮件账号管理等额外权限。前端使用会话接口返回的有效权限，服务端每次写入独立校验。行政部编辑报告查看规则时，始终保留赵震锋作为原配置主体，不自动把操作人加入报告查看范围；审计操作者仍记录实际登录人员。
+
+
+### 招聘需求计划到岗日期与招聘过程自动呈现（2026-10-30）
+
+新表 `hr_recruitment_requirement_schedule`：`requirement_id` UUID主键并外键关联`hr_recruitment_requirement.id`，`planned_onboarding_date` DATE非空。关联记录不存在表示未填写；接口支持填写、清空，更新接口省略该字段时保留原值。沿用需求版本、操作者与更新时间，并支持关键字日期搜索。此日期是招聘需求的计划目标，与候选人的实际意愿入职日期相互独立，不自动改写候选人日期。迁移`tools/apply_hr_recruitment_schedule_migration.py`只幂等创建该新表，不改既有表及业务数据。
+
+招聘过程列表自动包含每个有效需求：没有在用应聘人时返回`is_placeholder=true`、`id=requirement:<UUID>`的只读需求行，并实时关联需求编号、城市、岗位；不落库、不生成空姓名应聘人。点击“添加应聘人”后直接以该需求创建真实应聘人记录；有多位应聘人时各自保留独立面试与入职意愿记录，需求信息实时共享。删除最后一位应聘人后仍显示该需求；删除需求后不再产生空需求行，已有应聘人的历史记录继续保留并显示原需求已删除。需求行不能作为应聘人批量删除；搜索、分页和总数在同一数据库查询中包含自动需求行与真实应聘人，避免列表和总数不一致。
+
+
+### 办公室区域工位（2026-10-30）
+
+新表`organization_office_area`：`office_id` UUID外键关联`organization_office_site.id`，与整数`position`组成主键；`name` VARCHAR(100)区域名称；`seats` INTEGER非负工位数。区域按position显示，每个办公室区域名称去空格后忽略大小写不得重复，最多100个区域，总数最多100000。
+
+办公室写入接口增加可选`areas:[{name,seats}]`。有分区时`OfficeSite.seats`由各分区自动合计，保存使用原办公室版本锁，保证分区与总数原子更新；省略areas保留原分区，空数组显式清空分区恢复独立总工位设置。统计实际人数仍按人员城市，不推断每人的区域座位。
+
+用户明确指定广州：总经理室1位、财务室2位、管理区6位、大办公区26位，合计35位。`tools/apply_office_area_migration.py`只幂等建新表；`tools/configure_guangzhou_office_areas.py`默认只读预览，显式执行需核对目标、主机、目录、Git和广州办公室版本，仅保存广州指定分区和合计，不更改其他办公室、人员城市或人数。
+
+组织架构页面移至人事管理首个区域`/hr-management/organization`，排班管理位于其后；旧`/users`和`/departments`入口保留查询条件重定向，以兼容办公室人员筛选及原书签。迁移仅改变导航，原有组织架构权限保持，非人事账号不会因此获得排班考勤权限；办公室及人员子区域保持在组织架构内。
+
+
+### 居家小时申请、补卡确认与跨日顺延（2026-10-30）
+
+本次仅新增三表，不修改既有表结构。迁移入口`tools/apply_attendance_corrections_migration.py`幂等创建：
+
+- `home_office_application_duration`：`application_id` UUID主键并外键关联`home_office_application.id`，`minutes` INTEGER申请分钟数，接口只接受120/240/480。旧申请无关联行时按原一整天480分钟解释，不补写、改写历史数据。
+- `attendance_clock_correction`：UUID主键、全局唯一`client_id`，员工外键`user_id`、考勤`day`、`kind`（in/out）、原打卡外键`record_id`（待补首次上班可空）、组号`segment`、申请实际时间`requested_at`（timestamptz）、原因`reason`、可选证据截图引用`evidence`、声明`declarations` JSON、状态`status`（pending/confirmed/cancelled）、原始快照`original` JSON、仅服务端追加的`history` JSON、UTC+8提交及确认时间、确认人外键。待确认不会修改实际打卡，任一在用行政成员可确认；版本/原快照变化拒绝覆盖，可由本人撤回再申请。确认时验证不与其他工作组重叠，记录实际操作者、前后快照，保留全过程。证据复用公共截图编辑框及授权机制，长期保存；本人仅查本人，行政查全体。
+- `attendance_start_adjustment`：UUID主键、唯一来源打卡外键`source_clock_id`、员工外键、后续日期`day`、组号`segment`、`next_start`（timestamptz）、原因、仅追加的`history` JSON、创建时间。history记录原上班、签退、后续上班及已存在后续记录的基准变化。相同来源重新确认时撤销其原有基准后再应用，避免多个日期重复豁免。补下班必填实际下班时间、下次/第二天上班时间及原因；行政确认后同步此基准。
+
+居家月额度：每月最多16小时，其中可拆分8小时限2+2+4或4+4（先后顺序不限），2小时最多2次，另外8小时须单次整段申请。每次选2/4/8小时，同一日期不重复申请。季度仍最多4天、半年8天、年度12天及入职当年折算，按480分钟=1天核算；待审批也占额度，原年度补录仍按天换算。公司要求的居家加班不计入。普通居家及资格的审批仍待开发，不因打卡视为获批。
+
+2/4小时申请当日普通打卡最多两组，两组不绑定上下午时间；必须前一组签退后开始后一组，后组不重复记首次迟到。已有超过两组普通记录时不接受当日部分时长申请。不改变班次预定上下班时刻或居家固定轮班属性。
+
+真实签退超过下一次预定上班时刻时，仍可签退，必须填写原因和晚于签退的后续上班时间；保留真实签退时刻，不伪造回填。系统将后续组快照的`late_start_at`设置为此基准，原15分钟宽限保留；迟到折算请假和年终奖追责共用此计算。不把顺延前的空档自动计算为加班。行政部收到记录通知，员工和行政均可查看全程。
+
+新增接口：GET/POST `/attendance/clock-corrections`；POST `/{id}/confirm`（行政）和`/{id}/cancel`（本人待确认）；现有check-out新增`cross_day_reason`、带时区`next_start`。补卡写入、确认仍只支持电脑端，手机继续仅支持请假和延迟上班。通知只发相关人员，确认后刷新本人工作台；行政通知可直达考勤管理的补卡与跨日记录区。所有时间按UTC+8，测试使用隔离SQLite及拦截API，不生成真实申请、打卡或通知。
+
+### 技术开发任务（2026-10-30）
+
+仅新增 `technical_development_task`、`technical_development_progress`、`technical_development_feedback` 三表，由 `tools/apply_technical_development_migration.py` 显式幂等创建，启动不迁移，不改动既有表或业务数据。
+
+- `technical_development_task`：`id` UUID主键；`parent_id` 可空自关联外键及索引；`name` VARCHAR(300)；`content` TEXT具体任务；`arranger_id`、`executor_id` UUID关联app_user；`due_at` TIMESTAMPTZ可空预定完成时间；`progress` INTEGER默认0且约束0—100；`progress_updated_at` TIMESTAMPTZ可空；`adjustment` TEXT反馈后调整；`notes` TEXT备注；`revision` INTEGER乐观版本；`created_by`、`updated_by` UUID关联app_user；`created_at`、`updated_at` TIMESTAMPTZ。三级共用同一结构，每个任务独立维护所有字段。
+- `technical_development_progress`：`id` UUID主键；`task_id` UUID外键及索引；`previous_percentage` INTEGER修改前进度；`percentage` INTEGER修改后进度且约束1—100；`content` TEXT具体进度；`reason` TEXT修改原因；`author_id` UUID用户外键、`author_name` VARCHAR(255)姓名快照；`created_at` TIMESTAMPTZ。每次保存追加记录，回退必须填写原因；不提供历史覆盖接口。
+- `technical_development_feedback`：`id` UUID主键；`task_id` UUID外键及索引；`content` TEXT非空反馈；`author_id` UUID用户外键、`author_name` VARCHAR(255)姓名快照；`created_at` TIMESTAMPTZ。全体在职用户可追加反馈，作者与时间由登录会话和服务端生成。
+
+登录且在职、未删除的用户可查看及协作维护本模块；安排人目录为在职人员（赵震锋、运坚依次置顶），执行人按共享部门查询能力限定技术部/IT部，并包含跨部门成员。已有历史人员允许原值保留，改选必须满足当前目录。所有写入和移动校验版本；PostgreSQL事务级咨询锁串行树写入，拒绝循环、第四级及带下属整体移动后超三级。进度与历史在同一事务保存，反馈单独追加。时间生成、序列化和展示统一UTC+8。
+
+接口前缀 `/technical-development`：GET `/people`；GET/POST `/tasks`；GET/PUT `/tasks/{id}`；PUT `/tasks/{id}/parent`；POST `/tasks/{id}/progress`、`/tasks/{id}/feedback`。前端 `/technology-management/development` 使用统一字段设置、详情Popover、可拖拽长表单、表单字段定位；拖拽改父级及“调整层级”选择器均由服务端最终校验。
+
+### 技术任务编号、工作报告与部门权限（2026-10-30）
+
+新增 `technical_development_task_number`：`task_id` UUID主键及任务外键；`task_no` VARCHAR(40)唯一编号；`number_date` DATE香港自然日；`sequence` INTEGER正整数；日期与流水号联合唯一。编号格式 `DT-YYMMDD-NNN`，按自然日归零，超过999继续增长而不回绕；与报告07:00归日独立。所有层级使用同一流水池，创建与分号在同一事务、同一树锁内完成。旧任务仅初始化新增映射，按原创建香港日期编号，原任务不更新；编号不随编辑、移层级改变。
+
+新增 `technical_development_report_receipt`：`request_id` UUID主键；`task_id` UUID任务外键；`user_id` UUID账号外键；`report_id` UUID日报外键；`item_key` UUID唯一稳定工作行键；`created_at` TIMESTAMPTZ。仅在用户点击“确认添加”时向本人当前工作报告草稿追加；表单类型、订单号、项目名称和具体任务均可修改，原技术任务不被回写。添加弹窗完整提供工作量、单位（含自定义单位）和耗时，必填并校验后随工作行保存；任务/项目类型支持多选。添加时间在确认时由后端生成带 +08:00 的真实时刻，在报告编辑与快照中显示；弹窗展示报告日期及系统记录时间说明。所有技术任务、子任务、分工及技术需求汇总入口共用该弹窗。历史草稿仍允许在报告补齐，不推算实际工作时间。已确认报告拒绝追加，须先撤回。请求重试返回首次报告，包括跨07:00重试，不重复加行。
+
+报告原表结构不变，`DailyReportItem.display_metadata`保存 `source=technical_development`、`technical_task_id`、`added_at`、`_feedback_key`、`report_types`和可编辑订单号。来源ID稳定，不因用户修改编号/名称丢失关联；刷新汇总和旧编辑窗口保存保留来源。报告编号链接显示任务详情，项目名称链接显示UTC+8按天分组的原始具体进度、前后百分比、原因、人员和时间；两个入口复用同一技术任务引用组件。
+
+技术开发权限已收窄为开发/IT部在职成员（兼容开发部、开发/IT部、技术部、IT部及组织别名/跨部门成员关系），无超级管理员绕过。后端包括人员目录、任务、进度、反馈和报告添加均再次校验；认证用户可读 `/technical-development/access` 获取本人的布尔入口权限。前端菜单、路由按此值控制，定期及部门变更后刷新。明确指定的ethan、thomas仅新增IT部成员关系，保留原主部门和其他职务；脚本 `tools/configure_technical_department_members.py` 默认只读预览、核对部门版本，显式 `--apply` 执行。新表及编号初始化入口为 `tools/apply_technical_development_number_migration.py`，启动自动迁移保持关闭。
+
+### 公司开发反馈与具名意见（2026-10-30）
+
+新增 `development_feedback_sheet`（`task_id` UUID主键/技术任务外键、`created_by` UUID账号外键、`created_at` TIMESTAMPTZ）；同一任务只能生成一张反馈表，重复生成返回原表。每级开发任务均可由开发/IT部生成，首次生成创建一条可填写反馈；不自动复制原任务的反馈意见。
+
+新增 `development_feedback`：`id` UUID主键；`request_id` UUID唯一创建重试凭证；`task_id` UUID关联反馈表并建索引；`feedback_no` VARCHAR(40)唯一，按香港自然日分配 `FB-YYMMDD-NNN`（超过999继续增长）；`submitted_on` DATE自动提交日期；`submitted_by` UUID账号外键、`submitted_name` VARCHAR(255)、`submitted_username` VARCHAR(100)均从登录会话生成；`module` VARCHAR(300)功能模块；`content` TEXT反馈内容；`urgency` VARCHAR(10)低/中/高/紧急，默认中；`attachments` TEXT附件链接与现有受保护截图引用；`status` VARCHAR(20)待处理/处理中/已解决/暂不处理，默认待处理；`assignee_id` UUID可空人员外键，改选限定开发/IT部在职人员；`result` TEXT处理结果；`completed_on` DATE可空完成日期；`notes` TEXT备注；`revision` INTEGER乐观版本；`created_at`、`updated_at` TIMESTAMPTZ。日期编号分配使用独立事务锁，单元格修改使用行锁和版本，前端同一反馈的不同字段保存串行，避免覆盖其他单元格。
+
+新增 `development_feedback_opinion`：`id` UUID主键；`feedback_id` UUID反馈外键/索引；`kind` VARCHAR(20)限定william/development；`content` TEXT；`author_id` UUID账号外键、`author_name` VARCHAR(255)、`author_username` VARCHAR(100)账号快照；`created_at` TIMESTAMPTZ。意见每次保存追加，按`expected_latest_id`防止陈旧编辑覆盖；William意见仅williamzhao可填写，开发部门意见仅开发/IT部成员可填写，均显示姓名、账号和香港时间。全公司在职人员可查看、在已生成任务表中提交反馈；普通字段由反馈人、William、开发/IT部编辑，系统编号及身份字段不可修改。
+
+`/company-management/development-feedback` 为公司管理“开发反馈”子板块，按“（开发）任务名称”折叠，全部业务字段使用直接编辑表格，支持字段设置、自动保存与截图上传。原公司资料入口与栏目查询参数保留。API前缀 `/development-feedback`：GET列表；POST `/tasks/{id}/generate`、`/tasks/{id}/rows`；GET/PATCH `/rows/{id}`；POST `/rows/{id}/opinions`。截图沿用既有上传、授权中间件及业务长期存储，禁止伪造其他人的截图引用。显式建表入口`tools/apply_development_feedback_migration.py`仅创建上述新表。
+
+### 技术完成日期与开发部门奖励（2026-10-30）
+
+新增 `technical_task_completion`：`task_id` UUID任务主键外键；`completed_on` DATE可空实际完成日期；`due_on` DATE香港日历预定日期快照；`executor_id` UUID执行人外键；`on_time` BOOLEAN可空，完成日期不晚于预定日期为是，未填完成日期为待完成；`revision` INTEGER评定版本；`updated_at` TIMESTAMPTZ。
+
+新增 `technical_task_completion_change`：`id` UUID主键、`request_id` UUID唯一重试凭证、`task_id` UUID任务外键/索引；`previous_date`、`completed_on`、`previous_due_on`、`due_on` DATE日期前后值；`previous_executor_id`、`executor_id` UUID人员外键；`on_time` BOOLEAN；`revision` INTEGER评定版本；`reason` TEXT；`author_id` UUID人员外键、`author_name` VARCHAR(255)、`author_username` VARCHAR(100)；`created_at` TIMESTAMPTZ。修改或清空已填写完成日期必须说明原因；预定日期、执行人变化也追加记录并重新评定。无预定完成时间不能填写实际完成日期；仅有日期精度，不推断完成当天的具体时刻。
+
+新增 `technical_task_incentive`：`id` UUID主键；`request_id` UUID唯一提交凭证；`task_id` UUID任务外键/索引；`assessment_revision` INTEGER所属评定版本；`sequence` INTEGER金额修改序号，与任务和评定版本联合唯一；`executor_id` UUID外键、`executor_name` VARCHAR(255)执行人快照；`kind` VARCHAR(20)reward/deduction（按时给予奖励，否则抵消奖金）；`amount` NUMERIC(14,2)非负金额；`completed_on`、`due_on` DATE评定日期快照；`reason` TEXT金额说明/修改原因；`author_id` UUID、`author_name` VARCHAR(255)、`author_username` VARCHAR(100)操作者；`created_at` TIMESTAMPTZ。金额调整保留原记录、必须填写原因，只统计当前日期评定版本的最后一条金额。日期/预定日/执行人调整后旧金额退出当前统计，但历史不可覆盖；未登记金额的评定单独显示待登记。不自动生成奖金金额，不联动实际工资支付。
+
+技术开发主表新增“完成日期”“是否按时完成”，保存日期后按是/否进入奖励/抵消金额窗口，可取消暂不登记；编辑态也可调整日期。KPI原模拟表单已替换为“开发部门奖励”，按执行人汇总奖励、抵消奖金、相互抵消、奖励余额和待抵消余额，并展示任务明细及全程调整记录。按人分别取奖励/抵消最小值，不允许跨人抵消，部门合计为各人余额与抵消之和。技术人员可维护本模块；KPI统计继续遵循既有人事管理权限，窄范围的日期和金额历史只允许开发/IT部或人事管理人员读取。
+
+API：GET/PUT `/technical-development/tasks/{id}/completion`；POST `/{id}/incentive`；GET `/technical-development/incentives`。显式建表入口`tools/apply_technical_incentives_migration.py`仅创建三个新表，原技术任务表不加列、不回填，启动自动迁移关闭。所有实际时刻按UTC+8生成、序列化与展示，纯日期保持DATE语义，金额全程使用Decimal并以两位小数字符串传输。
+
+### 技术需求汇总带入开发任务及报告（2026-10-30）
+
+新增 `technical_requirement_task_link`：`room_id` UUID主键，关联`annotation_technical_room.room_id`；`task_id` UUID唯一任务外键；`base_name` VARCHAR(300)原项目名称快照；`suffix` VARCHAR(80)允许追加的补充文字；`source_revision` INTEGER复制时的需求汇总版本；`created_by`、`updated_by` UUID人员外键；`created_at`、`updated_at` TIMESTAMPTZ。仅增加新关联表，不改原技术需求或任务表。一个技术需求会话对应同一个开发任务，重复进入编辑原任务，不重复创建。
+
+需求汇总“保存汇总”右侧新增“加至开发任务”“加至工作报告”，沿用仅开发/IT部的任务访问权限；来源内容还须满足原技术会话参与人权限。跳转前先保存未保存的汇总，失败则停止；带入项目名称、技术需求汇总和默认本人执行人（可选其他IT部人员）。任务原项目名使用ReadonlyField展示，最多追加80字补充；后端对关联任务的普通编辑接口也限制原项目名不能改写。任务编号只在点击保存任务时自动分配，任务与关联在同一事务保存；需求汇总版本过期、重复创建或任务版本过期均拒绝覆盖。
+
+未保存开发任务时，“加至工作报告”明确提示先编辑保存任务。已保存时使用稳定关联task_id，复用工作报告确认弹窗；编号、名称、具体任务均带入并可在报告中修改，不回写原开发任务，原编号与各天具体进度的链接不因报告文本变化丢失。来源汇总可能较长，技术任务具体任务允许100000字，报告自身10000字限制继续保留。
+
+新API GET/POST `/technical-development/requirements/{room_id}`，POST校验开发部门身份、会话成员、来源版本和任务版本。任务响应增加可空`source`元数据以保持从任务列表进入编辑时的锁名规则。显式建表入口`tools/apply_technical_requirement_task_migration.py`仅创建关联表，启动不迁移。
+
+
+### weekend_night_duty_plan（周末夜间值班，2026-10-30）
+
+独立于普通居家申请，按月主键保存；只创建新表，不修改既有表。`month` DATE 主键；`assignments` JSON 为行政编辑安排（user_id/date/mode，standalone或continuation）；`published` JSON 为工作台与打卡使用的已同步快照；`revision`、`published_revision` INTEGER 乐观锁及发布版本；`editing` BOOLEAN 发布后锁定；`history` JSON 逐次保存操作者、+08:00时间、前后安排及publication_revision（未同步记录不对公众展示）；`updated_by` UUID、`updated_at` TIMESTAMPTZ。
+
+仅周六周日19:00–23:00，客户/销售人员；400毫秒保存，手动同步发布，修改后需再同步。单独与接续夜间均不折算半天；已完成打卡的有效分钟直接计入多值班，先抵扣待补班请假，不冲抵每月白天1天基数，不计入白天月均天数；接续须先同步同日白天值班，白天18:00结束，夜间第二组独立打卡；接续晚间与白天分开核算并抵扣请假。白天和夜间发布互相校验，不允许单独夜间与同日白天值班冲突，也不能撤销接续依赖的白天值班。夜间居家标记直接进入打卡快照，不写home_office_application、不扣普通居家额度；签退沿用居家真实性声明和无效分钟抵扣。原周末基数、补班优先、节假日待开发规则保留，夜间只按分钟抵扣，所有多值班先抵扣待补班请假，剩余按既有调休条件处理，不得重复抵扣。
+
+### 多执行人与独立分工（2026-10-30）
+
+新增 `technical_task_collaboration`：`task_id` UUID任务主键外键；`created_by` UUID人员外键；`created_at` TIMESTAMPTZ。记录该任务采用按人分工；原任务编号及原三级层级保持。
+
+新增 `technical_task_allocation`：`id` UUID主键；`root_task_id` UUID协作任务外键/索引；`execution_task_id` UUID独立执行记录外键且唯一；`executor_id` UUID人员外键；`active` BOOLEAN是否当前分工；`position` INTEGER顺序；`updated_at` TIMESTAMPTZ。同任务与执行人联合唯一。独立执行记录复用技术任务表，但不作为第四级任务、不进入主任务树；每个人分配独立DT编号、分工文字、预定完成时间、进度历史、完成日期、日期调整历史和金额台账。主任务显示全部执行人，完成日期与奖金入口改为“按分工分别记录/计算”。
+
+任务Create/Update及技术需求带入支持可选`allocations:[{executor_id,content,due_at}]`；分工人员不能重复，第一人与原兼容`executor_id`一致，每人必须填写非空具体分工，人员限定开发/IT部且保留既有历史人员语义。新任务不提交allocations时完全兼容原单人模式。多人选择自动弹出公共可拖拽分工表单，支持按人不同的预定日期；保存主任务时与分工、独立编号原子保存。原分工调整复用执行记录ID，不新建重复编号；只重新评定日期变化人员，其他人的完成与金额不受影响。
+
+协调主任务禁止直接登记完成日期、奖金或追加报告；必须选择个人分工。独立执行记录不能移动到主任务树或作为结构上级，普通编辑须经原任务分工窗口。原任务三级层级及子任务保持不变。分工窗口提供每人进度、日期与金额窗口、调整记录、加至工作报告；报告带入该人独立分工编号和具体任务，原技术汇总入口默认当前人的分工，没有本人分工时提供选择窗口。
+
+KPI仅统计个人执行记录，不重复统计协调主任务。原单人已有完成/金额改成多人时，保留原始记录，并向原执行人的独立分工承接日期和仍适用金额，记录承接来源；原主记录作为历史不重复计入。移出人员的已完成金额与历史继续保留，不因删除当前分工自动抹掉已登记金额，停用分工不能登记新日期/金额；未登记金额的停用分工不计待处理。多人改为一人后仍通过稳定分工记录维护，不丢失历史。
+
+新增表由`tools/apply_technical_allocations_migration.py`显式幂等创建，不调整既有表结构、不回填旧任务，启动自动迁移继续关闭。新增执行记录属于用户保存分工时的正常业务写入。时间沿用UTC+8，金额沿用Decimal及按人抵消规则。
+
+
+### 技术开发层级编号、互换与删除管理（2026-10-30）
+
+新增 `technical_task_hierarchy_number`：`task_id` UUID 主键、任务外键；`task_no` VARCHAR(40) 非空唯一。母任务使用 DT-日期-流水号，子任务追加 .001，三级任务再追加 .001。初始化只写入新映射表，不修改原任务及原编号表。拖动变更层级时同步更新整个下属编号；互换位置时对节点和父子引用作原子置换，并交换对应位置编号，任务 UUID、名称、内容、进度、反馈、日期及奖励归属不变。所有写操作复用树级事务锁，互换校验双方版本。所有任务展示、分工、反馈和奖励编号读取此映射。
+
+新增 `technical_task_deletion`：`task_id` UUID 主键、任务外键；`deleted_by` UUID 账号外键；`deleted_at` TIMESTAMPTZ，使用 UTC+8。删除后不再进入技术开发列表或作为上级任务，不再允许修改或新增报告；原工作报告、进度、反馈和奖励记录保留，历史任务引用仍可只读查看。多人任务删除时同步标记其分工执行记录。存在未删除子任务的母任务拒绝单独删除；批量选择含母子任务时，前端按三级、子任务、母任务顺序逐条处理，失败项保留选择。编号不因删除而被重新使用。
+
+显式幂等初始化入口为 `tools/apply_technical_task_management_migration.py`；启动自动迁移保持关闭。技术开发主表移除独立详情列，任务编号点击打开详情小窗；页面级删除管理采用公共工具栏和确认流程，树表选择不联动下属任务。

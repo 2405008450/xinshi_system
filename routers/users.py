@@ -143,7 +143,7 @@ def read_user_options(
     ]
 
 
-@router.post("/", response_model=AppUserResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("system:users:write"))])
+@router.post("/", response_model=AppUserResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_any_permission("system:users:write", "system:organization:write"))])
 def create_user_endpoint(user: AppUserCreate, db: Session = Depends(get_db)):
     # 检查用户名是否已存在
     db_user = get_user_by_username(db, username=user.username)
@@ -269,7 +269,7 @@ def read_user_page(
     }
 
 
-@router.get("/email-availability", dependencies=[Depends(require_permission("system:users:write"))])
+@router.get("/email-availability", dependencies=[Depends(require_any_permission("system:users:write", "system:organization:write"))])
 def check_user_email_availability(
     email: EmailStr = Query(...),
     exclude_user_id: Optional[UUID] = Query(None),
@@ -392,7 +392,7 @@ def update_user_mail_profile(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-@router.put("/{user_id}", response_model=AppUserResponse, dependencies=[Depends(require_permission("system:users:write"))])
+@router.put("/{user_id}", response_model=AppUserResponse, dependencies=[Depends(require_any_permission("system:users:write", "system:organization:write"))])
 def update_user_endpoint(
     user_id: UUID,
     user_update: AppUserUpdate,
@@ -446,7 +446,7 @@ def reset_user_password_endpoint(
     return None
 
 
-@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_permission("system:users:write"))])
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_any_permission("system:users:write", "system:organization:write"))])
 def delete_user_endpoint(user_id: UUID, db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user)):
     if user_id == current_user.id:
         raise HTTPException(409, "不能删除当前登录账号")

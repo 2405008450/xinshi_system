@@ -5,6 +5,7 @@
  */
 
 import { ref } from 'vue'
+import { canViewTechnicalDevelopment } from './technicalDevelopmentAccess.js'
 
 export const ROLE_ADMIN = 'admin'
 export const ROLE_SUPER_ADMIN = '超级管理员'
@@ -128,7 +129,7 @@ function isPhoneViewport() {
 function resolveDefaultPath() {
   if (isSuperAdmin() || hasPermission(['projects:read', 'tasks:read'])) return '/workbench'
   if (hasPermission(['annotation_accounts:read', 'annotation_accounts:write'])) return '/annotation-details?section=accounts'
-  if (hasPermission('system:users:read')) return '/users'
+  if (hasPermission('system:users:read')) return '/hr-management/organization'
   if (hasPermission('system:roles:read')) return '/roles'
   if (hasPermission('system:mail_settings:read')) return '/mail-settings'
   if (hasPermission('consultations:read')) return '/consultations'
@@ -146,8 +147,9 @@ function resolveDefaultPath() {
  * @returns {boolean}
  */
 export function canAccessRoute(route) {
-  if (route.meta?.hrManagement) return canManageHr()
+  if (route.meta?.technicalDevelopment) return canViewTechnicalDevelopment()
   if (route.meta?.organizationManagement) return canManageDepartments() || hasPermission('system:users:read') || canConfigureWorkReports()
+  if (route.meta?.hrManagement) return canManageHr()
   if (route.meta?.departmentManagement) return canManageDepartments()
   const userRoles = getStoredRoles()
   if (isSuperAdmin(userRoles)) return true
@@ -165,7 +167,7 @@ export function canAccessRoute(route) {
 }
 
 export function canManageDepartments() {
-  return isSuperAdmin() || ['ethan', 'jimmy'].includes((localStorage.getItem('user_name') || '').trim().toLowerCase())
+  return isSuperAdmin() || hasPermission('system:organization:write') || ['ethan', 'jimmy'].includes((localStorage.getItem('user_name') || '').trim().toLowerCase())
 }
 
 export function setStoredHrAccess(allowed) {
@@ -181,7 +183,7 @@ export function canManageHr() {
 /** 仅用于入口显示，后端独立验证当前账号。 */
 export function canConfigureWorkReports() {
   storedAccessRevision.value
-  return localStorage.getItem('user_name') === 'williamzhao'
+  return localStorage.getItem('user_name') === 'williamzhao' || hasPermission('system:organization:write')
 }
 
 /**

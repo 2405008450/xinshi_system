@@ -11,12 +11,15 @@ DEFAULT_DEPARTMENTS = ['项目经理', 'IT部', '项目部', '客户部', 'HR部
 
 
 def can_manage(db, user):
-    if not user or not user.is_active:
+    if not user or not user.is_active or user.is_deleted:
         return False
     if (user.username or '').strip().casefold() in {'ethan', 'jimmy'}:
         return True
+    from hr_access import can_manage_hr
+    if can_manage_hr(db,user):return True
     from crud import get_user_roles_with_role_names
-    return not SUPER_ROLE_NAMES.isdisjoint(get_user_roles_with_role_names(db, user.id))
+    from permission_service import user_has_permission
+    return not SUPER_ROLE_NAMES.isdisjoint(get_user_roles_with_role_names(db, user.id)) or user_has_permission(db,user.id,'system:organization:write')
 
 
 def ready(db):
@@ -77,7 +80,7 @@ def catalog(db, user):
 
 def save(db, user, name, department_id=None, revision=None):
     if not can_manage(db,user):
-        raise HTTPException(403,'仅 ethan、jimmy 和超级管理员可管理部门')
+        raise HTTPException(403,'仅行政部、ethan、jimmy 和超级管理员可管理部门')
     if not ready(db):
         raise HTTPException(503,'部门目录尚未初始化')
     # 串行化目录编辑，防止两个部门同时改为同名或占用历史别名。

@@ -1,5 +1,5 @@
 """迟到折算请假与自然月追责。来源直接关联打卡，不复制生成真实请假单。"""
-from datetime import date,timedelta
+from datetime import date,datetime,timedelta
 from sqlalchemy import inspect
 from attendance_models import AttendanceDay,AttendanceLeave,AttendanceClockSession
 from models import EmployeeLeave
@@ -26,19 +26,21 @@ def lateness_events(rows,leaves):
         own=[item for item in leaves if item.employee_id==row.user_id]
         value=service.metrics(row,own)
         if not value['late_count']:continue
-        # 精确列出扣除正式请假、班间休息和既有10分钟宽限后的应出勤区间。
+        # 精确列出扣除正式请假、班间休息和既有15分钟宽限后的应出勤区间。
         windows=service.merged([(service.stamp(item.start_date),service.stamp(item.end_date)) for item in own])
         pieces=[];check_in=service.stamp(row.check_in)
         for left,right in service.intervals(row.day,row.shift_snapshot):
+            override=row.shift_snapshot.get('late_start_at')
+            if override:left=max(left,service.stamp(datetime.fromisoformat(override)))
             remaining=[(left,min(right,check_in))] if left<check_in else []
             for start,end in windows:
                 remaining=[part for a,b in remaining for part in ((a,min(b,start)),(max(a,end),b)) if part[1]>part[0]]
             pieces.extend(remaining)
-        grace=600;spans=[]
+        grace=service.LATE_GRACE_SECONDS;spans=[]
         for left,right in pieces:
             skipped=min(grace,(right-left).total_seconds());grace-=skipped;left+=timedelta(seconds=skipped)
             if right>left:spans.append({'start_at':left,'end_at':right,'minutes':round((right-left).total_seconds()/60,2)})
-        result.append({'id':f'late:{row.id}','clock_id':str(row.id),'user_id':str(row.user_id),'day':row.day.isoformat(),'month':row.day.strftime('%Y-%m'),'source':'lateness','source_label':'迟到折算请假','start_at':spans[0]['start_at'],'end_at':spans[-1]['end_at'],'minutes':value['late_minutes'],'spans':spans,'reason':'迟到累计请假（保留原有10分钟宽限；不重复扣正式请假）'})
+        result.append({'id':f'late:{row.id}','clock_id':str(row.id),'user_id':str(row.user_id),'day':row.day.isoformat(),'month':row.day.strftime('%Y-%m'),'source':'lateness','source_label':'迟到折算请假','start_at':spans[0]['start_at'],'end_at':spans[-1]['end_at'],'minutes':value['late_minutes'],'spans':spans,'reason':'迟到累计请假（保留原有15分钟宽限；不重复扣正式请假）'})
     return sorted(result,key=lambda row:(row['start_at'],row['id']))
 
 

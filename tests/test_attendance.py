@@ -22,7 +22,7 @@ def day(start='09:00',end='18:30',code='early'):
     return SimpleNamespace(day=date(2026,10,26),check_in=at(f'2026-10-26T{start}:00'),check_out=at(f'2026-10-26T{end}:00') if end else None,shift_snapshot=next(row for row in SHIFTS if row['code']==code))
 def leave(start,end):return SimpleNamespace(start_date=at(start).replace(tzinfo=None),end_date=at(end).replace(tzinfo=None))
 
-@pytest.mark.parametrize('clock,late',[('09:00',0),('09:10',0),('09:11',1),('09:45',35),('13:45',185)])
+@pytest.mark.parametrize('clock,late',[('09:00',0),('09:10',0),('09:11',0),('09:15',0),('09:16',1),('09:45',30),('13:45',180)])
 def test_lateness_grace_excludes_lunch(clock,late):
     assert service.metrics(day(clock))['late_minutes']==late
 
@@ -34,7 +34,7 @@ def test_overtime_excludes_lunch_gaps_and_leave():
     assert service.metrics(day(end=None))['overtime_minutes']==0
     absence=leave('2026-10-26T09:00','2026-10-26T10:00')
     result=service.metrics(day('10:15','18:30'),[absence])
-    assert result['late_minutes']==5 and result['overtime_minutes']==0
+    assert result['late_minutes']==0 and result['overtime_minutes']==0
     result=service.metrics(day('09:00','19:30'),[absence])
     assert result['overtime_minutes']==60
 

@@ -174,6 +174,12 @@ def publish(db,user,month,payload):
     revision=draft.revision if draft else legacy.revision if legacy else 0
     if payload.revision!=revision or payload.publication_revision!=(publication.revision if publication else 0) or payload.fixed_revision!=fixed_revision(db):raise HTTPException(409,'值班草稿、同步版本或固定配置已变化，请刷新后重试')
     data=get_plan(db,user,month)
+    import weekend_night_duty as night
+    night_plan=db.get(night.NightDutyPlan,day) if night.ready(db) else None
+    day_keys={(entry['user_id'],entry['date']) for entry in data['assignments']}
+    for entry in night_plan.published if night_plan else []:
+        present=(entry['user_id'],entry['date']) in day_keys
+        if (entry['mode']=='standalone' and present) or (entry['mode']=='continuation' and not present):raise HTTPException(409,'白天安排与已同步夜间值班冲突，请先修改并同步对应夜间安排')
     if publication and not publication.editing_enabled and not data['needs_sync']:return data
     values=[{key:entry[key] for key in ('user_id','department','date','fixed') if key in entry} for entry in data['assignments']]
     before=publication.assignments if publication else []

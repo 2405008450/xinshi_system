@@ -126,6 +126,7 @@
             :is="chatWindow.projectType === 'discussion' ? DiscussionConversation : chatWindow.projectType === 'direct' ? DirectChat : chatWindow.projectType === 'annotation' ? AnnotationGroupChat : ProjectChatPanel"
             :ref="(el) => setPanelRef(chatWindow.key, el)"
             :project-id="chatWindow.projectId"
+            :room-title="chatWindow.title"
             :target-message-id="chatWindow.targetMessageId"
             :project-type="chatWindow.projectType"
             :active="isChatWindowVisible(chatWindow) && !(state.layout === 'workspace' && ['topics','summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(workspacePane))"

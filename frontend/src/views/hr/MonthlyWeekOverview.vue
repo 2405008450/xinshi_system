@@ -5,7 +5,7 @@
       <tbody><tr v-for="plan in plans" :key="plan.week_start" :data-week="plan.week_start">
         <th>{{plan.week_start}}<br>至 {{plan.week_end}}<small v-if="plan.week_start.slice(0,7)!==month||plan.week_end.slice(0,7)!==month">跨月周，与相邻月份共用安排</small><small v-if="plan.published===false">尚未同步到工作台</small><el-button link @click="historyWeek=plan.week_start;historyVisible=true">修改记录</el-button></th>
         <td v-for="shift in plan.shifts" :key="shift.code">
-          <template v-for="department in plan.departments" :key="department.code"><div v-if="people(plan,shift.code,department.code).length" class="month-week-group"><strong>{{department.label}}</strong><div v-for="person in people(plan,shift.code,department.code)" :key="person.user_id">{{person.name}} <el-tag v-if="person.fixed" size="small" type="info">固定</el-tag><el-tag v-if="person.leave_minutes" size="small" type="warning">请假 {{durationLabel(person.leave_minutes)}}</el-tag><small v-if="!person.active">已停用</small></div></div></template>
+          <template v-for="department in plan.departments" :key="department.code"><div v-if="people(plan,shift.code,department.code).length" class="month-week-group"><strong>{{department.label}}</strong><div v-for="person in people(plan,shift.code,department.code)" :key="person.user_id">{{person.name}} <el-tag v-if="person.home_rotation" size="small">居家轮班</el-tag><el-tag v-if="person.fixed" size="small" type="info">固定</el-tag><el-tag v-if="person.leave_minutes" size="small" type="warning">请假 {{durationLabel(person.leave_minutes)}}</el-tag><small v-if="!person.active">已停用</small></div></div></template>
           <span v-if="!plan.assignments.some(row=>row.shift===shift.code)" class="empty">暂无安排</span>
         </td>
       </tr></tbody>

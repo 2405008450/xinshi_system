@@ -28,7 +28,7 @@ with sync_playwright() as pw:
  context.route(re.compile(r'^http://localhost:3000/api/'),api);context.route(BASE+'/annual-leave-ui-check',lambda route:route.fulfill(content_type='text/html',body=html))
  page=context.new_page();page.clock.set_fixed_time(datetime(2026,10,28,20,tzinfo=timezone(timedelta(hours=8))));page.on('pageerror',lambda e:errors.append(str(e)));page.goto(BASE+'/annual-leave-ui-check')
  expect(page.locator('.el-table__body')).to_contain_text('待填写入职时间')
- page.get_by_role('button',name='年假规则',exact=True).click();rules=page.locator('.attendance-rules-content');expect(rules).to_contain_text('每满一个入职周年，再过3个月');expect(rules).to_contain_text('额度最多10天');expect(rules).to_contain_text('6月30日及之前入职');page.locator('.header-title').click()
+ page.get_by_role('button',name='年假规则',exact=True).click();rules=page.locator('.attendance-rules-content');expect(rules).to_contain_text('每满一个入职周年，再过3个月');expect(rules).to_contain_text('额度最多10天');expect(rules).to_contain_text('6月30日及之前入职');expect(rules).to_contain_text('次年1月1日先获得1天（只发放一次）');page.locator('.header-title').click()
  page.get_by_role('button',name='编辑',exact=True).click();dialog=page.get_by_role('dialog',name='编辑用户',exact=True)
  field=dialog.locator('.el-form-item').filter(has_text=re.compile('^入职时间'));field.get_by_role('combobox').fill('2025年06月30日');field.get_by_role('combobox').press('Enter');dialog.locator('.el-dialog__header').click(position={'x':20,'y':10})
  expect(dialog.locator('.el-form-item').filter(has_text='当前年假额度').get_by_role('textbox')).to_have_value('2天')
@@ -38,6 +38,8 @@ with sync_playwright() as pw:
  expect(page.locator('.el-table__body')).to_contain_text('2025年6月30日');expect(page.locator('.el-table__body')).to_contain_text('2天')
  page.get_by_role('button',name='新增用户',exact=True).click();dialog=page.get_by_role('dialog',name='新增用户',exact=True);expect(dialog.locator('.el-form-item').filter(has_text='当前年假额度').get_by_role('textbox')).to_have_value('待填写入职时间')
  expect(dialog.locator('.el-form-item').filter(has_text=re.compile('^入职时间')).get_by_role('combobox')).to_have_value('')
+ hire=dialog.locator('.el-form-item').filter(has_text=re.compile('^入职时间')).get_by_role('combobox');hire.fill('2026年09月09日');hire.press('Enter');dialog.locator('.el-dialog__header').click(position={'x':20,'y':10})
+ expect(dialog.locator('.el-form-item').filter(has_text='当前年假额度').get_by_role('textbox')).to_have_value('0天');expect(dialog).to_contain_text('2027年1月1日')
  page.set_viewport_size({'width':600,'height':600});footer=dialog.locator('.el-dialog__footer');expect(footer).to_be_visible();bounds=footer.bounding_box();assert bounds['y']+bounds['height']<=600
  body=dialog.locator('.el-dialog__body');body.evaluate('el=>el.scrollTop=el.scrollHeight');expect(footer).to_be_visible()
  dialog.get_by_role('button',name='取消',exact=True).click();expect(dialog).not_to_be_visible();assert len(writes)==1 and not errors,errors

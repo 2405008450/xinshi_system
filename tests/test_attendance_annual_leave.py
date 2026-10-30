@@ -30,6 +30,16 @@ def test_actual_effective_quota_partial_days_and_future_reservation():
     assert early['entries'][1]['annual_minutes']==0
 
 
+def test_late_year_hire_january_grant_applies_to_leave_only_after_effective_date():
+    hire=date(2024,9,9)
+    before=annual.allocate([entry('2024-12-31')],hire,2024,on_date=date(2024,12,31))
+    assert before['annual_minutes']==0 and before['makeup_required_minutes']==480
+    january=annual.allocate([entry('2025-01-01')],hire,2025,on_date=date(2025,1,1))
+    assert january['annual_leave_days']==1 and january['annual_minutes']==480
+    later=annual.allocate([entry('2025-01-01'),entry('2025-12-09',key='application:2')],hire,2025,on_date=date(2025,12,9))
+    assert later['annual_leave_days']==2 and later['annual_minutes']==960 and later['makeup_required_minutes']==0
+
+
 def test_one_day_uses_each_actual_full_shift_length_not_fixed_eight_hours():
     value=annual.allocate([entry('2026-10-01',300,600),entry('2026-10-02',480,480,key='application:2')],date(2026,1,1),2026,on_date=date(2026,10,29))
     assert [row['annual_minutes'] for row in value['entries']]==[300,240]
@@ -108,7 +118,7 @@ def test_lateness_also_consumes_annual_but_keeps_late_and_bonus_sources(annual_e
     row=AttendanceClockSession(user_id=person.id,day=date(2026,10,28),segment=0,check_in=at('2026-10-28T09:30'),check_out=at('2026-10-28T18:30'),shift_snapshot={'code':'early','periods':['09:00–12:00','13:30–18:30']},confirmations={'breakfast_after_eating':True,'early_work_confirmed':True})
     db.add(row);db.commit()
     value=annual.ledger(db,[person],2026)[0]
-    assert value['entries'][0]['source_kind']=='lateness' and value['annual_minutes']==20
+    assert value['entries'][0]['source_kind']=='lateness' and value['annual_minutes']==15
     assert value['entries'][0]['source_key']==f'lateness:{row.id}'
     assert value['entries'][0]['makeup_required_minutes']==0
     assert comp.balances(db,[person],date(2026,10,29))[0]['obligations'][0]['minutes']==0

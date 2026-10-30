@@ -1,5 +1,5 @@
 """月班次安排；每人每月唯一，行政部调整，本人只读。"""
-from datetime import date,datetime
+from datetime import date,datetime,timedelta
 from uuid import UUID
 from fastapi import HTTPException
 from pydantic import BaseModel,Field,model_validator
@@ -74,9 +74,11 @@ def directory(db,user):
     departments=[{'id':row['code'],'name':row['label']} for row in DEPARTMENTS]
     by_code={row['id']:row for row in departments}
     people=[]
+    from fixed_shift import effective,FIXED_ONLY_CODES
+    today=now().date();hidden={entry['user_id'] for entry in effective(db,[],today-timedelta(days=today.weekday()),weekly=True,for_schedule=False) if entry['shift'] in FIXED_ONLY_CODES}
     for person in data['people']:
         codes={names.get(row['id']) for row in person['departments']}-{None}
-        if person['active'] and codes:people.append({**person,'departments':[by_code[code] for code in by_code if code in codes]})
+        if person['active'] and codes and person['id'] not in hidden:people.append({**person,'departments':[by_code[code] for code in by_code if code in codes]})
     return {'ready':ready(db),'items':departments,'people':people,'shifts':SHIFTS,'departments':DEPARTMENTS}
 
 def serialize(db,row,month,weekly=False):

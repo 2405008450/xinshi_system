@@ -16,6 +16,7 @@ import fixed_shift
 from work_report_calendar import is_workday,period_bounds
 
 logger=logging.getLogger(__name__)
+LATE_GRACE_SECONDS=15*60
 
 def stamp(value):return api_time(value)
 def midnight(day):return datetime.combine(day,time.min,tzinfo=BUSINESS_TIMEZONE)
@@ -44,7 +45,10 @@ def shifts_for(db,users,day):
         plan=db.get(weekend_duty.management.WeekendDutyPublication,day.replace(day=1))
         duty_ids={row['user_id'] for row in (plan.assignments if plan else []) if row['date']==day.isoformat()}
     workday=is_workday(day)
-    if not duty_ids and not workday:return {}
+    import weekend_night_duty as night
+    night_plan=db.get(night.NightDutyPlan,day.replace(day=1)) if night.ready(db) else None
+    night_entries={entry['user_id']:entry for entry in (night_plan.published if night_plan else []) if entry['date']==day.isoformat()}
+
     start=day-timedelta(days=day.weekday())
     from weekly_shift_publication import WeeklyShiftPublication,ready as publication_ready
     row=db.get(WeeklyShiftPublication,start) if publication_ready(db) else None
@@ -54,14 +58,18 @@ def shifts_for(db,users,day):
     row=db.get(monthly.MonthlyShiftPlan,start) if monthly.ready(db) else None
     values=fixed_shift.effective(db,row.assignments if row else [],start)
     monthly_entries={value['user_id']:value for value in values}
-    shifts={row['code']:row for row in monthly.SHIFTS}
+    fixed_entries={entry['user_id']:entry for entry in fixed_shift.effective(db,[],day-timedelta(days=day.weekday()),weekly=True,for_schedule=False)}
+    shifts={row['code']:row for row in monthly.SHIFTS+fixed_shift.FIXED_ONLY_SHIFTS}
     result={}
     for user in users:
         uid=str(user.id)
-        if not workday and uid not in duty_ids:continue
-        entry=weekly_entries.get(uid) or monthly_entries.get(uid)
+        setting=fixed_entries.get(uid)
+        if not workday and uid not in duty_ids and uid not in night_entries and not (setting and setting['shift']=='flexible'):continue
+        entry=setting if setting and setting['shift'] in fixed_shift.FIXED_ONLY_CODES else weekly_entries.get(uid) or monthly_entries.get(uid)
+        if setting and setting['shift']=='home_rotation' and entry:entry={**entry,'home_office_day':True,'home_rotation':True}
         shift=shifts.get(entry['shift']) if entry else None
-        if shift:result[uid]={**shift,'department':entry['department'],'weekend_duty':uid in duty_ids,'fixed':bool(entry.get('fixed'))}
+        if shift:result[uid]={**shift,'department':entry['department'],'weekend_duty':uid in duty_ids,'fixed':bool(entry.get('fixed')),'home_office_day':bool(entry.get('home_office_day')),'home_rotation':bool(entry.get('home_rotation'))}
+        if uid in night_entries:result[uid]=night.decorate(result.get(uid),night_entries[uid])
     return result
 
 def intervals(day,shift):
@@ -94,9 +102,12 @@ def metrics(row,leaves=()):
             pieces=[item for a,b in pieces for item in ((a,min(b,start)),(max(a,end),b)) if item[1]>item[0]]
         expected.extend(pieces)
     expected_start=expected[0][0] if expected else None
-    # 迟到只统计班次内、扣除请假和休息后的应出勤时间，并减去 10 分钟宽限。
+    # 迟到只统计班次内、扣除请假和休息后的应出勤时间，并减去 15 分钟宽限。
+    override=row.shift_snapshot.get('late_start_at')
+    threshold=stamp(datetime.fromisoformat(override)) if override else None
+    if threshold:expected=[(max(a,threshold),b) for a,b in expected if b>threshold];expected_start=expected[0][0] if expected else None
     missed=sum(overlap(a,b,a,min(b,check_in)) for a,b in expected)
-    late=max(0,missed-600) if expected_start and check_in>expected_start else 0
+    late=max(0,missed-LATE_GRACE_SECONDS) if expected_start and check_in>expected_start and not row.shift_snapshot.get('continuation') else 0
     result={'late_count':int(late>0),'late_minutes':round(late/60,2),'overtime_minutes':0,'lunch_deducted_minutes':0}
     if not check_out:return result
     breaks=[(midnight(day)+timedelta(hours=12),midnight(day)+timedelta(hours=13,minutes=30))]
@@ -268,7 +279,7 @@ def attendance_report(db,user,anchor,period,*,admin=False,keyword='',department=
     annual_allowances=allowances(db,ids,anchor.year)
     for uid,summary in summaries.items():summary.update(annual_allowances.get(uid,{}))
     rows=sorted(daily.values(),key=lambda row:(row['day'],row['name']),reverse=True)
-    return api_time({'start':start,'end':end,'period':period,'annual_leave':annual_allowances.get(str(user.id)) if not admin else None,'monthly_policy':monthly_policy,'monthly_balances':balances,'totals':{key:round(value,2) for key,value in totals.items()},'people':list(summaries.values()),'records':rows[(page-1)*limit:page*limit],'total':len(rows),'leaves':leave_items,'departments':catalog['items'] if admin else [],'note':'迟到从宽限10分钟后累计，全部折算请假，与申请请假分开记录；加班按自然月真实工作净额计算，月度追责档位随本月加班累计更新，当前月为暂计。'})
+    return api_time({'start':start,'end':end,'period':period,'annual_leave':annual_allowances.get(str(user.id)) if not admin else None,'monthly_policy':monthly_policy,'monthly_balances':balances,'totals':{key:round(value,2) for key,value in totals.items()},'people':list(summaries.values()),'records':rows[(page-1)*limit:page*limit],'total':len(rows),'leaves':leave_items,'departments':catalog['items'] if admin else [],'note':'迟到从宽限15分钟后累计，全部折算请假，与申请请假分开记录；加班按自然月真实工作净额计算，月度追责档位随本月加班累计更新，当前月为暂计。'})
 
 def today_status(db,user):
     from attendance_clock import today_status as clock_status

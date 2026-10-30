@@ -73,6 +73,7 @@
       <h4>学历信息</h4>
       <el-descriptions :column="2" border size="small">
         <el-descriptions-item label="最高学历" :span="2">{{ educationLabel(detail.highestEducation) }}</el-descriptions-item>
+        <el-descriptions-item label="本科毕业年份" :span="2">{{ show(detail.educationExperiences?.find(item=>item.educationLevel==='bachelor')?.graduationYear) }}</el-descriptions-item>
         <template v-for="item in detail.educationExperiences || []" :key="item.id || `${item.educationLevel}-${item.sortOrder}`">
           <el-descriptions-item :label="educationLevelLabel(item.educationLevel)">{{ show(item.institution) }}</el-descriptions-item>
           <el-descriptions-item label="专业">{{ show(item.major) }}</el-descriptions-item>

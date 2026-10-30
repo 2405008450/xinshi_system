@@ -3,6 +3,15 @@ import test from 'node:test'
 import { buildMessageMenu, clampMessageMenu } from '../src/utils/chatMessageMenu.js'
 import { parseTopicNavigation, topicNavigationKey } from '../src/composables/useChatTopicNavigation.js'
 const handlers = Object.fromEntries(['copy','reply','favorite','acknowledge','progress','select','recall'].map(key=>[key,()=>{}]))
+
+test('新增技术开发任务仅在调用方授权的普通文字消息显示',()=>{
+  const row={content:'需要开发接口',messageType:'user'}
+  assert.equal(buildMessageMenu(row,{handlers}).some(item=>item.id==='development-task'),false)
+  const allowed={...handlers,'development-task':()=>{}}
+  assert.equal(buildMessageMenu(row,{handlers:allowed}).find(item=>item.id==='development-task').label,'新增技术开发任务')
+  for(const extra of [{content:''},{recalledAt:'2026-10-30'},{messageType:'system'}])
+    assert.equal(buildMessageMenu({...row,...extra},{handlers:allowed}).some(item=>item.id==='development-task'),false)
+})
 test('消息菜单按照消息状态和权限限制操作',()=>{
   const row={content:'正文',messageType:'user',senderUserId:'other',canClassify:true,canRecall:true}
   assert.deepEqual(buildMessageMenu(row,{handlers,currentUserId:'me',canCollect:true,canProgress:true}).map(x=>x.id),['copy','reply','favorite','acknowledge','collect','progress','select'])

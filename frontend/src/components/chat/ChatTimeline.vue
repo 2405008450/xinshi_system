@@ -87,3 +87,5 @@ const menuHandlers = {
   .group-message-main .group-bubble{max-width:calc(100% - 56px)}
 }
 </style>
+
+<style scoped src="./chatQuotes.css" />

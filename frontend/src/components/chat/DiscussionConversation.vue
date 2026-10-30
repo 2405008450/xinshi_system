@@ -30,6 +30,7 @@
     </div>
     <ChatMessageContextMenu ref="messageMenu" :messages="messages" :current-user-id="currentUserId" :handlers="menuHandlers" project-type="discussion" :project-id="projectId" :active="active" />
     <ChatMessageReferences ref="references" :project-id="projectId" project-type="discussion" @locate="locate" />
+    <TechnicalTaskDialog v-if="taskDraft" dialog-only :initial-content="taskDraft.content" @close="taskDraft = null" />
   </section>
 </template>
 <script setup>
@@ -49,7 +50,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import ScreenshotText from '@/components/common/ScreenshotText.vue'
 import ChatMessageReferences from './ChatMessageReferences.vue'
 import { useChatMessageInteractions } from '@/composables/useChatMessageInteractions'
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { canViewTechnicalDevelopment } from '@/utils/technicalDevelopmentAccess'
 import { chatRequest } from '@/api/projectChat'
 import { discussionMessagePayload } from '@/utils/discussionMessagePayload'
 import { chatDayKey, chatTimestampIndexes } from '@/utils/chatLayout'
@@ -57,7 +59,16 @@ import { useChatTimeDisplay } from '@/composables/useChatTimeDisplay'
 const { formatMessageTime: chatMessageTime, formatMessageDay, showMessageTime, showMessageDates } = useChatTimeDisplay()
 import { formatBusinessDateTime } from '@/utils/dateTime'
 import { subscribe } from '@/utils/realtimeSocket'
-const props = defineProps({ projectId: { type: String, required: true }, active: Boolean, targetMessageId: { type: String, default: '' } })
+const props = defineProps({ projectId: { type: String, required: true }, roomTitle: { type: String, default: '' }, active: Boolean, targetMessageId: { type: String, default: '' } })
+const TechnicalTaskDialog = defineAsyncComponent(() => import('@/views/technology/TechnicalDevelopment.vue'))
+const taskDraft = ref(null)
+const canCreateDevelopmentTask = computed(() => props.roomTitle.replace(/\s/g, '') === '技术/开发沟通' && canViewTechnicalDevelopment())
+function createDevelopmentTask(message, excerpt) {
+  if (!canCreateDevelopmentTask.value || message.recalledAt) return
+  const content = excerpt || message.content || ''
+  if (content.length > 100000) { ElMessage.warning('聊天记录超过具体任务的10万字上限，请选取部分内容后添加'); return }
+  taskDraft.value = { content }
+}
 const currentUserId = localStorage.getItem('user_id') || ''
 const recallDrafts = useRecalledMessageDrafts(computed(() => ['discussion', props.projectId]))
 const messages = ref([]), list = ref(), input = ref(), content = ref(''), replyTo = ref(null)
@@ -167,6 +178,7 @@ const menuHandlers=computed(()=>({
   reply:quoteMessage,
   favorite:message=>action(message,'favorite',!message.isFavorited),acknowledge,recall,
   ...(technicalRoom.value?{technical:message=>technicalPanel.value.append(message)}:{}),
+  ...(canCreateDevelopmentTask.value ? { 'development-task': createDevelopmentTask } : {}),
 }))
 watch(favoritesOnly,()=>refresh(true))
 watch(keyword, value => { clearTimeout(searchTimer); controller?.abort(); ++requestVersion; searchTimer = setTimeout(() => refresh(true), value ? 400 : 0) })
@@ -194,3 +206,5 @@ defineExpose({ openSearch: () => { searchOpen.value = true }, locate })
 .discussion-chat__message-main{display:flex;align-items:center;gap:5px}.discussion-chat__message.is-own .discussion-chat__message-main{flex-direction:row-reverse}.discussion-chat__message-main .discussion-chat__bubble{margin-left:0;max-width:calc(94% - 35px)}.discussion-chat__message:hover .chat-message-more,.discussion-chat__message:focus-within .chat-message-more{opacity:1}.discussion-mention-highlight{background:#fef3c7;color:#92400e;border-radius:3px}.discussion-chat__meta{flex-wrap:wrap}.discussion-chat__meta time{overflow-wrap:anywhere}
 .discussion-chat{display:flex;flex-direction:column;height:100%;min-height:0;background:#f6f8fb;color:#334155;font-size:13px}.discussion-chat__search{display:flex;gap:8px;padding:10px;background:white}.discussion-chat__timeline{flex:1;min-height:0;overflow-y:auto;padding:16px;overflow-anchor:none}.discussion-chat__date{text-align:center;color:#94a3b8;font-size:11px;margin:12px 0}.discussion-chat__message{margin:12px 0}.discussion-chat__meta{display:flex;align-items:center;gap:8px;margin-bottom:5px;color:#64748b;font-size:11px}.discussion-chat__meta strong{font-weight:500}.discussion-chat__bubble{width:fit-content;max-width:85%;padding:10px 13px;border:1px solid #e2e8f0;border-radius:12px;background:white;overflow-wrap:anywhere}.discussion-chat__bubble p{white-space:pre-wrap;line-height:1.7;margin:0;user-select:text}.discussion-chat__bubble blockquote{margin:0 0 7px;padding:5px 8px;border-left:2px solid #94a3b8;background:#f1f5f9;color:#64748b;white-space:pre-wrap;font-size:11px}.discussion-chat__message.is-own .discussion-chat__meta,.discussion-chat__message.is-own .discussion-chat__message-actions{justify-content:flex-end}.discussion-chat__message.is-own .discussion-chat__bubble{margin-left:auto;background:#e9f0fb;border-color:#d4e0f3}.discussion-chat__message-actions{display:flex;gap:8px;opacity:0}.discussion-chat__message:hover .discussion-chat__message-actions,.discussion-chat__message:focus-within .discussion-chat__message-actions{opacity:1}.discussion-chat__message-actions .el-button{font-size:10px;color:#94a3b8}.discussion-chat__recalled,.discussion-chat__hint{text-align:center;color:#94a3b8;font-size:12px}.discussion-chat__composer{flex:none;margin:10px 14px 14px;padding:10px;border:1px solid #dfe5ee;border-radius:12px;background:white}.discussion-chat__composer :deep(.el-textarea__inner){box-shadow:none;background:#fff}.discussion-chat__footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:8px}.discussion-chat__footer>span{margin-right:auto;font-size:11px;color:#94a3b8}.discussion-chat__reply{display:flex;align-items:center;justify-content:space-between;max-height:65px;overflow:auto;padding:5px 8px;background:#f1f5f9;font-size:12px;overflow-wrap:anywhere}.discussion-chat__error{color:#b91c1c;font-size:12px;margin:5px 0}.discussion-chat__new{align-self:center}@media(max-width:600px){.discussion-chat__footer>span{display:none}.discussion-chat__bubble{max-width:94%}}
 </style>
+
+<style scoped src="./chatQuotes.css" />

@@ -1,0 +1,41 @@
+/* 各类会话共用的引用摘要与待发送引用预览。 */
+.group-reply,
+.group-compose-reply,
+.discussion-chat__bubble blockquote,
+.discussion-chat__reply,
+:deep(.rich-content blockquote),
+:deep(.rich-editor__prose blockquote) {
+  box-sizing: border-box;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-left: 3px solid #93c5fd;
+  border-radius: 6px;
+  color: #475569;
+  padding: 6px 8px;
+  overflow-wrap: anywhere;
+}
+
+.group-reply {
+  display: block;
+  max-width: 100%;
+  margin-bottom: 7px;
+  text-align: left;
+  white-space: pre-wrap;
+  cursor: pointer;
+}
+
+.group-compose-reply {
+  max-height: 60px;
+  overflow: auto;
+}
+
+.group-bubble:has(.group-reply),
+.chat-bubble:has(.group-reply),
+.discussion-chat__bubble:has(blockquote) {
+  border-color: #bfdbfe;
+}
+
+.group-reply:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 2px;
+}

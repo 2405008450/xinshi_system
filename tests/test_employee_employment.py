@@ -14,14 +14,25 @@ import employee_employment as service
 @pytest.mark.parametrize('hire,today,expected',[
     (None,'2026-10-28',None),('2026-06-30','2026-10-28',1),('2026-07-01','2026-10-28',0),
     ('2025-06-30','2026-09-29',1),('2025-06-30','2026-09-30',2),
-    ('2025-07-01','2026-01-01',0),('2025-07-01','2026-09-30',0),('2025-07-01','2026-10-01',1),
+    ('2025-07-01','2026-01-01',1),('2025-07-01','2026-09-30',1),('2025-07-01','2026-10-01',2),
     ('2025-03-31','2026-06-29',1),('2025-03-31','2026-06-30',2),
     ('2024-02-29','2025-05-27',1),('2024-02-29','2025-05-28',2),
-    ('2024-11-30','2026-02-27',0),('2024-11-30','2026-02-28',1),
-    ('2010-01-01','2026-10-28',10),('2016-07-01','2026-09-30',9),('2016-07-01','2026-10-01',10),
+    ('2024-11-30','2026-02-27',1),('2024-11-30','2026-02-28',2),
+    ('2010-01-01','2026-10-28',10),('2016-07-01','2026-09-30',10),('2016-07-01','2026-10-01',10),
+    ('2024-09-09','2024-12-31',0),('2024-09-09','2025-01-01',1),
+    ('2024-09-09','2025-12-09',2),('2024-09-09','2026-01-01',2),
+    ('2024-09-09','2026-10-30',2),('2025-05-07','2026-10-30',2),('2026-01-12','2026-10-30',1),
     ('2027-01-01','2026-10-28',0)])
 def test_cutoff_delay_month_end_leap_and_cap(hire,today,expected):
     assert service.annual_days(date.fromisoformat(hire) if hire else None,date.fromisoformat(today))==expected
+
+
+def test_next_increase_includes_once_only_january_initial_grant():
+    hire=date(2024,9,9)
+    assert service.values(hire,date(2024,12,31))['annual_leave_next_increase']==date(2025,1,1)
+    assert service.values(hire,date(2025,1,1))['annual_leave_next_increase']==date(2025,12,9)
+    assert service.values(hire,date(2026,10,30))['annual_leave_next_increase']==date(2026,12,9)
+    assert service.values(date(2016,7,1),date(2026,9,30))['annual_leave_next_increase'] is None
 
 
 def test_update_clear_omit_and_user_serialization(environment,monkeypatch):

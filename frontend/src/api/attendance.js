@@ -21,3 +21,8 @@ export const applyCompTime=data=>api.post('/attendance/comp-time',data,{headers:
 export const cancelCompTime=id=>api.post(`/attendance/comp-time/${id}/cancel`,{}, {headers:{'X-Client-Type':chatClientType(navigator)}})
 export const getAnnualLeave=(year,admin=false,config={})=>api.get(admin?'/attendance/annual-leave/company':'/attendance/annual-leave',{...config,params:{year}})
 export const saveLeaveSettlement=data=>api.post('/attendance/annual-leave/settlement',data,{headers:{'X-Client-Type':chatClientType(navigator)}})
+
+export const getClockCorrections=(company=false,config={})=>api.get('/attendance/clock-corrections',{...config,params:{company}})
+export const requestClockCorrection=data=>api.post('/attendance/clock-corrections',data,{headers:{'X-Client-Type':chatClientType(navigator)}})
+export const confirmClockCorrection=id=>api.post(`/attendance/clock-corrections/${id}/confirm`,{},{headers:{'X-Client-Type':chatClientType(navigator)}})
+export const cancelClockCorrection=id=>api.post(`/attendance/clock-corrections/${id}/cancel`,{},{headers:{'X-Client-Type':chatClientType(navigator)}})

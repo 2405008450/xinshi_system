@@ -1,9 +1,9 @@
 """手动分段打卡及可追溯加班抵扣；旧记录只读兼容，不重算历史确认。"""
-from datetime import timedelta
+from datetime import datetime,timedelta
 from uuid import UUID
 from typing import Literal
 from fastapi import HTTPException
-from pydantic import BaseModel,Field,StrictBool,model_validator
+from pydantic import BaseModel,Field,StrictBool,model_validator,field_validator
 from sqlalchemy import inspect,text
 from attendance_models import AttendanceClockSession as Clock,AttendanceDay
 from models import AppUser
@@ -11,7 +11,7 @@ from chat_time import now,api_time
 
 
 class CheckInWrite(BaseModel):
-    segment:int=Field(default=0,ge=0,le=1)
+    segment:int=Field(default=0,ge=0)
     breakfast_notice_accepted:StrictBool
     work_mode:Literal['scheduled','company_home_overtime']='scheduled'
 
@@ -24,6 +24,13 @@ class CheckOutWrite(BaseModel):
     deduct_invalid_time:StrictBool|None=None
     invalid_minutes:float=Field(default=0,ge=0,le=1440,allow_inf_nan=False)
     invalid_reason:str=Field(default='',max_length=500)
+    cross_day_reason:str=Field(default='',max_length=2000)
+    next_start:datetime|None=None
+    @field_validator('next_start')
+    @classmethod
+    def local_start(cls,value):
+        if value is not None and value.tzinfo is None:raise ValueError('后续上班时间须包含时区')
+        return api_time(value) if value is not None else None
     @model_validator(mode='after')
     def valid(self):
         if self.deduct_invalid_time is True and (self.invalid_minutes<=0 or not self.invalid_reason.strip()):raise ValueError('请填写需扣除的无效时间（分钟）及原因')
@@ -39,13 +46,38 @@ def lock(db,user):
     db.query(AppUser).filter_by(id=user.id).with_for_update().one()
 
 
+def clock_shift(shift):
+    if not shift:return shift
+    shift={**shift,'periods':shift.get('full_periods',shift.get('periods',[]))}
+    # 当日旧快照继续保留；新增组使用现行打卡次数规则，不改变旧组的核算。
+    if shift.get('code')=='fixed_early_early':
+        shift.pop('clock_segments',None)
+        shift['multiple_clock_sessions']=True
+    return shift
+
+
+def allows_multiple(shift):
+    return bool(shift and not shift.get('clock_pairs_unrestricted') and (shift.get('flexible') or shift.get('multiple_clock_sessions')))
+
+
+def next_multi_segment(rows):
+    value=max([row.segment for row in rows],default=-1)+1
+    return 3 if value==2 else value
+
+
 def segments(shift):
     periods=(shift or {}).get('periods',[])
+    if (shift or {}).get('night_duty')=='continuation':return [periods[:-1],periods[-1:]]
+    if (shift or {}).get('clock_pairs_unrestricted'):return [periods,periods]
+    if (shift or {}).get('clock_segments')==2:return [[period] for period in periods]
     return [periods[:2],periods[2:]] if (shift or {}).get('code')=='customer_remote' else [periods]
 
 
 def snapshot(shift,index):
-    return {**shift,'full_periods':shift['periods'],'periods':segments(shift)[index],'clock_policy':'manual-v1','segment':index}
+    if shift.get('night_duty'):
+        night=shift['night_duty']=='standalone' or index==1
+        shift={**shift,'home_office_day':night,'night_duty_session':night,'duty_day_credit':0 if night else 1,'duty_makeup_first':night}
+    return {**shift,'full_periods':shift['periods'],'periods':[] if shift.get('flexible') else shift['periods'] if allows_multiple(shift) else segments(shift)[index],'continuation':(allows_multiple(shift) or shift.get('clock_pairs_unrestricted')) and index>0,'clock_policy':'manual-v1','segment':index}
 
 
 def import_legacy(db,user,day):
@@ -71,12 +103,13 @@ def serialize(row,leaves=()):
     def minutes(a,b):return round(max(0,(b-a).total_seconds()-sum(service.overlap(a,b,c,d) for c,d in exclusions))/60,2) if b>a else 0
     early=minutes(left,min(right or periods[0][0],periods[0][0])) if periods else 0
     result['early_minutes']=early
+    result['work_minutes']=minutes(left,right) if right else 0
     if right:
         early_count=early if row.confirmations.get('early_work_confirmed') else 0
         late=minutes(max(left,periods[-1][1]),right) if periods else 0
         breakfast=0 if row.confirmations.get('breakfast_after_eating') else 15
-        remote=row.shift_snapshot.get('code')=='customer_remote'
-        dinner=20 if not remote and (row.shift_snapshot.get('fixed') or (row.shift_snapshot.get('code') in ('late','late_late') and row.confirmations.get('dinner_eaten'))) else 0
+        remote=row.shift_snapshot.get('code')=='customer_remote' or bool(row.shift_snapshot.get('home_rotation'))
+        dinner=20 if not remote and not row.shift_snapshot.get('dinner_already_deducted') and (row.shift_snapshot.get('fixed') or (row.shift_snapshot.get('code') in ('late','late_late') and row.confirmations.get('dinner_eaten'))) else 0
         invalid=row.confirmations.get('invalid_minutes',0) if remote or row.shift_snapshot.get('home_office_day') else 0
         raw=minutes(left,right) if row.shift_snapshot.get('overtime_only') else round(early_count+late,2);net=round(raw-breakfast-dinner-invalid,2)
         details=[{'reason':'提前到达并实际工作' if early_count else '提前到达未工作，不计加班','minutes':early_count,'kind':'credit'},
@@ -98,22 +131,27 @@ def check_in(db,user,request,payload):
     if payload.work_mode=='company_home_overtime':return check_in_home_overtime(db,user,rows,moment)
     regular=[row for row in rows if row.segment!=2]
     shift=regular[0].shift_snapshot if regular else service.shift_for(db,user,day)
-    if shift and 'full_periods' in shift:shift={**shift,'periods':shift['full_periods']}
+    shift=clock_shift(shift)
     if not shift:raise HTTPException(409,'今日无有效班次，不能打卡')
-    if payload.segment>=len(segments(shift)):raise HTTPException(422,'该班次没有第二段打卡')
+    shift={**shift,**home_office_day(db,user,day)}
+    multiple=allows_multiple(shift)
+    if not multiple and payload.segment>=len(segments(shift)):raise HTTPException(422,'该班次没有第二段打卡')
     existing=next((row for row in regular if row.segment==payload.segment),None)
     if existing:
         db.commit();return {'message':'已保留本段首次上班打卡','record':serialize(existing,service.day_leaves(db,user.id,day))}
     if any(not row.check_out for row in rows):raise HTTPException(409,'请先完成上一段下班打卡')
-    if payload.segment==1 and not any(row.segment==0 and row.check_out for row in regular):raise HTTPException(409,'请先完成第一段上下班打卡')
-    if payload.segment==1 and any(row.confirmations.get('legacy_completed') for row in regular):raise HTTPException(409,'今日旧版打卡已完成，不再追加分段')
-    if payload.segment==1:
+    if multiple and payload.segment!=next_multi_segment(regular):raise HTTPException(409,'打卡次序已变化，请刷新后重试')
+    if not multiple and payload.segment==1 and not any(row.segment==0 and row.check_out for row in regular):raise HTTPException(409,'请先完成第一段上下班打卡')
+    if not multiple and payload.segment==1 and any(row.confirmations.get('legacy_completed') for row in regular):raise HTTPException(409,'今日旧版打卡已完成，不再追加分段')
+    if not multiple and payload.segment==1 and not shift.get('clock_pairs_unrestricted'):
         previous=next(row for row in rows if row.segment==0)
         if moment<service.intervals(day,snapshot(shift,0))[-1][1]:raise HTTPException(409,'第一段预定结束后才能开始第二段打卡')
     pending=db.query(Clock).filter(Clock.user_id==user.id,Clock.day<day,Clock.check_out.is_(None)).first()
     pending=pending or db.query(AttendanceDay).filter(AttendanceDay.user_id==user.id,AttendanceDay.day==day-timedelta(days=1),AttendanceDay.check_out.is_(None)).first()
     if pending:raise HTTPException(409,'仍有此前未签退记录，请先完成下班打卡')
-    shift={**shift,**home_office_day(db,user,day)}
+    shift={**shift,**home_office_day(db,user,day),'dinner_already_deducted':any(serialize(row).get('dinner_deduction_minutes',0)>0 for row in rows if row.check_out)}
+    from attendance_corrections import start_override
+    shift={**shift,**start_override(db,user,day,payload.segment)}
     row=Clock(user_id=user.id,day=day,segment=payload.segment,check_in=moment,shift_snapshot=snapshot(shift,payload.segment),confirmations={'breakfast_notice_accepted':True})
     db.add(row);db.commit()
     return {'message':'上班打卡成功','record':serialize(row,service.day_leaves(db,user.id,day))}
@@ -130,24 +168,41 @@ def check_out(db,user,request,payload):
         if not old:raise HTTPException(404,'未找到本人的上班打卡记录')
         row=import_legacy(db,user,old.day)[0]
     if row.check_out:return {'message':'已保留本段首次下班打卡','record':serialize(row,service.day_leaves(db,user.id,row.day))}
+    events=apply_checkout(db,user,row,payload,moment)
+
+    db.commit()
+    from attendance_corrections import publish
+    publish(events)
+    return {'message':'打卡成功','record':serialize(row,service.day_leaves(db,user.id,row.day))}
+
+
+def validate_checkout(db,user,row,payload,moment):
+    import attendance_service as service
     if moment<service.stamp(row.check_in):raise HTTPException(409,'当前时间早于上班记录')
-    remote=row.shift_snapshot.get('code')=='customer_remote'
-    if not row.shift_snapshot.get('overtime_only') and payload.early_work_confirmed is None:raise HTTPException(422,'请选择提前到达时间是否已在工作')
+    remote=row.shift_snapshot.get('code')=='customer_remote' or bool(row.shift_snapshot.get('home_rotation'))
+    if not row.shift_snapshot.get('overtime_only') and not row.shift_snapshot.get('flexible') and payload.early_work_confirmed is None:raise HTTPException(422,'请选择提前到达时间是否已在工作')
     at_home=remote or bool(row.shift_snapshot.get('home_office_day')) or bool(home_office_day(db,user,row.day).get('home_office_day'))
-    if at_home and not remote:row.shift_snapshot={**row.shift_snapshot,'home_office_day':True}
     if at_home and payload.deduct_invalid_time is None:raise HTTPException(422,'请选择是否扣除无效时间')
     if not at_home and payload.deduct_invalid_time is not None:raise HTTPException(422,'本班次无需填写居家无效时间')
     if not remote and row.shift_snapshot.get('code') in ('late','late_late') and payload.dinner_eaten is None:raise HTTPException(422,'请选择有无进食晚餐')
     if remote and payload.dinner_eaten is not None:raise HTTPException(422,'居家晚班无需晚餐确认')
     if payload.invalid_minutes>(moment-service.stamp(row.check_in)).total_seconds()/60:raise HTTPException(422,'扣除时间不能超过本段已打卡时长')
+    return at_home
+
+
+def apply_checkout(db,user,row,payload,moment):
+    import attendance_service as service
+    from attendance_corrections import apply_late_checkout
+    at_home=validate_checkout(db,user,row,payload,moment)
+    if at_home:row.shift_snapshot={**row.shift_snapshot,'home_office_day':True}
+    events=apply_late_checkout(db,user,row,payload,moment) or []
     row.confirmations={**row.confirmations,**payload.model_dump(mode='json',exclude={'record_id'}),'confirmed_at':api_time(moment).isoformat()}
     row.check_out=moment
     legacy_id=row.confirmations.get('legacy_id')
     if legacy_id:
         old=db.get(AttendanceDay,UUID(legacy_id))
         if old and not old.check_out:old.check_out=moment
-    db.commit()
-    return {'message':'打卡成功','record':serialize(row,service.day_leaves(db,user.id,row.day))}
+    return events
 
 
 def today_status(db,user):
@@ -157,7 +212,7 @@ def today_status(db,user):
     old=db.query(AttendanceDay).filter_by(user_id=user.id,day=day).first() if not rows else None
     regular=[row for row in rows if row.segment!=2]
     shift=regular[0].shift_snapshot if regular else old.shift_snapshot if old else service.shift_for(db,user,day)
-    if shift and 'full_periods' in shift:shift={**shift,'periods':shift['full_periods']}
+    shift=clock_shift(shift)
     home=home_office_day(db,user,day)
     if shift:shift={**shift,**home}
     entries=[serialize(row,service.day_leaves(db,user.id,day)) for row in rows] if rows else [service.serialize_day(old,service.day_leaves(db,user.id,day))] if old else []
@@ -167,8 +222,16 @@ def today_status(db,user):
     legacy_pending=db.query(AttendanceDay).filter(AttendanceDay.user_id==user.id,AttendanceDay.day==day-timedelta(days=1),AttendanceDay.check_out.is_(None)).first() if not pending and not entries else None
     pending_value=serialize(pending,service.day_leaves(db,user.id,pending.day)) if pending else service.serialize_day(legacy_pending,service.day_leaves(db,user.id,legacy_pending.day)) if legacy_pending else None
     open_record=next((row for row in entries if not row['check_out']),None)
+    from attendance_corrections import next_scheduled_start
+    current_open=pending or next((row for row in rows if not row.check_out),None) or legacy_pending
+    selected=pending_value or open_record
+    if current_open and selected:
+        threshold,_=next_scheduled_start(db,user,current_open,now())
+        selected['requires_cross_day_reason']=bool(threshold and now()>=threshold)
     regular_entries=[entry for entry in entries if entry.get('segment',0)!=2]
-    return api_time({'day':day.isoformat(),'shift':shift,'record':open_record or (entries[-1] if entries else None),'sessions':entries,'segment_count':len(segments(shift)) if shift else 0,'can_check_in':bool(available and shift and not open_record and not pending_value and not (old and old.check_out) and not any(row.confirmations.get('legacy_completed') for row in regular) and len(regular_entries)<len(segments(shift))),'next_segment':min(len(regular_entries),1),'can_home_overtime_check_in':bool(available and not open_record and not pending_value and not any(row.segment==2 for row in rows)),'home_overtime_record':next((entry for entry in entries if entry.get('segment')==2),None),'pending_previous':pending_value,'clock_ready':available,
+    flexible=bool(shift and shift.get('flexible'))
+    multiple=allows_multiple(shift)
+    return api_time({'day':day.isoformat(),'shift':shift,'record':open_record or (entries[-1] if entries else None),'sessions':entries,'segment_count':None if multiple else len(segments(shift)) if shift else 0,'flexible':flexible,'multiple_clock_sessions':multiple,'can_check_in':bool(available and shift and not open_record and not pending_value and not (old and old.check_out) and not any(row.confirmations.get('legacy_completed') for row in regular) and (multiple or len(regular_entries)<len(segments(shift)))),'next_segment':next_multi_segment(regular) if multiple else min(len(regular_entries),1),'can_home_overtime_check_in':bool(available and not open_record and not pending_value and not any(row.segment==2 for row in rows)),'home_overtime_record':next((entry for entry in entries if entry.get('segment')==2),None),'pending_previous':pending_value,'clock_ready':available,
         'leaves':[{'start_at':leave.start_date,'end_at':leave.end_date,'reason':leave.reason,'minutes':round(sum(service.overlap(service.stamp(leave.start_date),service.stamp(leave.end_date),a,b) for a,b in service.intervals(day,shift))/60,2)} for leave in service.day_leaves(db,user.id,day)]})
 
 
@@ -201,10 +264,15 @@ def monthly_balances(db,ids,start,end):
 
 
 def home_office_day(db,user,day):
+    from weekend_night_duty import assignment
+    if assignment(db,user.id,day):return {}
     from home_office_models import HomeOfficeApplication
     if not inspect(db.connection()).has_table(HomeOfficeApplication.__tablename__):return {}
     row=db.query(HomeOfficeApplication).filter(HomeOfficeApplication.user_id==user.id,HomeOfficeApplication.requested_date==day,HomeOfficeApplication.status.in_(['pending','approved'])).first()
-    return {'home_office_day':True,'home_office_approval_status':row.status} if row else {}
+    if not row:return {}
+    from home_office_service import durations
+    minutes=durations(db,[row]).get(row.id,480)
+    return {'home_office_day':True,'home_office_approval_status':row.status,'home_office_hours':minutes/60,**({'clock_pairs_unrestricted':True} if minutes<480 else {})}
 
 
 def check_in_home_overtime(db,user,rows,moment):

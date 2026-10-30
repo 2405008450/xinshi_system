@@ -28,16 +28,22 @@ def allocation(duties,obligations,requests,hire,cutoff):
     months=[value for value in month_keys(hire,cutoff) if value!=exempt] if hire and hire<=cutoff else []
     counts={};extra=[];details=[]
     for duty in sorted(duties,key=lambda item:(item['day'],item['id'])):
-        month=duty['day'][:7];counts[month]=counts.get(month,0)+1
-        eligible=month==exempt or counts[month]>1
-        value={**duty,'extra':eligible,'available_minutes':duty['minutes'] if eligible else 0,'uses':[]}
+        month=duty['day'][:7];weight=duty.get('day_credit',1);before=counts.get(month,0);counts[month]=before+weight
+        fraction=1 if duty.get('direct_extra') or month==exempt else min(weight,max(0,counts[month]-1))/weight if weight else 0
+        eligible=fraction>0
+        value={**duty,'day_credit':weight,'extra':eligible,'eligible_minutes':round(duty['minutes']*fraction,2),'available_minutes':round(duty['minutes']*fraction,2),'uses':[]}
         details.append(value)
         if eligible:extra.append(value)
     # 无值班月份也须补足累计每月1天基数，避免只计算有值班的月份。
-    missing_base=max(0,len(months)-sum(bool(counts.get(month)) for month in months))
-    for item in extra[:missing_base]:
-        item['uses'].append({'duty_id':item['id'],'day':item['day'],'minutes':item['available_minutes'],'kind':'baseline','source_id':'累计未完成月份的每月1天基数'})
-        item['available_minutes']=0
+    missing_base=max(0,len(months)-sum(min(1,counts.get(month,0)) for month in months))
+    for item in extra:
+        if missing_base<=0:break
+        if not item['day_credit']:continue
+        available_days=item['available_minutes']/item['minutes']*item['day_credit'] if item['minutes'] else 0
+        used=min(missing_base,available_days)
+        minutes=round(item['minutes']*used/item['day_credit'],2) if item['day_credit'] else 0
+        item['uses'].append({'duty_id':item['id'],'day':item['day'],'minutes':minutes,'kind':'baseline','source_id':'累计未完成月份的每月1天基数'})
+        item['available_minutes']=round(item['available_minutes']-minutes,2);missing_base-=used
     def take(minutes,kind,source_id):
         output=[]
         for item in extra:
@@ -57,10 +63,11 @@ def allocation(duties,obligations,requests,hire,cutoff):
         links,remaining=take(item['minutes'],'comp_time',item['id'])
         request_details.append({**item,'reserved_links':links,'uncovered_minutes':remaining})
     # 完整自然月为统计单位，当前月为暂计；首月免值班时也不计入平均分母。
-    average=round(len(duties)/len(months),4) if months else 0
-    eligible=bool(hire and months and len(duties)>len(months))
+    duty_days=sum(item.get('day_credit',1) for item in duties)
+    average=round(duty_days/len(months),4) if months else 0
+    eligible=bool(hire and months and duty_days>len(months))
     available=round(sum(item['available_minutes'] for item in extra),2) if eligible else 0
-    return {'hire_date':hire,'exempt_month':exempt,'counted_months':len(months),'duty_days':len(duties),'average_days':average,'eligible':eligible,'available_minutes':available,'extra_minutes':round(sum(item['minutes'] for item in extra),2),'makeup_remaining_minutes':round(sum(item['remaining_minutes'] for item in leave_details),2),'reserved_minutes':sum(item['minutes'] for item in requests),'duties':details,'obligations':leave_details,'requests':request_details}
+    return {'hire_date':hire,'exempt_month':exempt,'counted_months':len(months),'duty_days':duty_days,'average_days':average,'eligible':eligible,'available_minutes':available,'extra_minutes':round(sum(item['eligible_minutes'] for item in extra),2),'makeup_remaining_minutes':round(sum(item['remaining_minutes'] for item in leave_details),2),'reserved_minutes':sum(item['minutes'] for item in requests),'duties':details,'obligations':leave_details,'requests':request_details}
 
 
 def request_value(row):return api_time({'id':str(row.id),'user_id':str(row.user_id),'start_at':row.start_at,'end_at':row.end_at,'minutes':row.minutes,'reason':row.reason,'status':row.status,'created_at':row.created_at,'allocation_snapshot':row.allocation_snapshot})
@@ -95,9 +102,10 @@ def balances(db,users,cutoff):
             value=row.day.strftime('%m-%d')
             # 法定节假日另走待开发规则；调休补工作日不是额外周末值班。
             if not calendar or value in calendar['workdays'] or any(a<=value<=b for a,b in calendar['holidays']):continue
-            duty_days.setdefault(row.day,[]).append(row)
+            night=bool(shift.get('night_duty')=='standalone' or shift.get('night_duty_session'))
+            duty_days.setdefault((row.day,night),[]).append(row)
         duties=[]
-        for day,rows in duty_days.items():
+        for (day,night),rows in duty_days.items():
             if any(not row.check_out for row in rows):continue
             if any(row.shift_snapshot.get('code')=='customer_remote' and hasattr(row,'segment') and not getattr(row,'confirmations',{}).get('legacy_completed') for row in rows) and len(rows)<2:continue
             windows=[]
@@ -106,7 +114,7 @@ def balances(db,users,cutoff):
             exclusions=merged([(stamp(item.start_date),stamp(item.end_date)) for item in leaves if item.employee_id==user.id]+[(midnight(day)+timedelta(hours=12),midnight(day)+timedelta(hours=13,minutes=30))])
             minutes=sum(max(0,(b-a).total_seconds()-sum(overlap(a,b,c,d) for c,d in exclusions))/60 for a,b in merged(windows))
             minutes=max(0,minutes-sum((getattr(row,'confirmations',{}) or {}).get('invalid_minutes',0) for row in rows))
-            if minutes>0:duties.append({'id':f'duty:{user.id}:{day}','day':day.isoformat(),'minutes':round(minutes,2),'clock_ids':[str(row.id) for row in rows],'home':any(row.shift_snapshot.get('home_office_day') or row.shift_snapshot.get('code')=='customer_remote' for row in rows)})
+            if minutes>0:duties.append({'id':f'{"night" if night else "duty"}:{user.id}:{day}','day':day.isoformat(),'minutes':round(minutes,2),'day_credit':0 if night else 1,'direct_extra':night,'night_duty':night,'clock_ids':[str(row.id) for row in rows],'home':any(row.shift_snapshot.get('home_office_day') or row.shift_snapshot.get('code')=='customer_remote' for row in rows)})
         obligations=[{**item,'day':item['day']} for item in late if item['user_id']==str(user.id) and item['day']>=begin.isoformat()]
         for leave in leaves:
             if leave.employee_id!=user.id:continue

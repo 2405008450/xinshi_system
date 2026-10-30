@@ -23,9 +23,9 @@ const canConfigureReports=ref(false)
 onMounted(async()=>{try{canConfigureReports.value=(await getReportAccessContext()).can_configure}catch{canConfigureReports.value=false}})
 const active=ref(typeof route.query.tab==='string'?route.query.tab:'departments')
 const canReadUsers=computed(()=>hasPermission('system:users:read'))
-const canWriteUsers=computed(()=>hasPermission('system:users:write'))
+const canWriteUsers=computed(()=>hasPermission(['system:users:write','system:organization:write']))
 watch(()=>route.query.tab,value=>{active.value=typeof value==='string'?value:'departments'})
 watch(active,value=>{if(route.query.tab!==value)router.replace({query:{...route.query,tab:value}})})
-function openOfficePeople(office){router.push({path:'/users',query:{tab:'people',office_city_id:office.id,active_only:'true'}})}
+function openOfficePeople(office){router.push({path:'/hr-management/organization',query:{tab:'people',office_city_id:office.id,active_only:'true'}})}
 function clearOfficeFilter(){const query={...route.query,tab:'people'};delete query.office_city_id;delete query.active_only;router.replace({query})}
 </script>

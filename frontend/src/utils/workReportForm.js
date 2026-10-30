@@ -1,10 +1,10 @@
-export const projectTypes = ['笔译项目','口译项目','招聘项目','标注项目','配音项目','字幕项目','公证项目','认证项目','新咨询对接','其他项目']
+export const projectTypes = ['笔译项目','口译项目','招聘项目','标注项目','配音项目','字幕项目','公证项目','认证项目','新咨询对接','开发任务','其他项目']
 export function reportBusinessDate(value=new Date()) {const date=value instanceof Date?value:new Date(value);if(Number.isNaN(date.getTime()))return '';return new Date(date.getTime()+60*60*1000).toISOString().slice(0,10)}
 export const defaultWorkCategories = {
   项目工作: projectTypes,
   非项目工作: ['接待客户','研究工作','开发工作','技术支持','行政工作','人事工作'],
   外勤工作: ['拜访客户','口译现场','投标','陪标'],
-  管理工作: ['查看工作报告','分析数据']
+  管理工作: ['查看工作报告','分析数据','开发工作']
 }
 export function categoryValue(parent,name) {return parent==='项目工作'&&projectTypes.includes(name)?name:`${parent}::${name}`}
 export function buildWorkTypeOptions(categories=defaultWorkCategories,rows=[]) {

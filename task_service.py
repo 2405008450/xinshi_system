@@ -765,7 +765,7 @@ def preview_daily_report(
         return _serialize_report(report)
     if report:
         derived_items = derive_daily_report_items(db, user.id, report_date)
-        derived_items.extend({key:getattr(item,key) for key in ['source_type','source_id','task_type','task_name','progress_content','result_content','duration_minutes','display_metadata']} for item in report.items if (item.display_metadata or {}).get('source') == 'consultation_handoff')
+        derived_items.extend({key:getattr(item,key) for key in ['source_type','source_id','task_type','task_name','progress_content','result_content','duration_minutes','display_metadata']} for item in report.items if (item.display_metadata or {}).get('source') in ('consultation_handoff', 'technical_development'))
         return {
             "id": report.id,
             "user_id": report.user_id,
@@ -851,13 +851,22 @@ def save_daily_report(
     # 陈旧编辑窗口或重新汇总不能删除已自动追加的新咨询记录。
     for existing in report.items:
         metadata = existing.display_metadata or {}
-        if metadata.get('source') not in ('consultation_handoff', 'project_arrangement', 'personal_daily_task'):
+        if metadata.get('source') not in ('consultation_handoff', 'project_arrangement', 'personal_daily_task', 'technical_development'):
             continue
         incoming = next((item for item in raw_items if (item.get('display_metadata') or {}).get('_feedback_key') == item_key(existing)), None)
         if incoming is None:
             raw_items.append({key:getattr(existing,key) for key in ['source_type','source_id','task_type','task_name','progress_content','result_content','duration_minutes']} | {'display_metadata':dict(metadata)})
         else:
-            incoming['display_metadata'] = {**incoming.get('display_metadata', {}), **{key:metadata[key] for key in ['source','consultation_id','consultation_code','added_at','_feedback_key','arrangement_id','personal_task_id'] if key in metadata}}
+            incoming['display_metadata'] = {**incoming.get('display_metadata', {}), **{key:metadata[key] for key in ['source','consultation_id','consultation_code','added_at','_feedback_key','arrangement_id','personal_task_id','technical_task_id'] if key in metadata}}
+    if finalize:
+        from task_schemas import DailyReportItemInput
+        from pydantic import ValidationError
+        for item in raw_items:
+            if (item.get('display_metadata') or {}).get('source') == 'technical_development':
+                try:
+                    DailyReportItemInput.model_validate(item)
+                except ValidationError:
+                    raise ValueError('请补全开发任务的工作量、单位和耗时后再确认报告')
     assign_item_keys(report.id,raw_items,report.items)
     from work_report_hierarchy import normalize_hierarchy
     raw_items = normalize_hierarchy(raw_items)

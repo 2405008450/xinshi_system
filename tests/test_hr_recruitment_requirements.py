@@ -105,3 +105,33 @@ def test_recruitment_city_migration_only_adds_linked_table(environment):
     apply_migration(db.connection());apply_migration(db.connection());db.commit()
     assert [row['name'] for row in inspect(db.connection()).get_columns('hr_recruitment_requirement')]==before
     assert inspect(db.connection()).has_table('hr_recruitment_requirement_city')
+
+
+def test_planned_onboarding_date_create_edit_clear_omission_idempotence_and_search(environment):
+    db,users=environment;setup(db,users);admin=users[0]
+    request=data(planned_onboarding_date=date(2026,11,15))
+    row=service.create(db,admin,request)
+    assert row['planned_onboarding_date']==date(2026,11,15)
+    assert service.create(db,admin,request)['id']==row['id']
+    with pytest.raises(HTTPException):service.create(db,admin,request.model_copy(update={'planned_onboarding_date':date(2026,11,16)}))
+    assert service.list_rows(db,admin,'2026-11-15 英语')['total']==1
+    fields=request.model_dump(exclude={'client_id','planned_onboarding_date'})
+    row=service.update(db,admin,row['id'],service.RequirementUpdate(**fields,revision=1))
+    assert row['planned_onboarding_date']==date(2026,11,15)
+    row=service.update(db,admin,row['id'],service.RequirementUpdate(**fields,planned_onboarding_date=date(2026,12,1),revision=2))
+    assert row['planned_onboarding_date']==date(2026,12,1)
+    assert service.list_rows(db,admin,'2026-11-15')['total']==0
+    row=service.update(db,admin,row['id'],service.RequirementUpdate(**fields,planned_onboarding_date=None,revision=3))
+    assert row['planned_onboarding_date'] is None
+
+
+def test_schedule_migration_only_new_table_and_preserves_existing_business_rows(environment):
+    from tools.apply_hr_recruitment_schedule_migration import apply_migration
+    db,users=environment;setup(db,users)
+    original=service.create(db,users[0],data())
+    service.RecruitmentRequirementSchedule.__table__.drop(db.connection());db.commit()
+    before=[item['name'] for item in inspect(db.connection()).get_columns('hr_recruitment_requirement')]
+    apply_migration(db.connection());apply_migration(db.connection());db.commit()
+    assert [item['name'] for item in inspect(db.connection()).get_columns('hr_recruitment_requirement')]==before
+    assert service.get_row(db,original['id']).demand_no==original['demand_no']
+    assert db.query(service.RecruitmentRequirementSchedule).count()==0
