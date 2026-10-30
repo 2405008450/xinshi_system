@@ -11,7 +11,7 @@ export function managerChanges(before, after) {
     const previous = managerIds(before, role), next = managerIds(after, role)
     return sameManagers(previous, next) ? [] : [{
       role, label: role === 'client_manager' ? '客户经理' : '项目经理', previous, next,
-      requiresReason: previous.length > 0 || Boolean(before?.managerAssignmentHistory?.[role]),
+      requiresReason: role === 'client_manager' || previous.length > 0 || Boolean(before?.managerAssignmentHistory?.[role]),
     }]
   })
 }

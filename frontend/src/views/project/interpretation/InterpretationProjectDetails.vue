@@ -209,6 +209,7 @@
               <el-empty v-else description="暂未安排译员" :image-size="64" />
             </div>
           </el-popover>
+          <ProjectClientManagerHistory v-else-if="column.key === 'currentClientManager'" project-type="interpretation" :project-id="row.id" :label="row.currentClientManager || '未分配'" />
           <el-button v-else-if="column.key === 'projectName'" type="primary" link class="project-name-ellipsis" :title="textValue(row.projectName)" @click.stop="openProgress(row)">{{ textValue(row.projectName) }}</el-button>
           <span v-else>{{ tableCellText(row, column.key) }}</span>
         </template>
@@ -452,6 +453,7 @@
                 </el-form-item>
               </el-col>
             </el-row>
+            <ProjectClientManagerField v-model="form.clientManagerId" v-model:reason="form.clientManagerChangeReason" :baseline-id="clientManagerBaseline" :baseline-name="form.currentClientManager" :project-id="form.id" project-type="interpretation" />
             <el-form-item label="客户预算"><el-input v-model="form.customerBudget" placeholder="可填写金额、计价单位及差旅说明" /></el-form-item>
             <el-form-item label="现客户经理" prop="currentClientManager">
               <CustomerSpecialistSelect v-model="form.currentClientManager" :options="customerSpecialists" :loading="customerSpecialistsLoading" />
@@ -586,6 +588,9 @@
 </template>
 
 <script setup>
+import ProjectClientManagerField from '@/components/common/ProjectClientManagerField.vue'
+import ProjectClientManagerHistory from '@/components/common/ProjectClientManagerHistory.vue'
+const clientManagerBaseline = ref(localStorage.getItem('user_id') || '')
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 const props=defineProps({embedded:Boolean,myProjects:Boolean})
 import { managedProjectFilters } from "@/utils/managedProjectFilters"
@@ -870,7 +875,7 @@ const emptyLanguageDirection = () => ({ languageIds: ['', ''], requiredCount: nu
 const defaultForm = () => ({
   id: '', orderNo: '', projectName: '', projectTypes: [], taskDescription: '',
   clientId: '', subClientId: '', clientShortName: '', clientFullName: '', clientCode: '',
-  clientDomain: '', currentClientManager: '', managerContact: '', contactName: '', customerOrderNo: '', projectStatus: 'initial_follow_up',
+  clientDomain: '', currentClientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', contactName: '', customerOrderNo: '', projectStatus: 'initial_follow_up',
   locations: [''], customerBudget: '', customerConsultationTime: '', customerConfirmationTime: '',
   requiredInterpreterGender: '', requiredInterpretationLevel: '',
   interpreterSpecialRequirements: '', interpreterHeightRequirement: '',
@@ -1063,7 +1068,7 @@ const handleClientSelect = (client) => {
   form.clientFullName = client.client_name || ''
   form.clientCode = client.client_code || ''
   form.clientDomain = client.client_domain || ''
-  form.currentClientManager = client.client_manager || ''
+  // 客户选择不覆盖项目客户经理。
   form.managerContact = client.manager_contact || ''
 }
 const handleClientShortNameInput = () => {
@@ -1072,7 +1077,7 @@ const handleClientShortNameInput = () => {
   form.subClientId = ''
   form.clientCode = ''
   form.clientDomain = ''
-  form.currentClientManager = ''
+
   form.managerContact = ''
   if (hadSelectedClient) form.clientFullName = ''
 }
@@ -1083,7 +1088,7 @@ const clearSelectedClient = () => {
   form.clientFullName = ''
   form.clientCode = ''
   form.clientDomain = ''
-  form.currentClientManager = ''
+
   form.managerContact = ''
 }
 const addTimeRange = () => form.timeRanges.push(emptyTimeRange())
@@ -1234,6 +1239,8 @@ const buildPayload = () => {
   const nested = normalizedNestedPayload()
   validateNested(nested)
   return {
+    clientManagerId: form.clientManagerId || null,
+    clientManagerChangeReason: form.clientManagerChangeReason || null,
     projectName: form.projectName?.trim() || null,
     projectTypes: form.projectTypes,
     taskDescription: form.taskDescription?.trim() || null,
@@ -1295,6 +1302,7 @@ const assignForm = (detail) => {
     clientShortName: detail.clientShortName || '', clientFullName: detail.clientFullName || '', clientCode: detail.clientCode || '',
     clientDomain: detail.clientDomain || '',
     currentClientManager: detail.currentClientManager || '',
+    clientManagerId: detail.clientManagerId || '', clientManagerChangeReason: '',
     managerContact: detail.managerContact || client?.manager_contact || '',
     requiredInterpreterGender: detail.requiredInterpreterGender || '',
     requiredInterpretationLevel: detail.requiredInterpretationLevel || '',
@@ -1315,12 +1323,13 @@ const assignForm = (detail) => {
   nameManuallyEdited.value = Boolean(detail.projectName)
 }
 const resetEditorScroll = async () => { await nextTick(); dialogBodyRef.value?.parentElement?.scrollTo({ top: 0, behavior: 'auto' }) }
-const handleAdd = async () => { dialogTitle.value = '新增口译项目'; resetForm(); projectCreateIdempotencyKey.value = createIdempotencyKey(); dialogVisible.value = true; await resetEditorScroll(); await beginDraft('create') }
+const handleAdd = async () => { dialogTitle.value = '新增口译项目'; resetForm(); clientManagerBaseline.value=localStorage.getItem('user_id')||''; projectCreateIdempotencyKey.value = createIdempotencyKey(); dialogVisible.value = true; await resetEditorScroll(); await beginDraft('create') }
 const handleEdit = async (row, useProvidedDetail = false) => {
   const detail = useProvidedDetail ? row : await loadDetail(row.id, true)
   if (!detail) return
   dialogTitle.value = `编辑口译项目 · ${detail.orderNo}`
   assignForm(detail)
+  clientManagerBaseline.value = detail.clientManagerId || ''
   dialogVisible.value = true
   await resetEditorScroll()
   await beginDraft(`edit:${detail.id}`)

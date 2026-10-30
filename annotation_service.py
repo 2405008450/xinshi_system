@@ -873,8 +873,13 @@ def create_annotation_project(
         order_no = generate_annotation_order_no(db)
     if parent and not parent.parent_project_id and payload.area_id:
         raise ValueError('片区只能设置在三级订单上')
+    if not parent:
+        chosen = payload.client_manager_id or created_by
+        if chosen != created_by and not (payload.manager_change_reason or '').strip():
+            raise ValueError('请填写客户经理调整原因')
+        payload = payload.model_copy(update={'client_manager_id': chosen})
     _validate_write_references(db, payload)
-    data = payload.model_dump(exclude=NESTED_FIELDS | CHILD_CREATE_CONTROL_FIELDS)
+    data = payload.model_dump(exclude=NESTED_FIELDS | CHILD_CREATE_CONTROL_FIELDS | {'manager_change_reason'})
     if parent and not parent.parent_project_id and (
         not data.get('project_name') or data['project_name'].strip() == (parent.project_name or '').strip()
     ):
@@ -926,7 +931,7 @@ def create_annotation_project(
     record_annotation_manager_change(
         db, project=project, manager_role='client_manager',
         previous_manager_id=None, new_manager_id=project.client_manager_id,
-        change_mode='project_edit', actor_user_id=created_by, reason='首次分配',
+        change_mode='project_edit', actor_user_id=created_by, reason=payload.manager_change_reason or ('继承上级订单客户经理' if parent else '创建项目，默认由填写人担任客户经理'),
     )
     db.expire(project, ['workbench_responsibilities'])
     _record_project_manager_changes(
@@ -1488,9 +1493,13 @@ def ensure_annotation_project_for_consultation(
         customer_confirmation_time=datetime.now(),
         email_subject_preview=email_subject_preview,
         created_by=created_by,
+        client_manager_id=created_by,
     )
     db.add(project)
     db.flush()
+    record_annotation_manager_change(db, project=project, manager_role='client_manager',
+        previous_manager_id=None, new_manager_id=created_by, change_mode='project_edit',
+        actor_user_id=created_by, reason='咨询建项，默认由填写人担任客户经理')
     reserve_annotation_order_no(
         db,
         project_id=project.id,

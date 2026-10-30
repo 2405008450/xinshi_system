@@ -347,12 +347,20 @@ from routers.monthly_shifts import router as monthly_shifts_router
 app.include_router(monthly_shifts_router)
 from routers.attendance import router as attendance_router
 app.include_router(attendance_router)
+from hr_recruitment_requirements import router as hr_recruitment_requirements_router
+app.include_router(hr_recruitment_requirements_router)
+from hr_recruitment_process import router as hr_recruitment_process_router
+app.include_router(hr_recruitment_process_router)
+from office_management import router as office_management_router
+app.include_router(office_management_router)
 app.include_router(manuscript_arrangements.router)
 app.include_router(word_counts.router)
 app.include_router(business_mails.settings_router)
 app.include_router(business_mails.mail_router)
 app.include_router(mail_inline_images.router)
 app.include_router(project_audits.router)
+from project_client_manager import router as project_client_manager_router
+app.include_router(project_client_manager_router)
 
 
 PROJECT_FILE_PATH_COLUMN_STATEMENTS = (

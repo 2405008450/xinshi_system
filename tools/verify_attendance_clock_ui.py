@@ -36,7 +36,7 @@ with sync_playwright() as pw:
  clock=page.locator('.attendance-heading').filter(has_text='打卡与请假')
  def button(name):return clock.get_by_role('button',name=name,exact=True)
  expect(page.locator('.el-collapse-item.is-active')).to_have_count(1)
- button('规则说明').click();rules=page.locator('.attendance-rules-content:visible');expect(rules).to_contain_text('再过3个月');expect(rules).to_contain_text('早餐');expect(rules).to_contain_text('晚餐');expect(rules).to_contain_text('无效时间');expect(rules).to_contain_text('最多10天');page.locator('.attendance-heading').filter(has_text='打卡与请假').locator('h3').click()
+ page.get_by_role('button',name='全部规则说明',exact=True).first.click();rules=page.locator('.attendance-rules-content:visible');expect(rules).to_contain_text('再过3个月');expect(rules).to_contain_text('早餐');expect(rules).to_contain_text('晚餐');expect(rules).to_contain_text('无效时间');expect(rules).to_contain_text('最多10天');page.get_by_role('button',name='全部规则说明',exact=True).first.click()
  expect(button('上班打卡')).to_be_enabled();assert button('上班打卡').bounding_box()['x']<button('下班打卡').bounding_box()['x']
  for title in ['打卡与请假','考勤与加班统计','班次安排','值班安排']:
   header=page.locator('.el-collapse-item__header').filter(has_text=re.compile('^'+title+'$'));expect(header).to_have_count(1)

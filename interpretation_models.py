@@ -251,7 +251,8 @@ class InterpretationProject(Base):
     @property
     def current_client_manager(self) -> Optional[str]:
         selected = self.sub_client or self.client
-        return selected.client_manager if selected else None
+        from project_client_manager import interpretation_manager_name
+        return interpretation_manager_name(self, selected.client_manager if selected else None)
 
     @property
     def manager_contact(self) -> Optional[str]:

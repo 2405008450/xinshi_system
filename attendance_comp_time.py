@@ -78,6 +78,10 @@ def balances(db,users,cutoff):
     late=lateness_events(clocks,leaves)
     snapshots={row.id:row for row in db.query(AttendanceLeave).filter(AttendanceLeave.user_id.in_(ids)).all()} if ids else {}
     requests=db.query(CompRequest).filter(CompRequest.user_id.in_(ids),CompRequest.status.in_(['pending','approved'])).all() if ids and ready(db) else []
+    from attendance_annual_leave import ledger
+    years={row.day.year for row in clocks}
+    for leave in leaves:years.update(range(leave.start_date.year,leave.end_date.year+1))
+    settled={entry['entry_id']:entry for year in sorted(years) for person in ledger(db,users,year,with_history=False) for entry in person['entries']}
     output=[]
     for user in users:
         hire=hires.get(user.id);begin=hire or left
@@ -110,6 +114,9 @@ def balances(db,users,cutoff):
             days=snapshots[leave.id].days if leave.id in snapshots else preview_leave(db,user,SimpleNamespace(start_at=max(stamp(leave.start_date),midnight(begin)),end_at=stamp(leave.end_date)))['days']
             for item in days:
                 if begin.isoformat()<=item['day'] and item['minutes']>0:obligations.append({'id':f'leave:{leave.id}:{item["day"]}','leave_id':str(leave.id),'day':item['day'],'source':'application','reason':leave.reason,'minutes':item['minutes'],'future':item['day']>cutoff.isoformat()})
+        for obligation in obligations:
+            entry=settled.get(obligation['id'])
+            if entry:obligation.update(original_minutes=obligation['minutes'],minutes=entry['makeup_required_minutes'],annual_minutes=entry['annual_minutes'],wage_minutes=entry['wage_minutes'])
         values=allocation(duties,obligations,[{key:value for key,value in request_value(row).items() if key!='allocation_snapshot'} for row in requests if row.user_id==user.id],hire,cutoff)
         output.append({**values,'user_id':str(user.id),'name':user.full_name or user.username,'cutoff':cutoff,'ready':ready(db)})
     return api_time(output)

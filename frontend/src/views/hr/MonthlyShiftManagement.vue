@@ -1,5 +1,5 @@
 <template>
-  <section class="monthly-shift-sections">
+  <section class="monthly-shift-sections"><div style="margin-bottom:12px"><AttendanceRulesPopover /></div>
     <WeekPlanOperationsDialog v-model="operationsDialog" :source-week="operationSource" @saved="load" @busy="operationBusy=$event" /><FixedShiftDialog v-model="fixedDialog" @saved="load" />
     <el-collapse v-model="expandedSections">
       <el-collapse-item name="shifts">
@@ -33,6 +33,7 @@
   </section>
 </template>
 <script setup>
+import AttendanceRulesPopover from '@/components/common/AttendanceRulesPopover.vue'
 import {computed,onBeforeUnmount,onMounted,ref,watch} from 'vue'
 import ShiftPeriodControls from '@/components/common/ShiftPeriodControls.vue'
 import {getWeeklyShiftPlan} from '@/api/monthlyShifts'

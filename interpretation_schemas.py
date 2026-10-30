@@ -139,6 +139,8 @@ class InterpretationInterpreterResponse(InterpretationInterpreterInput):
 
 
 class InterpretationProjectWrite(BaseModel):
+    client_manager_id: Optional[UUID] = None
+    client_manager_change_reason: Optional[str] = Field(default=None, max_length=500)
     project_name: Optional[str] = None
     project_types: list[str] = Field(default_factory=list, max_length=9)
     task_description: Optional[str] = None
@@ -330,6 +332,7 @@ class InterpretationProjectListResponse(BaseModel):
     client_short_name: Optional[str] = None
     client_code: Optional[str] = None
     current_client_manager: Optional[str] = None
+    client_manager_id: Optional[UUID] = None
     manager_contact: Optional[str] = None
     sub_client_contact: Optional[str] = None
     language_directions_display: Optional[str] = None

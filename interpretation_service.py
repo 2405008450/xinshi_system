@@ -213,12 +213,17 @@ def _project_options():
 
 
 def get_interpretation_project(db: Session, project_id: UUID) -> Optional[InterpretationProject]:
-    return (
+    project = (
         db.query(InterpretationProject)
         .options(*_project_options())
         .filter(InterpretationProject.id == project_id)
         .first()
     )
+
+    if project:
+        from project_client_manager import attach
+        attach(db, 'interpretation', [project])
+    return project
 
 
 def get_interpretation_projects(
@@ -266,6 +271,8 @@ def get_interpretation_projects(
     for project, page_total in rows:
         project.__dict__["_page_total"] = int(page_total or 0)
         projects.append(project)
+    from project_client_manager import attach
+    attach(db, 'interpretation', projects)
     return projects
 
 
@@ -372,7 +379,11 @@ def _apply_filters(
         "updated_at": (InterpretationProject.updated_at, "datetime"),
     })
     for field, descriptor in field_filters.items():
-        if field == "project_types":
+        if field == "current_client_manager":
+            from project_client_manager import manager_name_expression
+            expression = manager_name_expression("interpretation", InterpretationProject.id, func.coalesce(SubClient.client_manager, Client.client_manager))
+            query = query.filter(keyword_ilike(expression, f"%{str(descriptor.get('value') or '').strip()}%"))
+        elif field == "project_types":
             values = descriptor.get("value") or []
             query = query.filter(or_(*(InterpretationProject.project_types.contains([value]) for value in values)))
         elif field in {"client_short_name", "client_code", "client_full_name", "client_domain", "current_client_manager", "manager_contact"}:
@@ -445,7 +456,7 @@ def _resolve_client(db: Session, data: dict) -> None:
 
 
 WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact", "current_client_manager"}
-NESTED_FIELDS = {"time_ranges", "language_directions", "interpreter_assignments", "role_assignments"}
+NESTED_FIELDS = {"client_manager_id", "client_manager_change_reason", "time_ranges", "language_directions", "interpreter_assignments", "role_assignments"}
 
 
 def update_interpretation_client_manager(db: Session, client_id, sub_client_id, value) -> bool:
@@ -565,6 +576,8 @@ def create_interpretation_project(
     )
     db.add(project)
     db.flush()
+    from project_client_manager import apply as apply_client_manager
+    apply_client_manager(db, 'interpretation', project, payload.client_manager_id, payload.client_manager_change_reason, created_by, creating=True)
     db.add(InterpretationProjectStatusHistory(
         project_id=project.id,
         from_status=None,
@@ -593,7 +606,11 @@ def update_interpretation_project(
     project = get_interpretation_project(db, project_id)
     if not project:
         return None
+    db.query(InterpretationProject).filter(InterpretationProject.id == project_id).with_for_update().populate_existing().one()
     assert_fresh(project, payload.expected_updated_at)
+    if 'client_manager_id' in payload.model_fields_set:
+        from project_client_manager import apply as apply_client_manager
+        apply_client_manager(db, 'interpretation', project, payload.client_manager_id, payload.client_manager_change_reason, changed_by)
     data = payload.model_dump(exclude=NESTED_FIELDS | {VERSION_FIELD})
     data["required_interpreter_count"] = _direction_required_total(payload)
     _resolve_client(db, data)
@@ -748,6 +765,8 @@ def ensure_interpretation_project_for_consultation(
     )
     db.add(project)
     db.flush()
+    from project_client_manager import apply as apply_client_manager
+    apply_client_manager(db, 'interpretation', project, None, None, created_by, creating=True)
     record_project_operation(
         db, project_type="interpretation", operation_type="create", project=project,
         actor_user_id=created_by, operation_source="consultation_confirmation",

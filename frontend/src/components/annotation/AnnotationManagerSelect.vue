@@ -14,6 +14,7 @@
         </div>
       </template>
     </el-select>
+    <ProjectClientManagerHistory v-if="!multiple" project-type="annotation" :project-id="row.id" />
   </div>
   <AnnotationManagerChangeReasonDialog ref="reasonDialog" :users="selectOptions" />
 </template>
@@ -25,6 +26,7 @@ import { updateAnnotationProjectManagers } from '@/api/annotationProjects'
 import { managerIds, sameManagers } from '@/utils/annotationManagerChange'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import AnnotationManagerChangeReasonDialog from './AnnotationManagerChangeReasonDialog.vue'
+import ProjectClientManagerHistory from '@/components/common/ProjectClientManagerHistory.vue'
 const props = defineProps({ row: { type: Object, required: true }, role: { type: String, required: true }, options: { type: Array, default: () => [] }, disabled: Boolean })
 const emit = defineEmits(['updated'])
 const multiple = computed(() => props.role === 'project_manager')
@@ -66,7 +68,7 @@ async function save() {
   closeDropdown()
   busy.value = true
   try {
-    const requiresReason = previouslyAssigned.value
+    const requiresReason = !multiple.value || previouslyAssigned.value
     const reason = requiresReason ? await reasonDialog.value.request({ orderNo: props.row.orderNo, changes: [{
       role: props.role, label: roleLabel.value, previous, next,
     }] }) : null

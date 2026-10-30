@@ -1942,3 +1942,69 @@ JSON 的 `internships`、`annotation`、`interpretation`、`translation`、`othe
 - 历史值班只据系统实际记录，不推算系统外记录；入职时间缺失不授予调休额度。界面汇总和详情明确规则与来源。
 
 - 补充：无值班的累计月份亦须补足每月1天基数，多值班先抵累计缺额，再抵请假、再预留调休，界面逐项显示基数用途。本人可撤回pending申请，保留原快照及cancelled_at/cancelled_by、释放预留；正式请假也校验与调休申请的时段冲突。
+
+
+## 请假年假优先抵扣与调整审计（2026-10-29）
+
+- 自然年按请假实际发生日期FIFO优先抵扣已生效年假，含申请请假及迟到折算；按本日完整班次分钟折算一天，不固定假定8小时。未来请假单独预留，不能提前使用周年再过3个月尚未生效的新增额度；跨年申请逐日分别归属，不将整张申请重复扣除。
+- 年假不足部分仍待补班；人事可整次改为不扣年假而扣工资，或恢复年假优先。已抵年假/明确扣工资的时间不再补班。工资先记录时长，不推算薪酬金额。调整释放额度会按时间顺序供其他请假重新分配。入职时间或班次缺失不猜测，标为待完善。自动分配源于真实持久化请假/打卡，不复制伪造正式请假单。
+- `attendance_leave_settlement`：`source_key varchar(64) PK`（application:请假UUID 或 lateness:打卡UUID）、`user_id UUID FK app_user`（索引）、`mode varchar(20)`（auto/wage）、`revision integer`、`updated_by UUID FK app_user`、`updated_at timestamptz`。仅手工调整建记录，无手调时默认auto。
+- `attendance_leave_settlement_audit`：`id UUID PK`、`client_id UUID UNIQUE`（幂等）、`source_key FK attendance_leave_settlement.source_key`、`user_id UUID FK app_user`（索引）、`actor_id UUID FK app_user`、`actor_name varchar(255)`、`before_mode/after_mode varchar(20)`、`revision integer`、`reason text`（必填）、`before_snapshot/after_snapshot JSON`（受影响年度完整分配快照，不嵌套历史审计）、`created_at timestamptz`。索引 `(source_key, created_at)`。历史不可覆盖；列表返回来源相关快照，避免重复传输全年度无关记录。
+- 手调仅HR电脑端，可查原方式/新方式、人员、UTC+8时间、原因、来源和前后金额基数（时长）。用户锁串行化、revision防覆盖、client_id防重；个人仅看自己，公司数据须HR权限。来源是一张完整请假（所有日期，含跨年）或本次迟到打卡。
+- `tools/apply_attendance_annual_leave_migration.py` 幂等仅创建上述2张新表及索引约束，不修改既有表，启动自动迁移保持关闭。
+- 法定假居家/加班独立预留区域，待开发，不自动归入普通居家额度或生成加班和补贴。考勤管理和工作台各区均有对应简要规则，并提供全部规则说明按钮。
+
+## 人事招聘需求（2026-10-29）
+
+- 独立于业务招聘项目；招聘管理位于入职管理左边，访问权限沿用HR行政部。
+- 新表 `hr_recruitment_requirement`：id UUID PK；client_id UUID UNIQUE（新增幂等）；demand_no varchar(32) UNIQUE；request_date date；position varchar(200)；reason text；headcount integer（服务端校验1..100000整数）；details text；revision integer；is_deleted boolean；created_by/updated_by UUID FK app_user；created_at/updated_at timestamptz。索引 `(request_date, is_deleted)`。
+- 需求编号按需求日期分日生成RT-YYMMDD-NNN，如RT-261029-001。PostgreSQL按日事务锁串行分配；编号不可手填，修改需求日期不改变已有编号。软删除记录继续保留编号，不回收序号。
+- 搜索按空白分词AND，可跨编号、日期、岗位、原因、人数、具体需求匹配，%/_等作字面量；列表与总数同条件，400ms防抖、回车、清空立即查询、取消旧请求和防止旧结果覆盖。
+- 新增/编辑使用AppForm与公共拖拽弹窗、字段搜索、固定页脚；具体需求占两列/双倍列表宽度，支持展开编辑及Popover查看全文。列表字段可配置、按用户持久化；统一删除管理及批量强确认，逐项记录失败结果、末页回退；revision保护编辑与删除。
+- `tools/apply_hr_recruitment_migration.py` 幂等仅创建新表和必要索引约束，不改动原招聘项目或入职表。
+
+
+### 项目客户经理调整记录（project_client_manager_change）
+
+笔译、口译、招聘项目新增时默认由当前填写人担任客户经理，手工新增及咨询确认建项使用同一规则。标注项目复用 annotation_manager_change_log；子订单沿用既有继承机制。修改客户经理必须提供非空原因，项目与记录在同一事务内保存。客户档案经理不随项目调整而变化；不回填历史项目。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | uuid | 调整记录主键 |
+| project_type | varchar(30) | translation / interpretation / recruitment |
+| project_id | uuid | 项目标识，项目删除后保留记录 |
+| revision | integer | 每个项目递增版本；类型、项目、版本唯一 |
+| previous_manager_id / new_manager_id | uuid | 调整前后账号，可空 |
+| previous_manager_name / new_manager_name | varchar(255) | 调整时姓名快照 |
+| actor_user_id / actor_name | uuid / varchar(255) | 操作人及姓名快照 |
+| reason | varchar(500) | 必填调整原因，创建时自动记录默认分配说明 |
+| changed_at | timestamptz | UTC+8 生成与接口输出 |
+
+笔译、口译取最高 revision 的记录作为项目级客户经理；没有记录的历史项目继续显示原客户档案经理。招聘保持原生 client_manager_id 字段并同步留痕。查询、列表、详情及导出沿用同一客户经理来源。GET /project-client-managers/{project_type}/{project_id}/history 要求 projects:read，分页返回调整前后人员、原因、操作人、时间；标注类型适配既有日志。创建脚本 tools/apply_project_client_manager_migration.py 只创建新表及必要唯一约束、索引，不修改任何已有业务表或记录。
+
+
+## 办公室管理与人员城市（2026-10-29）
+
+- 组织架构增加办公室管理，第一分区为办公室人数设置；默认配置广州办公室、深圳南山办公室、上海办公室，城市分别为广州/深圳/上海。允许新增其他城市、办公室名称与工位数设置。工位数初始NULL表示待设置，可明确填0，不推算现有工位数。
+- `organization_office_site`：id UUID PK；city varchar(100)；city_key varchar(100) UNIQUE（trim/casefold）；name varchar(200)；seats integer NULL（0..100000）；revision integer；created_at/updated_at timestamptz。默认城市采用稳定UUID，迁移重复执行不重置工位或已修改名称。
+- `employee_office_city`：user_id UUID PK/FK app_user.id；office_city_id UUID FK organization_office_site.id（索引）；updated_at timestamptz。不修改既有app_user结构；未填城市不创建关联，清空删除关联，PATCH/PUT未提供城市时保留原关联。城市更名通过ID关联实时显示新名称，不批量改写人员。
+- 实际人数按人员管理is_active=true且is_deleted=false统计，跨部门不重复；请假不减少人数。另显示未删除登记人员数（含停用）及未设置城市的在用人数。点击实际人数打开人员管理同城市且在用的筛选列表，列表和总数复用同条件，可清除办公室筛选。
+- 人员新增/编辑姓名后增加城市下拉，只能选办公室管理的城市；列表、详情、创建/修改响应同步城市。用户新建/修改和城市保存共用事务，服务端验证城市ID，无效城市不写人员变更。城市字典姓名/工位变更不修改已有人员其他属性。
+- 办公室查看受system:users:read/write保护，编辑受system:users:write保护；仅城市名称选项供已登录人员使用，不含人数。工位/城市修改revision防覆盖、城市唯一约束防重复；UTC+8时间。
+- 迁移tools/apply_office_management_migration.py只创建上述两张新表及必要约束索引，并在新表初始化三座默认办公室；不推断分配现有人员城市、不变更既有人事数据，启动自动迁移保持关闭。
+
+## 招聘城市（2026-10-29）
+
+- 招聘需求新增招聘城市，表单顺序为需求日期→招聘城市→招聘岗位，列表和详情同步展示，关键词搜索覆盖招聘城市。可选择办公室城市，也可输入其他招聘城市；输入招聘城市不自动创建办公室，不自动变更人员城市。
+- 新表`hr_recruitment_requirement_city`：requirement_id UUID PK/FK hr_recruitment_requirement.id；city varchar(100)。可为空未填写（不建关联）；旧记录不猜测城市，旧客户端未提供字段时保留原值。需求编号仍按需求日期生成，城市修改不改变需求编号。
+- tools/apply_hr_recruitment_city_migration.py幂等仅创建关联新表，不ALTER原招聘需求表。城市保存与需求新增/修改同一事务；列表按主表批量带出城市，关联唯一，筛选/总数不重复计数。
+
+
+## 人事招聘过程（2026-10-29）
+
+- 招聘管理划分招聘需求、招聘过程两个可折叠区域；不复用业务招聘项目的候选人表。招聘过程关联需求ID，城市、岗位在读取时从原需求及其城市关联同步，禁止独立填写，不复制易失效文本。需求更新后界面刷新显示新值；原需求删除不级联删除候选过程，标记原需求已删除，保留原关联可继续补面试，但不能向已删需求新增过程。
+- 新表 `hr_recruitment_candidate`，模型HrRecruitmentCandidate（避免与业务RecruitmentCandidate混淆）：id UUID PK，client_id UUID UNIQUE（新增幂等），requirement_id UUID FK hr_recruitment_requirement.id；applicant_name varchar(200)；first_interview_at/second_interview_at timestamptz NULL；first_interview_done/second_interview_done boolean；first_result/second_result text；willingness varchar(30)（空=待确认、candidate_withdrew=候选人放弃、company_declined=信实放弃、yes=是）；willingness_reason text；onboarding_date date NULL；actual_onboarded boolean NULL（仅预留，不开放写入）；revision integer，is_deleted boolean；created_by/updated_by UUID FK app_user；created_at/updated_at timestamptz。索引 `(requirement_id,is_deleted)`。
+- 应聘人点击弹窗编辑姓名和两轮面试。任一轮选是必须填对应时间及结果；选否不保存该轮结果（可保留安排时间）。时间输入须带时区，接口归一UTC+8。二面不强制先有一面，未另设用户未定义的流程限制。
+- 入职意愿选候选人放弃/信实放弃必须弹窗填原因；选是必须弹窗填入职日期，自动带入主表入职时间；不自动认定是否已入职，不创建人员档案。待确认不填放弃原因或入职日期。是否入职为只读预留，API拒绝写入预留字段及伪造城市/岗位。
+- HR权限沿用行政部，面试弹窗通过公共AppForm动态必填规则、公共拖拽弹窗及字段定位，固定头尾和中部滚动；候选人姓名可点击直接编辑面试。主表字段设置、详情小窗、关键词AND搜索、400ms防抖取消旧请求、分页同条件、删除管理、revision冲突保护和新增client_id幂等。
+- tools/apply_hr_recruitment_process_migration.py幂等仅创建新表及必要索引约束，不ALTER原招聘需求、候选人或人员表；自动迁移保持关闭。

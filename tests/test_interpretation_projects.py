@@ -540,6 +540,8 @@ class EnsureDb:
 
 
 def test_confirmed_consultation_creation_is_idempotent(monkeypatch):
+    # 此处只测试重复建项；经理事务另由真实 SQLite 会话覆盖。
+    monkeypatch.setattr('project_client_manager.apply', lambda *args, **kwargs: None)
     db = EnsureDb()
     consultation = SimpleNamespace(
         id=uuid4(), client_id=uuid4(), consultation_time=datetime(2026, 8, 11, 9)

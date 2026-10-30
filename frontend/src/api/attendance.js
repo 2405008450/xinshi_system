@@ -19,3 +19,5 @@ export const applyDelayStart=data=>api.post('/attendance/delay-start',data,{time
 export const getAttendancePolicy=(year,admin=false,config={})=>api.get(admin?'/attendance/policy/company':'/attendance/policy',{...config,params:{year}})
 export const applyCompTime=data=>api.post('/attendance/comp-time',data,{headers:{'X-Client-Type':chatClientType(navigator)}})
 export const cancelCompTime=id=>api.post(`/attendance/comp-time/${id}/cancel`,{}, {headers:{'X-Client-Type':chatClientType(navigator)}})
+export const getAnnualLeave=(year,admin=false,config={})=>api.get(admin?'/attendance/annual-leave/company':'/attendance/annual-leave',{...config,params:{year}})
+export const saveLeaveSettlement=data=>api.post('/attendance/annual-leave/settlement',data,{headers:{'X-Client-Type':chatClientType(navigator)}})

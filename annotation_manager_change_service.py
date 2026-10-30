@@ -40,13 +40,13 @@ def attach_manager_assignment_history(db: Session, projects) -> None:
 
 
 def validate_manager_change_reason(project, previous_client, previous_managers, new_client, new_managers, reason):
-    """首次分配只免原因，不免留痕；不变更的字段无需填写原因。"""
+    """客户经理任何调整均需原因；项目经理仍保留首次分配免原因规则。"""
     normalized = (reason or '').strip()
     if len(normalized) > 500:
         raise ValueError('调整原因不能超过500字')
     history = getattr(project, 'manager_assignment_history', {})
     needs_reason = (
-        previous_client != new_client and (bool(previous_client) or history.get('client_manager', False))
+        previous_client != new_client
     ) or (
         set(previous_managers) != set(new_managers)
         and (bool(previous_managers) or history.get('project_manager', False))

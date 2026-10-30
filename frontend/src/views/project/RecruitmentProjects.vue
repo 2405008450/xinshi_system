@@ -52,6 +52,7 @@
             </BusinessDetailPopover>
             <PathActionButtons @open="openPath(row.projectPath)" @copy="copyPath(row.projectPath)" />
           </div>
+          <ProjectClientManagerHistory v-else-if="column.key === 'clientManagerName'" project-type="recruitment" :project-id="row.id" :label="row.clientManagerName || '未分配'" />
           <el-button v-else-if="column.key === 'projectName'" type="primary" link class="project-name-ellipsis business-clickable-cell" :title="row.projectName || '待生成'" @click="openProgress(row)">{{ row.projectName || '待生成' }}</el-button>
           <el-popover v-else-if="column.key === 'jobDescription'" trigger="click" placement="left" :width="560">
             <template #reference><el-button type="primary" link class="description-preview business-clickable-cell">{{ row.jobDescription || '-' }}</el-button></template>
@@ -177,7 +178,7 @@
             </el-row>
             <el-row :gutter="16">
               <el-col v-if="showManagerContactInput" :xs="24" :md="12"><el-form-item label="客户经理联系方式"><el-input v-model="form.managerContact" maxlength="100" clearable placeholder="请输入客户经理联系方式" /></el-form-item></el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="现客户经理"><el-select v-model="form.clientManagerId" filterable clearable style="width:100%"><el-option v-for="user in managerUserOptions" :key="user.id" :label="userOptionLabel(user)" :value="user.id" :disabled="!user.is_active" /></el-select></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><ProjectClientManagerField v-model="form.clientManagerId" v-model:reason="form.clientManagerChangeReason" :baseline-id="clientManagerBaseline" :baseline-name="form.clientManagerName" :project-id="form.id" project-type="recruitment" /></el-col>
             </el-row>
           </div>
 
@@ -360,6 +361,9 @@
 </template>
 
 <script setup>
+import ProjectClientManagerField from '@/components/common/ProjectClientManagerField.vue'
+import ProjectClientManagerHistory from '@/components/common/ProjectClientManagerHistory.vue'
+const clientManagerBaseline = ref(localStorage.getItem('user_id') || '')
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { recruitmentProjectDetailItems, formatDate, formatDateTime, headcountText, languageText, fullPeriodText, periodText, feeText } from '@/utils/recruitmentProjectDetail'
 import ProjectExportMenu from '@/components/common/ProjectExportMenu.vue'
@@ -551,7 +555,7 @@ const resetSearch = () => { searchForm.keyword='';resetFilterModel(searchForm,re
 const clearAdvanced = () => { resetFilterModel(searchForm,recruitmentAdvancedFilterFields);handleSearch() }
 const handleSizeChange = () => { pagination.page=1; fetchData() }
 
-const emptyForm = () => ({id:'',orderNo:'',projectName:'',jobDescription:'',positionTitle:'',headcountMin:null,headcountMax:null,projectStatus:'pending_setup',clientId:'',subClientId:'',clientSelection:'',clientShortName:'',clientCode:'',clientName:'',clientDomain:'',contactName:'',customerOrderNo:'',clientManagerId:'',managerContact:'',targetOnboardType:'date',targetOnboardDate:'',employmentRange:[],workLocation:'',serviceFeeType:'',serviceFeeCurrency:'CNY',serviceFeeAmount:null,serviceFeeRate:null,serviceFeeMultiplier:null,serviceFeeNote:'',customerConsultationTime:'',customerConfirmationTime:'',projectPath:'',quotationPath:'',contractPath:'',remarks:'',subjectPrefix:'',emailSubjectPreview:'',socialPostRequest:'',resourceRequest:'',languageDirections:[],roleAssignments:[]})
+const emptyForm = () => ({id:'',orderNo:'',projectName:'',jobDescription:'',positionTitle:'',headcountMin:null,headcountMax:null,projectStatus:'pending_setup',clientId:'',subClientId:'',clientSelection:'',clientShortName:'',clientCode:'',clientName:'',clientDomain:'',contactName:'',customerOrderNo:'',clientManagerId:localStorage.getItem('user_id')||'',clientManagerChangeReason:'',managerContact:'',targetOnboardType:'date',targetOnboardDate:'',employmentRange:[],workLocation:'',serviceFeeType:'',serviceFeeCurrency:'CNY',serviceFeeAmount:null,serviceFeeRate:null,serviceFeeMultiplier:null,serviceFeeNote:'',customerConsultationTime:'',customerConfirmationTime:'',projectPath:'',quotationPath:'',contractPath:'',remarks:'',subjectPrefix:'',emailSubjectPreview:'',socialPostRequest:'',resourceRequest:'',languageDirections:[],roleAssignments:[]})
 const form = reactive(emptyForm()); const formRef=ref(); const editorBodyRef=ref(); const editorVisible=ref(false); const jobDescriptionEditorVisible=ref(false); const saving=ref(false); const nameLoading=ref(false); const nameManuallyEdited=ref(false); const editorTitle=computed(()=>form.id?'编辑招聘项目':'新增招聘项目')
 const { beginDraft, pauseDraft, clearDraft } = useFormDraft({ namespace:'recruitment-project', form, createDefault:emptyForm, formRef, applyDraft:(draft)=>{Object.assign(form,emptyForm(),draft);nameManuallyEdited.value=Boolean(draft.projectName)} })
 const showManagerContactInput=computed(() => !form.clientId && Boolean(form.clientShortName?.trim() || form.clientName?.trim()))
@@ -572,25 +576,23 @@ const handleClientSelect = (item) => {
     clientShortName:item?.client_short_name||'',clientCode:item?.client_code||'',
     clientName:item?.client_name||'',clientDomain:item?.client_domain||'',
     managerContact:item?.manager_contact||'',
-    clientManagerId:item ? resolveManagerByName(item.client_manager) : '',
   })
 }
 const handleClientShortNameInput = () => {
   const hadSelectedClient=Boolean(form.clientId||form.subClientId)
   Object.assign(form,{clientId:'',subClientId:'',clientCode:'',clientDomain:'',managerContact:''})
   if(hadSelectedClient)form.clientName=''
-  if(hadSelectedClient)form.clientManagerId=resolveManagerByName('')
 }
 const clearSelectedClient = () => {
-  Object.assign(form,{clientId:'',subClientId:'',clientShortName:'',clientCode:'',clientName:'',clientDomain:'',managerContact:'',clientManagerId:resolveManagerByName('')})
+  Object.assign(form,{clientId:'',subClientId:'',clientShortName:'',clientCode:'',clientName:'',clientDomain:'',managerContact:''})
 }
 const resetForm = () => { jobDescriptionEditorVisible.value=false; Object.assign(form,emptyForm()); nameManuallyEdited.value=false; namePreviewRequestId+=1; formRef.value?.clearValidate(); clearFieldSearch() }
 const onEditorClosed = () => { pauseDraft(); resetForm() }
 const resetEditorScroll=async()=>{await nextTick();editorBodyRef.value?.scrollTo({top:0,behavior:'auto'})}
-const openAdd = async () => { resetForm(); resetRecruitmentProjectIdempotency(); const defaultManager=activeUsers.value.filter((item)=>userLabel(item)==='欧阳靖琳'); if(defaultManager.length===1)form.clientManagerId=defaultManager[0].id; editorVisible.value=true; await resetEditorScroll(); await beginDraft('create') }
-const openEdit = async (row,useProvidedDetail=false) => { try { const item=useProvidedDetail?row:await getRecruitmentProject(row.id); const clientSelection=item.subClientId?`sub:${item.subClientId}`:(item.clientId?`client:${item.clientId}`:''); const selectedClient=clientOptions.value.find((option)=>option.value===clientSelection); Object.assign(form,emptyForm(),item,{employmentRange:item.employmentStart&&item.employmentEnd?[item.employmentStart,item.employmentEnd]:[],clientSelection,managerContact:selectedClient?.managerContact||item.managerContact||''}); form.subjectPrefix=extractSubjectPrefix(item.emailSubjectPreview,form); nameManuallyEdited.value=Boolean(item.projectName); activeProject.value=item; candidateRows.value=[]; editorVisible.value=true; await resetEditorScroll(); await beginDraft(`edit:${item.id}`); void loadCandidates() } catch(error){ElMessage.error(error?.detail||'项目详情加载失败')} }
+const openAdd = async () => { resetForm(); resetRecruitmentProjectIdempotency(); clientManagerBaseline.value=localStorage.getItem('user_id')||''; editorVisible.value=true; await resetEditorScroll(); await beginDraft('create') }
+const openEdit = async (row,useProvidedDetail=false) => { try { const item=useProvidedDetail?row:await getRecruitmentProject(row.id); const clientSelection=item.subClientId?`sub:${item.subClientId}`:(item.clientId?`client:${item.clientId}`:''); const selectedClient=clientOptions.value.find((option)=>option.value===clientSelection); Object.assign(form,emptyForm(),item,{employmentRange:item.employmentStart&&item.employmentEnd?[item.employmentStart,item.employmentEnd]:[],clientSelection,managerContact:selectedClient?.managerContact||item.managerContact||''}); form.clientManagerId=item.clientManagerId||'';form.clientManagerChangeReason='';clientManagerBaseline.value=form.clientManagerId;form.subjectPrefix=extractSubjectPrefix(item.emailSubjectPreview,form); nameManuallyEdited.value=Boolean(item.projectName); activeProject.value=item; candidateRows.value=[]; editorVisible.value=true; await resetEditorScroll(); await beginDraft(`edit:${item.id}`); void loadCandidates() } catch(error){ElMessage.error(error?.detail||'项目详情加载失败')} }
 const clean = (value) => value===''?null:value
-const buildPayload = () => ({projectName:clean(form.projectName),jobDescription:clean(form.jobDescription),positionTitle:clean(form.positionTitle),headcountMin:form.headcountMin,headcountMax:form.headcountMax??form.headcountMin,projectStatus:form.projectStatus,clientId:clean(form.clientId),subClientId:clean(form.subClientId),clientShortName:clean(form.clientShortName?.trim()),clientCode:clean(form.clientCode?.trim()),clientName:clean(form.clientName?.trim()),managerContact:clean(form.managerContact?.trim()),contactName:clean(form.contactName),customerOrderNo:clean(form.customerOrderNo),clientManagerId:clean(form.clientManagerId),targetOnboardType:form.targetOnboardType,targetOnboardDate:form.targetOnboardType==='anytime'?null:clean(form.targetOnboardDate),employmentStart:form.employmentRange?.[0]||null,employmentEnd:form.employmentRange?.[1]||null,workLocation:clean(form.workLocation),serviceFeeType:clean(form.serviceFeeType),serviceFeeCurrency:clean(form.serviceFeeCurrency),serviceFeeAmount:form.serviceFeeType==='fixed'?form.serviceFeeAmount:null,serviceFeeRate:form.serviceFeeType==='annual_salary_rate'?form.serviceFeeRate:null,serviceFeeMultiplier:form.serviceFeeType==='monthly_salary_multiple'?form.serviceFeeMultiplier:null,serviceFeeNote:clean(form.serviceFeeNote),customerConsultationTime:clean(form.customerConsultationTime),customerConfirmationTime:clean(form.customerConfirmationTime),projectPath:clean(form.projectPath),quotationPath:clean(form.quotationPath),contractPath:clean(form.contractPath),remarks:clean(form.remarks),emailSubjectPreview:clean(form.emailSubjectPreview),expectedUpdatedAt:form.updatedAt||null,socialPostRequest:clean(form.socialPostRequest),resourceRequest:clean(form.resourceRequest),roleAssignments:form.roleAssignments,languageDirections:form.languageDirections.filter((item)=>item.sourceLanguageId).map((item)=>({...item,targetLanguageId:item.directionType==='translation'?item.targetLanguageId:null}))})
+const buildPayload = () => ({projectName:clean(form.projectName),jobDescription:clean(form.jobDescription),positionTitle:clean(form.positionTitle),headcountMin:form.headcountMin,headcountMax:form.headcountMax??form.headcountMin,projectStatus:form.projectStatus,clientId:clean(form.clientId),subClientId:clean(form.subClientId),clientShortName:clean(form.clientShortName?.trim()),clientCode:clean(form.clientCode?.trim()),clientName:clean(form.clientName?.trim()),managerContact:clean(form.managerContact?.trim()),contactName:clean(form.contactName),customerOrderNo:clean(form.customerOrderNo),clientManagerId:clean(form.clientManagerId),clientManagerChangeReason:clean(form.clientManagerChangeReason),targetOnboardType:form.targetOnboardType,targetOnboardDate:form.targetOnboardType==='anytime'?null:clean(form.targetOnboardDate),employmentStart:form.employmentRange?.[0]||null,employmentEnd:form.employmentRange?.[1]||null,workLocation:clean(form.workLocation),serviceFeeType:clean(form.serviceFeeType),serviceFeeCurrency:clean(form.serviceFeeCurrency),serviceFeeAmount:form.serviceFeeType==='fixed'?form.serviceFeeAmount:null,serviceFeeRate:form.serviceFeeType==='annual_salary_rate'?form.serviceFeeRate:null,serviceFeeMultiplier:form.serviceFeeType==='monthly_salary_multiple'?form.serviceFeeMultiplier:null,serviceFeeNote:clean(form.serviceFeeNote),customerConsultationTime:clean(form.customerConsultationTime),customerConfirmationTime:clean(form.customerConfirmationTime),projectPath:clean(form.projectPath),quotationPath:clean(form.quotationPath),contractPath:clean(form.contractPath),remarks:clean(form.remarks),emailSubjectPreview:clean(form.emailSubjectPreview),expectedUpdatedAt:form.updatedAt||null,socialPostRequest:clean(form.socialPostRequest),resourceRequest:clean(form.resourceRequest),roleAssignments:form.roleAssignments,languageDirections:form.languageDirections.filter((item)=>item.sourceLanguageId).map((item)=>({...item,targetLanguageId:item.directionType==='translation'?item.targetLanguageId:null}))})
 const projectNamePayload = () => ({
   employmentStart: form.employmentRange?.[0] || null,
   employmentEnd: form.employmentRange?.[1] || null,

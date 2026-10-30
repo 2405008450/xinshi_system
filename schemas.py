@@ -83,6 +83,7 @@ class AppUserBase(BaseModel):
     is_active: Optional[bool] = True
     department: Optional[str] = None
     hire_date: Optional[date] = None
+    office_city_id: Optional[UUID] = None
 
     @field_validator('email', mode='before')
     @classmethod
@@ -108,6 +109,7 @@ class AppUserUpdate(BaseModel):
     is_active: Optional[bool] = None
     department: Optional[str] = None
     hire_date: Optional[date] = None
+    office_city_id: Optional[UUID] = None
 
     @field_validator('email', mode='before')
     @classmethod
@@ -134,6 +136,8 @@ class PersonalPasswordChange(BaseModel):
 
 class AppUserResponse(AppUserBase):
     id: UUID
+    city: Optional[str] = None
+    office_name: Optional[str] = None
     annual_leave_year: Optional[int] = None
     annual_leave_days: Optional[int] = None
     annual_leave_next_increase: Optional[date] = None
@@ -743,6 +747,8 @@ class TranslationSubOrderChargeItemResponse(TranslationSubOrderChargeItemInput):
 
 
 class TranslationProjectBase(BaseModel):
+    client_manager_id: Optional[UUID] = None
+    client_manager_change_reason: Optional[str] = Field(default=None, max_length=500)
     project_name: str
     source_file_name: Optional[str] = Field(default=None, max_length=255)
     task_type: Optional[str] = None
@@ -832,6 +838,8 @@ class AssignedTranslatorCompletionUpdate(BaseModel):
 
 
 class TranslationProjectUpdate(BaseModel):
+    client_manager_id: Optional[UUID] = None
+    client_manager_change_reason: Optional[str] = Field(default=None, max_length=500)
     project_name: Optional[str] = None
     source_file_name: Optional[str] = Field(default=None, max_length=255)
     task_type: Optional[str] = None

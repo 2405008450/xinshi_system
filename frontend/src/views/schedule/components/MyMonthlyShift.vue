@@ -3,7 +3,7 @@
     <AttendanceOverview /><el-collapse v-model="expandedSections"><el-collapse-item name="shifts" title="班次安排"><div class="my-shift-toolbar"><h3>班次安排</h3><el-radio-group v-model="scope" aria-label="班次查看范围"><el-radio-button value="all">全部人员</el-radio-button><el-radio-button value="mine">仅看自己</el-radio-button></el-radio-group><ShiftPeriodControls v-model:mode="mode" :value="periodValue" :disabled="loading" @update:value="setPeriod" /></div>
     <WeeklyShiftHistoryDialog v-if="historyWeek" v-model="historyVisible" :week="historyWeek" :shifts="data.shifts||monthPlans[0]?.shifts" :departments="data.departments||monthPlans[0]?.departments" />
     <el-button v-if="scope==='mine'&&mode==='week'" link @click="historyWeek=week;historyVisible=true">修改记录</el-button>
-    <p>当前查看{{scope==='all'?'全部人员':'本人'}}的班次安排；此处仅供查看，调整请联系行政部。</p>
+    <p>当前查看{{scope==='all'?'全部人员':'本人'}}的已同步班次安排；月度包含每周不同安排，跨月周共用记录。此处仅供查看，调整请联系行政部。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-alert v-else-if="data.ready===false" :title="mode==='week'?'每周排班功能尚未初始化':'月度排班功能尚未初始化'" type="info" :closable="false" />
     <template v-else-if="scope==='all'"><MonthlyWeekOverview v-if="mode==='month'" :plans="monthPlans" :month="month" /><WeeklyShiftMatrix v-else :plan="data" :loading="loading" /></template>
@@ -14,7 +14,7 @@
       <el-descriptions-item label="工作时段"><p v-for="period in shift?.periods||[]" :key="period">{{period}}</p></el-descriptions-item><el-descriptions-item v-if="data.assignment?.leave_minutes" label="班次内请假"><el-tag type="warning">请假 {{durationLabel(data.assignment.leave_minutes)}}</el-tag><p v-for="leave in data.assignment.leaves" :key="leave.id">{{formatBusinessDateTime(leave.start_at)}} 至 {{formatBusinessDateTime(leave.end_at)}} · {{durationLabel(leave.minutes)}}</p></el-descriptions-item><el-descriptions-item label="班次说明">{{shift?.description}}</el-descriptions-item>
     </el-descriptions>
     <el-empty v-else-if="!loading" :description="mode==='week'?'所选周尚未安排班次':'所选月份尚未安排班次'" :image-size="60" />
-    </el-collapse-item><el-collapse-item name="duty" title="值班安排"><WeekendDutyOverview :mode="mode" :week="week" :month="month" :scope="scope" /></el-collapse-item><el-collapse-item name="home-office"><template #title>居家办公申请 <el-tag v-if="homeEligibility.can_apply_qualification" size="small" type="warning">已满3个月，可申请资格</el-tag></template><HomeOfficePanel @eligibility="homeEligibility=$event" /></el-collapse-item></el-collapse>
+    </el-collapse-item><el-collapse-item name="duty" title="值班安排"><p>值班仅展示已同步安排，默认查看全部人员，也可仅看自己。实际完成的周末多值班（含居家）按规则先补班，再申请调休；待审批不等于已批准。</p><WeekendDutyOverview :mode="mode" :week="week" :month="month" :scope="scope" /></el-collapse-item><el-collapse-item name="home-office"><template #title>居家办公申请 <el-tag v-if="homeEligibility.can_apply_qualification" size="small" type="warning">已满3个月，可申请资格</el-tag></template><HomeOfficePanel @eligibility="homeEligibility=$event" /></el-collapse-item></el-collapse>
   </section>
 </template>
 <script setup>

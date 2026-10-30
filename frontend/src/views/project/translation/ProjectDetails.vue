@@ -449,7 +449,7 @@
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="客户单号" data-field-key="customerOrderNo"><el-input v-model="form.customerOrderNo" placeholder="客户公司内部用于记录该外包项目的单号" /></el-form-item></el-col>
-                  <el-col :xs="24" :md="12"><el-form-item label="母客户经理"><ReadonlyField :model-value="form.clientManager" source="auto" placeholder="选择母客户后自动带出" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="12"><ProjectClientManagerField v-model="form.clientManagerId" v-model:reason="form.clientManagerChangeReason" :baseline-id="clientManagerBaseline" :baseline-name="form.clientManager" :project-id="form.id" project-type="translation" /></el-col>
                 </el-row>
                 <el-row :gutter="16">
                   <el-col v-if="showManagerContactInput" :xs="24" :md="12">
@@ -902,6 +902,9 @@
 </template>
 
 <script setup>
+import ProjectClientManagerField from '@/components/common/ProjectClientManagerField.vue'
+import ProjectClientManagerHistory from '@/components/common/ProjectClientManagerHistory.vue'
+const clientManagerBaseline = ref(localStorage.getItem('user_id') || '')
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import ProjectArrangementLayout from './components/ProjectArrangementLayout.vue'
 import ProjectArrangementTable from './components/ProjectArrangementTable.vue'
@@ -1099,7 +1102,7 @@ const subOrderDetailItems = [
   { label: '创建时间', key: 'createdAt' },
   { label: '更新时间', key: 'updatedAt' }
 ]
-const createEmptyProjectForm = () => ({ id: '', orderNo: '', projectName: '', sourceFileName: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', clientName: '', clientShortName: '', clientCode: '', subClientName: '', subClientShortName: '', subClientCode: '', customerOrderNo: '', clientManager: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], wordCountMatrixSource: 'project', wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', remarks: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
+const createEmptyProjectForm = () => ({ id: '', orderNo: '', projectName: '', sourceFileName: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', clientName: '', clientShortName: '', clientCode: '', subClientName: '', subClientShortName: '', subClientCode: '', customerOrderNo: '', clientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], wordCountMatrixSource: 'project', wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', remarks: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
 const createEmptySubOrderForm = () => ({ id: '', parentProjectId: '', subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: 0, preReviewQcProgress: 0, reviewProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, networkFilePath: '', remarks: '' })
 const loading = ref(false)
 const submitLoading = ref(false)
@@ -1806,7 +1809,7 @@ const handleClientSelect = (client) => {
   form.clientName = client.client_name || ''
   form.clientShortName = client.client_short_name || ''
   form.clientCode = client.client_code || ''
-  form.clientManager = client.client_manager || ''
+  // 项目客户经理独立于客户档案。
   form.managerContact = client.manager_contact || ''
   availableSubClients.value = Array.isArray(client.sub_clients) ? client.sub_clients : []
   void loadSubClients(form.clientId)
@@ -1817,7 +1820,7 @@ const handleClientShortNameInput = () => {
   form.clientName = ''
   clearSubClientSelection()
   form.clientCode = ''
-  form.clientManager = ''
+
   form.managerContact = ''
   availableSubClients.value = []
   subClientsLoading.value = false
@@ -1829,7 +1832,7 @@ const clearSelectedClient = () => {
   clearSubClientSelection()
   form.clientShortName = ''
   form.clientCode = ''
-  form.clientManager = ''
+
   form.managerContact = ''
   availableSubClients.value = []
   subClientsLoading.value = false
@@ -1950,6 +1953,7 @@ const goToSubOrderManagement = (project) => {
 const handleAdd = async () => {
   dialogTitle.value = '新增项目'
   resetProjectForm()
+  clientManagerBaseline.value = localStorage.getItem('user_id') || ''
   projectCreateIdempotencyKey.value = createIdempotencyKey()
   currentProjectSubOrders.value = []
   void loadProjectEditorOptions()
@@ -1965,6 +1969,9 @@ const handleEdit = async (row) => {
   clearFieldSearch()
   void loadProjectEditorOptions()
   assignReactive(form, createEmptyProjectForm, row)
+  form.clientManagerId = row.clientManagerId || ''
+  form.clientManagerChangeReason = ''
+  clientManagerBaseline.value = form.clientManagerId
   availableSubClients.value = []
   void loadSubClients(form.clientId)
   if (!String(form.taskType || '').trim()) form.taskType = '笔译项目'

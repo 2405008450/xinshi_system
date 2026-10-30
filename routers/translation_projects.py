@@ -509,10 +509,11 @@ def read_project(project_id: UUID, db: Session = Depends(get_db)):
 def update_project_endpoint(
     project_id: UUID,
     project_update: TranslationProjectUpdate,
+    current_user: AppUser = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     try:
-        db_project = update_translation_project(db, project_id=project_id, project_update=project_update)
+        db_project = update_translation_project(db, project_id=project_id, project_update=project_update, actor_user_id=current_user.id)
     except ValueError as e:
         db.rollback()
         raise HTTPException(

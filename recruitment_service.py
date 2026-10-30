@@ -48,7 +48,7 @@ from field_filtering import apply_scalar_specs
 RECRUITMENT_TYPE_VALUES = {"招聘项目", "recruitment", "招聘"}
 DEFAULT_CLIENT_MANAGER_NAME = "欧阳靖琳"
 DEFAULT_RESUME_SOURCES = ("BOSS", "智联", "小红书", "微信", "广外校友推荐")
-NESTED_FIELDS = {"language_directions", "role_assignments"}
+NESTED_FIELDS = {"client_manager_change_reason", "language_directions", "role_assignments"}
 WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact"}
 
 
@@ -381,6 +381,7 @@ def create_recruitment_project(
     _resolve_client(db, data)
     for key in WRITE_ONLY_CLIENT_FIELDS:
         data.pop(key, None)
+    data['client_manager_id'] = payload.client_manager_id or created_by
     _set_client_manager(db, data)
     order_no = generate_recruitment_order_no(db)
     data["email_subject_preview"] = normalize_email_subject_order_no(
@@ -392,6 +393,8 @@ def create_recruitment_project(
     )
     db.add(project)
     db.flush()
+    from project_client_manager import apply as apply_client_manager
+    apply_client_manager(db, 'recruitment', project, payload.client_manager_id, payload.client_manager_change_reason, created_by, creating=True)
     from project_workbench_service import assignment_map_from_payload, ensure_project_responsibilities, validate_assignment_map
     assignments = assignment_map_from_payload(payload.role_assignments)
     validate_assignment_map(db, assignments)
@@ -412,7 +415,11 @@ def update_recruitment_project(
     project = get_recruitment_project(db, project_id)
     if not project:
         return None
+    db.query(RecruitmentProject).filter(RecruitmentProject.id == project_id).with_for_update().populate_existing().one()
     assert_fresh(project, payload.expected_updated_at)
+    if 'client_manager_id' in payload.model_fields_set:
+        from project_client_manager import apply as apply_client_manager
+        apply_client_manager(db, 'recruitment', project, payload.client_manager_id, payload.client_manager_change_reason, operator_id)
     old_status = project.project_status
     data = payload.model_dump(exclude=NESTED_FIELDS | {VERSION_FIELD})
     # 来源咨询一经建项即不可通过普通编辑解绑或换绑。
@@ -420,6 +427,8 @@ def update_recruitment_project(
     _resolve_client(db, data)
     for key in WRITE_ONLY_CLIENT_FIELDS:
         data.pop(key, None)
+    if 'client_manager_id' not in payload.model_fields_set:
+        data.pop('client_manager_id', None)
     _set_client_manager(db, data, existing=project)
     for key, value in data.items():
         setattr(project, key, value)
@@ -806,7 +815,7 @@ def ensure_recruitment_project_for_consultation(
         raise ValueError("该咨询已生成口译项目，不能再生成招聘项目")
     if db.query(AnnotationProject.id).filter(AnnotationProject.consultation_id == consultation.id).first():
         raise ValueError("该咨询已生成标注项目，不能再生成招聘项目")
-    manager = _default_client_manager(db, consultation.client_id)
+    manager = db.get(AppUser, created_by) if created_by else None
     now = datetime.now()
     project = RecruitmentProject(
         order_no=order_no or generate_recruitment_order_no(db),
@@ -824,6 +833,8 @@ def ensure_recruitment_project_for_consultation(
     )
     db.add(project)
     db.flush()
+    from project_client_manager import apply as apply_client_manager
+    apply_client_manager(db, 'recruitment', project, None, None, created_by, creating=True)
     _add_progress(db, project, operator_id=created_by, to_status="pending_setup", note="咨询确认后自动建项")
     record_project_operation(
         db, project_type="recruitment", operation_type="create", project=project,

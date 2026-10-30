@@ -373,6 +373,7 @@ class AnnotationProjectWrite(BaseModel):
 
 
 class AnnotationProjectCreate(AnnotationProjectWrite):
+    manager_change_reason: Optional[str] = Field(default=None, max_length=500)
     chat_delivery: Optional['ProgressChatDelivery'] = None
     parent_project_id: Optional[UUID] = None
     copy_source_language_item_id: Optional[UUID] = None
