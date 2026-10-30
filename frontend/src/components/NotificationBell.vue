@@ -218,7 +218,9 @@ const markItemRead = async (item, showError = false) => {
   }
 }
 
+import {canManageHr} from '@/utils/permission'
 const navigateToNotification = async (item) => {
+  if(item.notification_type==='attendance_clock_correction'){popoverVisible.value=false;await router.push({path:canManageHr()?'/hr-management/attendance':'/workbench',query:{section:'attendance',attendanceSection:'corrections'}});await nextTick();window.dispatchEvent(new Event('attendance-open-corrections'));return}
   if(['attendance_leave','home_office_application','attendance_delay_start'].includes(item.notification_type)){popoverVisible.value=false;await router.push({path:'/workbench',query:{section:'attendance'}});return}
   if(item.notification_type==='resource_request_dispatch' && item.related_entity_id){popoverVisible.value=false;dispatchBatchId.value=String(item.related_entity_id);return}
   if(item.notification_type==='chat_summary'&&item.related_entity_id){useProjectChatDock().openFullscreen();await nextTick();window.dispatchEvent(new CustomEvent('chat-open-summary',{detail:{issueId:item.related_entity_id}}));return}

@@ -18,7 +18,7 @@ router=APIRouter(prefix='/monthly-shifts',tags=['monthly-shifts'],dependencies=[
 def fixed_config(db:Session=Depends(get_db),user=Depends(get_current_user)):return fixed.get_config(db,user)
 
 @router.put('/fixed')
-def save_fixed_config(payload:service.PlanWrite,db:Session=Depends(get_db),user=Depends(get_current_user)):return fixed.save_config(db,user,payload)
+def save_fixed_config(payload:fixed.FixedWrite,db:Session=Depends(get_db),user=Depends(get_current_user)):return fixed.save_config(db,user,payload)
 
 @router.get('/weekly/mine')
 def weekly_mine(week:str,db:Session=Depends(get_db),user=Depends(get_current_user)):return weekly.my_plan(db,user,week)

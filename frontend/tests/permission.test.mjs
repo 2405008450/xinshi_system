@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 
 import {
   canAccessRoute,
+  canManageDepartments,
+  canConfigureWorkReports,
   canViewManuscriptArrangements,
   canViewTalentResourceLibrary,
   getDefaultRoute,
@@ -10,6 +12,7 @@ import {
   setStoredAccess,
 } from '../src/utils/permission.js'
 import { computed } from 'vue'
+import { technicalDevelopmentAccess } from '../src/utils/technicalDevelopmentAccess.js'
 
 const values = new Map()
 globalThis.localStorage = {
@@ -89,4 +92,41 @@ test('修改订单号权限独立于普通项目编辑权限', () => {
 
   setAccess(['测试'], ['projects:write', 'projects:order_no:write'])
   assert.equal(hasPermission('projects:order_no:write'), true)
+})
+
+
+test('行政组织权限开放组织架构但不扩大角色及用户系统管理权限', () => {
+  localStorage.setItem('user_name', 'administration-person')
+  setStoredAccess([], ['system:users:read', 'system:organization:write'])
+  assert.equal(canManageDepartments(), true)
+  assert.equal(canConfigureWorkReports(), true)
+  assert.equal(canAccessRoute({meta:{organizationManagement:true}}), true)
+  assert.equal(hasPermission('system:users:write'), false)
+  assert.equal(hasPermission('system:user_roles:write'), false)
+  assert.equal(hasPermission('system:roles:write'), false)
+  setStoredAccess([], [])
+  assert.equal(canManageDepartments(), false)
+  assert.equal(canConfigureWorkReports(), false)
+  assert.equal(canAccessRoute({meta:{organizationManagement:true}}), false)
+})
+
+
+test('组织架构迁入人事管理后沿用组织权限，不能借此访问排班考勤', () => {
+  localStorage.setItem('user_name', 'organization-viewer')
+  setStoredAccess([], ['system:users:read'])
+  assert.equal(canAccessRoute({meta:{hrManagement:true,organizationManagement:true}}), true)
+  assert.equal(canAccessRoute({meta:{hrManagement:true}}), false)
+  assert.equal(getDefaultRoute(), '/hr-management/organization')
+})
+
+test('技术管理仅按服务器确认的本人部门权限放行，超级管理员无额外通道', () => {
+  localStorage.setItem('user_id', 'technical-user')
+  setAccess(['超级管理员'], ['*'])
+  Object.assign(technicalDevelopmentAccess, { userId: 'technical-user', can_enter: false })
+  assert.equal(canAccessRoute({ meta: { technicalDevelopment: true } }), false)
+  technicalDevelopmentAccess.can_enter = true
+  assert.equal(canAccessRoute({ meta: { technicalDevelopment: true } }), true)
+  localStorage.setItem('user_id', 'other-user')
+  assert.equal(canAccessRoute({ meta: { technicalDevelopment: true } }), false)
+  localStorage.removeItem('user_id')
 })

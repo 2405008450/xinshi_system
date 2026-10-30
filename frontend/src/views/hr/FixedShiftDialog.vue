@@ -1,7 +1,7 @@
 <template>
   <DraggableFormDialog v-model="visible" title="固定班次人员" data-auto-draft="off" width="min(1040px, calc(100vw - 32px))" top="5vh" class="fixed-shift-dialog" :close-on-click-modal="false" :before-close="beforeClose" destroy-on-close>
     <div v-loading="loading">
-      <el-alert title="设置后，本周及以后的周安排、本月及以后的月安排会自动放入固定单元格。历史排班不变；取消固定后，已保存的排班仍保留。" type="info" :closable="false" />
+      <el-alert title="固定早早班、管理/管培生和灵活班次仅在此配置，不进入轮班表；居家班次（轮班）保留在排班表，按当周早晚班时间打卡，并标记居家。其他固定班次仍自动放入固定单元格。" type="info" :closable="false" />
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
       <div class="fixed-filter"><el-input v-model="keyword" placeholder="搜索姓名、账号或部门" clearable aria-label="搜索固定班次人员" @keyup.enter="applySearch" @clear="applySearch" /><el-button @click="applySearch">查询</el-button><el-checkbox v-model="onlyFixed">仅看固定人员</el-checkbox><span>固定 {{Object.keys(settings).length}} 人</span></div>
       <AppForm inline label-width="auto" class="fixed-batch">
@@ -16,7 +16,7 @@
         <el-table-column label="固定单元格部门" min-width="165"><template #default="{row}"><el-select :model-value="departmentFor(row)" :aria-label="`${row.name}固定部门`" :disabled="saving" placeholder="请选择固定部门" @change="setDepartment(row,$event)"><el-option v-for="item in config.departments" :key="item.code" :value="item.code" :label="item.label" /></el-select></template></el-table-column>
         <el-table-column label="固定班次" min-width="205"><template #default="{row}"><el-select :model-value="settings[row.id]?.shift||''" clearable :aria-label="`${row.name}固定班次`" :disabled="saving||!departmentFor(row)" placeholder="不固定" @update:model-value="setShift(row,$event)"><el-option v-for="item in config.shifts" :key="item.code" :value="item.code" :label="item.label" :disabled="!validCell(departmentFor(row),item.code)" /></el-select></template></el-table-column>
       </el-table>
-      <p class="fixed-note">勾选人员可批量设置，也可逐行选择班次；班次留空表示不固定。修改后点击保存生效。</p>
+      <p v-for="shift in config.shifts.filter(item=>['fixed_early_early','management','flexible','home_rotation'].includes(item.code))" :key="shift.code" class="fixed-note"><strong>{{shift.label}}</strong>：{{shift.description}}</p><p class="fixed-note">勾选人员可批量设置，也可逐行选择班次；班次留空表示不固定。修改后点击保存生效。</p>
     </div>
     <template #footer><el-button :disabled="saving" @click="visible=false">取消</el-button><el-button type="primary" :loading="saving" :disabled="loading||!config.ready||!!error" @click="save">保存</el-button></template>
   </DraggableFormDialog>

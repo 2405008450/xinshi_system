@@ -12,6 +12,7 @@ PERMISSION_GROUPS = [
         "permissions": [
             {"code": "system:users:read", "name": "查看用户"},
             {"code": "system:users:write", "name": "管理用户"},
+            {"code": "system:organization:write", "name": "管理组织架构"},
             {"code": "system:roles:read", "name": "查看角色与权限"},
             {"code": "system:roles:write", "name": "管理角色与权限"},
             {"code": "system:user_roles:write", "name": "分配用户角色"},

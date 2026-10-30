@@ -212,6 +212,7 @@
 
         <el-collapse-item  name="editor-section-5" data-section-key="editor-section-5" title="学历信息"><div class="form-section"><h3>学历信息</h3>
           <el-form-item label="最高学历"><el-select v-model="form.highestEducation" clearable style="width:100%"><el-option v-for="item in educationOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
+          <el-form-item label="本科毕业年份" :prop="bachelorEducationIndex>=0?`educationExperiences.${bachelorEducationIndex}.graduationYear`:undefined" :rules="[{type:'integer',min:1900,max:2200,message:'请输入1900至2200之间的整数年份',trigger:'change'}]"><el-input-number v-model="bachelorGraduationYear" :min="1900" :max="2200" :precision="0" :controls="false" placeholder="例如：2020" style="width:100%" /><small>与下方本科教育经历的毕业年份同步。</small></el-form-item>
         </div></el-collapse-item>
 
         <el-collapse-item  name="editor-section-6" data-section-key="editor-section-6" title="语言情况与证书"><div class="form-section"><h3>语言情况与证书</h3>
@@ -362,7 +363,7 @@ import TalentQuickRegisterDialog from './components/TalentQuickRegisterDialog.vu
 import ResumeExperienceGrid from './components/ResumeExperienceGrid.vue'
 import LocalizedResumeEditor from './components/LocalizedResumeEditor.vue'
 import {foreignResumeLanguages} from '@/utils/talentResumeLocales'
-import {catToolOptions,educationDegreeOptions,emptyResumeProfile,resumeProfileForm,educationFormRows,ensureResumeVersion} from '@/utils/talentResumeProfile'
+import {catToolOptions,educationDegreeOptions,emptyResumeProfile,resumeProfileForm,educationFormRows,ensureResumeVersion,newEducation} from '@/utils/talentResumeProfile'
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import LanguageDirectionsEditor from '@/components/common/LanguageDirectionsEditor.vue'
@@ -632,6 +633,8 @@ const emptyForm=()=>({
   careerProfile:{industries:[],functions:[],jobTitles:[],yearsExperience:null,preferredLocations:[],expectedSalary:'',summary:''},
 })
 const form=reactive(emptyForm())
+const bachelorEducationIndex=computed(()=>form.educationExperiences.findIndex(row=>row.educationLevel==='bachelor'))
+const bachelorGraduationYear=computed({get:()=>form.educationExperiences[bachelorEducationIndex.value]?.graduationYear??null,set:value=>{const row=form.educationExperiences[bachelorEducationIndex.value];if(row)row.graduationYear=value??null;else if(value!=null)form.educationExperiences.push({...newEducation(),educationLevel:'bachelor',graduationYear:value})}})
 const otherNamesText=computed({get:()=>form.otherNames.join('\n'),set:value=>{form.otherNames=String(value||'').split(/\r?\n/)}})
 const resumeTab=ref('zh'),foreignResumeLocale=ref('ar')
 watch([resumeTab,foreignResumeLocale],()=>{if(resumeTab.value!=='zh')ensureResumeVersion(form.resumeProfile,resumeTab.value==='en'?'en':foreignResumeLocale.value)},{flush:'sync'});const formRef=ref(null);const editorVisible=ref(false);const saving=ref(false);const editorTitle=ref('新增人才');const nameFieldsExpanded=ref(true)

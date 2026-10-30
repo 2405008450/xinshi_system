@@ -57,10 +57,12 @@ def test_monthly_cap_idempotence_and_notifications(office):
     db,(admin,person,manager)=office;client=uuid4()
     first=apply(db,person,client_id=client);assert first['month_used']==1
     apply(db,person,client_id=client);assert db.query(service.Application).count()==1
-    apply(db,person,'2026-10-29')
-    with pytest.raises(HTTPException) as error:apply(db,person,'2026-10-30')
-    assert '本月2次已满' in error.value.detail
-    assert db.query(AppNotification).filter_by(notification_type='home_office_application').count()==4
+    service.apply(db,person,service.ApplicationWrite(client_id=uuid4(),requested_date='2026-10-29',minutes=240))
+    service.apply(db,person,service.ApplicationWrite(client_id=uuid4(),requested_date='2026-10-30',minutes=240))
+    with pytest.raises(HTTPException) as error:apply(db,person,'2026-10-31')
+    assert db.query(service.Application).count()==3
+    assert service.quota(db,person,date(2026,10,30))['month_hours']==16
+    assert db.query(AppNotification).filter_by(notification_type='home_office_application').count()==6
 
 
 @pytest.mark.parametrize('dates,target,messages',[

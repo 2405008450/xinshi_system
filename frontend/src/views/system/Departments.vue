@@ -3,7 +3,7 @@
     <header><h2>部门管理</h2><el-button type="primary" :disabled="!ready || !allowed" @click="edit()">新增部门</el-button></header>
     <el-alert v-if="error" :title="error" type="error" :closable="false"><el-button link @click="load">重试</el-button></el-alert>
     <el-alert v-else-if="!ready" title="部门目录尚未初始化，完成数据库同步后可新增和编辑" type="warning" :closable="false" />
-    <p>部门改名会同步关联人员、排班和各处部门选项。管理权限仅限 ethan、jimmy 和超级管理员。</p>
+    <p>部门改名会同步关联人员、排班和各处部门选项。行政部、ethan、jimmy 和超级管理员可调整部门、人员归属和职务。</p>
     <div class="department-search"><el-input v-model="keyword" clearable placeholder="搜索部门名称" @keyup.enter="query" /><el-button @click="query">查询</el-button><el-button @click="keyword='';query()">重置</el-button></div>
     <el-table :data="filtered" v-loading="loading" border><el-table-column type="index" label="序号" width="70" /><el-table-column prop="name" label="部门名称" /><el-table-column prop="userCount" label="关联人数" width="110" /><el-table-column label="操作" width="200" fixed="right"><template #default="{row}"><el-button link type="primary" @click="rosterName=row.name;rosterVisible=true">人员 / 职务</el-button><el-button link type="primary" :disabled="!ready || !allowed" @click="edit(row)">编辑名称</el-button></template></el-table-column></el-table>
     <DraggableFormDialog v-model="rosterVisible" :title="rosterName" class="department-roster-dialog" width="min(1000px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close @closed="load"><DepartmentRoster :department-name="rosterName" /><template #footer><el-button @click="rosterVisible=false">关闭</el-button></template></DraggableFormDialog>

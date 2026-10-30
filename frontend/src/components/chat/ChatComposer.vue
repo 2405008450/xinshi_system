@@ -57,3 +57,5 @@ async function insertMention() {
 .group-mention-person{display:flex;flex:1;min-width:0;flex-direction:column;align-items:flex-start;gap:3px}
 .group-mention-avatar{flex-shrink:0}
 </style>
+
+<style scoped src="./chatQuotes.css" />

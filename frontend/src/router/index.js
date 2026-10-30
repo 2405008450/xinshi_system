@@ -8,6 +8,7 @@ import {
 } from '../utils/permission'
 import { getCurrentSession } from '../api/auth'
 import { refreshIssueAccess } from '@/composables/useResourceIssues'
+import { refreshTechnicalDevelopmentAccess } from '@/composables/useTechnicalDevelopmentAccess'
 import { resourceRequestsLocation, resolveDevelopmentSection } from '@/utils/resourceDevelopmentNavigation'
 
 const routes = [
@@ -24,7 +25,10 @@ const routes = [
         path: 'company-management',
         name: 'CompanyManagement',
         component: () => import('../views/system/CompanyManagement.vue'),
-        meta: { title: '公司管理', roles: ['*'] }
+        meta: { title: '公司管理', roles: ['*'] },
+        children: [
+          { path: 'development-feedback', name: 'DevelopmentFeedback', component: () => import('../views/technology/DevelopmentFeedback.vue'), meta: { title: '开发反馈', roles: ['*'] } }
+        ]
       },
       {
         path: 'profile',
@@ -35,7 +39,7 @@ const routes = [
       {
         path: 'users',
         name: 'Users',
-        component: () => import('../views/system/Organization.vue'),
+        redirect: to => ({path:'/hr-management/organization',query:to.query,hash:to.hash}),
         meta: { title: '组织架构', organizationManagement: true }
       },
       {
@@ -48,7 +52,7 @@ const routes = [
       {
         path: 'departments',
         name: 'Departments',
-        redirect: '/users',
+        redirect: to => ({path:'/hr-management/organization',query:to.query,hash:to.hash}),
         meta: { title: '组织架构', organizationManagement: true }
       },
       {
@@ -332,9 +336,10 @@ const routes = [
       {
         path: 'hr-management',
         component: () => import('../views/hr/HRManagement.vue'),
-        redirect: '/hr-management/attendance',
+        redirect: '/hr-management/organization',
         meta: { title: '人事管理', hrManagement: true },
         children: [
+          {path:'organization',name:'HROrganization',component:()=>import('../views/system/Organization.vue'),meta:{title:'组织架构',organizationManagement:true}},
           {path:'shifts',name:'MonthlyShiftManagement',component:()=>import('../views/hr/MonthlyShiftManagement.vue'),meta:{title:'排班管理',hrManagement:true}},
           {
             path: 'attendance',
@@ -406,7 +411,16 @@ const routes = [
         path: 'technology-management',
         name: 'TechnologyManagement',
         component: () => import('../views/technology/TechnologyManagement.vue'),
-        meta: { title: '技术管理' }
+        redirect: '/technology-management/development',
+        meta: { title: '技术管理', technicalDevelopment: true },
+        children: [
+          {
+            path: 'development',
+            name: 'TechnicalDevelopment',
+            component: () => import('../views/technology/TechnicalDevelopment.vue'),
+            meta: { title: '技术开发', technicalDevelopment: true }
+          }
+        ]
       },
 
     ]
@@ -480,6 +494,10 @@ router.beforeEach(async (to, from, next) => {
     next(); return
   }
 
+  if (to.meta?.technicalDevelopment) {
+    try { await refreshTechnicalDevelopmentAccess() }
+    catch { next(getDefaultRoute()); return }
+  }
   if (!canAccessRoute(to)) {
     // 权限可能刚被管理员调整，拒绝导航前强制再同步一次。
     if (!await syncSessionPermissions(true) || !canAccessRoute(to)) {

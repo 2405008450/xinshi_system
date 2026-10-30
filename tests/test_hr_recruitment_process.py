@@ -75,7 +75,8 @@ def test_stale_revision_delete_and_non_hr_are_rejected(arranged):
     with pytest.raises(HTTPException):process.delete(db,admin,result['id'],1)
     with pytest.raises(HTTPException):process.listing(db,person)
     process.delete(db,admin,result['id'],2)
-    assert process.listing(db,admin)['total']==0
+    remaining=process.listing(db,admin)
+    assert remaining['total']==1 and remaining['items'][0]['is_placeholder']
 
 
 def test_http_validation_and_reserved_field(arranged):
@@ -100,3 +101,26 @@ def test_process_migration_idempotent_no_existing_schema_changes(arranged):
     apply_migration(db.connection());apply_migration(db.connection());db.commit()
     assert [row['name'] for row in inspect(db.connection()).get_columns('hr_recruitment_requirement')]==before
     assert inspect(db.connection()).has_table('hr_recruitment_candidate')
+
+
+def test_requirements_automatically_appear_without_fake_candidates_and_search_pagination(arranged):
+    db,(admin,_,_),demand=arranged
+    before=db.query(process.HrRecruitmentCandidate).count()
+    initial=process.listing(db,admin)
+    assert initial['total']==1 and initial['items'][0]['is_placeholder']
+    assert initial['items'][0]['requirement_id']==demand['id']
+    assert initial['items'][0]['recruitment_city']=='广州'
+    assert db.query(process.HrRecruitmentCandidate).count()==before
+    other=requirements.create(db,admin,requirements.RequirementCreate(client_id=uuid4(),request_date=date(2026,10,30),recruitment_city='上海',position='全岗位',reason='人数不足',headcount=2,details='具体要求'))
+    assert process.listing(db,admin,keyword='上海 全岗位')['total']==1
+    assert process.listing(db,admin,keyword='不存在')['total']==0
+    assert process.listing(db,admin,page=2,limit=1)['total']==2
+    assert len(process.listing(db,admin,page=2,limit=1)['items'])==1
+    first=process.create(db,admin,process.CandidateCreate(client_id=uuid4(),**fields(demand['id'])))
+    items=process.listing(db,admin)['items']
+    assert len(items)==2 and sum(bool(item.get('is_placeholder')) for item in items)==1
+    assert any(item['id']==first['id'] for item in items)
+    process.create(db,admin,process.CandidateCreate(client_id=uuid4(),**fields(demand['id'],applicant_name='第二位应聘人')))
+    assert process.listing(db,admin)['total']==3
+    requirements.delete(db,admin,other['id'],other['revision'])
+    assert process.listing(db,admin)['total']==2

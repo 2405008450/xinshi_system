@@ -40,3 +40,9 @@ class HomeOfficeAnnualUsage(Base):
     history:Mapped[list]=mapped_column(JSON,nullable=False,default=list)
     updated_by:Mapped[UUID]=mapped_column(Uuid,ForeignKey('app_user.id'),nullable=False)
     updated_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),nullable=False,default=now)
+
+
+class HomeOfficeApplicationDuration(Base):
+    __tablename__='home_office_application_duration'
+    application_id:Mapped[UUID]=mapped_column(Uuid,ForeignKey('home_office_application.id'),primary_key=True)
+    minutes:Mapped[int]=mapped_column(Integer,nullable=False)

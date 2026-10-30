@@ -1,4 +1,4 @@
-"""组织名册；部门职务不授予任何系统权限。"""
+"""组织名册；职务不授予权限，行政部成员按明确规则获得组织架构权限。"""
 from sqlalchemy import inspect, or_, select
 from fastapi import HTTPException
 from models import AppUser
@@ -50,7 +50,7 @@ def directory(db, user):
 def save_members(db, user, department_id, entries, revision):
     import department_service as departments
     if not departments.can_manage(db, user):
-        raise HTTPException(403, '仅 ethan、jimmy 和超级管理员可管理组织架构')
+        raise HTTPException(403, '仅行政部、ethan、jimmy 和超级管理员可管理组织架构')
     if not ready(db):
         raise HTTPException(503, '组织成员表尚未初始化')
     # 所有部门使用同一加锁顺序，防止同一人员跨部门编辑互相覆盖。
@@ -98,7 +98,7 @@ def save_person_departments(db, user, user_id, payload):
     """原子调整个人全部部门，保留仍所属部门的职务。"""
     import department_service as departments
     if not departments.can_manage(db, user):
-        raise HTTPException(403, '仅 ethan、jimmy 和超级管理员可调整部门')
+        raise HTTPException(403, '仅行政部、ethan、jimmy 和超级管理员可调整部门')
     if not ready(db) or not departments.ready(db):
         raise HTTPException(503, '组织架构存储尚未初始化')
     rows = db.query(Department).order_by(Department.id).with_for_update().all()

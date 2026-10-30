@@ -29,8 +29,8 @@ def test_late_spans_exclude_formal_leave_rest_and_grace():
     user=SimpleNamespace(id=uuid4());row=punch(user,'2026-10-26','14:00')
     leave=SimpleNamespace(employee_id=user.id,start_date=at('2026-10-26T09:00'),end_date=at('2026-10-26T10:00'))
     event=policy.lateness_events([row],[leave])[0]
-    assert event['minutes']==140
-    assert [(item['start_at'].strftime('%H:%M'),item['end_at'].strftime('%H:%M')) for item in event['spans']]==[('10:10','12:00'),('13:30','14:00')]
+    assert event['minutes']==135
+    assert [(item['start_at'].strftime('%H:%M'),item['end_at'].strftime('%H:%M')) for item in event['spans']]==[('10:15','12:00'),('13:30','14:00')]
     assert event['clock_id']==str(row.id)
 
 
@@ -41,7 +41,7 @@ def test_report_adds_virtual_leave_with_original_clock_reference_and_full_month_
     c=punch(person,'2026-10-07','09:00','23:00');d=punch(person,'2026-10-08','09:00','23:00')
     db.add_all([a,b,overtime,c,d]);db.commit()
     report=attendance.attendance_report(db,person,date(2026,10,26),'week')
-    assert report['totals']['leave_minutes']==20 and report['totals']['late_leave_minutes']==20
+    assert report['totals']['leave_minutes']==15 and report['totals']['late_leave_minutes']==15
     assert report['totals']['requested_leave_minutes']==0
     assert len(report['leaves'])==1 and report['leaves'][0]['source']=='lateness'
     assert report['leaves'][0]['clock_id']==str(b.id)

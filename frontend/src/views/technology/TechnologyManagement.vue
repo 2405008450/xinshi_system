@@ -1,27 +1,23 @@
 <template>
-  <el-card>
-    <template #header>
-      <div class="card-header">
-        <span>技术管理</span>
-      </div>
-    </template>
-    <div class="empty-state">暂无技术管理数据</div>
-  </el-card>
+  <div class="technology-management">
+    <RouteSectionNavigation :items="navigation" label="技术管理二级导航" />
+    <router-view />
+  </div>
 </template>
 
 <script setup>
+import RouteSectionNavigation from '@/components/common/RouteSectionNavigation.vue'
+
+const navigation = [
+  { path: '/technology-management/development', label: '技术开发' }
+]
 </script>
 
 <style scoped>
-.card-header {
+.technology-management {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.empty-state {
-  padding: 24px 0;
-  color: #9ca3af;
-  text-align: center;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
 }
 </style>

@@ -23,7 +23,7 @@ defineEmits(['locate','focus'])
 </script>
 <style scoped>
 .reference-branch{display:flex;flex-direction:column;align-items:center;width:max-content}
-.reference-card{box-sizing:border-box;position:relative;flex:none;width:260px;padding:12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#334155}
+.reference-card{box-sizing:border-box;position:relative;flex:none;width:260px;padding:12px;border:1px solid #bfdbfe;border-radius:8px;background:#eff6ff;color:#334155}
 .reference-card.is-original{border-color:#93b8e8;background:#eff6ff}
 .reference-card.is-current,.reference-card.is-highlighted{border-color:#2563eb;box-shadow:0 0 0 2px #bfdbfe}
 .reference-card header{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.reference-card header b{color:#345e92;font-size:12px}.reference-card strong{font-size:13px}

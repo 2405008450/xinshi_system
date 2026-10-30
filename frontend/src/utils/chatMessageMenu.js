@@ -20,6 +20,7 @@ export function buildMessageMenu(message, { handlers = {}, currentUserId = '', c
   }
   if (normal && text && canCollect) items.push({ id: 'collect', label: '分类保存和通知', icon: 'collect', submenu: true, separator: true })
   if (normal && text && handlers.technical) items.push({id:'technical',label:'添加技术需求',icon:'technical',separator:true})
+  if (normal && text && handlers['development-task']) items.push({id:'development-task',label:'新增技术开发任务',icon:'technical',separator:true})
   if (normal && text && annotationProgress) items.push({id:'annotation-progress',label:'添加进度',icon:'progress',submenu:true,separator:true})
   else if (text && canProgress && handlers.progress) items.push({ id: 'progress', label: excerpt ? '添加选中内容为进度' : '添加为进度', icon: 'progress', separator: true })
   if (text && canProgress && handlers.select) items.push({ id: 'select', label: selecting ? '选择这条消息' : '多选', icon: 'select' })

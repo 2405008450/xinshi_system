@@ -75,3 +75,5 @@ const menuHandlers = {
 </style>
 
 <style scoped>.group-content.has-references{cursor:pointer}.group-content.has-references:hover{text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px}</style>
+
+<style scoped src="./chatQuotes.css" />

@@ -34,12 +34,14 @@
         <SidebarNavigationItem v-if="canViewProjects" index="/recruitment-details" :icon="Suitcase" label="招聘项目" />
         <SidebarNavigationItem v-if="canViewManuscript" index="/manuscript-arrangements" :icon="Calendar" label="稿件安排" />
 
+        <SidebarNavigationItem v-if="showTechnicalManagement" index="/technology-management" :icon="Cpu" label="技术管理" />
+
         <!-- 协作资源：客户、资源需求与人才资源池 -->
         <li v-if="showResourceGroup && !isCollapse" class="menu-group-label" role="presentation"><span>资源协作</span></li>
         <SidebarNavigationItem v-if="showClients" index="/clients" :icon="Connection" label="客户信息" />
         <SidebarNavigationItem v-if="showResourceManagement" :index="resourceManagementPath" :icon="Avatar" label="资源管理" />
 
-        <SidebarNavigationItem v-if="canViewHr" index="/hr-management/shifts" :icon="Management" label="人事管理" />
+        <SidebarNavigationItem v-if="canViewHr" :index="hrEntryPath" :icon="Management" label="人事管理" />
         <!-- 账户、扩展能力和管理员入口统一归入平台设置 -->
         <li v-if="!isCollapse" class="menu-group-label" role="presentation"><span>平台设置</span></li>
         <SidebarNavigationItem index="/profile" :icon="Postcard" label="个人中心" />
@@ -128,7 +130,7 @@
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { ref, computed, defineAsyncComponent, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { User, Suitcase, Connection, Avatar, Management, Postcard, Setting, Document, EditPen, Headset, Calendar, OfficeBuilding, ArrowDown, DataBoard, Phone, ChatDotRound, QuestionFilled, Fold, Expand, TopRight } from '@element-plus/icons-vue'
+import { User, Suitcase, Connection, Avatar, Management, Postcard, Setting, Document, EditPen, Headset, Calendar, OfficeBuilding, ArrowDown, DataBoard, Phone, ChatDotRound, QuestionFilled, Fold, Expand, TopRight, Cpu } from '@element-plus/icons-vue'
 import {
   canViewManuscriptArrangements,
   canViewTalentResourceLibrary,
@@ -143,6 +145,10 @@ import { chatEntryContext } from '@/utils/chatEntryContext'
 import { canManageDepartments, canConfigureWorkReports, canManageHr } from '@/utils/permission'
 import { useDepartmentCatalog } from '@/composables/useDepartmentCatalog'
 useDepartmentCatalog()
+import { useTechnicalDevelopmentAccess } from '@/composables/useTechnicalDevelopmentAccess'
+import { canViewTechnicalDevelopment } from '@/utils/technicalDevelopmentAccess'
+useTechnicalDevelopmentAccess()
+const showTechnicalManagement = computed(() => canViewTechnicalDevelopment())
 import { useResourceNotesDock } from '@/composables/useResourceNotesDock'
 import { useResourceIssues } from '@/composables/useResourceIssues'
 import UiZoomControl from '../components/UiZoomControl.vue'
@@ -217,16 +223,17 @@ onMounted(() => {
 onBeforeUnmount(() => window.removeEventListener('resize', syncResponsiveSidebar))
 
 const canViewUsers = computed(() => hasPermission('system:users:read'))
-const canViewHr = computed(() => canManageHr())
+const canViewHr = computed(() => canManageHr()||canViewOrganization.value)
+const hrEntryPath=computed(()=>canViewOrganization.value?'/hr-management/organization':'/hr-management/shifts')
 const canViewDepartments = computed(() => canManageDepartments())
 const canViewReportSettings = computed(() => canConfigureWorkReports())
 const canViewRoles = computed(() => hasPermission('system:roles:read'))
 const canViewMailSettings = computed(() => hasPermission('system:mail_settings:read'))
 const canViewProjectAudits = computed(() => hasPermission('system:audit:read'))
-const showSystemMenu = computed(() => canViewDepartments.value || canViewUsers.value || canViewReportSettings.value || canViewRoles.value || canViewMailSettings.value || canViewProjectAudits.value)
+const canViewOrganization=computed(()=>canViewDepartments.value||canViewUsers.value||canViewReportSettings.value)
+const showSystemMenu = computed(() => canViewRoles.value || canViewMailSettings.value || canViewProjectAudits.value)
 
 const systemNavigation=computed(()=>[
-  ...((canViewUsers.value||canViewDepartments.value||canViewReportSettings.value)?[{path:'/users',label:'组织架构'}]:[]),
   ...(canViewRoles.value?[{path:'/roles',label:'角色管理'}]:[]),
   ...(canViewMailSettings.value?[{path:'/mail-settings',label:'项目邮件设置'}]:[]),
   ...(canViewProjectAudits.value?[{path:'/project-operation-audits',label:'项目操作审计'}]:[])
@@ -273,7 +280,6 @@ const pendingModulePaths = new Set([
   '/other',
   '/client-contacts',
   '/finance',
-  '/technology-management',
   '/marketing',
   '/hr-management/attendance',
   '/hr-management/kpi',
@@ -286,7 +292,9 @@ const pendingModulePaths = new Set([
 ])
 
 const resolveActiveMenu = (path) => {
-  if(path==='/hr-management'||path.startsWith('/hr-management/'))return '/hr-management/shifts'
+  if (path === '/company-management' || path.startsWith('/company-management/')) return '/company-management'
+  if (path === '/technology-management' || path.startsWith('/technology-management/')) return '/technology-management'
+  if(path==='/hr-management'||path.startsWith('/hr-management/'))return hrEntryPath.value
   if(systemNavigation.value.some(item=>item.path===path))return systemNavigation.value[0]?.path||path
   if (pendingModulePaths.has(path)) return '/pending-modules'
   if (

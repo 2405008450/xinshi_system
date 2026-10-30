@@ -20,7 +20,7 @@ const props=defineProps({modelValue:Boolean,kind:{type:String,default:'shift'},w
 defineEmits(['update:modelValue'])
 const items=ref([]),total=ref(0),loading=ref(false),error=ref('')
 const labels={draft_save:'自动保存草稿',publish:'同步到工作台',enable_edit:'开启修改',copy:'复制周安排',move:'转移周安排',swap:'互换周安排'}
-const describe=value=>value?`${props.departments.find(row=>row.code===value.department)?.label||value.department} · ${value.date||props.shifts.find(row=>row.code===value.shift)?.label||value.shift}${value.fixed?'（固定）':''}`:'未安排'
+const describe=value=>value?`${props.departments.find(row=>row.code===value.department)?.label||value.department} · ${value.date||props.shifts.find(row=>row.code===value.shift)?.label||value.shift}${value.fixed?'（固定）':''}${value.home_rotation?'（居家轮班）':value.home_office_day?'（居家）':''}`:'未安排'
 let controller,sequence=0,unsubscribe
 async function load(more=false){controller?.abort();const id=++sequence;if(!props.modelValue)return;controller=new AbortController();loading.value=true;error.value='';if(!more)items.value=[];try{const result=await (props.kind==='duty'?getWeekendDutyHistory:getWeeklyShiftHistory)(props.week,{public:props.public,offset:more?items.value.length:0,signal:controller.signal});if(id===sequence){items.value=more?[...items.value,...result.items]:result.items;total.value=result.total}}catch(e){if(id===sequence&&e.code!=='ERR_CANCELED')error.value=e.detail||'读取修改记录失败'}finally{if(id===sequence)loading.value=false}}
 watch([()=>props.modelValue,()=>props.week],()=>{if(props.modelValue)load();else{controller?.abort();sequence++}},{immediate:true})

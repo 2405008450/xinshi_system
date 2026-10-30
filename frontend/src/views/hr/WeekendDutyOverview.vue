@@ -5,6 +5,7 @@
     <el-button v-for="item in plans" :key="item.month" link @click="historyMonth=item.month;historyVisible=true">{{item.month}} 修改记录</el-button>
     <div class="duty-overview-scroll"><table><thead><tr><th>参与部门</th><th v-for="day in dates" :key="day">{{dutyDateLabel(day)}}</th></tr></thead><tbody><tr v-for="department in departments" :key="department.code"><th>{{department.label}}</th><td v-for="day in dates" :key="day"><p v-for="person in people(department.code,day)" :key="person.user_id">{{person.name}} <el-tag v-if="person.fixed" size="small" type="info">固定</el-tag></p><span v-if="!people(department.code,day).length">暂无安排</span></td></tr></tbody></table></div>
     <WeeklyShiftHistoryDialog v-if="historyMonth" v-model="historyVisible" kind="duty" :week="historyMonth" :departments="departments" />
+    <WeekendNightDuty v-for="item in months" :key="item" :month="item" readonly :scope="scope" :week="mode==='week'?week:undefined" />
   </section>
 </template>
 <script setup>
@@ -14,6 +15,7 @@ import {shiftWeekEnd} from '@/utils/monthlyShift'
 import {dutyDateLabel} from '@/utils/weekendDuty'
 import {subscribe} from '@/utils/realtimeSocket'
 import WeeklyShiftHistoryDialog from './WeeklyShiftHistoryDialog.vue'
+import WeekendNightDuty from './WeekendNightDuty.vue'
 const props=defineProps({mode:String,week:String,month:String,scope:String})
 const plans=ref([]),loading=ref(false),error=ref(''),historyMonth=ref(''),historyVisible=ref(false)
 const months=computed(()=>props.mode==='week'?[...new Set([props.week.slice(0,7),shiftWeekEnd(props.week).slice(0,7)])]:[props.month])

@@ -2546,3 +2546,5 @@ onBeforeUnmount(() => {
 <style scoped>.mention-desktop-state{display:flex;margin-top:2px}</style>
 
 <style>.chat-mention-user-options{max-width:calc(100vw - 32px)}.chat-mention-user-options .el-select-dropdown__item{height:auto;min-height:34px;padding-top:6px;padding-bottom:6px;line-height:1.5;white-space:normal}</style>
+
+<style scoped src="./chat/chatQuotes.css" />

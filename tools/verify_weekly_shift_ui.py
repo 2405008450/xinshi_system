@@ -7,6 +7,7 @@ from datetime import datetime,timezone,timedelta
 from playwright.sync_api import sync_playwright,expect
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from monthly_shift import SHIFTS,DEPARTMENTS
+from fixed_shift import FIXED_SHIFTS
 BASE='http://localhost:3000'
 compiled=urlopen(BASE+'/src/components/common/AppForm.vue').read().decode()
 vue=re.search(r'from ["\']([^"\']*/vue\.js[^"\']*)',compiled).group(1)
@@ -22,7 +23,7 @@ def api(route):
  request=route.request;path=urlparse(request.url).path;q=parse_qs(urlparse(request.url).query);week=q.get('week',['2026-10-26'])[0];reads.append((path,week))
  if fail_next and path.endswith('/weekly'):
   fail_next=False;route.fulfill(status=502,content_type='application/json',body=json.dumps({'detail':'上游服务暂时不可用，请稍后重试'}));return
- if path.endswith('/fixed'):result={'ready':True,'revision':0,'assignments':[],'people':[{**person,'default_department':'customer'} for person in people],'shifts':SHIFTS,'departments':DEPARTMENTS}
+ if path.endswith('/fixed'):result={'ready':True,'revision':0,'assignments':[],'people':[{**person,'default_department':'customer'} for person in people],'shifts':FIXED_SHIFTS,'departments':DEPARTMENTS}
  elif path.endswith('/directory'):result={'ready':True,'items':[{'id':row['code'],'name':row['label']} for row in DEPARTMENTS],'people':people}
  elif path.endswith('/weekly/history'):result={'total':len([row for row in audits.get(week,[]) if q.get('public',['true'])[0]=='false' or row.get('publication_revision')]),'items':[row for row in audits.get(week,[]) if q.get('public',['true'])[0]=='false' or row.get('publication_revision')]}
  elif path.endswith('/weekly/sync'):
@@ -123,11 +124,18 @@ with sync_playwright() as pw:
  # 工作台保持全部/本人只读，不受恢复主页面编辑影响。
  page.get_by_role('button',name='切换个人排班',exact=True).click();expect(page.locator('.my-monthly-shift')).to_contain_text('当前查看全部人员')
  expect(page.locator('.my-monthly-shift [draggable="true"]')).to_have_count(0)
+ page.locator('.my-monthly-shift .el-collapse-item__header').filter(has_text=re.compile('^班次安排$')).click()
  page.locator('.my-monthly-shift .el-radio-button').filter(has_text='仅看自己').click();expect(page.locator('.my-monthly-shift')).to_contain_text('当前查看本人')
  page.get_by_role('button',name='快速查看（展开）').click();page.get_by_role('button',name='本月安排',exact=True).click();expect(page.locator('.my-month-weeks>.el-card')).to_have_count(5)
  page.locator('.my-monthly-shift .el-radio-button').filter(has_text='全部人员').click();expect(page.locator('.month-week-table tbody tr')).to_have_count(5)
  page.get_by_role('button',name='切换个人排班',exact=True).click()
  page.get_by_role('button',name='固定班次人员',exact=True).click();fixed=page.get_by_role('dialog',name='固定班次人员',exact=True)
+ expect(fixed).to_contain_text('08:30上班，16:00下班')
+ expect(fixed).to_contain_text('08:50上班，20:00下班')
+ expect(fixed).to_contain_text('不设预定上下班时间')
+ fixed.get_by_role('combobox',name='界面测试人员固定班次',exact=True).locator('xpath=ancestor::div[contains(@class,"el-select__wrapper")]').click()
+ for name in ['早早班（固定）','管理/管培生班次','灵活班次','居家班次（轮班）']:expect(page.get_by_role('option',name=name,exact=True)).to_be_visible()
+ page.get_by_role('option',name='早早班（固定）',exact=True).click()
  fixed.get_by_role('combobox',name='界面测试人员固定部门',exact=True).locator('xpath=ancestor::div[contains(@class,"el-select__wrapper")]').click();page.get_by_role('option',name='IT部门',exact=True).click()
  fixed.get_by_role('combobox',name='界面测试人员固定班次',exact=True).locator('xpath=ancestor::div[contains(@class,"el-select__wrapper")]').click();page.get_by_role('option',name='晚班',exact=True).click()
  page.wait_for_timeout(500)

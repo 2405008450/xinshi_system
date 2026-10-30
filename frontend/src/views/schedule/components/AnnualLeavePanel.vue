@@ -1,5 +1,6 @@
 <template>
   <section v-loading="loading" class="annual-leave-panel">
+    <p class="annual-note">额度规则：6月30日及之前入职首年1天；之后入职首年0天、次年1月1日先获1天（仅一次）。所有人员此后每满周年再过3个月加1天，上限10天。</p>
     <div class="annual-toolbar"><el-input-number v-model="year" :min="2000" :max="currentYear+1" :precision="0" :controls="false" aria-label="年假抵扣年份" @change="load" /><el-input v-model="keyword" placeholder="搜索姓名、账号、事由" clearable aria-label="年假记录搜索" @keyup.enter="search" @clear="search" /><el-button @click="search">查询</el-button><el-button @click="reset">重置</el-button><el-button @click="load">刷新</el-button><AttendanceRulesPopover /></div>
     <p class="annual-note">请假（含迟到折算）优先抵扣已生效年假；余额不足部分待补班。人事可改为“不扣年假、扣工资”，也可恢复自动抵扣。已抵年假或明确扣工资的时间不重复补班。按自然年、发生日期先后分配，未来请假单独显示预留；1天按当日本人完整班次时长折算。扣工资记录为时长，工资金额按后续薪酬核算。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />

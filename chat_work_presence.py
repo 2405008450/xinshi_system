@@ -26,6 +26,9 @@ def work_presence(db, users, moment=None):
         # 前一日跨午夜的班次仍属于工作时间，不能在零点误判为加班。
         windows = intervals(today, shift) + intervals(today - timedelta(days=1), previous.get(uid))
         working = any(left <= moment < right for left, right in windows)
+        if shift and shift.get('flexible'):
+            result[uid]=dict(work_state='unknown',working_now=None,shift_label=shift['label'],shift_periods=[])
+            continue
         if working:
             state = 'working'
         elif shift or not workday:

@@ -2,7 +2,7 @@
   <el-button @click="open">延迟上班申请</el-button>
   <DraggableFormDialog v-model="visible" title="延迟上班申请" class="delay-start-dialog" append-to-body width="min(760px, calc(100vw - 32px))" top="5vh" :before-close="close" :close-on-click-modal="false">
     <AppForm ref="formRef" :model="form" :rules="rules" label-position="top"><el-form-item label="预计上班时间（UTC+8）" prop="requested_start"><el-date-picker v-model="form.requested_start" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" format="YYYY年MM月DD日 HH:mm" :disabled="saving" style="width:100%" /></el-form-item><el-form-item label="申请事由" prop="reason"><el-input v-model="form.reason" type="textarea" :rows="3" maxlength="1000" show-word-limit :disabled="saving" /></el-form-item></AppForm>
-    <el-alert title="提交后通知全体在用人员，并保留申请记录。手机和电脑均可操作。" type="info" :closable="false" />
+    <el-alert title="提交后通知全体在用人员，并保留申请记录。手机和电脑均可操作。审批待开发，申请不会自动免迟到或调整班次；仍按预定上班时间及15分钟宽限计算。" type="info" :closable="false" />
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <h4>我的最近申请</h4><el-table :data="items" border max-height="220"><el-table-column label="预计上班" min-width="175"><template #default="{row}">{{formatBusinessDateTime(row.requested_start)}}</template></el-table-column><el-table-column prop="reason" label="事由" min-width="160" show-overflow-tooltip /><el-table-column label="申请时间" min-width="175"><template #default="{row}">{{formatBusinessDateTime(row.created_at)}}</template></el-table-column></el-table>
     <template #footer><el-button :disabled="saving" @click="visible=false">取消</el-button><el-button type="primary" :loading="saving" @click="submit">提交并通知全体</el-button></template>

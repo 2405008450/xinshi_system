@@ -10,7 +10,7 @@ import {computed} from 'vue'
 import {useRoute,useRouter} from 'vue-router'
 const props=defineProps({items:{type:Array,required:true},label:{type:String,default:'二级导航'}})
 const route=useRoute(),router=useRouter()
-const active=computed(()=>props.items.find(item=>route.path===item.path||route.path.startsWith(item.path+'/'))?.path||'')
+const active=computed(()=>props.items.find(item=>route.path===item.path)?.path||[...props.items].sort((a,b)=>b.path.length-a.path.length).find(item=>route.path.startsWith(item.path+'/'))?.path||'')
 async function navigate(path){if(path===active.value)return true;await router.push(path);return active.value===path}
 </script>
 <style scoped>

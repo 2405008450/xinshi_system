@@ -61,7 +61,7 @@ def require_ready(db):
 
 
 def canonical(values):
-    return sorted([(str(row['user_id']),row['department'],row['shift'],bool(row.get('fixed'))) for row in values])
+    return sorted([(str(row['user_id']),row['department'],row['shift'],bool(row.get('fixed')),bool(row.get('home_office_day'))) for row in values])
 
 
 def fixed_revision(db):
@@ -90,7 +90,7 @@ def changes(db,before,after):
     old={str(row['user_id']):row for row in before};new={str(row['user_id']):row for row in after}
     ids=[UUID(key) for key in old.keys()|new.keys()]
     people={str(p.id):p.full_name or p.username for p in db.query(AppUser).filter(AppUser.id.in_(ids)).all()} if ids else {}
-    fields=('department','shift','fixed')
+    fields=('department','shift','fixed','home_office_day','home_rotation')
     def compact(row):return {key:row[key] for key in fields if key in row} if row else None
     return [{'user_id':key,'name':people.get(key,key),'before':compact(old.get(key)),'after':compact(new.get(key))}
         for key in sorted(old.keys()|new.keys()) if compact(old.get(key))!=compact(new.get(key))]
@@ -126,7 +126,7 @@ def publish(db,user,week,payload:SyncWrite):
     revision=draft.revision if draft else legacy.revision if legacy else 0
     if payload.revision!=revision or payload.publication_revision!=(publication.revision if publication else 0) or payload.fixed_revision!=fixed_revision(db):raise HTTPException(409,'草稿、固定班次或同步版本已变化，请刷新后重新确认')
     data=get_plan(db,user,start.isoformat())
-    values=[{key:row[key] for key in ('user_id','department','shift','fixed') if key in row} for row in data['assignments']]
+    values=[{key:row[key] for key in ('user_id','department','shift','fixed','home_office_day','home_rotation') if key in row} for row in data['assignments']]
     if publication and not publication.editing_enabled and not data['needs_sync']:return data
     before=publication.assignments if publication else []
     if draft is None:
@@ -155,6 +155,9 @@ def published_plan(db,user,week,mine=False):
     start=week_key(week);available=ready(db)
     row=db.get(WeeklyShiftPublication,start) if available else None
     values=[dict(entry) for entry in row.assignments] if row else []
+    from fixed_shift import effective,FIXED_ONLY_CODES
+    hidden={entry['user_id'] for entry in effective(db,[],start,weekly=True,for_schedule=False) if entry['shift'] in FIXED_ONLY_CODES}
+    values=[entry for entry in values if entry['user_id'] not in hidden]
     if mine:values=[entry for entry in values if entry['user_id']==str(user.id)]
     ids=[UUID(entry['user_id']) for entry in values]
     people={str(person.id):person for person in db.query(AppUser).filter(AppUser.id.in_(ids)).all()} if ids else {}

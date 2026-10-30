@@ -5,6 +5,8 @@ from test_chat_participant_access import environment
 from chat_time import BUSINESS_TIMEZONE
 from monthly_shift import MonthlyShiftPlan
 from weekly_shift import WeeklyShiftPlan
+from weekly_shift_publication import WeeklyShiftPublication
+from weekend_duty_management import WeekendDutyPublication
 from fixed_shift import FixedShiftConfig
 from weekend_duty import WeekendDutyPlan
 from chat_work_presence import work_presence
@@ -32,20 +34,27 @@ def test_shift_boundaries_and_lunch(environment,clock,state):
 def test_weekly_overrides_monthly_and_fixed_overrides_weekly(environment):
     db,(_,person,_)=environment
     arrange(db,person)
-    db.add(WeeklyShiftPlan(week_start=date(2026,10,26),assignments=[dict(user_id=str(person.id),department='customer',shift='customer_remote')],revision=1,updated_by=person.id));db.commit()
+    entry=dict(user_id=str(person.id),department='customer',shift='customer_remote')
+    db.add(WeeklyShiftPlan(week_start=date(2026,10,26),assignments=[entry],revision=1,updated_by=person.id));db.commit()
+    # 未同步的旧表/草稿不能改变公开工作状态。
+    assert work_presence(db,[person],at('2026-10-28T21:30'))[str(person.id)]['work_state']=='off_hours'
+    db.add(WeeklyShiftPublication(week_start=date(2026,10,26),assignments=[entry],revision=1,draft_revision=1,editing_enabled=False,published_by=person.id));db.commit()
     assert work_presence(db,[person],at('2026-10-28T21:30'))[str(person.id)]['work_state']=='working'
     assert work_presence(db,[person],at('2026-10-28T19:00'))[str(person.id)]['work_state']=='off_hours'
-    entry=dict(user_id=str(person.id),department='project',shift='early_early')
+    entry=dict(user_id=str(person.id),department='project',shift='fixed_early_early')
     db.add(FixedShiftConfig(id=1,assignments={'versions':[{'week_start':'2026-10-26','month_start':'2026-10-01','assignments':[entry]}]},revision=1,updated_by=person.id));db.commit()
     value=work_presence(db,[person],at('2026-10-28T08:30'))[str(person.id)]
-    assert value['work_state']=='working' and value['shift_label']=='早早班'
+    assert value['work_state']=='working' and value['shift_label']=='早早班（固定）'
 
 
 def test_weekend_duty_holiday_missing_schedule_and_timezone(environment):
     db,(_,person,other)=environment
     arrange(db,person)
     assert work_presence(db,[person],at('2026-10-31T10:00'))[str(person.id)]['work_state']=='off_hours'
-    db.add(WeekendDutyPlan(month=date(2026,10,1),assignments=[{'user_id':str(person.id),'date':'2026-10-31'}],revision=1,updated_by=person.id));db.commit()
+    entries=[{'user_id':str(person.id),'date':'2026-10-31','department':'project'}]
+    db.add(WeekendDutyPlan(month=date(2026,10,1),assignments=entries,revision=1,updated_by=person.id));db.commit()
+    assert work_presence(db,[person],at('2026-10-31T10:00'))[str(person.id)]['work_state']=='off_hours'
+    db.add(WeekendDutyPublication(month=date(2026,10,1),assignments=entries,revision=1,draft_revision=1,editing_enabled=False,published_by=person.id));db.commit()
     assert work_presence(db,[person],at('2026-10-31T10:00'))[str(person.id)]['work_state']=='working'
     assert work_presence(db,[person],at('2026-10-01T10:00'))[str(person.id)]['work_state']=='off_hours'
     result=work_presence(db,[person,other],datetime.fromisoformat('2026-10-28T01:00:00+00:00'))

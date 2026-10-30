@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright,expect
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from monthly_shift import SHIFTS,DEPARTMENTS
+from fixed_shift import FIXED_ONLY_SHIFTS
 BASE='http://localhost:3000'
 compiled=urlopen(BASE+'/src/components/common/AppForm.vue').read().decode()
 vue=re.search(r'from ["\']([^"\']*/vue\.js[^"\']*)',compiled).group(1)
@@ -17,8 +18,9 @@ def api(route):
  global sessions
  request=route.request;path=urlparse(request.url).path;reads.append(path)
  if path.endswith('/today'):
-  opened=next((row for row in sessions if not row['check_out']),None);count=2 if shift['code']=='customer_remote' else 1
-  result={'day':'2026-10-28','shift':shift,'record':opened or (sessions[-1] if sessions else None),'sessions':sessions,'segment_count':count,'can_check_in':not opened and len(sessions)<count,'next_segment':min(len(sessions),1),'clock_ready':True,'leaves':[]}
+  opened=next((row for row in sessions if not row['check_out']),None);count=2 if shift['code']=='customer_remote' or shift.get('clock_segments')==2 else 1
+  flexible=shift.get('flexible',False);multiple=flexible or shift.get('multiple_clock_sessions',False);next_segment=len(sessions) if len(sessions)<2 else len(sessions)+1
+  result={'day':'2026-10-28','shift':shift,'record':opened or (sessions[-1] if sessions else None),'sessions':sessions,'segment_count':None if multiple else count,'flexible':flexible,'multiple_clock_sessions':multiple,'can_check_in':not opened and (multiple or len(sessions)<count),'next_segment':next_segment if multiple else min(len(sessions),1),'clock_ready':True,'leaves':[]}
  elif path.endswith('/check-in'):
   data=request.post_data_json;writes.append((path,data));record={'id':f'record-{len(sessions)}','day':'2026-10-28','segment':data['segment'],'check_in':'2026-10-28T08:00:00+08:00','check_out':None,'shift':shift};sessions.append(record);result={'message':'上班打卡成功','record':record}
  elif path.endswith('/check-out'):
@@ -61,6 +63,19 @@ with sync_playwright() as pw:
  dialog.get_by_role('spinbutton').fill('12');dialog.get_by_role('textbox').fill('处理个人事务');dialog.get_by_role('button',name='打卡',exact=True).click();expect(dialog).not_to_be_visible()
  assert writes[-1][1]['invalid_minutes']==12 and writes[-1][1]['invalid_reason']=='处理个人事务'
  expect(button('上班打卡（第2段）')).to_be_enabled();assert '/api/attendance/report' not in reads
+ # Fixed early and flexible repeated pairs use the real workbench controls.
+ shift={**FIXED_ONLY_SHIFTS[0],'fixed':True};sessions=[];page.set_viewport_size({'width':1500,'height':1000});button('刷新').click()
+ for index in range(4):
+  button(f'上班打卡（第{index+1}段）').click();page.get_by_role('dialog',name='上班打卡',exact=True).get_by_role('button',name='打卡',exact=True).click()
+  button('下班打卡').click();dialog=page.get_by_role('dialog',name='下班打卡确认',exact=True);choose('1. 请确认','是，提前时间计加班');choose('2. 请确认','是');dialog.get_by_role('button',name='打卡',exact=True).click()
+ expect(button('上班打卡（第5段）')).to_be_enabled()
+ shift={**FIXED_ONLY_SHIFTS[2],'fixed':True};sessions=[];button('刷新').click()
+ for index in range(4):
+  button(f'上班打卡（第{index+1}段）').click();page.get_by_role('dialog',name='上班打卡',exact=True).get_by_role('button',name='打卡',exact=True).click()
+  button('下班打卡').click();dialog=page.get_by_role('dialog',name='下班打卡确认',exact=True);expect(dialog).to_contain_text('不设预定上下班时间');expect(dialog.locator('.el-form-item').filter(has_text='提前到达')).to_have_count(0);choose('2. 请确认','是');dialog.get_by_role('button',name='打卡',exact=True).click()
+ expect(button('上班打卡（第5段）')).to_be_enabled()
+ assert [row['segment'] for path,row in writes if path.endswith('/check-in')][-4:]==[0,1,3,4]
+ shift={**SHIFTS[2],'home_rotation':True,'home_office_day':True};sessions=[];button('刷新').click();button('上班打卡').click();page.get_by_role('dialog',name='上班打卡',exact=True).get_by_role('button',name='打卡',exact=True).click();button('下班打卡').click();dialog=page.get_by_role('dialog',name='下班打卡确认',exact=True);expect(dialog).to_contain_text('真实、有效的工作时间');expect(dialog).not_to_contain_text('有无进食晚餐');dialog.get_by_role('button',name='取消',exact=True).click()
  page.get_by_role('button',name='切换公司考勤',exact=True).click();expect(page.get_by_role('button',name='上班打卡',exact=True)).to_have_count(0)
  assert '/api/attendance/report' in reads and not errors,errors
  print(json.dumps({'manual_breakfast_notice':True,'check_in_left_of_check_out':True,'explicit_yes_no_validation':True,'fixed_dinner_explanation':True,'breakfast_violation_and_deduction_visible':True,'remote_second_segment':True,'invalid_minutes_and_reason':True,'collapsible_sections':4,'personal_and_company_separate':True,'page_errors':errors}))

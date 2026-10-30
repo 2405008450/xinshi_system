@@ -13,6 +13,7 @@
     <WeekPlanOperationsDialog v-model="operationsVisible" kind="duty" :source-week="shiftWeek(month+'-01')" @saved="load" @busy="$emit('busy',$event)" />
     <FixedWeekendDutyDialog v-model="fixedVisible" @saved="load" />
     <WeeklyShiftHistoryDialog v-model="historyVisible" kind="duty" :week="month" :public="false" :departments="plan.departments" />
+    <WeekendNightDuty :month="month" @busy="nightBusy=$event" />
   </el-card>
 </template>
 <script setup>
@@ -27,11 +28,13 @@ import {formatBusinessDateTime} from '@/utils/dateTime'
 import WeekPlanOperationsDialog from './WeekPlanOperationsDialog.vue'
 import FixedWeekendDutyDialog from './FixedWeekendDutyDialog.vue'
 import WeeklyShiftHistoryDialog from './WeeklyShiftHistoryDialog.vue'
+import WeekendNightDuty from './WeekendNightDuty.vue'
 const props=defineProps({month:{type:String,required:true},monthChangeDisabled:Boolean}),emit=defineEmits(['update:month','busy'])
 const empty=()=>({ready:false,revision:0,assignments:[],dates:[],departments:[]})
 const plan=ref(empty()),selectedPeople=ref([]),loading=ref(false),saving=ref(false),syncing=ref(false),dirty=ref(false),error=ref(''),recovery=ref(null)
 const operationsVisible=ref(false),fixedVisible=ref(false),historyVisible=ref(false)
-const pending=computed(()=>saving.value||syncing.value||dirty.value)
+const nightBusy=ref(false)
+const pending=computed(()=>saving.value||syncing.value||dirty.value||nightBusy.value)
 const canEdit=computed(()=>plan.value.can_edit!==false&&plan.value.sync_ready&&!loading.value&&!syncing.value)
 const counts=computed(()=>dutyCounts(plan.value.assignments))
 const availability=async()=>({ready:true})
