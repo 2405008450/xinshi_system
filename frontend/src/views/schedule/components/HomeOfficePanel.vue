@@ -1,7 +1,7 @@
 <template>
   <section v-loading="loading" class="home-office-panel">
     <header><div><strong>{{admin?'公司居家办公申请':'居家办公申请'}}</strong><el-tag type="info">审批：待开发</el-tag></div><div><AttendanceRulesPopover /><el-button :disabled="saving" @click="load">刷新</el-button></div></header>
-    <p v-if="!desktop">手机端可查看记录；排班考勤仅请假和延迟上班申请支持手机操作，其他操作请使用电脑端。</p>
+    <p>普通居家：入职满6个月自动获资格，满3个月可申请资格；自然月最多2次、季度4天、半年8天、年度最多12天，任一额度用满即不能申请。公司要求的居家加班单独打卡、不占普通居家额度；审批待开发。</p><p v-if="!desktop">手机端可查看记录；排班考勤仅请假和延迟上班申请支持手机操作，其他操作请使用电脑端。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <HomeOvertimePanel v-if="!admin" />
     <template v-if="admin"><h4>{{data.year}}年已居家天数补录</h4><p>仅补录普通居家的系统外历史天数，不计公司要求居家加班，不要重复计入下方系统申请。可登记0天；未补录时本人不能申请。今年年度占用＝补录＋系统内待审批及已批准申请。历史数据超过额度时据实记录，禁止新增申请。</p>

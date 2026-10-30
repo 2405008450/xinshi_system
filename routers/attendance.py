@@ -8,8 +8,16 @@ import attendance_clock as clock
 import home_office_service as home
 import attendance_delay_start as delay
 import attendance_comp_time as comp_time
+import attendance_annual_leave as annual
 
 router=APIRouter(prefix='/attendance',tags=['attendance'])
+
+@router.get('/annual-leave')
+def annual_mine(year:int=Query(ge=2000,le=9998),db=Depends(get_db),user=Depends(get_current_user)):return annual.overview(db,user,year)
+@router.get('/annual-leave/company')
+def annual_company(year:int=Query(ge=2000,le=9998),db=Depends(get_db),user=Depends(get_current_user)):return annual.overview(db,user,year,admin=True)
+@router.post('/annual-leave/settlement')
+def annual_settlement(payload:annual.SettlementWrite,request:Request,db=Depends(get_db),user=Depends(get_current_user)):return annual.adjustment(db,user,payload) if service.desktop_request(request) else reject_mobile()
 
 @router.get('/policy')
 def policy(year:int=Query(ge=2000,le=9998),db=Depends(get_db),user=Depends(get_current_user)):return comp_time.overview(db,user,year)
@@ -45,7 +53,9 @@ def check_in(payload:clock.CheckInWrite,request:Request,db=Depends(get_db),user=
 @router.post('/check-out')
 def check_out(payload:clock.CheckOutWrite,request:Request,db=Depends(get_db),user=Depends(get_current_user)):return service.check_out(db,user,request,payload)
 @router.post('/leave/preview')
-def preview(payload:service.LeaveWindow,db=Depends(get_db),user=Depends(get_current_user)):return service.preview_leave(db,user,payload)
+def preview(payload:service.LeaveWindow,db=Depends(get_db),user=Depends(get_current_user)):
+    value=service.preview_leave(db,user,payload)
+    return {**value,'settlement':annual.preview(db,user,value['days'])}
 @router.post('/leave')
 def leave(payload:service.LeaveWrite,db=Depends(get_db),user=Depends(get_current_user)):return service.create_leave(db,user,payload)
 @router.get('/mine')

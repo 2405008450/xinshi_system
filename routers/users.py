@@ -39,6 +39,7 @@ from user_mail_profile_service import (
     serialize_user_mail_profile,
 )
 from employee_employment import attach as attach_employment
+from office_management import attach_users as attach_office
 from pagination_schemas import PageResponse, UserOptionResponse, resolve_page_total
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -78,6 +79,9 @@ def _serialize_user(
         "is_active": user.is_active,
         "department": user.department,
         "hire_date": getattr(user,"hire_date",None),
+        "office_city_id":getattr(user,"office_city_id",None),
+        "city":getattr(user,"city",None),
+        "office_name":getattr(user,"office_name",None),
         "annual_leave_year": getattr(user,"annual_leave_year",None),
         "annual_leave_days": getattr(user,"annual_leave_days",None),
         "annual_leave_next_increase": getattr(user,"annual_leave_next_increase",None),
@@ -167,6 +171,8 @@ def read_users(
     username: Optional[str] = Query(None),
     full_name: Optional[str] = Query(None),
     department: Optional[str] = Query(None),
+    office_city_id: Optional[UUID] = None,
+    active_only: bool = False,
     include_leave_status: bool = Query(False),
     db: Session = Depends(get_db)
 ):
@@ -177,8 +183,10 @@ def read_users(
         username=username,
         full_name=full_name,
         department=department,
+        office_city_id=office_city_id,active_only=active_only,
     )
     attach_employment(db,users)
+    attach_office(db,users)
     user_ids = [user.id for user in users]
     account_map = {
         account.user_id: account
@@ -202,6 +210,8 @@ def read_user_count(
     username: Optional[str] = Query(None),
     full_name: Optional[str] = Query(None),
     department: Optional[str] = Query(None),
+    office_city_id: Optional[UUID] = None,
+    active_only: bool = False,
     db: Session = Depends(get_db)
 ):
     return {
@@ -210,6 +220,7 @@ def read_user_count(
             username=username,
             full_name=full_name,
             department=department,
+            office_city_id=office_city_id,active_only=active_only,
         )
     }
 
@@ -225,12 +236,17 @@ def read_user_page(
     username: Optional[str] = None,
     full_name: Optional[str] = None,
     department: Optional[str] = None,
+    office_city_id: Optional[UUID] = None,
+    active_only: bool = False,
     include_leave_status: bool = Query(False),
     db: Session = Depends(get_db),
 ):
     filters = dict(username=username, full_name=full_name, department=department)
+    if office_city_id is not None:filters["office_city_id"]=office_city_id
+    if active_only:filters["active_only"]=True
     users = get_users(db, skip=skip, limit=limit, **filters)
     attach_employment(db,users)
+    attach_office(db,users)
     user_ids = [user.id for user in users]
     account_map = {
         account.user_id: account
@@ -277,6 +293,7 @@ def read_user(user_id: UUID, db: Session = Depends(get_db)):
             detail="用户不存在"
         )
     attach_employment(db,[db_user])
+    attach_office(db,[db_user])
     account = db.query(UserMailAccount).filter(UserMailAccount.user_id == user_id).first()
     return _serialize_user(db_user, account, mail_profile=get_user_mail_profile(db, user_id))
 

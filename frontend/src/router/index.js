@@ -355,6 +355,12 @@ const routes = [
             meta: { title: '薪酬管理' }
           },
           {
+            path: 'recruitment',
+            name: 'HRRecruitment',
+            component: () => import('../views/hr/RecruitmentManagement.vue'),
+            meta: { title: '招聘管理', hrManagement: true }
+          },
+          {
             path: 'onboarding',
             name: 'Onboarding',
             component: () => import('../views/hr/Onboarding.vue'),

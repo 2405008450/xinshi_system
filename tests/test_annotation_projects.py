@@ -426,7 +426,10 @@ def test_confirmed_annotation_consultation_creation_is_idempotent(monkeypatch):
     assert project is same_project
     assert project.project_status == "initial_consultation"
     from annotation_material_models import AnnotationMaterialFolder
-    assert len(db.added) == 4
+    assert len(db.added) == 5
+    from annotation_manager_change_models import AnnotationManagerChangeLog
+    manager_log = next(item for item in db.added if isinstance(item, AnnotationManagerChangeLog))
+    assert manager_log.new_manager_id == project.client_manager_id == project.created_by
     folder = next(item for item in db.added if isinstance(item, AnnotationMaterialFolder))
     assert folder.name == '1. 项目详情' and folder.parent_id is None
     reservation = next(item for item in db.added if isinstance(item, ProjectOrderNoReservation))

@@ -57,6 +57,7 @@ class RecruitmentLanguageDirectionResponse(RecruitmentLanguageDirectionInput):
 
 
 class RecruitmentProjectBase(BaseModel):
+    client_manager_change_reason: Optional[str] = Field(default=None, max_length=500)
     project_name: Optional[str] = Field(default=None, max_length=500)
     job_description: Optional[str] = None
     position_title: Optional[str] = Field(default=None, max_length=255)

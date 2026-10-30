@@ -92,8 +92,12 @@ def get_users(
     username: Optional[str] = None,
     full_name: Optional[str] = None,
     department: Optional[str] = None,
+    office_city_id: Optional[UUID] = None,
+    active_only: bool = False,
 ) -> List[AppUser]:
     query = db.query(AppUser).filter(AppUser.is_deleted.is_(False))
+    from office_management import filter_users
+    query=filter_users(db,query,office_city_id,active_only)
     if username:
         query = query.filter(keyword_ilike(AppUser.username, f"%{username}%"))
     if full_name:
@@ -120,8 +124,12 @@ def count_users(
     username: Optional[str] = None,
     full_name: Optional[str] = None,
     department: Optional[str] = None,
+    office_city_id: Optional[UUID] = None,
+    active_only: bool = False,
 ) -> int:
     query = db.query(AppUser.id).filter(AppUser.is_deleted.is_(False))
+    from office_management import filter_users
+    query=filter_users(db,query,office_city_id,active_only)
     if username:
         query = query.filter(keyword_ilike(AppUser.username, f"%{username}%"))
     if full_name:
@@ -134,6 +142,8 @@ def count_users(
 
 def create_user(db: Session, user: AppUserCreate) -> AppUser:
     from department_service import canonical_name
+    from office_management import validate_city,write_user,attach_users
+    if 'office_city_id' in user.model_fields_set:validate_city(db,user.office_city_id)
     hashed = hash_password(user.password)
     db_user = AppUser(
         username=user.username,
@@ -148,12 +158,14 @@ def create_user(db: Session, user: AppUserCreate) -> AppUser:
     sync_primary(db, db_user)
     from employee_employment import write as write_employment
     if 'hire_date' in user.model_fields_set:write_employment(db,db_user,user.hire_date)
+    if 'office_city_id' in user.model_fields_set:write_user(db,db_user,user.office_city_id)
     db.commit()
     db.refresh(db_user)
     from organization_service import publish
     publish(db)
     from employee_employment import attach as attach_employment
     attach_employment(db,[db_user])
+    attach_users(db,[db_user])
     return db_user
 
 
@@ -166,6 +178,10 @@ def update_user(db: Session, user_id: UUID, user_update: AppUserUpdate) -> Optio
     update_data = user_update.model_dump(exclude_unset=True)
     employment_changed='hire_date' in update_data
     hire_date=update_data.pop('hire_date',None)
+    city_changed='office_city_id' in update_data
+    city_id=update_data.pop('office_city_id',None)
+    from office_management import validate_city,write_user,attach_users
+    if city_changed:validate_city(db,city_id)
     if 'department' in update_data:
         from department_service import canonical_name
         update_data['department'] = canonical_name(db,update_data['department'])
@@ -182,6 +198,7 @@ def update_user(db: Session, user_id: UUID, user_update: AppUserUpdate) -> Optio
     if employment_changed:
         from employee_employment import write as write_employment
         write_employment(db,db_user,hire_date)
+    if city_changed:write_user(db,db_user,city_id)
     db.commit()
     db.refresh(db_user)
     if 'department' in update_data:
@@ -189,6 +206,7 @@ def update_user(db: Session, user_id: UUID, user_update: AppUserUpdate) -> Optio
         publish(db)
     from employee_employment import attach as attach_employment
     attach_employment(db,[db_user])
+    attach_users(db,[db_user])
     return db_user
 
 
@@ -1296,7 +1314,12 @@ def _attach_project_client_fields(project: TranslationProject) -> None:
     project.client_name = parent_client.client_name if parent_client else None
     project.client_short_name = parent_client.client_short_name if parent_client else None
     project.client_code = parent_client.client_code if parent_client else None
-    project.client_manager = parent_client.client_manager if parent_client else None
+    state = project.__dict__.get('_project_client_manager')
+    project.client_manager = state.new_manager_name if state else (parent_client.client_manager if parent_client else None)
+    from project_client_manager import attach
+    from sqlalchemy.orm import object_session
+    if isinstance(project, TranslationProject) and object_session(project) and '_project_client_manager' not in project.__dict__:
+        attach(object_session(project), 'translation', [project])
     project.manager_contact = parent_client.manager_contact if parent_client else None
     project.sub_client_name = (
         (sub_client.client_name or sub_client.client_short_name)
@@ -1893,6 +1916,7 @@ def _apply_translation_project_filters(
             )
         query = query.filter(db_exists().where(and_(*return_time_conditions)))
 
+    from project_client_manager import manager_name_expression
     for field, descriptor in field_filters.items():
         if field in {
             "client_name", "client_short_name", "client_code", "client_manager", "manager_contact",
@@ -1902,7 +1926,7 @@ def _apply_translation_project_filters(
                 "client_name": Client.client_name,
                 "client_short_name": Client.client_short_name,
                 "client_code": Client.client_code,
-                "client_manager": Client.client_manager,
+                "client_manager": manager_name_expression("translation", TranslationProject.id, Client.client_manager),
                 "manager_contact": Client.manager_contact,
                 "sub_client_name": SubClient.client_name,
                 "sub_client_short_name": SubClient.client_short_name,
@@ -2135,6 +2159,8 @@ def get_translation_projects(
     for project, page_total in rows:
         project.__dict__["_page_total"] = int(page_total or 0)
         projects.append(project)
+    from project_client_manager import attach as attach_client_managers
+    attach_client_managers(db, 'translation', projects)
     for project in projects:
         _attach_project_client_fields(project)
         _attach_project_file_detail_fields(project)
@@ -2221,7 +2247,7 @@ def create_translation_project(
     role_assignments = project.role_assignments
     project_data = project.model_dump(exclude={
         'client_short_name', 'client_code', 'manager_contact', 'sub_client_short_name',
-        'word_count_matrix', 'customer_charge_items', 'role_assignments'
+        'word_count_matrix', 'customer_charge_items', 'role_assignments', 'client_manager_id', 'client_manager_change_reason'
     })
     if 'source_file_name' in project.model_fields_set:
         normalize_translation_name_payload(project_data)
@@ -2275,6 +2301,8 @@ def create_translation_project(
     )
     db.add(db_project)
     db.flush()
+    from project_client_manager import apply as apply_client_manager
+    apply_client_manager(db, 'translation', db_project, project.client_manager_id, project.client_manager_change_reason, project.created_by, creating=True)
     _sync_project_role_assignments(db, db_project, role_assignments)
 
     from word_count_service import save_created_entity_matrix
@@ -2311,7 +2339,7 @@ def create_translation_project(
     return get_translation_project(db, db_project.id)
 
 
-def update_translation_project(db: Session, project_id: UUID, project_update: TranslationProjectUpdate) -> Optional[TranslationProject]:
+def update_translation_project(db: Session, project_id: UUID, project_update: TranslationProjectUpdate, actor_user_id: Optional[UUID] = None) -> Optional[TranslationProject]:
     db_project = get_translation_project(db, project_id)
     if not db_project:
         return None
@@ -2326,9 +2354,13 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
     matrix_update = project_update.word_count_matrix
     update_data = project_update.model_dump(
         exclude_unset=True,
-        exclude={'client_short_name', 'client_code', 'manager_contact', 'sub_client_short_name', 'word_count_matrix', 'customer_charge_items', 'role_assignments', 'assigned_translator_completions', VERSION_FIELD},
+        exclude={'client_short_name', 'client_code', 'manager_contact', 'sub_client_short_name', 'word_count_matrix', 'customer_charge_items', 'role_assignments', 'assigned_translator_completions', 'client_manager_id', 'client_manager_change_reason', VERSION_FIELD},
     )
+    db.query(TranslationProject).filter(TranslationProject.id == project_id).with_for_update().populate_existing().one()
     assert_fresh(db_project, project_update.expected_updated_at)
+    if 'client_manager_id' in project_update.model_fields_set:
+        from project_client_manager import apply as apply_client_manager
+        apply_client_manager(db, 'translation', db_project, project_update.client_manager_id, project_update.client_manager_change_reason, actor_user_id)
     normalize_translation_name_payload(update_data)
     if 'project_name' in update_data and db_project.source_file_name and 'source_file_name' not in update_data:
         update_data['project_name'] = db_project.source_file_name
@@ -2433,6 +2465,7 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
     db.commit()
     db.refresh(db_project)
     
+    db_project.__dict__.pop('_project_client_manager', None)
     # Reload with client_short_name
     return get_translation_project(db, project_id)
 

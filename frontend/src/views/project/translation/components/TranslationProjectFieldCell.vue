@@ -18,6 +18,7 @@
             </BusinessDetailPopover>
             <PathActionButtons v-if="context.canReadProjectFiles" @open="context.openOriginalPath(row)" @copy="context.copyOriginalPath(row)" />
           </div>
+          <ProjectClientManagerHistory v-else-if="column.key === 'clientManager'" project-type="translation" :project-id="row.id" :label="row.clientManager || '未分配'" />
           <span v-else-if="column.key === 'sourceFileName'" class="project-name-ellipsis" :title="row.sourceFileName || '-'">{{ row.sourceFileName || '-' }}</span>
           <el-dropdown
             v-else-if="column.key === 'projectStatus' && context.canWriteProjects"
@@ -110,6 +111,7 @@
           <span v-else>{{ context.formatTableColumnValue(row, column) }}</span>
 </template>
 <script setup>
+import ProjectClientManagerHistory from '@/components/common/ProjectClientManagerHistory.vue'
 import {CaretBottom,Check} from '@element-plus/icons-vue'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import PathActionButtons from '@/components/common/PathActionButtons.vue'

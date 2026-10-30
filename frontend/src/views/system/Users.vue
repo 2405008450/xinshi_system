@@ -53,6 +53,7 @@
         <el-button @click="resetSearch">重置</el-button>
       </el-form-item>
     </AppForm>
+    <p v-if="officeFilterId" class="office-people-filter">当前：{{officeFilterLabel}} · {{officeFilterActive?'在用人员':'全部登记人员'}} <el-button link type="primary" @click="clearOfficeFilter">清除办公室筛选</el-button></p>
 
     <el-table ref="userTableRef" :data="tableData" v-loading="loading" row-key="id" border @selection-change="handleDeleteSelectionChange">
 <OrderedTableColumns settings-key="system-users">
@@ -61,6 +62,7 @@
       <el-table-column column-key="full_name" v-if="isColumnVisible('full_name')" prop="full_name" label="姓名" min-width="100" show-overflow-tooltip>
         <template #default="{ row }">{{ row.full_name || '-' }}</template>
       </el-table-column>
+      <el-table-column column-key="city" v-if="isColumnVisible('city')" prop="city" label="城市" min-width="110"><template #default="{row}">{{row.city||'未设置'}}</template></el-table-column>
       <el-table-column column-key="department" v-if="isColumnVisible('department')" prop="department" label="所属部门" min-width="230">
         <template #default="{ row }"><button v-if="canManageDepartments && !deleteMode" type="button" class="department-cell-button" :aria-label="`调整${row.full_name || row.username}的所属部门`" title="点击调整所属部门" @click="openDepartmentDialog(row)"><DepartmentMemberships :user-id="row.id" :primary="row.department" :people="organizationPeople" /></button><DepartmentMemberships v-else :user-id="row.id" :primary="row.department" :people="organizationPeople" /></template>
       </el-table-column>
@@ -134,6 +136,7 @@
                 <el-descriptions :column="2" border size="small">
                   <el-descriptions-item label="用户名">{{ row.username || '-' }}</el-descriptions-item>
                   <el-descriptions-item label="姓名">{{ row.full_name || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="城市">{{row.city||'未设置'}}</el-descriptions-item>
                   <el-descriptions-item label="部门"><DepartmentMemberships :user-id="row.id" :primary="row.department" :people="organizationPeople" /></el-descriptions-item>
                   <el-descriptions-item label="状态">{{ row.is_active ? '启用' : '禁用' }}</el-descriptions-item>
                   <el-descriptions-item label="邮箱" :span="2">{{ row.email || '-' }}</el-descriptions-item>
@@ -198,9 +201,10 @@
         <el-form-item label="密码" prop="password" v-if="!form.id">
           <el-input v-model="form.password" type="password" show-password autocomplete="new-password" />
         </el-form-item>
-        <el-form-item label="全名" prop="full_name">
+        <el-form-item label="姓名" prop="full_name">
           <el-input v-model="form.full_name" />
         </el-form-item>
+        <el-form-item label="城市" prop="office_city_id"><el-select v-model="form.office_city_id" clearable filterable placeholder="选择办公室城市" :disabled="!officesReady" @visible-change="value=>value&&loadOfficeCities()" style="width:100%"><el-option v-for="office in officeCities" :key="office.id" :label="office.city" :value="office.id" /></el-select><span v-if="officeError" class="office-city-error">{{officeError}}</span><span v-else>城市选项与办公室管理同步。</span></el-form-item>
         <el-form-item label="邮箱" prop="email">
           <el-input v-model="form.email" />
         </el-form-item>
@@ -439,6 +443,7 @@ import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { computed, ref, reactive, onBeforeUnmount, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
+import {getOffices} from '@/api/offices'
 import * as userApi from '@/api/users'
 import * as userRoleApi from '@/api/userRoles'
 import { getRoles } from '@/api/roles'
@@ -461,12 +466,21 @@ const departmentDialogVisible=ref(false),departmentTarget=ref(null)
 function openDepartmentDialog(row){departmentTarget.value=row;departmentDialogVisible.value=true}
 async function departmentSaved(){await Promise.all([refreshOrganization(),fetchData()])}
 
+const props=defineProps({officeCityId:{type:String,default:''},officeActiveOnly:{type:Boolean,default:false}})
+const emit=defineEmits(['clear-office-filter'])
+const officeFilterId=ref(props.officeCityId),officeFilterActive=ref(props.officeActiveOnly),officeCities=ref([]),officesReady=ref(false),officeError=ref('')
+let officeController,officeSequence=0
+async function loadOfficeCities(){officeController?.abort();officeController=new AbortController();const seq=++officeSequence;try{const value=await getOffices({signal:officeController.signal});if(seq===officeSequence){officeCities.value=value.items||[];officesReady.value=Boolean(value.ready);officeError.value=''}}catch(e){if(seq===officeSequence&&e.code!=='ERR_CANCELED')officeError.value=typeof e.detail==='string'?e.detail:'城市读取失败'}}
+function officeCitiesChanged(){loadOfficeCities();fetchData()}
+function clearOfficeFilter(){officeFilterId.value='';officeFilterActive.value=false;emit('clear-office-filter');handleSearch()}
+const officeFilterLabel=computed(()=>officeCities.value.find(row=>row.id===officeFilterId.value)?.name||'所选办公室')
 const loading = ref(false)
 const userTableRef = ref(null)
 const canWriteUsers = computed(() => hasPermission('system:users:write'))
 const userColumns = [
   { key: 'username', label: '用户名' },
   { key: 'full_name', label: '姓名' },
+  {key:'city',label:'城市'},
   { key: 'department', label: '部门' },
   { key: 'hire_date', label: '入职时间' },
   { key: 'annual_leave_days', label: '年假额度' },
@@ -478,7 +492,8 @@ const userColumns = [
   { key: 'created_at', label: '创建时间' },
 ]
 const { selectedKeys: visibleColumnKeys, isVisible: isColumnVisible, reset: resetColumns } = useTableColumns(
-  'system-users', userColumns, ['username', 'full_name', 'department', 'hire_date', 'annual_leave_days', 'email', 'mail_account', 'roles', 'is_active'],
+  'system-users', userColumns, ['username', 'full_name', 'city', 'department', 'hire_date', 'annual_leave_days', 'email', 'mail_account', 'roles', 'is_active'],
+  {legacyDefaultKeys:['username','full_name','department','hire_date','annual_leave_days','email','mail_account','roles','is_active']},
 )
 const dialogVisible = ref(false)
 const dialogTitle = ref('新增用户')
@@ -569,7 +584,7 @@ const { deleteMode, deleting, selectedRows, enterDeleteMode, exitDeleteMode, han
   pagination,
   deleteRow: row => userApi.deleteUser(row.id),
   getLabel: row => row.full_name || row.username,
-  reload: () => fetchData(),
+  reload: async()=>{await fetchData();window.dispatchEvent(new Event('office-people-changed'))},
   entityName: '用户',
 })
 
@@ -581,11 +596,12 @@ const form = reactive({
   email: '',
   department: '',
   hire_date: null,
+  office_city_id: null,
   is_active: true
 })
 
 const annualPreview=computed(()=>annualLeaveDays(form.hire_date)),nextIncrease=computed(()=>nextAnnualLeaveIncrease(form.hire_date))
-watch(dialogVisible,value=>{if(value)clearFieldSearch()})
+watch(dialogVisible,value=>{if(value){clearFieldSearch();loadOfficeCities()}})
 
 watch(() => DEPARTMENT_NAMES.join('|'), () => {
   form.department = normalizeDepartment(form.department)
@@ -631,6 +647,8 @@ const fetchData = async () => {
     if (searchForm.username) userParams.username = searchForm.username
     if (searchForm.full_name) userParams.full_name = searchForm.full_name
     if (searchForm.department) userParams.department = searchForm.department
+    if(officeFilterId.value)userParams.office_city_id=officeFilterId.value
+    if(officeFilterActive.value)userParams.active_only=true
 
     const requests = [userApi.getUserPage(userParams, requestController.signal)]
     if (canAssignRoles.value) {
@@ -679,6 +697,7 @@ const resetSearch = () => {
   searchForm.username = ''
   searchForm.full_name = ''
   searchForm.department = ''
+  officeFilterId.value='';officeFilterActive.value=false;emit('clear-office-filter')
   handleSearch()
 }
 
@@ -757,6 +776,7 @@ const handleEdit = (row) => {
     email: row.email || '',
     department: normalizeDepartment(row.department),
     hire_date: row.hire_date||null,
+    office_city_id: row.office_city_id||null,
     is_active: row.is_active
   })
   dialogVisible.value = true
@@ -960,7 +980,8 @@ const handleSubmit = async () => {
       const payload = {
         ...form,
         email: form.email.trim() || null,
-        hire_date: form.hire_date||null
+        hire_date: form.hire_date||null,
+        office_city_id:form.office_city_id||null
       }
       if (form.id) {
         const updateData = { ...payload }
@@ -973,6 +994,7 @@ const handleSubmit = async () => {
         ElMessage.success('创建成功')
       }
       dialogVisible.value = false
+      window.dispatchEvent(new Event('office-people-changed'))
       fetchData()
     } catch (error) {
     await formRef.value?.applyServerErrors(error)
@@ -982,6 +1004,7 @@ const handleSubmit = async () => {
 }
 
 const resetForm = () => {
+  formRef.value?.resetFields()
   Object.assign(form, {
     id: null,
     username: '',
@@ -990,15 +1013,19 @@ const resetForm = () => {
     email: '',
     department: '',
     hire_date: null,
+  office_city_id: null,
     is_active: true
   })
-  formRef.value?.resetFields()
+  formRef.value?.clearValidate()
 }
 
+watch(()=>[props.officeCityId,props.officeActiveOnly],([id,active])=>{officeFilterId.value=id;officeFilterActive.value=active;handleSearch()})
 onMounted(() => {
+  loadOfficeCities();window.addEventListener('office-cities-changed',officeCitiesChanged)
   fetchData()
 })
 onBeforeUnmount(() => {
+  officeSequence++;officeController?.abort();window.removeEventListener('office-cities-changed',officeCitiesChanged)
   clearTimeout(searchTimer)
   requestController?.abort()
 })
