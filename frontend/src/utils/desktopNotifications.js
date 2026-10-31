@@ -69,30 +69,56 @@ export const markDesktopNotificationGuideSeen = () => {
 /**
  * 展示操作系统通知。返回 false 时调用方应回退到站内浮层通知。
  */
-export const showDesktopNotification = (notification, onClick) => {
+export const showDesktopNotification = async (notification, onClick) => {
   if (notificationAcknowledgements.has(notification.id)) return true
   if (!getDesktopNotificationState().enabled) return false
 
+  // 检查是否支持 Service Worker
+  if (!('serviceWorker' in navigator)) {
+    console.warn('当前浏览器不支持 Service Worker 通知')
+    return false
+  }
+
   try {
-    const desktopNotification = new window.Notification(notification.title || '新通知', {
+    const reg = await navigator.serviceWorker.ready
+    const tag = notification.id ? `xinshi-notification-${notification.id}` : undefined
+
+    // 1. 使用 Service Worker 展示通知
+    await reg.showNotification(notification.title || '新通知', {
       body: notification.content || '',
       icon: '/favicon.svg',
-      tag: notification.id ? `xinshi-notification-${notification.id}` : undefined,
+      tag: tag,
+      // 👇 关键：把通知 ID 和需要跳转的 URL 传给 sw.js，以便点击时处理
+      data: {
+        notificationId: notification.id,
+        url: onClick ? window.location.href : '/' // 如果有点击回调，默认跳转当前页；否则跳首页
+      }
     })
-    const unsubscribe = notificationAcknowledgements.subscribe(id => {
-      if (id === String(notification.id)) { unsubscribe(); desktopNotification.close() }
-    })
-    desktopNotification.onclose = unsubscribe
 
-    desktopNotification.onclick = (event) => {
-      event.preventDefault()
-      notificationAcknowledgements.acknowledge(notification.id)
-      window.focus()
-      desktopNotification.close()
-      Promise.resolve(onClick?.()).catch((error) => {
-        console.error('处理桌面通知点击失败', error)
-      })
-    }
+    // 2. 处理“取消订阅（关闭）”逻辑
+    // 注意：showNotification 返回的不是实例。如果我们想在前端主动关闭它，只能通过 getNotifications 找到它
+    const unsubscribe = notificationAcknowledgements.subscribe(async id => {
+      if (id === String(notification.id)) {
+        unsubscribe()
+        if (tag) {
+          const notifications = await reg.getNotifications({ tag })
+          notifications.forEach(n => n.close())
+        }
+      }
+    })
+
+    // 3. 处理点击逻辑（必须在 sw.js 中监听，这里使用 postMessage 通知前端）
+    // 当用户点击通知时，sw.js 会通过 postMessage 发消息回来，监听它即可
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      if (event.data?.type === 'NOTIFICATION_CLICKED' && event.data?.notificationId === String(notification.id)) {
+        notificationAcknowledgements.acknowledge(notification.id)
+        window.focus()
+        Promise.resolve(onClick?.()).catch((error) => {
+          console.error('处理桌面通知点击失败', error)
+        })
+      }
+    })
+
     return true
   } catch (error) {
     console.error('展示桌面通知失败', error)

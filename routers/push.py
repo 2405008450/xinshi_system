@@ -1,13 +1,14 @@
 import os
 import json
+import uuid
+from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from pywebpush import webpush, WebPushException
 from database import get_db
 from models import AppUser, PushSubscription
-from routers.auth import get_current_user # 使用你项目现有的获取当前用户依赖
-from pydantic import BaseModel
+from routers.auth import get_current_user
 
 router = APIRouter(prefix="/push", tags=["Push"])
 
@@ -25,7 +26,6 @@ def get_public_key():
 
 @router.post("/subscribe")
 def subscribe(req: SubReq, db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user)):
-    # 避免重复订阅
     sub = db.query(PushSubscription).filter_by(endpoint=req.endpoint).first()
     if not sub:
         sub = PushSubscription(
@@ -41,25 +41,20 @@ def subscribe(req: SubReq, db: Session = Depends(get_db), current_user: AppUser 
     return {"status": "ok"}
 
 
-import uuid
-from sqlalchemy import text
-
 def send_push_to_user(db: Session, user_id: str, title: str, body: str, url: str = "/"):
     """供聊天发送消息时调用的核心推送函数"""
-    # 强制将 user_id 转为字符串或者 uuid 对象，防止类型不匹配导致查不到数据
     try:
         target_id = uuid.UUID(str(user_id))
     except ValueError:
         target_id = user_id
 
-    # 查询该用户的订阅信息
     subs = db.query(PushSubscription).filter(PushSubscription.user_id == target_id).all()
     if not subs:
         print(f"⚠️ 用户 {target_id} 没有订阅推送（数据库里找不到），跳过发送")
         return
 
     vapid_private = os.getenv("VAPID_PRIVATE_KEY")
-    vapid_claims = {"sub": os.getenv("VAPID_SUBJECT", "mailto:admin@example.com")}
+    vapid_subject = os.getenv("VAPID_SUBJECT", "mailto:admin@example.com")
 
     payload = json.dumps({
         "title": title,
@@ -69,6 +64,14 @@ def send_push_to_user(db: Session, user_id: str, title: str, body: str, url: str
 
     for sub in subs:
         try:
+            # 👇 核心修复：动态提取 endpoint 的域名作为 aud 字段
+            parsed = urlparse(sub.endpoint)
+            aud = f"{parsed.scheme}://{parsed.netloc}"
+            vapid_claims = {
+                "sub": vapid_subject,
+                "aud": aud  # 必须包含此字段，否则 FCM(安卓) 会报 403
+            }
+
             webpush(
                 subscription_info={
                     "endpoint": sub.endpoint,
@@ -83,23 +86,14 @@ def send_push_to_user(db: Session, user_id: str, title: str, body: str, url: str
                 content_encoding="aes128gcm",
                 ttl=600
             )
-            print(f"✅ 成功向 {target_id} 发送系统级推送")
+            print(f"✅ 成功向 {target_id} 发送系统级推送 -> 端点: {aud}")
+
         except WebPushException as ex:
-            # 如果推送失败（比如用户清除了浏览器缓存），就删掉这个无效订阅
             print(f"❌ 推送失败: {type(ex).__name__}: {ex}")
-
             response = ex.response
-            if response is not None:
-                print("HTTP 状态码:", response.status_code)
-                print("响应头:")
-                for key, value in response.headers.items():
-                    if key.lower().startswith("x-wns-") or key.lower() in (
-                            "content-type",
-                            "www-authenticate",
-                            "date",
-                    ):
-                        print(f"  {key}: {value}")
 
-                print("响应正文:", repr(response.text[:2000]))
-            else:
-                print("没有收到 HTTP 响应")
+            # 👇 如果端点已失效（410或404），直接从数据库删除这个订阅
+            if response is not None and response.status_code in [404, 410]:
+                print(f"🗑️ 发现失效端点 ({response.status_code})，已自动从数据库清理。")
+                db.delete(sub)
+                db.commit()
