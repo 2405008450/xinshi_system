@@ -35,8 +35,8 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       strictPort: true, // 避免端口被占用时静默改到其他地址
       https: {  // 👈 新增 https 配置
-      key: fs.readFileSync(path.resolve(__dirname, '192.168.31.6+2-key.pem')),
-      cert: fs.readFileSync(path.resolve(__dirname, '192.168.31.6+2.pem')),
+      key: fs.readFileSync(path.resolve(__dirname, '192.168.31.144+2-key.pem')),
+      cert: fs.readFileSync(path.resolve(__dirname, '192.168.31.144+2.pem')),
     },
       proxy: {
         '/api': {
