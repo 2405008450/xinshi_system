@@ -29,3 +29,4 @@ test-results/
 .tmp/
 .tmp-company-pg-*/
 data/company_management_uploads/
+data/talent_uploads/
