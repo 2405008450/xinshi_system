@@ -150,7 +150,7 @@
       </el-descriptions>
     </section></el-collapse-item>
 
-    <el-collapse-item v-if="section==='all'" name="detail-photos" data-section-key="detail-photos" title="照片与音频"><el-descriptions :column="1" border size="small"><el-descriptions-item v-for="category in photoDetailCategories" :key="category" :label="photoAttachmentLabel(category)"><template v-for="item in (detail.attachments||[]).filter(file=>file.category===category)" :key="item.id"><el-button link type="primary" @click="downloadInherited({...item,sourceId:detail.id})">{{item.originalName}}</el-button></template><span v-if="!(detail.attachments||[]).some(file=>file.category===category)">-</span></el-descriptions-item></el-descriptions></el-collapse-item>
+    <el-collapse-item v-if="section==='all'" name="detail-photos" data-section-key="detail-photos" title="照片与音频"><el-descriptions :column="1" border size="small"><el-descriptions-item v-for="category in photoDetailCategories" :key="category" :label="photoAttachmentLabel(category)"><TalentPhotoAttachments :person-id="detail.id" :attachments="(detail.attachments||[]).filter(file=>file.category===category)" :audio="category==='audio'" /></el-descriptions-item></el-descriptions></el-collapse-item>
     <el-collapse-item v-if="!contactRestricted && section==='all'" name="detail-settlement" data-section-key="detail-settlement" title="商务与结算"><section><h4>商务与结算</h4><TalentSettlementDetail :value="detail.settlement" /></section></el-collapse-item>
     <el-collapse-item v-if="shows('projects')" name="detail-section-9" data-section-key="detail-section-9" title="项目情况"><section v-if="shows('projects')">
       <h4>项目情况</h4>
@@ -185,13 +185,14 @@ async function downloadInherited(attachment) {
 }
 import { formatWechatAccounts } from '@/utils/companyWechatAccounts'
 import SensitiveContactValue from '@/components/common/SensitiveContactValue.vue'
-import { normalizeForeignLanguagePriorities } from '@/utils/talentLanguageSkills'
+import { normalizeForeignLanguagePriorities, languageRoleLabel } from '@/utils/talentLanguageSkills'
 import { talentStatusLabel } from '@/utils/talentStatus'
 import CollapsibleSections from '@/components/common/CollapsibleSections.vue'
 import TalentResumeYear from './TalentResumeYear.vue'
 import TalentEvaluationMeta from './TalentEvaluationMeta.vue'
 import TalentSettlementDetail from './TalentSettlementDetail.vue'
 import TalentMediaSamples from './TalentMediaSamples.vue'
+import TalentPhotoAttachments from './TalentPhotoAttachments.vue'
 import { talentGradeLabel } from '@/utils/talentGrade'
 import { interpretationRatingLabel, interpretationRatingHint } from '@/utils/talentPerformance'
 import { contactAvailabilityLabel } from '@/utils/talentContactAvailability'
@@ -236,7 +237,6 @@ const statusLabel = talentStatusLabel
 const employmentLabel = value => ({ student: '在校学生', employed: '在职', freelance: '自由职业', seeking: '待业/求职中', retired: '已退休', other: '其他' }[value] || show(value))
 const educationLabel = value => ({ high_school_or_below: '高中及以下', secondary_vocational: '中专/职高', associate: '专科', bachelor: '本科', master: '硕士研究生', doctor: '博士研究生', other: '其他' }[value] || show(value))
 const educationLevelLabel = value => ({ associate: '专科院校', bachelor: '本科院校', second_degree: '第二学位', master: '硕士院校', doctor: '博士院校' }[value] || value)
-const languageRoleLabel = item => item.role === 'native' ? '母语' : item.role === 'foreign' ? `第${item.priority || 1}外语` : '方言/民族语言'
 const proficiencyLabel = value => ({ very_familiar: '非常熟悉', familiar: '熟悉', basic: '基础交流', listening_mainly: '听懂为主', listening_only: '仅能听懂' }[value] || value)
 const capabilityLabel = value => ({ written_translation: '笔译', interpretation: '口译', annotation: '标注' }[value] || value)
 </script>
