@@ -3,7 +3,7 @@
     <span class="column-header-filter__label">
       <slot name="label">{{ label }}</slot>
     </span>
-    <el-popover
+    <el-popover :title="`${label}筛选`"
       v-model:visible="visible"
       trigger="click"
       :placement="placement"

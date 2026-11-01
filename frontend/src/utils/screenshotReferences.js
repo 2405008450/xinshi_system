@@ -3,7 +3,7 @@ export const screenshotIds=value=>{current();return [...new Set(Array.from(Strin
 const trailingRefs=/\n?(?:!\[截图\]\(screenshot:\/\/[0-9a-f-]{36}(?:#[0-9a-f]{64})?\)\n?)+$/i
 export const screenshotText=value=>{const text=String(value??'');return screenshotIds(text).length?text.replace(trailingRefs,'').replace(screenshotPattern,''):text}
 export const screenshotValue=(text,ids)=>{current();return ids.length?[String(text||''),...ids.map(id=>`![截图](${String(id).startsWith('screenshot://')?id:signedRefs.get(id)||`screenshot://${id}`})`)].filter(Boolean).join('\n'):String(text??'')}
-export const screenshotPreview=value=>String(value??'').replace(/!\[截图\]\(screenshot:\/\/[^\s)]*(?:\)|$)/gi,'[截图]').replace(/screenshot:\/\/[0-9a-f-]*/gi,'[截图]')
+export const screenshotPreview=value=>String(value??'').replace(/\[附件\]\(discussion-file:\/\/[0-9a-f-]{36}\)/gi,'[附件]').replace(/!\[截图\]\(screenshot:\/\/[^\s)]*(?:\)|$)/gi,'[截图]').replace(/screenshot:\/\/[0-9a-f-]*/gi,'[截图]')
 let identity='',entries=new Map(),pending=new Map(),signedRefs=new Map()
 function current(){const storage=globalThis.localStorage,key=storage?`${storage.getItem('user_id')}:${storage.getItem('token')}`:'unit';if(key!==identity){identity=key;entries=new Map();signedRefs=new Map()}}
 export function rememberScreenshotGrant(response){

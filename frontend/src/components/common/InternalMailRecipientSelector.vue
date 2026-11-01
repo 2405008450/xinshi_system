@@ -6,7 +6,7 @@
           <span class="selected-badge">已选 {{ selectedIds.length }} 人</span>
           <span class="summary-hint">已选成员会在下方完整显示</span>
         </div>
-        <el-popover
+        <el-popover title="收件人信息"
           v-model:visible="panelVisible"
           placement="bottom-start"
           trigger="click"

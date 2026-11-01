@@ -37,6 +37,7 @@ def run():
             for item in payload.get('assigned_translator_completions',[]):
                 project_data['assigned_translators'][0].update(item)
             result=project_data
+        elif path=='/api/projects/translation/project-1':result=project_data
         elif path=='/api/word-count-matrices/project/project-1':result={'company':{'words':1200},'customer':{},'translator_estimate':{},'translators':[]}
         elif path=='/api/departments/organization':
             result={'ready':True,'membershipReady':True,'canManage':True,'aliases':{},'items':[{'id':'project','name':'项目部','revision':1,'userCount':1}],'people':[{'id':'person','name':'测试人员','username':'test-person','active':True,'primaryDepartment':'项目部','departments':[{'id':'project','name':'项目部'}]}]}
@@ -122,9 +123,10 @@ def run():
                 assert len(list_filters[-1]['excluded_project_status']['value'])==5
         expect(page.locator('.fixed-detail')).to_have_count(0)
         page.locator('.arrangement-projects').get_by_role('button',name='TP-TEST-001',exact=True).click()
-        expect(page.locator('.business-detail-popover:visible')).to_contain_text('项目详情')
-        page.locator('.arrangement-toolbar>strong').click()
-        expect(page.locator('.business-detail-popover:visible')).to_have_count(0)
+        expect(page.locator('.project-editor-dialog:visible')).to_contain_text('项目详情')
+        expect(page.locator('.project-editor-dialog:visible').get_by_role('tab',name='基础信息',exact=True)).to_be_visible()
+        page.locator('.project-editor-dialog:visible').get_by_role('button',name='取消',exact=True).click()
+        expect(page.locator('.project-editor-dialog:visible')).to_have_count(0)
         page.locator('.arrangement-projects .translator-return-trigger').click()
         expect(page.locator('.translator-completion-popover:visible')).to_contain_text('译员回稿及结算信息')
         page.locator('.translator-completion-popover:visible').get_by_role('button',name='取消',exact=True).click()

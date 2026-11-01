@@ -6,7 +6,7 @@
       <el-button :disabled="confirming" :class="{'is-active-filter':shortcutActive('tomorrow')}" :aria-pressed="shortcutActive('tomorrow')" @click="shortcut('tomorrow')">明日及前回稿</el-button>
       <ProjectStatusExclusionControl :model-value="excluded" :statuses="statuses" @update:model-value="setExcluded" />
       <el-button :type="excluded.includes('arranged')?'primary':''" :class="{'is-active-filter':excluded.includes('arranged')}" :aria-pressed="excluded.includes('arranged')" plain @click="toggleArranged">排除已安排</el-button>
-      <el-popover v-model:visible="timeVisible" trigger="click" placement="bottom-end" :width="760" popper-class="arrangement-filter-popover">
+      <el-popover title="时间筛选" v-model:visible="timeVisible" trigger="click" placement="bottom-end" :width="760" popper-class="arrangement-filter-popover">
         <template #reference><el-button :class="{'is-active-filter':timeCount}" :aria-pressed="timeCount>0" @click.capture="captureTimeClick">时间筛选<span v-if="timeCount">（{{timeCount}}）</span></el-button></template>
         <div class="arrangement-date-filters">
           <label><span>客户来稿时间（区间）</span><el-date-picker :model-value="reception" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" unlink-panels @update:model-value="updateRange('reception',$event)" /></label>

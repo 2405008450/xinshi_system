@@ -1,12 +1,15 @@
 <template>
   <div class="chat-images">
-    <el-upload :show-file-list="false" :auto-upload="false" :on-change="selectImage"
+    <el-upload v-if="showTools" :show-file-list="false" :auto-upload="false" :on-change="selectImage"
       accept="image/jpeg,image/png,image/gif,image/webp" multiple :disabled="disabled || items.length >= 9">
-      <el-button size="small" :disabled="disabled || items.length >= 9">添加图片</el-button>
+      <el-button text size="small" :icon="Picture" aria-label="发送图片" title="发送图片" :disabled="disabled || items.length >= 9" />
     </el-upload>
-    <span class="chat-images__hint">可粘贴截图，每条最多 9 张，单张 10MB</span>
+    <el-upload v-if="showTools && (allowFiles || toolsOnly)" :show-file-list="false" :auto-upload="false" :on-change="selectImage" multiple :disabled="disabled || items.length >= 9">
+      <el-button text size="small" :icon="Paperclip" aria-label="发送文件" title="发送文件" :disabled="disabled || items.length >= 9" />
+    </el-upload>
+    <span v-if="!toolsOnly && items.length" class="chat-images__hint">每条最多9个附件，图片10MB，文件20MB</span>
     <div v-for="item in items" :key="item.key" class="chat-images__item">
-      <img :src="item.url" :alt="item.file.name" />
+      <img v-if="item.file.type.startsWith('image/')" :src="item.url" :alt="item.file.name" /><span>{{ item.file.name }}</span>
       <span v-if="item.status === 'uploading'">上传中…</span>
       <span v-else-if="item.status === 'failed'" role="alert" class="chat-images__error">{{ typeof item.error === 'string' ? item.error : '图片上传失败，请重试' }}</span>
       <span v-else>待发送</span>
@@ -17,7 +20,8 @@
 </template>
 
 <script setup>
-defineProps({ items: { type: Array, required: true }, disabled: Boolean })
+import { Picture, Paperclip } from '@element-plus/icons-vue'
+defineProps({ items: { type: Array, required: true }, disabled: Boolean, allowFiles:Boolean, toolsOnly:Boolean, showTools:{type:Boolean,default:true} })
 const emit = defineEmits(['add', 'retry', 'remove'])
 const selectImage = (file, files) => {
   emit('add', [file.raw])

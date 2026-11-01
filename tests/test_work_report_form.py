@@ -12,6 +12,33 @@ from task_schemas import DailyReportItemInput, DailyReportSaveRequest
 def row(**metadata):
     return DailyReportItemInput(source_type='manual',task_type='项目工作',task_name='测试项目',progress_content='整理资料',duration_minutes=66,display_metadata={'report_types':['笔译项目','非项目工作'],'order_no':'TP-001','quantity':'1.5','quantity_unit':'页',**metadata})
 
+
+def test_vocabulary_clients_search_and_report_roundtrip(environment, monkeypatch):
+    from models import Client
+    from routers.tasks import report_client_options
+    from work_report_categories import DEFAULT_CATEGORIES
+    import task_service as service
+    from task_models import DailyReportItem, DailyReport
+    db, (owner, _, _) = environment
+    clients = [Client(id=uuid4(), client_code=f'VOC-{i}', client_name=f'全称{i}', client_short_name=name, manager_contact='不应返回') for i, name in enumerate(['AA-BB', 'BB-AA', 'AA_only', '100%客户', '100客户'])]
+    db.add_all(clients); db.commit()
+    options = report_client_options('bb aa', 50, db, owner)
+    assert len(options) == 2 and all(set(item) == {'id', 'name'} for item in options)
+    assert [item['name'] for item in report_client_options('100%', 50, db, owner)] == ['100%客户']
+    assert '词汇整理' in DEFAULT_CATEGORIES['非项目工作']
+    selected = [{'id': str(client.id), 'name': client.client_short_name} for client in clients[:2]]
+    item = row(report_types=['非项目工作::词汇整理'], order_no='', vocabulary_clients=selected)
+    item.task_name = 'AA-BB、BB-AA'
+    db.add(DailyReport(id=uuid4(), user_id=owner.id, report_date=date(2026, 10, 29), status='draft'))
+    db.commit()
+    monkeypatch.setattr(service, 'derive_daily_report_items', lambda *args: [])
+    original = DailyReportItem
+    monkeypatch.setattr(service, 'DailyReportItem', lambda **kwargs: original(id=uuid4(), **kwargs))
+    saved = service.save_daily_report(db, owner, date(2026, 10, 29), DailyReportSaveRequest(items=[item]))
+    preview = service.preview_daily_report(db, owner, saved.report_date)
+    assert preview['items'][0]['task_name'] == item.task_name
+    assert preview['items'][0]['display_metadata']['vocabulary_clients'] == selected
+
 @pytest.mark.parametrize('metadata',[{'quantity':-1},{'quantity':'abc'},{'quantity':'nan'},{'quantity_unit':''},{'quantity_unit':'其他'},{'report_types':[]},{'report_types':['无效']},{'report_types':['其他项目']}])
 def test_invalid_form_metadata_rejected(metadata):
     with pytest.raises(ValidationError):row(**metadata)
@@ -103,5 +130,35 @@ def test_category_permissions_persistence_and_user_isolation(environment,monkeyp
     assert '展会' not in categories.category_catalog(db,owner)['work_categories']['外勤工作']
     categories.validate_categories(db,other,[row(report_types=['项目工作::测试新项目'])])
     with pytest.raises(ValueError): categories.validate_categories(db,owner,[row(report_types=['外勤工作::展会'])])
+
+
+def test_custom_root_category_requires_saved_content_and_is_user_scoped(environment,monkeypatch):
+    import work_report_categories as categories
+    db,(owner,other,_)=environment
+    monkeypatch.setattr(categories,'can_add_project_category',lambda *_:False)
+    data=categories.add_category_group(db,owner,'质量工作','核对术语')
+    assert data['work_categories']['质量工作']==['核对术语']
+    categories.add_category(db,owner,'质量工作','检查格式')
+    categories.add_category_group(db,owner,'质量工作','核对术语')
+    assert set(categories.category_catalog(db,owner)['work_categories']['质量工作'])=={'核对术语','检查格式'}
+    assert '质量工作' not in categories.category_catalog(db,other)['work_categories']
+    item=row(report_types=['质量工作::核对术语'])
+    categories.validate_categories(db,owner,[item])
+    with pytest.raises(ValueError):categories.validate_categories(db,other,[item])
+    with pytest.raises(ValueError):categories.add_category_group(db,owner,'项目工作','绕过限制')
+    with pytest.raises(ValueError):categories.add_category_group(db,owner,'自定义',' ')
+
+
+def test_layout_task_presets_persist_without_polluting_work_categories(environment,monkeypatch):
+    import work_report_categories as categories
+    db,(owner,other,_)=environment
+    monkeypatch.setattr(categories,'can_add_project_category',lambda *_:False)
+    owner.department='排版部';db.commit()
+    data=categories.add_layout_task_preset(db,owner,'文件终检')
+    assert data['layout_task_presets']==['专检','排版','稽查','文件终检']
+    assert '__layout_tasks__' not in data['work_categories']
+    assert categories.add_layout_task_preset(db,owner,'文件终检')['layout_task_presets'].count('文件终检')==1
+    assert '文件终检' not in categories.category_catalog(db,other)['layout_task_presets']
+    with pytest.raises(PermissionError):categories.add_layout_task_preset(db,other,'文件终检')
     with pytest.raises(ValueError): categories.validate_categories(db,other,[row(report_types=['项目工作::伪造分类'])])
     with pytest.raises(PermissionError):categories.validate_categories(db,other,[row(report_types=['其他项目'],custom_project_type='绕过权限')])

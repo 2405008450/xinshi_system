@@ -1,5 +1,5 @@
 <template>
-  <el-popover trigger="click" placement="left" :width="460">
+  <el-popover title="项目职责人员" trigger="click" placement="left" :width="460">
     <template #reference>
       <el-button type="primary" link size="small" class="assignee-trigger" @click.stop>
         {{ triggerLabel }}

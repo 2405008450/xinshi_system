@@ -4,14 +4,15 @@ import { annotationStatusLabels, normalizeAnnotationStatus } from './annotationS
 
 export const annotationFolderId = defaults.find(row => row.ruleKey === 'annotation').id
 export const resourceFolderId = defaults.find(row => row.ruleKey === 'resource').id
+export const technicalFolderId = defaults.find(row => row.ruleKey === 'technical').id
 export const resourceDiscussionIds = defaults.filter(row => row.parentKey === resourceFolderId).map(row => row.id)
-export function sessionFolderNodes(items = []) {
-  const builtins = defaults.filter(row => !row.parentKey).map(row => ({ ...row, builtin: true, active: true, assignable: false }))
+export function sessionFolderNodes(items = [], { technicalAccess = false } = {}) {
+  const builtins = defaults.filter(row => !row.parentKey && (row.id !== technicalFolderId || technicalAccess)).map(row => ({ ...row, builtin: true, active: true, assignable: false }))
   const statuses = Object.entries(annotationStatusLabels).map(([status, name]) => ({
     id: `status:${status}`, name, parentKey: annotationFolderId, ruleKey: `status:${status}`, builtin: true, active: true, assignable: false,
   }))
   const builtinIds = new Set(defaults.map(row => row.id))
-  const custom = items.filter(row => !builtinIds.has(row.id) && row.parentKey !== resourceFolderId).map(row => ({ ...row, assignable: true }))
+  const custom = items.filter(row => !builtinIds.has(row.id) && row.parentKey !== resourceFolderId && (technicalAccess || row.name !== '技术/开发沟通')).map(row => ({ ...row, assignable: true }))
   const all = [...builtins, ...statuses, ...custom]
   const roots = new Set(all.filter(row => row.active && !row.parentKey).map(row => row.id))
   const visible = new Set(roots)
@@ -48,8 +49,8 @@ export function sessionFolderMentionUnread(sessions, id, nodes) {
   return [...counts.values()].reduce((sum, count) => sum + count, 0)
 }
 
-export function assignableSessionFolders(items) {
-  const nodes = sessionFolderNodes(items)
+export function assignableSessionFolders(items, options) {
+  const nodes = sessionFolderNodes(items, options)
   return nodes.filter(row => row.assignable).map(row => ({ ...row,
     label: [nodes.find(parent => parent.id === row.parentKey)?.name, row.name].filter(Boolean).join(' / '),
   }))

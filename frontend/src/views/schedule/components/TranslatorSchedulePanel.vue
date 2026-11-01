@@ -20,7 +20,7 @@
       <el-table-column prop="quality" label="质量" width="70" />
       <el-table-column v-for="(scheduleDay, index) in weekDates" :key="scheduleDay" :label="`${weekdayLabels[index]} ${scheduleDay.slice(5)}`" width="174">
         <template #default="{ row }">
-          <el-popover v-if="canEdit" trigger="click" placement="bottom" :width="340" @show="startEdit(row, scheduleDay)">
+          <el-popover title="译员排期设置" v-if="canEdit" trigger="click" placement="bottom" :width="340" @show="startEdit(row, scheduleDay)">
             <template #reference><button class="availability-cell" type="button"><StatusContent :day="dayOf(row, scheduleDay)" /></button></template>
             <div class="editor">
               <el-select v-model="editForm.availability_status" style="width: 100%">

@@ -1,6 +1,7 @@
 <template>
   <section class="report-snapshot">
     <el-descriptions :column="2" border size="small"><el-descriptions-item label="姓名">{{report.user_name||'-'}}</el-descriptions-item><el-descriptions-item label="日期">{{report.report_date||'-'}}</el-descriptions-item><el-descriptions-item label="补充说明" :span="2">{{report.supplemental_note||'-'}}</el-descriptions-item></el-descriptions>
+    <ReportIdleTime v-if="report.idle_minutes!=null" :minutes="report.idle_minutes" :confirmed="report.idle_declaration_confirmed" :declaration-text="report.idle_declaration_text||''" />
     <div class="snapshot-filter"><el-input v-model="projectFilter" placeholder="筛选项目名称或订单号" clearable /><el-checkbox v-model="onlyLunch">仅看中午加班</el-checkbox></div>
     <article v-for="(item,index) in report.items||[]" :key="item.display_metadata?._feedback_key||item.id||index" v-show="matchesItem(item)" :class="{'is-child':item.display_metadata?.parent_item_key}">
       <small v-if="['consultation_handoff','technical_development'].includes(item.display_metadata?.source)">{{item.display_metadata.source==='technical_development'?'开发任务':'新咨询对接'}} · 添加时间：{{formatBusinessDateTime(item.display_metadata.added_at)}}</small>
@@ -12,6 +13,7 @@
 <script setup>
 import {formatBusinessDateTime} from '@/utils/dateTime'
 import ReportItemLink from './ReportItemLink.vue'
+import ReportIdleTime from './ReportIdleTime.vue'
 import {durationLabel} from '@/utils/workReportForm'
 import {computed,ref,watch,onBeforeUnmount} from 'vue'
 import {matchesSearch} from '@/utils/searchMatching'

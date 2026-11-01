@@ -107,7 +107,7 @@ def test_actual_creation_services_default_to_writer(environment, monkeypatch, ki
             target.id = uuid4()
     event.listen(Base, 'before_insert', set_sqlite_id, propagate=True)
     try:
-        values = {'project_name': '隔离客户经理测试'}
+        values = {'project_name': '隔离客户经理测试.docx'}
         if kind == 'translation':
             values['created_by'] = owner.id
             project = create(db, schema(**values))
@@ -126,7 +126,7 @@ def test_actual_creation_services_default_to_writer(environment, monkeypatch, ki
                           'interpretation': interpretation_service.update_interpretation_project,
                           'annotation': annotation_service.update_annotation_project,
                           'recruitment': recruitment_service.update_recruitment_project}[kind]
-        values = {'project_name': '隔离客户经理测试', 'client_manager_id': member.id}
+        values = {'project_name': '隔离客户经理测试.docx', 'client_manager_id': member.id}
         with pytest.raises(ValueError, match='调整原因'):
             update_service(db, project.id, update_schema(**values), owner.id)
         db.rollback()

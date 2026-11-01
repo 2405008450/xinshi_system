@@ -3,6 +3,7 @@ export const AUTO_DRAFT_DELAY = 400
 export const AUTO_DRAFT_TTL = 7 * 86400000
 const SECRET = /password|passwd|passphrase|secret|token|credential|private.?key|api.?key|access.?key|authorization/i
 export const draftBusinessNow = (time = Date.now()) => new Date(time + 28800000).toISOString().replace('Z', '+08:00')
+export const draftStringify=value=>JSON.stringify(value,(_key,item)=>item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.keys(item).sort().map(key=>[key,item[key]])):item)
 export function sanitizeDraft(value, seen = new WeakSet()) {
   if (value == null || ['string', 'number', 'boolean'].includes(typeof value)) return value
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.toISOString()

@@ -122,6 +122,7 @@
     <ChatIssueCollector v-if="issueCollectorLoaded" />
     <AnnotationMaterialEditor v-if="materialEditor.loaded" />
     <AnnotationMaterialDialogs v-if="materialDialogs.loaded" />
+    <AnnotationWorkStatusHost />
   </el-container>
 </template>
 
@@ -136,6 +137,7 @@ import {
   hasPermission
 } from '../utils/permission'
 import NotificationBell from '../components/NotificationBell.vue'
+import AnnotationWorkStatusHost from '@/components/annotation/AnnotationWorkStatusHost.vue'
 import AnnotationChatInbox from '@/components/chat/AnnotationChatInbox.vue'
 import ProjectChatDock from '@/components/chat/ProjectChatDock.vue'
 import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'

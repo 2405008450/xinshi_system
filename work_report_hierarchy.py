@@ -30,7 +30,7 @@ def normalize_hierarchy(items):
         metadata['parent_item_key']=source['_feedback_key']
         item['task_type']=parent['task_type'];item['task_name']=parent['task_name']
         metadata['order_no']=source.get('order_no','')
-        for key in ['report_types','custom_project_type']:
+        for key in ['report_types','custom_project_type','vocabulary_clients']:
             if key in source:metadata[key]=source[key]
             elif key!='report_types':metadata.pop(key,None)
     result=[]

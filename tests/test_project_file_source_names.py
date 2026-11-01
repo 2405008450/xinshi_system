@@ -29,12 +29,12 @@ def test_collect_source_file_names_rejects_empty_directory(tmp_path: Path):
         collect_source_file_names(tmp_path)
 
 
-def test_build_source_file_name_joins_multiple_files():
-    assert build_source_file_name(["A.docx", "B.xlsx"]) == "A.docx；B.xlsx"
+def test_build_source_file_name_rejects_multiple_files():
+    with pytest.raises(ValueError, match="一个订单号只能对应一个文件名"):
+        build_source_file_name(["A.docx", "B.xlsx"])
 
 
-def test_build_source_file_name_summarizes_when_field_limit_is_exceeded():
-    result = build_source_file_name(["A" * 250 + ".docx", "B.xlsx"])
-
-    assert len(result) <= 255
-    assert result.endswith("等 2 个文件")
+def test_build_source_file_name_never_truncates_extension():
+    with pytest.raises(ValueError, match="不能超过"):
+        build_source_file_name(["A" * 251 + ".docx"])
+    assert build_source_file_name(["原文.docx"]) == "原文.docx"

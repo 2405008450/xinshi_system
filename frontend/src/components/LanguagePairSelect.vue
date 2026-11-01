@@ -26,7 +26,7 @@
           </div>
         </template>
       </el-select-v2>
-      <el-popover
+      <el-popover title="语种方向"
         v-model:visible="createVisible"
         trigger="click"
         placement="bottom-end"

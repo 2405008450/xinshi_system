@@ -59,29 +59,16 @@ def build_source_file_name(
     *,
     max_length: int = MAX_SOURCE_FILE_NAME_LENGTH,
 ) -> str:
-    """在数据库字段长度内生成尽可能完整的文件名称摘要。"""
+    """原文目录只能读取一个文件，不拼接、汇总或截断扩展名。"""
+    from translation_file_name_rules import normalize_single_file_name, MULTIPLE_MESSAGE
     if not file_names:
         raise ValueError("原文路径中没有可读取的文件")
-
-    joined = "；".join(file_names)
-    if len(joined) <= max_length:
-        return joined
-
-    suffix = f" 等 {len(file_names)} 个文件"
-    available = max_length - len(suffix)
-    if available <= 1:
-        return suffix[-max_length:]
-
-    included: list[str] = []
-    for name in file_names:
-        candidate = "；".join([*included, name])
-        if len(candidate) > available:
-            break
-        included.append(name)
-
-    if included:
-        return f"{'；'.join(included)}{suffix}"
-    return f"{file_names[0][:available - 1]}…{suffix}"
+    if len(file_names) != 1:
+        raise ValueError(f"{MULTIPLE_MESSAGE}；原文目录中发现 {len(file_names)} 个文件，请指定单个文件路径")
+    name = normalize_single_file_name(file_names[0])
+    if len(name) > max_length:
+        raise ValueError(f'文件名称不能超过 {max_length} 个字符，请先重命名原文件')
+    return name
 
 
 def inspect_project_source_path(storage_path: str) -> dict:

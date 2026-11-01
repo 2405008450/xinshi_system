@@ -28,3 +28,10 @@ test('报告七点换日与浏览器时区无关',()=>{
  assert.equal(reportBusinessDate('2027-01-01T06:00:00+08:00'),'2026-12-31')
  assert.equal(reportBusinessDate('2026-10-23T23:00:00Z'),'2026-10-24')
 })
+
+ test('词汇整理下级行继承多客户，修改上级时同步且清理失效关联',()=>{
+ const parent=project();parent.display_metadata.report_types=['非项目工作::词汇整理'];parent.display_metadata.vocabulary_clients=[{id:'a',name:'甲'},{id:'b',name:'乙'}];parent.task_name='甲、乙';const rows=[parent]
+ const [child]=appendChildRows(rows,parent,1);assert.deepEqual(child.display_metadata.vocabulary_clients,parent.display_metadata.vocabulary_clients)
+ parent.display_metadata.vocabulary_clients=[{id:'b',name:'乙'}];parent.task_name='乙';syncReportChildren(rows);assert.equal(child.task_name,'乙');assert.deepEqual(child.display_metadata.vocabulary_clients,[{id:'b',name:'乙'}])
+ delete parent.display_metadata.vocabulary_clients;syncReportChildren(rows);assert.equal(child.display_metadata.vocabulary_clients,undefined)
+})

@@ -4,7 +4,7 @@
     <button v-if="!own && acknowledgeEnabled" type="button" :disabled="acknowledging" :class="{'is-active':message.isAcknowledged}" :title="message.isAcknowledged ? '再次点击可取消收到确认' : '让发送者知道你已确认收到'" @click="$emit('acknowledge',message)">{{ message.isAcknowledged ? '✓ 已收到' : '收到' }}</button>
     <span v-if="message.acknowledgements?.length" :title="message.acknowledgements.map(row => `${row.userName} · ${formatBusinessDateTime(row.acknowledgedAt)}`).join('\n')">{{ message.acknowledgements.map(row=>row.userName).join('、') }} 已收到</span>
     <button v-if="message.reply || stats?.replyCount" type="button" :title="stats?.replyUsers?.map(row=>row.name).join('、')" @click="$emit('references', stats?.replyCount ? message.id : message.reply?.id || message.id, $event)">{{ stats?.hasReplied ? '我已回复 · ' : '' }}{{ stats?.replyCount ? `${stats.replyCount} 条回复` : '查看引用' }}</button>
-    <el-popover v-if="own" trigger="click" placement="top-end" :width="300" :z-index="readerZ" :disabled="viewsAvailable !== true || stats?.seenCount == null">
+    <el-popover title="阅读详情" v-if="own" trigger="click" placement="top-end" :width="300" :z-index="readerZ" :disabled="viewsAvailable !== true || stats?.seenCount == null">
       <template #reference><button type="button" class="chat-message-actions__seen" :title="seenTooltip" aria-label="查看已读人数和阅读时间" @click="readerZ = chatOverlayZIndex($event.currentTarget)">{{ viewsAvailable === false ? '已读统计待启用' : stats?.seenCount != null ? `已读 ${stats.seenCount}/${stats.recipientCount}` : '已读统计加载中…' }}</button></template>
       <strong>阅读详情 · {{ stats?.seenCount || 0 }}/{{ stats?.recipientCount || 0 }} 人已读</strong>
       <p class="chat-reader-hint">不含发送者，显示首次阅读时间（UTC+8）</p>

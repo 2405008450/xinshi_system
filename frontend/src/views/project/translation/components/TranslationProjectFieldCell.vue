@@ -111,9 +111,9 @@
           <span v-else>{{ context.formatTableColumnValue(row, column) }}</span>
 </template>
 <script setup>
+import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import ProjectClientManagerHistory from '@/components/common/ProjectClientManagerHistory.vue'
 import {CaretBottom,Check} from '@element-plus/icons-vue'
-import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import PathActionButtons from '@/components/common/PathActionButtons.vue'
 import DeadlineHintCell from '@/components/common/DeadlineHintCell.vue'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'

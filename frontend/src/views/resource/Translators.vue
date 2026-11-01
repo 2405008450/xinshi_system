@@ -546,9 +546,10 @@
 </template>
 
 <script setup>
+import ElPopover from '@/components/common/WindowPopover.vue'
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { computed, defineComponent, h, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { ElButton, ElDescriptions, ElDescriptionsItem, ElMessage, ElMessageBox, ElPopover, ElTag } from 'element-plus'
+import { ElButton, ElDescriptions, ElDescriptionsItem, ElMessage, ElMessageBox, ElTag } from 'element-plus'
 import * as translatorApi from '@/api/translators'
 import * as scheduleApi from '@/api/schedule'
 import { formatDateTimeMinute as formatDetailDatetime } from '@/utils/dateTime'

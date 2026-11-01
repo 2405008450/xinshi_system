@@ -284,7 +284,9 @@ def list_tasks(db, user):
     hidden |= deleted_ids(db)
     import technical_requirement_tasks as sources
     source_values = sources.snapshots(db)
-    return dict(enabled=True, items=[{**serialize_task(row, names, numbers), **completions.get(row.id, default_completion), 'source': source_values.get(row.id), **groups.get(row.id,{})} for row in rows if row.id not in hidden])
+    from technical_task_conversations import snapshots as conversation_snapshots
+    conversations=conversation_snapshots(db)
+    return dict(enabled=True, items=[{**serialize_task(row, names, numbers), **completions.get(row.id, default_completion), 'source': source_values.get(row.id), 'conversation': conversations.get(row.id), **groups.get(row.id,{})} for row in rows if row.id not in hidden])
 
 
 def detail(db, user, task_id):

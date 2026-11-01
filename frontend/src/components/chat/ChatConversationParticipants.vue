@@ -1,5 +1,5 @@
 <template>
-  <el-popover :z-index="participantsZ" trigger="click" placement="bottom-end" :width="340" @show="load">
+  <el-popover title="会话成员" :z-index="participantsZ" trigger="click" placement="bottom-end" :width="340" @show="load">
     <template #reference><el-button link :icon="User" aria-label="参与人" title="参与人" @click="participantsZ = chatOverlayZIndex($event.currentTarget)"><span v-if="menuLayout">参与人</span></el-button></template>
     <div v-loading="loading" class="chat-conversation-participants">
       <p>仅会话参与人可以查看和发言。</p>

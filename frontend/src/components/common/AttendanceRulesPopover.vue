@@ -1,5 +1,5 @@
 <template>
-  <el-popover trigger="click" placement="bottom-end" :width="760" popper-class="attendance-rules-popper">
+  <el-popover title="考勤与假期规则" trigger="click" placement="bottom-end" :width="760" popper-class="attendance-rules-popper">
     <template #reference><el-button link type="primary">{{annualOnly?'年假规则':'全部规则说明'}}</el-button></template>
     <div class="attendance-rules-content">
       <h4>年假额度</h4><ol><li>6月30日及之前入职，入职当年有1天年假；7月1日及之后入职，入职当年无年假，次年1月1日先获得1天（只发放一次）。</li><li>此后每满一个入职周年，再过3个月，额度增加1天；除下半年入职者次年1月1日首次获得1天外，不在每年1月1日重复增加。</li><li>额度最多10天。未填写入职时间时不推算额度。</li><li>周年或顺延日期遇目标月没有同一日期时，取该月最后一天；闰日先取周年日期，再顺延3个月。</li><li>例如2025年6月30日入职，首年1天，2026年9月30日起2天；2025年7月1日入职，首年0天，2026年1月1日起1天，2026年10月1日起2天；2024年9月9日入职，2025年1月1日起1天、2025年12月9日起2天、2026年12月9日起3天。</li><li>年假额度、已抵扣、未来预留及可用余额在“请假与年假”区域查看；人员管理显示额度。</li></ol>

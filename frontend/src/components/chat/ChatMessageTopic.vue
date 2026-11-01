@@ -1,7 +1,7 @@
 <template>
   <span v-if="!message.recalledAt" class="chat-message-topic">
     <el-tag v-if="showTag && message.topicPath" size="small" effect="plain">{{ message.topicPath }}</el-tag>
-    <el-popover v-if="message.canClassify" v-model:visible="visible" trigger="click" placement="bottom-end" :width="320" popper-class="chat-topic-popover" :virtual-triggering="programmatic" :virtual-ref="virtualRef" @show="draft = message.topicId || null">
+    <el-popover title="消息话题" v-if="message.canClassify" v-model:visible="visible" trigger="click" placement="bottom-end" :width="320" popper-class="chat-topic-popover" :virtual-triggering="programmatic" :virtual-ref="virtualRef" @show="draft = message.topicId || null">
       <template v-if="!programmatic" #reference><el-button link size="small" @click.stop>分类</el-button></template>
       <ChatTopicSelect v-model="draft" :disabled="saving" />
       <div class="chat-topic-edit-actions"><el-button size="small" :disabled="saving" @click="visible = false">取消</el-button><el-button size="small" type="primary" :loading="saving" @click="save">保存</el-button></div>

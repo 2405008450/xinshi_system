@@ -30,6 +30,7 @@
 </template>
 
 <script setup>
+import { translationFileNameError } from '@/utils/translationFileName'
 import { computed, nextTick, ref, watch } from 'vue'
 import { Check, Close, EditPen } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -59,7 +60,7 @@ watch([draft, editing], () => {
     id: props.subOrderId,
     name,
     pending: editing.value && name !== String(props.modelValue || '').trim(),
-    valid: Boolean(name) && name.length <= 255,
+    valid: !translationFileNameError(name),
   })
 })
 
@@ -78,8 +79,8 @@ const cancel = () => {
 
 const save = async () => {
   const name = draft.value.trim()
-  if (!name) return ElMessage.warning('文件名称不能为空')
-  if (name.length > 255) return ElMessage.warning('文件名称不能超过 255 个字符')
+  const nameError = translationFileNameError(name)
+  if (nameError) return ElMessage.warning(nameError)
   if (name === (props.modelValue || '').trim()) return cancel()
   if (saving.value) return
   saving.value = true

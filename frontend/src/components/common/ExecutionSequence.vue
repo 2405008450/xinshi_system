@@ -2,7 +2,7 @@
   <div class="execution-sequence" aria-label="执行顺序">
     <template v-for="(step,index) in sequence" :key="step.id">
       <span v-if="index" class="sequence-arrow" aria-hidden="true">→</span>
-      <span class="execution-step" :class="{'is-current':step.id===currentId,'is-completed':step.status==='completed'}" :title="labels[step.status]||step.status">{{index+1}}. {{step.assignee_name}}</span>
+      <span class="execution-step" :class="{'is-current':step.id===currentId,'is-completed':step.status==='completed'}" :title="`${step.order_no||''} ${labels[step.status]||step.status}`">{{index+1}}. {{step.assignee_name}}<small v-if="step.order_level>1">（{{step.order_no}}）</small></span>
     </template>
     <span v-if="!sequence.length">-</span>
   </div>

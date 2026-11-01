@@ -44,11 +44,11 @@ class TaskRow(BaseModel):
         if not self.progress_content.strip():raise ValueError('请填写具体任务')
         types=self.display_metadata.get('report_types')
         if not isinstance(types,list) or not types or any(not isinstance(value,str) or not value.strip() for value in types):raise ValueError('请选择任务类型')
-        from work_report_categories import DEFAULT_CATEGORIES
+        from work_report_categories import DEFAULT_CATEGORIES,valid_category_value
         allowed=set(DEFAULT_CATEGORIES)|set(DEFAULT_CATEGORIES['项目工作'])
         for value in types:
             parent,separator,name=value.partition('::')
-            if value not in allowed and not (separator and parent in DEFAULT_CATEGORIES and name.strip() and len(name)<=80 and '::' not in name):raise ValueError('请选择有效任务类型')
+            if not valid_category_value(value):raise ValueError('请选择有效任务类型')
         quantity=self.display_metadata.get('quantity')
         if quantity not in (None,''):
             try:numeric=Decimal(str(quantity))

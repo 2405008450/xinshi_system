@@ -1,5 +1,5 @@
 <template>
-  <el-popover v-model:visible="visible" trigger="click" placement="bottom-end" :width="520">
+  <el-popover title="动态字段管理" v-model:visible="visible" trigger="click" placement="bottom-end" :width="520">
     <template #reference><el-button :disabled="disabled">{{ buttonLabel }}</el-button></template>
     <div class="manager" v-loading="loading">
       <div class="manager__header"><strong>动态字段管理</strong><el-button type="primary" link @click="startAdd">新增字段</el-button></div>

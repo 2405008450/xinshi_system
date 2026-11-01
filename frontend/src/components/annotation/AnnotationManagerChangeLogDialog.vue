@@ -20,7 +20,7 @@
       <el-form-item>
         <el-button type="primary" @click="search">查询</el-button>
         <el-button @click="reset">重置</el-button>
-        <el-popover v-model:visible="advancedVisible" trigger="click" placement="bottom-end" :width="760" popper-class="manager-log-advanced-popover">
+        <el-popover title="负责人变更筛选" v-model:visible="advancedVisible" trigger="click" placement="bottom-end" :width="760" popper-class="manager-log-advanced-popover">
           <div class="manager-log-advanced-content">
           <AdvancedFilterFieldSearch :active="advancedVisible">
       <el-form-item label="变更方式">

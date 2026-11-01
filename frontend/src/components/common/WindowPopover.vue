@@ -34,8 +34,9 @@ defineOptions({ inheritAttrs: false })
 defineProps({ title: { type: String, default: '' } })
 const emit = defineEmits(['update:visible'])
 const attrs = useAttrs()
-const popoverRef = ref(), content = ref(), minimized = ref(false), localVisible = ref()
-const visible = computed(() => attrs.visible ?? localVisible.value)
+const popoverRef = ref(), content = ref(), minimized = ref(false), localVisible = ref(), locallyClosed = ref(false)
+// 兼容只传 :visible 的调用方：关闭按钮也必须即时关闭，而非等待外层状态回写。
+const visible = computed(() => locallyClosed.value ? false : (attrs.visible ?? localVisible.value))
 const geometry = useWindowGeometry(() => content.value?.closest('.el-popper'))
 const edges = ['n', 's', 'w', 'e', 'nw', 'ne', 'sw', 'se']
 const windowStyle = computed(() => {
@@ -50,6 +51,9 @@ const windowStyle = computed(() => {
 })
 function updateVisible(value) {
   if (minimized.value) return
+  // 鼠标拖到浮窗外后释放，不应被原生 click-outside 当成关闭操作。
+  if (value === false && geometry.state.dragging) return
+  locallyClosed.value = !value
   localVisible.value = value
   emit('update:visible', value)
 }
@@ -62,7 +66,10 @@ function reset() { minimized.value = false; geometry.reset() }
 function drag(event) {
   if (!event.target.closest('button,a,input,textarea,select')) geometry.start(event)
 }
-watch(() => attrs.visible, value => { if (value === false) reset() })
+watch(() => attrs.visible, value => {
+  if (value === true) locallyClosed.value = false
+  if (value === false) reset()
+})
 defineExpose({
   popperRef: computed(() => popoverRef.value?.popperRef),
   hide: close,

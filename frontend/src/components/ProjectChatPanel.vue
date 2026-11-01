@@ -20,7 +20,7 @@
             批量选择
           </el-button>
           <el-tag v-if="canAddToProgress && progressSelectionMode" type="primary" effect="plain">批量选择中</el-tag>
-          <el-popover
+          <el-popover title="项目筛选"
             v-if="collapsibleFilters"
             v-model:visible="filterPopoverVisible"
             trigger="click"
@@ -183,8 +183,8 @@
                       <el-tag v-if="item.message.topicPath" size="small" effect="plain" class="chat-visible-topic">{{ item.message.topicPath }}</el-tag>
                       <div v-if="item.message.attachments?.length" class="message-attachments">
                         <div v-for="attachment in item.message.attachments" :key="attachment.id" class="message-attachment">
-                          <a v-if="attachmentUrls[attachment.id]" :href="attachmentUrls[attachment.id]" target="_blank" rel="noopener">
-                            <img :src="attachmentUrls[attachment.id]" :alt="attachment.originalName" />
+                          <a v-if="attachmentUrls[attachment.id]" :href="attachmentUrls[attachment.id]" :download="attachment.originalName" target="_blank" rel="noopener">
+                            <img v-if="attachment.contentType?.startsWith('image/')" :src="attachmentUrls[attachment.id]" :alt="attachment.originalName" />
                             <span>{{ attachment.originalName }}</span>
                           </a>
                           <template v-else>
@@ -312,8 +312,8 @@
               </div>
               <div v-if="message.attachments?.length" class="message-attachments">
                 <div v-for="attachment in message.attachments" :key="attachment.id" class="message-attachment">
-                          <a v-if="attachmentUrls[attachment.id]" :href="attachmentUrls[attachment.id]" target="_blank" rel="noopener">
-                            <img :src="attachmentUrls[attachment.id]" :alt="attachment.originalName" />
+                          <a v-if="attachmentUrls[attachment.id]" :href="attachmentUrls[attachment.id]" :download="attachment.originalName" target="_blank" rel="noopener">
+                            <img v-if="attachment.contentType?.startsWith('image/')" :src="attachmentUrls[attachment.id]" :alt="attachment.originalName" />
                             <span>{{ attachment.originalName }}</span>
                           </a>
                           <template v-else>
@@ -421,7 +421,7 @@
               </el-button>
             </div>
           </div>
-          <ChatImageAttachments v-if="attachmentsEnabled" :items="pendingImages" :disabled="sending"
+          <ChatImageAttachments v-if="attachmentsEnabled" :items="pendingImages" :disabled="sending" :show-tools="!conversationMode" allow-files
             @add="addComposerImages" @retry="imageQueue.retry" @remove="imageQueue.remove" />
         </div>
 
@@ -440,6 +440,10 @@
             >
               @{{ userNameById(userId) }}
             </el-tag>
+          </div>
+          <div class="chat-composer__tools">
+            <el-button text size="small" aria-label="提及用户" title="提及用户" :disabled="sending" @click="ensureUsersLoaded(); mentionPopoverVisible = true">@</el-button>
+            <ChatImageAttachments :items="[]" :disabled="sending" tools-only @add="addComposerImages" />
           </div>
           <div class="chat-composer__input-row">
             <el-popover
@@ -502,7 +506,7 @@
               发送
             </el-button>
           </div>
-          <ChatImageAttachments v-if="attachmentsEnabled" :items="pendingImages" :disabled="sending"
+          <ChatImageAttachments v-if="attachmentsEnabled" :items="pendingImages" :disabled="sending" :show-tools="!conversationMode" allow-files
             @add="addComposerImages" @retry="imageQueue.retry" @remove="imageQueue.remove" />
         </div>
     </div>
@@ -512,7 +516,7 @@
       :project-id="projectId"
       :project-type="projectType"
       :senders="historySenders"
-      :allow-files="projectType === 'annotation'"
+      :allow-files="true"
       :placement="historyPlacement"
       @locate="locateMessage"
     />
@@ -605,10 +609,17 @@ const { topics, refresh: refreshTopics } = useChatTopics()
 let sendFingerprint = '', sendRequestId = ''
 let unsubscribeTopicChanged
 const pendingImages = reactive([])
-const attachmentsEnabled = computed(() => !props.textOnly || props.projectType === 'annotation')
+const uploadTranslationFile = async file => {
+  const { uploadTranslationChatFile, annotationChatRequest } = await import('@/api/projectChat')
+  if(props.projectType !== 'annotation') return uploadTranslationChatFile(props.projectId,file)
+  const data=new FormData(); data.append('file',file)
+  return annotationChatRequest(props.projectId,'files',{method:'post',data})
+}
+const attachmentsEnabled = computed(() => true)
 const imagesBlocked = computed(() => pendingImages.some(item => item.status !== 'ready'))
 const imageQueue = createChatImageQueue(pendingImages, {
-  upload: file=>uploadProjectChatAttachment(file,'chat'),
+  upload: file=>uploadTranslationFile(file),
+  allowFiles: true,
   createUrl: file => URL.createObjectURL(file),
   revokeUrl: url => URL.revokeObjectURL(url),
   warn: message => ElMessage.warning(message)
@@ -2548,3 +2559,5 @@ onBeforeUnmount(() => {
 <style>.chat-mention-user-options{max-width:calc(100vw - 32px)}.chat-mention-user-options .el-select-dropdown__item{height:auto;min-height:34px;padding-top:6px;padding-bottom:6px;line-height:1.5;white-space:normal}</style>
 
 <style scoped src="./chat/chatQuotes.css" />
+
+<style scoped>.chat-composer__tools{display:flex;align-items:center;gap:6px;margin-bottom:6px}</style>

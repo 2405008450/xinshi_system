@@ -26,6 +26,8 @@ TIME_FIELD_LABELS = {
 }
 
 STATUS_LABELS = {
+    "simple_requirement": "简单需求",
+    "source_file_simple_requirement": "原文件+简单需求",
     "initial_consultation": "初步咨询",
     "pending": "待确认",
     "pending_confirmation": "待确认",

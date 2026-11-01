@@ -53,7 +53,7 @@
           </div>
           <ChatSessionFolderTree ref="folderTreeRef" v-if="annotationMode !== 'direct'" :compact="mobile" :selected="selectedFolder" :active="active" :sessions="allMentionSessions" @select="selectFolder" @unread="openFolderUnread" @changed="emit('categories-changed')" @browse-annotation="annotationPickerVisible = true" @open-conversation="emit('open', $event)" />
           <div class="chat-workspace__recent-closed">
-            <el-popover v-model:visible="recentClosedVisible" :z-index="recentMenuZ" trigger="click" placement="right-start" :width="300">
+            <el-popover title="会话详情" v-model:visible="recentClosedVisible" :z-index="recentMenuZ" trigger="click" placement="right-start" :width="300">
               <template #reference><el-button text size="small" @click="prepareRecentMenu">最近关闭（{{ recentInFolder.length }}/10）</el-button></template>
               <div class="chat-recent-closed" aria-label="最近关闭的会话">
                 <div class="chat-recent-closed__tools"><span>最新关闭的会话</span><el-button link type="primary" :disabled="!recentClosed.length" @click="restoreAllRecent">一键恢复全部（{{ Math.min(recentClosed.length, 10) }}）</el-button></div>
@@ -356,7 +356,7 @@ try { savedFolder = localStorage.getItem(folderStorageKey) ?? savedFolder } catc
 if (resourceDiscussionIds.includes(savedFolder)) savedFolder = resourceFolderId
 const selectedFolder = ref(savedFolder)
 const folderTreeRef=ref()
-const folderNodes = computed(() => sessionFolderNodes(categories.items))
+const folderNodes = computed(() => sessionFolderNodes(categories.items, { technicalAccess: categories.technicalAccess }))
 const searchMode = ref('sessions'), searchRevision = ref(0)
 const searchPlaceholder = computed(() => searchMode.value === 'messages' ? '搜索全部会话的聊天记录' : '搜索全部会话：名称、订单号、消息')
 watch(selectedFolder, value => { try { localStorage.setItem(folderStorageKey, value) } catch { /* 本次选择仍生效。 */ } })

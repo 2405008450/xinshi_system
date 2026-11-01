@@ -1,6 +1,6 @@
 <template>
   <div class="translator-return-cell">
-    <el-popover
+    <el-popover title="译员回稿及结算信息"
       v-model:visible="visible"
       trigger="click"
       :placement="placement"
@@ -34,7 +34,7 @@
 
       <AppForm ref="completionFormRef" :model="{ draft }" :disabled="saving" class="translator-completion-panel">
         <div class="translator-completion-panel__header">
-          <strong>译员回稿及结算信息</strong>
+
           <span>修改会同步回写当前项目对应的稿件安排，并影响回稿提醒和紧急度排序</span>
         </div>
 

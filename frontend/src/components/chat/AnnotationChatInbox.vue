@@ -1,6 +1,6 @@
 <template>
   <el-config-provider :z-index="favoritesZ">
-  <el-popover :z-index="favoritesZ" v-if="allowed" v-model:visible="favoritesVisible" trigger="click" placement="bottom-end" :width="380" popper-class="annotation-favorites-popover">
+  <el-popover title="关注的项目" :z-index="favoritesZ" v-if="allowed" v-model:visible="favoritesVisible" trigger="click" placement="bottom-end" :width="380" popper-class="annotation-favorites-popover">
     <template #reference>
       <el-badge is-dot :hidden="!mentionTotal">
         <el-button class="annotation-favorites-trigger" text :circle="!menuLayout" aria-label="收藏夹" :title="mentionTotal ? `收藏夹 · ${mentionTotal} 条未读 @我` : '收藏夹 · 已关注的项目'" @click.stop="toggleFavorites">

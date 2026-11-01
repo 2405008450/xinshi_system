@@ -12,7 +12,7 @@
                 <template #reference><el-button link type="primary" :title="`${data.snapshot.requestNo}（点击查看需求详情）`" @click="raiseDetails">{{data.snapshot.requestNo}}</el-button></template>
                 <div class="dispatch-request-detail" v-loading="requestLoading"><el-alert v-if="requestError" :title="requestError" type="warning" :closable="false"><el-button link @click="loadRequest">重新加载</el-button></el-alert><ResourceRequestDetailContent v-if="requestDetail" :request="requestDetail" /></div>
               </el-popover><span v-else>{{data.snapshot.requestNo || '-'}}</span></span>
-              <span>订单号：<el-popover v-if="projectTarget" v-model:visible="projectOpen" trigger="click" placement="left" :width="760" :z-index="detailZ" :popper-options="popoverOptions" popper-class="associated-project-popover" @show="loadProject" @hide="projectLoader.cancel()">
+              <span>订单号：<el-popover title="项目详情" v-if="projectTarget" v-model:visible="projectOpen" trigger="click" placement="left" :width="760" :z-index="detailZ" :popper-options="popoverOptions" popper-class="associated-project-popover" @show="loadProject" @hide="projectLoader.cancel()">
                 <template #reference><el-button link type="primary" :title="`${orderNo}（点击查看项目详情）`" @click="raiseDetails">{{orderNo}}</el-button></template>
                 <AssociatedProjectDetailPanel :source-type="projectTarget.sourceType" :project-id="projectTarget.projectId" :state="projectState" title="项目详情" @retry="loadProject" @close="projectOpen=false" @enter="enterProject" />
               </el-popover><span v-else>{{orderNo}}</span></span>

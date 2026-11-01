@@ -1,6 +1,11 @@
 <template>
   <aside class="arrangement-personnel">
-    <div class="personnel-heading"><strong>部门人员</strong><el-button link :loading="loading" @click="loadPersonnel">刷新</el-button></div>
+    <div class="personnel-heading"><strong>部门人员</strong><span><el-popover v-if="departmentVisibility" v-model:visible="departmentPickerVisible" trigger="click" placement="bottom-start" :width="340" title="显示部门">
+      <template #reference><el-button link :disabled="loading || !!directoryError">显示部门<span v-if="departmentsFiltered">（{{selectedDepartments.length}}）</span></el-button></template>
+      <div class="department-picker-actions"><el-button text @click="departmentDraft=departmentOptions.map(item=>String(item.id))">全选</el-button><el-button text @click="departmentDraft=[]">清空</el-button></div>
+      <el-checkbox-group v-model="departmentDraft" class="department-picker-options"><el-checkbox v-for="department in departmentOptions" :key="department.id" :value="String(department.id)">{{department.name}}</el-checkbox></el-checkbox-group>
+      <div class="department-picker-actions"><el-button @click="departmentPickerVisible=false">取消</el-button><el-button type="primary" @click="applyDepartments">确定</el-button></div>
+    </el-popover><el-button link :loading="loading" @click="loadPersonnel">刷新</el-button></span></div>
     <el-input v-model="keyword" clearable placeholder="搜索全体人员或部门" aria-label="搜索安排人员" />
     <template v-if="assignmentCounts"><el-select v-model="countFilter" multiple clearable collapse-tags collapse-tags-tooltip aria-label="筛选值班次数" placeholder="筛选值班次数"><el-option v-for="option in countDistribution" :key="option.count" :value="option.count" :label="`${option.count}次（${option.people}人）`" /></el-select><small>匹配 {{matchedPeopleCount}} 人 · 共 {{people.length}} 人；{{countDistribution.map(option=>`${option.count}次 ${option.people}人`).join('，')}}</small></template>
     <div class="personnel-controls">
@@ -33,7 +38,7 @@ import {getArrangementDirectory, getArrangementPersonnel} from '@/api/projectArr
 import {matchesSearchFields} from '@/utils/searchMatching'
 import {dutyCountDistribution} from '@/utils/weekendDuty'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
-const props=defineProps({modelValue:{type:Array,default:()=>[]},disabled:Boolean,monthly:Boolean,schedulePeriod:{type:String,default:'本月'},assignedIds:{type:Array,default:()=>[]},assignmentCounts:{type:Object,default:null},defaultCollapsed:Boolean,directoryLoader:Function,availabilityLoader:Function})
+const props=defineProps({modelValue:{type:Array,default:()=>[]},disabled:Boolean,monthly:Boolean,departmentVisibility:Boolean,schedulePeriod:{type:String,default:'本月'},assignedIds:{type:Array,default:()=>[]},assignmentCounts:{type:Object,default:null},defaultCollapsed:Boolean,directoryLoader:Function,availabilityLoader:Function})
 const emit=defineEmits(['update:modelValue'])
 const people=ref([]),departments=ref([]),keyword=ref(''),expanded=ref([]),ready=ref(null)
 const countFilter=ref([])
@@ -41,6 +46,16 @@ const countDistribution=computed(()=>dutyCountDistribution(people.value.filter(m
 const matchedPeopleCount=computed(()=>people.value.filter(matchesPerson).length)
 const loading=ref(false),directoryError=ref(''),serviceUnavailable=ref(false),viewMode=ref('departments')
 const order=ref({departments:[],people:{}}),orderDrag=ref(null)
+const departmentPickerVisible=ref(false),departmentDraft=ref([]),departmentSelection=ref(null)
+const departmentStorageKey=()=>`translation-arrangement:visible-departments:${localStorage.getItem('user_id')||'anonymous'}`
+try{const raw=localStorage.getItem(departmentStorageKey());if(raw!==null){const parsed=JSON.parse(raw);if(!Array.isArray(parsed)||parsed.some(id=>typeof id!=='string'))throw new Error('invalid departments');departmentSelection.value=parsed}}catch{try{localStorage.removeItem(departmentStorageKey())}catch{/* 使用全部部门。 */}}
+const departmentOptions=computed(()=>[...departments.value,{id:'ungrouped',name:'未分部门'}])
+const selectedDepartments=computed(()=>departmentSelection.value===null?departmentOptions.value.map(item=>String(item.id)):departmentSelection.value.filter(id=>departmentOptions.value.some(item=>String(item.id)===id)))
+const departmentsFiltered=computed(()=>props.departmentVisibility&&selectedDepartments.value.length<departmentOptions.value.length)
+watch(departmentPickerVisible,value=>{if(value)departmentDraft.value=[...selectedDepartments.value]})
+function visibleDepartment(id){return !props.departmentVisibility||selectedDepartments.value.includes(String(id))}
+function visiblePerson(person){if(!props.departmentVisibility)return true;const memberships=Array.isArray(person.departments)?person.departments:(people.value.find(item=>String(item.id)===String(person.id))?.departments||[]);return memberships.length?memberships.some(group=>visibleDepartment(group.id)):visibleDepartment('ungrouped')}
+function applyDepartments(){const ids=[...new Set(departmentDraft.value)].filter(id=>departmentOptions.value.some(item=>String(item.id)===id));departmentSelection.value=ids.length===departmentOptions.value.length?null:ids;try{if(departmentSelection.value===null)localStorage.removeItem(departmentStorageKey());else localStorage.setItem(departmentStorageKey(),JSON.stringify(ids))}catch{/* 本页仍生效。 */}departmentPickerVisible.value=false;expanded.value=visibleGroups.value.map(group=>group.id);emit('update:modelValue',props.modelValue.filter(visiblePerson))}
 const orderStorageKey=()=>{try{return `${props.monthly?'monthly-shift':'translation-arrangement'}:roster-order:${localStorage.getItem('user_id')||'anonymous'}`}catch{return ''}}
 try{const raw=localStorage.getItem(orderStorageKey());if(raw){const parsed=JSON.parse(raw);if(!Array.isArray(parsed.departments)||!parsed.people||typeof parsed.people!=='object'||Array.isArray(parsed.people))throw new Error('invalid order');order.value={departments:parsed.departments.filter(id=>typeof id==='string'),people:Object.fromEntries(Object.entries(parsed.people).filter(([,ids])=>Array.isArray(ids)).map(([key,ids])=>[key,ids.filter(id=>typeof id==='string')]))}}}catch{try{localStorage.removeItem(orderStorageKey())}catch{/* 使用默认顺序。 */}}
 const hasCustomOrder=computed(()=>order.value.departments.length>0||Object.values(order.value.people).some(ids=>ids.length))
@@ -55,8 +70,8 @@ const defaultGroups=computed(()=>{
   if(props.monthly)return [...departments.value]
   return [...departments.value,{id:'ungrouped',name:'未分部门'}].sort((a,b)=>priority(a.name)-priority(b.name)||a.name.localeCompare(b.name,'zh-CN'))
 })
-const groups=computed(()=>sortBySaved(defaultGroups.value,order.value.departments).map(group=>({...group,people:sortedPeople(group.id).filter(matchesPerson)})).filter(group=>group.people.length||(!props.monthly&&group.id!=='ungrouped'&&(!keyword.value.trim()||matchesSearchFields([group.name],keyword.value)))))
-const visibleGroups=computed(()=>viewMode.value==='all'?[{id:'all',name:'全体人员',people:sortedPeople('all').filter(matchesPerson)}]:groups.value)
+const groups=computed(()=>sortBySaved(defaultGroups.value,order.value.departments).filter(group=>visibleDepartment(group.id)).map(group=>({...group,people:sortedPeople(group.id).filter(matchesPerson)})).filter(group=>group.people.length||(!props.monthly&&group.id!=='ungrouped'&&(!keyword.value.trim()||matchesSearchFields([group.name],keyword.value)))))
+const visibleGroups=computed(()=>viewMode.value==='all'?[{id:'all',name:'全体人员',people:sortedPeople('all').filter(person=>visiblePerson(person)&&matchesPerson(person))}]:groups.value)
 const allExpanded=computed(()=>visibleGroups.value.length>0&&visibleGroups.value.every(group=>expanded.value.includes(group.id)))
 watch([keyword,viewMode],()=>{expanded.value=visibleGroups.value.map(group=>group.id)})
 watch(countFilter,()=>{expanded.value=visibleGroups.value.map(group=>group.id);emit('update:modelValue',[])})
@@ -96,6 +111,7 @@ async function loadPersonnel(){
 onMounted(loadPersonnel)
 </script>
 <style scoped>
+.department-picker-options{display:flex;flex-direction:column;max-height:min(380px,calc(100vh - 240px));overflow-y:auto}.department-picker-actions{display:flex;gap:8px;justify-content:flex-end;margin:8px 0}
 .person.is-assigned{background:#f1f5f9;color:#94a3b8;cursor:default}.person.is-assigned>small{white-space:nowrap}.person.is-assigned :deep(.el-checkbox__label){color:#94a3b8}
 
 .arrangement-personnel{display:flex;flex-direction:column;gap:12px;min-width:0;border:1px solid #e2e8f0;border-radius:8px;padding:14px;max-height:75vh;overflow-y:auto}.person{display:flex;align-items:center;justify-content:space-between;padding:4px;cursor:grab}small{color:#64748b}.person:hover{background:#eff6ff}

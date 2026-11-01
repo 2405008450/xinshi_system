@@ -1,6 +1,6 @@
 <template>
   <span class="project-mention-entry" @click.stop @mousedown.stop @keydown.stop>
-    <el-popover v-model:visible="visible" trigger="click" placement="bottom-start" :width="360"
+    <el-popover title="项目会话信息" v-model:visible="visible" trigger="click" placement="bottom-start" :width="360"
       popper-class="project-mention-popover" @show="emit('browse', session)">
       <template #reference>
         <button type="button" class="project-mention-entry__button" :aria-label="compact ? '消息列表' : `查看 ${session.mentionHistoryCount} 条历史提及`">

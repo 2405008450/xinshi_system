@@ -191,6 +191,7 @@
 </template>
 
 <script setup>
+import { validateTranslationFileName } from '@/utils/translationFileName'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -234,6 +235,8 @@ const createSubOrderForm = () => ({ id: '', parentProjectId: projectId, subOrder
 const subOrderForm = reactive(createSubOrderForm())
 const projectStatusOptions = [
   { label: '初步咨询', value: 'initial_consultation' },
+  { label: '简单需求', value: 'simple_requirement' },
+  { label: '原文件+简单需求', value: 'source_file_simple_requirement' },
   { label: '待确认', value: 'pending_confirmation' }, { label: '已确认', value: 'confirmed' },
   { label: '已整理', value: 'organized' }, { label: '已排译员', value: 'translator_assigned' },
   { label: '已发译员', value: 'sent_to_translator' }, { label: '译员发回', value: 'translator_returned' },
@@ -244,7 +247,7 @@ const projectStatusOptions = [
   { label: '已部分取消', value: 'partially_cancelled' }, { label: '已暂停', value: 'paused' }
 ]
 const priorityOptions = ['低', '中', '高', '紧急']
-const subOrderRules = { subProjectName: [{ required: true, message: '请输入文件名称', trigger: 'blur' }] }
+const subOrderRules = { subProjectName: [{ required: true, validator: validateTranslationFileName, trigger: ['blur','change'] }] }
 const NULLABLE_FIELDS = ['subProjectName', 'fileTypeSecondary', 'languagePair', 'priority', 'customerDeadlineTime', 'sentToClientTime', 'clientFeedback', 'translatorId', 'translatorAssignmentTime', 'translatorDeliveryProgress', 'preReviewQcProgress', 'review1Progress', 'review2Progress', 'postReviewQcProgress', 'layoutProgress', 'consolidationProgress', 'networkFilePath', 'remarks']
 const formatTranslatorReturnTimes = (items) => {
   if (!Array.isArray(items) || !items.length) return '-'

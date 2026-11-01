@@ -1,6 +1,6 @@
 <template>
   <div v-if="enabled" ref="layoutRef" class="project-arrangement-layout" :class="{'is-resizing':resizing}" :style="layoutStyle">
-    <slot name="personnel"><ArrangementPersonnel :model-value="modelValue" :disabled="!canWrite" @update:model-value="$emit('update:modelValue',$event)" /></slot>
+    <slot name="personnel"><ArrangementPersonnel department-visibility :model-value="modelValue" :disabled="!canWrite" @update:model-value="$emit('update:modelValue',$event)" /></slot>
     <div class="arrangement-splitter" role="separator" tabindex="0" aria-label="调整人员区与项目区宽度" aria-orientation="vertical" :aria-valuenow="Math.round(effectiveRatio*100)" :aria-valuemin="Math.round(bounds.min*100)" :aria-valuemax="Math.round(bounds.max*100)" title="拖动调整左右宽度，双击恢复默认" @pointerdown="startResize" @keydown="resizeByKeyboard" @dblclick="resetRatio"><span /></div>
     <div class="project-arrangement-main"><slot /></div>
   </div>

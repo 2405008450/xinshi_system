@@ -2,7 +2,7 @@
   <section @dragenter.prevent="dragEnter" @dragover.prevent="dragOver" @dragleave="dragLeave" @drop.prevent="dropFiles" class="annotation-group" :class="{ 'annotation-group--embedded': !conversationMode, 'annotation-group--search-side': searchOpen && historyPlacement === 'side' }">
     <div class="annotation-group__main">
     <Teleport :to="headerReady && toolbarTarget ? toolbarTarget : 'body'" :disabled="!toolbarTarget || !headerReady"><div v-show="!toolbarTarget || active" class="group-toolbar" :class="{ 'group-toolbar--header': toolbarTarget, 'group-toolbar--menu':toolbarMenu }">
-      <el-popover v-if="!isDirect" :z-index="participantsZ" trigger="click" placement="bottom-end" :width="340" popper-class="annotation-members-popover annotation-participants-popover">
+      <el-popover title="会话信息" v-if="!isDirect" :z-index="participantsZ" trigger="click" placement="bottom-end" :width="340" popper-class="annotation-members-popover annotation-participants-popover">
         <template #reference><el-button text size="small" class="group-participants" :icon="User" aria-label="参与人" title="参与人" @click="participantsZ = chatOverlayZIndex($event.currentTarget)"><template v-if="!toolbarTarget || toolbarMenu">参与人</template> <span class="group-member-count">{{ group.members.length }}</span></el-button></template>
         <p class="group-hint">仅会话参与人可以查看和发言；取消关注只停止未读提醒。</p>
         <div class="group-members"><el-button v-for="member in group.members" :key="member.id" link :disabled="member.id === currentUserId" @click="startDirect(member)">{{ member.name }}</el-button></div>

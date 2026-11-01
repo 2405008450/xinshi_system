@@ -1,5 +1,5 @@
 <template>
-  <div class="daily-report-panel" data-screenshot-editor="own" @paste.capture="blockReportImages" @drop.capture="blockReportImages">
+  <div class="daily-report-panel" data-auto-draft="off" data-screenshot-editor="own" @paste.capture="blockReportImages" @drop.capture="blockReportImages">
     <div class="report-identity">
       <div class="report-date"><span>日期</span><el-button :disabled="saving||loading" @click="changeDate(shiftReportDate(reportDate,-1))">前一天</el-button><el-date-picker :model-value="reportDate" type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" :clearable="false" :disabled="saving||loading" aria-label="工作报告日期" @update:model-value="changeDate" /><strong>{{reportWeekday(reportDate)}}</strong><el-button :disabled="saving||loading" @click="changeDate(shiftReportDate(reportDate,1))">后一天</el-button><el-button :disabled="saving||loading" @click="changeDate(reportBusinessDate())">今天</el-button></div>
       <div>姓名：<strong>{{editorContext.user_name||report.user_name||'-'}}</strong></div><div class="report-departments">部门：<el-tag v-for="name in editorContext.departments" :key="name" effect="plain">{{name}}</el-tag><span v-if="!editorContext.departments.length">未设置部门</span></div>
@@ -10,7 +10,7 @@
           <el-tag size="small" :type="report.status === 'finalized' ? 'success' : 'info'">
             {{ report.status === 'finalized' ? '已确认' : '草稿' }}
           </el-tag>
-          <el-tag v-if="dirtyCount" size="small" type="warning">有未保存修改</el-tag>
+          <el-tag v-if="dirtyCount" size="small" :type="reportCloud.state==='synced'?'success':'warning'">{{reportCloud.state==='synced'?'草稿已自动保存':'编辑内容待同步'}}</el-tag>
           <el-tag v-if="mailAccount.is_verified" size="small" type="success" effect="plain">个人邮箱已验证</el-tag>
           <el-tag v-else-if="mailAccount.is_bound" size="small" type="warning" effect="plain">邮箱待验证</el-tag>
         </div>
@@ -31,7 +31,9 @@
       </div>
     </div>
 
-    <DailyReportEditor ref="sheetRef" :rows="report.items" :editable="editable && !saving" :loading="loading" :history="taskHistory" :categories="editorContext.work_categories" :can-add-project-category="editorContext.can_add_project_category" :category-storage-ready="editorContext.category_storage_ready" @categories-change="Object.assign(editorContext,$event)" @dirty-change="onEditorChange" @remember="rememberTask" />
+    <div class="report-autosave-state" role="status">{{autosaveLabel}}</div><el-alert v-if="localDraftError||reportCloud.error" :title="localDraftError||reportCloud.error" type="warning" :closable="false" />
+    <ReportIdleTime ref="idleTimeRef" :report-date="reportDate" v-model:minutes="report.idle_minutes" v-model:confirmed="report.idle_declaration_confirmed" :declaration-text="report.idle_declaration_text||''" :editable="editable&&!saving" @change="onIdleChange" />
+    <DailyReportEditor ref="sheetRef" :rows="report.items" :editable="editable && !saving" :loading="loading" :history="taskHistory" :categories="editorContext.work_categories" :layout-department="editorContext.is_layout_department" :task-presets="editorContext.layout_task_presets" :can-add-project-category="editorContext.can_add_project_category" :category-storage-ready="editorContext.category_storage_ready" @categories-change="Object.assign(editorContext,$event)" @dirty-change="onEditorChange" @remember="rememberTask" />
 
     <ReportRevisionHistory v-if="report.id" :report-id="report.id" :version="report.amendment_used" />
     <section v-if="report.id" class="report-feedback-section"><ReportFeedbackPanel :key="report.id" :report-id="report.id" /></section>
@@ -127,6 +129,7 @@
               @uploading-change="mailImageUploading = $event"
             />
           </el-form-item>
+          <ReportIdleTime v-if="mailPreview.idle_minutes!=null" :minutes="mailPreview.idle_minutes" :confirmed="mailPreview.idle_declaration_confirmed" :declaration-text="mailPreview.idle_declaration_text||''" />
           <el-form-item v-if="mailPreview.supplemental_note" label="补充说明（来自已确认报告）">
             <div class="readonly-note">{{ mailPreview.supplemental_note }}</div>
           </el-form-item>
@@ -148,9 +151,13 @@ import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, r
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DailyReportEditor from './DailyReportEditor.vue'
+import ReportIdleTime from './ReportIdleTime.vue'
 import ReportFeedbackPanel from './ReportFeedbackPanel.vue'
 import ReportRevisionHistory from './ReportRevisionHistory.vue'
 import {subscribe} from '@/utils/realtimeSocket'
+import {readCloudDraft,queueCloudDraft,cloudDraftStatus,acknowledgeCloudDraft} from '@/utils/cloudDrafts'
+import {chooseDraft} from '@/utils/draftRecovery'
+import {createAutoDraftStore} from '@/utils/autoDraftStore'
 import {reportBusinessDate,reportWeekday,shiftReportDate,blockReportImages,requiresProjectIdentity} from '@/utils/workReportForm'
 import { getPersonalMailAccount } from '@/api/auth'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
@@ -185,7 +192,11 @@ const mailBodyEditorRef = ref(null)
 const mailImageUploading = ref(false)
 const mailPreviewDialog = ref(false)
 const mailRows = ref([])
-const report = reactive({ can_amend:false,amendment_used:false,user_name: '', id: null, status: 'draft', supplemental_note: '', items: [] })
+const localDraftError=ref('')
+const reportCloud=computed(()=>cloudDraftStatus('work-report',props.reportDate))
+const autosaveLabel=computed(()=>localDraftError.value||reportCloud.value.error?'自动保存异常，本机内容仍保留':reportCloud.value.state==='synced'?'草稿已同步云端':reportCloud.value.state==='saving'?'正在同步云端…':hasUnsavedChanges.value?'已在本机备份，等待同步云端':'自动保存已开启：本机400毫秒，云端约3秒')
+const idleTimeRef=ref()
+const report = reactive({idle_minutes:null,idle_declaration_confirmed:false,idle_declaration_text:null, can_amend:false,amendment_used:false,user_name: '', id: null, status: 'draft', supplemental_note: '', items: [] })
 const mailAccount = reactive({ email: null, is_bound: false, is_verified: false, verified_at: null })
 const mailPreview = reactive({
   report_id: null, report_date: '', sender_name: '', sender_email: null, subject: '', rows: [],
@@ -209,6 +220,9 @@ function applyReport(data) {
   report.id = data?.id || null
   report.status = data?.status || 'draft'
   report.supplemental_note = data?.supplemental_note || ''
+  report.idle_minutes=data?.idle_minutes??null
+  report.idle_declaration_confirmed=data?.idle_declaration_confirmed===true
+  report.idle_declaration_text=data?.idle_declaration_text||null
   report.items = Array.isArray(data?.items) ? data.items.map(item => ({ ...item, duration_minutes: Number(item.duration_minutes || 0) })) : []
   dirtyCount.value = 0
   supplementDirty.value = false
@@ -227,13 +241,29 @@ async function loadReport(refresh = false) {
   const sequence=++loadSequence,date=props.reportDate
   loadController?.abort();loadController=new AbortController();loading.value=true
   try {
-    const data=await previewDailyReport(date,refresh===true,{signal:loadController.signal})
+    const [data,cloud]=await Promise.all([previewDailyReport(date,refresh===true,{signal:loadController.signal}),readCloudDraft('work-report',date).catch(()=>null)])
     if(sequence!==loadSequence)return
     applyReport(data)
-    if(refresh||data.status==='finalized'){try{localStorage.removeItem(draftKey(date))}catch{/* 不影响报告读取。 */}}
-    else if(data.status!=='finalized'){
-      try{const draft=JSON.parse(localStorage.getItem(draftKey(date))||'null');if(draft){report.items=draft.items;report.supplemental_note=draft.supplemental_note||'';await nextTick();dirtyCount.value=1}}catch{/* 忽略损坏的本机草稿。 */}
+    let local
+    try{local=JSON.parse(localStorage.getItem(draftKey(date))||'null')}catch{/* 保留损坏数据，不覆盖原始备份。 */}
+    let draft=chooseDraft(local,cloud)
+    if(draft?.report_date&&draft.report_date!==date)draft=null
+    if(!draft&&!cloud?.revision&&!data.id&&!data.items?.length){
+      // 兼容旧版通用草稿：仅在原日期且服务器无报告内容时带回，原草稿继续保留。
+      const legacy=createAutoDraftStore({storage:localStorage,owner}).list().find(record=>record.route?.includes('/workbench')&&Array.isArray(record.data?.rows)&&record.data.rows.length&&record.data.rows.every(row=>row.source_type&&row.display_metadata)&&reportBusinessDate(new Date(record.time))===date)
+      if(legacy)draft={items:legacy.data.rows,_savedAt:legacy.time}
     }
+    const restoreAllowed=data.status!=='finalized'||(draft?.amending===true&&data.can_amend)
+    if(draft&&restoreAllowed){
+      if(draft.amending)amending.value=true
+      report.items=Array.isArray(draft.items)?draft.items:report.items
+      report.supplemental_note=draft.supplemental_note||''
+      report.idle_minutes=draft.idle_minutes??null
+      report.idle_declaration_confirmed=draft.idle_declaration_confirmed===true
+      await nextTick();dirtyCount.value=1
+      if(draft===local&&cloud)queueCloudDraft('work-report',date,autoDraftPayload(date))
+    }
+
   }catch(error){if(sequence===loadSequence&&error?.code!=='ERR_CANCELED'){loadedDate.value='';ElMessage.error(error?.detail||'加载工作报告失败')}}
   finally{if(sequence===loadSequence)loading.value=false}
 }
@@ -244,8 +274,19 @@ const draftKey=date=>`daily-report-form-draft:${owner}:${date}`
 const taskHistory=ref([])
 try{const saved=JSON.parse(localStorage.getItem(historyKey)||'[]');if(Array.isArray(saved))taskHistory.value=saved.filter(value=>typeof value==='string').slice(0,200)}catch{/* 本地存储不可用时仍可编辑。 */}
 function rememberTask(value){if(!value?.trim())return;taskHistory.value=[value,...taskHistory.value.filter(item=>item!==value)].slice(0,200);try{localStorage.setItem(historyKey,JSON.stringify(taskHistory.value))}catch{/* 保留会话内历史。 */}}
-function cacheDraft(date=props.reportDate){if(report.status==='finalized'||loadedDate.value!==date||!hasUnsavedChanges.value)return;try{localStorage.setItem(draftKey(date),JSON.stringify({items:sheetRef.value?.getRows()||report.items,supplemental_note:report.supplemental_note}))}catch{/* 存储失败不影响显式保存。 */}}
+function autoDraftPayload(date){return {report_date:date,amending:amending.value,items:sheetRef.value?.getRows()||report.items,supplemental_note:report.supplemental_note,idle_minutes:report.idle_minutes,idle_declaration_confirmed:report.idle_declaration_confirmed}}
+function cacheDraft(date=props.reportDate){
+ if((report.status==='finalized'&&!amending.value)||loadedDate.value!==date||!hasUnsavedChanges.value)return
+ const value=autoDraftPayload(date)
+ try{
+  const previous=JSON.parse(localStorage.getItem(draftKey(date))||'null')
+  if(!previous||JSON.stringify({...previous,_savedAt:undefined})!==JSON.stringify(value))localStorage.setItem(draftKey(date),JSON.stringify({...value,_savedAt:Date.now()}))
+  localDraftError.value=''
+ }catch{localDraftError.value='浏览器备份失败，请检查存储空间；正在尝试同步云端'}
+ queueCloudDraft('work-report',date,value)
+}
 let draftTimer
+function onIdleChange(){supplementDirty.value=true;clearTimeout(draftTimer);draftTimer=setTimeout(()=>cacheDraft(),400)}
 function onEditorChange(count){dirtyCount.value=count;clearTimeout(draftTimer);draftTimer=setTimeout(()=>cacheDraft(),400)}
 function changeDate(date){if(!date||date===props.reportDate)return;clearTimeout(draftTimer);cacheDraft();emit('update:report-date',date)}
 async function loadEditorContext(){try{const data=await getDailyReportEditorContext();Object.assign(editorContext,data);taskHistory.value=[...new Set([...taskHistory.value,...(data.task_history||[])])].slice(0,200)}catch(error){ElMessage.error(error?.detail||'读取姓名与部门失败')}}
@@ -254,6 +295,8 @@ function reportPayload() {
   syncSheetRows()
   return {
     supplemental_note: report.supplemental_note || null,
+    idle_minutes:report.idle_minutes,
+    idle_declaration_confirmed:report.idle_declaration_confirmed,
     items: report.items.map(({ id, sort_order, ...item }) => ({
       ...item,
       result_content: item.result_content || null,
@@ -265,6 +308,7 @@ function reportPayload() {
 async function save(finalize) {
   if(saving.value||loading.value||!editable.value)return
   const date=props.reportDate
+  if(!await idleTimeRef.value?.validate().catch(()=>false))return
   if(!await sheetRef.value?.validate().catch(()=>false)||date!==props.reportDate)return
   const payload = reportPayload()
   if (payload.items.some(item => !item.task_type?.trim() || (requiresProjectIdentity(item)&&!item.task_name?.trim()) || !item.progress_content?.trim())) {
@@ -277,6 +321,7 @@ async function save(finalize) {
     saving.value = true
     const data=await (amending.value?amendDailyReport:finalize?finalizeDailyReport:saveDailyReport)(date, payload)
     try{localStorage.removeItem(draftKey(date))}catch{/* 不影响数据库保存结果。 */}
+    acknowledgeCloudDraft('work-report',date,data.edit_draft_revision||0)
     if(date===props.reportDate)applyReport(data)
     if(data.status==='finalized')window.dispatchEvent(new Event('work-report-lunch-changed'))
     ElMessage.success(finalize ? '报告已确认' : '草稿已保存')
@@ -349,9 +394,10 @@ async function sendMail() {
   } finally { sending.value = false }
 }
 
-function beforeUnload(event) {
+function onReportHidden(){if(document.hidden)cacheDraft()}
+function beforeUnload() {
   if (!hasUnsavedChanges.value) return
-  cacheDraft();event.preventDefault(); event.returnValue = ''
+  cacheDraft()
 }
 
 watch(() => props.reportDate, async (_date,previousDate) => {
@@ -360,8 +406,8 @@ watch(() => props.reportDate, async (_date,previousDate) => {
   await loadReport(false)
 })
 const stopUpdates=subscribe('daily_report_updated',event=>{if(event.user_id!==owner||event.report_date!==props.reportDate)return;if(hasUnsavedChanges.value)ElMessage.info('新咨询工作项已追加，保存当前修改时会自动保留');else loadReport(false)})
-onMounted(() => { loadReport(false); loadMailAccount(); loadEditorContext(); window.addEventListener('beforeunload', beforeUnload) })
-onBeforeUnmount(() => {stopUpdates();cacheDraft();clearTimeout(draftTimer);loadSequence++;loadController?.abort();window.removeEventListener('beforeunload', beforeUnload)})
+onMounted(() => { loadReport(false); loadMailAccount(); loadEditorContext(); window.addEventListener('beforeunload', beforeUnload);document.addEventListener('visibilitychange',onReportHidden) })
+onBeforeUnmount(() => {stopUpdates();cacheDraft();clearTimeout(draftTimer);loadSequence++;loadController?.abort();window.removeEventListener('beforeunload', beforeUnload);document.removeEventListener('visibilitychange',onReportHidden)})
 </script>
 
 <style scoped>
@@ -371,3 +417,5 @@ onBeforeUnmount(() => {stopUpdates();cacheDraft();clearTimeout(draftTimer);loadS
 </style>
 
 <style scoped>.report-feedback-section{margin-top:20px;padding:16px;border:1px solid #dbe3ec;border-radius:8px}</style>
+
+<style scoped>.report-autosave-state{font-size:12px;color:#64748b;margin:8px 0}</style>

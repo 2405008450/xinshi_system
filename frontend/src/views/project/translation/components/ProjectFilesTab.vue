@@ -48,7 +48,7 @@
             placeholder="请输入真实文件名，保留扩展名"
             @update:model-value="emit('update:sourceFileName', $event)"
           />
-          <div class="source-file-name-hint">填写原文路径后自动读取当前目录第一层文件；多个文件以中文分号分隔。</div>
+          <div class="source-file-name-hint">每个订单只对应一个原文文件。路径为文件夹时，该文件夹第一层只能有一个有效文件；多个文件请拆分订单。</div>
         </div>
       </el-form-item>
     </AppForm>

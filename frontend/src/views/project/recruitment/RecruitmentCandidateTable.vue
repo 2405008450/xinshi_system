@@ -132,7 +132,7 @@
       </template>
       <template #default="{ row }">
         <div class="communication-cell">
-          <el-popover
+          <el-popover title="候选人沟通与面试详情"
             v-if="communicationAt(row, communicationIndex)"
             trigger="click"
             placement="left"
@@ -159,7 +159,7 @@
             </div>
           </el-popover>
           <span v-else class="empty-value">-</span>
-          <el-popover v-if="canWrite && communicationIndex === 1" trigger="click" placement="left" :width="400" @show="prepareNewCommunication(row)">
+          <el-popover title="候选人沟通与面试详情" v-if="canWrite && communicationIndex === 1" trigger="click" placement="left" :width="400" @show="prepareNewCommunication(row)">
             <template #reference><el-button link type="primary" class="add-communication">增加沟通情况</el-button></template>
             <div class="popover-editor">
               <h4>增加沟通情况（{{ ordinalLabel((row.communications?.length || 0) + 1) }}）</h4>
@@ -174,7 +174,7 @@
 
     <el-table-column v-for="round in visibleInterviewRounds" :key="`interview-${round}`" :label="`${interviewLabel(round)}日期与详情`" min-width="170">
       <template #default="{ row }">
-        <el-popover v-if="interviewAtRound(row, round)" trigger="click" placement="left" :width="420" @show="prepareInterview(row, interviewAtRound(row, round))">
+        <el-popover title="候选人沟通与面试详情" v-if="interviewAtRound(row, round)" trigger="click" placement="left" :width="420" @show="prepareInterview(row, interviewAtRound(row, round))">
           <template #reference>
             <div class="interview-cell">
               <span>{{ formatDate(interviewAtRound(row, round).interviewDate) }}</span>

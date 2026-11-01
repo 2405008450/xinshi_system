@@ -15,7 +15,7 @@
         <div v-if="index" class="execution-down-arrow" aria-hidden="true">↓</div>
         <div class="assignment-line" @dragover.prevent @drop.prevent="dropTask($event,task)">
           <button v-if="canWrite" type="button" class="task-drag-handle" :draggable="!saving" :disabled="saving" :aria-label="`拖动调整${task.assignee_name}的执行顺序`" @dragstart.stop="startDrag($event,task)" @dragend="dragged=''">⠿</button>
-          <span class="task-step">{{index+1}}</span><strong>{{task.assignee_name}}</strong>
+          <span class="task-step">{{index+1}}</span><strong>{{task.assignee_name}}<small v-if="task.order_level>1">{{task.order_no}}</small></strong>
           <div class="task-description"><el-input v-model="task.content" type="textarea" :autosize="{minRows:1,maxRows:5}" :disabled="!canWrite||saving||task.status==='completed'" maxlength="10000" placeholder="具体任务" /><small>安排人：{{task.assigned_by_name||'-'}} · {{formatTime(task.created_at)}} · 任务日期 {{task.work_date}}</small></div>
           <el-tag>{{statusLabels[task.status]}}</el-tag><el-button v-if="canWrite&&task.status!=='completed'" :loading="saving" @click="saveEdit(task)">保存修改</el-button>
         </div>

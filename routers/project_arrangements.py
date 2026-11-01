@@ -12,13 +12,49 @@ import project_arrangement_history as history
 import personal_daily_task as personal
 import report_project_picker as picker
 import project_arrangement_instruction as instructions
+import annotation_work_status as annotation_status
 
 router = APIRouter(prefix='/project-arrangements', tags=['project-arrangements'])
 
 
+@router.get('/annotation-status')
+def annotation_status_context(db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return annotation_status.context(db, user)
+
+
+@router.put('/annotation-status/{project_id}')
+def annotation_status_arrangement(project_id: UUID, payload: annotation_status.ArrangementWrite,
+                                  db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return annotation_status.save_arrangement(db, user, project_id, payload)
+
+
+@router.post('/annotation-status/{project_id}/submit')
+def annotation_status_submit(project_id: UUID, payload: annotation_status.SubmissionWrite,
+                            db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return annotation_status.submit(db, user, project_id, payload)
+
+
+@router.post('/annotation-status-reminder')
+def annotation_status_reminder(db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return annotation_status.claim_reminder(db, user)
+
+
+@router.put('/annotation-status-availability')
+def annotation_status_availability(payload: annotation_status.AvailabilityWrite,
+                                   db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return annotation_status.save_availability(db, user, payload)
+
+
+@router.get('/annotation-managed')
+def annotation_managed(page: int = Query(1, ge=1), page_size: int = Query(10, ge=1, le=100),
+                       db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    from annotation_today_tasks import managed_projects
+    return managed_projects(db, user, page, page_size)
+
+
 @router.get('/project-search', dependencies=[Depends(require_permission('reports:read'))])
-def project_search(project_type: str, keyword: str = '', page: int = Query(1,ge=1), page_size: int = Query(10,ge=1,le=100), db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
-    return picker.search(db,project_type,keyword,page,page_size)
+def project_search(project_type: str, keyword: str = '', page: int = Query(1,ge=1), page_size: int = Query(10,ge=1,le=100), period: str = 'week', client_keyword: str = '', direction_keyword: str = '', db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return picker.search(db,project_type,keyword,page,page_size,period,client_keyword,direction_keyword)
 
 
 @router.post('/personal', dependencies=[Depends(require_permission('reports:read'))])
@@ -50,6 +86,12 @@ def complete_personal(task_id: UUID, payload: service.TaskComplete, db: Session 
 def project_detail(project_id: UUID, page: int = Query(1, ge=1), page_size: int = Query(10, ge=1, le=100), db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     service.require_ready(db)
     return history.detail(db, project_id, page, page_size)
+
+
+@router.get('/project/{project_id}/orders', dependencies=[Depends(require_permission('projects:read'))])
+def project_orders(project_id: UUID, db: Session = Depends(get_db)):
+    from project_arrangement_targets import catalog
+    return catalog(db, project_id)
 
 
 @router.put('/project/{project_id}/order', dependencies=[Depends(require_permission('projects:write'))])

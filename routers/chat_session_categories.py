@@ -33,6 +33,8 @@ def catalog(db=Depends(get_db), user=Depends(actor)):
 @router.post('/session-categories', status_code=201)
 def create(payload: CategoryCreate, db=Depends(get_db), user=Depends(actor)):
     service.require_manager(db, user)
+    from technical_task_conversations import require_category_access
+    require_category_access(db,user,payload.parent_key)
     if payload.directory and payload.conversation:
         from fastapi import HTTPException
         raise HTTPException(422, '二级菜单和会话不能同时创建')
@@ -65,6 +67,8 @@ def create(payload: CategoryCreate, db=Depends(get_db), user=Depends(actor)):
 def update(category_id: UUID, payload: CategoryUpdate, db=Depends(get_db), user=Depends(actor)):
     from fastapi import HTTPException
     service.require_manager(db, user)
+    from technical_task_conversations import require_category_access
+    require_category_access(db,user,category_id)
     row = service.require_category(db, category_id)
     service.protect_resource_discussion(db, category_id, payload.active)
     if str(row.id) in service.BUILTIN_INDEX:

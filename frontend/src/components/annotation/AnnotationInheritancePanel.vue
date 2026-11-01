@@ -1,7 +1,7 @@
 <template>
   <div class="inheritance-panel">
     <span>{{ overrides === null ? '历史订单各字段独立维护' : '未独立修改的业务字段跟随上级更新' }}；客户经理、项目经理各订单独立管理；恢复继承在保存后生效。</span>
-    <el-popover trigger="click" placement="bottom-end" :width="360">
+    <el-popover title="字段继承设置" trigger="click" placement="bottom-end" :width="360">
       <template #reference><el-button plain>恢复继承{{ modelValue.length ? `（${modelValue.length}）` : '' }}</el-button></template>
       <div class="inheritance-options"><el-checkbox-group :model-value="modelValue" @update:model-value="$emit('update:modelValue',$event)"><el-checkbox v-for="field in independentFields" :key="field.key" :label="field.key">{{ field.label }}</el-checkbox></el-checkbox-group></div>
       <el-empty v-if="!independentFields.length" description="所有业务字段均在继承上级" :image-size="48" />

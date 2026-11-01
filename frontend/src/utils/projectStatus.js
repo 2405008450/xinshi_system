@@ -1,4 +1,6 @@
 const TRANSLATION_STATUS_ALIASES = {
+  '简单需求': 'simple_requirement',
+  '原文件+简单需求': 'source_file_simple_requirement',
   pending: 'pending_confirmation',
   in_progress: 'confirmed',
   completed: 'sent_to_client',
@@ -8,6 +10,8 @@ const TRANSLATION_STATUS_ALIASES = {
 export const PROJECT_STATUS_OPTIONS = {
   translation: [
     { value: 'initial_consultation', label: '初步咨询' },
+    { value: 'simple_requirement', label: '简单需求' },
+    { value: 'source_file_simple_requirement', label: '原文件+简单需求' },
     { value: 'pending_confirmation', label: '待确认' },
     { value: 'confirmed', label: '已确认' },
     { value: 'organized', label: '已整理' },

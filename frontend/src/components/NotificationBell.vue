@@ -1,5 +1,5 @@
 <template>
-  <el-popover
+  <el-popover title="通知"
     v-model:visible="popoverVisible"
     placement="bottom-end"
     :width="360"
@@ -88,6 +88,7 @@
     </div>
   </el-popover>
   <ResourceRequestDispatchDialog v-if="dispatchBatchId" :batch-id="dispatchBatchId" @close="dispatchBatchId=''" />
+  <TranslationSimpleRequirementDialog v-if="simpleRequirementId||simpleDispatchId" :key="simpleRequirementId||simpleDispatchId" :requirement-id="simpleRequirementId" :dispatch-id="simpleDispatchId" @close="simpleRequirementId='';simpleDispatchId=''" />
 </template>
 
 <script setup>
@@ -95,6 +96,9 @@ import { useDesktopHeartbeat } from '@/composables/useDesktopHeartbeat'
 useDesktopHeartbeat()
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 const ResourceRequestDispatchDialog=defineAsyncComponent(()=>import('@/views/resource/components/ResourceRequestDispatchDialog.vue'))
+const TranslationSimpleRequirementDialog=defineAsyncComponent(()=>import('@/components/common/TranslationSimpleRequirementDialog.vue'))
+const simpleRequirementId=ref('')
+const simpleDispatchId=ref('')
 const dispatchBatchId=ref('')
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { useRouter } from 'vue-router'
@@ -224,6 +228,8 @@ const markItemRead = async (item, showError = false) => {
 
 import {canManageHr} from '@/utils/permission'
 const navigateToNotification = async (item) => {
+  if(['translation_simple_dispatch','translation_simple_dispatch_receipt'].includes(item.notification_type)&&item.related_entity_id){popoverVisible.value=false;simpleRequirementId.value='';simpleDispatchId.value=String(item.related_entity_id);return}
+  if(['translation_simple_requirement','translation_simple_requirement_receipt'].includes(item.notification_type)&&item.related_entity_id){popoverVisible.value=false;simpleDispatchId.value='';simpleRequirementId.value=String(item.related_entity_id);return}
   if(item.notification_type==='attendance_clock_correction'){popoverVisible.value=false;await router.push({path:canManageHr()?'/hr-management/attendance':'/workbench',query:{section:'attendance',attendanceSection:'corrections'}});await nextTick();window.dispatchEvent(new Event('attendance-open-corrections'));return}
   if(['attendance_leave','home_office_application','attendance_delay_start'].includes(item.notification_type)){popoverVisible.value=false;await router.push({path:'/workbench',query:{section:'attendance'}});return}
   if(item.notification_type==='resource_request_dispatch' && item.related_entity_id){popoverVisible.value=false;dispatchBatchId.value=String(item.related_entity_id);return}

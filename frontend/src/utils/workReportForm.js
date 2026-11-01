@@ -2,13 +2,14 @@ export const projectTypes = ['笔译项目','口译项目','招聘项目','标�
 export function reportBusinessDate(value=new Date()) {const date=value instanceof Date?value:new Date(value);if(Number.isNaN(date.getTime()))return '';return new Date(date.getTime()+60*60*1000).toISOString().slice(0,10)}
 export const defaultWorkCategories = {
   项目工作: projectTypes,
-  非项目工作: ['接待客户','研究工作','开发工作','技术支持','行政工作','人事工作'],
+  非项目工作: ['接待客户','研究工作','开发工作','技术支持','行政工作','人事工作','词汇整理'],
   外勤工作: ['拜访客户','口译现场','投标','陪标'],
-  管理工作: ['查看工作报告','分析数据','开发工作']
+  管理工作: ['查看工作报告','分析数据','开发工作'],
+  培训工作: ['AI知识培训','客户部培训','标注项目培训','笔译项目培训','口译项目培训','招聘项目培训','资源开拓培训','HR工作培训','排版培训','专检培训']
 }
 export function categoryValue(parent,name) {return parent==='项目工作'&&projectTypes.includes(name)?name:`${parent}::${name}`}
 export function buildWorkTypeOptions(categories=defaultWorkCategories,rows=[]) {
-  const groups=Object.fromEntries(Object.entries(defaultWorkCategories).map(([parent,names])=>[parent,[...(categories[parent]||names)]]))
+  const groups=Object.fromEntries(Object.entries({...defaultWorkCategories,...categories}).map(([parent,names])=>[parent,[...names]]))
   for(const row of rows)for(const value of rowTypes(row))if(value.includes('::')){const [parent,name]=value.split('::');if(groups[parent]&&name!=='__custom__'&&!groups[parent].includes(name))groups[parent].push(name)}
   return Object.entries(groups).map(([parent,names])=>({value:parent,label:parent,children:[...names.map(name=>({value:categoryValue(parent,name),label:name})),...(parent!=='项目工作'?[{value:`${parent}::__custom__`,label:'其他（自定义）'}]:[]),...(rows.some(row=>rowTypes(row).includes(parent))?[{value:parent,label:parent}]:[])]}))
 }

@@ -620,13 +620,15 @@ def _sync_entity_file_name(
     """仅在新接口显式提交文件名称时回写订单，兼容未传字段的旧调用方。"""
     if "file_name" not in payload.model_fields_set:
         return
+    from translation_file_name_rules import normalize_single_file_name
+    file_name = normalize_single_file_name(payload.file_name)
     now = datetime.datetime.now()
     if sub_order:
-        sub_order.sub_project_name = payload.file_name
+        sub_order.sub_project_name = file_name
         sub_order.updated_at = now
     else:
         from translation_project_identity import sync_translation_file_name
-        sync_translation_file_name(project, payload.file_name)
+        sync_translation_file_name(project, file_name)
         project.updated_at = now
 
 
