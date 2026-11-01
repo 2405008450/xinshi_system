@@ -52,6 +52,10 @@ class DailyReportMailRow(BaseModel):
 
 
 class DailyReportMailPreviewResponse(BaseModel):
+    idle_minutes: Optional[int] = None
+    idle_declaration_confirmed: bool = False
+    idle_declaration_text: Optional[str] = None
+    idle_confirmed_at: Optional[datetime] = None
     report_id: UUID
     report_date: str
     sender_name: str

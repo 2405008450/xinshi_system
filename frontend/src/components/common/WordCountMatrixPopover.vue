@@ -1,5 +1,5 @@
 <template>
-  <el-popover
+  <el-popover :title="title"
     ref="popoverRef"
     v-model:visible="visible"
     trigger="click"
@@ -20,7 +20,7 @@
     <div class="word-count-matrix">
       <div class="word-count-matrix__header">
         <div>
-          <strong>{{ title }}</strong>
+
           <p>可按来源及计量口径分别填写，空白单元格不会保存。</p>
         </div>
         <el-tag size="small" type="info">{{ hybridMode ? '项目保存 / 译员草稿' : (localMode ? '新建草稿' : '独立保存') }}</el-tag>

@@ -1,5 +1,7 @@
 import { onBeforeUnmount, ref, watch } from 'vue'
-import { ElMessageBox,ElMessage } from 'element-plus'
+import { ElMessage } from 'element-plus'
+import {chooseDraft} from '@/utils/draftRecovery'
+import {readCloudDraft,queueCloudDraft,clearCloudDraft} from '@/utils/cloudDrafts'
 import {markManagedDraft} from '@/utils/autoDrafts'
 import {draftBusinessNow,sanitizeDraft,AUTO_DRAFT_TTL} from '@/utils/autoDraftStore'
 
@@ -16,7 +18,7 @@ const currentUserKey = () => (
  * 弹窗表单草稿缓存。
  *
  * 草稿保留在当前浏览器本机，并按模块、用户、创建/记录 ID 隔离。
- * 关闭弹窗会保留草稿；保存成功或用户明确放弃恢复时才清除。
+ * 关闭弹窗会保留草稿；再次打开自动恢复，正式保存成功后清除。
  */
 export const useFormDraft = ({
   namespace,
@@ -32,6 +34,8 @@ export const useFormDraft = ({
   const activeDraftKey = ref('')
   const savingEnabled = ref(false)
   let saveTimer = null
+  let generation=0
+  const cloudNamespace=`form:${namespace}`
 
   const readDrafts = () => {
     try {
@@ -67,6 +71,7 @@ export const useFormDraft = ({
     const drafts = readDrafts()
     delete drafts[key]
     writeDrafts(drafts)
+    clearCloudDraft(cloudNamespace,key)
   }
 
   const saveActiveDraft = () => {
@@ -77,6 +82,7 @@ export const useFormDraft = ({
       savedAt: draftBusinessNow(),
     }
     writeDrafts(drafts)
+    queueCloudDraft(cloudNamespace,activeDraftKey.value,drafts[activeDraftKey.value])
   }
 
   const cancelScheduledSave = () => {
@@ -103,41 +109,32 @@ export const useFormDraft = ({
     cancelScheduledSave()
     savingEnabled.value = false
     activeDraftKey.value = key
-    const draft = readDrafts()[key]
-
-    if (draft?.form) {
-      try {
-        await ElMessageBox.confirm(
-          '检测到该表单有未提交的草稿，是否恢复上次填写的内容？',
-          '恢复未提交草稿',
-          {
-            confirmButtonText: '恢复草稿',
-            cancelButtonText: '放弃草稿',
-            type: 'info',
-            showClose: false,
-            closeOnClickModal: false,
-            closeOnPressEscape: false,
-          },
-        )
-        const restored = clone(draft.form)
-        if (applyDraft) applyDraft(restored)
-        else Object.assign(form, createDefault(), restored)
-      } catch {
-        removeDraft(key)
-      }
-    }
+    const current=++generation
+    const initial=clone(form),local=readDrafts()[key]
+    const restore=(draft)=>{if(draft?.form){const restored=clone(draft.form);if(applyDraft)applyDraft(restored);else Object.assign(form,createDefault(),restored)}}
+    try{restore(local)}catch{ElMessage.warning('草稿自动恢复失败，原内容仍保留，请勿覆盖')}
+    const baseline=JSON.stringify(sanitizeDraft(form))
+    void readCloudDraft(cloudNamespace,key).then(cloud=>{
+      if(current!==generation||activeDraftKey.value!==key||JSON.stringify(sanitizeDraft(form))!==baseline)return
+      const chosen=chooseDraft(local,cloud)
+      savingEnabled.value=false
+      try{if(chosen)restore(chosen);else if(local){Object.assign(form,initial);const drafts=readDrafts();delete drafts[key];writeDrafts(drafts)}}
+      finally{savingEnabled.value=true;formRef?.value?.clearValidate?.()}
+    }).catch(()=>{/* 离线时即时使用本机内容，不阻塞打开表单。 */})
 
     savingEnabled.value = true
     formRef?.value?.clearValidate?.()
   }
 
   const pauseDraft = () => {
+    generation++
     flushDraft()
     savingEnabled.value = false
     activeDraftKey.value = ''
   }
 
   const clearDraft = () => {
+    generation++
     cancelScheduledSave()
     savingEnabled.value = false
     removeDraft()
@@ -146,7 +143,11 @@ export const useFormDraft = ({
 
   // 同步阶段只重置轻量计时器，JSON 克隆与本机存储写入延后执行。
   watch(form, scheduleActiveDraft, { deep: true, flush: 'sync' })
-  onBeforeUnmount(flushDraft)
+  const persist=()=>flushDraft()
+  const hidden=()=>{if(document.hidden)flushDraft()}
+  window.addEventListener('pagehide',persist)
+  document.addEventListener('visibilitychange',hidden)
+  onBeforeUnmount(()=>{flushDraft();generation++;window.removeEventListener('pagehide',persist);document.removeEventListener('visibilitychange',hidden)})
 
   return { beginDraft, pauseDraft, clearDraft, flushDraft, removeDraft }
 }

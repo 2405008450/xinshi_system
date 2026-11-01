@@ -22,7 +22,7 @@
     </div>
     <div class="direction-actions">
       <el-button class="soft-action-button" :icon="Plus" @click="add">新增方向</el-button>
-      <el-popover v-model:visible="createVisible" trigger="click" placement="bottom-end" :width="320">
+      <el-popover title="语种选择" v-model:visible="createVisible" trigger="click" placement="bottom-end" :width="320">
         <template #reference><el-button class="soft-action-button" :icon="Plus">新增共享语种</el-button></template>
         <AppForm @submit.prevent>
           <el-form-item label="语种/方言名称"><el-input v-model="newLabel" maxlength="100" placeholder="例如：温州话" @keyup.enter="createLanguage" /></el-form-item>

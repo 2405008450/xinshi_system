@@ -1,6 +1,6 @@
 <template>
-  <el-card class="common-page-card compact-list-card">
-    <template v-if="!arrangementMode" #header>
+  <el-card class="common-page-card compact-list-card" :class="{'translation-editor-only':props.editorOnly}">
+    <template v-if="!arrangementMode && !props.editorOnly" #header>
       <div class="card-header">
         <span>{{ arrangementMode ? '项目安排' : '笔译项目管理' }}</span>
         <div v-if="!arrangementMode" class="header-actions">
@@ -32,7 +32,7 @@
       </div>
     </template>
 
-    <ProjectArrangementLayout v-model="arrangementPeople" :enabled="arrangementMode" :can-write="canWriteProjects">
+    <ProjectArrangementLayout v-if="!props.editorOnly" v-model="arrangementPeople" :enabled="arrangementMode" :can-write="canWriteProjects">
     <ArrangementFilterToolbar v-if="arrangementMode" v-model:excluded="excludedArrangementStatuses" v-model:reception="searchForm.customerReceptionTime" v-model:deadline="searchForm.customerDeadlineTime" v-model:column-keys="arrangementColumnKeys" :statuses="projectStatusOptions" :columns="arrangementColumns" @reset-columns="resetArrangementColumns" @search="handleSearch" />
     <AppForm :inline="true" :model="searchForm" class="search-form project-list-search-form">
       <div class="project-list-primary-filters">
@@ -259,6 +259,8 @@
     <DraggableFormDialog
       v-model="dialogVisible"
       class="project-editor-dialog"
+      :append-to-body="props.editorOnly"
+      :z-index="props.editorZIndex"
       width="min(1160px, calc(100vw - 32px))"
       top="5vh"
       @closed="onProjectDialogClosed"
@@ -274,7 +276,7 @@
         />
       </template>
       <div ref="editorBodyRef" class="editor-body">
-        <AppForm ref="formRef" :model="form" :rules="rules" label-width="120px">
+        <AppForm ref="formRef" :model="form" :rules="rules" :disabled="!canWriteProjects" label-width="120px">
           <el-tabs v-model="projectDialogTab" class="editor-tabs project-editor-tabs">
             <el-tab-pane label="基础信息" name="basic">
               <div class="form-section">
@@ -294,7 +296,7 @@
                           clearable
                           maxlength="255"
                           show-word-limit
-                          placeholder="请输入真实文件名，保留扩展名"
+                          placeholder="每个订单只填一个真实文件名，必须保留扩展名"
                         />
                       </el-form-item>
                     </el-col>
@@ -770,13 +772,14 @@
         </AppForm>
       </div>
       <template #footer>
+        <ProjectShortNotes :project-id="form.id" :project-updated-at="form.updatedAt" :can-write="canWriteProjects" :disabled="submitLoading" @saved="onSimpleRequirementSaved" />
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button v-if="canWriteProjects" :loading="submitLoading" @click="handleSubmit(true)">保存并发送邮件</el-button>
         <el-button v-if="canWriteProjects" type="primary" :loading="submitLoading" @click="handleSubmit(false)">保存</el-button>
       </template>
     </DraggableFormDialog>
 
-    <DraggableFormDialog v-model="subOrderDialogVisible" class="suborder-editor-dialog" :title="subOrderDialogTitle" width="min(1040px, calc(100vw - 32px))" top="5vh" @closed="resetSubOrderForm">
+    <DraggableFormDialog v-model="subOrderDialogVisible" append-to-body class="suborder-editor-dialog" :title="subOrderDialogTitle" width="min(1040px, calc(100vw - 32px))" top="5vh" @closed="resetSubOrderForm">
       <div class="editor-body">
         <AppForm ref="subOrderFormRef" :model="subOrderForm" :rules="subOrderRules" label-width="120px">
           <el-tabs v-model="subOrderDialogTab" class="editor-tabs">
@@ -902,6 +905,9 @@
 </template>
 
 <script setup>
+import { validateTranslationFileName } from '@/utils/translationFileName'
+import ProjectShortNotes from './components/ProjectShortNotes.vue'
+import {businessDateTimeInputValue} from '@/utils/dateTime'
 import ProjectClientManagerField from '@/components/common/ProjectClientManagerField.vue'
 import ProjectClientManagerHistory from '@/components/common/ProjectClientManagerHistory.vue'
 const clientManagerBaseline = ref(localStorage.getItem('user_id') || '')
@@ -913,7 +919,8 @@ import TranslationProjectFieldCell from './components/TranslationProjectFieldCel
 import TranslationProjectColumnHeader from './components/TranslationProjectColumnHeader.vue'
 import ArrangementFilterToolbar from './components/ArrangementFilterToolbar.vue'
 import {DEFAULT_ARRANGEMENT_EXCLUSIONS,withArrangementExclusions} from '@/utils/arrangementFilters'
-const props=defineProps({embedded:Boolean,myProjects:Boolean,arrangement:Boolean})
+const props=defineProps({embedded:Boolean,myProjects:Boolean,arrangement:Boolean,editorOnly:Boolean,editorProjectId:String,editorZIndex:Number})
+const emit=defineEmits(['editor-closed'])
 import { managedProjectFilters } from "@/utils/managedProjectFilters"
 import { matchesSearchFields } from '@/utils/searchMatching'
 
@@ -1007,6 +1014,8 @@ const projectBasicExpandedSections = ref(['project', 'business', 'execution'])
 const subOrderDialogTab = ref('basic')
 const projectStatusOptions = [
   { label: '初步咨询', value: 'initial_consultation' },
+  { label: '简单需求', value: 'simple_requirement' },
+  { label: '原文件+简单需求', value: 'source_file_simple_requirement' },
   { label: '待确认', value: 'pending_confirmation' },
   { label: '已确认', value: 'confirmed' },
   { label: '已整理', value: 'organized' },
@@ -1350,6 +1359,15 @@ watch(()=>arrangementMode.value?arrangementColumnKeys.value:visibleColumnKeys.va
   }
 })
 const form = reactive(createEmptyProjectForm())
+const onSimpleRequirementSaved = (data) => {
+  if (String(data.item.project_id) !== String(form.id)) return
+  form.projectStatus = data.project_status
+  form.updatedAt = data.project_updated_at
+  if (data.changed_fields?.includes('customer_deadline_time')) form.customerDeadlineTime = businessDateTimeInputValue(data.customer_deadline_time || null)
+  const listed = tableData.value.find(row => String(row.id) === String(form.id))
+  if (listed) Object.assign(listed, { projectStatus: data.project_status, updatedAt: data.project_updated_at })
+  if (listed && data.changed_fields?.includes('customer_deadline_time')) listed.customerDeadlineTime = data.customer_deadline_time || ''
+}
 const availableSubClients = ref([])
 const subClientsLoading = ref(false)
 let subClientRequestId = 0
@@ -1408,7 +1426,7 @@ const validateWordCountMatrix = (_rule, value, callback) => {
 }
 const rules = {
   sourceFileName: [
-    { required: true, validator: requiredTextValidator('请输入项目名称（真实文件名）'), trigger: ['blur', 'change'] },
+    { required: true, validator: validateTranslationFileName, trigger: ['blur', 'change'] },
     { max: 255, message: '项目名称不能超过255个字符', trigger: ['blur', 'change'] },
   ],
   clientShortName: [{ validator: requiredTextValidator('请选择或输入母客户简称'), trigger: ['blur', 'change'] }],
@@ -1419,7 +1437,7 @@ const rules = {
   customerDeadlineTime: [{ required: true, message: '请选择客户交稿时间', trigger: 'change' }],
   projectStatus: [{ required: true, message: '请选择状态', trigger: 'change' }],
 }
-const subOrderRules = { subProjectName: [{ required: true, message: '请输入文件名称', trigger: 'blur' }] }
+const subOrderRules = { subProjectName: [{ required: true, validator: validateTranslationFileName, trigger: ['blur','change'] }] }
 const NULLABLE_FIELDS = ['sourceFileName', 'emailSubjectPreview', 'serviceContent', 'taskType', 'consultationId', 'clientId', 'subClientId', 'projectManagerId', 'customerOrderNo', 'customerReceptionTime', 'customerDeadlineTime', 'sentToClientTime', 'pmConfirmedBy', 'translatorId', 'translatorAssignmentTime', 'clientFeedback', 'referenceFilePathOne', 'fileTypeSecondary', 'projectContractType', 'projectContractStatus', 'quotationStatus', 'quotationPath', 'customerRequirementProfessional', 'customerRequirementSpecial', 'languagePair', 'priority', 'remarks', 'subProjectName']
 const normalizeStatus = (status) => normalizeProjectStatus('translation',status)
 const getStatusLabel = (status) => projectStatusOptions.find(item => item.value === normalizeStatus(status))?.label || status || '-'
@@ -1618,6 +1636,7 @@ const cleanPayload = (payload) => {
 }
 const assignReactive = (target, defaultsFactory, values = {}) => {
   const defaults = defaultsFactory()
+  if (defaultsFactory === createEmptyProjectForm) target.updatedAt = values.updatedAt ?? null
   Object.keys(defaults).forEach((key) => {
     if (progressFieldSet.has(key)) {
       target[key] = parseProgressValue(values[key] ?? defaults[key])
@@ -1648,6 +1667,7 @@ let searchTimer = null
 let requestController = null
 let requestSequence = 0
 const fetchData = async (options = {}) => {
+  if (props.editorOnly) return
   const expandSubOrders = options?.expandSubOrders === true
   requestController?.abort()
   requestController = new AbortController()
@@ -1989,7 +2009,18 @@ const handleEdit = async (row) => {
       ElMessage.error(getLocalizedErrorMessage(error, '加载子订单失败'))
     }
   }
-  await beginDraft(`edit:${row.id}`)
+  if (canWriteProjects) await beginDraft(`edit:${row.id}`)
+}
+const openProjectDetails = async (row) => {
+  try {
+    const detail = await getProject(row.id)
+    if (!detail?.id) throw new Error('项目不存在或无查看权限')
+    await handleEdit(detail)
+    dialogTitle.value = '项目详情'
+  } catch (error) {
+    ElMessage.error(getLocalizedErrorMessage(error, '项目详情加载失败'))
+    if(props.editorOnly) emit('editor-closed')
+  }
 }
 const handleProjectFileStatusChange = (status) => {
   if (!status) return
@@ -2107,7 +2138,7 @@ const handleSubmit = async (sendAfterSave = false) => {
     submitLocked = false
   }
 }
-const onProjectDialogClosed = () => { pauseDraft(); resetProjectForm(); resetSubOrderForm(); editorInlineChanges.value = new Map(); currentProjectSubOrders.value = [] }
+const onProjectDialogClosed = () => { pauseDraft(); resetProjectForm(); resetSubOrderForm(); editorInlineChanges.value = new Map(); currentProjectSubOrders.value = []; if(props.editorOnly && !mailComposerVisible.value)emit('editor-closed') }
 const createSubOrderDefaultsFromProject = () => ({ fileTypeSecondary: form.fileTypeSecondary, languagePair: form.languagePair, priority: form.priority, wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], customerDeadlineTime: form.customerDeadlineTime, sentToClientTime: form.sentToClientTime, translatorId: form.translatorId, translatorAssignmentTime: form.translatorAssignmentTime, status: form.projectStatus || 'pending_confirmation', translatorDeliveryProgress: form.translatorDeliveryProgress, preReviewQcProgress: form.preReviewQcProgress, review1Progress: form.review1Progress, review2Progress: form.review2Progress, postReviewQcProgress: form.postReviewQcProgress, layoutProgress: form.layoutProgress, consolidationProgress: form.consolidationProgress, clientFeedback: form.clientFeedback })
 const openCreateSubOrderDialog = () => { resetSubOrderForm(); subOrderDialogTitle.value = '新增子订单'; assignReactive(subOrderForm, createEmptySubOrderForm, { ...createSubOrderDefaultsFromProject(), parentProjectId: form.id }); subOrderDialogVisible.value = true }
 const handleEditSubOrder = (row) => { resetSubOrderForm(); subOrderDialogTitle.value = '编辑子订单'; assignReactive(subOrderForm, createEmptySubOrderForm, { ...row, parentProjectId: row.parentProjectId || form.id }); subOrderDialogVisible.value = true }
@@ -2211,8 +2242,12 @@ const saveAllInlineNames = async (scope, projectId = null) => {
     saving.value = false
   }
 }
-const projectFieldContext=computed(()=>({getTranslationClientDetailItems,projectDetailItems,getStatusLabel,getStatusType,canWriteProjects,deleteMode:deleteMode.value,saveProjectTextField,fetchData,canReadProjectFiles,openOriginalPath,copyOriginalPath,projectStatusSavingIds:projectStatusSavingIds.value,changeProjectStatus,normalizeStatus,openArrangementFromStatus,projectStatusOptions,saveProjectTranslatorCompletions,getLanguagePairSummary,formatAssignedTranslators,getAssignedTranslatorSummary,getWordCountListSummary,formatTableColumnValue,headerFilterDefinition,searchForm,handleConfiguredTextInput,handleSearch,getTimeSortMode,getSortDirection,isTimeSortActive,getTimeSortTitle,toggleTimeSort}))
+const projectFieldContext=computed(()=>({openProjectDetails,getTranslationClientDetailItems,projectDetailItems,getStatusLabel,getStatusType,canWriteProjects,deleteMode:deleteMode.value,saveProjectTextField,fetchData,canReadProjectFiles,openOriginalPath,copyOriginalPath,projectStatusSavingIds:projectStatusSavingIds.value,changeProjectStatus,normalizeStatus,openArrangementFromStatus,projectStatusOptions,saveProjectTranslatorCompletions,getLanguagePairSummary,formatAssignedTranslators,getAssignedTranslatorSummary,getWordCountListSummary,formatTableColumnValue,headerFilterDefinition,searchForm,handleConfiguredTextInput,handleSearch,getTimeSortMode,getSortDirection,isTimeSortActive,getTimeSortTitle,toggleTimeSort}))
 onMounted(async () => {
+  if(props.editorOnly) {
+    await Promise.all([openProjectDetails({id:props.editorProjectId}),loadResourceRequestStatuses()])
+    return
+  }
   if (!props.embedded && route.query.projectId) {
     await Promise.all([focusRouteProject(), loadResourceRequestStatuses()])
     return
@@ -2227,6 +2262,9 @@ watch(
     }
   }
 )
+watch(mailComposerVisible,(value,previous)=>{
+  if(props.editorOnly && previous && !value && !dialogVisible.value)emit('editor-closed')
+})
 onBeforeUnmount(() => {
   clearTimeout(searchTimer)
   requestController?.abort()
@@ -2234,6 +2272,8 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.translation-editor-only{border:0;box-shadow:none;background:transparent}
+.translation-editor-only :deep(.el-card__body){padding:0}
 :deep(.workbench-target-row > td.el-table__cell) { background: var(--el-color-primary-light-9) !important; }
 .search-form {
   display: flex;

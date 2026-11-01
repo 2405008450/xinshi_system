@@ -395,6 +395,17 @@ def unacknowledge_message_endpoint(
     return _serialize_acknowledgement_response(message_id, rows, current_user.id)
 
 
+@router.post('/translation/{project_id}/files', response_model=ProjectChatAttachmentResponse, status_code=status.HTTP_201_CREATED)
+async def upload_translation_file(project_id: UUID, request: Request, file: UploadFile = File(...), db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    from chat_common_handlers import upload_chat_file
+    from chat_access_service import require_member
+    class Access:
+        @staticmethod
+        def require_project(db, project_id, user):
+            require_member(db, 'translation', project_id, user)
+    return await upload_chat_file(Access, 'translation', project_id, request, file, db, user)
+
+
 @router.post('/attachments', response_model=ProjectChatAttachmentResponse, status_code=status.HTTP_201_CREATED)
 async def upload_attachment_endpoint(
     request: Request,

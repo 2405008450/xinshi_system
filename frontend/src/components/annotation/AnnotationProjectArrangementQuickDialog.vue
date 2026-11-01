@@ -41,7 +41,7 @@
           <span>当前日期：{{ defaultDate }}</span>
         </div>
         <div class="quick-toolbar-actions">
-          <el-popover v-if="canWrite" trigger="click" placement="bottom-end" :width="440">
+          <el-popover title="任务类型管理" v-if="canWrite" trigger="click" placement="bottom-end" :width="440">
             <template #reference><el-button>任务类型管理</el-button></template>
             <div class="task-type-manager">
               <div class="task-type-create">

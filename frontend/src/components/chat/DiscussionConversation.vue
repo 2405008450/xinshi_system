@@ -13,7 +13,7 @@
           <div class="discussion-chat__meta"><strong v-if="!message.recalledAt">{{ message.senderName }}</strong><time v-if="showMessageTime && timestampIndexes.has(index)" :title="chatMessageTime(message.createdAt)">{{ chatMessageTime(message.createdAt) }}</time></div>
           <ChatRecalledMessage v-if="message.recalledAt" :message="message" :can-reedit="recallDrafts.canReedit(message)" @reedit="reeditMessage" />
           <template v-else>
-            <div class="discussion-chat__message-main"><div class="discussion-chat__bubble" tabindex="0" data-message-menu-anchor @contextmenu="messageMenu?.open($event,message)" @keydown="messageMenu?.openKeyboard($event,message)"><blockquote v-if="message.reply" role="button" tabindex="0" @click="references.open(message.reply.id,$event)" @keydown.enter="references.open(message.reply.id,$event)">{{ message.reply.senderName }}：{{ screenshotPreview(message.reply.content) }}</blockquote><p @click="openMessageReferences(message,$event)"><span v-for="(part,partIndex) in mentionParts(message,currentUserId)" :key="partIndex" :class="{'discussion-mention-highlight':part.highlight}"><ScreenshotText :text="part.text" :chat-message-id="message.id" chat-kind="discussion" /></span></p></div>
+            <div class="discussion-chat__message-main"><div class="discussion-chat__bubble" tabindex="0" data-message-menu-anchor @contextmenu="messageMenu?.open($event,message)" @keydown="messageMenu?.openKeyboard($event,message)"><blockquote v-if="message.reply" role="button" tabindex="0" @click="references.open(message.reply.id,$event)" @keydown.enter="references.open(message.reply.id,$event)">{{ message.reply.senderName }}：{{ screenshotPreview(message.reply.content) }}</blockquote><p @click="openMessageReferences(message,$event)"><span v-for="(part,partIndex) in mentionParts(message,currentUserId)" :key="partIndex" :class="{'discussion-mention-highlight':part.highlight}"><ScreenshotText :text="part.text.replace(/\[附件\]\(discussion-file:\/\/[0-9a-f-]{36}\)/gi,'')" :chat-message-id="message.id" chat-kind="discussion" /></span></p><DiscussionFileReferences :text="message.content" :room-id="projectId" /></div>
             <button type="button" class="chat-message-more" aria-label="消息操作" @click="messageMenu?.open($event,message)">⋯</button></div>
             <ChatMessageActions :message="message" :current-user-id="currentUserId" :stats="messageInteractions.stats[message.id]" :views-available="messageInteractions.viewsAvailable.value" @acknowledge="acknowledge" @reply="quoteMessage" @references="(id,event)=>references.open(id,event)" />
           </template>
@@ -23,7 +23,7 @@
     <el-button v-if="pendingNew" class="discussion-chat__new" @click="goBottom()">有新消息，点击查看</el-button>
     <div class="discussion-chat__composer">
       <div v-if="replyTo" class="discussion-chat__reply">回复 {{ replyTo.senderName }}：{{ screenshotPreview(replyTo.content) }}<el-button link :disabled="sending || !!retryPayload" @click="cancelQuote">取消引用</el-button></div>
-      <DiscussionMentionInput ref="input" v-model="content" :users="mentionUsers" :selected-users="mentionSelection.selectedUsers||[]" :disabled="!storageReady || sending || !!retryPayload" @selection="mentionSelection=$event" @uploading-change="screenshotUploading=$event" @send="send" />
+      <DiscussionMentionInput :room-id="projectId" ref="input" v-model="content" :users="mentionUsers" :selected-users="mentionSelection.selectedUsers||[]" :disabled="!storageReady || sending || !!retryPayload" @selection="mentionSelection=$event" @uploading-change="screenshotUploading=$event" @send="send" />
       <small v-if="draft.error.value" role="alert">{{draft.error.value}}</small>
       <div class="discussion-chat__footer"><span>Enter 发送 · Shift+Enter 换行</span><el-button v-if="retryPayload" :disabled="sending" @click="retryPayload = null; sendError = ''">继续编辑</el-button><el-button type="primary" :disabled="!storageReady || !canSend" :loading="sending" @click="send">{{ retryPayload ? '重试发送' : '发送' }}</el-button></div>
       <p v-if="sendError" class="discussion-chat__error" role="alert">{{ sendError }}</p>
@@ -40,6 +40,7 @@ import { useRecalledMessageDrafts } from '@/composables/useRecalledMessageDrafts
 import { combineRecallDraft } from '@/utils/recallDrafts'
 import {quoteSpeakerMention,clearAutomaticQuoteMention} from '@/utils/quoteSpeakerMention'
 import DiscussionMentionInput from './DiscussionMentionInput.vue'
+import DiscussionFileReferences from './DiscussionFileReferences.vue'
 import {mentionParts} from '@/utils/chatMentions'
 import { screenshotPreview } from '@/utils/screenshotReferences'
 import ChatMessageActions from './ChatMessageActions.vue'

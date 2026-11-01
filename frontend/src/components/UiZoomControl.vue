@@ -18,7 +18,7 @@
     >
       <el-icon :size="16"><ZoomIn /></el-icon>
     </el-button>
-    <el-popover
+    <el-popover title="界面缩放"
       v-model:visible="panelVisible"
       placement="bottom-end"
       :width="300"

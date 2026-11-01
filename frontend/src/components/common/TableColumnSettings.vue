@@ -1,5 +1,5 @@
 <template>
-  <el-popover
+  <el-popover title="字段设置"
     trigger="click"
     placement="bottom-end"
     :width="secondaryColumns.length ? 620 : (columnCount > 1 ? 520 : 280)"

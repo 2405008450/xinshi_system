@@ -1,7 +1,10 @@
 import { reactive } from 'vue'
 import { AUTO_DRAFT_DELAY, createAutoDraftStore, draftHash, sanitizeDraft } from './autoDraftStore.js'
+import {readCloudDraft,queueCloudDraft,clearCloudDraft} from './cloudDrafts.js'
 const entries = new Set(), managed = new WeakSet()
 const recoveryOffered = new Set()
+function offered(entry,key){recoveryOffered.add(key);(entry.offeredKeys ||= new Set()).add(key)}
+function forgetRecovery(entry){for(const key of entry.offeredKeys||[])recoveryOffered.delete(key);entry.offeredKeys?.clear()}
 export const autoDraftState = reactive({ records: [], error: '', delay: AUTO_DRAFT_DELAY, lastWriteMs: 0 })
 let timer, store, owner = '', installed = false, submitIntent = null, armed = [], armedAt = 0
 const userKey = () => localStorage.getItem('user_id') || localStorage.getItem('user_name') || ''
@@ -58,8 +61,8 @@ function flush() {
     if (!entry.dirty || entry.recoveryPending || entry.owner !== userKey()) continue
     const value = snapshot(entry) || (entry.native ? entry.lastSnapshot : null); if (!value) { entry.dirty = false; continue }
     try {
-      if (JSON.stringify(value.data) === entry.baseline) { if (storage.get(value.id)) storage.remove(value.id); entry.dirty = false; continue }
-      storage.save(value); entry.dirty = false; autoDraftState.error = ''
+      if (JSON.stringify(value.data) === entry.baseline) { if (storage.get(value.id)){storage.remove(value.id);clearCloudDraft('global',value.id)} entry.dirty = false; continue }
+      storage.save(value); queueCloudDraft('global',value.id,value); entry.dirty = false; autoDraftState.error = ''
     } catch (error) { autoDraftState.error = `本机草稿未能保存：${error.message || '浏览器存储空间不足'}` }
   }
   refreshAutoDrafts(); autoDraftState.lastWriteMs = performance.now() - started
@@ -87,11 +90,10 @@ function touched(event) {
     if (entry.contextId !== info.id) { entry.contextId = info.id; entry.baseline = JSON.stringify(sanitizeDraft(model(entry))) }
     const offerKey=`${userKey()}:${info.id}`
     if((event.type==='focusin'||event.type==='click')&&!recoveryOffered.has(offerKey)){
-      recoveryOffered.add(offerKey)
+      offered(entry,offerKey)
       const saved=currentStore()?.get(info.id)
       if(saved&&JSON.stringify(saved.data)!==JSON.stringify(sanitizeDraft(model(entry)))){
-        entry.recoveryPending=true
-        window.dispatchEvent(new CustomEvent('auto-draft-available',{detail:{id:info.id}}))
+        restoreAutoDraft(info.id)
       }
     }
     if(entry.recoveryPending){if(['input','change','drop'].includes(event.type))entry.recoveryPending=false;else continue}
@@ -105,8 +107,9 @@ function touched(event) {
     if(entry.native)entry.lastSnapshot=snapshot(entry)
   }
   if (event.type === 'click') {
+    if(target.closest('[role="tab"],.el-tabs__item,a[href],.el-menu-item'))flush()
     const button = target.closest('button'), text = button?.textContent?.trim() || button?.getAttribute('aria-label') || ''
-    if ((button?.closest('.el-dialog') && /^(取消|关闭|完成|返回)|关闭窗口/.test(text)) || (!target.closest('.el-dialog') && target.closest('.el-overlay,.el-overlay-dialog'))) flush()
+    if ((button?.closest('.el-dialog') && /^(取消|关闭|完成|返回)|关闭窗口|最小化/.test(text)) || (!target.closest('.el-dialog') && target.closest('.el-overlay,.el-overlay-dialog'))) flush()
     if (/^(保存|确定|提交|发送|确认保存)/.test(text)) {
       const scope = button.closest('.el-dialog') || button.closest('form') || button.closest('.inline-text-field')
       submitIntent = { time: Date.now(), entries: [...entries].filter(entry => !excluded(entry) && scope?.contains(root(entry))) }
@@ -115,7 +118,7 @@ function touched(event) {
   if(matching.length){clearTimeout(timer); timer = setTimeout(flush, autoDraftState.delay)}
 }
 export function draftSubmitSnapshot(url = '') {
-  if (!submitIntent || Date.now() - submitIntent.time > 2000 || /upload|image|screenshot|auth|notification|chat|conversation/i.test(url)) return null
+  if (!submitIntent || Date.now() - submitIntent.time > 2000 || /editor-drafts|upload|image|screenshot|auth|notification|chat|conversation/i.test(url)) return null
   return submitIntent.entries.map(entry => ({ entry, value: snapshot(entry) })).filter(item => item.value)
 }
 export function completeDraftSubmit(records) {
@@ -124,7 +127,7 @@ export function completeDraftSubmit(records) {
   for (const { entry, value } of records) {
     const current = snapshot(entry)
     if (current && JSON.stringify(current.data) !== JSON.stringify(value.data)) continue
-    try { storage.remove(value.id); entry.dirty = false; entry.baseline = JSON.stringify(value.data);entry.stopWatch?.();entry.stopWatch=null } catch { /* 不影响业务保存 */ }
+    try { storage.remove(value.id); clearCloudDraft('global',value.id);entry.dirty = false; entry.baseline = JSON.stringify(value.data);entry.stopWatch?.();entry.stopWatch=null } catch { /* 不影响业务保存 */ }
   }
   submitIntent = null; refreshAutoDrafts()
 }
@@ -151,11 +154,13 @@ export function installAutoDrafts(app) {
       if (!kind || props.type === 'password') return
       const entry = { vm: this, kind, dirty: false, owner: userKey() }
       this.$.__autoDraftEntry = entry; entries.add(entry)
+      queueMicrotask(()=>void recoverEntry(entry))
     },
     beforeUnmount() {
       const entry = this.$.__autoDraftEntry
       if (!entry) return
       if (entry.dirty) flush()
+      forgetRecovery(entry)
       entry.stopWatch?.()
       entries.delete(entry)
     },
@@ -172,6 +177,30 @@ export function installAutoDrafts(app) {
   window.addEventListener('pagehide', flush)
   document.addEventListener('visibilitychange', () => { if (document.hidden) flush() })
   window.addEventListener('storage', refreshAutoDrafts)
-  new MutationObserver(()=>{for(const entry of entries)if(entry.native&&!root(entry)?.isConnected){if(entry.dirty)flush();entries.delete(entry)}}).observe(document.body,{childList:true,subtree:true})
+  let recoveryTimer
+  new MutationObserver(()=>{clearTimeout(recoveryTimer);recoveryTimer=setTimeout(()=>{for(const entry of entries){const element=root(entry);if(entry.native&&!element?.isConnected){if(entry.dirty)flush();forgetRecovery(entry);entries.delete(entry)}else if(element?.isConnected&&!element.getClientRects().length)forgetRecovery(entry);else void recoverEntry(entry)}},100)}).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['style','aria-hidden']})
   refreshAutoDrafts()
+}
+
+async function recoverEntry(entry){
+ if(excluded(entry)||entry.dirty||entry.recovering)return
+ if(entry.kind==='form'&&entry.vm.$options.name!=='AppForm'&&[...entries].some(parent=>parent!==entry&&parent.kind==='form'&&parent.vm.$options.name==='AppForm'&&root(parent)?.contains(root(entry))))return
+ // 子输入框由所属表单整体恢复，避免同一表单重复请求与互相覆盖。
+ if(entry.kind!=='form'&&[...entries].some(parent=>parent.kind==='form'&&root(parent)?.contains(root(entry))))return
+ const info=context(entry),offerKey=`${userKey()}:${info.id}`
+ if(recoveryOffered.has(offerKey))return
+ offered(entry,offerKey);entry.recovering=true
+ const baseline=JSON.stringify(sanitizeDraft(model(entry)))
+ entry.contextId=info.id;entry.baseline=baseline
+ const local=currentStore()?.get(info.id)
+ if(local&&JSON.stringify(local.data)!==baseline)restoreAutoDraft(info.id)
+ try{
+  const remote=await readCloudDraft('global',info.id)
+  if(!entries.has(entry)||excluded(entry)||context(entry).id!==info.id||entry.owner!==userKey())return
+  const unchanged=JSON.stringify(sanitizeDraft(model(entry)))===(local?JSON.stringify(local.data):baseline)
+  if(remote.payload&&unchanged&&(!local||Date.parse(remote.updated_at)>local.time)){
+   currentStore()?.save({...remote.payload,time:Date.parse(remote.updated_at)})
+   restoreAutoDraft(info.id)
+  }
+ }catch{/* 本机恢复独立于云端连接。 */}finally{entry.recovering=false}
 }

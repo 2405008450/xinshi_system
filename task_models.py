@@ -27,8 +27,24 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from models import Base
 
 
-class NonProjectTaskRecurrence(Base):
+class _SpecificTask:
+    @property
+    def specific_task(self):
+        return self.specific_task_content.content if self.specific_task_content else ''
+
+    @specific_task.setter
+    def specific_task(self, value):
+        if self.specific_task_content is None:
+            if not value:
+                return
+            self.specific_task_content = NonProjectTaskContent(content=value)
+        else:
+            self.specific_task_content.content = value or ''
+
+
+class NonProjectTaskRecurrence(_SpecificTask, Base):
     __tablename__ = "non_project_task_recurrence"
+    specific_task_content = relationship("NonProjectTaskContent", uselist=False, foreign_keys="NonProjectTaskContent.recurrence_id", cascade="all, delete-orphan", lazy="selectin")
     __table_args__ = (
         ForeignKeyConstraint(["assigner_id"], ["app_user.id"], ondelete="RESTRICT"),
         ForeignKeyConstraint(["assignee_id"], ["app_user.id"], ondelete="RESTRICT"),
@@ -67,8 +83,9 @@ class NonProjectTaskRecurrence(Base):
     assignee = relationship("AppUser", foreign_keys=[assignee_id])
 
 
-class NonProjectTask(Base):
+class NonProjectTask(_SpecificTask, Base):
     __tablename__ = "non_project_task"
+    specific_task_content = relationship("NonProjectTaskContent", uselist=False, foreign_keys="NonProjectTaskContent.task_id", cascade="all, delete-orphan", lazy="selectin")
     __table_args__ = (
         ForeignKeyConstraint(["assigner_id"], ["app_user.id"], ondelete="RESTRICT"),
         ForeignKeyConstraint(["assignee_id"], ["app_user.id"], ondelete="RESTRICT"),
@@ -120,6 +137,21 @@ class NonProjectTask(Base):
     assigner = relationship("AppUser", foreign_keys=[assigner_id])
     assignee = relationship("AppUser", foreign_keys=[assignee_id])
     recurrence = relationship("NonProjectTaskRecurrence")
+
+
+class NonProjectTaskContent(Base):
+    __tablename__ = 'non_project_task_content'
+    __table_args__ = (
+        ForeignKeyConstraint(['task_id'], ['non_project_task.id'], ondelete='CASCADE'),
+        ForeignKeyConstraint(['recurrence_id'], ['non_project_task_recurrence.id'], ondelete='CASCADE'),
+        UniqueConstraint('task_id', name='uq_non_project_content_task'),
+        UniqueConstraint('recurrence_id', name='uq_non_project_content_recurrence'),
+        CheckConstraint('(task_id IS NOT NULL AND recurrence_id IS NULL) OR (task_id IS NULL AND recurrence_id IS NOT NULL)', name='ck_non_project_content_one_parent'),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    task_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    recurrence_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class NonProjectTaskEvent(Base):
@@ -225,12 +257,31 @@ class DailyReport(Base):
     )
 
     user = relationship("AppUser")
+    idle_declaration: Mapped[Optional["DailyReportIdleDeclaration"]] = relationship(
+        "DailyReportIdleDeclaration", back_populates="report", uselist=False, cascade="all, delete-orphan"
+    )
     items: Mapped[list["DailyReportItem"]] = relationship(
         "DailyReportItem",
         back_populates="report",
         cascade="all, delete-orphan",
         order_by="DailyReportItem.sort_order",
     )
+
+
+class DailyReportIdleDeclaration(Base):
+    __tablename__ = 'daily_report_idle_declaration'
+    __table_args__ = (
+        ForeignKeyConstraint(['report_id'], ['daily_report.id'], ondelete='CASCADE'),
+        CheckConstraint('idle_minutes >= 0 AND idle_minutes <= 1440',name='ck_daily_report_idle_minutes'),
+        CheckConstraint('confirmed = true',name='ck_daily_report_idle_confirmed'),
+    )
+    report_id: Mapped[uuid.UUID] = mapped_column(Uuid,primary_key=True)
+    idle_minutes: Mapped[int] = mapped_column(Integer,nullable=False)
+    confirmed: Mapped[bool] = mapped_column(Boolean,nullable=False)
+    declaration_text: Mapped[str] = mapped_column(Text,nullable=False)
+    declaration_version: Mapped[int] = mapped_column(Integer,nullable=False)
+    confirmed_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True),nullable=False)
+    report: Mapped[DailyReport] = relationship('DailyReport',back_populates='idle_declaration')
 
 
 class DailyReportItem(Base):

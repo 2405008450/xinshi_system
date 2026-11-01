@@ -56,7 +56,7 @@
         按档案 ID 去重，同一人多语种分别计数（含母语、外语、方言/少数民族语，不限熟练度及人才状态）；不计入原表合计。
         总库新增语种会在打开概览或刷新统计时自动补行，来源列留空，可按实际来源填写。
         英语母语者同时计入英语行；底部为当前筛选行的人次相加，不是去重人数。
-        <el-popover v-if="poolStatistics?.unmatched?.length" trigger="click" placement="bottom-start" :width="360">
+        <el-popover title="人才筛选" v-if="poolStatistics?.unmatched?.length" trigger="click" placement="bottom-start" :width="360">
           <template #reference><el-button link type="warning">语种数据待核对（{{ poolStatistics.unmatched.length }}）</el-button></template>
           <p>以下登记含历史占位名称或别名冲突，请先在共享语种目录核对，修正后刷新统计即可自动对应。</p>
           <el-table :data="poolStatistics.unmatched" max-height="320" size="small">

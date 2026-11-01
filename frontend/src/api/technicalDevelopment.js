@@ -9,6 +9,7 @@ export const updateDevelopmentTask = (id, data) => api.put(`${root}/tasks/${id}`
 export const moveDevelopmentTask = (id, data) => api.put(`${root}/tasks/${id}/parent`, data)
 export const deleteDevelopmentTask = (id, revision) => api.delete(`${root}/tasks/${id}`, { params: { revision } })
 export const swapDevelopmentTasks = (id, data) => api.put(`${root}/tasks/${id}/swap`, data)
+export const openDevelopmentConversation = id => api.post(`${root}/tasks/${id}/conversation`, {}, { timeout: 60000 })
 export const saveDevelopmentProgress = (id, data) => api.post(`${root}/tasks/${id}/progress`, data)
 export const addDevelopmentFeedback = (id, data) => api.post(`${root}/tasks/${id}/feedback`, data)
 export const getDevelopmentReportContext = (id) => api.get(`${root}/tasks/${id}/report`)

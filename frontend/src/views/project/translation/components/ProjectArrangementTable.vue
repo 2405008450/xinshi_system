@@ -4,10 +4,11 @@
     <div v-for="(project,index) in projects" :key="project.id" class="arrangement-project" :style="{minWidth:gridStyle.minWidth}" @dragover.prevent @drop.prevent="drop($event,project)">
       <div class="project-summary" :style="gridStyle">
         <span>{{offset+index+1}}</span><span v-for="column in orderedColumns" :key="column.key" class="arrangement-field-cell" :data-field="column.key"><slot name="field" :row="project" :column="column">{{cell(project,column)}}</slot></span>
-        <span class="fixed-arrange"><el-button :disabled="!canWrite" type="primary" link @click="arrange(project)">安排</el-button></span>
+        <span class="fixed-arrange"><el-button :disabled="!canWrite" type="primary" link @click="arrange(project)">安排</el-button><CustomerProjectRequirements v-if="String(project.customerRequirementProfessional||'').trim()||String(project.customerRequirementSpecial||'').trim()" :professional="project.customerRequirementProfessional" :special="project.customerRequirementSpecial" /></span>
       </div>
       <div v-if="opened===project.id" class="project-assignees">
-        <p>将左侧人员拖到此项目，或勾选人员后点击“安排”。同一项目可安排多项任务。</p>
+        <p>可安排母订单，或勾选一个或多个子订单／三级订单后安排人员。</p>
+        <ArrangementOrderPicker v-model="targetOrderIds[project.id]" :project-id="project.id" :disabled="!canWrite || saving" @arrange-order="arrangeOrder(project,$event)" @drop-order="(event,id)=>dropOrder(event,project,id)" />
         <ArrangementPlanPanel :ref="el=>setPlanPanel(project.id,el)" :project-id="project.id" :can-write="canWrite" :refresh-key="refreshKey" @changed="$emit('changed')" />
         <div v-for="(draft,index) in drafts[project.id]||[]" :key="draft.key" class="assignment-line">
           <strong>{{draft.name}}</strong><el-input v-model="draft.content" type="textarea" :autosize="{minRows:2,maxRows:5}" maxlength="10000" placeholder="填写具体任务（必填）" /><el-button link @click="drafts[project.id].splice(index,1)">移除</el-button>
@@ -27,6 +28,8 @@ import {computed,reactive,ref,watch,onBeforeUnmount} from 'vue'
 import {ElMessage} from 'element-plus'
 import {assignProjectTasks} from '@/api/projectArrangements'
 import ArrangementPlanPanel from './ArrangementPlanPanel.vue'
+import ArrangementOrderPicker from './ArrangementOrderPicker.vue'
+import CustomerProjectRequirements from '@/components/common/CustomerProjectRequirements.vue'
 import {reportBusinessDate} from '@/utils/workReportForm'
 import {formatBusinessDateTime} from '@/utils/dateTime'
 const props=defineProps({projects:{type:Array,default:()=>[]},columns:{type:Array,default:()=>[{key:'orderNo',label:'订单号'},{key:'sourceFileName',label:'项目名称'},{key:'clientShortName',label:'客户简称'},{key:'projectStatus',label:'项目状态'},{key:'languagePair',label:'翻译方向'},{key:'translatorReturnTime',label:'译员回稿时间'},{key:'customerDeadlineTime',label:'客户回稿时间'}]},people:{type:Array,default:()=>[]},canWrite:Boolean,loading:Boolean,offset:{type:Number,default:0},formatReturns:{type:Function,default:()=>'-'},statusLabel:{type:Function,default:value=>value||'-'}})
@@ -62,14 +65,17 @@ function cell(project,column){
 const emit=defineEmits(['changed'])
 const planPanels=new Map()
 function setPlanPanel(id,panel){if(panel)planPanels.set(id,panel);else planPanels.delete(id)}
-const opened=ref(''),drafts=reactive({}),refreshKey=ref(0),saving=ref(false),workDate=ref(reportBusinessDate())
+const opened=ref(''),drafts=reactive({}),targetOrderIds=reactive({}),refreshKey=ref(0),saving=ref(false),workDate=ref(reportBusinessDate())
 function addPeople(project,people){drafts[project.id]||=[];for(const person of people)if(!drafts[project.id].some(d=>d.assignee_id===person.id))drafts[project.id].push({key:crypto.randomUUID(),assignee_id:person.id,name:person.name,content:''})}
-function open(project){opened.value=project.id}
+function open(project){targetOrderIds[project.id]??=[project.id];opened.value=project.id}
+function arrangeOrder(project,id){if(!props.canWrite||saving.value)return;targetOrderIds[project.id]=[id];addPeople(project,props.people)}
+function dropOrder(event,project,id){if(!props.canWrite||saving.value)return;targetOrderIds[project.id]=[id];drop(event,project)}
 function arrange(project){if(opened.value===project.id)refreshKey.value++;else open(project);addPeople(project,props.people)}
 function drop(event,project){if(!props.canWrite)return;try{const values=JSON.parse(event.dataTransfer.getData('application/x-project-personnel'));if(!Array.isArray(values))return;open(project);addPeople(project,values)}catch{ElMessage.warning('请从左侧拖动人员')}}
-async function save(project){const values=drafts[project.id]||[];const bad=values.find(d=>!d.content.trim());if(bad){ElMessage.warning(`请填写${bad.name}的具体任务`);return}if(!workDate.value)return ElMessage.warning('请选择任务日期');const instruction=planPanels.get(project.id)?.getInstruction();if(!instruction)return ElMessage.warning('请等待项目说明加载完成，若有错误请先刷新安排');saving.value=true;try{await assignProjectTasks(project.id,values.map(d=>({assignee_id:d.assignee_id,content:d.content.trim(),work_date:workDate.value})),instruction);drafts[project.id]=[];refreshKey.value++;emit('changed');ElMessage.success('项目安排已保存，已生成个人任务')}catch(error){ElMessage.error(error.detail||'保存安排失败')}finally{saving.value=false}}
+async function save(project){if(saving.value)return;const values=drafts[project.id]||[];const bad=values.find(d=>!d.content.trim());if(bad){ElMessage.warning(`请填写${bad.name}的具体任务`);return}if(!targetOrderIds[project.id]?.length)return ElMessage.warning('请选择需要安排的订单');if(!workDate.value)return ElMessage.warning('请选择任务日期');const instruction=planPanels.get(project.id)?.getInstruction();if(!instruction)return ElMessage.warning('请等待项目说明加载完成，若有错误请先刷新安排');saving.value=true;try{await assignProjectTasks(project.id,values.map(d=>({assignee_id:d.assignee_id,content:d.content.trim(),work_date:workDate.value})),{...instruction,target_order_ids:targetOrderIds[project.id]});drafts[project.id]=[];refreshKey.value++;emit('changed');ElMessage.success('项目安排已保存，已生成个人任务')}catch(error){ElMessage.error(error.detail||'保存安排失败')}finally{saving.value=false}}
 </script>
 <style scoped>
+.project-summary>.fixed-arrange{flex-direction:column;justify-content:center;gap:4px}.project-summary>.fixed-arrange :deep(.el-button){font-size:12px;padding:2px}
 .project-summary--header > span { position: relative; min-height: 26px; }
 .project-summary--header :deep(.app-column-resize-handle) { right: -5px; }
 .arrangement-column-drag { cursor: grab; }

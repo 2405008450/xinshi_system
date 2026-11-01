@@ -67,7 +67,7 @@ def display_user(user: AppUser | None) -> str:
 def _get_active_user(db: Session, user_id: UUID) -> AppUser:
     user = db.query(AppUser).filter(AppUser.id == user_id, AppUser.is_active == True).first()
     if not user:
-        raise LookupError("负责人不存在或已停用")
+        raise LookupError("执行人不存在或已停用")
     return user
 
 
@@ -110,6 +110,7 @@ def serialize_non_project_task(task: NonProjectTask) -> dict:
         "id": task.id,
         "task_type": task.task_type,
         "task_name": task.task_name,
+        "specific_task": task.specific_task,
         "assigner_id": task.assigner_id,
         "assigner_name": display_user(task.assigner),
         "assignee_id": task.assignee_id,
@@ -135,6 +136,7 @@ def create_non_project_task(
     task = NonProjectTask(
         task_type=payload.task_type.strip(),
         task_name=payload.task_name.strip(),
+        specific_task=payload.specific_task,
         assigner_id=operator.id,
         assignee_id=assignee_id,
         assigned_at=now,
@@ -208,7 +210,7 @@ def update_non_project_task(
     if "assignee_id" in changes:
         new_assignee = changes["assignee_id"]
         if new_assignee is None:
-            raise ValueError("负责人不能为空")
+            raise ValueError("执行人不能为空")
         _ensure_assignee_allowed(db, operator.id, new_assignee)
         if new_assignee != task.assignee_id:
             changes["assigned_at"] = business_now()
@@ -230,7 +232,7 @@ def change_task_status(
     task = get_non_project_task(db, task_id)
     _ensure_task_visible(db, task, operator)
     if task.assignee_id != operator.id and not _can_assign(db, operator.id):
-        raise PermissionError("只有负责人或任务管理员可以变更状态")
+        raise PermissionError("只有执行人或任务管理员可以变更状态")
     transitions = {
         "start": (("pending",), "in_progress"),
         "complete": (("pending", "in_progress"), "completed"),
@@ -351,6 +353,7 @@ def create_recurrence(
     recurrence = NonProjectTaskRecurrence(
         task_type=payload.task_type.strip(),
         task_name=payload.task_name.strip(),
+        specific_task=payload.specific_task,
         assigner_id=operator.id,
         assignee_id=assignee_id,
         frequency=payload.frequency,
@@ -425,6 +428,7 @@ def generate_recurrence_instances(
                 task = NonProjectTask(
                     task_type=rule.task_type,
                     task_name=rule.task_name,
+                    specific_task=rule.specific_task,
                     assigner_id=rule.assigner_id,
                     assignee_id=rule.assignee_id,
                     assigned_at=business_now(),
@@ -509,6 +513,7 @@ def get_my_work_items(db: Session, current_user: AppUser) -> list[dict]:
                 "source_id": task.id,
                 "task_type": task.task_type,
                 "task_name": task.task_name,
+                "specific_task": task.specific_task,
                 "assigner_name": serialized["assigner_name"],
                 "assigner_id": task.assigner_id,
                 "assignee_id": task.assignee_id,
@@ -720,11 +725,15 @@ def derive_daily_report_items(
 
 
 def _serialize_report(report: DailyReport) -> dict:
+    from editor_drafts import report_draft_revision
+    from work_report_idle import declaration_data
     from sqlalchemy.orm import object_session
     from work_report_collaboration import revision_status
     session=object_session(report)
     available,used=revision_status(session,report.id) if session else (False,False)
     return {
+        'edit_draft_revision':report_draft_revision(session,report),
+        **declaration_data(report),
         'amendment_used':used,
         'can_amend':available and not used and report.status=='finalized',
         "id": report.id,
@@ -764,9 +773,11 @@ def preview_daily_report(
     if report and (report.status == "finalized" or not refresh):
         return _serialize_report(report)
     if report:
+        from work_report_idle import declaration_data
         derived_items = derive_daily_report_items(db, user.id, report_date)
-        derived_items.extend({key:getattr(item,key) for key in ['source_type','source_id','task_type','task_name','progress_content','result_content','duration_minutes','display_metadata']} for item in report.items if (item.display_metadata or {}).get('source') in ('consultation_handoff', 'technical_development'))
+        derived_items.extend({key:getattr(item,key) for key in ['source_type','source_id','task_type','task_name','progress_content','result_content','duration_minutes','display_metadata']} for item in report.items if (item.display_metadata or {}).get('source') in ('consultation_handoff', 'technical_development', 'annotation_work_status'))
         return {
+            **declaration_data(report),
             "id": report.id,
             "user_id": report.user_id,
             "user_name": display_user(user),
@@ -851,11 +862,15 @@ def save_daily_report(
     # 陈旧编辑窗口或重新汇总不能删除已自动追加的新咨询记录。
     for existing in report.items:
         metadata = existing.display_metadata or {}
-        if metadata.get('source') not in ('consultation_handoff', 'project_arrangement', 'personal_daily_task', 'technical_development'):
+        if metadata.get('source') not in ('consultation_handoff', 'project_arrangement', 'personal_daily_task', 'technical_development', 'annotation_work_status'):
             continue
         incoming = next((item for item in raw_items if (item.get('display_metadata') or {}).get('_feedback_key') == item_key(existing)), None)
         if incoming is None:
             raw_items.append({key:getattr(existing,key) for key in ['source_type','source_id','task_type','task_name','progress_content','result_content','duration_minutes']} | {'display_metadata':dict(metadata)})
+        elif metadata.get('source') == 'annotation_work_status':
+            # 汇报累计值以服务端为准，旧工作报告窗口不能覆盖较新的汇报。
+            incoming.update({key:getattr(existing,key) for key in ['source_type','source_id','task_type','task_name','progress_content','result_content','duration_minutes']})
+            incoming['display_metadata'] = dict(metadata)
         else:
             incoming['display_metadata'] = {**incoming.get('display_metadata', {}), **{key:metadata[key] for key in ['source','consultation_id','consultation_code','added_at','_feedback_key','arrangement_id','personal_task_id','technical_task_id'] if key in metadata}}
     if finalize:
@@ -873,9 +888,13 @@ def save_daily_report(
     if amend:
         def comparable(items):
             return [{key:item.get(key) for key in ['source_type','source_id','task_type','task_name','progress_content','result_content','duration_minutes']} | {'display_metadata':{k:v for k,v in (item.get('display_metadata') or {}).items() if k!='_feedback_key'}} for item in items]
-        if jsonable_encoder(comparable(raw_items))==comparable(before_data['items']) and (payload.supplemental_note or '')==(report.supplemental_note or ''):
+        idle_unchanged=payload.idle_minutes is None or (payload.idle_minutes==before_data.get('idle_minutes') and payload.idle_declaration_confirmed==before_data.get('idle_declaration_confirmed'))
+        if idle_unchanged and jsonable_encoder(comparable(raw_items))==comparable(before_data['items']) and (payload.supplemental_note or '')==(report.supplemental_note or ''):
             raise ValueError('报告内容没有变化，未使用修改机会')
-    report.supplemental_note = payload.supplemental_note
+    from annotation_work_status import availability_note
+    report.supplemental_note = availability_note(db, user.id, report_date, payload.supplemental_note)
+    from work_report_idle import save_declaration
+    save_declaration(report,payload)
     report.items.clear()
     db.flush()
     for index, item in enumerate(raw_items):
@@ -885,6 +904,8 @@ def save_daily_report(
     report.status = "finalized" if finalize else "draft"
     report.finalized_at = now if finalize else None
     report.updated_at = now
+    from editor_drafts import clear_report_draft
+    clear_report_draft(db,report)
     if amend:
         after_data=jsonable_encoder(api_time(_serialize_report(report)))
         after_data.update(amendment_used=True,can_amend=False)
@@ -980,6 +1001,12 @@ def report_to_xlsx(report: DailyReport) -> bytes:
     sheet.cell(summary_row, 1, "合计")
     total = sum(item.duration_minutes or 0 for item in report.items)
     sheet.cell(summary_row, 8, f"{total / 60:.1f}小时（{total}分钟）")
+    if report.idle_declaration:
+        sheet.cell(summary_row+2,1,'空闲时间')
+        sheet.cell(summary_row+2,2,f'{report.idle_declaration.idle_minutes}分钟（不计入工作耗时合计）')
+        sheet.cell(summary_row+3,1,'声明（已确认）')
+        sheet.merge_cells(start_row=summary_row+3,start_column=2,end_row=summary_row+3,end_column=8)
+        sheet.cell(summary_row+3,2,report.idle_declaration.declaration_text)
     for row in sheet.iter_rows():
         for cell in row:
             if isinstance(cell.value, str) and cell.value.startswith('='):

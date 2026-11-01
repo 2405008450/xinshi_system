@@ -21,19 +21,19 @@
 
       <div class="overview-strip">
         <div class="stat-chip danger">
-          <span class="stat-chip__label">逾期任务</span>
+          <span class="stat-chip__label">逾期任务<span class="temporarily-unused">（暂时不用）</span></span>
           <strong>{{ overdueTasks.length }}</strong>
         </div>
         <div class="stat-chip warning">
-          <span class="stat-chip__label">即将到期</span>
+          <span class="stat-chip__label">即将到期<span class="temporarily-unused">（暂时不用）</span></span>
           <strong>{{ urgentTasks.length }}</strong>
         </div>
         <div class="stat-chip info">
-          <span class="stat-chip__label">执行项目待办</span>
+          <span class="stat-chip__label">执行项目待办<span class="temporarily-unused">（暂时不用）</span></span>
           <strong>{{ projectPendingCount }}</strong>
         </div>
         <div class="stat-chip neutral">
-          <span class="stat-chip__label">我的待办</span>
+          <span class="stat-chip__label">我的待办<span class="temporarily-unused">（暂时不用）</span></span>
           <strong>{{ pendingWorkItemCount }}</strong>
         </div>
         <el-badge
@@ -43,18 +43,36 @@
           class="shift-badge"
         >
           <el-button class="shift-matrix-btn" @click="matrixVisible = true">
-            班次矩阵
+            <span>班次矩阵<span class="temporarily-unused">（暂时不用）</span></span>
             <span class="shift-matrix-btn__hint">部门排班 / 公司请假</span>
           </el-button>
         </el-badge>
       </div>
 
       <el-tabs v-model="activeSection" type="border-card" class="workbench-tabs">
-        <el-tab-pane name="today-tasks" label="今日任务" lazy><TodayTasks :day="dailyReportDate" /></el-tab-pane>
+        <el-tab-pane name="my-tasks" label="我的任务与思考" lazy>
+          <section class="my-tasks-upper" aria-label="我的任务上方区域：今日任务">
+            <TodayTasks :day="dailyReportDate" />
+          </section>
+          <el-collapse v-model="personalSections" class="personal-work-sections">
+            <el-collapse-item title="我的项目任务" name="projects">
+              <el-collapse v-model="projectGroupsExpanded">
+                <el-collapse-item v-for="group in personalProjectGroups" :key="group.key" :name="group.key">
+                  <template #title>{{group.label}}<span v-if="projectGroupCounts[group.key]!==undefined">（{{projectGroupCounts[group.key]}}）</span></template>
+                  <MyProjectTaskGroup v-if="personalSections.includes('projects')&&projectGroupsExpanded.includes(group.key)" :group="group.key" @count-change="projectGroupCounts[group.key]=$event" @open-project="handleOpenProject" />
+                </el-collapse-item>
+              </el-collapse>
+            </el-collapse-item>
+            <el-collapse-item title="我的非项目任务" name="non-project">
+              <UnifiedTasksPanel v-if="personalSections.includes('non-project')" fixed-source="non_project" :current-user-name="currentUserName" :current-user-id="currentUserId" :items="workItems" :reference-date="scheduleDate" @refresh="loadMyWorkItems" />
+            </el-collapse-item>
+            <el-collapse-item title="我的思考与发散" name="thoughts"><MyThoughts v-if="personalSections.includes('thoughts')" /></el-collapse-item>
+          </el-collapse>
+        </el-tab-pane>
         <el-tab-pane name="monthly-shift" label="排班与考勤" lazy><MyMonthlyShift /></el-tab-pane>
         <el-tab-pane name="tasks">
           <template #label>
-            <span>我的任务<template v-if="taskTabCount">（{{ taskTabCount }}）</template></span>
+            <span>我的任务<template v-if="taskTabCount">（{{ taskTabCount }}）</template><span class="temporarily-unused">（暂时不用）</span></span>
           </template>
           <section v-if="canManageProjectOwnership" class="workbench-section">
             <button
@@ -174,10 +192,14 @@ import { isDefaultVisibleWorkItem } from '@/utils/workItemScope'
 
 const UnifiedTasksPanel = defineAsyncComponent(() => import('./components/UnifiedTasksPanel.vue'))
 const TodayTasks = defineAsyncComponent(() => import('./components/TodayTasks.vue'))
+const MyProjectTaskGroup = defineAsyncComponent(() => import('./components/MyProjectTaskGroup.vue'))
+const MyThoughts = defineAsyncComponent(() => import('./components/MyThoughts.vue'))
+const personalSections=ref(['projects','non-project','thoughts']),projectGroupsExpanded=ref(['translation']),projectGroupCounts=ref({})
+const personalProjectGroups=[{key:'translation',label:'笔译项目'},{key:'interpretation',label:'口译项目'},{key:'annotation',label:'标注项目'},{key:'recruitment',label:'招聘项目'},{key:'assigned_translation',label:'被安排笔译类项目'}]
 const DailyReportPanel = defineAsyncComponent(() => import('./components/DailyReportPanel.vue'))
 const ReceivedWorkReports = defineAsyncComponent(() => import('./components/ReceivedWorkReports.vue'))
 const canReceiveReports=ref(false)
-async function refreshReportAccess(){try{canReceiveReports.value=(await getReportAccessContext()).can_receive}catch{canReceiveReports.value=false}if(!canReceiveReports.value&&['received-reports','review-tasks'].includes(activeSection.value))activeSection.value='tasks'}
+async function refreshReportAccess(){try{canReceiveReports.value=(await getReportAccessContext()).can_receive}catch{canReceiveReports.value=false}if(!canReceiveReports.value&&['received-reports','review-tasks'].includes(activeSection.value))activeSection.value='my-tasks'}
 onMounted(()=>{refreshReportAccess();window.addEventListener('focus',refreshReportAccess)})
 onBeforeUnmount(()=>window.removeEventListener('focus',refreshReportAccess))
 const ShiftMatrixDialog = defineAsyncComponent(() => import('./components/ShiftMatrixDialog.vue'))
@@ -197,14 +219,15 @@ const managementExpanded = ref(true)
 const executionExpanded = ref(true)
 
 const MAIN_TAB_STORAGE_KEY = 'workbench_main_tab'
-const MAIN_TAB_NAMES = ['today-tasks', 'monthly-shift', 'tasks', 'review-tasks', 'daily-report', 'received-reports']
+const MAIN_TAB_NAMES = ['my-tasks', 'monthly-shift', 'tasks', 'review-tasks', 'daily-report', 'received-reports']
 
 function readInitialMainTab() {
   try {
     const stored = localStorage.getItem(MAIN_TAB_STORAGE_KEY)
+    if (stored === 'today-tasks' || stored === 'tasks') return 'my-tasks'
     if (stored && MAIN_TAB_NAMES.includes(stored)) return stored
   } catch {}
-  return 'today-tasks'
+  return 'my-tasks'
 }
 
 const activeSection = ref(readInitialMainTab())
@@ -422,8 +445,8 @@ onMounted(() => {
 }
 
 .stat-chip {
-  flex: 1 1 100px;
-  min-width: 100px;
+  flex: 1 1 190px;
+  min-width: 180px;
   padding: 4px 10px;
   border-radius: 6px;
   border: 1px solid #cbd5e1;
@@ -449,6 +472,19 @@ onMounted(() => {
   font-size: 12px;
   font-weight: 600;
   color: var(--el-text-color-secondary);
+}
+
+.temporarily-unused {
+  color: #dc2626;
+  white-space: nowrap;
+}
+
+.workbench-tabs :deep(.el-tabs__item:not(.is-active)) .temporarily-unused {
+  color: #ffb4b4;
+}
+
+.my-tasks-upper {
+  min-width: 0;
 }
 
 .shift-badge {
@@ -736,3 +772,5 @@ onMounted(() => {
   }
 }
 </style>
+
+<style scoped>.personal-work-sections{margin-top:16px}.personal-work-sections :deep(.el-collapse-item__header){font-weight:600;font-size:15px}.personal-work-sections :deep(.el-collapse-item__content){padding:12px}.personal-work-sections :deep(.el-collapse .el-collapse-item__header){font-size:14px}</style>

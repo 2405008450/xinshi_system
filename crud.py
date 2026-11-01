@@ -2249,8 +2249,9 @@ def create_translation_project(
         'client_short_name', 'client_code', 'manager_contact', 'sub_client_short_name',
         'word_count_matrix', 'customer_charge_items', 'role_assignments', 'client_manager_id', 'client_manager_change_reason'
     })
-    if 'source_file_name' in project.model_fields_set:
-        normalize_translation_name_payload(project_data)
+    if 'source_file_name' not in project.model_fields_set:
+        project_data.pop('source_file_name', None)
+    normalize_translation_name_payload(project_data)
     project_data['email_subject_preview'] = normalize_email_subject_order_no(
         project_data.get('email_subject_preview'), order_no
     )
@@ -2760,6 +2761,8 @@ def mark_all_notifications_read(db: Session, recipient_user_id: UUID, channel: s
 
 # ProjectFile CRUD
 PROJECT_FILE_STATUS_SEQUENCE = {
+    'simple_requirement': 0,
+    'source_file_simple_requirement': 0,
     'pending': 0,
     'pending_confirmation': 0,
     'in_progress': 1,
@@ -3503,8 +3506,11 @@ def _create_sub_order_in_transaction(
     db: Session, sub_order: TranslationSubOrderCreate,
     idempotency_key: Optional[str] = None,
 ) -> TranslationSubOrder:
+    from translation_file_name_rules import normalize_single_file_name
+    file_name = normalize_single_file_name(sub_order.sub_project_name)
     sub_order_no = sub_order.sub_order_no or generate_sub_order_no(db, sub_order.parent_project_id)
     data = sub_order.model_dump(exclude={'sub_order_no', 'word_count_matrix', 'customer_charge_items'})
+    data['sub_project_name'] = file_name
     data['language_pair'] = _normalize_catalog_language_pairs(db, data.get('language_pair'))
     _validate_written_translator(db, data.get('translator_id'))
     db_sub = TranslationSubOrder(
@@ -3624,6 +3630,9 @@ def update_sub_order(db: Session, sub_order_id: UUID, sub_order_update: Translat
         exclude_unset=True,
         exclude={'word_count_matrix', 'customer_charge_items', 'assigned_translator_completions'},
     )
+    if 'sub_project_name' in update_data:
+        from translation_file_name_rules import normalize_single_file_name
+        update_data['sub_project_name'] = normalize_single_file_name(update_data['sub_project_name'])
     if 'language_pair' in update_data:
         update_data['language_pair'] = _normalize_catalog_language_pairs(
             db, update_data.get('language_pair')

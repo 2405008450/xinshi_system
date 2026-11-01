@@ -10,6 +10,17 @@ const statusSource = readFileSync(new URL('../src/utils/annotationStatus.js', im
 const { annotationStatusLabels, normalizeAnnotationStatus } = runInNewContext(statusSource.replaceAll('export ', '') + '\n;({annotationStatusLabels, normalizeAnnotationStatus})')
 const api = runInNewContext(source.replace(/^import .*\r?\n/gm, '').replaceAll('export ', '') + '\n;({sessionFolderMentionUnread, sessionFolderNodes, sessionMatchesFolder, sessionFolderCount, assignableSessionFolders, annotationFolderId, resourceFolderId})', { defaults, annotationStatusLabels, normalizeAnnotationStatus, sessionListKey })
 
+test('技术开发分组和所属会话按部门授权显示并汇总',()=>{
+  const root=defaults.find(row=>row.ruleKey==='technical').id
+  const rows=[{id:'tech-task',name:'开发任务',parentKey:root,active:true,isConversation:true},{id:'tech-general',name:'技术/开发沟通',parentKey:root,active:true,isConversation:true,fixedTop:true}]
+  assert.equal(api.sessionFolderNodes(rows).some(row=>[root,'tech-task','tech-general'].includes(row.id)),false)
+  const nodes=api.sessionFolderNodes(rows,{technicalAccess:true})
+  assert.equal(nodes.filter(row=>[root,'tech-task','tech-general'].includes(row.id)).length,3)
+  const sessions=rows.map(row=>({key:`discussion:${row.id}`,projectType:'discussion',categoryIds:[row.id]}))
+  assert.equal(api.sessionFolderCount(sessions,root,nodes),2)
+  assert.equal(api.sessionMatchesFolder(sessions[0],api.annotationFolderId,nodes),false)
+})
+
 test('二级分类下会话可见，数量与未读汇总到分类及一级分组，停用分类隐藏后代', () => {
   const root = defaults.find(row => row.ruleKey === 'translation').id
   const folder = {id:'folder',name:'业务分类',parentKey:root,active:true}

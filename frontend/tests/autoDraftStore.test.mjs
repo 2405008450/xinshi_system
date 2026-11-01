@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {createAutoDraftStore,sanitizeDraft,AUTO_DRAFT_TTL,draftBusinessNow} from '../src/utils/autoDraftStore.js'
+import {createAutoDraftStore,sanitizeDraft,AUTO_DRAFT_TTL,draftBusinessNow,draftStringify} from '../src/utils/autoDraftStore.js'
 function memory(){const data=new Map();return {getItem:key=>data.get(key)||null,setItem:(key,value)=>data.set(key,value)}}
+test('对象键顺序变化不产生重复的云端草稿内容',()=>{assert.equal(draftStringify({a:1,b:{x:2,y:3}}),draftStringify({b:{y:3,x:2},a:1}));assert.notEqual(draftStringify([1,2]),draftStringify([2,1]))})
 test('草稿按账号隔离、相同内容不重复写入、超过7天不恢复',()=>{
  const storage=memory();let time=1000000000
  const first=createAutoDraftStore({storage,owner:'one',clock:()=>time}),second=createAutoDraftStore({storage,owner:'two',clock:()=>time})

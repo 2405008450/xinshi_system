@@ -26,6 +26,8 @@ def isolated_db(monkeypatch):
     def configure(connection, _):
         connection.create_function('gen_random_uuid', 0, lambda: uuid4().hex)
     TranslationProject.__table__.create(engine)
+    from project_client_manager import ProjectClientManagerChange
+    ProjectClientManagerChange.__table__.create(engine)
     # 名称写入保留真实 CRUD 与事务，隔离工作流、人员目录及计费等旁支。
     monkeypatch.setattr(crud, 'get_translation_project', lambda db, key: db.get(TranslationProject, key))
     monkeypatch.setattr(router, 'get_translation_project', lambda db, key: db.get(TranslationProject, key))
@@ -76,7 +78,7 @@ def test_project_remarks_create_edit_read_and_clear_in_isolated_database(isolate
 
 def test_legacy_project_without_remarks_and_detail_inline_update(isolated_db):
     db = isolated_db
-    row = create(db)
+    row = create(db, source_file_name='旧项目.docx')
     assert remarks_response(row).remarks is None
     version = row.updated_at
     router.update_project_text_field(row.id, TextFieldUpdate(
@@ -95,11 +97,11 @@ def test_legacy_project_without_remarks_and_detail_inline_update(isolated_db):
     assert db.get(TranslationProject, row.id).remarks is None
 
 
-def test_full_create_and_edit_persist_two_names_without_overwriting_subject(isolated_db):
+def test_full_create_and_edit_sync_name_aliases_without_overwriting_subject(isolated_db):
     db = isolated_db
-    row = create(db, source_file_name='  正文.docx；附件.pdf  ', email_subject_preview='手工邮件主题')
+    row = create(db, source_file_name='  正文.docx  ', email_subject_preview='手工邮件主题')
     saved_subject = row.email_subject_preview
-    assert row.project_name == row.source_file_name == '正文.docx；附件.pdf'
+    assert row.project_name == row.source_file_name == '正文.docx'
     version = row.updated_at
     updated = crud.update_translation_project(db, row.id, TranslationProjectUpdate(
         source_file_name='新文件.xlsx', project_name='应被文件名替换', expected_updated_at=version,
@@ -121,18 +123,18 @@ def test_inline_edit_syncs_in_one_transaction_and_rejects_blank(isolated_db, fie
     row = create(db, source_file_name='旧文件.docx', email_subject_preview='人工主题')
     original_subject = row.email_subject_preview
     updated = router.update_project_text_field(row.id, TextFieldUpdate(
-        field=field, value='  合同原文.pdf；附件.docx ', expected_updated_at=row.updated_at,
+        field=field, value='  合同原文.pdf ', expected_updated_at=row.updated_at,
     ), db)
     db.expire_all()
-    assert updated.project_name == updated.source_file_name == '合同原文.pdf；附件.docx'
+    assert updated.project_name == updated.source_file_name == '合同原文.pdf'
     assert updated.email_subject_preview == original_subject
-    for invalid in [' ', 'a' * 256]:
+    for invalid in [' ', 'a' * 256, '无后缀', 'A.pdf；B.docx']:
         with pytest.raises(HTTPException) as exc:
             router.update_project_text_field(row.id, TextFieldUpdate(
                 field=field, value=invalid, expected_updated_at=updated.updated_at,
             ), db)
         assert exc.value.status_code == 400
-        assert db.get(TranslationProject, row.id).source_file_name == '合同原文.pdf；附件.docx'
+        assert db.get(TranslationProject, row.id).source_file_name == '合同原文.pdf'
 
 
 def test_inline_repairs_same_file_name_alias_and_keeps_version_monotonic(isolated_db):
@@ -151,7 +153,10 @@ def test_inline_repairs_same_file_name_alias_and_keeps_version_monotonic(isolate
 
 def test_legacy_creation_and_unrelated_progress_updates_do_not_require_file_name(isolated_db):
     db = isolated_db
-    row = create(db)
+    with pytest.raises(ValueError):
+        create(db)
+    row = TranslationProject(id=uuid4(),order_no='TP-LEGACY',project_name='历史无后缀名称')
+    db.add(row); db.commit()
     legacy_name = row.project_name
     crud.update_translation_project(db, row.id, TranslationProjectUpdate(translator_delivery_progress='50'))
     assert row.source_file_name is None
@@ -165,11 +170,13 @@ def test_legacy_creation_and_unrelated_progress_updates_do_not_require_file_name
 
 def test_legacy_summary_only_update_cannot_overwrite_existing_file_name(isolated_db):
     row = create(isolated_db, source_file_name='合同.docx')
-    crud.update_translation_project(isolated_db, row.id, TranslationProjectUpdate(project_name='旧调用方业务摘要'))
+    with pytest.raises(ValueError):
+        crud.update_translation_project(isolated_db, row.id, TranslationProjectUpdate(project_name='旧调用方业务摘要'))
+    isolated_db.rollback()
     assert row.project_name == row.source_file_name == '合同.docx'
 
 
-def test_file_name_limit_retains_extensions_and_multi_file_format(isolated_db):
+def test_file_name_limit_retains_extensions_and_single_file_format(isolated_db):
     name = '文' * 250 + '.docx'
     row = create(isolated_db, source_file_name=name)
     assert row.project_name == name
@@ -177,12 +184,12 @@ def test_file_name_limit_retains_extensions_and_multi_file_format(isolated_db):
         create(isolated_db, source_file_name='文' * 251 + '.docx')
 
 
-def test_manuscript_file_writeback_persists_two_names_together(isolated_db):
+def test_manuscript_file_writeback_syncs_two_alias_fields(isolated_db):
     db = isolated_db
     row = create(db, source_file_name='旧文件.docx', email_subject_preview='手工主题')
     original_subject = row.email_subject_preview
     # 其他派稿字段已在稿件测试中校验，这里仅隔离验证实际订单回写和事务。
-    payload = ManuscriptDispatchCreate.model_construct(file_name='稿件原文.pdf；附件.xlsx')
+    payload = ManuscriptDispatchCreate.model_construct(file_name='稿件原文.pdf')
     _sync_entity_file_name(payload, row, None)
     db.rollback()
     assert row.project_name == row.source_file_name == '旧文件.docx'
@@ -190,5 +197,5 @@ def test_manuscript_file_writeback_persists_two_names_together(isolated_db):
     db.commit()
     db.expire_all()
     persisted = db.get(TranslationProject, row.id)
-    assert persisted.project_name == persisted.source_file_name == '稿件原文.pdf；附件.xlsx'
+    assert persisted.project_name == persisted.source_file_name == '稿件原文.pdf'
     assert persisted.email_subject_preview == original_subject

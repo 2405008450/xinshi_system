@@ -41,6 +41,8 @@ export const getDailyReportDeliveries = (reportDate) =>
 
 export const getDailyReportEditorContext = () => api.get('/daily-reports/editor-context')
 export const createDailyReportCategory = data => api.post('/daily-reports/categories', data)
+export const createDailyReportCategoryGroup = data => api.post('/daily-reports/category-groups',data)
+export const createLayoutTaskPreset = name => api.post('/daily-reports/layout-task-presets',{parent:'__layout_tasks__',name})
 export const getReportAccessContext = () => api.get('/daily-reports/access-context')
 export const getReportAccessSettings = () => api.get('/daily-reports/access-settings')
 export const createReportAccessRule = data => api.post('/daily-reports/access-settings', data)
@@ -49,9 +51,12 @@ export const getReceivedReportSenders = () => api.get('/daily-reports/received-s
 export const getReceivedReports = (params, config = {}) => api.get('/daily-reports/received', {...config, params})
 export const getReceivedReport = id => api.get(`/daily-reports/received/${id}`)
 export const getReportReviewDirectory = () => api.get('/daily-reports/review-directory')
+export const getReportClientOptions = (params, config = {}) => api.get('/daily-reports/client-options', {...config, params})
 export const getReportStatistics = (params,config={}) => api.get('/daily-reports/statistics',{...config,params})
 export const getReportFeedback = id => api.get(`/daily-reports/feedback/${id}`)
 export const addReportFeedback = (id,data) => api.post(`/daily-reports/feedback/${id}`,data)
 export const getReportFeedbackInbox = params => api.get('/daily-reports/feedback-inbox',{params})
 export const getReportRevisionHistory = id => api.get(`/daily-reports/history/${id}`)
 export const amendDailyReport = (date,data) => api.post(`/daily-reports/${date}/amend`,data)
+
+export const getMyProjectTasks = (params,config={}) => api.get('/work-items/my-projects',{...config,params})

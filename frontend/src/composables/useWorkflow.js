@@ -33,12 +33,16 @@ const FALLBACK_STAGE_DEFINITIONS = [
 
 const PROJECT_STATUS_OPTIONS = [
   { label: '初步咨询', value: 'initial_consultation' },
+  { label: '简单需求', value: 'simple_requirement' },
+  { label: '原文件+简单需求', value: 'source_file_simple_requirement' },
   { label: '进行中', value: 'in_progress' },
   { label: '已暂停', value: 'paused' },
   { label: '已终止', value: 'terminated' }
 ]
 
 const STATUS_LABEL_MAP = {
+  simple_requirement: '简单需求',
+  source_file_simple_requirement: '原文件+简单需求',
   initial_consultation: '初步咨询',
   arranged: '已安排',
   pending: '待启动',

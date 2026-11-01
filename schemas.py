@@ -1138,6 +1138,11 @@ class TranslationSubOrderBulkCreate(BaseModel):
                 raise ValueError(f'第 {index} 条文件名称不能为空')
             if len(name) > 255:
                 raise ValueError(f'第 {index} 条文件名称不能超过 255 个字符')
+            from translation_file_name_rules import normalize_single_file_name
+            try:
+                name = normalize_single_file_name(name)
+            except ValueError as exc:
+                raise ValueError(f'第 {index} 条：{exc}') from exc
             cleaned.append(name)
         return cleaned
 
@@ -1494,9 +1499,17 @@ class NotificationResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    @field_serializer('read_at', when_used='json')
+    def simple_requirement_read_time(self, value):
+        if self.notification_type in ('translation_simple_requirement','translation_simple_requirement_receipt','translation_simple_dispatch','translation_simple_dispatch_receipt') and value:
+            from datetime import timezone
+            from annotation_progress_time import business_datetime
+            return business_datetime(value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value).isoformat()
+        return value
+
     @field_serializer('created_at',when_used='json')
     def summary_notification_time(self,value):
-        if self.notification_type in ('chat_summary','attendance_leave','attendance_delay_start','home_office_application') and value:
+        if self.notification_type in ('chat_summary','attendance_leave','attendance_delay_start','home_office_application','translation_simple_requirement','translation_simple_requirement_receipt','translation_simple_dispatch','translation_simple_dispatch_receipt') and value:
             from business_time import business_iso
             return business_iso(value)
         return value

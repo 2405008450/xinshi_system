@@ -6,7 +6,7 @@
         <el-input v-model="filters.keyword" clearable placeholder="姓名、招呼编号、联系方式、语种/方言、开拓平台" @input="keywordChanged" @keyup.enter="query" />
         <el-select v-model="filters.state" clearable filterable allow-create aria-label="添加状态（任一渠道）" placeholder="添加状态（任一渠道）" @change="query"><el-option v-for="state in statusOptions" :key="state" :label="state" :value="state" /></el-select>
         <el-button type="primary" @click="query">查询</el-button><el-button @click="reset">重置</el-button>
-        <el-popover v-model:visible="advanced" trigger="click" placement="bottom-end" :width="760" popper-class="development-advanced development-status-advanced">
+        <el-popover title="联系状态记录" v-model:visible="advanced" trigger="click" placement="bottom-end" :width="760" popper-class="development-advanced development-status-advanced">
           <template #reference><el-button>高级筛选{{ advancedCount ? `（${advancedCount}）` : '' }}</el-button></template>
           <div ref="advancedBody" class="development-advanced-body">
             <AdvancedFilterFieldSearch :active="advanced">

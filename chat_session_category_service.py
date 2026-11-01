@@ -50,9 +50,13 @@ def catalog(db, user):
     from discussion_chat_service import schema_ready as discussion_ready
     from discussion_chat_models import DiscussionMember
     rooms = {str(room) for room, in db.query(DiscussionMember.room_id).distinct()} if ready and discussion_ready(db) else set()
-    return dict(ready=ready, hierarchy_ready=hierarchy_ready, can_manage=ready and can_manage_folders(db, user),
-                items=[dict(serialize(row), parent_key=parents.get(str(row.id)), is_conversation=str(row.id) in rooms)
-                       for row in db.query(Category).order_by(Category.created_at, Category.id)] if ready else [])
+    from technical_task_conversations import can_access, restricted_ids, specs
+    technical_access=can_access(db,user)
+    hidden=set() if technical_access else restricted_ids(db)
+    task_rooms=specs(db)
+    return dict(ready=ready, hierarchy_ready=hierarchy_ready, can_manage=ready and can_manage_folders(db, user), technical_access=technical_access,
+                items=[dict(serialize(row), name=task_rooms.get(str(row.id),{}).get('name',row.name), parent_key=task_rooms.get(str(row.id),{}).get('parent_key',parents.get(str(row.id))), is_conversation=str(row.id) in rooms, fixed_top=row.name=='技术/开发沟通')
+                       for row in db.query(Category).order_by(Category.created_at, Category.id) if row.id not in hidden] if ready else [])
 
 
 def validate_parent(db, parent_key, *, conversation=False):
@@ -144,6 +148,8 @@ def require_category(db, category_id):
 
 def set_membership(db, user, kind, conversation_id, category_id, adding):
     require_ready(db)
+    from technical_task_conversations import require_category_access
+    require_category_access(db,user,category_id)
     require_conversation(db, user, kind, conversation_id)
     category = require_category(db, category_id)
     if adding and not category.active:

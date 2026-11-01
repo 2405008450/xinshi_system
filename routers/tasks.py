@@ -37,6 +37,7 @@ from task_models import DailyReport, NonProjectTaskRecurrence
 from task_schemas import (
     DailyReportResponse,
     DailyReportSaveRequest,
+    ManualDailyReportSaveRequest,
     NonProjectTaskCreate,
     NonProjectTaskResponse,
     NonProjectTaskUpdate,
@@ -101,6 +102,12 @@ def my_work_items(
     current_user: AppUser = Depends(get_current_user),
 ):
     return get_my_work_items(db, current_user)
+
+
+@work_items_router.get('/my-projects', dependencies=[Depends(require_permission('tasks:read'))])
+def my_project_tasks(group: str, keyword: str = '', page: int = Query(1, ge=1), page_size: int = Query(10, ge=1, le=100), db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user)):
+    from my_project_tasks import search
+    return search(db, current_user, group, keyword, page, page_size)
 
 
 @tasks_router.post("", response_model=NonProjectTaskResponse, status_code=201)
@@ -340,7 +347,7 @@ def work_report_history(report_id:UUID,db: Session = Depends(get_db), user: AppU
 
 
 @reports_router.post('/{report_date}/amend',response_model=DailyReportResponse,dependencies=[Depends(require_permission('reports:read'))])
-def amend_work_report(report_date:date,payload:DailyReportSaveRequest,db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+def amend_work_report(report_date:date,payload:ManualDailyReportSaveRequest,db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     try:return serialize_report(save_daily_report(db,user,report_date,payload,finalize=True,amend=True))
     except (ValueError,PermissionError) as exc:raise _http_error(exc) from exc
 
@@ -361,8 +368,20 @@ def read_received_report(report_id: UUID, db: Session = Depends(get_db), user: A
     return report_access.received_report(db, user, report_id)
 
 
+@reports_router.get('/client-options', dependencies=[Depends(require_permission('reports:read'))])
+def report_client_options(keyword: str = '', limit: int = Query(50, ge=1, le=50), db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user)):
+    from models import Client
+    from search_matching import keyword_contains
+    # 工作报告只需要客户简称，不开放客户管理资料。
+    from sqlalchemy import func
+    label = func.coalesce(func.nullif(Client.client_short_name, ''), Client.client_name)
+    rows = db.query(Client.id, label.label('name')).filter(keyword_contains(label, keyword)).order_by(label, Client.id).limit(limit).all()
+    return [{'id': row.id, 'name': row.name or '未命名客户'} for row in rows]
+
+
 @reports_router.get("/editor-context", dependencies=[Depends(require_permission("reports:read"))])
 def report_editor_context(db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user)):
+    from organization_service import department_condition
     from department_models import Department, DepartmentMember
     from organization_service import ready
     from task_models import DailyReportItem
@@ -370,12 +389,32 @@ def report_editor_context(db: Session = Depends(get_db), current_user: AppUser =
     if ready(db):
         names.extend(name for name, in db.query(Department.name).join(DepartmentMember, Department.id == DepartmentMember.department_id).filter(DepartmentMember.user_id == current_user.id).order_by(Department.name))
     history = db.query(DailyReportItem.progress_content).join(DailyReport, DailyReport.id == DailyReportItem.report_id).filter(DailyReport.user_id == current_user.id).order_by(DailyReport.report_date.desc(), DailyReportItem.sort_order).limit(500).all()
-    return {"user_name": current_user.full_name or current_user.username, "departments": list(dict.fromkeys(names)), "task_history": list(dict.fromkeys(text.strip() for text, in history if text and text.strip()))[:200], **category_catalog(db, current_user)}
+    layout_member=bool(db.query(AppUser.id).filter(AppUser.id==current_user.id,department_condition(db,['排版部'])).first())
+    return {"user_name": current_user.full_name or current_user.username, "departments": list(dict.fromkeys(names)), "is_layout_department":layout_member, "task_history": list(dict.fromkeys(text.strip() for text, in history if text and text.strip()))[:200], **category_catalog(db, current_user)}
 
 
 class ReportCategoryCreate(BaseModel):
     parent: str = Field(max_length=20)
     name: str = Field(min_length=1, max_length=80)
+
+
+class ReportCategoryGroupCreate(BaseModel):
+    name: str = Field(min_length=1,max_length=20)
+    content: str = Field(min_length=1,max_length=80)
+
+
+@reports_router.post('/category-groups', dependencies=[Depends(require_permission('reports:read'))])
+def create_report_category_group(payload: ReportCategoryGroupCreate, db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user)):
+    from work_report_categories import add_category_group
+    try:return add_category_group(db,current_user,payload.name,payload.content)
+    except (ValueError,PermissionError) as exc:raise _http_error(exc) from exc
+
+
+@reports_router.post('/layout-task-presets', dependencies=[Depends(require_permission('reports:read'))])
+def create_report_layout_task_preset(payload: ReportCategoryCreate, db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user)):
+    from work_report_categories import add_layout_task_preset
+    try:return add_layout_task_preset(db,current_user,payload.name)
+    except (ValueError,PermissionError) as exc:raise _http_error(exc) from exc
 
 
 @reports_router.post('/categories', dependencies=[Depends(require_permission('reports:read'))])
@@ -464,7 +503,7 @@ def remove_mail_account(
 )
 def save_report(
     report_date: date,
-    payload: DailyReportSaveRequest,
+    payload: ManualDailyReportSaveRequest,
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
@@ -483,7 +522,7 @@ def save_report(
 )
 def finalize_report(
     report_date: date,
-    payload: DailyReportSaveRequest,
+    payload: ManualDailyReportSaveRequest,
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):

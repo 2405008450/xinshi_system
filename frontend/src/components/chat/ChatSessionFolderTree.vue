@@ -88,7 +88,7 @@ const annotationMenuZ = ref(2101)
 const createRequest = ref(0)
 const AnnotationProjectCreator = defineAsyncComponent(() => import('@/views/project/AnnotationProjects.vue'))
 const { categories, create, update, refresh } = useChatSessionCategories()
-const nodes = computed(() => sessionFolderNodes(categories.items))
+const nodes = computed(() => sessionFolderNodes(categories.items, { technicalAccess: categories.technicalAccess }))
 const preferenceKey = `xinshi.chatFolderLayout.${localStorage.getItem('user_id') || 'anonymous'}`
 let saved = {}
 try { saved = JSON.parse(localStorage.getItem(preferenceKey) || '{}') || {} } catch { /* 使用默认布局。 */ }
@@ -119,7 +119,7 @@ function beginResize(event) {
   handle.addEventListener('pointermove', move); handle.addEventListener('pointerup', stopResize); handle.addEventListener('pointercancel', stopResize)
 }
 onBeforeUnmount(() => stopResize())
-const children = id => nodes.value.filter(row => row.parentKey === id).sort((a, b) => rank(a.id) - rank(b.id))
+const children = id => nodes.value.filter(row => row.parentKey === id).sort((a, b) => Number(!!b.fixedTop) - Number(!!a.fixedTop) || rank(a.id) - rank(b.id))
 const visibleChildren = id => children(id).flatMap(row => [row, ...children(row.id)])
 const count = id => sessionFolderCount(props.sessions, id, nodes.value)
 const expanded = ref(new Set())

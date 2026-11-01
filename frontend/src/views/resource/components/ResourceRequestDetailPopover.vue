@@ -6,7 +6,7 @@
       <AssociatedProjectDetailPanel v-if="mobile && projectOpen" :source-type="target.sourceType" :project-id="target.projectId" :state="state" :title="projectTitle" :back-label="backLabel" mobile @close="closeProject()" @retry="reload" @enter="enterProject" />
     </div>
   </el-popover>
-  <el-popover v-if="!mobile" ref="childPopover" :visible="modelValue && projectOpen" virtual-triggering :virtual-ref="projectTrigger" :teleported="teleported" placement="left" :width="760" :fallback-placements="['right', 'bottom', 'top']" :popper-options="viewportOptions" popper-class="associated-project-popover" @after-leave="restoreProjectFocus">
+  <el-popover title="项目详情" v-if="!mobile" ref="childPopover" :visible="modelValue && projectOpen" virtual-triggering :virtual-ref="projectTrigger" :teleported="teleported" placement="left" :width="760" :fallback-placements="['right', 'bottom', 'top']" :popper-options="viewportOptions" popper-class="associated-project-popover" @after-leave="restoreProjectFocus">
     <div ref="childPanel"><AssociatedProjectDetailPanel v-if="projectOpen && target" :source-type="target.sourceType" :project-id="target.projectId" :state="state" :title="projectTitle" @close="closeProject()" @retry="reload" @enter="enterProject" /></div>
   </el-popover>
 </template>

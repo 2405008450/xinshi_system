@@ -103,6 +103,37 @@ def test_project_picker_identity_is_canonical_and_search_is_literal(environment)
     with pytest.raises(HTTPException):picker.resolve(db,'口译项目',project.id)
 
 
+def test_project_picker_searches_client_direction_and_respects_business_date_range(environment, monkeypatch):
+    from datetime import datetime, timezone, timedelta
+    from uuid import uuid4
+    from models import Client, TranslationProject
+    import report_project_picker as picker
+    db,_=environment
+    monkeypatch.setattr(picker,'now',lambda:datetime(2026,10,30,8,tzinfo=timezone(timedelta(hours=8))))
+    client=Client(id=uuid4(),client_code='PICKER-CLIENT',client_name='客户全称有限公司',client_short_name='测试简称')
+    db.add(client);db.flush()
+    for number,stamp in [('FIRST',datetime(2026,10,24)),('LAST',datetime(2026,10,30,23,59,59,999999)),('OLD',datetime(2026,10,23,23,59,59)),('FUTURE',datetime(2026,10,31))]:
+        db.add(TranslationProject(id=uuid4(),order_no=f'TP-{number}',project_name='测试文稿',client_id=client.id,language_pair='日文 → 中文',created_at=stamp))
+    db.commit()
+    result=picker.search(db,'笔译项目','测试简称 中文',1,10,'week','客户全称','日文')
+    assert result['total']==2
+    assert {row['order_no'] for row in result['items']}=={'TP-FIRST','TP-LAST'}
+    assert result['date_from']=='2026-10-24' and result['date_to']=='2026-10-30'
+    assert all(row['client_name']==client.client_name and row['translation_direction']=='日文 → 中文' for row in result['items'])
+    assert picker.search(db,'笔译项目','',1,1,'week')['total']==2
+    assert picker.search(db,'笔译项目','',1,10,'all')['total']==4
+    assert picker.search(db,'笔译项目','',1,10,'week',direction_keyword='英文')['total']==0
+
+
+def test_project_picker_month_ranges_clamp_month_end():
+    import report_project_picker as picker
+    assert picker.order_date_range('month',date(2026,3,31))==(date(2026,2,28),date(2026,4,1))
+    assert picker.order_date_range('quarter',date(2026,1,31))==(date(2025,10,31),date(2026,2,1))
+    assert picker.order_date_range('year',date(2024,2,29))==(date(2023,2,28),date(2024,3,1))
+    assert picker.order_date_range('all')==(None,None)
+    with pytest.raises(HTTPException):picker.order_date_range('invalid')
+
+
 def test_review_scope_applies_to_self_filled_tasks(environment):
     import work_report_access as access
     db,(owner,member,outsider)=environment

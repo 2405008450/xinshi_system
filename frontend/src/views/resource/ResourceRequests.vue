@@ -265,11 +265,12 @@
 </template>
 
 <script setup>
+import ElPopover from '@/components/common/WindowPopover.vue'
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import AnnotationConversationEntry from '@/components/chat/AnnotationConversationEntry.vue'
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElButton, ElCard, ElMessage, ElMessageBox, ElPopover, ElTable, ElTableColumn } from 'element-plus'
+import { ElButton, ElCard, ElMessage, ElMessageBox, ElTable, ElTableColumn } from 'element-plus'
 // 手动导入及 h() 渲染的组件不会自动补齐样式，必须显式声明依赖。
 import 'element-plus/es/components/button/style/css'
 import 'element-plus/es/components/card/style/css'
@@ -360,7 +361,7 @@ const LanguageItemsPopover = defineComponent({
     return () => {
       if (props.alwaysExpanded) return props.items.length ? table() : h('span', '-')
       if (props.items.length <= 1) return h('span', { class: 'cell-summary' }, summary.value)
-      return h(ElPopover, { trigger: 'click', placement: 'left', width: 680, popperClass: 'resource-items-popover' }, { reference: () => h(ElButton, { link: true, type: 'primary' }, () => summary.value), default: table })
+      return h(ElPopover, { title: '需求语种明细', trigger: 'click', placement: 'left', width: 680, popperClass: 'resource-items-popover' }, { reference: () => h(ElButton, { link: true, type: 'primary' }, () => summary.value), default: table })
     }
   },
 })

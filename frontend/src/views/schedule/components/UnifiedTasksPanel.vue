@@ -1,12 +1,12 @@
 <template>
   <div class="unified-tasks-panel">
-    <el-radio-group v-model="sourceFilter" size="small" class="source-filter">
+    <el-radio-group v-if="!fixedSource" v-model="sourceFilter" size="small" class="source-filter">
       <el-radio-button value="all">全部（{{ visibleTaskCount }}）</el-radio-button>
       <el-radio-button value="project">项目任务（{{ projectTotalCount }}）</el-radio-button>
       <el-radio-button value="non_project">非项目任务（{{ openNonProjectItems.length }}）</el-radio-button>
     </el-radio-group>
 
-    <section v-show="sourceFilter !== 'non_project'">
+    <section v-if="sourceFilter !== 'non_project'">
       <div v-if="sourceFilter === 'all'" class="subsection-title">项目任务</div>
       <MyTasksPanel
         :current-user-name="currentUserName"
@@ -36,7 +36,7 @@
             v-model="keywordDraft"
             size="small"
             clearable
-            placeholder="搜索任务名称、类型或安排人"
+            placeholder="搜索任务名称、具体任务、类型或安排人"
             style="width: 220px"
             @input="onNonProjectKeywordInput"
             @keyup.enter="runNonProjectSearch"
@@ -72,9 +72,9 @@
         :row-class-name="nonProjectRowClassName"
       >
         <el-table-column prop="task_type" label="任务类型" width="120" />
-        <el-table-column prop="task_name" label="任务名称" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="task_name" label="任务名称" min-width="260"><template #default="{row}"><strong>{{row.task_name}}</strong><div class="non-project-specific-task" :title="row.specific_task||''">具体任务：{{row.specific_task||'-'}}</div></template></el-table-column>
         <el-table-column prop="assigner_name" label="安排人" width="120" />
-        <el-table-column prop="assignee_name" label="负责人" width="120" />
+        <el-table-column prop="assignee_name" label="执行人" width="120" />
         <el-table-column label="安排时间" width="165">
           <template #default="{ row }">{{ formatDateTime(row.assigned_at) }}</template>
         </el-table-column>
@@ -122,14 +122,16 @@
       <el-empty v-else class="compact-empty" description="暂无非项目任务" :image-size="56" />
     </section>
 
-    <DraggableFormDialog v-model="taskDialogVisible" :title="taskDialogTitle" width="640px" destroy-on-close>
+    <DraggableFormDialog v-model="taskDialogVisible" class="non-project-task-dialog" top="5vh" :title="taskDialogTitle" width="640px" destroy-on-close>
+      <template #header><DialogFieldSearchHeader ref="taskFieldSearchRef" v-model="taskFieldSearchKeyword" :title="taskDialogTitle" :fetch-suggestions="fetchTaskFieldSuggestions" @select="locateTaskField" @clear="clearTaskFieldSearch" /></template>
+      <div ref="taskBody">
       <AppForm ref="taskFormRef" :model="taskForm" :rules="taskRules" label-width="110px">
         <el-form-item label="任务类型" prop="task_type">
           <el-select v-model="taskForm.task_type" style="width: 100%">
             <el-option v-for="type in TASK_TYPES" :key="type" :label="type" :value="type" />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="taskForm.task_type === '自定义'" label="自定义类型" required>
+        <el-form-item v-if="taskForm.task_type === '自定义'" label="自定义类型" prop="custom_task_type" :rules="[{required:true,whitespace:true,message:'请输入自定义类型',trigger:'blur'}]">
           <el-input
             v-model="taskForm.custom_task_type"
             maxlength="50"
@@ -140,7 +142,8 @@
         <el-form-item label="任务名称" prop="task_name">
           <el-input v-model="taskForm.task_name" maxlength="255" show-word-limit />
         </el-form-item>
-        <el-form-item v-if="assigning || (editingTask && canAssign)" label="负责人" prop="assignee_id">
+        <el-form-item label="具体任务" prop="specific_task"><el-input v-model="taskForm.specific_task" type="textarea" :rows="4" maxlength="10000" show-word-limit placeholder="填写需要执行的具体内容" /></el-form-item>
+        <el-form-item v-if="assigning || (editingTask && canAssign)" label="执行人" prop="assignee_id">
           <el-select v-model="taskForm.assignee_id" filterable style="width: 100%">
             <el-option
               v-for="user in users"
@@ -151,14 +154,14 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item v-else label="负责人">
-          <el-input :model-value="currentDisplayName" readonly />
+        <el-form-item v-else label="执行人">
+          <ReadonlyField :model-value="currentDisplayName" source="auto" />
         </el-form-item>
         <el-form-item label="安排人">
-          <el-input :model-value="taskAssignerDisplay" readonly />
+          <ReadonlyField :model-value="taskAssignerDisplay" source="auto" />
         </el-form-item>
         <el-form-item label="安排时间">
-          <el-input :model-value="taskAssignedAtDisplay" readonly />
+          <ReadonlyField :model-value="taskAssignedAtDisplay" source="auto" />
         </el-form-item>
         <el-form-item v-if="!editingTask" label="任务周期">
           <el-select v-model="taskForm.frequency" style="width: 100%">
@@ -195,12 +198,13 @@
           />
         </el-form-item>
         <el-form-item label="实际完成时间">
-          <el-input :model-value="taskActualCompletionDisplay" readonly />
+          <ReadonlyField :model-value="taskActualCompletionDisplay" source="auto" />
         </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="taskForm.remark" type="textarea" :rows="3" maxlength="5000" show-word-limit />
         </el-form-item>
       </AppForm>
+      </div>
       <template #footer>
         <el-button @click="taskDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="taskSubmitting" @click="submitTask">保存</el-button>
@@ -210,7 +214,7 @@
     <DraggableFormDialog v-model="recurrenceVisible" title="周期任务管理" width="900px" destroy-on-close>
       <el-table v-loading="recurrenceLoading" :data="recurrences" border size="small">
         <el-table-column prop="task_type" label="任务类型" width="120" />
-        <el-table-column prop="task_name" label="任务名称" min-width="220" />
+        <el-table-column prop="task_name" label="任务名称" min-width="260"><template #default="{row}"><strong>{{row.task_name}}</strong><div class="non-project-specific-task" :title="row.specific_task||''">具体任务：{{row.specific_task||'-'}}</div></template></el-table-column>
         <el-table-column label="周期" width="100">
           <template #default="{ row }">{{ FREQUENCY_LABEL[row.frequency] || row.frequency }}</template>
         </el-table-column>
@@ -261,7 +265,11 @@
 
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { matchesSearchFields } from '@/utils/searchMatching'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import ReadonlyField from '@/components/common/ReadonlyField.vue'
+import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
+import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import DeadlineHintCell from '@/components/common/DeadlineHintCell.vue'
 import MyTasksPanel from './MyTasksPanel.vue'
 import { getUsers } from '@/api/users'
@@ -283,7 +291,8 @@ const props = defineProps({
   currentUserName: { type: String, default: '' },
   currentUserId: { type: String, default: '' },
   items: { type: Array, default: () => [] },
-  referenceDate: { type: String, default: '' }
+  referenceDate: { type: String, default: '' },
+  fixedSource: { type: String, default: '' }
 })
 const emit = defineEmits(['open-chat', 'open-project', 'open-manuscript', 'refresh'])
 
@@ -292,7 +301,7 @@ const FREQUENCY_LABEL = { daily: '每日', workday: '工作日', weekly: '每周
 const STATUS_LABEL = { pending: '待处理', in_progress: '进行中', completed: '已完成', cancelled: '已取消' }
 const STATUS_TYPE = { pending: 'info', in_progress: 'primary', completed: 'success', cancelled: 'danger' }
 
-const sourceFilter = ref('all')
+const sourceFilter = ref(props.fixedSource || 'all')
 const projectVisibleCount = ref(0)
 const projectTotalCount = ref(0)
 const keyword = ref('')
@@ -318,8 +327,7 @@ const filteredNonProjectItems = computed(() => {
       || item.status === statusFilter
     if (!statusMatches) return false
     if (!value) return true
-    return [item.task_type, item.task_name, item.assigner_name, item.assignee_name, item.remark]
-      .some(field => String(field || '').toLowerCase().includes(value))
+    return matchesSearchFields([item.task_type, item.task_name, item.specific_task, item.assigner_name, item.assignee_name, item.remark], value)
   })
   const now = new Date()
   return list.sort((a, b) => compareWorkItemsByDeadline(a, b, now))
@@ -382,10 +390,13 @@ const taskSubmitting = ref(false)
 const assigning = ref(false)
 const editingTask = ref(null)
 const taskFormRef = ref(null)
+const taskBody=ref(null)
+const {fieldSearchRef:taskFieldSearchRef,fieldSearchKeyword:taskFieldSearchKeyword,fetchFieldSuggestions:fetchTaskFieldSuggestions,locateDialogField:locateTaskField,clearFieldSearch:clearTaskFieldSearch}=useDialogFieldSearch(taskBody)
 const taskForm = reactive({
   task_type: '非项目工作',
   custom_task_type: '',
   task_name: '',
+  specific_task: '',
   assignee_id: '',
   planned_completion_at: '',
   remark: '',
@@ -397,7 +408,7 @@ const taskForm = reactive({
 const taskRules = {
   task_type: [{ required: true, message: '请选择任务类型', trigger: 'change' }],
   task_name: [{ required: true, message: '请输入任务名称', trigger: 'blur' }],
-  assignee_id: [{ required: true, message: '请选择负责人', trigger: 'change' }]
+  assignee_id: [{ required: true, message: '请选择执行人', trigger: 'change' }]
 }
 const taskDialogTitle = computed(() => editingTask.value ? '编辑非项目任务' : (assigning.value ? '分配非项目任务' : '添加个人任务'))
 const currentDisplayName = computed(() => {
@@ -431,6 +442,7 @@ function resetTaskForm() {
     task_type: '非项目工作',
     custom_task_type: '',
     task_name: '',
+  specific_task: '',
     assignee_id: '',
     planned_completion_at: '',
     remark: '',
@@ -467,6 +479,7 @@ function openEditTask(row) {
     task_type: isPresetType ? row.task_type : '自定义',
     custom_task_type: isPresetType ? '' : row.task_type,
     task_name: row.task_name,
+    specific_task: row.specific_task || '',
     assignee_id: row.assignee_id || '',
     planned_completion_at: row.planned_completion_at ? String(row.planned_completion_at).slice(0, 19) : '',
     remark: row.remark || ''
@@ -494,6 +507,7 @@ async function submitTask() {
     const common = {
       task_type: effectiveTaskType,
       task_name: taskForm.task_name,
+      specific_task: taskForm.specific_task,
       assignee_id: taskForm.assignee_id || undefined,
       remark: taskForm.remark || undefined
     }
@@ -683,3 +697,6 @@ function formatDateTime(value) {
   }
 }
 </style>
+
+<style scoped>.non-project-specific-task{font-size:12px;color:#64748b;white-space:pre-wrap;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;margin-top:5px}</style>
+<style>.non-project-task-dialog.el-dialog{display:flex;flex-direction:column;max-height:90vh;overflow:hidden}.non-project-task-dialog .el-dialog__header,.non-project-task-dialog .el-dialog__footer{flex-shrink:0}.non-project-task-dialog .el-dialog__body{flex:1;min-height:0;overflow-y:auto}.non-project-task-dialog .el-dialog__footer{border-top:1px solid #e2e8f0;background:#f8fafc}</style>

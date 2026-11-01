@@ -1,6 +1,18 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {durationOptions,durationLabel,normalizeReportRow,rowTypes,updateRowTypes,shiftReportDate,reportWeekday,validQuantity,buildWorkTypeOptions,appendReportRows,requiresProjectIdentity,blockReportImages} from '../src/utils/workReportForm.js'
+import {layoutTaskContent,layoutTaskExtra} from '../src/utils/layoutReportTasks.js'
+
+test('自定义一级分类保留内容，固定任务多选不丢失自由文字',()=>{
+ const options=buildWorkTypeOptions({'质量工作':['核对术语']})
+ assert.equal(options.find(option=>option.value==='质量工作').children[0].value,'质量工作::核对术语')
+ const choices=['专检','排版'],extra='另行核对客户要求；保留原换行\n及其他内容'
+ const content=layoutTaskContent(choices,extra)
+ assert.equal(layoutTaskExtra(content,choices),extra)
+ assert.equal(layoutTaskContent([],layoutTaskExtra(content,choices)),extra)
+ assert.equal(layoutTaskExtra('原有人工填写内容',choices),'原有人工填写内容')
+ assert.equal(layoutTaskExtra('专检',['专检']),'')
+})
 test('耗时按10分钟和0.1小时生成，存储仍为整数分钟',()=>{
  assert.deepEqual(durationOptions.slice(0,8),[10,20,30,40,50,60,66,72]);assert.equal(durationOptions.at(-1),1440)
  assert.equal(durationLabel(60),'60分钟');assert.equal(durationLabel(66),'1.1小时');assert.equal(durationLabel(72),'1.2小时')
@@ -15,10 +27,10 @@ test('日期和星期固定UTC+8，跨月跨年正确',()=>{
 })
 test('工作量支持小数和空值，拒绝负数非数字',()=>{for(const n of ['',null,0,'1.25'])assert.equal(validQuantity(n),true);for(const n of ['x',-1,Infinity])assert.equal(validQuantity(n),false)})
 
-test('四类工作保留层级，只有纯非项目工作免填订单和项目名称',()=>{
- const options=buildWorkTypeOptions();assert.deepEqual(options.map(option=>option.label),['项目工作','非项目工作','外勤工作','管理工作'])
+test('工作分类保留层级，只有纯非项目工作免填订单和项目名称',()=>{
+ const options=buildWorkTypeOptions();assert.deepEqual(options.map(option=>option.label),['项目工作','非项目工作','外勤工作','管理工作','培训工作'])
  for(const types of [['非项目工作'],['非项目工作::接待客户']])assert.equal(requiresProjectIdentity({display_metadata:{report_types:types}}),false)
- for(const types of [['笔译项目'],['外勤工作::拜访客户'],['管理工作::分析数据'],['非项目工作::接待客户','管理工作::分析数据']])assert.equal(requiresProjectIdentity({display_metadata:{report_types:types}}),true)
+ for(const types of [['笔译项目'],['外勤工作::拜访客户'],['管理工作::分析数据'],['培训工作::AI知识培训'],['非项目工作::接待客户','管理工作::分析数据']])assert.equal(requiresProjectIdentity({display_metadata:{report_types:types}}),true)
  const row={display_metadata:{}};updateRowTypes(row,['外勤工作::拜访客户','管理工作::分析数据']);assert.equal(row.task_type,'外勤工作、管理工作')
 })
 
@@ -29,7 +41,7 @@ test('批量加行校验数量且各行独立',()=>{
 
 test('非项目等分类的其他选项不会与自定义占位重复',()=>{
  const options=buildWorkTypeOptions(undefined,[{display_metadata:{report_types:['非项目工作::__custom__']}}])
- for(const parent of ['非项目工作','外勤工作','管理工作']){
+ for(const parent of ['非项目工作','外勤工作','管理工作','培训工作']){
   const children=options.find(option=>option.value===parent).children
   assert.equal(children.filter(option=>option.value===`${parent}::__custom__`).length,1)
   assert.equal(children.find(option=>option.value===`${parent}::__custom__`).label,'其他（自定义）')

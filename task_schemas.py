@@ -32,6 +32,7 @@ class TranslatorExecutionResponse(BaseModel):
 class NonProjectTaskCreate(BaseModel):
     task_type: str = Field(min_length=1, max_length=50)
     task_name: str = Field(min_length=1, max_length=255)
+    specific_task: str = Field(default="", max_length=10000)
     assignee_id: Optional[UUID] = None
     planned_completion_at: Optional[datetime] = None
     remark: Optional[str] = Field(default=None, max_length=5000)
@@ -40,6 +41,7 @@ class NonProjectTaskCreate(BaseModel):
 class NonProjectTaskUpdate(BaseModel):
     task_type: Optional[str] = Field(default=None, min_length=1, max_length=50)
     task_name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    specific_task: Optional[str] = Field(default=None, max_length=10000)
     assignee_id: Optional[UUID] = None
     planned_completion_at: Optional[datetime] = None
     remark: Optional[str] = Field(default=None, max_length=5000)
@@ -49,6 +51,7 @@ class NonProjectTaskResponse(BaseModel):
     id: UUID
     task_type: str
     task_name: str
+    specific_task: str = Field(default="", max_length=10000)
     assigner_id: UUID
     assigner_name: str
     assignee_id: UUID
@@ -69,6 +72,7 @@ class WorkItemResponse(BaseModel):
     source_id: UUID
     task_type: str
     task_name: str
+    specific_task: str = Field(default="", max_length=10000)
     assigner_name: Optional[str] = None
     assigner_id: Optional[UUID] = None
     assignee_id: Optional[UUID] = None
@@ -163,6 +167,7 @@ class WorkEntryResponse(BaseModel):
 class RecurrenceCreate(BaseModel):
     task_type: str = Field(min_length=1, max_length=50)
     task_name: str = Field(min_length=1, max_length=255)
+    specific_task: str = Field(default="", max_length=10000)
     assignee_id: Optional[UUID] = None
     frequency: Literal["daily", "workday", "weekly", "monthly"]
     weekdays: Optional[list[int]] = None
@@ -185,6 +190,7 @@ class RecurrenceResponse(BaseModel):
     id: UUID
     task_type: str
     task_name: str
+    specific_task: str = Field(default="", max_length=10000)
     assigner_id: UUID
     assignee_id: UUID
     frequency: str
@@ -231,7 +237,7 @@ class DailyReportItemInput(BaseModel):
             if metadata.get("quantity_unit") == "其他" and not str(metadata.get("quantity_unit_other") or "").strip():
                 raise ValueError("请填写具体单位")
         if "report_types" in metadata:
-            from work_report_categories import DEFAULT_CATEGORIES
+            from work_report_categories import DEFAULT_CATEGORIES, valid_category_value
             allowed = set(DEFAULT_CATEGORIES['项目工作']) | set(DEFAULT_CATEGORIES)
             types = metadata["report_types"]
             def valid_type(value):
@@ -240,7 +246,7 @@ class DailyReportItemInput(BaseModel):
                 if value in allowed:
                     return True
                 parent, separator, name = value.partition('::')
-                return bool(separator and parent in DEFAULT_CATEGORIES and name.strip() and len(name) <= 80 and '::' not in name)
+                return valid_category_value(value)
             if not isinstance(types, list) or not types or any(not valid_type(value) for value in types):
                 raise ValueError("请选择有效的任务/项目类型")
             if "其他项目" in types and not str(metadata.get("custom_project_type") or "").strip():
@@ -259,6 +265,8 @@ class DailyReportItemInput(BaseModel):
 
 
 class DailyReportSaveRequest(BaseModel):
+    idle_minutes: Optional[int] = Field(default=None,ge=0,le=1440,strict=True)
+    idle_declaration_confirmed: bool = Field(default=False,strict=True)
     supplemental_note: Optional[str] = Field(default=None, max_length=10000)
     items: Optional[list[DailyReportItemInput]] = None
 
@@ -272,6 +280,17 @@ class DailyReportSaveRequest(BaseModel):
         return self
 
 
+class ManualDailyReportSaveRequest(DailyReportSaveRequest):
+    idle_minutes: int = Field(ge=0,le=1440,strict=True)
+    idle_declaration_confirmed: Literal[True]
+
+    @model_validator(mode='before')
+    @classmethod
+    def require_explicit_confirmation(cls,data):
+        if isinstance(data,dict) and data.get('idle_declaration_confirmed') is not True:raise ValueError('请勾选确认空闲时间声明')
+        return data
+
+
 class DailyReportItemResponse(DailyReportItemInput):
     id: Optional[UUID] = None
     sort_order: int = 0
@@ -283,6 +302,11 @@ class DailyReportItemResponse(DailyReportItemInput):
 
 
 class DailyReportResponse(BaseModel):
+    edit_draft_revision: int = 0
+    idle_minutes: Optional[int] = None
+    idle_declaration_confirmed: bool = False
+    idle_declaration_text: Optional[str] = None
+    idle_confirmed_at: Optional[datetime] = None
     amendment_used: bool = False
     can_amend: bool = False
     id: Optional[UUID] = None

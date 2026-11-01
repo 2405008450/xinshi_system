@@ -23,6 +23,7 @@ def run():
             result={'total':1,'items':[{'id':'project-1','order_no':'TP-TEST-001','project_name':'测试项目','source_file_name':'测试项目','project_status':'confirmed','client_short_name':'客户简称','language_pair':'中→英','customer_reception_time':'2026-10-20T10:00:00+08:00','customer_deadline_time':'2026-10-25T18:00:00+08:00','assigned_translators':[]}]}
         elif path=='/api/departments/organization':result={'items':[],'people':[],'canManage':True,'ready':True,'membershipReady':True}
         elif path=='/api/project-arrangements/directory':result={'ready':True}
+        elif path=='/api/projects/translation/project-1':result={'id':'project-1','order_no':'TP-TEST-001','source_file_name':'测试项目.pdf','project_name':'测试项目.pdf','project_status':'confirmed','sub_orders':[]}
         else:result=[]
         route.fulfill(content_type='application/json',body=json.dumps(result,ensure_ascii=False))
     with sync_playwright() as pw:
@@ -119,9 +120,10 @@ def run():
         page.reload();expect(page.locator('.project-summary--header')).not_to_contain_text('客户简称')
         expect(page.get_by_role('button',name='查看详情',exact=True)).to_have_count(0)
         page.get_by_role('button',name='TP-TEST-001',exact=True).click()
-        expect(page.locator('.business-detail-popover:visible')).to_contain_text('项目详情')
-        page.locator('.arrangement-toolbar>strong').click()
-        expect(page.locator('.business-detail-popover:visible')).to_have_count(0)
+        expect(page.locator('.project-editor-dialog:visible')).to_contain_text('项目详情')
+        expect(page.locator('.project-editor-dialog:visible').get_by_role('tab',name='基础信息',exact=True)).to_be_visible()
+        page.locator('.project-editor-dialog:visible').get_by_role('button',name='取消',exact=True).click()
+        expect(page.locator('.project-editor-dialog:visible')).to_have_count(0)
         page.screenshot(path='scratch/arrangement-filters.png',full_page=True)
         page.set_viewport_size({'width':640,'height':800})
         page.locator('.arrangement-toolbar').get_by_role('button',name=re.compile('时间筛选')).click()

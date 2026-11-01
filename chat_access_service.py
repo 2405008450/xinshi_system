@@ -1,6 +1,6 @@
 """会话参与人边界；关注、置顶和项目查看权限不能代替参与人资格。"""
 from fastapi import HTTPException
-from models import AnnotationChatMember, ChatProjectMemberPref
+from models import AnnotationChatMember, ChatProjectMemberPref, AppUser
 from discussion_chat_models import DiscussionMember
 
 
@@ -13,17 +13,30 @@ MEMBERS = {
 
 def visible_ids(db, kind, user):
     model, column = MEMBERS[kind]
-    return db.query(column).filter(model.user_id == user.id)
+    query=db.query(column).filter(model.user_id == user.id)
+    if kind=='discussion':
+        from technical_task_conversations import restricted_ids
+        from technical_task_conversations import can_access
+        if not can_access(db,user): query=query.filter(column.notin_(restricted_ids(db)))
+    return query
 
 
 def member_ids(db, kind, conversation_id):
     model, column = MEMBERS[kind]
-    return {uid for uid, in db.query(model.user_id).filter(column == conversation_id)}
+    query=db.query(model.user_id).filter(column == conversation_id)
+    if kind=='discussion':
+        from technical_task_conversations import restricted_ids,eligible
+        if conversation_id in restricted_ids(db): query=query.filter(model.user_id.in_(eligible(db).with_entities(AppUser.id)))
+    return {uid for uid, in query}
 
 
 def is_member(db, kind, conversation_id, user):
     if not user or not user.is_active:
         return False
+    if kind=='discussion':
+        from technical_task_conversations import restricted_ids
+        from technical_task_conversations import can_access
+        if conversation_id in restricted_ids(db) and not can_access(db,user): return False
     model, column = MEMBERS[kind]
     return db.query(model.user_id).filter(column == conversation_id, model.user_id == user.id).first() is not None
 

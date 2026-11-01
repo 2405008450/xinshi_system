@@ -1,6 +1,6 @@
 <template>
   <div class="chat-topic-navigation" :class="{ 'is-sidebar': !compact }">
-    <el-popover v-if="compact" v-model:visible="menuVisible" trigger="click" placement="bottom-start" :width="300" popper-class="chat-topic-popover">
+    <el-popover title="话题导航" v-if="compact" v-model:visible="menuVisible" trigger="click" placement="bottom-start" :width="300" popper-class="chat-topic-popover">
       <template #reference><el-button text size="small" :aria-label="iconOnly ? '主题' : '讨论主题'" title="讨论主题"><el-icon><Collection /></el-icon><span v-if="!iconOnly">讨论主题</span></el-button></template>
       <TopicMenu />
     </el-popover>

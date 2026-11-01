@@ -1,5 +1,5 @@
 <template>
-  <el-popover
+  <el-popover title="高级筛选"
     v-model:visible="visibleModel"
     trigger="click"
     placement="bottom-end"
@@ -16,7 +16,7 @@
 
     <div class="advanced-filter-shell">
       <div class="advanced-filter-header">
-        <span class="advanced-filter-title">高级筛选</span>
+
         <div class="advanced-filter-actions">
           <el-button type="primary" link @click="$emit('reset')">重置</el-button>
           <el-button v-if="count" type="primary" link @click="$emit('clear')">清空高级条件</el-button>

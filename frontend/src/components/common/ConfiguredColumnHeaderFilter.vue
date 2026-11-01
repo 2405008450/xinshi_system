@@ -95,9 +95,15 @@ const resolvedOptions = computed(() => {
   const source = typeof props.definition.options === 'function'
     ? props.definition.options()
     : props.definition.options
+  const seen = new Set()
   return (source || []).map((option) => option && typeof option === 'object'
     ? { label: option.label ?? option.name ?? String(option.value ?? option.id), value: option.value ?? option.id }
     : { label: String(option), value: option })
+    .filter((option) => {
+      if (seen.has(option.value)) return false
+      seen.add(option.value)
+      return true
+    })
 })
 const filteredOptions = computed(() => {
   const keyword = filterKeyword.value.trim().toLocaleLowerCase()

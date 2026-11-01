@@ -39,7 +39,7 @@
         <el-option label="项目名称：升序" value="ascending" />
         <el-option label="项目名称：降序" value="descending" />
       </el-select>
-      <el-popover v-if="canWrite" trigger="click" placement="bottom-end" :width="440">
+      <el-popover title="任务类型管理" v-if="canWrite" trigger="click" placement="bottom-end" :width="440">
         <template #reference><el-button>任务类型管理</el-button></template>
         <div class="task-type-manager">
           <div class="task-type-create">

@@ -85,8 +85,9 @@ def lock_plan(db, project_id, user):
 
 
 def sequence(db, project_id):
+    from project_arrangement_targets import identity
     rows = ordered_tasks(db, project_id)
-    return [{'id': str(row.id), 'step': index+1, 'assignee_name': (person.full_name or person.username) if (person := db.get(AppUser, row.assignee_id)) else '-', 'status': row.status} for index, row in enumerate(rows)]
+    return [{'id': str(row.id), 'step': index+1, 'assignee_name': (person.full_name or person.username) if (person := db.get(AppUser, row.assignee_id)) else '-', 'status': row.status, **identity(db,row)} for index, row in enumerate(rows)]
 
 
 def detail(db, project_id, page=1, page_size=10):

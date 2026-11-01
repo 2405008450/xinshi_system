@@ -16,7 +16,8 @@
             <el-col :xs="24" :md="12"><el-form-item label="生成数量"><el-input-number v-model="form.count" :min="1" :max="500" style="width:100%" /></el-form-item></el-col>
             <el-col :xs="24" :md="12"><el-form-item label="起始序号"><el-input-number v-model="form.startIndex" :min="1" style="width:100%" /></el-form-item></el-col>
           </el-row>
-          <el-form-item label="文件名称前缀"><el-input v-model="form.subProjectNamePrefix" maxlength="220" placeholder="留空则按 母项目名称-子订单01 自动生成，可创建后修改" /></el-form-item>
+          <el-form-item label="扩展名"><el-input v-model="form.fileExtension" placeholder="如 .docx、.pdf，每条订单对应一个文件" /></el-form-item>
+          <el-form-item label="文件名称前缀"><el-input v-model="form.subProjectNamePrefix" maxlength="220" placeholder="留空则以母项目文件名为前缀，序号放在扩展名前" /></el-form-item>
           <el-alert type="info" :closable="false" show-icon :title="`将生成 ${quantityNames.length} 个子订单，文件名称示例：${quantityNames.slice(0, 3).join('、')}`" />
         </AppForm>
       </el-tab-pane>
@@ -89,6 +90,7 @@
 </template>
 
 <script setup>
+import { translationFileNameError, translationFileExtension } from '@/utils/translationFileName'
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { createSubOrdersBulk } from '@/api/subOrders'
@@ -106,6 +108,7 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'created'])
 const statusOptions = [
   ['初步咨询', 'initial_consultation'],
+  ['简单需求', 'simple_requirement'], ['原文件+简单需求', 'source_file_simple_requirement'],
   ['待确认', 'pending_confirmation'], ['已确认', 'confirmed'], ['已整理', 'organized'],
   ['已排译员', 'translator_assigned'], ['已发译员', 'sent_to_translator'], ['译员发回', 'translator_returned'],
   ['已专检', 'special_checked'], ['已排版', 'typeset'], ['专检排版完成', 'special_checked_typeset'], ['已审核', 'reviewed'],
@@ -119,6 +122,7 @@ const fileList = ref([])
 const submitting = ref(false)
 
 const createForm = () => ({
+  fileExtension: translationFileExtension(props.project.sourceFileName || props.project.projectName),
   count: 1,
   startIndex: 1,
   subProjectNamePrefix: props.project.projectName ? `${props.project.projectName}-子订单` : '',
@@ -147,8 +151,12 @@ const form = reactive(createForm())
 const normalizeName = (value) => String(value || '').trim().toLocaleLowerCase()
 
 const quantityNames = computed(() => {
-  const prefix = form.subProjectNamePrefix.trim() || (props.project.projectName ? `${props.project.projectName}-子订单` : '子订单')
-  return Array.from({ length: Number(form.count) || 0 }, (_, offset) => `${prefix}${String(Number(form.startIndex) + offset).padStart(2, '0')}`)
+  const source=props.project.sourceFileName || props.project.projectName || ''
+  const suffix=translationFileExtension(source)
+  const stem=suffix ? source.slice(0,-suffix.length) : source
+  const prefix = form.subProjectNamePrefix.trim() || (stem ? `${stem}-子订单` : '子订单')
+  const extension=form.fileExtension.trim().replace(/^\.?/,'.')
+  return Array.from({ length: Number(form.count) || 0 }, (_, offset) => `${prefix}${String(Number(form.startIndex) + offset).padStart(2, '0')}${extension}`)
 })
 
 const previewRows = computed(() => {
@@ -164,8 +172,8 @@ const previewRows = computed(() => {
     let reason = ''
     if (contentIndex > 500) {
       status = 'error'; reason = '单次最多导入 500 条'
-    } else if (name.length > 255) {
-      status = 'error'; reason = '文件名称不能超过 255 个字符'
+    } else if (translationFileNameError(name)) {
+      status = 'error'; reason = translationFileNameError(name)
     } else if (existing.has(key)) {
       status = 'duplicate'; reason = '当前母订单已存在同名子订单'
     } else if (seen.has(key)) {
@@ -182,7 +190,7 @@ const previewSummary = computed(() => previewRows.value.reduce((summary, row) =>
 }, { create: 0, duplicate: 0, error: 0 }))
 const canSubmit = computed(() => {
   if (!props.project.id || submitting.value) return false
-  if (mode.value === 'quantity') return quantityNames.value.length > 0 && quantityNames.value.every((name) => name.length <= 255)
+  if (mode.value === 'quantity') return quantityNames.value.length > 0 && quantityNames.value.every((name) => !translationFileNameError(name))
   return previewSummary.value.create > 0 && previewSummary.value.error === 0
 })
 

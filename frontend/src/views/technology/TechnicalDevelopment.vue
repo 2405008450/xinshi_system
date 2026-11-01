@@ -161,6 +161,9 @@ import * as api from '@/api/technicalDevelopment'
 import { useRoute, useRouter } from 'vue-router'
 import { getRequirementTask, saveRequirementTask } from '@/api/technicalRequirementTasks'
 import { generateFeedbackSheet } from '@/api/developmentFeedback'
+import { useProjectChatDock } from '@/composables/useProjectChatDock'
+import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
+import { useChatSessionCategories } from '@/composables/useChatSessionCategories'
 
 const props = defineProps({ dialogOnly: Boolean, initialContent: { type: String, default: '' } })
 const emit = defineEmits(['close', 'saved'])
@@ -169,6 +172,7 @@ function taskActions(row) {
   return [
     ...(row.level < 3 ? [{ command: 'add-child', label: '添加子任务' }] : []),
     { command: 'swap-position', label: '互换位置' },
+    { command: 'conversation', label: creatingConversation.value === row.id ? '正在打开会话…' : row.conversation?.created ? '打开会话' : '创建会话', disabled: !!creatingConversation.value },
     { command: 'add-report', label: '加至工作报告' },
     { command: 'generate-feedback', label: generatingFeedback.value === row.id ? '生成反馈表中…' : '生成反馈表', disabled: !!generatingFeedback.value },
   ]
@@ -177,10 +181,28 @@ function taskActions(row) {
 function handleTaskAction(command, row) {
   if (command === 'add-child') openEditor(null, row)
   else if (command === 'swap-position') { swapRow.value = row; swapTarget.value = null; swapVisible.value = true }
+  else if (command === 'conversation') openConversation(row)
   else if (command === 'add-report') openTaskReport(row)
   else if (command === 'generate-feedback' && !generatingFeedback.value) generateFeedback(row)
 }
 const router = useRouter(), route = useRoute(), generatingFeedback = ref('')
+const creatingConversation = ref('')
+const dock = useProjectChatDock()
+const { sessions: chatSessions, refresh: refreshChatSessions } = useAnnotationFollowed()
+const { refresh: refreshChatCategories } = useChatSessionCategories()
+async function openConversation(row) {
+  if (creatingConversation.value) return
+  creatingConversation.value = row.id
+  try {
+    const result = await api.openDevelopmentConversation(row.id)
+    await Promise.allSettled([refreshChatSessions({ force: true }), refreshChatCategories()])
+    const key = `discussion:${result.room_id}`
+    const session = { ...chatSessions.value.find(item => item.key === key), key, projectId: result.room_id, projectType: 'discussion', title: result.title, subtitle: '群聊' }
+    dock.revealSession(session); dock.openChat(session)
+    row.conversation = { room_id: result.room_id, created: true }
+  } catch(e) { ElMessage.error(message(e, '创建／打开会话失败')) }
+  finally { creatingConversation.value = '' }
+}
 async function generateFeedback(row) {
   if (generatingFeedback.value) return
   generatingFeedback.value = row.id

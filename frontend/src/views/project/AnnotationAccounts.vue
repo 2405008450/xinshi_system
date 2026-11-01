@@ -23,7 +23,7 @@
         <div><h2>标注员账号预览</h2><p>集中查看各客户平台账号、当前分配状态及标注员分配履历</p></div>
         <div class="actions header-actions">
           <TableColumnSettings :settings-key="`annotation-accounts:${viewMode}:${viewMode === 'project' ? projectId : 'library'}`" v-model="visibleColumnKeys" :columns="tableColumns" @reset="resetColumns" />
-          <el-popover v-if="canWrite" v-model:visible="platformManagerVisible" trigger="click" placement="bottom-end" :width="560" popper-class="platform-manager-popper">
+          <el-popover title="客户平台" v-if="canWrite" v-model:visible="platformManagerVisible" trigger="click" placement="bottom-end" :width="560" popper-class="platform-manager-popper">
             <template #reference><el-button :disabled="!effectiveClientId">平台管理</el-button></template>
             <div class="platform-manager">
               <div class="panel-title"><strong>客户平台</strong><el-button link type="primary" @click="openPlatform()">新增平台</el-button></div>

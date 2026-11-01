@@ -2,12 +2,8 @@
 
 
 def normalize_translation_file_name(value) -> str:
-    name = str(value or "").strip()
-    if not name:
-        raise ValueError("请输入项目名称（真实文件名）")
-    if len(name) > 255:
-        raise ValueError("项目名称不能超过255个字符")
-    return name
+    from translation_file_name_rules import normalize_single_file_name
+    return normalize_single_file_name(value)
 
 
 def sync_translation_file_name(project, value) -> bool:
@@ -19,6 +15,6 @@ def sync_translation_file_name(project, value) -> bool:
 
 
 def normalize_translation_name_payload(data: dict) -> None:
-    if "source_file_name" in data:
-        name = normalize_translation_file_name(data["source_file_name"])
+    if "source_file_name" in data or "project_name" in data:
+        name = normalize_translation_file_name(data.get("source_file_name", data.get("project_name")))
         data.update(source_file_name=name, project_name=name)

@@ -2,7 +2,7 @@ export const screenshotPattern=/!\[截图\]\(screenshot:\/\/([0-9a-f-]{36})(?:#[
 export const screenshotIds=value=>{current();return [...new Set(Array.from(String(value||'').matchAll(/screenshot:\/\/([0-9a-f-]{36})(?:#([0-9a-f]{64}))?/gi),match=>{const id=match[1].toLowerCase();if(match[2])signedRefs.set(id,match[0]);return id}))]}
 export const screenshotText=value=>screenshotIds(value).length?String(value||'').replace(screenshotPattern,'').replace(/\n{3,}/g,'\n\n').trimEnd():String(value??'')
 export const screenshotValue=(text,ids)=>{current();return ids.length?[String(text||'').trimEnd(),...ids.map(id=>`![截图](${String(id).startsWith('screenshot://')?id:signedRefs.get(id)||`screenshot://${id}`})`)].filter(Boolean).join('\n'):String(text??'')}
-export const screenshotPreview=value=>String(value??'').replace(/!\[截图\]\(screenshot:\/\/[^\s)]*(?:\)|$)/gi,'[截图]').replace(/screenshot:\/\/[0-9a-f-]*/gi,'[截图]')
+export const screenshotPreview=value=>String(value??'').replace(/\[附件\]\(discussion-file:\/\/[0-9a-f-]{36}\)/gi,'[附件]').replace(/!\[截图\]\(screenshot:\/\/[^\s)]*(?:\)|$)/gi,'[截图]').replace(/screenshot:\/\/[0-9a-f-]*/gi,'[截图]')
 let identity='',entries=new Map(),pending=new Map(),signedRefs=new Map()
 function current(){const storage=globalThis.localStorage,key=storage?`${storage.getItem('user_id')}:${storage.getItem('token')}`:'unit';if(key!==identity){identity=key;entries=new Map();signedRefs=new Map()}}
 export function rememberScreenshotGrant(response){

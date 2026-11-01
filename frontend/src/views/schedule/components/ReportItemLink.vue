@@ -1,6 +1,6 @@
 <template>
   <TechnicalTaskReference v-if="row.display_metadata?.technical_task_id" :task-id="row.display_metadata.technical_task_id" :label="text" :kind="kind === 'project' ? 'details' : 'progress'" />
-  <el-popover v-else ref="popover" v-model:visible="visible" trigger="click" placement="left" :width="760" :z-index="zIndex" :popper-options="popoverOptions" popper-class="report-item-detail-popover" @show="load" @hide="cancel">
+  <el-popover :title="target?.sourceType==='technical'?'开发任务详情':kind==='task'?'任务详情':target?.sourceType==='consultation'?'咨询详情':'项目详情'" v-else ref="popover" v-model:visible="visible" trigger="click" placement="left" :width="760" :z-index="zIndex" :popper-options="popoverOptions" popper-class="report-item-detail-popover" @show="load" @hide="cancel">
     <template #reference><el-button type="primary" link class="report-item-link" :aria-label="`${kind==='project'?'查看项目':'查看任务'}：${text}`" @click.stop="raise">{{text}}</el-button></template>
     <div ref="panel" class="report-item-detail" v-loading="loading">
       <el-alert v-if="error" :title="error" type="warning" :closable="false"><el-button link @click="load">重新加载</el-button></el-alert>
@@ -26,6 +26,7 @@
       </template>
     </div>
   </el-popover>
+  <TranslationProjectWindow v-if="translationEditorId" :key="translationEditorId" embedded editor-only :editor-project-id="translationEditorId" :editor-z-index="translationEditorZIndex" @editor-closed="translationEditorId=''" />
 </template>
 <script setup>
 import {computed,defineAsyncComponent,nextTick,onBeforeUnmount,reactive,ref,watch} from 'vue'
@@ -39,6 +40,8 @@ import {arrangementProjectRoute} from '@/utils/resourceArrangements'
 import {chatOverlayZIndex} from '@/utils/chatOverlay'
 import {durationLabel} from '@/utils/workReportForm'
 import TechnicalTaskReference from '@/components/common/TechnicalTaskReference.vue'
+const TranslationProjectWindow=defineAsyncComponent(()=>import('@/views/project/translation/ProjectDetails.vue'))
+const translationEditorId=ref(''),translationEditorZIndex=ref(2200)
 const AssociatedProjectDetailPanel=defineAsyncComponent(()=>import('@/components/project/AssociatedProjectDetailPanel.vue'))
 const props=defineProps({row:{type:Object,required:true},kind:{type:String,default:'project'},text:{type:String,required:true}})
 const router=useRouter(),visible=ref(false),loading=ref(false),error=ref(''),zIndex=ref(2100),target=ref(null)
@@ -61,7 +64,7 @@ async function load(){
     const value={...identity.value}
     if(!value.sourceType)throw new Error('此工作记录尚未关联项目，请先在工作报告中选择项目')
     if(!value.projectId){
-      const result=await searchReportProjects({project_type:value.category,keyword:value.orderNo,page:1,page_size:100},{signal})
+      const result=await searchReportProjects({project_type:value.category,keyword:value.orderNo,period:'all',page:1,page_size:100},{signal})
       if(signal.aborted)return
       const match=exactReportProject(result.items,value.orderNo)
       if(!match)throw new Error('未找到唯一对应的项目，请核对订单号或重新选择项目')
@@ -72,7 +75,18 @@ async function load(){
     const {detail,...extras}=result;target.value=value;Object.assign(state,{detail,extras})
   }catch(e){if(serial===sequence&&!signal.aborted)error.value=e.response||e.status?associatedProjectError(e):e.detail||e.message||'读取项目失败'}finally{if(serial===sequence)loading.value=false}
 }
-function enterProject(){visible.value=false;router.push(arrangementProjectRoute({source_type:target.value.sourceType,project_id:target.value.projectId}))}
+function enterProject(){
+  const selected=target.value
+  if(!selected)return
+  if(selected.sourceType==='translation'){
+    translationEditorZIndex.value=Math.max(zIndex.value+2,chatOverlayZIndex(panel.value))
+    translationEditorId.value=selected.projectId
+    visible.value=false
+    return
+  }
+  visible.value=false
+  router.push(arrangementProjectRoute({source_type:selected.sourceType,project_id:selected.projectId}))
+}
 watch(()=>[props.row,identity.value.projectId,identity.value.orderNo,identity.value.sourceType],()=>{visible.value=false;cancel()})
 onBeforeUnmount(()=>{cancel();observer.disconnect()})
 </script>

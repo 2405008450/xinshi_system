@@ -735,6 +735,21 @@
 
 表级规则：组合唯一：`user_id`, `report_date`；CHECK：`status::text = ANY (ARRAY['draft'::character varying, 'finalized'::character varying]::text[])`；索引 `ix_daily_report_user_date`：`user_id`, `report_date`。
 
+### `daily_report_idle_declaration`
+
+工作报告空闲时间与声明确认。仅新增此表，不回填历史报告；不计入工作任务耗时。手工保存、确认及一次修订接口要求明确填写分钟数并确认声明。修改前后内容随报告修订快照保留。
+
+| 字段 | 类型 | 规则 | 说明 |
+| --- | --- | --- | --- |
+| report_id | UUID | 主键、FK → daily_report.id，删除时级联 | 一份日报一条声明 |
+| idle_minutes | integer | 非空，0～1440 | 空闲分钟数（含洗手间等所有非工作时间） |
+| confirmed | boolean | 非空，必须为 true | 本人明确勾选确认 |
+| declaration_text | text | 非空 | 确认时的完整声明原文 |
+| declaration_version | integer | 非空 | 声明版本，目前为 1 |
+| confirmed_at | timestamptz | 非空 | 实际确认时刻，接口 UTC+8 |
+
+显式建表脚本：`tools/apply_work_report_idle_migration.py`；启动自动迁移保持关闭。
+
 ### `daily_report_item`
 
 日报中的工作条目快照。
@@ -2145,3 +2160,177 @@ KPI仅统计个人执行记录，不重复统计协调主任务。原单人已�
 新增 `technical_task_deletion`：`task_id` UUID 主键、任务外键；`deleted_by` UUID 账号外键；`deleted_at` TIMESTAMPTZ，使用 UTC+8。删除后不再进入技术开发列表或作为上级任务，不再允许修改或新增报告；原工作报告、进度、反馈和奖励记录保留，历史任务引用仍可只读查看。多人任务删除时同步标记其分工执行记录。存在未删除子任务的母任务拒绝单独删除；批量选择含母子任务时，前端按三级、子任务、母任务顺序逐条处理，失败项保留选择。编号不因删除而被重新使用。
 
 显式幂等初始化入口为 `tools/apply_technical_task_management_migration.py`；启动自动迁移保持关闭。技术开发主表移除独立详情列，任务编号点击打开详情小窗；页面级删除管理采用公共工具栏和确认流程，树表选择不联动下属任务。
+
+
+### 技术开发任务会话与部门分组（2026-10-30）
+
+新增 `technical_task_conversation`：`task_id` UUID 主键、技术任务外键；`room_id` UUID 非空唯一、会话分类外键；`created_by` UUID 账号外键；`created_at` TIMESTAMPTZ（UTC+8）。每个技术任务仅关联一个讨论会话，创建/重新打开幂等，持有任务树事务锁。首次创建加入当前开发/IT部在用成员，后续打开补齐新成员；原消息、阅读进度及个人偏好保留。删除任务不删除既有会话和聊天记录。会话展示名称实时读取层级编号及任务名称，编号调整或任务改名后同步展示。
+
+会话分组新增内置虚拟目录“技术/开发项目”（`dcb1f917-6000-4000-8000-000000000012`，ruleKey=technical），仅开发/IT部可见。任务会话作为其下属讨论分类统一归集，复用讨论消息、附件、引用、参与人、未读和置顶功能。目录及讨论列表、直接访问、参与人、邀请、提及、附件和历史检索统一校验部门权限，已有非IT成员关系不能绕过。非IT超级管理员同样不例外。
+
+用户明确要求将现有“技术/开发沟通”原会话移动至新分组并置顶；保留原会话UUID、成员、原消息及阅读记录，为现有IT成员补齐参与关系并设为置顶。分组中该群优先显示。显式脚本 `tools/apply_technical_task_conversation_migration.py` 默认仅创建新表；移动操作必须指定 `--configure-general`、原会话版本和操作账号，执行前核对主机、目录、Git提交、数据库及唯一匹配。启动自动迁移保持关闭。
+
+
+### 笔译项目简短记录（translation_project_note）
+
+项目表单底部“简短记录”可追加最多200字的纯文本，列表每页10条，时间倒序；只允许追加与读取，不提供修改和删除接口。新增项目需先保存，再添加记录。记录独立保存，不改变或覆盖正在编辑的项目字段、updated_at。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | uuid | 主键 |
+| project_id | uuid | 笔译项目ID；无外键，以保留项目删除后的记录 |
+| request_id | uuid | 客户端重试标识；与项目ID组合唯一，防止重复保存 |
+| content | varchar(200) | 去除首尾空白后非空的记录内容 |
+| actor_user_id | uuid | 后端从登录身份取得的操作人ID |
+| actor_name / actor_username | varchar(255) / varchar(100) | 操作时姓名及账号快照，后续改名不影响记录 |
+| created_at | timestamptz | UTC+8生成，接口携带+08:00 |
+
+索引 ix_translation_project_note_project_time(project_id,created_at,id)；唯一约束 uq_translation_project_note_request(project_id,request_id)。GET/POST /projects/translation/{project_id}/short-notes 分别要求 projects:read / projects:write，验证项目存在且不是已迁移的标注项目。POST锁定项目行，校验重试身份及内容；客户端不能指定操作人或时间。迁移 tools/apply_translation_project_note_migration.py 可重复执行，仅创建本表和必要约束、索引，启动自动迁移保持关闭。
+
+### `editor_draft`
+
+仅保存尚未正式提交的编辑内容，不触发业务保存、报告确认或发送。账号隔离；本机400毫秒备份，云端3秒合并、最多20份一批、同一客户端单请求执行。乐观版本冲突保留本机内容，不覆盖云端新版。
+
+| 字段 | 类型 | 规则 | 说明 |
+| --- | --- | --- | --- |
+| user_id | UUID | 复合主键、FK → app_user.id，删除级联 | 当前登录用户，接口不能指定其他人 |
+| namespace | varchar(80) | 复合主键 | 模块，例如 work-report、global、form:client |
+| draft_key | varchar(220) | 复合主键 | 记录身份；工作报告为报告日期 |
+| payload | jsonb | 可空，单份不超过256KB | 不完整草稿；null为已清除的版本标记 |
+| revision | integer | 非空 | 每次实际变化递增，防止旧窗口覆盖 |
+| updated_at | timestamptz | 非空 | 实际保存时刻，接口转换为UTC+8 |
+
+迁移脚本 `tools/apply_editor_drafts_migration.py` 仅创建此表，不回填、不修改业务表；启动自动迁移保持关闭。工作报告正式保存与草稿清除同事务执行，保留清除版本以拒绝旧请求重新写回。
+
+
+### 笔译各级订单文件名称约束（2026-10-31）
+
+新建及修改名称使用同一校验：非空、最多255个Unicode字符、单个真实文件名、尾部为已识别扩展名；禁止路径及Windows文件名禁用字符。格式源为 frontend/src/config/translationFileExtensions.json，18类共514个去重后缀，另支持 .r00～.r99、.z00～.z99、.000～.999 分卷后缀。以已识别后缀和文件名分隔边界检查多文件，不直接按普通逗号或空格切开；复合 .tar.gz 与 .docx.zip 都是单个文件。未知后缀提示核对，不能以版本号冒充；不验证实际文件内容或进行解压。
+
+Python translation_file_name_rules.py 与前端 translationFileName.js 共用格式源和样例；母订单source_file_name/project_name同步，子订单sub_project_name、批量子订单、行内改名、稿件安排回写统一校验。读取原文目录时必须恰好一个有效文件，不再拼接多个文件或截断名称。批量导入允许多行，但每行生成独立子订单；按数量生成将序号放在扩展名前。历史记录不自动重写，不改名的局部状态/进度更新仍兼容旧数据。
+
+订单号详情入口复用同一完整项目表单，含基础信息、进度跟踪、子订单、项目文件页签及简短记录。完整详情打开前重新读取项目，查看用户禁用表单编辑并隐藏保存操作；项目文件页签沿用原权限。无数据库结构变更。
+
+### 简单需求、收到回复及各级订单安排（2026-10-31）
+
+既有简短记录保留只读历史入口；新界面使用“简单需求”。项目状态增加 `simple_requirement`（简单需求）、`source_file_simple_requirement`（原文件+简单需求），既有状态字段无需结构调整。
+
+`translation_simple_requirement`：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | uuid | 主键 |
+| project_id | uuid | 外键 translation_project.id，删除项目时级联 |
+| request_id | uuid | 与 project_id 组合唯一，重试不重复保存或通知 |
+| original_text / translated_text | varchar(2000) | 原文非空，译文可空；仅去除首尾空白 |
+| chargeable | boolean NOT NULL | 每条必须明确选择收费或不收费；不代替项目金额计算 |
+| previous_status / saved_status | varchar(50) | 保存前项目状态与本次选定状态 |
+| actor_user_id | uuid | 登录操作人，服务端取得 |
+| actor_name / actor_username | varchar(255) / varchar(100) | 操作时姓名和账号快照 |
+| created_at | timestamptz | UTC+8生成，接口显式+08:00 |
+
+索引 `ix_translation_simple_requirement_project_time(project_id,created_at,id)`；唯一约束 `uq_translation_simple_requirement_request(project_id,request_id)`。锁定项目后核对原状态及更新时间，需求、状态、接收人及通知在同一事务写入。列表接口按创建时间及ID倒序分页，默认10条。
+
+`translation_simple_requirement_recipient`：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | uuid | 主键 |
+| requirement_id | uuid | 外键至简单需求，级联删除 |
+| user_id / user_name | uuid / varchar(255) | 接收账号及发送时姓名快照 |
+| notification_id | uuid | 本次通知ID；通知清理不删除收到回复记录 |
+| received_at | timestamptz NULL | 本人明确回复收到的时间，已读不能替代 |
+| reply | varchar(500) NULL | 首次收到回复内容，默认“收到” |
+
+唯一约束 `uq_translation_simple_requirement_recipient(requirement_id,user_id)`；索引 `ix_translation_simple_requirement_recipient_user(user_id,received_at)`。通知人必须为笔译项目部当前有效人员（兼容主部门及跨部门归属），默认唯一匹配账号 shaofei，支持多选。发送人、接收人及有项目查看权限者可查看需求；仅接收人本人可回复，回复幂等且原子追加发送人通知。业务通知类型为 `translation_simple_requirement`、`translation_simple_requirement_receipt`；通知创建时间沿用香港本地无时区字段语义，既有通知 read_at 继续使用 UTC 无时区语义，两种时间的本功能接口均明确转换为+08:00。不改变其他通知历史时间解释。
+
+`translation_arrangement_order_target`：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| arrangement_id | uuid | 主键、外键 translation_project_arrangement.id，级联删除 |
+| sub_order_id | uuid | 下级订单身份；不设删除级联，保留删除后的快照 |
+| order_no / project_name | varchar(60) / varchar(255) | 安排时订单号与文件名称快照 |
+| order_level | integer | 子订单为2，编号追加层级为3等 |
+| previous_order_status | varchar(50) NULL | 安排前下级订单状态 |
+
+索引 `ix_translation_arrangement_order_target_sub_order_id(sub_order_id)`。母订单安排沿用原表，无附属行；旧请求未指定目标时仍安排母订单。新请求 `target_order_ids` 明确列出目标，不自动包含下级；验证真实 parent_project_id 归属、重复目标及单批最多100项展开后任务。下级层级按母订单号后的数字点分段识别，三级归属其存在的编号上级，缺失上级时仍在母订单下呈现。每个所选订单与每位人员生成独立任务、保留统一执行顺序及修改历史；只更新所选订单的可安排状态。任务列表、执行顺序、历史及完成报告均包含实际订单号、名称和层级，工作报告不替换成母订单编号。下级删除后使用保存时快照并返回 target_deleted。
+
+安排接口向任务本人及按既有工作报告规则授权的查看人返回母项目的 `customer_requirement_professional`、`customer_requirement_special`；项目安排和今日任务共用只读客户要求小窗。部门显示选择只保存在按“项目安排+当前账号”隔离的浏览器配置，不改变组织归属或权限。
+
+迁移 `tools/apply_translation_requirement_migration.py` 仅创建以上三张新表及索引、约束，可重复执行；启动自动迁移保持关闭。组织架构的本次明确人员追加由独立 `tools/ensure_translation_project_department.py` 执行，与结构迁移分开，不覆盖已有部门归属，不在后续迁移时自动补回被人工移出的成员。
+
+### 简单需求客户回稿时间、状态下拉与项目经理安排（2026-11-01）
+
+弹窗复用既有 `translation_project.customer_deadline_time` 字段，保存时间和选择状态分别独立操作，核对项目更新时间防止旧窗口覆盖新数据。状态可选择完整笔译状态目录；保存简单需求沿用当前选定状态，不再限制为两种状态。日期按香港时间编辑、生成带+08:00的接口值，旧项目日期字段继续保存香港本地无时区值。父项目表单只同步本次明确修改的回稿时间及状态，不覆盖其他尚未保存字段。
+
+`translation_requirement_dispatch`：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | uuid | 主键 |
+| project_id | uuid | 外键 translation_project.id，删除项目时级联 |
+| request_id | uuid | 与项目组合唯一；发送失败重试不重复通知 |
+| requirement_id | uuid NULL | 关联的已保存需求；服务端验证同一项目，不级联删除历史快照 |
+| requirement_snapshot | json NULL | 发送时关联需求的原文、译文、收费选择等快照 |
+| content | varchar(10000) | 安排具体内容，去除首尾空白后非空，项目/安排查看者共同可见 |
+| customer_deadline_time | timestamptz NULL | 发送时客户回稿时间，区别于之后修改的当前回稿时间 |
+| actor_user_id | uuid | 发送人，登录身份取得 |
+| actor_name / actor_username | varchar(255) / varchar(100) | 发送时姓名及账号快照 |
+| created_at | timestamptz | 发送时间，接口+08:00 |
+
+唯一约束 `uq_translation_requirement_dispatch_request(project_id,request_id)`；索引 `ix_translation_requirement_dispatch_project_time(project_id,created_at,id)`。发送时锁定项目并核对更新时间、通知人部门、有效账号及关联需求归属；原文/译文未保存的草稿不作为关联内容发送。安排、全部接收人及全部通知同事务保存；创建安排不改变父项目版本和业务状态。
+
+`translation_requirement_dispatch_recipient`：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | uuid | 主键 |
+| dispatch_id | uuid | 外键至安排，删除安排时级联 |
+| user_id / user_name | uuid / varchar(255) | 所选笔译项目部账号及姓名快照 |
+| notification_id | uuid | 本次发送给该接收人的通知ID |
+
+唯一约束 `uq_translation_requirement_dispatch_recipient(dispatch_id,user_id)`；user_id 索引。发送人、有项目查看权限者及安排的接收人可查看共有内容；接收人不必额外拥有项目管理权限即可查看本人安排与回复回执。查看权限不授予其他人代为回复的权限。
+
+`translation_requirement_event`：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | uuid | 主键 |
+| project_id | uuid | 外键至项目，删除项目时级联 |
+| subject_kind / subject_id | varchar(20) / uuid | project、requirement 或 dispatch 的业务身份 |
+| event_kind | varchar(20) | project_update、received 或 completed |
+| event_key | varchar(180) UNIQUE | 设置按项目+请求ID去重，回执按类型+业务ID+本人ID+步骤去重 |
+| actor_user_id | uuid | 实际登录操作人 |
+| actor_name / actor_username | varchar(255) / varchar(100) | 操作时姓名与账号快照 |
+| payload | json | 项目设置的提交值、修改前后值与原保存结果；或回执 reply 文本，最多500字 |
+| created_at | timestamptz | 实际操作时间，接口+08:00 |
+
+检查约束 `ck_translation_requirement_event_kind` 限制项目事件为 project_update，需求/安排事件为 received/completed；索引 `ix_translation_requirement_event_subject(subject_kind,subject_id,event_kind,actor_user_id)` 及 `ix_translation_requirement_event_project_time(project_id,created_at,id)`。项目设置重试返回首次保存的版本，不让旧表单接受其他人后来修改的版本。只有被发送人本人可以回复，锁定其接收人行后依次记录“收到”“已完成”，重复点击不追加回执或通知。旧简单需求的收到时间沿用既有 recipient 行，新增已完成回执写入事件表，不改旧表结构。完成回执不自动改变整个项目状态。
+
+项目经理安排通知类型 `translation_simple_dispatch`，回执通知类型 `translation_simple_dispatch_receipt`；均通过系统通知打开同一可拖动回执窗口。安排、回执、状态/时间修改列表默认10条分页；原需求记录及历史简短记录继续可见。迁移 `tools/apply_translation_dispatch_migration.py` 只创建上述三张新表及约束索引，不修改原有表，启动自动迁移保持关闭。
+
+
+### 标注项目今日状态汇报（2026-11-01）
+
+- `annotation_work_day`：本人项目按工作报告日（UTC+8、07:00换日）唯一；保存今日进行中/今日暂不进行、预计还需时间、首次进入进行中时间及乐观锁 revision。次日不沿用昨日安排。
+- `annotation_work_submission`：每日项目各时点（11、15、18、21、end_shift）唯一汇报；保存完成进度、当日累计分钟、安排与剩余时间快照、提交时间。累计用时不得下降；重复提交拒绝。
+- `annotation_work_reminder`：用户、自然日、时点唯一，记录已弹提醒的时间，避免多窗口重复。按班次区间、请假、考勤下班状态判断，周末按已发布值班安排处理。
+- 每次汇报原子写入现有 `annotation_project_status_history` 的 progress 记录及当日 `daily_report_item`；同一用户/项目/工作报告日汇总一项，任务类型为标注项目，用时取最新累计值；`display_metadata.source=annotation_work_status`、`annotation_work_day_id` 和 `_feedback_key` 保持关联，旧编辑窗口与重新汇总不得覆盖或丢失汇报。
+- 新字段 submitted_at、updated_at、entered_at、reminded_at 使用 timestamptz，接口显式 +08:00；现有进度与报告无时区字段沿用 UTC+8 本地时间存储。迁移仅创建上述三张新表及必要约束，不修改现有表、不回填业务数据；启动自动迁移关闭。
+
+- `annotation_work_availability`：用户/工作报告日/时点唯一的空闲状态（是/否）、预计空闲时间（未定、30分钟内、30-60分钟、1-2小时、2-5小时）、revision 与 timestamptz 更新时间。选择是必须有预估，选择否清空预估。同步工作报告补充说明，不将预计空闲时间计为实际耗时；本功能实际创建四张新表。
+
+
+### non_project_task_content（非项目任务具体内容）
+仅新增扩展表，既有任务及周期模板表结构保持不变，无历史回填。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | UUID | 主键 |
+| task_id | UUID，可空 | 非项目任务外键，唯一，级联删除 |
+| recurrence_id | UUID，可空 | 周期模板外键，唯一，级联删除 |
+| content | TEXT | 具体任务，接口最多10000字，与备注独立 |
+
+两个外键必须且只能填写一个；周期生成时复制模板内容。更新时间沿用所属任务/模板现有的UTC+8业务时间字段。
+迁移入口：`tools/apply_non_project_task_content_migration.py`，仅创建新表及必要约束，支持重复执行。

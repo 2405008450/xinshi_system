@@ -151,7 +151,7 @@ from annotation_comparison_models import (
 )
 from company_management_models import CompanyManagementSection, CompanyManagementAttachment
 from company_management_service import ensure_company_management_sections
-from routers import company_management, project_notices
+from routers import company_management, project_notices, editor_drafts
 from annotation_notice_models import AnnotationNoticeSection
 from annotation_notice_service import ensure_annotation_notice_sections
 from project_audit_models import ProjectOperationAudit
@@ -346,6 +346,7 @@ app.include_router(tasks.work_items_router)
 app.include_router(tasks.tasks_router)
 app.include_router(tasks.entries_router)
 app.include_router(tasks.reports_router)
+app.include_router(editor_drafts.router)
 from routers.project_arrangements import router as project_arrangements_router
 app.include_router(project_arrangements_router)
 from routers.monthly_shifts import router as monthly_shifts_router
@@ -368,6 +369,12 @@ app.include_router(business_mails.settings_router)
 app.include_router(business_mails.mail_router)
 app.include_router(mail_inline_images.router)
 app.include_router(project_audits.router)
+from translation_project_notes import router as translation_project_notes_router
+app.include_router(translation_project_notes_router)
+from translation_simple_requirements import router as translation_simple_requirements_router
+app.include_router(translation_simple_requirements_router)
+from translation_requirement_dispatch import router as translation_requirement_dispatch_router
+app.include_router(translation_requirement_dispatch_router)
 from project_client_manager import router as project_client_manager_router
 app.include_router(project_client_manager_router)
 

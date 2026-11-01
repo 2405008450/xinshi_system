@@ -143,7 +143,7 @@
                 <el-descriptions-item label="项目名称"><InlineTextField :model-value="getDetailRow(row).project_name" :editable="canWrite && !deleteMode" label="项目名称" :maxlength="500" :save-field="(value) => saveConsultationTextField(row, 'project_name', value)" @conflict="loadConsultationDetail(row.id, true)" /></el-descriptions-item>
                 <el-descriptions-item label="子客户/联系人"><InlineTextField :model-value="getDetailRow(row).contact_name" :editable="canWrite && !deleteMode" label="子客户/联系人" :maxlength="255" :save-field="(value) => saveConsultationTextField(row, 'contact_name', value)" @conflict="loadConsultationDetail(row.id, true)" /></el-descriptions-item>
                 <el-descriptions-item label="客户单号/标识"><InlineTextField :model-value="getDetailRow(row).customer_order_no" :editable="canWrite && !deleteMode" label="客户单号/标识" :maxlength="150" :save-field="(value) => saveConsultationTextField(row, 'customer_order_no', value)" @conflict="loadConsultationDetail(row.id, true)" /></el-descriptions-item>
-                <el-descriptions-item label="客服人员">
+                <el-descriptions-item label="客户经理">
                   <span class="detail-value">{{ getUserName(getDetailRow(row).customer_service_id) }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="销售人员">
@@ -1001,12 +1001,12 @@
             <div v-show="personnelAssignmentExpanded" class="personnel-assignment-fields">
               <el-row :gutter="20">
                 <el-col :span="12">
-                  <el-form-item label="客服人员" prop="customer_service_id">
+                  <el-form-item label="客户经理" prop="customer_service_id">
                     <el-select
                       v-model="form.customer_service_id"
                       filterable
                       clearable
-                      placeholder="请选择客服人员"
+                      placeholder="请选择客户经理"
                       style="width: 100%"
                     >
                       <el-option
@@ -1400,7 +1400,7 @@ const consultationColumnOptions = [
   { key: 'client_source', label: '客户来源', width: 120 },
   { key: 'source_keyword', label: '来源关键词', width: 150 },
   { key: 'handling_method', label: '处理方式', width: 120 },
-  { key: 'customer_service_id', label: '客服人员', width: 120, type: 'user' },
+  { key: 'customer_service_id', label: '客户经理', width: 120, type: 'user' },
   { key: 'sales_person_id', label: '销售人员', width: 120, type: 'user' },
   { key: 'editor_id', label: '编辑人', width: 120, type: 'user' },
   { key: 'follow_up_person_id', label: '跟进人', width: 120, type: 'user' },
@@ -1522,7 +1522,7 @@ const consultationFilterFields = [
   { key: 'client_source', label: '客户来源', type: 'text' },
   { key: 'source_keyword', label: '来源关键词', type: 'text' },
   { key: 'handling_method', label: '处理方式', type: 'text' },
-  { key: 'customer_service_id', label: '客服人员', type: 'select', options: () => userOptions.value.map((user) => ({ value: user.id, label: user.full_name || user.username })) },
+  { key: 'customer_service_id', label: '客户经理', type: 'select', options: () => userOptions.value.map((user) => ({ value: user.id, label: user.full_name || user.username })) },
   { key: 'sales_person_id', label: '销售人员', type: 'select', options: () => userOptions.value.map((user) => ({ value: user.id, label: user.full_name || user.username })) },
   { key: 'editor_id', label: '编辑人', type: 'select', options: () => userOptions.value.map((user) => ({ value: user.id, label: user.full_name || user.username })) },
   { key: 'follow_up_person_id', label: '跟进人', type: 'select', options: () => userOptions.value.map((user) => ({ value: user.id, label: user.full_name || user.username })) },
@@ -2279,7 +2279,7 @@ const getUserName = (id) => {
 
 const personnelAssignmentSummary = computed(() => {
   const assignments = [
-    ['客服', form.customer_service_id],
+    ['客户经理', form.customer_service_id],
     ['销售', form.sales_person_id],
     ['编辑', form.editor_id],
     ['跟进', form.follow_up_person_id],
@@ -2291,7 +2291,7 @@ const personnelAssignmentSummary = computed(() => {
   return assignments.map(([label, name]) => `${label}：${name}`).join('｜')
 })
 
-const personnelFieldLabels = new Set(['客服人员', '销售人员', '编辑人', '跟进人'])
+const personnelFieldLabels = new Set(['客户经理', '销售人员', '编辑人', '跟进人'])
 const handleLocateConsultationField = async (item) => {
   if (personnelFieldLabels.has(item?.searchLabel)) {
     personnelAssignmentExpanded.value = true

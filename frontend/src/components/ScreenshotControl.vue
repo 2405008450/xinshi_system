@@ -1,7 +1,7 @@
 <template>
   <div class="screenshot-control">
     <el-button text :loading="capturing" :title="`截图（${label}）`" :aria-label="`截图（${label}）`" @click="capture"><el-icon><Camera /></el-icon><span>截图</span></el-button>
-    <el-popover trigger="click" placement="bottom-end" :width="320" @show="draft = shortcut">
+    <el-popover title="截图快捷键" trigger="click" placement="bottom-end" :width="320" @show="draft = shortcut">
       <template #reference><el-button text aria-label="设置截图快捷键" title="设置截图快捷键"><el-icon><Setting /></el-icon></el-button></template>
       <strong>截图快捷键</strong>
       <p class="capture-help">点击下方输入框，再按下快捷键组合。</p>

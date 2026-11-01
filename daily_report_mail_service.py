@@ -215,6 +215,7 @@ def _report_rows(report: DailyReport) -> list[dict]:
 
 
 def build_daily_report_mail_preview(db: Session, user: AppUser, report_date: datetime.date) -> dict:
+    from work_report_idle import declaration_data
     report = _finalized_report(db, user.id, report_date)
     reasons: list[str] = []
     account_status = serialize_mail_account(db, user)
@@ -242,6 +243,7 @@ def build_daily_report_mail_preview(db: Session, user: AppUser, report_date: dat
         "subject": f"{report.report_date:%Y年%m月%d日}{_display_user(user)}工作报告",
         "rows": _report_rows(report),
         "supplemental_note": report.supplemental_note,
+        **declaration_data(report),
         "inline_image_html": None,
         "inline_images": [],
         "to_users": [_recipient_view(item, "to", recipient_names.get(item.id)) for item in to_users],
@@ -255,7 +257,7 @@ def build_daily_report_mail_preview(db: Session, user: AppUser, report_date: dat
     }
 
 
-def render_daily_report_mail(rows: list[dict], supplemental_note: Optional[str], inline_image_html: str = "") -> tuple[str, str]:
+def render_daily_report_mail(rows: list[dict], supplemental_note: Optional[str], inline_image_html: str = "", idle_data: Optional[dict] = None) -> tuple[str, str]:
     header_html = "".join(
         f'<th style="border:1px solid #9ca3af;background:#dbeafe;color:#1e3a5f;padding:7px 9px;text-align:center;font-weight:700;">{html.escape(label)}</th>'
         for _, label in MAIL_COLUMNS
@@ -295,8 +297,15 @@ def render_daily_report_mail(rows: list[dict], supplemental_note: Optional[str],
             f'<td style="border:1px solid #9ca3af;padding:7px 9px;white-space:pre-wrap;word-break:break-word;">{escaped_note}</td></tr></table>'
         )
         plain_lines.extend(["", f"补充说明：{supplemental_note}"])
+    idle_html=''
+    if idle_data and idle_data.get('idle_minutes') is not None:
+        idle_text=f"空闲时间（包括洗手间等所有非工作时间）：{idle_data['idle_minutes']}分钟（不计入工作耗时合计）"
+        declaration=idle_data.get('idle_declaration_text') or ''
+        idle_html=f'<p>{html.escape(idle_text)}</p><p>{html.escape(declaration)}</p><p>声明已确认</p>'
+        plain_lines=[idle_text,declaration,'声明已确认','',*plain_lines]
     html_body = (
         '<div style="font-family:Microsoft YaHei,Arial,sans-serif;color:#1f2937;font-size:13px;">'
+        f'{idle_html}'
         '<table role="presentation" style="border-collapse:collapse;width:100%;table-layout:auto;">'
         f"<thead><tr>{header_html}</tr></thead><tbody>{''.join(body_rows)}</tbody></table>{inline_image_html}{note_html}</div>"
     )
@@ -354,7 +363,8 @@ def send_daily_report_mail(db: Session, user: AppUser, report_date: datetime.dat
     rows = [item.model_dump() for item in payload.rows]
     inline_images = load_owned_images(db, payload.inline_image_ids, user.id)
     inline_fragment = sanitize_body_html(payload.inline_image_html, "", inline_images) if inline_images else ""
-    body_html, body_text = render_daily_report_mail(rows, payload.supplemental_note, inline_fragment)
+    from work_report_idle import declaration_data
+    body_html, body_text = render_daily_report_mail(rows, payload.supplemental_note, inline_fragment,declaration_data(report))
     body_html, body_text = append_signature(body_html, body_text, get_user_mail_profile(db, user.id))
     recipient_names = recipient_display_names(db, [*to_users, *cc_users])
     message_id = f"<daily-report-{payload.idempotency_key}@xinshi-system.local>"

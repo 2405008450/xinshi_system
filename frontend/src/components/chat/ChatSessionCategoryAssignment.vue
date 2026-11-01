@@ -21,7 +21,7 @@ import { assignableSessionFolders } from '@/utils/chatSessionFolders'
 import '@/views/resource/components/issueDialogs.css'
 const emit = defineEmits(['changed'])
 const { categories, refresh } = useChatSessionCategories()
-const folderOptions = computed(() => assignableSessionFolders(categories.items).filter(row => !row.builtin || categories.hierarchyReady))
+const folderOptions = computed(() => assignableSessionFolders(categories.items, { technicalAccess: categories.technicalAccess }).filter(row => !row.builtin || categories.hierarchyReady))
 const visible = ref(false), saving = ref(false), loaded = ref(false), error = ref(''), formRef = ref(), form = reactive({ ids: [] })
 let session, original = new Set()
 async function open(row) {

@@ -5,6 +5,7 @@ from routers.auth import get_current_user
 import technical_development as service
 import technical_development_report as reports
 import technical_task_management as management
+import technical_task_conversations as conversations
 
 class SwapWrite(service.WriteModel):
     target_id: UUID
@@ -38,6 +39,10 @@ def create(data: service.TaskCreate, db=Depends(get_db), user=Depends(get_curren
 @router.get('/tasks/{task_id}')
 def detail(task_id: UUID, db=Depends(get_db), user=Depends(get_current_user)):
     return service.detail(db, user, task_id)
+
+@router.post('/tasks/{task_id}/conversation')
+def conversation(task_id: UUID, db=Depends(get_db), user=Depends(get_current_user)):
+    return conversations.open_conversation(db,user,task_id)
 
 @router.delete('/tasks/{task_id}')
 def delete(task_id: UUID, revision: int, db=Depends(get_db), user=Depends(get_current_user)):

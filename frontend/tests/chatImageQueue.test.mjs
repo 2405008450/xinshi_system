@@ -4,6 +4,15 @@ import { createChatImageQueue } from '../src/utils/chatImageQueue.js'
 
 const file = { type: 'image/png', size: 10, name: '截图.png' }
 const tick = () => new Promise(resolve => setImmediate(resolve))
+test('附件模式支持20MB文件，并保留图片10MB限制', async () => {
+  const items=[], warnings=[]
+  const queue=createChatImageQueue(items,{allowFiles:true,upload:async()=>({id:'file-id'}),createUrl:()=>'',revokeUrl:()=>{},warn:message=>warnings.push(message)})
+  queue.add([{name:'方案.pdf',type:'application/pdf',size:20*1024*1024},{...file,size:11*1024*1024},{name:'大文件.zip',type:'application/zip',size:21*1024*1024}])
+  await tick()
+  assert.equal(items.length,1)
+  assert.equal(items[0].attachment.id,'file-id')
+  assert.equal(warnings.length,2)
+})
 function setup(upload = async () => ({ id: 'image-id' })) {
   const items = [], revoked = [], warnings = []
   const queue = createChatImageQueue(items, {

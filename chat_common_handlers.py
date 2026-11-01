@@ -96,19 +96,21 @@ async def upload_chat_file(service, scope, project_id: UUID, request: Request, f
     remote_url = remote_attachment_url()
     if remote_url:
         # 图片兼容旧云端接口；其他文件通过本次新增的云端文件接口保存。
-        target = remote_url if is_image and scope == 'annotation' else remote_url.removesuffix('/attachments') + f'/{scope}/{project_id}/files'
+        target = (remote_url.removesuffix('/project-chat/attachments') + f'/chat/discussions/{project_id}/files') if scope == 'discussion' else remote_url if is_image and scope == 'annotation' else remote_url.removesuffix('/attachments') + f'/{scope}/{project_id}/files'
         result = await upload_remote_attachment(target, content, file.filename, content_type,
             request.headers.get('authorization'), request.headers.get('x-chat-attachment-forwarded'))
         attachment = db.get(ChatProjectAttachment, result.id, populate_existing=True)
         if attachment is None or attachment.uploaded_by != user.id:
             raise HTTPException(502, '云端附件记录尚未同步，请稍后重试')
-        setattr(attachment, 'direct_conversation_id' if scope == 'direct' else 'annotation_project_id', project_id)
+        if scope in {'annotation', 'direct'}:
+            setattr(attachment, 'direct_conversation_id' if scope == 'direct' else 'annotation_project_id', project_id)
         db.commit()
         return result
-    name = uuid.uuid4().hex + suffix
+    name = (f'discussion_{project_id.hex}_' if scope == 'discussion' else '') + uuid.uuid4().hex + suffix
     destination = get_chat_upload_dir() / name
     destination.write_bytes(content)
-    attachment = ChatProjectAttachment(uploaded_by=user.id, **{('direct_conversation_id' if scope == 'direct' else 'annotation_project_id'): project_id}, original_name=Path(file.filename).name[:255],
+    binding = {('direct_conversation_id' if scope == 'direct' else 'annotation_project_id'): project_id} if scope in {'direct', 'annotation'} else {}
+    attachment = ChatProjectAttachment(uploaded_by=user.id, **binding, original_name=Path(file.filename).name[:255],
         storage_name=name, content_type=content_type, file_size=len(content))
     db.add(attachment)
     try:
@@ -121,5 +123,3 @@ async def upload_chat_file(service, scope, project_id: UUID, request: Request, f
     from chat_time import api_time
     return {'id': attachment.id, 'original_name': attachment.original_name, 'content_type': content_type,
             'file_size': len(content), 'created_at': api_time(attachment.created_at)}
-
-

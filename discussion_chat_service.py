@@ -28,6 +28,8 @@ def can_view(db, user):
 
 
 def can_view_room(db, user, room):
+    from technical_task_conversations import ROOT_ID, GENERAL_NAME, can_access
+    if room.get('parent_key')==ROOT_ID or room.get('technical_task_id') or room.get('name')==GENERAL_NAME: return can_access(db,user)
     if room.get('parent_key', RESOURCE_ROOT) == RESOURCE_ROOT:
         return can_view(db, user)
     return bool(user and user.is_active)
@@ -57,6 +59,8 @@ def room_specs(db):
         visible |= {key for key in active_categories if locations.get(key) in visible}
     from technical_requirements import specs
     technical={row['id']:row for row in specs(db)}
+    from technical_task_conversations import specs as development_specs
+    technical.update(development_specs(db))
     rows=[{**row,**technical.get(row['id'],{})} for row in rows]
     return [row for row in rows if row.get('parent_key', RESOURCE_ROOT) is None or row.get('parent_key', RESOURCE_ROOT) in visible]
 
@@ -84,7 +88,7 @@ def catalog(db, user):
     if not user or not user.is_active:
         return []
     resource_visible=can_view(db,user)
-    rooms = [room for room in room_specs(db) if room.get('parent_key',RESOURCE_ROOT)!=RESOURCE_ROOT or resource_visible]
+    rooms = [room for room in room_specs(db) if can_view_room(db,user,room)]
     ready = schema_ready(db)
     if not ready:
         return []
@@ -188,6 +192,8 @@ def send(db, user, room_id, payload):
         if not reply or reply.room_id != room_id or reply.recalled_at:
             raise HTTPException(422, '引用消息不属于当前讨论或已撤回')
     from discussion_mentions import recipients,create as create_mentions
+    from discussion_chat_files import validate_files
+    validate_files(db, user, room_id, payload.content)
     people,members=recipients(db,user,room_id,payload)
     row = Message(room_id=room_id, sender_id=user.id, sender_name=user.full_name or user.username,
         client_message_id=payload.client_message_id, content=payload.content, reply_to_id=payload.reply_to_id)

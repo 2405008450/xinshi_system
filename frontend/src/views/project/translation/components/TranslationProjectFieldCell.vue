@@ -1,21 +1,6 @@
 <template>
 <div v-if="column.key === 'orderNo'" class="order-no-actions">
-            <BusinessDetailPopover
-              :row="row"
-              title="项目详情"
-              :items="context.getTranslationClientDetailItems(context.projectDetailItems, row)"
-              :status-label="context.getStatusLabel"
-              :status-type="context.getStatusType"
-              :editable="context.canWriteProjects && !context.deleteMode"
-              :save-field="(field, value) => context.saveProjectTextField(row, field, value)"
-              @conflict="context.fetchData"
-            >
-              <template #reference>
-                <el-button type="primary" link class="order-no-link business-clickable-cell" :title="`${row.orderNo}（点击查看详情）`" @click.stop>
-                  {{ row.orderNo }}
-                </el-button>
-              </template>
-            </BusinessDetailPopover>
+            <el-button type="primary" link class="order-no-link business-clickable-cell" :title="`${row.orderNo}（点击查看完整项目详情）`" @click.stop="context.openProjectDetails(row)">{{ row.orderNo }}</el-button>
             <PathActionButtons v-if="context.canReadProjectFiles" @open="context.openOriginalPath(row)" @copy="context.copyOriginalPath(row)" />
           </div>
           <ProjectClientManagerHistory v-else-if="column.key === 'clientManager'" project-type="translation" :project-id="row.id" :label="row.clientManager || '未分配'" />
@@ -113,7 +98,6 @@
 <script setup>
 import ProjectClientManagerHistory from '@/components/common/ProjectClientManagerHistory.vue'
 import {CaretBottom,Check} from '@element-plus/icons-vue'
-import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import PathActionButtons from '@/components/common/PathActionButtons.vue'
 import DeadlineHintCell from '@/components/common/DeadlineHintCell.vue'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'

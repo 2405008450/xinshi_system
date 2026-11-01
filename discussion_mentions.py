@@ -17,6 +17,8 @@ def eligible_users(db, room, ids=None):
     import discussion_chat_service as service
     query=db.query(AppUser).filter(AppUser.is_active.is_(True))
     if ids is not None:query=query.filter(AppUser.id.in_(ids))
+    from technical_task_conversations import ROOT_ID,GENERAL_NAME,eligible
+    if room.get('parent_key')==ROOT_ID or room.get('technical_task_id') or room.get('name')==GENERAL_NAME: query=query.filter(AppUser.id.in_(eligible(db).with_entities(AppUser.id)))
     if room.get('parent_key',service.RESOURCE_ROOT)==service.RESOURCE_ROOT:
         query=query.outerjoin(UserRole,UserRole.user_id==AppUser.id).outerjoin(Role,Role.id==UserRole.role_id).outerjoin(RolePermission,RolePermission.role_id==Role.id).filter(or_(func.lower(AppUser.username)=='jimmy',Role.role_name.in_(SUPER_ROLE_NAMES),RolePermission.permission_code.in_([*service.VIEW_PERMISSIONS,'*'])))
     return query.distinct().order_by(AppUser.username).all()

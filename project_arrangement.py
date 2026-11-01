@@ -15,6 +15,7 @@ from work_report_dates import report_business_date
 import work_report_access as access
 import project_arrangement_history as history
 import project_arrangement_instruction as instructions
+import project_arrangement_targets as targets
 
 
 class ProjectArrangement(Base):
@@ -51,6 +52,7 @@ class AssignmentBatch(BaseModel):
     items: list[AssignmentInput] = Field(min_length=1, max_length=100)
     common_instruction: str | None = Field(default=None,max_length=10000)
     instruction_revision: int | None = Field(default=None,ge=0)
+    target_order_ids: list[UUID] | None = Field(default=None, min_length=1, max_length=100)
 
 
 class TaskEdit(BaseModel):
@@ -88,6 +90,9 @@ def serialize(db, row, include_sequence=True, include_instruction=True, instruct
     )} | {'assignee_name': person.full_name or person.username if person else '-',
          'assigned_by_name': ((actor.full_name or actor.username) if (actor := db.get(AppUser, row.assigned_by)) else '-'),
          'order_no': project.order_no if project else '-', 'project_name': (project.source_file_name or project.project_name) if project else '-'})
+    result.update(targets.identity(db, row, project))
+    result.update(customer_requirement_professional=project.customer_requirement_professional if project else None,
+                  customer_requirement_special=project.customer_requirement_special if project else None)
     if include_sequence:
         result['execution_sequence'] = history.sequence(db, row.project_id)
         result['execution_step'] = next((item['step'] for item in result['execution_sequence'] if item['id'] == str(row.id)), None)
@@ -112,6 +117,8 @@ def create_assignments(db, user, project_id, payload):
     require_ready(db)
     plan = history.lock_plan(db, project_id, user)
     before = history.snapshot(db, project_id, plan)
+    parent = db.get(TranslationProject, project_id)
+    selected_orders = targets.resolve(db, parent, payload.target_order_ids, len(payload.items))
     rows = []
     for item in payload.items:
         person = db.get(AppUser, item.assignee_id)
@@ -119,16 +126,26 @@ def create_assignments(db, user, project_id, payload):
             raise HTTPException(422, '只能安排在职且启用的人员')
         if not item.content.strip():
             raise HTTPException(422, '请填写具体任务')
-        row = ProjectArrangement(project_id=project_id, assigned_by=user.id,
-                                 **item.model_dump(exclude={'content'}), content=item.content.strip())
-        db.add(row)
-        rows.append(row)
+        for child in selected_orders:
+            row = ProjectArrangement(id=uuid4(), project_id=project_id, assigned_by=user.id,
+                                     **item.model_dump(exclude={'content'}), content=item.content.strip())
+            db.add(row)
+            rows.append(row)
     db.flush()
+    initial_statuses = {child.id: child.status for child in selected_orders if child is not None}
+    for index, row in enumerate(rows):
+        child = selected_orders[index % len(selected_orders)]
+        targets.attach(db, row, parent, child, initial_statuses.get(child.id) if child else None)
+    arrangeable = (None, 'initial_consultation', 'simple_requirement', 'source_file_simple_requirement', 'pending', 'pending_confirmation', 'confirmed', 'organized', 'in_progress', 'arranged')
+    for child in selected_orders:
+        if child is not None and child.status in arrangeable:
+            child.status = 'arranged'
+            child.updated_at = now().replace(tzinfo=None)
     if payload.common_instruction is not None:
         instructions.write_locked(db,user,project_id,payload.common_instruction,payload.instruction_revision)
     plan.ordered_task_ids = [*plan.ordered_task_ids, *(str(row.id) for row in rows)]
     project = db.get(TranslationProject, project_id)
-    if project.project_status in (None, 'initial_consultation', 'pending', 'pending_confirmation', 'confirmed', 'organized', 'in_progress', 'arranged'):
+    if None in selected_orders and project.project_status in arrangeable:
         project.project_status = 'arranged'
         project.updated_at = now().replace(tzinfo=None)
     history.append_history(db, plan, user, 'assign', before)
@@ -190,7 +207,8 @@ def complete_task(db, user, task_id, payload):
     project = db.get(TranslationProject, row.project_id)
     item.source_type, item.source_id = 'manual', row.id
     metadata.update(source='project_arrangement', arrangement_id=str(row.id),
-                    order_no=project.order_no, project_type='translation', _feedback_key=str(uuid4()))
+                    order_no=targets.identity(db,row,project)['order_no'], project_type='translation',
+                    sub_order_id=targets.identity(db,row,project)['sub_order_id'], root_project_id=str(project.id), _feedback_key=str(uuid4()))
     item.display_metadata = metadata
     from task_report_completion import append_report_item
     entry = append_report_item(db, user, item, 'project_arrangement', row.id)

@@ -54,11 +54,11 @@
           </div>
           <ProjectClientManagerHistory v-else-if="column.key === 'clientManagerName'" project-type="recruitment" :project-id="row.id" :label="row.clientManagerName || '未分配'" />
           <el-button v-else-if="column.key === 'projectName'" type="primary" link class="project-name-ellipsis business-clickable-cell" :title="row.projectName || '待生成'" @click="openProgress(row)">{{ row.projectName || '待生成' }}</el-button>
-          <el-popover v-else-if="column.key === 'jobDescription'" trigger="click" placement="left" :width="560">
+          <el-popover title="职位说明" v-else-if="column.key === 'jobDescription'" trigger="click" placement="left" :width="560">
             <template #reference><el-button type="primary" link class="description-preview business-clickable-cell">{{ row.jobDescription || '-' }}</el-button></template>
             <div class="long-text-detail">{{ row.jobDescription || '-' }}</div>
           </el-popover>
-          <el-popover v-else-if="column.key === 'clientShortName'" trigger="click" placement="left" :width="420">
+          <el-popover title="客户关联信息" v-else-if="column.key === 'clientShortName'" trigger="click" placement="left" :width="420">
             <template #reference><el-button type="primary" link class="business-clickable-cell">{{ row.clientShortName || '-' }}</el-button></template>
             <el-descriptions title="客户关联信息" :column="1" border size="small">
               <el-descriptions-item label="子客户/联系人">{{ displayValue(row.contactName) }}</el-descriptions-item>

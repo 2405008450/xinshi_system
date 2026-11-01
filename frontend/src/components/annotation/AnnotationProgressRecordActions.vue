@@ -4,7 +4,7 @@
       <el-button link type="primary" size="small" :disabled="disabled || saving || !editingReady" :title="editingReady ? '编辑本条记录' : '等待进度编辑留痕初始化'" @click="open('edit')">编辑</el-button>
       <el-button link type="danger" size="small" :disabled="disabled || saving" @click="open('delete')">删除</el-button>
     </template>
-    <el-popover trigger="click" placement="left" :width="760" popper-class="progress-record-audits" @show="loadAudits">
+    <el-popover title="详情" trigger="click" placement="left" :width="760" popper-class="progress-record-audits" @show="loadAudits">
       <template #reference><el-button link size="small">查看编辑 / 删除记录</el-button></template>
       <div class="progress-record-audits-body" v-loading="loading">
         <h4>本条进度的编辑 / 删除记录</h4>

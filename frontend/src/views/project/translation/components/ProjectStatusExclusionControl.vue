@@ -1,5 +1,5 @@
 <template>
-  <el-popover trigger="click" placement="bottom-end" :width="380" popper-class="arrangement-filter-popover project-status-exclusion-popover">
+  <el-popover title="排除项目状态" trigger="click" placement="bottom-end" :width="380" popper-class="arrangement-filter-popover project-status-exclusion-popover">
     <template #reference><el-button :type="modelValue.length?'primary':''" :class="{'is-active-filter':modelValue.length}" :aria-pressed="modelValue.length>0" plain>排除状态<span v-if="modelValue.length">（{{modelValue.length}}）</span></el-button></template>
     <p>勾选的项目状态将从列表中排除。</p>
     <el-checkbox-group :model-value="modelValue" class="exclusion-options" @update:model-value="$emit('update:modelValue',$event)"><el-checkbox v-for="option in statuses" :key="option.value" :value="option.value">{{option.label}}</el-checkbox></el-checkbox-group>

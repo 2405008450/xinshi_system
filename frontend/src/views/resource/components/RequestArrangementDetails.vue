@@ -1,6 +1,6 @@
 <template>
   <div class="request-arrangement-details">
-    <el-popover v-if="request.project" v-model:visible="projectOpen" trigger="click" placement="left" :width="760" :popper-options="popoverOptions" popper-class="associated-project-popover" @show="loadProject" @hide="loader.cancel()">
+    <el-popover title="项目详情" v-if="request.project" v-model:visible="projectOpen" trigger="click" placement="left" :width="760" :popper-options="popoverOptions" popper-class="associated-project-popover" @show="loadProject" @hide="loader.cancel()">
       <template #reference><el-button link type="primary">项目详情</el-button></template>
       <AssociatedProjectDetailPanel :source-type="request.project.source_type" :project-id="request.project.project_id" :state="state" title="项目详情" @retry="loadProject" @close="projectOpen = false" @enter="enterProject" />
     </el-popover>
