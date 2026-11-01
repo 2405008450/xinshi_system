@@ -7,7 +7,7 @@ from collections.abc import Iterator
 
 from resource_schemas import ResourcePersonWrite
 
-ALIGNMENT_VERSION = 'alignment-20261031-v1'
+ALIGNMENT_VERSION = 'alignment-20261101-v2'
 CONTACT_FIELDS = {'primary_phone', 'secondary_phone', 'primary_email', 'secondary_email',
                   'wechat', 'whatsapp', 'skype', 'line', 'other_contact'}
 
@@ -78,8 +78,9 @@ def reconcile_lines(rows: list[dict], destinations: list[tuple[str, str]], *,
                 removed = False
                 for path, value in destinations:
                     if path in CONTACT_FIELDS and isinstance(value, str) and len(value) >= 5 and value in residual:
-                        residual = residual.replace(value, '')
-                        removed = True
+                        pattern = r'(?:手机|联系电话|电\s*话|邮箱|电子邮件|E-mail|Email|Mobile|Cell phone|TEL|MAIL)\s*[:：]\s*' + re.escape(value) + r'(?![A-Za-z0-9])'
+                        residual, count = re.subn(pattern, '', residual, flags=re.I)
+                        removed = removed or bool(count)
                 if removed:
                     residual = re.sub(r'(手机|联系电话|电话|邮箱|电子邮件|E-mail|Email|Mobile|Cell phone)\s*[:：]\s*(?=[|；;，,]|$)', '', residual, flags=re.I)
                     residual = residual.strip(' |；;，,')
@@ -101,21 +102,15 @@ def reconcile_lines(rows: list[dict], destinations: list[tuple[str, str]], *,
 
 def certificate_language(name: str, quote: str, catalog: dict[str, str], *, context='') -> str | None:
     """只关联有明确语种线索的证书；目录缺项时不创建新语种。"""
-    text = name + ' ' + quote
-    if re.search(r'Cantonese|粤语', text, re.I):
-        label = '粤语'
-    elif re.search(r'普通话', text):
-        label = '普通话'
-    elif re.search(r'HSK|汉语水平', text, re.I):
-        label = '汉语'
-    elif re.search(r'日语|JLPT|日本语', text, re.I):
-        label = '日语'
-    elif re.search(r'英语|CET\s*[- ]?\d|TEM\s*[- ]?\d|BEC|IELTS|TOEFL', text, re.I):
-        label = '英语'
-    elif re.search(r'专业[四八]级', text) and '英语' in context:
-        label = '英语'
-    else:
-        return None
+    def labels(text):
+        rules=[('粤语',r'Cantonese|粤语'),('普通话',r'普通话'),('汉语',r'HSK|汉语水平'),
+               ('日语',r'日语|JLPT|日本语'),('英语',r'英语|CET\s*[- ]?\d|TEM\s*[- ]?\d|BEC|IELTS|TOEFL')]
+        return {label for label,pattern in rules if re.search(pattern,text,re.I)}
+    candidates=labels(name)
+    if not candidates:candidates=labels(quote)
+    if not candidates and re.search(r'专业[四八]级',name):candidates=labels(context)
+    if len(candidates)!=1:return None
+    label=next(iter(candidates))
     aliases = {'汉语': ['汉语', '中文', '普通话'], '普通话': ['普通话', '汉语', '中文']}
     return next((catalog[key] for key in aliases.get(label, [label]) if key in catalog), None)
 
@@ -140,5 +135,8 @@ def extraction_contract() -> dict:
             '中外文版本同一人合并互补，冲突并列；每版本独立映射，联系方式按系统共用。'
             '历史至今不是当前职业状态，采集目录不是明确更新年份，译员自述不是公司专业评级。'
             '未映射内容必须有去向，排除平台噪声也要记录理由。证据只来自当前人员范围。'
+            '自我评价、求职意向、其他技能、兴趣爱好、奖励荣誉、培训、校内职务和校内奖励分别进入resume_profile同名分区。'
+            '专业领域是本人自述，不写进公司评价；培训与校内职务不当作正式任职。'
+            '关键字段正确、无串人、无虚构、主要内容可追溯优先；重复证书表述已保留时不为单列低阶证书反复调用。'
         ),
     }

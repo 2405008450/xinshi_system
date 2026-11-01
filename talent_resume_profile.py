@@ -23,6 +23,7 @@ class ResumeExperienceEntry(BaseModel):
     workload: str | None = Field(default=None,max_length=255)
     description: str | None = None
     degree: str | None = Field(default=None,max_length=50)
+    graduation_year: int | None = Field(default=None,ge=1900,le=2200)
 
     @field_validator('period','organization','position','workload','description','degree',mode='before')
     @classmethod
@@ -30,7 +31,48 @@ class ResumeExperienceEntry(BaseModel):
         return value.strip() or None if isinstance(value,str) else value
 
 
-class ResumeLanguageVersion(BaseModel):
+SUPPLEMENT_TEXT_FIELDS = ('self_assessment','job_intention','other_skills','interests','awards_honors')
+SUPPLEMENT_ENTRY_FIELDS = ('training','campus_positions','campus_awards')
+
+
+class ResumeSupplementFields(BaseModel):
+    """本人简历信息，与公司评价、当前职业状态分开保存；复用现有JSON。"""
+    self_assessment: str | None = Field(default=None,max_length=20000)
+    job_intention: str | None = Field(default=None,max_length=20000)
+    other_skills: str | None = Field(default=None,max_length=20000)
+    interests: str | None = Field(default=None,max_length=20000)
+    awards_honors: str | None = Field(default=None,max_length=20000)
+    professional_domains: list[str] | None = Field(default=None,max_length=100)
+    training: list[ResumeExperienceEntry] | None = Field(default=None,max_length=100)
+    campus_positions: list[ResumeExperienceEntry] | None = Field(default=None,max_length=100)
+    campus_awards: list[ResumeExperienceEntry] | None = Field(default=None,max_length=100)
+
+    @field_validator(*SUPPLEMENT_TEXT_FIELDS,mode='before')
+    @classmethod
+    def supplement_text(cls,value):
+        return value.strip() or None if isinstance(value,str) else value
+
+    @field_validator('professional_domains')
+    @classmethod
+    def domains(cls,value):
+        if value is None:return value
+        result=[]
+        for item in value:
+            item=item.strip()
+            if len(item)>20000:raise ValueError('专业领域原文最多20000字，请分段核对')
+            if item and item not in result:result.append(item)
+        return result
+
+    @model_validator(mode='after')
+    def supplement_entries(self):
+        for key in SUPPLEMENT_ENTRY_FIELDS:
+            rows=getattr(self,key)
+            if rows is not None and len({row.id for row in rows})!=len(rows):
+                raise ValueError('补充经历明细包含重复行')
+        return self
+
+
+class ResumeLanguageVersion(ResumeSupplementFields):
     model_config = ConfigDict(extra='forbid')
     resume_year: str | None = Field(default=None,max_length=50)
     name: str | None = Field(default=None,max_length=255)
@@ -62,7 +104,7 @@ class ResumeLanguageVersion(BaseModel):
         return value.strip() or None if isinstance(value,str) else value
 
 
-class TalentResumeProfileInput(BaseModel):
+class TalentResumeProfileInput(ResumeSupplementFields):
     revision: int = Field(default=0,ge=0)
     resume_year: str | None = Field(default=None,max_length=50)
     internships: list[ResumeExperienceEntry] | None = Field(default=None,max_length=100)
@@ -138,13 +180,21 @@ def save_resume_profile(db,person,payload,actor,*,allow_cat=True):
     previous=dict(row.data) if row else {}
     normalized=submitted.model_dump(mode='json',exclude={'revision'})
     updates={key:value for key,value in normalized.items() if key in submitted.model_fields_set and value is not None}
-    if 'resume_year' in submitted.model_fields_set and (submitted.resume_year is not None or 'resume_year' in previous):
-        updates['resume_year']=submitted.resume_year
+    for key in ('resume_year',*SUPPLEMENT_TEXT_FIELDS):
+        if key in submitted.model_fields_set and (getattr(submitted,key) is not None or key in previous):
+            updates[key]=getattr(submitted,key)
     if not allow_cat:updates.pop('cat_tools',None)
-    for key in ['internships',*WORK_FIELDS]:
+    for key in ['internships',*WORK_FIELDS,*SUPPLEMENT_ENTRY_FIELDS]:
         if key in updates:updates[key]=[entry for entry in updates[key] if _entry_present(entry)]
     if 'versions' in updates:
-        updates['versions']={locale:version for locale,version in updates['versions'].items() if any(version.values())}
+        versions={}
+        for locale,version in submitted.versions.items():
+            # 旧客户端没有提交的新分区不得被默认空值清掉；显式空值仍可清空。
+            old=(previous.get('versions') or {}).get(locale)
+            data=version.model_dump(mode='json',exclude_unset=old is not None)
+            merged_version={**(old or {}),**data}
+            if any(merged_version.values()):versions[locale]=merged_version
+        updates['versions']=versions
     # 子表记录已由原有同步逻辑维护；时间段仅作补充，不迁移、猜测旧日期。
     db.flush()
     periods=dict(previous.get('education_periods') or {})

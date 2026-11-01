@@ -110,3 +110,33 @@ def test_empty_resume_year_does_not_create_profile(resume_db):
     db,person,actor=resume_db
     save_resume_profile(db,person,ResourcePersonUpdate(full_name='年份测试',resume_profile={'resume_year':''}),actor)
     db.flush();assert read_resume_profile(db,person.id) is None
+
+
+def test_supplements_round_trip_and_old_clients_preserve_them(resume_db):
+    db,person,actor=resume_db
+    source={'self_assessment':' 本人自述 ','job_intention':'历史求职意向','other_skills':'Office',
+            'interests':'绘画','awards_honors':'奖学金','professional_domains':['法律',' 法律 '],
+            'training':[{'organization':'培训机构','description':'原文课程'}],
+            'campus_positions':[{'position':'团支书'}], 'campus_awards':[{'description':'校内奖学金'}],
+            'versions':{'en':{'interests':'Painting','training':[{'description':'Training'}],
+                              'educations':[{'organization':'School','graduation_year':2000}]}}}
+    save_resume_profile(db,person,ResourcePersonUpdate(full_name='测试',resume_profile=source),actor);db.flush()
+    before=read_resume_profile(db,person.id)
+    assert before['self_assessment']=='本人自述' and before['professional_domains']==['法律']
+    # 模拟旧客户端不认识新增字段，只编辑原有字段。
+    save_resume_profile(db,person,ResourcePersonUpdate(full_name='测试',resume_profile={'revision':1,'cat_tools':['memoQ'],'versions':{'en':{'name':'Updated'}}}),actor);db.flush()
+    after=read_resume_profile(db,person.id)
+    assert after['training']==before['training'] and after['interests']=='绘画'
+    assert after['versions']['en']['interests']=='Painting'
+    assert after['versions']['en']['educations'][0]['graduation_year']==2000
+    assert after['versions']['en']['name']=='Updated'
+    save_resume_profile(db,person,ResourcePersonUpdate(full_name='测试',resume_profile={'revision':2,'self_assessment':'','training':[],'versions':{'en':{'interests':''}}}),actor);db.flush()
+    final=read_resume_profile(db,person.id)
+    assert final['self_assessment'] is None and final['training']==[]
+    assert final['versions']['en']['interests'] is None
+
+
+def test_supplement_repeated_rows_and_future_fake_graduation_are_rejected():
+    identifier=uuid4()
+    with pytest.raises(ValidationError):TalentResumeProfileInput(campus_positions=[{'id':identifier},{'id':identifier}])
+    with pytest.raises(ValidationError):TalentResumeProfileInput(versions={'en':{'educations':[{'graduation_year':2300}]}})

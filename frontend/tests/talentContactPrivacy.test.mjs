@@ -40,7 +40,7 @@ test('人才详情的全部联系方式均经过敏感值组件展示', () => {
     'wechat', 'whatsapp', 'skype', 'line', 'otherContact', 'contactInfo',
   ]
   protectedFields.forEach(field => assert.match(detail, new RegExp(`detail\\.${field}`)))
-  assert.equal((detail.match(/<SensitiveContactValue/g) || []).length, 11)
+  assert.equal((detail.match(/<SensitiveContactValue/g) || []).length, 12)
   assert.match(detail, /!contactRestricted && detail\.inheritedContacts\?\.length/)
   assert.match(detail, /<SensitiveContactValue :value="contact\.value"/)
 })

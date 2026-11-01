@@ -2,9 +2,9 @@
   <div v-if="attachments.length" class="talent-photo-attachments">
     <div v-for="item in attachments" :key="item.id" class="talent-photo-attachment">
       <template v-if="!audio">
-        <el-image v-if="urls[item.id]" :src="urls[item.id]" :preview-src-list="previewUrls" :initial-index="previewUrls.indexOf(urls[item.id])" preview-teleported fit="contain" :alt="item.originalName" />
+        <el-image v-if="urls[item.id]" :src="urls[item.id]" :preview-src-list="previewUrls" :initial-index="previewUrls.indexOf(urls[item.id])" preview-teleported fit="contain" :alt="item.originalName" @error="imageFailed(item)" />
         <div v-else class="talent-photo-placeholder">
-          <span>{{ failures[item.id] ? '图片加载失败' : '图片加载中…' }}</span>
+          <span>{{ failures[item.id] || '图片加载中…' }}</span>
           <el-button v-if="failures[item.id]" link type="primary" @click="load(item)">重试</el-button>
         </div>
       </template>
@@ -35,11 +35,17 @@ async function load(item) {
     if (!controller.signal.aborted && props.attachments.some(file => file.id === item.id)) {
       urls[item.id] = URL.createObjectURL(blob)
     }
-  } catch {
-    if (!controller.signal.aborted) failures[item.id] = true
+  } catch (error) {
+    if (!controller.signal.aborted) failures[item.id] = error.response?.status===404 ? '当前服务找不到照片文件' : '图片加载失败'
   } finally {
     if (controllers.get(item.id) === controller) controllers.delete(item.id)
   }
+}
+
+function imageFailed(item) {
+  if(urls[item.id])URL.revokeObjectURL(urls[item.id])
+  delete urls[item.id]
+  failures[item.id]='图片数据无法显示'
 }
 
 async function download(item) {

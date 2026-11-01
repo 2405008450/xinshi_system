@@ -7,8 +7,8 @@
     <el-collapse-item v-if="shows('identity')" name="detail-section-1" data-section-key="detail-section-1" title="姓名与联系方式"><section v-if="shows('identity')">
       <h4>姓名与联系方式</h4>
       <el-descriptions :column="2" border size="small">
-        <el-descriptions-item label="中文姓名">{{ show(detail.chineseName || detail.fullName) }}</el-descriptions-item>
-        <el-descriptions-item label="外文姓名">{{ show(detail.englishName) }}</el-descriptions-item>
+        <el-descriptions-item label="中文姓名">{{ show(displayNames.chineseName) }}</el-descriptions-item>
+        <el-descriptions-item label="外文姓名">{{ show(displayNames.englishName) }}</el-descriptions-item>
         <el-descriptions-item label="昵称">{{ show(detail.nickname) }}</el-descriptions-item>
         <el-descriptions-item label="其他名字">{{ show(detail.otherNames) }}</el-descriptions-item>
         <el-descriptions-item label="身份证号码" :span="2"><SensitiveContactValue :value="detail.identityNumber" :restricted="contactRestricted" /></el-descriptions-item>
@@ -32,6 +32,7 @@
       </div>
     </section></el-collapse-item>
 
+    <ResumeSupplementSections v-if="section==='all'" :model-value="resumeProfile" group="intro" prefix="detail-intro" readonly />
     <el-collapse-item v-if="shows('basic')" name="detail-section-2" data-section-key="detail-section-2" title="基本信息"><section v-if="shows('basic')">
       <h4>基本信息</h4>
       <el-descriptions :column="2" border size="small">
@@ -69,22 +70,6 @@
       </el-descriptions>
     </section></el-collapse-item>
 
-    <el-collapse-item v-if="shows('education')" name="detail-section-4" data-section-key="detail-section-4" title="学历信息"><section v-if="shows('education')">
-      <h4>学历信息</h4>
-      <el-descriptions :column="2" border size="small">
-        <el-descriptions-item label="最高学历" :span="2">{{ educationLabel(detail.highestEducation) }}</el-descriptions-item>
-        <el-descriptions-item label="本科毕业年份" :span="2">{{ show(detail.educationExperiences?.find(item=>item.educationLevel==='bachelor')?.graduationYear) }}</el-descriptions-item>
-        <template v-for="item in detail.educationExperiences || []" :key="item.id || `${item.educationLevel}-${item.sortOrder}`">
-          <el-descriptions-item :label="educationLevelLabel(item.educationLevel)">{{ show(item.institution) }}</el-descriptions-item>
-          <el-descriptions-item label="专业">{{ show(item.major) }}</el-descriptions-item>
-          <el-descriptions-item label="院校分类">{{ show(item.institutionCategory) }}</el-descriptions-item>
-          <el-descriptions-item label="专业分类">{{ show(item.majorCategory) }}</el-descriptions-item>
-          <el-descriptions-item label="毕业年份">{{ show(item.graduationYear) }}</el-descriptions-item>
-          <el-descriptions-item label="辅修/学位">{{ join(item.minorMajor, item.degreeName) }}</el-descriptions-item>
-        </template>
-      </el-descriptions>
-    </section></el-collapse-item>
-
     <el-collapse-item v-if="shows('language')" name="detail-section-5" data-section-key="detail-section-5" title="语言情况"><section v-if="shows('language')">
       <h4>语言情况</h4>
       <el-descriptions :column="2" border size="small">
@@ -104,7 +89,9 @@
       </el-descriptions>
     </section></el-collapse-item>
 
-    <el-collapse-item v-if="shows('education')" name="detail-education-experience" data-section-key="detail-education-experience" title="教育经历"><ResumeExperienceGrid :model-value="educationRows" education canonical-education readonly group-title="教育经历" /></el-collapse-item>
+    <ResumeSupplementSections v-if="section==='all'" :model-value="resumeProfile" group="skills" prefix="detail-skills" readonly />
+    <el-collapse-item v-if="shows('education')" name="detail-education-experience" data-section-key="detail-education-experience" title="教育背景"><el-descriptions :column="2" border size="small"><el-descriptions-item label="最高学历">{{educationLabel(detail.highestEducation)}}</el-descriptions-item></el-descriptions><ResumeExperienceGrid :model-value="educationRows" education canonical-education readonly group-title="教育背景" /></el-collapse-item>
+    <ResumeSupplementSections v-if="section==='all'" :model-value="resumeProfile" group="experience" prefix="detail-experience" readonly />
     <el-collapse-item v-if="shows('experience')" name="detail-internships" data-section-key="detail-internships" title="实习经历"><ResumeExperienceGrid :model-value="resumeProfile.internships" readonly group-title="实习经历" /></el-collapse-item>
     <el-collapse-item v-if="shows('experience')" name="detail-section-6" data-section-key="detail-section-6" title="工作经验"><el-collapse-item v-for="group in resumeWorkGroups" :key="group.key" :name="`detail-work-${group.key}`" :data-section-key="`detail-work-${group.key}`" :title="group.label"><ResumeExperienceGrid :model-value="resumeProfile[group.key]" readonly :group-title="group.label" :interpretation="group.key=== 'interpretation'" :annotation="group.key=== 'annotation'" /></el-collapse-item></el-collapse-item>
 
@@ -128,7 +115,7 @@
         <el-descriptions-item label="说明" :span="2"><div class="pre-wrap">{{ show(detail.interpretationRatingNote) }}</div></el-descriptions-item>
         <el-descriptions-item label="口译领域" :span="2"><div class="pre-wrap">{{ show(detail.interpretationDomains) }}</div></el-descriptions-item>
       </el-descriptions></el-collapse-item>
-      <el-collapse-item name="detail-domain-written" data-section-key="detail-domain-written" title="笔译"><h5>笔译</h5><div>常用CAT经验：{{resumeProfile.catTools.join("、")||"-"}}</div>
+      <el-collapse-item name="detail-domain-written" data-section-key="detail-domain-written" title="笔译"><h5>笔译</h5><div class="pre-wrap">专业领域（本人自述）：{{domainLabels.join("、")||"-"}}</div><div>常用CAT经验：{{resumeProfile.catTools.join("、")||"-"}}</div>
       <el-descriptions :column="2" border size="small">
         <el-descriptions-item label="总体评价">{{ detail.writtenTranslationScore == null ? '-' : `${detail.writtenTranslationScore}分` }}</el-descriptions-item>
         <el-descriptions-item label="具体评价"><div class="pre-wrap">{{ show(detail.writtenTranslationEvaluation) }}</div><TalentEvaluationMeta :evaluation="detail" group-key="written_translation" /></el-descriptions-item>
@@ -146,10 +133,11 @@
         <el-descriptions-item v-if="showPerformance && detail.writtenProfile" label="笔译质量评分" :span="2">{{ show(detail.writtenProfile.qualityScore) }}<TalentEvaluationMeta :evaluation="detail" group-key="written_profile" /></el-descriptions-item>
         <el-descriptions-item v-if="showPerformance && detail.interpretationProfile" label="口译能力评价" :span="2"><div class="pre-wrap">{{ join(detail.interpretationProfile.interpretationLevel, detail.interpretationProfile.qualityScore, detail.interpretationProfile.evaluationSummary) }}</div><TalentEvaluationMeta :evaluation="detail" group-key="interpretation_profile" /></el-descriptions-item>
         <el-descriptions-item v-if="showPerformance && detail.annotationProfile" label="标注能力评价" :span="2"><div class="pre-wrap">{{ join(detail.annotationProfile.qualityScore, detail.annotationProfile.remarks) }}</div><TalentEvaluationMeta :evaluation="detail" group-key="annotation_profile" /></el-descriptions-item>
-        <el-descriptions-item label="备注" :span="2"><div class="pre-wrap">{{ show(detail.remarks) }}</div></el-descriptions-item>
+
       </el-descriptions>
     </section></el-collapse-item>
 
+    <el-collapse-item v-if="section==='all'" name="detail-other-info" data-section-key="detail-other-info" title="其他资料"><el-descriptions :column="2" border size="small"><el-descriptions-item label="简历路径" :span="2"><div class="pre-wrap">{{show(detail.resumePath)}}</div></el-descriptions-item><el-descriptions-item label="首次联系">{{formatDateTime(detail.firstContactDate)}}</el-descriptions-item><el-descriptions-item label="兼容联系方式"><SensitiveContactValue :value="detail.contactInfo" :restricted="contactRestricted" /></el-descriptions-item><el-descriptions-item label="备注" :span="2"><div class="pre-wrap">{{show(detail.remarks)}}</div></el-descriptions-item></el-descriptions></el-collapse-item>
     <el-collapse-item v-if="section==='all'" name="detail-photos" data-section-key="detail-photos" title="照片与音频"><el-descriptions :column="1" border size="small"><el-descriptions-item v-for="category in photoDetailCategories" :key="category" :label="photoAttachmentLabel(category)"><TalentPhotoAttachments :person-id="detail.id" :attachments="(detail.attachments||[]).filter(file=>file.category===category)" :audio="category==='audio'" /></el-descriptions-item></el-descriptions></el-collapse-item>
     <el-collapse-item v-if="!contactRestricted && section==='all'" name="detail-settlement" data-section-key="detail-settlement" title="商务与结算"><section><h4>商务与结算</h4><TalentSettlementDetail :value="detail.settlement" /></section></el-collapse-item>
     <el-collapse-item v-if="shows('projects')" name="detail-section-9" data-section-key="detail-section-9" title="项目情况"><section v-if="shows('projects')">
@@ -193,6 +181,9 @@ import TalentEvaluationMeta from './TalentEvaluationMeta.vue'
 import TalentSettlementDetail from './TalentSettlementDetail.vue'
 import TalentMediaSamples from './TalentMediaSamples.vue'
 import TalentPhotoAttachments from './TalentPhotoAttachments.vue'
+import ResumeSupplementSections from './ResumeSupplementSections.vue'
+import {resumeNames,professionalDomains} from '@/utils/talentResumeSections'
+import {formatBusinessDateTime as formatDateTime} from '@/utils/dateTime'
 import { talentGradeLabel } from '@/utils/talentGrade'
 import { interpretationRatingLabel, interpretationRatingHint } from '@/utils/talentPerformance'
 import { contactAvailabilityLabel } from '@/utils/talentContactAvailability'
@@ -216,16 +207,12 @@ const shows = (section) => props.section === 'all' || props.section === section
 const resumeTab=ref('zh'),foreignResumeLocale=ref('ar')
 watch(()=>props.detail.id,()=>{resumeTab.value='zh'})
 const resumeProfile=computed(()=>resumeProfileForm(props.detail.resumeProfile,props.detail))
+const displayNames=computed(()=>resumeNames(props.detail))
+const domainLabels=computed(()=>professionalDomains(resumeProfile.value,props.detail.writtenProfile))
 const educationRows=computed(()=>educationFormRows(props.detail.educationExperiences||[],props.detail.resumeProfile?.educationPeriods))
 const localizedVersion=computed(()=>({...emptyResumeVersion(),...(resumeProfile.value.versions[resumeTab.value==='en'?'en':foreignResumeLocale.value]||{})}))
 const resumeWorkGroups=[{key:'annotation',label:'标注类经验'},{key:'interpretation',label:'口译经验'},{key:'translation',label:'笔译经验'},{key:'other',label:'其他经验'}]
-const formatOperationTime = value => {
-  if (!value) return '-'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '-'
-  const pad = number => String(number).padStart(2, '0')
-  return `${date.getFullYear()}年${pad(date.getMonth()+1)}月${pad(date.getDate())}日 ${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
+const formatOperationTime = formatDateTime
 const show = (value) => value === null || value === undefined || value === ''
   ? '-'
   : Array.isArray(value) ? (value.join('、') || '-') : value

@@ -161,3 +161,29 @@ def test_prepare_only_uses_dedup_keep_and_review(tmp_path: Path):
     assert report["selected_files"] == 2
     with sqlite3.connect(output / "state.sqlite3") as db:
         assert {row[0] for row in db.execute("SELECT file_id FROM selected")} == set(ids[:2])
+
+
+def test_local_sections_stay_with_each_person_without_model_call():
+    text='姓名：甲\n自我评价\n甲的自述\n\n姓名：乙\n兴趣爱好\n乙的音乐爱好'
+    segments=[{'location':'正文','text':text}]
+    row={'path':'synthetic.docx','root':'C:/synthetic','relative_path':'synthetic.docx','file_id':'a'*64,'sha256':'b'*64,'extension':'.docx','size':100,'modified_at':'2026-11-01T09:00:00+08:00'}
+    raw={'people':[{'facts':[{'field':'full_name','value':name,'quote':'姓名：'+name}]} for name in ['甲','乙']]}
+    people,_=stage.normalized_people(raw,row,Path('C:/synthetic'),text,segments,False,'synthetic',{})
+    assert people[0]['resume_profile']=={'self_assessment':'甲的自述'}
+    assert people[1]['resume_profile']=={'interests':'乙的音乐爱好'}
+    assert people[1]['evidence']['resume_profile']['interests']['quote']=='乙的音乐爱好'
+    partial,_=stage.normalized_people(raw,row,Path('C:/synthetic'),text,segments,True,'synthetic',{})
+    assert all('resume_profile' not in person for person in partial)
+
+
+def test_local_upgrade_reuses_cache_without_loading_gateway(tmp_path: Path,monkeypatch):
+    collection=make_collection(tmp_path/'source',count=1);output=tmp_path/'output'
+    config=tmp_path/'gateway.yaml';config.write_text('model_list:\n  - litellm_params:\n      api_base: https://example.test/v1\n      api_key: synthetic\n',encoding='utf-8')
+    monkeypatch.setattr(stage,'verify_model',lambda *_:None)
+    monkeypatch.setattr(stage,'call_model',lambda *_:({'model':'synthetic','choices':[{'message':{'content':json.dumps(fake_response(),ensure_ascii=False)}}],'usage':{}},200))
+    stage.run([collection],output,config,'synthetic',1,2000,1,10)
+    def forbidden(*_):raise AssertionError('local reprocess must not call gateway')
+    monkeypatch.setattr(stage,'load_gateway',forbidden);monkeypatch.setattr(stage,'verify_model',forbidden);monkeypatch.setattr(stage,'call_model',forbidden)
+    result=stage.reprocess_local([collection],output)
+    assert result['new_model_calls']==0 and result['files'][0]['people']==2
+    assert list((output/'local_before').rglob('001.json'))

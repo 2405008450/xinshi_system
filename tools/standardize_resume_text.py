@@ -26,9 +26,10 @@ from resource_schemas import (  # noqa: E402
     CertificateInput, EducationExperienceInput, ResourcePersonWrite,
 )
 from tools.organize_resume_json import ALIASES, folder_language  # noqa: E402
+from tools.resume_sections import extract_sections  # noqa: E402
 
 TZ = timezone(timedelta(hours=8))
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 PROMPT_VERSION = 2
 SEED = "resume-standardization-pilot-20261029"
 DEFAULT_MODEL = "google/gemini-3.8-flash"
@@ -490,6 +491,33 @@ def normalized_people(raw: dict, row: sqlite3.Row, collection: Path,
             people.sort(key=lambda item: item["evidence"]["person_fields"]["full_name"]["start"])
     if not people:
         file_flags.append("no_confirmed_person")
+    # 新分区完全走本地章节规则，不增加模型请求。只对完整、可确认人员范围处理。
+    if people and not partial and len(people) == len(raw["people"]):
+        anchors=sorted(p["evidence"]["person_fields"]["full_name"]["start"] for p in people)
+        for person in people:
+            anchor=person["evidence"]["person_fields"]["full_name"]["start"]
+            start=0 if len(people)==1 else anchor
+            stop=next((value for value in anchors if value>anchor),len(text))
+            name_location=person["evidence"]["person_fields"]["full_name"]["location"]
+            rows=[];offset=0
+            for index,line in enumerate(text.splitlines(keepends=True),1):
+                end=offset+len(line)
+                if end>start and offset<stop:
+                    location=segment_for(max(offset,start),segments)
+                    if row["extension"] not in {".xls",".xlsx"} or location==name_location:
+                        rows.append({"id":index,"text":text[max(offset,start):min(end,stop)].rstrip("\r\n"),"location":location,"start":max(offset,start)})
+                offset=end
+            extracted=extract_sections(rows,row["sha256"]+":"+str(anchor))
+            if extracted["fields"]:
+                person["resume_profile"]=extracted["fields"]
+                by_id={line["id"]:line for line in rows}
+                person["evidence"]["resume_profile"]={key:{**proof,"quote":proof["quote"][:MAX_QUOTE],"source_path":row["path"],"sha256":row["sha256"],
+                    "locations":list(dict.fromkeys(by_id[i]["location"] for i in proof["line_ids"])),"start":by_id[proof["line_ids"][0]]["start"]}
+                    for key,proof in extracted["evidence"].items()}
+            person["review_flags"]=list(dict.fromkeys(person["review_flags"]+extracted["review_flags"]))
+            person["pipeline"]["local_sections_version"]="heading-based-v1"
+    elif people:
+        for person in people:person["review_flags"].append("local_sections_skipped_partial_or_ambiguous_person_range")
     return people, list(dict.fromkeys(file_flags))
 
 
@@ -660,6 +688,56 @@ def run(collections: list[Path], output: Path, gateway_config: Path, model: str,
     return report
 
 
+def reprocess_local(collections: list[Path], output: Path) -> dict:
+    """仅复用已保存模型结果做本地规则升级，不加载网关或产生模型费用。"""
+    if not (output / 'state.sqlite3').is_file():
+        raise ValueError('existing_output_state_required')
+    results=[]
+    with closing(open_output(output)) as db:
+        for file_id,collection_name in db.execute('SELECT file_id,collection FROM selected ORDER BY rank').fetchall():
+            collection=Path(collection_name)
+            if collection.resolve() not in {p.resolve() for p in collections}:
+                continue
+            try:
+                raw_path=output/'responses'/f'{file_id}.json'
+                prior_path=output/'records'/file_id/'001.json'
+                prior=json.loads(prior_path.read_text(encoding='utf-8'))
+                if prior['pipeline'].get('partial_input'):
+                    results.append({'file_id':file_id,'status':'skipped_partial_input'});continue
+                with closing(source_db(collection)) as source:
+                    row=source.execute('SELECT * FROM files WHERE file_id=?',(file_id,)).fetchone()
+                if row is None or row['status']!='success' or prior['source']['sha256']!=row['sha256']:
+                    results.append({'file_id':file_id,'status':'deferred_source_changed'});continue
+                paths=[collection/'texts'/f'{file_id}.txt',collection/'segments'/f'{file_id}.json']
+                before=[(p.stat().st_size,p.stat().st_mtime_ns) for p in paths]
+                text=paths[0].read_text(encoding='utf-8');segments=json.loads(paths[1].read_text(encoding='utf-8'))
+                raw=json.loads(raw_path.read_text(encoding='utf-8'))
+                people,flags=normalized_people(raw,row,collection,text,segments,False,prior['pipeline']['model'],prior['pipeline'].get('usage',{}))
+                with closing(source_db(collection)) as source:
+                    current=source.execute('SELECT * FROM files WHERE file_id=?',(file_id,)).fetchone()
+                if current is None or fingerprint(current)!=fingerprint(row) or before!=[(p.stat().st_size,p.stat().st_mtime_ns) for p in paths]:
+                    results.append({'file_id':file_id,'status':'deferred_source_changed'});continue
+                if not people:
+                    results.append({'file_id':file_id,'status':'needs_review_existing_records_retained'});continue
+                prior_records=[json.loads(p.read_text(encoding='utf-8')) for p in sorted((output/'records'/file_id).glob('*.json'))]
+                by_id={p['record_id']:p for p in people}
+                if set(by_id)!={p['record_id'] for p in prior_records} or any(by_id[p['record_id']]['person_fields']!=p['person_fields'] for p in prior_records):
+                    results.append({'file_id':file_id,'status':'needs_review_identity_or_main_fields_changed'});continue
+                for index,record in enumerate(prior_records,1):
+                    backup=output/'local_before'/str(record['schema_version'])/file_id/f'{index:03d}.json'
+                    if not backup.exists():atomic_json(backup,record)
+                save_people(output,file_id,people,raw,row['path'],flags)
+                status='needs_review' if flags or any(p['review_flags'] for p in people) else 'completed'
+                db.execute('INSERT INTO documents VALUES (?,?,?,?,?,?) ON CONFLICT(file_id) DO UPDATE SET source_fingerprint=excluded.source_fingerprint,status=excluded.status,person_count=excluded.person_count,review_flags=excluded.review_flags,processed_at=excluded.processed_at',
+                           (file_id,fingerprint(row),status,len(people),json.dumps(flags),now_iso()))
+                db.commit();results.append({'file_id':file_id,'status':status,'people':len(people)})
+            except (OSError,ValueError,TypeError,KeyError,ValidationError,json.JSONDecodeError,sqlite3.Error) as error:
+                results.append({'file_id':file_id,'status':'local_failed_existing_records_retained','error':type(error).__name__})
+    report={'at':now_iso(),'mode':'local_reprocess','new_model_calls':0,'files':results}
+    atomic_json(output/'local_reprocess_report.json',report)
+    return report
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--collection", action="append", type=Path, required=True)
@@ -672,9 +750,13 @@ def main() -> int:
     parser.add_argument("--attempts", type=int, default=2)
     parser.add_argument("--timeout", type=int, default=90)
     parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--reprocess-local", action="store_true", help="只用缓存响应升级本地字段，不连接模型网关")
     parser.add_argument("--dedup-state", type=Path,
                         help="去重清单 state.sqlite3；只选择保留或待核文件")
     args = parser.parse_args()
+    if args.reprocess_local:
+        print(json.dumps(reprocess_local(args.collection,args.output),ensure_ascii=False))
+        return 0
     report = run(args.collection, args.output, args.gateway_config, args.model,
                  args.limit, args.max_chars, args.attempts, args.timeout,
                  args.prepare_only, args.provider, args.dedup_state)
