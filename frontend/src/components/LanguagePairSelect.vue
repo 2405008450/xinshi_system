@@ -3,7 +3,7 @@
     <div class="language-pair-select__row">
       <el-select-v2
         v-model="selectedPairs"
-        multiple
+        :multiple="!single"
         filterable
         clearable
         collapse-tags
@@ -26,7 +26,7 @@
           </div>
         </template>
       </el-select-v2>
-      <el-popover title="语种方向"
+      <el-popover v-if="allowCreate" title="语种方向"
         v-model:visible="createVisible"
         trigger="click"
         placement="bottom-end"
@@ -92,6 +92,8 @@ const props = defineProps({
   modelValue: { type: String, default: '' },
   placeholder: { type: String, default: '请选择一个或多个翻译方向' },
   showHint: { type: Boolean, default: true },
+  single: Boolean,
+  allowCreate: {type:Boolean,default:true},
 })
 
 const emit = defineEmits(['update:modelValue'])
@@ -233,9 +235,9 @@ const filteredLanguagePairOptions = computed(() => {
 
 const allowedLanguagePairSet = computed(() => new Set(languagePairOptions.value.map((item) => item.value)))
 const selectedPairs = computed({
-  get: () => parseLanguagePairs(props.modelValue),
+  get: () => props.single ? parseLanguagePairs(props.modelValue)[0] : parseLanguagePairs(props.modelValue),
   set: (values) => {
-    const normalized = [...new Set((values || []).map((item) => String(item).trim())
+    const normalized = [...new Set((Array.isArray(values)?values:values?[values]:[]).map((item) => String(item).trim())
       .filter((item) => allowedLanguagePairSet.value.has(item)))]
     emit('update:modelValue', normalized.join('；'))
   },
@@ -296,7 +298,7 @@ const handleCreateDirection = async () => {
     const source = await ensureLanguage(sourceLabel)
     const target = await ensureLanguage(targetLabel)
     const pair = `${source.label}→${target.label}`
-    selectedPairs.value = [...selectedPairs.value, pair]
+    selectedPairs.value = props.single ? pair : [...selectedPairs.value, pair]
     resetCreateDirection()
     createVisible.value = false
     ElMessage.success('翻译方向已添加')

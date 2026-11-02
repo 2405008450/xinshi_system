@@ -2,7 +2,7 @@
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import Column, DateTime, Index, Integer, String, UniqueConstraint, Uuid, func, select
+from sqlalchemy import Column, DateTime, Index, Integer, String, UniqueConstraint, Uuid, func, select, and_, or_, exists
 from sqlalchemy.orm import Session, object_session
 
 from annotation_progress_time import business_datetime, business_now
@@ -44,6 +44,16 @@ def manager_name_expression(project_type, project_id, fallback):
         row.project_type == project_type, row.project_id == project_id,
     ).order_by(row.revision.desc()).limit(1).correlate_except(row).scalar_subquery()
     return func.coalesce(value, fallback)
+
+
+def manager_self_expression(project_type, project_id, user_id, names, fallback):
+    """有经理变更记录时按用户ID；未升级的历史项目才精确匹配客户档案姓名。"""
+    row=ProjectClientManagerChange
+    conditions=(row.project_type==project_type,row.project_id==project_id)
+    manager_id=select(row.new_manager_id).where(*conditions).order_by(row.revision.desc()).limit(1).correlate_except(row).scalar_subquery()
+    has_record=exists(select(row.id).where(*conditions).correlate_except(row))
+    names=[str(name).strip().lower() for name in names if str(name or '').strip()]
+    return or_(manager_id==user_id,and_(~has_record,func.lower(func.trim(fallback)).in_(names)))
 
 
 def attach(db, project_type, projects):

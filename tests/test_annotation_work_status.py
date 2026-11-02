@@ -35,17 +35,47 @@ def submission(revision=1, slot='11', minutes=60):
         progress_note='已完成样本检查', cumulative_minutes=minutes)
 
 
-def test_selected_projects_and_reset_next_day(setup):
+def test_arrangement_persists_and_only_daily_reports_reset(setup):
     db, member, _, row, clock = setup
     before = service.context(db, member)
-    assert before['items'][0]['entered_at'] is None
+    assert before['items'][0]['arrangement_status'] == 'in_progress'
     saved = service.save_arrangement(db, member, row.id, arrange())
     assert saved['revision'] == 1 and saved['entered_at'].utcoffset().total_seconds() == 28800
     service.save_arrangement(db, member, row.id, arrange(1, 'not_today'))
     assert service.context(db, member)['items'][0]['entered_at'] is not None
     clock[0] += timedelta(days=1)
     assert service.context(db, member)['items'][0]['entered_at'] is None
-    assert service.context(db, member)['items'][0]['revision'] == 0
+    assert service.context(db, member)['items'][0]['revision'] == 2
+    assert service.context(db, member)['items'][0]['arrangement_status'] == 'not_today'
+    service.save_arrangement(db, member, row.id, arrange(2))
+    service.submit(db, member, row.id, submission(3))
+    clock[0] += timedelta(days=1)
+    next_day = service.context(db, member)['items'][0]
+    assert next_day['arrangement_status'] == 'in_progress'
+    assert next_day['remaining_time'] == '1_2h'
+    assert next_day['entered_at'].date() == clock[0].date()
+    assert next_day['submissions'] == [] and next_day['cumulative_minutes'] == 0
+    service.submit(db, member, row.id, submission(next_day['revision']))
+    assert db.query(DailyReport).count() == 2
+
+
+def test_today_filter_restore_persistence_and_project_scoping(setup, monkeypatch):
+    import work_report_dates
+    from annotation_today_tasks import managed_projects
+    db, member, _, first, clock = setup
+    second = project(db, member, member)
+    monkeypatch.setattr(work_report_dates, 'now', lambda: clock[0])
+    service.save_arrangement(db, member, first.id, arrange(0, 'not_today'))
+    assert [item['id'] for item in managed_projects(db, member)['items']] == [str(second.id)]
+    assert [item['id'] for item in managed_projects(db, member, arrangement_scope='not_today')['items']] == [str(first.id)]
+    assert managed_projects(db, member, arrangement_scope='all')['total'] == 2
+    assert [item['id'] for item in service.context(db, member, second.id)['items']] == [str(second.id)]
+    clock[0] += timedelta(days=1)
+    assert managed_projects(db, member)['total'] == 1
+    assert service.context(db, member, first.id)['items'][0]['arrangement_status'] == 'not_today'
+    service.save_arrangement(db, member, first.id, arrange(1))
+    assert managed_projects(db, member)['total'] == 2
+    assert managed_projects(db, member, arrangement_scope='not_today')['total'] == 0
 
 
 def test_cumulative_minutes_single_report_and_project_progress(setup):

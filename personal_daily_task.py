@@ -153,7 +153,7 @@ def replace(db,user,task_id,payload):
     db.commit();return serialize(db,row)
 
 
-def complete(db,user,task_id,payload):
+def complete(db,user,task_id,payload,*,commit=True):
     row=locked(db,user,task_id,payload.revision)
     item=payload.item.model_copy(deep=True)
     expected=row.report_row.get('display_metadata',{}).get('report_types',[])
@@ -166,4 +166,6 @@ def complete(db,user,task_id,payload):
     item.display_metadata=metadata
     entry=append_report_item(db,user,item,'personal_daily_task',row.id)
     row.status='completed';row.actual_minutes=item.duration_minutes;row.report_item_id=entry.id;row.revision+=1;row.updated_at=now()
-    db.commit();return serialize(db,row)
+    if commit:db.commit()
+    else:db.flush()
+    return serialize(db,row)

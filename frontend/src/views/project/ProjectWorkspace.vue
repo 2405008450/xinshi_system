@@ -4,6 +4,7 @@
       <el-tabs :model-value="activeSection" :before-leave="handleSectionChange" @tab-click="handleSectionClick">
         <el-tab-pane :label="`${moduleLabel}项目管理`" name="projects" />
         <el-tab-pane v-if="module === 'translation'" label="项目安排" name="arrangements" />
+        <el-tab-pane v-if="['translation','interpretation'].includes(module)" label="财务管理（客户）" name="customer-finance" />
         <el-tab-pane :label="`${moduleLabel}须知`" name="notices" />
       </el-tabs>
     </el-card>
@@ -24,7 +25,7 @@ const activeView=ref(null)
 function handleSectionClick(tab){if(props.module==='translation'&&activeSection.value===tab.props.name&&['projects','arrangements'].includes(tab.props.name))activeView.value?.restoreDefaultExclusions?.()}
 const labels = { translation: '笔译', interpretation: '口译', recruitment: '招聘' }
 const moduleLabel = computed(() => labels[props.module])
-const activeSection = computed(() => route.query.section === 'notices' ? 'notices' : props.module === 'translation' && route.query.section === 'arrangements' ? 'arrangements' : 'projects')
+const activeSection = computed(() => route.query.section === 'notices' ? 'notices' : ((props.module === 'translation' && route.query.section === 'arrangements') || (['translation','interpretation'].includes(props.module) && route.query.section === 'customer-finance')) ? route.query.section : 'projects')
 const projects = {
   translation: defineAsyncComponent(() => import('./translation/ProjectDetails.vue')),
   interpretation: defineAsyncComponent(() => import('./interpretation/InterpretationProjectDetails.vue')),
@@ -32,7 +33,9 @@ const projects = {
 }
 const notices = defineAsyncComponent(() => import('./ProjectNotices.vue'))
 const arrangements = defineAsyncComponent(() => import('./translation/ProjectArrangements.vue'))
-const activeComponent = computed(() => activeSection.value === 'notices' ? notices : activeSection.value === 'arrangements' ? arrangements : projects[props.module])
+const customerFinance = defineAsyncComponent(() => import('./translation/CustomerFinance.vue'))
+const interpretationFinance = defineAsyncComponent(() => import('./interpretation/CustomerFinance.vue'))
+const activeComponent = computed(() => activeSection.value === 'notices' ? notices : activeSection.value === 'arrangements' ? arrangements : activeSection.value === 'customer-finance' ? (props.module==='interpretation'?interpretationFinance:customerFinance) : projects[props.module])
 const activeProps = computed(() => activeSection.value === 'notices' ? { module: props.module, moduleLabel: moduleLabel.value } : {})
 
 async function handleSectionChange(section) {

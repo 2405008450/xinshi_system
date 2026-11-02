@@ -18,6 +18,7 @@
           <span class="task-step">{{index+1}}</span><strong>{{task.assignee_name}}<small v-if="task.order_level>1">{{task.order_no}}</small></strong>
           <div class="task-description"><el-input v-model="task.content" type="textarea" :autosize="{minRows:1,maxRows:5}" :disabled="!canWrite||saving||task.status==='completed'" maxlength="10000" placeholder="具体任务" /><small>安排人：{{task.assigned_by_name||'-'}} · {{formatTime(task.created_at)}} · 任务日期 {{task.work_date}}</small></div>
           <el-tag>{{statusLabels[task.status]}}</el-tag><el-button v-if="canWrite&&task.status!=='completed'" :loading="saving" @click="saveEdit(task)">保存修改</el-button>
+          <el-button v-if="canWrite" link type="danger" :disabled="saving||loading" :aria-label="`移除${task.assignee_name}的安排`" @click="removeTask(task)">移除</el-button>
         </div>
       </template>
       <el-empty v-if="!data.tasks.length&&!loading" description="暂无已保存安排" :image-size="50" />
@@ -35,15 +36,15 @@
 </template>
 <script setup>
 import {onBeforeUnmount,ref,watch} from 'vue'
-import {ElMessage} from 'element-plus'
-import {getProjectArrangementDetail,reorderProjectArrangements,editArrangementTask,saveProjectArrangementInstruction} from '@/api/projectArrangements'
+import {ElMessage,ElMessageBox} from 'element-plus'
+import {getProjectArrangementDetail,reorderProjectArrangements,editArrangementTask,removeArrangementTask,saveProjectArrangementInstruction} from '@/api/projectArrangements'
 import {formatBusinessDateTime as formatTime} from '@/utils/dateTime'
 const props=defineProps({projectId:{type:String,required:true},canWrite:Boolean,refreshKey:{type:Number,default:0}})
 const emit=defineEmits(['changed'])
 const data=ref({tasks:[],history:[],history_total:0,revision:0}),loading=ref(false),saving=ref(false),error=ref(''),dragged=ref(''),historyPage=ref(1),expanded=ref([])
 const instructionDraft=ref('')
 const statusLabels={pending:'待进行',in_progress:'进行中',completed:'已完成'}
-const operationLabels={baseline:'已有安排首次快照',assign:'新增安排',edit:'修改任务／状态',reorder:'调整执行顺序',complete:'完成任务并加入工作报告',instruction:'修改共同说明'}
+const operationLabels={baseline:'已有安排首次快照',assign:'新增安排',remove:'移除人员安排',edit:'修改任务／状态',reorder:'调整执行顺序',complete:'完成任务并加入工作报告',instruction:'修改共同说明'}
 let sequence=0,controller,originalContents=new Map()
 function applyData(result){data.value=result;instructionDraft.value=result.common_instruction||'';originalContents=new Map(result.tasks.map(task=>[task.id,task.content]))}
 function getInstruction(){return loading.value||saving.value||error.value?null:{common_instruction:instructionDraft.value,instruction_revision:data.value.instruction_revision||0}}
@@ -62,6 +63,15 @@ async function dropTask(event,target){
   ids.splice(to,0,...ids.splice(from,1));dragged.value='';saving.value=true;error.value=''
   try{applyData(await reorderProjectArrangements(props.projectId,{revision:data.value.revision,task_ids:ids}));historyPage.value=1;emit('changed');ElMessage.success('执行顺序已保存')}
   catch(e){error.value=e.detail||'排序保存失败，请刷新后重试'}finally{saving.value=false}
+}
+async function removeTask(task){
+  if(!props.canWrite||saving.value||loading.value)return
+  if(instructionDraft.value!==(data.value.common_instruction||'')||data.value.tasks.some(row=>originalContents.get(row.id)!==row.content))return ElMessage.warning('请先保存说明或任务内容修改，再移除安排')
+  saving.value=true
+  try{
+    await ElMessageBox.confirm(`确定移除${task.assignee_name}在${task.order_no||'本项目'}的这项安排？对应今日任务将移除，历史记录和已有工作报告保留。`,'移除人员安排',{type:'warning',confirmButtonText:'确认移除',cancelButtonText:'取消'})
+    await removeArrangementTask(task.id,{revision:task.revision});historyPage.value=1;await load();emit('changed');ElMessage.success('人员安排已移除，历史记录已保留')
+  }catch(e){if(e!=='cancel'&&e!=='close')error.value=e.detail||'移除失败，请刷新后重试'}finally{saving.value=false}
 }
 async function saveEdit(task){if(instructionDraft.value!==(data.value.common_instruction||''))return ElMessage.warning('请先保存共同说明，再修改个人任务');if(!task.content.trim())return ElMessage.warning('请填写具体任务');saving.value=true;try{await editArrangementTask(task.id,{revision:task.revision,content:task.content});await load();emit('changed');ElMessage.success('任务已更新，修改记录已保存')}catch(e){error.value=e.detail||'修改失败，请刷新后重试'}finally{saving.value=false}}
 watch(()=>[props.projectId,props.refreshKey],()=>{historyPage.value=1;load()},{immediate:true})

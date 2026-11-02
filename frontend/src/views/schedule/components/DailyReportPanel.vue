@@ -158,7 +158,7 @@ import {subscribe} from '@/utils/realtimeSocket'
 import {readCloudDraft,queueCloudDraft,cloudDraftStatus,acknowledgeCloudDraft} from '@/utils/cloudDrafts'
 import {chooseDraft} from '@/utils/draftRecovery'
 import {createAutoDraftStore} from '@/utils/autoDraftStore'
-import {reportBusinessDate,reportWeekday,shiftReportDate,blockReportImages,requiresProjectIdentity} from '@/utils/workReportForm'
+import {mergeAnnotationOperationRows,reportBusinessDate,reportWeekday,shiftReportDate,blockReportImages,requiresProjectIdentity} from '@/utils/workReportForm'
 import { getPersonalMailAccount } from '@/api/auth'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import {
@@ -256,7 +256,7 @@ async function loadReport(refresh = false) {
     const restoreAllowed=data.status!=='finalized'||(draft?.amending===true&&data.can_amend)
     if(draft&&restoreAllowed){
       if(draft.amending)amending.value=true
-      report.items=Array.isArray(draft.items)?draft.items:report.items
+      report.items=Array.isArray(draft.items)?mergeAnnotationOperationRows(draft.items,report.items):report.items
       report.supplemental_note=draft.supplemental_note||''
       report.idle_minutes=draft.idle_minutes??null
       report.idle_declaration_confirmed=draft.idle_declaration_confirmed===true
@@ -395,6 +395,7 @@ async function sendMail() {
 }
 
 function onReportHidden(){if(document.hidden)cacheDraft()}
+function refreshAnnotationOperations(){if(saving.value||props.reportDate!==reportBusinessDate())return;cacheDraft();loadReport(false)}
 function beforeUnload() {
   if (!hasUnsavedChanges.value) return
   cacheDraft()
@@ -406,8 +407,8 @@ watch(() => props.reportDate, async (_date,previousDate) => {
   await loadReport(false)
 })
 const stopUpdates=subscribe('daily_report_updated',event=>{if(event.user_id!==owner||event.report_date!==props.reportDate)return;if(hasUnsavedChanges.value)ElMessage.info('新咨询工作项已追加，保存当前修改时会自动保留');else loadReport(false)})
-onMounted(() => { loadReport(false); loadMailAccount(); loadEditorContext(); window.addEventListener('beforeunload', beforeUnload);document.addEventListener('visibilitychange',onReportHidden) })
-onBeforeUnmount(() => {stopUpdates();cacheDraft();clearTimeout(draftTimer);loadSequence++;loadController?.abort();window.removeEventListener('beforeunload', beforeUnload);document.removeEventListener('visibilitychange',onReportHidden)})
+onMounted(() => { loadReport(false); loadMailAccount(); loadEditorContext(); window.addEventListener('annotation-operation-report-added',refreshAnnotationOperations);window.addEventListener('open-my-work-report',refreshAnnotationOperations);window.addEventListener('beforeunload', beforeUnload);document.addEventListener('visibilitychange',onReportHidden) })
+onBeforeUnmount(() => {stopUpdates();cacheDraft();clearTimeout(draftTimer);loadSequence++;loadController?.abort();window.removeEventListener('annotation-operation-report-added',refreshAnnotationOperations);window.removeEventListener('open-my-work-report',refreshAnnotationOperations);window.removeEventListener('beforeunload', beforeUnload);document.removeEventListener('visibilitychange',onReportHidden)})
 </script>
 
 <style scoped>

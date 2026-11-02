@@ -45,7 +45,7 @@ def order_date_range(period, today=None):
     return start,today+timedelta(days=1)
 
 
-def search(db,project_type,keyword,page,page_size,period='all',client_keyword='',direction_keyword=''):
+def search(db,project_type,keyword,page,page_size,period='all',client_keyword='',direction_keyword='',*,scope_filter=None):
     model,query=query_projects(db,project_type)
     client_fields=[]
     if hasattr(model,'client_id'):
@@ -54,6 +54,8 @@ def search(db,project_type,keyword,page,page_size,period='all',client_keyword=''
     if hasattr(model,'sub_client_id'):
         query=query.outerjoin(SubClient,model.sub_client_id==SubClient.id).options(joinedload(model.sub_client))
         client_fields.extend([SubClient.client_name,SubClient.client_short_name])
+    if scope_filter is not None:
+        query=query.filter(scope_filter)
     number=model.consultation_code if model is Consultation else model.order_no
     fields=[number,model.project_name,*client_fields]
     direction=getattr(model,'language_pair',None)

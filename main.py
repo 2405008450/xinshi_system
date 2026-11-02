@@ -278,6 +278,14 @@ from routers import departments
 app.include_router(departments.router)
 app.include_router(roles.router)
 app.include_router(translation_projects.router)
+from translation_customer_finance import router as translation_customer_finance_router
+app.include_router(translation_customer_finance_router)
+from interpretation_customer_finance import router as interpretation_customer_finance_router
+app.include_router(interpretation_customer_finance_router)
+from customer_finance_sync import router as customer_finance_sync_router
+app.include_router(customer_finance_sync_router)
+from customer_translation_rates import router as customer_translation_rates_router
+app.include_router(customer_translation_rates_router)
 app.include_router(interpretation_projects.router)
 from routers import annotation_materials
 app.include_router(annotation_materials.router)

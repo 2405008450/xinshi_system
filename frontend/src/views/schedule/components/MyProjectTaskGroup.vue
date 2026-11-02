@@ -8,7 +8,7 @@
       <el-table-column prop="project_name" label="项目名称" min-width="260" show-overflow-tooltip />
       <el-table-column prop="client_short_name" label="客户简称" min-width="140" show-overflow-tooltip />
       <el-table-column label="项目状态" width="145"><template #default="{row}">{{getProjectStatusLabel(row.project_type,row.project_status)}}</template></el-table-column>
-      <el-table-column label="操作" width="115" fixed="right"><template #default="{row}"><el-button link type="primary" @click="$emit('open-project',row)">进入项目</el-button></template></el-table-column>
+      <el-table-column label="操作" :width="group==='interpretation'?210:115" fixed="right"><template #default="{row}"><el-button v-if="group==='interpretation'" link type="primary" @click="openAnnotationWorkStatus({mode:'arrangement',projectType:'interpretation',projectId:row.id})">今日安排</el-button><el-button link type="primary" @click="$emit('open-project',row)">进入项目</el-button></template></el-table-column>
     </el-table>
     <el-pagination v-model:current-page="page" :total="total" :page-size="10" layout="total, prev, pager, next" @current-change="load" />
   </div>
@@ -17,6 +17,7 @@
 import {onBeforeUnmount,onMounted,ref,watch} from 'vue'
 import {getMyProjectTasks} from '@/api/tasks'
 import {getProjectStatusLabel} from '@/utils/projectStatus'
+import {openAnnotationWorkStatus} from '@/utils/annotationWorkStatus'
 const props=defineProps({group:{type:String,required:true}})
 const emit=defineEmits(['open-project','count-change'])
 const rows=ref([]),total=ref(0),page=ref(1),keyword=ref(''),loading=ref(false),ready=ref(true),error=ref('')
@@ -25,7 +26,8 @@ async function load(){controller?.abort();controller=new AbortController();const
 function query(){clearTimeout(timer);page.value=1;load()}
 function reset(){keyword.value='';query()}
 watch(keyword,value=>{clearTimeout(timer);controller?.abort();sequence++;loading.value=false;if(!value)query();else timer=setTimeout(query,400)})
-onMounted(load)
-onBeforeUnmount(()=>{clearTimeout(timer);controller?.abort();sequence++})
+function onArrangementUpdated(){if(props.group==='interpretation')load()}
+onMounted(()=>{load();window.addEventListener('interpretation-work-arrangement-updated',onArrangementUpdated)})
+onBeforeUnmount(()=>{window.removeEventListener('interpretation-work-arrangement-updated',onArrangementUpdated);clearTimeout(timer);controller?.abort();sequence++})
 </script>
 <style scoped>.project-search{display:flex;gap:8px;margin:10px 0}.project-search .el-input{max-width:420px}.el-pagination{margin-top:12px;justify-content:flex-end;overflow-x:auto}.el-alert{margin-bottom:10px}</style>

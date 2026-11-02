@@ -68,6 +68,10 @@ class TaskComplete(BaseModel):
     item: DailyReportItemInput
 
 
+class TaskRemove(BaseModel):
+    revision: int = Field(ge=1)
+
+
 def ready(db):
     return inspect(db.connection()).has_table(ProjectArrangement.__tablename__)
 
@@ -167,6 +171,26 @@ def locked_task(db, task_id, revision, user):
     return row
 
 
+def remove_task(db, user, task_id, payload, can_assign=False):
+    if not can_assign:
+        raise HTTPException(403, '仅有项目安排权限的人员可以移除安排')
+    row = locked_task(db, task_id, payload.revision, user)
+    project_id = row.project_id
+    plan = db.get(history.ArrangementPlan, project_id)
+    before = history.snapshot(db, project_id, plan)
+    # 已完成任务的工作报告独立保留；安排历史也保留完整的移除前快照。
+    if targets.ready(db):
+        target = db.get(targets.ArrangementOrderTarget, row.id)
+        if target:
+            db.delete(target)
+    plan.ordered_task_ids = [value for value in plan.ordered_task_ids if value != str(row.id)]
+    db.delete(row)
+    db.flush()
+    history.append_history(db, plan, user, 'remove', before)
+    db.commit()
+    return history.detail(db, project_id)
+
+
 def edit_task(db, user, task_id, payload, can_assign=False):
     row = locked_task(db, task_id, payload.revision, user)
     if row.assignee_id != user.id and not can_assign:
@@ -191,7 +215,9 @@ def edit_task(db, user, task_id, payload, can_assign=False):
     return serialize(db, row)
 
 
-def complete_task(db, user, task_id, payload):
+def complete_task(db, user, task_id, payload, *, commit=True):
+    # 与任务区及自主任务统一：先锁本人，再锁项目和任务，避免两个完成入口互锁。
+    db.query(AppUser.id).filter_by(id=user.id).with_for_update().first()
     row = locked_task(db, task_id, payload.revision, user)
     if row.assignee_id != user.id:
         raise HTTPException(403, '仅任务本人可以完成任务并加入工作报告')
@@ -216,5 +242,8 @@ def complete_task(db, user, task_id, payload):
     row.completed_at = row.updated_at = now()
     row.revision += 1
     history.append_history(db, plan, user, 'complete', before)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return serialize(db, row)

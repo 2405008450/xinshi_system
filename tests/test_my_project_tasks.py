@@ -26,8 +26,14 @@ def test_four_project_groups_follow_current_managers(environment):
             project.client_manager_id = owner.id
         else:
             db.add(ProjectClientManagerChange(id=uuid4(), project_type=group, project_id=project.id, revision=1, new_manager_id=owner.id, reason='测试'))
+        if group == 'interpretation':
+            owner.department='口译项目部'
         db.commit()
         assert search(db, owner, group)['total'] == 1
+        if group == 'interpretation':
+            # 口译只按客户经理和口译项目部范围显示，不再因项目经理身份显示。
+            assert search(db, member, group)['total'] == 0
+            continue
         assert search(db, member, group, 'aa bb')['total'] == 1
         assert search(db, outsider, group)['total'] == 0
         if group == 'translation':

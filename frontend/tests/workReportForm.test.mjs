@@ -2,6 +2,27 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {durationOptions,durationLabel,normalizeReportRow,rowTypes,updateRowTypes,shiftReportDate,reportWeekday,validQuantity,buildWorkTypeOptions,appendReportRows,requiresProjectIdentity,blockReportImages} from '../src/utils/workReportForm.js'
 import {layoutTaskContent,layoutTaskExtra} from '../src/utils/layoutReportTasks.js'
+import {mergeAnnotationOperationRows} from '../src/utils/workReportForm.js'
+
+test('旧报告草稿补入标注操作，保留用户修改且不重复',()=>{
+ const server={progress_content:'检查样本',display_metadata:{operation_source:'annotation_daily_operation',personal_task_id:'operation-1'}}
+ const edited={...server,progress_content:'用户修改后的具体操作'}
+ const manual={progress_content:'手动任务'}
+ assert.deepEqual(mergeAnnotationOperationRows([manual],[server]),[manual,server])
+ assert.deepEqual(mergeAnnotationOperationRows([edited],[server]),[edited])
+ assert.deepEqual(mergeAnnotationOperationRows([manual],[server,server]),[manual,server])
+})
+
+test('编辑报告清除自动初始化文案，保留人工内容及只读报告',()=>{
+ const row={source_type:'project',progress_content:'Workflow initialized at reception stage.',result_content:'原始备注',display_metadata:{workflow_log_id:'log-1'}}
+ assert.equal(normalizeReportRow(row,{editable:true}).progress_content,'')
+ assert.equal(normalizeReportRow(row).progress_content,row.progress_content)
+ assert.equal(normalizeReportRow({...row,progress_content:'核对了项目文件'},{editable:true}).progress_content,'核对了项目文件')
+ assert.equal(normalizeReportRow({...row,source_type:'manual'},{editable:true}).progress_content,row.progress_content)
+ assert.equal(normalizeReportRow({...row,source_type:'system_event'},{editable:true}).progress_content,row.progress_content)
+ assert.equal(normalizeReportRow(row,{editable:true}).result_content,'原始备注')
+ assert.equal(row.progress_content,'Workflow initialized at reception stage.')
+})
 
 test('自定义一级分类保留内容，固定任务多选不丢失自由文字',()=>{
  const options=buildWorkTypeOptions({'质量工作':['核对术语']})

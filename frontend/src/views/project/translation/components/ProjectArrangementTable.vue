@@ -32,6 +32,7 @@ import ArrangementOrderPicker from './ArrangementOrderPicker.vue'
 import CustomerProjectRequirements from '@/components/common/CustomerProjectRequirements.vue'
 import {reportBusinessDate} from '@/utils/workReportForm'
 import {formatBusinessDateTime} from '@/utils/dateTime'
+import {createIdempotencyKey} from '@/utils/idempotency'
 const props=defineProps({projects:{type:Array,default:()=>[]},columns:{type:Array,default:()=>[{key:'orderNo',label:'订单号'},{key:'sourceFileName',label:'项目名称'},{key:'clientShortName',label:'客户简称'},{key:'projectStatus',label:'项目状态'},{key:'languagePair',label:'翻译方向'},{key:'translatorReturnTime',label:'译员回稿时间'},{key:'customerDeadlineTime',label:'客户回稿时间'}]},people:{type:Array,default:()=>[]},canWrite:Boolean,loading:Boolean,offset:{type:Number,default:0},formatReturns:{type:Function,default:()=>'-'},statusLabel:{type:Function,default:value=>value||'-'}})
 const { order: columnOrder, setOrder: setColumnOrder } = useTableColumnOrder('translation-arrangements')
 const headerRoot = ref(null)
@@ -66,12 +67,22 @@ const emit=defineEmits(['changed'])
 const planPanels=new Map()
 function setPlanPanel(id,panel){if(panel)planPanels.set(id,panel);else planPanels.delete(id)}
 const opened=ref(''),drafts=reactive({}),targetOrderIds=reactive({}),refreshKey=ref(0),saving=ref(false),workDate=ref(reportBusinessDate())
-function addPeople(project,people){drafts[project.id]||=[];for(const person of people)if(!drafts[project.id].some(d=>d.assignee_id===person.id))drafts[project.id].push({key:crypto.randomUUID(),assignee_id:person.id,name:person.name,content:''})}
+function addPeople(project,people){drafts[project.id]||=[];for(const person of people)if(!drafts[project.id].some(d=>d.assignee_id===person.id))drafts[project.id].push({key:createIdempotencyKey(),assignee_id:person.id,name:person.name,content:''})}
 function open(project){targetOrderIds[project.id]??=[project.id];opened.value=project.id}
 function arrangeOrder(project,id){if(!props.canWrite||saving.value)return;targetOrderIds[project.id]=[id];addPeople(project,props.people)}
 function dropOrder(event,project,id){if(!props.canWrite||saving.value)return;targetOrderIds[project.id]=[id];drop(event,project)}
 function arrange(project){if(opened.value===project.id)refreshKey.value++;else open(project);addPeople(project,props.people)}
-function drop(event,project){if(!props.canWrite)return;try{const values=JSON.parse(event.dataTransfer.getData('application/x-project-personnel'));if(!Array.isArray(values))return;open(project);addPeople(project,values)}catch{ElMessage.warning('请从左侧拖动人员')}}
+function drop(event,project){
+  if(!props.canWrite||saving.value)return
+  const raw=event.dataTransfer?.getData('application/x-project-personnel')
+  // 执行顺序拖拽等内部事件不属于人员拖入，不应误报或重复处理。
+  if(!raw)return
+  event.stopPropagation()
+  let values
+  try{values=JSON.parse(raw)}catch{return ElMessage.warning('拖动的人员数据无效，请从左侧重新拖入')}
+  if(!Array.isArray(values)||!values.length||values.some(person=>!person?.id||!person?.name))return ElMessage.warning('拖动的人员数据无效，请从左侧重新拖入')
+  open(project);addPeople(project,values)
+}
 async function save(project){if(saving.value)return;const values=drafts[project.id]||[];const bad=values.find(d=>!d.content.trim());if(bad){ElMessage.warning(`请填写${bad.name}的具体任务`);return}if(!targetOrderIds[project.id]?.length)return ElMessage.warning('请选择需要安排的订单');if(!workDate.value)return ElMessage.warning('请选择任务日期');const instruction=planPanels.get(project.id)?.getInstruction();if(!instruction)return ElMessage.warning('请等待项目说明加载完成，若有错误请先刷新安排');saving.value=true;try{await assignProjectTasks(project.id,values.map(d=>({assignee_id:d.assignee_id,content:d.content.trim(),work_date:workDate.value})),{...instruction,target_order_ids:targetOrderIds[project.id]});drafts[project.id]=[];refreshKey.value++;emit('changed');ElMessage.success('项目安排已保存，已生成个人任务')}catch(error){ElMessage.error(error.detail||'保存安排失败')}finally{saving.value=false}}
 </script>
 <style scoped>

@@ -1918,7 +1918,22 @@ def _apply_translation_project_filters(
 
     from project_client_manager import manager_name_expression
     for field, descriptor in field_filters.items():
-        if field in {
+        if field == 'finance_manager_self':
+            from project_client_manager import manager_self_expression
+            value=descriptor['value']
+            query=query.filter(manager_self_expression('translation',TranslationProject.id,UUID(value['id']),value['names'],Client.client_manager))
+        elif field == 'finance_billing_month':
+            month = descriptor.get('value')
+            query = query.filter(or_(
+                TranslationProject.customer_charge_items.any(TranslationSubOrderChargeItem.billing_month == month),
+                TranslationProject.sub_orders.any(TranslationSubOrder.customer_charge_items.any(TranslationSubOrderChargeItem.billing_month == month)),
+            ))
+        elif field == 'finance_client_id':
+            query = query.filter(TranslationProject.client_id == UUID(descriptor['value']))
+        elif field == 'finance_client':
+            from search_matching import keyword_any
+            query = query.filter(keyword_any([Client.client_name, Client.client_short_name], descriptor.get('value')))
+        elif field in {
             "client_name", "client_short_name", "client_code", "client_manager", "manager_contact",
             "sub_client_name", "sub_client_short_name", "sub_client_code",
         }:
@@ -2325,6 +2340,8 @@ def create_translation_project(
 
     # 项目与初始工作流必须处于同一个事务中，避免接口失败但项目已单独落库。
     init_workflow(db, db_project.id, commit=False)
+    from customer_finance_sync import inherit_translation
+    inherit_translation(db,db_project,project.created_by)
     record_project_operation(
         db,
         project_type="translation",
@@ -3538,6 +3555,8 @@ def _create_sub_order_in_transaction(
     )
     from workflow_crud import init_workflow
 
+    from translation_customer_finance import inherit_new_order
+    inherit_new_order(db, db_sub)
     # 子订单与母订单一致：初始工作流必须同事务落库，否则子订单不会出现在工作台。
     init_workflow(db, sub_order_id=db_sub.id, commit=False)
     return db_sub
