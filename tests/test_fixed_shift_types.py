@@ -105,3 +105,16 @@ def test_management_times_and_home_rotation_remains_movable_published(environmen
     weekly.save_plan(db,users[0],'2026-11-02',weekly.WeeklyPlanWrite(revision=0,assignments=payload(users[1],shift='early').assignments))
     moved=weekly.transfer_plan(db,users[0],weekly.WeekTransfer(source_week='2026-10-26',target_week='2026-11-09',operation='copy',source_revision=1,target_revision=0))
     assert moved['target']['assignments'][0]['home_rotation']
+
+@pytest.mark.parametrize('code',['fixed_early_early','flexible'])
+def test_missing_checkout_does_not_block_next_day_multiple_pairs(environment,monkeypatch,code):
+    from test_attendance import at
+    db,users=environment;configure(db,users,code,monkeypatch);person=users[1]
+    punch(db,person,monkeypatch,'2026-10-26T08:30')
+    monkeypatch.setattr(clock,'now',lambda:at('2026-10-27T08:30'))
+    assert clock.today_status(db,person)['can_check_in']
+    current=punch(db,person,monkeypatch,'2026-10-27T08:30')
+    assert not clock.today_status(db,person)['can_check_in']
+    out(db,person,current,monkeypatch,'2026-10-27T09:00')
+    assert clock.today_status(db,person)['can_check_in']
+    assert punch(db,person,monkeypatch,'2026-10-27T09:10',1)['segment']==1

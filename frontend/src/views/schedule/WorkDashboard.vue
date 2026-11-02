@@ -17,9 +17,9 @@
     </template>
 
     <div class="dashboard-flow">
-      <PendingHandoversPanel v-if="canOperateWorkflow" @updated="loadMyWorkItems" />
+      <PendingHandoversPanel v-if="canViewTasks && canOperateWorkflow" @updated="loadMyWorkItems" />
 
-      <div class="overview-strip">
+      <div v-if="canViewTasks" class="overview-strip">
         <div class="stat-chip danger">
           <span class="stat-chip__label">逾期任务<span class="temporarily-unused">（暂时不用）</span></span>
           <strong>{{ overdueTasks.length }}</strong>
@@ -50,7 +50,7 @@
       </div>
 
       <el-tabs v-model="activeSection" type="border-card" class="workbench-tabs">
-        <el-tab-pane name="my-tasks" label="我的任务与思考" lazy>
+        <el-tab-pane v-if="canViewTasks" name="my-tasks" label="我的任务与思考" lazy>
           <section class="my-tasks-upper" aria-label="我的任务上方区域：今日任务">
             <TodayTasks :day="dailyReportDate" />
           </section>
@@ -70,7 +70,7 @@
           </el-collapse>
         </el-tab-pane>
         <el-tab-pane name="monthly-shift" label="排班与考勤" lazy><MyMonthlyShift /></el-tab-pane>
-        <el-tab-pane name="tasks">
+        <el-tab-pane v-if="canViewTasks" name="tasks">
           <template #label>
             <span>我的任务<template v-if="taskTabCount">（{{ taskTabCount }}）</template><span class="temporarily-unused">（暂时不用）</span></span>
           </template>
@@ -144,8 +144,8 @@
             </el-collapse-transition>
           </section>
         </el-tab-pane>
-        <el-tab-pane v-if="canReceiveReports" name="review-tasks" label="查看任务" lazy><TodayTasks review :day="dailyReportDate" /></el-tab-pane>
-        <el-tab-pane name="daily-report" lazy>
+        <el-tab-pane v-if="canViewReports && canReceiveReports" name="review-tasks" label="查看任务" lazy><TodayTasks review :day="dailyReportDate" /></el-tab-pane>
+        <el-tab-pane v-if="canViewReports" name="daily-report" lazy>
           <template #label>
             <span class="daily-report-tab-label">
               我的工作报告
@@ -162,7 +162,7 @@
           </template>
           <DailyReportPanel :report-date="dailyReportDate" @update:report-date="dailyReportDate = $event" @status-change="onDailyReportStatus" />
         </el-tab-pane>
-        <el-tab-pane v-if="canReceiveReports" name="received-reports" label="查看工作报告" lazy><ReceivedWorkReports /></el-tab-pane>
+        <el-tab-pane v-if="canViewReports && canReceiveReports" name="received-reports" label="查看工作报告" lazy><ReceivedWorkReports /></el-tab-pane>
       </el-tabs>
     </div>
 
@@ -199,7 +199,9 @@ const personalProjectGroups=[{key:'translation',label:'笔译项目'},{key:'inte
 const DailyReportPanel = defineAsyncComponent(() => import('./components/DailyReportPanel.vue'))
 const ReceivedWorkReports = defineAsyncComponent(() => import('./components/ReceivedWorkReports.vue'))
 const canReceiveReports=ref(false)
-async function refreshReportAccess(){try{canReceiveReports.value=(await getReportAccessContext()).can_receive}catch{canReceiveReports.value=false}if(!canReceiveReports.value&&['received-reports','review-tasks'].includes(activeSection.value))activeSection.value='my-tasks'}
+const canViewTasks = computed(() => hasPermission('tasks:read'))
+const canViewReports = computed(() => hasPermission('reports:read'))
+async function refreshReportAccess(){if(!canViewReports.value){canReceiveReports.value=false;return}try{canReceiveReports.value=(await getReportAccessContext()).can_receive}catch{canReceiveReports.value=false}if(!canReceiveReports.value&&['received-reports','review-tasks'].includes(activeSection.value))activeSection.value=canViewTasks.value?'my-tasks':'monthly-shift'}
 onMounted(()=>{refreshReportAccess();window.addEventListener('focus',refreshReportAccess)})
 onBeforeUnmount(()=>window.removeEventListener('focus',refreshReportAccess))
 const ShiftMatrixDialog = defineAsyncComponent(() => import('./components/ShiftMatrixDialog.vue'))
@@ -222,12 +224,17 @@ const MAIN_TAB_STORAGE_KEY = 'workbench_main_tab'
 const MAIN_TAB_NAMES = ['my-tasks', 'monthly-shift', 'tasks', 'review-tasks', 'daily-report', 'received-reports']
 
 function readInitialMainTab() {
+  const fallback = canViewTasks.value ? 'my-tasks' : 'monthly-shift'
   try {
     const stored = localStorage.getItem(MAIN_TAB_STORAGE_KEY)
-    if (stored === 'today-tasks' || stored === 'tasks') return 'my-tasks'
-    if (stored && MAIN_TAB_NAMES.includes(stored)) return stored
+    if (stored === 'today-tasks' || stored === 'tasks') return fallback
+    if (stored && MAIN_TAB_NAMES.includes(stored)) {
+      if (['my-tasks', 'tasks'].includes(stored) && !canViewTasks.value) return fallback
+      if (['daily-report', 'received-reports', 'review-tasks'].includes(stored) && !canViewReports.value) return fallback
+      return stored
+    }
   } catch {}
-  return 'my-tasks'
+  return fallback
 }
 
 const activeSection = ref(readInitialMainTab())
@@ -381,6 +388,7 @@ function initCurrentUserName() {
 }
 
 async function loadMyWorkItems() {
+  if (!canViewTasks.value) { workItems.value = []; return }
   try {
     const tasks = await getMyWorkItems()
     workItems.value = Array.isArray(tasks) ? tasks : []

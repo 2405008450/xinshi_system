@@ -190,7 +190,7 @@ const routes = [
         path: 'workbench',
         name: 'WorkDashboard',
         component: () => import('../views/schedule/WorkDashboard.vue'),
-        meta: { title: '工作台', permissions: ['projects:read', 'tasks:read'] }
+        meta: { title: '工作台', roles: ['*'] }
       },
       {
         path: 'admin/schedule',

@@ -1,6 +1,6 @@
 """手动打卡、确认、分段、月抵扣与权限；仅隔离 SQLite。"""
 from datetime import date
-from uuid import uuid4
+from uuid import UUID,uuid4
 import pytest
 from fastapi import HTTPException,FastAPI
 from fastapi.testclient import TestClient
@@ -134,3 +134,55 @@ def test_week_spanning_months_never_transfers_deductions_between_months(environm
     assert report['totals']['overtime_minutes']==60
     balances={row['month']:row for row in report['monthly_balances']}
     assert balances['2026-10']['overtime_minutes']==60 and balances['2026-11']['remaining_deduction_minutes']==20
+
+@pytest.mark.parametrize('legacy',[False,True])
+@pytest.mark.parametrize('code',['early','customer_remote'])
+def test_previous_missing_checkout_allows_today_and_blocks_stale_checkout(environment,monkeypatch,legacy,code):
+    db,users=environment;arrange(db,users,code);person=users[1]
+    previous=punch(db,person,monkeypatch,'2026-10-26T10:30')
+    if legacy:
+        row=db.get(Clock,UUID(previous['id']));old=AttendanceDay(user_id=person.id,day=row.day,check_in=row.check_in,shift_snapshot=row.shift_snapshot)
+        db.delete(row);db.add(old);db.commit();previous['id']=str(old.id)
+    monkeypatch.setattr(service,'now',lambda:at('2026-10-27T10:30'))
+    status=service.today_status(db,person)
+    assert status['can_check_in'] and status['can_home_overtime_check_in']
+    assert status['pending_previous']['id']==previous['id']
+    today=punch(db,person,monkeypatch,'2026-10-27T10:30')
+    assert today['day']=='2026-10-27'
+    assert punch(db,person,monkeypatch,'2026-10-27T10:31')['id']==today['id']
+    with pytest.raises(HTTPException) as error:
+        out(db,person,previous,monkeypatch,'2026-10-27T11:00')
+    assert error.value.status_code==409 and '补下班打卡' in error.value.detail
+    db.rollback()
+    assert service.today_status(db,person)['record']['id']==today['id']
+    options={'deduct_invalid_time':False} if code=='customer_remote' else {}
+    out(db,person,today,monkeypatch,'2026-10-27T18:30',**options)
+    assert service.today_status(db,person)['record']['check_out'] is not None
+    model=AttendanceDay if legacy else Clock
+    assert db.get(model,UUID(previous['id'])).check_out is None
+
+
+def test_multiple_missing_days_and_home_overtime(environment,monkeypatch):
+    db,users=environment;arrange(db,users);person=users[1]
+    first=punch(db,person,monkeypatch,'2026-10-26T09:00')
+    second=punch(db,person,monkeypatch,'2026-10-27T09:00')
+    monkeypatch.setattr(service,'now',lambda:at('2026-10-28T21:00'))
+    assert service.today_status(db,person)['can_home_overtime_check_in']
+    result=service.check_in(db,person,request(),service.CheckInWrite(breakfast_notice_accepted=True,work_mode='company_home_overtime'))['record']
+    assert result['day']=='2026-10-28' and result['segment']==2
+    assert not service.today_status(db,person)['can_check_in']
+    with pytest.raises(HTTPException):punch(db,person,monkeypatch,'2026-10-28T21:01')
+    assert db.query(Clock).filter(Clock.check_out.is_(None)).count()==3
+
+
+def test_older_legacy_missing_checkout_remains_visible_after_today(environment,monkeypatch):
+    db,users=environment;arrange(db,users);person=users[1]
+    old=AttendanceDay(user_id=person.id,day=date(2026,10,26),check_in=at('2026-10-26T09:00'),shift_snapshot=attendance.shift_for(db,person,date(2026,10,26)))
+    db.add(old);db.commit()
+    monkeypatch.setattr(service,'now',lambda:at('2026-10-28T09:00'))
+    status=service.today_status(db,person)
+    assert status['pending_previous']['id']==str(old.id) and status['can_check_in']
+    today=punch(db,person,monkeypatch,'2026-10-28T09:00')
+    status=service.today_status(db,person)
+    assert status['pending_previous']['id']==str(old.id) and status['record']['id']==today['id']
+    assert not status['record']['requires_cross_day_reason']

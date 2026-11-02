@@ -6,7 +6,7 @@
       <el-alert v-if="todayError" :title="todayError" type="error" :closable="false" />
       <el-alert v-else-if="!todayLoading&&desktop&&today.shift&&!today.record" title="今日尚未上班打卡，请点击上班打卡，阅读早餐提示后完成打卡。" type="warning" :closable="false" />
       <el-descriptions :column="2" border v-loading="todayLoading"><el-descriptions-item label="今日班次">{{today.shift?`${today.shift.label} · ${today.shift.periods.join(' / ')}`:'今日休息或尚未安排班次'}}</el-descriptions-item><el-descriptions-item label="上班打卡">{{formatBusinessDateTime(today.record?.check_in)}}</el-descriptions-item><el-descriptions-item label="下班打卡">{{formatBusinessDateTime(today.record?.check_out)}}</el-descriptions-item><el-descriptions-item label="今日请假"><template v-if="today.leaves?.length"><p v-for="(item,index) in today.leaves" :key="index">{{formatBusinessDateTime(item.start_at)}} 至 {{formatBusinessDateTime(item.end_at)}} · {{durationLabel(item.minutes)}} · {{item.reason}}</p></template><span v-else>无</span></el-descriptions-item></el-descriptions>
-      <p v-if="today.pending_previous" class="attendance-note">尚有 {{today.pending_previous.day}} 的上班记录未签退，本次下班打卡将归到该记录。</p>
+      <p v-if="today.pending_previous" class="attendance-note">尚有 {{today.pending_previous.day}} 的上班记录未签退，不影响今日上班，请通过补下班打卡处理。<span v-if="!today.record&&!today.sessions?.length">如确实持续工作至今，可点击下班打卡，签退归属 {{today.pending_previous.day}}。</span></p>
       <p class="attendance-note">上下班均须本人在电脑端点击打卡；登录系统不自动打卡。固定早早班每天可多组打卡，不限定上午、下午；居家晚班按白天、晚间分两段打卡；灵活班次不设上下班时间，每天可多组打卡；手机端不记录上下班打卡。班次开始后 15 分钟内不算迟到，超过后仅累计超出部分。下班打卡入库成功后才显示成功。请假支持电脑和手机。</p>
       <p class="attendance-note">周末夜间值班19:00–23:00居家，不占普通居家额度；单独、接续夜间均不折算半天，按有效工作时长先抵扣待补班请假，接续值班需白天18:00签退、晚间重新打卡，共两组。夜间签退可扣除无效工作时间并留记录。</p>
       <p class="attendance-note">请假优先抵扣年假，不足部分待补班；人事可改为扣工资并留记录。已抵年假或明确扣工资不重复补班。</p><div class="attendance-approval">请假审批 <el-tag type="info">待开发</el-tag></div>
@@ -50,7 +50,7 @@ import {chatClientType} from '@/utils/chatDevice'
 const props=defineProps({admin:Boolean})
 const mode=ref('week'),week=ref(currentShiftWeek()),month=ref(currentShiftMonth()),page=ref(1),report=ref({}),loading=ref(false),error=ref(''),keyword=ref(''),department=ref(''),detailsTab=ref(props.admin?'people':'records')
 const today=ref({}),todayLoading=ref(false),todayError=ref(''),clockSaving=ref(false),leaveVisible=ref(false),desktop=chatClientType(navigator)==='desktop'
-const clockRecord=computed(()=>today.value.pending_previous||today.value.record)
+const clockRecord=computed(()=>today.value.record||(today.value.sessions?.length?null:today.value.pending_previous))
 const expandedSections=ref(props.admin?['statistics']:['clock']),clockVisible=ref(false),clockMode=ref('in')
 const correctionPanel=ref()
 async function openCorrection(kind){if(!expandedSections.value.includes('corrections'))expandedSections.value.push('corrections');await nextTick();correctionPanel.value?.open(kind)}

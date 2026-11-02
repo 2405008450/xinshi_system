@@ -14,13 +14,15 @@ html='''<!doctype html><meta charset="UTF-8"><link rel="stylesheet" href="/node_
 import {createApp,h,ref} from VUE;import Mine from '/src/views/schedule/components/MyMonthlyShift.vue';import Attendance from '/src/views/schedule/components/AttendanceOverview.vue';import AppForm from '/src/components/common/AppForm.vue';
 const app=createApp({setup(){const admin=ref(false);return()=>h('div',[h('button',{onClick:()=>admin.value=!admin.value},'切换公司考勤'),admin.value?h(Attendance,{admin:true}):h(Mine)])}});app.component('AppForm',AppForm);app.mount('#app');</script>'''.replace('VUE',json.dumps(vue))
 shift={**SHIFTS[1],'fixed':True};sessions=[];writes=[];reads=[];errors=[]
+pending={'id':'previous-record','day':'2026-10-27','segment':0,'check_in':'2026-10-27T09:00:00+08:00','check_out':None,'shift':shift,'requires_cross_day_reason':True}
+
 def api(route):
  global sessions
  request=route.request;path=urlparse(request.url).path;reads.append(path)
  if path.endswith('/today'):
   opened=next((row for row in sessions if not row['check_out']),None);count=2 if shift['code']=='customer_remote' or shift.get('clock_segments')==2 else 1
   flexible=shift.get('flexible',False);multiple=flexible or shift.get('multiple_clock_sessions',False);next_segment=len(sessions) if len(sessions)<2 else len(sessions)+1
-  result={'day':'2026-10-28','shift':shift,'record':opened or (sessions[-1] if sessions else None),'sessions':sessions,'segment_count':None if multiple else count,'flexible':flexible,'multiple_clock_sessions':multiple,'can_check_in':not opened and (multiple or len(sessions)<count),'next_segment':next_segment if multiple else min(len(sessions),1),'clock_ready':True,'leaves':[]}
+  result={'day':'2026-10-28','shift':shift,'record':opened or (sessions[-1] if sessions else None),'sessions':sessions,'segment_count':None if multiple else count,'flexible':flexible,'multiple_clock_sessions':multiple,'can_check_in':not opened and (multiple or len(sessions)<count),'next_segment':next_segment if multiple else min(len(sessions),1),'clock_ready':True,'leaves':[],'pending_previous':pending}
  elif path.endswith('/check-in'):
   data=request.post_data_json;writes.append((path,data));record={'id':f'record-{len(sessions)}','day':'2026-10-28','segment':data['segment'],'check_in':'2026-10-28T08:00:00+08:00','check_out':None,'shift':shift};sessions.append(record);result={'message':'上班打卡成功','record':record}
  elif path.endswith('/check-out'):
@@ -29,15 +31,19 @@ def api(route):
   result={'start':'2026-10-26','end':'2026-11-01','records':[{'user_id':'self','name':'本人','day':'2026-10-28','shift':shift,'check_in':'2026-10-28T08:00:00+08:00','check_out':'2026-10-28T18:30:00+08:00','raw_overtime_minutes':60,'overtime_minutes':25,'violation_count':1,'sessions':[{'id':'report-session','segment':0,'raw_overtime_minutes':60,'breakfast_deduction_minutes':15,'dinner_deduction_minutes':20,'overtime_minutes':25,'deduction_details':[{'reason':'早餐前打卡，早餐抵扣并记违纪一次','minutes':15,'kind':'deduction'}]}]}],'total':1,'totals':{'overtime_minutes':25,'violation_count':1},'people':[],'departments':[],'monthly_balances':[{'user_id':'self','name':'本人','month':'2026-10','raw_minutes':60,'deduction_minutes':35,'overtime_minutes':25}]}
  elif path.endswith('/overview') and '/weekly/' in path:result={'ready':True,'week_start':'2026-10-26','week_end':'2026-11-01','assignments':[],'shifts':SHIFTS,'departments':DEPARTMENTS}
  elif path.endswith('/overview'):result={'ready':True,'month':'2026-10','assignments':[],'dates':[],'departments':DEPARTMENTS,'current_user_id':'self'}
- else:result={'ready':True,'items':[],'assignments':[],'total':0}
+ else:result={'ready':True,'items':[],'assignments':[],'dates':[],'total':0}
  route.fulfill(content_type='application/json',body=json.dumps(result,ensure_ascii=False))
 with sync_playwright() as pw:
  browser=pw.chromium.launch(channel='msedge',headless=True);context=browser.new_context(viewport={'width':1500,'height':1000},service_workers='block')
  context.route(re.compile(r'^http://localhost:3000/api/'),api);context.route(BASE+'/attendance-clock-ui-check',lambda route:route.fulfill(content_type='text/html',body=html))
- page=context.new_page();page.on('pageerror',lambda e:errors.append(str(e)));page.goto(BASE+'/attendance-clock-ui-check')
+ page=context.new_page();page.on('pageerror',lambda e:errors.append(e.stack or str(e)));page.goto(BASE+'/attendance-clock-ui-check')
  clock=page.locator('.attendance-heading').filter(has_text='打卡与请假')
  def button(name):return clock.get_by_role('button',name=name,exact=True)
  expect(page.locator('.el-collapse-item.is-active')).to_have_count(1)
+ expect(page.locator('.attendance-note').filter(has_text='不影响今日上班')).to_be_visible()
+ button('下班打卡').click();previous_dialog=page.get_by_role('dialog',name='下班打卡确认',exact=True)
+ expect(previous_dialog).to_contain_text('考勤归属日期：2026-10-27');expect(previous_dialog).to_contain_text('跨日/跨组签退原因')
+ previous_dialog.get_by_role('button',name='取消',exact=True).click()
  page.get_by_role('button',name='全部规则说明',exact=True).first.click();rules=page.locator('.attendance-rules-content:visible');expect(rules).to_contain_text('再过3个月');expect(rules).to_contain_text('早餐');expect(rules).to_contain_text('晚餐');expect(rules).to_contain_text('无效时间');expect(rules).to_contain_text('最多10天');page.get_by_role('button',name='全部规则说明',exact=True).first.click()
  expect(button('上班打卡')).to_be_enabled();assert button('上班打卡').bounding_box()['x']<button('下班打卡').bounding_box()['x']
  for title in ['打卡与请假','考勤与加班统计','班次安排','值班安排']:
@@ -53,6 +59,7 @@ with sync_playwright() as pw:
  def choose(prefix,text):dialog.locator('.el-form-item').filter(has_text=prefix).locator('.el-radio').filter(has_text=re.compile('^'+re.escape(text)+'$')).click()
  choose('1. 请确认','否，提前时间不计加班');choose('2. 请确认','否');expect(dialog).to_contain_text('记违纪一次');expect(dialog).to_contain_text('固定班次每天扣除一次20分钟')
  dialog.get_by_role('button',name='打卡',exact=True).click();expect(dialog).not_to_be_visible();assert writes[-1][1]['early_work_confirmed'] is False and writes[-1][1]['breakfast_after_eating'] is False
+ assert writes[-1][1]['record_id']=='record-0';expect(button('下班打卡')).to_be_disabled();assert pending['check_out'] is None
  page.locator('.el-collapse-item__header').filter(has_text=re.compile('^考勤与加班统计$')).click()
  page.get_by_role('button',name='查看详情',exact=True).click();detail=page.locator('.attendance-detail');expect(detail).to_contain_text('原额 1小时 − 早餐 15分钟 − 晚餐 20分钟');expect(detail).to_contain_text('违纪次数')
  page.locator('.attendance-heading').filter(has_text='我的考勤统计').locator('h3').click()

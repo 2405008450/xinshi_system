@@ -127,16 +127,7 @@ function isPhoneViewport() {
 }
 
 function resolveDefaultPath() {
-  if (isSuperAdmin() || hasPermission(['projects:read', 'tasks:read'])) return '/workbench'
-  if (hasPermission(['annotation_accounts:read', 'annotation_accounts:write'])) return '/annotation-details?section=accounts'
-  if (hasPermission('system:users:read')) return '/hr-management/organization'
-  if (hasPermission('system:roles:read')) return '/roles'
-  if (hasPermission('system:mail_settings:read')) return '/mail-settings'
-  if (hasPermission('consultations:read')) return '/consultations'
-  if (hasPermission('schedule:read')) return '/work-schedule'
-  if (hasPermission('clients:read')) return '/clients'
-  if (hasPermission('finance:read')) return '/finance'
-  return '/resource-management/talent-overview'
+  return '/workbench'
 }
 
 /**

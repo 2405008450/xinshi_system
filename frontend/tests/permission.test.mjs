@@ -64,11 +64,11 @@ test('人才资源库对所有已登录角色开放', () => {
   assert.equal(canAccessRoute({
     meta: { roles: ['*'] },
   }), true)
-  assert.equal(getDefaultRoute(), '/resource-management/talent-overview')
+  assert.equal(getDefaultRoute(), '/workbench')
 
   setAccess(['项目专员'], [])
   assert.equal(canViewTalentResourceLibrary(), true)
-  assert.equal(getDefaultRoute(), '/resource-management/talent-overview')
+  assert.equal(getDefaultRoute(), '/workbench')
 
   setAccess(['超级管理员'], [])
   assert.equal(canViewTalentResourceLibrary(), true)
@@ -116,7 +116,16 @@ test('组织架构迁入人事管理后沿用组织权限，不能借此访问�
   setStoredAccess([], ['system:users:read'])
   assert.equal(canAccessRoute({meta:{hrManagement:true,organizationManagement:true}}), true)
   assert.equal(canAccessRoute({meta:{hrManagement:true}}), false)
-  assert.equal(getDefaultRoute(), '/hr-management/organization')
+  assert.equal(getDefaultRoute(), '/workbench')
+})
+
+test('已启用账号可进入工作台打卡，不扩大项目和任务权限', () => {
+  setAccess([], [])
+  assert.equal(canAccessRoute({ meta: { roles: ['*'] } }), true)
+  assert.equal(getDefaultRoute(), '/workbench')
+  assert.equal(hasPermission('projects:read'), false)
+  assert.equal(hasPermission('tasks:read'), false)
+  assert.equal(hasPermission('reports:read'), false)
 })
 
 test('技术管理仅按服务器确认的本人部门权限放行，超级管理员无额外通道', () => {

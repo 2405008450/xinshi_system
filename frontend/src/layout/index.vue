@@ -251,8 +251,8 @@ const systemNavigation=computed(()=>[
 ])
 const isSystemSection=computed(()=>systemNavigation.value.some(item=>item.path===route.path))
 
-/** 是否显示「工作台」（所有员工） */
-const showWorkbench = computed(() => hasPermission(['projects:read', 'tasks:read']))
+/** 已登录且启用的员工均可进入工作台进行本人考勤操作。 */
+const showWorkbench = true
 /** 菜单入口与路由守卫、后端读取权限保持同一口径。 */
 const canViewProjects = computed(() => hasPermission('projects:read'))
 const canViewAnnotation = computed(() => hasPermission([
