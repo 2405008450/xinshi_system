@@ -74,8 +74,12 @@ def grant(db,user_id,ids):
 def save_image(db,user_id,content,content_type,retention='business'):
     require_ready(db)
     if retention not in {'business','chat'}:raise ValueError('截图保留类型无效')
-    from mail_inline_image_service import normalize_uploaded_image
-    data,mime,*_=normalize_uploaded_image(content,content_type)
+    if retention == 'chat':
+        from chat_image_policy import normalize_chat_image
+        data, mime = normalize_chat_image(content, content_type)
+    else:
+        from mail_inline_image_service import normalize_uploaded_image
+        data,mime,*_=normalize_uploaded_image(content,content_type)
     digest=hashlib.sha256(data).hexdigest()
     dialect=db.get_bind().dialect.name
     if dialect in {'postgresql','sqlite'}:

@@ -7,18 +7,22 @@ from models import AppUser
 from routers.auth import get_current_user
 from editor_screenshot_models import EditorScreenshot as Image,EditorScreenshotBlob as Blob
 import editor_screenshot_service as service
+from chat_image_policy import UPLOAD_MAX_BYTES, ORIGINAL_MAX_BYTES
 
 router=APIRouter(prefix='/editor-screenshots',tags=['editor_screenshots'])
 
 
 @router.get('/capabilities')
 def capabilities(db:Session=Depends(get_db),user:AppUser=Depends(get_current_user)):
-    return {'ready':service.ready(db),'maxImages':9,'maxBytes':2*1024*1024,'businessRetention':'permanent','chatRetentionDays':30}
+    return {'ready':service.ready(db),'maxImages':9,'maxBytes':2*1024*1024,'chatMaxUploadBytes':UPLOAD_MAX_BYTES,'chatOriginalMaxBytes':ORIGINAL_MAX_BYTES,'businessRetention':'permanent','chatRetentionDays':30}
 
 
 @router.post('',status_code=201)
 async def upload(file:UploadFile=File(...),retention:str=Form('business'),db:Session=Depends(get_db),user:AppUser=Depends(get_current_user)):
-    content=await file.read(2*1024*1024+1)
+    limit = UPLOAD_MAX_BYTES if retention == 'chat' else 2*1024*1024
+    content=await file.read(limit+1)
+    if len(content) > limit:
+        raise HTTPException(413, '单张聊天图片不能超过 20MB' if retention == 'chat' else '单张正文图片不能超过 2MB')
     try:return service.save_image(db,user.id,content,file.content_type,retention)
     except ValueError as error:raise HTTPException(422,str(error)) from error
 

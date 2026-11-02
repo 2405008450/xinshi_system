@@ -53,18 +53,19 @@ def check_response(response, expected):
     if response.status_code == 401:
         raise HTTPException(502, '云端附件服务认证失败，请联系管理员检查两端登录配置')
     details = {403: '没有访问附件的权限',
-               404: '附件不存在或文件缺失', 413: '图片最多10MB，音视频最多100MB，其他文件最多20MB',
+               404: '附件不存在或文件缺失', 413: '图片最多20MB，音视频最多100MB，其他文件最多20MB',
                415: '附件格式不支持或文件内容无效', 400: '附件请求无效'}
     raise HTTPException(response.status_code if response.status_code in details else 503,
                         details.get(response.status_code, SERVICE_ERROR))
 
 
-async def upload_remote_attachment(url, content, filename, content_type, authorization, forwarded):
+async def upload_remote_attachment(url, content, filename, content_type, authorization, forwarded, *, retention=None):
     headers = request_headers(authorization, forwarded)
     try:
         async with make_client() as client:
             response = await client.post(url, headers=headers,
-                                         files={'file': (filename or 'image', content, content_type)})
+                                         files={'file': (filename or 'image', content, content_type)},
+                                         data={'retention': retention} if retention else None)
             check_response(response, 201)
             # 不返回上游任意响应，验证现有附件契约后再交给前端。
             return ProjectChatAttachmentResponse.model_validate(response.json())

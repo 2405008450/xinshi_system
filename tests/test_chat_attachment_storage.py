@@ -52,6 +52,16 @@ def test_upload_forwards_identity_and_returns_original_id(monkeypatch):
     assert len(requests) == 1
 
 
+def test_remote_chat_retention_is_forwarded(monkeypatch):
+    def handler(request):
+        assert b'name="retention"' in request.content and b'chat' in request.content
+        return httpx.Response(201, json={'id': str(uuid4()), 'original_name': 'image.png',
+            'content_type': 'image/png', 'file_size': 3, 'created_at': None})
+    mock_client(monkeypatch, handler)
+    asyncio.run(storage.upload_remote_attachment('https://cloud/api/project-chat/attachments',
+        b'png', 'image.png', 'image/png', 'Bearer test', None, retention='chat'))
+
+
 @pytest.mark.parametrize('status', [301, 302, 401, 403, 404, 413, 415, 500, 503])
 def test_upstream_failure_never_redirects_or_retries(monkeypatch, status):
     requests = []

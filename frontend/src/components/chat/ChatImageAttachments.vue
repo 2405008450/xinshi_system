@@ -7,7 +7,7 @@
     <el-upload v-if="showTools && (allowFiles || toolsOnly)" :show-file-list="false" :auto-upload="false" :on-change="selectImage" multiple :disabled="disabled || items.length >= 9">
       <el-button text size="small" :icon="Paperclip" aria-label="发送文件" title="发送文件" :disabled="disabled || items.length >= 9" />
     </el-upload>
-    <span v-if="!toolsOnly && items.length" class="chat-images__hint">每条最多9个附件，图片10MB，文件20MB</span>
+    <span v-if="!toolsOnly && items.length" class="chat-images__hint">每条最多9个附件，图片20MB（10MB以内保留原图），文件20MB</span>
     <div v-for="item in items" :key="item.key" class="chat-images__item">
       <img v-if="item.file.type.startsWith('image/')" :src="item.url" :alt="item.file.name" /><span>{{ item.file.name }}</span>
       <span v-if="item.status === 'uploading'">上传中…</span>

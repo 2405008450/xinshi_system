@@ -4,13 +4,13 @@
       <div v-if="replyTo" class="group-compose-reply">回复 {{ replyTo.senderName }}：{{ screenshotPreview(replyTo.content) || '[附件]' }}<el-button link :disabled="sending || !!retryPayload" @click="cancelQuote">取消引用</el-button></div>
       <div class="group-compose-tools">
         <el-button text size="small" aria-label="提及用户" title="提及用户" :disabled="sending || !!retryPayload" @click="insertMention">@</el-button>
-        <el-upload :show-file-list="false" :auto-upload="false" multiple :disabled="sending || !!retryPayload" accept=".jpg,.jpeg,.png,.gif,.webp" :on-change="chooseFile"><el-button text size="small" :icon="Picture" :disabled="sending || !!retryPayload" aria-label="发送图片" title="发送图片：单张10MB，聊天截图保留30天" /></el-upload>
+        <el-upload :show-file-list="false" :auto-upload="false" multiple :disabled="sending || !!retryPayload" accept=".jpg,.jpeg,.png,.gif,.webp" :on-change="chooseFile"><el-button text size="small" :icon="Picture" :disabled="sending || !!retryPayload" aria-label="发送图片" title="发送图片：单张20MB，10MB以内保留原图，聊天截图保留30天" /></el-upload>
         <el-upload :show-file-list="false" :auto-upload="false" multiple :disabled="sending || !!retryPayload" :accept="chatFileAccept" :on-change="chooseFile"><el-button text size="small" :icon="Paperclip" :disabled="sending || !!retryPayload" aria-label="发送文件" :title="`发送文件：${chatFileHint}`" /></el-upload>
       </div>
       <div v-if="files.length" class="group-file-queue"><div v-for="file in files" :key="file.key">{{ file.file.name }} · {{ file.status === 'uploading' ? `上传中 ${file.progress || 0}%`  : file.status === 'failed' ? '上传失败' : '待发送' }}<el-button v-if="file.status==='failed'" link @click="uploadFile(file)">重试</el-button><el-button link :disabled="sending || !!retryPayload" @click="removeFile(file)">移除</el-button><span v-if="file.error" class="group-error">{{ file.error }}</span></div></div>
       <div v-if="pendingImages.length || legacyImageIds.length" class="group-image-queue" aria-label="待发送图片">
         <div v-for="image in pendingImages" :key="image.key" class="group-image-card" :aria-label="image.file.name">
-          <img v-if="image.url" :src="image.url" :alt="image.file.name" />
+          <img v-if="image.url && image.status !== 'ready'" :src="image.url" :alt="image.file.name" />
           <ScreenshotText v-else :text="screenshotValue('', [image.attachment.reference || image.attachment.id])" :show-text="false" />
           <div class="group-image-status" :title="image.error || image.file.name" :role="image.status === 'failed' ? 'alert' : undefined">
             <span>{{ image.status === 'uploading' ? '上传中…' : image.status === 'failed' ? image.error : '待发送' }}</span>

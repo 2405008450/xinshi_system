@@ -66,6 +66,13 @@ const hasTechnicalDetail = (value) => /(?:axios|pydantic|sqlalchemy|integrityerr
 
 export function fieldLabelFromLocation(location) {
   if (!Array.isArray(location)) return '相关字段'
+  const parts = location.filter(part => !['body', 'query', 'path', 'header'].includes(part))
+  const resumeIndex = parts.indexOf('resume_profile')
+  if (resumeIndex >= 0 && parts.includes('professional_domains')) {
+    const domainIndex = parts.indexOf('professional_domains')
+    const row = parts[domainIndex + 1]
+    return `专业领域（本人自述）${typeof row === 'number' ? `第${row + 1}项` : ''}`
+  }
   const field = [...location]
     .reverse()
     .find((part) => typeof part === 'string' && !['body', 'query', 'path', 'header'].includes(part))
@@ -89,6 +96,7 @@ const validationMessageByType = (item, label) => {
   if (type.includes('int') || type.includes('float') || type.includes('decimal') || type.includes('number')) return `${label}应为有效数字`
   if (type.includes('bool')) return `${label}应为有效状态值`
   if (type.includes('literal') || type.includes('enum')) return `${label}的选项无效`
+  if (type === 'string_type') return `${label}应为文字`
   return `${label}内容格式不正确`
 }
 

@@ -4,10 +4,10 @@ import { createChatImageQueue } from '../src/utils/chatImageQueue.js'
 
 const file = { type: 'image/png', size: 10, name: '截图.png' }
 const tick = () => new Promise(resolve => setImmediate(resolve))
-test('附件模式支持20MB文件，并保留图片10MB限制', async () => {
+test('附件模式支持20MB文件，图片同样限制20MB', async () => {
   const items=[], warnings=[]
   const queue=createChatImageQueue(items,{allowFiles:true,upload:async()=>({id:'file-id'}),createUrl:()=>'',revokeUrl:()=>{},warn:message=>warnings.push(message)})
-  queue.add([{name:'方案.pdf',type:'application/pdf',size:20*1024*1024},{...file,size:11*1024*1024},{name:'大文件.zip',type:'application/zip',size:21*1024*1024}])
+  queue.add([{name:'方案.pdf',type:'application/pdf',size:20*1024*1024},{...file,size:21*1024*1024},{name:'大文件.zip',type:'application/zip',size:21*1024*1024}])
   await tick()
   assert.equal(items.length,1)
   assert.equal(items[0].attachment.id,'file-id')
@@ -50,7 +50,7 @@ test('图片上传错误净化原始 SQL，保留可操作中文', async () => {
 })
 test('上传中的图片占用九张限额，非法格式和尺寸不会入队', () => {
   const { queue, items, warnings } = setup(() => new Promise(() => {}))
-  queue.add([{ ...file, type: 'image/svg+xml' }, { ...file, size: 0 }, { ...file, size: 10485761 }])
+  queue.add([{ ...file, type: 'image/svg+xml' }, { ...file, size: 0 }, { ...file, size: 20971521 }])
   assert.equal(items.length, 0)
   queue.add(Array(12).fill(file))
   assert.equal(items.length, 9)

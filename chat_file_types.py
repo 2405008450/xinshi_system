@@ -10,7 +10,7 @@ MEDIA_TYPES = {'.mp4': 'video/mp4', '.mp3': 'audio/mpeg', '.wav': 'audio/wav',
                '.m4a': 'audio/mp4', '.webm': 'video/webm'}
 FILE_TYPES.update(MEDIA_TYPES)
 MEDIA_MAX_BYTES = 100 * 1024 * 1024
-FILE_HINT = '支持图片、PDF、Office、TXT、CSV、ZIP及MP4、MP3、WAV、M4A、WebM；图片最多10MB，音视频最多100MB，其他文件最多20MB'
+FILE_HINT = '支持图片、PDF、Office、TXT、CSV、ZIP及MP4、MP3、WAV、M4A、WebM；图片最多20MB，音视频最多100MB，其他文件最多20MB'
 
 
 def validate_media(suffix, content):

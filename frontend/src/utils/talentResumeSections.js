@@ -15,7 +15,12 @@ export function resumeNames(detail={}) {
   const chinese=/[\u3400-\u9fff]/.test(rawChinese)?rawChinese:''
   return {chineseName:chinese||(!detail.englishName&&/^[\u3400-\u9fff·\s]+$/.test(name)?name:''),englishName:detail.englishName||(!chinese&&rawChinese?rawChinese:!chinese&&!/[\u3400-\u9fff]/.test(name)?name:'')}
 }
-export const professionalDomains=(profile={},written={})=>Array.isArray(profile.professionalDomains)?profile.professionalDomains:[...(written?.domainSkills||[])]
+export function professionalDomains(profile={},written={}) {
+  const values=Array.isArray(profile.professionalDomains)?profile.professionalDomains:written?.domainSkills
+  if(!Array.isArray(values))return []
+  // 旧版领域技能为 { domain, level }；本人自述只取领域文字，不改写原有技能和评级。
+  return [...new Set(values.map(value=>typeof value==='string'?value:typeof value?.domain==='string'?value.domain:'').map(value=>value.trim()).filter(Boolean))]
+}
 
 export function resumeNamesWithAliases(detail={}) {
   const names=resumeNames(detail),aliases=[...(detail.otherNames||[])]

@@ -13,7 +13,7 @@ vue=re.search(r'from ["\']([^"\']*/vue\.js[^"\']*)',compiled).group(1)
 html='''<!doctype html><meta charset="UTF-8"><link rel="stylesheet" href="/node_modules/element-plus/dist/index.css"><link rel="stylesheet" href="/src/styles/common.css"><div id="app"></div><script type="module">
 import {createApp,h,ref} from VUE;import Mine from '/src/views/schedule/components/MyMonthlyShift.vue';import Attendance from '/src/views/schedule/components/AttendanceOverview.vue';import AppForm from '/src/components/common/AppForm.vue';
 const app=createApp({setup(){const admin=ref(false);return()=>h('div',[h('button',{onClick:()=>admin.value=!admin.value},'切换公司考勤'),admin.value?h(Attendance,{admin:true}):h(Mine)])}});app.component('AppForm',AppForm);app.mount('#app');</script>'''.replace('VUE',json.dumps(vue))
-shift={**SHIFTS[1],'fixed':True};sessions=[];writes=[];reads=[];errors=[]
+shift={**SHIFTS[1],'fixed':True};sessions=[];writes=[];reads=[];errors=[];preview={'is_late':False,'late_minutes':0};checkin_message='上班打卡成功'
 pending={'id':'previous-record','day':'2026-10-27','segment':0,'check_in':'2026-10-27T09:00:00+08:00','check_out':None,'shift':shift,'requires_cross_day_reason':True}
 
 def api(route):
@@ -22,9 +22,9 @@ def api(route):
  if path.endswith('/today'):
   opened=next((row for row in sessions if not row['check_out']),None);count=2 if shift['code']=='customer_remote' or shift.get('clock_segments')==2 else 1
   flexible=shift.get('flexible',False);multiple=flexible or shift.get('multiple_clock_sessions',False);next_segment=len(sessions) if len(sessions)<2 else len(sessions)+1
-  result={'day':'2026-10-28','shift':shift,'record':opened or (sessions[-1] if sessions else None),'sessions':sessions,'segment_count':None if multiple else count,'flexible':flexible,'multiple_clock_sessions':multiple,'can_check_in':not opened and (multiple or len(sessions)<count),'next_segment':next_segment if multiple else min(len(sessions),1),'clock_ready':True,'leaves':[],'pending_previous':pending}
+  result={'day':'2026-10-28','shift':shift,'record':opened or (sessions[-1] if sessions else None),'sessions':sessions,'segment_count':None if multiple else count,'flexible':flexible,'multiple_clock_sessions':multiple,'can_check_in':not opened and (multiple or len(sessions)<count),'next_segment':next_segment if multiple else min(len(sessions),1),'clock_ready':True,'leaves':[],'pending_previous':pending,**({'check_in_preview':preview} if not opened and (multiple or len(sessions)<count) else {})}
  elif path.endswith('/check-in'):
-  data=request.post_data_json;writes.append((path,data));record={'id':f'record-{len(sessions)}','day':'2026-10-28','segment':data['segment'],'check_in':'2026-10-28T08:00:00+08:00','check_out':None,'shift':shift};sessions.append(record);result={'message':'上班打卡成功','record':record}
+  data=request.post_data_json;writes.append((path,data));record={'id':f'record-{len(sessions)}','day':'2026-10-28','segment':data['segment'],'check_in':'2026-10-28T08:00:00+08:00','check_out':None,'shift':shift};sessions.append(record);result={'message':checkin_message,'record':record}
  elif path.endswith('/check-out'):
   data=request.post_data_json;writes.append((path,data));record=next(row for row in sessions if row['id']==data['record_id']);record['check_out']='2026-10-28T18:30:00+08:00';result={'message':'打卡成功','record':record}
  elif path.endswith('/mine') or path.endswith('/report'):
@@ -36,7 +36,7 @@ def api(route):
 with sync_playwright() as pw:
  browser=pw.chromium.launch(channel='msedge',headless=True);context=browser.new_context(viewport={'width':1500,'height':1000},service_workers='block')
  context.route(re.compile(r'^http://localhost:3000/api/'),api);context.route(BASE+'/attendance-clock-ui-check',lambda route:route.fulfill(content_type='text/html',body=html))
- page=context.new_page();page.on('pageerror',lambda e:errors.append(e.stack or str(e)));page.goto(BASE+'/attendance-clock-ui-check')
+ page=context.new_page();page.clock.install();page.on('pageerror',lambda e:errors.append(e.stack or str(e)));page.goto(BASE+'/attendance-clock-ui-check')
  clock=page.locator('.attendance-heading').filter(has_text='打卡与请假')
  def button(name):return clock.get_by_role('button',name=name,exact=True)
  expect(page.locator('.el-collapse-item.is-active')).to_have_count(1)
@@ -83,7 +83,23 @@ with sync_playwright() as pw:
  expect(button('上班打卡（第5段）')).to_be_enabled()
  assert [row['segment'] for path,row in writes if path.endswith('/check-in')][-4:]==[0,1,3,4]
  shift={**SHIFTS[2],'home_rotation':True,'home_office_day':True};sessions=[];button('刷新').click();button('上班打卡').click();page.get_by_role('dialog',name='上班打卡',exact=True).get_by_role('button',name='打卡',exact=True).click();button('下班打卡').click();dialog=page.get_by_role('dialog',name='下班打卡确认',exact=True);expect(dialog).to_contain_text('真实、有效的工作时间');expect(dialog).not_to_contain_text('有无进食晚餐');dialog.get_by_role('button',name='取消',exact=True).click()
+ # 预判刷新、迟到样式，以及跨过宽限后以提交结果为准。
+ shift={**SHIFTS[1],'fixed':True};sessions=[];preview={'is_late':False,'late_minutes':0};button('刷新').click()
+ expect(button('上班打卡')).to_be_enabled()
+ preview={'is_late':True,'late_minutes':1}
+ button('上班打卡').click();dialog=page.get_by_role('dialog',name='迟到打卡',exact=True)
+ expect(dialog).to_contain_text('预计迟到 1 分钟，最终以提交时间为准');expect(dialog).to_contain_text('早餐')
+ expect(button('迟到打卡')).to_have_class(re.compile('el-button--warning'))
+ dialog.get_by_role('button',name='取消',exact=True).click()
+ preview={'is_late':False,'late_minutes':0};page.clock.fast_forward(30000)
+ expect(button('上班打卡')).to_be_enabled();button('上班打卡').click()
+ dialog=page.get_by_role('dialog',name='上班打卡',exact=True);checkin_message='迟到打卡成功，本次迟到 1 分钟'
+ dialog.get_by_role('button',name='打卡',exact=True).click();expect(dialog).not_to_be_visible()
+ expect(page.locator('.el-message').filter(has_text=checkin_message)).to_be_visible()
+ assert 'is_late' not in writes[-1][1] and 'late_minutes' not in writes[-1][1]
+ before_unmount=reads.count('/api/attendance/today')
  page.get_by_role('button',name='切换公司考勤',exact=True).click();expect(page.get_by_role('button',name='上班打卡',exact=True)).to_have_count(0)
+ page.clock.fast_forward(60000);assert reads.count('/api/attendance/today')==before_unmount
  assert '/api/attendance/report' in reads and not errors,errors
  print(json.dumps({'manual_breakfast_notice':True,'check_in_left_of_check_out':True,'explicit_yes_no_validation':True,'fixed_dinner_explanation':True,'breakfast_violation_and_deduction_visible':True,'remote_second_segment':True,'invalid_minutes_and_reason':True,'collapsible_sections':4,'personal_and_company_separate':True,'page_errors':errors}))
  browser.close()

@@ -24,3 +24,14 @@ test('专业领域兼容已有字段，明确清空不重新回填；教育行ID
   assert.equal(educationFormRows([original])[0].graduationYear,1994)
   assert.equal(educationFormRows([original])[0].id,'old-education')
 })
+
+test('旧版领域对象转换成可保存的文字，原技能评级保持不变',()=>{
+  const written={domainSkills:[{domain:' 法律 ',level:'擅长'},{domain:'医学',level:''},'法律',null,{},' ']}
+  const before=structuredClone(written)
+  assert.deepEqual(professionalDomains({},written),['法律','医学'])
+  assert.deepEqual(resumeProfileForm(null,{writtenProfile:written}).professionalDomains,['法律','医学'])
+  assert.deepEqual(written,before)
+  assert.deepEqual(professionalDomains({professionalDomains:[]},written),[])
+  assert.deepEqual(professionalDomains({professionalDomains:['自述领域']},written),['自述领域'])
+  assert.deepEqual(professionalDomains({}, {domainSkills:'旧数据'}),[])
+})

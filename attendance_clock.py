@@ -1,6 +1,7 @@
 """手动分段打卡及可追溯加班抵扣；旧记录只读兼容，不重算历史确认。"""
 from datetime import datetime,timedelta
 from uuid import UUID
+from types import SimpleNamespace
 from typing import Literal
 from fastapi import HTTPException
 from pydantic import BaseModel,Field,StrictBool,model_validator,field_validator
@@ -151,7 +152,9 @@ def check_in(db,user,request,payload):
     shift={**shift,**start_override(db,user,day,payload.segment)}
     row=Clock(user_id=user.id,day=day,segment=payload.segment,check_in=moment,shift_snapshot=snapshot(shift,payload.segment),confirmations={'breakfast_notice_accepted':True})
     db.add(row);db.commit()
-    return {'message':'上班打卡成功','record':serialize(row,service.day_leaves(db,user.id,day))}
+    record=serialize(row,service.day_leaves(db,user.id,day))
+    message=f"迟到打卡成功，本次迟到 {record['late_minutes']:g} 分钟" if record['late_count'] else '上班打卡成功'
+    return {'message':message,'record':record}
 
 
 def check_out(db,user,request,payload):
@@ -236,8 +239,16 @@ def today_status(db,user):
     regular_entries=[entry for entry in entries if entry.get('segment',0)!=2]
     flexible=bool(shift and shift.get('flexible'))
     multiple=allows_multiple(shift)
-    return api_time({'day':day.isoformat(),'shift':shift,'record':open_record or (entries[-1] if entries else None),'sessions':entries,'segment_count':None if multiple else len(segments(shift)) if shift else 0,'flexible':flexible,'multiple_clock_sessions':multiple,'can_check_in':bool(available and shift and not open_record and not (old and old.check_out) and not any(row.confirmations.get('legacy_completed') for row in regular) and (multiple or len(regular_entries)<len(segments(shift)))),'next_segment':next_multi_segment(regular) if multiple else min(len(regular_entries),1),'can_home_overtime_check_in':bool(available and not open_record and not any(row.segment==2 for row in rows)),'home_overtime_record':next((entry for entry in entries if entry.get('segment')==2),None),'pending_previous':pending_value,'clock_ready':available,
-        'leaves':[{'start_at':leave.start_date,'end_at':leave.end_date,'reason':leave.reason,'minutes':round(sum(service.overlap(service.stamp(leave.start_date),service.stamp(leave.end_date),a,b) for a,b in service.intervals(day,shift))/60,2)} for leave in service.day_leaves(db,user.id,day)]})
+    result={'day':day.isoformat(),'shift':shift,'record':open_record or (entries[-1] if entries else None),'sessions':entries,'segment_count':None if multiple else len(segments(shift)) if shift else 0,'flexible':flexible,'multiple_clock_sessions':multiple,'can_check_in':bool(available and shift and not open_record and not (old and old.check_out) and not any(row.confirmations.get('legacy_completed') for row in regular) and (multiple or len(regular_entries)<len(segments(shift)))),'next_segment':next_multi_segment(regular) if multiple else min(len(regular_entries),1),'can_home_overtime_check_in':bool(available and not open_record and not any(row.segment==2 for row in rows)),'home_overtime_record':next((entry for entry in entries if entry.get('segment')==2),None),'pending_previous':pending_value,'clock_ready':available,
+        'leaves':[{'start_at':leave.start_date,'end_at':leave.end_date,'reason':leave.reason,'minutes':round(sum(service.overlap(service.stamp(leave.start_date),service.stamp(leave.end_date),a,b) for a,b in service.intervals(day,shift))/60,2)} for leave in service.day_leaves(db,user.id,day)]}
+    if result['can_check_in']:
+        from attendance_corrections import start_override
+        index=result['next_segment']
+        planned=snapshot({**shift,**start_override(db,user,day,index)},index)
+        # 只预判，不创建打卡记录；与实际打卡共用班次快照及迟到计算。
+        preview=service.metrics(SimpleNamespace(day=day,check_in=moment,check_out=None,shift_snapshot=planned),service.day_leaves(db,user.id,day))
+        result['check_in_preview']={'is_late':bool(preview['late_count']),'late_minutes':preview['late_minutes']}
+    return api_time(result)
 
 
 def monthly_balances(db,ids,start,end):

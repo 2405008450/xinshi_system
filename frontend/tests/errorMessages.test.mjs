@@ -27,6 +27,10 @@ test('未知接口字段不暴露字段路径', () => {
   assert.doesNotMatch(message, /internal_field_name/)
 })
 
+test('人才专业领域错误提示显示字段与明细序号', () => {
+  assert.equal(formatValidationErrors([{type:'string_type',loc:['body','resume_profile','professional_domains',3],msg:'Input should be a valid string'}]),'专业领域（本人自述）第4项应为文字')
+})
+
 test('结构化业务错误保存在 rawDetail，展示字段保持中文字符串', () => {
   const rawDetail = { message: '发现重复人才', duplicate_ids: ['talent-1'] }
   const error = {

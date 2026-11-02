@@ -2,7 +2,7 @@
 from io import BytesIO
 from uuid import UUID,uuid4
 from datetime import timedelta
-from PIL import Image,ImageOps,UnidentifiedImageError
+from PIL import Image,UnidentifiedImageError
 from fastapi import HTTPException
 from fastapi.responses import Response
 from models import ChatProjectAttachment,ChatProjectMessage,ChatProjectMessageAttachment
@@ -13,10 +13,9 @@ import editor_screenshot_service as screenshots
 def save_attachment(db,user,content,filename,*,scope=None,project_id=None):
     try:
         with Image.open(BytesIO(content)) as source:
-            if source.width*source.height>40_000_000:raise ValueError('截图像素过大')
-            image=ImageOps.exif_transpose(source);image.thumbnail((1920,1920))
-            output=BytesIO();image.convert('RGBA' if 'A' in image.getbands() else 'RGB').save(output,'WEBP',quality=85)
-        saved=screenshots.save_image(db,user.id,output.getvalue(),'image/webp','chat')
+            from chat_image_policy import IMAGE_TYPES
+            mime = IMAGE_TYPES.get(source.format, '')
+        saved=screenshots.save_image(db,user.id,content,mime,'chat')
     except (ValueError,UnidentifiedImageError,OSError) as error:raise HTTPException(422,str(error)) from error
     row=ChatProjectAttachment(id=uuid4(),uploaded_by=user.id,original_name=(filename or '截图')[:255],storage_name=f"screenshot:{saved['id']}",content_type=saved['contentType'],file_size=saved['size'],created_at=now().replace(tzinfo=None))
     if scope=='annotation':row.annotation_project_id=project_id

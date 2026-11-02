@@ -186,3 +186,53 @@ def test_older_legacy_missing_checkout_remains_visible_after_today(environment,m
     status=service.today_status(db,person)
     assert status['pending_previous']['id']==str(old.id) and status['record']['id']==today['id']
     assert not status['record']['requires_cross_day_reason']
+
+@pytest.mark.parametrize('time,late,minutes',[('09:15:00',False,0),('09:15:01',True,0.02),('09:16:00',True,1),('09:15:00.001',True,0)])
+def test_check_in_preview_boundary_read_only_and_submit(environment,monkeypatch,time,late,minutes):
+    db,users=environment;arrange(db,users);person=users[1]
+    monkeypatch.setattr(service,'now',lambda:at('2026-10-26T'+time))
+    preview=service.today_status(db,person)['check_in_preview']
+    assert preview=={'is_late':late,'late_minutes':minutes}
+    assert db.query(Clock).count()==0 and db.query(AttendanceDay).count()==0
+    result=service.check_in(db,person,request(),service.CheckInWrite(breakfast_notice_accepted=True))
+    assert bool(result['record']['late_count'])==late and result['record']['late_minutes']==minutes
+    assert result['message'].startswith('迟到打卡成功' if late else '上班打卡成功')
+    assert 'check_in_preview' not in service.today_status(db,person)
+
+
+def test_preview_does_not_determine_final_checkin(environment,monkeypatch):
+    db,users=environment;arrange(db,users);person=users[1]
+    monkeypatch.setattr(service,'now',lambda:at('2026-10-26T09:15'))
+    assert not service.today_status(db,person)['check_in_preview']['is_late']
+    result=punch(db,person,monkeypatch,'2026-10-26T09:16')
+    assert result['late_minutes']==1 and result['late_count']==1
+
+
+@pytest.mark.parametrize('scenario',['leave','break','override','second_segment','flexible','continuation'])
+def test_preview_reuses_existing_attendance_rules(environment,monkeypatch,scenario):
+    from types import SimpleNamespace
+    import attendance_corrections
+    db,users=environment;arrange(db,users);person=users[1]
+    moment='2026-10-26T10:16'
+    if scenario=='leave':
+        monkeypatch.setattr(attendance,'day_leaves',lambda *args:[SimpleNamespace(start_date=at('2026-10-26T09:00'),end_date=at('2026-10-26T10:00'),reason='请假')])
+    elif scenario=='override':
+        monkeypatch.setattr(attendance_corrections,'start_override',lambda *args:{'late_start_at':'2026-10-26T10:00:00+08:00'})
+    elif scenario=='break':moment='2026-10-26T13:00'
+    elif scenario=='second_segment':
+        monkeypatch.setattr(attendance,'shift_for',lambda *args:{'code':'customer_remote','label':'居家晚班','periods':['10:30–12:00','13:30–18:00','21:00–23:00']})
+        first=punch(db,person,monkeypatch,'2026-10-26T10:30')
+        out(db,person,first,monkeypatch,'2026-10-26T18:00',deduct_invalid_time=False)
+        moment='2026-10-26T21:16'
+    else:
+        from test_fixed_shift_types import configure
+        configure(db,users,'flexible' if scenario=='flexible' else 'fixed_early_early',monkeypatch)
+        if scenario=='continuation':
+            first=punch(db,person,monkeypatch,'2026-10-26T08:30')
+            out(db,person,first,monkeypatch,'2026-10-26T09:00')
+    monkeypatch.setattr(service,'now',lambda:at(moment))
+    status=service.today_status(db,person);preview=status['check_in_preview']
+    result=punch(db,person,monkeypatch,moment,status['next_segment'])
+    expected=165 if scenario=='break' else 0 if scenario in ('flexible','continuation') else 1
+    assert result['late_minutes']==expected
+    assert preview=={'is_late':bool(result['late_count']),'late_minutes':expected}

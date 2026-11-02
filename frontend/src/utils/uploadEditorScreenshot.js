@@ -3,6 +3,15 @@ import { screenshotIds } from './screenshotReferences'
 
 export async function uploadEditorScreenshot(file,retention='business',options={}){
   const accountToken=localStorage.getItem('token')
+  if (retention === 'chat') {
+    if (!['image/png','image/jpeg','image/webp','image/gif'].includes(file.type) || !file.size || file.size > 20*1024*1024) throw new Error('聊天图片须为20MB以内的 PNG、JPEG、GIF 或 WebP 图片；10MB以内保留原图')
+    options.signal?.throwIfAborted()
+    const data = new FormData(); data.append('file', file); data.append('retention', retention)
+    const saved = await api.post('/editor-screenshots', data, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 60000, signal: options.signal })
+    if (localStorage.getItem('token') !== accountToken) throw new Error('登录账号已变化，请重新上传截图')
+    screenshotIds(saved.reference)
+    return saved
+  }
   if(!['image/png','image/jpeg','image/webp','image/gif'].includes(file.type)||file.size>10*1024*1024)throw new Error('截图须为10MB以内的 PNG、JPEG、GIF 或 WebP 图片')
   const image=await createImageBitmap(file)
   try{

@@ -2,7 +2,7 @@ import { getLocalizedErrorMessage } from './errorMessages.js'
 
 export const CHAT_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
 export const CHAT_IMAGE_LIMIT = 9
-export const CHAT_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+export const CHAT_IMAGE_MAX_BYTES = 20 * 1024 * 1024
 
 // 状态由调用者提供，兼容 Vue reactive，也便于验证异步上传竞态。
 export function createChatImageQueue(items, { upload, createUrl, revokeUrl, warn, allowFiles = false, limit = () => CHAT_IMAGE_LIMIT }) {
@@ -28,7 +28,7 @@ export function createChatImageQueue(items, { upload, createUrl, revokeUrl, warn
   function add(files) {
     for (const file of files) {
       if (!allowFiles && !CHAT_IMAGE_TYPES.includes(file.type)) { warn('仅支持 JPEG、PNG、GIF、WebP 图片'); continue }
-      if (!file.size || file.size > (allowFiles && !file.type.startsWith('image/') ? 20 : 10) * 1024 * 1024) { warn('文件不能为空，图片最多10MB，其他文件最多20MB'); continue }
+      if (!file.size || file.size > CHAT_IMAGE_MAX_BYTES) { warn('文件不能为空，图片最多20MB（10MB以内保留原图），其他文件最多20MB'); continue }
       if (items.length >= limit()) { warn('每条留言最多添加 9 个附件'); break }
       items.push({ key: ++sequence, file, url: createUrl(file), status: 'pending', attachment: null, error: '' })
       // 从响应式数组重新读取，确保异步状态变更触发视图更新。

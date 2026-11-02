@@ -1,7 +1,7 @@
 <template>
-  <DraggableFormDialog :model-value="modelValue" :title="mode==='in'?(workMode==='company_home_overtime'?'居家加班上班打卡':'上班打卡'):'下班打卡确认'" append-to-body width="min(800px, calc(100vw - 32px))" top="5vh" :before-close="close" @update:model-value="$emit('update:modelValue',$event)">
+  <DraggableFormDialog :model-value="modelValue" :title="mode==='in'?(workMode==='company_home_overtime'?'居家加班上班打卡':preview?.is_late?'迟到打卡':'上班打卡'):'下班打卡确认'" append-to-body width="min(800px, calc(100vw - 32px))" top="5vh" :before-close="close" @update:model-value="$emit('update:modelValue',$event)">
     <AppForm ref="formRef" :model="form" :rules="rules" label-position="top" data-auto-draft="off">
-      <template v-if="mode==='in'"><p v-if="workMode==='company_home_overtime'" class="clock-notice">本次为公司要求的居家加班，无需居家申请，不占普通居家办公次数和年度12天额度。请确认本次实际工作由公司要求，并如实打卡。</p><p class="clock-notice">员工不得在工位进食早餐。如需进食，可在会议室进行；在会议室进食后，须打开会议室窗户通风，遇中雨、大雨等恶劣天气时除外。上班打卡须在早餐后完成。</p><p>点击“打卡”即确认已阅读上述提示并完成上班打卡。</p></template>
+      <template v-if="mode==='in'"><el-alert v-if="preview?.is_late" :title="`按当前时间预计迟到 ${preview.late_minutes} 分钟，最终以提交时间为准`" type="warning" :closable="false" /><p v-if="workMode==='company_home_overtime'" class="clock-notice">本次为公司要求的居家加班，无需居家申请，不占普通居家办公次数和年度12天额度。请确认本次实际工作由公司要求，并如实打卡。</p><p class="clock-notice">员工不得在工位进食早餐。如需进食，可在会议室进行；在会议室进食后，须打开会议室窗户通风，遇中雨、大雨等恶劣天气时除外。上班打卡须在早餐后完成。</p><p>点击“打卡”即确认已阅读上述提示并完成上班打卡。</p></template>
       <template v-else>
         <p v-if="record">考勤归属日期：{{record.day}} · {{formatBusinessDateTime(record.check_in)}} 上班 · {{record.shift?.label}}<span v-if="record.shift?.code==='customer_remote'"> · 第{{(record.segment||0)+1}}段</span></p>
         <el-form-item v-if="!record?.shift?.overtime_only&&!record?.shift?.flexible" prop="early_work_confirmed" label="1. 请确认你提前到达公司的一段时间，已经在工作。"><el-radio-group v-model="form.early_work_confirmed"><el-radio :value="true">是，提前时间计加班</el-radio><el-radio :value="false">否，提前时间不计加班</el-radio></el-radio-group></el-form-item>
@@ -28,7 +28,7 @@ import {ElMessage} from 'element-plus'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import {checkIn,checkOut} from '@/api/attendance'
 import {formatBusinessDateTime} from '@/utils/dateTime'
-const props=defineProps({modelValue:Boolean,mode:String,record:Object,segment:{type:Number,default:0},workMode:{type:String,default:'scheduled'}}),emit=defineEmits(['update:modelValue','saved'])
+const props=defineProps({modelValue:Boolean,mode:String,preview:Object,record:Object,segment:{type:Number,default:0},workMode:{type:String,default:'scheduled'}}),emit=defineEmits(['update:modelValue','saved'])
 const formRef=ref(),saving=ref(false),error=ref('')
 const defaults=()=>({early_work_confirmed:null,breakfast_after_eating:null,dinner_eaten:null,deduct_invalid_time:null,invalid_minutes:0,invalid_reason:'',cross_day_reason:'',next_start:null})
 const form=reactive(defaults()),remote=computed(()=>props.record?.shift?.code==='customer_remote'||props.record?.shift?.home_rotation),atHome=computed(()=>remote.value||props.record?.shift?.home_office_day),askDinner=computed(()=>!remote.value&&['late','late_late'].includes(props.record?.shift?.code))

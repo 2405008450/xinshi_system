@@ -31,7 +31,8 @@ def test_owner_grants_expire_and_are_account_scoped(environment):
 def test_dedup_retention_promote_and_purge_do_not_delete_business_copy(environment):
     db,(owner,*_)=environment
     chat=service.save_image(db,owner.id,png(),'image/png','chat')
-    business=service.save_image(db,owner.id,png(),'image/png')
+    business=service.save_image(db,owner.id,png(),'image/png','chat')
+    service.promote_business_references(db,{UUID(business['id'])});db.commit()
     assert db.query(Blob).count()==1
     chatrow=db.get(Image,UUID(chat['id']));chatrow.expires_at=service.now()-timedelta(seconds=1);db.commit()
     service.cleanup(db)
@@ -102,13 +103,57 @@ def test_upload_and_download_endpoints_and_expired_placeholder(environment):
     response=client.post('/editor-screenshots',files={'file':('screen.png',png(),'image/png')},data={'retention':'chat'})
     assert response.status_code==201
     uid=response.json()['id'];path=f'/editor-screenshots/{uid}'
-    assert client.get(path).headers['content-type'].startswith('image/')
+    assert client.get(path).headers['content-type'].startswith('image/png')
+    assert client.get(path).content == png()
     app.dependency_overrides[get_current_user]=lambda:member
     assert client.get(path).status_code==403
     token,_=service.grant(db,member.id,{UUID(uid)})
     assert client.get(path,headers={'X-Screenshot-Grants':token}).status_code==200
     db.get(Image,UUID(uid)).expires_at=service.now()-timedelta(seconds=1);db.commit()
     assert client.get(path,headers={'X-Screenshot-Grants':token}).status_code==410
+
+
+def test_chat_upload_limits_capabilities_and_business_policy(environment):
+    db, (owner, *_) = environment
+    from routers.editor_screenshots import router
+    from routers.auth import get_current_user
+    from database import get_db
+    from chat_image_policy import ORIGINAL_MAX_BYTES, UPLOAD_MAX_BYTES
+    app = FastAPI(); app.include_router(router)
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_current_user] = lambda: owner
+    client = TestClient(app)
+    caps = client.get('/editor-screenshots/capabilities').json()
+    assert caps['maxBytes'] == 2 * 1024 * 1024
+    assert caps['chatMaxUploadBytes'] == UPLOAD_MAX_BYTES
+    assert caps['chatOriginalMaxBytes'] == ORIGINAL_MAX_BYTES
+    original = png()
+    large = original + b'\0' * (ORIGINAL_MAX_BYTES + 1 - len(original))
+    response = client.post('/editor-screenshots', files={'file': ('large.png', large, 'image/png')}, data={'retention': 'chat'})
+    assert response.status_code == 201
+    assert response.json()['contentType'] == 'image/webp'
+    assert response.json()['size'] <= ORIGINAL_MAX_BYTES
+    assert client.post('/editor-screenshots', files={'file': ('large.png', large, 'image/png')}).status_code == 413
+    assert client.post('/editor-screenshots', files={'file': ('large.png', b'x' * (UPLOAD_MAX_BYTES + 1), 'image/png')}, data={'retention': 'chat'}).status_code == 413
+    business = service.save_image(db, owner.id, original, 'image/png')
+    assert business['contentType'] == 'image/jpeg'  # 非聊天仍沿用邮件图片归一化。
+
+
+@pytest.mark.parametrize('scope', ['annotation', 'direct', 'translation', 'discussion'])
+def test_chat_file_entries_preserve_original_bytes(environment, scope):
+    import asyncio
+    from types import SimpleNamespace
+    from starlette.datastructures import UploadFile
+    from starlette.requests import Request
+    from chat_common_handlers import upload_chat_file
+    from chat_screenshot_storage import read_attachment
+    from models import ChatProjectAttachment
+    db, (owner, *_) = environment
+    data = png()
+    result = asyncio.run(upload_chat_file(SimpleNamespace(require_project=lambda *args: None), scope, uuid4(),
+        Request({'type': 'http', 'headers': []}), UploadFile(BytesIO(data), filename='original.png'), db, owner))
+    assert result['content_type'] == 'image/png' and result['file_size'] == len(data)
+    assert read_attachment(db, db.get(ChatProjectAttachment, result['id'])).body == data
 
 
 def test_chat_attachments_use_shared_blob_and_workflow_images_are_not_expired(environment):

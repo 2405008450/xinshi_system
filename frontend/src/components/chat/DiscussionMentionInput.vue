@@ -32,7 +32,7 @@ function updateText(value){const files=props.modelValue.match(filePattern)||[];e
 let uploadChain=Promise.resolve(), pendingUploads=0
 function chooseFile(item,files){files.splice(0);if(props.disabled)return;const file=item.raw,room=props.roomId;pendingUploads++;uploading.value=true;emit('uploading-change',true);uploadChain=uploadChain.then(async()=>{
   if(room!==props.roomId)return
-  if(!file.size || file.size>(file.type.startsWith('image/')?10:20)*1024*1024)throw new Error('文件不能为空，图片最多10MB，其他文件最多20MB')
+  if(!file.size || file.size>20*1024*1024)throw new Error('文件不能为空，图片最多20MB，其他文件最多20MB')
   let token
   const {screenshotIds}=await import('@/utils/screenshotReferences')
   if(screenshotIds(props.modelValue).length+(props.modelValue.match(/discussion-file:\/\//g)||[]).length>=9)throw new Error('每条消息最多9个附件')

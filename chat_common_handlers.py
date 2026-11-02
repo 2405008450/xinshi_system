@@ -67,7 +67,7 @@ async def upload_chat_file(service, scope, project_id: UUID, request: Request, f
     if not content_type:
         raise HTTPException(415, FILE_HINT)
     is_image = content_type in IMAGE_SIGNATURES
-    max_bytes = MEDIA_MAX_BYTES if suffix in MEDIA_TYPES else (10 if is_image else 20) * 1024 * 1024
+    max_bytes = MEDIA_MAX_BYTES if suffix in MEDIA_TYPES else 20 * 1024 * 1024
     content = await file.read(max_bytes + 1)
     if not content or len(content) > max_bytes:
         raise HTTPException(413, '文件不能为空；' + FILE_HINT)
@@ -89,6 +89,14 @@ async def upload_chat_file(service, scope, project_id: UUID, request: Request, f
             from chat_time import api_time
             row=save_attachment(db,user,content,file.filename,scope=scope,project_id=project_id)
             return {'id':row.id,'original_name':row.original_name,'content_type':row.content_type,'file_size':row.file_size,'created_at':api_time(row.created_at)}
+    if is_image:
+        from chat_image_policy import normalize_chat_image
+        try:
+            content, content_type = normalize_chat_image(content, content_type)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+        suffix = IMAGE_EXTENSIONS[content_type]
+        file.filename = str(Path(file.filename or 'image').with_suffix(suffix))
     from chat_attachment_storage import remote_attachment_url, upload_remote_attachment
     remote_url = remote_attachment_url()
     if remote_url:
@@ -102,7 +110,7 @@ async def upload_chat_file(service, scope, project_id: UUID, request: Request, f
         else:
             target = remote_url.removesuffix('/attachments') + f'/{scope}/{project_id}/files'
         result = await upload_remote_attachment(target, content, file.filename, content_type,
-            request.headers.get('authorization'), request.headers.get('x-chat-attachment-forwarded'))
+            request.headers.get('authorization'), request.headers.get('x-chat-attachment-forwarded'), **({'retention': 'chat'} if is_image else {}))
         attachment = db.get(ChatProjectAttachment, result.id, populate_existing=True)
         if attachment is None or attachment.uploaded_by != user.id:
             raise HTTPException(502, '云端附件记录尚未同步，请稍后重试')

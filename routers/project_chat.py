@@ -422,11 +422,13 @@ async def upload_attachment_endpoint(
     if validator is None:
         raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail='仅支持 JPEG、PNG、GIF、WebP 图片')
 
-    content = await file.read(MAX_IMAGE_BYTES + 1)
+    from chat_image_policy import UPLOAD_MAX_BYTES, normalize_chat_image
+    upload_limit = UPLOAD_MAX_BYTES if retention == 'chat' else MAX_IMAGE_BYTES
+    content = await file.read(upload_limit + 1)
     if not content:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='图片内容为空')
-    if len(content) > MAX_IMAGE_BYTES:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail='单张图片不能超过 10MB')
+    if len(content) > upload_limit:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail='单张聊天图片不能超过 20MB' if retention == 'chat' else '单张图片不能超过 10MB')
     if not validator(content):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='图片格式与文件内容不匹配')
 
@@ -437,10 +439,16 @@ async def upload_attachment_endpoint(
             attachment=save_attachment(db,current_user,content,file.filename)
             return ProjectChatAttachmentResponse(id=attachment.id,original_name=attachment.original_name,content_type=attachment.content_type,file_size=attachment.file_size,created_at=attachment.created_at)
 
+    if retention == 'chat':
+        try:
+            content, content_type = normalize_chat_image(content, content_type)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+        file.filename = str(Path(file.filename or 'image').with_suffix(IMAGE_EXTENSIONS[content_type]))
     if remote_url:
         return await upload_remote_attachment(
             remote_url, content, file.filename, content_type,
-            request.headers.get('authorization'), request.headers.get('x-chat-attachment-forwarded'),
+            request.headers.get('authorization'), request.headers.get('x-chat-attachment-forwarded'), retention=retention,
         )
 
     storage_name = f'{uuid.uuid4().hex}{IMAGE_EXTENSIONS[content_type]}'
