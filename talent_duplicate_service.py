@@ -22,6 +22,8 @@ from resource_models import ResourceLanguageSkill, ResourcePerson
 from resource_schemas import ResourcePersonDetailResponse, ResourcePersonUpdate
 from talent_duplicate_models import TalentDuplicateOperation
 from talent_privacy import RESOURCE_CONTACT_FIELDS, serialize_with_contact_access
+from talent_duplicate_profiles import (AUX_MODELS, auxiliary_snapshot, auxiliary_values,
+    auxiliary_label, auxiliary_rows, set_nested, get_nested, apply_auxiliary, restore_auxiliary)
 
 SYSTEM_FIELDS = {"id", "person_id", "resource_code", "idempotency_key", "name_duplicate",
                  "archived_into_id", "archived_at", "created_at", "updated_at", "operated_by",
@@ -198,7 +200,8 @@ def _columns(row):
 
 def person_snapshot(person):
     return {"person": _columns(person), **{key: sorted([_columns(item) for item in getattr(person, key)], key=lambda item: str(item.get("id", ""))) for key in (*COLLECTIONS, "attachments")},
-            **{key: _columns(getattr(person, key)) if getattr(person, key) else None for key in PROFILES}}
+            **{key: _columns(getattr(person, key)) if getattr(person, key) else None for key in PROFILES},
+            **auxiliary_snapshot(person, _columns)}
 
 
 def comparison_fingerprint(person):
@@ -288,10 +291,19 @@ def _business_values(person):
                     result[f"{profile}.{key}"] = item
     for key in COLLECTIONS:
         result[key] = [{k: v for k, v in row.items() if k not in SYSTEM_FIELDS} for row in data.get(key, [])]
+    result.update(auxiliary_values(person, plain, digest))
+    resume = auxiliary_rows(person).get('resume_profile')
+    if resume is not None:
+        periods = resume.data.get('education_periods') or {}
+        for source, row in zip(data.get('education_experiences', []), result['education_experiences']):
+            if str(source['id']) in periods:
+                row['period'] = periods[str(source['id'])]
     return result
 
 
 def field_label(key):
+    if key.split('.')[0] in AUX_MODELS:
+        return auxiliary_label(key)
     if "." in key:
         section, field = key.split(".", 1)
         return f"{PROFILE_LABELS[section]}：{SUB_LABELS.get(field, field)}"
@@ -634,6 +646,14 @@ def _validated_payload(values, target):
         nested = {key.split(".", 1)[1]: value for key, value in values.items() if key.startswith(profile + ".")}
         if nested:
             data[profile] = nested
+    for key, value in values.items():
+        if key.split('.')[0] in AUX_MODELS:
+            set_nested(data, key, value)
+    if any('period' in row for row in data.get('education_experiences', [])):
+        data.setdefault('resume_profile', {})
+    for section, row in auxiliary_rows(target).items():
+        if section in data:
+            data[section]['revision'] = row.revision if row is not None else 0
     data["resource_code"] = target.resource_code
     data["wechat_accounts_revision"] = target.wechat_accounts_revision
     try:
@@ -730,8 +750,7 @@ def preview(db, request):
                 if key in COLLECTIONS:
                     continue
                 if "." in key:
-                    profile, attribute = key.split(".", 1)
-                    value = getattr(getattr(normalized, profile), attribute)
+                    value = get_nested(normalized.model_dump(mode='json'), key)
                 else:
                     value = getattr(normalized, key)
                 field["value"] = values[key] = plain(value)
@@ -796,6 +815,8 @@ def _apply_merge(db, target, payload, actor):
             row = by_identity.get(identity)
             if row is None:
                 row = model(id=uuid4(), person_id=target.id)
+            if key == 'education_experiences':
+                incoming.id = row.id  # 时间段必须跟随实际保存的明细，而非依赖关系集合顺序。
             selected.append(row)
             assignments.append((index, row, data))
         removed = False
@@ -824,6 +845,7 @@ def _apply_merge(db, target, payload, actor):
                 row.created_at = business_now()
             if hasattr(row, "updated_at"):
                 row.updated_at = business_now()
+    apply_auxiliary(db, target, payload, actor)
     record_evaluation_changes(db, target, evaluation_before, actor)
     _sync_display_name(target)
     target.updated_at = business_now()
@@ -1027,6 +1049,10 @@ def undo(db, operation_id, actor):
         raise HTTPException(409, "这些档案已有后续核重操作，不能自动撤销")
     db.expire_all()
     current = full_snapshot(db, ids)
+    for identifier, snapshot in current['people'].items():
+        for key in AUX_MODELS:
+            if key not in op.after_snapshot['people'][identifier] and snapshot.get(key) is None:
+                snapshot.pop(key, None)
     if digest(current) != digest(op.after_snapshot):
         changed = [identifier for identifier in op.after_snapshot["people"]
                    if digest(current["people"].get(identifier)) != digest(op.after_snapshot["people"][identifier])]
@@ -1048,6 +1074,7 @@ def undo(db, operation_id, actor):
         db.flush()
         for identifier, snapshot in op.before_snapshot["people"].items():
             row = get_talent(db, UUID(identifier))
+            restore_auxiliary(db, row.id, snapshot, op.after_snapshot['people'][identifier], _typed)
             for key in (*COLLECTIONS, *PROFILES):
                 before = snapshot[key]
                 after = op.after_snapshot["people"][identifier][key]

@@ -15,7 +15,9 @@ const labels = {
   high: '高', medium: '中', low: '低', male: '男', female: '女',
   resume: '简历', certificate: '证书',
 }
-const keys = { role: '类型', proficiency: '熟悉程度', language_id: '语种', language_label: '语种', language_display: '语种', priority: '顺序',
+const keys = { period:'时间段', organization:'组织／学校', position:'岗位／职务', workload:'工作量', description:'内容说明', degree:'学历',
+  amount:'金额', unit:'计价单位', currency:'币种', domain:'领域', level:'熟练程度',
+  role: '类型', proficiency: '熟悉程度', language_id: '语种', language_label: '语种', language_display: '语种', priority: '顺序',
   capability_type: '能力', status: '状态', review_required: '待核重', remarks: '备注', institution: '院校', major: '专业',
   graduation_year: '毕业年份', education_level: '学历', name: '名称', issuer: '发证机构', certificate_no: '证书编号',
   material_received: '已收到材料', source_language_id: '源语种', target_language_id: '目标语种',

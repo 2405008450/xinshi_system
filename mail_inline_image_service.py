@@ -23,7 +23,7 @@ from mail_html_security import safe_css_color, safe_mail_href
 
 
 MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024
-MAX_INLINE_IMAGE_COUNT = 5
+MAX_INLINE_IMAGE_COUNT = 10
 MAX_INLINE_IMAGE_TOTAL_BYTES = 8 * 1024 * 1024
 MAX_IMAGE_EDGE = 1920
 MAX_SOURCE_PIXELS = 40_000_000
@@ -128,7 +128,7 @@ def serialize_inline_image(image: MailInlineImage) -> dict:
 def load_owned_images(db: Session, image_ids: Iterable[UUID], uploaded_by: UUID) -> list[MailInlineImage]:
     ids = list(image_ids or [])
     if len(ids) > MAX_INLINE_IMAGE_COUNT or len(set(ids)) != len(ids):
-        raise ValueError("每封邮件最多插入 5 张且不能重复")
+        raise ValueError(f"每封邮件最多插入 {MAX_INLINE_IMAGE_COUNT} 张且不能重复")
     if not ids:
         return []
     images = db.query(MailInlineImage).filter(MailInlineImage.id.in_(ids)).all()
@@ -153,7 +153,7 @@ def load_owned_or_bound_images(
 ) -> list[MailInlineImage]:
     ids = list(image_ids or [])
     if len(ids) > MAX_INLINE_IMAGE_COUNT or len(set(ids)) != len(ids):
-        raise ValueError("每封邮件最多插入 5 张且不能重复")
+        raise ValueError(f"每封邮件最多插入 {MAX_INLINE_IMAGE_COUNT} 张且不能重复")
     if not ids:
         return []
     images = db.query(MailInlineImage).filter(MailInlineImage.id.in_(ids)).all()

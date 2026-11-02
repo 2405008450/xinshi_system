@@ -52,6 +52,14 @@ with sync_playwright() as p:
   assert len(writes)==1,writes
   saved=writes[0];assert saved['resume_profile']['interests']=='绘画' and saved['resume_profile']['campus_positions'][0]['description']=='学生会职务'
   assert saved['education_experiences'][0]['graduation_year']==2001
+  # 模拟修复前留下的本机草稿；恢复后也必须通过统一领域转换。
+  page.evaluate('''record=>{
+    const camel=v=>Array.isArray(v)?v.map(camel):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).map(([k,x])=>[k.replace(/_([a-z])/g,(_,c)=>c.toUpperCase()),camel(x)])):v;
+    const form=camel(record);
+    form.resumeProfile.professionalDomains=[{domain:'法律',level:'擅长'}];
+    form.resumeProfile.versions={en:{name:'Alice',professionalDomains:[{domain:'Law',level:'expert'}]}};
+    localStorage.setItem('form-drafts:talent:ui-test',JSON.stringify({['edit:'+form.id]:{form}}));
+  }''',records[next(iter(records))])
   page.get_by_role('button',name='编辑',exact=True).first.click();dialog=page.locator('.talent-editor-dialog:visible');reopened=dialog.bounding_box();assert abs(reopened['x']-initial['x'])<5
   search=dialog.locator('.dialog-field-search-header__search input');search.fill('兴趣')
   option=page.locator('.project-field-search-popper:visible').get_by_text('兴趣爱好',exact=True);option.click()
@@ -62,6 +70,8 @@ with sync_playwright() as p:
   dialog.locator('.el-dialog__body').evaluate('(e)=>e.scrollTop=e.scrollHeight');box=dialog.locator('.el-dialog__footer').bounding_box();assert box['y']+box['height']<=849
   dialog.get_by_role('button',name='保存',exact=True).click();expect(dialog).not_to_be_visible()
   assert writes[-1]['resume_profile']['interests']=='绘画、音乐'
+  assert writes[-1]['resume_profile']['professional_domains']==['法律']
+  assert writes[-1]['resume_profile']['versions']['en']['professional_domains']==['Law']
   assert not errors,errors
   (OUT/'新增编辑UI复验.json').write_text(json.dumps({'save_requests_mocked':len(writes),'database_requests':0,'create_edit_roundtrip':True,'new_field_search':True,'education_year':True,'footer_visible':True,'mobile_dialog':True,'draggable_and_reopen_reset':True,'errors':errors},ensure_ascii=False,indent=2),encoding='utf-8')
   print('新增、编辑、字段搜索、毕业年与小屏底部操作验证通过；所有API已拦截')

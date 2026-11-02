@@ -4,6 +4,8 @@ import sys
 import functools
 import http.server
 import threading
+import argparse
+import re
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -20,7 +22,7 @@ from pydantic import ValidationError
 from playwright.sync_api import sync_playwright, expect
 
 
-def run(name):
+def run(name, dist=None, legacy_draft=False):
     class Handler(http.server.SimpleHTTPRequestHandler):
         def log_message(self, *args):
             pass
@@ -30,7 +32,7 @@ def run(name):
                 self.path = '/index.html'
             super().do_GET()
 
-    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(Handler, directory=str(Path(__file__).resolve().parents[1] / 'frontend' / 'dist')))
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(Handler, directory=str(dist or Path(__file__).resolve().parents[1] / 'frontend' / 'dist')))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     with SessionLocal() as db:
         db.execute(text('SET TRANSACTION READ ONLY'))
@@ -61,6 +63,10 @@ def run(name):
                     if request.method == 'PUT' and path == '/talents/' + detail['id']:
                         try:
                             ResourcePersonUpdate.model_validate(request.post_data_json)
+                            profile=request.post_data_json.get('resume_profile') or {}
+                            assert all(isinstance(value,str) for value in profile.get('professional_domains',[])), '前端提交必须是领域文字列表'
+                            if legacy_draft:
+                                assert profile['versions']['en']['professional_domains']==['Law'], '外文旧草稿也必须规范化'
                             assert request.post_data_json.get('written_profile', {}).get('domain_skills') == (detail.get('written_profile') or {}).get('domain_skills'), '原领域技能和熟练程度必须保持不变'
                             captured.append([])
                             result = detail
@@ -92,6 +98,25 @@ def run(name):
                 raise
             dialog = page.locator('.talent-editor-dialog:visible')
             expect(dialog).to_be_visible()
+            if legacy_draft:
+                name_field=dialog.locator('.el-form-item').filter(has=page.locator('.el-form-item__label',has_text=re.compile('^中文姓名$'))).locator('input')
+                original_name=name_field.input_value()
+                name_field.fill(original_name+'隔离回归')
+                name_field.fill(original_name)
+                page.wait_for_timeout(500)
+                dialog.get_by_role('button',name='取消',exact=True).click()
+                expect(dialog).not_to_be_visible()
+                page.evaluate('''detail=>{
+                    const storageKey='form-drafts:talent:isolated-ui';
+                    const drafts=JSON.parse(localStorage.getItem(storageKey));
+                    const form=drafts['edit:'+detail.id].form;
+                    const values=detail.written_profile?.domain_skills||[];
+                    form.resumeProfile.professionalDomains=values;
+                    form.resumeProfile.versions.en={name:'Isolated QA',professionalDomains:[{domain:'Law',level:'expert'}]};
+                    localStorage.setItem(storageKey,JSON.stringify(drafts));
+                }''',detail)
+                page.get_by_role('button',name='编辑',exact=True).first.click()
+                expect(dialog).to_be_visible()
             dialog.get_by_role('button',name='保存',exact=True).click()
             page.wait_for_timeout(1500)
             print(json.dumps({'record_index':index, 'captured':captured},ensure_ascii=False),flush=True)
@@ -101,4 +126,9 @@ def run(name):
 
 
 if __name__ == '__main__':
-    run(sys.argv[1])
+    parser=argparse.ArgumentParser()
+    parser.add_argument('name')
+    parser.add_argument('--dist-dir',type=Path)
+    parser.add_argument('--legacy-draft',action='store_true')
+    args=parser.parse_args()
+    run(args.name,args.dist_dir,args.legacy_draft)

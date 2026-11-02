@@ -52,6 +52,14 @@ class ResumeSupplementFields(BaseModel):
     def supplement_text(cls,value):
         return value.strip() or None if isinstance(value,str) else value
 
+    @field_validator('professional_domains',mode='before')
+    @classmethod
+    def legacy_domains(cls,value):
+        # 兼容旧页面或旧草稿提交的领域技能结构；不接受任意对象的字符串化。
+        if isinstance(value,list):
+            return [item['domain'] if isinstance(item,dict) and set(item)<={'domain','level'} and isinstance(item.get('domain'),str) else item for item in value]
+        return value
+
     @field_validator('professional_domains')
     @classmethod
     def domains(cls,value):

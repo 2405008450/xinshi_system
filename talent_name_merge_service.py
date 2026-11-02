@@ -100,6 +100,8 @@ def _automatic_request(members, preserve_language_roles=False):
     values, _, conflicts = _merge_values(members, target, decisions, preserve_language_roles)
     # 短字段不能装下拼接文本时保留优先来源原值，其余值继续在来源档案及日志中保留，绝不截断。
     for key, value in values.items():
+        if key.startswith(('resume_profile.', 'settlement.')):
+            continue  # 这些字段按对应输入 schema 校验，不属于人员关系属性。
         if "." in key:
             section, attribute = key.split(".", 1)
             model = getattr(ResourcePerson, section).property.mapper.class_

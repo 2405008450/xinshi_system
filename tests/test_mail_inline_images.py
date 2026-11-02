@@ -204,9 +204,23 @@ def test_load_owned_images_rejects_other_users_and_total_limit():
         load_owned_images(_ImageDb(rows), image_ids, owner)
 
 
-def test_load_owned_images_rejects_more_than_five_images_without_querying():
-    with pytest.raises(ValueError, match="最多插入 5 张"):
-        load_owned_images(_ImageDb([]), [uuid4() for _ in range(6)], uuid4())
+@pytest.mark.parametrize("allow_bound", [False, True])
+def test_load_images_accepts_ten_and_rejects_eleven_images(allow_bound):
+    owner = uuid4()
+    image_ids = [uuid4() for _ in range(10)]
+    rows = [SimpleNamespace(id=image_id, uploaded_by=owner, file_size=1024) for image_id in image_ids]
+
+    def load(ids):
+        if allow_bound:
+            return load_owned_or_bound_images(
+                _AuthorizedImageDb(rows, []), ids, owner,
+                scope_type="manuscript_arrangement", scope_id=uuid4(),
+            )
+        return load_owned_images(_ImageDb(rows), ids, owner)
+
+    assert load(image_ids) == rows
+    with pytest.raises(ValueError, match="最多插入 10 张"):
+        load([*image_ids, uuid4()])
 
 
 def test_bound_image_can_be_reused_by_another_authorized_sender():

@@ -14,7 +14,7 @@ export function resumeProfileForm(value,legacy={}){
   for(const [key,defaultValue] of Object.entries(emptyResumeSupplements()))result[key]=Array.isArray(defaultValue)?(value?.[key]||[]).map(row=>({...row})):value?.[key]||''
   for(const [key,field] of Object.entries(workFields))result[key]=Array.isArray(value?.[key])?value[key].map(row=>({...row})):legacy[field]?[{...newExperience(),description:legacy[field]}]:[]
   result.internships=Array.isArray(value?.internships)?value.internships.map(row=>({...row})):[]
-  result.catTools=[...(value?.catTools||[])];result.versions=JSON.parse(JSON.stringify(value?.versions||{}));return result
+  result.catTools=[...(value?.catTools||[])];result.versions=JSON.parse(JSON.stringify(value?.versions||{}));for(const version of Object.values(result.versions))if(Array.isArray(version.professionalDomains))version.professionalDomains=professionalDomains(version);return result
 }
 export const educationFormRows=(rows=[],periods={})=>rows.map(row=>({...row,_key:row.id||crypto.randomUUID(),period:row.period??periods[row.id]??(row.graduationYear?`毕业：${row.graduationYear}`:''),remarks:row.remarks||''}))
 export const emptyResumeVersion=()=>({...emptyResumeSupplements(),professionalDomains:[],resumeYear:'',name:'',professionalTitle:'',gender:null,birthDate:'',nationality:'',residence:'',nativePlace:'',employmentStatus:null,highestEducation:null,height:'',eyesight:'',languages:[],languageNotes:'',certificates:'',skills:'',catTools:[],educations:[],internships:[],annotation:[],interpretation:[],translation:[],other:[]})

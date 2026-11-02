@@ -163,6 +163,21 @@ def original_data(db, operation_id, person_id=None):
         for key in COLLECTIONS:
             values = [{**row, **retention.get("catalog_labels", {}).get(row["id"], {})} for row in snapshot.get(key, [])]
             fields.append({"key": key, "label": field_label(key), "value": values})
+        from talent_duplicate_profiles import SETTLEMENT_LABELS
+        resume = (snapshot.get('resume_profile') or {}).get('data') or {}
+        for key, value in resume.items():
+            if key == 'versions':
+                for locale, version in (value or {}).items():
+                    for name, content in version.items():
+                        path = f'resume_profile.versions.{locale}.{name}'
+                        fields.append({'key':path,'label':field_label(path),'value':content})
+            else:
+                path = 'resume_profile.' + key
+                fields.append({'key':path,'label':field_label(path),'value':value})
+        for key in SETTLEMENT_LABELS:
+            if snapshot.get('settlement'):
+                path = 'settlement.' + key
+                fields.append({'key':path,'label':field_label(path),'value':snapshot['settlement'].get(key)})
         result.update({"person_id": identifier, "fields": copy.deepcopy(fields), "snapshot": copy.deepcopy(snapshot)})
     return result
 

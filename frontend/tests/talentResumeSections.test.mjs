@@ -35,3 +35,12 @@ test('旧版领域对象转换成可保存的文字，原技能评级保持不�
   assert.deepEqual(professionalDomains({professionalDomains:['自述领域']},written),['自述领域'])
   assert.deepEqual(professionalDomains({}, {domainSkills:'旧数据'}),[])
 })
+
+test('旧草稿及多语言简历的领域对象在提交前统一规范化',()=>{
+  const old={professionalDomains:[{domain:'法律',level:'擅长'}],versions:{en:{professionalDomains:[{domain:'Law',level:'expert'}],name:'Alice'}}}
+  const normalized=resumeProfileForm(old)
+  assert.deepEqual(normalized.professionalDomains,['法律'])
+  assert.deepEqual(normalized.versions.en.professionalDomains,['Law'])
+  assert.equal(normalized.versions.en.name,'Alice')
+  assert.equal(old.versions.en.professionalDomains[0].level,'expert')
+})

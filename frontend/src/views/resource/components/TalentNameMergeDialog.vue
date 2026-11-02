@@ -105,7 +105,7 @@ onBeforeUnmount(() => { stopRequested.value = true; cancelLoading() })
 </script>
 
 <style>
-.name-merge-dialog { display:flex; flex-direction:column; max-height:90vh; overflow:hidden }
+.el-dialog.name-merge-dialog { display:flex; flex-direction:column; max-width:calc(100vw - 32px); max-height:90vh; overflow:hidden }
 .name-merge-dialog .el-dialog__header,.name-merge-dialog .el-dialog__footer { flex-shrink:0 }
 .name-merge-dialog .el-dialog__body { flex:1; min-height:0; overflow-y:auto }
 .name-merge-dialog .el-dialog__footer { background:var(--color-surface-muted); border-top:1px solid var(--color-border); display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:10px }

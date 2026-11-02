@@ -584,6 +584,125 @@ def process(db, ids, target=None, action="keep", decisions=None, note=""):
     return commit(db, payload, ACTOR), payload
 
 
+def seed_profile_review_actor(db):
+    from models import AppUser, Role, UserRole
+    actor = AppUser(id=ACTOR.id, username=ACTOR.username, full_name=ACTOR.full_name, password_hash='synthetic', is_active=True)
+    role = Role(id=uuid4(), role_name='超级管理员')
+    db.add_all([actor, role]); db.flush()
+    db.add(UserRole(id=uuid4(), user_id=actor.id, role_id=role.id)); db.commit()
+    return actor
+
+
+def add_resume(db, person, data):
+    from talent_resume_profile import TalentResumeProfile
+    row = TalentResumeProfile(person_id=person.id, revision=1, data=data, updated_at=business_now())
+    db.add(row); db.commit()
+    return row
+
+
+def test_new_resume_fields_compare_merge_freeze_and_undo(db):
+    from talent_resume_profile import TalentResumeProfile
+    from talent_retention_service import original_data
+    seed_profile_review_actor(db)
+    a, b = person(db), person(db)
+    original = {'professional_domains':['法律'], 'self_assessment':'主档自述', 'versions':{'en':{'name':'Alice','interests':'Music'}}, 'annotation':[{'id':str(uuid4()),'description':'相同经历'}]}
+    other = {'professional_domains':['医学'], 'self_assessment':'来源自述', 'versions':{'en':{'name':'Alice','other_skills':'Office'},'fr':{'name':'Alice FR'}}, 'annotation':[{'id':str(uuid4()),'description':'相同经历'}], 'campus_positions':[{'id':str(uuid4()),'description':'学生会'}]}
+    add_resume(db,a,original); add_resume(db,b,other)
+    matrix = group_detail(db, '王测试', contacts_visible=True)
+    labels = {row['key']:row['label'] for row in matrix['fields']}
+    assert labels['resume_profile.versions.en.other_skills'] == '英文简历：其他技能'
+    assert 'resume_profile.campus_positions' in labels
+    public = group_detail(db, '王测试', contacts_visible=False)
+    assert not any(row['key'].startswith(('resume_profile.', 'settlement.')) for row in public['fields'])
+    decisions = {'resume_profile.self_assessment':{'person_id':str(b.id)}}
+    request = DuplicateReviewRequest(action='merge', person_ids=[a.id,b.id],target_id=a.id,decisions=decisions)
+    first = preview(db, request); second = preview(db, request)
+    assert not first['conflicts']
+    assert first['preview_token'] == second['preview_token']
+    operation, _ = process(db,[a.id,b.id],a.id,'merge',decisions)
+    merged = db.get(TalentResumeProfile,a.id)
+    assert merged.data['professional_domains'] == ['法律','医学']
+    assert merged.data['self_assessment'] == '来源自述'
+    assert len(merged.data['annotation']) == 1
+    assert merged.data['versions']['en']['interests'] == 'Music'
+    assert merged.data['versions']['en']['other_skills'] == 'Office'
+    assert merged.data['versions']['fr']['name'] == 'Alice FR'
+    frozen = original_data(db,UUID(operation['id']),a.id)
+    assert frozen['snapshot']['resume_profile']['data'] == original
+    assert any(row['key']=='resume_profile.versions.en.interests' for row in frozen['fields'])
+    undo(db,UUID(operation['id']),ACTOR)
+    assert db.get(TalentResumeProfile,a.id).data == original
+    assert db.get(TalentResumeProfile,b.id).data == other
+
+
+def test_auxiliary_edit_rejects_stale_preview_and_undo(db):
+    from talent_resume_profile import TalentResumeProfile
+    seed_profile_review_actor(db)
+    a, b = person(db), person(db)
+    row = add_resume(db,b,{'interests':'音乐'})
+    request = DuplicateReviewRequest(action='merge',person_ids=[a.id,b.id],target_id=a.id)
+    proposed = preview(db,request)
+    row.data = {'interests':'绘画'}; row.revision += 1; db.commit()
+    with pytest.raises(HTTPException) as error:
+        commit(db,DuplicateReviewCommit(**request.model_dump(),preview_token=proposed['preview_token'],idempotency_key=str(uuid4())),ACTOR)
+    assert error.value.status_code == 409
+    operation, _ = process(db,[a.id,b.id],a.id,'merge')
+    row = db.get(TalentResumeProfile,a.id)
+    row.data = {**row.data,'interests':'新的修改'}; row.revision += 1; db.commit()
+    with pytest.raises(HTTPException) as error:
+        undo(db,UUID(operation['id']),ACTOR)
+    assert error.value.status_code == 409
+    assert db.get(TalentResumeProfile,a.id).data['interests'] == '新的修改'
+
+
+def test_settlement_granularity_and_name_merge_share_new_profiles(db):
+    from talent_settlement import TalentSettlement
+    from talent_resume_profile import TalentResumeProfile
+    from talent_name_merge_service import _automatic_request
+    seed_profile_review_actor(db)
+    a, b = person(db), person(db)
+    add_resume(db,b,{'training':[{'id':str(uuid4()),'organization':'培训学校','description':'专业培训'}]})
+    price={'id':str(uuid4()),'category':'written_translation','amount':'100','unit':'千字','currency':'CNY'}
+    db.add(TalentSettlement(person_id=b.id,revision=1,bank_account='synthetic-account',prices=[price],updated_at=business_now())); db.commit()
+    automatic = _automatic_request([a,b])
+    proposed = preview(db,automatic)
+    assert not proposed['conflicts']
+    operation, _ = process(db,[a.id,b.id],a.id,'merge',automatic.decisions)
+    assert db.get(TalentSettlement,a.id).bank_account == 'synthetic-account'
+    assert db.get(TalentSettlement,a.id).prices[0]['amount'] == '100'
+    assert db.get(TalentResumeProfile,a.id).data['training'][0]['description'] == '专业培训'
+    undo(db,UUID(operation['id']),ACTOR)
+    assert db.get(TalentResumeProfile,a.id) is None
+    assert db.get(TalentSettlement,a.id) is None
+
+
+def test_education_period_follows_merged_child_and_restores(db):
+    from resource_models import ResourceEducationExperience
+    from talent_resume_profile import TalentResumeProfile
+    seed_profile_review_actor(db)
+    a, b = person(db), person(db)
+    child = ResourceEducationExperience(id=uuid4(),person_id=b.id,education_level='bachelor',institution='学校',sort_order=0)
+    db.add(child); db.commit()
+    original={'education_periods':{str(child.id):'2010-2014'}}
+    add_resume(db,b,original)
+    operation, _ = process(db,[a.id,b.id],a.id,'merge')
+    merged_child=get_talent(db,a.id).education_experiences[0]
+    assert merged_child.id != child.id
+    assert db.get(TalentResumeProfile,a.id).data['education_periods']=={str(merged_child.id):'2010-2014'}
+    undo(db,UUID(operation['id']),ACTOR)
+    assert db.get(TalentResumeProfile,a.id) is None
+    assert db.get(TalentResumeProfile,b.id).data == original
+
+
+def test_profile_field_labels_cover_current_write_schemas():
+    from talent_duplicate_profiles import RESUME_LABELS, SETTLEMENT_LABELS
+    from talent_resume_profile import TalentResumeProfileInput, ResumeLanguageVersion
+    from talent_settlement import TalentSettlementInput
+    assert set(TalentResumeProfileInput.model_fields)-{'revision','versions'} <= set(RESUME_LABELS)
+    assert set(ResumeLanguageVersion.model_fields) <= set(RESUME_LABELS)
+    assert set(TalentSettlementInput.model_fields)-{'revision'} == set(SETTLEMENT_LABELS)
+
+
 def test_group_order_search_counts_and_audit_filters(db):
     from routers.talents import _field_filters
     for _ in range(2):

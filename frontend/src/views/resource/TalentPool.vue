@@ -674,7 +674,7 @@ const queueAttachment=(category,file)=>{
   if(!queuedAttachments[category].some(item=>item.uid===file.uid))queuedAttachments[category].push(file)
 }
 const unqueueAttachment=(category,file)=>{queuedAttachments[category]=queuedAttachments[category].filter(item=>item.uid!==file.uid)}
-const {beginDraft,pauseDraft,clearDraft}=useFormDraft({namespace:'talent',form,createDefault:emptyForm,formRef})
+const {beginDraft,pauseDraft,clearDraft}=useFormDraft({namespace:'talent',form,createDefault:emptyForm,formRef,applyDraft:restored=>{Object.assign(form,emptyForm(),restored);form.resumeProfile=resumeProfileForm(form.resumeProfile,form)}})
 const editorBodyRef=ref(null)
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField:locateDialogFieldBase,clearFieldSearch}=useDialogFieldSearch(editorBodyRef)
 const locateDialogField=async item=>{if(['中文姓名','外文姓名','昵称','其他名字'].includes(item?.searchLabel))nameFieldsExpanded.value=true;await nextTick();return locateDialogFieldBase(item)}
@@ -737,7 +737,7 @@ const cleanChild=item=>Object.fromEntries(Object.entries(item).filter(([key])=>k
 const payload=(allowDuplicate=false)=>{
   const result={
     resourceCode:form.resourceCode||null,
-    resumeProfile:JSON.parse(JSON.stringify(form.resumeProfile)),
+    resumeProfile:JSON.parse(JSON.stringify(resumeProfileForm(form.resumeProfile,form))),
     identityNumber:form.identityNumber?.trim()||null,eyesight:form.eyesight?.trim()||null,
     registrationSource:form.registrationSource||null,
     wechatGroups:form.wechatGroups?.trim()||null,

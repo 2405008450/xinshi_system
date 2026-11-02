@@ -1,5 +1,6 @@
 """本机浏览器核重验收；所有 API 均为合成数据，禁止写入实际人才库。"""
 import json
+import argparse
 from pathlib import Path
 import socket
 import shutil
@@ -14,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BASE = "http://127.0.0.1:12459"
 
 
-def run():
+def run(dist=None):
     global BASE
     if socket.gethostname().upper() != "PC" or ROOT != Path(r"E:\xinshi_system"):
         raise SystemExit("仅允许在 PC 本机隔离验收")
@@ -31,7 +32,10 @@ def run():
                     project_situation=dict(total=i)) for i, identifier in enumerate([a, b], 1)]
     fields = [dict(key="gender", label="性别", state="conflict", values=["男", "女"]),
               dict(key="residence_address", label="现居地", state="complement", values=[None, "北京"]),
-              dict(key="primary_email", label="邮箱", state="same", values=["synthetic@example.org"] * 2)]
+              dict(key="primary_email", label="邮箱", state="same", values=["synthetic@example.org"] * 2),
+              dict(key='resume_profile.professional_domains',label='中文简历：专业领域（本人自述）',state='complement',values=[['法律'],None]),
+              dict(key='resume_profile.versions.en.training',label='英文简历：培训经历',state='complement',values=[[dict(organization='Training school',description='Course')],None]),
+              dict(key='settlement.prices',label='商务与结算：报价明细',state='complement',values=[[dict(amount='100',unit='千字',currency='CNY')],None])]
     group = dict(key="王测试", name="王测试", count=2, status="pending", summary="存在联系方式匹配，需结合身份核对")
     requests, commits, errors, deferred, previews = [], [], [], [], []
     identity_mode = [False]
@@ -146,7 +150,7 @@ def run():
     log = (output / "preview.log").open("w", encoding="utf-8")
     # 验收固定构建副本，避免其他任务重建 dist 时动态模块文件被替换。
     snapshot = output / ('dist-' + uuid4().hex)
-    shutil.copytree(ROOT / 'frontend/dist',snapshot)
+    shutil.copytree(dist or ROOT / 'frontend/dist',snapshot)
     process = subprocess.Popen(["node", "node_modules/vite/bin/vite.js", "preview", "--outDir", str(snapshot), "--host", "127.0.0.1", "--port", str(port), "--strictPort"], cwd=ROOT / "frontend", stdout=log, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW)
     try:
         for _ in range(60):
@@ -178,6 +182,10 @@ def run():
             page.locator('.member-selection .el-checkbox').nth(0).click()
             page.locator('.member-selection .el-checkbox').nth(1).click()
             expect(page.locator(".comparison-matrix")).to_contain_text("现居地")
+            expect(page.locator('.comparison-matrix')).to_contain_text('中文简历：专业领域（本人自述）')
+            expect(page.locator('.comparison-matrix')).to_contain_text('英文简历：培训经历')
+            expect(page.locator('.comparison-matrix')).to_contain_text('组织／学校：Training school')
+            expect(page.locator('.comparison-matrix')).to_contain_text('金额：100')
             expect(page.locator(".comparison-matrix")).not_to_contain_text("synthetic@example.org")
             page.locator(".review-query .el-form-item").filter(has_text="Agent 初筛").locator(".el-select").click()
             page.get_by_role("option", name="高置信度同一人", exact=True).click()
@@ -225,18 +233,22 @@ def run():
             expect(original_detail).to_contain_text("已归档")
             history_dialog.get_by_role("button", name="档案 1 当前详情", exact=True).click()
             history_dialog.get_by_role("button", name="撤销处理").click()
-            page.locator(".el-message-box").get_by_role("button", name="确定", exact=True).click()
+            with page.expect_response(lambda response:'/talents/duplicate-review/groups/' in response.url):
+                page.locator(".el-message-box").get_by_role("button", name="确定", exact=True).click()
             expect(history_dialog).to_contain_text("已撤销")
             history_dialog.get_by_role("button", name="关闭", exact=True).click()
             page.set_viewport_size(dict(width=700, height=700))
             expect(page.locator(".group-pane")).to_be_visible()
-            page.locator('.member-selection .el-checkbox').nth(0).click()
-            page.locator('.member-selection .el-checkbox').nth(1).click()
+            for index in range(2):
+                checkbox=page.locator('.member-selection .el-checkbox').nth(index)
+                if not checkbox.locator('input').is_checked():
+                    checkbox.click()
             page.get_by_role("button", name="合并资料", exact=True).click()
             expect(dialog).to_be_visible()
+            page.wait_for_timeout(350)  # 几何测量须等待 Dialog 入场动画与响应式定位完成。
             dialog.locator(".el-dialog__body").evaluate("element => { element.scrollTop = element.scrollHeight }")
             footer = dialog.locator(".el-dialog__footer").bounding_box()
-            assert footer["y"] >= 0 and footer["y"] + footer["height"] <= 700
+            assert footer["y"] >= 0 and footer["y"] + footer["height"] <= 700, footer
             box = dialog.bounding_box()
             assert box["width"] <= 668.5 and box["x"] >= 0
             page.wait_for_timeout(350)  # 截图等待 Dialog 入场动画完成。
@@ -399,4 +411,6 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--dist-dir',type=Path)
+    run(parser.parse_args().dist_dir)

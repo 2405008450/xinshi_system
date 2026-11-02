@@ -140,3 +140,22 @@ def test_supplement_repeated_rows_and_future_fake_graduation_are_rejected():
     identifier=uuid4()
     with pytest.raises(ValidationError):TalentResumeProfileInput(campus_positions=[{'id':identifier},{'id':identifier}])
     with pytest.raises(ValidationError):TalentResumeProfileInput(versions={'en':{'educations':[{'graduation_year':2300}]}})
+
+
+def test_legacy_domain_objects_from_old_editor_save_as_text(resume_db):
+    db,person,actor=resume_db
+    old=[{'domain':' 法律 ','level':'擅长'},{'domain':'金融','level':''},{'domain':'传媒','level':''},{'domain':'医学','level':''}]
+    payload=ResourcePersonUpdate(full_name='编辑回归',capabilities=[{'capability_type':'written_translation'}],resume_profile={'professional_domains':old,'versions':{'en':{'professional_domains':[{'domain':'Law','level':'expert'}]}}},written_profile={'domain_skills':old})
+    assert payload.written_profile.domain_skills == old
+    save_resume_profile(db,person,payload,actor);db.flush()
+    saved=read_resume_profile(db,person.id)
+    assert saved['professional_domains']==['法律','金融','传媒','医学']
+    assert saved['versions']['en']['professional_domains']==['Law']
+    assert old[0]['level']=='擅长'
+
+
+@pytest.mark.parametrize('value',[[{}],[{'domain':42}],[{'domain':'法律','unexpected':'字段'}],[42]])
+def test_unknown_domain_object_still_reports_exact_item(value):
+    with pytest.raises(ValidationError) as error:
+        ResourcePersonUpdate(full_name='测试',resume_profile={'professional_domains':value})
+    assert error.value.errors()[0]['loc']==('resume_profile','professional_domains',0)

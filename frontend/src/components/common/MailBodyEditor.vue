@@ -17,7 +17,7 @@
       >
         <el-button size="small" :loading="uploading">插入图片</el-button>
       </el-upload>
-      <span>支持选择、粘贴或拖拽；单张 2MB，最多 5 张，合计 8MB</span>
+      <span>支持选择、粘贴或拖拽；单张 2MB，最多 {{ MAX_IMAGE_COUNT }} 张，合计 8MB</span>
       <strong>{{ images.length }}/{{ MAX_IMAGE_COUNT }} · {{ formattedTotalSize }}</strong>
     </div>
     <EditorContent
@@ -46,7 +46,7 @@ import {
 
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024
 const MAX_TOTAL_BYTES = 8 * 1024 * 1024
-const MAX_IMAGE_COUNT = 5
+const MAX_IMAGE_COUNT = 10
 const MAX_EDGE = 1920
 
 const props = defineProps({
@@ -173,7 +173,7 @@ async function addFile(file) {
     while (fileQueue.length) {
       if (props.images.length >= MAX_IMAGE_COUNT) {
         fileQueue.splice(0)
-        ElMessage.warning('每封邮件最多插入 5 张图片')
+        ElMessage.warning(`每封邮件最多插入 ${MAX_IMAGE_COUNT} 张图片`)
         break
       }
       const nextFile = fileQueue.shift()
