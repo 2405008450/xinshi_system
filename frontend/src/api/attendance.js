@@ -26,3 +26,5 @@ export const getClockCorrections=(company=false,config={})=>api.get('/attendance
 export const requestClockCorrection=data=>api.post('/attendance/clock-corrections',data,{headers:{'X-Client-Type':chatClientType(navigator)}})
 export const confirmClockCorrection=id=>api.post(`/attendance/clock-corrections/${id}/confirm`,{},{headers:{'X-Client-Type':chatClientType(navigator)}})
 export const cancelClockCorrection=id=>api.post(`/attendance/clock-corrections/${id}/cancel`,{},{headers:{'X-Client-Type':chatClientType(navigator)}})
+
+export const updateClockCorrection=(id,data)=>api.put(`/attendance/clock-corrections/${id}`,data,{headers:{'X-Client-Type':chatClientType(navigator)}})

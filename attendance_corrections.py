@@ -118,10 +118,10 @@ def publish(events):
 
 def serialize(db,row):
     person=db.get(AppUser,row.user_id)
-    return api_time({**{key:getattr(row,key) for key in ('id','user_id','day','kind','record_id','segment','requested_at','reason','evidence','status','original','history','created_at','confirmed_at','confirmed_by')},'name':person.full_name or person.username})
+    return api_time({**{key:getattr(row,key) for key in ('id','client_id','declarations','user_id','day','kind','record_id','segment','requested_at','reason','evidence','status','original','history','created_at','confirmed_at','confirmed_by')},'name':person.full_name or person.username})
 
 
-def submit(db,user,payload):
+def submit(db,user,payload,editing=None):
     import attendance_clock as clock
     import attendance_service as service
     require_ready(db);clock.require_ready(db);clock.lock(db,user)
@@ -129,7 +129,7 @@ def submit(db,user,payload):
     if payload.kind=='in' and payload.requested_at.date()!=payload.day:raise HTTPException(422,'上班补卡时间须属于所选考勤日期')
     if payload.segment==2 and not payload.record_id:raise HTTPException(422,'居家加班补卡请指定已有打卡记录')
     values=payload.model_dump(mode='json');old=db.query(ClockCorrection).filter_by(client_id=payload.client_id).first()
-    if old:
+    if old and editing is None:
         if old.user_id!=user.id or old.history[0].get('request')!=values:raise HTTPException(409,'申请标识已使用，请重新打开表单')
         return {'message':'补卡申请已提交','record':serialize(db,old)}
     row=db.query(Clock).filter_by(id=payload.record_id,user_id=user.id).first() if payload.record_id else db.query(Clock).filter_by(user_id=user.id,day=payload.day,segment=payload.segment).first()
@@ -150,19 +150,42 @@ def submit(db,user,payload):
             if payload.segment!=clock.next_multi_segment(previous):raise HTTPException(422,'请按实际组次补卡，不得跳过前一组')
         elif payload.segment>=len(clock.segments(policy)):raise HTTPException(422,'该班次没有所选打卡组')
         if payload.segment>0 and not any(item.segment==0 and item.check_out for item in previous):raise HTTPException(422,'请先完成第一组上下班打卡')
-    pending=db.query(ClockCorrection.id).filter_by(user_id=user.id,day=payload.day,kind=payload.kind,segment=row.segment if row else payload.segment,status='pending').first()
+    pending_query=db.query(ClockCorrection.id).filter_by(user_id=user.id,day=payload.day,kind=payload.kind,segment=row.segment if row else payload.segment,status='pending')
+    if editing is not None:pending_query=pending_query.filter(ClockCorrection.id!=editing.id)
+    pending=pending_query.first()
     if pending:raise HTTPException(409,'本组已有待行政确认的补卡申请')
     declarations=payload.model_dump(mode='json',exclude={'client_id','day','kind','record_id','segment','requested_at','reason','evidence'})
     if payload.kind=='out':declarations['cross_day_reason']=payload.reason
     if payload.kind=='out':clock.validate_checkout(db,user,row,clock.CheckOutWrite(record_id=row.id,**declarations),payload.requested_at)
     record=ClockCorrection(id=uuid4(),client_id=payload.client_id,user_id=user.id,day=payload.day,kind=payload.kind,record_id=row.id if row else None,segment=row.segment if row else payload.segment,requested_at=payload.requested_at,reason=payload.reason,evidence=payload.evidence,declarations=declarations,original=clock_state(row) if row else {'planned_shift':jsonable_encoder(shift)},status='pending',history=[{'action':'submitted','actor_id':str(user.id),'actor_name':user.full_name or user.username,'at':now().isoformat(),'request':values}],created_at=now())
-    db.add(record)
+    if editing is not None:
+        before=editing.history[-1].get('request',editing.history[0]['request'])
+        for key in ('day','kind','record_id','segment','requested_at','reason','evidence','declarations','original'):
+            setattr(editing,key,getattr(record,key))
+        editing.history=[*editing.history,{'action':'updated','actor_id':str(user.id),'actor_name':user.full_name or user.username,'at':now().isoformat(),'before_request':before,'request':values}]
+        record=editing
+    else:db.add(record)
     try:
-        events=notify(db,user,record.id,f'待确认补卡 · {user.full_name or user.username}',f'{payload.day} 补{"上班" if payload.kind=="in" else "下班"}打卡，申请时间：{payload.requested_at.isoformat()}。原因：{payload.reason}。请到人事管理－考勤管理－补卡与跨日记录确认。')
+        events=notify(db,user,record.id,f'{"补卡申请已修改" if editing is not None else "待确认补卡"} · {user.full_name or user.username}',f'{payload.day} 补{"上班" if payload.kind=="in" else "下班"}打卡，申请时间：{payload.requested_at.isoformat()}。原因：{payload.reason}。请到人事管理－考勤管理－补卡与跨日记录确认。')
         db.commit()
     except Exception:db.rollback();raise
     publish(events)
     return {'message':'补卡申请已通知行政部，确认后生效','record':serialize(db,record)}
+
+
+class CorrectionUpdate(CorrectionWrite):
+    expected_history_length:int=Field(ge=1)
+
+
+def update(db,user,uid,payload):
+    require_ready(db)
+    row=db.query(ClockCorrection).filter_by(id=uid,user_id=user.id).with_for_update().populate_existing().first()
+    if not row:raise HTTPException(404,'申请不存在')
+    if row.status!='pending':raise HTTPException(409,'只有待确认申请可修改')
+    if len(row.history)!=payload.expected_history_length:raise HTTPException(409,'申请已变化，请刷新记录后重新修改')
+    if row.client_id!=payload.client_id:raise HTTPException(409,'申请标识不符，请刷新记录')
+    values=CorrectionWrite(**payload.model_dump(exclude={'expected_history_length'}))
+    return submit(db,user,values,editing=row)
 
 
 def confirm(db,user,uid):
@@ -298,6 +321,12 @@ def confirm_correction(uid:UUID,request:Request,db=Depends(get_db),user=Depends(
     from attendance_service import desktop_request
     if not desktop_request(request):raise HTTPException(403,'确认补卡请使用电脑端')
     return confirm(db,user,uid)
+
+@router.put('/{uid}')
+def update_correction(uid:UUID,payload:CorrectionUpdate,request:Request,db=Depends(get_db),user=Depends(get_current_user)):
+    from attendance_service import desktop_request
+    if not desktop_request(request):raise HTTPException(403,'修改补卡请使用电脑端')
+    return update(db,user,uid,payload)
 
 @router.post('/{uid}/cancel')
 def cancel_correction(uid:UUID,request:Request,db=Depends(get_db),user=Depends(get_current_user)):

@@ -110,6 +110,9 @@ def test_http_scope_and_mobile_writes_rejected(prepared):
   result=client.post('/attendance/clock-corrections',json=payload,headers={'user-agent':'Mozilla/5.0 (Windows NT 10.0)'})
   assert result.status_code==200
   uid=result.json()['record']['id']
+  edit_payload={**payload,'expected_history_length':1,'reason':'修改原因'}
+  assert client.put(f'/attendance/clock-corrections/{uid}',json=edit_payload,headers={'user-agent':'Mozilla/5.0 (iPhone; Mobile)'}).status_code==403
+  assert client.put(f'/attendance/clock-corrections/{uid}',json=edit_payload,headers={'user-agent':'Mozilla/5.0 (Windows NT 10.0)'}).status_code==200
   assert client.post(f'/attendance/clock-corrections/{uid}/confirm',headers={'user-agent':'Mozilla/5.0 (Windows NT 10.0)'}).status_code==403
   assert client.post('/attendance/clock-corrections',json={**payload,'user_id':str(other.id)},headers={'user-agent':'Mozilla/5.0 (Windows NT 10.0)'}).status_code==422
 
@@ -128,3 +131,50 @@ def test_flexible_shift_does_not_invent_a_midnight_start_time(prepared):
  db,(_,person,_)=prepared
  row=SimpleNamespace(day=date(2026,10,28),segment=0,shift_snapshot={'code':'flexible','flexible':True,'periods':[]})
  assert correction.next_scheduled_start(db,person,row,at('2026-10-29T10:00'))==(None,0)
+
+
+def test_update_pending_preserves_audit_and_confirms_latest_values(prepared):
+ db,(admin,person,other)=prepared
+ payload=request();uid=correction.submit(db,person,payload)['record']['id']
+ changed=correction.CorrectionUpdate(**{**payload.model_dump(),'requested_at':at('2026-10-28T09:15'),'reason':'更正实际时间','evidence':'修改后的证据','expected_history_length':1})
+ with pytest.raises(HTTPException) as denied:correction.update(db,other,uid,changed)
+ assert denied.value.status_code==404
+ result=correction.update(db,person,uid,changed)['record']
+ assert result['status']=='pending' and db.query(Clock).count()==0
+ assert result['client_id']==payload.client_id and result['declarations']['breakfast_after_eating'] is True
+ audit=result['history'][-1]
+ assert audit['action']=='updated' and audit['before_request']['reason']==payload.reason
+ assert audit['request']['reason']=='更正实际时间' and audit['at'].endswith('+08:00')
+ with pytest.raises(HTTPException) as stale:correction.update(db,person,uid,changed)
+ assert stale.value.status_code==409
+ correction.confirm(db,admin,uid)
+ assert attendance.stamp(db.query(Clock).one().check_in)==at('2026-10-28T09:15')
+ with pytest.raises(HTTPException) as confirmed:correction.update(db,person,uid,changed)
+ assert confirmed.value.status_code==409
+
+
+def test_update_validates_future_times_and_cancelled_status(prepared):
+ db,(_,person,_)=prepared
+ payload=request();uid=correction.submit(db,person,payload)['record']['id']
+ changed=correction.CorrectionUpdate(**payload.model_dump(),expected_history_length=1)
+ with pytest.raises(HTTPException) as future:correction.update(db,person,uid,changed.model_copy(update={'requested_at':at('2026-10-28T11:00')}))
+ assert future.value.status_code==422
+ assert len(db.get(correction.ClockCorrection,uid).history)==1
+ correction.cancel(db,person,uid)
+ with pytest.raises(HTTPException) as cancelled:correction.update(db,person,uid,changed)
+ assert cancelled.value.status_code==409
+
+
+def test_update_checkout_preserves_declarations_and_next_start(prepared,monkeypatch):
+ db,(admin,person,_)=prepared
+ source=punch(db,person,monkeypatch,'2026-10-28T09:00')
+ monkeypatch.setattr(correction,'now',lambda:at('2026-10-29T11:00'))
+ values={**request().model_dump(),'kind':'out','record_id':source['id'],'requested_at':at('2026-10-28T18:30'),'next_start':at('2026-10-29T10:00')}
+ payload=correction.CorrectionWrite(**values);uid=correction.submit(db,person,payload)['record']['id']
+ changed=correction.CorrectionUpdate(**{**values,'next_start':at('2026-10-29T10:30'),'reason':'更正后续上班时间'},expected_history_length=1)
+ result=correction.update(db,person,uid,changed)['record']
+ assert result['declarations']['next_start'].startswith('2026-10-29T10:30')
+ correction.confirm(db,admin,uid)
+ adjustment=db.query(correction.AttendanceStartAdjustment).one()
+ assert attendance.stamp(adjustment.next_start)==at('2026-10-29T10:30')
+ assert adjustment.reason=='更正后续上班时间'
