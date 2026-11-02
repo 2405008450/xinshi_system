@@ -1,11 +1,20 @@
 <template>
   <section v-loading="loading" class="my-monthly-shift">
     <AttendanceOverview /><el-collapse v-model="expandedSections"><el-collapse-item name="shifts" title="班次安排"><div class="my-shift-toolbar"><h3>班次安排</h3><el-radio-group v-model="scope" aria-label="班次查看范围"><el-radio-button value="all">全部人员</el-radio-button><el-radio-button value="mine">仅看自己</el-radio-button></el-radio-group><ShiftPeriodControls v-model:mode="mode" :value="periodValue" :disabled="loading" @update:value="setPeriod" /></div>
+    <div class="shift-person-search"><el-input v-model="personSearch" placeholder="搜索姓名，查看班次" aria-label="搜索班次人员" clearable @keyup.enter="applyPersonSearch" /><el-button @click="applyPersonSearch">查询</el-button></div>
     <WeeklyShiftHistoryDialog v-if="historyWeek" v-model="historyVisible" :week="historyWeek" :shifts="data.shifts||monthPlans[0]?.shifts" :departments="data.departments||monthPlans[0]?.departments" />
     <el-button v-if="scope==='mine'&&mode==='week'" link @click="historyWeek=week;historyVisible=true">修改记录</el-button>
     <p>当前查看{{scope==='all'?'全部人员':'本人'}}的已同步班次安排；月度包含每周不同安排，跨月周共用记录。此处仅供查看，调整请联系行政部。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-alert v-else-if="data.ready===false" :title="mode==='week'?'每周排班功能尚未初始化':'月度排班功能尚未初始化'" type="info" :closable="false" />
+    <el-table v-else-if="appliedPersonSearch" :data="personSearchResults" border empty-text="所选时间内未找到该人员的已同步班次" class="shift-search-results">
+      <el-table-column prop="name" label="姓名" min-width="120" />
+      <el-table-column prop="weekLabel" label="排班周" min-width="220" />
+      <el-table-column prop="departmentLabel" label="排班部门" min-width="140" />
+      <el-table-column label="班次" min-width="180"><template #default="{row}">{{row.shiftLabel}} <el-tag v-if="row.home_rotation" size="small">居家轮班</el-tag><el-tag v-if="row.fixed" size="small" type="info">固定</el-tag></template></el-table-column>
+      <el-table-column label="工作时段" min-width="180"><template #default="{row}"><div v-for="period in row.periods" :key="period">{{period}}</div></template></el-table-column>
+      <el-table-column label="班次内请假" min-width="120"><template #default="{row}">{{row.leave_minutes?durationLabel(row.leave_minutes):'-'}}</template></el-table-column>
+    </el-table>
     <template v-else-if="scope==='all'"><MonthlyWeekOverview v-if="mode==='month'" :plans="monthPlans" :month="month" /><WeeklyShiftMatrix v-else :plan="data" :loading="loading" /></template>
     <div v-else-if="mode==='month'" class="my-month-weeks"><el-card v-for="item in monthPlans" :key="item.week_start"><template #header>{{item.week_start}} 至 {{item.week_end}} <el-button link @click="historyWeek=item.week_start;historyVisible=true">修改记录</el-button></template><template v-if="item.assignment"><p>{{item.assignment.name}} · {{item.departments.find(row=>row.code===item.assignment.department)?.label}} · {{item.shifts.find(row=>row.code===item.assignment.shift)?.label}} <el-tag v-if="item.assignment.home_rotation" size="small">居家轮班</el-tag><el-tag v-if="item.assignment.fixed" size="small" type="info">固定</el-tag></p><p v-for="period in item.shifts.find(row=>row.code===item.assignment.shift)?.periods||[]" :key="period">{{period}}</p><p v-if="item.assignment.leave_minutes">请假 {{durationLabel(item.assignment.leave_minutes)}}</p></template><p v-else>本周尚未安排班次</p></el-card></div>
     <el-descriptions v-else-if="data.assignment" :column="1" border>
@@ -31,8 +40,18 @@ import MonthlyWeekOverview from '@/views/hr/MonthlyWeekOverview.vue'
 import WeeklyShiftMatrix from '@/views/hr/WeeklyShiftMatrix.vue'
 import WeeklyShiftHistoryDialog from '@/views/hr/WeeklyShiftHistoryDialog.vue'
 import {subscribe} from '@/utils/realtimeSocket'
+import {matchesSearch} from '@/utils/searchMatching'
 const historyWeek=ref(''),historyVisible=ref(false),expandedSections=ref([]),homeEligibility=ref({})
 const scope=ref('all'),mode=ref('week'),week=ref(currentShiftWeek()),month=ref(currentShiftMonth()),data=ref({}),monthPlans=ref([]),loading=ref(false),error=ref('')
+const personSearch=ref(''),appliedPersonSearch=ref('')
+let searchTimer
+function applyPersonSearch(){clearTimeout(searchTimer);appliedPersonSearch.value=personSearch.value.trim();if(appliedPersonSearch.value)scope.value='all'}
+watch(personSearch,value=>{clearTimeout(searchTimer);if(!value.trim())applyPersonSearch();else searchTimer=setTimeout(applyPersonSearch,400)})
+watch(scope,()=>{if(scope.value==='mine'){personSearch.value='';appliedPersonSearch.value='';clearTimeout(searchTimer)}})
+const personSearchResults=computed(()=>(mode.value==='month'?monthPlans.value:[data.value]).flatMap(plan=>(plan.assignments||[]).filter(person=>matchesSearch(person.name,appliedPersonSearch.value)).map(person=>{
+  const shift=plan.shifts?.find(row=>row.code===person.shift)
+  return {...person,weekLabel:`${plan.week_start||week.value} 至 ${plan.week_end||shiftWeekEnd(week.value)}`,departmentLabel:plan.departments?.find(row=>row.code===person.department)?.label||'-',shiftLabel:shift?.label||'-',periods:shift?.periods||[]}
+})))
 const periodValue=computed(()=>mode.value==='week'?week.value:month.value),periodKey=computed(()=>`${scope.value}:${mode.value}:${periodValue.value}`)
 function setPeriod(value){if(mode.value==='week')week.value=shiftWeek(value);else month.value=value}
 const shift=computed(()=>data.value.shifts?.find(row=>row.code===data.value.assignment?.shift))
@@ -41,6 +60,7 @@ let sequence=0,controller,unsubscribe
 async function load(){controller?.abort();controller=new AbortController();const id=++sequence;loading.value=true;error.value='';data.value={};try{monthPlans.value=[];const reader=scope.value==='all'?getWeeklyShiftOverview:getMyWeeklyShift;const value=mode.value==='week'?await reader(week.value,{signal:controller.signal}):await Promise.all(shiftMonthWeeks(month.value).map(start=>reader(start,{signal:controller.signal})));if(id===sequence){if(Array.isArray(value)){monthPlans.value=value;data.value={ready:value.every(row=>row.ready)}}else data.value=value}}catch(e){if(id===sequence&&e.code!=='ERR_CANCELED')error.value=e.detail||'读取班次安排失败'}finally{if(id===sequence)loading.value=false}}
 watch(periodKey,load)
 onMounted(()=>{load();window.addEventListener('focus',load);unsubscribe=subscribe('weekly_shift_published',event=>{if(mode.value==='week'?shiftWeek(event.week_start)===week.value:shiftMonthWeeks(month.value).includes(event.week_start))load()})})
-onBeforeUnmount(()=>{sequence++;controller?.abort();window.removeEventListener('focus',load);unsubscribe?.()})
+onBeforeUnmount(()=>{sequence++;controller?.abort();clearTimeout(searchTimer);window.removeEventListener('focus',load);unsubscribe?.()})
 </script>
+<style scoped>.shift-person-search{display:flex;gap:8px;margin:12px 0;max-width:420px}.shift-person-search .el-input{flex:1;min-width:0}.shift-search-results{margin-top:12px}</style>
 <style scoped>.my-monthly-shift{padding:16px}.my-month-weeks{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px;margin-top:12px}.my-shift-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.my-shift-toolbar h3{margin:0 12px 0 0}.my-shift-toolbar :deep(.el-button+.el-button){margin-left:0}.my-shift-toolbar :deep(.el-date-editor){width:205px}.my-monthly-shift>p{color:#64748b;font-size:13px}</style>

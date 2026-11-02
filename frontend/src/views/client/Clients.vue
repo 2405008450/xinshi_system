@@ -213,6 +213,7 @@
                 <el-descriptions-item label="创建时间">
                   <span class="detail-value">{{ formatDatetime(getDetailRow(row).created_at) }}</span>
                 </el-descriptions-item>
+                <el-descriptions-item label="财务" :span="2"><CustomerFinancePanel :client-id="row.id" :can-write="canWrite" /></el-descriptions-item>
                 <el-descriptions-item label="更新时间">
                   <span class="detail-value">{{ formatDatetime(getDetailRow(row).updated_at) }}</span>
                 </el-descriptions-item>
@@ -376,6 +377,7 @@
         </el-form-item>
 
         <el-divider v-if="form.id">子客户管理</el-divider>
+
         <div v-if="form.id" style="margin-bottom: 20px; padding: 0 40px;">
           <el-button v-if="canWrite" type="success" size="small" @click="handleAddSub">添加子客户</el-button>
           <el-table :data="form.sub_clients" border size="small" style="margin-top: 10px;">
@@ -391,6 +393,7 @@
           </el-table>
         </div>
         </AppForm>
+        <el-divider>财务</el-divider><CustomerFinancePanel :client-id="form.id" :can-write="canWrite" />
       </div>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -492,6 +495,7 @@
 </template>
 
 <script setup>
+import CustomerFinancePanel from '@/components/common/CustomerFinancePanel.vue'
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { refreshAfterSave } from '@/utils/postSaveRefresh.js'
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'

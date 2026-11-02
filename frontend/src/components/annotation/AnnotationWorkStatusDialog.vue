@@ -1,10 +1,10 @@
 <template>
-  <DraggableFormDialog :model-value="modelValue" :title="isArrangement?'项目进度':'状态汇报'" width="min(1120px, calc(100vw - 32px))" top="5vh" class="annotation-work-status-dialog" append-to-body :close-on-click-modal="false" :close-on-press-escape="!saving" :before-close="done=>{if(!saving)done()}" @update:model-value="$emit('update:modelValue',$event)">
-    <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="isArrangement?'项目进度':'状态汇报'" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
+  <DraggableFormDialog :model-value="modelValue" :title="isArrangement?'今日安排':'状态汇报'" width="min(1120px, calc(100vw - 32px))" top="5vh" class="annotation-work-status-dialog" append-to-body :close-on-click-modal="false" :close-on-press-escape="!saving" :before-close="done=>{if(!saving)done()}" @update:model-value="$emit('update:modelValue',$event)">
+    <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="isArrangement?'今日安排':'状态汇报'" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
     <div ref="body" v-loading="loading">
       <el-alert v-if="errorMessage" :title="errorMessage" type="error" :closable="false" />
       <template v-if="data.ready">
-        <p>{{data.work_date}} · {{isArrangement?'安排状态与预计还需时间会同步到状态汇报。':'显示今日曾调整为“今日进行中”的本人项目；用时填写今日累计值，同一项目的工作报告自动汇总。'}}</p>
+        <p>{{data.work_date}} · {{isArrangement?'安排状态持续保留，直到人工调整；日期变化不重置安排状态。':'在任务区选择项目或加入安排给自己的笔译任务，填写具体操作和用时；已进行任务可加入工作报告。'}}</p>
         <el-radio-group v-if="!isArrangement" v-model="slot" class="report-slot-tabs" @change="buildEntries">
           <el-radio-button v-for="value in data.available_slots||[]" :key="value" :value="value">{{workSlotLabel(value)}}</el-radio-button>
         </el-radio-group>
@@ -28,40 +28,46 @@
             </template>
             <template v-else>
               <el-row :gutter="16">
-                <el-col :xs="24" :md="12"><el-form-item label="安排状态调整" :prop="`entries.${index}.arrangement_status`" :rules="required('请选择安排状态')"><el-select v-model="row.arrangement_status" style="width:100%"><el-option value="in_progress" label="今日进行中" /><el-option value="not_today" label="今日暂不进行" /></el-select></el-form-item></el-col>
+                <el-col :xs="24" :md="12"><el-form-item label="是否今日进行" :prop="`entries.${index}.arrangement_status`" :rules="required('请选择是否今日进行')"><el-select v-model="row.arrangement_status" style="width:100%"><el-option value="in_progress" label="今日进行中" /><el-option value="not_today" label="今日暂不进行" /></el-select></el-form-item></el-col>
                 <el-col :xs="24" :md="12"><el-form-item label="预计还需时间" :prop="`entries.${index}.remaining_time`" :rules="required('请选择预计还需时间')"><el-select v-model="row.remaining_time" placeholder="请选择预计还需时间" clearable style="width:100%"><el-option v-for="option in remainingTimeOptions" :key="option.value" :value="option.value" :label="option.label" /></el-select></el-form-item></el-col>
               </el-row>
               <template v-if="!isArrangement">
                 <el-form-item label="今日目前已完成进度" :prop="`entries.${index}.progress_note`" :rules="[{required:true,whitespace:true,message:'请填写今日目前已完成进度',trigger:'blur'}]"><TextInput v-model="row.progress_note" type="textarea" :rows="4" maxlength="1800" show-word-limit placeholder="填写截至现在完成的工作与项目进度" /></el-form-item>
                 <el-form-item label="今日已耗费时间（累计）" :prop="`entries.${index}.minutes`" :rules="required('请选择今日累计用时')"><el-select v-model="row.minutes" filterable clearable placeholder="选择截至现在的今日累计用时" style="width:100%"><el-option v-for="minutes in durationOptions" :key="minutes" :value="minutes" :label="durationLabel(minutes)" :disabled="minutes<row.cumulative_minutes" /></el-select></el-form-item>
               </template>
-              <el-button :loading="savingId===row.id" :disabled="saving" type="primary" @click="saveOne(row,index)">{{isArrangement?'保存项目进度':'提交本项目汇报'}}</el-button>
+              <el-button :loading="savingId===row.id" :disabled="saving" type="primary" @click="saveOne(row,index)">{{isArrangement?'保存今日安排':'提交本项目汇报'}}</el-button>
               <p v-if="row.error" class="save-error">{{row.error}}</p>
             </template>
             <el-collapse v-if="row.submissions?.length"><el-collapse-item title="查看今日已提交汇报"><div v-for="entry in row.submissions" :key="entry.slot" class="submission-history"><strong>{{workSlotLabel(entry.slot)}} · {{durationLabel(entry.cumulative_minutes)}}（累计）</strong><p class="submitted-note">{{entry.progress_note}}</p></div></el-collapse-item></el-collapse>
           </section>
         </AppForm>
-        <el-empty v-if="!formModel.entries.length" :description="isArrangement?'未找到本人负责的项目':'暂无今日进行中的项目，请先在项目的“项目进度”中调整安排状态'" />
+        <el-empty v-if="isArrangement&&!formModel.entries.length" description="未找到本人负责的项目" />
+        <AnnotationDailyOperations v-if="!isArrangement" />
       </template>
       <el-alert v-else-if="!loading&&!errorMessage" title="状态汇报功能尚待初始化" type="info" :closable="false" />
     </div>
-    <template #footer><el-button :disabled="saving" @click="$emit('update:modelValue',false)">关闭</el-button><el-button :disabled="saving" @click="load(true)">刷新</el-button><el-button v-if="!isArrangement&&formModel.entries.some(row=>!submitted(row))" type="primary" :loading="saving" @click="saveAll">提交全部未汇报项目</el-button></template>
+    <template #footer><el-button :disabled="saving" @click="$emit('update:modelValue',false)">关闭</el-button><el-button :disabled="saving" @click="load(true)">刷新</el-button><el-button v-if="!isArrangement" type="primary" :disabled="saving" @click="editWorkReport">编辑工作报告</el-button></template>
   </DraggableFormDialog>
 </template>
 <script setup>
 import {computed,nextTick,onBeforeUnmount,reactive,ref,watch} from 'vue'
+import {useRouter} from 'vue-router'
 import {ElMessage,ElInput as TextInput} from 'element-plus'
-import {getAnnotationWorkStatus,saveAnnotationWorkArrangement,submitAnnotationWorkStatus,saveAnnotationWorkAvailability} from '@/api/projectArrangements'
+import {getAnnotationWorkStatus,saveAnnotationWorkArrangement,submitAnnotationWorkStatus,saveAnnotationWorkAvailability,getInterpretationWorkArrangement,saveInterpretationWorkArrangement} from '@/api/projectArrangements'
 import {remainingTimeOptions,workSlotLabel} from '@/utils/annotationWorkStatus'
 import {durationOptions,durationLabel} from '@/utils/workReportForm'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import {useDialogFieldSearch} from '@/composables/useDialogFieldSearch'
+import AnnotationDailyOperations from './AnnotationDailyOperations.vue'
 const props=defineProps({modelValue:Boolean,request:{type:Object,default:()=>({})}})
-defineEmits(['update:modelValue'])
+const emit=defineEmits(['update:modelValue'])
+const router=useRouter()
+function editWorkReport(){emit('update:modelValue',false);router.push({name:'WorkDashboard',query:{section:'daily-report'}});window.dispatchEvent(new CustomEvent('open-my-work-report'))}
 const body=ref(null),form=ref(null),data=ref({}),formModel=reactive({entries:[],availability:{}}),slot=ref('end_shift'),loading=ref(false),saving=ref(false),savingId=ref(''),errorMessage=ref('')
 const idleTimeOptions=[{value:'undetermined',label:'未定'},...remainingTimeOptions.slice(0,4)]
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(body)
 const isArrangement=computed(()=>props.request.mode==='arrangement')
+const isInterpretation=computed(()=>isArrangement.value&&props.request.projectType==='interpretation')
 const drafts=new Map()
 let timer,controller,requestId=0
 const required=message=>[{required:true,message,trigger:'change'}]
@@ -70,7 +76,7 @@ function buildEntries(){
   const availabilityKey=`availability:${slot.value}`
   if(!drafts.has(availabilityKey))drafts.set(availabilityKey,{is_idle:null,expected_idle_time:null,revision:0,...data.value.availability?.[slot.value]})
   formModel.availability=drafts.get(availabilityKey)
-  const candidates=(data.value.items||[]).filter(row=>isArrangement.value?row.id===props.request.projectId:!!row.entered_at)
+  const candidates=isArrangement.value?(data.value.items||[]).filter(row=>row.id===props.request.projectId):[]
   formModel.entries=candidates.map(row=>{
     const key=`${isArrangement.value?'arrangement':slot.value}:${row.id}`
     if(!drafts.has(key))drafts.set(key,{progress_note:'',minutes:null})
@@ -82,7 +88,8 @@ async function load(initial=false){
   controller?.abort();controller=new AbortController();const id=++requestId
   if(initial)loading.value=true
   try{
-    const next=await getAnnotationWorkStatus({signal:controller.signal})
+    const projectId=isArrangement.value?props.request.projectId:undefined
+    const next=isInterpretation.value?await getInterpretationWorkArrangement(projectId,{signal:controller.signal}):await getAnnotationWorkStatus({signal:controller.signal,params:projectId?{project_id:projectId}:undefined})
     if(id!==requestId)return
     const dayChanged=data.value.work_date&&data.value.work_date!==next.work_date
     if(dayChanged){drafts.clear();slot.value=next.current_slot}
@@ -98,10 +105,10 @@ async function persist(row,index){
   const values={revision:row.revision,arrangement_status:row.arrangement_status,remaining_time:row.remaining_time}
   savingId.value=row.id
   try{
-    const result=isArrangement.value?await saveAnnotationWorkArrangement(row.id,values):await submitAnnotationWorkStatus(row.id,{...values,slot:slot.value,progress_note:row.progress_note,cumulative_minutes:row.minutes})
+    const result=isArrangement.value?await (isInterpretation.value?saveInterpretationWorkArrangement:saveAnnotationWorkArrangement)(row.id,values):await submitAnnotationWorkStatus(row.id,{...values,slot:slot.value,progress_note:row.progress_note,cumulative_minutes:row.minutes})
     Object.assign(row,result,{error:''})
     const original=data.value.items.find(item=>item.id===row.id);if(original)Object.assign(original,result)
-    window.dispatchEvent(new CustomEvent('annotation-work-status-updated'))
+    window.dispatchEvent(new CustomEvent(isInterpretation.value?'interpretation-work-arrangement-updated':'annotation-work-status-updated'))
   }catch(error){row.error=error.detail||'保存失败，请刷新后重试';throw error}
   finally{savingId.value=''}
 }
@@ -116,7 +123,7 @@ async function persistIdle(){
   finally{savingId.value=''}
 }
 async function saveIdle(){if(saving.value)return;saving.value=true;try{await persistIdle();ElMessage.success('空闲状态已保存并同步到工作报告')}catch{}finally{saving.value=false}}
-async function saveOne(row,index){if(saving.value)return;saving.value=true;try{if(!isArrangement.value)await persistIdle();await persist(row,index);ElMessage.success(isArrangement.value?'项目进度已更新':'汇报已同步到项目进度与工作报告')}catch(error){if(row.error)ElMessage.error(row.error)}finally{saving.value=false}}
+async function saveOne(row,index){if(saving.value)return;saving.value=true;try{if(!isArrangement.value)await persistIdle();await persist(row,index);ElMessage.success(isArrangement.value?'今日安排已更新':'汇报已同步到项目进度与工作报告')}catch(error){if(row.error)ElMessage.error(row.error)}finally{saving.value=false}}
 async function saveAll(){
   if(saving.value)return
   try{await form.value.validate()}catch{return}

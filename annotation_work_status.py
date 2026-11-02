@@ -17,6 +17,7 @@ from task_models import DailyReport, DailyReportItem
 from task_schemas import DailyReportItemInput
 from workflow_models import ProjectWorkbenchResponsibility
 from work_report_dates import report_business_date
+from annotation_work_arrangement import latest_states
 
 SLOTS = ('11', '15', '18', '21', 'end_shift')
 REMAINING = ('under_30', '30_60', '1_2h', '2_5h', '5_10h', 'over_10h')
@@ -92,12 +93,16 @@ def project_for(db, user, project_id):
 
 def state_for(db, user, project, stamp, revision):
     day = report_business_date(stamp)
-    row = db.query(AnnotationWorkDay).filter_by(user_id=user.id, project_id=project.id, work_date=day).first()
-    if (row.revision if row else 0) != revision:
+    previous = latest_states(db, user.id, day).get(project.id)
+    row = previous if previous and previous.work_date == day else None
+    if (previous.revision if previous else 0) != revision:
         raise HTTPException(409, '项目进度已更新，请刷新后重试')
     if row is None:
         row = AnnotationWorkDay(id=uuid4(), user_id=user.id, project_id=project.id, work_date=day,
-                                arrangement_status='not_today', revision=0, updated_at=stamp)
+                                arrangement_status=previous.arrangement_status if previous else 'in_progress',
+                                remaining_time=previous.remaining_time if previous else None,
+                                entered_at=stamp if not previous or previous.arrangement_status == 'in_progress' else None,
+                                revision=previous.revision if previous else 0, updated_at=stamp)
         db.add(row)
     return row
 
@@ -109,15 +114,17 @@ def update_state(row, payload, stamp):
     row.updated_at, row.revision = stamp, row.revision + 1
 
 
-def state_data(db, row):
+def state_data(db, row, day=None):
+    day = day or report_business_date(now())
+    current = row if row and row.work_date == day else None
     submissions = db.query(AnnotationWorkSubmission).filter_by(work_day_id=row.id).order_by(
         AnnotationWorkSubmission.submitted_at, AnnotationWorkSubmission.id
-    ).all() if row else []
+    ).all() if current else []
     return api_time({
         'revision': row.revision if row else 0,
-        'arrangement_status': row.arrangement_status if row else 'not_today',
+        'arrangement_status': row.arrangement_status if row else 'in_progress',
         'remaining_time': row.remaining_time if row else None,
-        'entered_at': row.entered_at if row else None,
+        'entered_at': current.entered_at if current else (datetime.combine(day, time(hour=7), tzinfo=BUSINESS_TIMEZONE) if not row or row.arrangement_status == 'in_progress' else None),
         'cumulative_minutes': max((entry.cumulative_minutes for entry in submissions), default=0),
         'submissions': [dict(slot=entry.slot, progress_note=entry.progress_note,
                              cumulative_minutes=entry.cumulative_minutes,
@@ -125,23 +132,26 @@ def state_data(db, row):
     })
 
 
-def context(db, user):
+def context(db, user, project_id=None):
     if not ready(db):
         return {'ready': False, 'items': []}
     stamp = now()
     day = report_business_date(stamp)
-    states = {row.project_id: row for row in db.query(AnnotationWorkDay).filter_by(user_id=user.id, work_date=day)}
-    projects = manager_query(db, user).order_by(AnnotationProject.order_no.desc()).all()
+    states = latest_states(db, user.id, day)
+    query = manager_query(db, user)
+    if project_id is not None:
+        query = query.filter(AnnotationProject.id == project_id)
+    projects = query.order_by(AnnotationProject.order_no.desc()).all()
     # 今日曾经进行中的项目保留到下班汇报，切换“暂不进行”不丢失当天耗时。
     projects = [row for row in projects if row.project_status not in EXCLUDED_STATUSES or
-                (row.id in states and states[row.id].entered_at is not None)]
+                (row.id in states and states[row.id].work_date == day and states[row.id].entered_at is not None)]
     available = [slot for slot in SLOTS if slot == 'end_shift' or stamp >= slot_time(day, slot)]
     availability = db.query(AnnotationWorkAvailability).filter_by(user_id=user.id, work_date=day).all()
     return api_time({'ready': True, 'work_date': day, 'server_time': stamp, 'available_slots': available,
                     'availability': {row.slot: dict(is_idle=row.is_idle, expected_idle_time=row.expected_idle_time, revision=row.revision) for row in availability},
                     'current_slot': next((slot for slot in reversed(SLOTS[:-1]) if slot in available), 'end_shift'),
                     'items': [dict(id=str(row.id), orderNo=row.order_no, projectName=row.project_name,
-                                   projectStatus=row.project_status, **state_data(db, states.get(row.id))) for row in projects]})
+                                   projectStatus=row.project_status, **state_data(db, states.get(row.id), day)) for row in projects]})
 
 
 def slot_time(day, slot):

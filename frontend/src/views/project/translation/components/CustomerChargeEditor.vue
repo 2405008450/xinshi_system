@@ -69,7 +69,13 @@
           <span v-else>-</span>
         </template>
       </el-table-column>
-      <el-table-column label="每计价单位" width="112">
+      <el-table-column v-if="compactPriceFields" label="单价" min-width="360">
+        <template #default="{row}"><template v-if="row.pricingMode==='metric'">
+          <CustomerPriceFields v-model:amount="row.unitPriceExclTax" v-model:currency="row.currency" v-model:unit-size="row.unitSize" :metric-type="row.metricType" tax-label="不含税" @change="fillSuggestedTotals(row)" />
+          <CustomerPriceFields v-model:amount="row.unitPriceInclTax" v-model:currency="row.currency" v-model:unit-size="row.unitSize" :metric-type="row.metricType" tax-label="含税" @change="fillSuggestedTotals(row)" />
+        </template><el-select v-else v-model="row.currency" filterable allow-create default-first-option aria-label="固定收费货币"><el-option v-for="option in currencyOptions" :key="option.value" :value="option.value" :label="option.label" /></el-select></template>
+      </el-table-column>
+      <el-table-column v-if="!compactPriceFields" label="每计价单位" width="112">
         <template #default="{ row }">
           <el-input-number
             v-model="row.unitSize"
@@ -81,7 +87,7 @@
           />
         </template>
       </el-table-column>
-      <el-table-column label="不含税单价" width="120">
+      <el-table-column v-if="!compactPriceFields" label="不含税单价" width="120">
         <template #default="{ row }">
           <el-input-number
             v-model="row.unitPriceExclTax"
@@ -93,7 +99,7 @@
           />
         </template>
       </el-table-column>
-      <el-table-column label="含税单价" width="120">
+      <el-table-column v-if="!compactPriceFields" label="含税单价" width="120">
         <template #default="{ row }">
           <el-input-number
             v-model="row.unitPriceInclTax"
@@ -105,7 +111,7 @@
           />
         </template>
       </el-table-column>
-      <el-table-column label="不含税总价" width="120">
+      <el-table-column :label="compactPriceFields ? '调整后总价（不含税）' : '不含税总价'" width="120">
         <template #default="{ row }">
           <el-input-number
             v-model="row.totalExclTax"
@@ -116,7 +122,7 @@
           />
         </template>
       </el-table-column>
-      <el-table-column label="含税总价" width="120">
+      <el-table-column :label="compactPriceFields ? '调整后总价（含税）' : '含税总价'" width="120">
         <template #default="{ row }">
           <el-input-number
             v-model="row.totalInclTax"
@@ -127,12 +133,12 @@
           />
         </template>
       </el-table-column>
-      <el-table-column label="币种" width="92">
+      <el-table-column v-if="!compactPriceFields" label="币种" width="92">
         <template #default="{ row }">
           <el-input v-model="row.currency" maxlength="3" @blur="row.currency = String(row.currency || 'CNY').toUpperCase()" />
         </template>
       </el-table-column>
-      <el-table-column label="备注" min-width="150">
+      <el-table-column :label="compactPriceFields ? '说明' : '备注'" min-width="150">
         <template #default="{ row }"><el-input v-model="row.remarks" maxlength="5000" /></template>
       </el-table-column>
       <el-table-column label="操作" width="64" fixed="right">
@@ -147,9 +153,12 @@
 <script setup>
 import { computed, watch } from 'vue'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
+import CustomerPriceFields from './CustomerPriceFields.vue'
+import {settlementCurrencyOptions as currencyOptions} from '@/utils/talentSettlement'
 import { WORD_COUNT_METRICS, normalizeWordCountMatrix } from '@/utils/wordCountMatrix'
 
 const props = defineProps({
+  compactPriceFields: Boolean,
   modelValue: { type: Array, default: () => [] },
   wordCountMatrix: { type: Object, default: () => ({}) },
   entityType: { type: String, default: 'project' },

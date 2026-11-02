@@ -479,7 +479,7 @@
             <div v-for="(item, index) in form.interpreterAssignments" :key="index" class="repeat-card">
               <div class="repeat-title">译员 {{ index + 1 }}<el-button link type="danger" @click="form.interpreterAssignments.splice(index, 1)">删除</el-button></div>
               <el-row :gutter="12">
-                <el-col :xs="24" :md="12"><el-form-item label="译员"><el-select v-model="item.translatorId" filterable style="width: 100%"><el-option v-for="person in translators" :key="person.id" :label="translatorOptionLabel(person)" :value="person.id" /></el-select></el-form-item></el-col>
+                <el-col :xs="24" :md="12"><el-form-item label="译员"><el-select v-model="item.translatorId" filterable remote :remote-method="searchInterpreterTalents" :loading="interpreterTalentLoading" placeholder="从人才总库搜索姓名、资源编号" style="width: 100%" @visible-change="opened => opened && searchInterpreterTalents('')"><el-option v-for="person in translators" :key="person.id" :label="translatorOptionLabel(person)" :value="person.id" /></el-select></el-form-item></el-col>
                 <el-col :xs="24" :md="12"><el-form-item label="客户评价"><el-select v-model="item.customerRating" clearable style="width: 100%"><el-option v-for="rating in ratingOptions" :key="rating.value" :label="rating.label" :value="rating.value" /></el-select></el-form-item></el-col>
                 <el-col :xs="24"><el-form-item label="评价备注"><el-input v-model="item.evaluationNote" type="textarea" :rows="2" /></el-form-item></el-col>
               </el-row>
@@ -675,6 +675,19 @@ const tableData = ref([])
 const projectTableRef = ref(null)
 const clients = ref([])
 const translators = ref([])
+const interpreterTalentLoading = ref(false)
+let interpreterTalentSequence=0,interpreterTalentController
+const searchInterpreterTalents=async(keyword)=>{
+  const sequence=++interpreterTalentSequence
+  interpreterTalentController?.abort();interpreterTalentController=new AbortController();interpreterTalentLoading.value=true
+  try{
+    const rows=await getProjectTalentOptions('interpretation',{keyword,limit:100},{signal:interpreterTalentController.signal})
+    if(sequence!==interpreterTalentSequence)return
+    const selected=new Set(form.interpreterAssignments.map(item=>item.translatorId))
+    translators.value=[...translators.value.filter(item=>selected.has(item.id)&&!rows.some(row=>row.id===item.id)),...rows]
+  }catch(error){if(sequence===interpreterTalentSequence&&error.code!=='ERR_CANCELED')ElMessage.error('人才总库资源加载失败，请重试')}
+  finally{if(sequence===interpreterTalentSequence)interpreterTalentLoading.value=false}
+}
 const languages = ref([])
 const filterClientOptions = computed(() => clients.value.flatMap((client) => [
   { value: `client:${client.id}`, label: client.client_short_name || client.client_name },
@@ -1486,7 +1499,7 @@ watch(
     }
   }
 )
-onBeforeUnmount(() => { clearTimeout(searchTimer); clearTimeout(autoNameTimer); requestController?.abort() })
+onBeforeUnmount(() => { interpreterTalentSequence++;interpreterTalentController?.abort();clearTimeout(searchTimer); clearTimeout(autoNameTimer); requestController?.abort() })
 </script>
 
 <style scoped>

@@ -24,8 +24,16 @@ export function rowTypes(row) {
   const inferred={translation:'笔译项目',interpretation:'口译项目',annotation:'标注项目',recruitment:'招聘项目'}[type]||({TP:'笔译项目',IP:'口译项目',AP:'标注项目',RP:'招聘项目'}[order.split('-')[0]])
   return inferred?[inferred]:projectTypes.includes(row.task_type)?[row.task_type]:['非项目工作']
 }
-export function normalizeReportRow(row) {return {...row,display_metadata:{...(row.display_metadata||{}),_feedback_key:row.display_metadata?._feedback_key||row.id,report_types:rowTypes(row)},duration_minutes:Number(row.duration_minutes)||0}}
+export function normalizeReportRow(row,{editable=false}={}) {
+  const initializationLog=editable&&row.source_type==='project'&&row.display_metadata?.workflow_log_id&&String(row.progress_content||'').trim()==='Workflow initialized at reception stage.'
+  return {...row,progress_content:initializationLog?'':row.progress_content,display_metadata:{...(row.display_metadata||{}),_feedback_key:row.display_metadata?._feedback_key||row.id,report_types:rowTypes(row)},duration_minutes:Number(row.duration_minutes)||0}
+}
 export function newReportRow() {return {source_type:'manual',source_id:null,task_type:'非项目工作',task_name:'',progress_content:'',result_content:'',duration_minutes:0,display_metadata:{report_types:[]}}}
+export function mergeAnnotationOperationRows(draft,server) {
+  const rows=[...draft],keys=new Set(rows.map(row=>row.display_metadata?.personal_task_id).filter(Boolean))
+  for(const row of server){const metadata=row.display_metadata||{};if(metadata.operation_source==='annotation_daily_operation'&&metadata.personal_task_id&&!keys.has(metadata.personal_task_id)){rows.push(row);keys.add(metadata.personal_task_id)}}
+  return rows
+}
 export function requiresProjectIdentity(row) {return rowTypes(row).some(type=>type!=='非项目工作'&&!type.startsWith('非项目工作::'))}
 export function updateRowTypes(row,types) {types=[...new Set(types)];row.display_metadata.report_types=types;row.task_type=[...new Set(types.map(type=>projectTypes.includes(type)?'项目工作':type.split('::')[0]))].join('、')||'非项目工作'}
 export function appendReportRows(rows,count=1) {const n=Number(count);if(!Number.isInteger(n)||n<1||n>100)throw new Error('新增行数须为1至100的整数');rows.push(...Array.from({length:n},newReportRow))}

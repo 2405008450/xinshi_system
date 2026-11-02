@@ -48,7 +48,7 @@ class LanguageAliasWrite(BaseModel):
 
 READ_LANGUAGE_DEPENDENCY = Depends(require_any_permission(
     "projects:read", "projects:write", "consultations:read", "consultations:write",
-    "talents:read", "talents:write",
+    "talents:read", "talents:write", "clients:read", "clients:write",
 ))
 
 

@@ -1,6 +1,6 @@
-"""工作台本人项目目录：仅按当前账号的实际经理和人员安排关系读取。"""
+"""工作台本人项目目录：按各模块约定的岗位、部门和人员安排范围读取。"""
 from fastapi import HTTPException
-from sqlalchemy import case, exists, func, or_, select
+from sqlalchemy import and_, case, exists, false, func, or_, select
 from sqlalchemy.orm import joinedload
 
 from models import Client, SubClient, Consultation, TranslationProject
@@ -19,6 +19,29 @@ LABELS = {'translation': '笔译项目', 'interpretation': '口译项目', 'anno
           'recruitment': '招聘项目', 'assigned_translation': '被安排笔译类项目'}
 
 
+def interpretation_task_filter(db, user):
+    """口译任务范围：指定账号看全部，其余口译项目部成员仅看本人客户经理项目。"""
+    from department_models import Department, DepartmentMember
+    model = InterpretationProject
+    active_status = or_(model.project_status.is_(None), model.project_status.notin_(
+        ('cancelled', 'settled', '取消', '已取消', '已结款')))
+    if (user.username or '').strip().casefold() in {'kuangjiao', 'zixia'}:
+        return active_status
+    member = user.department == '口译项目部' or db.query(DepartmentMember.user_id).join(
+        Department, Department.id == DepartmentMember.department_id).filter(
+            DepartmentMember.user_id == user.id, Department.name == '口译项目部').first() is not None
+    if not member:
+        return false()
+    change = ProjectClientManagerChange
+    latest = select(change.new_manager_id).where(change.project_type == 'interpretation',
+        change.project_id == model.id).order_by(change.revision.desc()).limit(1).correlate(model).scalar_subquery()
+    changed = exists().where(change.project_type == 'interpretation', change.project_id == model.id)
+    legacy = case((model.sub_client_id.is_not(None), SubClient.client_manager), else_=Client.client_manager)
+    names = [value.strip().casefold() for value in [user.username, user.full_name] if value and value.strip()]
+    current_manager = case((changed, latest == user.id), else_=func.lower(func.trim(legacy)).in_(names))
+    return and_(active_status, current_manager)
+
+
 def search(db, user, group, keyword='', page=1, page_size=10):
     if group not in MODELS:
         raise HTTPException(422, '请选择有效项目分类')
@@ -26,7 +49,9 @@ def search(db, user, group, keyword='', page=1, page_size=10):
     query = db.query(model).outerjoin(Client, model.client_id == Client.id).outerjoin(
         SubClient, model.sub_client_id == SubClient.id).outerjoin(Consultation, model.consultation_id == Consultation.id)
     query = query.options(joinedload(model.client), joinedload(model.sub_client))
-    if group == 'assigned_translation':
+    if group == 'interpretation':
+        own = interpretation_task_filter(db, user)
+    elif group == 'assigned_translation':
         if not ready(db):
             return {'items': [], 'total': 0, 'ready': False}
         own = exists().where(ProjectArrangement.project_id == model.id, ProjectArrangement.assignee_id == user.id)

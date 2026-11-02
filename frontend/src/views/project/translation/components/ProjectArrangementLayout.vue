@@ -2,7 +2,7 @@
   <div v-if="enabled" ref="layoutRef" class="project-arrangement-layout" :class="{'is-resizing':resizing}" :style="layoutStyle">
     <slot name="personnel"><ArrangementPersonnel department-visibility :model-value="modelValue" :disabled="!canWrite" @update:model-value="$emit('update:modelValue',$event)" /></slot>
     <div class="arrangement-splitter" role="separator" tabindex="0" aria-label="调整人员区与项目区宽度" aria-orientation="vertical" :aria-valuenow="Math.round(effectiveRatio*100)" :aria-valuemin="Math.round(bounds.min*100)" :aria-valuemax="Math.round(bounds.max*100)" title="拖动调整左右宽度，双击恢复默认" @pointerdown="startResize" @keydown="resizeByKeyboard" @dblclick="resetRatio"><span /></div>
-    <div class="project-arrangement-main"><slot /></div>
+    <div class="project-arrangement-main" role="region" aria-label="项目安排列表" tabindex="0"><slot /></div>
   </div>
   <slot v-else />
 </template>
@@ -52,5 +52,6 @@ watch(layoutRef,element=>{stopDrag?.();observer?.disconnect();if(!element)return
 onBeforeUnmount(()=>{stopDrag?.();observer?.disconnect()})
 </script>
 <style scoped>
+.project-arrangement-main{max-height:75vh;overflow-y:auto;overscroll-behavior-y:contain;scrollbar-gutter:stable;padding-right:4px;box-sizing:border-box}
 .project-arrangement-layout{display:grid;grid-template-columns:minmax(180px,var(--arrangement-left-width,16.6667%)) 12px minmax(0,1fr);gap:8px;align-items:start}.project-arrangement-main{min-width:0}.arrangement-splitter{align-self:stretch;min-height:240px;display:flex;align-items:center;justify-content:center;cursor:col-resize;touch-action:none;border-radius:6px;background:#f1f5f9;outline-offset:2px}.arrangement-splitter span{width:3px;height:42px;border-radius:3px;background:#94a3b8}.arrangement-splitter:hover,.arrangement-splitter:focus-visible,.is-resizing .arrangement-splitter{background:#dbeafe}.arrangement-splitter:focus-visible{outline:2px solid #409eff}.is-resizing{user-select:none}@media(max-width:960px){.project-arrangement-layout{grid-template-columns:1fr;gap:16px}.arrangement-splitter{display:none}.project-arrangement-layout :deep(.arrangement-personnel){max-height:300px}}
 </style>

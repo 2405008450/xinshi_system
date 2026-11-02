@@ -195,7 +195,7 @@ const TodayTasks = defineAsyncComponent(() => import('./components/TodayTasks.vu
 const MyProjectTaskGroup = defineAsyncComponent(() => import('./components/MyProjectTaskGroup.vue'))
 const MyThoughts = defineAsyncComponent(() => import('./components/MyThoughts.vue'))
 const personalSections=ref(['projects','non-project','thoughts']),projectGroupsExpanded=ref(['translation']),projectGroupCounts=ref({})
-const personalProjectGroups=[{key:'translation',label:'笔译项目'},{key:'interpretation',label:'口译项目'},{key:'annotation',label:'标注项目'},{key:'recruitment',label:'招聘项目'},{key:'assigned_translation',label:'被安排笔译类项目'}]
+const personalProjectGroups=[{key:'translation',label:'笔译项目'},{key:'interpretation',label:'口译项目'},{key:'annotation',label:'标注项目'},{key:'recruitment',label:'招聘项目'}]
 const DailyReportPanel = defineAsyncComponent(() => import('./components/DailyReportPanel.vue'))
 const ReceivedWorkReports = defineAsyncComponent(() => import('./components/ReceivedWorkReports.vue'))
 const canReceiveReports=ref(false)
@@ -231,7 +231,10 @@ function readInitialMainTab() {
 }
 
 const activeSection = ref(readInitialMainTab())
-watch(()=>attendanceRoute.query.section,value=>{if(value==='attendance')activeSection.value='monthly-shift'},{immediate:true})
+watch(()=>attendanceRoute.query.section,value=>{if(value==='attendance')activeSection.value='monthly-shift';if(value==='daily-report')activeSection.value='daily-report'},{immediate:true})
+function openMyWorkReport(){activeSection.value='daily-report';dailyReportDate.value=reportBusinessDate()}
+onMounted(()=>window.addEventListener('open-my-work-report',openMyWorkReport))
+onBeforeUnmount(()=>window.removeEventListener('open-my-work-report',openMyWorkReport))
 const dailyReportStatus = ref(null)
 const canManageProjectOwnership = computed(() => hasRole('项目经理') || isSuperAdmin())
 const canOperateWorkflow = computed(() => hasPermission(['projects:read', 'workflow:operate']))

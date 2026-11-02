@@ -1,11 +1,13 @@
 <template>
   <section class="today-tasks">
-    <div class="today-header"><h3>{{review?'查看任务':'今日任务'}}</h3><div><el-button v-if="!review" type="primary" @click="openPersonal()">自行填写任务</el-button><el-button :loading="loading" @click="query">刷新</el-button></div></div>
-    <ArrangementDateFilter v-model="dateRange" />
+    <div class="today-header"><h3>{{review?'查看任务':'今日任务'}}</h3><el-button :loading="loading" @click="query">刷新</el-button></div>
     <div v-if="review" class="task-filters">
       <el-select v-model="departmentId" clearable filterable placeholder="按部门筛选" @change="query"><el-option v-for="d in directory.departments" :key="d.id" :value="d.id" :label="d.name" /></el-select>
       <el-select v-model="personId" clearable filterable placeholder="按人员筛选" @change="query"><el-option v-for="p in filteredPeople" :key="p.id" :value="p.id" :label="`${p.name}（${p.username}）`" /></el-select>
     </div>
+    <section class="translation-tasks" aria-label="笔译项目">
+    <div class="project-section-header"><h4>笔译项目</h4><el-button v-if="!review" type="primary" @click="openPersonal()">自行填写笔译项目任务</el-button></div>
+    <ArrangementDateFilter v-model="dateRange" />
     <el-alert v-if="!ready" title="项目安排任务尚待数据库初始化" type="info" :closable="false" />
     <p class="task-hint">{{dateRange?'按安排日期查看历史任务，含已完成任务。':'显示所选日期任务及此前未完成任务；也可自行填写。'}}用时与工作报告保持一致。</p>
     <el-table :data="rows" v-loading="loading" border row-key="id">
@@ -24,6 +26,7 @@
       <el-table-column v-if="!review" label="编辑" width="95" fixed="right"><template #default="{row}"><el-button v-if="row.source==='personal'&&row.status!=='completed'" type="primary" link @click="openPersonal(row)">编辑任务</el-button><span v-else>-</span></template></el-table-column>
     </el-table>
     <el-pagination v-model:current-page="page" :total="total" :page-size="10" layout="total, prev, pager, next" @current-change="load" />
+    </section>
     <AnnotationManagedTasks v-if="!review" ref="annotationTasks" :day="day" />
     <DraggableFormDialog v-model="personalVisible" :title="personalTarget?'编辑自主任务':'自行填写今日任务'" width="min(1440px, calc(100vw - 32px))" top="5vh" class="task-report-dialog" append-to-body :close-on-click-modal="false" :before-close="done=>{if(!saving)done()}">
       <template #header><DialogFieldSearchHeader ref="personalFieldSearchRef" v-model="personalFieldSearchKeyword" :title="personalTarget?'编辑自主任务':'自行填写今日任务'" :fetch-suggestions="fetchPersonalFieldSuggestions" @select="locatePersonalField" @clear="clearPersonalFieldSearch" /></template>
@@ -86,7 +89,7 @@ onBeforeUnmount(()=>{controller?.abort();requestId++;window.removeEventListener(
 <style scoped>
 .common-instruction-preview{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
 
-.today-tasks{padding:14px;border:1px solid #dbe3ec;border-radius:8px;margin-bottom:16px}.today-header{display:flex;justify-content:space-between;align-items:center}.today-header h3{margin:0}.task-filters{display:flex;gap:12px;margin:12px 0}.task-filters .el-select{max-width:240px}.task-hint{font-size:12px;color:#64748b}.el-pagination{margin-top:12px;justify-content:flex-end;overflow-x:auto}
+.today-tasks{padding:14px;border:1px solid #dbe3ec;border-radius:8px;margin-bottom:16px}.today-header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.today-header h3{margin:0;font-size:18px;font-weight:700;line-height:1.5}.translation-tasks{margin-top:16px;padding-top:12px;border-top:1px solid var(--el-border-color-lighter)}.project-section-header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.project-section-header h4{margin:0;font-size:15px;font-weight:600;line-height:1.5}.task-filters{display:flex;gap:12px;margin:12px 0}.task-filters .el-select{max-width:240px}.task-hint{font-size:12px;color:#64748b}.el-pagination{margin-top:12px;justify-content:flex-end;overflow-x:auto}
 </style>
 <style>
 .task-common-instruction-popover{max-width:calc(100vw - 32px)!important}.task-common-instruction-content{white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow-y:auto}
