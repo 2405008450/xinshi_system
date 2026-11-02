@@ -70,3 +70,20 @@ test('响应丢失后的重试不换标识；异常响应和权限错误不伪�
   await assert.rejects(saveEntryRow({ save: async () => { throw new Error('权限不足') } }, row, options), /权限不足/)
   assert.equal(row.id, id)
 })
+
+test('旧草稿更换标识后请求超时，重试沿用新标识和明细标识', async () => {
+  const options = { user_id: 'u' }
+  const row = newEntryRow(options, { full_name: '新资源', _statuses: { wechat: '一次请求' } })
+  const calls = []
+  const api = { save: async payload => {
+    calls.push(payload)
+    if (calls.length === 1) throw Object.assign(new Error('冲突'), { rawDetail: { code: 'creation_id_conflict' } })
+    if (calls.length === 2) throw new Error('请求超时')
+    return { ...payload, revision: 1 }
+  } }
+  await assert.rejects(saveEntryRow(api, row, options), /请求超时/)
+  await saveEntryRow(api, row, options)
+  assert.notEqual(calls[0].id, calls[1].id)
+  assert.equal(calls[1].id, calls[2].id)
+  assert.equal(calls[1].actions[0].id, calls[2].actions[0].id)
+})
