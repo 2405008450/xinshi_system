@@ -3,7 +3,7 @@
     <template #header>
       <div class="card-header">
         <div>
-          <span>客户信息</span>
+          <span>客户管理</span>
           <small class="header-hint">母客户与子客户统一管理</small>
         </div>
         <div class="header-actions">
@@ -272,6 +272,8 @@
         />
       </template>
       <div ref="clientEditorBodyRef">
+        <el-tabs v-model="clientActiveTab" class="client-editor-tabs">
+        <el-tab-pane label="基本信息" name="basic">
         <AppForm
           ref="formRef"
           :model="form"
@@ -393,7 +395,20 @@
           </el-table>
         </div>
         </AppForm>
-        <el-divider>财务</el-divider><CustomerFinancePanel :client-id="form.id" :can-write="canWrite" />
+        </el-tab-pane>
+        <el-tab-pane label="财务信息" name="finance">
+          <CustomerFinancePanel v-if="clientActiveTab === 'finance'" :key="form.id || 'new'" :client-id="form.id" :can-write="canWrite" />
+        </el-tab-pane>
+        <el-tab-pane label="合作信息" name="cooperation">
+          <div data-dialog-field-search-label="合作信息" class="cooperation-editor">
+            <label for="client-cooperation-info">合作信息</label>
+            <el-input id="client-cooperation-info" v-model="form.cooperation_info" type="textarea" :rows="14" placeholder="请输入客户合作信息" />
+          </div>
+        </el-tab-pane>
+        <el-tab-pane label="合作项目" name="projects">
+          <CustomerCooperationProjects v-if="clientActiveTab === 'projects'" :client-id="form.id" />
+        </el-tab-pane>
+        </el-tabs>
       </div>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -495,6 +510,7 @@
 </template>
 
 <script setup>
+import CustomerCooperationProjects from '@/components/common/CustomerCooperationProjects.vue'
 import CustomerFinancePanel from '@/components/common/CustomerFinancePanel.vue'
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { refreshAfterSave } from '@/utils/postSaveRefresh.js'
@@ -522,6 +538,7 @@ const loading = ref(false)
 const canWrite = hasPermission('clients:write')
 const submitLoading = ref(false)
 const dialogVisible = ref(false)
+const clientActiveTab = ref('basic')
 const dialogTitle = ref('新增客户')
 const formRef = ref(null)
 const clientEditorBodyRef = ref(null)
@@ -644,6 +661,7 @@ const defaultClientForm = () => ({
   client_status: 'pending',
   cooperation_start_date: '',
   remarks: '',
+  cooperation_info: '',
   sub_clients: [],
   updated_at: null,
 })
@@ -864,6 +882,7 @@ const handleEdit = async (row) => {
     client_status: row.client_status || 'pending',
     cooperation_start_date: row.cooperation_start_date || '',
     remarks: row.remarks || '',
+    cooperation_info: row.cooperation_info || '',
     sub_clients: row.sub_clients || [],
     updated_at: row.updated_at || null,
   })
@@ -911,6 +930,7 @@ const handleSubmit = async () => {
 }
 
 const resetForm = () => {
+  clientActiveTab.value = 'basic'
   clearClientFieldSearch()
   formRef.value?.resetFields()
   Object.assign(form, defaultClientForm())
@@ -1038,6 +1058,9 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.cooperation-editor label { display: block; margin-bottom: 12px; color: var(--el-text-color-regular); }
+.client-editor-tabs > :deep(.el-tabs__header) { position: sticky; top: -20px; z-index: 2; padding-top: 4px; background: var(--el-bg-color); }
+
 .card-header {
   display: flex;
   justify-content: space-between;

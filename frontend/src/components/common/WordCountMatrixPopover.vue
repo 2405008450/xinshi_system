@@ -128,6 +128,7 @@ function normalizeResponse(data = {}) {
     entity_id: data.entity_id || props.entityId,
     company: normalizeWordCountValues(data.company),
     customer: normalizeWordCountValues(data.customer),
+    preliminary: normalizeWordCountValues(data.preliminary),
     translator_estimate: normalizeWordCountValues(data.translator_estimate || data.translatorEstimate),
     translators: (data.translators || []).map((item) => ({
       ...item,
@@ -150,8 +151,9 @@ function normalizeLocalTranslators(items = []) {
 const rows = computed(() => {
   if (!draft.value) return []
   const result = [
-    { key: 'entity-company', scope: 'entity', dimension: 'company', label: '我司字数', values: draft.value.company },
-    { key: 'entity-customer', scope: 'entity', dimension: 'customer', label: '客户字数', values: draft.value.customer },
+    { key: 'entity-company', scope: 'entity', dimension: 'company', label: '我司统计', values: draft.value.company },
+    { key: 'entity-customer', scope: 'entity', dimension: 'customer', label: '客户统计', values: draft.value.customer },
+    { key: 'entity-preliminary', scope: 'entity', dimension: 'preliminary', label: '预统计', hint: '不用以计算费用', values: draft.value.preliminary },
     { key: 'entity-estimate', scope: 'entity', dimension: 'translator_estimate', label: '译员预定（项目预估）', hint: '尚未分配具体译员时使用', values: draft.value.translator_estimate }
   ]
   draft.value.translators.forEach((translator) => {
@@ -222,6 +224,7 @@ function buildChanges() {
     const result = [
       { key: 'entity-company', scope: 'entity', dimension: 'company', values: matrix.company },
       { key: 'entity-customer', scope: 'entity', dimension: 'customer', values: matrix.customer },
+      { key: 'entity-preliminary', scope: 'entity', dimension: 'preliminary', values: matrix.preliminary },
       { key: 'entity-estimate', scope: 'entity', dimension: 'translator_estimate', values: matrix.translator_estimate }
     ]
     matrix.translators.forEach((item) => {
@@ -272,6 +275,7 @@ async function saveMatrix() {
       emit('update:modelValue', {
         company: clone(saved.company),
         customer: clone(saved.customer),
+        preliminary: clone(saved.preliminary),
         translatorEstimate: clone(saved.translator_estimate)
       })
       emit('update:translators', props.translators.map((item) => {
@@ -302,6 +306,7 @@ async function saveMatrix() {
     emit('update:modelValue', {
       company: saved.company,
       customer: saved.customer,
+      preliminary: saved.preliminary,
       translatorEstimate: saved.translator_estimate
     })
     emit('saved', saved)

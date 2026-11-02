@@ -108,7 +108,7 @@ def test_export_workbook_contains_complete_typed_project_and_sub_order_data():
     sub_headers, sub_row = row_by_headers(workbook["子订单"])
     charge_headers, charge_row = row_by_headers(workbook["子订单客户收费"])
 
-    assert sum(header.startswith(("我司-", "客户-", "译员预估-")) for header in project_headers) == 18
+    assert sum(header.startswith(("我司统计-", "客户统计-", "预统计（不用以计算费用）-", "译员预估-")) for header in project_headers) == 24
     assert project_row["订单号"] == "TP-260901-001"
     assert project_headers[:2] == ["订单号", "项目名称"]
     assert project_row["项目名称"] == "合同原文.docx"
@@ -122,8 +122,8 @@ def test_export_workbook_contains_complete_typed_project_and_sub_order_data():
     assert project_row["项目专员"] == "李四"
     assert project_row["项目助理"] == "角色池"
     assert project_row["状态"] == "已确认"
-    assert project_row["我司-字数"] == 1000
-    assert project_row["客户-页数"] == 8
+    assert project_row["我司统计-字数"] == 1000
+    assert project_row["客户统计-页数"] == 8
     assert isinstance(project_row["客户接单时间"], datetime)
     assert project_row["译员交付进度"] == 0.5
     assert project_row["已分配译员"] == "张三（正文）"
@@ -134,7 +134,7 @@ def test_export_workbook_contains_complete_typed_project_and_sub_order_data():
     assert sub_row["项目名称"] == "合同原文.docx"
     assert sub_row["子订单文件名称"] == "子稿一.docx"
     assert sub_row["子订单号"] == "TP-260901-001.001"
-    assert sub_row["我司-字数"] == 500
+    assert sub_row["我司统计-字数"] == 500
     assert sub_row["译员交付进度"] == 0.25
     assert charge_row["子订单号"] == "TP-260901-001.001"
     assert charge_row["客户字数口径"] == "字数"

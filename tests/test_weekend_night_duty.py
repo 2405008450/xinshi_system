@@ -85,12 +85,12 @@ def test_real_continuation_clock_and_no_home_quota_application(environment,monke
     first=clock.check_in(db,person,request,clock.CheckInWrite(segment=0,breakfast_notice_accepted=True))['record']
     assert not first['shift']['home_office_day']
     moment('18:00')
-    clock.check_out(db,person,request,clock.CheckOutWrite(record_id=first['id'],early_work_confirmed=False,breakfast_after_eating=True))
+    clock.check_out(db,person,request,clock.CheckOutWrite(record_id=first['id'],early_work_confirmed=False,breakfast_after_eating=True,dinner_eaten=False))
     moment('19:00')
     second=clock.check_in(db,person,request,clock.CheckInWrite(segment=1,breakfast_notice_accepted=True))['record']
     assert second['shift']['periods']==['19:00–23:00'] and second['shift']['home_office_day']
     moment('23:00')
-    finished=clock.check_out(db,person,request,clock.CheckOutWrite(record_id=second['id'],early_work_confirmed=False,breakfast_after_eating=True,deduct_invalid_time=True,invalid_minutes=20,invalid_reason='中途处理私事'))['record']
+    finished=clock.check_out(db,person,request,clock.CheckOutWrite(record_id=second['id'],early_work_confirmed=False,breakfast_after_eating=True,dinner_eaten=False,deduct_invalid_time=True,invalid_minutes=20,invalid_reason='中途处理私事'))['record']
     assert finished['invalid_deduction_minutes']==20
     assert db.query(HomeOfficeApplication).count()==0
     assert not clock.today_status(db,person)['can_check_in']

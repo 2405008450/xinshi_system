@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, model_validator
 
 MetricType = Literal["words", "characters_no_spaces", "cjk_chars_korean_words", "foreign_words", "documents", "pages"]
 EntityType = Literal["project", "suborder"]
-EntityDimension = Literal["company", "customer", "translator_estimate"]
+EntityDimension = Literal["company", "customer", "preliminary", "translator_estimate"]
 ArrangementDimension = Literal["planned", "actual"]
 
 
@@ -25,6 +25,7 @@ class WordCountValues(BaseModel):
 class WordCountCreateMatrix(BaseModel):
     company: WordCountValues = Field(default_factory=WordCountValues)
     customer: WordCountValues = Field(default_factory=WordCountValues)
+    preliminary: WordCountValues = Field(default_factory=WordCountValues)
     translator_estimate: WordCountValues = Field(default_factory=WordCountValues)
 
 
@@ -43,6 +44,7 @@ class WordCountMatrixResponse(BaseModel):
     entity_id: UUID
     company: WordCountValues = Field(default_factory=WordCountValues)
     customer: WordCountValues = Field(default_factory=WordCountValues)
+    preliminary: WordCountValues = Field(default_factory=WordCountValues)
     translator_estimate: WordCountValues = Field(default_factory=WordCountValues)
     translators: list[TranslatorWordCountRow] = Field(default_factory=list)
     source: Literal["project", "suborder", "suborder_aggregate"] = "project"
@@ -59,7 +61,7 @@ class WordCountCellChange(BaseModel):
     @model_validator(mode="after")
     def validate_scope(self):
         if self.scope == "entity":
-            if self.dimension not in {"company", "customer", "translator_estimate"}:
+            if self.dimension not in {"company", "customer", "preliminary", "translator_estimate"}:
                 raise ValueError("项目级字数维度无效")
             if self.arrangement_id is not None:
                 raise ValueError("项目级字数不能指定译员安排")

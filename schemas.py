@@ -211,6 +211,7 @@ class ClientBase(BaseModel):
     client_status: Optional[str] = "pending"
     cooperation_start_date: Optional[datetime] = None
     remarks: Optional[str] = None
+    cooperation_info: Optional[str] = None
 
 class ClientCreate(ClientBase):
     pass
@@ -232,6 +233,7 @@ class ClientUpdate(BaseModel):
     client_status: Optional[str] = None
     cooperation_start_date: Optional[datetime] = None
     remarks: Optional[str] = None
+    cooperation_info: Optional[str] = None
     expected_updated_at: Optional[datetime] = None
 
 class ClientResponse(ClientBase):
@@ -811,6 +813,16 @@ class TranslationProjectBase(BaseModel):
 class TranslationProjectCreate(TranslationProjectBase):
     created_by: Optional[UUID] = None
     role_assignments: list[ProjectRoleAssignmentInput] = Field(default_factory=list)
+    initial_sub_order_names: list[str] = Field(default_factory=list, max_length=100)
+
+    @field_validator('initial_sub_order_names')
+    @classmethod
+    def validate_initial_sub_order_names(cls, values):
+        from translation_file_name_rules import normalize_single_file_name
+        names = [normalize_single_file_name(value) for value in values]
+        if len({name.casefold() for name in names}) != len(names):
+            raise ValueError('子订单文件名称不能重复')
+        return names
 
     @field_validator('quotation_path', 'network_file_path', 'reference_file_path_one')
     @classmethod

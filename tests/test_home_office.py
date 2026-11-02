@@ -111,8 +111,8 @@ def test_ordinary_home_day_checkout_requires_statement_and_invalid_time(office,m
     record=attendance_clock.check_in(db,person,request(),attendance_clock.CheckInWrite(breakfast_notice_accepted=True))['record']
     assert record['shift']['home_office_day'] and record['shift']['code']=='early'
     monkeypatch.setattr(attendance_clock,'now',lambda:at('2026-10-28T19:30'))
-    with pytest.raises(HTTPException):attendance_clock.check_out(db,person,request(),attendance_clock.CheckOutWrite(record_id=record['id'],early_work_confirmed=True,breakfast_after_eating=True))
-    result=attendance_clock.check_out(db,person,request(),attendance_clock.CheckOutWrite(record_id=record['id'],early_work_confirmed=True,breakfast_after_eating=True,deduct_invalid_time=True,invalid_minutes=15,invalid_reason='处理私人事务'))
+    with pytest.raises(HTTPException):attendance_clock.check_out(db,person,request(),attendance_clock.CheckOutWrite(record_id=record['id'],early_work_confirmed=True,breakfast_after_eating=True,dinner_eaten=False))
+    result=attendance_clock.check_out(db,person,request(),attendance_clock.CheckOutWrite(record_id=record['id'],early_work_confirmed=True,breakfast_after_eating=True,dinner_eaten=False,deduct_invalid_time=True,invalid_minutes=15,invalid_reason='处理私人事务'))
     assert result['record']['invalid_deduction_minutes']==15 and result['record']['overtime_minutes']==105
 
 
@@ -143,7 +143,7 @@ def test_company_home_overtime_no_qualification_application_or_quota_consumption
     record=attendance_clock.check_in(db,person,request(),attendance_clock.CheckInWrite(breakfast_notice_accepted=True,work_mode='company_home_overtime'))['record']
     assert record['shift']['overtime_only'] and record['segment']==2
     monkeypatch.setattr(attendance_clock,'now',lambda:at('2026-10-31T11:00'))
-    result=attendance_clock.check_out(db,person,request(),attendance_clock.CheckOutWrite(record_id=record['id'],breakfast_after_eating=True,deduct_invalid_time=True,invalid_minutes=15,invalid_reason='个人事务'))
+    result=attendance_clock.check_out(db,person,request(),attendance_clock.CheckOutWrite(record_id=record['id'],breakfast_after_eating=True,dinner_eaten=False,deduct_invalid_time=True,invalid_minutes=15,invalid_reason='个人事务'))
     assert result['record']['overtime_minutes']==105
     assert db.query(service.Application).count()==0
     assert service.quota(db,person,date(2026,10,31))==before
@@ -159,11 +159,11 @@ def test_company_overtime_never_overlaps_open_normal_shift(office,monkeypatch):
     record=attendance_clock.check_in(db,person,request(),attendance_clock.CheckInWrite(breakfast_notice_accepted=True))['record']
     with pytest.raises(HTTPException):attendance_clock.check_in(db,person,request(),attendance_clock.CheckInWrite(breakfast_notice_accepted=True,work_mode='company_home_overtime'))
     monkeypatch.setattr(attendance_clock,'now',lambda:at('2026-10-28T18:30'))
-    attendance_clock.check_out(db,person,request(),attendance_clock.CheckOutWrite(record_id=record['id'],early_work_confirmed=True,breakfast_after_eating=True))
+    attendance_clock.check_out(db,person,request(),attendance_clock.CheckOutWrite(record_id=record['id'],early_work_confirmed=True,breakfast_after_eating=True,dinner_eaten=False))
     assert attendance_clock.today_status(db,person)['can_home_overtime_check_in']
     overtime=attendance_clock.check_in(db,person,request(),attendance_clock.CheckInWrite(breakfast_notice_accepted=True,work_mode='company_home_overtime'))['record']
     monkeypatch.setattr(attendance_clock,'now',lambda:at('2026-10-28T20:00'))
-    attendance_clock.check_out(db,person,request(),attendance_clock.CheckOutWrite(record_id=overtime['id'],breakfast_after_eating=True,deduct_invalid_time=False))
+    attendance_clock.check_out(db,person,request(),attendance_clock.CheckOutWrite(record_id=overtime['id'],breakfast_after_eating=True,dinner_eaten=False,deduct_invalid_time=False))
     import attendance_service
     report=attendance_service.attendance_report(db,person,date(2026,10,28),'month')
     assert report['records'][0]['shift']['code']=='early' and report['totals']['overtime_minutes']==90

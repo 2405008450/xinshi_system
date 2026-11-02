@@ -39,6 +39,9 @@ class CheckOutWrite(BaseModel):
 
 
 def ready(db):return inspect(db.connection()).has_table(Clock.__tablename__)
+def dinner_confirmation_required(day,moment):
+    import attendance_service as service
+    return service.stamp(moment)>service.midnight(day)+timedelta(hours=18,minutes=50)
 def require_ready(db):
     if not ready(db):raise HTTPException(503,'分段打卡表尚未初始化')
 def lock(db,user):
@@ -109,17 +112,17 @@ def serialize(row,leaves=()):
         late=minutes(max(left,periods[-1][1]),right) if periods else 0
         breakfast=0 if row.confirmations.get('breakfast_after_eating') else 15
         remote=row.shift_snapshot.get('code')=='customer_remote' or bool(row.shift_snapshot.get('home_rotation'))
-        dinner=20 if not remote and not row.shift_snapshot.get('dinner_already_deducted') and (row.shift_snapshot.get('fixed') or (row.shift_snapshot.get('code') in ('late','late_late') and row.confirmations.get('dinner_eaten'))) else 0
+        dinner=20 if dinner_confirmation_required(row.day,right) and not row.shift_snapshot.get('dinner_already_deducted') and row.confirmations.get('dinner_eaten') is True else 0
         invalid=row.confirmations.get('invalid_minutes',0) if remote or row.shift_snapshot.get('home_office_day') else 0
         raw=minutes(left,right) if row.shift_snapshot.get('overtime_only') else round(early_count+late,2);net=round(raw-breakfast-dinner-invalid,2)
         details=[{'reason':'提前到达并实际工作' if early_count else '提前到达未工作，不计加班','minutes':early_count,'kind':'credit'},
                  {'reason':'班次结束后工作','minutes':late,'kind':'credit'}]
         if row.shift_snapshot.get('overtime_only'):details=[{'reason':'公司要求居家加班的实际工作时间','minutes':raw,'kind':'credit'}]
         if breakfast:details.append({'reason':'早餐前打卡，早餐抵扣并记违纪一次','minutes':breakfast,'kind':'deduction'})
-        if dinner:details.append({'reason':'固定班次晚餐' if row.shift_snapshot.get('fixed') else '已进食晚餐','minutes':dinner,'kind':'deduction'})
+        if dinner:details.append({'reason':'本人确认已进食晚餐','minutes':dinner,'kind':'deduction'})
         if invalid:details.append({'reason':row.confirmations.get('invalid_reason','无效工作时间'),'minutes':invalid,'kind':'deduction'})
         result.update(early_overtime_minutes=early_count,raw_overtime_minutes=raw,breakfast_deduction_minutes=breakfast,dinner_deduction_minutes=dinner,invalid_deduction_minutes=invalid,violation_count=int(breakfast>0),overtime_minutes=net,overtime_net_minutes=net,deduction_details=details)
-    return api_time({'id':str(row.id),'user_id':str(row.user_id),'day':row.day.isoformat(),'segment':row.segment,'check_in':row.check_in,'check_out':row.check_out,'shift':row.shift_snapshot,'confirmations':row.confirmations,**result})
+    return api_time({'id':str(row.id),'user_id':str(row.user_id),'day':row.day.isoformat(),'segment':row.segment,'check_in':row.check_in,'check_out':row.check_out,'shift':row.shift_snapshot,'confirmations':row.confirmations,'requires_dinner_confirmation':bool(not row.check_out and dinner_confirmation_required(row.day,now())),**result})
 
 
 def check_in(db,user,request,payload):
@@ -184,8 +187,7 @@ def validate_checkout(db,user,row,payload,moment):
     at_home=remote or bool(row.shift_snapshot.get('home_office_day')) or bool(home_office_day(db,user,row.day).get('home_office_day'))
     if at_home and payload.deduct_invalid_time is None:raise HTTPException(422,'请选择是否扣除无效时间')
     if not at_home and payload.deduct_invalid_time is not None:raise HTTPException(422,'本班次无需填写居家无效时间')
-    if not remote and row.shift_snapshot.get('code') in ('late','late_late') and payload.dinner_eaten is None:raise HTTPException(422,'请选择有无进食晚餐')
-    if remote and payload.dinner_eaten is not None:raise HTTPException(422,'居家晚班无需晚餐确认')
+    if dinner_confirmation_required(row.day,moment) and payload.dinner_eaten is None:raise HTTPException(422,'签退已超过考勤日18:50，请确认有无进食晚餐')
     if payload.invalid_minutes>(moment-service.stamp(row.check_in)).total_seconds()/60:raise HTTPException(422,'扣除时间不能超过本段已打卡时长')
     return at_home
 
@@ -284,7 +286,7 @@ def check_in_home_overtime(db,user,rows,moment):
     pending=db.query(Clock).filter(Clock.user_id==user.id,Clock.day<moment.date(),Clock.check_out.is_(None)).first()
     pending=pending or db.query(AttendanceDay).filter(AttendanceDay.user_id==user.id,AttendanceDay.day==moment.date()-timedelta(days=1),AttendanceDay.check_out.is_(None)).first()
     if pending:raise HTTPException(409,'请先完成此前未签退的记录')
-    shift={'code':'company_home_overtime','label':'公司要求居家加班','periods':[],'full_periods':[],'overtime_only':True,'home_office_day':True,'clock_policy':'manual-v1','segment':2,'fixed':False}
+    shift={'code':'company_home_overtime','label':'公司要求居家加班','periods':[],'full_periods':[],'overtime_only':True,'home_office_day':True,'clock_policy':'manual-v1','segment':2,'fixed':False,'dinner_already_deducted':any(serialize(row).get('dinner_deduction_minutes',0)>0 for row in rows if row.check_out)}
     row=Clock(user_id=user.id,day=moment.date(),segment=2,check_in=moment,shift_snapshot=shift,confirmations={'breakfast_notice_accepted':True,'work_mode':'company_home_overtime'})
     db.add(row);db.commit()
     return {'message':'公司要求居家加班上班打卡成功，不占居家申请额度','record':serialize(row,service.day_leaves(db,user.id,row.day))}

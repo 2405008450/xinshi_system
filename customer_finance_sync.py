@@ -45,6 +45,7 @@ def auto_translation(db, user, client_id, before, after, project_id=None):
     import customer_translation_rates as rates
     import translation_customer_finance as finance
     import translation_finance_audit as audit
+    import translation_quantity_basis as quantity_basis
     if not before and not after:return
     audit.require_ready(db)
     previous = {rates.rate_key(row): row for row in before}
@@ -76,9 +77,10 @@ def auto_translation(db, user, client_id, before, after, project_id=None):
                 elif number(data['amount']) == number(ref['amount']) and data.get('reference_revision') == ref['revision']:
                     continue
                 charge.unit_price = charge.unit_price_excl_tax = Decimal(ref['amount'])
-                charge.currency = ref['currency']; charge.metric_type = ref['metric']; charge.unit_size = Decimal(ref['unit_size'])
+                charge.currency = ref['currency']; charge.metric_type = quantity_basis.resolve(owner.word_count_matrix,ref['metric'])[2] or 'characters_no_spaces'; charge.unit_size = Decimal(ref['unit_size'])
                 charge.updated_at = moment; owner.updated_at = moment; project.updated_at = moment
                 db.flush()
+                quantity_basis.store(db,charge,ref['metric'],owner.word_count_matrix)
                 meta = db.get(rates.TranslationChargeDirection, charge.id)
                 if meta is None:
                     meta = rates.TranslationChargeDirection(charge_id=charge.id); db.add(meta)

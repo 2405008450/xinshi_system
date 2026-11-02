@@ -38,7 +38,7 @@
 
         <!-- 协作资源：客户、资源需求与人才资源池 -->
         <li v-if="showResourceGroup && !isCollapse" class="menu-group-label" role="presentation"><span>资源协作</span></li>
-        <SidebarNavigationItem v-if="showClients" index="/clients" :icon="Connection" label="客户信息" />
+        <SidebarNavigationItem v-if="showClients" index="/clients" :icon="Connection" label="客户管理" />
         <SidebarNavigationItem v-if="showResourceManagement" :index="resourceManagementPath" :icon="Avatar" label="资源管理" />
 
         <SidebarNavigationItem v-if="canViewHr" :index="hrEntryPath" :icon="Management" label="人事管理" />
@@ -281,7 +281,6 @@ const pendingModulePaths = new Set([
   '/dashboard',
   '/other',
   '/client-contacts',
-  '/finance',
   '/marketing',
   '/hr-management/attendance',
   '/hr-management/kpi',

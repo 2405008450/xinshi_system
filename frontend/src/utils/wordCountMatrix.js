@@ -23,6 +23,7 @@ export const createEmptyWordCountValues = () => Object.fromEntries(
 export const createEmptyWordCountMatrix = () => ({
   company: createEmptyWordCountValues(),
   customer: createEmptyWordCountValues(),
+  preliminary: createEmptyWordCountValues(),
   translatorEstimate: createEmptyWordCountValues()
 })
 
@@ -49,6 +50,7 @@ export function normalizeWordCountMatrix(matrix = {}) {
   return {
     company: normalizeWordCountValues(matrix.company),
     customer: normalizeWordCountValues(matrix.customer),
+    preliminary: normalizeWordCountValues(matrix.preliminary),
     translatorEstimate: normalizeWordCountValues(matrix.translatorEstimate || matrix.translator_estimate)
   }
 }
@@ -64,8 +66,9 @@ export function formatWordCountValues(values = {}, { empty = '未填写' } = {})
 function collectFilledWordCountEntries(matrix = {}, translators = []) {
   const normalized = normalizeWordCountMatrix(matrix)
   const dimensions = [
-    ['我司', normalized.company],
-    ['客户', normalized.customer],
+    ['我司统计', normalized.company],
+    ['客户统计', normalized.customer],
+    ['预统计（不用以计算费用）', normalized.preliminary],
     ['译员预估', normalized.translatorEstimate]
   ]
   const entityEntries = dimensions.flatMap(([label, values]) =>

@@ -3,7 +3,7 @@
     <div class="charge-editor__header">
       <div>
         <strong>客户收费明细</strong>
-        <span>点击数量可填报当前订单“客户字数”；含税与不含税金额分别维护。</span>
+        <span>点击数量可填报当前订单“客户统计”；含税与不含税金额分别维护。</span>
       </div>
       <el-button type="primary" link @click="addItem">新增收费项</el-button>
     </div>
@@ -32,7 +32,7 @@
           />
         </template>
       </el-table-column>
-      <el-table-column label="客户字数口径" min-width="175">
+      <el-table-column label="客户统计口径" min-width="175">
         <template #default="{ row }">
           <el-select
             v-model="row.metricType"

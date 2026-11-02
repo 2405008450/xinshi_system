@@ -8,8 +8,7 @@
         <el-form-item prop="breakfast_after_eating" label="2. 请确认你没有在进食早餐前打卡。"><el-radio-group v-model="form.breakfast_after_eating"><el-radio :value="true">是</el-radio><el-radio :value="false">否</el-radio></el-radio-group></el-form-item>
         <el-alert v-if="form.breakfast_after_eating===false" title="将记录15分钟早餐时间，抵扣加班，并记违纪一次；抵扣过程可在每日明细中查看。" type="warning" :closable="false" />
         <el-form-item v-if="askDinner" prop="dinner_eaten" label="3. 今天有无进食晚餐？"><el-radio-group v-model="form.dinner_eaten"><el-radio :value="true">有</el-radio><el-radio :value="false">无</el-radio></el-radio-group></el-form-item>
-        <p v-if="!remote&&record?.shift?.fixed" class="clock-note">固定班次每天扣除一次20分钟晚餐时间，不与晚餐选择重复扣除。</p>
-        <p v-else-if="askDinner" class="clock-note">选择“有”扣除20分钟；当天加班不足的部分继续抵扣当月累计加班。</p>
+        <p v-if="askDinner" class="clock-note">签退超过考勤日18:50，所有班次均须本人确认是否吃过晚饭；选择“有”扣除20分钟，选择“无”不扣。同一天最多扣一次，当天加班不足的部分继续抵扣当月累计加班。</p>
         <p v-if="record?.shift?.flexible" class="clock-note">灵活班次不设预定上下班时间，不判迟到；本次打卡时长可查，不自动将全部工作时间计为加班。</p><p class="clock-warning">郑重提示：<br>弄虚作假一经查实，公司有权视情节每次处以 50—200 元绩效扣款，并给予警告或通报批评等纪律处分</p>
         <template v-if="atHome"><p v-if="record?.shift?.home_office_approval_status==='pending'" class="clock-note">居家申请仍待审批；此打卡声明不代表已获准居家。</p><p class="clock-warning">郑重提示：<br>请确认下班打卡之前的时间，均为真实、有效的工作时间。弄虚作假一经查实，公司有权视情节每次处以 50—200 元绩效扣款，并给予警告或通报批评等纪律处分。如需减去中间的无效时间，请选择是</p>
           <el-form-item prop="deduct_invalid_time" label="是否扣除中间的无效时间？"><el-radio-group v-model="form.deduct_invalid_time"><el-radio :value="true">是</el-radio><el-radio :value="false">否</el-radio></el-radio-group></el-form-item>
@@ -23,18 +22,22 @@
   </DraggableFormDialog>
 </template>
 <script setup>
-import {computed,reactive,ref,watch} from 'vue'
+import {computed,reactive,ref,watch,onBeforeUnmount} from 'vue'
 import {ElMessage} from 'element-plus'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import {checkIn,checkOut} from '@/api/attendance'
 import {formatBusinessDateTime} from '@/utils/dateTime'
+import {requiresDinnerConfirmation} from '@/utils/attendanceDinner'
 const props=defineProps({modelValue:Boolean,mode:String,record:Object,segment:{type:Number,default:0},workMode:{type:String,default:'scheduled'}}),emit=defineEmits(['update:modelValue','saved'])
 const formRef=ref(),saving=ref(false),error=ref('')
 const defaults=()=>({early_work_confirmed:null,breakfast_after_eating:null,dinner_eaten:null,deduct_invalid_time:null,invalid_minutes:0,invalid_reason:'',cross_day_reason:'',next_start:null})
-const form=reactive(defaults()),remote=computed(()=>props.record?.shift?.code==='customer_remote'||props.record?.shift?.home_rotation),atHome=computed(()=>remote.value||props.record?.shift?.home_office_day),askDinner=computed(()=>!remote.value&&['late','late_late'].includes(props.record?.shift?.code))
+const currentMoment=ref(Date.now())
+let dinnerTimer
+const form=reactive(defaults()),remote=computed(()=>props.record?.shift?.code==='customer_remote'||props.record?.shift?.home_rotation),atHome=computed(()=>remote.value||props.record?.shift?.home_office_day),askDinner=computed(()=>props.record?.requires_dinner_confirmation||requiresDinnerConfirmation(props.record?.day||props.record?.check_in?.slice(0,10),currentMoment.value))
 const choice=(needed)=>({validator:(_rule,value,done)=>done(!needed()||typeof value==='boolean'?undefined:new Error('请选择是或否')),trigger:'change'})
 const rules=computed(()=>({cross_day_reason:props.record?.requires_cross_day_reason?[{required:true,whitespace:true,message:'请说明跨日/跨组签退原因',trigger:'blur'}]:[],next_start:props.record?.requires_cross_day_reason?[{required:true,message:'请填写后续上班时间',trigger:'change'}]:[],early_work_confirmed:[choice(()=>props.mode==='out'&&!props.record?.shift?.overtime_only&&!props.record?.shift?.flexible)],breakfast_after_eating:[choice(()=>props.mode==='out')],dinner_eaten:[choice(()=>props.mode==='out'&&askDinner.value)],deduct_invalid_time:[choice(()=>props.mode==='out'&&atHome.value)],invalid_minutes:[{validator:(_r,v,done)=>done(!form.deduct_invalid_time||Number(v)>0?undefined:new Error('请填写大于零的扣除分钟数')),trigger:'change'}],invalid_reason:[{validator:(_r,v,done)=>done(!form.deduct_invalid_time||v?.trim()?undefined:new Error('请填写情况说明')),trigger:'blur'}]}))
-watch(()=>props.modelValue,value=>{if(value){Object.assign(form,defaults());error.value=''}})
+watch(()=>props.modelValue,value=>{clearInterval(dinnerTimer);if(value){currentMoment.value=Date.now();dinnerTimer=setInterval(()=>{currentMoment.value=Date.now()},1000);Object.assign(form,defaults());error.value=''}},{immediate:true})
+onBeforeUnmount(()=>clearInterval(dinnerTimer))
 watch(()=>form.deduct_invalid_time,value=>{if(value!==true){form.invalid_minutes=0;form.invalid_reason=''}})
 function close(done){if(saving.value)return;if(typeof done==='function')done();else emit('update:modelValue',false)}
 async function submit(){if(saving.value)return;if(props.mode==='out'&&!await formRef.value.validate().catch(()=>false))return;saving.value=true;error.value='';try{const value=props.mode==='in'?await checkIn({segment:props.segment,breakfast_notice_accepted:true,work_mode:props.workMode}):await checkOut({...form,next_start:form.next_start?`${form.next_start}+08:00`:null,record_id:props.record.id});ElMessage.success(value.message);window.dispatchEvent(new Event('attendance-clock-changed'));emit('saved',value.record);emit('update:modelValue',false)}catch(e){error.value=e.detail||'打卡未确认成功，请重试'}finally{saving.value=false}}

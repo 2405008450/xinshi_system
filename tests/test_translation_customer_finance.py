@@ -10,6 +10,9 @@ import translation_customer_finance as finance
 
 def setup(db, owner):
     root,child,third,_=orders(db,owner)
+    old_number=root.order_no;root.order_no='TP-261101-001'
+    child.sub_order_no=child.sub_order_no.replace(old_number,root.order_no)
+    third.sub_order_no=third.sub_order_no.replace(old_number,root.order_no)
     for row,count in [(root,999),(child,300),(third,20)]:
         for metric,value in [('characters_no_spaces',count),('documents',2),('pages',4)]:
             db.add(WordCountMetric(id=uuid4(),project_id=row.id if row is root else None,sub_order_id=None if row is root else row.id,dimension='customer',metric_type=metric,count_value=value))
@@ -84,7 +87,7 @@ def test_filters_and_client_subtotals_cover_all_pages(environment):
     assert not second['items'] and second['client_subtotals'][0]['totals']=={'CNY':'10.00'}
 
 
-def test_month_excludes_other_month_descendant_amounts(environment):
+def test_order_number_month_includes_descendants_regardless_of_charge_month(environment):
     from models import TranslationSubOrder
     db,(owner,_,_)=environment;root,child,third=setup(db,owner)
     write(db,owner,root,root,'0.5',billing_month='2026-11')
@@ -95,8 +98,8 @@ def test_month_excludes_other_month_descendant_amounts(environment):
     finance.read(db,root.id)
     loaded=finance.crud.get_translation_project(db,root.id)
     assert finance.tree(loaded)['item']['totals']=={'CNY':'25.00'}
-    assert finance.tree(loaded,'2026-11')['item']['totals']=={'CNY':'5.00'}
-    assert finance.tree(loaded,'2026-10')['item']['totals']=={'CNY':'20.00'}
+    assert finance.tree(loaded,'2026-11')['item']['totals']=={'CNY':'25.00'}
+    assert finance.tree(loaded,'2026-10')['item']['totals']=={}
 
 
 def test_only_mine_uses_latest_manager_id_and_exact_legacy_name(environment):

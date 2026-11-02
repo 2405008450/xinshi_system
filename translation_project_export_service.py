@@ -53,8 +53,9 @@ STATUS_LABELS = {
 }
 
 WORD_COUNT_DIMENSIONS = (
-    ("company", "我司"),
-    ("customer", "客户"),
+    ("company", "我司统计"),
+    ("customer", "客户统计"),
+    ("preliminary", "预统计（不用以计算费用）"),
     ("translator_estimate", "译员预估"),
 )
 WORD_COUNT_METRICS = (

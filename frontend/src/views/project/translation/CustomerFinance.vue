@@ -3,11 +3,17 @@
     <template #header><div class="finance-heading"><strong>财务管理（客户）</strong><TableColumnSettings v-model="selectedKeys" settings-key="translation-customer-finance" :columns="columns" @reset="resetColumns" /></div></template>
     <AppForm :inline="true" :model="filters" class="finance-search" @submit.prevent="search">
       <el-form-item label="关键词"><el-input v-model="filters.keyword" clearable placeholder="订单号、项目名称、客户名称" @input="queueSearch" @keyup.enter="search" /></el-form-item>
-      <el-form-item label="账单月份"><el-date-picker v-model="filters.month" type="month" value-format="YYYY-MM" placeholder="全部月份" clearable @change="search" /></el-form-item>
-      <el-form-item label="客户经理"><el-popover v-model:visible="managerPickerVisible" title="客户经理筛选" trigger="click" placement="bottom-start" :width="340"><template #reference><el-button :class="{'manager-filter-active':managerScope!=='all'}">{{managerScope==='self'?`本人（${selfName}）`:managerScope==='name'?filters.manager||'指定客户经理':'全部客户经理'}}</el-button></template><el-radio-group v-model="managerDraftScope" class="manager-filter-choices"><el-radio value="self">本人（{{selfName}}）</el-radio><el-radio value="all">全部客户经理</el-radio><el-radio value="name">指定客户经理</el-radio></el-radio-group><FinanceManagerNameSelect v-if="managerDraftScope==='name'" v-model="managerDraftName" /><div class="manager-filter-actions"><el-button @click="managerPickerVisible=false">取消</el-button><el-button type="primary" @click="applyManager">确定</el-button></div></el-popover></el-form-item>
+      <el-form-item label="账单月份"><el-date-picker v-model="filters.month" type="month" value-format="YYYY-MM" placeholder="全部月份" title="按订单号年月筛选，如 TP-261029-010 对应 2026-10" clearable @change="search" /></el-form-item>
+      <el-form-item label="客户经理"><el-button :class="{'manager-filter-active':managerScope!=='all'}" :title="managerLabel" @click="managerPickerVisible=true">{{managerLabel}}</el-button></el-form-item>
       <el-form-item><el-button type="primary" @click="search">查询</el-button><el-button @click="resetSearch">重置</el-button><AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" @clear="clearAdvanced"><el-form-item label="项目状态"><el-select v-model="filters.projectStatus" clearable placeholder="全部状态" @change="search"><el-option v-for="status in statuses" :key="status.value" :value="status.value" :label="status.label" /></el-select></el-form-item><el-form-item label="客户"><el-input v-model="filters.client" clearable placeholder="客户全称或简称" @input="queueFilterSearch" @keyup.enter="search" /></el-form-item></AdvancedFilterPopover></el-form-item>
     </AppForm>
-    <p class="finance-help">按语种方向维护多条单价：外译中默认外文字数，中译外默认字符数不计空格，可调整统计口径。母订单单价复制至匹配语种的下级，单独改价的下级保留；父级汇总直接下级金额，各币种单独小计。</p>
+    <DraggableFormDialog v-model="managerPickerVisible" title="客户经理筛选" append-to-body :class="['finance-manager-dialog',{'has-manager-select':managerDraftScope==='name'}]" width="min(560px, calc(100vw - 32px))" top="10vh" :close-on-click-modal="false">
+      <el-radio-group v-model="managerDraftScope" class="manager-filter-choices"><el-radio value="self">本人（{{selfName}}）</el-radio><el-radio value="all">不指定人（全部订单）</el-radio><el-radio value="name">指定客户经理</el-radio></el-radio-group>
+      <CustomerDepartmentManagerSelect v-if="managerDraftScope==='name'" v-model="managerDraftIds" @options="cacheManagers" />
+      <p class="finance-help">可多选客户部成员，点击“确定”后更新订单列表及客户金额小计。</p>
+      <template #footer><el-button @click="managerPickerVisible=false">取消</el-button><el-button type="primary" @click="applyManager">确定</el-button></template>
+    </DraggableFormDialog>
+    <p class="finance-help">按语种方向维护多条单价，默认采用客户统计：仅填写一栏时直接采用，多栏时请选择统计口径；也可改用我司统计。母订单单价复制至匹配语种的下级，单独改价的下级保留；父级汇总下级金额，各币种单独小计。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-table v-loading="loading" :data="rows" row-key="id" border default-expand-all empty-text="暂无笔译项目">
       <el-table-column type="index" label="序号" width="60" :index="index => (page-1)*10+index+1" />
@@ -26,15 +32,18 @@
           <el-form-item label="客户参考价"><el-button :disabled="!referencePrices.length" @click="adoptReference">采用最新客户参考价</el-button><small>{{referencePrices.length?'按同客户、同语种方向带入；保存项目后生效':'该客户暂无匹配的语种参考价'}}</small></el-form-item>
           <CustomerTranslationPriceEditor v-model="editor.prices" :matrix="editor.wordCountMatrix" :disabled="saving" />
           <p class="finance-help">有下级订单时，列表总价按下级汇总。未登记对应数量时可先保存单价，金额显示待补录。</p>
+          <el-form-item label="计算得出的总价"><ReadonlyField :model-value="calculatedTotalText" source="auto" /></el-form-item>
           <el-form-item label="调整后总价"><el-input-number v-model="editor.adjustedTotal" :disabled="new Set((editor.prices||[]).map(row=>row.currency)).size>1" :min="0" :precision="2" :controls="false" placeholder="留空按自动计算金额" /></el-form-item>
           <el-form-item label="说明"><el-input v-model="editor.explanation" type="textarea" :rows="3" maxlength="5000" show-word-limit /></el-form-item>
           <el-form-item label="账单月份"><el-date-picker v-model="editor.billingMonth" type="month" value-format="YYYY-MM" clearable /></el-form-item>
-          <el-form-item v-if="canWriteClients&&editor.clientId" label="同步客户参考价"><el-button :disabled="saving" @click="save(true)">保存并同步单价至客户信息…</el-button></el-form-item>
+          <el-form-item v-if="canWriteClients&&editor.clientId" label="同步客户参考价"><el-button :disabled="saving||syncPreviewPending" @click="save(true)">保存并同步单价至客户信息…</el-button></el-form-item>
+          <el-form-item label="同步同月订单"><SyncSameMonthPrices v-if="editorVisible" :project-id="editor.rootId" :order-id="editor.id" :client-id="editor.clientId" :version="treeVersion" :month="editor.billingMonth" :disabled="saving||editorDirty||!originalPrices.length" @synced="onSameMonthSynced" /></el-form-item>
         </AppForm>
         <el-alert v-if="saveError" :title="saveError" type="error" :closable="false" />
       </div>
       <template #footer><el-button :disabled="saving" @click="closeEditor()">取消</el-button><el-button type="primary" :loading="saving" @click="save()">保存</el-button></template>
     </DraggableFormDialog>
+    <CustomerRateSyncPreview v-if="editorVisible" ref="rateSyncPreviewRef" :client-id="editor.clientId" :client-name="editor.clientShortName" :prices="editor.prices" />
     <DraggableFormDialog v-model="historyVisible" append-to-body class="customer-finance-dialog" width="min(1000px, calc(100vw - 32px))" top="5vh" :title="`财务修改记录 · ${historyOrder?.orderNo||''}`"><TranslationFinanceHistory v-if="historyVisible&&historyOrder" :project-id="historyOrder.rootId" :order-id="historyOrder.id" /><template #footer><el-button @click="historyVisible=false">关闭</el-button></template></DraggableFormDialog>
   </el-card>
 </template>
@@ -51,13 +60,16 @@ import { useTableColumns } from '@/composables/useTableColumns'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
-import FinanceManagerNameSelect from '@/components/common/FinanceManagerNameSelect.vue'
+import CustomerDepartmentManagerSelect from '@/components/common/CustomerDepartmentManagerSelect.vue'
+import CustomerRateSyncPreview from '@/components/common/CustomerRateSyncPreview.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import {businessDateTimeInputValue} from '@/utils/dateTime'
 import CustomerPriceFields from './components/CustomerPriceFields.vue'
 import CustomerTranslationPriceEditor from '@/components/common/CustomerTranslationPriceEditor.vue'
 import TranslationFinanceHistory from '@/components/common/TranslationFinanceHistory.vue'
+import SyncSameMonthPrices from '@/components/common/SyncSameMonthPrices.vue'
+import {calculateOrderPriceTree,basisLabel} from '@/utils/translationQuantityBasis'
 import {newCustomerRate,ratePayload,referenceDraft,defaultRateMetric} from '@/utils/customerTranslationRates'
 
 const columns = [
@@ -74,22 +86,24 @@ const emit=defineEmits(['saved'])
 const props=defineProps({clientId:{type:[String,Number],default:''}})
 const filters=reactive({keyword:'',projectStatus:'',client:'',month:'',manager:''}),rows=ref([]),subtotals=ref([]),page=ref(1),total=ref(0),loading=ref(false),error=ref(''),advancedVisible=ref(false)
 const selfName=localStorage.getItem('user_full_name')||localStorage.getItem('user_name')||'当前用户'
-const managerScope=ref('self'),managerDraftScope=ref('self'),managerDraftName=ref(''),managerPickerVisible=ref(false)
-watch(managerPickerVisible,visible=>{if(visible){managerDraftScope.value=managerScope.value;managerDraftName.value=filters.manager}})
-function applyManager(){if(managerDraftScope.value==='name'&&!managerDraftName.value.trim())return ElMessage.warning('请输入客户经理姓名');managerScope.value=managerDraftScope.value;filters.manager=managerScope.value==='name'?managerDraftName.value.trim():'';managerPickerVisible.value=false;search()}
+const managerScope=ref('self'),managerDraftScope=ref('self'),managerIds=ref([]),managerDraftIds=ref([]),managerPickerVisible=ref(false),managerNames=ref({})
+function cacheManagers(people){managerNames.value={...managerNames.value,...Object.fromEntries(people.map(person=>[person.id,`${person.name}${person.username&&person.username!==person.name?`（${person.username}）`:''}`]))}}
+const managerLabel=computed(()=>managerScope.value==='self'?`本人（${selfName}）`:managerScope.value==='name'?`指定（${managerIds.value.length}人）：${managerIds.value.map(id=>managerNames.value[id]||'已选人员').join('、')}`:'不指定人（全部订单）')
+watch(managerPickerVisible,visible=>{if(visible){managerDraftScope.value=managerScope.value;managerDraftIds.value=[...managerIds.value]}})
+function applyManager(){managerScope.value=managerDraftScope.value==='name'&&!managerDraftIds.value.length?'all':managerDraftScope.value;managerIds.value=managerScope.value==='name'?[...managerDraftIds.value]:[];filters.manager='';managerPickerVisible.value=false;search()}
 const advancedCount=computed(()=>Number(!!filters.projectStatus)+Number(!!filters.client.trim()))
 function clearAdvanced(){filters.projectStatus='';filters.client='';search()}
 let timer,controller,sequence=0,disposed=false
 async function load(){
   const current=++sequence;controller?.abort();controller=new AbortController();loading.value=true;error.value=''
-  try{const data=await getCustomerFinancePage({client_id:props.clientId||undefined,keyword:filters.keyword.trim()||undefined,project_status:filters.projectStatus||undefined,client:filters.client.trim()||undefined,billing_month:filters.month||undefined,client_manager:managerScope.value==='name'?filters.manager.trim()||undefined:undefined,only_mine:managerScope.value==='self',skip:(page.value-1)*10,limit:10},{signal:controller.signal});if(current===sequence){rows.value=data.items||[];subtotals.value=data.clientSubtotals||[];total.value=data.total||0}}
+  try{const data=await getCustomerFinancePage({client_id:props.clientId||undefined,keyword:filters.keyword.trim()||undefined,project_status:filters.projectStatus||undefined,client:filters.client.trim()||undefined,billing_month:filters.month||undefined,manager_ids:managerScope.value==='name'?managerIds.value:undefined,only_mine:managerScope.value==='self',skip:(page.value-1)*10,limit:10},{signal:controller.signal});if(current===sequence){rows.value=data.items||[];subtotals.value=data.clientSubtotals||[];total.value=data.total||0}}
   catch(e){if(current===sequence&&e.code!=='ERR_CANCELED')error.value=getLocalizedErrorMessage(e,'客户财务列表加载失败')}
   finally{if(current===sequence)loading.value=false}
 }
 function search(){clearTimeout(timer);page.value=1;void load()}
 function queueSearch(){clearTimeout(timer);controller?.abort();sequence++;if(!filters.keyword.trim())search();else timer=setTimeout(search,400)}
 function queueFilterSearch(value){clearTimeout(timer);controller?.abort();sequence++;if(!String(value||'').trim())search();else timer=setTimeout(search,400)}
-function resetSearch(){filters.keyword='';filters.projectStatus='';filters.client='';filters.month='';filters.manager='';managerScope.value='self';search()}
+function resetSearch(){filters.keyword='';filters.projectStatus='';filters.client='';filters.month='';filters.manager='';managerIds.value=[];managerScope.value='self';search()}
 const formatAmounts=values=>Object.entries(values||{}).map(([currency,value])=>`${currency} ${Number(value).toFixed(2)}`).join('\n')||'-'
 function cell(row,key){
   if(key==='projectName')return row.sourceFileName||row.projectName||'-'
@@ -103,14 +117,19 @@ const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField
 let original='',treeVersion='',libraryVersion=''
 const referencePrices=ref([]),updateLibrary=ref(false)
 const historyVisible=ref(false),historyOrder=ref(null)
-const metricLabel=key=>({characters_no_spaces:'字符数不计空格',documents:'份数',pages:'页数',words:'原登记字数',foreign_words:'外文字数',cjk_chars_korean_words:'中朝统计'}[key]||key)
+const metricLabel=basisLabel
+const originalPrices=ref([])
+const rateSyncPreviewRef=ref(),syncPreviewPending=ref(false)
+const editorDirty=computed(()=>editorVisible.value&&editorSignature()!==original)
+const calculatedTotalText=computed(()=>{const result=calculateOrderPriceTree(editor.value,originalPrices.value);return formatAmounts(result.totals)+(result.incomplete?'；部分单价缺少数量或统计口径':'')})
+async function onSameMonthSynced(){editorVisible.value=false;emit('saved');await load()}
 function editorSignature(){return JSON.stringify([(editor.value.prices||[]).map(ratePayload),editor.value.adjustedTotal,editor.value.explanation,editor.value.billingMonth,updateLibrary.value])}
 function referenceDefaults(){const choices=String(editor.value.languagePair||'').split('；').filter(Boolean);return choices.map(direction=>{const options=referencePrices.value.filter(row=>row.languagePair===direction);return options.find(row=>row.metric===defaultRateMetric(direction)&&row.currency==='CNY'&&Number(row.unitSize)===1)||options[0]}).filter(Boolean).map(referenceDraft)}
 function adoptReference(){const values=referenceDefaults();if(!values.length)return ElMessage.warning('没有与此订单语种方向匹配的客户参考价');editor.value.prices=values;editor.value.adjustedTotal=undefined}
 async function openEditor(row){
   if(!canWrite||editorLoading.value)return
   editorLoading.value=true
-  try{const data=await getCustomerFinanceProject(row.rootId);if(disposed)return;const find=node=>node.id===row.id?node:(node.children||[]).map(find).find(Boolean);const selected=find(data.item);if(!selected)throw new Error('订单已变化，请刷新');editor.value={...structuredClone(selected),prices:(selected.prices||[]).map(price=>({...price,amount:price.amount==null?undefined:Number(price.amount),unitSize:Number(price.unitSize||1)})),adjustedTotal:selected.adjustedTotal==null?undefined:Number(selected.adjustedTotal),billingMonth:selected.billingMonth||businessDateTimeInputValue().slice(0,7)};referencePrices.value=data.referencePrices?.items||[];libraryVersion=data.referencePrices?.version||'';updateLibrary.value=false;if(!editor.value.prices.length){const suggested=referenceDefaults();editor.value.prices=suggested.length?suggested:(String(selected.languagePair||'').split('；').filter(Boolean).map(newCustomerRate));if(!editor.value.prices.length)editor.value.prices=[newCustomerRate()]};treeVersion=data.version;saveError.value='';clearFieldSearch();editorVisible.value=true;original=editorSignature()}
+  try{const data=await getCustomerFinanceProject(row.rootId);if(disposed)return;const find=node=>node.id===row.id?node:(node.children||[]).map(find).find(Boolean);const selected=find(data.item);if(!selected)throw new Error('订单已变化，请刷新');originalPrices.value=structuredClone(selected.prices||[]);editor.value={...structuredClone(selected),prices:(selected.prices||[]).map(price=>({...price,amount:price.amount==null?undefined:Number(price.amount),unitSize:Number(price.unitSize||1)})),adjustedTotal:selected.adjustedTotal==null?undefined:Number(selected.adjustedTotal),billingMonth:selected.billingMonth||businessDateTimeInputValue().slice(0,7)};referencePrices.value=data.referencePrices?.items||[];libraryVersion=data.referencePrices?.version||'';updateLibrary.value=false;if(!editor.value.prices.length){const suggested=referenceDefaults();editor.value.prices=suggested.length?suggested:(String(selected.languagePair||'').split('；').filter(Boolean).map(newCustomerRate));if(!editor.value.prices.length)editor.value.prices=[newCustomerRate()]};treeVersion=data.version;saveError.value='';clearFieldSearch();editorVisible.value=true;original=editorSignature()}
   catch(e){ElMessage.error(getLocalizedErrorMessage(e,'收费明细加载失败'))}finally{editorLoading.value=false}
 }
 async function closeEditor(done){
@@ -121,7 +140,7 @@ async function closeEditor(done){
 async function save(syncToClient=false){
   if(saving.value||!canWrite||!await formRef.value?.validate().catch(()=>false))return
   if(!editor.value.prices.length)return ElMessage.warning('请至少填写一条语种单价')
-  if(syncToClient){try{await ElMessageBox.confirm('确认将本次项目单价同步至客户信息？客户参考价变更会自动同步至仍沿用原价的项目。单独调整过的项目价格保留。','确认同步客户单价',{type:'warning',confirmButtonText:'确认同步',cancelButtonText:'取消'})}catch{return}}
+  if(syncToClient){if(syncPreviewPending.value)return;syncPreviewPending.value=true;let confirmed;try{confirmed=await rateSyncPreviewRef.value.confirm()}finally{syncPreviewPending.value=false}if(!confirmed)return;libraryVersion=confirmed.version}
   saving.value=true;saveError.value=''
   try{await saveCustomerFinanceProject(editor.value.rootId,{version:treeVersion,order_id:editor.value.id,prices:editor.value.prices.map(ratePayload),update_library:syncToClient,sync_confirmed:syncToClient,library_version:libraryVersion,adjusted_total:editor.value.adjustedTotal??null,explanation:editor.value.explanation||'',billing_month:editor.value.billingMonth||null});original=editorSignature();editorVisible.value=false;ElMessage.success('语种单价已保存，下级继承及金额小计已更新');emit('saved');await load()}
   catch(e){saveError.value=getLocalizedErrorMessage(e,'保存失败，请检查收费明细；如项目已被其他人修改，请重新打开后编辑')}
@@ -131,7 +150,7 @@ watch(()=>props.clientId,search)
 onMounted(()=>{if(props.clientId)void load()})
 let firstEntry=true,active=false
 onActivated(async()=>{active=true;await load();if(firstEntry&&active&&!disposed){firstEntry=false;await nextTick();managerPickerVisible.value=true}})
-onDeactivated(()=>{active=false;managerPickerVisible.value=false;historyVisible.value=false;clearTimeout(timer);sequence++;controller?.abort();loading.value=false})
+onDeactivated(()=>{active=false;rateSyncPreviewRef.value?.cancel();managerPickerVisible.value=false;historyVisible.value=false;clearTimeout(timer);sequence++;controller?.abort();loading.value=false})
 async function guardEditor(){if(!editorVisible.value)return true;if(saving.value)return false;await closeEditor();return !editorVisible.value}
 onBeforeRouteLeave(guardEditor)
 onBeforeRouteUpdate((to,from)=>to.query.section!==from.query.section?guardEditor():true)
@@ -139,6 +158,10 @@ onBeforeUnmount(()=>{disposed=true;clearTimeout(timer);sequence++;controller?.ab
 </script>
 
 <style scoped>
+:global(.finance-manager-dialog){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}
+:global(.el-dialog.draggable-form-dialog.finance-manager-dialog.has-manager-select > .el-dialog__body){min-height:min(440px,55vh)}
+:global(.finance-manager-dialog .el-dialog__header),:global(.finance-manager-dialog .el-dialog__footer){flex-shrink:0}
+:global(.finance-manager-dialog .el-dialog__footer){border-top:1px solid #dbe3ec;background:#f8fafc}
 .manager-filter-choices{display:flex;flex-direction:column;align-items:flex-start}.manager-filter-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}.manager-filter-active{background:#f1f5f9;border-color:#94a3b8}
 .customer-finance{min-width:0}.finance-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.finance-search{display:flex;flex-wrap:wrap;gap:8px}.finance-search :deep(.el-form-item){margin:0 8px 12px 0}.finance-search .el-input{width:300px;max-width:100%}.finance-search .el-select{width:180px}.finance-help{color:#64748b;font-size:12px;margin:0 0 12px}.finance-cell{white-space:pre-wrap;overflow-wrap:anywhere}.el-pagination{margin-top:16px;justify-content:flex-end;flex-wrap:wrap}
 :global(.customer-finance-dialog){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}:global(.customer-finance-dialog .el-dialog__header),:global(.customer-finance-dialog .el-dialog__footer){flex-shrink:0}:global(.customer-finance-dialog .el-dialog__body){flex:1;min-height:0;overflow:auto}:global(.customer-finance-dialog .el-dialog__footer){border-top:1px solid #e2e8f0;background:#f8fafc}

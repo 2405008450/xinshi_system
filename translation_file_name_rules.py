@@ -16,7 +16,7 @@ def known_extension(value):
     return value in EXTENSIONS or bool(SPLIT_ARCHIVE.fullmatch(value))
 
 
-def normalize_single_file_name(value):
+def normalize_single_file_name(value, *, allow_missing_extension=False):
     name = str(value or '').lstrip('\ufeff').strip()
     if not name:
         raise ValueError('请输入项目名称（真实文件名）')
@@ -28,6 +28,8 @@ def normalize_single_file_name(value):
         raise ValueError(MULTIPLE_MESSAGE)
     if re.search(r'[<>:"/\\?*\x00-\x1f]', name) or name.endswith('.'):
         raise ValueError('请输入单个真实文件名，不要填写路径、引号或文件名禁用字符')
+    if allow_missing_extension and not tokens:
+        return name
     if '.' not in name:
         raise ValueError(EXTENSION_MESSAGE)
     if not name.rpartition('.')[0].strip() or not re.search(r'[^.\s]', name.rpartition('.')[0]):

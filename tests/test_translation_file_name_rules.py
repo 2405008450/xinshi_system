@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from tests.test_chat_participant_access import environment
 
 from translation_file_name_rules import EXTENSIONS, normalize_single_file_name
 from translation_project_identity import normalize_translation_name_payload, sync_translation_file_name
@@ -14,6 +15,36 @@ CASES = json.loads((Path(__file__).parent / 'fixtures/translation_file_name_case
 @pytest.mark.parametrize('name', CASES['valid'])
 def test_valid_single_names(name):
     assert normalize_single_file_name(name) == name
+
+
+def test_parent_name_only_exempt_with_children_and_still_rejects_multiple_files():
+    data={'project_name':'项目母订单'}
+    normalize_translation_name_payload(data,has_sub_orders=True)
+    assert data['source_file_name']=='项目母订单'
+    with pytest.raises(ValueError):normalize_translation_name_payload({'project_name':'项目母订单'})
+    with pytest.raises(ValueError):normalize_translation_name_payload({'project_name':'甲.pdf；乙.docx'},has_sub_orders=True)
+    from schemas import TranslationProjectCreate
+    with pytest.raises(ValueError):TranslationProjectCreate(project_name='母订单',initial_sub_order_names=['子文件无后缀'])
+
+
+def test_create_parent_and_initial_children_in_one_transaction(environment):
+    import crud
+    from models import Client
+    from schemas import TranslationProjectCreate,TranslationProjectUpdate
+    db,(owner,_,_)=environment
+    from sqlalchemy import event
+    def sqlite_generated_ids(session,*args):
+        for row in session.new:
+            if hasattr(row,'id') and row.id is None:row.id=uuid4()
+    event.listen(db,'before_flush',sqlite_generated_ids)
+    client=Client(id=uuid4(),client_name='项目名称规则测试');db.add(client);db.flush()
+    payload=TranslationProjectCreate(project_name='母订单项目',client_id=client.id,created_by=owner.id,
+        initial_sub_order_names=['子文件甲.docx','子文件乙.pdf'])
+    result=crud.create_translation_project(db,payload,order_no='TP-261102-900')
+    assert result.project_name=='母订单项目'
+    assert {row.sub_project_name for row in result.sub_orders}=={'子文件甲.docx','子文件乙.pdf'}
+    updated=crud.update_translation_project(db,result.id,TranslationProjectUpdate(project_name='更名母订单'),actor_user_id=owner.id)
+    assert updated.project_name=='更名母订单'
 
 
 @pytest.mark.parametrize('name', CASES['invalid'])

@@ -12,10 +12,11 @@ from manuscript_models import ManuscriptArrangement, ManuscriptDispatch
 from models import TranslationProject, TranslationSubOrder
 from word_count_models import WordCountMetric
 from word_count_schemas import WordCountCreateMatrix, WordCountMatrixPatch
+import preliminary_word_count as preliminary
 
 
 METRIC_TYPES = ("words", "characters_no_spaces", "cjk_chars_korean_words", "foreign_words", "documents", "pages")
-ENTITY_DIMENSIONS = ("company", "customer", "translator_estimate")
+ENTITY_DIMENSIONS = ("company", "customer", "preliminary", "translator_estimate")
 
 
 def _empty_values() -> dict[str, Optional[int]]:
@@ -39,6 +40,12 @@ def _entity_metric_query(db: Session, entity_type: str, entity_id: UUID):
     if entity_type == "project":
         return query.filter(WordCountMetric.project_id == entity_id)
     return query.filter(WordCountMetric.sub_order_id == entity_id)
+
+
+def _entity_metric_rows(db,entity_type,entity_id):
+    return _entity_metric_query(db,entity_type,entity_id).all()+preliminary.rows(db,
+        project_ids=[entity_id] if entity_type=='project' else [],
+        sub_order_ids=[entity_id] if entity_type=='suborder' else [])
 
 
 def _arrangements_for_entity(
@@ -88,7 +95,7 @@ def get_word_count_matrix(
     entity_values = {dimension: _empty_values() for dimension in ENTITY_DIMENSIONS}
     source = "suborder" if entity_type == "suborder" else "project"
     sub_order_count = 0
-    metrics = _entity_metric_query(db, entity_type, entity_id).all()
+    metrics = _entity_metric_rows(db, entity_type, entity_id)
     if entity_type == "project":
         sub_order_count = db.query(TranslationSubOrder.id).filter(
             TranslationSubOrder.parent_project_id == entity_id
@@ -148,6 +155,8 @@ def _apply_cell(
     value: Optional[int],
     updated_by: Optional[UUID],
 ) -> None:
+    if dimension == 'preliminary':
+        return preliminary.apply_cell(db,owner_filters,metric_type,value,updated_by)
     query = db.query(WordCountMetric).filter(
         WordCountMetric.dimension == dimension,
         WordCountMetric.metric_type == metric_type,
@@ -173,7 +182,8 @@ def _apply_cell(
     else:
         existing.count_value = value
         existing.updated_by = updated_by
-        existing.updated_at = datetime.datetime.now()
+        from annotation_progress_time import business_now
+        existing.updated_at = business_now().replace(tzinfo=None)
 
 
 def patch_word_count_matrix(
@@ -304,7 +314,7 @@ def attach_arrangement_matrices(db: Session, arrangements: list[ManuscriptArrang
 
 def entity_matrix_values(db: Session, entity_type: str, entity_id: UUID) -> dict:
     values = {dimension: _empty_values() for dimension in ENTITY_DIMENSIONS}
-    for metric in _entity_metric_query(db, entity_type, entity_id).all():
+    for metric in _entity_metric_rows(db, entity_type, entity_id):
         if metric.dimension in values:
             values[metric.dimension][metric.metric_type] = metric.count_value
     return values

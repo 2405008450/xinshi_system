@@ -124,7 +124,6 @@ export function getDefaultRoute() {
   if (hasPermission('consultations:read')) return '/consultations'
   if (hasPermission('schedule:read')) return '/work-schedule'
   if (hasPermission('clients:read')) return '/clients'
-  if (hasPermission('finance:read')) return '/finance'
   return '/resource-management/talent-overview'
 }
 

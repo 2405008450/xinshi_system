@@ -1601,6 +1601,7 @@ const serializeWordCountMatrix = (matrix) => {
     company: normalized.company,
     customer: normalized.customer,
     translator_estimate: normalized.translatorEstimate,
+    preliminary: normalized.preliminary,
   }
 }
 

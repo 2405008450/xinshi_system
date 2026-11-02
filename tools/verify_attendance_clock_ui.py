@@ -1,5 +1,6 @@
 """工作台手动打卡、确认表单及折叠；所有业务请求拦截。"""
 import json,re,sys
+from datetime import datetime
 from pathlib import Path
 from urllib.request import urlopen
 from urllib.parse import urlparse
@@ -26,15 +27,15 @@ def api(route):
  elif path.endswith('/check-out'):
   data=request.post_data_json;writes.append((path,data));record=next(row for row in sessions if row['id']==data['record_id']);record['check_out']='2026-10-28T18:30:00+08:00';result={'message':'打卡成功','record':record}
  elif path.endswith('/mine') or path.endswith('/report'):
-  result={'start':'2026-10-26','end':'2026-11-01','records':[{'user_id':'self','name':'本人','day':'2026-10-28','shift':shift,'check_in':'2026-10-28T08:00:00+08:00','check_out':'2026-10-28T18:30:00+08:00','raw_overtime_minutes':60,'overtime_minutes':25,'violation_count':1,'sessions':[{'id':'report-session','segment':0,'raw_overtime_minutes':60,'breakfast_deduction_minutes':15,'dinner_deduction_minutes':20,'overtime_minutes':25,'deduction_details':[{'reason':'早餐前打卡，早餐抵扣并记违纪一次','minutes':15,'kind':'deduction'}]}]}],'total':1,'totals':{'overtime_minutes':25,'violation_count':1},'people':[],'departments':[],'monthly_balances':[{'user_id':'self','name':'本人','month':'2026-10','raw_minutes':60,'deduction_minutes':35,'overtime_minutes':25}]}
+  result={'start':'2026-10-26','end':'2026-11-01','records':[{'user_id':'self','name':'本人','day':'2026-10-28','shift':shift,'check_in':'2026-10-28T08:00:00+08:00','check_out':'2026-10-28T18:30:00+08:00','raw_overtime_minutes':60,'overtime_minutes':45,'violation_count':1,'sessions':[{'id':'report-session','segment':0,'raw_overtime_minutes':60,'breakfast_deduction_minutes':15,'dinner_deduction_minutes':0,'overtime_minutes':45,'deduction_details':[{'reason':'早餐前打卡，早餐抵扣并记违纪一次','minutes':15,'kind':'deduction'}]}]}],'total':1,'totals':{'overtime_minutes':45,'violation_count':1},'people':[],'departments':[],'monthly_balances':[{'user_id':'self','name':'本人','month':'2026-10','raw_minutes':60,'deduction_minutes':15,'overtime_minutes':45}]}
  elif path.endswith('/overview') and '/weekly/' in path:result={'ready':True,'week_start':'2026-10-26','week_end':'2026-11-01','assignments':[],'shifts':SHIFTS,'departments':DEPARTMENTS}
  elif path.endswith('/overview'):result={'ready':True,'month':'2026-10','assignments':[],'dates':[],'departments':DEPARTMENTS,'current_user_id':'self'}
- else:result={'ready':True,'items':[],'assignments':[],'total':0}
+ else:result={'ready':True,'items':[],'assignments':[],'dates':[],'history':[],'names':{},'total':0}
  route.fulfill(content_type='application/json',body=json.dumps(result,ensure_ascii=False))
 with sync_playwright() as pw:
  browser=pw.chromium.launch(channel='msedge',headless=True);context=browser.new_context(viewport={'width':1500,'height':1000},service_workers='block')
  context.route(re.compile(r'^http://localhost:3000/api/'),api);context.route(BASE+'/attendance-clock-ui-check',lambda route:route.fulfill(content_type='text/html',body=html))
- page=context.new_page();page.on('pageerror',lambda e:errors.append(str(e)));page.goto(BASE+'/attendance-clock-ui-check')
+ page=context.new_page();page.clock.set_fixed_time(datetime.fromisoformat('2026-10-28T18:30:00+08:00'));page.on('pageerror',lambda e:errors.append(str(e)));page.goto(BASE+'/attendance-clock-ui-check')
  clock=page.locator('.attendance-heading').filter(has_text='打卡与请假')
  def button(name):return clock.get_by_role('button',name=name,exact=True)
  expect(page.locator('.el-collapse-item.is-active')).to_have_count(1)
@@ -51,11 +52,18 @@ with sync_playwright() as pw:
  button('上班打卡').click();dialog.get_by_role('button',name='打卡',exact=True).click();expect(dialog).not_to_be_visible();assert len(writes)==1
  button('下班打卡').click();dialog=page.get_by_role('dialog',name='下班打卡确认',exact=True);dialog.get_by_role('button',name='打卡',exact=True).click();expect(dialog.locator('.el-form-item__error')).to_have_count(2);assert len(writes)==1
  def choose(prefix,text):dialog.locator('.el-form-item').filter(has_text=prefix).locator('.el-radio').filter(has_text=re.compile('^'+re.escape(text)+'$')).click()
- choose('1. 请确认','否，提前时间不计加班');choose('2. 请确认','否');expect(dialog).to_contain_text('记违纪一次');expect(dialog).to_contain_text('固定班次每天扣除一次20分钟')
+ choose('1. 请确认','否，提前时间不计加班');choose('2. 请确认','否');expect(dialog).to_contain_text('记违纪一次');expect(dialog).not_to_contain_text('固定班次每天扣除一次20分钟');expect(dialog).not_to_contain_text('今天有无进食晚餐')
  dialog.get_by_role('button',name='打卡',exact=True).click();expect(dialog).not_to_be_visible();assert writes[-1][1]['early_work_confirmed'] is False and writes[-1][1]['breakfast_after_eating'] is False
  page.locator('.el-collapse-item__header').filter(has_text=re.compile('^考勤与加班统计$')).click()
- page.get_by_role('button',name='查看详情',exact=True).click();detail=page.locator('.attendance-detail');expect(detail).to_contain_text('原额 1小时 − 早餐 15分钟 − 晚餐 20分钟');expect(detail).to_contain_text('违纪次数')
+ page.get_by_role('button',name='查看详情',exact=True).click();detail=page.locator('.attendance-detail');expect(detail).to_contain_text('原额 1小时 − 早餐 15分钟 − 晚餐 0分钟');expect(detail).to_contain_text('违纪次数')
  page.locator('.attendance-heading').filter(has_text='我的考勤统计').locator('h3').click()
+ for code,eaten in [('late',True),('late_late',False),('early',True)]:
+  page.clock.set_fixed_time(datetime.fromisoformat('2026-10-28T20:00:00+08:00'))
+  shift={**next(row for row in SHIFTS if row['code']==code),'fixed':True};sessions=[];button('刷新').click();button('上班打卡').click();page.get_by_role('dialog',name='上班打卡',exact=True).get_by_role('button',name='打卡',exact=True).click()
+  button('下班打卡').click();dialog=page.get_by_role('dialog',name='下班打卡确认',exact=True);choose('1. 请确认','是，提前时间计加班');choose('2. 请确认','是')
+  dialog.get_by_role('button',name='打卡',exact=True).click();expect(dialog.locator('.el-form-item__error')).to_have_count(1)
+  choose('3. 今天有无进食晚餐','有' if eaten else '无');dialog.get_by_role('button',name='打卡',exact=True).click();expect(dialog).not_to_be_visible();assert writes[-1][1]['dinner_eaten'] is eaten
+ page.clock.set_fixed_time(datetime.fromisoformat('2026-10-28T18:00:00+08:00'))
  shift={**SHIFTS[3],'fixed':True};sessions=[];button('刷新').click();button('上班打卡（第1段）').click();page.get_by_role('dialog',name='上班打卡',exact=True).get_by_role('button',name='打卡',exact=True).click()
  page.set_viewport_size({'width':740,'height':600})
  button('下班打卡').click();dialog=page.get_by_role('dialog',name='下班打卡确认',exact=True);expect(dialog).not_to_contain_text('有无进食晚餐');choose('1. 请确认','是，提前时间计加班');choose('2. 请确认','是');choose('是否扣除中间的无效时间','是')
@@ -78,5 +86,5 @@ with sync_playwright() as pw:
  shift={**SHIFTS[2],'home_rotation':True,'home_office_day':True};sessions=[];button('刷新').click();button('上班打卡').click();page.get_by_role('dialog',name='上班打卡',exact=True).get_by_role('button',name='打卡',exact=True).click();button('下班打卡').click();dialog=page.get_by_role('dialog',name='下班打卡确认',exact=True);expect(dialog).to_contain_text('真实、有效的工作时间');expect(dialog).not_to_contain_text('有无进食晚餐');dialog.get_by_role('button',name='取消',exact=True).click()
  page.get_by_role('button',name='切换公司考勤',exact=True).click();expect(page.get_by_role('button',name='上班打卡',exact=True)).to_have_count(0)
  assert '/api/attendance/report' in reads and not errors,errors
- print(json.dumps({'manual_breakfast_notice':True,'check_in_left_of_check_out':True,'explicit_yes_no_validation':True,'fixed_dinner_explanation':True,'breakfast_violation_and_deduction_visible':True,'remote_second_segment':True,'invalid_minutes_and_reason':True,'collapsible_sections':4,'personal_and_company_separate':True,'page_errors':errors}))
+ print(json.dumps({'manual_breakfast_notice':True,'check_in_left_of_check_out':True,'explicit_yes_no_validation':True,'fixed_early_no_dinner':True,'breakfast_violation_and_deduction_visible':True,'remote_second_segment':True,'invalid_minutes_and_reason':True,'collapsible_sections':4,'personal_and_company_separate':True,'page_errors':errors}))
  browser.close()
