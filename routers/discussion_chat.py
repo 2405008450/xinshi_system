@@ -1,3 +1,5 @@
+
+from starlette.concurrency import run_in_threadpool
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, File, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -20,31 +22,38 @@ async def upload_file(room_id: UUID, request: Request, file: UploadFile = File(.
 
 @router.get('/{room_id}/files/{attachment_id}')
 async def read_file(room_id: UUID, attachment_id: UUID, request: Request, info: bool = False, db=Depends(get_db), user=Depends(actor)):
-    from discussion_chat_files import require_file
-    from discussion_chat_models import DiscussionMessage
-    from routers.project_chat import get_chat_upload_dir
-    from fastapi.responses import FileResponse
-    service.require_room(db, user, room_id)
-    row = require_file(db, room_id, attachment_id)
-    if row.uploaded_by != user.id:
-        ref = f'[附件](discussion-file://{attachment_id})'
-        message = db.query(DiscussionMessage.id).filter(DiscussionMessage.room_id == room_id,
-            DiscussionMessage.recalled_at.is_(None), DiscussionMessage.content.contains(ref, autoescape=True)).first()
-        if not message:
-            raise HTTPException(404, '附件消息不存在或已撤回')
-    if info:
-        return {'name': row.original_name, 'size': row.file_size}
+    def prepare():
+        from discussion_chat_files import require_file
+        from discussion_chat_models import DiscussionMessage
+        from routers.project_chat import get_chat_upload_dir
+        from fastapi.responses import FileResponse
+        service.require_room(db, user, room_id)
+        row = require_file(db, room_id, attachment_id)
+        if row.uploaded_by != user.id:
+            ref = f'[附件](discussion-file://{attachment_id})'
+            message = db.query(DiscussionMessage.id).filter(DiscussionMessage.room_id == room_id,
+                DiscussionMessage.recalled_at.is_(None), DiscussionMessage.content.contains(ref, autoescape=True)).first()
+            if not message:
+                raise HTTPException(404, '附件消息不存在或已撤回')
+        if info:
+            return {'name': row.original_name, 'size': row.file_size}
+        from chat_attachment_storage import remote_attachment_url, read_remote_attachment
+        remote = remote_attachment_url()
+        if remote:
+            return None
+        path = get_chat_upload_dir() / row.storage_name
+        if not path.is_file():
+            raise HTTPException(404, '附件文件不存在')
+        return FileResponse(path, filename=row.original_name, media_type=row.content_type,
+            headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
+    result = await run_in_threadpool(prepare)
     from chat_attachment_storage import remote_attachment_url, read_remote_attachment
     remote = remote_attachment_url()
-    if remote:
+    if result is None:
         target = remote.removesuffix('/project-chat/attachments') + f'/chat/discussions/{room_id}/files'
         return await read_remote_attachment(target, attachment_id, request.headers.get('authorization'),
             request.headers.get('x-chat-attachment-forwarded'), allow_files=True)
-    path = get_chat_upload_dir() / row.storage_name
-    if not path.is_file():
-        raise HTTPException(404, '附件文件不存在')
-    return FileResponse(path, filename=row.original_name, media_type=row.content_type,
-        headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
+    return result
 
 
 class DiscussionNameWrite(BaseModel):

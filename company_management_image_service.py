@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
+from starlette.concurrency import run_in_threadpool
 from fastapi import HTTPException, UploadFile
 from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy.orm import Session
@@ -88,7 +89,7 @@ def expired_drafts(db: Session, section) -> list:
     return [row for row in rows if row.id not in used]
 
 
-async def save_image(db: Session, section_id: UUID, upload: UploadFile, user_id: UUID) -> dict:
+def _save_image(db: Session, section_id: UUID, upload: UploadFile, user_id: UUID, content: bytes) -> dict:
     destination = None
     try:
         section = require_section(db, section_id, lock=True)
@@ -97,11 +98,6 @@ async def save_image(db: Session, section_id: UUID, upload: UploadFile, user_id:
         expired = expired_drafts(db, section)
         if image_rows(db, section_id).count() - len(expired) >= MAX_IMAGES_PER_SECTION:
             raise HTTPException(status_code=400, detail="每个栏目最多保存50张正文图片，请先移除不需要的图片并保存")
-        content = bytearray()
-        while chunk := await upload.read(1024 * 1024):
-            content.extend(chunk)
-            if len(content) > MAX_IMAGE_BYTES:
-                raise HTTPException(status_code=413, detail="单张正文图片不能超过20MB")
         normalized, mime, extension = normalize_image(bytes(content), upload.content_type or "")
         name = (upload.filename or "粘贴图片").replace("\\", "/").rsplit("/", 1)[-1]
         name = "".join(c for c in name if ord(c) >= 32 and ord(c) != 127)[:240] or "粘贴图片"
@@ -126,9 +122,19 @@ async def save_image(db: Session, section_id: UUID, upload: UploadFile, user_id:
         if destination is not None:
             destination.unlink(missing_ok=True)
         raise
+
+
+
+async def save_image(db: Session, section_id: UUID, upload: UploadFile, user_id: UUID) -> dict:
+    try:
+        content = bytearray()
+        while chunk := await upload.read(1024 * 1024):
+            content.extend(chunk)
+            if len(content) > MAX_IMAGE_BYTES:
+                raise HTTPException(413, detail="单张正文图片不能超过20MB")
+        return await run_in_threadpool(_save_image, db, section_id, upload, user_id, bytes(content))
     finally:
         await upload.close()
-
 
 def get_image(db: Session, section_id: UUID, image_id: UUID):
     require_section(db, section_id)

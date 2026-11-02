@@ -38,3 +38,32 @@ export function entryPayload(row) {
     follow_ups: row.follow_up_content.trim() ? [{ id: row._followupId, content: row.follow_up_content.trim() }] : [],
   }
 }
+
+export async function saveEntryRow(api, row, options) {
+  let payload = entryPayload(row)
+  let saved
+  let conflict = false
+  try { saved = await api.save(payload) }
+  catch (error) {
+    if (error.rawDetail?.code !== 'creation_id_conflict') throw error
+    conflict = true
+  }
+  // 兼容尚未升级的后端：旧接口会把不同内容的同 UUID 请求误报为保存成功。
+  const matches = saved && ['id', 'platform_id', 'work_date', 'owner_id', 'full_name']
+    .every(key => saved[key] === (typeof payload[key] === 'string' ? payload[key].trim() : payload[key]))
+  if (matches) return saved
+  if (!conflict && (!saved || saved.id !== payload.id || !saved.revision ||
+    !['platform_id', 'work_date', 'owner_id', 'full_name'].every(key => typeof saved[key] === 'string'))) {
+    throw new Error('保存响应异常，填写内容已保留，请重新查询后重试')
+  }
+  const fresh = newEntryRow(options, row)
+  Object.assign(row, { id: fresh.id, _actionIds: fresh._actionIds, _followupId: fresh._followupId })
+  payload = entryPayload(row)
+  // 新标识在行内保留；第二次请求超时后继续用同一标识重试，避免重复新增。
+  saved = await api.save(payload)
+  if (!saved || !['id', 'platform_id', 'work_date', 'owner_id', 'full_name']
+    .every(key => saved[key] === (typeof payload[key] === 'string' ? payload[key].trim() : payload[key]))) {
+    throw new Error('保存结果与填写内容不一致，填写内容已保留，请重新查询后重试')
+  }
+  return saved
+}

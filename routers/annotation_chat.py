@@ -1,6 +1,8 @@
 """标注群聊增量接口；由 project_chat 路由注册，不改变笔译接口。"""
 import uuid
 import os
+from starlette.concurrency import run_in_threadpool
+
 from pathlib import Path
 from uuid import UUID
 
@@ -314,30 +316,40 @@ async def upload(project_id: UUID, request: Request, file: UploadFile = File(...
 
 @router.get('/{project_id}/files/{attachment_id}')
 async def download(project_id: UUID, attachment_id: UUID, request: Request, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
-    from fastapi.responses import FileResponse
-    from routers.project_chat import get_chat_upload_dir
-    from models import ChatProjectMessageAttachment
-    service.require_project(db, project_id, user)
-    attachment = service.authorize_attachment(db, attachment_id, user)
-    from chat_screenshot_storage import read_attachment
-    stored=read_attachment(db,attachment)
-    if stored is not None:return stored
-    if attachment.storage_name.startswith('material:'):
+    def prepare():
+        from fastapi.responses import FileResponse
+        from routers.project_chat import get_chat_upload_dir
+        from models import ChatProjectMessageAttachment
+        service.require_project(db, project_id, user)
+        attachment = service.authorize_attachment(db, attachment_id, user)
+        from chat_screenshot_storage import read_attachment
+        stored=read_attachment(db,attachment)
+        if stored is not None:return stored
+        if attachment.storage_name.startswith('material:'):
+            from annotation_task_images import download_chat_image
+            return ('material', attachment.storage_name)
+        if attachment.annotation_project_id and attachment.annotation_project_id != project_id:
+            raise HTTPException(404, '附件不属于当前项目')
+        links = db.query(ChatProjectMessage).join(ChatProjectMessageAttachment,
+            ChatProjectMessageAttachment.message_id == ChatProjectMessage.id).filter(ChatProjectMessageAttachment.attachment_id == attachment_id).all()
+        if links and not any(row.annotation_project_id == project_id and not row.recalled_at for row in links):
+            raise HTTPException(404, '附件不属于当前项目')
+        from chat_attachment_storage import remote_attachment_url, read_remote_attachment
+        remote_url = remote_attachment_url()
+        if remote_url:
+            return None
+        path = get_chat_upload_dir() / attachment.storage_name
+        if not path.is_file():
+            raise HTTPException(404, '文件不存在')
+        return FileResponse(path, filename=attachment.original_name, media_type=attachment.content_type,
+                            headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
+    result = await run_in_threadpool(prepare)
+    if isinstance(result, tuple):
         from annotation_task_images import download_chat_image
-        return await download_chat_image(db,project_id,attachment.storage_name,request)
-    if attachment.annotation_project_id and attachment.annotation_project_id != project_id:
-        raise HTTPException(404, '附件不属于当前项目')
-    links = db.query(ChatProjectMessage).join(ChatProjectMessageAttachment,
-        ChatProjectMessageAttachment.message_id == ChatProjectMessage.id).filter(ChatProjectMessageAttachment.attachment_id == attachment_id).all()
-    if links and not any(row.annotation_project_id == project_id and not row.recalled_at for row in links):
-        raise HTTPException(404, '附件不属于当前项目')
+        return await download_chat_image(db, project_id, result[1], request)
     from chat_attachment_storage import remote_attachment_url, read_remote_attachment
     remote_url = remote_attachment_url()
-    if remote_url:
+    if result is None:
         return await read_remote_attachment(remote_url, attachment_id, request.headers.get('authorization'),
             request.headers.get('x-chat-attachment-forwarded'), allow_files=True)
-    path = get_chat_upload_dir() / attachment.storage_name
-    if not path.is_file():
-        raise HTTPException(404, '文件不存在')
-    return FileResponse(path, filename=attachment.original_name, media_type=attachment.content_type,
-                        headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
+    return result

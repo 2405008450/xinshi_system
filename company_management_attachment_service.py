@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from uuid import UUID, uuid4
 
+from starlette.concurrency import run_in_threadpool
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.orm import Session, joinedload
 
@@ -62,46 +63,52 @@ def list_attachments(db: Session, section_id: UUID) -> list[dict]:
 async def save_attachment(db: Session, section_id: UUID, upload: UploadFile, user_id: UUID) -> dict:
     destination = None
     try:
-        # 所有栏目附件写操作先锁父记录，串行检查容量并防止与软删除竞态。
-        require_section(db, section_id, lock=True)
-        count = db.query(CompanyManagementAttachment).filter(
-            CompanyManagementAttachment.section_id == section_id,
-            CompanyManagementAttachment.is_inline_image.is_(False),
-        ).count()
-        if count >= MAX_FILES_PER_SECTION:
-            raise HTTPException(status_code=400, detail="每个栏目最多上传50个附件")
-        original_name = (upload.filename or "").replace(chr(92), "/").rsplit("/", 1)[-1]
-        if not original_name or len(original_name) > 255 or any(ord(c) < 32 for c in original_name):
-            raise HTTPException(status_code=400, detail="附件文件名无效或超过255字符")
-        extension = Path(original_name).suffix.lower()
-        if extension not in ALLOWED_EXTENSIONS:
-            raise HTTPException(status_code=400, detail="不支持的附件格式")
-        storage_name = uuid4().hex + extension
-        destination = attachment_path(storage_name)
-        destination.parent.mkdir(parents=True, exist_ok=True)
+        def prepare():
+            # 所有栏目附件写操作先锁父记录，串行检查容量并防止与软删除竞态。
+            require_section(db, section_id, lock=True)
+            count = db.query(CompanyManagementAttachment).filter(
+                CompanyManagementAttachment.section_id == section_id,
+                CompanyManagementAttachment.is_inline_image.is_(False),
+            ).count()
+            if count >= MAX_FILES_PER_SECTION:
+                raise HTTPException(status_code=400, detail="每个栏目最多上传50个附件")
+            original_name = (upload.filename or "").replace(chr(92), "/").rsplit("/", 1)[-1]
+            if not original_name or len(original_name) > 255 or any(ord(c) < 32 for c in original_name):
+                raise HTTPException(status_code=400, detail="附件文件名无效或超过255字符")
+            extension = Path(original_name).suffix.lower()
+            if extension not in ALLOWED_EXTENSIONS:
+                raise HTTPException(status_code=400, detail="不支持的附件格式")
+            storage_name = uuid4().hex + extension
+            destination = attachment_path(storage_name)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            return destination, original_name, storage_name
+        destination, original_name, storage_name = await run_in_threadpool(prepare)
         written = 0
-        with destination.open("xb") as output:
+        import anyio
+        async with await anyio.open_file(destination, "xb") as output:
             while chunk := await upload.read(1024 * 1024):
                 written += len(chunk)
                 if written > MAX_FILE_BYTES:
                     raise HTTPException(status_code=413, detail="单个附件不能超过20MB")
-                output.write(chunk)
+                await output.write(chunk)
         if not written:
             raise HTTPException(status_code=400, detail="不能上传空文件")
-        row = CompanyManagementAttachment(
-            section_id=section_id, original_name=original_name, storage_name=storage_name,
-            content_type=(upload.content_type or "application/octet-stream")[:255],
-            file_size=written, uploaded_by=user_id,
-        )
-        db.add(row)
-        db.flush()
-        result = serialize_attachment(row)
-        db.commit()
-        return result
+        def persist():
+            row = CompanyManagementAttachment(
+                section_id=section_id, original_name=original_name, storage_name=storage_name,
+                content_type=(upload.content_type or "application/octet-stream")[:255],
+                file_size=written, uploaded_by=user_id,
+            )
+            db.add(row)
+            db.flush()
+            result = serialize_attachment(row)
+            db.commit()
+            return result
+        return await run_in_threadpool(persist)
     except BaseException:
-        db.rollback()
+        await run_in_threadpool(db.rollback)
         if destination is not None:
-            destination.unlink(missing_ok=True)
+            await run_in_threadpool(destination.unlink, missing_ok=True)
         raise
     finally:
         await upload.close()

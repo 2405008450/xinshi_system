@@ -1,3 +1,5 @@
+
+from starlette.concurrency import run_in_threadpool
 import os
 import uuid
 from datetime import datetime
@@ -434,14 +436,16 @@ async def upload_attachment_endpoint(
 
     if retention=='chat':
         import editor_screenshot_service
-        if editor_screenshot_service.ready(db):
+        if await run_in_threadpool(editor_screenshot_service.ready, db):
             from chat_screenshot_storage import save_attachment
-            attachment=save_attachment(db,current_user,content,file.filename)
-            return ProjectChatAttachmentResponse(id=attachment.id,original_name=attachment.original_name,content_type=attachment.content_type,file_size=attachment.file_size,created_at=attachment.created_at)
+            def save_screenshot():
+                attachment=save_attachment(db,current_user,content,file.filename)
+                return ProjectChatAttachmentResponse(id=attachment.id,original_name=attachment.original_name,content_type=attachment.content_type,file_size=attachment.file_size,created_at=attachment.created_at)
+            return await run_in_threadpool(save_screenshot)
 
     if retention == 'chat':
         try:
-            content, content_type = normalize_chat_image(content, content_type)
+            content, content_type = await run_in_threadpool(normalize_chat_image, content, content_type)
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
         file.filename = str(Path(file.filename or 'image').with_suffix(IMAGE_EXTENSIONS[content_type]))
@@ -451,31 +455,33 @@ async def upload_attachment_endpoint(
             request.headers.get('authorization'), request.headers.get('x-chat-attachment-forwarded'), retention=retention,
         )
 
-    storage_name = f'{uuid.uuid4().hex}{IMAGE_EXTENSIONS[content_type]}'
-    destination = get_chat_upload_dir() / storage_name
-    destination.write_bytes(content)
-    attachment = ChatProjectAttachment(
-        uploaded_by=current_user.id,
-        original_name=(file.filename or 'image')[:255],
-        storage_name=storage_name,
-        content_type=content_type,
-        file_size=len(content),
-    )
-    db.add(attachment)
-    try:
-        db.commit()
-        db.refresh(attachment)
-    except Exception:
-        db.rollback()
-        destination.unlink(missing_ok=True)
-        raise
-    return ProjectChatAttachmentResponse(
-        id=attachment.id,
-        original_name=attachment.original_name,
-        content_type=attachment.content_type,
-        file_size=attachment.file_size,
-        created_at=attachment.created_at,
-    )
+    def persist():
+        storage_name = f'{uuid.uuid4().hex}{IMAGE_EXTENSIONS[content_type]}'
+        destination = get_chat_upload_dir() / storage_name
+        destination.write_bytes(content)
+        attachment = ChatProjectAttachment(
+            uploaded_by=current_user.id,
+            original_name=(file.filename or 'image')[:255],
+            storage_name=storage_name,
+            content_type=content_type,
+            file_size=len(content),
+        )
+        db.add(attachment)
+        try:
+            db.commit()
+            db.refresh(attachment)
+        except Exception:
+            db.rollback()
+            destination.unlink(missing_ok=True)
+            raise
+        return ProjectChatAttachmentResponse(
+            id=attachment.id,
+            original_name=attachment.original_name,
+            content_type=attachment.content_type,
+            file_size=attachment.file_size,
+            created_at=attachment.created_at,
+        )
+    return await run_in_threadpool(persist)
 
 
 @router.get('/attachments/{attachment_id}')
@@ -485,22 +491,29 @@ async def read_attachment_endpoint(
     db: Session = Depends(get_db),
     current_user: AppUser = Depends(get_current_user),
 ):
-    from annotation_chat_service import authorize_attachment
-    attachment = authorize_attachment(db, attachment_id, current_user)
-    from chat_screenshot_storage import read_attachment
-    stored=read_attachment(db,attachment)
-    if stored is not None:return stored
+    def prepare():
+        from annotation_chat_service import authorize_attachment
+        attachment = authorize_attachment(db, attachment_id, current_user)
+        from chat_screenshot_storage import read_attachment
+        stored=read_attachment(db,attachment)
+        if stored is not None:return stored
+        remote_url = remote_attachment_url()
+        if remote_url:
+            return None
+        path = get_chat_upload_dir() / attachment.storage_name
+        if not path.is_file():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='图片文件不存在')
+        return FileResponse(path, media_type=attachment.content_type, filename=attachment.original_name,
+                            headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
+    result = await run_in_threadpool(prepare)
+    from chat_attachment_storage import remote_attachment_url, read_remote_attachment
     remote_url = remote_attachment_url()
-    if remote_url:
+    if result is None:
         return await read_remote_attachment(
             remote_url, attachment_id,
             request.headers.get('authorization'), request.headers.get('x-chat-attachment-forwarded'), allow_files=True,
         )
-    path = get_chat_upload_dir() / attachment.storage_name
-    if not path.is_file():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='图片文件不存在')
-    return FileResponse(path, media_type=attachment.content_type, filename=attachment.original_name,
-                        headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
+    return result
 
 
 @router.get('/{project_id}/settings', response_model=ProjectChatSettingsResponse)

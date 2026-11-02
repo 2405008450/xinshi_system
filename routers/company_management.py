@@ -183,14 +183,16 @@ async def download_attachment(section_id: UUID, attachment_id: UUID, request: Re
     origin = attachment_remote_origin()
     if origin:
         return await forward_attachment_download(origin, request, f"/sections/{section_id}/attachments/{attachment_id}")
-    row = get_attachment(db, section_id, attachment_id)
-    path = attachment_path(row.storage_name)
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="附件文件不存在")
-    return FileResponse(
-        path, filename=row.original_name, media_type="application/octet-stream",
-        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"},
-    )
+    def work():
+        row = get_attachment(db, section_id, attachment_id)
+        path = attachment_path(row.storage_name)
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="附件文件不存在")
+        return FileResponse(
+            path, filename=row.original_name, media_type="application/octet-stream",
+            headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"},
+        )
+    return await run_in_threadpool(work)
 
 
 @router.delete("/sections/{section_id}/attachments/{attachment_id}", status_code=204)
@@ -199,7 +201,7 @@ async def remove_attachment(section_id: UUID, attachment_id: UUID, request: Requ
     if origin:
         await forward_attachment_delete(origin, request, f"/sections/{section_id}/attachments/{attachment_id}")
         return
-    delete_attachment(db, section_id, attachment_id)
+    await run_in_threadpool(delete_attachment, db, section_id, attachment_id)
 
 
 class CompanyImageResponse(CompanyAttachmentResponse):
@@ -222,13 +224,15 @@ async def read_content_image(section_id: UUID, image_id: UUID, request: Request,
     origin = remote_origin()
     if origin:
         return await forward_image(origin, request, f"/sections/{section_id}/images/{image_id}")
-    row = await run_in_threadpool(get_image, db, section_id, image_id)
-    path = attachment_path(row.storage_name)
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="正文图片文件不存在")
-    return FileResponse(path, media_type=row.content_type, headers={
-        "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store",
-    })
+    def work():
+        row = get_image(db, section_id, image_id)
+        path = attachment_path(row.storage_name)
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="正文图片文件不存在")
+        return FileResponse(path, media_type=row.content_type, headers={
+            "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store",
+        })
+    return await run_in_threadpool(work)
 
 
 @router.delete("/sections/{section_id}/images/{image_id}", status_code=204)

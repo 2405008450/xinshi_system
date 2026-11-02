@@ -83,7 +83,7 @@
     <template v-if="canResource">
     <DevelopmentStatusRecordsDialog ref="statusRecordsRef" :options="options" @edit="openEditor" @saved="recordSaved" />
     <DevelopmentRecordEditor ref="editorRef" :options="options" @saved="recordSaved" @language-created="languageCreated" @custom-field-created="customFieldCreated" />
-    <DevelopmentBatchEntryDialog ref="batchEditorRef" :options="options" @saved="recordSaved" @language-created="languageCreated" @custom-field-created="customFieldCreated" />
+    <DevelopmentBatchEntryDialog ref="batchEditorRef" :options="options" @saved="batchRecordsSaved" @language-created="languageCreated" @custom-field-created="customFieldCreated" />
     <DevelopmentImportPreview ref="importPreviewRef" />
     <DevelopmentWorkEditor ref="workRef" :options="options" @saved="reload" />
     <DevelopmentSettings ref="settingsRef" :options="options" @saved="loadOptions" />
@@ -203,6 +203,18 @@ function recordSizeChanged() { recordPage.value = 1; recordPageChanged() }
 function daySizeChanged() { dayPage.value = 1; dayPageChanged() }
 function dayPageChanged() { activeDay.value = ''; reload() }
 async function recordSaved() { await loadOptions(); await Promise.all([reload(), statusRecordsRef.value?.reload()]) }
+async function batchRecordsSaved(records) {
+  const dates = [...new Set(records.map(record => record.work_date))].sort()
+  if (!dates.length) return
+  // 新增后直接显示成功记录的业务日期，避免旧筛选、日期分页或记录分页隐藏新记录。
+  resetFilters()
+  filters.range = [dates[0], dates[dates.length - 1]]
+  activeDay.value = dates[dates.length - 1]
+  dayPage.value = 1
+  recordPage.value = 1
+  try { await recordSaved() }
+  catch (error) { ElMessage.error(`记录已保存，列表刷新失败：${error.message || '请重新查询'}`) }
+}
 async function openEditor(row, channel, status) { try { await loadOptions(); await editorRef.value.open(row, channel, status) } catch (e) { ElMessage.error(e.message) } }
 async function openWork(day, owner) { try { await workRef.value.open(day, owner) } catch (e) { ElMessage.error(e.message) } }
 const chineseDate = value => value ? new Date(`${String(value).slice(0,10)}T00:00:00`).toLocaleDateString('zh-CN') : '-'

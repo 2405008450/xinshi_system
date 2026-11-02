@@ -283,12 +283,17 @@ def save_record(db, user, payload, *, historical_markers=None, defer_refresh=Fal
     lock_writes(db)
     require_daily_editor(user)
     row = db.get(Record, payload.id)
+    if row and payload.revision == 0:
+        # 恢复旧草稿可能带回已使用的 UUID；内容不同不能当作创建重试成功。
+        if row.created_by != user.id or any(
+            getattr(row, key) != getattr(payload, key)
+            for key in ("platform_id", "work_date", "owner_id", "full_name")
+        ):
+            raise HTTPException(409, {"code": "creation_id_conflict", "message": "草稿标识已被其他记录使用，请重新生成录入标识后保存；填写内容已保留"})
+        return row
     restricted = row is not None and not owns(db, user, row.owner_id)
     payload = protect_restricted_record(db, user, payload, row)
     if row:
-        # 客户端 UUID 作为创建幂等键，响应丢失后重试不重复写历史或建档。
-        if payload.revision == 0:
-            return row
         check_revision(row, payload.revision)
         if "follow_up" in payload.model_fields_set and payload.follow_up != row.follow_up:
             raise HTTPException(422, "历史跟进原文不能修改，请新增跟进情况")

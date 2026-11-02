@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from sqlalchemy.orm import Session
 from database import engine
 from annotation_material_service import cleanup, storage_mode
+from performance_monitoring import monitor_event_loop
 
 
 def cleanup_once():
@@ -31,9 +32,11 @@ async def material_lifespan(app):
                 pass
 
     task = asyncio.create_task(worker())
+    monitor = asyncio.create_task(monitor_event_loop(stop))
     try:
         yield
     finally:
         stop.set()
         if task:
             await task
+        await monitor

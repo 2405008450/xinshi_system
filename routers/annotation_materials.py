@@ -1,4 +1,5 @@
 """项目资料接口，复用标注项目模块权限，不授予聊天访问者写资料权限。"""
+from starlette.concurrency import run_in_threadpool
 import hashlib
 import os
 import uuid
@@ -56,18 +57,20 @@ async def upload_material(request: Request, file: UploadFile = File(...), origin
         raise HTTPException(413, '文件不能为空或超过100MB限制')
     if origin:
         result = await forward_upload(origin, request, file)
-        # 转发双方必须使用相同的业务数据库；绝不复制另一套元数据。
-        try:
-            row = db.get(Upload, UUID(result['id']))
-        except (ValueError, KeyError, TypeError):
-            row = None
-        if row is None or row.uploaded_by != user.id:
-            raise HTTPException(502, '云端资料记录不可见，请检查两端是否使用同一业务数据库')
-        return serialize_upload(row)
+        def verify_forwarded():
+            # 转发双方必须使用相同的业务数据库；绝不复制另一套元数据。
+            try:
+                row = db.get(Upload, UUID(result['id']))
+            except (ValueError, KeyError, TypeError):
+                row = None
+            if row is None or row.uploaded_by != user.id:
+                raise HTTPException(502, '云端资料记录不可见，请检查两端是否使用同一业务数据库')
+            return serialize_upload(row)
+        return await run_in_threadpool(verify_forwarded)
     name = (original_name or file.filename or 'file').replace('\\', '/').split('/')[-1]
     name = ''.join(char for char in name if ord(char) >= 32)[:255] or 'file'
     key = uuid.uuid4().hex
-    path = storage_path(key)
+    path = await run_in_threadpool(storage_path, key)
     digest = hashlib.sha256()
     size = 0
     committed = False
@@ -85,18 +88,21 @@ async def upload_material(request: Request, file: UploadFile = File(...), origin
                 await destination.write(chunk)
         if not size:
             raise HTTPException(413, '不能上传空文件')
-        row = Upload(uploaded_by=user.id, uploader_name=getattr(user, 'full_name', None) or getattr(user, 'username', None) or str(user.id),
-                     original_name=name, storage_key=key, file_size=size, content_type='application/octet-stream',
-                     sha256=digest.hexdigest(), expires_at=datetime.utcnow() + timedelta(hours=24))
-        db.add(row)
-        db.commit()
-        committed = True
-        db.refresh(row)
-        return serialize_upload(row)
+        def persist():
+            nonlocal committed
+            row = Upload(uploaded_by=user.id, uploader_name=getattr(user, 'full_name', None) or getattr(user, 'username', None) or str(user.id),
+                         original_name=name, storage_key=key, file_size=size, content_type='application/octet-stream',
+                         sha256=digest.hexdigest(), expires_at=datetime.utcnow() + timedelta(hours=24))
+            db.add(row)
+            db.commit()
+            committed = True
+            db.refresh(row)
+            return serialize_upload(row)
+        return await run_in_threadpool(persist)
     except BaseException:
-        db.rollback()
+        await run_in_threadpool(db.rollback)
         if created and not committed:
-            path.unlink(missing_ok=True)
+            await run_in_threadpool(path.unlink, missing_ok=True)
         raise
     finally:
         await file.close()
@@ -108,17 +114,19 @@ async def cancel_upload(upload_id: UUID, request: Request, db: Session = Depends
     if origin:
         await forward_delete(origin, request, upload_id)
         return Response(status_code=204)
-    row = db.query(Upload).filter_by(id=upload_id).with_for_update().populate_existing().first()
-    if row is None:
+    def work():
+        row = db.query(Upload).filter_by(id=upload_id).with_for_update().populate_existing().first()
+        if row is None:
+            return Response(status_code=204)
+        if row.uploaded_by != user.id:
+            raise HTTPException(403, '不能取消其他用户上传的资料')
+        if row.consumed_at:
+            # 保存与关闭弹窗相邻时，取消操作不能删除已保存的资料。
+            return Response(status_code=204)
+        queue_upload_deletion(db, row)
+        db.commit()
         return Response(status_code=204)
-    if row.uploaded_by != user.id:
-        raise HTTPException(403, '不能取消其他用户上传的资料')
-    if row.consumed_at:
-        # 保存与关闭弹窗相邻时，取消操作不能删除已保存的资料。
-        return Response(status_code=204)
-    queue_upload_deletion(db, row)
-    db.commit()
-    return Response(status_code=204)
+    return await run_in_threadpool(work)
 
 
 @legacy_router.get('/{project_id}/materials')
@@ -149,19 +157,24 @@ def list_versions(project_id: UUID, file_id: UUID, db: Session = Depends(get_db)
 
 @legacy_router.get('/{project_id}/materials/{file_id}/versions/{version_id}/download')
 async def download(project_id: UUID, file_id: UUID, version_id: UUID, request: Request, db: Session = Depends(get_db)):
-    require_project(db, project_id)
-    upload = db.query(Upload).join(Version, Version.upload_id == Upload.id).join(Material, Material.id == Version.file_id).filter(
-        Material.project_id == project_id, Material.id == file_id, Material.deleted_at.is_(None), Version.id == version_id).first()
-    if upload is None:
-        raise HTTPException(404, '资料版本不存在或不属于当前项目')
-    origin = remote_origin()
-    if origin:
-        return await forward_download(origin, request, project_id, file_id, version_id)
-    path = storage_path(upload.storage_key)
-    if not path.is_file():
-        raise HTTPException(404, '资料文件缺失，请联系管理员')
-    return FileResponse(path, filename=upload.original_name, media_type='application/octet-stream',
-                        headers={'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff'})
+    def work():
+        require_project(db, project_id)
+        upload = db.query(Upload).join(Version, Version.upload_id == Upload.id).join(Material, Material.id == Version.file_id).filter(
+            Material.project_id == project_id, Material.id == file_id, Material.deleted_at.is_(None), Version.id == version_id).first()
+        if upload is None:
+            raise HTTPException(404, '资料版本不存在或不属于当前项目')
+        origin = remote_origin()
+        if origin:
+            return None
+        path = storage_path(upload.storage_key)
+        if not path.is_file():
+            raise HTTPException(404, '资料文件缺失，请联系管理员')
+        return FileResponse(path, filename=upload.original_name, media_type='application/octet-stream',
+                            headers={'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff'})
+    result = await run_in_threadpool(work)
+    if result is None:
+        return await forward_download(remote_origin(), request, project_id, file_id, version_id)
+    return result
 
 
 @legacy_router.post('/{project_id}/materials/online-files', status_code=201, dependencies=[Depends(require_permission('projects:write'))])
@@ -221,14 +234,16 @@ async def trash_material(project_id: UUID, file_id: UUID, request: Request, db: 
     origin = remote_origin()
     if origin:
         return await forward_material_operation(origin, request, f'{project_id}/materials/{file_id}/trash')
-    try:
-        material = trash_service.lock_file(db, project_id, file_id)
-        trash_service.trash_file(db, material, user.id, user.full_name or user.username)
-        db.commit()
-        return dict(file_id=material.id, trash_token=material.trash_token, deleted_at=trash_service.business_iso(material.deleted_at))
-    except ValueError as exc:
-        db.rollback()
-        raise HTTPException(409, str(exc)) from exc
+    def work():
+        try:
+            material = trash_service.lock_file(db, project_id, file_id)
+            trash_service.trash_file(db, material, user.id, user.full_name or user.username)
+            db.commit()
+            return dict(file_id=material.id, trash_token=material.trash_token, deleted_at=trash_service.business_iso(material.deleted_at))
+        except ValueError as exc:
+            db.rollback()
+            raise HTTPException(409, str(exc)) from exc
+    return await run_in_threadpool(work)
 
 
 @router.get('/{project_id}/material-trash', dependencies=[Depends(require_permission('projects:write'))])
@@ -237,8 +252,10 @@ async def list_trash(project_id: UUID, request: Request, keyword: str = Query(''
     origin = remote_origin()
     if origin:
         return await forward_material_operation(origin, request, f'{project_id}/material-trash', params=dict(keyword=keyword, page=page, limit=limit))
-    require_project(db, project_id)
-    return trash_service.catalog(db, project_id, keyword, page, limit)
+    def work():
+        require_project(db, project_id)
+        return trash_service.catalog(db, project_id, keyword, page, limit)
+    return await run_in_threadpool(work)
 
 
 @router.post('/{project_id}/materials/{file_id}/restore', dependencies=[Depends(require_permission('projects:write'))])
@@ -246,10 +263,12 @@ async def restore_material(project_id: UUID, file_id: UUID, payload: TrashToken,
     origin = remote_origin()
     if origin:
         return await forward_material_operation(origin, request, f'{project_id}/materials/{file_id}/restore', payload=payload.model_dump(mode='json'))
-    material = trash_service.lock_file(db, project_id, file_id)
-    trash_service.restore_file(db, material, payload.trash_token, user.id)
-    db.commit()
-    return dict(file_id=material.id, restored=True)
+    def work():
+        material = trash_service.lock_file(db, project_id, file_id)
+        trash_service.restore_file(db, material, payload.trash_token, user.id)
+        db.commit()
+        return dict(file_id=material.id, restored=True)
+    return await run_in_threadpool(work)
 
 
 @router.delete('/{project_id}/material-trash/{file_id}', status_code=204)
@@ -258,12 +277,14 @@ async def purge_material(project_id: UUID, file_id: UUID, payload: TrashToken, r
     if origin:
         await forward_material_operation(origin, request, f'{project_id}/material-trash/{file_id}', payload=payload.model_dump(mode='json'))
         return Response(status_code=204)
-    try:
-        material = trash_service.lock_file(db, project_id, file_id, missing_ok=True)
-        if material:
-            trash_service.purge_file(db, material, payload.trash_token, user.id)
-        db.commit()
-        return Response(status_code=204)
-    except ValueError as exc:
-        db.rollback()
-        raise HTTPException(409, str(exc)) from exc
+    def work():
+        try:
+            material = trash_service.lock_file(db, project_id, file_id, missing_ok=True)
+            if material:
+                trash_service.purge_file(db, material, payload.trash_token, user.id)
+            db.commit()
+            return Response(status_code=204)
+        except ValueError as exc:
+            db.rollback()
+            raise HTTPException(409, str(exc)) from exc
+    return await run_in_threadpool(work)

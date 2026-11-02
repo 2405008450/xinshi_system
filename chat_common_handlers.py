@@ -1,4 +1,6 @@
 """群聊与私聊共用稳定时间线与文件校验上传。"""
+from starlette.concurrency import run_in_threadpool
+
 from search_matching import keyword_ilike
 import uuid
 import os
@@ -58,7 +60,7 @@ from chat_file_types import FILE_TYPES, MEDIA_TYPES, MEDIA_MAX_BYTES, FILE_HINT,
 
 async def upload_chat_file(service, scope, project_id: UUID, request: Request, file: UploadFile = File(...), db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     from routers.project_chat import get_chat_upload_dir, IMAGE_SIGNATURES, IMAGE_EXTENSIONS
-    service.require_project(db, project_id, user)
+    await run_in_threadpool(service.require_project, db, project_id, user)
     if os.getenv('CHAT_UPLOADS_PAUSED', 'false').strip().lower() == 'true':
         raise HTTPException(503, '附件上传维护中，请稍后重试')
     suffix = Path(file.filename or '').suffix.lower()
@@ -84,15 +86,17 @@ async def upload_chat_file(service, scope, project_id: UUID, request: Request, f
         raise HTTPException(415, '文本文件格式无效')
     if is_image:
         import editor_screenshot_service
-        if editor_screenshot_service.ready(db):
+        if await run_in_threadpool(editor_screenshot_service.ready, db):
             from chat_screenshot_storage import save_attachment
             from chat_time import api_time
-            row=save_attachment(db,user,content,file.filename,scope=scope,project_id=project_id)
-            return {'id':row.id,'original_name':row.original_name,'content_type':row.content_type,'file_size':row.file_size,'created_at':api_time(row.created_at)}
+            def save_screenshot():
+                row=save_attachment(db,user,content,file.filename,scope=scope,project_id=project_id)
+                return {'id':row.id,'original_name':row.original_name,'content_type':row.content_type,'file_size':row.file_size,'created_at':api_time(row.created_at)}
+            return await run_in_threadpool(save_screenshot)
     if is_image:
         from chat_image_policy import normalize_chat_image
         try:
-            content, content_type = normalize_chat_image(content, content_type)
+            content, content_type = await run_in_threadpool(normalize_chat_image, content, content_type)
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
         suffix = IMAGE_EXTENSIONS[content_type]
@@ -111,27 +115,31 @@ async def upload_chat_file(service, scope, project_id: UUID, request: Request, f
             target = remote_url.removesuffix('/attachments') + f'/{scope}/{project_id}/files'
         result = await upload_remote_attachment(target, content, file.filename, content_type,
             request.headers.get('authorization'), request.headers.get('x-chat-attachment-forwarded'), **({'retention': 'chat'} if is_image else {}))
-        attachment = db.get(ChatProjectAttachment, result.id, populate_existing=True)
-        if attachment is None or attachment.uploaded_by != user.id:
-            raise HTTPException(502, '云端附件记录尚未同步，请稍后重试')
-        if scope in {'annotation', 'direct'}:
-            setattr(attachment, 'direct_conversation_id' if scope == 'direct' else 'annotation_project_id', project_id)
-        db.commit()
-        return result
-    name = (f'discussion_{project_id.hex}_' if scope == 'discussion' else '') + uuid.uuid4().hex + suffix
-    destination = get_chat_upload_dir() / name
-    destination.write_bytes(content)
-    binding = {('direct_conversation_id' if scope == 'direct' else 'annotation_project_id'): project_id} if scope in {'direct', 'annotation'} else {}
-    attachment = ChatProjectAttachment(uploaded_by=user.id, **binding, original_name=Path(file.filename).name[:255],
-        storage_name=name, content_type=content_type, file_size=len(content))
-    db.add(attachment)
-    try:
-        db.commit()
-        db.refresh(attachment)
-    except Exception:
-        db.rollback()
-        destination.unlink(missing_ok=True)
-        raise
-    from chat_time import api_time
-    return {'id': attachment.id, 'original_name': attachment.original_name, 'content_type': content_type,
-            'file_size': len(content), 'created_at': api_time(attachment.created_at)}
+        def verify_forwarded():
+            attachment = db.get(ChatProjectAttachment, result.id, populate_existing=True)
+            if attachment is None or attachment.uploaded_by != user.id:
+                raise HTTPException(502, '云端附件记录尚未同步，请稍后重试')
+            if scope in {'annotation', 'direct'}:
+                setattr(attachment, 'direct_conversation_id' if scope == 'direct' else 'annotation_project_id', project_id)
+            db.commit()
+            return result
+        return await run_in_threadpool(verify_forwarded)
+    def persist():
+        name = (f'discussion_{project_id.hex}_' if scope == 'discussion' else '') + uuid.uuid4().hex + suffix
+        destination = get_chat_upload_dir() / name
+        destination.write_bytes(content)
+        binding = {('direct_conversation_id' if scope == 'direct' else 'annotation_project_id'): project_id} if scope in {'direct', 'annotation'} else {}
+        attachment = ChatProjectAttachment(uploaded_by=user.id, **binding, original_name=Path(file.filename).name[:255],
+            storage_name=name, content_type=content_type, file_size=len(content))
+        db.add(attachment)
+        try:
+            db.commit()
+            db.refresh(attachment)
+        except Exception:
+            db.rollback()
+            destination.unlink(missing_ok=True)
+            raise
+        from chat_time import api_time
+        return {'id': attachment.id, 'original_name': attachment.original_name, 'content_type': content_type,
+                'file_size': len(content), 'created_at': api_time(attachment.created_at)}
+    return await run_in_threadpool(persist)

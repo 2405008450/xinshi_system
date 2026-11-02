@@ -9,7 +9,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def run():
+def run(test_args=None):
     if socket.gethostname().upper() != 'PC' or str(ROOT).lower() != r'e:\xinshi_system':
         raise SystemExit('仅允许在本机隔离验证目录运行')
     pg_root = Path(r'C:\Program Files\PostgreSQL')
@@ -41,11 +41,19 @@ def run():
     command(pg_bin / 'initdb.exe', '-D', data, '-U', 'material_test', '--auth=trust', '--encoding=UTF8', '--locale=C')
     command(pg_bin / 'pg_ctl.exe', '-D', data, '-l', data / 'server.log', '-o', f'-h 127.0.0.1 -p {port}', '-w', 'start')
     try:
+        command(pg_bin / 'psql.exe', '-h', '127.0.0.1', '-p', str(port), '-U', 'material_test',
+                '-d', 'postgres', '-c', 'CREATE ROLE chat_test LOGIN SUPERUSER')
         environment = {**os.environ, 'DATABASE_URL': 'sqlite://',
                        'SECRET_KEY': 'isolated-material-test-signing-key-not-for-production', 'PYTHONIOENCODING': 'utf-8',
+                       'LOCAL_SCHEMA_MIGRATIONS_ENABLED': 'false',
+                       'COMPANY_MANAGEMENT_ATTACHMENT_STORAGE_MODE': 'local',
+                       'COMPANY_MANAGEMENT_IMAGE_STORAGE_MODE': 'local',
+                       'MATERIAL_TEST_DATABASE_URL': f'postgresql+psycopg2://material_test@127.0.0.1:{port}/postgres',
+                       'CHAT_TEST_DATABASE_URL': f'postgresql+psycopg2://chat_test@127.0.0.1:{port}/postgres',
                        'COMPANY_TEST_DATABASE_URL': f'postgresql+psycopg2://material_test@127.0.0.1:{port}/postgres'}
+        test_args = test_args or ['tests/test_company_management.py', 'tests/test_company_management_images.py', 'tests/test_company_management_image_storage.py', 'tests/test_annotation_notices.py']
         with (ROOT / 'company-management-postgres-results.log').open('w', encoding='utf-8') as output:
-            result = subprocess.run([r'E:\xinshi_system\.venv\Scripts\python.exe', '-m', 'pytest', 'tests/test_company_management.py', 'tests/test_company_management_images.py', 'tests/test_company_management_image_storage.py', 'tests/test_annotation_notices.py', '-q', '--disable-warnings', '--maxfail=3'], cwd=ROOT, env=environment, stdout=output, stderr=subprocess.STDOUT)
+            result = subprocess.run([r'E:\xinshi_system\.venv\Scripts\python.exe', '-m', 'pytest', '-q', '--disable-warnings', '--maxfail=3', *test_args], cwd=ROOT, env=environment, stdout=output, stderr=subprocess.STDOUT)
         print((ROOT / 'company-management-postgres-results.log').read_text(encoding='utf-8'))
         return result.returncode
     finally:
@@ -53,4 +61,4 @@ def run():
 
 
 if __name__ == '__main__':
-    sys.exit(run())
+    sys.exit(run(sys.argv[1:]))

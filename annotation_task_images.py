@@ -1,4 +1,6 @@
 """具体任务截图复用项目资料暂存、授权下载和生命周期。"""
+from starlette.concurrency import run_in_threadpool
+
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 from fastapi import HTTPException
@@ -52,6 +54,8 @@ async def download_chat_image(db, project_id, storage_name, request):
     from routers.annotation_materials import download
     try:uid=UUID(storage_name.split(':')[1])
     except (ValueError,IndexError):raise HTTPException(404,'任务截图不存在')
-    linked=db.query(Material.id,Version.id).join(Version,Version.file_id==Material.id).filter(Material.project_id==project_id,Version.upload_id==uid).first()
+    def locate():
+        return db.query(Material.id,Version.id).join(Version,Version.file_id==Material.id).filter(Material.project_id==project_id,Version.upload_id==uid).first()
+    linked = await run_in_threadpool(locate)
     if not linked:raise HTTPException(404,'任务截图不属于当前订单')
     return await download(project_id,linked[0],linked[1],request,db)

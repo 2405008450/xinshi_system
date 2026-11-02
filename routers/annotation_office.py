@@ -1,4 +1,5 @@
 """浏览器控制接口与文档服务器签名接口分离。"""
+from starlette.concurrency import run_in_threadpool
 from uuid import UUID
 import logging
 import re
@@ -70,9 +71,11 @@ async def open_session(project_id: UUID, payload: OpenOffice, request: Request,
     forwarded = await forward(request)
     if forwarded is not None:
         return forwarded
-    session = office.create_session(db, project_id, user, payload.file_id, payload.name, payload.folder_id)
-    response.headers['Cache-Control'] = 'no-store'
-    return office.describe(db, session, config=True)
+    def work():
+        session = office.create_session(db, project_id, user, payload.file_id, payload.name, payload.folder_id)
+        response.headers['Cache-Control'] = 'no-store'
+        return office.describe(db, session, config=True)
+    return await run_in_threadpool(work)
 
 
 @browser.get('/office/sessions/{session_id}')
@@ -81,15 +84,17 @@ async def status(session_id: UUID, request: Request, response: Response,
     forwarded = await forward(request)
     if forwarded is not None:
         return forwarded
-    session = office.owned_session(db, session_id, user, lock=True)
-    task = db.get(office.OfficeSave, session.active_save_id) if session.active_save_id else None
-    if task and task.state in ('pending', 'pending_snapshot') and (office.now() - office.aware(task.created_at)).total_seconds() > 60:
-        task.state, task.error = 'failed', 'Office 保存回调超时，请重试'
-        if session.state == 'saving':
-            session.state = 'open'
-    db.commit()
-    response.headers['Cache-Control'] = 'no-store'
-    return office.describe(db, session)
+    def work():
+        session = office.owned_session(db, session_id, user, lock=True)
+        task = db.get(office.OfficeSave, session.active_save_id) if session.active_save_id else None
+        if task and task.state in ('pending', 'pending_snapshot') and (office.now() - office.aware(task.created_at)).total_seconds() > 60:
+            task.state, task.error = 'failed', 'Office 保存回调超时，请重试'
+            if session.state == 'saving':
+                session.state = 'open'
+        db.commit()
+        response.headers['Cache-Control'] = 'no-store'
+        return office.describe(db, session)
+    return await run_in_threadpool(work)
 
 
 @browser.post('/office/sessions/{session_id}/heartbeat')
@@ -98,15 +103,17 @@ async def heartbeat(session_id: UUID, request: Request,
     forwarded = await forward(request)
     if forwarded is not None:
         return forwarded
-    session = office.owned_session(db, session_id, user, lock=True)
-    if session.mode == 'edit':
-        office.require_access(db, user.id, write=True)
-    if session.state not in office.ACTIVE:
+    def work():
+        session = office.owned_session(db, session_id, user, lock=True)
+        if session.mode == 'edit':
+            office.require_access(db, user.id, write=True)
+        if session.state not in office.ACTIVE:
+            db.commit()
+            raise HTTPException(409, 'Office 会话已结束，请重新打开')
+        session.lease_until = office.now() + office.timedelta(seconds=office.LEASE_SECONDS)
         db.commit()
-        raise HTTPException(409, 'Office 会话已结束，请重新打开')
-    session.lease_until = office.now() + office.timedelta(seconds=office.LEASE_SECONDS)
-    db.commit()
-    return office.describe(db, session)
+        return office.describe(db, session)
+    return await run_in_threadpool(work)
 
 
 @browser.post('/office/sessions/{session_id}/save')
@@ -115,9 +122,9 @@ async def save(session_id: UUID, payload: SaveOffice, request: Request,
     forwarded = await forward(request)
     if forwarded is not None:
         return forwarded
-    session = office.owned_session(db, session_id, user, lock=True)
+    session = await run_in_threadpool(office.owned_session, db, session_id, user, lock=True)
     await office.request_save(db, session, payload.save_id, payload.revision)
-    return office.describe(db, session)
+    return await run_in_threadpool(office.describe, db, session)
 
 
 @browser.post('/office/sessions/{session_id}/discard')
@@ -126,11 +133,13 @@ async def discard(session_id: UUID, request: Request,
     forwarded = await forward(request)
     if forwarded is not None:
         return forwarded
-    session = office.owned_session(db, session_id, user, lock=True)
-    if session.state in office.ACTIVE:
-        session.state = 'discarded'
-    db.commit()
-    return office.describe(db, session)
+    def work():
+        session = office.owned_session(db, session_id, user, lock=True)
+        if session.state in office.ACTIVE:
+            session.state = 'discarded'
+        db.commit()
+        return office.describe(db, session)
+    return await run_in_threadpool(work)
 
 
 router.include_router(browser)
@@ -167,7 +176,9 @@ def source(session_id: UUID, token: str, db: Session = Depends(get_db)):
 
 @router.post('/office/sessions/{session_id}/callback')
 async def callback(session_id: UUID, token: str, request: Request, db: Session = Depends(get_db)):
-    session = server_session(db, session_id, token, 'callback')
+    def authorize():
+        return server_session(db, session_id, token, 'callback').document_key
+    document_key = await run_in_threadpool(authorize)
     body = bytearray()
     async for chunk in request.stream():
         body.extend(chunk)
@@ -186,11 +197,11 @@ async def callback(session_id: UUID, token: str, request: Request, db: Session =
             raise HTTPException(403, 'Office 回调内容与签名不一致')
     except (ValueError, AttributeError, TypeError) as exc:
         raise HTTPException(400, 'Office 回调格式错误') from exc
-    if payload.get('key') != session.document_key:
+    if payload.get('key') != document_key:
         raise HTTPException(403, 'Office 文档标识不匹配')
     try:
         await office.callback(db, session_id, payload)
     except BaseException:
-        db.rollback()
+        await run_in_threadpool(db.rollback)
         raise
     return {'error': 0}

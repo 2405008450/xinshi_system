@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from performance_monitoring import install_sqlalchemy_performance_hooks
+from performance_monitoring import install_sqlalchemy_performance_hooks, ObservedQueuePool
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
@@ -26,6 +26,7 @@ if not DATABASE_URL:
 engine_options = {"pool_pre_ping": True}
 if DATABASE_URL.startswith("postgresql"):
     engine_options.update(
+        poolclass=ObservedQueuePool,
         pool_size=int(os.getenv("DB_POOL_SIZE", "10")),
         max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "10")),
         pool_timeout=int(os.getenv("DB_POOL_TIMEOUT_SECONDS", "10")),

@@ -65,7 +65,7 @@ import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { handleTableArrowNavigation } from '@/utils/tableArrowNavigation'
 import { developmentApi as api } from '@/api/resourceDevelopment'
 import { categoryOptions, progressChannels, progressStatuses, isGroupChannel, restoreDevelopmentBatch } from '@/utils/resourceDevelopment'
-import { entryFields, newEntryRow, entryPayload, entryNeedsEnrollment, capabilityOptions } from '@/utils/developmentBatchEntry'
+import { entryFields, newEntryRow, entryPayload, entryNeedsEnrollment, capabilityOptions, saveEntryRow } from '@/utils/developmentBatchEntry'
 import DevelopmentResourceAccounts from './DevelopmentResourceAccounts.vue'
 import DevelopmentLanguageDialog from './DevelopmentLanguageDialog.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
@@ -158,6 +158,7 @@ async function save() {
   if (saving.value || !model.rows.length) return
   saving.value = true
   const savedIds = new Set()
+  const savedDates = new Map()
   try {
     // 隐藏不清空填写内容；保存时展开缺失的必填字段再统一校验、定位。
     const needed = batchFields.value.filter(field => field.required && model.rows.some(row => !String(row[field.key] || '').trim())).map(field => field.key)
@@ -173,15 +174,16 @@ async function save() {
           row._candidates = (await api.duplicates(payload)).items
           if (row._candidates.length && !row.link_person_id && (row._candidates.some(person => person.match_fields.some(field => ['phone', 'wechat'].includes(field))) || !row.duplicate_note.trim())) throw new Error('发现疑似重复人才，请关联已有档案或填写不是同一人的说明')
         }
-        await api.save(payload)
+        await saveEntryRow(api, row, props.options)
         savedIds.add(row.id)
+        savedDates.set(row.id, payload.work_date)
       } catch (error) {
         row._error = error.message || '保存失败，请修改后重试'
         if (error.rawDetail?.duplicates) row._candidates = error.rawDetail.duplicates
       }
     }
     model.rows = model.rows.filter(row => !savedIds.has(row.id))
-    if (savedIds.size) emit('saved')
+    if (savedIds.size) emit('saved', [...savedIds].map(id => ({ id, work_date: savedDates.get(id) })))
     if (model.rows.length) {
       ElMessage.warning(`成功 ${savedIds.size} 行，失败 ${model.rows.length} 行，请查看各行提示`)
       await nextTick(); await locateDialogFieldByLabel('资源姓名')

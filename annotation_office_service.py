@@ -1,4 +1,5 @@
 """ONLYOFFICE 接入：数据库租约、签名、暂存和幂等提交。"""
+from starlette.concurrency import run_in_threadpool
 import hashlib
 import io
 import os
@@ -285,7 +286,7 @@ def commit_staged(db, session, task, upload_id):
     task.state, task.version_id, task.completed_at, task.error = 'complete', version.id, now(), None
 
 
-async def request_save(db, session, save_id, revision=0):
+def _prepare_save(db, session, save_id, revision):
     if session.mode != 'edit':
         raise HTTPException(403, '只读会话不能保存')
     existing = db.get(OfficeSave, save_id)
@@ -315,45 +316,60 @@ async def request_save(db, session, save_id, revision=0):
     db.add(task)
     session.state, session.active_save_id = 'saving', task.id
     db.commit()  # 发命令前持久化，回调可以由其他进程处理。
-    try:
-        result = await command({'c': 'forcesave', 'key': session.document_key, 'userdata': str(task.id)})
-        # 网络请求期间回调可能已经完成；重新取锁，不能覆盖已完成状态。
-        lock_session(db, session)
-        db.refresh(task)
-        if task.state != 'pending':
-            return
-        if result.get('error') == 4:
-            # error=4 也可能是上一条强制保存的回调尚未到达，不能当成原文件未修改。
-            if revision > 0 and (not session.staged_upload_id or session.staged_revision != revision):
-                task.state = 'pending_snapshot'
-            elif revision == 0 and not session.staged_upload_id and session.file_id:
-                require_access(db, session.owner_id, write=True)
-                expire(session)
-                if session.state != 'saving':
-                    raise HTTPException(409, '编辑会话已过期')
-                latest = db.query(Version).filter_by(file_id=session.file_id).order_by(Version.version_no.desc()).first()
-                if not latest or latest.id != session.base_version_id:
-                    raise HTTPException(409, '文件已被更新，请重新打开')
-                session.state, session.saved_version_id = 'open', session.base_version_id
-                task.state, task.version_id, task.completed_at = 'complete', session.base_version_id, now()
-            else:
-                commit_staged(db, session, task, session.staged_upload_id or session.source_upload_id)
-        elif result.get('error') != 0:
-            raise HTTPException(503, 'Office 暂未完成同步，请稍后重试')
-        db.commit()
-    except (HTTPException, ValueError) as exc:
-        db.rollback()
-        db.refresh(session, with_for_update=True)
-        db.refresh(task)
-        if task.state in ('pending', 'pending_snapshot'):
-            task.state, task.error = 'failed', str(getattr(exc, 'detail', exc))[:500]
-            if session.state == 'saving':
-                session.state = 'open'
-            db.commit()
-        if isinstance(exc, ValueError):
-            raise HTTPException(409, str(exc)) from exc
-        raise
+    return task, {'c': 'forcesave', 'key': session.document_key, 'userdata': str(task.id)}
 
+
+def _finish_save(db, session, task, revision, result):
+    # 网络请求期间回调可能已经完成；重新取锁，不能覆盖已完成状态。
+    lock_session(db, session)
+    db.refresh(task)
+    if task.state != 'pending':
+        return
+    if result.get('error') == 4:
+        # error=4 也可能是上一条强制保存的回调尚未到达，不能当成原文件未修改。
+        if revision > 0 and (not session.staged_upload_id or session.staged_revision != revision):
+            task.state = 'pending_snapshot'
+        elif revision == 0 and not session.staged_upload_id and session.file_id:
+            require_access(db, session.owner_id, write=True)
+            expire(session)
+            if session.state != 'saving':
+                raise HTTPException(409, '编辑会话已过期')
+            latest = db.query(Version).filter_by(file_id=session.file_id).order_by(Version.version_no.desc()).first()
+            if not latest or latest.id != session.base_version_id:
+                raise HTTPException(409, '文件已被更新，请重新打开')
+            session.state, session.saved_version_id = 'open', session.base_version_id
+            task.state, task.version_id, task.completed_at = 'complete', session.base_version_id, now()
+        else:
+            commit_staged(db, session, task, session.staged_upload_id or session.source_upload_id)
+    elif result.get('error') != 0:
+        raise HTTPException(503, 'Office 暂未完成同步，请稍后重试')
+    db.commit()
+
+
+def _fail_save(db, session, task, exc):
+    db.rollback()
+    db.refresh(session, with_for_update=True)
+    db.refresh(task)
+    if task.state in ('pending', 'pending_snapshot'):
+        task.state, task.error = 'failed', str(getattr(exc, 'detail', exc))[:500]
+        if session.state == 'saving':
+            session.state = 'open'
+        db.commit()
+    if isinstance(exc, ValueError):
+        raise HTTPException(409, str(exc)) from exc
+    raise exc
+
+
+async def request_save(db, session, save_id, revision=0):
+    prepared = await run_in_threadpool(_prepare_save, db, session, save_id, revision)
+    if prepared is None:
+        return
+    task, command_payload = prepared
+    try:
+        result = await command(command_payload)
+        await run_in_threadpool(_finish_save, db, session, task, revision, result)
+    except (HTTPException, ValueError) as exc:
+        await run_in_threadpool(_fail_save, db, session, task, exc)
 
 async def fetch_result(url, kind='docx'):
     cfg = settings()
@@ -375,11 +391,11 @@ async def fetch_result(url, kind='docx'):
                         raise HTTPException(413, 'Office 回传文件超过20MB')
     except httpx.HTTPError as exc:
         raise HTTPException(503, 'Office 文件回传失败，请重试保存') from exc
-    validate_office(data, kind)
+    await run_in_threadpool(validate_office, data, kind)
     return bytes(data)
 
 
-async def callback(db, session_id, payload):
+def _prepare_callback(db, session_id, payload):
     session = db.get(OfficeSession, session_id)
     if not session or payload.get('key') != session.document_key:
         raise HTTPException(403, 'Office 文档标识不匹配')
@@ -398,10 +414,10 @@ async def callback(db, session_id, payload):
             return
         if incoming.state == 'complete':
             return  # 已提交检查点的重复或迟到回调，不能污染后续保存的暂存文件。
-    if status in (2, 6):
-        data = await fetch_result(payload.get('url', ''), file_kind(session.original_name))
-    else:
-        data = None
+    return session, incoming, status, file_kind(session.original_name)
+
+
+def _finish_callback(db, session, incoming, status, data):
     lock_session(db, session, allow_deleted=True)
     expire(session)
     if session.state not in ACTIVE:
@@ -431,3 +447,12 @@ async def callback(db, session_id, payload):
             except (HTTPException, ValueError) as exc:
                 task.state, task.error, session.state = 'failed', str(getattr(exc, 'detail', exc))[:500], 'open'
     db.commit()
+
+
+async def callback(db, session_id, payload):
+    prepared = await run_in_threadpool(_prepare_callback, db, session_id, payload)
+    if prepared is None:
+        return
+    session, incoming, status, kind = prepared
+    data = await fetch_result(payload.get("url", ""), kind) if status in (2, 6) else None
+    await run_in_threadpool(_finish_callback, db, session, incoming, status, data)

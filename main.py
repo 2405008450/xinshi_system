@@ -235,7 +235,7 @@ app.include_router(editor_screenshots.router)
 app.add_middleware(EditorScreenshotMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
 from database_request_capacity import DatabaseRequestCapacityMiddleware
-app.add_middleware(DatabaseRequestCapacityMiddleware)
+app.add_middleware(DatabaseRequestCapacityMiddleware, transfer_limit=4)
 
 
 @app.middleware("http")
@@ -263,7 +263,9 @@ async def add_security_headers(request: Request, call_next):
         response.headers.setdefault("X-Request-ID", metrics.request_id)
         response.headers.setdefault(
             "Server-Timing",
-            f'app;dur={total_ms:.2f}, db;dur={metrics.db_ms:.2f};desc="{metrics.sql_count} queries"',
+            f'app;dur={total_ms:.2f}, db;dur={metrics.db_ms:.2f};desc="{metrics.sql_count} queries", '
+            f'capacity;dur={metrics.capacity_wait_ms:.2f}, pool_acquire;dur={metrics.pool_acquire_ms:.2f}, '
+            f'loop_lag;dur={metrics.loop_lag_ms:.2f}',
         )
         return response
     finally:

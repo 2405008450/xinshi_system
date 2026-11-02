@@ -1,4 +1,6 @@
 """内部双方私聊接口。"""
+from starlette.concurrency import run_in_threadpool
+
 from uuid import UUID
 from datetime import datetime
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
@@ -104,20 +106,27 @@ async def upload(project_id: UUID, request: Request, file: UploadFile = File(...
 
 @router.get('/{project_id}/files/{attachment_id}')
 async def download(project_id: UUID, attachment_id: UUID, request: Request, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
-    service.require_project(db, project_id, user)
-    attachment = service.authorize_attachment(db, attachment_id, user)
-    from chat_screenshot_storage import read_attachment
-    stored=read_attachment(db,attachment)
-    if stored is not None:return stored
-    if attachment.direct_conversation_id != project_id:
-        raise HTTPException(404, '附件不属于当前会话')
+    def prepare():
+        service.require_project(db, project_id, user)
+        attachment = service.authorize_attachment(db, attachment_id, user)
+        from chat_screenshot_storage import read_attachment
+        stored=read_attachment(db,attachment)
+        if stored is not None:return stored
+        if attachment.direct_conversation_id != project_id:
+            raise HTTPException(404, '附件不属于当前会话')
+        from chat_attachment_storage import remote_attachment_url, read_remote_attachment
+        from routers.project_chat import get_chat_upload_dir
+        remote = remote_attachment_url()
+        if remote:
+            return None
+        path = get_chat_upload_dir() / attachment.storage_name
+        if not path.is_file():
+            raise HTTPException(404, '文件不存在')
+        return FileResponse(path, filename=attachment.original_name, media_type=attachment.content_type,
+            headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
+    result = await run_in_threadpool(prepare)
     from chat_attachment_storage import remote_attachment_url, read_remote_attachment
-    from routers.project_chat import get_chat_upload_dir
     remote = remote_attachment_url()
-    if remote:
+    if result is None:
         return await read_remote_attachment(remote, attachment_id, request.headers.get('authorization'), request.headers.get('x-chat-attachment-forwarded'), allow_files=True)
-    path = get_chat_upload_dir() / attachment.storage_name
-    if not path.is_file():
-        raise HTTPException(404, '文件不存在')
-    return FileResponse(path, filename=attachment.original_name, media_type=attachment.content_type,
-        headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
+    return result
