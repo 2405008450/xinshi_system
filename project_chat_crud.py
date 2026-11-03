@@ -124,7 +124,8 @@ def _serialize_realtime_message(message: ChatProjectMessage, project_type: str) 
     )
     return {
         'id': str(message.id),
-        'projectId': str(message.annotation_project_id if project_type == 'annotation' else message.project_id),
+        'projectId': str(message.direct_conversation_id if project_type == 'direct' else message.annotation_project_id if project_type == 'annotation' else message.project_id),
+        'sequenceNo': message.sequence_no,
         'projectType': project_type,
         'senderUserId': str(message.sender_user_id) if message.sender_user_id else None,
         'senderName': message.sender_name,
@@ -132,8 +133,8 @@ def _serialize_realtime_message(message: ChatProjectMessage, project_type: str) 
         'contentJson': message.content_json,
         'messageType': message.message_type,
         'metadata': message.event_data or {},
-        'createdAt': message.created_at.isoformat() if message.created_at else None,
-        'updatedAt': message.updated_at.isoformat() if message.updated_at else None,
+        'createdAt': api_time(message.created_at).isoformat() if message.created_at else None,
+        'updatedAt': api_time(message.updated_at).isoformat() if message.updated_at else None,
         'mentionedUserId': str(mention_rows[0].mentioned_user_id) if mention_rows else None,
         'mentionedUserName': mention_rows[0].mentioned_user_name if mention_rows else None,
         'mentions': [
@@ -255,6 +256,21 @@ def _chat_participant_user_ids(db, *, annotation_project_id=None, project_id=Non
     if exclude_user_id:
         participants.discard(exclude_user_id)
     return participants
+
+
+def _broadcast_live_message(db, message, project_type):
+    """向当前会话成员发送完整消息；保留已有状态同步作为补偿。"""
+    from chat_access_service import member_ids
+    project_id = message.direct_conversation_id if project_type == 'direct' else message.annotation_project_id
+    if project_type == 'direct':
+        from models import ChatDirectMember
+        participants = {user_id for user_id, in db.query(ChatDirectMember.user_id).filter_by(conversation_id=project_id)}
+    else:
+        participants = member_ids(db, project_type, project_id)
+    broadcast_to_users(participants - {message.sender_user_id}, {
+        'type': 'chat_message', 'projectType': project_type, 'projectId': str(project_id),
+        'message': _serialize_realtime_message(message, project_type),
+    })
 
 
 def _broadcast_chat_message(

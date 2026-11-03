@@ -190,12 +190,34 @@ async function loadGroup() {
 function merge(rows) {
   const merged = new Map(messages.value.map(m => [m.id, m]))
   rows.forEach(m => merged.set(m.id, m))
-    messages.value = [...merged.values()].sort((a, b) => a.sequenceNo - b.sequenceNo)
+
+  // 优先按服务端序号排序，历史消息使用时间和 ID 保持稳定顺序。
+  messages.value = [...merged.values()].sort((a, b) => {
+    const seqA = a.sequenceNo ?? a.sequence_no ?? 0
+    const seqB = b.sequenceNo ?? b.sequence_no ?? 0
+    if (seqA !== seqB) return seqA - seqB
+
+    const timeA = new Date(a.createdAt || a.created_at || 0).getTime()
+    const timeB = new Date(b.createdAt || b.created_at || 0).getTime()
+    if (timeA !== timeB) return timeA - timeB
+
+    return String(a.id).localeCompare(String(b.id))
+  })
+
   selected.value = selected.value.filter(id => merged.has(id) && !merged.get(id).recalledAt)
   if (replyTo.value && merged.get(replyTo.value.id)?.recalledAt) replyTo.value = null
   const validImages = new Set(messages.value.flatMap(m => m.attachments || []).map(f => f.id))
-  Object.keys(imageUrls).forEach(id => { if (!validImages.has(id)) { URL.revokeObjectURL(imageUrls[id]); delete imageUrls[id] } })
-  rows.filter(m => !m.recalledAt).forEach(m => m.attachments?.filter(f => f.contentType.startsWith('image/')).forEach(loadImage))
+  Object.keys(imageUrls).forEach(id => {
+    if (!validImages.has(id)) {
+      URL.revokeObjectURL(imageUrls[id]); delete imageUrls[id]
+    }
+  })
+
+  rows.filter(m => !m.recalledAt).forEach(m => {
+    if (m.attachments && Array.isArray(m.attachments)) {
+      m.attachments.filter(f => f.contentType && f.contentType.startsWith('image/')).forEach(loadImage)
+    }
+  })
 }
 async function search() {
   if (initialized) cancelLocate()
@@ -459,9 +481,18 @@ async function send() {
     const message = await createProjectChatMessage(props.projectId, payload, props.projectType)
     retryPayload.value = null; content.value = ''; files.value = []; imageQueue.clear(); replyTo.value = null; mentionIds.value = []
     if (viewingHistory.value) await search()
-    merge([message]); await bottom(); await loadGroup()
-  } catch (e) { retryPayload.value = payload; sendError.value = detail(e) }
-  finally { sending.value = false; nextTick(() => input.value?.focus()) }
+
+    // 发送成功后立即展示返回的消息。
+    if (message) {
+      merge([message])
+    }
+    await bottom(); await loadGroup()
+
+  } catch (e) {
+    retryPayload.value = payload; sendError.value = detail(e)
+  } finally {
+    sending.value = false; nextTick(() => input.value?.focus())
+  }
 }
 async function cancelRetry() {
   if (!retryPayload.value || sending.value) return
@@ -486,7 +517,20 @@ onMounted(async () => {
   window.addEventListener('chat-topic-message-changed', topicChanged)
   observer = new IntersectionObserver(entries => { entries.forEach(entry => { const id = entry.target.dataset.messageId; if (entry.isIntersecting && entry.intersectionRatio >= 0.5) visibleMessages.set(id, Number(entry.target.dataset.sequence)); else visibleMessages.delete(id) }); scheduleRead() }, { root: list.value, threshold: [0, 0.5, 1] })
   if (!isDirect.value) unwatch = watchAnnotationChat(props.projectId)
+
+  // 监听通用的状态变更
   cleanup.push(subscribe(isDirect.value ? 'direct_chat_changed' : 'annotation_chat_changed', event => { if (!initialized || event.projectId !== String(props.projectId)) return; if (event.kind === 'members' || event.kind === 'message') loadGroup(); if (event.kind !== 'state') sync() }))
+
+  // 完整消息广播先更新当前会话，状态事件和轮询继续补偿断线。
+  cleanup.push(subscribe('chat_message', event => {
+    if (!initialized || !event.message?.id || event.projectType !== props.projectType || event.projectId !== String(props.projectId)) return
+    const isNew = !messages.value.some(row => row.id === event.message.id)
+    const follow = atBottom() && props.active
+    merge([event.message])
+    if (follow) nextTick(() => bottom())
+    else if (isNew) pendingNew.value += 1
+    if (props.active && document.hasFocus()) scheduleRead()
+  }))
   cleanup.push(subscribe('connected', () => { if (initialized) { sync(); loadGroup() } }))
   cleanup.push(subscribe('chat_message_acknowledgement', event => { if (event.projectId === String(props.projectId)) sync() }))
   document.addEventListener('visibilitychange', foreground); window.addEventListener('focus', foreground)

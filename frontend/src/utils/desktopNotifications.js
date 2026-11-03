@@ -53,11 +53,13 @@ export const enableDesktopNotifications = async () => {
     : await window.Notification.requestPermission()
 
   writeBoolean(getStorageKey(PREFERENCE_PREFIX), permission === 'granted')
+  window.dispatchEvent?.(new Event('desktop-notification-preference-changed'))
   return getDesktopNotificationState()
 }
 
 export const disableDesktopNotifications = () => {
   writeBoolean(getStorageKey(PREFERENCE_PREFIX), false)
+  window.dispatchEvent?.(new Event('desktop-notification-preference-changed'))
   return getDesktopNotificationState()
 }
 
@@ -70,6 +72,39 @@ export const markDesktopNotificationGuideSeen = () => {
 /**
  * 仅展示符合未读数字提醒范围的操作系统通知，不提供网页浮层回退。
  */
+// 保持同步返回值约定，手机端的异步结果通过回调反馈。
+const showWorkerNotification = (notification, onClick, actor, { onShow, onError }) => {
+  if (typeof navigator === 'undefined' || !navigator.serviceWorker?.getRegistration) return false
+  const worker = navigator.serviceWorker
+  const id = String(notification.id), tag = `xinshi-notification-${id}`
+  let unsubscribe = () => {}, registration, disposed = false
+  const cleanup = () => { disposed = true; unsubscribe(); worker.removeEventListener('message', onMessage) }
+  const close = () => registration?.getNotifications({ tag }).then(items => items.forEach(item => item.close())).catch(() => {})
+  const onMessage = event => {
+    if (event.data?.notificationId !== id) return
+    if (!['NOTIFICATION_CLICKED', 'NOTIFICATION_CLOSED'].includes(event.data.type)) return
+    cleanup()
+    if (event.data.type !== 'NOTIFICATION_CLICKED' || actor !== getCurrentUserKey()) return
+    notificationAcknowledgements.acknowledge(id)
+    window.focus()
+    Promise.resolve(onClick?.()).catch(error => console.error('处理桌面通知点击失败', error))
+  }
+  worker.addEventListener('message', onMessage)
+  unsubscribe = notificationAcknowledgements.subscribe(value => { if (String(value) === id) { cleanup(); close() } })
+  Promise.resolve().then(() => worker.getRegistration('/')).then(async value => {
+    registration = value
+    if (disposed || actor !== getCurrentUserKey() || notificationAcknowledgements.has(id)) { cleanup(); return }
+    if (!registration) throw new Error('浏览器推送尚未就绪')
+    await registration.showNotification(notification.title || '新通知', {
+      body: notification.content || '', icon: '/favicon.svg', tag,
+      data: { notificationId: id, userId: actor, url: '/workbench' },
+    })
+    if (disposed || actor !== getCurrentUserKey() || notificationAcknowledgements.has(id)) { cleanup(); close(); return }
+    onShow?.()
+  }).catch(error => { cleanup(); if (actor === getCurrentUserKey() && !notificationAcknowledgements.has(id)) onError?.(error) })
+  return true
+}
+
 export const showDesktopNotification = (notification, onClick, { onShow, onError } = {}) => {
   if (!isDesktopAttentionNotification(notification) || notificationAcknowledgements.has(notification.id)) return false
   if (!getDesktopNotificationState().enabled) return false
@@ -108,6 +143,7 @@ export const showDesktopNotification = (notification, onClick, { onShow, onError
     }
     return true
   } catch (error) {
+    if (showWorkerNotification(notification, onClick, actor, { onShow, onError })) return true
     console.error('展示桌面通知失败', error)
     onError?.(error)
     return false

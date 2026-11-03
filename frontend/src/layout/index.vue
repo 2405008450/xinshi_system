@@ -163,6 +163,7 @@ import SpeakingProfileIcon from '@/components/common/SpeakingProfileIcon.vue'
 import { useUiZoom } from '../composables/useUiZoom'
 import { useMobileViewport } from '@/composables/useMobileViewport'
 import { logout } from '@/api/auth'
+import { syncWebPushSubscription, stopWebPushSubscription } from '@/utils/webPushSubscription'
 import { clearAuthSession } from '@/utils/authSession'
 
 const route = useRoute()
@@ -223,6 +224,15 @@ const collapseLabel = computed(() => {
 watch(() => route.fullPath, () => { mobileNavOpen.value = false })
 watch(isMobileViewport, () => { mobileNavOpen.value = false })
 
+let pushTimer
+const syncPush = () => { void syncWebPushSubscription().catch(() => {}) }
+const stopPush = () => { clearTimeout(pushTimer); void stopWebPushSubscription().catch(() => {}) }
+onBeforeUnmount(() => {
+  clearTimeout(pushTimer)
+  window.removeEventListener('desktop-notification-preference-changed', syncPush)
+  window.removeEventListener('auth-session-clearing', stopPush)
+})
+
 onMounted(() => {
   try {
     const saved = localStorage.getItem(STORAGE_COLLAPSE_KEY)
@@ -231,6 +241,10 @@ onMounted(() => {
   syncFromStorage()
   refreshIssueAccess().catch(() => {})
   if (route.query.openSession === '1') void openHeaderChat()
+
+  window.addEventListener('desktop-notification-preference-changed', syncPush)
+  window.addEventListener('auth-session-clearing', stopPush)
+  pushTimer = setTimeout(syncPush, 2000)
 })
 
 const canViewUsers = computed(() => hasPermission('system:users:read'))

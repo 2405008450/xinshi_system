@@ -137,3 +137,7 @@ blob-report/
 !/docs/infra.md
 !/docs/前端优化.md
 !/docs/项目业务与逻辑框架分析.md
+
+# 本机 HTTPS 凭据与证书生成工具
+/frontend/*.pem
+/frontend/mkcert.exe

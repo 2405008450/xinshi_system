@@ -7,8 +7,9 @@ from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Date, For
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from chat_time import now as push_subscription_now
 from project_roles import PROJECT_ROLE_DEFINITIONS
-
+from sqlalchemy import Column, ForeignKey
 class Base(DeclarativeBase):
     pass
 
@@ -1321,3 +1322,14 @@ class FinancePayment(Base):
     # Relationships
     finance_record: Mapped['FinanceRecord'] = relationship('FinanceRecord', back_populates='payments')
     confirmer: Mapped[Optional['AppUser']] = relationship('AppUser', foreign_keys=[confirmed_by])
+
+# 浏览器推送订阅按账号隔离。
+class PushSubscription(Base):
+    __tablename__ = "push_subscription"
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(Uuid(as_uuid=True), ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False, index=True)
+    endpoint = Column(Text, nullable=False)
+    p256dh = Column(String(255), nullable=False)
+    auth = Column(String(255), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=push_subscription_now)

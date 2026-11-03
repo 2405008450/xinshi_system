@@ -120,6 +120,10 @@ def send_message(db, project_id, user, payload):
     db.commit()
     _push_notifications(notifications)
     publish(db, project_id, 'message', message.id)
+    from project_chat_crud import _broadcast_live_message
+    _broadcast_live_message(db, message, 'direct')
+    from routers.push import send_push_to_user
+    send_push_to_user(db, other_id, '收到一条新消息', '你有一条新的私聊消息，点击查看', '/workbench')
     return message_query(db, project_id).filter_by(id=message.id).one()
 
 

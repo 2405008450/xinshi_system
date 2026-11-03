@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 
 const source = readFileSync(new URL('../src/utils/desktopNotifications.js', import.meta.url), 'utf8').replace(/^import .*$/gm, '').replace(/export const /g, 'const ')
-function setup({ permission = 'granted', enabled = true, throws = false } = {}) {
+function setup({ permission = 'granted', enabled = true, throws = false, worker } = {}) {
   const instances = [], callbacks = new Set(), acknowledged = new Set()
   const values = new Map([['user_id', 'test'], ['desktop_notifications_enabled:test', enabled ? '1' : '0']])
   class Notification {
@@ -23,8 +23,9 @@ function setup({ permission = 'granted', enabled = true, throws = false } = {}) 
   const api = runInNewContext(`${source}; ({ showDesktopNotification, enableDesktopNotifications, disableDesktopNotifications })`, {
     window, localStorage: { getItem: key => values.get(key), setItem: (k, v) => values.set(k, v) },
     isDesktopAttentionNotification, notificationAcknowledgements: acknowledgements, console: { error() {} },
+    ...(worker ? { navigator: { serviceWorker: worker } } : {}),
   })
-  return { ...api, instances, callbacks, acknowledgements }
+  return { ...api, instances, callbacks, acknowledgements, values }
 }
 const notification = { id: 'message-1', title: '私聊新消息', content: '点击查看' }
 
@@ -54,4 +55,65 @@ test('已读确认关闭桌面通知，之后到达的异步错误不再回退',
   api.acknowledgements.acknowledge(notification.id)
   api.instances[0].onerror()
   assert.equal(api.instances[0].closed, true); assert.equal(errors, 0)
+})
+
+function mobileWorker({ fail = false } = {}) {
+  const listeners = new Set(), shown = [], closed = []
+  const registration = {
+    async showNotification(title, options) { if (fail) throw Error('failed'); shown.push({ title, options }) },
+    async getNotifications() { return [{ close() { closed.push(true) } }] },
+  }
+  return { shown, closed, listeners, registration,
+    getRegistration: async () => registration,
+    addEventListener: (_name, callback) => listeners.add(callback),
+    removeEventListener: (_name, callback) => listeners.delete(callback),
+    dispatch(data) { [...listeners].forEach(callback => callback({ data })) },
+  }
+}
+const flush = () => new Promise(resolve => setImmediate(resolve))
+
+test('手机端通过 Service Worker 展示通知，保持同步返回值并清理点击监听', async () => {
+  const worker = mobileWorker(), api = setup({ throws: true, worker })
+  let shown = 0, opened = 0
+  assert.equal(api.showDesktopNotification(notification, () => opened++, { onShow: () => shown++ }), true)
+  await flush()
+  assert.equal(worker.shown.length, 1)
+  assert.equal(shown, 1)
+  worker.dispatch({ type: 'NOTIFICATION_CLICKED', notificationId: notification.id })
+  await flush()
+  assert.equal(opened, 1)
+  assert.equal(worker.listeners.size, 0)
+  assert.equal(api.callbacks.size, 0)
+})
+
+test('手机端通知失败只报告一次，切换账号后不展示旧账号消息', async () => {
+  const worker = mobileWorker({ fail: true }), api = setup({ throws: true, worker })
+  let errors = 0
+  api.showDesktopNotification(notification, undefined, { onError: () => errors++ })
+  await flush()
+  assert.equal(errors, 1)
+  assert.equal(worker.listeners.size, 0)
+  assert.equal(api.callbacks.size, 0)
+  const next = mobileWorker(), switched = setup({ throws: true, worker: next })
+  switched.showDesktopNotification(notification)
+  switched.values.set('user_id', 'another-user')
+  await flush()
+  assert.equal(next.shown.length, 0)
+  assert.equal(next.listeners.size, 0)
+})
+
+test('手机端已读确认关闭现有通知，用户关闭通知也清理监听', async () => {
+  const worker = mobileWorker(), api = setup({ throws: true, worker })
+  api.showDesktopNotification(notification)
+  await flush()
+  api.acknowledgements.acknowledge(notification.id)
+  await flush()
+  assert.equal(worker.closed.length, 1)
+  assert.equal(worker.listeners.size, 0)
+  const next = { ...notification, id: 'next' }
+  api.showDesktopNotification(next)
+  await flush()
+  worker.dispatch({ type: 'NOTIFICATION_CLOSED', notificationId: next.id })
+  assert.equal(worker.listeners.size, 0)
+  assert.equal(api.callbacks.size, 0)
 })

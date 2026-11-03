@@ -213,6 +213,8 @@ def send_message(db, project_id, user, payload, *, commit=True, max_mentions=20)
         db.commit()
         _push_notifications(notifications)
         publish(db, project_id, 'message', message.id)
+        from project_chat_crud import _broadcast_live_message
+        _broadcast_live_message(db, message, 'annotation')
         notify_state(user.id, project_id)
     else:
         db.flush()

@@ -243,7 +243,7 @@ def read(project_id: UUID, payload: ReadRequest, db: Session = Depends(get_db), 
     if not message:
         raise HTTPException(404, '消息不存在')
     member = service.add_member(db, project_id, user.id, following=False, baseline=0)
-    member.last_read_sequence = max(member.last_read_sequence, message.sequence_no)
+    member.last_read_sequence = max(member.last_read_sequence or 0, message.sequence_no or 0)
     from chat_message_notifications import settle_notifications
     settle_notifications(db, 'annotation', project_id, user_id=user.id, sequence=member.last_read_sequence)
     db.commit()
