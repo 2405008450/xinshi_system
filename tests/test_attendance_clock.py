@@ -120,7 +120,7 @@ def completed(db,user,day,start,end,fixed=False,code='early',dinner=None):
 
 
 def test_company_never_offsets_one_person_against_another(environment):
-    db,users=environment;arrange(db,users)
+    db,users=environment;arrange(db,users,'late')
     completed(db,users[1],'2026-10-26','10:30','20:00',True,code='late',dinner=True)
     completed(db,users[2],'2026-10-26','09:00','19:30')
     company=attendance.attendance_report(db,users[0],date(2026,10,26),'month',admin=True)
@@ -222,7 +222,7 @@ def test_preview_reuses_existing_attendance_rules(environment,monkeypatch,scenar
         monkeypatch.setattr(attendance_corrections,'start_override',lambda *args:{'late_start_at':'2026-10-26T10:00:00+08:00'})
     elif scenario=='break':moment='2026-10-26T13:00'
     elif scenario=='second_segment':
-        monkeypatch.setattr(attendance,'shift_for',lambda *args:{'code':'customer_remote','label':'居家晚班','periods':['10:30–12:00','13:30–18:00','21:00–23:00']})
+        monkeypatch.setattr(attendance,'shifts_for',lambda db,people,day,**kwargs:{str(user.id):{'code':'customer_remote','label':'居家晚班','periods':['10:30–12:00','13:30–18:00','21:00–23:00']} for user in people})
         first=punch(db,person,monkeypatch,'2026-10-26T10:30')
         out(db,person,first,monkeypatch,'2026-10-26T18:00',deduct_invalid_time=False)
         moment='2026-10-26T21:16'

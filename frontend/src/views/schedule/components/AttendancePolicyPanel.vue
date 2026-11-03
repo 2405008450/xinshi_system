@@ -34,6 +34,7 @@
   </section>
 </template>
 <script setup>
+import {useAttendanceScheduleRefresh} from '@/composables/useAttendanceScheduleRefresh'
 import {ref,reactive,computed,onMounted,onBeforeUnmount} from 'vue'
 import {ElMessage,ElMessageBox} from 'element-plus'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
@@ -53,6 +54,7 @@ function close(done){if(!saving.value)done()}
 async function submit(){if(saving.value||!await formRef.value.validate().catch(()=>false))return;saving.value=true;submitError.value='';try{const value=await applyCompTime({client_id:form.client_id,start_at:`${form.start_at}+08:00`,end_at:`${form.end_at}+08:00`,reason:form.reason});ElMessage.success(value.message);visible.value=false;load()}catch(e){submitError.value=typeof e.detail==='string'?e.detail:'调休申请未保存，请重试'}finally{saving.value=false}}
 async function cancelRequest(id){try{await ElMessageBox.confirm('撤回后释放本次调休预留额度，确定撤回？','撤回调休申请',{type:'warning'});const value=await cancelCompTime(id);ElMessage.success(value.message);load()}catch(e){if(e!=='cancel'&&e!=='close')ElMessage.error(typeof e.detail==='string'?e.detail:'撤回失败，请重试')}}
 onMounted(()=>{load();unsubscribe=subscribe('annual_leave_changed',load);window.addEventListener('annual-leave-changed',load);window.addEventListener('attendance-leave-changed',load)});onBeforeUnmount(()=>{alive=false;sequence++;controller?.abort();unsubscribe?.();window.removeEventListener('annual-leave-changed',load);window.removeEventListener('attendance-leave-changed',load)})
+useAttendanceScheduleRefresh(load)
 </script>
 <style scoped>.policy-toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:12px 0}.policy-note{font-size:13px;line-height:1.8;color:#64748b}.policy-detail{max-height:560px;overflow-y:auto;overflow-wrap:anywhere}.policy-detail article{border-bottom:1px solid #e2e8f0;padding:6px 0}.el-table{margin:12px 0}</style>
 <style>.comp-time-dialog.el-dialog{display:flex;flex-direction:column;max-height:90vh;overflow:hidden}.comp-time-dialog>.el-dialog__header,.comp-time-dialog>.el-dialog__footer{flex-shrink:0}.comp-time-dialog>.el-dialog__body{flex:1;min-height:0;overflow-y:auto}.comp-time-dialog>.el-dialog__footer{border-top:1px solid #e2e8f0;background:#f8fafc}</style>

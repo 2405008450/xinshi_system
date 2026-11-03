@@ -9,6 +9,7 @@ from sqlalchemy import inspect,text
 from attendance_models import AttendanceClockSession as Clock,AttendanceDay
 from models import AppUser
 from chat_time import now,api_time
+from attendance_recalculation import calculation_scope,project,project_rows
 
 
 class CheckInWrite(BaseModel):
@@ -53,7 +54,7 @@ def lock(db,user):
 def clock_shift(shift):
     if not shift:return shift
     shift={**shift,'periods':shift.get('full_periods',shift.get('periods',[]))}
-    # 当日旧快照继续保留；新增组使用现行打卡次数规则，不改变旧组的核算。
+    # 原始快照保留；计算副本及新增组统一使用现行多组打卡规则。
     if shift.get('code')=='fixed_early_early':
         shift.pop('clock_segments',None)
         shift['multiple_clock_sessions']=True
@@ -97,6 +98,7 @@ def import_legacy(db,user,day):
 
 
 def serialize(row,leaves=()):
+    row=project(row)
     import attendance_service as service
     if row.confirmations.get('legacy_completed'):return {**service.serialize_day(row,leaves),'segment':row.segment,'confirmations':row.confirmations}
     result=service.metrics(row,leaves)
@@ -126,6 +128,7 @@ def serialize(row,leaves=()):
     return api_time({'id':str(row.id),'user_id':str(row.user_id),'day':row.day.isoformat(),'segment':row.segment,'check_in':row.check_in,'check_out':row.check_out,'shift':row.shift_snapshot,'confirmations':row.confirmations,'requires_dinner_confirmation':bool(not row.check_out and dinner_confirmation_required(row.day,now())),**result})
 
 
+@calculation_scope
 def check_in(db,user,request,payload):
     import attendance_service as service
     service.require_ready(db);require_ready(db)
@@ -134,7 +137,7 @@ def check_in(db,user,request,payload):
     lock(db,user);moment=now();day=moment.date();rows=import_legacy(db,user,day)
     if payload.work_mode=='company_home_overtime':return check_in_home_overtime(db,user,rows,moment)
     regular=[row for row in rows if row.segment!=2]
-    shift=regular[0].shift_snapshot if regular else service.shift_for(db,user,day)
+    shift=service.shift_for(db,user,day) or (project(regular[0]).shift_snapshot if regular else None)
     shift=clock_shift(shift)
     if not shift:raise HTTPException(409,'今日无有效班次，不能打卡')
     shift={**shift,**home_office_day(db,user,day)}
@@ -160,6 +163,7 @@ def check_in(db,user,request,payload):
     return {'message':message,'record':record}
 
 
+@calculation_scope
 def check_out(db,user,request,payload):
     import attendance_service as service
     service.require_ready(db);require_ready(db)
@@ -186,6 +190,7 @@ def check_out(db,user,request,payload):
 def validate_checkout(db,user,row,payload,moment):
     import attendance_service as service
     if moment<service.stamp(row.check_in):raise HTTPException(409,'当前时间早于上班记录')
+    row=project(row,db)
     remote=row.shift_snapshot.get('code')=='customer_remote' or bool(row.shift_snapshot.get('home_rotation'))
     if not row.shift_snapshot.get('overtime_only') and not row.shift_snapshot.get('flexible') and payload.early_work_confirmed is None:raise HTTPException(422,'请选择提前到达时间是否已在工作')
     at_home=remote or bool(row.shift_snapshot.get('home_office_day')) or bool(home_office_day(db,user,row.day).get('home_office_day'))
@@ -211,13 +216,14 @@ def apply_checkout(db,user,row,payload,moment):
     return events
 
 
+@calculation_scope
 def today_status(db,user):
     import attendance_service as service
     service.require_ready(db);moment=now();day=moment.date();available=ready(db)
     rows=db.query(Clock).filter_by(user_id=user.id,day=day).order_by(Clock.segment).all() if available else []
     old=db.query(AttendanceDay).filter_by(user_id=user.id,day=day).first() if not rows else None
     regular=[row for row in rows if row.segment!=2]
-    shift=regular[0].shift_snapshot if regular else old.shift_snapshot if old else service.shift_for(db,user,day)
+    shift=service.shift_for(db,user,day) or (project(regular[0]).shift_snapshot if regular else project(old).shift_snapshot if old else None)
     shift=clock_shift(shift)
     home=home_office_day(db,user,day)
     if shift:shift={**shift,**home}
@@ -253,6 +259,7 @@ def today_status(db,user):
     return api_time(result)
 
 
+@calculation_scope
 def monthly_balances(db,ids,start,end):
     """按人员、自然月抵扣，不能用甲员工的负额扣乙员工加班。"""
     if not ids:return []
@@ -263,17 +270,17 @@ def monthly_balances(db,ids,start,end):
     occupied={(row.user_id,row.day) for row in sessions}
     legacy=db.query(AttendanceDay).filter(AttendanceDay.user_id.in_(ids),AttendanceDay.day>=left,AttendanceDay.day<right).all()
     leaves=db.query(EmployeeLeave).filter(EmployeeLeave.employee_id.in_(ids),EmployeeLeave.start_date<service.midnight(right).replace(tzinfo=None),EmployeeLeave.end_date>service.midnight(left).replace(tzinfo=None)).all()
+    clock_rows=project_rows(db,[*sessions,*[row for row in legacy if (row.user_id,row.day) not in occupied]])
     values={}
-    for row in [*sessions,*[row for row in legacy if (row.user_id,row.day) not in occupied]]:
+    for row in clock_rows:
         if not row.check_out:continue
         key=(str(row.user_id),row.day.strftime('%Y-%m'))
         value=values.setdefault(key,{'user_id':key[0],'month':key[1],'raw_minutes':0,'deduction_minutes':0,'net_minutes':0})
         own_leaves=[leave for leave in leaves if leave.employee_id==row.user_id]
-        result=serialize(row,own_leaves) if isinstance(row,Clock) else service.serialize_day(row,own_leaves)
+        result=serialize(row,own_leaves) if hasattr(row,'segment') else service.serialize_day(row,own_leaves)
         deductions=sum(result.get(field,0) for field in ('breakfast_deduction_minutes','dinner_deduction_minutes','invalid_deduction_minutes'))
         value['raw_minutes']+=result.get('raw_overtime_minutes',result['overtime_minutes']);value['deduction_minutes']+=deductions;value['net_minutes']+=result['overtime_minutes']
     from work_report_lunch import reports as lunch_reports,credited as lunch_credited
-    clock_rows=[*sessions,*[row for row in legacy if (row.user_id,row.day) not in occupied]]
     for (uid,day),report in lunch_reports(db,ids,left,right-timedelta(days=1)).items():
         _reported,credited=lunch_credited(report,day,[row for row in clock_rows if row.user_id==uid and row.day==day])
         key=(str(uid),day.strftime('%Y-%m'))

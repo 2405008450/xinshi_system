@@ -52,16 +52,17 @@ def entries(db,values,only_active=True):
             for entry in values if entry['user_id'] in people and (not only_active or people[entry['user_id']].is_active and not people[entry['user_id']].is_deleted)]
 
 
-def effective(db,values,start,weekly=False,for_schedule=True):
+def effective(db,values,start,weekly=False,for_schedule=True,*,context=None):
     today=now().date()
     current=today-timedelta(days=today.weekday()) if weekly else today.replace(day=1)
-    row=db.get(FixedShiftConfig,1) if ready(db) else None
+    available=context.ready(ready) if context else ready(db)
+    row=(context.get(FixedShiftConfig,1) if context else db.get(FixedShiftConfig,1)) if available else None
     if not row:return values
     key='week_start' if weekly else 'month_start'
     versions=row.assignments.get('versions',[])
     snapshot=next((version for version in reversed(versions) if version[key]<=start.isoformat()),None)
     if not snapshot:return values
-    fixed=entries(db,snapshot['assignments'],only_active=start>=current)
+    fixed=context.fixed_entries(snapshot['assignments'],start>=current) if context else entries(db,snapshot['assignments'],only_active=start>=current)
     if not for_schedule:return fixed
     by_id={entry['user_id']:entry for entry in fixed}
     result=[]
@@ -101,4 +102,6 @@ def save_config(db,user,payload:PlanWrite):
     try:db.commit()
     except IntegrityError:
         db.rollback();raise HTTPException(409,'固定班次已被其他人创建，请重新打开后重试')
+    from attendance_recalculation import publish_change
+    publish_change(db)
     return get_config(db,user)

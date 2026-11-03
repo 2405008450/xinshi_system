@@ -39,7 +39,7 @@ import ShiftPeriodControls from '@/components/common/ShiftPeriodControls.vue'
 import MonthlyWeekOverview from '@/views/hr/MonthlyWeekOverview.vue'
 import WeeklyShiftMatrix from '@/views/hr/WeeklyShiftMatrix.vue'
 import WeeklyShiftHistoryDialog from '@/views/hr/WeeklyShiftHistoryDialog.vue'
-import {subscribe} from '@/utils/realtimeSocket'
+import {useAttendanceScheduleRefresh} from '@/composables/useAttendanceScheduleRefresh'
 import {matchesSearch} from '@/utils/searchMatching'
 const historyWeek=ref(''),historyVisible=ref(false),expandedSections=ref([]),homeEligibility=ref({})
 const scope=ref('all'),mode=ref('week'),week=ref(currentShiftWeek()),month=ref(currentShiftMonth()),data=ref({}),monthPlans=ref([]),loading=ref(false),error=ref('')
@@ -56,11 +56,12 @@ const periodValue=computed(()=>mode.value==='week'?week.value:month.value),perio
 function setPeriod(value){if(mode.value==='week')week.value=shiftWeek(value);else month.value=value}
 const shift=computed(()=>data.value.shifts?.find(row=>row.code===data.value.assignment?.shift))
 const departmentLabel=computed(()=>data.value.departments?.find(row=>row.code===data.value.assignment?.department)?.label||'-')
-let sequence=0,controller,unsubscribe
+let sequence=0,controller
 async function load(){controller?.abort();controller=new AbortController();const id=++sequence;loading.value=true;error.value='';data.value={};try{monthPlans.value=[];const reader=scope.value==='all'?getWeeklyShiftOverview:getMyWeeklyShift;const value=mode.value==='week'?await reader(week.value,{signal:controller.signal}):await Promise.all(shiftMonthWeeks(month.value).map(start=>reader(start,{signal:controller.signal})));if(id===sequence){if(Array.isArray(value)){monthPlans.value=value;data.value={ready:value.every(row=>row.ready)}}else data.value=value}}catch(e){if(id===sequence&&e.code!=='ERR_CANCELED')error.value=e.detail||'读取班次安排失败'}finally{if(id===sequence)loading.value=false}}
 watch(periodKey,load)
-onMounted(()=>{load();window.addEventListener('focus',load);unsubscribe=subscribe('weekly_shift_published',event=>{if(mode.value==='week'?shiftWeek(event.week_start)===week.value:shiftMonthWeeks(month.value).includes(event.week_start))load()})})
-onBeforeUnmount(()=>{sequence++;controller?.abort();clearTimeout(searchTimer);window.removeEventListener('focus',load);unsubscribe?.()})
+onMounted(()=>{load();window.addEventListener('focus',load)})
+useAttendanceScheduleRefresh(load)
+onBeforeUnmount(()=>{sequence++;controller?.abort();clearTimeout(searchTimer);window.removeEventListener('focus',load)})
 </script>
 <style scoped>.shift-person-search{display:flex;gap:8px;margin:12px 0;max-width:420px}.shift-person-search .el-input{flex:1;min-width:0}.shift-search-results{margin-top:12px}</style>
 <style scoped>.my-monthly-shift{padding:16px}.my-month-weeks{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px;margin-top:12px}.my-shift-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.my-shift-toolbar h3{margin:0 12px 0 0}.my-shift-toolbar :deep(.el-button+.el-button){margin-left:0}.my-shift-toolbar :deep(.el-date-editor){width:205px}.my-monthly-shift>p{color:#64748b;font-size:13px}</style>

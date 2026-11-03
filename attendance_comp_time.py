@@ -1,4 +1,5 @@
 """实际完成的周末值班→补班优先→剩余额度待审批调休。"""
+from attendance_recalculation import calculation_scope,leave_days,prime_leaves
 from datetime import date,timedelta
 from uuid import UUID,uuid4
 import math
@@ -73,6 +74,7 @@ def allocation(duties,obligations,requests,hire,cutoff):
 def request_value(row):return api_time({'id':str(row.id),'user_id':str(row.user_id),'start_at':row.start_at,'end_at':row.end_at,'minutes':row.minutes,'reason':row.reason,'status':row.status,'created_at':row.created_at,'allocation_snapshot':row.allocation_snapshot})
 
 
+@calculation_scope
 def balances(db,users,cutoff):
     ids=[user.id for user in users]
     hires={row.user_id:row.hire_date for row in db.query(EmployeeEmployment).filter(EmployeeEmployment.user_id.in_(ids)).all()} if ids and employment_ready(db) else {}
@@ -82,6 +84,7 @@ def balances(db,users,cutoff):
     from models import EmployeeLeave
     if ids:
         leaves=db.query(EmployeeLeave).filter(EmployeeLeave.employee_id.in_(ids),EmployeeLeave.end_date>midnight(left).replace(tzinfo=None)).all()
+    prime_leaves(db,leaves)
     late=lateness_events(clocks,leaves)
     snapshots={row.id:row for row in db.query(AttendanceLeave).filter(AttendanceLeave.user_id.in_(ids)).all()} if ids else {}
     requests=db.query(CompRequest).filter(CompRequest.user_id.in_(ids),CompRequest.status.in_(['pending','approved'])).all() if ids and ready(db) else []
@@ -118,8 +121,7 @@ def balances(db,users,cutoff):
         obligations=[{**item,'day':item['day']} for item in late if item['user_id']==str(user.id) and item['day']>=begin.isoformat()]
         for leave in leaves:
             if leave.employee_id!=user.id:continue
-            from types import SimpleNamespace
-            days=snapshots[leave.id].days if leave.id in snapshots else preview_leave(db,user,SimpleNamespace(start_at=max(stamp(leave.start_date),midnight(begin)),end_at=stamp(leave.end_date)))['days']
+            days=leave_days(db,leave,snapshots[leave.id].days if leave.id in snapshots else None)
             for item in days:
                 if begin.isoformat()<=item['day'] and item['minutes']>0:obligations.append({'id':f'leave:{leave.id}:{item["day"]}','leave_id':str(leave.id),'day':item['day'],'source':'application','reason':leave.reason,'minutes':item['minutes'],'future':item['day']>cutoff.isoformat()})
         for obligation in obligations:
@@ -130,6 +132,7 @@ def balances(db,users,cutoff):
     return api_time(output)
 
 
+@calculation_scope
 def overview(db,user,year,admin=False):
     from hr_access import require_hr
     if admin:require_hr(db,user)

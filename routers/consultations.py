@@ -483,8 +483,14 @@ def _confirmation_preview_values(
         language_pair=intake_values.get("language_pair") if project_type == "translation" else None,
         customer_deadline_time=intake_values.get("customer_deadline_time") if project_type == "translation" else None,
     )
-    if project_type == "translation" and getattr(existing_project, "source_file_name", None):
-        project_name = existing_project.source_file_name
+    if project_type == "translation":
+        # 首次打开读取已有文件名；显式传值（包括清空）时尊重当前输入。
+        project_name = (
+            _clean_text(payload.project_name) or ""
+            if "project_name" in payload.model_fields_set
+            else getattr(existing_project, "source_file_name", None)
+            or getattr(existing_project, "project_name", None) or ""
+        )
     customer_order_no = (
         _clean_text(payload.customer_order_no)
         if project_type != "translation"
@@ -516,8 +522,7 @@ def _confirmation_preview_values(
         **translation_mail_values,
     }
     if project_type == "translation":
-        # 咨询可以先建项目，未提交真实文件名时正文不使用业务摘要冒充文件名。
-        source["source_file_name"] = getattr(existing_project, "source_file_name", None)
+        source["source_file_name"] = project_name or None
         source["customer_order_no"] = (
             _clean_text(payload.customer_order_no) or getattr(existing_project, "customer_order_no", None)
             or getattr(consultation, "customer_order_no", None)
@@ -604,6 +609,8 @@ def _confirm_consultation_project(
     )
     if "manager_contact" in confirmation.model_fields_set:
         preview_request_data["manager_contact"] = confirmation.manager_contact
+    if confirmation_project_type == "translation" and "project_name" not in confirmation.model_fields_set:
+        preview_request_data.pop("project_name", None)
     preview_request = ConsultationConfirmationPreviewRequest(**preview_request_data)
     preview = (
         _confirmation_preview_values(db, preview_request, current_user)
@@ -616,8 +623,6 @@ def _confirm_consultation_project(
             db,
             [user_id for user_id in confirmation.cc_user_ids if user_id not in set(confirmation.to_user_ids)],
         )
-    if confirmation.to_user_ids and not preview.get("can_send", False):
-        raise ValueError("；".join(preview.get("blocking_reasons") or ["邮件发送条件不完整"]))
     if preview["project_type"] != "translation":
         # 确认请求中的空值表示用户主动清空，不再回退到项目历史值。
         preview["customer_order_no"] = _clean_text(confirmation.customer_order_no) or None
@@ -642,6 +647,28 @@ def _confirm_consultation_project(
                 "preview": preview,
             },
         )
+
+    translation_project = None
+    if preview["project_type"] == "translation":
+        from translation_project_identity import normalize_translation_file_name
+        translation_project = db.query(TranslationProject).filter(
+            TranslationProject.consultation_id == consultation.id
+        ).first()
+        try:
+            next_project_name = normalize_translation_file_name(
+                confirmation.project_name if "project_name" in confirmation.model_fields_set
+                else getattr(translation_project, "source_file_name", None) or preview["project_name"],
+                allow_missing_extension=bool(getattr(translation_project, "sub_orders", [])),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail={
+                "message": str(exc),
+                "fieldErrors": [{"path": "project_name", "message": str(exc)}],
+            }) from exc
+        preview["project_name"] = next_project_name
+
+    if confirmation.to_user_ids and not preview.get("can_send", False):
+        raise ValueError("；".join(preview.get("blocking_reasons") or ["邮件发送条件不完整"]))
 
     if preview["project_type"] == "translation" and _clean_text(confirmation.email_subject):
         preview["email_subject_preview"] = _clean_text(confirmation.email_subject)
@@ -671,13 +698,10 @@ def _confirm_consultation_project(
         project.customer_order_no = preview["customer_order_no"]
         db.flush()
     elif preview["project_type"] == "translation":
-        project = db.query(TranslationProject).filter(
-            TranslationProject.consultation_id == consultation.id
-        ).first()
+        project = translation_project
         if project:
-            project.project_name = (
-                getattr(project, "source_file_name", None) or preview["project_name"]
-            )
+            from translation_project_identity import sync_translation_file_name
+            sync_translation_file_name(project, next_project_name)
             project.email_subject_preview = (
                 _clean_text(confirmation.email_subject) or project.email_subject_preview
                 or preview["email_subject_preview"]

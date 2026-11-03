@@ -145,6 +145,8 @@ def publish(db,user,week,payload:SyncWrite):
     from notification_ws import broadcast_to_users
     recipients=[str(uid) for uid, in db.query(AppUser.id).filter(AppUser.is_active.is_(True),AppUser.is_deleted.is_(False)).all()]
     broadcast_to_users(recipients,{'type':'weekly_shift_published','week_start':start.isoformat(),'publication_revision':publication.revision})
+    from attendance_recalculation import publish_change
+    publish_change(db)
     return get_plan(db,user,start.isoformat())
 
 
@@ -155,9 +157,9 @@ def published_plan(db,user,week,mine=False):
     start=week_key(week);available=ready(db)
     row=db.get(WeeklyShiftPublication,start) if available else None
     values=[dict(entry) for entry in row.assignments] if row else []
-    from fixed_shift import effective,FIXED_ONLY_CODES
-    hidden={entry['user_id'] for entry in effective(db,[],start,weekly=True,for_schedule=False) if entry['shift'] in FIXED_ONLY_CODES}
-    values=[entry for entry in values if entry['user_id'] not in hidden]
+    from fixed_shift import effective
+    # 固定配置独立生效；工作台展示与考勤核算使用同一份有效配置。
+    values=effective(db,values,start,weekly=True)
     if mine:values=[entry for entry in values if entry['user_id']==str(user.id)]
     ids=[UUID(entry['user_id']) for entry in values]
     people={str(person.id):person for person in db.query(AppUser).filter(AppUser.id.in_(ids)).all()} if ids else {}

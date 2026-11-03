@@ -1,9 +1,9 @@
 """按自然年、来源和班次折算的年假抵扣；人事调整与不可覆盖的审计记录。"""
+from attendance_recalculation import calculation_scope,leave_days,prime_leaves
 from datetime import date,datetime,timedelta
 from decimal import Decimal,ROUND_DOWN
 from uuid import UUID,uuid4
 from typing import Literal
-from types import SimpleNamespace
 from fastapi import HTTPException
 from pydantic import BaseModel,Field,field_validator
 from sqlalchemy import String,Integer,Text,DateTime,JSON,Uuid,ForeignKey,Index,inspect
@@ -66,18 +66,17 @@ def nominal_minutes(day,shift):
     return round(sum((b-a).total_seconds()/60 for a,b in merged(intervals(day,{**shift,'periods':shift.get('full_periods',shift.get('periods',[]))}))),2)
 
 
+@calculation_scope
 def sources(db,ids,year,extra=None):
     """跨年申请逐日归属，不把整张申请时长重复扣在两个年度。"""
     import attendance_service as attendance
     left=date(year,1,1);right=date(year,12,31)
     clocks,leaves=clock_sources(db,ids,left,right)
     snapshots={row.id:row.days for row in db.query(AttendanceLeave).filter(AttendanceLeave.id.in_([item.id for item in leaves])).all()} if leaves else {}
+    prime_leaves(db,leaves)
     result=[]
     for leave in leaves:
-        days=snapshots.get(leave.id)
-        if days is None:
-            target=db.get(AppUser,leave.employee_id)
-            days=attendance.preview_leave(db,target,SimpleNamespace(start_at=max(attendance.stamp(leave.start_date),attendance.midnight(left)),end_at=min(attendance.stamp(leave.end_date),attendance.midnight(right+timedelta(days=1)))))['days']
+        days=leave_days(db,leave,snapshots.get(leave.id))
         for item in days:
             if left.isoformat()<=item['day']<=right.isoformat() and item['minutes']>0:
                 result.append({'entry_id':f'leave:{leave.id}:{item["day"]}','source_key':f'application:{leave.id}','source_kind':'application','source_id':str(leave.id),'user_id':str(leave.employee_id),'day':item['day'],'minutes':item['minutes'],'day_minutes':nominal_minutes(date.fromisoformat(item['day']),item.get('shift')),'reason':leave.reason,'start_at':attendance.stamp(leave.start_date),'end_at':attendance.stamp(leave.end_date)})
@@ -107,6 +106,7 @@ def allocate(entries,hire,year,modes=None,on_date=None):
     return {'year':year,'hire_date':hire,'annual_leave_days':quota,'used_days':round(float(used),6),'reserved_days':round(float(reserved),6),'remaining_days':round(float(max(Decimal(0),Decimal(quota or 0)-spent)),6) if quota is not None else None,'annual_minutes':round(sum(row['annual_minutes'] for row in result),2),'wage_minutes':round(sum(row['wage_minutes'] for row in result),2),'makeup_required_minutes':round(sum(row['makeup_required_minutes'] for row in result),2),'entries':result}
 
 
+@calculation_scope
 def ledger(db,users,year,extra=None,with_history=True):
     ids=[person.id for person in users];all_entries=sources(db,ids,year,extra) if ids else []
     hires={row.user_id:row.hire_date for row in db.query(EmployeeEmployment).filter(EmployeeEmployment.user_id.in_(ids)).all()} if ids and employment_ready(db) else {}
@@ -128,6 +128,7 @@ def ledger(db,users,year,extra=None,with_history=True):
     return api_time(output)
 
 
+@calculation_scope
 def overview(db,user,year,admin=False):
     from hr_access import require_hr
     import attendance_service as attendance

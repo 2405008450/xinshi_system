@@ -5,19 +5,21 @@ from attendance_models import AttendanceDay,AttendanceLeave,AttendanceClockSessi
 from models import EmployeeLeave
 import attendance_service as service
 from chat_time import now
+from attendance_recalculation import calculation_scope,project_rows
 
 
 def month_end(day):
     return (day.replace(day=28)+timedelta(days=4)).replace(day=1)-timedelta(days=1)
 
 
+@calculation_scope
 def clock_sources(db,ids,start,end):
     if not ids:return [],[]
     sessions=db.query(AttendanceClockSession).filter(AttendanceClockSession.user_id.in_(ids),AttendanceClockSession.day>=start,AttendanceClockSession.day<=end).all() if inspect(db.connection()).has_table('attendance_clock_session') else []
     occupied={(row.user_id,row.day) for row in sessions}
     old=db.query(AttendanceDay).filter(AttendanceDay.user_id.in_(ids),AttendanceDay.day>=start,AttendanceDay.day<=end).all()
     leaves=db.query(EmployeeLeave).filter(EmployeeLeave.employee_id.in_(ids),EmployeeLeave.start_date<service.midnight(end+timedelta(days=1)).replace(tzinfo=None),EmployeeLeave.end_date>service.midnight(start).replace(tzinfo=None)).all()
-    return [*sessions,*[row for row in old if (row.user_id,row.day) not in occupied]],leaves
+    return project_rows(db,[*sessions,*[row for row in old if (row.user_id,row.day) not in occupied]]),leaves
 
 
 def lateness_events(rows,leaves):
@@ -70,6 +72,7 @@ def accountability(events,balances,ids,start,end):
     return list(grouped.values())
 
 
+@calculation_scope
 def monthly(db,ids,start,end,balances=None):
     from attendance_clock import monthly_balances
     left=start.replace(day=1);right=month_end(end)

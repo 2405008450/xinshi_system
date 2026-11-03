@@ -14,6 +14,7 @@ import monthly_shift as monthly
 import weekly_shift as weekly
 import fixed_shift
 from work_report_calendar import is_workday,period_bounds
+from attendance_recalculation import calculation_scope,project,project_rows,leave_days,prime_leaves
 
 logger=logging.getLogger(__name__)
 LATE_GRACE_SECONDS=15*60
@@ -36,36 +37,38 @@ def shift_for(db,user,day):
     return shifts_for(db,[user],day).get(str(user.id))
 
 
-def shifts_for(db,users,day):
+def shifts_for(db,users,day,*,schedule=None):
     """与单人考勤共用班次优先级，批量查询不随候选人数增加。"""
     # 自然工作日及显式安排周末值班的日期适用班次；不将报告 07:00 换日规则套到考勤。
     import weekend_duty
+    lookup=schedule.get if schedule else db.get
+    available=schedule.ready if schedule else lambda checker:checker(db)
     duty_ids=set()
-    if weekend_duty.management.ready(db):
-        plan=db.get(weekend_duty.management.WeekendDutyPublication,day.replace(day=1))
+    if available(weekend_duty.management.ready):
+        plan=lookup(weekend_duty.management.WeekendDutyPublication,day.replace(day=1))
         duty_ids={row['user_id'] for row in (plan.assignments if plan else []) if row['date']==day.isoformat()}
     workday=is_workday(day)
     import weekend_night_duty as night
-    night_plan=db.get(night.NightDutyPlan,day.replace(day=1)) if night.ready(db) else None
+    night_plan=lookup(night.NightDutyPlan,day.replace(day=1)) if available(night.ready) else None
     night_entries={entry['user_id']:entry for entry in (night_plan.published if night_plan else []) if entry['date']==day.isoformat()}
 
     start=day-timedelta(days=day.weekday())
     from weekly_shift_publication import WeeklyShiftPublication,ready as publication_ready
-    row=db.get(WeeklyShiftPublication,start) if publication_ready(db) else None
+    row=lookup(WeeklyShiftPublication,start) if available(publication_ready) else None
     values=row.assignments if row else []
     weekly_entries={value['user_id']:value for value in values}
     start=day.replace(day=1)
-    row=db.get(monthly.MonthlyShiftPlan,start) if monthly.ready(db) else None
-    values=fixed_shift.effective(db,row.assignments if row else [],start)
+    row=lookup(monthly.MonthlyShiftPlan,start) if available(monthly.ready) else None
+    values=fixed_shift.effective(db,row.assignments if row else [],start,context=schedule)
     monthly_entries={value['user_id']:value for value in values}
-    fixed_entries={entry['user_id']:entry for entry in fixed_shift.effective(db,[],day-timedelta(days=day.weekday()),weekly=True,for_schedule=False)}
+    fixed_entries={entry['user_id']:entry for entry in fixed_shift.effective(db,[],day-timedelta(days=day.weekday()),weekly=True,for_schedule=False,context=schedule)}
     shifts={row['code']:row for row in monthly.SHIFTS+fixed_shift.FIXED_ONLY_SHIFTS}
     result={}
     for user in users:
         uid=str(user.id)
         setting=fixed_entries.get(uid)
         if not workday and uid not in duty_ids and uid not in night_entries and not (setting and setting['shift']=='flexible'):continue
-        entry=setting if setting and setting['shift'] in fixed_shift.FIXED_ONLY_CODES else weekly_entries.get(uid) or monthly_entries.get(uid)
+        entry=setting if setting and setting['shift']!='home_rotation' else weekly_entries.get(uid) or monthly_entries.get(uid)
         if setting and setting['shift']=='home_rotation' and entry:entry={**entry,'home_office_day':True,'home_rotation':True}
         shift=shifts.get(entry['shift']) if entry else None
         if shift:result[uid]={**shift,'department':entry['department'],'weekend_duty':uid in duty_ids,'fixed':bool(entry.get('fixed')),'home_office_day':bool(entry.get('home_office_day')),'home_rotation':bool(entry.get('home_rotation'))}
@@ -91,6 +94,7 @@ def merged(windows):
     return values
 
 def metrics(row,leaves=()):
+    row=project(row)
     day=row.day;periods=intervals(day,row.shift_snapshot)
     if not periods:return {'late_count':0,'late_minutes':0,'overtime_minutes':0,'lunch_deducted_minutes':0}
     check_in=stamp(row.check_in);check_out=stamp(row.check_out) if row.check_out else None
@@ -120,6 +124,7 @@ def metrics(row,leaves=()):
     return result
 
 def serialize_day(row,leaves=()):
+    row=project(row)
     return api_time({'id':str(row.id),'user_id':str(row.user_id),'day':row.day.isoformat(),'check_in':row.check_in,'check_out':row.check_out,'shift':row.shift_snapshot,**metrics(row,leaves)})
 
 def auto_check_in(db,user,request):
@@ -149,6 +154,7 @@ class LeaveWrite(LeaveWindow):
     client_id:UUID
     reason:str=Field(min_length=1,max_length=500)
 
+@calculation_scope
 def preview_leave(db,user,payload):
     left=payload.start_at;right=payload.end_at;days=[]
     day=left.date()
@@ -188,6 +194,7 @@ def create_leave(db,user,payload):
     return {'id':str(uid),'minutes':preview['minutes'],'message':'请假记录已保存，全员通知已生成'}
 
 
+@calculation_scope
 def attendance_report(db,user,anchor,period,*,admin=False,keyword='',department='',page=1,limit=50):
     require_ready(db)
     if admin:require_hr(db,user)
@@ -211,12 +218,9 @@ def attendance_report(db,user,anchor,period,*,admin=False,keyword='',department=
             person=people[str(uid)]
             daily[key]={'user_id':str(uid),'name':person['name'],'username':person['username'],'department':'、'.join(row['name'] for row in person['departments']),'day':day.isoformat(),'check_in':None,'check_out':None,'shift':None,'late_count':0,'late_minutes':0,'overtime_minutes':0,'lunch_deducted_minutes':0,'leave_minutes':0,'leaves':[]}
         return daily[key]
+    prime_leaves(db,leaves)
     for leave in leaves:
-        if leave.id in snapshots:days=snapshots[leave.id].days
-        else:
-            employee=db.get(AppUser,leave.employee_id)
-            left=max(stamp(leave.start_date),midnight(start));right=min(stamp(leave.end_date),midnight(end_exclusive))
-            days=preview_leave(db,employee,LeaveWindow(start_at=left,end_at=right))['days']
+        days=leave_days(db,leave,snapshots[leave.id].days if leave.id in snapshots else None)
         selected=[row for row in days if start.isoformat()<=row['day']<=end.isoformat() and row['minutes']>0]
         total=round(sum(row['minutes'] for row in selected),2)
         leave_items.append({'id':str(leave.id),'user_id':str(leave.employee_id),'name':people[str(leave.employee_id)]['name'],'start_at':stamp(leave.start_date),'end_at':stamp(leave.end_date),'reason':leave.reason,'minutes':total,'days':selected})
@@ -226,6 +230,9 @@ def attendance_report(db,user,anchor,period,*,admin=False,keyword='',department=
             current['leaves'].append({'id':str(leave.id),'start_at':stamp(leave.start_date),'end_at':stamp(leave.end_date),'reason':leave.reason,'minutes':value['minutes']})
     from attendance_clock import Clock,ready as clock_ready,serialize as serialize_clock
     sessions=db.query(Clock).filter(Clock.user_id.in_(ids),Clock.day>=start,Clock.day<=end).order_by(Clock.day,Clock.segment).all() if ids and clock_ready(db) else []
+    projected=project_rows(db,[*sessions,*punches])
+    sessions=[row for row in projected if hasattr(row,'segment')]
+    punches=[row for row in projected if not hasattr(row,'segment')]
     session_keys={(row.user_id,row.day) for row in sessions}
     for row in punches:
         if (row.user_id,row.day) in session_keys:continue
@@ -238,6 +245,8 @@ def attendance_report(db,user,anchor,period,*,admin=False,keyword='',department=
         current['check_in']=entries[0]['check_in'];current['check_out']=max(entry['check_out'] for entry in entries) if all(entry['check_out'] for entry in entries) else None
         regular=next((entry for entry in entries if not entry['shift'].get('overtime_only')),entries[0])
         current['shift']={**regular['shift'],'periods':regular['shift'].get('full_periods',regular['shift']['periods'])}
+        warnings=list(dict.fromkeys(entry['shift']['recalculation_warning'] for entry in entries if entry['shift'].get('recalculation_warning')))
+        if warnings:current['shift']['recalculation_warning']='；'.join(warnings)
         keys=('late_count','late_minutes','overtime_minutes','lunch_deducted_minutes','raw_overtime_minutes','breakfast_deduction_minutes','dinner_deduction_minutes','invalid_deduction_minutes','violation_count')
         for key in keys:current[key]=round(sum(entry.get(key,0) for entry in entries),2)
         current['deduction_details']=[detail for entry in entries for detail in entry.get('deduction_details',[])]
@@ -286,16 +295,18 @@ def today_status(db,user):
     return clock_status(db,user)
 
 
+@calculation_scope
 def leave_badges(db,assignments,start,weekly_period=False):
     if not assignments or not ready(db):return assignments
     end=start+timedelta(days=6) if weekly_period else (start.replace(day=28)+timedelta(days=4)).replace(day=1)-timedelta(days=1)
     rows=db.query(AttendanceLeave).filter(AttendanceLeave.user_id.in_([UUID(row['user_id']) for row in assignments]),AttendanceLeave.start_at<midnight(end+timedelta(days=1)),AttendanceLeave.end_at>midnight(start)).all()
+    prime_leaves(db,rows)
     output=[]
     for assignment in assignments:
         leaves=[]
         for row in rows:
             if str(row.user_id)!=assignment['user_id']:continue
-            minutes=sum(day['minutes'] for day in row.days if start.isoformat()<=day['day']<=end.isoformat())
+            minutes=sum(day['minutes'] for day in leave_days(db,row,row.days) if start.isoformat()<=day['day']<=end.isoformat())
             if minutes:leaves.append({'id':str(row.id),'start_at':stamp(row.start_at),'end_at':stamp(row.end_at),'minutes':minutes})
         output.append({**assignment,'leave_minutes':round(sum(row['minutes'] for row in leaves),2),'leaves':leaves})
     return output

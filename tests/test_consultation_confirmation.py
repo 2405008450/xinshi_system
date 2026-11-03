@@ -21,6 +21,7 @@ from routers.consultations import (
     validate_simple_consultation,
 )
 from schemas import ConsultationCreate, TranslationProjectCreate
+from tests.test_chat_participant_access import environment
 
 
 class _FlushOnlyDb:
@@ -427,7 +428,7 @@ def test_confirmation_manager_contact_is_synced_to_linked_client(monkeypatch):
     sub_client_id = uuid4()
     project = SimpleNamespace(
         id=uuid4(), project_name="旧项目名", email_subject_preview="旧主题",
-        source_file_name="客户合同.pdf；附件.docx",
+        source_file_name="旧合同.pdf",
         task_type=None, project_status="pending",
     )
     consultation = SimpleNamespace(
@@ -469,7 +470,7 @@ def test_confirmation_manager_contact_is_synced_to_linked_client(monkeypatch):
         consultation,
         ConsultationConfirmationFields(
             expected_order_no="TP-260812-012",
-            project_name="客户-260812",
+            project_name="修正合同.docx",
             manager_contact="  预览中补填的联系方式  ",
         ),
         uuid4(),
@@ -478,7 +479,8 @@ def test_confirmation_manager_contact_is_synced_to_linked_client(monkeypatch):
     assert client.manager_contact == "预览中补填的联系方式"
     assert project.client_id == client.id
     assert project.sub_client_id == sub_client_id
-    assert project.project_name == project.source_file_name == "客户合同.pdf；附件.docx"
+    assert project.project_name == project.source_file_name == "修正合同.docx"
+    assert consultation.project_name == "修正合同.docx"
     assert project.email_subject_preview == '旧主题'
 
     _confirm_consultation_project(
@@ -487,7 +489,7 @@ def test_confirmation_manager_contact_is_synced_to_linked_client(monkeypatch):
             expected_order_no='TP-260812-012', email_subject='手工确认主题 TP-260812-012',
         ), uuid4(),
     )
-    assert project.source_file_name == '客户合同.pdf；附件.docx'
+    assert project.source_file_name == '修正合同.docx'
     assert project.email_subject_preview == '手工确认主题 TP-260812-012'
 
 
@@ -500,8 +502,98 @@ def test_reconfirmation_preview_preserves_file_name_and_uses_existing_mail_metad
     monkeypatch.setattr('routers.consultations.get_consultation', lambda *_: consultation)
     db = SimpleNamespace(query=lambda model: _ClientQuery(client if model is Client else project))
     preview = _confirmation_preview_values(db, ConsultationConfirmationPreviewRequest(
-        consultation_id=consultation.id, consultation_type='笔译项目', project_name='调用方旧摘要',
+        consultation_id=consultation.id, consultation_type='笔译项目',
     ))
     assert preview['project_name'] == '实际文件.docx'
     assert preview['sub_order_count'] == 2
     assert preview['email_subject_preview'] == 'TP-261009-001，客户，经理，中译英，10月9日18点回稿，2批'
+
+
+@pytest.mark.parametrize('name', ['', '没有后缀', '甲.pdf；乙.docx', '目录/合同.pdf'])
+@pytest.mark.parametrize('send_email', [False, True])
+def test_confirmation_invalid_file_name_stops_before_any_mutation(monkeypatch, name, send_email):
+    consultation = SimpleNamespace(
+        id=uuid4(), consultation_type='笔译项目', client_id=uuid4(),
+        project_name='原业务摘要', customer_order_no=None, project_intake={}, status='following',
+    )
+    snapshot = vars(consultation).copy()
+    monkeypatch.setattr('routers.consultations._confirmation_preview_values', lambda *_: {
+        'project_type': 'translation', 'order_no': 'TP-test', 'project_name': name,
+        'can_send': False, 'blocking_reasons': ['邮箱未配置'],
+    })
+    monkeypatch.setattr('routers.consultations.validate_internal_users', lambda *_: None)
+    db = SimpleNamespace(query=lambda _: _ClientQuery(None))
+    with pytest.raises(HTTPException) as error:
+        _confirm_consultation_project(db, consultation, ConsultationConfirmationFields(
+            expected_order_no='TP-test', project_name=name,
+            to_user_ids=[uuid4()] if send_email else [],
+        ), uuid4())
+    assert error.value.status_code == 422
+    assert error.value.detail['fieldErrors'][0]['path'] == 'project_name'
+    assert vars(consultation) == snapshot
+
+
+@pytest.mark.parametrize('name', [None, '', '修正文件.pdf'])
+def test_translation_preview_does_not_generate_business_summary(monkeypatch, name):
+    monkeypatch.setattr('routers.consultations.generate_order_no', lambda _: 'TP-test')
+    payload = {'consultation_type': '笔译项目', 'client_short_name': '测试客户'}
+    if name is not None:
+        payload['project_name'] = name
+    preview = _confirmation_preview_values(object(), ConsultationConfirmationPreviewRequest(**payload))
+    assert preview['project_name'] == (name or '')
+
+
+@pytest.mark.parametrize('name', ['', '修正文件.pdf', '母项目名称'])
+def test_existing_project_preview_respects_explicit_name(monkeypatch, name):
+    consultation = SimpleNamespace(id=uuid4(), consultation_type='笔译项目', client_id=None)
+    project = SimpleNamespace(order_no='TP-test', project_name='旧文件.pdf', source_file_name='旧文件.pdf', sub_orders=[object()])
+    monkeypatch.setattr('routers.consultations.get_consultation', lambda *_: consultation)
+    db = SimpleNamespace(query=lambda _: _ClientQuery(project))
+    preview = _confirmation_preview_values(db, ConsultationConfirmationPreviewRequest(
+        consultation_id=consultation.id, consultation_type='笔译项目', project_name=name,
+    ))
+    assert preview['project_name'] == name
+
+
+def test_confirmation_creates_and_reuses_project_in_isolated_database(environment, monkeypatch):
+    from sqlalchemy import event
+    from models import Consultation
+    db, (owner, _, _) = environment
+
+    def assign_ids(session, *_):
+        for row in session.new:
+            if hasattr(row, 'id') and row.id is None:
+                row.id = uuid4()
+
+    event.listen(db, 'before_flush', assign_ids)
+    client = Client(id=uuid4(), client_name='隔离确认测试')
+    consultation = Consultation(id=uuid4(), client_id=client.id, consultation_type='笔译项目',
+                                project_name='旧业务摘要', project_intake={}, status='following')
+    db.add_all([client, consultation])
+    db.flush()
+    monkeypatch.setattr('routers.consultations._confirmation_preview_values', lambda _db, payload: {
+        'project_type': 'translation', 'order_no': 'TP-261103-990',
+        'project_name': payload.project_name or '', 'email_subject_preview': '测试主题',
+    })
+    fields = ConsultationConfirmationFields(expected_order_no='TP-261103-990', project_name='中文合同.docx')
+    first, _ = _confirm_consultation_project(db, consultation, fields, owner.id)
+    second, _ = _confirm_consultation_project(db, consultation, fields, owner.id)
+    assert first.id == second.id
+    assert db.query(TranslationProject).filter_by(consultation_id=consultation.id).count() == 1
+    assert first.project_name == first.source_file_name == consultation.project_name == '中文合同.docx'
+
+
+def test_confirmation_preserves_parent_name_with_sub_orders(monkeypatch):
+    project = SimpleNamespace(id=uuid4(), source_file_name='旧母项目', project_name='旧母项目',
+                              sub_orders=[object()], project_status='pending', email_subject_preview='旧主题')
+    consultation = SimpleNamespace(id=uuid4(), consultation_type='笔译项目', client_id=None,
+        customer_order_no=None, project_intake={}, sub_client_id=None, contact_name=None)
+    db = SimpleNamespace(query=lambda _: _ClientQuery(project), flush=lambda: None)
+    monkeypatch.setattr('routers.consultations._confirmation_preview_values', lambda *_: {
+        'project_type': 'translation', 'order_no': 'TP-test', 'project_name': '新母项目',
+        'email_subject_preview': '预览主题',
+    })
+    monkeypatch.setattr('routers.consultations.apply_intake', lambda *a, **kw: None)
+    _confirm_consultation_project(db, consultation, ConsultationConfirmationFields(
+        expected_order_no='TP-test', project_name='新母项目'), uuid4())
+    assert project.project_name == project.source_file_name == '新母项目'

@@ -1,5 +1,6 @@
 """草稿与工作台隔离、同步后修改、审计可见性；仅内存 SQLite。"""
 import pytest
+from datetime import date
 from fastapi import HTTPException
 from test_chat_participant_access import environment
 from test_monthly_shift import setup,payload
@@ -47,7 +48,11 @@ def test_noop_draft_fixed_config_and_stale_sync(environment):
     current=weekly.get_plan(db,admin,'2026-12-28');service.publish(db,admin,'2026-12-28',version(current))
     before=weekly.overview(db,person,'2026-12-28')['assignments']
     fixed_shift.save_config(db,admin,payload(other,revision=1,shift='early'))
-    assert weekly.overview(db,person,'2026-12-28')['assignments']==before
+    after=weekly.overview(db,person,'2026-12-28')['assignments']
+    assert next(row for row in after if row['user_id']==str(other.id))['shift']=='early'
+    assert [row for row in after if row['user_id']!=str(other.id)]==[row for row in before if row['user_id']!=str(other.id)]
+    # 展示采用生效配置，但原始发布快照继续留存。
+    assert next(row for row in db.get(service.WeeklyShiftPublication,date(2026,12,28)).assignments if row['user_id']==str(other.id))['shift']=='late'
     assert weekly.get_plan(db,admin,'2026-12-28')['needs_sync']
     with pytest.raises(HTTPException):service.publish(db,person,'2026-12-28',version(current))
     with pytest.raises(HTTPException):service.history(db,person,'2026-12-28')
@@ -80,7 +85,7 @@ def test_only_sync_broadcasts_and_api_guards(environment,monkeypatch):
         assert client.get('/monthly-shifts/weekly/history?week=2026-10-26&public=true').json()['total']==0
         assert client.get('/monthly-shifts/weekly/history?week=2026-10-26&public=true&offset=-1').status_code==422
         service.publish(db,admin,'2026-10-26',version(plan))
-        assert len(events)==1 and events[0]['type']=='weekly_shift_published'
+        assert [event['type'] for event in events]==['weekly_shift_published','attendance_schedule_changed']
         assert client.get('/monthly-shifts/weekly/history?week=2026-10-26&public=true').json()['total']==2
 
 

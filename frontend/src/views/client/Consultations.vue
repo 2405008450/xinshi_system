@@ -1115,7 +1115,18 @@
       top="8vh"
       @close="resetConfirmationDraft"
     >
-      <div v-loading="confirmationPreviewLoading" class="confirmation-preview-body">
+      <template #header>
+        <DialogFieldSearchHeader
+          ref="confirmationFieldSearchRef"
+          v-model="confirmationFieldSearchKeyword"
+          title="确认咨询并生成项目"
+          :fetch-suggestions="fetchConfirmationFieldSuggestions"
+          placeholder="搜索字段，如文件名称"
+          @select="locateConfirmationField"
+          @clear="clearConfirmationFieldSearch"
+        />
+      </template>
+      <div ref="confirmationEditorRef" v-loading="confirmationPreviewLoading" class="confirmation-preview-body">
         <el-alert
           title="确认后将更新咨询状态并生成对应项目；可选择仅建项，或同时向内部用户发送邮件。邮件投递失败不会回滚已生成项目。"
           type="info"
@@ -1146,12 +1157,12 @@
         </el-descriptions>
         <AppForm :model="confirmationForm" ref="confirmationFormRef" label-width="120px" @submit.prevent>
           <el-form-item
-            label="项目名称"
+            :label="confirmationIsTranslation && !confirmationPreview.sub_order_count ? '文件名称' : '项目名称'"
             prop="projectName"
-            :rules="[{ required: true, message: '请输入项目名称', trigger: 'blur' }]"
+            :rules="confirmationNameRules"
           >
-            <el-input v-model="confirmationForm.projectName" maxlength="255" show-word-limit @input="regenerateConfirmationSubject" />
-            <div class="project-name-hint">已按“客户简称-当前日期”预填，可在确认前修改。</div>
+            <el-input v-model="confirmationForm.projectName" maxlength="255" show-word-limit :placeholder="confirmationNameHint" @input="handleConfirmationNameInput" />
+            <div class="project-name-hint">{{ confirmationNameHint }}</div>
           </el-form-item>
           <el-form-item label="标题前缀">
             <el-select
@@ -1297,6 +1308,7 @@ import * as clientApi from '@/api/clients'
 import * as userApi from '@/api/users'
 import { getProjectLanguages } from '@/api/projectLanguages'
 import { buildAutoProjectName } from '@/utils/projectNaming'
+import { translationFileNameError } from '@/utils/translationFileName'
 import { buildTranslationEmailSubject } from '@/utils/translationEmailSubject'
 import { formatDateTimeMinute as formatDatetime, formatTimeMinute as formatTime } from '@/utils/dateTime'
 import { useBatchDelete } from '@/composables/useBatchDelete'
@@ -1369,6 +1381,14 @@ const formSubmitting = ref(false)
 const editorLoading = ref(false)
 const createIdempotencyKey = ref('')
 const confirmationFormRef = ref(null)
+const confirmationEditorRef = ref(null)
+const {
+  fieldSearchRef: confirmationFieldSearchRef,
+  fieldSearchKeyword: confirmationFieldSearchKeyword,
+  fetchFieldSuggestions: fetchConfirmationFieldSuggestions,
+  locateDialogField: locateConfirmationField,
+  clearFieldSearch: clearConfirmationFieldSearch,
+} = useDialogFieldSearch(confirmationEditorRef)
 const confirmationBodyEditorRef = ref(null)
 const confirmationImageUploading = ref(false)
 const confirmationRecipientGroups = ref([])
@@ -1392,6 +1412,23 @@ const confirmationPreview = reactive({
   sender_mode: 'system', sender_name: '', sender_email: '', sender_verified: false,
 })
 const CONFIRMED_CONSULTATION_STATUS = 'success'
+const confirmationIsTranslation = computed(() => confirmationPreview.project_type === 'translation'
+  || isTranslationConsultationType((confirmationContext.consultationPayload || confirmationContext.row)?.consultation_type))
+const confirmationNameHint = computed(() => confirmationIsTranslation.value
+  ? confirmationPreview.sub_order_count
+    ? '已有子订单的母项目可填写业务名称；各子订单保留独立文件名。'
+    : '请输入单个真实文件名，包含完整扩展名，如 合同.docx。'
+  : '可在确认前修改项目名称。')
+const confirmationNameRules = computed(() => [{
+  required: true,
+  trigger: 'blur',
+  validator: (_rule, value, callback) => {
+    const message = confirmationIsTranslation.value
+      ? translationFileNameError(value, { allowMissingExtension: !!confirmationPreview.sub_order_count })
+      : (value?.trim() ? '' : '请输入项目名称')
+    callback(message ? new Error(message) : undefined)
+  },
+}])
 const currentUserId = localStorage.getItem('user_id') || null
 const CONSULTATION_COLUMNS_STORAGE_KEY = `consultation_visible_columns:${currentUserId || 'anonymous'}`
 
@@ -2713,7 +2750,7 @@ const applyConfirmationPreview = (preview, { preserveRecipients = false } = {}) 
     can_send: !!preview?.can_send,
     blocking_reasons: Array.isArray(preview?.blocking_reasons) ? preview.blocking_reasons : [],
   })
-  confirmationForm.projectName = preview?.project_name || confirmationForm.projectName
+  if (!preserveRecipients) confirmationForm.projectName = preview?.project_name ?? confirmationForm.projectName
   confirmationForm.customerOrderNo = preview?.customer_order_no || confirmationForm.customerOrderNo
   confirmationForm.managerContact = preview?.manager_contact || ''
   confirmationForm.languagePair = preview?.language_pair || confirmationForm.languagePair
@@ -2792,6 +2829,8 @@ const isCanceledRequest = (error) => (
 )
 
 const refreshConfirmationMailPreview = async () => {
+  if (confirmationManagerContactPreviewTimer) clearTimeout(confirmationManagerContactPreviewTimer)
+  confirmationManagerContactPreviewTimer = null
   const { requestId, signal } = beginConfirmationPreviewRequest()
   const source = confirmationContext.consultationPayload || confirmationContext.row || {}
   confirmationPreviewLoading.value = true
@@ -2815,6 +2854,7 @@ const refreshConfirmationMailPreview = async () => {
     applyConfirmationPreview(preview, { preserveRecipients: true })
     await nextTick()
     confirmationFormRef.value?.validateField(['serviceContent', 'languagePair']).catch(() => {})
+    return true
   } catch (error) {
     if (requestId !== confirmationMailPreviewRequestId) return
     if (isCanceledRequest(error)) return
@@ -2830,11 +2870,20 @@ const handleConfirmationLanguagePairChange = (value) => {
 }
 
 const handleConfirmationManagerContactInput = (value) => {
+  confirmationPreview.manager_contact = value?.trim() || ''
+  scheduleConfirmationPreview()
+}
+
+const handleConfirmationNameInput = () => {
+  if (confirmationIsTranslation.value) scheduleConfirmationPreview()
+  else regenerateConfirmationSubject()
+}
+
+const scheduleConfirmationPreview = () => {
   confirmationMailPreviewController?.abort()
   confirmationMailPreviewController = null
   confirmationMailPreviewRequestId += 1
   confirmationPreviewLoading.value = false
-  confirmationPreview.manager_contact = value?.trim() || ''
   regenerateConfirmationSubject()
   if (confirmationManagerContactPreviewTimer) clearTimeout(confirmationManagerContactPreviewTimer)
   confirmationManagerContactPreviewTimer = setTimeout(() => {
@@ -2855,7 +2904,9 @@ const openConfirmationDialog = async ({ mode, consultationId, consultationPayloa
   const { requestId, signal } = beginConfirmationPreviewRequest()
   Object.assign(confirmationContext, { mode, consultationId, consultationPayload, row, continueCreate })
   Object.assign(confirmationForm, {
-    projectName: previewSource?.project_name || buildAutoProjectName(
+    projectName: isTranslationConsultationType(previewSource?.consultation_type)
+      ? (translationFileNameError(previewSource?.project_name) ? '' : previewSource.project_name.trim())
+      : previewSource?.project_name || buildAutoProjectName(
       previewSource?.client_short_name,
       0,
       new Date(),
@@ -2886,7 +2937,8 @@ const openConfirmationDialog = async ({ mode, consultationId, consultationPayloa
         client_id: previewSource?.client_id || null,
         client_short_name: previewSource?.client_short_name || null,
         manager_contact: previewSource?.manager_contact?.trim() || null,
-        project_name: confirmationForm.projectName || null,
+        ...(!confirmationForm.projectName && isTranslationConsultationType(previewSource?.consultation_type)
+          ? {} : { project_name: confirmationForm.projectName || null }),
         subject_prefix: null,
         customer_order_no: confirmationForm.customerOrderNo || null,
         project_intake: previewSource?.project_intake || {},
@@ -2913,6 +2965,9 @@ const handleConfirmConsultation = async (sendEmail) => {
   if (!confirmationFormRef.value) return
   const valid = await confirmationFormRef.value.validate().catch(() => false)
   if (!valid || !confirmationPreview.order_no) return
+  const previewNeedsRefresh = confirmationManagerContactPreviewTimer
+    || (confirmationIsTranslation.value && confirmationForm.projectName.trim() !== confirmationPreview.project_name.trim())
+  if (previewNeedsRefresh && !await refreshConfirmationMailPreview()) return
   if (
     sendEmail
     && (!confirmationPreview.can_send
@@ -3027,6 +3082,7 @@ const handleConfirmConsultation = async (sendEmail) => {
 }
 
 const resetConfirmationDraft = () => {
+  clearConfirmationFieldSearch()
   confirmationMailDraft.pause()
   confirmationMailBaseline = null
   confirmationMailTracking = false
@@ -3617,7 +3673,8 @@ onBeforeUnmount(() => {
 :global(.consultation-confirmation-dialog) {
   display: flex;
   flex-direction: column;
-  max-height: 84vh;
+  max-height: 84vh !important;
+  max-width: calc(100vw - 32px) !important;
   margin-bottom: 0;
   overflow: hidden;
 }
@@ -3662,6 +3719,17 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 768px) {
+  :global(.consultation-confirmation-dialog .el-dialog__footer) {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  :global(.consultation-confirmation-dialog .el-dialog__footer .el-button) {
+    margin-left: 0;
+  }
+
   .search-form :deep(.el-form-item),
   .search-form :deep(.el-form-item__content),
   .search-form :deep(.el-input),

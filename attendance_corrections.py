@@ -1,4 +1,5 @@
 """补卡申请、行政确认及跨日签退的后续上班基准；所有过程留记录。"""
+from attendance_recalculation import calculation_scope,project
 from datetime import date,datetime,timedelta
 from uuid import UUID,uuid4
 from typing import Literal
@@ -121,6 +122,7 @@ def serialize(db,row):
     return api_time({**{key:getattr(row,key) for key in ('id','client_id','declarations','user_id','day','kind','record_id','segment','requested_at','reason','evidence','status','original','history','created_at','confirmed_at','confirmed_by')},'name':person.full_name or person.username})
 
 
+@calculation_scope
 def submit(db,user,payload,editing=None):
     import attendance_clock as clock
     import attendance_service as service
@@ -188,6 +190,7 @@ def update(db,user,uid,payload):
     return submit(db,user,values,editing=row)
 
 
+@calculation_scope
 def confirm(db,user,uid):
     import attendance_clock as clock
     import attendance_service as service
@@ -242,10 +245,11 @@ def listing(db,user,company=False):
     return api_time({'items':[serialize(db,row) for row in rows],'clock_records':record_values,'adjustments':[{'id':row.id,'user_id':row.user_id,'name':name or username,'check_in':check_in,'check_out':check_out,'day':row.day,'next_start':row.next_start,'reason':row.reason,'history':row.history,'created_at':row.created_at} for row,name,username,check_in,check_out in adjustments.limit(500).all()] if adjustments is not None else []})
 
 
+@calculation_scope
 def next_scheduled_start(db,user,row,moment):
     import attendance_service as service
     import attendance_clock as clock
-    shift=clock.clock_shift(row.shift_snapshot)
+    shift=clock.clock_shift(project(row,db).shift_snapshot)
     if shift.get('flexible'):return None,0
     if (shift.get('code')=='customer_remote' or shift.get('night_duty')=='continuation') and getattr(row,'segment',0)==0 and not shift.get('clock_pairs_unrestricted'):
         periods=service.intervals(row.day,{'periods':clock.segments(shift)[1]})

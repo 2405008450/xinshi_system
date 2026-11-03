@@ -21,6 +21,7 @@
   </section>
 </template>
 <script setup>
+import {useAttendanceScheduleRefresh} from '@/composables/useAttendanceScheduleRefresh'
 import {computed,onMounted,onBeforeUnmount,reactive,ref,watch} from 'vue'
 import {ElMessage} from 'element-plus'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
@@ -47,6 +48,7 @@ async function save(){if(saving.value||!await formRef.value.validate().catch(()=
 watch(keyword,value=>{clearTimeout(timer);if(!value)search();else timer=setTimeout(search,400)})
 onMounted(()=>{load();unsubscribe=subscribe('annual_leave_changed',load);window.addEventListener('focus',load);window.addEventListener('attendance-leave-changed',load);window.addEventListener('attendance-clock-changed',load)})
 onBeforeUnmount(()=>{alive=false;sequence++;controller?.abort();clearTimeout(timer);unsubscribe?.();window.removeEventListener('focus',load);window.removeEventListener('attendance-leave-changed',load);window.removeEventListener('attendance-clock-changed',load)})
+useAttendanceScheduleRefresh(load)
 </script>
 <style scoped>.annual-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0}.annual-toolbar>.el-input{width:240px}.annual-note{font-size:13px;line-height:1.8;color:#64748b}.annual-detail{max-height:560px;overflow-y:auto;overflow-wrap:anywhere}.annual-detail article{border-bottom:1px solid #e2e8f0;padding:10px 0}.el-table{margin:12px 0}</style>
 <style>.leave-settlement-dialog.el-dialog{display:flex;flex-direction:column;max-height:90vh;overflow:hidden}.leave-settlement-dialog>.el-dialog__header,.leave-settlement-dialog>.el-dialog__footer{flex-shrink:0}.leave-settlement-dialog>.el-dialog__body{flex:1;min-height:0;overflow-y:auto}.leave-settlement-dialog>.el-dialog__footer{border-top:1px solid #e2e8f0;background:#f8fafc}</style>
