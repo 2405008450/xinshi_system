@@ -142,6 +142,31 @@ class Client(Base):
     consultations: Mapped[list['Consultation']] = relationship('Consultation', back_populates='client')
     contact_records: Mapped[list['ClientContact']] = relationship('ClientContact', back_populates='client')
     sub_clients: Mapped[list['SubClient']] = relationship('SubClient', back_populates='parent_client', cascade='all, delete-orphan')
+    cooperation_record: Mapped[Optional['ClientCooperation']] = relationship(
+        'ClientCooperation', cascade='all, delete-orphan', uselist=False, lazy='selectin',
+    )
+
+    @property
+    def cooperation_info(self):
+        return self.cooperation_record.content if self.cooperation_record else ''
+
+    @cooperation_info.setter
+    def cooperation_info(self, value):
+        if self.cooperation_record is None:
+            if value:
+                self.cooperation_record = ClientCooperation(content=value)
+        else:
+            self.cooperation_record.content = value or ''
+
+
+class ClientCooperation(Base):
+    __tablename__ = 'client_cooperation'
+    __table_args__ = (
+        ForeignKeyConstraint(['client_id'], ['client.id'], ondelete='CASCADE', name='fk_client_cooperation_client'),
+    )
+
+    client_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False, default='', server_default='')
 
 
 class ClientContact(Base):

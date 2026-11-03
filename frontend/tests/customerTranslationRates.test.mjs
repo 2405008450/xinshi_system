@@ -2,9 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {defaultRateMetric,newCustomerRate,ratePayload,referenceDraft} from '../src/utils/customerTranslationRates.js'
 test('按翻译方向选择默认统计口径，新增价格默认人民币',()=>{
-  assert.equal(defaultRateMetric('英语（美国）→简体中文'),'foreign_words')
-  assert.equal(defaultRateMetric('简中→英语'),'characters_no_spaces')
-  assert.equal(defaultRateMetric('日语→繁體中文'),'foreign_words')
+  assert.equal(defaultRateMetric('英语（美国）→简体中文'),'customer_auto')
+  assert.equal(defaultRateMetric('简中→英语'),'customer_auto')
+  assert.equal(defaultRateMetric('日语→繁體中文'),'customer_auto')
   assert.equal(newCustomerRate('英语→简中').currency,'CNY')
 })
 test('客户参考价带入为未保存草稿，保留参考版本并不把参考价ID误当订单收费项ID',()=>{

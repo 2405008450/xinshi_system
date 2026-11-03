@@ -53,7 +53,6 @@ const moduleGroups = [
     title: '业务管理',
     items: [
       { name: '客户联系人及回访', path: '/client-contacts', description: '待继续完善', permission: 'clients:read' },
-      { name: '财务管理', path: '/finance', description: '待继续完善', permission: 'finance:read' },
       { name: '营销管理', path: '/marketing', description: '模拟表单' },
       { name: '采购管理', path: '/procurement', description: '模拟表单' },
     ],

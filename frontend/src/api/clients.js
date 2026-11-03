@@ -19,6 +19,8 @@ export const getClient = (id) => {
   return api.get(`/clients/${id}`)
 }
 
+export const getClientProjects = (id, config = {}) => api.get(`/clients/${id}/projects`, config)
+
 export const createClient = async (data) => {
   const key = resolveIdempotencyKey(clientCreateState, data)
   const response = await api.post('/clients/', data, {

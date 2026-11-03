@@ -11,12 +11,12 @@
 import {ref,watch,onBeforeUnmount} from 'vue'
 import {getTranslationFinanceHistory} from '@/api/translationCustomerFinance'
 import {formatBusinessDateTime as formatTime} from '@/utils/dateTime'
-import {WORD_COUNT_METRICS} from '@/utils/wordCountMatrix'
+import {basisLabel} from '@/utils/translationQuantityBasis'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 const props=defineProps({projectId:{type:String,required:true},orderId:{type:String,default:''}})
 const items=ref([]),page=ref(1),total=ref(0),loading=ref(false),error=ref('')
 let sequence=0,controller
-const metricLabel=key=>WORD_COUNT_METRICS.find(item=>item.key===key)?.label||key
+const metricLabel=basisLabel
 const amounts=values=>Object.entries(values||{}).map(([currency,value])=>`${currency} ${Number(value).toFixed(2)}`).join('；')||'-'
 async function load(){const current=++sequence;controller?.abort();controller=new AbortController();loading.value=true;error.value='';try{const data=await getTranslationFinanceHistory(props.projectId,{order_id:props.orderId||undefined,page:page.value},{signal:controller.signal});if(current===sequence){items.value=data.items||[];total.value=data.total||0;if(data.ready===false)error.value='修改记录存储尚未初始化'}}catch(e){if(current===sequence&&e.code!=='ERR_CANCELED')error.value=getLocalizedErrorMessage(e,'修改记录加载失败')}finally{if(current===sequence)loading.value=false}}
 watch(()=>[props.projectId,props.orderId],()=>{page.value=1;load()},{immediate:true})

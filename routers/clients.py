@@ -16,7 +16,7 @@ from crud import (
     get_sub_client, create_sub_client, update_sub_client, delete_sub_client
 )
 from schemas import ClientCreate, ClientUpdate, ClientResponse, SubClientCreate, SubClientUpdate, SubClientResponse
-from routers.auth import require_module_access
+from routers.auth import require_module_access, require_permission
 from models import Client, SubClient
 from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
 from pagination_schemas import ClientOptionResponse, PageResponse, resolve_page_total
@@ -220,6 +220,14 @@ def read_client_page(
             items, skip, lambda: count_clients(db, **filters),
         ),
     }
+
+@router.get("/{client_id}/projects", dependencies=[Depends(require_permission('projects:read'))])
+def read_client_projects(client_id: UUID, db: Session = Depends(get_db)):
+    if not db.query(Client.id).filter(Client.id == client_id).first():
+        raise HTTPException(status_code=404, detail='客户不存在')
+    from client_cooperation_projects import client_project_groups
+    return client_project_groups(db, client_id)
+
 
 @router.get("/{client_id}", response_model=ClientResponse)
 def read_client(client_id: UUID, db: Session = Depends(get_db)):

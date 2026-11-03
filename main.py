@@ -282,6 +282,8 @@ app.include_router(roles.router)
 app.include_router(translation_projects.router)
 from translation_customer_finance import router as translation_customer_finance_router
 app.include_router(translation_customer_finance_router)
+from translation_month_price_sync import router as translation_month_price_sync_router
+app.include_router(translation_month_price_sync_router)
 from interpretation_customer_finance import router as interpretation_customer_finance_router
 app.include_router(interpretation_customer_finance_router)
 from customer_finance_sync import router as customer_finance_sync_router

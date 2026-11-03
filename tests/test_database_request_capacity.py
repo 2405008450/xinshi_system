@@ -45,3 +45,23 @@ def test_websockets_do_not_hold_http_capacity_and_errors_release_it():
             await middleware({'type':'websocket'}, unused, unused)
         assert called == ['http','http','websocket']
     anyio.run(check)
+
+
+@pytest.mark.parametrize('path', ['/notifications', '/project-chat/attachments/file-id'])
+def test_queue_timeout_returns_retryable_error_without_running_endpoint(path):
+    async def check():
+        called=[];messages=[]
+        async def endpoint(*args):called.append(True)
+        async def unused(*args):pass
+        async def send(message):messages.append(message)
+        middleware=DatabaseRequestCapacityMiddleware(endpoint,limit=2,transfer_limit=1,queue_timeout=.02)
+        async def blocked():await middleware({'type':'http','path':path},unused,send)
+        capacity=middleware.transfer_capacity if middleware.is_transfer({'path':path}) else middleware.capacity
+        async with capacity:
+            async with anyio.create_task_group() as tasks:tasks.start_soon(blocked)
+        assert not called
+        assert messages[0]['status']==503
+        assert (b'retry-after',b'1') in messages[0]['headers']
+        await middleware({'type':'http','path':path},unused,send)
+        assert called==[True]
+    anyio.run(check)

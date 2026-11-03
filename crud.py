@@ -1210,7 +1210,7 @@ def _attach_word_count_matrices(
     from word_count_models import WordCountMetric
 
     metric_types = ("words", "characters_no_spaces", "cjk_chars_korean_words", "foreign_words", "documents", "pages")
-    dimensions = ("company", "customer", "translator_estimate")
+    dimensions = ("company", "customer", "preliminary", "translator_estimate")
 
     def empty_values():
         return {metric_type: None for metric_type in metric_types}
@@ -1251,7 +1251,9 @@ def _attach_word_count_matrices(
         _attach_customer_charge_amounts([*project_map.values(), *all_sub_orders])
         return
 
-    for metric in db.query(WordCountMetric).filter(or_(*filters)).all():
+    import preliminary_word_count as preliminary
+    metric_rows=db.query(WordCountMetric).filter(or_(*filters)).all()+preliminary.rows(db,project_map,sub_order_map)
+    for metric in metric_rows:
         if metric.project_id in project_map and metric.dimension in dimensions:
             project_map[metric.project_id].word_count_matrix[metric.dimension][metric.metric_type] = metric.count_value
         elif metric.sub_order_id in sub_order_map and metric.dimension in dimensions:
@@ -1271,10 +1273,14 @@ def _attach_word_count_matrices(
 
 def _attach_customer_charge_amounts(owners) -> None:
     """补齐母/子订单收费项的数量、建议金额及旧版兼容字段。"""
+    from sqlalchemy.orm import object_session
+    import translation_quantity_basis as quantity_basis
+    session=next((object_session(owner) for owner in owners if hasattr(owner,'_sa_instance_state') and object_session(owner) is not None),None)
+    bases=quantity_basis.metadata(session,[charge.id for owner in owners for charge in getattr(owner,'customer_charge_items',[])]) if session else {}
     for owner in owners:
         customer_values = (getattr(owner, "word_count_matrix", {}) or {}).get("customer", {})
         for charge in getattr(owner, "customer_charge_items", []) or []:
-            quantity = customer_values.get(charge.metric_type) if charge.pricing_mode == "metric" else None
+            quantity = (quantity_basis.resolve(getattr(owner,'word_count_matrix',{}),bases[charge.id])[0] if getattr(charge,'id',None) in bases else customer_values.get(charge.metric_type)) if charge.pricing_mode == "metric" else None
             unit_price_excl_tax = getattr(charge, 'unit_price_excl_tax', None)
             if unit_price_excl_tax is None:
                 unit_price_excl_tax = charge.unit_price
@@ -1895,7 +1901,17 @@ def _apply_translation_project_filters(
             conditions.append(WordCountMetric.count_value >= int(word_count_descriptor["min"]))
         if word_count_descriptor.get("max") not in (None, ""):
             conditions.append(WordCountMetric.count_value <= int(word_count_descriptor["max"]))
-        query = query.filter(db_exists().where(and_(*conditions)))
+        count_match=db_exists().where(and_(*conditions))
+        if not word_count_dimension or 'preliminary' in (word_count_dimension.get('value') or []):
+            import preliminary_word_count as preliminary
+            if preliminary.ready(query.session):
+                model=preliminary.PreliminaryWordCountMetric
+                preliminary_conditions=[model.project_id==TranslationProject.id]
+                if word_count_metric_type:preliminary_conditions.append(model.metric_type.in_(word_count_metric_type.get('value') or []))
+                if word_count_descriptor.get('min') not in (None,''):preliminary_conditions.append(model.count_value>=int(word_count_descriptor['min']))
+                if word_count_descriptor.get('max') not in (None,''):preliminary_conditions.append(model.count_value<=int(word_count_descriptor['max']))
+                count_match=or_(count_match,db_exists().where(and_(*preliminary_conditions)))
+        query = query.filter(count_match)
 
     translator_return_time_descriptor = field_filters.get("translator_return_time")
     if translator_return_time_descriptor:
@@ -1918,15 +1934,19 @@ def _apply_translation_project_filters(
 
     from project_client_manager import manager_name_expression
     for field, descriptor in field_filters.items():
-        if field == 'finance_manager_self':
+        if field == 'finance_manager_ids':
+            from project_client_manager import manager_ids_expression
+            value=descriptor['value']
+            query=query.filter(manager_ids_expression('translation',TranslationProject.id,[UUID(item) for item in value['ids']],value['names'],Client.client_manager))
+        elif field == 'finance_manager_self':
             from project_client_manager import manager_self_expression
             value=descriptor['value']
             query=query.filter(manager_self_expression('translation',TranslationProject.id,UUID(value['id']),value['names'],Client.client_manager))
         elif field == 'finance_billing_month':
             month = descriptor.get('value')
             query = query.filter(or_(
-                TranslationProject.customer_charge_items.any(TranslationSubOrderChargeItem.billing_month == month),
-                TranslationProject.sub_orders.any(TranslationSubOrder.customer_charge_items.any(TranslationSubOrderChargeItem.billing_month == month)),
+                TranslationProject.order_no.like(f"TP-{month[2:4]}{month[5:7]}__-%"),
+                TranslationProject.order_no.like(f"TP-{month[:4]}{month[5:7]}__-%"),
             ))
         elif field == 'finance_client_id':
             query = query.filter(TranslationProject.client_id == UUID(descriptor['value']))
@@ -2262,11 +2282,11 @@ def create_translation_project(
     role_assignments = project.role_assignments
     project_data = project.model_dump(exclude={
         'client_short_name', 'client_code', 'manager_contact', 'sub_client_short_name',
-        'word_count_matrix', 'customer_charge_items', 'role_assignments', 'client_manager_id', 'client_manager_change_reason'
+        'word_count_matrix', 'customer_charge_items', 'role_assignments', 'client_manager_id', 'client_manager_change_reason', 'initial_sub_order_names'
     })
     if 'source_file_name' not in project.model_fields_set:
         project_data.pop('source_file_name', None)
-    normalize_translation_name_payload(project_data)
+    normalize_translation_name_payload(project_data, has_sub_orders=bool(project.initial_sub_order_names))
     project_data['email_subject_preview'] = normalize_email_subject_order_no(
         project_data.get('email_subject_preview'), order_no
     )
@@ -2342,6 +2362,15 @@ def create_translation_project(
     init_workflow(db, db_project.id, commit=False)
     from customer_finance_sync import inherit_translation
     inherit_translation(db,db_project,project.created_by)
+    for name in project.initial_sub_order_names:
+        _create_sub_order_in_transaction(db, TranslationSubOrderCreate(
+            parent_project_id=db_project.id, sub_project_name=name,
+            language_pair=db_project.language_pair, priority=db_project.priority,
+            customer_deadline_time=db_project.customer_deadline_time,
+            created_by=project.created_by,
+        ))
+    if project.initial_sub_order_names:
+        db.expire(db_project, ['sub_orders'])
     record_project_operation(
         db,
         project_type="translation",
@@ -2379,7 +2408,7 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
     if 'client_manager_id' in project_update.model_fields_set:
         from project_client_manager import apply as apply_client_manager
         apply_client_manager(db, 'translation', db_project, project_update.client_manager_id, project_update.client_manager_change_reason, actor_user_id)
-    normalize_translation_name_payload(update_data)
+    normalize_translation_name_payload(update_data, has_sub_orders=bool(db_project.sub_orders))
     if 'project_name' in update_data and db_project.source_file_name and 'source_file_name' not in update_data:
         update_data['project_name'] = db_project.source_file_name
     if 'language_pair' in update_data:
@@ -3694,7 +3723,12 @@ def update_sub_order(db: Session, sub_order_id: UUID, sub_order_update: Translat
 
 
 def _validate_charge_metric_values(items, customer_values: dict) -> None:
+    from sqlalchemy.orm import object_session
+    import translation_quantity_basis as quantity_basis
+    session=next((object_session(row) for row in items or [] if hasattr(row,'_sa_instance_state') and object_session(row) is not None),None)
+    bases=quantity_basis.metadata(session,[row.id for row in items or []]) if session else {}
     for charge in items or []:
+        if getattr(charge,'id',None) in bases:continue
         if charge.pricing_mode == 'metric' and customer_values.get(charge.metric_type) is None:
             raise ValueError(f'收费项“{charge.item_name}”对应的客户字数口径不能清空')
 
@@ -3714,7 +3748,9 @@ def _replace_customer_charge_items(
     kept_ids = set()
     normalized = []
     for index, payload in enumerate(items or [], start=1):
-        if payload.pricing_mode == 'metric' and customer_values.get(payload.metric_type) is None:
+        import translation_quantity_basis as quantity_basis
+        has_basis=bool(payload.id and payload.id in quantity_basis.metadata(db,[payload.id]))
+        if payload.pricing_mode == 'metric' and customer_values.get(payload.metric_type) is None and not has_basis:
             raise ValueError(f'收费项“{payload.item_name}”对应的客户字数口径尚未填写')
         row = existing.get(payload.id) if payload.id else None
         if payload.id and row is None:

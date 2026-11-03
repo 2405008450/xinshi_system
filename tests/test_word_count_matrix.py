@@ -96,6 +96,7 @@ def test_project_matrix_keeps_its_own_values_when_suborders_exist(monkeypatch):
 
     monkeypatch.setattr(word_count_service, "_load_entity", lambda *_args: SimpleNamespace(id=project_id))
     monkeypatch.setattr(word_count_service, "_entity_metric_query", lambda *_args: MetricQuery())
+    monkeypatch.setattr(word_count_service.preliminary, "rows", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(word_count_service, "_arrangements_for_entity", lambda *_args: [])
 
     matrix = word_count_service.get_word_count_matrix(FakeDb(), "project", project_id)

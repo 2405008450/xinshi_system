@@ -474,8 +474,9 @@ def _format_word_count_lines(matrix: Optional[dict]) -> list[str]:
         return []
 
     dimensions = [
-        ("我司字数", matrix.get("company")),
-        ("客户字数", matrix.get("customer")),
+        ("我司统计", matrix.get("company")),
+        ("客户统计", matrix.get("customer")),
+        ("预统计（不用以计算费用）", matrix.get("preliminary")),
         ("译员预定（项目预估）", matrix.get("translator_estimate") or matrix.get("translatorEstimate")),
     ]
     for translator in matrix.get("translators") or []:

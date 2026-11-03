@@ -19,12 +19,13 @@ import {getCustomerRateDifferences,synchronizeCustomerRates} from '@/api/custome
 import {hasPermission} from '@/utils/permission'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import {financeSummary} from '@/utils/interpretationCustomerFinance'
+import {basisLabel} from '@/utils/translationQuantityBasis'
 const props=defineProps({module:{type:String,required:true},clientId:{type:[String,Number],default:''},revision:{type:Number,default:0}})
 const emit=defineEmits(['saved'])
 const canWriteProjects=hasPermission('projects:write'),canWriteClients=hasPermission('clients:write')
 const visible=ref(false),items=ref([]),page=ref(1),total=ref(0),loading=ref(false),busy=ref(false),error=ref(''),ready=ref(true)
 let sequence=0,controller
-function describe(rows){if(props.module==='interpretation')return financeSummary({rates:rows.map(row=>({...row,quantity:1}))});const labels={foreign_words:'外文字数',characters_no_spaces:'字符数不计空格',words:'原登记字数',documents:'份数',pages:'页数',cjk_chars_korean_words:'中朝统计'};return rows.map(row=>`${row.language_pair}：${row.currency} ${row.amount} / ${row.unit_size} ${labels[row.metric]||row.metric}`).join('\n')||'未登记匹配方向的单价'}
+function describe(rows){if(props.module==='interpretation')return financeSummary({rates:rows.map(row=>({...row,quantity:1}))});return rows.map(row=>`${row.language_pair}：${row.currency} ${row.amount} / ${row.unit_size} ${basisLabel(row.metric)}`).join('\n')||'未登记匹配方向的单价'}
 async function load(){if(!props.clientId)return;const seq=++sequence;controller?.abort();controller=new AbortController();loading.value=true;error.value='';try{const data=await getCustomerRateDifferences(props.module,props.clientId,page.value,controller.signal);if(seq!==sequence)return;items.value=data.items;total.value=data.total;ready.value=data.ready;if(page.value>1&&!items.value.length){page.value=Math.max(1,Math.ceil(total.value/10));void load()}}catch(e){if(seq===sequence&&e.code!=='ERR_CANCELED')error.value=getLocalizedErrorMessage(e,'单价差异加载失败')}finally{if(seq===sequence)loading.value=false}}
 async function synchronize(row,direction){if(busy.value)return;const message=direction==='project_to_client'?`确认将订单 ${row.order_no} 的以下单价同步至客户信息？客户价格变更会自动下发至仍沿用原价的项目。`:`确认以客户信息中的以下单价更新订单 ${row.order_no}？`;
   try{await ElMessageBox.confirm(`${message}\n\n${describe(direction==='project_to_client'?row.project_rates:row.customer_rates)}`,'确认同步单价',{type:'warning',confirmButtonText:'确认同步',cancelButtonText:'取消'})}catch{return}

@@ -32,11 +32,11 @@ def test_fixed_only_types_hidden_from_roster_and_both_plan_views(environment,mon
     with pytest.raises(ValidationError):monthly.Assignment(user_id=users[1].id,department='customer',shift=code)
 
 
-def test_fixed_early_multiple_pairs_any_time_and_dinner_once(environment,monkeypatch):
+def test_fixed_early_multiple_pairs_any_time_no_dinner(environment,monkeypatch):
     db,users=environment;configure(db,users,'fixed_early_early',monkeypatch);person=users[1]
     first=punch(db,person,monkeypatch,'2026-10-26T08:30')
     first=out(db,person,first,monkeypatch,'2026-10-26T09:00')
-    assert first['dinner_deduction_minutes']==20 and first['late_count']==0
+    assert first['dinner_deduction_minutes']==0 and first['late_count']==0
     assert clock.today_status(db,person)['next_segment']==1
     second=punch(db,person,monkeypatch,'2026-10-26T09:30',1)
     second=out(db,person,second,monkeypatch,'2026-10-26T10:00')
@@ -49,7 +49,7 @@ def test_fixed_early_multiple_pairs_any_time_and_dinner_once(environment,monkeyp
     assert fourth['raw_overtime_minutes']==30 and fourth['late_count']==0
     assert clock.today_status(db,person)['can_check_in']
     assert clock.today_status(db,person)['next_segment']==5
-    assert clock.monthly_balances(db,[person.id],date(2026,10,26),date(2026,10,26))[0]['overtime_minutes']==10
+    assert clock.monthly_balances(db,[person.id],date(2026,10,26),date(2026,10,26))[0]['overtime_minutes']==30
 
 
 def test_fixed_early_existing_split_snapshot_can_continue_without_rewrite(environment,monkeypatch):
@@ -75,7 +75,7 @@ def test_flexible_more_than_two_pairs_reserves_home_overtime_index(environment,m
         with pytest.raises(HTTPException):punch(db,person,monkeypatch,'2026-10-26T'+start,5)
         record=out(db,person,record,monkeypatch,'2026-10-26T'+end,early_work_confirmed=None)
         assert record['late_minutes']==0 and record['raw_overtime_minutes']==0 and record['work_minutes']==60
-        assert record['dinner_deduction_minutes']==(20 if index==0 else 0)
+        assert record['dinner_deduction_minutes']==0
     assert clock.today_status(db,person)['can_check_in']
     with pytest.raises(HTTPException):punch(db,person,monkeypatch,'2026-10-26T18:00',2)
     assert attendance.shift_for(db,person,date(2026,10,31))['flexible']
@@ -118,3 +118,12 @@ def test_missing_checkout_does_not_block_next_day_multiple_pairs(environment,mon
     out(db,person,current,monkeypatch,'2026-10-27T09:00')
     assert clock.today_status(db,person)['can_check_in']
     assert punch(db,person,monkeypatch,'2026-10-27T09:10',1)['segment']==1
+
+
+
+def test_management_fixed_shift_no_automatic_dinner(environment,monkeypatch):
+    db,users=environment;configure(db,users,'management',monkeypatch);person=users[1]
+    record=punch(db,person,monkeypatch,'2026-10-26T08:50')
+    record=out(db,person,record,monkeypatch,'2026-10-26T21:00')
+    assert record['raw_overtime_minutes']==60 and record['overtime_minutes']==60
+    assert record['dinner_deduction_minutes']==0

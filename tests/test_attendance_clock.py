@@ -29,7 +29,7 @@ def punch(db,user,monkeypatch,moment,segment=0):
 
 def out(db,user,record,monkeypatch,moment,**values):
     monkeypatch.setattr(service,'now',lambda:at(moment))
-    return service.check_out(db,user,request(),service.CheckOutWrite(record_id=record['id'],early_work_confirmed=values.pop('early_work_confirmed',True),breakfast_after_eating=values.pop('breakfast_after_eating',True),**values))['record']
+    return service.check_out(db,user,request(),service.CheckOutWrite(record_id=record['id'],early_work_confirmed=values.pop('early_work_confirmed',True),breakfast_after_eating=values.pop('breakfast_after_eating',True),dinner_eaten=values.pop('dinner_eaten',False),**values))['record']
 
 
 @pytest.mark.parametrize('worked,expected',[(True,60),(False,0)])
@@ -46,30 +46,32 @@ def test_manual_breakfast_notice_early_confirmation_and_idempotence(environment,
     with pytest.raises(HTTPException):out(db,other,record,monkeypatch,'2026-10-26T19:00')
 
 
-def test_fixed_dinner_breakfast_violation_and_monthly_offset(environment,monkeypatch):
+def test_fixed_early_no_dinner_breakfast_violation_and_monthly_offset(environment,monkeypatch):
     db,users=environment;arrange(db,users,fixed=True);admin,person,other=users
     first=punch(db,person,monkeypatch,'2026-10-26T08:00')
     first=out(db,person,first,monkeypatch,'2026-10-26T18:30',breakfast_after_eating=False)
-    assert first['raw_overtime_minutes']==60 and first['breakfast_deduction_minutes']==15 and first['dinner_deduction_minutes']==20
-    assert first['overtime_minutes']==25 and first['violation_count']==1
+    assert first['raw_overtime_minutes']==60 and first['breakfast_deduction_minutes']==15 and first['dinner_deduction_minutes']==0
+    assert first['overtime_minutes']==45 and first['violation_count']==1
     second=punch(db,person,monkeypatch,'2026-10-27T09:00');second=out(db,person,second,monkeypatch,'2026-10-27T18:30')
-    assert second['overtime_minutes']==-20
+    assert second['overtime_minutes']==0
     report=attendance.attendance_report(db,person,date(2026,10,26),'month')
-    assert report['totals']['overtime_minutes']==5 and report['totals']['violation_count']==1
-    balance=report['monthly_balances'][0];assert balance['raw_minutes']==60 and balance['deduction_minutes']==55 and balance['overtime_minutes']==5
+    assert report['totals']['overtime_minutes']==45 and report['totals']['violation_count']==1
+    balance=report['monthly_balances'][0];assert balance['raw_minutes']==60 and balance['deduction_minutes']==15 and balance['overtime_minutes']==45
     assert {row['user_id'] for row in report['records']}=={str(person.id)}
     assert attendance.attendance_report(db,other,date(2026,10,26),'month')['records']==[]
     with pytest.raises(HTTPException):attendance.attendance_report(db,person,date(2026,10,26),'month',admin=True)
 
 
 @pytest.mark.parametrize('code,eaten,expected',[('late',True,-20),('late',False,0),('late_late',True,-20),('late_late',False,0)])
-def test_late_dinner_choice(environment,monkeypatch,code,eaten,expected):
-    db,users=environment;arrange(db,users,code);person=users[1]
+@pytest.mark.parametrize('fixed',[False,True])
+def test_late_dinner_choice(environment,monkeypatch,code,eaten,expected,fixed):
+    db,users=environment;arrange(db,users,code,fixed);person=users[1]
     start,end=('10:30','20:00') if code=='late' else ('13:30','21:30')
     record=punch(db,person,monkeypatch,'2026-10-26T'+start)
-    with pytest.raises(HTTPException):out(db,person,record,monkeypatch,'2026-10-26T'+end)
+    with pytest.raises(HTTPException):out(db,person,record,monkeypatch,'2026-10-26T'+end,dinner_eaten=None)
     record=out(db,person,record,monkeypatch,'2026-10-26T'+end,dinner_eaten=eaten)
     assert record['overtime_minutes']==expected
+    assert record['dinner_deduction_minutes']==(20 if eaten else 0)
 
 
 def test_remote_two_segments_no_dinner_and_invalid_deduction(environment,monkeypatch):
@@ -79,7 +81,7 @@ def test_remote_two_segments_no_dinner_and_invalid_deduction(environment,monkeyp
     first=out(db,person,first,monkeypatch,'2026-10-26T18:00',deduct_invalid_time=True,invalid_minutes=10,invalid_reason='个人事务')
     assert first['dinner_deduction_minutes']==0 and first['overtime_minutes']==20
     second=punch(db,person,monkeypatch,'2026-10-26T20:30',1)
-    with pytest.raises(HTTPException):out(db,person,second,monkeypatch,'2026-10-26T23:30',deduct_invalid_time=False,dinner_eaten=True)
+    with pytest.raises(HTTPException):out(db,person,second,monkeypatch,'2026-10-26T23:30',deduct_invalid_time=False,dinner_eaten=None)
     second=out(db,person,second,monkeypatch,'2026-10-26T23:30',deduct_invalid_time=False)
     assert second['overtime_minutes']==60 and second['dinner_deduction_minutes']==0
     report=attendance.attendance_report(db,person,date(2026,10,26),'month')
@@ -112,14 +114,14 @@ def test_migration_idempotent_old_rows_unchanged(environment):
     assert db.query(AttendanceDay).one().check_in.hour==9 and db.query(Clock).count()==0
 
 
-def completed(db,user,day,start,end,fixed=False):
+def completed(db,user,day,start,end,fixed=False,code='early',dinner=None):
     from monthly_shift import SHIFTS
-    db.add(Clock(user_id=user.id,day=date.fromisoformat(day),segment=0,check_in=at(day+'T'+start),check_out=at(day+'T'+end),shift_snapshot=service.snapshot({**SHIFTS[1],'fixed':fixed},0),confirmations={'early_work_confirmed':True,'breakfast_after_eating':True}));db.commit()
+    db.add(Clock(user_id=user.id,day=date.fromisoformat(day),segment=0,check_in=at(day+'T'+start),check_out=at(day+'T'+end),shift_snapshot=service.snapshot({**next(row for row in SHIFTS if row['code']==code),'fixed':fixed},0),confirmations={'early_work_confirmed':True,'breakfast_after_eating':True,'dinner_eaten':dinner}));db.commit()
 
 
 def test_company_never_offsets_one_person_against_another(environment):
     db,users=environment;arrange(db,users)
-    completed(db,users[1],'2026-10-26','09:00','18:30',True)
+    completed(db,users[1],'2026-10-26','10:30','20:00',True,code='late',dinner=True)
     completed(db,users[2],'2026-10-26','09:00','19:30')
     company=attendance.attendance_report(db,users[0],date(2026,10,26),'month',admin=True)
     assert company['totals']['overtime_minutes']==60
@@ -129,7 +131,7 @@ def test_company_never_offsets_one_person_against_another(environment):
 def test_week_spanning_months_never_transfers_deductions_between_months(environment):
     db,users=environment;arrange(db,users)
     completed(db,users[1],'2026-10-30','09:00','19:30')
-    completed(db,users[1],'2026-11-01','09:00','18:30',True)
+    completed(db,users[1],'2026-11-01','10:30','20:00',True,code='late',dinner=True)
     report=attendance.attendance_report(db,users[1],date(2026,10,26),'week')
     assert report['totals']['overtime_minutes']==60
     balances={row['month']:row for row in report['monthly_balances']}
@@ -236,3 +238,34 @@ def test_preview_reuses_existing_attendance_rules(environment,monkeypatch,scenar
     expected=165 if scenario=='break' else 0 if scenario in ('flexible','continuation') else 1
     assert result['late_minutes']==expected
     assert preview=={'is_late':bool(result['late_count']),'late_minutes':expected}
+
+
+
+@pytest.mark.parametrize('code',['early','late','late_late','customer_remote','flexible','management','company_home_overtime'])
+@pytest.mark.parametrize('end,eaten,expected',[
+    ('2026-10-26T18:49:00',True,0),('2026-10-26T18:50:00',True,0),
+    ('2026-10-26T18:50:01',True,20),('2026-10-26T19:00:00',False,0),
+    ('2026-10-27T02:00:00',True,20)])
+def test_dinner_actual_checkout_boundary_all_shifts_and_next_day(monkeypatch,code,end,eaten,expected):
+    from types import SimpleNamespace
+    monkeypatch.setattr(service,'home_office_day',lambda *args:{})
+    shift={'code':code,'periods':['09:00–18:30'],'fixed':True,'flexible':code=='flexible','home_office_day':code in ('customer_remote','company_home_overtime')}
+    row=SimpleNamespace(id=uuid4(),user_id=uuid4(),day=date(2026,10,26),segment=0,check_in=at('2026-10-26T09:00'),check_out=at(end),shift_snapshot=shift,confirmations={'breakfast_after_eating':True,'dinner_eaten':eaten})
+    result=service.serialize(row)
+    assert result['dinner_deduction_minutes']==expected
+    payload=service.CheckOutWrite(record_id=row.id,early_work_confirmed=False,breakfast_after_eating=True,dinner_eaten=None,deduct_invalid_time=False if shift['home_office_day'] else None)
+    if service.dinner_confirmation_required(row.day,row.check_out):
+        with pytest.raises(HTTPException) as error:service.validate_checkout(None,None,row,payload,row.check_out)
+        assert '18:50' in error.value.detail
+    else:service.validate_checkout(None,None,row,payload,row.check_out)
+
+
+def test_dinner_once_across_regular_and_company_home_overtime(environment,monkeypatch):
+    db,users=environment;arrange(db,users);person=users[1]
+    first=punch(db,person,monkeypatch,'2026-10-26T09:00')
+    first=out(db,person,first,monkeypatch,'2026-10-26T19:00',dinner_eaten=True)
+    assert first['dinner_deduction_minutes']==20
+    monkeypatch.setattr(service,'now',lambda:at('2026-10-26T20:00'))
+    second=service.check_in(db,person,request(),service.CheckInWrite(breakfast_notice_accepted=True,work_mode='company_home_overtime'))['record']
+    second=out(db,person,second,monkeypatch,'2026-10-26T21:00',dinner_eaten=True,deduct_invalid_time=False)
+    assert second['dinner_deduction_minutes']==0 and second['shift']['dinner_already_deducted']

@@ -22,7 +22,7 @@ def context(db,owner):
     db.commit();return client,root,child,third
 
 
-def item(direction='英语→简中',amount='.1',**extra):return rates.RateInput(language_pair=direction,amount=amount,**extra)
+def item(direction='英语→简中',amount='.1',**extra):return rates.RateInput(language_pair=direction,amount=amount,metric=extra.pop('metric','foreign_words' if direction=='英语→简中' else 'characters_no_spaces'),**extra)
 
 
 def write(db,owner,root,order,items,**extra):
@@ -30,7 +30,7 @@ def write(db,owner,root,order,items,**extra):
 
 
 @pytest.mark.parametrize('direction,metric',[('英语→简中','foreign_words'),('简体中文→英语','characters_no_spaces'),('日语→繁體中文','foreign_words'),('zh-CN→英语','characters_no_spaces')])
-def test_defaults(direction,metric):assert rates.default_metric(direction)==metric
+def test_defaults(direction,metric):assert rates.default_metric(direction)=='customer_auto'
 
 
 def test_library_direction_validation_version_and_history(environment):

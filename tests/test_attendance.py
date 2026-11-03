@@ -55,7 +55,7 @@ def test_manual_punch_only_and_committed_checkout(arranged,monkeypatch):
     value=clock.check_in(db,person,request(),clock.CheckInWrite(breakfast_notice_accepted=True))
     assert value['record']['check_in'].hour==9
     monkeypatch.setattr(service,'now',lambda:at('2026-10-26T19:30:00'))
-    record=value['record'];data=clock.CheckOutWrite(record_id=record['id'],early_work_confirmed=True,breakfast_after_eating=True)
+    record=value['record'];data=clock.CheckOutWrite(record_id=record['id'],early_work_confirmed=True,breakfast_after_eating=True,dinner_eaten=False)
     with pytest.raises(HTTPException) as error:service.check_out(db,person,request(True),data)
     assert error.value.status_code==403
     value=service.check_out(db,person,request(),data)

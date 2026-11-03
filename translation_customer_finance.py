@@ -1,5 +1,6 @@
 """客户计价及订单树汇总；复用既有收费表，不更改数据库结构。"""
 from decimal import Decimal, ROUND_HALF_UP
+import re
 from hashlib import sha256
 import json
 from uuid import UUID, uuid4
@@ -7,12 +8,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy.orm import Session, joinedload, selectinload, object_session
 from database import get_db
-from models import TranslationProject, TranslationSubOrder, TranslationSubOrderChargeItem, Client, SubClient
+from models import TranslationProject, TranslationSubOrder, TranslationSubOrderChargeItem, Client, SubClient, AppUser
 from routers.auth import get_current_user, require_permission, require_module_access
 from annotation_progress_time import business_now
 import crud
 import customer_translation_rates as rates
 import translation_finance_audit as audit
+import translation_quantity_basis as quantity_basis
 from permission_service import user_has_permission
 
 METRICS = {'characters_no_spaces','words','foreign_words','cjk_chars_korean_words','documents','pages'}
@@ -69,6 +71,14 @@ def version(project):
     return sha256(json.dumps(fields, sort_keys=True, default=str).encode()).hexdigest()
 
 
+def order_billing_month(order_no):
+    match=re.match(r'^TP-(\d{8}|\d{6})-',str(order_no or '').strip().upper())
+    if not match:return None
+    digits=match[1]
+    year,month=(digits[:4],digits[4:6]) if len(digits)==8 else ('20'+digits[:2],digits[2:4])
+    return f'{year}-{month}' if 1<=int(month)<=12 else None
+
+
 def tree(project, billing_month=None):
     owners, numbers, parents = hierarchy(project)
     db=object_session(project)
@@ -95,8 +105,9 @@ def tree(project, billing_month=None):
             node['prices']=[{**row,'id':None,'inherited':True} for row in inherited['prices'] if not node['language_pair'] or row['language_pair'] in choices]
         amounts={};missing=False
         for price in node['prices']:
-            quantity=node['word_count_matrix'].get('customer',{}).get(price['metric'])
+            quantity,dimension,actual_metric,quantity_error=quantity_basis.resolve(node['word_count_matrix'],price['metric'])
             price['quantity']=quantity
+            price['quantity_dimension']=dimension;price['quantity_metric']=actual_metric;price['quantity_error']=quantity_error
             amount=None if quantity is None or price['amount'] is None else (Decimal(str(quantity))*Decimal(price['amount'])/Decimal(price['unit_size'])).quantize(Decimal('.01'),rounding=ROUND_HALF_UP)
             price['total']=str(amount) if amount is not None else None
             if amount is None:missing=True
@@ -120,7 +131,7 @@ def tree(project, billing_month=None):
             incomplete |= child['incomplete']
             for key, value in child['totals'].items(): totals[key] = totals.get(key, Decimal(0))+Decimal(value)
             for key, value in child['adjusted_totals'].items(): adjusted[key] = adjusted.get(key, Decimal(0))+Decimal(value)
-        matches=not billing_month or node['billing_month']==billing_month
+        matches=not billing_month or order_billing_month(project.order_no)==billing_month
         if not original_children:
             incomplete = matches and (missing if node['prices'] else own is None)
             if matches and node['prices']:totals.update(amounts)
@@ -153,6 +164,7 @@ def client_subtotals(db, filters):
     projects=crud._apply_translation_project_filters(query,**filters).all()
     crud._attach_word_count_matrices(db,projects=projects)
     rates.metadata(db,[charge.id for project in projects for owner in [project,*project.sub_orders] for charge in owner.customer_charge_items])
+    quantity_basis.metadata(db,[charge.id for project in projects for owner in [project,*project.sub_orders] for charge in owner.customer_charge_items])
     groups={}
     for project in projects:
         project.client_short_name=(project.client.client_short_name or project.client.client_name) if project.client else '-'
@@ -210,17 +222,21 @@ def save_prices(db,user,project,owners,parents,key,payload):
                 owner.customer_charge_items.append(row)
             kept.add(row.id)
             row.item_name='翻译费';row.pricing_mode='metric';row.sequence_no=index+1
-            row.unit_price=row.unit_price_excl_tax=data['amount'];row.currency=data['currency'];row.metric_type=data['metric'];row.unit_size=data['unit_size']
+            row.unit_price=row.unit_price_excl_tax=data['amount'];row.currency=data['currency'];row.metric_type=quantity_basis.resolve(owner.word_count_matrix,data['metric'])[2] or 'characters_no_spaces';row.unit_size=data['unit_size']
             row.billing_month=payload.billing_month
             if explicit:row.total_excl_tax=row.amount_override=payload.adjusted_total if index==0 else None
             if explicit:row.remarks=payload.explanation
             row.updated_at=moment
             db.flush()
+            quantity_basis.store(db,row,data['metric'],owner.word_count_matrix)
             meta=db.get(rates.TranslationChargeDirection,row.id)
             if meta is None:meta=rates.TranslationChargeDirection(charge_id=row.id);db.add(meta)
             meta.language_pair=data['language_pair'];meta.reference_id=data.get('reference_id');meta.reference_revision=data.get('reference_revision')
         for row in existing:
             if row.id not in kept:
+                if quantity_basis.ready(db):
+                    basis=db.get(quantity_basis.TranslationChargeQuantityBasis,row.id)
+                    if basis:db.delete(basis)
                 meta=db.get(rates.TranslationChargeDirection,row.id)
                 if meta:db.delete(meta)
                 owner.customer_charge_items.remove(row);db.delete(row)
@@ -236,6 +252,7 @@ def save_prices(db,user,project,owners,parents,key,payload):
         if inherited:write(owner,inherited,False);changed[uid]=inherited
     project.updated_at=moment
     rates.invalidate_metadata(db)
+    quantity_basis.invalidate(db)
 
 
 def save(db, user, project_id, payload):
@@ -299,8 +316,8 @@ def inherit_new_order(db, child):
     entries=[entry for entry in entries if not child.language_pair or entry['language_pair'] in choices]
     if entries:
         for index,entry in enumerate(entries):
-            row=TranslationSubOrderChargeItem(id=uuid4(),sub_order_id=child.id,sequence_no=index+1,item_name='翻译费',pricing_mode='metric',metric_type=entry['metric'],unit_size=Decimal(entry['unit_size']),unit_price=Decimal(entry['amount']) if entry['amount'] is not None else None,unit_price_excl_tax=Decimal(entry['amount']) if entry['amount'] is not None else None,currency=entry['currency'],billing_month=source.billing_month,created_at=moment,updated_at=moment)
-            child.customer_charge_items.append(row);db.flush();db.add(rates.TranslationChargeDirection(charge_id=row.id,language_pair=entry['language_pair'],reference_id=UUID(entry['reference_id']) if entry['reference_id'] else None,reference_revision=entry['reference_revision']))
+            row=TranslationSubOrderChargeItem(id=uuid4(),sub_order_id=child.id,sequence_no=index+1,item_name='翻译费',pricing_mode='metric',metric_type=quantity_basis.resolve(getattr(child,'word_count_matrix',{}),entry['metric'])[2] or 'characters_no_spaces',unit_size=Decimal(entry['unit_size']),unit_price=Decimal(entry['amount']) if entry['amount'] is not None else None,unit_price_excl_tax=Decimal(entry['amount']) if entry['amount'] is not None else None,currency=entry['currency'],billing_month=source.billing_month,created_at=moment,updated_at=moment)
+            child.customer_charge_items.append(row);db.flush();quantity_basis.store(db,row,entry['metric'],getattr(child,'word_count_matrix',{}));db.add(rates.TranslationChargeDirection(charge_id=row.id,language_pair=entry['language_pair'],reference_id=UUID(entry['reference_id']) if entry['reference_id'] else None,reference_revision=entry['reference_revision']))
         rates.invalidate_metadata(db)
     elif not rates.ready(db):
         child.customer_charge_items.append(TranslationSubOrderChargeItem(id=uuid4(),sub_order_id=child.id,sequence_no=1,item_name='翻译费',pricing_mode='metric',metric_type=metric,unit_size=size,unit_price=amount,unit_price_excl_tax=amount,currency=currency,billing_month=source.billing_month,created_at=moment,updated_at=moment))
@@ -310,16 +327,27 @@ router=APIRouter(prefix='/translation-customer-finance',tags=['translation-custo
 
 
 @router.get('/page',dependencies=[Depends(require_module_access('projects:read','projects:write'))])
-def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None=None,project_status:str|None=None,billing_month:str|None=Query(None,pattern=r'^\d{4}-(0[1-9]|1[0-2])$'),client:str|None=None,client_manager:str|None=None,client_id:UUID|None=None,db:Session=Depends(get_db),only_mine:bool=False,user=Depends(get_current_user)):
+def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None=None,project_status:str|None=None,billing_month:str|None=Query(None,pattern=r'^\d{4}-(0[1-9]|1[0-2])$'),client:str|None=None,client_manager:str|None=None,client_id:UUID|None=None,db:Session=Depends(get_db),only_mine:bool=False,user=Depends(get_current_user),manager_ids:list[UUID]|None=Query(None,max_length=2000)):
     fields={}
     if client_id: fields['finance_client_id']={'value':str(client_id)}
     if billing_month: fields['finance_billing_month']={'value':billing_month}
-    if only_mine:fields['finance_manager_self']={'value':{'id':str(user.id),'names':[user.full_name,user.username]}}
+    ids=list(dict.fromkeys(manager_ids)) if isinstance(manager_ids,list) else []
+    if ids:
+        people=db.query(AppUser).filter(AppUser.id.in_(ids)).all()
+        fields['finance_manager_ids']={'value':{'ids':[str(uid) for uid in ids],'names':[name for person in people for name in (person.full_name,person.username)]}}
+    elif only_mine:fields['finance_manager_self']={'value':{'id':str(user.id),'names':[user.full_name,user.username]}}
     elif client_manager and client_manager.strip(): fields['client_manager']={'op':'contains','value':client_manager.strip()}
     if client and client.strip(): fields['finance_client']={'value':client.strip()}
     filters=dict(keyword=keyword,project_status=project_status,field_filters=fields)
     projects=crud.get_translation_projects(db,skip=skip,limit=limit,**filters)
     return {'items':[tree(project,billing_month)['item'] for project in projects],'total':crud.count_translation_projects(db,**filters),'client_subtotals':client_subtotals(db,filters)}
+
+
+@router.get('/manager-options',dependencies=[Depends(require_module_access('projects:read','projects:write'))])
+def manager_options(db:Session=Depends(get_db)):
+    from organization_service import department_condition
+    people=db.query(AppUser).filter(AppUser.is_deleted.is_(False),department_condition(db,['客户部'])).order_by(AppUser.full_name,AppUser.username,AppUser.id).all()
+    return {'items':[{'id':str(person.id),'name':person.full_name or person.username,'username':person.username,'active':bool(person.is_active)} for person in people]}
 
 
 @router.get('/project/{project_id}',dependencies=[Depends(require_module_access('projects:read','projects:write'))])

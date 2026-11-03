@@ -300,7 +300,7 @@ const routes = [
         path: 'clients',
         name: 'Clients',
         component: () => import('../views/client/Clients.vue'),
-        meta: { title: '客户信息', permissions: ['clients:read'] }
+        meta: { title: '客户管理', permissions: ['clients:read'] }
       },
       {
         path: 'subsidiary-clients',
@@ -321,9 +321,7 @@ const routes = [
       // 财务管理
       {
         path: 'finance',
-        name: 'FinanceManagement',
-        component: () => import('../views/finance/FinanceManagement.vue'),
-        meta: { title: '财务管理', permissions: ['finance:read'] }
+        redirect: '/clients'
       },
       {
         path: 'pending-modules',

@@ -244,6 +244,10 @@ def role_assignments_for_project(db: Session, project_type: str, project_id: UUI
     rows = db.query(ProjectWorkbenchResponsibility).options(
         joinedload(ProjectWorkbenchResponsibility.assignee)
     ).filter(getattr(ProjectWorkbenchResponsibility, fk_name) == project_id).all()
+    return _serialize_role_assignments(rows)
+
+
+def _serialize_role_assignments(rows) -> list[dict]:
     by_role: dict[str, list[ProjectWorkbenchResponsibility]] = {}
     for row in rows:
         by_role.setdefault(row.role_code, []).append(row)
@@ -260,6 +264,24 @@ def role_assignments_for_project(db: Session, project_type: str, project_id: UUI
                 'assignment_type': 'direct' if row and row.assignee_id else 'role_pool',
             })
     return result
+
+
+def _batch_role_assignments(db: Session, rows) -> dict:
+    """一次读取本次列表涉及的项目人员，避免每个项目重复往返数据库。"""
+    keys = {(row.project_type, getattr(row, _project_fk_name(row.project_type))) for row in rows}
+    if not keys:
+        return {}
+    filters = [getattr(ProjectWorkbenchResponsibility, _project_fk_name(kind)).in_(
+        [project_id for project_type, project_id in keys if project_type == kind]
+    ) for kind in PROJECT_TYPES if any(key[0] == kind for key in keys)]
+    grouped = {}
+    assignments = db.query(ProjectWorkbenchResponsibility).options(
+        joinedload(ProjectWorkbenchResponsibility.assignee)
+    ).filter(or_(*filters)).all()
+    for row in assignments:
+        key = (row.project_type, getattr(row, _project_fk_name(row.project_type)))
+        grouped.setdefault(key, []).append(row)
+    return {key: _serialize_role_assignments(grouped.get(key, [])) for key in keys}
 
 
 def assignment_map_from_payload(values: Optional[Iterable]) -> Optional[dict[str, Optional[UUID] | list[UUID]]]:
@@ -364,6 +386,7 @@ def serialize_responsibility(
     row: ProjectWorkbenchResponsibility,
     *,
     assignment_type: Optional[str] = None,
+    role_assignments: Optional[list[dict]] = None,
 ) -> dict:
     project_type = _responsibility_project_type(row)
     project = row.project
@@ -403,7 +426,7 @@ def serialize_responsibility(
         'customer_deadline_time': _deadline(project_type, project),
         'language_pair': _language_pair(project_type, project),
         'entity_type': 'project',
-        'role_assignments': role_assignments_for_project(db, project_type, project.id),
+        'role_assignments': role_assignments if role_assignments is not None else role_assignments_for_project(db, project_type, project.id),
         'project_manager_id': None,
         'project_manager_name': None,
     }
@@ -437,13 +460,16 @@ def get_responsibility_tasks(db: Session, user_id: UUID, roles: set[str], *, inc
             ),
             or_(*responsibility_scope),
         )
+    rows = [row for row in query.all() if row.project and is_active_project(row.project_type, row.project.project_status)]
+    assignments = _batch_role_assignments(db, rows)
     result = []
-    for row in query.all():
+    for row in rows:
         project = row.project
         if not project or not is_active_project(row.project_type, project.project_status):
             continue
         assignment_type = 'overview' if include_all and row.assignee_id != user_id else None
-        result.append(serialize_responsibility(db, row, assignment_type=assignment_type))
+        result.append(serialize_responsibility(db, row, assignment_type=assignment_type,
+            role_assignments=assignments[(row.project_type, project.id)]))
     return result
 
 
@@ -456,11 +482,13 @@ def get_management_responsibilities(db: Session, user_id: UUID, *, include_all: 
             ProjectWorkbenchResponsibility.assignee_id == user_id,
             ProjectWorkbenchResponsibility.assignee_id.is_(None),
         ))
+    rows = [row for row in query.all() if row.project and is_active_project(row.project_type, row.project.project_status)]
+    assignments = _batch_role_assignments(db, rows)
     result = []
-    for row in query.all():
+    for row in rows:
         if not row.project or not is_active_project(row.project_type, row.project.project_status):
             continue
-        item = serialize_responsibility(db, row)
+        item = serialize_responsibility(db, row, role_assignments=assignments[(row.project_type, row.project.id)])
         item['project_manager_id'] = row.assignee_id
         item['project_manager_name'] = item['current_assignee_name']
         result.append(item)

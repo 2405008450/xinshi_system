@@ -296,8 +296,12 @@
                           clearable
                           maxlength="255"
                           show-word-limit
-                          placeholder="每个订单只填一个真实文件名，必须保留扩展名"
+                          :placeholder="parentOrderNameAllowed ? '母订单项目名称可不带扩展名' : '每个订单只填一个真实文件名，必须保留扩展名'"
                         />
+                        <el-checkbox v-if="!form.id" v-model="createWithSubOrders">同时创建子订单（母订单名称可不带扩展名）</el-checkbox>
+                      </el-form-item>
+                      <el-form-item v-if="!form.id && createWithSubOrders" label="子订单文件名称" prop="initialSubOrderNamesText">
+                        <el-input v-model="form.initialSubOrderNamesText" type="textarea" :rows="3" placeholder="每行一个文件名称，须带扩展名；保存时同时创建子订单" />
                       </el-form-item>
                     </el-col>
                   </el-row>
@@ -905,7 +909,7 @@
 </template>
 
 <script setup>
-import { validateTranslationFileName } from '@/utils/translationFileName'
+import { validateTranslationFileName, translationFileNameError } from '@/utils/translationFileName'
 import ProjectShortNotes from './components/ProjectShortNotes.vue'
 import {businessDateTimeInputValue} from '@/utils/dateTime'
 import ProjectClientManagerField from '@/components/common/ProjectClientManagerField.vue'
@@ -1111,7 +1115,7 @@ const subOrderDetailItems = [
   { label: '创建时间', key: 'createdAt' },
   { label: '更新时间', key: 'updatedAt' }
 ]
-const createEmptyProjectForm = () => ({ id: '', orderNo: '', projectName: '', sourceFileName: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', clientName: '', clientShortName: '', clientCode: '', subClientName: '', subClientShortName: '', subClientCode: '', customerOrderNo: '', clientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], wordCountMatrixSource: 'project', wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', remarks: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
+const createEmptyProjectForm = () => ({ id: '', orderNo: '', projectName: '', sourceFileName: '', initialSubOrderNamesText: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', clientName: '', clientShortName: '', clientCode: '', subClientName: '', subClientShortName: '', subClientCode: '', customerOrderNo: '', clientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], wordCountMatrixSource: 'project', wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', remarks: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
 const createEmptySubOrderForm = () => ({ id: '', parentProjectId: '', subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: 0, preReviewQcProgress: 0, reviewProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, networkFilePath: '', remarks: '' })
 const loading = ref(false)
 const submitLoading = ref(false)
@@ -1146,6 +1150,8 @@ const projectStatusSavingIds = ref(new Set())
 const expandedProjectIds = ref([])
 const expandedProjectRowKeys = computed(() => expandedProjectIds.value)
 const currentProjectSubOrders = ref([])
+const createWithSubOrders = ref(false)
+const parentOrderNameAllowed = computed(() => createWithSubOrders.value || currentProjectSubOrders.value.length > 0 || Number(form.wordCountSubOrderCount || 0) > 0)
 const batchExistingNames = computed(() => batchTargetSubOrders.value.map((item) => item.subProjectName).filter(Boolean))
 const getExpandedInlinePendingCount = (projectId) => [...expandedInlineChanges.value.values()]
   .filter((change) => String(change.row?.parentProjectId) === String(projectId))
@@ -1219,7 +1225,7 @@ const translationFilterFields = [
   { key: 'remarks', label: '备注', type: 'text' },
   { key: 'languagePair', label: '翻译方向', type: 'text' },
   { key: 'priority', label: '优先级', type: 'select', options: priorityOptions },
-  { key: 'wordCountDimension', apiKey: 'word_count_dimension', label: '字数统计口径', type: 'select', options: [{value:'company',label:'我司'},{value:'customer',label:'客户'},{value:'translator_estimate',label:'译员预估'}] },
+  { key: 'wordCountDimension', apiKey: 'word_count_dimension', label: '字数统计口径', type: 'select', options: [{value:'company',label:'我司统计'},{value:'customer',label:'客户统计'},{value:'preliminary',label:'预统计（不用以计算费用）'},{value:'translator_estimate',label:'译员预估'}] },
   { key: 'wordCountMetricType', apiKey: 'word_count_metric_type', label: '字数统计指标', type: 'select', options: [{value:'words',label:'字数'},{value:'characters_no_spaces',label:'字符数（不计空格）'},{value:'cjk_chars_korean_words',label:'中文字符和朝鲜语单词'},{value:'foreign_words',label:'外文字数'},{value:'documents',label:'份数'},{value:'pages',label:'页数'}] },
   { key: 'wordCountMatrix', apiKey: 'word_count', label: '字数与预估', type: 'number-range', wide: true, min: 0 },
   { key: 'customerReceptionTime', label: props.arrangement?'客户来稿时间':'客户接单时间', type: 'date-range', wide: true },
@@ -1426,7 +1432,7 @@ const validateWordCountMatrix = (_rule, value, callback) => {
 }
 const rules = {
   sourceFileName: [
-    { required: true, validator: validateTranslationFileName, trigger: ['blur', 'change'] },
+    { required: true, validator: (_rule,value,done) => { const error=translationFileNameError(value,{allowMissingExtension:parentOrderNameAllowed.value});done(error?new Error(error):undefined) }, trigger: ['blur', 'change'] },
     { max: 255, message: '项目名称不能超过255个字符', trigger: ['blur', 'change'] },
   ],
   clientShortName: [{ validator: requiredTextValidator('请选择或输入母客户简称'), trigger: ['blur', 'change'] }],
@@ -1437,6 +1443,9 @@ const rules = {
   customerDeadlineTime: [{ required: true, message: '请选择客户交稿时间', trigger: 'change' }],
   projectStatus: [{ required: true, message: '请选择状态', trigger: 'change' }],
 }
+watch(createWithSubOrders,()=>formRef.value?.clearValidate(['sourceFileName','initialSubOrderNamesText']))
+watch(()=>form.initialSubOrderNamesText,value=>{if(!form.id&&String(value||'').trim())createWithSubOrders.value=true})
+rules.initialSubOrderNamesText = [{validator:(_rule,value,done)=>{if(!createWithSubOrders.value||form.id)return done();const names=String(value||'').split(/\r?\n/).map(name=>name.trim()).filter(Boolean);if(!names.length)return done(new Error('请至少填写一个子订单文件名称'));if(names.length>100)return done(new Error('每次最多创建100个子订单'));for(const name of names){const error=translationFileNameError(name);if(error)return done(new Error(error))}if(new Set(names.map(name=>name.toLowerCase())).size!==names.length)return done(new Error('子订单文件名称不能重复'));done()},trigger:'blur'}]
 const subOrderRules = { subProjectName: [{ required: true, validator: validateTranslationFileName, trigger: ['blur','change'] }] }
 const NULLABLE_FIELDS = ['sourceFileName', 'emailSubjectPreview', 'serviceContent', 'taskType', 'consultationId', 'clientId', 'subClientId', 'projectManagerId', 'customerOrderNo', 'customerReceptionTime', 'customerDeadlineTime', 'sentToClientTime', 'pmConfirmedBy', 'translatorId', 'translatorAssignmentTime', 'clientFeedback', 'referenceFilePathOne', 'fileTypeSecondary', 'projectContractType', 'projectContractStatus', 'quotationStatus', 'quotationPath', 'customerRequirementProfessional', 'customerRequirementSpecial', 'languagePair', 'priority', 'remarks', 'subProjectName']
 const normalizeStatus = (status) => normalizeProjectStatus('translation',status)
@@ -1472,6 +1481,7 @@ function getWordCountListSummary(target = {}) {
 const toLocalWordCountMatrix = (saved = {}) => ({
   company: saved.company || {},
   customer: saved.customer || {},
+  preliminary: saved.preliminary || {},
   translatorEstimate: saved.translator_estimate || saved.translatorEstimate || {},
 })
 const handleProjectWordCountSaved = async (saved) => {
@@ -1954,6 +1964,7 @@ const clearSearch = () => {
   resetFilterModel(searchForm, translationFilterFields)
 }
 const resetProjectForm = () => {
+  createWithSubOrders.value = false
   subClientRequestId += 1
   assignReactive(form, createEmptyProjectForm)
   availableSubClients.value = []
@@ -1971,6 +1982,7 @@ const goToSubOrderManagement = (project) => {
   router.push({ name: 'TranslationSubOrderManagement', params: { projectId }, query: { orderNo: project.orderNo || form.orderNo || '', projectName: project.sourceFileName || form.sourceFileName || '' } })
 }
 const handleAdd = async () => {
+  pauseDraft()
   dialogTitle.value = '新增项目'
   resetProjectForm()
   clientManagerBaseline.value = localStorage.getItem('user_id') || ''
@@ -1982,9 +1994,9 @@ const handleAdd = async () => {
   editorBodyRef.value?.scrollTo({ top: 0, behavior: 'auto' })
   projectFilesTabRef.value?.resetPathGroup()
   form.orderNo = await generateOrderNo()
-  await beginDraft('create')
 }
 const handleEdit = async (row) => {
+  pauseDraft()
   dialogTitle.value = '编辑项目详情'
   clearFieldSearch()
   void loadProjectEditorOptions()
@@ -2087,6 +2099,8 @@ const handleSubmit = async (sendAfterSave = false) => {
   let projectSaved = false
   try {
     const payloadSource = { ...form }
+    if(!form.id && createWithSubOrders.value) payloadSource.initialSubOrderNames=String(form.initialSubOrderNamesText||'').split(/\r?\n/).map(name=>name.trim()).filter(Boolean)
+    delete payloadSource.initialSubOrderNamesText
     delete payloadSource.wordCountMatrixSource
     delete payloadSource.wordCountSubOrderCount
     const payload = cleanPayload(payloadSource)
