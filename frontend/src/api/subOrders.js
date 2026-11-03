@@ -32,8 +32,8 @@ export const getSubOrders = (params) => {
     return api.get('/sub-orders/', { params }).then(res => convertKeys(res, toCamelCase))
 }
 
-export const getSubOrdersByProject = (projectId) => {
-    return api.get(`/sub-orders/project/${projectId}`).then(res => convertKeys(res, toCamelCase))
+export const getSubOrdersByProject = (projectId, signal) => {
+    return api.get(`/sub-orders/project/${projectId}`, { signal }).then(res => convertKeys(res, toCamelCase))
 }
 
 export const getSubOrder = (id) => {
@@ -53,6 +53,9 @@ export const createSubOrder = async (data) => {
 export const createSubOrdersBulk = (data) => {
     return api.post('/sub-orders/bulk', convertKeys(data, toSnakeCase)).then(res => convertKeys(res, toCamelCase))
 }
+
+export const readSubOrderSourceFiles = (storagePath, signal) =>
+    api.post('/sub-orders/source-files', { storage_path: storagePath }, { signal })
 
 export const updateSubOrder = (id, data) => {
     return api.put(`/sub-orders/${id}`, convertKeys(data, toSnakeCase)).then(res => convertKeys(res, toCamelCase))

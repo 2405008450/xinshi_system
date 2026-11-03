@@ -100,6 +100,7 @@
               </div>
               <div class="sub-order-panel__actions">
                 <el-button v-if="canWriteProjects" type="primary" plain @click="openBatchDialog(row)">批量新增子订单</el-button>
+                <el-button v-if="canWriteProjects" plain @click="openBatchDialog(row, 'directory')">从文件夹选择</el-button>
                 <el-button v-if="hasMoreSubOrders(row)" type="primary" plain @click="goToSubOrderManagement(row)">进入子订单管理页</el-button>
               </div>
             </div>
@@ -670,6 +671,7 @@
                     <el-button v-if="canWriteProjects" type="primary" @click="openCreateSubOrderDialog">新增子订单</el-button>
                     <el-button v-if="canWriteProjects" @click="openBatchDialog(form, 'quantity')">按数量批量新增</el-button>
                     <el-button v-if="canWriteProjects" @click="openBatchDialog(form, 'filenames')">导入文件名</el-button>
+                    <el-button v-if="canWriteProjects" @click="openBatchDialog(form, 'directory')">从文件夹选择</el-button>
                     <el-button v-if="hasMoreSubOrders({ subOrders: currentProjectSubOrders })" @click="goToSubOrderManagement(form)">查看全部子订单</el-button>
                   </div>
                 </div>
@@ -2197,6 +2199,7 @@ const handleBatchCreated = async () => {
   const projectId = batchTargetProject.value?.id
   if (!projectId) return
   await refreshProjectSubOrders(projectId)
+  await fetchData()
 }
 const getInlineChangeRefs = (scope) => scope === 'editor'
   ? { changes: editorInlineChanges, saving: editorInlineSaving }

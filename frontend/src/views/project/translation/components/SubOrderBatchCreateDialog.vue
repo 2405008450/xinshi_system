@@ -9,7 +9,34 @@
     @update:model-value="emit('update:modelValue', $event)"
     @closed="reset"
   >
+    <template #header>
+      <DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" title="批量新增子订单"
+        :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" />
+    </template>
+    <div ref="editorBodyRef">
     <el-tabs v-model="mode">
+      <el-tab-pane label="从文件夹选择" name="directory">
+        <AppForm label-position="top">
+          <el-form-item label="共享文件夹路径">
+            <el-input v-model="directoryPath" placeholder="请输入企业 UNC 共享文件夹路径" clearable :disabled="submitting" @keyup.enter="readDirectory">
+              <template #append><el-button :loading="directoryLoading" :disabled="submitting || !directoryPath.trim()" @click="readDirectory">读取文件</el-button></template>
+            </el-input>
+          </el-form-item>
+        </AppForm>
+        <el-alert title="仅读取当前文件夹第一层。每个所选文件创建一条子订单，并保存完整网络路径。" type="info" :closable="false" />
+        <el-alert v-if="directoryError" :title="directoryError" type="error" :closable="false" />
+        <div class="import-summary">
+          <el-button :disabled="submitting || !directoryRows.length" @click="selectAllFiles">全选可用文件</el-button>
+          <el-button :disabled="submitting" @click="directoryTable?.clearSelection()">清空</el-button>
+          <span>共 {{ directoryRows.length }} 个文件，已选 {{ selectedFiles.length }} 个</span>
+        </div>
+        <el-table ref="directoryTable" v-loading="directoryLoading" :data="directoryRows" row-key="path" border max-height="320" @selection-change="selectedFiles = $event">
+          <el-table-column type="selection" :selectable="row => row.selectable && !submitting" width="48" />
+          <el-table-column prop="name" label="文件名称" min-width="200" show-overflow-tooltip />
+          <el-table-column prop="path" label="完整路径" min-width="260" show-overflow-tooltip />
+          <el-table-column prop="reason" label="不可选原因" min-width="200" />
+        </el-table>
+      </el-tab-pane>
       <el-tab-pane label="按数量生成" name="quantity">
         <AppForm label-position="top">
           <el-row :gutter="16">
@@ -80,10 +107,11 @@
       </el-row>
     </AppForm>
 
+    </div>
     <template #footer>
       <el-button @click="emit('update:modelValue', false)">取消</el-button>
       <el-button type="primary" :loading="submitting" :disabled="!canSubmit" @click="submit">
-        {{ mode === 'filenames' ? `确认导入 ${previewSummary.create} 条` : `批量创建 ${quantityNames.length} 条` }}
+        {{ mode === 'directory' ? `创建所选子订单 ${selectedFiles.length} 条` : mode === 'filenames' ? `确认导入 ${previewSummary.create} 条` : `批量创建 ${quantityNames.length} 条` }}
       </el-button>
     </template>
   </DraggableFormDialog>
@@ -91,9 +119,11 @@
 
 <script setup>
 import { translationFileNameError, translationFileExtension } from '@/utils/translationFileName'
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
-import { createSubOrdersBulk } from '@/api/subOrders'
+import { createSubOrdersBulk, readSubOrderSourceFiles, getSubOrdersByProject } from '@/api/subOrders'
+import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
+import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import { createEmptyWordCountMatrix } from '@/utils/wordCountMatrix'
@@ -120,6 +150,63 @@ const mode = ref('quantity')
 const filenameText = ref('')
 const fileList = ref([])
 const submitting = ref(false)
+const editorBodyRef = ref(null)
+const { fieldSearchRef, fieldSearchKeyword, fetchFieldSuggestions, locateDialogField, clearFieldSearch } = useDialogFieldSearch(editorBodyRef)
+const directoryPath = ref('')
+const directoryFiles = ref([])
+const directoryTable = ref(null)
+const selectedFiles = ref([])
+const directoryLoading = ref(false)
+const directoryError = ref('')
+const loadedDirectory = ref('')
+const loadedExistingNames = ref([])
+let directoryController = null
+let directoryRequest = 0
+const directoryRows = computed(() => {
+  const existing = new Set([...props.existingNames, ...loadedExistingNames.value].map(normalizeName))
+  return directoryFiles.value.map(row => ({ ...row,
+    selectable: row.selectable && !existing.has(normalizeName(row.name)),
+    reason: existing.has(normalizeName(row.name)) ? '当前母订单已存在同名子订单' : row.reason,
+  }))
+})
+const clearDirectory = () => {
+  directoryRequest += 1
+  directoryController?.abort()
+  directoryController = null
+  directoryLoading.value = false
+  directoryFiles.value = []
+  selectedFiles.value = []
+  loadedDirectory.value = ''
+  directoryError.value = ''
+  loadedExistingNames.value = []
+}
+const readDirectory = async () => {
+  if (!directoryPath.value.trim() || submitting.value) return
+  clearDirectory()
+  const request = directoryRequest
+  directoryController = new AbortController()
+  directoryLoading.value = true
+  try {
+    const [result, existing] = await Promise.all([
+      readSubOrderSourceFiles(directoryPath.value.trim(), directoryController.signal),
+      getSubOrdersByProject(props.project.id, directoryController.signal),
+    ])
+    if (request !== directoryRequest) return
+    loadedExistingNames.value = existing.map(row => row.subProjectName)
+    loadedDirectory.value = result.storage_path
+    directoryFiles.value = result.files
+  } catch (error) {
+    if (request === directoryRequest) directoryError.value = getLocalizedErrorMessage(error, '读取共享文件夹失败')
+  } finally {
+    if (request === directoryRequest) directoryLoading.value = false
+  }
+}
+const selectAllFiles = () => {
+  directoryTable.value?.clearSelection()
+  directoryRows.value.filter(row => row.selectable).forEach(row => directoryTable.value?.toggleRowSelection(row, true))
+}
+watch(directoryPath, clearDirectory, { flush: 'sync' })
+onBeforeUnmount(clearDirectory)
 
 const createForm = () => ({
   fileExtension: translationFileExtension(props.project.sourceFileName || props.project.projectName),
@@ -190,6 +277,8 @@ const previewSummary = computed(() => previewRows.value.reduce((summary, row) =>
 }, { create: 0, duplicate: 0, error: 0 }))
 const canSubmit = computed(() => {
   if (!props.project.id || submitting.value) return false
+  if (directoryLoading.value) return false
+  if (mode.value === 'directory') return Boolean(loadedDirectory.value && selectedFiles.value.length)
   if (mode.value === 'quantity') return quantityNames.value.length > 0 && quantityNames.value.every((name) => !translationFileNameError(name))
   return previewSummary.value.create > 0 && previewSummary.value.error === 0
 })
@@ -247,10 +336,12 @@ const submit = async () => {
   if (submitting.value) return
   submitting.value = true
   try {
-    const names = mode.value === 'quantity'
+    const names = mode.value === 'directory' ? selectedFiles.value.map(row => row.name) : mode.value === 'quantity'
       ? quantityNames.value
       : previewRows.value.filter((row) => row.status !== 'error').map((row) => row.name)
-    const result = await createSubOrdersBulk({ parentProjectId: props.project.id, subProjectNames: names, defaults: buildDefaults() })
+    const result = await createSubOrdersBulk({ parentProjectId: props.project.id, subProjectNames: names, defaults: buildDefaults(),
+      ...(mode.value === 'directory' ? { sourceDirectory: loadedDirectory.value } : {}),
+    })
     ElMessage.success(`批量创建完成：新增 ${result.createdCount} 条，跳过 ${result.skippedCount} 条`)
     if (result.skippedCount) {
       const reasons = result.skipped.slice(0, 3).map((item) => `${item.name}：${item.reason}`).join('；')
@@ -265,12 +356,16 @@ const submit = async () => {
   }
 }
 const reset = () => {
-  mode.value = props.initialMode === 'filenames' ? 'filenames' : 'quantity'
+  clearDirectory()
+  directoryPath.value = ''
+  clearFieldSearch()
+  mode.value = ['filenames', 'directory'].includes(props.initialMode) ? props.initialMode : 'quantity'
   filenameText.value = ''
   fileList.value = []
   Object.assign(form, createForm())
 }
-watch(() => props.modelValue, (visible) => { if (visible) reset() })
+watch(() => props.modelValue, (visible) => { if (visible) reset(); else clearDirectory() }, { immediate: true })
+watch(() => props.project.id, reset)
 </script>
 
 <style scoped>
@@ -278,4 +373,15 @@ watch(() => props.modelValue, (visible) => { if (visible) reset() })
 .import-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 14px 0 10px; }
 .import-summary span { color: var(--el-text-color-secondary); font-size: 12px; }
 .word-count-summary { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 32px; gap: 8px; padding: 0 10px; border: 1px solid var(--el-border-color); border-radius: 4px; background: var(--el-fill-color-lighter); }
+</style>
+
+<style>
+.el-dialog.suborder-batch-create-dialog { display: flex; flex-direction: column; max-height: 90vh; overflow: hidden; max-width: calc(100vw - 32px); }
+.suborder-batch-create-dialog > .el-dialog__body { flex: 1; min-height: 0; overflow-y: auto; }
+.suborder-batch-create-dialog > .el-dialog__header,
+.suborder-batch-create-dialog > .el-dialog__footer { flex-shrink: 0; }
+.suborder-batch-create-dialog > .el-dialog__footer { border-top: 1px solid var(--el-border-color); background: var(--el-fill-color-light); }
+@media (max-width: 768px) {
+  .el-dialog.draggable-form-dialog.suborder-batch-create-dialog { width: calc(100vw - 32px) !important; max-width: calc(100vw - 32px); }
+}
 </style>

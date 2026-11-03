@@ -3,10 +3,49 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 import {
+  switchConsultationIntake,
   normalizeConsultationIntakePriority,
   interpretationDirectionsError,
   interpretationTimeRangesError,
 } from '../src/utils/consultationIntakeValidation.js'
+
+const emptyIntake = () => ({ customer_deadline_time: '', language_directions: [], service_content: '' })
+
+test('切换咨询类型再返回时保留交稿时间，并隔离其他类型的数据', () => {
+  const form = { project_intake: { ...emptyIntake(), customer_deadline_time: '2026-11-20T18:30:00', service_content: '翻译' } }
+  switchConsultationIntake(form, 'translation', '口译项目', emptyIntake)
+  assert.equal(form.project_intake.customer_deadline_time, '')
+  form.project_intake.language_directions.push({ source_language_id: 'zh', target_language_id: 'en', required_count: 2 })
+  switchConsultationIntake(form, '口译项目', 'translation', emptyIntake)
+  assert.equal(form.project_intake.customer_deadline_time, '2026-11-20T18:30:00')
+  assert.equal(form.project_intake.service_content, '翻译')
+  assert.deepEqual(form.project_intake.language_directions, [])
+  switchConsultationIntake(form, 'translation', '口译项目', emptyIntake)
+  assert.equal(form.project_intake.language_directions[0].required_count, 2)
+  form.project_intake.language_directions[0].required_count = 3
+  assert.equal(form.project_intake_drafts['口译项目'].language_directions[0].required_count, 2)
+})
+
+test('同类咨询重复选择不重置；主动清空的日期不会被旧缓存恢复', () => {
+  const form = { project_intake: { ...emptyIntake(), customer_deadline_time: '2026-11-20T18:30:00' } }
+  const original = form.project_intake
+  switchConsultationIntake(form, 'translation', 'translation', emptyIntake)
+  assert.equal(form.project_intake, original)
+  switchConsultationIntake(form, 'translation', '简单咨询', emptyIntake)
+  switchConsultationIntake(form, '简单咨询', 'translation', emptyIntake)
+  form.project_intake.customer_deadline_time = null
+  switchConsultationIntake(form, 'translation', '简单咨询', emptyIntake)
+  switchConsultationIntake(form, '简单咨询', 'translation', emptyIntake)
+  assert.equal(form.project_intake.customer_deadline_time, null)
+})
+
+test('表单草稿序列化恢复后仍可找回切换前的时间', () => {
+  let form = { project_intake: { ...emptyIntake(), customer_deadline_time: '2026-11-20T18:30:00' } }
+  switchConsultationIntake(form, 'translation', '口译项目', emptyIntake)
+  form = JSON.parse(JSON.stringify(form))
+  switchConsultationIntake(form, '口译项目', 'translation', emptyIntake)
+  assert.equal(form.project_intake.customer_deadline_time, '2026-11-20T18:30:00')
+})
 
 const consultationPage = readFileSync(
   new URL('../src/views/client/Consultations.vue', import.meta.url),

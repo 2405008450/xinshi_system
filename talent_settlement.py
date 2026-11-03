@@ -15,15 +15,52 @@ from models import Base
 
 class TalentSettlementPrice(BaseModel):
     id: UUID = Field(default_factory=uuid4)
-    category: Literal['interpretation', 'written_translation', 'annotation', 'collection']
-    amount: Decimal = Field(ge=0, max_digits=18, decimal_places=6, allow_inf_nan=False)
-    unit: str = Field(min_length=1, max_length=50)
-    currency: Literal['CNY', 'USD', 'HKD', 'EUR', 'GBP'] = 'CNY'
+    category: Literal['interpretation', 'written_translation', 'annotation', 'collection'] | None = None
+    amount: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=6, allow_inf_nan=False)
+    amount_max: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=6, allow_inf_nan=False)
+    unit: str | None = Field(default=None, min_length=1, max_length=50)
+    currency: Literal['CNY', 'USD', 'HKD', 'EUR', 'GBP', 'BRL', 'IDR'] | None = None
+    status: Literal['pending', 'confirmed'] = 'confirmed'
+    price_type: Literal['fixed', 'range', 'negotiable'] = 'fixed'
+    service_type: Literal['translation', 'proofreading', 'editing', 'lqa'] | None = None
+    language_pair: str | None = Field(default=None, max_length=500)
+    raw_text: str | None = Field(default=None, max_length=20000)
+    source_file: str | None = Field(default=None, max_length=255)
+    source_sheet: str | None = Field(default=None, max_length=255)
+    source_row: int | None = Field(default=None, ge=1)
+    source_column: str | None = Field(default=None, max_length=50)
+    notes: str | None = Field(default=None, max_length=4000)
 
-    @field_validator('unit', mode='before')
+    @model_validator(mode='before')
     @classmethod
-    def clean_unit(cls, value):
-        return value.strip() if isinstance(value, str) else value
+    def legacy_currency(cls, value):
+        # 旧记录省略币种时沿用旧版人民币语义；新待核报价绝不推断币种。
+        if isinstance(value, dict) and 'status' not in value and 'currency' not in value:
+            return {**value, 'currency': 'CNY'}
+        return value
+
+    @field_validator('category', 'currency', 'service_type', 'unit', 'language_pair', 'raw_text', 'source_file', 'source_sheet', 'source_column', 'notes', mode='before')
+    @classmethod
+    def clean_text(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
+
+    @model_validator(mode='after')
+    def validate_quote(self):
+        if self.amount_max is not None:
+            if self.price_type != 'range':
+                raise ValueError('仅区间报价可填写金额上限')
+            if self.amount is None or self.amount_max < self.amount:
+                raise ValueError('金额上限不得小于下限，且必须填写下限')
+        if self.status == 'confirmed':
+            if self.category is None or self.unit is None or self.currency is None:
+                raise ValueError('已确认报价必须填写价格类型、计价单位和币种')
+            if self.price_type != 'negotiable' and self.amount is None:
+                raise ValueError('已确认报价必须填写金额')
+            if self.price_type == 'range' and self.amount_max is None:
+                raise ValueError('已确认区间报价必须填写金额上限')
+        elif self.amount is None and self.raw_text is None:
+            raise ValueError('待核对报价至少填写金额或原始报价')
+        return self
 
 
 class TalentSettlementInput(BaseModel):
@@ -106,7 +143,9 @@ def save_settlement(db, person, payload, actor):
     else:
         if payload.settlement.revision != row.revision:
             raise HTTPException(409, '结算资料已被修改，请重新打开后核对；当前输入已保留')
-        if all(getattr(row, key) == value for key, value in values.items()):
+        # 旧版价格缺少新字段时按兼容默认值比较，查看后原样保存不制造版本变更。
+        current_values = TalentSettlementResponse.model_validate(row).model_dump(mode='json', exclude={'revision'})
+        if current_values == values:
             person.__dict__['settlement'] = TalentSettlementResponse.model_validate(row)
             return
         row.revision += 1

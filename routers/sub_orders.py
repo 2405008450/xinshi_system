@@ -20,9 +20,20 @@ from schemas import (
 )
 from models import AppUser, TranslationSubOrder
 from routers.auth import get_current_user, require_module_access
+from schemas import ProjectSourcePathInspectRequest, SubOrderSourceFilesResponse
+from project_file_service import list_sub_order_source_files
+from bounded_file_io import shared_file_io
 
 router = APIRouter(prefix="/sub-orders", tags=["sub-orders"], dependencies=[Depends(require_module_access("projects:read", "projects:write"))])
 logger = logging.getLogger(__name__)
+
+
+@router.post("/source-files", response_model=SubOrderSourceFilesResponse)
+async def read_source_files(payload: ProjectSourcePathInspectRequest):
+    try:
+        return await shared_file_io.run(list_sub_order_source_files, payload.storage_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/", response_model=TranslationSubOrderResponse, status_code=status.HTTP_201_CREATED)

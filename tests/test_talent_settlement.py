@@ -1,4 +1,5 @@
 from decimal import Decimal
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -45,6 +46,56 @@ def test_price_types_decimal_precision_units_currency(category):
     assert price.amount==Decimal('0.123456')
     assert price.unit=='work_hour'
     assert price.model_dump(mode='json')['amount']=='0.123456'
+
+
+def test_quote_pending_currency_is_not_inferred_and_range_is_exact():
+    pending=TalentSettlementPrice(status='pending',raw_text='21-30$，币种待核',price_type='range',amount='21',amount_max='30')
+    assert pending.currency is None and pending.category is None and pending.unit is None
+    assert pending.model_dump(mode='json')['amount_max']=='30'
+    assert TalentSettlementPrice(category='annotation',amount=1,unit='hour').currency=='CNY'
+    confirmed=TalentSettlementPrice(status='confirmed',category='written_translation',service_type='proofreading',
+        price_type='range',amount='0.025',amount_max='0.05',currency='USD',unit='source_word')
+    assert confirmed.amount==Decimal('0.025') and confirmed.amount_max==Decimal('0.05')
+    assert TalentSettlementPrice(status='confirmed',category='written_translation',price_type='negotiable',unit='month',currency='BRL').amount is None
+
+
+@pytest.mark.parametrize('changes',[
+    {'price_type':'range','amount_max':'0.01'}, {'price_type':'fixed','amount_max':'2'},
+    {'price_type':'range'}, {'currency':None}, {'category':None}, {'amount':None},
+])
+def test_confirmed_quotes_reject_incomplete_or_inverted_ranges(changes):
+    with pytest.raises(ValidationError):
+        TalentSettlementPrice(**{**dict(status='confirmed',category='written_translation',amount='0.025',unit='per_word',currency='USD'),**changes})
+
+
+def test_pending_raw_quote_requires_meaningful_content():
+    with pytest.raises(ValidationError,match='至少填写金额或原始报价'):
+        TalentSettlementPrice(status='pending',raw_text=' ')
+    assert TalentSettlementPrice(status='pending',amount=0).amount==0
+    assert TalentSettlementPrice(status='pending',raw_text='IDR750000',currency='IDR').currency=='IDR'
+
+
+def test_extended_price_roundtrip_and_legacy_noop(settlement_db):
+    db,person,actor=settlement_db
+    old={'id':str(uuid4()),'category':'annotation','amount':'0.025','unit':'word','currency':'USD'}
+    row=TalentSettlement(person_id=person.id,revision=1,prices=[old],gig_platform_calculation=False,
+        updated_at=datetime.now(timezone(timedelta(hours=8))))
+    db.add(row);db.flush()
+    unchanged=read_settlement(db,person.id,visible=True)
+    save_settlement(db,person,ResourcePersonUpdate(full_name='旧价格',settlement=unchanged),actor)
+    assert row.revision==1 and row.prices==[old]
+    quote=dict(status='pending',price_type='range',amount='21',amount_max='30',unit='hour',currency=None,
+        service_type='lqa',language_pair='EN-AR',raw_text='21-30$\nLQA',source_file='共培.xlsx',source_sheet='共培总表',source_row=521,source_column='每小时',notes='币种待确认')
+    value=ResourcePersonUpdate(full_name='扩展价格',settlement=dict(revision=1,prices=[old,quote]))
+    save_settlement(db,person,value,actor);db.commit();db.expire_all()
+    observed=read_settlement(db,person.id,visible=True)
+    assert observed['revision']==2
+    added=observed['prices'][1]
+    for key in ['service_type','language_pair','raw_text','source_file','source_sheet','source_row','source_column','notes']:
+        assert added[key]==quote[key]
+    assert added['currency'] is None and added['amount_max']==Decimal('30')
+    save_settlement(db,person,ResourcePersonUpdate(full_name='再次保存',settlement=observed),actor)
+    assert read_settlement(db,person.id,visible=True)['revision']==2
 
 
 @pytest.mark.parametrize('changes',[{'category':'unknown'},{'amount':'-0.1'},{'amount':'0.1234567'},{'amount':'NaN'},{'unit':' '},{'currency':'bad'}])

@@ -1,3 +1,15 @@
+// 类型间分别保留草稿，避免误切类型清空输入，也避免不同类型的同名字段串用。
+export function switchConsultationIntake(form, previousType, nextType, createDefault) {
+  if (previousType === nextType) return
+  const drafts = { ...(form.project_intake_drafts || {}) }
+  if (previousType) drafts[previousType] = JSON.parse(JSON.stringify(form.project_intake))
+  form.project_intake_drafts = drafts
+  form.project_intake = {
+    ...createDefault(),
+    ...(Object.hasOwn(drafts, nextType) ? JSON.parse(JSON.stringify(drafts[nextType])) : {}),
+  }
+}
+
 export function normalizeConsultationIntakePriority(intake, consultationType) {
   const normalized = { ...(intake || {}) }
   // 标注咨询没有优先级输入项，空值不参与提交，由后端使用默认优先次序。

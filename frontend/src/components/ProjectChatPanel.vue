@@ -547,6 +547,7 @@ const { formatMessageTime: chatMessageTime, formatMessageDay, showMessageTime, s
 import { topicApi } from '@/api/chatTopics'
 import { useChatTopics } from '@/composables/useChatTopics'
 import { messageTopicPatch, newChatRequestId } from '@/utils/chatTopics'
+import { useChatAutoScroll } from '@/composables/useChatAutoScroll'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useChatComposerHeight } from '@/composables/useChatComposerHeight'
@@ -928,10 +929,8 @@ const isConversationAtBottom = () => {
   return wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight < 40
 }
 
-const scrollConversationToBottom = () => {
-  const wrap = getScrollWrap()
-  if (wrap) wrap.scrollTop = wrap.scrollHeight
-}
+const autoScroll = useChatAutoScroll(getScrollWrap, () => props.active && props.conversationMode)
+const scrollConversationToBottom = () => autoScroll.bottom()
 
 const conversationLoadLatest = async ({ scrollToEnd = true } = {}) => {
   if (!props.projectId) {
@@ -979,6 +978,7 @@ const loadMessagesBeforeAnchor = async () => {
   if (!oldest?.createdAt || !oldest?.id) return
   loadingEarlier.value = true
   const wrap = getScrollWrap()
+  autoScroll.pause()
   const prevHeight = wrap?.scrollHeight || 0
   const prevTop = wrap?.scrollTop || 0
   try {
@@ -1008,6 +1008,7 @@ const loadEarlierMessages = async () => {
   if (viewingHistory.value) return loadMessagesBeforeAnchor()
   loadingEarlier.value = true
   const wrap = getScrollWrap()
+  autoScroll.pause()
   const prevHeight = wrap?.scrollHeight || 0
   const prevTop = wrap?.scrollTop || 0
   try {
@@ -1111,6 +1112,7 @@ const openSearch = async () => {
 }
 
 const locateMessage = async (messageId) => {
+  autoScroll.pause()
   if (!messageId || !props.projectId) return
   messagesLoading.value = true
   try {

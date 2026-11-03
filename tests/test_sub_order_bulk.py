@@ -8,6 +8,9 @@ import crud
 from models import TranslationProject, TranslationSubOrder
 from routers import sub_orders as sub_order_router
 from schemas import TranslationSubOrderBulkCreate
+import asyncio
+from fastapi import HTTPException
+from schemas import ProjectSourcePathInspectRequest
 
 
 def test_bulk_schema_trims_names_and_rejects_invalid_values():
@@ -121,6 +124,7 @@ def test_sub_order_creation_initializes_matrix_and_workflow_in_same_transaction(
     monkeypatch.setattr(crud, "generate_sub_order_no", lambda *_args: "TP-260830-001.001")
     monkeypatch.setattr(crud, "_validate_written_translator", lambda *_args: None)
     monkeypatch.setattr(crud, "TranslationSubOrder", lambda **values: SimpleNamespace(id=uuid4(), **values))
+    monkeypatch.setattr('translation_customer_finance.inherit_new_order', lambda *_args: None)
     monkeypatch.setattr(
         "word_count_service.save_created_entity_matrix",
         lambda *args, **kwargs: matrix_calls.append((args, kwargs)),
@@ -150,6 +154,30 @@ def test_sub_order_creation_initializes_matrix_and_workflow_in_same_transaction(
     assert workflow_calls == [((db,), {"sub_order_id": sub_order.id, "commit": False})]
 
 
+def test_directory_bulk_sets_each_path_and_skips_duplicates(monkeypatch):
+    monkeypatch.setenv('OPENPATH_ALLOWED_ROOTS', r'\\server\share')
+    db = _FakeDb()
+    received = []
+    monkeypatch.setattr(crud, '_create_sub_order_in_transaction', lambda db, item: received.append(item) or item)
+    monkeypatch.setattr(crud, '_attach_manuscript_assignees', lambda *a, **kw: None)
+    payload = TranslationSubOrderBulkCreate(
+        parent_project_id=db.parent.id, sub_project_names=['中文 空格.docx', 'B.pdf', '已有.TXT'],
+        source_directory=r'\\server\share\原文', defaults={'network_file_path': r'\\server\share\旧路径'},
+    )
+    created, skipped = crud.create_sub_orders_bulk(db, payload)
+    assert [item.network_file_path for item in received] == [
+        r'\\server\share\原文\中文 空格.docx', r'\\server\share\原文\B.pdf']
+    assert len(created) == 2 and len(skipped) == 1
+    assert db.commit_count == 1
+
+
+@pytest.mark.parametrize('path', ['C:\\temp', r'\\other\share', r'\\server\share\..\other', ''])
+def test_directory_bulk_rejects_unmanaged_directory(monkeypatch, path):
+    monkeypatch.setenv('OPENPATH_ALLOWED_ROOTS', r'\\server\share')
+    with pytest.raises(ValidationError):
+        TranslationSubOrderBulkCreate(parent_project_id=uuid4(), sub_project_names=['A.docx'], source_directory=path)
+
+
 def test_bulk_endpoint_rolls_back_all_changes_when_creation_fails(monkeypatch):
     db = _FakeDb()
     db.rolled_back = False
@@ -173,3 +201,24 @@ def test_bulk_endpoint_rolls_back_all_changes_when_creation_fails(monkeypatch):
     assert exc_info.value.status_code == 500
     assert db.rolled_back is True
     assert db.commit_count == 0
+
+
+@pytest.mark.parametrize('status_code', [503, 504])
+def test_source_files_preserves_bounded_io_errors(monkeypatch, status_code):
+    async def fail(*args):
+        raise HTTPException(status_code, '共享目录读取超时或繁忙')
+    monkeypatch.setattr(sub_order_router.shared_file_io, 'run', fail)
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(sub_order_router.read_source_files(ProjectSourcePathInspectRequest(storage_path=r'\\server\share')))
+    assert error.value.status_code == status_code
+
+
+def test_source_files_uses_shared_reader_and_localizes_errors(monkeypatch):
+    async def fail(function, path):
+        assert function is sub_order_router.list_sub_order_source_files
+        assert path == r'\\server\share'
+        raise ValueError('共享文件夹不存在或没有读取权限')
+    monkeypatch.setattr(sub_order_router.shared_file_io, 'run', fail)
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(sub_order_router.read_source_files(ProjectSourcePathInspectRequest(storage_path=r'\\server\share')))
+    assert error.value.status_code == 400

@@ -1870,6 +1870,12 @@ POST /weekend-duty/transfer 将来源周六、周日对应到目标周六、周�
 
 价格明细每行：`id` UUID 稳定标识；`category` 为 `interpretation` 口译、`written_translation` 笔译、`annotation` 标注、`collection` 采集；`amount` 非负 Decimal，最多 18 位、6 位小数，JSON 保存十进制字符串；`unit` 非空、最多 50 字，提供系统既有次、条、工作小时、有效小时及字、千字、小时、天、秒、分钟、页、张、项目，可填写其他单位；`currency` 使用 CNY/USD/HKD/EUR/GBP。每档案最多 100 行，允许多条同类价格，不自动覆盖项目管理中的正式计价。
 
+2026-11-03 价格明细扩展沿用同一 `prices` JSON，不增加人员主表列，不改变物理表结构：新增 `status`（`pending` 待核对、`confirmed` 已确认）、`price_type`（`fixed` 固定价、`range` 区间价、`negotiable` 可协商）、`amount_max`（与 amount 同精度）、`service_type`（translation 翻译、proofreading 校对、editing 编辑、lqa）、`language_pair`（最多500字）、`raw_text`（最多20000字）、`source_file` / `source_sheet`（各最多255字）、`source_row`（正整数）、`source_column`（最多50字）、`notes`（最多4000字）。范围上限不能小于下限；非区间报价不允许保留金额上限。
+
+新增报价默认待核对且币种为空；待核报价至少提供金额或原始报价，允许暂缺价格类型、计价单位、币种。已确认报价必须填写价格类型、单位、币种，固定价必须有金额，区间价必须有上下限，可协商价格允许金额为空。缺少状态的旧价格按已确认固定价兼容；同时缺少状态和币种的旧记录沿用原有 CNY 默认语义，显式待核记录不得推断币种。旧价格经读取后原样保存，按兼容默认值比较，不制造无意义 revision 变更。
+
+币种补充 BRL、IDR。单位新增 `month` 月、`character` 字（字符）、`per_word` 词、`source_word` 源文词、`target_word` 译文词、`per_thousand_words` 千词；原有 `word` / `thousand_words` 保留原“字/千字”口径，不能批量解释为英文词或换算价格。原报价、来源、说明及状态与金额一起读写并沿用结算资料权限保护；报价类型不代表自动启用人员专业能力。
+
 主档新增/编辑请求 `settlement` 为可选嵌套对象；不传或为 null 时保留原结算资料。提供时与主档在同一事务内保存，使用 revision 防止旧表单覆盖。沿用人才联系方式查看权限；受限请求不能读取或改写结算资料，普通主档编辑不会清空结算资料。核重不自动合并收款信息，原档案资料保留。协议状态仅界面标记“待开发”，不保存虚构协议数据。
 
 该表已按新表创建授权于 2026-10-29 在 William 对 `43.132.156.72:15432/xinshi_system` 完成初始化。`tools/apply_talent_settlement_migration.py` 幂等创建新表及 `ck_talent_settlement_revision`、`ck_talent_settlement_invoice_entity` 约束，不更改已有表、不回填历史数据、不接入启动自动迁移。

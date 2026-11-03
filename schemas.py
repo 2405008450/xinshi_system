@@ -1139,6 +1139,15 @@ class TranslationSubOrderBulkCreate(BaseModel):
     parent_project_id: UUID
     sub_project_names: list[str] = Field(min_length=1, max_length=500)
     defaults: TranslationSubOrderBulkDefaults = Field(default_factory=TranslationSubOrderBulkDefaults)
+    source_directory: Optional[str] = None
+
+    @field_validator('source_directory')
+    @classmethod
+    def validate_source_directory(cls, value):
+        if value is None:
+            return None
+        from project_file_service import normalize_source_directory
+        return normalize_source_directory(value)
 
     @field_validator('sub_project_names')
     @classmethod
@@ -1275,6 +1284,18 @@ class ProjectFileResponse(ProjectFileBase):
 
 class ProjectSourcePathInspectRequest(BaseModel):
     storage_path: str
+
+
+class SubOrderSourceFile(BaseModel):
+    name: str
+    path: str
+    selectable: bool
+    reason: str = ''
+
+
+class SubOrderSourceFilesResponse(BaseModel):
+    storage_path: str
+    files: list[SubOrderSourceFile]
 
 
 class ProjectSourcePathInspectResponse(BaseModel):

@@ -4,6 +4,7 @@
     <div v-if="searchOpen" class="discussion-chat__search"><el-input v-model="keyword" clearable placeholder="搜索此讨论的消息" maxlength="200" @keyup.enter="refresh(true)" /><el-checkbox v-model="favoritesOnly">只看收藏</el-checkbox><el-button @click="searchOpen = false; keyword = ''; favoritesOnly=false">关闭</el-button></div>
     <el-alert v-if="error" :title="error" type="error" :closable="false"><el-button v-if="!loading" link @click="refresh(true)">重试</el-button></el-alert>
     <div ref="list" class="discussion-chat__timeline" @scroll="onScroll">
+      <div class="chat-timeline-content" style="display: flow-root">
       <el-button v-if="hasEarlier" link :loading="loadingEarlier" @click="loadEarlier">加载更早的消息</el-button>
       <div v-if="loading" class="discussion-chat__hint">正在加载消息…</div>
       <el-empty v-else-if="!messages.length && !error" :description="keyword ? '没有匹配的消息' : '暂无消息，开始讨论吧'" :image-size="50" />
@@ -19,6 +20,7 @@
           </template>
         </article>
       </template>
+      </div>
     </div>
     <el-button v-if="pendingNew" class="discussion-chat__new" @click="goBottom()">有新消息，点击查看</el-button>
     <div class="discussion-chat__composer">
@@ -34,6 +36,7 @@
   </section>
 </template>
 <script setup>
+import { useChatAutoScroll } from '@/composables/useChatAutoScroll'
 import {useChatDraft} from '@/composables/useChatDraft'
 import ChatRecalledMessage from './ChatRecalledMessage.vue'
 import { useRecalledMessageDrafts } from '@/composables/useRecalledMessageDrafts'
@@ -106,7 +109,8 @@ async function markRead() {
   reading = true
   try { await chatRequest(`${base}/preferences`, { method: 'put', data: { readMessageId: last } }); readVersion = last } catch { /* 下轮重试，不能提前清除未读。 */ } finally { reading = false }
 }
-async function goBottom() { await nextTick(); if (list.value) list.value.scrollTop = list.value.scrollHeight; pendingNew.value = false; await markRead() }
+const autoScroll = useChatAutoScroll(() => list.value, () => props.active)
+async function goBottom() { await autoScroll.bottom(); pendingNew.value = false; await markRead() }
 function onScroll() { if (atBottom()) { pendingNew.value = false; markRead() } }
 async function refresh(reset = false) {
   if (!props.active || disposed || ((loading.value || loadingEarlier.value) && !reset)) return
@@ -127,6 +131,7 @@ async function refresh(reset = false) {
 }
 async function loadEarlier() {
   if (loadingEarlier.value || !hasEarlier.value || !messages.value.length) return
+  autoScroll.pause()
   loadingEarlier.value = true; const version = requestVersion, height = list.value?.scrollHeight || 0
   try {
     const data = await chatRequest(`${base}/messages`, { params: { before: messages.value[0].id, keyword: keyword.value.trim(), favorites_only:favoritesOnly.value || undefined } })
@@ -183,7 +188,7 @@ const menuHandlers=computed(()=>({
 }))
 watch(favoritesOnly,()=>refresh(true))
 watch(keyword, value => { clearTimeout(searchTimer); controller?.abort(); ++requestVersion; searchTimer = setTimeout(() => refresh(true), value ? 400 : 0) })
-watch(() => props.active, active => { clearInterval(pollTimer); if (active) { loadMentionUsers();refresh(!messages.value.length); pollTimer = setInterval(() => refresh(), 5000) } else { controller?.abort(); ++requestVersion; loading.value = false } }, { immediate: true })
+watch(() => props.active, active => { clearInterval(pollTimer); if (active) { loadMentionUsers();refresh(!props.targetMessageId || !messages.value.length); pollTimer = setInterval(() => refresh(), 5000) } else { controller?.abort(); ++requestVersion; loading.value = false } }, { immediate: true })
 const unsubscribe = subscribe('chat_sessions_changed', () => { if (props.active && !sending.value) {refresh();loadMentionUsers()} })
 let locatedTarget = ''
 watch(() => [props.active, props.targetMessageId, loading.value, storageReady.value], ([active, id, busy, ready]) => {
@@ -192,6 +197,7 @@ watch(() => [props.active, props.targetMessageId, loading.value, storageReady.va
 const draft=useChatDraft(computed(()=>['discussion',props.projectId]),()=>({content:content.value,mentionSelection:mentionSelection.value,replyTo:replyTo.value,automaticQuoteMention:automaticQuoteMention.value,retryPayload:retryPayload.value}),data=>{content.value=data.content;mentionSelection.value=data.mentionSelection||{mentionedUserIds:[],mentionAll:false};replyTo.value=data.replyTo||null;automaticQuoteMention.value=data.automaticQuoteMention||null;retryPayload.value=data.retryPayload||null})
 onBeforeUnmount(() => { disposed = true; controller?.abort(); clearInterval(pollTimer); clearTimeout(searchTimer); unsubscribe() })
 async function locate(id) {
+  autoScroll.pause()
   try {
     const target=String(id)
     if(!messages.value.some(row=>row.id===target)){

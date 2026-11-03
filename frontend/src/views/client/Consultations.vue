@@ -1325,6 +1325,7 @@ import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import StableDateTimePicker from '@/components/common/StableDateTimePicker.vue'
 import {
+  switchConsultationIntake,
   normalizeConsultationIntakePriority,
   interpretationDirectionsError,
   interpretationTimeRangesError,
@@ -1694,6 +1695,8 @@ const defaultForm = () => ({
   customer_order_no: '',
   project_name: '',
   project_intake: emptyProjectIntake(),
+  project_intake_drafts: {},
+  project_intake_type: '',
   consultation_time: '',
   consultation_method: '',
   consultation_method_custom: '',
@@ -1739,6 +1742,7 @@ const { beginDraft, pauseDraft, clearDraft } = useFormDraft({
   legacyStorageKeys: [`consultation_form_drafts:${currentUserId || 'anonymous'}`],
   applyDraft: (draft) => {
     Object.assign(form, defaultForm(), draft)
+    form.project_intake_type = consultationIntakeType(form.consultation_type)
     if (!Object.prototype.hasOwnProperty.call(draft, 'manager_contact_protected')) {
       form.manager_contact_protected = Boolean(form.client_id && form.manager_contact?.trim())
     }
@@ -1869,8 +1873,14 @@ const annotationTypeOptions = [
 ]
 const serviceContentOptions = ['翻译', '排版']
 const priorityOptions = ['低', '中', '高', '紧急']
+// 共用笔译表单的业务类型沿用同一份输入；其余类型分别保存。
+const consultationIntakeType = (type) => isTranslationConsultationType(type)
+  ? 'translation'
+  : consultationTypeLabel(type)
 const handleConsultationTypeChange = (consultationType) => {
-  form.project_intake = emptyProjectIntake()
+  const nextType = consultationIntakeType(consultationType)
+  switchConsultationIntake(form, form.project_intake_type, nextType, emptyProjectIntake)
+  form.project_intake_type = nextType
   if (isSimpleConsultationType(consultationType) && form.status === CONFIRMED_CONSULTATION_STATUS) {
     form.status = 'following'
     ElMessage.info('简单咨询不能直接确认，咨询状态已调整为“跟进中”')
@@ -2497,6 +2507,8 @@ const fillFormByRow = (row) => {
     customer_order_no: row.customer_order_no || '',
     project_name: row.project_name || '',
     project_intake: projectIntake,
+    project_intake_drafts: {},
+    project_intake_type: consultationIntakeType(consultationType),
     consultation_time: row.consultation_time || '',
     consultation_method: consultationMethod.method,
     consultation_method_custom: consultationMethod.custom,

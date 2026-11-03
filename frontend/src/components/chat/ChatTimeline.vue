@@ -1,5 +1,6 @@
 <template>
     <div ref="list" class="group-timeline" @scroll="onScroll">
+      <div class="chat-timeline-content" style="display: flow-root">
       <el-button v-if="hasEarlier" class="group-earlier" link :loading="loadingEarlier" @click="loadEarlier">加载更早的消息</el-button>
       <div v-if="loading" class="group-hint">正在加载消息…</div>
       <el-empty v-if="!loading && !messages.length" description="暂无消息，直接开始项目沟通" :image-size="50" />
@@ -32,6 +33,7 @@
         </template>
       </article>
       </template>
+      </div>
     </div>
     <ChatMessageContextMenu ref="messageMenu" :project-type="props.projectType" :project-id="props.projectId" :messages="messages" :current-user-id="currentUserId" :handlers="menuHandlers" :can-progress="props.canAddToProgress" :active="props.active" />
     <ChatMessageReferences ref="references" :project-id="props.projectId" :project-type="props.projectType" @locate="locate" />

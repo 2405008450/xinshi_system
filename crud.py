@@ -3655,11 +3655,15 @@ def create_sub_orders_bulk(
     defaults['word_count_matrix'] = WordCountCreateMatrix()
     created: List[TranslationSubOrder] = []
     for name in accepted_names:
+        item_defaults = dict(defaults)
+        if payload.source_directory is not None:
+            from project_file_service import source_file_path
+            item_defaults['network_file_path'] = source_file_path(payload.source_directory, name)
         sub_order = TranslationSubOrderCreate(
             parent_project_id=payload.parent_project_id,
             sub_project_name=name,
             created_by=created_by,
-            **defaults,
+            **item_defaults,
         )
         created.append(_create_sub_order_in_transaction(db, sub_order))
 

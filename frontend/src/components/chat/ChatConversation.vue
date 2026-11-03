@@ -48,6 +48,7 @@ import ChatParticipantActions from './ChatParticipantActions.vue'
 import { chatOverlayZIndex } from '@/utils/chatOverlay'
 import { useChatMessageInteractions } from '@/composables/useChatMessageInteractions'
 
+import { useChatAutoScroll } from '@/composables/useChatAutoScroll'
 import { provide, computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Paperclip, User, Star, StarFilled, Search } from '@element-plus/icons-vue'
@@ -153,7 +154,8 @@ watch(() => props.active, active => { if (!active) cancelLocate() })
 let lastRead = 0, readBusy = false
 const visibleMessages = new Map(), observedElements = new WeakSet(), cleanup = []
 const atBottom = () => !!list.value && list.value.scrollHeight - list.value.scrollTop - list.value.clientHeight < 45
-const bottom = async () => { await nextTick(); if (list.value) list.value.scrollTop = list.value.scrollHeight; pendingNew.value = 0 }
+const autoScroll = useChatAutoScroll(() => list.value, () => props.active)
+const bottom = async () => { await autoScroll.bottom(); pendingNew.value = 0 }
 
 
 const { sessions: followed, refresh: refreshSessions } = useAnnotationFollowed()
@@ -236,6 +238,7 @@ async function search() {
 }
 async function loadEarlier() {
   if (loadingEarlier.value || !messages.value.length) return
+  autoScroll.pause()
   const version = generation, height = list.value.scrollHeight, top = list.value.scrollTop
   loadingEarlier.value = true
   try {
@@ -277,10 +280,12 @@ async function sync() {
 }
 async function returnLatest() { await search(); await bottom() }
 async function locate(id) {
+  autoScroll.pause()
   const requestVersion = ++locateVersion
   locateController?.abort()
   await ready
   if (disposed || requestVersion !== locateVersion) return false
+  autoScroll.pause()
   const version = ++generation
   searchController?.abort()
   loading.value = false
@@ -512,7 +517,12 @@ function foreground() {
   scheduleRead(); sync(); loadGroup()
 }
 function topicChanged(event) { const row = messages.value.find(value => value.id === event.detail.id); if (row) Object.assign(row, event.detail) }
-watch(() => props.active, active => { if (active) foreground(); else closeMention() })
+watch(() => props.active, active => {
+  if (active) {
+    if (initialized && !props.targetMessageId) { loadGroup(); returnLatest() }
+    else foreground()
+  } else closeMention()
+})
 onMounted(async () => {
   window.addEventListener('chat-topic-message-changed', topicChanged)
   observer = new IntersectionObserver(entries => { entries.forEach(entry => { const id = entry.target.dataset.messageId; if (entry.isIntersecting && entry.intersectionRatio >= 0.5) visibleMessages.set(id, Number(entry.target.dataset.sequence)); else visibleMessages.delete(id) }); scheduleRead() }, { root: list.value, threshold: [0, 0.5, 1] })
