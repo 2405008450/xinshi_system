@@ -21,9 +21,9 @@
       <div class="word-count-matrix__header">
         <div>
 
-          <p>可按来源及计量口径分别填写，空白单元格不会保存。</p>
+          <p>{{ aggregated ? '此订单统计由直接下级逐级汇总，请在末级订单填写；空白保持为空，零计入汇总。' : '可按来源及计量口径分别填写，空白单元格不会保存。' }}</p>
         </div>
-        <el-tag size="small" type="info">{{ hybridMode ? '项目保存 / 译员草稿' : (localMode ? '新建草稿' : '独立保存') }}</el-tag>
+        <el-tag size="small" type="info">{{ aggregated ? '下级自动汇总' : (hybridMode ? '项目保存 / 译员草稿' : (localMode ? '新建草稿' : '独立保存')) }}</el-tag>
       </div>
 
       <div ref="matrixBody" v-loading="loading" class="word-count-matrix__body">
@@ -48,7 +48,7 @@
               >
                 <el-input-number
                   v-model="row.values[metric.key]"
-                  :disabled="readOnly"
+                  :disabled="readOnly || (aggregated && row.scope === 'entity')"
                   size="small"
                   :min="0"
                   :step="1"
@@ -119,6 +119,7 @@ let loadSequence = 0
 const localMode = computed(() => props.local || !props.entityId)
 const hybridMode = computed(() => localMode.value && Boolean(props.entityId))
 const summary = computed(() => formatWordCountMatrix(props.modelValue))
+const aggregated = computed(() => draft.value?.source === 'suborder_aggregate')
 
 const clone = (value) => JSON.parse(JSON.stringify(value))
 
@@ -126,6 +127,7 @@ function normalizeResponse(data = {}) {
   return {
     entity_type: data.entity_type || props.entityType,
     entity_id: data.entity_id || props.entityId,
+    source: data.source,
     company: normalizeWordCountValues(data.company),
     customer: normalizeWordCountValues(data.customer),
     preliminary: normalizeWordCountValues(data.preliminary),
@@ -238,6 +240,7 @@ function buildChanges() {
   buildRows(original.value).forEach((row) => beforeRows.set(row.key, row))
   const changes = []
   buildRows(draft.value).forEach((row) => {
+    if (aggregated.value && row.scope === 'entity') return
     const before = beforeRows.get(row.key)?.values || {}
     WORD_COUNT_METRICS.forEach(({ key }) => {
       const value = row.values[key] === '' || row.values[key] === undefined ? null : row.values[key]

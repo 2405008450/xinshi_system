@@ -1220,6 +1220,10 @@ def _attach_word_count_matrices(
 
     projects = projects or []
     explicit_sub_orders = sub_orders or []
+    # 子订单详情也需要整棵树，才能汇总其下级；按母订单批量加载，避免逐条查询。
+    missing_project_ids = {row.parent_project_id for row in explicit_sub_orders} - {row.id for row in projects}
+    if missing_project_ids:
+        projects = [*projects, *db.query(TranslationProject).filter(TranslationProject.id.in_(missing_project_ids)).all()]
     all_sub_orders = list(explicit_sub_orders)
     for project in projects:
         all_sub_orders.extend(list(getattr(project, "sub_orders", []) or []))
@@ -1261,12 +1265,8 @@ def _attach_word_count_matrices(
         elif metric.arrangement_id in arrangement_map and metric.dimension in {"planned", "actual"}:
             arrangement_map[metric.arrangement_id][metric.dimension][metric.metric_type] = metric.count_value
 
-    for project in project_map.values():
-        children = list(getattr(project, "sub_orders", []) or [])
-        project.word_count_sub_order_count = len(children)
-        # 母订单与子订单的业务口径可能不同（例如母订单统计字数，子订单仅统计排版份数）。
-        # 因此即使存在子订单，母订单也继续展示并维护自身的字数矩阵，不再自动汇总覆盖。
-        project.word_count_matrix_source = "project"
+    from word_count_service import roll_up_matrices
+    roll_up_matrices(list(project_map.values()), list(sub_order_map.values()))
 
     _attach_customer_charge_amounts([*project_map.values(), *all_sub_orders])
 
@@ -1277,9 +1277,13 @@ def _attach_customer_charge_amounts(owners) -> None:
     import translation_quantity_basis as quantity_basis
     session=next((object_session(owner) for owner in owners if hasattr(owner,'_sa_instance_state') and object_session(owner) is not None),None)
     bases=quantity_basis.metadata(session,[charge.id for owner in owners for charge in getattr(owner,'customer_charge_items',[])]) if session else {}
+    import customer_translation_rates as customer_rates
+    directions=customer_rates.metadata(session,[charge.id for owner in owners for charge in getattr(owner,'customer_charge_items',[])]) if session else {}
     for owner in owners:
         customer_values = (getattr(owner, "word_count_matrix", {}) or {}).get("customer", {})
         for charge in getattr(owner, "customer_charge_items", []) or []:
+            charge.quantity_basis=bases.get(charge.id)
+            charge.language_pair=directions[charge.id].language_pair if charge.id in directions else None
             quantity = (quantity_basis.resolve(getattr(owner,'word_count_matrix',{}),bases[charge.id])[0] if getattr(charge,'id',None) in bases else customer_values.get(charge.metric_type)) if charge.pricing_mode == "metric" else None
             unit_price_excl_tax = getattr(charge, 'unit_price_excl_tax', None)
             if unit_price_excl_tax is None:
@@ -3737,6 +3741,7 @@ def _replace_customer_charge_items(
     customer_values: dict,
 ) -> None:
     """按稳定 ID 更新收费项，并删除本次未提交的旧收费项。"""
+    from annotation_progress_time import business_now
     existing = {
         item.id: item
         for item in list(getattr(owner, 'customer_charge_items', []) or [])
@@ -3746,7 +3751,7 @@ def _replace_customer_charge_items(
     for index, payload in enumerate(items or [], start=1):
         import translation_quantity_basis as quantity_basis
         has_basis=bool(payload.id and payload.id in quantity_basis.metadata(db,[payload.id]))
-        if payload.pricing_mode == 'metric' and customer_values.get(payload.metric_type) is None and not has_basis:
+        if payload.pricing_mode == 'metric' and customer_values.get(payload.metric_type) is None and not has_basis and not payload.quantity_basis:
             raise ValueError(f'收费项“{payload.item_name}”对应的客户字数口径尚未填写')
         row = existing.get(payload.id) if payload.id else None
         if payload.id and row is None:
@@ -3761,7 +3766,7 @@ def _replace_customer_charge_items(
             owner.customer_charge_items.append(row)
         else:
             kept_ids.add(row.id)
-        values = payload.model_dump(exclude={'id'})
+        values = payload.model_dump(exclude={'id','language_pair','quantity_basis'})
         values['sequence_no'] = index
         values['metric_type'] = values['metric_type'] if payload.pricing_mode == 'metric' else None
         values['unit_size'] = values['unit_size'] if payload.pricing_mode == 'metric' else None
@@ -3772,8 +3777,25 @@ def _replace_customer_charge_items(
         values['amount_override'] = values['total_excl_tax']
         for field, value in values.items():
             setattr(row, field, value)
-        row.updated_at = datetime.now()
+        row.updated_at = business_now().replace(tzinfo=None)
         normalized.append(row)
+        if payload.quantity_basis or payload.language_pair:
+            db.flush()
+            if payload.quantity_basis and payload.pricing_mode == 'metric':
+                from word_count_models import WordCountMetric
+                query=db.query(WordCountMetric)
+                query=query.filter(WordCountMetric.project_id==owner.id) if isinstance(owner,TranslationProject) else query.filter(WordCountMetric.sub_order_id==owner.id)
+                matrix={}
+                for metric in query.all():matrix.setdefault(metric.dimension,{})[metric.metric_type]=metric.count_value
+                if not quantity_basis.valid(payload.quantity_basis) or quantity_basis.resolve(matrix,payload.quantity_basis)[0] is None:
+                    raise ValueError('请先填写并选择有效的项目字数统计项')
+                quantity_basis.store(db,row,payload.quantity_basis,matrix)
+            if payload.language_pair and payload.pricing_mode == 'metric':
+                import customer_translation_rates as customer_rates
+                meta=db.get(customer_rates.TranslationChargeDirection,row.id)
+                if meta is None:meta=customer_rates.TranslationChargeDirection(charge_id=row.id);db.add(meta)
+                meta.language_pair=customer_rates.direction(db,payload.language_pair)
+                customer_rates.invalidate_metadata(db)
     for item_id, row in existing.items():
         if item_id not in kept_ids:
             db.delete(row)

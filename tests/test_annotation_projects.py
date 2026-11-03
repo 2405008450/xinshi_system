@@ -269,10 +269,10 @@ def test_customer_price_summary_shows_amount_only():
         ),
     ]
 
-    assert project.customer_price_summary == "￥123123/条；$0.15/小时"
-    assert project.price_items[0].amount_display == "￥123123/条"
-    assert project.price_items[1].amount_display == "$0.15/小时"
-    assert AnnotationProjectPriceItem(amount=Decimal("8"), unit="条").amount_display == "￥8/条"
+    assert project.customer_price_summary == "原单价（税口径未确认）￥123123/条；原单价（税口径未确认）$0.15/小时"
+    assert project.price_items[0].amount_display == "原单价（税口径未确认）￥123123/条"
+    assert project.price_items[1].amount_display == "原单价（税口径未确认）$0.15/小时"
+    assert AnnotationProjectPriceItem(amount=Decimal("8"), unit="条").amount_display == "原单价（税口径未确认）￥8/条"
 
 
 def test_price_item_currency_is_optional():

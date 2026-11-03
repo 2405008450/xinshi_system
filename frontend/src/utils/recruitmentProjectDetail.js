@@ -1,3 +1,4 @@
+import {taxPriceSummary} from './taxPrices.js'
 import { formatBusinessDateTime } from './dateTime.js'
 export const formatDate = value => value ? new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Hong_Kong' }).format(new Date(`${value}T00:00:00+08:00`)) : '-'
 export const formatDateTime = formatBusinessDateTime
@@ -5,7 +6,7 @@ export const headcountText=(row)=>row.headcountMin==null?'-':(row.headcountMax!=
 export const languageText=(row)=>(row.languageDirections||[]).map((item)=>item.label).join('；')||'-'
 export const fullPeriodText=(row)=>row.employmentStart&&row.employmentEnd?`${formatDate(row.employmentStart)}—${formatDate(row.employmentEnd)}`:'-'
 export const periodText=(row)=>fullPeriodText(row)
-export const feeText=(row)=>row.serviceFeeType==='fixed'?`${row.serviceFeeCurrency||'CNY'} ${row.serviceFeeAmount??'-'}`:row.serviceFeeType==='annual_salary_rate'?`年薪 ${row.serviceFeeRate??'-'}%`:row.serviceFeeType==='monthly_salary_multiple'?`月薪 ${row.serviceFeeMultiplier??'-'}倍`:row.serviceFeeType==='other'?(row.serviceFeeNote||'其他'):'-'
+export const feeText=(row)=>taxPriceSummary(row.taxPrices,row.serviceFeeCurrency)||(row.serviceFeeType==='fixed'?`${row.serviceFeeCurrency||'CNY'} ${row.serviceFeeAmount??'-'}`:row.serviceFeeType==='annual_salary_rate'?`年薪 ${row.serviceFeeRate??'-'}%`:row.serviceFeeType==='monthly_salary_multiple'?`月薪 ${row.serviceFeeMultiplier??'-'}倍`:row.serviceFeeType==='other'?(row.serviceFeeNote||'其他'):'-')
 const roleAssignmentName = (row, roleCode) => row.roleAssignments?.find((item) => item.roleCode === roleCode)?.assigneeName || '未分配'
 export const recruitmentProjectDetailItems = [
   {label:'订单号',key:'orderNo'},

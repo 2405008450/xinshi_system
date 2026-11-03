@@ -1,4 +1,5 @@
 """标注项目 API 数据契约。"""
+from tax_prices import TaxPrices
 
 from datetime import date, datetime
 from decimal import Decimal
@@ -123,6 +124,7 @@ class AnnotationLanguageItemResponse(AnnotationLanguageItemInput):
 
 
 class AnnotationPriceItemInput(BaseModel):
+    tax_prices: TaxPrices | None = None
     id: Optional[UUID] = None
     project_type: Optional[str] = None
     source_language_id: Optional[UUID] = None

@@ -49,6 +49,6 @@ export function customerFinanceNotes(project) {
   return (project.customerChargeItems || []).filter(item => item.remarks?.trim()).map(item => `${item.itemName}：${item.remarks}`).join('\n') || '-'
 }
 export function customerFinanceChargePayload(items) {
-  const keys = ['id','sequenceNo','itemName','pricingMode','metricType','unitSize','billingMonth','unitPriceExclTax','unitPriceInclTax','totalExclTax','totalInclTax','currency','remarks']
+  const keys = ['id','sequenceNo','itemName','pricingMode','languagePair','quantityBasis','metricType','unitSize','billingMonth','unitPriceExclTax','unitPriceInclTax','totalExclTax','totalInclTax','currency','remarks']
   return items.map((item, index) => Object.fromEntries(keys.map(key => [key, key === 'sequenceNo' ? index + 1 : item[key] ?? null])))
 }

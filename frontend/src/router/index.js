@@ -22,6 +22,16 @@ const routes = [
     component: () => import('../layout/index.vue'),
     children: [
       {
+        path: 'finance-management',
+        redirect: '/finance-management/translation',
+      },
+      {
+        path: 'finance-management/:module(translation|interpretation|annotation|recruitment)',
+        name: 'FinanceManagement',
+        component: () => import('../views/project/FinanceWorkspace.vue'),
+        meta: { title: '财务管理', permissions: ['projects:read'] },
+      },
+      {
         path: 'company-management',
         name: 'CompanyManagement',
         component: () => import('../views/system/CompanyManagement.vue'),
@@ -71,7 +81,7 @@ const routes = [
       {
         path: 'manuscript-arrangements',
         name: 'ManuscriptArrangements',
-        component: () => import('../views/manuscript/ManuscriptArrangements.vue'),
+        redirect: to => ({ path: '/translation-details', query: { ...to.query, section: 'manuscript' }, hash: to.hash }),
         meta: {
           title: '稿件安排',
           permissions: ['projects:read'],
@@ -502,6 +512,19 @@ router.beforeEach(async (to, from, next) => {
       next(getDefaultRoute())
       return
     }
+  }
+
+  const legacyFinanceModules = {
+    TranslationProjectDetails: 'translation',
+    InterpretationProjectDetails: 'interpretation',
+    AnnotationProjectDetails: 'annotation',
+    RecruitmentProjectDetails: 'recruitment',
+  }
+  if (to.query.section === 'customer-finance' && legacyFinanceModules[to.name]) {
+    const query = { ...to.query }
+    delete query.section
+    next({ name: 'FinanceManagement', params: { module: legacyFinanceModules[to.name] }, query, hash: to.hash, replace: true })
+    return
   }
 
   next()

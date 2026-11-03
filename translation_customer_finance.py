@@ -4,6 +4,7 @@ import re
 from hashlib import sha256
 import json
 from uuid import UUID, uuid4
+from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy.orm import Session, joinedload, selectinload, object_session
@@ -24,11 +25,13 @@ class PriceWrite(BaseModel):
     model_config = ConfigDict(extra='forbid')
     version: str
     order_id: UUID
+    pricing_mode: Literal['metric','fixed'] = 'metric'
     amount: Decimal | None = Field(default=None,ge=0, max_digits=14, decimal_places=4)
     currency: str = Field(default='CNY', pattern=r'^[A-Z]{3}$')
     metric: str = 'characters_no_spaces'
     unit_size: Decimal = Field(default=Decimal('1'), gt=0, max_digits=14, decimal_places=4)
     adjusted_total: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
+    adjusted_total_incl_tax: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
     explanation: str = Field(default='', max_length=5000)
     billing_month: str | None = Field(default=None, pattern=r'^\d{4}-(0[1-9]|1[0-2])$')
     prices: list[rates.RateInput] | None = Field(default=None,min_length=1,max_length=100)
@@ -39,7 +42,7 @@ class PriceWrite(BaseModel):
 
 def primary(owner):
     rows = sorted(owner.customer_charge_items or [], key=lambda row: row.sequence_no or 0)
-    return next((row for row in rows if row.item_name == '翻译费' and row.pricing_mode == 'metric'), next((row for row in rows if row.pricing_mode == 'metric'), None))
+    return next((row for row in rows if row.item_name == '翻译费' and row.pricing_mode == 'metric'), next((row for row in rows if row.pricing_mode == 'metric'), next((row for row in rows if row.pricing_mode=='fixed'),None)))
 
 
 def signature(row):
@@ -64,7 +67,7 @@ def version(project):
     for owner in owners:
         fields.append([str(owner.id), numbers[str(owner.id)], parents.get(str(owner.id)), str(owner.updated_at),
                        owner.word_count_matrix,
-                       [[str(row.id), str(signature(row)),str(Decimal(str(row.total_excl_tax)).normalize()) if row.total_excl_tax is not None else None,str(Decimal(str(row.total_incl_tax)).normalize()) if row.total_incl_tax is not None else None,row.billing_month,row.remarks,str(row.updated_at)] for row in owner.customer_charge_items]])
+                       [[str(row.id), str(signature(row)),str(row.unit_price_incl_tax),str(Decimal(str(row.total_excl_tax)).normalize()) if row.total_excl_tax is not None else None,str(Decimal(str(row.total_incl_tax)).normalize()) if row.total_incl_tax is not None else None,row.billing_month,row.remarks,str(row.updated_at)] for row in owner.customer_charge_items]])
     db=object_session(project)
     if db:
         fields.append([rates.order_rates(db,owner,owner.language_pair or project.language_pair) for owner in owners])
@@ -88,10 +91,12 @@ def tree(project, billing_month=None):
         key = str(owner.id); row = primary(owner)
         rate = signature(row)
         nodes[key] = dict(id=key,root_id=str(project.id),order_no=numbers[key],project_name=(project.source_file_name or project.project_name) if owner is project else owner.sub_project_name,
+            pricing_mode=row.pricing_mode if row else 'metric',
             client_short_name=project.client_short_name or project.client_name or '-',project_status=project.project_status if owner is project else owner.status,
             language_pair=owner.language_pair or project.language_pair, children=[], amount=str(rate[0]) if rate and rate[0] is not None else None,
             currency=rate[1] if rate else 'CNY',metric=rate[2] if rate else 'characters_no_spaces',unit_size=str(rate[3] or 1) if rate else '1',
             adjusted_total=str(row.total_excl_tax) if row and row.total_excl_tax is not None else None,
+            adjusted_total_incl_tax=str(row.total_incl_tax) if row and row.total_incl_tax is not None else None,
             billing_month=row.billing_month if row else None,
             explanation=row.remarks or '' if row else '',word_count_matrix=owner.word_count_matrix)
         nodes[key]['prices']=rates.order_rates(db,owner,owner.language_pair or project.language_pair,meta) if db else []
@@ -100,16 +105,36 @@ def tree(project, billing_month=None):
         nodes[parent]['children'].append(nodes[key])
 
     def calculate(node, inherited=None):
+        if node['pricing_mode']=='fixed':
+            included=[]
+            for child in node['children']:
+                calculate(child)
+                if not billing_month or child['matches_month']:included.append(child)
+            matches=not billing_month or order_billing_month(project.order_no)==billing_month
+            excl={node['currency']:node['adjusted_total']} if node['adjusted_total'] is not None and matches else {}
+            incl={node['currency']:node['adjusted_total_incl_tax']} if node['adjusted_total_incl_tax'] is not None and matches else {}
+            node.update(children=included,matches_month=matches or bool(included),totals=excl,adjusted_totals=excl,totals_excl_tax=excl,totals_incl_tax=incl,incomplete=not excl and not incl,quantity=None,own_total=None)
+            return
         if not node['prices'] and inherited:
             choices=set(str(node['language_pair'] or '').split('；'))
             node['prices']=[{**row,'id':None,'inherited':True} for row in inherited['prices'] if not node['language_pair'] or row['language_pair'] in choices]
         amounts={};missing=False
+        tax_amounts={'excl_tax':{},'incl_tax':{}}
         for price in node['prices']:
             quantity,dimension,actual_metric,quantity_error=quantity_basis.resolve(node['word_count_matrix'],price['metric'])
             price['quantity']=quantity
             price['quantity_dimension']=dimension;price['quantity_metric']=actual_metric;price['quantity_error']=quantity_error
             amount=None if quantity is None or price['amount'] is None else (Decimal(str(quantity))*Decimal(price['amount'])/Decimal(price['unit_size'])).quantize(Decimal('.01'),rounding=ROUND_HALF_UP)
             price['total']=str(amount) if amount is not None else None
+            for kind, values in tax_amounts.items():
+                tax = price.get('tax_prices') or {}
+                total = tax.get('total_'+kind)
+                unit = tax.get('unit_price_'+kind)
+                if total is None and unit is not None and quantity is not None:
+                    total = Decimal(str(quantity))*Decimal(str(unit))/Decimal(price['unit_size'])
+                if total is not None:
+                    values[price['currency']] = values.get(price['currency'],Decimal(0))+Decimal(str(total))
+
             if amount is None:missing=True
             else:amounts[price['currency']]=amounts.get(price['currency'],Decimal(0))+amount
         if node['amount'] is None and inherited and (not inherited['prices'] or node['prices']):
@@ -142,6 +167,15 @@ def tree(project, billing_month=None):
         elif node['adjusted_total'] is not None and matches:
             # 父级明确调整金额只覆盖本币种；其他币种仍单列。
             adjusted[node['currency']] = Decimal(node['adjusted_total'])
+        for kind in tax_amounts:
+            values = {} if original_children else tax_amounts[kind]
+            if original_children:
+                for child in included:
+                    for currency, value in child.get('totals_'+kind,{}).items():
+                        values[currency]=values.get(currency,Decimal(0))+Decimal(value)
+            override=node.get('adjusted_total' if kind=='excl_tax' else 'adjusted_total_incl_tax')
+            if override is not None and matches: values[node['currency']]=Decimal(override)
+            node['totals_'+kind]={currency:str(value.quantize(Decimal('.01'),rounding=ROUND_HALF_UP)) for currency,value in values.items()}
         node.update(children=included,matches_month=matches or bool(included),totals={k:str(v) for k,v in totals.items()},adjusted_totals={k:str(v) for k,v in adjusted.items()},incomplete=incomplete)
     root=nodes[str(project.id)];calculate(root)
     return {'item':root,'version':version(project)}
@@ -170,13 +204,13 @@ def client_subtotals(db, filters):
         project.client_short_name=(project.client.client_short_name or project.client.client_name) if project.client else '-'
         project.client_name=project.client.client_name if project.client else '-'
         key=str(project.client_id) if project.client_id else 'unassigned'
-        group=groups.setdefault(key,{'client_id':key,'client_name':project.client_short_name,'project_count':0,'totals':{},'adjusted_totals':{},'incomplete':False})
+        group=groups.setdefault(key,{'client_id':key,'client_name':project.client_short_name,'project_count':0,'totals':{},'adjusted_totals':{},'totals_excl_tax':{},'totals_incl_tax':{},'incomplete':False})
         month=(filters.get('field_filters') or {}).get('finance_billing_month',{}).get('value')
         node=tree(project,month)['item'];group['project_count']+=1;group['incomplete']|=node['incomplete']
-        for field in ('totals','adjusted_totals'):
+        for field in ('totals','adjusted_totals','totals_excl_tax','totals_incl_tax'):
             for currency,amount in node[field].items():group[field][currency]=group[field].get(currency,Decimal(0))+Decimal(amount)
     for group in groups.values():
-        for field in ('totals','adjusted_totals'):group[field]={key:str(value) for key,value in group[field].items()}
+        for field in ('totals','adjusted_totals','totals_excl_tax','totals_incl_tax'):group[field]={key:str(value) for key,value in group[field].items()}
     return sorted(groups.values(),key=lambda row:row['client_name'])
 
 
@@ -208,9 +242,13 @@ def save_prices(db,user,project,owners,parents,key,payload):
         by_key={row.rate_key:row for row in references.values()}
         for data in values:data.update(reference_id=by_key[rates.rate_key(data)].id,reference_revision=by_key[rates.rate_key(data)].revision)
     old={uid:rates.order_rates(db,owner,owner.language_pair or project.language_pair) for uid,owner in owners.items()}
-    def comparable(items):return {rates.rate_key(item):(str(Decimal(str(item['amount'])).normalize()) if item['amount'] is not None else None) for item in items}
+    def comparable(items):
+        from customer_finance_sync import tax_signature
+        return {rates.rate_key(item):((str(Decimal(str(item['amount'])).normalize()) if item['amount'] is not None else None), tax_signature(item)) for item in items}
     moment=business_now().replace(tzinfo=None)
     def write(owner,items,explicit):
+        for fixed in list(owner.customer_charge_items):
+            if fixed.pricing_mode=='fixed':owner.customer_charge_items.remove(fixed);db.delete(fixed)
         existing=[row for row in owner.customer_charge_items if row.pricing_mode=='metric'];by_id={row.id:row for row in existing}
         by_key={rates.rate_key(item):by_id[UUID(item['id'])] for item in rates.order_rates(db,owner,owner.language_pair or project.language_pair)}
         kept=set()
@@ -222,9 +260,14 @@ def save_prices(db,user,project,owners,parents,key,payload):
                 owner.customer_charge_items.append(row)
             kept.add(row.id)
             row.item_name='翻译费';row.pricing_mode='metric';row.sequence_no=index+1
-            row.unit_price=row.unit_price_excl_tax=data['amount'];row.currency=data['currency'];row.metric_type=quantity_basis.resolve(owner.word_count_matrix,data['metric'])[2] or 'characters_no_spaces';row.unit_size=data['unit_size']
+            row.unit_price=data['amount'];
+            tax=data.get('tax_prices')
+            row.unit_price_excl_tax=tax.get('unit_price_excl_tax') if tax is not None else data['amount']
+            if tax is not None:row.unit_price_incl_tax=tax.get('unit_price_incl_tax')
+            row.currency=data['currency'];row.metric_type=quantity_basis.resolve(owner.word_count_matrix,data['metric'])[2] or 'characters_no_spaces';row.unit_size=data['unit_size']
             row.billing_month=payload.billing_month
             if explicit:row.total_excl_tax=row.amount_override=payload.adjusted_total if index==0 else None
+            if explicit:row.total_incl_tax=payload.adjusted_total_incl_tax if index==0 else None
             if explicit:row.remarks=payload.explanation
             row.updated_at=moment
             db.flush()
@@ -268,6 +311,18 @@ def save(db, user, project_id, payload):
     owners,numbers,parents=hierarchy(project);by_id={str(row.id):row for row in owners};key=str(payload.order_id)
     if key not in by_id: raise HTTPException(422,'订单不属于该笔译项目')
     before=audit.capture(project)
+    if payload.pricing_mode=='fixed':
+        if payload.update_library:raise HTTPException(422,'固定收费不能同步为客户参考单价')
+        if payload.adjusted_total is None and payload.adjusted_total_incl_tax is None:
+            raise HTTPException(422,'请填写固定收费的不含税金额或含税金额')
+        owner=by_id[key]
+        for charge in list(owner.customer_charge_items):owner.customer_charge_items.remove(charge);db.delete(charge)
+        moment=business_now().replace(tzinfo=None)
+        owner.customer_charge_items.append(TranslationSubOrderChargeItem(id=uuid4(),translation_project_id=project.id if owner is project else None,sub_order_id=None if owner is project else owner.id,sequence_no=1,item_name='翻译费',pricing_mode='fixed',currency=payload.currency,total_excl_tax=payload.adjusted_total,total_incl_tax=payload.adjusted_total_incl_tax,amount_override=payload.adjusted_total,remarks=payload.explanation,billing_month=payload.billing_month,created_at=moment,updated_at=moment))
+        owner.updated_at=project.updated_at=moment
+        db.flush();audit.append(db,user,project,before);db.commit()
+        rates.invalidate_metadata(db);quantity_basis.invalidate(db)
+        return read(db,project_id)
     if payload.prices is not None:
         save_prices(db,user,project,by_id,parents,key,payload)
         db.flush();audit.append(db,user,project,before);db.commit();return read(db,project_id)

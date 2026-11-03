@@ -1,4 +1,5 @@
 """招聘项目接口数据结构。"""
+from tax_prices import TaxPrices
 
 from datetime import date, datetime
 from decimal import Decimal
@@ -57,6 +58,7 @@ class RecruitmentLanguageDirectionResponse(RecruitmentLanguageDirectionInput):
 
 
 class RecruitmentProjectBase(BaseModel):
+    tax_prices: TaxPrices | None = None
     client_manager_change_reason: Optional[str] = Field(default=None, max_length=500)
     project_name: Optional[str] = Field(default=None, max_length=500)
     job_description: Optional[str] = None

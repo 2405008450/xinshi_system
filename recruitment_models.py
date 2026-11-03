@@ -1,6 +1,7 @@
 """招聘项目数据模型。"""
 
 from __future__ import annotations
+from tax_prices import TaxPriceMixin, TaxFieldsMixin
 
 import datetime
 import uuid
@@ -29,7 +30,7 @@ from models import AppUser, Base, Client, Consultation, SubClient
 from resource_models import ResourcePerson
 
 
-class RecruitmentProject(Base):
+class RecruitmentProject(TaxPriceMixin, Base):
     __tablename__ = "recruitment_project"
     __table_args__ = (
         PrimaryKeyConstraint("id", name="recruitment_project_pkey"),
@@ -349,3 +350,9 @@ class RecruitmentCandidateInterview(Base):
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
     candidate: Mapped[RecruitmentCandidate] = relationship(RecruitmentCandidate, back_populates="interviews")
+
+
+class RecruitmentProjectTax(TaxFieldsMixin, Base):
+    __tablename__ = 'recruitment_project_tax'
+    from sqlalchemy import Column as _Column, Uuid as _Uuid, ForeignKey as _ForeignKey
+    id = _Column(_Uuid, _ForeignKey('recruitment_project.id', ondelete='CASCADE'), primary_key=True)

@@ -32,7 +32,7 @@
         <SidebarNavigationItem v-if="canViewProjects" index="/interpretation-details" :icon="SpeakingProfileIcon" label="口译项目" />
         <SidebarNavigationItem v-if="canViewAnnotation" index="/annotation-details" :icon="Headset" label="标注项目" />
         <SidebarNavigationItem v-if="canViewProjects" index="/recruitment-details" :icon="Suitcase" label="招聘项目" />
-        <SidebarNavigationItem v-if="canViewManuscript" index="/manuscript-arrangements" :icon="Calendar" label="稿件安排" />
+        <SidebarNavigationItem v-if="canViewProjects" index="/finance-management/translation" :icon="Wallet" label="财务管理" />
 
         <SidebarNavigationItem v-if="showTechnicalManagement" index="/technology-management" :icon="Cpu" label="技术管理" />
 
@@ -131,9 +131,8 @@
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { ref, computed, defineAsyncComponent, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { User, Suitcase, Connection, Avatar, Management, Postcard, Setting, Document, EditPen, Headset, Calendar, OfficeBuilding, ArrowDown, DataBoard, Phone, ChatDotRound, QuestionFilled, Fold, Expand, TopRight, Cpu } from '@element-plus/icons-vue'
+import { User, Suitcase, Connection, Avatar, Management, Postcard, Setting, Document, EditPen, Headset, OfficeBuilding, ArrowDown, DataBoard, Phone, ChatDotRound, QuestionFilled, Fold, Expand, TopRight, Cpu, Wallet } from '@element-plus/icons-vue'
 import {
-  canViewManuscriptArrangements,
   canViewTalentResourceLibrary,
   hasPermission
 } from '../utils/permission'
@@ -251,7 +250,6 @@ const canViewAnnotation = computed(() => hasPermission([
   'annotation_accounts:read',
   'annotation_accounts:write'
 ]))
-const canViewManuscript = computed(() => canViewManuscriptArrangements())
 const showClients = computed(() => hasPermission('clients:read'))
 const showConsultations = computed(() => hasPermission('consultations:read'))
 const showResourceManagement = computed(() => canViewTalentResourceLibrary() || issueAccess.can_enter)
@@ -293,6 +291,7 @@ const pendingModulePaths = new Set([
 ])
 
 const resolveActiveMenu = (path) => {
+  if (path.startsWith('/finance-management/')) return '/finance-management/translation'
   if (path === '/company-management' || path.startsWith('/company-management/')) return '/company-management'
   if (path === '/technology-management' || path.startsWith('/technology-management/')) return '/technology-management'
   if(path==='/hr-management'||path.startsWith('/hr-management/'))return hrEntryPath.value
