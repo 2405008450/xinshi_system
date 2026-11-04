@@ -2515,3 +2515,51 @@ Python translation_file_name_rules.py 与前端 translationFileName.js 共用格
 ### 笔译字数逐级汇总（2026-11-03）
 
 按订单号点号层级识别直接下级：二级子订单汇总到一级子订单，一级子订单汇总到母订单。四个来源（我司统计、客户统计、预统计、译员预估）的六种计量口径分别求和；空白不视为零，全部空白保持空白，显式零参与汇总。有下级时忽略父级原独立值，避免父级和下级重复相加；无下级继续使用自身统计。汇总在读取时批量计算，不回填历史统计、不改变表结构；列表、详情、字数弹窗、稿件安排和财务数据读取共用相同逻辑。汇总单元格只读，独立矩阵修改接口拒绝直接修改汇总值，完整项目表单保存跳过汇总节点的矩阵。预统计仍不参与计费。
+
+### 客户对账单独立编排（2026-11-04）
+
+- `customer_statement_workspace`：`client_id uuid` 主键/FK 到 `client`（级联删除）；一个客户共用一个编排空间。`revision integer` 为乐观锁；`payload json` 保存 `boards`（对账单编号、名称、抬头/账户/印章/月份文案、显示覆盖、税口径标签、画布 x/y）、`tasks`（以订单 UUID 为唯一键，包含唯一的 `board_id`、独立账单月份、收费行及首次导入 `original` 快照）、`roots`（生成汇总所需的订单树快照）。`updated_by uuid` FK 到用户（删除置空），`updated_at timestamptz` 使用 UTC+8。
+- `customer_statement_workspace_history`：`id uuid` 主键；`client_id uuid` FK 到编排表（级联删除、索引）；`revision integer`、`actor_id uuid`（用户FK、删除置空）、`actor_name varchar(255)`、`action varchar(100)`、`changes json`（变更字段及前后值）、`before/after json`（完整编排快照）、`created_at timestamptz`（接口明确 `+08:00`）。恢复操作仍新增审计记录，不删除历史。
+- 多月合并导入只添加尚未编排的任务，不覆盖已编辑内容或移动后的归属。任务按订单UUID唯一归属，同一订单的所有语种收费明细一起移动；只修改对账单，不回写项目名称、收费、工作量或原账单月份。修改、移动及恢复必须确认并校验版本；写入时锁定客户及其编排行。
+- 行内容可编辑日期、项目名称、翻译方向、数量、计价文案、单价、计价数量、税口径文案、货币、小计和备注，订单号和任务身份不允许修改。抬头、账户、印章、展示月份和画布位置独立保存。调整小计参与导出合计；同时显示父子时汇总参考行不重复计费。不同币种分别合计。
+- `tools/apply_customer_statement_workspace_migration.py` 可重复执行，只创建上述新表及索引/外键，不修改已有表；服务启动自动迁移继续关闭。预览、打印和Excel均读取已保存编排；导出检查编排版本，多个对账单输出到同一Excel的不同工作表。
+
+
+### 客户类型（2026-11-04）
+
+新增 `client_customer_type` 附属表：`id`（UUID 主键）、`client_id`（母客户外键，删除级联）、`sub_client_id`（子客户外键，删除级联）、`customer_type`（必填，限定个人客户／企业客户／行政/事业单位／社会团体／国际组织／NGO）、`updated_at`（带时区，UTC+8）。两个客户外键恰有一个非空，各自唯一。笔译项目客户财务右侧、客户管理基本信息显示同一类型；项目有子客户时读写子客户，否则读写母客户。两边保存共用一份类型记录，读取项目列表批量加载，不复制历史项目。未选择类型保持空白，清空后同步清除；项目保存与类型写入处于同一事务，未传类型的既有接口不清空已存类型。仅创建新表及必要约束，不修改已有表列。
+
+
+### 项目报价单与单据要求（2026-11-04）
+
+新增 `translation_project_documents`：`project_id`（UUID 主键，引用笔译项目并删除级联）、`statement_required`（可空布尔）、`quotation_data`（报价单 JSON，含标题、客户名称、服务明细、数量、单位、单价、货币及说明）、`quotation_revision`（非空整数，初始 0）、`updated_by`（操作人外键）、`updated_at`（带时区 UTC+8）。报价需求沿用原 `quotation_required` 字段。个人客户默认不需报价单和对账单，其他客户默认不需报价单、需对账单；显式勾选可覆盖默认值。项目表单与财务管理共用报价单弹窗及单份报价内容，新项目报价随主表单事务保存，财务入口直接保存并检查报价修订号；冲突返回 409。对账单勾选直接复用现有 CustomerStatementDialog，新项目需先保存再编排对账单。金额使用十进制定点运算、分币种合计，报价内容独立于项目实际收费。仅创建此新表及外键约束，不修改已有表。
+
+#### 对账单需求确认与客户分组查看（2026-11-04）
+
+- 对账单窗口分为“是否需对账单”“对账单查看”。需求页按母订单编号月份筛选（默认 UTC+8 本月，提供上个月快捷按钮），列表及总数使用同一条件；主表格直接修改 `statement_required`，复用 `translation_project_documents`，不新增重复字段。专用字段更新接口校验旧布尔值和项目更新时间，锁定项目后仅修改该字段并保留操作人/UTC+8更新时间，报价内容不变；项目主表单与列表共用同一值。
+- 查看页以客户为入口，支持多关键词搜索、多选客户、按客户展开/收起独立编排区，不再要求选择项目。默认候选客户至少有一个需对账单的笔译项目；关闭该选项后可选择有笔译项目或已有编排记录的客户。显式项目要求优先，未设置时沿用母/子客户类型默认规则；子客户项目归入其母客户，已迁移标注项目排除。
+- 编排可直接按 `client_id` 读取及合并导入；按客户导入固定覆盖该客户全部项目，月份仍由用户选择。可勾选“仅导入需对账单项目”，只影响本次新增任务，不移除已有编排。不同客户的任务归属、修改记录、导出和恢复保持隔离。本轮不修改数据库结构。
+
+
+### 笔译付款情况共用窗口（2026-11-04）
+
+项目表单与财务管理的付款情况复用既有 `finance_record` / `finance_payment`，不新增或修改表结构。新增 `/translation-payments/{project_id}` 查询及保存入口，按项目隔离，读权限为 projects:read 或 finance:read，写权限为 projects:write 或 finance:write。仅替换付款明细，保留原结账方式、发票、总价、备注等财务字段；保留已有付款记录 ID 和未修改记录的确认信息。修改过的明细清除旧确认状态。使用版本摘要防止旧响应覆盖新付款；金额固定为两位小数生成摘要，避免保存前后 Decimal 表示不同引起伪冲突。时间按 UTC+8 传输，既有无时区字段继续保存 UTC+8 业务本地时间。新项目付款草稿通过 payment_draft/payment_version 随项目同事务保存。
+
+## 笔译付款确认与支付凭证（2026-11-04）
+
+收费设置与财务管理付款情况共用母订单付款确认，阶段金额明细继续复用 `finance_record` / `finance_payment`，不自动以确认类型推算金额。
+
+| 表 | 字段 | 含义 |
+| --- | --- | --- |
+| translation_payment_confirmation | project_id | 母订单 UUID，主键，关联 translation_project |
+| translation_payment_confirmation | revision | 乐观锁版本，从 1 递增 |
+| translation_payment_confirmation | is_paid | 是否勾选已付款 |
+| translation_payment_confirmation | payment_option | full 已支付全款；deposit 已支付定金；once 已支付一次款；已付款时必填 |
+| translation_payment_confirmation | proofs | 支付备注及签名截图引用，最多 20000 字符、9 张截图 |
+| translation_payment_confirmation | updated_by / updated_at | 修改用户与带时区时间，接口统一 +08:00 |
+| translation_payment_confirmation_history | id / project_id / revision | 历史 UUID、母订单与付款确认版本 |
+| translation_payment_confirmation_history | actor_id / actor_name | 操作人及姓名快照 |
+| translation_payment_confirmation_history | before / after | 修改前后 JSON，包含凭证引用 |
+| translation_payment_confirmation_history | created_at | 带时区操作时间，接口统一 +08:00 |
+
+截图字节复用 `editor_screenshot_blob`，业务图片保留类型为 business、expires_at 为空，不随聊天图片到期清理；取消勾选保留截图，移除当前引用不移除历史凭证。所有入口保存时校验付款 revision，防止旧窗口覆盖新付款记录。初始化脚本 `tools/apply_translation_payment_confirmation_migration.py` 可重复执行，仅创建上述两表及必要索引，不更改现有表。

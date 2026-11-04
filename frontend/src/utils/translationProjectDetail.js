@@ -71,6 +71,7 @@ export const translationProjectDetailItems = [
   { label: '合同类型', key: 'projectContractType', editable: true, maxlength: 100 },
   { label: '合同状态', key: 'projectContractStatus', editable: true, maxlength: 100 },
   { label: '需提供报价单', key: 'quotationRequired', formatter: (value) => value ? '是' : '否' },
+  { label: '是否需对账单', key: 'statementRequired', formatter: (value) => value ? '需' : '不需' },
   { label: '报价单状态', key: 'quotationStatus', editable: true, maxlength: 100 },
   { label: '报价单路径', key: 'quotationPath', span: 2, editable: true, multiline: true },
   { label: '客户专业要求', key: 'customerRequirementProfessional', span: 2, editable: true, multiline: true },

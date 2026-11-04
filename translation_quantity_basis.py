@@ -21,10 +21,12 @@ def resolve(matrix,mode):
     if str(mode).startswith('customer_auto'):
         values=matrix.get('customer',{})
         filled=[(key,values.get(key)) for key in METRICS if values.get(key) is not None]
+        selected=str(mode).split(':',1)[1] if ':' in str(mode) else None
+        if selected:
+            value=values.get(selected)
+            return value,'customer',selected,None if value is not None else '未登记对应数量'
         if len(filled)==1:return filled[0][1],'customer',filled[0][0],None
         if not filled:return None,'customer',None,'未登记客户字数'
-        selected=str(mode).split(':',1)[1] if ':' in str(mode) else None
-        if selected and values.get(selected) is not None:return values[selected],'customer',selected,None
         return None,'customer',None,'客户字数有多栏，请明确选择统计口径'
     dimension='company' if str(mode).startswith('company_') else 'customer'
     metric=str(mode)[8:] if dimension=='company' else mode

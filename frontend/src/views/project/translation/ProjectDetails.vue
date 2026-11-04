@@ -256,6 +256,8 @@
       <ArrangementPlanPanel v-if="arrangementHistoryVisible && arrangementHistoryProject" :project-id="arrangementHistoryProject.id" :can-write="canWriteProjects" @changed="fetchData()" />
       <template #footer><el-button @click="arrangementHistoryVisible=false">关闭</el-button></template>
     </DraggableFormDialog>
+    <CustomerQuotationDialog v-model="quotationVisible" :draft="form.quotationDraft" :draft-project="quotationDocumentProject" defer-save @update:draft="applyQuotationDraft" />
+    <CustomerStatementDialog @saved="onStatementRequiredSaved" v-model="statementVisible" :projects="[quotationDocumentProject]" :query="{client_id:form.clientId||undefined}" />
     <DraggableFormDialog
       v-model="dialogVisible"
       class="project-editor-dialog"
@@ -385,13 +387,31 @@
                           </WordCountMatrixPopover>
                         </div>
                       </el-form-item>
-                      <el-form-item label="客户财务"><el-button type="primary" plain @click="openCustomerFinance(form)">客户财务</el-button></el-form-item>
+                      <div class="project-finance-controls">
+                        <div class="project-finance-actions">
+                          <el-form-item label="客户财务"><el-button type="primary" plain @click="openCustomerFinance(form)">客户财务</el-button></el-form-item>
+                        </div>
+                        <div class="project-client-documents">
+                          <el-form-item label="客户类型" prop="customerType"><el-select v-model="form.customerType" clearable placeholder="请选择客户类型" @clear="form.customerType=null;applyDocumentDefaults()" @change="applyDocumentDefaults"><el-option v-for="item in customerTypes" :key="item" :label="item" :value="item" /></el-select></el-form-item>
+                          <el-form-item label="是否需报价单" prop="quotationRequired" data-field-key="quotationRequired"><div class="project-document-choice"><el-checkbox v-model="form.quotationRequired" @change="value=>{if(value)quotationVisible=true}">需</el-checkbox><el-button v-if="form.quotationRequired" link type="primary" @click="quotationVisible=true">打开报价单</el-button></div></el-form-item>
+                          <el-form-item label="是否需对账单" prop="statementRequired" data-field-key="statementRequired"><div class="project-document-choice"><el-checkbox v-model="form.statementRequired" @change="value=>{if(value)statementVisible=true}">需</el-checkbox><el-button link type="primary" @click="statementVisible=true">打开对账单</el-button></div></el-form-item>
+                        </div>
+                      </div>
                     </el-col>
                   </el-row>
                   <el-row :gutter="16">
                     <el-col :xs="24" :md="12"><el-form-item label="客户接单时间" prop="customerReceptionTime" data-field-key="customerReceptionTime"><el-date-picker v-model="form.customerReceptionTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
                     <el-col :xs="24" :md="12"><el-form-item label="客户交稿时间" prop="customerDeadlineTime" data-field-key="customerDeadlineTime"><el-date-picker v-model="form.customerDeadlineTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
                   </el-row>
+                  <el-row v-if="canReadProjectFiles" :gutter="16" justify="end">
+                    <el-col :xs="24" :md="12"><el-form-item label="原文路径" prop="originalStoragePath" data-field-key="originalStoragePath"><el-input v-model="form.originalStoragePath" clearable :disabled="!canWriteProjectFiles || projectFilesTabRef?.fileLoading || !!projectFilesTabRef?.fileLoadError" placeholder="与项目文件中的原文路径同步" /></el-form-item></el-col>
+                  </el-row>
+                <el-form-item label="客户专业要求" data-field-key="customerRequirementProfessional">
+                  <el-input v-model="form.customerRequirementProfessional" type="textarea" :rows="2" placeholder="请输入客户专业要求" />
+                </el-form-item>
+                <el-form-item label="客户特殊要求" data-field-key="customerRequirementSpecial">
+                  <el-input v-model="form.customerRequirementSpecial" type="textarea" :rows="2" placeholder="请输入客户特殊要求" />
+                </el-form-item>
                 </div>
                 <el-collapse v-model="projectBasicExpandedSections" class="project-basic-collapse">
                   <el-collapse-item name="project">
@@ -531,9 +551,6 @@
                     </el-form-item>
                   </el-col>
                 </el-row>
-                <el-form-item label="需提供报价单" data-field-key="quotationRequired">
-                  <el-checkbox v-model="form.quotationRequired">需要提供项目报价单</el-checkbox>
-                </el-form-item>
                 <el-row v-if="form.quotationRequired" :gutter="16">
                   <el-col :xs="24" :md="8">
                     <el-form-item label="报价单状态" data-field-key="quotationStatus">
@@ -546,12 +563,6 @@
                     </el-form-item>
                   </el-col>
                 </el-row>
-                <el-form-item label="客户专业要求" data-field-key="customerRequirementProfessional">
-                  <el-input v-model="form.customerRequirementProfessional" type="textarea" :rows="2" placeholder="请输入客户专业要求" />
-                </el-form-item>
-                <el-form-item label="客户特殊要求" data-field-key="customerRequirementSpecial">
-                  <el-input v-model="form.customerRequirementSpecial" type="textarea" :rows="2" placeholder="请输入客户特殊要求" />
-                </el-form-item>
                 <el-form-item label="备注" prop="remarks" data-field-key="remarks">
                   <el-input v-model="form.remarks" type="textarea" :rows="3" placeholder="请输入项目备注" />
                 </el-form-item>
@@ -749,7 +760,7 @@
               <el-alert v-else title="请先保存母订单，再在此 Tab 中新增或批量新增子订单。" type="info" :closable="false" show-icon />
             </el-tab-pane>
 
-            <el-tab-pane v-if="canReadProjectFiles" label="项目文件" name="files" lazy>
+            <el-tab-pane v-if="canReadProjectFiles" label="项目文件" name="files">
               <ProjectFilesTab
                 v-if="dialogVisible"
                 :key="form.id || 'draft'"
@@ -757,6 +768,7 @@
                 :project-id="form.id"
                 :order-no="form.orderNo"
                 v-model:source-file-name="form.sourceFileName"
+                v-model:source-path="form.originalStoragePath"
                 :source-file-name-editable="canWriteProjects"
                 entity-type="project"
                 :active="projectDialogTab === 'files'"
@@ -977,6 +989,7 @@ import { copyTextToClipboard } from '@/utils/clipboard'
 import { launchOpenPath } from '@/utils/openPath'
 import { resolvePreferredProjectPath } from '@/utils/projectPath'
 import { filterTranslationSubOrdersByStatus, normalizeProjectStatus } from '@/utils/projectStatus'
+import { CUSTOMER_TYPES } from '@/utils/customerTypes'
 import { getTranslationClientDetailItems } from '@/utils/translationClientLabels'
 import { createIdempotencyKey } from '@/utils/idempotency'
 import {
@@ -997,9 +1010,13 @@ import {
 
 
 import ProjectFilesTab from './components/ProjectFilesTab.vue'
+import CustomerQuotationDialog from '@/components/common/CustomerQuotationDialog.vue'
+import CustomerStatementDialog from '@/components/common/CustomerStatementDialog.vue'
+import {applyStatementRequirementResult} from '@/utils/statementRequirementSync'
 const SUB_ORDER_PREVIEW_LIMIT = 10
 const canWriteProjects = hasPermission('projects:write')
 const canReadProjectFiles = hasPermission('project_files:read')
+const canWriteProjectFiles = hasPermission('project_files:write')
 const mailComposerVisible = ref(false)
 const mailProjectId = ref('')
 const mailConsultationId = ref('')
@@ -1110,7 +1127,12 @@ const subOrderDetailItems = [
   { label: '创建时间', key: 'createdAt' },
   { label: '更新时间', key: 'updatedAt' }
 ]
-const createEmptyProjectForm = () => ({ id: '', orderNo: '', projectName: '', sourceFileName: '', initialSubOrderNamesText: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', clientName: '', clientShortName: '', clientCode: '', subClientName: '', subClientShortName: '', subClientCode: '', customerOrderNo: '', clientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], wordCountMatrixSource: 'project', wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', remarks: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
+const quotationVisible=ref(false),statementVisible=ref(false),quotationDraftDirty=ref(false)
+const quotationDocumentProject=computed(()=>({...form,id:form.id||'',clientShortName:form.subClientShortName||form.clientShortName}))
+function applyDocumentDefaults(){form.quotationRequired=false;form.statementRequired=form.customerType!=='个人客户'}
+function applyQuotationDraft(value){form.quotationDraft=value;quotationDraftDirty.value=true}
+const customerTypes = CUSTOMER_TYPES
+const createEmptyProjectForm = () => ({ paymentConfirmation: null, statementRequired: true, quotationDraft: null, originalStoragePath: '', customerType: null, id: '', orderNo: '', projectName: '', sourceFileName: '', initialSubOrderNamesText: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', clientName: '', clientShortName: '', clientCode: '', subClientName: '', subClientShortName: '', subClientCode: '', customerOrderNo: '', clientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], wordCountMatrixSource: 'project', wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', remarks: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
 const createEmptySubOrderForm = () => ({ id: '', parentProjectId: '', subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: 0, preReviewQcProgress: 0, reviewProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, networkFilePath: '', remarks: '' })
 const loading = ref(false)
 const submitLoading = ref(false)
@@ -1326,14 +1348,15 @@ const previousTranslationDefaultColumnKeys = legacyTranslationDefaultColumnKeysW
 const previousTranslationDisplayKeys = previousTranslationDefaultColumnKeys
   .filter((key) => key !== 'projectManagerName')
   .map((key) => key === 'projectName' ? 'sourceFileName' : key)
-const translationDefaultColumnKeys=[...previousTranslationDisplayKeys,'assignedTranslators']
+const previousTranslationFullDefaultKeys=[...previousTranslationDisplayKeys,'assignedTranslators']
+const translationDefaultColumnKeys=[...previousTranslationFullDefaultKeys,'statementRequired']
 const { selectedKeys: visibleColumnKeys, isVisible: isColumnVisible, reset: resetColumns } = useTableColumns(
   'translation-details-v4',
   tableColumns,
   translationDefaultColumnKeys,
   {
     keyAliases: { projectName: 'sourceFileName' },
-    legacyDefaultKeys: [previousTranslationDisplayKeys,legacyTranslationDefaultColumnKeys, legacyTranslationDefaultColumnKeysWithReturnTime, previousTranslationDefaultColumnKeys],
+    legacyDefaultKeys: [previousTranslationFullDefaultKeys,previousTranslationDisplayKeys,legacyTranslationDefaultColumnKeys, legacyTranslationDefaultColumnKeysWithReturnTime, previousTranslationDefaultColumnKeys],
   }
 )
 const {
@@ -1360,6 +1383,11 @@ watch(()=>arrangementMode.value?arrangementColumnKeys.value:visibleColumnKeys.va
   }
 })
 const form = reactive(createEmptyProjectForm())
+function onStatementRequiredSaved(data){
+  if(String(data.id)===String(form.id))applyStatementRequirementResult(form,data)
+  const row=tableData.value.find(item=>String(item.id)===String(data.id))
+  if(row)applyStatementRequirementResult(row,data)
+}
 const onSimpleRequirementSaved = (data) => {
   if (String(data.item.project_id) !== String(form.id)) return
   form.projectStatus = data.project_status
@@ -1831,6 +1859,8 @@ const loadSubClients = async (clientId) => {
 }
 const handleClientSelect = (client) => {
   form.clientId = client.id || ''
+  form.customerType = client.customer_type || null
+  applyDocumentDefaults()
   clearSubClientSelection()
   form.clientName = client.client_name || ''
   form.clientShortName = client.client_short_name || ''
@@ -1865,6 +1895,8 @@ const clearSelectedClient = () => {
 }
 const handleSubClientSelect = (selected) => {
   form.subClientId = selected?.id || ''
+  form.customerType = selected?.customer_type || null
+  applyDocumentDefaults()
   form.subClientName = selected?.client_name || selected?.client_short_name || ''
   form.subClientShortName = selected?.client_short_name || ''
   form.subClientCode = selected?.sub_client_code || ''
@@ -1978,6 +2010,7 @@ const goToSubOrderManagement = (project) => {
   router.push({ name: 'TranslationSubOrderManagement', params: { projectId }, query: { orderNo: project.orderNo || form.orderNo || '', projectName: project.sourceFileName || form.sourceFileName || '' } })
 }
 const handleAdd = async () => {
+  quotationDraftDirty.value=false;quotationVisible.value=false;statementVisible.value=false
   pauseDraft()
   dialogTitle.value = '新增项目'
   resetProjectForm()
@@ -1992,6 +2025,7 @@ const handleAdd = async () => {
   form.orderNo = await generateOrderNo()
 }
 const handleEdit = async (row) => {
+  quotationDraftDirty.value=false;quotationVisible.value=false;statementVisible.value=false
   pauseDraft()
   dialogTitle.value = '编辑项目详情'
   clearFieldSearch()
@@ -2097,6 +2131,8 @@ const handleSubmit = async (sendAfterSave = false) => {
     const payloadSource = { ...form }
     if(!form.id && createWithSubOrders.value) payloadSource.initialSubOrderNames=String(form.initialSubOrderNamesText||'').split(/\r?\n/).map(name=>name.trim()).filter(Boolean)
     delete payloadSource.initialSubOrderNamesText
+    delete payloadSource.originalStoragePath
+    if(!quotationDraftDirty.value)delete payloadSource.quotationDraft
     delete payloadSource.wordCountMatrixSource
     delete payloadSource.wordCountSubOrderCount
     const payload = cleanPayload(payloadSource)
@@ -2148,7 +2184,7 @@ const handleSubmit = async (sendAfterSave = false) => {
     submitLocked = false
   }
 }
-const onProjectDialogClosed = () => { pauseDraft(); resetProjectForm(); resetSubOrderForm(); editorInlineChanges.value = new Map(); currentProjectSubOrders.value = []; if(props.editorOnly && !mailComposerVisible.value)emit('editor-closed') }
+const onProjectDialogClosed = () => { quotationVisible.value=false;statementVisible.value=false;quotationDraftDirty.value=false;pauseDraft(); resetProjectForm(); resetSubOrderForm(); editorInlineChanges.value = new Map(); currentProjectSubOrders.value = []; if(props.editorOnly && !mailComposerVisible.value)emit('editor-closed') }
 const createSubOrderDefaultsFromProject = () => ({ fileTypeSecondary: form.fileTypeSecondary, languagePair: form.languagePair, priority: form.priority, wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], customerDeadlineTime: form.customerDeadlineTime, sentToClientTime: form.sentToClientTime, translatorId: form.translatorId, translatorAssignmentTime: form.translatorAssignmentTime, status: form.projectStatus || 'pending_confirmation', translatorDeliveryProgress: form.translatorDeliveryProgress, preReviewQcProgress: form.preReviewQcProgress, review1Progress: form.review1Progress, review2Progress: form.review2Progress, postReviewQcProgress: form.postReviewQcProgress, layoutProgress: form.layoutProgress, consolidationProgress: form.consolidationProgress, clientFeedback: form.clientFeedback })
 const openCreateSubOrderDialog = () => { resetSubOrderForm(); subOrderDialogTitle.value = '新增子订单'; assignReactive(subOrderForm, createEmptySubOrderForm, { ...createSubOrderDefaultsFromProject(), parentProjectId: form.id }); subOrderDialogVisible.value = true }
 const handleEditSubOrder = (row) => { resetSubOrderForm(); subOrderDialogTitle.value = '编辑子订单'; assignReactive(subOrderForm, createEmptySubOrderForm, { ...row, parentProjectId: row.parentProjectId || form.id }); subOrderDialogVisible.value = true }
@@ -2331,6 +2367,11 @@ function openCustomerFinance(target){customerFinanceEditorRef.value?.openForForm
 .subject-preview-toolbar .el-button { flex: none; }
 .soft-action-button { --el-button-bg-color: var(--el-color-primary-light-9); --el-button-border-color: var(--el-color-primary-light-7); --el-button-text-color: var(--el-color-primary-dark-2); --el-button-hover-bg-color: var(--el-color-primary-light-8); --el-button-hover-border-color: var(--el-color-primary-light-5); --el-button-hover-text-color: var(--el-color-primary); flex: none; font-weight: 500; }
 .word-count-summary { width: 100%; min-height: 32px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 10px; border: 1px solid var(--el-border-color); border-radius: 4px; background: var(--el-fill-color-lighter); color: var(--el-text-color-regular); }
+.project-finance-controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 16px; }
+.project-finance-controls .el-select { width:100%; }
+.project-document-choice { display:flex; align-items:center; gap:12px; min-height:32px; flex-wrap:wrap; }
+.project-document-choice :deep(.el-checkbox) { margin-right:0; }
+@media(max-width:760px){.project-finance-controls{grid-template-columns:minmax(0,1fr)}}
 .word-count-list-cell { display: flex; align-items: center; min-width: 0; }
 .word-count-compact-link { max-width: 100%; height: auto; padding: 0; }
 .word-count-compact-link :deep(.compact-cell-value) { max-width: 100%; }
@@ -2344,7 +2385,7 @@ function openCustomerFinance(target){customerFinanceEditorRef.value?.openForForm
 :global(.project-editor-dialog .el-dialog__header),
 :global(.project-editor-dialog .el-dialog__footer) { flex: 0 0 auto; }
 :global(.project-editor-dialog .el-dialog__body) { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
-.editor-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 4px 0 0; scroll-behavior: smooth; }
+.editor-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 4px 0 0; scroll-behavior: smooth; }
 .project-editor-tabs > :deep(.el-tabs__header) {
   position: sticky;
   top: 0;

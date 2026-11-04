@@ -1,5 +1,6 @@
 """客户计价及订单树汇总；复用既有收费表，不更改数据库结构。"""
 from decimal import Decimal, ROUND_HALF_UP
+from datetime import datetime
 import re
 from hashlib import sha256
 import json
@@ -11,11 +12,13 @@ from sqlalchemy.orm import Session, joinedload, selectinload, object_session
 from database import get_db
 from models import TranslationProject, TranslationSubOrder, TranslationSubOrderChargeItem, Client, SubClient, AppUser
 from routers.auth import get_current_user, require_permission, require_module_access
-from annotation_progress_time import business_now
+from annotation_progress_time import business_now, business_datetime
 import crud
 import customer_translation_rates as rates
 import translation_finance_audit as audit
 import translation_quantity_basis as quantity_basis
+import translation_payment_confirmation as confirmations
+from translation_payment_confirmation import PaymentConfirmationWrite
 from permission_service import user_has_permission
 
 METRICS = {'characters_no_spaces','words','foreign_words','cjk_chars_korean_words','documents','pages'}
@@ -23,6 +26,7 @@ METRICS = {'characters_no_spaces','words','foreign_words','cjk_chars_korean_word
 
 class PriceWrite(BaseModel):
     model_config = ConfigDict(extra='forbid')
+    payment_confirmation: PaymentConfirmationWrite | None = None
     version: str
     order_id: UUID
     pricing_mode: Literal['metric','fixed'] = 'metric'
@@ -100,7 +104,13 @@ def tree(project, billing_month=None):
             billing_month=row.billing_month if row else None,
             explanation=row.remarks or '' if row else '',word_count_matrix=owner.word_count_matrix)
         nodes[key]['prices']=rates.order_rates(db,owner,owner.language_pair or project.language_pair,meta) if db else []
-        nodes[key]['client_id']=str(project.client_id) if project.client_id else None
+        effective_client_id=project.client_id or (project.sub_client.parent_client_id if project.sub_client else None)
+        nodes[key]['client_id']=str(effective_client_id) if effective_client_id else None
+        if owner is project:
+            nodes[key]['payment_confirmation']=confirmations.read(db,project.id) if db else PaymentConfirmationWrite().model_dump()
+            nodes[key]['statement_required']=bool(getattr(project,'statement_required',True))
+            nodes[key]['client_manager']=getattr(project,'client_manager',None) or ''
+            nodes[key]['updated_at']=business_datetime(project.updated_at).isoformat() if project.updated_at else None
     for key, parent in parents.items():
         nodes[parent]['children'].append(nodes[key])
 
@@ -311,6 +321,7 @@ def save(db, user, project_id, payload):
     owners,numbers,parents=hierarchy(project);by_id={str(row.id):row for row in owners};key=str(payload.order_id)
     if key not in by_id: raise HTTPException(422,'订单不属于该笔译项目')
     before=audit.capture(project)
+    if payload.payment_confirmation is not None:confirmations.save(db,project.id,payload.payment_confirmation,user.id)
     if payload.pricing_mode=='fixed':
         if payload.update_library:raise HTTPException(422,'固定收费不能同步为客户参考单价')
         if payload.adjusted_total is None and payload.adjusted_total_incl_tax is None:
@@ -382,7 +393,7 @@ router=APIRouter(prefix='/translation-customer-finance',tags=['translation-custo
 
 
 @router.get('/page',dependencies=[Depends(require_module_access('projects:read','projects:write'))])
-def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None=None,project_status:str|None=None,billing_month:str|None=Query(None,pattern=r'^\d{4}-(0[1-9]|1[0-2])$'),client:str|None=None,client_manager:str|None=None,client_id:UUID|None=None,db:Session=Depends(get_db),only_mine:bool=False,user=Depends(get_current_user),manager_ids:list[UUID]|None=Query(None,max_length=2000)):
+def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None=None,project_status:str|None=None,billing_month:str|None=Query(None,pattern=r'^\d{4}-(0[1-9]|1[0-2])$'),client:str|None=None,client_manager:str|None=None,client_id:UUID|None=None,db:Session=Depends(get_db),only_mine:bool=False,user=Depends(get_current_user),manager_ids:list[UUID]|None=Query(None,max_length=2000),statement_required:bool|None=None,sort:Literal['client_short_name_asc','client_short_name_desc']|None=None):
     fields={}
     if client_id: fields['finance_client_id']={'value':str(client_id)}
     if billing_month: fields['finance_billing_month']={'value':billing_month}
@@ -393,8 +404,9 @@ def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None
     elif only_mine:fields['finance_manager_self']={'value':{'id':str(user.id),'names':[user.full_name,user.username]}}
     elif client_manager and client_manager.strip(): fields['client_manager']={'op':'contains','value':client_manager.strip()}
     if client and client.strip(): fields['finance_client']={'value':client.strip()}
+    if statement_required is not None:fields['finance_statement_required']={'value':statement_required}
     filters=dict(keyword=keyword,project_status=project_status,field_filters=fields)
-    projects=crud.get_translation_projects(db,skip=skip,limit=limit,**filters)
+    projects=crud.get_translation_projects(db,skip=skip,limit=limit,sort=sort,**filters)
     return {'items':[tree(project,billing_month)['item'] for project in projects],'total':crud.count_translation_projects(db,**filters),'client_subtotals':client_subtotals(db,filters)}
 
 
@@ -403,6 +415,88 @@ def manager_options(db:Session=Depends(get_db)):
     from organization_service import department_condition
     people=db.query(AppUser).filter(AppUser.is_deleted.is_(False),department_condition(db,['客户部'])).order_by(AppUser.full_name,AppUser.username,AppUser.id).all()
     return {'items':[{'id':str(person.id),'name':person.full_name or person.username,'username':person.username,'active':bool(person.is_active)} for person in people]}
+
+
+class StatementRequiredWrite(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    statement_required:bool
+    expected_statement_required:bool
+    expected_updated_at:datetime|None=None
+    copy_to_same_month:bool=False
+    billing_month:str|None=Field(default=None,pattern=r'^\d{4}-(0[1-9]|1[0-2])$')
+
+
+@router.put('/project/{project_id}/statement-required',dependencies=[Depends(require_permission('projects:write'))])
+def update_statement_required(project_id:UUID,payload:StatementRequiredWrite,db:Session=Depends(get_db),user=Depends(get_current_user)):
+    import translation_document_requirements as documents
+    locked_client=None
+    if payload.copy_to_same_month:
+        from sqlalchemy import func
+        locked_client=db.query(func.coalesce(TranslationProject.client_id,SubClient.parent_client_id)).outerjoin(SubClient,SubClient.id==TranslationProject.sub_client_id).filter(TranslationProject.id==project_id).scalar()
+        if locked_client:db.query(Client).filter_by(id=locked_client).with_for_update().first()
+    project=db.query(TranslationProject).filter(TranslationProject.id==project_id,TranslationProject.annotation_migrated_at.is_(None)).with_for_update().populate_existing().first()
+    if project is None:raise HTTPException(404,'笔译项目不存在')
+    from concurrency import assert_fresh, StaleUpdateError
+    try:assert_fresh(project,payload.expected_updated_at)
+    except StaleUpdateError:raise HTTPException(409,'项目已被其他人修改，请刷新后重试')
+    crud._attach_project_client_fields(project)
+    from translation_customer_type import attach as attach_customer_types
+    attach_customer_types(db,[project])
+    documents.attach(db,[project])
+    before=bool(project.statement_required)
+    previous_updated_at=business_datetime(project.updated_at).isoformat() if project.updated_at else None
+    if before!=payload.expected_statement_required:raise HTTPException(409,'是否需对账单已被其他人修改，请刷新后重试')
+    try:
+        targets=[project]
+        if payload.copy_to_same_month:
+            if not payload.statement_required or not payload.billing_month or order_billing_month(project.order_no)!=payload.billing_month:raise HTTPException(422,'同步需对账单时必须指定当前订单所属账单月份')
+            client_id=project.client_id or (project.sub_client.parent_client_id if project.sub_client else None)
+            if not client_id:raise HTTPException(422,'请先为当前项目关联客户')
+            if client_id!=locked_client:raise HTTPException(409,'项目客户已变化，请刷新后重试')
+            fields={'finance_billing_month':{'value':payload.billing_month}}
+            from sqlalchemy import func
+            query=db.query(TranslationProject).outerjoin(Client,TranslationProject.client_id==Client.id).outerjoin(SubClient,TranslationProject.sub_client_id==SubClient.id).filter(TranslationProject.annotation_migrated_at.is_(None),func.coalesce(TranslationProject.client_id,SubClient.parent_client_id)==client_id)
+            # 只锁母订单，避免 PostgreSQL 外连接的可空侧无法加锁。
+            targets=crud._apply_translation_project_filters(query,field_filters=fields).order_by(TranslationProject.id).with_for_update(of=TranslationProject).all()
+            from translation_customer_type import attach as attach_types
+            attach_types(db,targets);documents.attach(db,targets)
+        changed=0
+        for target in targets:
+            if bool(target.statement_required)==payload.statement_required:continue
+            documents.save(db,target,statement_required=payload.statement_required,actor_id=user.id)
+            target.updated_at=business_now().replace(tzinfo=None);changed+=1
+        if changed:
+            db.commit()
+        return {'id':str(project.id),'statement_required':payload.statement_required,'updated_at':business_datetime(project.updated_at).isoformat() if project.updated_at else None,'previous_updated_at':previous_updated_at,'affected_count':changed}
+    except Exception:
+        db.rollback();raise
+
+
+@router.get('/statement-customers',dependencies=[Depends(require_module_access('projects:read','projects:write'))])
+def statement_customers(keyword:str|None=None,required_only:bool=True,skip:int=Query(0,ge=0),limit:int=Query(100,ge=1,le=100),db:Session=Depends(get_db)):
+    from sqlalchemy import and_, or_, func, select
+    from search_matching import keyword_any
+    import translation_document_requirements as documents
+    from translation_customer_type import ClientCustomerType,ready as customer_types_ready
+    from customer_statement_workspace import StatementWorkspace
+    candidates=db.query(func.coalesce(TranslationProject.client_id,SubClient.parent_client_id).label('client_id')).outerjoin(SubClient,SubClient.id==TranslationProject.sub_client_id).filter(TranslationProject.annotation_migrated_at.is_(None))
+    if required_only:
+        if not documents.ready(db):raise HTTPException(503,'项目单据存储尚未初始化')
+        candidates=candidates.outerjoin(documents.TranslationProjectDocuments,documents.TranslationProjectDocuments.project_id==TranslationProject.id)
+        explicit=documents.TranslationProjectDocuments.statement_required
+        inherited=True
+        if customer_types_ready(db):
+            candidates=candidates.outerjoin(ClientCustomerType,or_(and_(TranslationProject.sub_client_id.is_(None),ClientCustomerType.client_id==TranslationProject.client_id),ClientCustomerType.sub_client_id==TranslationProject.sub_client_id))
+            inherited=or_(ClientCustomerType.customer_type.is_(None),ClientCustomerType.customer_type!='个人客户')
+        candidates=candidates.filter(or_(explicit.is_(True),and_(explicit.is_(None),inherited)))
+    query=db.query(Client).filter(Client.id.in_(select(candidates.subquery().c.client_id)))
+    if not required_only:
+        from sqlalchemy import inspect
+        if inspect(db.connection()).has_table(StatementWorkspace.__tablename__):
+            query=db.query(Client).filter(or_(Client.id.in_(select(candidates.subquery().c.client_id)),Client.id.in_(select(StatementWorkspace.client_id))))
+    if keyword and keyword.strip():query=query.filter(keyword_any([Client.client_name,Client.client_short_name,Client.client_code],keyword.strip()))
+    total=query.count()
+    return {'items':[{'id':str(client.id),'name':client.client_name or client.client_short_name,'short_name':client.client_short_name or client.client_name,'code':client.client_code or ''} for client in query.order_by(Client.client_short_name,Client.client_name,Client.id).offset(skip).limit(limit).all()],'total':total}
 
 
 @router.get('/project/{project_id}',dependencies=[Depends(require_module_access('projects:read','projects:write'))])

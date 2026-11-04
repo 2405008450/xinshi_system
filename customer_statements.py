@@ -172,7 +172,39 @@ def money(value):
     return str(Decimal(str(value)).quantize(Decimal('.01'),rounding=ROUND_HALF_UP)) if value is not None else None
 
 
-def build_statement(db,project_id,order_id,month,scope):
+def statement_display_rows(node, rows, mode):
+    """显示层汇总不改变收费明细；同时展示父子时，汇总行不参与合计。"""
+    if mode=='children' or not node['children'] or not rows:return rows
+
+    def descendants(item):
+        number=item['order_no']
+        return [row for row in rows if row['order_no']==number or row['order_no'].startswith(number+'.')]
+
+    def summaries(item, details, counted):
+        groups={}
+        for row in details:groups.setdefault(row['currency'],[]).append(row)
+        return [{**details[0], 'order_no':item['order_no'],'project_name':item['project_name'] or '-',
+                 'language_pair':item['language_pair'] or '-', 'quantity':None,'unit_price':None,
+                 'basis':'订单汇总'+('（部分待补）' if any(row['subtotal'] is None for row in group) else ''),
+                 'currency':currency,'subtotal':money(sum((Decimal(row['subtotal']) for row in group if row['subtotal'] is not None),Decimal(0))) if any(row['subtotal'] is not None for row in group) else None,
+                 'remarks':item.get('explanation') or '', 'counted_in_total':counted}
+                for currency,group in groups.items()]
+
+    if mode=='parents':return summaries(node,rows,True)
+    def render(item):
+        details=descendants(item)
+        if not details:return []
+        exact=[row for row in details if row['order_no']==item['order_no']]
+        # 固定收费订单已是独立结算行，不再额外添加相同金额的汇总。
+        result=summaries(item,details,False) if item['children'] and item['pricing_mode']!='fixed' else []
+        for child in item['children']:result.extend(render(child))
+        result.extend(exact)
+        return result
+    return render(node)
+
+
+def build_statement(db,project_id,order_id,month,scope,order_display='children'):
+    if order_display not in ('parents','all','children'):raise HTTPException(422,'请选择有效的订单显示方式')
     project=crud.get_translation_project(db,project_id)
     if not project or project.annotation_migrated_at is not None:raise HTTPException(404,'笔译项目不存在')
     client=project.client or (project.sub_client.parent_client if project.sub_client else None)
@@ -198,8 +230,11 @@ def build_statement(db,project_id,order_id,month,scope):
             return next((found for child in item['children'] if (found:=find(child,wanted,current_month))),None)
         selected=find(node,order_id or root.id,effective_default) if scope=='project' else (node,effective_default)
         if selected is None:raise HTTPException(422,'所选订单不属于当前项目')
-        def append(item,quantity,unit,amount,currency,remark='',basis='',issue=None):
+        line_counts={}
+        def append(item,quantity,unit,amount,currency,remark='',basis='',issue=None,unit_size='1'):
+            line_index=line_counts.get(item['id'],0);line_counts[item['id']]=line_index+1
             rows.append(dict(order_no=item['order_no'],received_date=business_datetime(root.customer_reception_time).strftime('%Y-%m-%d') if root.customer_reception_time else None,
+                task_id=item['id'],root_id=str(root.id),line_id=f"{item['id']}:{line_index}",unit_size=format(Decimal(str(unit_size)),'f'),
                 project_name=item['project_name'] or '-',language_pair=item['language_pair'] or '-',quantity=quantity,basis=basis,
                 unit_price=str(unit) if unit is not None else None,unit_label=label,currency=currency,subtotal=money(amount),
                 remarks=remark or getattr(owners.get(item['id']),'remarks',None) or ''))
@@ -226,21 +261,23 @@ def build_statement(db,project_id,order_id,month,scope):
                     basis=f"{dimension} · {METRICS.get(price.get('quantity_metric'),price.get('quantity_metric') or '')}（每{Decimal(size):f}计价）"
                     line={**item,'language_pair':price.get('language_pair') or item['language_pair']}
                     append(line,str(quantity) if quantity is not None else None,unit,amount,price['currency'],item.get('explanation',''),basis,
-                           f'未填写{label}单价或对应工作量' if unit is None or quantity is None or amount is None else None)
+                           f'未填写{label}单价或对应工作量' if unit is None or quantity is None or amount is None else None,unit_size=size)
             override=item.get('adjusted_total_incl_tax' if preference['tax_included'] else 'adjusted_total')
             if override is not None and current_month==month and len(rows)>start:
                 matching=[row for row in rows[start:] if row['currency']==item['currency']]
                 if matching and all(row['subtotal'] is not None for row in matching):
                     difference=Decimal(override)-sum(Decimal(row['subtotal']) for row in matching)
                     if difference:append(item,None,None,difference,item['currency'],item.get('explanation',''),'总价调整')
+        start=len(rows)
         visit(*selected)
+        rows[start:]=statement_display_rows(selected[0],rows[start:],order_display)
         if len(rows)>10000:raise HTTPException(422,'本次对账单超过10000条，请缩小项目范围')
     sums={}
     for row in rows:
-        if row['subtotal'] is not None:sums[row['currency']]=sums.get(row['currency'],Decimal(0))+Decimal(row['subtotal'])
+        if row.get('counted_in_total',True) and row['subtotal'] is not None:sums[row['currency']]=sums.get(row['currency'],Decimal(0))+Decimal(row['subtotal'])
     settings=settings_value(db.get(CustomerStatementSettings,'company'))
     result=dict(company=COMPANY,title='对账单',client_name=client.client_name or client.client_short_name,client_code=client.client_code,
-        month=month,scope=scope,tax_included=preference['tax_included'],rows=rows,totals={key:money(value) for key,value in sums.items()},pending=pending,
+        month=month,scope=scope,order_display=order_display,tax_included=preference['tax_included'],rows=rows,totals={key:money(value) for key,value in sums.items()},pending=pending,
         settings={key:settings[key] for key in ('bank_name','account_name','account_number')},stamp_image=settings['stamp_image'] or settings['default_stamp'])
     result['statement_version']=hashlib.sha256(json.dumps(result,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
     result['generated_at']=business_now().isoformat()
@@ -248,8 +285,8 @@ def build_statement(db,project_id,order_id,month,scope):
 
 
 @router.get('/translation-statements/preview')
-def preview(project_id:UUID,month:str=Query(pattern=MONTH),scope:Literal['project','customer']='project',order_id:UUID|None=None,db=Depends(get_db),user=Depends(read_projects)):
-    return build_statement(db,project_id,order_id,month,scope)
+def preview(project_id:UUID,month:str=Query(pattern=MONTH),scope:Literal['project','customer']='project',order_id:UUID|None=None,order_display:Literal['parents','all','children']='children',db=Depends(get_db),user=Depends(read_projects)):
+    return build_statement(db,project_id,order_id,month,scope,order_display)
 
 
 def excel_bytes(data):
@@ -266,7 +303,8 @@ def excel_bytes(data):
         workload=(str(row['quantity'])+'\n' if row['quantity'] is not None else '')+row['basis']
         unit=f"{row['currency']} {row['unit_price']}（{row['unit_label']}）" if row['unit_price'] is not None else '-'
         values=[row['received_date'],row['project_name'],row['language_pair'],workload,unit,
-                f"{row['currency']} {row['subtotal']}" if row['subtotal'] is not None else '待补',row['remarks']]
+                f"{row['currency']} {row['subtotal']}" if row['subtotal'] is not None else '待补',
+                ('汇总参考，不重复计入合计。' if row.get('counted_in_total') is False else '')+(row['remarks'] or '')]
         sheet.append([_safe_text(value) for value in values]);sheet.row_dimensions[sheet.max_row].height=46
     total_row=sheet.max_row+1;sheet.merge_cells(start_row=total_row,start_column=1,end_row=total_row,end_column=5)
     sheet.cell(total_row,1,'合计（已登记金额）' if data['pending'] else '合计')
@@ -292,8 +330,8 @@ def excel_bytes(data):
 
 
 @router.get('/translation-statements/excel')
-def export_excel(project_id:UUID,month:str=Query(pattern=MONTH),scope:Literal['project','customer']='project',order_id:UUID|None=None,version:str|None=Query(None,pattern=r'^[a-f0-9]{64}$'),db=Depends(get_db),user=Depends(read_projects)):
-    data=build_statement(db,project_id,order_id,month,scope)
+def export_excel(project_id:UUID,month:str=Query(pattern=MONTH),scope:Literal['project','customer']='project',order_id:UUID|None=None,version:str|None=Query(None,pattern=r'^[a-f0-9]{64}$'),order_display:Literal['parents','all','children']='children',db=Depends(get_db),user=Depends(read_projects)):
+    data=build_statement(db,project_id,order_id,month,scope,order_display)
     if version and version!=data['statement_version']:raise HTTPException(409,'对账单数据已变化，请重新生成后下载')
     if not data['rows']:raise HTTPException(422,'所选账单月份暂无可生成的项目')
     filename=quote(f"信实翻译对账单_{data['month']}_{data['client_code']}.xlsx")

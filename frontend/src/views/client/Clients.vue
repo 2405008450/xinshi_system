@@ -168,6 +168,7 @@
                 <el-descriptions-item label="客户全称">
                   <span class="detail-value">{{ getDetailRow(row).client_name || '-' }}</span>
                 </el-descriptions-item>
+                <el-descriptions-item label="客户类型">{{ getDetailRow(row).customer_type || '-' }}</el-descriptions-item>
                 <el-descriptions-item label="客户简称">
                   <span class="detail-value">{{ getDetailRow(row).client_short_name || '-' }}</span>
                 </el-descriptions-item>
@@ -297,6 +298,7 @@
             <el-form-item label="客户简称" prop="client_short_name">
               <el-input v-model="form.client_short_name" />
             </el-form-item>
+            <el-form-item label="客户类型" prop="customer_type"><el-select v-model="form.customer_type" clearable placeholder="请选择客户类型" @clear="form.customer_type=null"><el-option v-for="item in customerTypes" :key="item" :label="item" :value="item" /></el-select></el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="客户负责人" prop="client_manager">
@@ -476,6 +478,7 @@
             <el-form-item label="客户简称" prop="client_short_name">
               <el-input v-model="subForm.client_short_name" />
             </el-form-item>
+            <el-form-item label="客户类型" prop="customer_type"><el-select v-model="subForm.customer_type" clearable placeholder="请选择客户类型" @clear="subForm.customer_type=null"><el-option v-for="item in customerTypes" :key="item" :label="item" :value="item" /></el-select></el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="客户负责人" prop="client_manager">
@@ -510,6 +513,7 @@
 </template>
 
 <script setup>
+import { CUSTOMER_TYPES as customerTypes } from '@/utils/customerTypes'
 import CustomerCooperationProjects from '@/components/common/CustomerCooperationProjects.vue'
 import CustomerFinancePanel from '@/components/common/CustomerFinancePanel.vue'
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
@@ -558,6 +562,7 @@ const clientColumnOptions = [
   { key: 'client_code', label: '客户编号', width: 140 },
   { key: 'client_name', label: '客户全称', width: 175 },
   { key: 'client_short_name', label: '客户简称', width: 150 },
+  { key: 'customer_type', label: '客户类型', width: 150 },
   { key: 'english_name', label: '英文全称', width: 200 },
   { key: 'english_short_name', label: '英文简称', width: 150 },
   { key: 'client_manager', label: '客户负责人', width: 140 },
@@ -646,6 +651,7 @@ const pagination = reactive({
 const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows:tableData,tableRef:clientTableRef,pagination,deleteRow:(row)=>clientApi.deleteClient(row.id),getLabel:(row)=>row.client_name||row.client_short_name||row.client_code,reload:()=>fetchData(),onDeleted:(row)=>{delete detailCache[row.id]},entityName:'客户'})
 
 const defaultClientForm = () => ({
+  customer_type: null,
   id: null,
   client_code: '',
   client_name: '',
@@ -673,6 +679,7 @@ const { beginDraft, pauseDraft, clearDraft } = useFormDraft({
 })
 
 const subForm = reactive({
+  customer_type: null,
   id: null,
   parent_client_id: null,
   sub_client_code: '',
@@ -868,6 +875,7 @@ const handleEdit = async (row) => {
   resetForm()
   Object.assign(form, {
     id: row.id,
+    customer_type: row.customer_type || null,
     client_code: row.client_code || '',
     client_name: row.client_name || '',
     client_short_name: row.client_short_name || '',
@@ -1025,6 +1033,7 @@ const resetSubForm = () => {
   clearSubClientFieldSearch()
   subFormRef.value?.resetFields()
   Object.assign(subForm, {
+    customer_type: null,
     id: null,
     parent_client_id: null,
     sub_client_code: '',

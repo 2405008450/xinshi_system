@@ -230,8 +230,9 @@ import {
 import { hasPermission } from '@/utils/permission'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 
-const emit = defineEmits(['status-change', 'update:referenceFilePathOne', 'update:sourceFileName'])
+const emit = defineEmits(['status-change', 'update:referenceFilePathOne', 'update:sourceFileName', 'update:sourcePath'])
 const props = defineProps({
+  sourcePath: { type: String, default: undefined },
   projectId: {
     type: [String, Number],
     default: ''
@@ -509,12 +510,20 @@ watch(
     if (projectId !== previousProjectId) resetPathGroup()
     if (!projectId) return
     // 页签往返保留尚未保存的输入；失败后再次进入仍可重试。
-    if (active && loadedProjectId !== projectId && !fileLoading.value) void loadFiles()
+    if ((active || props.sourcePath !== undefined) && loadedProjectId !== projectId && !fileLoading.value) void loadFiles()
   },
   { immediate: true }
 )
 
 onBeforeUnmount(() => { fileRequestId += 1; sourceNameRequestId += 1 })
+
+// 两个入口编辑同一个路径组；不另建网络路径字段或在切换页签时重新覆盖。
+watch(() => props.sourcePath, value => {
+  if (value !== undefined && value !== pathGroupForm.storage_path) pathGroupForm.storage_path = value
+}, { immediate: true })
+watch(() => pathGroupForm.storage_path, value => {
+  if (props.sourcePath !== undefined && value !== props.sourcePath) emit('update:sourcePath', value || '')
+})
 
 watch(
   () => pathGroupForm.translation_domain_level1,
@@ -548,6 +557,8 @@ watch(
 )
 
 defineExpose({
+  fileLoading,
+  fileLoadError,
   fillSourceFileNameFromPath,
   loadFiles,
   resetPathGroup,

@@ -3,6 +3,8 @@ const camel = value => Array.isArray(value) ? value.map(camel) : value && typeof
 export const getCustomerFinancePage=(params,config={})=>api.get('/translation-customer-finance/page',{...config,params,paramsSerializer:{indexes:null}}).then(camel)
 export const getFinanceManagerOptions=(config={})=>api.get('/translation-customer-finance/manager-options',config).then(camel)
 export const getCustomerFinanceProject=id=>api.get(`/translation-customer-finance/project/${id}`).then(camel)
+export const setProjectStatementRequired=(id,data)=>api.put(`/translation-customer-finance/project/${id}/statement-required`,data).then(camel)
+export const getStatementCustomers=(params,config={})=>api.get('/translation-customer-finance/statement-customers',{...config,params}).then(camel)
 export const saveCustomerFinanceProject=(id,data)=>api.put(`/translation-customer-finance/project/${id}`,data).then(camel)
 export const getCustomerTranslationRates=id=>api.get(`/customer-translation-rates/${id}`).then(camel)
 export const saveCustomerTranslationRates=(id,data)=>api.put(`/customer-translation-rates/${id}`,data).then(camel)

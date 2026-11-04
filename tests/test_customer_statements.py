@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 from sqlalchemy import inspect
 from tests.test_chat_participant_access import environment
-from models import Client,TranslationProject,TranslationSubOrderChargeItem,SubClient
+from models import Client,TranslationProject,TranslationSubOrder,TranslationSubOrderChargeItem,SubClient
 from word_count_models import WordCountMetric
 from routers import auth
 from database import get_db
@@ -119,3 +119,38 @@ def test_migration_repeatable_without_old_table_changes(environment):
     apply_migration(db.connection());apply_migration(db.connection())
     assert set(inspect(db.connection()).get_table_names())-before==set(TABLES)
     assert columns==[column['name'] for column in inspect(db.connection()).get_columns('client')]
+
+
+def test_order_display_preview_and_excel_do_not_double_count(context):
+    http,db,clients,_,_=context
+    root=project(db,clients[0])
+    for suffix,amount in [('.001',None),('.001.001',10),('.002',20)]:
+        child=TranslationSubOrder(id=uuid4(),parent_project_id=root.id,sub_order_no=root.order_no+suffix,sub_project_name='子订单'+suffix,language_pair='英语→简中')
+        if amount is not None:child.customer_charge_items=[TranslationSubOrderChargeItem(id=uuid4(),sequence_no=1,item_name='翻译费',pricing_mode='fixed',currency='CNY',total_excl_tax=amount,total_incl_tax=Decimal(amount)*Decimal('1.06'),billing_month='2026-11')]
+        db.add(child)
+    db.commit()
+    results={mode:preview(http,root,order_display=mode).json() for mode in ('parents','all','children')}
+    for mode,data in results.items():
+        assert data['order_display']==mode
+        assert data['totals']=={'CNY':'30.00'}
+        assert sum(Decimal(row['subtotal']) for row in data['rows'] if row.get('counted_in_total',True))==30
+    assert [row['order_no'] for row in results['parents']['rows']]==[root.order_no]
+    assert {row['order_no'] for row in results['children']['rows']}=={root.order_no+'.001.001',root.order_no+'.002'}
+    assert {row['order_no'] for row in results['all']['rows']}=={root.order_no,root.order_no+'.001',root.order_no+'.001.001',root.order_no+'.002'}
+    for mode,data in results.items():
+        response=http.get('/translation-statements/excel',params={'project_id':str(root.id),'month':'2026-11','order_display':mode,'version':data['statement_version']})
+        assert response.status_code==200,response.text
+        sheet=load_workbook(BytesIO(response.content)).active
+        assert sheet.cell(6+len(data['rows']),6).value=='CNY 30.00'
+        if mode=='all':assert '汇总参考' in sheet['G6'].value
+    assert preview(http,root,order_display='invalid').status_code==422
+    assert http.get('/translation-statements/excel',params={'project_id':str(root.id),'month':'2026-11','order_display':'all','version':results['parents']['statement_version']}).status_code==409
+
+
+def test_order_display_keeps_standalone_projects_and_currency_groups(context):
+    http,db,clients,_,_=context
+    root=project(db,clients[0]);project(db,clients[0],'002',fixed=True,currency='USD')
+    for mode in ('parents','all','children'):
+        result=preview(http,root,scope='customer',order_display=mode).json()
+        assert len(result['rows'])==2
+        assert result['totals']=={'CNY':'123.40','USD':'500.00'}

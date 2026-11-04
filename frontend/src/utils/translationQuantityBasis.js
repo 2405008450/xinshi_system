@@ -10,13 +10,28 @@ export function projectQuantityChoices(matrix){
     .filter(metric=>values[dimension][metric.key]!=null)
     .map(metric=>({value:dimension==='customer'?`customer_auto:${metric.key}`:`company_${metric.key}`,label:`${label} · ${metric.label}：${values[dimension][metric.key]}`,quantity:values[dimension][metric.key]})))
 }
+export function validQuantityBasis(mode){
+  return mode==='customer_auto'||WORD_COUNT_METRICS.some(({key})=>[key,`customer_auto:${key}`,`company_${key}`].includes(mode))
+}
+export function rateQuantityOptions(matrix,current){
+  const normalized=normalizeWordCountMatrix(matrix)
+  const options=[{value:'customer_auto',label:'客户统计（自动取唯一已填项）'}]
+  for(const [dimension,label] of [['customer','客户统计'],['company','我司统计']]){
+    for(const metric of WORD_COUNT_METRICS){
+      const count=normalized[dimension][metric.key]
+      options.push({value:dimension==='customer'?`customer_auto:${metric.key}`:`company_${metric.key}`,label:`${label} · ${metric.label}${matrix?`：${count??'待补录'}`:''}`})
+    }
+  }
+  if(WORD_COUNT_METRICS.some(({key})=>key===current))options.push({value:current,label:basisLabel(current)})
+  return options
+}
 export function resolveRateQuantity(matrix,mode){
   const normalized=normalizeWordCountMatrix(matrix)
   if(String(mode).startsWith('customer_auto')){
     const choices=customerQuantityChoices(matrix)
-    if(choices.length===1)return {quantity:choices[0].value,metric:choices[0].key}
     const selected=String(mode).split(':')[1]
-    if(choices.length>1&&selected&&normalized.customer[selected]!=null)return {quantity:normalized.customer[selected],metric:selected}
+    if(selected){const quantity=normalized.customer[selected];return {quantity,metric:selected,error:quantity==null?'未登记对应数量':null}}
+    if(choices.length===1)return {quantity:choices[0].value,metric:choices[0].key}
     return {quantity:null,error:choices.length?'客户统计有多栏，请选择统计口径':'未登记客户统计'}
   }
   const company=String(mode).startsWith('company_'),metric=company?String(mode).slice(8):mode

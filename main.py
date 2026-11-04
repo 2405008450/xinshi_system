@@ -294,6 +294,8 @@ from project_customer_finance import router as project_customer_finance_router
 app.include_router(project_customer_finance_router)
 from customer_statements import router as customer_statements_router
 app.include_router(customer_statements_router)
+from customer_statement_workspace import router as customer_statement_workspace_router
+app.include_router(customer_statement_workspace_router)
 app.include_router(interpretation_projects.router)
 from routers import annotation_materials
 app.include_router(annotation_materials.router)
@@ -393,6 +395,10 @@ from translation_requirement_dispatch import router as translation_requirement_d
 app.include_router(translation_requirement_dispatch_router)
 from project_client_manager import router as project_client_manager_router
 app.include_router(project_client_manager_router)
+from routers.translation_quotations import router as translation_quotations_router
+app.include_router(translation_quotations_router)
+from routers.translation_payments import router as translation_payments_router
+app.include_router(translation_payments_router)
 
 
 PROJECT_FILE_PATH_COLUMN_STATEMENTS = (
