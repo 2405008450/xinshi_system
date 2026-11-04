@@ -46,6 +46,11 @@ def run():
         expect(popup).to_be_visible();popup.get_by_role('button',name='确定',exact=True).click();expect(table).to_contain_text('TP-乙');expect(table).not_to_contain_text('TP-本人')
         page.get_by_role('button',name=re.compile('指定（1人）')).click();popup.locator('.el-tag__close').click();popup.get_by_role('button',name='确定',exact=True).click()
         expect(table).to_contain_text('TP-本人');expect(table).to_contain_text('TP-甲');assert queries[-1]['only_mine']==['false'] and 'manager_ids' not in queries[-1]
+        page.get_by_role('tab',name='笔译须知',exact=True).click()
+        page.get_by_role('tab',name='财务管理（客户）',exact=True).click()
+        expect(table).to_contain_text('TP-本人');expect(table).not_to_contain_text('TP-甲');expect(table).not_to_contain_text('TP-乙')
+        expect(page.get_by_role('button',name='本人（本人测试）',exact=True)).to_be_visible()
+        assert queries[-1]['only_mine']==['true'] and 'manager_ids' not in queries[-1]
         assert not errors,errors;b.close()
     print('customer department options, multi-ID filtering, draft cancel/confirm, matching subtotal, and reset-to-self PASS')
 

@@ -38,6 +38,8 @@ def copy_prices(parent, source, target):
         if row.source_language_id and (source is None or (row.source_language_id, row.target_language_id) != (source.source_language_id, source.target_language_id)):
             continue
         values = AnnotationPriceItemInput.model_validate(row, from_attributes=True).model_dump(exclude={'id'})
+        if values.get('tax_prices'):
+            values['tax_prices']['total_excl_tax']=values['tax_prices']['total_incl_tax']=None
         if row.source_language_id:
             values.update(source_language_id=target.source_language_id, target_language_id=target.target_language_id)
         result.append(values)

@@ -23,11 +23,22 @@ def oral_key(row):
             bool(row.get('includes_lunch')) if row['unit'] == '天' else False)
 
 
+def tax_signature(row):
+    value=row.get('tax_prices') or {}
+    result=tuple(number(value.get(field)) for field in ('unit_price_excl_tax','unit_price_incl_tax'))
+    return (None,None) if result[1] is None and result[0] == number(row.get('amount')) else result
+
+
+def reference_tax(row):
+    value=row.get('tax_prices')
+    return None if value is None else {key:(None if key.startswith('total_') else amount) for key,amount in value.items()}
+
+
 def signature(module, rows):
     import customer_translation_rates as rates
     key = rates.rate_key if module == 'translation' else oral_key
     # 数量为项目自身的业务量，不属于客户单价，重复组合项也保留以识别歧义。
-    return sorted([(str(key(row)), number(row['amount'])) for row in rows], key=str)
+    return sorted([(str(key(row)), number(row['amount']),tax_signature(row)) for row in rows], key=str)
 
 
 def oral_defaults(project, rows):
@@ -58,6 +69,7 @@ def auto_translation(db, user, client_id, before, after, project_id=None):
         captured = audit.capture(project)
         changed = False
         for owner in finance.hierarchy(project)[0]:
+            if any(charge.pricing_mode=='fixed' for charge in owner.customer_charge_items):continue
             rows = rates.order_rates(db, owner, owner.language_pair or project.language_pair)
             candidates = translation_defaults(owner, project, after) if not rows else rows
             by_id = {str(row.id): row for row in owner.customer_charge_items}
@@ -65,7 +77,7 @@ def auto_translation(db, user, client_id, before, after, project_id=None):
                 key = rates.rate_key(data)
                 ref = current.get(key)
                 old = previous.get(key)
-                if not ref or (rows and (not old or number(data['amount']) != number(old['amount']))):
+                if not ref or (rows and (not old or number(data['amount']) != number(old['amount']) or tax_signature(data)!=tax_signature(old))):
                     continue
                 charge = by_id.get(data.get('id'))
                 moment = business_now().replace(tzinfo=None)
@@ -76,7 +88,10 @@ def auto_translation(db, user, client_id, before, after, project_id=None):
                     owner.customer_charge_items.append(charge)
                 elif number(data['amount']) == number(ref['amount']) and data.get('reference_revision') == ref['revision']:
                     continue
-                charge.unit_price = charge.unit_price_excl_tax = Decimal(ref['amount'])
+                charge.unit_price = Decimal(ref['amount'])
+                tax=ref.get('tax_prices')
+                charge.unit_price_excl_tax=Decimal(tax['unit_price_excl_tax']) if tax and tax.get('unit_price_excl_tax') is not None else (None if tax else Decimal(ref['amount']))
+                if tax is not None:charge.unit_price_incl_tax=Decimal(tax['unit_price_incl_tax']) if tax.get('unit_price_incl_tax') is not None else None
                 charge.currency = ref['currency']; charge.metric_type = quantity_basis.resolve(owner.word_count_matrix,ref['metric'])[2] or 'characters_no_spaces'; charge.unit_size = Decimal(ref['unit_size'])
                 charge.updated_at = moment; owner.updated_at = moment; project.updated_at = moment
                 db.flush()
@@ -128,8 +143,9 @@ def auto_oral(db, user, client_id, before, after):
         else:
             for item in payload['rates']:
                 key = oral_key(item)
-                if key in previous and key in current and number(item['amount']) == number(previous[key]['amount']):
+                if key in previous and key in current and number(item['amount']) == number(previous[key]['amount']) and tax_signature(item)==tax_signature(previous[key]):
                     item['amount'] = current[key]['amount']
+                    item['tax_prices'] = reference_tax(current[key])
         if payload != original:
             store_oral(db, user, 'project', project.id, payload, row)
 
@@ -177,8 +193,11 @@ router = APIRouter(prefix='/customer-finance-sync', tags=['customer-finance-sync
 
 
 @router.get('/{module}/{client_id}/differences')
-def differences(module: Literal['translation','interpretation'], client_id: UUID,
+def differences(module: Literal['translation','interpretation','annotation'], client_id: UUID,
                 page: int = Query(1, ge=1), db=Depends(get_db), user=Depends(get_current_user)):
+    if module == 'annotation':
+        from customer_annotation_rate_sync import differences as annotation_differences
+        return annotation_differences(db, user, client_id, page)
     require(db, user, 'clients:read' if user_has_permission(db, user.id, 'clients:read') else 'clients:write')
     refs, customer_version, available = library(module, db, client_id)
     if not available: return dict(ready=False, items=[], total=0)
@@ -221,8 +240,11 @@ class SyncWrite(BaseModel):
 
 
 @router.post('/{module}/{client_id}/sync')
-def sync(module: Literal['translation','interpretation'], client_id: UUID, data: SyncWrite,
+def sync(module: Literal['translation','interpretation','annotation'], client_id: UUID, data: SyncWrite,
          db=Depends(get_db), user=Depends(get_current_user)):
+    if module == 'annotation':
+        from customer_annotation_rate_sync import synchronize
+        return synchronize(db, user, client_id, data)
     if not data.confirmed: raise HTTPException(422, '请点击并确认同步单价')
     require(db, user, 'clients:write' if data.direction == 'project_to_client' else 'projects:write')
     if data.direction == 'client_to_project':require(db, user, 'clients:read')
@@ -251,7 +273,7 @@ def sync(module: Literal['translation','interpretation'], client_id: UUID, data:
                 for row in rows:
                     key = oral_key(row)
                     if sum(oral_key(item)==key for item in rows)>1: raise HTTPException(422,'同方向及单位存在多条单价，请先整理项目价格')
-                    merged[key] = dict(row,quantity='1')
+                    merged[key] = dict(row,quantity='1',tax_prices=reference_tax(row))
                 if len(merged)>100: raise HTTPException(422,'客户参考价不能超过100条')
                 payload['rates'] = list(merged.values())
                 oral.save(db,user,'client',client_id,oral.FinanceWrite(revision=int(customer_version),**payload))

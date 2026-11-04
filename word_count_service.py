@@ -23,6 +23,67 @@ def _empty_values() -> dict[str, Optional[int]]:
     return {metric_type: None for metric_type in METRIC_TYPES}
 
 
+def roll_up_matrices(projects, sub_orders):
+    """按订单号的直接父级逐层汇总；有下级时不用父级旧值，避免重复统计。"""
+    children = {}
+    by_number = {(row.parent_project_id, row.sub_order_no): row for row in sub_orders}
+    for row in sub_orders:
+        parent = by_number.get((row.parent_project_id, row.sub_order_no.rsplit('.', 1)[0]))
+        children.setdefault(parent.id if parent else row.parent_project_id, []).append(row)
+
+    def visit(owner):
+        direct = children.get(owner.id, [])
+        for child in direct:
+            visit(child)
+        owner.word_count_sub_order_count = len(direct)
+        owner.word_count_matrix_source = 'suborder_aggregate' if direct else ('suborder' if hasattr(owner, 'sub_order_no') else 'project')
+        if direct:
+            owner.word_count_matrix = {
+                dimension: {
+                    metric: sum(values) if (values := [
+                        child.word_count_matrix[dimension][metric] for child in direct
+                        if child.word_count_matrix[dimension][metric] is not None
+                    ]) else None
+                    for metric in METRIC_TYPES
+                } for dimension in ENTITY_DIMENSIONS
+            }
+
+    for project in projects:
+        visit(project)
+
+
+def hierarchy_matrix(db, entity_type, entity):
+    """一次读取整棵订单树的统计，弹窗、稿件安排复用相同汇总结果。"""
+    project_id = entity.id if entity_type == 'project' else entity.parent_project_id
+    project = entity if entity_type == 'project' else db.get(TranslationProject, project_id)
+    sub_orders = db.query(TranslationSubOrder).filter(TranslationSubOrder.parent_project_id == project_id).all()
+    owners = {row.id: row for row in [project, *sub_orders]}
+    for owner in owners.values():
+        owner.word_count_matrix = {dimension: _empty_values() for dimension in ENTITY_DIMENSIONS}
+    from sqlalchemy import or_
+    metrics = db.query(WordCountMetric).filter(or_(
+        WordCountMetric.project_id == project_id,
+        WordCountMetric.sub_order_id.in_([row.id for row in sub_orders]),
+    )).all() + preliminary.rows(db, [project_id], [row.id for row in sub_orders])
+    for metric in metrics:
+        owner = owners.get(metric.project_id or metric.sub_order_id)
+        if owner is not None and metric.dimension in ENTITY_DIMENSIONS and metric.metric_type in METRIC_TYPES:
+            owner.word_count_matrix[metric.dimension][metric.metric_type] = metric.count_value
+    roll_up_matrices([project], sub_orders)
+    return owners[entity.id]
+
+
+def _has_child_orders(db, entity_type, entity):
+    query = db.query(TranslationSubOrder.id)
+    if entity_type == 'project':
+        query = query.filter(TranslationSubOrder.parent_project_id == entity.id)
+    else:
+        # 点号是订单层级边界，.001 不会命中 .0010。
+        query = query.filter(TranslationSubOrder.parent_project_id == entity.parent_project_id,
+                             TranslationSubOrder.sub_order_no.startswith(entity.sub_order_no + '.', autoescape=True))
+    return query.first() is not None
+
+
 def _load_entity(db: Session, entity_type: str, entity_id: UUID):
     if entity_type == "project":
         entity = db.query(TranslationProject).filter(TranslationProject.id == entity_id).first()
@@ -92,18 +153,10 @@ def get_word_count_matrix(
     dispatch_id: Optional[UUID] = None,
 ) -> dict:
     entity = _load_entity(db, entity_type, entity_id)
-    entity_values = {dimension: _empty_values() for dimension in ENTITY_DIMENSIONS}
-    source = "suborder" if entity_type == "suborder" else "project"
-    sub_order_count = 0
-    metrics = _entity_metric_rows(db, entity_type, entity_id)
-    if entity_type == "project":
-        sub_order_count = db.query(TranslationSubOrder.id).filter(
-            TranslationSubOrder.parent_project_id == entity_id
-        ).count()
-    for metric in metrics:
-        if metric.dimension in entity_values and metric.metric_type in METRIC_TYPES:
-            current = entity_values[metric.dimension][metric.metric_type]
-            entity_values[metric.dimension][metric.metric_type] = (current or 0) + metric.count_value
+    owner = hierarchy_matrix(db, entity_type, entity)
+    entity_values = owner.word_count_matrix
+    source = owner.word_count_matrix_source
+    sub_order_count = owner.word_count_sub_order_count
 
     arrangements = _arrangements_for_entity(db, entity_type, entity, dispatch_id)
     arrangement_ids = [row.id for row in arrangements]
@@ -196,6 +249,8 @@ def patch_word_count_matrix(
     dispatch_id: Optional[UUID] = None,
 ) -> dict:
     entity = _load_entity(db, entity_type, entity_id)
+    if any(change.scope == 'entity' for change in payload.changes) and _has_child_orders(db, entity_type, entity):
+        raise HTTPException(status_code=422, detail='此订单的字数由下级订单自动汇总，请修改末级订单的统计')
     allowed_arrangements = {
         row.id for row in _arrangements_for_entity(db, entity_type, entity, dispatch_id)
     }
@@ -257,6 +312,8 @@ def replace_entity_matrix(
     updated_by: Optional[UUID],
 ) -> None:
     """在调用方事务内用完整矩阵替换项目或子订单字数。"""
+    if _has_child_orders(db, entity_type, _load_entity(db, entity_type, entity_id)):
+        return
     for dimension in ENTITY_DIMENSIONS:
         values = getattr(matrix, dimension)
         for metric_type, value in values.model_dump().items():
@@ -313,8 +370,4 @@ def attach_arrangement_matrices(db: Session, arrangements: list[ManuscriptArrang
 
 
 def entity_matrix_values(db: Session, entity_type: str, entity_id: UUID) -> dict:
-    values = {dimension: _empty_values() for dimension in ENTITY_DIMENSIONS}
-    for metric in _entity_metric_rows(db, entity_type, entity_id):
-        if metric.dimension in values:
-            values[metric.dimension][metric.metric_type] = metric.count_value
-    return values
+    return hierarchy_matrix(db, entity_type, _load_entity(db, entity_type, entity_id)).word_count_matrix

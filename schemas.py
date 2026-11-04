@@ -676,6 +676,8 @@ class TranslationSubOrderChargeItemInput(BaseModel):
     """母/子订单共用的客户收费项；旧字段保留用于兼容既有调用方。"""
 
     id: Optional[UUID] = None
+    language_pair: Optional[str] = Field(default=None, max_length=255)
+    quantity_basis: Optional[str] = Field(default=None, max_length=40)
     sequence_no: int = Field(default=1, ge=1)
     item_name: str = Field(min_length=1, max_length=100)
     pricing_mode: Literal['metric', 'fixed'] = 'metric'
@@ -949,6 +951,8 @@ class TranslationSubOrderResponse(BaseModel):
     language_pair: Optional[str] = None
     priority: Optional[str] = None
     word_count_matrix: WordCountCreateMatrix = Field(default_factory=WordCountCreateMatrix)
+    word_count_matrix_source: Literal['suborder', 'suborder_aggregate'] = 'suborder'
+    word_count_sub_order_count: int = 0
     customer_charge_items: list[TranslationSubOrderChargeItemResponse] = Field(default_factory=list)
     # 鏃堕棿鑺傜偣
     customer_deadline_time: Optional[datetime] = None

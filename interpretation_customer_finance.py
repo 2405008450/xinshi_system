@@ -1,5 +1,6 @@
 """口译客户财务：组合单价、客户参考价、金额计算及不可覆盖的调整记录。"""
 from decimal import Decimal, ROUND_HALF_UP
+from tax_prices import TaxPrices, reference_tax_prices
 from typing import Literal
 from uuid import UUID, uuid4
 
@@ -44,8 +45,9 @@ class StrictInput(BaseModel):
 
 
 class Rate(StrictInput):
+    tax_prices: TaxPrices | None = None
     direction: str = Field(min_length=1, max_length=500)
-    amount: Decimal = Field(ge=0, max_digits=14, decimal_places=4)
+    amount: Decimal = Field(ge=0, max_digits=18, decimal_places=6)
     currency: str = Field(default='CNY', pattern='^[A-Z]{3}$')
     unit: Literal['月', '周', '天', '半天', '小时'] = '天'
     quantity: Decimal = Field(default=1, ge=0, max_digits=10, decimal_places=4)
@@ -69,6 +71,7 @@ class Rate(StrictInput):
 class Money(StrictInput):
     amount: Decimal = Field(ge=0, max_digits=16, decimal_places=2)
     currency: str = Field(default='CNY', pattern='^[A-Z]{3}$')
+    tax_prices: TaxPrices | None = None
 
 
 class FinanceWrite(StrictInput):
@@ -96,15 +99,33 @@ class FinanceWrite(StrictInput):
 
 def calculate(payload):
     totals = {}
+    tax_totals = {'excl_tax': {}, 'incl_tax': {}}
     for row in payload.get('rates', []):
         currency = row['currency']
         totals[currency] = totals.get(currency, Decimal(0)) + Decimal(row['amount']) * Decimal(str(row['quantity']))
+        prices = row.get('tax_prices') or {}
+        for kind, values in tax_totals.items():
+            value = prices.get('total_' + kind)
+            if value is None and prices.get('unit_price_' + kind) is not None:
+                value = Decimal(str(prices['unit_price_' + kind])) * Decimal(str(row['quantity']))
+            if value is not None:
+                values[currency] = values.get(currency, Decimal(0)) + Decimal(str(value))
     if payload.get('has_overtime') and payload.get('overtime'):
         row = payload['overtime']
         totals[row['currency']] = totals.get(row['currency'], Decimal(0)) + Decimal(row['amount'])
+        for kind, values in tax_totals.items():
+            value = (row.get('tax_prices') or {}).get('total_' + kind)
+            if value is not None:
+                values[row['currency']] = values.get(row['currency'], Decimal(0)) + Decimal(str(value))
+    for row in payload.get('adjusted_totals', []):
+        for kind,values in tax_totals.items():
+            value=(row.get('tax_prices') or {}).get('total_'+kind)
+            if value is not None: values[row['currency']]=Decimal(str(value))
     totals = {key: str(value.quantize(Decimal('.01'), rounding=ROUND_HALF_UP)) for key, value in totals.items()}
     adjusted = {**totals, **{row['currency']: row['amount'] for row in payload.get('adjusted_totals', [])}}
-    return dict(totals=totals, adjusted_totals=adjusted)
+    return dict(totals=totals, adjusted_totals=adjusted,
+                totals_excl_tax={key: str(value.quantize(Decimal('.01'), rounding=ROUND_HALF_UP)) for key, value in tax_totals['excl_tax'].items()},
+                totals_incl_tax={key: str(value.quantize(Decimal('.01'), rounding=ROUND_HALF_UP)) for key, value in tax_totals['incl_tax'].items()})
 
 
 def ready(db):
@@ -169,6 +190,9 @@ def save(db, user, scope, target, data):
             raise HTTPException(422, '口译方向已变更，请重新打开财务表单')
     payload = data.model_dump(mode='json', exclude={'revision','update_library','library_revision','sync_confirmed'})
     if scope == 'client':
+        for rate in payload['rates']:
+            rate['quantity'] = '1'
+            rate['tax_prices'] = reference_tax_prices(rate.get('tax_prices'))
         from customer_finance_sync import oral_key
         keys=[oral_key(item) for item in payload['rates']]
         if len(keys)!=len(set(keys)):raise HTTPException(422,'同方向、货币、单位及时长的客户参考价不能重复')
@@ -238,13 +262,13 @@ def page(keyword: str = '', client_id: UUID | None = None, only_mine: bool = Tru
     query = query.filter(keyword_any([InterpretationProject.order_no, InterpretationProject.project_name, Client.client_name, Client.client_short_name, SubClient.client_name, SubClient.client_short_name], keyword))
     projects = query.order_by(InterpretationProject.created_at.desc(), InterpretationProject.id).all()
     items = [context(db, 'project', item.id) for item in projects]
-    totals, adjusted = {}, {}
+    totals, adjusted, excl, incl = {}, {}, {}, {}
     for item in items:
-        for field, acc in [('totals', totals), ('adjusted_totals', adjusted)]:
+        for field, acc in [('totals', totals), ('adjusted_totals', adjusted),('totals_excl_tax',excl),('totals_incl_tax',incl)]:
             for currency, amount in item[field].items():
                 acc[currency] = acc.get(currency, Decimal(0)) + Decimal(amount)
     return dict(items=items[skip:skip+limit], total=len(items), totals={k:str(v) for k,v in totals.items()},
-                adjusted_totals={k:str(v) for k,v in adjusted.items()}, incomplete=sum(not row['payload']['rates'] for row in items))
+                adjusted_totals={k:str(v) for k,v in adjusted.items()}, totals_excl_tax={k:str(v) for k,v in excl.items()},totals_incl_tax={k:str(v) for k,v in incl.items()}, incomplete=sum(not row['payload']['rates'] for row in items))
 
 
 @router.get('/{scope}/{target}/history')

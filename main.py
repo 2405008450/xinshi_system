@@ -293,6 +293,12 @@ from customer_finance_sync import router as customer_finance_sync_router
 app.include_router(customer_finance_sync_router)
 from customer_translation_rates import router as customer_translation_rates_router
 app.include_router(customer_translation_rates_router)
+from customer_annotation_rates import router as customer_annotation_rates_router
+app.include_router(customer_annotation_rates_router)
+from project_customer_finance import router as project_customer_finance_router
+app.include_router(project_customer_finance_router)
+from customer_statements import router as customer_statements_router
+app.include_router(customer_statements_router)
 app.include_router(interpretation_projects.router)
 from routers import annotation_materials
 app.include_router(annotation_materials.router)

@@ -386,6 +386,7 @@
                           </WordCountMatrixPopover>
                         </div>
                       </el-form-item>
+                      <el-form-item label="客户财务"><el-button type="primary" plain @click="openCustomerFinance(form)">客户财务</el-button></el-form-item>
                     </el-col>
                   </el-row>
                   <el-row :gutter="16">
@@ -555,13 +556,6 @@
                 <el-form-item label="备注" prop="remarks" data-field-key="remarks">
                   <el-input v-model="form.remarks" type="textarea" :rows="3" placeholder="请输入项目备注" />
                 </el-form-item>
-                <CustomerChargeEditor
-                  v-model="form.customerChargeItems"
-                  v-model:word-count-matrix="form.wordCountMatrix"
-                  entity-type="project"
-                  :entity-id="form.id"
-                  @saved="handleProjectWordCountSaved"
-                />
                     </div>
                   </el-collapse-item>
 
@@ -856,12 +850,12 @@
                         </WordCountMatrixPopover>
                       </div>
                     </el-form-item>
+                      <el-form-item label="客户财务"><el-button type="primary" plain @click="openCustomerFinance(subOrderForm)">客户财务</el-button></el-form-item>
                   </el-col>
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24"><el-form-item label="网络文件路径"><el-input v-model="subOrderForm.networkFilePath" type="textarea" :rows="3" /></el-form-item></el-col>
                 </el-row>
-                <CustomerChargeEditor v-model="subOrderForm.customerChargeItems" v-model:word-count-matrix="subOrderForm.wordCountMatrix" entity-type="suborder" :entity-id="subOrderForm.id" @saved="handleSubOrderWordCountSaved" />
               </div>
             </el-tab-pane>
 
@@ -907,6 +901,7 @@
       :consultation-id="mailConsultationId"
     />
 
+    <TranslationCustomerFinance ref="customerFinanceEditorRef" editor-only />
   </el-card>
 </template>
 
@@ -951,7 +946,7 @@ import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import InlineSubProjectName from './components/InlineSubProjectName.vue'
 import SubOrderBatchCreateDialog from './components/SubOrderBatchCreateDialog.vue'
-import CustomerChargeEditor from './components/CustomerChargeEditor.vue'
+import TranslationCustomerFinance from './CustomerFinance.vue'
 import { hasPermission } from '@/utils/permission'
 import { getClient, getClients } from '@/api/clients'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
@@ -1424,6 +1419,7 @@ const requiredTextValidator = (message) => (_rule, value, callback) => {
   callback()
 }
 const validateWordCountMatrix = (_rule, value, callback) => {
+  if(form.customerChargeItems?.length&&form.customerChargeItems.every(row=>row.pricingMode==='fixed'))return callback()
   const hasWordCount = Object.values(value || {}).some((dimension) => (
     Object.values(dimension || {}).some((item) => (
       item !== null && item !== undefined && item !== '' && Number.isFinite(Number(item))
@@ -2286,6 +2282,8 @@ onBeforeUnmount(() => {
   clearTimeout(searchTimer)
   requestController?.abort()
 })
+const customerFinanceEditorRef=ref(null)
+function openCustomerFinance(target){customerFinanceEditorRef.value?.openForForm(target,form)}
 </script>
 
 <style scoped>

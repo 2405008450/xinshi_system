@@ -4,6 +4,12 @@ export const quantityBasisOptions=[{value:'customer_auto',label:'客户统计'},
 export const metricName=key=>WORD_COUNT_METRICS.find(row=>row.key===key)?.label||key
 export function basisLabel(mode){if(String(mode).startsWith('customer_auto')){const metric=String(mode).split(':')[1];return metric?`客户统计（${metricName(metric)}）`:'客户统计'}return quantityBasisOptions.find(row=>row.value===mode)?.label||`历史客户口径（${metricName(mode)}）`}
 export function customerQuantityChoices(matrix){const values=normalizeWordCountMatrix(matrix).customer;return WORD_COUNT_METRICS.filter(row=>values[row.key]!=null).map(row=>({...row,value:values[row.key]}))}
+export function projectQuantityChoices(matrix){
+  const values=normalizeWordCountMatrix(matrix)
+  return [['customer','客户统计'],['company','我司统计']].flatMap(([dimension,label])=>WORD_COUNT_METRICS
+    .filter(metric=>values[dimension][metric.key]!=null)
+    .map(metric=>({value:dimension==='customer'?`customer_auto:${metric.key}`:`company_${metric.key}`,label:`${label} · ${metric.label}：${values[dimension][metric.key]}`,quantity:values[dimension][metric.key]})))
+}
 export function resolveRateQuantity(matrix,mode){
   const normalized=normalizeWordCountMatrix(matrix)
   if(String(mode).startsWith('customer_auto')){
@@ -28,4 +34,10 @@ export function calculateOrderPriceTree(order,originalPrices=order.prices||[]){
   }
   visit(order,order.prices||[],originalPrices)
   return {totals:Object.fromEntries([...totals].map(([currency,cents])=>[currency,`${cents/100n}.${String(cents%100n).padStart(2,'0')}`])),incomplete}
+}
+
+export function calculateTaxOrderPriceTree(order,originalPrices=order.prices||[]){
+  function price(row,key){return {...row,amount:row.taxPrices?.[key]??row.tax_prices?.[key.replace(/[A-Z]/g,letter=>'_'+letter.toLowerCase())]??null}}
+  function node(row,key){return {...row,prices:(row.prices||[]).map(item=>price(item,key)),children:(row.children||[]).map(item=>node(item,key))}}
+  return Object.fromEntries([['excl','unitPriceExclTax'],['incl','unitPriceInclTax']].map(([kind,key])=>[kind,calculateOrderPriceTree(node(order,key),originalPrices.map(item=>price(item,key)))]))
 }

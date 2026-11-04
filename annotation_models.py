@@ -1,6 +1,7 @@
 """标注项目数据库模型。"""
 
 from __future__ import annotations
+from tax_prices import TaxPriceMixin, TaxFieldsMixin
 
 import datetime
 import uuid
@@ -464,7 +465,7 @@ class AnnotationProjectLanguageItem(Base):
         return self.source_language_label
 
 
-class AnnotationProjectPriceItem(Base):
+class AnnotationProjectPriceItem(TaxPriceMixin, Base):
     __tablename__ = "annotation_project_price_item"
     __table_args__ = (
         PrimaryKeyConstraint("id", name="annotation_project_price_item_pkey"),
@@ -542,7 +543,11 @@ class AnnotationProjectPriceItem(Base):
 
         amount_text = format(self.amount.normalize(), "f")
         display_unit = self._normalize_display_unit()
-        return f"{currency_symbol(self.currency)}{amount_text}/{display_unit}"
+        tax = self.tax_prices
+        if tax and any(value is not None for value in tax.values()):
+            labels = {'unit_price_excl_tax':'不含税单价','unit_price_incl_tax':'含税单价','total_excl_tax':'不含税总价','total_incl_tax':'含税总价'}
+            return '；'.join(f"{labels[key]} {currency_symbol(self.currency)}{value}" + (f"/{display_unit}" if key.startswith('unit_') else '') for key,value in tax.items() if value is not None)
+        return f"原单价（税口径未确认）{currency_symbol(self.currency)}{amount_text}/{display_unit}"
 
     @property
     def display(self) -> str:
@@ -554,3 +559,9 @@ class AnnotationProjectPriceItem(Base):
         ]
         scope_text = "/".join(value for value in scope if value)
         return f"{scope_text}：{self.amount_display}" if scope_text else self.amount_display
+
+
+class AnnotationProjectPriceItemTax(TaxFieldsMixin, Base):
+    __tablename__ = 'annotation_project_price_item_tax'
+    from sqlalchemy import Column as _Column, Uuid as _Uuid, ForeignKey as _ForeignKey
+    id = _Column(_Uuid, _ForeignKey('annotation_project_price_item.id', ondelete='CASCADE'), primary_key=True)

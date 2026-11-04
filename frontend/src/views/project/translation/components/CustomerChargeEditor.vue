@@ -39,7 +39,7 @@
             :disabled="row.pricingMode === 'fixed'"
             @change="onMetricChange(row)"
           >
-            <el-option v-for="metric in WORD_COUNT_METRICS" :key="metric.key" :label="metric.label" :value="metric.key" />
+            <el-option v-for="metric in filledMetrics" :key="metric.key" :label="metric.label" :value="metric.key" />
           </el-select>
         </template>
       </el-table-column>
@@ -166,6 +166,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:modelValue', 'update:wordCountMatrix', 'saved'])
 
+const filledMetrics = computed(() => WORD_COUNT_METRICS.filter(metric => customerValues.value[metric.key] != null))
 const customerValues = computed(() => normalizeWordCountMatrix(props.wordCountMatrix).customer)
 const defaultUnitSize = (metric) => ['documents', 'pages'].includes(metric) ? 1 : 1000
 const lastSuggestions = new WeakMap()
@@ -181,7 +182,7 @@ watch(
 )
 
 watch(customerValues, () => {
-  props.modelValue.forEach(fillSuggestedTotals)
+  props.modelValue.forEach(row=>{if(!row.id&&row.pricingMode==='metric'&&filledMetrics.value.length===1)row.metricType=filledMetrics.value[0].key;fillSuggestedTotals(row)})
 }, { deep: true })
 
 const addItem = () => emit('update:modelValue', [...props.modelValue, {
@@ -189,7 +190,7 @@ const addItem = () => emit('update:modelValue', [...props.modelValue, {
   sequenceNo: props.modelValue.length + 1,
   itemName: '翻译费',
   pricingMode: 'metric',
-  metricType: 'words',
+  metricType: filledMetrics.value.length === 1 ? filledMetrics.value[0].key : null,
   unitSize: 1000,
   billingMonth: null,
   unitPriceExclTax: null,

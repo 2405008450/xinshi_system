@@ -130,7 +130,7 @@
         </el-row>
         <el-row :gutter="16">
           <el-col :span="12"><el-form-item label="优先级"><el-select v-model="subOrderForm.priority" clearable style="width: 100%"><el-option v-for="item in priorityOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="字数统计"><div class="word-count-summary"><span>{{ formatWordCountMatrix(subOrderForm.wordCountMatrix) }}</span><WordCountMatrixPopover v-model="subOrderForm.wordCountMatrix" entity-type="suborder" :entity-id="subOrderForm.id" title="子订单字数统计" @saved="fetchSubOrders" /></div></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="字数统计"><div class="word-count-summary"><span>{{ formatWordCountMatrix(subOrderForm.wordCountMatrix) }}</span><WordCountMatrixPopover v-model="subOrderForm.wordCountMatrix" entity-type="suborder" :entity-id="subOrderForm.id" title="子订单字数统计" @saved="fetchSubOrders" /></div></el-form-item><el-form-item label="客户财务"><el-button type="primary" plain @click="customerFinanceEditorRef.openForForm(subOrderForm,project)">客户财务</el-button></el-form-item></el-col>
         </el-row>
         <el-row :gutter="16">
           <el-col :span="12"><el-form-item label="客户交稿时间"><el-date-picker v-model="subOrderForm.customerDeadlineTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
@@ -173,7 +173,6 @@
         <el-row :gutter="16">
           <el-col :span="24"><el-form-item label="备注"><el-input v-model="subOrderForm.remarks" type="textarea" :rows="3" /></el-form-item></el-col>
         </el-row>
-        <CustomerChargeEditor v-model="subOrderForm.customerChargeItems" v-model:word-count-matrix="subOrderForm.wordCountMatrix" entity-type="suborder" :entity-id="subOrderForm.id" @saved="fetchSubOrders" />
       </AppForm>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -187,6 +186,7 @@
       :existing-names="subOrders.map((item) => item.subProjectName).filter(Boolean)"
       @created="fetchSubOrders"
     />
+    <TranslationCustomerFinance ref="customerFinanceEditorRef" editor-only />
   </el-card>
 </template>
 
@@ -201,7 +201,7 @@ import { createSubOrder, deleteSubOrder, getSubOrdersByProject, updateSubOrder }
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
-import CustomerChargeEditor from './components/CustomerChargeEditor.vue'
+import TranslationCustomerFinance from './CustomerFinance.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
@@ -344,6 +344,7 @@ const saveAllInlineNames = async () => {
   }
 }
 onMounted(loadData)
+const customerFinanceEditorRef=ref(null)
 </script>
 
 <style scoped>

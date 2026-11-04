@@ -1,4 +1,6 @@
 """客户语种参考价、订单收费语种关联及不可覆盖的变更记录。"""
+from tax_prices import TaxPrices, reference_tax_prices
+from tax_prices import TaxPriceMixin, TaxFieldsMixin
 import hashlib
 import json
 from decimal import Decimal
@@ -17,7 +19,7 @@ import translation_quantity_basis as quantity_basis
 METRICS={'characters_no_spaces','words','foreign_words','cjk_chars_korean_words','documents','pages'}
 
 
-class CustomerTranslationRate(Base):
+class CustomerTranslationRate(TaxPriceMixin, Base):
     __tablename__='customer_translation_rate'
     __table_args__=(UniqueConstraint('client_id','rate_key',name='uq_customer_translation_rate_key'),CheckConstraint('amount >= 0 AND unit_size > 0 AND revision >= 1',name='ck_customer_translation_rate_values'))
     id=Column(Uuid,primary_key=True,default=uuid4)
@@ -84,7 +86,7 @@ def order_rates(db,owner,language_pair=None,meta=None):
              'amount':str(Decimal(str(row.unit_price_excl_tax if row.unit_price_excl_tax is not None else row.unit_price)).normalize()) if row.unit_price_excl_tax is not None or row.unit_price is not None else None,
              'currency':row.currency or 'CNY','metric':bases.get(row.id,row.metric_type),'unit_size':str(Decimal(str(row.unit_size or 1)).normalize()),
              'reference_id':str(meta[row.id].reference_id) if row.id in meta and meta[row.id].reference_id else None,
-             'reference_revision':meta[row.id].reference_revision if row.id in meta else None} for row in charges]
+             'reference_revision':meta[row.id].reference_revision if row.id in meta else None, 'tax_prices':{key:str(getattr(row,key)) if getattr(row,key) is not None else None for key in TaxPrices.model_fields}} for row in charges]
 
 
 def chinese(label):
@@ -106,6 +108,7 @@ def direction(db,value):
 
 
 class RateInput(BaseModel):
+    tax_prices: TaxPrices | None = None
     model_config=ConfigDict(extra='forbid')
     id:UUID|None=None
     language_pair:str=Field(min_length=1,max_length=255)
@@ -135,7 +138,7 @@ def rate_key(data):
 
 def serialize(row):
     return {'id':str(row.id),'language_pair':row.language_pair,'amount':str(row.amount),'currency':row.currency,'metric':row.metric,
-            'unit_size':str(row.unit_size),'revision':row.revision,'active':row.active,'updated_at':business_datetime(row.updated_at).isoformat()}
+            'unit_size':str(row.unit_size),'revision':row.revision,'active':row.active,'updated_at':business_datetime(row.updated_at).isoformat(),'tax_prices':row.tax_prices}
 
 
 def library(db,client_id):
@@ -161,7 +164,7 @@ def write_library(db,user,client_id,items,expected,origin='client',merge=False):
         if row is None:
             row=CustomerTranslationRate(id=uuid4(),client_id=client_id,rate_key=key,revision=0);db.add(row)
         row.language_pair=data['language_pair'];row.amount=data['amount'];row.currency=data['currency'];row.metric=data['metric'];row.unit_size=data['unit_size']
-        row.active=True;row.revision+=1;row.updated_by=user.id;row.updated_at=business_now()
+        row.tax_prices=reference_tax_prices(data.get('tax_prices'));row.active=True;row.revision+=1;row.updated_by=user.id;row.updated_at=business_now()
     if not merge:
         for key,row in existing.items():
             if key not in keys and row.active:row.active=False;row.revision+=1;row.updated_by=user.id;row.updated_at=business_now()
@@ -199,3 +202,9 @@ def history(client_id:UUID,page:int=Query(1,ge=1),db=Depends(get_db)):
     query=db.query(CustomerTranslationRateHistory).filter_by(client_id=client_id)
     total=query.count();rows=query.order_by(CustomerTranslationRateHistory.created_at.desc(),CustomerTranslationRateHistory.id.desc()).offset((page-1)*10).limit(10).all()
     return {'total':total,'items':[{'id':str(row.id),'actor_name':row.actor_name,'created_at':business_datetime(row.created_at).isoformat(),'origin':row.origin,'before':row.before_snapshot,'after':row.after_snapshot} for row in rows]}
+
+
+class CustomerTranslationRateTax(TaxFieldsMixin, Base):
+    __tablename__ = 'customer_translation_rate_tax'
+    from sqlalchemy import Column as _Column, Uuid as _Uuid, ForeignKey as _ForeignKey
+    id = _Column(_Uuid, _ForeignKey('customer_translation_rate.id', ondelete='CASCADE'), primary_key=True)

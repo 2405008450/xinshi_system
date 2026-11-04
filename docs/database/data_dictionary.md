@@ -1,5 +1,66 @@
 # 数据字典
 
+## 客户对账单（2026-11-03）
+
+- 笔译客户财务窗口新增“收费设置 / 对账单”页签；对账单支持当前项目（含所选订单的下级）或该客户整月全部笔译项目（包含子客户）。账单月份优先采用本订单已登记月份，其次沿用最近上级，最后沿用母订单编号月份；编号无月份时回退客户接单时间月份。来稿日期直接使用母订单客户接单时间，按UTC+8展示。
+- 新表 `customer_statement_preference`：`client_id UUID` 主键/FK `client.id`（删除级联），`tax_included boolean not null`（默认false），`revision integer not null`，`updated_by UUID` FK `app_user.id`（删除置空），`updated_at timestamptz not null`（UTC+8）。客户财务信息中的“单价含税”即时保存；未勾选时对账单采用不含税口径，已明确登记的两种税口径金额不互相推算或覆盖。
+- 新表 `customer_statement_settings`：`key varchar(30)` 主键（公司配置使用company），`bank_name varchar(255)`，`account_name varchar(255)`，`account_number varchar(100)`，`stamp_image text`（经图片解码校验、去元数据及尺寸限制后的PNG data URL；空值采用示例章），`revision integer not null`，`updated_by UUID` FK `app_user.id`（删除置空），`updated_at timestamptz not null`（UTC+8）。账户及印章由全部客户对账单共用。
+- 设置和税口径修改使用版本校验防止覆盖；读取需要客户或项目查看权限，修改需要客户管理写权限。迁移入口 `tools/apply_customer_statements_migration.py` 只创建这两张表及必要约束，不修改既有表；服务自动迁移保持关闭。
+- `/translation-statements/preview` 和 `/translation-statements/excel` 使用同一生成逻辑：表头为“广州信实翻译服务公司 / 对账单”，包含来稿日期、项目名称、翻译方向、工作量及计价方式、含税/不含税单价、小计和备注。固定收费不做数量乘单价；只对最下级收费项或固定收费订单计费，父级明确调价单独列出差额，避免重复累计母子订单。
+- 金额以Decimal逐条四舍五入到分，按币种合计；缺少单价、工作量或所选税口径时标为待补，合计注明仅含已登记金额。导出Excel携带预览内容SHA256，数据或账户印章变化时拒绝下载并要求重新生成。Excel和打印版均将透明印章作为合计左侧的浮动图层叠盖表格线；账户名、账号保持文本，避免丢失前导零及公式注入。
+
+## 四类项目客户财务入口（2026-11-03）
+
+- 项目客户财务窗口统一提供笔译财务、口译财务、标注财务、招聘财务页签，默认打开当前项目类型。其他页签仅按当前客户编号查询对应类型项目，不将不同类型财务写入当前项目。项目管理板块均提供“财务管理（客户）”子板块。
+- 标注和招聘接口 `/project-customer-finance/{module}` 复用项目报价及税口径附表；标注保存保持报价ID和语言范围，沿用下级继承与独立修改规则；招聘仅修改税口径金额及货币。按币种分别汇总不含税、含税总价，未填金额不视为零。项目详情版本SHA256控制并发覆盖。
+- 新表 `project_customer_finance_history`：`id UUID` 主键，`module varchar(20)`（标注/招聘），`project_id UUID`（多类型项目编号），`order_no varchar(50)`，`actor_id UUID`（FK `app_user.id`，删除置空），`actor_name varchar(255)` 姓名快照，`before JSON`、`after JSON` 财务快照，`created_at timestamptz`（UTC+8）。模块及项目ID索引；仅金额发生变更时与项目同事务写入。项目ID不设置单表外键，以保留不同类型及已删除项目的历史快照。
+- 可重复执行脚本 `tools/apply_project_customer_finance_migration.py` 只创建上述新表及索引、约束，不修改既有表；启动自动迁移保持关闭。
+
+## 四类项目的税口径价格附表
+
+显式迁移 tools/apply_project_tax_prices_migration.py 只新增下列四张表，不修改旧表、不回填历史金额。各附表 id 是主键与业务行外键，随业务行级联删除。税口径与原业务记录同事务提交，由原模块的版本校验和权限规则控制。
+
+| 新表 | id 关联对象 |
+| --- | --- |
+| annotation_project_price_item_tax | annotation_project_price_item.id |
+| recruitment_project_tax | recruitment_project.id |
+| customer_annotation_rate_tax | customer_annotation_rate.id |
+| customer_translation_rate_tax | customer_translation_rate.id |
+
+四表共用字段：unit_price_excl_tax（不含税单价）、unit_price_incl_tax（含税单价），均 numeric(18,6)；total_excl_tax（不含税总价）、total_incl_tax（含税总价），均 numeric(18,2)。全部可空，NULL 表示未明确填写，不表示零税率。客户参考价只使用单价两项；项目总价不写入参考价，也不随参考价同步或子项目复制而复制。
+
+笔译项目收费继续使用既有收费表内的四项税口径字段；口译财务在既有 payload JSON 的每条 rates/overtime/adjusted_totals 内保存 tax_prices。同币种按口径分别汇总，含税/不含税不能混算。不预设税率，也不从一侧推算另一侧。未说明口径的原金额继续保留，显示“税口径未确认”。同步预览与版本比较包含含税/不含税单价，单独调整过的项目价格保留。
+
+笔译项目计价方式从当前订单已填写的客户/我司字数统计生成，零值视为已填写；唯一项自动采用，多项必须选择。预统计沿用“不用以计算费用”的约定，不进入计价选项；客户参考价没有具体项目数量时继续保留口径配置。
+
+### 笔译客户财务计价模式与表单入口
+
+计价模式默认 metric（按数量），固定收费为 fixed。fixed 使用既有收费表 total_excl_tax / total_incl_tax 直接保存两种一口价，单价、统计口径与计价单位为空；不乘数量、不由子订单金额求和，也不被客户参考单价自动下发覆盖。模式切换保留在原财务审计链路。
+
+母订单、子订单及独立子订单管理表单均在字数统计下提供“客户财务”入口，复用客户财务窗口，移除表单里的客户收费明细。表单内财务修改先保留在本地表单，随项目或子订单主表单同事务提交；取消主表单不另建项目或提前落库。按数量时新增 API 字段 language_pair 与 quantity_basis，写入既有 translation_charge_direction、translation_charge_quantity_basis 表，恢复后仍使用同一语种方向与统计来源；未新增旧表列。
+
+## 客户标注单价（customer_annotation_rate）
+
+客户管理 → 财务信息 → 标注中维护的多条客户单价；标注类型复用标注项目类型，货币与单位复用现有结算目录。只保存客户报价，不自动修改项目报价。显式运行 tools/apply_customer_annotation_rates_migration.py 初始化，不在服务启动时迁移。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | uuid | 主键 |
+| client_id | uuid | 关联 client.id，删除客户时级联删除，带索引 |
+| project_type | varchar(50) | 标注类型，对应标注项目类型枚举 |
+| amount | numeric(18,6) | 大于零的单价金额，最多六位小数 |
+| currency | varchar(3) | CNY/USD/HKD/EUR/GBP，新增默认 CNY 人民币 |
+| unit | varchar(30) | 复用结算单位键，如 item 条、minute 分钟、hour 小时 |
+| revision | integer | 从 1 递增的并发版本，编辑及删除校验 |
+| updated_by | uuid | 最后修改人，关联 app_user.id |
+| updated_at | timestamptz | 最后修改时间，接口返回 +08:00 |
+
+同一客户、标注类型、货币与单位组合唯一，允许同一类型配置不同单位的单价。
+
+支持在客户资料查看关联标注项目的报价差异并逐条引入。读取、引入均校验客户及项目查看权限，引入另需客户管理权限与显式确认。引入前核对来源项目、报价及客户单价版本；类型缺失、单位或货币无法对应时提示补全。支持元/条等历史单位映射，保留项目原报价；不自动向标注项目下发客户单价。
+
+口译客户参考价不录入数量，保存时固定数量为 1，项目实际数量及历史记录保持原语义；方向下拉复用系统语言对，保留项目财务表单自身的方向限制。
+
 ## 客户合作信息（client_cooperation）
 
 客户管理“合作信息”选项卡的大文本内容，随客户新增/编辑同事务保存，复用客户 updated_at 乐观锁，与基本信息备注独立。通过显式迁移 tools/apply_client_cooperation_migration.py 创建，不在服务启动时迁移。
@@ -2455,3 +2516,8 @@ Python translation_file_name_rules.py 与前端 translationFileName.js 共用格
 - 客户经理筛选使用独立可拖拽窗口，人员下拉不触发外部点击关闭；支持本人、多选指定及不指定人（全部订单，包括未指定经理）。取消不改变原条件，确认后列表、总数及客户小计使用相同条件。
 - 新增笔译项目每次直接打开空白表单，不读取或恢复新增草稿，不显示草稿提示。切换前暂停原编辑草稿，项目ID、订单号、版本及客户/统计/时间字段不从旧内容带入；已有编辑草稿逻辑保持原用途。
 - 项目同步客户参考价前重新读取客户最新参考价，显示客户名称/编号及同语种方向的价格、货币、统计口径、数量单位与差异，无对应方向明确提示新增。用户最终确认后再写入，继续校验项目和客户参考价版本；取消及关闭比较窗不写业务数据。
+
+
+### 笔译字数逐级汇总（2026-11-03）
+
+按订单号点号层级识别直接下级：二级子订单汇总到一级子订单，一级子订单汇总到母订单。四个来源（我司统计、客户统计、预统计、译员预估）的六种计量口径分别求和；空白不视为零，全部空白保持空白，显式零参与汇总。有下级时忽略父级原独立值，避免父级和下级重复相加；无下级继续使用自身统计。汇总在读取时批量计算，不回填历史统计、不改变表结构；列表、详情、字数弹窗、稿件安排和财务数据读取共用相同逻辑。汇总单元格只读，独立矩阵修改接口拒绝直接修改汇总值，完整项目表单保存跳过汇总节点的矩阵。预统计仍不参与计费。

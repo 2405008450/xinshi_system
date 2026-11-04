@@ -23,6 +23,15 @@ def run():
         popup.get_by_role('spinbutton',name='预统计-页数',exact=True).fill('99');popup.get_by_role('button',name='保存',exact=True).click();expect(popup).not_to_be_visible()
         assert writes==[{'scope':'entity','dimension':'preliminary','metric_type':'pages','value':99,'arrangement_id':None}]
         page.get_by_role('button',name='字数统计',exact=True).click();expect(popup.get_by_role('spinbutton',name='预统计-页数',exact=True)).to_have_value('99');expect(popup.get_by_role('spinbutton',name='客户统计-字数',exact=True)).to_have_value('20')
+        popup.get_by_role('button',name='取消',exact=True).click()
+        state['source']='suborder_aggregate';state['customer']['words']=127
+        page.get_by_role('button',name='字数统计',exact=True).click()
+        expect(popup).to_contain_text('下级自动汇总')
+        expect(popup.get_by_role('spinbutton',name='客户统计-字数',exact=True)).to_have_value('127')
+        expect(popup.get_by_role('spinbutton',name='客户统计-字数',exact=True)).to_be_disabled()
+        expect(popup.get_by_role('spinbutton',name='预统计-页数',exact=True)).to_be_disabled()
+        popup.get_by_role('button',name='保存',exact=True).click()
+        assert len(writes)==1
         browser.close()
     print('statistics labels, preliminary placement, independent PATCH and reopening persistence PASS')
 

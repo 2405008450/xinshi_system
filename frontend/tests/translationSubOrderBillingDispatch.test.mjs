@@ -22,7 +22,7 @@ test('母订单与子订单字数保持独立维护，母订单始终可以手�
   assert.match(source, /<WordCountMatrixPopover[\s\S]*?entity-type="project"[\s\S]*?title="项目字数统计"/)
 })
 
-test('母子订单通用收费编辑器按客户字数计算税价并按币种汇总', () => {
+test('客户收费计算能力保留，母子订单表单改用客户财务按钮', () => {
   const source = read('src/views/project/translation/components/CustomerChargeEditor.vue')
   const projectDetails = read('src/views/project/translation/ProjectDetails.vue')
   const subOrderManagement = read('src/views/project/translation/SubOrderManagement.vue')
@@ -37,8 +37,12 @@ test('母子订单通用收费编辑器按客户字数计算税价并按币种�
   assert.match(source, /lastSuggestions/)
   assert.match(source, /sameAmount\(row\[key\], previous\)/)
   assert.match(source, /Object\.entries\(totals\)/)
-  assert.equal((projectDetails.match(/<CustomerChargeEditor/g) || []).length, 2)
-  assert.match(subOrderManagement, /<CustomerChargeEditor/)
+  assert.doesNotMatch(projectDetails, /<CustomerChargeEditor/)
+  assert.match(projectDetails, /openCustomerFinance\(form\)/)
+  assert.match(projectDetails, /openCustomerFinance\(subOrderForm\)/)
+  assert.match(projectDetails, /<TranslationCustomerFinance/)
+  assert.doesNotMatch(subOrderManagement, /<CustomerChargeEditor/)
+  assert.match(subOrderManagement, /<TranslationCustomerFinance/)
   assert.doesNotMatch(subOrderManagement, /SubOrderChargeEditor/)
 })
 

@@ -1,7 +1,7 @@
 <template>
   <div class="annotation-workspace" :class="{ 'annotation-workspace--focus': focusMode && activeSection === 'accounts', 'annotation-workspace--projects': activeSection === 'projects' }">
     <el-card v-show="!(focusMode && activeSection === 'accounts')" class="workspace-navigation" shadow="never">
-      <el-tabs v-model="activeSection" @tab-change="handleSectionChange">
+      <el-tabs :model-value="activeSection" :before-leave="handleSectionChange">
         <el-tab-pane v-if="canViewProjects" label="标注项目管理" name="projects" />
         <el-tab-pane v-if="canViewProjects" label="项目安排" name="arrangements" />
         <el-tab-pane v-if="canViewProjects" label="项目对比" name="comparisons" />
@@ -56,12 +56,13 @@ watch(
   { immediate: true },
 )
 
-const handleSectionChange = (section) => {
+const handleSectionChange = async (section) => {
   if (section !== 'accounts') focusMode.value = false
   const nextQuery = { ...route.query }
   if (section === 'projects') delete nextQuery.section
   else nextQuery.section = section
-  router.replace({ name: 'AnnotationProjectDetails', query: nextQuery })
+  await router.replace({ name: 'AnnotationProjectDetails', query: nextQuery })
+  return activeSection.value === section
 }
 
 const handleFocusModeChange = (value) => {

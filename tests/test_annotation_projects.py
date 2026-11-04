@@ -269,10 +269,10 @@ def test_customer_price_summary_shows_amount_only():
         ),
     ]
 
-    assert project.customer_price_summary == "￥123123/条；$0.15/小时"
-    assert project.price_items[0].amount_display == "￥123123/条"
-    assert project.price_items[1].amount_display == "$0.15/小时"
-    assert AnnotationProjectPriceItem(amount=Decimal("8"), unit="条").amount_display == "￥8/条"
+    assert project.customer_price_summary == "原单价（税口径未确认）￥123123/条；原单价（税口径未确认）$0.15/小时"
+    assert project.price_items[0].amount_display == "原单价（税口径未确认）￥123123/条"
+    assert project.price_items[1].amount_display == "原单价（税口径未确认）$0.15/小时"
+    assert AnnotationProjectPriceItem(amount=Decimal("8"), unit="条").amount_display == "原单价（税口径未确认）￥8/条"
 
 
 def test_price_item_currency_is_optional():
@@ -591,6 +591,13 @@ class DeleteDb:
 
 
 def _patch_annotation_delete_side_effects(monkeypatch, cleaned_images):
+    import sqlalchemy
+    original_inspect = sqlalchemy.inspect
+    monkeypatch.setattr(DeleteDb, 'connection', lambda self: self, raising=False)
+    # 这些用例仅验证账号和资源需求阻止删除；模拟未启用采标工作区的旧库。
+    monkeypatch.setattr(sqlalchemy, 'inspect', lambda value: (
+        SimpleNamespace(has_table=lambda _table: False) if isinstance(value, DeleteDb) else original_inspect(value)
+    ))
     monkeypatch.setattr(annotation_service, "record_project_operation", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         "project_workbench_service.cancel_pending_project_handovers",

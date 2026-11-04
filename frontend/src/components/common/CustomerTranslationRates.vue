@@ -13,6 +13,7 @@
   </div>
 </template>
 <script setup>
+import {taxPriceForm} from '@/utils/taxPrices'
 import {ref,watch,onBeforeUnmount} from 'vue'
 import {ElMessage,ElMessageBox} from 'element-plus'
 import CustomerTranslationPriceEditor from './CustomerTranslationPriceEditor.vue'
@@ -30,7 +31,7 @@ const historyTotal=ref(0),historyPage=ref(1)
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(body)
 let version='',original='',client='',sequence=0
 const signature=()=>JSON.stringify(draft.value.prices.map(ratePayload))
-function apply(data){version=data.version;ready.value=data.ready;draft.value.prices=data.items.map(row=>({...newCustomerRate(row.languagePair),...row,amount:Number(row.amount),unitSize:Number(row.unitSize)}));original=signature()}
+function apply(data){version=data.version;ready.value=data.ready;draft.value.prices=data.items.map(row=>({...newCustomerRate(row.languagePair),...row,taxPrices:taxPriceForm(row.taxPrices),amount:Number(row.amount),unitSize:Number(row.unitSize)}));original=signature()}
 function applyHistory(data){history.value=data.items||[];historyTotal.value=data.total??history.value.length}
 async function loadHistory(){const current=sequence,target=client,page=historyPage.value;try{const data=await getCustomerTranslationRateHistory(target,{page});if(current===sequence&&page===historyPage.value)applyHistory(data)}catch(e){if(current===sequence)error.value=getLocalizedErrorMessage(e,'修改记录加载失败')}}
 async function open(){if(!props.clientId)return;const current=++sequence;client=props.clientId;historyPage.value=1;visible.value=true;loading.value=true;error.value='';try{const [data,events]=await Promise.all([getCustomerTranslationRates(client),getCustomerTranslationRateHistory(client).catch(()=>({items:[]}))]);if(current!==sequence)return;apply(data);applyHistory(events);if(!data.ready)error.value='客户语种单价存储尚未初始化'}catch(e){if(current===sequence)error.value=getLocalizedErrorMessage(e,'参考价加载失败')}finally{if(current===sequence)loading.value=false}}
