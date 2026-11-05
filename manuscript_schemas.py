@@ -5,7 +5,7 @@ from pathlib import PurePosixPath
 from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, field_serializer, model_validator
 from path_security import validate_managed_path
 from word_count_schemas import WordCountCreateMatrix, WordCountValues
 
@@ -458,6 +458,29 @@ class ManuscriptDispatchResponse(BaseModel):
     arrangements: list[ManuscriptArrangementResponse] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ManuscriptDispatchPage(BaseModel):
+    items: list[ManuscriptDispatchResponse]
+    total: int
+    skip: int
+    limit: int
+    workbench_items: list[ManuscriptDispatchResponse] = Field(default_factory=list)
+    creator_options: list[dict] = Field(default_factory=list)
+
+    @field_serializer('items', 'workbench_items', when_used='json')
+    def serialize_business_times(self, values):
+        # 沿用稿件旧 DateTime 字段的香港本地存储语义，保留微秒版本精度。
+        from business_time import business_iso
+        def convert(value):
+            if isinstance(value, datetime):
+                return business_iso(value)
+            if isinstance(value, dict):
+                return {key: convert(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [convert(item) for item in value]
+            return value
+        return [convert(row.model_dump(mode='python')) for row in values]
 
 
 class ManuscriptBatchSendResponse(BaseModel):

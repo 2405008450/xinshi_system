@@ -4,6 +4,7 @@ import { subscribe, ensureConnected } from '@/utils/realtimeSocket'
 import { useProjectChatDock, refreshOpenAnnotationStatuses } from '@/composables/useProjectChatDock'
 import { applySessionCategories } from '@/composables/useChatSessionCategories'
 import { useChatTopics } from '@/composables/useChatTopics'
+import { createCoalescedRefresh } from '@/utils/coalescedRefresh'
 const { refresh: refreshTopics } = useChatTopics()
 
 const sessions = ref([])
@@ -16,20 +17,31 @@ const total = ref(0)
 const error = ref('')
 let users = 0
 let timer = 0
-let pending = false
-let rerun = false
+let refreshScheduler
 let cleanup = []
 let generation = 0
 let controller
 
-async function refresh(options = {}) {
-  if (!localStorage.getItem('user_id')) return
-  if (options?.force) { controller?.abort(); pending = false; rerun = false }
-  if (pending) {
-    rerun = true
-    return
+function refresh(options = {}) {
+  if (!refreshScheduler) return Promise.resolve()
+  if (options?.force === true) {
+    // 前台恢复时旧连接可能已挂起；废弃旧响应，恢复请求与随后的连接事件仍合并。
+    ++generation
+    controller?.abort()
+    refreshScheduler.stop()
+    refreshScheduler = createScheduler()
   }
-  pending = true
+  return refreshScheduler.schedule()
+}
+
+function createScheduler() {
+  return createCoalescedRefresh(fetchSessions, {
+    visible: () => document.visibilityState !== 'hidden',
+  })
+}
+
+async function fetchSessions() {
+  if (!localStorage.getItem('user_id')) return
   const version = ++generation
   const userId = localStorage.getItem('user_id')
   const current = new AbortController()
@@ -57,20 +69,13 @@ async function refresh(options = {}) {
       console.warn('会话目录刷新失败', JSON.stringify({ code: cause.code, status: cause.response?.status, message: cause.message }))
       error.value = '未读消息暂时无法加载'
     }
-  } finally {
-    if (version === generation) {
-      pending = false
-      if (rerun) {
-        rerun = false
-        refresh()
-      }
-    }
   }
 }
 
 function start() {
   if (users !== 1) return
-  refresh()
+  refreshScheduler = createScheduler()
+  refreshScheduler.schedule({ immediate: true })
   ensureConnected()
   cleanup = [
     subscribe('annotation_chat_changed', refresh),
@@ -83,7 +88,7 @@ function start() {
     subscribe('chat_topics_changed', () => refreshTopics(true).catch(() => {})),
     subscribe('chat_message', refresh),
     subscribe('notification', refresh),
-    subscribe('connected', () => refresh({ force: true })),
+    subscribe('connected', refresh),
     subscribe('foreground', () => refresh({ force: true })),
   ]
   timer = window.setInterval(refresh, 15000)
@@ -92,8 +97,9 @@ function start() {
 function stop() {
   if (users !== 0) return
   ++generation
+  refreshScheduler?.stop()
+  refreshScheduler = null
   controller?.abort()
-  pending = false; rerun = false
   sessions.value = []
   applySessionCategories(null)
   total.value = 0

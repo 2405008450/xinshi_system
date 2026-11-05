@@ -1,5 +1,5 @@
 <template>
-  <el-card class="common-page-card compact-list-card">
+  <el-card class="common-page-card viewport-list-card compact-list-card">
     <template #header>
       <div class="card-header">
         <div>
@@ -73,7 +73,8 @@
       </AppForm>
     </div>
 
-    <el-table
+    <div class="viewport-list-table">
+    <el-table height="100%"
       ref="clientTableRef"
       :data="tableData"
       v-loading="loading"
@@ -239,6 +240,7 @@
       </el-table-column>
     </OrderedTableColumns>
 </el-table>
+    </div>
 
     <el-pagination
       v-model:current-page="pagination.page"

@@ -25,6 +25,7 @@ from manuscript_schemas import (
     ManuscriptDispatchCreate,
     ManuscriptDispatchFileListResponse,
     ManuscriptDispatchResponse,
+    ManuscriptDispatchPage,
     ManuscriptDispatchUpdate,
     ManuscriptMailPreview,
     ManuscriptMailPathsResponse,
@@ -49,6 +50,7 @@ from manuscript_service import (
     get_arrangement_mail_preview,
     list_arrangements,
     list_dispatches,
+    get_dispatch_page,
     list_dispatch_files,
     reassign_arrangement,
     send_arrangement,
@@ -289,6 +291,22 @@ def read_dispatches(
         keyword=keyword,
         status=dispatch_status,
         field_filters=_dispatch_field_filters(field_filters),
+    )
+
+
+@router.get("/batches/page", response_model=ManuscriptDispatchPage)
+def read_dispatch_page(
+    skip: int = Query(0, ge=0), limit: int = Query(10, ge=1, le=100),
+    keyword: Optional[str] = None, dispatch_status: Optional[str] = Query(None, alias="status"),
+    field_filters: Optional[str] = None,
+    project_id: Optional[UUID] = None, sub_order_id: Optional[UUID] = None,
+    selected_dispatch_id: Optional[UUID] = None,
+    db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user),
+):
+    return get_dispatch_page(
+        db, current_user=current_user, skip=skip, limit=limit,
+        keyword=keyword, status=dispatch_status, field_filters=_dispatch_field_filters(field_filters),
+        project_id=project_id, sub_order_id=sub_order_id, selected_dispatch_id=selected_dispatch_id,
     )
 
 

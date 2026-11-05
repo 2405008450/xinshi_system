@@ -1,6 +1,7 @@
 """稿件安排模块的业务逻辑。"""
 from __future__ import annotations
 from search_matching import keyword_ilike, keyword_or
+from business_time import business_now
 
 import datetime
 import re
@@ -1121,7 +1122,7 @@ def _get_active_manuscript_projects(
                     "",
                 ).in_(values))
 
-    now = datetime.datetime.now()
+    now = business_now()
     due_soon = now + datetime.timedelta(hours=24)
     total = query.count()
     overdue_total = query.filter(deadline.is_not(None), deadline < now).count()
@@ -1172,6 +1173,8 @@ def _get_active_manuscript_projects(
                 project_file,
             )
 
+    from word_count_service import attach_entity_matrices
+    attach_entity_matrices(db, [project for _, project, *_ in rows])
     items = []
     for workflow, project, sub_order, client_short_name, full_name, username in rows:
         is_sub_order = workflow.sub_order_id is not None
@@ -1229,11 +1232,7 @@ def _get_active_manuscript_projects(
                     if is_sub_order and sub_order
                     else project.priority
                 ),
-                "word_count_matrix": entity_matrix_values(
-                    db,
-                    "suborder" if is_sub_order else "project",
-                    sub_order.id if is_sub_order and sub_order else project.id,
-                ),
+                "word_count_matrix": (sub_order if is_sub_order and sub_order else project).word_count_matrix,
                 "dispatch_path": project_file.dispatch_path if project_file else None,
                 "network_file_path": (
                     sub_order.network_file_path or project.network_file_path
@@ -1432,12 +1431,9 @@ def _load_dispatch_for_actor(
     return dispatch
 
 
-def list_dispatches(
+def _dispatch_list_query(
     db: Session,
     *,
-    current_user: AppUser,
-    skip: int = 0,
-    limit: int = 200,
     keyword: Optional[str] = None,
     status: Optional[str] = None,
     field_filters: Optional[dict] = None,
@@ -1537,22 +1533,69 @@ def list_dispatches(
                     datetime.date.fromisoformat(str(end_value)) + datetime.timedelta(days=1),
                     datetime.time.min,
                 ))
+    return query
+
+
+def _hydrate_dispatches(db, rows, current_user):
+    attach_arrangement_matrices(
+        db, [arrangement for dispatch in rows for arrangement in dispatch.arrangements],
+    )
+    _attach_reassignment_metadata(
+        db, [arrangement for dispatch in rows for arrangement in dispatch.arrangements],
+    )
+    _attach_dispatch_responsibilities(db, rows, current_user)
+    return rows
+
+
+def list_dispatches(
+    db: Session, *, current_user: AppUser, skip: int = 0, limit: int = 200,
+    keyword: Optional[str] = None, status: Optional[str] = None,
+    field_filters: Optional[dict] = None,
+) -> list[ManuscriptDispatch]:
+    query = _dispatch_list_query(db, keyword=keyword, status=status, field_filters=field_filters)
     rows = (
-        query.order_by(ManuscriptDispatch.created_at.desc())
+        query.order_by(ManuscriptDispatch.created_at.desc(), ManuscriptDispatch.id.desc())
         .offset(skip)
         .limit(limit)
         .all()
     )
-    attach_arrangement_matrices(
-        db,
-        [arrangement for dispatch in rows for arrangement in dispatch.arrangements],
-    )
-    _attach_reassignment_metadata(
-        db,
-        [arrangement for dispatch in rows for arrangement in dispatch.arrangements],
-    )
-    _attach_dispatch_responsibilities(db, rows, current_user)
-    return rows
+    return _hydrate_dispatches(db, rows, current_user)
+
+
+def get_dispatch_page(
+    db: Session, *, current_user: AppUser, skip: int = 0, limit: int = 10,
+    keyword: Optional[str] = None, status: Optional[str] = None,
+    field_filters: Optional[dict] = None,
+    project_id: Optional[UUID] = None, sub_order_id: Optional[UUID] = None,
+    selected_dispatch_id: Optional[UUID] = None,
+) -> dict:
+    """记录分页和工作台分开取数；工作台最多保留四个相关批次。"""
+    query = _dispatch_list_query(db, keyword=keyword, status=status, field_filters=field_filters)
+    total = query.count()
+    # 数据减少后回退到有效末页，筛选与总数使用同一查询。
+    skip = min(skip, ((total - 1) // limit) * limit) if total else 0
+    items = query.order_by(ManuscriptDispatch.created_at.desc(), ManuscriptDispatch.id.desc()).offset(skip).limit(limit).all()
+    workbench = []
+    if project_id is not None:
+        scoped = _dispatch_list_query(db).filter(ManuscriptDispatch.translation_project_id == project_id)
+        scoped = scoped.filter(ManuscriptDispatch.sub_order_id == sub_order_id) if sub_order_id else scoped.filter(ManuscriptDispatch.sub_order_id.is_(None))
+        ids = set()
+        # 优先草稿，其次最新有效批次；取消批次仅作为重新安排的参数来源。
+        for condition in (ManuscriptDispatch.status == 'draft', ManuscriptDispatch.status != 'cancelled', ManuscriptDispatch.status == 'cancelled'):
+            row = scoped.with_entities(ManuscriptDispatch.id).filter(condition).order_by(ManuscriptDispatch.created_at.desc(), ManuscriptDispatch.id.desc()).first()
+            if row:
+                ids.add(row.id)
+        if selected_dispatch_id:
+            ids.add(selected_dispatch_id)
+        if ids:
+            workbench = scoped.filter(ManuscriptDispatch.id.in_(ids)).order_by(ManuscriptDispatch.created_at.desc(), ManuscriptDispatch.id.desc()).all()
+    combined = list({row.id: row for row in [*items, *workbench]}.values())
+    _hydrate_dispatches(db, combined, current_user)
+    creators = _dispatch_list_query(db).with_entities(
+        ManuscriptDispatch.created_by, ManuscriptDispatch.created_by_name,
+    ).filter(ManuscriptDispatch.created_by.is_not(None)).distinct().all()
+    return dict(items=items, total=total, skip=skip, limit=limit, workbench_items=workbench,
+        creator_options=[dict(value=uid, label=name or '未命名用户') for uid, name in creators])
 
 
 def list_arrangements(

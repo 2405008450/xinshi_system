@@ -1,5 +1,5 @@
 <template>
-  <el-card class="common-page-card compact-list-card">
+  <el-card class="common-page-card viewport-list-card compact-list-card">
     <template #header>
       <div class="card-header">
         <span>招聘项目管理</span>
@@ -25,7 +25,8 @@
       </el-form-item>
     </AppForm>
 
-    <el-table ref="projectTableRef" :data="rows" v-loading="loading" :row-class-name="projectRowClass" border row-key="id" class="recruitment-list-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
+    <div class="viewport-list-table">
+    <el-table height="100%" ref="projectTableRef" :data="rows" v-loading="loading" :row-class-name="projectRowClass" border row-key="id" class="recruitment-list-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
 <OrderedTableColumns settings-key="recruitment-projects">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center"><template #default="{ $index }">{{ (pagination.page - 1) * pagination.limit + $index + 1 }}</template></el-table-column>
@@ -112,6 +113,7 @@
       <el-table-column v-if="!deleteMode" label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center"><template #default="{ row }"><ProjectListRowActions v-if="canWrite" :start-request-label="resourceRequestActionLabel(row.id)" @edit="openEdit(row)" @start-request="startResourceRequest(row)" /></template></el-table-column>
     </OrderedTableColumns>
 </el-table>
+    </div>
     <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" class="pagination" @current-change="fetchData" @size-change="handleSizeChange" />
 
     <DraggableFormDialog v-model="editorVisible" width="min(1000px, calc(100vw - 32px))" top="5vh" class="recruitment-editor" @closed="onEditorClosed">

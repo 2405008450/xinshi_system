@@ -28,11 +28,37 @@ def can_view(db, user):
 
 
 def can_view_room(db, user, room):
-    from technical_task_conversations import ROOT_ID, GENERAL_NAME, can_access
-    if room.get('parent_key')==ROOT_ID or room.get('technical_task_id') or room.get('name')==GENERAL_NAME: return can_access(db,user)
-    if room.get('parent_key', RESOURCE_ROOT) == RESOURCE_ROOT:
+    from technical_task_conversations import can_access
+    scope = _room_permission_scope(room)
+    if scope == 'technical':
+        return can_access(db, user)
+    if scope == 'resource':
         return can_view(db, user)
     return bool(user and user.is_active)
+
+
+def _room_permission_scope(room):
+    from technical_task_conversations import ROOT_ID, GENERAL_NAME
+    if room.get('parent_key') == ROOT_ID or room.get('technical_task_id') or room.get('name') == GENERAL_NAME:
+        return 'technical'
+    return 'resource' if room.get('parent_key', RESOURCE_ROOT) == RESOURCE_ROOT else 'general'
+
+
+def visible_room_specs(db, user, rooms=None):
+    """同一次目录读取只计算一次各类权限，不按会话重复查询角色和部门。"""
+    from technical_task_conversations import can_access
+    if not user or not user.is_active:
+        return []
+    rooms = room_specs(db) if rooms is None else rooms
+    permissions = {}
+    result = []
+    for room in rooms:
+        scope = _room_permission_scope(room)
+        if scope not in permissions:
+            permissions[scope] = can_access(db, user) if scope == 'technical' else can_view(db, user) if scope == 'resource' else True
+        if permissions[scope]:
+            result.append(room)
+    return result
 
 
 def schema_ready(db):
@@ -87,13 +113,11 @@ def publish(db):
 def catalog(db, user):
     if not user or not user.is_active:
         return []
-    resource_visible=can_view(db,user)
-    rooms = [room for room in room_specs(db) if can_view_room(db,user,room)]
     ready = schema_ready(db)
     if not ready:
         return []
     members = {str(row.room_id): row for row in db.query(Member).filter_by(user_id=user.id)} if ready else {}
-    rooms = [row for row in rooms if row['id'] in members]
+    rooms = visible_room_specs(db, user, [row for row in room_specs(db) if row['id'] in members])
     if not rooms:
         return []
     latest = {}

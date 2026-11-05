@@ -1,5 +1,5 @@
 <template>
-  <el-card class="common-page-card talent-card compact-list-card">
+  <el-card class="common-page-card viewport-list-card talent-card compact-list-card">
     <template #header>
       <div class="card-header">
         <div>
@@ -53,7 +53,8 @@
       </el-form-item>
     </AppForm>
 
-    <el-table ref="talentTableRef" :data="rows" v-loading="loading" border row-key="id" @selection-change="handleDeleteSelectionChange">
+    <div class="viewport-list-table">
+    <el-table height="100%" ref="talentTableRef" :data="rows" v-loading="loading" border row-key="id" @selection-change="handleDeleteSelectionChange">
 <OrderedTableColumns :settings-key="`talent-pool:${isRecruitmentPool ? 'recruitment' : (capabilityType || 'all')}`">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column type="index" label="序号" width="64" align="center" fixed="left" />
@@ -139,6 +140,7 @@
       </el-table-column>
     </OrderedTableColumns>
 </el-table>
+    </div>
     <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" class="pagination" @current-change="fetchData" @size-change="handleSizeChange" />
 
     <DraggableFormDialog v-model="detailVisible" width="min(1120px, calc(100vw - 32px))" top="5vh" class="talent-detail-dialog" destroy-on-close>

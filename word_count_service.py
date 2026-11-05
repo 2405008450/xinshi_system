@@ -56,21 +56,33 @@ def hierarchy_matrix(db, entity_type, entity):
     """一次读取整棵订单树的统计，弹窗、稿件安排复用相同汇总结果。"""
     project_id = entity.id if entity_type == 'project' else entity.parent_project_id
     project = entity if entity_type == 'project' else db.get(TranslationProject, project_id)
-    sub_orders = db.query(TranslationSubOrder).filter(TranslationSubOrder.parent_project_id == project_id).all()
-    owners = {row.id: row for row in [project, *sub_orders]}
+    return attach_entity_matrices(db, [project])[entity.id]
+
+
+def attach_entity_matrices(db: Session, projects) -> dict:
+    """按母订单批量读取整棵树，每棵树只汇总一次，供列表复用。"""
+    projects = list({row.id: row for row in projects}.values())
+    if not projects:
+        return {}
+    project_ids = [row.id for row in projects]
+    sub_orders = db.query(TranslationSubOrder).filter(
+        TranslationSubOrder.parent_project_id.in_(project_ids)
+    ).all()
+    owners = {row.id: row for row in [*projects, *sub_orders]}
     for owner in owners.values():
         owner.word_count_matrix = {dimension: _empty_values() for dimension in ENTITY_DIMENSIONS}
     from sqlalchemy import or_
+    sub_order_ids = [row.id for row in sub_orders]
     metrics = db.query(WordCountMetric).filter(or_(
-        WordCountMetric.project_id == project_id,
-        WordCountMetric.sub_order_id.in_([row.id for row in sub_orders]),
-    )).all() + preliminary.rows(db, [project_id], [row.id for row in sub_orders])
+        WordCountMetric.project_id.in_(project_ids),
+        WordCountMetric.sub_order_id.in_(sub_order_ids),
+    )).all() + preliminary.rows(db, project_ids, sub_order_ids)
     for metric in metrics:
         owner = owners.get(metric.project_id or metric.sub_order_id)
         if owner is not None and metric.dimension in ENTITY_DIMENSIONS and metric.metric_type in METRIC_TYPES:
             owner.word_count_matrix[metric.dimension][metric.metric_type] = metric.count_value
-    roll_up_matrices([project], sub_orders)
-    return owners[entity.id]
+    roll_up_matrices(projects, sub_orders)
+    return owners
 
 
 def _has_child_orders(db, entity_type, entity):

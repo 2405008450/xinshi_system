@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import { computed, ref } from 'vue'
+import { createCoalescedRefresh } from '../src/utils/coalescedRefresh.js'
 import { isChatNotification, isChatMentionNotification, isChatAttentionNotification } from '../src/utils/notificationChannels.js'
 
 function events(extra = {}) {
@@ -136,16 +137,34 @@ function lifecycle() {
 
 test('前台恢复立即补查会话，旧挂起请求迟到也不能覆盖新未读数', async () => {
   const h = lifecycle()
+  let time = 0, timerId = 0
+  const timers = new Map()
+  const clock = {
+    now: () => time,
+    setTimer: (fn, delay) => { timers.set(++timerId, { fn, at: time + delay }); return timerId },
+    clearTimer: id => timers.delete(id),
+  }
+  const advance = async ms => {
+    time += ms
+    for (const [id, timer] of [...timers]) if (timer.at <= time) { timers.delete(id); void timer.fn() }
+    await flush()
+  }
   const source = readFileSync(new URL('../src/composables/useAnnotationFollowed.js', import.meta.url), 'utf8')
   const useStore = runInNewContext(source.replace(/^import .*\r?\n/gm, '').replace('export function ', 'function ') + '\n;useAnnotationFollowed', {
     ...h, ref, computed, chatRequest: (_path, options) => h.request(options),
+    document: { visibilityState: 'visible' },
+    createCoalescedRefresh: (run, options) => createCoalescedRefresh(run, { ...options, ...clock }),
     ensureConnected() {}, applySessionCategories() {},
     useChatTopics: () => ({ refresh: async () => {} }), useProjectChatDock: () => ({ state: { windows: [] } }),
     refreshOpenAnnotationStatuses: async () => {},
   })
   const store = useStore(); h.mounts.forEach(fn => fn())
+  await advance(0)
   assert.equal(h.requests.length, 1)
   h.subscribers.get('foreground')()
+  h.subscribers.get('connected')()
+  assert.equal(h.requests.length, 1)
+  await advance(400)
   assert.equal(h.requests.length, 2)
   assert.equal(h.requests[0].signal.aborted, true)
   h.requests[1].resolve({ items: [{ key: 'new', kind: 'annotation', mentionUnread: 4 }], mentionTotal: 4 })
@@ -153,8 +172,10 @@ test('前台恢复立即补查会话，旧挂起请求迟到也不能覆盖新�
   assert.equal(store.mentionTotal.value, 4)
   h.requests[0].resolve({ items: [], mentionTotal: 0 }); await flush()
   assert.equal(store.mentionTotal.value, 4)
-  store.refresh(); assert.equal(h.requests.length, 3)
+  store.refresh(); await advance(3000); assert.equal(h.requests.length, 3)
+  h.subscribers.get('foreground')()
   h.subscribers.get('connected')()
+  await advance(400)
   assert.equal(h.requests.length, 4)
   assert.equal(h.requests[2].signal.aborted, true)
   h.unmounts.forEach(fn => fn())

@@ -98,8 +98,7 @@ def history_query(db,user,keyword='',*,project_type=None,project_status=None,pro
         from discussion_chat_models import DiscussionMessage as Message, DiscussionMention as Mention, DiscussionMember as Member
         from chat_session_category_models import ChatSessionCategory
         room_specs=discussion.room_specs(db)
-        resource_visible=discussion.can_view(db,user)
-        visible=[__import__('uuid').UUID(room['id']) for room in room_specs if room.get('parent_key',discussion.RESOURCE_ROOT)!=discussion.RESOURCE_ROOT or resource_visible]
+        visible=[__import__('uuid').UUID(room['id']) for room in discussion.visible_room_specs(db,user,room_specs)]
         query=db.query(Message).join(Mention,Mention.message_id==Message.id).join(Member,and_(Member.room_id==Message.room_id,Member.user_id==user.id)).outerjoin(ChatSessionCategory,ChatSessionCategory.id==Message.room_id).filter(Mention.user_id==user.id,Message.room_id.in_(visible),Message.recalled_at.is_(None))
         if project_id:query=query.filter(Message.room_id==project_id)
         titles={__import__('uuid').UUID(room['id']):room['name'] for room in room_specs}

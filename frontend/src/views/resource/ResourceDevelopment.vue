@@ -1,5 +1,5 @@
 <template>
-  <el-card class="common-page-card compact-list-card resource-development-page">
+  <el-card class="common-page-card compact-list-card resource-development-page" :class="{'viewport-list-card':activeSection === 'requests' && canRequests}">
     <template #header>
       <div class="card-header">
         <div>

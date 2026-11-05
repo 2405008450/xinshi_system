@@ -263,7 +263,7 @@
         </el-card>
       </div>
 
-      <el-card class="legacy-assignment-panel" shadow="never">
+      <el-card v-loading="recordsLoading" class="legacy-assignment-panel" shadow="never">
         <template #header>
           <div class="legacy-assignment-panel__header">
             <div>
@@ -1115,7 +1115,7 @@
           </template>
         </el-table-column>
         <el-table-column label="订单号" width="145" show-overflow-tooltip>
-          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('orderNo')" :model-value="dispatchFilterModel.orderNo" @update:model-value="updateDispatchFilter('orderNo', $event)" @text-input="onDispatchKeywordInput" @change="loadDispatches" @enter="loadDispatches" @clear="loadDispatches" /></template>
+          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('orderNo')" :model-value="dispatchFilterModel.orderNo" @update:model-value="updateDispatchFilter('orderNo', $event)" @text-input="onDispatchKeywordInput" @change="runDispatchSearch" @enter="runDispatchSearch" @clear="runDispatchSearch" /></template>
           <template #default="{ row }">
             <div class="dispatch-order-cell">
               <TableExpandButton
@@ -1130,7 +1130,7 @@
           </template>
         </el-table-column>
         <el-table-column label="批次状态" width="88">
-          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('status')" :model-value="dispatchFilterModel.status" @update:model-value="updateDispatchFilter('status', $event)" @change="loadDispatches" @clear="loadDispatches" /></template>
+          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('status')" :model-value="dispatchFilterModel.status" @update:model-value="updateDispatchFilter('status', $event)" @change="runDispatchSearch" @clear="runDispatchSearch" /></template>
           <template #default="{ row }">
             <el-tag :type="dispatchStatusMeta(row.status).type" size="small">
               {{ dispatchStatusMeta(row.status).label }}
@@ -1138,14 +1138,14 @@
           </template>
         </el-table-column>
         <el-table-column prop="project_name_snapshot" label="项目" min-width="230" show-overflow-tooltip>
-          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('projectName')" :model-value="dispatchFilterModel.projectName" @update:model-value="updateDispatchFilter('projectName', $event)" @text-input="onDispatchKeywordInput" @change="loadDispatches" @enter="loadDispatches" @clear="loadDispatches" /></template>
+          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('projectName')" :model-value="dispatchFilterModel.projectName" @update:model-value="updateDispatchFilter('projectName', $event)" @text-input="onDispatchKeywordInput" @change="runDispatchSearch" @enter="runDispatchSearch" @clear="runDispatchSearch" /></template>
         </el-table-column>
         <el-table-column label="译员" width="105" show-overflow-tooltip>
-          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('translatorName')" :model-value="dispatchFilterModel.translatorName" @update:model-value="updateDispatchFilter('translatorName', $event)" @text-input="onDispatchKeywordInput" @change="loadDispatches" @enter="loadDispatches" @clear="loadDispatches" /></template>
+          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('translatorName')" :model-value="dispatchFilterModel.translatorName" @update:model-value="updateDispatchFilter('translatorName', $event)" @text-input="onDispatchKeywordInput" @change="runDispatchSearch" @enter="runDispatchSearch" @clear="runDispatchSearch" /></template>
           <template #default="{ row }">{{ translatorSummary(row) }}</template>
         </el-table-column>
         <el-table-column label="邮件投递" width="110" show-overflow-tooltip>
-          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('deliveryStatus')" :model-value="dispatchFilterModel.deliveryStatus" @update:model-value="updateDispatchFilter('deliveryStatus', $event)" @change="loadDispatches" @clear="loadDispatches" /></template>
+          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('deliveryStatus')" :model-value="dispatchFilterModel.deliveryStatus" @update:model-value="updateDispatchFilter('deliveryStatus', $event)" @change="runDispatchSearch" @clear="runDispatchSearch" /></template>
           <template #default="{ row }">{{ dispatchDeliverySummary(row) }}</template>
         </el-table-column>
         <el-table-column label="人数" width="55" align="center">
@@ -1167,7 +1167,7 @@
           </template>
         </el-table-column>
         <el-table-column label="任务完成情况" width="240">
-          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('completionStatus')" :model-value="dispatchFilterModel.completionStatus" @update:model-value="updateDispatchFilter('completionStatus', $event)" @change="loadDispatches" @clear="loadDispatches" /></template>
+          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('completionStatus')" :model-value="dispatchFilterModel.completionStatus" @update:model-value="updateDispatchFilter('completionStatus', $event)" @change="runDispatchSearch" @clear="runDispatchSearch" /></template>
           <template #default="{ row }">
             <div class="dispatch-completion-cell">
               <div
@@ -1204,10 +1204,10 @@
           </template>
         </el-table-column>
         <el-table-column prop="created_by_name" label="实际安排人" width="100" show-overflow-tooltip>
-          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('createdBy')" :model-value="dispatchFilterModel.createdBy" @update:model-value="updateDispatchFilter('createdBy', $event)" @change="loadDispatches" @clear="loadDispatches" /></template>
+          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('createdBy')" :model-value="dispatchFilterModel.createdBy" @update:model-value="updateDispatchFilter('createdBy', $event)" @change="runDispatchSearch" @clear="runDispatchSearch" /></template>
         </el-table-column>
         <el-table-column label="创建时间" width="140">
-          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('createdAt')" :model-value="dispatchFilterModel.createdAt" @update:model-value="updateDispatchFilter('createdAt', $event)" @change="loadDispatches" @clear="loadDispatches" /></template>
+          <template #header><ConfiguredColumnHeaderFilter :definition="dispatchHeaderFilter('createdAt')" :model-value="dispatchFilterModel.createdAt" @update:model-value="updateDispatchFilter('createdAt', $event)" @change="runDispatchSearch" @clear="runDispatchSearch" /></template>
           <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
         </el-table-column>
         <el-table-column v-if="canWrite" label="操作" width="200" fixed="right">
@@ -1263,12 +1263,13 @@
         </el-table-column>
       </el-table>
       <el-pagination
-        v-model:current-page="dispatchPage"
+        :current-page="dispatchPage"
         class="dispatch-records-pagination"
         :page-size="dispatchPageSize"
-        :total="dispatches.length"
+        :total="dispatchTotal"
         layout="total, prev, pager, next, jumper"
         small
+        @current-change="changeDispatchPage"
       />
     </el-card>
 
@@ -1961,6 +1962,7 @@
 import { matchesSearchFields } from '@/utils/searchMatching'
 
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { businessDateTimeInputValue, formatBusinessDateTimeMinute } from '@/utils/dateTime'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute } from 'vue-router'
 import {
@@ -1968,7 +1970,7 @@ import {
   confirmManuscriptDispatch,
   createManuscriptDispatch,
   getManuscriptContext,
-  getManuscriptDispatches,
+  getManuscriptDispatchPage,
   getManuscriptMailPreview,
   getManuscriptMailStatus,
   quickCreateManuscriptTranslator,
@@ -2027,16 +2029,19 @@ const projectRowIndex = (index) => (projectPage.value - 1) * workbenchPageSize +
 watch(activeProjects, () => { projectPage.value = 1 })
 const translators = ref([])
 const dispatches = ref([])
+const workbenchDispatches = ref([])
+const knownDispatches = computed(() => [...new Map(
+  [...workbenchDispatches.value, ...dispatches.value].map(item => [item.id, item])
+).values()])
 const dispatchPage = ref(1)
+const dispatchTotal = ref(0)
 const dispatchPageSize = 10
-const pagedDispatches = computed(() => {
-  const start = (dispatchPage.value - 1) * dispatchPageSize
-  return dispatches.value.slice(start, start + dispatchPageSize)
-})
+const pagedDispatches = computed(() => dispatches.value)
 const dispatchTableRef = ref(null)
 const expandedDispatchIds = ref(new Set())
 const expandedDispatchRowKeys = computed(() => [...expandedDispatchIds.value])
 const selectedDispatchId = ref('')
+let projectSelectionRequestId = 0
 const selectedProject = ref(null)
 const projectKeyword = ref('')
 const dispatchKeyword = ref('')
@@ -2182,7 +2187,7 @@ function ensureCanManage(target = selectedProject.value) {
 
 function activeDispatchFor(project) {
   const target = projectIdentity(project)
-  const items = dispatches.value.filter(
+  const items = knownDispatches.value.filter(
     (item) => projectIdentity(item) === target && item.status !== 'cancelled'
   )
   return items.find((item) => item.status === 'draft') || items[0] || null
@@ -2193,7 +2198,7 @@ const selectedProjectDispatch = computed(() => {
   if (!selectedProject.value) return null
   const selectedIdentity = projectIdentity(selectedProject.value)
   const selectedDispatch = selectedDispatchId.value
-    ? dispatches.value.find(
+    ? knownDispatches.value.find(
         (item) => item.id === selectedDispatchId.value
           && projectIdentity(item) === selectedIdentity
       )
@@ -2205,7 +2210,7 @@ const selectedProjectCancelledDispatch = computed(() => {
   if (!selectedProject.value) return null
   const target = projectIdentity(selectedProject.value)
   return (
-    dispatches.value.find(
+    knownDispatches.value.find(
       (item) => projectIdentity(item) === target && item.status === 'cancelled'
     ) || null
   )
@@ -2689,7 +2694,7 @@ const reassignRules = {
   ]
 }
 const reassignDispatch = computed(() => (
-  dispatches.value.find((item) => item.id === reassignForm.dispatch_id) || null
+  knownDispatches.value.find((item) => item.id === reassignForm.dispatch_id) || null
 ))
 const reassignProject = computed(() => (
   activeProjects.value.find(
@@ -3006,17 +3011,7 @@ function projectStatusType(status) {
 }
 
 function formatDateTime(value) {
-  if (!value) return '-'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return String(value)
-  return new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  }).format(date)
+  return formatBusinessDateTimeMinute(value)
 }
 
 function formatInteger(value) {
@@ -3031,7 +3026,8 @@ function formatMoney(value) {
 
 function isOverdue(value) {
   if (!value) return false
-  const time = new Date(value).getTime()
+  const normalized = businessDateTimeInputValue(value)
+  const time = normalized ? new Date(normalized.replace(' ', 'T') + '+08:00').getTime() : NaN
   return Number.isFinite(time) && time < Date.now()
 }
 
@@ -3104,11 +3100,15 @@ function projectRowClassName({ row }) {
   return classes.join(' ')
 }
 
-function selectProject(row) {
+async function selectProject(row) {
   if (!row) return
+  const selectionId = ++projectSelectionRequestId
   selectedDispatchId.value = ''
   selectedProject.value = row
-  prepareWorkbenchForProject()
+  const loaded = await loadDispatches()
+  if (selectionId !== projectSelectionRequestId || projectIdentity(selectedProject.value) !== projectIdentity(row)) return
+  if (loaded) prepareWorkbenchForProject()
+  else selectedProject.value = null
 }
 
 function dispatchRowClassName({ row }) {
@@ -3120,6 +3120,7 @@ function selectDispatchRecord(row, _column, event) {
   if (event?.target?.closest?.('button, a, input, textarea, select, [role="button"], .assignment-detail-wrap')) {
     return
   }
+  ++projectSelectionRequestId
   const matchedProject = activeProjects.value.find(
     (item) => projectIdentity(item) === projectIdentity(row)
   )
@@ -3298,7 +3299,7 @@ function applySavedSelectedFiles(saved) {
   const selectedFiles = (saved.selected_files || []).map((file) => ({
     relative_path: file.relative_path
   }))
-  for (const dispatch of dispatches.value) {
+  for (const dispatch of knownDispatches.value) {
     const arrangement = dispatch.arrangements?.find((item) => item.id === saved.id)
     if (arrangement) Object.assign(arrangement, saved)
   }
@@ -3631,6 +3632,7 @@ function openCreateDialog() {
 
 function editDraft(row) {
   if (!ensureCanManage(row)) return
+  ++projectSelectionRequestId
   const matchedProject = activeProjects.value.find(
     (item) => projectIdentity(item) === projectIdentity(row)
   )
@@ -3648,6 +3650,7 @@ function editDraft(row) {
 
 function reEditCancelled(row, translatorId = '') {
   if (!ensureCanManage(row)) return
+  ++projectSelectionRequestId
   const matchedProject = activeProjects.value.find(
     (item) => projectIdentity(item) === projectIdentity(row)
   )
@@ -3975,7 +3978,7 @@ async function withdrawAndEdit(row) {
     withdrawingBatchId.value = row.id
     const cancelled = await cancelManuscriptDispatch(row.id)
     await Promise.all([loadContext(), loadDispatches()])
-    const refreshedCancelled = dispatches.value.find((item) => item.id === row.id)
+    const refreshedCancelled = knownDispatches.value.find((item) => item.id === row.id)
     editCancelledInWorkbench(refreshedCancelled || cancelled || row)
     ElMessage.success('安排已撤回，原字段已带入新草稿，可修改后重新确认')
   } catch (error) {
@@ -4128,7 +4131,7 @@ async function saveReassignment() {
     )
     reassignDialogVisible.value = false
     await Promise.all([loadContext(), loadDispatches()])
-    const dispatch = dispatches.value.find((item) => item.id === reassignForm.dispatch_id)
+    const dispatch = knownDispatches.value.find((item) => item.id === reassignForm.dispatch_id)
       || response.dispatch
     const replacementId = response.replacement_arrangement_id
     const replacement = dispatch?.arrangements?.find((item) => item.id === replacementId)
@@ -4206,7 +4209,7 @@ async function saveCompletionRemark(dispatch, assignment) {
 }
 
 async function saveSettlement() {
-  const dispatch = dispatches.value.find(
+  const dispatch = knownDispatches.value.find(
     (item) => item.id === settlementForm.dispatch_id
   )
   if (!ensureCanManage(dispatch)) return
@@ -4262,19 +4265,19 @@ function onDispatchKeywordInput(value) {
   clearTimeout(dispatchSearchTimer)
   dispatchSearchTimer = null
   if (!String(value || '').trim()) {
-    loadDispatches()
+    loadDispatches({ resetPage: true })
     return
   }
   dispatchSearchTimer = setTimeout(() => {
     dispatchSearchTimer = null
-    loadDispatches()
+    loadDispatches({ resetPage: true })
   }, SEARCH_DEBOUNCE_MS)
 }
 
 function runDispatchSearch() {
   clearTimeout(dispatchSearchTimer)
   dispatchSearchTimer = null
-  loadDispatches()
+  loadDispatches({ resetPage: true })
 }
 
 async function loadContext() {
@@ -4313,36 +4316,52 @@ async function loadContext() {
   }
 }
 
-async function loadDispatches() {
-  dispatchPage.value = 1
+async function loadDispatches({ resetPage = false } = {}) {
+  if (resetPage) dispatchPage.value = 1
   dispatchController?.abort()
   dispatchController = new AbortController()
   const requestId = ++dispatchRequestId
   recordsLoading.value = true
   try {
-    const response = await getManuscriptDispatches({
-      limit: 500,
+    const response = await getManuscriptDispatchPage({
+      skip: (dispatchPage.value - 1) * dispatchPageSize,
+      limit: dispatchPageSize,
       keyword: dispatchKeyword.value.trim() || undefined,
       field_filters: serializeFieldFilters(dispatchFilterModel, dispatchFilterFields),
+      project_id: selectedProject.value?.translation_project_id || undefined,
+      sub_order_id: selectedProject.value?.entity_type === 'suborder' ? selectedProject.value.sub_order_id : undefined,
+      selected_dispatch_id: selectedDispatchId.value || undefined,
     }, { signal: dispatchController.signal })
-    if (requestId !== dispatchRequestId) return
-    dispatches.value = Array.isArray(response) ? response : []
-    const creatorOptions = new Map(dispatchCreatorOptionMap.value)
+    if (requestId !== dispatchRequestId) return false
+    dispatches.value = Array.isArray(response?.items) ? response.items : []
+    workbenchDispatches.value = Array.isArray(response?.workbench_items) ? response.workbench_items : []
+    dispatchTotal.value = response?.total || 0
+    dispatchPage.value = Math.floor((response?.skip || 0) / dispatchPageSize) + 1
+    const creatorOptions = new Map((response?.creator_options || []).map(item => [item.value, item]))
     for (const item of dispatches.value) {
       if (item.created_by) creatorOptions.set(item.created_by, { value: item.created_by, label: item.created_by_name || '未命名用户' })
     }
     dispatchCreatorOptionMap.value = creatorOptions
-    for (const dispatch of dispatches.value) {
+    for (const dispatch of knownDispatches.value) {
       for (const assignment of dispatch.arrangements || []) {
         completionRemarkDrafts[assignment.id] = assignment.completion_remarks || ''
       }
     }
+    return true
   } catch (error) {
     if (requestId !== dispatchRequestId || isAbortError(error)) return
     ElMessage.error(error.detail || '加载稿件安排记录失败，请检查网络后重试')
+    return false
   } finally {
     if (requestId === dispatchRequestId) recordsLoading.value = false
   }
+}
+
+function changeDispatchPage(page) {
+  if (page === dispatchPage.value) return
+  dispatchPage.value = page
+  clearTimeout(dispatchSearchTimer)
+  void loadDispatches()
 }
 
 async function loadMailStatus() {
@@ -4386,7 +4405,7 @@ async function selectRouteProject() {
     ElMessage.warning('未在当前可操作的稿件安排中找到目标订单')
     return
   }
-  selectProject(target)
+  await selectProject(target)
   await loadActiveMailPreview()
 }
 

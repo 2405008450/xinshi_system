@@ -1,5 +1,5 @@
 <template>
-  <el-card class="common-page-card interpretation-card compact-list-card">
+  <el-card class="common-page-card interpretation-card compact-list-card" :class="{'viewport-list-card':!props.embedded}">
     <template #header>
       <div class="card-header">
         <span>口译项目管理</span>
@@ -65,7 +65,8 @@
       </el-form-item>
     </AppForm>
 
-    <el-table ref="projectTableRef" :data="tableData" v-loading="loading" row-key="id" :row-class-name="projectRowClass" border class="interpretation-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
+    <div class="list-table-region" :class="{'viewport-list-table':!props.embedded}">
+    <el-table :height="props.embedded ? undefined : '100%'" ref="projectTableRef" :data="tableData" v-loading="loading" row-key="id" :row-class-name="projectRowClass" border class="interpretation-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
 <OrderedTableColumns settings-key="interpretation-projects">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column type="index" label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center" fixed="left" />
@@ -226,6 +227,7 @@
       </el-table-column>
     </OrderedTableColumns>
 </el-table>
+    </div>
 
     <el-pagination
       v-model:current-page="pagination.page"

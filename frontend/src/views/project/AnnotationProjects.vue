@@ -1,5 +1,5 @@
 <template>
-  <el-card class="common-page-card annotation-card compact-list-card" :style="progressOnly || createOnly || editorOnly ? {display:'none'} : undefined">
+  <el-card class="common-page-card annotation-card compact-list-card" :class="{'viewport-list-card':!progressOnly && !createOnly && !editorOnly}" :style="progressOnly || createOnly || editorOnly ? {display:'none'} : undefined">
     <template #header>
       <div class="card-header">
         <span>{{ props.orderScope === 'child' ? (effectiveOrderScope === 'grandchild' ? '标注三级订单管理' : '标注子订单管理') : '标注项目管理' }}</span>
@@ -54,6 +54,7 @@
 
     <el-alert v-if="capabilitiesLoaded && !supportsGrandchildOrders" title="当前后端尚未启用三级订单、片区和字段继承；订单、子订单仍可正常使用。" type="info" :closable="false" show-icon />
     <el-alert v-if="capabilitiesLoaded && !supportsLanguageRegions" title="当前后端尚未启用语种地区，暂不能录入城市、区县、街道；其他项目字段仍可正常使用。" type="info" :closable="false" show-icon />
+    <div class="viewport-list-table">
     <AnnotationOrderTable :column-settings-key="props.orderScope === 'child' ? 'annotation-child-orders' : 'annotation-projects'" :conversation-picker="props.conversationPicker" :picker-action-label="props.pickerActionLabel" ref="projectTableRef" :supports-grandchild-orders="supportsGrandchildOrders" :rows="tableData" :columns="visibleTableColumns" :editable="canWrite" :delete-mode="deleteMode" :revision="childRevision" :area-ids="supportsGrandchildOrders ? searchForm.areaIds : []" :row-class="projectRowClass" v-loading="loading" class="annotation-table" @selection-change="handleDeleteSelectionChange" @create="openChildCreate" @manage="row => goChildManagement(row.id, row.orderLevel)" @updated="handleOrderUpdated">
       <template #header="{ column }">
           <AnnotationRegionColumnHeader v-if="column.key === 'regionSummary'" v-model:level="regionDisplayLevel" :definition="regionFilterDefinition" :model="searchForm" @update-field="(key,value)=>searchForm[key]=value" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch" />
@@ -205,6 +206,7 @@
           </div>
         </template>
     </AnnotationOrderTable>
+    </div>
 
     <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" :layout="isMobile ? 'total, prev, pager, next' : 'total, sizes, prev, pager, next, jumper'" :small="isMobile" :pager-count="isMobile ? 5 : 7" class="pagination" @size-change="handlePageSizeChange" @current-change="handlePageChange" />
 
@@ -1460,18 +1462,19 @@ onBeforeUnmount(()=>{parentFilterController?.abort();clearTimeout(searchTimer);c
 .order-cell-progress-read{display:flex;justify-content:flex-start;min-height:0;margin-top:4px;margin-bottom:-9.5px}
 .order-cell-progress-read :deep(.child-progress-notice){font-size:8px;line-height:12px;height:12px;min-height:12px}
 
-/* 手机端：页面随内容自然滚动，订单以卡片呈现，标题栏与查询栏纵向排布。 */
+/* 手机端：订单卡片在表格区域滚动，标题栏与查询栏纵向排布。 */
 @media (max-width: 768px) {
   .annotation-card { height: auto; min-height: 0; }
   .annotation-card :deep(> .el-card__header) { padding: 8px 10px; }
-  .annotation-card :deep(> .el-card__body) { display: block; overflow: visible; padding: 8px 10px; }
+  .annotation-card :deep(> .el-card__body) { padding: 8px 10px; }
   .annotation-card :deep(> .el-card__body > .search-form) { padding: 8px; }
   .annotation-card .card-header { align-items: flex-start; gap: 8px; }
   .annotation-card .card-header > span { flex: 1 0 100%; font-size: 16px; font-weight: 600; }
   .annotation-card .header-actions { justify-content: flex-start; gap: 6px; width: 100%; }
   .annotation-card .header-actions :deep(.el-button) { padding: 5px 9px; font-size: 12px; }
   .annotation-card .annotation-search-toolbar { flex-direction: column; align-items: stretch; gap: 8px; }
-  .annotation-card .annotation-search-toolbar .project-list-primary-filters { flex-direction: column; gap: 8px; width: 100%; }
+  .annotation-card .annotation-search-toolbar .project-list-primary-filters { flex: none; flex-direction: column; gap: 8px; width: 100%; }
+  .annotation-card .project-list-primary-filters > .el-form-item { flex: none; }
   .annotation-card .project-list-keyword-filter { width: 100%; margin-right: 0; }
   .annotation-card .project-list-keyword-filter :deep(.el-form-item__content) { flex: 1; min-width: 0; }
   .annotation-card .annotation-search-toolbar .el-select { width: 100% !important; }

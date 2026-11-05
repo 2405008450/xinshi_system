@@ -1,4 +1,103 @@
 /* 通用页面样式 */
+/* 显式接入的列表共享可视高度；标题、筛选和分页不参与表格滚动。 */
+.viewport-list-card.el-card,
+.viewport-list-panel,
+.viewport-list-host {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.viewport-list-card.el-card > .el-card__header {
+  flex: none;
+}
+
+.viewport-list-card.el-card > .el-card__body {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.viewport-list-card > .el-card__body > *,
+.viewport-list-panel > * {
+  flex-shrink: 0;
+}
+
+.viewport-list-table,
+.viewport-list-card > .el-card__body > .viewport-list-table {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.viewport-list-table > .el-table {
+  width: 100%;
+  height: 100%;
+}
+
+/* 标注移动端使用卡片；自定义项目安排保留自身的列表滚动。 */
+.viewport-list-table > :is(.order-cards, .arrangement-projects) {
+  height: 100%;
+  overflow: auto;
+}
+
+.viewport-list-card > .el-card__body > :is(.viewport-list-host, .project-arrangement-layout) {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.viewport-list-card.el-card .project-arrangement-layout {
+  align-items: stretch;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.viewport-list-card .project-arrangement-layout > .arrangement-personnel {
+  min-height: 0;
+  max-height: 100%;
+}
+
+.viewport-list-card .project-arrangement-layout .project-arrangement-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: none;
+  overflow: hidden;
+}
+
+.viewport-list-table .project-summary--header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+@media (max-width: 960px) {
+  .viewport-list-card.el-card .project-arrangement-layout {
+    grid-template-rows: minmax(0, 160px) minmax(0, 1fr);
+  }
+}
+
+.viewport-list-card > .el-card__body > .el-pagination,
+.viewport-list-card .project-arrangement-main > .el-pagination,
+.viewport-list-panel > .el-pagination {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 100%;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border);
+}
+
 /* 导航常用页面显式接入，避免影响弹窗、嵌套卡片及工作台专用布局。 */
 .common-page-card.el-card {
   border-color: var(--color-border);
@@ -104,7 +203,8 @@
   margin-left: 0;
 }
 
-.common-page-card > .el-card__body > .el-table {
+.common-page-card > .el-card__body > .el-table,
+.common-page-card > .el-card__body > :is(.viewport-list-table, .list-table-region) > .el-table {
   --el-table-header-bg-color: var(--color-surface-muted);
   --el-table-header-text-color: var(--color-text-secondary);
   --el-table-row-hover-bg-color: var(--color-page-bg);

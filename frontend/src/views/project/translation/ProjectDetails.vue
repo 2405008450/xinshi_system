@@ -1,5 +1,5 @@
 <template>
-  <el-card class="common-page-card compact-list-card" :class="{'translation-editor-only':props.editorOnly}">
+  <el-card class="common-page-card compact-list-card" :class="{'translation-editor-only':props.editorOnly, 'viewport-list-card':!props.editorOnly && !props.embedded}">
     <template v-if="!arrangementMode && !props.editorOnly" #header>
       <div class="card-header">
         <span>{{ arrangementMode ? '项目安排' : '笔译项目管理' }}</span>
@@ -62,11 +62,12 @@
       </el-form-item>
     </AppForm>
 
+    <div class="list-table-region" :class="{'viewport-list-table':!props.embedded}">
     <ProjectArrangementTable v-if="arrangementMode" :projects="tableData" :columns="visibleArrangementColumns" :people="arrangementPeople" :can-write="canWriteProjects && !deleteMode" :loading="loading" :offset="(pagination.page-1)*pagination.limit" :format-returns="formatTranslatorReturnTimes" :status-label="getStatusLabel" @changed="fetchData()">
       <template #header="{column}"><TranslationProjectColumnHeader :column="column" :context="projectFieldContext" /></template>
       <template #field="{row,column}"><TranslationProjectFieldCell :row="row" :column="column" :context="projectFieldContext" /></template>
     </ProjectArrangementTable>
-    <el-table v-else
+    <el-table v-else :height="props.embedded ? undefined : '100%'"
       ref="projectTableRef"
       class="project-table project-detail-list-table"
       :data="tableData"
@@ -241,13 +242,14 @@
     </OrderedTableColumns>
 </el-table>
 
+    </div>
+
     <el-pagination
       v-model:current-page="pagination.page"
       v-model:page-size="pagination.limit"
       :total="pagination.total"
       :page-sizes="[10, 20, 50, 100]"
       layout="total, sizes, prev, pager, next, jumper"
-      style="margin-top: 20px"
       @size-change="applyPagination"
       @current-change="applyPagination"
     />

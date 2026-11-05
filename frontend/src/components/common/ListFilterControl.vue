@@ -30,20 +30,23 @@
       :value="option.value"
     />
   </el-select>
-  <el-date-picker
-    v-else-if="definition.type === 'date-range'"
-    :model-value="modelValue"
-    type="daterange"
-    value-format="YYYY-MM-DD"
-    range-separator="至"
-    start-placeholder="开始"
-    end-placeholder="结束"
-    unlink-panels
-    clearable
-    size="small"
-    @update:model-value="update"
-    @change="$emit('change', $event)"
-  />
+  <div v-else-if="definition.type === 'date-range'" ref="dateRangeRef" class="list-filter-date-range">
+    <el-date-picker
+      :append-to="datePickerTarget"
+      :popper-options="datePickerTarget ? datePickerPopperOptions : undefined"
+      :model-value="modelValue"
+      type="daterange"
+      value-format="YYYY-MM-DD"
+      range-separator="至"
+      start-placeholder="开始"
+      end-placeholder="结束"
+      unlink-panels
+      clearable
+      size="small"
+      @update:model-value="update"
+      @change="$emit('change', $event)"
+    />
+  </div>
   <div v-else-if="definition.type === 'number-range'" class="list-filter-number-range">
     <el-input-number
       :model-value="rangeValue[0]"
@@ -72,7 +75,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 const props = defineProps({
   modelValue: { type: [String, Number, Boolean, Array, Object], default: '' },
@@ -80,6 +83,19 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:modelValue', 'text-input', 'change', 'enter'])
+
+const dateRangeRef = ref()
+// 保留面板的传送与定位能力，但挂载到所属浮窗根节点，避免翻月被判定为外部点击。
+// 不挂到内部滚动区，防止日期面板被裁切；非浮窗场景沿用默认挂载位置。
+const datePickerTarget = computed(() => dateRangeRef.value?.closest('.el-popover') || undefined)
+// 以视口为边界翻转和避让，固定定位避免被所属浮窗的 overflow 裁切。
+const datePickerPopperOptions = {
+  strategy: 'fixed',
+  modifiers: [
+    { name: 'flip', options: { boundary: 'viewport' } },
+    { name: 'preventOverflow', options: { boundary: 'viewport' } },
+  ],
+}
 
 const resolvedOptions = computed(() => {
   if (props.definition.type === 'boolean') {

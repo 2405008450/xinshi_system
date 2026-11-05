@@ -54,7 +54,7 @@
         <div v-show="!isCollapse" class="sidebar-version">{{ appVersion }} · 更新于 {{ appUpdatedAt }}</div>
       </transition>
     </el-aside>
-    <el-container>
+    <el-container class="layout-main">
       <el-header class="header">
         <div class="header-left">
           <el-tooltip :content="collapseLabel" placement="bottom" :disabled="isMobileViewport">
@@ -384,6 +384,7 @@ const handleLogout = async () => {
 }
 
 .sidebar {
+  flex-shrink: 0;
   --sidebar-active-accent: #cbd5e1;
   display: flex;
   flex-direction: column;
@@ -673,6 +674,7 @@ const handleLogout = async () => {
 }
 
 .header {
+  flex: 0 0 64px;
   height: 64px;
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
@@ -732,8 +734,30 @@ const handleLogout = async () => {
 
 .main-content {
   background: var(--color-page-bg);
-  padding: 12px 24px 24px;
+  padding: 16px;
+  min-width: 0;
+  min-height: 0;
   overflow-y: auto;
+}
+
+.layout-main {
+  min-width: 0;
+  min-height: 0;
+}
+
+/* 仅已接入视口布局的列表接管滚动，其他页面仍可整页滚动。 */
+.main-content:has(.viewport-list-card),
+.main-content:has(.viewport-list-host) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.main-content > :has(.viewport-list-card),
+.main-content > :has(.viewport-list-host) {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
 }
 
 /* 加载状态 */
@@ -806,6 +830,7 @@ const handleLogout = async () => {
   }
 
   .header {
+    flex-basis: 52px;
     height: 52px;
     padding: 0 8px;
   }

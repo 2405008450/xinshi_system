@@ -1,5 +1,5 @@
 <template>
-  <el-card class="common-page-card consultations-card compact-list-card">
+  <el-card class="common-page-card consultations-card compact-list-card" :class="{'viewport-list-card':!props.embedded}">
     <template #header>
       <div class="card-header">
         <span>新咨询管理</span>
@@ -63,7 +63,8 @@
       </el-form-item>
     </AppForm>
 
-    <el-table ref="consultationTableRef" :data="tableData" v-loading="loading" row-key="id" border class="consultation-list-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
+    <div class="list-table-region" :class="{'viewport-list-table':!props.embedded}">
+    <el-table :height="props.embedded ? undefined : '100%'" ref="consultationTableRef" :data="tableData" v-loading="loading" row-key="id" border class="consultation-list-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
 <OrderedTableColumns settings-key="client-consultations">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column type="index" label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center" />
@@ -344,6 +345,7 @@
       </el-table-column>
     </OrderedTableColumns>
 </el-table>
+    </div>
 
     <el-pagination
       class="consultations-pagination"

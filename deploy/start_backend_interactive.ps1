@@ -1,7 +1,9 @@
 ﻿param(
     [string]$SharePath,
-    [ValidateRange(1, 24)]
+    [ValidateRange(1, 720)]
     [int]$MaxAttempts = 24,
+    [ValidateRange(1, 3600)]
+    [int]$ShareWaitSeconds = 120,
     [ValidateRange(1, 5)]
     [int]$RetryDelaySeconds = 5,
     [string]$PythonPath = '.venv\Scripts\python.exe'
@@ -47,7 +49,7 @@ New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
 
 function Write-StartupLog {
     param([string]$Message)
-    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    $timestamp = [DateTimeOffset]::UtcNow.ToOffset([TimeSpan]::FromHours(8)).ToString('yyyy-MM-dd HH:mm:ss.fffzzz')
     Add-Content -LiteralPath $startupLog -Encoding UTF8 -Value "[$timestamp] $Message"
 }
 
@@ -57,7 +59,11 @@ if (-not (Test-Path -LiteralPath $pythonExecutable -PathType Leaf)) {
 }
 
 $shareReady = $false
+$shareWait = [Diagnostics.Stopwatch]::StartNew()
+Write-StartupLog "UNC validation budget: $ShareWaitSeconds seconds; maximum attempts: $MaxAttempts."
 for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+    # 使用单调时钟限制重试预算；单次 SMB 调用仍受 Windows 网络超时控制。
+    if ($attempt -gt 1 -and $shareWait.Elapsed.TotalSeconds -ge $ShareWaitSeconds) { break }
     try {
         $null = Get-Item -LiteralPath $SharePath -ErrorAction Stop
         $null = Get-ChildItem -LiteralPath $SharePath -Force -ErrorAction Stop | Select-Object -First 1
@@ -67,14 +73,15 @@ for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
     }
     catch {
         Write-StartupLog "UNC read validation failed for $SharePath on attempt $attempt/$MaxAttempts."
-        if ($attempt -lt $MaxAttempts) {
-            Start-Sleep -Seconds $RetryDelaySeconds
+        $remainingSeconds = $ShareWaitSeconds - $shareWait.Elapsed.TotalSeconds
+        if ($attempt -lt $MaxAttempts -and $remainingSeconds -gt 0) {
+            Start-Sleep -Milliseconds ([int][Math]::Min($RetryDelaySeconds * 1000, $remainingSeconds * 1000))
         }
     }
 }
 
 if (-not $shareReady) {
-    Write-StartupLog "Backend was not started because UNC validation failed after $MaxAttempts attempts."
+    Write-StartupLog "Backend was not started because UNC validation failed; elapsed seconds: $([int]$shareWait.Elapsed.TotalSeconds)."
     exit 3
 }
 

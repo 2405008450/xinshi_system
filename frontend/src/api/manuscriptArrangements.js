@@ -18,6 +18,9 @@ export const getManuscriptArrangements = (params = {}) =>
 export const getManuscriptDispatches = (params = {}, config = {}) =>
   api.get('/manuscript-arrangements/batches', { params, ...config })
 
+export const getManuscriptDispatchPage = (params = {}, config = {}) =>
+  api.get('/manuscript-arrangements/batches/page', { params, ...config })
+
 export const createManuscriptDispatch = (data) =>
   api.post('/manuscript-arrangements/batches', data)
 

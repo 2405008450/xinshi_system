@@ -1,6 +1,6 @@
 <template>
-  <div class="resource-request-page">
-    <component v-if="!editorOnly" :is="embedded ? 'section' : ElCard" :class="embedded ? 'resource-request-panel' : 'common-page-card compact-list-card'">
+  <div class="resource-request-page" :class="{'viewport-list-host':!editorOnly}">
+    <component v-if="!editorOnly" :is="embedded ? 'section' : ElCard" :class="embedded ? 'resource-request-panel viewport-list-panel' : 'common-page-card compact-list-card viewport-list-card'">
       <div class="resource-request-toolbar">
         <div class="header">
           <div v-if="!embedded || arrangementMode">
@@ -56,7 +56,8 @@
         </div>
       </el-alert>
 
-      <el-table ref="tableRef" :data="rows" v-loading="loading" border row-key="id" @selection-change="handleDeleteSelectionChange">
+      <div class="viewport-list-table">
+      <el-table height="100%" ref="tableRef" :data="rows" v-loading="loading" border row-key="id" @selection-change="handleDeleteSelectionChange">
 <OrderedTableColumns settings-key="resource-requests">
         <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
         <el-table-column type="index" label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center" fixed="left" :index="rowIndex" />
@@ -127,6 +128,7 @@
         </el-table-column>
       </OrderedTableColumns>
 </el-table>
+      </div>
       <el-pagination class="pagination" v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :page-sizes="arrangementMode ? [5, 10, 20, 50] : [10, 20, 50, 100]" :total="pagination.total" layout="total, sizes, prev, pager, next" @size-change="pageSizeChanged" @current-change="pageChanged" />
     </component>
 
