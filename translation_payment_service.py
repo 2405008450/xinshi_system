@@ -53,23 +53,41 @@ def read(db, project):
     confirmation=confirmations.read(db,project.id)
     version = hashlib.sha256(json.dumps([str(finance.id) if finance else None,values,confirmation,
         [(str(row.confirmed_by),str(row.confirmed_at),str(row.updated_at)) for row in rows]],sort_keys=True).encode()).hexdigest()
-    return dict(project_id=project.id,order_no=project.order_no,version=version,payments=values,confirmation=confirmation)
+    return dict(project_id=project.id,order_no=project.order_no,project_name=project.source_file_name or project.project_name,version=version,payments=values,confirmation=confirmation)
 
 
-def save(db, project, payments, version, actor_id):
+def _sync_confirmation(db,project,payments,actor_id,confirmation=None):
+    current=confirmations.read(db,project.id)
+    desired=confirmation or PaymentConfirmationWrite(**current)
+    if not (desired.is_paid and desired.payment_option=='full'):
+        actual=[row for row in payments if row.actual_amount is not None and row.actual_amount>0]
+        if actual or any(row.stage_type=='final' for row in payments):
+            methods=list(dict.fromkeys(row.payment_method.strip() for row in actual if row.payment_method and row.payment_method.strip()))
+            desired=desired.model_copy(update={'is_paid':True,'payment_option':'deposit','payment_account':methods[0] if len(methods)==1 else '' if methods else desired.payment_account})
+        elif confirmation is None:
+            desired=desired.model_copy(update={'is_paid':False,'payment_option':None})
+    return confirmations.save(db,project.id,desired,actor_id)
+
+
+def save(db, project, payments, version, actor_id, confirmation=None):
+    current = read(db, project)
+    if version is not None and version != current['version']:
+        raise HTTPException(409, '付款情况已被修改，请重新打开后编辑')
+    if confirmation is not None and confirmation.is_paid and confirmation.payment_option=='full':
+        # 全款确认不要求分期明细，也绝不能清除已有明细。
+        confirmations.save(db,project.id,confirmation,actor_id)
+        return read(db,project)
     stages=[(row.stage_type,row.stage_no) for row in payments]
     ids=[row.id for row in payments if row.id]
     if len(set(stages))!=len(stages) or len(set(ids))!=len(ids):
         raise HTTPException(422,'付款阶段及期次、付款记录不能重复')
-    current = read(db, project)
-    if version is not None and version != current['version']:
-        raise HTTPException(409, '付款情况已被修改，请重新打开后编辑')
     # 主项目调用方与独立接口均锁定同一项目；既有财务记录也加锁。
     finance = db.query(FinanceRecord).filter_by(project_id=project.id).with_for_update().first()
     if finance is not None and version is None:
         raise HTTPException(422, '请先加载当前付款情况，再保存修改')
     if finance is None and not payments:
-        return current
+        if confirmation is not None:_sync_confirmation(db,project,payments,actor_id,confirmation)
+        return read(db,project)
     now = business_now().replace(tzinfo=None)
     if finance is None:
         finance = FinanceRecord(id=uuid4(),project_id=project.id,invoice_status='unissued',created_at=now,updated_at=now)
@@ -94,4 +112,5 @@ def save(db, project, payments, version, actor_id):
         db.add(row)
     finance.edited_by=actor_id;finance.updated_at=now
     db.flush();db.expire(finance,['payments'])
+    _sync_confirmation(db,project,payments,actor_id,confirmation)
     return read(db, project)

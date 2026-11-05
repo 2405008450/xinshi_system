@@ -1,8 +1,8 @@
 import {normalizeWordCountMatrix,WORD_COUNT_METRICS} from './wordCountMatrix.js'
 import {calculateCustomerPrice} from './translationCustomerFinance.js'
-export const quantityBasisOptions=[{value:'customer_auto',label:'客户统计'},{value:'company_characters_no_spaces',label:'我司统计（字符数（不计空格））'},{value:'company_words',label:'我司统计（字数）'},{value:'company_cjk_chars_korean_words',label:'我司统计（中朝）'},{value:'company_foreign_words',label:'我司统计（外文）'},{value:'company_documents',label:'我司统计（份数）'},{value:'company_pages',label:'我司统计（页数）'}]
+export const quantityBasisOptions=[{value:'customer_auto',label:'自动选择（客户优先，无则我司）'},{value:'company_characters_no_spaces',label:'我司统计（字符数（不计空格））'},{value:'company_words',label:'我司统计（字数）'},{value:'company_cjk_chars_korean_words',label:'我司统计（中朝）'},{value:'company_foreign_words',label:'我司统计（外文）'},{value:'company_documents',label:'我司统计（份数）'},{value:'company_pages',label:'我司统计（页数）'}]
 export const metricName=key=>WORD_COUNT_METRICS.find(row=>row.key===key)?.label||key
-export function basisLabel(mode){if(String(mode).startsWith('customer_auto')){const metric=String(mode).split(':')[1];return metric?`客户统计（${metricName(metric)}）`:'客户统计'}return quantityBasisOptions.find(row=>row.value===mode)?.label||`历史客户口径（${metricName(mode)}）`}
+export function basisLabel(mode){if(String(mode).startsWith('customer_auto')){const metric=String(mode).split(':')[1];return metric?`客户统计（${metricName(metric)}）`:'自动选择（客户优先，无则我司）'}return quantityBasisOptions.find(row=>row.value===mode)?.label||`历史客户口径（${metricName(mode)}）`}
 export function customerQuantityChoices(matrix){const values=normalizeWordCountMatrix(matrix).customer;return WORD_COUNT_METRICS.filter(row=>values[row.key]!=null).map(row=>({...row,value:values[row.key]}))}
 export function projectQuantityChoices(matrix){
   const values=normalizeWordCountMatrix(matrix)
@@ -15,7 +15,7 @@ export function validQuantityBasis(mode){
 }
 export function rateQuantityOptions(matrix,current){
   const normalized=normalizeWordCountMatrix(matrix)
-  const options=[{value:'customer_auto',label:'客户统计（自动取唯一已填项）'}]
+  const options=[{value:'customer_auto',label:'自动选择（客户优先，无则我司）'}]
   for(const [dimension,label] of [['customer','客户统计'],['company','我司统计']]){
     for(const metric of WORD_COUNT_METRICS){
       const count=normalized[dimension][metric.key]
@@ -31,7 +31,8 @@ export function resolveRateQuantity(matrix,mode){
     const choices=customerQuantityChoices(matrix)
     const selected=String(mode).split(':')[1]
     if(selected){const quantity=normalized.customer[selected];return {quantity,metric:selected,error:quantity==null?'未登记对应数量':null}}
-    if(choices.length===1)return {quantity:choices[0].value,metric:choices[0].key}
+    if(choices.length===1)return {quantity:choices[0].value,metric:choices[0].key,dimension:'customer'}
+    if(!choices.length){const own=WORD_COUNT_METRICS.filter(({key})=>normalized.company[key]!=null);if(own.length===1)return {quantity:normalized.company[own[0].key],metric:own[0].key,dimension:'company'};return {quantity:null,error:own.length?'我司统计有多栏，请选择统计口径':'客户统计和我司统计均未填写，请先登记数量和单位'}}
     return {quantity:null,error:choices.length?'客户统计有多栏，请选择统计口径':'未登记客户统计'}
   }
   const company=String(mode).startsWith('company_'),metric=company?String(mode).slice(8):mode

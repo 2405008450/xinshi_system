@@ -1,4 +1,7 @@
 import { createApp } from 'vue'
+import api from './api'
+import {installSavedDataRegistry} from './utils/savedDataRegistry'
+import {subscribe,setSavedDataWatch} from './utils/realtimeSocket'
 import App from './App.vue'
 import router from './router'
 import { ElMessage, ElTable } from 'element-plus'
@@ -20,6 +23,7 @@ import { installChineseValidationMessages } from './utils/validationLocale'
 import { installAutoDrafts } from './utils/autoDrafts'
 
 const app = createApp(App)
+installSavedDataRegistry(app,{send:config=>api.request(config),watch:setSavedDataWatch,onEvent:handler=>subscribe('saved_data_changed',event=>handler(event.resources||[])),onResume:handler=>{subscribe('connected',handler);subscribe('foreground',handler)}})
 installTableColumnResize(app)
 installAutoDrafts(app)
 

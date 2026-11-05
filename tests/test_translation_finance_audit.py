@@ -38,15 +38,15 @@ def test_adjustment_clear_and_history_pagination(environment):
 
 
 def test_audit_failure_rolls_back_prices_and_customer_reference(environment,monkeypatch):
-    db,(owner,_,_)=environment;client,root,_,_=context(db,owner)
+    db,(owner,_,_)=environment;client,root,_,leaf=context(db,owner)
     monkeypatch.setattr(finance,'user_has_permission',lambda *a:True)
     original=finance.read(db,root.id)
     def fail(*a):raise HTTPException(503,'隔离测试记录保存失败')
     monkeypatch.setattr(audit,'append',fail)
-    payload=finance.PriceWrite(version=original['version'],order_id=root.id,prices=[item()],update_library=True,library_version=original['reference_prices']['version'])
+    payload=finance.PriceWrite(version=original['version'],order_id=leaf.id,prices=[item()],update_library=True,library_version=original['reference_prices']['version'])
     with pytest.raises(HTTPException):finance.update(root.id,payload,db,owner)
     assert not rates.library(db,client.id)['items']
-    assert not finance.read(db,root.id)['item']['prices']
+    assert not finance.read(db,root.id)['item']['children'][0]['children'][0]['prices']
     assert db.query(audit.TranslationFinanceEvent).count()==0
     assert db.query(rates.CustomerTranslationRateHistory).count()==0
 

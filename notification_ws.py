@@ -23,6 +23,8 @@ class NotificationConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, Set[WebSocket]] = defaultdict(set)
         self.annotation_subscriptions = {}
+        self.project_status_subscriptions = {}
+        self.saved_data_subscriptions = {}
         self.connection_presence = {}
         self.presence_lock = RLock()
 
@@ -61,6 +63,8 @@ class NotificationConnectionManager:
             self.connection_presence[(str(user_id), websocket)] = (kind, monotonic())
 
     def disconnect(self, user_id: UUID, websocket: WebSocket) -> None:
+        self.project_status_subscriptions.pop((str(user_id),websocket),None)
+        self.saved_data_subscriptions.pop((str(user_id),websocket),None)
         with self.presence_lock:
             self.connection_presence.pop((str(user_id), websocket), None)
         self.annotation_subscriptions.pop((str(user_id), websocket), None)
@@ -85,8 +89,30 @@ class NotificationConnectionManager:
         for user_id in dict.fromkeys(user_ids):
             await self.send_personal_message(user_id, payload)
 
+    def watch_project_status(self,user_id,websocket,items):
+        self.project_status_subscriptions[(str(user_id),websocket)]={(item['projectType'],str(item['id'])) for item in items}
+
+    async def send_project_status(self,items):
+        for (user_id,websocket),keys in list(self.project_status_subscriptions.items()):
+            changed=[item for item in items if (item['projectType'],item['id']) in keys]
+            if not changed:continue
+            try:await websocket.send_json({'type':'project_status_changed','items':changed})
+            except Exception:self.disconnect(user_id,websocket)
+
+    async def send_saved_data(self,resources):
+        for (user_id,websocket),wanted in list(self.saved_data_subscriptions.items()):
+            if '__all__' not in wanted and not wanted.intersection(resources):continue
+            try:await websocket.send_json({'type':'saved_data_changed','resources':resources})
+            except Exception:self.disconnect(user_id,websocket)
+
 
 notification_manager = NotificationConnectionManager()
+
+def dispatch_project_status(items):
+    _dispatch_on_main_loop(lambda:notification_manager.send_project_status(items))
+
+def dispatch_saved_data(resources):
+    _dispatch_on_main_loop(lambda:notification_manager.send_saved_data(resources))
 
 
 def _dispatch_on_main_loop(coroutine_factory) -> None:

@@ -2,6 +2,7 @@
   <el-dialog
     ref="dialogRef"
     v-bind="$attrs"
+    :append-to-body="$attrs.appendToBody ?? $attrs['append-to-body'] ?? true"
     :model-value="modelValue && !minimized"
     :class="['draggable-form-dialog', { 'is-draggable': draggable && !geometry.state.maximized, 'is-dragging': geometry.state.dragging, 'is-maximized': geometry.state.maximized }]"
     :draggable="false"
@@ -150,7 +151,10 @@ defineExpose({ resetPosition, handleClose, minimize, restore:restoreMinimized, m
 
 .el-dialog.draggable-form-dialog.is-maximized {
   border-radius: 0;
+  max-width: none !important;
+  max-height: none !important;
 }
+.el-dialog.draggable-form-dialog.is-fullscreen{width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;margin:0!important;border-radius:0}
 .el-dialog.draggable-form-dialog.is-maximized > .el-dialog__header {
   cursor: default;
 }

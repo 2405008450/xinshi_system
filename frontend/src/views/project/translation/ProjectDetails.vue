@@ -163,7 +163,7 @@
                           :title="getWordCountListSummary(subRow).title"
                         >
                           <span class="compact-cell-value">
-                            <span class="compact-cell-value__primary">{{ getWordCountListSummary(subRow).primary }}</span>
+                            <span class="compact-cell-value__primary">{{ getWordCountListSummary(subRow).primary }}</span><small v-if="getWordCountListSummary(subRow).sourceLabel" class="word-count-aggregate-source">子订单累计</small>
                             <span
                               v-if="getWordCountListSummary(subRow).extraCount"
                               class="compact-cell-value__count"
@@ -257,7 +257,7 @@
       <template #footer><el-button @click="arrangementHistoryVisible=false">关闭</el-button></template>
     </DraggableFormDialog>
     <CustomerQuotationDialog v-model="quotationVisible" :draft="form.quotationDraft" :draft-project="quotationDocumentProject" defer-save @update:draft="applyQuotationDraft" />
-    <CustomerStatementDialog @saved="onStatementRequiredSaved" v-model="statementVisible" :projects="[quotationDocumentProject]" :query="{client_id:form.clientId||undefined}" />
+    <CustomerStatementDialog :manager-label="form.clientManager||'未设置'" @saved="onStatementRequiredSaved" v-model="statementVisible" :projects="[quotationDocumentProject]" :query="{client_id:form.clientId||undefined}" />
     <DraggableFormDialog
       v-model="dialogVisible"
       class="project-editor-dialog"
@@ -288,7 +288,7 @@
                       <h3>关键必填信息</h3>
                       <p>请优先完成以下内容，再补充其余项目资料。</p>
                     </div>
-                    <el-tag type="danger" effect="plain">7 项必填</el-tag>
+                    <el-tag type="danger" effect="plain">请完成必填项</el-tag>
                   </div>
                   <el-row :gutter="16">
                     <el-col :xs="24">
@@ -309,13 +309,13 @@
                   </el-row>
                   <el-row :gutter="16">
                     <el-col :xs="24" :md="12">
-                      <el-form-item label="母客户简称" prop="clientShortName" data-field-key="clientShortName">
+                      <el-form-item label="客户简称" prop="clientShortName" data-field-key="clientShortName">
                         <div class="client-autocomplete-field">
                           <el-autocomplete
                             v-model="form.clientShortName"
                             :fetch-suggestions="fetchParentClientSuggestions"
                             value-key="client_short_name"
-                            placeholder="选择已有母客户，或直接输入新客户简称"
+                            placeholder="选择已有客户，或直接输入新客户简称"
                             clearable
                             :debounce="300"
                             :trigger-on-focus="true"
@@ -331,12 +331,12 @@
                               </div>
                             </template>
                           </el-autocomplete>
-                          <div class="client-autocomplete-hint">没有匹配母客户时，保存项目会自动新增一条待完善的客户信息。</div>
+                          <div class="client-autocomplete-hint">没有匹配客户时，保存项目会自动新增一条待完善的客户信息。</div>
                         </div>
                       </el-form-item>
                     </el-col>
                     <el-col :xs="24" :md="12">
-                      <el-form-item label="子客户" data-field-key="subClientShortName">
+                      <el-form-item label="子客户" prop="subClientShortName" data-field-key="subClientShortName">
                         <div class="client-autocomplete-field">
                           <el-autocomplete
                             v-model="form.subClientShortName"
@@ -359,12 +359,40 @@
                               </div>
                             </template>
                           </el-autocomplete>
-                          <div class="client-autocomplete-hint">没有匹配子客户时，保存项目会在当前母客户下自动新增。</div>
+                          <div class="client-autocomplete-hint">没有匹配子客户时，保存项目会在当前客户下自动新增。</div>
                         </div>
                       </el-form-item>
                     </el-col>
                   </el-row>
                   <el-row :gutter="16">
+                    <el-col :xs="24" :md="12">
+                    <el-form-item label="服务内容" prop="serviceContent" data-field-key="serviceContent">
+                      <div class="service-content-field">
+                        <el-select
+                          v-model="serviceContentSelection"
+                          filterable
+                          allow-create
+                          default-first-option
+                          clearable
+                          placeholder="请选择服务内容"
+                        >
+                          <el-option
+                            v-for="item in serviceContentOptions"
+                            :key="item"
+                            :label="item"
+                            :value="item"
+                          />
+                        </el-select>
+                        <el-input
+                          v-if="customServiceContentOption"
+                          v-model="serviceContentCustomText"
+                          clearable
+                          maxlength="200"
+                          :placeholder="`请补充${customServiceContentOption}的具体内容`"
+                        />
+                      </div>
+                    </el-form-item>
+                    </el-col>
                     <el-col :xs="24" :md="12">
                       <el-form-item label="翻译方向" prop="languagePair" data-field-key="languagePair">
                         <LanguagePairSelect v-model="form.languagePair" />
@@ -393,8 +421,10 @@
                         </div>
                         <div class="project-client-documents">
                           <el-form-item label="客户类型" prop="customerType"><el-select v-model="form.customerType" clearable placeholder="请选择客户类型" @clear="form.customerType=null;applyDocumentDefaults()" @change="applyDocumentDefaults"><el-option v-for="item in customerTypes" :key="item" :label="item" :value="item" /></el-select></el-form-item>
+                        </div>
+                        <div class="project-document-options">
                           <el-form-item label="是否需报价单" prop="quotationRequired" data-field-key="quotationRequired"><div class="project-document-choice"><el-checkbox v-model="form.quotationRequired" @change="value=>{if(value)quotationVisible=true}">需</el-checkbox><el-button v-if="form.quotationRequired" link type="primary" @click="quotationVisible=true">打开报价单</el-button></div></el-form-item>
-                          <el-form-item label="是否需对账单" prop="statementRequired" data-field-key="statementRequired"><div class="project-document-choice"><el-checkbox v-model="form.statementRequired" @change="value=>{if(value)statementVisible=true}">需</el-checkbox><el-button link type="primary" @click="statementVisible=true">打开对账单</el-button></div></el-form-item>
+                          <el-form-item label="是否需对账单" prop="statementRequired" data-field-key="statementRequired"><div class="project-document-choice"><el-checkbox v-model="form.statementRequired" @change="value=>{form.statementRequiredExplicit=true;if(value)statementVisible=true}">需</el-checkbox><el-button link type="primary" @click="statementVisible=true">打开对账单</el-button></div></el-form-item>
                         </div>
                       </div>
                     </el-col>
@@ -406,11 +436,11 @@
                   <el-row v-if="canReadProjectFiles" :gutter="16" justify="end">
                     <el-col :xs="24" :md="12"><el-form-item label="原文路径" prop="originalStoragePath" data-field-key="originalStoragePath"><el-input v-model="form.originalStoragePath" clearable :disabled="!canWriteProjectFiles || projectFilesTabRef?.fileLoading || !!projectFilesTabRef?.fileLoadError" placeholder="与项目文件中的原文路径同步" /></el-form-item></el-col>
                   </el-row>
-                <el-form-item label="客户专业要求" data-field-key="customerRequirementProfessional">
-                  <el-input v-model="form.customerRequirementProfessional" type="textarea" :rows="2" placeholder="请输入客户专业要求" />
+                <el-form-item label="客户专业要求" prop="customerRequirementProfessional" data-field-key="customerRequirementProfessional">
+                  <el-input v-model="form.customerRequirementProfessional" type="textarea" :rows="2" placeholder="请输入客户专业要求；如确无要求，可填写无" />
                 </el-form-item>
-                <el-form-item label="客户特殊要求" data-field-key="customerRequirementSpecial">
-                  <el-input v-model="form.customerRequirementSpecial" type="textarea" :rows="2" placeholder="请输入客户特殊要求" />
+                <el-form-item label="客户特殊要求" prop="customerRequirementSpecial" data-field-key="customerRequirementSpecial">
+                  <el-input v-model="form.customerRequirementSpecial" type="textarea" :rows="2" placeholder="请输入客户特殊要求；如确无要求，可填写无" />
                 </el-form-item>
                 </div>
                 <el-collapse v-model="projectBasicExpandedSections" class="project-basic-collapse">
@@ -471,7 +501,7 @@
                   </el-col>
                 </el-row>
                 <el-row :gutter="16">
-                  <el-col :xs="24" :md="12"><el-form-item label="母客户编号" data-field-key="clientCode"><ReadonlyField :model-value="form.clientCode" source="auto" :placeholder="form.clientId ? '选择母客户后自动带出' : '保存后自动生成'" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="12"><el-form-item label="客户编号" data-field-key="clientCode"><ReadonlyField :model-value="form.clientCode" source="auto" :placeholder="form.clientId ? '选择客户后自动带出' : '保存后自动生成'" /></el-form-item></el-col>
                   <el-col :xs="24" :md="12"><el-form-item label="子客户编号" data-field-key="subClientCode"><ReadonlyField :model-value="form.subClientCode" source="auto" placeholder="选择子客户后自动带出" /></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
@@ -480,7 +510,7 @@
                 </el-row>
                 <el-row :gutter="16">
                   <el-col v-if="showManagerContactInput" :xs="24" :md="12">
-                    <el-form-item label="母客户经理联系方式" label-width="160px">
+                    <el-form-item label="客户经理联系方式" label-width="160px">
                       <el-input
                         v-model="form.managerContact"
                         maxlength="100"
@@ -490,41 +520,12 @@
                     </el-form-item>
                   </el-col>
                   <el-col v-else :xs="24" :md="12">
-                    <el-form-item label="母客户经理联系方式" label-width="160px">
-                      <ReadonlyField :model-value="form.managerContact" source="auto" placeholder="选择母客户后自动带出" />
+                    <el-form-item label="客户经理联系方式" label-width="160px">
+                      <ReadonlyField :model-value="form.managerContact" source="auto" placeholder="选择客户后自动带出" />
                     </el-form-item>
                   </el-col>
                 </el-row>
-                <el-row :gutter="16">
-                  <el-col :xs="24">
-                    <el-form-item label="服务内容" prop="serviceContent" data-field-key="serviceContent">
-                      <div class="service-content-field">
-                        <el-select
-                          v-model="serviceContentSelection"
-                          filterable
-                          allow-create
-                          default-first-option
-                          clearable
-                          placeholder="请选择服务内容"
-                        >
-                          <el-option
-                            v-for="item in serviceContentOptions"
-                            :key="item"
-                            :label="item"
-                            :value="item"
-                          />
-                        </el-select>
-                        <el-input
-                          v-if="customServiceContentOption"
-                          v-model="serviceContentCustomText"
-                          clearable
-                          maxlength="200"
-                          :placeholder="`请补充${customServiceContentOption}的具体内容`"
-                        />
-                      </div>
-                    </el-form-item>
-                  </el-col>
-                </el-row>
+
                       <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="文本类型" data-field-key="fileTypeSecondary"><el-input v-model="form.fileTypeSecondary" /></el-form-item></el-col>
                       </el-row>
@@ -727,7 +728,7 @@
                           <template #reference>
                             <el-button type="primary" link class="word-count-compact-link business-clickable-cell" :title="getWordCountListSummary(row).title">
                               <span class="compact-cell-value">
-                                <span class="compact-cell-value__primary">{{ getWordCountListSummary(row).primary }}</span>
+                                <span class="compact-cell-value__primary">{{ getWordCountListSummary(row).primary }}</span><small v-if="getWordCountListSummary(row).sourceLabel" class="word-count-aggregate-source">子订单累计</small>
                                 <span v-if="getWordCountListSummary(row).extraCount" class="compact-cell-value__count">
                                   +{{ getWordCountListSummary(row).extraCount }}
                                 </span>
@@ -789,7 +790,7 @@
       </template>
     </DraggableFormDialog>
 
-    <DraggableFormDialog v-model="subOrderDialogVisible" append-to-body class="suborder-editor-dialog" :title="subOrderDialogTitle" width="min(1040px, calc(100vw - 32px))" top="5vh" @closed="resetSubOrderForm">
+    <DraggableFormDialog v-model="subOrderDialogVisible" append-to-body class="suborder-editor-dialog" :title="subOrderDialogTitle" width="min(1040px, calc(100vw - 32px))" top="5vh" @closed="()=>{resetSubOrderForm();if(props.editorOnly&&props.editorOrderNo?.includes('.'))emit('editor-closed')}">
       <div class="editor-body">
         <AppForm ref="subOrderFormRef" :model="subOrderForm" :rules="subOrderRules" label-width="120px">
           <el-tabs v-model="subOrderDialogTab" class="editor-tabs">
@@ -916,6 +917,10 @@
 </template>
 
 <script setup>
+import {paymentConfirmationForm} from '@/utils/paymentConfirmation'
+import {getStatementPreference as getClientStatementPreference} from '@/api/customerStatements'
+import {linkSavedCollection} from '@/utils/savedDataRegistry'
+import {useProjectStatusSync} from '@/composables/useProjectStatusSync'
 import { validateTranslationFileName, translationFileNameError } from '@/utils/translationFileName'
 import ProjectShortNotes from './components/ProjectShortNotes.vue'
 import {businessDateTimeInputValue} from '@/utils/dateTime'
@@ -930,12 +935,12 @@ import TranslationProjectFieldCell from './components/TranslationProjectFieldCel
 import TranslationProjectColumnHeader from './components/TranslationProjectColumnHeader.vue'
 import ArrangementFilterToolbar from './components/ArrangementFilterToolbar.vue'
 import {DEFAULT_ARRANGEMENT_EXCLUSIONS,withArrangementExclusions} from '@/utils/arrangementFilters'
-const props=defineProps({embedded:Boolean,myProjects:Boolean,arrangement:Boolean,editorOnly:Boolean,editorProjectId:String,editorZIndex:Number})
+const props=defineProps({embedded:Boolean,myProjects:Boolean,arrangement:Boolean,editorOnly:Boolean,editorProjectId:String,editorOrderNo:String,editorZIndex:Number})
 const emit=defineEmits(['editor-closed'])
 import { managedProjectFilters } from "@/utils/managedProjectFilters"
 import { matchesSearchFields } from '@/utils/searchMatching'
 
-import { translationProjectDetailItems, formatAssignedTranslators, formatTranslatorReturnTimes, formatTranslatorCompletionRemarks } from '@/utils/translationProjectDetail'
+import { translationProjectDetailItems, translationSubOrderDetailItems, formatAssignedTranslators, formatTranslatorReturnTimes, formatTranslatorCompletionRemarks } from '@/utils/translationProjectDetail'
 import ProjectExportMenu from '@/components/common/ProjectExportMenu.vue'
 import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 const arrangementMode = computed(() => props.arrangement)
@@ -988,7 +993,7 @@ import { buildTranslationEmailSubject, extractTranslationSubjectPrefix } from '@
 import { copyTextToClipboard } from '@/utils/clipboard'
 import { launchOpenPath } from '@/utils/openPath'
 import { resolvePreferredProjectPath } from '@/utils/projectPath'
-import { filterTranslationSubOrdersByStatus, normalizeProjectStatus } from '@/utils/projectStatus'
+import { getProjectStatusOptions, filterTranslationSubOrdersByStatus, normalizeProjectStatus } from '@/utils/projectStatus'
 import { CUSTOMER_TYPES } from '@/utils/customerTypes'
 import { getTranslationClientDetailItems } from '@/utils/translationClientLabels'
 import { createIdempotencyKey } from '@/utils/idempotency'
@@ -1028,28 +1033,7 @@ const highlightedProjectId = ref('')
 const projectDialogTab = ref('basic')
 const projectBasicExpandedSections = ref(['project', 'business', 'execution'])
 const subOrderDialogTab = ref('basic')
-const projectStatusOptions = [
-  { label: '初步咨询', value: 'initial_consultation' },
-  { label: '简单需求', value: 'simple_requirement' },
-  { label: '原文件+简单需求', value: 'source_file_simple_requirement' },
-  { label: '待确认', value: 'pending_confirmation' },
-  { label: '已确认', value: 'confirmed' },
-  { label: '已整理', value: 'organized' },
-  { label: '已安排', value: 'arranged' },
-  { label: '已排译员', value: 'translator_assigned' },
-  { label: '已发译员', value: 'sent_to_translator' },
-  { label: '译员发回', value: 'translator_returned' },
-  { label: '已专检', value: 'special_checked' },
-  { label: '已排版', value: 'typeset' },
-  { label: '已专检排版', value: 'special_checked_typeset' },
-  { label: '已审核', value: 'reviewed' },
-  { label: '已发客户', value: 'sent_to_client' },
-  { label: '客户反馈', value: 'client_feedback' },
-  { label: '反馈后发客户', value: 'feedback_sent_to_client' },
-  { label: '已取消', value: 'cancelled' },
-  { label: '已部分取消', value: 'partially_cancelled' },
-  { label: '已暂停', value: 'paused' }
-]
+const projectStatusOptions = getProjectStatusOptions('translation')
 const priorityOptions = ['低', '中', '高', '紧急']
 const serviceContentOptions = [
   '翻译',
@@ -1099,40 +1083,22 @@ const subOrderProgressFieldConfigs = [
 const progressFieldSet = new Set(subOrderProgressFieldConfigs.map((item) => item.key))
 const progressMarks = { 0: '0%', 50: '50%', 100: '100%' }
 const projectDetailItems = translationProjectDetailItems
-const subOrderDetailItems = [
-  { label: '子订单号', key: 'subOrderNo' },
-  { label: '文件名称', key: 'subProjectName' },
-  { label: '状态', key: 'status', type: 'status' },
-  { label: '文本类型', key: 'fileTypeSecondary' },
-  { label: '翻译方向', key: 'languagePair' },
-  { label: '优先级', key: 'priority' },
-  { label: '字数与预估', key: 'wordCountMatrix', span: 2, formatter: (value) => formatWordCountMatrix(value) },
-  { label: '客户交稿时间', key: 'customerDeadlineTime' },
-  { label: '发客户时间', key: 'sentToClientTime' },
-  { label: '客户反馈', key: 'clientFeedback', span: 2 },
-  { label: '已分配译员', key: 'assignedTranslators', span: 2, formatter: (value, row) => formatAssignedTranslators(value, row.translatorName) },
-  { label: '译员回稿时间', key: 'translatorReturnTime', span: 2, formatter: (_value, row) => formatTranslatorReturnTimes(row.assignedTranslators) },
-  { label: '译员任务完成情况', key: 'translatorCompletionRemarks', span: 2, formatter: (_value, row) => formatTranslatorCompletionRemarks(row.assignedTranslators) },
-  { label: '译员分配时间', key: 'translatorAssignmentTime' },
-  { label: '译员交付进度', key: 'translatorDeliveryProgress' },
-  { label: '审校前 QC', key: 'preReviewQcProgress' },
-  { label: '审核进度（旧字段）', key: 'reviewProgress' },
-  { label: '审校 1', key: 'review1Progress' },
-  { label: '审校 2', key: 'review2Progress' },
-  { label: '审校后 QC', key: 'postReviewQcProgress' },
-  { label: '排版进度', key: 'layoutProgress' },
-  { label: '整合进度', key: 'consolidationProgress' },
-  { label: '网络文件路径', key: 'networkFilePath', span: 2 },
-  { label: '备注', key: 'remarks', span: 2 },
-  { label: '创建时间', key: 'createdAt' },
-  { label: '更新时间', key: 'updatedAt' }
-]
+const subOrderDetailItems = translationSubOrderDetailItems
 const quotationVisible=ref(false),statementVisible=ref(false),quotationDraftDirty=ref(false)
 const quotationDocumentProject=computed(()=>({...form,id:form.id||'',clientShortName:form.subClientShortName||form.clientShortName}))
-function applyDocumentDefaults(){form.quotationRequired=false;form.statementRequired=form.customerType!=='个人客户'}
+let statementDefaultSequence=0
+async function applyDocumentDefaults(){
+  form.quotationRequired=false
+  if(form.statementRequiredExplicit)return
+  const seq=++statementDefaultSequence,id=form.clientId
+  const fullyPaid=()=>{const value=paymentConfirmationForm(form.paymentConfirmation);return value.isPaid&&(value.paymentOption==='full'||value.fullPaymentSource==='details'&&value.fullMatchStatus==='matched')}
+  const fallback=()=>!fullyPaid()&&form.customerType!=='个人客户'
+  if(!id){form.statementRequired=fallback();return}
+  try{const preference=await getClientStatementPreference(id);if(seq!==statementDefaultSequence||form.clientId!==id||form.statementRequiredExplicit)return;const choice=preference.statement_default||'unknown';form.statementRequired=!fullyPaid()&&(choice==='unknown'?fallback():choice==='required')}catch{if(seq===statementDefaultSequence&&!form.statementRequiredExplicit)form.statementRequired=fallback()}
+}
 function applyQuotationDraft(value){form.quotationDraft=value;quotationDraftDirty.value=true}
 const customerTypes = CUSTOMER_TYPES
-const createEmptyProjectForm = () => ({ paymentConfirmation: null, statementRequired: true, quotationDraft: null, originalStoragePath: '', customerType: null, id: '', orderNo: '', projectName: '', sourceFileName: '', initialSubOrderNamesText: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', clientName: '', clientShortName: '', clientCode: '', subClientName: '', subClientShortName: '', subClientCode: '', customerOrderNo: '', clientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], wordCountMatrixSource: 'project', wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', remarks: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
+const createEmptyProjectForm = () => ({ paymentConfirmation: null, statementRequired: true, statementRequiredExplicit: false, quotationDraft: null, originalStoragePath: '', customerType: null, id: '', orderNo: '', projectName: '', sourceFileName: '', initialSubOrderNamesText: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', clientName: '', clientShortName: '', clientCode: '', subClientName: '', subClientShortName: '', subClientCode: '', customerOrderNo: '', clientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], wordCountMatrixSource: 'project', wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', remarks: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
 const createEmptySubOrderForm = () => ({ id: '', parentProjectId: '', subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: 0, preReviewQcProgress: 0, reviewProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, networkFilePath: '', remarks: '' })
 const loading = ref(false)
 const submitLoading = ref(false)
@@ -1401,7 +1367,7 @@ const availableSubClients = ref([])
 const subClientsLoading = ref(false)
 let subClientRequestId = 0
 const subClientPlaceholder = computed(() => {
-  if (!form.clientShortName) return '请先选择或输入母客户'
+  if (!form.clientShortName) return '请先选择或输入客户'
   if (subClientsLoading.value) return '正在加载子客户'
   return availableSubClients.value.length ? '选择已有子客户，或直接输入新名称' : '直接输入新子客户名称'
 })
@@ -1459,17 +1425,22 @@ const rules = {
     { required: true, validator: (_rule,value,done) => { const error=translationFileNameError(value,{allowMissingExtension:parentOrderNameAllowed.value});done(error?new Error(error):undefined) }, trigger: ['blur', 'change'] },
     { max: 255, message: '项目名称不能超过255个字符', trigger: ['blur', 'change'] },
   ],
-  clientShortName: [{ validator: requiredTextValidator('请选择或输入母客户简称'), trigger: ['blur', 'change'] }],
-  serviceContent: [{ validator: requiredTextValidator('请选择或输入服务内容'), trigger: ['blur', 'change'] }],
-  languagePair: [{ validator: requiredTextValidator('请选择翻译方向'), trigger: 'change' }],
-  wordCountMatrix: [{ validator: validateWordCountMatrix, trigger: 'change' }],
+  clientShortName: [{ required: true, validator: requiredTextValidator('请选择或输入客户简称'), trigger: ['blur', 'change'] }],
+  serviceContent: [{ required: true, validator: requiredTextValidator('请选择或输入服务内容'), trigger: ['blur', 'change'] }],
+  customerType: [{ required: true, message: '请选择客户类型', trigger: 'change' }],
+  statementRequired: [{ required: true, type: 'boolean', message: '请选择是否需对账单', trigger: 'change' }],
+  originalStoragePath: [{ required: canReadProjectFiles && canWriteProjectFiles, validator: (_rule,value,done) => { if(canReadProjectFiles && canWriteProjectFiles && !String(value||'').trim())return done(new Error('请填写原文路径'));done() }, trigger: ['blur','change'] }],
+  customerRequirementProfessional: [{ required: true, validator: requiredTextValidator('请填写客户专业要求；如确无要求，可填写无'), trigger: ['blur', 'change'] }],
+  customerRequirementSpecial: [{ required: true, validator: requiredTextValidator('请填写客户特殊要求；如确无要求，可填写无'), trigger: ['blur', 'change'] }],
+  languagePair: [{ required: true, validator: requiredTextValidator('请选择翻译方向'), trigger: 'change' }],
+  wordCountMatrix: [{ required: true, validator: validateWordCountMatrix, trigger: 'change' }],
   customerReceptionTime: [{ required: true, message: '请选择客户接单时间', trigger: 'change' }],
   customerDeadlineTime: [{ required: true, message: '请选择客户交稿时间', trigger: 'change' }],
   projectStatus: [{ required: true, message: '请选择状态', trigger: 'change' }],
 }
 watch(createWithSubOrders,()=>formRef.value?.clearValidate(['sourceFileName','initialSubOrderNamesText']))
 watch(()=>form.initialSubOrderNamesText,value=>{if(!form.id&&String(value||'').trim())createWithSubOrders.value=true})
-rules.initialSubOrderNamesText = [{validator:(_rule,value,done)=>{if(!createWithSubOrders.value||form.id)return done();const names=String(value||'').split(/\r?\n/).map(name=>name.trim()).filter(Boolean);if(!names.length)return done(new Error('请至少填写一个子订单文件名称'));if(names.length>100)return done(new Error('每次最多创建100个子订单'));for(const name of names){const error=translationFileNameError(name);if(error)return done(new Error(error))}if(new Set(names.map(name=>name.toLowerCase())).size!==names.length)return done(new Error('子订单文件名称不能重复'));done()},trigger:'blur'}]
+rules.initialSubOrderNamesText = [{required:true,validator:(_rule,value,done)=>{if(!createWithSubOrders.value||form.id)return done();const names=String(value||'').split(/\r?\n/).map(name=>name.trim()).filter(Boolean);if(!names.length)return done(new Error('请至少填写一个子订单文件名称'));if(names.length>100)return done(new Error('每次最多创建100个子订单'));for(const name of names){const error=translationFileNameError(name);if(error)return done(new Error(error))}if(new Set(names.map(name=>name.toLowerCase())).size!==names.length)return done(new Error('子订单文件名称不能重复'));done()},trigger:'blur'}]
 const subOrderRules = { subProjectName: [{ required: true, validator: validateTranslationFileName, trigger: ['blur','change'] }] }
 const NULLABLE_FIELDS = ['sourceFileName', 'emailSubjectPreview', 'serviceContent', 'taskType', 'consultationId', 'clientId', 'subClientId', 'projectManagerId', 'customerOrderNo', 'customerReceptionTime', 'customerDeadlineTime', 'sentToClientTime', 'pmConfirmedBy', 'translatorId', 'translatorAssignmentTime', 'clientFeedback', 'referenceFilePathOne', 'fileTypeSecondary', 'projectContractType', 'projectContractStatus', 'quotationStatus', 'quotationPath', 'customerRequirementProfessional', 'customerRequirementSpecial', 'languagePair', 'priority', 'remarks', 'subProjectName']
 const normalizeStatus = (status) => normalizeProjectStatus('translation',status)
@@ -1495,10 +1466,11 @@ const getStatusType = (status) => ({
 }[normalizeStatus(status)] || 'info')
 
 function formatWordCountSummary(target = {}) {
-  return formatWordCountMatrix(target.wordCountMatrix)
+  return (target.wordCountMatrixSource==='suborder_aggregate'?'【子订单累计】':'')+formatWordCountMatrix(target.wordCountMatrix)
 }
 function getWordCountListSummary(target = {}) {
   return getWordCountMatrixListSummary(target.wordCountMatrix, {
+    source: target.wordCountMatrixSource || target.word_count_matrix_source,
     translators: target.assignedTranslators || target.assigned_translators || []
   })
 }
@@ -1660,6 +1632,7 @@ const cleanPayload = (payload) => {
   delete result.createdAt
   result.expectedUpdatedAt = result.updatedAt || null
   delete result.updatedAt
+  delete result.statementStatus
   delete result.projectManagerName
   result.quotationRequired = Boolean(result.quotationRequired)
   if (!result.quotationRequired) {
@@ -1716,7 +1689,7 @@ const fetchData = async (options = {}) => {
     }
     const response = await getProjectPage(params, { signal: requestController.signal })
     if (sequence !== requestSequence) return
-    tableData.value = (Array.isArray(response?.items) ? response.items : []).map(normalizeProject)
+    tableData.value = linkSavedCollection(response?.items,(Array.isArray(response?.items) ? response.items : []).map(normalizeProject),normalizeProject)
     const expandableProjectIds = tableData.value
       .filter((item) => getSubOrderCount(item))
       .map((item) => item.id)
@@ -2129,6 +2102,8 @@ const handleSubmit = async (sendAfterSave = false) => {
   let projectSaved = false
   try {
     const payloadSource = { ...form }
+    if(!form.statementRequiredExplicit)delete payloadSource.statementRequired
+    delete payloadSource.statementRequiredExplicit
     if(!form.id && createWithSubOrders.value) payloadSource.initialSubOrderNames=String(form.initialSubOrderNamesText||'').split(/\r?\n/).map(name=>name.trim()).filter(Boolean)
     delete payloadSource.initialSubOrderNamesText
     delete payloadSource.originalStoragePath
@@ -2288,10 +2263,19 @@ const saveAllInlineNames = async (scope, projectId = null) => {
     saving.value = false
   }
 }
+async function openStatementOrderEditor(){
+  if(!props.editorOrderNo||!props.editorOrderNo.includes('.'))return openProjectDetails({id:props.editorProjectId})
+  try{
+    const [project,children]=await Promise.all([getProject(props.editorProjectId),getSubOrdersByProject(props.editorProjectId)])
+    const child=children.find(item=>item.subOrderNo===props.editorOrderNo)
+    if(!child)throw new Error('子订单不存在或已删除')
+    openSubOrderEditorFromList(project,child)
+  }catch(error){ElMessage.error(getLocalizedErrorMessage(error,'订单编辑窗口加载失败'));emit('editor-closed')}
+}
 const projectFieldContext=computed(()=>({openProjectDetails,getTranslationClientDetailItems,projectDetailItems,getStatusLabel,getStatusType,canWriteProjects,deleteMode:deleteMode.value,saveProjectTextField,fetchData,canReadProjectFiles,openOriginalPath,copyOriginalPath,projectStatusSavingIds:projectStatusSavingIds.value,changeProjectStatus,normalizeStatus,openArrangementFromStatus,projectStatusOptions,saveProjectTranslatorCompletions,getLanguagePairSummary,formatAssignedTranslators,getAssignedTranslatorSummary,getWordCountListSummary,formatTableColumnValue,headerFilterDefinition,searchForm,handleConfiguredTextInput,handleSearch,getTimeSortMode,getSortDirection,isTimeSortActive,getTimeSortTitle,toggleTimeSort}))
 onMounted(async () => {
   if(props.editorOnly) {
-    await Promise.all([openProjectDetails({id:props.editorProjectId}),loadResourceRequestStatuses()])
+    await Promise.all([openStatementOrderEditor(),loadResourceRequestStatuses()])
     return
   }
   if (!props.embedded && route.query.projectId) {
@@ -2317,6 +2301,7 @@ onBeforeUnmount(() => {
 })
 const customerFinanceEditorRef=ref(null)
 function openCustomerFinance(target){customerFinanceEditorRef.value?.openForForm(target,form)}
+useProjectStatusSync('translation',tableData,{enabled:()=>!props.editorOnly,onChanged:()=>{if(!loading.value&&!dialogVisible.value&&!subOrderDialogVisible.value&&!expandedInlineSaving.value&&!editorInlineSaving.value)void fetchData()}})
 </script>
 
 <style scoped>
@@ -2367,6 +2352,7 @@ function openCustomerFinance(target){customerFinanceEditorRef.value?.openForForm
 .subject-preview-toolbar .el-button { flex: none; }
 .soft-action-button { --el-button-bg-color: var(--el-color-primary-light-9); --el-button-border-color: var(--el-color-primary-light-7); --el-button-text-color: var(--el-color-primary-dark-2); --el-button-hover-bg-color: var(--el-color-primary-light-8); --el-button-hover-border-color: var(--el-color-primary-light-5); --el-button-hover-text-color: var(--el-color-primary); flex: none; font-weight: 500; }
 .word-count-summary { width: 100%; min-height: 32px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 10px; border: 1px solid var(--el-border-color); border-radius: 4px; background: var(--el-fill-color-lighter); color: var(--el-text-color-regular); }
+.project-document-options{grid-column:1/-1;display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}.project-document-options>.el-form-item{flex:1;min-width:260px}
 .project-finance-controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 16px; }
 .project-finance-controls .el-select { width:100%; }
 .project-document-choice { display:flex; align-items:center; gap:12px; min-height:32px; flex-wrap:wrap; }
@@ -2396,7 +2382,7 @@ function openCustomerFinance(target){customerFinanceEditorRef.value?.openForForm
 .editor-tabs :deep(.el-tabs__content) { padding-top: 8px; }
 .form-section { padding: 4px 2px 12px; }
 .service-content-field { display: flex; width: 100%; gap: 12px; }
-.service-content-field > .el-select { flex: 0 0 min(360px, 45%); }
+.service-content-field > .el-select { flex: 1; min-width: 0; }
 .service-content-field > .el-input { flex: 1; min-width: 0; }
 .project-key-fields { margin-bottom: 16px; padding: 18px 16px 4px; border: 1px solid var(--el-color-primary-light-7); border-radius: 10px; background: var(--el-color-primary-light-9); }
 .project-key-fields__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
@@ -2467,3 +2453,5 @@ function openCustomerFinance(target){customerFinanceEditorRef.value?.openForForm
 }
 
 </style>
+
+<style scoped>.word-count-aggregate-source{font-size:10px;color:var(--el-color-primary);margin-left:4px}</style>

@@ -4,6 +4,7 @@ import { clearAuthSession } from '@/utils/authSession'
 import { chatConversationScope } from '@/utils/chatAccess'
 import { screenshotIds, screenshotGrantHeaders, rememberScreenshotGrant } from '@/utils/screenshotReferences'
 import {draftSubmitSnapshot,completeDraftSubmit} from '@/utils/autoDrafts'
+import {rememberSavedRead,savedReadPromise} from '@/utils/savedDataRegistry'
 
 const api = axios.create({
   baseURL: '/api',
@@ -37,7 +38,8 @@ api.interceptors.response.use(
     rememberScreenshotGrant(response)
     const scope = chatConversationScope(response.config?.url)
     if (scope) window.dispatchEvent(new CustomEvent('chat-conversation-access-granted', { detail: scope }))
-    return response.data
+    // 实时同步是附加能力，隐藏界面的收集异常不能让成功的业务请求变成失败。
+    try{return rememberSavedRead(response)}catch{return response.data}
   },
   error => {
     const scope = chatConversationScope(error.config?.url)
@@ -52,4 +54,6 @@ api.interceptors.response.use(
   }
 )
 
+const readGet=api.get.bind(api)
+api.get=(...args)=>savedReadPromise(readGet(...args))
 export default api

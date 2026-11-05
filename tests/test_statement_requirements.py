@@ -35,6 +35,27 @@ def test_month_page_has_shared_statement_flag_and_total(setup):
     assert previous['total']==1 and previous['items'][0]['id']==str(october.id)
 
 
+def test_full_payments_default_no_statement_and_deposit_still_requires_one(setup):
+    import json
+    from translation_payment_confirmation import TranslationPaymentConfirmation
+    http,db,clients,_,_,october,november,personal=setup
+    first=TranslationPaymentConfirmation(project_id=october.id,is_paid=True,payment_option='full',proofs='',revision=1)
+    second=TranslationPaymentConfirmation(project_id=november.id,is_paid=True,payment_option='deposit',proofs='',revision=1)
+    db.add_all([first,second]);db.commit()
+    def flags():return {row['id']:row['statement_required'] for row in http.get('/translation-customer-finance/page').json()['items']}
+    assert flags()=={str(october.id):False,str(november.id):True,str(personal.id):False}
+    result=http.get('/translation-customer-finance/page',params={'statement_required':False}).json()
+    assert {row['id'] for row in result['items']}=={str(october.id),str(personal.id)}
+    second.payment_option=json.dumps({'type':'deposit','full_payment':{'source':'details','amount':'100.00','match_status':'matched'}});db.commit()
+    assert flags()[str(november.id)] is False
+    assert http.get('/translation-customer-finance/statement-customers').json()['total']==0
+    second.payment_option=json.dumps({'type':'deposit','full_payment':{'source':'details','amount':'90.00','match_status':'mismatch'}});db.commit()
+    assert flags()[str(november.id)] is True
+    second.payment_option='full';db.add(TranslationProjectDocuments(project_id=november.id,statement_required=True));db.commit()
+    assert flags()[str(november.id)] is True
+    assert http.get('/translation-customer-finance/statement-customers').json()['total']==1
+
+
 def test_quick_update_shared_model_conflicts_and_permission(setup):
     http,db,_,granted,user,_,november,_=setup
     row=http.get('/translation-customer-finance/page',params={'keyword':november.order_no}).json()['items'][0]
@@ -134,3 +155,93 @@ def test_copy_same_client_and_bill_month_only(setup):
     assert result['total']==2
     invalid=http.put(url,json={'statement_required':True,'expected_statement_required':True,'copy_to_same_month':True,'billing_month':'2026-10'})
     assert invalid.status_code==422
+
+
+def test_finance_page_exposes_real_statement_status(setup):
+    http,db,clients,_,_,october,november,personal=setup
+    state=http.post('/translation-statement-workspaces/import',json={'client_id':str(clients[0].id),'months':['2026-11'],'scope':'customer','revision':0,'confirmed':True}).json()
+    assert state['documents']
+    page=http.get('/translation-customer-finance/page',params={'billing_month':'2026-11'}).json()
+    by_id={row['id']:row for row in page['items']}
+    status=by_id[str(november.id)]['statement_status']
+    assert status and status[0]['months']==['2026-11'] and status[0]['board_id']==state['documents'][0]['id']
+    assert by_id[str(personal.id)]['statement_status']==[]
+
+
+def test_customer_month_view_exists_even_when_this_project_not_imported(setup):
+    http,db,clients,_,user,october,november,personal=setup
+    excluded=project(db,clients[0],'099','2026-11')
+    db.add(TranslationProjectDocuments(project_id=excluded.id,statement_required=False));db.commit()
+    imported=http.post('/translation-statement-workspaces/import',json={'client_id':str(clients[0].id),'months':['2026-11'],'scope':'customer','required_only':True,'revision':0,'confirmed':True}).json()
+    result=http.get('/translation-customer-finance/page',params={'billing_month':'2026-11'}).json()
+    rows={row['id']:row for row in result['items']}
+    assert not rows[str(excluded.id)]['statement_status']
+    boards=rows[str(excluded.id)]['customer_statements']
+    assert len(boards)==1 and boards[0]['months']==['2026-11']
+    assert boards[0]['client_id']==str(clients[0].id)
+    assert not rows[str(personal.id)]['customer_statements']
+    assert not any('2026-10' in board['months'] for board in boards)
+    board_id=imported['documents'][0]['id']
+    deleted=http.post(f"/translation-statement-workspaces/{clients[0].id}/actions",json={'revision':imported['revision'],'action':'delete_boards','data':{'board_ids':[board_id]},'confirmed':True})
+    assert deleted.status_code==200,deleted.text
+    result=http.get('/translation-customer-finance/page',params={'billing_month':'2026-11'}).json()
+    assert all(not row['customer_statements'] for row in result['items'])
+
+
+def test_client_statement_default_only_changes_unset_projects_and_keeps_manual_values(setup):
+    http,db,clients,_,user,october,november,personal=setup
+    from translation_document_requirements import save as save_documents
+    save_documents(db,october,statement_required=True,actor_id=user.id);db.commit()
+    initial=http.get(f'/clients/{clients[0].id}/statement-preference').json()
+    assert initial['statement_default']=='unknown'
+    changed=http.put(f'/clients/{clients[0].id}/statement-preference',json={'revision':initial['revision'],'tax_included':False,'statement_default':'not_required'})
+    assert changed.status_code==200,changed.text
+    flags={row['id']:row['statement_required'] for row in http.get('/translation-customer-finance/page').json()['items']}
+    assert flags[str(october.id)] is True and flags[str(november.id)] is False
+    assert crud.get_translation_project(db,november.id).statement_required is False
+    assert crud.get_translation_project(db,november.id).statement_required_explicit is False
+    # 人工再调整后，即使客户默认再次改变也不覆盖该项目。
+    save_documents(db,november,statement_required=False,actor_id=user.id);db.commit()
+    changed=http.put(f'/clients/{clients[0].id}/statement-preference',json={'revision':changed.json()['revision'],'tax_included':False,'statement_default':'required'})
+    assert changed.status_code==200,changed.text
+    assert crud.get_translation_project(db,november.id).statement_required is False
+    assert crud.get_translation_project(db,november.id).statement_required_explicit is True
+    rows=http.get('/translation-customer-finance/page',params={'statement_required':False}).json()['items']
+    assert str(november.id) in {row['id'] for row in rows}
+
+
+def test_client_default_paid_full_and_unknown_fallback(setup):
+    http,db,clients,_,_,october,november,personal=setup
+    from translation_payment_confirmation import TranslationPaymentConfirmation
+    first=http.put(f'/clients/{clients[1].id}/statement-preference',json={'revision':0,'tax_included':False,'statement_default':'required'})
+    assert first.status_code==200,first.text
+    assert crud.get_translation_project(db,personal.id).statement_required is True
+    # 只修改税口径，不丢失已设置的默认需求。
+    tax=http.put(f'/clients/{clients[1].id}/statement-preference',json={'revision':first.json()['revision'],'tax_included':True})
+    assert tax.json()['statement_default']=='required'
+    db.add(TranslationPaymentConfirmation(project_id=personal.id,is_paid=True,payment_option='full',proofs='',revision=1));db.commit()
+    assert crud.get_translation_project(db,personal.id).statement_required is False
+    unknown=http.put(f'/clients/{clients[1].id}/statement-preference',json={'revision':tax.json()['revision'],'tax_included':True,'statement_default':'unknown'})
+    assert unknown.status_code==200,unknown.text
+    assert crud.get_translation_project(db,personal.id).statement_required is False
+
+
+def test_default_inherits_parent_client_for_subclient_project(setup):
+    http,db,clients,_,_,october,november,personal=setup
+    sub=SubClient(id=uuid4(),parent_client_id=clients[0].id,sub_client_code='SUB-DEFAULT',client_name='默认规则子客户',client_short_name='子客户')
+    db.add(sub);db.commit();november.client_id=None;november.sub_client_id=sub.id;db.commit()
+    changed=http.put(f'/clients/{clients[0].id}/statement-preference',json={'revision':0,'tax_included':False,'statement_default':'not_required'})
+    assert changed.status_code==200,changed.text
+    assert crud.get_translation_project(db,november.id).statement_required is False
+    rows=http.get('/translation-customer-finance/page',params={'statement_required':False}).json()['items']
+    assert str(november.id) in {row['id'] for row in rows}
+
+
+def test_customer_default_migration_is_repeatable(environment):
+    from customer_statement_defaults import CustomerStatementDefault
+    from tools.apply_customer_statement_default_migration import apply_migration
+    from sqlalchemy import inspect
+    db,_=environment
+    CustomerStatementDefault.__table__.drop(db.connection(),checkfirst=True)
+    apply_migration(db.connection());apply_migration(db.connection())
+    assert inspect(db.connection()).has_table('customer_statement_default')

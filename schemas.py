@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator, field_serializer
+from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator, field_serializer
 from path_security import validate_managed_path
 
 from language_catalog import normalize_language_pairs
@@ -243,10 +243,17 @@ class ClientUpdate(BaseModel):
     expected_updated_at: Optional[datetime] = None
 
 class ClientResponse(ClientBase):
+    client_status: Optional[str] = Field(default="pending",validation_alias=AliasChoices("_auto_client_status","client_status"))
+    cooperation_start_date: Optional[datetime] = Field(default=None,validation_alias=AliasChoices("_auto_cooperation_start_date","cooperation_start_date"))
     id: UUID
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     sub_clients: list['SubClientResponse'] = Field(default_factory=list)
+
+    @field_serializer('cooperation_start_date',when_used='json')
+    def serialize_cooperation_date(self,value):
+        from annotation_progress_time import business_datetime
+        return business_datetime(value).isoformat() if value else None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -343,10 +350,17 @@ class SubClientUpdate(BaseModel):
     expected_updated_at: Optional[datetime] = None
 
 class SubClientResponse(SubClientBase):
+    client_status: Optional[str] = Field(default="pending",validation_alias=AliasChoices("_auto_client_status","client_status"))
+    cooperation_start_date: Optional[datetime] = Field(default=None,validation_alias=AliasChoices("_auto_cooperation_start_date","cooperation_start_date"))
     id: UUID
     parent_client_id: UUID
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+    @field_serializer('cooperation_start_date',when_used='json')
+    def serialize_cooperation_date(self,value):
+        from annotation_progress_time import business_datetime
+        return business_datetime(value).isoformat() if value else None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1003,7 +1017,16 @@ class TranslationSubOrderResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ProjectStatementStatus(BaseModel):
+    client_id:UUID
+    board_id:str
+    board_name:str
+    months:list[str]
+
+
 class TranslationProjectResponse(TranslationProjectBase):
+    statement_required_explicit: bool = False
+    statement_status:list[ProjectStatementStatus]=Field(default_factory=list)
     id: UUID
     order_no: str
     client_name: Optional[str] = None

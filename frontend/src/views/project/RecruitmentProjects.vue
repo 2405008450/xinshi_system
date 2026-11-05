@@ -350,6 +350,7 @@
 </template>
 
 <script setup>
+import {useProjectStatusSync} from '@/composables/useProjectStatusSync'
 import TaxPriceFields from '@/components/common/TaxPriceFields.vue'
 import {taxPriceForm,taxUnitAmount,taxPriceSummary} from '@/utils/taxPrices'
 import ProjectClientManagerField from '@/components/common/ProjectClientManagerField.vue'
@@ -687,6 +688,7 @@ const copyPath=async(path)=>{if(!path?.trim())return ElMessage.warning('该项�
 onMounted(async()=>{const editorReady=Promise.all([loadReferenceData(),loadResourceRequestStatuses()]);if(route.query.projectId){await focusRouteProject(editorReady);return}await Promise.all([fetchData(),editorReady])})
 watch(()=>[route.query.projectId,route.query.openEditor],([projectId,openEditor],[previousProjectId,previousOpenEditor])=>{if(projectId&&(projectId!==previousProjectId||(openEditor==='1'&&previousOpenEditor!=='1')))void focusRouteProject()})
 onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(autoNameTimer);controller?.abort()})
+useProjectStatusSync('recruitment',rows,{onChanged:()=>{if(!loading.value&&!editorVisible.value)void fetchData()}})
 </script>
 
 <style scoped>

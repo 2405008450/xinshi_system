@@ -575,6 +575,7 @@
 </template>
 
 <script setup>
+import {useProjectStatusSync} from '@/composables/useProjectStatusSync'
 import ProjectClientManagerField from '@/components/common/ProjectClientManagerField.vue'
 import ProjectClientManagerHistory from '@/components/common/ProjectClientManagerHistory.vue'
 const clientManagerBaseline = ref(localStorage.getItem('user_id') || '')
@@ -1500,6 +1501,7 @@ watch(
   }
 )
 onBeforeUnmount(() => { interpreterTalentSequence++;interpreterTalentController?.abort();clearTimeout(searchTimer); clearTimeout(autoNameTimer); requestController?.abort() })
+useProjectStatusSync('interpretation',tableData,{onChanged:()=>{if(!loading.value&&!dialogVisible.value)void fetchData()}})
 </script>
 
 <style scoped>

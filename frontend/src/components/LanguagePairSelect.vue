@@ -15,6 +15,7 @@
         :loading="loading"
         :disabled="loading || loadingFailed"
         :item-height="40"
+        :fit-input-width="dropdownWidth"
         style="width: 100%"
         @visible-change="handleVisibleChange"
       >
@@ -93,6 +94,7 @@ const props = defineProps({
   placeholder: { type: String, default: '请选择一个或多个翻译方向' },
   showHint: { type: Boolean, default: true },
   single: Boolean,
+  dropdownWidth: {type:[Boolean,Number],default:true},
   allowCreate: {type:Boolean,default:true},
 })
 

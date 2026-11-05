@@ -40,7 +40,8 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import {useProjectStatusSync} from '@/composables/useProjectStatusSync'
 import { ElMessage } from 'element-plus'
 import { CaretBottom, Check } from '@element-plus/icons-vue'
 import { updateProject } from '@/api/projects'
@@ -79,10 +80,13 @@ const props = defineProps({
 
 const emit = defineEmits(['updated'])
 const saving = ref(false)
+const statusNode=ref({id:props.projectId,status:props.status})
+watch(()=>[props.projectId,props.status],()=>{statusNode.value={id:props.projectId,status:props.status}})
+useProjectStatusSync(()=>props.projectType,statusNode,{field:'status',children:false})
 const options = computed(() => getProjectStatusOptions(props.projectType))
-const normalizedStatus = computed(() => normalizeProjectStatus(props.projectType, props.status))
-const statusLabel = computed(() => getProjectStatusLabel(props.projectType, props.status))
-const statusType = computed(() => getProjectStatusType(props.projectType, props.status))
+const normalizedStatus = computed(() => normalizeProjectStatus(props.projectType, statusNode.value.status))
+const statusLabel = computed(() => getProjectStatusLabel(props.projectType, statusNode.value.status))
+const statusType = computed(() => getProjectStatusType(props.projectType, statusNode.value.status))
 const canSwitch = computed(() => props.writable && !!props.projectId)
 
 function typeOf(value) {
@@ -90,7 +94,7 @@ function typeOf(value) {
 }
 
 function isOptionDisabled(value) {
-  return isProjectStatusOptionDisabled(props.projectType, value, props.status)
+  return isProjectStatusOptionDisabled(props.projectType, value, statusNode.value.status)
 }
 
 async function persistStatus(projectType, projectId, nextStatus) {
@@ -113,6 +117,7 @@ async function changeStatus(value) {
   try {
     const updated = await persistStatus(props.projectType, props.projectId, nextStatus)
     const savedStatus = updated?.projectStatus || updated?.project_status || nextStatus
+    statusNode.value.status=savedStatus
     ElMessage.success('项目状态已更新')
     emit('updated', {
       projectId: props.projectId,

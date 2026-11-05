@@ -140,7 +140,7 @@ def create_assignments(db, user, project_id, payload):
     for index, row in enumerate(rows):
         child = selected_orders[index % len(selected_orders)]
         targets.attach(db, row, parent, child, initial_statuses.get(child.id) if child else None)
-    arrangeable = (None, 'initial_consultation', 'simple_requirement', 'source_file_simple_requirement', 'pending', 'pending_confirmation', 'confirmed', 'organized', 'in_progress', 'arranged')
+    arrangeable = (None, 'cost_calculation', 'initial_consultation', 'simple_requirement', 'source_file_simple_requirement', 'pending', 'pending_confirmation', 'confirmed', 'organized', 'in_progress', 'arranged')
     for child in selected_orders:
         if child is not None and child.status in arrangeable:
             child.status = 'arranged'

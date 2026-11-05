@@ -4,7 +4,7 @@
       <div class="card-header">
         <div>
           <span>客户管理</span>
-          <small class="header-hint">母客户与子客户统一管理</small>
+          <small class="header-hint">客户与子客户统一管理</small>
         </div>
         <div class="header-actions">
           <TableColumnSettings settings-key="client-information"
@@ -410,6 +410,13 @@
         <el-tab-pane label="合作项目" name="projects">
           <CustomerCooperationProjects v-if="clientActiveTab === 'projects'" :client-id="form.id" />
         </el-tab-pane>
+        <el-tab-pane label="对账单" name="statements">
+          <div data-dialog-field-search-label="对账单">
+            <el-empty v-if="!form.id" description="请先保存客户，再查看对账单" />
+            <el-empty v-else-if="!canReadStatements" description="暂无财务对账单查看权限" />
+            <CustomerStatementHistory v-else-if="clientActiveTab === 'statements'" :key="form.id" :client-id="form.id" />
+          </div>
+        </el-tab-pane>
         </el-tabs>
       </div>
       <template #footer>
@@ -518,7 +525,7 @@ import CustomerCooperationProjects from '@/components/common/CustomerCooperation
 import CustomerFinancePanel from '@/components/common/CustomerFinancePanel.vue'
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { refreshAfterSave } from '@/utils/postSaveRefresh.js'
-import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch, defineAsyncComponent } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowRight } from '@element-plus/icons-vue'
 import * as clientApi from '@/api/clients'
@@ -531,7 +538,7 @@ import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import { hasPermission } from '@/utils/permission'
-import { formatDateTimeMinute as formatDatetime } from '@/utils/dateTime'
+import { formatDateTimeMinute as formatDatetime, businessDateTimeInputValue } from '@/utils/dateTime'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
@@ -540,6 +547,8 @@ import { countActiveFilters, createFilterModel, resetFilterModel, serializeField
 
 const loading = ref(false)
 const canWrite = hasPermission('clients:write')
+const canReadStatements = hasPermission('projects:read')
+const CustomerStatementHistory = defineAsyncComponent(() => import('@/components/common/CustomerStatementHistory.vue'))
 const submitLoading = ref(false)
 const dialogVisible = ref(false)
 const clientActiveTab = ref('basic')
@@ -871,7 +880,7 @@ const loadClientDetail = async (id) => {
 }
 
 const handleEdit = async (row) => {
-  dialogTitle.value = '编辑客户'
+  dialogTitle.value = '客户管理 · 编辑窗口'
   resetForm()
   Object.assign(form, {
     id: row.id,
@@ -888,7 +897,7 @@ const handleEdit = async (row) => {
     city: row.city || '',
     district: row.district || '',
     client_status: row.client_status || 'pending',
-    cooperation_start_date: row.cooperation_start_date || '',
+    cooperation_start_date: businessDateTimeInputValue(row.cooperation_start_date||''),
     remarks: row.remarks || '',
     cooperation_info: row.cooperation_info || '',
     sub_clients: row.sub_clients || [],
@@ -956,7 +965,7 @@ const handleAddSub = () => {
 
 const handleAddSubForParent = (parent) => {
   if (!parent?.id) {
-    ElMessage.warning('请先保存母客户，再新增子客户')
+    ElMessage.warning('请先保存客户，再新增子客户')
     return
   }
   subDialogTitle.value = '新增子客户'
@@ -971,7 +980,7 @@ const handleAddSubForParent = (parent) => {
 const handleEditSub = (subRow, parentRow = null) => {
   subDialogTitle.value = '编辑子客户'
   resetSubForm()
-  Object.assign(subForm, { ...subRow })
+  Object.assign(subForm, { ...subRow, cooperation_start_date: businessDateTimeInputValue(subRow.cooperation_start_date||'') })
   if (parentRow) subForm.parent_client_id = parentRow.id
   else subForm.parent_client_id = form.id
   subDialogVisible.value = true

@@ -26,7 +26,13 @@ const routes = [
         redirect: '/finance-management/translation',
       },
       {
-        path: 'finance-management/:module(translation|interpretation|annotation|recruitment)',
+        path:'finance-management/translation/statements/:clientId/:boardId?',
+        name:'CustomerStatementPage',
+        component:()=>import('../views/project/translation/CustomerStatementPage.vue'),
+        meta:{title:'对账单',permissions:['projects:read']},
+      },
+      {
+        path: 'finance-management/:module(translation|interpretation|annotation|recruitment|permissions)',
         name: 'FinanceManagement',
         component: () => import('../views/project/FinanceWorkspace.vue'),
         meta: { title: '财务管理', permissions: ['projects:read'] },

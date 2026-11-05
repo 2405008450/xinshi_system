@@ -18,6 +18,7 @@
   </el-card>
 </template>
 <script setup>
+import {useProjectStatusSync} from '@/composables/useProjectStatusSync'
 import {computed,ref,reactive,onMounted,onBeforeUnmount,watch} from 'vue'
 import {getInterpretationFinancePage} from '@/api/interpretationCustomerFinance'
 import InterpretationFinanceEditor from '@/components/common/InterpretationFinanceEditor.vue'
@@ -46,6 +47,7 @@ function cell(row,key){if(key==='project_status')return getProjectStatusLabel('i
 onMounted(()=>void load())
 watch(()=>props.clientId,search)
 onBeforeUnmount(()=>{sequence++;clearTimeout(timer);controller?.abort()})
+useProjectStatusSync('interpretation',rows,{field:'project_status',onChanged:()=>{if(!loading.value)void load()}})
 </script>
 <style scoped>
 .heading{display:flex;justify-content:space-between;align-items:center}.finance-text{white-space:pre-wrap;overflow-wrap:anywhere}.finance-detail{max-height:560px;overflow-y:auto}.el-pagination{margin:16px 0}.el-select{width:220px}p{font-size:12px;color:#64748b}

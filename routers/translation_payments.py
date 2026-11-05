@@ -25,10 +25,7 @@ def read(project_id:UUID,db=Depends(get_db),actor=Depends(require_any_permission
 def write(project_id:UUID,payload:payments.PaymentWrite,db=Depends(get_db),actor=Depends(require_any_permission('projects:write','finance:write'))):
     row=project(db,project_id,True)
     try:
-        result=payments.save(db,row,payload.payments,payload.version,actor.id)
-        if payload.confirmation is not None:
-            payments.confirmations.save(db,row.id,payload.confirmation,actor.id)
-            result=payments.read(db,row)
+        result=payments.save(db,row,payload.payments,payload.version,actor.id,payload.confirmation)
         db.commit()
         return result
     except IntegrityError:
@@ -41,3 +38,9 @@ def write(project_id:UUID,payload:payments.PaymentWrite,db=Depends(get_db),actor
 def confirmation_history(project_id:UUID,page:int=Query(1,ge=1),db=Depends(get_db),actor=Depends(require_any_permission('projects:read','finance:read'))):
     project(db,project_id)
     return payments.confirmations.history(db,project_id,page)
+
+
+@router.get('/{project_id}/totals')
+def totals(project_id:UUID,db=Depends(get_db),actor=Depends(require_any_permission('projects:read','finance:read'))):
+    project(db,project_id)
+    return payments.confirmations.project_totals(db,project_id)

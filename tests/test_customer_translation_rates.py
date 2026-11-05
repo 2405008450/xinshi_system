@@ -50,7 +50,8 @@ def test_multirates_inheritance_and_metrics(environment):
     db,(owner,_,_)=environment;client,root,child,third=context(db,owner)
     root.language_pair='英语→简中；简中→英语';db.commit()
     result=write(db,owner,root,root,[item(),item('简中→英语','.2')])
-    assert len(result['item']['prices'])==2
+    assert len(result['item']['prices'])==1  # 父级只显示下级实际采用的方向
+    assert len(result['item']['recorded_prices'])==2
     assert result['item']['totals']=={'CNY':'1.00'}
     leaf=result['item']['children'][0]['children'][0]
     assert len(leaf['prices'])==1 and leaf['prices'][0]['metric']=='foreign_words'
@@ -91,3 +92,22 @@ def test_create_only_repeatable_migration(environment):
     for model in (rates.CustomerTranslationRateHistory,rates.TranslationChargeDirection,rates.CustomerTranslationRate):model.__table__.drop(db.connection())
     apply_migration(db.connection());apply_migration(db.connection())
     assert db.connection().dialect.has_table(db.connection(),'customer_translation_rate')
+
+
+def test_reference_adoption_matches_physical_unit_and_sync_preserves_company_mode(environment,monkeypatch):
+    db,(owner,_,_)=environment;client,root,_,leaf=context(db,owner)
+    db.add(WordCountMetric(id=uuid4(),sub_order_id=leaf.id,dimension='company',metric_type='words',count_value=5));db.commit()
+    lib=rates.write_library(db,owner,client.id,[item(metric='customer_auto:words',amount='.3')],rates.library(db,client.id)['version']);db.commit()
+    ref=lib['items'][0]
+    result=write(db,owner,root,leaf,[item(metric='company_words',amount='.3',reference_id=ref['id'],reference_revision=ref['revision'])])
+    assert result['item']['children'][0]['children'][0]['prices'][0]['metric']=='company_words'
+    with pytest.raises(HTTPException):write(db,owner,root,leaf,[item(metric='company_pages',amount='.3',reference_id=ref['id'],reference_revision=ref['revision'])])
+    db.rollback()
+    monkeypatch.setattr(finance,'user_has_permission',lambda *a:True)
+    write(db,owner,root,leaf,[item(metric='company_words',amount='.4')],update_library=True,sync_confirmed=True,library_version=rates.library(db,client.id)['version'])
+    lib=rates.library(db,client.id)
+    assert len(lib['items'])==1 and lib['items'][0]['metric']=='customer_auto:words'
+    rates.write_library(db,owner,client.id,[item(metric='customer_auto:words',amount='.5')],lib['version']);db.commit()
+    loaded=finance.read(db,root.id)['item']['children'][0]['children'][0]
+    assert loaded['prices'][0]['metric']=='company_words'
+    assert Decimal(loaded['prices'][0]['amount'])==Decimal('.5')

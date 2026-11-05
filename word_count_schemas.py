@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, model_validator
 
 
-MetricType = Literal["words", "characters_no_spaces", "cjk_chars_korean_words", "foreign_words", "documents", "pages"]
+MetricType = Literal["words", "characters_no_spaces", "cjk_chars_korean_words", "foreign_words", "documents", "pages", "minutes", "hours"]
 EntityType = Literal["project", "suborder"]
 EntityDimension = Literal["company", "customer", "preliminary", "translator_estimate"]
 ArrangementDimension = Literal["planned", "actual"]
@@ -20,6 +20,13 @@ class WordCountValues(BaseModel):
     foreign_words: Optional[int] = Field(default=None, ge=0)
     documents: Optional[int] = Field(default=None, ge=0)
     pages: Optional[int] = Field(default=None, ge=0)
+    minutes: Optional[float] = Field(default=None, ge=0,le=9999999999,allow_inf_nan=False)
+    hours: Optional[float] = Field(default=None, ge=0,le=9999999999,allow_inf_nan=False)
+
+    @model_validator(mode='after')
+    def one_duration_unit(self):
+        if self.minutes is not None and self.hours is not None:raise ValueError('分钟和小时只能选择一种')
+        return self
 
 
 class WordCountCreateMatrix(BaseModel):
@@ -27,6 +34,7 @@ class WordCountCreateMatrix(BaseModel):
     customer: WordCountValues = Field(default_factory=WordCountValues)
     preliminary: WordCountValues = Field(default_factory=WordCountValues)
     translator_estimate: WordCountValues = Field(default_factory=WordCountValues)
+
 
 
 class TranslatorWordCountRow(BaseModel):
@@ -55,11 +63,14 @@ class WordCountCellChange(BaseModel):
     scope: Literal["entity", "translator"]
     dimension: str
     metric_type: MetricType
-    value: Optional[int] = Field(default=None, ge=0)
+    value: Optional[float] = Field(default=None, ge=0,le=9999999999,allow_inf_nan=False)
     arrangement_id: Optional[UUID] = None
 
     @model_validator(mode="after")
     def validate_scope(self):
+        if self.value is not None and self.metric_type not in {'minutes','hours'}:
+            if not float(self.value).is_integer():raise ValueError('字数、份数和页数必须是整数')
+            self.value=int(self.value)
         if self.scope == "entity":
             if self.dimension not in {"company", "customer", "preliminary", "translator_estimate"}:
                 raise ValueError("项目级字数维度无效")

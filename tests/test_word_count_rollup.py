@@ -39,6 +39,7 @@ def test_recursive_counts_are_consistent_across_popup_list_and_updates(environme
     assert child.word_count_matrix['company']['words'] == 30
     patch_word_count_matrix(db, 'suborder', third.id, WordCountMatrixPatch(changes=[
         dict(scope='entity', dimension='customer', metric_type='words', value=100),
+        dict(scope='entity', dimension='customer', metric_type='pages', value=None),
         dict(scope='entity', dimension='preliminary', metric_type='words', value=999),
     ]), updated_by=user.id)
     matrix = get_word_count_matrix(db, 'project', root.id)

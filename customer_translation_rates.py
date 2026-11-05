@@ -79,7 +79,7 @@ def invalidate_metadata(db):
 
 
 def order_rates(db,owner,language_pair=None,meta=None):
-    charges=sorted([row for row in owner.customer_charge_items if row.pricing_mode=='metric'],key=lambda row:row.sequence_no or 0)
+    charges=sorted([row for row in owner.customer_charge_items if row.pricing_mode=='metric' and row.item_name!='财务信息'],key=lambda row:row.sequence_no or 0)
     meta=metadata(db,[row.id for row in charges]) if meta is None else meta
     bases=quantity_basis.metadata(db,[row.id for row in charges])
     return [{'id':str(row.id),'language_pair':meta[row.id].language_pair if row.id in meta else language_pair or owner.language_pair or '',

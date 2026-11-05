@@ -25,7 +25,7 @@ def test_finance_and_payment_dialog_share_record_and_conflict(environment):
     assert result['item']['payment_confirmation']['payment_option']=='deposit'
     loaded=payments.read(db,row)
     assert loaded['confirmation']['revision']==1
-    updated=write(row.id,payments.PaymentWrite(version=loaded['version'],payments=[],confirmation={**loaded['confirmation'],'payment_option':'full'}),db,actor)
+    updated=write(row.id,payments.PaymentWrite(version=loaded['version'],payments=[],confirmation={**loaded['confirmation'],'payment_option':'full','full_payment_amount':100,'full_payment_total_key':'excl:CNY'}),db,actor)
     assert finance.read(db,row.id)['item']['payment_confirmation']==updated['confirmation']
     assert crud.get_translation_project(db,row.id).payment_confirmation==updated['confirmation']
     # 收费版本未变化，但独立付款版本仍能阻止旧表单覆盖。
@@ -64,3 +64,22 @@ def test_validation_and_migration_idempotent(environment):
     from tools.apply_translation_payment_confirmation_migration import apply_migration
     with db.get_bind().begin() as conn:
         apply_migration(conn);apply_migration(conn)
+
+
+def test_payment_account_and_custom_name_share_all_entries(environment):
+    db,(actor,*_)=environment;row=project(db,actor)
+    saved=confirmation.save(db,row.id,confirmation.PaymentConfirmationWrite(is_paid=True,payment_option='deposit',payment_account='广州公司公账'),actor.id);db.commit()
+    assert crud.get_translation_project(db,row.id).payment_confirmation['payment_account']=='广州公司公账'
+    assert finance.read(db,row.id)['item']['payment_confirmation']['payment_account']=='广州公司公账'
+    loaded=payments.read(db,row)
+    updated=write(row.id,payments.PaymentWrite(version=loaded['version'],payments=[{'stage_type':'deposit','payment_method':'广州公司公账'}],confirmation={**loaded['confirmation'],'payment_account':'自定义收款账户'}),db,actor)
+    assert updated['confirmation']['payment_option']=='deposit'
+    assert updated['confirmation']['payment_account']=='自定义收款账户'
+    assert updated['payments'][0]['payment_method']=='广州公司公账'
+    history=confirmation.history(db,row.id)['items'][0]
+    assert history['before']['payment_account']=='广州公司公账' and history['after']['payment_account']=='自定义收款账户'
+    # 老记录仍可读取；账户不改变全款/定金/一次款含义。
+    raw=db.get(confirmation.TranslationPaymentConfirmation,row.id);raw.payment_option='full';db.commit()
+    assert confirmation.read(db,row.id)['payment_account']==''
+    assert confirmation.read(db,row.id)['payment_option']=='full'
+    with pytest.raises(ValidationError):confirmation.PaymentConfirmationWrite(payment_account='长'*51)

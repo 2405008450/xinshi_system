@@ -1,12 +1,16 @@
 <template>
   <el-select :model-value="modelValue" :disabled="disabled" placeholder="选择统计口径（数量可后补）" aria-label="统计口径" @update:model-value="emit('update:modelValue',$event)">
-    <el-option v-for="option in options" :key="option.value" :value="option.value" :label="option.label" />
+    <el-option v-for="option in options" :key="option.value" :value="option.value" :label="option.label" :disabled="option.disabled" />
   </el-select>
+  <small v-if="matrix" :class="{'quantity-basis-warning':resolved.error}">{{resolved.error||( `${resolved.dimension==='company'||String(modelValue).startsWith('company_')?'我司统计':'客户统计'}：${resolved.quantity} ${metricName(resolved.metric)}` )}}</small>
 </template>
 <script setup>
 import {computed} from 'vue'
-import {rateQuantityOptions} from '@/utils/translationQuantityBasis'
-const props=defineProps({modelValue:String,matrix:Object,disabled:Boolean})
+import {WORD_COUNT_METRICS} from '@/utils/wordCountMatrix'
+import {rateQuantityOptions,resolveRateQuantity,metricName} from '@/utils/translationQuantityBasis'
+const props=defineProps({modelValue:String,matrix:Object,disabled:Boolean,referenceMode:Boolean})
 const emit=defineEmits(['update:modelValue'])
-const options=computed(()=>rateQuantityOptions(props.matrix,props.modelValue))
+const options=computed(()=>{if(!props.referenceMode)return rateQuantityOptions(props.matrix,props.modelValue);const items=WORD_COUNT_METRICS.map(item=>({value:`customer_auto:${item.key}`,label:item.label}));if(props.modelValue&&!items.some(item=>item.value===props.modelValue))items.push({value:props.modelValue,label:props.modelValue==='customer_auto'?'历史自动口径（请明确单位）':metricName(String(props.modelValue).replace(/^company_/,'')),disabled:props.modelValue==='customer_auto'});return items})
+const resolved=computed(()=>resolveRateQuantity(props.matrix,props.modelValue))
 </script>
+<style scoped>small{display:block;margin-top:4px;font-size:12px;color:var(--el-text-color-secondary)}.quantity-basis-warning{color:var(--el-color-warning)}</style>

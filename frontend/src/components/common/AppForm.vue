@@ -7,12 +7,15 @@
     :scroll-into-view-options="scrollOptions"
   >
     <el-alert v-if="serverError" :title="serverError" type="error" show-icon :closable="false" class="app-form-server-error" />
+    <SavedDataConflict ref="savedConflictRef" :model="$attrs.model" :fields="innerFormRef?.fields||[]" />
     <slot />
   </ElementForm>
 </template>
 
 <script setup>
-import { nextTick, ref } from 'vue'
+import { nextTick, ref, getCurrentInstance, onMounted, onUpdated, onBeforeUnmount, useAttrs } from 'vue'
+import SavedDataConflict from './SavedDataConflict.vue'
+import {bindSavedForm,unbindSavedForm} from '@/utils/savedDataRegistry'
 import { ElForm as ElementForm } from 'element-plus'
 // 包装组件使用别名，按需插件无法识别 ElementForm，必须显式引入表单布局样式。
 import 'element-plus/theme-chalk/el-form.css'
@@ -27,7 +30,11 @@ defineOptions({
 
 const innerFormRef = ref(null)
 const serverError = ref('')
+const savedConflictRef=ref(null)
 const scrollOptions = { behavior: 'smooth', block: 'center', inline: 'nearest' }
+const liveInstance=getCurrentInstance(),liveAttrs=useAttrs()
+const bindLiveModel=()=>bindSavedForm(liveInstance,liveAttrs.model)
+onMounted(bindLiveModel);onUpdated(bindLiveModel);onBeforeUnmount(()=>unbindSavedForm(liveInstance))
 
 const locateFirstError = async () => {
   await nextTick()
@@ -36,6 +43,7 @@ const locateFirstError = async () => {
 
 const validate = async (callback) => {
   if (!innerFormRef.value) return false
+  if(savedConflictRef.value?.checkBeforeSave()===false){if(typeof callback==='function'){await callback(false,{});return false}throw new Error('请先处理数据更新差异')}
   serverError.value = ''
 
   if(!await waitForScreenshotUploads(innerFormRef.value.$el)){

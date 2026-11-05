@@ -4,7 +4,7 @@
     v-bind="$attrs"
     :title="''"
     :visible="minimized ? true : visible"
-    :popper-class="normalizeClass([$attrs.popperClass || $attrs['popper-class'], title && 'app-window-popover'])"
+    :popper-class="normalizeClass([$attrs.popperClass || $attrs['popper-class'], title && 'app-window-popover', geometry.state.maximized && 'app-window-popover--maximized'])"
     :popper-style="[$attrs.popperStyle || $attrs['popper-style'], windowStyle]"
     :on-update:visible="minimized ? undefined : updateVisible"
     @after-leave="reset"
@@ -16,7 +16,7 @@
         <WindowControls :maximized="geometry.state.maximized" @minimize="minimized = true" @maximize="geometry.maximize" @restore="geometry.restore" @close="close" />
       </header>
       <div ref="content" class="app-window-popover__body"><slot>{{ $attrs.content }}</slot></div>
-      <i v-for="edge in edges" :key="edge" class="app-window-resize" :class="`app-window-resize--${edge}`" @mousedown="geometry.start($event, edge)" />
+      <i v-for="edge in geometry.state.maximized?[]:edges" :key="edge" class="app-window-resize" :class="`app-window-resize--${edge}`" @mousedown="geometry.start($event, edge)" />
     </template>
     <slot v-else>{{ $attrs.content }}</slot>
   </ElPopover>
@@ -45,7 +45,7 @@ const windowStyle = computed(() => {
   return rect ? {
     position: 'fixed !important', left: `${rect.x}px !important`, top: `${rect.y}px !important`,
     width: `${rect.width}px !important`, height: `${rect.height}px !important`,
-    maxWidth: 'calc(100vw - 16px) !important', maxHeight: 'calc(100vh - 16px) !important',
+    maxWidth: geometry.state.maximized?'none !important':'calc(100vw - 16px) !important', maxHeight: geometry.state.maximized?'none !important':'calc(100vh - 16px) !important',
     transform: 'none !important', margin: '0 !important',
   } : {}
 })
@@ -80,6 +80,7 @@ defineExpose({
 
 <style>
 .el-popover.app-window-popover { display: flex; flex-direction: column; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); box-sizing: border-box; }
+.app-window-popover--maximized .el-popper__arrow{display:none}.app-window-popover--maximized .app-window-popover__header{cursor:default}
 .app-window-popover__header { position: relative; flex-shrink: 0; min-height: 36px; padding: 4px 140px 8px 0; cursor: grab; border-bottom: 1px solid var(--el-border-color-lighter); }
 .app-window-popover__title { font-size: 16px; color: var(--el-text-color-primary); overflow-wrap: anywhere; cursor: text; user-select: text; }
 .app-window-popover__header.is-dragging { cursor: grabbing; }

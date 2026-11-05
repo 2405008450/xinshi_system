@@ -45,25 +45,51 @@ def ready(db):
 
 def required_expression(db):
     """SQL 筛选与表单默认值一致：显式值优先，个人客户默认不需。"""
-    from sqlalchemy import select,func,and_,or_,literal
-    from models import TranslationProject
+    from sqlalchemy import select,func,and_,or_,literal,case
+    from models import TranslationProject,SubClient
+    from customer_statement_defaults import CustomerStatementDefault
     from translation_customer_type import ClientCustomerType,ready as types_ready
     explicit=select(TranslationProjectDocuments.statement_required).where(TranslationProjectDocuments.project_id==TranslationProject.id).correlate(TranslationProject).scalar_subquery() if ready(db) else literal(None)
     inherited=literal(True)
     if types_ready(db):
         customer_type=select(ClientCustomerType.customer_type).where(or_(and_(TranslationProject.sub_client_id.is_(None),ClientCustomerType.client_id==TranslationProject.client_id),ClientCustomerType.sub_client_id==TranslationProject.sub_client_id)).correlate(TranslationProject).scalar_subquery()
         inherited=func.coalesce(customer_type!='个人客户',True)
-    return func.coalesce(explicit,inherited)
+    parent=select(SubClient.parent_client_id).where(SubClient.id==TranslationProject.sub_client_id).correlate(TranslationProject).scalar_subquery()
+    choice=select(CustomerStatementDefault.choice).where(CustomerStatementDefault.client_id==func.coalesce(TranslationProject.client_id,parent)).correlate(TranslationProject).scalar_subquery()
+    customer_default=case((choice=='required',True),(choice=='not_required',False),else_=inherited)
+    return func.coalesce(explicit,and_(customer_default,~full_payment_expression(db)))
+
+
+def full_payment_expression(db):
+    from sqlalchemy import select,func,and_,or_,literal
+    from models import TranslationProject
+    from translation_payment_confirmation import TranslationPaymentConfirmation,ready as payments_ready
+    if not payments_ready(db):return literal(False)
+    model=TranslationPaymentConfirmation
+    encoded=func.replace(model.payment_option,' ','')
+    full=or_(model.payment_option=='full',encoded.like('%"type":"full"%'),and_(encoded.like('%"source":"details"%'),encoded.like('%"match_status":"matched"%')))
+    return func.coalesce(select(and_(model.is_paid.is_(True),full)).where(model.project_id==TranslationProject.id).correlate(TranslationProject).scalar_subquery(),False)
+
+
+def full_payment(value):
+    return bool(value and value.get('is_paid') and (value.get('payment_option')=='full' or value.get('full_payment_source')=='details' and value.get('full_match_status')=='matched'))
 
 
 def attach(db, projects):
     if not projects:
         return
+    from translation_payment_confirmation import attach as attach_payments
+    attach_payments(db,projects)
+    from customer_statement_defaults import choices_for_projects
+    defaults=choices_for_projects(db,projects)
     rows = {row.project_id: row for row in db.query(TranslationProjectDocuments).filter(
         TranslationProjectDocuments.project_id.in_([row.id for row in projects])).all()} if ready(db) else {}
     for project in projects:
         row = rows.get(project.id)
-        project.statement_required = row.statement_required if row and row.statement_required is not None else getattr(project, 'customer_type', None) != '个人客户'
+        project.statement_required_explicit=bool(row and row.statement_required is not None)
+        choice=defaults.get(project.id,'unknown')
+        inherited=choice=='required' if choice!='unknown' else getattr(project,'customer_type',None)!='个人客户'
+        project.statement_required = row.statement_required if project.statement_required_explicit else inherited and not full_payment(getattr(project,'payment_confirmation',None))
         project.quotation_draft = row.quotation_data if row else None
 
 

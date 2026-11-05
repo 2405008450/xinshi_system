@@ -66,7 +66,7 @@ export function getProjectExportConfig(module) {
     modes: [
       { type: 'projects', label: '导出项目 Excel', title: `导出${config.name}`, action: '导出 Excel', prefix: `${config.name}导出`, hint: config.projectHint },
       { type: 'reconciliation', label: '按时间导出客户对账单', title: `导出${config.name}客户对账单`, action: '导出客户对账单', prefix: `${config.name}${module === 'translation' ? '对账单' : '客户对账单'}`, hint: reconciliationHint },
-      { type: 'client_reconciliation', label: '按客户导出客户对账单', title: `按客户导出${config.name}对账单`, action: '导出客户对账单', prefix: `${config.name}${module === 'translation' ? '对账单' : '客户对账单'}`, hint: `按所选${config.clientLabel || '母客户'}精确匹配，包含该${config.clientLabel || '母客户'}及其子客户的全部项目，不受当前列表筛选和时间范围限制。${module === 'translation' ? '' : '缺少结算依据的记录进入“待补数据”。'}` },
+      { type: 'client_reconciliation', label: '按客户导出客户对账单', title: `按客户导出${config.name}对账单`, action: '导出客户对账单', prefix: `${config.name}${module === 'translation' ? '对账单' : '客户对账单'}`, hint: `按所选${config.clientLabel || '客户'}精确匹配，包含该${config.clientLabel || '客户'}及其子客户的全部项目，不受当前列表筛选和时间范围限制。${module === 'translation' ? '' : '缺少结算依据的记录进入“待补数据”。'}` },
       { type: config.fourthType, label: config.fourthLabel, title: `导出${config.name}${config.fourthLabel.slice(2)}`, action: config.fourthLabel, prefix: `${config.name}${config.fourthLabel.slice(2)}`, hint: config.fourthHint },
     ],
   }

@@ -3,6 +3,7 @@ import base64
 import hashlib
 import json
 import math
+import re
 from decimal import Decimal, ROUND_HALF_UP
 from functools import lru_cache
 from io import BytesIO
@@ -25,8 +26,10 @@ from routers.auth import require_permission, require_any_permission
 from annotation_progress_time import business_now, business_datetime
 import crud
 import translation_customer_finance as finance
+from customer_statement_defaults import CustomerStatementDefault
 
-COMPANY = '广州信实翻译服务公司'
+COMPANIES = ('广州信实翻译服务有限公司','广州信实翻译服务有限公司深圳分公司','广州信实翻译服务有限公司上海分公司')
+COMPANY = COMPANIES[0]
 MONTH = r'^\d{4}-(0[1-9]|1[0-2])$'
 METRICS = {'words':'字数','characters_no_spaces':'字符数（不计空格）','foreign_words':'外文字数',
            'cjk_chars_korean_words':'中朝字数','documents':'份数','pages':'页数'}
@@ -61,11 +64,21 @@ class PreferenceWrite(BaseModel):
     model_config = ConfigDict(extra='forbid')
     revision: int = Field(ge=0)
     tax_included: bool
+    statement_default: Literal['required','not_required','unknown'] | None = None
+
+
+class CustomerStatementCompany(Base):
+    __tablename__ = 'customer_statement_company'
+    key = Column(String(30), primary_key=True)
+    company = Column(String(255), nullable=False)
+    updated_by = Column(Uuid, ForeignKey('app_user.id', ondelete='SET NULL'))
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=business_now)
 
 
 class SettingsWrite(BaseModel):
     model_config = ConfigDict(extra='forbid')
     revision: int = Field(ge=0)
+    company: Literal['广州信实翻译服务有限公司','广州信实翻译服务有限公司深圳分公司','广州信实翻译服务有限公司上海分公司'] = COMPANY
     bank_name: str = Field(default='', max_length=255)
     account_name: str = Field(default='', max_length=255)
     account_number: str = Field(default='', max_length=100)
@@ -115,15 +128,15 @@ def clean_stamp(value):
         raise HTTPException(422,'印章请上传不超过2MB的PNG、JPG或WebP图片，建议使用透明底PNG')
 
 
-def settings_value(row):
+def settings_value(row, company=None):
     return dict(bank_name=row.bank_name if row else '',account_name=row.account_name if row else '',
                 account_number=row.account_number if row else '',stamp_image=row.stamp_image if row else None,
-                default_stamp=default_stamp(),revision=row.revision if row else 0)
+                company=company.company if company else COMPANY,company_options=list(COMPANIES),default_stamp=default_stamp(),revision=row.revision if row else 0)
 
 
 @router.get('/customer-statement-settings')
 def read_company_settings(db=Depends(get_db),user=Depends(read_settings)):
-    return settings_value(db.get(CustomerStatementSettings,'company'))
+    return settings_value(db.get(CustomerStatementSettings,'company'),db.get(CustomerStatementCompany,'company'))
 
 
 @router.put('/customer-statement-settings')
@@ -135,7 +148,10 @@ def save_company_settings(data:SettingsWrite,db=Depends(get_db),user=Depends(wri
         if row is None:row=CustomerStatementSettings(key='company',revision=0);db.add(row)
         for key in ('bank_name','account_name','account_number'):setattr(row,key,getattr(data,key).strip())
         row.stamp_image=stamp;row.revision+=1;row.updated_at=business_now();row.updated_by=user.id
-        db.commit();return settings_value(row)
+        subject=db.get(CustomerStatementCompany,'company')
+        if subject is None:subject=CustomerStatementCompany(key='company');db.add(subject)
+        subject.company=data.company;subject.updated_by=user.id;subject.updated_at=business_now()
+        db.commit();return settings_value(row,subject)
     except IntegrityError:
         db.rollback();raise HTTPException(409,'对账单设置已更新，请重新打开后编辑')
     except Exception:
@@ -145,7 +161,8 @@ def save_company_settings(data:SettingsWrite,db=Depends(get_db),user=Depends(wri
 def client_preference(db,client_id):
     if not db.get(Client,client_id):raise HTTPException(404,'客户不存在')
     row=db.get(CustomerStatementPreference,client_id)
-    return dict(tax_included=bool(row.tax_included) if row else False,revision=row.revision if row else 0)
+    default=db.get(CustomerStatementDefault,client_id)
+    return dict(tax_included=bool(row.tax_included) if row else False,statement_default=default.choice if default else 'unknown',revision=row.revision if row else 0)
 
 
 @router.get('/clients/{client_id}/statement-preference')
@@ -161,6 +178,10 @@ def save_preference(client_id:UUID,data:PreferenceWrite,db=Depends(get_db),user=
         if data.revision!=(row.revision if row else 0):raise HTTPException(409,'客户含税设置已更新，请重新加载后编辑')
         if row is None:row=CustomerStatementPreference(client_id=client_id,revision=0);db.add(row)
         row.tax_included=data.tax_included;row.revision+=1;row.updated_at=business_now();row.updated_by=user.id
+        if data.statement_default is not None:
+            default=db.get(CustomerStatementDefault,client_id)
+            if default is None:default=CustomerStatementDefault(client_id=client_id);db.add(default)
+            default.choice=data.statement_default;default.updated_by=user.id;default.updated_at=business_now()
         db.commit();return client_preference(db,client_id)
     except IntegrityError:
         db.rollback();raise HTTPException(409,'客户含税设置已更新，请重新加载后编辑')
@@ -187,7 +208,7 @@ def statement_display_rows(node, rows, mode):
                  'language_pair':item['language_pair'] or '-', 'quantity':None,'unit_price':None,
                  'basis':'订单汇总'+('（部分待补）' if any(row['subtotal'] is None for row in group) else ''),
                  'currency':currency,'subtotal':money(sum((Decimal(row['subtotal']) for row in group if row['subtotal'] is not None),Decimal(0))) if any(row['subtotal'] is not None for row in group) else None,
-                 'remarks':item.get('explanation') or '', 'counted_in_total':counted}
+                 'remarks':item.get('customer_explanation') or '', 'counted_in_total':counted}
                 for currency,group in groups.items()]
 
     if mode=='parents':return summaries(node,rows,True)
@@ -233,11 +254,11 @@ def build_statement(db,project_id,order_id,month,scope,order_display='children')
         line_counts={}
         def append(item,quantity,unit,amount,currency,remark='',basis='',issue=None,unit_size='1'):
             line_index=line_counts.get(item['id'],0);line_counts[item['id']]=line_index+1
-            rows.append(dict(order_no=item['order_no'],received_date=business_datetime(root.customer_reception_time).strftime('%Y-%m-%d') if root.customer_reception_time else None,
+            rows.append(dict(order_no=item['order_no'],customer_order_no=(root.customer_order_no or '').strip(),received_date=business_datetime(root.customer_reception_time).strftime('%Y-%m-%d') if root.customer_reception_time else None,
                 task_id=item['id'],root_id=str(root.id),line_id=f"{item['id']}:{line_index}",unit_size=format(Decimal(str(unit_size)),'f'),
                 project_name=item['project_name'] or '-',language_pair=item['language_pair'] or '-',quantity=quantity,basis=basis,
                 unit_price=str(unit) if unit is not None else None,unit_label=label,currency=currency,subtotal=money(amount),
-                remarks=remark or getattr(owners.get(item['id']),'remarks',None) or ''))
+                remarks=item.get('customer_explanation') or ''))
             if issue:pending.append(f"{item['order_no']}：{issue}")
         def visit(item,inherited_month):
             current_month=item.get('billing_month') or inherited_month
@@ -258,7 +279,7 @@ def build_statement(db,project_id,order_id,month,scope,order_display='children')
                     quantity=price.get('quantity');size=price.get('unit_size') or '1';amount=tax.get('total_'+kind)
                     if amount is None and unit is not None and quantity is not None:amount=Decimal(str(unit))*Decimal(str(quantity))/Decimal(size)
                     dimension='我司统计' if price.get('quantity_dimension')=='company' else '客户统计'
-                    basis=f"{dimension} · {METRICS.get(price.get('quantity_metric'),price.get('quantity_metric') or '')}（每{Decimal(size):f}计价）"
+                    basis=f"{dimension} · {METRICS.get(price.get('quantity_metric'),price.get('quantity_metric') or '')}"+(f"（每{Decimal(size):f}计价）" if Decimal(size)!=1 else '')
                     line={**item,'language_pair':price.get('language_pair') or item['language_pair']}
                     append(line,str(quantity) if quantity is not None else None,unit,amount,price['currency'],item.get('explanation',''),basis,
                            f'未填写{label}单价或对应工作量' if unit is None or quantity is None or amount is None else None,unit_size=size)
@@ -275,9 +296,9 @@ def build_statement(db,project_id,order_id,month,scope,order_display='children')
     sums={}
     for row in rows:
         if row.get('counted_in_total',True) and row['subtotal'] is not None:sums[row['currency']]=sums.get(row['currency'],Decimal(0))+Decimal(row['subtotal'])
-    settings=settings_value(db.get(CustomerStatementSettings,'company'))
-    result=dict(company=COMPANY,title='对账单',client_name=client.client_name or client.client_short_name,client_code=client.client_code,
-        month=month,scope=scope,order_display=order_display,tax_included=preference['tax_included'],rows=rows,totals={key:money(value) for key,value in sums.items()},pending=pending,
+    settings=settings_value(db.get(CustomerStatementSettings,'company'),db.get(CustomerStatementCompany,'company'))
+    result=dict(company=settings['company'],title='对账单',client_name=client.client_name or client.client_short_name,client_code=client.client_code,
+        month=month,issue_date=business_now().date().isoformat(),scope=scope,order_display=order_display,tax_included=preference['tax_included'],rows=rows,totals={key:money(value) for key,value in sums.items()},pending=pending,
         settings={key:settings[key] for key in ('bank_name','account_name','account_number')},stamp_image=settings['stamp_image'] or settings['default_stamp'])
     result['statement_version']=hashlib.sha256(json.dumps(result,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
     result['generated_at']=business_now().isoformat()
@@ -289,43 +310,68 @@ def preview(project_id:UUID,month:str=Query(pattern=MONTH),scope:Literal['projec
     return build_statement(db,project_id,order_id,month,scope,order_display)
 
 
-def excel_bytes(data):
-    from openpyxl import Workbook
+def statement_title(data):
+    title=data.get('title') or '对账单';month=data.get('month') or ''
+    prefix=f'{month} ' if month else ''
+    return title[len(prefix):] if prefix and title.startswith(prefix) else title
+
+
+def write_excel_sheet(sheet,data):
     from openpyxl.styles import Font, Alignment, Border, Side
     from openpyxl.drawing.image import Image as ExcelImage
+    from openpyxl.utils import get_column_letter
     from project_export_excel import _safe_text
-    workbook=Workbook();sheet=workbook.active;sheet.title='对账单';sheet.sheet_view.showGridLines=False
-    sheet.merge_cells('A1:G1');sheet['A1']=data['company'];sheet['A1'].font=Font(name='微软雅黑',size=18,bold=True)
-    sheet.merge_cells('A2:G2');sheet['A2']='对账单';sheet['A2'].font=Font(name='微软雅黑',size=16,bold=True)
-    sheet.merge_cells('A3:G3');sheet['A3']=_safe_text(f"客户：{data['client_name']}    账单月份：{data['month']}    金额口径：{'含税' if data['tax_included'] else '不含税'}")
-    sheet.append([]);sheet.append(['来稿日期','项目名称','翻译方向','工作量（计价方式）','单价','小计','备注'])
+    has_customer_order=any(str(row.get('customer_order_no') or '').strip() for row in data['rows'])
+    has_origin=any(row.get('origin_client_id') or row.get('origin_client_name') for row in data['rows'])
+    offset=int(has_customer_order)+int(has_origin);last_col=get_column_letter(7+offset)
+    sheet.sheet_view.showGridLines=False
+    sheet.merge_cells(f'A1:{last_col}1');sheet['A1']=_safe_text(data['company']);sheet['A1'].font=Font(name='微软雅黑',size=15,bold=True)
+    sheet.merge_cells(f'A2:{last_col}2');sheet['A2']=_safe_text(statement_title(data));sheet['A2'].font=Font(name='微软雅黑',size=16.5,bold=True)
+    sheet.merge_cells(start_row=3,start_column=1,end_row=3,end_column=4+offset);sheet['A3']=_safe_text(f"客户：{data['client_name']}")
+    sheet.merge_cells(start_row=3,start_column=5+offset,end_row=3,end_column=7+offset);sheet.cell(3,5+offset,_safe_text(f"账单月份：{data['month']}　{'含税' if data['tax_included'] else '不含税'}"))
+    sheet.append([]);sheet.append((['原客户'] if has_origin else [])+(['客户单号'] if has_customer_order else [])+['来稿日期','项目名称','翻译方向','工作量（计价方式）','单价','小计','备注'])
     for row in data['rows']:
-        workload=(str(row['quantity'])+'\n' if row['quantity'] is not None else '')+row['basis']
-        unit=f"{row['currency']} {row['unit_price']}（{row['unit_label']}）" if row['unit_price'] is not None else '-'
-        values=[row['received_date'],row['project_name'],row['language_pair'],workload,unit,
+        workload=(str(row['quantity'])+'\n' if row['quantity'] is not None else '')+re.sub(r'[（(]每1(?:\.0+)?计价[）)]','',row['basis'])
+        unit=f"{row['currency']} {Decimal(str(row['unit_price'])).quantize(Decimal('0.001'),rounding=ROUND_HALF_UP):.3f}" if row['unit_price'] is not None else '-'
+        values=([row.get('origin_client_name') or data['client_name']] if has_origin else [])+([row.get('customer_order_no','')] if has_customer_order else [])+[row['received_date'],row['project_name'],row['language_pair'],workload,unit,
                 f"{row['currency']} {row['subtotal']}" if row['subtotal'] is not None else '待补',
                 ('汇总参考，不重复计入合计。' if row.get('counted_in_total') is False else '')+(row['remarks'] or '')]
-        sheet.append([_safe_text(value) for value in values]);sheet.row_dimensions[sheet.max_row].height=46
-    total_row=sheet.max_row+1;sheet.merge_cells(start_row=total_row,start_column=1,end_row=total_row,end_column=5)
-    sheet.cell(total_row,1,'合计（已登记金额）' if data['pending'] else '合计')
-    sheet.cell(total_row,6,'\n'.join(f'{key} {value}' for key,value in data['totals'].items()) or '-')
+        sheet.append(['-' if value=='-' else _safe_text(value) for value in values]);sheet.row_dimensions[sheet.max_row].height=46
+    total_row=sheet.max_row+1;sheet.merge_cells(start_row=total_row,start_column=1,end_row=total_row,end_column=3);sheet.merge_cells(start_row=total_row,start_column=4,end_row=total_row,end_column=5+offset)
+    sheet.cell(total_row,1,'账单日期：'+(data.get('issue_date') or '-'))
+    sheet.cell(total_row,4,'合计（已登记金额）' if data['pending'] else '合计')
+    sheet.cell(total_row,6+offset,'\n'.join(f'{key} {value}' for key,value in data['totals'].items()) or '-')
     sheet.row_dimensions[total_row].height=max(55,len(data['totals'])*20)
     border=Border(*( [Side(style='thin',color='777777')]*4 ))
     for row in sheet.iter_rows():
         for cell in row:
             cell.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
+            if cell.row==3:cell.font=Font(name='微软雅黑',size=10)
             if cell.row>=5:cell.border=border;cell.font=Font(name='微软雅黑',size=10,bold=cell.row in (5,total_row))
+    sheet['A3'].alignment=Alignment(horizontal='left',vertical='center',wrap_text=True)
+    sheet.cell(3,5+offset).alignment=Alignment(horizontal='right',vertical='center',wrap_text=True)
+    sheet.cell(total_row,1).alignment=Alignment(horizontal='left',vertical='center')
+    sheet.cell(total_row,1).font=Font(name='微软雅黑',size=9,color='64748B')
+    sheet.cell(total_row,4).alignment=Alignment(horizontal='right',vertical='center',wrap_text=True,indent=1)
     sheet.append([])
-    for text in ['信实翻译公司 账户信息','开户行：'+data['settings']['bank_name'],'账户名：'+data['settings']['account_name'],'账号：'+data['settings']['account_number']]:
-        sheet.append([_safe_text(text)]);sheet.merge_cells(start_row=sheet.max_row,start_column=1,end_row=sheet.max_row,end_column=7)
+    for text in ['收款账户信息','开户行：'+data['settings']['bank_name'],'账户名：'+data['settings']['account_name'],'账号：'+data['settings']['account_number']]:
+        sheet.append([_safe_text(text)]);sheet.merge_cells(start_row=sheet.max_row,start_column=1,end_row=sheet.max_row,end_column=7+offset)
         sheet.cell(sheet.max_row,1).alignment=Alignment(horizontal='left',vertical='center');sheet.row_dimensions[sheet.max_row].height=24
+        sheet.cell(sheet.max_row,1).font=Font(name='微软雅黑',size=11.25 if text=='收款账户信息' else 10,bold=text=='收款账户信息')
     if data['pending']:
-        sheet.append([_safe_text('待补资料：'+'；'.join(data['pending']))]);sheet.merge_cells(start_row=sheet.max_row,start_column=1,end_row=sheet.max_row,end_column=7);sheet.cell(sheet.max_row,1).alignment=Alignment(wrap_text=True);sheet.row_dimensions[sheet.max_row].height=50
+        sheet.append([_safe_text('待补资料：'+'；'.join(data['pending']))]);sheet.merge_cells(start_row=sheet.max_row,start_column=1,end_row=sheet.max_row,end_column=7+offset);sheet.cell(sheet.max_row,1).alignment=Alignment(wrap_text=True);sheet.row_dimensions[sheet.max_row].height=50
+        sheet.cell(sheet.max_row,1).font=Font(name='微软雅黑',size=9,color='A54A21')
     image=ExcelImage(BytesIO(base64.b64decode(data['stamp_image'].split(',',1)[1])));image.width=image.height=130
     sheet.add_image(image,f'D{max(5,total_row-1)}')
-    for index,width in zip('ABCDEFG',[16,36,22,33,30,22,34]):sheet.column_dimensions[index].width=width
+    for index,width in enumerate(([24] if has_origin else [])+([24] if has_customer_order else [])+[24,35.7,17.6,29.7,30,22,34],1):sheet.column_dimensions[get_column_letter(index)].width=width
     sheet.sheet_properties.pageSetUpPr.fitToPage=True;sheet.page_setup.orientation='landscape';sheet.page_setup.paperSize=sheet.PAPERSIZE_A4
     sheet.page_setup.fitToWidth=1;sheet.page_setup.fitToHeight=0;sheet.print_title_rows='1:5';sheet.print_options.horizontalCentered=True
+
+
+def excel_bytes(data):
+    from openpyxl import Workbook
+    workbook=Workbook();sheet=workbook.active;sheet.title='对账单'
+    write_excel_sheet(sheet,data)
     output=BytesIO();workbook.save(output);return output.getvalue()
 
 
@@ -334,5 +380,5 @@ def export_excel(project_id:UUID,month:str=Query(pattern=MONTH),scope:Literal['p
     data=build_statement(db,project_id,order_id,month,scope,order_display)
     if version and version!=data['statement_version']:raise HTTPException(409,'对账单数据已变化，请重新生成后下载')
     if not data['rows']:raise HTTPException(422,'所选账单月份暂无可生成的项目')
-    filename=quote(f"信实翻译对账单_{data['month']}_{data['client_code']}.xlsx")
+    filename=quote(f"信实翻译对账单_{data['month']}.xlsx")
     return Response(excel_bytes(data),media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',headers={'Content-Disposition':f"attachment; filename*=UTF-8''{filename}"})

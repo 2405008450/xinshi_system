@@ -38,7 +38,7 @@ def test_shared_existing_finance_preserves_other_fields_and_rejects_stale(enviro
 
 def test_clearing_and_foreign_ids_and_confirmation(environment):
     db,(actor,_,_)=environment;row=project(db,actor);other=project(db,actor,'002')
-    data=write(row.id,service.PaymentWrite(version=read(row.id,db,actor)['version'],payments=[dict(stage_type='final',planned_amount=10,actual_amount=10)]),db,actor)
+    data=write(row.id,service.PaymentWrite(version=read(row.id,db,actor)['version'],payments=[dict(stage_type='final',planned_amount=10,actual_amount=10)],confirmation={'is_paid':True,'payment_option':'deposit','mismatch_reason':'项目尚未登记收费'}),db,actor)
     payment=db.query(FinancePayment).one();payment.confirmed_by=actor.id;payment.confirmed_at=datetime(2026,11,4,9);db.commit()
     current=read(row.id,db,actor);current['payments'][0]['actual_amount']='9'
     result=write(row.id,service.PaymentWrite(version=current['version'],payments=current['payments']),db,actor)

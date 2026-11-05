@@ -33,6 +33,7 @@
 </template>
 
 <script setup>
+import {useProjectStatusSync} from '@/composables/useProjectStatusSync'
 import { onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { getClientProjects } from '@/api/clients'
 import { hasPermission } from '@/utils/permission'
@@ -82,6 +83,7 @@ async function load() {
 
 watch(() => props.clientId, load, { immediate: true })
 onBeforeUnmount(() => { ++requestId; controller?.abort() })
+useProjectStatusSync('translation',()=>groups.value.flatMap(group=>pageRows(group).map(row=>({...row,_statusModule:group.module}))),{field:'project_status',typeForRow:row=>row._statusModule,onChanged:changes=>{for(const group of groups.value)for(const row of group.items){const status=changes.find(item=>item.projectType===group.module&&item.id===String(row.id));if(status)row.project_status=status.status}}})
 </script>
 
 <style scoped>
