@@ -14,7 +14,11 @@
             <el-select v-model="form.account_ids" multiple filterable clearable placeholder="选择已有账号，可输入账号名称搜索">
               <el-option v-for="account in selectableAccounts" :key="account.id" :value="account.id" :label="account.parent_id && account.parent_id !== editId ? `${account.name}（当前归属：${account.parent_name}）` : account.name" />
             </el-select>
-            <small class="channel-muted">关联保留原账号及历史记录；取消勾选只解除归属。创建账号请使用列表中的“新增账号”。</small>
+            <div class="channel-account-tools"><el-button type="primary" plain @click="openAccountDraft()">新增账号</el-button><small class="channel-muted">账号新增和修改随渠道一起保存；取消勾选只解除归属。</small></div>
+            <div v-for="account in selectedAccounts" :key="account.id" class="channel-account-draft-row">
+              <span>{{ account.name }}<small v-if="accountDrafts[account.id]" class="channel-muted">待随渠道保存</small></span>
+              <el-button link type="primary" @click="openAccountDraft(account)">编辑账号</el-button>
+            </div>
           </el-form-item>
           <el-form-item label="维护人" prop="maintainer_ids"><template v-if="selectedAccounts.length"><ReadonlyField :model-value="summary('maintainers')" source="auto" /><small class="channel-muted">由子账号维护人自动汇总</small></template><el-select v-else v-model="form.maintainer_ids" multiple filterable clearable placeholder="选择维护人（可多选）"><el-option v-for="person in peopleFor('maintainers')" :key="person.id" :label="personLabel(person)" :value="person.id" :disabled="person.is_active === false" /></el-select></el-form-item>
           <el-form-item label="使用人" prop="user_ids"><template v-if="selectedAccounts.length"><ReadonlyField :model-value="summary('users')" source="auto" /><small class="channel-muted">由子账号使用人自动汇总</small></template><el-select v-else v-model="form.user_ids" multiple filterable clearable placeholder="选择使用人（可多选）"><el-option v-for="person in peopleFor('users')" :key="person.id" :label="personLabel(person)" :value="person.id" :disabled="person.is_active === false" /></el-select></el-form-item>
@@ -27,9 +31,10 @@
       <el-button v-if="conflict || failed" :loading="loading" @click="readLatest">重新读取最新内容</el-button>
       <el-button v-if="!conflict && draft" @click="restoreDraft">恢复保留的草稿</el-button>
       <el-button @click="visible = false">取消</el-button>
-      <el-button type="primary" :loading="saving" :disabled="loading || conflict || failed" @click="save">保存</el-button>
+      <el-button type="primary" :loading="saving" :disabled="loading || conflict || failed" @click="save">{{ accountDraft ? '确定' : '保存' }}</el-button>
     </template>
   </DraggableFormDialog>
+  <ChannelEditor v-if="!accountDraft && visible" ref="accountEditorRef" :options="options" account-draft @saved="stageAccount" />
 </template>
 
 <script setup>
@@ -43,15 +48,16 @@ import { categoryOptions } from '@/utils/resourceDevelopment'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import { aggregateChannelMembers, channelMembersText } from '@/utils/resourceChannels'
 
-const props = defineProps({ options: { type: Object, required: true }, defaultUserId: {type:String,default:''} })
+const props = defineProps({ options: { type: Object, required: true }, defaultUserId: {type:String,default:''}, accountDraft: Boolean })
 const emit = defineEmits(['saved'])
 const visible = ref(false), loading = ref(false), saving = ref(false), editId = ref(null), formRef = ref(null), bodyRef = ref(null), conflict = ref(false), failed = ref(false), draft = ref(null)
 const retained = reactive({ maintainers: [], users: [] })
 const empty = () => ({ name: '', category: '', purpose: '', description: '', maintainer_ids: [], user_ids: [], revision: 0, is_group: true, account_ids: [], parent_id: null, parent_revision: null })
 const form = reactive(empty())
 const accountCandidates = ref([]), parentName = ref(''), originalAccounts = ref([])
-const isAccount = computed(() => Boolean(form.parent_id))
-const selectableAccounts = computed(() => accountCandidates.value.filter(account => account.id !== editId.value))
+const accountEditorRef = ref(null), accountDrafts = ref({})
+const isAccount = computed(() => props.accountDraft || Boolean(form.parent_id))
+const selectableAccounts = computed(() => [...new Map([...accountCandidates.value, ...Object.values(accountDrafts.value)].map(account => [account.id, account])).values()].filter(account => account.id !== editId.value))
 const selectedAccounts = computed(() => selectableAccounts.value.filter(account => form.account_ids.includes(account.id)))
 const summary = role => channelMembersText(aggregateChannelMembers(selectedAccounts.value, role))
 const rules = { name: [{ required: true, whitespace: true, message: '请填写渠道／平台名称', trigger: 'blur' }], category: [{ required: true, message: '请选择平台性质', trigger: 'change' }] }
@@ -66,8 +72,27 @@ const payload = () => {
     delete value.parent_id; delete value.parent_revision
     if (!props.options.hierarchy_available) delete value.account_ids
     value.account_revisions = Object.fromEntries([...originalAccounts.value, ...accountCandidates.value].map(account => [account.id, account.revision]))
+    value.account_ids = value.account_ids?.filter(id => !id.startsWith('draft-'))
+    value.account_writes = Object.values(accountDrafts.value).filter(account => form.account_ids.includes(account.id)).map(account => ({
+      ...(account.id.startsWith('draft-') ? {} : { id: account.id }),
+      name: account.name, category: account.category, purpose: account.purpose, description: account.description,
+      revision: accountCandidates.value.find(item => item.id === account.id)?.revision || 0,
+      maintainer_ids: account.maintainers.map(person => person.id), user_ids: account.users.map(person => person.id),
+    }))
   }
   return value
+}
+function openAccountDraft(account = null) {
+  accountEditorRef.value.open(account, form.category, { name: form.name || '当前新增渠道', category: form.category })
+}
+function stageAccount(value) {
+  const id = value.id || `draft-${crypto.randomUUID()}`
+  const previous = selectableAccounts.value.find(account => account.id === id)
+  const people = (ids, role) => ids.map(id => [...peopleFor(role), ...(previous?.[role] || [])].find(person => person.id === id)).filter(Boolean)
+  accountDrafts.value[id] = { ...accountCandidates.value.find(account => account.id === id), ...value, id,
+    parent_id: previous?.parent_id, parent_name: previous?.parent_name,
+    maintainers: people(value.maintainer_ids, 'maintainers'), users: people(value.user_ids, 'users') }
+  if (!form.account_ids.includes(id)) form.account_ids.push(id)
 }
 let request, sequence = 0
 async function readLatest() {
@@ -81,6 +106,7 @@ async function readLatest() {
       ])
       if (seq !== sequence) return
       accountCandidates.value = accounts
+      accountDrafts.value = {}
       if (parent) { form.parent_revision = parent.revision; parentName.value = parent.name }
       conflict.value = false
       return
@@ -88,7 +114,7 @@ async function readLatest() {
     const [row, accounts] = await Promise.all([api.channel(editId.value, request.signal), props.options.hierarchy_available ? api.channelAccountOptions(request.signal) : Promise.resolve([])])
     if (seq !== sequence) return
     Object.assign(form, { name: row.name, category: row.category, purpose: row.purpose, description: row.description, revision: row.revision, is_group: row.kind === 'channel_group', account_ids: (row.accounts || []).map(account => account.id), parent_id: row.parent_id || null, parent_revision: row.parent_revision || null, maintainer_ids: (row.direct_maintainers || row.maintainers).map(person => person.id), user_ids: (row.direct_users || row.users).map(person => person.id) })
-    originalAccounts.value = row.accounts || []; accountCandidates.value = accounts; parentName.value = row.parent_name || ''
+    originalAccounts.value = row.accounts || []; accountCandidates.value = accounts; accountDrafts.value = {}; parentName.value = row.parent_name || ''
     Object.assign(retained, { maintainers: row.direct_maintainers || row.maintainers, users: row.direct_users || row.users }); conflict.value = false
   } catch (error) { if (seq === sequence && error.code !== 'ERR_CANCELED') { failed.value = true; ElMessage.error(error.message) } }
   finally { if (seq === sequence) loading.value = false }
@@ -96,10 +122,16 @@ async function readLatest() {
 async function open(row, category = '', parent = null) {
   request?.abort(); sequence++; editId.value = row?.id || null
   Object.assign(form, empty(), { category, user_ids: props.defaultUserId ? [props.defaultUserId] : [] }); Object.assign(retained, { maintainers: [], users: [] })
-  originalAccounts.value = []; accountCandidates.value = []; parentName.value = parent?.name || ''; loading.value = false
+  originalAccounts.value = []; accountCandidates.value = []; accountDrafts.value = {}; parentName.value = parent?.name || ''; loading.value = false
   if (parent) Object.assign(form, { category: parent.category, parent_id: parent.id, parent_revision: parent.revision, is_group: false })
   draft.value = null; conflict.value = false; failed.value = false; clearFieldSearch(); visible.value = true
-  if (editId.value) await readLatest()
+  if (props.accountDraft) {
+    if (row) {
+      Object.assign(form, { name: row.name, category: row.category, purpose: row.purpose, description: row.description, revision: row.revision || 0,
+        maintainer_ids: row.maintainers.map(person => person.id), user_ids: row.users.map(person => person.id) })
+      Object.assign(retained, { maintainers: row.maintainers, users: row.users })
+    }
+  } else if (editId.value) await readLatest()
   else if (!parent && props.options.hierarchy_available) {
     loading.value = true; const seq = sequence; request = new AbortController()
     try { const accounts = await api.channelAccountOptions(request.signal); if (seq === sequence) accountCandidates.value = accounts }
@@ -111,12 +143,16 @@ async function open(row, category = '', parent = null) {
 function restoreDraft() {
   const revision = form.revision, parentRevision = form.parent_revision
   // 只恢复业务输入；最新版本号及停用人员名单仍以重新读取的服务器资料为准。
-  const { account_revisions: _revisions, ...businessDraft } = draft.value
+  const { account_revisions: _revisions, account_writes: _writes, accountDrafts: drafts, ...businessDraft } = draft.value
+  accountDrafts.value = drafts || {}
   Object.assign(form, businessDraft, { revision, parent_revision: parentRevision }); draft.value = null
 }
 async function save() {
   if (saving.value || loading.value || conflict.value || failed.value) return
   if (!await formRef.value.validate().catch(() => false)) return
+  if (props.accountDraft) {
+    visible.value = false; emit('saved', { ...payload(), id: editId.value }); return
+  }
   saving.value = true
   try {
     const moved = selectedAccounts.value.filter(account => account.parent_id && account.parent_id !== editId.value)
@@ -125,7 +161,7 @@ async function save() {
     visible.value = false; emit('saved', saved); ElMessage.success('渠道资料已保存')
   } catch (error) {
     if (error === 'cancel' || error === 'close') return
-    if (error.response?.status === 409 && !String(error.message).includes('同名')) { conflict.value = true; draft.value = payload() }
+    if (error.response?.status === 409 && !String(error.message).includes('同名')) { conflict.value = true; draft.value = { ...payload(), account_ids: [...form.account_ids], accountDrafts: JSON.parse(JSON.stringify(accountDrafts.value)) } }
     await formRef.value?.applyServerErrors(error); ElMessage.error(error.message)
   } finally { saving.value = false }
 }
@@ -138,5 +174,7 @@ defineExpose({ open })
 .channel-form-grid .el-select { width:100%; }
 .channel-wide { grid-column:1/-1; }
 .channel-form-grid small { display:block; margin-top:5px; line-height:1.5; }
+.channel-account-tools,.channel-account-draft-row { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; margin-top:8px; }
+.channel-account-draft-row { border-bottom:1px solid var(--el-border-color-lighter); padding:4px 0; }
 @media (max-width:640px) { .channel-form-grid { grid-template-columns:minmax(0,1fr); } }
 </style>

@@ -1,5 +1,5 @@
 """渠道、平台分组与账号分工；保留原账号 ID 及全部业务关联。"""
-from uuid import uuid4
+from uuid import UUID, uuid4
 from search_matching import keyword_any, matches_keywords, search_terms
 
 from fastapi import HTTPException
@@ -155,6 +155,50 @@ def record_audit(db, user, row, before=None):
 
 
 def save_channel(db, user, payload, platform_id=None):
+    if not payload.account_writes:
+        return _save_channel(db, user, payload, platform_id)
+    from resource_channel_schemas import ChannelWrite
+
+    # 账号草稿和渠道使用同一事务；任一账号校验失败时全部回滚。
+    with db.begin_nested():
+        lock_writes(db)
+        if not hierarchy_available(db):
+            raise HTTPException(503, "账号归属功能暂不可用，请联系管理员")
+        if payload.parent_id or payload.account_ids is None:
+            raise HTTPException(422, "请在渠道的账号管理中提交账号修改")
+        if platform_id:
+            check_revision(channel(db, platform_id), payload.revision)
+        elif payload.revision:
+            raise HTTPException(409, "新增渠道不能携带已有版本号")
+        ids = list(payload.account_ids)
+        if len(ids) + sum(account.id is None for account in payload.account_writes) > 500:
+            raise HTTPException(422, "每个渠道最多关联 500 个账号")
+        revisions = dict(payload.account_revisions)
+        seen = set()
+        for account in payload.account_writes:
+            if account.id:
+                if account.id in seen or account.id not in ids or account.id == platform_id:
+                    raise HTTPException(422, "账号修改必须对应已选择的独立账号，且不能重复")
+                seen.add(account.id)
+                target = channel(db, account.id)
+                if target.kind != "platform" or db.query(Link).filter(Link.parent_id == account.id).first():
+                    raise HTTPException(422, "不能将平台分组作为账号修改")
+                if revisions.get(account.id) != account.revision:
+                    raise HTTPException(409, "账号资料或归属已被修改，请重新读取最新内容")
+            data = account.model_dump(exclude={"id"})
+            saved = _save_channel(db, user, ChannelWrite(**data), account.id)
+            account_id = UUID(saved["id"])
+            if account_id not in ids:
+                ids.append(account_id)
+            revisions[account_id] = saved["revision"]
+        # 修改已有子账号会推进平台版本；外部版本已在写入前核对。
+        revision = channel(db, platform_id).revision if platform_id else payload.revision
+        combined = payload.model_copy(update={"account_writes": [], "account_ids": ids,
+                                              "account_revisions": revisions, "revision": revision})
+        return _save_channel(db, user, combined, platform_id)
+
+
+def _save_channel(db, user, payload, platform_id=None):
     lock_writes(db)
     row = channel(db, platform_id) if platform_id else None
     if row:

@@ -6,6 +6,17 @@ from pydantic import Field, field_validator
 from resource_development_schemas import CleanModel
 
 
+class ChannelAccountWrite(CleanModel):
+    id: UUID | None = None
+    name: str = Field(min_length=1, max_length=100)
+    category: Literal["national", "local", "international"]
+    description: str = Field(default="", max_length=5000)
+    purpose: str = Field(default="", max_length=2000)
+    maintainer_ids: list[UUID] = Field(default_factory=list, max_length=500)
+    user_ids: list[UUID] = Field(default_factory=list, max_length=500)
+    revision: int = Field(default=0, ge=0)
+
+
 class ChannelWrite(CleanModel):
     name: str = Field(min_length=1, max_length=100)
     category: Literal["national", "local", "international"]
@@ -18,6 +29,7 @@ class ChannelWrite(CleanModel):
     # 旧客户端不提交归属字段时保持现有关系，显式 [] 才解除全部子账号。
     account_ids: list[UUID] | None = Field(default=None, max_length=500)
     account_revisions: dict[UUID, int] = Field(default_factory=dict, max_length=500)
+    account_writes: list[ChannelAccountWrite] = Field(default_factory=list, max_length=500)
     parent_id: UUID | None = None
     parent_revision: int | None = Field(default=None, ge=1)
 

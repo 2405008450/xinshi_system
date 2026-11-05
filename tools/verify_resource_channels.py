@@ -123,7 +123,8 @@ migrate_business_accounts(engine, Path.cwd(), 'isolated-test', backup_root)
                             time.sleep(.2)
                     else:
                         raise RuntimeError(f'隔离服务未就绪：{url}')
-                result = command(sys.executable, 'tools/verify_resource_channels_ui.py', env=env, timeout=300)
+                ui_script = 'tools/verify_channel_inline_accounts_ui.py' if '--inline-accounts' in sys.argv else 'tools/verify_resource_channels_ui.py'
+                result = command(sys.executable, ui_script, env=env, timeout=300)
                 (out / 'browser.log').write_text(result, encoding='utf-8')
             finally:
                 for process in reversed(children):

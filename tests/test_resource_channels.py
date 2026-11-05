@@ -54,6 +54,48 @@ def new_channel(db, people, **fields):
     return save_channel(db, people[0], payload)
 
 
+def test_channel_saves_inline_account_drafts_atomically(db, people):
+    from resource_channel_service import save_channel, read_channel
+    name = '内联账号' + uuid4().hex
+    parent = new_channel(db, people, is_group=True, account_ids=[], account_writes=[dict(
+        name=name, category='national', description='独立说明', maintainer_ids=[people[1].id])])
+    account = parent['accounts'][0]
+    assert account['name'] == name and account['description'] == '独立说明'
+    assert parent['maintainers'][0]['id'] == str(people[1].id)
+    updated = save_channel(db, people[0], ChannelWrite(name=parent['name'], category='national',
+        revision=parent['revision'], account_ids=[account['id']], account_revisions={account['id']: account['revision']},
+        account_writes=[dict(id=account['id'], name=name, category='national', revision=account['revision'],
+                             description='更新说明', user_ids=[people[2].id])]), parent['id'])
+    assert updated['accounts'][0]['description'] == '更新说明'
+    assert updated['users'][0]['id'] == str(people[2].id)
+    with pytest.raises(HTTPException) as error:
+        save_channel(db, people[0], ChannelWrite(name=parent['name'], category='national',
+            revision=parent['revision'], account_ids=[], account_writes=[dict(name='不应新增', category='national')]), parent['id'])
+    assert error.value.status_code == 409
+    assert read_channel(db, parent['id'])['revision'] == updated['revision']
+
+
+def test_invalid_inline_account_rolls_back_entire_batch(db, people):
+    from resource_development_models import DevelopmentOption
+    name = '回滚账号' + uuid4().hex
+    with pytest.raises(HTTPException):
+        new_channel(db, people, is_group=True, account_ids=[], account_writes=[
+            dict(name=name, category='national'),
+            dict(name=name + '无效', category='national', user_ids=[uuid4()]),
+        ])
+    assert db.query(DevelopmentOption).filter(DevelopmentOption.name == name).count() == 0
+
+
+def test_inline_account_rejects_unselected_or_stale_account(db, people):
+    from resource_channel_service import read_channel
+    account = new_channel(db, people)
+    for ids, revisions, revision in [([], {}, 1), ([account['id']], {account['id']: 1}, 0)]:
+        with pytest.raises(HTTPException):
+            new_channel(db, people, is_group=True, account_ids=ids, account_revisions=revisions,
+                account_writes=[dict(id=account['id'], name='不能覆盖', category='national', revision=revision)])
+        assert read_channel(db, account['id'])['name'] == account['name']
+
+
 def test_arrangement_platform_metadata_is_readonly_and_compatible(db, people, monkeypatch):
     import resource_channel_service as service
     from resource_development_models import DevelopmentOption
