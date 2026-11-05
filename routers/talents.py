@@ -165,7 +165,7 @@ def _field_filters(raw: Optional[str], *, allow_contact_filters: bool = True):
         "education_level", "language_role", "language_proficiency", "certificate_type",
     }
     booleans = {"duplicate_review_required", "certificate_received", "resume_path_registered"}
-    ensure_filter_operators(value, {field: ({"between"} if field in ranges else {"in"} if field in enums else {"eq"} if field in booleans else {"contains"}) for field in TALENT_FILTER_FIELDS})
+    ensure_filter_operators(value, {field: ({"contains", "is_empty"} if field == "operator_name" else {"between"} if field in ranges else {"in"} if field in enums else {"eq"} if field in booleans else {"contains"}) for field in TALENT_FILTER_FIELDS})
     return value
 
 

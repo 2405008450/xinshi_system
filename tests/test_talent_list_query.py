@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 import main  # noqa: F401
 from resource_models import ResourceCapability, ResourceCareerProfile, ResourcePerson
 import resource_service
+from routers.talents import _field_filters
 
 
 @pytest.fixture
@@ -69,6 +70,41 @@ def test_json_fields_and_page_totals_survive_pagination(talent_db):
     assert first[0].wechat_contact_state == {"状态": "已联系"}
     assert resource_service.count_talents(db) == 3
     assert resource_service.get_talents(db, skip=3, limit=2) == []
+
+
+@pytest.mark.parametrize("blank_name", [None, "", "   ", "\t\r\n\u3000 "])
+def test_blank_operator_filter_shares_list_and_count(talent_db, blank_name):
+    db, ids = talent_db
+    db.query(ResourcePerson).filter(ResourcePerson.id == ids[0]).update({"operator_name": blank_name})
+    db.query(ResourcePerson).filter(ResourcePerson.id == ids[1]).update({"operator_name": "操作员甲"})
+    db.query(ResourcePerson).filter(ResourcePerson.id == ids[2]).update({"operator_name": " 操作员乙 "})
+    filters = _field_filters(json.dumps({"operator_name": {"op": "is_empty"}}))
+    people = resource_service.get_talents(db, field_filters=filters, limit=1)
+    assert [person.id for person in people] == [ids[0]]
+    assert people[0]._page_total == 1
+    assert resource_service.count_talents(db, field_filters=filters) == 1
+    assert resource_service.get_talents(db, field_filters=filters, skip=1) == []
+    named = _field_filters(json.dumps({"operator_name": {"op": "contains", "value": "操作员"}}))
+    assert {person.id for person in resource_service.get_talents(db, field_filters=named)} == {ids[1], ids[2]}
+    assert resource_service.count_talents(db) == 3
+
+
+def test_blank_operator_filter_combines_with_other_fields(talent_db):
+    db, ids = talent_db
+    filters = _field_filters(json.dumps({
+        "operator_name": {"op": "is_empty"},
+        "full_name": {"op": "contains", "value": "人才1"},
+    }))
+    assert [person.id for person in resource_service.get_talents(db, field_filters=filters)] == [ids[1]]
+    assert resource_service.count_talents(db, field_filters=filters) == 1
+
+
+def test_blank_filter_is_not_enabled_for_other_talent_fields():
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as error:
+        _field_filters(json.dumps({"full_name": {"op": "is_empty"}}))
+    assert error.value.status_code == 422
 
 
 def test_capability_type_and_status_match_the_same_record(talent_db):

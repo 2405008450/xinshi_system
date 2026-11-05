@@ -569,7 +569,7 @@ const talentFilterFields=[
   {key:'collectionScore',label:'采集评分',type:'number-range',wide:true,min:1,max:10,precision:0,performance:true},
   {key:'languageSkills',label:'语言能力',type:'text'},{key:'certificateReceived',label:'证书已收到',type:'boolean'},
   {key:'firstContactDate',label:'首次联系时间',type:'date-range',wide:true},{key:'updatedAt',label:'最近更新',type:'date-range',wide:true},
-  {key:'operatorName',label:'操作人',type:'text'},{key:'operatedAt',label:'操作时间',type:'date-range',wide:true},
+  {key:'operatorName',label:'操作人',type:'text',allowEmpty:true},{key:'operatedAt',label:'操作时间',type:'date-range',wide:true},
   {key:'duplicateReviewRequired',label:'核重状态',type:'boolean'},
 ].filter(item=>canViewContacts.value||!contactColumnKeys.has(item.key))
 Object.assign(search,createFilterModel(talentFilterFields),{keyword:''})

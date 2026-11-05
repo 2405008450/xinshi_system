@@ -1,14 +1,17 @@
 <template>
-  <el-input
-    v-if="definition.type === 'text'"
-    :model-value="modelValue"
-    :placeholder="definition.placeholder || `筛选${definition.label}`"
-    clearable
-    size="small"
-    @update:model-value="update"
-    @input="$emit('text-input', $event)"
-    @keyup.enter="$emit('enter')"
-  />
+  <template v-if="definition.type === 'text'">
+    <el-input
+      :model-value="emptySelected ? '' : modelValue"
+      :disabled="emptySelected"
+      :placeholder="definition.placeholder || `筛选${definition.label}`"
+      clearable
+      size="small"
+      @update:model-value="update"
+      @input="$emit('text-input', $event)"
+      @keyup.enter="$emit('enter')"
+    />
+    <el-checkbox v-if="definition.allowEmpty" :model-value="emptySelected" @change="changeEmpty">为空白</el-checkbox>
+  </template>
   <el-select
     v-else-if="definition.type === 'select' || definition.type === 'boolean'"
     :model-value="modelValue"
@@ -83,6 +86,12 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:modelValue', 'text-input', 'change', 'enter'])
+const emptySelected = computed(() => props.definition.allowEmpty && props.modelValue?.op === 'is_empty')
+const changeEmpty = (checked) => {
+  const value = checked ? { op: 'is_empty' } : ''
+  emit('update:modelValue', value)
+  emit('change', value)
+}
 
 const dateRangeRef = ref()
 // 保留面板的传送与定位能力，但挂载到所属浮窗根节点，避免翻月被判定为外部点击。

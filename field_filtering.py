@@ -9,9 +9,10 @@ from typing import Any, Mapping, Optional
 from uuid import UUID
 
 from fastapi import HTTPException, status
+from sqlalchemy import func
 
 
-ALLOWED_OPERATORS = {"contains", "in", "between", "eq"}
+ALLOWED_OPERATORS = {"contains", "in", "between", "eq", "is_empty"}
 MAX_FILTER_FIELDS = 100
 MAX_IN_VALUES = 100
 MAX_TEXT_LENGTH = 500
@@ -129,6 +130,10 @@ def _coerce(value: Any, value_type: str) -> Any:
 def apply_scalar_filter(query, expression, descriptor: Mapping[str, Any], *, value_type: str = "string"):
     """对普通列应用 contains/in/eq/between，复杂关联字段由各业务服务自行处理。"""
     operator = descriptor["op"]
+    if operator == "is_empty":
+        if value_type != "string":
+            raise HTTPException(status_code=422, detail="该字段不支持空白筛选")
+        return query.filter(func.trim(func.coalesce(expression, ""), " \t\r\n\u3000") == "")
     if operator == "contains":
         if value_type != "string":
             raise HTTPException(status_code=422, detail="该字段不支持包含匹配")

@@ -30,7 +30,9 @@ export const buildFieldFilters = (model, definitions) => {
     const value = model[definition.key]
     if (!isActiveFilterValue(definition, value)) return
     const apiKey = definition.apiKey || definition.key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
-    if (definition.type === 'text') result[apiKey] = { op: 'contains', value: String(value).trim() }
+    if (definition.type === 'text') result[apiKey] = definition.allowEmpty && value?.op === 'is_empty'
+      ? { op: 'is_empty' }
+      : { op: 'contains', value: String(value).trim() }
     else if (definition.type === 'date-range') result[apiKey] = { op: 'between', from: value?.[0] || null, to: value?.[1] || null }
     else if (definition.type === 'number-range') result[apiKey] = { op: 'between', min: value?.[0] ?? null, max: value?.[1] ?? null }
     else if (definition.type === 'boolean') result[apiKey] = { op: 'eq', value }
