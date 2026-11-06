@@ -7,7 +7,7 @@ test('桌面截屏仅允许受信任主窗口，并选取鼠标所在显示器',
   isFocused(){return this.focused}
   loadURL(){return Promise.resolve()}
  }
- const electron={app:{whenReady:()=>Promise.resolve(),on(){}},BrowserWindow,dialog:{},screen:{getCursorScreenPoint:()=>({x:100,y:200}),getDisplayNearestPoint:()=>({id:2,size:{width:1920,height:1080},scaleFactor:1.5})},ipcMain:{handle:(_name,callback)=>{handler=callback}},desktopCapturer:{getSources:async config=>{captures++;assert.equal(config.thumbnailSize.width,2880);return [{display_id:'2',thumbnail:{isEmpty:()=>false,toDataURL:()=> 'data:image/png;base64,test'}}]}}}
+ const electron={app:{whenReady:()=>Promise.resolve(),on(){}},BrowserWindow,dialog:{},screen:{getCursorScreenPoint:()=>({x:100,y:200}),getDisplayNearestPoint:()=>({id:2,size:{width:1920,height:1080},scaleFactor:1.5})},ipcMain:{on(){},handle:(name,callback)=>{if(name==='xinshi:capture-screen')handler=callback}},desktopCapturer:{getSources:async config=>{captures++;assert.equal(config.thumbnailSize.width,2880);return [{display_id:'2',thumbnail:{isEmpty:()=>false,toDataURL:()=> 'data:image/png;base64,test'}}]}}}
  vm.runInNewContext(fs.readFileSync(require('node:path').join(__dirname,'../main.cjs'),'utf8'),{require:name=>name==='electron'?electron:require(name),__dirname:require('node:path').join(__dirname,'..'),process:{platform:'win32'},URL})
  await Promise.resolve()
  assert.equal(options.webPreferences.sandbox,true);assert.equal(options.webPreferences.nodeIntegration,false)

@@ -90,14 +90,14 @@ test('后台定时器未触发时仍响应服务端心跳，旧连接不能续�
   const first = h.sockets[0]
   h.advance(60000)
   first.message({ type: 'ping' })
-  assert.deepEqual(first.sent, ['ping'])
+  assert.deepEqual(first.sent.filter(value => value === 'ping'), ['ping'])
   h.heartbeat()
   assert.equal(h.sockets.length, 1)
   h.window.fire('online'); h.sockets[1].open()
   first.message({ type: 'ping' })
-  assert.deepEqual(first.sent, ['ping', 'ping'])
+  assert.deepEqual(first.sent.filter(value => value === 'ping'), ['ping', 'ping'])
   h.sockets[1].message({ type: 'ping' })
-  assert.deepEqual(h.sockets[1].sent, ['ping'])
+  assert.deepEqual(h.sockets[1].sent.filter(value => value === 'ping'), ['ping'])
 })
 
 test('退出登录后前台事件不复活连接，再次登录可恢复监听', () => {

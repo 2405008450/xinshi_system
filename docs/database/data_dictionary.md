@@ -2521,3 +2521,152 @@ Python translation_file_name_rules.py 与前端 translationFileName.js 共用格
 ### 笔译字数逐级汇总（2026-11-03）
 
 按订单号点号层级识别直接下级：二级子订单汇总到一级子订单，一级子订单汇总到母订单。四个来源（我司统计、客户统计、预统计、译员预估）的六种计量口径分别求和；空白不视为零，全部空白保持空白，显式零参与汇总。有下级时忽略父级原独立值，避免父级和下级重复相加；无下级继续使用自身统计。汇总在读取时批量计算，不回填历史统计、不改变表结构；列表、详情、字数弹窗、稿件安排和财务数据读取共用相同逻辑。汇总单元格只读，独立矩阵修改接口拒绝直接修改汇总值，完整项目表单保存跳过汇总节点的矩阵。预统计仍不参与计费。
+
+### 客户对账单独立编排（2026-11-04）
+
+- `customer_statement_workspace`：`client_id uuid` 主键/FK 到 `client`（级联删除）；一个客户共用一个编排空间。`revision integer` 为乐观锁；`payload json` 保存 `boards`（对账单编号、名称、抬头/账户/印章/月份文案、显示覆盖、税口径标签、画布 x/y）、`tasks`（以订单 UUID 为唯一键，包含唯一的 `board_id`、独立账单月份、收费行及首次导入 `original` 快照）、`roots`（生成汇总所需的订单树快照）。`updated_by uuid` FK 到用户（删除置空），`updated_at timestamptz` 使用 UTC+8。
+- `customer_statement_workspace_history`：`id uuid` 主键；`client_id uuid` FK 到编排表（级联删除、索引）；`revision integer`、`actor_id uuid`（用户FK、删除置空）、`actor_name varchar(255)`、`action varchar(100)`、`changes json`（变更字段及前后值）、`before/after json`（完整编排快照）、`created_at timestamptz`（接口明确 `+08:00`）。恢复操作仍新增审计记录，不删除历史。
+- 多月合并导入只添加尚未编排的任务，不覆盖已编辑内容或移动后的归属。任务按订单UUID唯一归属，同一订单的所有语种收费明细一起移动；只修改对账单，不回写项目名称、收费、工作量或原账单月份。修改、移动及恢复必须确认并校验版本；写入时锁定客户及其编排行。
+- 行内容可编辑日期、项目名称、翻译方向、数量、计价文案、单价、计价数量、税口径文案、货币、小计和备注，订单号和任务身份不允许修改。抬头、账户、印章、展示月份和画布位置独立保存。调整小计参与导出合计；同时显示父子时汇总参考行不重复计费。不同币种分别合计。
+- `tools/apply_customer_statement_workspace_migration.py` 可重复执行，只创建上述新表及索引/外键，不修改已有表；服务启动自动迁移继续关闭。预览、打印和Excel均读取已保存编排；导出检查编排版本，多个对账单输出到同一Excel的不同工作表。
+
+
+### 客户类型（2026-11-04）
+
+新增 `client_customer_type` 附属表：`id`（UUID 主键）、`client_id`（母客户外键，删除级联）、`sub_client_id`（子客户外键，删除级联）、`customer_type`（必填，限定个人客户／企业客户／行政/事业单位／社会团体／国际组织／NGO）、`updated_at`（带时区，UTC+8）。两个客户外键恰有一个非空，各自唯一。笔译项目客户财务右侧、客户管理基本信息显示同一类型；项目有子客户时读写子客户，否则读写母客户。两边保存共用一份类型记录，读取项目列表批量加载，不复制历史项目。未选择类型保持空白，清空后同步清除；项目保存与类型写入处于同一事务，未传类型的既有接口不清空已存类型。仅创建新表及必要约束，不修改已有表列。
+
+
+### 项目报价单与单据要求（2026-11-04）
+
+新增 `translation_project_documents`：`project_id`（UUID 主键，引用笔译项目并删除级联）、`statement_required`（可空布尔）、`quotation_data`（报价单 JSON，含标题、客户名称、服务明细、数量、单位、单价、货币及说明）、`quotation_revision`（非空整数，初始 0）、`updated_by`（操作人外键）、`updated_at`（带时区 UTC+8）。报价需求沿用原 `quotation_required` 字段。个人客户默认不需报价单和对账单，其他客户默认不需报价单、需对账单；显式勾选可覆盖默认值。项目表单与财务管理共用报价单弹窗及单份报价内容，新项目报价随主表单事务保存，财务入口直接保存并检查报价修订号；冲突返回 409。对账单勾选直接复用现有 CustomerStatementDialog，新项目需先保存再编排对账单。金额使用十进制定点运算、分币种合计，报价内容独立于项目实际收费。仅创建此新表及外键约束，不修改已有表。
+
+#### 对账单需求确认与客户分组查看（2026-11-04）
+
+- 对账单窗口分为“是否需对账单”“对账单查看”。需求页按母订单编号月份筛选（默认 UTC+8 本月，提供上个月快捷按钮），列表及总数使用同一条件；主表格直接修改 `statement_required`，复用 `translation_project_documents`，不新增重复字段。专用字段更新接口校验旧布尔值和项目更新时间，锁定项目后仅修改该字段并保留操作人/UTC+8更新时间，报价内容不变；项目主表单与列表共用同一值。
+- 查看页以客户为入口，支持多关键词搜索、多选客户、按客户展开/收起独立编排区，不再要求选择项目。默认候选客户至少有一个需对账单的笔译项目；关闭该选项后可选择有笔译项目或已有编排记录的客户。显式项目要求优先，未设置时沿用母/子客户类型默认规则；子客户项目归入其母客户，已迁移标注项目排除。
+- 编排可直接按 `client_id` 读取及合并导入；按客户导入固定覆盖该客户全部项目，月份仍由用户选择。可勾选“仅导入需对账单项目”，只影响本次新增任务，不移除已有编排。不同客户的任务归属、修改记录、导出和恢复保持隔离。本轮不修改数据库结构。
+
+
+### 笔译付款情况共用窗口（2026-11-04）
+
+项目表单与财务管理的付款情况复用既有 `finance_record` / `finance_payment`，不新增或修改表结构。新增 `/translation-payments/{project_id}` 查询及保存入口，按项目隔离，读权限为 projects:read 或 finance:read，写权限为 projects:write 或 finance:write。仅替换付款明细，保留原结账方式、发票、总价、备注等财务字段；保留已有付款记录 ID 和未修改记录的确认信息。修改过的明细清除旧确认状态。使用版本摘要防止旧响应覆盖新付款；金额固定为两位小数生成摘要，避免保存前后 Decimal 表示不同引起伪冲突。时间按 UTC+8 传输，既有无时区字段继续保存 UTC+8 业务本地时间。新项目付款草稿通过 payment_draft/payment_version 随项目同事务保存。
+
+## 笔译付款确认与支付凭证（2026-11-04）
+
+收费设置与财务管理付款情况共用母订单付款确认，阶段金额明细继续复用 `finance_record` / `finance_payment`，不自动以确认类型推算金额。
+
+| 表 | 字段 | 含义 |
+| --- | --- | --- |
+| translation_payment_confirmation | project_id | 母订单 UUID，主键，关联 translation_project |
+| translation_payment_confirmation | revision | 乐观锁版本，从 1 递增 |
+| translation_payment_confirmation | is_paid | 是否已确认付款，与定金／全款状态对应 |
+| translation_payment_confirmation | payment_option | 新界面提供 deposit 已付定金、full 已付全款；兼容历史 once 分次付款。Text 可封装 type、account、full_payment JSON，无需改表 |
+| translation_payment_confirmation | proofs | 支付备注及签名截图引用，最多 20000 字符、9 张截图 |
+| translation_payment_confirmation | updated_by / updated_at | 修改用户与带时区时间，接口统一 +08:00 |
+| translation_payment_confirmation_history | id / project_id / revision | 历史 UUID、母订单与付款确认版本 |
+| translation_payment_confirmation_history | actor_id / actor_name | 操作人及姓名快照 |
+| translation_payment_confirmation_history | before / after | 修改前后 JSON，包含凭证引用 |
+| translation_payment_confirmation_history | created_at | 带时区操作时间，接口统一 +08:00 |
+
+截图字节复用 `editor_screenshot_blob`，业务图片保留类型为 business、expires_at 为空，不随聊天图片到期清理；取消勾选保留截图，移除当前引用不移除历史凭证。所有入口保存时校验付款 revision，防止旧窗口覆盖新付款记录。初始化脚本 `tools/apply_translation_payment_confirmation_migration.py` 可重复执行，仅创建上述两表及必要索引，不更改现有表。
+
+付款账户扩展：`payment_option` 的物理类型保持 Text；有付款账户时存储 JSON 文本 `{"type":"deposit","account":"广州公司公账"}`，兼容历史纯类型值 `full/deposit/once`。接口仍分别提供 `payment_option` 与 `payment_account`（最多50字），无需结构迁移。历史 before/after 保存同样的接口快照；付款明细账户仍复用 `finance_payment.payment_method`。预置账户及自定义账户由公共选择器提供，自定义值随付款记录保存；本机选项缓存按用户隔离。
+
+付款联动与全款核对：实际付款明细有正金额时同步为定金／部分付款，不以“已登记的预定金额全部支付”判定整单全款。手工确认全款时保留已有明细，界面无需继续填写明细。`full_payment` 保存已付金额 `amount`、`currency`、选定项目总价 `total_key`、`reference_label`、`reference_amount`、`match_status`（matched／mismatch）和 `mismatch_reason`。接口以 `full_payment_amount`、`full_payment_currency`、`full_payment_total_key`、`full_match_status`、`full_reference_label`、`full_reference_amount`、`mismatch_reason` 分别返回；金额不匹配时原因必填，标签及比对快照纳入原有修改历史。收费总价变更后重新核对并记录标签变化；未登记金额的历史全款返回 unverified，不伪造匹配结果。付款确认和明细在同一事务中保存，并继续校验付款版本及确认 revision。
+
+尾款累计核对：付款确认为定金且明细包含尾款时，使用全部明细的实际金额累计（各次必须填写，零值有效），复用全款总价匹配、差异原因和历史记录机制。`full_payment.source=details` 表示服务器根据明细生成；`manual` 表示直接全款确认。累计金额不得由客户端覆盖。移除尾款后清除累计核对状态，保留其他明细。
+
+
+### translation_duration_metric（笔译分钟／小时统计）
+
+新建独立附属表；不改变 `word_count_metric` 和收费明细的既有约束。项目、子订单、稿件安排三种归属必须且只能有一种；同一归属及统计维度只保存一个时长单元格。
+
+| 字段 | 含义 |
+| --- | --- |
+| id | UUID 主键 |
+| project_id / sub_order_id / arrangement_id | 项目、子订单或译员安排；外键删除级联 |
+| dimension | company、customer、preliminary、translator_estimate，或安排下的 planned、actual |
+| metric_type | minutes 或 hours，二选一 |
+| count_value | Numeric(14,4)，非负，零为已填写 |
+| updated_by | 修改人，外键置空 |
+| updated_at | 带时区时间，UTC+8 |
+
+我司统计、客户统计每行的普通数量及时间合计只能填写一项；修改接口合并清空／填写后校验，历史多项数据不批量删除。父级仍汇总下级，混合分钟和小时统一为分钟。财务 `customer_auto` 自动先用客户唯一已填项，无客户统计则取我司唯一已填项，均未填时返回补录提示；明确选择我司口径时按所选口径计算。时间计价通过既有 `translation_charge_quantity_basis.mode` 保存真实单位，收费表物理 metric_type 使用兼容占位，不将占位用于计价。
+
+
+对账单需求默认规则：`translation_project_documents.statement_required` 非空时保留手工选择；未手工指定时，个人客户、一次全款确认、或含尾款明细累计与项目总价匹配的已付清项目默认不需对账单，定金和未付清分期不自动取消。Python 读取、SQL 筛选、对账单客户候选及导入共用同一有效值。主表单与“是否需对账单”页签使用同一修改接口和并发检查；子订单随母订单。
+客户参考价采用与同步：完整匹配语种方向、实际计量单位、币种、单价对应数量；客户报价必须明确单位，历史自动口径需编辑明确后选用。项目可保留我司／客户来源选择。跨订单批量同步只更新完整匹配项，不覆盖不同单位或币种的收费项，并在预览中列出跳过项。单／多订单客户筛选先应用当前查询条件，再按母订单计数；多订单按客户整体分页，小计基于全部筛选结果。
+
+财务主表账单月份：可识别的笔译订单号按编号年月自动生成，子订单沿用母订单编号月份；展示、筛选、收费窗口及同月单价同步保持一致。`recorded_billing_month` 只保留收费记录中的原始月份，读取不回写历史数据。新保存收费按订单年月写入，审计记录保留原始月份变化。无法识别的历史编号回退已有收费月份，不再默认采用操作当月；对账单工作区跨月调整仍独立保存。
+
+
+### 笔译财务父子汇总及客户单据分栏（2026-11-05）
+
+- 有下级的订单按下级递归累计各统计单位；我司统计、客户统计分别累计，标记 `suborder_aggregate`，允许父级存在多个单位。末级仍限制每维只填一个统计单位。
+- 财务父级的 `price_aggregate`、`prices.source_orders`、`calculated_totals_excl_tax`、`calculated_totals_incl_tax` 为接口派生信息，不落库；父级只读显示来源单价与总价，末级改价逐级刷新，避免重复计费。旧父级收费记录保留在 `recorded_*`，不作为额外金额相加。
+- 列表取消独立的“调整后总价”列。不含税及含税总价分别显示计算额、调整后金额；调整值复用原有字段，表示替换后的最终金额，清空恢复计算额，零值有效。
+- 对账单管理按订单所属账单月份划分客户；任一项目需对账单则归入需对账单栏，否则归入无需栏。跨栏调整仅改该客户所选月份项目的 `translation_project_documents.statement_required`，不删除已有对账单、不改其他月份。使用项目集合及更新时间摘要校验并发，提交时锁定客户和项目。
+- 对账单标题客户经理取当前显示项目的实际归属，支持项目经理转交记录、多位客户经理及未分配状态；不读取登录账号代替。以上均复用已有表，无新增表或数据库结构变更。
+
+
+### 对账单待入账任务（2026-11-05）
+
+复用 `customer_statement_workspace.payload.tasks`，不新增表或修改已有表结构。任务唯一键不变；`pending=true` 时 `board_id=null`，`month` 为目标账单月份，`pending_from` 保存调配前月份和对账单，`pending_actor`、`pending_at` 保存操作人及 UTC+8 时间。原始项目、收费和订单月份均不修改。
+
+生成月份时在客户锁及工作区版本校验内自动接收目标月份的全部待入账任务；不受原订单月份、当前项目范围或需对账单筛选排除。任务原文及单价等已编辑内容保留。任务字典保证唯一归属，重复生成不重复加入，所有变更与自动纳入清单进入既有历史表的前后快照。删除已接收待入账任务的账单时，这些任务退回待入账，避免重建遗漏；撤销待入账恢复调配前归属，原账单已删除则拒绝撤销并保留队列。
+
+客户月份列表额外包含该月有待入账的客户，即使该月没有原生订单；待入账客户不允许直接移入无需对账单栏。原月份重新导入保留队列状态；多份同月份对账单要求明确目标，失败不消费待入账任务。
+
+
+### 对账单专门授权及历史重组（2026-11-05）
+
+- `customer_statement_grant`：主键 `(user_id, client_id)`，`edit_content` 控制内容编辑，`cross_client` 控制跨客户调配；`revision` 乐观版本，`granted_by` 授权人，`updated_at` UTC+8 时间。仅已核对账号 `williamzhao`（赵震锋）可以配置或撤销，其他管理员角色不替代该授权。赵震锋保留账单内容与跨客户管理权限。
+- `customer_statement_grant_event`：每次授权／撤销保存人员、客户、操作人及姓名、修改前后权限 JSON 与 UTC+8 时间；既有记录不覆盖。
+- `customer_statement_task_owner`：`task_id` 主键确保任务跨客户唯一归属，`client_id` 指向当前归属客户；旧账单在用户执行保存动作时登记，不做维护性回填。重新导入跳过其他客户已持有任务，历史恢复也不得制造重复归属。
+- 同客户合并、分拆、任务移动及账单重命名不要求内容编辑授权；正文、单价、金额、抬头及恢复原始内容需授权。跨客户需所有来源与目标客户的跨客户授权；迁入任务保留不可由字段编辑修改的 `origin_client_id`、`origin_client_name` 和订单号，正文修改同时校验归属与所有来源客户的内容权限。
+- 跨客户操作按客户编号顺序加锁，复核版本与权限，以单一数据库事务保存各客户工作区、任务归属及历史快照；共享 `operation_id` 关联多方记录。失败全量回滚，不允许单独恢复一方跨客户历史，反向调配需走同一跨客户入口。
+- 同客户调整复用已有历史表，存储完整 `before/after`；历史接口提供完整快照及逐字段差异。汇总调整无法无损分摊到部分任务、或合并冲突时拒绝处理，不静默丢失或重复金额。
+
+
+对账单授权支持人员与客户多选，按所选人员×客户组合在同一事务中批量保存；每个组合独立校验 revision 并写入授权调整记录。任一组合版本过期则全部拒绝，不部分提交。混合权限可保留原值，明确选择后才统一变更；无新增表或字段。
+
+
+财务主表与对账单的客户经理入口复用同一筛选窗口和状态（本人／全部／指定多人）。是否需对账单列表与客户分组复用 `finance_manager_scope.manager_fields`，使用项目最新客户经理身份及历史精确姓名匹配。客户分组待入账按原项目经理筛选，跨客户来源计入归属客户；需求跨栏修改也限定为当前经理与月份范围，版本校验沿用相同范围。仅调整展示与筛选，不修改项目经理归属数据，无结构变更。
+### translation_finance_note（笔译财务说明）
+
+按母/子订单保存独立说明，不修改项目名称等原始项目字段。原收费备注作为内部说明读取；存在收费项时内部说明同步其 `remarks`，无收费项时使用本表。客户说明单独保存。新生成对账单只带入客户说明，客户说明为空则备注留空，禁止回退到内部说明或原项目备注。历史对账单快照保持原内容，可通过“更新客户备注”确认同步并保留前后记录。
+
+| 字段 | 含义 |
+| --- | --- |
+| order_id | 订单 UUID，主键，等于母订单或子订单 ID |
+| project_id | 母项目 ID，关联 translation_project，删除级联 |
+| sub_order_id | 子订单 ID，可空且唯一，关联 translation_sub_order，删除级联 |
+| internal_note | 内部说明，无收费项时的保存位置 |
+| customer_note | 客户说明，默认空字符串，作为生成对账单的对外备注 |
+| revision | 每次说明修改递增，参与财务版本校验 |
+| updated_by | 修改人，关联 app_user，删除置空 |
+| updated_at | 修改时间，带时区，业务时间 UTC+8 |
+
+说明修改同时写入既有财务修改记录，保留修改前后内容。初始化脚本：`tools/apply_translation_finance_notes_migration.py`，仅幂等创建新表，不回填旧表。
+
+### customer_statement_company（对账单公司主体）
+
+独立保存公司主体，不修改既有设置表。`key` varchar(30) 主键，当前为 company；`company` varchar(255) 必填，限广州总公司、深圳分公司、上海分公司；`updated_by` UUID 关联 app_user，删除人员时置空；`updated_at` timestamptz，统一 UTC+8。设置修订号沿用 customer_statement_settings.revision，同事务保存。默认广州信实翻译服务有限公司，新生成对账单保存主体快照，历史抬头不回填。
+
+### client_project_confirmation（项目曾确认凭据）
+
+`project_id` UUID 主键并关联 translation_project，删除项目时级联删除；`received_at` timestamptz，可空，记录该项目来稿时间；`confirmed_at` timestamptz 非空，首次确认时间，统一 UTC+8。项目进入已确认、后续正常节点或从已确认回退时，同一业务事务记录凭据并自动更新客户/子客户合作状态。客户列表和详情按相同派生表达式读取历史已确认/正常后续节点，读取不回填业务表；待确认或未确认即取消不自动认定合作。
+
+对账单工作区 JSON 的 fields.issue_date 保存首次生成日期（UTC+8业务日期），读取不随当天改变；旧账单从首次出现的历史版本时间还原展示日期，缺失历史时留空，不回写原数据。
+
+### customer_statement_default（客户对账单默认需求）
+
+client_id UUID 主键关联 client，删除客户级联删除；choice varchar(20)，限 required（默认需）、not_required（默认不需）、unknown（未知）；updated_by UUID 关联 app_user，删除人员置空；updated_at timestamptz 统一 UTC+8。与客户税口径配置共用 customer_statement_preference.revision，同一事务保存。只作为 translation_project_documents.statement_required 为空时的派生默认，明确项目选择优先，已付全款的未设置项目默认不需，未知时沿用客户类型规则，不批量回写项目。
+
+### customer_statement_progress（客户月度对账单进度）
+
+client_id UUID 关联 client、billing_month varchar(7) 联合主键；progress varchar(20) 限 not_started（未开始）、partial（部分完成）、completed（全部完成），无记录时按未开始展示；revision integer 乐观版本；updated_by UUID 关联 app_user；updated_at timestamptz，统一 UTC+8。进度按客户及账单月份独立保存，客户经理筛选不改变该客户当月进度。
+
+### customer_statement_progress_event（对账单进度调整记录）
+
+id UUID 主键；client_id UUID 关联 client，billing_month varchar(7)，分别有索引；before/after varchar(20) 保存调整前后进度；actor_id UUID 关联 app_user，actor_name varchar(255) 保存调整人快照；created_at timestamptz 统一 UTC+8。与进度修改同事务写入，重复提交同状态不增加变化记录。

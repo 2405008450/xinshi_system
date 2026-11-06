@@ -17,3 +17,5 @@ defusedxml>=0.7.1,<1.0
 pypinyin>=0.55.0,<1.0
 
 pywebpush>=2.0,<3.0
+
+reportlab>=4.5.1,<5

@@ -60,6 +60,8 @@ def auto_translation(db, user, client_id, before, after, project_id=None):
     if not before and not after:return
     audit.require_ready(db)
     previous = {rates.rate_key(row): row for row in before}
+    from translation_rate_matching import matches
+    previous_ids={row['id']:row for row in before};current_ids={row['id']:row for row in after}
     current = {rates.rate_key(row): row for row in after}
     query = db.query(TranslationProject).filter_by(client_id=client_id).filter(TranslationProject.annotation_migrated_at.is_(None))
     if project_id: query=query.filter_by(id=project_id)
@@ -77,6 +79,9 @@ def auto_translation(db, user, client_id, before, after, project_id=None):
                 key = rates.rate_key(data)
                 ref = current.get(key)
                 old = previous.get(key)
+                if data.get('reference_id'):
+                    linked=current_ids.get(data['reference_id']);linked_old=previous_ids.get(data['reference_id'])
+                    if linked and matches(linked,data,right_matrix=owner.word_count_matrix,left_reference=True):ref,old=linked,linked_old
                 if not ref or (rows and (not old or number(data['amount']) != number(old['amount']) or tax_signature(data)!=tax_signature(old))):
                     continue
                 charge = by_id.get(data.get('id'))
@@ -92,10 +97,10 @@ def auto_translation(db, user, client_id, before, after, project_id=None):
                 tax=ref.get('tax_prices')
                 charge.unit_price_excl_tax=Decimal(tax['unit_price_excl_tax']) if tax and tax.get('unit_price_excl_tax') is not None else (None if tax else Decimal(ref['amount']))
                 if tax is not None:charge.unit_price_incl_tax=Decimal(tax['unit_price_incl_tax']) if tax.get('unit_price_incl_tax') is not None else None
-                charge.currency = ref['currency']; charge.metric_type = quantity_basis.resolve(owner.word_count_matrix,ref['metric'])[2] or 'characters_no_spaces'; charge.unit_size = Decimal(ref['unit_size'])
+                charge.currency = ref['currency']; charge.metric_type = quantity_basis.storage_metric(quantity_basis.resolve(owner.word_count_matrix,ref['metric'])[2]); charge.unit_size = Decimal(ref['unit_size'])
                 charge.updated_at = moment; owner.updated_at = moment; project.updated_at = moment
                 db.flush()
-                quantity_basis.store(db,charge,ref['metric'],owner.word_count_matrix)
+                quantity_basis.store(db,charge,data['metric'] if rows else ref['metric'],owner.word_count_matrix)
                 meta = db.get(rates.TranslationChargeDirection, charge.id)
                 if meta is None:
                     meta = rates.TranslationChargeDirection(charge_id=charge.id); db.add(meta)

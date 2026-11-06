@@ -26,7 +26,8 @@ def test_translation_manual_override_diff_and_confirmed_sync(environment,allowed
     write(db,user,root,leaf,[item(amount='.8')],adjusted_total='15',explanation='独立金额')
     rates.write_library(db,user,client.id,[item(amount='.2')],library['version']);db.commit()
     result=written.read(db,root.id)['item']
-    assert result['prices'][0]['amount']=='0.2'
+    assert result['prices'][0]['amount']=='0.8'  # 父级展示下级实际单价
+    assert result['recorded_prices'][0]['amount']=='0.2'
     assert result['children'][0]['children'][0]['prices'][0]['amount']=='0.8'
     diff=sync.differences('translation',client.id,page=1,db=db,user=user)
     assert diff['total']==1

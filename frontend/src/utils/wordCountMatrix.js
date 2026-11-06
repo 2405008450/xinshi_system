@@ -4,7 +4,9 @@ export const WORD_COUNT_METRICS = [
   { key: 'cjk_chars_korean_words', label: '中文字符和朝鲜语单词', shortLabel: '中朝统计' },
   { key: 'foreign_words', label: '外文字数', shortLabel: '外文字数' },
   { key: 'documents', label: '份数', shortLabel: '份数' },
-  { key: 'pages', label: '页数', shortLabel: '页数' }
+  { key: 'pages', label: '页数', shortLabel: '页数' },
+  { key: 'minutes', label: '分钟', shortLabel: '分钟' },
+  { key: 'hours', label: '小时', shortLabel: '小时' }
 ]
 
 const METRIC_KEY_ALIASES = {
@@ -99,7 +101,7 @@ export function formatWordCountMatrix(matrix = {}, { empty = '尚未填写', tra
 }
 
 /** 列表单元格按界面行序取首个有效值，仅展示数字。 */
-export function getWordCountMatrixListSummary(matrix = {}, { empty = '—', translators = [] } = {}) {
+export function getWordCountMatrixListSummary(matrix = {}, { empty = '—', translators = [], source = '' } = {}) {
   const filled = collectFilledWordCountEntries(matrix, translators)
   if (!filled.length) {
     return { primary: empty, extraCount: 0, title: '尚未填写' }
@@ -109,7 +111,8 @@ export function getWordCountMatrixListSummary(matrix = {}, { empty = '—', tran
   return {
     primary: numberText,
     extraCount: Math.max(0, filled.length - 1),
-    title: formatWordCountMatrix(matrix, { translators })
+    title: (source==='suborder_aggregate'?'子订单累计 · ':'')+formatWordCountMatrix(matrix, { translators }),
+    sourceLabel: source==='suborder_aggregate'?'子订单累计':''
   }
 }
 

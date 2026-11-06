@@ -71,6 +71,7 @@ export const translationProjectDetailItems = [
   { label: '合同类型', key: 'projectContractType', editable: true, maxlength: 100 },
   { label: '合同状态', key: 'projectContractStatus', editable: true, maxlength: 100 },
   { label: '需提供报价单', key: 'quotationRequired', formatter: (value) => value ? '是' : '否' },
+  { label: '是否需对账单', key: 'statementRequired', formatter: (value) => value ? '需' : '不需' },
   { label: '报价单状态', key: 'quotationStatus', editable: true, maxlength: 100 },
   { label: '报价单路径', key: 'quotationPath', span: 2, editable: true, multiline: true },
   { label: '客户专业要求', key: 'customerRequirementProfessional', span: 2, editable: true, multiline: true },
@@ -96,6 +97,35 @@ export const translationProjectDetailItems = [
   { label: '审校后 QC', key: 'postReviewQcProgress' },
   { label: '排版进度', key: 'layoutProgress' },
   { label: '整合进度', key: 'consolidationProgress' },
+  { label: '创建时间', key: 'createdAt' },
+  { label: '更新时间', key: 'updatedAt' }
+]
+
+export const translationSubOrderDetailItems = [
+  { label: '子订单号', key: 'subOrderNo' },
+  { label: '文件名称', key: 'subProjectName' },
+  { label: '状态', key: 'status', type: 'status' },
+  { label: '文本类型', key: 'fileTypeSecondary' },
+  { label: '翻译方向', key: 'languagePair' },
+  { label: '优先级', key: 'priority' },
+  { label: '字数与预估', key: 'wordCountMatrix', span: 2, formatter: (value) => formatWordCountMatrix(value) },
+  { label: '客户交稿时间', key: 'customerDeadlineTime' },
+  { label: '发客户时间', key: 'sentToClientTime' },
+  { label: '客户反馈', key: 'clientFeedback', span: 2 },
+  { label: '已分配译员', key: 'assignedTranslators', span: 2, formatter: (value, row) => formatAssignedTranslators(value, row.translatorName) },
+  { label: '译员回稿时间', key: 'translatorReturnTime', span: 2, formatter: (_value, row) => formatTranslatorReturnTimes(row.assignedTranslators) },
+  { label: '译员任务完成情况', key: 'translatorCompletionRemarks', span: 2, formatter: (_value, row) => formatTranslatorCompletionRemarks(row.assignedTranslators) },
+  { label: '译员分配时间', key: 'translatorAssignmentTime' },
+  { label: '译员交付进度', key: 'translatorDeliveryProgress' },
+  { label: '审校前 QC', key: 'preReviewQcProgress' },
+  { label: '审核进度（旧字段）', key: 'reviewProgress' },
+  { label: '审校 1', key: 'review1Progress' },
+  { label: '审校 2', key: 'review2Progress' },
+  { label: '审校后 QC', key: 'postReviewQcProgress' },
+  { label: '排版进度', key: 'layoutProgress' },
+  { label: '整合进度', key: 'consolidationProgress' },
+  { label: '网络文件路径', key: 'networkFilePath', span: 2 },
+  { label: '备注', key: 'remarks', span: 2 },
   { label: '创建时间', key: 'createdAt' },
   { label: '更新时间', key: 'updatedAt' }
 ]

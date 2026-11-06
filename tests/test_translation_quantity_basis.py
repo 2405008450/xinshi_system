@@ -13,7 +13,7 @@ def test_customer_unique_zero_and_ambiguous_values():
     assert basis.resolve({'customer':{'foreign_words':120}},'customer_auto')[:3]==(120,'customer','foreign_words')
     assert basis.resolve({'customer':{'words':10,'characters_no_spaces':30}},'customer_auto')[0] is None
     assert basis.resolve({'customer':{'words':10,'characters_no_spaces':30}},'customer_auto:words')[0]==10
-    assert basis.resolve({'customer':{'pages':5}},'customer_auto:words')[0]==5
+    assert basis.resolve({'customer':{'pages':5}},'customer_auto:words')==(None,'customer','words','未登记对应数量')
     assert basis.resolve({'customer':{}},'customer_auto')[0] is None
 
 
@@ -45,6 +45,21 @@ def test_customer_auto_tracks_the_current_unique_column(environment):
     assert result['item']['totals']=={'CNY':'10.00'}
     row.metric_type='documents';row.count_value=3;db.commit()
     assert finance.read(db,root.id)['item']['totals']=={'CNY':'6.00'}
+
+
+def test_explicit_basis_can_be_saved_without_quantity_and_keeps_unit_size(environment):
+    db,(owner,_,_)=environment;_,root,_,third=context(db,owner)
+    db.query(WordCountMetric).filter_by(sub_order_id=third.id,dimension='customer').delete()
+    db.add(WordCountMetric(id=uuid4(),sub_order_id=third.id,dimension='customer',metric_type='pages',count_value=5))
+    db.commit()
+    result=write(db,owner,root,third,[item(metric='customer_auto:words',amount='200',unit_size='1000')])
+    leaf=result['item']['children'][0]['children'][0]
+    assert leaf['prices'][0]['quantity'] is None
+    assert Decimal(leaf['prices'][0]['unit_size'])==1000
+    db.add(WordCountMetric(id=uuid4(),sub_order_id=third.id,dimension='customer',metric_type='words',count_value=1000))
+    db.commit()
+    result=finance.read(db,root.id)
+    assert result['item']['totals']=={'CNY':'200.00'}
 
 
 def test_create_only_repeatable_basis_migration(environment):

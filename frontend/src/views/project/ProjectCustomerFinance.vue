@@ -16,6 +16,7 @@
   </el-card>
 </template>
 <script setup>
+import {useProjectStatusSync} from '@/composables/useProjectStatusSync'
 import {computed,onActivated,onBeforeUnmount,reactive,ref,watch} from 'vue'
 import {onBeforeRouteLeave,onBeforeRouteUpdate} from 'vue-router'
 import AppForm from '@/components/common/AppForm.vue'
@@ -47,6 +48,7 @@ onActivated(()=>{if(activated)void load();activated=true})
 onBeforeRouteLeave(()=>editor.value?.guardClose()??true)
 onBeforeRouteUpdate(()=>editor.value?.guardClose()??true)
 onBeforeUnmount(()=>{sequence++;controller?.abort();clearTimeout(timer)})
+useProjectStatusSync(()=>props.module,rows,{field:'project_status',onChanged:()=>{if(!loading.value)void load()}})
 </script>
 <style scoped>
 .finance-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.finance-text{white-space:pre-wrap;overflow-wrap:anywhere}.finance-detail{max-height:560px;overflow-y:auto}.finance-hint{font-size:12px;color:var(--el-text-color-secondary)}.el-pagination{margin:16px 0;flex-wrap:wrap;gap:8px}.project-customer-finance{min-width:0}

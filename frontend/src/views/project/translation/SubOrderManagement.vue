@@ -191,6 +191,7 @@
 </template>
 
 <script setup>
+import { getProjectStatusOptions } from '@/utils/projectStatus'
 import { validateTranslationFileName } from '@/utils/translationFileName'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -233,19 +234,7 @@ const inlinePendingCount = computed(() => inlineChanges.value.size)
 const project = reactive({ id: '', orderNo: '', projectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), projectStatus: 'pending_confirmation', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorAssignmentTime: '', translatorDeliveryProgress: '', preReviewQcProgress: '', review1Progress: '', review2Progress: '', postReviewQcProgress: '', layoutProgress: '', consolidationProgress: '', networkFilePath: '' })
 const createSubOrderForm = () => ({ id: '', parentProjectId: projectId, subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: '', preReviewQcProgress: '', review1Progress: '', review2Progress: '', postReviewQcProgress: '', layoutProgress: '', consolidationProgress: '', networkFilePath: '', remarks: '' })
 const subOrderForm = reactive(createSubOrderForm())
-const projectStatusOptions = [
-  { label: '初步咨询', value: 'initial_consultation' },
-  { label: '简单需求', value: 'simple_requirement' },
-  { label: '原文件+简单需求', value: 'source_file_simple_requirement' },
-  { label: '待确认', value: 'pending_confirmation' }, { label: '已确认', value: 'confirmed' },
-  { label: '已整理', value: 'organized' }, { label: '已排译员', value: 'translator_assigned' },
-  { label: '已发译员', value: 'sent_to_translator' }, { label: '译员发回', value: 'translator_returned' },
-  { label: '已专检', value: 'special_checked' }, { label: '已排版', value: 'typeset' },
-  { label: '已专检排版', value: 'special_checked_typeset' }, { label: '已审核', value: 'reviewed' },
-  { label: '已发客户', value: 'sent_to_client' }, { label: '客户反馈', value: 'client_feedback' },
-  { label: '反馈后发客户', value: 'feedback_sent_to_client' }, { label: '已取消', value: 'cancelled' },
-  { label: '已部分取消', value: 'partially_cancelled' }, { label: '已暂停', value: 'paused' }
-]
+const projectStatusOptions = getProjectStatusOptions('translation')
 const priorityOptions = ['低', '中', '高', '紧急']
 const subOrderRules = { subProjectName: [{ required: true, validator: validateTranslationFileName, trigger: ['blur','change'] }] }
 const NULLABLE_FIELDS = ['subProjectName', 'fileTypeSecondary', 'languagePair', 'priority', 'customerDeadlineTime', 'sentToClientTime', 'clientFeedback', 'translatorId', 'translatorAssignmentTime', 'translatorDeliveryProgress', 'preReviewQcProgress', 'review1Progress', 'review2Progress', 'postReviewQcProgress', 'layoutProgress', 'consolidationProgress', 'networkFilePath', 'remarks']

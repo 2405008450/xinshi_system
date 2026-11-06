@@ -8,17 +8,21 @@
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent } from 'vue'
+import { computed, defineAsyncComponent,ref,onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import RouteSectionNavigation from '@/components/common/RouteSectionNavigation.vue'
 
+import {getStatementAccess} from '@/api/statementAccess'
 const route = useRoute()
 const modules = ['translation', 'interpretation', 'annotation', 'recruitment']
-const sections = modules.map((module, index) => ({
+const canManage=ref(false)
+onMounted(async()=>{try{canManage.value=(await getStatementAccess()).can_manage}catch{}})
+const sections = computed(()=>modules.map((module, index) => ({
   path: `/finance-management/${module}`,
   label: ['笔译', '口译', '标注', '招聘'][index],
-}))
+})).concat(canManage.value?[{path:'/finance-management/permissions',label:'权限管理'}]:[]))
 const views = {
+  permissions:defineAsyncComponent(()=>import('../finance/StatementPermissions.vue')),
   translation: defineAsyncComponent(() => import('./translation/CustomerFinance.vue')),
   interpretation: defineAsyncComponent(() => import('./interpretation/CustomerFinance.vue')),
   annotation: defineAsyncComponent(() => import('./ProjectCustomerFinance.vue')),

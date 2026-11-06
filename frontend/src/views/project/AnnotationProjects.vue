@@ -623,6 +623,7 @@
 </template>
 
 <script setup>
+import {useProjectStatusSync} from '@/composables/useProjectStatusSync'
 import TaxPriceFields from '@/components/common/TaxPriceFields.vue'
 import {taxPriceForm,taxUnitAmount,taxPriceSummary} from '@/utils/taxPrices'
 import { annotationProjectTypeOptions } from '@/utils/annotationCatalog'
@@ -1357,6 +1358,7 @@ async function syncChatProgress(event){
 onMounted(()=>window.addEventListener('annotation-chat-progress-saved',syncChatProgress))
 onBeforeUnmount(()=>window.removeEventListener('annotation-chat-progress-saved',syncChatProgress))
 onBeforeUnmount(()=>{parentFilterController?.abort();clearTimeout(searchTimer);clearTimeout(autoNameTimer);requestController?.abort();languageReserveRequestId+=1})
+useProjectStatusSync('annotation',tableData,{onChanged:()=>{if(!loading.value&&!dialogVisible.value)void fetchData()}})
 </script>
 
 <style scoped>

@@ -64,15 +64,26 @@ def test_other_customer_direction_and_stale_preview_are_not_overwritten(environm
     assert finance.primary(child).unit_price_excl_tax==Decimal('.6')
 
 
-def test_mid_batch_conflict_rolls_back_prices_and_audit(environment):
+def test_mismatched_currency_is_skipped_without_overwriting(environment):
     db,(owner,_,_)=environment;source,target,child,_,_=setup(db,owner)
     finance.primary(child).currency='USD';db.commit()
-    before=db.query(audit.TranslationFinanceEvent).count()
     scope=sync.SyncScope(order_id=source.id,version=finance.read(db,source.id)['version'],billing_month='2026-11')
-    scope.token=sync.plan(db,source.id,scope)[0]['token']
-    with pytest.raises(HTTPException) as conflict:sync.execute(source.id,scope,db,owner)
-    assert conflict.value.status_code==409
+    preview,_=sync.plan(db,source.id,scope)
+    assert str(child.id) not in {row['order_id'] for row in preview['targets']}
+    assert child.sub_order_no in {row['order_no'] for row in preview['skipped']}
+    scope.token=preview['token'];sync.execute(source.id,scope,db,owner)
     finance.read(db,target.id)
-    assert finance.primary(target).unit_price_excl_tax==Decimal('.5')
     assert finance.primary(child).currency=='USD' and finance.primary(child).unit_price_excl_tax==Decimal('.7')
-    assert db.query(audit.TranslationFinanceEvent).count()==before
+
+
+def test_different_unit_and_unit_size_are_not_matched(environment):
+    db,(owner,_,_)=environment;source,target,child,third,_=setup(db,owner)
+    write(db,owner,target,child,[item(amount='.7',metric='customer_auto:pages')],billing_month='2026-11')
+    write(db,owner,target,third,[item(amount='.8',metric='customer_auto:foreign_words',unit_size=1000)],billing_month='2026-11')
+    scope=sync.SyncScope(order_id=source.id,version=finance.read(db,source.id)['version'],billing_month='2026-11')
+    preview,_=sync.plan(db,source.id,scope)
+    assert not {str(child.id),str(third.id)} & {row['order_id'] for row in preview['targets']}
+    scope.token=preview['token'];sync.execute(source.id,scope,db,owner)
+    finance.read(db,target.id)
+    assert finance.primary(child).unit_price_excl_tax==Decimal('.7')
+    assert finance.primary(third).unit_size==1000

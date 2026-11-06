@@ -2,6 +2,13 @@ import { createNotificationSocket } from '@/api/notifications'
 
 const subscribers = new Map()
 const annotationWatches = new Map()
+let projectStatusWatches=[]
+let projectStatusWatchTimer
+let savedDataResources=[],savedDataWatchTimer
+const sendSavedDataWatch=()=>{if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'saved_data_watch',resources:savedDataResources}))}
+export const setSavedDataWatch=resources=>{savedDataResources=resources;ensureConnected();clearTimeout(savedDataWatchTimer);savedDataWatchTimer=setTimeout(sendSavedDataWatch,80)}
+const sendProjectStatusWatch=()=>{if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'project_status_watch',items:projectStatusWatches}))}
+export const setProjectStatusWatch=items=>{projectStatusWatches=items;ensureConnected();clearTimeout(projectStatusWatchTimer);projectStatusWatchTimer=setTimeout(sendProjectStatusWatch,80)}
 const sendAnnotationWatch = (projectId, active) => {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'annotation_chat_watch', projectId, active }))
 }
@@ -140,6 +147,8 @@ export const ensureConnected = ({ force = false } = {}) => {
     lastActivityAt = Date.now()
     clearHeartbeatTimer()
     annotationWatches.forEach((_, id) => sendAnnotationWatch(id, true))
+    sendProjectStatusWatch()
+    sendSavedDataWatch()
     heartbeatTimer = window.setInterval(() => {
       if (socket !== currentSocket) return
       if (Date.now() - lastActivityAt > 75000) { ensureConnected({ force: true }); return }

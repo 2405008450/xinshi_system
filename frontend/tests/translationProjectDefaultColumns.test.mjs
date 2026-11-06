@@ -12,10 +12,11 @@ test('笔译项目默认列表不显示项目经理，并迁移上一版默认�
     page,
     /const previousTranslationDisplayKeys = previousTranslationDefaultColumnKeys\s+\.filter\(\(key\) => key !== 'projectManagerName'\)\s+\.map\(\(key\) => key === 'projectName' \? 'sourceFileName' : key\)/,
   )
-  assert.match(page, /const translationDefaultColumnKeys=\[\.\.\.previousTranslationDisplayKeys,'assignedTranslators'\]/)
+  assert.match(page, /const translationDefaultColumnKeys=\[\.\.\.previousTranslationFullDefaultKeys,'statementRequired'\]/)
+  assert.match(page, /const previousTranslationFullDefaultKeys=\[\.\.\.previousTranslationDisplayKeys,'assignedTranslators'\]/)
   assert.match(
     page,
-    /legacyDefaultKeys: \[previousTranslationDisplayKeys,legacyTranslationDefaultColumnKeys, legacyTranslationDefaultColumnKeysWithReturnTime, previousTranslationDefaultColumnKeys\]/,
+    /legacyDefaultKeys: \[previousTranslationFullDefaultKeys,previousTranslationDisplayKeys,legacyTranslationDefaultColumnKeys, legacyTranslationDefaultColumnKeysWithReturnTime, previousTranslationDefaultColumnKeys\]/,
   )
 })
 

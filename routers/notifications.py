@@ -151,6 +151,14 @@ async def notifications_ws(websocket: WebSocket, token: str = Query(default=""),
                 import json
                 try:
                     payload = json.loads(message)
+                    if payload.get('type') == 'saved_data_watch':
+                        resources=payload.get('resources')
+                        from saved_data_sync import valid
+                        if not isinstance(resources,list) or len(resources)>500 or any(name!='__all__' and not valid(name) for name in resources):raise ValueError('无效数据范围')
+                        notification_manager.saved_data_subscriptions[(str(user_id),websocket)]=set(resources)
+                    if payload.get('type') == 'project_status_watch':
+                        items=await run_in_threadpool(_authorize_project_status_watch,token,payload.get('items'))
+                        notification_manager.watch_project_status(user_id,websocket,items)
                     if payload.get('type') == 'annotation_chat_watch':
                         project_id = UUID(payload.get('projectId', ''))
                         await run_in_threadpool(_authorize_annotation_watch, token, project_id)
@@ -204,3 +212,12 @@ def _authorize_annotation_watch(token, project_id):
     with SessionLocal() as db:
         current = get_user_from_token_value(db, token)
         require_project(db, project_id, current)
+
+def _authorize_project_status_watch(token,items):
+    from project_status_sync import SnapshotRequest,snapshot
+    from routers.auth import user_has_permission
+    data=SnapshotRequest(items=items)
+    with SessionLocal() as db:
+        current=get_user_from_token_value(db,token)
+        if not current or not user_has_permission(db,current.id,'projects:read'):raise HTTPException(403,'缺少项目查看权限')
+        return snapshot(db,data.items)

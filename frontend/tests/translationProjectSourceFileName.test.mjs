@@ -46,7 +46,7 @@ test('子订单历史字段在界面统一显示为文件名称', () => {
   for (const source of [detail, management, batchDialog, inlineEditor]) {
     assert.doesNotMatch(source, /子项目名称/)
   }
-  assert.match(detail, /\{ label: '文件名称', key: 'subProjectName' \}/)
+  assert.match(detail, /\{ key: 'subProjectName', label: '文件名称' \}/)
   assert.match(management, /label="文件名称" prop="subProjectName"/)
   assert.match(batchDialog, /label="文件名称前缀"/)
   assert.match(inlineEditor, /aria-label="保存文件名称"/)

@@ -319,7 +319,13 @@ def generate_client_code(db: Session) -> str:
 
 
 def get_client(db: Session, client_id: UUID) -> Optional[Client]:
-    return db.query(Client).options(selectinload(Client.sub_clients)).filter(Client.id == client_id).first()
+    client = db.query(Client).options(selectinload(Client.sub_clients)).filter(Client.id == client_id).first()
+    if client:
+        from translation_customer_type import attach_clients
+        attach_clients(db, [client])
+        from client_cooperation_auto import attach_clients as attach_cooperation
+        attach_cooperation(db,[client])
+    return client
 
 
 def _apply_client_filters(
@@ -343,6 +349,9 @@ def _apply_client_filters(
     field_filters: Optional[dict] = None,
 ):
     """为客户列表和总数查询复用完全一致的筛选条件。"""
+    from client_cooperation_auto import expressions as cooperation_expressions
+    client_state,client_start=cooperation_expressions(Client)
+    sub_state,sub_start=cooperation_expressions(SubClient)
     text_filters = (
         (client_code, Client.client_code, SubClient.sub_client_code),
         (client_short_name, Client.client_short_name, SubClient.client_short_name),
@@ -385,34 +394,34 @@ def _apply_client_filters(
         ), pattern))
     if client_status:
         query = query.filter(or_(
-            Client.client_status == client_status,
-            Client.sub_clients.any(SubClient.client_status == client_status),
+            client_state == client_status,
+            Client.sub_clients.any(sub_state == client_status),
         ))
     if cooperation_start_date_from:
         start_at = datetime.combine(cooperation_start_date_from, time.min)
         query = query.filter(or_(
-            Client.cooperation_start_date >= start_at,
-            Client.sub_clients.any(SubClient.cooperation_start_date >= start_at),
+            client_start >= start_at,
+            Client.sub_clients.any(sub_start >= start_at),
         ))
     if cooperation_start_date_to:
         end_at = datetime.combine(cooperation_start_date_to, time.max)
         query = query.filter(or_(
-            Client.cooperation_start_date <= end_at,
-            Client.sub_clients.any(SubClient.cooperation_start_date <= end_at),
+            client_start <= end_at,
+            Client.sub_clients.any(sub_start <= end_at),
         ))
     for field, descriptor in (field_filters or {}).items():
         if field == "cooperation_start_date":
             start_value, end_value = descriptor.get("from"), descriptor.get("to")
             if start_value:
                 start_at = datetime.combine(date.fromisoformat(str(start_value)), time.min)
-                query = query.filter(or_(Client.cooperation_start_date >= start_at, Client.sub_clients.any(SubClient.cooperation_start_date >= start_at)))
+                query = query.filter(or_(client_start >= start_at, Client.sub_clients.any(sub_start >= start_at)))
             if end_value:
                 end_at = datetime.combine(date.fromisoformat(str(end_value)), time.max)
-                query = query.filter(or_(Client.cooperation_start_date <= end_at, Client.sub_clients.any(SubClient.cooperation_start_date <= end_at)))
+                query = query.filter(or_(client_start <= end_at, Client.sub_clients.any(sub_start <= end_at)))
             continue
         if field == "client_status":
             values = descriptor.get("value") or []
-            query = query.filter(or_(Client.client_status.in_(values), Client.sub_clients.any(SubClient.client_status.in_(values))))
+            query = query.filter(or_(client_state.in_(values), Client.sub_clients.any(sub_state.in_(values))))
             continue
         if field == "client_name" and descriptor.get("op") == "contains":
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
@@ -515,6 +524,10 @@ def get_clients(
     for client, page_total in rows:
         client.__dict__["_page_total"] = int(page_total or 0)
         clients.append(client)
+    from translation_customer_type import attach_clients
+    attach_clients(db, clients)
+    from client_cooperation_auto import attach_clients as attach_cooperation
+    attach_cooperation(db,clients)
     return clients
 
 
@@ -563,21 +576,27 @@ def count_clients(
 def create_client(
     db: Session, client: ClientCreate, idempotency_key: Optional[str] = None,
 ) -> Client:
-    data = client.model_dump()
+    data = client.model_dump(exclude={'customer_type'})
     if not data.get('client_code'):
         data['client_code'] = generate_client_code(db)
     db_client = Client(idempotency_key=idempotency_key, **data)
     db.add(db_client)
+    db.flush()
+    from translation_customer_type import save_client
+    save_client(db, db_client, client.customer_type)
     db.commit()
     db.refresh(db_client)
-    return db_client
+    return get_client(db,db_client.id)
 
 def update_client(db: Session, client_id: UUID, client_update: ClientUpdate) -> Optional[Client]:
     db_client = get_client(db, client_id)
     if not db_client:
         return None
-    update_data = client_update.model_dump(exclude_unset=True, exclude={VERSION_FIELD})
+    update_data = client_update.model_dump(exclude_unset=True, exclude={VERSION_FIELD, 'customer_type'})
     assert_fresh(db_client, client_update.expected_updated_at)
+    if 'customer_type' in client_update.model_fields_set:
+        from translation_customer_type import save_client
+        save_client(db, db_client, client_update.customer_type)
     if "client_code" in update_data:
         next_code = (update_data["client_code"] or "").strip()
         if not next_code:
@@ -588,7 +607,7 @@ def update_client(db: Session, client_id: UUID, client_update: ClientUpdate) -> 
     db_client.updated_at = datetime.now()
     db.commit()
     db.refresh(db_client)
-    return db_client
+    return get_client(db,db_client.id)
 
 def delete_client(db: Session, client_id: UUID) -> bool:
     db_client = get_client(db, client_id)
@@ -699,27 +718,39 @@ def generate_sub_client_code(db: Session, parent_id: UUID) -> str:
     return f"{base_no}.{new_seq:03d}"
 
 def get_sub_client(db: Session, sub_client_id: UUID) -> Optional[SubClient]:
-    return db.query(SubClient).filter(SubClient.id == sub_client_id).first()
+    client = db.query(SubClient).filter(SubClient.id == sub_client_id).first()
+    if client:
+        from translation_customer_type import attach_clients
+        attach_clients(db, sub_clients=[client])
+        from client_cooperation_auto import attach_clients as attach_cooperation
+        attach_cooperation(db,sub_clients=[client])
+    return client
 
 def create_sub_client(
     db: Session, sub_client: SubClientCreate, idempotency_key: Optional[str] = None,
 ) -> SubClient:
     sub_code = sub_client.sub_client_code or generate_sub_client_code(db, sub_client.parent_client_id)
-    data = sub_client.model_dump(exclude={'sub_client_code'})
+    data = sub_client.model_dump(exclude={'sub_client_code', 'customer_type'})
     db_sub = SubClient(
         sub_client_code=sub_code, idempotency_key=idempotency_key, **data,
     )
     db.add(db_sub)
+    db.flush()
+    from translation_customer_type import save_client
+    save_client(db, db_sub, sub_client.customer_type)
     db.commit()
     db.refresh(db_sub)
-    return db_sub
+    return get_sub_client(db,db_sub.id)
 
 def update_sub_client(db: Session, sub_id: UUID, sub_update: SubClientUpdate) -> Optional[SubClient]:
     db_sub = get_sub_client(db, sub_id)
     if not db_sub:
         return None
-    update_data = sub_update.model_dump(exclude_unset=True, exclude={VERSION_FIELD})
+    update_data = sub_update.model_dump(exclude_unset=True, exclude={VERSION_FIELD, 'customer_type'})
     assert_fresh(db_sub, sub_update.expected_updated_at)
+    if 'customer_type' in sub_update.model_fields_set:
+        from translation_customer_type import save_client
+        save_client(db, db_sub, sub_update.customer_type)
     if "sub_client_code" in update_data:
         next_code = (update_data["sub_client_code"] or "").strip()
         if not next_code:
@@ -730,7 +761,7 @@ def update_sub_client(db: Session, sub_id: UUID, sub_update: SubClientUpdate) ->
     db_sub.updated_at = datetime.now()
     db.commit()
     db.refresh(db_sub)
-    return db_sub
+    return get_sub_client(db,db_sub.id)
 
 def delete_sub_client(db: Session, sub_id: UUID) -> bool:
     db_sub = get_sub_client(db, sub_id)
@@ -1078,6 +1109,14 @@ def _attach_manuscript_assignees(
 ) -> None:
     """把有效派稿明细汇总到项目响应，不再依赖单一 translator_id。"""
     projects = projects or []
+    from translation_customer_type import attach as attach_customer_types
+    attach_customer_types(db, projects)
+    from translation_document_requirements import attach as attach_document_requirements
+    attach_document_requirements(db, projects)
+    from translation_payment_confirmation import attach as attach_payment_confirmation
+    attach_payment_confirmation(db, projects)
+    from translation_statement_status import attach as attach_statement_status
+    attach_statement_status(db,projects)
     sub_orders = sub_orders or []
     project_ids = {project.id for project in projects}
     project_ids.update(sub_order.parent_project_id for sub_order in sub_orders)
@@ -1209,7 +1248,8 @@ def _attach_word_count_matrices(
     """为项目响应批量挂载矩阵数据，并补齐每位译员的预定/实际矩阵。"""
     from word_count_models import WordCountMetric
 
-    metric_types = ("words", "characters_no_spaces", "cjk_chars_korean_words", "foreign_words", "documents", "pages")
+    from word_count_service import METRIC_TYPES
+    metric_types = METRIC_TYPES
     dimensions = ("company", "customer", "preliminary", "translator_estimate")
 
     def empty_values():
@@ -1256,14 +1296,15 @@ def _attach_word_count_matrices(
         return
 
     import preliminary_word_count as preliminary
-    metric_rows=db.query(WordCountMetric).filter(or_(*filters)).all()+preliminary.rows(db,project_map,sub_order_map)
+    import translation_duration_metrics as duration
+    metric_rows=db.query(WordCountMetric).filter(or_(*filters)).all()+preliminary.rows(db,project_map,sub_order_map)+duration.rows(db,project_map,sub_order_map,arrangement_map)
     for metric in metric_rows:
         if metric.project_id in project_map and metric.dimension in dimensions:
-            project_map[metric.project_id].word_count_matrix[metric.dimension][metric.metric_type] = metric.count_value
+            project_map[metric.project_id].word_count_matrix[metric.dimension][metric.metric_type] = float(metric.count_value) if metric.metric_type in {'minutes','hours'} else metric.count_value
         elif metric.sub_order_id in sub_order_map and metric.dimension in dimensions:
-            sub_order_map[metric.sub_order_id].word_count_matrix[metric.dimension][metric.metric_type] = metric.count_value
+            sub_order_map[metric.sub_order_id].word_count_matrix[metric.dimension][metric.metric_type] = float(metric.count_value) if metric.metric_type in {'minutes','hours'} else metric.count_value
         elif metric.arrangement_id in arrangement_map and metric.dimension in {"planned", "actual"}:
-            arrangement_map[metric.arrangement_id][metric.dimension][metric.metric_type] = metric.count_value
+            arrangement_map[metric.arrangement_id][metric.dimension][metric.metric_type] = float(metric.count_value) if metric.metric_type in {'minutes','hours'} else metric.count_value
 
     from word_count_service import roll_up_matrices
     roll_up_matrices(list(project_map.values()), list(sub_order_map.values()))
@@ -1915,6 +1956,15 @@ def _apply_translation_project_filters(
                 if word_count_descriptor.get('min') not in (None,''):preliminary_conditions.append(model.count_value>=int(word_count_descriptor['min']))
                 if word_count_descriptor.get('max') not in (None,''):preliminary_conditions.append(model.count_value<=int(word_count_descriptor['max']))
                 count_match=or_(count_match,db_exists().where(and_(*preliminary_conditions)))
+        import translation_duration_metrics as duration
+        if duration.ready(query.session):
+            model=duration.TranslationDurationMetric
+            duration_conditions=[model.project_id==TranslationProject.id]
+            if word_count_dimension:duration_conditions.append(model.dimension.in_(word_count_dimension.get('value') or []))
+            if word_count_metric_type:duration_conditions.append(model.metric_type.in_(word_count_metric_type.get('value') or []))
+            if word_count_descriptor.get('min') not in (None,''):duration_conditions.append(model.count_value>=Decimal(str(word_count_descriptor['min'])))
+            if word_count_descriptor.get('max') not in (None,''):duration_conditions.append(model.count_value<=Decimal(str(word_count_descriptor['max'])))
+            count_match=or_(count_match,db_exists().where(and_(*duration_conditions)))
         query = query.filter(count_match)
 
     translator_return_time_descriptor = field_filters.get("translator_return_time")
@@ -1954,9 +2004,18 @@ def _apply_translation_project_filters(
             ))
         elif field == 'finance_client_id':
             query = query.filter(TranslationProject.client_id == UUID(descriptor['value']))
+        elif field == 'finance_client_ids':
+            query = query.filter(func.coalesce(TranslationProject.client_id,SubClient.parent_client_id).in_([UUID(value) for value in descriptor['value']]))
         elif field == 'finance_client':
             from search_matching import keyword_any
-            query = query.filter(keyword_any([Client.client_name, Client.client_short_name], descriptor.get('value')))
+            from sqlalchemy.orm import aliased
+            parent=aliased(Client)
+            parent_name=select(parent.client_name).where(parent.id==SubClient.parent_client_id).correlate(SubClient).scalar_subquery()
+            parent_short_name=select(parent.client_short_name).where(parent.id==SubClient.parent_client_id).correlate(SubClient).scalar_subquery()
+            query = query.filter(keyword_any([Client.client_name, Client.client_short_name,parent_name,parent_short_name], descriptor.get('value')))
+        elif field == 'finance_statement_required':
+            from translation_document_requirements import required_expression
+            query = query.filter(required_expression(query.session).is_(descriptor['value']))
         elif field in {
             "client_name", "client_short_name", "client_code", "client_manager", "manager_contact",
             "sub_client_name", "sub_client_short_name", "sub_client_code",
@@ -2118,7 +2177,11 @@ def get_translation_projects(
         created_date_end=created_date_end,
         field_filters=field_filters,
     )
-    if sort in {
+    if sort in {'client_short_name_asc','client_short_name_desc'}:
+        parent_name=select(func.coalesce(func.nullif(Client.client_short_name,''),Client.client_name)).where(Client.id==SubClient.parent_client_id).correlate(SubClient).scalar_subquery()
+        name=func.coalesce(func.nullif(Client.client_short_name,''),func.nullif(Client.client_name,''),parent_name)
+        ordering=((name.asc() if sort.endswith('_asc') else name.desc()).nullslast(),TranslationProject.created_at.desc(),TranslationProject.id.desc())
+    elif sort in {
         "order_no_desc",
         "unfinished_first_order_no_desc",
         "customer_deadline_time_asc",
@@ -2286,7 +2349,7 @@ def create_translation_project(
     role_assignments = project.role_assignments
     project_data = project.model_dump(exclude={
         'client_short_name', 'client_code', 'manager_contact', 'sub_client_short_name',
-        'word_count_matrix', 'customer_charge_items', 'role_assignments', 'client_manager_id', 'client_manager_change_reason', 'initial_sub_order_names'
+        'word_count_matrix', 'customer_charge_items', 'role_assignments', 'client_manager_id', 'client_manager_change_reason', 'initial_sub_order_names', 'customer_type', 'statement_required', 'quotation_draft', 'payment_draft', 'payment_version', 'payment_confirmation'
     })
     if 'source_file_name' not in project.model_fields_set:
         project_data.pop('source_file_name', None)
@@ -2341,6 +2404,18 @@ def create_translation_project(
     )
     db.add(db_project)
     db.flush()
+    from translation_customer_type import save as save_customer_type
+    if 'customer_type' in project.model_fields_set:
+        save_customer_type(db, db_project, project.customer_type)
+    from translation_document_requirements import save as save_document_requirements
+    save_document_requirements(db, db_project, statement_required=project.statement_required,
+        quotation_draft=project.quotation_draft, actor_id=project.created_by)
+    if project.payment_draft is not None:
+        from translation_payment_service import save as save_payments
+        save_payments(db, db_project, project.payment_draft, project.payment_version, project.created_by, project.payment_confirmation)
+    elif project.payment_confirmation is not None:
+        from translation_payment_confirmation import save as save_payment_confirmation
+        save_payment_confirmation(db,db_project.id,project.payment_confirmation,project.created_by)
     from project_client_manager import apply as apply_client_manager
     apply_client_manager(db, 'translation', db_project, project.client_manager_id, project.client_manager_change_reason, project.created_by, creating=True)
     _sync_project_role_assignments(db, db_project, role_assignments)
@@ -2405,7 +2480,7 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
     matrix_update = project_update.word_count_matrix
     update_data = project_update.model_dump(
         exclude_unset=True,
-        exclude={'client_short_name', 'client_code', 'manager_contact', 'sub_client_short_name', 'word_count_matrix', 'customer_charge_items', 'role_assignments', 'assigned_translator_completions', 'client_manager_id', 'client_manager_change_reason', VERSION_FIELD},
+        exclude={'client_short_name', 'client_code', 'manager_contact', 'sub_client_short_name', 'word_count_matrix', 'customer_charge_items', 'role_assignments', 'assigned_translator_completions', 'client_manager_id', 'client_manager_change_reason', 'customer_type', 'statement_required', 'quotation_draft', 'payment_draft', 'payment_version', 'payment_confirmation', VERSION_FIELD},
     )
     db.query(TranslationProject).filter(TranslationProject.id == project_id).with_for_update().populate_existing().one()
     assert_fresh(db_project, project_update.expected_updated_at)
@@ -2476,6 +2551,18 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
 
     for field, value in update_data.items():
         setattr(db_project, field, value)
+    if 'customer_type' in project_update.model_fields_set:
+        from translation_customer_type import save as save_customer_type
+        save_customer_type(db, db_project, project_update.customer_type)
+    from translation_document_requirements import save as save_document_requirements
+    save_document_requirements(db, db_project, statement_required=project_update.statement_required,
+        quotation_draft=project_update.quotation_draft, actor_id=actor_user_id)
+    if project_update.payment_draft is not None:
+        from translation_payment_service import save as save_payments
+        save_payments(db, db_project, project_update.payment_draft, project_update.payment_version, actor_user_id, project_update.payment_confirmation)
+    elif project_update.payment_confirmation is not None:
+        from translation_payment_confirmation import save as save_payment_confirmation
+        save_payment_confirmation(db,db_project.id,project_update.payment_confirmation,actor_user_id)
     if 'project_status' in update_data:
         from project_workbench_service import cancel_pending_project_handovers, is_active_project
         if not is_active_project('translation', db_project.project_status):
@@ -2815,6 +2902,7 @@ def mark_all_notifications_read(db: Session, recipient_user_id: UUID, channel: s
 
 # ProjectFile CRUD
 PROJECT_FILE_STATUS_SEQUENCE = {
+    'cost_calculation': 0,
     'simple_requirement': 0,
     'source_file_simple_requirement': 0,
     'pending': 0,

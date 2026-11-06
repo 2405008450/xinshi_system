@@ -4,7 +4,7 @@
       <div class="card-header">
         <div>
           <span>客户管理</span>
-          <small class="header-hint">母客户与子客户统一管理</small>
+          <small class="header-hint">客户与子客户统一管理</small>
         </div>
         <div class="header-actions">
           <TableColumnSettings settings-key="client-information"
@@ -169,6 +169,7 @@
                 <el-descriptions-item label="客户全称">
                   <span class="detail-value">{{ getDetailRow(row).client_name || '-' }}</span>
                 </el-descriptions-item>
+                <el-descriptions-item label="客户类型">{{ getDetailRow(row).customer_type || '-' }}</el-descriptions-item>
                 <el-descriptions-item label="客户简称">
                   <span class="detail-value">{{ getDetailRow(row).client_short_name || '-' }}</span>
                 </el-descriptions-item>
@@ -299,6 +300,7 @@
             <el-form-item label="客户简称" prop="client_short_name">
               <el-input v-model="form.client_short_name" />
             </el-form-item>
+            <el-form-item label="客户类型" prop="customer_type"><el-select v-model="form.customer_type" clearable placeholder="请选择客户类型" @clear="form.customer_type=null"><el-option v-for="item in customerTypes" :key="item" :label="item" :value="item" /></el-select></el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="客户负责人" prop="client_manager">
@@ -410,6 +412,13 @@
         <el-tab-pane label="合作项目" name="projects">
           <CustomerCooperationProjects v-if="clientActiveTab === 'projects'" :client-id="form.id" />
         </el-tab-pane>
+        <el-tab-pane label="对账单" name="statements">
+          <div data-dialog-field-search-label="对账单">
+            <el-empty v-if="!form.id" description="请先保存客户，再查看对账单" />
+            <el-empty v-else-if="!canReadStatements" description="暂无财务对账单查看权限" />
+            <CustomerStatementHistory v-else-if="clientActiveTab === 'statements'" :key="form.id" :client-id="form.id" />
+          </div>
+        </el-tab-pane>
         </el-tabs>
       </div>
       <template #footer>
@@ -478,6 +487,7 @@
             <el-form-item label="客户简称" prop="client_short_name">
               <el-input v-model="subForm.client_short_name" />
             </el-form-item>
+            <el-form-item label="客户类型" prop="customer_type"><el-select v-model="subForm.customer_type" clearable placeholder="请选择客户类型" @clear="subForm.customer_type=null"><el-option v-for="item in customerTypes" :key="item" :label="item" :value="item" /></el-select></el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="客户负责人" prop="client_manager">
@@ -512,11 +522,12 @@
 </template>
 
 <script setup>
+import { CUSTOMER_TYPES as customerTypes } from '@/utils/customerTypes'
 import CustomerCooperationProjects from '@/components/common/CustomerCooperationProjects.vue'
 import CustomerFinancePanel from '@/components/common/CustomerFinancePanel.vue'
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { refreshAfterSave } from '@/utils/postSaveRefresh.js'
-import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch, defineAsyncComponent } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowRight } from '@element-plus/icons-vue'
 import * as clientApi from '@/api/clients'
@@ -529,7 +540,7 @@ import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import { hasPermission } from '@/utils/permission'
-import { formatDateTimeMinute as formatDatetime } from '@/utils/dateTime'
+import { formatDateTimeMinute as formatDatetime, businessDateTimeInputValue } from '@/utils/dateTime'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
@@ -538,6 +549,8 @@ import { countActiveFilters, createFilterModel, resetFilterModel, serializeField
 
 const loading = ref(false)
 const canWrite = hasPermission('clients:write')
+const canReadStatements = hasPermission('projects:read')
+const CustomerStatementHistory = defineAsyncComponent(() => import('@/components/common/CustomerStatementHistory.vue'))
 const submitLoading = ref(false)
 const dialogVisible = ref(false)
 const clientActiveTab = ref('basic')
@@ -560,6 +573,7 @@ const clientColumnOptions = [
   { key: 'client_code', label: '客户编号', width: 140 },
   { key: 'client_name', label: '客户全称', width: 175 },
   { key: 'client_short_name', label: '客户简称', width: 150 },
+  { key: 'customer_type', label: '客户类型', width: 150 },
   { key: 'english_name', label: '英文全称', width: 200 },
   { key: 'english_short_name', label: '英文简称', width: 150 },
   { key: 'client_manager', label: '客户负责人', width: 140 },
@@ -648,6 +662,7 @@ const pagination = reactive({
 const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows:tableData,tableRef:clientTableRef,pagination,deleteRow:(row)=>clientApi.deleteClient(row.id),getLabel:(row)=>row.client_name||row.client_short_name||row.client_code,reload:()=>fetchData(),onDeleted:(row)=>{delete detailCache[row.id]},entityName:'客户'})
 
 const defaultClientForm = () => ({
+  customer_type: null,
   id: null,
   client_code: '',
   client_name: '',
@@ -675,6 +690,7 @@ const { beginDraft, pauseDraft, clearDraft } = useFormDraft({
 })
 
 const subForm = reactive({
+  customer_type: null,
   id: null,
   parent_client_id: null,
   sub_client_code: '',
@@ -866,10 +882,11 @@ const loadClientDetail = async (id) => {
 }
 
 const handleEdit = async (row) => {
-  dialogTitle.value = '编辑客户'
+  dialogTitle.value = '客户管理 · 编辑窗口'
   resetForm()
   Object.assign(form, {
     id: row.id,
+    customer_type: row.customer_type || null,
     client_code: row.client_code || '',
     client_name: row.client_name || '',
     client_short_name: row.client_short_name || '',
@@ -882,7 +899,7 @@ const handleEdit = async (row) => {
     city: row.city || '',
     district: row.district || '',
     client_status: row.client_status || 'pending',
-    cooperation_start_date: row.cooperation_start_date || '',
+    cooperation_start_date: businessDateTimeInputValue(row.cooperation_start_date||''),
     remarks: row.remarks || '',
     cooperation_info: row.cooperation_info || '',
     sub_clients: row.sub_clients || [],
@@ -950,7 +967,7 @@ const handleAddSub = () => {
 
 const handleAddSubForParent = (parent) => {
   if (!parent?.id) {
-    ElMessage.warning('请先保存母客户，再新增子客户')
+    ElMessage.warning('请先保存客户，再新增子客户')
     return
   }
   subDialogTitle.value = '新增子客户'
@@ -965,7 +982,7 @@ const handleAddSubForParent = (parent) => {
 const handleEditSub = (subRow, parentRow = null) => {
   subDialogTitle.value = '编辑子客户'
   resetSubForm()
-  Object.assign(subForm, { ...subRow })
+  Object.assign(subForm, { ...subRow, cooperation_start_date: businessDateTimeInputValue(subRow.cooperation_start_date||'') })
   if (parentRow) subForm.parent_client_id = parentRow.id
   else subForm.parent_client_id = form.id
   subDialogVisible.value = true
@@ -1027,6 +1044,7 @@ const resetSubForm = () => {
   clearSubClientFieldSearch()
   subFormRef.value?.resetFields()
   Object.assign(subForm, {
+    customer_type: null,
     id: null,
     parent_client_id: null,
     sub_client_code: '',

@@ -4,12 +4,16 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator, field_serializer
+from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator, field_serializer
 from path_security import validate_managed_path
 
 from language_catalog import normalize_language_pairs
 from department_utils import normalize_department
 from word_count_schemas import WordCountCreateMatrix, WordCountValues
+from translation_customer_type import CustomerType
+from translation_document_requirements import QuotationDraft
+from translation_payment_service import ProjectPayment
+from translation_payment_confirmation import PaymentConfirmationWrite
 import re
 
 WORD_COUNT_METRIC_TYPES = {
@@ -195,6 +199,7 @@ class PermissionGroup(BaseModel):
 
 # Client Schemas
 class ClientBase(BaseModel):
+    customer_type: Optional[CustomerType] = None
     client_code: Optional[str] = None
     client_name: str
     client_short_name: str
@@ -217,6 +222,7 @@ class ClientCreate(ClientBase):
     pass
 
 class ClientUpdate(BaseModel):
+    customer_type: Optional[CustomerType] = None
     client_code: Optional[str] = None
     client_name: Optional[str] = None
     client_short_name: Optional[str] = None
@@ -237,10 +243,17 @@ class ClientUpdate(BaseModel):
     expected_updated_at: Optional[datetime] = None
 
 class ClientResponse(ClientBase):
+    client_status: Optional[str] = Field(default="pending",validation_alias=AliasChoices("_auto_client_status","client_status"))
+    cooperation_start_date: Optional[datetime] = Field(default=None,validation_alias=AliasChoices("_auto_cooperation_start_date","cooperation_start_date"))
     id: UUID
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     sub_clients: list['SubClientResponse'] = Field(default_factory=list)
+
+    @field_serializer('cooperation_start_date',when_used='json')
+    def serialize_cooperation_date(self,value):
+        from annotation_progress_time import business_datetime
+        return business_datetime(value).isoformat() if value else None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -295,6 +308,7 @@ class ClientContactResponse(ClientContactBase):
 
 # SubClient Schemas
 class SubClientBase(BaseModel):
+    customer_type: Optional[CustomerType] = None
     sub_client_code: Optional[str] = None
     client_name: str
     client_short_name: str
@@ -316,6 +330,7 @@ class SubClientCreate(SubClientBase):
     parent_client_id: UUID
 
 class SubClientUpdate(BaseModel):
+    customer_type: Optional[CustomerType] = None
     sub_client_code: Optional[str] = None
     client_name: Optional[str] = None
     client_short_name: Optional[str] = None
@@ -335,10 +350,17 @@ class SubClientUpdate(BaseModel):
     expected_updated_at: Optional[datetime] = None
 
 class SubClientResponse(SubClientBase):
+    client_status: Optional[str] = Field(default="pending",validation_alias=AliasChoices("_auto_client_status","client_status"))
+    cooperation_start_date: Optional[datetime] = Field(default=None,validation_alias=AliasChoices("_auto_cooperation_start_date","cooperation_start_date"))
     id: UUID
     parent_client_id: UUID
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+    @field_serializer('cooperation_start_date',when_used='json')
+    def serialize_cooperation_date(self,value):
+        from annotation_progress_time import business_datetime
+        return business_datetime(value).isoformat() if value else None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -751,6 +773,10 @@ class TranslationSubOrderChargeItemResponse(TranslationSubOrderChargeItemInput):
 
 
 class TranslationProjectBase(BaseModel):
+    payment_confirmation: Optional[PaymentConfirmationWrite] = None
+    statement_required: Optional[bool] = None
+    quotation_draft: Optional[QuotationDraft] = None
+    customer_type: Optional[CustomerType] = None
     client_manager_id: Optional[UUID] = None
     client_manager_change_reason: Optional[str] = Field(default=None, max_length=500)
     project_name: str
@@ -813,6 +839,8 @@ class TranslationProjectBase(BaseModel):
         return normalize_progress_percent(value)
 
 class TranslationProjectCreate(TranslationProjectBase):
+    payment_draft: Optional[list[ProjectPayment]] = Field(default=None, max_length=100)
+    payment_version: Optional[str] = None
     created_by: Optional[UUID] = None
     role_assignments: list[ProjectRoleAssignmentInput] = Field(default_factory=list)
     initial_sub_order_names: list[str] = Field(default_factory=list, max_length=100)
@@ -852,6 +880,12 @@ class AssignedTranslatorCompletionUpdate(BaseModel):
 
 
 class TranslationProjectUpdate(BaseModel):
+    payment_draft: Optional[list[ProjectPayment]] = Field(default=None, max_length=100)
+    payment_version: Optional[str] = None
+    payment_confirmation: Optional[PaymentConfirmationWrite] = None
+    statement_required: Optional[bool] = None
+    quotation_draft: Optional[QuotationDraft] = None
+    customer_type: Optional[CustomerType] = None
     client_manager_id: Optional[UUID] = None
     client_manager_change_reason: Optional[str] = Field(default=None, max_length=500)
     project_name: Optional[str] = None
@@ -983,7 +1017,16 @@ class TranslationSubOrderResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ProjectStatementStatus(BaseModel):
+    client_id:UUID
+    board_id:str
+    board_name:str
+    months:list[str]
+
+
 class TranslationProjectResponse(TranslationProjectBase):
+    statement_required_explicit: bool = False
+    statement_status:list[ProjectStatementStatus]=Field(default_factory=list)
     id: UUID
     order_no: str
     client_name: Optional[str] = None

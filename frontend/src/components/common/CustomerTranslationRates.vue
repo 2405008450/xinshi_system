@@ -1,11 +1,11 @@
 <template>
   <div class="customer-reference-rates">
-    <el-button :disabled="!clientId" @click="open">客户语种单价</el-button><small v-if="!clientId">请先保存客户，再维护参考价</small>
+    <el-button :disabled="!clientId" @click="open">{{buttonLabel}}</el-button><small v-if="!clientId">请先保存客户，再维护参考价</small>
     <DraggableFormDialog v-model="visible" append-to-body class="customer-reference-dialog" width="min(960px, calc(100vw - 32px))" top="5vh" :close-on-click-modal="false" :before-close="close">
       <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" title="客户语种参考价" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
       <div ref="body" v-loading="loading||saving"><p class="rate-sync-help">这里维护客户参考价。客户参考价自动同步至沿用客户价格的项目；项目单独调整的单价保留，并在财务区域提示差异供你选择同步。</p>
         <el-alert v-if="error" :title="error" type="error" :closable="false" />
-        <AppForm ref="form" :model="draft" :disabled="!canWrite||saving||loading" label-position="top"><CustomerTranslationPriceEditor v-model="draft.prices" :readonly="!canWrite" :disabled="saving||!ready" /></AppForm>
+        <AppForm ref="form" :model="draft" :disabled="!canWrite||saving||loading" label-position="top"><CustomerTranslationPriceEditor v-model="draft.prices" reference-mode :readonly="!canWrite" :disabled="saving||!ready" /></AppForm>
         <el-collapse><el-collapse-item :title="`参考价修改记录（${historyTotal}）`" name="history"><el-collapse><el-collapse-item v-for="event in history" :key="event.id" :title="`${event.actorName} · ${formatTime(event.createdAt)} · ${event.origin==='project'?'项目同步':'客户资料'}`"><div v-for="[label,items] in [['变更前',event.before],['变更后',event.after]]" :key="label"><strong>{{label}}</strong><p v-for="item in items" :key="item.id">{{item.languagePair}} · {{item.currency}} {{item.amount}} / {{item.unitSize}} · {{basisLabel(item.metric)}}</p></div></el-collapse-item></el-collapse><el-pagination v-model:current-page="historyPage" :page-size="10" :total="historyTotal" layout="total, prev, pager, next" @current-change="loadHistory" /></el-collapse-item></el-collapse>
       </div>
       <template #footer><el-button :disabled="saving" @click="close()">关闭</el-button><el-button v-if="canWrite" type="primary" :disabled="!ready||loading" :loading="saving" @click="save">保存参考价</el-button></template>
@@ -25,7 +25,7 @@ import {basisLabel} from '@/utils/translationQuantityBasis'
 import {formatBusinessDateTime as formatTime} from '@/utils/dateTime'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 const emit=defineEmits(['saved'])
-const props=defineProps({clientId:{type:[String,Number],default:''},canWrite:Boolean})
+const props=defineProps({clientId:{type:[String,Number],default:''},canWrite:Boolean,buttonLabel:{type:String,default:'客户语种单价'}})
 const visible=ref(false),loading=ref(false),saving=ref(false),ready=ref(false),draft=ref({prices:[]}),history=ref([]),error=ref(''),form=ref(),body=ref()
 const historyTotal=ref(0),historyPage=ref(1)
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(body)

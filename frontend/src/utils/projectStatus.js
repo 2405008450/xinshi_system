@@ -9,6 +9,7 @@ const TRANSLATION_STATUS_ALIASES = {
 
 export const PROJECT_STATUS_OPTIONS = {
   translation: [
+    { value: 'cost_calculation', label: '计算费用' },
     { value: 'initial_consultation', label: '初步咨询' },
     { value: 'simple_requirement', label: '简单需求' },
     { value: 'source_file_simple_requirement', label: '原文件+简单需求' },
@@ -75,6 +76,7 @@ export const PROJECT_STATUS_OPTIONS = {
 }
 
 const PROJECT_STATUS_TYPES = {
+  cost_calculation: 'info',
   pending_confirmation: 'info',
   confirmed: 'primary',
   organized: 'primary',

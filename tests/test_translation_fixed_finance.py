@@ -13,22 +13,23 @@ import translation_customer_finance as finance
 import customer_translation_rates as references
 
 
-def test_fixed_price_ignores_counts_children_and_customer_reference_changes(environment, allowed):
+def test_leaf_fixed_price_ignores_counts_and_customer_reference_changes(environment, allowed):
     db, (user, _, _) = environment
     client, root, child, leaf = context(db, user)
     references.write_library(db, user, client.id, [item()], references.library(db, client.id)['version']); db.commit()
     version = finance.read(db, root.id)['version']
-    result = finance.save(db, user, root.id, finance.PriceWrite(version=version, order_id=root.id, pricing_mode='fixed', adjusted_total='500', adjusted_total_incl_tax='530', currency='CNY'))
-    assert result['item']['pricing_mode'] == 'fixed'
-    assert result['item']['prices'] == []
+    result = finance.save(db, user, root.id, finance.PriceWrite(version=version, order_id=leaf.id, pricing_mode='fixed', adjusted_total='500', adjusted_total_incl_tax='530', currency='CNY'))
+    assert result['item']['pricing_mode'] == 'aggregate'
+    assert result['item']['children'][0]['children'][0]['pricing_mode'] == 'fixed'
+    assert result['item']['children'][0]['children'][0]['prices'] == []
     assert result['item']['totals_excl_tax'] == {'CNY': '500.00'}
     assert result['item']['totals_incl_tax'] == {'CNY': '530.00'}
     assert result['item']['quantity'] is None
     refs = references.library(db, client.id)
     references.write_library(db, user, client.id, [item(amount='2')], refs['version']); db.commit()
     result = finance.read(db, root.id)['item']
-    assert result['pricing_mode'] == 'fixed' and result['totals_incl_tax'] == {'CNY': '530.00'}
-    fixed = next(row for row in root.customer_charge_items if row.pricing_mode == 'fixed')
+    assert result['pricing_mode'] == 'aggregate' and result['totals_incl_tax'] == {'CNY': '530.00'}
+    fixed = next(row for row in leaf.customer_charge_items if row.pricing_mode == 'fixed')
     assert fixed.unit_price_excl_tax is None and fixed.unit_price_incl_tax is None
 
 

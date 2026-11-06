@@ -775,7 +775,7 @@
                   v-model="form.sub_client_id"
                   clearable
                   filterable
-                  placeholder="不选则关联母客户"
+                  placeholder="不选则关联客户"
                   style="width: 100%"
                 >
                   <el-option

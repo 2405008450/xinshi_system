@@ -167,6 +167,9 @@ from routers import push
 
 from annotation_material_lifecycle import material_lifespan
 app = FastAPI(lifespan=material_lifespan)
+from saved_data_sync import SavedReadMiddleware,router as saved_data_router
+app.add_middleware(SavedReadMiddleware)
+app.include_router(saved_data_router)
 
 
 def _configured_cors_origins() -> list[str]:
@@ -285,6 +288,9 @@ app.include_router(roles.router)
 app.include_router(translation_projects.router)
 from translation_customer_finance import router as translation_customer_finance_router
 app.include_router(translation_customer_finance_router)
+import client_cooperation_auto
+from project_status_sync import router as project_status_sync_router
+app.include_router(project_status_sync_router)
 from translation_month_price_sync import router as translation_month_price_sync_router
 app.include_router(translation_month_price_sync_router)
 from interpretation_customer_finance import router as interpretation_customer_finance_router
@@ -299,6 +305,8 @@ from project_customer_finance import router as project_customer_finance_router
 app.include_router(project_customer_finance_router)
 from customer_statements import router as customer_statements_router
 app.include_router(customer_statements_router)
+from customer_statement_workspace import router as customer_statement_workspace_router
+app.include_router(customer_statement_workspace_router)
 app.include_router(interpretation_projects.router)
 from routers import annotation_materials
 app.include_router(annotation_materials.router)
@@ -402,6 +410,10 @@ from translation_requirement_dispatch import router as translation_requirement_d
 app.include_router(translation_requirement_dispatch_router)
 from project_client_manager import router as project_client_manager_router
 app.include_router(project_client_manager_router)
+from routers.translation_quotations import router as translation_quotations_router
+app.include_router(translation_quotations_router)
+from routers.translation_payments import router as translation_payments_router
+app.include_router(translation_payments_router)
 
 
 PROJECT_FILE_PATH_COLUMN_STATEMENTS = (
@@ -2195,3 +2207,9 @@ async def say_hello(name: str):
 def db_healthcheck(db: Session = Depends(get_db)):
     db.execute(text("SELECT 1"))
     return {"status": "ok"}
+
+# 对账单专门授权与跨客户编排
+from statement_access import router as statement_access_router
+app.include_router(statement_access_router)
+from statement_reorganization import router as statement_reorganization_router
+app.include_router(statement_reorganization_router)

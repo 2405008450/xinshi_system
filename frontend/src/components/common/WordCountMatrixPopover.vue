@@ -21,17 +21,19 @@
       <div class="word-count-matrix__header">
         <div>
 
-          <p>{{ aggregated ? '此订单统计由直接下级逐级汇总，请在末级订单填写；空白保持为空，零计入汇总。' : '可按来源及计量口径分别填写，空白单元格不会保存。' }}</p>
+          <p>{{ aggregated ? '此订单各单位分别由子订单逐级累计，可同时出现字数、份数等多项；请在末级订单填写。' : '我司统计、客户统计每行只能填写一项；清空已填项后可切换口径。空白不保存，零视为已填写。' }}</p>
         </div>
         <el-tag size="small" type="info">{{ aggregated ? '下级自动汇总' : (hybridMode ? '项目保存 / 译员草稿' : (localMode ? '新建草稿' : '独立保存')) }}</el-tag>
       </div>
 
+      <el-alert v-if="hasDuration" title="本项目可能属于标注项目，请与标注项目部沟通。" type="warning" :closable="false" show-icon />
       <div ref="matrixBody" v-loading="loading" class="word-count-matrix__body">
         <table>
           <thead>
             <tr>
               <th class="word-count-matrix__row-title">统计维度</th>
-              <th v-for="metric in WORD_COUNT_METRICS" :key="metric.key">{{ metric.label }}</th>
+              <th v-for="metric in regularMetrics" :key="metric.key">{{ metric.label }}</th>
+              <th>分钟／小时</th>
             </tr>
           </thead>
           <tbody>
@@ -41,14 +43,14 @@
                 <small v-if="row.hint">{{ row.hint }}</small>
               </th>
               <td
-                v-for="metric in WORD_COUNT_METRICS"
+                v-for="metric in regularMetrics"
                 :key="metric.key"
                 :data-word-count-cell="`${row.key}-${metric.key}`"
                 :class="{ 'is-word-count-target': row.scope === 'entity' && row.dimension === initialDimension && metric.key === initialMetricType }"
               >
                 <el-input-number
                   v-model="row.values[metric.key]"
-                  :disabled="readOnly || (aggregated && row.scope === 'entity')"
+                  :disabled="cellDisabled(row,metric.key)"
                   size="small"
                   :min="0"
                   :step="1"
@@ -56,6 +58,11 @@
                   :controls="false"
                   :aria-label="`${row.label}-${metric.label}`"
                 />
+                <small v-if="aggregated&&row.scope==='entity'&&row.values[metric.key]!=null" class="word-count-source">子订单累计</small>
+              </td>
+              <td class="word-count-time-cell">
+                <select :value="timeMetric(row)" :disabled="cellDisabled(row,timeMetric(row))" :aria-label="`${row.label}-时长单位`" @change="changeTimeUnit(row,$event.target.value)"><option value="minutes">分钟</option><option value="hours">小时</option></select>
+                <el-input-number v-model="row.values[timeMetric(row)]" :disabled="cellDisabled(row,timeMetric(row))" :min="0" :precision="4" :controls="false" size="small" :aria-label="`${row.label}-时长`" /><small v-if="aggregated&&row.scope==='entity'&&row.values[timeMetric(row)]!=null" class="word-count-source">子订单累计</small>
               </td>
             </tr>
             <tr v-if="!rows.length">
@@ -120,6 +127,12 @@ const localMode = computed(() => props.local || !props.entityId)
 const hybridMode = computed(() => localMode.value && Boolean(props.entityId))
 const summary = computed(() => formatWordCountMatrix(props.modelValue))
 const aggregated = computed(() => draft.value?.source === 'suborder_aggregate')
+const regularMetrics=WORD_COUNT_METRICS.filter(item=>!['minutes','hours'].includes(item.key))
+const timeUnits=ref({})
+const hasDuration=computed(()=>rows.value.some(row=>row.values.minutes!=null||row.values.hours!=null))
+function timeMetric(row){return row.values.hours!=null?'hours':row.values.minutes!=null?'minutes':timeUnits.value[row.key]||'minutes'}
+function cellDisabled(row,key){return props.readOnly||(aggregated.value&&row.scope==='entity')||(row.scope==='entity'&&['company','customer'].includes(row.dimension)&&row.values[key]==null&&WORD_COUNT_METRICS.some(item=>item.key!==key&&row.values[item.key]!=null))}
+function changeTimeUnit(row,unit){const previous=timeMetric(row),value=row.values[previous];row.values[previous]=null;timeUnits.value[row.key]=unit;if(value!=null)row.values[unit]=Number((unit==='hours'?value/60:value*60).toFixed(4))}
 
 const clone = (value) => JSON.parse(JSON.stringify(value))
 
@@ -214,6 +227,7 @@ async function focusInitialCell() {
 }
 
 function discardDraft() {
+  timeUnits.value={}
   loadSequence += 1
   draft.value = null
   original.value = null
@@ -261,6 +275,7 @@ function buildChanges() {
 
 async function saveMatrix() {
   if (!draft.value) return
+  if(!aggregated.value)for(const dimension of ['company','customer'])if(WORD_COUNT_METRICS.filter(item=>draft.value[dimension][item.key]!=null).length>1)return ElMessage.warning(`${dimension==='company'?'我司统计':'客户统计'}只能填写一个统计字段，请先清空其他字段`)
   if (localMode.value) {
     if (saving.value) return
     saving.value = true
@@ -337,6 +352,7 @@ th:last-child, td:last-child { border-right: 0; }
 .word-count-matrix__row-title { width: 156px; padding: 6px 8px; text-align: left; background: var(--el-fill-color-lighter); line-height: 1.35; }
 .word-count-matrix__row-title span { display: block; }
 .word-count-matrix__row-title small { display: block; margin-top: 3px; color: var(--el-text-color-secondary); font-weight: 400; }
+.word-count-source{display:block;text-align:center;font-size:10px;color:var(--el-color-primary);padding-bottom:4px}.word-count-time-cell select{width:100%;height:26px;border:0;border-bottom:1px solid var(--el-border-color);background:#fff;color:var(--el-text-color-regular)}.word-count-time-cell select:disabled{background:#f1f5f9}.word-count-matrix>.el-alert{margin-bottom:8px}
 td :deep(.el-input-number) { width: 100%; }
 td :deep(.el-input__wrapper) { min-height: 28px; padding: 0 5px; border-radius: 0; box-shadow: none; }
 .is-word-count-target :deep(.el-input__wrapper) { box-shadow: inset 0 0 0 2px var(--el-color-primary); }

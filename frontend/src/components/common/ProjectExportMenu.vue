@@ -74,7 +74,7 @@ const formRef = ref(null)
 const form = reactive({ timeField: exportConfig.value.defaultTimeField, dateRange: [], clientId: '' })
 const activeMode = computed(() => exportConfig.value.modes.find((mode) => mode.type === type.value) || exportConfig.value.modes[0])
 const byClient = computed(() => type.value === 'client_reconciliation')
-const clientLabel = computed(() => exportConfig.value.clientLabel || '母客户')
+const clientLabel = computed(() => exportConfig.value.clientLabel || '客户')
 const rules = computed(() => byClient.value ? {
   clientId: [{ required: true, message: `请选择一个${clientLabel.value}`, trigger: 'change' }],
 } : {

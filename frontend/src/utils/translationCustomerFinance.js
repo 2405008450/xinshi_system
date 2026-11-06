@@ -6,9 +6,9 @@ const metricName = key => WORD_COUNT_METRICS.find(item => item.key === key)?.sho
 export function calculateCustomerPrice(amount, quantity, unitSize = 1) {
   if (amount == null || quantity == null) return null
   const scaled = value => {const [whole, fraction='']=String(Number(value)).split('.');return BigInt(whole)*10000n+BigInt(fraction.padEnd(4,'0').slice(0,4))}
-  const divisor=scaled(unitSize)
+  const divisor=scaled(unitSize)*10000n
   if(divisor<=0n)return null
-  const numerator=scaled(amount)*BigInt(quantity)*100n
+  const numerator=scaled(amount)*scaled(quantity)*100n
   const cents=(numerator+divisor/2n)/divisor
   return `${cents/100n}.${String(cents%100n).padStart(2,'0')}`
 }

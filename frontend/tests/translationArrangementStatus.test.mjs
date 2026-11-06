@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import {getProjectStatusLabel,normalizeProjectStatus,getProjectStatusOptions} from '../src/utils/projectStatus.js'
 
 test('笔译状态包含初步咨询，统一显示中文并可用于筛选',()=>{
-  assert.equal(getProjectStatusOptions('translation')[0].value,'initial_consultation')
+  assert.ok(getProjectStatusOptions('translation').some(item => item.value === 'initial_consultation'))
+  assert.equal(getProjectStatusLabel('translation', 'cost_calculation'), '计算费用')
   for(const value of ['initial_consultation','INITIAL_CONSULTATION','初步咨询']){
     assert.equal(normalizeProjectStatus('translation',value),'initial_consultation')
     assert.equal(getProjectStatusLabel('translation',value),'初步咨询')

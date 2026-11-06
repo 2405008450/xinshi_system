@@ -13,9 +13,10 @@ from models import TranslationProject, TranslationSubOrder
 from word_count_models import WordCountMetric
 from word_count_schemas import WordCountCreateMatrix, WordCountMatrixPatch
 import preliminary_word_count as preliminary
+import translation_duration_metrics as duration
 
 
-METRIC_TYPES = ("words", "characters_no_spaces", "cjk_chars_korean_words", "foreign_words", "documents", "pages")
+METRIC_TYPES = ("words", "characters_no_spaces", "cjk_chars_korean_words", "foreign_words", "documents", "pages", "minutes", "hours")
 ENTITY_DIMENSIONS = ("company", "customer", "preliminary", "translator_estimate")
 
 
@@ -47,6 +48,9 @@ def roll_up_matrices(projects, sub_orders):
                     for metric in METRIC_TYPES
                 } for dimension in ENTITY_DIMENSIONS
             }
+            for values in owner.word_count_matrix.values():
+                if values['minutes'] is not None and values['hours'] is not None:
+                    values['minutes']=round(values['minutes']+values['hours']*60,4);values['hours']=None
 
     for project in projects:
         visit(project)
@@ -77,10 +81,11 @@ def attach_entity_matrices(db: Session, projects) -> dict:
         WordCountMetric.project_id.in_(project_ids),
         WordCountMetric.sub_order_id.in_(sub_order_ids),
     )).all() + preliminary.rows(db, project_ids, sub_order_ids)
+    metrics += duration.rows(db, project_ids, sub_order_ids)
     for metric in metrics:
         owner = owners.get(metric.project_id or metric.sub_order_id)
         if owner is not None and metric.dimension in ENTITY_DIMENSIONS and metric.metric_type in METRIC_TYPES:
-            owner.word_count_matrix[metric.dimension][metric.metric_type] = metric.count_value
+            owner.word_count_matrix[metric.dimension][metric.metric_type] = float(metric.count_value) if metric.metric_type in {'minutes','hours'} else metric.count_value
     roll_up_matrices(projects, sub_orders)
     return owners
 
@@ -118,7 +123,7 @@ def _entity_metric_query(db: Session, entity_type: str, entity_id: UUID):
 def _entity_metric_rows(db,entity_type,entity_id):
     return _entity_metric_query(db,entity_type,entity_id).all()+preliminary.rows(db,
         project_ids=[entity_id] if entity_type=='project' else [],
-        sub_order_ids=[entity_id] if entity_type=='suborder' else [])
+        sub_order_ids=[entity_id] if entity_type=='suborder' else [])+duration.rows(db,project_ids=[entity_id] if entity_type=='project' else [],sub_order_ids=[entity_id] if entity_type=='suborder' else [])
 
 
 def _arrangements_for_entity(
@@ -177,11 +182,11 @@ def get_word_count_matrix(
         for arrangement_id in arrangement_ids
     }
     if arrangement_ids:
-        metrics = db.query(WordCountMetric).filter(WordCountMetric.arrangement_id.in_(arrangement_ids)).all()
+        metrics = db.query(WordCountMetric).filter(WordCountMetric.arrangement_id.in_(arrangement_ids)).all()+duration.rows(db,arrangement_ids=arrangement_ids)
         for metric in metrics:
             values = arrangement_values.get(metric.arrangement_id)
             if values and metric.dimension in values and metric.metric_type in METRIC_TYPES:
-                values[metric.dimension][metric.metric_type] = metric.count_value
+                values[metric.dimension][metric.metric_type] = float(metric.count_value) if metric.metric_type in {'minutes','hours'} else metric.count_value
 
     return {
         "entity_type": entity_type,
@@ -220,6 +225,8 @@ def _apply_cell(
     value: Optional[int],
     updated_by: Optional[UUID],
 ) -> None:
+    if metric_type in {'minutes','hours'}:
+        return duration.apply_cell(db,owner_filters,dimension,metric_type,value,updated_by)
     if dimension == 'preliminary':
         return preliminary.apply_cell(db,owner_filters,metric_type,value,updated_by)
     query = db.query(WordCountMetric).filter(
@@ -263,6 +270,17 @@ def patch_word_count_matrix(
     entity = _load_entity(db, entity_type, entity_id)
     if any(change.scope == 'entity' for change in payload.changes) and _has_child_orders(db, entity_type, entity):
         raise HTTPException(status_code=422, detail='此订单的字数由下级订单自动汇总，请修改末级订单的统计')
+    # 合并同一请求中的清空和填写后再校验，允许从旧口径切换到新口径。
+    touched={change.dimension for change in payload.changes if change.scope=='entity' and change.dimension in {'company','customer'}}
+    if touched:
+        db.query(TranslationProject if entity_type=='project' else TranslationSubOrder).filter_by(id=entity_id).with_for_update().first()
+        values={dimension:{} for dimension in touched}
+        for cell in _entity_metric_rows(db,entity_type,entity_id):
+            if cell.dimension in touched:values[cell.dimension][cell.metric_type]=cell.count_value
+        for change in payload.changes:
+            if change.scope=='entity' and change.dimension in touched:values[change.dimension][change.metric_type]=change.value
+        for dimension,items in values.items():
+            if sum(value is not None for value in items.values())>1:raise HTTPException(422,('我司统计' if dimension=='company' else '客户统计')+'只能填写一个统计字段，请先清空其他字段')
     allowed_arrangements = {
         row.id for row in _arrangements_for_entity(db, entity_type, entity, dispatch_id)
     }
@@ -290,6 +308,11 @@ def patch_word_count_matrix(
     return get_word_count_matrix(db, entity_type, entity_id, dispatch_id)
 
 
+def validate_single_matrix(matrix):
+    for key,label in [('company','我司统计'),('customer','客户统计')]:
+        if sum(value is not None for value in getattr(matrix,key).model_dump().values())>1:raise HTTPException(422,label+'只能填写一个统计字段，请先清空其他字段')
+
+
 def save_created_entity_matrix(
     db: Session,
     entity_type: str,
@@ -300,6 +323,7 @@ def save_created_entity_matrix(
 ) -> None:
     if matrix is None:
         return
+    validate_single_matrix(matrix)
     for dimension in ENTITY_DIMENSIONS:
         values = getattr(matrix, dimension)
         for metric_type, value in values.model_dump().items():
@@ -326,6 +350,7 @@ def replace_entity_matrix(
     """在调用方事务内用完整矩阵替换项目或子订单字数。"""
     if _has_child_orders(db, entity_type, _load_entity(db, entity_type, entity_id)):
         return
+    validate_single_matrix(matrix)
     for dimension in ENTITY_DIMENSIONS:
         values = getattr(matrix, dimension)
         for metric_type, value in values.model_dump().items():
@@ -374,11 +399,11 @@ def attach_arrangement_matrices(db: Session, arrangements: list[ManuscriptArrang
     for row in arrangements:
         row.planned = _empty_values()
         row.actual = _empty_values()
-    metrics = db.query(WordCountMetric).filter(WordCountMetric.arrangement_id.in_(by_id)).all()
+    metrics = db.query(WordCountMetric).filter(WordCountMetric.arrangement_id.in_(by_id)).all()+duration.rows(db,arrangement_ids=by_id)
     for metric in metrics:
         row = by_id.get(metric.arrangement_id)
         if row is not None and metric.dimension in {"planned", "actual"}:
-            getattr(row, metric.dimension)[metric.metric_type] = metric.count_value
+            getattr(row, metric.dimension)[metric.metric_type] = float(metric.count_value) if metric.metric_type in {'minutes','hours'} else metric.count_value
 
 
 def entity_matrix_values(db: Session, entity_type: str, entity_id: UUID) -> dict:
