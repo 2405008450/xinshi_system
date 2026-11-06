@@ -6,7 +6,16 @@
         <template #reference><el-button text size="small" class="group-participants" :icon="User" aria-label="参与人" title="参与人" @click="participantsZ = chatOverlayZIndex($event.currentTarget)"><template v-if="!toolbarTarget || toolbarMenu">参与人</template> <span class="group-member-count">{{ group.members.length }}</span></el-button></template>
         <p class="group-hint">仅会话参与人可以查看和发言；取消关注只停止未读提醒。</p>
         <div class="group-members"><el-button v-for="member in group.members" :key="member.id" link :disabled="member.id === currentUserId" @click="startDirect(member)">{{ member.name }}</el-button></div>
-        <el-select v-if="!isDirect" v-model="inviteIds" multiple filterable :teleported="false" placeholder="选择邀请用户" style="width:100%">
+        <el-select
+          v-if="!isDirect" ref="inviteSelect" v-model="inviteIds" multiple filterable clearable collapse-tags
+          :max-collapse-tags="2" :teleported="true" :append-to="inviteDropdownTarget" placement="top-start"
+          @visible-change="updateInviteDropdownTarget"
+          :popper-style="{ zIndex: Math.max(100010, participantsZ + 1) }"
+          popper-class="chat-invite-users-popper"
+          placeholder="搜索并选择邀请用户"
+          :no-data-text="group.invitableUsers.length ? '未找到匹配用户' : '暂无可邀请的用户'" no-match-text="未找到匹配用户"
+          :disabled="inviting" style="width:100%"
+        >
           <el-option v-for="user in group.invitableUsers" :key="user.id" :value="user.id" :label="user.name" />
         </el-select>
         <el-button type="primary" size="small" v-if="!isDirect" :loading="inviting" :disabled="!inviteIds.length" @click="invite">邀请参与</el-button>
@@ -108,6 +117,12 @@ const newMessageId = () => {
 }
 const group = reactive({ members: [], eligibleUsers: [], invitableUsers: [], following: false })
 const participantsZ = ref(2110)
+const inviteSelect = ref(null)
+const inviteDropdownTarget = ref('body')
+function updateInviteDropdownTarget(visible) {
+  // 会话浮窗首次打开前尚未挂载，展开选择器时再获取实际传送目标。
+  if (visible) inviteDropdownTarget.value = inviteSelect.value?.$el?.closest('.annotation-participants-popover') || 'body'
+}
 const messages = ref([]), list = ref(null), input = ref(null), content = ref(''), replyTo = ref(null)
 const interactions = useChatMessageInteractions({ projectId: computed(() => props.projectId), projectType: computed(() => props.projectType), messages, active: computed(() => props.active) })
 const composer = ref(null), mentionMenu = ref(null), mentionOpen = ref(false), mentionQuery = ref(''), mentionIndex = ref(0), mentionStyle = ref({})
@@ -597,8 +612,10 @@ defineExpose({ openSearch, locate, cancelLocate, toggleFilters: openSearch })
 <style>
 .el-overlay:has(.chat-confirm-message-box){z-index:100001!important}
 .annotation-members-popover{max-width:calc(100vw - 32px)!important;max-height:min(560px,calc(100vh - 120px));overflow-y:auto}
-/* 邀请用户的下拉层留在参与人弹窗内，弹窗不能裁切下拉选项。 */
+/* 下拉层挂到浮窗根节点，避开正文滚动裁切，且点击选项不会触发浮窗的外部关闭。 */
 .annotation-members-popover.annotation-participants-popover{overflow:visible}
+.annotation-participants-popover .app-window-popover__body > .group-members{max-height:180px!important}
+.chat-invite-users-popper .el-select-dropdown__wrap{max-height:min(274px,calc(100vh - 96px))}
 </style>
 <style scoped>
 .chat-timeline-area{position:relative;display:flex;flex:1;min-height:0;min-width:0;overflow:hidden}
