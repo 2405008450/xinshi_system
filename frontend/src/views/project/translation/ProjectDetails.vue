@@ -27,7 +27,7 @@
             @exit="exitDeleteMode"
             @confirm="confirmBatchDelete"
           />
-          <el-button v-if="canWriteProjects && !deleteMode" type="primary" @click="handleAdd">新增项目</el-button>
+          <el-button v-if="canWriteProjects && !deleteMode" type="primary" :loading="preparingNewProject" @click="handleAdd">新增项目</el-button>
         </div>
       </div>
     </template>
@@ -789,6 +789,7 @@
       <template #footer>
         <ProjectShortNotes :project-id="form.id" :project-updated-at="form.updatedAt" :can-write="canWriteProjects" :disabled="submitLoading" @saved="onSimpleRequirementSaved" />
         <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button v-if="canWriteProjects && form.id" @click="openSavedProjectMail">预览已保存项目邮件</el-button>
         <el-button v-if="canWriteProjects" :loading="submitLoading" @click="handleSubmit(true)">保存并发送邮件</el-button>
         <el-button v-if="canWriteProjects" type="primary" :loading="submitLoading" @click="handleSubmit(false)">保存</el-button>
       </template>
@@ -1027,6 +1028,11 @@ const canWriteProjects = hasPermission('projects:write')
 const canReadProjectFiles = hasPermission('project_files:read')
 const canWriteProjectFiles = hasPermission('project_files:write')
 const mailComposerVisible = ref(false)
+function openSavedProjectMail() {
+  mailProjectId.value = form.id
+  mailConsultationId.value = form.consultationId || ''
+  mailComposerVisible.value = true
+}
 const mailProjectId = ref('')
 const mailConsultationId = ref('')
 const router = useRouter()
@@ -1102,7 +1108,7 @@ async function applyDocumentDefaults(){
 }
 function applyQuotationDraft(value){form.quotationDraft=value;quotationDraftDirty.value=true}
 const customerTypes = CUSTOMER_TYPES
-const createEmptyProjectForm = () => ({ paymentConfirmation: null, statementRequired: true, statementRequiredExplicit: false, quotationDraft: null, originalStoragePath: '', customerType: null, id: '', orderNo: '', projectName: '', sourceFileName: '', initialSubOrderNamesText: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', clientName: '', clientShortName: '', clientCode: '', subClientName: '', subClientShortName: '', subClientCode: '', customerOrderNo: '', clientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], wordCountMatrixSource: 'project', wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', remarks: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
+const createEmptyProjectForm = () => ({ paymentConfirmation: null, statementRequired: true, statementRequiredExplicit: false, quotationDraft: null, originalStoragePath: '', customerType: null, id: '', orderNo: '', projectName: '', sourceFileName: '', createWithSubOrders: false, initialSubOrderNamesText: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', clientName: '', clientShortName: '', clientCode: '', subClientName: '', subClientShortName: '', subClientCode: '', customerOrderNo: '', clientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], wordCountMatrixSource: 'project', wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', remarks: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
 const createEmptySubOrderForm = () => ({ id: '', parentProjectId: '', subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: 0, preReviewQcProgress: 0, reviewProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, networkFilePath: '', remarks: '' })
 const loading = ref(false)
 const submitLoading = ref(false)
@@ -1137,7 +1143,10 @@ const projectStatusSavingIds = ref(new Set())
 const expandedProjectIds = ref([])
 const expandedProjectRowKeys = computed(() => expandedProjectIds.value)
 const currentProjectSubOrders = ref([])
-const createWithSubOrders = ref(false)
+const createWithSubOrders = computed({
+  get: () => form.createWithSubOrders,
+  set: value => { form.createWithSubOrders = value },
+})
 const parentOrderNameAllowed = computed(() => createWithSubOrders.value || currentProjectSubOrders.value.length > 0 || Number(form.wordCountSubOrderCount || 0) > 0)
 const batchExistingNames = computed(() => batchTargetSubOrders.value.map((item) => item.subProjectName).filter(Boolean))
 const getExpandedInlinePendingCount = (projectId) => [...expandedInlineChanges.value.values()]
@@ -1381,10 +1390,15 @@ const { beginDraft, pauseDraft, clearDraft } = useFormDraft({
   createDefault: createEmptyProjectForm,
   formRef,
   applyDraft: (draft) => {
+    const orderNo = form.orderNo
     assignReactive(form, createEmptyProjectForm, draft)
+    if (!form.id) {
+      form.orderNo = orderNo
+      quotationDraftDirty.value = Boolean(draft.quotationDraft)
+    }
     availableSubClients.value = []
     void loadSubClients(form.clientId)
-    form.subjectPrefix = extractTranslationSubjectPrefix(form.emailSubjectPreview, translationMailSource())
+    form.subjectPrefix = draft.subjectPrefix ?? extractTranslationSubjectPrefix(form.emailSubjectPreview, translationMailSource())
   },
 })
 const customServiceContentOption = computed(() => customServiceContentOptions.find((option) => (
@@ -1443,7 +1457,7 @@ const rules = {
   projectStatus: [{ required: true, message: '请选择状态', trigger: 'change' }],
 }
 watch(createWithSubOrders,()=>formRef.value?.clearValidate(['sourceFileName','initialSubOrderNamesText']))
-watch(()=>form.initialSubOrderNamesText,value=>{if(!form.id&&String(value||'').trim())createWithSubOrders.value=true})
+
 rules.initialSubOrderNamesText = [{required:true,validator:(_rule,value,done)=>{if(!createWithSubOrders.value||form.id)return done();const names=String(value||'').split(/\r?\n/).map(name=>name.trim()).filter(Boolean);if(!names.length)return done(new Error('请至少填写一个子订单文件名称'));if(names.length>100)return done(new Error('每次最多创建100个子订单'));for(const name of names){const error=translationFileNameError(name);if(error)return done(new Error(error))}if(new Set(names.map(name=>name.toLowerCase())).size!==names.length)return done(new Error('子订单文件名称不能重复'));done()},trigger:'blur'}]
 const subOrderRules = { subProjectName: [{ required: true, validator: validateTranslationFileName, trigger: ['blur','change'] }] }
 const NULLABLE_FIELDS = ['sourceFileName', 'emailSubjectPreview', 'serviceContent', 'taskType', 'consultationId', 'clientId', 'subClientId', 'projectManagerId', 'customerOrderNo', 'customerReceptionTime', 'customerDeadlineTime', 'sentToClientTime', 'pmConfirmedBy', 'translatorId', 'translatorAssignmentTime', 'clientFeedback', 'referenceFilePathOne', 'fileTypeSecondary', 'projectContractType', 'projectContractStatus', 'quotationStatus', 'quotationPath', 'customerRequirementProfessional', 'customerRequirementSpecial', 'languagePair', 'priority', 'remarks', 'subProjectName']
@@ -1986,7 +2000,17 @@ const goToSubOrderManagement = (project) => {
   if (!projectId) return
   router.push({ name: 'TranslationSubOrderManagement', params: { projectId }, query: { orderNo: project.orderNo || form.orderNo || '', projectName: project.sourceFileName || form.sourceFileName || '' } })
 }
+const preparingNewProject = ref(false)
 const handleAdd = async () => {
+  if (preparingNewProject.value) return
+  preparingNewProject.value = true
+  let orderNo
+  try {
+    orderNo = await generateOrderNo()
+  } finally {
+    preparingNewProject.value = false
+  }
+  if (dialogVisible.value) return
   quotationDraftDirty.value=false;quotationVisible.value=false;statementVisible.value=false
   pauseDraft()
   dialogTitle.value = '新增项目'
@@ -1995,11 +2019,12 @@ const handleAdd = async () => {
   projectCreateIdempotencyKey.value = createIdempotencyKey()
   currentProjectSubOrders.value = []
   void loadProjectEditorOptions()
+  form.orderNo = orderNo
+  await beginDraft('create')
   dialogVisible.value = true
   await nextTick()
   editorBodyRef.value?.scrollTo({ top: 0, behavior: 'auto' })
   projectFilesTabRef.value?.resetPathGroup()
-  form.orderNo = await generateOrderNo()
 }
 const handleEdit = async (row) => {
   quotationDraftDirty.value=false;quotationVisible.value=false;statementVisible.value=false
@@ -2109,6 +2134,7 @@ const handleSubmit = async (sendAfterSave = false) => {
     if(!form.statementRequiredExplicit)delete payloadSource.statementRequired
     delete payloadSource.statementRequiredExplicit
     if(!form.id && createWithSubOrders.value) payloadSource.initialSubOrderNames=String(form.initialSubOrderNamesText||'').split(/\r?\n/).map(name=>name.trim()).filter(Boolean)
+    delete payloadSource.createWithSubOrders
     delete payloadSource.initialSubOrderNamesText
     delete payloadSource.originalStoragePath
     if(!quotationDraftDirty.value)delete payloadSource.quotationDraft

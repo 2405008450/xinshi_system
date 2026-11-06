@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createRenderer, h, reactive } from 'vue'
-import { createMailDraftStore, normalizeMailDraftFields, useMailDraftCache } from '../src/composables/useMailDraftCache.js'
+import { createMailDraftStore, normalizeMailDraftFields, useMailDraftCache, validDraftRecipients, projectMailDraftKey } from '../src/composables/useMailDraftCache.js'
 
 function fixture() {
   const rows = new Map()
@@ -79,6 +79,27 @@ test('损坏内容、无效时间、禁用存储和容量不足均降级', () =>
   assert.equal(store.restore('x'), null)
   f.storage.setItem = () => { throw new Error('quota') }
   assert.doesNotThrow(() => f.store.save('x', { body: '编辑' }, {}))
+})
+
+test('咨询建项交接同一份图文与名单，写入失败时原草稿仍可恢复', () => {
+  const { store, storage } = fixture()
+  const original = 'consultation:new:first'
+  const project = projectMailDraftKey('recruitment', 'one')
+  const baseline = { body: '原文', bodyHtml: '<p>原文</p>', inlineImages: [], toUserIds: [] }
+  store.save(original, { ...baseline, bodyHtml: '<p><strong>原文</strong></p>', toUserIds: ['a', 'b'] }, baseline)
+  const entry = store.restore(original)
+  assert.equal(entry.fields.body, '原文')
+  assert.deepEqual(entry.fields.inlineImages, [])
+  assert.deepEqual(validDraftRecipients(entry.fields, [{ id: 'b' }]), { toUserIds: ['b'] })
+  const setItem = storage.setItem
+  storage.setItem = () => { throw new Error('quota') }
+  assert.equal(store.move(original, project), false)
+  assert.deepEqual(store.restore(original), entry)
+  storage.setItem = setItem
+  assert.equal(store.move(original, project), true)
+  assert.deepEqual(store.restore(project), entry)
+  assert.equal(store.restore(original), null)
+  assert.equal(store.restore('consultation:new:second'), null)
 })
 
 test('图片 ID 与元数据保留，临时 Blob 地址不持久化且不触发伪修改', () => {

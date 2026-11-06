@@ -538,6 +538,7 @@
       </div>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button v-if="canWrite && form.id" @click="openSavedProjectMail">预览已保存项目邮件</el-button>
         <el-button :loading="submitLoading" @click="handleSubmit(true)">保存并发送邮件</el-button>
         <el-button type="primary" :loading="submitLoading" @click="handleSubmit(false)">保存</el-button>
       </template>
@@ -648,6 +649,11 @@ const canWrite = hasPermission('projects:write')
 const customerSpecialists = ref([])
 const customerSpecialistsLoading = ref(false)
 const mailComposerVisible = ref(false)
+function openSavedProjectMail() {
+  mailProjectId.value = form.id
+  mailConsultationId.value = form.consultationId || ''
+  mailComposerVisible.value = true
+}
 const mailProjectId = ref('')
 const mailConsultationId = ref('')
 const loading = ref(true)
@@ -1339,7 +1345,7 @@ const assignForm = (detail) => {
   nameManuallyEdited.value = Boolean(detail.projectName)
 }
 const resetEditorScroll = async () => { await nextTick(); dialogBodyRef.value?.parentElement?.scrollTo({ top: 0, behavior: 'auto' }) }
-const handleAdd = async () => { dialogTitle.value = '新增口译项目'; resetForm(); clientManagerBaseline.value=localStorage.getItem('user_id')||''; projectCreateIdempotencyKey.value = createIdempotencyKey(); dialogVisible.value = true; await resetEditorScroll(); await beginDraft('create') }
+const handleAdd = async () => { dialogTitle.value = '新增口译项目'; resetForm(); clientManagerBaseline.value=localStorage.getItem('user_id')||''; projectCreateIdempotencyKey.value = createIdempotencyKey(); await beginDraft('create'); dialogVisible.value = true; await resetEditorScroll() }
 const handleEdit = async (row, useProvidedDetail = false) => {
   const detail = useProvidedDetail ? row : await loadDetail(row.id, true)
   if (!detail) return

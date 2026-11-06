@@ -244,7 +244,8 @@
           </div>
         </AppForm>
       </div>
-      <template #footer><div class="editor-footer"><el-button @click="editorVisible=false">取消</el-button><el-button :loading="saving" @click="saveProject(true)">保存并发送邮件</el-button><el-button type="primary" :loading="saving" @click="saveProject(false)">保存</el-button></div></template>
+      <template #footer><div class="editor-footer"><el-button @click="editorVisible=false">取消</el-button><el-button v-if="canWrite && form.id" @click="openSavedProjectMail">预览已保存项目邮件</el-button>
+        <el-button :loading="saving" @click="saveProject(true)">保存并发送邮件</el-button><el-button type="primary" :loading="saving" @click="saveProject(false)">保存</el-button></div></template>
     </DraggableFormDialog>
 
     <DraggableFormDialog v-model="jobDescriptionEditorVisible" title="编辑职位描述" width="min(900px, calc(100vw - 32px))" top="5vh" append-to-body class="job-description-dialog">
@@ -427,6 +428,11 @@ const { load: loadResourceRequestStatuses, actionLabel: resourceRequestActionLab
 const startResourceRequest = (row) => router.push({ name: 'ResourceRequests', query: { sourceType: 'recruitment', sourceProjectId: row.id } })
 const highlightedProjectId = ref('')
 const mailComposerVisible = ref(false)
+function openSavedProjectMail() {
+  mailProjectId.value = form.id
+  mailConsultationId.value = form.consultationId || ''
+  mailComposerVisible.value = true
+}
 const mailProjectId = ref('')
 const mailConsultationId = ref('')
 const statusOptions = [
@@ -594,7 +600,7 @@ const clearSelectedClient = () => {
 const resetForm = () => { jobDescriptionEditorVisible.value=false; Object.assign(form,emptyForm()); nameManuallyEdited.value=false; namePreviewRequestId+=1; formRef.value?.clearValidate(); clearFieldSearch() }
 const onEditorClosed = () => { pauseDraft(); resetForm() }
 const resetEditorScroll=async()=>{await nextTick();editorBodyRef.value?.scrollTo({top:0,behavior:'auto'})}
-const openAdd = async () => { resetForm(); resetRecruitmentProjectIdempotency(); clientManagerBaseline.value=localStorage.getItem('user_id')||''; editorVisible.value=true; await resetEditorScroll(); await beginDraft('create') }
+const openAdd = async () => { resetForm(); resetRecruitmentProjectIdempotency(); clientManagerBaseline.value=localStorage.getItem('user_id')||''; await beginDraft('create'); editorVisible.value=true; await resetEditorScroll() }
 const openEdit = async (row,useProvidedDetail=false) => { try { const item=useProvidedDetail?row:await getRecruitmentProject(row.id); const clientSelection=item.subClientId?`sub:${item.subClientId}`:(item.clientId?`client:${item.clientId}`:''); const selectedClient=clientOptions.value.find((option)=>option.value===clientSelection); Object.assign(form,emptyForm(),item,{taxPrices:taxPriceForm(item.taxPrices),employmentRange:item.employmentStart&&item.employmentEnd?[item.employmentStart,item.employmentEnd]:[],clientSelection,managerContact:selectedClient?.managerContact||item.managerContact||''}); form.clientManagerId=item.clientManagerId||'';form.clientManagerChangeReason='';clientManagerBaseline.value=form.clientManagerId;form.subjectPrefix=extractSubjectPrefix(item.emailSubjectPreview,form); nameManuallyEdited.value=Boolean(item.projectName); activeProject.value=item; candidateRows.value=[]; editorVisible.value=true; await resetEditorScroll(); await beginDraft(`edit:${item.id}`); void loadCandidates() } catch(error){ElMessage.error(error?.detail||'项目详情加载失败')} }
 const clean = (value) => value===''?null:value
 const buildPayload = () => ({projectName:clean(form.projectName),jobDescription:clean(form.jobDescription),positionTitle:clean(form.positionTitle),headcountMin:form.headcountMin,headcountMax:form.headcountMax??form.headcountMin,projectStatus:form.projectStatus,clientId:clean(form.clientId),subClientId:clean(form.subClientId),clientShortName:clean(form.clientShortName?.trim()),clientCode:clean(form.clientCode?.trim()),clientName:clean(form.clientName?.trim()),managerContact:clean(form.managerContact?.trim()),contactName:clean(form.contactName),customerOrderNo:clean(form.customerOrderNo),clientManagerId:clean(form.clientManagerId),clientManagerChangeReason:clean(form.clientManagerChangeReason),targetOnboardType:form.targetOnboardType,targetOnboardDate:form.targetOnboardType==='anytime'?null:clean(form.targetOnboardDate),employmentStart:form.employmentRange?.[0]||null,employmentEnd:form.employmentRange?.[1]||null,workLocation:clean(form.workLocation),taxPrices:form.taxPrices,serviceFeeType:clean(form.serviceFeeType),serviceFeeCurrency:clean(form.serviceFeeCurrency),serviceFeeAmount:form.serviceFeeType==='fixed'?form.serviceFeeAmount:null,serviceFeeRate:form.serviceFeeType==='annual_salary_rate'?form.serviceFeeRate:null,serviceFeeMultiplier:form.serviceFeeType==='monthly_salary_multiple'?form.serviceFeeMultiplier:null,serviceFeeNote:clean(form.serviceFeeNote),customerConsultationTime:clean(form.customerConsultationTime),customerConfirmationTime:clean(form.customerConfirmationTime),projectPath:clean(form.projectPath),quotationPath:clean(form.quotationPath),contractPath:clean(form.contractPath),remarks:clean(form.remarks),emailSubjectPreview:clean(form.emailSubjectPreview),expectedUpdatedAt:form.updatedAt||null,socialPostRequest:clean(form.socialPostRequest),resourceRequest:clean(form.resourceRequest),roleAssignments:form.roleAssignments,languageDirections:form.languageDirections.filter((item)=>item.sourceLanguageId).map((item)=>({...item,targetLanguageId:item.directionType==='translation'?item.targetLanguageId:null}))})

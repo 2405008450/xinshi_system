@@ -2,6 +2,12 @@ import { onBeforeUnmount, ref, watch } from 'vue'
 import { businessDateTimeInputValue } from '../utils/dateTime.js'
 
 const TTL = 7 * 24 * 3600000
+export const projectMailDraftKey = (type, id) => `project:${type}:${id}`
+export function validDraftRecipients(fields, users) {
+  const valid = new Set(users.map(user => user.id))
+  return Object.fromEntries(['toUserIds', 'ccUserIds'].filter(key => key in fields)
+    .map(key => [key, fields[key].filter(id => valid.has(id))]))
+}
 const clone = value => JSON.parse(JSON.stringify(value))
 
 // Blob 地址仅在当前页面有效；恢复图片时按图片 ID 重新获取授权内容。
@@ -11,16 +17,17 @@ export function normalizeMailDraftFields(fields) {
     : value))
 }
 
-export function createMailDraftStore({ storage = () => globalThis.localStorage, user = () => storage()?.getItem('user_id'), now = Date.now } = {}) {
+export function createMailDraftStore({ storage = () => globalThis.localStorage, user = () => storage()?.getItem('user_id'), now = Date.now, onError = () => {} } = {}) {
   const storageKey = () => {
     try { const id = user(); return id ? `mail-drafts:${id}` : '' } catch { return '' }
   }
   const write = (key, drafts) => {
-    if (!key) return
+    if (!key) return false
     try {
       if (Object.keys(drafts).length) storage().setItem(key, JSON.stringify(drafts))
       else storage().removeItem(key)
-    } catch { /* 禁用存储或空间不足时不阻断编辑与发送。 */ }
+      return true
+    } catch { onError(); return false }
   }
   const read = (key) => {
     if (!key) return {}
@@ -32,7 +39,7 @@ export function createMailDraftStore({ storage = () => globalThis.localStorage, 
         return entry?.fields && typeof entry.fields === 'object' && !Array.isArray(entry.fields)
           && Number.isFinite(age) && age >= 0 && age < TTL
       }).sort((a, b) => Date.parse(b[1].savedAt) - Date.parse(a[1].savedAt)).slice(0, 30))
-      write(key, valid)
+      if (Object.keys(valid).length !== Object.keys(parsed).length) write(key, valid)
       return valid
     } catch { write(key, {}); return {} }
   }
@@ -47,6 +54,11 @@ export function createMailDraftStore({ storage = () => globalThis.localStorage, 
       const defaults = normalizeMailDraftFields(baseline)
       const changed = Object.fromEntries(Object.entries(normalized).filter(([field, value]) =>
         JSON.stringify(value) !== JSON.stringify(defaults[field])))
+      // 纯文本、富文本和内嵌图片描述同一份正文，模板更新时也应成组恢复。
+      const bodyKeys = 'emailBody' in normalized ? ['emailBody', 'emailBodyHtml', 'inlineImages'] : ['body', 'bodyHtml', 'inlineImages']
+      if (bodyKeys.some(key => key in changed)) {
+        for (const key of bodyKeys) if (key in normalized) changed[key] = normalized[key]
+      }
       if (!Object.keys(changed).length) delete drafts[key]
       else if (JSON.stringify(drafts[key]?.fields) !== JSON.stringify(changed)) {
         // 同秒保存时也优先保留最新编辑的一条，避免达到条数上限后丢失新草稿。
@@ -55,14 +67,24 @@ export function createMailDraftStore({ storage = () => globalThis.localStorage, 
       }
       const limited = Object.fromEntries(Object.entries(drafts)
         .sort((a, b) => Date.parse(b[1].savedAt) - Date.parse(a[1].savedAt)).slice(0, 30))
-      write(owner, limited)
+      return write(owner, limited) && limited[key]?.savedAt
+    },
+    move(source, target, transform = fields => fields) {
+      const owner = storageKey()
+      const drafts = read(owner)
+      if (!drafts[source]) return true
+      const entry = drafts[source]
+      delete drafts[source]
+      drafts[target] = { ...entry, fields: transform(entry.fields) }
+      return write(owner, drafts)
     },
     clear(key) { const owner = storageKey(); const drafts = read(owner); delete drafts[key]; write(owner, drafts) },
   }
 }
 
-export function useMailDraftCache() {
-  const store = createMailDraftStore()
+export function useMailDraftCache(onError) {
+  const store = createMailDraftStore({ onError })
+  const savedAt = ref('')
   const restoredAt = ref('')
   let active = null
   let timer = null
@@ -70,7 +92,7 @@ export function useMailDraftCache() {
   const flush = () => {
     clearTimeout(timer)
     timer = null
-    if (active) store.save(active.key, active.getFields(), active.baseline, active.owner)
+    if (active) savedAt.value = store.save(active.key, active.getFields(), active.baseline, active.owner)
   }
   const pause = () => {
     flush()
@@ -81,11 +103,13 @@ export function useMailDraftCache() {
   }
   const track = (key, getFields, baselineFields) => {
     pause()
+    savedAt.value = ''
     active = { key, getFields, baseline: clone(baselineFields), owner: store.storageKey() }
     let draft = store.restore(key)
     if (draft) {
       draft.fields = Object.fromEntries(Object.entries(draft.fields).filter(([field, value]) => {
         if (!(field in baselineFields)) return false
+        if (['toUserIds', 'ccUserIds'].includes(field)) return Array.isArray(value) && value.every(id => typeof id === 'string')
         if (Array.isArray(baselineFields[field])) return Array.isArray(value)
           && value.every(item => item && typeof item === 'object' && typeof item.id === 'string')
         return typeof value === typeof baselineFields[field]
@@ -108,15 +132,19 @@ export function useMailDraftCache() {
     stop = null
     active = null
     restoredAt.value = ''
+    savedAt.value = ''
     if (key && owner === store.storageKey()) store.clear(key)
   }
   const unload = () => flush()
+  const onHidden = () => { if (globalThis.document?.hidden) flush() }
+  globalThis.document?.addEventListener('visibilitychange', onHidden)
   globalThis.window?.addEventListener('pagehide', unload)
   globalThis.window?.addEventListener('beforeunload', unload)
   onBeforeUnmount(() => {
     pause()
+    globalThis.document?.removeEventListener('visibilitychange', onHidden)
     globalThis.window?.removeEventListener('pagehide', unload)
     globalThis.window?.removeEventListener('beforeunload', unload)
   })
-  return { restore: store.restore, track, flush, pause, clear, restoredAt }
+  return { move: store.move, savedAt, restore: store.restore, track, flush, pause, clear, restoredAt }
 }

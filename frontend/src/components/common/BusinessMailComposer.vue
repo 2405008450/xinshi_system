@@ -5,9 +5,11 @@
     width="min(820px, calc(100vw - 32px))"
     top="5vh"
     class="business-mail-dialog"
+    :before-close="done => { if (!sending && !imageUploading) done() }"
     :close-on-click-modal="false"
   >
-    <div v-loading="loading" class="mail-composer-body">
+    <div v-if="!loading && !latestPreviewReady"><el-button @click="loadPreview">重新加载邮件预览</el-button></div>
+    <div v-show="loading || latestPreviewReady" v-loading="loading" class="mail-composer-body" data-auto-draft="off" :inert="sending">
       <el-alert
         v-if="preview.blocking_reasons?.length"
         :title="preview.blocking_reasons.join('；')"
@@ -85,7 +87,7 @@
           :closable="false"
           show-icon
         />
-        <MailDraftRestoredAlert :saved-at="mailDraft.restoredAt.value" :disabled="loading || sending" @reset="resetMailDraft" />
+        <MailDraftRestoredAlert :saved-at="mailDraft.restoredAt.value" :written-at="mailDraft.savedAt.value || ''" :disabled="loading || sending" @reset="resetMailDraft" />
         <el-form-item label="邮件正文" required>
           <MailBodyEditor
             ref="bodyEditorRef"
@@ -108,7 +110,7 @@
       </div>
     </div>
     <template #footer>
-      <el-button :disabled="sending" @click="visible = false">取消</el-button>
+      <el-button :disabled="sending || imageUploading" @click="visible = false">取消</el-button>
       <el-button
         v-if="latestFailedMail"
         :loading="sending"
@@ -131,7 +133,7 @@ import * as userApi from '@/api/users'
 import { formatDateTimeMinute as formatDateTime } from '@/utils/dateTime'
 import InternalMailRecipientSelector from '@/components/common/InternalMailRecipientSelector.vue'
 import MailDraftRestoredAlert from '@/components/common/MailDraftRestoredAlert.vue'
-import { useMailDraftCache } from '@/composables/useMailDraftCache'
+import { useMailDraftCache, projectMailDraftKey, validDraftRecipients } from '@/composables/useMailDraftCache'
 import MailBodyEditor from '@/components/common/MailBodyEditor.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 
@@ -146,6 +148,7 @@ const emit = defineEmits(['update:modelValue', 'sent'])
 const router = useRouter()
 const visible = computed({ get: () => props.modelValue, set: (value) => emit('update:modelValue', value) })
 const loading = ref(false)
+const latestPreviewReady = ref(false)
 const sending = ref(false)
 const preview = reactive({
   missing_fields: [], blocking_reasons: [], can_send: false,
@@ -173,8 +176,8 @@ const statusLabel = (value) => ({ sent: '已发送', failed: '发送失败', pen
 const makeIdempotencyKey = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
 const openProfile = () => { visible.value = false; router.push('/profile') }
 
-const mailDraft = useMailDraftCache()
-const mailFields = () => ({ subject: form.subject, body: form.body, bodyHtml: form.bodyHtml, inlineImages: form.inlineImages })
+const mailDraft = useMailDraftCache(() => ElMessage.warning('本机邮件草稿保存失败，请保留当前窗口并复制正文'))
+const mailFields = () => ({ toUserIds: form.toUserIds, ccUserIds: form.ccUserIds, subject: form.subject, body: form.body, bodyHtml: form.bodyHtml, inlineImages: form.inlineImages })
 let mailPreviewRequestId = 0
 const resetMailDraft = async () => {
   mailDraft.clear()
@@ -185,6 +188,8 @@ const loadPreview = async () => {
   const requestId = ++mailPreviewRequestId
   mailDraft.pause()
   loading.value = true
+  preview.can_send = false
+  latestPreviewReady.value = false
   try {
     const [mailPreview, users, groups, rows] = await Promise.all([
       mailApi.previewProjectMail({ project_type: props.projectType, project_id: props.projectId }),
@@ -200,11 +205,12 @@ const loadPreview = async () => {
     form.body = mailPreview.body || ''
     form.bodyHtml = mailPreview.body_html || ''
     form.inlineImages = mailPreview.inline_images || []
-    const draft = mailDraft.track(`project:${props.projectType}:${props.projectId}`, mailFields, mailFields())
-    if (draft) Object.assign(form, Object.fromEntries(Object.entries(draft.fields).filter(([key]) => key in mailFields())))
+    const draft = mailDraft.track(projectMailDraftKey(props.projectType, props.projectId), mailFields, mailFields())
     availableUsers.value = (users || []).filter((item) => item.is_active && item.email)
+    if (draft) Object.assign(form, draft.fields, validDraftRecipients(draft.fields, availableUsers.value))
     recipientGroups.value = groups || []
     history.value = rows || []
+    latestPreviewReady.value = true
   } catch (error) {
     if (requestId === mailPreviewRequestId) ElMessage.error(error.detail || '加载邮件预览失败')
   } finally {

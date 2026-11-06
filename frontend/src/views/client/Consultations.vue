@@ -1115,6 +1115,7 @@
       width="min(720px, calc(100vw - 32px))"
       :close-on-click-modal="false"
       top="8vh"
+      :before-close="done => { if (!confirmationSubmitting && !confirmationImageUploading) done() }"
       @close="resetConfirmationDraft"
     >
       <template #header>
@@ -1128,7 +1129,7 @@
           @clear="clearConfirmationFieldSearch"
         />
       </template>
-      <div ref="confirmationEditorRef" v-loading="confirmationPreviewLoading" class="confirmation-preview-body">
+      <div ref="confirmationEditorRef" v-loading="confirmationPreviewLoading" class="confirmation-preview-body" data-auto-draft="off" :inert="confirmationSubmitting">
         <el-alert
           title="确认后将更新咨询状态并生成对应项目；可选择仅建项，或同时向内部用户发送邮件。邮件投递失败不会回滚已生成项目。"
           type="info"
@@ -1247,9 +1248,9 @@
             />
           </el-form-item>
           <el-form-item label="邮件主题" required>
-            <el-input v-model="confirmationForm.emailSubject" type="textarea" :rows="2" maxlength="1000" />
+            <el-input v-model="confirmationForm.emailSubject" @input="customMailSubject = true" type="textarea" :rows="2" maxlength="1000" />
           </el-form-item>
-          <MailDraftRestoredAlert :saved-at="confirmationMailDraft.restoredAt.value" :disabled="confirmationPreviewLoading || confirmationSubmitting" @reset="resetConfirmationMailContent" />
+          <MailDraftRestoredAlert :saved-at="confirmationMailDraft.restoredAt.value" :written-at="confirmationMailDraft.savedAt.value || ''" :disabled="confirmationPreviewLoading || confirmationSubmitting" @reset="resetConfirmationMailContent" />
           <el-form-item label="邮件正文" required>
             <MailBodyEditor
               ref="confirmationBodyEditorRef"
@@ -1271,10 +1272,10 @@
         </AppForm>
       </div>
       <template #footer>
-        <el-button :disabled="confirmationSubmitting" @click="confirmationDialogVisible = false">取消</el-button>
+        <el-button :disabled="confirmationSubmitting || confirmationImageUploading" @click="confirmationDialogVisible = false">取消</el-button>
         <el-button
           :loading="confirmationSubmitting && confirmationSubmitAction === 'project-only'"
-          :disabled="confirmationSubmitting || confirmationPreviewLoading || !confirmationPreview.order_no"
+          :disabled="confirmationSubmitting || confirmationImageUploading || confirmationPreviewLoading || !confirmationPreview.order_no"
           @click="handleConfirmConsultation(false)"
         >只建项（不发邮件）</el-button>
         <el-button
@@ -1320,7 +1321,7 @@ import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import InternalMailRecipientSelector from '@/components/common/InternalMailRecipientSelector.vue'
 import MailDraftRestoredAlert from '@/components/common/MailDraftRestoredAlert.vue'
-import { useMailDraftCache } from '@/composables/useMailDraftCache'
+import { useMailDraftCache, projectMailDraftKey, validDraftRecipients } from '@/composables/useMailDraftCache'
 import MailBodyEditor from '@/components/common/MailBodyEditor.vue'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
@@ -1685,6 +1686,7 @@ const ensureInterpretationTimeRange = (projectIntake = form.project_intake) => {
 }
 
 const defaultForm = () => ({
+  mailDraftId: '',
   id: null,
   client_id: null,
   sub_client_id: null,
@@ -1979,7 +1981,7 @@ const confirmationMissingFields = computed(() => {
     && item === '客户经理联系方式'
   ))
 })
-const regenerateConfirmationSubject = () => { confirmationForm.emailSubject = confirmationSubjectPreview.value }
+const regenerateConfirmationSubject = () => { if (!customMailSubject) confirmationForm.emailSubject = confirmationSubjectPreview.value }
 
 const validateInterpretationDirections = (_rule, value, callback) => {
   if (!isInterpretationConsultationType(form.consultation_type)) {
@@ -2311,12 +2313,12 @@ const handleClientNameClear = () => {
   }
 }
 
-const loadUsers = async () => {
+const loadUsers = async ({ required = false } = {}) => {
   try {
     const res = await userApi.getUsers({ skip: 0, limit: 500 })
     userOptions.value = Array.isArray(res) ? res : []
   } catch {
-    userOptions.value = []
+    if (required) throw new Error('加载收件人列表失败')
   }
 }
 
@@ -2471,9 +2473,8 @@ const handleAdd = async () => {
   clearFieldSearch()
   personnelAssignmentExpanded.value = false
   resetForm()
-  dialogVisible.value = true
-  await nextTick()
   await beginDraft('create')
+  dialogVisible.value = true
 }
 
 const fillFormByRow = (row) => {
@@ -2668,6 +2669,7 @@ const handleSubmit = async (continueCreate = false) => {
       } else {
         const created = await consultationApi.createConsultation(payload, createIdempotencyKey.value)
         savedConsultation = created
+        if (created?.id && form.mailDraftId) confirmationMailDraft.move(newMailKey(), `consultation:${created.id}`)
         ElMessage.success(shouldContinueCreate ? '创建成功，可继续录入下一条' : '创建成功')
         // 新建咨询也支持立即确认并生成项目详情。
         if (payload.status === CONFIRMED_CONSULTATION_STATUS && created?.id) {
@@ -2724,24 +2726,36 @@ const handleSubmit = async (continueCreate = false) => {
   })
 }
 
-const confirmationMailDraft = useMailDraftCache()
+const confirmationMailDraft = useMailDraftCache(() => ElMessage.warning('本机邮件草稿保存失败，请保留当前窗口并复制正文'))
+const newMailKey = () => `consultation:new:${form.mailDraftId}`
+const confirmationMailKey = () => confirmationContext.consultationId
+  ? `consultation:${confirmationContext.consultationId}` : newMailKey()
+const confirmationProjectFields = () => ({
+  projectName: confirmationForm.projectName, customerOrderNo: confirmationForm.customerOrderNo,
+  managerContact: confirmationForm.managerContact, languagePair: confirmationForm.languagePair,
+  serviceContent: confirmationForm.serviceContent,
+})
+let initialProjectFields
 const confirmationMailFields = () => ({
+  ...confirmationProjectFields(),
+  subjectPrefix: confirmationForm.subjectPrefix,
+  emailSubject: confirmationForm.emailSubject,
+  toUserIds: confirmationForm.toUserIds,
+  ccUserIds: confirmationForm.ccUserIds,
   emailBody: confirmationForm.emailBody,
   emailBodyHtml: confirmationForm.emailBodyHtml,
   inlineImages: confirmationForm.inlineImages,
 })
-let confirmationMailBaseline = null
-let confirmationMailTracking = false
+let customMailSubject = false
 const resetConfirmationMailContent = async () => {
   confirmationMailDraft.clear()
-  confirmationMailBaseline = null
-  confirmationMailTracking = false
+  customMailSubject = false
+  Object.assign(confirmationForm, initialProjectFields, { subjectPrefix: '' })
   await refreshConfirmationMailPreview()
 }
 
 const applyConfirmationPreview = (preview, { preserveRecipients = false } = {}) => {
-  const wasRestored = !!confirmationMailDraft.restoredAt.value
-  if (confirmationMailTracking) confirmationMailDraft.pause()
+  confirmationMailDraft.pause()
   Object.assign(confirmationPreview, {
     project_type: preview?.project_type || '',
     order_no: preview?.order_no || '',
@@ -2768,36 +2782,20 @@ const applyConfirmationPreview = (preview, { preserveRecipients = false } = {}) 
   confirmationForm.customerOrderNo = preview?.customer_order_no || confirmationForm.customerOrderNo
   confirmationForm.managerContact = preview?.manager_contact || ''
   confirmationForm.languagePair = preview?.language_pair || confirmationForm.languagePair
-  confirmationForm.emailSubject = preview?.email_subject_preview || ''
-  const current = confirmationMailFields()
-  const edited = confirmationMailBaseline && JSON.stringify(current) !== JSON.stringify(confirmationMailBaseline)
+  if (!preserveRecipients) initialProjectFields = confirmationProjectFields()
   const defaults = {
-    emailBody: preview?.email_body || '',
-    emailBodyHtml: preview?.email_body_html || '',
+    ...initialProjectFields,
+    subjectPrefix: '', emailSubject: preview?.email_subject_preview || '',
+    emailBody: preview?.email_body || '', emailBodyHtml: preview?.email_body_html || '',
     inlineImages: preview?.inline_images || [],
+    toUserIds: (preview?.to_users || []).map(item => item.user_id),
+    ccUserIds: (preview?.cc_users || []).map(item => item.user_id),
   }
-  if (!edited && !wasRestored) {
-    confirmationForm.emailBody = preview?.email_body || ''
-    confirmationForm.emailBodyHtml = preview?.email_body_html || ''
-    confirmationForm.inlineImages = preview?.inline_images || []
-  }
-  // 刷新前先保存旧基线下的手工修改，更新基线时保留当前内容。
-  confirmationMailBaseline = JSON.parse(JSON.stringify(defaults))
-  const draft = confirmationMailDraft.track(
-    `consultation:${confirmationContext.consultationId || 'create'}`,
-    confirmationMailFields,
-    defaults,
-  )
-  if (!confirmationMailTracking && draft) Object.assign(confirmationForm, {
-    emailBody: draft.fields.emailBody ?? defaults.emailBody,
-    emailBodyHtml: draft.fields.emailBodyHtml ?? defaults.emailBodyHtml,
-    inlineImages: draft.fields.inlineImages ?? defaults.inlineImages,
-  })
-  confirmationMailTracking = true
-  if (!preserveRecipients) {
-    confirmationForm.toUserIds = (preview?.to_users || []).map((item) => item.user_id)
-    confirmationForm.ccUserIds = (preview?.cc_users || []).map((item) => item.user_id)
-  }
+  const draft = confirmationMailDraft.track(confirmationMailKey(), confirmationMailFields, defaults)
+  const fields = draft?.fields || {}
+  Object.assign(confirmationForm, defaults, fields, validDraftRecipients(fields, validInternalUsers.value))
+  customMailSubject = 'emailSubject' in fields && confirmationForm.emailSubject !== confirmationSubjectPreview.value
+  if (confirmationForm.subjectPrefix && !customMailSubject) regenerateConfirmationSubject()
 }
 
 const buildConfirmationProjectIntake = () => {
@@ -2913,8 +2911,8 @@ const openMailProfile = () => {
 
 const openConfirmationDialog = async ({ mode, consultationId, consultationPayload, row, previewSource, continueCreate = false }) => {
   confirmationMailDraft.pause()
-  confirmationMailBaseline = null
-  confirmationMailTracking = false
+  customMailSubject = false
+  if (!consultationId && !form.mailDraftId) form.mailDraftId = createIdempotencyKey.value
   const { requestId, signal } = beginConfirmationPreviewRequest()
   Object.assign(confirmationContext, { mode, consultationId, consultationPayload, row, continueCreate })
   Object.assign(confirmationForm, {
@@ -2960,10 +2958,15 @@ const openConfirmationDialog = async ({ mode, consultationId, consultationPayloa
         remarks: previewSource?.remarks || null,
       }, { signal }),
       loadConfirmationRecipientGroups(),
+      userOptions.value.length ? Promise.resolve() : loadUsers({ required: true }),
     ])
     if (requestId !== confirmationMailPreviewRequestId) return
     confirmationRecipientGroups.value = groups || []
     applyConfirmationPreview(preview)
+    if (confirmationIsTranslation.value && ['projectName', 'managerContact', 'serviceContent', 'languagePair']
+      .some(key => confirmationForm[key] !== initialProjectFields[key])) {
+      await refreshConfirmationMailPreview()
+    }
     await nextTick()
     confirmationFormRef.value?.clearValidate()
   } catch (error) {
@@ -2976,7 +2979,7 @@ const openConfirmationDialog = async ({ mode, consultationId, consultationPayloa
 }
 
 const handleConfirmConsultation = async (sendEmail) => {
-  if (!confirmationFormRef.value) return
+  if (!confirmationFormRef.value || confirmationImageUploading.value) return
   const valid = await confirmationFormRef.value.validate().catch(() => false)
   if (!valid || !confirmationPreview.order_no) return
   const previewNeedsRefresh = confirmationManagerContactPreviewTimer
@@ -3043,6 +3046,25 @@ const handleConfirmConsultation = async (sendEmail) => {
     )
     const targetProjectType = result?.project_type
     const targetProjectId = result?.project_id
+    if (sendEmail && result?.mail?.status === 'sent') {
+      confirmationMailDraft.clear()
+    } else if (targetProjectType && targetProjectId) {
+      const sourceKey = confirmationMailKey()
+      confirmationMailDraft.pause()
+      confirmationMailDraft.move(sourceKey, projectMailDraftKey(targetProjectType, targetProjectId), fields => {
+        const projectFields = {}
+        for (const key of ['toUserIds', 'ccUserIds', 'inlineImages']) {
+          if (key in fields) projectFields[key] = fields[key]
+        }
+        for (const [from, to] of [['emailSubject', 'subject'], ['emailBody', 'body'], ['emailBodyHtml', 'bodyHtml']]) {
+          if (from in fields) projectFields[to] = fields[from]
+        }
+        if (projectFields.subject && confirmationPreview.order_no && result.order_no) {
+          projectFields.subject = projectFields.subject.replace(confirmationPreview.order_no, result.order_no)
+        }
+        return projectFields
+      })
+    }
 
     if (confirmationContext.row) confirmationContext.row.status = CONFIRMED_CONSULTATION_STATUS
     if (confirmationContext.consultationId) delete detailCache[confirmationContext.consultationId]
@@ -3058,7 +3080,6 @@ const handleConfirmConsultation = async (sendEmail) => {
       }
     }
     if (sendEmail && result?.mail) confirmationBodyEditorRef.value?.markImagesSaved()
-    if (sendEmail && result?.mail?.status === 'sent') confirmationMailDraft.clear()
     confirmationDialogVisible.value = false
     if (!sendEmail) {
       ElMessage.success(`${confirmationTypeLabel.value}咨询已确认，项目已生成（未发送内部邮件）`)
@@ -3098,8 +3119,7 @@ const handleConfirmConsultation = async (sendEmail) => {
 const resetConfirmationDraft = () => {
   clearConfirmationFieldSearch()
   confirmationMailDraft.pause()
-  confirmationMailBaseline = null
-  confirmationMailTracking = false
+  customMailSubject = false
   confirmationMailPreviewController?.abort()
   confirmationMailPreviewController = null
   if (confirmationManagerContactPreviewTimer) {
