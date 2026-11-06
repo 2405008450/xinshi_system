@@ -1,5 +1,6 @@
 """客户合作状态隔离验证；不连接业务数据库。"""
 from datetime import datetime
+import pytest
 from uuid import uuid4
 from sqlalchemy import update
 from tests.test_chat_participant_access import environment
@@ -7,6 +8,27 @@ from models import Client,SubClient,TranslationProject,TranslationSubOrder
 from client_cooperation_auto import ClientProjectConfirmation
 import crud
 from schemas import ClientResponse
+
+
+@pytest.mark.parametrize('status', ['confirmed', 'in_progress', 'translator_assigned'])
+def test_new_confirmed_project_inserts_parent_before_confirmation_with_real_fk(environment, status):
+    """常规夹具未保留外键；这里启用真实约束，防止父项目尚未落库就插入确认记录。"""
+    db, _ = environment
+    owner = client(db)
+    with db.bind.begin() as connection:
+        connection.exec_driver_sql('PRAGMA foreign_keys=ON')
+        ClientProjectConfirmation.__table__.drop(connection)
+        ClientProjectConfirmation.__table__.create(connection)
+    root = project(db, owner, 'FK-NEW', datetime(2026, 11, 6, 10, 30), status)
+    evidence = db.get(ClientProjectConfirmation, root.id)
+    assert evidence is not None
+    assert owner.client_status == 'active'
+    assert owner.cooperation_start_date == datetime(2026, 11, 6, 10, 30)
+    # 后续编辑和取消复用同一条确认依据，不重复创建，也不丢失历史合作状态。
+    root.project_status = 'cancelled'
+    db.commit()
+    assert db.query(ClientProjectConfirmation).filter_by(project_id=root.id).count() == 1
+    assert ClientResponse.model_validate(crud.get_client(db, owner.id)).client_status == 'active'
 
 
 def client(db):

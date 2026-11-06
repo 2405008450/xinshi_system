@@ -145,13 +145,7 @@ def create_project_endpoint(
             ).first()
             if existing:
                 return get_translation_project(db, existing.id)
-        error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
         logger.exception("创建笔译项目时触发数据库约束")
-        if "foreign key" in error_msg.lower() or "fk_" in error_msg.lower():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="关联用户不存在或已失效，请刷新后重试"
-            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=integrity_error_detail(e, "项目数据不符合保存要求，请检查后重试")
