@@ -16,7 +16,7 @@ from crud import (
     get_sub_client, create_sub_client, update_sub_client, delete_sub_client
 )
 from schemas import ClientCreate, ClientUpdate, ClientResponse, SubClientCreate, SubClientUpdate, SubClientResponse
-from routers.auth import require_module_access, require_permission
+from routers.auth import get_current_user, require_module_access, require_permission
 from models import Client, SubClient
 from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
 from pagination_schemas import ClientOptionResponse, PageResponse, resolve_page_total
@@ -69,6 +69,7 @@ def read_client_options(
 def create_client_endpoint(
     client: ClientCreate,
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
     idempotency_key: Optional[str] = Header(
         default=None, alias="X-Idempotency-Key", min_length=8, max_length=128,
     ),
@@ -78,7 +79,7 @@ def create_client_endpoint(
         if existing:
             return get_client(db, existing.id)
     try:
-        return create_client(db=db, client=client, idempotency_key=idempotency_key)
+        return create_client(db=db, client=client, idempotency_key=idempotency_key, actor=current_user)
     except IntegrityError as exc:
         db.rollback()
         if idempotency_key:

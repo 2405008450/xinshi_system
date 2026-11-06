@@ -155,6 +155,7 @@ from routers import company_management, project_notices, editor_drafts
 from annotation_notice_models import AnnotationNoticeSection
 from annotation_notice_service import ensure_annotation_notice_sections
 from project_audit_models import ProjectOperationAudit
+from client_operator import ClientOperator
 from annotation_manager_change_models import AnnotationManagerChangeLog
 from project_order_no_models import ProjectOrderNoReservation
 from talent_overview_models import TalentOverviewSnapshot

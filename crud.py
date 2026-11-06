@@ -325,6 +325,8 @@ def get_client(db: Session, client_id: UUID) -> Optional[Client]:
         attach_clients(db, [client])
         from client_cooperation_auto import attach_clients as attach_cooperation
         attach_cooperation(db,[client])
+        from client_operator import attach_clients as attach_operator
+        attach_operator(db, [client])
     return client
 
 
@@ -528,6 +530,8 @@ def get_clients(
     attach_clients(db, clients)
     from client_cooperation_auto import attach_clients as attach_cooperation
     attach_cooperation(db,clients)
+    from client_operator import attach_clients as attach_operator
+    attach_operator(db, clients)
     return clients
 
 
@@ -575,6 +579,7 @@ def count_clients(
 
 def create_client(
     db: Session, client: ClientCreate, idempotency_key: Optional[str] = None,
+    *, actor=None,
 ) -> Client:
     data = client.model_dump(exclude={'customer_type'})
     if not data.get('client_code'):
@@ -584,6 +589,8 @@ def create_client(
     db.flush()
     from translation_customer_type import save_client
     save_client(db, db_client, client.customer_type)
+    from client_operator import record
+    record(db, db_client.id, actor, 'client_create')
     db.commit()
     db.refresh(db_client)
     return get_client(db,db_client.id)
@@ -3451,6 +3458,7 @@ def create_consultation(
     *,
     idempotency_key: Optional[str] = None,
     commit: bool = True,
+    actor=None,
 ) -> Consultation:
     consultation_code = generate_consultation_code(db)
 
@@ -3463,6 +3471,7 @@ def create_consultation(
     })
     from consultation_work_report import preserve_capture
     consultation_data['project_intake'] = preserve_capture(None, consultation_data.get('project_intake'))
+    created_client_id = None
     if not consultation_data.get('client_id') and (consultation.client_short_name or '').strip():
         client_id, _sub_client_id, _created = _resolve_or_create_project_client(
             db,
@@ -3471,6 +3480,8 @@ def create_consultation(
             consultation.client_name,
         )
         consultation_data['client_id'] = client_id
+        if _created:
+            created_client_id = client_id
 
     # 客户经理联系方式属于关联客户资料；咨询表单仅提供就地编辑入口，不重复落库。
     if 'manager_contact' in consultation.model_fields_set and consultation_data.get('client_id'):
@@ -3484,6 +3495,10 @@ def create_consultation(
         **consultation_data,
     )
     db.add(db_consultation)
+    if created_client_id and actor is not None:
+        db.flush()
+        from client_operator import record
+        record(db, created_client_id, actor, 'consultation_create', db_consultation)
     if commit:
         db.commit()
     else:
@@ -3497,6 +3512,7 @@ def update_consultation(
     consultation_update: ConsultationUpdate,
     *,
     commit: bool = True,
+    actor=None,
 ) -> Optional[Consultation]:
     db_consultation = get_consultation(db, consultation_id)
     if not db_consultation:
@@ -3522,6 +3538,9 @@ def update_consultation(
         )
         if client_id:
             update_data['client_id'] = client_id
+            if _created:
+                from client_operator import record
+                record(db, client_id, actor, 'consultation_edit_create', db_consultation)
 
     # 只在请求明确携带该字段时同步客户资料，避免列表内联更新状态时误清空联系方式。
     if 'manager_contact' in consultation_update.model_fields_set:

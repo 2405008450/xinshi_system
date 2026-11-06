@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, event
 
 from tests.test_chat_participant_access import environment
 from models import Client, ClientCooperation, SubClient, TranslationProject
@@ -15,7 +15,7 @@ from tools.apply_client_cooperation_migration import apply_migration
 def test_cooperation_persist_clear_and_schema(environment):
     db, _ = environment
     payload = ClientCreate(client_code='CL-TEST', client_name='测试', client_short_name='测试', cooperation_info='合作协议\n下一阶段安排')
-    row = Client(id=uuid4(), **payload.model_dump())
+    row = Client(id=uuid4(), **payload.model_dump(exclude={'customer_type'}))
     db.add(row); db.commit(); db.expire_all()
     loaded = db.get(Client, row.id)
     assert ClientResponse.model_validate(loaded).cooperation_info == payload.cooperation_info
@@ -63,13 +63,16 @@ def test_crud_cooperation_preserves_remarks_and_partial_updates(environment, mon
     from crud import create_client, update_client, delete_client
     db, _ = environment
     import crud
-    # 内存 SQLite 夹具不保留 PostgreSQL gen_random_uuid() 默认值。
-    with monkeypatch.context() as patch:
-        patch.setattr(crud, 'Client', lambda **values: Client(id=uuid4(), **values))
-        row = create_client(db, ClientCreate(
-            client_name='客户', client_short_name='客户', client_code='CL-CRUD',
-            remarks='基本备注', cooperation_info='合作内容',
-        ))
+    # 只补齐内存库 UUID，不替换后续查询仍需使用的 ORM 类型。
+    def assign_ids(session, *_):
+        for item in session.new:
+            if isinstance(item, Client) and item.id is None:
+                item.id = uuid4()
+    event.listen(db, 'before_flush', assign_ids)
+    row = create_client(db, ClientCreate(
+        client_name='客户', client_short_name='客户', client_code='CL-CRUD',
+        remarks='基本备注', cooperation_info='合作内容',
+    ))
     updated = update_client(db, row.id, ClientUpdate(client_name='更名'))
     assert updated.cooperation_info == '合作内容'
     updated = update_client(db, row.id, ClientUpdate(cooperation_info='新内容'))

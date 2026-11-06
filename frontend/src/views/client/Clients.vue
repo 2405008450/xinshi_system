@@ -212,6 +212,8 @@
                 <el-descriptions-item label="备注" :span="2">
                   <span class="detail-value">{{ getDetailRow(row).remarks || '-' }}</span>
                 </el-descriptions-item>
+                <el-descriptions-item label="操作人">{{ getDetailRow(row).operator_name || '未能回溯' }}</el-descriptions-item>
+                <el-descriptions-item label="操作人来源">{{ operatorSourceText(getDetailRow(row)) }}</el-descriptions-item>
                 <el-descriptions-item label="创建时间">
                   <span class="detail-value">{{ formatDatetime(getDetailRow(row).created_at) }}</span>
                 </el-descriptions-item>
@@ -275,6 +277,12 @@
         />
       </template>
       <div ref="clientEditorBodyRef">
+        <el-descriptions :column="2" border size="small" style="margin-bottom: 16px" data-dialog-field-search-label="操作人" data-dialog-field-search-aliases="录入人,咨询录入人">
+          <el-descriptions-item label="操作人">
+            <ReadonlyField :model-value="form.operator_name || ''" source="auto" :placeholder="form.id ? '未能回溯' : '保存后自动生成'" tooltip="客户首次录入操作人；历史数据按关联咨询录入人回溯，后续编辑不覆盖" />
+          </el-descriptions-item>
+          <el-descriptions-item label="来源">{{ form.id ? operatorSourceText(form) : '保存后记录当前登录用户' }}</el-descriptions-item>
+        </el-descriptions>
         <el-tabs v-model="clientActiveTab" class="client-editor-tabs">
         <el-tab-pane label="基本信息" name="basic">
         <AppForm
@@ -524,6 +532,7 @@
 <script setup>
 import { CUSTOMER_TYPES as customerTypes } from '@/utils/customerTypes'
 import CustomerCooperationProjects from '@/components/common/CustomerCooperationProjects.vue'
+import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import CustomerFinancePanel from '@/components/common/CustomerFinancePanel.vue'
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { refreshAfterSave } from '@/utils/postSaveRefresh.js'
@@ -570,6 +579,7 @@ const currentUserId = localStorage.getItem('user_id') || null
 const CLIENT_COLUMNS_STORAGE_KEY = `client_visible_columns:${currentUserId || 'anonymous'}`
 
 const clientColumnOptions = [
+  { key: 'operator_name', label: '操作人', width: 120 },
   { key: 'client_code', label: '客户编号', width: 140 },
   { key: 'client_name', label: '客户全称', width: 175 },
   { key: 'client_short_name', label: '客户简称', width: 150 },
@@ -588,6 +598,17 @@ const clientColumnOptions = [
   { key: 'cooperation_start_date', label: '开始合作时间', width: 180 },
   { key: 'remarks', label: '备注', width: 220 }
 ]
+const operatorSourceText = (row) => {
+  const labels = {
+    client_create: '客户管理新增',
+    consultation_create: '新咨询新增客户',
+    consultation_edit_create: '咨询编辑时新增客户',
+    consultation_editor_backfill: '历史咨询录入人回溯',
+    consultation_capture_backfill: '历史咨询登录账号回溯',
+  }
+  const label = labels[row.operator_source] || '未能回溯'
+  return row.operator_consultation_code ? `${label} · ${row.operator_consultation_code}` : label
+}
 const legacyDefaultVisibleColumnKeys = [
   'client_short_name',
   'client_manager',
@@ -662,6 +683,9 @@ const pagination = reactive({
 const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows:tableData,tableRef:clientTableRef,pagination,deleteRow:(row)=>clientApi.deleteClient(row.id),getLabel:(row)=>row.client_name||row.client_short_name||row.client_code,reload:()=>fetchData(),onDeleted:(row)=>{delete detailCache[row.id]},entityName:'客户'})
 
 const defaultClientForm = () => ({
+  operator_name: null,
+  operator_source: null,
+  operator_consultation_code: null,
   customer_type: null,
   id: null,
   client_code: '',
@@ -886,6 +910,9 @@ const handleEdit = async (row) => {
   resetForm()
   Object.assign(form, {
     id: row.id,
+    operator_name: row.operator_name || null,
+    operator_source: row.operator_source || null,
+    operator_consultation_code: row.operator_consultation_code || null,
     customer_type: row.customer_type || null,
     client_code: row.client_code || '',
     client_name: row.client_name || '',
@@ -919,6 +946,9 @@ const handleSubmit = async () => {
       submitLoading.value = true
       try {
         const submitData = { ...form }
+        delete submitData.operator_name
+        delete submitData.operator_source
+        delete submitData.operator_consultation_code
         delete submitData.id
         delete submitData.sub_clients
         delete submitData.created_at
@@ -1224,6 +1254,7 @@ onBeforeUnmount(() => {
 
 :global(.client-form-dialog) {
   display: flex;
+  max-width: calc(100vw - 32px) !important;
   flex-direction: column;
   max-height: 90vh;
   margin-bottom: 0;

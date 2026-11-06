@@ -243,6 +243,9 @@ class ClientUpdate(BaseModel):
     expected_updated_at: Optional[datetime] = None
 
 class ClientResponse(ClientBase):
+    operator_name: Optional[str] = None
+    operator_source: Optional[str] = None
+    operator_consultation_code: Optional[str] = None
     client_status: Optional[str] = Field(default="pending",validation_alias=AliasChoices("_auto_client_status","client_status"))
     cooperation_start_date: Optional[datetime] = Field(default=None,validation_alias=AliasChoices("_auto_cooperation_start_date","cooperation_start_date"))
     id: UUID

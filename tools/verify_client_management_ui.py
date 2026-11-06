@@ -12,6 +12,7 @@ def run():
     dep = lambda name: re.search(r'from ["\']([^"\']*/' + name + r'\.js[^"\']*)', compiled).group(1)
     html = '''<!doctype html><meta charset="UTF-8"><link rel="stylesheet" href="/node_modules/element-plus/dist/index.css"><div id="app"></div><script type="module">import {createApp} from VUE;import Clients from '/src/views/client/Clients.vue';import AppForm from '/src/components/common/AppForm.vue';createApp(Clients).component('AppForm',AppForm).mount('#app');</script>'''.replace('from VUE', 'from ' + json.dumps(dep('vue')))
     client = dict(id='c1', client_name='回归客户', client_short_name='回归', client_code='CL-TEST', client_manager='负责人', client_status='active', cooperation_info='原合作信息', sub_clients=[])
+    client.update(operator_name='钟楚翘', operator_source='consultation_capture_backfill', operator_consultation_code='EQ-261105-001')
     writes, errors, project_requests = [], [], []
     project_groups = [dict(module=module, label=label, items=[dict(id=module, order_no=module+'-001', project_name=label+'样例', project_status='in_progress')]) for module, label in [('translation','笔译项目'), ('annotation','标注项目')]]
     project_groups[0]['items'] = [dict(id=f'p-{i}', order_no=f'TP-{i:03}', project_name=f'笔译项目样例{i}', project_status='in_progress') for i in range(1, 26)]
@@ -46,6 +47,10 @@ def run():
         for name in ['基本信息','财务信息','合作信息','合作项目']:
             expect(dialog.get_by_role('tab', name=name, exact=True)).to_be_visible()
         expect(dialog.get_by_role('tab', name='基本信息', exact=True)).to_have_attribute('aria-selected','true')
+        operator = dialog.locator('[data-dialog-field-search-label="操作人"]')
+        expect(operator.locator('input')).to_have_value('钟楚翘')
+        expect(operator.locator('input')).to_have_attribute('readonly', '')
+        expect(operator).to_contain_text('EQ-261105-001')
         dialog.get_by_role('tab', name='合作信息', exact=True).click()
         expect(dialog.get_by_placeholder('请输入客户合作信息')).to_have_value('原合作信息')
         dialog.get_by_placeholder('请输入客户合作信息').fill('新的合作信息\n第二行')
@@ -92,12 +97,14 @@ def run():
         dialog.get_by_role('button', name='确定', exact=True).click()
         expect(dialog).to_have_count(0)
         assert writes[-1]['cooperation_info'] == '新的合作信息\n第二行'
+        assert not any(key.startswith('operator_') for key in writes[-1])
         page.get_by_role('button', name='编辑', exact=True).click()
         expect(dialog.get_by_role('tab', name='基本信息', exact=True)).to_have_attribute('aria-selected','true')
         page.wait_for_timeout(400)
         reopened = dialog.bounding_box(); assert abs(reopened['x']-before['x']) < 2 and abs(reopened['y']-before['y']) < 2
         dialog.get_by_role('button', name='关闭窗口', exact=True).click(); expect(dialog).to_have_count(0)
         page.get_by_role('button', name='新增客户', exact=True).click()
+        expect(dialog.locator('[data-dialog-field-search-label="操作人"] input')).to_have_attribute('placeholder', '保存后自动生成')
         expect(dialog.get_by_role('tab', name='基本信息', exact=True)).to_have_attribute('aria-selected','true')
         dialog.get_by_role('tab', name='合作信息', exact=True).click()
         expect(dialog.get_by_placeholder('请输入客户合作信息')).to_have_value('')

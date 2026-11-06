@@ -830,6 +830,7 @@ def create_confirmed_consultation(
             db,
             confirmed_payload,
             commit=False,
+            actor=current_user,
         )
         project, preview = _confirm_consultation_project(
             db,
@@ -898,6 +899,7 @@ def update_confirmed_consultation(
             consultation_id,
             confirmed_payload,
             commit=False,
+            actor=current_user,
         )
         project, preview = _confirm_consultation_project(
             db,
@@ -942,7 +944,8 @@ def create_consultation_endpoint(
     try:
         validate_consultation_required_fields(consultation)
         db_consultation = create_consultation(
-            db=db, consultation=consultation, idempotency_key=idempotency_key, commit=False
+            db=db, consultation=consultation, idempotency_key=idempotency_key, commit=False,
+            actor=current_user,
         )
         if (
             db_consultation.status == CONSULTATION_CONFIRMED_STATUS
@@ -1220,6 +1223,7 @@ def update_consultation_endpoint(
             consultation_id=consultation_id,
             consultation_update=consultation_update,
             commit=False,
+            actor=current_user,
         )
         if (
             db_consultation.status == CONSULTATION_CONFIRMED_STATUS
