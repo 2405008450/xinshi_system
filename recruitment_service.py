@@ -79,7 +79,8 @@ def generate_recruitment_order_no(db: Session, current_time: Optional[datetime] 
             sequence = int(last.rsplit("-", 1)[-1]) + 1
         except ValueError:
             sequence = 1
-    return f"{prefix}{sequence:03d}"
+    from business_numbering import allocate
+    return allocate(db, 'recruitment', prefix, sequence)
 
 
 def _project_list_options():

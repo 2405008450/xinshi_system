@@ -57,11 +57,11 @@ TRANSLATION_FILTER_FIELDS = {
     "managed_user_id", "excluded_project_status",
     "order_no", "project_name", "source_file_name", "service_content", "task_type", "client_name", "client_short_name",
     "client_code", "sub_client_name", "sub_client_short_name", "sub_client_code", "customer_order_no", "project_manager_id", "client_manager",
-    "manager_contact", "project_status", "file_type_secondary", "project_contract_type",
+    "manager_contact", "contact_name", "project_status", "file_type_secondary", "project_contract_type",
     "project_contract_status", "quotation_required", "quotation_status",
     "customer_requirement_professional", "customer_requirement_special", "language_pair",
     "priority", "word_count", "word_count_dimension", "word_count_metric_type", "customer_reception_time", "customer_deadline_time",
-    "translator_return_time",
+    "translator_return_time", "translator_assigned",
     "sent_to_client_time", "major_project_manager_confirmation", "translator_id", "translator_name",
     "translator_assignment_time", "translator_delivery_progress", "pre_review_qc_progress",
     "review1_progress", "review2_progress", "post_review_qc_progress", "layout_progress",
@@ -80,7 +80,7 @@ def _field_filters(raw: Optional[str]):
     ensure_filter_fields(value, TRANSLATION_FILTER_FIELDS)
     ranges = {"word_count", "customer_reception_time", "customer_deadline_time", "translator_return_time", "sent_to_client_time", "translator_assignment_time", "created_at", "updated_at", "translator_delivery_progress", "pre_review_qc_progress", "review1_progress", "review2_progress", "post_review_qc_progress", "layout_progress", "consolidation_progress"}
     enums = {"excluded_project_status", "managed_user_id", "service_content", "task_type", "project_manager_id", "project_status", "priority", "translator_id", "pm_confirmed_by", "word_count_dimension", "word_count_metric_type", "project_specialist_id", "project_assistant_id", "layout_specialist_id"}
-    booleans = {"quotation_required"}
+    booleans = {"quotation_required", "translator_assigned"}
     ensure_filter_operators(value, {field: ({"between"} if field in ranges else {"in"} if field in enums else {"eq"} if field in booleans else {"contains"}) for field in TRANSLATION_FILTER_FIELDS})
     return value
 
@@ -145,13 +145,7 @@ def create_project_endpoint(
             ).first()
             if existing:
                 return get_translation_project(db, existing.id)
-        error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
         logger.exception("创建笔译项目时触发数据库约束")
-        if "foreign key" in error_msg.lower() or "fk_" in error_msg.lower():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="关联用户不存在或已失效，请刷新后重试"
-            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=integrity_error_detail(e, "项目数据不符合保存要求，请检查后重试")

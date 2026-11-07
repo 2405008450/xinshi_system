@@ -52,10 +52,10 @@ export const previewConfirmation = (data, config = {}) => {
   return api.post('/consultations/confirmation-preview', data, config)
 }
 
-export const createConfirmedConsultation = (consultation, confirmation) => {
-  return api.post('/consultations/confirm', { consultation, confirmation })
+export const createConfirmedConsultation = (consultation, confirmation, config = {}) => {
+  return api.post('/consultations/confirm', { consultation, confirmation }, config)
 }
 
-export const updateConfirmedConsultation = (id, consultation, confirmation) => {
-  return api.post(`/consultations/${id}/confirm`, { consultation, confirmation })
+export const updateConfirmedConsultation = (id, consultation, confirmation, config = {}) => {
+  return api.post(`/consultations/${id}/confirm`, { consultation, confirmation }, config)
 }

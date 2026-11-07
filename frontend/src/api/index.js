@@ -5,6 +5,7 @@ import { chatConversationScope } from '@/utils/chatAccess'
 import { screenshotIds, screenshotGrantHeaders, rememberScreenshotGrant } from '@/utils/screenshotReferences'
 import {draftSubmitSnapshot,completeDraftSubmit} from '@/utils/autoDrafts'
 import {rememberSavedRead,savedReadPromise} from '@/utils/savedDataRegistry'
+import {numberLeaseHeaders} from '@/utils/businessNumberLeases'
 
 const api = axios.create({
   baseURL: '/api',
@@ -17,6 +18,7 @@ const api = axios.create({
 // 请求拦截器
 api.interceptors.request.use(
   async config => {
+    numberLeaseHeaders(config)
     if(['post','put','patch','delete'].includes(String(config.method).toLowerCase()))config.autoDraftSubmission=draftSubmitSnapshot(config.url)
     const token = localStorage.getItem('token')
     if (token) {

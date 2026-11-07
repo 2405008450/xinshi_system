@@ -7,11 +7,11 @@
     :popper-class="['common-advanced-filter-popover', compact ? 'is-compact' : '', popperClass].filter(Boolean).join(' ')"
   >
     <template #reference>
-      <slot name="reference">
+      <span ref="referenceHost" class="advanced-filter-reference"><slot name="reference">
         <el-button>
           高级筛选<span v-if="count" class="advanced-filter-count">（{{ count }}）</span>
         </el-button>
-      </slot>
+      </slot></span>
     </template>
 
     <div class="advanced-filter-shell">
@@ -24,14 +24,14 @@
         </div>
       </div>
       <div class="advanced-filter-body" :class="{ 'is-compact': compact }">
-        <AdvancedFilterFieldSearch :active="visible"><slot /></AdvancedFilterFieldSearch>
+        <AdvancedFilterFieldSearch :active="visible" :anchor="referenceHost" :scope="popperClass"><slot /></AdvancedFilterFieldSearch>
       </div>
     </div>
   </el-popover>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed,ref } from 'vue'
 import AdvancedFilterFieldSearch from './AdvancedFilterFieldSearch.vue'
 
 const props = defineProps({
@@ -42,6 +42,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:visible', 'clear', 'reset'])
+const referenceHost=ref()
 
 const visibleModel = computed({
   get: () => props.visible,

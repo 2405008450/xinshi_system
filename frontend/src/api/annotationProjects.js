@@ -47,10 +47,10 @@ export const getAnnotationChildren = (id, params = {}, config = {}) => (
   })
 )
 
-export const createAnnotationChildren = (id, items, key, single = false) => (
+export const createAnnotationChildren = (id, items, key, single = false, numberHeaders = {}) => (
   api.post(`/projects/annotation/${id}/children${single ? '' : '/batch'}`,
     convertKeys(single ? items[0] : { items }, toSnakeCase),
-    { headers: { 'X-Idempotency-Key': key } },
+    { headers: { 'X-Idempotency-Key': key, ...numberHeaders } },
   ).then((res) => {
     invalidateOptionCache('source-projects:annotation:')
     return convertKeys(res, toCamelCase)

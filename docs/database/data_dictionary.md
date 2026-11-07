@@ -1,5 +1,13 @@
 # 数据字典
 
+## 每位客户联系人的联系方式和说明（2026-11-07）
+
+新增 `client_contact_person_detail`：`person_id UUID` 主键/FK `client_contact_person.id`（删除级联），`contact_method text not null`（联系方式，空字符串默认），`description text not null`（说明，空字符串默认）。迁移 `tools/apply_client_contact_details_migration.py` 只创建新表。主/子客户接口增加 `contact_people` 数组，每条包含 name、contact_method、description；原 contact_names、client_manager 保持兼容，manager_contact同步第一位联系人的联系方式。明细随客户同事务保存，按稳定联系人记录关联，排序、移除或项目端追加姓名不会将其他人的联系方式混用；旧数据未维护明细时，将原联系方式显示在第一位联系人下。批量读取明细，避免逐客户追加查询。新增、编辑表单统一使用“联系人 / 联系方式 / 说明”条目，子客户表格关键列及详情小窗同步展示。
+
+## 客户地址（2026-11-07）
+
+新表 `client_address`（client_id UUID主键/FK client.id 删除级联）和 `sub_client_address`（sub_client_id UUID主键/FK sub_client.id 删除级联），均包含 `detail text not null`（手工详细地址）、`content text not null`（完整地址）。接口字段为 detailed_address、full_address，随原客户表单同事务保存；缺少字段或null不清空历史地址，显式空字符串清空。迁移 tools/apply_client_address_migration.py 仅创建新表，不修改原客户表。地区目录存放 data/geography/catalog.json.gz，由 geography_catalog.py 提供分页、分词AND搜索；来源及许可证见该目录README。中国大陆补充至区县，其他国家末级地区不保证穷尽；支持手工录入。选择地区或修改详细地址会将地区路径和详细地址合并同步至完整地址，完整地址也可手工编辑。
+
 ## 客户对账单（2026-11-03）
 
 - 笔译客户财务窗口新增“收费设置 / 对账单”页签；对账单支持当前项目（含所选订单的下级）或该客户整月全部笔译项目（包含子客户）。账单月份优先采用本订单已登记月份，其次沿用最近上级，最后沿用母订单编号月份；编号无月份时回退客户接单时间月份。来稿日期直接使用母订单客户接单时间，按UTC+8展示。
@@ -2664,3 +2672,63 @@ client_id UUID 关联 client、billing_month varchar(7) 联合主键；progress 
 ### customer_statement_progress_event（对账单进度调整记录）
 
 id UUID 主键；client_id UUID 关联 client，billing_month varchar(7)，分别有索引；before/after varchar(20) 保存调整前后进度；actor_id UUID 关联 app_user，actor_name varchar(255) 保存调整人快照；created_at timestamptz 统一 UTC+8。与进度修改同事务写入，重复提交同状态不增加变化记录。
+
+
+### translation_project_contact（笔译项目客户联系人）
+
+project_id UUID 主键，关联 translation_project.id，删除项目级联删除；contact_name varchar(255) 非空，保存本项目客户联系人姓名，不复用客户档案的 manager_contact 联系方式；updated_by UUID 可空，关联 app_user，删除人员置空；updated_at timestamptz 非空，统一 UTC+8。仅在提交联系人时写入，不回填历史项目。个人客户未独立填写时界面默认客户简称；联系人不进入笔译邮件主题或正文。
+
+
+### client_contact_person（客户多联系人名录）
+
+id UUID 主键；client_id / sub_client_id UUID 分别关联 client / sub_client、删除级联，CHECK 限且仅限一个归属；contact_name / normalized_name varchar(100) 非空，normalized_name 为去首尾空白并 casefold 的去重键，各归属内唯一；position integer 排序；is_active boolean 选择是否可用，移除联系人仅停用、不删除历史项目中的联系人姓名；updated_at timestamptz 统一 UTC+8。客户接口 contact_names 为完整联系人列表，旧 client_manager 兼容首位联系人。笔译项目保存新联系人时自动加入所属客户／子客户名录，不更改其他客户名录。联系人名录变化会更新客户版本时间，以避免旧编辑窗口覆盖新联系人。
+
+
+### business_number_lease（业务编号窗口占用）
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| id | UUID PK | 随机占号凭证，只在当前窗口内存保存 |
+| owner_id | UUID FK app_user | 占号账号 |
+| window_id | UUID | 每次打开新建窗口的随机标识；重试幂等 |
+| scope | varchar(180) | 业务类型；下级编号附上级 UUID |
+| number | varchar(100) | 服务端分配编号，与 scope 组成唯一约束 |
+| state | varchar(20) | active / used / released |
+| created_at | timestamptz | UTC+8 占号时间 |
+| expires_at | timestamptz | 15 分钟有效期，打开窗口每分钟续期 |
+
+关闭未保存窗口、占用过期和业务记录成功删除后，编号重新进入可分配池，优先复用最小可用编号。每次占用都签发全新 UUID 凭证，旧窗口不能操作复用后的编号。正式保存同一事务确认 used，失败回滚后仍可继续填写。已保存且未删除、仍在有效占用的编号不回收。只恢复业务草稿，不恢复编号或凭证。
+
+
+### business_number_deletion_history（编号删除历史）
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| id | UUID PK | 每次删除的独立记录，不因编号复用覆盖 |
+| scope | varchar(180) | 业务类型及上级记录作用域 |
+| number | varchar(100) | 删除前编号 |
+| entity_type | varchar(100) | 原业务类型 |
+| entity_id | varchar(80) | 原记录ID，不随编号复用改变 |
+| entity_name | varchar(500) | 原名称快照 |
+| actor_id | UUID FK app_user | 删除人，账号物理删除时置空 |
+| actor_name | varchar(255) | 删除人姓名快照 |
+| deleted_at | timestamptz | UTC+8删除时间 |
+| snapshot | JSON | 删除前业务记录字段快照 |
+
+删除历史独立保留，不外键关联业务主记录。写入快照、删除和编号回池处于同一事务；删除失败一起回滚。软删除的招聘需求原编号移入历史，主记录使用内部删除键释放唯一约束；技术任务保留主体与关联记录，删除编号链接以释放唯一约束。编号复用后每次历史以原记录ID及独立历史ID区分。表单“编号删除记录”支持多关键词搜索与查看。只记录正常删除，不在迁移时批量改写历史业务数据。
+
+
+### translation_order_folder（笔译文件夹订单元数据）
+
+- `sub_order_id`：主键，关联 `translation_sub_order.id`，订单删除时级联移除。
+- `source_kind`：`local` 或 `unc`；`root_path`：所选根目录完整路径。
+- `relative_path`：含所选根目录名称的相对目录层级；`files`：该目录直接包含的文件名称 JSON 清单。
+- 所选根目录对应既有母订单，下面三层目录分别对应一至三级子订单；文件始终作为所属目录的下一级订单，最深四级子订单。目录名称无须扩展名，文件名称须保留扩展名。
+- 本地文件夹由浏览器枚举相对路径，绝对根路径由用户填写；UNC 使用现有白名单与服务桌面会话权限读取。只读取文件清单，不上传正文。
+
+
+### translation_folder_import_log（目录导入及空文件夹记录）
+
+`id` UUID 主键；`project_id` 关联母订单（删除级联）；`actor_id` 关联操作人（删除置空）；`created_at` 为 UTC+8 带时区业务时间；`source_kind`、`root_path` 记录来源及完整根路径；`empty_folders` 为无任何下层文件的目录相对路径 JSON 清单；`created_count` 记录本次生成子订单数。每次确认导入均记录，空文件夹不占用编号、不生成订单。管理窗口可查看，Excel 的第二张工作表包含记录。
+
+`translation_folder_import_log.empty_detection_complete`：布尔值，标记本次目录枚举是否能完整检测空文件夹；不支持原生目录枚举的浏览器兼容模式记为 false，页面和导出明确标注。

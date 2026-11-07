@@ -1,4 +1,4 @@
-"""项目订单号永久占用记录。"""
+"""项目存续期间的订单号及改号占用记录；删除后转入独立删除历史。"""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ PROJECT_ORDER_NO_TYPES = ("translation", "interpretation", "annotation", "recrui
 
 
 class ProjectOrderNoReservation(Base):
-    """永久保留曾分配过的订单号，项目改号或删除后也不释放。"""
+    """项目改号时保留旧编号；项目删除时归档占用记录并释放号码。"""
 
     __tablename__ = "project_order_no_reservation"
     __table_args__ = (

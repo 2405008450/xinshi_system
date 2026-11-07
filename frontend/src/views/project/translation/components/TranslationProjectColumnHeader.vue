@@ -3,8 +3,10 @@
             <ConfiguredColumnHeaderFilter
               v-if="context.headerFilterDefinition(column.key)"
               :definition="context.headerFilterDefinition(column.key)"
+              :model="context.searchForm"
               :model-value="context.searchForm[context.headerFilterDefinition(column.key).key]"
               @update:model-value="context.searchForm[context.headerFilterDefinition(column.key).key] = $event"
+              @update-field="(key,value)=>context.searchForm[key]=value"
               @text-input="context.handleConfiguredTextInput"
               @change="context.handleSearch"
               @enter="context.handleSearch"

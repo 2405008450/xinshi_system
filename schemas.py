@@ -197,7 +197,30 @@ class PermissionGroup(BaseModel):
     permissions: list[PermissionItem]
 
 
+def _validate_client_name(value, info):
+    text = str(value or "").strip()
+    label = "客户全称" if info.field_name == "client_name" else "客户简称"
+    if not text:
+        raise ValueError(f"请填写{label}")
+    limit = 255 if info.field_name == "client_name" else 100
+    if len(text) > limit:
+        raise ValueError(f"{label}不能超过{limit}个字符")
+    return text
+
+
 # Client Schemas
+class ClientContactPersonInput(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    contact_method: str = Field(default='', max_length=5000)
+    description: str = Field(default='', max_length=5000)
+
+    @field_validator('name')
+    @classmethod
+    def nonblank_name(cls, value):
+        if not value.strip():raise ValueError('请填写联系人姓名')
+        return value.strip()
+
+
 class ClientBase(BaseModel):
     customer_type: Optional[CustomerType] = None
     client_code: Optional[str] = None
@@ -205,6 +228,8 @@ class ClientBase(BaseModel):
     client_short_name: str
     english_name: Optional[str] = None
     english_short_name: Optional[str] = None
+    contact_names: Optional[list[str]] = Field(default=None, max_length=100)
+    contact_people: Optional[list[ClientContactPersonInput]] = Field(default=None, max_length=100)
     client_manager: Optional[str] = None
     manager_contact: Optional[str] = None
     field_level1: Optional[str] = None
@@ -219,15 +244,31 @@ class ClientBase(BaseModel):
     cooperation_info: Optional[str] = None
 
 class ClientCreate(ClientBase):
+    detailed_address: Optional[str] = Field(default=None, max_length=5000)
+    full_address: Optional[str] = Field(default=None, max_length=5000)
+    @field_validator("client_name", "client_short_name", mode="before")
+    @classmethod
+    def validate_client_names(cls, value, info):
+        return _validate_client_name(value, info)
+
     pass
 
 class ClientUpdate(BaseModel):
+    detailed_address: Optional[str] = Field(default=None, max_length=5000)
+    full_address: Optional[str] = Field(default=None, max_length=5000)
+    @field_validator("client_name", "client_short_name", mode="before")
+    @classmethod
+    def validate_client_names(cls, value, info):
+        return _validate_client_name(value, info)
+
     customer_type: Optional[CustomerType] = None
     client_code: Optional[str] = None
     client_name: Optional[str] = None
     client_short_name: Optional[str] = None
     english_name: Optional[str] = None
     english_short_name: Optional[str] = None
+    contact_names: Optional[list[str]] = Field(default=None, max_length=100)
+    contact_people: Optional[list[ClientContactPersonInput]] = Field(default=None, max_length=100)
     client_manager: Optional[str] = None
     manager_contact: Optional[str] = None
     field_level1: Optional[str] = None
@@ -243,6 +284,8 @@ class ClientUpdate(BaseModel):
     expected_updated_at: Optional[datetime] = None
 
 class ClientResponse(ClientBase):
+    detailed_address: Optional[str] = Field(default=None, max_length=5000)
+    full_address: Optional[str] = None
     client_status: Optional[str] = Field(default="pending",validation_alias=AliasChoices("_auto_client_status","client_status"))
     cooperation_start_date: Optional[datetime] = Field(default=None,validation_alias=AliasChoices("_auto_cooperation_start_date","cooperation_start_date"))
     id: UUID
@@ -308,12 +351,16 @@ class ClientContactResponse(ClientContactBase):
 
 # SubClient Schemas
 class SubClientBase(BaseModel):
+    full_address: Optional[str] = Field(default=None, max_length=5000)
+    detailed_address: Optional[str] = Field(default=None, max_length=5000)
     customer_type: Optional[CustomerType] = None
     sub_client_code: Optional[str] = None
     client_name: str
     client_short_name: str
     english_name: Optional[str] = None
     english_short_name: Optional[str] = None
+    contact_names: Optional[list[str]] = Field(default=None, max_length=100)
+    contact_people: Optional[list[ClientContactPersonInput]] = Field(default=None, max_length=100)
     client_manager: Optional[str] = None
     manager_contact: Optional[str] = None
     field_level1: Optional[str] = None
@@ -327,15 +374,29 @@ class SubClientBase(BaseModel):
     remarks: Optional[str] = None
 
 class SubClientCreate(SubClientBase):
+    @field_validator("client_name", "client_short_name", mode="before")
+    @classmethod
+    def validate_client_names(cls, value, info):
+        return _validate_client_name(value, info)
+
     parent_client_id: UUID
 
 class SubClientUpdate(BaseModel):
+    full_address: Optional[str] = Field(default=None, max_length=5000)
+    detailed_address: Optional[str] = Field(default=None, max_length=5000)
+    @field_validator("client_name", "client_short_name", mode="before")
+    @classmethod
+    def validate_client_names(cls, value, info):
+        return _validate_client_name(value, info)
+
     customer_type: Optional[CustomerType] = None
     sub_client_code: Optional[str] = None
     client_name: Optional[str] = None
     client_short_name: Optional[str] = None
     english_name: Optional[str] = None
     english_short_name: Optional[str] = None
+    contact_names: Optional[list[str]] = Field(default=None, max_length=100)
+    contact_people: Optional[list[ClientContactPersonInput]] = Field(default=None, max_length=100)
     client_manager: Optional[str] = None
     manager_contact: Optional[str] = None
     field_level1: Optional[str] = None
@@ -366,6 +427,8 @@ class SubClientResponse(SubClientBase):
 
 
 # Consultation Schemas
+from consultation_outcome import FailureReasonInput
+
 class ConsultationBase(BaseModel):
     consultation_code: Optional[str] = None
     client_id: Optional[UUID] = None
@@ -395,12 +458,18 @@ class ConsultationBase(BaseModel):
     follow_up_person_id: Optional[UUID] = None
 
 class ConsultationCreate(ConsultationBase):
+    failure_reason: Optional[FailureReasonInput] = None
+    contact_people: Optional[list[ClientContactPersonInput]] = Field(default=None, max_length=100)
+    contact_people_updated_at: Optional[datetime] = None
     client_code: Optional[str] = None
     client_name: Optional[str] = None
     client_short_name: Optional[str] = None
     manager_contact: Optional[str] = None
 
 class ConsultationUpdate(BaseModel):
+    failure_reason: Optional[FailureReasonInput] = None
+    contact_people: Optional[list[ClientContactPersonInput]] = Field(default=None, max_length=100)
+    contact_people_updated_at: Optional[datetime] = None
     consultation_code: Optional[str] = None
     client_id: Optional[UUID] = None
     sub_client_id: Optional[UUID] = None
@@ -434,6 +503,9 @@ class ConsultationUpdate(BaseModel):
     expected_updated_at: Optional[datetime] = None
 
 class ConsultationResponse(ConsultationBase):
+    failure_reason: Optional[FailureReasonInput] = None
+    contact_people: list[ClientContactPersonInput] = Field(default_factory=list)
+    contact_people_updated_at: Optional[datetime] = None
     id: UUID
     client_code: Optional[str] = None
     client_name: Optional[str] = None
@@ -794,6 +866,9 @@ class TranslationProjectBase(BaseModel):
     remarks: Optional[str] = None
     client_id: Optional[UUID] = None
     sub_client_id: Optional[UUID] = None
+    contact_name: Optional[str] = Field(default=None, max_length=255)
+    client_name: Optional[str] = Field(default=None, max_length=255)
+    sub_client_name: Optional[str] = Field(default=None, max_length=255)
     sub_client_short_name: Optional[str] = Field(default=None, max_length=100)
     client_short_name: Optional[str] = None
     client_code: Optional[str] = None
@@ -903,6 +978,9 @@ class TranslationProjectUpdate(BaseModel):
     remarks: Optional[str] = None
     client_id: Optional[UUID] = None
     sub_client_id: Optional[UUID] = None
+    contact_name: Optional[str] = Field(default=None, max_length=255)
+    client_name: Optional[str] = Field(default=None, max_length=255)
+    sub_client_name: Optional[str] = Field(default=None, max_length=255)
     sub_client_short_name: Optional[str] = Field(default=None, max_length=100)
     client_short_name: Optional[str] = None
     client_code: Optional[str] = None
@@ -976,6 +1054,8 @@ class ProjectAssignedTranslatorResponse(BaseModel):
 
 # TranslationSubOrderResponse 鍓嶇疆澹版槑锛圱ranslationProjectResponse 渚濊禆瀹冿級
 class TranslationSubOrderResponse(BaseModel):
+    folder_info: Optional[dict] = None
+    auto_created_child_count: int = 0
     id: UUID
     parent_project_id: UUID
     sub_order_no: str
@@ -1025,6 +1105,8 @@ class ProjectStatementStatus(BaseModel):
 
 
 class TranslationProjectResponse(TranslationProjectBase):
+    folder_root: bool = False
+    auto_created_child_count: int = 0
     statement_required_explicit: bool = False
     statement_status:list[ProjectStatementStatus]=Field(default_factory=list)
     id: UUID
@@ -1062,6 +1144,8 @@ class TranslationProjectResponse(TranslationProjectBase):
 
 # TranslationSubOrder Schemas
 class TranslationSubOrderCreate(BaseModel):
+    parent_sub_order_id: Optional[UUID] = None
+    folder_info: Optional[dict] = None
     parent_project_id: UUID
     sub_order_no: Optional[str] = None  # 若不传则由后端自动生成
     sub_project_name: Optional[str] = None
@@ -1183,6 +1267,7 @@ class TranslationSubOrderBulkDefaults(BaseModel):
 
 
 class TranslationSubOrderBulkCreate(BaseModel):
+    source_folder_path: Optional[str] = Field(default=None, max_length=2000)
     parent_project_id: UUID
     sub_project_names: list[str] = Field(min_length=1, max_length=500)
     defaults: TranslationSubOrderBulkDefaults = Field(default_factory=TranslationSubOrderBulkDefaults)
@@ -1216,6 +1301,14 @@ class TranslationSubOrderBulkResponse(BaseModel):
     skipped_count: int
     created: list[TranslationSubOrderResponse] = Field(default_factory=list)
     skipped: list[TranslationSubOrderBulkSkipped] = Field(default_factory=list)
+
+
+class TranslationFolderImportResponse(TranslationSubOrderBulkResponse):
+    project_name: Optional[str] = None
+    network_file_path: Optional[str] = None
+    project_id: UUID
+    order_no: str
+    created_root: bool = False
 
 
 # UserRole Schemas

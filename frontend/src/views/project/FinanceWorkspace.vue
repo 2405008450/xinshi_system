@@ -1,6 +1,7 @@
 <template>
   <div class="finance-workspace">
-    <RouteSectionNavigation :items="sections" label="财务管理分类" />
+    <RouteSectionNavigation :items="sections" label="财务管理分类"><template #actions><el-button link type="primary" @click="helpVisible=true">帮助</el-button></template></RouteSectionNavigation>
+    <FinanceWorkflowHelp v-model="helpVisible" />
     <keep-alive>
       <component :is="activeComponent" :key="activeModule" :module="activeModule" />
     </keep-alive>
@@ -11,9 +12,11 @@
 import { computed, defineAsyncComponent,ref,onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import RouteSectionNavigation from '@/components/common/RouteSectionNavigation.vue'
+import FinanceWorkflowHelp from '@/components/common/FinanceWorkflowHelp.vue'
 
 import {getStatementAccess} from '@/api/statementAccess'
 const route = useRoute()
+const helpVisible=ref(false)
 const modules = ['translation', 'interpretation', 'annotation', 'recruitment']
 const canManage=ref(false)
 onMounted(async()=>{try{canManage.value=(await getStatementAccess()).can_manage}catch{}})
@@ -34,4 +37,5 @@ const activeComponent = computed(() => views[activeModule.value])
 
 <style scoped>
 .finance-workspace { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+:global(.main-content:has(.finance-workspace)) { padding-bottom: 0; }
 </style>

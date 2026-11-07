@@ -458,18 +458,20 @@ def test_no_nested_children_no_manual_numbers_no_parent_delete(context):
     db.rollback()
 
 
-def test_delete_never_reuses_sequence(context):
+def test_delete_reuses_sequence_and_retains_deletion_history(context):
     db, parent_id, language_id = context
     child = service.create_annotation_children(db, parent_id, [item(language_id)], None, "delete-first")[0]
     number = child.order_no
     assert service.delete_annotation_project(db, child.id)
     second = service.create_annotation_children(db, parent_id, [item(language_id)], None, "delete-second")[0]
-    assert second.child_sequence_no == 2
+    assert second.child_sequence_no == 1 and second.order_no == number
     assert db.query(ProjectOrderNoReservation).filter_by(order_no=number).count() == 1
+    from business_numbering import BusinessNumberDeletionHistory
+    assert db.query(BusinessNumberDeletionHistory).filter_by(number=number,entity_id=str(child.id)).count()==1
     assert service.delete_annotation_project(db, second.id)
     service.update_annotation_project_order_no(db, parent_id, "AP-RENAMED-" + uuid4().hex[:8].upper(), "测试删除后改号", None, None)
     third = service.create_annotation_children(db, parent_id, [item(language_id)], None, "after-parent-rename")[0]
-    assert third.child_sequence_no == 3
+    assert third.child_sequence_no == 1
 
 
 def test_dot_numbering_keeps_legacy_and_deleted_sequences(context):
@@ -484,7 +486,7 @@ def test_dot_numbering_keeps_legacy_and_deleted_sequences(context):
     assert child.child_sequence_no == 10
     service.delete_annotation_project(db, child.id)
     replacement = service.create_annotation_children(db, parent_id, [item(language_id)], None, 'dot-replacement')[0]
-    assert replacement.order_no == parent.order_no + '.011'
+    assert replacement.order_no == parent.order_no + '.010'
 
 
 def test_copied_fields_remain_independent_after_parent_and_child_edits(context):

@@ -1,3 +1,4 @@
+from translation_folder_orders import FolderImport
 from form_errors import integrity_error_detail
 import logging
 from typing import List, Optional
@@ -12,6 +13,7 @@ from crud import (
     create_sub_order, create_sub_orders_bulk, update_sub_order, delete_sub_order
 )
 from schemas import (
+    TranslationFolderImportResponse,
     TranslationSubOrderBulkCreate,
     TranslationSubOrderBulkResponse,
     TranslationSubOrderCreate,
@@ -19,7 +21,7 @@ from schemas import (
     TranslationSubOrderResponse,
 )
 from models import AppUser, TranslationSubOrder
-from routers.auth import get_current_user, require_module_access
+from routers.auth import get_current_user, require_module_access, require_any_permission
 
 router = APIRouter(prefix="/sub-orders", tags=["sub-orders"], dependencies=[Depends(require_module_access("projects:read", "projects:write"))])
 logger = logging.getLogger(__name__)
@@ -91,6 +93,58 @@ def create_sub_orders_bulk_endpoint(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="批量创建子订单失败，请稍后重试")
 
 
+@router.get("/project/{project_id}/folder-import-records")
+def folder_import_records(project_id: UUID,db: Session = Depends(get_db)):
+    from translation_folder_orders import import_records
+    return {'items':import_records(db,project_id)}
+
+
+@router.get("/project/{project_id}/export")
+def export_suborder_hierarchy(project_id: UUID,db: Session = Depends(get_db)):
+    from crud import get_translation_project
+    from translation_suborder_export import build_workbook
+    from fastapi.responses import Response
+    from urllib.parse import quote
+    root=get_translation_project(db,project_id)
+    if not root:raise HTTPException(404,'母订单不存在')
+    from translation_folder_orders import import_records
+    return Response(build_workbook(root,import_records(db,project_id,None)),media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',headers={'Content-Disposition':"attachment; filename*=UTF-8''"+quote(root.order_no+'-订单层级与统计.xlsx')})
+
+
+@router.get("/shared-folder/tree")
+def inspect_shared_suborder_tree(storage_path: str = Query(min_length=1,max_length=2000)):
+    from translation_folder_orders import inspect_tree
+    try:return inspect_tree(storage_path)
+    except ValueError as exc:raise HTTPException(400,str(exc)) from exc
+
+
+@router.post("/folders/import",response_model=TranslationFolderImportResponse,dependencies=[Depends(require_any_permission("projects:write"))])
+def import_suborder_folders(payload: "FolderImport", db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user), idempotency_key: Optional[str] = Header(default=None,alias="X-Idempotency-Key",min_length=8,max_length=128)):
+    from translation_folder_orders import import_folders
+    try:return import_folders(db,payload,current_user.id,idempotency_key)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(400,str(exc)) from exc
+
+    except (IntegrityError,HTTPException) as exc:
+        db.rollback()
+        if idempotency_key and not payload.parent_project_id:
+            from models import TranslationProject
+            old=db.query(TranslationProject).filter_by(idempotency_key=idempotency_key,created_by=current_user.id).first()
+            if old:return import_folders(db,payload,current_user.id,idempotency_key)
+        if isinstance(exc,HTTPException):raise
+        raise HTTPException(400,integrity_error_detail(exc,'目录订单保存失败，请重新读取后重试')) from exc
+
+
+@router.get("/shared-folder/inspect")
+def inspect_shared_suborder_folder(storage_path: str = Query(min_length=1, max_length=2000)):
+    from project_file_service import inspect_suborder_shared_folder
+    try:
+        return inspect_suborder_shared_folder(storage_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/", response_model=List[TranslationSubOrderResponse])
 def read_all_sub_orders(
     skip: int = 0,
@@ -134,7 +188,10 @@ def update_sub_order_endpoint(
 
 @router.delete("/{sub_order_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_sub_order_endpoint(sub_order_id: UUID, db: Session = Depends(get_db)):
-    success = delete_sub_order(db, sub_order_id=sub_order_id)
+    try:success = delete_sub_order(db, sub_order_id=sub_order_id)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(400,str(exc)) from exc
     if not success:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="子订单不存在")
     return None

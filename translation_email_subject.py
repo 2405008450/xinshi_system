@@ -4,6 +4,16 @@ from datetime import datetime
 
 from business_time import BUSINESS_TIMEZONE
 from language_catalog import compact_translation_direction
+import re
+
+
+def strip_translation_manager_contact(subject, contact):
+    text = str(subject or '').strip()
+    contact = str(contact or '').strip()
+    parts = re.split(r'[，,]', text)
+    if contact and any(part.strip() == contact for part in parts):
+        return '，'.join(part.strip() for part in parts if part.strip() and part.strip() != contact)
+    return text
 
 
 def build_translation_email_subject(source: dict) -> dict:
@@ -24,7 +34,6 @@ def build_translation_email_subject(source: dict) -> dict:
         ("标题前缀", source.get("subject_prefix")),
         ("订单号", source.get("order_no")),
         ("客户简称", source.get("client_short_name")),
-        ("客户经理联系方式", source.get("manager_contact")),
         ("翻译方向", direction),
         ("客户交稿时间", deadline_text),
     ]
@@ -32,6 +41,6 @@ def build_translation_email_subject(source: dict) -> dict:
     if count:
         fields.append(("批次", f"{count}批"))
     parts = [str(value).strip() for _, value in fields if str(value or "").strip()]
-    optional = {"标题前缀", "客户经理联系方式", "批次"}
+    optional = {"标题前缀", "批次"}
     missing = [label for label, value in fields if label not in optional and not str(value or "").strip()]
     return {"parts": parts, "subject": "，".join(parts), "missing_fields": missing}

@@ -265,7 +265,7 @@
       top="5vh"
       @close="resetForm"
     >
-      <AppForm
+      <AppForm number-scope="talent" number-field="translator_code" :number-active="dialogVisible && !form.id"
         ref="formRef"
         :model="form"
         :rules="rules"
@@ -280,7 +280,7 @@
           </el-col>
           <el-col :span="8">
             <el-form-item label="译员编号" prop="translator_code">
-              <el-input v-model="form.translator_code" placeholder="自动生成或手动输入" />
+              <ReadonlyField v-if="!form.id" :model-value="form.translator_code" source="auto" placeholder="正在占用编号" /><el-input v-else v-model="form.translator_code" />
             </el-form-item>
           </el-col>
           <el-col :span="8">
@@ -546,6 +546,7 @@
 </template>
 
 <script setup>
+import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import ElPopover from '@/components/common/WindowPopover.vue'
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { computed, defineComponent, h, onBeforeUnmount, onMounted, reactive, ref } from 'vue'

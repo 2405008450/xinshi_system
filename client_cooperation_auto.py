@@ -1,7 +1,7 @@
 """已确认笔译项目自动产生客户合作关系；读历史数据时不批量回写。"""
 from uuid import uuid4
 from sqlalchemy import Column, DateTime, ForeignKey, Uuid, case, event, exists, func, inspect, or_, select
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy.orm import Session, aliased, relationship
 from models import Base, Client, SubClient, TranslationProject, TranslationSubOrder
 from annotation_progress_time import business_now, business_datetime
 
@@ -14,6 +14,8 @@ class ClientProjectConfirmation(Base):
     project_id=Column(Uuid,ForeignKey('translation_project.id',ondelete='CASCADE'),primary_key=True)
     received_at=Column(DateTime(timezone=True))
     confirmed_at=Column(DateTime(timezone=True),nullable=False,default=business_now)
+    # 显式关联使 ORM 在同一次 flush 中先 INSERT 项目，再 INSERT 确认记录。
+    project=relationship(TranslationProject)
 
 
 def expressions(model=Client):
@@ -52,7 +54,7 @@ def capture(session,flush_context,instances):
             history=inspect(root).attrs.project_status.history
             child_confirmed=any(isinstance(row,TranslationSubOrder) and row.parent_project_id==root.id and (row.status in CONFIRMED_STATUSES or any(value in CONFIRMED_STATUSES for value in inspect(row).attrs.status.history.deleted)) for row in changed)
             if not evidence and (root.project_status in CONFIRMED_STATUSES or any(value in CONFIRMED_STATUSES for value in history.deleted) or child_confirmed):
-                evidence=ClientProjectConfirmation(project_id=root.id,confirmed_at=business_now());session.add(evidence)
+                evidence=ClientProjectConfirmation(project=root,project_id=root.id,confirmed_at=business_now());session.add(evidence)
             if not evidence:continue
             evidence.received_at=business_datetime(root.customer_reception_time) if root.customer_reception_time else None
             sub=session.get(SubClient,root.sub_client_id) if root.sub_client_id else None

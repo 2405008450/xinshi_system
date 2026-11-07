@@ -4,6 +4,7 @@ import {chooseDraft} from '@/utils/draftRecovery'
 import {readCloudDraft,queueCloudDraft,clearCloudDraft} from '@/utils/cloudDrafts'
 import {markManagedDraft} from '@/utils/autoDrafts'
 import {draftBusinessNow,sanitizeDraft,AUTO_DRAFT_TTL} from '@/utils/autoDraftStore'
+import {withoutBusinessNumbers} from '@/utils/businessNumberLeases'
 
 // Vue reactive Proxy 不能直接 structuredClone；表单草稿只包含可 JSON 化字段。
 const clone = (value) => JSON.parse(JSON.stringify(value))
@@ -28,46 +29,56 @@ export const useFormDraft = ({
   applyDraft,
   legacyStorageKeys = [],
   saveDelay = 400,
+  createDrafts = true,
+  requireUserId = false,
+  retentionMs = AUTO_DRAFT_TTL,
+  draftComparison,
+  createDraftVersion,
+  draftVersion,
 }) => {
   markManagedDraft(form)
-  const storageKey = `form-drafts:${namespace}:${currentUserKey()}`
+  const userKey = () => requireUserId ? localStorage.getItem('user_id') || '' : currentUserKey()
+  let draftOwner = ''
+  const storageKey = () => `form-drafts:${namespace}:${draftOwner || userKey()}`
+  const sameOwner = () => Boolean(draftOwner) && draftOwner === userKey()
   const activeDraftKey = ref('')
   const savingEnabled = ref(false)
   let saveTimer = null
   let generation=0
   const cloudNamespace=`form:${namespace}`
+  const comparison = () => JSON.stringify(withoutBusinessNumbers(form,sanitizeDraft(draftComparison ? draftComparison(form) : form),true))
 
   const readDrafts = () => {
     try {
-      let raw = localStorage.getItem(storageKey)||sessionStorage.getItem(storageKey)
-      if (!raw) {
+      let raw = localStorage.getItem(storageKey())||sessionStorage.getItem(storageKey())
+      if (!raw && !requireUserId) {
         const legacyKey = legacyStorageKeys.find((key) => sessionStorage.getItem(key))
         if (legacyKey) {
           raw = sessionStorage.getItem(legacyKey)
-          localStorage.setItem(storageKey, raw)
+          localStorage.setItem(storageKey(), raw)
           sessionStorage.removeItem(legacyKey)
         }
       }
       const value = JSON.parse(raw || '{}')
-      return value && typeof value === 'object' && !Array.isArray(value) ? Object.fromEntries(Object.entries(value).filter(([,draft])=>!draft.savedAt||Date.now()-Date.parse(draft.savedAt)<AUTO_DRAFT_TTL)) : {}
+      return value && typeof value === 'object' && !Array.isArray(value) ? Object.fromEntries(Object.entries(value).filter(([,draft])=>retentionMs === null || !draft.savedAt || Date.now()-Date.parse(draft.savedAt)<retentionMs)) : {}
     } catch {
-      localStorage.removeItem(storageKey)
+      localStorage.removeItem(storageKey())
       return {}
     }
   }
 
   const writeDrafts = (drafts) => {
     try {
-      if (Object.keys(drafts).length) localStorage.setItem(storageKey, JSON.stringify(drafts))
-      else localStorage.removeItem(storageKey)
-      sessionStorage.removeItem(storageKey)
+      if (Object.keys(drafts).length) localStorage.setItem(storageKey(), JSON.stringify(drafts))
+      else localStorage.removeItem(storageKey())
+      sessionStorage.removeItem(storageKey())
     } catch {
       ElMessage.warning('本机草稿保存失败，可能存储空间不足；请使用正式保存按钮保留内容')
     }
   }
 
   const removeDraft = (key = activeDraftKey.value) => {
-    if (!key) return
+    if (!key || !sameOwner()) return
     const drafts = readDrafts()
     delete drafts[key]
     writeDrafts(drafts)
@@ -75,11 +86,13 @@ export const useFormDraft = ({
   }
 
   const saveActiveDraft = () => {
-    if (!savingEnabled.value || !activeDraftKey.value) return
+    if (!savingEnabled.value || !activeDraftKey.value || !sameOwner()) return
     const drafts = readDrafts()
     drafts[activeDraftKey.value] = {
-      form: sanitizeDraft(form),
+      form: activeDraftKey.value === 'create' ? withoutBusinessNumbers(form,sanitizeDraft(form)) : sanitizeDraft(form),
       savedAt: draftBusinessNow(),
+      ownerId: draftOwner,
+      ...((activeDraftKey.value === 'create' && createDraftVersion) || draftVersion ? { version: activeDraftKey.value === 'create' && createDraftVersion || draftVersion } : {}),
     }
     writeDrafts(drafts)
     queueCloudDraft(cloudNamespace,activeDraftKey.value,drafts[activeDraftKey.value])
@@ -106,19 +119,33 @@ export const useFormDraft = ({
   }
 
   const beginDraft = async (key) => {
+    // 个别新增表单要求每次重新填写；即使入口误调用，也不读写新增草稿。
+    if ((key === 'create' && !createDrafts) || !userKey()) {
+      generation++
+      cancelScheduledSave()
+      savingEnabled.value = false
+      activeDraftKey.value = ''
+      return
+    }
     cancelScheduledSave()
     savingEnabled.value = false
+    draftOwner = userKey()
     activeDraftKey.value = key
     const current=++generation
-    const initial=clone(form),local=readDrafts()[key]
-    const restore=(draft)=>{if(draft?.form){const restored=clone(draft.form);if(applyDraft)applyDraft(restored);else Object.assign(form,createDefault(),restored)}}
+    const usable = draft => draft?.form && (!draftVersion || draft.version === draftVersion && draft.ownerId === draftOwner) && (key !== 'create' || !createDraftVersion || (
+      draft.version === createDraftVersion && draft.ownerId === draftOwner && !draft.form.id
+    ))
+    const initial=clone(form),stored=readDrafts()[key],local=usable(stored)?stored:undefined
+    const restore=(draft)=>{if(draft?.form){const restored=key==='create'?withoutBusinessNumbers(form,clone(draft.form)):clone(draft.form);if(applyDraft)applyDraft(restored,key);else Object.assign(form,createDefault(),restored)}}
     try{restore(local)}catch{ElMessage.warning('草稿自动恢复失败，原内容仍保留，请勿覆盖')}
-    const baseline=JSON.stringify(sanitizeDraft(form))
+    const baseline=comparison()
     void readCloudDraft(cloudNamespace,key).then(cloud=>{
-      if(current!==generation||activeDraftKey.value!==key||JSON.stringify(sanitizeDraft(form))!==baseline)return
-      const chosen=chooseDraft(local,cloud)
+      if(current!==generation||!sameOwner()||activeDraftKey.value!==key||comparison()!==baseline)return
+      // 旧格式或归属不明的新增草稿不能覆盖当前账号的新内容。
+      const checkedCloud = cloud?.payload && !usable(cloud.payload) ? { ...cloud, payload: null, revision: 0 } : cloud
+      const chosen=chooseDraft(local,checkedCloud)
       savingEnabled.value=false
-      try{if(chosen)restore(chosen);else if(local){Object.assign(form,initial);const drafts=readDrafts();delete drafts[key];writeDrafts(drafts)}}
+      try{if(chosen){restore(chosen);const drafts=readDrafts();drafts[key]=chosen;writeDrafts(drafts)}else if(local){restore({form:initial});const drafts=readDrafts();delete drafts[key];writeDrafts(drafts)}}
       finally{savingEnabled.value=true;formRef?.value?.clearValidate?.()}
     }).catch(()=>{/* 离线时即时使用本机内容，不阻塞打开表单。 */})
 
@@ -131,6 +158,7 @@ export const useFormDraft = ({
     flushDraft()
     savingEnabled.value = false
     activeDraftKey.value = ''
+    draftOwner = ''
   }
 
   const clearDraft = () => {
@@ -145,8 +173,9 @@ export const useFormDraft = ({
   const persist=()=>flushDraft()
   const hidden=()=>{if(document.hidden)flushDraft()}
   window.addEventListener('pagehide',persist)
+  window.addEventListener('auth-session-clearing',pauseDraft)
   document.addEventListener('visibilitychange',hidden)
-  onBeforeUnmount(()=>{flushDraft();generation++;window.removeEventListener('pagehide',persist);document.removeEventListener('visibilitychange',hidden)})
+  onBeforeUnmount(()=>{flushDraft();generation++;window.removeEventListener('pagehide',persist);window.removeEventListener('auth-session-clearing',pauseDraft);document.removeEventListener('visibilitychange',hidden)})
 
   return { beginDraft, pauseDraft, clearDraft, flushDraft, removeDraft }
 }

@@ -226,6 +226,9 @@ def allocate_number(db, task_id, instant):
     while value in used:
         suffix += 1
         value = f'DT-{day:%y%m%d}-{suffix:03d}'
+    from business_numbering import allocate
+    value = allocate(db, 'technical_task', f'DT-{day:%y%m%d}-', suffix)
+    sequence = int(value.rsplit('-', 1)[1])
     db.add(DevelopmentTaskNumber(task_id=task_id, task_no=value, number_date=day, sequence=sequence))
     db.flush()
     from technical_task_management import assign_number

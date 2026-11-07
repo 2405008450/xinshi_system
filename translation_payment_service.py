@@ -56,23 +56,26 @@ def read(db, project):
     return dict(project_id=project.id,order_no=project.order_no,project_name=project.source_file_name or project.project_name,version=version,payments=values,confirmation=confirmation)
 
 
-def _sync_confirmation(db,project,payments,actor_id,confirmation=None):
+def _sync_confirmation(db,project,payments,actor_id,confirmation=None,cleared_payments=None):
     current=confirmations.read(db,project.id)
     desired=confirmation or PaymentConfirmationWrite(**current)
     if not (desired.is_paid and desired.payment_option=='full'):
         actual=[row for row in payments if row.actual_amount is not None and row.actual_amount>0]
-        if actual or any(row.stage_type=='final' for row in payments):
+        if payments:
             methods=list(dict.fromkeys(row.payment_method.strip() for row in actual if row.payment_method and row.payment_method.strip()))
             desired=desired.model_copy(update={'is_paid':True,'payment_option':'deposit','payment_account':methods[0] if len(methods)==1 else '' if methods else desired.payment_account})
         elif confirmation is None:
             desired=desired.model_copy(update={'is_paid':False,'payment_option':None})
-    return confirmations.save(db,project.id,desired,actor_id)
+    return confirmations.save(db,project.id,desired,actor_id,cleared_payments=cleared_payments)
 
 
 def save(db, project, payments, version, actor_id, confirmation=None):
     current = read(db, project)
     if version is not None and version != current['version']:
         raise HTTPException(409, '付款情况已被修改，请重新打开后编辑')
+    cleared_payments=None
+    if confirmation is not None and not confirmation.is_paid:
+        cleared_payments=current['payments'];payments=[]
     if confirmation is not None and confirmation.is_paid and confirmation.payment_option=='full':
         # 全款确认不要求分期明细，也绝不能清除已有明细。
         confirmations.save(db,project.id,confirmation,actor_id)
@@ -86,7 +89,7 @@ def save(db, project, payments, version, actor_id, confirmation=None):
     if finance is not None and version is None:
         raise HTTPException(422, '请先加载当前付款情况，再保存修改')
     if finance is None and not payments:
-        if confirmation is not None:_sync_confirmation(db,project,payments,actor_id,confirmation)
+        if confirmation is not None:_sync_confirmation(db,project,payments,actor_id,confirmation,cleared_payments)
         return read(db,project)
     now = business_now().replace(tzinfo=None)
     if finance is None:
@@ -112,5 +115,5 @@ def save(db, project, payments, version, actor_id, confirmation=None):
         db.add(row)
     finance.edited_by=actor_id;finance.updated_at=now
     db.flush();db.expire(finance,['payments'])
-    _sync_confirmation(db,project,payments,actor_id,confirmation)
+    _sync_confirmation(db,project,payments,actor_id,confirmation,cleared_payments)
     return read(db, project)

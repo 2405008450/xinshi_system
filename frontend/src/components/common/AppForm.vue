@@ -7,13 +7,17 @@
     :scroll-into-view-options="scrollOptions"
   >
     <el-alert v-if="serverError" :title="serverError" type="error" show-icon :closable="false" class="app-form-server-error" />
+    <el-alert v-if="numbering.error.value" :title="numbering.error.value" type="error" show-icon :closable="false" />
+    <el-alert v-if="clientNumbering.error.value" :title="clientNumbering.error.value" type="error" show-icon :closable="false" />
+    <div v-if="numberScope" style="display:flex;justify-content:flex-end;margin-bottom:8px"><el-button link type="primary" @click="numberHistoryVisible=true">编号删除记录</el-button></div>
+    <BusinessNumberDeletionHistory v-if="numberHistoryVisible" v-model="numberHistoryVisible" :kind="numberScope" :number="$attrs.model?.[numberField]" />
     <SavedDataConflict ref="savedConflictRef" :model="$attrs.model" :fields="innerFormRef?.fields||[]" />
     <slot />
   </ElementForm>
 </template>
 
 <script setup>
-import { nextTick, ref, getCurrentInstance, onMounted, onUpdated, onBeforeUnmount, useAttrs } from 'vue'
+import { nextTick, ref, getCurrentInstance, onMounted, onUpdated, onBeforeUnmount, useAttrs, watch,defineAsyncComponent } from 'vue'
 import SavedDataConflict from './SavedDataConflict.vue'
 import {bindSavedForm,unbindSavedForm} from '@/utils/savedDataRegistry'
 import { ElForm as ElementForm } from 'element-plus'
@@ -22,18 +26,26 @@ import 'element-plus/theme-chalk/el-form.css'
 import { focusFirstInvalidField } from '../../utils/formValidation'
 import { resolveServerFieldErrors } from '../../utils/formServerErrors.js'
 import { waitForScreenshotUploads } from '../../utils/screenshotUploads.js'
+import {useBusinessNumber} from '@/composables/useBusinessNumber'
 
 defineOptions({
   name: 'AppForm',
   inheritAttrs: false,
 })
+const props=defineProps({savedSyncEnabled:{type:Boolean,default:true},numberScope:String,numberField:{type:String,default:'orderNo'},numberActive:Boolean,numberParent:String,numberDate:String})
 
 const innerFormRef = ref(null)
+const numberHistoryVisible=ref(false)
+const BusinessNumberDeletionHistory=defineAsyncComponent(()=>import('./BusinessNumberDeletionHistory.vue'))
 const serverError = ref('')
 const savedConflictRef=ref(null)
 const scrollOptions = { behavior: 'smooth', block: 'center', inline: 'nearest' }
 const liveInstance=getCurrentInstance(),liveAttrs=useAttrs()
-const bindLiveModel=()=>bindSavedForm(liveInstance,liveAttrs.model)
+const numbering=useBusinessNumber({model:()=>liveAttrs.model,kind:()=>props.numberScope,field:()=>props.numberField,active:()=>props.numberActive,parent:()=>props.numberParent,date:()=>props.numberDate})
+const clientUsesSnakeCase=()=>Object.prototype.hasOwnProperty.call(liveAttrs.model||{},'client_id')
+const clientNumbering=useBusinessNumber({model:()=>liveAttrs.model,kind:()=>'client',field:()=>clientUsesSnakeCase()?'client_code':'clientCode',active:()=>props.numberActive&&['translation','interpretation','annotation','recruitment','consultation'].includes(props.numberScope)&&!liveAttrs.model?.[clientUsesSnakeCase()?'client_id':'clientId']&&!!liveAttrs.model?.[clientUsesSnakeCase()?'client_short_name':'clientShortName']?.trim(),parent:()=>null,date:()=>null})
+const bindLiveModel=()=>props.savedSyncEnabled?bindSavedForm(liveInstance,liveAttrs.model):unbindSavedForm(liveInstance)
+watch(()=>props.savedSyncEnabled,bindLiveModel,{flush:'sync'})
 onMounted(bindLiveModel);onUpdated(bindLiveModel);onBeforeUnmount(()=>unbindSavedForm(liveInstance))
 
 const locateFirstError = async () => {
@@ -43,6 +55,8 @@ const locateFirstError = async () => {
 
 const validate = async (callback) => {
   if (!innerFormRef.value) return false
+    if(!await numbering.ensure()){if(typeof callback==='function'){await callback(false,{});return false}throw new Error(numbering.error.value||'请等待编号占用完成')}
+    if(!await clientNumbering.ensure()){if(typeof callback==='function'){await callback(false,{});return false}throw new Error(clientNumbering.error.value||'请等待客户编号占用完成')}
   if(savedConflictRef.value?.checkBeforeSave()===false){if(typeof callback==='function'){await callback(false,{});return false}throw new Error('请先处理数据更新差异')}
   serverError.value = ''
 
@@ -89,6 +103,7 @@ const applyServerErrors = async (error, aliases = {}) => {
 }
 
 defineExpose({
+  numberLeaseHeaders: numbering.headers,
   validate,
   validateField: callInnerForm('validateField'),
   resetFields,

@@ -8,7 +8,7 @@ EXTENSIONS = frozenset(item for values in EXTENSION_CATEGORIES.values() for item
 SPLIT_ARCHIVE = re.compile(r'^(?:[rz]\d{2}|\d{3})$')
 SUFFIX_TOKEN = re.compile(r'\.([a-zA-Z0-9][a-zA-Z0-9_-]{0,19})(?=$|[\s,，;；、|+&])')
 MULTIPLE_MESSAGE = '一个订单号只能对应一个文件名，请将多个文件拆分为独立订单'
-EXTENSION_MESSAGE = '文件名称必须保留完整扩展名（如 .docx、.pdf、.mp4、.jpg、.zip）；未知格式请先核对后缀'
+EXTENSION_MESSAGE = '文件名称必须保留完整扩展名（如 .docx、.pdf、.mp4、.jpg、.zip）；未知格式请先核对后缀；如有子订单，母订单项目名称可不带扩展名'
 
 
 def known_extension(value):

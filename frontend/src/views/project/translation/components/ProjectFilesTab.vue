@@ -230,8 +230,9 @@ import {
 import { hasPermission } from '@/utils/permission'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 
-const emit = defineEmits(['status-change', 'update:referenceFilePathOne', 'update:sourceFileName', 'update:sourcePath'])
+const emit = defineEmits(['status-change', 'update:referenceFilePathOne', 'update:sourceFileName', 'update:sourcePath', 'update:draft'])
 const props = defineProps({
+  draft: { type: Object, default: undefined },
   sourcePath: { type: String, default: undefined },
   projectId: {
     type: [String, Number],
@@ -524,6 +525,20 @@ watch(() => props.sourcePath, value => {
 watch(() => pathGroupForm.storage_path, value => {
   if (props.sourcePath !== undefined && value !== props.sourcePath) emit('update:sourcePath', value || '')
 })
+
+let applyingPathDraft = false
+watch(() => props.draft, value => {
+  if (props.projectId || !value) return
+  const restored = { ...createEmptyPathGroup(), ...value, id: null }
+  if (JSON.stringify(restored) === JSON.stringify(pathGroupForm)) return
+  applyingPathDraft = true
+  try { assignPathGroup(restored) } finally { applyingPathDraft = false }
+}, { immediate: true, deep: true })
+watch(pathGroupForm, value => {
+  if (props.projectId || props.draft === undefined || applyingPathDraft) return
+  const draft = { ...value, id: null }
+  if (JSON.stringify(draft) !== JSON.stringify(props.draft)) emit('update:draft', draft)
+}, { deep: true, flush: 'sync' })
 
 watch(
   () => pathGroupForm.translation_domain_level1,

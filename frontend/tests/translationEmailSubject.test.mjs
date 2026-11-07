@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import test from 'node:test'
-import { buildTranslationEmailSubject, extractTranslationSubjectPrefix } from '../src/utils/translationEmailSubject.js'
+import { buildTranslationEmailSubject, extractTranslationSubjectPrefix, stripTranslationManagerContact } from '../src/utils/translationEmailSubject.js'
+
+test('新主题不带联系方式，旧主题去掉联系方式但保留人工备注',()=>{
+  assert.equal(stripTranslationManagerContact('人工备注，TP-261107-008，测试客户，13800000000，中译英','13800000000'),'人工备注，TP-261107-008，测试客户，中译英')
+  assert.equal(stripTranslationManagerContact('人工备注 TP-261107-008','13800000000'),'人工备注 TP-261107-008')
+})
 
 const cases = JSON.parse(fs.readFileSync(new URL('../../tests/fixtures/translation_email_subject_cases.json', import.meta.url), 'utf8'))
 const camel = (source) => Object.fromEntries(Object.entries(source).map(([key, value]) => [key.replace(/_([a-z])/g, (_, c) => c.toUpperCase()), value]))

@@ -209,6 +209,8 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     user = get_user_from_token_value(db, token)
     if user is None:
         raise credentials_exception
+    db.info['number_actor'] = user.id
+    db.info['number_actor_name'] = user.full_name or user.username
     return user
 
 

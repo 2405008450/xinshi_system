@@ -19,21 +19,34 @@
       <i v-for="edge in geometry.state.maximized?[]:edges" :key="edge" class="app-window-resize" :class="`app-window-resize--${edge}`" @mousedown="geometry.start($event, edge)" />
     </template>
     <slot v-else>{{ $attrs.content }}</slot>
+    <SelectionPopoverSummary ref="selectionSummary" :groups="selectionGroups" @confirm="confirmSelection" />
   </ElPopover>
   <WindowMinibar v-if="minimized" :title="title" @restore="minimized = false" @close="close" />
 </template>
 
 <script setup>
-import { computed, normalizeClass, ref, useAttrs, watch } from 'vue'
+import { computed, normalizeClass, provide, ref, shallowReactive, useAttrs, watch } from 'vue'
 import { ElPopover } from 'element-plus'
 import WindowControls from './WindowControls.vue'
 import WindowMinibar from './WindowMinibar.vue'
 import { useWindowGeometry } from '@/composables/useWindowGeometry'
+import {isAdvancedFilterDockDragging} from '@/utils/advancedFilterDock'
+import SelectionPopoverSummary from './selectionPopoverSummary.js'
+import { multiSelectionContext } from './multiSelectionContext.js'
 
 defineOptions({ inheritAttrs: false })
 defineProps({ title: { type: String, default: '' } })
 const emit = defineEmits(['update:visible'])
 const attrs = useAttrs()
+const selectionGroups = shallowReactive(new Map()), selectionSummary = ref()
+provide(multiSelectionContext, selectionGroups)
+function confirmSelection() {
+  const panel = selectionSummary.value?.$el?.closest('.el-popover')
+  const existing = [...(panel?.querySelectorAll('button') || [])].find(button =>
+    !button.closest('.multi-select-summary') && button.getClientRects().length && /^(确定|确认|应用|保存|查询|完成|确认选择)$/.test(button.textContent.trim()))
+  if (existing) { if (!existing.disabled) existing.click() }
+  else close()
+}
 const popoverRef = ref(), content = ref(), minimized = ref(false), localVisible = ref(), locallyClosed = ref(false)
 // 兼容只传 :visible 的调用方：关闭按钮也必须即时关闭，而非等待外层状态回写。
 const visible = computed(() => locallyClosed.value ? false : (attrs.visible ?? localVisible.value))
@@ -52,7 +65,7 @@ const windowStyle = computed(() => {
 function updateVisible(value) {
   if (minimized.value) return
   // 鼠标拖到浮窗外后释放，不应被原生 click-outside 当成关闭操作。
-  if (value === false && geometry.state.dragging) return
+  if (value === false && (geometry.state.dragging||isAdvancedFilterDockDragging())) return
   locallyClosed.value = !value
   localVisible.value = value
   emit('update:visible', value)

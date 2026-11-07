@@ -65,7 +65,7 @@ ANNOTATION_TYPE_VALUES = {"标注项目", "annotation"}
 TRANSLATION_TYPE_VALUES = {
     "笔译项目", "translation", "笔译",
     "配音项目", "dubbing",
-    "字幕项目", "subtitle",
+    "（音视频）转录/字幕项目", "字幕项目", "subtitle",
     "公证项目", "notarization",
     "认证项目", "certification",
     "其他项目", "equipment_rental", "other", "其他",
@@ -129,9 +129,11 @@ def reserve_annotation_order_no(
     assignment_source: str,
     assigned_by: Optional[UUID],
 ) -> ProjectOrderNoReservation:
-    """永久占用订单号；同一号码即使历史上使用过也不能再次分配。"""
+    """项目存续期间占用编号；删除后由统一删除历史保留记录并释放。"""
     normalized = normalize_annotation_order_no(order_no)
     _lock_annotation_order_numbers(db)
+    from business_numbering import consume_explicit
+    consume_explicit(db, 'annotation', normalized)
     existing = db.query(ProjectOrderNoReservation.id).filter(
         ProjectOrderNoReservation.project_type == "annotation",
         ProjectOrderNoReservation.order_no_key == normalized,
@@ -190,7 +192,8 @@ def generate_annotation_order_no(
         if match:
             used_sequences.append(int(match.group(1)))
     sequence = max(used_sequences, default=0) + 1
-    return f"{prefix}{sequence:03d}"
+    from business_numbering import allocate
+    return allocate(db, 'annotation', prefix, sequence)
 
 
 def _project_options():
@@ -640,7 +643,7 @@ def _next_child_number(db, parent):
         ProjectOrderNoReservation.project_type == "annotation",
         ProjectOrderNoReservation.project_id == parent.id,
     ).all())}
-    # 两种历史格式都计入永久占用序号，改号或删除后也不复用。
+    # 兼容两种历史格式；当前项目及改号记录占用的序号不可重复分配。
     patterns = [re.compile(rf"^{re.escape(number)}(?:-S|\.)(\d+)$") for number in parent_numbers]
     reserved = db.query(ProjectOrderNoReservation.order_no).filter(
         ProjectOrderNoReservation.project_type == "annotation",
@@ -655,7 +658,9 @@ def _next_child_number(db, parent):
         AnnotationProject.child_sequence_no.is_not(None),
     ).all()]
     sequence = max([*sequences, *existing_sequences], default=0) + 1
-    number = f"{parent.order_no}.{sequence:03d}"
+    from business_numbering import allocate
+    number = allocate(db, f'annotation_suborder:{parent.id}', parent.order_no + '.', sequence)
+    sequence = int(number.rsplit('.', 1)[1])
     if len(number) > 50:
         raise ValueError("上级订单号过长，无法生成下级订单号")
     return number, sequence

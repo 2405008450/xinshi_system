@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Date, ForeignKeyConstraint, Index, Integer, Numeric, PrimaryKeyConstraint, SmallInteger, String, Text, Time, UniqueConstraint, Uuid, func, text
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import ForeignKey
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from project_roles import PROJECT_ROLE_DEFINITIONS
@@ -150,6 +151,30 @@ class Client(Base):
     def cooperation_info(self):
         return self.cooperation_record.content if self.cooperation_record else ''
 
+    address_record = relationship('ClientAddress', cascade='all, delete-orphan', uselist=False, lazy='selectin')
+
+    @property
+    def full_address(self):
+        return self.address_record.content if self.address_record else ''
+
+    @property
+    def detailed_address(self):
+        return self.address_record.detail if self.address_record else ''
+
+    @detailed_address.setter
+    def detailed_address(self, value):
+        if value is None:return
+        if self.address_record is None:self.address_record = ClientAddress(content='', detail=value)
+        else:self.address_record.detail = value
+
+    @full_address.setter
+    def full_address(self, value):
+        if value is None:
+            return
+        if self.address_record is None:
+            if value:self.address_record = ClientAddress(content=value)
+        else:self.address_record.content = value
+
     @cooperation_info.setter
     def cooperation_info(self, value):
         if self.cooperation_record is None:
@@ -167,6 +192,13 @@ class ClientCooperation(Base):
 
     client_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
     content: Mapped[str] = mapped_column(Text, nullable=False, default='', server_default='')
+
+
+class ClientAddress(Base):
+    __tablename__ = 'client_address'
+    client_id = mapped_column(Uuid, ForeignKey('client.id', ondelete='CASCADE'), primary_key=True)
+    content = mapped_column(Text, nullable=False, default='')
+    detail = mapped_column(Text, nullable=False, default='')
 
 
 class ClientContact(Base):
@@ -231,8 +263,33 @@ class SubClient(Base):
     created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
     updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
 
+    address_record = relationship('SubClientAddress', cascade='all, delete-orphan', uselist=False, lazy='selectin')
+    @property
+    def full_address(self):
+        return self.address_record.content if self.address_record else ''
+    @full_address.setter
+    def full_address(self,value):
+        if value is None:return
+        if self.address_record is None:self.address_record=SubClientAddress(content=value)
+        else:self.address_record.content=value
+    @property
+    def detailed_address(self):
+        return self.address_record.detail if self.address_record else ''
+    @detailed_address.setter
+    def detailed_address(self,value):
+        if value is None:return
+        if self.address_record is None:self.address_record=SubClientAddress(content='',detail=value)
+        else:self.address_record.detail=value
+
     parent_client: Mapped['Client'] = relationship('Client', back_populates='sub_clients')
 
+
+
+class SubClientAddress(Base):
+    __tablename__ = 'sub_client_address'
+    sub_client_id = mapped_column(Uuid, ForeignKey('sub_client.id', ondelete='CASCADE'), primary_key=True)
+    content = mapped_column(Text, nullable=False, default='')
+    detail = mapped_column(Text, nullable=False, default='')
 
 
 class Consultation(Base):

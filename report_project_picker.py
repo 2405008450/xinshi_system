@@ -13,6 +13,7 @@ from search_matching import keyword_any
 
 PROJECT_MODELS={'笔译项目':TranslationProject,'口译项目':InterpretationProject,'标注项目':AnnotationProject,'招聘项目':RecruitmentProject,
                 '配音项目':TranslationProject,'字幕项目':TranslationProject,'公证项目':TranslationProject,'认证项目':TranslationProject,'新咨询对接':Consultation}
+PROJECT_MODELS['（音视频）转录/字幕项目'] = TranslationProject
 
 
 def query_projects(db,project_type):
@@ -20,7 +21,9 @@ def query_projects(db,project_type):
     if not model:
         raise HTTPException(422,'请选择已有项目类型')
     query=db.query(model)
-    if model is TranslationProject and project_type!='笔译项目':
+    if project_type in {'（音视频）转录/字幕项目', '字幕项目'}:
+        query=query.filter(TranslationProject.task_type.in_(['（音视频）转录/字幕项目', '字幕项目']))
+    elif model is TranslationProject and project_type!='笔译项目':
         query=query.filter(TranslationProject.task_type==project_type)
     return model,query
 

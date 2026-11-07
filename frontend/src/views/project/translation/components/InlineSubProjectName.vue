@@ -41,6 +41,7 @@ const props = defineProps({
   subOrderId: { type: String, required: true },
   modelValue: { type: String, default: '' },
   editable: { type: Boolean, default: false },
+  allowMissingExtension:Boolean,
 })
 const emit = defineEmits(['saved', 'pending-change'])
 const editing = ref(false)
@@ -60,7 +61,7 @@ watch([draft, editing], () => {
     id: props.subOrderId,
     name,
     pending: editing.value && name !== String(props.modelValue || '').trim(),
-    valid: !translationFileNameError(name),
+    valid: !translationFileNameError(name,{allowMissingExtension:props.allowMissingExtension}),
   })
 })
 
@@ -79,7 +80,7 @@ const cancel = () => {
 
 const save = async () => {
   const name = draft.value.trim()
-  const nameError = translationFileNameError(name)
+  const nameError = translationFileNameError(name,{allowMissingExtension:props.allowMissingExtension})
   if (nameError) return ElMessage.warning(nameError)
   if (name === (props.modelValue || '').trim()) return cancel()
   if (saving.value) return

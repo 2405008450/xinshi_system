@@ -1,4 +1,5 @@
 const types = {笔译项目:'translation',配音项目:'translation',字幕项目:'translation',公证项目:'translation',认证项目:'translation',口译项目:'interpretation',标注项目:'annotation',招聘项目:'recruitment',新咨询对接:'consultation'}
+types['（音视频）转录/字幕项目'] = 'translation'
 const prefixes = {TP:'笔译项目',IP:'口译项目',AP:'标注项目',RP:'招聘项目'}
 export function reportProjectIdentity(row) {
   const metadata = row?.display_metadata || {}

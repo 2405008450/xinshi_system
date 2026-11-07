@@ -19,7 +19,7 @@ const props = defineProps({ modelValue: String, reason: String, baselineId: Stri
 const emit = defineEmits(['update:modelValue','update:reason'])
 const users = ref([]), loading = ref(false)
 const changed = computed(() => String(props.modelValue || '') !== String(props.baselineId || ''))
-const reasonRules = [{validator:(_rule,value,done)=>String(value||'').trim()?done():done(new Error('请填写客户经理调整原因')),trigger:'blur'}]
+const reasonRules = [{required:true,validator:(_rule,value,done)=>String(value||'').trim()?done():done(new Error('请填写客户经理调整原因')),trigger:'blur'}]
 const choices = computed(() => {
   const result = [...users.value]
   if (props.modelValue && !result.some(u=>u.id===props.modelValue)) result.unshift({id:props.modelValue,display_name:props.modelValue===localStorage.getItem('user_id')?(localStorage.getItem('user_full_name')||localStorage.getItem('user_name')||props.modelValue):(props.baselineName||props.modelValue)})

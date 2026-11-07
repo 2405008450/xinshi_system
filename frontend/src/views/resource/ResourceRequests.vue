@@ -144,7 +144,8 @@
         />
       </template>
       <div ref="editorBodyRef" :inert="editorBusy || undefined">
-        <AppForm ref="formRef" :model="form" :rules="formRules" :disabled="editorBusy" :validate-on-rule-change="false" label-width="110px">
+        <AppForm number-scope="resource_request" number-field="requestNo" :number-active="dialogVisible && !form.id"  ref="formRef" :model="form" :rules="formRules" :disabled="editorBusy" :validate-on-rule-change="false" label-width="110px">
+        <el-form-item label="需求编号"><ReadonlyField :model-value="form.requestNo" source="auto" placeholder="正在占用编号" /></el-form-item>
         <div class="lifecycle-bar">
           <div>
             <span class="lifecycle-label">当前状态</span>

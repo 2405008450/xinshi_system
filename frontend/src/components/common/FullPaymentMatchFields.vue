@@ -5,9 +5,11 @@
       <el-form-item label="付款币种"><el-select :model-value="value.fullPaymentCurrency" aria-label="付款币种" @update:model-value="update('fullPaymentCurrency',$event)"><el-option v-for="currency in currencies" :key="currency" :value="currency" /></el-select></el-form-item>
       <el-form-item label="对应项目总价"><el-select :model-value="value.fullPaymentTotalKey" placeholder="选择要比对的项目总价" aria-label="对应项目总价" clearable @update:model-value="update('fullPaymentTotalKey',$event||null)"><el-option v-for="item in totals" :key="item.key" :value="item.key" :label="`${item.label} · ${item.currency} ${item.amount}`" /></el-select></el-form-item>
     </div>
+    <div class="full-payment-result-row">
     <p class="full-payment-result"><el-tag :type="status==='matched'?'success':status==='mismatch'?'danger':'info'">{{status==='matched'?'已匹配':status==='mismatch'?'不匹配':'待核对'}}</el-tag><span v-if="reference">{{reference.label}}：{{reference.currency}} {{reference.amount}}</span><span v-else>项目暂无可匹配总价</span></p>
+    <el-form-item v-if="status==='mismatch'" class="full-payment-reason" label-position="left" data-screenshot-editor="own" label="不匹配原因" :prop="`${prefix}.mismatchReason`" :rules="[{required:true,whitespace:true,message:'请说明全款金额不匹配的原因',trigger:'blur'}]"><el-input :model-value="value.mismatchReason" type="textarea" :autosize="{minRows:1,maxRows:3}" maxlength="2000" show-word-limit aria-label="不匹配原因" @update:model-value="update('mismatchReason',$event)" /></el-form-item>
+    </div>
     <p v-if="legacy" class="full-payment-hint">历史全款确认未登记金额，补充金额后可核对项目总价。</p>
-    <el-form-item v-if="status==='mismatch'" data-screenshot-editor="own" label="不匹配原因" :prop="`${prefix}.mismatchReason`" :rules="[{required:true,whitespace:true,message:'请说明全款金额不匹配的原因',trigger:'blur'}]"><el-input :model-value="value.mismatchReason" type="textarea" :rows="2" maxlength="2000" show-word-limit aria-label="不匹配原因" @update:model-value="update('mismatchReason',$event)" /></el-form-item>
     <p v-if="error" class="full-payment-error">{{error}} <el-button link @click="load">重新加载项目总价</el-button></p>
   </div>
 </template>
@@ -16,7 +18,7 @@
 import {computed,onBeforeUnmount,ref,watch} from 'vue'
 import api from '@/api'
 import ReadonlyField from './ReadonlyField.vue'
-import {paymentConfirmationForm,paymentChangeEvent} from '@/utils/paymentConfirmation'
+import {paymentConfirmationForm,paymentChangeEvent,preferredPaymentTotalKey} from '@/utils/paymentConfirmation'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 const props=defineProps({modelValue:Object,projectId:String,prefix:String,fromDetails:Boolean})
 const emit=defineEmits(['update:modelValue'])
@@ -29,6 +31,11 @@ const reference=computed(()=>totals.value.find(item=>item.key===value.value.full
 const status=computed(()=>loading.value||value.value.fullPaymentAmount==null?'pending':reference.value&&reference.value.currency===value.value.fullPaymentCurrency&&sameAmount(reference.value.amount,value.value.fullPaymentAmount)?'matched':'mismatch')
 const legacy=computed(()=>value.value.fullMatchStatus==='unverified'&&value.value.fullPaymentAmount==null)
 function update(key,data){emit('update:modelValue',{...value.value,[key]:data})}
+watch([totals,()=>value.value.fullPaymentCurrency,loading],()=>{
+  if(loading.value||!totals.value.length)return
+  const key=preferredPaymentTotalKey(totals.value,value.value.fullPaymentCurrency,value.value.fullPaymentTotalKey)
+  if(key!==value.value.fullPaymentTotalKey)update('fullPaymentTotalKey',key)
+})
 function validateAmount(_rule,_amount,callback){callback(legacy.value?undefined:error.value?new Error('请先重新加载项目总价'):loading.value?new Error('项目总价正在加载'):value.value.fullPaymentAmount==null?new Error('请填写已付全款金额'):undefined)}
 async function load(){
   const current=++sequence;controller?.abort();controller=new AbortController();totals.value=[];error.value=''
@@ -45,5 +52,6 @@ onBeforeUnmount(()=>{window.removeEventListener(paymentChangeEvent,onPaymentChan
 </script>
 
 <style scoped>
+.full-payment-result-row{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:12px}.full-payment-result-row .full-payment-result{flex:0 1 auto;margin:0;min-height:32px}.full-payment-reason{flex:1 1 300px;min-width:0;margin-bottom:0}.full-payment-reason :deep(.el-form-item__content){min-width:0}.full-payment-reason :deep(.el-textarea){width:100%}
 .full-payment-inputs{display:grid;grid-template-columns:1fr .7fr 1.8fr;gap:12px}.full-payment-inputs>*{min-width:0}.full-payment-inputs .el-select,.full-payment-inputs .el-input-number{width:100%}.full-payment-result{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px}.full-payment-hint{color:var(--el-text-color-secondary);font-size:12px}.full-payment-error{color:var(--el-color-danger)}@media(max-width:680px){.full-payment-inputs{grid-template-columns:1fr}}
 </style>

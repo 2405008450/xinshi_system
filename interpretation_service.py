@@ -110,7 +110,8 @@ def generate_interpretation_order_no(db: Session, current_time: Optional[datetim
             sequence = int(last_order_no.rsplit("-", 1)[-1]) + 1
         except ValueError:
             sequence = 1
-    return f"{prefix}{sequence:03d}"
+    from business_numbering import allocate
+    return allocate(db, 'interpretation', prefix, sequence)
 
 
 def _time_period_label(start: datetime, end: datetime) -> str:

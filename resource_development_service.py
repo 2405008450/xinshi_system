@@ -109,7 +109,10 @@ def allocate_greeting(db, platform, work_date):
         db.add(counter)
     counter.value += 1
     db.flush()
-    return f"{platform.code}-{work_date:%y%m%d}-{counter.value:03d}"
+    from business_numbering import allocate
+    number=allocate(db,f'greeting:{platform.id}',f'{platform.code}-{work_date:%y%m%d}-',counter.value)
+    counter.value=max(counter.value,int(number.rsplit('-',1)[1]))
+    return number
 
 
 def record_name_duplicates(db, user, name, skip=0, limit=20):
