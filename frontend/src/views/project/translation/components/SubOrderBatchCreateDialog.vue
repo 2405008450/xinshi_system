@@ -96,7 +96,7 @@
       </el-row>
       <el-row :gutter="16">
         <el-col :xs="24" :md="12"><el-form-item label="文本类型"><el-input v-model="form.fileTypeSecondary" /></el-form-item></el-col>
-        <el-col :xs="24" :md="12"><el-form-item label="翻译方向"><LanguagePairSelect v-model="form.languagePair" :show-hint="false" /></el-form-item></el-col>
+        <el-col :xs="24" :md="12"><el-form-item label="翻译方向"><LanguagePairSelect v-model="form.languagePair" allow-proofreading :show-hint="false" /></el-form-item></el-col>
       </el-row>
       <el-row :gutter="16">
         <el-col :xs="24" :md="12"><el-form-item label="客户交稿时间"><el-date-picker v-model="form.customerDeadlineTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>

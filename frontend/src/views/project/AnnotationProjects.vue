@@ -71,7 +71,7 @@
             <div v-if="row.childProgressCount > 0" class="order-cell-progress-read"><AnnotationChildProgressNotice :project-id="row.id" :count="row.childProgressCount || 0" :record-keys="row.childProgressKeys || []" :has-children="row.childCount > 0" /></div>
             <div class="order-cell-secondary">
               <el-tag v-if="row.parentProjectId" size="small" type="warning">{{ row.orderLevel === 2 ? '三级订单' : '子订单' }}</el-tag>
-              <el-button v-if="row.orderLevel < (supportsGrandchildOrders ? 2 : 1)" link type="primary" @click="props.conversationPicker ? toggle() : goChildManagement(row.id, row.orderLevel)">{{ row.orderLevel === 1 ? '三级订单' : '子订单' }} {{ row.childCount || 0 }}</el-button>
+              <el-button v-if="row.orderLevel < (supportsGrandchildOrders ? 2 : 1) && (!props.conversationPicker || Number(row.childCount) > 0)" link type="primary" @click="props.conversationPicker ? toggle() : goChildManagement(row.id, row.orderLevel)">{{ row.orderLevel === 1 ? '三级订单' : '子订单' }}{{ Number(row.childCount) > 0 ? ` ${row.childCount}` : '管理' }}</el-button>
               <AnnotationMaterialPopover :project-id="row.id" />
               <PathActionButtons class="annotation-copy-path" :show-open="false" @copy="copyProjectPath(row)" />
             </div>

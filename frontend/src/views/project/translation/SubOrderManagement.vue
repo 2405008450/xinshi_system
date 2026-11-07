@@ -126,7 +126,7 @@
         </el-row>
         <el-row :gutter="16">
           <el-col :span="12"><el-form-item label="文件二级类型"><el-input v-model="subOrderForm.fileTypeSecondary" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="翻译方向"><LanguagePairSelect v-model="subOrderForm.languagePair" :show-hint="false" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="翻译方向"><LanguagePairSelect v-model="subOrderForm.languagePair" allow-proofreading :show-hint="false" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="16">
           <el-col :span="12"><el-form-item label="优先级"><el-select v-model="subOrderForm.priority" clearable style="width: 100%"><el-option v-for="item in priorityOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item></el-col>

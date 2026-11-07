@@ -49,7 +49,7 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="序号" :width="fittedViewport ? 70 : 80"><template #default="{ row, $index }"><div class="channel-index-cell"><span>{{ (page - 1) * pageSize + $index + 1 }}</span><TableExpandButton v-if="row.accounts?.length" :expanded="expandedIds.includes(row.id)" expand-label="展开账号" collapse-label="收起账号" @click="toggleAccounts(row)" /></div></template></el-table-column>
+      <el-table-column label="序号" :width="84"><template #default="{ row, $index }"><div class="channel-index-cell"><span>{{ (page - 1) * pageSize + $index + 1 }}</span><TableExpandButton v-if="row.accounts?.length" :expanded="expandedIds.includes(row.id)" :count="row.accounts.length" expand-label="展开账号" collapse-label="收起账号" @click="toggleAccounts(row)" /></div></template></el-table-column>
       <el-table-column v-for="column in visibleColumns" :key="column.key" :label="column.label" :min-width="columnWidth(column)" :show-overflow-tooltip="!['description','maintainers','users'].includes(column.key)">
         <template #default="{ row }">
           <ChannelTextPreview v-if="column.key === 'description'" :text="row.description" :name="row.name" />

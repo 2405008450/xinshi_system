@@ -10,6 +10,14 @@
       @input="$emit('text-input', $event)"
       @keyup.enter="$emit('enter')"
     />
+    <el-button
+      v-for="option in definition.quickOptions || []"
+      :key="option.value"
+      size="small"
+      link
+      type="primary"
+      @click="update(option.value); $emit('change', option.value)"
+    >{{ option.label }}</el-button>
     <el-checkbox v-if="definition.allowEmpty" :model-value="emptySelected" @change="changeEmpty">为空白</el-checkbox>
   </template>
   <el-select

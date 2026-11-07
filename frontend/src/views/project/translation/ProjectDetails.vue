@@ -201,13 +201,14 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center">
+      <el-table-column label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.indexExpandable" align="center">
         <template #default="{ row, $index }">
           <div class="index-cell">
             <span>{{ $index + 1 }}</span>
             <TableExpandButton
               v-if="getSubOrderCount(row)"
               :expanded="isProjectExpanded(row)"
+              :count="getSubOrderCount(row)"
               expand-label="展开子订单"
               collapse-label="收起子订单"
               @click="toggleProjectExpansion(row)"
@@ -398,7 +399,7 @@
                     </el-col>
                     <el-col :xs="24" :md="12">
                       <el-form-item label="翻译方向" prop="languagePair" data-field-key="languagePair">
-                        <LanguagePairSelect v-model="form.languagePair" />
+                        <LanguagePairSelect v-model="form.languagePair" allow-proofreading />
                       </el-form-item>
                     </el-col>
                   </el-row>
@@ -811,7 +812,7 @@
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="文本类型"><el-input v-model="subOrderForm.fileTypeSecondary" /></el-form-item></el-col>
-                  <el-col :xs="24" :md="12"><el-form-item label="翻译方向"><LanguagePairSelect v-model="subOrderForm.languagePair" :show-hint="false" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="12"><el-form-item label="翻译方向"><LanguagePairSelect v-model="subOrderForm.languagePair" allow-proofreading :show-hint="false" /></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="优先级"><el-select v-model="subOrderForm.priority" clearable style="width: 100%"><el-option v-for="item in priorityOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item></el-col>
@@ -1219,7 +1220,7 @@ const translationFilterFields = [
   { key: 'customerRequirementProfessional', label: '客户专业要求', type: 'text' },
   { key: 'customerRequirementSpecial', label: '客户特殊要求', type: 'text' },
   { key: 'remarks', label: '备注', type: 'text' },
-  { key: 'languagePair', label: '翻译方向', type: 'text' },
+  { key: 'languagePair', label: '翻译方向', type: 'text', placeholder: '输入翻译方向或校对', quickOptions: [{ label: '校对', value: '校对' }] },
   { key: 'priority', label: '优先级', type: 'select', options: priorityOptions },
   { key: 'wordCountDimension', apiKey: 'word_count_dimension', label: '字数统计口径', type: 'select', options: [{value:'company',label:'我司统计'},{value:'customer',label:'客户统计'},{value:'preliminary',label:'预统计（不用以计算费用）'},{value:'translator_estimate',label:'译员预估'}] },
   { key: 'wordCountMetricType', apiKey: 'word_count_metric_type', label: '字数统计指标', type: 'select', options: [{value:'words',label:'字数'},{value:'characters_no_spaces',label:'字符数（不计空格）'},{value:'cjk_chars_korean_words',label:'中文字符和朝鲜语单词'},{value:'foreign_words',label:'外文字数'},{value:'documents',label:'份数'},{value:'pages',label:'页数'}] },
@@ -2465,7 +2466,7 @@ useProjectStatusSync('translation',tableData,{enabled:()=>!props.editorOnly,onCh
   box-shadow: 0 0 0 2px var(--color-primary-soft);
 }
 .time-column-sort-trigger.is-active:hover { background: var(--color-primary-hover); color: #fff; }
-.index-cell { display: inline-flex; flex-direction: row; flex-wrap: nowrap; align-items: center; justify-content: center; gap: 0; min-height: 20px; line-height: 20px; white-space: nowrap; }
+.index-cell { display: inline-flex; flex-direction: row; flex-wrap: nowrap; align-items: center; justify-content: center; gap: 4px; min-height: 20px; line-height: 20px; white-space: nowrap; }
 
 @media (max-width: 768px) {
   .service-content-field { flex-direction: column; }

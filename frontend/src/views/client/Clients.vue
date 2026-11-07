@@ -109,21 +109,18 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="序号" width="68" align="center">
+      <el-table-column label="序号" width="84" align="center">
         <template #default="{ row, $index }">
           <div class="client-index-cell">
             <span>{{ $index + 1 }}</span>
-            <button
+            <TableExpandButton
               v-if="hasSubClients(row)"
-              type="button"
-              class="sub-client-expand-button"
-              :class="{ 'is-expanded': expandedClientIds.has(row.id) }"
-              :aria-label="expandedClientIds.has(row.id) ? '收起子客户' : '展开子客户'"
-              :aria-expanded="expandedClientIds.has(row.id)"
-              @click.stop="toggleClientExpansion(row)"
-            >
-              <el-icon><ArrowRight /></el-icon>
-            </button>
+              :expanded="expandedClientIds.has(row.id)"
+              :count="row.sub_clients.length"
+              expand-label="展开子客户"
+              collapse-label="收起子客户"
+              @click="toggleClientExpansion(row)"
+            />
           </div>
         </template>
       </el-table-column>
@@ -538,7 +535,7 @@ import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { refreshAfterSave } from '@/utils/postSaveRefresh.js'
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch, defineAsyncComponent } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowRight } from '@element-plus/icons-vue'
+import TableExpandButton from '@/components/common/TableExpandButton.vue'
 import * as clientApi from '@/api/clients'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
@@ -1225,32 +1222,7 @@ onBeforeUnmount(() => {
   flex-wrap: nowrap;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-}
-.sub-client-expand-button {
-  display: inline-flex;
-  width: 22px;
-  height: 18px;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  color: var(--el-text-color-secondary);
-  cursor: pointer;
-  background: transparent;
-  border: 0;
-  border-radius: 4px;
-}
-.sub-client-expand-button:hover,
-.sub-client-expand-button:focus-visible {
-  color: var(--el-color-primary);
-  background: var(--el-color-primary-light-9);
-  outline: none;
-}
-.sub-client-expand-button .el-icon {
-  transition: transform 0.2s ease;
-}
-.sub-client-expand-button.is-expanded .el-icon {
-  transform: rotate(90deg);
+  gap: 4px;
 }
 
 :global(.client-form-dialog) {

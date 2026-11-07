@@ -11,6 +11,9 @@
   background: #f6f8f7;
 }
 .sub-order-panel__header { min-height: 24px; margin-bottom: 6px; }
+.sub-order-panel, .order-children { border-left: 3px solid var(--el-color-primary); }
+.el-table .el-table__body tr.expanded > td.el-table__cell:not(.el-table__expanded-cell) { background-color: var(--el-color-primary-light-9); }
+.el-table .el-table__body td.el-table__cell:not(.el-table__expanded-cell):has(.table-expand-button.is-expanded) { box-shadow: inset 3px 0 0 var(--el-color-primary); }
 .sub-order-panel .sub-order-panel__actions .el-button {
   --el-button-text-color: #405c59;
   --el-button-bg-color: #eaf1ef;

@@ -20,7 +20,7 @@
       </dl>
       <footer class="order-card__foot">
         <div v-if="canExpand(row)" class="order-card__expand" @click="toggleRow(row)">
-          <TableExpandButton :expanded="expanded.includes(row.id)" :expand-label="row.orderLevel === 1 ? '展开三级订单' : '展开子订单'" collapse-label="收起下级订单" @click="toggleRow(row)" />
+          <TableExpandButton :expanded="expanded.includes(row.id)" :count="Number(row.childCount) || 0" :expand-label="row.orderLevel === 1 ? '展开三级订单' : '展开子订单'" collapse-label="收起下级订单" @click="toggleRow(row)" />
           <span>{{ expanded.includes(row.id) ? '收起' : '展开' }}{{ row.orderLevel === 1 ? '三级订单' : '子订单' }}（{{ row.childCount || 0 }}）</span>
         </div>
         <span class="order-card__spacer" />
@@ -73,9 +73,9 @@
         </div>
       </template>
     </el-table-column>
-    <el-table-column label="序号" width="65" :fixed="nested ? false : 'left'">
+    <el-table-column label="序号" width="84" :fixed="nested ? false : 'left'">
       <template #default="{ row, $index }"><div class="order-index"><span>{{ $index + 1 }}</span>
-        <TableExpandButton v-if="row.orderLevel < (supportsGrandchildOrders ? 2 : 1)" :expanded="expanded.includes(row.id)" :expand-label="row.orderLevel === 1 ? '展开三级订单' : '展开子订单'" collapse-label="收起下级订单" @click="tableRef.toggleRowExpansion(row)" />
+        <TableExpandButton v-if="canExpand(row)" :expanded="expanded.includes(row.id)" :count="Number(row.childCount)" :expand-label="row.orderLevel === 1 ? '展开三级订单' : '展开子订单'" collapse-label="收起下级订单" @click="tableRef.toggleRowExpansion(row)" />
       </div></template>
     </el-table-column>
     <el-table-column label="订单号" :width="nested || rows.some(row => row.parentProjectId) ? 240 : 200" :fixed="nested ? false : 'left'"><template #header><slot name="header" :column="{key:'orderNo',label:'订单号'}" /></template><template #default="{ row }"><slot name="order" :row="row" :toggle="() => tableRef.toggleRowExpansion(row)" /></template></el-table-column>
@@ -125,7 +125,7 @@ onBeforeUnmount(()=>{resizeObserver?.disconnect();requests.forEach(controller=>c
 // 手机端卡片模式：与表格共用展开、加载与选择语义，仅渲染方式不同。
 const selectedIds = ref([])
 const levelLimit = computed(() => (props.supportsGrandchildOrders ? 2 : 1))
-const canExpand = row => row.orderLevel < levelLimit.value
+const canExpand = row => row.orderLevel < levelLimit.value && Number(row.childCount) > 0
 const wideColumnKeys = new Set(['projectName','taskDescription','latestCustomerProgressNote','languageItemsDisplay','regionSummary','customerPriceSummary','assigneeSummary','projectPath','quotationPath','contractPath','clientFullName','customerOrderNo'])
 const isWideColumn = column => wideColumnKeys.has(column.key) || Boolean(column.customField && column.minWidth > 110)
 const cardRowClass = (row, index) => props.rowClass?.({ row, rowIndex: index }) || ''

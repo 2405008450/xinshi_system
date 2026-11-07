@@ -94,6 +94,7 @@ const props = defineProps({
   placeholder: { type: String, default: '请选择一个或多个翻译方向' },
   showHint: { type: Boolean, default: true },
   single: Boolean,
+  allowProofreading: Boolean,
   dropdownWidth: {type:[Boolean,Number],default:true},
   allowCreate: {type:Boolean,default:true},
 })
@@ -207,6 +208,9 @@ const languagePairOptions = computed(() => {
       }
     }))
   generated.sort((left, right) => left.commonRank - right.commonRank)
+  if (props.allowProofreading) {
+    generated.unshift({ label: '校对', value: '校对', shortLabel: '业务标记', searchText: '校对', directionSearchText: '校对' })
+  }
   const known = new Set(generated.map((item) => item.value))
   const legacy = parseLanguagePairs(props.modelValue)
     .filter((value) => !known.has(value))
@@ -252,7 +256,9 @@ const handleVisibleChange = (visible) => {
 
 const hintText = computed(() => loadingFailed.value
   ? '语种候选项加载失败，请刷新页面后重试'
-  : '可输入“中英”“中译英”等简称搜索；语种目录由各类项目共享')
+  : props.allowProofreading
+    ? '可选择“校对”，也可与翻译方向组合；支持“中英”“中译英”等简称搜索'
+    : '可输入“中英”“中译英”等简称搜索；语种目录由各类项目共享')
 
 const loadLanguages = async () => {
   loading.value = true
