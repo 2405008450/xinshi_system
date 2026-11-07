@@ -384,12 +384,13 @@ function handleSourceNameReload() {
 }
 
 function applySelectedFiles(files) {
+  if (!files.length) return
+  // 单选和多选均以第一个选中文件命名，重新选择时同步替换旧名称。
+  emit('update:sourceFileName', files[0].name)
   if (files.length === 1) {
     pathGroupForm.storage_path = files[0].path
-    emit('update:sourceFileName', files[0].name)
     emit('files-selected', [])
   } else {
-    if (!String(props.sourceFileName || '').trim()) emit('update:sourceFileName', String(pathGroupForm.storage_path).replace(/[\\/]+$/, '').split(/[\\/]/).pop())
     emit('files-selected', files)
   }
 }
