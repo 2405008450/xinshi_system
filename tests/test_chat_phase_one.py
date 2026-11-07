@@ -63,6 +63,54 @@ def send(db, cid, user, **kwargs):
     return send_message(db, cid, user, AnnotationProjectChatMessageCreate(content='你好 https://example.org', **kwargs))
 
 
+def test_session_directory_sql_count_does_not_grow_with_conversations(environment, monkeypatch):
+    """置顶/星标与私聊会话列均为延迟列，逐行补查会让会话目录随会话数线性增长。"""
+    db, users, engine = environment
+    from sqlalchemy import event
+    from annotation_models import AnnotationProject
+    from models import AnnotationChatMember
+    import annotation_chat_service as annotation
+    import direct_chat_service as service
+    from routers.chat_sessions import sessions
+    monkeypatch.setattr(annotation, 'can_view', lambda _db, user: bool(user and user.is_active))
+    statements = []
+    def count(*_args):
+        statements.append(1)
+
+    def add_conversations(total):
+        for index in range(total):
+            project = AnnotationProject(order_no='SQL-' + uuid4().hex[:12], project_name=f'计数项目{index}', project_types=[])
+            db.add(project); db.flush()
+            db.add(AnnotationChatMember(project_id=project.id, user_id=users[1].id, following=True,
+                                        pinned=index % 2 == 0, starred=True, last_read_sequence=0))
+            db.commit()
+        peers = [users[0], users[2], users[3]]
+        for peer in peers[:total]:
+            cid = service.open_conversation(db, peer, users[1].id)['id']
+            send(db, cid, peer)
+
+    def measured():
+        db.expire_all()
+        statements.clear()
+        event.listen(engine, 'before_cursor_execute', count)
+        try:
+            data = sessions(db, users[1])
+        finally:
+            event.remove(engine, 'before_cursor_execute', count)
+        return len(statements), data
+
+    add_conversations(1)
+    small, _ = measured()
+    add_conversations(3)
+    large, data = measured()
+    assert large == small, f'会话目录 SQL 条数随会话数增长：{small} -> {large}'
+    annotation_rows = [row for row in data['items'] if row['kind'] == 'annotation']
+    direct_rows = [row for row in data['items'] if row['kind'] == 'direct']
+    assert len(annotation_rows) == 4 and all(row['starred'] for row in annotation_rows)
+    assert sorted(row['pinned'] for row in annotation_rows) == [False, True, True, True]
+    assert len(direct_rows) == 3 and all(row['last_message'] for row in direct_rows)
+
+
 def test_pair_idempotency_concurrency_and_member_access(environment):
     db, users, engine = environment
     import direct_chat_service as service

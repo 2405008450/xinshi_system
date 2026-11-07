@@ -13,7 +13,11 @@ def ready(db):
 
 def department_condition(db, names):
     """兼容主部门及跨部门成员，用于人员筛选和部门通知。"""
-    values = {value for name in names for value in department_filter_values(name, db)}
+    aliases = None
+    if hasattr(db, 'connection'):
+        from department_service import alias_map
+        aliases = alias_map(db)
+    values = {value for name in names for value in department_filter_values(name, db, aliases)}
     primary = AppUser.department.in_(values)
     if not ready(db):
         return primary

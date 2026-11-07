@@ -550,7 +550,8 @@ def _talent_ordering(sort: str):
 
 def get_talents(
     db: Session, *, skip: int = 0, limit: int = 100,
-    sort: str = "updated_desc", person_ids: Optional[list[UUID]] = None, **filters,
+    sort: str = "updated_desc", person_ids: Optional[list[UUID]] = None,
+    annotate_reviews: bool = True, **filters,
 ) -> list[ResourcePerson]:
     query = _talent_query(db, **filters)
     if person_ids is not None:
@@ -569,8 +570,10 @@ def get_talents(
         prepare_person(db, person)
         person.__dict__["_page_total"] = int(page_total or 0)
         people.append(person)
-    from talent_duplicate_service import annotate_review_states
-    annotate_review_states(db, people)
+    if annotate_reviews:
+        # 同名核重结论需为整组成员计算比对指纹，开销大；不展示该状态的调用方应关闭。
+        from talent_duplicate_service import annotate_review_states
+        annotate_review_states(db, people)
     return people
 
 

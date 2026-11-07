@@ -33,6 +33,12 @@ if DATABASE_URL.startswith("postgresql"):
         pool_recycle=int(os.getenv("DB_POOL_RECYCLE_SECONDS", "1800")),
     )
     engine_options["connect_args"] = {
+        # 局域网经公网连接云端数据库：TCP keepalive 防止 NAT/防火墙静默回收空闲连接，
+        # 避免 pre_ping 失败后重新握手与认证（多次公网往返）。
+        "keepalives": 1,
+        "keepalives_idle": int(os.getenv("DB_KEEPALIVES_IDLE_SECONDS", "30")),
+        "keepalives_interval": int(os.getenv("DB_KEEPALIVES_INTERVAL_SECONDS", "10")),
+        "keepalives_count": int(os.getenv("DB_KEEPALIVES_COUNT", "3")),
         "options": " ".join(
             [
                 "-c timezone=Asia/Hong_Kong",

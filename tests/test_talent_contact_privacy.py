@@ -163,3 +163,5 @@ def test_restricted_talent_option_keyword_does_not_search_contacts(monkeypatch):
     )
     assert result == []
     assert captured["include_contact_search"] is False
+    # 选择器响应不含同名核重状态，不得为整组成员计算比对指纹（曾导致单次请求 600+ 条 SQL）。
+    assert captured["annotate_reviews"] is False

@@ -11,6 +11,7 @@ import time
 import httpx
 
 ORIGINS = ('https://oa.xinshify.com.cn', 'https://www.oa.xinshify.com.cn')
+AUTHORIZED_CASES = ('session', 'translation', 'talents')
 
 
 def probe(origins, repeats, with_lists):
@@ -19,7 +20,9 @@ def probe(origins, repeats, with_lists):
         raise SystemExit('列表采样需要在当前进程环境中设置 LAN_PERFORMANCE_TOKEN，不接受命令行凭据')
     paths = [('homepage', '/'), ('db_health', '/api/health/db')]
     if with_lists:
-        paths += [('translation', '/api/projects/translation/page?limit=20'),
+        # session 是只读查询分流的前置门槛：局域网签发的令牌在云端也必须返回 200。
+        paths += [('session', '/api/auth/session'),
+                  ('translation', '/api/projects/translation/page?limit=20'),
                   ('talents', '/api/talents/page?limit=20')]
     rows = []
     with httpx.Client(timeout=15, follow_redirects=False, trust_env=False) as client:
@@ -29,12 +32,13 @@ def probe(origins, repeats, with_lists):
                 for _ in range(repeats):
                     started = time.perf_counter()
                     # 凭据仅发给需要授权的业务列表，不发给首页及健康探针。
-                    headers = {'Authorization': 'Bearer ' + token} if name in ('translation', 'talents') else {}
+                    headers = {'Authorization': 'Bearer ' + token} if name in AUTHORIZED_CASES else {}
                     try:
                         response = client.get(origin + path, headers=headers)
                         samples.append({'ms': round((time.perf_counter() - started) * 1000, 2),
                                         'status': response.status_code,
                                         'request_id': response.headers.get('x-request-id'),
+                                        'api_route': response.headers.get('x-xinshi-api-route'),
                                         'server_timing': response.headers.get('server-timing')})
                     except httpx.HTTPError as error:
                         samples.append({'error': type(error).__name__})

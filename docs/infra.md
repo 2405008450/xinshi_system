@@ -281,6 +281,39 @@ Start-ScheduledTask -TaskName 'XinshiLanProductionFrontend'
 Nginx 由 `SYSTEM` 计划任务启动。SSH 管理员会话直接执行 `nginx -s reload` 会因为无权访问
 该进程的全局 reload 事件而失败，因此远程更新统一通过上述计划任务重启，不直接热重载。
 
+## 局域网只读查询分流
+
+**原因**：局域网后端经公网连接云端数据库，每条 SQL 都要付一次公网往返；一个列表接口常有几十条顺序 SQL，云端几毫秒的请求在局域网变成数秒，并因线程池和连接预算被占满而排队超时。云端后端与数据库同机，因此把“纯数据库的只读查询”交给云端后端执行，局域网后端专注共享目录与本机文件。
+
+**规则**（`deploy/nginx-lan.conf` 中的 `$xinshi_api_target` map，首个命中的正则生效）：
+
+| 请求 | 去向 |
+| --- | --- |
+| POST/PUT/PATCH/DELETE 等全部写操作、HEAD/OPTIONS | 本机 8000 |
+| `/api/notifications/ws`（通知推送随写操作所在进程） | 本机 8000 |
+| GET `/api/auth`、`/push`、`/health`、`/mail-settings`、`/project-mails`、`/mail-inline-images`、`/editor-screenshots` | 本机 8000 |
+| GET `/api/projects/annotation/office/*` | 本机 8000 |
+| GET 稿件安排的 `projects/{id}/dispatch-files`（读共享目录）、`mail-status`、`mail-preview` | 本机 8000 |
+| GET `/api/talents/duplicate-review/*`（读本机 `outputs` 文件） | 本机 8000 |
+| GET 路径中含 `attachments`、`files`、`images`、`materials`、`task-images`、`custom-field-images`、`content`、`download`、`original-data` 段 | 本机 8000 |
+| GET 路径段含 `export`、`template`、`excel`、`xlsx`、`pdf`（耗时长、依赖本机字体） | 本机 8000 |
+| 其余 GET 查询（列表、详情、统计、选项等） | 云端 `https://www.oa.xinshify.com.cn/api/` |
+
+共享目录读取（`/project-files/source-path/inspect`、`/sub-orders/source-files`）以及稿件安排的新建、修改、确认、改派、选择文件、发送均为写请求，天然留在本机；稿件安排的列表与上下文查询走云端。响应头 `X-Xinshi-Api-Route` 显示 `lan`、`cloud` 或 `lan-fallback`，访问日志的 `upstream=` 记录实际上游。
+
+**维护约定**：新增读取共享目录、本机磁盘文件、本机环境配置（SMTP、密钥、字体等）或依赖进程内状态的 **GET** 接口时，必须在 map 中补充例外，并在 `tests/test_nginx_lan_api_routing.py` 增加用例；写接口无需处理。
+
+**启用前置条件**（任一不满足都不得启用）。仓库中开关默认为 `off`：Nginx 直接读取仓库内的配置文件，拉取代码并重启 Nginx 不会自动切换，需由运维在局域网服务器把 `$xinshi_cloud_read_split` 改为 `on`：
+
+1. 局域网与云端运行同一 Git 提交，避免前端拿到不同版本的接口结构。
+2. 局域网签发的令牌能通过云端鉴权：在局域网服务器设置当前进程环境变量 `LAN_PERFORMANCE_TOKEN` 后执行 `tools/probe_lan_performance.py --with-lists`，两个 origin 的 `session` 用例均须返回 200。`SECRET_KEY` 不一致时云端会返回 401，前端会把用户登出。密钥只通过受保护渠道统一，不写入文档或仓库。
+3. 上游证书信任文件 `E:\xinshi_system\.conda_env\Lib\site-packages\certifi\cacert.pem` 存在（httpx 依赖的 certifi 公共 CA 包）。该文件在配置加载时读取，**开关为 `off` 时也必须存在**，否则 `nginx -t` 失败；因此更新本配置后务必先执行 `nginx -t`，通过后才能重启 Nginx。
+4. 局域网服务器能直连 `43.132.156.72:443`。
+
+**切换与回退**：备份当前 `nginx-lan.conf`，把开关改为 `on` 后，按上一节方式执行 `nginx -t` 并通过 `XinshiLanProductionFrontend` 计划任务重启 Nginx；局域网后端与云端均无需重启。回退时把开关改回 `default off;`（全部 `/api` 回到本机 8000），校验后同样重启 Nginx。云端网关不可连接或超时时，GET 查询会自动回退本机（`lan-fallback`），但这不能替代上述回退步骤。
+
+**已知边界**：通知 WebSocket 仍是各后端进程内存实现，云端入口与局域网入口的用户之间互相收不到对方触发的实时推送，此行为与分流前一致。云端 `/api/` 读取超时为 30 秒，超长查询应优化 SQL，而不是改回局域网。
+
 ## 公网生产 HTTPS 入口
 
 公网生产环境的正式入口为 `https://www.oa.xinshify.com.cn/`，阿里云公网 DNS 使用 A 记录

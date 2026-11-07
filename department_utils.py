@@ -19,12 +19,16 @@ def normalize_department(value: Optional[str]) -> Optional[str]:
     return DEPARTMENT_ALIASES.get(normalized, normalized)
 
 
-def department_filter_values(value: str, db=None) -> tuple[str, ...]:
-    """返回查询某部门时需要兼容的当前值和历史值。"""
-    aliases = DEPARTMENT_ALIASES
-    if db is not None and hasattr(db,'connection'):
-        from department_service import alias_map
-        aliases = alias_map(db)
+def department_filter_values(value: str, db=None, aliases=None) -> tuple[str, ...]:
+    """返回查询某部门时需要兼容的当前值和历史值。
+
+    批量换算多个部门时由调用方传入同一份 ``aliases``，避免每个名称都重新查询部门表。
+    """
+    if aliases is None:
+        aliases = DEPARTMENT_ALIASES
+        if db is not None and hasattr(db,'connection'):
+            from department_service import alias_map
+            aliases = alias_map(db)
     normalized = aliases.get(value.strip(), normalize_department(value)) or ""
     legacy_values = [
         legacy

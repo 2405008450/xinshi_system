@@ -40,4 +40,6 @@ def read_talent_options(
         capability_type=capability_type,
         capability_status="active",
         include_contact_search=can_view_talent_contacts(db, current_user),
+        # 选择器响应不含同名核重状态，跳过整组比对指纹计算。
+        annotate_reviews=False,
     )

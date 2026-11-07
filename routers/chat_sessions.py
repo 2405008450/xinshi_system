@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from pydantic import Field
 from sqlalchemy import func, or_, and_
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, undefer
 from database import get_db
 from routers.auth import get_current_user
 from models import (AppUser, AnnotationChatMember, ChatDirectConversation, ChatDirectMember,
@@ -256,7 +256,8 @@ def summaries(db, column, ids, baselines, user_id):
     if not ids:
         return {}
     latest = db.query(column.label('scope_id'), func.max(ChatProjectMessage.sequence_no).label('seq')).filter(column.in_(ids), ChatProjectMessage.message_type == 'user').group_by(column).subquery()
-    last = db.query(ChatProjectMessage).join(latest, and_(column == latest.c.scope_id, ChatProjectMessage.sequence_no == latest.c.seq)).all()
+    # direct_conversation_id 为延迟列，下方按会话归组时需要读取，随最新消息一次取回。
+    last = db.query(ChatProjectMessage).options(undefer(column)).join(latest, and_(column == latest.c.scope_id, ChatProjectMessage.sequence_no == latest.c.seq)).all()
     last_mentions = {mid for (mid,) in db.query(ChatProjectMention.message_id).filter(
         ChatProjectMention.message_id.in_([row.id for row in last]),
         ChatProjectMention.mentioned_user_id == user_id)} if last else set()
@@ -311,8 +312,12 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
         conditions = [AnnotationChatMember.following.is_(True), AnnotationProject.id.in_(mentioned_projects)]
         if ready:
             conditions.extend([AnnotationChatMember.pinned.is_(True), AnnotationChatMember.starred.is_(True)])
-        projects = db.query(AnnotationProject, AnnotationChatMember).outerjoin(AnnotationChatMember,
-            and_(AnnotationChatMember.project_id == AnnotationProject.id, AnnotationChatMember.user_id == user.id)).filter(AnnotationChatMember.user_id == user.id, or_(*conditions)).all()
+        projects_query = db.query(AnnotationProject, AnnotationChatMember).outerjoin(AnnotationChatMember,
+            and_(AnnotationChatMember.project_id == AnnotationProject.id, AnnotationChatMember.user_id == user.id)).filter(AnnotationChatMember.user_id == user.id, or_(*conditions))
+        if ready:
+            # pinned/starred 是延迟加载列；不随主查询取回会在下方逐项目各补查两次。
+            projects_query = projects_query.options(undefer(AnnotationChatMember.pinned), undefer(AnnotationChatMember.starred))
+        projects = projects_query.all()
         stats = summaries(db, ChatProjectMessage.annotation_project_id, [p.id for p, m in projects], {p.id: m.last_read_sequence if m else 0 for p, m in projects}, user.id)
         for p, m in projects:
             rows.append(dict(key=f'annotation:{p.id}', kind='annotation', project_id=p.id, title=p.project_name or '未命名项目',
