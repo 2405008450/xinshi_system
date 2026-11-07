@@ -841,7 +841,25 @@ class TranslationProjectBase(BaseModel):
     def validate_progress(cls, value: Optional[str]) -> Optional[str]:
         return normalize_progress_percent(value)
 
+class SelectedTranslationSourceFile(BaseModel):
+    name: str
+    path: str
+
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, value):
+        from translation_file_name_rules import normalize_single_file_name
+        return normalize_single_file_name(value)
+
+    @field_validator('path')
+    @classmethod
+    def validate_path(cls, value):
+        from project_file_service import normalize_source_directory
+        return normalize_source_directory(value)
+
+
 class TranslationProjectCreate(TranslationProjectBase):
+    selected_source_files: list[SelectedTranslationSourceFile] = Field(default_factory=list, max_length=100)
     payment_draft: Optional[list[ProjectPayment]] = Field(default=None, max_length=100)
     payment_version: Optional[str] = None
     created_by: Optional[UUID] = None
@@ -883,6 +901,7 @@ class AssignedTranslatorCompletionUpdate(BaseModel):
 
 
 class TranslationProjectUpdate(BaseModel):
+    selected_source_files: list[SelectedTranslationSourceFile] = Field(default_factory=list, max_length=100)
     payment_draft: Optional[list[ProjectPayment]] = Field(default=None, max_length=100)
     payment_version: Optional[str] = None
     payment_confirmation: Optional[PaymentConfirmationWrite] = None

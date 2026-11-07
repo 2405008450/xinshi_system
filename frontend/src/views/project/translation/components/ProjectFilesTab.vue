@@ -48,7 +48,7 @@
             placeholder="请输入真实文件名，保留扩展名"
             @update:model-value="emit('update:sourceFileName', $event)"
           />
-          <div class="source-file-name-hint">每个订单只对应一个原文文件。路径为文件夹时，该文件夹第一层只能有一个有效文件；多个文件请拆分订单。</div>
+          <div class="source-file-name-hint">选择一个文件回填名称；选择多个文件后，保存项目时自动创建对应子订单。</div>
         </div>
       </el-form-item>
     </AppForm>
@@ -63,6 +63,60 @@
       class="path-group-form"
     >
       <el-collapse v-model="expandedSections" class="file-edit-collapse">
+        <el-collapse-item name="paths">
+          <template #title>
+            <div class="file-edit-collapse__title">
+              <span>文件路径</span>
+              <span class="file-edit-collapse__hint">填写任一信息后原文路径必填，其他路径按流程补充</span>
+            </div>
+          </template>
+          <div class="file-edit-collapse__body">
+            <el-form-item label="原文路径" prop="storage_path">
+              <el-input
+                v-model="pathGroupForm.storage_path"
+                placeholder="如 \\win-server\原文"
+
+              >
+                <template #append>
+                  <el-button
+                    :loading="sourceNameLoading"
+                    :disabled="!canWrite || !String(pathGroupForm.storage_path || '').trim()"
+                    @click="handleSourceNameReload"
+                  >
+                    读取并选择文件
+                  </el-button>
+                </template>
+              </el-input>
+            </el-form-item>
+            <el-form-item label="派稿文路径">
+              <el-input v-model="pathGroupForm.dispatch_path" placeholder="如 \\win-server\派稿" />
+            </el-form-item>
+            <el-form-item v-if="referenceFilePathOne !== undefined" label="参考文件路径一">
+              <el-input
+                :model-value="referenceFilePathOne"
+                type="textarea"
+                :rows="2"
+                placeholder="供稿件安排发信时引用，通过项目外键自动带入"
+                @update:model-value="emit('update:referenceFilePathOne', $event)"
+              />
+            </el-form-item>
+            <el-form-item label="译文路径">
+              <el-input v-model="pathGroupForm.translation_path" placeholder="如 \\win-server\译文" />
+            </el-form-item>
+            <el-form-item label="译员发回路径">
+              <el-input v-model="pathGroupForm.translator_return_path" placeholder="填写后项目状态自动变为“译员发回”" />
+            </el-form-item>
+            <el-form-item label="发客户路径">
+              <el-input v-model="pathGroupForm.client_delivery_path" placeholder="填写后项目状态自动变为“已发客户”" />
+            </el-form-item>
+            <el-form-item label="项目反馈路径">
+              <el-input v-model="pathGroupForm.project_feedback_path" placeholder="填写后项目状态自动变为“客户反馈”" />
+            </el-form-item>
+            <el-form-item label="反馈后发客户路径">
+              <el-input v-model="pathGroupForm.feedback_delivery_path" placeholder="填写后项目状态自动变为“反馈后发客户”" />
+            </el-form-item>
+          </div>
+        </el-collapse-item>
         <el-collapse-item name="classification">
           <template #title>
             <div class="file-edit-collapse__title">
@@ -141,60 +195,6 @@
           </div>
         </el-collapse-item>
 
-        <el-collapse-item name="paths">
-          <template #title>
-            <div class="file-edit-collapse__title">
-              <span>文件路径</span>
-              <span class="file-edit-collapse__hint">填写任一信息后原文路径必填，其他路径按流程补充</span>
-            </div>
-          </template>
-          <div class="file-edit-collapse__body">
-            <el-form-item label="原文路径" prop="storage_path">
-              <el-input
-                v-model="pathGroupForm.storage_path"
-                placeholder="如 \\win-server\原文"
-                @blur="handleSourcePathBlur"
-              >
-                <template #append>
-                  <el-button
-                    :loading="sourceNameLoading"
-                    :disabled="!canWrite || !String(pathGroupForm.storage_path || '').trim()"
-                    @click="handleSourceNameReload"
-                  >
-                    读取文件名
-                  </el-button>
-                </template>
-              </el-input>
-            </el-form-item>
-            <el-form-item label="派稿文路径">
-              <el-input v-model="pathGroupForm.dispatch_path" placeholder="如 \\win-server\派稿" />
-            </el-form-item>
-            <el-form-item v-if="referenceFilePathOne !== undefined" label="参考文件路径一">
-              <el-input
-                :model-value="referenceFilePathOne"
-                type="textarea"
-                :rows="2"
-                placeholder="供稿件安排发信时引用，通过项目外键自动带入"
-                @update:model-value="emit('update:referenceFilePathOne', $event)"
-              />
-            </el-form-item>
-            <el-form-item label="译文路径">
-              <el-input v-model="pathGroupForm.translation_path" placeholder="如 \\win-server\译文" />
-            </el-form-item>
-            <el-form-item label="译员发回路径">
-              <el-input v-model="pathGroupForm.translator_return_path" placeholder="填写后项目状态自动变为“译员发回”" />
-            </el-form-item>
-            <el-form-item label="发客户路径">
-              <el-input v-model="pathGroupForm.client_delivery_path" placeholder="填写后项目状态自动变为“已发客户”" />
-            </el-form-item>
-            <el-form-item label="项目反馈路径">
-              <el-input v-model="pathGroupForm.project_feedback_path" placeholder="填写后项目状态自动变为“客户反馈”" />
-            </el-form-item>
-            <el-form-item label="反馈后发客户路径">
-              <el-input v-model="pathGroupForm.feedback_delivery_path" placeholder="填写后项目状态自动变为“反馈后发客户”" />
-            </el-form-item>
-          </div>
-        </el-collapse-item>
       </el-collapse>
     </AppForm>
 
@@ -213,10 +213,16 @@
       </el-button>
     </div>
     </template>
+    <div v-if="selectedFiles.length" class="files-hint">
+      <el-alert :title="'保存后将新增 ' + selectedFiles.length + ' 个子订单，编号由系统生成'" type="info" :closable="false" />
+      <el-tag v-for="file in selectedFiles" :key="file.path" closable @close="emit('files-selected', selectedFiles.filter(item => item.path !== file.path))">{{ file.name }}</el-tag>
+    </div>
+    <SourceFilePicker v-model="pickerVisible" :path="pathGroupForm.storage_path" :multiple="allowMultipleFiles" :existing="existingSubOrders" @confirm="applySelectedFiles" />
   </div>
 </template>
 
 <script setup>
+import SourceFilePicker from './SourceFilePicker.vue'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -230,8 +236,11 @@ import {
 import { hasPermission } from '@/utils/permission'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 
-const emit = defineEmits(['status-change', 'update:referenceFilePathOne', 'update:sourceFileName', 'update:sourcePath'])
+const emit = defineEmits(['status-change', 'update:referenceFilePathOne', 'update:sourceFileName', 'update:sourcePath', 'files-selected'])
 const props = defineProps({
+  allowMultipleFiles: Boolean,
+  existingSubOrders: { type: Array, default: () => [] },
+  selectedFiles: { type: Array, default: () => [] },
   sourcePath: { type: String, default: undefined },
   projectId: {
     type: [String, Number],
@@ -300,6 +309,7 @@ let fileRequestId = 0
 let loadedProjectId = null
 let fileLoadRequest = null
 const fileSaving = ref(false)
+const pickerVisible = ref(false)
 const sourceNameLoading = ref(false)
 let sourceNameRequest = null
 let sourceNameRequestPath = ''
@@ -328,6 +338,7 @@ function assignPathGroup(source = {}) {
 }
 
 async function fillSourceFileNameFromPath({ force = false, notifySuccess = true, notifyError = true } = {}) {
+  if (props.selectedFiles.length) return null
   if (!force && String(props.sourceFileName || '').trim()) return props.sourceFileName
   const scopeId = sourceNameRequestId
   if (props.projectId && loadedProjectId !== props.projectId) await loadFiles()
@@ -369,10 +380,22 @@ function handleSourcePathBlur() {
 }
 
 function handleSourceNameReload() {
-  void fillSourceFileNameFromPath({ force: true }).catch(() => {})
+  pickerVisible.value = true
+}
+
+function applySelectedFiles(files) {
+  if (files.length === 1) {
+    pathGroupForm.storage_path = files[0].path
+    emit('update:sourceFileName', files[0].name)
+    emit('files-selected', [])
+  } else {
+    if (!String(props.sourceFileName || '').trim()) emit('update:sourceFileName', String(pathGroupForm.storage_path).replace(/[\\/]+$/, '').split(/[\\/]/).pop())
+    emit('files-selected', files)
+  }
 }
 
 function resetPathGroup() {
+  pickerVisible.value = false
   sourceNameRequestId += 1
   sourceNameRequest = null
   sourceNameLoading.value = false
@@ -522,6 +545,7 @@ watch(() => props.sourcePath, value => {
   if (value !== undefined && value !== pathGroupForm.storage_path) pathGroupForm.storage_path = value
 }, { immediate: true })
 watch(() => pathGroupForm.storage_path, value => {
+  if (props.selectedFiles.length) emit('files-selected', [])
   if (props.sourcePath !== undefined && value !== props.sourcePath) emit('update:sourcePath', value || '')
 })
 

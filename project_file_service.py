@@ -110,9 +110,11 @@ def list_sub_order_source_files(storage_path: str) -> dict:
     normalized = normalize_source_directory(storage_path)
     path = Path(normalized)
     try:
-        if _is_reparse_point(path) or not path.is_dir():
+        if _is_reparse_point(path) or not (path.is_dir() or path.is_file()):
             raise ValueError("请选择可读取的文件夹，不能使用文件、符号链接或目录联接")
         names = collect_source_file_names(path)
+        if path.is_file():
+            normalized = ntpath.dirname(normalized)
     except OSError as exc:
         raise ValueError("共享文件夹不存在或没有读取权限") from exc
     files = []

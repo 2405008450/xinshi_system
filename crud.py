@@ -2343,6 +2343,37 @@ def _normalize_catalog_language_pairs(db: Session, value: Optional[str]) -> Opti
     return validate_language_pairs_against_catalog(value, labels)
 
 
+def _append_selected_source_files(db, parent, files, actor_id):
+    """与项目保存共用事务，重复提交跳过相同文件，同名异路径明确拒绝。"""
+    import ntpath
+    if not files:
+        return
+    existing = db.query(TranslationSubOrder).filter(
+        TranslationSubOrder.parent_project_id == parent.id
+    ).all()
+    names = {item.sub_project_name.casefold(): (item.network_file_path or '').casefold() for item in existing}
+    paths = {path for path in names.values() if path}
+    for item in files:
+        if ntpath.basename(item.path).casefold() != item.name.casefold():
+            raise ValueError('所选文件名称与路径不一致，请重新选择')
+        name, path = item.name.casefold(), item.path.casefold()
+        if name in names:
+            if names[name] == path:
+                continue
+            raise ValueError(f'已存在同名子订单：{item.name}，请核对文件路径')
+        if path in paths:
+            continue
+        _create_sub_order_in_transaction(db, TranslationSubOrderCreate(
+            parent_project_id=parent.id, sub_project_name=item.name,
+            network_file_path=item.path, language_pair=parent.language_pair,
+            priority=parent.priority, customer_deadline_time=parent.customer_deadline_time,
+            created_by=actor_id,
+        ))
+        names[name] = path
+        paths.add(path)
+    db.expire(parent, ['sub_orders'])
+
+
 def create_translation_project(
     db: Session,
     project: TranslationProjectCreate,
@@ -2356,11 +2387,11 @@ def create_translation_project(
     role_assignments = project.role_assignments
     project_data = project.model_dump(exclude={
         'client_short_name', 'client_code', 'manager_contact', 'sub_client_short_name',
-        'word_count_matrix', 'customer_charge_items', 'role_assignments', 'client_manager_id', 'client_manager_change_reason', 'initial_sub_order_names', 'customer_type', 'statement_required', 'quotation_draft', 'payment_draft', 'payment_version', 'payment_confirmation'
+        'word_count_matrix', 'customer_charge_items', 'role_assignments', 'client_manager_id', 'client_manager_change_reason', 'initial_sub_order_names', 'selected_source_files', 'customer_type', 'statement_required', 'quotation_draft', 'payment_draft', 'payment_version', 'payment_confirmation'
     })
     if 'source_file_name' not in project.model_fields_set:
         project_data.pop('source_file_name', None)
-    normalize_translation_name_payload(project_data, has_sub_orders=bool(project.initial_sub_order_names))
+    normalize_translation_name_payload(project_data, has_sub_orders=bool(project.initial_sub_order_names or project.selected_source_files))
     project_data['email_subject_preview'] = normalize_email_subject_order_no(
         project_data.get('email_subject_preview'), order_no
     )
@@ -2448,6 +2479,7 @@ def create_translation_project(
     init_workflow(db, db_project.id, commit=False)
     from customer_finance_sync import inherit_translation
     inherit_translation(db,db_project,project.created_by)
+    _append_selected_source_files(db, db_project, project.selected_source_files, project.created_by)
     for name in project.initial_sub_order_names:
         _create_sub_order_in_transaction(db, TranslationSubOrderCreate(
             parent_project_id=db_project.id, sub_project_name=name,
@@ -2487,14 +2519,14 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
     matrix_update = project_update.word_count_matrix
     update_data = project_update.model_dump(
         exclude_unset=True,
-        exclude={'client_short_name', 'client_code', 'manager_contact', 'sub_client_short_name', 'word_count_matrix', 'customer_charge_items', 'role_assignments', 'assigned_translator_completions', 'client_manager_id', 'client_manager_change_reason', 'customer_type', 'statement_required', 'quotation_draft', 'payment_draft', 'payment_version', 'payment_confirmation', VERSION_FIELD},
+        exclude={'client_short_name', 'client_code', 'manager_contact', 'sub_client_short_name', 'word_count_matrix', 'customer_charge_items', 'role_assignments', 'assigned_translator_completions', 'selected_source_files', 'client_manager_id', 'client_manager_change_reason', 'customer_type', 'statement_required', 'quotation_draft', 'payment_draft', 'payment_version', 'payment_confirmation', VERSION_FIELD},
     )
     db.query(TranslationProject).filter(TranslationProject.id == project_id).with_for_update().populate_existing().one()
     assert_fresh(db_project, project_update.expected_updated_at)
     if 'client_manager_id' in project_update.model_fields_set:
         from project_client_manager import apply as apply_client_manager
         apply_client_manager(db, 'translation', db_project, project_update.client_manager_id, project_update.client_manager_change_reason, actor_user_id)
-    normalize_translation_name_payload(update_data, has_sub_orders=bool(db_project.sub_orders))
+    normalize_translation_name_payload(update_data, has_sub_orders=bool(db_project.sub_orders or project_update.selected_source_files))
     if 'project_name' in update_data and db_project.source_file_name and 'source_file_name' not in update_data:
         update_data['project_name'] = db_project.source_file_name
     if 'language_pair' in update_data:
@@ -2607,6 +2639,7 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
         _validate_charge_metric_values(db_project.customer_charge_items, customer_values)
     db_project.updated_at = datetime.now()
     
+    _append_selected_source_files(db, db_project, project_update.selected_source_files, actor_user_id)
     db.commit()
     db.refresh(db_project)
     

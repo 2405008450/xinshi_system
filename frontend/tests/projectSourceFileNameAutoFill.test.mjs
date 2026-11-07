@@ -11,8 +11,8 @@ test('原文路径支持自动读取并填充项目名称', () => {
   const api = read('src/api/projectFiles.js')
 
   assert.match(api, /source-path\/inspect/)
-  assert.match(component, /@blur="handleSourcePathBlur"/)
-  assert.match(component, />\s*读取文件名\s*</)
+  assert.doesNotMatch(component, /@blur="handleSourcePathBlur"/)
+  assert.match(component, />\s*读取并选择文件\s*</)
   assert.match(component, /emit\('update:sourceFileName', response\.source_file_name \|\| ''\)/)
   assert.match(component, /fillSourceFileNameFromPath,/)
   assert.match(projectDetails, /await projectFilesTabRef\.value\?\.fillSourceFileNameFromPath/)
@@ -25,7 +25,7 @@ function reader(initialName = '') {
   const pending = []
   let notifyReady
   const ready = new Promise(resolve => { notifyReady = resolve })
-  const props = { sourceFileName: initialName }
+  const props = { sourceFileName: initialName, selectedFiles: [] }
   const pathGroupForm = { storage_path: '/原文' }
   const context = vm.createContext({
     props, pathGroupForm, sourceNameLoading: { value: false },

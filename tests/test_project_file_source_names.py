@@ -64,13 +64,13 @@ def test_directory_limit_and_reparse_points(monkeypatch, tmp_path):
     assert collect_source_file_names(tmp_path) == ['B.docx']
 
 
-def test_directory_rejects_file(monkeypatch, tmp_path):
+def test_picker_accepts_file(monkeypatch, tmp_path):
     monkeypatch.setenv('OPENPATH_ALLOWED_ROOTS', r'\\server\share')
     file = tmp_path / 'A.docx'
     file.touch()
     monkeypatch.setattr(service, 'Path', lambda _: file)
-    with pytest.raises(ValueError, match='文件夹'):
-        service.list_sub_order_source_files(r'\\server\share\A.docx')
+    result = service.list_sub_order_source_files(r'\\server\share\A.docx')
+    assert result['files'] == [{'name': 'A.docx', 'path': r'\\server\share\A.docx', 'selectable': True, 'reason': ''}]
 
 
 def test_directory_permission_error(monkeypatch):
