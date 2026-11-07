@@ -428,7 +428,12 @@ const handleLogout = async () => {
   width: 6px;
 }
 
+.sidebar-menu::-webkit-scrollbar-track {
+  background: var(--color-sidebar);
+}
+
 .sidebar-menu::-webkit-scrollbar-thumb {
+  border-color: var(--color-sidebar);
   background: rgba(255, 255, 255, 0.2);
   border-radius: 3px;
 }

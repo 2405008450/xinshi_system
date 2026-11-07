@@ -1,9 +1,10 @@
 """常用列表 100% 缩放布局验收；所有 API 均在浏览器内隔离，不连接业务库。"""
 import json
+import mimetypes
 import re
 import sys
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 from urllib.request import urlopen
 
 from playwright.sync_api import expect, sync_playwright
@@ -13,8 +14,11 @@ OUTPUT = Path(__file__).resolve().parents[1] / 'artifacts' / 'viewport-list-layo
 
 
 def run():
-    compiled = urlopen(BASE + '/src/views/project/ProjectWorkspace.vue').read().decode()
+    built_dir = Path(sys.argv[sys.argv.index('--built-dir') + 1]).resolve() if '--built-dir' in sys.argv else None
+    compiled = '' if built_dir else urlopen(BASE + '/src/views/project/ProjectWorkspace.vue').read().decode()
     def dependency(name):
+        if built_dir:
+            return ''
         return re.search(r'from ["\']([^"\']*/' + name + r'\.js[^"\']*)', compiled).group(1)
     html = '''<!doctype html><meta charset="UTF-8"><div id="app"></div><script type="module">
     import {createApp} from VUE;
@@ -37,7 +41,7 @@ def run():
       {path:'annotation-details',component:Annotation},
       {path:'consultations',component:Consultations},
       {path:'clients',component:Clients},
-      {path:'resource-management/talent-pool',component:Talent},
+      {path:'resource-management/talents',component:Talent},
       {path:'resource-management/resource-development',component:Resources}
     ];
     const router=createRouter({history:createWebHistory(),routes:[{path:'/',component:Layout,children:routes}]});
@@ -50,7 +54,8 @@ def run():
                  request_no=f'REQ-{i}', request_status='pending', demand_status='confirmed', items=[], sub_orders=[], sub_clients=[]) for i in range(1, 21)]
     translation_rows = [dict(row) for row in rows]
     translation_rows[0]['sub_orders'] = [dict(id='layout-child', parent_project_id='layout-1', sub_order_no='TP-TEST-001-01', project_name='布局验收子订单', project_status='confirmed')]
-    if '--ten-rows' in sys.argv:
+    readable_rows = '--readable-rows' in sys.argv
+    if '--ten-rows' in sys.argv or readable_rows:
         for row in rows:
             row.update(customer_deadline_time='2026-11-07T18:00:00+08:00', language_pair='英语→简中', word_count=1200)
         translation_rows = [dict(row, sub_orders=[dict(id=f"child-{row['id']}", parent_project_id=row['id'], sub_order_no=row['order_no']+'-01', project_status='confirmed')]) for row in rows[:10]]
@@ -60,9 +65,13 @@ def run():
 
     def api(route):
         path = urlparse(route.request.url).path
+        if built_dir and '--verbose' in sys.argv:
+            print('MOCK API', path, flush=True)
         if route.request.method not in ('GET', 'HEAD'):
             writes.append((route.request.method, path))
-        if path.endswith('/page'):
+        if path.endswith('/auth/session'):
+            result = {'user_id': 'layout-qa', 'username': 'layout-qa', 'full_name': '布局验收', 'roles': ['超级管理员'], 'permissions': ['*'], 'can_manage_hr': True}
+        elif path.endswith('/page'):
             result = {'items': [] if state['empty'] else (translation_rows if '/projects/translation/' in path else rows), 'total': 0 if state['empty'] else 120}
         elif path.endswith('/departments/organization'):
             result = {'ready': True, 'membershipReady': True, 'items': [], 'people': [], 'aliases': {}}
@@ -70,7 +79,7 @@ def run():
             result = {'can_write': True, 'can_enter': True, 'can_resource': True, 'can_requests': True, 'users': [], 'platforms': [], 'statuses': [], 'user_id': 'layout-qa'}
         elif path.endswith('/capabilities'):
             result = {'grandchild_orders': True, 'language_regions': True}
-        elif path.endswith('/openapi.json') and '--ten-rows' in sys.argv:
+        elif path.endswith('/openapi.json') and ('--ten-rows' in sys.argv or readable_rows):
             result = {'paths': {'/projects/annotation/areas': {'get': {}}, '/projects/annotation/page': {'get': {'parameters': [{'name': 'order_scope', 'schema': {'enum': ['parent', 'child', 'grandchild']}}]}}}, 'components': {'schemas': {'AnnotationLanguageItemInput': {'properties': {'regions': {'type': 'array'}}}}}}
         elif path.endswith('/directory'):
             result = {'ready': True, 'items': []}
@@ -89,13 +98,34 @@ def run():
         context = browser.new_context(viewport={'width': 1920, 'height': 924}, service_workers='block')
         context.add_init_script("""localStorage.setItem('user_roles',JSON.stringify(['超级管理员']));
         localStorage.setItem('user_permissions',JSON.stringify(['*','projects:read','projects:write','clients:read','clients:write','consultations:read','consultations:write','talents:read','talents:write']));
+        localStorage.setItem('token','isolated-layout-test-token');
         localStorage.setItem('user_id','layout-qa');localStorage.setItem('ui-zoom','1');""")
+        if built_dir:
+            def built_asset(route):
+                if '--verbose' in sys.argv:
+                    print('BUILT ASSET', urlparse(route.request.url).path, flush=True)
+                path = (built_dir / unquote(urlparse(route.request.url).path).lstrip('/')).resolve()
+                if not path.is_relative_to(built_dir):
+                    route.abort()
+                    return
+                if route.request.resource_type == 'document':
+                    path = built_dir / 'index.html'
+                if not path.is_file():
+                    route.fulfill(status=404, body='Not found')
+                    return
+                route.fulfill(path=str(path), content_type=mimetypes.guess_type(path.name)[0] or 'application/octet-stream')
+            context.route(BASE + '/**', built_asset)
+        else:
+            context.route(re.compile(r'^http://localhost:3000/(?:translation-details|interpretation-details|recruitment-details|annotation-details|consultations|clients|resource-management/[^?]+)(?:\?.*)?$'),
+                          lambda route: route.fulfill(content_type='text/html', body=html) if route.request.resource_type == 'document' else route.continue_())
         context.route(BASE + '/api/**', api)
-        context.route(re.compile(r'^http://localhost:3000/(?:translation-details|interpretation-details|recruitment-details|annotation-details|consultations|clients|resource-management/[^?]+)(?:\?.*)?$'),
-                      lambda route: route.fulfill(content_type='text/html', body=html) if route.request.resource_type == 'document' else route.continue_())
+        # 不调用 connect_to_server，实时通道也留在浏览器内隔离。
+        context.route_web_socket('**', lambda socket: None)
         page = context.new_page()
         page.on('pageerror', lambda error: (errors.append(str(error)), print('PAGE ERROR', error, flush=True)))
-        page.goto(BASE + '/translation-details')
+        if '--verbose' in sys.argv:
+            page.on('console', lambda message: print('CONSOLE', message.text, flush=True) if message.type == 'error' else None)
+        page.goto(BASE + '/translation-details', wait_until='commit' if built_dir else 'domcontentloaded')
         OUTPUT.mkdir(parents=True, exist_ok=True)
 
         def check(label):
@@ -108,10 +138,15 @@ def run():
               const card=[...document.querySelectorAll('.viewport-list-card')].find(el=>el.offsetHeight);
               const pag=[...card.querySelectorAll('.el-pagination')].filter(el=>el.offsetHeight).at(-1);
               const region=card.querySelector('.viewport-list-table');
+              const menu=document.querySelector('.sidebar-menu');
               const rect=el=>{const r=el.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,bottom:r.bottom,right:r.right}};
               return {viewport:{width:innerWidth,height:innerHeight}, main:rect(main), card:rect(card), pagination:rect(pag), table:rect(region),
                 overflow:main.scrollHeight-main.clientHeight, horizontalOverflow:main.scrollWidth-main.clientWidth,
-                sidebar:rect(document.querySelector('.sidebar')),header:rect(document.querySelector('.header')),logo:rect(document.querySelector('.logo'))};
+                sidebar:rect(document.querySelector('.sidebar')),header:rect(document.querySelector('.header')),logo:rect(document.querySelector('.logo')),
+                sidebarBackground:getComputedStyle(document.querySelector('.sidebar')).backgroundColor,
+                menuTrack:getComputedStyle(menu,'::-webkit-scrollbar-track').backgroundColor,
+                menuThumbBorder:getComputedStyle(menu,'::-webkit-scrollbar-thumb').borderTopColor,
+                navigation:[...document.querySelectorAll('.workspace-navigation > .el-card__body,.route-section-navigation > .el-card__body')].map(el=>({height:el.clientHeight,scrollHeight:el.scrollHeight,overflow:getComputedStyle(el).overflow}))};
             }''')
             reports.append({'case': label, **measurement})
             if measurement['table']['height'] <= 80:
@@ -120,12 +155,19 @@ def run():
             assert measurement['pagination']['right'] <= measurement['viewport']['width'], (label, measurement)
             assert measurement['overflow'] <= 1 and measurement['horizontalOverflow'] <= 1, (label, measurement)
             assert measurement['table']['height'] > 80, (label, measurement)
+            assert measurement['menuTrack'] == measurement['sidebarBackground'], (label, measurement)
+            assert measurement['menuThumbBorder'] == measurement['sidebarBackground'], (label, measurement)
+            assert all(nav['scrollHeight'] <= nav['height'] and nav['overflow'] == 'hidden' for nav in measurement['navigation']), (label, measurement)
             if measurement['viewport']['width'] > 768:
                 assert abs(measurement['sidebar']['right'] - measurement['header']['x']) <= 1, (label, measurement)
                 assert abs(measurement['logo']['bottom'] - measurement['header']['bottom']) <= 1, (label, measurement)
 
         def navigate(path):
-            page.evaluate('(path)=>window.layoutTestRouter.push(path)', path)
+            if built_dir:
+                print('LOAD BUILT', path, flush=True)
+                page.goto(BASE + path, wait_until='commit')
+            else:
+                page.evaluate('(path)=>window.layoutTestRouter.push(path)', path)
             page.wait_for_timeout(500)
             expect(page.locator('.viewport-list-table:visible').first).to_be_visible()
 
@@ -160,13 +202,29 @@ def run():
             check(label)
 
         paths = ['/translation-details', '/interpretation-details', '/annotation-details', '/recruitment-details', '/consultations', '/clients',
-                 '/resource-management/talent-pool', '/resource-management/resource-development?section=requests']
-        if '--ten-rows' in sys.argv:
+                 '/resource-management/talents', '/resource-management/resource-development?section=requests']
+        if '--navigation' in sys.argv:
+            for width, height in [(1920, 924), (1366, 768), (1920, 697)]:
+                page.set_viewport_size({'width': width, 'height': height})
+                for path in paths[:4]:
+                    navigate(path)
+                    check(f'navigation {width}x{height} {path}')
+                    if path == '/translation-details':
+                        page.screenshot(path=str(OUTPUT / f'navigation-{width}x{height}.png'))
+                        page.locator('.collapse-btn').click()
+                        page.wait_for_timeout(300)
+                        check(f'navigation collapsed {width}x{height}')
+            assert not errors, errors
+            (OUTPUT / 'results-navigation.json').write_text(json.dumps(reports, ensure_ascii=False, indent=2), encoding='utf-8')
+            print(f'PASS: {len(reports)} navigation scenarios; production build={bool(built_dir)}')
+            browser.close()
+            return
+        if '--ten-rows' in sys.argv or readable_rows:
             for width, height in [(1920, 1080), (1920, 924), (1366, 768)]:
                 page.set_viewport_size({'width': width, 'height': height})
                 for path in paths:
                     navigate(path)
-                    check(f'ten rows {width}x{height} {path}')
+                    check(f'{"readable" if readable_rows else "ten"} rows {width}x{height} {path}')
                     geometry = page.locator('.viewport-list-table').first.evaluate('''el=>{
                       const table=el.querySelector('.el-table');
                       const wrap=table.querySelector('.el-table__body-wrapper .el-scrollbar__wrap');
@@ -174,23 +232,30 @@ def run():
                       const rows=[...body.children].filter(row=>row.classList.contains('el-table__row'));
                       const r=rows.at(-1).getBoundingClientRect(), visible=wrap.getBoundingClientRect();
                       const index=rows.at(-1).querySelector('.index-cell');
+                      const edit=rows[0].querySelector('.project-list-row-actions > .el-button');
+                      const deadline=rows[0].querySelector('.deadline-cell');
                       const rect=e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,height:r.height,bottom:r.bottom,right:r.right}};
                       return {count:rows.length,lastBottom:r.bottom,visibleBottom:visible.bottom,scrollHeight:wrap.scrollHeight,clientHeight:wrap.clientHeight,
-                        rowHeights:rows.map(row=>row.getBoundingClientRect().height),index:index?[...index.children].map(rect):[]};
+                        rowHeights:rows.map(row=>row.getBoundingClientRect().height),index:index?[...index.children].map(rect):[],
+                        editHeight:edit?.getBoundingClientRect().height,deadlineGap:deadline?getComputedStyle(deadline).gap:null,
+                        cellPadding:getComputedStyle(rows[0].querySelector('td:not(.project-expand-column)')).paddingTop};
                     }''')
                     reports[-1]['rows'] = geometry
                     assert geometry['count'] == 10, (path, geometry)
-                    if geometry['lastBottom'] > geometry['visibleBottom'] + 1:
+                    if not readable_rows and geometry['lastBottom'] > geometry['visibleBottom'] + 1:
                         page.screenshot(path=str(OUTPUT / 'ten-rows-failure.png'))
-                    assert geometry['lastBottom'] <= geometry['visibleBottom'] + 1, (path, width, height, geometry)
+                    if not readable_rows:
+                        assert geometry['lastBottom'] <= geometry['visibleBottom'] + 1, (path, width, height, geometry)
                     if path == '/translation-details':
+                        if readable_rows:
+                            assert geometry['cellPadding'] == '6px' and geometry['editHeight'] >= 36 and geometry['deadlineGap'] == '4px', geometry
                         number, arrow = geometry['index']
                         assert abs(number['y']+number['height']/2-arrow['y']-arrow['height']/2) <= 1, geometry
                         assert arrow['x'] >= number['right'], geometry
-                        page.screenshot(path=str(OUTPUT / f'ten-rows-{width}x{height}.png'))
+                        page.screenshot(path=str(OUTPUT / f'{"readable" if readable_rows else "ten"}-rows-{width}x{height}.png'))
             assert not errors, errors
-            (OUTPUT / 'results-ten-rows.json').write_text(json.dumps(reports, ensure_ascii=False, indent=2), encoding='utf-8')
-            print(f'PASS: {len(reports)} ten-row density scenarios; {OUTPUT}')
+            (OUTPUT / f'results-{"readable" if readable_rows else "ten"}-rows.json').write_text(json.dumps(reports, ensure_ascii=False, indent=2), encoding='utf-8')
+            print(f'PASS: {len(reports)} {"readable" if readable_rows else "ten"}-row scenarios; {OUTPUT}')
             browser.close()
             return
         sizes = [(1366, 768)] if any(flag in sys.argv for flag in ['--quick', '--interactions']) else [(1920, 1080), (1920, 924), (1366, 768)]

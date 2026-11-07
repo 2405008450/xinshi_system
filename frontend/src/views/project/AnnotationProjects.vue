@@ -1451,12 +1451,6 @@ useProjectStatusSync('annotation',tableData,{onChanged:()=>{if(!loading.value&&!
 .order-cell-secondary { display: flex; align-items: center; gap: 6px; }
 .order-cell-secondary .annotation-copy-path { width: 22px; min-width: 22px; }
 .order-cell-secondary .el-button { margin-left: 0; height: 24px; min-height: 24px; padding: 0; font-size: 12px; }
-/* 桌面主列表保留编号和辅助入口两行，去掉额外行间留白。 */
-@media (min-width: 769px) {
-  .annotation-card.viewport-list-card .annotation-table :deep(.order-cell) { gap: 0; }
-  .annotation-card.viewport-list-card .annotation-table :deep(.order-no-link) { height: 18px; min-height: 18px; line-height: 18px; }
-  .annotation-card.viewport-list-card .annotation-table :deep(.order-cell-secondary .el-button) { height: 18px; min-height: 18px; }
-}
 .annotation-language-summary { min-height: 24px; display: flex; width: 100%; min-width: 0; height: auto; justify-content: flex-start; padding: 0; }
 .annotation-language-summary :deep(>span) { display: flex; width: 100%; min-width: 0; align-items: center; gap: 5px; }
 .annotation-language-primary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

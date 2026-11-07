@@ -1,4 +1,14 @@
 /* 通用页面样式 */
+/* 导航页签不承载滚动正文，抵消 Tabs 的负下边距，避免 Card 出现一像素滚动。 */
+:is(.workspace-navigation, .route-section-navigation) > .el-card__body {
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+
+:is(.workspace-navigation, .route-section-navigation) .el-tabs__nav-wrap {
+  margin-bottom: 0;
+}
+
 /* 显式接入的列表共享可视高度；标题、筛选和分页不参与表格滚动。 */
 .viewport-list-card.el-card,
 .viewport-list-panel,
@@ -448,14 +458,14 @@
 }
 
 .viewport-list-card.compact-list-card.el-card > .el-card__body {
-  padding: 8px 12px;
+  padding: 6px 12px 8px;
 }
 
 .viewport-list-card.compact-list-card > .el-card__body > :is(.search-form, .search-bar, .filter-bar, .search-area),
 .viewport-list-card .project-arrangement-main > .search-form,
 .viewport-list-card .viewport-list-panel > .search-form,
 .viewport-list-panel > .search-form {
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   padding: 6px 10px;
 }
 
@@ -485,46 +495,8 @@
   padding-top: 6px;
 }
 
-/* 主表保持紧凑行高；浮层、编辑表单及嵌入工作区的列表不受影响。 */
-.viewport-list-table > .el-table .el-table__header-wrapper .cell {
-  padding-left: 6px;
-  padding-right: 6px;
-}
-
-.viewport-list-table > .el-table .el-table__row > .el-table__cell {
-  padding-top: 2px;
-  padding-bottom: 2px;
-}
-
-.viewport-list-table > .el-table .el-table__body-wrapper .el-button--small {
-  min-height: 28px;
-  height: 28px;
-}
-
-.viewport-list-table > .el-table .el-table__body-wrapper .el-button.is-link {
-  min-height: 20px;
-  height: auto;
-  padding-top: 0;
-  padding-bottom: 0;
-}
-
-.viewport-list-table > .el-table .deadline-cell {
-  gap: 1px;
-  padding-top: 0;
-  padding-bottom: 0;
-}
-
-.viewport-list-table > .el-table .deadline-cell__time {
-  line-height: 16px;
-}
-
-.viewport-list-table > .el-table .deadline-cell__tag {
-  height: 18px;
-}
-
 @media (max-width: 768px) {
-  .viewport-list-card.compact-list-card .resource-nav__item,
-  .viewport-list-table > .el-table .el-table__body-wrapper .el-button--small {
+  .viewport-list-card.compact-list-card .resource-nav__item {
     min-height: 32px;
     height: 32px;
   }
