@@ -1220,8 +1220,9 @@ onBeforeUnmount(() => {
 }
 .client-index-cell {
   display: flex;
-  min-height: 46px;
-  flex-direction: column;
+  min-height: 28px;
+  flex-direction: row;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: center;
   gap: 2px;

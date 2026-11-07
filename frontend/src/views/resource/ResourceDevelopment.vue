@@ -245,6 +245,14 @@ watch(resolvedSection, async section => {
 onBeforeUnmount(() => { disposed = true; clearTimeout(timer); listController?.abort(); recordController?.abort(); listSeq++; recordSeq++ })
 </script>
 
+<style scoped>
+/* 需求列表的导航、页签及操作入口保持紧凑，给默认十条记录留足高度。 */
+.resource-development-page.viewport-list-card .card-header > div:first-child { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; }
+.resource-development-page.viewport-list-card .card-header .page-subtitle { margin: 0; }
+.resource-development-page.viewport-list-card :deep(> .el-card__body > .el-tabs > .el-tabs__header) { margin-bottom: 4px; }
+.resource-development-page.viewport-list-card :deep(> .el-card__body > .el-tabs .el-tabs__item) { height: 32px; }
+</style>
+
 <style>
 .development-heading,.development-actions,.development-filters,.people-summary,.person-summary,.period-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .development-pagination{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:12px 0}.development-pagination>.el-pagination{max-width:100%;overflow-x:auto;margin-top:0}

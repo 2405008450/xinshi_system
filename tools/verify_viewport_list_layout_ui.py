@@ -50,6 +50,11 @@ def run():
                  request_no=f'REQ-{i}', request_status='pending', demand_status='confirmed', items=[], sub_orders=[], sub_clients=[]) for i in range(1, 21)]
     translation_rows = [dict(row) for row in rows]
     translation_rows[0]['sub_orders'] = [dict(id='layout-child', parent_project_id='layout-1', sub_order_no='TP-TEST-001-01', project_name='布局验收子订单', project_status='confirmed')]
+    if '--ten-rows' in sys.argv:
+        for row in rows:
+            row.update(customer_deadline_time='2026-11-07T18:00:00+08:00', language_pair='英语→简中', word_count=1200)
+        translation_rows = [dict(row, sub_orders=[dict(id=f"child-{row['id']}", parent_project_id=row['id'], sub_order_no=row['order_no']+'-01', project_status='confirmed')]) for row in rows[:10]]
+        rows = rows[:10]
     errors, writes, reports = [], [], []
     state = {'empty': False}
 
@@ -65,6 +70,8 @@ def run():
             result = {'can_write': True, 'can_enter': True, 'can_resource': True, 'can_requests': True, 'users': [], 'platforms': [], 'statuses': [], 'user_id': 'layout-qa'}
         elif path.endswith('/capabilities'):
             result = {'grandchild_orders': True, 'language_regions': True}
+        elif path.endswith('/openapi.json') and '--ten-rows' in sys.argv:
+            result = {'paths': {'/projects/annotation/areas': {'get': {}}, '/projects/annotation/page': {'get': {'parameters': [{'name': 'order_scope', 'schema': {'enum': ['parent', 'child', 'grandchild']}}]}}}, 'components': {'schemas': {'AnnotationLanguageItemInput': {'properties': {'regions': {'type': 'array'}}}}}}
         elif path.endswith('/directory'):
             result = {'ready': True, 'items': []}
         elif path.endswith('/count'):
@@ -154,6 +161,38 @@ def run():
 
         paths = ['/translation-details', '/interpretation-details', '/annotation-details', '/recruitment-details', '/consultations', '/clients',
                  '/resource-management/talent-pool', '/resource-management/resource-development?section=requests']
+        if '--ten-rows' in sys.argv:
+            for width, height in [(1920, 1080), (1920, 924), (1366, 768)]:
+                page.set_viewport_size({'width': width, 'height': height})
+                for path in paths:
+                    navigate(path)
+                    check(f'ten rows {width}x{height} {path}')
+                    geometry = page.locator('.viewport-list-table').first.evaluate('''el=>{
+                      const table=el.querySelector('.el-table');
+                      const wrap=table.querySelector('.el-table__body-wrapper .el-scrollbar__wrap');
+                      const body=wrap.querySelector('table > tbody');
+                      const rows=[...body.children].filter(row=>row.classList.contains('el-table__row'));
+                      const r=rows.at(-1).getBoundingClientRect(), visible=wrap.getBoundingClientRect();
+                      const index=rows.at(-1).querySelector('.index-cell');
+                      const rect=e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,height:r.height,bottom:r.bottom,right:r.right}};
+                      return {count:rows.length,lastBottom:r.bottom,visibleBottom:visible.bottom,scrollHeight:wrap.scrollHeight,clientHeight:wrap.clientHeight,
+                        rowHeights:rows.map(row=>row.getBoundingClientRect().height),index:index?[...index.children].map(rect):[]};
+                    }''')
+                    reports[-1]['rows'] = geometry
+                    assert geometry['count'] == 10, (path, geometry)
+                    if geometry['lastBottom'] > geometry['visibleBottom'] + 1:
+                        page.screenshot(path=str(OUTPUT / 'ten-rows-failure.png'))
+                    assert geometry['lastBottom'] <= geometry['visibleBottom'] + 1, (path, width, height, geometry)
+                    if path == '/translation-details':
+                        number, arrow = geometry['index']
+                        assert abs(number['y']+number['height']/2-arrow['y']-arrow['height']/2) <= 1, geometry
+                        assert arrow['x'] >= number['right'], geometry
+                        page.screenshot(path=str(OUTPUT / f'ten-rows-{width}x{height}.png'))
+            assert not errors, errors
+            (OUTPUT / 'results-ten-rows.json').write_text(json.dumps(reports, ensure_ascii=False, indent=2), encoding='utf-8')
+            print(f'PASS: {len(reports)} ten-row density scenarios; {OUTPUT}')
+            browser.close()
+            return
         sizes = [(1366, 768)] if any(flag in sys.argv for flag in ['--quick', '--interactions']) else [(1920, 1080), (1920, 924), (1366, 768)]
         if '--mobile' in sys.argv:
             page.set_viewport_size({'width': 768, 'height': 924})
@@ -228,8 +267,8 @@ def run():
         for path in paths[1:]:
             navigate(path)
             check('empty ' + path)
-        # 页面既有的后台提醒和批量会话查询使用 POST，同样只返回模拟数据。
-        assert all(path in ['/api/project-arrangements/annotation-status-reminder', '/api/project-chat/annotation/conversation-status'] for method, path in writes), writes
+        # 页面既有的后台提醒、批量会话查询和状态快照使用 POST，同样只返回模拟数据。
+        assert all(path in ['/api/project-arrangements/annotation-status-reminder', '/api/project-chat/annotation/conversation-status', '/api/project-status-sync/snapshot'] for method, path in writes), writes
         assert not errors, errors
         (OUTPUT / 'results.json').write_text(json.dumps(reports, ensure_ascii=False, indent=2), encoding='utf-8')
         print(f'PASS: {len(reports)} layout scenarios, all APIs isolated, no page errors; {OUTPUT}')

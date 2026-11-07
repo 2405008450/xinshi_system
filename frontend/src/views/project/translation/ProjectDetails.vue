@@ -2465,7 +2465,7 @@ useProjectStatusSync('translation',tableData,{enabled:()=>!props.editorOnly,onCh
   box-shadow: 0 0 0 2px var(--color-primary-soft);
 }
 .time-column-sort-trigger.is-active:hover { background: var(--color-primary-hover); color: #fff; }
-.index-cell { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-height: 40px; line-height: 20px; }
+.index-cell { display: inline-flex; flex-direction: row; flex-wrap: nowrap; align-items: center; justify-content: center; gap: 0; min-height: 20px; line-height: 20px; white-space: nowrap; }
 
 @media (max-width: 768px) {
   .service-content-field { flex-direction: column; }

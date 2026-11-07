@@ -442,6 +442,94 @@
   margin-top: 12px;
 }
 
+/* 独立业务列表优先把高度留给数据；只压缩留白，保留原有字号。 */
+.viewport-list-card.compact-list-card.el-card > .el-card__header {
+  padding: 6px 12px;
+}
+
+.viewport-list-card.compact-list-card.el-card > .el-card__body {
+  padding: 8px 12px;
+}
+
+.viewport-list-card.compact-list-card > .el-card__body > :is(.search-form, .search-bar, .filter-bar, .search-area),
+.viewport-list-card .project-arrangement-main > .search-form,
+.viewport-list-card .viewport-list-panel > .search-form,
+.viewport-list-panel > .search-form {
+  margin-bottom: 8px;
+  padding: 6px 10px;
+}
+
+.viewport-list-card.compact-list-card .resource-nav {
+  margin: 0 0 6px;
+  padding-bottom: 4px;
+}
+
+.viewport-list-card.compact-list-card .resource-nav__item {
+  min-height: 28px;
+  height: 28px;
+}
+
+.viewport-list-card .viewport-list-panel .resource-request-toolbar {
+  margin-bottom: 6px;
+}
+
+.viewport-list-card.compact-list-card > .el-card__body > :is(.search-form, .search-bar, .filter-bar, .search-area) .el-form-item,
+.viewport-list-panel > .search-form .el-form-item {
+  margin-bottom: 0;
+}
+
+.viewport-list-card > .el-card__body > .el-pagination,
+.viewport-list-card .project-arrangement-main > .el-pagination,
+.viewport-list-panel > .el-pagination {
+  margin-top: 8px;
+  padding-top: 6px;
+}
+
+/* 主表保持紧凑行高；浮层、编辑表单及嵌入工作区的列表不受影响。 */
+.viewport-list-table > .el-table .el-table__header-wrapper .cell {
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+.viewport-list-table > .el-table .el-table__row > .el-table__cell {
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+.viewport-list-table > .el-table .el-table__body-wrapper .el-button--small {
+  min-height: 28px;
+  height: 28px;
+}
+
+.viewport-list-table > .el-table .el-table__body-wrapper .el-button.is-link {
+  min-height: 20px;
+  height: auto;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.viewport-list-table > .el-table .deadline-cell {
+  gap: 1px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.viewport-list-table > .el-table .deadline-cell__time {
+  line-height: 16px;
+}
+
+.viewport-list-table > .el-table .deadline-cell__tag {
+  height: 18px;
+}
+
+@media (max-width: 768px) {
+  .viewport-list-card.compact-list-card .resource-nav__item,
+  .viewport-list-table > .el-table .el-table__body-wrapper .el-button--small {
+    min-height: 32px;
+    height: 32px;
+  }
+}
+
 .header-left {
   display: flex;
   align-items: center;
