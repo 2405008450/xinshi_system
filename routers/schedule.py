@@ -673,6 +673,17 @@ def _resolve_employee_shift_rows(
     overrides = {(row.user_id, row.schedule_date): row for row in override_rows}
 
     dates = [date_from + timedelta(days=offset) for offset in range((date_to - date_from).days + 1)]
+    # 工作台与员工班次列表共用已同步的值班依据，不能被旧模板的周末休息覆盖。
+    from attendance_service import shifts_for
+    from attendance_recalculation import ScheduleInputs
+    weekend_dates = [day for day in dates if day.weekday() >= 5]
+    schedule = ScheduleInputs(db)
+    schedule.prefetch(weekend_dates)
+    duty_shifts = {
+        day: {uid: shift for uid, shift in shifts_for(db, users, day, schedule=schedule).items()
+              if shift.get('weekend_duty')}
+        for day in weekend_dates
+    }
     result = []
     for user in users:
         days = []
@@ -696,6 +707,13 @@ def _resolve_employee_shift_rows(
                     value.update({"source": "template", "note": None})
                 else:
                     value = _default_shift_for_date(schedule_day)
+            duty = duty_shifts.get(schedule_day, {}).get(str(user.id))
+            if duty:
+                periods = duty['periods']
+                value = {'shift_code': duty['code'], 'shift_label': duty['label'],
+                         'start_time': periods[0].split('–')[0],
+                         'end_time': periods[-1].split('–')[-1],
+                         'periods': periods, 'source': 'weekend_duty_publication', 'note': None}
             days.append({
                 "date": schedule_day.isoformat(),
                 **value,

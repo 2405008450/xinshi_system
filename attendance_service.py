@@ -43,10 +43,11 @@ def shifts_for(db,users,day,*,schedule=None):
     import weekend_duty
     lookup=schedule.get if schedule else db.get
     available=schedule.ready if schedule else lambda checker:checker(db)
-    duty_ids=set()
+    duty_entries={}
     if available(weekend_duty.management.ready):
         plan=lookup(weekend_duty.management.WeekendDutyPublication,day.replace(day=1))
-        duty_ids={row['user_id'] for row in (plan.assignments if plan else []) if row['date']==day.isoformat()}
+        duty_entries={row['user_id']:row for row in (plan.assignments if plan else []) if row['date']==day.isoformat() and day.weekday()>=5}
+    duty_ids=set(duty_entries)
     workday=is_workday(day)
     import weekend_night_duty as night
     night_plan=lookup(night.NightDutyPlan,day.replace(day=1)) if available(night.ready) else None
@@ -72,6 +73,13 @@ def shifts_for(db,users,day,*,schedule=None):
         if setting and setting['shift']=='home_rotation' and entry:entry={**entry,'home_office_day':True,'home_rotation':True}
         shift=shifts.get(entry['shift']) if entry else None
         if shift:result[uid]={**shift,'department':entry['department'],'weekend_duty':uid in duty_ids,'fixed':bool(entry.get('fixed')),'home_office_day':bool(entry.get('home_office_day')),'home_rotation':bool(entry.get('home_rotation'))}
+        if uid in duty_entries:
+            # 已同步的周末值班独立于常规排班；不继承早晚班的分段或弹性规则。
+            duty=duty_entries[uid]
+            result[uid]={'code':'weekend_duty','label':'周末值班','periods':['09:30–12:00','13:30–18:00'],
+                         'department':duty['department'],'weekend_duty':True,'fixed':bool(duty.get('fixed')),
+                         'home_office_day':bool(entry and entry.get('home_office_day')),
+                         'home_rotation':bool(entry and entry.get('home_rotation'))}
         if uid in night_entries:result[uid]=night.decorate(result.get(uid),night_entries[uid])
     return result
 
