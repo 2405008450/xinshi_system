@@ -109,12 +109,12 @@ def test_manual_sub_client_name_creates_pending_record(monkeypatch):
 
     db.flush.side_effect = assign_generated_id
 
-    resolved_id = _resolve_or_create_project_sub_client(db, parent_id, "新子客户")
+    resolved_id = _resolve_or_create_project_sub_client(db, parent_id, "新子客户", "新子客户有限公司")
 
     created = db.add.call_args.args[0]
     assert resolved_id == generated_id
     assert created.parent_client_id == parent_id
     assert created.sub_client_code == "CL-001.001"
-    assert created.client_name == "新子客户"
+    assert created.client_name == "新子客户有限公司"
     assert created.client_short_name == "新子客户"
     assert created.client_status == "pending"

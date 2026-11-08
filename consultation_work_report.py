@@ -34,7 +34,8 @@ class ConsultationReportWrite(BaseModel):
 
 
 def preserve_capture(existing,incoming):
-    result={key:value for key,value in (incoming or {}).items() if key!=CAPTURE_KEY}
+    from consultation_outcome import preserve_failure
+    result=preserve_failure(existing,{key:value for key,value in (incoming or {}).items() if key!=CAPTURE_KEY})
     if (existing or {}).get(CAPTURE_KEY):result[CAPTURE_KEY]=existing[CAPTURE_KEY]
     return result
 

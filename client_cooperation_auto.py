@@ -16,6 +16,8 @@ class ClientProjectConfirmation(Base):
     project=relationship('TranslationProject')
     received_at=Column(DateTime(timezone=True))
     confirmed_at=Column(DateTime(timezone=True),nullable=False,default=business_now)
+    # 显式关联使 ORM 在同一次 flush 中先 INSERT 项目，再 INSERT 确认记录。
+    project=relationship(TranslationProject)
 
 
 def expressions(model=Client):

@@ -251,7 +251,8 @@ def generate_resource_request_no(db: Session, current_time: Optional[datetime] =
             sequence = int(last_no.rsplit("-", 1)[-1]) + 1
         except ValueError:
             sequence = 1
-    return f"{prefix}{sequence:03d}"
+    from business_numbering import allocate
+    return allocate(db, 'resource_request', prefix, sequence)
 
 
 def _source_snapshot(db: Session, payload) -> dict:

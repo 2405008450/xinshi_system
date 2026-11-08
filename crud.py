@@ -290,7 +290,8 @@ def delete_role(db: Session, role_id: UUID) -> bool:
 import datetime as dt
 
 def generate_client_code(db: Session) -> str:
-    today = dt.datetime.now()
+    from chat_time import now
+    today = now()
     date_text = today.strftime("%y%m%d")
     prefix = f"CL-{date_text}-"
     legacy_prefix = f"CL-{today.strftime('%y-%m%d')}-"
@@ -315,7 +316,8 @@ def generate_client_code(db: Session) -> str:
 
     new_seq = max(sequences, default=0) + 1
 
-    return f"{prefix}{new_seq:03d}"
+    from business_numbering import allocate
+    return allocate(db, 'client', prefix, new_seq)
 
 
 def get_client(db: Session, client_id: UUID) -> Optional[Client]:
@@ -327,6 +329,7 @@ def get_client(db: Session, client_id: UUID) -> Optional[Client]:
         attach_cooperation(db,[client])
         from client_operator import attach_clients as attach_operator
         attach_operator(db, [client])
+        attach_contact_people(db,clients=[client])
     return client
 
 
@@ -532,6 +535,7 @@ def get_clients(
     attach_cooperation(db,clients)
     from client_operator import attach_clients as attach_operator
     attach_operator(db, clients)
+    attach_contact_people(db,clients=clients)
     return clients
 
 
@@ -581,7 +585,7 @@ def create_client(
     db: Session, client: ClientCreate, idempotency_key: Optional[str] = None,
     *, actor=None,
 ) -> Client:
-    data = client.model_dump(exclude={'customer_type'})
+    data = client.model_dump(exclude={'customer_type','contact_names','contact_people'})
     if not data.get('client_code'):
         data['client_code'] = generate_client_code(db)
     db_client = Client(idempotency_key=idempotency_key, **data)
@@ -591,6 +595,11 @@ def create_client(
     save_client(db, db_client, client.customer_type)
     from client_operator import record
     record(db, db_client.id, actor, 'client_create')
+    if client.contact_names is not None:
+        replace_contact_people(db, db_client, client.contact_names)
+    if client.contact_people is not None:
+        from client_contact_people import replace_details
+        replace_details(db, db_client, client.contact_people)
     db.commit()
     db.refresh(db_client)
     return get_client(db,db_client.id)
@@ -599,7 +608,7 @@ def update_client(db: Session, client_id: UUID, client_update: ClientUpdate) -> 
     db_client = get_client(db, client_id)
     if not db_client:
         return None
-    update_data = client_update.model_dump(exclude_unset=True, exclude={VERSION_FIELD, 'customer_type'})
+    update_data = client_update.model_dump(exclude_unset=True, exclude={VERSION_FIELD, 'customer_type','contact_names','contact_people'})
     assert_fresh(db_client, client_update.expected_updated_at)
     if 'customer_type' in client_update.model_fields_set:
         from translation_customer_type import save_client
@@ -612,6 +621,11 @@ def update_client(db: Session, client_id: UUID, client_update: ClientUpdate) -> 
     for field, value in update_data.items():
         setattr(db_client, field, value)
     db_client.updated_at = datetime.now()
+    if client_update.contact_names is not None:
+        replace_contact_people(db, db_client, client_update.contact_names)
+    if client_update.contact_people is not None:
+        from client_contact_people import replace_details
+        replace_details(db, db_client, client_update.contact_people)
     db.commit()
     db.refresh(db_client)
     return get_client(db,db_client.id)
@@ -722,7 +736,8 @@ def generate_sub_client_code(db: Session, parent_id: UUID) -> str:
     else:
         new_seq = 1
 
-    return f"{base_no}.{new_seq:03d}"
+    from business_numbering import allocate
+    return allocate(db, f'subclient:{parent_id}', base_no + '.', new_seq)
 
 def get_sub_client(db: Session, sub_client_id: UUID) -> Optional[SubClient]:
     client = db.query(SubClient).filter(SubClient.id == sub_client_id).first()
@@ -731,13 +746,14 @@ def get_sub_client(db: Session, sub_client_id: UUID) -> Optional[SubClient]:
         attach_clients(db, sub_clients=[client])
         from client_cooperation_auto import attach_clients as attach_cooperation
         attach_cooperation(db,sub_clients=[client])
+        attach_contact_people(db,sub_clients=[client])
     return client
 
 def create_sub_client(
     db: Session, sub_client: SubClientCreate, idempotency_key: Optional[str] = None,
 ) -> SubClient:
     sub_code = sub_client.sub_client_code or generate_sub_client_code(db, sub_client.parent_client_id)
-    data = sub_client.model_dump(exclude={'sub_client_code', 'customer_type'})
+    data = sub_client.model_dump(exclude={'sub_client_code', 'customer_type','contact_names','contact_people'})
     db_sub = SubClient(
         sub_client_code=sub_code, idempotency_key=idempotency_key, **data,
     )
@@ -745,6 +761,11 @@ def create_sub_client(
     db.flush()
     from translation_customer_type import save_client
     save_client(db, db_sub, sub_client.customer_type)
+    if sub_client.contact_names is not None:
+        replace_contact_people(db, db_sub, sub_client.contact_names)
+    if sub_client.contact_people is not None:
+        from client_contact_people import replace_details
+        replace_details(db, db_sub, sub_client.contact_people)
     db.commit()
     db.refresh(db_sub)
     return get_sub_client(db,db_sub.id)
@@ -753,7 +774,7 @@ def update_sub_client(db: Session, sub_id: UUID, sub_update: SubClientUpdate) ->
     db_sub = get_sub_client(db, sub_id)
     if not db_sub:
         return None
-    update_data = sub_update.model_dump(exclude_unset=True, exclude={VERSION_FIELD, 'customer_type'})
+    update_data = sub_update.model_dump(exclude_unset=True, exclude={VERSION_FIELD, 'customer_type','contact_names','contact_people'})
     assert_fresh(db_sub, sub_update.expected_updated_at)
     if 'customer_type' in sub_update.model_fields_set:
         from translation_customer_type import save_client
@@ -766,6 +787,11 @@ def update_sub_client(db: Session, sub_id: UUID, sub_update: SubClientUpdate) ->
     for field, value in update_data.items():
         setattr(db_sub, field, value)
     db_sub.updated_at = datetime.now()
+    if sub_update.contact_names is not None:
+        replace_contact_people(db, db_sub, sub_update.contact_names)
+    if sub_update.contact_people is not None:
+        from client_contact_people import replace_details
+        replace_details(db, db_sub, sub_update.contact_people)
     db.commit()
     db.refresh(db_sub)
     return get_sub_client(db,db_sub.id)
@@ -1106,6 +1132,8 @@ def delete_translator(db: Session, translator_id: UUID) -> bool:
 
 # Translation Project CRUD
 from models import Client
+from translation_project_contact import attach as attach_project_contacts, save as save_project_contact
+from client_contact_people import attach as attach_contact_people, replace as replace_contact_people
 
 
 def _attach_manuscript_assignees(
@@ -1118,6 +1146,7 @@ def _attach_manuscript_assignees(
     projects = projects or []
     from translation_customer_type import attach as attach_customer_types
     attach_customer_types(db, projects)
+    attach_project_contacts(db, projects)
     from translation_document_requirements import attach as attach_document_requirements
     attach_document_requirements(db, projects)
     from translation_payment_confirmation import attach as attach_payment_confirmation
@@ -1181,6 +1210,9 @@ def _attach_manuscript_assignees(
         sub_order.assigned_translators = list(
             grouped.get((sub_order.parent_project_id, sub_order.id), {}).values()
         )
+    from translation_folder_orders import attach as attach_folder_orders,attach_folder_roots
+    attach_folder_roots(db, projects)
+    attach_folder_orders(db, sub_orders)
     _attach_word_count_matrices(db, projects=projects, sub_orders=sub_orders)
 
 
@@ -1458,6 +1490,7 @@ def _resolve_or_create_project_sub_client(
     db: Session,
     parent_client_id: Optional[UUID],
     sub_client_short_name: Optional[str],
+    sub_client_name: Optional[str] = None,
 ) -> Optional[UUID]:
     """在指定母客户下按名称复用或新建待完善的子客户。"""
     normalized_name = (sub_client_short_name or "").strip()
@@ -1482,10 +1515,14 @@ def _resolve_or_create_project_sub_client(
     if existing:
         return existing.id
 
+    full_name = (sub_client_name or "").strip()
+    if not full_name:
+        raise ValueError("新增子客户时请填写子客户全称")
+
     sub_client = SubClient(
         parent_client_id=parent_client_id,
         sub_client_code=generate_sub_client_code(db, parent_client_id),
-        client_name=normalized_name,
+        client_name=full_name,
         client_short_name=normalized_name,
         client_status="pending",
     )
@@ -1548,9 +1585,12 @@ def _resolve_or_create_project_client(
     if not normalized_short_name:
         return None, None, False
 
+    if not normalized_client_name:
+        raise ValueError("新增客户时请填写客户全称")
+
     client = Client(
         client_code=generate_client_code(db),
-        client_name=normalized_client_name or normalized_short_name,
+        client_name=normalized_client_name,
         client_short_name=normalized_short_name,
         manager_contact=normalized_manager_contact or None,
         client_status="pending",
@@ -2011,6 +2051,14 @@ def _apply_translation_project_filters(
             ))
         elif field == 'finance_client_id':
             query = query.filter(TranslationProject.client_id == UUID(descriptor['value']))
+        elif field == 'finance_payment_status':
+            from translation_payment_filters import payment_status_condition
+            query = query.filter(payment_status_condition(query.session,descriptor['value']))
+        elif field == 'finance_payment_exclude_full':
+            from translation_payment_filters import payment_status_condition
+            query = query.filter(~payment_status_condition(query.session,'full'))
+        elif field == 'finance_payment_project_id':
+            query = query.filter(TranslationProject.id==UUID(descriptor['value']))
         elif field == 'finance_client_ids':
             query = query.filter(func.coalesce(TranslationProject.client_id,SubClient.parent_client_id).in_([UUID(value) for value in descriptor['value']]))
         elif field == 'finance_client':
@@ -2023,6 +2071,10 @@ def _apply_translation_project_filters(
         elif field == 'finance_statement_required':
             from translation_document_requirements import required_expression
             query = query.filter(required_expression(query.session).is_(descriptor['value']))
+        elif field == "contact_name":
+            from translation_project_contact import TranslationProjectContact
+            from search_matching import keyword_any
+            query = query.filter(db_exists().where(and_(TranslationProjectContact.project_id == TranslationProject.id, keyword_any([TranslationProjectContact.contact_name], descriptor.get('value')))))
         elif field in {
             "client_name", "client_short_name", "client_code", "client_manager", "manager_contact",
             "sub_client_name", "sub_client_short_name", "sub_client_code",
@@ -2041,6 +2093,18 @@ def _apply_translation_project_filters(
             query = query.filter(keyword_ilike(column, pattern))
         elif field in {"word_count", "word_count_dimension", "word_count_metric_type", "translator_return_time"}:
             continue
+        elif field == "translator_assigned":
+            from manuscript_models import ManuscriptArrangement, ManuscriptDispatch
+            confirmed_arrangement = db_exists().where(and_(
+                ManuscriptArrangement.translation_project_id == TranslationProject.id,
+                ManuscriptArrangement.sub_order_id.is_(None),
+                ManuscriptArrangement.status != "cancelled",
+                ManuscriptDispatch.id == ManuscriptArrangement.dispatch_id,
+                ManuscriptDispatch.status != "cancelled",
+                ManuscriptDispatch.confirmed_at.is_not(None),
+            ))
+            assigned = or_(TranslationProject.translator_id.is_not(None), confirmed_arrangement)
+            query = query.filter(assigned if descriptor.get("value") is True else ~assigned)
         elif field == "translator_name":
             if descriptor.get("op") != "contains":
                 raise HTTPException(status_code=422, detail="译员姓名只支持包含筛选")
@@ -2382,16 +2446,17 @@ def create_translation_project(
     order_no: Optional[str] = None,
     idempotency_key: Optional[str] = None,
     operation_source: str = "project_form",
+    folder_root: bool = False,
 ) -> TranslationProject:
     order_no = order_no or generate_order_no(db)
     role_assignments = project.role_assignments
     project_data = project.model_dump(exclude={
-        'client_short_name', 'client_code', 'manager_contact', 'sub_client_short_name',
+        'client_short_name', 'client_code', 'client_name', 'contact_name', 'sub_client_name', 'manager_contact', 'sub_client_short_name',
         'word_count_matrix', 'customer_charge_items', 'role_assignments', 'client_manager_id', 'client_manager_change_reason', 'initial_sub_order_names', 'selected_source_files', 'customer_type', 'statement_required', 'quotation_draft', 'payment_draft', 'payment_version', 'payment_confirmation'
     })
     if 'source_file_name' not in project.model_fields_set:
         project_data.pop('source_file_name', None)
-    normalize_translation_name_payload(project_data, has_sub_orders=bool(project.initial_sub_order_names or project.selected_source_files))
+    normalize_translation_name_payload(project_data, has_sub_orders=bool(project.initial_sub_order_names or project.selected_source_files) or folder_root)
     project_data['email_subject_preview'] = normalize_email_subject_order_no(
         project_data.get('email_subject_preview'), order_no
     )
@@ -2412,6 +2477,7 @@ def create_translation_project(
             db,
             project.client_short_name,
             project.client_code,
+            client_name=project.client_name,
             manager_contact=project.manager_contact,
         )
         if client_id:
@@ -2424,6 +2490,7 @@ def create_translation_project(
             db,
             project_data.get('client_id'),
             project.sub_client_short_name,
+            sub_client_name=project.sub_client_name,
         )
 
     project_data['client_id'] = _resolve_project_client_link(
@@ -2442,6 +2509,8 @@ def create_translation_project(
     )
     db.add(db_project)
     db.flush()
+    if 'contact_name' in project.model_fields_set:
+        save_project_contact(db, db_project, project.contact_name, project.created_by)
     from translation_customer_type import save as save_customer_type
     if 'customer_type' in project.model_fields_set:
         save_customer_type(db, db_project, project.customer_type)
@@ -2480,13 +2549,18 @@ def create_translation_project(
     from customer_finance_sync import inherit_translation
     inherit_translation(db,db_project,project.created_by)
     _append_selected_source_files(db, db_project, project.selected_source_files, project.created_by)
+    auto_created = 0
     for name in project.initial_sub_order_names:
-        _create_sub_order_in_transaction(db, TranslationSubOrderCreate(
+        initial_child = _create_sub_order_in_transaction(db, TranslationSubOrderCreate(
             parent_project_id=db_project.id, sub_project_name=name,
             language_pair=db_project.language_pair, priority=db_project.priority,
             customer_deadline_time=db_project.customer_deadline_time,
             created_by=project.created_by,
         ))
+        auto_created += getattr(initial_child, 'auto_created_child_count', 0)
+    from translation_direction_service import ensure_direction_children
+    auto_created += len(ensure_direction_children(db, db_project, project.created_by))
+    db_project.auto_created_child_count = auto_created
     if project.initial_sub_order_names:
         db.expire(db_project, ['sub_orders'])
     record_project_operation(
@@ -2519,14 +2593,15 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
     matrix_update = project_update.word_count_matrix
     update_data = project_update.model_dump(
         exclude_unset=True,
-        exclude={'client_short_name', 'client_code', 'manager_contact', 'sub_client_short_name', 'word_count_matrix', 'customer_charge_items', 'role_assignments', 'assigned_translator_completions', 'selected_source_files', 'client_manager_id', 'client_manager_change_reason', 'customer_type', 'statement_required', 'quotation_draft', 'payment_draft', 'payment_version', 'payment_confirmation', VERSION_FIELD},
+        exclude={'client_short_name', 'client_code', 'client_name', 'contact_name', 'sub_client_name', 'manager_contact', 'sub_client_short_name', 'word_count_matrix', 'customer_charge_items', 'role_assignments', 'assigned_translator_completions', 'selected_source_files', 'client_manager_id', 'client_manager_change_reason', 'customer_type', 'statement_required', 'quotation_draft', 'payment_draft', 'payment_version', 'payment_confirmation', VERSION_FIELD},
     )
     db.query(TranslationProject).filter(TranslationProject.id == project_id).with_for_update().populate_existing().one()
     assert_fresh(db_project, project_update.expected_updated_at)
     if 'client_manager_id' in project_update.model_fields_set:
         from project_client_manager import apply as apply_client_manager
         apply_client_manager(db, 'translation', db_project, project_update.client_manager_id, project_update.client_manager_change_reason, actor_user_id)
-    normalize_translation_name_payload(update_data, has_sub_orders=bool(db_project.sub_orders or project_update.selected_source_files))
+    from translation_folder_orders import is_folder_root
+    normalize_translation_name_payload(update_data, has_sub_orders=bool(db_project.sub_orders or project_update.selected_source_files) or is_folder_root(db,db_project.id))
     if 'project_name' in update_data and db_project.source_file_name and 'source_file_name' not in update_data:
         update_data['project_name'] = db_project.source_file_name
     if 'language_pair' in update_data:
@@ -2555,6 +2630,7 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
             db,
             project_update.client_short_name,
             project_update.client_code,
+            client_name=project_update.client_name,
             manager_contact=project_update.manager_contact,
         )
         if client_id:
@@ -2567,6 +2643,7 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
             db,
             update_data.get('client_id', db_project.client_id),
             project_update.sub_client_short_name,
+            sub_client_name=project_update.sub_client_name,
         )
 
     # 只切换母客户时，自动清除已不匹配的子客户；显式提交子客户时则严格校验归属。
@@ -2590,6 +2667,8 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
 
     for field, value in update_data.items():
         setattr(db_project, field, value)
+    if 'contact_name' in project_update.model_fields_set:
+        save_project_contact(db, db_project, project_update.contact_name, actor_user_id)
     if 'customer_type' in project_update.model_fields_set:
         from translation_customer_type import save as save_customer_type
         save_customer_type(db, db_project, project_update.customer_type)
@@ -2637,7 +2716,10 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
         )
     elif matrix_update is not None:
         _validate_charge_metric_values(db_project.customer_charge_items, customer_values)
-    db_project.updated_at = datetime.now()
+    from translation_direction_service import ensure_direction_children
+    db_project.auto_created_child_count = len(ensure_direction_children(db, db_project, actor_user_id)) if 'language_pair' in update_data else 0
+    from annotation_progress_time import business_now
+    db_project.updated_at = business_now()
     
     _append_selected_source_files(db, db_project, project_update.selected_source_files, actor_user_id)
     db.commit()
@@ -3187,7 +3269,8 @@ def generate_consultation_code(db: Session) -> str:
     生成咨询流水号
     格式：EQ-YYMMDD-NNN（如 EQ-260309-001）
     """
-    today_str = dt.datetime.now().strftime("%y%m%d")
+    from chat_time import now
+    today_str = now().strftime("%y%m%d")
     prefix = f"EQ-{today_str}-"
 
     last_consultation = (
@@ -3207,7 +3290,8 @@ def generate_consultation_code(db: Session) -> str:
     else:
         new_seq = 1
 
-    return f"{prefix}{new_seq:03d}"
+    from business_numbering import allocate
+    return allocate(db, 'consultation', prefix, new_seq)
 
 
 def _attach_consultation_client_fields(
@@ -3222,6 +3306,8 @@ def _attach_consultation_client_fields(
     consultation.client_name = client_name
     consultation.client_short_name = client_short_name
     consultation.manager_contact = manager_contact
+    from consultation_outcome import FAILURE_KEY
+    consultation.failure_reason = (consultation.project_intake or {}).get(FAILURE_KEY)
     consultation.sub_client_code = sub_client.sub_client_code if sub_client else None
     consultation.sub_client_name = sub_client.client_name if sub_client else None
     consultation.sub_client_short_name = sub_client.client_short_name if sub_client else None
@@ -3244,6 +3330,8 @@ def get_consultation(db: Session, consultation_id: UUID) -> Optional[Consultatio
     if not result:
         return None
     consultation, client_code, client_name, client_short_name, manager_contact, sub_client = result
+    from consultation_contacts import read_contacts
+    read_contacts(db, consultation)
     return _attach_consultation_client_fields(
         consultation, client_code, client_name, client_short_name, manager_contact, sub_client,
     )
@@ -3256,7 +3344,9 @@ CONSULTATION_TYPE_FILTER_ALIASES = {
     '招聘项目': ('招聘项目', 'recruitment', '招聘'),
     '标注项目': ('标注项目', 'annotation'),
     '配音项目': ('配音项目', 'dubbing'),
-    '字幕项目': ('字幕项目', 'subtitle'),
+    '（音视频）转录/字幕项目': ('（音视频）转录/字幕项目', '字幕项目', 'subtitle'),
+    '字幕项目': ('（音视频）转录/字幕项目', '字幕项目', 'subtitle'),
+    'subtitle': ('（音视频）转录/字幕项目', '字幕项目', 'subtitle'),
     '公证项目': ('公证项目', 'notarization'),
     '认证项目': ('认证项目', 'certification'),
     '其他项目': ('其他项目', 'equipment_rental', 'other', '其他'),
@@ -3501,10 +3591,14 @@ def create_consultation(
         'client_name',
         'client_short_name',
         'manager_contact',
+        'contact_people', 'contact_people_updated_at',
+        'failure_reason',
     })
     from consultation_work_report import preserve_capture
     consultation_data['project_intake'] = preserve_capture(None, consultation_data.get('project_intake'))
     created_client_id = None
+    from consultation_outcome import apply_failure
+    consultation_data['project_intake'] = apply_failure(consultation, consultation_data['project_intake'], consultation_data.get('status'))
     if not consultation_data.get('client_id') and (consultation.client_short_name or '').strip():
         client_id, _sub_client_id, _created = _resolve_or_create_project_client(
             db,
@@ -3516,8 +3610,11 @@ def create_consultation(
         if _created:
             created_client_id = client_id
 
-    # 客户经理联系方式属于关联客户资料；咨询表单仅提供就地编辑入口，不重复落库。
-    if 'manager_contact' in consultation.model_fields_set and consultation_data.get('client_id'):
+    from consultation_contacts import sync_contacts
+    sync_contacts(db, consultation_data.get('client_id'), consultation_data.get('sub_client_id'),
+                  consultation.contact_people, consultation.contact_people_updated_at)
+    # 旧客户端联系方式兼容；多联系人提交时由联系人同步维护主联系方式。
+    if consultation.contact_people is None and 'manager_contact' in consultation.model_fields_set and consultation_data.get('client_id'):
         client = db.query(Client).filter(Client.id == consultation_data['client_id']).first()
         if client:
             client.manager_contact = (consultation.manager_contact or '').strip() or None
@@ -3552,12 +3649,17 @@ def update_consultation(
         return None
     update_data = consultation_update.model_dump(
         exclude_unset=True,
-        exclude={'client_code', 'client_name', 'client_short_name', 'manager_contact', VERSION_FIELD},
+        exclude={'client_code', 'client_name', 'client_short_name', 'manager_contact', 'contact_people', 'contact_people_updated_at', 'failure_reason', VERSION_FIELD},
     )
     assert_fresh(db_consultation, consultation_update.expected_updated_at)
     if 'project_intake' in update_data:
         from consultation_work_report import preserve_capture
         update_data['project_intake'] = preserve_capture(db_consultation.project_intake, update_data['project_intake'])
+    from consultation_outcome import apply_failure
+    next_intake = apply_failure(consultation_update, update_data.get('project_intake', db_consultation.project_intake),
+                               update_data.get('status', db_consultation.status), db_consultation)
+    if next_intake != (db_consultation.project_intake or {}):
+        update_data['project_intake'] = next_intake
     has_client_input = bool(
         (consultation_update.client_short_name or '').strip()
         or (consultation_update.client_code or '').strip()
@@ -3575,8 +3677,12 @@ def update_consultation(
                 from client_operator import record
                 record(db, client_id, actor, 'consultation_edit_create', db_consultation)
 
+    from consultation_contacts import sync_contacts
+    sync_contacts(db, update_data.get('client_id', db_consultation.client_id),
+                  update_data.get('sub_client_id', db_consultation.sub_client_id),
+                  consultation_update.contact_people, consultation_update.contact_people_updated_at)
     # 只在请求明确携带该字段时同步客户资料，避免列表内联更新状态时误清空联系方式。
-    if 'manager_contact' in consultation_update.model_fields_set:
+    if consultation_update.contact_people is None and 'manager_contact' in consultation_update.model_fields_set:
         target_client_id = update_data.get('client_id', db_consultation.client_id)
         if target_client_id:
             client = db.query(Client).filter(Client.id == target_client_id).first()
@@ -3586,7 +3692,8 @@ def update_consultation(
     for field, value in update_data.items():
         setattr(db_consultation, field, value)
     # updated_at 的数据库默认值只在新增时生效，编辑时使用服务器时间主动刷新。
-    db_consultation.updated_at = datetime.now()
+    from annotation_progress_time import business_now
+    db_consultation.updated_at = business_now().replace(tzinfo=None)
     if commit:
         db.commit()
     else:
@@ -3649,7 +3756,8 @@ def generate_sub_order_no(db: Session, parent_project_id: UUID) -> str:
     else:
         new_seq = 1
 
-    return f"{base_no}.{new_seq:03d}"
+    from business_numbering import allocate
+    return allocate(db, f'translation_suborder:{parent_project_id}', base_no + '.', new_seq)
 
 
 def get_sub_order(db: Session, sub_order_id: UUID) -> Optional[TranslationSubOrder]:
@@ -3701,17 +3809,43 @@ def _create_sub_order_in_transaction(
     idempotency_key: Optional[str] = None,
 ) -> TranslationSubOrder:
     from translation_file_name_rules import normalize_single_file_name
-    file_name = normalize_single_file_name(sub_order.sub_project_name)
-    sub_order_no = sub_order.sub_order_no or generate_sub_order_no(db, sub_order.parent_project_id)
-    data = sub_order.model_dump(exclude={'sub_order_no', 'word_count_matrix', 'customer_charge_items'})
+    from translation_folder_orders import TranslationOrderFolder, folder_name
+    from translation_direction_service import next_number
+    import re
+    root=db.query(TranslationProject).filter_by(id=sub_order.parent_project_id).with_for_update().first()
+    if not root:raise ValueError('母订单不存在')
+    parent=root
+    if sub_order.parent_sub_order_id:
+        parent=db.query(TranslationSubOrder).filter_by(id=sub_order.parent_sub_order_id,parent_project_id=root.id).first()
+        if not parent:raise ValueError('上级子订单不存在或不属于本项目')
+    sub_order_no=sub_order.sub_order_no or next_number(db,root,parent)
+    if not re.fullmatch(re.escape(root.order_no)+r'(\.\d+){1,4}',sub_order_no):raise ValueError('子订单最多四级，编号必须属于当前母订单')
+    prefix=sub_order_no.rsplit('.',1)[0]
+    if prefix!=root.order_no and not db.query(TranslationSubOrder.id).filter_by(parent_project_id=root.id,sub_order_no=prefix).first():raise ValueError('请先创建上级子订单')
+    folder=sub_order.folder_info
+    file_name=folder_name(sub_order.sub_project_name) if folder else normalize_single_file_name(sub_order.sub_project_name)
+    if folder:
+        from path_security import validate_managed_path
+        if folder.get('source_kind') not in ('local','unc') or not folder.get('root_path') or not folder.get('relative_path'):raise ValueError('文件夹信息不完整')
+        parts=folder['relative_path'].replace('\\','/').split('/')
+        if len(parts)>4 or folder_name(parts[-1])!=file_name:raise ValueError('文件夹层级或名称不匹配')
+        for name in parts:folder_name(name)
+        folder={**folder,'root_path':validate_managed_path(folder['root_path']),'files':[normalize_single_file_name(name) for name in folder.get('files',[])]}
+    data = sub_order.model_dump(exclude={'sub_order_no', 'word_count_matrix', 'customer_charge_items','folder_info','parent_sub_order_id'})
     data['sub_project_name'] = file_name
     data['language_pair'] = _normalize_catalog_language_pairs(db, data.get('language_pair'))
+    from translation_direction_service import validate_direction_level, ensure_direction_children
+    validate_direction_level(sub_order_no, data['language_pair'])
     _validate_written_translator(db, data.get('translator_id'))
     db_sub = TranslationSubOrder(
         sub_order_no=sub_order_no, idempotency_key=idempotency_key, **data,
     )
     db.add(db_sub)
     db.flush()
+    if folder:
+        db.add(TranslationOrderFolder(sub_order_id=db_sub.id,**{key:folder[key] for key in ('source_kind','root_path','relative_path','files')}))
+        db.flush()
+        db_sub.folder_info=folder
     from word_count_service import save_created_entity_matrix
     save_created_entity_matrix(
         db,
@@ -3732,6 +3866,7 @@ def _create_sub_order_in_transaction(
     inherit_new_order(db, db_sub)
     # 子订单与母订单一致：初始工作流必须同事务落库，否则子订单不会出现在工作台。
     init_workflow(db, sub_order_id=db_sub.id, commit=False)
+    db_sub.auto_created_child_count = len(ensure_direction_children(db, db_sub, sub_order.created_by))
     return db_sub
 
 
@@ -3793,6 +3928,15 @@ def create_sub_orders_bulk(
         .all()
     ]
     accepted_names, skipped = partition_sub_project_names(payload.sub_project_names, existing_names)
+    shared_files = {}
+    if payload.source_folder_path:
+        from project_file_service import inspect_suborder_shared_folder
+        from path_security import validate_managed_path
+        listing = inspect_suborder_shared_folder(payload.source_folder_path)
+        shared_files = {item['name']: item['network_file_path'] for item in listing['files']}
+        if any(name not in shared_files for name in payload.sub_project_names):
+            raise ValueError('部分文件已不在共享文件夹第一层，请重新读取后选择')
+        shared_files = {name: validate_managed_path(shared_files[name]) for name in payload.sub_project_names}
     defaults = payload.defaults.model_dump()
     # 批量数量创建和按文件名创建都只继承公共字段，字数必须逐个子订单补录。
     from word_count_schemas import WordCountCreateMatrix
@@ -3803,6 +3947,8 @@ def create_sub_orders_bulk(
         if payload.source_directory is not None:
             from project_file_service import source_file_path
             item_defaults['network_file_path'] = source_file_path(payload.source_directory, name)
+        if shared_files:
+            item_defaults['network_file_path'] = shared_files[name]
         sub_order = TranslationSubOrderCreate(
             parent_project_id=payload.parent_project_id,
             sub_project_name=name,
@@ -3832,11 +3978,14 @@ def update_sub_order(db: Session, sub_order_id: UUID, sub_order_update: Translat
     )
     if 'sub_project_name' in update_data:
         from translation_file_name_rules import normalize_single_file_name
-        update_data['sub_project_name'] = normalize_single_file_name(update_data['sub_project_name'])
+        from translation_folder_orders import info, folder_name
+        update_data['sub_project_name'] = folder_name(update_data['sub_project_name']) if info(db,db_sub.id) else normalize_single_file_name(update_data['sub_project_name'])
     if 'language_pair' in update_data:
         update_data['language_pair'] = _normalize_catalog_language_pairs(
             db, update_data.get('language_pair')
         )
+    from translation_direction_service import validate_direction_level, ensure_direction_children
+    validate_direction_level(db_sub.sub_order_no, update_data.get('language_pair', db_sub.language_pair))
     if 'translator_id' in update_data:
         _validate_written_translator(db, update_data.get('translator_id'))
     for field, value in update_data.items():
@@ -3865,7 +4014,9 @@ def update_sub_order(db: Session, sub_order_id: UUID, sub_order_update: Translat
         )
     elif matrix_update is not None:
         _validate_charge_metric_values(db_sub.customer_charge_items, customer_values)
-    db_sub.updated_at = datetime.now()
+    db_sub.auto_created_child_count = len(ensure_direction_children(db, db_sub, db.info.get('number_actor'))) if 'language_pair' in update_data else 0
+    from annotation_progress_time import business_now
+    db_sub.updated_at = business_now()
     db.commit()
     return get_sub_order(db, db_sub.id)
 
@@ -3953,6 +4104,8 @@ def delete_sub_order(db: Session, sub_order_id: UUID) -> bool:
     db_sub = get_sub_order(db, sub_order_id)
     if not db_sub:
         return False
+    if db.query(TranslationSubOrder.id).filter(TranslationSubOrder.parent_project_id==db_sub.parent_project_id,TranslationSubOrder.sub_order_no.startswith(db_sub.sub_order_no+'.',autoescape=True)).first():
+        raise ValueError('该订单还有下级订单，请先删除下级订单')
     db.delete(db_sub)
     db.flush()
     db.commit()

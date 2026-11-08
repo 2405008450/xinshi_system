@@ -18,20 +18,24 @@ export function buildTranslationEmailSubject(source = {}) {
     ['标题前缀', source.subjectPrefix],
     ['订单号', source.orderNo],
     ['客户简称', source.clientShortName],
-    ['客户经理联系方式', source.managerContact],
     ['翻译方向', formatProjectNameLanguagePair(source.languagePair)],
     ['客户交稿时间', deadline ? `${deadline}回稿` : ''],
   ]
   const count = Math.max(0, Number(source.subOrderCount) || 0)
   if (count) fields.push(['批次', `${count}批`])
   const values = fields.map(([label, value]) => [label, String(value || '').trim()])
-  const optional = new Set(['标题前缀', '客户经理联系方式', '批次'])
+  const optional = new Set(['标题前缀', '批次'])
   const parts = values.map(([, value]) => value).filter(Boolean)
   return {
     parts,
     subject: parts.join('，'),
     missingFields: values.filter(([label, value]) => !optional.has(label) && !value).map(([label]) => label),
   }
+}
+
+export function stripTranslationManagerContact(preview, contact) {
+  const text=String(preview||'').trim(),value=String(contact||'').trim(),parts=text.split(/[，,]/)
+  return value && parts.some(part=>part.trim()===value) ? parts.map(part=>part.trim()).filter(part=>part&&part!==value).join('，') : text
 }
 
 export function extractTranslationSubjectPrefix(preview, form = {}) {

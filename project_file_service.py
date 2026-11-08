@@ -127,3 +127,14 @@ def list_sub_order_source_files(storage_path: str) -> dict:
         files.append({"name": name, "path": ntpath.join(normalized, name),
                       "selectable": not reason, "reason": reason})
     return {"storage_path": normalized, "files": files}
+def inspect_suborder_shared_folder(storage_path: str) -> dict:
+    """按原 UNC 白名单列出第一层文件，供批量子订单勾选。"""
+    import ntpath
+    normalized = validate_managed_path(storage_path)
+    if not normalized or not normalized.startswith("\\\\"):
+        raise ValueError("请选择企业 UNC 共享文件夹路径")
+    path = Path(normalized)
+    if not path.is_dir():
+        raise ValueError("共享文件夹不存在或当前服务无权访问")
+    names = collect_source_file_names(path)
+    return {"storage_path": normalized, "files": [{"name": name, "network_file_path": ntpath.join(normalized, name)} for name in names]}

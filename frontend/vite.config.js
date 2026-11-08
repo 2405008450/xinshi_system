@@ -12,11 +12,12 @@ export default defineConfig(({ mode }) => {
     plugins: [
       vue(),
       Components({ resolvers: [
+        name => name === 'ElCheckboxGroup' ? { name: 'SelectionCheckboxGroup', from: fileURLToPath(new URL('./src/components/common/selectionCheckboxGroup.js', import.meta.url)).replaceAll('\\', '/'), sideEffects: 'element-plus/es/components/checkbox-group/style/css' } : undefined,
         name => name === 'ElPopover' ? { name: 'default', from: fileURLToPath(new URL('./src/components/common/WindowPopover.vue', import.meta.url)).replaceAll('\\', '/'), sideEffects: 'element-plus/es/components/popover/style/css' } : undefined,
         name => name==='ElInput' ? {name:'default',from:fileURLToPath(new URL('./src/components/common/ScreenshotInput.vue',import.meta.url)).replaceAll('\\','/')} : undefined,
         name => ({ElTableColumn:'ScreenshotTableColumn',ElDescriptions:'ScreenshotDescriptions'}[name]?{name:{ElTableColumn:'ScreenshotTableColumn',ElDescriptions:'ScreenshotDescriptions'}[name],from:fileURLToPath(new URL('./src/components/common/screenshotDisplays.js',import.meta.url)).replaceAll('\\','/'),sideEffects:`element-plus/es/components/${name==='ElTableColumn'?'table':'descriptions'}/style/css`}:undefined),
-        name => ({ ElSelect: 'SearchSelect', ElCascader: 'SearchCascader', ElTransfer: 'SearchTransfer' }[name]
-          ? { name: { ElSelect: 'SearchSelect', ElCascader: 'SearchCascader', ElTransfer: 'SearchTransfer' }[name], from: fileURLToPath(new URL('./src/components/common/searchableControls.js', import.meta.url)).replaceAll('\\', '/'), sideEffects: `element-plus/es/components/${name.slice(2).toLowerCase()}/style/css` } : undefined),
+        name => ({ ElSelect: 'SearchSelect', ElSelectV2: 'SearchSelectV2', ElCascader: 'SearchCascader', ElTransfer: 'SearchTransfer' }[name]
+          ? { name: { ElSelect: 'SearchSelect', ElSelectV2: 'SearchSelectV2', ElCascader: 'SearchCascader', ElTransfer: 'SearchTransfer' }[name], from: fileURLToPath(new URL('./src/components/common/searchableControls.js', import.meta.url)).replaceAll('\\', '/'), sideEffects: `element-plus/es/components/${name === 'ElSelectV2' ? 'select-v2' : name.slice(2).toLowerCase()}/style/css` } : undefined),
         ElementPlusResolver(),
       ] })
     ],

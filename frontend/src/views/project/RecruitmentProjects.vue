@@ -129,7 +129,7 @@
         />
       </template>
       <div ref="editorBodyRef" class="editor-body">
-        <AppForm ref="formRef" :model="form" :rules="rules" label-width="140px" class="recruitment-form">
+        <AppForm number-scope="recruitment" number-field="orderNo" :number-active="editorVisible && !form.id"  ref="formRef" :model="form" :rules="rules" label-width="140px" class="recruitment-form">
           <div class="form-section"><h3>项目与职位</h3>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="订单号"><ReadonlyField :model-value="form.orderNo" source="auto" placeholder="保存后自动生成" /></el-form-item></el-col>
@@ -164,15 +164,16 @@
                         </div>
                       </template>
                     </el-autocomplete>
-                    <div class="client-autocomplete-hint">没有匹配客户时，保存项目会自动新增一条待完善的客户信息。</div>
+                    <div class="client-autocomplete-hint">没有匹配客户时，填写客户全称及简称后，保存项目会自动新增客户。</div>
                   </div>
-                </el-form-item>
+                <ClientNameGuidance />
+</el-form-item>
               </el-col>
               <el-col :xs="24" :md="12"><el-form-item label="子客户/联系人"><el-input v-model="form.contactName" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="客户编号"><ReadonlyField v-model="form.clientCode" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '新客户不填则自动生成'" /></el-form-item></el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="客户全称"><ReadonlyField v-model="form.clientName" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '新客户可补充全称'" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="客户全称" prop="clientName"><ReadonlyField :model-value="form.clientName" @update:model-value="form.clientName = $event" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '请输入客户全称'" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="客户领域"><ReadonlyField :model-value="form.clientDomain" source="auto" placeholder="选择客户后自动带出" /></el-form-item></el-col>
@@ -329,7 +330,7 @@
     </DraggableFormDialog>
 
     <DraggableFormDialog v-model="candidateEditorVisible" :title="candidateForm.id ? '编辑候选人' : '新增候选人'" width="min(760px, calc(100vw - 32px))" top="5vh" append-to-body class="candidate-editor-dialog">
-      <div class="candidate-editor-body"><AppForm ref="candidateFormRef" :model="candidateForm" :rules="candidateRules" label-width="110px">
+      <div class="candidate-editor-body"><AppForm number-scope="talent" number-field="resourceCode" :number-active="candidateEditorVisible && !candidateForm.id && !candidateForm.personId" ref="candidateFormRef" :model="candidateForm" :rules="candidateRules" label-width="110px">
         <el-form-item label="复用人才档案"><el-select v-model="candidateForm.personId" filterable clearable placeholder="可选择人才库已有人员" style="width:100%" @change="handleCandidatePersonChange"><el-option v-for="person in talentOptions" :key="person.id" :label="`${person.fullName}${person.resourceCode ? `（${person.resourceCode}）` : ''}`" :value="person.id" /></el-select></el-form-item>
         <el-form-item label="候选人姓名" prop="candidateName"><el-input v-model="candidateForm.candidateName" /></el-form-item>
         <el-form-item label="简历路径"><el-input v-model="candidateForm.resumePath" /></el-form-item>
@@ -364,6 +365,7 @@
 </template>
 
 <script setup>
+import ClientNameGuidance from '@/components/common/ClientNameGuidance.vue'
 import {useProjectStatusSync} from '@/composables/useProjectStatusSync'
 import TaxPriceFields from '@/components/common/TaxPriceFields.vue'
 import {taxPriceForm,taxUnitAmount,taxPriceSummary} from '@/utils/taxPrices'
@@ -573,7 +575,7 @@ const showManagerContactInput=computed(() => !form.clientId && Boolean(form.clie
 let submitLocked=false
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(editorBodyRef)
 let autoNameTimer=null; let namePreviewRequestId=0
-const rules = { projectStatus:[{required:true,message:'请选择项目状态',trigger:'change'}], positionTitle:[{required:true,message:'请输入职位名称/类型',trigger:'blur'}], headcountMin:[{required:true,message:'请输入招聘人数',trigger:'change'}], employmentRange:[{required:true,message:'请选择拟履职周期',trigger:'change'}], workLocation:[{required:true,message:'请输入任职工作属地',trigger:'blur'}], serviceFeeAmount:[{trigger:'change',validator:(_rule,value,callback)=>form.serviceFeeType==='fixed'&&value==null?callback(new Error('固定金额服务费必须填写金额')):callback()}], serviceFeeRate:[{trigger:'change',validator:(_rule,value,callback)=>form.serviceFeeType==='annual_salary_rate'&&value==null?callback(new Error('年薪比例服务费必须填写比例')):callback()}], serviceFeeMultiplier:[{trigger:'change',validator:(_rule,value,callback)=>form.serviceFeeType==='monthly_salary_multiple'&&value==null?callback(new Error('月薪倍数服务费必须填写倍数')):callback()}] }
+const rules = { clientName:[{required:true,pattern:/\S/,message:'请输入客户全称',trigger:['blur','change']}], clientShortName:[{required:true,pattern:/\S/,message:'请输入客户简称',trigger:['blur','change']}], projectStatus:[{required:true,message:'请选择项目状态',trigger:'change'}], positionTitle:[{required:true,message:'请输入职位名称/类型',trigger:'blur'}], headcountMin:[{required:true,message:'请输入招聘人数',trigger:'change'}], employmentRange:[{required:true,message:'请选择拟履职周期',trigger:'change'}], workLocation:[{required:true,message:'请输入任职工作属地',trigger:'blur'}], serviceFeeAmount:[{trigger:'change',validator:(_rule,value,callback)=>form.serviceFeeType==='fixed'&&value==null?callback(new Error('固定金额服务费必须填写金额')):callback()}], serviceFeeRate:[{trigger:'change',validator:(_rule,value,callback)=>form.serviceFeeType==='annual_salary_rate'&&value==null?callback(new Error('年薪比例服务费必须填写比例')):callback()}], serviceFeeMultiplier:[{trigger:'change',validator:(_rule,value,callback)=>form.serviceFeeType==='monthly_salary_multiple'&&value==null?callback(new Error('月薪倍数服务费必须填写倍数')):callback()}] }
 const resolveManagerByName = (name) => {
   const exact = activeUsers.value.filter((user) => userLabel(user) === String(name || '').trim())
   if (exact.length === 1) return exact[0].id

@@ -14,7 +14,7 @@ def tree(db,owner,executor):
     return a,b,c
 
 
-def test_hierarchy_numbers_and_no_reuse_after_delete(setup):
+def test_hierarchy_numbers_reuse_after_delete_but_preserve_original_history(setup):
     db,(owner,executor,_)=setup
     a,b,c=tree(db,owner,executor)
     assert b['task_no']==a['task_no']+'.001'
@@ -23,7 +23,10 @@ def test_hierarchy_numbers_and_no_reuse_after_delete(setup):
     assert second['task_no']==a['task_no']+'.002'
     management.delete_task(db,owner,second['id'],second['revision'])
     third=tasks.create_task(db,owner,payload(owner,executor,'E',parent_id=a['id']))
-    assert third['task_no']==a['task_no']+'.003'
+    assert third['task_no']==second['task_no']
+    from business_numbering import BusinessNumberDeletionHistory
+    history=db.query(BusinessNumberDeletionHistory).filter_by(number=second['task_no'],entity_type='technical_development_task').one()
+    assert history.entity_id==str(second['id']) and history.snapshot['name']=='D'
 
 
 def test_reparent_renumbers_whole_subtree_preserving_records(setup):

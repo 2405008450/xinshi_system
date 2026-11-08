@@ -21,7 +21,8 @@ def generate_order_no(db: Session) -> str:
     格式: TP-YYMMDD-NNN (如 TP-260304-007)
     """
     # 日期格式改为 YYMMDD (6位)
-    today_str = datetime.datetime.now().strftime("%y%m%d")
+    from chat_time import now
+    today_str = now().strftime("%y%m%d")
     prefix = f"TP-{today_str}-"
 
     # PostgreSQL 下串行化同一天的主订单号生成；SQLite 等测试数据库无需加锁。
@@ -52,7 +53,8 @@ def generate_order_no(db: Session) -> str:
     else:
         new_seq = 1
 
-    return f"{prefix}{new_seq:03d}"
+    from business_numbering import allocate
+    return allocate(db, 'translation', prefix, new_seq)
 
 
 def generate_sub_order_no(db: Session, parent_order_no: str) -> str:

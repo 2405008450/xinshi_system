@@ -50,8 +50,8 @@ export const createSubOrder = async (data) => {
     return convertKeys(response, toCamelCase)
 }
 
-export const createSubOrdersBulk = (data) => {
-    return api.post('/sub-orders/bulk', convertKeys(data, toSnakeCase)).then(res => convertKeys(res, toCamelCase))
+export const createSubOrdersBulk = (data, config = {}) => {
+    return api.post('/sub-orders/bulk', convertKeys(data, toSnakeCase), config).then(res => convertKeys(res, toCamelCase))
 }
 
 export const readSubOrderSourceFiles = (storagePath, signal) =>
@@ -64,3 +64,18 @@ export const updateSubOrder = (id, data) => {
 export const deleteSubOrder = (id) => {
     return api.delete(`/sub-orders/${id}`)
 }
+
+export const inspectSharedSubOrderFolder = (storagePath, config = {}) => api.get('/sub-orders/shared-folder/inspect', { ...config, params: { storage_path: storagePath } }).then(res => convertKeys(res, toCamelCase))
+
+export const inspectSharedSubOrderTree = (storagePath,config={}) => api.get('/sub-orders/shared-folder/tree',{...config,params:{storage_path:storagePath}}).then(res=>convertKeys(res,toCamelCase))
+const folderImportState={key:'',signature:''}
+export const importSubOrderFolders = async (data,config={}) => {
+ const payload=convertKeys(data,toSnakeCase)
+ const key=resolveIdempotencyKey(folderImportState,payload)
+ const result=await api.post('/sub-orders/folders/import',payload,{timeout:120000,...config,headers:{...config.headers,'X-Idempotency-Key':key}})
+ clearIdempotencyKey(folderImportState,key)
+ return convertKeys(result,toCamelCase)
+}
+export const exportSubOrderTree = projectId => api.get(`/sub-orders/project/${projectId}/export`,{responseType:'blob'})
+
+export const getFolderImportRecords = projectId => api.get(`/sub-orders/project/${projectId}/folder-import-records`).then(res=>convertKeys(res,toCamelCase))

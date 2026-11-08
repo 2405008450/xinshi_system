@@ -29,14 +29,15 @@ import CustomerTranslationRates from './CustomerTranslationRates.vue'
 const props=defineProps({clientId:String,clientName:String,prices:Array,matrix:Object,languagePair:String,refreshProject:Function})
 const emit=defineEmits(['library-saved'])
 const visible=ref(false),loading=ref(false),library=ref(null),error=ref(''),selected=ref('')
+const expectedPrices=ref(null)
 const canWrite=hasPermission('clients:write')
 let resolver,sequence=0
 const unitLabel=row=>{const unit=pricingUnit(row.metric,null,true);return unit?metricName(unit):'未明确单位'}
-const rows=computed(()=>{const expected=expectedOrderPrices(props.prices,props.languagePair,props.matrix);return (library.value?.items||[]).map(row=>{const matches=expected.map(price=>priceMatch(row,price,props.matrix));const match=matches.find(item=>item.matched)||matches.sort((a,b)=>a.reasons.length-b.reasons.length)[0]||{matched:false,reasons:['项目尚未设置语种或单价']};return {...row,match}})})
+const rows=computed(()=>{const expected=expectedOrderPrices(expectedPrices.value??props.prices,props.languagePair,props.matrix);return (library.value?.items||[]).map(row=>{const matches=expected.map(price=>priceMatch(row,price,props.matrix));const match=matches.find(item=>item.matched)||matches.sort((a,b)=>a.reasons.length-b.reasons.length)[0]||{matched:false,reasons:['项目尚未设置语种或单价']};return {...row,match}})})
 function settle(value){resolver?.(value);resolver=undefined}
 function cancel(done){sequence++;visible.value=false;settle(null);if(typeof done==='function')done()}
 async function load(){const current=++sequence;loading.value=true;error.value='';selected.value='';try{const data=await getCustomerTranslationRates(props.clientId);if(current!==sequence)return;library.value=data;if(!data.ready)error.value='客户报价存储尚未初始化';const matching=rows.value.filter(row=>row.match.matched);if(matching.length===1)selected.value=matching[0].id}catch(e){if(current===sequence)error.value=getLocalizedErrorMessage(e,'客户报价加载失败')}finally{if(current===sequence)loading.value=false}}
-function confirm(){settle(null);library.value=null;visible.value=true;const result=new Promise(resolve=>resolver=resolve);void load();return result}
+function confirm(options={}){expectedPrices.value=options.prices||null;settle(null);library.value=null;visible.value=true;const result=new Promise(resolve=>resolver=resolve);void load();return result}
 function accept(){const row=rows.value.find(item=>item.id===selected.value&&item.match.matched);if(!row)return;visible.value=false;settle({price:row,version:library.value.version})}
 async function librarySaved(){loading.value=true;try{await props.refreshProject?.();await load();emit('library-saved')}catch(e){error.value=getLocalizedErrorMessage(e,'项目价格刷新失败');loading.value=false}}
 onBeforeUnmount(()=>{sequence++;settle(null)})

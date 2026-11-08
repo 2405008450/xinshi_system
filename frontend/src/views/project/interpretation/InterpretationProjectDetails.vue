@@ -351,7 +351,7 @@
         />
       </template>
       <div ref="dialogBodyRef" class="editor-body">
-        <AppForm ref="formRef" :model="form" :rules="rules" label-width="120px">
+        <AppForm number-scope="interpretation" number-field="orderNo" :number-active="dialogVisible && !form.id"  ref="formRef" :model="form" :rules="rules" label-width="120px">
           <section class="form-section interpretation-key-fields">
             <div class="interpretation-key-fields__header">
               <div><h3>关键必填信息</h3><p>请优先完成以下内容，再补充其余项目资料。</p></div>
@@ -400,9 +400,10 @@
                         </div>
                       </template>
                     </el-autocomplete>
-                    <div class="client-autocomplete-hint">没有匹配客户时，保存项目会自动新增一条待完善的客户信息。</div>
+                    <div class="client-autocomplete-hint">没有匹配客户时，填写客户全称及简称后，保存项目会自动新增客户。</div>
                   </div>
-                </el-form-item>
+                <ClientNameGuidance />
+</el-form-item>
               </el-col>
             </el-row>
             <el-form-item label="具体任务" prop="taskDescription">
@@ -461,7 +462,7 @@
               <CustomerSpecialistSelect v-model="form.currentClientManager" :options="customerSpecialists" :loading="customerSpecialistsLoading" />
             </el-form-item>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="8"><el-form-item label="客户全称"><ReadonlyField :model-value="form.clientFullName" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '新客户可补充全称'" @update:model-value="form.clientFullName = $event" /></el-form-item></el-col>
+              <el-col :xs="24" :md="8"><el-form-item label="客户全称" prop="clientFullName"><ReadonlyField :model-value="form.clientFullName" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '请输入客户全称'" @update:model-value="form.clientFullName = $event" /></el-form-item></el-col>
               <el-col :xs="24" :md="8"><el-form-item label="客户编号"><ReadonlyField :model-value="form.clientCode" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '新客户不填则自动生成'" @update:model-value="form.clientCode = $event" /></el-form-item></el-col>
               <el-col :xs="24" :md="8"><el-form-item label="客户领域"><ReadonlyField :model-value="form.clientDomain" source="auto" placeholder="选择客户后自动带出" /></el-form-item></el-col>
             </el-row>
@@ -591,6 +592,7 @@
 </template>
 
 <script setup>
+import ClientNameGuidance from '@/components/common/ClientNameGuidance.vue'
 import {useProjectStatusSync} from '@/composables/useProjectStatusSync'
 import ProjectClientManagerField from '@/components/common/ProjectClientManagerField.vue'
 import ProjectClientManagerHistory from '@/components/common/ProjectClientManagerHistory.vue'
@@ -943,10 +945,11 @@ const validateLanguageDirections = (_rule, value, callback) => {
 const requiredScheduledStartRule = [{ required: true, message: '请选择预定开始时间', trigger: 'change' }]
 const requiredScheduledEndRule = [{ required: true, message: '请选择预定结束时间', trigger: 'change' }]
 const rules = {
+  clientFullName: [{ required: true, validator: requiredTextValidator('请输入客户全称'), trigger: ['blur','change'] }],
   projectName: [{ validator: requiredTextValidator('请输入项目名称'), trigger: ['blur', 'change'] }],
   projectTypes: [{ type: 'array', required: true, min: 1, message: '请至少选择一个项目类型', trigger: 'change' }],
   taskDescription: [{ validator: requiredTextValidator('请输入具体任务'), trigger: ['blur', 'change'] }],
-  clientShortName: [{ validator: requiredTextValidator('请选择或输入客户简称'), trigger: ['blur', 'change'] }],
+  clientShortName: [{ required: true, validator: requiredTextValidator('请选择或输入客户简称'), trigger: ['blur', 'change'] }],
   locations: [{ validator: validateLocations, trigger: 'change' }],
   languageDirections: [{ validator: validateLanguageDirections, trigger: 'change' }],
   projectStatus: [{ required: true, message: '请选择项目状态', trigger: 'change' }],

@@ -4,6 +4,7 @@
       <div class="card-header">
         <span>新咨询管理</span>
         <div class="header-actions">
+          <el-button v-if="hasPermission('consultations:read')" @click="router.push('/data-analysis')">数据分析</el-button>
           <TableColumnSettings settings-key="client-consultations"
             v-model="visibleColumnKeys"
             :columns="consultationColumnOptions"
@@ -138,6 +139,7 @@
                 <el-descriptions-item label="咨询类型">
                   <span class="detail-value">{{ consultationTypeLabel(getDetailRow(row).consultation_type) }}</span>
                 </el-descriptions-item>
+                <el-descriptions-item v-if="getDetailRow(row).failure_reason" label="未成交原因" :span="2">{{ failureReasonText(getDetailRow(row).failure_reason) }}</el-descriptions-item>
                 <el-descriptions-item label="处理方式">
                   <InlineTextField :model-value="getDetailRow(row).handling_method" :editable="canWrite && !deleteMode" label="处理方式" :maxlength="100" :save-field="(value) => saveConsultationTextField(row, 'handling_method', value)" @conflict="loadConsultationDetail(row.id, true)" />
                 </el-descriptions-item>
@@ -379,7 +381,8 @@
         />
       </template>
       <div ref="consultationEditorRef" v-loading="editorLoading" class="consultation-editor">
-      <AppForm ref="formRef" :model="form" :rules="rules" label-width="120px">
+      <AppForm number-scope="consultation" number-field="consultation_code" :number-active="dialogVisible && !form.id"  ref="formRef" :model="form" :rules="rules" label-width="120px">
+        <el-form-item label="咨询编号"><ReadonlyField :model-value="form.consultation_code" source="auto" placeholder="正在占用编号" /></el-form-item>
         <section v-if="isSimpleConsultationType(form.consultation_type)" class="form-section consultation-form-section consultation-form-section--primary simple-consultation-form">
           <div class="consultation-form-section__header">
             <h3>简单咨询</h3>
@@ -393,7 +396,7 @@
                   <el-option
                     v-for="item in consultationTypeOptions"
                     :key="item"
-                    :label="item"
+                    :label="consultationTypeLabel(item)"
                     :value="item"
                     :class="{ 'consultation-type-option--simple': isSimpleConsultationType(item) }"
                   />
@@ -402,12 +405,33 @@
             </el-col>
             <el-col :xs="24" :md="12">
               <el-form-item label="咨询状态" prop="status">
-                <el-select v-model="form.status" placeholder="请选择" style="width:100%">
+                <el-select :model-value="form.status" @update:model-value="handleFormStatusChange" placeholder="请选择" style="width:100%">
                   <el-option v-for="item in consultationStatusOptions" :key="item.value" :label="item.label" :value="item.value" :disabled="item.value === CONFIRMED_CONSULTATION_STATUS" />
                 </el-select>
+                <div v-if="form.status === 'failed'" class="failure-reason-summary">{{ failureReasonText(form.failure_reason) }} <el-button link type="primary" @click="editFormFailureReason">修改原因</el-button></div>
               </el-form-item>
             </el-col>
           </el-row>
+          <el-row :gutter="20"><el-col :xs="24" :md="12"><el-form-item label="客户全称" prop="client_name">
+                <el-autocomplete
+                  v-model="form.client_name"
+                  :fetch-suggestions="searchClientsByName"
+                  placeholder="请输入客户全称"
+                  value-key="client_name"
+                  clearable
+                  style="width: 100%"
+                  @select="handleExistingClientSelect"
+                  @clear="handleClientNameClear"
+                  @input="handleClientNameInput"
+                >
+                  <template #default="{ item }">
+                    <div class="client-suggestion">
+                      <span>{{ item.client_name }}</span>
+                      <span class="client-suggestion-meta">{{ item.client_code }}</span>
+                    </div>
+                  </template>
+                </el-autocomplete>
+              </el-form-item></el-col></el-row>
           <el-row :gutter="20">
             <el-col :xs="24" :md="12">
               <el-form-item label="客户简称" prop="client_short_name">
@@ -429,7 +453,8 @@
                     </div>
                   </template>
                 </el-autocomplete>
-              </el-form-item>
+              <ClientNameGuidance />
+</el-form-item>
             </el-col>
             <el-col :xs="24" :md="12">
               <el-form-item label="客户来源" prop="client_source">
@@ -438,22 +463,9 @@
             </el-col>
           </el-row>
           <el-row :gutter="20">
-            <el-col :xs="24" :md="12">
-              <el-form-item label="联系方式" prop="manager_contact">
-                <ReadonlyField
-                  v-if="form.manager_contact_protected"
-                  model-value="••••••••"
-                  source="locked"
-                  tooltip="已有联系方式，已隐藏；如需修改请前往客户管理"
-                />
-                <el-input
-                  v-else
-                  v-model="form.manager_contact"
-                  maxlength="100"
-                  clearable
-                  placeholder="请输入联系方式，保存后同步到客户资料"
-                />
-              </el-form-item>
+            <el-col :span="24">
+              <ClientContactNamesEditor :model-value="form.contact_people" :required="false" @update:model-value="updateConsultationContacts" />
+              <p class="client-contact-sync-hint">联系人、联系方式及说明在保存咨询后同步到客户管理；关联子客户时同步到对应子客户。移除本次表单中的联系人不会删除客户名录中的已有联系人。</p>
             </el-col>
           </el-row>
           <el-row :gutter="20">
@@ -510,7 +522,7 @@
                   <el-option
                     v-for="item in consultationTypeOptions"
                     :key="item"
-                    :label="item"
+                    :label="consultationTypeLabel(item)"
                     :value="item"
                     :class="{ 'consultation-type-option--simple': isSimpleConsultationType(item) }"
                   />
@@ -526,6 +538,15 @@
               </el-form-item>
             </el-col>
           </el-row>
+
+          <el-alert
+            v-if="isSubtitleConsultationType(form.consultation_type)"
+            class="consultation-subtitle-notice"
+            title="该类项目属于标注类项目，可转交标注项目部同事"
+            type="warning"
+            show-icon
+            :closable="false"
+          />
 
           <div
             v-if="isCoreFieldsRequiredProjectType(form.consultation_type)"
@@ -697,7 +718,7 @@
             </el-col>
             <el-col :span="12">
               <el-form-item label="咨询状态" prop="status">
-                <el-select v-model="form.status" placeholder="请选择" style="width: 100%">
+                <el-select :model-value="form.status" @update:model-value="handleFormStatusChange" placeholder="请选择" style="width: 100%">
                   <el-option
                     v-for="item in consultationStatusOptions"
                     :key="item.value"
@@ -705,6 +726,7 @@
                     :value="item.value"
                   />
                 </el-select>
+                <div v-if="form.status === 'failed'" class="failure-reason-summary">{{ failureReasonText(form.failure_reason) }} <el-button link type="primary" @click="editFormFailureReason">修改原因</el-button></div>
               </el-form-item>
             </el-col>
           </el-row>
@@ -755,7 +777,8 @@
                     未匹配已有客户时，新增或编辑咨询都会自动创建客户并完成关联。
                   </div>
                 </div>
-              </el-form-item>
+              <ClientNameGuidance />
+</el-form-item>
             </el-col>
             <el-col :span="12">
               <el-form-item label="客户编号">
@@ -773,6 +796,7 @@
               <el-form-item label="子客户">
                 <el-select
                   v-model="form.sub_client_id"
+                  @change="handleSubClientContactsChange"
                   clearable
                   filterable
                   placeholder="不选则关联客户"
@@ -795,7 +819,7 @@
                 <el-autocomplete
                   v-model="form.client_name"
                   :fetch-suggestions="searchClientsByName"
-                  placeholder="可选填客户全称"
+                  placeholder="请输入客户全称"
                   value-key="client_name"
                   clearable
                   style="width: 100%"
@@ -812,22 +836,9 @@
                 </el-autocomplete>
               </el-form-item>
             </el-col>
-            <el-col :xs="24" :md="12">
-              <el-form-item label="联系方式" prop="manager_contact">
-                <ReadonlyField
-                  v-if="form.manager_contact_protected"
-                  model-value="••••••••"
-                  source="locked"
-                  tooltip="已有联系方式，已隐藏；如需修改请前往客户管理"
-                />
-                <el-input
-                  v-else
-                  v-model="form.manager_contact"
-                  maxlength="100"
-                  clearable
-                  placeholder="请输入联系方式，保存后同步到客户资料"
-                />
-              </el-form-item>
+            <el-col :span="24">
+              <ClientContactNamesEditor :model-value="form.contact_people" :required="false" @update:model-value="updateConsultationContacts" />
+              <p class="client-contact-sync-hint">联系人、联系方式及说明在保存咨询后同步到客户管理；关联子客户时同步到对应子客户。移除本次表单中的联系人不会删除客户名录中的已有联系人。</p>
             </el-col>
           </el-row>
         </section>
@@ -1286,12 +1297,16 @@
         >确认建项并发送邮件</el-button>
       </template>
     </DraggableFormDialog>
+    <ConsultationFailureReasonDialog v-model="failureDialogVisible" :initial-value="failureInitialValue" @confirm="finishFailureReason" @cancel="finishFailureReason(null)" />
   </el-card>
 </template>
 
 <script setup>
 import {pairedProjectTypes} from "@/utils/annotationPaired"
 
+import ClientContactNamesEditor from '@/components/common/ClientContactNamesEditor.vue'
+import ConsultationFailureReasonDialog from '@/components/common/ConsultationFailureReasonDialog.vue'
+import ClientNameGuidance from '@/components/common/ClientNameGuidance.vue'
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 const props=defineProps({embedded:Boolean,myProjects:Boolean})
 import { managedProjectFilters } from "@/utils/managedProjectFilters"
@@ -1317,6 +1332,7 @@ import { formatDateTimeMinute as formatDatetime, formatTimeMinute as formatTime 
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useFormDraft } from '@/composables/useFormDraft'
+import {useBusinessNumber} from '@/composables/useBusinessNumber'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import InternalMailRecipientSelector from '@/components/common/InternalMailRecipientSelector.vue'
@@ -1342,6 +1358,33 @@ import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 
 const router = useRouter()
+const failureDialogVisible = ref(false), failureInitialValue = ref(null)
+let failureResolver = null
+const failureReasonText = value => value ? `${value.reason}${value.details ? `：${value.details}` : ''}` : '尚未填写未成交原因'
+function requestFailureReason(initial) {
+  if (failureResolver) finishFailureReason(null)
+  failureInitialValue.value = initial ? { ...initial } : null
+  failureDialogVisible.value = true
+  return new Promise(resolve => { failureResolver = resolve })
+}
+function finishFailureReason(value) {
+  const resolve = failureResolver
+  failureResolver = null; failureDialogVisible.value = false
+  resolve?.(value)
+}
+async function handleFormStatusChange(value) {
+  if (value === form.status) return
+  if (value === 'failed') {
+    const result = await requestFailureReason(form.failure_reason)
+    if (!result) return
+    form.failure_reason = result
+  }
+  form.status = value
+}
+async function editFormFailureReason() {
+  const result = await requestFailureReason(form.failure_reason)
+  if (result) form.failure_reason = result
+}
 const pendingWorkReportId = ref(null)
 async function restorePendingWorkReport(){
   const rows=await consultationApi.getPendingConsultationReports()
@@ -1409,7 +1452,7 @@ const confirmationForm = reactive({
   emailSubject: '', emailBody: '', emailBodyHtml: '', inlineImages: [], toUserIds: [], ccUserIds: [],
 })
 const confirmationPreview = reactive({
-  project_type: '', order_no: '', client_short_name: '', manager_contact: '',
+  project_type: '', order_no: '', existing_project_id:null, client_short_name: '', manager_contact: '',
   language_pair: '', customer_deadline_time: null, sub_order_count: 0,
   project_name: '', customer_order_no: '', email_subject_preview: '', missing_fields: [],
   to_users: [], cc_users: [], email_body: '', can_send: false, blocking_reasons: [],
@@ -1433,6 +1476,7 @@ const confirmationNameRules = computed(() => [{
     callback(message ? new Error(message) : undefined)
   },
 }])
+const confirmationNumbering=useBusinessNumber({model:()=>confirmationPreview,kind:()=>confirmationPreview.project_type,field:()=>'order_no',active:()=>confirmationDialogVisible.value&&!!confirmationPreview.project_type&&!confirmationPreview.existing_project_id,parent:()=>null,date:()=>null})
 const currentUserId = localStorage.getItem('user_id') || null
 const CONSULTATION_COLUMNS_STORAGE_KEY = `consultation_visible_columns:${currentUserId || 'anonymous'}`
 
@@ -1565,7 +1609,7 @@ const consultationFilterFields = [
   { key: 'status', label: '咨询状态', type: 'select', options: () => consultationStatusOptions },
   { key: 'consultation_date_range', apiKey: 'consultation_time', label: '咨询时间', type: 'date-range', wide: true },
   { key: 'consultation_method', label: '咨询方式', type: 'select', options: () => consultationMethodOptions },
-  { key: 'consultation_type', label: '咨询类型', type: 'select', options: () => consultationTypeOptions.map((value) => ({ value, label: value })) },
+  { key: 'consultation_type', label: '咨询类型', type: 'select', options: () => consultationTypeOptions.map((value) => ({ value, label: consultationTypeLabel(value) })) },
   { key: 'client_source', label: '客户来源', type: 'text' },
   { key: 'source_keyword', label: '来源关键词', type: 'text' },
   { key: 'handling_method', label: '处理方式', type: 'text' },
@@ -1695,6 +1739,8 @@ const defaultForm = () => ({
   client_short_name: '',
   manager_contact: '',
   manager_contact_protected: false,
+  contact_people: [{ name: '', contact_method: '', description: '' }],
+  contact_people_updated_at: null,
   contact_name: '',
   customer_order_no: '',
   project_name: '',
@@ -1708,6 +1754,7 @@ const defaultForm = () => ({
   source_keyword: '',
   consultation_description: '',
   status: 'following',
+  failure_reason: null,
   consultation_type: '',
   handling_method: '',
   remarks: '',
@@ -1747,6 +1794,8 @@ const { beginDraft, pauseDraft, clearDraft } = useFormDraft({
   applyDraft: (draft) => {
     Object.assign(form, defaultForm(), draft)
     form.project_intake_type = consultationIntakeType(form.consultation_type)
+    ++contactEditRevision
+    if (!draft.contact_people?.length) form.contact_people = [{ name: '', contact_method: draft.manager_contact || '', description: '' }]
     if (!Object.prototype.hasOwnProperty.call(draft, 'manager_contact_protected')) {
       form.manager_contact_protected = Boolean(form.client_id && form.manager_contact?.trim())
     }
@@ -1768,9 +1817,12 @@ const consultationTypeOptions = [
   '招聘项目',
   '标注项目',
   '配音项目',
-  '字幕项目',
+  '（音视频）转录/字幕项目',
   '公证项目',
   '认证项目',
+  '同传设备租赁',
+  '翻译耳机',
+  '翻译软件/平台',
   '其他项目',
 ]
 const consultationStatusOptions = [
@@ -1813,7 +1865,8 @@ const legacyConsultationTypeLabels = {
   recruitment: '招聘项目',
   annotation: '标注项目',
   dubbing: '配音项目',
-  subtitle: '字幕项目',
+  subtitle: '（音视频）转录/字幕项目',
+  字幕项目: '（音视频）转录/字幕项目',
   notarization: '公证项目',
   certification: '认证项目',
   equipment_rental: '其他项目',
@@ -1824,6 +1877,7 @@ const legacyConsultationTypeLabels = {
   其他: '其他项目',
 }
 const consultationTypeLabel = (value) => legacyConsultationTypeLabels[value] || value || '-'
+const isSubtitleConsultationType = (value) => ['（音视频）转录/字幕项目', '字幕项目', 'subtitle'].includes(value)
 const isSimpleConsultationType = (value) => ['简单咨询', 'simple'].includes(value)
 const isInterpretationConsultationType = (value) => (
   ['口译项目', 'interpretation', '口译'].includes(value)
@@ -1838,7 +1892,7 @@ const isTranslationConsultationType = (value) => (
   [
     '笔译项目', 'translation', '笔译',
     '配音项目', 'dubbing',
-    '字幕项目', 'subtitle',
+    '（音视频）转录/字幕项目', '字幕项目', 'subtitle',
     '公证项目', 'notarization',
     '认证项目', 'certification',
     '其他项目', 'equipment_rental', 'other', '其他',
@@ -2054,7 +2108,8 @@ const validateConsultationStatus = (_rule, value, callback) => {
 }
 
 const rules = {
-  client_short_name: [{ required: true, message: '请输入客户简称', trigger: 'blur' }],
+  client_name: [{ required: true, pattern: /\S/, message: '请输入客户全称', trigger: ['blur','change'] }],
+  client_short_name: [{ required: true, pattern: /\S/, message: '请输入客户简称', trigger: 'blur' }],
   status: [{ required: true, message: '请选择咨询状态', validator: validateConsultationStatus, trigger: 'change' }],
   consultation_type: [{ required: true, message: '请选择咨询类型', trigger: 'change' }],
   consultation_time: [{ required: true, message: '请选择咨询时间', validator: validateCoreConsultationRequired('请选择咨询时间', true), trigger: 'change' }],
@@ -2238,12 +2293,35 @@ const handleExistingClientSelect = (item) => {
   form.client_short_name = item.client_short_name || ''
   form.manager_contact = item.manager_contact || ''
   form.manager_contact_protected = Boolean(item.manager_contact?.trim())
+  setConsultationContacts(item)
   availableSubClients.value = item.sub_clients || []
-  if (!availableSubClients.value.length) loadSubClients(item.id)
+  void loadSubClients(item.id)
+}
+
+let contactEditRevision = 0
+function setConsultationContacts(owner) {
+  const people = owner?.contact_people?.length ? owner.contact_people : (owner?.contact_names || []).map((name, index) => ({ name, contact_method: index === 0 ? owner.manager_contact || '' : '', description: '' }))
+  form.contact_people = people.length ? people.map(value => ({ ...value })) : [{ name: '', contact_method: owner?.manager_contact || '', description: '' }]
+  form.contact_people_updated_at = owner?.contact_people_updated_at || owner?.updated_at || null
+  form.manager_contact = form.contact_people[0]?.contact_method || ''
+}
+function updateConsultationContacts(people) {
+  ++contactEditRevision
+  form.contact_people = people
+  form.manager_contact = people[0]?.contact_method || ''
+}
+function handleSubClientContactsChange(value) {
+  ++contactEditRevision
+  if (!form.client_id) return
+  const owner = value ? availableSubClients.value.find(item => item.id === value) : clientDetailCache[form.client_id]
+  if (owner) setConsultationContacts(owner)
+  else void loadSubClients(form.client_id)
 }
 
 const loadSubClients = async (clientId, sessionId = editorSessionId) => {
   const requestId = ++subClientRequestId
+  const contactRevision = contactEditRevision
+  const selectedSubClient = form.sub_client_id
   if (!clientId) {
     availableSubClients.value = []
     return
@@ -2252,6 +2330,11 @@ const loadSubClients = async (clientId, sessionId = editorSessionId) => {
     const detail = await clientApi.getClient(clientId)
     if (requestId !== subClientRequestId || sessionId !== editorSessionId || form.client_id !== clientId) return
     availableSubClients.value = detail?.sub_clients || []
+    clientDetailCache[clientId] = detail
+    if (contactRevision === contactEditRevision && selectedSubClient === form.sub_client_id) {
+      const owner = selectedSubClient ? availableSubClients.value.find(item => item.id === selectedSubClient) : detail
+      if (owner) setConsultationContacts(owner)
+    }
   } catch {
     if (requestId !== subClientRequestId || sessionId !== editorSessionId) return
     availableSubClients.value = []
@@ -2269,10 +2352,11 @@ const handleClientNameInput = () => {
   if (hadSelectedClient) {
     form.client_short_name = ''
     form.manager_contact = ''
+    setConsultationContacts(null)
   }
 }
 
-// 简称可直接录入；客户全称可留空，后端创建客户时会以简称作为默认全称。
+// 新客户必须分别填写全称与简称；选择已有客户时带出全称。
 const handleClientShortNameInput = (value) => {
   const hadSelectedClient = !!form.client_id
   form.client_id = null
@@ -2283,6 +2367,7 @@ const handleClientShortNameInput = (value) => {
   if (hadSelectedClient) {
     form.client_name = ''
     form.manager_contact = ''
+    setConsultationContacts(null)
   }
 }
 
@@ -2297,6 +2382,7 @@ const handleClientShortNameClear = () => {
   if (hadSelectedClient) {
     form.client_name = ''
     form.manager_contact = ''
+    setConsultationContacts(null)
   }
 }
 
@@ -2310,6 +2396,7 @@ const handleClientNameClear = () => {
   if (hadSelectedClient) {
     form.client_short_name = ''
     form.manager_contact = ''
+    setConsultationContacts(null)
   }
 }
 
@@ -2399,7 +2486,10 @@ const buildPayload = () => {
     client_code: form.client_code?.trim() || null,
     client_name: form.client_name?.trim() || null,
     client_short_name: form.client_short_name?.trim() || null,
-    contact_name: form.contact_name?.trim() || null,
+    contact_name: form.contact_name?.trim() || form.contact_people.find(item => item.name?.trim())?.name.trim() || null,
+    contact_people: form.contact_people.filter(item => item.name?.trim() || item.contact_method?.trim() || item.description?.trim()).map(item => ({ name: item.name.trim(), contact_method: item.contact_method?.trim() || '', description: item.description?.trim() || '' })),
+    contact_people_updated_at: form.contact_people_updated_at,
+    failure_reason: form.failure_reason,
     customer_order_no: form.customer_order_no?.trim() || null,
     project_name: form.project_name?.trim() || null,
     project_intake: {
@@ -2506,6 +2596,8 @@ const fillFormByRow = (row) => {
     client_short_name: row.client_short_name || '',
     manager_contact: row.manager_contact || '',
     manager_contact_protected: Boolean(row.manager_contact?.trim()),
+    contact_people: row.contact_people?.length ? row.contact_people.map(item => ({ ...item })) : [{ name: '', contact_method: row.manager_contact || '', description: '' }],
+    contact_people_updated_at: row.contact_people_updated_at || null,
     contact_name: row.contact_name || '',
     customer_order_no: row.customer_order_no || '',
     project_name: row.project_name || '',
@@ -2519,6 +2611,7 @@ const fillFormByRow = (row) => {
     source_keyword: row.source_keyword || '',
     consultation_description: row.consultation_description || '',
     status: row.status || 'following',
+    failure_reason: row.failure_reason ? { ...row.failure_reason } : null,
     consultation_type: consultationType,
     handling_method: row.handling_method || '',
     remarks: row.remarks || '',
@@ -2561,6 +2654,11 @@ const statusUpdatingId = ref(null)
 // 四类项目统一确认建项信息并向内部用户发送邮件。
 const handleInlineStatusChange = async (row, newStatus) => {
   if (!newStatus || newStatus === row.status || statusUpdatingId.value === row.id) return
+  let failureReason = null
+  if (newStatus === 'failed') {
+    failureReason = await requestFailureReason(row.failure_reason)
+    if (!failureReason) return
+  }
 
   if (newStatus === CONFIRMED_CONSULTATION_STATUS && isSimpleConsultationType(row.consultation_type)) {
     ElMessage.warning('简单咨询不能直接确认，请先编辑并选择具体项目类型')
@@ -2599,8 +2697,8 @@ const handleInlineStatusChange = async (row, newStatus) => {
 
   statusUpdatingId.value = row.id
   try {
-    const saved = await consultationApi.updateConsultation(row.id, { status: newStatus })
-    row.status = newStatus
+    const saved = await consultationApi.updateConsultation(row.id, { status: newStatus, expected_updated_at: row.updated_at, ...(failureReason ? { failure_reason: failureReason } : {}) })
+    Object.assign(row, saved)
     delete detailCache[row.id]
     ElMessage.success(`状态已切换为「${getStatusText(newStatus)}」`)
     // 列表若按状态筛选，切换后该行可能不再命中条件，重新拉取保持一致。
@@ -2625,6 +2723,11 @@ const handleInlineStatusChange = async (row, newStatus) => {
 
 const handleSubmit = async (continueCreate = false) => {
   if (!formRef.value || formSubmitting.value) return
+  if (form.status === 'failed' && !form.failure_reason) {
+    const result = await requestFailureReason(null)
+    if (!result) return
+    form.failure_reason = result
+  }
   if (formSubmitting.value) return
   formSubmitting.value = true
 
@@ -2759,6 +2862,7 @@ const applyConfirmationPreview = (preview, { preserveRecipients = false } = {}) 
   Object.assign(confirmationPreview, {
     project_type: preview?.project_type || '',
     order_no: preview?.order_no || '',
+    existing_project_id: preview?.existing_project_id || null,
     client_short_name: preview?.client_short_name || '',
     manager_contact: preview?.manager_contact || '',
     language_pair: preview?.language_pair || '',
@@ -2861,7 +2965,7 @@ const refreshConfirmationMailPreview = async () => {
       project_intake: buildConfirmationProjectIntake(),
       consultation_description: source.consultation_description || null,
       remarks: source.remarks || null,
-    }, { signal })
+    }, { signal, headers:confirmationNumbering.headers() })
     if (requestId !== confirmationMailPreviewRequestId) return
     applyConfirmationPreview(preview, { preserveRecipients: true })
     await nextTick()
@@ -2933,7 +3037,7 @@ const openConfirmationDialog = async ({ mode, consultationId, consultationPayloa
     emailSubject: '', emailBody: '', emailBodyHtml: '', inlineImages: [], toUserIds: [], ccUserIds: [],
   })
   Object.assign(confirmationPreview, {
-    project_type: '', order_no: '', client_short_name: '', manager_contact: '',
+    project_type: '', order_no: '', existing_project_id:null, client_short_name: '', manager_contact: '',
     language_pair: '', customer_deadline_time: null, sub_order_count: 0,
     project_name: '', customer_order_no: '', email_subject_preview: '', missing_fields: [],
     to_users: [], cc_users: [], email_body: '', can_send: false, blocking_reasons: [],
@@ -2941,9 +3045,7 @@ const openConfirmationDialog = async ({ mode, consultationId, consultationPayloa
   })
   confirmationDialogVisible.value = true
   confirmationPreviewLoading.value = true
-  try {
-    const [preview, groups] = await Promise.all([
-      consultationApi.previewConfirmation({
+  const previewRequest = {
         consultation_id: consultationId || null,
         consultation_type: previewSource?.consultation_type,
         client_id: previewSource?.client_id || null,
@@ -2956,7 +3058,10 @@ const openConfirmationDialog = async ({ mode, consultationId, consultationPayloa
         project_intake: previewSource?.project_intake || {},
         consultation_description: previewSource?.consultation_description || null,
         remarks: previewSource?.remarks || null,
-      }, { signal }),
+      }
+  try {
+    const [preview, groups] = await Promise.all([
+      consultationApi.previewConfirmation(previewRequest, { signal }),
       loadConfirmationRecipientGroups(),
       userOptions.value.length ? Promise.resolve() : loadUsers({ required: true }),
     ])
@@ -2968,6 +3073,12 @@ const openConfirmationDialog = async ({ mode, consultationId, consultationPayloa
       await refreshConfirmationMailPreview()
     }
     await nextTick()
+    if(!await confirmationNumbering.ensure())throw new Error(confirmationNumbering.error.value||'订单号占用失败')
+    if(Object.keys(confirmationNumbering.headers()).length){
+      const reservedPreview=await consultationApi.previewConfirmation(previewRequest,{signal,headers:confirmationNumbering.headers()})
+      if(requestId!==confirmationMailPreviewRequestId)return
+      applyConfirmationPreview(reservedPreview)
+    }
     confirmationFormRef.value?.clearValidate()
   } catch (error) {
     if (requestId !== confirmationMailPreviewRequestId || isCanceledRequest(error)) return
@@ -2981,6 +3092,7 @@ const openConfirmationDialog = async ({ mode, consultationId, consultationPayloa
 const handleConfirmConsultation = async (sendEmail) => {
   if (!confirmationFormRef.value || confirmationImageUploading.value) return
   const valid = await confirmationFormRef.value.validate().catch(() => false)
+  if(!await confirmationNumbering.ensure()){ElMessage.error(confirmationNumbering.error.value||'请等待订单号占用完成');return}
   if (!valid || !confirmationPreview.order_no) return
   const previewNeedsRefresh = confirmationManagerContactPreviewTimer
     || (confirmationIsTranslation.value && confirmationForm.projectName.trim() !== confirmationPreview.project_name.trim())
@@ -3032,11 +3144,12 @@ const handleConfirmConsultation = async (sendEmail) => {
   }
   try {
     const result = confirmationContext.mode === 'create'
-      ? await consultationApi.createConfirmedConsultation(confirmationContext.consultationPayload, confirmation)
+      ? await consultationApi.createConfirmedConsultation(confirmationContext.consultationPayload, confirmation, {headers:confirmationNumbering.headers()})
       : await consultationApi.updateConfirmedConsultation(
           confirmationContext.consultationId,
           confirmationContext.mode === 'update' ? confirmationContext.consultationPayload : null,
-          confirmation
+          confirmation,
+          {headers:confirmationNumbering.headers()}
         )
     // 关闭确认弹窗会重置 confirmationContext，跳转判断必须先保存快照。
     const createdConsultationId = confirmationContext.mode === 'create' ? result?.consultation?.id : null
@@ -3185,6 +3298,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  finishFailureReason(null)
   window.removeEventListener('beforeunload', pendingBeforeUnload)
   window.removeEventListener('keydown', handleGlobalKeydown)
   if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
@@ -3195,6 +3309,10 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.client-contact-sync-hint { color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.7; margin: 8px 0 12px; }
+.consultation-subtitle-notice { margin: 0 0 18px; border: 1px solid var(--el-color-warning); }
+.consultation-subtitle-notice :deep(.el-alert__title) { font-size: 15px; font-weight: 700; line-height: 1.7; }
+.failure-reason-summary { width: 100%; font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.7; overflow-wrap: anywhere; }
 .consultation-word-count-field {
   display: flex;
   align-items: center;

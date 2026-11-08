@@ -250,6 +250,28 @@ def test_translation_preview_contains_complete_project_word_count_matrix(monkeyp
     assert "张译员 · 实际：字数 950；页数 4" in preview["body"]
 
 
+def test_translation_preview_includes_both_customer_requirements(monkeypatch):
+    monkeypatch.setattr(business_mail_service, "policy_recipients", lambda *_: ([], []))
+    monkeypatch.setattr(business_mail_service.SmtpSettings, "from_env", lambda: _settings())
+    preview = build_preview(object(), "translation", source={
+        "order_no": "TP-261107-008", "project_name": "要求测试.docx",
+        "service_content": "翻译", "language_pair": "中英",
+        "customer_requirement_professional": "使用客户术语表\n保持专业表述一致",
+        "customer_requirement_special": "无",
+        "manager_contact": "13800000000",
+        "email_subject_preview": "TP-261107-008，测试客户，13800000000，中译英",
+        "remarks": "保留现有项目内容",
+    })
+    assert "客户专业要求：\n使用客户术语表\n保持专业表述一致" in preview["body"]
+    assert "客户特殊要求：\n无" in preview["body"]
+    assert "客户专业要求" in preview["body_html"]
+    assert "客户特殊要求" in preview["body_html"]
+    assert preview['body'].index('客户专业要求：') > preview['body'].index('备注：保留现有项目内容')
+    assert '13800000000' not in preview['subject']
+    assert '13800000000' not in preview['body']
+    assert '客户经理联系方式' not in preview['body']
+
+
 def test_recipient_group_requires_name_and_internal_members():
     with pytest.raises(ValidationError):
         MailRecipientGroupWrite(name="   ", user_ids=[])

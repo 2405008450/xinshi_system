@@ -39,7 +39,7 @@ from mail_inline_image_service import (
 from models import AppUser, Consultation, TranslationProject
 from recruitment_models import RecruitmentProject
 from word_count_service import get_word_count_matrix
-from translation_email_subject import build_translation_email_subject
+from translation_email_subject import build_translation_email_subject, strip_translation_manager_contact
 from user_mail_account_service import (
     display_user,
     project_mail_sender_mode,
@@ -451,7 +451,7 @@ CORE_FIELDS = {
 
 
 BODY_LABELS = {
-    "translation": (("服务内容", "service_content"), ("文本类型", "file_type_secondary"), ("翻译方向", "language_pair"), ("客户交稿时间", "customer_deadline_time"), ("优先级", "priority"), ("专业要求", "customer_requirement_professional"), ("特殊要求", "customer_requirement_special")),
+    "translation": (("服务内容", "service_content"), ("文本类型", "file_type_secondary"), ("翻译方向", "language_pair"), ("客户交稿时间", "customer_deadline_time"), ("优先级", "priority"), ("客户专业要求", "customer_requirement_professional"), ("客户特殊要求", "customer_requirement_special")),
     "interpretation": (("口译类型", "project_types"), ("具体任务", "task_description"), ("预定时段", "time_ranges"), ("地点", "locations"), ("口译方向", "language_directions"), ("客户预算", "customer_budget"), ("总需求人数", "required_interpreter_count"), ("译员性别", "required_interpreter_gender"), ("口译水平", "required_interpretation_level"), ("口译领域", "interpretation_domain"), ("口译内容", "interpretation_content"), ("特殊要求", "interpreter_special_requirements")),
     "annotation": (("项目类型", "project_types"), ("具体任务", "task_description"), ("潜在需求量", "potential_demand"), ("语言范围", "language_items"), ("客户价格", "price_items")),
     "recruitment": (("职位名称/类型", "position_title"), ("职位描述", "job_description"), ("招聘人数下限", "headcount_min"), ("招聘人数上限", "headcount_max"), ("外语/翻译方向", "language_directions"), ("拟履职开始", "employment_start"), ("拟履职结束", "employment_end"), ("任职工作属地", "work_location"), ("拟入职日期", "target_onboard_date"), ("服务费用类型", "service_fee_type"), ("服务费用金额", "service_fee_amount"), ("服务费用比例", "service_fee_rate"), ("费用说明", "service_fee_note")),
@@ -564,7 +564,7 @@ def build_preview(
     if project_type == "translation":
         subject = build_translation_email_subject(values)["subject"]
         # 已保存的主题包含人工修改，仅主动生成主题时更新；打开邮件窗口保留原值。
-        subject = _clean(values.get("email_subject_preview")) or subject
+        subject = strip_translation_manager_contact(values.get("email_subject_preview"),values.get("manager_contact")) or subject
     missing = [label for label, key in CORE_FIELDS[project_type] if not _clean(values.get(key))]
     if not order_no:
         missing.insert(0, "订单号")
@@ -575,14 +575,14 @@ def build_preview(
         ("客户简称", values.get("client_short_name")), ("客户经理联系方式", values.get("manager_contact")),
         ("客户单号/项目标识", values.get("customer_order_no")),
     )
-    lines = [f"{label}：{_clean(value)}" for label, value in common if _clean(value)]
+    lines = [f"{label}：{_clean(value)}" for label, value in common if _clean(value) and not (project_type == 'translation' and label == '客户经理联系方式')]
     core_body_keys = {key for _label, key in CORE_FIELDS[project_type]}
     # 核心字段为空时也要在邮件预览中保留对应行，避免用户只能从“缺失字段”标签猜测正文缺了什么。
     # 缺失核心字段会继续阻止发送，因此“（待填写）”只用于预览提示，不会进入实际投递邮件。
     lines.extend(
         f"{label}：{_clean(values.get(key)) or '（待填写）'}"
         for label, key in BODY_LABELS[project_type]
-        if _clean(values.get(key)) or key in core_body_keys
+        if (_clean(values.get(key)) or key in core_body_keys) and not (project_type == 'translation' and key in {'customer_requirement_professional','customer_requirement_special'})
     )
     word_count_lines = _format_word_count_lines(values.get("word_count_matrix")) if project_type == "translation" else []
     if word_count_lines:
@@ -591,6 +591,10 @@ def build_preview(
         lines.append(f"咨询说明：{_clean(values.get('consultation_description'))}")
     if _clean(values.get("remarks")):
         lines.append(f"备注：{_clean(values.get('remarks'))}")
+    if project_type == 'translation':
+        for label,key in [('客户专业要求','customer_requirement_professional'),('客户特殊要求','customer_requirement_special')]:
+            if _clean(values.get(key)):
+                lines.extend(['',f'{label}：',_clean(values[key])])
     body = "\n".join(lines)
     recipient_names = recipient_display_names(db, [*to_users, *cc_users])
     signature_html, signature_text = active_signature(

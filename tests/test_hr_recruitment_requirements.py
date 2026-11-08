@@ -14,14 +14,17 @@ import hr_recruitment_requirements as service
 def data(**values):return service.RequirementCreate(client_id=uuid4(),request_date=date(2026,10,29),position='英语翻译',reason='项目新增',headcount=2,details='熟悉医学翻译\n具备审校经验',**values)
 
 
-def test_date_number_idempotent_soft_delete_does_not_reuse_number(environment):
+def test_date_number_idempotent_soft_delete_reuses_number_and_keeps_snapshot(environment):
     db,users=environment;setup(db,users);admin=users[0]
     request=data();first=service.create(db,admin,request)
     assert first['demand_no']=='RT-261029-001'
     assert service.create(db,admin,request)['id']==first['id']
     service.delete(db,admin,first['id'],first['revision'])
     second=service.create(db,admin,data())
-    assert second['demand_no']=='RT-261029-002'
+    assert second['demand_no']=='RT-261029-001'
+    from business_numbering import BusinessNumberDeletionHistory
+    history=db.query(BusinessNumberDeletionHistory).filter_by(scope='hr_requirement',number=first['demand_no']).one()
+    assert history.entity_id==str(first['id']) and history.snapshot['position']=='英语翻译'
     tomorrow=data().model_copy(update={'request_date':date(2026,10,30)})
     assert service.create(db,admin,tomorrow)['demand_no']=='RT-261030-001'
     assert service.list_rows(db,admin)['total']==2

@@ -7,11 +7,11 @@
         <el-select v-model="filters.state" clearable filterable allow-create aria-label="添加状态（任一渠道）" placeholder="添加状态（任一渠道）" @change="query"><el-option v-for="state in statusOptions" :key="state" :label="state" :value="state" /></el-select>
         <el-button type="primary" @click="query">查询</el-button><el-button @click="reset">重置</el-button>
         <el-popover title="联系状态记录" v-model:visible="advanced" trigger="click" placement="bottom-end" :width="760" popper-class="development-advanced development-status-advanced">
-          <template #reference><el-button>高级筛选{{ advancedCount ? `（${advancedCount}）` : '' }}</el-button></template>
+          <template #reference><span ref="dockAnchor"><el-button>高级筛选{{ advancedCount ? `（${advancedCount}）` : '' }}</el-button></span></template>
           <div ref="advancedBody" class="development-advanced-body">
-            <AdvancedFilterFieldSearch :active="advanced">
+            <AdvancedFilterFieldSearch :active="advanced" :anchor="dockAnchor" scope="development-status-advanced">
             <div class="development-form-grid">
-              <div v-for="condition in advancedConditions" :key="condition.key"><label>{{ condition.label }}</label><el-select v-model="filters[condition.key]" clearable filterable :append-to="advancedBody?.parentElement" :aria-label="condition.label" @change="commonChanged(condition.key)"><el-option v-for="option in condition.options" :key="option.id" :label="option.name" :value="option.id" /></el-select></div>
+              <div v-for="condition in advancedConditions" :key="condition.key"><label>{{ condition.label }}</label><el-select v-model="filters[condition.key]" clearable filterable :aria-label="condition.label" @change="commonChanged(condition.key)"><el-option v-for="option in condition.options" :key="option.id" :label="option.name" :value="option.id" /></el-select></div>
             </div>
             </AdvancedFilterFieldSearch>
             <div class="development-actions"><el-button @click="clearAdvanced">清空高级条件</el-button><el-button @click="advanced = false">关闭</el-button></div>
@@ -34,6 +34,7 @@
 import AdvancedFilterFieldSearch from '@/components/common/AdvancedFilterFieldSearch.vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+const dockAnchor=ref()
 import DevelopmentRecordsTable from './DevelopmentRecordsTable.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import { useDevelopmentFilters } from '@/composables/useDevelopmentFilters'

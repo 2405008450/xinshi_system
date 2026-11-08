@@ -434,7 +434,7 @@
         <AnnotationInheritancePanel v-if="supportsGrandchildOrders && form.parentProjectId" :overrides="form.inheritanceOverrides" :custom-fields="visibleProjectCustomFields" v-model="form.restoreInheritance" />
         <el-tabs v-model="editorTab">
           <el-tab-pane label="订单信息" name="form">
-        <AppForm ref="formRef" :model="form" :rules="rules" label-width="125px">
+        <AppForm :number-scope="form.parentProjectId ? 'annotation_suborder' : 'annotation'" number-field="orderNo" :number-active="dialogVisible && !form.id" :number-parent="form.parentProjectId || undefined" ref="formRef" :model="form" :rules="rules" label-width="125px">
           <section class="form-section annotation-key-fields">
             <div class="annotation-key-fields__header"><div><h3>关键必填信息</h3><p>请优先完成以下内容，再补充其余项目资料。</p></div><el-tag type="danger" effect="plain">8 项必填</el-tag></div>
             <el-row :gutter="16">
@@ -453,9 +453,10 @@
                 <el-autocomplete v-model="form.clientShortName" :fetch-suggestions="fetchClientSuggestions" value-key="client_short_name" placeholder="选择已有客户，或直接输入新客户简称" clearable :debounce="300" :trigger-on-focus="true" style="width:100%" @select="handleClientSelect" @input="handleClientShortNameInput" @clear="clearSelectedClient">
                   <template #default="{ item }"><div class="client-suggestion"><span>{{ item.client_short_name }} <el-tag v-if="item.sub_client_id" size="small" type="warning">子客户</el-tag></span><span class="client-suggestion__meta">{{ item.client_code }} · {{ item.client_name }}{{ item.parent_client_short_name ? ` · 归属 ${item.parent_client_short_name}` : '' }}</span></div></template>
                 </el-autocomplete>
-                <div class="client-autocomplete-hint">没有匹配客户时，保存项目会自动新增一条待完善的客户信息。</div>
+                <div class="client-autocomplete-hint">没有匹配客户时，填写客户全称及简称后，保存项目会自动新增客户。</div>
               </div>
-            </el-form-item>
+            <ClientNameGuidance />
+</el-form-item>
             <el-form-item v-if="form.orderLevel === 2" label="语种方向">
               <div style="width:100%">
                 <ReadonlyField :model-value="form.languageItems.map(languageItemLabel).join('、')" source="auto" placeholder="由所属子订单带出" />
@@ -516,7 +517,7 @@
             </div>
             <el-row :gutter="16">
               <el-col :xs="24" :md="8"><el-form-item label="客户编号"><ReadonlyField :model-value="form.clientCode" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '新客户不填则自动生成'" @update:model-value="form.clientCode = $event" /></el-form-item></el-col>
-              <el-col :xs="24" :md="8"><el-form-item label="客户全称"><ReadonlyField :model-value="form.clientFullName" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '新客户可补充全称'" @update:model-value="form.clientFullName = $event" /></el-form-item></el-col>
+              <el-col :xs="24" :md="8"><el-form-item label="客户全称" prop="clientFullName"><ReadonlyField :model-value="form.clientFullName" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '请输入客户全称'" @update:model-value="form.clientFullName = $event" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="联系人"><el-input v-model="form.contactName" placeholder="填写联系人姓名或联系方式" /></el-form-item></el-col>
@@ -624,6 +625,7 @@
 </template>
 
 <script setup>
+import ClientNameGuidance from '@/components/common/ClientNameGuidance.vue'
 import {useProjectStatusSync} from '@/composables/useProjectStatusSync'
 import TaxPriceFields from '@/components/common/TaxPriceFields.vue'
 import {taxPriceForm,taxUnitAmount,taxPriceSummary} from '@/utils/taxPrices'
@@ -1031,11 +1033,12 @@ const showManagerContactInput=computed(() => !form.clientId && Boolean(form.clie
 const requiredTextValidator=(message)=>(_rule,value,callback)=>String(value||'').trim()?callback():callback(new Error(message))
 const validateRequiredLanguageItems=(_rule,value,callback)=>{const items=value||[];if(form.parentProjectId&&items.length!==1)return callback(new Error('子订单必须且只能绑定一个语种或语言方向'));if(!items.length)return callback(new Error('请至少添加一个语种方向'));if(items.some((item)=>!item.sourceLanguageId))return callback(new Error('请选择每个语言项的语种'));if(items.some((item)=>item.mode==='direction'&&!item.targetLanguageId))return callback(new Error('请选择完整的语种方向'));callback()}
 const rules={
+  clientFullName: [{ required: true, validator: requiredTextValidator('请输入客户全称'), trigger: ['blur','change'] }],
   projectName:[{validator:requiredTextValidator('请输入项目名称'),trigger:['blur','change']}],
   projectTypes:[{type:'array',required:true,min:1,message:'请至少选择一个项目类型',trigger:'change'}],
   clientManagerId:[{required:true,message:'请选择客户经理',trigger:'change'}],
   taskDescription:[{validator:(_r,value,cb)=>String(value||'').trim()||form.taskImageUploadIds.length?cb():cb(new Error('请填写具体任务或添加截图')),trigger:['blur','change']}],
-  clientShortName:[{validator:requiredTextValidator('请选择或输入客户简称'),trigger:['blur','change']}],
+  clientShortName:[{ required: true, validator:requiredTextValidator('请选择或输入客户简称'),trigger:['blur','change']}],
   languageItems:[{validator:validateRequiredLanguageItems,trigger:'change'}],
   taskDispatchedAt:[{required:true,message:'请选择任务派发时间',trigger:'change'}],
   taskSubmittedAt:[{required:true,validator:(_rule,value,callback)=>form.taskSubmittedAtPending||value?callback():callback(new Error('请选择任务提交时间或勾选待定')),trigger:'change'}],

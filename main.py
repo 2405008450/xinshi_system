@@ -1,3 +1,4 @@
+import translation_folder_orders
 import datetime as dt
 import logging
 import os
@@ -306,6 +307,8 @@ from project_customer_finance import router as project_customer_finance_router
 app.include_router(project_customer_finance_router)
 from customer_statements import router as customer_statements_router
 app.include_router(customer_statements_router)
+from geography_catalog import router as geography_catalog_router
+app.include_router(geography_catalog_router)
 from customer_statement_workspace import router as customer_statement_workspace_router
 app.include_router(customer_statement_workspace_router)
 app.include_router(interpretation_projects.router)
@@ -368,6 +371,8 @@ app.include_router(schedule.workbench_router)
 app.include_router(schedule.router)
 app.include_router(leave.router)
 app.include_router(consultations.router)
+from routers.customer_source_analysis import router as customer_source_analysis_router
+app.include_router(customer_source_analysis_router)
 app.include_router(finance.router)
 app.include_router(sub_orders.router)
 app.include_router(notifications.router)
@@ -411,6 +416,12 @@ from translation_requirement_dispatch import router as translation_requirement_d
 app.include_router(translation_requirement_dispatch_router)
 from project_client_manager import router as project_client_manager_router
 app.include_router(project_client_manager_router)
+from routers.client_contact_people import router as client_contact_people_router
+app.include_router(client_contact_people_router)
+from routers.business_numbers import router as business_numbers_router
+from business_numbering import install_number_guards
+install_number_guards()
+app.include_router(business_numbers_router)
 from routers.translation_quotations import router as translation_quotations_router
 app.include_router(translation_quotations_router)
 from routers.translation_payments import router as translation_payments_router

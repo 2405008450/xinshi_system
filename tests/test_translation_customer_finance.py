@@ -25,6 +25,32 @@ def write(db,owner,root,order,amount,**kwargs):
     return finance.save(db,owner,root.id,finance.PriceWrite(version=data['version'],order_id=order.id,amount=amount,**kwargs))
 
 
+def test_document_requirements_and_quotation_save_with_customer_prices(environment):
+    db,(owner,_,_)=environment;root,child,third=setup(db,owner)
+    quote={'title':'测试报价单','client_name':'测试客户','items':[{'description':'翻译','quantity':10,'unit':'字','unit_price':'0.5','currency':'CNY'}],'notes':'随价格保存'}
+    result=write(db,owner,root,third,'0.5',quotation_required=True,statement_required=False,quotation_draft=quote)
+    assert result['item']['quotation_required'] is True
+    assert result['item']['statement_required'] is False
+    assert result['item']['quotation_draft']['notes']=='随价格保存'
+    assert result['item']['children'][0]['statement_required'] is False
+    from translation_finance_audit import history
+    changes=history(db,root.id)['items']
+    assert any(item['after'].get('quotation_required') is True for item in changes)
+
+
+def test_parent_aggregate_can_save_documents_without_rewriting_prices(environment):
+    db,(owner,_,_)=environment;root,child,third=setup(db,owner)
+    initial=write(db,owner,root,third,'0.5')
+    before=initial['item']['totals']
+    result=finance.save(db,owner,root.id,finance.PriceWrite(version=initial['version'],order_id=root.id,documents_only=True,quotation_required=True,statement_required=False))
+    assert result['item']['totals']==before
+    assert result['item']['children'][0]['children'][0]['amount']=='0.5'
+    assert result['item']['quotation_required'] is True and result['item']['statement_required'] is False
+    with pytest.raises(HTTPException) as error:
+        finance.save(db,owner,root.id,finance.PriceWrite(version=initial['version'],order_id=root.id,documents_only=True,quotation_required=False))
+    assert error.value.status_code==409
+
+
 def test_inherit_tree_leaf_rollup_override_and_reprice(environment):
     db,(owner,_,_)=environment;root,child,third=setup(db,owner)
     data=write(db,owner,root,root,'0.5')

@@ -75,8 +75,8 @@
     <DraggableFormDialog v-model="editorVisible" :title="editing ? '编辑技术开发任务' : '新增技术开发任务'" class="technical-task-dialog" width="min(960px, calc(100vw - 32px))" top="5vh" append-to-body :before-close="closeEditor" :close-on-click-modal="false" @closed="props.dialogOnly && emit('close')">
       <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="editing ? '编辑技术开发任务' : '新增技术开发任务'" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
       <div ref="editorBody">
-        <AppForm ref="editorForm" :model="form" :rules="rules" label-position="top" class="task-form">
-          <el-form-item label="任务编号" class="full"><ReadonlyField :model-value="editing?.task_no || '保存后自动生成'" source="auto" /></el-form-item>
+        <AppForm :number-scope="form.parent_id ? 'technical_subtask' : 'technical_task'" number-field="task_no" :number-active="editorVisible && !editing" :number-parent="form.parent_id || undefined" ref="editorForm" :model="form" :rules="rules" label-position="top" class="task-form">
+          <el-form-item label="任务编号" class="full"><ReadonlyField :model-value="editing?.task_no || form.task_no" source="auto" placeholder="正在占用编号" /></el-form-item>
           <el-form-item :label="sourceBaseName ? '开发任务' : '任务名称'" prop="name" class="full"><template v-if="sourceBaseName"><ReadonlyField :model-value="sourceBaseName" source="auto" /><el-input v-model="sourceSuffix" maxlength="80" show-word-limit placeholder="可在项目名称后补充内容，最多80字" aria-label="任务名称补充内容" /></template><el-input v-else v-model="form.name" maxlength="300" show-word-limit /></el-form-item>
           <el-form-item label="上级任务" class="full"><el-select v-model="form.parent_id" clearable filterable placeholder="一级任务（无上级）" :disabled="!!editing"><el-option v-for="option in parentOptions" :key="option.id" :value="option.id" :label="option.name" /></el-select><small v-if="editing">调整层级请使用列表拖拽，或下方“调整层级”。</small></el-form-item>
           <el-form-item label="具体任务" class="full"><el-input v-model="form.content" type="textarea" :rows="4" maxlength="100000" /></el-form-item>
@@ -310,7 +310,7 @@ function closeEditor(done) { if (!saving.value) done() }
 async function saveTask() {
   if (saving.value || !await editorForm.value.validate().catch(() => false)) return
   saving.value = true; saveError.value = ''
-  const { parent_id, ...fields } = form
+  const { parent_id, task_no, ...fields } = form
   const payload = { ...fields, name: sourceBaseName.value ? sourceBaseName.value + (sourceSuffix.value.trim() ? ' · ' + sourceSuffix.value.trim() : '') : fields.name, due_at: fields.due_at ? fields.due_at.replace(' ', 'T') + '+08:00' : null }
   if (selectedExecutorIds.value.length > 1 || editing.value?.has_allocations) payload.allocations = allocationDrafts.value.map(item => ({ executor_id:item.executor_id, content:item.content, due_at:item.due_at ? item.due_at.replace(' ', 'T') + '+08:00' : null }))
   try {

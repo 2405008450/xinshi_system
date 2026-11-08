@@ -12,6 +12,7 @@ export const getCustomerTranslationRateHistory=(id,params={})=>api.get(`/custome
 export const getTranslationFinanceHistory=(id,params={},config={})=>api.get(`/translation-customer-finance/project/${id}/history`,{...config,params}).then(camel)
 export const previewSameMonthPrices=(id,data)=>api.post(`/translation-customer-finance/project/${id}/sync-orders/preview`,data).then(camel)
 export const applySameMonthPrices=(id,data)=>api.post(`/translation-customer-finance/project/${id}/sync-orders/apply`,data).then(camel)
+export const getSameMonthPriceSyncStatus=(id,orderId)=>api.get(`/translation-customer-finance/project/${id}/sync-orders/status`,{params:{order_id:orderId}}).then(camel)
 
 export const saveCustomerFinanceTable=(id,data)=>api.patch(`/translation-customer-finance/project/${id}/table`,data).then(camel)
 

@@ -97,9 +97,9 @@
               <el-table-column prop="sub_client_code" label="子客户编号" width="180" />
               <el-table-column prop="client_name" label="客户全称" />
               <el-table-column prop="client_short_name" label="客户简称" />
-              <el-table-column prop="client_manager" label="客户负责人" />
-              <el-table-column prop="manager_contact" label="负责人联系方式" />
-              <el-table-column v-if="canWrite" label="操作" width="88" align="center">
+              <el-table-column prop="client_manager" label="客户联系人" />
+              <el-table-column prop="manager_contact" label="联系方式" />
+              <el-table-column v-if="canWrite" label="操作" width="100" fixed="right" align="center">
                 <template #default="{ row: subRow }">
                   <TableActionButton action="edit" @click="handleEditSub(subRow, row)" />
                   <TableActionButton action="delete" @click="handleDeleteSub(subRow, row)" />
@@ -176,10 +176,10 @@
                 <el-descriptions-item label="英文简称">
                   <span class="detail-value">{{ getDetailRow(row).english_short_name || '-' }}</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="客户负责人">
+                <el-descriptions-item label="客户联系人">
                   <span class="detail-value">{{ getDetailRow(row).client_manager || '-' }}</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="负责人联系方式">
+                <el-descriptions-item label="联系方式">
                   <span class="detail-value">{{ getDetailRow(row).manager_contact || '-' }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="客户状态">
@@ -230,6 +230,7 @@
           <span v-else-if="column.key === 'cooperation_start_date'">
             {{ formatDatetime(row.cooperation_start_date) }}
           </span>
+          <span v-else-if="column.key === 'client_manager'">{{ (row.contact_names?.length ? row.contact_names : [row.client_manager]).filter(Boolean).join('、') || '-' }}</span>
           <span v-else>{{ row[column.key] || '-' }}</span>
         </template>
       </el-table-column>
@@ -268,7 +269,7 @@
           :title="dialogTitle"
           subtitle="搜索并快速定位客户字段"
           :fetch-suggestions="fetchClientFieldSuggestions"
-          placeholder="搜索客户字段，如客户负责人"
+          placeholder="搜索客户字段，如客户联系人"
           @select="locateClientField"
           @clear="clearClientFieldSearch"
         />
@@ -282,7 +283,7 @@
         </el-descriptions>
         <el-tabs v-model="clientActiveTab" class="client-editor-tabs">
         <el-tab-pane label="基本信息" name="basic">
-        <AppForm
+        <AppForm number-scope="client" number-field="client_code" :number-active="dialogVisible && !form.id"
           ref="formRef"
           :model="form"
           :rules="rules"
@@ -291,7 +292,7 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="客户编号" prop="client_code">
-              <el-input v-model="form.client_code" placeholder="自动生成或手动输入" />
+              <ReadonlyField v-if="!form.id" :model-value="form.client_code" source="auto" placeholder="正在占用编号" /><el-input v-else v-model="form.client_code" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -304,21 +305,13 @@
           <el-col :span="12">
             <el-form-item label="客户简称" prop="client_short_name">
               <el-input v-model="form.client_short_name" />
-            </el-form-item>
+            <ClientNameGuidance />
+</el-form-item>
             <el-form-item label="客户类型" prop="customer_type"><el-select v-model="form.customer_type" clearable placeholder="请选择客户类型" @clear="form.customer_type=null"><el-option v-for="item in customerTypes" :key="item" :label="item" :value="item" /></el-select></el-form-item>
           </el-col>
-          <el-col :span="12">
-            <el-form-item label="客户负责人" prop="client_manager">
-              <el-input v-model="form.client_manager" />
-            </el-form-item>
-          </el-col>
         </el-row>
+        <el-form-item prop="contact_names" :rules="contactListRules" label-width="0px"><ClientContactNamesEditor :model-value="peopleFor(form)" @update:model-value="rows=>setPeople(form,rows)" /></el-form-item>
         <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="负责人联系方式" prop="manager_contact">
-              <el-input v-model="form.manager_contact" />
-            </el-form-item>
-          </el-col>
           <el-col :span="12">
             <el-form-item label="客户状态" prop="client_status">
               <el-select v-model="form.client_status" placeholder="请选择状态" style="width: 100%">
@@ -341,30 +334,8 @@
             </el-form-item>
           </el-col>
         </el-row>
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="国家" prop="country">
-              <el-input v-model="form.country" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="省份" prop="province">
-              <el-input v-model="form.province" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="地级市" prop="city">
-              <el-input v-model="form.city" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="区县" prop="district">
-              <el-input v-model="form.district" />
-            </el-form-item>
-          </el-col>
-        </el-row>
+        <CustomerRegionFields :model-value="form" @update:model-value="value=>Object.assign(form,value)" />
+
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="开始合作时间" prop="cooperation_start_date">
@@ -394,8 +365,13 @@
           <el-table :data="form.sub_clients" border size="small" style="margin-top: 10px;">
             <el-table-column prop="sub_client_code" label="子客户编号" width="160" />
             <el-table-column prop="client_name" label="客户全称" />
-            <el-table-column prop="client_manager" label="负责人" />
-            <el-table-column v-if="canWrite" label="操作" width="88" align="center">
+            <el-table-column prop="client_short_name" label="客户简称" min-width="150" show-overflow-tooltip />
+            <el-table-column prop="customer_type" label="客户类型" min-width="120" />
+            <el-table-column label="客户联系人" min-width="150"><template #default="{row}">{{ (row.contact_names?.length?row.contact_names:[row.client_manager]).filter(Boolean).join('、')||'-' }}</template></el-table-column>
+            <el-table-column label="联系方式" min-width="180"><template #default="{row}"><div v-for="(person,index) in peopleFor(row)" :key="index">{{person.name}}：{{person.contact_method||'-'}}</div></template></el-table-column>
+            <el-table-column label="说明" min-width="180"><template #default="{row}"><div v-for="(person,index) in peopleFor(row)" :key="index">{{person.description?`${person.name}：${person.description}`:''}}</div></template></el-table-column>
+            <el-table-column label="详情" width="100" fixed="right"><template #default="{row}"><el-popover trigger="click" placement="left" :width="760" title="子客户详情"><template #reference><el-button link type="primary">查看详情</el-button></template><div style="max-height:560px;overflow-y:auto;overflow-wrap:anywhere"><el-descriptions :column="2" border size="small"><el-descriptions-item v-for="field in subDetailFields" :key="field.key" :label="field.label">{{subDetailValue(row,field.key)}}</el-descriptions-item><el-descriptions-item v-for="(person,index) in peopleFor(row)" :key="`person-${index}`" :label="`联系人${index+1}`">{{person.name}}　联系方式：{{person.contact_method||'-'}}　说明：{{person.description||'-'}}</el-descriptions-item></el-descriptions></div></el-popover></template></el-table-column>
+            <el-table-column v-if="canWrite" label="操作" width="100" fixed="right" align="center">
               <template #default="{ row: subRow }">
                 <TableActionButton action="edit" @click="handleEditSub(subRow, form)" />
                 <TableActionButton action="delete" @click="handleDeleteSub(subRow, form)" />
@@ -404,6 +380,9 @@
           </el-table>
         </div>
         </AppForm>
+        </el-tab-pane>
+        <el-tab-pane label="客户来源" name="sources">
+          <CustomerSourceAnalysis v-if="clientActiveTab === 'sources'" :key="form.id || 'new'" :client-id="form.id" customer-mode />
         </el-tab-pane>
         <el-tab-pane label="财务信息" name="finance">
           <CustomerFinancePanel v-if="clientActiveTab === 'finance'" :key="form.id || 'new'" :client-id="form.id" :can-write="canWrite" />
@@ -456,67 +435,35 @@
         />
       </template>
       <div ref="subClientEditorBodyRef">
-        <AppForm ref="subFormRef" :model="subForm" :rules="subRules" label-width="120px">
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="子客户编号" prop="sub_client_code">
-              <el-input v-model="subForm.sub_client_code" placeholder="自动生成或手动输入" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="客户全称" prop="client_name">
-              <el-input v-model="subForm.client_name" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="20">
-          <el-col :xs="24" :md="12"><el-form-item label="英文全称"><el-input v-model="subForm.english_name" /></el-form-item></el-col>
-          <el-col :xs="24" :md="12"><el-form-item label="英文简称"><el-input v-model="subForm.english_short_name" /></el-form-item></el-col>
-        </el-row>
-        <el-row :gutter="20">
-          <el-col :xs="24" :md="12"><el-form-item label="客户领域一级"><el-input v-model="subForm.field_level1" /></el-form-item></el-col>
-          <el-col :xs="24" :md="12"><el-form-item label="客户领域二级"><el-input v-model="subForm.field_level2" /></el-form-item></el-col>
-        </el-row>
-        <el-row :gutter="20">
-          <el-col :xs="24" :md="12"><el-form-item label="国家"><el-input v-model="subForm.country" /></el-form-item></el-col>
-          <el-col :xs="24" :md="12"><el-form-item label="省份"><el-input v-model="subForm.province" /></el-form-item></el-col>
-        </el-row>
-        <el-row :gutter="20">
-          <el-col :xs="24" :md="12"><el-form-item label="地级市"><el-input v-model="subForm.city" /></el-form-item></el-col>
-          <el-col :xs="24" :md="12"><el-form-item label="区县"><el-input v-model="subForm.district" /></el-form-item></el-col>
-        </el-row>
-        <el-form-item label="开始合作时间" prop="cooperation_start_date"><el-date-picker v-model="subForm.cooperation_start_date" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item>
-        <el-form-item label="备注"><el-input v-model="subForm.remarks" type="textarea" :rows="3" /></el-form-item>
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="客户简称" prop="client_short_name">
-              <el-input v-model="subForm.client_short_name" />
-            </el-form-item>
-            <el-form-item label="客户类型" prop="customer_type"><el-select v-model="subForm.customer_type" clearable placeholder="请选择客户类型" @clear="subForm.customer_type=null"><el-option v-for="item in customerTypes" :key="item" :label="item" :value="item" /></el-select></el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="客户负责人" prop="client_manager">
-              <el-input v-model="subForm.client_manager" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="联系方式" prop="manager_contact">
-              <el-input v-model="subForm.manager_contact" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="状态" prop="client_status">
-              <el-select v-model="subForm.client_status" style="width: 100%">
-                <el-option label="合作中" value="active" />
-                <el-option label="已停止" value="inactive" />
-                <el-option label="待合作" value="pending" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        </AppForm>
+        <AppForm number-scope="subclient" number-field="sub_client_code" :number-active="subDialogVisible && !subForm.id" :number-parent="subForm.parent_client_id || undefined" ref="subFormRef" :model="subForm" :rules="subRules" label-width="120px">
+        <div class="sub-client-section" data-dialog-field-search-group data-dialog-field-search-group-title="客户基本资料">
+          <h4>客户基本资料</h4>
+          <el-row :gutter="20">
+            <el-col :xs="24" :md="12"><el-form-item label="客户全称" prop="client_name"><el-input v-model="subForm.client_name" /></el-form-item></el-col>
+            <el-col :xs="24" :md="12"><el-form-item label="客户简称" prop="client_short_name"><el-input v-model="subForm.client_short_name" /><ClientNameGuidance /></el-form-item></el-col>
+            <el-col :xs="24" :md="12"><el-form-item label="英文全称"><el-input v-model="subForm.english_name" /></el-form-item></el-col>
+            <el-col :xs="24" :md="12"><el-form-item label="英文简称"><el-input v-model="subForm.english_short_name" /></el-form-item></el-col>
+            <el-col :xs="24" :md="12"><el-form-item label="子客户编号" prop="sub_client_code"><ReadonlyField v-if="!subForm.id" :model-value="subForm.sub_client_code" source="auto" placeholder="正在占用编号" /><el-input v-else v-model="subForm.sub_client_code" /></el-form-item></el-col>
+            <el-col :xs="24" :md="12"><el-form-item label="客户类型" prop="customer_type"><el-select v-model="subForm.customer_type" clearable style="width:100%" placeholder="请选择客户类型" @clear="subForm.customer_type=null"><el-option v-for="item in customerTypes" :key="item" :label="item" :value="item" /></el-select></el-form-item></el-col>
+          </el-row>
+        </div>
+        <div class="sub-client-section" data-dialog-field-search-group data-dialog-field-search-group-title="联系信息">
+          <h4>联系信息</h4><el-form-item prop="contact_names" :rules="contactListRules" label-width="0px"><ClientContactNamesEditor :model-value="peopleFor(subForm)" @update:model-value="rows=>setPeople(subForm,rows)" /></el-form-item>
+        </div>
+        <div class="sub-client-section" data-dialog-field-search-group data-dialog-field-search-group-title="业务与地区信息">
+          <h4>业务与地区信息</h4><el-row :gutter="20">
+            <el-col :xs="24" :md="12"><el-form-item label="客户领域一级"><el-input v-model="subForm.field_level1" /></el-form-item></el-col>
+            <el-col :xs="24" :md="12"><el-form-item label="客户领域二级"><el-input v-model="subForm.field_level2" /></el-form-item></el-col>
+          </el-row>
+          <CustomerRegionFields :model-value="subForm" @update:model-value="value=>Object.assign(subForm,value)" />
+        </div>
+        <div class="sub-client-section" data-dialog-field-search-group data-dialog-field-search-group-title="合作信息">
+          <h4>合作信息</h4><el-row :gutter="20">
+            <el-col :xs="24" :md="12"><el-form-item label="开始合作时间" prop="cooperation_start_date"><el-date-picker v-model="subForm.cooperation_start_date" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
+            <el-col :xs="24" :md="12"><el-form-item label="状态" prop="client_status"><el-select v-model="subForm.client_status" style="width:100%"><el-option label="合作中" value="active" /><el-option label="已停止" value="inactive" /><el-option label="待合作" value="pending" /></el-select></el-form-item></el-col>
+          </el-row><el-form-item label="备注"><el-input v-model="subForm.remarks" type="textarea" :rows="3" /></el-form-item>
+        </div>
+      </AppForm>
       </div>
       <template #footer>
         <el-button @click="subDialogVisible = false">取消</el-button>
@@ -527,10 +474,14 @@
 </template>
 
 <script setup>
+import ClientNameGuidance from '@/components/common/ClientNameGuidance.vue'
+import ClientContactNamesEditor from '@/components/common/ClientContactNamesEditor.vue'
 import { CUSTOMER_TYPES as customerTypes } from '@/utils/customerTypes'
 import CustomerCooperationProjects from '@/components/common/CustomerCooperationProjects.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
+import CustomerSourceAnalysis from '@/components/common/CustomerSourceAnalysis.vue'
 import CustomerFinancePanel from '@/components/common/CustomerFinancePanel.vue'
+import CustomerRegionFields from '@/components/common/CustomerRegionFields.vue'
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { refreshAfterSave } from '@/utils/postSaveRefresh.js'
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch, defineAsyncComponent } from 'vue'
@@ -583,8 +534,8 @@ const clientColumnOptions = [
   { key: 'customer_type', label: '客户类型', width: 150 },
   { key: 'english_name', label: '英文全称', width: 200 },
   { key: 'english_short_name', label: '英文简称', width: 150 },
-  { key: 'client_manager', label: '客户负责人', width: 140 },
-  { key: 'manager_contact', label: '负责人联系方式', width: 150 },
+  { key: 'client_manager', label: '客户联系人', width: 140 },
+  { key: 'manager_contact', label: '联系方式', width: 150 },
   { key: 'field_level1', label: '客户领域一级', width: 150 },
   { key: 'field_level2', label: '客户领域二级', width: 120 },
   { key: 'country', label: '国家', width: 100 },
@@ -689,6 +640,8 @@ const defaultClientForm = () => ({
   client_name: '',
   client_short_name: '',
   client_manager: '',
+  contact_names: [],
+  contact_people: [],
   manager_contact: '',
   field_level1: '',
   field_level2: '',
@@ -696,6 +649,8 @@ const defaultClientForm = () => ({
   province: '',
   city: '',
   district: '',
+  full_address: '',
+  detailed_address: '',
   client_status: 'pending',
   cooperation_start_date: '',
   remarks: '',
@@ -707,6 +662,7 @@ const defaultClientForm = () => ({
 const form = reactive(defaultClientForm())
 const { beginDraft, pauseDraft, clearDraft } = useFormDraft({
   namespace: 'client', form, createDefault: defaultClientForm, formRef,
+  applyDraft: draft=>{const contacts=Array.isArray(draft.contact_names)?draft.contact_names:form.contact_names;Object.assign(form,{...defaultClientForm(),...form,...draft,contact_names:contacts})},
   legacyStorageKeys: [`client_form_drafts:${currentUserId || 'anonymous'}`],
 })
 
@@ -718,6 +674,8 @@ const subForm = reactive({
   client_name: '',
   client_short_name: '',
   client_manager: '',
+  contact_names: [],
+  contact_people: [],
   manager_contact: '',
   english_name: '',
   english_short_name: '',
@@ -727,15 +685,26 @@ const subForm = reactive({
   province: '',
   city: '',
   district: '',
+  full_address: '',
+  detailed_address: '',
   cooperation_start_date: '',
   remarks: '',
   client_status: 'pending'
 })
 
+const subDetailFields=[['sub_client_code','子客户编号'],['client_name','客户全称'],['client_short_name','客户简称'],['english_name','英文全称'],['english_short_name','英文简称'],['customer_type','客户类型'],['field_level1','客户领域一级'],['field_level2','客户领域二级'],['country','国家'],['province','省份'],['city','地级市'],['district','区县'],['detailed_address','详细地址'],['full_address','完整地址'],['client_status','状态'],['cooperation_start_date','开始合作时间'],['remarks','备注']].map(([key,label])=>({key,label}))
+function subDetailValue(row,key){if(key==='cooperation_start_date')return formatDatetime(row[key]);if(key==='client_status')return clientStatusOptions.find(item=>item.value===row[key])?.label||row[key]||'-';return row[key]||'-'}
+function peopleFor(model){const stored=model.contact_people||[];return (model.contact_names?.length?model.contact_names:['']).map((name,index)=>{const row=stored.find(item=>item.name===name)||stored[index]||{};return {name,contact_method:row.contact_method??(index===0?model.manager_contact||'':''),description:row.description||''}})}
+function setPeople(model,rows){model.contact_people=rows;model.contact_names=rows.map(row=>row.name);model.manager_contact=rows[0]?.contact_method||''}
+const contactListRules=[{required:true,type:'array',min:1,message:'请至少填写一位客户联系人',trigger:'change'}]
 const rules = {
-  client_short_name: [{ required: true, message: '请输入客户简称', trigger: 'blur' }],
-  client_manager: [{ required: true, message: '请输入客户负责人', trigger: 'blur' }]
+  client_name: [{ required: true, pattern: /\S/, message: '请输入客户全称', trigger: ['blur','change'] }],
+  client_short_name: [{ required: true, pattern: /\S/, message: '请输入客户简称', trigger: 'blur' }],
 }
+
+for(const model of [form,subForm])watch(()=>[model.customer_type,model.client_short_name],([type,name],previous=[])=>{
+  if(type==='个人客户'&&String(name||'').trim()&&(!model.contact_names?.length||!String(model.contact_names[0]||'').trim()||model.contact_names[0]===previous[1]))model.contact_names=[String(name).trim(),...(model.contact_names||[]).slice(1)]
+})
 
 const subRules = {
   ...rules,
@@ -751,8 +720,8 @@ const clientStatusOptions=[{label:'合作中',value:'active'},{label:'已停止'
 const clientFilterFields=[
   {key:'client_code',label:'客户编号',type:'text'},{key:'client_name',label:'客户全称',type:'text'},
   {key:'client_short_name',label:'客户简称',type:'text'},{key:'english_name',label:'英文全称',type:'text'},
-  {key:'english_short_name',label:'英文简称',type:'text'},{key:'client_manager',label:'客户负责人',type:'text'},
-  {key:'manager_contact',label:'负责人联系方式',type:'text'},{key:'field_level1',label:'客户领域一级',type:'text'},
+  {key:'english_short_name',label:'英文简称',type:'text'},{key:'client_manager',label:'客户联系人',type:'text'},
+  {key:'manager_contact',label:'联系方式',type:'text'},{key:'field_level1',label:'客户领域一级',type:'text'},
   {key:'field_level2',label:'客户领域二级',type:'text'},{key:'country',label:'国家',type:'text'},
   {key:'province',label:'省份',type:'text'},{key:'city',label:'地级市',type:'text'},
   {key:'district',label:'区县',type:'text'},{key:'client_status',label:'客户状态',type:'select',options:clientStatusOptions},
@@ -903,6 +872,7 @@ const loadClientDetail = async (id) => {
 }
 
 const handleEdit = async (row) => {
+  try { row = { ...row, ...await clientApi.getClient(row.id) } } catch { ElMessage.error('读取最新客户联系人失败，请重试');return }
   dialogTitle.value = '客户管理 · 编辑窗口'
   resetForm()
   Object.assign(form, {
@@ -915,6 +885,8 @@ const handleEdit = async (row) => {
     client_name: row.client_name || '',
     client_short_name: row.client_short_name || '',
     client_manager: row.client_manager || '',
+    contact_people: row.contact_people || [],
+    contact_names: row.contact_names?.length ? [...row.contact_names] : row.client_manager ? [row.client_manager] : [],
     manager_contact: row.manager_contact || '',
     field_level1: row.field_level1 || '',
     field_level2: row.field_level2 || '',
@@ -926,6 +898,8 @@ const handleEdit = async (row) => {
     cooperation_start_date: businessDateTimeInputValue(row.cooperation_start_date||''),
     remarks: row.remarks || '',
     cooperation_info: row.cooperation_info || '',
+    full_address: row.full_address || '',
+    detailed_address: row.detailed_address || '',
     sub_clients: row.sub_clients || [],
     updated_at: row.updated_at || null,
   })
@@ -936,13 +910,13 @@ const handleEdit = async (row) => {
 
 const handleSubmit = async () => {
   if (!formRef.value) return
-  
+
   await formRef.value.validate(async (valid) => {
     if (valid) {
       if (submitLoading.value) return
       submitLoading.value = true
       try {
-        const submitData = { ...form }
+        const submitData = { ...form, client_manager: form.contact_names[0]?.trim() || '', contact_people: peopleFor(form), manager_contact: peopleFor(form)[0]?.contact_method || '' }
         delete submitData.operator_name
         delete submitData.operator_source
         delete submitData.operator_consultation_code
@@ -1000,8 +974,11 @@ const handleAddSubForParent = (parent) => {
   subDialogTitle.value = '新增子客户'
   resetSubForm()
   subForm.parent_client_id = parent.id
-  subForm.client_manager = parent.client_manager || ''
-  subForm.manager_contact = parent.manager_contact || ''
+  subForm.customer_type = '企业客户'
+  subForm.client_manager = ''
+  subForm.contact_names = []
+  subForm.contact_people = []
+  subForm.manager_contact = ''
   subForm.client_status = parent.client_status || 'pending'
   subDialogVisible.value = true
 }
@@ -1009,7 +986,7 @@ const handleAddSubForParent = (parent) => {
 const handleEditSub = (subRow, parentRow = null) => {
   subDialogTitle.value = '编辑子客户'
   resetSubForm()
-  Object.assign(subForm, { ...subRow, cooperation_start_date: businessDateTimeInputValue(subRow.cooperation_start_date||'') })
+  Object.assign(subForm, { ...subRow, contact_names: subRow.contact_names?.length ? [...subRow.contact_names] : subRow.client_manager ? [subRow.client_manager] : [], cooperation_start_date: businessDateTimeInputValue(subRow.cooperation_start_date||'') })
   if (parentRow) subForm.parent_client_id = parentRow.id
   else subForm.parent_client_id = form.id
   subDialogVisible.value = true
@@ -1020,7 +997,7 @@ const handleDeleteSub = async (subRow, parentRow = null) => {
     await ElMessageBox.confirm('确定要删除该子客户吗？', '提示', { type: 'warning' })
     await clientApi.deleteSubClient(subRow.id)
     ElMessage.success('删除子客户成功')
-    
+
     if (form.id && parentRow?.id === form.id) {
        form.sub_clients = form.sub_clients.filter(s => s.id !== subRow.id)
     }
@@ -1036,7 +1013,7 @@ const handleSubSubmit = async () => {
     if (valid) {
       subSubmitLoading.value = true
       try {
-        const submitData = { ...subForm }
+        const submitData = { ...subForm, client_manager: subForm.contact_names[0]?.trim() || '', contact_people: peopleFor(subForm), manager_contact: peopleFor(subForm)[0]?.contact_method || '' }
         delete submitData.id
         delete submitData.created_at
         submitData.expected_updated_at = subForm.updated_at || null
@@ -1078,6 +1055,8 @@ const resetSubForm = () => {
     client_name: '',
     client_short_name: '',
     client_manager: '',
+  contact_names: [],
+  contact_people: [],
     manager_contact: '',
     english_name: '',
     english_short_name: '',
@@ -1087,6 +1066,8 @@ const resetSubForm = () => {
     province: '',
     city: '',
     district: '',
+  full_address: '',
+  detailed_address: '',
     cooperation_start_date: '',
     remarks: '',
     client_status: 'pending'
@@ -1294,4 +1275,8 @@ onBeforeUnmount(() => {
     padding: 16px 16px 4px;
   }
 }
+</style>
+
+<style scoped>
+.sub-client-section + .sub-client-section{border-top:1px solid var(--el-border-color-lighter);padding-top:16px;margin-top:4px}.sub-client-section h4{margin:0 0 16px;color:var(--el-text-color-primary)}
 </style>

@@ -22,7 +22,7 @@
         <el-button @click="reset">重置</el-button>
         <el-popover title="负责人变更筛选" v-model:visible="advancedVisible" trigger="click" placement="bottom-end" :width="760" popper-class="manager-log-advanced-popover">
           <div class="manager-log-advanced-content">
-          <AdvancedFilterFieldSearch :active="advancedVisible">
+          <AdvancedFilterFieldSearch :active="advancedVisible" :anchor="dockAnchor" scope="manager-log-advanced-popover">
       <el-form-item label="变更方式">
         <el-select v-model="filters.changeMode" clearable placeholder="全部" class="manager-log-short-filter" @change="search">
           <el-option label="批量交接" value="direct_transfer" />
@@ -46,7 +46,7 @@
           </AdvancedFilterFieldSearch>
           <div class="manager-log-advanced-actions"><el-button @click="clearAdvanced">清空高级条件</el-button><el-button @click="advancedVisible = false">关闭</el-button></div>
           </div>
-          <template #reference><el-button>高级筛选{{ advancedCount ? `（${advancedCount}）` : '' }}</el-button></template>
+          <template #reference><span ref="dockAnchor"><el-button>高级筛选{{ advancedCount ? `（${advancedCount}）` : '' }}</el-button></span></template>
         </el-popover>
       </el-form-item>
     </AppForm>
@@ -95,6 +95,7 @@ const loading = ref(false)
 const loadError = ref('')
 const currentProject = ref(null)
 const filters = reactive({ keyword: '', managerRole: '', changeMode: '', changedRange: [] })
+const dockAnchor=ref()
 const advancedVisible = ref(false)
 const advancedCount = computed(() => Number(Boolean(filters.changeMode)) + Number(Boolean(filters.changedRange?.length)))
 const clearAdvanced = () => { filters.changeMode = ''; filters.changedRange = []; search() }

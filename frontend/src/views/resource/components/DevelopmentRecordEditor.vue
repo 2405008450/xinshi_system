@@ -2,7 +2,7 @@
   <DraggableFormDialog v-model="visible" width="min(1000px, calc(100vw - 32px))" top="5vh" append-to-body class="development-dialog" destroy-on-close :close-on-click-modal="false">
     <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="quickMode ? `${form.full_name} · ${followUpMode ? '后续跟进情况' : '快捷跟进'}` : form.revision ? '编辑资源开拓' : '新增资源开拓'" placeholder="搜索字段，如资源姓名" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
     <div ref="bodyRef" @keydown="saveShortcut">
-      <AppForm ref="formRef" :model="form" :rules="rules" label-position="top">
+      <AppForm number-scope="greeting" number-field="greeting_no" :number-active="visible && !form.revision && !!form.platform_id" :number-parent="form.platform_id || undefined" :number-date="form.work_date" ref="formRef" :model="form" :rules="rules" label-position="top">
         <template v-if="!quickMode">
         <h3>本批次录入信息</h3>
         <p class="muted">每次新增默认当天日期；连续录入时沿用本批次日期、开拓人员、平台和账号。业绩与日报归属开拓人员，实际录入人由系统自动记录。</p>
@@ -15,7 +15,7 @@
         </div>
         <h3>资源资料</h3>
         <div class="development-form-grid">
-          <el-form-item label="招呼编号"><ReadonlyField :model-value="greetingNo" source="auto" placeholder="保存后自动生成" /></el-form-item>
+          <el-form-item label="招呼编号"><ReadonlyField :model-value="form.greeting_no || greetingNo" source="auto" placeholder="保存后自动生成" /></el-form-item>
           <el-form-item label="资源姓名" prop="full_name">
             <el-input v-model="form.full_name" maxlength="255" @blur="checkRecordName()" />
             <div v-if="!form.revision && !quickMode" class="record-name-check" aria-live="polite">
@@ -189,7 +189,7 @@ const capabilityOptions = [{ value: 'written_translation', label: '笔译' }, { 
 const required = message => [{ required: true, message, trigger: 'change' }]
 const rules = computed(() => ({ platform_id: required('请选择开拓平台'), work_date: required('请选择日期'), owner_id: required('请选择开拓人员'), full_name: required('请填写资源姓名'), capabilities: needsEnrollment.value && !form.link_person_id ? [{ type: 'array', required: true, min: 1, message: '请选择至少一个专业分类', trigger: 'change' }] : [] }))
 function payload() {
-  const { follow_up, ...record } = form
+  const { follow_up, greeting_no, ...record } = form
   return { ...record, account_id: form.account_id || null, actions: form.actions.map(a => ({ id: a.id, channel: a.channel, status: a.status, action_date: a.action_date, operator_id: a.operator_id, account_id: a.account_id || null })) }
 }
 let checkSequence = 0

@@ -53,6 +53,13 @@ def test_proof_bytes_persist_and_unchecking_keeps_proofs_and_history(environment
     assert history['total']==2 and history['items'][0]['before']['is_paid']
     assert history['items'][0]['after']['proofs']==proof
     assert history['items'][0]['created_at'].endswith('+08:00')
+    current=confirmation.read(db,row.id)
+    confirmation.save(db,row.id,confirmation.PaymentConfirmationWrite(**{**current,'clear_details':True}),actor.id)
+    db.commit();screenshots.cleanup(db);db.expire_all()
+    assert confirmation.read(db,row.id)['proofs']==''
+    assert confirmation.history(db,row.id)['items'][0]['before']['proofs']==proof
+    assert db.get(EditorScreenshot,stored.id).expires_at is None
+    assert db.get(EditorScreenshotBlob,stored.blob_sha256).content
 
 
 def test_validation_and_migration_idempotent(environment):

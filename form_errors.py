@@ -6,6 +6,11 @@ def field_error(message: str, path=None) -> dict:
 
 
 CONSTRAINT_FIELDS = {
+    "client_project_confirmation_project_id_fkey": ("项目确认记录保存失败，请保留当前表单内容后重试", None),
+    "translation_project_client_id_fkey": ("所选客户已不存在，请重新选择", "client_id"),
+    "translation_project_sub_client_id_fkey": ("所选子客户已不存在，请重新选择", "sub_client_id"),
+    "translation_project_project_manager_id_fkey": ("所选项目经理已不存在，请重新选择", "project_manager_id"),
+    "translation_project_created_by_fkey": ("操作账号已不存在，请联系管理员检查", None),
     "client_client_code_key": ("客户编号已存在，请使用其他编号", "client_code"),
     "sub_client_code_key": ("子客户编号已存在，请使用其他编号", "sub_client_code"),
     "translation_project_order_no_key": ("项目订单号已存在，请刷新后重试", "order_no"),

@@ -155,7 +155,7 @@ def run():
                 return box, field
 
             def save(box, local=False):
-                box.get_by_role("button", name="应用到新建表单" if local else "保存", exact=True).click()
+                box.get_by_role("button", name="保存", exact=True).click()
                 expect(box).not_to_be_visible()
 
             page.goto(base + f"/translation-details?projectId={PROJECT_ID}&openEditor=1")

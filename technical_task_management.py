@@ -43,12 +43,20 @@ def active_tasks(db):
 def numbers(db):
     values = dict(db.query(tasks.DevelopmentTaskNumber.task_id, tasks.DevelopmentTaskNumber.task_no))
     if ready(db): values.update(dict(db.query(TaskHierarchyNumber.task_id, TaskHierarchyNumber.task_no)))
+    from business_numbering import history_ready, BusinessNumberDeletionHistory
+    if history_ready(db):
+        from uuid import UUID
+        history=db.query(BusinessNumberDeletionHistory).filter_by(entity_type='technical_development_task').order_by(BusinessNumberDeletionHistory.deleted_at.desc())
+        for row in history:
+            values.setdefault(UUID(row.entity_id),row.snapshot.get('display_order_no') or row.number)
     return values
 
 def next_child(db, parent_number):
     prefix = parent_number + '.'
     used = [int(value[len(prefix):]) for value, in db.query(TaskHierarchyNumber.task_no) if value.startswith(prefix) and value[len(prefix):].isdigit()]
-    return prefix + f'{max(used, default=0)+1:03d}'
+    from business_numbering import allocate
+    parent_id = next((uid for uid, value in numbers(db).items() if value == parent_number), None)
+    return allocate(db, f'technical_subtask:{parent_id}', prefix, max(used, default=0)+1)
 
 def assign_number(db, task_id):
     if not ready(db): return
@@ -97,7 +105,19 @@ def delete_task(db, user, task_id, revision):
         raise HTTPException(409, '任务下还有子任务，请先删除子任务，或同时选择下属任务')
     ids = {task_id} | {link.execution_task_id for link in db.query(allocations.TaskAllocation).filter_by(root_task_id=task_id)} if allocations.ready(db) else {task_id}
     stamp = now()
-    for uid in ids - removed: db.add(TaskDeletion(task_id=uid,deleted_by=user.id,deleted_at=stamp))
+    from business_numbering import archive_number
+    for uid in ids - removed:
+        old_task=db.get(tasks.DevelopmentTask,uid)
+        primary=db.get(tasks.DevelopmentTaskNumber,uid)
+        hierarchy=db.get(TaskHierarchyNumber,uid)
+        shown=hierarchy.task_no if hierarchy else primary.task_no if primary else None
+        scope=f'technical_subtask:{old_task.parent_id}' if old_task.parent_id else 'technical_task'
+        archive_number(db,scope,shown,old_task,actor=user,extra={'display_order_no':shown})
+        if primary and primary.task_no!=shown:
+            archive_number(db,'technical_task',primary.task_no,old_task,actor=user,extra={'display_order_no':shown})
+        if hierarchy:db.delete(hierarchy)
+        if primary:db.delete(primary)
+        db.add(TaskDeletion(task_id=uid,deleted_by=user.id,deleted_at=stamp))
     row.revision += 1; row.updated_by=user.id; row.updated_at=stamp
     db.commit()
     return dict(deleted=True, task_id=task_id)

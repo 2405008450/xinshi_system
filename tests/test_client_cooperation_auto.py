@@ -31,6 +31,19 @@ def test_new_confirmed_project_inserts_parent_before_confirmation_with_real_fk(e
     assert ClientResponse.model_validate(crud.get_client(db, owner.id)).client_status == 'active'
 
 
+def test_new_confirmed_project_inserts_parent_before_confirmation_with_foreign_keys(environment):
+    from sqlalchemy import text
+    db,_=environment
+    owner=client(db)
+    # SQLite 默认未启用外键；显式打开，覆盖 PostgreSQL 上真实失败的写入顺序。
+    db.execute(text('PRAGMA foreign_keys=ON'))
+    assert db.execute(text('PRAGMA foreign_keys')).scalar()==1
+    row=project(db,owner,'NEW',datetime(2026,11,7,12),'confirmed')
+    evidence=db.get(ClientProjectConfirmation,row.id)
+    assert evidence and evidence.project_id==row.id
+    assert owner.client_status=='active'
+
+
 def client(db):
     row=Client(id=uuid4(),client_code='CL-AUTO',client_name='合作验证客户',client_short_name='合作客户',client_status='pending')
     db.add(row);db.commit();return row

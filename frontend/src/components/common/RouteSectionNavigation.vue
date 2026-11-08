@@ -1,8 +1,8 @@
 <template>
   <el-card class="route-section-navigation" shadow="never">
-    <el-tabs :model-value="active" :before-leave="navigate" :aria-label="label">
+    <div class="route-section-navigation-row"><el-tabs :model-value="active" :before-leave="navigate" :aria-label="label">
       <el-tab-pane v-for="item in items" :key="item.path" :label="item.label" :name="item.path" />
-    </el-tabs>
+    </el-tabs><slot name="actions" /></div>
   </el-card>
 </template>
 <script setup>
@@ -15,4 +15,5 @@ async function navigate(path){if(path===active.value)return true;await router.pu
 </script>
 <style scoped>
 .route-section-navigation{flex:none;min-width:0;border-color:var(--color-border);border-radius:var(--radius-lg)}.route-section-navigation :deep(.el-card__body){padding:0 20px}.route-section-navigation :deep(.el-tabs__header){margin:0}.route-section-navigation :deep(.el-tabs__content){display:none}.route-section-navigation :deep(.el-tabs__nav-wrap::after){height:1px}.route-section-navigation :deep(.el-tabs__item){height:36px;font-size:15px}
+.route-section-navigation-row{display:flex;align-items:center;gap:20px}.route-section-navigation-row>.el-tabs{min-width:0;flex:0 1 auto}.route-section-navigation-row>:not(.el-tabs){flex-shrink:0}
 </style>

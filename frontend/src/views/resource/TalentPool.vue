@@ -164,7 +164,7 @@
         />
       </template>
       <div ref="editorBodyRef" class="talent-editor-body" :inert="saving" :aria-busy="saving">
-        <AppForm ref="formRef" :model="form" :rules="rules" label-position="top" class="talent-editor-form"><el-tabs v-model="resumeTab"><el-tab-pane label="中文简历" name="zh"><CollapsibleSections :reset-key="editorSectionsKey">
+        <AppForm number-scope="talent" number-field="resourceCode" :number-active="editorVisible && creatingTalent && !form.id" ref="formRef" :model="form" :rules="rules" label-position="top" class="talent-editor-form"><el-tabs v-model="resumeTab"><el-tab-pane label="中文简历" name="zh"><CollapsibleSections :reset-key="editorSectionsKey">
         <template #actions><TalentResumeYear v-model="form.resumeProfile.resumeYear" field-path="resumeProfile.resumeYear" /></template>
         <el-collapse-item  name="editor-section-1" data-section-key="editor-section-1" title="姓名与身份"><div class="form-section">
           <div class="form-section-header name-section-header">

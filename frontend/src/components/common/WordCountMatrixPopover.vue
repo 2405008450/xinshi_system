@@ -9,7 +9,7 @@
     :teleported="true"
     :popper-options="popperOptions"
     @show="loadMatrix"
-    @hide="discardDraft"
+    @hide="suspendDraft"
   >
     <template #reference>
       <slot name="reference" :summary="summary">
@@ -17,13 +17,13 @@
       </slot>
     </template>
 
-    <div class="word-count-matrix">
+    <div class="word-count-matrix" data-auto-draft="off">
       <div class="word-count-matrix__header">
         <div>
 
           <p>{{ aggregated ? '此订单各单位分别由子订单逐级累计，可同时出现字数、份数等多项；请在末级订单填写。' : '我司统计、客户统计每行只能填写一项；清空已填项后可切换口径。空白不保存，零视为已填写。' }}</p>
         </div>
-        <el-tag size="small" type="info">{{ aggregated ? '下级自动汇总' : (hybridMode ? '项目保存 / 译员草稿' : (localMode ? '新建草稿' : '独立保存')) }}</el-tag>
+        <el-tag size="small" :type="hasChanges ? 'warning' : 'info'">{{ hasChanges ? '未保存修改' : (aggregated ? '下级自动汇总' : (localMode ? '随项目保存' : '已保存统计')) }}</el-tag>
       </div>
 
       <el-alert v-if="hasDuration" title="本项目可能属于标注项目，请与标注项目部沟通。" type="warning" :closable="false" show-icon />
@@ -49,6 +49,7 @@
                 :class="{ 'is-word-count-target': row.scope === 'entity' && row.dimension === initialDimension && metric.key === initialMetricType }"
               >
                 <el-input-number
+                  :key="`${row.key}-${metric.key}-${cellDisabled(row,metric.key)}`"
                   v-model="row.values[metric.key]"
                   :disabled="cellDisabled(row,metric.key)"
                   size="small"
@@ -73,11 +74,11 @@
       </div>
 
       <div class="word-count-matrix__footer">
-        <span>{{ hybridMode ? '项目级数据立即保存；新译员数据随外层表单提交' : (localMode ? '应用后仍需保存外层表单' : '保存后立即同步到项目详情与稿件安排') }}</span>
+        <span>{{ hybridMode ? '项目统计立即保存；新译员统计随稿件安排保存' : (localMode ? '统计随项目保存；关闭后保留本账号未保存的修改' : '保存后同步项目；未保存的修改仅当前账号可见') }}</span>
         <div>
-          <el-button @click="visible = false">取消</el-button>
+          <el-button @click="visible = false">关闭</el-button>
           <el-button v-if="!readOnly" type="primary" :loading="saving" :disabled="loading || !draft" @click="saveMatrix">
-            {{ hybridMode ? '保存并应用' : (localMode ? '应用到新建表单' : '保存') }}
+            保存
           </el-button>
         </div>
       </div>
@@ -86,10 +87,11 @@
 </template>
 
 <script setup>
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, toRef, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getWordCountMatrix, patchWordCountMatrix } from '@/api/wordCountMatrices'
 import { focusFormTarget, scrollFormTarget } from '@/utils/formNavigation'
+import { useFormDraft } from '@/composables/useFormDraft'
 import {
   WORD_COUNT_METRICS,
   createEmptyWordCountMatrix,
@@ -108,14 +110,17 @@ const props = defineProps({
   title: { type: String, default: '字数统计' },
   initialDimension: { type: String, default: '' },
   initialMetricType: { type: String, default: '' },
-  readOnly: { type: Boolean, default: false }
+  readOnly: { type: Boolean, default: false },
+  pendingDraft: { type: Object, default: undefined },
+  draftScope: { type: String, default: '' }
 })
 
-const emit = defineEmits(['update:modelValue', 'update:translators', 'saved'])
+const emit = defineEmits(['update:modelValue', 'update:translators', 'saved', 'update:pendingDraft'])
 const visible = ref(false)
 const loading = ref(false)
 const saving = ref(false)
-const draft = ref(null)
+const draftState = reactive({ matrix: null, baseline: null })
+const draft = toRef(draftState, 'matrix')
 const original = ref(null)
 const matrixBody = ref(null)
 const popoverRef = ref(null)
@@ -123,9 +128,24 @@ const popperOptions = {
   modifiers: [{ name: 'preventOverflow', options: { altAxis: true, tether: false, padding: 16 } }]
 }
 let loadSequence = 0
+let matrixOwner = ''
+const editing = ref(false)
+const controlledDraft = computed(() => props.pendingDraft !== undefined)
+const scopeKey = () => JSON.stringify([props.draftScope || location.pathname, props.entityType, props.entityId || 'create', props.dispatchId || '', props.local ? 'local' : 'record'])
+const validPending = value => value?.version === 'word-count-matrix-v2' && value.ownerId === localStorage.getItem('user_id') && value.scope === scopeKey() && value.matrix && value.baseline
+const {beginDraft,pauseDraft,clearDraft}=useFormDraft({
+  namespace:'word-count-matrix',form:draftState,requireUserId:true,retentionMs:null,draftVersion:'word-count-matrix-v2',
+  createDefault:()=>({matrix:null,baseline:null}),
+  applyDraft:snapshot=>{
+    if(!snapshot.matrix||!snapshot.baseline||!original.value)return
+    draft.value=rebaseDraft(snapshot.baseline,snapshot.matrix,original.value)
+    draftState.baseline=clone(original.value)
+  },
+})
 const localMode = computed(() => props.local || !props.entityId)
 const hybridMode = computed(() => localMode.value && Boolean(props.entityId))
 const summary = computed(() => formatWordCountMatrix(props.modelValue))
+const hasChanges = computed(() => Boolean(draft.value && original.value && buildChanges().length))
 const aggregated = computed(() => draft.value?.source === 'suborder_aggregate')
 const regularMetrics=WORD_COUNT_METRICS.filter(item=>!['minutes','hours'].includes(item.key))
 const timeUnits=ref({})
@@ -182,6 +202,9 @@ const rows = computed(() => {
 })
 
 async function loadMatrix() {
+  editing.value = false
+  pauseDraft()
+  matrixOwner = localStorage.getItem('user_id') || ''
   const sequence = ++loadSequence
   loading.value = true
   try {
@@ -195,16 +218,23 @@ async function loadMatrix() {
     } else {
       const params = props.dispatchId ? { dispatch_id: props.dispatchId } : {}
       const response = await getWordCountMatrix(props.entityType, props.entityId, params)
-      if (sequence !== loadSequence || !visible.value) return
+      if (sequence !== loadSequence || !visible.value || matrixOwner !== (localStorage.getItem('user_id') || '')) return
       draft.value = normalizeResponse(response)
+      publishMatrix(draft.value)
     }
     original.value = clone(draft.value)
+    draftState.baseline = clone(original.value)
+    if (!props.readOnly && matrixOwner) {
+      if (controlledDraft.value) {
+        if (validPending(props.pendingDraft)) draft.value = rebaseDraft(props.pendingDraft.baseline, props.pendingDraft.matrix, original.value)
+      } else await beginDraft(scopeKey())
+    }
   } catch (error) {
     if (sequence !== loadSequence) return
     ElMessage.error(error.detail || '加载字数统计失败')
     visible.value = false
   } finally {
-    if (sequence === loadSequence) loading.value = false
+    if (sequence === loadSequence) { loading.value = false; editing.value = !props.readOnly && visible.value }
   }
   if (sequence === loadSequence && visible.value) await focusInitialCell()
 }
@@ -226,7 +256,9 @@ async function focusInitialCell() {
   if (!props.readOnly) focusFormTarget(target)
 }
 
-function discardDraft() {
+function suspendDraft() {
+  pauseDraft()
+  editing.value = false
   timeUnits.value={}
   loadSequence += 1
   draft.value = null
@@ -234,7 +266,8 @@ function discardDraft() {
   loading.value = false
 }
 
-function buildChanges() {
+function buildChanges(beforeMatrix = original.value, afterMatrix = draft.value) {
+  if (!beforeMatrix || !afterMatrix) return []
   const beforeRows = new Map()
   const buildRows = (matrix) => {
     const result = [
@@ -251,10 +284,10 @@ function buildChanges() {
     })
     return result
   }
-  buildRows(original.value).forEach((row) => beforeRows.set(row.key, row))
+  buildRows(beforeMatrix).forEach((row) => beforeRows.set(row.key, row))
   const changes = []
-  buildRows(draft.value).forEach((row) => {
-    if (aggregated.value && row.scope === 'entity') return
+  buildRows(afterMatrix).forEach((row) => {
+    if (afterMatrix.source === 'suborder_aggregate' && row.scope === 'entity') return
     const before = beforeRows.get(row.key)?.values || {}
     WORD_COUNT_METRICS.forEach(({ key }) => {
       const value = row.values[key] === '' || row.values[key] === undefined ? null : row.values[key]
@@ -273,9 +306,67 @@ function buildChanges() {
   return changes
 }
 
+function rebaseDraft(before, edited, current) {
+  const result = clone(current)
+  for (const change of buildChanges(normalizeResponse(before), normalizeResponse(edited))) {
+    if (change.scope === 'entity') {
+      if (result.source !== 'suborder_aggregate') result[change.dimension][change.metric_type] = change.value
+    } else {
+      const translator = result.translators.find(item => item.arrangement_id === change.arrangement_id)
+      if (translator) translator[change.dimension][change.metric_type] = change.value
+    }
+  }
+  return result
+}
+
+function publishMatrix(matrix) {
+  emit('update:modelValue', {
+    company: clone(matrix.company), customer: clone(matrix.customer), preliminary: clone(matrix.preliminary),
+    translatorEstimate: clone(matrix.translator_estimate)
+  })
+}
+function clearPending() {
+  editing.value = false
+  clearDraft()
+  if (controlledDraft.value) emit('update:pendingDraft', null)
+}
+function validateMatrix(matrix) {
+  if (matrix?.source !== 'suborder_aggregate') for (const dimension of ['company','customer']) {
+    if (WORD_COUNT_METRICS.filter(item=>matrix?.[dimension]?.[item.key]!=null).length>1) {
+      ElMessage.warning(`${dimension==='company'?'我司统计':'客户统计'}只能填写一个统计字段，请先清空其他字段`)
+      return false
+    }
+  }
+  return true
+}
+// 外层保存新项目时，同步提交尚未点击统计弹窗“保存”的本账号输入。
+function prepareSubmit() {
+  if (!controlledDraft.value || !validPending(props.pendingDraft)) return true
+  const matrix = normalizeResponse(props.pendingDraft.matrix)
+  if (!validateMatrix(matrix)) return false
+  publishMatrix(matrix)
+  return true
+}
+watch([draftState, editing], () => {
+  if (!controlledDraft.value || !editing.value || loading.value || !draft.value || !matrixOwner || matrixOwner !== localStorage.getItem('user_id')) return
+  const pending = hasChanges.value ? { version:'word-count-matrix-v2', ownerId:matrixOwner, scope:scopeKey(), matrix:clone(draft.value), baseline:clone(original.value) } : null
+  if (JSON.stringify(pending) !== JSON.stringify(props.pendingDraft)) emit('update:pendingDraft', pending)
+}, {deep:true,flush:'sync'})
+watch(()=>props.pendingDraft, pending=>{
+  if(editing.value && !hasChanges.value && validPending(pending)) draft.value=rebaseDraft(pending.baseline,pending.matrix,original.value)
+}, {deep:true})
+watch(()=>[props.entityType,props.entityId,props.dispatchId],()=>{if(visible.value){suspendDraft();visible.value=false}})
+const closeForAccountChange=()=>{suspendDraft();visible.value=false}
+const accountStorageChanged=event=>{if(event.key==='user_id' && matrixOwner !== (localStorage.getItem('user_id')||''))closeForAccountChange()}
+window.addEventListener('auth-session-clearing',closeForAccountChange)
+window.addEventListener('storage',accountStorageChanged)
+onBeforeUnmount(()=>{loadSequence++;pauseDraft();window.removeEventListener('auth-session-clearing',closeForAccountChange);window.removeEventListener('storage',accountStorageChanged)})
+defineExpose({prepareSubmit})
+
 async function saveMatrix() {
+  if(matrixOwner !== (localStorage.getItem('user_id')||'')){visible.value=false;return}
   if (!draft.value) return
-  if(!aggregated.value)for(const dimension of ['company','customer'])if(WORD_COUNT_METRICS.filter(item=>draft.value[dimension][item.key]!=null).length>1)return ElMessage.warning(`${dimension==='company'?'我司统计':'客户统计'}只能填写一个统计字段，请先清空其他字段`)
+  if (!validateMatrix(draft.value)) return
   if (localMode.value) {
     if (saving.value) return
     saving.value = true
@@ -302,7 +393,8 @@ async function saveMatrix() {
         return edited ? { ...item, planned: clone(edited.planned), actual: clone(edited.actual) } : item
       }))
       emit('saved', saved)
-      ElMessage.success(hybridMode.value ? '项目字数已保存，译员字数已应用到草稿' : '字数统计已应用到新建表单')
+      clearPending()
+      ElMessage.success(hybridMode.value ? '项目字数已保存，译员字数已带回稿件安排' : '字数统计已保存到当前项目表单')
       visible.value = false
     } catch (error) {
       ElMessage.error(error.detail || '保存字数统计失败')
@@ -313,6 +405,7 @@ async function saveMatrix() {
   }
   const changes = buildChanges()
   if (!changes.length) {
+    clearPending()
     visible.value = false
     return
   }
@@ -328,6 +421,7 @@ async function saveMatrix() {
       translatorEstimate: saved.translator_estimate
     })
     emit('saved', saved)
+    clearPending()
     ElMessage.success('字数统计已保存')
     visible.value = false
   } catch (error) {

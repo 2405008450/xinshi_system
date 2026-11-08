@@ -138,7 +138,9 @@ def create(db,user,payload):
     prefix=f'RT-{day:%y%m%d}-'
     numbers=db.query(RecruitmentRequirement.demand_no).filter(RecruitmentRequirement.demand_no.like(prefix+'%')).all()
     number=max([int(value[len(prefix):]) for value, in numbers if value[len(prefix):].isdigit()] or [0])+1
-    row=RecruitmentRequirement(id=uuid4(),client_id=payload.client_id,demand_no=f'{prefix}{number:03d}',**values,created_by=user.id,updated_by=user.id,revision=1,is_deleted=False,created_at=now(),updated_at=now())
+    from business_numbering import allocate
+    demand_no=allocate(db,'hr_requirement',prefix,number)
+    row=RecruitmentRequirement(id=uuid4(),client_id=payload.client_id,demand_no=demand_no,**values,created_by=user.id,updated_by=user.id,revision=1,is_deleted=False,created_at=now(),updated_at=now())
     db.add(row)
     write_city(db,row,payload.recruitment_city)
     write_schedule(db,row,payload.planned_onboarding_date)
@@ -164,6 +166,10 @@ def update(db,user,uid,payload):
 def delete(db,user,uid,revision):
     allowed(db,user);row=get_row(db,uid,True)
     if row.revision!=revision:raise HTTPException(409,'招聘需求已更新，请刷新后再删除')
+    from business_numbering import archive_number
+    archive_number(db,'hr_requirement',row.demand_no,row,actor=user)
+    # 主记录继续软删除保留；原编号在独立历史快照中展示，内部键释放唯一约束。
+    row.demand_no='D'+row.id.hex[:31]
     row.is_deleted=True;row.revision+=1;row.updated_by=user.id;row.updated_at=now();db.commit()
     return {'message':'招聘需求已删除'}
 

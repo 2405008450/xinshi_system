@@ -12,7 +12,7 @@ import translation_customer_finance as finance
 import customer_translation_rates as rates
 import translation_quantity_basis as basis
 import translation_finance_audit as audit
-from translation_rate_matching import matches
+from translation_rate_matching import matches,unit
 
 
 class SyncScope(BaseModel):
@@ -20,6 +20,13 @@ class SyncScope(BaseModel):
     version:str
     billing_month:str=Field(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')
     token:str|None=None
+    prices:list[rates.RateInput]|None=Field(default=None,min_length=1,max_length=100)
+
+
+def sync_count(db,order_id):
+    if not audit.ready(db):return 0
+    snapshots=db.query(audit.TranslationFinanceEventItem.after_snapshot).filter_by(order_id=order_id).all()
+    return sum(1 for (snapshot,) in snapshots if snapshot.get('sync_operation',{}).get('type')=='same_month_prices')
 
 
 def plan(db,project_id,payload,lock=False):
@@ -39,7 +46,12 @@ def plan(db,project_id,payload,lock=False):
     if finance.effective_billing_month(source,source_owner)!=payload.billing_month:raise HTTPException(422,'账单月份与来源订单所属月份不一致，请重新加载')
     source_month_ids={str(row.id) for row in source_owner.customer_charge_items}
     source_prices=[row for row in rates.order_rates(db,source_owner,source_owner.language_pair or source.language_pair) if row['id'] in source_month_ids]
-    if not source_prices or any(row['amount'] is None for row in source_prices):raise HTTPException(422,'请先保存来源订单的单价及账单月份，再进行同步')
+    if payload.prices is not None:
+        source_prices=[rates.normalize(db,row) for row in payload.prices]
+    if not source_prices or any(row['amount'] is None for row in source_prices):raise HTTPException(422,'请填写来源订单的单价后再同步')
+    if any(not unit(row['metric'],source_owner.word_count_matrix) for row in source_prices):raise HTTPException(422,'请先明确单价的计量单位后再同步')
+    keys=[rates.rate_key(row) for row in source_prices]
+    if len(keys)!=len(set(keys)):raise HTTPException(422,'同语种、币种、计量单位及计价数量的来源单价不能重复')
     directions={row['language_pair'] for row in source_prices}
     targets=[];skipped=[];versions={str(source.id):finance.version(source)}
     owners={}
@@ -82,13 +94,16 @@ def plan(db,project_id,payload,lock=False):
             versions[str(root.id)]=finance.version(root)
     targets.sort(key=lambda row:(row['project_id'],row['order_no']))
     token=hashlib.sha256(json.dumps({'versions':versions,'month':payload.billing_month,'source':source_prices,'targets':targets},sort_keys=True,default=str).encode()).hexdigest()
-    return {'client_id':str(source.client_id),'client_name':source.client_short_name or source.client_name,'billing_month':payload.billing_month,'directions':sorted(directions),'targets':targets,'skipped':skipped,'token':token},owners
+    return {'client_id':str(source.client_id),'client_name':source.client_short_name or source.client_name,'billing_month':payload.billing_month,'directions':sorted(directions),'targets':targets,'skipped':skipped,'token':token,'sync_count':sync_count(db,payload.order_id)},owners
 
 
 def apply(db,user,project_id,payload):
     audit.require_ready(db)
     preview,owners=plan(db,project_id,payload,True)
     if not payload.token or preview['token']!=payload.token:raise HTTPException(409,'匹配订单或单价已变化，请重新预览后确认')
+    if not preview['targets']:raise HTTPException(422,'没有匹配订单可同步')
+    source=finance.crud.get_translation_project(db,project_id)
+    source_snapshot=audit.capture(source)[str(payload.order_id)]
     captured={};roots={};moment=business_now().replace(tzinfo=None)
     for target in preview['targets']:
         root,owner=owners[target['order_id']]
@@ -114,11 +129,26 @@ def apply(db,user,project_id,payload):
     for root_id,root in roots.items():
         finance.confirmations.recheck_after_fee_change(db,root_id,user.id)
         audit.append(db,user,root,captured[root_id])
+    count=preview['sync_count']+1
+    event=audit.TranslationFinanceEvent(id=uuid4(),project_id=project_id,actor_id=user.id,actor_name=user.full_name or user.username,created_at=business_now())
+    db.add(event);db.flush()
+    after=audit.capture(source)[str(payload.order_id)]
+    after['sync_operation']={'type':'same_month_prices','count':count,'billing_month':payload.billing_month,'targets':[row['order_no'] for row in preview['targets']],
+        'prices':json.loads(json.dumps([row.model_dump() for row in payload.prices],default=str)) if payload.prices is not None else source_snapshot.get('prices',[])}
+    db.add(audit.TranslationFinanceEventItem(event_id=event.id,order_id=payload.order_id,order_no=source_snapshot['order_no'],project_name=source_snapshot['project_name'] or '-',before_snapshot=source_snapshot,after_snapshot=after))
     db.commit()
-    return {'updated_orders':len(preview['targets'])}
+    return {'updated_orders':len(preview['targets']),'sync_count':count}
 
 
 router=APIRouter(prefix='/translation-customer-finance',tags=['translation-customer-finance'])
+
+
+@router.get('/project/{project_id}/sync-orders/status',dependencies=[Depends(require_permission('projects:read'))])
+def status(project_id:UUID,order_id:UUID,db=Depends(get_db)):
+    source=finance.crud.get_translation_project(db,project_id)
+    if not source:raise HTTPException(404,'项目不存在')
+    if not any(owner.id==order_id for owner in finance.hierarchy(source)[0]):raise HTTPException(422,'订单不属于当前项目')
+    return {'sync_count':sync_count(db,order_id)}
 
 
 @router.post('/project/{project_id}/sync-orders/preview',dependencies=[Depends(require_permission('projects:write'))])

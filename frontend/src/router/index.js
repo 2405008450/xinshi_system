@@ -336,6 +336,12 @@ const routes = [
       },
       // 财务管理
       {
+        path: 'data-analysis',
+        name: 'DataAnalysis',
+        component: () => import('../views/client/DataAnalysis.vue'),
+        meta: { title: '数据分析', permissions: ['consultations:read'] }
+      },
+      {
         path: 'finance',
         redirect: '/clients'
       },

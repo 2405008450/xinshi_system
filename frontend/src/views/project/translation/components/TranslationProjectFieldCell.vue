@@ -18,7 +18,7 @@
             </BusinessDetailPopover>
             <PathActionButtons v-if="context.canReadProjectFiles" @open="context.openOriginalPath(row)" @copy="context.copyOriginalPath(row)" />
           </div>
-          <ProjectClientManagerHistory v-else-if="column.key === 'clientManager'" project-type="translation" :project-id="row.id" :label="row.clientManager || '未分配'" />
+          <TranslationClientManagerCell v-else-if="column.key === 'clientManager'" :row="row" :editable="context.canWriteProjects && !context.deleteMode" @saved="updated => { Object.assign(row, updated); context.fetchData() }" />
           <span v-else-if="column.key === 'sourceFileName'" class="project-name-ellipsis" :title="row.sourceFileName || '-'">{{ row.sourceFileName || '-' }}</span>
           <el-dropdown
             v-else-if="column.key === 'projectStatus' && context.canWriteProjects"
@@ -112,7 +112,7 @@
 </template>
 <script setup>
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
-import ProjectClientManagerHistory from '@/components/common/ProjectClientManagerHistory.vue'
+import TranslationClientManagerCell from './TranslationClientManagerCell.vue'
 import {CaretBottom,Check} from '@element-plus/icons-vue'
 import PathActionButtons from '@/components/common/PathActionButtons.vue'
 import DeadlineHintCell from '@/components/common/DeadlineHintCell.vue'

@@ -5,6 +5,7 @@ from urllib.parse import quote_plus
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from fastapi import Request
 
 from performance_monitoring import install_sqlalchemy_performance_hooks, ObservedQueuePool
 
@@ -53,8 +54,9 @@ install_sqlalchemy_performance_hooks(engine)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-def get_db():
+def get_db(request: Request = None):
     db = SessionLocal()
+    db.info['number_tokens'] = request.headers.get('X-Business-Number-Leases', '[]') if request else '[]'
     try:
         yield db
     finally:

@@ -2,7 +2,8 @@
   <DraggableFormDialog v-model="visible" class="annotation-child-create-dialog project-suborder-dialog" width="min(960px, calc(100vw - 32px))" top="5vh" append-to-body :close-on-click-modal="false" :close-on-press-escape="!saving" :before-close="(done) => !saving && done()">
     <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="dialogTitle" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
     <div ref="bodyRef">
-      <AppForm ref="formRef" :model="form" label-position="top" :disabled="saving">
+      <AppForm number-scope="annotation_suborder" number-field="orderNo" :number-active="visible && !!form.parentId" :number-parent="form.parentId || undefined" ref="formRef" :model="form" label-position="top" :disabled="saving">
+        <el-form-item label="本窗口预留的首个订单号"><ReadonlyField :model-value="form.orderNo" source="auto" placeholder="选择上级订单后占号" /></el-form-item>
         <el-form-item :label="isGrandchild ? '子订单' : '订单'" prop="parentId" :rules="[{ required: true, message: isGrandchild ? '请选择子订单' : '请选择订单', trigger: 'change' }]">
           <ReadonlyField v-if="parent" :model-value="`${parent.orderNo} · ${parent.projectName || ''}`" source="auto" />
           <el-select v-else v-model="form.parentId" remote filterable :remote-method="searchParents" :loading="parentLoading" style="width:100%" @change="selectParent"><el-option v-for="item in parents" :key="item.id" :value="item.id" :label="`${item.orderNo} · ${item.projectName || ''}`" /></el-select>
@@ -125,7 +126,7 @@ const save = async () => {
   if (nextSignature !== signature) { key = createIdempotencyKey(); signature = nextSignature }
   saving.value = true; error.value = ''
   try {
-    const created = await createAnnotationChildren(form.parentId, items, key, props.single)
+    const created = await createAnnotationChildren(form.parentId, items, key, props.single, formRef.value.numberLeaseHeaders())
     customEditors.value.forEach(editor => editor.markSaved()); ElMessage.success(`已创建 ${items.length} 个${isGrandchild.value?'三级':'子'}订单`); visible.value = false; emit('created', created)
   } catch (failure) { error.value = failure.detail || '创建失败，请重试'; await formRef.value?.applyServerErrors(failure) }
   finally { saving.value = false }

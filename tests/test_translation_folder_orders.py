@@ -1,0 +1,178 @@
+"""目录层级导入、统计汇总、Excel：只用隔离 SQLite 与临时目录。"""
+from io import BytesIO
+from uuid import uuid4
+import pytest
+from sqlalchemy import create_engine,inspect,text
+from openpyxl import load_workbook
+from tests.test_chat_participant_access import environment
+from tests.test_translation_direction_children import case
+from translation_folder_orders import FolderImport,FolderEntry,import_folders,normalized_entries
+
+
+def folder_payload(root):
+    return FolderImport(parent_project_id=root.id,source_kind='local',root_path=r'D:\客户项目',entries=[
+        FolderEntry(relative_path='客户项目',files=['根文件.pdf']),
+        FolderEntry(relative_path='客户项目/一级资料',files=['一级文件.docx']),
+        FolderEntry(relative_path='客户项目/一级资料/二级资料',files=[]),
+        FolderEntry(relative_path='客户项目/一级资料/二级资料/三级资料',files=['末级文件.xlsx']),
+    ])
+
+def root_project(case):
+    from models import TranslationProject
+    db,user,crud=case
+    root=TranslationProject(id=uuid4(),order_no='TP-261107-971',project_name='原名.docx',source_file_name='原名.docx',created_by=user.id)
+    db.add(root);db.commit();return root
+
+
+def test_folder_migration_only_creates_one_new_table_and_is_repeatable():
+    from tools.apply_translation_order_folder_migration import apply_migration
+    engine=create_engine('sqlite://')
+    with engine.begin() as connection:
+        connection.execute(text('CREATE TABLE translation_sub_order (id CHAR(32) PRIMARY KEY)'))
+        apply_migration(connection);apply_migration(connection)
+        assert set(inspect(connection).get_table_names())=={'translation_sub_order','translation_order_folder','translation_folder_import_log'}
+
+
+def test_root_is_mother_dirs_are_first_through_third_files_reach_fourth_and_export(case):
+    from models import TranslationSubOrder
+    from word_count_service import patch_word_count_matrix
+    from word_count_schemas import WordCountMatrixPatch
+    from translation_suborder_export import build_workbook
+    db,user,crud=case;root=root_project(case)
+    result=import_folders(db,folder_payload(root),user.id)
+    assert result['created_count']==6
+    root=crud.get_translation_project(db,root.id)
+    assert root.project_name=='客户项目' and root.network_file_path==r'D:\客户项目'
+    by_name={row.sub_project_name:row for row in root.sub_orders}
+    assert by_name['一级资料'].sub_order_no.count('.')==1
+    assert by_name['二级资料'].sub_order_no.count('.')==2
+    assert by_name['三级资料'].sub_order_no.count('.')==3
+    leaf=by_name['末级文件.xlsx']
+    assert leaf.sub_order_no.count('.')==4
+    assert leaf.network_file_path==r'D:\客户项目\一级资料\二级资料\三级资料\末级文件.xlsx'
+    assert by_name['三级资料'].folder_info['relative_path']=='客户项目/一级资料/二级资料/三级资料'
+    assert by_name['一级资料'].folder_info['files']==['一级文件.docx']
+    payload=WordCountMatrixPatch(changes=[dict(scope='entity',dimension='company',metric_type='words',value=123),dict(scope='entity',dimension='customer',metric_type='words',value=100)])
+    patch_word_count_matrix(db,'suborder',leaf.id,payload,updated_by=user.id)
+    root=crud.get_translation_project(db,root.id)
+    assert root.word_count_matrix['company']['words']==123
+    assert root.word_count_matrix['customer']['words']==100
+    for name in ['一级资料','二级资料','三级资料']:assert by_name[name].word_count_matrix['company']['words']==123
+    repeated=import_folders(db,folder_payload(root),user.id)
+    assert repeated['created_count']==0 and db.query(TranslationSubOrder).count()==6
+    book=load_workbook(BytesIO(build_workbook(crud.get_translation_project(db,root.id))));sheet=book.active
+    file_row=next(row[0].row for row in sheet.iter_rows(min_row=4) if row[3].value=='末级文件.xlsx')
+    assert sheet.cell(file_row,6).value==leaf.network_file_path
+    assert sheet.cell(file_row,4).alignment.indent==4 and sheet.row_dimensions[file_row].outlineLevel==4
+    assert sheet.freeze_panes=='E4' and sheet.cell(4,4).value=='客户项目'
+    with pytest.raises(ValueError,match='先删除下级'):
+        crud.delete_sub_order(db,by_name['一级资料'].id)
+    db.rollback()
+
+
+def test_invalid_depth_and_missing_parent_are_rejected(case):
+    from schemas import TranslationSubOrderCreate
+    db,user,crud=case;root=root_project(case)
+    with pytest.raises(ValueError,match='四级'):
+        normalized_entries([FolderEntry(relative_path='根/a/b/c/d',files=['文件.docx'])])
+    with pytest.raises(ValueError,match='缺少上级'):
+        normalized_entries([FolderEntry(relative_path='根',files=[]),FolderEntry(relative_path='根/a/b',files=['文件.docx'])])
+    with pytest.raises(ValueError,match='先创建上级'):
+        crud.create_sub_order(db,TranslationSubOrderCreate(parent_project_id=root.id,sub_order_no=root.order_no+'.001.001',sub_project_name='文件.docx'))
+    db.rollback()
+
+
+def test_import_failure_rolls_back_root_name_and_all_children(case,monkeypatch):
+    from models import TranslationSubOrder
+    db,user,crud=case;root=root_project(case);original=crud._create_sub_order_in_transaction;calls=[]
+    def fail(db,payload,**kw):
+        calls.append(payload)
+        if len(calls)==3:raise ValueError('模拟目录写入失败')
+        return original(db,payload,**kw)
+    monkeypatch.setattr(crud,'_create_sub_order_in_transaction',fail)
+    with pytest.raises(ValueError,match='模拟'):
+        import_folders(db,folder_payload(root),user.id)
+    db.rollback()
+    assert root.project_name=='原名.docx' and db.query(TranslationSubOrder).count()==0
+
+
+def test_empty_folders_are_logged_and_skipped_but_nonempty_ancestors_kept(case):
+    from translation_folder_orders import TranslationFolderImportLog,import_records
+    from translation_suborder_export import build_workbook
+    db,user,crud=case;root=root_project(case)
+    payload=folder_payload(root)
+    payload.entries += [FolderEntry(relative_path='客户项目/空目录',files=[]),FolderEntry(relative_path='客户项目/空目录/空下级',files=[])]
+    result=import_folders(db,payload,user.id)
+    assert result['created_count']==6 and result['skipped_count']==2
+    records=import_records(db,root.id)
+    assert len(records)==1 and records[0]['actor_name']==user.full_name
+    assert set(records[0]['empty_folders'])=={'客户项目/空目录','客户项目/空目录/空下级'}
+    assert records[0]['created_at'].endswith('+08:00')
+    root=crud.get_translation_project(db,root.id)
+    assert '二级资料' in {row.sub_project_name for row in root.sub_orders}
+    assert not any(row.sub_project_name in ('空目录','空下级') for row in root.sub_orders)
+    book=load_workbook(BytesIO(build_workbook(root,records)))
+    sheet=book['目录导入与空文件夹记录']
+    assert sheet.max_row==3 and sheet.cell(2,6).value=='空文件夹，不生成子订单'
+    assert db.query(TranslationFolderImportLog).count()==1
+
+
+def test_all_empty_root_only_records_and_never_renames_existing_mother(case):
+    from models import TranslationSubOrder
+    from translation_folder_orders import import_records
+    db,user,crud=case;root=root_project(case)
+    payload=FolderImport(parent_project_id=root.id,source_kind='local',root_path=r'D:\空目录',entries=[FolderEntry(relative_path='空目录',files=[])])
+    result=import_folders(db,payload,user.id)
+    assert result['created_count']==0 and result['skipped_count']==1
+    assert db.query(TranslationSubOrder).count()==0 and root.project_name=='原名.docx'
+    assert import_records(db,root.id)[0]['empty_folders']==['空目录']
+
+
+def test_folder_first_creates_pending_mother_and_children_with_idempotent_retry(case):
+    from models import TranslationProject,TranslationSubOrder
+    from schemas import TranslationProjectUpdate
+    db,user,crud=case
+    payload=FolderImport(order_no='TP-261107-978',source_kind='local',root_path=r'D:\客户项目',entries=[FolderEntry(relative_path='客户项目',files=['文档.docx']),FolderEntry(relative_path='客户项目/一级目录',files=['附件.pdf'])])
+    result=import_folders(db,payload,user.id,'folder-first-unique-request')
+    assert result['created_root'] and result['created_count']==3
+    root=crud.get_translation_project(db,result['project_id'])
+    assert root.order_no=='TP-261107-978' and root.project_name=='客户项目'
+    assert root.project_status=='pending_confirmation' and root.client_id is None and root.created_by==user.id
+    assert root.folder_root is True
+    repeated=import_folders(db,payload,user.id,'folder-first-unique-request')
+    assert repeated['project_id']==root.id and repeated['created_count']==0
+    assert db.query(TranslationProject).count()==1 and db.query(TranslationSubOrder).count()==3
+    changed=crud.update_translation_project(db,root.id,TranslationProjectUpdate(remarks='稍后补填'),actor_user_id=user.id)
+    assert changed.remarks=='稍后补填'
+    with pytest.raises(ValueError,match='不属于当前账号'):
+        import_folders(db,payload,uuid4(),'folder-first-unique-request')
+    db.rollback()
+
+
+def test_folder_first_failure_rolls_back_mother_and_children_together(case,monkeypatch):
+    from models import TranslationProject,TranslationSubOrder
+    db,user,crud=case
+    payload=FolderImport(order_no='TP-261107-979',source_kind='local',root_path=r'D:\客户项目',entries=[FolderEntry(relative_path='客户项目',files=['文档.docx','附件.pdf'])])
+    original=crud._create_sub_order_in_transaction;calls=[]
+    def fail(db,payload,**kw):
+        calls.append(payload)
+        if len(calls)==2:raise ValueError('模拟失败')
+        return original(db,payload,**kw)
+    monkeypatch.setattr(crud,'_create_sub_order_in_transaction',fail)
+    with pytest.raises(ValueError,match='模拟失败'):
+        import_folders(db,payload,user.id,'folder-first-failure')
+    db.rollback()
+    assert db.query(TranslationProject).count()==0 and db.query(TranslationSubOrder).count()==0
+
+
+def test_empty_folder_first_records_without_children_and_allows_later_basic_edit(case):
+    from models import TranslationSubOrder
+    from schemas import TranslationProjectUpdate
+    db,user,crud=case
+    payload=FolderImport(order_no='TP-261107-980',source_kind='local',root_path=r'D:\空目录',entries=[FolderEntry(relative_path='空目录',files=[])])
+    result=import_folders(db,payload,user.id,'empty-folder-first')
+    assert result['created_root'] and result['created_count']==0 and db.query(TranslationSubOrder).count()==0
+    root=crud.get_translation_project(db,result['project_id'])
+    assert root.folder_root is True and root.network_file_path==r'D:\空目录'
+    root=crud.update_translation_project(db,root.id,TranslationProjectUpdate(project_name='空目录',source_file_name='空目录'),actor_user_id=user.id)
+    assert root.project_name=='空目录'

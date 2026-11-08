@@ -41,6 +41,8 @@ def capture(project):
     def visit(row):
         fields=('order_no','project_name','prices','recorded_prices','price_aggregate','recorded_adjusted_total','recorded_adjusted_total_incl_tax','adjusted_total','explanation','customer_explanation','billing_month','recorded_billing_month','totals','adjusted_totals','calculated_totals_excl_tax','calculated_totals_incl_tax')
         result[row['id']]={field:row.get(field) for field in fields}
+        if row['id']==str(project.id):
+            result[row['id']].update({field:row.get(field) for field in ('quotation_required','statement_required','quotation_draft')})
         if result[row['id']]['adjusted_total'] is not None:
             from decimal import Decimal
             result[row['id']]['adjusted_total']=format(Decimal(result[row['id']]['adjusted_total']),'.2f')

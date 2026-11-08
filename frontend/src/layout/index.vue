@@ -28,6 +28,7 @@
         <!-- 业务链路：从新咨询到项目执行 -->
         <li v-if="showBusinessGroup && !isCollapse" class="menu-group-label" role="presentation"><span>业务管理</span></li>
         <SidebarNavigationItem v-if="showConsultations" index="/consultations" :icon="Phone" label="新咨询管理" />
+        <SidebarNavigationItem v-if="showConsultations" index="/data-analysis" :icon="DataBoard" label="数据分析" />
 
         <SidebarNavigationItem v-if="canViewProjects" index="/translation-details" :icon="EditPen" label="笔译项目" />
         <SidebarNavigationItem v-if="canViewProjects" index="/interpretation-details" :icon="SpeakingProfileIcon" label="口译项目" />

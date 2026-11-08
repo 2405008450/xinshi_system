@@ -87,3 +87,41 @@ def test_different_unit_and_unit_size_are_not_matched(environment):
     finance.read(db,target.id)
     assert finance.primary(child).unit_price_excl_tax==Decimal('.7')
     assert finance.primary(third).unit_size==1000
+
+
+def test_draft_prices_sync_without_saving_source_and_preview_tracks_draft(environment):
+    db,(owner,_,_)=environment;source,target,child,_,_=setup(db,owner)
+    draft=item(amount='.345',metric='customer_auto:foreign_words')
+    scope=sync.SyncScope(order_id=source.id,version=finance.read(db,source.id)['version'],billing_month='2026-11',prices=[draft])
+    preview,_=sync.plan(db,source.id,scope)
+    assert finance.primary(source).unit_price_excl_tax==Decimal('.2')
+    assert sync.sync_count(db,source.id)==0
+    scope.token=preview['token']
+    scope.prices[0].amount=Decimal('.346')
+    with pytest.raises(HTTPException) as stale:sync.execute(source.id,scope,db,owner)
+    assert stale.value.status_code==409
+    scope.prices[0].amount=Decimal('.345')
+    scope.token=sync.plan(db,source.id,scope)[0]['token']
+    sync.apply(db,owner,source.id,scope)
+    finance.read(db,target.id)
+    assert finance.primary(child).unit_price_excl_tax==Decimal('.345')
+    assert finance.primary(source).unit_price_excl_tax==Decimal('.2')
+    assert sync.sync_count(db,source.id)==1
+    scope.version=finance.read(db,source.id)['version']
+    scope.token=sync.plan(db,source.id,scope)[0]['token']
+    assert sync.apply(db,owner,source.id,scope)['sync_count']==2
+    assert sync.status(source.id,source.id,db)['sync_count']==2
+
+
+def test_draft_prices_work_when_source_has_no_saved_prices(environment):
+    db,(owner,_,_)=environment;source,target,child,_,_=setup(db,owner)
+    for charge in list(source.customer_charge_items):db.delete(charge)
+    db.commit();db.expire_all()
+    source=finance.crud.get_translation_project(db,source.id)
+    scope=sync.SyncScope(order_id=source.id,version=finance.read(db,source.id)['version'],billing_month='2026-11',prices=[item(amount='.4',metric='customer_auto:foreign_words')])
+    # Without saved charges, the real order number still supplies the month.
+    source.order_no='TP-261101-100';db.commit()
+    scope.version=finance.read(db,source.id)['version']
+    preview,_=sync.plan(db,source.id,scope)
+    assert str(child.id) in {row['order_id'] for row in preview['targets']}
+    assert not source.customer_charge_items

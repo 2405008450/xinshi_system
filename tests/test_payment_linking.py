@@ -33,6 +33,33 @@ def test_actual_details_sync_confirmation_to_finance(context):
     assert confirmations.history(db,row.id)['total']==1
 
 
+def test_clearing_selection_removes_details_and_records_previous_values(context):
+    db,actor,row=context
+    saved=save(context,[{'stage_type':'deposit','actual_amount':30,'payment_method':'广州公司公账'},{'stage_type':'final','actual_amount':70}],{'is_paid':True,'payment_option':'deposit','proofs':'原付款凭证备注'})
+    cleared=save(context,saved['payments'],{**saved['confirmation'],'is_paid':False,'payment_option':None,'clear_details':True})
+    assert cleared['payments']==[] and db.query(FinancePayment).count()==0
+    assert not cleared['confirmation']['is_paid'] and cleared['confirmation']['proofs']==''
+    log=confirmations.history(db,row.id)['items'][0]
+    assert log['actor_name']==actor.full_name or log['actor_name']==actor.username
+    assert log['after']['action']=='清除付款选择'
+    assert len(log['before']['payment_details'])==2
+    assert log['before']['payment_details'][0]['payment_method']=='广州公司公账'
+    assert log['before']['proofs']=='原付款凭证备注'
+    assert log['after']['payment_details']==[] and log['created_at'].endswith('+08:00')
+    count=confirmations.history(db,row.id)['total']
+    save(context,[],{**cleared['confirmation'],'clear_details':True})
+    assert confirmations.history(db,row.id)['total']==count
+
+
+def test_clearing_from_fee_window_also_clears_shared_details(context):
+    db,actor,row=context
+    saved=save(context,[{'stage_type':'deposit','planned_amount':200}],{'is_paid':True,'payment_option':'deposit'})
+    confirmations.save(db,row.id,confirmations.PaymentConfirmationWrite(**{**saved['confirmation'],'is_paid':False,'payment_option':None,'clear_details':True}),actor.id)
+    db.commit()
+    assert payments.read(db,row)['payments']==[]
+    assert confirmations.history(db,row.id)['items'][0]['before']['payment_details'][0]['planned_amount']=='200.00'
+
+
 def test_full_preserves_existing_details_and_stores_matched_total(context):
     db,actor,row=context
     before=save(context,[{'stage_type':'deposit','actual_amount':40}])

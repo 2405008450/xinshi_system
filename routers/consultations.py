@@ -238,6 +238,9 @@ CONSULTATION_TASK_TYPE_LABELS = {
     "notarization": "公证项目",
     "认证项目": "认证项目",
     "certification": "认证项目",
+    "同传设备租赁": "同传设备租赁",
+    "翻译耳机": "翻译耳机",
+    "翻译软件/平台": "翻译软件/平台",
     "其他项目": "其他项目",
     "equipment_rental": "其他项目",
     "other": "其他项目",
@@ -553,6 +556,7 @@ def _confirmation_preview_values(
     return {
         "project_type": project_type,
         "order_no": order_no,
+        "existing_project_id": str(existing_project.id) if existing_project else None,
         "client_short_name": _clean_text(client_short_name) or None,
         "manager_contact": _clean_text(manager_contact) or None,
         "project_name": project_name,

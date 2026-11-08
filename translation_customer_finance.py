@@ -28,9 +28,15 @@ from customer_statement_progress import Progress,ProgressWrite
 METRICS = {'characters_no_spaces','words','foreign_words','cjk_chars_korean_words','documents','pages'}
 
 
+from translation_document_requirements import QuotationDraft
+
 class PriceWrite(BaseModel):
     model_config = ConfigDict(extra='forbid')
     payment_confirmation: PaymentConfirmationWrite | None = None
+    quotation_required: bool | None = None
+    statement_required: bool | None = None
+    quotation_draft: QuotationDraft | None = None
+    documents_only: bool = False
     version: str
     order_id: UUID
     pricing_mode: Literal['metric','fixed'] = 'metric'
@@ -73,6 +79,7 @@ def hierarchy(project):
 def version(project):
     owners, numbers, parents = hierarchy(project)
     fields = []
+    fields.append([bool(getattr(project,'quotation_required',False)),bool(getattr(project,'statement_required',True)),getattr(project,'quotation_draft',None)])
     for owner in owners:
         fields.append([str(owner.id), numbers[str(owner.id)], parents.get(str(owner.id)), str(owner.updated_at),
                        owner.word_count_matrix,
@@ -118,6 +125,7 @@ def tree(project, billing_month=None):
             adjusted_total=str(row.total_excl_tax) if row and row.total_excl_tax is not None else None,
             adjusted_total_incl_tax=str(row.total_incl_tax) if row and row.total_incl_tax is not None else None,
             billing_month=effective_billing_month(project,owner),recorded_billing_month=row.billing_month if row else None,statement_required=bool(getattr(project,'statement_required',True)),
+            quotation_required=bool(getattr(project,'quotation_required',False)),quotation_draft=getattr(project,'quotation_draft',None),statement_required_explicit=bool(getattr(project,'statement_required_explicit',False)),
             explanation=row.remarks or '' if row else '',word_count_matrix=owner.word_count_matrix)
         nodes[key]['word_count_matrix_source']=getattr(owner,'word_count_matrix_source','project' if owner is project else 'suborder')
         nodes[key].update(finance_notes.values(db,project,owner,row))
@@ -368,6 +376,17 @@ def save(db, user, project_id, payload, *, allow_incomplete=False):
     month=order_billing_month(project.order_no)
     if month:payload=payload.model_copy(update={'billing_month':month})
     before=audit.capture(project)
+    from translation_document_requirements import save as save_documents
+    if payload.quotation_required is not None:project.quotation_required=payload.quotation_required
+    save_documents(db,project,statement_required=payload.statement_required,quotation_draft=payload.quotation_draft,actor_id=user.id)
+    if payload.statement_required is not None:
+        project.statement_required=payload.statement_required
+        project.statement_required_explicit=True
+    if payload.quotation_draft is not None:project.quotation_draft=payload.quotation_draft.model_dump(mode='json')
+    if payload.documents_only:
+        project.updated_at=business_now().replace(tzinfo=None)
+        audit.append(db,user,project,before);db.commit()
+        return read(db,project_id)
     finance_notes.apply(db,user,project,by_id[key],internal=payload.explanation if 'explanation' in payload.model_fields_set else None,customer=payload.customer_explanation)
     if payload.pricing_mode=='fixed':
         if payload.update_library:raise HTTPException(422,'固定收费不能同步为客户参考单价')
@@ -509,8 +528,16 @@ def subtotal_nodes(nodes):
 
 
 @router.get('/page',dependencies=[Depends(require_module_access('projects:read','projects:write'))])
-def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None=None,project_status:str|None=None,billing_month:str|None=Query(None,pattern=r'^\d{4}-(0[1-9]|1[0-2])$'),client:str|None=None,client_manager:str|None=None,client_id:UUID|None=None,db:Session=Depends(get_db),only_mine:bool=False,user=Depends(get_current_user),manager_ids:list[UUID]|None=Query(None,max_length=2000),statement_required:bool|None=None,sort:Literal['client_short_name_asc','client_short_name_desc']|None=None,missing_word_count:bool=False,missing_unit_price:bool=False,missing_total:Literal['excl','incl','both','either','fixed']|None=None,project_statuses:list[str]|None=Query(None,max_length=100),client_order_count:Literal['single','multiple']|None=None,group_clients:bool=True,selected_client_ids:list[UUID]|None=Query(None,alias='client_ids',max_length=100)):
+def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None=None,project_status:str|None=None,billing_month:str|None=Query(None,pattern=r'^\d{4}-(0[1-9]|1[0-2])$'),client:str|None=None,client_manager:str|None=None,client_id:UUID|None=None,db:Session=Depends(get_db),only_mine:bool=False,user=Depends(get_current_user),manager_ids:list[UUID]|None=Query(None,max_length=2000),statement_required:bool|None=None,sort:Literal['client_short_name_asc','client_short_name_desc']|None=None,missing_word_count:bool=False,missing_unit_price:bool=False,missing_total:Literal['excl','incl','both','either','fixed']|None=None,project_statuses:list[str]|None=Query(None,max_length=100),client_order_count:Literal['single','multiple']|None=None,group_clients:bool=True,selected_client_ids:list[UUID]|None=Query(None,alias='client_ids',max_length=100),payment_status:Literal['unpaid','deposit','mid','full','paid']|None=None,include_payment_status:bool=False,exclude_full:bool=False,payment_project_id:UUID|None=None):
+    def finish(result):
+        if include_payment_status:
+            from translation_payment_filters import attach_payment_status
+            return attach_payment_status(db,result)
+        return result
     fields={}
+    if exclude_full:fields['finance_payment_exclude_full']={'value':True}
+    if payment_project_id:fields['finance_payment_project_id']={'value':str(payment_project_id)}
+    if payment_status:fields['finance_payment_status']={'value':payment_status}
     if client_id: fields['finance_client_id']={'value':str(client_id)}
     if isinstance(selected_client_ids,list):fields['finance_client_ids']={'value':[str(uid) for uid in selected_client_ids]}
     if billing_month: fields['finance_billing_month']={'value':billing_month}
@@ -545,10 +572,11 @@ def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None
             if client_order_count=='multiple' and group_clients:
                 ordered=sorted(groups.items(),key=lambda pair:((pair[1][0].get('client_short_name') or '').casefold(),pair[0]))
                 selected=ordered[skip:skip+limit]
-                return {'items':[node for _,values in selected for node in values],'total':len(ordered),'order_total':len(filtered),'pagination_unit':'clients','client_subtotals':subtotal_nodes(filtered),'client_groups':[{'key':key,'name':values[0].get('client_short_name') or '未关联客户','count':len(values)} for key,values in selected]}
+                return finish({'items':[node for _,values in selected for node in values],'total':len(ordered),'order_total':len(filtered),'pagination_unit':'clients','client_subtotals':subtotal_nodes(filtered),'client_groups':[{'key':key,'name':values[0].get('client_short_name') or '未关联客户','count':len(values)} for key,values in selected]})
             matched=filtered
-        return {'items':matched[skip:skip+limit],'total':len(matched),'client_subtotals':subtotal_nodes(matched)}
-    return {'items':[tree(project,billing_month)['item'] for project in projects],'total':crud.count_translation_projects(db,**filters),'client_subtotals':client_subtotals(db,filters)}
+        return finish({'items':matched[skip:skip+limit],'total':len(matched),'client_subtotals':subtotal_nodes(matched)})
+    return finish({'items':[tree(project,billing_month)['item'] for project in projects],'total':crud.count_translation_projects(db,**filters),'client_subtotals':client_subtotals(db,filters)})
+
 
 
 @router.get('/manager-options',dependencies=[Depends(require_module_access('projects:read','projects:write'))])

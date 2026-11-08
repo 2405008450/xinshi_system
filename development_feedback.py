@@ -112,7 +112,9 @@ def new_feedback(db, user, task_id, request_id):
     # 所有分配持有同一事务锁；整数后缀避免超过999后按文字排序出错。
     numbers = db.query(Feedback.feedback_no).filter(Feedback.feedback_no.like(prefix + '%')).all()
     sequence = max((int(number.rsplit('-', 1)[1]) for number, in numbers), default=0) + 1
-    row = Feedback(id=uuid4(), request_id=request_id, task_id=task_id, feedback_no=f'{prefix}{sequence:03d}', submitted_on=instant.date(), submitted_by=user.id, submitted_name=user.full_name or user.username, submitted_username=user.username, created_at=instant, updated_at=instant)
+    from business_numbering import allocate
+    number=allocate(db,'feedback',prefix,sequence)
+    row = Feedback(id=uuid4(), request_id=request_id, task_id=task_id, feedback_no=number, submitted_on=instant.date(), submitted_by=user.id, submitted_name=user.full_name or user.username, submitted_username=user.username, created_at=instant, updated_at=instant)
     db.add(row); db.flush()
     return row
 
