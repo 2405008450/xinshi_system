@@ -1,0 +1,19 @@
+# 云端显式启用个人思考 AI 时叠加；私钥必须预先放在宿主机仓库外。
+# 不改变数据库，不向公网开放模型或 SSH 转发端口。
+services:
+  backend:
+    environment:
+      THOUGHTS_AI_ENABLED: "true"
+      THOUGHTS_AI_SSH_KEY: /run/secrets/thoughts_ai_key
+      THOUGHTS_AI_QUEUE_PATH: /app/data/thoughts_ai/jobs.sqlite3
+    volumes:
+      - type: bind
+        source: /etc/xinshi/thoughts-ai/id_ed25519
+        target: /run/secrets/thoughts_ai_key
+        read_only: true
+        bind:
+          create_host_path: false
+      - thoughts_ai_jobs:/app/data/thoughts_ai
+
+volumes:
+  thoughts_ai_jobs:

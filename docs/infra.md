@@ -43,6 +43,27 @@
 - 旧服务器的员工入口、DNS、证书、计划任务和业务数据库不会因默认执行机调整而自动迁移；仅在明确维护旧服务器时使用下方保留的远程步骤。
 - 云端 `43.132.156.72` 是生产环境。除非用户明确要求发布或运维，否则只能进行必要的只读核查，不得部署、迁移、重启或修改数据。
 
+## 个人思考 AI 算力接入
+
+- 本机工作台“我的思考与发散”通过受限 SSH 连接 `106.75.1.149:23`，复用算力机回环地址上的 `Qwen/Qwen3-8B`。模型端口不向公网开放；生产应用服务器不在本次部署范围。
+- 算力机入口为 `/root/xinshi_thoughts/gateway.py`，源码为 `deploy/thoughts_compute_gateway.py`。PC 用户目录现有 SSH 密钥的公钥在算力机 `authorized_keys` 中设置 `restrict` 与固定 `command`，只能调用该入口；主机公钥固定在 `deploy/compute_known_hosts`。私钥和密码不进入仓库。
+- 本机 `.env` 设置 `THOUGHTS_AI_ENABLED=true` 后，按统一入口重新加载后端；可用 `THOUGHTS_AI_SSH_KEY` 指定用户目录内的密钥。其他环境默认关闭，缺失密钥时直接报错，不回退到密码或其他模型。
+- 原简历任务保持四路并发及冻结代码，未重启 vLLM。新增交互在远端以 `flock` 限制为一路，短时可能形成四路批处理加一路交互，不能视为预留了独立 GPU。出现等待请求、运行请求超过四路或 KV 缓存达到 65% 时，新交互暂缓提交；允许提交时关闭 thinking，最多输出 768 tokens，用户文字最多 6000 字，模板化输入最多 6500 tokens。
+- 任务与结果保存在本机 `data/thoughts_ai/jobs.sqlite3`，按用户隔离，与业务数据库结构无关。最多 20 条活动任务、每人一条、每分钟最多六次；总任务期限五分钟，SSH 单次期限 110 秒。任务完成后清除输入，结果在完成 24 小时后清理；需要长期保留的结果由用户追加到笔记，再沿用原笔记云端保存链路。运行中取消会等待当前有界短请求结束，丢弃结果，不强行中断原批处理。
+- 后端重启不自动重发已领取的请求，原任务在期限到达后显示失败；排队任务可由后续请求唤起处理。队列是本机数据，部署到其他机器不会自动同步；需要保留最近结果时应备份队列文件及 SQLite WAL，或先追加到笔记。
+- 验收：`.venv\\Scripts\\python.exe -m pytest tests/test_thoughts_ai.py -q` 使用临时 SQLite 和模拟算力；`tools/verify_thoughts_ai_ui.py` 在 `http://localhost:3000/` 中挂载实际组件，隔离所有笔记 API，只向算力机提交合成测试文字，不写业务数据库。前端执行 `npm.cmd --prefix frontend run build`。
+- 回退时关闭 `THOUGHTS_AI_ENABLED` 并按统一入口重新加载本机后端，普通笔记自动保存仍可用。远端入口没有常驻进程，不需要重启模型；如需撤销接入，仅移除 `authorized_keys` 中标记 `xinshi-thoughts-PC` 的那条受限公钥。
+
+### 后续同步到云端和局域网
+
+以下为发布准备，不代表已发布。各环境使用相同代码、各自的受限 SSH 密钥和持久化队列；算力机 `flock` 对所有环境统一限制为最多一路交互。笔记仍沿用共享业务数据库保存；尚未追加到笔记的 AI 结果只保留在生成它的环境，不能跨环境查看或取消。
+
+- 云端 `43.132.156.72`：镜像通过 `Dockerfile` 安装 `openssh-client`。在宿主机仓库外生成专用密钥 `/etc/xinshi/thoughts-ai/id_ed25519`，私钥权限 `600`；仅把公钥加入算力机 `authorized_keys`，沿用 `restrict,command="/usr/bin/python3 /root/xinshi_thoughts/gateway.py"`，以 `xinshi-thoughts-cloud` 标识。不复制 PC、生产运维或局域网私钥。
+- 云端启用时，在现有 Compose 文件组合后叠加 `-f docker-compose.thoughts-ai.yml`。该文件只读挂载上述专用密钥并使用独立命名卷持久化队列；缺失密钥文件时报错，不创建空目录代替密钥。先执行 `config --quiet`，再按发布流程更新前后端及 HTTPS 网关；不得单独遗漏已有 `docker-compose.cloud.local.yml` 等环境覆盖文件，不重建 PostgreSQL。数据库备份、旧镜像保留及生产发布授权继续遵循本规范。
+- 局域网 `192.168.31.144`：在实际运行后端的 Administrator 用户目录生成另一把专用密钥，例如 `C:/Users/Administrator/.ssh/xinshi_thoughts_ed25519`，公钥以 `xinshi-thoughts-lan` 加入同一算力机受限入口。局域网受保护 `.env` 设置 `THOUGHTS_AI_ENABLED=true` 和 `THOUGHTS_AI_SSH_KEY` 的该绝对路径；不能照搬云端容器路径。
+- 局域网后端依照 Interactive 任务、活动桌面会话和实际 UNC 只读枚举规则重新加载；前端使用 `frontend/tools/publish-lan-frontend.ps1` 两阶段发布。同步 `deploy/nginx-lan.conf` 时必须保留部署机器已确认的只读分流开关与环境配置，并添加 `/api/thoughts-ai` 本地路由例外，防止 AI 提交到局域网而轮询到云端。修改 Nginx 后按既有计划任务方式校验并加载。
+- 两处均验证未登录请求拒绝访问、登录后手动生成/取消/追加、刷新恢复和队列持久化；同时从两处提交时，应观察到算力机交互锁生效，其他请求等待。确认 vLLM 原四路任务正常、无额外模型实例或公网模型端口。生产验收只使用获准账号及可清理的合成文字，不覆盖原笔记。
+
 ## 数据库连接预算
 
 - 云端 PostgreSQL 的 `max_connections` 配置为 `150`，通过云端 `.env` 的 `POSTGRES_MAX_CONNECTIONS` 与 `deploy/docker-compose.cloud.yml` 中的启动参数持久化；修改后需要重新创建数据库容器使其生效。

@@ -84,6 +84,7 @@ def test_non_get_requests_stay_on_lan(method, uri):
     "/api/push/public-key",
     "/api/health/db",
     "/api/editor-screenshots/s1",
+    "/api/thoughts-ai/latest",
     "/api/projects/annotation/office/sessions/o1",
     # 本机磁盘附件、图片、资料
     "/api/talents/p1/attachments/a1",
@@ -114,6 +115,13 @@ def test_file_mail_and_environment_reads_stay_on_lan(uri):
 def test_switch_off_routes_everything_to_lan():
     assert route("GET", "/api/talents/page", split="off") == "lan"
     assert route("GET", "/api/projects/translation/page", split="off") == "lan"
+
+
+def test_thoughts_ai_submit_poll_and_cancel_use_same_backend():
+    for split in ['on', 'off']:
+        assert route('POST', '/api/thoughts-ai/jobs', split) == 'lan'
+        assert route('GET', '/api/thoughts-ai/latest', split) == 'lan'
+        assert route('POST', '/api/thoughts-ai/jobs/j1/cancel', split) == 'lan'
 
 
 def test_cloud_upstream_requires_certificate_verification():
