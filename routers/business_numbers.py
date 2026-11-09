@@ -1,5 +1,5 @@
 from datetime import date, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from database import get_db
@@ -76,6 +76,27 @@ def heartbeat(token: UUID, db=Depends(get_db), user=Depends(get_current_user)):
     row.expires_at = now() + timedelta(minutes=15)
     db.commit()
     return {'ok': True}
+
+@router.post('/{token}/skip')
+def skip_consultation_number(token: UUID, db=Depends(get_db), user=Depends(get_current_user)):
+    """用户确认放弃失败咨询的占号后，在同一事务中取下一个编号。"""
+    from business_numbering import lock_scope
+    from routers.auth import require_any_permission
+
+    require_any_permission('consultations:write')(current_user=user, db=db)
+    lock_scope(db, 'consultation')
+    row = db.query(BusinessNumberLease).filter_by(id=token, owner_id=user.id, scope='consultation').with_for_update().first()
+    if not row or not live(row):
+        raise HTTPException(409, '当前编号已失效或已被使用，请先检查咨询列表，避免重复录入')
+    row.state = 'skipped'
+    db.flush()
+    db.info['number_actor'] = user.id
+    db.info['number_reserve'] = uuid4()
+    scope, prefix, minimum, width = spec(db, 'consultation')
+    number = allocate(db, scope, prefix, minimum, width)
+    replacement = db.info['number_reserved_row']
+    db.commit()
+    return {'token': str(replacement.id), 'number': number}
 
 @router.post('/{token}/release')
 def release(token: UUID, db=Depends(get_db), user=Depends(get_current_user)):

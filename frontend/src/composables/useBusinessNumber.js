@@ -48,6 +48,27 @@ export function useBusinessNumber(options) {
     renewRequest={item,promise:pending}
     return pending
   }
+  async function skip(){
+    if(!lease||!options.active())return false
+    const old=lease,current=generation
+    try{
+      const result=await api.post(`/business-numbers/${old.token}/skip`)
+      const item={...result,kind:options.kind(),owner:old.owner,authToken:old.authToken}
+      if(current!==generation||lease!==old||old.owner!==localStorage.getItem('user_id')){
+        releaseItem(item)
+        return false
+      }
+      businessNumberLeases.delete(old.token)
+      lease=item
+      businessNumberLeases.set(item.token,item)
+      options.model()[options.field()]=item.number
+      error.value=''
+      return true
+    }catch(cause){
+      error.value=cause?.detail||'重新取号失败，请稍后重试'
+      return false
+    }
+  }
   const resume=()=>{if(document.visibilityState!=='hidden'&&options.active())void renew()}
   window.addEventListener('focus',resume);window.addEventListener('online',resume)
   document.addEventListener('visibilitychange',resume)
@@ -63,5 +84,5 @@ export function useBusinessNumber(options) {
   window.addEventListener('storage',accountChanged)
   onBeforeUnmount(()=>{release();window.removeEventListener('pagehide',release);window.removeEventListener('auth-session-clearing',logout);window.removeEventListener('storage',accountChanged);window.removeEventListener('focus',resume);window.removeEventListener('online',resume);document.removeEventListener('visibilitychange',resume)})
   async function ensure(){if(!options.active())return true;const valid=await renew();return Boolean(valid&&lease)&&lease.owner===localStorage.getItem('user_id')&&!error.value}
-  return {error,ensure,headers:()=>lease?{'X-Business-Number-Leases':JSON.stringify([lease.token])}:{}}
+  return {error,ensure,skip,headers:()=>lease?{'X-Business-Number-Leases':JSON.stringify([lease.token])}:{}}
 }

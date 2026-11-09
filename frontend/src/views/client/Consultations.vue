@@ -382,7 +382,10 @@
       </template>
       <div ref="consultationEditorRef" v-loading="editorLoading" class="consultation-editor">
       <AppForm number-scope="consultation" number-field="consultation_code" :number-active="dialogVisible && !form.id"  ref="formRef" :model="form" :rules="rules" label-width="120px">
-        <el-form-item label="咨询编号"><ReadonlyField :model-value="form.consultation_code" source="auto" placeholder="正在占用编号" /></el-form-item>
+        <el-form-item label="咨询编号">
+          <ReadonlyField :model-value="form.consultation_code" source="auto" placeholder="正在占用编号" />
+          <el-button v-if="!form.id && form.consultation_code" link type="warning" :loading="numberRetryLoading" :disabled="formSubmitting" @click="skipFailedConsultationNumber">放弃此编号并取下一个</el-button>
+        </el-form-item>
         <section v-if="isSimpleConsultationType(form.consultation_type)" class="form-section consultation-form-section consultation-form-section--primary simple-consultation-form">
           <div class="consultation-form-section__header">
             <h3>简单咨询</h3>
@@ -1425,6 +1428,7 @@ const confirmationPreviewLoading = ref(false)
 const confirmationSubmitting = ref(false)
 const confirmationSubmitAction = ref('')
 const formSubmitting = ref(false)
+const numberRetryLoading = ref(false)
 const editorLoading = ref(false)
 const createIdempotencyKey = ref('')
 const confirmationFormRef = ref(null)
@@ -2821,12 +2825,27 @@ const handleSubmit = async (continueCreate = false) => {
         await routeToProjectBoard(payload.consultation_type)
       }
     } catch (error) {
-    await formRef.value?.applyServerErrors(error)
+      await formRef.value?.applyServerErrors(error)
       ElMessage.error(error?.detail || '操作失败')
     } finally {
       formSubmitting.value = false
     }
   })
+}
+
+const skipFailedConsultationNumber = async () => {
+  if (numberRetryLoading.value || formSubmitting.value) return
+  numberRetryLoading.value = true
+  try {
+    if (await formRef.value?.skipNumber()) {
+      formRef.value?.clearValidate()
+      ElMessage.success('已换用新咨询编号，原表单内容已保留，请再次保存')
+    } else {
+      ElMessage.error('重新取号失败；请先检查咨询列表，确认记录没有保存')
+    }
+  } finally {
+    numberRetryLoading.value = false
+  }
 }
 
 const confirmationMailDraft = useMailDraftCache(() => ElMessage.warning('本机邮件草稿保存失败，请保留当前窗口并复制正文'))

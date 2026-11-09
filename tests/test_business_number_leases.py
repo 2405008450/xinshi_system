@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
 from business_numbering import BusinessNumberLease, allocate, consume_explicit, live
 from chat_time import now
-from routers.business_numbers import Reserve, reserve, release, heartbeat
+from routers.business_numbers import Reserve, reserve, release, heartbeat, skip_consultation_number
 import main  # 注册业务模型关系，不启动服务或执行迁移。
 
 @pytest.fixture
@@ -17,6 +17,7 @@ def database(tmp_path, monkeypatch):
     with engine.begin() as conn:
         conn.execute(text('CREATE TABLE app_user (id CHAR(32) PRIMARY KEY)'))
         conn.execute(text('CREATE TABLE translation_project (id CHAR(32) PRIMARY KEY, order_no TEXT)'))
+        conn.execute(text('CREATE TABLE consultation (id CHAR(32) PRIMARY KEY, consultation_code TEXT)'))
         conn.execute(text("INSERT INTO translation_project VALUES ('saved', 'TP-261107-999')"))
         BusinessNumberLease.__table__.create(conn)
     import routers.auth
@@ -128,6 +129,26 @@ def test_released_number_can_be_reassigned_to_another_account(database):
         db.info.update(number_actor=user.id,number_tokens=json.dumps([a['token']]))
         with pytest.raises(HTTPException):allocate(db,'translation','TP-261107-',1)
         assert heartbeat(__import__('uuid').UUID(b['token']),db,other)['ok']
+
+def test_skip_consultation_number_keeps_old_number_out_of_pool(database):
+    user=SimpleNamespace(id=uuid4())
+    business_date=now().date()
+    prefix=f'EQ-{business_date:%y%m%d}-'
+    with Session(database) as db:
+        first=reserve(Reserve(kind='consultation',window_id=uuid4(),business_date=business_date),db,user)
+    with Session(database) as db:
+        replacement=skip_consultation_number(__import__('uuid').UUID(first['token']),db,user)
+        assert replacement['number']==f'{prefix}002'
+        assert db.get(BusinessNumberLease,__import__('uuid').UUID(first['token'])).state=='skipped'
+    with Session(database) as db:
+        with pytest.raises(HTTPException) as error:
+            skip_consultation_number(__import__('uuid').UUID(first['token']),db,user)
+        assert error.value.status_code==409
+    with Session(database) as db:
+        release(__import__('uuid').UUID(replacement['token']),db,user)
+    with Session(database) as db:
+        next_number=reserve(Reserve(kind='consultation',window_id=uuid4(),business_date=business_date),db,user)
+        assert next_number['number']==f'{prefix}002'
 
 @pytest.mark.parametrize('scope,prefix,width',[
     ('interpretation','IP-261107-',3),('annotation','AP-261107-',3),

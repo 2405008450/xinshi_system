@@ -104,6 +104,7 @@ const applyServerErrors = async (error, aliases = {}) => {
 
 defineExpose({
   numberLeaseHeaders: numbering.headers,
+  skipNumber: numbering.skip,
   validate,
   validateField: callInnerForm('validateField'),
   resetFields,
