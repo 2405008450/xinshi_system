@@ -50,11 +50,18 @@ def import_records(db,project_id,limit=100):
 class FolderEntry(BaseModel):
     relative_path:str=Field(min_length=1,max_length=2000)
     files:list[str]=Field(default_factory=list,max_length=2000)
+class FolderDraft(BaseModel):
+    empty_detection_complete:bool=True
+    source_kind:str=Field(pattern="^(local|unc|manifest)$")
+    root_path:str=Field(min_length=1,max_length=2000)
+    entries:list[FolderEntry]=Field(min_length=1,max_length=500)
+
 class FolderImport(BaseModel):
+    preserve_original_file:bool=False
     empty_detection_complete:bool=True
     parent_project_id:UUID|None=None
     order_no:str|None=Field(default=None,max_length=50)
-    source_kind:str=Field(pattern='^(local|unc)$')
+    source_kind:str=Field(pattern='^(local|unc|manifest)$')
     root_path:str=Field(min_length=1,max_length=2000)
     entries:list[FolderEntry]=Field(min_length=1,max_length=500)
 
@@ -121,7 +128,7 @@ def inspect_tree(root_path):
     except OSError as exc:raise ValueError('无法读取共享目录，请核对路径和访问权限') from exc
     return {'storage_path':normalized,'folder_entries':entries}
 
-def import_folders(db,payload,actor,idempotency_key=None):
+def import_folders(db,payload,actor,idempotency_key=None,*,commit=True,update_root=True):
     from schemas import TranslationSubOrderCreate
     from crud import _create_sub_order_in_transaction
     from translation_direction_service import next_number
@@ -132,6 +139,8 @@ def import_folders(db,payload,actor,idempotency_key=None):
             if old.created_by!=actor:raise ValueError('该请求不属于当前账号')
             return {'project_id':old.id,'order_no':old.order_no,'project_name':old.project_name,'network_file_path':old.network_file_path,'created_root':True,'created_count':0,'skipped_count':0,'created':[],'skipped':[]}
     entries=normalized_entries(payload.entries)
+    from path_security import validate_managed_path
+    payload.root_path=validate_managed_path(payload.root_path)
     if payload.source_kind=='unc':
         actual=normalized_entries([FolderEntry(**row) for row in inspect_tree(payload.root_path)['folder_entries']])
         if entries!=actual:raise ValueError('共享文件夹内容已变化，请重新读取')
@@ -147,6 +156,9 @@ def import_folders(db,payload,actor,idempotency_key=None):
     else:
         root=db.query(TranslationProject).filter_by(id=payload.parent_project_id).with_for_update().first()
         if not root:raise ValueError('母订单不存在')
+        if payload.preserve_original_file:
+            from translation_mother_split import preserve_original
+            preserve_original(db,root,actor)
     existing=db.query(TranslationSubOrder).filter_by(parent_project_id=root.id).all()
     folders={row.relative_path:row for row in db.query(TranslationOrderFolder).filter(TranslationOrderFolder.sub_order_id.in_([row.id for row in existing]),TranslationOrderFolder.root_path==payload.root_path,TranslationOrderFolder.source_kind==payload.source_kind).all()}
     empty=[key for key in entries if not any(files for child,files in entries.items() if child==key or child.startswith(key+'/'))]
@@ -169,13 +181,15 @@ def import_folders(db,payload,actor,idempotency_key=None):
         parent_number=parent.sub_order_no if isinstance(parent,TranslationSubOrder) else root.order_no
         for name in files:
             path=ntpath.join(payload.root_path,*relative.split('/')[1:],name)
+            if payload.source_kind=='manifest':path=validate_managed_path(path)
             if any(row.sub_order_no.rsplit('.',1)[0]==parent_number and row.sub_project_name.casefold()==name.casefold() for row in existing):
                 skipped.append({'name':path,'reason':'该层已有同名文件订单'});continue
             owner=_create_sub_order_in_transaction(db,TranslationSubOrderCreate(parent_project_id=root.id,sub_order_no=next_number(db,root,parent),sub_project_name=name,network_file_path=path,created_by=actor))
             created.append(owner);existing.append(owner)
-    if any(entries.values()):root.project_name=root_relative;root.source_file_name=root_relative;root.network_file_path=payload.root_path
+    if update_root and any(entries.values()):root.project_name=root_relative;root.source_file_name=root_relative;root.network_file_path=payload.root_path
     db.add(TranslationFolderImportLog(project_id=root.id,actor_id=actor,source_kind=payload.source_kind,root_path=payload.root_path,empty_folders=empty,created_count=len(created),empty_detection_complete=payload.source_kind=='unc' or payload.empty_detection_complete))
     from annotation_progress_time import business_now
     if any(entries.values()):root.updated_at=business_now()
-    db.commit()
+    if commit:db.commit()
+    else:db.flush()
     return {'project_id':root.id,'order_no':root.order_no,'project_name':root.project_name,'network_file_path':root.network_file_path,'created_root':created_root,'created_count':len(created),'skipped_count':len(skipped),'created':created,'skipped':skipped}

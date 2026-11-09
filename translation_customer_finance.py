@@ -109,7 +109,7 @@ def effective_billing_month(project,owner=None):
     return row.billing_month if row else None
 
 
-def tree(project, billing_month=None):
+def tree(project, billing_month=None, *, summary_only=False):
     owners, numbers, parents = hierarchy(project)
     db=object_session(project)
     meta=rates.metadata(db,[charge.id for owner in owners for charge in owner.customer_charge_items]) if db else {}
@@ -128,7 +128,7 @@ def tree(project, billing_month=None):
             quotation_required=bool(getattr(project,'quotation_required',False)),quotation_draft=getattr(project,'quotation_draft',None),statement_required_explicit=bool(getattr(project,'statement_required_explicit',False)),
             explanation=row.remarks or '' if row else '',word_count_matrix=owner.word_count_matrix)
         nodes[key]['word_count_matrix_source']=getattr(owner,'word_count_matrix_source','project' if owner is project else 'suborder')
-        nodes[key].update(finance_notes.values(db,project,owner,row))
+        if not summary_only:nodes[key].update(finance_notes.values(db,project,owner,row))
         nodes[key]['word_count_sub_order_count']=getattr(owner,'word_count_sub_order_count',0)
         nodes[key]['prices']=rates.order_rates(db,owner,owner.language_pair or project.language_pair,meta) if db else []
         effective_client_id=project.client_id or (project.sub_client.parent_client_id if project.sub_client else None)
@@ -136,7 +136,7 @@ def tree(project, billing_month=None):
         nodes[key]['statement_status']=getattr(owner,'statement_status',[])
         if owner is project:
             nodes[key]['customer_statements']=getattr(project,'customer_statements',[])
-            nodes[key]['payment_confirmation']=confirmations.read(db,project.id) if db else PaymentConfirmationWrite().model_dump()
+            nodes[key]['payment_confirmation']=confirmations.read(db,project.id) if db and not summary_only else None
             nodes[key]['statement_required']=bool(getattr(project,'statement_required',True))
             nodes[key]['client_manager']=getattr(project,'client_manager',None) or ''
             nodes[key]['updated_at']=business_datetime(project.updated_at).isoformat() if project.updated_at else None
@@ -232,7 +232,7 @@ def tree(project, billing_month=None):
             node['totals_'+kind]={currency:str(value.quantize(Decimal('.01'),rounding=ROUND_HALF_UP)) for currency,value in values.items()}
         node.update(children=included,matches_month=matches or bool(included),totals={k:str(v) for k,v in totals.items()},adjusted_totals={k:str(v) for k,v in adjusted.items()},incomplete=incomplete)
     root=nodes[str(project.id)];calculate(root)
-    return {'item':root,'version':version(project)}
+    return {'item':root,'version':None if summary_only else version(project)}
 
 
 def read(db, project_id):

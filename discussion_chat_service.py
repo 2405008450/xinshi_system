@@ -62,6 +62,10 @@ def room_specs(db):
     from technical_task_conversations import specs as development_specs
     technical.update(development_specs(db))
     rows=[{**row,**technical.get(row['id'],{})} for row in rows]
+    from translation_chat_delivery import aliases as translation_aliases
+    titles=translation_aliases(db)
+    for row in rows:
+        row['name']=titles.get(row['id'],row['name'])
     return [row for row in rows if row.get('parent_key', RESOURCE_ROOT) is None or row.get('parent_key', RESOURCE_ROOT) in visible]
 
 

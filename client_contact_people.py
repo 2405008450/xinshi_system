@@ -52,8 +52,10 @@ def replace_details(db, owner, people):
         person=existing[value.name.strip().casefold()]
         detail=db.get(ClientContactPersonDetail,person.id)
         if detail is None:detail=ClientContactPersonDetail(person_id=person.id);db.add(detail)
-        detail.contact_method=value.contact_method or '';detail.description=value.description or ''
-    owner.manager_contact=people[0].contact_method or ''
+        if db.info.get('client_contacts_visible',True):detail.contact_method=value.contact_method or ''
+        detail.description=value.description or ''
+    first=existing[names[0].casefold()]
+    owner.manager_contact=db.get(ClientContactPersonDetail,first.id).contact_method or ''
 
 
 def ready(db):

@@ -2,17 +2,19 @@
   <DraggableFormDialog
     :model-value="modelValue"
     class="suborder-batch-create-dialog project-suborder-dialog"
-    title="批量新增子订单"
+    :title="dialogTitle"
     width="min(960px, calc(100vw - 32px))"
     top="5vh"
     append-to-body
     @update:model-value="emit('update:modelValue', $event)"
     @closed="reset"
   >
-    <el-form-item :label="folderOnly?'母订单号':'本窗口预留的首个子订单号'"><ReadonlyField :model-value="folderOnly?project.orderNo:numberForm.orderNo" source="auto" placeholder="正在占用编号" /></el-form-item>
+    <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="dialogTitle" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
+    <div ref="editorBodyRef">
+    <el-form-item :label="!project.id?'母订单号':'本窗口预留的首个子订单号'"><ReadonlyField :model-value="!project.id?project.orderNo:numberForm.orderNo" source="auto" placeholder="正在占用编号" /></el-form-item>
     <el-alert v-if="numbering.error.value" :title="numbering.error.value" type="error" :closable="false" />
-    <el-tabs v-model="mode">
-      <el-tab-pane label="UNC共享路径" name="unc">
+    <el-tabs v-if="workflow==='paths'" v-model="mode">
+<el-tab-pane label="UNC" name="unc">
         <el-form-item label="共享文件夹路径">
           <el-input v-model="uncPath" placeholder="请输入企业 UNC 共享文件夹路径" clearable @keyup.enter="readUncFolder" />
         </el-form-item>
@@ -33,7 +35,7 @@
           <el-table-column prop="reason" label="说明" min-width="200"><template #default="{row}">{{ row.reason || '-' }}</template></el-table-column>
         </el-table>
       </el-tab-pane>
-      <el-tab-pane :label="folderOnly?'读取本地文件夹':'读取本地文件'" name="localfiles">
+<el-tab-pane label="本地" name="localfiles">
         <el-alert type="info" :closable="false" show-icon title="多选文件可逐文件创建订单；选择文件夹则按目录层级导入，根目录为母订单。最多三层子文件夹及其文件，不上传正文。" />
         <div class="local-file-actions">
           <el-button v-if="!folderOnly" @click="localFileInput.click()">选择本地文件（可多选）</el-button>
@@ -46,8 +48,8 @@
         <p class="local-file-help">选择文件夹时，系统窗口只显示文件夹，不显示其中的文件。选定文件夹后，点击“上传”或“选择文件夹”，文件名会显示在下方列表中。“全选可用文件”会勾选下方所有可创建子订单的文件。</p>
         <div v-if="localFolders.length" class="import-summary"><el-tag>{{ localFolders.length }} 个文件夹</el-tag><el-tag>{{ localFolders.reduce((n,row)=>n+row.files.length,0) }} 个文件</el-tag><el-tag>生成 {{ treeOrderCount }} 个子订单</el-tag></div>
         <div v-else class="import-summary"><el-tag>共 {{ localRows.length }} 个文件</el-tag><el-tag type="success">已选 {{ selectedLocalIds.length }} 个</el-tag></div>
-        <el-form-item v-if="localFolders.length" label="本地根文件夹完整路径"><el-input v-model="localRootPath" placeholder="请粘贴所选根文件夹的完整路径，如 D:\项目\客户资料" /></el-form-item>
-        <el-alert v-if="localFolders.length" type="warning" :closable="false" title="浏览器只提供相对路径，请填写完整根路径。导入后，母订单项目名称调整为所选根文件夹名称。" />
+        <el-form-item v-if="localFolders.length" label="本地根文件夹完整路径"><el-input v-model="localRootPath" placeholder="请粘贴所选根文件夹的完整路径，如 D:\项目\客户资料" /><small>{{ localRootPathHint }}</small></el-form-item>
+        <el-alert v-if="localFolders.length" type="info" :closable="false" title="请核对完整根路径。导入后，母订单项目名称调整为所选根文件夹名称。" />
         <el-table v-if="!localFolders.length" :data="localRows" border size="small" max-height="320" empty-text="请先选择本地文件或文件夹">
           <el-table-column label="选择" width="64"><template #default="{row}"><el-checkbox :model-value="selectedLocalIds.includes(row.id)" :disabled="row.status!=='create'" :aria-label="`选择${row.name}`" @change="checked=>toggleLocalFile(row.id,checked)" /></template></el-table-column>
           <el-table-column prop="name" label="文件名称" min-width="260" show-overflow-tooltip />
@@ -55,7 +57,8 @@
           <el-table-column prop="reason" label="说明" min-width="200"><template #default="{row}">{{ row.reason || '-' }}</template></el-table-column>
         </el-table>
       </el-tab-pane>
-      <el-tab-pane v-if="!folderOnly" label="按数量生成" name="quantity">
+    </el-tabs>
+    <div v-if="workflow==='quantity'">
         <AppForm label-position="top">
           <el-row :gutter="16">
             <el-col :xs="24" :md="12"><el-form-item label="生成数量"><el-input-number v-model="form.count" :min="1" :max="500" style="width:100%" /></el-form-item></el-col>
@@ -64,57 +67,20 @@
           <el-form-item label="扩展名"><el-input v-model="form.fileExtension" placeholder="如 .docx、.pdf，每条订单对应一个文件" /></el-form-item>
           <el-form-item label="文件名称前缀"><el-input v-model="form.subProjectNamePrefix" maxlength="220" placeholder="留空则以母项目文件名为前缀，序号放在扩展名前" /></el-form-item>
           <el-alert type="info" :closable="false" show-icon :title="`将生成 ${quantityNames.length} 个子订单，文件名称示例：${quantityNames.slice(0, 3).join('、')}`" />
-        </AppForm>
-      </el-tab-pane>
+    </AppForm>
 
-      <el-tab-pane v-if="!folderOnly" label="按文件名导入" name="filenames">
-        <el-alert type="info" :closable="false" show-icon title="选择 TXT 后内容会填入文本框；也可以直接粘贴文件名，每行一个。确认预览后才会创建子订单。" />
-        <el-upload
-          v-model:file-list="fileList"
-          class="filename-upload"
-          :auto-upload="false"
-          :limit="1"
-          accept=".txt,text/plain"
-          :on-change="handleFileChange"
-          :on-remove="handleFileRemove"
-        >
-          <el-button>选择 TXT 文件</el-button>
-          <template #tip><div class="el-upload__tip">支持 UTF-8、UTF-16LE、GBK，文件不超过 1MB。</div></template>
-        </el-upload>
-        <el-input
-          v-model="filenameText"
-          type="textarea"
-          :rows="9"
-          resize="vertical"
-          placeholder="示例：&#10;合同正文.docx&#10;附件一.xlsx&#10;客户说明.pdf"
-        />
-        <div class="import-summary">
-          <el-tag>共 {{ previewRows.length }} 条</el-tag>
-          <el-tag type="success">将新增 {{ previewSummary.create }}</el-tag>
-          <el-tag type="warning">重复 {{ previewSummary.duplicate }}</el-tag>
-          <el-tag type="danger">错误 {{ previewSummary.error }}</el-tag>
-          <span v-if="previewRows.length > 100">仅展示前 100 条，提交时处理全部有效内容。</span>
-        </div>
-        <el-table v-if="previewRows.length" :data="previewRows.slice(0, 100)" border size="small" max-height="320">
-          <el-table-column prop="lineNumber" label="行号" width="72" />
-          <el-table-column label="状态" width="92">
-            <template #default="{ row }"><el-tag :type="previewTagType(row.status)" size="small">{{ previewStatusLabel(row.status) }}</el-tag></template>
-          </el-table-column>
-          <el-table-column prop="name" label="文件名称" min-width="300" show-overflow-tooltip />
-          <el-table-column prop="reason" label="说明" min-width="220"><template #default="{ row }">{{ row.reason || '-' }}</template></el-table-column>
-        </el-table>
-      </el-tab-pane>
-    </el-tabs>
+    </div>
+    <SubOrderListImport v-if="modelValue && workflow==='copy'" @plan="importPlan=$event" />
 
     <el-alert v-if="emptyFolders.length" type="warning" :closable="false" :title="`发现${emptyFolders.length}个空文件夹：不生成订单，确认导入后记录路径、操作人和时间。`" />
     <el-alert v-if="localFolders.length && !folderDetectionComplete && mode==='localfiles'" type="warning" :closable="false" title="兼容选择模式只能读取文件，无法检测空文件夹；本次导入记录会标明这一情况。" />
-    <el-table v-if="treeEntries.length" :data="treeRows" border size="small" max-height="380">
+    <el-table v-if="workflow==='paths' && treeEntries.length" :data="treeRows" border size="small" max-height="380">
       <el-table-column label="层级" width="110"><template #default="{row}">{{ row.level===0?'母订单':row.level+'级子订单' }}</template></el-table-column>
       <el-table-column label="项目名称" min-width="250"><template #default="{row}"><span :style="{paddingLeft:row.level*16+'px'}">{{ row.name }}</span></template></el-table-column>
       <el-table-column prop="kind" label="类型" width="90" />
       <el-table-column prop="path" label="完整路径" min-width="380" />
     </el-table>
-    <template v-if="!treeEntries.length && !folderOnly">
+    <template v-if="!treeEntries.length && !folderOnly && !(workflow==='copy' && importPlan?.kind==='tree')">
     <el-divider content-position="left">批量公共字段</el-divider>
     <AppForm label-position="top">
       <el-row :gutter="16">
@@ -132,19 +98,25 @@
         <el-col :xs="24" :md="12"><el-form-item label="发客户时间"><el-date-picker v-model="form.sentToClientTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
         <el-col :xs="24" :md="12"><el-form-item label="译员 ID"><el-input v-model="form.translatorId" /></el-form-item></el-col>
       </el-row>
+      <OrderInheritedExtras :model="form" />
     </AppForm>
 
     </template>
+    </div>
     <template #footer>
       <el-button @click="emit('update:modelValue', false)">取消</el-button>
       <el-button type="primary" :loading="submitting" :disabled="!canSubmit" @click="submit">
-        {{ treeEntries.length ? `按目录导入 ${treeOrderCount} 单` : mode !== 'quantity' ? `确认导入 ${previewSummary.create} 条` : `批量创建 ${quantityNames.length} 条` }}
+        {{ !project.id && (treeEntries.length || importPlan?.kind==='tree') ? '应用到新增表单' : workflow==='copy' ? `确认导入 ${importPlan?.orderCount || 0} 单` : treeEntries.length ? `按目录导入 ${treeOrderCount} 单` : mode !== 'quantity' ? `确认导入 ${previewSummary.create} 条` : `批量创建 ${quantityNames.length} 条` }}
       </el-button>
     </template>
   </DraggableFormDialog>
 </template>
 
 <script setup>
+import SubOrderListImport from './SubOrderListImport.vue'
+import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
+import {useDialogFieldSearch} from '@/composables/useDialogFieldSearch'
+import OrderInheritedExtras from './OrderInheritedExtras.vue'
 import { localSubOrderFiles,localFolderEntries,folderOrderPreview,enumerateFolderHandle } from '@/utils/localSubOrderFiles'
 import { translationFileNameError, translationFileExtension } from '@/utils/translationFileName'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
@@ -156,6 +128,7 @@ import { createEmptyWordCountMatrix } from '@/utils/wordCountMatrix'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import {useBusinessNumber} from '@/composables/useBusinessNumber'
+import {givenLocalRootPath} from '@/utils/localRootPath'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -165,6 +138,11 @@ const props = defineProps({
   initialMode: { type: String, default: 'quantity' },
 })
 const emit = defineEmits(['update:modelValue', 'created'])
+const workflow=computed(()=>['unc','localfiles','paths'].includes(props.initialMode)||props.folderOnly?'paths':props.initialMode==='filenames'?'copy':'quantity')
+const dialogTitle=computed(()=>({quantity:'按数量批量新增',paths:'读取路径',copy:'复制/文件导入'})[workflow.value])
+const importPlan=ref(null),editorBodyRef=ref(null)
+const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(editorBodyRef)
+
 const numberForm=reactive({orderNo:''})
 const numbering=useBusinessNumber({model:()=>numberForm,kind:()=>'translation_suborder',field:()=>'orderNo',active:()=>props.modelValue&&!!props.project.id,parent:()=>props.project.id,date:()=>null})
 const statusOptions = [
@@ -178,8 +156,6 @@ const statusOptions = [
 ].map(([label, value]) => ({ label, value }))
 const priorityOptions = ['低', '中', '高', '紧急']
 const mode = ref('quantity')
-const filenameText = ref('')
-const fileList = ref([])
 const submitting = ref(false)
 const uncPath = ref('')
 const inspectedUncPath = ref('')
@@ -228,15 +204,29 @@ const localFileInput = ref(null)
 const localFolderInput = ref(null)
 const folderDetectionComplete=ref(true)
 const chooseLocalFolder=async()=>{
+ if(window.xinshiDesktop?.chooseTranslationFolder){
+  try{
+   const selected=await window.xinshiDesktop.chooseTranslationFolder();if(!selected)return
+   for(const entry of selected.entries||[])for(const name of entry.files||[]){const error=translationFileNameError(name);if(error)throw new Error(`${name}：${error}`)}
+   localFolders.value=selected.entries||[];localRootPath.value=selected.rootPath||'';localRootPathHint.value='已由桌面文件夹选择器获取完整路径，可编辑。';folderDetectionComplete.value=true;localRows.value=[];selectedLocalIds.value=[]
+  }catch(error){ElMessage.error(error.message||'读取本地文件夹失败')}
+  return
+ }
  if(!window.showDirectoryPicker){folderDetectionComplete.value=false;ElMessage.warning('当前浏览器使用兼容文件夹选择，无法识别空文件夹；完整记录空目录请使用本机Chrome/Edge的localhost或HTTPS入口，或使用UNC共享路径');localFolderInput.value.click();return}
  try{
   const handle=await window.showDirectoryPicker({mode:'read'})
   const entries=await enumerateFolderHandle(handle)
-  folderDetectionComplete.value=true;localFolders.value=entries;localRootPath.value='';localRows.value=[];selectedLocalIds.value=[]
+  folderDetectionComplete.value=true;localFolders.value=entries;fillLocalRootPath(entries,{handle});localRows.value=[];selectedLocalIds.value=[]
  }catch(error){if(error.name!=='AbortError')ElMessage.error(error.message||'读取文件夹失败')}
 }
 const localFolders=ref([])
 const localRootPath=ref('')
+const localRootPathHint=ref('')
+function fillLocalRootPath(entries,source={}){
+  const rootName=entries.find(row=>!row.relativePath?.includes('/')&&!row.relative_path?.includes('/'))?.relativePath||entries[0]?.relativePath?.split('/')[0]||entries[0]?.relative_path?.split('/')[0]
+  localRootPath.value=givenLocalRootPath(rootName,{...source,candidates:[localRootPath.value,props.project.originalStoragePath,props.project.networkFilePath,props.project.sourceFolderPath]})
+  localRootPathHint.value=localRootPath.value?'已带入匹配的已有路径，可编辑；普通浏览器不能核验目录是否相同，请确认路径。':'浏览器未提供完整路径，且没有匹配的已登记路径，请填写所选根文件夹的完整路径。'
+}
 const uncFolders=ref([])
 const importTree=ref(true)
 const treeEntries=computed(()=>mode.value==='localfiles'?localFolders.value:mode.value==='unc'&&importTree.value?uncFolders.value:[])
@@ -253,7 +243,7 @@ const readLocalFiles = (event) => {
     const directory=Array.from(event.target.files||[]).some(file=>file.webkitRelativePath)
     folderDetectionComplete.value=!directory
     localFolders.value=directory?localFolderEntries(event.target.files):[]
-    localRootPath.value=''
+    if(directory)fillLocalRootPath(localFolders.value,{files:event.target.files});else localRootPath.value=''
     const rows = directory?[]:localSubOrderFiles(event.target.files, props.existingNames)
     localRows.value = rows
     selectedLocalIds.value = rows.filter(row => row.status === 'create').map(row => row.id)
@@ -267,6 +257,9 @@ const readLocalFiles = (event) => {
 }
 
 const createForm = () => ({
+  serviceContent:props.project.serviceContent||'',
+  customerRequirementProfessional:props.project.customerRequirementProfessional||'',
+  customerRequirementSpecial:props.project.customerRequirementSpecial||'',
   fileExtension: translationFileExtension(props.project.sourceFileName || props.project.projectName),
   count: 1,
   startIndex: 1,
@@ -290,7 +283,7 @@ const createForm = () => ({
   layoutProgress: props.project.layoutProgress || '',
   consolidationProgress: props.project.consolidationProgress || '',
   networkFilePath: props.project.networkFilePath || '',
-  remarks: '',
+  remarks: props.project.remarks || '',
 })
 const form = reactive(createForm())
 const normalizeName = (value) => String(value || '').trim().toLocaleLowerCase()
@@ -304,39 +297,14 @@ const quantityNames = computed(() => {
   return Array.from({ length: Number(form.count) || 0 }, (_, offset) => `${prefix}${String(Number(form.startIndex) + offset).padStart(2, '0')}${extension}`)
 })
 
-const previewRows = computed(() => {
-  if (mode.value === 'unc') return uncRows.value.filter(row => selectedUncIds.value.includes(row.id))
-  if (mode.value === 'localfiles') return localRows.value.filter(row => selectedLocalIds.value.includes(row.id))
-  const existing = new Set(props.existingNames.map(normalizeName).filter(Boolean))
-  const seen = new Set()
-  let contentIndex = 0
-  return filenameText.value.split(/\r\n|\n|\r/).reduce((rows, rawName, index) => {
-    const name = String(rawName || '').replace(/^\ufeff/, '').trim()
-    if (!name) return rows
-    contentIndex += 1
-    const key = normalizeName(name)
-    let status = 'create'
-    let reason = ''
-    if (contentIndex > 500) {
-      status = 'error'; reason = '单次最多导入 500 条'
-    } else if (translationFileNameError(name)) {
-      status = 'error'; reason = translationFileNameError(name)
-    } else if (existing.has(key)) {
-      status = 'duplicate'; reason = '当前母订单已存在同名子订单'
-    } else if (seen.has(key)) {
-      status = 'duplicate'; reason = '本次导入内容中文件名称重复'
-    }
-    if (status === 'create') seen.add(key)
-    rows.push({ lineNumber: index + 1, name, status, reason })
-    return rows
-  }, [])
-})
+const previewRows = computed(() => mode.value === 'unc' ? uncRows.value.filter(row=>selectedUncIds.value.includes(row.id)) : mode.value === 'localfiles' ? localRows.value.filter(row=>selectedLocalIds.value.includes(row.id)) : [])
 const previewSummary = computed(() => previewRows.value.reduce((summary, row) => {
   summary[row.status] += 1
   return summary
 }, { create: 0, duplicate: 0, error: 0 }))
 const canSubmit = computed(() => {
-  if (submitting.value || (!props.project.id && (!props.folderOnly || !props.project.orderNo))) return false
+  if(workflow.value==='copy')return !submitting.value&&!!(props.project.id||props.project.orderNo)&&!!importPlan.value&&(importPlan.value.kind==='tree'?!!importPlan.value.entries?.length:!!importPlan.value.fileNames?.length)
+  if (submitting.value || (!props.project.id && !props.project.orderNo)) return false
   if(props.folderOnly && !treeEntries.value.length)return false
   if(treeEntries.value.length)return treeRows.value.length>0&&(mode.value!=='localfiles'||!!localRootPath.value.trim())
   if (mode.value === 'unc' && (!inspectedUncPath.value || uncLoading.value)) return false
@@ -344,33 +312,14 @@ const canSubmit = computed(() => {
   return previewSummary.value.create > 0 && previewSummary.value.error === 0
 })
 
-const decodeTextFile = async (file) => {
-  if (!file.name.toLocaleLowerCase().endsWith('.txt')) throw new Error('请选择 TXT 文件')
-  if (file.size > 1024 * 1024) throw new Error('TXT 文件不能超过 1MB')
-  const buffer = await file.arrayBuffer()
-  const bytes = new Uint8Array(buffer)
-  if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder('utf-16le').decode(bytes.subarray(2))
-  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) return new TextDecoder('utf-8').decode(bytes.subarray(3))
-  try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-  } catch {
-    return new TextDecoder('gbk').decode(bytes)
-  }
-}
-const handleFileChange = async (uploadFile) => {
-  try {
-    filenameText.value = await decodeTextFile(uploadFile.raw)
-  } catch (error) {
-    fileList.value = []
-    ElMessage.error('读取 TXT 文件失败，请确认文件内容和编码格式')
-  }
-}
-const handleFileRemove = () => { fileList.value = [] }
 const previewTagType = (status) => ({ create: 'success', duplicate: 'warning', error: 'danger' }[status] || 'info')
 const previewStatusLabel = (status) => ({ create: '新增', duplicate: '跳过', error: '错误' }[status] || status)
 const progressValue = (value) => value === '' || value === null || value === undefined ? null : String(value)
 
 const buildDefaults = () => ({
+  serviceContent:form.serviceContent||null,
+  customerRequirementProfessional:form.customerRequirementProfessional||null,
+  customerRequirementSpecial:form.customerRequirementSpecial||null,
   fileTypeSecondary: form.fileTypeSecondary || null,
   languagePair: form.languagePair || null,
   priority: form.priority || null,
@@ -398,15 +347,24 @@ const submit = async () => {
   if (submitting.value) return
   submitting.value = true
   try {
-    if(treeEntries.value.length){
-      const result=await importSubOrderFolders({parentProjectId:props.project.id||null,orderNo:props.folderOnly?props.project.orderNo:null,sourceKind:mode.value==='unc'?'unc':'local',rootPath:mode.value==='unc'?inspectedUncPath.value:localRootPath.value.trim(),entries:treeEntries.value,emptyDetectionComplete:mode.value==='unc'||folderDetectionComplete.value},{headers:numbering.headers()})
-      ElMessage.success(`按目录导入完成：新增${result.createdCount}单，跳过${result.skippedCount}项；空文件夹已记录`)
-      emit('created',result);emit('update:modelValue',false);return
+    if(workflow.value==='copy'&&importPlan.value?.kind==='tree'){
+      const plan=importPlan.value
+      if(!props.project.id){emit('created',{draftFolderImport:{sourceKind:'manifest',rootPath:plan.rootPath,entries:plan.entries,emptyDetectionComplete:false}});emit('update:modelValue',false);return}
+      const result=await importSubOrderFolders({parentProjectId:props.project.id||null,preserveOriginalFile:true,orderNo:!props.project.id?props.project.orderNo:null,sourceKind:'manifest',rootPath:plan.rootPath,entries:plan.entries,emptyDetectionComplete:false},{headers:numbering.headers()})
+      ElMessage.success(`清单导入完成：新增${result.createdCount}单，空文件夹仅记录`);emit('created',{...result,rootPath:plan.rootPath});emit('update:modelValue',false);return
     }
-    const names = mode.value === 'quantity'
+    if(workflow.value==='paths'&&treeEntries.value.length){
+      const rootPath=mode.value==='unc'?inspectedUncPath.value:localRootPath.value.trim()
+      if(!props.project.id){emit('created',{draftFolderImport:{sourceKind:mode.value==='unc'?'unc':'local',rootPath,entries:treeEntries.value,emptyDetectionComplete:mode.value==='unc'||folderDetectionComplete.value}});emit('update:modelValue',false);return}
+      const result=await importSubOrderFolders({parentProjectId:props.project.id||null,orderNo:!props.project.id?props.project.orderNo:null,sourceKind:mode.value==='unc'?'unc':'local',rootPath,entries:treeEntries.value,emptyDetectionComplete:mode.value==='unc'||folderDetectionComplete.value},{headers:numbering.headers()})
+      ElMessage.success(`按目录导入完成：新增${result.createdCount}单，跳过${result.skippedCount}项；空文件夹已记录`)
+      emit('created',{...result,rootPath});emit('update:modelValue',false);return
+    }
+    const names = workflow.value==='copy'?importPlan.value.fileNames:mode.value === 'quantity'
       ? quantityNames.value
       : previewRows.value.filter((row) => row.status !== 'error').map((row) => row.name)
-    const result = await createSubOrdersBulk({ parentProjectId: props.project.id, sourceFolderPath: mode.value === 'unc' ? inspectedUncPath.value : null, subProjectNames: names, defaults: buildDefaults() },{headers:numbering.headers()})
+    if(!props.project.id){emit('created',{draftNames:names,defaults:buildDefaults()});emit('update:modelValue',false);return}
+    const result = await createSubOrdersBulk({ parentProjectId: props.project.id, preserveOriginalFile:['quantity','filenames'].includes(mode.value), sourceFolderPath: mode.value === 'unc' ? inspectedUncPath.value : null, subProjectNames: names, defaults: buildDefaults() },{headers:numbering.headers()})
     ElMessage.success(`批量创建完成：新增 ${result.createdCount} 条，跳过 ${result.skippedCount} 条`)
     if (result.skippedCount) {
       const reasons = result.skipped.slice(0, 3).map((item) => `${item.name}：${item.reason}`).join('；')
@@ -421,13 +379,14 @@ const submit = async () => {
   }
 }
 const reset = () => {
+  importPlan.value=null
+  clearFieldSearch()
   mode.value = props.folderOnly ? (props.initialMode==='unc'?'unc':'localfiles') : ['filenames', 'localfiles', 'unc'].includes(props.initialMode) ? props.initialMode : 'quantity'
-  filenameText.value = ''
-  fileList.value = []
   localRows.value = []
   localFolders.value=[]
   importTree.value=true
   localRootPath.value=''
+  localRootPathHint.value=''
   selectedLocalIds.value = []
   clearUncListing()
   uncPath.value = ''

@@ -32,28 +32,6 @@
     </el-alert>
 
     <AppForm
-      v-if="sourceFileName !== undefined"
-      :model="{ sourceFileName }"
-      :disabled="!sourceFileNameEditable"
-      label-width="130px"
-      class="source-file-name-form"
-    >
-      <el-form-item label="项目名称" data-dialog-field-search-aliases="文件名称,原文文件名">
-        <div class="source-file-name-field">
-          <el-input
-            :model-value="sourceFileName"
-            clearable
-            maxlength="255"
-            show-word-limit
-            placeholder="请输入真实文件名，保留扩展名"
-            @update:model-value="emit('update:sourceFileName', $event)"
-          />
-          <div class="source-file-name-hint">每个订单只对应一个原文文件。路径为文件夹时，该文件夹第一层只能有一个有效文件；多个文件请拆分订单。</div>
-        </div>
-      </el-form-item>
-    </AppForm>
-
-    <AppForm
       ref="pathGroupFormRef"
       v-loading="fileLoading"
       :model="pathGroupForm"
@@ -401,7 +379,8 @@ async function loadFiles() {
     try {
       const response = await getProjectFilesByProject(projectId, { skip: 0, limit: 1 })
       if (requestId !== fileRequestId || projectId !== props.projectId) return
-      assignPathGroup(Array.isArray(response) && response.length ? response[0] : {})
+      const source=Array.isArray(response) && response.length ? response[0] : {}
+      assignPathGroup({...source,storage_path:source.storage_path||props.sourcePath||''})
       loadedProjectId = projectId
     } catch (error) {
       if (requestId !== fileRequestId || projectId !== props.projectId) return
@@ -607,25 +586,6 @@ defineExpose({
 
 .path-group-form {
   min-height: 120px;
-}
-
-.source-file-name-form {
-  margin-top: 16px;
-  padding: 16px 16px 2px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
-  background: var(--el-fill-color-extra-light);
-}
-
-.source-file-name-field {
-  width: 100%;
-}
-
-.source-file-name-hint {
-  margin-top: 6px;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  line-height: 1.5;
 }
 
 .file-edit-collapse__title {

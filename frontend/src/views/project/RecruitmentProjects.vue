@@ -128,7 +128,25 @@
       </template>
       <div ref="editorBodyRef" class="editor-body">
         <AppForm number-scope="recruitment" number-field="orderNo" :number-active="editorVisible && !form.id"  ref="formRef" :model="form" :rules="rules" label-width="140px" class="recruitment-form">
-          <div class="form-section"><h3>项目与职位</h3>
+          <div class="form-section project-key-fields"><div class="project-key-fields__header"><div><h3>关键必填信息</h3><p>请优先完成以下内容，再补充其余项目资料。</p></div><el-tag type="danger" effect="plain">请完成必填项</el-tag></div>
+            <el-row :gutter="16"><el-col :xs="24" :md="12">
+                <el-form-item label="客户简称" prop="clientShortName" data-field-key="clientShortName">
+                  <div class="client-autocomplete-field">
+                    <el-autocomplete v-model="form.clientShortName" :fetch-suggestions="fetchClientSuggestions" value-key="client_short_name" placeholder="选择已有客户，或直接输入新客户简称" clearable :debounce="300" :trigger-on-focus="true" style="width:100%" @select="handleClientSelect" @input="handleClientShortNameInput" @clear="clearSelectedClient">
+                      <template #default="{ item }">
+                        <div class="client-suggestion">
+                          <span>{{ item.client_short_name }} <el-tag v-if="item.sub_client_id" size="small" type="warning">子客户</el-tag></span>
+                          <span class="client-suggestion__meta">{{ item.client_code }} · {{ item.client_name }}{{ item.parent_client_short_name ? ` · 归属 ${item.parent_client_short_name}` : '' }}</span>
+                        </div>
+                      </template>
+                    </el-autocomplete>
+                    <div class="client-autocomplete-hint">没有匹配客户时，填写客户全称及简称后，保存项目会自动新增客户。</div>
+                  </div>
+                <ClientNameGuidance />
+</el-form-item>
+              </el-col><el-col :xs="24" :md="12"><el-form-item label="客户全称" prop="clientName"><ReadonlyField :model-value="form.clientName" @update:model-value="form.clientName = $event" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '请输入客户全称'" /></el-form-item></el-col></el-row>
+            <ProjectClientContactFields :client-id="form.clientId" :sub-client-id="form.subClientId" v-model:contact-name="form.contactName" v-model:contact-method="form.clientContactMethod" v-model:contact-description="form.clientContactDescription" v-model:contact-version="form.clientContactVersion" v-model:contacts-visible="form.clientContactsVisible" />
+            <el-form-item label="补充说明"><el-input v-model="form.remarks" type="textarea" :rows="3" /></el-form-item>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="订单号"><ReadonlyField :model-value="form.orderNo" source="auto" placeholder="保存后自动生成" /></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="项目状态" prop="projectStatus"><el-select v-model="form.projectStatus" style="width:100%"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
@@ -150,35 +168,16 @@
           </div>
 
           <div class="form-section"><h3>客户信息</h3>
-            <el-row :gutter="16">
-              <el-col :xs="24" :md="12">
-                <el-form-item label="客户简称" data-field-key="clientShortName">
-                  <div class="client-autocomplete-field">
-                    <el-autocomplete v-model="form.clientShortName" :fetch-suggestions="fetchClientSuggestions" value-key="client_short_name" placeholder="选择已有客户，或直接输入新客户简称" clearable :debounce="300" :trigger-on-focus="true" style="width:100%" @select="handleClientSelect" @input="handleClientShortNameInput" @clear="clearSelectedClient">
-                      <template #default="{ item }">
-                        <div class="client-suggestion">
-                          <span>{{ item.client_short_name }} <el-tag v-if="item.sub_client_id" size="small" type="warning">子客户</el-tag></span>
-                          <span class="client-suggestion__meta">{{ item.client_code }} · {{ item.client_name }}{{ item.parent_client_short_name ? ` · 归属 ${item.parent_client_short_name}` : '' }}</span>
-                        </div>
-                      </template>
-                    </el-autocomplete>
-                    <div class="client-autocomplete-hint">没有匹配客户时，填写客户全称及简称后，保存项目会自动新增客户。</div>
-                  </div>
-                <ClientNameGuidance />
-</el-form-item>
-              </el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="子客户/联系人"><el-input v-model="form.contactName" /></el-form-item></el-col>
-            </el-row>
+
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="客户编号"><ReadonlyField v-model="form.clientCode" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '新客户不填则自动生成'" /></el-form-item></el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="客户全称" prop="clientName"><ReadonlyField :model-value="form.clientName" @update:model-value="form.clientName = $event" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '请输入客户全称'" /></el-form-item></el-col>
+
             </el-row>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="客户领域"><ReadonlyField :model-value="form.clientDomain" source="auto" placeholder="选择客户后自动带出" /></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="客户单号/项目标识"><el-input v-model="form.customerOrderNo" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
-              <el-col v-if="showManagerContactInput" :xs="24" :md="12"><el-form-item label="客户经理联系方式"><el-input v-model="form.managerContact" maxlength="100" clearable placeholder="请输入客户经理联系方式" /></el-form-item></el-col>
               <el-col :xs="24" :md="12"><ProjectClientManagerField v-model="form.clientManagerId" v-model:reason="form.clientManagerChangeReason" :baseline-id="clientManagerBaseline" :baseline-name="form.clientManagerName" :project-id="form.id" project-type="recruitment" /></el-col>
             </el-row>
           </div>
@@ -207,7 +206,7 @@
             <el-form-item label="项目路径"><PathInput v-model="form.projectPath" @open="openPath(form.projectPath)" @copy="copyPath(form.projectPath)" /></el-form-item>
             <el-form-item label="报价单路径"><PathInput v-model="form.quotationPath" @open="openPath(form.quotationPath)" @copy="copyPath(form.quotationPath)" /></el-form-item>
             <el-form-item label="合同路径"><PathInput v-model="form.contractPath" @open="openPath(form.contractPath)" @copy="copyPath(form.contractPath)" /></el-form-item>
-            <el-form-item label="备注"><el-input v-model="form.remarks" type="textarea" :rows="3" /></el-form-item>
+
             <el-form-item label="标题前缀">
               <el-input v-model="form.subjectPrefix" maxlength="50" show-word-limit clearable placeholder="可选，例如：紧急、请优先处理" />
             </el-form-item>
@@ -351,6 +350,9 @@
 </template>
 
 <script setup>
+import ProjectClientContactFields from '@/components/common/ProjectClientContactFields.vue'
+import {emptyProjectContactDetails,projectContactPayload} from '@/utils/projectClientContacts'
+
 import ClientNameGuidance from '@/components/common/ClientNameGuidance.vue'
 import {useProjectStatusSync} from '@/composables/useProjectStatusSync'
 import TaxPriceFields from '@/components/common/TaxPriceFields.vue'
@@ -548,7 +550,7 @@ const resetSearch = () => { searchForm.keyword='';resetFilterModel(searchForm,re
 const clearAdvanced = () => { resetFilterModel(searchForm,recruitmentAdvancedFilterFields);handleSearch() }
 const handleSizeChange = () => { pagination.page=1; fetchData() }
 
-const emptyForm = () => ({id:'',orderNo:'',projectName:'',jobDescription:'',positionTitle:'',headcountMin:null,headcountMax:null,projectStatus:'pending_setup',clientId:'',subClientId:'',clientSelection:'',clientShortName:'',clientCode:'',clientName:'',clientDomain:'',contactName:'',customerOrderNo:'',clientManagerId:localStorage.getItem('user_id')||'',clientManagerChangeReason:'',managerContact:'',targetOnboardType:'date',targetOnboardDate:'',employmentRange:[],workLocation:'',serviceFeeType:'',serviceFeeCurrency:'CNY',serviceFeeAmount:null,taxPrices:taxPriceForm(),serviceFeeRate:null,serviceFeeMultiplier:null,serviceFeeNote:'',customerConsultationTime:'',customerConfirmationTime:'',projectPath:'',quotationPath:'',contractPath:'',remarks:'',subjectPrefix:'',emailSubjectPreview:'',socialPostRequest:'',resourceRequest:'',languageDirections:[],roleAssignments:[]})
+const emptyForm = () => ({...emptyProjectContactDetails(),id:'',orderNo:'',projectName:'',jobDescription:'',positionTitle:'',headcountMin:null,headcountMax:null,projectStatus:'pending_setup',clientId:'',subClientId:'',clientSelection:'',clientShortName:'',clientCode:'',clientName:'',clientDomain:'',contactName:'',customerOrderNo:'',clientManagerId:localStorage.getItem('user_id')||'',clientManagerChangeReason:'',managerContact:'',targetOnboardType:'date',targetOnboardDate:'',employmentRange:[],workLocation:'',serviceFeeType:'',serviceFeeCurrency:'CNY',serviceFeeAmount:null,taxPrices:taxPriceForm(),serviceFeeRate:null,serviceFeeMultiplier:null,serviceFeeNote:'',customerConsultationTime:'',customerConfirmationTime:'',projectPath:'',quotationPath:'',contractPath:'',remarks:'',subjectPrefix:'',emailSubjectPreview:'',socialPostRequest:'',resourceRequest:'',languageDirections:[],roleAssignments:[]})
 const form = reactive(emptyForm()); const formRef=ref(); const editorBodyRef=ref(); const editorVisible=ref(false); const jobDescriptionEditorVisible=ref(false); const saving=ref(false); const nameLoading=ref(false); const nameManuallyEdited=ref(false); const editorTitle=computed(()=>form.id?'编辑招聘项目':'新增招聘项目')
 const { beginDraft, pauseDraft, clearDraft } = useFormDraft({ namespace:'recruitment-project', form, createDefault:emptyForm, formRef, applyDraft:(draft)=>{Object.assign(form,emptyForm(),draft);nameManuallyEdited.value=Boolean(draft.projectName)} })
 const showManagerContactInput=computed(() => !form.clientId && Boolean(form.clientShortName?.trim() || form.clientName?.trim()))
@@ -585,7 +587,7 @@ const resetEditorScroll=async()=>{await nextTick();editorBodyRef.value?.scrollTo
 const openAdd = async () => { resetForm(); resetRecruitmentProjectIdempotency(); clientManagerBaseline.value=localStorage.getItem('user_id')||''; editorVisible.value=true; await resetEditorScroll(); await beginDraft('create') }
 const openEdit = async (row,useProvidedDetail=false) => { try { const item=useProvidedDetail?row:await getRecruitmentProject(row.id); const clientSelection=item.subClientId?`sub:${item.subClientId}`:(item.clientId?`client:${item.clientId}`:''); const selectedClient=clientOptions.value.find((option)=>option.value===clientSelection); Object.assign(form,emptyForm(),item,{taxPrices:taxPriceForm(item.taxPrices),employmentRange:item.employmentStart&&item.employmentEnd?[item.employmentStart,item.employmentEnd]:[],clientSelection,managerContact:selectedClient?.managerContact||item.managerContact||''}); form.clientManagerId=item.clientManagerId||'';form.clientManagerChangeReason='';clientManagerBaseline.value=form.clientManagerId;form.subjectPrefix=extractSubjectPrefix(item.emailSubjectPreview,form); nameManuallyEdited.value=Boolean(item.projectName); activeProject.value=item; candidateRows.value=[]; editorVisible.value=true; await resetEditorScroll(); await beginDraft(`edit:${item.id}`); void loadCandidates() } catch(error){ElMessage.error(error?.detail||'项目详情加载失败')} }
 const clean = (value) => value===''?null:value
-const buildPayload = () => ({projectName:clean(form.projectName),jobDescription:clean(form.jobDescription),positionTitle:clean(form.positionTitle),headcountMin:form.headcountMin,headcountMax:form.headcountMax??form.headcountMin,projectStatus:form.projectStatus,clientId:clean(form.clientId),subClientId:clean(form.subClientId),clientShortName:clean(form.clientShortName?.trim()),clientCode:clean(form.clientCode?.trim()),clientName:clean(form.clientName?.trim()),managerContact:clean(form.managerContact?.trim()),contactName:clean(form.contactName),customerOrderNo:clean(form.customerOrderNo),clientManagerId:clean(form.clientManagerId),clientManagerChangeReason:clean(form.clientManagerChangeReason),targetOnboardType:form.targetOnboardType,targetOnboardDate:form.targetOnboardType==='anytime'?null:clean(form.targetOnboardDate),employmentStart:form.employmentRange?.[0]||null,employmentEnd:form.employmentRange?.[1]||null,workLocation:clean(form.workLocation),taxPrices:form.taxPrices,serviceFeeType:clean(form.serviceFeeType),serviceFeeCurrency:clean(form.serviceFeeCurrency),serviceFeeAmount:form.serviceFeeType==='fixed'?form.serviceFeeAmount:null,serviceFeeRate:form.serviceFeeType==='annual_salary_rate'?form.serviceFeeRate:null,serviceFeeMultiplier:form.serviceFeeType==='monthly_salary_multiple'?form.serviceFeeMultiplier:null,serviceFeeNote:clean(form.serviceFeeNote),customerConsultationTime:clean(form.customerConsultationTime),customerConfirmationTime:clean(form.customerConfirmationTime),projectPath:clean(form.projectPath),quotationPath:clean(form.quotationPath),contractPath:clean(form.contractPath),remarks:clean(form.remarks),emailSubjectPreview:clean(form.emailSubjectPreview),expectedUpdatedAt:form.updatedAt||null,socialPostRequest:clean(form.socialPostRequest),resourceRequest:clean(form.resourceRequest),roleAssignments:form.roleAssignments,languageDirections:form.languageDirections.filter((item)=>item.sourceLanguageId).map((item)=>({...item,targetLanguageId:item.directionType==='translation'?item.targetLanguageId:null}))})
+const buildPayload = () => ({...projectContactPayload(form),projectName:clean(form.projectName),jobDescription:clean(form.jobDescription),positionTitle:clean(form.positionTitle),headcountMin:form.headcountMin,headcountMax:form.headcountMax??form.headcountMin,projectStatus:form.projectStatus,clientId:clean(form.clientId),subClientId:clean(form.subClientId),clientShortName:clean(form.clientShortName?.trim()),clientCode:clean(form.clientCode?.trim()),clientName:clean(form.clientName?.trim()),managerContact:clean(form.managerContact?.trim()),contactName:clean(form.contactName),customerOrderNo:clean(form.customerOrderNo),clientManagerId:clean(form.clientManagerId),clientManagerChangeReason:clean(form.clientManagerChangeReason),targetOnboardType:form.targetOnboardType,targetOnboardDate:form.targetOnboardType==='anytime'?null:clean(form.targetOnboardDate),employmentStart:form.employmentRange?.[0]||null,employmentEnd:form.employmentRange?.[1]||null,workLocation:clean(form.workLocation),taxPrices:form.taxPrices,serviceFeeType:clean(form.serviceFeeType),serviceFeeCurrency:clean(form.serviceFeeCurrency),serviceFeeAmount:form.serviceFeeType==='fixed'?form.serviceFeeAmount:null,serviceFeeRate:form.serviceFeeType==='annual_salary_rate'?form.serviceFeeRate:null,serviceFeeMultiplier:form.serviceFeeType==='monthly_salary_multiple'?form.serviceFeeMultiplier:null,serviceFeeNote:clean(form.serviceFeeNote),customerConsultationTime:clean(form.customerConsultationTime),customerConfirmationTime:clean(form.customerConfirmationTime),projectPath:clean(form.projectPath),quotationPath:clean(form.quotationPath),contractPath:clean(form.contractPath),remarks:clean(form.remarks),emailSubjectPreview:clean(form.emailSubjectPreview),expectedUpdatedAt:form.updatedAt||null,socialPostRequest:clean(form.socialPostRequest),resourceRequest:clean(form.resourceRequest),roleAssignments:form.roleAssignments,languageDirections:form.languageDirections.filter((item)=>item.sourceLanguageId).map((item)=>({...item,targetLanguageId:item.directionType==='translation'?item.targetLanguageId:null}))})
 const projectNamePayload = () => ({
   employmentStart: form.employmentRange?.[0] || null,
   employmentEnd: form.employmentRange?.[1] || null,
@@ -714,4 +716,5 @@ useProjectStatusSync('recruitment',rows,{onChanged:()=>{if(!loading.value&&!edit
 :global(.candidate-editor-dialog){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}:global(.candidate-editor-dialog .el-dialog__header),:global(.candidate-editor-dialog .el-dialog__footer){flex:none}:global(.candidate-editor-dialog .el-dialog__body){display:flex;flex:1;min-height:0;overflow:hidden;padding-top:8px}:global(.candidate-editor-dialog .candidate-editor-body){box-sizing:border-box;flex:1;min-width:0;min-height:0;overflow-x:hidden;overflow-y:auto;padding:0 4px}:global(.candidate-editor-dialog .candidate-editor-body>.el-form){box-sizing:border-box;width:100%}:global(.candidate-editor-dialog .el-dialog__footer){border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-lighter)}
 .editor-dialog-heading{display:flex;flex-direction:column;gap:4px;padding-right:36px}.editor-dialog-title{color:var(--el-text-color-primary);font-size:18px;font-weight:600;line-height:1.35}.editor-dialog-subtitle{color:var(--el-text-color-secondary);font-size:12px;font-weight:400}.editor-body{padding:16px 24px 20px;background:var(--el-fill-color-lighter)}.recruitment-form{max-width:100%}.form-section{margin-bottom:16px;padding:20px 20px 4px;border:1px solid var(--el-border-color-lighter);border-radius:10px;background:var(--el-bg-color);box-shadow:0 2px 8px rgb(15 23 42 / 4%)}.form-section:last-child{margin-bottom:0}.form-section h3{display:flex;align-items:center;gap:8px;margin:-20px -20px 20px;padding:12px 20px;border-bottom:1px solid var(--el-border-color-lighter);border-radius:10px 10px 0 0;background:var(--color-surface-muted);color:var(--el-text-color-primary);font-size:15px;font-weight:600}.form-section h3::before{width:3px;height:16px;border-radius:2px;background:var(--el-color-primary);content:""}.recruitment-form :deep(.el-form-item){margin-bottom:18px}.recruitment-form :deep(.el-input__wrapper),.recruitment-form :deep(.el-select__wrapper),.recruitment-form :deep(.el-textarea__inner){transition:border-color .2s ease,box-shadow .2s ease}.soft-action-button{--el-button-bg-color:var(--el-color-primary-light-9);--el-button-border-color:var(--el-color-primary-light-7);--el-button-text-color:var(--el-color-primary-dark-2);--el-button-hover-bg-color:var(--el-color-primary-light-8);--el-button-hover-border-color:var(--el-color-primary-light-5);--el-button-hover-text-color:var(--el-color-primary);font-weight:500}.number-range{width:100%;min-width:0}.number-range .el-input-number{flex:1;width:auto;min-width:0}.number-range :deep(.el-input__inner),.money-field :deep(.el-input__inner){text-align:left}.range-separator,.range-unit{flex:none;color:var(--el-text-color-secondary)}.range-unit{font-size:13px}.money-field .el-input-number{flex:1;min-width:140px}.editor-footer{gap:10px}.editor-footer .el-button{min-width:88px}:deep(.recruitment-editor .el-dialog__body){padding:0}:deep(.recruitment-editor .el-dialog__footer){padding:14px 24px;background:var(--el-bg-color);box-shadow:0 -4px 14px rgb(15 23 42 / 5%)}
 @media(max-width:720px){.search-form :deep(.el-form-item){display:flex;margin-right:0}.search-form :deep(.el-form-item__content){flex:1}.money-field,.progress-create,.subject-preview-toolbar{align-items:stretch;flex-direction:column}.money-field .el-select,.progress-create :deep(.el-date-editor){width:100%}.subject-preview-toolbar .el-button{align-self:flex-end}.recruitment-form :deep(.el-form-item){display:block}.recruitment-form :deep(.el-form-item__label){width:auto!important;margin-bottom:6px;justify-content:flex-start}.recruitment-form :deep(.el-form-item__content){margin-left:0!important}.editor-body{padding:12px 12px 16px}.form-section{padding:16px 14px 4px}.form-section h3{margin:-16px -14px 16px}.section-heading h3{padding-right:8px;padding-bottom:52px}.candidate-heading-actions{left:8px;right:auto;top:38px}}
+.project-key-fields{border-color:var(--el-color-primary-light-7)}.project-key-fields__header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}.project-key-fields__header h3{margin:0;padding:0;border:0;background:transparent}.project-key-fields__header p{font-size:12px;color:var(--el-text-color-secondary);margin:8px 0 0}
 </style>

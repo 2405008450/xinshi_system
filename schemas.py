@@ -913,12 +913,18 @@ class TranslationProjectBase(BaseModel):
     def validate_progress(cls, value: Optional[str]) -> Optional[str]:
         return normalize_progress_percent(value)
 
+from translation_folder_orders import FolderDraft
+
 class TranslationProjectCreate(TranslationProjectBase):
+    initial_folder_import: Optional[FolderDraft] = None
+    submission_mode: Optional[Literal['normal','normal_children','draft','emergency_notice']] = None
+    sub_orders_reviewed: bool = False
+    initial_sub_order_details: dict[str, dict] = Field(default_factory=dict)
     payment_draft: Optional[list[ProjectPayment]] = Field(default=None, max_length=100)
     payment_version: Optional[str] = None
     created_by: Optional[UUID] = None
     role_assignments: list[ProjectRoleAssignmentInput] = Field(default_factory=list)
-    initial_sub_order_names: list[str] = Field(default_factory=list, max_length=100)
+    initial_sub_order_names: list[str] = Field(default_factory=list, max_length=500)
 
     @field_validator('initial_sub_order_names')
     @classmethod
@@ -955,6 +961,9 @@ class AssignedTranslatorCompletionUpdate(BaseModel):
 
 
 class TranslationProjectUpdate(BaseModel):
+    mother_split_reviewed: bool = False
+    submission_mode: Optional[Literal['normal','normal_children','draft','emergency_notice']] = None
+    sub_orders_reviewed: bool = False
     payment_draft: Optional[list[ProjectPayment]] = Field(default=None, max_length=100)
     payment_version: Optional[str] = None
     payment_confirmation: Optional[PaymentConfirmationWrite] = None
@@ -1054,6 +1063,13 @@ class ProjectAssignedTranslatorResponse(BaseModel):
 
 # TranslationSubOrderResponse 鍓嶇疆澹版槑锛圱ranslationProjectResponse 渚濊禆瀹冿級
 class TranslationSubOrderResponse(BaseModel):
+    mother_split_review: Optional[dict] = None
+    original_project_information: Optional[dict] = None
+    service_content: Optional[str] = None
+    customer_requirement_professional: Optional[str] = None
+    customer_requirement_special: Optional[str] = None
+    inherited_fields: list[str] = Field(default_factory=list)
+    child_field_differences: dict = Field(default_factory=dict)
     folder_info: Optional[dict] = None
     auto_created_child_count: int = 0
     id: UUID
@@ -1105,6 +1121,8 @@ class ProjectStatementStatus(BaseModel):
 
 
 class TranslationProjectResponse(TranslationProjectBase):
+    mother_split_review: Optional[dict] = None
+    child_field_differences: dict = Field(default_factory=dict)
     folder_root: bool = False
     auto_created_child_count: int = 0
     statement_required_explicit: bool = False
@@ -1144,6 +1162,10 @@ class TranslationProjectResponse(TranslationProjectBase):
 
 # TranslationSubOrder Schemas
 class TranslationSubOrderCreate(BaseModel):
+    preserve_original_file: bool = False
+    service_content: Optional[str] = None
+    customer_requirement_professional: Optional[str] = None
+    customer_requirement_special: Optional[str] = None
     parent_sub_order_id: Optional[UUID] = None
     folder_info: Optional[dict] = None
     parent_project_id: UUID
@@ -1192,6 +1214,10 @@ class TranslationSubOrderCreate(BaseModel):
 
 
 class TranslationSubOrderUpdate(BaseModel):
+    service_content: Optional[str] = None
+    customer_requirement_professional: Optional[str] = None
+    customer_requirement_special: Optional[str] = None
+    inherit_fields: list[str] = Field(default_factory=list)
     sub_project_name: Optional[str] = None
     file_type_secondary: Optional[str] = None
     language_pair: Optional[str] = None
@@ -1231,6 +1257,9 @@ class TranslationSubOrderUpdate(BaseModel):
 
 
 class TranslationSubOrderBulkDefaults(BaseModel):
+    service_content: Optional[str] = None
+    customer_requirement_professional: Optional[str] = None
+    customer_requirement_special: Optional[str] = None
     file_type_secondary: Optional[str] = None
     language_pair: Optional[str] = None
     priority: Optional[str] = None
@@ -1267,6 +1296,7 @@ class TranslationSubOrderBulkDefaults(BaseModel):
 
 
 class TranslationSubOrderBulkCreate(BaseModel):
+    preserve_original_file: bool = False
     source_folder_path: Optional[str] = Field(default=None, max_length=2000)
     parent_project_id: UUID
     sub_project_names: list[str] = Field(min_length=1, max_length=500)

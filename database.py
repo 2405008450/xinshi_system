@@ -7,6 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from fastapi import Request
 
+from database_pool_policy import application_name,pool_options,install_idle_session_timeout
 from performance_monitoring import install_sqlalchemy_performance_hooks
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
@@ -26,13 +27,10 @@ if not DATABASE_URL:
 
 engine_options = {"pool_pre_ping": True}
 if DATABASE_URL.startswith("postgresql"):
-    engine_options.update(
-        pool_size=int(os.getenv("DB_POOL_SIZE", "5")),
-        max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "5")),
-        pool_timeout=int(os.getenv("DB_POOL_TIMEOUT_SECONDS", "10")),
-        pool_recycle=int(os.getenv("DB_POOL_RECYCLE_SECONDS", "1800")),
-    )
+    engine_options.update(pool_options())
     engine_options["connect_args"] = {
+        "connect_timeout": 5,
+        "application_name": application_name("business"),
         "options": " ".join(
             [
                 "-c timezone=Asia/Hong_Kong",
@@ -44,6 +42,7 @@ if DATABASE_URL.startswith("postgresql"):
     }
 engine = create_engine(DATABASE_URL, **engine_options)
 install_sqlalchemy_performance_hooks(engine)
+install_idle_session_timeout(engine)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

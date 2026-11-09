@@ -418,10 +418,12 @@ def translation_projects_to_xlsx(
     batches: Iterable[Sequence[Any]],
     *,
     max_rows_per_sheet: int = EXPORT_MAX_ROWS_PER_SHEET,
+    contacts_visible: bool = True,
 ) -> bytes:
     """把已挂载关联数据的项目批次写成母订单、子订单和收费明细工作表。"""
     workbook = Workbook(write_only=True)
-    project_sheet = _make_sheet(workbook, "母订单", PROJECT_COLUMNS)
+    project_columns=PROJECT_COLUMNS if contacts_visible else [column for column in PROJECT_COLUMNS if column.label not in {'客户经理联系方式','邮件主题预览'}]
+    project_sheet = _make_sheet(workbook, "母订单", project_columns)
     sub_order_sheet = _make_sheet(workbook, "子订单", SUB_ORDER_COLUMNS)
     charge_sheet = _make_sheet(workbook, "子订单客户收费", CHARGE_COLUMNS)
     project_count = 0
@@ -436,7 +438,7 @@ def translation_projects_to_xlsx(
                     raise TranslationExportLimitError(
                         f"母订单超过 {max_rows_per_sheet} 行，请缩小时间范围"
                     )
-                _append_row(project_sheet, PROJECT_COLUMNS, project)
+                _append_row(project_sheet, project_columns, project)
                 sub_orders = sorted(
                     _read(project, "sub_orders", []) or [],
                     key=lambda item: str(_read(item, "sub_order_no") or ""),
@@ -756,7 +758,8 @@ def create_translation_project_export(
             keyword=keyword,
             field_filters=field_filters,
             sort=sort,
-        )
+        ),
+        contacts_visible=getattr(db,'info',{}).get('client_contacts_visible',True),
     )
 
 

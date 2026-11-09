@@ -1,6 +1,7 @@
 import { reactive } from 'vue'
 import { AUTO_DRAFT_DELAY, createAutoDraftStore, draftHash, sanitizeDraft } from './autoDraftStore.js'
 import {readCloudDraft,queueCloudDraft,clearCloudDraft} from './cloudDrafts.js'
+import {withoutBusinessNumbers} from './businessNumberLeases.js'
 const entries = new Set(), managed = new WeakSet()
 const recoveryOffered = new Set()
 function offered(entry,key){recoveryOffered.add(key);(entry.offeredKeys ||= new Set()).add(key)}
@@ -26,11 +27,12 @@ function context(entry) {
   const el = root(entry), value = model(entry), path = location.pathname + location.hash
   const dialog = el?.closest('.el-dialog'), title = dialog?.querySelector('.el-dialog__title,.dialog-field-search-header__title')?.textContent?.trim() || document.title || '编辑内容'
   const field = el?.closest('.el-form-item')?.querySelector('.el-form-item__label')?.textContent?.trim() || entry.vm.$attrs['aria-label'] || entry.vm.$attrs.placeholder || entry.vm.$props.placeholder || entry.vm.$options.name || '编辑框'
-  let record = value && typeof value === 'object' ? value.id || value.orderNo || value.order_no || value.clientCode : ''
+  const creating=value&&typeof value==='object'&&!value.id&&/新增|新建|添加|创建/.test(title)
+  let record = value && typeof value === 'object' ? value.id || (!creating && (value.orderNo || value.order_no || value.clientCode)) : ''
   const rowKeys = []
   for (let vm = entry.vm.$; vm; vm = vm.parent) {
     const state = vm.setupState || {}
-    record ||= state.editingId || state.editId || state.recordId || state.currentRecordId || state.editingOrderNo || ''
+    if(!creating)record ||= state.editingId || state.editId || state.recordId || state.currentRecordId || state.editingOrderNo || ''
     if (vm.vnode?.key != null) rowKeys.push(String(vm.vnode.key))
   }
   const same = entry.kind==='form'&&!record?[...entries].filter(item => item.kind === entry.kind && root(item)?.closest('.el-dialog') === dialog && (item.vm.$options.name || '') === (entry.vm.$options.name || '')):[]
@@ -52,6 +54,7 @@ function snapshot(entry) {
   if (data === undefined) return null
   return { ...info, data }
 }
+export function flushAutoDrafts(){flush()}
 function flush() {
   clearTimeout(timer); timer = null
   if (![...entries].some(entry=>entry.dirty)) return
@@ -108,7 +111,7 @@ function touched(event) {
   }
   if (event.type === 'click') {
     if(target.closest('[role="tab"],.el-tabs__item,a[href],.el-menu-item'))flush()
-    const button = target.closest('button'), text = button?.textContent?.trim() || button?.getAttribute('aria-label') || ''
+    const button = target.closest('button'), text = button?.getAttribute('aria-label') || button?.textContent?.trim() || ''
     if ((button?.closest('.el-dialog') && /^(取消|关闭|完成|返回)|关闭窗口|最小化/.test(text)) || (!target.closest('.el-dialog') && target.closest('.el-overlay,.el-overlay-dialog'))) flush()
     if (/^(保存|确定|提交|发送|确认保存)/.test(text)) {
       const scope = button.closest('.el-dialog') || button.closest('form') || button.closest('.inline-text-field')
@@ -138,7 +141,8 @@ export function restoreAutoDraft(id) {
   const entry = [...entries].find(item => !excluded(item) && context(item).id === id)
   if (!entry) return false
   entry.recoveryPending=false
-  const data = sanitizeDraft(record.data)
+  const restored = sanitizeDraft(record.data)
+  const data = entry.kind==='form'&&record.record==='新建'?withoutBusinessNumbers(model(entry),restored,true):restored
   if (entry.kind === 'form') Object.assign(model(entry), data)
   else entry.vm.$emit('update:modelValue', data)
   entry.dirty = true; entry.owner = userKey(); clearTimeout(timer); timer = setTimeout(flush, autoDraftState.delay)
@@ -175,6 +179,7 @@ export function installAutoDrafts(app) {
     if(scope)submitIntent={time:Date.now(),entries:[...entries].filter(entry=>!excluded(entry)&&scope.contains(root(entry)))}
   },true)
   window.addEventListener('pagehide', flush)
+  window.addEventListener('auth-session-clearing',flush)
   document.addEventListener('visibilitychange', () => { if (document.hidden) flush() })
   window.addEventListener('storage', refreshAutoDrafts)
   let recoveryTimer

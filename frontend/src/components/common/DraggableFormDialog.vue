@@ -36,6 +36,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, useAttrs, watch } 
 import WindowControls from './WindowControls.vue'
 import WindowMinibar from './WindowMinibar.vue'
 import { useWindowGeometry } from '@/composables/useWindowGeometry'
+import { flushAutoDrafts } from '@/utils/autoDrafts'
 
 defineOptions({
   name: 'DraggableFormDialog',
@@ -93,10 +94,11 @@ function closeMinimized(){const done=()=>{minimized.value=false;emit('update:mod
 function handleOpened(){contentElement.value=dialogRef.value?.dialogContentRef?.$el;if(restoring.value){restoring.value=false;return}emit('opened')}
 function handleClosed(){if(!minimized.value)emit('closed')}
 watch(()=>props.modelValue,value=>{if(!value){minimized.value=false;restoring.value=false;geometry.reset();contentElement.value=null}})
-onBeforeUnmount(()=>{minimized.value=false;targetObserver?.disconnect();window.removeEventListener('scroll',refreshTargetBounds,true)})
+onBeforeUnmount(()=>{flushAutoDrafts();minimized.value=false;targetObserver?.disconnect();window.removeEventListener('scroll',refreshTargetBounds,true)})
+watch(()=>props.modelValue,visible=>{if(!visible)flushAutoDrafts()},{flush:'sync'})
 
 const resetPosition = () => {geometry.reset();return nextTick(() => dialogRef.value?.resetPosition?.())}
-const handleClose = () => dialogRef.value?.handleClose?.()
+const handleClose = () => {flushAutoDrafts();dialogRef.value?.handleClose?.()}
 
 // 无模态小窗允许焦点离开；普通业务弹窗继续使用 Element Plus 的焦点锁定。
 const handleFocusOut = (event) => {

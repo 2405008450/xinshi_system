@@ -103,6 +103,32 @@ def _export_field_filters(
     return filters
 
 
+@router.get("/customer-history")
+def translation_customer_history_endpoint(
+    client_id: UUID,
+    period: Literal['week','month','year','all']='week',
+    keyword: str=Query('',max_length=255),
+    skip: int=Query(0,ge=0),limit: int=Query(20,ge=1,le=100),
+    exclude_project_id: Optional[UUID]=None,
+    db: Session=Depends(get_db),
+):
+    from translation_customer_history import history
+    return history(db,client_id,period,keyword,skip,limit,exclude_project_id)
+
+
+@router.get("/statistics")
+def translation_statistics_endpoint(
+    start: date, end: date,
+    granularity: Literal['day','week','month']='month',
+    date_basis: Literal['order','reception']='order',
+    tax_basis: Literal['excl_tax','incl_tax']='excl_tax',
+    client_keyword: str=Query('',max_length=255),
+    db: Session=Depends(get_db),
+):
+    from translation_statistics import report
+    return report(db,start=start,end=end,granularity=granularity,date_basis=date_basis,tax_basis=tax_basis,client_keyword=client_keyword)
+
+
 @router.get("/next-order-no")
 def get_next_order_no(db: Session = Depends(get_db)):
     """获取下一个订单号"""

@@ -3,7 +3,7 @@ import { ElMessage } from 'element-plus'
 import {chooseDraft} from '@/utils/draftRecovery'
 import {readCloudDraft,queueCloudDraft,clearCloudDraft} from '@/utils/cloudDrafts'
 import {markManagedDraft} from '@/utils/autoDrafts'
-import {draftBusinessNow,sanitizeDraft,AUTO_DRAFT_TTL} from '@/utils/autoDraftStore'
+import {draftBusinessNow,sanitizeDraft} from '@/utils/autoDraftStore'
 import {withoutBusinessNumbers} from '@/utils/businessNumberLeases'
 
 // Vue reactive Proxy 不能直接 structuredClone；表单草稿只包含可 JSON 化字段。
@@ -30,11 +30,13 @@ export const useFormDraft = ({
   legacyStorageKeys = [],
   saveDelay = 400,
   createDrafts = true,
-  requireUserId = false,
-  retentionMs = AUTO_DRAFT_TTL,
+  requireUserId = true,
+  retentionMs = null,
   draftComparison,
   createDraftVersion,
   draftVersion,
+  captureContext,
+  restoreContext,
 }) => {
   markManagedDraft(form)
   const userKey = () => requireUserId ? localStorage.getItem('user_id') || '' : currentUserKey()
@@ -92,6 +94,7 @@ export const useFormDraft = ({
       form: activeDraftKey.value === 'create' ? withoutBusinessNumbers(form,sanitizeDraft(form)) : sanitizeDraft(form),
       savedAt: draftBusinessNow(),
       ownerId: draftOwner,
+      ...(captureContext ? { context: sanitizeDraft(captureContext()) } : {}),
       ...((activeDraftKey.value === 'create' && createDraftVersion) || draftVersion ? { version: activeDraftKey.value === 'create' && createDraftVersion || draftVersion } : {}),
     }
     writeDrafts(drafts)
@@ -132,11 +135,11 @@ export const useFormDraft = ({
     draftOwner = userKey()
     activeDraftKey.value = key
     const current=++generation
-    const usable = draft => draft?.form && (!draftVersion || draft.version === draftVersion && draft.ownerId === draftOwner) && (key !== 'create' || !createDraftVersion || (
+    const usable = draft => draft?.form && (!draft.ownerId || draft.ownerId === draftOwner) && (!draftVersion || draft.version === draftVersion && draft.ownerId === draftOwner) && (key !== 'create' || !createDraftVersion || (
       draft.version === createDraftVersion && draft.ownerId === draftOwner && !draft.form.id
     ))
     const initial=clone(form),stored=readDrafts()[key],local=usable(stored)?stored:undefined
-    const restore=(draft)=>{if(draft?.form){const restored=key==='create'?withoutBusinessNumbers(form,clone(draft.form)):clone(draft.form);if(applyDraft)applyDraft(restored,key);else Object.assign(form,createDefault(),restored)}}
+    const restore=(draft)=>{if(draft?.form){const restored=key==='create'?withoutBusinessNumbers(form,clone(draft.form)):clone(draft.form);if(applyDraft)applyDraft(restored,key);else Object.assign(form,createDefault(),restored);if(draft.context&&restoreContext)restoreContext(clone(draft.context),key)}}
     try{restore(local)}catch{ElMessage.warning('草稿自动恢复失败，原内容仍保留，请勿覆盖')}
     const baseline=comparison()
     void readCloudDraft(cloudNamespace,key).then(cloud=>{
@@ -155,7 +158,8 @@ export const useFormDraft = ({
 
   const pauseDraft = () => {
     generation++
-    flushDraft()
+    cancelScheduledSave()
+    saveActiveDraft()
     savingEnabled.value = false
     activeDraftKey.value = ''
     draftOwner = ''
@@ -168,14 +172,22 @@ export const useFormDraft = ({
     removeDraft()
     activeDraftKey.value = ''
   }
+  // 正式保存后继续编辑同一窗口：换成编辑草稿，不读取已清除的旧草稿。
+  const startFreshDraft = (key) => {
+    generation++
+    cancelScheduledSave()
+    draftOwner=userKey()
+    activeDraftKey.value=draftOwner?key:''
+    savingEnabled.value=Boolean(draftOwner)
+  }
   // 同步阶段只重置轻量计时器，JSON 克隆与本机存储写入延后执行。
   watch(form, scheduleActiveDraft, { deep: true, flush: 'sync' })
-  const persist=()=>flushDraft()
-  const hidden=()=>{if(document.hidden)flushDraft()}
+  const persist=()=>{cancelScheduledSave();saveActiveDraft()}
+  const hidden=()=>{if(document.hidden)persist()}
   window.addEventListener('pagehide',persist)
   window.addEventListener('auth-session-clearing',pauseDraft)
   document.addEventListener('visibilitychange',hidden)
-  onBeforeUnmount(()=>{flushDraft();generation++;window.removeEventListener('pagehide',persist);window.removeEventListener('auth-session-clearing',pauseDraft);document.removeEventListener('visibilitychange',hidden)})
+  onBeforeUnmount(()=>{persist();generation++;window.removeEventListener('pagehide',persist);window.removeEventListener('auth-session-clearing',pauseDraft);document.removeEventListener('visibilitychange',hidden)})
 
-  return { beginDraft, pauseDraft, clearDraft, flushDraft, removeDraft }
+  return { beginDraft, pauseDraft, clearDraft, flushDraft, removeDraft, startFreshDraft }
 }

@@ -425,6 +425,8 @@ def _project_source(project_type: str, project) -> dict:
     source.update({name: getattr(project, name, None) for name in field_names[project_type]})
     if project_type == "translation":
         source["sub_order_count"] = len(getattr(project, "sub_orders", []) or [])
+        from translation_order_inheritance import hierarchy_summary
+        source['sub_order_hierarchy'] = hierarchy_summary(getattr(project, 'sub_orders', []) or [])
         source["project_name"] = getattr(project, "source_file_name", None)
         source["source_file_name"] = getattr(project, "source_file_name", None)
         source["email_subject_preview"] = getattr(project, "email_subject_preview", None)
@@ -519,10 +521,16 @@ def build_preview(
         project = db.query(PROJECT_MODELS[project_type]).filter(PROJECT_MODELS[project_type].id == project_id).first()
         if not project:
             raise LookupError("项目不存在")
+        if project_type == 'translation':
+            from translation_folder_orders import attach as attach_folder_orders
+            attach_folder_orders(db, project.sub_orders)
         project_values = _project_source(project_type, project)
         if project_type == "translation":
             project_values["word_count_matrix"] = get_word_count_matrix(db, "project", project.id)
         values = {**project_values, **values}
+    if getattr(db,'info',{}).get('client_contacts_visible') is False:
+        values['manager_contact']=None
+        values['email_subject_preview']=None
     if project_type == "interpretation":
         values = _normalize_interpretation_mail_values(db, values)
     elif project_type == "annotation":
@@ -530,6 +538,12 @@ def build_preview(
     elif project_type == "recruitment":
         values = _normalize_recruitment_mail_values(db, values)
     blocking: list[str] = []
+    emergency_notice = False
+    if project_type == 'translation' and project_id:
+        from translation_project_submission import mail_policy
+        emergency_notice, policy_error = mail_policy(db, project)
+        if policy_error:
+            blocking.append(policy_error)
     try:
         to_users, cc_users = policy_recipients(db, project_type)
     except ValueError as exc:
@@ -595,6 +609,19 @@ def build_preview(
         for label,key in [('客户专业要求','customer_requirement_professional'),('客户特殊要求','customer_requirement_special')]:
             if _clean(values.get(key)):
                 lines.extend(['',f'{label}：',_clean(values[key])])
+        if emergency_notice:
+            lines.extend(['', '（紧急）项目预告知：子订单字数及相关资料可能尚未完善，请后续补充确认。'])
+        summary = values.get('sub_order_hierarchy') or []
+        if summary:
+            levels = {1:'一级', 2:'二级', 3:'三级', 4:'四级'}
+            lines.extend(['', '子订单层级汇总：'])
+            for item in summary:
+                if item.get('level') in levels:
+                    lines.append(f"{levels[item['level']]}子订单：{item['orders']} 个，其中文件：{item['files']} 个")
+    if emergency_notice:
+        subject = '（紧急）项目预告知：' + subject.removeprefix('（紧急）项目预告知：')
+    else:
+        subject = subject.removeprefix('（紧急）项目预告知：')
     body = "\n".join(lines)
     recipient_names = recipient_display_names(db, [*to_users, *cc_users])
     signature_html, signature_text = active_signature(
@@ -642,7 +669,13 @@ def serialize_mail(mail: BusinessMail) -> dict:
     )
     latest_attempt = attempts[-1] if attempts else None
     session = _object_session_or_none(mail)
+    chat_error=None
+    if session and mail.project_type=='translation':
+        from translation_chat_delivery import ready as chat_ready,TranslationMailChatIntent
+        intent=session.get(TranslationMailChatIntent,mail.id) if chat_ready(session) else None
+        chat_error=intent.error if intent else None
     return {
+        "translation_chat_error":chat_error,
         "id": mail.id, "source_kind": mail.source_kind, "project_type": mail.project_type,
         "consultation_id": mail.consultation_id, "project_id": _project_id(mail),
         "subject": mail.subject, "body": mail.body, "body_html": getattr(mail, "body_html", None),
@@ -675,12 +708,14 @@ def _deliver(db: Session, mail: BusinessMail, actor: AppUser) -> BusinessMail:
     cc_emails = [item.email_snapshot for item in cc_recipients]
     to_display_names = {item.email_snapshot: item.display_name_snapshot for item in to_recipients}
     cc_display_names = {item.email_snapshot: item.display_name_snapshot for item in cc_recipients}
-    now = datetime.now()
+    from annotation_progress_time import business_now
+    now = business_now().replace(tzinfo=None)
     mail.status = "sending"
     mail.send_attempted_at = now
     mail.send_error = None
     db.commit()
     attempt = BusinessMailAttempt(
+        attempted_at=now,
         mail_id=mail.id,
         sender_user_id=actor.id,
         sender_name_snapshot=display_user(actor),
@@ -715,6 +750,8 @@ def _deliver(db: Session, mail: BusinessMail, actor: AppUser) -> BusinessMail:
         attempt.error = mail.send_error
         attempt.success = False
     db.commit()
+    from translation_chat_delivery import complete_mail_intent
+    complete_mail_intent(db,mail,actor)
     return db.query(BusinessMail).options(
         joinedload(BusinessMail.recipients), joinedload(BusinessMail.attempts)
     ).filter(BusinessMail.id == mail.id).first()
@@ -733,6 +770,18 @@ def create_and_send(db: Session, payload, actor: AppUser) -> BusinessMail:
     if not project:
         raise LookupError("项目不存在")
     _require_subject_order_no(project, payload.subject)
+    if payload.project_type == 'translation':
+        from translation_project_submission import mail_policy
+        notice, policy_error = mail_policy(db, project)
+        if policy_error:
+            raise ValueError(policy_error)
+        if notice:
+            payload.subject = '（紧急）项目预告知：' + payload.subject.removeprefix('（紧急）项目预告知：')
+            warning = '（紧急）项目预告知：子订单字数及相关资料可能尚未完善，请后续补充确认。'
+            if warning not in payload.body:
+                payload.body += '\n\n' + warning
+                if payload.body_html:
+                    payload.body_html += '<p>' + warning + '</p>'
     project_consultation_id = getattr(project, "consultation_id", None)
     if payload.consultation_id and project_consultation_id != payload.consultation_id:
         raise ValueError("咨询记录与项目不匹配")
@@ -754,6 +803,12 @@ def create_and_send(db: Session, payload, actor: AppUser) -> BusinessMail:
     db.add(mail)
     db.flush()
     bind_images(db, inline_images, "business_mail", mail.id)
+    if payload.send_translation_chat:
+        if payload.project_type!='translation':raise ValueError('此会话联动仅适用于笔译项目')
+        from translation_chat_delivery import require_ready as chat_require_ready,TranslationMailChatIntent,settings as chat_settings,resolve_audience,people as chat_people
+        chat_require_ready(db)
+        resolve_audience(db,payload.translation_chat_audience,{str(person.id) for person in chat_people(db)})
+        db.add(TranslationMailChatIntent(mail_id=mail.id,audience=payload.translation_chat_audience))
     recipient_names = recipient_display_names(db, [*to_users, *cc_users])
     mail.recipients = [
         BusinessMailRecipient(user_id=user.id, recipient_type=kind, display_name_snapshot=recipient_names[user.id], email_snapshot=_valid_email(user.email) or "")

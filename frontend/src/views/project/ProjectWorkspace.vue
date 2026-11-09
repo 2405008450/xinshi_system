@@ -1,11 +1,12 @@
 <template>
-  <div class="project-workspace" :class="{ 'project-workspace--projects': activeSection === 'projects' }">
+  <div class="project-workspace" :class="{ 'project-workspace--projects': activeSection === 'projects', 'project-workspace--help': activeSection === 'help' }">
     <el-card class="workspace-navigation" shadow="never">
       <el-tabs :model-value="activeSection" :before-leave="handleSectionChange" @tab-click="handleSectionClick">
         <el-tab-pane :label="`${moduleLabel}项目管理`" name="projects" />
         <el-tab-pane v-if="module === 'translation'" label="项目安排" name="arrangements" />
         <el-tab-pane v-if="module === 'translation' && canViewManuscript" label="稿件安排" name="manuscript" />
         <el-tab-pane :label="`${moduleLabel}须知`" name="notices" />
+        <el-tab-pane v-if="module === 'translation'" label="帮助" name="help" />
       </el-tabs>
     </el-card>
     <keep-alive>
@@ -27,7 +28,7 @@ function handleSectionClick(tab){if(props.module==='translation'&&activeSection.
 const labels = { translation: '笔译', interpretation: '口译', recruitment: '招聘' }
 const moduleLabel = computed(() => labels[props.module])
 const canViewManuscript = computed(() => canViewManuscriptArrangements())
-const activeSection = computed(() => props.module === 'translation' && canViewManuscript.value && route.query.section === 'manuscript' ? 'manuscript' : route.query.section === 'notices' ? 'notices' : (props.module === 'translation' && route.query.section === 'arrangements') ? route.query.section : 'projects')
+const activeSection = computed(() => props.module === 'translation' && route.query.section === 'help' ? 'help' : props.module === 'translation' && canViewManuscript.value && route.query.section === 'manuscript' ? 'manuscript' : route.query.section === 'notices' ? 'notices' : (props.module === 'translation' && route.query.section === 'arrangements') ? route.query.section : 'projects')
 const projects = {
   translation: defineAsyncComponent(() => import('./translation/ProjectDetails.vue')),
   interpretation: defineAsyncComponent(() => import('./interpretation/InterpretationProjectDetails.vue')),
@@ -36,7 +37,8 @@ const projects = {
 const notices = defineAsyncComponent(() => import('./ProjectNotices.vue'))
 const arrangements = defineAsyncComponent(() => import('./translation/ProjectArrangements.vue'))
 const manuscript = defineAsyncComponent(() => import('../manuscript/ManuscriptArrangements.vue'))
-const activeComponent = computed(() => activeSection.value === 'manuscript' ? manuscript : activeSection.value === 'notices' ? notices : activeSection.value === 'arrangements' ? arrangements : projects[props.module])
+const help = defineAsyncComponent(() => import('./translation/TranslationHelp.vue'))
+const activeComponent = computed(() => activeSection.value === 'help' ? help : activeSection.value === 'manuscript' ? manuscript : activeSection.value === 'notices' ? notices : activeSection.value === 'arrangements' ? arrangements : projects[props.module])
 const activeProps = computed(() => activeSection.value === 'notices' ? { module: props.module, moduleLabel: moduleLabel.value } : {})
 
 async function handleSectionChange(section) {
@@ -52,7 +54,7 @@ async function handleSectionChange(section) {
 
 <style scoped>
 .project-workspace{display:flex;flex-direction:column;gap:8px;min-width:0}
-.project-workspace--projects{height:100%;min-height:0}
+.project-workspace--projects,.project-workspace--help{height:100%;min-height:0}
 .workspace-navigation{flex:none;border-color:var(--color-border);border-radius:var(--radius-lg)}
 .workspace-navigation :deep(.el-card__body){padding:0 20px}
 .workspace-navigation :deep(.el-tabs__header){margin:0}

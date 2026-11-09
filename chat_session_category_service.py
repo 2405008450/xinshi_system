@@ -54,8 +54,10 @@ def catalog(db, user):
     technical_access=can_access(db,user)
     hidden=set() if technical_access else restricted_ids(db)
     task_rooms=specs(db)
+    from translation_chat_delivery import aliases as translation_aliases
+    titles=translation_aliases(db)
     return dict(ready=ready, hierarchy_ready=hierarchy_ready, can_manage=ready and can_manage_folders(db, user), technical_access=technical_access,
-                items=[dict(serialize(row), name=task_rooms.get(str(row.id),{}).get('name',row.name), parent_key=task_rooms.get(str(row.id),{}).get('parent_key',parents.get(str(row.id))), is_conversation=str(row.id) in rooms, fixed_top=row.name=='技术/开发沟通')
+                items=[dict(serialize(row), name=titles.get(str(row.id),task_rooms.get(str(row.id),{}).get('name',row.name)), parent_key=task_rooms.get(str(row.id),{}).get('parent_key',parents.get(str(row.id))), is_conversation=str(row.id) in rooms, fixed_top=row.name=='技术/开发沟通')
                        for row in db.query(Category).order_by(Category.created_at, Category.id) if row.id not in hidden] if ready else [])
 
 

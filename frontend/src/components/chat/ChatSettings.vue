@@ -1,6 +1,8 @@
 <template>
   <section class="chat-settings" aria-label="会话设置">
     <ChatTimeDisplaySettings />
+    <div class="chat-settings__annotation"><el-button text class="chat-settings__section" @click="translationVisible=true">笔译项目</el-button></div>
+    <TranslationChatSettings v-model="translationVisible" />
     <div class="chat-settings__annotation">
       <el-button text class="chat-settings__section" :aria-expanded="annotationExpanded" @click="annotationExpanded=!annotationExpanded">标注项目</el-button>
       <div v-if="annotationExpanded" class="chat-settings__children">
@@ -12,10 +14,13 @@
   </section>
 </template>
 <script setup>
+import TranslationChatSettings from './TranslationChatSettings.vue'
+
 import { ref } from 'vue'
 import ChatTimeDisplaySettings from './ChatTimeDisplaySettings.vue'
 import ChatDispatchDefaultsDialog from './ChatDispatchDefaultsDialog.vue'
 import ChatDefaultParticipantsDialog from './ChatDefaultParticipantsDialog.vue'
+const translationVisible=ref(false)
 const annotationExpanded=ref(false),participantsVisible=ref(false),businessExpanded=ref(false),defaultKind=ref('')
 </script>
 <style scoped>

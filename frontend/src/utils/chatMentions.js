@@ -25,3 +25,18 @@ export function mentionedDocument(message, userId) {
   }
   return decorate(document)[0]
 }
+
+// 自动项目消息的正文不包含 @ 文本时，仍展示服务端持久化的真实提及关系。
+export function undisplayedMentions(message,userId){
+  if(message.recalledAt||message.recalled_at)return []
+  const mentions=message.mentions||[],content=message.content||''
+  if(!mentions.length)return []
+  const all=mentions.some(item=>item.isAll||item.is_all)||message.metadata?.mentionAll||message.metadata?.mention_all
+  if(all)return content.includes('@所有人')||content.includes('@全体')?[]:[{id:'all',label:'@所有人',highlight:mentions.some(item=>String(item.mentionedUserId??item.mentioned_user_id)===String(userId))}]
+  const unique=new Map()
+  for(const item of mentions){
+    const id=item.mentionedUserId??item.mentioned_user_id,name=item.mentionedUserName??item.mentioned_user_name
+    if(id&&name&&!content.includes('@'+name))unique.set(String(id),{id:String(id),label:'@'+name,highlight:String(id)===String(userId)})
+  }
+  return [...unique.values()]
+}

@@ -581,6 +581,7 @@ def create_client(
     db: Session, client: ClientCreate, idempotency_key: Optional[str] = None,
 ) -> Client:
     data = client.model_dump(exclude={'customer_type','contact_names','contact_people'})
+    if not getattr(db,'info',{}).get('client_contacts_visible',True):data.pop('manager_contact',None)
     if not data.get('client_code'):
         data['client_code'] = generate_client_code(db)
     db_client = Client(idempotency_key=idempotency_key, **data)
@@ -602,6 +603,7 @@ def update_client(db: Session, client_id: UUID, client_update: ClientUpdate) -> 
     if not db_client:
         return None
     update_data = client_update.model_dump(exclude_unset=True, exclude={VERSION_FIELD, 'customer_type','contact_names','contact_people'})
+    if not getattr(db,'info',{}).get('client_contacts_visible',True):update_data.pop('manager_contact',None)
     assert_fresh(db_client, client_update.expected_updated_at)
     if 'customer_type' in client_update.model_fields_set:
         from translation_customer_type import save_client
@@ -688,6 +690,7 @@ def update_client_contact(db: Session, contact_id: UUID, contact_update: ClientC
         return None
 
     update_data = _fill_client_contact_fields(db, contact_update.model_dump(exclude_unset=True))
+    if not getattr(db,'info',{}).get('client_contacts_visible',True):update_data.pop('manager_contact',None)
     for field, value in update_data.items():
         setattr(db_contact, field, value)
 
@@ -747,6 +750,7 @@ def create_sub_client(
 ) -> SubClient:
     sub_code = sub_client.sub_client_code or generate_sub_client_code(db, sub_client.parent_client_id)
     data = sub_client.model_dump(exclude={'sub_client_code', 'customer_type','contact_names','contact_people'})
+    if not getattr(db,'info',{}).get('client_contacts_visible',True):data.pop('manager_contact',None)
     db_sub = SubClient(
         sub_client_code=sub_code, idempotency_key=idempotency_key, **data,
     )
@@ -768,6 +772,7 @@ def update_sub_client(db: Session, sub_id: UUID, sub_update: SubClientUpdate) ->
     if not db_sub:
         return None
     update_data = sub_update.model_dump(exclude_unset=True, exclude={VERSION_FIELD, 'customer_type','contact_names','contact_people'})
+    if not getattr(db,'info',{}).get('client_contacts_visible',True):update_data.pop('manager_contact',None)
     assert_fresh(db_sub, sub_update.expected_updated_at)
     if 'customer_type' in sub_update.model_fields_set:
         from translation_customer_type import save_client
@@ -1137,6 +1142,8 @@ def _attach_manuscript_assignees(
 ) -> None:
     """把有效派稿明细汇总到项目响应，不再依赖单一 translator_id。"""
     projects = projects or []
+    from translation_mother_split import attach as attach_mother_split
+    attach_mother_split(db,projects,sub_orders or [])
     from translation_customer_type import attach as attach_customer_types
     attach_customer_types(db, projects)
     attach_project_contacts(db, projects)
@@ -1207,6 +1214,8 @@ def _attach_manuscript_assignees(
     attach_folder_roots(db, projects)
     attach_folder_orders(db, sub_orders)
     _attach_word_count_matrices(db, projects=projects, sub_orders=sub_orders)
+    from translation_order_inheritance import attach as attach_inheritance
+    attach_inheritance(db, projects=projects, sub_orders=sub_orders)
 
 
 def _sync_assigned_translator_completions(
@@ -1532,6 +1541,7 @@ def _resolve_or_create_project_client(
     manager_contact: Optional[str] = None,
 ) -> tuple[Optional[UUID], Optional[UUID], bool]:
     """按简称/编号关联已有客户；简称不存在时创建一条待完善的母客户记录。"""
+    if not getattr(db,'info',{}).get('client_contacts_visible',True):manager_contact=None
     normalized_short_name = (client_short_name or "").strip()
     normalized_client_code = (client_code or "").strip()
     normalized_client_name = (client_name or "").strip()
@@ -1872,9 +1882,18 @@ def _apply_translation_project_filters(
     field_filters: Optional[dict] = None,
 ):
     if keyword and keyword.strip():
+        from project_client_manager import manager_name_expression
+        from translation_customer_type import ClientCustomerType
+        customer_type = select(ClientCustomerType.customer_type).where(or_(
+            and_(TranslationProject.sub_client_id.is_not(None), ClientCustomerType.sub_client_id == TranslationProject.sub_client_id),
+            and_(TranslationProject.sub_client_id.is_(None), ClientCustomerType.client_id == TranslationProject.client_id),
+        )).correlate(TranslationProject).scalar_subquery()
         pattern = f"%{keyword.strip()}%"
         query = query.filter(keyword_or(lambda _search_part: or_(
             keyword_ilike(TranslationProject.order_no, _search_part),
+            keyword_ilike(TranslationProject.language_pair, _search_part),
+            keyword_ilike(customer_type, _search_part),
+            keyword_ilike(manager_name_expression('translation', TranslationProject.id, Client.client_manager), _search_part),
             TranslationProject.sub_orders.any(
                 keyword_ilike(TranslationSubOrder.sub_order_no, _search_part)
             ),
@@ -2414,11 +2433,11 @@ def create_translation_project(
     role_assignments = project.role_assignments
     project_data = project.model_dump(exclude={
         'client_short_name', 'client_code', 'client_name', 'contact_name', 'sub_client_name', 'manager_contact', 'sub_client_short_name',
-        'word_count_matrix', 'customer_charge_items', 'role_assignments', 'client_manager_id', 'client_manager_change_reason', 'initial_sub_order_names', 'customer_type', 'statement_required', 'quotation_draft', 'payment_draft', 'payment_version', 'payment_confirmation'
+        'word_count_matrix', 'customer_charge_items', 'role_assignments', 'client_manager_id', 'client_manager_change_reason', 'initial_sub_order_names', 'initial_folder_import', 'initial_sub_order_details', 'submission_mode', 'sub_orders_reviewed', 'customer_type', 'statement_required', 'quotation_draft', 'payment_draft', 'payment_version', 'payment_confirmation'
     })
     if 'source_file_name' not in project.model_fields_set:
         project_data.pop('source_file_name', None)
-    normalize_translation_name_payload(project_data, has_sub_orders=bool(project.initial_sub_order_names) or folder_root)
+    normalize_translation_name_payload(project_data, has_sub_orders=bool(project.initial_sub_order_names) or bool(project.initial_folder_import) or folder_root)
     project_data['email_subject_preview'] = normalize_email_subject_order_no(
         project_data.get('email_subject_preview'), order_no
     )
@@ -2511,18 +2530,28 @@ def create_translation_project(
     from customer_finance_sync import inherit_translation
     inherit_translation(db,db_project,project.created_by)
     auto_created = 0
-    for name in project.initial_sub_order_names:
+    if project.initial_folder_import:
+        from translation_folder_orders import FolderImport, import_folders
+        import_folders(db, FolderImport(parent_project_id=db_project.id, **project.initial_folder_import.model_dump()), project.created_by, commit=False, update_root=False)
+        db.expire(db_project, ["sub_orders"])
+    initial_offset = max((int(row.sub_order_no.rsplit(".",1)[-1]) for row in db_project.sub_orders if row.sub_order_no.count(".")==1), default=0) if project.initial_folder_import else 0
+    for index, name in enumerate(project.initial_sub_order_names, initial_offset+1):
+        initial_values = dict(project.initial_sub_order_details.get(f'{index:03d}', {}))
+        initial_values.pop('sub_project_name', None)
         initial_child = _create_sub_order_in_transaction(db, TranslationSubOrderCreate(
-            parent_project_id=db_project.id, sub_project_name=name,
-            language_pair=db_project.language_pair, priority=db_project.priority,
-            customer_deadline_time=db_project.customer_deadline_time,
-            created_by=project.created_by,
+            **{'language_pair':db_project.language_pair, 'priority':db_project.priority,
+               'customer_deadline_time':db_project.customer_deadline_time, **initial_values,
+               'parent_project_id':db_project.id, 'sub_project_name':name, 'created_by':project.created_by},
         ))
         auto_created += getattr(initial_child, 'auto_created_child_count', 0)
     from translation_direction_service import ensure_direction_children
-    auto_created += len(ensure_direction_children(db, db_project, project.created_by))
+    if not project.initial_folder_import:
+        auto_created += len(ensure_direction_children(db, db_project, project.created_by))
     db_project.auto_created_child_count = auto_created
-    if project.initial_sub_order_names:
+    from translation_project_submission import apply as apply_submission, apply_initial_details
+    apply_initial_details(db, db_project, project.initial_sub_order_details)
+    apply_submission(db, db_project, project.submission_mode, project.sub_orders_reviewed)
+    if project.initial_sub_order_names or project.initial_folder_import:
         db.expire(db_project, ['sub_orders'])
     record_project_operation(
         db,
@@ -2554,10 +2583,13 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
     matrix_update = project_update.word_count_matrix
     update_data = project_update.model_dump(
         exclude_unset=True,
-        exclude={'client_short_name', 'client_code', 'client_name', 'contact_name', 'sub_client_name', 'manager_contact', 'sub_client_short_name', 'word_count_matrix', 'customer_charge_items', 'role_assignments', 'assigned_translator_completions', 'client_manager_id', 'client_manager_change_reason', 'customer_type', 'statement_required', 'quotation_draft', 'payment_draft', 'payment_version', 'payment_confirmation', VERSION_FIELD},
+        exclude={'submission_mode','sub_orders_reviewed','client_short_name', 'client_code', 'client_name', 'contact_name', 'sub_client_name', 'manager_contact', 'sub_client_short_name', 'word_count_matrix', 'customer_charge_items', 'role_assignments', 'assigned_translator_completions', 'client_manager_id', 'client_manager_change_reason', 'customer_type', 'statement_required', 'quotation_draft', 'payment_draft', 'payment_version', 'payment_confirmation', VERSION_FIELD},
     )
+    update_data.pop('mother_split_reviewed', None)
     db.query(TranslationProject).filter(TranslationProject.id == project_id).with_for_update().populate_existing().one()
     assert_fresh(db_project, project_update.expected_updated_at)
+    from translation_order_inheritance import prepare as prepare_inheritance, synchronize as synchronize_inheritance, FIELDS as INHERITED_FIELDS
+    inheritance_context = prepare_inheritance(db, project_id) if any(('status' if key == 'project_status' else key) in INHERITED_FIELDS for key in update_data) else None
     if 'client_manager_id' in project_update.model_fields_set:
         from project_client_manager import apply as apply_client_manager
         apply_client_manager(db, 'translation', db_project, project_update.client_manager_id, project_update.client_manager_change_reason, actor_user_id)
@@ -2678,9 +2710,16 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
     elif matrix_update is not None:
         _validate_charge_metric_values(db_project.customer_charge_items, customer_values)
     from translation_direction_service import ensure_direction_children
+    if inheritance_context:
+        synchronize_inheritance(db, inheritance_context)
+    from translation_project_submission import apply as apply_submission
     db_project.auto_created_child_count = len(ensure_direction_children(db, db_project, actor_user_id)) if 'language_pair' in update_data else 0
+    apply_submission(db, db_project, project_update.submission_mode, project_update.sub_orders_reviewed)
     from annotation_progress_time import business_now
     db_project.updated_at = business_now()
+    if project_update.mother_split_reviewed:
+        from translation_mother_split import review
+        review(db,db_project,actor_user_id)
     
     db.commit()
     db.refresh(db_project)
@@ -3766,16 +3805,20 @@ def _create_sub_order_in_transaction(
     if not re.fullmatch(re.escape(root.order_no)+r'(\.\d+){1,4}',sub_order_no):raise ValueError('子订单最多四级，编号必须属于当前母订单')
     prefix=sub_order_no.rsplit('.',1)[0]
     if prefix!=root.order_no and not db.query(TranslationSubOrder.id).filter_by(parent_project_id=root.id,sub_order_no=prefix).first():raise ValueError('请先创建上级子订单')
+    if prefix != root.order_no:
+        parent = db.query(TranslationSubOrder).filter_by(parent_project_id=root.id, sub_order_no=prefix).one()
     folder=sub_order.folder_info
     file_name=folder_name(sub_order.sub_project_name) if folder else normalize_single_file_name(sub_order.sub_project_name)
     if folder:
         from path_security import validate_managed_path
-        if folder.get('source_kind') not in ('local','unc') or not folder.get('root_path') or not folder.get('relative_path'):raise ValueError('文件夹信息不完整')
+        if folder.get('source_kind') not in ('local','unc','manifest') or not folder.get('root_path') or not folder.get('relative_path'):raise ValueError('文件夹信息不完整')
         parts=folder['relative_path'].replace('\\','/').split('/')
         if len(parts)>4 or folder_name(parts[-1])!=file_name:raise ValueError('文件夹层级或名称不匹配')
         for name in parts:folder_name(name)
         folder={**folder,'root_path':validate_managed_path(folder['root_path']),'files':[normalize_single_file_name(name) for name in folder.get('files',[])]}
-    data = sub_order.model_dump(exclude={'sub_order_no', 'word_count_matrix', 'customer_charge_items','folder_info','parent_sub_order_id'})
+    from translation_order_inheritance import attach_creation_parent, create_state
+    attach_creation_parent(db, parent)
+    data = sub_order.model_dump(exclude={'preserve_original_file','sub_order_no', 'word_count_matrix', 'customer_charge_items','folder_info','parent_sub_order_id','service_content','customer_requirement_professional','customer_requirement_special'})
     data['sub_project_name'] = file_name
     data['language_pair'] = _normalize_catalog_language_pairs(db, data.get('language_pair'))
     from translation_direction_service import validate_direction_level, ensure_direction_children
@@ -3786,6 +3829,7 @@ def _create_sub_order_in_transaction(
     )
     db.add(db_sub)
     db.flush()
+    create_state(db, db_sub, parent, sub_order)
     if folder:
         db.add(TranslationOrderFolder(sub_order_id=db_sub.id,**{key:folder[key] for key in ('source_kind','root_path','relative_path','files')}))
         db.flush()
@@ -3810,7 +3854,8 @@ def _create_sub_order_in_transaction(
     inherit_new_order(db, db_sub)
     # 子订单与母订单一致：初始工作流必须同事务落库，否则子订单不会出现在工作台。
     init_workflow(db, sub_order_id=db_sub.id, commit=False)
-    db_sub.auto_created_child_count = len(ensure_direction_children(db, db_sub, sub_order.created_by))
+    db_sub.auto_created_child_count = len(ensure_direction_children(db, db_sub, sub_order.created_by)) if 'language_pair' in sub_order.model_fields_set else 0
+    db.expire(root, ['sub_orders'])
     return db_sub
 
 
@@ -3818,6 +3863,12 @@ def create_sub_order(
     db: Session, sub_order: TranslationSubOrderCreate,
     idempotency_key: Optional[str] = None,
 ) -> TranslationSubOrder:
+    if sub_order.preserve_original_file and not sub_order.parent_sub_order_id:
+        from translation_mother_split import preserve_original
+        root=db.query(TranslationProject).filter_by(id=sub_order.parent_project_id).with_for_update().first()
+        if not root:raise ValueError('母订单不存在')
+        original=preserve_original(db,root,sub_order.created_by)
+        if original:sub_order=sub_order.model_copy(update={'sub_order_no':None})
     db_sub = _create_sub_order_in_transaction(db, sub_order, idempotency_key=idempotency_key)
     db.commit()
     return get_sub_order(db, db_sub.id)
@@ -3865,6 +3916,9 @@ def create_sub_orders_bulk(
     if not parent:
         raise ValueError('母订单不存在')
 
+    if payload.preserve_original_file:
+        from translation_mother_split import preserve_original
+        preserve_original(db,parent,created_by)
     existing_names = [
         item.sub_project_name
         for item in db.query(TranslationSubOrder)
@@ -3881,7 +3935,7 @@ def create_sub_orders_bulk(
         if any(name not in shared_files for name in payload.sub_project_names):
             raise ValueError('部分文件已不在共享文件夹第一层，请重新读取后选择')
         shared_files = {name: validate_managed_path(shared_files[name]) for name in payload.sub_project_names}
-    defaults = payload.defaults.model_dump()
+    defaults = payload.defaults.model_dump(exclude_unset=True)
     # 批量数量创建和按文件名创建都只继承公共字段，字数必须逐个子订单补录。
     from word_count_schemas import WordCountCreateMatrix
     defaults['word_count_matrix'] = WordCountCreateMatrix()
@@ -3905,16 +3959,18 @@ def create_sub_orders_bulk(
     return created, skipped
 
 
-def update_sub_order(db: Session, sub_order_id: UUID, sub_order_update: TranslationSubOrderUpdate) -> Optional[TranslationSubOrder]:
+def update_sub_order(db: Session, sub_order_id: UUID, sub_order_update: TranslationSubOrderUpdate, *, commit: bool = True) -> Optional[TranslationSubOrder]:
     db_sub = get_sub_order(db, sub_order_id)
     if not db_sub:
         return None
+    from translation_order_inheritance import prepare as prepare_inheritance, update_state, synchronize as synchronize_inheritance
+    inheritance_context = prepare_inheritance(db, db_sub.parent_project_id)
     completion_updates = sub_order_update.assigned_translator_completions
     charge_updates = sub_order_update.customer_charge_items
     matrix_update = sub_order_update.word_count_matrix
     update_data = sub_order_update.model_dump(
         exclude_unset=True,
-        exclude={'word_count_matrix', 'customer_charge_items', 'assigned_translator_completions'},
+        exclude={'word_count_matrix', 'customer_charge_items', 'assigned_translator_completions', 'inherit_fields'},
     )
     if 'sub_project_name' in update_data:
         from translation_file_name_rules import normalize_single_file_name
@@ -3928,6 +3984,7 @@ def update_sub_order(db: Session, sub_order_id: UUID, sub_order_update: Translat
     validate_direction_level(db_sub.sub_order_no, update_data.get('language_pair', db_sub.language_pair))
     if 'translator_id' in update_data:
         _validate_written_translator(db, update_data.get('translator_id'))
+    update_state(inheritance_context, db_sub, update_data, sub_order_update.inherit_fields)
     for field, value in update_data.items():
         setattr(db_sub, field, value)
     _sync_assigned_translator_completions(
@@ -3954,10 +4011,14 @@ def update_sub_order(db: Session, sub_order_id: UUID, sub_order_update: Translat
         )
     elif matrix_update is not None:
         _validate_charge_metric_values(db_sub.customer_charge_items, customer_values)
+    synchronize_inheritance(db, inheritance_context)
     db_sub.auto_created_child_count = len(ensure_direction_children(db, db_sub, db.info.get('number_actor'))) if 'language_pair' in update_data else 0
     from annotation_progress_time import business_now
     db_sub.updated_at = business_now()
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return get_sub_order(db, db_sub.id)
 
 
