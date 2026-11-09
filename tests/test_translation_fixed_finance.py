@@ -39,8 +39,12 @@ def test_project_form_preserves_company_count_basis_language_and_both_tax_prices
     db, (user, _, _) = environment
     _, root, child, leaf = context(db, user)
     owner=child if use_child else root
-    # 有下级时以末级订单汇总；父级历史统计不参与当前计费。
-    db.add(WordCountMetric(id=uuid4(), sub_order_id=leaf.id, dimension='company', metric_type='words', count_value=50)); db.commit()
+    # 父级按本单填报值计算，不能误取下级的 50 字。
+    db.add(WordCountMetric(id=uuid4(), sub_order_id=leaf.id, dimension='company', metric_type='words', count_value=50))
+    db.add(WordCountMetric(id=uuid4(), project_id=None if use_child else root.id,
+                          sub_order_id=child.id if use_child else None,
+                          dimension='company', metric_type='words', count_value=25))
+    db.commit()
     def assign_id(mapper, connection, target):
         if target.id is None: target.id=uuid4()
     event.listen(TranslationSubOrderChargeItem, 'before_insert', assign_id)
@@ -56,13 +60,13 @@ def test_project_form_preserves_company_count_basis_language_and_both_tax_prices
     charge=restored.customer_charge_items[0]
     assert charge.quantity_basis == 'company_words'
     assert charge.language_pair == '英语→简中'
-    assert charge.quantity == 50
-    assert charge.calculated_total_excl_tax == Decimal('100')
-    assert charge.calculated_total_incl_tax == Decimal('106')
+    assert charge.quantity == 25
+    assert charge.calculated_total_excl_tax == Decimal('50')
+    assert charge.calculated_total_incl_tax == Decimal('53')
 
 
 @pytest.mark.parametrize('use_child', [False, True])
-def test_project_form_rejects_stale_parent_count_when_children_have_no_count(environment, use_child):
+def test_project_form_accepts_own_parent_count_when_children_have_no_count(environment, use_child):
     from word_count_models import WordCountMetric
     db, (user, _, _) = environment
     _, root, child, _ = context(db, user)
@@ -75,11 +79,13 @@ def test_project_form_rejects_stale_parent_count_when_children_have_no_count(env
         if target.id is None: target.id = uuid4()
     event.listen(TranslationSubOrderChargeItem, 'before_insert', assign_id)
     try:
-        with pytest.raises(ValueError, match='有效的项目字数统计项'):
-            crud._replace_customer_charge_items(db, owner, [TranslationSubOrderChargeItemInput(
-                item_name='翻译费', pricing_mode='metric', metric_type='words', quantity_basis='company_words',
-                unit_size=1, unit_price_excl_tax='2', currency='CNY',
-            )], customer_values={'foreign_words': 10})
+        crud._replace_customer_charge_items(db, owner, [TranslationSubOrderChargeItemInput(
+            item_name='翻译费', pricing_mode='metric', metric_type='words', quantity_basis='company_words',
+            unit_size=1, unit_price_excl_tax='2', currency='CNY',
+        )], customer_values={'foreign_words': 10})
+        db.commit()
+        restored = crud.get_sub_order(db, child.id) if use_child else crud.get_translation_project(db, root.id)
+        assert restored.customer_charge_items[0].quantity == 50
     finally:
         db.rollback()
         event.remove(TranslationSubOrderChargeItem, 'before_insert', assign_id)

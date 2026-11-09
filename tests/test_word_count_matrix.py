@@ -1,11 +1,12 @@
 from uuid import uuid4
-from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
 
 from manuscript_service import _word_count_summary
 import word_count_service
+from tests.test_chat_participant_access import environment
+from tests.test_arrangement_order_targets import orders
 from word_count_schemas import WordCountCellChange, WordCountMatrixPatch, WordCountValues
 
 
@@ -71,12 +72,39 @@ def test_summary_supports_document_and_page_counts():
     assert summary == "份数 2（另有 1 项）"
 
 
-def test_parent_matrix_rejects_direct_patch(monkeypatch):
-    from fastapi import HTTPException
-    monkeypatch.setattr(word_count_service, '_load_entity', lambda *_args: SimpleNamespace(id=uuid4()))
-    monkeypatch.setattr(word_count_service, '_has_child_orders', lambda *_args: True)
-    with pytest.raises(HTTPException) as exc:
-        word_count_service.patch_word_count_matrix(None, 'project', uuid4(),
+def test_parent_statistics_can_be_written_through_patch_and_full_form(environment, monkeypatch):
+    """有下级的母订单和中间订单都必须支持两种保存入口。"""
+    from word_count_models import WordCountMetric
+    from word_count_schemas import WordCountCreateMatrix
+
+    db, (actor, _, _) = environment
+    # 内存测试库没有 PostgreSQL 的 UUID 默认值。
+    original_apply = word_count_service._apply_cell
+    def apply_with_id(*args, **kwargs):
+        original_apply(*args, **kwargs)
+        for row in db.new:
+            if isinstance(row, WordCountMetric) and row.id is None:
+                row.id = uuid4()
+    monkeypatch.setattr(word_count_service, '_apply_cell', apply_with_id)
+    root, middle, _, _ = orders(db, actor)
+    for kind, owner, owner_field in [
+        ('project', root, 'project_id'),
+        ('suborder', middle, 'sub_order_id'),
+    ]:
+        saved = word_count_service.patch_word_count_matrix(
+            db, kind, owner.id,
             WordCountMatrixPatch(changes=[dict(scope='entity', dimension='company', metric_type='pages', value=12)]),
-            updated_by=None)
-    assert exc.value.status_code == 422
+            updated_by=actor.id,
+        )
+        assert saved['company']['pages'] == 12
+        assert saved['source'] == kind
+        assert saved['sub_order_count'] > 0
+        query = db.query(WordCountMetric).filter_by(**{owner_field: owner.id}, dimension='company')
+        assert query.one().count_value == 12
+        word_count_service.replace_entity_matrix(
+            db, kind, owner.id, WordCountCreateMatrix(company={'words': 345}), updated_by=actor.id,
+        )
+        db.commit()
+        assert query.one().metric_type == 'words'
+        assert query.one().count_value == 345
+        assert word_count_service.get_word_count_matrix(db, kind, owner.id)['company']['words'] == 345

@@ -42,7 +42,7 @@ def test_root_directions_create_once_and_added_direction_keeps_manual_values(cas
     assert updated.auto_created_child_count == 1
     assert len(updated.sub_orders) == 3
     assert db.get(type(children[0]), children[0].id).remarks == '人工备注保留'
-    assert updated.word_count_matrix['company']['words'] == 300
+    assert updated.word_count_matrix['company']['words'] == 100
 
 
 def test_file_children_split_into_second_level_without_duplicate_root_siblings(case):
@@ -128,9 +128,9 @@ def test_second_level_matrix_uses_file_raw_values_and_does_not_multiply_on_repea
     first = crud.create_sub_order(db, TranslationSubOrderCreate(parent_project_id=root.id,
         sub_project_name='文件.pdf', language_pair='中文→英语；中文→法语', created_by=user.id,
         word_count_matrix={'customer': {'pages': 5}, 'company': {'words': 100}}))
-    assert crud.get_translation_project(db, root.id).word_count_matrix['company']['words'] == 200
+    assert crud.get_translation_project(db, root.id).word_count_matrix['company']['words'] is None
     again = crud.update_sub_order(db, first.id, TranslationSubOrderUpdate(language_pair='中文→英语；中文→法语；中文→日语'))
     assert again.auto_created_child_count == 1
     matrix = crud.get_translation_project(db, root.id).word_count_matrix
-    assert matrix['company']['words'] == 300
-    assert matrix['customer']['pages'] == 15
+    assert matrix['company']['words'] is None
+    assert matrix['customer']['pages'] is None

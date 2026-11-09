@@ -24,47 +24,27 @@ def _empty_values() -> dict[str, Optional[int]]:
     return {metric_type: None for metric_type in METRIC_TYPES}
 
 
-def roll_up_matrices(projects, sub_orders):
-    """按订单号的直接父级逐层汇总；有下级时不用父级旧值，避免重复统计。"""
+def attach_order_sources(projects, sub_orders):
+    """仅标记订单来源与下级数量，统计值始终保留本单独立填报值。"""
     children = {}
     by_number = {(row.parent_project_id, row.sub_order_no): row for row in sub_orders}
     for row in sub_orders:
         parent = by_number.get((row.parent_project_id, row.sub_order_no.rsplit('.', 1)[0]))
         children.setdefault(parent.id if parent else row.parent_project_id, []).append(row)
-
-    def visit(owner):
-        direct = children.get(owner.id, [])
-        for child in direct:
-            visit(child)
-        owner.word_count_sub_order_count = len(direct)
-        owner.word_count_matrix_source = 'suborder_aggregate' if direct else ('suborder' if hasattr(owner, 'sub_order_no') else 'project')
-        if direct:
-            owner.word_count_matrix = {
-                dimension: {
-                    metric: sum(values) if (values := [
-                        child.word_count_matrix[dimension][metric] for child in direct
-                        if child.word_count_matrix[dimension][metric] is not None
-                    ]) else None
-                    for metric in METRIC_TYPES
-                } for dimension in ENTITY_DIMENSIONS
-            }
-            for values in owner.word_count_matrix.values():
-                if values['minutes'] is not None and values['hours'] is not None:
-                    values['minutes']=round(values['minutes']+values['hours']*60,4);values['hours']=None
-
-    for project in projects:
-        visit(project)
+    for owner in [*projects, *sub_orders]:
+        owner.word_count_sub_order_count = len(children.get(owner.id, []))
+        owner.word_count_matrix_source = 'suborder' if hasattr(owner, 'sub_order_no') else 'project'
 
 
 def hierarchy_matrix(db, entity_type, entity):
-    """一次读取整棵订单树的统计，弹窗、稿件安排复用相同汇总结果。"""
+    """一次读取整棵订单树的独立统计，弹窗和稿件安排复用相同结果。"""
     project_id = entity.id if entity_type == 'project' else entity.parent_project_id
     project = entity if entity_type == 'project' else db.get(TranslationProject, project_id)
     return attach_entity_matrices(db, [project])[entity.id]
 
 
 def attach_entity_matrices(db: Session, projects) -> dict:
-    """按母订单批量读取整棵树，每棵树只汇总一次，供列表复用。"""
+    """按母订单批量读取整棵树，各订单统计互不覆盖，供列表复用。"""
     projects = list({row.id: row for row in projects}.values())
     if not projects:
         return {}
@@ -86,19 +66,8 @@ def attach_entity_matrices(db: Session, projects) -> dict:
         owner = owners.get(metric.project_id or metric.sub_order_id)
         if owner is not None and metric.dimension in ENTITY_DIMENSIONS and metric.metric_type in METRIC_TYPES:
             owner.word_count_matrix[metric.dimension][metric.metric_type] = float(metric.count_value) if metric.metric_type in {'minutes','hours'} else metric.count_value
-    roll_up_matrices(projects, sub_orders)
+    attach_order_sources(projects, sub_orders)
     return owners
-
-
-def _has_child_orders(db, entity_type, entity):
-    query = db.query(TranslationSubOrder.id)
-    if entity_type == 'project':
-        query = query.filter(TranslationSubOrder.parent_project_id == entity.id)
-    else:
-        # 点号是订单层级边界，.001 不会命中 .0010。
-        query = query.filter(TranslationSubOrder.parent_project_id == entity.parent_project_id,
-                             TranslationSubOrder.sub_order_no.startswith(entity.sub_order_no + '.', autoescape=True))
-    return query.first() is not None
 
 
 def _load_entity(db: Session, entity_type: str, entity_id: UUID):
@@ -268,8 +237,6 @@ def patch_word_count_matrix(
     dispatch_id: Optional[UUID] = None,
 ) -> dict:
     entity = _load_entity(db, entity_type, entity_id)
-    if any(change.scope == 'entity' for change in payload.changes) and _has_child_orders(db, entity_type, entity):
-        raise HTTPException(status_code=422, detail='此订单的字数由下级订单自动汇总，请修改末级订单的统计')
     # 合并同一请求中的清空和填写后再校验，允许从旧口径切换到新口径。
     touched={change.dimension for change in payload.changes if change.scope=='entity' and change.dimension in {'company','customer'}}
     if touched:
@@ -348,8 +315,7 @@ def replace_entity_matrix(
     updated_by: Optional[UUID],
 ) -> None:
     """在调用方事务内用完整矩阵替换项目或子订单字数。"""
-    if _has_child_orders(db, entity_type, _load_entity(db, entity_type, entity_id)):
-        return
+    _load_entity(db, entity_type, entity_id)
     validate_single_matrix(matrix)
     for dimension in ENTITY_DIMENSIONS:
         values = getattr(matrix, dimension)

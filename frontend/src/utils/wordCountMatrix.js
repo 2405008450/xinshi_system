@@ -111,8 +111,8 @@ export function getWordCountMatrixListSummary(matrix = {}, { empty = '—', tran
   return {
     primary: numberText,
     extraCount: Math.max(0, filled.length - 1),
-    title: (source==='suborder_aggregate'?'子订单累计 · ':'')+formatWordCountMatrix(matrix, { translators }),
-    sourceLabel: source==='suborder_aggregate'?'子订单累计':''
+    title: formatWordCountMatrix(matrix, { translators }),
+    sourceLabel: ''
   }
 }
 

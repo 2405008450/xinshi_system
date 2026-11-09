@@ -55,9 +55,9 @@ def test_root_is_mother_dirs_are_first_through_third_files_reach_fourth_and_expo
     payload=WordCountMatrixPatch(changes=[dict(scope='entity',dimension='company',metric_type='words',value=123),dict(scope='entity',dimension='customer',metric_type='words',value=100)])
     patch_word_count_matrix(db,'suborder',leaf.id,payload,updated_by=user.id)
     root=crud.get_translation_project(db,root.id)
-    assert root.word_count_matrix['company']['words']==123
-    assert root.word_count_matrix['customer']['words']==100
-    for name in ['一级资料','二级资料','三级资料']:assert by_name[name].word_count_matrix['company']['words']==123
+    assert root.word_count_matrix['company']['words'] is None
+    assert root.word_count_matrix['customer']['words'] is None
+    for name in ['一级资料','二级资料','三级资料']:assert by_name[name].word_count_matrix['company']['words'] is None
     repeated=import_folders(db,folder_payload(root),user.id)
     assert repeated['created_count']==0 and db.query(TranslationSubOrder).count()==6
     book=load_workbook(BytesIO(build_workbook(crud.get_translation_project(db,root.id))));sheet=book.active

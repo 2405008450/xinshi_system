@@ -21,9 +21,10 @@
       <div class="word-count-matrix__header">
         <div>
 
-          <p>{{ aggregated ? '此订单各单位分别由子订单逐级累计，可同时出现字数、份数等多项；请在末级订单填写。' : '我司统计、客户统计每行只能填写一项；清空已填项后可切换口径。空白不保存，零视为已填写。' }}</p>
+          <strong>{{ readOnly ? '当前统计仅供查看' : '填写当前订单的统计数量' }}</strong>
+          <p>母订单与各级子订单独立填报，不再自动汇总或相互覆盖。{{ readOnly ? '当前入口为只读视图。' : '我司统计、客户统计每行仅填写一种口径；可点击“清空本行”重新选择。空白表示未填写，0 表示数量为零。' }}</p>
         </div>
-        <el-tag size="small" :type="hasChanges ? 'warning' : 'info'">{{ hasChanges ? '未保存修改' : (aggregated ? '下级自动汇总' : (localMode ? '随项目保存' : '已保存统计')) }}</el-tag>
+        <el-tag size="small" :type="hasChanges ? 'warning' : 'info'">{{ hasChanges ? '未保存修改' : (readOnly ? '只读' : (localMode ? '随项目保存' : '本单独立统计')) }}</el-tag>
       </div>
 
       <el-alert v-if="hasDuration" title="本项目可能属于标注项目，请与标注项目部沟通。" type="warning" :closable="false" show-icon />
@@ -41,6 +42,11 @@
               <th class="word-count-matrix__row-title">
                 <span>{{ row.label }}</span>
                 <small v-if="row.hint">{{ row.hint }}</small>
+                <small v-if="rowReadonly(row)">只读</small>
+                <template v-else>
+                  <small>{{ rowMetricHint(row) }}</small>
+                  <el-button v-if="rowHasValues(row)" link type="primary" size="small" @click="clearRow(row)">清空本行</el-button>
+                </template>
               </th>
               <td
                 v-for="metric in regularMetrics"
@@ -48,7 +54,17 @@
                 :data-word-count-cell="`${row.key}-${metric.key}`"
                 :class="{ 'is-word-count-target': row.scope === 'entity' && row.dimension === initialDimension && metric.key === initialMetricType }"
               >
+                <ReadonlyField
+                  v-if="cellDisabled(row, metric.key)"
+                  :model-value="row.values[metric.key] ?? ''"
+                  :source="rowReadonly(row) ? 'auto' : 'locked'"
+                  :placeholder="rowReadonly(row) ? '—' : '已锁定'"
+                  :tooltip="cellHint(row)"
+                  :aria-label="`${row.label}-${metric.label}`"
+                  size="small"
+                />
                 <el-input-number
+                  v-else
                   :key="`${row.key}-${metric.key}-${cellDisabled(row,metric.key)}`"
                   v-model="row.values[metric.key]"
                   :disabled="cellDisabled(row,metric.key)"
@@ -58,12 +74,18 @@
                   :precision="0"
                   :controls="false"
                   :aria-label="`${row.label}-${metric.label}`"
+                  placeholder="填写数量"
                 />
-                <small v-if="aggregated&&row.scope==='entity'&&row.values[metric.key]!=null" class="word-count-source">子订单累计</small>
               </td>
               <td class="word-count-time-cell">
-                <select :value="timeMetric(row)" :disabled="cellDisabled(row,timeMetric(row))" :aria-label="`${row.label}-时长单位`" @change="changeTimeUnit(row,$event.target.value)"><option value="minutes">分钟</option><option value="hours">小时</option></select>
-                <el-input-number v-model="row.values[timeMetric(row)]" :disabled="cellDisabled(row,timeMetric(row))" :min="0" :precision="4" :controls="false" size="small" :aria-label="`${row.label}-时长`" /><small v-if="aggregated&&row.scope==='entity'&&row.values[timeMetric(row)]!=null" class="word-count-source">子订单累计</small>
+                <template v-if="cellDisabled(row,timeMetric(row))">
+                  <small class="word-count-time-unit">{{ timeMetric(row) === 'hours' ? '小时' : '分钟' }}</small>
+                  <ReadonlyField :model-value="row.values[timeMetric(row)] ?? ''" :source="rowReadonly(row) ? 'auto' : 'locked'" :placeholder="rowReadonly(row) ? '—' : '已锁定'" :tooltip="cellHint(row)" size="small" :aria-label="`${row.label}-时长`" />
+                </template>
+                <template v-else>
+                  <select :value="timeMetric(row)" :aria-label="`${row.label}-时长单位`" @change="changeTimeUnit(row,$event.target.value)"><option value="minutes">分钟</option><option value="hours">小时</option></select>
+                  <el-input-number v-model="row.values[timeMetric(row)]" :min="0" :precision="4" :controls="false" placeholder="填写时长" size="small" :aria-label="`${row.label}-时长`" />
+                </template>
               </td>
             </tr>
             <tr v-if="!rows.length">
@@ -74,10 +96,10 @@
       </div>
 
       <div class="word-count-matrix__footer">
-        <span>{{ hybridMode ? '项目统计立即保存；新译员统计随稿件安排保存' : (localMode ? '统计随项目保存；关闭后保留本账号未保存的修改' : '保存后同步项目；未保存的修改仅当前账号可见') }}</span>
+        <span>{{ !hasEditableRows ? '只读视图，无需保存。' : (hybridMode ? '项目统计立即保存；新译员统计随稿件安排保存' : (localMode ? '统计随项目保存；关闭后保留本账号未保存的修改' : '仅保存当前订单；未保存的修改仅当前账号可见')) }}</span>
         <div>
           <el-button @click="visible = false">关闭</el-button>
-          <el-button v-if="!readOnly" type="primary" :loading="saving" :disabled="loading || !draft" @click="saveMatrix">
+          <el-button v-if="hasEditableRows" type="primary" :loading="saving" :disabled="loading || !draft" @click="saveMatrix">
             保存
           </el-button>
         </div>
@@ -89,6 +111,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, reactive, ref, toRef, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import ReadonlyField from './ReadonlyField.vue'
 import { getWordCountMatrix, patchWordCountMatrix } from '@/api/wordCountMatrices'
 import { focusFormTarget, scrollFormTarget } from '@/utils/formNavigation'
 import { useFormDraft } from '@/composables/useFormDraft'
@@ -146,12 +169,19 @@ const localMode = computed(() => props.local || !props.entityId)
 const hybridMode = computed(() => localMode.value && Boolean(props.entityId))
 const summary = computed(() => formatWordCountMatrix(props.modelValue))
 const hasChanges = computed(() => Boolean(draft.value && original.value && buildChanges().length))
-const aggregated = computed(() => draft.value?.source === 'suborder_aggregate')
 const regularMetrics=WORD_COUNT_METRICS.filter(item=>!['minutes','hours'].includes(item.key))
 const timeUnits=ref({})
 const hasDuration=computed(()=>rows.value.some(row=>row.values.minutes!=null||row.values.hours!=null))
 function timeMetric(row){return row.values.hours!=null?'hours':row.values.minutes!=null?'minutes':timeUnits.value[row.key]||'minutes'}
-function cellDisabled(row,key){return props.readOnly||(aggregated.value&&row.scope==='entity')||(row.scope==='entity'&&['company','customer'].includes(row.dimension)&&row.values[key]==null&&WORD_COUNT_METRICS.some(item=>item.key!==key&&row.values[item.key]!=null))}
+function cellDisabled(row,key){return props.readOnly||(row.scope==='entity'&&['company','customer'].includes(row.dimension)&&row.values[key]==null&&WORD_COUNT_METRICS.some(item=>item.key!==key&&row.values[item.key]!=null))}
+const rowReadonly = () => props.readOnly
+const rowHasValues = row => WORD_COUNT_METRICS.some(({ key }) => row.values[key] != null)
+const rowMetricHint = row => row.scope === 'entity' && ['company', 'customer'].includes(row.dimension) ? '单一口径' : '可填写多项'
+const cellHint = row => rowReadonly(row) ? '当前入口仅可查看' : '本行已填写其他统计口径，请先点击“清空本行”'
+function clearRow(row) {
+  if (rowReadonly(row)) return
+  WORD_COUNT_METRICS.forEach(({ key }) => { row.values[key] = null })
+}
 function changeTimeUnit(row,unit){const previous=timeMetric(row),value=row.values[previous];row.values[previous]=null;timeUnits.value[row.key]=unit;if(value!=null)row.values[unit]=Number((unit==='hours'?value/60:value*60).toFixed(4))}
 
 const clone = (value) => JSON.parse(JSON.stringify(value))
@@ -200,6 +230,7 @@ const rows = computed(() => {
   })
   return result
 })
+const hasEditableRows = computed(() => rows.value.some(row => !rowReadonly(row)))
 
 async function loadMatrix() {
   editing.value = false
@@ -287,7 +318,6 @@ function buildChanges(beforeMatrix = original.value, afterMatrix = draft.value) 
   buildRows(beforeMatrix).forEach((row) => beforeRows.set(row.key, row))
   const changes = []
   buildRows(afterMatrix).forEach((row) => {
-    if (afterMatrix.source === 'suborder_aggregate' && row.scope === 'entity') return
     const before = beforeRows.get(row.key)?.values || {}
     WORD_COUNT_METRICS.forEach(({ key }) => {
       const value = row.values[key] === '' || row.values[key] === undefined ? null : row.values[key]
@@ -310,7 +340,7 @@ function rebaseDraft(before, edited, current) {
   const result = clone(current)
   for (const change of buildChanges(normalizeResponse(before), normalizeResponse(edited))) {
     if (change.scope === 'entity') {
-      if (result.source !== 'suborder_aggregate') result[change.dimension][change.metric_type] = change.value
+      result[change.dimension][change.metric_type] = change.value
     } else {
       const translator = result.translators.find(item => item.arrangement_id === change.arrangement_id)
       if (translator) translator[change.dimension][change.metric_type] = change.value
@@ -331,7 +361,7 @@ function clearPending() {
   if (controlledDraft.value) emit('update:pendingDraft', null)
 }
 function validateMatrix(matrix) {
-  if (matrix?.source !== 'suborder_aggregate') for (const dimension of ['company','customer']) {
+  for (const dimension of ['company','customer']) {
     if (WORD_COUNT_METRICS.filter(item=>matrix?.[dimension]?.[item.key]!=null).length>1) {
       ElMessage.warning(`${dimension==='company'?'我司统计':'客户统计'}只能填写一个统计字段，请先清空其他字段`)
       return false
@@ -433,32 +463,36 @@ async function saveMatrix() {
 </script>
 
 <style scoped>
-.word-count-matrix { display: flex; flex-direction: column; max-height: min(620px, calc(100vh - 96px)); }
-.word-count-matrix__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 0 2px 8px; }
-.word-count-matrix__header strong { font-size: 16px; color: var(--el-text-color-primary); }
-.word-count-matrix__header p { margin: 3px 0 0; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
-.word-count-matrix__body { flex: 1; min-height: 120px; overflow: auto; border: 1px solid var(--el-border-color); }
-table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
-th, td { padding: 0; border-right: 1px solid var(--el-border-color); border-bottom: 1px solid var(--el-border-color); background: var(--el-bg-color); }
-thead th { position: sticky; top: 0; z-index: 2; padding: 6px 4px; background: var(--el-fill-color-light); color: var(--el-text-color-primary); font-size: 12px; line-height: 1.3; overflow-wrap: anywhere; }
+.word-count-matrix { display: flex; flex-direction: column; gap: 14px; max-height: min(680px, calc(100vh - 120px)); }
+.word-count-matrix__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 14px 16px; border: 1px solid var(--el-border-color-lighter); border-radius: 10px; background: var(--el-fill-color-lighter); }
+.word-count-matrix__header strong { font-size: 14px; color: var(--el-text-color-primary); }
+.word-count-matrix__header p { max-width: 680px; margin: 6px 0 0; color: var(--el-text-color-regular); font-size: 12px; line-height: 1.7; }
+.word-count-matrix__header .el-tag { flex-shrink: 0; }
+.word-count-matrix__body { flex: 1; min-height: 120px; overflow: auto; border: 1px solid var(--el-border-color); border-radius: 8px; }
+table { width: 100%; min-width: 880px; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+th, td { padding: 10px 6px; border-right: 1px solid var(--el-border-color-lighter); border-bottom: 1px solid var(--el-border-color-lighter); background: var(--el-bg-color); vertical-align: middle; }
+thead th { position: sticky; top: 0; z-index: 2; padding: 12px 6px; background: var(--el-fill-color-light); color: var(--el-text-color-primary); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 tr:last-child th, tr:last-child td { border-bottom: 0; }
 th:last-child, td:last-child { border-right: 0; }
-.word-count-matrix__row-title { width: 156px; padding: 6px 8px; text-align: left; background: var(--el-fill-color-lighter); line-height: 1.35; }
-.word-count-matrix__row-title span { display: block; }
-.word-count-matrix__row-title small { display: block; margin-top: 3px; color: var(--el-text-color-secondary); font-weight: 400; }
-.word-count-source{display:block;text-align:center;font-size:10px;color:var(--el-color-primary);padding-bottom:4px}.word-count-time-cell select{width:100%;height:26px;border:0;border-bottom:1px solid var(--el-border-color);background:#fff;color:var(--el-text-color-regular)}.word-count-time-cell select:disabled{background:#f1f5f9}.word-count-matrix>.el-alert{margin-bottom:8px}
+.word-count-matrix__row-title { width: 166px; padding: 12px; text-align: left; background: var(--el-fill-color-lighter); line-height: 1.5; }
+.word-count-matrix__row-title span { display: block; color: var(--el-text-color-primary); font-size: 13px; }
+.word-count-matrix__row-title small { display: block; margin-top: 4px; color: var(--el-text-color-secondary); font-size: 11px; font-weight: 400; }
+.word-count-time-cell select { width: 100%; height: 28px; margin-bottom: 6px; border: 1px solid var(--el-border-color); border-radius: 6px; background: #fff; color: var(--el-text-color-regular); }
+.word-count-time-unit { display: block; margin-bottom: 6px; text-align: center; color: var(--el-text-color-secondary); }
 td :deep(.el-input-number) { width: 100%; }
-td :deep(.el-input__wrapper) { min-height: 28px; padding: 0 5px; border-radius: 0; box-shadow: none; }
+td :deep(.el-input__wrapper) { min-height: 32px; padding: 0 6px; border-radius: 6px; }
 .is-word-count-target :deep(.el-input__wrapper) { box-shadow: inset 0 0 0 2px var(--el-color-primary); }
 .word-count-matrix__empty { padding: 28px; text-align: center; color: var(--el-text-color-secondary); }
-.word-count-matrix__footer { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 8px; border-top: 1px solid var(--el-border-color-lighter); }
-.word-count-matrix__footer > span { color: var(--el-text-color-secondary); font-size: 12px; }
+.word-count-matrix__footer { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid var(--el-border-color-lighter); }
+.word-count-matrix__footer > span { color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.6; }
+.word-count-matrix__footer > div { display: flex; flex-shrink: 0; }
+@media (max-width: 600px) {
+  .word-count-matrix__header { flex-direction: column; gap: 8px; padding: 10px; }
+}
 </style>
 
 <style>
-.word-count-matrix-popper { max-width: calc(100vw - 32px) !important; padding: 10px !important; }
-
-@media (max-width: 760px) {
-  .word-count-matrix-popper .word-count-matrix__body table { min-width: 720px; }
-}
+.word-count-matrix-popper { max-width: calc(100vw - 32px) !important; padding: 16px !important; }
+.word-count-matrix-popper .app-window-popover__body { display: flex; overflow: hidden; padding-top: 12px; }
+.word-count-matrix-popper .word-count-matrix { flex: 1; min-width: 0; min-height: 0; max-height: min(680px, calc(100vh - 120px)) !important; }
 </style>

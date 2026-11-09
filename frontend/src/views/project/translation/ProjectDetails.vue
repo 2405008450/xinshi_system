@@ -1531,7 +1531,7 @@ const getStatusType = (status) => ({
 function formatWordCountSummary(target = {}) {
   const pending=target.wordCountPendingDraft
   if(pending?.version==='word-count-matrix-v2' && pending.ownerId===localStorage.getItem('user_id') && pending.matrix) return formatWordCountMatrix(pending.matrix)+'（未保存修改）'
-  return (target.wordCountMatrixSource==='suborder_aggregate'?'【子订单累计】':'')+formatWordCountMatrix(target.wordCountMatrix)
+  return formatWordCountMatrix(target.wordCountMatrix)
 }
 function getWordCountListSummary(target = {}) {
   return getWordCountMatrixListSummary(target.wordCountMatrix, {

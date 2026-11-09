@@ -76,7 +76,8 @@ def test_new_client_created_by_consultation_keeps_all_contacts(contact_data, mon
     from models import Client
     from schemas import ConsultationCreate
     db, _, _, _ = contact_data
-    def resolve(db, short_name, code, full_name):
+    def resolve(db, short_name, code, full_name, *, is_consultation=False):
+        assert is_consultation is True
         client = Client(id=uuid4(), client_code='AUTO-QA', client_short_name=short_name, client_name=full_name)
         db.add(client); db.flush()
         return client.id, None, True

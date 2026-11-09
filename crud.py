@@ -1345,8 +1345,8 @@ def _attach_word_count_matrices(
         elif metric.arrangement_id in arrangement_map and metric.dimension in {"planned", "actual"}:
             arrangement_map[metric.arrangement_id][metric.dimension][metric.metric_type] = float(metric.count_value) if metric.metric_type in {'minutes','hours'} else metric.count_value
 
-    from word_count_service import roll_up_matrices
-    roll_up_matrices(list(project_map.values()), list(sub_order_map.values()))
+    from word_count_service import attach_order_sources
+    attach_order_sources(list(project_map.values()), list(sub_order_map.values()))
 
     _attach_customer_charge_amounts([*project_map.values(), *all_sub_orders])
 
@@ -1537,6 +1537,8 @@ def _resolve_or_create_project_client(
     client_code: Optional[str] = None,
     client_name: Optional[str] = None,
     manager_contact: Optional[str] = None,
+    *,
+    is_consultation: bool = False,
 ) -> tuple[Optional[UUID], Optional[UUID], bool]:
     """按简称/编号关联已有客户；简称不存在时创建一条待完善的母客户记录。"""
     normalized_short_name = (client_short_name or "").strip()
@@ -1586,7 +1588,12 @@ def _resolve_or_create_project_client(
         return None, None, False
 
     if not normalized_client_name:
-        raise ValueError("新增客户时请填写客户全称")
+        if is_consultation:
+            raise ValueError("新增客户时请填写客户全称")
+        raise ValueError(
+            "未匹配到已有客户。若为新客户咨询，请先到“新咨询管理”录入客户及咨询信息，"
+            "再继续创建项目；若为已有客户，请从客户列表中选择。"
+        )
 
     client = Client(
         client_code=generate_client_code(db),
@@ -3605,6 +3612,7 @@ def create_consultation(
             consultation.client_short_name,
             consultation.client_code,
             consultation.client_name,
+            is_consultation=True,
         )
         consultation_data['client_id'] = client_id
         if _created:
@@ -3670,6 +3678,7 @@ def update_consultation(
             consultation_update.client_short_name,
             consultation_update.client_code,
             consultation_update.client_name,
+            is_consultation=True,
         )
         if client_id:
             update_data['client_id'] = client_id
@@ -4083,7 +4092,7 @@ def _replace_customer_charge_items(
             if payload.quantity_basis and payload.pricing_mode == 'metric':
                 from word_count_service import hierarchy_matrix
                 entity_type = 'project' if isinstance(owner, TranslationProject) else 'suborder'
-                # 计费校验与列表展示都使用逐级汇总，避免保存时读取父级旧统计。
+                # 计费校验与列表展示均使用本单独立填报值，不取下级统计。
                 matrix = hierarchy_matrix(db, entity_type, owner).word_count_matrix
                 if not quantity_basis.valid(payload.quantity_basis) or quantity_basis.resolve(matrix,payload.quantity_basis)[0] is None:
                     raise ValueError('请先填写并选择有效的项目字数统计项')

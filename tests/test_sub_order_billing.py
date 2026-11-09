@@ -11,6 +11,7 @@ from schemas import TranslationSubOrderChargeItemInput
 
 def test_metric_charge_calculates_and_preserves_manual_override():
     calculated = SimpleNamespace(
+        id=uuid4(),
         pricing_mode="metric",
         metric_type="words",
         unit_size=Decimal("1000"),
@@ -18,6 +19,7 @@ def test_metric_charge_calculates_and_preserves_manual_override():
         amount_override=None,
     )
     overridden = SimpleNamespace(
+        id=uuid4(),
         pricing_mode="metric",
         metric_type="pages",
         unit_size=Decimal("1"),
@@ -25,6 +27,7 @@ def test_metric_charge_calculates_and_preserves_manual_override():
         amount_override=Decimal("88.00"),
     )
     fixed = SimpleNamespace(
+        id=uuid4(),
         pricing_mode="fixed",
         metric_type=None,
         unit_size=None,

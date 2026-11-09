@@ -26,11 +26,11 @@ def data(environment):
     save(leaf,.2,.22,18);save(page,10,11);save(sibling,.3,.33)
     return db,actor,root,middle,leaf,page,sibling
 
-def test_multiple_statistics_and_prices_aggregate_up_without_double_counting(data):
+def test_independent_statistics_keep_finance_price_rollup_without_double_counting(data):
     db,_,root,middle,leaf,page,sibling=data
     matrix=get_word_count_matrix(db,'project',root.id)
-    assert matrix['source']=='suborder_aggregate'
-    assert matrix['customer']['words']==150 and matrix['customer']['documents']==2
+    assert matrix['source']=='project'
+    assert matrix['customer']['words'] is None and matrix['customer']['documents'] is None
     WordCountMatrixResponse.model_validate(matrix)
     node=finance.read(db,root.id)['item'];mid=node['children'][0]
     assert node['price_aggregate'] and mid['price_aggregate']
@@ -52,7 +52,10 @@ def test_leaf_edit_updates_all_ancestors_and_parent_http_writes_are_rejected(dat
     assert result['item']['calculated_totals_excl_tax']=={'CNY':'75.00'}
     assert result['item']['totals_excl_tax']=={'CNY':'53.00'}
     assert any(Decimal(row['amount'])==Decimal('.4') for row in result['item']['prices'])
-    with pytest.raises(HTTPException):patch_word_count_matrix(db,'project',root.id,WordCountMatrixPatch(changes=[dict(scope='entity',dimension='customer',metric_type='words',value=999)]),updated_by=actor.id)
+    db.add(WordCountMetric(id=uuid4(),project_id=root.id,dimension='customer',metric_type='words',count_value=1));db.commit()
+    saved=patch_word_count_matrix(db,'project',root.id,WordCountMatrixPatch(changes=[dict(scope='entity',dimension='customer',metric_type='words',value=999)]),updated_by=actor.id)
+    assert saved['customer']['words']==999
+    assert finance.read(db,root.id)['item']['calculated_totals_excl_tax']=={'CNY':'75.00'}
 
 def test_legacy_parent_override_is_retained_but_not_added_twice(data):
     db,_,root,_,_,_,_=data

@@ -15,7 +15,7 @@ import manuscript_service as service
 import word_count_service as counts
 
 
-def test_batch_matrices_keep_recursive_values_with_constant_queries(environment):
+def test_batch_matrices_keep_independent_values_with_constant_queries(environment):
     db, (owner, _, _) = environment
     root, child, leaf, foreign = orders(db, owner)
     siblings = [TranslationSubOrder(id=uuid4(), parent_project_id=root.id,
@@ -41,9 +41,9 @@ def test_batch_matrices_keep_recursive_values_with_constant_queries(environment)
         event.remove(db.get_bind(), 'before_cursor_execute', record)
     assert old_count >= 400
     assert new_count <= 4
-    assert root.word_count_matrix['company']['words'] == 100
-    assert child.word_count_matrix['company']['words'] == 0
-    assert root.word_count_matrix['preliminary']['words'] == 15
+    assert root.word_count_matrix['company']['words'] == 9999
+    assert child.word_count_matrix['company']['words'] == 8888
+    assert root.word_count_matrix['preliminary']['words'] is None
     assert root.word_count_matrix['customer']['words'] is None
     assert {row.id: row.word_count_matrix for row in [child, leaf, *siblings]} == legacy
     assert foreign.id not in legacy
