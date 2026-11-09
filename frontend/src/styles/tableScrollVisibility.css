@@ -1,0 +1,27 @@
+.app-table-persistent-header {
+  position: relative;
+  z-index: 8;
+  background: var(--el-table-header-bg-color, var(--color-surface-muted, #f1f5f9));
+}
+/* Existing sticky left/right cells still work; vertical pinning belongs to the
+   complete thead so grouped, multi-row headers never overlap each other. */
+.app-table-persistent-thead th { top: auto !important; background: var(--el-table-header-bg-color, var(--color-surface-muted, #f1f5f9)); }
+.app-table-horizontal-source::-webkit-scrollbar { height: 0 !important; }
+.el-table__body-wrapper:has(.app-table-horizontal-source) > .el-scrollbar > .el-scrollbar__bar.is-horizontal { display: none !important; }
+.app-table-horizontal-scroll {
+  position: fixed;
+  height: 14px;
+  margin: 0;
+  padding: 2px 0;
+  border: 0;
+  box-sizing: border-box;
+  background: #e2e8f0;
+  touch-action: none;
+  cursor: pointer;
+}
+.app-table-horizontal-scroll[hidden] { display: none; }
+.app-table-horizontal-thumb { height: 10px; border-radius: 5px; background: #94a3b8; cursor: grab; }
+.app-table-horizontal-scroll:is(:hover, :focus-visible, .is-dragging) .app-table-horizontal-thumb { background: #64748b; }
+.app-table-horizontal-scroll.is-dragging, .app-table-horizontal-scroll.is-dragging .app-table-horizontal-thumb { cursor: grabbing; }
+.app-table-horizontal-scroll:focus-visible { outline: 2px solid var(--color-primary, #334155); outline-offset: -2px; }
+@media print { .app-table-horizontal-scroll { display: none !important; } .app-table-persistent-header { transform: none !important; } }

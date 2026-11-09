@@ -7,6 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from fastapi import Request
 
+from database_pool_policy import application_name,pool_options,install_idle_session_timeout
 from performance_monitoring import install_sqlalchemy_performance_hooks, ObservedQueuePool
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
@@ -26,13 +27,7 @@ if not DATABASE_URL:
 
 engine_options = {"pool_pre_ping": True}
 if DATABASE_URL.startswith("postgresql"):
-    engine_options.update(
-        poolclass=ObservedQueuePool,
-        pool_size=int(os.getenv("DB_POOL_SIZE", "10")),
-        max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "10")),
-        pool_timeout=int(os.getenv("DB_POOL_TIMEOUT_SECONDS", "10")),
-        pool_recycle=int(os.getenv("DB_POOL_RECYCLE_SECONDS", "1800")),
-    )
+    engine_options.update(poolclass=ObservedQueuePool, **pool_options())
     engine_options["connect_args"] = {
         # 局域网经公网连接云端数据库：TCP keepalive 防止 NAT/防火墙静默回收空闲连接，
         # 避免 pre_ping 失败后重新握手与认证（多次公网往返）。
@@ -40,6 +35,8 @@ if DATABASE_URL.startswith("postgresql"):
         "keepalives_idle": int(os.getenv("DB_KEEPALIVES_IDLE_SECONDS", "30")),
         "keepalives_interval": int(os.getenv("DB_KEEPALIVES_INTERVAL_SECONDS", "10")),
         "keepalives_count": int(os.getenv("DB_KEEPALIVES_COUNT", "3")),
+        "connect_timeout": 5,
+        "application_name": application_name("business"),
         "options": " ".join(
             [
                 "-c timezone=Asia/Hong_Kong",
@@ -51,6 +48,7 @@ if DATABASE_URL.startswith("postgresql"):
     }
 engine = create_engine(DATABASE_URL, **engine_options)
 install_sqlalchemy_performance_hooks(engine)
+install_idle_session_timeout(engine)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

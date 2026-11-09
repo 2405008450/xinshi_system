@@ -12,6 +12,7 @@
         <div v-if="showMessageDates && (!index || chatDayKey(message.createdAt) !== chatDayKey(messages[index - 1].createdAt))" class="discussion-chat__date">{{ formatMessageDay(message.createdAt) }}</div>
         <article :data-message-id="message.id" :ref="el=>messageInteractions.observe(el,message)" class="discussion-chat__message" :class="{ 'is-own': message.senderUserId === currentUserId }">
           <div class="discussion-chat__meta"><strong v-if="!message.recalledAt">{{ message.senderName }}</strong><time v-if="showMessageTime && timestampIndexes.has(index)" :title="chatMessageTime(message.createdAt)">{{ chatMessageTime(message.createdAt) }}</time></div>
+          <div v-if="undisplayedMentions(message,currentUserId).length" class="discussion-chat__mention-recipients" aria-label="消息提及人员"><span v-for="item in undisplayedMentions(message,currentUserId)" :key="item.id" :class="{'discussion-mention-highlight':item.highlight}">{{ item.label }}</span></div>
           <ChatRecalledMessage v-if="message.recalledAt" :message="message" :can-reedit="recallDrafts.canReedit(message)" @reedit="reeditMessage" />
           <template v-else>
             <div class="discussion-chat__message-main"><div class="discussion-chat__bubble" tabindex="0" data-message-menu-anchor @contextmenu="messageMenu?.open($event,message)" @keydown="messageMenu?.openKeyboard($event,message)"><blockquote v-if="message.reply" role="button" tabindex="0" @click="references.open(message.reply.id,$event)" @keydown.enter="references.open(message.reply.id,$event)">{{ message.reply.senderName }}：{{ screenshotPreview(message.reply.content) }}</blockquote><p @click="openMessageReferences(message,$event)"><span v-for="(part,partIndex) in mentionParts(message,currentUserId)" :key="partIndex" :class="{'discussion-mention-highlight':part.highlight}"><ScreenshotText :text="part.text.replace(/\[附件\]\(discussion-file:\/\/[0-9a-f-]{36}\)/gi,'')" :chat-message-id="message.id" chat-kind="discussion" /></span></p><DiscussionFileReferences :text="message.content" :room-id="projectId" /></div>
@@ -44,7 +45,7 @@ import { combineRecallDraft } from '@/utils/recallDrafts'
 import {quoteSpeakerMention,clearAutomaticQuoteMention} from '@/utils/quoteSpeakerMention'
 import DiscussionMentionInput from './DiscussionMentionInput.vue'
 import DiscussionFileReferences from './DiscussionFileReferences.vue'
-import {mentionParts} from '@/utils/chatMentions'
+import {mentionParts,undisplayedMentions} from '@/utils/chatMentions'
 import { screenshotPreview } from '@/utils/screenshotReferences'
 import ChatMessageActions from './ChatMessageActions.vue'
 import ChatMessageContextMenu from './ChatMessageContextMenu.vue'
@@ -215,3 +216,7 @@ defineExpose({ openSearch: () => { searchOpen.value = true }, locate })
 </style>
 
 <style scoped src="./chatQuotes.css" />
+
+<style scoped>
+.discussion-chat__mention-recipients{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0;color:#2563eb;font-size:13px}.is-own .discussion-chat__mention-recipients{justify-content:flex-end}.discussion-chat__mention-recipients span{padding:2px 7px;border-radius:4px;background:#eff6ff}
+</style>

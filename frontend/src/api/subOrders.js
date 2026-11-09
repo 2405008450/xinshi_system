@@ -79,3 +79,5 @@ export const importSubOrderFolders = async (data,config={}) => {
 export const exportSubOrderTree = projectId => api.get(`/sub-orders/project/${projectId}/export`,{responseType:'blob'})
 
 export const getFolderImportRecords = projectId => api.get(`/sub-orders/project/${projectId}/folder-import-records`).then(res=>convertKeys(res,toCamelCase))
+export const parseSubOrderListFile = (file,config={}) => {const data=new FormData();data.append('file',file);return api.post('/sub-orders/import-list/parse',data,{timeout:60000,...config,headers:{...config.headers,'Content-Type':undefined}}).then(res=>convertKeys(res,toCamelCase))}
+export const previewSubOrderList = (data,config={}) => api.post('/sub-orders/import-list/preview',convertKeys(data,toSnakeCase),config).then(res=>convertKeys(res,toCamelCase))

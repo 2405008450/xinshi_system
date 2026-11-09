@@ -14,6 +14,8 @@ import './styles/theme.css'
 import './styles/common.css'
 import './styles/tableColumnResize.css'
 import { installTableColumnResize } from './utils/tableColumnResize'
+import './styles/tableScrollVisibility.css'
+import { installTableScrollVisibility } from './utils/tableScrollVisibility'
 import './styles/projectSubOrders.css'
 import TableActionButton from './components/common/TableActionButton.vue'
 import AppForm from './components/common/AppForm.vue'
@@ -46,3 +48,5 @@ app.component('AppForm', AppForm)
 // 所有业务弹窗统一通过该组件获得拖拽、视口边界和位置复位能力。
 app.component('DraggableFormDialog', DraggableFormDialog)
 app.mount('#app')
+const stopTableScrollVisibility = installTableScrollVisibility()
+if (import.meta.hot) import.meta.hot.dispose(stopTableScrollVisibility)

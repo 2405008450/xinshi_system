@@ -16,7 +16,8 @@ class DatabaseRequestCapacityMiddleware:
             size = int(engine_options.get('pool_size', 5))
             overflow = int(engine_options.get('max_overflow', 5))
             # 给 WebSocket 鉴权及后台任务留出连接；截图授权使用独立连接池。
-            limit = max(1, size + max(0, overflow) - 2)
+            reserve = min(2,max(1,size//3))
+            limit = max(1, size + max(0, overflow) - reserve)
         self.queue_timeout = float(queue_timeout if queue_timeout is not None else os.getenv('DB_REQUEST_QUEUE_TIMEOUT_SECONDS', '5'))
         # 文件请求单独使用预算内的少量名额，慢下载不能占满普通列表额度。
         transfer_limit = min(transfer_limit, max(0, limit - 1))

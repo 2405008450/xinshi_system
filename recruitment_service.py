@@ -49,7 +49,7 @@ RECRUITMENT_TYPE_VALUES = {"招聘项目", "recruitment", "招聘"}
 DEFAULT_CLIENT_MANAGER_NAME = "欧阳靖琳"
 DEFAULT_RESUME_SOURCES = ("BOSS", "智联", "小红书", "微信", "广外校友推荐")
 NESTED_FIELDS = {"client_manager_change_reason", "language_directions", "role_assignments"}
-WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact"}
+WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact", "client_contact_method", "client_contact_description", "client_contact_version"}
 
 
 def is_recruitment_type(value: Optional[str]) -> bool:
@@ -380,6 +380,8 @@ def create_recruitment_project(
 ) -> RecruitmentProject:
     data = payload.model_dump(exclude=NESTED_FIELDS)
     _resolve_client(db, data)
+    from project_client_contact_details import save_project_contact_details
+    save_project_contact_details(db,data)
     for key in WRITE_ONLY_CLIENT_FIELDS:
         data.pop(key, None)
     data['client_manager_id'] = payload.client_manager_id or created_by
@@ -426,6 +428,8 @@ def update_recruitment_project(
     # 来源咨询一经建项即不可通过普通编辑解绑或换绑。
     data.pop("consultation_id", None)
     _resolve_client(db, data)
+    from project_client_contact_details import save_project_contact_details
+    save_project_contact_details(db,data)
     for key in WRITE_ONLY_CLIENT_FIELDS:
         data.pop(key, None)
     if 'client_manager_id' not in payload.model_fields_set:

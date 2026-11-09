@@ -121,8 +121,9 @@ def test_sub_order_creation_initializes_matrix_and_workflow_in_same_transaction(
     query = SimpleNamespace(first=lambda: root)
     query.filter_by = lambda **_kwargs: query
     query.with_for_update = lambda: query
-    db = SimpleNamespace(add=lambda _item: None, flush=lambda: None, query=lambda *_args: query)
+    db = SimpleNamespace(add=lambda _item: None, flush=lambda: None, query=lambda *_args: query, expire=lambda *_args: None)
     monkeypatch.setattr('translation_direction_service.next_number', lambda *_args: 'TP-260830-001.001')
+    monkeypatch.setattr('translation_order_inheritance.create_state', lambda *_args: None)
     matrix_calls = []
     workflow_calls = []
 

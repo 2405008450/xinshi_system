@@ -1,9 +1,10 @@
 from translation_folder_orders import FolderImport
+import translation_mother_split  # 注册模型；启动不执行迁移。
 from form_errors import integrity_error_detail
 import logging
 from typing import List, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status, File, UploadFile
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -36,6 +37,26 @@ async def read_source_files(payload: ProjectSourcePathInspectRequest):
         return await shared_file_io.run(list_sub_order_source_files, payload.storage_path)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post('/import-list/parse',dependencies=[Depends(require_any_permission('projects:write'))])
+async def parse_order_list(file:UploadFile=File(...)):
+    from translation_order_list_import import parse_document,MAX_BYTES
+    from starlette.concurrency import run_in_threadpool
+    content=await file.read(MAX_BYTES+1)
+    try:return await run_in_threadpool(parse_document,file.filename or '',content)
+    except ValueError as error:raise HTTPException(400,str(error)) from error
+    finally:await file.close()
+
+
+from translation_order_list_import import ListPreview
+
+
+@router.post('/import-list/preview',dependencies=[Depends(require_any_permission('projects:write'))])
+def preview_order_list(payload:ListPreview):
+    from translation_order_list_import import analyze
+    try:return analyze(payload)
+    except ValueError as error:raise HTTPException(400,str(error)) from error
 
 
 @router.post("/", response_model=TranslationSubOrderResponse, status_code=status.HTTP_201_CREATED)
@@ -132,6 +153,8 @@ def inspect_shared_suborder_tree(storage_path: str = Query(min_length=1,max_leng
 @router.post("/folders/import",response_model=TranslationFolderImportResponse,dependencies=[Depends(require_any_permission("projects:write"))])
 def import_suborder_folders(payload: "FolderImport", db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user), idempotency_key: Optional[str] = Header(default=None,alias="X-Idempotency-Key",min_length=8,max_length=128)):
     from translation_folder_orders import import_folders
+    if not payload.parent_project_id:
+        raise HTTPException(400,'新增项目的目录应先应用到表单，点击项目窗口的保存后才正式登记；请刷新页面后重试')
     try:return import_folders(db,payload,current_user.id,idempotency_key)
     except ValueError as exc:
         db.rollback()

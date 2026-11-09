@@ -80,6 +80,8 @@ class BusinessMailPreviewResponse(BaseModel):
 
 
 class BusinessMailSendRequest(BaseModel):
+    send_translation_chat: bool = False
+    translation_chat_audience: list[str] = Field(default_factory=list, max_length=1000)
     project_type: ProjectMailType
     project_id: UUID
     consultation_id: Optional[UUID] = None
@@ -122,6 +124,7 @@ class BusinessMailAttemptResponse(BaseModel):
 
 
 class BusinessMailResponse(BaseModel):
+    translation_chat_error: Optional[str] = None
     id: UUID
     source_kind: str
     project_type: ProjectMailType

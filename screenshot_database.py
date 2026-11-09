@@ -5,6 +5,7 @@ from threading import Lock
 from sqlalchemy import create_engine
 
 from database import engine_options
+from database_pool_policy import pool_options,application_name,install_idle_session_timeout
 from performance_monitoring import install_sqlalchemy_performance_hooks
 
 
@@ -23,9 +24,13 @@ def _create_screenshot_engine(source):
     if source.dialect.name == 'sqlite' and source.url.database in (None, '', ':memory:'):
         return source
     options = dict(engine_options) if source.dialect.name == 'postgresql' else {'pool_pre_ping': True}
-    options.update(pool_size=2, max_overflow=2, pool_timeout=10)
+    if source.dialect.name=='postgresql':
+        options.update(pool_options('screenshots'))
+        options['connect_args']={**options.get('connect_args',{}),'application_name':application_name('screenshots')}
+    else:options.update(pool_size=2,max_overflow=2,pool_timeout=10)
     if source.dialect.name == 'sqlite':
         options['connect_args'] = {'check_same_thread': False}
     auxiliary = create_engine(source.url, **options)
     install_sqlalchemy_performance_hooks(auxiliary)
+    install_idle_session_timeout(auxiliary)
     return auxiliary

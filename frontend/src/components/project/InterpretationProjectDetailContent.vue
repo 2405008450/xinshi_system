@@ -11,7 +11,7 @@
                   <el-descriptions-item label="客户编号">{{ textValue(row.clientCode) }}</el-descriptions-item>
                   <el-descriptions-item label="客户全称">{{ textValue(row.clientFullName) }}</el-descriptions-item>
                   <el-descriptions-item label="客户领域">{{ textValue(row.clientDomain) }}</el-descriptions-item>
-                  <el-descriptions-item label="现客户经理">{{ textValue(row.currentClientManager) }}</el-descriptions-item>
+                  <el-descriptions-item label="客户经理">{{ textValue(row.currentClientManager) }}</el-descriptions-item>
                   <el-descriptions-item label="客户经理联系方式">{{ textValue(row.managerContact) }}</el-descriptions-item>
                   <el-descriptions-item label="子客户/联系人"><InlineTextField :model-value="row.contactName" :display-value="row.contactName || row.subClientContact" :editable="editable" label="子客户/联系人" :maxlength="255" :save-field="(value) => saveField('contactName', value)" @conflict="emit('conflict')" /></el-descriptions-item>
                   <el-descriptions-item label="客户单号/项目标识" :span="2"><InlineTextField :model-value="row.customerOrderNo" :editable="editable" label="客户单号/项目标识" :maxlength="150" :save-field="(value) => saveField('customerOrderNo', value)" @conflict="emit('conflict')" /></el-descriptions-item>

@@ -1,0 +1,83 @@
+"""正常提交的子订单资料检查，以及明确标识的紧急项目预告知。"""
+from uuid import UUID
+from sqlalchemy import Boolean, ForeignKey, Uuid, inspect
+from sqlalchemy.orm import Mapped, mapped_column
+from models import Base, TranslationProject, TranslationSubOrder
+
+
+class TranslationProjectSubmission(Base):
+    __tablename__ = 'translation_project_submission'
+    project_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey('translation_project.id', ondelete='CASCADE'), primary_key=True)
+    emergency_notice: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sub_orders_reviewed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+def ready(db):
+    return inspect(db.connection()).has_table(TranslationProjectSubmission.__tablename__)
+
+
+def missing_statistics(db, root):
+    from word_count_service import attach_entity_matrices
+    rows=db.query(TranslationSubOrder).filter_by(parent_project_id=root.id).all()
+    attach_entity_matrices(db, [root])
+    parents={row.sub_order_no.rsplit('.',1)[0] for row in rows}
+    return [row.sub_order_no for row in rows if row.sub_order_no not in parents and not any(
+        value is not None for dimension in ('company','customer')
+        for value in (row.word_count_matrix.get(dimension,{}) or {}).values())]
+
+
+def apply_initial_details(db, root, details):
+    if not details:
+        return
+    from schemas import TranslationSubOrderUpdate
+    from translation_order_inheritance import prepare
+    from crud import update_sub_order
+    context=prepare(db,root.id)
+    by_suffix={row.sub_order_no[len(root.order_no)+1:]:row for row in context[1]}
+    allowed=set(TranslationSubOrderUpdate.model_fields)-{'inherit_fields','assigned_translator_completions'}
+    for suffix,data in details.items():
+        if suffix not in by_suffix or set(data)-allowed:
+            raise ValueError('子订单预填内容与生成的订单不匹配，请重新打开子订单管理')
+        payload=TranslationSubOrderUpdate.model_validate(data)
+        update_sub_order(db,by_suffix[suffix].id,payload,commit=False)
+
+
+def apply(db, root, mode, reviewed=False):
+    if mode is None:
+        return
+    if not ready(db):
+        raise ValueError('项目提交检查表尚未初始化，请联系管理员')
+    has_children=db.query(TranslationSubOrder.id).filter_by(parent_project_id=root.id).first() is not None
+    if mode=='normal_children' and not has_children:
+        raise ValueError('请先创建子订单并填写字数，汇总至母订单后再发送')
+    if mode in ('normal','normal_children') and has_children:
+        if not reviewed:
+            raise ValueError('请先打开子订单管理，填写并确认子订单统计后再保存；紧急情况可使用“（紧急）项目预告知”')
+        missing=missing_statistics(db,root)
+        if missing:
+            raise ValueError('请先填写子订单的我司统计或客户统计：'+'、'.join(missing[:10])+('等' if len(missing)>10 else ''))
+    row=db.get(TranslationProjectSubmission,root.id)
+    if row is None:
+        row=TranslationProjectSubmission(project_id=root.id)
+        db.add(row)
+    row.emergency_notice=mode=='emergency_notice'
+    row.sub_orders_reviewed=bool(reviewed) and mode!='draft'
+    db.flush()
+
+
+def mail_policy(db, root):
+    if not ready(db):
+        return False, ''
+    state=db.get(TranslationProjectSubmission,root.id)
+    if state and state.emergency_notice:
+        return True, ''
+    if state and not state.sub_orders_reviewed:
+        return False, '请先在子订单管理填写字数并汇总至母订单，再保存并发送；紧急情况可使用“（紧急）项目预告知”'
+    # 已有历史发送规则不在迁移时批量改写；所有带子订单邮件均检查实际资料。
+    if db.query(TranslationSubOrder.id).filter_by(parent_project_id=root.id).first():
+        if not state or not state.sub_orders_reviewed:
+            return False, '请先在子订单管理填写并确认资料，再保存项目；紧急情况可使用“（紧急）项目预告知”'
+        missing=missing_statistics(db,root)
+        if missing:
+            return False, '子订单缺少我司统计或客户统计：'+'、'.join(missing[:10])
+    return False, ''

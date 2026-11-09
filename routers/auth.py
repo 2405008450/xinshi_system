@@ -200,7 +200,7 @@ def get_user_from_token_value(db: Session, token: str):
     return user
 
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db), request: Request = None):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="登录凭证无效或已过期",
@@ -211,6 +211,9 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise credentials_exception
     db.info['number_actor'] = user.id
     db.info['number_actor_name'] = user.full_name or user.username
+    from client_contact_privacy import can_view_client_contacts
+    db.info['client_contacts_visible']=can_view_client_contacts(db,user)
+    if request is not None:request.state.client_contacts_visible=db.info['client_contacts_visible']
     return user
 
 

@@ -299,7 +299,7 @@ def project_rows(module, mode, project, custom_labels=None):
                     yield title, {**row, **values(item, fields, labels)}
 
 
-def projects_to_xlsx(module: str, mode: str, batches: Iterable, *, custom_labels=None, max_rows_per_sheet=EXPORT_MAX_ROWS_PER_SHEET):
+def projects_to_xlsx(module: str, mode: str, batches: Iterable, *, custom_labels=None, max_rows_per_sheet=EXPORT_MAX_ROWS_PER_SHEET,contacts_visible=True):
     specs = sheet_specs(module, mode)
     workbook = Workbook(write_only=True)
     sheets = {spec.title: (_make_sheet(workbook, spec.title, columns(spec.fields)), columns(spec.fields)) for spec in specs}
@@ -314,6 +314,8 @@ def projects_to_xlsx(module: str, mode: str, batches: Iterable, *, custom_labels
                         continue
                     seen.add(str(key))
                 for title, row in project_rows(module, mode, project, custom_labels):
+                    if not contacts_visible:
+                        for label in ('客户经理联系方式','联系人联系方式','联系方式','邮件主题'):row.pop(label,None)
                     counts[title] += 1
                     if counts[title] > max_rows_per_sheet:
                         raise ProjectExportLimitError(f"{title}超过 {max_rows_per_sheet} 行，请缩小导出范围")
@@ -398,4 +400,4 @@ def create_project_export(db, module, mode, filters):
         ).all()
         # 自定义值使用字段 ID；历史停用定义也保留可读名称。
         custom_labels = {str(item.id): item.field_label for item in definitions}
-    return projects_to_xlsx(module, mode, iter_project_batches(db, module, filters), custom_labels=custom_labels)
+    return projects_to_xlsx(module, mode, iter_project_batches(db, module, filters), custom_labels=custom_labels,contacts_visible=getattr(db,'info',{}).get('client_contacts_visible',True))

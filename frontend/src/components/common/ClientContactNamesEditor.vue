@@ -4,7 +4,7 @@
       <div class="contact-person-heading"><strong>客户联系人 {{index+1}}</strong><el-button v-if="names.length>1" link type="danger" :aria-label="`移除联系人${index+1}`" @click="remove(index)">移除</el-button></div>
       <el-row :gutter="16">
         <el-col :xs="24" :md="12"><el-form-item label="联系人" :prop="['contact_people',index,'name']" :rules="nameRules(row)"><el-input :model-value="row.name" maxlength="100" placeholder="请输入联系人姓名" :aria-label="`客户联系人${index+1}`" @update:model-value="value=>update(index,'name',value)" /></el-form-item></el-col>
-        <el-col :xs="24" :md="12"><el-form-item label="联系方式" :prop="['contact_people',index,'contact_method']"><el-input :model-value="row.contact_method" maxlength="5000" placeholder="电话、邮箱、微信等" :aria-label="`联系人${index+1}联系方式`" @update:model-value="value=>update(index,'contact_method',value)" /></el-form-item></el-col>
+        <el-col :xs="24" :md="12"><el-form-item label="联系方式" :prop="['contact_people',index,'contact_method']"><el-input v-if="canViewClientContacts" :model-value="row.contact_method" maxlength="5000" placeholder="电话、邮箱、微信等" :aria-label="`联系人${index+1}联系方式`" @update:model-value="value=>update(index,'contact_method',value)" /><ReadonlyField v-else model-value="仅客户部、销售部、行政部可查看" source="locked" /></el-form-item></el-col>
       </el-row>
       <el-form-item label="说明" :prop="['contact_people',index,'description']"><el-input :model-value="row.description" type="textarea" :rows="2" maxlength="5000" :aria-label="`联系人${index+1}说明`" placeholder="填写职务、联系偏好或其他说明" @update:model-value="value=>update(index,'description',value)" /></el-form-item>
     </section>
@@ -13,6 +13,9 @@
 </template>
 <script setup>
 import { computed } from 'vue'
+import ReadonlyField from './ReadonlyField.vue'
+import {useClientContactAccess} from '@/composables/useClientContactAccess'
+const {canViewClientContacts}=useClientContactAccess()
 const props=defineProps({modelValue:{type:Array,default:()=>[]},required:{type:Boolean,default:true}})
 const emit=defineEmits(['update:modelValue'])
 const nameRules=row=>[

@@ -605,7 +605,7 @@ def count_annotation_projects(db: Session, *, sort: str = "order_no_desc", **fil
     return _apply_filters(query, **filters).distinct().count()
 
 
-WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact"}
+WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact", "client_contact_method", "client_contact_description", "client_contact_version"}
 NESTED_FIELDS = {"language_items", "price_items", "assignees", "role_assignments", "material_changes", "task_image_upload_ids", "chat_delivery"}
 
 # 订单仅提供创建时的快照，子订单保存后独立维护。
@@ -898,6 +898,8 @@ def create_annotation_project(
         db, "project", None, data.get("custom_values") or {}, parent.custom_values if parent else None,
     )
     _resolve_client(db, data)
+    from project_client_contact_details import save_project_contact_details
+    save_project_contact_details(db,data)
     for key in WRITE_ONLY_CLIENT_FIELDS:
         data.pop(key, None)
     data["email_subject_preview"] = normalize_email_subject_order_no(
@@ -1037,6 +1039,8 @@ def update_annotation_project(
         db, "project", None, data.get("custom_values") or {}, project.custom_values,
     )
     _resolve_client(db, data)
+    from project_client_contact_details import save_project_contact_details
+    save_project_contact_details(db,data)
     for key in WRITE_ONLY_CLIENT_FIELDS:
         data.pop(key, None)
     previous_status = project.project_status

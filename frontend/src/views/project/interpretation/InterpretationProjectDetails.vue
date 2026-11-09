@@ -355,7 +355,7 @@
           <section class="form-section interpretation-key-fields">
             <div class="interpretation-key-fields__header">
               <div><h3>关键必填信息</h3><p>请优先完成以下内容，再补充其余项目资料。</p></div>
-              <el-tag type="danger" effect="plain">8 项必填</el-tag>
+              <el-tag type="danger" effect="plain">请完成必填项</el-tag>
             </div>
             <el-row :gutter="16">
               <el-col :xs="24">
@@ -406,6 +406,9 @@
 </el-form-item>
               </el-col>
             </el-row>
+            <el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="客户全称" prop="clientFullName"><ReadonlyField :model-value="form.clientFullName" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '请输入客户全称'" @update:model-value="form.clientFullName = $event" /></el-form-item></el-col></el-row>
+            <ProjectClientContactFields :client-id="form.clientId" :sub-client-id="form.subClientId" v-model:contact-name="form.contactName" v-model:contact-method="form.clientContactMethod" v-model:contact-description="form.clientContactDescription" v-model:contact-version="form.clientContactVersion" v-model:contacts-visible="form.clientContactsVisible" />
+            <el-form-item label="补充说明" class="remarks-form-item"><el-input v-model="form.remarks" type="textarea" :rows="5" /></el-form-item>
             <el-form-item label="具体任务" prop="taskDescription">
               <el-input v-model="form.taskDescription" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" placeholder="请输入具体任务，可填写详细的工作内容和要求" resize="vertical" />
             </el-form-item>
@@ -456,20 +459,17 @@
                 </el-form-item>
               </el-col>
             </el-row>
-            <ProjectClientManagerField v-model="form.clientManagerId" v-model:reason="form.clientManagerChangeReason" :baseline-id="clientManagerBaseline" :baseline-name="form.currentClientManager" :project-id="form.id" project-type="interpretation" />
             <el-form-item label="客户预算"><el-input v-model="form.customerBudget" placeholder="可填写金额、计价单位及差旅说明" /></el-form-item>
             <el-form-item label="现客户经理" prop="currentClientManager">
               <CustomerSpecialistSelect v-model="form.currentClientManager" :options="customerSpecialists" :loading="customerSpecialistsLoading" />
             </el-form-item>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="8"><el-form-item label="客户全称" prop="clientFullName"><ReadonlyField :model-value="form.clientFullName" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '请输入客户全称'" @update:model-value="form.clientFullName = $event" /></el-form-item></el-col>
+
               <el-col :xs="24" :md="8"><el-form-item label="客户编号"><ReadonlyField :model-value="form.clientCode" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '新客户不填则自动生成'" @update:model-value="form.clientCode = $event" /></el-form-item></el-col>
               <el-col :xs="24" :md="8"><el-form-item label="客户领域"><ReadonlyField :model-value="form.clientDomain" source="auto" placeholder="选择客户后自动带出" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="8"><el-form-item label="联系人"><el-input v-model="form.contactName" /></el-form-item></el-col>
               <el-col :xs="24" :md="8"><el-form-item label="客户单号/标识"><el-input v-model="form.customerOrderNo" /></el-form-item></el-col>
-              <el-col v-if="showManagerContactInput" :xs="24" :md="8"><el-form-item label="客户经理联系方式"><el-input v-model="form.managerContact" maxlength="100" clearable placeholder="请输入客户经理联系方式" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="客户咨询时间"><el-date-picker v-model="form.customerConsultationTime" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
@@ -495,7 +495,7 @@
             <div v-for="(item, index) in form.interpreterAssignments" :key="index" class="repeat-card">
               <div class="repeat-title">译员 {{ index + 1 }}<el-button link type="danger" @click="form.interpreterAssignments.splice(index, 1)">删除</el-button></div>
               <el-row :gutter="12">
-                <el-col :xs="24" :md="12"><el-form-item label="译员"><el-select v-model="item.translatorId" filterable remote :remote-method="searchInterpreterTalents" :loading="interpreterTalentLoading" placeholder="从人才总库搜索姓名、资源编号" style="width: 100%" @visible-change="opened => opened && searchInterpreterTalents('')"><el-option v-for="person in translators" :key="person.id" :label="translatorOptionLabel(person)" :value="person.id" /></el-select></el-form-item></el-col>
+                <el-col :xs="24" :md="12"><el-form-item label="译员"><el-select v-model="item.translatorId" filterable remote :remote-method="searchInterpreterTalents" :loading="interpreterTalentLoading" @input.capture="handleInterpreterTalentInput" placeholder="从人才总库全库搜索姓名、资源编号" style="width: 100%" @visible-change="opened => opened && searchInterpreterTalents('')"><el-option v-for="person in interpreterTalentOptions" :key="person.id" :label="translatorOptionLabel(person)" :value="person.id" /></el-select></el-form-item></el-col>
                 <el-col :xs="24" :md="12"><el-form-item label="客户评价"><el-select v-model="item.customerRating" clearable style="width: 100%"><el-option v-for="rating in ratingOptions" :key="rating.value" :label="rating.label" :value="rating.value" /></el-select></el-form-item></el-col>
                 <el-col :xs="24"><el-form-item label="评价备注"><el-input v-model="item.evaluationNote" type="textarea" :rows="2" /></el-form-item></el-col>
               </el-row>
@@ -520,7 +520,7 @@
               <el-col :xs="24" :md="12"><el-form-item label="发圈请求"><el-input v-model="form.socialPostRequest" type="textarea" :rows="2" /></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="资源请求"><el-input v-model="form.resourceRequest" type="textarea" :rows="2" /></el-form-item></el-col>
             </el-row>
-            <el-form-item label="备注" class="remarks-form-item"><el-input v-model="form.remarks" type="textarea" :rows="5" /></el-form-item>
+
             <el-form-item label="标题前缀">
               <el-input v-model="form.subjectPrefix" maxlength="50" show-word-limit clearable placeholder="可选，例如：紧急、请优先处理" />
             </el-form-item>
@@ -592,6 +592,9 @@
 </template>
 
 <script setup>
+import ProjectClientContactFields from '@/components/common/ProjectClientContactFields.vue'
+import {emptyProjectContactDetails,projectContactPayload} from '@/utils/projectClientContacts'
+
 import ClientNameGuidance from '@/components/common/ClientNameGuidance.vue'
 import {useProjectStatusSync} from '@/composables/useProjectStatusSync'
 import ProjectClientManagerField from '@/components/common/ProjectClientManagerField.vue'
@@ -611,6 +614,7 @@ import * as projectApi from '@/api/interpretationProjects'
 import * as clientApi from '@/api/clients'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import { getProjectTalentOptions } from '@/api/talents'
+import { createRemoteTalentSearch } from '@/utils/remoteTalentSearch'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
@@ -704,19 +708,21 @@ const tableData = ref([])
 const projectTableRef = ref(null)
 const clients = ref([])
 const translators = ref([])
-const interpreterTalentLoading = ref(false)
-let interpreterTalentSequence=0,interpreterTalentController
-const searchInterpreterTalents=async(keyword)=>{
-  const sequence=++interpreterTalentSequence
-  interpreterTalentController?.abort();interpreterTalentController=new AbortController();interpreterTalentLoading.value=true
-  try{
-    const rows=await getProjectTalentOptions('interpretation',{keyword,limit:100},{signal:interpreterTalentController.signal})
-    if(sequence!==interpreterTalentSequence)return
-    const selected=new Set(form.interpreterAssignments.map(item=>item.translatorId))
-    translators.value=[...translators.value.filter(item=>selected.has(item.id)&&!rows.some(row=>row.id===item.id)),...rows]
-  }catch(error){if(sequence===interpreterTalentSequence&&error.code!=='ERR_CANCELED')ElMessage.error('人才总库资源加载失败，请重试')}
-  finally{if(sequence===interpreterTalentSequence)interpreterTalentLoading.value=false}
-}
+const interpreterTalentSearchState=ref({active:false,keyword:'',items:[],loading:false})
+const interpreterTalentLoading=computed(()=>interpreterTalentSearchState.value.loading)
+const interpreterTalentOptions=computed(()=>interpreterTalentSearchState.value.active?interpreterTalentSearchState.value.items:translators.value)
+const interpreterTalentSearch=createRemoteTalentSearch({
+  fetchOptions:(keyword,signal)=>getProjectTalentOptions(undefined,{keyword,limit:100},{signal}),
+  onUpdate:state=>{
+    interpreterTalentSearchState.value=state
+    const known=new Map(translators.value.map(person=>[person.id,person]))
+    for(const person of state.items)known.set(person.id,person)
+    translators.value=[...known.values()]
+  },
+  onError:()=>ElMessage.error('人才总库资源加载失败，请重试'),
+})
+const searchInterpreterTalents=keyword=>interpreterTalentSearch.search(keyword)
+const handleInterpreterTalentInput=event=>{if(event.target?.tagName==='INPUT')interpreterTalentSearch.input(event.target.value)}
 const languages = ref([])
 const filterClientOptions = computed(() => clients.value.flatMap((client) => [
   { value: `client:${client.id}`, label: client.client_short_name || client.client_name },
@@ -849,7 +855,7 @@ const interpretationFilterFields = [
   { key: 'projectName', label: '项目名称', type: 'text' },
   { key: 'projectTypes', label: '项目类型', type: 'select', options: projectTypeOptions },
   { key: 'taskDescription', label: '具体任务', type: 'text' },
-  { key: 'currentClientManager', label: '现客户经理', type: 'text' },
+  { key: 'currentClientManager', label: '客户经理', type: 'text' },
   { key: 'projectStatus', label: '项目状态', type: 'select', options: statusOptions },
   { key: 'clientShortName', label: '客户简称', type: 'text' },
   { key: 'clientCode', label: '客户编号', type: 'text' },
@@ -897,6 +903,7 @@ const MAX_LOCATIONS = 4
 const emptyTimeRange = () => ({ scheduledStart: '', scheduledEnd: '', actualStart: '', actualEnd: '' })
 const emptyLanguageDirection = () => ({ languageIds: ['', ''], requiredCount: null })
 const defaultForm = () => ({
+  ...emptyProjectContactDetails(),
   id: '', orderNo: '', projectName: '', projectTypes: [], taskDescription: '',
   clientId: '', subClientId: '', clientShortName: '', clientFullName: '', clientCode: '',
   clientDomain: '', currentClientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', contactName: '', customerOrderNo: '', projectStatus: 'initial_follow_up',
@@ -1022,12 +1029,13 @@ const loadReferenceData = async () => {
   customerSpecialistsLoading.value = true
   const [clientRows, translatorRows, languageRows, specialistRows] = await Promise.allSettled([
     clientApi.getClients({ skip: 0, limit: 500, frequent_first: true }),
-    getProjectTalentOptions('interpretation'),
+    getProjectTalentOptions(),
     projectApi.getInterpretationLanguages({ include_inactive: true }),
     getProjectRoleCandidatesAPI('customer_specialist'),
   ])
   clients.value = clientRows.status === 'fulfilled' && Array.isArray(clientRows.value) ? clientRows.value : []
-  translators.value = translatorRows.status === 'fulfilled' && Array.isArray(translatorRows.value) ? translatorRows.value : []
+  const initialTranslators=translatorRows.status === 'fulfilled' && Array.isArray(translatorRows.value) ? translatorRows.value : []
+  translators.value=[...new Map([...initialTranslators,...translators.value].map(person=>[person.id,person])).values()]
   languages.value = languageRows.status === 'fulfilled' && Array.isArray(languageRows.value) ? languageRows.value : []
   customerSpecialists.value = specialistRows.status === 'fulfilled' && Array.isArray(specialistRows.value) ? specialistRows.value : []
   customerSpecialistsLoading.value = false
@@ -1264,6 +1272,7 @@ const buildPayload = () => {
   const nested = normalizedNestedPayload()
   validateNested(nested)
   return {
+    ...projectContactPayload(form),
     clientManagerId: form.clientManagerId || null,
     clientManagerChangeReason: form.clientManagerChangeReason || null,
     projectName: form.projectName?.trim() || null,
@@ -1542,7 +1551,7 @@ watch(
     }
   }
 )
-onBeforeUnmount(() => { interpreterTalentSequence++;interpreterTalentController?.abort();clearTimeout(searchTimer); clearTimeout(autoNameTimer); requestController?.abort() })
+onBeforeUnmount(() => { interpreterTalentSearch.dispose();clearTimeout(searchTimer); clearTimeout(autoNameTimer); requestController?.abort() })
 useProjectStatusSync('interpretation',tableData,{onChanged:()=>{if(!loading.value&&!dialogVisible.value)void fetchData()}})
 </script>
 

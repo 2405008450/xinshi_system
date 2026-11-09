@@ -73,6 +73,9 @@ class RecruitmentProjectBase(BaseModel):
     client_short_name: Optional[str] = Field(default=None, max_length=100)
     client_code: Optional[str] = Field(default=None, max_length=100)
     manager_contact: Optional[str] = Field(default=None, max_length=100)
+    client_contact_method: Optional[str] = Field(default=None,max_length=5000)
+    client_contact_description: Optional[str] = Field(default=None,max_length=5000)
+    client_contact_version: Optional[str] = Field(default=None,max_length=64)
     contact_name: Optional[str] = Field(default=None, max_length=255)
     customer_order_no: Optional[str] = Field(default=None, max_length=150)
     client_manager_id: Optional[UUID] = None

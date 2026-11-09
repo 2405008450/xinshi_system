@@ -1,11 +1,11 @@
 <template>
   <DraggableFormDialog :model-value="modelValue" title="笔译财务流程帮助" class="finance-workflow-help" width="min(1260px, calc(100vw - 32px))" top="4vh" append-to-body destroy-on-close @update:model-value="emit('update:modelValue',$event)">
-    <div class="help-search"><el-input v-model="keyword" clearable placeholder="搜索流程、入口或问题，例如：字数 单价" /><span>支持多个关键词；点击图片可查看清晰原图</span></div>
+    <div class="help-search"><el-input v-model="keyword" clearable placeholder="搜索流程、入口或问题，例如：字数 单价" /><span>更新于 {{financeHelpUpdatedAt}} · 支持多个关键词；点击图片查看原图</span></div>
     <div class="help-layout">
       <nav aria-label="帮助目录"><a v-if="showEntries" href="#finance-help-entries" @click.prevent="locate('entries')">各入口的区别与联系</a><a v-for="section in sections" :key="section.id" :href="`#finance-help-${section.id}`" @click.prevent="locate(section.id)">{{section.title}}</a></nav>
       <div ref="content" class="help-content">
         <section v-if="showEntries" id="finance-help-entries"><h2>同一流程，应该从哪里进入？</h2><div class="help-table"><table><thead><tr><th>入口</th><th>适合做什么</th><th>区别与联系</th></tr></thead><tbody><tr v-for="row in financeEntryComparison" :key="row[0]"><td v-for="(cell,index) in row" :key="index">{{cell}}</td></tr></tbody></table></div></section>
-        <section v-for="section in sections" :id="`finance-help-${section.id}`" :key="section.id"><h2>{{section.title}}</h2><p v-for="paragraph in section.paragraphs" :key="paragraph">{{paragraph}}</p><figure v-if="screenshots[section.shot]"><el-image :src="screenshots[section.shot].src" :alt="screenshots[section.shot].caption" :preview-src-list="[screenshots[section.shot].src]" preview-teleported fit="contain" /><figcaption>{{screenshots[section.shot].caption}}（点击放大）</figcaption></figure></section>
+        <section v-for="section in sections" :id="`finance-help-${section.id}`" :key="section.id"><h2>{{section.title}}</h2><p v-for="paragraph in section.paragraphs" :key="paragraph">{{paragraph}}</p><div v-if="section.table" class="help-table"><table><thead><tr><th v-for="heading in section.table.headers" :key="heading">{{heading}}</th></tr></thead><tbody><tr v-for="(row,rowIndex) in section.table.rows" :key="rowIndex"><td v-for="(cell,index) in row" :key="index">{{cell}}</td></tr></tbody></table></div><figure v-if="screenshots[section.shot]"><el-image :src="screenshots[section.shot].src" :alt="screenshots[section.shot].caption" :preview-src-list="[screenshots[section.shot].src]" preview-teleported fit="contain" /><figcaption>{{screenshots[section.shot].caption}}（点击放大）</figcaption></figure></section>
         <el-empty v-if="!sections.length&&keyword.trim()&&!showEntries" description="没有匹配内容，请尝试其他关键词" />
       </div>
     </div>
@@ -15,13 +15,13 @@
 <script setup>
 import {computed,nextTick,ref,watch} from 'vue'
 import DraggableFormDialog from './DraggableFormDialog.vue'
-import {financeEntryComparison,financeWorkflowSections} from '@/utils/financeWorkflowHelp'
+import {financeEntryComparison,financeWorkflowSections,financeHelpUpdatedAt} from '@/utils/financeWorkflowHelp'
 import {matchesSearchFields} from '@/utils/searchMatching'
 import {financeHelpScreenshots as screenshots} from '@/utils/financeHelpScreenshots'
 const props=defineProps({modelValue:Boolean}),emit=defineEmits(['update:modelValue'])
 const keyword=ref(''),content=ref()
 const showEntries=computed(()=>matchesSearchFields(['入口 区别 联系',...financeEntryComparison.flat()],keyword.value))
-const sections=computed(()=>financeWorkflowSections.filter(section=>matchesSearchFields([section.title,...section.paragraphs],keyword.value)))
+const sections=computed(()=>financeWorkflowSections.filter(section=>matchesSearchFields([section.title,...section.paragraphs,...(section.table?.headers||[]),...(section.table?.rows||[]).flat()],keyword.value)))
 async function locate(id){await nextTick();const target=content.value?.querySelector(`#finance-help-${id}`);target?.scrollIntoView({behavior:'smooth',block:'start'})}
 watch(()=>props.modelValue,open=>{if(open){keyword.value='';void nextTick(()=>{if(content.value)content.value.scrollTop=0})}})
 </script>

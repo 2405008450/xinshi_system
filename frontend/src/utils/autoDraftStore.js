@@ -19,13 +19,13 @@ export function draftHash(value) {
   for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619)
   return (hash >>> 0).toString(36)
 }
-export function createAutoDraftStore({ storage, owner, clock = Date.now, budget = 2 * 1024 * 1024, recordBudget = 256 * 1024 }) {
+export function createAutoDraftStore({ storage, owner, clock = Date.now, budget = 2 * 1024 * 1024, recordBudget = 256 * 1024, retentionMs = null }) {
   const key = `xinshi.autoDraft.v1:${owner}`
   function read() {
     try {
       const records = JSON.parse(storage.getItem(key) || '{}')
       if (!records || typeof records !== 'object' || Array.isArray(records)) return {}
-      return Object.fromEntries(Object.entries(records).filter(([, item]) => item && clock() - item.time < AUTO_DRAFT_TTL))
+      return Object.fromEntries(Object.entries(records).filter(([, item]) => item && (retentionMs === null || clock() - item.time < retentionMs)))
     } catch { return {} }
   }
   function write(records) {

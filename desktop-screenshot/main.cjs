@@ -14,6 +14,7 @@ app.whenReady().then(() => {
   mainWindow.webContents.on('will-redirect', (event, url) => { if (!trusted(url)) event.preventDefault() })
   mainWindow.webContents.session.setPermissionRequestHandler((_contents, permission, callback) => callback(permission === 'clipboard-sanitized-write'))
   require(path.join(__dirname,'statement-drag.cjs')).registerStatementDrag({app,ipcMain,BrowserWindow},()=>mainWindow,trusted)
+  require(path.join(__dirname,'folder-picker.cjs')).registerFolderPicker({ipcMain,dialog},()=>mainWindow,trusted)
   ipcMain.handle('xinshi:capture-screen', async event => {
     if (process.platform !== 'win32') throw Error('免询问截屏入口目前仅支持 Windows')
     if (event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame || !trusted(event.senderFrame.url) || !mainWindow.isFocused()) throw Error('请在系统桌面窗口中点击截图')

@@ -456,7 +456,7 @@ def _resolve_client(db: Session, data: dict) -> None:
         data["sub_client_id"] = sub_client_id
 
 
-WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact", "current_client_manager"}
+WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact", "client_contact_method", "client_contact_description", "client_contact_version", "current_client_manager"}
 NESTED_FIELDS = {"client_manager_id", "client_manager_change_reason", "time_ranges", "language_directions", "interpreter_assignments", "role_assignments"}
 
 
@@ -504,20 +504,8 @@ def _sync_nested(db: Session, project: InterpretationProject, payload) -> None:
         if found != language_ids:
             raise ValueError("所选口译语种不存在或已失效")
     translator_ids = {item.translator_id for item in payload.interpreter_assignments}
-    if translator_ids:
-        found = {
-            value for (value,) in db.query(Translator.id)
-            .filter(Translator.id.in_(translator_ids)).all()
-        }
-        if found != translator_ids:
-            raise ValueError("所选译员不存在或已失效")
-        from resource_service import translator_has_capability
-        ineligible = {
-            translator_id for translator_id in translator_ids - existing_translator_ids
-            if not translator_has_capability(db, translator_id, "interpretation")
-        }
-        if ineligible:
-            raise ValueError("所选人员已停用或不具备有效的口译能力")
+    from interpretation_resource_selection import resolve_interpreter_resources
+    translator_ids_by_resource = resolve_interpreter_resources(db,translator_ids,existing_translator_ids)
 
     # 先删除并落库旧关系，再按相同 sequence_no 重建，避免唯一约束下
     # SQLAlchemy 先 INSERT 后 DELETE 导致编辑已有项目时冲突。
@@ -548,7 +536,7 @@ def _sync_nested(db: Session, project: InterpretationProject, payload) -> None:
         directions.append(direction)
     project.language_directions = directions
     project.interpreter_assignments = [
-        InterpretationProjectInterpreter(sequence_no=index, **item.model_dump())
+        InterpretationProjectInterpreter(sequence_no=index, **{**item.model_dump(),'translator_id':translator_ids_by_resource[item.translator_id]})
         for index, item in enumerate(payload.interpreter_assignments, start=1)
     ]
 
@@ -563,6 +551,8 @@ def create_interpretation_project(
     _resolve_client(db, data)
     if "current_client_manager" in payload.model_fields_set:
         update_interpretation_client_manager(db, data.get("client_id"), data.get("sub_client_id"), data.get("current_client_manager"))
+    from project_client_contact_details import save_project_contact_details
+    save_project_contact_details(db,data)
     for key in WRITE_ONLY_CLIENT_FIELDS:
         data.pop(key, None)
     order_no = generate_interpretation_order_no(db)
@@ -617,6 +607,8 @@ def update_interpretation_project(
     _resolve_client(db, data)
     if "current_client_manager" in payload.model_fields_set:
         update_interpretation_client_manager(db, data.get("client_id"), data.get("sub_client_id"), data.get("current_client_manager"))
+    from project_client_contact_details import save_project_contact_details
+    save_project_contact_details(db,data)
     for key in WRITE_ONLY_CLIENT_FIELDS:
         data.pop(key, None)
     previous_status = project.project_status

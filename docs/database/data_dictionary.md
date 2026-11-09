@@ -2727,7 +2727,7 @@ id UUID 主键；client_id / sub_client_id UUID 分别关联 client / sub_client
 ### translation_order_folder（笔译文件夹订单元数据）
 
 - `sub_order_id`：主键，关联 `translation_sub_order.id`，订单删除时级联移除。
-- `source_kind`：`local` 或 `unc`；`root_path`：所选根目录完整路径。
+- `source_kind`：`local`、`unc` 或 `manifest`（复制/文件清单导入，仅解析清单，不枚举实际目录）；`root_path`：所选根目录完整路径。沿用既有 varchar(10)，无需结构迁移。
 - `relative_path`：含所选根目录名称的相对目录层级；`files`：该目录直接包含的文件名称 JSON 清单。
 - 所选根目录对应既有母订单，下面三层目录分别对应一至三级子订单；文件始终作为所属目录的下一级订单，最深四级子订单。目录名称无须扩展名，文件名称须保留扩展名。
 - 本地文件夹由浏览器枚举相对路径，绝对根路径由用户填写；UNC 使用现有白名单与服务桌面会话权限读取。只读取文件清单，不上传正文。
@@ -2738,3 +2738,45 @@ id UUID 主键；client_id / sub_client_id UUID 分别关联 client / sub_client
 `id` UUID 主键；`project_id` 关联母订单（删除级联）；`actor_id` 关联操作人（删除置空）；`created_at` 为 UTC+8 带时区业务时间；`source_kind`、`root_path` 记录来源及完整根路径；`empty_folders` 为无任何下层文件的目录相对路径 JSON 清单；`created_count` 记录本次生成子订单数。每次确认导入均记录，空文件夹不占用编号、不生成订单。管理窗口可查看，Excel 的第二张工作表包含记录。
 
 `translation_folder_import_log.empty_detection_complete`：布尔值，标记本次目录枚举是否能完整检测空文件夹；不支持原生目录枚举的浏览器兼容模式记为 false，页面和导出明确标注。
+
+
+### translation_order_inheritance（笔译订单字段继承）
+
+- `sub_order_id`：UUID 主键及 `translation_sub_order.id` 外键，删除子订单时级联移除。
+- `overrides`：非空 JSON，仅保存子订单显式覆盖的字段和值；键缺省表示随直接上级更新，显式 null 表示单独清空。支持 `service_content`、`language_pair`、`customer_deadline_time`、`customer_requirement_professional`、`customer_requirement_special`、`remarks`、`file_type_secondary`、`status`。时间值为明确 +08:00 的 ISO 文本；已有订单时间列继续按既定业务时间语义存储。
+- 根项目原字段保持原表；新表不回填历史数据。读时保留旧有手工差异，首次修改时在同一事务固定覆盖项，然后从直接上级逐层更新未覆盖字段。恢复继承使用接口 `inherit_fields`。字数独立使用现有逐级汇总服务，不从父级复制统计量。
+- 响应 `inherited_fields` 标记继承项，`child_field_differences` 返回后代差异。相同差异覆盖整棵分支时只展示最上级子单号；翻译方向只提示不同方向。
+
+
+### translation_project_submission（笔译项目提交方式）
+
+`project_id` 为 UUID 主键及 `translation_project.id` 级联删除外键；`emergency_notice` 表示本次项目按“（紧急）项目预告知”保存，邮件主题和正文均明确标注资料待补；`sub_orders_reviewed` 表示用户已进入子订单管理确认资料。只通过业务保存动作写入，不批量回填历史记录。
+
+正常表单提交须 `submission_mode=normal`、`sub_orders_reviewed=true`，并为每个末级文件订单填写至少一项我司/客户统计（零有效，预统计不算完成）；新建项目的 `initial_sub_order_details` 在同一事务内保存子订单字段和统计后检查。`emergency_notice` 跳过子订单资料检查，正常提交会清除紧急模式。实际邮件发送再次按当前订单资料检查，不只依赖前端按钮。
+
+
+### 笔译项目会话发送新表
+
+- `translation_chat_config`：单行 `id=1`；`settings` JSON 保存参与人范围、周一至周六默认人员、请假替补、周日值班候选及补充 @ 范围；`revision` 用于并发检查，`updated_by`、`updated_at` 记录操作者及 UTC+8 时间。默认参与人为全体在用账号；默认少妃、Thomas、孟花/李娴按已确认账号匹配，不写入历史数据。
+- `translation_project_conversation`：`project_id` + `day` 复合主键；`room_id` 唯一会话目录、`folder_id` 日期目录、`title` 完整名称。目录显示别名保留完整名称，不修改旧分类名称列长度；同一项目同一天复用会话，不同日期归入各自 YYMMDD 目录。
+- `translation_chat_dispatch`：UUID `id`、全局唯一 `request_key`、项目/会话/操作人、`message_ids`、完整邮件正文/HTML/提醒对象/警告快照 JSON、UTC+8 `created_at`。重复请求幂等，新的发送操作使用新请求键；计数只统计成功事务。
+- `translation_mail_chat_intent`：`mail_id` 主键外键，`audience` 保存邮件成功后需联动会话的意图，`error` 保存独立会话错误。与邮件快照同事务写入，SMTP 成功后才执行会话发送，邮件失败不执行。邮件投递与会话失败分别反馈，失败邮件重试继续沿用原渠道选择。
+
+周日仅匹配已发布月度周末值班（兼容旧发布计划），不读取未发布草稿；请假者不自动 @，未匹配时返回提示，允许本次补充提醒人员。全部成员与真实 DiscussionMention 关系同事务写入，纯正文 @ 不代替通知。正常资料检查同笔译保存流程。
+
+
+### 项目关键客户信息与联系方式可见范围（2026-11-08）
+
+- 口译、标注、招聘新增/编辑表单的关键区统一展示客户简称、全称、客户联系人、联系人联系方式、联系人说明；说明为选填，联系人必填标记由公共表单规则驱动。联系人详情复用既有 `client_contact_person` 与 `client_contact_person_detail`，本轮不新增数据表或数据库列。
+- 项目写入接口增加仅用于同步客户资料的 `client_contact_method`、`client_contact_description`、`client_contact_version`，保存后从项目实体参数中移除。按所选母/子客户及联系人姓名精确更新；不覆盖其他联系人，校验联系人详情版本，过期返回409。
+- 客户联系方式明文仅对客户部、销售部（含销售）、行政部成员开放，支持主部门及共享部门成员关系；管理员角色本身不绕过部门限制。`/client-contact-people/access` 返回可见能力，联系人接口返回姓名、说明、联系方式及版本，受限用户不返回联系方式明文。
+- 统一响应脱敏覆盖客户、子客户、项目及嵌套联系人JSON；受限用户不返回历史邮件主题中的客户联系方式。项目导出同样移除联系方式与可能包含联系方式的历史邮件主题，项目邮件预览按当前用户部门隐藏联系方式。
+- 受限用户仍可编辑联系人说明等普通业务资料；后台保留原联系方式，防止空值表单覆盖隐藏数据。客户/子客户写入、项目写入及旧联系人跟进更新遵循同一规则。
+- 已有无时区客户更新时间继续写入香港本地时间，联系人名录更新时间带时区；不改历史时间或已有字段结构。
+
+
+### 母订单原文件转首个子订单（2026-11-08）
+
+新增表 `translation_mother_split`：project_id UUID 主键并关联 translation_project（删除级联）；first_sub_order_id UUID 唯一关联 translation_sub_order（删除置空）；original_information JSON 非空，保存非客户身份字段、完整统计、收费项、岗位和文件路径快照；needs_review boolean；actor_id、reviewed_by 关联 app_user（删除置空）；created_at、reviewed_at 为 UTC+8 带时区业务时间。迁移只创建此表及必要约束，不改旧表或历史数据。
+
+手工小量、数量批量、文件名导入显式传 preserve_original_file。母订单原名称能通过完整扩展名校验且没有子订单时，在持有母单行锁的同一事务中先保留原文件为 .001，再生成新子订单；原名称无扩展名、已有子订单、已转换时不重复处理。母单名称去掉最后一个扩展名；原文件继承字段固定在子订单，母单后续修改不覆盖原内容。列表与详情返回 mother_split_review；首个子订单额外返回 original_project_information。母订单编辑提交 mother_split_reviewed 时记录复核人及 UTC+8 时间。客户身份及联系人继续由母订单关联，复制过程不新增客户。

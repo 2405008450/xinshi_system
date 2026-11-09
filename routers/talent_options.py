@@ -26,7 +26,7 @@ ASSIGNABLE_TALENT_STATUSES = ("active", "standby")
 
 @router.get("/", response_model=List[TalentOptionResponse])
 def read_talent_options(
-    capability_type: CapabilityType,
+    capability_type: CapabilityType | None = None,
     keyword: str | None = None,
     limit: int = Query(500, ge=1, le=500),
     db: Session = Depends(get_db),
@@ -36,9 +36,9 @@ def read_talent_options(
         db,
         limit=limit,
         keyword=keyword,
-        statuses=ASSIGNABLE_TALENT_STATUSES,
+        statuses=ASSIGNABLE_TALENT_STATUSES if capability_type else None,
         capability_type=capability_type,
-        capability_status="active",
+        capability_status="active" if capability_type else None,
         include_contact_search=can_view_talent_contacts(db, current_user),
         # 选择器响应不含同名核重状态，跳过整组比对指纹计算。
         annotate_reviews=False,

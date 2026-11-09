@@ -3,7 +3,7 @@
 import {onMounted} from 'vue'
 import {autoDraftState,refreshAutoDrafts} from '@/utils/autoDrafts'
 import {cloudDraftState} from '@/utils/cloudDrafts'
-defineProps({showEntry:{type:Boolean,default:true}})
+defineProps({showEntry:{type:Boolean,default:false}})
 onMounted(refreshAutoDrafts)
 </script>
 <style scoped>.auto-draft-status{font-size:12px;color:#64748b;white-space:nowrap}.auto-draft-status.has-error{color:var(--el-color-danger)}</style>

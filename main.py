@@ -1,3 +1,6 @@
+import translation_chat_delivery
+import translation_project_submission
+import translation_order_inheritance
 import translation_folder_orders
 import datetime as dt
 import logging
@@ -169,8 +172,14 @@ from routers import push
 
 from annotation_material_lifecycle import material_lifespan
 app = FastAPI(lifespan=material_lifespan)
+from client_contact_privacy import ClientContactPrivacyMiddleware
+app.add_middleware(ClientContactPrivacyMiddleware)
 from saved_data_sync import SavedReadMiddleware,router as saved_data_router
 app.add_middleware(SavedReadMiddleware)
+from routers.translation_delivery import router as translation_delivery_router
+app.include_router(translation_delivery_router)
+# 兼容已有直接调用；常规前端统一经 /api 代理去除前缀后访问上面的路由。
+app.include_router(translation_delivery_router, prefix='/api', include_in_schema=False)
 app.include_router(saved_data_router)
 
 

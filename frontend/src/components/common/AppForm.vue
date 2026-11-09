@@ -9,7 +9,7 @@
     <el-alert v-if="serverError" :title="serverError" type="error" show-icon :closable="false" class="app-form-server-error" />
     <el-alert v-if="numbering.error.value" :title="numbering.error.value" type="error" show-icon :closable="false" />
     <el-alert v-if="clientNumbering.error.value" :title="clientNumbering.error.value" type="error" show-icon :closable="false" />
-    <div v-if="numberScope" style="display:flex;justify-content:flex-end;margin-bottom:8px"><el-button link type="primary" @click="numberHistoryVisible=true">编号删除记录</el-button></div>
+    <div v-if="numberScope" style="display:flex;justify-content:flex-end;gap:16px;margin-bottom:8px"><slot name="number-actions" /><el-button link type="primary" @click="numberHistoryVisible=true">编号删除记录</el-button></div>
     <BusinessNumberDeletionHistory v-if="numberHistoryVisible" v-model="numberHistoryVisible" :kind="numberScope" :number="$attrs.model?.[numberField]" />
     <SavedDataConflict ref="savedConflictRef" :model="$attrs.model" :fields="innerFormRef?.fields||[]" />
     <slot />

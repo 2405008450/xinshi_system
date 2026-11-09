@@ -142,6 +142,8 @@ const props = defineProps({
   projectType: { type: String, required: true },
   projectId: { type: String, required: true },
   consultationId: { type: String, default: '' },
+  sendTranslationChat:Boolean,
+  translationChatAudience:{type:Array,default:()=>[]},
   sourceKind: { type: String, default: 'project_manual' },
 })
 const emit = defineEmits(['update:modelValue', 'sent'])
@@ -246,11 +248,14 @@ const submitMail = async () => {
       body_html: form.bodyHtml || null,
       inline_image_ids: form.inlineImages.map(item => item.id),
       idempotency_key: makeIdempotencyKey(),
+      send_translation_chat:props.projectType==='translation'&&props.sendTranslationChat,
+      translation_chat_audience:props.translationChatAudience,
     })
     if (result.status === 'sent') {
       mailDraft.clear()
       bodyEditorRef.value?.markImagesSaved()
-      ElMessage.success('内部项目邮件已发送')
+      if(result.translation_chat_error)ElMessage.warning('邮件已发送，会话发送未完成：'+result.translation_chat_error)
+      else ElMessage.success(props.sendTranslationChat?'内部项目邮件及会话已发送':'内部项目邮件已发送')
       visible.value = false
     } else {
       ElMessage.error(`项目已保存，但邮件发送失败：${result.send_error || '未知错误'}`)

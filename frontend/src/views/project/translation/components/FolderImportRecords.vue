@@ -5,7 +5,7 @@
    <el-descriptions v-for="row in rows" :key="row.id" :column="2" border size="small">
     <el-descriptions-item label="操作人">{{ row.actorName }}</el-descriptions-item><el-descriptions-item label="时间">{{ formatBusinessDateTime(row.createdAt) }}</el-descriptions-item>
     <el-descriptions-item label="根路径" :span="2">{{ row.rootPath }}</el-descriptions-item>
-    <el-descriptions-item label="处理结果" :span="2">新增 {{ row.createdCount }} 单；空文件夹 {{ row.emptyFolders.length }} 个，未生成订单。<span v-if="!row.emptyDetectionComplete">兼容模式未检测空文件夹。</span></el-descriptions-item>
+    <el-descriptions-item label="处理结果" :span="2">新增 {{ row.createdCount }} 单；空文件夹 {{ row.emptyFolders.length }} 个，未生成订单。<span v-if="row.sourceKind==='manifest'">清单导入，仅记录清单中的目录，不扫描实际文件。</span><span v-else-if="!row.emptyDetectionComplete">兼容模式未检测空文件夹。</span></el-descriptions-item>
     <el-descriptions-item v-if="row.emptyFolders.length" label="空文件夹" :span="2"><div v-for="path in row.emptyFolders" :key="path">{{ row.rootPath.replace(/[\\\/]$/,'')+(path.includes('/')?'\\'+path.split('/').slice(1).join('\\'):'') }}</div></el-descriptions-item>
    </el-descriptions>
   </div>
