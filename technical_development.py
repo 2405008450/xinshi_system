@@ -20,7 +20,7 @@ class DevelopmentTask(Base):
     parent_id = mapped_column(Uuid, ForeignKey('technical_development_task.id', ondelete='RESTRICT'), index=True)
     name = mapped_column(String(300), nullable=False)
     content = mapped_column(Text, nullable=False, default='')
-    arranger_id = mapped_column(Uuid, ForeignKey('app_user.id'), nullable=False)
+    arranger_id = mapped_column(Uuid, ForeignKey('app_user.id'), nullable=True)
     executor_id = mapped_column(Uuid, ForeignKey('app_user.id'), nullable=False)
     due_at = mapped_column(DateTime(timezone=True))
     progress = mapped_column(Integer, nullable=False, default=0)
@@ -104,7 +104,7 @@ class ExecutorAllocation(WriteModel):
 class TaskWrite(WriteModel):
     name: str = Field(min_length=1, max_length=300)
     content: str = Field(default='', max_length=100000)
-    arranger_id: UUID
+    arranger_id: UUID | None = None
     executor_id: UUID
     due_at: datetime | None = None
     adjustment: str = Field(default='', max_length=30000)
@@ -197,6 +197,8 @@ def validate_people(db, data, existing=None):
     options = people(db)
     for field, key, message in [('arranger_id', 'arrangers', '请选择公司在职人员'), ('executor_id', 'executors', '执行人必须为技术部在职人员')]:
         value = getattr(data, field)
+        if field == 'arranger_id' and value is None:
+            continue
         # 保留原有历史人员；改选时必须符合当前目录。
         if existing is not None and value == getattr(existing, field):
             continue
@@ -267,7 +269,7 @@ def validate_parent(rows, task_id, parent_id):
 
 def serialize_task(row, names, numbers):
     result = {column.name: getattr(row, column.name) for column in DevelopmentTask.__table__.columns}
-    result.update(task_no=numbers.get(row.id, ''), arranger_name=names.get(row.arranger_id, '已离职人员'), executor_name=names.get(row.executor_id, '已离职人员'))
+    result.update(task_no=numbers.get(row.id, ''), arranger_name=names.get(row.arranger_id, '已离职人员') if row.arranger_id else '', executor_name=names.get(row.executor_id, '已离职人员'))
     return api_time(result)
 
 

@@ -147,7 +147,7 @@ with sync_playwright() as pw:
     editor = page.get_by_role('dialog', name='新增技术开发任务', exact=True)
     expect(item(editor, '安排人')).to_be_visible()
     item(editor, '任务名称').locator('input').fill('新任务')
-    item(editor, '安排人').locator('.el-select').click(); page.get_by_role('option', name='赵震锋', exact=True).click()
+    # 历史表无安排人时，新建仍可保存，发送真正的NULL。
     item(editor, '执行人').locator('.el-select').click(); expect(page.get_by_role('option', name='赵震锋', exact=True)).to_have_count(0); page.get_by_role('option', name='技术同事', exact=True).click()
     item(editor, '备注').locator('textarea').fill('新增备注')
     footer = editor.locator('.el-dialog__footer')
@@ -160,6 +160,7 @@ with sync_playwright() as pw:
     shifted = editor.locator('.el-dialog').bounding_box(); assert shifted['x'] != original['x'] or shifted['y'] != original['y']
     assert shifted['x'] >= 0 and shifted['y'] >= 0
     editor.get_by_role('button', name='保存', exact=True).click(); expect(editor).not_to_be_visible()
+    assert next(body for path, body in writes if path == '/api/technical-development/tasks')['arranger_id'] is None
     page.get_by_role('button', name='新增任务', exact=True).click(); editor = page.get_by_role('dialog', name='新增技术开发任务', exact=True)
     page.wait_for_timeout(350)
     restored = editor.locator('.el-dialog').bounding_box(); assert abs(restored['x'] - original['x']) < 3 and abs(restored['y'] - original['y']) < 3
@@ -168,11 +169,14 @@ with sync_playwright() as pw:
     table_row.get_by_role('button', name='更多操作', exact=True).click()
     page.get_by_role('menuitem', name='编辑', exact=True).click(); editor = page.get_by_role('dialog', name='编辑技术开发任务', exact=True)
     expect(item(editor, '任务名称').locator('input')).to_have_value('三级任务C')
+    item(editor, '安排人').locator('.el-select').hover()
+    item(editor, '安排人').locator('.el-select__clear').click()
     field_search = editor.locator('.project-field-search input')
     field_search.fill('反馈后'); page.locator('.project-field-search-popper:visible').get_by_text('反馈后调整', exact=True).click()
     item(editor, '反馈后调整').locator('textarea').fill('按反馈调整三级任务')
     expect(editor.locator('.el-dialog__footer')).to_be_in_viewport()
     editor.get_by_role('button', name='保存', exact=True).click(); expect(editor).not_to_be_visible()
+    assert rows[2]['arranger_id'] is None
     table_row = page.locator('.el-table__body tr').filter(has_text='三级任务C')
     table_row.get_by_role('button', name='DT-261030-003', exact=True).click()
     popover = page.locator('.el-popover:visible')

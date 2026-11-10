@@ -2170,7 +2170,7 @@ JSON 的 `internships`、`annotation`、`interpretation`、`translation`、`othe
 - `technical_development_progress`：`id` UUID主键；`task_id` UUID外键及索引；`previous_percentage` INTEGER修改前进度；`percentage` INTEGER修改后进度且约束1—100；`content` TEXT具体进度；`reason` TEXT修改原因；`author_id` UUID用户外键、`author_name` VARCHAR(255)姓名快照；`created_at` TIMESTAMPTZ。每次保存追加记录，回退必须填写原因；不提供历史覆盖接口。
 - `technical_development_feedback`：`id` UUID主键；`task_id` UUID外键及索引；`content` TEXT非空反馈；`author_id` UUID用户外键、`author_name` VARCHAR(255)姓名快照；`created_at` TIMESTAMPTZ。全体在职用户可追加反馈，作者与时间由登录会话和服务端生成。
 
-登录且在职、未删除的用户可查看及协作维护本模块；安排人目录为在职人员（赵震锋、运坚依次置顶），执行人按共享部门查询能力限定技术部/IT部，并包含跨部门成员。已有历史人员允许原值保留，改选必须满足当前目录。所有写入和移动校验版本；PostgreSQL事务级咨询锁串行树写入，拒绝循环、第四级及带下属整体移动后超三级。进度与历史在同一事务保存，反馈单独追加。时间生成、序列化和展示统一UTC+8。
+登录且在职、未删除的用户可查看及协作维护本模块；安排人目录为在职人员（赵震锋、运坚依次置顶），安排人允许留空并保存为 NULL，不以默认人员或“已离职人员”替代；执行人必填，按共享部门查询能力限定技术部/IT部，并包含跨部门成员。已有历史人员允许原值保留，改选必须满足当前目录。所有写入和移动校验版本；PostgreSQL事务级咨询锁串行树写入，拒绝循环、第四级及带下属整体移动后超三级。进度与历史在同一事务保存，反馈单独追加。时间生成、序列化和展示统一UTC+8。
 
 接口前缀 `/technical-development`：GET `/people`；GET/POST `/tasks`；GET/PUT `/tasks/{id}`；PUT `/tasks/{id}/parent`；POST `/tasks/{id}/progress`、`/tasks/{id}/feedback`。前端 `/technology-management/development` 使用统一字段设置、详情Popover、可拖拽长表单、表单字段定位；拖拽改父级及“调整层级”选择器均由服务端最终校验。
 

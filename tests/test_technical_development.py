@@ -40,6 +40,20 @@ def test_people_priority_and_technical_membership(setup):
     assert denied.value.status_code == 403
 
 
+def test_optional_arranger_can_be_set_and_cleared(setup):
+    db, (owner, executor, _) = setup
+    data = service.TaskCreate(name='历史任务，安排人未登记', executor_id=executor.id)
+    created = service.create_task(db, owner, data)
+    assert created['arranger_id'] is None and created['arranger_name'] == ''
+    assigned = service.update_task(db, owner, created['id'], service.TaskUpdate(**{**data.model_dump(exclude={'parent_id'}), 'arranger_id': owner.id}, revision=1))
+    assert assigned['arranger_id'] == owner.id
+    cleared = service.update_task(db, owner, created['id'], service.TaskUpdate(**data.model_dump(exclude={'parent_id'}), revision=2))
+    assert cleared['arranger_id'] is None and cleared['arranger_name'] == ''
+    assert next(r for r in service.list_tasks(db, owner)['items'] if r['id'] == created['id'])['arranger_name'] == ''
+    with pytest.raises(HTTPException):
+        service.create_task(db, owner, service.TaskCreate(name='无效安排人', executor_id=executor.id, arranger_id=uuid4()))
+
+
 def test_three_levels_reparenting_and_cycle_rejected(setup):
     db, (owner, executor, _) = setup
     a = service.create_task(db, owner, payload(owner, executor, 'A'))

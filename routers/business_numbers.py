@@ -1,4 +1,5 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+import re
 from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -78,21 +79,29 @@ def heartbeat(token: UUID, db=Depends(get_db), user=Depends(get_current_user)):
     return {'ok': True}
 
 @router.post('/{token}/skip')
-def skip_consultation_number(token: UUID, db=Depends(get_db), user=Depends(get_current_user)):
-    """用户确认放弃失败咨询的占号后，在同一事务中取下一个编号。"""
+def skip_number(token: UUID, db=Depends(get_db), user=Depends(get_current_user)):
     from business_numbering import lock_scope
     from routers.auth import require_any_permission
 
-    require_any_permission('consultations:write')(current_user=user, db=db)
-    lock_scope(db, 'consultation')
-    row = db.query(BusinessNumberLease).filter_by(id=token, owner_id=user.id, scope='consultation').with_for_update().first()
+    row = db.query(BusinessNumberLease).filter_by(id=token, owner_id=user.id).first()
     if not row or not live(row):
-        raise HTTPException(409, '当前编号已失效或已被使用，请先检查咨询列表，避免重复录入')
+        raise HTTPException(409, '当前编号已失效或已被使用，请先检查列表，避免重复录入')
+    kind = row.scope.split(':', 1)[0]
+    if kind not in {*SPECS, 'translation_suborder', 'annotation_suborder', 'subclient', 'technical_subtask', 'greeting'}:
+        raise HTTPException(422, '不支持的编号类型')
+    require_any_permission('projects:write','clients:write','resources:write','talents:write','translators:write','recruitment_talents:write','consultations:write')(current_user=user, db=db)
+    lock_scope(db, row.scope)
+    row = db.query(BusinessNumberLease).filter_by(id=token, owner_id=user.id).with_for_update().first()
+    if not row or not live(row):
+        raise HTTPException(409, '当前编号已失效或已被使用，请先检查列表，避免重复录入')
+    parent_id = UUID(row.scope.split(':', 1)[1]) if ':' in row.scope else None
+    date_match = re.search(r'-(\d{6})-', row.number)
+    business_date = datetime.strptime(date_match.group(1), '%y%m%d').date() if date_match else None
     row.state = 'skipped'
     db.flush()
     db.info['number_actor'] = user.id
     db.info['number_reserve'] = uuid4()
-    scope, prefix, minimum, width = spec(db, 'consultation')
+    scope, prefix, minimum, width = spec(db, kind, parent_id, business_date)
     number = allocate(db, scope, prefix, minimum, width)
     replacement = db.info['number_reserved_row']
     db.commit()

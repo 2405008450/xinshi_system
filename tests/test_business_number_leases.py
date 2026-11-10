@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
 from business_numbering import BusinessNumberLease, allocate, consume_explicit, live
 from chat_time import now
-from routers.business_numbers import Reserve, reserve, release, heartbeat, skip_consultation_number
+from routers.business_numbers import Reserve, reserve, release, heartbeat, skip_number
 import main  # 注册业务模型关系，不启动服务或执行迁移。
 
 @pytest.fixture
@@ -137,18 +137,27 @@ def test_skip_consultation_number_keeps_old_number_out_of_pool(database):
     with Session(database) as db:
         first=reserve(Reserve(kind='consultation',window_id=uuid4(),business_date=business_date),db,user)
     with Session(database) as db:
-        replacement=skip_consultation_number(__import__('uuid').UUID(first['token']),db,user)
+        replacement=skip_number(__import__('uuid').UUID(first['token']),db,user)
         assert replacement['number']==f'{prefix}002'
         assert db.get(BusinessNumberLease,__import__('uuid').UUID(first['token'])).state=='skipped'
     with Session(database) as db:
         with pytest.raises(HTTPException) as error:
-            skip_consultation_number(__import__('uuid').UUID(first['token']),db,user)
+            skip_number(__import__('uuid').UUID(first['token']),db,user)
         assert error.value.status_code==409
     with Session(database) as db:
         release(__import__('uuid').UUID(replacement['token']),db,user)
     with Session(database) as db:
         next_number=reserve(Reserve(kind='consultation',window_id=uuid4(),business_date=business_date),db,user)
         assert next_number['number']==f'{prefix}002'
+
+def test_skip_translation_number_preserves_business_date(database):
+    user=SimpleNamespace(id=uuid4())
+    with Session(database) as db:
+        first=reserve(Reserve(kind='translation',window_id=uuid4(),business_date='2026-11-07'),db,user)
+    with Session(database) as db:
+        second=skip_number(__import__('uuid').UUID(first['token']),db,user)
+    assert first['number']=='TP-261107-1000'
+    assert second['number']=='TP-261107-1001'
 
 @pytest.mark.parametrize('scope,prefix,width',[
     ('interpretation','IP-261107-',3),('annotation','AP-261107-',3),

@@ -80,7 +80,7 @@
           <el-form-item :label="sourceBaseName ? '开发任务' : '任务名称'" prop="name" class="full"><template v-if="sourceBaseName"><ReadonlyField :model-value="sourceBaseName" source="auto" /><el-input v-model="sourceSuffix" maxlength="80" show-word-limit placeholder="可在项目名称后补充内容，最多80字" aria-label="任务名称补充内容" /></template><el-input v-else v-model="form.name" maxlength="300" show-word-limit /></el-form-item>
           <el-form-item label="上级任务" class="full"><el-select v-model="form.parent_id" clearable filterable placeholder="一级任务（无上级）" :disabled="!!editing"><el-option v-for="option in parentOptions" :key="option.id" :value="option.id" :label="option.name" /></el-select><small v-if="editing">调整层级请使用列表拖拽，或下方“调整层级”。</small></el-form-item>
           <el-form-item label="具体任务" class="full"><el-input v-model="form.content" type="textarea" :rows="4" maxlength="100000" /></el-form-item>
-          <el-form-item label="安排人" prop="arranger_id"><el-select v-model="form.arranger_id" filterable placeholder="公司全体人员"><el-option v-for="person in arrangerOptions" :key="person.id" :value="person.id" :label="person.name" /></el-select></el-form-item>
+          <el-form-item label="安排人" prop="arranger_id"><el-select v-model="form.arranger_id" filterable clearable placeholder="公司全体人员，可留空"><el-option v-for="person in arrangerOptions" :key="person.id" :value="person.id" :label="person.name" /></el-select></el-form-item>
           <el-form-item label="执行人" prop="executor_id"><el-select ref="executorSelect" v-model="selectedExecutorIds" multiple filterable placeholder="技术部全体人员，可多选" @change="executorsChanged"><el-option v-for="person in executorOptions" :key="person.id" :value="person.id" :label="person.name" /></el-select><el-button v-if="selectedExecutorIds.length > 1 || editing?.has_allocations" link type="primary" @click="allocationEditorVisible = true">设置分工</el-button></el-form-item>
           <el-form-item label="预定完成时间" class="full"><el-date-picker v-model="form.due_at" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" placeholder="按香港时间选择" /></el-form-item>
           <el-form-item v-if="editing" label="完成日期" class="full"><ReadonlyField :model-value="editing.has_allocations ? '按分工分别记录' : editing.completed_on || '待完成'" source="auto" /><el-button link type="primary" @click="editing.has_allocations ? allocationViewerId = editing.id : completionEditor = { taskId: editing.id, mode: 'date' }">调整完成日期</el-button></el-form-item>
@@ -292,7 +292,7 @@ function executorsChanged(ids) {
 function confirmAllocations(items) { allocationDrafts.value = items; selectedExecutorIds.value = items.map(item => item.executor_id); confirmedExecutorIds.value = [...selectedExecutorIds.value]; form.executor_id = selectedExecutorIds.value[0] || ''; allocationEditorVisible.value = false }
 function cancelAllocations() { selectedExecutorIds.value = [...confirmedExecutorIds.value]; form.executor_id = selectedExecutorIds.value[0] || ''; allocationEditorVisible.value = false }
 const sourceBaseName = computed(() => requirementContext.value?.source_name || editing.value?.source?.base_name || '')
-const rules = { name: [{ required: true, whitespace: true, message: '请填写任务名称', trigger: 'blur' }], arranger_id: [{ required: true, message: '请选择安排人', trigger: 'change' }], executor_id: [{ required: true, message: '请选择执行人', trigger: 'change' }] }
+const rules = { name: [{ required: true, whitespace: true, message: '请填写任务名称', trigger: 'blur' }], executor_id: [{ required: true, message: '请选择执行人', trigger: 'change' }] }
 const parentOptions = computed(() => rows.value.filter(row => canMoveTask(rows.value, '__new__', row.id) && (!row.parent_id || !rows.value.find(parent => parent.id === row.parent_id)?.parent_id)))
 function historicalOptions(options, key, nameKey) { const row = editing.value; return row && !options.some(person => person.id === row[key]) ? [...options, { id: row[key], name: row[nameKey] + '（原人员）' }] : options }
 const arrangerOptions = computed(() => historicalOptions(people.arrangers, 'arranger_id', 'arranger_name'))
@@ -311,7 +311,7 @@ async function saveTask() {
   if (saving.value || !await editorForm.value.validate().catch(() => false)) return
   saving.value = true; saveError.value = ''
   const { parent_id, task_no, ...fields } = form
-  const payload = { ...fields, name: sourceBaseName.value ? sourceBaseName.value + (sourceSuffix.value.trim() ? ' · ' + sourceSuffix.value.trim() : '') : fields.name, due_at: fields.due_at ? fields.due_at.replace(' ', 'T') + '+08:00' : null }
+  const payload = { ...fields, arranger_id: fields.arranger_id || null, name: sourceBaseName.value ? sourceBaseName.value + (sourceSuffix.value.trim() ? ' · ' + sourceSuffix.value.trim() : '') : fields.name, due_at: fields.due_at ? fields.due_at.replace(' ', 'T') + '+08:00' : null }
   if (selectedExecutorIds.value.length > 1 || editing.value?.has_allocations) payload.allocations = allocationDrafts.value.map(item => ({ executor_id:item.executor_id, content:item.content, due_at:item.due_at ? item.due_at.replace(' ', 'T') + '+08:00' : null }))
   try {
     if (requirementContext.value) {
@@ -392,5 +392,5 @@ async function performMove(row, parentId) {
 </style>
 
 <style>
-.technical-task-dialog.el-dialog{display:flex;flex-direction:column;max-height:90vh;overflow:hidden}.technical-task-dialog>.el-dialog__header,.technical-task-dialog>.el-dialog__footer{flex-shrink:0}.technical-task-dialog>.el-dialog__body{flex:1;min-height:0;overflow-y:auto}.technical-task-dialog>.el-dialog__footer{border-top:1px solid var(--el-border-color);background:var(--el-fill-color-light)}
+.technical-task-dialog.el-dialog{display:flex;flex-direction:column;max-width:calc(100vw - 32px)!important;max-height:90vh;overflow:hidden}.technical-task-dialog>.el-dialog__header,.technical-task-dialog>.el-dialog__footer{flex-shrink:0}.technical-task-dialog>.el-dialog__body{flex:1;min-height:0;overflow-y:auto}.technical-task-dialog>.el-dialog__footer{border-top:1px solid var(--el-border-color);background:var(--el-fill-color-light)}
 </style>
