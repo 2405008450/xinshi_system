@@ -55,9 +55,10 @@ def catalog(db, user):
     hidden=set() if technical_access else restricted_ids(db)
     task_rooms=specs(db)
     from translation_chat_delivery import aliases as translation_aliases
-    titles=translation_aliases(db)
+    from project_delivery import aliases as project_aliases
+    titles={**translation_aliases(db),**project_aliases(db)}
     return dict(ready=ready, hierarchy_ready=hierarchy_ready, can_manage=ready and can_manage_folders(db, user), technical_access=technical_access,
-                items=[dict(serialize(row), name=titles.get(str(row.id),task_rooms.get(str(row.id),{}).get('name',row.name)), parent_key=task_rooms.get(str(row.id),{}).get('parent_key',parents.get(str(row.id))), is_conversation=str(row.id) in rooms, fixed_top=row.name=='技术/开发沟通')
+                items=[dict(serialize(row), name=titles.get(str(row.id),task_rooms.get(str(row.id),{}).get('name',row.name)), parent_key=task_rooms.get(str(row.id),{}).get('parent_key',parents.get(str(row.id))), is_conversation=str(row.id) in rooms, deletion_protected=str(row.id) in titles, fixed_top=row.name=='技术/开发沟通')
                        for row in db.query(Category).order_by(Category.created_at, Category.id) if row.id not in hidden] if ready else [])
 
 
@@ -119,6 +120,10 @@ def require_manager(db, user):
 def protect_resource_discussion(db, category_id, active):
     if active is not False:
         return
+    from translation_chat_delivery import aliases as translation_aliases
+    from project_delivery import aliases as project_aliases
+    if str(category_id) in {**translation_aliases(db),**project_aliases(db)}:
+        raise HTTPException(422, '项目会话及归档目录不能删除或停用，可以关闭会话窗口')
     builtin = BUILTIN_INDEX.get(str(category_id))
     location = db.get(Folder, category_id) if folder_schema_ready(db) else None
     parent = builtin['parentKey'] if builtin else str(location.parent_key) if location else None

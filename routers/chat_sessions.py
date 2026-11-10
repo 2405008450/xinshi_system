@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from pydantic import Field
 from sqlalchemy import func, or_, and_
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from database import get_db
 from routers.auth import get_current_user
 from models import (AppUser, AnnotationChatMember, ChatDirectConversation, ChatDirectMember,
@@ -330,14 +330,16 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
     if annotation.can_view(db, user):
         prefs = {m.project_id: m for m in db.query(ChatProjectMemberPref).filter_by(user_id=user.id)}
         from chat_access_service import visible_ids
-        projects = db.query(TranslationProject).filter(TranslationProject.id.in_(visible_ids(db, 'translation', user))).outerjoin(ChatProjectEnabled,
+        projects = db.query(TranslationProject).options(selectinload(TranslationProject.client)).filter(TranslationProject.id.in_(visible_ids(db, 'translation', user))).outerjoin(ChatProjectEnabled,
             ChatProjectEnabled.project_id == TranslationProject.id).filter(or_(ChatProjectEnabled.enabled.is_(True),
             TranslationProject.id.in_(prefs), TranslationProject.created_by == user.id,
             TranslationProject.id.in_(db.query(ChatProjectMessage.project_id).filter(ChatProjectMessage.project_id.is_not(None), ChatProjectMessage.message_type == 'user')))).all()
         stats = summaries(db, ChatProjectMessage.project_id, [p.id for p in projects], {p.id: prefs[p.id].last_read_sequence if p.id in prefs else 0 for p in projects}, user.id)
         for p in projects:
             m = prefs.get(p.id)
-            rows.append(dict(key=f'translation:{p.id}', kind='translation', project_id=p.id, title=p.project_name or '未命名项目',
+            client_name = (p.client.client_short_name or p.client.client_name or '').strip() if p.client else ''
+            title = ' · '.join(part for part in (client_name, p.project_name or '未命名项目') if part)
+            rows.append(dict(key=f'translation:{p.id}', kind='translation', project_id=p.id, title=title,
                 subtitle=p.order_no, pinned=bool(m and m.pinned), starred=bool(m and m.starred),
                 is_creator=user.id in (p.created_by, p.project_manager_id), **stats[p.id]))
     conversations = db.query(ChatDirectConversation, ChatDirectMember).join(ChatDirectMember,

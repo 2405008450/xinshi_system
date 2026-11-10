@@ -1,5 +1,5 @@
 import {reactive,ref,markRaw,unref,isRef,isReadonly} from 'vue'
-import {copySavedValue,mergeSavedRecord,savedRecords,savedFieldKey,convertSavedLike} from './savedDataMerge'
+import {copySavedValue,mergeSavedRecord,savedRecords,savedFieldKey,convertSavedLike,isSavedSystemField} from './savedDataMerge'
 
 const sources=new Map(),views=new Map(),conflicts=new WeakMap()
 const boundModels=new Map(),bindingByModel=new WeakMap()
@@ -67,10 +67,11 @@ function collect(value,result,seen,depth){
   for(const [key,item] of readableEntries(value)){if(key.startsWith('$')||key.startsWith('__')||typeof item==='function')continue;collect(item,result,seen,depth+1)}
 }
 function conflict(target,path,current,latest,before){
+  if(isSavedSystemField(path))return
   let changes=conflicts.get(target);if(!changes){changes=new Map();conflicts.set(target,changes)}
   changes.set(path,{path,current:clone(current),latest:clone(latest),before:clone(before)});savedConflictRevision.value++
 }
-export function modelSavedConflicts(model){savedConflictRevision.value;return [...(conflicts.get(model)?.values()||[])]}
+export function modelSavedConflicts(model){savedConflictRevision.value;return [...(conflicts.get(model)?.values()||[])].filter(item=>!isSavedSystemField(item.path))}
 export function resolveSavedConflict(model,path,accept){
   const changes=conflicts.get(model),entry=changes?.get(path);if(!entry)return
   if(accept){const parts=path.replace(/\[([^\]]+)\]/g,'.$1').split('.');let target=model;for(const part of parts.slice(0,-1))target=Array.isArray(target)?target.find(item=>String(item.id)===part):target?.[part];if(target)target[parts.at(-1)]=convertSavedLike(clone(entry.latest),target[parts.at(-1)])}

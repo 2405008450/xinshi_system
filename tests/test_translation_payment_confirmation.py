@@ -90,3 +90,14 @@ def test_payment_account_and_custom_name_share_all_entries(environment):
     assert confirmation.read(db,row.id)['payment_account']==''
     assert confirmation.read(db,row.id)['payment_option']=='full'
     with pytest.raises(ValidationError):confirmation.PaymentConfirmationWrite(payment_account='长'*51)
+
+
+def test_confirmed_switch_removes_deposit_details_and_audits_original(environment):
+    db,(actor,*_)=environment;row=project(db,actor)
+    loaded=payments.read(db,row)
+    deposit=write(row.id,payments.PaymentWrite(version=loaded['version'],payments=[{'stage_type':'deposit','actual_amount':20}],confirmation={'is_paid':True,'payment_option':'deposit'}),db,actor)
+    switched=write(row.id,payments.PaymentWrite(version=deposit['version'],payments=[],confirmation={**deposit['confirmation'],'payment_option':'full','replace_details':True,'full_payment_amount':100,'mismatch_reason':'测试切换'}),db,actor)
+    assert switched['payments']==[]
+    history=confirmation.history(db,row.id)['items'][0]
+    assert history['before']['payment_details'][0]['actual_amount']=='20.00'
+    assert history['after']['action']=='切换付款状态并清除原付款数据'

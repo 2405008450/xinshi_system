@@ -26,19 +26,35 @@ def missing_statistics(db, root):
         for value in (row.word_count_matrix.get(dimension,{}) or {}).values())]
 
 
+def validate_initial_details(details):
+    from fastapi import HTTPException
+    from pydantic import ValidationError
+    from schemas import TranslationSubOrderUpdate
+    allowed=set(TranslationSubOrderUpdate.model_fields)-{'inherit_fields','assigned_translator_completions'}
+    result={}
+    for suffix,data in details.items():
+        if set(data)-allowed:
+            raise ValueError('子订单预填内容与生成的订单不匹配，请重新打开子订单管理')
+        try:
+            result[suffix]=TranslationSubOrderUpdate.model_validate(data)
+        except ValidationError as exc:
+            errors=exc.errors(include_url=False,include_context=False,include_input=False)
+            for error in errors:
+                error['loc']=['body','initial_sub_order_details',suffix,*error['loc']]
+            raise HTTPException(status_code=422,detail=errors) from exc
+    return result
+
+
 def apply_initial_details(db, root, details):
     if not details:
         return
-    from schemas import TranslationSubOrderUpdate
     from translation_order_inheritance import prepare
     from crud import update_sub_order
     context=prepare(db,root.id)
     by_suffix={row.sub_order_no[len(root.order_no)+1:]:row for row in context[1]}
-    allowed=set(TranslationSubOrderUpdate.model_fields)-{'inherit_fields','assigned_translator_completions'}
-    for suffix,data in details.items():
-        if suffix not in by_suffix or set(data)-allowed:
+    for suffix,payload in validate_initial_details(details).items():
+        if suffix not in by_suffix:
             raise ValueError('子订单预填内容与生成的订单不匹配，请重新打开子订单管理')
-        payload=TranslationSubOrderUpdate.model_validate(data)
         update_sub_order(db,by_suffix[suffix].id,payload,commit=False)
 
 

@@ -37,6 +37,17 @@ const FIELD_LABELS = {
   role_id: '角色',
   project_id: '项目',
   translator_id: '译员',
+  customer_deadline_time: '客户交稿时间',
+  sent_to_client_time: '发客户时间',
+  translator_assignment_time: '译员安排时间',
+  translator_delivery_progress: '译员交付进度',
+  pre_review_qc_progress: '审前质检进度',
+  review_progress: '审校进度',
+  review1_progress: '一审进度',
+  review2_progress: '二审进度',
+  post_review_qc_progress: '审后质检进度',
+  layout_progress: '排版进度',
+  consolidation_progress: '汇总进度',
   status: '状态',
   name: '名称',
   phone: '联系电话',
@@ -95,7 +106,11 @@ const validationMessageByType = (item, label) => {
 export function formatValidationErrors(errors) {
   if (!Array.isArray(errors) || !errors.length) return STATUS_FALLBACKS[422]
   return errors.map((item) => {
-    const label = fieldLabelFromLocation(item?.loc)
+    const location = item?.loc || []
+    const index = location.indexOf('initial_sub_order_details')
+    const suffix = index >= 0 ? String(location[index + 1] || '') : ''
+    const prefix = /^\d{3}(\.\d{3}){0,3}$/.test(suffix) ? `子订单 ${suffix} · ` : ''
+    const label = prefix + fieldLabelFromLocation(location)
     const message = String(item?.msg || '').trim()
     return hasChinese(message) ? `${label}：${message}` : validationMessageByType(item, label)
   }).join('；')

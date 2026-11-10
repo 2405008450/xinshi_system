@@ -54,6 +54,7 @@ _READY=WeakKeyDictionary()
 
 
 def ready(db):
+    if not hasattr(db,'get_bind'):return False
     bind=db.get_bind()
     if db.info.get('_translation_chat_ready') or _READY.get(bind):return True
     result=all(inspect(db.connection()).has_table(model.__tablename__) for model in TABLES)

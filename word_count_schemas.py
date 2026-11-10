@@ -48,6 +48,7 @@ class TranslatorWordCountRow(BaseModel):
 
 
 class WordCountMatrixResponse(BaseModel):
+    simple_requirement_word_count_matrix: dict = Field(default_factory=dict)
     entity_type: EntityType
     entity_id: UUID
     company: WordCountValues = Field(default_factory=WordCountValues)

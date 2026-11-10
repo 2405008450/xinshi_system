@@ -4,29 +4,32 @@
     <template v-else>
       <div class="source-controls">
         <el-radio-group v-model="granularity" aria-label="统计周期">
-          <el-radio-button value="day">按日</el-radio-button>
+          <el-radio-button v-if="!confirmedOnly" value="day">按日</el-radio-button>
           <el-radio-button value="week">按周</el-radio-button>
           <el-radio-button value="month">按月</el-radio-button>
         </el-radio-group>
         <el-date-picker v-model="dateRange" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" range-separator="至" />
         <el-button type="primary" :loading="loading" @click="refresh">查询</el-button>
         <el-button @click="reset">重置</el-button>
+        <el-button v-if="!customerMode && ['source', 'keyword'].includes(dimension)" :disabled="loading" @click="aiVisible = !aiVisible">{{ aiVisible ? '收起 AI 分析' : 'AI 分析与分类' }}</el-button>
       </div>
-      <p class="source-note">按新咨询记录统计，同一客户多次咨询分别计数；使用咨询时间（UTC+8），周一为每周起点。未填写的分析字段归为“未知”。<template v-if="dimension === 'keyword'">关键词按原始字段完整内容分组。</template></p>
+      <p v-if="confirmedOnly" class="source-note">仅统计当前咨询状态为“已确认”的记录，同一客户多次已确认咨询分别计数；按咨询时间（UTC+8）归属周/月，周一为每周起点。未填写的分类字段归为“未知”。</p>
+      <p v-else class="source-note">按新咨询记录统计，同一客户多次咨询分别计数；使用咨询时间（UTC+8），周一为每周起点。未填写的分析字段归为“未知”。<template v-if="dimension === 'keyword'">关键词按原始字段完整内容分组。</template></p>
       <el-alert v-if="summaryError" :title="summaryError" type="error" :closable="false" show-icon />
+      <CustomerSourceAiPanel v-if="aiVisible && !customerMode && ['source', 'keyword'].includes(dimension)" :dimension="dimension" :stats="stats" :start="dateRange?.[0]" :end="dateRange?.[1]" :granularity="granularity" :loading="loading" />
       <div v-loading="loading">
         <div class="source-totals">
-          <span>咨询记录 <strong>{{ stats.total }}</strong></span>
-          <span>关联客户 <strong>{{ stats.client_count }}</strong></span>
+          <span>{{ confirmedOnly ? '成交数量（已确认）' : '咨询记录' }} <strong>{{ stats.total }}</strong></span>
+          <span>{{ confirmedOnly ? '成交客户' : '关联客户' }} <strong>{{ stats.client_count }}</strong></span>
           <span>{{ dimensionTitle }}种类 <strong>{{ stats.sources.length }}</strong></span>
         </div>
-        <el-alert v-if="stats.undated_count" :title="`${stats.undated_count} 条记录未填写咨询时间，已计入来源汇总，未计入日期趋势。`" type="info" :closable="false" />
-        <h4>{{ dimensionTitle }}分布 <small>点击分类查看咨询记录</small></h4>
+        <el-alert v-if="stats.undated_count" :title="`${stats.undated_count} 条记录未填写咨询时间，已计入${confirmedOnly ? '成交汇总' : '分类汇总'}，未计入日期趋势。`" type="info" :closable="false" />
+        <h4>{{ dimensionTitle }}{{ confirmedOnly ? '成交分布' : '分布' }} <small>点击分类查看{{ confirmedOnly ? '成交明细' : '咨询记录' }}</small></h4>
         <el-table :data="stats.sources" stripe max-height="360" empty-text="暂无咨询统计数据">
           <el-table-column :label="dimensionTitle" min-width="180">
             <template #default="{ row }"><el-button link type="primary" :disabled="loading" @click="selectSource(row.source)">{{ dimensionLabel(row.source) }}</el-button></template>
           </el-table-column>
-          <el-table-column prop="count" label="咨询数量" width="105" />
+          <el-table-column prop="count" :label="confirmedOnly ? '成交数量' : '咨询数量'" width="105" />
           <el-table-column prop="client_count" label="客户数量" width="105" />
           <el-table-column label="占比" min-width="150"><template #default="{ row }"><el-progress :percentage="percentage(row.count)" :stroke-width="10" /></template></el-table-column>
         </el-table>
@@ -39,7 +42,7 @@
             </el-table-column>
           </el-table>
         </template>
-        <h4>{{ dimensionTitle }}趋势 <small>{{ periodHint }}，点击数量查看当期明细<span v-if="stats.sources.length > 10">；趋势展示数量前 10 类，合计包含全部分类</span></small></h4>
+        <h4>{{ dimensionTitle }}{{ confirmedOnly ? '成交趋势' : '趋势' }} <small>{{ periodHint }}，点击数量查看当期明细<span v-if="stats.sources.length > 10">；趋势展示数量前 10 类，合计包含全部分类</span></small></h4>
         <el-table :data="stats.periods" stripe max-height="360" empty-text="暂无可按日期统计的数据">
           <el-table-column label="统计周期" width="190" fixed><template #default="{ row }">{{ periodLabel(row.period) }}</template></el-table-column>
           <el-table-column label="合计" width="90"><template #default="{ row }"><el-button link type="primary" :disabled="loading" @click="selectPeriod(row.period)">{{ row.count }}</el-button></template></el-table-column>
@@ -48,7 +51,7 @@
           </el-table-column>
         </el-table>
       </div>
-      <div class="source-record-heading"><h4>咨询明细 · {{ selectedSource === null ? '全部分类' : dimensionLabel(selectedSource) }}<small v-if="selectedPeriod"> · {{ periodLabel(selectedPeriod) }}</small></h4><el-button v-if="selectedSource !== null || selectedPeriod" link type="primary" @click="clearSelection">查看全部</el-button></div>
+      <div class="source-record-heading"><h4>{{ confirmedOnly ? '成交明细（已确认）' : '咨询明细' }} · {{ selectedSource === null ? '全部分类' : dimensionLabel(selectedSource) }}<small v-if="selectedPeriod"> · {{ periodLabel(selectedPeriod) }}</small></h4><el-button v-if="selectedSource !== null || selectedPeriod" link type="primary" @click="clearSelection">查看全部</el-button></div>
       <el-alert v-if="recordsError" :title="recordsError" type="error" :closable="false" show-icon />
       <el-table v-loading="recordsLoading" :data="items" stripe max-height="430" empty-text="暂无关联的新咨询记录">
         <el-table-column prop="consultation_code" label="咨询编号" min-width="145" />
@@ -56,8 +59,8 @@
         <el-table-column v-if="!customerMode" label="客户" min-width="170" show-overflow-tooltip><template #default="{ row }">{{ row.client_name || row.client_short_name || '未关联客户' }}</template></el-table-column>
         <el-table-column prop="client_source" label="客户来源" min-width="140" show-overflow-tooltip />
         <el-table-column v-if="dimension === 'method'" label="咨询方式" min-width="120"><template #default="{ row }">{{ methodLabel(row.consultation_method) }}</template></el-table-column>
-        <el-table-column v-if="['type', 'type_status'].includes(dimension)" prop="consultation_type" label="咨询类型" min-width="130" />
-        <el-table-column v-if="['status', 'type_status'].includes(dimension)" label="咨询状态" min-width="110"><template #default="{ row }">{{ statusLabel(row.status) }}</template></el-table-column>
+        <el-table-column v-if="['type', 'type_status', 'type_confirmed'].includes(dimension)" prop="consultation_type" :label="confirmedOnly ? '项目类型' : '咨询类型'" min-width="130" />
+        <el-table-column v-if="confirmedOnly || ['status', 'type_status'].includes(dimension)" label="咨询状态" min-width="110"><template #default="{ row }">{{ statusLabel(row.status) }}</template></el-table-column>
         <el-table-column prop="source_keyword" label="来源关键词" min-width="170" show-overflow-tooltip><template #default="{ row }">{{ row.source_keyword || '-' }}</template></el-table-column>
         <el-table-column label="详情" width="100" fixed="right">
           <template #default="{ row }">
@@ -79,11 +82,13 @@
 
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import CustomerSourceAiPanel from './CustomerSourceAiPanel.vue'
 import { getCustomerSourceRecords, getCustomerSourceSummary } from '@/api/customerSources'
 import { formatBusinessDateTimeMinute } from '@/utils/dateTime'
 
 const props = defineProps({ clientId: { type: String, default: null }, customerMode: Boolean, dimension: { type: String, default: 'source' } })
-const dimensionTitle = computed(() => ({ source: '客户来源', method: '咨询方式', type: '咨询类型', keyword: '来源关键词', status: '咨询状态', type_status: '类型与状态组合' }[props.dimension]))
+const confirmedOnly = computed(() => ['type_confirmed', 'source_confirmed'].includes(props.dimension))
+const dimensionTitle = computed(() => ({ source: '客户来源', method: '咨询方式', type: '咨询类型', keyword: '来源关键词', status: '咨询状态', type_status: '类型与状态组合', type_confirmed: '项目类型', source_confirmed: '客户来源' }[props.dimension]))
 const statusLabel = value => ({ pending: '待处理', following: '跟进中', emphasis: '重点跟进', success: '已确认', failed: '未成交' }[value] || value || '未知')
 const methodLabel = value => ({ phone: '电话', email: '邮件', online: '在线咨询', onsite: '上门', other: '其他' }[value] || value || '-')
 function dimensionLabel(value) {
@@ -91,7 +96,8 @@ function dimensionLabel(value) {
   if (props.dimension === 'type_status') { try { const pair = JSON.parse(value); return `${pair[0]} / ${statusLabel(pair[1])}` } catch { return value } }
   return value
 }
-const granularity = ref('day')
+const granularity = ref(confirmedOnly.value ? 'month' : 'day')
+const aiVisible = ref(false)
 const dateRange = ref(null)
 const emptyStats = () => ({ total: 0, client_count: 0, sources: [], periods: [], undated_count: 0 })
 const stats = ref(emptyStats())
@@ -191,8 +197,9 @@ function selectSource(source) { selectedSource.value = source; selectedPeriod.va
 function selectPeriod(period, source = null) { selectedSource.value = source; selectedPeriod.value = period; page.value = 1; loadRecords() }
 function clearSelection() { selectedSource.value = null; selectedPeriod.value = ''; page.value = 1; loadRecords() }
 function reset() {
-  if (granularity.value === 'day' && !dateRange.value) refresh()
-  else { granularity.value = 'day'; dateRange.value = null }
+  const defaultGranularity = confirmedOnly.value ? 'month' : 'day'
+  if (granularity.value === defaultGranularity && !dateRange.value) refresh()
+  else { granularity.value = defaultGranularity; dateRange.value = null }
 }
 watch([() => props.clientId, () => props.dimension, granularity, dateRange], refresh, { immediate: true })
 onBeforeUnmount(() => { ++summarySequence; ++recordsSequence; summaryController?.abort(); recordsController?.abort() })

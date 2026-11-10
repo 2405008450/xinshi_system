@@ -37,6 +37,7 @@ export const useFormDraft = ({
   draftVersion,
   captureContext,
   restoreContext,
+  validateDraft,
 }) => {
   markManagedDraft(form)
   const userKey = () => requireUserId ? localStorage.getItem('user_id') || '' : currentUserKey()
@@ -90,13 +91,15 @@ export const useFormDraft = ({
   const saveActiveDraft = () => {
     if (!savingEnabled.value || !activeDraftKey.value || !sameOwner()) return
     const drafts = readDrafts()
-    drafts[activeDraftKey.value] = {
+    const draft = {
       form: activeDraftKey.value === 'create' ? withoutBusinessNumbers(form,sanitizeDraft(form)) : sanitizeDraft(form),
       savedAt: draftBusinessNow(),
       ownerId: draftOwner,
       ...(captureContext ? { context: sanitizeDraft(captureContext()) } : {}),
       ...((activeDraftKey.value === 'create' && createDraftVersion) || draftVersion ? { version: activeDraftKey.value === 'create' && createDraftVersion || draftVersion } : {}),
     }
+    if (validateDraft && !validateDraft(draft, activeDraftKey.value)) return
+    drafts[activeDraftKey.value] = draft
     writeDrafts(drafts)
     queueCloudDraft(cloudNamespace,activeDraftKey.value,drafts[activeDraftKey.value])
   }
@@ -135,7 +138,7 @@ export const useFormDraft = ({
     draftOwner = userKey()
     activeDraftKey.value = key
     const current=++generation
-    const usable = draft => draft?.form && (!draft.ownerId || draft.ownerId === draftOwner) && (!draftVersion || draft.version === draftVersion && draft.ownerId === draftOwner) && (key !== 'create' || !createDraftVersion || (
+    const usable = draft => draft?.form && (!validateDraft || validateDraft(draft,key)) && (!draft.ownerId || draft.ownerId === draftOwner) && (!draftVersion || draft.version === draftVersion && draft.ownerId === draftOwner) && (key !== 'create' || !createDraftVersion || (
       draft.version === createDraftVersion && draft.ownerId === draftOwner && !draft.form.id
     ))
     const initial=clone(form),stored=readDrafts()[key],local=usable(stored)?stored:undefined

@@ -1,9 +1,11 @@
 import { nextTick, reactive } from 'vue'
 import { sessionListKey } from '@/utils/chatSessionList'
 import { getProject } from '@/api/projects'
+import { translationChatTitle } from '@/utils/translationChatIdentity'
 import { getAnnotationProject } from '@/api/annotationProjects'
 
 const MAX_EXPANDED_WINDOWS = 6
+let protectedDiscussionKeys = new Set()
 const WINDOW_WIDTH = 420
 const WINDOW_HEIGHT = 640
 const VIEWPORT_MARGIN = 8
@@ -73,6 +75,7 @@ const persistPreferences = () => {
       workspaceSize: state.workspaceSize,
       sizeByType: { ...sizePreference },
       closedSessionKeys: [...state.closedSessionKeys],
+      protectedDiscussionKeys: [...protectedDiscussionKeys],
       recentClosedSessions: state.recentClosedSessions,
     }))
   } catch {
@@ -85,10 +88,11 @@ const ensurePreferences = () => {
   state.preferencesReady = true
   try {
     const saved = JSON.parse(localStorage.getItem(preferenceStorageKey()) || '{}')
+    protectedDiscussionKeys = new Set((saved.protectedDiscussionKeys || []).filter(key => typeof key === 'string' && key.startsWith('discussion:')))
     state.closedSessionKeys = Array.isArray(saved.closedSessionKeys)
-      ? [...new Set(saved.closedSessionKeys.filter(key => typeof key === 'string' && /^(annotation|translation|direct):.+$/.test(key)))] : []
+      ? [...new Set(saved.closedSessionKeys.filter(key => typeof key === 'string' && (/^(annotation|translation|direct):.+$/.test(key) || protectedDiscussionKeys.has(key))))] : []
     state.recentClosedSessions = Array.isArray(saved.recentClosedSessions) ? saved.recentClosedSessions.filter(item =>
-      item && typeof item.key === 'string' && /^(annotation|translation|direct):.+$/.test(item.key) && typeof item.projectId === 'string').slice(0, 10) : []
+      item && typeof item.key === 'string' && (/^(annotation|translation|direct):.+$/.test(item.key) || protectedDiscussionKeys.has(item.key)) && typeof item.projectId === 'string').slice(0, 10) : []
     // 兼容旧版全屏偏好，刷新后恢复普通布局，不自动遮住业务页面。
     const savedLayout = saved.workspaceMaximized === true ? saved.maximizedFrom : saved.layout
     if (savedLayout === 'workspace' || savedLayout === 'float') state.layout = savedLayout
@@ -214,7 +218,7 @@ const resolveProjectMeta = async (projectType, projectId, refresh = false) => {
       loader(projectId)
         .then((data) => {
           const meta = {
-            title: data?.projectName || '',
+            title: projectType === 'translation' ? translationChatTitle(data) : data?.projectName || '',
             subtitle: data?.orderNo || '',
             projectStatus: data?.projectStatus || '',
           }
@@ -272,7 +276,7 @@ const activateWorkspace = (key) => {
   focusWorkspace()
 }
 
-const openChat = ({ projectId, projectType = 'translation', title = '', subtitle = '', messageId = '', projectStatus = '', allowDuplicate = false, syncSidebar = false }) => {
+const openChat = ({ projectId, projectType = 'translation', title = '', subtitle = '', messageId = '', projectStatus = '', allowDuplicate = false, syncSidebar = false, deletionProtected = false }) => {
   if (!projectId) return null
   ensurePreferences()
   const announce=()=>syncSidebar&&nextTick(()=>{const active=state.windows.find(row=>row.key===state.activeKey);if(active?.projectType===projectType&&active?.projectId===String(projectId))window.dispatchEvent(new CustomEvent('chat-conversation-activated',{detail:{projectType,projectId:String(projectId)}}))})
@@ -286,6 +290,7 @@ const openChat = ({ projectId, projectType = 'translation', title = '', subtitle
   persistPreferences()
   const existing = !allowDuplicate && (state.windows.find(item => item.key === state.activeKey && item.projectType === projectType && item.projectId === String(projectId)) || state.windows.find(item => item.projectType === projectType && item.projectId === String(projectId)))
   if (existing) {
+    if(deletionProtected)existing.deletionProtected=true
     if (messageId) existing.targetMessageId = messageId
     if (title) existing.title = title
     if (subtitle) existing.subtitle = subtitle
@@ -298,18 +303,19 @@ const openChat = ({ projectId, projectType = 'translation', title = '', subtitle
     focusChat(existing.key)
     activateWorkspace(existing.key)
     enforceExpandedLimit(existing.key)
-    if (!title || !subtitle || (projectType === 'annotation' && !existing.projectStatus)) fillChatWindowMeta(existing, true)
+    if (projectType === 'translation' || !title || !subtitle || (projectType === 'annotation' && !existing.projectStatus)) fillChatWindowMeta(existing, true)
     announce()
     return existing.key
   }
 
-  const needsMeta = !['direct', 'discussion'].includes(projectType) && (!title || !subtitle || (projectType === 'annotation' && !projectStatus))
+  const needsMeta = !['direct', 'discussion'].includes(projectType) && (projectType === 'translation' || !title || !subtitle || (projectType === 'annotation' && !projectStatus))
   const sizeMode = state.layout === 'float' && state.tileMode ? state.tileMode : normalizeSize(sizePreference[projectType])
   const chatWindow = reactive({
     key,
     conversationKey,
     projectId: String(projectId),
     projectType,
+    deletionProtected,
     accessConfirmed: false,
     projectStatus,
     targetMessageId: messageId,
@@ -554,12 +560,14 @@ const incrementUnread = (key) => {
 }
 
 const rememberClosedSession = (session, sessionKeys = [session.key]) => {
-  if (!session?.key || session.projectType === 'discussion' || session.key.startsWith('discussion:')) return
+  if (!session?.key || ((session.projectType === 'discussion' || session.key.startsWith('discussion:')) && !session.deletionProtected && !protectedDiscussionKeys.has(session.key))) return
+  if(session.deletionProtected&&session.key.startsWith('discussion:'))protectedDiscussionKeys.add(session.key)
   const entry = {
     key: session.key, projectId: String(session.projectId || session.key.slice(session.key.indexOf(':') + 1)),
     projectType: session.projectType || session.kind || session.key.split(':')[0],
     title: session.title || session.subtitle || '未命名会话', subtitle: session.subtitle || '',
     projectStatus: session.projectStatus || '', categoryIds: session.categoryIds || [], sessionKeys,
+    deletionProtected: !!session.deletionProtected || protectedDiscussionKeys.has(session.key),
   }
   const previous = state.recentClosedSessions.filter(item => sessionListKey(item) === sessionListKey(entry))
   entry.sessionKeys = [...new Set([...sessionKeys, ...previous.flatMap(item => item.sessionKeys || [item.key])])]
@@ -572,7 +580,8 @@ const closeChat = (key, { session, recordRecent = true } = {}) => {
   const closing = state.windows.find(item => item.key === key)
   const conversationKey = closing?.conversationKey || key
   const hasAnother = state.windows.some(item => item.key !== key && (item.conversationKey || item.key) === conversationKey)
-  if (!conversationKey.startsWith('discussion:') && !hasAnother) {
+  if ((!conversationKey.startsWith('discussion:') || session?.deletionProtected || closing?.deletionProtected || protectedDiscussionKeys.has(conversationKey)) && !hasAnother) {
+    if(conversationKey.startsWith('discussion:'))protectedDiscussionKeys.add(conversationKey)
     if (recordRecent) rememberClosedSession({ ...(session || closing || { key }), key: conversationKey }, [conversationKey])
     if (!state.closedSessionKeys.includes(conversationKey)) state.closedSessionKeys.push(conversationKey)
   }
@@ -588,13 +597,13 @@ const closeChat = (key, { session, recordRecent = true } = {}) => {
 
 const closeSessionEntry = (session) => {
   ensurePreferences()
-  if (session.projectType === 'discussion') return
+  if (session.projectType === 'discussion' && !session.deletionProtected) return
   const keys = session.catalogKeys || [session.key]
   rememberClosedSession(session, keys)
   for (const key of keys) {
     const windows = state.windows.filter(item => (item.conversationKey || item.key) === key)
-    if (windows.length) for (const item of windows) closeChat(item.key, { recordRecent: false })
-    else closeChat(key, { recordRecent: false })
+    if (windows.length) for (const item of windows) closeChat(item.key, { session, recordRecent: false })
+    else closeChat(key, { session, recordRecent: false })
   }
 }
 
@@ -614,6 +623,7 @@ const restoreClosedSession = (session) => {
 
 const syncClosedSessionCatalog = (catalog) => {
   ensurePreferences()
+  for(const session of catalog)if(session.deletionProtected&&session.key?.startsWith('discussion:'))protectedDiscussionKeys.add(session.key)
   if (state.recentClosedSessions.length || !catalog.length) return
   const known = new Set(state.recentClosedSessions.flatMap(item => item.sessionKeys || [item.key]))
   // 为升级前只记录了 ID 的关闭项补齐名称，不改变原有关闭顺序。

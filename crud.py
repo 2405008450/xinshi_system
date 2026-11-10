@@ -750,6 +750,7 @@ def create_sub_client(
 ) -> SubClient:
     sub_code = sub_client.sub_client_code or generate_sub_client_code(db, sub_client.parent_client_id)
     data = sub_client.model_dump(exclude={'sub_client_code', 'customer_type','contact_names','contact_people'})
+    data['client_name'] = data.get('client_name') or sub_client.client_short_name
     if not getattr(db,'info',{}).get('client_contacts_visible',True):data.pop('manager_contact',None)
     db_sub = SubClient(
         sub_client_code=sub_code, idempotency_key=idempotency_key, **data,
@@ -772,6 +773,8 @@ def update_sub_client(db: Session, sub_id: UUID, sub_update: SubClientUpdate) ->
     if not db_sub:
         return None
     update_data = sub_update.model_dump(exclude_unset=True, exclude={VERSION_FIELD, 'customer_type','contact_names','contact_people'})
+    if 'client_name' in update_data and not update_data['client_name']:
+        update_data['client_name'] = db_sub.client_name or update_data.get('client_short_name') or db_sub.client_short_name
     if not getattr(db,'info',{}).get('client_contacts_visible',True):update_data.pop('manager_contact',None)
     assert_fresh(db_sub, sub_update.expected_updated_at)
     if 'customer_type' in sub_update.model_fields_set:
@@ -1348,6 +1351,8 @@ def _attach_word_count_matrices(
             arrangement_map[metric.arrangement_id][metric.dimension][metric.metric_type] = float(metric.count_value) if metric.metric_type in {'minutes','hours'} else metric.count_value
 
     from word_count_service import roll_up_matrices
+    from translation_simple_requirement_counts import attach as attach_simple_counts
+    attach_simple_counts(db,list(project_map.values()))
     roll_up_matrices(list(project_map.values()), list(sub_order_map.values()))
 
     _attach_customer_charge_amounts([*project_map.values(), *all_sub_orders])
@@ -1517,9 +1522,7 @@ def _resolve_or_create_project_sub_client(
     if existing:
         return existing.id
 
-    full_name = (sub_client_name or "").strip()
-    if not full_name:
-        raise ValueError("新增子客户时请填写子客户全称")
+    full_name = (sub_client_name or "").strip() or normalized_name
 
     sub_client = SubClient(
         parent_client_id=parent_client_id,
@@ -2056,13 +2059,19 @@ def _apply_translation_project_filters(
             value=descriptor['value']
             query=query.filter(manager_self_expression('translation',TranslationProject.id,UUID(value['id']),value['names'],Client.client_manager))
         elif field == 'finance_billing_month':
-            month = descriptor.get('value')
-            query = query.filter(or_(
-                TranslationProject.order_no.like(f"TP-{month[2:4]}{month[5:7]}__-%"),
-                TranslationProject.order_no.like(f"TP-{month[:4]}{month[5:7]}__-%"),
-            ))
+            value = descriptor.get('value')
+            months = value if isinstance(value, list) else [value]
+            query = query.filter(or_(*[
+                condition for month in months for condition in (
+                    TranslationProject.order_no.like(f"TP-{month[2:4]}{month[5:7]}__-%"),
+                    TranslationProject.order_no.like(f"TP-{month[:4]}{month[5:7]}__-%"),
+                )
+            ]))
         elif field == 'finance_client_id':
             query = query.filter(TranslationProject.client_id == UUID(descriptor['value']))
+        elif field == 'finance_invoice_status':
+            invoice_status=select(FinanceRecord.invoice_status).where(FinanceRecord.project_id==TranslationProject.id).correlate(TranslationProject).scalar_subquery()
+            query=query.filter(func.coalesce(invoice_status,'unissued')==descriptor['value'])
         elif field == 'finance_payment_status':
             from translation_payment_filters import payment_status_condition
             query = query.filter(payment_status_condition(query.session,descriptor['value']))
@@ -2429,11 +2438,13 @@ def create_translation_project(
     operation_source: str = "project_form",
     folder_root: bool = False,
 ) -> TranslationProject:
+    from translation_project_submission import validate_initial_details
+    validate_initial_details(project.initial_sub_order_details)
     order_no = order_no or generate_order_no(db)
     role_assignments = project.role_assignments
     project_data = project.model_dump(exclude={
         'client_short_name', 'client_code', 'client_name', 'contact_name', 'sub_client_name', 'manager_contact', 'sub_client_short_name',
-        'word_count_matrix', 'customer_charge_items', 'role_assignments', 'client_manager_id', 'client_manager_change_reason', 'initial_sub_order_names', 'initial_folder_import', 'initial_sub_order_details', 'submission_mode', 'sub_orders_reviewed', 'customer_type', 'statement_required', 'quotation_draft', 'payment_draft', 'payment_version', 'payment_confirmation'
+        'word_count_matrix', 'customer_charge_items', 'role_assignments', 'client_manager_id', 'client_manager_change_reason', 'initial_sub_order_names', 'initial_folder_import', 'initial_sub_order_details', 'submission_mode', 'sub_orders_reviewed', 'customer_type', 'statement_required', 'quotation_draft', 'document_notes', 'payment_draft', 'payment_version', 'payment_confirmation'
     })
     if 'source_file_name' not in project.model_fields_set:
         project_data.pop('source_file_name', None)
@@ -2497,7 +2508,7 @@ def create_translation_project(
         save_customer_type(db, db_project, project.customer_type)
     from translation_document_requirements import save as save_document_requirements
     save_document_requirements(db, db_project, statement_required=project.statement_required,
-        quotation_draft=project.quotation_draft, actor_id=project.created_by)
+        quotation_draft=project.quotation_draft, document_notes=project.document_notes, actor_id=project.created_by)
     if project.payment_draft is not None:
         from translation_payment_service import save as save_payments
         save_payments(db, db_project, project.payment_draft, project.payment_version, project.created_by, project.payment_confirmation)
@@ -2583,7 +2594,7 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
     matrix_update = project_update.word_count_matrix
     update_data = project_update.model_dump(
         exclude_unset=True,
-        exclude={'submission_mode','sub_orders_reviewed','client_short_name', 'client_code', 'client_name', 'contact_name', 'sub_client_name', 'manager_contact', 'sub_client_short_name', 'word_count_matrix', 'customer_charge_items', 'role_assignments', 'assigned_translator_completions', 'client_manager_id', 'client_manager_change_reason', 'customer_type', 'statement_required', 'quotation_draft', 'payment_draft', 'payment_version', 'payment_confirmation', VERSION_FIELD},
+        exclude={'submission_mode','sub_orders_reviewed','client_short_name', 'client_code', 'client_name', 'contact_name', 'sub_client_name', 'manager_contact', 'sub_client_short_name', 'word_count_matrix', 'customer_charge_items', 'role_assignments', 'assigned_translator_completions', 'client_manager_id', 'client_manager_change_reason', 'customer_type', 'statement_required', 'quotation_draft', 'document_notes', 'payment_draft', 'payment_version', 'payment_confirmation', VERSION_FIELD},
     )
     update_data.pop('mother_split_reviewed', None)
     db.query(TranslationProject).filter(TranslationProject.id == project_id).with_for_update().populate_existing().one()
@@ -2667,7 +2678,7 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
         save_customer_type(db, db_project, project_update.customer_type)
     from translation_document_requirements import save as save_document_requirements
     save_document_requirements(db, db_project, statement_required=project_update.statement_required,
-        quotation_draft=project_update.quotation_draft, actor_id=actor_user_id)
+        quotation_draft=project_update.quotation_draft, document_notes=project_update.document_notes, actor_id=actor_user_id)
     if project_update.payment_draft is not None:
         from translation_payment_service import save as save_payments
         save_payments(db, db_project, project_update.payment_draft, project_update.payment_version, actor_user_id, project_update.payment_confirmation)

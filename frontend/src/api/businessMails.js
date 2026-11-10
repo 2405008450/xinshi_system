@@ -16,4 +16,5 @@ export const getAvailableMailGroups = () => api.get('/project-mails/recipient-gr
 // SMTP 连接超时高于全局普通接口超时，避免邮件实际已发送但页面误报超时。
 export const sendProjectMail = (data) => api.post('/project-mails/', data, { timeout: 30000 })
 export const retryProjectMail = (id) => api.post(`/project-mails/${id}/retry`, null, { timeout: 30000 })
+export const retryProjectMailChat = (id) => api.post(`/project-delivery/mail/${id}/chat/retry`)
 export const getProjectMailHistory = (params) => api.get('/project-mails/', { params })

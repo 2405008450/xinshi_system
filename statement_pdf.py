@@ -32,7 +32,7 @@ def pdf_bytes(statements):
     from reportlab.lib.units import mm
     from reportlab.lib.utils import ImageReader
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, LongTable, TableStyle, PageBreak, Flowable, KeepTogether
-    from customer_statements import statement_title
+    from customer_statements import statement_title,tax_label
     output=BytesIO();font=chinese_font()
     document=SimpleDocTemplate(output,pagesize=landscape(A4),leftMargin=14*mm,rightMargin=14*mm,topMargin=14*mm,bottomMargin=14*mm,title='客户对账单',author='信实翻译')
     styles={key:ParagraphStyle(key,fontName=font,fontSize=size,leading=size*1.45,alignment=alignment,wordWrap='CJK') for key,size,alignment in [('cell',9,TA_CENTER),('date',8,TA_CENTER),('company',15,TA_CENTER),('title',16.5,TA_CENTER),('text',10,TA_LEFT),('footer',8,TA_LEFT),('right',10,TA_RIGHT),('heading',9,TA_CENTER),('total',9,TA_CENTER),('total_label',9,TA_RIGHT),('account',11.25,TA_LEFT),('pending',9,TA_LEFT)]}
@@ -50,7 +50,7 @@ def pdf_bytes(statements):
     for index,data in enumerate(statements):
         if index:story.append(PageBreak())
         story.extend([paragraph(data['company'],'company'),Spacer(1,4*mm),paragraph(statement_title(data),'title'),Spacer(1,6*mm)])
-        meta=LongTable([[paragraph('客户：'+data['client_name'],'text'),paragraph('账单月份：'+data['month']+'　'+('含税' if data['tax_included'] else '不含税'),'right')]],colWidths=[document.width*.6,document.width*.4])
+        meta=LongTable([[paragraph('客户：'+data['client_name'],'text'),paragraph('账单月份：'+data['month']+'　'+tax_label(data),'right')]],colWidths=[document.width*.6,document.width*.4])
         meta.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]));story.extend([meta,Spacer(1,3*mm)])
         customer_order=any(str(row.get('customer_order_no') or '').strip() for row in data['rows'])
         origin=any(row.get('origin_client_id') or row.get('origin_client_name') for row in data['rows'])
@@ -60,6 +60,7 @@ def pdf_bytes(statements):
         for row in data['rows']:
             basis=re.sub(r'[（(]每1(?:\.0+)?计价[）)]','',row.get('basis') or '')
             unit='-' if row.get('unit_price') is None else f"{row['currency']} {Decimal(str(row['unit_price'])).quantize(Decimal('.001'),rounding=ROUND_HALF_UP):.3f}"
+            if '按项目' in tax_label(data) and row.get('unit_label'):unit+='（'+row['unit_label']+'）'
             remark=('汇总参考，不重复计入合计。' if row.get('counted_in_total') is False else '')+(row.get('remarks') or '')
             values=([row.get('origin_client_name') or data['client_name']] if origin else [])+([row.get('customer_order_no') or ''] if customer_order else [])+[str(row.get('received_date') or '-'),row['project_name'],row['language_pair'],str(row['quantity'])+'\n'+basis if row.get('quantity') is not None else basis,unit,f"{row['currency']} {row['subtotal']}" if row.get('subtotal') is not None else '待补',remark]
             cells.append([paragraph(value,'date' if column==int(origin)+int(customer_order) else 'cell') for column,value in enumerate(values)])

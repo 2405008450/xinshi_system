@@ -266,7 +266,8 @@ def test_translation_preview_includes_both_customer_requirements(monkeypatch):
     assert "客户特殊要求：\n无" in preview["body"]
     assert "客户专业要求" in preview["body_html"]
     assert "客户特殊要求" in preview["body_html"]
-    assert preview['body'].index('客户专业要求：') > preview['body'].index('备注：保留现有项目内容')
+    assert preview['body'].index('订单号：') < preview['body'].index('补充说明：') < preview['body'].index('项目类型：')
+    assert '补充说明：\n保留现有项目内容' in preview['body']
     assert '13800000000' not in preview['subject']
     assert '13800000000' not in preview['body']
     assert '客户经理联系方式' not in preview['body']

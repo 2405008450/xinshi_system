@@ -26,6 +26,23 @@ class QuotationDraft(BaseModel):
     notes: str = Field(default='', max_length=5000)
 
 
+class DocumentNotes(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    quotation: str = Field(default='',max_length=2000)
+    statement: str = Field(default='',max_length=2000)
+    invoice: str = Field(default='',max_length=2000)
+
+
+def quotation_value(row):
+    data={key:value for key,value in (row.quotation_data or {}).items() if key not in {'_document_notes','_invoice'}} if row else {}
+    return data or None
+
+
+def document_notes(row):
+    data=(row.quotation_data or {}).get('_document_notes',{}) if row else {}
+    return DocumentNotes.model_validate(data).model_dump()
+
+
 class TranslationProjectDocuments(Base):
     __tablename__ = 'translation_project_documents'
     project_id = Column(Uuid, ForeignKey('translation_project.id', ondelete='CASCADE'), primary_key=True)
@@ -90,11 +107,13 @@ def attach(db, projects):
         choice=defaults.get(project.id,'unknown')
         inherited=choice=='required' if choice!='unknown' else getattr(project,'customer_type',None)!='个人客户'
         project.statement_required = row.statement_required if project.statement_required_explicit else inherited and not full_payment(getattr(project,'payment_confirmation',None))
-        project.quotation_draft = row.quotation_data if row else None
+        project.quotation_draft = quotation_value(row)
+        project.document_notes = document_notes(row)
+        project.invoice_data=(row.quotation_data or {}).get('_invoice',{}) if row else {}
 
 
-def save(db, project, *, statement_required=None, quotation_draft=None, actor_id=None):
-    if statement_required is None and quotation_draft is None:
+def save(db, project, *, statement_required=None, quotation_draft=None, document_notes=None, actor_id=None):
+    if statement_required is None and quotation_draft is None and document_notes is None:
         return
     if not ready(db):
         raise HTTPException(503, '项目单据存储尚未初始化')
@@ -104,9 +123,14 @@ def save(db, project, *, statement_required=None, quotation_draft=None, actor_id
         db.add(row)
     if statement_required is not None:
         row.statement_required = statement_required
+    stored=dict(row.quotation_data or {})
     if quotation_draft is not None:
-        row.quotation_data = quotation_draft.model_dump(mode='json')
+        stored={**quotation_draft.model_dump(mode='json'),**{key:value for key,value in stored.items() if key in {'_document_notes','_invoice'}}}
         row.quotation_revision += 1
+    if document_notes is not None:
+        stored['_document_notes']=document_notes.model_dump(mode='json')
+        project.document_notes=document_notes.model_dump(mode='json')
+    row.quotation_data=stored or None
     row.updated_by = actor_id
     row.updated_at = business_now()
 
@@ -115,8 +139,8 @@ def quotation(db, project):
     if not ready(db):
         raise HTTPException(503, '报价单存储尚未初始化')
     row = db.get(TranslationProjectDocuments, project.id)
-    if row and row.quotation_data:
-        draft = QuotationDraft.model_validate(row.quotation_data)
+    if quotation_value(row):
+        draft = QuotationDraft.model_validate(quotation_value(row))
     else:
         draft = QuotationDraft(client_name=getattr(project, 'sub_client_name', None) or getattr(project, 'client_name', None) or '')
         draft.items = [QuotationLine(description=project.source_file_name or project.project_name or '', language_pair=project.language_pair or '')]

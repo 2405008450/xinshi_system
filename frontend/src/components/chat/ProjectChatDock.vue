@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <div v-if="state.windows.length || hasExtraTasks || workspaceVisible || showWorkspaceTask" class="project-chat-dock" :class="{ 'project-chat-dock--immersive': workspaceVisible && state.workspaceMaximized }" aria-label="全局悬浮窗口">
-      <div v-show="workspaceVisible" class="chat-workspace-shell" :class="{ 'chat-workspace-shell--maximized': state.workspaceMaximized }" :style="workspaceShellStyle" @mousedown="focusWorkspace">
+      <div ref="workspaceSplitRoot" v-show="workspaceVisible" class="chat-workspace-shell" :class="{ 'chat-workspace-shell--maximized': state.workspaceMaximized }" :style="workspaceShellStyle" @mousedown="focusWorkspace">
         <WindowFrameHandles ref="workspaceFrame" :disabled="state.workspaceMaximized" @change="resizeWorkspaceRect" />
         <ChatWorkspace
           :active="workspaceVisible"
@@ -26,6 +26,10 @@
           :size-mode="state.workspaceSize"
           :maximized="state.workspaceMaximized"
           :session-width="workspaceNarrow ? 240 : sidebarWidth"
+          :split-maximum="workspaceSplit.maximum.value"
+          @split-start="workspaceSplit.start"
+          @split-keydown="workspaceSplit.keyboard"
+          @split-reset="workspaceSplit.reset"
           :title="activeWindow?.title || '沟通'"
           :subtitle="activeWindow?.subtitle || ''"
           :project-id="activeWindow?.projectId || ''"
@@ -201,6 +205,7 @@ import DiscussionConversation from './DiscussionConversation.vue'
 import ChatConversationMore from './ChatConversationMore.vue'
 import ChatPinIcon from './ChatPinIcon.vue'
 import AnnotationGroupChat from '@/components/chat/AnnotationGroupChat.vue'
+import { useChatWorkspaceSplit } from '@/composables/useChatWorkspaceSplit'
 import ChatWorkspace from '@/components/chat/ChatWorkspace.vue'
 import AnnotationChatInbox from './AnnotationChatInbox.vue'
 import ChatProjectEntry from './ChatProjectEntry.vue'
@@ -326,11 +331,9 @@ const minimizedWindows = computed(() => (
     ? state.windows.filter(item => item.minimized && (!state.pinnedKey || state.pinnedKey === item.key))
     : []
 ))
-const sidebarWidth = computed(() => {
-  if (!workspaceVisible.value) return 0
-  if (workspaceNarrow.value) return 0
-  return state.workspaceMaximized ? 300 : 280
-})
+const workspaceSplitRoot = ref(null)
+const workspaceSplit = useChatWorkspaceSplit(workspaceSplitRoot, workspaceVisible, workspaceNarrow, computed(() => state.workspaceMaximized))
+const sidebarWidth = computed(() => !workspaceVisible.value || workspaceNarrow.value ? 0 : workspaceSplit.width.value)
 const activeWindow = computed(() => state.windows.find(item => item.key === state.activeKey && item.accessConfirmed !== false) || null)
 const sessions = computed(() => {
   const rows = followed.value.map(s => ({ ...s, projectType: s.kind, opened: state.windows.some(w => (w.conversationKey || w.key) === s.key) }))

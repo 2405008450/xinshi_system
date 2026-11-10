@@ -53,7 +53,7 @@ def test_source_totals_unknown_and_period_boundaries(data):
 def test_every_dimension_drills_down_to_identical_count(data, dimension):
     db, _, _, _ = data
     result = service.summary(db, dimension=dimension)
-    assert sum(item['count'] for item in result['sources']) == 5
+    assert sum(item['count'] for item in result['sources']) == (2 if dimension.endswith('_confirmed') else 5)
     for item in result['sources']:
         details = service.records(db, source=item['source'], dimension=dimension)
         assert details['total'] == item['count']
@@ -99,6 +99,10 @@ def test_api_permissions_and_validation(data, monkeypatch):
         permissions.clear(); permissions.add('consultations:read')
         assert client.get(f'/clients/{clients[0].id}/sources').status_code == 403
         assert client.get('/data-analysis/customer-sources?dimension=type_status').status_code == 200
+        for dimension in ['type_confirmed', 'source_confirmed']:
+            assert client.get(f'/data-analysis/customer-sources?dimension={dimension}&granularity=month').json()['total'] == 2
+            response = client.get(f'/data-analysis/customer-sources/records?dimension={dimension}').json()
+            assert response['total'] == 2 and all(item['status'] == 'success' for item in response['items'])
         assert client.get('/data-analysis/customer-sources/records?page=0').status_code == 422
         assert client.get('/data-analysis/customer-sources?dimension=invalid').status_code == 422
 
@@ -129,3 +133,27 @@ def test_subtitle_rename_keeps_legacy_filter_and_analysis_group(data):
     result = service.summary(db, dimension='type')
     assert next(item for item in result['sources'] if item['source'] == renamed)['count'] == 3
     assert service.records(db, dimension='type', source=renamed)['total'] == 3
+
+
+@pytest.mark.parametrize('dimension', ['type_confirmed', 'source_confirmed'])
+def test_confirmed_analysis_week_month_date_range_and_live_status(data, dimension):
+    db, clients, rows, _ = data
+    rows[0].status = '已确认'  # 兼容历史中文值。
+    rows[3].status = 'success'  # 无日期、无关联客户的已确认咨询。
+    db.commit()
+    weekly = service.summary(db, 'week', dimension=dimension)
+    assert weekly['total'] == 4 and weekly['client_count'] == 2
+    assert weekly['undated_count'] == 1
+    assert [(item['period'], item['count']) for item in weekly['periods']] == [('2026-10-26', 2), ('2026-11-02', 1)]
+    monthly = service.summary(db, 'month', dimension=dimension)
+    assert [(item['period'], item['count']) for item in monthly['periods']] == [('2026-10-01', 1), ('2026-11-01', 2)]
+    filtered = service.summary(db, 'month', dimension=dimension, start=date(2026, 11, 1), end=date(2026, 11, 2))
+    detail = service.records(db, dimension=dimension, start=date(2026, 11, 1), end=date(2026, 11, 2))
+    assert filtered['total'] == detail['total'] == 1
+    assert all(item['status'] == 'success' for item in detail['items'])
+    for category in weekly['sources']:
+        assert service.records(db, dimension=dimension, source=category['source'])['total'] == category['count']
+    assert service.summary(db, client_id=clients[0].id, dimension=dimension)['total'] == 2
+    rows[4].status = 'following'; db.commit()
+    assert service.summary(db, dimension=dimension)['total'] == 3
+    assert service.summary(db)['total'] == 5

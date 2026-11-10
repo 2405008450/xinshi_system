@@ -13,6 +13,7 @@ DIMENSION_FIELDS = {
     'source': ('client_source',), 'method': ('consultation_method',),
     'type': ('consultation_type',), 'keyword': ('source_keyword',),
     'status': ('status',), 'type_status': ('consultation_type', 'status'),
+    'type_confirmed': ('consultation_type',), 'source_confirmed': ('client_source',),
 }
 VALUE_ALIASES = {
     'consultation_method': {'phone': '电话', 'email': '邮件', 'online': '在线咨询', 'onsite': '上门', 'other': '其他'},
@@ -53,6 +54,8 @@ def source_query(db, client_id=None, start=None, end=None, source=None, dimensio
     if start and end and start > end:
         raise HTTPException(422, '开始日期不能晚于结束日期')
     query = db.query(Consultation)
+    if dimension in {'type_confirmed', 'source_confirmed'}:
+        query = query.filter(normalized_field('status') == 'success')
     if client_id is not None:
         if db.get(Client, client_id) is None:
             raise HTTPException(404, '客户不存在')

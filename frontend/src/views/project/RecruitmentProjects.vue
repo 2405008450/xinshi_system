@@ -4,6 +4,7 @@
       <div class="card-header">
         <span>招聘项目管理</span>
         <div class="header-actions">
+          <el-button v-if="!deleteMode" @click="statisticsVisible=true">数据统计</el-button>
           <ProjectExportMenu v-if="!deleteMode" module="recruitment" :build-filters="buildFilters" />
           <TableColumnSettings settings-key="recruitment-projects" v-model="visibleColumnKeys" :columns="tableColumns" :column-count="2" @reset="resetColumns" />
           <BatchDeleteToolbar v-if="canWrite" :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
@@ -144,7 +145,7 @@
                   </div>
                 <ClientNameGuidance />
 </el-form-item>
-              </el-col><el-col :xs="24" :md="12"><el-form-item label="客户全称" prop="clientName"><ReadonlyField :model-value="form.clientName" @update:model-value="form.clientName = $event" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '请输入客户全称'" /></el-form-item></el-col></el-row>
+              </el-col><el-col :xs="24" :md="12"><el-form-item label="客户全称" prop="clientName"><ClientFullNameInput v-model="form.clientName" :client-id="form.clientId" include-sub-clients @select="handleClientSelect" /></el-form-item></el-col></el-row>
             <ProjectClientContactFields :client-id="form.clientId" :sub-client-id="form.subClientId" v-model:contact-name="form.contactName" v-model:contact-method="form.clientContactMethod" v-model:contact-description="form.clientContactDescription" v-model:contact-version="form.clientContactVersion" v-model:contacts-visible="form.clientContactsVisible" />
             <el-form-item label="补充说明"><el-input v-model="form.remarks" type="textarea" :rows="3" /></el-form-item>
             <el-row :gutter="16">
@@ -210,12 +211,12 @@
             <el-form-item label="标题前缀">
               <el-input v-model="form.subjectPrefix" maxlength="50" show-word-limit clearable placeholder="可选，例如：紧急、请优先处理" />
             </el-form-item>
-            <el-form-item label="邮件主题预览">
+            <el-form-item label="会话标题预览">
               <div class="subject-preview-field">
                 <el-input v-model="form.emailSubjectPreview" type="textarea" :rows="2" />
                 <div class="subject-preview-toolbar">
-                  <span>按“标题前缀、订单号、客户简称、客户经理联系方式、客户单号/标识、项目名称”顺序生成</span>
-                  <el-button class="soft-action-button" :icon="MagicStick" @click="generateEmailSubject">生成邮件主题</el-button>
+                  <span>按“标题前缀、订单号、客户简称、客户单号/标识、项目名称”顺序生成</span>
+                  <el-button class="soft-action-button" :icon="MagicStick" @click="generateEmailSubject">生成会话标题</el-button>
                 </div>
               </div>
             </el-form-item>
@@ -242,7 +243,9 @@
           </div>
         </AppForm>
       </div>
-      <template #footer><div class="editor-footer"><el-button @click="editorVisible=false">取消</el-button><el-button :loading="saving" @click="saveProject(true)">保存并发送邮件</el-button><el-button type="primary" :loading="saving" @click="saveProject(false)">保存</el-button></div></template>
+      <template #footer><div class="editor-footer"><el-button @click="editorVisible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveProject(false)">保存</el-button><ConversationAudiencePicker v-model="chatAudience" :disabled="saving" /><el-tooltip content="紧急预告仍需完成本页必填信息；会话将标记为紧急项目预告知。" placement="top"><el-button type="warning" plain :loading="saving" @click="saveProject(false,true,true)">（紧急）项目预告知</el-button></el-tooltip>
+        <el-button :loading="saving" @click="saveProject(false,false,true)">保存并发送会话</el-button>
+        </div></template>
     </DraggableFormDialog>
 
     <DraggableFormDialog v-model="jobDescriptionEditorVisible" title="编辑职位描述" width="min(900px, calc(100vw - 32px))" top="5vh" append-to-body class="job-description-dialog">
@@ -340,16 +343,17 @@
       </AppForm></div>
       <template #footer><el-button @click="candidateEditorVisible=false">取消</el-button><el-button type="primary" :loading="candidateSaving" @click="saveCandidate">保存</el-button></template>
     </DraggableFormDialog>
-    <BusinessMailComposer
-      v-model="mailComposerVisible"
-      project-type="recruitment"
-      :project-id="mailProjectId"
-      :consultation-id="mailConsultationId"
-    />
   </el-card>
+  <ProjectStatisticsDialog v-model="statisticsVisible" module="recruitment" />
 </template>
 
 <script setup>
+import {useProjectDelivery} from '@/composables/useProjectDelivery'
+import ConversationAudiencePicker from '@/components/common/ConversationAudiencePicker.vue'
+const {sendConversation,chatAudience}=useProjectDelivery('recruitment')
+import ClientFullNameInput from '@/components/common/ClientFullNameInput.vue'
+import ProjectStatisticsDialog from '@/components/common/ProjectStatisticsDialog.vue'
+const statisticsVisible=ref(false)
 import ProjectClientContactFields from '@/components/common/ProjectClientContactFields.vue'
 import {emptyProjectContactDetails,projectContactPayload} from '@/utils/projectClientContacts'
 
@@ -388,7 +392,7 @@ import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { useFormDraft } from '@/composables/useFormDraft'
 import { useResourceRequestStatuses } from '@/composables/useResourceRequestStatuses'
-import { notifyEmailSubjectGenerated, extractSubjectPrefix } from '@/utils/emailSubject'
+import { buildEmailSubject, extractSubjectPrefix } from '@/utils/emailSubject'
 import { hasPermission } from '@/utils/permission'
 import { fetchProjectClientSuggestions } from '@/utils/projectClientAutocomplete'
 import { copyTextToClipboard } from '@/utils/clipboard'
@@ -406,7 +410,6 @@ import {
 } from '@/api/recruitmentProjects'
 import RecruitmentLanguageDirections from '@/components/common/LanguageDirectionsEditor.vue'
 import RecruitmentCandidateTable from './recruitment/RecruitmentCandidateTable.vue'
-import BusinessMailComposer from '@/components/common/BusinessMailComposer.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 
@@ -416,9 +419,6 @@ const router = useRouter()
 const { load: loadResourceRequestStatuses, actionLabel: resourceRequestActionLabel } = useResourceRequestStatuses('recruitment')
 const startResourceRequest = (row) => router.push({ name: 'ResourceRequests', query: { sourceType: 'recruitment', sourceProjectId: row.id } })
 const highlightedProjectId = ref('')
-const mailComposerVisible = ref(false)
-const mailProjectId = ref('')
-const mailConsultationId = ref('')
 const statusOptions = [
   ['pending_setup','新建待立项'],['sourcing','立项启动（寻访阶段）'],['recommending','简历推荐中'],['interviewing','面试进行中'],['offer_negotiation','Offer谈判阶段'],['pending_onboard','候选人待入职'],['probation','已入职保用期'],['full_time_dispatch','全职外派'],['cancelled','项目取消'],['closed','项目结案'],
 ].map(([value,label]) => ({ value,label }))
@@ -454,7 +454,7 @@ const tableColumns = [
   {key:'contractPath',label:'合同路径',minWidth:155},
   {key:'projectPath',label:'项目路径',minWidth:155},
   {key:'remarks',label:'备注',minWidth:140},
-  {key:'emailSubjectPreview',label:'邮件主题预览',minWidth:165},
+  {key:'emailSubjectPreview',label:'会话标题预览',minWidth:165},
   {key:'socialPostRequest',label:'发圈请求',minWidth:150},
   {key:'resourceRequest',label:'资源请求',minWidth:150},
   {key:'createdAt',label:'创建时间',width:140},
@@ -585,7 +585,7 @@ const resetForm = () => { jobDescriptionEditorVisible.value=false; Object.assign
 const onEditorClosed = () => { pauseDraft(); resetForm() }
 const resetEditorScroll=async()=>{await nextTick();editorBodyRef.value?.scrollTo({top:0,behavior:'auto'})}
 const openAdd = async () => { resetForm(); resetRecruitmentProjectIdempotency(); clientManagerBaseline.value=localStorage.getItem('user_id')||''; editorVisible.value=true; await resetEditorScroll(); await beginDraft('create') }
-const openEdit = async (row,useProvidedDetail=false) => { try { const item=useProvidedDetail?row:await getRecruitmentProject(row.id); const clientSelection=item.subClientId?`sub:${item.subClientId}`:(item.clientId?`client:${item.clientId}`:''); const selectedClient=clientOptions.value.find((option)=>option.value===clientSelection); Object.assign(form,emptyForm(),item,{taxPrices:taxPriceForm(item.taxPrices),employmentRange:item.employmentStart&&item.employmentEnd?[item.employmentStart,item.employmentEnd]:[],clientSelection,managerContact:selectedClient?.managerContact||item.managerContact||''}); form.clientManagerId=item.clientManagerId||'';form.clientManagerChangeReason='';clientManagerBaseline.value=form.clientManagerId;form.subjectPrefix=extractSubjectPrefix(item.emailSubjectPreview,form); nameManuallyEdited.value=Boolean(item.projectName); activeProject.value=item; candidateRows.value=[]; editorVisible.value=true; await resetEditorScroll(); await beginDraft(`edit:${item.id}`); void loadCandidates() } catch(error){ElMessage.error(error?.detail||'项目详情加载失败')} }
+const openEdit = async (row,useProvidedDetail=false) => { try { const item=useProvidedDetail?row:await getRecruitmentProject(row.id); const clientSelection=item.subClientId?`sub:${item.subClientId}`:(item.clientId?`client:${item.clientId}`:''); const selectedClient=clientOptions.value.find((option)=>option.value===clientSelection); Object.assign(form,emptyForm(),item,{taxPrices:taxPriceForm(item.taxPrices),employmentRange:item.employmentStart&&item.employmentEnd?[item.employmentStart,item.employmentEnd]:[],clientSelection,managerContact:selectedClient?.managerContact||item.managerContact||''}); form.clientManagerId=item.clientManagerId||'';form.clientManagerChangeReason='';clientManagerBaseline.value=form.clientManagerId;form.subjectPrefix=(extractSubjectPrefix(item.emailSubjectPreview,{...form,managerContact:''})||extractSubjectPrefix(item.emailSubjectPreview,form)); nameManuallyEdited.value=Boolean(item.projectName); activeProject.value=item; candidateRows.value=[]; editorVisible.value=true; await resetEditorScroll(); await beginDraft(`edit:${item.id}`); void loadCandidates() } catch(error){ElMessage.error(error?.detail||'项目详情加载失败')} }
 const clean = (value) => value===''?null:value
 const buildPayload = () => ({...projectContactPayload(form),projectName:clean(form.projectName),jobDescription:clean(form.jobDescription),positionTitle:clean(form.positionTitle),headcountMin:form.headcountMin,headcountMax:form.headcountMax??form.headcountMin,projectStatus:form.projectStatus,clientId:clean(form.clientId),subClientId:clean(form.subClientId),clientShortName:clean(form.clientShortName?.trim()),clientCode:clean(form.clientCode?.trim()),clientName:clean(form.clientName?.trim()),managerContact:clean(form.managerContact?.trim()),contactName:clean(form.contactName),customerOrderNo:clean(form.customerOrderNo),clientManagerId:clean(form.clientManagerId),clientManagerChangeReason:clean(form.clientManagerChangeReason),targetOnboardType:form.targetOnboardType,targetOnboardDate:form.targetOnboardType==='anytime'?null:clean(form.targetOnboardDate),employmentStart:form.employmentRange?.[0]||null,employmentEnd:form.employmentRange?.[1]||null,workLocation:clean(form.workLocation),taxPrices:form.taxPrices,serviceFeeType:clean(form.serviceFeeType),serviceFeeCurrency:clean(form.serviceFeeCurrency),serviceFeeAmount:form.serviceFeeType==='fixed'?form.serviceFeeAmount:null,serviceFeeRate:form.serviceFeeType==='annual_salary_rate'?form.serviceFeeRate:null,serviceFeeMultiplier:form.serviceFeeType==='monthly_salary_multiple'?form.serviceFeeMultiplier:null,serviceFeeNote:clean(form.serviceFeeNote),customerConsultationTime:clean(form.customerConsultationTime),customerConfirmationTime:clean(form.customerConfirmationTime),projectPath:clean(form.projectPath),quotationPath:clean(form.quotationPath),contractPath:clean(form.contractPath),remarks:clean(form.remarks),emailSubjectPreview:clean(form.emailSubjectPreview),expectedUpdatedAt:form.updatedAt||null,socialPostRequest:clean(form.socialPostRequest),resourceRequest:clean(form.resourceRequest),roleAssignments:form.roleAssignments,languageDirections:form.languageDirections.filter((item)=>item.sourceLanguageId).map((item)=>({...item,targetLanguageId:item.directionType==='translation'?item.targetLanguageId:null}))})
 const projectNamePayload = () => ({
@@ -628,9 +628,9 @@ const previewProjectName = async ({ automatic = false } = {}) => {
 const generateName = () => previewProjectName()
 const handleProjectNameInput = () => { nameManuallyEdited.value=true; namePreviewRequestId+=1 }
 const generateEmailSubject = () => {
-  notifyEmailSubjectGenerated(form, ElMessage)
+  form.emailSubjectPreview = buildEmailSubject({...form,managerContact:''}).subject; ElMessage.success('会话标题已生成')
 }
-const saveProject = async (sendAfterSave=false) => { if(!formRef.value||submitLocked)return; submitLocked=true; const valid=await formRef.value.validate().catch(()=>false); if(!valid){ submitLocked=false; return } saving.value=true; try { const payload=buildPayload(); const saved=form.id?await updateRecruitmentProject(form.id,payload):await createRecruitmentProject(payload); ElMessage.success(form.id?'招聘项目已更新':'招聘项目已创建'); clearDraft(); editorVisible.value=false; if(sendAfterSave){mailProjectId.value=saved?.id||form.id;mailConsultationId.value=saved?.consultationId||form.consultationId||'';mailComposerVisible.value=true} fetchData() } catch(error){
+const saveProject = async (sendAfterSave=false,emergency=false,sendChat=false) => { if(!formRef.value||submitLocked)return; submitLocked=true; const valid=await formRef.value.validate().catch(()=>false); if(!valid){ submitLocked=false; return } saving.value=true; try { const payload=buildPayload(); const saved=form.id?await updateRecruitmentProject(form.id,payload):await createRecruitmentProject(payload); ElMessage.success(form.id?'招聘项目已更新':'招聘项目已创建'); clearDraft(); editorVisible.value=false; if(sendChat||sendAfterSave)await sendConversation(saved?.id||form.id,emergency);  fetchData() } catch(error){
         await formRef.value?.applyServerErrors(error)
 ElMessage.error(error?.detail||'保存失败')} finally{saving.value=false;submitLocked=false} }
 const setProjectStatusSaving=(id,saving)=>{const next=new Set(projectStatusSavingIds.value);if(saving)next.add(id);else next.delete(id);projectStatusSavingIds.value=next}
@@ -693,6 +693,7 @@ onMounted(async()=>{const editorReady=Promise.all([loadReferenceData(),loadResou
 watch(()=>[route.query.projectId,route.query.openEditor],([projectId,openEditor],[previousProjectId,previousOpenEditor])=>{if(projectId&&(projectId!==previousProjectId||(openEditor==='1'&&previousOpenEditor!=='1')))void focusRouteProject()})
 onBeforeUnmount(()=>{clearTimeout(searchTimer);clearTimeout(autoNameTimer);controller?.abort()})
 useProjectStatusSync('recruitment',rows,{onChanged:()=>{if(!loading.value&&!editorVisible.value)void fetchData()}})
+watch(editorVisible,visible=>{if(visible)chatAudience.value=[]})
 </script>
 
 <style scoped>

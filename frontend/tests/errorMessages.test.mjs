@@ -18,6 +18,10 @@ test('必填、类型和长度错误使用业务字段中文提示', () => {
   assert.equal(message, '地点为必填项；招聘人数应为有效数字；项目名称不能超过 20 个字符')
 })
 
+test('子订单预填错误显示订单后缀及业务字段，不暴露内部路径',()=>{
+  assert.equal(formatValidationErrors([{type:'datetime_parsing',loc:['body','initial_sub_order_details','001.002','customer_deadline_time'],msg:'Input should be a valid datetime'}]),'子订单 001.002 · 客户交稿时间的日期时间格式不正确')
+})
+
 test('未知接口字段不暴露字段路径', () => {
   const message = formatValidationErrors([
     { type: 'missing', loc: ['body', 'internal_field_name'], msg: 'Field required' },

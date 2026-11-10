@@ -41,6 +41,17 @@ export async function revealFormTarget(target) {
   if (!target) return false
   let changed = false
 
+  for (const pane of ancestors(target, '.vertical-split-top, .vertical-split-bottom')) {
+    const split = pane.parentElement
+    const controls = split?.querySelector?.(':scope > .vertical-split-controls')
+    const toggle = controls?.querySelectorAll?.('button')?.[pane.classList.contains('vertical-split-top') ? 0 : 1]
+    if (toggle?.getAttribute?.('aria-expanded') === 'false') {
+      toggle.click?.()
+      changed = true
+      await waitForLayout()
+    }
+  }
+
   for (const pane of ancestors(target, '.el-tab-pane')) {
     if (pane.getAttribute?.('aria-hidden') !== 'true' && pane.style?.display !== 'none') continue
     const paneId = pane.id

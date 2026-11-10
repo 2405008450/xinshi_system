@@ -3,17 +3,17 @@
     <div class="payment-confirmation-heading"><strong>付款情况</strong><div><slot name="actions" /><el-button v-if="projectId" link @click="openHistory">付款修改记录</el-button></div></div>
     <el-form-item label="付款状态" :prop="`${prefix}.paymentOption`" :rules="value.isPaid?[{required:true,message:'请选择付款状态',trigger:'change'}]:[]">
       <div class="payment-status-controls">
-        <el-radio-group :model-value="value.isPaid?value.paymentOption:null" @update:model-value="selectStatus"><el-radio v-for="item in paymentOptions" :key="item.value" :value="item.value">{{item.label}}</el-radio></el-radio-group>
-        <el-button size="small" :disabled="!value.isPaid" aria-label="取消已付定金或已付全款" title="清除付款状态和明细，保存后生效；保留历史记录" @click="clearStatus">清除选择</el-button>
+        <el-radio-group :disabled="switching" :model-value="value.isPaid?value.paymentOption:null" @update:model-value="selectStatus"><el-radio v-for="item in paymentOptions" :key="item.value" :value="item.value">{{item.label}}</el-radio></el-radio-group>
+        <el-button size="small" :disabled="!value.isPaid||switching" aria-label="取消已付定金或已付全款" title="清除付款状态和明细，保存后生效；保留历史记录" @click="clearStatus">清除选择</el-button>
       </div>
       <small v-if="value.paymentOption==='once'">历史：已登记分次付款</small>
     </el-form-item>
-    <FullPaymentMatchFields v-if="value.isPaid&&(value.paymentOption==='full'||value.fullPaymentSource==='details')" :from-details="value.paymentOption!=='full'" :model-value="value" :project-id="projectId" :prefix="prefix" @update:model-value="emit('update:modelValue',$event)" />
+    <FullPaymentMatchFields v-if="value.isPaid&&(value.paymentOption==='full'||value.fullPaymentSource==='details')" :draft-totals="draftTotals" :pricing-mode="pricingMode" :billing-tax-mode="billingTaxMode" :from-details="value.paymentOption!=='full'" :model-value="value" :project-id="projectId" :prefix="prefix" @update:model-value="emit('update:modelValue',$event)" />
     <el-form-item v-if="value.isPaid&&!detailsInPayments" label="付款账户" :prop="`${prefix}.paymentAccount`"><PaymentAccountSelect :model-value="value.paymentAccount" @update:model-value="update('paymentAccount',$event)" /></el-form-item>
     <el-form-item v-if="value.isPaid&&!detailsInPayments" label="支付截图及备注"><ScreenshotInput :model-value="value.proofs" type="textarea" :rows="2" :maxlength="20000" placeholder="可粘贴、拖入或上传支付截图，填写付款备注" @update:model-value="update('proofs',$event)" /></el-form-item>
     <p v-if="value.isPaid&&!detailsInPayments" class="payment-confirmation-help">支付截图长期保存；清除选择后可在付款修改记录中查看原有凭证。</p>
     <DraggableFormDialog v-model="historyVisible" title="付款修改记录" width="min(860px, calc(100vw - 32px))" top="5vh" append-to-body class="payment-confirmation-history">
-      <div v-loading="historyLoading"><el-alert v-if="historyError" :title="historyError" type="error" :closable="false" /><el-empty v-else-if="!historyItems.length" description="暂无修改记录" /><div v-for="item in historyItems" :key="item.id" class="confirmation-history-item"><p>{{item.after.action||'修改付款情况'}} · {{formatDateTime(item.created_at)}} · {{item.actor_name}}</p><el-descriptions :column="1" border><el-descriptions-item label="修改前">{{paymentConfirmationLabel(item.before)}}<ScreenshotText :text="item.before.proofs" /><el-table v-if="item.before.payment_details?.length" :data="item.before.payment_details" border size="small" max-height="260"><el-table-column label="阶段" width="80"><template #default="{row}">{{({deposit:'定金',mid:'中期款',final:'尾款'})[row.stage_type]||row.stage_type}}</template></el-table-column><el-table-column prop="stage_no" label="期次" width="65" /><el-table-column label="预定金额" min-width="90"><template #default="{row}">{{row.planned_amount??'未填写'}}</template></el-table-column><el-table-column label="实际金额" min-width="90"><template #default="{row}">{{row.actual_amount??'未填写'}}</template></el-table-column><el-table-column label="付款时间" min-width="160"><template #default="{row}">{{row.payment_time?formatDateTime(row.payment_time):'未填写'}}</template></el-table-column><el-table-column prop="payment_method" label="付款方式" min-width="120" /></el-table></el-descriptions-item><el-descriptions-item label="修改后">{{paymentConfirmationLabel(item.after)}}<ScreenshotText :text="item.after.proofs" /></el-descriptions-item></el-descriptions></div><el-pagination v-model:current-page="historyPage" :page-size="10" :total="historyTotal" layout="prev, pager, next" @current-change="loadHistory" /></div>
+      <div v-loading="historyLoading"><el-alert v-if="historyError" :title="historyError" type="error" :closable="false" /><el-empty v-else-if="!historyItems.length" description="暂无修改记录" /><div v-for="item in historyItems" :key="item.id" class="confirmation-history-item"><p>{{item.after.action||'修改付款情况'}} · {{formatDateTime(item.created_at)}} · {{item.actor_name}}</p><el-descriptions :column="1" border><el-descriptions-item label="修改前">{{paymentConfirmationLabel(item.before)}}<ScreenshotText :text="item.before.proofs" /><PaymentDetailsHistoryTable :payments="item.before.payment_details||[]" /></el-descriptions-item><el-descriptions-item label="修改后">{{paymentConfirmationLabel(item.after)}}<ScreenshotText :text="item.after.proofs" /><PaymentDetailsHistoryTable :payments="item.after.payment_details||[]" /></el-descriptions-item></el-descriptions></div><el-pagination v-model:current-page="historyPage" :page-size="10" :total="historyTotal" layout="prev, pager, next" @current-change="loadHistory" /></div>
       <template #footer><el-button @click="historyVisible=false">关闭</el-button></template>
     </DraggableFormDialog>
   </section>
@@ -21,19 +21,31 @@
 <script setup>
 import {computed,ref} from 'vue'
 import api from '@/api'
+import {ElMessageBox,ElMessage} from 'element-plus'
 import {formatBusinessDateTime as formatDateTime} from '@/utils/dateTime'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
-import {paymentOptions,paymentConfirmationForm,paymentConfirmationLabel,clearPaymentSelection} from '@/utils/paymentConfirmation'
+import {paymentOptions,paymentConfirmationForm,paymentConfirmationLabel,clearPaymentSelection,switchPaymentSelection} from '@/utils/paymentConfirmation'
 import ScreenshotInput from './ScreenshotInput.vue'
 import PaymentAccountSelect from './PaymentAccountSelect.vue'
 import FullPaymentMatchFields from './FullPaymentMatchFields.vue'
 import ScreenshotText from './ScreenshotText.vue'
+import PaymentDetailsHistoryTable from './PaymentDetailsHistoryTable.vue'
 import DraggableFormDialog from './DraggableFormDialog.vue'
-const props=defineProps({modelValue:Object,projectId:{type:String,default:''},prefix:{type:String,default:'confirmation'},detailsInPayments:Boolean})
+const props=defineProps({modelValue:Object,projectId:{type:String,default:''},prefix:{type:String,default:'confirmation'},detailsInPayments:Boolean,pricingMode:String,billingTaxMode:String,payments:{type:Array,default:null},draftTotals:{type:Array,default:null}})
 const emit=defineEmits(['update:modelValue'])
 const value=computed(()=>paymentConfirmationForm(props.modelValue))
 function update(key,data){emit('update:modelValue',{...value.value,[key]:data})}
-function selectStatus(option){emit('update:modelValue',{...value.value,isPaid:true,paymentOption:option,clearDetails:false,fullMatchStatus:option==='full'?'pending':'none'})}
+const switching=ref(false)
+async function selectStatus(option){
+  if(switching.value)return
+  switching.value=true
+  try{
+    const payments=props.payments??(props.projectId&&!value.value.clearDetails?(await api.get(`/translation-payments/${props.projectId}`)).payments:[])??[]
+    const next=await switchPaymentSelection(value.value,option,{payments,confirm:message=>ElMessageBox.confirm(message,'切换付款状态',{type:'warning',confirmButtonText:'继续并清除',cancelButtonText:'取消',closeOnClickModal:false})})
+    if(next)emit('update:modelValue',next)
+  }catch(e){ElMessage.error(getLocalizedErrorMessage(e,'读取付款数据失败，未切换付款状态'))}
+  finally{switching.value=false}
+}
 function clearStatus(){emit('update:modelValue',clearPaymentSelection(value.value))}
 const historyVisible=ref(false),historyLoading=ref(false),historyError=ref(''),historyItems=ref([]),historyPage=ref(1),historyTotal=ref(0)
 async function loadHistory(){historyLoading.value=true;historyError.value='';try{const data=await api.get(`/translation-payments/${props.projectId}/confirmation-history`,{params:{page:historyPage.value}});historyItems.value=data.items;historyTotal.value=data.total}catch(e){historyError.value=getLocalizedErrorMessage(e,'付款修改记录加载失败')}finally{historyLoading.value=false}}

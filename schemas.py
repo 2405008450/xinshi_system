@@ -11,7 +11,7 @@ from language_catalog import normalize_language_pairs
 from department_utils import normalize_department
 from word_count_schemas import WordCountCreateMatrix, WordCountValues
 from translation_customer_type import CustomerType
-from translation_document_requirements import QuotationDraft
+from translation_document_requirements import QuotationDraft,DocumentNotes
 from translation_payment_service import ProjectPayment
 from translation_payment_confirmation import PaymentConfirmationWrite
 import re
@@ -374,24 +374,36 @@ class SubClientBase(BaseModel):
     remarks: Optional[str] = None
 
 class SubClientCreate(SubClientBase):
-    @field_validator("client_name", "client_short_name", mode="before")
+    client_name: Optional[str] = Field(default=None, max_length=255)
+
+    @field_validator("client_short_name", mode="before")
     @classmethod
     def validate_client_names(cls, value, info):
         return _validate_client_name(value, info)
+
+    @field_validator("client_name", mode="before")
+    @classmethod
+    def normalize_optional_full_name(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
 
     parent_client_id: UUID
 
 class SubClientUpdate(BaseModel):
     full_address: Optional[str] = Field(default=None, max_length=5000)
     detailed_address: Optional[str] = Field(default=None, max_length=5000)
-    @field_validator("client_name", "client_short_name", mode="before")
+    @field_validator("client_short_name", mode="before")
     @classmethod
     def validate_client_names(cls, value, info):
         return _validate_client_name(value, info)
 
+    @field_validator("client_name", mode="before")
+    @classmethod
+    def normalize_optional_full_name(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
+
     customer_type: Optional[CustomerType] = None
     sub_client_code: Optional[str] = None
-    client_name: Optional[str] = None
+    client_name: Optional[str] = Field(default=None, max_length=255)
     client_short_name: Optional[str] = None
     english_name: Optional[str] = None
     english_short_name: Optional[str] = None
@@ -848,6 +860,7 @@ class TranslationProjectBase(BaseModel):
     payment_confirmation: Optional[PaymentConfirmationWrite] = None
     statement_required: Optional[bool] = None
     quotation_draft: Optional[QuotationDraft] = None
+    document_notes: Optional[DocumentNotes] = None
     customer_type: Optional[CustomerType] = None
     client_manager_id: Optional[UUID] = None
     client_manager_change_reason: Optional[str] = Field(default=None, max_length=500)
@@ -926,6 +939,17 @@ class TranslationProjectCreate(TranslationProjectBase):
     role_assignments: list[ProjectRoleAssignmentInput] = Field(default_factory=list)
     initial_sub_order_names: list[str] = Field(default_factory=list, max_length=500)
 
+    @model_validator(mode='before')
+    @classmethod
+    def use_selected_folder_root(cls, values):
+        if isinstance(values, dict):
+            plan = values.get('initial_folder_import')
+            root = plan.get('root_path') if isinstance(plan, dict) else getattr(plan, 'root_path', None)
+            if root:
+                # 校验当前选定的导入路径，避免旧表单隐藏字段残留上一次 UNC 路径。
+                values = {**values, 'network_file_path': root}
+        return values
+
     @field_validator('initial_sub_order_names')
     @classmethod
     def validate_initial_sub_order_names(cls, values):
@@ -969,6 +993,7 @@ class TranslationProjectUpdate(BaseModel):
     payment_confirmation: Optional[PaymentConfirmationWrite] = None
     statement_required: Optional[bool] = None
     quotation_draft: Optional[QuotationDraft] = None
+    document_notes: Optional[DocumentNotes] = None
     customer_type: Optional[CustomerType] = None
     client_manager_id: Optional[UUID] = None
     client_manager_change_reason: Optional[str] = Field(default=None, max_length=500)
@@ -1121,6 +1146,7 @@ class ProjectStatementStatus(BaseModel):
 
 
 class TranslationProjectResponse(TranslationProjectBase):
+    simple_requirement_word_count_matrix: dict = Field(default_factory=dict)
     mother_split_review: Optional[dict] = None
     child_field_differences: dict = Field(default_factory=dict)
     folder_root: bool = False

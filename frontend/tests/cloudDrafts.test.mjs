@@ -4,6 +4,39 @@ import {readFile} from 'node:fs/promises'
 import {pathToFileURL} from 'node:url'
 import {resolve} from 'node:path'
 
+test('尚未读取云端版本时主动清空，也会清除已有草稿而不是误报冲突',async()=>{
+ const storage=new Map(),writes=[];let failWrites=false,server={payload:{form:{projectName:'已保存项目旧草稿'}},revision:7,updated_at:null}
+ globalThis.localStorage={getItem:key=>key==='user_id'?'owner':storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)}
+ globalThis.__clearDraftHarness={api:{get:async()=>({...server}),post:async(_url,{drafts})=>{if(failWrites)throw new Error('offline');return drafts.map(draft=>{writes.push(draft);server={...server,payload:draft.payload,revision:server.revision+1};return {...draft,revision:server.revision,updated_at:null}})}},setTimeout:()=>1,clearTimeout:()=>{}}
+ let source=await readFile(new URL('../src/utils/cloudDrafts.js',import.meta.url),'utf8')
+ source=source.replace("import {reactive} from 'vue'",'const reactive=value=>value').replace("import api from '@/api/index'",'const {api,setTimeout,clearTimeout}=globalThis.__clearDraftHarness').replace("'./autoDraftStore.js'",JSON.stringify(new URL('../src/utils/autoDraftStore.js',import.meta.url).href))
+ try{
+  const queue=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'))
+  queue.clearCloudDraft('form:translation-project','create')
+  await new Promise(resolve=>setImmediate(resolve))
+  await queue.flushCloudDrafts()
+  assert.equal(writes.length,1)
+  assert.equal(writes[0].revision,7)
+  assert.equal(writes[0].payload,null)
+  assert.equal((await queue.readCloudDraft('form:translation-project','create')).payload,null)
+  assert.equal(queue.cloudDraftState.error,'')
+  // 删除同步失败时也要保留本机清除标记，不能重新恢复旧内容。
+  server={payload:{form:{projectName:'离线时仍须清空'}},revision:7,updated_at:null};failWrites=true
+  queue.clearCloudDraft('form:translation-project','offline-create')
+  await new Promise(resolve=>setImmediate(resolve))
+  assert.equal((await queue.readCloudDraft('form:translation-project','offline-create')).payload,null)
+  failWrites=false;await queue.flushCloudDrafts()
+  assert.equal(server.payload,null)
+  // 普通新内容仍保留冲突保护，只有主动清除允许删除旧草稿。
+  server={payload:{form:{projectName:'另一窗口的内容'}},revision:9,updated_at:null}
+  const before=writes.length
+  queue.queueCloudDraft('form:translation-project','other-create',{form:{projectName:'本机新内容'}})
+  await queue.flushCloudDrafts()
+  assert.equal(writes.length,before)
+  assert.equal(queue.cloudDraftStatus('form:translation-project','other-create').state,'conflict')
+ }finally{delete globalThis.__clearDraftHarness;delete globalThis.localStorage}
+})
+
 test('云端合并队列去重、限制批次，慢请求中继续编辑不丢失且不并发',async()=>{
  const records=new Map(),timers=new Map(),sizes=[];let timerId=0,calls=0,active=0,maxActive=0,release
  const harness={setTimeout:(fn,delay)=>{timers.set(++timerId,{fn,delay});return timerId},clearTimeout:id=>timers.delete(id),api:{

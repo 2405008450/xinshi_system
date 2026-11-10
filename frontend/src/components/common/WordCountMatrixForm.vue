@@ -9,11 +9,11 @@
 <script setup>
 import {computed} from 'vue'
 import {WORD_COUNT_METRICS,normalizeWordCountMatrix} from '@/utils/wordCountMatrix'
-const props=defineProps({modelValue:Object});const emit=defineEmits(['update:modelValue'])
+const props=defineProps({modelValue:Object,disabled:Boolean});const emit=defineEmits(['update:modelValue'])
 const matrix=computed(()=>normalizeWordCountMatrix(props.modelValue))
 const dimensions=[{key:'company',label:'我司统计'},{key:'customer',label:'客户统计'},{key:'preliminary',label:'预统计'},{key:'translatorEstimate',label:'译员预定'}]
 const filled=value=>value!==null&&value!==undefined&&value!==''
-const locked=(dim,key)=>['company','customer'].includes(dim)&&Object.entries(matrix.value[dim]).some(([other,value])=>other!==key&&filled(value))
+const locked=(dim,key)=>props.disabled||['company','customer'].includes(dim)&&Object.entries(matrix.value[dim]).some(([other,value])=>other!==key&&filled(value))
 function change(dim,key,value){const next=normalizeWordCountMatrix(props.modelValue);next[dim][key]=Number.isFinite(value)?value:null;emit('update:modelValue',next)}
 </script>
 <style scoped>

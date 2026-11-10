@@ -249,3 +249,36 @@ def test_directory_and_supplement_save_together_without_number_collision(case):
        initial_sub_order_names=['补充.pdf'],initial_sub_order_details={'003':{'word_count_matrix':{'company':{'words':23}}}}),order_no='TP-261108-977')
     assert next(row for row in root.sub_orders if row.sub_project_name=='补充.pdf').sub_order_no.endswith('.003')
     assert root.word_count_matrix['company']['words']==23
+
+
+def test_local_folder_save_replaces_stale_unc_and_never_inspects_network(case, monkeypatch):
+    from schemas import TranslationProjectCreate
+    import translation_folder_orders as folders
+    db,user,crud=case
+    monkeypatch.setenv('OPENPATH_ALLOWED_ROOTS',r'\\allowed\share')
+    def unexpected_inspection(*args, **kwargs):
+        raise AssertionError('本地导入不得重新读取 UNC')
+    monkeypatch.setattr(folders,'inspect_tree',unexpected_inspection)
+    plan={'source_kind':'local','root_path':r'D:\本地项目','entries':[{'relative_path':'本地项目','files':['a.pdf']}]}
+    source={'project_name':'本地项目','created_by':user.id,'network_file_path':r'\\old-server\outside\本地项目','initial_folder_import':plan,
+        'language_pair':'中文→英语','initial_sub_order_details':{'001':{'language_pair':'中文→法语'}}}
+    payload=TranslationProjectCreate.model_validate(source)
+    assert source['network_file_path']==r'\\old-server\outside\本地项目'
+    assert payload.network_file_path==r'D:\本地项目'
+    root=crud.create_translation_project(db,payload,order_no='TP-261110-976')
+    assert root.network_file_path==r'D:\本地项目'
+    assert root.sub_orders[0].network_file_path==r'D:\本地项目\a.pdf'
+    assert root.sub_orders[0].language_pair=='中文→法语'
+
+
+def test_selected_unc_still_requires_allowed_root(case, monkeypatch):
+    from schemas import TranslationProjectCreate
+    from translation_folder_orders import FolderDraft
+    from pydantic import ValidationError
+    monkeypatch.setenv('OPENPATH_ALLOWED_ROOTS',r'\\allowed\share')
+    for source_kind in ['local','unc']:
+        plan={'source_kind':source_kind,'root_path':r'\\outside\share\项目','entries':[{'relative_path':'项目','files':['a.pdf']}]}
+        with pytest.raises(ValidationError,match='网络路径不在企业允许的目录中'):
+            TranslationProjectCreate(project_name='项目',network_file_path=r'D:\旧路径',initial_folder_import=plan)
+    plan=FolderDraft(source_kind='unc',root_path=r'\\allowed\share\项目',entries=[{'relative_path':'项目','files':['a.pdf']}])
+    assert TranslationProjectCreate(project_name='项目',initial_folder_import=plan).network_file_path==plan.root_path

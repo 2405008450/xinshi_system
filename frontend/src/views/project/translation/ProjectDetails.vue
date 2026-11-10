@@ -27,7 +27,7 @@
             @enter="enterDeleteMode"
             @exit="exitDeleteMode"
             @confirm="confirmBatchDelete"
-          />
+          ><template #management-actions><el-button :disabled="deleting" @click="orderDeletionHistoryVisible=true">订单删除记录</el-button></template></BatchDeleteToolbar>
           <el-button v-if="canWriteProjects && !deleteMode" type="primary" @click="handleAdd">新增项目</el-button>
         </div>
       </div>
@@ -278,11 +278,15 @@
           :fetch-suggestions="fetchFieldSuggestions"
           @select="locateDialogField"
           @clear="clearFieldSearch"
-        />
+        >
+          <template v-if="form.id" #actions>
+            <span class="project-editor-identity" @mousedown.stop>{{ form.orderNo }} · {{ form.projectName }}</span>
+          </template>
+        </DialogFieldSearchHeader>
       </template>
       <div ref="editorBodyRef" class="editor-body">
-        <AppForm number-scope="translation" number-field="orderNo" :number-active="dialogVisible && !form.id"  ref="formRef" :model="form" :rules="rules" :disabled="!canWriteProjects" :saved-sync-enabled="!!form.id" data-auto-draft="off" label-width="120px">
-          <template #number-actions><el-button v-if="!form.id && canWriteProjects" link type="primary" title="目前只支持复用母订单（无论是否包含子订单）的信息。" @click="reuseProjectVisible=true">复用项目信息</el-button></template>
+        <AppForm :key="createClearGeneration" number-scope="translation" number-field="orderNo" :number-active="dialogVisible && !form.id"  ref="formRef" :model="form" :rules="rules" :disabled="!canWriteProjects" :saved-sync-enabled="!!form.id" data-auto-draft="off" label-width="120px">
+          <template #number-actions><el-button v-if="!form.id && canWriteProjects" :disabled="submitLoading" link type="warning" title="清空当前新增内容及草稿，不影响已保存项目" @click="clearNewProject">清空</el-button><el-button v-if="!form.id && canWriteProjects" link type="primary" title="目前只支持复用母订单（无论是否包含子订单）的信息。" @click="reuseProjectVisible=true">复用项目信息</el-button></template>
           <MotherSplitReviewNotice :review="form.motherSplitReview" @edit="editMotherAfterSplit" />
           <el-checkbox v-if="form.motherSplitReview?.required && projectDialogTab==='basic'" v-model="form.motherSplitReviewed">已核对并调整母订单名称及上述项目内容，随本次保存确认</el-checkbox>
           <el-tabs v-model="projectDialogTab" class="editor-tabs project-editor-tabs">
@@ -294,7 +298,7 @@
                   <el-button v-if="canWriteProjects" type="primary" @click="openBatchDialog(form,'unc')">读取路径</el-button>
                 </div>
               </template>
-              <el-alert v-if="!form.id && motherTab.name === 'basic'" title="本选项卡仅用于新增母订单。如在新增母订单的过程中需要补充子订单，请填写完本选项卡内容后，再到“补充子订单”选项卡补充。" type="info" :closable="false" show-icon class="sub-order-alert" />
+              <el-alert v-if="!form.id && motherTab.name === 'basic'" title="本选项卡仅用于新增母订单和母订单有多个翻译方向、自动生成子订单的情况。如在新增母订单的过程中需要补充子订单，请填写完本选项卡内容后，再到“补充子订单”选项卡补充。" type="info" :closable="false" show-icon class="sub-order-alert" />
               <div class="form-section">
                 <div class="project-key-fields">
                   <div class="project-key-fields__header">
@@ -317,23 +321,6 @@
                       </el-form-item>
                       <el-form-item v-if="!form.id && createWithSubOrders && !form.pendingFolderImport && motherTab.name !== 'parentchildren'" label="子订单文件名称" prop="initialSubOrderNamesText">
                         <el-input v-model="form.initialSubOrderNamesText" type="textarea" :rows="3" placeholder="每行一个文件名称，须带扩展名；保存时同时创建子订单" />
-                      </el-form-item>
-                    </el-col>
-                  </el-row>
-                  <el-row :gutter="16">
-                    <el-col :xs="24" :md="12">
-                      <el-form-item label="客户全称" prop="clientName" data-field-key="clientName">
-                        <ReadonlyField :model-value="form.clientName" :source="form.clientId ? 'auto' : 'editable'" maxlength="255" placeholder="请输入客户全称；个人客户一般与简称一致" @update:model-value="form.clientName = $event" />
-                      </el-form-item>
-                    </el-col>
-                    <el-col :xs="24" :md="12">
-                      <el-form-item label="客户联系人" prop="contactName" data-field-key="contactName">
-                        <ClientContactPersonSelect v-model="form.contactName" :client-id="form.clientId" :sub-client-id="form.subClientId" />
-                      </el-form-item>
-                    </el-col>
-                    <el-col v-if="form.subClientShortName" :xs="24" :md="12">
-                      <el-form-item label="子客户全称" prop="subClientName" data-field-key="subClientName">
-                        <ReadonlyField :model-value="form.subClientName" :source="form.subClientId ? 'auto' : 'editable'" maxlength="255" placeholder="请输入子客户全称" @update:model-value="form.subClientName = $event" />
                       </el-form-item>
                     </el-col>
                   </el-row>
@@ -367,6 +354,11 @@
 </el-form-item>
                     </el-col>
                     <el-col :xs="24" :md="12">
+                      <el-form-item label="客户联系人" prop="contactName" data-field-key="contactName">
+                        <ClientContactPersonSelect v-model="form.contactName" :client-id="form.clientId" :sub-client-id="form.subClientId" />
+                      </el-form-item>
+                    </el-col>
+                    <el-col v-if="form.subClientShortName" :xs="24" :md="12">
                       <el-form-item label="子客户" prop="subClientShortName" data-field-key="subClientShortName">
                         <div class="client-autocomplete-field">
                           <el-autocomplete
@@ -392,6 +384,18 @@
                           </el-autocomplete>
                           <div class="client-autocomplete-hint">没有匹配子客户时，保存项目会在当前客户下自动新增。</div>
                         </div>
+                      </el-form-item>
+                    </el-col>
+                  </el-row>
+                  <el-row :gutter="16">
+                    <el-col :xs="24" :md="12">
+                      <el-form-item label="客户全称" prop="clientName" data-field-key="clientName">
+                        <ClientFullNameInput v-model="form.clientName" :client-id="form.clientId" @select="handleClientSelect" />
+                      </el-form-item>
+                    </el-col>
+                    <el-col :xs="24" :md="12">
+                      <el-form-item label="子客户全称" prop="subClientName" data-field-key="subClientName">
+                        <ReadonlyField :model-value="form.subClientName" :source="form.subClientId ? 'auto' : 'editable'" maxlength="255" placeholder="子客户全称（选填）" @update:model-value="form.subClientName = $event" />
                       </el-form-item>
                     </el-col>
                   </el-row>
@@ -806,16 +810,18 @@
         </AppForm>
       </div>
       <template #footer>
+        <el-alert v-if="conversationError" :title="conversationError" type="error" :closable="false" show-icon />
+        <el-button v-if="conversationError" type="primary" :loading="submitLoading" @click="retrySavedConversation">重试发送会话（无需再次保存）</el-button>
         <ProjectShortNotes :project-id="form.id" :project-updated-at="form.updatedAt" :can-write="canWriteProjects" :disabled="submitLoading" @saved="onSimpleRequirementSaved" />
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button v-if="canWriteProjects" type="primary" :loading="submitLoading && submitAction === 'save'" :disabled="submitLoading" @click="handleSubmit(false)">保存</el-button>
-        <el-button v-if="canWriteProjects" :loading="submitLoading && submitAction === 'emergency'" :disabled="submitLoading" type="warning" plain @click="handleSubmit(true,true,true)">（紧急）项目预告知（会话和邮件）</el-button>
+        <el-button v-if="canWriteProjects" :loading="submitLoading && submitAction === 'mail'" :disabled="submitLoading" @click="handleSubmit(true)">保存并发送邮件{{ deliveryMailCount ? `（${deliveryMailCount}次）` : '' }}</el-button>
         <el-tooltip v-if="projectDialogTab === 'parentchildren'" content="须完成本页其余必填项：项目名称、客户全称与简称、联系人、服务内容、翻译方向、客户类型、对账单选项、接单与交稿时间、原文路径、专业及特殊要求（无要求填“无”）。仅可跳过子订单字数与汇总。" placement="top">
           <span class="emergency-notice-hint">预告知：其余必填项须完成，可跳过字数与汇总</span>
         </el-tooltip>
-        <el-popover placement="top-end" trigger="click" :width="360"><template #reference><el-button :loading="deliveryAudienceLoading" @click="loadDeliveryOptions">补充 @</el-button></template><el-alert v-if="deliveryAudienceError" :title="deliveryAudienceError" type="error" :closable="false" /><el-button v-if="deliveryAudienceError" link type="primary" @click="loadDeliveryOptions">重新加载</el-button><el-select v-model="chatAudience" :loading="deliveryAudienceLoading" :disabled="deliveryAudienceLoading || !!deliveryAudienceError" multiple filterable clearable placeholder="可补充 @全体、部门或人员"><el-option v-for="item in deliveryAudience" :key="item.value" :value="item.value" :label="item.label" /></el-select></el-popover>
+        <ConversationAudiencePicker v-model="chatAudience" :disabled="submitLoading" />
+        <el-button v-if="canWriteProjects" :loading="submitLoading && submitAction === 'emergency'" :disabled="submitLoading" type="warning" plain @click="handleSubmit(true,true,true)">（紧急）项目预告知（会话和邮件）</el-button>
         <el-button v-if="canWriteProjects" :loading="submitLoading && submitAction === 'chatMail'" :disabled="submitLoading" @click="handleSubmit(true,false,true)">保存并发送会话和邮件{{ deliveryCountsLabel }}</el-button>
-        <el-button v-if="canWriteProjects" :loading="submitLoading && submitAction === 'mail'" :disabled="submitLoading" @click="handleSubmit(true)">保存并发送邮件{{ deliveryMailCount ? `（${deliveryMailCount}次）` : '' }}</el-button>
         <el-button v-if="canWriteProjects" :loading="submitLoading && submitAction === 'chat'" :disabled="submitLoading" @click="handleSubmit(false,false,true)">保存并发送会话{{ deliveryChatCount ? `（${deliveryChatCount}次）` : '' }}</el-button>
 
       </template>
@@ -824,6 +830,7 @@
     <ReuseTranslationProjectDialog v-model="reuseProjectVisible" :applying="reuseProjectLoading" @reuse="reuseProjectInformation" />
     <CustomerDirectionHistoryDialog v-model="directionHistoryVisible" :client-id="form.clientId || ''" :client-name="form.clientShortName || form.clientName || ''" :project-id="form.id || ''" @apply="applyHistoricalDirections" />
     <TranslationStatisticsDialog v-model="statisticsVisible" />
+    <BusinessNumberDeletionHistory v-model="orderDeletionHistoryVisible" kind="translation" />
     <PendingSubOrderManager v-model="pendingSubOrderManagerVisible" :form="form" @confirmed="confirmPendingSubOrders" />
     <DraggableFormDialog v-model="subOrderManagerVisible" class="project-suborder-manager-dialog" title="子订单管理" width="min(1600px, calc(100vw - 32px))" top="3vh" append-to-body destroy-on-close @closed="handleSubOrderManagerClosed">
       <SubOrderManagement v-if="subOrderManagerVisible" :key="subOrderManagerProjectId" :project-id="subOrderManagerProjectId" embedded @edit-mother="editMotherAfterSplit" />
@@ -963,11 +970,16 @@
 </template>
 
 <script setup>
+import {applyFolderRootPath,restoreFolderRootPath} from '@/utils/translationFolderPaths'
+import ConversationAudiencePicker from '@/components/common/ConversationAudiencePicker.vue'
+import BusinessNumberDeletionHistory from '@/components/common/BusinessNumberDeletionHistory.vue'
+const orderDeletionHistoryVisible=ref(false)
+import ClientFullNameInput from '@/components/common/ClientFullNameInput.vue'
 import deliveryApi from '@/api'
 import CustomerDirectionHistoryDialog from './components/CustomerDirectionHistoryDialog.vue'
 import TranslationStatisticsDialog from './components/TranslationStatisticsDialog.vue'
 import PendingSubOrderManager from './components/PendingSubOrderManager.vue'
-import {pendingFolderRows,pendingChildRows,missingChildStatistics} from '@/utils/translationChildSubmission'
+import {pendingFolderRows,pendingChildRows,missingChildStatistics,normalizeInitialChildDetails} from '@/utils/translationChildSubmission'
 import OrderFieldHint from './components/OrderFieldHint.vue'
 import OrderInheritedExtras from './components/OrderInheritedExtras.vue'
 import SubOrderManagement from './SubOrderManagement.vue'
@@ -1023,6 +1035,7 @@ import OriginalProjectInformation from './components/OriginalProjectInformation.
 import ReuseTranslationProjectDialog from './components/ReuseTranslationProjectDialog.vue'
 import {reusableTranslationValues} from '@/utils/translationProjectReuse'
 import TranslationCustomerFinance from './CustomerFinance.vue'
+import {projectFinanceFields} from '@/utils/projectFinanceFields'
 import { hasPermission } from '@/utils/permission'
 import { getClient, getClients } from '@/api/clients'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
@@ -1076,6 +1089,9 @@ import {
 
 
 import ProjectFilesTab from './components/ProjectFilesTab.vue'
+import {withoutBusinessNumbers} from '@/utils/businessNumberLeases'
+import {draftStringify} from '@/utils/autoDraftStore'
+import {useProjectChatDock} from '@/composables/useProjectChatDock'
 import CustomerQuotationDialog from '@/components/common/CustomerQuotationDialog.vue'
 import CustomerStatementDialog from '@/components/common/CustomerStatementDialog.vue'
 import {customerStatementContext} from '@/utils/customerStatementContext'
@@ -1085,18 +1101,30 @@ const canWriteProjects = hasPermission('projects:write')
 const canReadProjectFiles = hasPermission('project_files:read')
 const canWriteProjectFiles = hasPermission('project_files:write')
 const mailComposerVisible = ref(false)
-const mailAlsoChat=ref(false),chatAudience=ref([]),deliveryAudience=ref([])
-const deliveryAudienceLoading=ref(false),deliveryAudienceError=ref('')
+const mailAlsoChat=ref(false),chatAudience=ref([])
 const deliveryMailCount=ref(0),deliveryChatCount=ref(0)
 const deliveryCountsLabel=computed(()=>deliveryMailCount.value||deliveryChatCount.value?`（邮件${deliveryMailCount.value}次，会话${deliveryChatCount.value}次）`:'')
-async function loadDeliveryOptions(){if(deliveryAudienceLoading.value)return;deliveryAudienceLoading.value=true;deliveryAudienceError.value='';try{deliveryAudience.value=(await deliveryApi.get('/translation-delivery/settings')).audience||[]}catch(error){deliveryAudienceError.value='补充 @ 名单加载失败：'+getLocalizedErrorMessage(error,'请重试');deliveryAudience.value=[]}finally{deliveryAudienceLoading.value=false}}
 async function loadDeliveryCounts(){if(!form.id){deliveryMailCount.value=0;deliveryChatCount.value=0;return}try{const result=await deliveryApi.get(`/translation-delivery/${form.id}/counts`);deliveryMailCount.value=result.mail_count||0;deliveryChatCount.value=result.chat_count||0}catch{}}
 async function onDeliveryMailSent(){await loadDeliveryCounts()}
+const conversationError=ref(''),pendingConversation=ref(null)
 async function sendProjectConversation(projectId){
- const result=await deliveryApi.post(`/translation-delivery/${projectId}/chat`,{request_key:crypto.randomUUID(),extra_audience:chatAudience.value})
+ if(pendingConversation.value?.projectId!==projectId)pendingConversation.value={projectId,requestKey:crypto.randomUUID(),audience:[...chatAudience.value]}
+ const attempt=pendingConversation.value
+ const result=await deliveryApi.post(`/translation-delivery/${projectId}/chat`,{request_key:attempt.requestKey,extra_audience:attempt.audience},{timeout:120000})
+ if(!result.room_id)throw new Error('未收到生成的会话编号，请重试确认发送结果')
+ pendingConversation.value=null
  deliveryMailCount.value=result.mail_count||0;deliveryChatCount.value=result.chat_count||0
+ conversationError.value=''
  if(result.warnings?.length)ElMessage.warning('会话已发送；'+result.warnings.join('；'))
  else ElMessage.success('项目会话已发送')
+ try{useProjectChatDock().openChat({projectId:result.room_id,projectType:'discussion',title:`${form.orderNo} · ${form.projectName}`,syncSidebar:true,deletionProtected:true})}catch{ElMessage.warning('会话已发送，可在笔译项目会话目录查看')}
+}
+async function retrySavedConversation(){
+ if(submitLoading.value||!pendingConversation.value)return
+ submitLoading.value=true
+ try{await sendProjectConversation(pendingConversation.value.projectId);clearDraft();dialogVisible.value=false}
+ catch(error){conversationError.value='项目已保存，会话尚未确认发送：'+getLocalizedErrorMessage(error,'请重试发送会话')}
+ finally{submitLoading.value=false}
 }
 
 const mailProjectId = ref('')
@@ -1163,7 +1191,7 @@ const progressFieldSet = new Set(subOrderProgressFieldConfigs.map((item) => item
 const progressMarks = { 0: '0%', 50: '50%', 100: '100%' }
 const projectDetailItems = translationProjectDetailItems
 const subOrderDetailItems = translationSubOrderDetailItems
-const quotationVisible=ref(false),statementVisible=ref(false),quotationDraftDirty=ref(false)
+const quotationVisible=ref(false),statementVisible=ref(false),quotationDraftDirty=ref(false),documentNotesDirty=ref(false)
 const statementContext=ref(null)
 function openProjectStatement(){
   const context=customerStatementContext(form)
@@ -1183,7 +1211,7 @@ async function applyDocumentDefaults(){
 }
 function applyQuotationDraft(value){form.quotationDraft=value;quotationDraftDirty.value=true}
 const customerTypes = CUSTOMER_TYPES
-const createEmptyProjectForm = () => ({ motherSplitReviewed:false, motherSplitReview:null, pendingFolderImport:null, folderRoot:false, pendingSubOrderDetails:{}, pendingSubOrderDefaults:{}, childFieldDifferences:{}, createWithSubOrders: false, filePathDraft: null, wordCountPendingDraft: null, paymentConfirmation: null, statementRequired: true, statementRequiredExplicit: false, quotationDraft: null, originalStoragePath: '', customerType: null, id: '', orderNo: '', projectName: '', sourceFileName: '', initialSubOrderNamesText: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', contactName: '', clientName: '', clientShortName: '', clientCode: '', subClientName: '', subClientShortName: '', subClientCode: '', customerOrderNo: '', clientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], wordCountMatrixSource: 'project', wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', remarks: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
+const createEmptyProjectForm = () => ({ motherSplitReviewed:false, motherSplitReview:null, pendingFolderImport:null, folderRootPathVersion:0, folderRoot:false, simpleRequirementWordCountMatrix:{}, pendingSubOrderDetails:{}, pendingSubOrderDefaults:{}, childFieldDifferences:{}, createWithSubOrders: false, filePathDraft: null, wordCountPendingDraft: null, paymentConfirmation: null, statementRequired: true, statementRequiredExplicit: false, quotationDraft: null, documentNotes:{quotation:'',statement:'',invoice:''}, originalStoragePath: '', customerType: null, id: '', orderNo: '', projectName: '', sourceFileName: '', initialSubOrderNamesText: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', contactName: '', clientName: '', clientShortName: '', clientCode: '', subClientName: '', subClientShortName: '', subClientCode: '', customerOrderNo: '', clientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], wordCountMatrixSource: 'project', wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', remarks: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
 const createEmptySubOrderForm = () => ({ serviceContent:'', customerRequirementProfessional:'', customerRequirementSpecial:'', inheritedFields:[], childFieldDifferences:{}, id: '', parentProjectId: '', subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: 0, preReviewQcProgress: 0, reviewProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, networkFilePath: '', remarks: '' })
 const loading = ref(false)
 const directionHistoryVisible=ref(false)
@@ -1199,6 +1227,9 @@ const submitLoading = ref(false)
 const submitAction = ref('')
 let submitLocked = false
 const projectCreateIdempotencyKey = ref('')
+const clearedCreateFingerprint=ref('')
+const createClearGeneration=ref(0)
+const createContentFingerprint=()=>draftStringify(withoutBusinessNumbers(form,{...form},true))
 const dialogVisible = ref(false)
 const subOrderDialogVisible = ref(false)
 const batchDialogVisible = ref(false)
@@ -1462,6 +1493,11 @@ const onSimpleRequirementSaved = (data) => {
   if (data.changed_fields?.includes('customer_deadline_time')) form.customerDeadlineTime = businessDateTimeInputValue(data.customer_deadline_time || null)
   const listed = tableData.value.find(row => String(row.id) === String(form.id))
   if (listed) Object.assign(listed, { projectStatus: data.project_status, updatedAt: data.project_updated_at })
+  if(data.word_count_matrix){
+    const countValues={wordCountMatrix:data.word_count_matrix,wordCountMatrixSource:data.word_count_matrix_source,wordCountSubOrderCount:data.word_count_sub_order_count,simpleRequirementWordCountMatrix:data.simple_requirement_word_count_matrix||{}}
+    Object.assign(form,countValues)
+    if(listed)Object.assign(listed,countValues)
+  }
   if (listed && data.changed_fields?.includes('customer_deadline_time')) listed.customerDeadlineTime = data.customer_deadline_time || ''
 }
 watch(()=>[form.customerType,form.clientShortName],([type,name],previous=[])=>{if(type==='个人客户'&&String(name||'').trim()&&(!form.contactName||form.contactName===previous[1]||previous[0]!=='个人客户'))form.contactName=String(name).trim()},{flush:'sync'})
@@ -1479,20 +1515,28 @@ const { beginDraft, pauseDraft, clearDraft, startFreshDraft } = useFormDraft({
   createDraftVersion: 'translation-create-account-v2',
   retentionMs: null,
   draftComparison: ({ orderNo, ...values }) => values,
+  validateDraft: (draft,key) => draft.ownerId === localStorage.getItem('user_id') && (key === 'create' ? !draft.form?.id : String(draft.form?.id || '') === String(key).slice(5)),
   captureContext:()=>({tab:projectDialogTab.value,folderCreationFlow:folderCreationFlow.value}),
-  restoreContext:context=>{folderCreationFlow.value=Boolean(context.folderCreationFlow);if(['basic','parentchildren','suborders','files','progress'].includes(context.tab))projectDialogTab.value=context.tab},
+  restoreContext:(context,key)=>{folderCreationFlow.value=Boolean(context.folderCreationFlow);if(String(key).startsWith('edit:'))projectDialogTab.value='basic';else if(['basic','parentchildren','suborders','files','progress'].includes(context.tab))projectDialogTab.value=context.tab},
   form,
   createDefault: createEmptyProjectForm,
   formRef,
   applyDraft: (draft, key) => {
+    // 编辑草稿只恢复同一订单的录入内容，订单身份始终来自当前详情接口。
+    if (String(key).startsWith('edit:')) {
+      if (!form.id || String(form.id) !== String(key).slice(5) || String(draft.id || '') !== String(form.id)) return
+      draft = { ...draft, id: form.id, orderNo: form.orderNo, updatedAt: form.updatedAt }
+    }
     draft={...draft,motherSplitReview:form.motherSplitReview}
     if(form.motherSplitReview?.required && draft.sourceFileName===form.motherSplitReview.originalName){draft.sourceFileName=form.sourceFileName;draft.projectName=form.projectName}
     // 新增草稿只恢复录入内容，不能把旧记录 ID 恢复成编辑态。
     if (key === 'create') {
       draft = { ...draft, id: '', orderNo: form.orderNo, updatedAt: null }
       quotationDraftDirty.value = Boolean(draft.quotationDraft)
+      documentNotesDirty.value = Boolean(draft.documentNotes)
     }
     assignReactive(form, createEmptyProjectForm, draft)
+    restoreFolderRootPath(form)
     availableSubClients.value = []
     void loadSubClients(form.clientId)
     form.emailSubjectPreview=stripTranslationManagerContact(form.emailSubjectPreview,form.managerContact)
@@ -1545,7 +1589,7 @@ const rules = {
   ],
   contactName: [{ required: true, validator: requiredTextValidator('请选择或填写客户联系人'), trigger: ['blur','change'] }],
   clientName: [{ required: true, validator: requiredTextValidator('请输入客户全称'), trigger: ['blur', 'change'] }],
-  subClientName: [{ required: true, validator: (_rule,value,done) => { if(form.subClientShortName && !String(value||'').trim())return done(new Error('请输入子客户全称'));done() }, trigger: ['blur','change'] }],
+  subClientName: [],
   clientShortName: [{ required: true, validator: requiredTextValidator('请选择或输入客户简称'), trigger: ['blur', 'change'] }],
   serviceContent: [{ required: true, validator: requiredTextValidator('请选择或输入服务内容'), trigger: ['blur', 'change'] }],
   customerType: [{ required: true, message: '请选择客户类型', trigger: 'change' }],
@@ -1589,7 +1633,7 @@ const getStatusType = (status) => ({
 function formatWordCountSummary(target = {}) {
   const pending=target.wordCountPendingDraft
   if(pending?.version==='word-count-matrix-v2' && pending.ownerId===localStorage.getItem('user_id') && pending.matrix) return formatWordCountMatrix(pending.matrix)+'（未保存修改）'
-  return (target.wordCountMatrixSource==='suborder_aggregate'?'【子订单累计】':'')+formatWordCountMatrix(target.wordCountMatrix)
+  return (target.wordCountMatrixSource==='suborder_aggregate'?'【子订单累计】':'')+formatWordCountMatrix(target.wordCountMatrix)+(Object.keys(target.simpleRequirementWordCountMatrix||{}).length?'（含已加入的简单需求字数）':'')
 }
 function getWordCountListSummary(target = {}) {
   return getWordCountMatrixListSummary(target.wordCountMatrix, {
@@ -1871,6 +1915,7 @@ const refreshProjectSubOrders = async (projectId) => {
     const latest=await getProject(projectId)
     form.childFieldDifferences=latest.childFieldDifferences||{}
     form.wordCountMatrix=latest.wordCountMatrix||form.wordCountMatrix
+    form.simpleRequirementWordCountMatrix=latest.simpleRequirementWordCountMatrix||{}
     form.wordCountMatrixSource=latest.wordCountMatrixSource||'project'
     form.wordCountSubOrderCount=latest.wordCountSubOrderCount||0
     form.updatedAt=latest.updatedAt
@@ -2104,6 +2149,10 @@ const clearSearch = () => {
   resetFilterModel(searchForm, translationFilterFields)
 }
 const resetProjectForm = () => {
+  clearedCreateFingerprint.value=''
+  conversationError.value=''
+  pendingConversation.value=null
+  chatAudience.value=[]
   folderCreationFlow.value=false
   createWithSubOrders.value = false
   subClientRequestId += 1
@@ -2157,6 +2206,7 @@ async function reuseProjectInformation(row){
     await nextTick()
     if(generation!==reuseGeneration||!dialogVisible.value||form.id||!reuseProjectVisible.value)return
     Object.assign(form,values,preserved,{clientManagerChangeReason:next.clientManagerChangeReason})
+    if(form.pendingFolderImport)applyFolderRootPath(form,form.pendingFolderImport.rootPath)
     form.emailSubjectPreview='';form.subjectPrefix=source.subjectPrefix||''
     pendingReviewedKey.value='';formRef.value?.clearValidate();reuseProjectVisible.value=false;projectDialogTab.value='basic'
     ElMessage.success(`已复用 ${source.orderNo} 的母订单信息`)
@@ -2171,11 +2221,30 @@ const goToSubOrderManagement = (project) => {
 let projectCreateOpenGeneration = 0
 const creationResumeKey=()=>`translation-project:unfinished-creation:${localStorage.getItem('user_id')||''}`
 const readCreationResume=()=>{try{return JSON.parse(localStorage.getItem(creationResumeKey())||'null')}catch{return null}}
+async function clearNewProject(){
+  if(form.id||submitLoading.value)return
+  projectCreateOpenGeneration++;reuseGeneration++;statementDefaultSequence++
+  clearDraft()
+  localStorage.removeItem(creationResumeKey())
+  quotationDraftDirty.value=false;documentNotesDirty.value=false;quotationVisible.value=false;statementVisible.value=false;reuseProjectVisible.value=false
+  pendingSubOrderManagerVisible.value=false;pendingSubmitRequested.value=false;pendingReviewedKey.value='';reviewedSubOrderProject.value=''
+  currentProjectSubOrders.value=[];editorInlineChanges.value=new Map()
+  resetProjectForm();resetSubOrderForm()
+  createClearGeneration.value++
+  projectFilesTabRef.value?.resetPathGroup?.()
+  clientManagerBaseline.value=localStorage.getItem('user_id')||''
+  projectCreateIdempotencyKey.value=createIdempotencyKey()
+  await nextTick()
+  formRef.value?.clearValidate()
+  clearedCreateFingerprint.value=createContentFingerprint()
+  startFreshDraft('create')
+  ElMessage.success('已清空当前新增内容及草稿')
+}
 const handleAdd = async () => {
   reviewedSubOrderProject.value='';pendingReviewedKey.value=''
   const opening = ++projectCreateOpenGeneration
   const openingUser = localStorage.getItem('user_id')
-  quotationDraftDirty.value=false;quotationVisible.value=false;statementVisible.value=false
+  quotationDraftDirty.value=false;documentNotesDirty.value=false;quotationVisible.value=false;statementVisible.value=false
   pauseDraft()
   dialogTitle.value = '新增项目'
   resetProjectForm()
@@ -2191,8 +2260,9 @@ const handleAdd = async () => {
 }
 const handleEdit = async (row,restorePreviousDraft=true) => {
   reviewedSubOrderProject.value='';pendingReviewedKey.value=''
-  projectCreateOpenGeneration++
-  quotationDraftDirty.value=false;quotationVisible.value=false;statementVisible.value=false
+  const opening = ++projectCreateOpenGeneration
+  const openingUser = localStorage.getItem('user_id')
+  quotationDraftDirty.value=false;documentNotesDirty.value=false;quotationVisible.value=false;statementVisible.value=false
   pauseDraft()
   dialogTitle.value = '编辑项目详情'
   clearFieldSearch()
@@ -2219,6 +2289,7 @@ const handleEdit = async (row,restorePreviousDraft=true) => {
       ElMessage.error(getLocalizedErrorMessage(error, '加载子订单失败'))
     }
   }
+  if (opening !== projectCreateOpenGeneration || openingUser !== localStorage.getItem('user_id') || !dialogVisible.value || String(form.id) !== String(row.id)) return
   if (canWriteProjects) {if(restorePreviousDraft)await beginDraft(`edit:${row.id}`);else startFreshDraft(`edit:${row.id}`)}
 }
 const openProjectDetails = async (row) => {
@@ -2264,11 +2335,16 @@ const changeProjectStatus = async (row, value) => {
   }
 }
 const handleSubmit = async (sendAfterSave = false, emergency = false, sendChat = false) => {
+  // 用户主动清空后的空白状态只需清除草稿，不创建空业务订单。
+  if(!submitLocked&&!form.id&&!sendAfterSave&&!emergency&&!sendChat&&clearedCreateFingerprint.value&&clearedCreateFingerprint.value===createContentFingerprint()){
+    clearDraft();dialogVisible.value=false;ElMessage.success('清空状态已保存');return
+  }
   const childEntry=projectDialogTab.value==='parentchildren'
   const childStatisticsConfirmed=editorChildRows.value.length>0&&!missingChildStatistics(editorChildRows.value).length&&(form.id?reviewedSubOrderProject.value===String(form.id):pendingReviewedKey.value===pendingTreeKey())
   const childDraft=childEntry&&!emergency&&!sendAfterSave&&!sendChat&&!childStatisticsConfirmed
   if (!formRef.value) {ElMessage.warning('表单尚未准备好，请稍后再试');return}
   if (submitLocked) {ElMessage.info('正在校验或保存，请稍候');return}
+  restoreFolderRootPath(form)
   submitLocked = true
   emergencySubmission.value=emergency
   submitAction.value=emergency?'emergency':sendChat?(sendAfterSave?'chatMail':'chat'):(sendAfterSave?'mail':'save')
@@ -2331,15 +2407,18 @@ const handleSubmit = async (sendAfterSave = false, emergency = false, sendChat =
     }
   }
   let projectSaved = false
+  let saveStage = '项目资料'
   try {
     const payloadSource = { ...form }
     payloadSource.submissionMode=emergency?'emergency_notice':childDraft?'draft':childEntry?'normal_children':'normal'
     payloadSource.subOrdersReviewed=!emergency&&!childDraft
-    if(!form.id&&!emergency)payloadSource.initialSubOrderDetails=form.pendingSubOrderDetails||{}
+    if(!form.id&&!emergency)payloadSource.initialSubOrderDetails=normalizeInitialChildDetails(form.pendingSubOrderDetails||{})
     if(!form.id&&form.pendingFolderImport)payloadSource.initialFolderImport=form.pendingFolderImport
     delete payloadSource.pendingFolderImport
+    delete payloadSource.folderRootPathVersion
     delete payloadSource.pendingSubOrderDetails
     delete payloadSource.pendingSubOrderDefaults
+    delete payloadSource.pendingDirectionWordCountMatrix
     if(!form.statementRequiredExplicit)delete payloadSource.statementRequired
     delete payloadSource.statementRequiredExplicit
     if(!form.id && createWithSubOrders.value) payloadSource.initialSubOrderNames=String(form.initialSubOrderNamesText||'').split(/\r?\n/).map(name=>name.trim()).filter(Boolean)
@@ -2349,9 +2428,11 @@ const handleSubmit = async (sendAfterSave = false, emergency = false, sendChat =
     delete payloadSource.filePathDraft
     delete payloadSource.originalStoragePath
     if(!quotationDraftDirty.value)delete payloadSource.quotationDraft
+    if(!documentNotesDirty.value)delete payloadSource.documentNotes
     delete payloadSource.wordCountMatrixSource
     delete payloadSource.wordCountSubOrderCount
-    const payload = cleanPayload(payloadSource)
+    const payload = cleanPayload(projectFinanceFields(payloadSource,!!form.id))
+    const pathGroupSnapshot=projectFilesTabRef.value?.getPathGroupSnapshot?.()
     const isCreate = dialogTitle.value === '新增项目'
     let savedProject
     if (isCreate) {
@@ -2364,9 +2445,14 @@ const handleSubmit = async (sendAfterSave = false, emergency = false, sendChat =
     }
     projectSaved = true
     if(isCreate){form.id=savedProject.id;form.orderNo=savedProject.orderNo;dialogTitle.value='编辑项目详情'}
+    form.updatedAt=savedProject.updatedAt||form.updatedAt
+    saveStage = '财务补充'
     await customerFinanceEditorRef.value?.persistForForm(form,savedProject)
 
+    saveStage = '路径组'
+    await nextTick()
     const savedPathGroup = await projectFilesTabRef.value?.savePathGroup({
+      snapshot:pathGroupSnapshot,
       projectId: savedProject?.id || payload.id,
       orderNo: savedProject?.orderNo || form.orderNo,
       silent: true,
@@ -2383,19 +2469,24 @@ const handleSubmit = async (sendAfterSave = false, emergency = false, sendChat =
     form.updatedAt=savedProject.updatedAt||form.updatedAt
     if(savedProject.motherSplitReview!==undefined)form.motherSplitReview=savedProject.motherSplitReview
     form.motherSplitReviewed=false
-    await refreshProjectSubOrders(savedProject.id||form.id)
-    if(!emergency&&!childDraft)reviewedSubOrderProject.value=String(savedProject.id||form.id)
-    startFreshDraft(`edit:${savedProject.id||form.id}`)
+    // 会话发送是本次提交的一部分，不能被保存后的只读刷新中断。
+    conversationError.value=''
     if(sendChat&&!sendAfterSave){
-      try{await sendProjectConversation(savedProject.id||form.id)}catch(error){ElMessage.error('项目已保存，会话发送失败：'+getLocalizedErrorMessage(error,'请重试发送会话'))}
+      saveStage = '会话发送'
+      try{await sendProjectConversation(savedProject.id||form.id)}catch(error){
+        conversationError.value='项目已保存，会话尚未确认发送：'+getLocalizedErrorMessage(error,'请重试发送会话')
+        ElMessage.error(conversationError.value)
+      }
     }
-    await loadDeliveryCounts()
     if (sendAfterSave) {
       mailAlsoChat.value=sendChat
       mailProjectId.value = savedProject?.id || payload.id
       mailConsultationId.value = savedProject?.consultationId || payload.consultationId || ''
       mailComposerVisible.value = true
     }
+
+    // 保存完成即退出录入；只有会话未确认发送时保留已保存订单供单独重试。
+    if(!conversationError.value)dialogVisible.value=false
 
     try {
       await fetchData()
@@ -2404,17 +2495,18 @@ const handleSubmit = async (sendAfterSave = false, emergency = false, sendChat =
     }
   } catch (error) {
     await formRef.value?.applyServerErrors(error)
+    const timedOut = !error?.response && (['ECONNABORTED','ETIMEDOUT'].includes(error?.code) || /timeout/i.test(String(error?.message || '')))
     ElMessage.error(
       projectSaved
-        ? `项目已保存，但财务补充或路径组保存未完成：${getLocalizedErrorMessage(error, '请重新进入项目补充保存')}`
-        : getLocalizedErrorMessage(error, '保存失败')
+        ? `项目已保存，但${saveStage}未完成：${getLocalizedErrorMessage(error, '请重新进入项目补充保存')}`
+        : timedOut ? '项目保存请求超时，保存结果尚未确认。请保留此窗口重试，将沿用同一次创建请求，避免重复登记。' : getLocalizedErrorMessage(error, '保存失败')
     )
   } finally {
     submitLoading.value = false
     submitLocked = false
   }
 }
-const onProjectDialogClosed = () => { directionHistoryVisible.value=false; projectCreateOpenGeneration++;quotationVisible.value=false;statementVisible.value=false;quotationDraftDirty.value=false;pauseDraft(); resetProjectForm(); resetSubOrderForm(); editorInlineChanges.value = new Map(); currentProjectSubOrders.value = []; if(props.editorOnly && !mailComposerVisible.value)emit('editor-closed') }
+const onProjectDialogClosed = () => { if(dialogVisible.value)return;directionHistoryVisible.value=false; projectCreateOpenGeneration++;quotationVisible.value=false;statementVisible.value=false;quotationDraftDirty.value=false;documentNotesDirty.value=false;pauseDraft(); resetProjectForm(); resetSubOrderForm(); editorInlineChanges.value = new Map(); currentProjectSubOrders.value = []; if(props.editorOnly && !mailComposerVisible.value)emit('editor-closed') }
 const createSubOrderDefaultsFromProject = () => ({ serviceContent:form.serviceContent, customerRequirementProfessional:form.customerRequirementProfessional, customerRequirementSpecial:form.customerRequirementSpecial, remarks:form.remarks, fileTypeSecondary: form.fileTypeSecondary, languagePair: form.languagePair, priority: form.priority, wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], customerDeadlineTime: form.customerDeadlineTime, sentToClientTime: form.sentToClientTime, translatorId: form.translatorId, translatorAssignmentTime: form.translatorAssignmentTime, status: form.projectStatus || 'pending_confirmation', translatorDeliveryProgress: form.translatorDeliveryProgress, preReviewQcProgress: form.preReviewQcProgress, review1Progress: form.review1Progress, review2Progress: form.review2Progress, postReviewQcProgress: form.postReviewQcProgress, layoutProgress: form.layoutProgress, consolidationProgress: form.consolidationProgress, clientFeedback: form.clientFeedback })
 const openCreateSubOrderDialog = () => { resetSubOrderForm(); subOrderDialogTitle.value = '小量新增'; assignReactive(subOrderForm, createEmptySubOrderForm, { ...createSubOrderDefaultsFromProject(), parentProjectId: form.id }); subOrderDialogVisible.value = true }
 const handleEditSubOrder = (row) => { resetSubOrderForm(); subOrderDialogTitle.value = '编辑子订单'; assignReactive(subOrderForm, createEmptySubOrderForm, { ...row, parentProjectId: row.parentProjectId || form.id }); subOrderDialogVisible.value = true }
@@ -2467,7 +2559,7 @@ const deletePendingChild=async(row)=>{
   }
   form.initialSubOrderNamesText=names.join('\n');form.createWithSubOrders=!!form.pendingFolderImport||!!names.length;form.pendingSubOrderDetails=details;pendingReviewedKey.value=''
 }
-const handleSubmitSubOrder = async () => { if (!subOrderFormRef.value) return; const valid = await subOrderFormRef.value.validate().catch(() => false); if (!valid) return; try { if(!form.id){savePendingChild();return} const payload = buildSubOrderPayload(subOrderForm); let savedSubOrder; if (subOrderDialogTitle.value === '小量新增') { savedSubOrder=await createSubOrder({...payload,preserveOriginalFile:true});subOrderForm.id=savedSubOrder.id;subOrderDialogTitle.value='编辑子订单'; ElMessage.success('子订单创建成功') } else { savedSubOrder=await updateSubOrder(subOrderForm.id, payload); ElMessage.success('子订单更新成功') } if (savedSubOrder?.autoCreatedChildCount) ElMessage.success(`已按翻译方向自动生成 ${savedSubOrder.autoCreatedChildCount} 个子订单`); await customerFinanceEditorRef.value?.persistForForm(subOrderForm,savedSubOrder,form); subOrderDialogVisible.value = false; await refreshProjectSubOrders(form.id); if(savedSubOrder?.motherSplitReview?.required){await editMotherAfterSplit()} await fetchData() } catch (error) {
+const handleSubmitSubOrder = async () => { if (!subOrderFormRef.value) return; const valid = await subOrderFormRef.value.validate().catch(() => false); if (!valid) return; try { if(!form.id){savePendingChild();return} const payload = projectFinanceFields(buildSubOrderPayload(subOrderForm),!!subOrderForm.id); let savedSubOrder; if (subOrderDialogTitle.value === '小量新增') { savedSubOrder=await createSubOrder({...payload,preserveOriginalFile:true});subOrderForm.id=savedSubOrder.id;subOrderDialogTitle.value='编辑子订单'; ElMessage.success('子订单创建成功') } else { savedSubOrder=await updateSubOrder(subOrderForm.id, payload); ElMessage.success('子订单更新成功') } if (savedSubOrder?.autoCreatedChildCount) ElMessage.success(`已按翻译方向自动生成 ${savedSubOrder.autoCreatedChildCount} 个子订单`); await customerFinanceEditorRef.value?.persistForForm(subOrderForm,savedSubOrder,form); subOrderDialogVisible.value = false; await refreshProjectSubOrders(form.id); if(savedSubOrder?.motherSplitReview?.required){await editMotherAfterSplit()} await fetchData() } catch (error) {
         await subOrderFormRef.value?.applyServerErrors(error)
  ElMessage.error(getLocalizedErrorMessage(error, '子订单保存失败')) } }
 const handleDeleteSubOrder = async (row) => { if(!form.id){await deletePendingChild(row);return} try { await ElMessageBox.confirm(`确认删除子订单 ${row.subOrderNo} 吗？`, '提示', { type: 'warning' }); await deleteSubOrder(row.id); ElMessage.success('子订单删除成功'); if (form.id && row.parentProjectId === form.id) await refreshProjectSubOrders(form.id); await fetchData() } catch (error) { if (error !== 'cancel' && error !== 'close') ElMessage.error(getLocalizedErrorMessage(error, '子订单删除失败')) } }
@@ -2487,6 +2579,7 @@ const handleBatchCreated = async (result) => {
     const root=plan.entries.find(entry=>!entry.relativePath.replace(/\\/g,'/').includes('/'))
     const name=root?.relativePath||plan.rootPath.replace(/\\/g,'/').split('/').pop()
     Object.assign(form,{pendingFolderImport:plan,folderRoot:true,projectName:name,sourceFileName:name,originalStoragePath:plan.rootPath,networkFilePath:plan.rootPath,pendingSubOrderDetails:{},initialSubOrderNamesText:'',createWithSubOrders:true})
+    applyFolderRootPath(form,plan.rootPath)
     pendingReviewedKey.value='';projectDialogTab.value='parentchildren'
     ElMessage.success('已读入目录，请填写资料后点击“保存”正式登记')
     return
@@ -2503,7 +2596,10 @@ const handleBatchCreated = async (result) => {
   await refreshProjectSubOrders(projectId)
   const latest=await getProject(projectId)
   if(latest.motherSplitReview?.required){await editMotherAfterSplit()}
-  if(extractedRootPath&&!String(form.originalStoragePath||'').trim())form.originalStoragePath=extractedRootPath
+  if(extractedRootPath&&String(form.id)===String(projectId)){
+    await projectFilesTabRef.value?.awaitPathGroupReady?.()
+    applyFolderRootPath(form,extractedRootPath)
+  }
   await fetchData()
 }
 const getInlineChangeRefs = (scope) => scope === 'editor'
@@ -2603,6 +2699,7 @@ onBeforeUnmount(() => {
 })
 function onFinanceDocumentRequirementsSaved(value){
   if(value.quotationDraftChanged)quotationDraftDirty.value=!value.persisted
+  if(value.documentNotesChanged)documentNotesDirty.value=!value.persisted
 }
 const customerFinanceEditorRef=ref(null)
 function openCustomerFinance(target){customerFinanceEditorRef.value?.openForForm(target,form)}
@@ -2610,6 +2707,9 @@ useProjectStatusSync('translation',tableData,{enabled:()=>!props.editorOnly,onCh
 </script>
 
 <style scoped>
+.project-editor-identity { user-select: text; cursor: text; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5; }
+:deep(.dialog-field-search-header__heading:has(.project-editor-identity)) { min-width: 0; flex: 1; }
+:deep(.dialog-field-search-header__extra:has(.project-editor-identity)) { min-width: 0; max-width: 100%; }
 .folder-first-action{margin-top:16px}
 :global(.project-suborder-manager-dialog){display:flex;flex-direction:column;height:94vh;max-height:94vh;overflow:hidden}
 :global(.project-suborder-manager-dialog .el-dialog__body){flex:1;min-height:0;overflow:hidden;padding:0}

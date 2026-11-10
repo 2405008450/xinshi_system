@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import datetime
 from typing import Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -37,8 +37,10 @@ def roll_up_matrices(projects, sub_orders):
         for child in direct:
             visit(child)
         owner.word_count_sub_order_count = len(direct)
-        owner.word_count_matrix_source = 'suborder_aggregate' if direct else ('suborder' if hasattr(owner, 'sub_order_no') else 'project')
-        if direct:
+        from translation_direction_service import preserves_project_statistics
+        aggregate = bool(direct) and not preserves_project_statistics(owner,direct)
+        owner.word_count_matrix_source = 'suborder_aggregate' if aggregate else ('suborder' if hasattr(owner, 'sub_order_no') else 'project')
+        if aggregate:
             owner.word_count_matrix = {
                 dimension: {
                     metric: sum(values) if (values := [
@@ -48,6 +50,11 @@ def roll_up_matrices(projects, sub_orders):
                     for metric in METRIC_TYPES
                 } for dimension in ENTITY_DIMENSIONS
             }
+            # 简单需求归当前单号，不能被下级汇总覆盖；叶子原始统计已在保存需求时累加。
+            for dimension,counts in (getattr(owner,'simple_requirement_word_count_matrix',{}) or {}).items():
+                for metric,value in counts.items():
+                    original=owner.word_count_matrix[dimension][metric]
+                    owner.word_count_matrix[dimension][metric]=(original if original is not None else 0)+value
             for values in owner.word_count_matrix.values():
                 if values['minutes'] is not None and values['hours'] is not None:
                     values['minutes']=round(values['minutes']+values['hours']*60,4);values['hours']=None
@@ -74,6 +81,8 @@ def hierarchy_matrix(db, entity_type, entity):
         owner = owners.get(metric.project_id or metric.sub_order_id)
         if owner is not None and metric.dimension in ENTITY_DIMENSIONS and metric.metric_type in METRIC_TYPES:
             owner.word_count_matrix[metric.dimension][metric.metric_type] = float(metric.count_value) if metric.metric_type in {'minutes','hours'} else metric.count_value
+    from translation_simple_requirement_counts import attach
+    attach(db,[project])
     roll_up_matrices([project], sub_orders)
     return owners[entity.id]
 
@@ -82,6 +91,9 @@ def _has_child_orders(db, entity_type, entity):
     query = db.query(TranslationSubOrder.id)
     if entity_type == 'project':
         query = query.filter(TranslationSubOrder.parent_project_id == entity.id)
+        from translation_direction_service import preserves_project_statistics
+        if preserves_project_statistics(entity,[row for row in db.query(TranslationSubOrder).filter_by(parent_project_id=entity.id).all() if row.sub_order_no.rsplit('.',1)[0]==entity.order_no]):
+            return False
     else:
         # 点号是订单层级边界，.001 不会命中 .0010。
         query = query.filter(TranslationSubOrder.parent_project_id == entity.parent_project_id,
@@ -181,6 +193,7 @@ def get_word_count_matrix(
         "entity_id": entity_id,
         "source": source,
         "sub_order_count": sub_order_count,
+        "simple_requirement_word_count_matrix":getattr(owner,"simple_requirement_word_count_matrix",{}),
         **entity_values,
         "translators": [
             {
@@ -232,6 +245,7 @@ def _apply_cell(
     if existing is None:
         db.add(
             WordCountMetric(
+                id=uuid4(),
                 **owner_filters,
                 dimension=dimension,
                 metric_type=metric_type,

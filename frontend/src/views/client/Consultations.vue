@@ -410,29 +410,7 @@
               </el-form-item>
             </el-col>
           </el-row>
-          <el-row :gutter="20"><el-col :xs="24" :md="12"><el-form-item label="客户全称" prop="client_name">
-                <el-autocomplete
-                  v-model="form.client_name"
-                  :fetch-suggestions="searchClientsByName"
-                  placeholder="请输入客户全称"
-                  value-key="client_name"
-                  clearable
-                  style="width: 100%"
-                  @select="handleExistingClientSelect"
-                  @clear="handleClientNameClear"
-                  @input="handleClientNameInput"
-                >
-                  <template #default="{ item }">
-                    <div class="client-suggestion">
-                      <span>{{ item.client_name }}</span>
-                      <span class="client-suggestion-meta">{{ item.client_code }}</span>
-                    </div>
-                  </template>
-                </el-autocomplete>
-              </el-form-item></el-col></el-row>
-          <el-row :gutter="20">
-            <el-col :xs="24" :md="12">
-              <el-form-item label="客户简称" prop="client_short_name">
+          <el-row :gutter="20"><el-col :xs="24" :md="12"><el-form-item label="客户简称" prop="client_short_name">
                 <el-autocomplete
                   v-model="form.client_short_name"
                   :fetch-suggestions="searchClientsByShortName"
@@ -452,7 +430,29 @@
                   </template>
                 </el-autocomplete>
               <ClientNameGuidance />
-</el-form-item>
+</el-form-item></el-col></el-row>
+          <el-row :gutter="20">
+            <el-col :xs="24" :md="12">
+              <el-form-item label="客户全称" prop="client_name">
+                <el-autocomplete
+                  v-model="form.client_name"
+                  :fetch-suggestions="searchClientsByName"
+                  placeholder="请输入客户全称"
+                  value-key="client_name"
+                  clearable
+                  style="width: 100%"
+                  @select="handleExistingClientSelect"
+                  @clear="handleClientNameClear"
+                  @input="handleClientNameInput"
+                >
+                  <template #default="{ item }">
+                    <div class="client-suggestion">
+                      <span>{{ item.client_name }}</span>
+                      <span class="client-suggestion-meta">{{ item.client_code }}</span>
+                    </div>
+                  </template>
+                </el-autocomplete>
+              </el-form-item>
             </el-col>
             <el-col :xs="24" :md="12">
               <el-form-item label="客户来源" prop="client_source">

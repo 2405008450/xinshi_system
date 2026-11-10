@@ -2,7 +2,7 @@
   <div class="finance-sheet-cell" :class="{'is-saving':state.saving,'has-error':cellError}" :title="state.error||''">
     <CustomerAggregatePrices v-if="row.priceAggregate&&field==='unitPrice'" :prices="row.prices" compact :can-edit="!readonly" @edit-order="emit('edit-order',$event)" />
     <ReadonlyField v-else-if="row.priceAggregate&&field==='pricingMode'" model-value="子订单累计" source="auto" />
-    <select v-else-if="field==='pricingMode'" v-model="draft.pricingMode" aria-label="计价模式" @change="commit('pricingMode')"><option value="metric">按数量</option><option value="fixed">固定收费</option></select>
+    <select v-else-if="field==='pricingMode'" :value="draft.pricingMode" :disabled="state.saving||pricingModeSwitching" aria-label="计价模式" @change="changeTablePricingMode"><option value="metric">工作量</option><option value="fixed">固定收费</option></select>
     <ReadonlyField v-else-if="field==='billingMonth'" :model-value="draft.billingMonth||'—'" source="auto" title="按订单号所属月份自动生成；跨月调配请在对账单管理中处理" />
     <template v-else-if="field==='unitPrice'">
       <select v-if="draft.pricingMode==='fixed'" v-model="draft.currency" aria-label="固定收费货币" @change="commit('currency')"><option v-for="currency in currencies" :key="currency">{{currency}}</option></select>
@@ -41,7 +41,9 @@
 </template>
 
 <script setup>
-import {computed} from 'vue'
+import {computed,ref} from 'vue'
+import {ElMessageBox} from 'element-plus'
+import {requestPricingModeSwitch} from '@/utils/pricingModeSwitch'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import CustomerQuantityBasisSelect from './CustomerQuantityBasisSelect.vue'
 import ReadonlyField from './ReadonlyField.vue'
@@ -67,6 +69,8 @@ const amountValue=computed(()=>draft.value[amountKey.value]??(draft.value.pricin
 const formatAmounts=values=>Object.entries(values||{}).map(([currency,value])=>`${currency} ${Number(value).toFixed(2)}`).join('\n')||'待填写'
 const calculationText=computed(()=>props.row.priceAggregate?formatAmounts(props.row[props.field==='totalInclTax'?'calculatedTotalsInclTax':'calculatedTotalsExclTax']):draft.value.pricingMode==='fixed'?'按登记金额':formatAmounts(amounts.value))
 const effectiveText=computed(()=>props.row.priceAggregate||props.readonly?formatAmounts(props.row[props.field==='totalInclTax'?'totalsInclTax':'totalsExclTax']):draft.value[amountKey.value]==null?formatAmounts(amounts.value):`${draft.value.currency||props.row.currency||'CNY'} ${Number(draft.value[amountKey.value]).toFixed(2)}`)
+const pricingModeSwitching=ref(false)
+async function changeTablePricingMode(event){const next=event.target.value;event.target.value=draft.value.pricingMode;if(pricingModeSwitching.value||props.state.saving)return;pricingModeSwitching.value=true;try{if(await requestPricingModeSwitch(draft.value,next,{apply:false,confirm:message=>ElMessageBox.confirm(message,'切换计价方式',{type:'warning',confirmButtonText:'继续并清除',cancelButtonText:'取消',closeOnClickModal:false})})){draft.value.pricingMode=next;commit('pricingMode')}}finally{pricingModeSwitching.value=false}}
 function commit(field){emit('commit',field)}
 
 function commitNumber(event,field){if(event.target.validity.valid){props.state.error='';commit(field)}else props.state.error='请输入有效的非负金额'}

@@ -52,6 +52,7 @@ class ProjectMailPolicyResponse(ProjectMailPolicyWrite):
 
 
 class BusinessMailPreviewRequest(BaseModel):
+    emergency_notice: bool = False
     project_type: ProjectMailType
     project_id: Optional[UUID] = None
     consultation_id: Optional[UUID] = None
@@ -80,6 +81,9 @@ class BusinessMailPreviewResponse(BaseModel):
 
 
 class BusinessMailSendRequest(BaseModel):
+    emergency_notice: bool = False
+    send_project_chat: bool = False
+    project_chat_audience: list[str] = Field(default_factory=list, max_length=1000)
     send_translation_chat: bool = False
     translation_chat_audience: list[str] = Field(default_factory=list, max_length=1000)
     project_type: ProjectMailType
@@ -124,6 +128,7 @@ class BusinessMailAttemptResponse(BaseModel):
 
 
 class BusinessMailResponse(BaseModel):
+    project_chat_error: Optional[str] = None
     translation_chat_error: Optional[str] = None
     id: UUID
     source_kind: str

@@ -124,6 +124,7 @@ def preview(
             project_id=payload.project_id,
             source=payload.source,
             current_user=current_user,
+            emergency_notice=payload.emergency_notice,
         )
     except Exception as exc:
         _raise(exc)

@@ -7,9 +7,10 @@
     :scroll-into-view-options="scrollOptions"
   >
     <el-alert v-if="serverError" :title="serverError" type="error" show-icon :closable="false" class="app-form-server-error" />
+    <el-alert v-if="clientIdentityError" :title="clientIdentityError" type="error" show-icon :closable="false"><el-button link @click="refreshClientIdentity">重新读取客户信息</el-button></el-alert>
     <el-alert v-if="numbering.error.value" :title="numbering.error.value" type="error" show-icon :closable="false" />
     <el-alert v-if="clientNumbering.error.value" :title="clientNumbering.error.value" type="error" show-icon :closable="false" />
-    <div v-if="numberScope" style="display:flex;justify-content:flex-end;gap:16px;margin-bottom:8px"><slot name="number-actions" /><el-button link type="primary" @click="numberHistoryVisible=true">编号删除记录</el-button></div>
+    <div v-if="numberScope" style="display:flex;justify-content:flex-end;gap:16px;margin-bottom:8px"><slot name="number-actions" /><el-button link type="primary" @click="numberHistoryVisible=true">{{ numberScope.startsWith('translation')?'订单删除记录':'编号删除记录' }}</el-button></div>
     <BusinessNumberDeletionHistory v-if="numberHistoryVisible" v-model="numberHistoryVisible" :kind="numberScope" :number="$attrs.model?.[numberField]" />
     <SavedDataConflict ref="savedConflictRef" :model="$attrs.model" :fields="innerFormRef?.fields||[]" />
     <slot />
@@ -27,6 +28,8 @@ import { focusFirstInvalidField } from '../../utils/formValidation'
 import { resolveServerFieldErrors } from '../../utils/formServerErrors.js'
 import { waitForScreenshotUploads } from '../../utils/screenshotUploads.js'
 import {useBusinessNumber} from '@/composables/useBusinessNumber'
+import {getClient} from '@/api/clients'
+import {clientIdentityKeys,fillMissingClientIdentity} from '@/utils/clientIdentity'
 
 defineOptions({
   name: 'AppForm',
@@ -41,6 +44,19 @@ const serverError = ref('')
 const savedConflictRef=ref(null)
 const scrollOptions = { behavior: 'smooth', block: 'center', inline: 'nearest' }
 const liveInstance=getCurrentInstance(),liveAttrs=useAttrs()
+const clientIdentityError=ref('')
+let clientIdentityGeneration=0,clientIdentityRequest=Promise.resolve()
+function refreshClientIdentity(){
+  const model=liveAttrs.model,owner=localStorage.getItem('user_id')||'',generation=++clientIdentityGeneration
+  clientIdentityError.value=''
+  if(liveAttrs.inline===true||liveAttrs.inline===''||/search-form|filter-form/.test(String(liveAttrs.class||'')))return Promise.resolve()
+  clientIdentityRequest=fillMissingClientIdentity(model,{loadClient:getClient,owner,isCurrent:()=>generation===clientIdentityGeneration&&liveAttrs.model===model&&owner===(localStorage.getItem('user_id')||'')})
+    .then(changed=>{if(changed)innerFormRef.value?.clearValidate(Object.values(clientIdentityKeys(model)))})
+    .catch(()=>{if(generation===clientIdentityGeneration)clientIdentityError.value='客户信息读取失败，请重新读取后保存'})
+  return clientIdentityRequest
+}
+watch(()=>{const model=liveAttrs.model||{},keys=clientIdentityKeys(model);return [model,model[keys.id],model[keys.sub],model[keys.full],model[keys.short]]},refreshClientIdentity,{immediate:true,flush:'post'})
+onBeforeUnmount(()=>{clientIdentityGeneration++})
 const numbering=useBusinessNumber({model:()=>liveAttrs.model,kind:()=>props.numberScope,field:()=>props.numberField,active:()=>props.numberActive,parent:()=>props.numberParent,date:()=>props.numberDate})
 const clientUsesSnakeCase=()=>Object.prototype.hasOwnProperty.call(liveAttrs.model||{},'client_id')
 const clientNumbering=useBusinessNumber({model:()=>liveAttrs.model,kind:()=>'client',field:()=>clientUsesSnakeCase()?'client_code':'clientCode',active:()=>props.numberActive&&['translation','interpretation','annotation','recruitment','consultation'].includes(props.numberScope)&&!liveAttrs.model?.[clientUsesSnakeCase()?'client_id':'clientId']&&!!liveAttrs.model?.[clientUsesSnakeCase()?'client_short_name':'clientShortName']?.trim(),parent:()=>null,date:()=>null})
@@ -55,6 +71,7 @@ const locateFirstError = async () => {
 
 const validate = async (callback) => {
   if (!innerFormRef.value) return false
+  await refreshClientIdentity()
     if(!await numbering.ensure()){if(typeof callback==='function'){await callback(false,{});return false}throw new Error(numbering.error.value||'请等待编号占用完成')}
     if(!await clientNumbering.ensure()){if(typeof callback==='function'){await callback(false,{});return false}throw new Error(clientNumbering.error.value||'请等待客户编号占用完成')}
   if(savedConflictRef.value?.checkBeforeSave()===false){if(typeof callback==='function'){await callback(false,{});return false}throw new Error('请先处理数据更新差异')}

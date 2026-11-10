@@ -11,7 +11,7 @@ from database import get_db
 from routers.auth import require_permission
 
 router = APIRouter(tags=['customer-source-analysis'])
-Dimension = Literal['source', 'method', 'type', 'keyword', 'status', 'type_status']
+Dimension = Literal['source', 'method', 'type', 'keyword', 'status', 'type_status', 'type_confirmed', 'source_confirmed']
 
 
 @router.get('/data-analysis/customer-sources', dependencies=[Depends(require_permission('consultations:read'))])

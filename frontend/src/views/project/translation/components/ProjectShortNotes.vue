@@ -10,6 +10,8 @@
         <el-form-item label="原文" prop="original_text"><el-input v-model="form.original_text" type="textarea" :rows="3" maxlength="2000" show-word-limit :disabled="saving" /></el-form-item>
         <el-form-item label="译文" prop="translated_text"><el-input v-model="form.translated_text" type="textarea" :rows="3" maxlength="2000" show-word-limit :disabled="saving" /></el-form-item>
       </div>
+      <div class="requirement-count-actions"><el-button :disabled="saving" @click="countVisible=!countVisible">{{ countVisible?'收起字数统计':'统计字数' }}</el-button><span>保存需求时，将本次统计累加到当前单号的相应统计中；重复重试不会重复加入。</span></div>
+      <WordCountMatrixForm v-if="countVisible" v-model="form.wordCountMatrix" :disabled="saving" />
       <div class="requirement-editor-options">
         <el-form-item label="是否收费" prop="chargeable"><el-radio-group v-model="form.chargeable" :disabled="saving"><el-radio :value="true">收费</el-radio><el-radio :value="false">不收费</el-radio></el-radio-group></el-form-item>
         <el-form-item label="发送通知人（笔译项目部，可多选）" prop="recipient_ids"><el-select v-model="form.recipient_ids" multiple filterable :disabled="saving || loading" placeholder="请选择通知人"><el-option v-for="person in people" :key="person.id" :value="person.id" :label="person.name" /></el-select></el-form-item>
@@ -37,6 +39,8 @@ import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader
 import {useDialogFieldSearch} from '@/composables/useDialogFieldSearch'
 import RequirementDispatchPanel from './RequirementDispatchPanel.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
+import WordCountMatrixForm from '@/components/common/WordCountMatrixForm.vue'
+import {createEmptyWordCountMatrix,normalizeWordCountMatrix} from '@/utils/wordCountMatrix'
 const editorBody=ref()
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(editorBody)
 const props = defineProps({ projectId: String, projectUpdatedAt: [String, Date], canWrite: Boolean, disabled: Boolean })
@@ -44,7 +48,9 @@ const emit = defineEmits(['saved'])
 const visible=ref(false), loading=ref(false), saving=ref(false), error=ref(''), page=ref(1), total=ref(0), items=ref([]), formRef=ref(), currentStatus=ref(), people=ref([])
 const legacyItems=ref([]), legacyTotal=ref(0), legacyPage=ref(1)
 const statuses=getProjectStatusOptions('translation'),customerDeadlineTime=ref(null),deadlineDraft=ref(''),deadlineDirty=ref(false),latestRequirement=ref(null),dispatchPanel=ref()
-const form=reactive({original_text:'',translated_text:'',chargeable:null,recipient_ids:[]})
+const countVisible=ref(false)
+const form=reactive({original_text:'',translated_text:'',chargeable:null,recipient_ids:[],wordCountMatrix:createEmptyWordCountMatrix()})
+function countPayload(){const matrix=normalizeWordCountMatrix(form.wordCountMatrix);if(!Object.values(matrix).some(values=>Object.values(values).some(value=>value!==null)))return null;const {translatorEstimate,...other}=matrix;return {...other,translator_estimate:translatorEstimate}}
 const rules={original_text:[{validator:(_r,value,done)=>String(value||'').trim()?done():done(new Error('请填写原文')),trigger:'blur'}],chargeable:[{validator:(_r,value,done)=>typeof value==='boolean'?done():done(new Error('请选择收费或不收费')),trigger:'change'}],recipient_ids:[{type:'array',required:true,min:1,message:'请选择通知人',trigger:'change'}]}
 const status=value=>getProjectStatusLabel('translation',value)
 let sequence=0, controller, attempt, settingsAttempt, defaultsInitialized=false, legacySequence=0
@@ -65,9 +71,9 @@ async function loadLegacy(nextPage){const request=++legacySequence,projectId=pro
 async function save(){
   if(saving.value||loading.value||!props.projectId||!props.canWrite||!await formRef.value?.validate().catch(()=>false))return
   if(saving.value)return;saving.value=true
-  const projectId=props.projectId,payload={original_text:form.original_text.trim(),translated_text:form.translated_text.trim(),chargeable:form.chargeable,saved_status:normalizeProjectStatus('translation',currentStatus.value)||'simple_requirement',recipient_ids:[...form.recipient_ids],expected_project_status:currentStatus.value??null,expected_updated_at:props.projectUpdatedAt||null},signature=JSON.stringify({projectId,...payload})
+  const projectId=props.projectId,payload={word_count_matrix:countPayload(),original_text:form.original_text.trim(),translated_text:form.translated_text.trim(),chargeable:form.chargeable,saved_status:normalizeProjectStatus('translation',currentStatus.value)||'simple_requirement',recipient_ids:[...form.recipient_ids],expected_project_status:currentStatus.value??null,expected_updated_at:props.projectUpdatedAt||null},signature=JSON.stringify({projectId,...payload})
   if(attempt?.signature!==signature)attempt={signature,request_id:crypto.randomUUID()}
-  try{const data=await api.post(`/translation-simple-requirements/projects/${projectId}`,{...payload,request_id:attempt.request_id});if(projectId!==props.projectId)return;emit('saved',data);form.original_text='';form.translated_text='';form.chargeable=null;attempt=undefined;ElMessage.success('简单需求已保存并发送通知');await load(1);await nextTick();formRef.value?.clearValidate()}catch(error){if(projectId===props.projectId)ElMessage.error(error?.detail||error?.response?.data?.detail||'简单需求保存失败，请重试')}finally{saving.value=false}
+  try{const data=await api.post(`/translation-simple-requirements/projects/${projectId}`,{...payload,request_id:attempt.request_id});if(projectId!==props.projectId)return;emit('saved',data);form.original_text='';form.translated_text='';form.chargeable=null;form.wordCountMatrix=createEmptyWordCountMatrix();countVisible.value=false;attempt=undefined;ElMessage.success(data.word_count_added?'简单需求已保存并发送通知，已将简单需求字数加入当前订单':'简单需求已保存并发送通知');await load(1);await nextTick();formRef.value?.clearValidate()}catch(error){if(projectId===props.projectId)ElMessage.error(error?.detail||error?.response?.data?.detail||'简单需求保存失败，请重试')}finally{saving.value=false}
 }
 async function saveSettings(values){
   if(saving.value||loading.value||!props.canWrite||!props.projectId)return
@@ -78,10 +84,14 @@ async function saveSettings(values){
 }
 const changeStatus=value=>saveSettings({project_status:value})
 const saveDeadline=()=>saveSettings({customer_deadline_time:deadlineDraft.value?deadlineDraft.value.replace(' ','T')+'+08:00':null})
-watch(()=>props.projectId,()=>{visible.value=false;sequence++;legacySequence++;controller?.abort();items.value=[];total.value=0;legacyItems.value=[];legacyTotal.value=0;Object.assign(form,{original_text:'',translated_text:'',chargeable:null,recipient_ids:[]});error.value='';attempt=undefined;settingsAttempt=undefined;defaultsInitialized=false;loading.value=false;currentStatus.value=undefined;customerDeadlineTime.value=null;deadlineDraft.value='';deadlineDirty.value=false;latestRequirement.value=null})
+watch(()=>props.projectId,()=>{visible.value=false;sequence++;legacySequence++;controller?.abort();items.value=[];total.value=0;legacyItems.value=[];legacyTotal.value=0;Object.assign(form,{original_text:'',translated_text:'',chargeable:null,recipient_ids:[],wordCountMatrix:createEmptyWordCountMatrix()});countVisible.value=false;error.value='';attempt=undefined;settingsAttempt=undefined;defaultsInitialized=false;loading.value=false;currentStatus.value=undefined;customerDeadlineTime.value=null;deadlineDraft.value='';deadlineDirty.value=false;latestRequirement.value=null})
 onBeforeUnmount(()=>{sequence++;legacySequence++;controller?.abort()})
 </script>
 <style scoped>
 .requirement-project-controls,.requirement-deadline{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0}.requirement-deadline :deep(.el-input){max-width:280px}
 .requirement-editor{border-bottom:1px solid var(--el-border-color-lighter);padding-bottom:14px}.requirement-editor-columns{display:grid;grid-template-columns:1fr 1fr;gap:16px}.requirement-editor-options{display:grid;grid-template-columns:200px 1fr;gap:16px}.requirement-save-actions{display:flex;gap:10px;flex-wrap:wrap}.requirement-save-actions :deep(.el-button){margin-left:0}.requirement-tip{font-size:12px;color:var(--el-text-color-secondary)}.requirement-history-actions{display:flex;justify-content:space-between;align-items:center;margin-top:10px}.requirement-history{max-height:280px;min-height:50px;overflow:auto}.legacy-notes{margin-top:12px}.legacy-notes article{border-bottom:1px solid var(--el-border-color-lighter);padding:10px 0}.legacy-notes p{white-space:pre-wrap;overflow-wrap:anywhere}@media(max-width:650px){.requirement-editor-columns,.requirement-editor-options{grid-template-columns:1fr;gap:0}}
+</style>
+
+<style scoped>
+.requirement-count-actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:12px 0}.requirement-count-actions span{font-size:12px;color:var(--el-text-color-secondary)}
 </style>

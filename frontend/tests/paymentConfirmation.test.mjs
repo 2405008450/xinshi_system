@@ -55,3 +55,24 @@ test('清除付款选择清空当前详情，并向服务器提交清除标记',
   assert.equal(paymentConfirmationPayload(cleared).clear_details,true)
   assert.equal(original.proofs,'原凭证')
 })
+
+test('付款状态切换可取消；确认后清空另一侧，零金额也需确认',async()=>{
+  const {switchPaymentSelection}=await import('../src/utils/paymentConfirmation.js')
+  const original={isPaid:true,paymentOption:'full',fullPaymentAmount:0,proofs:'原凭证'}
+  assert.equal(await switchPaymentSelection(original,'deposit',{confirm:async()=>{throw Error('取消')}}),null)
+  assert.equal(original.proofs,'原凭证')
+  let prompt=''
+  const next=await switchPaymentSelection(original,'deposit',{confirm:async text=>{prompt=text}})
+  assert.match(prompt,/已付全款.*付款数据/);assert.equal(next.fullPaymentAmount,null)
+  assert.equal(next.proofs,'');assert.equal(next.replaceDetails,true)
+})
+
+test('清除选择后再选时仍检查遗留明细；空数据无需确认',async()=>{
+  const {switchPaymentSelection}=await import('../src/utils/paymentConfirmation.js')
+  let count=0
+  const confirm=async()=>{count++}
+  await switchPaymentSelection({isPaid:false},'full',{payments:[{stage_type:'deposit',actual_amount:0}],confirm})
+  assert.equal(count,1)
+  const next=await switchPaymentSelection(clearPaymentSelection({}), 'deposit',{confirm})
+  assert.equal(count,1);assert.equal(next.replaceDetails,true);assert.equal(next.paymentOption,'deposit')
+})

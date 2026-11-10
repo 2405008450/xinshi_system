@@ -66,6 +66,7 @@ def room_specs(db):
     titles=translation_aliases(db)
     for row in rows:
         row['name']=titles.get(row['id'],row['name'])
+        row['deletion_protected']=row['id'] in titles
     return [row for row in rows if row.get('parent_key', RESOURCE_ROOT) is None or row.get('parent_key', RESOURCE_ROOT) in visible]
 
 
@@ -120,6 +121,7 @@ def catalog(db, user):
     for room in rooms:
         mid = room['id']; member = members.get(mid); last = latest.get(mid)
         rows.append(dict(key=f'discussion:{mid}', kind='discussion', project_id=mid, title=room['name'],
+            deletion_protected=room.get('deletion_protected',False),
             technical_project_id=room.get('technical_project_id'),technical_order_no=room.get('technical_order_no'),
             subtitle='资源开拓讨论' if room.get('parent_key', RESOURCE_ROOT) == RESOURCE_ROOT else '群聊',
             category_ids=[mid], storage_ready=ready, pinned=bool(member and member.pinned),

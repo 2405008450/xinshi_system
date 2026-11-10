@@ -55,7 +55,20 @@ def test_multidirection_creation_uses_each_leaf_statistics(case):
         '001':{'word_count_matrix':{'company':{'words':12}}},
         '002':{'word_count_matrix':{'company':{'words':15}}},
     }),order_no='TP-261108-983')
-    assert root.word_count_matrix['company']['words']==27
+    assert root.word_count_matrix['company']['words'] is None
+    assert root.word_count_matrix_source=='project'
+
+
+def test_direction_copies_keep_manual_edit_and_original_project_counts(case):
+    from schemas import TranslationProjectCreate
+    db,user,crud=case
+    root=crud.create_translation_project(db,TranslationProjectCreate(project_name='原文.docx',language_pair='中文→英语；中文→法语',created_by=user.id,submission_mode='normal',sub_orders_reviewed=True,word_count_matrix={'company':{'words':100}},initial_sub_order_details={
+        '001':{'word_count_matrix':{'company':{'words':80}}},
+        '002':{'word_count_matrix':{'company':{'words':100}}},
+    }),order_no='TP-261110-983')
+    assert sorted(row.word_count_matrix['company']['words'] for row in root.sub_orders)==[80,100]
+    assert root.word_count_matrix['company']['words']==100
+    assert root.word_count_matrix_source=='project'
 
 
 def test_preliminary_only_does_not_pass_and_zero_is_valid(case):
@@ -65,6 +78,36 @@ def test_preliminary_only_does_not_pass_and_zero_is_valid(case):
             '001':{'word_count_matrix':{'preliminary':{'words':1}}},'002':{'word_count_matrix':{'company':{'words':0}}}
         }),order_no='TP-261108-984')
     db.rollback()
+
+
+def test_invalid_initial_detail_returns_safe_field_errors_before_any_write(case):
+    from fastapi import HTTPException
+    from models import TranslationProject
+    db,user,crud=case
+    with pytest.raises(HTTPException) as error:
+        crud.create_translation_project(db,payload(case,initial_sub_order_details={
+            '001':{'translator_id':'','customer_deadline_time':'','review1_progress':0},
+        }),order_no='TP-261110-981')
+    assert error.value.status_code==422
+    errors=error.value.detail
+    assert {item['loc'][-1] for item in errors}=={'translator_id','customer_deadline_time','review1_progress'}
+    assert all(item['loc'][:3]==['body','initial_sub_order_details','001'] for item in errors)
+    assert all('input' not in item and 'url' not in item and 'ctx' not in item for item in errors)
+    assert db.query(TranslationProject).count()==0
+
+
+def test_normalized_initial_detail_can_save_zero_counts_and_unassigned_translator(case):
+    from translation_project_submission import mail_policy
+    db,user,crud=case
+    root=crud.create_translation_project(db,payload(case,submission_mode='normal_children',sub_orders_reviewed=True,initial_sub_order_details={
+        '001':{'translator_id':None,'translator_assignment_time':None,'sent_to_client_time':None,'customer_deadline_time':None,'translator_delivery_progress':'0','review1_progress':'35','word_count_matrix':{'company':{'words':0}}},
+        '002':{'word_count_matrix':{'company':{'words':123}}},
+    }),order_no='TP-261110-982')
+    first=next(row for row in root.sub_orders if row.sub_order_no.endswith('.001'))
+    assert first.translator_id is None and first.customer_deadline_time is None
+    assert first.translator_delivery_progress=='0%' and first.review1_progress=='35%'
+    assert root.word_count_matrix['company']['words']==123
+    assert mail_policy(db,root)==(False,'')
 
 
 def test_mail_policy_blocks_unreviewed_existing_children(case):

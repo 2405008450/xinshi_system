@@ -13,7 +13,7 @@
           <el-button v-if="categories.canManage && !root.isConversation" link :disabled="!!editing || !categories.hierarchyReady" :aria-label="`在${root.name}下新建${root.id === resourceFolderId ? '讨论' : '会话'}`" :title="root.id === resourceFolderId ? '新建讨论' : '创建会话'" @click="start(root.id, null, true)"><el-icon><Plus /></el-icon></el-button>
           <el-button v-if="categories.canManage && !root.isConversation && root.id !== resourceFolderId" link :disabled="!!editing || !categories.hierarchyReady" :aria-label="`在${root.name}下创建二级菜单`" title="创建二级菜单" @click="start(root.id, null, false, true)"><el-icon><FolderAdd /></el-icon></el-button>
           <el-button v-if="categories.canManage && !root.builtin" link :disabled="!!editing" :aria-label="`重命名${root.name}`" @click="start(root.parentKey, root)"><el-icon><Edit /></el-icon></el-button>
-          <el-button v-if="categories.canManage && !root.builtin" link :disabled="!!editing || saving" :aria-label="`${root.isConversation ? '删除会话' : '移除'}${root.name}`" @click="remove(root)"><el-icon><Close /></el-icon></el-button>
+          <el-button v-if="categories.canManage && !root.builtin && !root.deletionProtected" link :disabled="!!editing || saving" :aria-label="`${root.isConversation ? '删除会话' : '移除'}${root.name}`" @click="remove(root)"><el-icon><Close /></el-icon></el-button>
         </div>
         <div v-if="root.id !== resourceFolderId && expanded.has(root.id) || editing?.parentKey === root.id" class="chat-folder-tree__children">
           <el-button v-if="root.id===annotationFolderId" link class="chat-technical-entry" @click="technicalPicker.open()">技术需求</el-button>
@@ -22,7 +22,7 @@
             <span class="chat-folder-tree__grip" title="拖动调整分类顺序" aria-hidden="true">⠿</span>
             <button type="button" class="chat-folder-tree__name" :aria-pressed="selected === child.id" @click="openChild(child)"><el-icon v-if="child.isConversation"><ChatDotRound /></el-icon><span>{{ child.name }}</span><small class="chat-folder-tree__count" :aria-label="`${count(child.id)} 个对话`">{{ count(child.id) }}</small><b v-if="mentionCount(child.id)" class="chat-folder-tree__mention" :aria-label="`${mentionCount(child.id)} 条未读提及`" role="button" tabindex="0" @click.stop.prevent="emit('unread',child.id)" @keydown.enter.stop.prevent="emit('unread',child.id)" @keydown.space.stop.prevent="emit('unread',child.id)">{{ mentionCount(child.id) > 99 ? '99+' : mentionCount(child.id) }}</b></button>
             <el-button v-if="categories.canManage && !child.builtin && !child.isConversation && child.parentKey === root.id" link :disabled="!!editing || !categories.hierarchyReady" :aria-label="`在${child.name}下新建会话`" title="新建会话" @click="start(child.id, null, true)"><el-icon><Plus /></el-icon></el-button>
-            <el-button v-if="categories.canManage && !child.builtin" link :disabled="!!editing" :aria-label="`重命名${child.name}`" @click="start(child.parentKey, child)"><el-icon><Edit /></el-icon></el-button><el-button v-if="categories.canManage && !child.builtin && child.parentKey !== resourceFolderId" link :disabled="!!editing || saving" :aria-label="`${child.isConversation ? '删除会话' : '删除分类'}${child.name}`" title="删除" @click="remove(child)"><el-icon><Close /></el-icon></el-button>
+            <el-button v-if="categories.canManage && !child.builtin" link :disabled="!!editing" :aria-label="`重命名${child.name}`" @click="start(child.parentKey, child)"><el-icon><Edit /></el-icon></el-button><el-button v-if="categories.canManage && !child.builtin && !child.deletionProtected && child.parentKey !== resourceFolderId" link :disabled="!!editing || saving" :aria-label="`${child.isConversation ? '删除会话' : '删除分类'}${child.name}`" title="删除" @click="remove(child)"><el-icon><Close /></el-icon></el-button>
           </div>
           <ChatInlineNameEditor v-if="editing?.parentKey === child.id" :key="editKey" :initial-name="editing.name" label="会话名称" :saving="saving" :error="error" @save="save" @cancel="cancel" />
           </template>
@@ -35,7 +35,7 @@
     </div>
     <div class="chat-folder-tree__resize" role="separator" aria-label="调整分组区域高度" aria-orientation="horizontal" tabindex="0" :aria-valuenow="panelHeight" :aria-valuemin="100" :aria-valuemax="maxHeight()" @pointerdown="beginResize" @keydown.up.prevent="resizeBy(-20)" @keydown.down.prevent="resizeBy(20)" />
     <el-popover v-model:visible="annotationMenuVisible" :virtual-ref="annotationMenuAnchor" :z-index="annotationMenuZ" virtual-triggering :trigger="[]" placement="right-start" :width="160">
-      <div v-if="categoryMenuTarget" class="chat-folder-tree__context-menu"><el-button v-if="!categoryMenuTarget.isConversation" text @click="categoryCommand('create')">新建会话</el-button><el-button text @click="categoryCommand('rename')">重命名</el-button><el-button text type="danger" @click="categoryCommand('delete')">删除</el-button></div>
+      <div v-if="categoryMenuTarget" class="chat-folder-tree__context-menu"><el-button v-if="!categoryMenuTarget.isConversation" text @click="categoryCommand('create')">新建会话</el-button><el-button text @click="categoryCommand('rename')">重命名</el-button><el-button v-if="!categoryMenuTarget.deletionProtected" text type="danger" @click="categoryCommand('delete')">删除</el-button></div>
       <div v-else class="chat-folder-tree__context-menu"><el-button text @click="annotationMenuVisible = false; emit('browse-annotation')">项目搜索</el-button><el-button v-if="hasPermission('projects:write')" text @click="annotationMenuVisible = false; createRequest++">新增项目</el-button><el-button text @click="annotationMenuVisible=false;technicalPicker.open()">技术需求</el-button></div>
     </el-popover>
     <TechnicalRequirementsPicker ref="technicalPicker" />
@@ -146,10 +146,10 @@ function start(parentKey = null, row = null, conversation = false, directory = f
 function cancel() { if (!saving.value) { editing.value = null; error.value = '' } }
 function openChild(row) {
   emit('select', row.id)
-  if (row.isConversation) emit('open-conversation', { key: `discussion:${row.id}`, projectId: row.id, projectType: 'discussion', title: row.name, subtitle: '群聊' })
+  if (row.isConversation) emit('open-conversation', { key: `discussion:${row.id}`, projectId: row.id, projectType: 'discussion', title: row.name, subtitle: '群聊', deletionProtected:!!row.deletionProtected })
 }
 async function remove(row) {
-  if (!categories.canManage || row.builtin || editing.value || saving.value) return
+  if (!categories.canManage || row.builtin || row.deletionProtected || editing.value || saving.value) return
   const label = row.isConversation ? '会话' : row.parentKey ? '分类' : '分组'
   try { await ElMessageBox.confirm(row.isConversation ? `删除“${row.name}”会话？删除后停止访问，历史消息保留。` : `删除“${row.name}”${label}？其中的会话和历史消息会保留。`, `删除${label}`, { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }) } catch { return }
   saving.value = true

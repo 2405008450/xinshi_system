@@ -15,8 +15,8 @@ export const getClientCount = (params, config = {}) => {
 export const getClientPage = (params, config = {}) => api.get('/clients/page', { ...config, params })
 export const getClientOptions = (params = {}, config = {}) => api.get('/clients/options', { ...config, params })
 
-export const getClient = (id) => {
-  return api.get(`/clients/${id}`)
+export const getClient = (id, config = {}) => {
+  return api.get(`/clients/${id}`, config)
 }
 
 export const getClientProjects = (id, config = {}) => api.get(`/clients/${id}/projects`, config)

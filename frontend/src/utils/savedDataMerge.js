@@ -1,5 +1,6 @@
 const plain=value=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.getPrototypeOf(value)===Object.prototype
 export const savedFieldKey=key=>key.replace(/([a-z0-9])([A-Z])/g,'$1_$2').toLowerCase()
+export const isSavedSystemField=key=>['updated_at','created_at'].includes(savedFieldKey(String(key).split('.').at(-1)))
 const normalize=value=>Array.isArray(value)?value.map(normalize):plain(value)?Object.fromEntries(Object.entries(value).map(([key,item])=>[savedFieldKey(key),normalize(item)]).sort(([a],[b])=>a.localeCompare(b))):value
 export const sameSavedValue=(a,b)=>{
   if(typeof a==='number'&&typeof b==='string'&&/^-?\d+(?:\.\d+)?$/.test(b))return a===Number(b)
@@ -10,7 +11,7 @@ export const copySavedValue=value=>value===undefined?undefined:JSON.parse(JSON.s
 const keyIn=(obj,key)=>Object.keys(obj).find(name=>savedFieldKey(name)===savedFieldKey(key))
 const idOf=item=>plain(item)&&item.id!=null?String(item.id):null
 function edited(value,before){
-  if(plain(value)&&plain(before))return Object.entries(before).some(([key,item])=>{const local=keyIn(value,key);return local!=null&&edited(value[local],item)})
+  if(plain(value)&&plain(before))return Object.entries(before).some(([key,item])=>{const local=keyIn(value,key);return !isSavedSystemField(key)&&local!=null&&edited(value[local],item)})
   if(Array.isArray(value)&&Array.isArray(before))return value.length!==before.length||value.some((item,index)=>edited(item,before[index]))
   return !sameSavedValue(value,before)
 }
@@ -26,6 +27,8 @@ export function mergeSavedRecord(target,before,after,conflict=()=>{},path=''){
   if(!plain(target)||!plain(before)||!plain(after))return
   for(const [serverKey,next] of Object.entries(after)){
     const oldKey=keyIn(before,serverKey),key=keyIn(target,serverKey)
+    // 系统时间不属于用户输入；统一采用服务端值，格式变化也不产生编辑冲突。
+    if(key!=null&&isSavedSystemField(serverKey)){target[key]=convertLike(next,target[key]);continue}
     if(key==null||oldKey==null||sameSavedValue(before[oldKey],next))continue
     const old=before[oldKey],current=target[key],field=path?`${path}.${key}`:key
     if(sameSavedValue(current,next))continue

@@ -4,10 +4,10 @@ import {businessNumberLeases,registerBusinessNumberField,newNumberWindowId} from
 
 export function useBusinessNumber(options) {
   const error=ref('')
-  let lease=null,request=null,renewRequest=null,generation=0,timer=null,inputKey=''
+  let lease=null,request=null,renewRequest=null,generation=0,timer=null,retryTimer=null,retryDelay=2000,inputKey=''
   function releaseItem(item){fetch(`/api/business-numbers/${item.token}/release`,{method:'POST',keepalive:true,headers:{Authorization:`Bearer ${item.authToken}`}}).catch(()=>{})}
   function release(){
-    generation++;clearInterval(timer);timer=null
+    generation++;clearInterval(timer);timer=null;clearTimeout(retryTimer);retryTimer=null;retryDelay=2000
     const old=lease;lease=null
     if(old){businessNumberLeases.delete(old.token);releaseItem(old)}
   }
@@ -38,11 +38,18 @@ export function useBusinessNumber(options) {
     const pending=api.post(`/business-numbers/${item.token}/heartbeat`).then(()=>{
       if(current!==generation||lease!==item||item.owner!==localStorage.getItem('user_id'))return false
       error.value=''
+      clearTimeout(retryTimer);retryTimer=null;retryDelay=2000
       return true
     }).catch(cause=>{
       if(current!==generation||lease!==item||item.owner!==localStorage.getItem('user_id'))return false
       if(cause?.response?.status===409)return acquire()
-      error.value='编号续期暂时失败，系统会自动重试；填写内容将保留，请稍后保存'
+      const label=['translation','translation_suborder','interpretation','annotation','annotation_suborder','recruitment'].includes(options.kind())?'订单号':'编号'
+      error.value=`${label}暂时无法确认，系统正在重试，填写内容已保留，请稍后保存。`
+      if(!cause?.response||[408,429,500,502,503,504].includes(cause.response.status)){
+        clearTimeout(retryTimer)
+        retryTimer=setTimeout(()=>{retryTimer=null;if(document.visibilityState!=='hidden')void renew()},retryDelay)
+        retryDelay=Math.min(30000,retryDelay*2)
+      }
       return false
     }).finally(()=>{if(renewRequest?.promise===pending)renewRequest=null})
     renewRequest={item,promise:pending}

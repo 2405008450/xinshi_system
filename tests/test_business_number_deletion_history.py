@@ -100,3 +100,49 @@ def test_legacy_translator_and_talent_share_one_number_pool(environment):
     person=ResourcePerson(id=uuid4(),full_name='新人才')
     db.add(person);db.commit()
     assert person.resource_code=='RC000003'
+
+
+def test_translation_history_searches_all_levels_customer_and_business_date(environment,monkeypatch):
+    from datetime import date,datetime
+    from chat_time import BUSINESS_TIMEZONE
+    from routers.business_numbers import history
+    import routers.auth
+    db,(owner,_,_)=environment
+    monkeypatch.setattr(routers.auth,'get_user_permission_codes',lambda *_:['projects:read'])
+    root_id=str(uuid4())
+    def add(scope,number,at,snapshot):
+        row=BusinessNumberDeletionHistory(id=uuid4(),scope=scope,number=number,entity_type='translation_project' if scope=='translation' else 'translation_sub_order',entity_id=str(uuid4()),entity_name='合同项目',snapshot=snapshot,deleted_at=datetime.fromisoformat(at).replace(tzinfo=BUSINESS_TIMEZONE))
+        db.add(row)
+        return row
+    root=add('translation','TP-261110-900','2026-11-10T00:00:00',{'client_name':'AA 客户全称','client_short_name':'BB简称'})
+    root.entity_id=root_id
+    # 兼容旧子订单只有母单 ID，母单删除快照保存了客户名称的情况。
+    child=add('translation_suborder:'+root_id,'TP-261110-900.001.001','2026-11-10T23:59:59',{'parent_project_id':root_id})
+    add('translation','TP-261111-901','2026-11-11T00:00:00',{'client_name':'其他客户'})
+    db.commit()
+    result=history('translation','',0,20,db,owner,include_children=True,client_name='简称 AA',deleted_from=date(2026,11,10),deleted_to=date(2026,11,10))
+    assert result['total']==2
+    assert {row['id'] for row in result['items']}=={str(root.id),str(child.id)}
+    assert all(row['client_name']=='AA 客户全称' for row in result['items'])
+    assert history('translation','',0,20,db,owner,include_children=True,order_no='900 .001')['total']==1
+    assert history('translation','',0,20,db,owner,include_children=False,order_no='900')['total']==1
+    assert history('translation','',0,20,db,owner,include_children=True,client_name='AA 缺少')['total']==0
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException,match='开始日期'):
+        history('translation','',0,20,db,owner,deleted_from=date(2026,11,11),deleted_to=date(2026,11,10))
+
+
+def test_new_translation_deletion_snapshots_freeze_full_and_short_client_names(environment):
+    from models import TranslationSubOrder
+    from business_numbering import archive_number
+    db,(owner,_,_)=environment
+    customer=client(db);customer.client_name='删除时客户全称';customer.client_short_name='删除时简称'
+    root=project(db,customer,'SNAP',None)
+    child=TranslationSubOrder(id=uuid4(),parent_project_id=root.id,sub_order_no=root.order_no+'.001',sub_project_name='合同.docx')
+    db.add(child);db.commit()
+    archive_number(db,'translation',root.order_no,root,actor=owner)
+    archive_number(db,'translation_suborder:'+str(root.id),child.sub_order_no,child,actor=owner);db.commit()
+    customer.client_name='改名后的客户';db.commit()
+    for row in db.query(BusinessNumberDeletionHistory):
+        assert row.snapshot['client_name']=='删除时客户全称'
+        assert row.snapshot['client_short_name']=='删除时简称'

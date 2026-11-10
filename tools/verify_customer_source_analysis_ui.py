@@ -1,6 +1,7 @@
 """分析页、客户来源页签和咨询类型 UI；所有 API 在浏览器中拦截，禁止业务写入。"""
 import json
 import re
+import sys
 from urllib.parse import parse_qs, urlparse
 from urllib.request import urlopen
 
@@ -9,7 +10,7 @@ from playwright.sync_api import expect, sync_playwright
 BASE = 'http://localhost:3000'
 
 
-def run():
+def run(analysis_only=False):
     compiled = urlopen(BASE + '/src/views/client/DataAnalysis.vue', timeout=30).read().decode()
     vue = re.search(r'from ["\']([^"\']*/vue\.js[^"\']*)', compiled).group(1)
     consultation_compiled = urlopen(BASE + '/src/views/client/Consultations.vue', timeout=30).read().decode()
@@ -20,7 +21,7 @@ const mode=ref('analysis');const app=createApp({render:()=>h('div',{},[...['anal
     client = {'id': '00000000-0000-4000-8000-000000000001', 'client_code': 'CL-QA', 'client_name': '隔离测试客户', 'client_short_name': '隔离测试', 'sub_clients': [], 'updated_at': '2026-11-07T12:00:00+08:00'}
     client.update(contact_people=[{'name': '原联系人', 'contact_method': '13800000000', 'description': '原有说明'}], contact_names=['原联系人'], manager_contact='13800000000')
     calls, writes, errors, submissions, consultations = [], [], [], [], []
-    labels = {'source': '百度', 'method': '电话', 'type': '同传设备租赁', 'keyword': '英语翻译', 'status': 'success', 'type_status': json.dumps(['同传设备租赁', 'success'], ensure_ascii=False)}
+    labels = {'source': '百度', 'method': '电话', 'type': '同传设备租赁', 'keyword': '英语翻译', 'status': 'success', 'type_status': json.dumps(['同传设备租赁', 'success'], ensure_ascii=False), 'type_confirmed': '同传设备租赁', 'source_confirmed': '百度'}
 
     def api(route):
         url = urlparse(route.request.url); path = url.path; params = parse_qs(url.query)
@@ -74,6 +75,25 @@ const mode=ref('analysis');const app=createApp({render:()=>h('div',{},[...['anal
             page.get_by_role('tab', name=label, exact=True).click()
             expect(page.locator('.source-analysis:visible .el-table').first).to_contain_text('1')
             assert any(params.get('dimension') == [dimension] for _, params in calls)
+        for label, dimension in [('项目类型成交分析', 'type_confirmed'), ('客户来源成交分析', 'source_confirmed')]:
+            page.get_by_role('tab', name=label, exact=True).click()
+            confirmed_panel = page.locator('.source-analysis:visible')
+            expect(confirmed_panel.locator('.el-radio-button.is-active')).to_contain_text('按月')
+            expect(confirmed_panel.get_by_text('按日', exact=True)).to_have_count(0)
+            expect(confirmed_panel).to_contain_text('仅统计当前咨询状态为“已确认”')
+            expect(confirmed_panel.locator('.source-record-heading')).to_contain_text('成交明细（已确认）')
+            expect(confirmed_panel.locator('.el-table').last).to_contain_text('已确认')
+            confirmed_panel.locator('.el-table').first.get_by_role('button', name=labels[dimension], exact=True).click()
+            expect(confirmed_panel.locator('.source-record-heading')).to_contain_text(labels[dimension])
+            confirmed_panel.get_by_text('按周', exact=True).click()
+            expect(confirmed_panel.locator('.el-table').nth(1)).to_contain_text('2026-11-02 起一周')
+            confirmed_panel.locator('.el-table').nth(1).get_by_role('button', name='1', exact=True).first.click()
+            expect(confirmed_panel.locator('.source-record-heading')).to_contain_text('2026-11-02 起一周')
+            assert any(params.get('dimension') == [dimension] and params.get('start') == ['2026-11-02'] and params.get('end') == ['2026-11-08'] for path, params in calls if path.endswith('/records'))
+            confirmed_panel.get_by_role('button', name='重置', exact=True).click()
+            expect(confirmed_panel.locator('.el-radio-button.is-active')).to_contain_text('按月')
+            assert any(params.get('dimension') == [dimension] and params.get('granularity') == ['month'] for path, params in calls if not path.endswith('/records'))
+        page.get_by_role('tab', name='咨询类型 × 咨询状态', exact=True).click()
         panel = page.locator('.source-analysis:visible')
         grid = panel.locator('.el-table').nth(1)
         expect(grid).to_contain_text('同传设备租赁')
@@ -90,6 +110,11 @@ const mode=ref('analysis');const app=createApp({render:()=>h('div',{},[...['anal
         page.set_viewport_size({'width': 390, 'height': 844})
         assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
         page.set_viewport_size({'width': 1440, 'height': 1000})
+        if analysis_only:
+            assert not errors, errors
+            browser.close()
+            print('PASS: 八类分析、两类成交统计、仅已确认口径、周/月切换、重置及明细下钻（接口全模拟）')
+            return
         page.get_by_role('button', name='clients', exact=True).click()
         page.get_by_role('button', name='编辑', exact=True).first.click()
         dialog = page.locator('.el-dialog:visible')
@@ -184,4 +209,4 @@ const mode=ref('analysis');const app=createApp({render:()=>h('div',{},[...['anal
     print('PASS: 六类分析、客户来源、三类新咨询类型、多联系人、未成交原因校验与取消、弹窗拖动复位及固定底部；接口全模拟。')
 
 
-if __name__ == '__main__': run()
+if __name__ == '__main__': run(analysis_only='--analysis-only' in sys.argv)
