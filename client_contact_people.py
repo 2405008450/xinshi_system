@@ -48,14 +48,18 @@ def replace_details(db, owner, people):
     if len({name.casefold() for name in names})!=len(names):raise ValueError('同一客户的联系人姓名不能重复')
     replace(db,owner,names);db.flush()
     existing={p.normalized_name:p for p in owner_rows(db,owner)}
+    details={}
     for value in people:
         person=existing[value.name.strip().casefold()]
         detail=db.get(ClientContactPersonDetail,person.id)
-        if detail is None:detail=ClientContactPersonDetail(person_id=person.id);db.add(detail)
+        if detail is None:detail=ClientContactPersonDetail(person_id=person.id,contact_method='',description='');db.add(detail)
+        details[person.id]=detail
         if db.info.get('client_contacts_visible',True):detail.contact_method=value.contact_method or ''
         detail.description=value.description or ''
     first=existing[names[0].casefold()]
-    owner.manager_contact=db.get(ClientContactPersonDetail,first.id).contact_method or ''
+    # 新详情尚未落库时直接使用本次创建的对象，兼容生产会话关闭 autoflush。
+    if db.info.get('client_contacts_visible',True):
+        owner.manager_contact=details[first.id].contact_method or ''
 
 
 def ready(db):

@@ -11,7 +11,7 @@
     <el-alert v-if="clientNumbering.error.value" :title="clientNumbering.error.value" type="error" show-icon :closable="false" />
     <div v-if="numberScope" style="display:flex;justify-content:flex-end;gap:16px;margin-bottom:8px">
       <slot name="number-actions" />
-      <el-button v-if="numberActive && $attrs.model?.[numberField]" link type="warning" :loading="skipLoading" @click="skipCurrentNumber">放弃当前编号并取下一个</el-button>
+      <el-button v-if="numberActive && $attrs.model?.[numberField]" link type="warning" :loading="skipLoading" @click="skipCurrentNumber">释放当前编号并重新取号</el-button>
       <el-button link type="primary" @click="numberHistoryVisible=true">编号删除记录</el-button>
     </div>
     <BusinessNumberDeletionHistory v-if="numberHistoryVisible" v-model="numberHistoryVisible" :kind="numberScope" :number="$attrs.model?.[numberField]" />
@@ -24,7 +24,7 @@
 import { nextTick, ref, getCurrentInstance, onMounted, onUpdated, onBeforeUnmount, useAttrs, watch,defineAsyncComponent } from 'vue'
 import SavedDataConflict from './SavedDataConflict.vue'
 import {bindSavedForm,unbindSavedForm} from '@/utils/savedDataRegistry'
-import { ElForm as ElementForm, ElMessage } from 'element-plus'
+import { ElForm as ElementForm, ElMessage, ElMessageBox } from 'element-plus'
 // 包装组件使用别名，按需插件无法识别 ElementForm，必须显式引入表单布局样式。
 import 'element-plus/theme-chalk/el-form.css'
 import { focusFirstInvalidField } from '../../utils/formValidation'
@@ -53,6 +53,9 @@ const skipCurrentNumber=async()=>{
   if(skipLoading.value)return
   skipLoading.value=true
   try{
+    try{
+      await ElMessageBox.confirm('当前编号将释放回编号池，并重新分配一个可用编号。已填写内容会保留，是否继续？','重新取号',{confirmButtonText:'释放并重新取号',cancelButtonText:'保留当前编号',type:'warning'})
+    }catch{return}
     if(await numbering.skip()){
       clearValidate()
       ElMessage.success('已换用新编号，已填内容仍保留')

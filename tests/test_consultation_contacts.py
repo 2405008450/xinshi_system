@@ -30,6 +30,27 @@ def person(name, method, description=''):
     return ClientContactPersonInput(name=name, contact_method=method, description=description)
 
 
+@pytest.mark.parametrize('contacts_visible', [True, False])
+def test_new_contact_with_production_autoflush_disabled(contact_data, contacts_visible):
+    import crud
+    from schemas import ConsultationCreate
+    from client_contact_people import ClientContactPersonDetail, owner_rows
+    db, client, _, _ = contact_data
+    db.autoflush = False
+    db.info['client_contacts_visible'] = contacts_visible
+    client.manager_contact = '原有联系方式'
+    db.flush()
+    row = crud.create_consultation(db, ConsultationCreate(
+        client_id=client.id, contact_people=[person('新增联系人', '新联系方式', '采购')],
+    ))
+    assert row.id is not None
+    contact = owner_rows(db, client)[0]
+    detail = db.get(ClientContactPersonDetail, contact.id)
+    assert detail.description == '采购'
+    assert detail.contact_method == ('新联系方式' if contacts_visible else '')
+    assert client.manager_contact == ('新联系方式' if contacts_visible else '原有联系方式')
+
+
 def test_create_and_edit_sync_contacts_without_deleting_other_people(contact_data):
     import crud
     from schemas import ConsultationCreate, ConsultationUpdate

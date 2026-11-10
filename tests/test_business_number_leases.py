@@ -130,7 +130,7 @@ def test_released_number_can_be_reassigned_to_another_account(database):
         with pytest.raises(HTTPException):allocate(db,'translation','TP-261107-',1)
         assert heartbeat(__import__('uuid').UUID(b['token']),db,other)['ok']
 
-def test_skip_consultation_number_keeps_old_number_out_of_pool(database):
+def test_replace_consultation_number_releases_old_number_for_future_use(database):
     user=SimpleNamespace(id=uuid4())
     business_date=now().date()
     prefix=f'EQ-{business_date:%y%m%d}-'
@@ -139,7 +139,7 @@ def test_skip_consultation_number_keeps_old_number_out_of_pool(database):
     with Session(database) as db:
         replacement=skip_number(__import__('uuid').UUID(first['token']),db,user)
         assert replacement['number']==f'{prefix}002'
-        assert db.get(BusinessNumberLease,__import__('uuid').UUID(first['token'])).state=='skipped'
+        assert db.get(BusinessNumberLease,__import__('uuid').UUID(first['token'])).state=='released'
     with Session(database) as db:
         with pytest.raises(HTTPException) as error:
             skip_number(__import__('uuid').UUID(first['token']),db,user)
@@ -148,7 +148,7 @@ def test_skip_consultation_number_keeps_old_number_out_of_pool(database):
         release(__import__('uuid').UUID(replacement['token']),db,user)
     with Session(database) as db:
         next_number=reserve(Reserve(kind='consultation',window_id=uuid4(),business_date=business_date),db,user)
-        assert next_number['number']==f'{prefix}002'
+        assert next_number['number']==f'{prefix}001'
 
 def test_skip_translation_number_preserves_business_date(database):
     user=SimpleNamespace(id=uuid4())
@@ -158,6 +158,15 @@ def test_skip_translation_number_preserves_business_date(database):
         second=skip_number(__import__('uuid').UUID(first['token']),db,user)
     assert first['number']=='TP-261107-1000'
     assert second['number']=='TP-261107-1001'
+
+def test_repeated_number_changes_reuse_released_numbers_instead_of_growing_sequence(database):
+    user,current,_=opening(database)
+    values={current['number']}
+    for _ in range(10):
+        with Session(database) as db:
+            current=skip_number(__import__('uuid').UUID(current['token']),db,user)
+            values.add(current['number'])
+    assert values=={'TP-261107-1000','TP-261107-1001'}
 
 @pytest.mark.parametrize('scope,prefix,width',[
     ('interpretation','IP-261107-',3),('annotation','AP-261107-',3),
@@ -171,11 +180,12 @@ def test_skip_translation_number_preserves_business_date(database):
     ('technical_subtask:'+str(uuid4()),'DT-261107-001.',3),
     ('greeting:'+str(uuid4()),'TEST-261107-',3),
 ])
-def test_all_automatic_number_scopes_recycle_released_leases(database,scope,prefix,width):
+@pytest.mark.parametrize('released_state',['released','skipped'])
+def test_all_automatic_number_scopes_recycle_released_leases(database,scope,prefix,width,released_state):
     with Session(database) as db:
         db.info.update(number_actor=uuid4(),number_reserve=uuid4())
         first=allocate(db,scope,prefix,1,width);row=db.info['number_reserved_row'];old=row.id
-        row.state='released';db.commit()
+        row.state=released_state;db.commit()
     with Session(database) as db:
         db.info.update(number_actor=uuid4(),number_reserve=uuid4())
         assert allocate(db,scope,prefix,99,width)==first

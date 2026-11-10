@@ -97,12 +97,17 @@ def skip_number(token: UUID, db=Depends(get_db), user=Depends(get_current_user))
     parent_id = UUID(row.scope.split(':', 1)[1]) if ':' in row.scope else None
     date_match = re.search(r'-(\d{6})-', row.number)
     business_date = datetime.strptime(date_match.group(1), '%y%m%d').date() if date_match else None
-    row.state = 'skipped'
+    old_number = row.number
+    row.state = 'released'
     db.flush()
     db.info['number_actor'] = user.id
     db.info['number_reserve'] = uuid4()
     scope, prefix, minimum, width = spec(db, kind, parent_id, business_date)
-    number = allocate(db, scope, prefix, minimum, width)
+    db.info['number_excluded'] = {old_number}
+    try:
+        number = allocate(db, scope, prefix, minimum, width)
+    finally:
+        db.info.pop('number_excluded', None)
     replacement = db.info['number_reserved_row']
     db.commit()
     return {'token': str(replacement.id), 'number': number}

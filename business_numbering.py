@@ -165,7 +165,8 @@ def allocate(db, scope, prefix, minimum=1, width=3):
                 db.info.setdefault('number_consumed', set()).add(row.id)
                 return row.number
     leases = db.query(BusinessNumberLease).filter(BusinessNumberLease.scope == scope, BusinessNumberLease.number.startswith(prefix, autoescape=True)).with_for_update().all()
-    recycled = sorted((row for row in leases if (row.state == 'released' or row.state == 'active' and not live(row)) and row.number not in stored_numbers and pattern.fullmatch(row.number)), key=lambda row:int(pattern.fullmatch(row.number)[1]))
+    excluded = db.info.get('number_excluded', set())
+    recycled = sorted((row for row in leases if (row.state in ('released', 'skipped') or row.state == 'active' and not live(row)) and row.number not in stored_numbers and row.number not in excluded and pattern.fullmatch(row.number)), key=lambda row:int(pattern.fullmatch(row.number)[1]))
     known = {row.number for row in leases}
     archived = set()
     if history_ready(db):
