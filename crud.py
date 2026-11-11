@@ -2554,12 +2554,6 @@ def create_translation_project(
     from translation_document_requirements import save as save_document_requirements
     save_document_requirements(db, db_project, statement_required=project.statement_required,
         quotation_draft=project.quotation_draft, document_notes=project.document_notes, actor_id=project.created_by)
-    if project.payment_draft is not None:
-        from translation_payment_service import save as save_payments
-        save_payments(db, db_project, project.payment_draft, project.payment_version, project.created_by, project.payment_confirmation)
-    elif project.payment_confirmation is not None:
-        from translation_payment_confirmation import save as save_payment_confirmation
-        save_payment_confirmation(db,db_project.id,project.payment_confirmation,project.created_by)
     from project_client_manager import apply as apply_client_manager
     apply_client_manager(db, 'translation', db_project, project.client_manager_id, project.client_manager_change_reason, project.created_by, creating=True)
     _sync_project_role_assignments(db, db_project, role_assignments)
@@ -2610,6 +2604,17 @@ def create_translation_project(
     apply_submission(db, db_project, project.submission_mode, project.sub_orders_reviewed)
     if project.initial_sub_order_names or project.initial_folder_import:
         db.expire(db_project, ['sub_orders'])
+    # 付款须在收费、价格继承及初始子订单完成后核对，读取本次创建的完整总价。
+    # 仍与项目处于同一事务中，付款校验失败时不得单独提交项目。
+    db.flush()
+    if project.payment_draft is not None:
+        from translation_payment_service import save as save_payments
+        # 新项目尚无付款版本；旧草稿可能携带空字符串或其他项目的版本。
+        # 仅新增入口使用初始状态，已有项目及独立付款接口继续严格校验版本。
+        save_payments(db, db_project, project.payment_draft, None, project.created_by, project.payment_confirmation)
+    elif project.payment_confirmation is not None:
+        from translation_payment_confirmation import save as save_payment_confirmation
+        save_payment_confirmation(db,db_project.id,project.payment_confirmation,project.created_by)
     record_project_operation(
         db,
         project_type="translation",

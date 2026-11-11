@@ -11,7 +11,7 @@ class CleanModel(BaseModel):
 
 class ActionWrite(CleanModel):
     id: UUID
-    channel: Literal["wechat", "enterprise", "group", "group_large", "communication", "project"]
+    channel: Literal["wechat", "enterprise", "whatsapp", "group", "group_large", "communication", "project"]
     status: str = Field(min_length=1, max_length=100)
     action_date: date
     operator_id: UUID

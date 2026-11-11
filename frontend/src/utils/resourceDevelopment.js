@@ -26,7 +26,7 @@ export const developmentColumnValue = (row, key) => {
   if (key.startsWith('custom_account:')) return row.custom_accounts?.find(item => item.name.trim().toLocaleLowerCase() === key.slice('custom_account:'.length))?.value || ''
   return row[key]
 }
-export const progressChannels = { wechat: '添加微信', enterprise: '添加企微', group: '企微小群', group_large: '企微大群', communication: '沟通', project: '入项' }
+export const progressChannels = { wechat: '添加微信', enterprise: '添加企微', whatsapp: '添加WhatsApp', group: '企微小群', group_large: '企微大群', communication: '沟通', project: '入项' }
 export const progressColumnChannel = { wechat_status: 'wechat', enterprise_status: 'enterprise', group_status: 'group', group_large_status: 'group_large', communication_status: 'communication', project_status: 'project' }
 export const isGroupChannel = channel => ['group', 'group_large'].includes(channel)
 export const groupStatusLabel = (status, channel) => channel === 'group' && status === '已邀进群' ? '已拉群' : status
@@ -133,7 +133,7 @@ export const friendFollowUpOptions = [
 export const sameDayRange = (today = new Date()) => [dateText(today), dateText(today)]
 export const categoryOptions = [{ value: 'national', label: '全国性平台' }, { value: 'local', label: '地方性平台' }, { value: 'international', label: '国外平台' }]
 
-export const defaultProgressStatus = channel => ['wechat', 'enterprise'].includes(channel) ? '已添加' : isGroupChannel(channel) ? '未处理' : progressStatuses(channel).at(-1)
+export const defaultProgressStatus = channel => ['wechat', 'enterprise', 'whatsapp'].includes(channel) ? '已添加' : isGroupChannel(channel) ? '未处理' : progressStatuses(channel).at(-1)
 // 与后端保持相同的渠道、成功状态和变更判断；历史原标记不参与自动入库。
 export const hasNewPrivateEntry = (actions, previous = []) => {
   const statuses = { wechat: '已添加', enterprise: '已添加', group: '已进群', group_large: '已进群' }

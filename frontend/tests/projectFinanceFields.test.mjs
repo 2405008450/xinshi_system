@@ -11,3 +11,11 @@ test('新增母订单与子订单保留随项目提交的财务草稿',()=>{
   const draft={customerChargeItems:[{unitPriceExclTax:.2}],paymentConfirmation:{isPaid:false}}
   assert.deepEqual(projectFinanceFields(draft,false),draft)
 })
+test('新增订单剔除空付款版本和来源版本，保留金额与付款草稿且不修改原表单',()=>{
+  for(const version of ['',null,'previous-project-version']){
+    const draft={projectName:'新增项目',customerChargeItems:[{totalExclTax:150}],paymentConfirmation:{revision:0,isPaid:true,fullPaymentAmount:150},paymentDraft:[],paymentVersion:version}
+    const {paymentVersion,...expected}=draft
+    assert.deepEqual(projectFinanceFields(draft,false),expected)
+    assert.equal(draft.paymentVersion,version)
+  }
+})

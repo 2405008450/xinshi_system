@@ -56,6 +56,8 @@
 
 ### 后续同步到云端和局域网
 
+2026-11-11 云端曾因常规更新遗漏 `docker-compose.thoughts-ai.yml` 而丢失 AI 开关、密钥与队列挂载，页面显示“AI 服务尚未启用”。现已将这三项配置并入部署机未入库的 `deploy/docker-compose.cloud.local.yml`，常规两文件发布即可保留 AI 配置。后续发布不得覆盖或重新生成该本地文件而丢弃这些设置；发布前应校验合并后的配置，发布后核对运行容器的开关与两个挂载，并执行一次有界推理验收。新环境仍可用下述独立 AI 覆盖文件启用。
+
 以下为发布准备，不代表已发布。各环境使用相同代码、各自的受限 SSH 密钥和持久化队列；算力机 `flock` 对所有环境统一限制为最多一路交互。笔记仍沿用共享业务数据库保存；尚未追加到笔记的 AI 结果只保留在生成它的环境，不能跨环境查看或取消。
 
 - 云端 `43.132.156.72`：镜像通过 `Dockerfile` 安装 `openssh-client`。在宿主机仓库外生成专用密钥 `/etc/xinshi/thoughts-ai/id_ed25519`，私钥权限 `600`；仅把公钥加入算力机 `authorized_keys`，沿用 `restrict,command="/usr/bin/python3 /root/xinshi_thoughts/gateway.py"`，以 `xinshi-thoughts-cloud` 标识。不复制 PC、生产运维或局域网私钥。
