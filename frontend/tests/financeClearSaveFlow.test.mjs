@@ -8,7 +8,7 @@ import {clearFinanceForm,isClearedFinanceForm} from '../src/utils/clearFinanceFo
 import {hasFixedFeeAmount} from '../src/utils/billingTaxMode.js'
 import {paymentConfirmationForm,paymentConfirmationPayload} from '../src/utils/paymentConfirmation.js'
 const source=readFileSync(new URL('../src/views/project/translation/CustomerFinance.vue',import.meta.url),'utf8')
-const ruleStart=source.indexOf('validator:(_rule,_value,callback)=>callback(editor.pricingMode')
+const ruleStart=source.indexOf('validator:(_rule,_value,callback)=>callback(!editor.fixedPricingFrom')
 const rule=source.slice(ruleStart+'validator:'.length,source.indexOf(",trigger:'change'",ruleStart))
 function validate(order){let error;const ctx={editor:order,isClearedFinanceForm,hasFixedFeeAmount};vm.createContext(ctx);vm.runInContext(`(${rule})`,ctx)(null,null,value=>{error=value});return error}
 
@@ -16,12 +16,13 @@ test('固定收费清空后，打开关联付款但不操作，返回可保存�
   const editor=ref(clearFinanceForm({id:'root',rootId:'root',pricingMode:'fixed',adjustedTotal:330,paymentConfirmation:{revision:5,isPaid:false}}))
   assert.equal(editor.value.pricingMode,'fixed');assert.equal(validate(editor.value),undefined)
   const calls=[],errors=[]
-  const ctx={paymentDetailsDirty:ref(false),paymentDetailsForm,paymentDetailsSignature,paymentDetailsPayload,originalPaymentDetails:'[]',editor,isClearedFinanceForm,hasFixedFeeAmount,paymentConfirmationForm,paymentConfirmationPayload,
+  const ctx={paymentDetailsDirty:ref(false),paymentDetailsForm,paymentDetailsSignature,paymentDetailsPayload,originalPaymentDetails:ref('[]'),editor,isClearedFinanceForm,hasFixedFeeAmount,paymentConfirmationForm,paymentConfirmationPayload,
     linkedPaymentVisible:ref(false),saving:ref(false),canWrite:true,formRef:ref({validate:async()=>!validate(editor.value)}),localTarget:ref(null),
     documentPayload:()=>({}),treeVersion:'v1',libraryVersion:'r1',billingTaxChoices:()=>[],effectiveBillingTaxMode:()=>null,paymentConfirmationDirty:ref(true),
-    updateLibrary:ref(false),saveError:ref(''),updateProjectFormFinance:async()=>{},applyDocumentDraft:()=>{},
+    updateLibrary:ref(false),saveError:ref(''),updateProjectFormFinance:async()=>{},applyDocumentDraft:()=>{},syncSavedFinanceRows:()=>{},
+    notifyStatementCustomerSync:()=>{},window:{dispatchEvent:()=>{}},CustomEvent:class{},
     saveCustomerFinanceProject:async(id,payload)=>{calls.push(payload);return {item:{paymentConfirmation:{revision:6,isPaid:false}}}},
-    editorSignature:()=>'',original:'',originalPaymentConfirmation:'',notifyPaymentChanged:()=>{},financePaymentSource:'test',editorVisible:ref(true),
+    editorSignature:()=>'',original:ref(''),pricingModeOnlySignature:ref(null),originalPaymentConfirmation:ref(''),notifyPaymentChanged:()=>{},financePaymentSource:'test',editorVisible:ref(true),
     ElMessage:{warning:value=>errors.push(value),success:()=>{}},emit:()=>{},load:async()=>{},getLocalizedErrorMessage:e=>e.message}
   vm.createContext(ctx)
   vm.runInContext(source.slice(source.indexOf('async function openLinkedPayment()'),source.indexOf('function onPaymentSaved(')),ctx)

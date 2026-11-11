@@ -31,11 +31,13 @@ test('价格窗口定金明细保留首条定金、分期增删、累计实付�
   assert.equal(form.paymentDraft.length,0);assert.equal(form.paymentConfirmation.isPaid,false)
 })
 
-test('重复阶段期次校验和定金切换全款清除明细',t=>{
+test('不同阶段和重复阶段共用连续期次，切换全款清除明细',t=>{
   const ctx=editor(t),form=ctx.form.value
   ctx.addPayment();form.paymentDraft[1].stage_type='deposit'
-  let error;ctx.validateStage(1,result=>error=result)
-  assert.match(error.message,/期次不能重复/)
+  ctx.addPayment()
+  assert.deepEqual(Array.from(form.paymentDraft,row=>row.stage_no),[1,2,3])
+  ctx.removePayment(1)
+  assert.deepEqual(Array.from(form.paymentDraft,row=>row.stage_no),[1,2])
   ctx.updateConfirmation({...form.paymentConfirmation,paymentOption:'full',replaceDetails:true,fullPaymentAmount:300})
   assert.equal(form.paymentDraft.length,0)
   assert.equal(form.paymentConfirmation.fullPaymentAmount,300)

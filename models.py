@@ -1360,6 +1360,10 @@ class FinancePayment(Base):
         ForeignKeyConstraint(['confirmed_by'], ['app_user.id'], ondelete='SET NULL', name='fk_finance_payment_confirmed_by'),
         PrimaryKeyConstraint('id', name='finance_payment_pkey'),
         UniqueConstraint('finance_id', 'stage_type', 'stage_no', name='uq_finance_payment_stage'),
+        CheckConstraint(
+            "(stage_type = 'mid' AND stage_no >= 1) OR (stage_type IN ('deposit', 'final') AND stage_no = 1)",
+            name='ck_finance_payment_stage_no_rule',
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, server_default=text('gen_random_uuid()'))

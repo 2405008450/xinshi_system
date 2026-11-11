@@ -389,13 +389,6 @@
         <el-tab-pane label="合作项目" name="projects">
           <CustomerCooperationProjects v-if="clientActiveTab === 'projects'" :client-id="form.id" />
         </el-tab-pane>
-        <el-tab-pane label="对账单" name="statements">
-          <div data-dialog-field-search-label="对账单">
-            <el-empty v-if="!form.id" description="请先保存客户，再查看对账单" />
-            <el-empty v-else-if="!canReadStatements" description="暂无财务对账单查看权限" />
-            <CustomerStatementHistory v-else-if="clientActiveTab === 'statements'" :key="form.id" :client-id="form.id" />
-          </div>
-        </el-tab-pane>
         </el-tabs>
       </div>
       <template #footer>
@@ -477,7 +470,7 @@ import CustomerFinancePanel from '@/components/common/CustomerFinancePanel.vue'
 import CustomerRegionFields from '@/components/common/CustomerRegionFields.vue'
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { refreshAfterSave } from '@/utils/postSaveRefresh.js'
-import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch, defineAsyncComponent } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowRight } from '@element-plus/icons-vue'
 import * as clientApi from '@/api/clients'
@@ -499,8 +492,6 @@ import { countActiveFilters, createFilterModel, resetFilterModel, serializeField
 
 const loading = ref(false)
 const canWrite = hasPermission('clients:write')
-const canReadStatements = hasPermission('projects:read')
-const CustomerStatementHistory = defineAsyncComponent(() => import('@/components/common/CustomerStatementHistory.vue'))
 const submitLoading = ref(false)
 const dialogVisible = ref(false)
 const clientActiveTab = ref('basic')

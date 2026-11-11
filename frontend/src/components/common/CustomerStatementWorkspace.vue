@@ -13,10 +13,10 @@
       <el-form-item><el-button type="primary" :disabled="!canWrite||loading||saving||!filters.months?.length" @click="importMonths">生成对账单</el-button></el-form-item>
     </AppForm>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
-    <section v-if="state?.pending_tasks?.length" class="statement-pending">
-      <h4>待入账任务（{{state.pending_tasks.length}} 项）</h4>
+    <section v-if="visiblePendingTasks.length" class="statement-pending">
+      <h4>待入账任务（{{visiblePendingTasks.length}} 项）</h4>
       <p>以下任务已从原对账单移出，生成目标月份时自动纳入。不会因原订单月份或“仅导入需对账单项目”的筛选而遗漏。</p>
-      <el-table :data="state.pending_tasks" border max-height="280" row-key="id"><el-table-column prop="order_no" label="订单号" min-width="160" /><el-table-column prop="project_name" label="项目名称" min-width="200" show-overflow-tooltip /><el-table-column prop="month" label="目标账单月份" width="130" /><el-table-column prop="actor_name" label="调整人" width="100" /><el-table-column label="调整时间" width="180"><template #default="{row}">{{formatBusinessDateTime(row.created_at)}}</template></el-table-column><el-table-column label="操作" width="180" fixed="right"><template #default="{row}"><el-button link :disabled="!canWrite||saving" @click="openSchedule([row.id])">调整月份</el-button><el-button link :disabled="!canWrite||saving" @click="cancelPending(row)">撤销</el-button></template></el-table-column></el-table>
+      <el-table :data="visiblePendingTasks" border max-height="280" row-key="id"><el-table-column prop="order_no" label="订单号" min-width="160" /><el-table-column prop="project_name" label="项目名称" min-width="200" show-overflow-tooltip /><el-table-column prop="month" label="目标账单月份" width="130" /><el-table-column prop="actor_name" label="调整人" width="100" /><el-table-column label="调整时间" width="180"><template #default="{row}">{{formatBusinessDateTime(row.created_at)}}</template></el-table-column><el-table-column label="操作" width="180" fixed="right"><template #default="{row}"><el-button link :disabled="!canWrite||saving" @click="openSchedule([row.id])">调整月份</el-button><el-button link :disabled="!canWrite||saving" @click="cancelPending(row)">撤销</el-button></template></el-table-column></el-table>
     </section>
     <div v-if="state" class="workspace-toolbar">
       <BatchDeleteToolbar v-if="canWrite&&(documents.length||deleteMode)" :active="deleteMode" :selected-count="selectedBoardIds.length" :loading="saving" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="deleteBoards" />
@@ -25,7 +25,7 @@
       <el-button :disabled="!canWrite||!documents.length" @click="createBoard">新增账单</el-button>
       <el-button :disabled="!state.revision" @click="openHistory">记录 / 恢复</el-button>
       <el-button v-if="!projectSelection" :disabled="!canWrite||!filters.months?.length||focusMissing" @click="importMonths">重新生成</el-button>
-      <CustomerStatementSettings /><el-dropdown v-if="!projectSelection" trigger="click" @command="reloadProjects"><el-button>更多操作 ▾</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item :disabled="loading||saving" command="reload">重新加载</el-dropdown-item></el-dropdown-menu></template></el-dropdown>
+      <CustomerStatementSettings v-if="state?.private_settings_available" /><el-dropdown v-if="!projectSelection" trigger="click" @command="reloadProjects"><el-button>更多操作 ▾</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item :disabled="loading||saving" command="reload">重新加载</el-dropdown-item></el-dropdown-menu></template></el-dropdown>
       <el-select v-model="scale" aria-label="对账单画布缩放" style="width:85px"><el-option v-for="value in [0.4,0.5,0.75,1]" :key="value" :value="value" :label="`${value*100}%`" /></el-select>
       <el-dropdown :disabled="downloading||!exportableBoardIds.length" trigger="click" @command="exportAll">
         <el-button :loading="downloading" :disabled="downloading||!exportableBoardIds.length">导出 / 打印 ▾</el-button>
@@ -33,7 +33,7 @@
       </el-dropdown>
       </template>
     </div>
-    <p class="statement-help workspace-hint">未勾选时使用全部筛选项目；修改仅影响对账单。</p>
+    <p v-if="!enforceStatementRequirement" class="statement-help workspace-hint">未勾选时使用全部筛选项目；修改仅影响对账单。</p>
     <div v-if="!deleteMode&&selected.length" class="selection-toolbar">
       <span>已选 {{selected.length}} 项任务</span><el-button @click="selected=[]">清空选择</el-button><el-button :disabled="!canWrite" @click="splitSelected">分拆至新对账单</el-button><el-button :disabled="!canWrite" @click="openSchedule(selected)">设为待入账</el-button><el-button :disabled="!canWrite" @click="openMove(selected)">调整月份 / 移到另一份</el-button><el-button :disabled="!canEditContent" @click="restoreTasks">恢复任务原始内容</el-button>
     </div>
@@ -55,7 +55,7 @@
 
     <TranslationProjectEditor v-if="orderEditor" :key="`${orderEditor.rootId}:${orderEditor.orderNo}`" editor-only embedded :editor-project-id="orderEditor.rootId" :editor-order-no="orderEditor.orderNo" @editor-closed="orderEditor=null" />
     <CustomerStatementInlineEditor v-model="inlineVisible" :board="inlineBoard" :can-write="canEditContent" :saving="saving" :error="error" @save="saveInline" @open-order="openOrder" />
-    <DraggableFormDialog v-model="editVisible" class="statement-edit-dialog" width="min(880px, calc(100vw - 32px))" top="5vh" append-to-body :close-on-click-modal="false" :before-close="closeEdit">
+    <DraggableFormDialog v-model="editVisible" class="statement-edit-dialog" data-auto-draft="off" width="min(880px, calc(100vw - 32px))" top="5vh" append-to-body :close-on-click-modal="false" :before-close="closeEdit">
       <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="editType==='row'?'修改对账单任务':'修改对账单内容'" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
       <div ref="editBody"><AppForm ref="editForm" :model="draft" label-position="top" :disabled="saving">
         <el-form-item v-if="editType==='row'" label="订单号"><ReadonlyField :model-value="editingRow?.order_no" source="auto" /></el-form-item>
@@ -65,28 +65,28 @@
           <el-date-picker v-else-if="field.key==='received_date'" v-model="draft[field.key]" type="date" value-format="YYYY-MM-DD" />
           <el-input v-else v-model="draft[field.key]" :type="field.multiline?'textarea':'text'" :rows="field.multiline?3:undefined" :maxlength="5000" />
         </el-form-item></div>
-        <p v-if="editType==='row'" class="statement-help">小计可独立调整。修改数量或单价后，可点击下方按钮按计价数量重新计算。</p>
-        <el-button v-if="editType==='row'" @click="recalculate">按数量 × 单价 ÷ 计价数量重算小计</el-button>
+        <p v-if="editType==='row' && !fixedEditingRow" class="statement-help">小计可独立调整。修改数量或单价后，可点击下方按钮按计价数量重新计算。</p>
+        <el-button v-if="editType==='row' && !fixedEditingRow" @click="recalculate">按数量 × 单价 ÷ 计价数量重算小计</el-button>
       </AppForm></div>
       <template #footer><el-button :disabled="saving" @click="closeEdit()">取消</el-button><el-button type="primary" :loading="saving" @click="saveEdit">确认修改…</el-button></template>
     </DraggableFormDialog>
 
-    <DraggableFormDialog v-model="moveVisible" title="调整账单月份与任务归属" class="statement-edit-dialog" width="min(600px, calc(100vw - 32px))" top="10vh" append-to-body :close-on-click-modal="false">
+    <DraggableFormDialog v-model="moveVisible" title="调整账单月份与任务归属" class="statement-edit-dialog" data-auto-draft="off" width="min(600px, calc(100vw - 32px))" top="10vh" append-to-body :close-on-click-modal="false">
       <AppForm ref="moveForm" :model="moveDraft" label-position="top"><el-form-item label="所选任务"><span>{{moveIds.length}} 项任务，包含其全部收费明细</span></el-form-item><el-form-item label="目标对账单" prop="board_id" :rules="[{required:true,message:'请选择目标对账单',trigger:'change'}]"><el-select v-model="moveDraft.board_id" style="width:100%"><el-option v-for="board in documents" :key="board.id" :value="board.id" :label="board.name" /></el-select></el-form-item><el-form-item label="目标账单月份" prop="month" :rules="[{required:true,message:'请选择目标月份',trigger:'change'}]"><el-date-picker v-model="moveDraft.month" type="month" value-format="YYYY-MM" /></el-form-item></AppForm>
       <template #footer><el-button @click="moveVisible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveMove">确认调配…</el-button></template>
     </DraggableFormDialog>
 
-    <DraggableFormDialog v-model="scheduleVisible" title="设置待入账月份" class="statement-edit-dialog" width="min(600px, calc(100vw - 32px))" top="8vh" append-to-body>
+    <DraggableFormDialog v-model="scheduleVisible" title="设置待入账月份" class="statement-edit-dialog" data-auto-draft="off" width="min(600px, calc(100vw - 32px))" top="8vh" append-to-body>
       <AppForm ref="scheduleForm" :model="scheduleDraft" label-position="top"><el-form-item label="所选任务">{{scheduleIds.length}} 项，包含全部收费明细；目标月份尚未生成对账单也可以设置。</el-form-item><el-form-item label="目标账单月份" prop="month" :rules="[{required:true,message:'请选择目标月份',trigger:'change'}]"><el-date-picker v-model="scheduleDraft.month" type="month" value-format="YYYY-MM" /></el-form-item></AppForm>
       <template #footer><el-button @click="scheduleVisible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveSchedule">确认并记录</el-button></template>
     </DraggableFormDialog>
 
-    <DraggableFormDialog v-model="auditVisible" title="对账单调整前后" class="statement-edit-dialog" width="min(1100px, calc(100vw - 32px))" top="5vh" append-to-body>
+    <DraggableFormDialog v-model="auditVisible" title="对账单调整前后" class="statement-edit-dialog" data-auto-draft="off" width="min(1100px, calc(100vw - 32px))" top="5vh" append-to-body>
       <div v-loading="auditLoading"><el-alert v-if="auditError" :title="auditError" type="error" :closable="false" /><template v-if="auditEntry"><p>{{auditEntry.action}} · 调整人：{{auditEntry.actor_name}} · {{formatBusinessDateTime(auditEntry.created_at)}}</p><StatementAuditChanges :before="auditEntry.before" :after="auditEntry.after" :labels="historyLabels" /></template></div>
       <template #footer><el-button @click="auditVisible=false">关闭</el-button></template>
     </DraggableFormDialog>
 
-    <DraggableFormDialog v-model="historyVisible" title="对账单修改记录" class="statement-edit-dialog" width="min(1100px, calc(100vw - 32px))" top="5vh" append-to-body>
+    <DraggableFormDialog v-model="historyVisible" title="对账单修改记录" class="statement-edit-dialog" data-auto-draft="off" width="min(1100px, calc(100vw - 32px))" top="5vh" append-to-body>
       <el-alert title="恢复到某次修改前，会撤销该次及其之后的编排与内容修改，并新增一条恢复记录。" type="info" :closable="false" />
       <el-table v-loading="historyLoading" :data="history.items" row-key="id"><el-table-column prop="revision" label="版本" width="70" /><el-table-column prop="actor_name" label="操作人" width="100" /><el-table-column label="时间" width="180"><template #default="{row}">{{formatBusinessDateTime(row.created_at)}}</template></el-table-column><el-table-column prop="action" label="操作" width="170" /><el-table-column label="变更内容" min-width="300"><template #default="{row}"><StatementAuditChanges :changes="row.changes" :labels="historyLabels" :boards="state?.payload?.boards" :tasks="state?.payload?.tasks" /></template></el-table-column><el-table-column label="调整前后" width="120"><template #default="{row}"><el-button link @click="viewAudit(row)">查看前后</el-button></template></el-table-column><el-table-column label="恢复" width="170" fixed="right"><template #default="{row}"><el-button link type="primary" :disabled="!canWrite||!row.restorable||saving" @click="restoreHistory(row)">恢复到本次修改前</el-button></template></el-table-column></el-table>
       <el-pagination v-model:current-page="historyPage" :page-size="20" :total="history.total" layout="total, prev, pager, next" @current-change="loadHistory" />
@@ -114,14 +114,14 @@ import {businessDateTimeInputValue,formatBusinessDateTime} from '@/utils/dateTim
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import {hasPermission} from '@/utils/permission'
 import {statementOrderDisplayOptions} from '@/utils/statementOrderDisplay'
-import {statementFileName} from '@/utils/statementFormatting'
+import {statementFileName,isFixedStatementRow} from '@/utils/statementFormatting'
 import {statementPrintStyles} from '@/utils/customerStatementPrint'
 import {calculateCustomerPrice} from '@/utils/translationCustomerFinance'
 const TranslationProjectEditor=defineAsyncComponent(()=>import('@/views/project/translation/ProjectDetails.vue'))
 const orderEditor=ref(null)
 function openOrder(row){if(!row.root_id)return ElMessage.warning('该订单缺少项目关联，无法打开');orderEditor.value={rootId:row.root_id,orderNo:row.order_no}}
 const emit=defineEmits(['loaded','show-boards'])
-const props=defineProps({lockMonth:Boolean,projectSelection:Function,projectReload:Function,visibleBoardIds:{type:Array,default:()=>[]},focusMonth:{type:String,default:''},focusBoardId:{type:String,default:''},projectId:{type:[String,Number],default:''},clientId:{type:[String,Number],default:''},billingMonth:String})
+const props=defineProps({lockMonth:Boolean,enforceStatementRequirement:Boolean,projectSelection:Function,projectReload:Function,visibleBoardIds:{type:Array,default:()=>[]},focusMonth:{type:String,default:''},focusBoardId:{type:String,default:''},projectId:{type:[String,Number],default:''},clientId:{type:[String,Number],default:''},billingMonth:String})
 const canWrite=hasPermission('projects:write')
 const canEditContent=computed(()=>canWrite&&state.value?.capabilities?.edit_content===true)
 const filters=reactive({months:[props.billingMonth||businessDateTimeInputValue().slice(0,7)],scope:'customer',requiredOnly:true})
@@ -133,6 +133,10 @@ const deleteMode=ref(false),selectedBoardIds=ref([])
 function enterDeleteMode(){selected.value=[];selectedBoardIds.value=[];deleteMode.value=true}
 function exitDeleteMode(){deleteMode.value=false;selectedBoardIds.value=[]}
 function selectBoard(id,checked){selectedBoardIds.value=checked?[...new Set([...selectedBoardIds.value,id])]:selectedBoardIds.value.filter(value=>value!==id)}
+const visiblePendingTasks=computed(()=>{
+  const tasks=state.value?.pending_tasks||[]
+  return props.lockMonth?tasks.filter(task=>task.month===props.billingMonth):tasks
+})
 const documents=computed(()=>{const all=(state.value?.documents||[]).filter(board=>!props.visibleBoardIds.length||props.visibleBoardIds.includes(board.id));return props.lockMonth&&props.billingMonth?all.filter(board=>(board.statement.months||[]).includes(props.billingMonth)):props.focusBoardId?all.filter(board=>board.id===props.focusBoardId):props.focusMonth?all.filter(board=>(board.statement.months||[]).includes(props.focusMonth)):all})
 watch(()=>documents.value.length,count=>{scale.value=count>=3?.4:count===2?.5:.75})
 const focusMissing=computed(()=>!!(props.focusBoardId||props.focusMonth)&&!!state.value&&!documents.value.length)
@@ -157,7 +161,7 @@ async function deleteBoards(){
   const confirmBatch=ids.length>1?async()=>{try{await ElMessageBox.prompt(text+'请输入“删除”确认。','批量删除对账单',{type:'warning',confirmButtonText:'确认删除并记录',cancelButtonText:'取消',inputValidator:value=>value==='删除'||'请输入“删除”确认'});return true}catch{return false}}:undefined
   await mutate('delete_boards',{board_ids:ids,...(ids.length>1?{confirmation:'删除'}:{})},text,confirmBatch)
 }
-async function importMonths(){if(!canWrite||saving.value||!filters.months?.length||!state.value)return;let orderIds;try{if(props.projectSelection){orderIds=await props.projectSelection();if(!orderIds)throw new Error('项目表尚未加载完成')}}catch(e){error.value=getLocalizedErrorMessage(e,'读取项目范围失败');return}const revision=state.value.revision;const months=[...filters.months];if(!await confirm(`将 ${months.join('、')} ${orderIds?`所选/筛选范围（${orderIds.length} 个订单）`:'的任务'}生成对账单，同时自动纳入目标为这些月份的全部待入账任务。已入账任务保持原归属，不重复加入。`,'确认合并月份'))return;saving.value=true;try{const data=await importStatementMonths({...(props.clientId?{client_id:props.clientId}:{project_id:props.projectId}),months,order_ids:orderIds,required_only:orderIds!==undefined?false:filters.requiredOnly,scope:props.clientId?'customer':filters.scope,revision,board_id:props.focusBoardId||(props.focusMonth?documents.value[0]?.id:null)||null,confirmed:true},mode.value);if(!disposed){apply(data);window.dispatchEvent(new CustomEvent('translation-statements-changed'))}ElMessage.success(`新增 ${data.imported} 项；${data.existing} 项已存在并保持原归属；${data.excluded||0} 项不需对账单未导入；自动纳入待入账 ${data.accepted_pending_count||0} 项`)}catch(e){error.value=getLocalizedErrorMessage(e,'月份导入失败')}finally{saving.value=false}}
+async function importMonths(){if(!canWrite||saving.value||!filters.months?.length||!state.value)return;let orderIds;try{if(props.projectSelection){orderIds=await props.projectSelection();if(!orderIds)throw new Error('项目表尚未加载完成')}}catch(e){error.value=getLocalizedErrorMessage(e,'读取项目范围失败');return}const revision=state.value.revision;const months=[...filters.months];if(!await confirm(`将 ${months.join('、')} ${orderIds?`所选/筛选范围（${orderIds.length} 个订单）`:'的任务'}生成对账单，同时自动纳入目标为这些月份的全部待入账任务。已入账任务保持原归属，不重复加入。`,'确认合并月份'))return;saving.value=true;try{const data=await importStatementMonths({...(props.clientId?{client_id:props.clientId}:{project_id:props.projectId}),months,order_ids:orderIds,required_only:props.enforceStatementRequirement||(orderIds===undefined&&filters.requiredOnly),scope:props.clientId?'customer':filters.scope,revision,board_id:props.focusBoardId||(props.focusMonth?documents.value[0]?.id:null)||null,confirmed:true},mode.value);if(!disposed){apply(data);window.dispatchEvent(new CustomEvent('translation-statements-changed'))}ElMessage.success(`新增 ${data.imported} 项；${data.existing} 项已存在并保持原归属；${data.excluded||0} 项不需对账单未导入；自动纳入待入账 ${data.accepted_pending_count||0} 项`)}catch(e){error.value=getLocalizedErrorMessage(e,'月份导入失败')}finally{saving.value=false}}
 async function splitSelected(){let name;try{name=(await ElMessageBox.prompt('填写分拆后的对账单名称；保留任务内容与月份。','分拆对账单',{inputValidator:value=>!!value?.trim()||'请填写名称'})).value}catch{return}const before=new Set(state.value.documents.map(board=>board.id));const shown=documents.value.map(board=>board.id);if(await mutate('split_board',{task_ids:[...selected.value],name},`将所选 ${selected.value.length} 项任务分拆为“${name}”，保留原内容并记录前后归属？`)){const added=state.value.documents.filter(board=>!before.has(board.id)).map(board=>board.id);emit('show-boards',[...shown,...added])}}
 
 async function createBoard(){let name;try{name=(await ElMessageBox.prompt('输入对账单名称','新增一份对账单',{inputValue:`对账单 ${documents.value.length+1}`,inputValidator:value=>!!value?.trim()||'请输入名称'})).value}catch{return}await mutate('create_board',{name},`新增“${name}”，可将已有任务移动到这份对账单。`)}
@@ -193,9 +197,19 @@ const editVisible=ref(false),editType=ref('row'),editingBoard=ref(),editingRow=r
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(editBody)
 const rowFields=[{key:'received_date',label:'来稿日期'},{key:'project_name',label:'项目名称'},{key:'language_pair',label:'翻译方向'},{key:'quantity',label:'工作量'},{key:'basis',label:'计价方式'},{key:'unit_price',label:'单价'},{key:'unit_size',label:'单价对应数量（每多少单位）'},{key:'unit_label',label:'单价口径文案'},{key:'currency',label:'货币',required:true},{key:'subtotal',label:'小计'},{key:'remarks',label:'备注',multiline:true}]
 const headerFields=[{key:'name',label:'对账单名称',required:true},{key:'company',label:'公司抬头'},{key:'title',label:'对账单标题'},{key:'client_name',label:'客户名称'},{key:'client_code',label:'客户编号'},{key:'billing_label',label:'账单月份显示（留空按任务月份）'},{key:'issue_date',label:'账单日期'},{key:'tax_included',label:'金额口径标签（金额不自动换算）'},{key:'bank_name',label:'开户行'},{key:'account_name',label:'账户名'},{key:'account_number',label:'账号'},{key:'stamp_image',label:'印章图片'}]
-const editingFields=computed(()=>editType.value==='row'?rowFields:headerFields)
+const fixedEditingRow=computed(()=>isFixedStatementRow(editingRow.value))
+const editingFields=computed(()=>{
+  if(editType.value!=='row')return state.value?.private_settings_available?headerFields:headerFields.filter(field=>!['bank_name','account_name','account_number','stamp_image'].includes(field.key))
+  if(!fixedEditingRow.value)return rowFields
+  return rowFields.filter(field=>!['quantity','unit_price','unit_size'].includes(field.key)).map(field=>{
+    if(field.key==='basis')return {...field,label:'工作量及计价方式',multiline:true}
+    if(field.key==='subtotal')return {...field,label:'固定价格'}
+    if(field.key==='unit_label')return {...field,label:'金额口径'}
+    return field
+  })
+})
 let originalDraft=''
-function openEdit(type,board,row){editType.value=type;editingBoard.value=board;editingRow.value=row;for(const key of Object.keys(draft))delete draft[key];const values=type==='row'?row:{...board.fields,name:board.name,tax_included:board.tax_included};for(const field of (type==='row'?rowFields:headerFields))draft[field.key]=values[field.key]??'';originalDraft=JSON.stringify(draft);clearFieldSearch();editVisible.value=true}
+function openEdit(type,board,row){editType.value=type;editingBoard.value=board;editingRow.value=row;for(const key of Object.keys(draft))delete draft[key];const values=type==='row'?row:{...board.fields,name:board.name,tax_included:board.tax_included};for(const field of editingFields.value)draft[field.key]=values[field.key]??'';originalDraft=JSON.stringify(draft);clearFieldSearch();editVisible.value=true}
 const editHeader=board=>openEdit('header',board)
 const editRow=(board,row)=>openEdit('row',board,row)
 async function closeEdit(done){if(saving.value)return;if(JSON.stringify(draft)!==originalDraft&&!await confirm('放弃尚未确认保存的修改？','关闭编辑'))return;if(typeof done==='function')done();else editVisible.value=false}

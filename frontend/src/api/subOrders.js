@@ -58,6 +58,10 @@ export const updateSubOrder = (id, data) => {
     return api.put(`/sub-orders/${id}`, convertKeys(data, toSnakeCase)).then(res => convertKeys(res, toCamelCase))
 }
 
+export const replaceSubOrderPaths = (projectId, data) =>
+    api.post(`/sub-orders/project/${projectId}/replace-paths`, convertKeys(data, toSnakeCase))
+        .then(response => convertKeys(response, toCamelCase))
+
 export const deleteSubOrder = (id) => {
     return api.delete(`/sub-orders/${id}`)
 }

@@ -30,7 +30,8 @@ def api(route):
     if route.request.method=='PUT':
         data=route.request.post_data_json;calls.append((path,data))
         incoming=data.get('confirmation') or data.get('payment_confirmation')
-        if data.get('payment_draft') is not None:details=data['payment_draft']
+        if data.get('payment_draft') is not None:
+            details=[{**item,'confirmed_by_name':'测试确认人','confirmed_at':'2026-11-10T11:00:00+08:00'} for item in data['payment_draft']]
         if incoming:confirmation={**incoming,'revision':confirmation['revision']+1,'full_match_status':'mismatch' if str(incoming.get('full_payment_amount')) not in ('500','500.0','500.00') else 'matched'}
     if path=='/api/translation-customer-finance/project/p1':result={'item':node(),'payment':{'payments':details,'version':str(confirmation['revision']),'confirmation':dict(confirmation)},'version':str(confirmation['revision']),'reference_prices':{'items':[],'version':'v1'}}
     elif path=='/api/translation-payments/p1':result={'project_id':'p1','order_no':'TP-261110-001','version':str(confirmation['revision']),'payments':details,'confirmation':dict(confirmation)}
@@ -55,6 +56,9 @@ with sync_playwright() as p:
     expect(payment).to_contain_text('发票、查账与追账')
     payment.get_by_role('button',name='价格与付款',exact=True).click()
     finance=page.locator('.customer-finance-dialog:visible').first
+    save_button=finance.get_by_role('button',name='保存',exact=True)
+    expect(save_button).not_to_have_class(re.compile('el-button--primary'))
+    page.wait_for_timeout(300)  # 等待弹窗进场完成后读取拖动起点
     initial=finance.bounding_box()
     header=finance.locator('.el-dialog__header').bounding_box()
     page.mouse.move(header['x']+header['width']/2,header['y']+10);page.mouse.down()
@@ -63,6 +67,7 @@ with sync_playwright() as p:
     assert moved['x']>=0 and moved['x']+moved['width']<=1601
     finance.locator('label.el-radio').filter(has_text=re.compile('^已付定金$')).click()
     rows=finance.locator('.project-payment-row')
+    expect(save_button).to_have_class(re.compile('el-button--primary'))
     expect(rows).to_have_count(1);expect(rows.first).to_contain_text('付款明细 1')
     expect(rows.first.get_by_role('textbox',name='阶段',exact=True)).to_have_value('定金')
     rows.first.get_by_role('spinbutton',name='预定金额',exact=True).fill('100')
@@ -75,7 +80,7 @@ with sync_playwright() as p:
     finance.get_by_role('button',name='保存',exact=True).click()
     expect(finance).not_to_be_visible()
     assert len(calls)==1 and calls[0][0]=='/api/translation-customer-finance/project/p1'
-    assert len(calls[0][1]['payment_draft'])==2
+    assert [item['stage_no'] for item in calls[0][1]['payment_draft']]==[1,2]
     assert calls[0][1]['payment_draft'][0]['actual_amount']==80
     assert calls[0][1]['payment_draft'][0]['proofs']=='定金备注'
     assert calls[0][1]['payment_draft'][1]['proofs']=='中期独立备注'
@@ -87,19 +92,21 @@ with sync_playwright() as p:
     expect(rows.first.get_by_role('spinbutton',name='实际金额',exact=True)).to_have_value('80.00')
     expect(rows.first.get_by_role('textbox',name='支付截图及备注',exact=True)).to_have_value('定金备注')
     expect(rows.nth(1).get_by_role('textbox',name='支付截图及备注',exact=True)).to_have_value('中期独立备注')
-    # 重复期次应定位错误字段，不能提交。
+    expect(save_button).not_to_have_class(re.compile('el-button--primary'))
+    for index in range(2):
+        expect(rows.nth(index).get_by_role('textbox',name='期次',exact=True)).to_have_value(str(index+1))
+        expect(rows.nth(index).get_by_role('textbox',name='确认人',exact=True)).to_have_value('测试确认人')
+        expect(rows.nth(index).get_by_role('textbox',name='确认时间',exact=True)).to_have_value(re.compile('11:00:00'))
     rows.nth(1).locator('.el-select').first.click();page.get_by_role('option',name='定金',exact=True).click()
-    finance.get_by_role('button',name='保存',exact=True).click()
-    expect(finance.locator('.el-form-item__error').first).to_contain_text('期次不能重复')
-    expect(finance.locator('.el-form-item.is-error input').first).to_be_focused()
-    assert len(calls)==1
+    expect(rows.nth(1).get_by_role('textbox',name='期次',exact=True)).to_have_value('2')
+    expect(save_button).to_have_class(re.compile('el-button--primary'))
     field_search=finance.get_by_role('textbox',name='搜索项目表单字段',exact=True)
     field_search.fill('付款时')
     page.locator('.project-field-search-popper:visible .project-field-search-option').first.click()
     expect(finance.locator('.is-dialog-field-search-highlight')).to_have_count(1)
     field_search.fill('')
     rows.nth(1).locator('.el-select').first.click();page.get_by_role('option',name='尾款',exact=True).click()
-    rows.nth(1).get_by_role('spinbutton').nth(2).fill('420')
+    rows.nth(1).get_by_role('spinbutton').last.fill('420')
     expect(finance).to_contain_text('累计实付金额')
     # 长内容滚动后底部保存仍在视口内，小屏内容不溢出。
     page.set_viewport_size({'width':760,'height':800})
@@ -118,6 +125,13 @@ with sync_playwright() as p:
     expect(finance).not_to_be_visible()
     assert page.evaluate('window.newParent.paymentDraft[0].actual_amount')==60
     assert len(calls)==2
+    confirmation.update(is_paid=True,payment_option='full',full_payment_amount=500,full_payment_total_key='billing:CNY',
+        full_payment_confirmed_by_name='全款确认人',full_payment_confirmed_at='2026-11-10T12:00:00+08:00')
+    details=[]
+    page.evaluate('window.openFinance()')
+    expect(finance.get_by_role('textbox',name='确认人',exact=True)).to_have_value('全款确认人')
+    expect(finance.get_by_role('textbox',name='确认时间',exact=True)).to_have_value(re.compile('12:00:00'))
+    expect(save_button).not_to_have_class(re.compile('el-button--primary'))
     assert not errors,errors
     browser.close()
-print('PASS: two view tabs, deposit details in price editor, unified save/reload, duplicate validation, final total, small viewport and new-project draft; mocked APIs only')
+print('PASS: payment sequences, save-button states, installment and full confirmation, final total, small viewport and new-project draft; mocked APIs only')

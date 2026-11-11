@@ -6,6 +6,8 @@
     <el-table-column label="实际金额" min-width="90"><template #default="{row}">{{row.actual_amount??'未填写'}}</template></el-table-column>
     <el-table-column label="付款时间" min-width="160"><template #default="{row}">{{row.payment_time?formatDateTime(row.payment_time):'未填写'}}</template></el-table-column>
     <el-table-column prop="payment_method" label="付款方式" min-width="120" />
+    <el-table-column label="确认人" min-width="100"><template #default="{row}">{{row.confirmed_by_name || '未记录'}}</template></el-table-column>
+    <el-table-column label="确认时间" min-width="175"><template #default="{row}">{{row.confirmed_at ? formatDateTime(row.confirmed_at) : '未记录'}}</template></el-table-column>
     <el-table-column label="支付截图及备注" min-width="220"><template #default="{row}"><ScreenshotText v-if="row.proofs" :text="row.proofs" /><span v-else>-</span></template></el-table-column>
   </el-table>
 </template>

@@ -9,7 +9,7 @@
     <p class="client-hint">按所选月份的项目分类；有任一项目需要对账单的客户归入“需对账单”。并列打开后，可拖动客户标题到另一栏，同步该客户当月项目的单据需求。已生成的对账单保留。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <div class="client-panes" :class="{'is-split':filters.mode==='both'}">
-      <CustomerStatementClientGroup v-for="required in visibleGroups" :key="String(required)" :ref="el=>setGroup(required,el)" :manager-query="managerQuery" :required="required" :month="filters.month" :progress-filter="filters.progress" :initial-client="initialClient" :moving="moving" @drop-client="moveClient($event,required)" @move-client="moveClient($event,!required)" @managers="updateManagers(required,$event)" />
+      <CustomerStatementClientGroup v-for="required in visibleGroups" :key="String(required)" :ref="el=>setGroup(required,el)" :manager-query="managerQuery" :required="required" :month="filters.month" :progress-filter="filters.progress" :moving="moving" @drop-client="moveClient($event,required)" @move-client="moveClient($event,!required)" @managers="updateManagers(required,$event)" />
     </div>
     <MergedStatementClientsDialog v-model="mergeVisible" :month="filters.month" :manager-query="managerQuery" @saved="refresh();emit('saved',$event)" />
   </section>
@@ -23,9 +23,9 @@ import MergedStatementClientsDialog from './MergedStatementClientsDialog.vue'
 import {moveStatementCustomer} from '@/api/translationCustomerFinance'
 import {currentStatementMonth} from '@/utils/statementRequirementMonth'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
-const props=defineProps({initialClient:Object,billingMonth:String,managerQuery:{type:Object,default:()=>({})}})
+const props=defineProps({billingMonth:String,managerQuery:{type:Object,default:()=>({})}})
 const emit=defineEmits(['managers','saved'])
-const filters=reactive({month:props.initialClient?.month||props.billingMonth||currentStatementMonth(),mode:'required',progress:''})
+const filters=reactive({month:props.billingMonth||currentStatementMonth(),mode:'required',progress:''})
 const visibleGroups=computed(()=>filters.mode==='both'?[true,false]:[filters.mode==='required'])
 const groups=new Map(),managerLists=reactive({}),moving=ref(false),error=ref('')
 const mergeVisible=ref(false)
@@ -36,7 +36,6 @@ function refresh(){for(const group of groups.values())group.refresh()}
 defineExpose({refresh})
 window.addEventListener('translation-statements-changed',refresh)
 onBeforeUnmount(()=>window.removeEventListener('translation-statements-changed',refresh))
-watch(()=>props.initialClient,client=>{if(client?.month)filters.month=client.month;if(client?.id)filters.mode='both'})
 async function moveClient(client,required){
   if(!client||moving.value||client.statementRequired===required)return
   try{await ElMessageBox.confirm(`将“${client.shortName||client.name}”在 ${filters.month} 当前客户经理筛选范围内的 ${client.projectCount} 个项目设为“${required?'需':'无需'}对账单”？`,'调整客户单据需求',{confirmButtonText:'确认调整',cancelButtonText:'取消',type:'warning'})}catch{return}

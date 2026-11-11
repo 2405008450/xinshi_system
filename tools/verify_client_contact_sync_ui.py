@@ -76,9 +76,8 @@ const mode=ref('clients');const app=createApp({render:()=>h('div',{},[h('button'
         if picker.count():picker.get_by_role('button',name='取消',exact=True).click()
         page.locator('.finance-search').get_by_role('button',name='查询',exact=True).click()
         expect(page.locator('.finance-project-table')).to_contain_text('TP-261107-999')
-        expand=page.get_by_role('button',name='展开操作栏',exact=True)
-        if expand.count():expand.click()
-        page.locator('.el-table__body').get_by_role('button',name='对账单',exact=True).first.click()
+        page.locator('.finance-project-table .el-table__body').get_by_role('button',name='更多操作',exact=True).first.click()
+        page.get_by_role('menuitem',name='对账单',exact=True).click()
         expect(statement.locator('.statement-client-context')).to_have_text('广州测试 · 2026-11')
         expect(statement.locator('.statement-workspace')).to_be_visible()
         assert not errors,errors

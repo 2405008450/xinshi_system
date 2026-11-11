@@ -44,3 +44,14 @@ def confirmation_history(project_id:UUID,page:int=Query(1,ge=1),db=Depends(get_d
 def totals(project_id:UUID,db=Depends(get_db),actor=Depends(require_any_permission('projects:read','finance:read'))):
     project(db,project_id)
     return payments.confirmations.project_totals(db,project_id)
+
+
+@router.post('/{project_id}/confirm')
+def confirm(project_id:UUID,payload:payments.PaymentConfirm,db=Depends(get_db),actor=Depends(require_any_permission('projects:read','finance:read','projects:write','finance:write'))):
+    try:
+        result=payments.confirm(db,project(db,project_id,True),payload,actor)
+        db.commit()
+        return result
+    except Exception:
+        db.rollback()
+        raise

@@ -18,6 +18,24 @@ import translation_duration_metrics as duration
 
 METRIC_TYPES = ("words", "characters_no_spaces", "cjk_chars_korean_words", "foreign_words", "documents", "pages", "minutes", "hours")
 ENTITY_DIMENSIONS = ("company", "customer", "preliminary", "translator_estimate")
+WORD_COUNT_REGIONS = (
+    ("words", "characters_no_spaces", "cjk_chars_korean_words", "foreign_words"),
+    ("documents",),
+    ("pages",),
+    ("minutes", "hours"),
+)
+
+
+def has_multiple_word_count_regions(values):
+    return sum(any(values.get(key) is not None for key in region) for region in WORD_COUNT_REGIONS) > 1
+
+
+def validate_word_count_region(dimension, values):
+    if has_multiple_word_count_regions(values):
+        label = '我司统计' if dimension == 'company' else '客户统计'
+        raise HTTPException(422, f'{label}只能填写一个统计区域，请清空其他区域')
+    if values.get('minutes') is not None and values.get('hours') is not None:
+        raise HTTPException(422, '分钟和小时只能选择一种')
 
 
 def _empty_values() -> dict[str, Optional[int]]:
@@ -26,20 +44,40 @@ def _empty_values() -> dict[str, Optional[int]]:
 
 def roll_up_matrices(projects, sub_orders):
     """按订单号的直接父级逐层汇总；有下级时不用父级旧值，避免重复统计。"""
+    from translation_direction_service import directions, preserves_order_statistics
+
     children = {}
     by_number = {(row.parent_project_id, row.sub_order_no): row for row in sub_orders}
     for row in sub_orders:
         parent = by_number.get((row.parent_project_id, row.sub_order_no.rsplit('.', 1)[0]))
         children.setdefault(parent.id if parent else row.parent_project_id, []).append(row)
 
+    def add_direction_matrix(totals, pair, matrix):
+        target = totals.get(pair)
+        if target is None:
+            target = {dimension: _empty_values() for dimension in ENTITY_DIMENSIONS}
+            totals[pair] = target
+        for dimension, values in matrix.items():
+            for metric, value in values.items():
+                if value is not None:
+                    target[dimension][metric] = (target[dimension][metric] or 0) + value
+
     def visit(owner):
         direct = children.get(owner.id, [])
+        by_direction = {}
         for child in direct:
-            visit(child)
+            for pair, matrix in visit(child).items():
+                add_direction_matrix(by_direction, pair, matrix)
         owner.word_count_sub_order_count = len(direct)
-        from translation_direction_service import preserves_project_statistics
-        aggregate = bool(direct) and not preserves_project_statistics(owner,direct)
+        direction_split = preserves_order_statistics(owner, direct)
+        aggregate = bool(direct) and not direction_split
         owner.word_count_matrix_source = 'suborder_aggregate' if aggregate else ('suborder' if hasattr(owner, 'sub_order_no') else 'project')
+        owner.word_count_parent_order_no = None
+        owner.word_count_matches_parent = False
+        if direction_split:
+            for child in direct:
+                child.word_count_parent_order_no = getattr(owner, 'sub_order_no', None) or owner.order_no
+                child.word_count_matches_parent = child.word_count_matrix == owner.word_count_matrix
         if aggregate:
             owner.word_count_matrix = {
                 dimension: {
@@ -58,6 +96,18 @@ def roll_up_matrices(projects, sub_orders):
             for values in owner.word_count_matrix.values():
                 if values['minutes'] is not None and values['hours'] is not None:
                     values['minutes']=round(values['minutes']+values['hours']*60,4);values['hours']=None
+        if not direct:
+            owner.word_count_by_direction = []
+            return {pair: owner.word_count_matrix for pair in directions(owner.language_pair)}
+        for matrix in by_direction.values():
+            for values in matrix.values():
+                if values['minutes'] is not None and values['hours'] is not None:
+                    values['minutes'] = round(values['minutes'] + values['hours'] * 60, 4)
+                    values['hours'] = None
+        owner.word_count_by_direction = [
+            {'language_pair': pair, 'word_count_matrix': matrix} for pair, matrix in by_direction.items()
+        ]
+        return by_direction
 
     for project in projects:
         visit(project)
@@ -88,17 +138,22 @@ def hierarchy_matrix(db, entity_type, entity):
 
 
 def _has_child_orders(db, entity_type, entity):
-    query = db.query(TranslationSubOrder.id)
+    from translation_direction_service import directions, preserves_order_statistics
+
+    query = db.query(TranslationSubOrder)
     if entity_type == 'project':
         query = query.filter(TranslationSubOrder.parent_project_id == entity.id)
-        from translation_direction_service import preserves_project_statistics
-        if preserves_project_statistics(entity,[row for row in db.query(TranslationSubOrder).filter_by(parent_project_id=entity.id).all() if row.sub_order_no.rsplit('.',1)[0]==entity.order_no]):
-            return False
+        number = entity.order_no
     else:
         # 点号是订单层级边界，.001 不会命中 .0010。
         query = query.filter(TranslationSubOrder.parent_project_id == entity.parent_project_id,
                              TranslationSubOrder.sub_order_no.startswith(entity.sub_order_no + '.', autoescape=True))
-    return query.first() is not None
+        number = entity.sub_order_no
+    if len(directions(entity.language_pair)) < 2:
+        return query.with_entities(TranslationSubOrder.id).first() is not None
+    descendants = query.all()
+    direct = [row for row in descendants if row.sub_order_no.rsplit('.', 1)[0] == number]
+    return bool(descendants) and not preserves_order_statistics(entity, direct)
 
 
 def _load_entity(db: Session, entity_type: str, entity_id: UUID):
@@ -193,6 +248,9 @@ def get_word_count_matrix(
         "entity_id": entity_id,
         "source": source,
         "sub_order_count": sub_order_count,
+        "word_count_by_direction": owner.word_count_by_direction,
+        "word_count_parent_order_no": owner.word_count_parent_order_no,
+        "word_count_matches_parent": owner.word_count_matches_parent,
         "simple_requirement_word_count_matrix":getattr(owner,"simple_requirement_word_count_matrix",{}),
         **entity_values,
         "translators": [
@@ -281,8 +339,8 @@ def patch_word_count_matrix(
             if cell.dimension in touched:values[cell.dimension][cell.metric_type]=cell.count_value
         for change in payload.changes:
             if change.scope=='entity' and change.dimension in touched:values[change.dimension][change.metric_type]=change.value
-        for dimension,items in values.items():
-            if sum(value is not None for value in items.values())>1:raise HTTPException(422,('我司统计' if dimension=='company' else '客户统计')+'只能填写一个统计字段，请先清空其他字段')
+        for dimension, items in values.items():
+            validate_word_count_region(dimension, items)
     allowed_arrangements = {
         row.id for row in _arrangements_for_entity(db, entity_type, entity, dispatch_id)
     }
@@ -310,9 +368,9 @@ def patch_word_count_matrix(
     return get_word_count_matrix(db, entity_type, entity_id, dispatch_id)
 
 
-def validate_single_matrix(matrix):
-    for key,label in [('company','我司统计'),('customer','客户统计')]:
-        if sum(value is not None for value in getattr(matrix,key).model_dump().values())>1:raise HTTPException(422,label+'只能填写一个统计字段，请先清空其他字段')
+def validate_matrix_regions(matrix):
+    for dimension in ('company', 'customer'):
+        validate_word_count_region(dimension, getattr(matrix, dimension).model_dump())
 
 
 def save_created_entity_matrix(
@@ -325,7 +383,7 @@ def save_created_entity_matrix(
 ) -> None:
     if matrix is None:
         return
-    validate_single_matrix(matrix)
+    validate_matrix_regions(matrix)
     for dimension in ENTITY_DIMENSIONS:
         values = getattr(matrix, dimension)
         for metric_type, value in values.model_dump().items():
@@ -352,7 +410,7 @@ def replace_entity_matrix(
     """在调用方事务内用完整矩阵替换项目或子订单字数。"""
     if _has_child_orders(db, entity_type, _load_entity(db, entity_type, entity_id)):
         return
-    validate_single_matrix(matrix)
+    validate_matrix_regions(matrix)
     for dimension in ENTITY_DIMENSIONS:
         values = getattr(matrix, dimension)
         for metric_type, value in values.model_dump().items():

@@ -23,9 +23,19 @@ from schemas import (
 )
 from models import AppUser, TranslationSubOrder
 from routers.auth import get_current_user, require_module_access, require_any_permission
+from translation_suborder_paths import SubOrderPathReplacement, replace_project_suborder_paths
 
 router = APIRouter(prefix="/sub-orders", tags=["sub-orders"], dependencies=[Depends(require_module_access("projects:read", "projects:write"))])
 logger = logging.getLogger(__name__)
+
+
+@router.post('/project/{project_id}/replace-paths', dependencies=[Depends(require_any_permission('projects:write'))])
+def replace_paths(project_id: UUID, payload: SubOrderPathReplacement, db: Session = Depends(get_db)):
+    try:
+        return replace_project_suborder_paths(db, project_id, payload)
+    except ValueError as error:
+        db.rollback()
+        raise HTTPException(422, str(error)) from error
 
 
 @router.post('/import-list/parse',dependencies=[Depends(require_any_permission('projects:write'))])

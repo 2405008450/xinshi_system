@@ -1,4 +1,4 @@
-"""按翻译方向补齐一级/二级子订单；沿用点号层级与现有事务、编号池。"""
+"""按翻译方向补齐文件子订单，沿用点号层级、现有事务和编号池。"""
 import re
 from sqlalchemy import select
 from models import TranslationProject,TranslationSubOrder
@@ -14,22 +14,28 @@ def level(row):
     return row.sub_order_no.count('.') if isinstance(row,TranslationSubOrder) else 0
 
 
-def preserves_project_statistics(owner,children):
-    """同一母单文件仅按方向拆分时，母单保留登记统计，不累加重复的原文数量。"""
-    if not isinstance(owner,TranslationProject) or not children or len(directions(owner.language_pair))<2:
+def preserves_order_statistics(owner, children):
+    """同一文件按方向拆单时，上级保留原文统计。"""
+    if not children or getattr(owner, 'folder_info', None):
         return False
-    name=str(owner.source_file_name or owner.project_name or '').strip().casefold()
-    wanted={value.casefold() for value in directions(owner.language_pair)}
+    wanted = {pair.casefold() for pair in directions(owner.language_pair)}
+    if len(wanted) < 2:
+        return False
+    if isinstance(owner, TranslationSubOrder):
+        name = owner.sub_project_name
+    else:
+        name = owner.source_file_name or owner.project_name
+    name = str(name or '').strip().casefold()
     return bool(name) and all(
-        str(child.sub_project_name or '').strip().casefold()==name
-        and len(pairs:=directions(child.language_pair))==1 and pairs[0].casefold() in wanted
+        (str(child.sub_project_name or '').strip().casefold() == name or child.network_file_path == '同上一级订单')
+        and len(pairs := directions(child.language_pair)) == 1 and pairs[0].casefold() in wanted
         for child in children
     )
 
 
 def validate_direction_level(number,value):
-    if str(number).count('.')>=4 and len(directions(value))>1:
-        raise ValueError('四级子订单只能选择一个翻译方向，不能继续拆分更深层级')
+    if str(number).count('.') >= 5 and len(directions(value)) > 1:
+        raise ValueError('第五级为方向子订单，只能选择一个翻译方向')
 
 
 def stored_matrix(db,owner):
@@ -67,10 +73,11 @@ def ensure_direction_children(db,owner,actor_id=None):
     from translation_folder_orders import info
     if isinstance(owner,TranslationSubOrder) and info(db,owner.id):return []
     if isinstance(owner,TranslationProject):
-        from translation_folder_orders import TranslationOrderFolder,ready
+        from translation_folder_orders import TranslationOrderFolder,is_folder_root,ready
+        if is_folder_root(db,owner.id):return []
         if ready(db) and db.query(TranslationOrderFolder).join(TranslationSubOrder,TranslationSubOrder.id==TranslationOrderFolder.sub_order_id).filter(TranslationSubOrder.parent_project_id==owner.id).first():return []
-    if level(owner)>=4:
-        raise ValueError('四级子订单只能选择一个翻译方向')
+    if isinstance(owner, TranslationSubOrder):
+        validate_direction_level(owner.sub_order_no, owner.language_pair)
     root_id=owner.parent_project_id if isinstance(owner,TranslationSubOrder) else owner.id
     root=db.query(TranslationProject).filter_by(id=root_id).with_for_update().one()
     db.flush()
@@ -84,7 +91,8 @@ def ensure_direction_children(db,owner,actor_id=None):
             if len(directions(row.language_pair))>1:
                 created.extend(ensure_direction_children(db,row,actor_id))
     sources={}
-    if direct:
+    direction_only = preserves_order_statistics(owner, direct)
+    if direct and not direction_only:
         for row in sorted(direct,key=lambda item:item.sub_order_no):
             name=normalize_single_file_name(row.sub_project_name)
             sources.setdefault(name.casefold(),(name,row))
@@ -94,7 +102,7 @@ def ensure_direction_children(db,owner,actor_id=None):
     from crud import _create_sub_order_in_transaction
     from schemas import TranslationSubOrderCreate
     for key,(name,source) in sources.items():
-        covered={direction.casefold() for row in direct if str(row.sub_project_name or '').casefold()==key for direction in directions(row.language_pair)}
+        covered={direction.casefold() for row in direct if direction_only or str(row.sub_project_name or '').casefold()==key for direction in directions(row.language_pair)}
         for direction in wanted:
             if direction.casefold() in covered:
                 continue
@@ -102,8 +110,8 @@ def ensure_direction_children(db,owner,actor_id=None):
             payload=TranslationSubOrderCreate(parent_project_id=root.id,sub_order_no=number,sub_project_name=name,language_pair=direction,
                 priority=source.priority or owner.priority,file_type_secondary=source.file_type_secondary,
                 customer_deadline_time=source.customer_deadline_time or getattr(owner,'customer_deadline_time',None),
-                network_file_path='同上一级订单',word_count_matrix=stored_matrix(db,source),status='pending_confirmation',created_by=actor_id or getattr(owner,'created_by',None))
-            child=_create_sub_order_in_transaction(db,payload)
+                network_file_path='同上一级订单',word_count_matrix=stored_matrix(db,source),created_by=actor_id or getattr(owner,'created_by',None))
+            child=_create_sub_order_in_transaction(db,payload, direction_child=True)
             created.append(child);covered.add(direction.casefold())
     if created:
         db.expire(root,['sub_orders'])

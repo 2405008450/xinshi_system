@@ -8,15 +8,18 @@ export function useFinanceTableEditing(onSaved){
   const draftValue=(field,value,previous)=>field==='prices'?copyFinanceValue(value).map((price,index)=>({...price,_config:previous?.[index]?._config||false})):copyFinanceValue(value)
   function syncRow(row){
     let state=states.get(row.id)
-    if(!state){const base=financeDraft(row);state=reactive({row,base,draft:copyFinanceValue(base),saving:false,error:'',pending:new Map()});states.set(row.id,state)}
-    {
-      const latest=financeDraft(row)
-      for(const field of financeDraftFields){
-        if(sameFinanceField(field,state.draft[field],state.base[field])){state.base[field]=copyFinanceValue(latest[field]);state.draft[field]=draftValue(field,latest[field],state.draft[field])}
-        else if(!sameFinanceField(field,latest[field],state.base[field])&&!sameFinanceField(field,latest[field],state.draft[field]))state.error='此字段已在其他窗口更新；未保存内容已保留，请核对后重新加载或重试。'
-      }
-      state.row=row
+    if(state?.row===row)return state
+    const latest=financeDraft(row)
+    if(!state){
+      state=reactive({row,base:latest,draft:copyFinanceValue(latest),saving:false,error:'',pending:new Map()})
+      states.set(row.id,state)
+      return state
     }
+    for(const field of financeDraftFields){
+      if(sameFinanceField(field,state.draft[field],state.base[field])){state.base[field]=copyFinanceValue(latest[field]);state.draft[field]=draftValue(field,latest[field],state.draft[field])}
+      else if(!sameFinanceField(field,latest[field],state.base[field])&&!sameFinanceField(field,latest[field],state.draft[field]))state.error='此字段已在其他窗口更新；未保存内容已保留，请核对后重新加载或重试。'
+    }
+    state.row=row
     return state
   }
   const stateFor=row=>states.get(row.id)

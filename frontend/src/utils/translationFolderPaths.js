@@ -10,3 +10,26 @@ export function applyFolderRootPath(form,rootPath){
 export function restoreFolderRootPath(form){
   if(form.pendingFolderImport?.rootPath&&!form.folderRootPathVersion)applyFolderRootPath(form,form.pendingFolderImport.rootPath)
 }
+
+export function normalizeFolderRootInput(value) {
+  const path = String(value ?? '').trim()
+  return path.startsWith('"') && path.endsWith('"') ? path.slice(1, -1).trim() : path
+}
+
+export function selectedFolderName(entries = []) {
+  return (entries ?? []).map(entry => entry.relativePath ?? entry.relative_path ?? '')
+    .find(path => path && !/[\\/]/.test(path)) ?? ''
+}
+export function compareFolderRoot(entries, enteredPath, selectedPath = '') {
+  const name = selectedFolderName(entries)
+  const entered = normalizeFolderRootInput(enteredPath)
+  const selected = normalizeFolderRootInput(selectedPath)
+  const comparable = path => path.replaceAll('/', '\\').replace(/\\+$/, '')
+  const enteredName = comparable(entered).split('\\').at(-1)
+  return {
+    name, entered, selected, enteredName,
+    nameMismatch: Boolean(name && entered && enteredName !== name),
+    pathMismatch: Boolean(selected && entered
+      && comparable(selected).toLowerCase() !== comparable(entered).toLowerCase()),
+  }
+}

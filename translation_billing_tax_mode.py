@@ -58,7 +58,7 @@ def attach(node,stored,fallback='excl_tax'):
     for child in node.get('children',[]):attach(child,stored,fallback)
     node['billing_tax_mode']=stored.get(node['id'])
     mode=effective(node,node['billing_tax_mode'],fallback)
-    if node.get('children'):
+    if node.get('price_aggregate'):
         amounts={};chosen=set()
         for child in node['children']:
             chosen.add(child.get('effective_billing_tax_mode'))

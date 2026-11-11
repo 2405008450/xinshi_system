@@ -34,7 +34,7 @@ class DocumentNotes(BaseModel):
 
 
 def quotation_value(row):
-    data={key:value for key,value in (row.quotation_data or {}).items() if key not in {'_document_notes','_invoice'}} if row else {}
+    data={key:value for key,value in (row.quotation_data or {}).items() if not key.startswith('_')} if row else {}
     return data or None
 
 
@@ -110,6 +110,7 @@ def attach(db, projects):
         project.quotation_draft = quotation_value(row)
         project.document_notes = document_notes(row)
         project.invoice_data=(row.quotation_data or {}).get('_invoice',{}) if row else {}
+        project.order_pricing_modes = (row.quotation_data or {}).get('_order_pricing_modes', {}) if row else {}
 
 
 def save(db, project, *, statement_required=None, quotation_draft=None, document_notes=None, actor_id=None):
@@ -125,7 +126,7 @@ def save(db, project, *, statement_required=None, quotation_draft=None, document
         row.statement_required = statement_required
     stored=dict(row.quotation_data or {})
     if quotation_draft is not None:
-        stored={**quotation_draft.model_dump(mode='json'),**{key:value for key,value in stored.items() if key in {'_document_notes','_invoice'}}}
+        stored={**quotation_draft.model_dump(mode='json'),**{key:value for key,value in stored.items() if key.startswith('_')}}
         row.quotation_revision += 1
     if document_notes is not None:
         stored['_document_notes']=document_notes.model_dump(mode='json')
@@ -133,6 +134,29 @@ def save(db, project, *, statement_required=None, quotation_draft=None, document
     row.quotation_data=stored or None
     row.updated_by = actor_id
     row.updated_at = business_now()
+
+
+def order_pricing_modes(db, project):
+    if not hasattr(project, 'order_pricing_modes'):
+        row = db.get(TranslationProjectDocuments, project.id) if db and ready(db) else None
+        project.order_pricing_modes = (row.quotation_data or {}).get('_order_pricing_modes', {}) if row else {}
+    return project.order_pricing_modes
+
+
+def save_order_pricing_mode(db, project, order_id, mode, actor_id):
+    if not ready(db):
+        raise HTTPException(503, '项目单据存储尚未初始化')
+    row = db.get(TranslationProjectDocuments, project.id)
+    if row is None:
+        row = TranslationProjectDocuments(project_id=project.id, quotation_revision=0)
+        db.add(row)
+    stored = dict(row.quotation_data or {})
+    modes = dict(stored.get('_order_pricing_modes', {}))
+    modes[str(order_id)] = mode
+    row.quotation_data = {**stored, '_order_pricing_modes': modes}
+    row.updated_by = actor_id
+    row.updated_at = business_now()
+    project.order_pricing_modes = modes
 
 
 def quotation(db, project):

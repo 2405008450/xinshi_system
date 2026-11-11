@@ -36,6 +36,10 @@ class WordCountCreateMatrix(BaseModel):
     translator_estimate: WordCountValues = Field(default_factory=WordCountValues)
 
 
+class DirectionWordCount(BaseModel):
+    language_pair: str
+    word_count_matrix: WordCountCreateMatrix
+
 
 class TranslatorWordCountRow(BaseModel):
     arrangement_id: UUID
@@ -58,6 +62,9 @@ class WordCountMatrixResponse(BaseModel):
     translators: list[TranslatorWordCountRow] = Field(default_factory=list)
     source: Literal["project", "suborder", "suborder_aggregate"] = "project"
     sub_order_count: int = 0
+    word_count_by_direction: list[DirectionWordCount] = Field(default_factory=list)
+    word_count_parent_order_no: Optional[str] = None
+    word_count_matches_parent: bool = False
 
 
 class WordCountCellChange(BaseModel):

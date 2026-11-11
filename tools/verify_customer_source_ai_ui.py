@@ -73,14 +73,29 @@ const mode=ref('analysis');createApp({render:()=>h('main',{},[h('button',{onClic
         expect(submit).to_be_enabled()
         assert submissions == [] and scopes[-1] == 'customer_source'
         expect(panel).not_to_contain_text('个人思考专属结果')
-        panel.locator('textarea').fill('按渠道性质归并')
-        submit.click()
-        expect(panel.locator('.source-ai-result-text')).to_contain_text('渠道分类建议', timeout=10000)
+        question_input = panel.locator('textarea')
+        question_input.fill('按渠道性质归并')
+        question_input.dispatch_event('keydown', {'key': 'Enter', 'isComposing': True})
+        question_input.press('Shift+Enter')
+        expect(question_input).to_have_value('按渠道性质归并\n')
+        assert submissions == []
+        question_input.press('Enter')
+        expect(panel.get_by_role('status')).to_have_text('分析已完成', timeout=10000)
+        question = panel.get_by_role('button', name=re.compile('按渠道性质归并'))
+        answer = panel.get_by_role('region', name='答', exact=True)
+        expect(question).to_have_attribute('aria-expanded', 'false')
+        expect(answer).to_be_hidden()
+        question.click()
+        expect(answer).to_be_visible()
+        expect(answer.locator('.source-ai-result-text')).to_contain_text('渠道分类建议')
+        assert answer.bounding_box()['x'] > question.bounding_box()['x']
         assert submissions[0]['scope'] == 'customer_source' and submissions[0]['action'] == 'organize'
         assert all(text in submissions[0]['content'] for text in ['百度', '朋友介绍', '按渠道性质归并'])
         assert '不应发送' not in submissions[0]['content']
         expect(panel).to_contain_text('输出上限')
         expect(panel.locator('script')).to_have_count(0)
+        question.click()
+        expect(answer).to_be_hidden()
         page.get_by_text('按周', exact=True).click()
         expect(panel.locator('.source-ai-result-text')).to_have_count(0)
         assert len(submissions) == 1

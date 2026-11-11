@@ -31,11 +31,11 @@ test('已付定金的首条阶段固定为定金，后续阶段和金额保持�
   const rows=[{stage_type:'mid',stage_no:1,planned_amount:200,actual_amount:100,payment_method:'广州公司公账'},{stage_type:'deposit',stage_no:1,actual_amount:10},{stage_type:'final',stage_no:1,actual_amount:90}]
   const later=structuredClone(rows.slice(1))
   fixFirstDepositStage({isPaid:true,paymentOption:'deposit'},rows)
-  assert.equal(rows[0].stage_type,'deposit');assert.equal(rows[0].stage_no,2)
+  assert.equal(rows[0].stage_type,'deposit');assert.equal(rows[0].stage_no,1)
   assert.equal(rows[0].planned_amount,200);assert.equal(rows[0].actual_amount,100)
   assert.equal(rows[0].payment_method,'广州公司公账');assert.deepEqual(rows.slice(1),later)
   fixFirstDepositStage({isPaid:true,paymentOption:'deposit'},rows)
-  assert.equal(rows[0].stage_no,2)
+  assert.equal(rows[0].stage_no,1)
 })
 
 test('未选择定金或已选择全款时，不改已有付款阶段',()=>{

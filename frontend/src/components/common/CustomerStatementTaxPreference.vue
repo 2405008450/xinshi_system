@@ -7,7 +7,7 @@
   </div>
 </template>
 <script setup>
-import {ref,watch,onBeforeUnmount} from 'vue'
+import {ref,watch,onMounted,onBeforeUnmount} from 'vue'
 import {getStatementPreference,saveStatementPreference} from '@/api/customerStatements'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 const props=defineProps({clientId:{type:[String,Number],default:''},canWrite:Boolean})
@@ -18,7 +18,11 @@ function save(value){return persist({tax_included:value})}
 function saveDefault(value){return persist({tax_included:included.value,statement_default:value})}
 async function persist(patch){if(saving.value||loading.value||!props.canWrite)return;const id=props.clientId,seq=sequence;saving.value=true;error.value='';try{const data=await saveStatementPreference(id,{revision:revision.value,...patch});if(seq===sequence){included.value=data.tax_included;statementDefault.value=data.statement_default||'unknown';revision.value=data.revision;window.dispatchEvent(new CustomEvent('customer-statement-preference-saved',{detail:{clientId:id}}))}}catch(e){if(seq===sequence)error.value=getLocalizedErrorMessage(e,'客户财务设置保存失败，请重新加载')}finally{if(seq===sequence)saving.value=false}}
 watch(()=>props.clientId,load,{immediate:true})
-onBeforeUnmount(()=>{sequence++;controller?.abort()})
+function refreshAfterProjectSync(event){
+  if(event.detail?.fromProject&&event.detail.clientId===props.clientId&&!saving.value)void load()
+}
+onMounted(()=>window.addEventListener('customer-statement-preference-saved',refreshAfterProjectSync))
+onBeforeUnmount(()=>{sequence++;controller?.abort();window.removeEventListener('customer-statement-preference-saved',refreshAfterProjectSync)})
 </script>
 <style scoped>
 .statement-default-setting{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px}.statement-default-setting small{color:var(--el-text-color-secondary)}.statement-tax-preference{margin-bottom:12px}.statement-tax-preference>span{font-size:12px;color:var(--el-text-color-secondary);margin-left:12px}.el-alert{margin-top:8px}

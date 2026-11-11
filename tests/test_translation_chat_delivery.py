@@ -137,11 +137,12 @@ def test_full_email_body_is_preserved_and_failed_mail_never_dispatches(chat_case
     from discussion_chat_models import DiscussionMessage
     db,actor,staff,root,service=chat_case
     body='长邮件内容\n'*3000
-    mail=BusinessMail(id=uuid4(),source_kind='project_manual',project_type='translation',translation_project_id=root.id,subject='测试主题',body=body,status='sent',idempotency_key=str(uuid4()),created_by=actor.id)
+    mail=BusinessMail(id=uuid4(),source_kind='project_manual',project_type='translation',translation_project_id=root.id,subject='测试主题，33批',body=body,status='sent',idempotency_key=str(uuid4()),created_by=actor.id)
     db.add(mail);db.flush()
     db.add(service.TranslationMailChatIntent(mail_id=mail.id,audience=[]));db.commit()
     service.complete_mail_intent(db,mail,actor)
     assert db.query(DiscussionMessage).one().content=='测试主题\n\n'+body
+    assert mail.subject=='测试主题，33批'
     service.complete_mail_intent(db,mail,actor)
     assert db.query(DiscussionMessage).count()==1
     mail.status='failed';db.commit()

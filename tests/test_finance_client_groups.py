@@ -31,3 +31,5 @@ def test_client_order_count_uses_filtered_roots_and_paginates_whole_clients(cont
 
     flat=http.get('/translation-customer-finance/page',params={'client_order_count':'multiple','group_clients':False,'limit':1}).json()
     assert flat['total']==5 and len(flat['items'])==1
+    standalone=http.get('/translation-customer-finance/page',params={'paginate_children':True,'keyword':a[0].order_no}).json()
+    assert standalone['total']==1 and standalone['items'][0]['page_index']==1

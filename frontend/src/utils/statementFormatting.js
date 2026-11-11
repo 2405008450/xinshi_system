@@ -12,6 +12,7 @@ export function statementUnitPrice(value){
 
 export const statementColumnWeights={received_date:24,project_name:35.7,language_pair:17.6,workload:29.7,unit_price:30,subtotal:22,remarks:34}
 export const statementBasis=value=>String(value||'').replace(/[（(]每1(?:\.0+)?计价[）)]/g,'')
+export const isFixedStatementRow=row=>row?.pricing_mode==='fixed'||(!row?.pricing_mode&&String(row?.basis||'').split('\n')[0]==='固定收费')
 
 export const statementTitle=statement=>{const title=statement.title||'对账单',prefix=statement.month?`${statement.month} `:'';return prefix&&title.startsWith(prefix)?title.slice(prefix.length):title}
 

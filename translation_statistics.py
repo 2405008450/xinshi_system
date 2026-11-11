@@ -102,13 +102,12 @@ def report(db,*,start,end,granularity='month',date_basis='order',tax_basis='excl
     for offset in range(0,len(selected),400):
         rows=db.query(Project).options(joinedload(Project.client),joinedload(Project.sub_client),selectinload(Project.customer_charge_items),selectinload(Project.sub_orders).selectinload(Child.customer_charge_items)).filter(Project.id.in_([row['id'] for row in selected[offset:offset+400]])).all()
         projects.update({row.id:row for row in rows})
-    import crud,customer_translation_rates as rates,translation_quantity_basis as basis
+    import crud
     from translation_customer_finance import tree
     crud._attach_word_count_matrices(db,projects=list(projects.values()))
-    ids=[charge.id for project in projects.values() for owner in [project,*project.sub_orders] for charge in owner.customer_charge_items]
-    rates.metadata(db,ids);basis.metadata(db,ids)
     for record in selected:
         project=projects[record['id']];project.client_name=record['client_name'];project.client_short_name=record['client_short_name']
-        record['finance']=tree(project,summary_only=True)['item']
+        # 报表按所选含税或不含税金额汇总，无需逐单读取默认计费口径。
+        record['finance']=tree(project,summary_only=True,include_billing_tax_mode=False)['item']
     result=summarize(selected,first_dates,start,end,granularity,tax_basis)
     return dict(**result,generated_at=business_now().isoformat(),start=start.isoformat(),end=end.isoformat(),granularity=granularity,date_basis=date_basis,tax_basis=tax_basis,fallback_date_orders=fallback_date,undated_orders=missing_date,order_count=len(selected))

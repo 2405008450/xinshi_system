@@ -22,10 +22,11 @@
       <div class="word-count-matrix__header">
         <div>
 
-          <p>{{ aggregated ? '此订单各单位分别由子订单逐级累计，可同时出现字数、份数等多项；请在末级订单填写。' : '我司统计、客户统计每行只能填写一项；清空已填项后可切换口径。空白不保存，零视为已填写。' }}</p>
+          <p>{{ aggregated ? '此订单各单位分别由子订单逐级累计，可同时出现字数、份数等多项；请在末级订单填写。' : '我司统计、客户统计每行可选字数类、份数、页数或时长。字数类可填多项，清空当前区域后可切换。0 也算已填写。' }}</p>
         </div>
         <el-tag size="small" :type="hasChanges ? 'warning' : 'info'">{{ hasChanges ? '未保存修改' : (aggregated ? '下级自动汇总' : (localMode ? '随项目保存' : '已保存统计')) }}</el-tag>
       </div>
+      <OrderWordCountSource :order="draft" />
 
       <el-alert v-if="hasDuration" title="本项目可能属于标注项目，请与标注项目部沟通。" type="warning" :closable="false" show-icon />
       <div ref="matrixBody" v-loading="loading" class="word-count-matrix__body">
@@ -42,6 +43,7 @@
               <th class="word-count-matrix__row-title">
                 <span>{{ row.label }}</span>
                 <small v-if="row.hint">{{ row.hint }}</small>
+                <el-button v-if="!readOnly && !aggregated && row.scope === 'entity' && ['company','customer'].includes(row.dimension) && Object.values(row.values).some(value => value != null)" link @click="Object.assign(row.values, createEmptyWordCountValues())">清空本行</el-button>
               </th>
               <td
                 v-for="metric in regularMetrics"
@@ -93,10 +95,14 @@ import { ElMessage } from 'element-plus'
 import { getWordCountMatrix, patchWordCountMatrix } from '@/api/wordCountMatrices'
 import { focusFormTarget, scrollFormTarget } from '@/utils/formNavigation'
 import { useFormDraft } from '@/composables/useFormDraft'
+import OrderWordCountSource from './OrderWordCountSource.vue'
 import {
   WORD_COUNT_METRICS,
   createEmptyWordCountMatrix,
+  createEmptyWordCountValues,
   formatWordCountMatrix,
+  hasMultipleWordCountRegions,
+  isWordCountRegionLocked,
   normalizeWordCountMatrix,
   normalizeWordCountValues
 } from '@/utils/wordCountMatrix'
@@ -152,7 +158,11 @@ const regularMetrics=WORD_COUNT_METRICS.filter(item=>!['minutes','hours'].includ
 const timeUnits=ref({})
 const hasDuration=computed(()=>rows.value.some(row=>row.values.minutes!=null||row.values.hours!=null))
 function timeMetric(row){return row.values.hours!=null?'hours':row.values.minutes!=null?'minutes':timeUnits.value[row.key]||'minutes'}
-function cellDisabled(row,key){return props.readOnly||(aggregated.value&&row.scope==='entity')||(row.scope==='entity'&&['company','customer'].includes(row.dimension)&&row.values[key]==null&&WORD_COUNT_METRICS.some(item=>item.key!==key&&row.values[item.key]!=null))}
+function cellDisabled(row, key) {
+  if (props.readOnly || (aggregated.value && row.scope === 'entity')) return true
+  return row.scope === 'entity' && ['company', 'customer'].includes(row.dimension)
+    && isWordCountRegionLocked(row.values, key)
+}
 function changeTimeUnit(row,unit){const previous=timeMetric(row),value=row.values[previous];row.values[previous]=null;timeUnits.value[row.key]=unit;if(value!=null)row.values[unit]=Number((unit==='hours'?value/60:value*60).toFixed(4))}
 
 const clone = (value) => JSON.parse(JSON.stringify(value))
@@ -163,6 +173,12 @@ function normalizeResponse(data = {}) {
     entity_type: data.entity_type || props.entityType,
     entity_id: data.entity_id || props.entityId,
     source: data.source,
+    wordCountParentOrderNo: data.word_count_parent_order_no ?? data.wordCountParentOrderNo,
+    wordCountMatchesParent: data.word_count_matches_parent ?? data.wordCountMatchesParent,
+    wordCountByDirection: (data.word_count_by_direction ?? data.wordCountByDirection ?? []).map(item => ({
+      languagePair: item.language_pair ?? item.languagePair,
+      wordCountMatrix: item.word_count_matrix ?? item.wordCountMatrix,
+    })),
     company: normalizeWordCountValues(data.company),
     customer: normalizeWordCountValues(data.customer),
     preliminary: normalizeWordCountValues(data.preliminary),
@@ -334,8 +350,8 @@ function clearPending() {
 }
 function validateMatrix(matrix) {
   if (matrix?.source !== 'suborder_aggregate') for (const dimension of ['company','customer']) {
-    if (WORD_COUNT_METRICS.filter(item=>matrix?.[dimension]?.[item.key]!=null).length>1) {
-      ElMessage.warning(`${dimension==='company'?'我司统计':'客户统计'}只能填写一个统计字段，请先清空其他字段`)
+    if (hasMultipleWordCountRegions(matrix?.[dimension])) {
+      ElMessage.warning(`${dimension==='company'?'我司统计':'客户统计'}只能填写一个统计区域，请清空其他区域`)
       return false
     }
   }
@@ -439,6 +455,7 @@ async function saveMatrix() {
 .word-count-matrix__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 0 2px 8px; }
 .word-count-matrix__header strong { font-size: 16px; color: var(--el-text-color-primary); }
 .word-count-matrix__header p { margin: 3px 0 0; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
+.word-count-matrix :deep(.order-word-count-source) { flex-shrink: 0; max-height: 110px; overflow: auto; margin-bottom: 8px; }
 .word-count-matrix__body { flex: 1; min-height: 120px; overflow: auto; border: 1px solid var(--el-border-color); }
 table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
 th, td { padding: 0; border-right: 1px solid var(--el-border-color); border-bottom: 1px solid var(--el-border-color); background: var(--el-bg-color); }

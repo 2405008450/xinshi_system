@@ -164,7 +164,7 @@
                           :title="getWordCountListSummary(subRow).title"
                         >
                           <span class="compact-cell-value">
-                            <span class="compact-cell-value__primary">{{ getWordCountListSummary(subRow).primary }}</span><small v-if="getWordCountListSummary(subRow).sourceLabel" class="word-count-aggregate-source">子订单累计</small>
+                            <span class="compact-cell-value__primary">{{ getWordCountListSummary(subRow).primary }}</span>
                             <span
                               v-if="getWordCountListSummary(subRow).extraCount"
                               class="compact-cell-value__count"
@@ -173,6 +173,7 @@
                         </el-button>
                       </template>
                     </WordCountMatrixPopover>
+                    <OrderWordCountSource :order="subRow" />
                   </div>
                 </template>
               </el-table-column>
@@ -258,7 +259,7 @@
       <template #footer><el-button @click="arrangementHistoryVisible=false">关闭</el-button></template>
     </DraggableFormDialog>
     <CustomerQuotationDialog v-model="quotationVisible" :draft="form.quotationDraft" :draft-project="quotationDocumentProject" defer-save @update:draft="applyQuotationDraft" />
-    <CustomerStatementDialog :manager-label="form.clientManager||'未设置'" :client-context="statementContext" :billing-month="statementContext?.month" @saved="onStatementRequiredSaved" v-model="statementVisible" :projects="[quotationDocumentProject]" :query="{client_id:form.clientId||undefined}" />
+    <CustomerStatementDialog :client-context="statementContext" :billing-month="statementContext?.month" @saved="onStatementRequiredSaved" v-model="statementVisible" />
     <DraggableFormDialog
       v-model="dialogVisible"
       class="project-editor-dialog"
@@ -297,6 +298,7 @@
                   <div class="folder-creation-intro__text"><strong>从项目文件夹创建订单</strong><span>读取根路径 → 自动提取目录与文件名 → 完善信息 → 保存登记</span><small>子订单名称从路径自动提取，无需重复填写；点击保存后才正式登记。发送前需完成子订单字数汇总，紧急预告可跳过汇总。</small></div>
                   <el-button v-if="canWriteProjects" type="primary" @click="openBatchDialog(form,'unc')">读取路径</el-button>
                 </div>
+                <FolderRootComparison v-if="pendingFolderPathComparison" :comparison="pendingFolderPathComparison" />
               </template>
               <el-alert v-if="!form.id && motherTab.name === 'basic'" title="本选项卡仅用于新增母订单和母订单有多个翻译方向、自动生成子订单的情况。如在新增母订单的过程中需要补充子订单，请填写完本选项卡内容后，再到“补充子订单”选项卡补充。" type="info" :closable="false" show-icon class="sub-order-alert" />
               <div class="form-section">
@@ -438,16 +440,19 @@
                   <el-row :gutter="16">
                     <el-col :xs="24">
                       <el-form-item label="字数与预估" :prop="motherTab.name === 'parentchildren' ? undefined : 'wordCountMatrix'" data-field-key="wordCountSummary">
-                        <div v-if="motherTab.name === 'parentchildren'">
+                        <div v-if="motherTab.name === 'parentchildren' && (form.id || !isDirectionOnlySplit(form))">
                           <div>此处暂不填写。请先填写子订单的我司统计或客户统计，再汇总至母订单；完成汇总后才能正式发送邮件或会话。</div>
                           <div>{{ form.wordCountMatrixSource === 'suborder_aggregate' ? formatWordCountSummary(form) : '尚未汇总子订单字数' }}</div>
+                          <OrderWordCountSource :order="form" />
                           <el-button type="primary" plain @click="goToSubOrderManagement(form)">打开子订单管理（填写字数并汇总）</el-button>
                         </div>
                         <div v-else class="word-count-summary">
                           <span>{{ formatWordCountSummary(form) }}</span>
+                          <OrderWordCountSource :order="form" />
                           <WordCountMatrixPopover
                             :ref="setProjectWordCountRef"
-                            v-model="form.wordCountMatrix"
+                            :model-value="form.wordCountMatrix"
+                            @update:model-value="setProjectWordCountMatrix"
                             v-model:pending-draft="form.wordCountPendingDraft"
                             draft-scope="translation-project"
                             entity-type="project"
@@ -457,6 +462,8 @@
                           >
                             <template #reference><el-button type="primary" link>展开字数统计</el-button></template>
                           </WordCountMatrixPopover>
+                          <el-button v-if="!form.id && isDirectionOnlySplit(form)" type="primary" link
+                            @click="goToSubOrderManagement(form)">查看方向子订单</el-button>
                         </div>
                       </el-form-item>
                       <div class="project-finance-controls">
@@ -731,14 +738,15 @@
                           <template #reference>
                             <el-button type="primary" link class="word-count-compact-link business-clickable-cell" :title="getWordCountListSummary(row).title">
                               <span class="compact-cell-value">
-                                <span class="compact-cell-value__primary">{{ getWordCountListSummary(row).primary }}</span><small v-if="getWordCountListSummary(row).sourceLabel" class="word-count-aggregate-source">子订单累计</small>
+                                <span class="compact-cell-value__primary">{{ getWordCountListSummary(row).primary }}</span>
                                 <span v-if="getWordCountListSummary(row).extraCount" class="compact-cell-value__count">
                                   +{{ getWordCountListSummary(row).extraCount }}
                                 </span>
                               </span>
                             </el-button>
                           </template>
-                        </WordCountMatrixPopover><el-button v-else link type="primary" @click="pendingSubOrderManagerVisible=true">{{ getWordCountListSummary(row).primary }}</el-button>
+                        </WordCountMatrixPopover><el-button v-else link type="primary" @click="goToSubOrderManagement(form)">{{ getWordCountListSummary(row).primary }}</el-button>
+                        <OrderWordCountSource v-if="form.id" :order="row" />
                       </div>
                     </template>
                   </el-table-column>
@@ -754,7 +762,7 @@
                   </el-table-column>
                   <el-table-column label="操作" width="88" fixed="right" align="center">
                     <template #default="{ row }">
-                      <TableActionButton v-if="canWriteProjects" action="edit" @click="handleEditSubOrder(row)" />
+                      <TableActionButton v-if="canWriteProjects" action="edit" @click="!form.id && row.wordCountCopyBaseline ? goToSubOrderManagement(form) : handleEditSubOrder(row)" />
                       <TableActionButton v-if="canWriteProjects" action="delete" @click="handleDeleteSubOrder(row)" />
                     </template>
                   </el-table-column>
@@ -842,7 +850,8 @@
           <el-tabs v-model="subOrderDialogTab" class="editor-tabs">
             <el-tab-pane label="基础信息" name="basic">
               <div class="form-section">
-                <WordCountMatrixForm v-if="subOrderDialogTitle==='小量新增'" v-model="subOrderForm.wordCountMatrix" />
+                <OrderWordCountSource :order="subOrderForm" />
+                <WordCountMatrixForm v-model="subOrderForm.wordCountMatrix" :aggregated="subOrderForm.wordCountMatrixSource === 'suborder_aggregate'" />
                 <OriginalProjectInformation :value="subOrderForm.originalProjectInformation" />
                 <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="母订单号"><ReadonlyField :model-value="form.orderNo" source="auto" /></el-form-item></el-col>
@@ -854,7 +863,7 @@
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="文本类型"><el-input v-model="subOrderForm.fileTypeSecondary" /><OrderFieldHint :order="subOrderForm" field="fileTypeSecondary" /></el-form-item></el-col>
-                  <el-col :xs="24" :md="12"><el-form-item label="翻译方向"><LanguagePairSelect v-model="subOrderForm.languagePair" :single="(subOrderForm.subOrderNo || '').split('.').length > 4" :show-hint="false" /><div class="form-tip">多选方向将生成下一级子订单；最多四级子订单，第四级限一个方向。</div><OrderFieldHint :order="subOrderForm" field="languagePair" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="12"><el-form-item label="翻译方向"><LanguagePairSelect v-model="subOrderForm.languagePair" :single="(subOrderForm.subOrderNo || '').split('.').length > 5" :show-hint="false" /><div class="form-tip">文件订单多选方向后生成下级子订单，共用原文路径。文件夹保留原层级。</div><OrderFieldHint :order="subOrderForm" field="languagePair" /></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="优先级"><el-select v-model="subOrderForm.priority" clearable style="width: 100%"><el-option v-for="item in priorityOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item></el-col>
@@ -895,25 +904,11 @@
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24">
-                    <el-form-item label="字数与预估">
-                      <div class="word-count-summary">
-                        <span>{{ formatWordCountSummary(subOrderForm) }}</span>
-                        <WordCountMatrixPopover
-                          v-model="subOrderForm.wordCountMatrix"
-                          entity-type="suborder"
-                          :entity-id="form.id ? subOrderForm.id : ''"
-                          title="子订单字数统计"
-                          @saved="handleSubOrderWordCountSaved"
-                        >
-                          <template #reference><el-button type="primary" link>展开字数统计</el-button></template>
-                        </WordCountMatrixPopover>
-                      </div>
-                    </el-form-item>
                       <el-form-item label="价格与付款"><el-button type="primary" plain @click="openCustomerFinance(subOrderForm)">价格与付款</el-button></el-form-item>
                   </el-col>
                 </el-row>
                 <el-row :gutter="16">
-                  <el-col :xs="24"><el-form-item label="网络文件路径"><el-input v-model="subOrderForm.networkFilePath" type="textarea" :rows="3" /></el-form-item></el-col>
+                  <el-col :xs="24"><el-form-item label="文件路径"><el-input v-model="subOrderForm.networkFilePath" type="textarea" :rows="3" /></el-form-item></el-col>
                 </el-row>
               </div>
             </el-tab-pane>
@@ -970,7 +965,8 @@
 </template>
 
 <script setup>
-import {applyFolderRootPath,restoreFolderRootPath} from '@/utils/translationFolderPaths'
+import {applyFolderRootPath,restoreFolderRootPath,compareFolderRoot} from '@/utils/translationFolderPaths'
+import FolderRootComparison from './components/FolderRootComparison.vue'
 import ConversationAudiencePicker from '@/components/common/ConversationAudiencePicker.vue'
 import BusinessNumberDeletionHistory from '@/components/common/BusinessNumberDeletionHistory.vue'
 const orderDeletionHistoryVisible=ref(false)
@@ -979,7 +975,7 @@ import deliveryApi from '@/api'
 import CustomerDirectionHistoryDialog from './components/CustomerDirectionHistoryDialog.vue'
 import TranslationStatisticsDialog from './components/TranslationStatisticsDialog.vue'
 import PendingSubOrderManager from './components/PendingSubOrderManager.vue'
-import {pendingFolderRows,pendingChildRows,missingChildStatistics,normalizeInitialChildDetails} from '@/utils/translationChildSubmission'
+import {pendingFolderRows,pendingChildRows,missingChildStatistics,normalizeInitialChildDetails,isDirectionOnlySplit} from '@/utils/translationChildSubmission'
 import OrderFieldHint from './components/OrderFieldHint.vue'
 import OrderInheritedExtras from './components/OrderInheritedExtras.vue'
 import SubOrderManagement from './SubOrderManagement.vue'
@@ -1030,6 +1026,7 @@ import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import InlineSubProjectName from './components/InlineSubProjectName.vue'
 import SubOrderBatchCreateDialog from './components/SubOrderBatchCreateDialog.vue'
 import WordCountMatrixForm from '@/components/common/WordCountMatrixForm.vue'
+import OrderWordCountSource from '@/components/common/OrderWordCountSource.vue'
 import MotherSplitReviewNotice from './components/MotherSplitReviewNotice.vue'
 import OriginalProjectInformation from './components/OriginalProjectInformation.vue'
 import ReuseTranslationProjectDialog from './components/ReuseTranslationProjectDialog.vue'
@@ -1211,8 +1208,8 @@ async function applyDocumentDefaults(){
 }
 function applyQuotationDraft(value){form.quotationDraft=value;quotationDraftDirty.value=true}
 const customerTypes = CUSTOMER_TYPES
-const createEmptyProjectForm = () => ({ motherSplitReviewed:false, motherSplitReview:null, pendingFolderImport:null, folderRootPathVersion:0, folderRoot:false, simpleRequirementWordCountMatrix:{}, pendingSubOrderDetails:{}, pendingSubOrderDefaults:{}, childFieldDifferences:{}, createWithSubOrders: false, filePathDraft: null, wordCountPendingDraft: null, paymentConfirmation: null, statementRequired: true, statementRequiredExplicit: false, quotationDraft: null, documentNotes:{quotation:'',statement:'',invoice:''}, originalStoragePath: '', customerType: null, id: '', orderNo: '', projectName: '', sourceFileName: '', initialSubOrderNamesText: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', contactName: '', clientName: '', clientShortName: '', clientCode: '', subClientName: '', subClientShortName: '', subClientCode: '', customerOrderNo: '', clientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], wordCountMatrixSource: 'project', wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', remarks: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
-const createEmptySubOrderForm = () => ({ serviceContent:'', customerRequirementProfessional:'', customerRequirementSpecial:'', inheritedFields:[], childFieldDifferences:{}, id: '', parentProjectId: '', subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: 0, preReviewQcProgress: 0, reviewProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, networkFilePath: '', remarks: '' })
+const createEmptyProjectForm = () => ({ motherSplitReviewed:false, motherSplitReview:null, pendingFolderImport:null, folderRootPathVersion:0, folderRoot:false, simpleRequirementWordCountMatrix:{}, pendingSubOrderDetails:{}, pendingSubOrderDefaults:{}, childFieldDifferences:{}, createWithSubOrders: false, filePathDraft: null, wordCountPendingDraft: null, paymentConfirmation: null, statementRequired: true, statementRequiredExplicit: false, quotationDraft: null, documentNotes:{quotation:'',statement:'',invoice:''}, originalStoragePath: '', customerType: null, id: '', orderNo: '', projectName: '', sourceFileName: '', initialSubOrderNamesText: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', contactName: '', clientName: '', clientShortName: '', clientCode: '', subClientName: '', subClientShortName: '', subClientCode: '', customerOrderNo: '', clientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], wordCountMatrixSource: 'project', wordCountByDirection: [], wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', remarks: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
+const createEmptySubOrderForm = () => ({ serviceContent:'', customerRequirementProfessional:'', customerRequirementSpecial:'', inheritedFields:[], childFieldDifferences:{}, id: '', parentProjectId: '', subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), wordCountMatrixSource: 'suborder', wordCountByDirection: [], wordCountParentOrderNo: null, wordCountMatchesParent: false, customerChargeItems: [], customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: 0, preReviewQcProgress: 0, reviewProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, networkFilePath: '', remarks: '' })
 const loading = ref(false)
 const directionHistoryVisible=ref(false)
 function applyHistoricalDirections(value){
@@ -1647,14 +1644,16 @@ const toLocalWordCountMatrix = (saved = {}) => ({
   preliminary: saved.preliminary || {},
   translatorEstimate: saved.translator_estimate || saved.translatorEstimate || {},
 })
+function setProjectWordCountMatrix(matrix) {
+  form.wordCountMatrix = matrix
+  if (!form.id && isDirectionOnlySplit(form)) {
+    form.wordCountMatrixSource = 'project'
+    form.pendingDirectionWordCountMatrix = null
+  }
+}
 const handleProjectWordCountSaved = async (saved) => {
   form.wordCountMatrix = toLocalWordCountMatrix(saved)
   formRef.value?.clearValidate('wordCountMatrix')
-  await fetchData()
-}
-const handleSubOrderWordCountSaved = async (saved) => {
-  subOrderForm.wordCountMatrix = toLocalWordCountMatrix(saved)
-  if (form.id) await refreshProjectSubOrders(form.id)
   await fetchData()
 }
 const getAssignedTranslatorNames = (items, legacyName = '') => {
@@ -1917,6 +1916,7 @@ const refreshProjectSubOrders = async (projectId) => {
     form.wordCountMatrix=latest.wordCountMatrix||form.wordCountMatrix
     form.simpleRequirementWordCountMatrix=latest.simpleRequirementWordCountMatrix||{}
     form.wordCountMatrixSource=latest.wordCountMatrixSource||'project'
+    form.wordCountByDirection=latest.wordCountByDirection||[]
     form.wordCountSubOrderCount=latest.wordCountSubOrderCount||0
     form.updatedAt=latest.updatedAt
   }
@@ -2167,10 +2167,17 @@ const resetProjectForm = () => {
 const resetSubOrderForm = () => { assignReactive(subOrderForm, createEmptySubOrderForm); subOrderFormRef.value?.clearValidate(); subOrderDialogTab.value = 'basic' }
 
 const pendingSubOrderManagerVisible=ref(false)
+const pendingFolderPathComparison = computed(() => {
+  const plan = form.pendingFolderImport
+  return plan ? compareFolderRoot(plan.entries, plan.rootPath, plan.selectedRootPath) : null
+})
 const pendingReviewedKey=ref(''),reviewedSubOrderProject=ref('')
 const pendingSubmitSend=ref(false),pendingSubmitChat=ref(false),emergencySubmission=ref(false)
 const pendingSubmitRequested=ref(false)
-const pendingTreeKey=()=>JSON.stringify([form.initialSubOrderNamesText,form.languagePair,form.pendingFolderImport])
+const pendingTreeKey=()=>JSON.stringify([
+  form.initialSubOrderNamesText, form.languagePair, form.pendingFolderImport,
+  isDirectionOnlySplit(form) ? form.wordCountMatrix : null
+])
 const confirmPendingSubOrders=()=>{pendingReviewedKey.value=pendingTreeKey();if(pendingSubmitRequested.value){pendingSubmitRequested.value=false;handleSubmit(pendingSubmitSend.value,false,pendingSubmitChat.value)}}
 const subOrderManagerVisible = ref(false)
 const subOrderManagerProjectId = ref('')
@@ -2214,7 +2221,12 @@ async function reuseProjectInformation(row){
   finally{reuseProjectLoading.value=false}
 }
 const goToSubOrderManagement = (project) => {
-  if(!project.id&&!form.id){pendingSubmitRequested.value=false;pendingSubOrderManagerVisible.value=true;return}
+  if (!project.id && !form.id) {
+    if (projectWordCountRef.value?.prepareSubmit?.() === false) return
+    pendingSubmitRequested.value = false
+    pendingSubOrderManagerVisible.value = true
+    return
+  }
   subOrderManagerProjectId.value=project.id || form.id
   if(subOrderManagerProjectId.value){subOrderManagerVisible.value=true;reviewedSubOrderProject.value=String(subOrderManagerProjectId.value)}
 }
@@ -2340,10 +2352,13 @@ const handleSubmit = async (sendAfterSave = false, emergency = false, sendChat =
     clearDraft();dialogVisible.value=false;ElMessage.success('清空状态已保存');return
   }
   const childEntry=projectDialogTab.value==='parentchildren'
-  const childStatisticsConfirmed=editorChildRows.value.length>0&&!missingChildStatistics(editorChildRows.value).length&&(form.id?reviewedSubOrderProject.value===String(form.id):pendingReviewedKey.value===pendingTreeKey())
-  const childDraft=childEntry&&!emergency&&!sendAfterSave&&!sendChat&&!childStatisticsConfirmed
   if (!formRef.value) {ElMessage.warning('表单尚未准备好，请稍后再试');return}
   if (submitLocked) {ElMessage.info('正在校验或保存，请稍候');return}
+  if (!form.id && pendingFolderPathComparison.value?.nameMismatch) {
+    projectDialogTab.value = 'parentchildren'
+    ElMessage.warning('根路径与所选文件夹名称不一致，请核对后重新读取路径')
+    return
+  }
   restoreFolderRootPath(form)
   submitLocked = true
   emergencySubmission.value=emergency
@@ -2362,7 +2377,7 @@ const handleSubmit = async (sendAfterSave = false, emergency = false, sendChat =
     // 路径不可读时仍允许手工填写真实文件名，并由表单校验定位空字段。
   }
   try{
-    if (!childEntry && projectWordCountRef.value?.prepareSubmit?.() === false) { submitLoading.value=false;submitLocked=false;return }
+    if (projectWordCountRef.value?.prepareSubmit?.() === false) { submitLoading.value=false;submitLocked=false;return }
   }catch(error){ElMessage.error('尚未保存或发送：字数统计准备失败，'+getLocalizedErrorMessage(error,'请重新打开字数统计后重试'));submitLoading.value=false;submitLocked=false;return}
   const valid = await formRef.value.validate().catch(error => {
     const messages=Object.values(error||{}).flat().map(item=>item?.message).filter(Boolean)
@@ -2385,6 +2400,8 @@ const handleSubmit = async (sendAfterSave = false, emergency = false, sendChat =
     return
   }
 
+  const childStatisticsConfirmed=editorChildRows.value.length>0&&!missingChildStatistics(editorChildRows.value).length&&(form.id?reviewedSubOrderProject.value===String(form.id):pendingReviewedKey.value===pendingTreeKey())
+  const childDraft=childEntry&&!emergency&&!sendAfterSave&&!sendChat&&!childStatisticsConfirmed
   if(!emergency&&!childDraft){
     if(childEntry&&!editorChildRows.value.length){
       ElMessage.warning('请先读取文件或添加子订单，填写字数并汇总至母订单后再发送')
@@ -2413,7 +2430,10 @@ const handleSubmit = async (sendAfterSave = false, emergency = false, sendChat =
     payloadSource.submissionMode=emergency?'emergency_notice':childDraft?'draft':childEntry?'normal_children':'normal'
     payloadSource.subOrdersReviewed=!emergency&&!childDraft
     if(!form.id&&!emergency)payloadSource.initialSubOrderDetails=normalizeInitialChildDetails(form.pendingSubOrderDetails||{})
-    if(!form.id&&form.pendingFolderImport)payloadSource.initialFolderImport=form.pendingFolderImport
+    if (!form.id && form.pendingFolderImport) {
+      const { selectedRootPath, ...folderImport } = form.pendingFolderImport
+      payloadSource.initialFolderImport = { ...folderImport, rootPath: pendingFolderPathComparison.value.entered }
+    }
     delete payloadSource.pendingFolderImport
     delete payloadSource.folderRootPathVersion
     delete payloadSource.pendingSubOrderDetails
@@ -2430,6 +2450,7 @@ const handleSubmit = async (sendAfterSave = false, emergency = false, sendChat =
     if(!quotationDraftDirty.value)delete payloadSource.quotationDraft
     if(!documentNotesDirty.value)delete payloadSource.documentNotes
     delete payloadSource.wordCountMatrixSource
+    delete payloadSource.wordCountByDirection
     delete payloadSource.wordCountSubOrderCount
     const payload = cleanPayload(projectFinanceFields(payloadSource,!!form.id))
     const pathGroupSnapshot=projectFilesTabRef.value?.getPathGroupSnapshot?.()
@@ -2777,6 +2798,7 @@ useProjectStatusSync('translation',tableData,{enabled:()=>!props.editorOnly,onCh
 .project-document-choice :deep(.el-checkbox) { margin-right:0; }
 @media(max-width:760px){.project-finance-controls{grid-template-columns:minmax(0,1fr)}}
 .word-count-list-cell { display: flex; align-items: center; min-width: 0; }
+.word-count-list-cell:has(.order-word-count-source) { flex-direction: column; align-items: flex-start; gap: 4px; }
 .word-count-compact-link { max-width: 100%; height: auto; padding: 0; }
 .word-count-compact-link :deep(.compact-cell-value) { max-width: 100%; }
 .word-count-compact-link :deep(.compact-cell-value__primary) { color: inherit; }

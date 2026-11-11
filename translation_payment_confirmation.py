@@ -71,19 +71,24 @@ def read(db,project_id):
 def record_value(row):
     option=row.payment_option if row else None
     account=''
-    full={};detail_proofs={}
+    full={};detail_proofs={};detail_order=[]
     if option and option.startswith('{'):
         try:
-            data=json.loads(option);option=data.get('type');account=data.get('account','');full=data.get('full_payment') or {};detail_proofs=data.get('detail_proofs') or {}
+            data=json.loads(option);option=data.get('type');account=data.get('account','');full=data.get('full_payment') or {};detail_proofs=data.get('detail_proofs') or {};detail_order=data.get('detail_order') or []
         except (ValueError,AttributeError):option=None
     detail_proofs={str(key):value for key,value in detail_proofs.items() if isinstance(value,str)} if isinstance(detail_proofs,dict) else {}
+    detail_order=[key for key in detail_order if isinstance(key,str)] if isinstance(detail_order,list) else []
     return {'revision':row.revision if row else 0,'is_paid':bool(row.is_paid) if row else False,
             'payment_option':option,'payment_account':account,'proofs':row.proofs or '' if row else '',
             'full_payment_source':full.get('source'),'full_payment_amount':full.get('amount'),'full_payment_currency':full.get('currency','CNY'),
             'full_payment_total_key':full.get('total_key'),'mismatch_reason':full.get('mismatch_reason',''),
             'full_match_status':full.get('match_status','unverified' if row and row.is_paid and option=='full' else 'none'),
             'full_reference_label':full.get('reference_label',''),'full_reference_amount':full.get('reference_amount'),
-            'payment_details_proofs':detail_proofs}
+            'full_payment_confirmed_by':full.get('confirmed_by'),
+            'full_payment_confirmed_by_name':full.get('confirmed_by_name'),
+            'full_payment_confirmed_at':full.get('confirmed_at'),
+            'payment_details_proofs':detail_proofs,
+            **({'payment_detail_order':detail_order} if detail_order else {})}
 
 
 def project_totals(db,project_id):
@@ -112,7 +117,7 @@ def already_cleared(payload,current):
                 and current['full_payment_amount'] is None)
 
 
-def save(db,project_id,payload,actor_id,cleared_payments=None,detail_proofs=None,payment_details_before=None,payment_details_after=None):
+def save(db,project_id,payload,actor_id,cleared_payments=None,detail_proofs=None,payment_details_before=None,payment_details_after=None,*,confirm_full=False,detail_order=None):
     if payload is None:return read(db,project_id)
     if not ready(db):raise HTTPException(503,'付款确认存储尚未初始化')
     # 所有入口锁同一母订单，状态与既有付款记录不会分别覆盖。
@@ -133,7 +138,10 @@ def save(db,project_id,payload,actor_id,cleared_payments=None,detail_proofs=None
         if payload.clear_details:payload=payload.model_copy(update={'payment_option':None,'payment_account':'','proofs':'','full_payment_amount':None,'full_payment_total_key':None,'mismatch_reason':''})
     replacing=payload.replace_details
     next_proofs={} if clearing else detail_proofs if detail_proofs is not None else {} if replacing else before.get('payment_details_proofs',{})
+    previous_order=before.get('payment_detail_order',[])
+    next_order=[] if clearing else detail_order if detail_order is not None else [] if replacing else previous_order
     details_changed=(next_proofs!=before.get('payment_details_proofs',{})
+                     or next_order!=previous_order
                      or payment_details_before is not None and payment_details_before!=payment_details_after)
     if replacing and cleared_payments is None:
         from translation_payment_service import read as read_payments
@@ -155,6 +163,7 @@ def save(db,project_id,payload,actor_id,cleared_payments=None,detail_proofs=None
     if values['full_payment_amount'] is not None:values['full_payment_amount']=format(values['full_payment_amount'],'.2f')
     full={}
     unchanged=values=={key:before[key] for key in values}
+    same_full_payment=all(values[key]==before[key] for key in ('is_paid','payment_option','payment_account','proofs','full_payment_amount','full_payment_currency'))
     if payload.is_paid and (payload.payment_option=='full' or source=='details'):
         if payload.full_payment_amount is None:
             if unchanged:return before  # 兼容未登记金额的历史全款确认，不把它冒认为已匹配。
@@ -170,7 +179,7 @@ def save(db,project_id,payload,actor_id,cleared_payments=None,detail_proofs=None
         full={'source':source,'amount':values['full_payment_amount'],'currency':payload.full_payment_currency,'total_key':values['full_payment_total_key'],
               'match_status':'matched' if matched else 'mismatch','mismatch_reason':values['mismatch_reason'],
               'reference_label':selected['label'] if selected else '项目暂无匹配总价','reference_amount':selected['amount'] if selected else None}
-        if unchanged and not details_changed and before['full_match_status']==full['match_status'] and before['full_reference_amount']==full['reference_amount'] and before['full_payment_source']==source:return before
+        if unchanged and not confirm_full and not details_changed and before['full_match_status']==full['match_status'] and before['full_reference_amount']==full['reference_amount'] and before['full_payment_source']==source:return before
     elif unchanged and not details_changed and before['full_match_status']=='none' and not cleared_payments:return before
     from editor_screenshot_service import references,valid_references,ready as screenshots_ready,api_time,now,promote_business_references
     from editor_screenshot_models import EditorScreenshot
@@ -191,21 +200,35 @@ def save(db,project_id,payload,actor_id,cleared_payments=None,detail_proofs=None
     if row is None:row=TranslationPaymentConfirmation(project_id=project_id,revision=0);db.add(row)
     row.is_paid=payload.is_paid;row.proofs=payload.proofs
     row.payment_option=payload.payment_option
-    # 复用既有 Text 存储付款类型及账户，兼容历史纯类型值，无需改表结构。
-    if payload.payment_account or full or next_proofs:row.payment_option=json.dumps({'type':payload.payment_option,'account':payload.payment_account,'full_payment':full,'detail_proofs':next_proofs},ensure_ascii=False)
-    row.revision+=1;row.updated_by=actor_id;row.updated_at=business_now();db.flush()
     from models import AppUser
     actor=db.get(AppUser,actor_id) if actor_id else None
+    if full and payload.payment_option == 'full':
+        if confirm_full:
+            full.update(confirmed_by=str(actor_id), confirmed_by_name=(actor.full_name or actor.username) if actor else None,
+                        confirmed_at=business_now().isoformat())
+        elif same_full_payment and before['full_payment_confirmed_at']:
+            full.update(confirmed_by=before['full_payment_confirmed_by'],
+                        confirmed_by_name=before['full_payment_confirmed_by_name'],
+                        confirmed_at=before['full_payment_confirmed_at'])
+    # 复用既有 Text 存储付款类型及账户，兼容历史纯类型值，无需改表结构。
+    if payload.payment_account or full or next_proofs or next_order:row.payment_option=json.dumps({'type':payload.payment_option,'account':payload.payment_account,'full_payment':full,'detail_proofs':next_proofs,'detail_order':next_order},ensure_ascii=False)
+    row.revision+=1;row.updated_by=actor_id;row.updated_at=business_now();db.flush()
     after=read(db,project_id)
     history_before={**before,'payment_details':cleared_payments or []} if clearing or replacing else before
     history_after={**after,'payment_details':[],'action':'清除付款选择'} if clearing else {**after,'action':'切换付款状态并清除原付款数据'} if replacing else after
+    if confirm_full:history_after['action']='确认全款'
     if replacing and payment_details_after is not None:history_after={**history_after,'payment_details':payment_details_after}
     if details_changed and not (clearing or replacing):
         history_before={**before,'payment_details':payment_details_before or []}
         history_after={**after,'payment_details':payment_details_after or [],'action':'修改付款明细'}
-    db.add(TranslationPaymentConfirmationHistory(id=uuid4(),project_id=project_id,revision=row.revision,actor_id=actor_id,
-        actor_name=(actor.full_name or actor.username) if actor else '用户',before=history_before,after=history_after,created_at=business_now()))
+    append_history(db,project_id,row.revision,actor,history_before,history_after)
     return after
+
+
+def append_history(db,project_id,revision,actor,before,after):
+    db.add(TranslationPaymentConfirmationHistory(id=uuid4(),project_id=project_id,revision=revision,
+        actor_id=actor.id if actor else None,actor_name=(actor.full_name or actor.username) if actor else '用户',
+        before=before,after=after,created_at=business_now()))
 
 
 def history(db,project_id,page=1):
@@ -213,7 +236,7 @@ def history(db,project_id,page=1):
     query=db.query(TranslationPaymentConfirmationHistory).filter_by(project_id=project_id)
     return {'total':query.count(),'items':[{'id':str(row.id),'revision':row.revision,'actor_name':row.actor_name,
         'created_at':business_datetime(row.created_at).isoformat(),'before':row.before,'after':row.after}
-        for row in query.order_by(TranslationPaymentConfirmationHistory.revision.desc()).offset((page-1)*10).limit(10)]}
+        for row in query.order_by(TranslationPaymentConfirmationHistory.revision.desc(),TranslationPaymentConfirmationHistory.created_at.desc()).offset((page-1)*10).limit(10)]}
 
 
 def recheck_after_fee_change(db,project_id,actor_id):

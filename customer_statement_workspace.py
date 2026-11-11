@@ -113,6 +113,8 @@ def display_data(payload,board,mode='children',issue_date=''):
     ledger=[]
     for task in tasks:
         for line in task['rows']:
+            if source.is_fixed_statement_row(line):
+                line = {**line, 'pricing_mode': 'fixed'}
             ledger.append({**line,'origin_client_id':task.get('origin_client_id'),'origin_client_name':task.get('origin_client_name'),'billing_month':task['month'],'_row_id':line['line_id'],'task_ids':[task['id']]})
     rendered=[]
     for root_id,root in payload['roots'].items():
@@ -134,9 +136,12 @@ def display_data(payload,board,mode='children',issue_date=''):
             if line['subtotal'] is None:pending.append(f"{line['order_no']}：金额待补录")
             else:totals[line['currency']]=totals.get(line['currency'],Decimal(0))+Decimal(str(line['subtotal']))
     fields=board['fields'];months=sorted({task['month'] for task in tasks} or set(board.get('billing_months',[])))
+    private_settings=source.private_statement_settings_available()
     return dict(company=fields['company'],title=fields['title'],client_name=fields['client_name'],client_code=fields['client_code'],
                 month=fields.get('billing_label') or '、'.join(months),issue_date=fields.get('issue_date') or issue_date,months=months,rows=rendered,totals={key:source.money(value) for key,value in totals.items()},pending=pending,
-                settings={key:fields.get(key,'') for key in ('bank_name','account_name','account_number')},stamp_image=fields.get('stamp_image') or source.default_stamp(),tax_included=board['tax_included'])
+                private_settings_available=private_settings,
+                settings={key:fields.get(key,'') for key in source.PAYMENT_ACCOUNT_FIELDS} if private_settings else {},
+                stamp_image=(fields.get('stamp_image') or source.default_stamp()) if private_settings else None,tax_included=board['tax_included'])
 
 
 def board_issue_dates(db,row):
@@ -151,10 +156,21 @@ def board_issue_dates(db,row):
     return result
 
 
+def without_private_fields(value):
+    if isinstance(value,dict):
+        return {key:without_private_fields(item) for key,item in value.items() if key not in source.PRIVATE_STATEMENT_FIELDS}
+    if isinstance(value,list):
+        return [without_private_fields(item) for item in value]
+    return value
+
+
 def serialize(row,mode='children',user=None,db=None):
     payload=row.payload if row else empty_payload()
+    private_settings=source.private_statement_settings_available()
     dates=board_issue_dates(db or (object_session(row) if row else None),row)
+    if not private_settings:payload=without_private_fields(payload)
     return {'client_id':str(row.client_id) if row else None,'revision':row.revision if row else 0,'payload':payload,
+            'private_settings_available':private_settings,
             'capabilities':access.capabilities(db or object_session(row),user,row.client_id,payload) if row and user else {'edit_content':False,'cross_client':False},
             'pending_tasks':pending_tasks.summaries(payload),
             'documents':[{**board,'statement':display_data(payload,board,mode,dates.get(board['id'],''))} for board in payload['boards']]}
@@ -190,7 +206,8 @@ def save(db,user,client_id,row,before,payload,action,changes,commit=True):
 def new_board(payload,template,name):
     if len(payload['boards'])>=12:raise HTTPException(422,'同一客户最多保留12份对账单')
     index=len(payload['boards'])
-    board={'id':str(uuid4()),'name':name,'fields':copy.deepcopy(template),'overrides':{},'tax_included':False,'x':(index%3)*980,'y':(index//3)*900}
+    fields=template if source.private_statement_settings_available() else without_private_fields(template)
+    board={'id':str(uuid4()),'name':name,'fields':copy.deepcopy(fields),'overrides':{},'tax_included':False,'x':(index%3)*980,'y':(index//3)*900}
     board['fields']['issue_date']=business_now().date().isoformat()
     payload['boards'].append(board);return board
 
@@ -280,6 +297,7 @@ def import_months(data:ImportRequest,mode:Literal['parents','all','children']='c
 
 def clean_fields(values,allowed):
     if not isinstance(values,dict) or not values or set(values)-allowed:raise HTTPException(422,'含不可修改字段；订单号不可修改')
+    if source.PRIVATE_STATEMENT_FIELDS.intersection(values):source.require_private_statement_settings()
     result={}
     for key,value in values.items():
         if key in ('quantity','unit_price','unit_size','subtotal'):
@@ -338,7 +356,9 @@ def edit_document(payload,data,mode):
             for task in payload['tasks'].values():
                 if task['board_id']!=board['id']:continue
                 for stored in task['rows']:
-                    if stored['line_id']==line['_row_id']:stored.update(cleaned);found=True
+                    if stored['line_id']==line['_row_id']:
+                        if source.is_fixed_statement_row(stored):stored['pricing_mode']='fixed'
+                        stored.update(cleaned);found=True
             if not found:board['overrides'].setdefault(line['_row_id'],{}).update(cleaned)
         changes['rows'].append({'order_no':line['order_no'],'row_id':line['_row_id'],'fields':diff})
     for task_id,month in months.items():payload['tasks'][task_id]['month']=month
@@ -429,7 +449,9 @@ def action(client_id:UUID,request:ActionRequest,mode:Literal['parents','all','ch
         for task in payload['tasks'].values():
             if task['board_id']!=board['id']:continue
             for stored in task['rows']:
-                if stored['line_id']==row_id:stored.update(values);found=True
+                if stored['line_id']==row_id:
+                    if source.is_fixed_statement_row(stored):stored['pricing_mode']='fixed'
+                    stored.update(values);found=True
         if not found:board['overrides'].setdefault(row_id,{}).update(values)
         label='修改任务内容';changes={'order_no':line['order_no'],'fields':changes}
     elif request.action in ('schedule_tasks','cancel_pending'):
@@ -489,7 +511,15 @@ def action(client_id:UUID,request:ActionRequest,mode:Literal['parents','all','ch
         history=db.query(StatementWorkspaceHistory).filter_by(id=history_id,client_id=client_id).first()
         if not history or not isinstance(history.before.get('boards'),list):raise HTTPException(422,'该记录无法恢复')
         if history.action=='跨客户对账单调配':raise HTTPException(422,'跨客户操作涉及多方账单，请通过跨客户调配移回；不能单独恢复一方版本')
-        payload=copy.deepcopy(history.before);label='恢复历史版本';changes={'restored_before_revision':history.revision}
+        payload=copy.deepcopy(history.before)
+        if not source.private_statement_settings_available():
+            current_fields={board['id']:board['fields'] for board in before['boards']}
+            for board in payload['boards']:
+                saved_fields=current_fields.get(board['id'],{})
+                for key in source.PRIVATE_STATEMENT_FIELDS:
+                    if key in saved_fields:board['fields'][key]=saved_fields[key]
+                    else:board['fields'].pop(key,None)
+        label='恢复历史版本';changes={'restored_before_revision':history.revision}
         access.require(db,user,access.content_clients(client_id,payload),'edit_content')
     row=save(db,user,client_id,row,before,payload,label,changes)
     return serialize(row,mode,user=user,db=db)
@@ -499,7 +529,8 @@ def action(client_id:UUID,request:ActionRequest,mode:Literal['parents','all','ch
 def history(client_id:UUID,skip:int=Query(0,ge=0),limit:int=Query(20,ge=1,le=100),db=Depends(get_db),user=Depends(read_access)):
     workspace(db,client_id)
     query=db.query(StatementWorkspaceHistory).filter_by(client_id=client_id)
-    return {'total':query.count(),'items':[{'id':str(row.id),'revision':row.revision,'actor_name':row.actor_name,'action':row.action,'changes':row.changes,'created_at':business_datetime(row.created_at).isoformat(),'restorable':row.action!='跨客户对账单调配' and isinstance(row.before.get('boards'),list) and access.allowed_ids(db,user,access.content_clients(client_id,row.before),'edit_content')==access.content_clients(client_id,row.before)} for row in query.order_by(StatementWorkspaceHistory.revision.desc()).offset(skip).limit(limit)]}
+    private_settings=source.private_statement_settings_available()
+    return {'total':query.count(),'items':[{'id':str(row.id),'revision':row.revision,'actor_name':row.actor_name,'action':row.action,'changes':row.changes if private_settings else without_private_fields(row.changes),'created_at':business_datetime(row.created_at).isoformat(),'restorable':row.action!='跨客户对账单调配' and isinstance(row.before.get('boards'),list) and access.allowed_ids(db,user,access.content_clients(client_id,row.before),'edit_content')==access.content_clients(client_id,row.before)} for row in query.order_by(StatementWorkspaceHistory.revision.desc()).offset(skip).limit(limit)]}
 
 
 @router.get('/{client_id}/history/{history_id}')
@@ -507,7 +538,8 @@ def history_entry(client_id:UUID,history_id:UUID,db=Depends(get_db),user=Depends
     workspace(db,client_id)
     record=db.query(StatementWorkspaceHistory).filter_by(id=history_id,client_id=client_id).first()
     if not record:raise HTTPException(404,'调整记录不存在')
-    return dict(id=str(record.id),revision=record.revision,actor_name=record.actor_name,action=record.action,created_at=business_datetime(record.created_at).isoformat(),changes=record.changes,before=record.before,after=record.after)
+    result=dict(id=str(record.id),revision=record.revision,actor_name=record.actor_name,action=record.action,created_at=business_datetime(record.created_at).isoformat(),changes=record.changes,before=record.before,after=record.after)
+    return result if source.private_statement_settings_available() else without_private_fields(result)
 
 
 @router.get('/{client_id}/excel')

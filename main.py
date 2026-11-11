@@ -326,6 +326,8 @@ app.include_router(annotation_materials.router)
 app.include_router(annotation_projects.router)
 from routers.annotation_annotator_progress import router as annotator_progress_router
 app.include_router(annotator_progress_router)
+from routers.annotation_chat_ai import router as annotation_chat_ai_router
+app.include_router(annotation_chat_ai_router)
 app.include_router(annotation_comparisons.router)
 app.include_router(annotation_notices.router)
 app.include_router(project_notices.router)

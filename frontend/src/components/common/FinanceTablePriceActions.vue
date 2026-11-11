@@ -9,12 +9,12 @@
       <small>{{references.length?'核对语种、单位、币种及计价数量后，手动选用报价。':'暂无完整匹配报价，可打开客户报价查看或编辑。'}}</small>
       <el-button v-if="canWriteClients" :disabled="busy||!context?.node.clientId||!context?.node.prices?.length" @click="syncClient">同步单价至客户信息…</el-button>
       <small v-if="canWriteClients">先比较现有参考价，确认后同步本订单已保存的单价。</small>
-      <SyncSameMonthPrices :project-id="row.rootId" :order-id="row.id" :client-id="context?.node.clientId" :version="context?.data.version" :month="context?.node.billingMonth" :disabled="busy||!context?.node.prices?.length" :prepare="prepareSameMonth" @synced="synced" />
+      <SyncSameMonthPrices v-if="context" :project-id="row.rootId" :order-id="row.id" :client-id="context.node.clientId" :version="context.data.version" :month="context.node.billingMonth" :disabled="busy||!context.node.prices?.length" :prepare="prepareSameMonth" @synced="synced" />
       <small v-if="context&&!context.node.billingMonth">尚未登记账单月份，不能同步同月订单。</small>
     </div>
   </el-popover>
-  <CustomerReferencePriceDialog ref="pickerRef" :client-id="context?.node.clientId" :client-name="row.clientShortName" :prices="context?.node.prices" :matrix="context?.node.wordCountMatrix" :language-pair="context?.node.languagePair" :refresh-project="readCurrent" />
-  <CustomerRateSyncPreview ref="previewRef" :client-id="context?.node.clientId" :client-name="row.clientShortName" :prices="context?.node.prices||[]" :matrix="context?.node.wordCountMatrix" :refresh-project="readCurrent" />
+  <CustomerReferencePriceDialog v-if="context" ref="pickerRef" :client-id="context.node.clientId" :client-name="row.clientShortName" :prices="context.node.prices" :matrix="context.node.wordCountMatrix" :language-pair="context.node.languagePair" :refresh-project="readCurrent" />
+  <CustomerRateSyncPreview v-if="context" ref="previewRef" :client-id="context.node.clientId" :client-name="row.clientShortName" :prices="context.node.prices||[]" :matrix="context.node.wordCountMatrix" :refresh-project="readCurrent" />
 </template>
 
 <script setup>

@@ -53,12 +53,21 @@ def serialize(row,namespace,key):
     return dict(namespace=namespace,key=key,payload=row.payload if row else None,revision=row.revision if row else 0,updated_at=api_time(row.updated_at) if row else None)
 
 
+def require_statement_draft_access(namespace,key):
+    if namespace=='global' and any(title in key for title in ('|对账单设置|','|修改对账单内容|','|对账单放大编辑 · ','|对账单放大查看 · ')):
+        from customer_statements import require_private_statement_settings
+        require_private_statement_settings()
+
+
 def read(db,user,namespace,key):
+    require_statement_draft_access(namespace,key)
     row=db.get(EditorDraft,(user.id,namespace,key))
     return serialize(row,namespace,key)
 
 
 def save_batch(db,user,entries):
+    for entry in entries:
+        require_statement_draft_access(entry.namespace,entry.key)
     db.query(AppUser.id).filter_by(id=user.id).with_for_update().first()
     results=[]
     for entry in entries:

@@ -1,4 +1,5 @@
 """笔译项目发送到按业务日期归档的全员会话；独立幂等发送记录。"""
+import re
 from datetime import date
 from types import SimpleNamespace
 from uuid import UUID, uuid4, uuid5, NAMESPACE_URL
@@ -192,6 +193,7 @@ def send(db,actor,project_id,request_key,extra=(),mail_id=None):
             body+='\n\n'+preview['signature_text']
         if preview.get('signature_html'):
             body_html=(body_html or '')+preview['signature_html']
+    subject = re.sub(r'[，,]\s*[0-9]+批\s*\Z', '', subject)
     config,_=settings(db);at=business_now();day=at.date()
     targets,warnings=recipients(db,config,at,extra)
     from chat_session_category_models import ChatSessionCategory as Category,ChatSessionCategoryFolder as Folder

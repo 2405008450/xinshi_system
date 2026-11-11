@@ -9,7 +9,7 @@ from path_security import validate_managed_path
 
 from language_catalog import normalize_language_pairs
 from department_utils import normalize_department
-from word_count_schemas import WordCountCreateMatrix, WordCountValues
+from word_count_schemas import DirectionWordCount, WordCountCreateMatrix, WordCountValues
 from translation_customer_type import CustomerType
 from translation_document_requirements import QuotationDraft,DocumentNotes
 from translation_payment_service import ProjectPayment
@@ -1108,6 +1108,9 @@ class TranslationSubOrderResponse(BaseModel):
     word_count_matrix: WordCountCreateMatrix = Field(default_factory=WordCountCreateMatrix)
     word_count_matrix_source: Literal['suborder', 'suborder_aggregate'] = 'suborder'
     word_count_sub_order_count: int = 0
+    word_count_by_direction: list[DirectionWordCount] = Field(default_factory=list)
+    word_count_parent_order_no: Optional[str] = None
+    word_count_matches_parent: bool = False
     customer_charge_items: list[TranslationSubOrderChargeItemResponse] = Field(default_factory=list)
     # 鏃堕棿鑺傜偣
     customer_deadline_time: Optional[datetime] = None
@@ -1182,6 +1185,7 @@ class TranslationProjectResponse(TranslationProjectBase):
     project_file_difficulty: Optional[str] = None
     word_count_matrix_source: Literal['project', 'suborder_aggregate'] = 'project'
     word_count_sub_order_count: int = 0
+    word_count_by_direction: list[DirectionWordCount] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1567,8 +1571,6 @@ class FinancePaymentBase(BaseModel):
     actual_amount: Optional[float] = None
     payment_time: Optional[datetime] = None
     payment_method: Optional[str] = None
-    confirmed_by: Optional[UUID] = None
-    confirmed_at: Optional[datetime] = None
 
 
 class FinancePaymentCreate(FinancePaymentBase):
@@ -1582,13 +1584,13 @@ class FinancePaymentUpdate(BaseModel):
     actual_amount: Optional[float] = None
     payment_time: Optional[datetime] = None
     payment_method: Optional[str] = None
-    confirmed_by: Optional[UUID] = None
-    confirmed_at: Optional[datetime] = None
 
 
 class FinancePaymentResponse(FinancePaymentBase):
     id: UUID
     finance_id: UUID
+    confirmed_by: Optional[UUID] = None
+    confirmed_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

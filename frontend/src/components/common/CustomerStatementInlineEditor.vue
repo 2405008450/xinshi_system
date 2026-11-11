@@ -1,5 +1,5 @@
 <template>
-  <DraggableFormDialog :model-value="modelValue" class="statement-inline-editor" width="min(1600px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close :close-on-click-modal="false" :before-close="beforeClose" @update:model-value="emit('update:modelValue',$event)">
+  <DraggableFormDialog :model-value="modelValue" class="statement-inline-editor" data-auto-draft="off" width="min(1600px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close :close-on-click-modal="false" :before-close="beforeClose" @update:model-value="emit('update:modelValue',$event)">
     <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="`${canWrite?'对账单放大编辑':'对账单放大查看'} · ${board?.name||''}`" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
     <div v-if="draft" ref="body">
       <p class="inline-help">客户编号：{{draft.statement.client_code||'—'}}（仅系统可见）</p>
@@ -7,7 +7,7 @@
       <p v-if="!canWrite" class="inline-help">当前未获该账单所涉及客户的内容修改授权，仅可查看。任务调配、合并与分拆请返回账单管理操作。</p>
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
       <AppForm ref="nameForm" :model="draft" label-position="top"><el-form-item label="对账单名称" prop="name" :rules="[{required:true,whitespace:true,message:'请填写对账单名称',trigger:'blur'}]"><el-input v-model="draft.name" :disabled="!canWrite||saving" maxlength="100" /></el-form-item></AppForm>
-      <label v-if="canWrite" class="inline-stamp">更换印章<input type="file" accept="image/png,image/jpeg,image/webp" :disabled="saving" @change="selectStamp" /></label>
+      <label v-if="canWrite && draft.statement.private_settings_available !== false" class="inline-stamp">更换印章<input type="file" accept="image/png,image/jpeg,image/webp" :disabled="saving" @change="selectStamp" /></label>
       <fieldset :disabled="saving||!canWrite" class="inline-paper-fields"><CustomerStatementPaper :statement="draft.statement" :editable="canWrite" @open-order="emit('open-order',$event)" /></fieldset>
       <p class="inline-help">数量或单价与“小计”均可单独编辑，小计不会自动覆盖。改动后请核对合计。右上角的账单月份仅修改显示文案；跨月调整请返回对账单管理进行调配。</p>
     </div>

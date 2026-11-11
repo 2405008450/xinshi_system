@@ -6,7 +6,7 @@ export const financeDraftFields=['pricingMode','currency','prices','adjustedTota
 export const financePatchKeys={pricingMode:'pricing_mode',currency:'currency',prices:'prices',adjustedTotal:'adjusted_total',adjustedTotalInclTax:'adjusted_total_incl_tax',billingMonth:'billing_month',explanation:'explanation',customerExplanation:'customer_explanation'}
 export const copyFinanceValue=value=>JSON.parse(JSON.stringify(value??null))
 export function financeDraft(row){
-  const prices=(row.prices||[]).map(price=>({...copyFinanceValue(price),taxPrices:taxPriceForm(price.taxPrices),amount:price.amount==null?null:Number(price.amount),unitSize:Number(price.unitSize||1)}))
+  const prices=(row.priceAggregate?[]:row.prices||[]).map(price=>({...copyFinanceValue(price),taxPrices:taxPriceForm(price.taxPrices),amount:price.amount==null?null:Number(price.amount),unitSize:Number(price.unitSize||1)}))
   return {pricingMode:row.pricingMode||'metric',currency:row.currency||'CNY',prices,adjustedTotal:row.adjustedTotal==null?null:Number(row.adjustedTotal),adjustedTotalInclTax:row.adjustedTotalInclTax==null?null:Number(row.adjustedTotalInclTax),billingMonth:orderStatementMonth(row.orderNo)||row.billingMonth||null,explanation:row.explanation||'',customerExplanation:row.customerExplanation||''}
 }
 export function financeFieldValue(field,value){

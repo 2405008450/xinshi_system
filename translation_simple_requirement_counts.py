@@ -50,16 +50,17 @@ def add(db,parent,requirement,matrix,actor_id):
     data=normalized(matrix)
     if not data:return False
     if not ready(db):raise HTTPException(503,'简单需求统计表尚未初始化')
-    from word_count_service import _entity_metric_rows,_apply_cell,_owner_filters,validate_single_matrix
+    from word_count_service import _entity_metric_rows, _apply_cell, _owner_filters, validate_matrix_regions, has_multiple_word_count_regions
     from word_count_schemas import WordCountCreateMatrix
-    validate_single_matrix(WordCountCreateMatrix.model_validate(data))
+    validate_matrix_regions(WordCountCreateMatrix.model_validate(data))
     base={}
     for row in _entity_metric_rows(db,'project',parent.id):base.setdefault(row.dimension,{})[row.metric_type]=row.count_value
     has_children=db.query(TranslationSubOrder.id).filter_by(parent_project_id=parent.id).first() is not None
     for dim,counts in data.items():
         existing=base.setdefault(dim,{})
-        if not has_children and dim in ('company','customer') and any(value is not None and key not in counts and not (key in ('minutes','hours') and any(unit in counts for unit in ('minutes','hours'))) for key,value in existing.items()):
-            raise HTTPException(422,('我司统计' if dim=='company' else '客户统计')+'请使用当前订单已登记的同一统计口径，避免混加不同单位')
+        if not has_children and dim in ('company', 'customer') and has_multiple_word_count_regions({**existing, **counts}):
+            label = '我司统计' if dim == 'company' else '客户统计'
+            raise HTTPException(422, f'{label}请使用当前订单已登记的统计区域')
         for metric,value in counts.items():
             # 分钟和小时统一累计至当前使用的单位，不直接把小时当分钟相加。
             actual=metric

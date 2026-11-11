@@ -12,6 +12,7 @@ from routers.auth import get_current_user, require_any_permission
 from annotation_progress_time import business_now
 
 LABELS={'interpretation':'口译','annotation':'标注','recruitment':'招聘'}
+INTERPRETATION_DEFAULT_MENTION_USERNAMES = {'zixia', 'kuangjiao'}
 ROOTS={'interpretation':'dcb1f917-6000-4000-8000-000000000004','annotation':'dcb1f917-6000-4000-8000-000000000002','recruitment':'dcb1f917-6000-4000-8000-000000000005'}
 URGENT='（紧急）项目预告知：'
 WARNING=URGENT+'相关资料可能尚未完善，请后续补充确认。'
@@ -62,7 +63,7 @@ def aliases(db):
 def send(db,actor,module,project_id,request_key,*,emergency=False,mail_id=None,audience=()):
     require_ready(db)
     if module not in LABELS:raise HTTPException(422,'不支持的项目类型')
-    from business_mail_service import PROJECT_MODELS, PROJECT_FK_FIELDS, build_preview, policy_recipients, _project_source
+    from business_mail_service import PROJECT_MODELS, PROJECT_FK_FIELDS, build_preview, _project_source
     from business_mail_models import BusinessMail
     model=PROJECT_MODELS[module]
     project=db.query(model).filter(model.id==project_id).with_for_update().first()
@@ -110,8 +111,10 @@ def send(db,actor,module,project_id,request_key,*,emergency=False,mail_id=None,a
     message=DiscussionMessage(room_id=room_id,sender_id=actor.id,sender_name=actor.full_name or actor.username,client_message_id=request_key,content=subject+'\n\n'+body)
     db.add(message);db.flush()
     if module=='interpretation':
-        to_users,cc_users=policy_recipients(db,module)
-        target_ids={str(person.id) for person in [*to_users,*cc_users]}
+        target_ids = {
+            str(person.id) for person in members
+            if person.username.casefold() in INTERPRETATION_DEFAULT_MENTION_USERNAMES
+        }
     else:
         # 标注、招聘不依赖邮件组或邮箱是否已配置。
         target_ids={str(project.client_manager_id)} if project.client_manager_id else set()

@@ -50,15 +50,15 @@ test('关联付款保存同步价格窗口与项目表单，并保留未保存�
   const current=paymentConfirmationForm({revision:2,isPaid:true,paymentOption:'full',fullPaymentAmount:500})
   const before=Array(16).fill(null);before[8]=previous
   const editor=ref({rootId:'p1',adjustedTotal:600,paymentConfirmation:previous})
-  const ctx={paymentDetailsSignature,originalPaymentDetails:'[]',editor,original:JSON.stringify(before),originalPaymentConfirmation:JSON.stringify(previous),saveError:ref(''),
-    documentParent:ref({paymentConfirmation:previous}),localPaymentParent:ref(null),paymentConfirmationForm,
+  const ctx={paymentDetailsSignature,originalPaymentDetails:ref('[]'),editor,original:ref(JSON.stringify(before)),originalPaymentConfirmation:ref(JSON.stringify(previous)),saveError:ref(''),
+    paymentConfirmationInput:value=>value,documentParent:ref({paymentConfirmation:previous}),localPaymentParent:ref(null),paymentConfirmationForm,
     rebaseEditorAfterLibrary:async()=>{},emit(){},getLocalizedErrorMessage:e=>e.message}
   vm.createContext(ctx)
   vm.runInContext(finance.slice(finance.indexOf('async function onLinkedPaymentSaved('),finance.indexOf('watch(()=>[filters.projectStatus')),ctx)
   await ctx.onLinkedPaymentSaved({confirmation:current})
   assert.equal(editor.value.paymentConfirmation.revision,2)
   assert.equal(ctx.documentParent.value.paymentConfirmation.fullPaymentAmount,500)
-  assert.equal(JSON.parse(ctx.original)[8].revision,2)
+  assert.equal(JSON.parse(ctx.original.value)[8].revision,2)
   assert.equal(editor.value.adjustedTotal,600)
 })
 

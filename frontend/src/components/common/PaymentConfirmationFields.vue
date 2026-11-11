@@ -8,8 +8,13 @@
       </div>
       <small v-if="value.paymentOption==='once'">历史：已登记分次付款</small>
     </el-form-item>
-    <FullPaymentMatchFields v-if="value.isPaid&&(value.paymentOption==='full'||value.fullPaymentSource==='details')" :draft-totals="draftTotals" :pricing-mode="pricingMode" :billing-tax-mode="billingTaxMode" :from-details="value.paymentOption!=='full'" :model-value="value" :project-id="projectId" :prefix="prefix" @update:model-value="emit('update:modelValue',$event)" />
+    <FullPaymentMatchFields v-if="value.isPaid&&(value.paymentOption==='full'||value.fullPaymentSource==='details')" :draft-totals="draftTotals" :pricing-mode="pricingMode" :billing-tax-mode="billingTaxMode" :from-details="value.paymentOption!=='full'" @reference-change="emit('reference-change',$event)" :model-value="value" :project-id="projectId" :prefix="prefix" @update:model-value="emit('update:modelValue',$event)" />
     <el-form-item v-if="value.isPaid&&!detailsInPayments" label="付款账户" :prop="`${prefix}.paymentAccount`"><PaymentAccountSelect :model-value="value.paymentAccount" @update:model-value="update('paymentAccount',$event)" /></el-form-item>
+    <el-row v-if="value.isPaid && value.paymentOption==='full'" :gutter="12">
+      <el-col :xs="24" :md="12"><el-form-item label="确认人"><ReadonlyField :model-value="value.fullPaymentConfirmedByName || ''" source="auto" placeholder="待行政部确认" /></el-form-item></el-col>
+      <el-col :xs="24" :md="12"><el-form-item label="确认时间"><ReadonlyField :model-value="value.fullPaymentConfirmedAt ? formatDateTime(value.fullPaymentConfirmedAt) : ''" source="auto" placeholder="待行政部确认" /></el-form-item></el-col>
+    </el-row>
+    <slot v-if="value.isPaid && value.paymentOption==='full'" name="confirm-full" />
     <el-form-item v-if="value.isPaid&&!detailsInPayments" label="支付截图及备注"><ScreenshotInput :model-value="value.proofs" type="textarea" :rows="2" :maxlength="20000" placeholder="可粘贴、拖入或上传支付截图，填写付款备注" @update:model-value="update('proofs',$event)" /></el-form-item>
     <p v-if="value.isPaid&&!detailsInPayments" class="payment-confirmation-help">支付截图长期保存；清除选择后可在付款修改记录中查看原有凭证。</p>
     <DraggableFormDialog v-model="historyVisible" title="付款修改记录" width="min(860px, calc(100vw - 32px))" top="5vh" append-to-body class="payment-confirmation-history">
@@ -27,12 +32,13 @@ import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import {paymentOptions,paymentConfirmationForm,paymentConfirmationLabel,clearPaymentSelection,switchPaymentSelection} from '@/utils/paymentConfirmation'
 import ScreenshotInput from './ScreenshotInput.vue'
 import PaymentAccountSelect from './PaymentAccountSelect.vue'
+import ReadonlyField from './ReadonlyField.vue'
 import FullPaymentMatchFields from './FullPaymentMatchFields.vue'
 import ScreenshotText from './ScreenshotText.vue'
 import PaymentDetailsHistoryTable from './PaymentDetailsHistoryTable.vue'
 import DraggableFormDialog from './DraggableFormDialog.vue'
 const props=defineProps({modelValue:Object,projectId:{type:String,default:''},prefix:{type:String,default:'confirmation'},detailsInPayments:Boolean,pricingMode:String,billingTaxMode:String,payments:{type:Array,default:null},draftTotals:{type:Array,default:null}})
-const emit=defineEmits(['update:modelValue'])
+const emit=defineEmits(['update:modelValue','reference-change'])
 const value=computed(()=>paymentConfirmationForm(props.modelValue))
 function update(key,data){emit('update:modelValue',{...value.value,[key]:data})}
 const switching=ref(false)

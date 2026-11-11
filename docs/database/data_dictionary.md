@@ -2827,3 +2827,10 @@ id UUID 主键；client_id / sub_client_id UUID 分别关联 client / sub_client
 日期从 `TP-YYMMDD-…` 或 `TP-YYYYMMDD-…` 母订单号提取；无法识别时回退到客户交稿时间（明确转为 UTC+8），仍无日期的项目不计入并返回数量。周为 ISO 自然周（周一至周日），同比使用上一 ISO 年的相同周数，无对应第53周时返回不可比；月、季度、年使用相应自然周期，同比为去年同周期、环比为前一周期。按完整周期比较，当前周期未结束时返回提示。零基期不生成无穷百分比，分别返回 `new`、`zero`，无对应周期为 `unavailable`。
 
 客户以母客户 ID 归组，子客户合并至母客户；未关联客户的项目分开列示。范围沿用入口的客户经理／客户范围，不沿用主表月份或业务状态筛选。排名先按本期金额降序及客户名称、ID 稳定排序，再按排名区间、金额区间、客户多关键词搜索过滤和分页；区间包含两端，倒序自动归一。总营收、同比环比和最近12周期趋势不受排名及金额区间过滤影响，筛选后另返回客户数量及金额合计。不同币种分别统计，缺失金额返回待补数量，不做汇率折算。
+### 标注聊天 AI 分析
+
+`annotation_chat_analysis` 每行对应一个标注订单的一次独立分析。主键 `id` 为 UUID，`project_id` 关联标注订单，`requested_by` 记录手动发起人，`scheduled_on` 为自动分析的业务日期，同项目同日唯一。手动任务的 `period` 为 `day/week/month/all`，定时任务为 `workday`。聊天按 `range_start`（可为空）至 `range_end` 左闭右开筛选。任务时间字段按 UTC+8 本地时间存储，接口附带 `+08:00`。
+
+`state` 为 `queued/running/succeeded/failed`，`created_at` 记录提交时间，`updated_at` 记录处理时间与运行心跳，`error` 记录失败原因。`results` 存分类、摘要、依据消息 ID 与有效时间，不另存原始聊天正文。`auto_apply` 表示完成后请求自动写入进度，`imports` 保存进度记录 ID、分类、操作人、操作类型与时间，`import_error` 独立记录写入失败。写入复用现有客户进度、项目状态历史中的进度记录和标注员情况表。
+
+初始化入口为 `tools/apply_annotation_chat_ai_migration.py`。数据分析的 `THOUGHTS_AI_ENABLED=true` 启用处理队列，`ANNOTATION_CHAT_AI_SCHEDULE_ENABLED=true` 启用工作日 11:00 入队。算力网关需支持 `annotation_chat` 操作。定时分析不写项目进度，手动任务可选自动写入。

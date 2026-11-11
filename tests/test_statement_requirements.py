@@ -157,6 +157,39 @@ def test_copy_same_client_and_bill_month_only(setup):
     assert invalid.status_code==422
 
 
+def test_price_and_payment_can_sync_no_statement_and_update_customer_default(setup, monkeypatch):
+    http, db, clients, granted, _, october, november, personal = setup
+    import permission_service
+    permission = lambda db, user_id, code: code in granted
+    monkeypatch.setattr(finance, 'user_has_permission', permission)
+    monkeypatch.setattr(permission_service, 'user_has_permission', permission)
+    peer = project(db, clients[0], '005', '2026-11')
+    db.add(TranslationProjectDocuments(project_id=october.id, statement_required=True))
+    db.commit()
+
+    context = http.get('/translation-customer-finance/statement-requirement-context', params={'project_id': str(november.id)}).json()
+    assert context['statement_default'] == 'unknown'
+    assert context['other_count'] == 1 and context['can_update_customer']
+    endpoint = f'/translation-customer-finance/project/{november.id}'
+    draft = http.get(endpoint).json()
+    payload = dict(order_id=str(november.id), version=draft['version'], documents_only=True, statement_required=False,
+                   statement_sync={'client_id': str(clients[0].id), 'billing_month': context['billing_month']},
+                   statement_customer_sync={'client_id': str(clients[0].id), 'revision': context['preference_revision']})
+    response = http.put(endpoint, json=payload)
+    assert response.status_code == 200, response.text
+    assert db.get(TranslationProjectDocuments, peer.id).statement_required is False
+    assert db.get(TranslationProjectDocuments, october.id).statement_required is True
+    assert db.get(TranslationProjectDocuments, personal.id) is None
+    pref = http.get(f'/clients/{clients[0].id}/statement-preference').json()
+    assert pref['statement_default'] == 'not_required'
+
+    payload.update(version=response.json()['version'], statement_required=True)
+    conflict = http.put(endpoint, json=payload)
+    assert conflict.status_code == 409, conflict.text
+    db.expire_all()
+    assert db.get(TranslationProjectDocuments, peer.id).statement_required is False
+
+
 def test_finance_page_exposes_real_statement_status(setup):
     http,db,clients,_,_,october,november,personal=setup
     state=http.post('/translation-statement-workspaces/import',json={'client_id':str(clients[0].id),'months':['2026-11'],'scope':'customer','revision':0,'confirmed':True}).json()
