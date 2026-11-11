@@ -81,3 +81,13 @@ test('静态列与动态列混排保留结构列、单元格插槽及分组列',
   assert.equal(a.props.fixed,'left')
   assert.equal(output[2].children.default,group.children.default)
 })
+
+test('财务表格排序保留用户固定列与右侧操作列',()=>{
+  const Column={name:'TestColumn'}
+  const a=h(Column,{prop:'a',fixed:'left'}),b=h(Column,{prop:'b'})
+  const actions=h(Column,{label:'操作',fixed:'right'})
+  const output=orderTableColumnNodes([a,b,actions],fields,['b','a'],{preserveFixed:true})
+  assert.equal(output[0].props.prop,'b')
+  assert.equal(output[1].props.fixed,'left')
+  assert.equal(output[2],actions)
+})

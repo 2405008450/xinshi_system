@@ -3,6 +3,10 @@ export function reusableTranslationValues(source, emptyForm, pathGroup){
   const excluded=new Set(['id','orderNo','initialSubOrderNamesText','createWithSubOrders','pendingSubOrderDetails','pendingSubOrderDefaults','childFieldDifferences','filePathDraft','wordCountPendingDraft','wordCountMatrixSource','wordCountSubOrderCount','clientManagerChangeReason','paymentConfirmation','paymentDraft','paymentVersion','quotationDraft','emailSubjectPreview','pmConfirmedBy','majorProjectManagerConfirmation','assignedTranslators'])
   const clone=value=>JSON.parse(JSON.stringify(value))
   const values=Object.fromEntries(Object.keys(emptyForm).filter(key=>!excluded.has(key)&&source[key]!==undefined).map(key=>[key,clone(source[key])]))
+  values.clientId=source.clientId||source.client_id||source.client?.id||''
+  values.clientName=source.clientName||source.clientFullName||source.client_name||source.client?.client_name||source.client?.clientName||''
+  values.clientShortName=source.clientShortName||source.client_short_name||source.client?.client_short_name||source.client?.clientShortName||''
+  values.clientCode=source.clientCode||source.client_code||source.client?.client_code||source.client?.clientCode||''
   values.sourceFileName=source.sourceFileName||source.projectName||''
   values.networkFilePath=source.networkFilePath||''
   values.originalStoragePath=source.originalStoragePath||source.networkFilePath||''

@@ -296,17 +296,17 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="客户全称" prop="client_name">
-              <el-input v-model="form.client_name" />
-            </el-form-item>
+            <el-form-item label="客户简称" prop="client_short_name">
+              <ClientShortNameInput v-model="form.client_short_name" v-model:full-name="form.client_name" />
+            <ClientNameGuidance />
+</el-form-item>
           </el-col>
         </el-row>
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="客户简称" prop="client_short_name">
-              <el-input v-model="form.client_short_name" />
-            <ClientNameGuidance />
-</el-form-item>
+            <el-form-item label="客户全称" prop="client_name">
+              <el-input v-model="form.client_name" />
+            </el-form-item>
             <el-form-item label="客户类型" prop="customer_type"><el-select v-model="form.customer_type" clearable placeholder="请选择客户类型" @clear="form.customer_type=null"><el-option v-for="item in customerTypes" :key="item" :label="item" :value="item" /></el-select></el-form-item>
           </el-col>
         </el-row>
@@ -439,8 +439,8 @@
         <div class="sub-client-section" data-dialog-field-search-group data-dialog-field-search-group-title="客户基本资料">
           <h4>客户基本资料</h4>
           <el-row :gutter="20">
-            <el-col :xs="24" :md="12"><el-form-item label="客户全称" prop="client_name"><el-input v-model="subForm.client_name" /></el-form-item></el-col>
-            <el-col :xs="24" :md="12"><el-form-item label="客户简称" prop="client_short_name"><el-input v-model="subForm.client_short_name" /><ClientNameGuidance /></el-form-item></el-col>
+            <el-col :xs="24" :md="12"><el-form-item label="客户简称" prop="client_short_name"><ClientShortNameInput v-model="subForm.client_short_name" v-model:full-name="subForm.client_name" :parent-client-id="subForm.parent_client_id || ''" /><ClientNameGuidance /></el-form-item></el-col>
+            <el-col :xs="24" :md="12"><el-form-item label="客户全称" prop="client_name"><el-input v-model="subForm.client_name" placeholder="子客户全称（选填）" /></el-form-item></el-col>
             <el-col :xs="24" :md="12"><el-form-item label="英文全称"><el-input v-model="subForm.english_name" /></el-form-item></el-col>
             <el-col :xs="24" :md="12"><el-form-item label="英文简称"><el-input v-model="subForm.english_short_name" /></el-form-item></el-col>
             <el-col :xs="24" :md="12"><el-form-item label="子客户编号" prop="sub_client_code"><ReadonlyField v-if="!subForm.id" :model-value="subForm.sub_client_code" source="auto" placeholder="正在占用编号" /><el-input v-else v-model="subForm.sub_client_code" /></el-form-item></el-col>
@@ -474,6 +474,7 @@
 </template>
 
 <script setup>
+import ClientShortNameInput from '@/components/common/ClientShortNameInput.vue'
 import ClientNameGuidance from '@/components/common/ClientNameGuidance.vue'
 import ClientContactNamesEditor from '@/components/common/ClientContactNamesEditor.vue'
 import { CUSTOMER_TYPES as customerTypes } from '@/utils/customerTypes'
@@ -708,6 +709,7 @@ for(const model of [form,subForm])watch(()=>[model.customer_type,model.client_sh
 
 const subRules = {
   ...rules,
+  client_name: [],
   cooperation_start_date: [{ required: true, message: '请选择开始合作时间', trigger: 'change' }]
 }
 

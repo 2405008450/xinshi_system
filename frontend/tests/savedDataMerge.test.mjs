@@ -26,3 +26,20 @@ test('嵌套字段独立合并，零金额和空值不混淆',()=>{
  assert.equal(target.taxPrices.unitPriceExclTax,0);assert.equal(target.taxPrices.unitPriceInclTax,30);assert.equal(conflicts[0][0],'taxPrices.unitPriceExclTax')
  assert.equal(sameSavedValue(0,null),false);assert.equal(sameSavedValue(0.12,'0.1200'),true)
 })
+
+test('更新时间仅差UTC+8标记时采用服务端时间，不影响真正的业务冲突',()=>{
+ const target={updatedAt:'2026-11-10T17:15:09.784336',remark:'我的草稿'},conflicts=[]
+ mergeSavedRecord(target,{updated_at:'2026-11-10T17:10:00+08:00',remark:'原备注'},{updated_at:'2026-11-10T17:15:09.784336+08:00',remark:'最新备注'},(...args)=>conflicts.push(args))
+ assert.equal(target.updatedAt,'2026-11-10T17:15:09.784336+08:00')
+ assert.equal(target.remark,'我的草稿');assert.equal(conflicts.length,1);assert.equal(conflicts[0][0],'remark')
+})
+
+test('服务端时间未变化时也纠正本地时间格式；不把系统时间视为行内编辑',()=>{
+ const timestamp='2026-11-10T17:15:09.784336+08:00'
+ const target={updatedAt:timestamp.replace('+08:00','')}
+ mergeSavedRecord(target,{updated_at:timestamp},{updated_at:timestamp},()=>assert.fail('系统时间不得冲突'))
+ assert.equal(target.updatedAt,timestamp)
+ const table={items:[{id:'one',updatedAt:'本地格式',name:'原名'}]}
+ mergeSavedRecord(table,{items:[{id:'one',updated_at:timestamp,name:'原名'}]},{items:[]},()=>assert.fail('只差系统时间的行不算未保存业务修改'))
+ assert.deepEqual(table.items,[])
+})

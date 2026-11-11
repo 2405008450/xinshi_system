@@ -28,9 +28,10 @@ def create(case, **kw):
 def test_root_directions_create_once_and_added_direction_keeps_manual_values(case):
     from schemas import TranslationProjectUpdate
     db, user, crud = case
-    root = create(case, word_count_matrix={'company': {'words': 100}})
+    root = create(case, word_count_matrix={'company': {'words': 100}},network_file_path=r'D:\原文目录')
     assert root.auto_created_child_count == 2
     children = sorted(root.sub_orders, key=lambda row: row.sub_order_no)
+    assert all(row.network_file_path=='同上一级订单' for row in children)
     assert [row.sub_order_no for row in children] == ['TP-261107-901.001', 'TP-261107-901.002']
     assert {row.language_pair for row in children} == {'中文→英语', '中文→法语'}
     assert {row.sub_project_name for row in children} == {'原文件.docx'}
@@ -43,6 +44,15 @@ def test_root_directions_create_once_and_added_direction_keeps_manual_values(cas
     assert len(updated.sub_orders) == 3
     assert db.get(type(children[0]), children[0].id).remarks == '人工备注保留'
     assert updated.word_count_matrix['company']['words'] == 100
+    assert updated.word_count_matrix_source == 'project'
+    from schemas import TranslationSubOrderUpdate
+    from word_count_service import get_word_count_matrix,patch_word_count_matrix
+    from word_count_schemas import WordCountMatrixPatch
+    crud.update_sub_order(db,children[0].id,TranslationSubOrderUpdate(word_count_matrix={'company':{'words':80}}))
+    assert get_word_count_matrix(db,'project',root.id)['company']['words']==100
+    patch_word_count_matrix(db,'project',root.id,WordCountMatrixPatch(changes=[{'scope':'entity','dimension':'company','metric_type':'words','value':120}]),updated_by=user.id)
+    assert get_word_count_matrix(db,'project',root.id)['company']['words']==120
+    assert get_word_count_matrix(db,'suborder',children[0].id)['company']['words']==80
 
 
 def test_file_children_split_into_second_level_without_duplicate_root_siblings(case):

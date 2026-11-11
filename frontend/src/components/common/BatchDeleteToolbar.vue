@@ -6,6 +6,7 @@
     <template v-else>
       <el-tag type="danger" effect="plain">{{ modeLabel }}</el-tag>
       <span class="selected-count">已选 {{ selectedCount }} 条</span>
+      <slot name="management-actions" />
       <el-button :disabled="loading" @click="$emit('exit')">退出</el-button>
       <el-button
         type="danger"

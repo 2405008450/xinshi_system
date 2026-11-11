@@ -4,6 +4,7 @@
       <div class="card-header">
         <span>口译项目管理</span>
         <div class="header-actions">
+          <el-button v-if="!deleteMode" @click="statisticsVisible=true">数据统计</el-button>
           <ProjectExportMenu v-if="!deleteMode" module="interpretation" :build-filters="buildFilters" />
           <TableColumnSettings settings-key="interpretation-projects"
             v-model="visibleColumnKeys"
@@ -406,7 +407,7 @@
 </el-form-item>
               </el-col>
             </el-row>
-            <el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="客户全称" prop="clientFullName"><ReadonlyField :model-value="form.clientFullName" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '请输入客户全称'" @update:model-value="form.clientFullName = $event" /></el-form-item></el-col></el-row>
+            <el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="客户全称" prop="clientFullName"><ClientFullNameInput v-model="form.clientFullName" :client-id="form.clientId" include-sub-clients @select="handleClientSelect" /></el-form-item></el-col></el-row>
             <ProjectClientContactFields :client-id="form.clientId" :sub-client-id="form.subClientId" v-model:contact-name="form.contactName" v-model:contact-method="form.clientContactMethod" v-model:contact-description="form.clientContactDescription" v-model:contact-version="form.clientContactVersion" v-model:contacts-visible="form.clientContactsVisible" />
             <el-form-item label="补充说明" class="remarks-form-item"><el-input v-model="form.remarks" type="textarea" :rows="5" /></el-form-item>
             <el-form-item label="具体任务" prop="taskDescription">
@@ -539,9 +540,12 @@
       </div>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button v-if="canWrite && form.id" @click="openSavedProjectMail">预览已保存项目邮件</el-button>
-        <el-button :loading="submitLoading" @click="handleSubmit(true)">保存并发送邮件</el-button>
         <el-button type="primary" :loading="submitLoading" @click="handleSubmit(false)">保存</el-button>
+        <el-button :loading="submitLoading" @click="handleSubmit(true)">保存并发送邮件</el-button>
+        <el-tooltip content="紧急预告仍需完成本页必填信息；邮件将标记为紧急项目预告知。" placement="top"><el-button type="warning" plain :loading="submitLoading" @click="handleSubmit(true,true)">（紧急）项目预告知</el-button></el-tooltip>
+        <ConversationAudiencePicker v-model="chatAudience" :disabled="submitLoading" />
+        <el-button :loading="submitLoading" @click="handleSubmit(false,false,true)">保存并发送会话</el-button>
+        <el-button :loading="submitLoading" @click="handleSubmit(true,false,true)">保存并发送会话和邮件</el-button>
       </template>
     </DraggableFormDialog>
 
@@ -587,11 +591,21 @@
       project-type="interpretation"
       :project-id="mailProjectId"
       :consultation-id="mailConsultationId"
+      :send-project-chat="mailAlsoChat"
+      :project-chat-audience="mailChatAudience"
+      :emergency-notice="emergencyNotice"
     />
   </el-card>
+  <ProjectStatisticsDialog v-model="statisticsVisible" module="interpretation" />
 </template>
 
 <script setup>
+import {useProjectDelivery} from '@/composables/useProjectDelivery'
+import ConversationAudiencePicker from '@/components/common/ConversationAudiencePicker.vue'
+const {mailAlsoChat,emergencyNotice,chatAudience,mailChatAudience,prepareDelivery,sendConversation}=useProjectDelivery('interpretation')
+import ClientFullNameInput from '@/components/common/ClientFullNameInput.vue'
+import ProjectStatisticsDialog from '@/components/common/ProjectStatisticsDialog.vue'
+const statisticsVisible=ref(false)
 import ProjectClientContactFields from '@/components/common/ProjectClientContactFields.vue'
 import {emptyProjectContactDetails,projectContactPayload} from '@/utils/projectClientContacts'
 
@@ -1368,7 +1382,7 @@ const handleEdit = async (row, useProvidedDetail = false) => {
   await resetEditorScroll()
   await beginDraft(`edit:${detail.id}`)
 }
-const handleSubmit = async (sendAfterSave = false) => {
+const handleSubmit = async (sendAfterSave = false, emergency = false, sendChat = false) => {
   if (submitLocked) return
   submitLocked = true
   const valid = await formRef.value?.validate().catch(() => false)
@@ -1387,6 +1401,8 @@ const handleSubmit = async (sendAfterSave = false) => {
     ElMessage.success(form.id ? '口译项目已更新' : '口译项目已创建')
     clearDraft()
     dialogVisible.value = false
+    prepareDelivery(emergency,sendChat)
+    if(sendChat&&!sendAfterSave)await sendConversation(saved?.id||form.id,emergency)
     if (sendAfterSave) {
       mailProjectId.value = saved?.id || form.id
       mailConsultationId.value = saved?.consultationId || form.consultationId || ''
@@ -1553,6 +1569,7 @@ watch(
 )
 onBeforeUnmount(() => { interpreterTalentSearch.dispose();clearTimeout(searchTimer); clearTimeout(autoNameTimer); requestController?.abort() })
 useProjectStatusSync('interpretation',tableData,{onChanged:()=>{if(!loading.value&&!dialogVisible.value)void fetchData()}})
+watch(dialogVisible,visible=>{if(visible)chatAudience.value=[]})
 </script>
 
 <style scoped>

@@ -223,7 +223,7 @@
 
 <script setup>
 import SourceFilePicker from './SourceFilePicker.vue'
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import {
@@ -441,12 +441,16 @@ async function loadFiles() {
   return fileLoadRequest
 }
 
+async function awaitPathGroupReady() {
+  if(fileLoadRequest)await fileLoadRequest
+  if(fileLoading.value)throw new Error('项目文件正在加载，请稍后保存')
+  if(fileLoadError.value)throw new Error('项目文件加载失败，请在“项目文件”中重新加载后保存')
+  await nextTick()
+}
+
 async function validatePathGroup() {
-  if (fileLoading.value || fileLoadError.value) {
-    ElMessage.warning(fileLoading.value ? '项目文件正在加载，请稍后保存' : '请先重新加载项目文件，再保存')
-    return false
-  }
   if (!canWrite.value) return true
+  await awaitPathGroupReady()
   if (!pathGroupForm.id && !hasPathGroupData()) return true
   const valid = await pathGroupFormRef.value?.validate().catch(() => false)
   if (!valid && !expandedSections.value.includes('paths')) {
@@ -476,11 +480,14 @@ function getStatusMessage(savedFile, payload) {
 async function savePathGroup(options = {}) {
   if (!canWrite.value) return null
   if (fileSaving.value) return null
+  await awaitPathGroupReady()
+  // 新项目取得 ID 后文件页会重新挂载，恢复保存前已校验的完整路径组。
+  if(options.snapshot)assignPathGroup({...options.snapshot,id:pathGroupForm.id||options.snapshot.id})
   if (!pathGroupForm.id && !hasPathGroupData()) return null
 
   const valid = await validatePathGroup()
   if (!valid) {
-    const error = new Error('请完善项目路径组')
+    const error = new Error('请在“项目文件”中填写原文路径')
     error.validationFailed = true
     throw error
   }
@@ -598,6 +605,8 @@ watch(
 )
 
 defineExpose({
+  awaitPathGroupReady,
+  getPathGroupSnapshot:()=>({...pathGroupForm}),
   fileLoading,
   fileLoadError,
   fillSourceFileNameFromPath,

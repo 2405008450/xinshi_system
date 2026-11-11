@@ -74,6 +74,8 @@ def test_zero_unknown_currency_and_sub_client(context):
     db.add(sub);db.flush();zero.client_id=None;zero.sub_client_id=sub.id;db.commit()
     result=preview(http,root,scope='customer').json();assert result['totals']=={'CNY':'123.40','USD':'0.00'}
     root.customer_charge_items[0].unit_price_excl_tax=None;db.commit()
+    result=preview(http,root).json();assert result['rows'][0]['subtotal']=='130.80' and result['rows'][0]['unit_label']=='含税' and not result['pending']
+    root.customer_charge_items[0].unit_price_incl_tax=None;db.commit()
     result=preview(http,root).json();assert result['rows'][0]['subtotal'] is None and result['pending'] and result['totals']=={}
 
 def test_hierarchy_not_double_counted_fixed_and_adjustments(environment):

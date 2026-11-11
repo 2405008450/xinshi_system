@@ -297,8 +297,14 @@ from routers import departments
 app.include_router(departments.router)
 app.include_router(roles.router)
 app.include_router(translation_projects.router)
+from project_statistics import router as project_statistics_router
+app.include_router(project_statistics_router)
+from project_delivery import router as project_delivery_router
+app.include_router(project_delivery_router)
 from translation_customer_finance import router as translation_customer_finance_router
 app.include_router(translation_customer_finance_router)
+from translation_revenue import router as translation_revenue_router
+app.include_router(translation_revenue_router)
 import client_cooperation_auto
 from project_status_sync import router as project_status_sync_router
 app.include_router(project_status_sync_router)
@@ -411,6 +417,10 @@ from hr_recruitment_requirements import router as hr_recruitment_requirements_ro
 app.include_router(hr_recruitment_requirements_router)
 from hr_recruitment_process import router as hr_recruitment_process_router
 app.include_router(hr_recruitment_process_router)
+from invoice_workflow import router as invoice_workflow_router
+app.include_router(invoice_workflow_router)
+from invoice_parties import router as invoice_parties_router
+app.include_router(invoice_parties_router)
 from office_management import router as office_management_router
 app.include_router(office_management_router)
 app.include_router(manuscript_arrangements.router)

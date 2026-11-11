@@ -150,7 +150,7 @@ import { createEmptyWordCountMatrix } from '@/utils/wordCountMatrix'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import {useBusinessNumber} from '@/composables/useBusinessNumber'
-import {givenLocalRootPath} from '@/utils/localRootPath'
+import {givenLocalRootPath,localFolderCandidates} from '@/utils/localRootPath'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -276,6 +276,7 @@ const readUncFolder = async () => {
   }
 }
 watch(uncPath, clearUncListing, { flush: 'sync' })
+watch(mode,value=>{if(value!=='unc')clearUncListing()})
 onBeforeUnmount(clearUncListing)
 const localFileInput = ref(null)
 const localFolderInput = ref(null)
@@ -301,7 +302,7 @@ const localRootPath=ref('')
 const localRootPathHint=ref('')
 function fillLocalRootPath(entries,source={}){
   const rootName=entries.find(row=>!row.relativePath?.includes('/')&&!row.relative_path?.includes('/'))?.relativePath||entries[0]?.relativePath?.split('/')[0]||entries[0]?.relative_path?.split('/')[0]
-  localRootPath.value=givenLocalRootPath(rootName,{...source,candidates:[localRootPath.value,props.project.originalStoragePath,props.project.networkFilePath,props.project.sourceFolderPath]})
+  localRootPath.value=givenLocalRootPath(rootName,{...source,candidates:localFolderCandidates(localRootPath.value,props.project)})
   localRootPathHint.value=localRootPath.value?'已带入匹配的已有路径，可编辑；普通浏览器不能核验目录是否相同，请确认路径。':'浏览器未提供完整路径，且没有匹配的已登记路径，请填写所选根文件夹的完整路径。'
 }
 const uncFolders=ref([])

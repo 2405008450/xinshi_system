@@ -1,3 +1,4 @@
+import {paymentDetailsForm,paymentDetailsPayload,paymentDetailsSignature} from '../src/utils/paymentDetails.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
@@ -15,9 +16,9 @@ for(const prices of [[{id:'price',languagePair:'中→英',amount:'0.2',unitSize
   test(`收费窗口可打开同步层返回的响应式订单（${prices.length?'已有单价':'未填单价'}）`,async()=>{
     const data=reactive({version:'v1',item:{id:'order',rootId:'order',orderNo:'TP-261025-003',languagePair:'中→英',prices,children:[],paymentConfirmation:{}},referencePrices:{items:[],version:'r1'}})
     const errors=[]
-    const context={structuredClone,copySavedValue,paymentConfirmationForm,taxPriceForm,newCustomerRate,ratePayload,
+    const context={paymentDetailsForm,paymentDetailsSignature,originalPaymentDetails:'[]',structuredClone,copySavedValue,paymentConfirmationForm,taxPriceForm,newCustomerRate,ratePayload,
       canWrite:true,tableEditing:{flush:async()=>true},guardEditor:async()=>true,editorSequence:0,sequence:0,disposed:false,
-      timer:null,clearTimeout,controller:null,nextTick:async()=>{},clearFieldSearch:()=>{},referenceDefaults:()=>[],
+      timer:null,clearTimeout,controller:null,nextTick:async()=>{},clearFieldSearch:()=>{},referenceDefaults:()=>{throw new Error('不得自动采用客户参考价')},
       getCustomerFinanceProject:async()=>data,orderStatementMonth:()=> '2026-10',editorSignature:()=> 'signature',
       treeVersion:'',libraryVersion:'',original:'',originalPaymentConfirmation:'',
       projectFormTarget:ref(null),documentParent:ref(null),linkedQuotationVisible:ref(false),documentDraft:()=>({}),
@@ -29,8 +30,8 @@ for(const prices of [[{id:'price',languagePair:'中→英',amount:'0.2',unitSize
     assert.deepEqual(errors,[])
     assert.equal(context.editorVisible.value,true)
     assert.equal(context.editorLoading.value,false)
-    assert.equal(context.editor.value.prices.length,1)
-    context.editor.value.prices[0].amount=9
+    assert.equal(context.editor.value.prices.length,prices.length)
+    if(prices.length)context.editor.value.prices[0].amount=9
     if(prices.length)assert.equal(data.item.prices[0].amount,'0.2')
   })
 }

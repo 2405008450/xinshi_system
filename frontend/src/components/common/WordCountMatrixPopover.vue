@@ -18,6 +18,7 @@
     </template>
 
     <div class="word-count-matrix" data-auto-draft="off">
+      <el-alert v-if="Object.keys(draft?.simpleRequirementWordCountMatrix||{}).length" type="info" :closable="false" :title="'本单统计已加入简单需求字数：'+formatWordCountMatrix(draft.simpleRequirementWordCountMatrix)" />
       <div class="word-count-matrix__header">
         <div>
 
@@ -188,6 +189,7 @@ const clone = (value) => JSON.parse(JSON.stringify(value))
 
 function normalizeResponse(data = {}) {
   return {
+    simpleRequirementWordCountMatrix:data.simple_requirement_word_count_matrix||data.simpleRequirementWordCountMatrix||{},
     entity_type: data.entity_type || props.entityType,
     entity_id: data.entity_id || props.entityId,
     source: data.source,

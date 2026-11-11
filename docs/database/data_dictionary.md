@@ -2723,6 +2723,8 @@ id UUID 主键；client_id / sub_client_id UUID 分别关联 client / sub_client
 
 删除历史独立保留，不外键关联业务主记录。写入快照、删除和编号回池处于同一事务；删除失败一起回滚。软删除的招聘需求原编号移入历史，主记录使用内部删除键释放唯一约束；技术任务保留主体与关联记录，删除编号链接以释放唯一约束。编号复用后每次历史以原记录ID及独立历史ID区分。表单“编号删除记录”支持多关键词搜索与查看。只记录正常删除，不在迁移时批量改写历史业务数据。
 
+笔译列表在“删除管理”中提供“订单删除记录”，笔译母/子订单表单入口同名。查询可包含 `translation` 及 `translation_suborder:*` 全层级历史，订单号、客户名称和删除日期范围按 AND 组合；客户全称及简称分别允许多关键词包含匹配，结束日期包含当天（UTC+8）。新笔译删除快照保存客户全称和简称，后续客户改名不改变该快照；旧子订单优先回溯母订单删除快照，缺少名称时从仍存在的关联客户档案回退，不改写历史记录。无可用历史客户信息时显示空值，不推测客户名称。
+
 
 ### translation_order_folder（笔译文件夹订单元数据）
 
@@ -2780,3 +2782,54 @@ id UUID 主键；client_id / sub_client_id UUID 分别关联 client / sub_client
 新增表 `translation_mother_split`：project_id UUID 主键并关联 translation_project（删除级联）；first_sub_order_id UUID 唯一关联 translation_sub_order（删除置空）；original_information JSON 非空，保存非客户身份字段、完整统计、收费项、岗位和文件路径快照；needs_review boolean；actor_id、reviewed_by 关联 app_user（删除置空）；created_at、reviewed_at 为 UTC+8 带时区业务时间。迁移只创建此表及必要约束，不改旧表或历史数据。
 
 手工小量、数量批量、文件名导入显式传 preserve_original_file。母订单原名称能通过完整扩展名校验且没有子订单时，在持有母单行锁的同一事务中先保留原文件为 .001，再生成新子订单；原名称无扩展名、已有子订单、已转换时不重复处理。母单名称去掉最后一个扩展名；原文件继承字段固定在子订单，母单后续修改不覆盖原内容。列表与详情返回 mother_split_review；首个子订单额外返回 original_project_information。母订单编辑提交 mother_split_reviewed 时记录复核人及 UTC+8 时间。客户身份及联系人继续由母订单关联，复制过程不新增客户。
+
+
+### 简单需求统计来源（2026-11-09）
+
+新增表 `translation_simple_requirement_word_count`：`requirement_id` UUID 主键，关联简单需求（删除级联）；`project_id` UUID 非空索引，关联笔译母订单（删除级联）；`matrix` JSON 非空，保留本次登记的统计维度、口径和数量；`created_at` UTC+8 带时区业务时间。迁移只创建此表及必要约束、索引，不修改旧表或历史数据。
+
+保存简单需求可选提交 `word_count_matrix`，与需求、项目状态及通知同事务写入。数量按来源维度、相同口径累加到当前母订单的原统计；有子订单时，母订单显示下级汇总另加本母订单简单需求贡献，避免被下级汇总覆盖。需求请求ID沿用原幂等约束，同一请求重试不重复累加；相同请求ID不同统计返回409。无子订单的我司/客户统计必须与已有口径一致；空白不累计，零保留登记记录，分钟/小时按单位换算。返回 `simple_requirement_word_count_matrix` 标识简单需求来源和累计数量，需求历史返回单次 `word_count_matrix`。
+
+首次把带扩展名母单复制为原文件子单、或按方向拆分时，简单需求仍归母订单，复制统计时扣除此贡献，避免原文件子单与母订单再次重复计数。统计展示与记录保留原数量，不包含未保存窗口内容。
+
+### 笔译订单计费税口径（2026-11-10）
+
+新增 `translation_billing_tax_mode`：`order_id` UUID 主键（母订单或子订单）；`project_id` UUID 非空索引，外键关联 `translation_project.id`，删除级联；`mode` varchar(16)，CHECK 限定 `excl_tax` / `incl_tax`；`updated_by` UUID 非空，保存修改人；`updated_at` 带时区业务时间，统一 UTC+8。迁移 `tools/apply_translation_billing_tax_mode_migration.py` 只创建此表及必要索引、约束，不修改旧表、不回填历史数据，启动自动迁移继续关闭。
+
+含税与不含税原金额独立保留。只有一套金额时自动选唯一有值的口径（0 有效）；两套都有时采用人工选择，未选择沿用客户原税口径默认值。接口增加 `billing_tax_mode`、`effective_billing_tax_mode`、`billing_totals`，父级计费总价按子级实际口径汇总，不重复计数。修改同原收费事务保存，财务审计记录修改前后；新生成对账单和计费总价采用此选择，历史已生成账单不回写。不同口径项目合单时，对外预览与 Excel/PDF 显示按项目区分税口径。
+
+
+### 每条付款明细的支付截图及备注
+
+`ProjectPayment.proofs` 为最多 20000 字的截图引用及备注文本，随付款明细读写；不修改 `finance_payment` 表结构。独立凭证按付款明细 UUID 保存在 `translation_payment_confirmation.payment_option` 既有 JSON 文本的 `detail_proofs` 对象中。读取确认对象通过 `payment_details_proofs` 返回映射；明细接口为每行返回 `proofs`。历史只有项目级凭证时，首次明细回读将其作为首条明细的凭证展示，保存时保留既有凭证。旧客户端未传 `proofs` 时保留原值，新版显式空字符串表示清除。
+
+每条明细的截图签名均校验并按业务附件永久保留。明细编辑或删除记录修改前后明细快照（含 `proofs`）到既有付款确认历史；清空与切换付款类型仍归档原明细。未改变的付款行保留原确认信息；凭证变化视为该付款行发生修改。凭证明细映射纳入付款版本摘要与确认修订号，避免旧窗口覆盖。
+
+
+### 口译、标注、招聘项目会话发送与邮件联动（2026-11-10）
+
+- `project_chat_dispatch`：`request_key` UUID 主键，为每次发送的幂等标识；`module` varchar(30) 业务模块；`project_id` UUID 非空索引，按 module 对应项目表（跨模块审计关联，不新增旧表字段）；`room_id` UUID 外键关联 `chat_session_category.id`；`actor_id` UUID 外键关联 `app_user.id`；`mail_id` UUID 可空外键关联 `business_mail.id`，邮件删除时置空；`snapshot` JSON 保存会话标题、归档目录 UUID、业务日期、发送主题、讨论消息 ID 和紧急标记；`created_at` 带时区业务时间，统一 UTC+8。完整正文保存在既有 `chat_discussion_message.content`，不截断。
+- `project_mail_chat_intent`：`mail_id` UUID 主键及外键关联 `business_mail.id`，删除级联；`error` Text 可空，保存邮件已发送后会话发送失败的原因。意向与邮件一起落库，SMTP 失败不发送会话；邮件重试成功后继续联动，确定性请求键防止重复会话消息。
+- 会话补充提醒名单复用既有 `translation_mail_chat_intent.audience` JSON：该历史表的外键指向通用 `business_mail.id`，口译联动邮件也可保存其提醒快照；按邮件所属项目类型分流，不改变旧表结构。SMTP 失败或会话失败后重试沿用原名单。单独发送会话通过请求 `audience` 传入全体、部门或人员，并与原自动提醒人员合并去重，生成真实提及关系；不改变邮件收件人。
+- 标注、招聘页面只保留会话发送及紧急会话预告，不需要邮件配置；口译可选择仅会话、仅邮件或邮件成功后联动会话。团队会话的生成内容不带入客户联系方式，按模块/业务日期/项目归档；每次发送的记录用于幂等和审计，仍保留人工再次发送的能力。
+- `tools/apply_project_delivery_migration.py` 仅创建上述两张新表及必要索引与约束，可重复执行，不修改旧表或历史数据；启动自动迁移继续关闭。
+
+
+### 子客户全称选填（2026-11-10）
+
+笔译母订单/母子订单及客户管理的子客户新增、编辑窗口中，子客户全称均为选填。`SubClientCreate.client_name`、`SubClientUpdate.client_name` 接受省略、空字符串和空白值，标准化为空值。新增仅填简称时，以子客户简称写入既有 `sub_client.client_name`，保持原非空约束；编辑未提供全称时保留已登记全称。通过项目简称匹配已有子客户时仍只关联，不改写该客户档案。母客户全称和子客户简称的必填规则保持原定义；无表结构变更，无历史回填。
+
+
+### 报价单、对账单、发票说明与共享发票入口
+
+三类说明通过 `document_notes` 返回并提交，子项为 `quotation`、`statement`、`invoice`（各最多 2000 字）。复用 `translation_project_documents.quotation_data` 既有 JSON 的 `_document_notes` 对象，不改表；报价单正文读写会剥离并保留该元数据，说明修改不递增报价单正文修订号。是否需发票由有效计费税口径计算：含税需、不含税无需；父订单含有含税子订单时，含税部分需发票，不提供人工覆盖字段。
+
+三个发票入口共用 `/translation-customer-finance/project/{project_id}/invoice` 查询/保存：订单表单的发票文字按钮、财务操作列及“发票、查账与追账”窗口的发票页签。发票状态复用 `finance_record.invoice_status`（`unissued/partial/issued`），发票截图与备注保存于同一项目单据 JSON 的 `_invoice` 对象（`proofs` 最多 20000 字）。发票状态及附件按母订单保存，子订单入口共用母订单记录；窗口展示所选订单的自动发票需求及计费金额。截图签名校验和长期保留复用统一截图服务，修改前后信息记录到既有财务修改历史。接口版本摘要防止覆盖其他窗口已保存的发票信息。
+
+### 客户营收统计（2026-11-10）
+
+`GET /translation-revenue` 为只读统计接口，不新增表、不改变项目价格或客户计费设置。默认复用 `translation_customer_finance.tree(..., summary_only=True)` 的母订单 `billing_totals`，下级金额只经母订单汇总计入一次。客户可分别选 `billing`（项目有效计费口径）、`excl`（不含税总价）、`incl`（含税总价）；通过 `client_basis` JSON 映射传入，所有客户选定金额按币种相加。同一客户口径同时用于本期、上期、去年同期和趋势，选择按页面及当前用户存于 localStorage，不写业务数据。
+
+日期从 `TP-YYMMDD-…` 或 `TP-YYYYMMDD-…` 母订单号提取；无法识别时回退到客户交稿时间（明确转为 UTC+8），仍无日期的项目不计入并返回数量。周为 ISO 自然周（周一至周日），同比使用上一 ISO 年的相同周数，无对应第53周时返回不可比；月、季度、年使用相应自然周期，同比为去年同周期、环比为前一周期。按完整周期比较，当前周期未结束时返回提示。零基期不生成无穷百分比，分别返回 `new`、`zero`，无对应周期为 `unavailable`。
+
+客户以母客户 ID 归组，子客户合并至母客户；未关联客户的项目分开列示。范围沿用入口的客户经理／客户范围，不沿用主表月份或业务状态筛选。排名先按本期金额降序及客户名称、ID 稳定排序，再按排名区间、金额区间、客户多关键词搜索过滤和分页；区间包含两端，倒序自动归一。总营收、同比环比和最近12周期趋势不受排名及金额区间过滤影响，筛选后另返回客户数量及金额合计。不同币种分别统计，缺失金额返回待补数量，不做汇率折算。

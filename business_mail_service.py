@@ -417,7 +417,7 @@ def _project_source(project_type: str, project) -> dict:
         "customer_order_no": getattr(project, "customer_order_no", None),
     }
     field_names = {
-        "translation": ("service_content", "file_type_secondary", "language_pair", "customer_deadline_time", "priority", "customer_requirement_professional", "customer_requirement_special"),
+        "translation": ("service_content", "file_type_secondary", "language_pair", "customer_deadline_time", "priority", "customer_requirement_professional", "customer_requirement_special", "remarks"),
         "interpretation": ("project_types", "task_description", "locations", "customer_budget", "required_interpreter_count", "required_interpreter_gender", "required_interpretation_level", "interpretation_domain", "interpretation_content", "interpreter_special_requirements"),
         "annotation": ("project_types", "task_description", "potential_demand"),
         "recruitment": ("position_title", "job_description", "headcount_min", "headcount_max", "employment_start", "employment_end", "work_location", "target_onboard_date", "service_fee_type", "service_fee_amount", "service_fee_rate", "service_fee_note"),
@@ -513,6 +513,7 @@ def build_preview(
     project_id: Optional[UUID] = None,
     source: Optional[dict] = None,
     current_user: Optional[AppUser] = None,
+    emergency_notice: bool = False,
 ) -> dict:
     if project_type not in PROJECT_MAIL_TYPES:
         raise ValueError("不支持的项目类型")
@@ -538,7 +539,7 @@ def build_preview(
     elif project_type == "recruitment":
         values = _normalize_recruitment_mail_values(db, values)
     blocking: list[str] = []
-    emergency_notice = False
+    emergency_notice = bool(emergency_notice)
     if project_type == 'translation' and project_id:
         from translation_project_submission import mail_policy
         emergency_notice, policy_error = mail_policy(db, project)
@@ -589,7 +590,12 @@ def build_preview(
         ("客户简称", values.get("client_short_name")), ("客户经理联系方式", values.get("manager_contact")),
         ("客户单号/项目标识", values.get("customer_order_no")),
     )
+    if project_type == 'translation':
+        common = (common[1], common[0], *common[2:])
     lines = [f"{label}：{_clean(value)}" for label, value in common if _clean(value) and not (project_type == 'translation' and label == '客户经理联系方式')]
+    if project_type == 'translation' and _clean(values.get('remarks')):
+        position = 1 if order_no else 0
+        lines[position:position] = ['', '补充说明：', _clean(values['remarks']), '']
     core_body_keys = {key for _label, key in CORE_FIELDS[project_type]}
     # 核心字段为空时也要在邮件预览中保留对应行，避免用户只能从“缺失字段”标签猜测正文缺了什么。
     # 缺失核心字段会继续阻止发送，因此“（待填写）”只用于预览提示，不会进入实际投递邮件。
@@ -603,7 +609,7 @@ def build_preview(
         lines.extend(["项目字数统计：", *word_count_lines])
     if _clean(values.get("consultation_description")):
         lines.append(f"咨询说明：{_clean(values.get('consultation_description'))}")
-    if _clean(values.get("remarks")):
+    if project_type != 'translation' and _clean(values.get("remarks")):
         lines.append(f"备注：{_clean(values.get('remarks'))}")
     if project_type == 'translation':
         for label,key in [('客户专业要求','customer_requirement_professional'),('客户特殊要求','customer_requirement_special')]:
@@ -620,6 +626,9 @@ def build_preview(
                     lines.append(f"{levels[item['level']]}子订单：{item['orders']} 个，其中文件：{item['files']} 个")
     if emergency_notice:
         subject = '（紧急）项目预告知：' + subject.removeprefix('（紧急）项目预告知：')
+        if project_type != 'translation':
+            from project_delivery import WARNING
+            lines.extend(['',WARNING])
     else:
         subject = subject.removeprefix('（紧急）项目预告知：')
     body = "\n".join(lines)
@@ -674,7 +683,13 @@ def serialize_mail(mail: BusinessMail) -> dict:
         from translation_chat_delivery import ready as chat_ready,TranslationMailChatIntent
         intent=session.get(TranslationMailChatIntent,mail.id) if chat_ready(session) else None
         chat_error=intent.error if intent else None
+    project_chat_error=None
+    if session and mail.project_type!='translation':
+        from project_delivery import ready as delivery_ready,ProjectMailChatIntent
+        intent=session.get(ProjectMailChatIntent,mail.id) if delivery_ready(session) else None
+        project_chat_error=intent.error if intent else None
     return {
+        'project_chat_error':project_chat_error,
         "translation_chat_error":chat_error,
         "id": mail.id, "source_kind": mail.source_kind, "project_type": mail.project_type,
         "consultation_id": mail.consultation_id, "project_id": _project_id(mail),
@@ -752,6 +767,8 @@ def _deliver(db: Session, mail: BusinessMail, actor: AppUser) -> BusinessMail:
     db.commit()
     from translation_chat_delivery import complete_mail_intent
     complete_mail_intent(db,mail,actor)
+    from project_delivery import complete_mail_intent as complete_project_mail_intent
+    complete_project_mail_intent(db,mail,actor)
     return db.query(BusinessMail).options(
         joinedload(BusinessMail.recipients), joinedload(BusinessMail.attempts)
     ).filter(BusinessMail.id == mail.id).first()
@@ -770,6 +787,12 @@ def create_and_send(db: Session, payload, actor: AppUser) -> BusinessMail:
     if not project:
         raise LookupError("项目不存在")
     _require_subject_order_no(project, payload.subject)
+    if payload.emergency_notice and payload.project_type!='translation':
+        from project_delivery import URGENT,WARNING
+        payload.subject=URGENT+payload.subject.removeprefix(URGENT)
+        if WARNING not in payload.body:
+            payload.body+='\n\n'+WARNING
+            if payload.body_html:payload.body_html+='<p>'+WARNING+'</p>'
     if payload.project_type == 'translation':
         from translation_project_submission import mail_policy
         notice, policy_error = mail_policy(db, project)
@@ -803,6 +826,16 @@ def create_and_send(db: Session, payload, actor: AppUser) -> BusinessMail:
     db.add(mail)
     db.flush()
     bind_images(db, inline_images, "business_mail", mail.id)
+    if payload.send_project_chat:
+        from project_delivery import require_ready as delivery_ready,ProjectMailChatIntent,LABELS
+        if payload.project_type not in LABELS:raise ValueError('不支持的项目会话联动类型')
+        delivery_ready(db)
+        db.add(ProjectMailChatIntent(mail_id=mail.id))
+        if payload.project_chat_audience:
+            from translation_chat_delivery import require_ready as chat_ready,TranslationMailChatIntent,resolve_audience,people as chat_people
+            chat_ready(db)
+            resolve_audience(db,payload.project_chat_audience,{str(person.id) for person in chat_people(db)})
+            db.add(TranslationMailChatIntent(mail_id=mail.id,audience=payload.project_chat_audience))
     if payload.send_translation_chat:
         if payload.project_type!='translation':raise ValueError('此会话联动仅适用于笔译项目')
         from translation_chat_delivery import require_ready as chat_require_ready,TranslationMailChatIntent,settings as chat_settings,resolve_audience,people as chat_people

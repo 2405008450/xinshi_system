@@ -46,6 +46,20 @@ def test_fixed_mode_may_be_incomplete_then_zero_is_saved(table):
     assert full.status_code==422  # 完整编辑窗口仍校验必填金额。
 
 
+def test_switching_pricing_modes_removes_other_mode_values_and_keeps_notes(table):
+    http,db,root=table
+    patch(http,root,explanation='内部说明',customer_explanation='客户说明',billing_tax_mode='incl_tax')
+    fixed=patch(http,root,pricing_mode='fixed')['item']
+    assert fixed['prices']==[] and fixed['adjusted_total'] is None and fixed['adjusted_total_incl_tax'] is None
+    assert fixed['billing_tax_mode'] is None
+    patch(http,root,adjusted_total_incl_tax=200)
+    metric=patch(http,root,pricing_mode='metric')['item']
+    assert metric['adjusted_total'] is None and metric['adjusted_total_incl_tax'] is None
+    assert all(price['amount'] is None for price in metric['prices'])
+    assert metric['explanation']=='内部说明' and metric['customer_explanation']=='客户说明'
+    assert metric['word_count_matrix']['customer']['words'] is not None
+
+
 def test_unit_prices_and_blank_prices_save_without_fabricated_zero(table):
     http,_,root=table
     price={'language_pair':'英语→简中','currency':'CNY','metric':'customer_auto','unit_size':1,'amount':None,'tax_prices':{'unit_price_excl_tax':None,'unit_price_incl_tax':None}}

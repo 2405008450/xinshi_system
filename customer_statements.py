@@ -193,6 +193,11 @@ def money(value):
     return str(Decimal(str(value)).quantize(Decimal('.01'),rounding=ROUND_HALF_UP)) if value is not None else None
 
 
+def tax_label(data):
+    labels={row.get('unit_label') for row in data.get('rows',[]) if row.get('unit_label') in ('含税','不含税')}
+    return '含税／不含税（按项目）' if len(labels)>1 else '含税' if data.get('tax_included') else '不含税'
+
+
 def statement_display_rows(node, rows, mode):
     """显示层汇总不改变收费明细；同时展示父子时，汇总行不参与合计。"""
     if mode=='children' or not node['children'] or not rows:return rows
@@ -230,6 +235,7 @@ def build_statement(db,project_id,order_id,month,scope,order_display='children')
     if not project or project.annotation_migrated_at is not None:raise HTTPException(404,'笔译项目不存在')
     client=project.client or (project.sub_client.parent_client if project.sub_client else None)
     if not client:raise HTTPException(422,'请先为项目关联客户')
+    import translation_billing_tax_mode as billing_tax
     preference=client_preference(db,client.id);kind='incl_tax' if preference['tax_included'] else 'excl_tax'
     label='含税' if preference['tax_included'] else '不含税'
     if scope=='customer':
@@ -257,14 +263,17 @@ def build_statement(db,project_id,order_id,month,scope,order_display='children')
             rows.append(dict(order_no=item['order_no'],customer_order_no=(root.customer_order_no or '').strip(),received_date=business_datetime(root.customer_reception_time).strftime('%Y-%m-%d') if root.customer_reception_time else None,
                 task_id=item['id'],root_id=str(root.id),line_id=f"{item['id']}:{line_index}",unit_size=format(Decimal(str(unit_size)),'f'),
                 project_name=item['project_name'] or '-',language_pair=item['language_pair'] or '-',quantity=quantity,basis=basis,
-                unit_price=str(unit) if unit is not None else None,unit_label=label,currency=currency,subtotal=money(amount),
+                unit_price=str(unit) if unit is not None else None,unit_label='含税' if item.get('effective_billing_tax_mode')=='incl_tax' else '不含税' if item.get('effective_billing_tax_mode')=='excl_tax' else label,currency=currency,subtotal=money(amount),
                 remarks=item.get('customer_explanation') or ''))
             if issue:pending.append(f"{item['order_no']}：{issue}")
         def visit(item,inherited_month):
             current_month=item.get('billing_month') or inherited_month
+            kind=item.get('effective_billing_tax_mode')
+            if kind not in ('incl_tax','excl_tax'):kind=billing_tax.effective(item,item.get('billing_tax_mode')) or ('incl_tax' if preference['tax_included'] else 'excl_tax')
+            label='含税' if kind=='incl_tax' else '不含税'
             if item['pricing_mode']=='fixed':
                 if current_month==month:
-                    value=item.get('adjusted_total_incl_tax' if preference['tax_included'] else 'adjusted_total')
+                    value=item.get('adjusted_total_incl_tax' if kind=='incl_tax' else 'adjusted_total')
                     append(item,None,None,value,item['currency'],item.get('explanation',''),'固定收费',None if value is not None else f'未填写{label}固定收费')
                 return
             children=item['children'];start=len(rows)
@@ -283,7 +292,7 @@ def build_statement(db,project_id,order_id,month,scope,order_display='children')
                     line={**item,'language_pair':price.get('language_pair') or item['language_pair']}
                     append(line,str(quantity) if quantity is not None else None,unit,amount,price['currency'],item.get('explanation',''),basis,
                            f'未填写{label}单价或对应工作量' if unit is None or quantity is None or amount is None else None,unit_size=size)
-            override=item.get('adjusted_total_incl_tax' if preference['tax_included'] else 'adjusted_total')
+            override=item.get('adjusted_total_incl_tax' if kind=='incl_tax' else 'adjusted_total')
             if override is not None and current_month==month and len(rows)>start:
                 matching=[row for row in rows[start:] if row['currency']==item['currency']]
                 if matching and all(row['subtotal'] is not None for row in matching):
@@ -300,6 +309,8 @@ def build_statement(db,project_id,order_id,month,scope,order_display='children')
     result=dict(company=settings['company'],title='对账单',client_name=client.client_name or client.client_short_name,client_code=client.client_code,
         month=month,issue_date=business_now().date().isoformat(),scope=scope,order_display=order_display,tax_included=preference['tax_included'],rows=rows,totals={key:money(value) for key,value in sums.items()},pending=pending,
         settings={key:settings[key] for key in ('bank_name','account_name','account_number')},stamp_image=settings['stamp_image'] or settings['default_stamp'])
+    labels={row['unit_label'] for row in rows if row.get('unit_label')}
+    if len(labels)==1:result['tax_included']=next(iter(labels))=='含税'
     result['statement_version']=hashlib.sha256(json.dumps(result,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
     result['generated_at']=business_now().isoformat()
     return result
@@ -328,11 +339,12 @@ def write_excel_sheet(sheet,data):
     sheet.merge_cells(f'A1:{last_col}1');sheet['A1']=_safe_text(data['company']);sheet['A1'].font=Font(name='微软雅黑',size=15,bold=True)
     sheet.merge_cells(f'A2:{last_col}2');sheet['A2']=_safe_text(statement_title(data));sheet['A2'].font=Font(name='微软雅黑',size=16.5,bold=True)
     sheet.merge_cells(start_row=3,start_column=1,end_row=3,end_column=4+offset);sheet['A3']=_safe_text(f"客户：{data['client_name']}")
-    sheet.merge_cells(start_row=3,start_column=5+offset,end_row=3,end_column=7+offset);sheet.cell(3,5+offset,_safe_text(f"账单月份：{data['month']}　{'含税' if data['tax_included'] else '不含税'}"))
+    sheet.merge_cells(start_row=3,start_column=5+offset,end_row=3,end_column=7+offset);sheet.cell(3,5+offset,_safe_text(f"账单月份：{data['month']}　{tax_label(data)}"))
     sheet.append([]);sheet.append((['原客户'] if has_origin else [])+(['客户单号'] if has_customer_order else [])+['来稿日期','项目名称','翻译方向','工作量（计价方式）','单价','小计','备注'])
     for row in data['rows']:
         workload=(str(row['quantity'])+'\n' if row['quantity'] is not None else '')+re.sub(r'[（(]每1(?:\.0+)?计价[）)]','',row['basis'])
         unit=f"{row['currency']} {Decimal(str(row['unit_price'])).quantize(Decimal('0.001'),rounding=ROUND_HALF_UP):.3f}" if row['unit_price'] is not None else '-'
+        if '按项目' in tax_label(data) and row.get('unit_label'):unit+='（'+row['unit_label']+'）'
         values=([row.get('origin_client_name') or data['client_name']] if has_origin else [])+([row.get('customer_order_no','')] if has_customer_order else [])+[row['received_date'],row['project_name'],row['language_pair'],workload,unit,
                 f"{row['currency']} {row['subtotal']}" if row['subtotal'] is not None else '待补',
                 ('汇总参考，不重复计入合计。' if row.get('counted_in_total') is False else '')+(row['remarks'] or '')]

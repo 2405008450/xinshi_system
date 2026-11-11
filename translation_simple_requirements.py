@@ -14,6 +14,9 @@ from department_models import Department, DepartmentMember
 from models import AppNotification, AppUser, Base, TranslationProject
 from routers.auth import get_current_user, require_module_access
 
+from word_count_schemas import WordCountCreateMatrix
+import translation_simple_requirement_counts as counts
+
 STATUS_LABELS = {'simple_requirement': '简单需求', 'source_file_simple_requirement': '原文件+简单需求'}
 
 
@@ -55,6 +58,7 @@ class TranslationSimpleRequirementRecipient(Base):
 class RequirementCreate(BaseModel):
     model_config = ConfigDict(extra='forbid')
     request_id: UUID
+    word_count_matrix: WordCountCreateMatrix | None = None
     original_text: str = Field(min_length=1, max_length=2000)
     translated_text: str = Field(default='', max_length=2000)
     chargeable: StrictBool
@@ -131,7 +135,7 @@ def serialize(db, row):
     completed = completion_states(db, 'requirement', row.id)
     recipients = db.query(TranslationSimpleRequirementRecipient).filter_by(requirement_id=row.id).order_by(
         TranslationSimpleRequirementRecipient.user_name, TranslationSimpleRequirementRecipient.user_id).all()
-    return dict(id=row.id, project_id=row.project_id, original_text=row.original_text,
+    return dict(word_count_matrix=counts.record(db,row.id), id=row.id, project_id=row.project_id, original_text=row.original_text,
         translated_text=row.translated_text, chargeable=row.chargeable, previous_status=row.previous_status,
         saved_status=row.saved_status, actor_name=row.actor_name, actor_username=row.actor_username,
         created_at=business_datetime(row.created_at).isoformat(), recipients=[dict(user_id=r.user_id,
@@ -167,9 +171,10 @@ def create_requirement(db, project_id, payload, actor):
         data = serialize(db, existing)
         same = all(getattr(existing, field) == getattr(payload, field) for field in
                    ('original_text', 'translated_text', 'chargeable', 'saved_status'))
+        same = same and counts.normalized(counts.record(db,existing.id))==counts.normalized(payload.word_count_matrix)
         if existing.actor_user_id != actor.id or not same or set(payload.recipient_ids) != {r['user_id'] for r in data['recipients']}:
             raise HTTPException(409, '保存请求已使用，请重新添加简单需求')
-        return {'item': data, 'project_status': parent.project_status,
+        return {'item': data, **count_result(db,parent,bool(data.get('word_count_matrix'))), 'project_status': parent.project_status,
                 'project_updated_at': business_datetime(parent.updated_at).isoformat() if parent.updated_at else None}
     if parent.project_status != payload.expected_project_status or business_datetime(parent.updated_at) != business_datetime(payload.expected_updated_at):
         raise HTTPException(409, '项目已被修改，请重新加载简单需求后再保存')
@@ -185,6 +190,7 @@ def create_requirement(db, project_id, payload, actor):
     parent.project_status = payload.saved_status
     parent.updated_at = moment.replace(tzinfo=None)
     db.flush()
+    count_added=counts.add(db,parent,row,payload.word_count_matrix,actor.id)
     notifications = []
     for uid in payload.recipient_ids:
         notice = notification(db, uid, f'{parent.order_no} · {STATUS_LABELS.get(payload.saved_status, "简单需求")}',
@@ -195,8 +201,17 @@ def create_requirement(db, project_id, payload, actor):
             user_name=users[uid].full_name or users[uid].username, notification_id=notice.id))
     db.commit()
     publish(notifications)
-    return {'item': serialize(db, row), 'project_status': parent.project_status,
+    return {'item': serialize(db, row), **count_result(db,parent,count_added), 'project_status': parent.project_status,
             'project_updated_at': business_datetime(parent.updated_at).isoformat()}
+
+
+def count_result(db,parent,added):
+    from word_count_service import hierarchy_matrix
+    owner=hierarchy_matrix(db,'project',parent)
+    return dict(word_count_added=added,word_count_matrix=owner.word_count_matrix,
+                word_count_matrix_source=owner.word_count_matrix_source,
+                word_count_sub_order_count=owner.word_count_sub_order_count,
+                simple_requirement_word_count_matrix=getattr(owner,'simple_requirement_word_count_matrix',{}))
 
 
 def list_requirements(db, project_id, skip=0, limit=10):

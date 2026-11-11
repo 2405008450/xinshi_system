@@ -53,6 +53,8 @@ export const createProject = async (data, idempotencyKey) => {
     const payload = convertKeys(data, toSnakeCase)
     const key = resolveIdempotencyKey(projectCreateState, payload, idempotencyKey)
     const response = await api.post('/projects/translation/', payload, {
+        // 母单、目录子单及工作流在同一事务写入，不能沿用列表查询的10秒限制。
+        timeout: 120000,
         headers: { 'X-Idempotency-Key': key },
     })
     clearIdempotencyKey(projectCreateState, key)
@@ -61,7 +63,7 @@ export const createProject = async (data, idempotencyKey) => {
 }
 
 export const updateProject = (id, data) => {
-    return api.put(`/projects/translation/${id}`, convertKeys(data, toSnakeCase)).then(res => {
+    return api.put(`/projects/translation/${id}`, convertKeys(data, toSnakeCase), { timeout: 120000 }).then(res => {
         invalidateOptionCache('source-projects:translation:')
         return convertKeys(res, toCamelCase)
     })

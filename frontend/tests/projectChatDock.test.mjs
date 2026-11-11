@@ -137,6 +137,20 @@ test('最近关闭按关闭顺序保留10个系列，重复关闭前移，点击
   assert.equal(restored.state.closedSessionKeys.includes('annotation:5'), false)
 })
 
+test('笔译自动生成会话允许关闭、刷新后保留个人关闭状态并可恢复',()=>{
+ const storage=new Map(),session={key:'discussion:translation',projectId:'translation',projectType:'discussion',title:'笔译项目会话',deletionProtected:true}
+ const {dock:instance}=createDockHarness(storage)
+ instance.openChat(session);instance.closeSessionEntry(session)
+ assert.equal(instance.state.windows.length,0)
+ assert.equal(instance.state.closedSessionKeys.includes(session.key),true)
+ assert.equal(instance.state.recentClosedSessions[0].key,session.key)
+ const restored=createDockHarness(storage).dock;restored.ensurePreferences()
+ assert.equal(restored.state.closedSessionKeys.includes(session.key),true)
+ restored.restoreClosedSession(restored.state.recentClosedSessions[0])
+ assert.equal(restored.state.windows[0].deletionProtected,true)
+ assert.equal(restored.state.closedSessionKeys.includes(session.key),false)
+})
+
 test('资源讨论自动恢复旧关闭项，后续关闭窗口不会移出列表或加入最近关闭', () => {
   const storage = new Map([['xinshi.chatDock.anonymous', JSON.stringify({ closedSessionKeys: ['discussion:resource', 'annotation:a'], recentClosedSessions: [{ key: 'discussion:resource', projectId: 'resource', projectType: 'discussion' }] })]])
   const { dock: instance } = createDockHarness(storage)
@@ -417,7 +431,7 @@ test('项目信息按 projectType:projectId 缓存并异步补全标题与订单
   assert.match(dockStore, /const projectMetaCache = new Map\(\)/)
   assert.match(dockStore, /translation: getProject/)
   assert.match(dockStore, /annotation: getAnnotationProject/)
-  assert.match(dockStore, /title: data\?\.projectName \|\| ''/)
+  assert.match(dockStore, /title: projectType === 'translation' \? translationChatTitle\(data\) : data\?\.projectName \|\| ''/)
   assert.match(dockStore, /subtitle: data\?\.orderNo \|\| ''/)
   assert.match(dockStore, /projectMetaCache\.set\(cacheKey, null\)/)
   assert.match(dockStore, /正在加载项目信息…/)

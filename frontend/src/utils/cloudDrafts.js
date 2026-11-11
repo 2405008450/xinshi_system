@@ -25,9 +25,9 @@ async function read(item){
  item.revision=result.revision;item.hash=draftStringify(result.payload);item.status.updatedAt=result.updated_at
  return result
 }
-export async function readCloudDraft(namespace,key){const item=slot(namespace,key);try{let result=await read(item);if(item.blocked){item.pending=undefined;updatePending()}try{const cleared=JSON.parse(localStorage.getItem(clearedKey(item))||'null');if(cleared&&result.payload!==null&&result.revision<=cleared.revision){queueCloudDraft(namespace,key,null);result={...result,payload:null}}else if(cleared)localStorage.removeItem(clearedKey(item))}catch{/* 不影响读取。 */}item.blocked=false;item.status.error='';if(item.pending===undefined)item.status.state=result.payload===null?'local':'synced';return result}catch(error){item.status.state='local';item.status.error=error.detail||'云端草稿读取失败，继续保留本机备份';throw error}}
+export async function readCloudDraft(namespace,key){const item=slot(namespace,key);try{let result=await read(item);if(item.blocked){item.pending=undefined;updatePending()}try{const cleared=JSON.parse(localStorage.getItem(clearedKey(item))||'null');if(cleared&&result.payload!==null&&(cleared.revision===null||result.revision<=cleared.revision)){queueCloudDraft(namespace,key,null);result={...result,payload:null}}else if(cleared)localStorage.removeItem(clearedKey(item))}catch{/* 不影响读取。 */}item.blocked=false;item.status.error='';if(item.pending===undefined)item.status.state=result.payload===null?'local':'synced';return result}catch(error){item.status.state='local';item.status.error=error.detail||'云端草稿读取失败，继续保留本机备份';throw error}}
 export function queueCloudDraft(namespace,key,value){const item=slot(namespace,key);const payload=sanitizeDraft(value);if(payload===undefined)return;const hash=draftStringify(payload);if(item.pending?.hash===hash||hash===item.hash&&item.pending===undefined)return;item.pending={payload,hash};item.status.state='local';updatePending();if(!timer)timer=setTimeout(()=>void flushCloudDrafts(),CLOUD_DRAFT_DELAY)}
-export function clearCloudDraft(namespace,key){const item=slot(namespace,key);try{localStorage.setItem(clearedKey(item),JSON.stringify({revision:(item.revision||0)+(item.sending?1:0)}))}catch{/* 正式保存不受浏览器配额影响。 */}queueCloudDraft(namespace,key,null);void flushCloudDrafts()}
+export function clearCloudDraft(namespace,key){const item=slot(namespace,key);try{localStorage.setItem(clearedKey(item),JSON.stringify({revision:item.revision===null?null:item.revision+(item.sending?1:0)}))}catch{/* 正式保存不受浏览器配额影响。 */}queueCloudDraft(namespace,key,null);void flushCloudDrafts()}
 export function acknowledgeCloudDraft(namespace,key,revision){const item=slot(namespace,key);item.generation++;item.revision=revision;item.hash='null';item.serverPayload=null;item.pending=undefined;item.blocked=false;item.status.state='synced';item.status.error='';updatePending()}
 export async function flushCloudDrafts(){
  clearTimeout(timer);timer=null;if(running)return
@@ -38,7 +38,7 @@ export async function flushCloudDrafts(){
   for(const item of batch){
    if(item.revision!==null)continue
    const existing=await read(item)
-   if(existing.payload!==null&&draftStringify(existing.payload)!==item.pending.hash){item.blocked=true;item.status.state='conflict';item.status.error='云端已有另一份草稿，本机内容已保留；请重新打开表单读取云端版本';throw new Error(item.status.error)}
+   if(existing.payload!==null&&item.pending.payload!==null&&draftStringify(existing.payload)!==item.pending.hash){item.blocked=true;item.status.state='conflict';item.status.error='云端已有另一份草稿，本机内容已保留；请重新打开表单读取云端版本';throw new Error(item.status.error)}
   }
   const writes=batch.map(item=>({item,pending:item.pending,revision:item.revision,generation:item.generation}))
   writes.forEach(({item})=>{item.status.state='saving';item.sending=true})

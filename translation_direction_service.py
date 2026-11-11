@@ -14,6 +14,19 @@ def level(row):
     return row.sub_order_no.count('.') if isinstance(row,TranslationSubOrder) else 0
 
 
+def preserves_project_statistics(owner,children):
+    """同一母单文件仅按方向拆分时，母单保留登记统计，不累加重复的原文数量。"""
+    if not isinstance(owner,TranslationProject) or not children or len(directions(owner.language_pair))<2:
+        return False
+    name=str(owner.source_file_name or owner.project_name or '').strip().casefold()
+    wanted={value.casefold() for value in directions(owner.language_pair)}
+    return bool(name) and all(
+        str(child.sub_project_name or '').strip().casefold()==name
+        and len(pairs:=directions(child.language_pair))==1 and pairs[0].casefold() in wanted
+        for child in children
+    )
+
+
 def validate_direction_level(number,value):
     if str(number).count('.')>=4 and len(directions(value))>1:
         raise ValueError('四级子订单只能选择一个翻译方向，不能继续拆分更深层级')
@@ -33,6 +46,9 @@ def stored_matrix(db,owner):
     for row in rows:
         if row.count_value is not None and row.dimension in matrix and row.metric_type in matrix[row.dimension]:
             matrix[row.dimension][row.metric_type]=float(row.count_value) if row.metric_type in ('minutes','hours') else int(row.count_value)
+    if not child:
+        from translation_simple_requirement_counts import without_additions
+        matrix=without_additions(db,owner,matrix)
     return WordCountCreateMatrix.model_validate(matrix)
 
 
@@ -86,7 +102,7 @@ def ensure_direction_children(db,owner,actor_id=None):
             payload=TranslationSubOrderCreate(parent_project_id=root.id,sub_order_no=number,sub_project_name=name,language_pair=direction,
                 priority=source.priority or owner.priority,file_type_secondary=source.file_type_secondary,
                 customer_deadline_time=source.customer_deadline_time or getattr(owner,'customer_deadline_time',None),
-                network_file_path=getattr(source,'network_file_path',None),word_count_matrix=stored_matrix(db,source),status='pending_confirmation',created_by=actor_id or getattr(owner,'created_by',None))
+                network_file_path='同上一级订单',word_count_matrix=stored_matrix(db,source),status='pending_confirmation',created_by=actor_id or getattr(owner,'created_by',None))
             child=_create_sub_order_in_transaction(db,payload)
             created.append(child);covered.add(direction.casefold())
     if created:

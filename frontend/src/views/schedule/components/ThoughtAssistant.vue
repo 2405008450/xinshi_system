@@ -10,8 +10,8 @@
       <el-button v-if="busy" :disabled="changing || job?.state === 'cancelling'" @click="cancel">取消任务</el-button>
       <el-button v-if="error" text @click="refresh">重新连接</el-button>
     </div>
-    <p v-if="loading || !enabled || busy || error" role="status" class="assistant-status">
-      {{ error || (loading ? '正在连接 AI 服务……' : !enabled ? 'AI 服务尚未启用，笔记仍可正常保存' : statusText) }}
+    <p v-if="loading || !enabled || busy || otherBusy || error" role="status" class="assistant-status">
+      {{ error || (loading ? '正在连接 AI 服务……' : !enabled ? 'AI 服务尚未启用，笔记仍可正常保存' : otherBusy ? '你已有其他 AI 分析任务正在处理，请稍候' : statusText) }}
     </p>
     <p v-if="text.length > 6000" class="assistant-status">当前文字 {{ text.length }} 字，请精简到 6000 字以内再提交。</p>
     <div v-if="job && !busy" class="assistant-result">
@@ -35,17 +35,17 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import api from '@/api/index'
+import { getThoughtAiState, createThoughtAiJob, cancelThoughtAiJob } from '@/api/thoughtsAi'
 import { screenshotText } from '@/utils/screenshotReferences'
 import { formatBusinessDateTime } from '@/utils/dateTime'
 
 const props = defineProps({ content: { type: String, default: '' } })
 const emit = defineEmits(['append'])
 const actions = [{ key: 'organize', label: '帮我梳理' }, { key: 'explore', label: '继续发散' }, { key: 'todos', label: '提炼待办' }]
-const job = ref(null), enabled = ref(false), loading = ref(true), changing = ref(false), error = ref(''), appendedId = ref('')
+const job = ref(null), enabled = ref(false), loading = ref(true), changing = ref(false), error = ref(''), appendedId = ref(''), otherBusy = ref(false)
 const text = computed(() => screenshotText(props.content).trim())
 const busy = computed(() => ['queued', 'running', 'cancelling'].includes(job.value?.state))
-const canSubmit = computed(() => enabled.value && !loading.value && !changing.value && !busy.value && text.value.length > 0 && text.value.length <= 6000)
+const canSubmit = computed(() => enabled.value && !loading.value && !changing.value && !busy.value && !otherBusy.value && text.value.length > 0 && text.value.length <= 6000)
 const actionLabel = computed(() => actions.find(item => item.key === job.value?.action)?.label || 'AI')
 const statusText = computed(() => job.value?.state === 'queued' ? '已提交，正在排队……' : job.value?.message || '正在生成……')
 let timer, controller, disposed = false, generation = 0
@@ -64,17 +64,18 @@ async function refresh() {
   const sequence = generation
   controller = new AbortController()
   try {
-    const data = await api.get('/thoughts-ai/latest', { signal: controller.signal })
+    const data = await getThoughtAiState({ signal: controller.signal })
     if (!current() || sequence !== generation) return
     enabled.value = data.enabled
     job.value = data.job
+    otherBusy.value = Boolean(data.busy && !busy.value)
     error.value = ''
   } catch (err) {
     if (current() && sequence === generation) error.value = err.detail || err.message || 'AI 服务连接失败，笔记仍可正常保存'
   } finally {
     if (current() && sequence === generation) {
       loading.value = false
-      if (busy.value) timer = setTimeout(refresh, 2000)
+      if (busy.value || otherBusy.value) timer = setTimeout(refresh, 2000)
     }
   }
 }
@@ -85,7 +86,7 @@ async function submit(action) {
   changing.value = true
   error.value = ''
   try {
-    const data = await api.post('/thoughts-ai/jobs', { action, content: text.value })
+    const data = await createThoughtAiJob({ action, content: text.value })
     if (current()) { job.value = data; appendedId.value = '' }
   } catch (err) {
     if (current()) error.value = err.detail || err.message || 'AI 提交失败，请重试'
@@ -100,7 +101,7 @@ async function cancel() {
   stopRead()
   changing.value = true
   try {
-    const data = await api.post(`/thoughts-ai/jobs/${job.value.id}/cancel`)
+    const data = await cancelThoughtAiJob(job.value.id)
     if (current()) { job.value = data; error.value = '' }
   } catch (err) {
     if (current()) error.value = err.detail || err.message || '取消失败，请重试'

@@ -10,7 +10,7 @@ test('已保存的母订单和子订单均调用同一个价格与付款编辑�
     const calls=[],parent={id:'root'},target=child?{id:'child'}:parent
     const ctx={openEditor:async row=>calls.push(row),documentParent:ref(null),projectFormTarget:ref(null)}
     vm.createContext(ctx)
-    vm.runInContext(source.slice(source.indexOf('async function openForForm('),source.indexOf('function saveLocalFinance()')),ctx)
+    vm.runInContext(source.slice(source.indexOf('async function openForForm('),source.indexOf('async function saveLocalFinance()')),ctx)
     await ctx.openForForm(target,parent)
     assert.equal(calls.length,1)
     assert.equal(calls[0].id,target.id)

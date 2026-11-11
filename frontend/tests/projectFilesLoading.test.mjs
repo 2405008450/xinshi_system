@@ -14,7 +14,7 @@ function setup() {
   const context = vm.createContext({
     defineEmits: () => () => {}, defineProps: () => props, defineExpose: () => {},
     computed: fn => ({ get value() { return fn() } }), reactive: value => value,
-    ref: value => ({ value }), watch: (...args) => watchers.push(args), onBeforeUnmount: () => {},
+    nextTick: async () => {}, ref: value => ({ value }), watch: (...args) => watchers.push(args), onBeforeUnmount: () => {},
     hasPermission: () => true, ElMessage: { warning() {}, error() {} },
     getLocalizedErrorMessage: (_error, fallback) => fallback,
     getProjectFilesByProject: id => new Promise((resolve, reject) => requests.push({ id, resolve, reject })),
@@ -53,11 +53,12 @@ test('加载成功后切换页签不重新请求、不覆盖未保存输入', as
 test('失败和加载期间禁止保存，重试成功后恢复', async () => {
   const s = setup()
   let pending = s.loadFiles()
-  assert.equal(await s.validatePathGroup(), false)
+  const validating = s.validatePathGroup()
   s.requests[0].reject(new Error('timeout'))
   await pending
   assert.ok(s.fileLoadError.value)
-  assert.equal(await s.validatePathGroup(), false)
+  await assert.rejects(validating, /加载失败/)
+  await assert.rejects(s.validatePathGroup(), /加载失败/)
   pending = s.loadFiles()
   s.requests[1].resolve([])
   await pending

@@ -21,6 +21,7 @@ _thread = None
 
 
 class ThoughtRequest(BaseModel):
+    scope: Literal['thoughts', 'customer_source', 'source_keyword'] = 'thoughts'
     action: Literal['organize', 'explore', 'todos']
     content: str = Field(min_length=1, max_length=6000)
 
@@ -79,7 +80,11 @@ def transport(payload):
 def public(row):
     if row is None:
         return None
-    return {key: row[key] for key in ['id', 'action', 'state', 'result', 'message', 'truncated', 'created_at']}
+    result = {key: row[key] for key in ['id', 'action', 'state', 'result', 'message', 'truncated', 'created_at']}
+    scope, separator, action = row['action'].partition(':')
+    result['scope'] = scope if separator else 'thoughts'
+    result['action'] = action if separator else row['action']
+    return result
 
 
 def maintain(db):
@@ -106,19 +111,25 @@ def create(user_id, payload):
             raise HTTPException(429, '提交较频繁，请一分钟后再试')
         job_id = str(uuid4())
         db.execute('INSERT INTO jobs(id,user_id,action,content,state,created_at,deadline) VALUES(?,?,?,?,?,?,?)',
-                   (job_id, str(user_id), payload.action, payload.content, 'queued', business_iso(business_now()), time.time() + 300))
+                   (job_id, str(user_id), payload.action if payload.scope == 'thoughts' else f'{payload.scope}:{payload.action}', payload.content, 'queued', business_iso(business_now()), time.time() + 300))
         row = db.execute('SELECT * FROM jobs WHERE id=?', (job_id,)).fetchone()
     ensure_worker()
     return public(row)
 
 
-def latest(user_id):
+def latest(user_id, scope='thoughts'):
+    if scope not in {'thoughts', 'customer_source', 'source_keyword'}:
+        raise HTTPException(422, '不支持的 AI 分析范围')
     with connect() as db:
         maintain(db)
-        row = db.execute('SELECT * FROM jobs WHERE user_id=? ORDER BY created_at DESC LIMIT 1', (str(user_id),)).fetchone()
+        actions = ['organize', 'explore', 'todos']
+        if scope != 'thoughts':
+            actions = [f'{scope}:{action}' for action in actions]
+        row = db.execute('SELECT * FROM jobs WHERE user_id=? AND action IN (?,?,?) ORDER BY created_at DESC LIMIT 1', (str(user_id), *actions)).fetchone()
+        busy = db.execute("SELECT 1 FROM jobs WHERE user_id=? AND state IN ('queued','running','cancelling')", (str(user_id),)).fetchone() is not None
     if enabled():
         ensure_worker()
-    return {'enabled': enabled(), 'job': public(row), 'max_chars': 6000}
+    return {'enabled': enabled(), 'job': public(row), 'max_chars': 6000, 'busy': busy}
 
 
 def cancel(user_id, job_id):
@@ -171,7 +182,7 @@ def process(row):
             complete(row['id'], {'state': 'cancelled'})
             return
         try:
-            result = transport({'operation': 'generate', 'action': row['action'], 'content': row['content']})
+            result = transport({'operation': 'generate', 'action': row['action'].split(':')[-1], 'content': row['content']})
         except Exception:
             complete(row['id'], {'state': 'failed', 'message': '算力连接失败或响应超时，请稍后重试'})
             return

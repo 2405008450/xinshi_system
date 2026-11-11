@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import datetime
 from typing import Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -66,6 +66,8 @@ def attach_entity_matrices(db: Session, projects) -> dict:
         owner = owners.get(metric.project_id or metric.sub_order_id)
         if owner is not None and metric.dimension in ENTITY_DIMENSIONS and metric.metric_type in METRIC_TYPES:
             owner.word_count_matrix[metric.dimension][metric.metric_type] = float(metric.count_value) if metric.metric_type in {'minutes','hours'} else metric.count_value
+    from translation_simple_requirement_counts import attach
+    attach(db,projects)
     attach_order_sources(projects, sub_orders)
     return owners
 
@@ -162,6 +164,7 @@ def get_word_count_matrix(
         "entity_id": entity_id,
         "source": source,
         "sub_order_count": sub_order_count,
+        "simple_requirement_word_count_matrix":getattr(owner,"simple_requirement_word_count_matrix",{}),
         **entity_values,
         "translators": [
             {
@@ -213,6 +216,7 @@ def _apply_cell(
     if existing is None:
         db.add(
             WordCountMetric(
+                id=uuid4(),
                 **owner_filters,
                 dimension=dimension,
                 metric_type=metric_type,

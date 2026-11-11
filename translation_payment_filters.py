@@ -2,6 +2,26 @@
 from sqlalchemy import select,exists,and_,or_,false,func
 from models import TranslationProject,FinanceRecord,FinancePayment
 
+
+def payment_amount_mismatches(item, confirmation):
+    """按已选核对口径或当前计费总价比较；币种不同、金额缺失也需核对。"""
+    from decimal import Decimal
+    amount = item.get('payment_actual_total')
+    currency = item.get('payment_currency') or 'CNY'
+    key = confirmation.get('full_payment_total_key')
+    fields = {'billing': 'billing_totals', 'excl': 'totals_excl_tax',
+              'incl': 'totals_incl_tax', 'adjusted': 'adjusted_totals'}
+    if key:
+        kind, _, selected_currency = key.partition(':')
+        totals = item.get(fields.get(kind, ''), {})
+        expected = totals.get(selected_currency) if selected_currency == currency else None
+    else:
+        totals = item.get('billing_totals', {})
+        expected = totals.get(currency) if len(totals) == 1 else None
+    return (amount is None or expected is None
+            or Decimal(str(amount)).quantize(Decimal('.01')) != Decimal(str(expected)).quantize(Decimal('.01')))
+
+
 def attach_payment_status(db,result):
     from decimal import Decimal
     from uuid import UUID
@@ -18,6 +38,12 @@ def attach_payment_status(db,result):
         amount=confirmation.get('full_payment_amount') if confirmation.get('is_paid') and confirmation.get('payment_option')=='full' else amounts.get(item['id'],0)
         item['payment_status']=states.get(item['id'],'unpaid');item['payment_actual_total']=format(Decimal(str(amount)),'.2f') if amount is not None else None
         item['payment_currency']=confirmation.get('full_payment_currency','CNY')
+        item['payment_amount_mismatch']=payment_amount_mismatches(item,confirmation)
+        # 付款属于母订单，下级展示同一份付款状态。
+        pending=list(item.get('children',[]))
+        while pending:
+            child=pending.pop();child['payment_status']=item['payment_status']
+            pending.extend(child.get('children',[]))
     return result
 
 def payment_status_condition(db,status):

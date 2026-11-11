@@ -148,3 +148,45 @@ def test_final_requires_all_actual_amounts_and_fee_change_rechecks(context):
     result=finance.save(db,actor,row.id,finance.PriceWrite(version=before['version'],order_id=row.id,pricing_mode='fixed',adjusted_total=200))
     assert result['item']['payment_confirmation']['full_match_status']=='mismatch'
     assert result['item']['payment_confirmation']['full_payment_source']=='details'
+
+
+def test_cleared_response_version_can_be_used_again_after_reload(context):
+    db,actor,row=context
+    saved=save(context,[{'stage_type':'deposit','actual_amount':30}],{'is_paid':True,'payment_option':'deposit'})
+    cleared=save(context,[],{**saved['confirmation'],'is_paid':False,'payment_option':None,'clear_details':True},version=saved['version'])
+    db.expire_all()
+    reread=payments.read(db,row)
+    assert cleared['version']==reread['version']
+    save(context,[{'stage_type':'deposit','actual_amount':40}],{**cleared['confirmation'],'is_paid':True,'payment_option':'deposit'},version=cleared['version'])
+
+
+def test_repeating_own_clear_with_old_version_is_safe_but_new_payment_is_protected(context):
+    db,actor,row=context
+    before=save(context,[{'stage_type':'deposit','actual_amount':30}],{'is_paid':True,'payment_option':'deposit'})
+    clearing={**before['confirmation'],'is_paid':False,'payment_option':None,'clear_details':True}
+    cleared=save(context,[],clearing,version=before['version'])
+    count=confirmations.history(db,row.id)['total']
+    repeated=save(context,[],clearing,version=before['version'])
+    assert repeated['version']==cleared['version']
+    assert confirmations.history(db,row.id)['total']==count
+    assert confirmations.save(db,row.id,confirmations.PaymentConfirmationWrite(**clearing),actor.id)==cleared['confirmation']
+    save(context,[{'stage_type':'deposit','actual_amount':40}],{**cleared['confirmation'],'is_paid':True,'payment_option':'deposit'},version=cleared['version'])
+    with pytest.raises(HTTPException) as conflict:save(context,[],clearing,version=before['version'])
+    assert conflict.value.status_code==409
+    db.rollback()
+    assert payments.read(db,row)['payments'][0]['actual_amount']=='40.00'
+
+
+def test_clear_all_finance_saves_without_amount_and_clears_shared_payment(context):
+    db,actor,row=context
+    saved=save(context,[{'stage_type':'deposit','actual_amount':30}],{'is_paid':True,'payment_option':'deposit'})
+    before=finance.read(db,row.id)
+    result=finance.save(db,actor,row.id,finance.PriceWrite(version=before['version'],order_id=row.id,clear_finance=True,quotation_required=False,statement_required=False,explanation='',customer_explanation='',payment_confirmation={**saved['confirmation'],'is_paid':False,'payment_option':None,'clear_details':True}))
+    assert result['item']['prices']==[]
+    assert result['item']['totals_excl_tax']=={}
+    assert result['item']['totals_incl_tax']=={}
+    loaded=payments.read(db,row)
+    assert not loaded['confirmation']['is_paid'] and loaded['payments']==[]
+    assert confirmations.project_totals(db,row.id)['items']==[]
+    db.expire_all()
+    assert payments.read(db,row)['payments']==[]

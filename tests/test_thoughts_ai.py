@@ -135,6 +135,29 @@ def test_connection_failure_does_not_leak_prompt(queue, monkeypatch):
     assert 'secret' not in json.dumps(current) and '私人正文' not in json.dumps(current, ensure_ascii=False)
 
 
+def test_analysis_scopes_keep_results_separate_but_share_admission_and_transport(queue, monkeypatch):
+    owner, _ = queue
+    personal = service.create(owner, payload())
+    row = service.claim()
+    service.complete(personal['id'], {'state': 'succeeded', 'result': '个人思考结果'})
+    source = service.create(owner, service.ThoughtRequest(scope='customer_source', action='organize', content='客户来源原始项及计数'))
+    assert source['scope'] == 'customer_source' and source['action'] == 'organize'
+    assert service.latest(owner)['job']['result'] == '个人思考结果'
+    assert service.latest(owner)['busy'] is True
+    assert service.latest(owner, 'source_keyword')['job'] is None
+    with pytest.raises(HTTPException) as duplicate:
+        service.create(owner, service.ThoughtRequest(scope='source_keyword', action='organize', content='关键词'))
+    assert duplicate.value.status_code == 409
+    calls = []
+    monkeypatch.setattr(service, 'transport', lambda request: calls.append(request) or {'state': 'succeeded', 'result': '来源分类结果'})
+    service.process(service.claim())
+    assert calls[0]['action'] == 'organize'
+    assert service.latest(owner, 'customer_source')['job']['result'] == '来源分类结果'
+    assert service.latest(owner)['job']['result'] == '个人思考结果'
+    assert service.latest(owner)['busy'] is False
+    with pytest.raises(HTTPException): service.latest(owner, 'invalid')
+
+
 @pytest.mark.parametrize('load', [
     {'running': 5, 'waiting': 0, 'cache': .2},
     {'running': 4, 'waiting': 1, 'cache': .2},

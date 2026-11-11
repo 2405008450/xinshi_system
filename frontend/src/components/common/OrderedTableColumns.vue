@@ -6,7 +6,7 @@ import { orderTableColumnNodes } from '@/utils/orderTableColumnNodes'
 
 // Render a fragment inside ElTable: keep its native ref, selection, expansion and cell slots.
 export default defineComponent({
-  props: { settingsKey: { type: String, required: true }, section: { type: String, default: 'main' } },
+  props: { settingsKey: { type: String, required: true }, section: { type: String, default: 'main' }, preserveFixed: Boolean },
   setup(props, { slots }) {
     const state = useTableColumnOrder(computed(() => props.settingsKey), computed(() => props.section))
     const { order, custom, columns } = state
@@ -14,7 +14,7 @@ export default defineComponent({
     return () => {
       const nodes = slots.default?.() || []
       if (!custom.value) return nodes
-      return orderTableColumnNodes(nodes, columns.value, order.value)
+      return orderTableColumnNodes(nodes, columns.value, order.value, { preserveFixed: props.preserveFixed })
     }
   },
 })

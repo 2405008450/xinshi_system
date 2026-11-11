@@ -3,11 +3,14 @@
     <div class="requirement-meta"><strong>{{ item.actor_name }}</strong><time>{{ formatBusinessDateTime(item.created_at) }}</time></div>
     <div class="requirement-meta"><span>状态：{{ status(item.previous_status) }} → {{ status(item.saved_status) }}</span><el-tag size="small" :type="item.chargeable ? 'warning' : 'info'">{{ item.chargeable ? '收费' : '不收费' }}</el-tag></div>
     <div class="requirement-texts"><section><strong>原文</strong><p>{{ item.original_text || '-' }}</p></section><section><strong>译文</strong><p>{{ item.translated_text || '-' }}</p></section></div>
+    <p v-if="hasCounts(item.word_count_matrix)" class="requirement-added-counts">已加入简单需求字数：{{ formatWordCountMatrix(item.word_count_matrix) }}</p>
     <TranslationRequirementReceipts v-if="showReceipts" :recipients="item.recipients" />
   </article>
 </template>
 <script setup>
 import { formatBusinessDateTime } from '@/utils/dateTime'
+import {formatWordCountMatrix} from '@/utils/wordCountMatrix'
+const hasCounts=matrix=>matrix&&Object.values(matrix).some(values=>Object.values(values||{}).some(value=>value!==null&&value!==undefined))
 import { getProjectStatusLabel } from '@/utils/projectStatus'
 import TranslationRequirementReceipts from './TranslationRequirementReceipts.vue'
 defineProps({ item: { type: Object, required: true }, showReceipts:{type:Boolean,default:true} })

@@ -61,11 +61,11 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="客户全称" prop="client_name">
-          <el-input v-model="form.client_name" :disabled="true" />
-        </el-form-item>
         <el-form-item label="客户简称" prop="client_short_name">
-          <el-input v-model="form.client_short_name" :disabled="true" />
+          <ClientShortNameInput :model-value="form.client_short_name" placeholder="请选择库中已有的客户简称" @update:model-value="handleShortNameInput" @select="handleShortNameSelect" />
+        </el-form-item>
+        <el-form-item label="客户全称" prop="client_name">
+          <ReadonlyField :model-value="form.client_name" source="auto" placeholder="选择客户简称后自动带出" />
         </el-form-item>
       </AppForm>
       <template #footer>
@@ -77,6 +77,8 @@
 </template>
 
 <script setup>
+import ClientShortNameInput from '@/components/common/ClientShortNameInput.vue'
+import ReadonlyField from '@/components/common/ReadonlyField.vue'
 
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -142,6 +144,18 @@ const searchClients = async (query) => {
   }
 }
 
+const handleShortNameInput = (value) => {
+  form.client_short_name=value
+  form.client_code=''
+  form.client_name=''
+}
+const handleShortNameSelect = async (item) => {
+  form.client_code=item.client_code||''
+  form.client_short_name=item.client_short_name||''
+  form.client_name=item.client_name||''
+  if(!clientOptions.value.some(row=>row.id===item.id))clientOptions.value.push(item)
+  await handleClientChange(form.client_code)
+}
 const handleClientChange = async (clientCode) => {
   if (!clientCode) return
   try {

@@ -10,6 +10,7 @@
   >
     <div v-if="!loading && !latestPreviewReady"><el-button @click="loadPreview">重新加载邮件预览</el-button></div>
     <div v-show="loading || latestPreviewReady" v-loading="loading" class="mail-composer-body" data-auto-draft="off" :inert="sending">
+      <el-alert v-if="linkedChatMailId" title="邮件已发送成功，会话尚未完成；可重试会话，无需再次发送邮件。" type="warning" :closable="false" />
       <el-alert
         v-if="preview.blocking_reasons?.length"
         :title="preview.blocking_reasons.join('；')"
@@ -111,6 +112,7 @@
     </div>
     <template #footer>
       <el-button :disabled="sending || imageUploading" @click="visible = false">取消</el-button>
+      <el-button v-if="linkedChatMailId" type="primary" :loading="sending" @click="retryLinkedChat">重试会话</el-button>
       <el-button
         v-if="latestFailedMail"
         :loading="sending"
@@ -143,6 +145,9 @@ const props = defineProps({
   projectId: { type: String, required: true },
   consultationId: { type: String, default: '' },
   sendTranslationChat:Boolean,
+  sendProjectChat:Boolean,
+  projectChatAudience:{type:Array,default:()=>[]},
+  emergencyNotice:Boolean,
   translationChatAudience:{type:Array,default:()=>[]},
   sourceKind: { type: String, default: 'project_manual' },
 })
@@ -152,6 +157,7 @@ const visible = computed({ get: () => props.modelValue, set: (value) => emit('up
 const loading = ref(false)
 const latestPreviewReady = ref(false)
 const sending = ref(false)
+const linkedChatMailId=ref('')
 const preview = reactive({
   missing_fields: [], blocking_reasons: [], can_send: false,
   sender_mode: 'system', sender_name: '', sender_email: '', sender_verified: false,
@@ -169,7 +175,7 @@ const SUBJECT_WARNING_LENGTH = 100
 const subjectOrderMismatch = computed(() => Boolean(
   preview.order_no && !form.subject.includes(preview.order_no)
 ))
-const canSubmit = computed(() => !imageUploading.value && !subjectOrderMismatch.value && preview.can_send && form.toUserIds.length > 0 && form.subject.trim() && form.body.trim())
+const canSubmit = computed(() => !linkedChatMailId.value && !imageUploading.value && !subjectOrderMismatch.value && preview.can_send && form.toUserIds.length > 0 && form.subject.trim() && form.body.trim())
 const subjectCharacterCount = computed(() => Array.from(form.subject || '').length)
 const selectedRecipientCount = computed(() => new Set([...form.toUserIds, ...form.ccUserIds]).size)
 const isAllMembersSelected = computed(() => availableUsers.value.length > 1 && selectedRecipientCount.value >= availableUsers.value.length)
@@ -194,7 +200,7 @@ const loadPreview = async () => {
   latestPreviewReady.value = false
   try {
     const [mailPreview, users, groups, rows] = await Promise.all([
-      mailApi.previewProjectMail({ project_type: props.projectType, project_id: props.projectId }),
+      mailApi.previewProjectMail({ project_type: props.projectType, project_id: props.projectId, emergency_notice:props.emergencyNotice }),
       userApi.getUsers({ skip: 0, limit: 500 }),
       mailApi.getAvailableMailGroups(),
       mailApi.getProjectMailHistory({ project_type: props.projectType, project_id: props.projectId }),
@@ -213,6 +219,7 @@ const loadPreview = async () => {
     recipientGroups.value = groups || []
     history.value = rows || []
     latestPreviewReady.value = true
+    linkedChatMailId.value=history.value.find(item=>item.status==='sent'&&item.project_chat_error)?.id||''
   } catch (error) {
     if (requestId === mailPreviewRequestId) ElMessage.error(error.detail || '加载邮件预览失败')
   } finally {
@@ -249,14 +256,18 @@ const submitMail = async () => {
       inline_image_ids: form.inlineImages.map(item => item.id),
       idempotency_key: makeIdempotencyKey(),
       send_translation_chat:props.projectType==='translation'&&props.sendTranslationChat,
+      send_project_chat:props.projectType!=='translation'&&props.sendProjectChat,
+      project_chat_audience:props.projectChatAudience,
+      emergency_notice:props.emergencyNotice,
       translation_chat_audience:props.translationChatAudience,
     })
     if (result.status === 'sent') {
       mailDraft.clear()
       bodyEditorRef.value?.markImagesSaved()
-      if(result.translation_chat_error)ElMessage.warning('邮件已发送，会话发送未完成：'+result.translation_chat_error)
-      else ElMessage.success(props.sendTranslationChat?'内部项目邮件及会话已发送':'内部项目邮件已发送')
-      visible.value = false
+      if(result.project_chat_error||result.translation_chat_error)ElMessage.warning('邮件已发送，会话发送未完成：'+(result.project_chat_error||result.translation_chat_error))
+      else ElMessage.success(props.sendTranslationChat||props.sendProjectChat?'内部项目邮件及会话已发送':'内部项目邮件已发送')
+      if(result.project_chat_error)linkedChatMailId.value=result.id
+      else visible.value = false
     } else {
       ElMessage.error(`项目已保存，但邮件发送失败：${result.send_error || '未知错误'}`)
     }
@@ -281,8 +292,10 @@ const retryFailedMail = async () => {
   try {
     const result = await mailApi.retryProjectMail(latestFailedMail.value.id)
     if (result.status === 'sent') {
-      ElMessage.success('失败邮件已使用当前账号重新发送')
-      visible.value = false
+      if(result.project_chat_error||result.translation_chat_error)ElMessage.warning('邮件已发送，会话发送未完成：'+(result.project_chat_error||result.translation_chat_error))
+      else ElMessage.success('失败邮件已使用当前账号重新发送')
+      if(result.project_chat_error)linkedChatMailId.value=result.id
+      else visible.value = false
     } else {
       ElMessage.error(result.send_error || '邮件重试失败')
     }
@@ -292,6 +305,13 @@ const retryFailedMail = async () => {
   } finally {
     sending.value = false
   }
+}
+const retryLinkedChat=async()=>{
+  if(sending.value||!linkedChatMailId.value)return
+  sending.value=true
+  try{await mailApi.retryProjectMailChat(linkedChatMailId.value);linkedChatMailId.value='';ElMessage.success('会话已发送，未重复发送邮件');visible.value=false}
+  catch(error){ElMessage.error(error.detail||'会话重试失败，请稍后重试')}
+  finally{sending.value=false}
 }
 </script>
 

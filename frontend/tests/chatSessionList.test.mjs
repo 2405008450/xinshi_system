@@ -4,6 +4,11 @@ import { filterClosedSessions, groupSessionList, sessionListKey, sessionUnreadSi
 
 const row = (id, order, extra = {}) => ({ key: `annotation:${id}`, projectId: id, projectType: 'annotation', title: '同名项目', subtitle: order, ...extra })
 
+test('笔译自动讨论关闭后移出个人列表，普通固定讨论仍保留',()=>{
+ const sessions=[{key:'discussion:translation',projectType:'discussion',deletionProtected:true},{key:'discussion:resource',projectType:'discussion'}]
+ assert.deepEqual(filterClosedSessions(sessions,sessions.map(row=>row.key)).map(row=>row.key),['discussion:resource'])
+})
+
 test('群聊与单聊均按最新消息倒序，未读提及及发送人不改变普通会话排序', () => {
   for (const projectType of ['annotation', 'discussion', 'direct', 'translation']) {
     const sessions = [

@@ -32,6 +32,7 @@
       <aside v-show="!['summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(pane) && (!narrow || sidebarOpen)" class="chat-workspace__sessions" :style="{ width: `${sessionWidth}px` }">
         <div v-if="!maximized || narrow" class="chat-workspace__pane-tabs" role="tablist" aria-label="沟通导航"><button v-for="item in panes" :key="item.key" type="button" :aria-label="item.label" :aria-pressed="pane === item.key" :class="{ 'is-active': pane === item.key }" @click="selectPane(item.key)" @contextmenu="openProjectMenu($event,item.key)" @keydown.shift.f10="openProjectMenu($event,item.key)"><span>{{ item.label }}</span><b v-if="item.key === 'messages' && mentionTotal" class="chat-mention-label">@</b><span v-if="item.key === 'notifications' && notificationBadgeTotal" class="chat-pane-count" @click.stop="badgeClick(item.key)">{{ notificationBadgeTotal > 99 ? '99+' : notificationBadgeTotal }}</span><span v-if="item.key === 'messages' && messageBadgeTotal" class="chat-pane-count">{{ messageBadgeTotal > 99 ? '99+' : messageBadgeTotal }}</span></button></div>
         <div v-else class="chat-workspace__brand"><strong>{{ pane === 'messages' && (showMentions || annotationMentionView) ? '@我' : panes.find(item => item.key === pane)?.label }}</strong><small>{{ pane === 'messages' ? showMentions ? `${filteredMentionTotal} 条提及` : '' : pane === 'contacts' ? '内部通讯录' : '' }}</small></div>
+        <div v-if="!narrow" class="chat-workspace__split-tools"><button type="button" title="恢复左右区域的默认宽度" @click="emit('split-reset')">恢复默认分区</button></div>
         <template v-if="pane === 'messages'">
           <div class="chat-workspace__session-tools">
             <div class="chat-workspace__search"><el-input v-model="keyword" clearable :placeholder="searchPlaceholder" @keyup.enter="applyKeyword"><template #prepend><el-select v-model="searchMode" class="chat-search-mode" popper-class="chat-search-mode-options" aria-label="搜索范围"><el-option label="会话" value="sessions" /><el-option label="聊天记录" value="messages" /></el-select></template><template #prefix><button type="button" class="chat-search-submit" aria-label="查询会话" title="查询" @click="applyKeyword"><el-icon><Search /></el-icon></button></template></el-input></div>
@@ -91,7 +92,7 @@
               </span>
               <el-icon v-if="session.pinned" title="已置顶" class="chat-session-pin"><Top /></el-icon>
               <span class="chat-workspace__session-controls" @click.stop @keydown.stop @mousedown.stop>
-                <template v-if="session.projectType === 'discussion'"><el-button v-if="categories.canManage && !session.technicalProjectId" link class="chat-rename-button" :aria-label="`修改名称 ${session.title}`" @click="startDiscussionRename(session)">修改名称</el-button><el-button v-if="categories.canManage && session.subtitle !== '资源开拓讨论'" link class="chat-rename-button" type="danger" @click="deleteDiscussion(session)">删除会话</el-button><small v-if="!categories.canManage" class="chat-discussion-protected">固定讨论</small></template>
+                <template v-if="session.projectType === 'discussion'"><el-button v-if="categories.canManage && !session.technicalProjectId" link class="chat-rename-button" :aria-label="`修改名称 ${session.title}`" @click="startDiscussionRename(session)">修改名称</el-button><el-button v-if="categories.canManage && !session.deletionProtected && session.subtitle !== '资源开拓讨论'" link class="chat-rename-button" type="danger" @click="deleteDiscussion(session)">删除会话</el-button><el-button v-if="session.deletionProtected" link class="chat-workspace__session-close" @click="emit('close',session)">关闭会话</el-button><small v-if="!categories.canManage && !session.deletionProtected" class="chat-discussion-protected">固定讨论</small></template>
                 <template v-else>
                   <el-popover trigger="click" placement="bottom-end" :width="150" popper-class="chat-session-popover"><template #reference><el-button link aria-label="会话操作">⋯</el-button></template><div class="chat-session-groups"><el-button link @click="emit('preference', { session, data: { pinned: !session.pinned } })">{{ session.pinned ? '取消置顶' : '置顶' }}</el-button><el-button link @click="emit('preference', { session, data: { starred: !session.starred } })">{{ session.starred ? '取消特别关注' : '特别关注' }}</el-button><el-button v-if="categories.ready" link @click="categoryAssignment.open(session)">设置分类</el-button><el-button link @click="emit('preference', { session, data: { markRead: true } })">标为已读</el-button></div></el-popover>
                 </template>
@@ -102,6 +103,7 @@
         </template>
         <ChatContacts v-show="pane === 'contacts'" :active="pane === 'contacts'" @opened="contactOpened" />
         <ChatSettings v-if="pane === 'settings'" />
+        <div v-if="!narrow" class="chat-workspace__split-handle" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整会话列表与聊天区域宽度" :aria-valuenow="sessionWidth" :aria-valuemin="220" :aria-valuemax="splitMaximum" title="左右拖动调整分区；双击恢复默认；左右方向键微调" @pointerdown.stop="emit('split-start', $event)" @keydown="emit('split-keydown', $event)" @dblclick.stop="emit('split-reset')" />
       </aside>
       <div class="chat-workspace__stage"><template v-if="['summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(pane)"><div v-if="!maximized||narrow" class="chat-workspace__pane-tabs" role="tablist" aria-label="沟通导航"><button v-for="item in panes" :key="item.key" :aria-label="item.label" @click="selectPane(item.key)" @contextmenu="openProjectMenu($event,item.key)" @keydown.shift.f10="openProjectMenu($event,item.key)">{{ item.label }}<span v-if="item.key === 'messages' && messageBadgeTotal" class="chat-pane-count">@{{ messageBadgeTotal > 99 ? '99+' : messageBadgeTotal }}</span></button></div><div class="chat-summary-content"><ChatRequestNotifications v-if="pane==='notifications'" :feed="notificationFeed" /><ChatAnnotationProjects v-else-if="pane==='annotation-projects'" :key="`annotation:${projectMine}`" :my-projects="projectMine" @navigate="emit('project-navigate')" @open-conversation="pane='messages'" /><ChatManagedProjects v-else-if="isProjectPane(pane)" :key="`${pane}:${projectMine}`" :module="projectModule(pane)" :my-projects="projectMine" /><DevelopmentIssuePanel v-else :open-issue-id="summaryIssueId" /></div></template><div v-else-if="!activeKey" class="chat-workspace__empty"><el-icon><ChatDotRound /></el-icon><strong>开始沟通</strong><span>选择会话，或从通讯录发起私聊</span></div></div>
       <el-popover v-model:visible="projectMenuVisible" :virtual-ref="projectMenuAnchor" virtual-triggering :trigger="[]" placement="right-start" :width="150" :z-index="100050"><el-button text @click="selectMyProjects">我的项目</el-button></el-popover>
@@ -182,6 +184,7 @@ const props = defineProps({
   sizeMode: { type: String, default: 'medium' },
   maximized: { type: Boolean, default: false },
   sessionWidth: { type: Number, default: 240 },
+  splitMaximum: { type: Number, default: 600 },
   title: { type: String, default: '沟通' },
   subtitle: { type: String, default: '' },
   projectType: { type: String, default: '' },
@@ -189,6 +192,7 @@ const props = defineProps({
   dragging: { type: Boolean, default: false },
 })
 const emit = defineEmits([
+  'split-start', 'split-keydown', 'split-reset',
   'restore-closed', 'browse-project-mentions', 'select-project-mention', 'more-project-mentions', 'retry-project-mentions',
   'project-navigate', 'normal-size', 'context-empty', 'duplicate-window', 'open-multiple', 'pane-change', 'preference', 'categories-changed', 'select', 'open', 'locate-mention', 'close', 'close-active', 'exit-workspace', 'minimize', 'cycle-size', 'toggle-maximize', 'toggle-layout',
   'open-search', 'toggle-sidebar', 'header-mousedown', 'header-dblclick', 'retry', 'pin', 'resize', 'fullscreen', 'contact-opened',
@@ -321,7 +325,7 @@ async function saveDiscussionName(name) {
 }
 async function deleteDiscussion(session) {
   const row = categories.items.find(item => item.id === session.projectId)
-  if (!row) return
+  if (!row || row.deletionProtected || session.deletionProtected) return
   try { await ElMessageBox.confirm(`删除“${session.title}”会话？删除后停止访问，历史消息保留。`, '删除会话', { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }) } catch { return }
   try {
     await chatRequest(`session-categories/${row.id}`, { method: 'put', data: { active: false, revision: row.revision } })
@@ -652,4 +656,13 @@ onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventLis
 .chat-mobile-group button{height:44px;border:0;border-bottom:1px solid #f1f3f6;background:transparent;color:#334155;font:inherit;font-size:15px;text-align:left;padding:0 12px;cursor:pointer}
 .chat-mobile-group button:last-child{border-bottom:0}
 .chat-mobile-group button.is-active{color:var(--color-primary);font-weight:600}
+</style>
+
+<style scoped>
+.chat-workspace__sessions{position:relative}
+.chat-workspace__split-tools{display:flex;justify-content:flex-end;flex:none;padding:0 12px 4px}
+.chat-workspace__split-tools button{border:0;background:transparent;font:inherit;font-size:11px;color:#64748b;cursor:pointer;padding:3px 5px}
+.chat-workspace__split-tools button:hover{color:#2563eb;background:#eff6ff}
+.chat-workspace__split-handle{position:absolute;right:0;top:0;bottom:0;width:7px;z-index:3;cursor:col-resize;touch-action:none}
+.chat-workspace__split-handle:hover,.chat-workspace__split-handle:focus-visible{background:#bfdbfe;outline:0}
 </style>

@@ -63,7 +63,8 @@ def preserve_original(db,root,actor):
     snapshot['project_files']=[jsonable_encoder({col.key:getattr(row,col.key,None) for col in row.__table__.columns if col.key not in {'id','translation_project_id','uploaded_by','created_at'}}) for row in db.query(ProjectFile).filter_by(translation_project_id=root.id)]
     snapshot['customer_charge_items']=[jsonable_encoder(TranslationSubOrderChargeItemInput.model_validate(row,from_attributes=True).model_dump(exclude={'id'})) for row in root.customer_charge_items]
     data={key:getattr(root,key,None) for key in TranslationSubOrderCreate.model_fields if hasattr(root,key) and key not in {'sub_order_no','parent_project_id','parent_sub_order_id','folder_info','created_by','customer_charge_items'}}
-    data.update(parent_project_id=root.id,sub_order_no=root.order_no+'.001',sub_project_name=name,status=root.project_status,created_by=actor,word_count_matrix=root.word_count_matrix,customer_charge_items=snapshot['customer_charge_items'])
+    from translation_simple_requirement_counts import without_additions
+    data.update(parent_project_id=root.id,sub_order_no=root.order_no+'.001',sub_project_name=name,status=root.project_status,created_by=actor,word_count_matrix=without_additions(db,root,root.word_count_matrix),customer_charge_items=snapshot['customer_charge_items'])
     child=_create_sub_order_in_transaction(db,TranslationSubOrderCreate(**data))
     # 原文件信息固定保存，后续修改母订单不会覆盖这一份原始内容。
     state=db.get(TranslationOrderInheritance,child.id)

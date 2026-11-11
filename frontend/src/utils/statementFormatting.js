@@ -1,4 +1,5 @@
 // 单价仅在对外展示时四舍五入，不改变原始单价和金额计算。
+export function statementTaxLabel(statement){const labels=new Set((statement.rows||[]).map(row=>row.unit_label).filter(label=>['含税','不含税'].includes(label)));return labels.size>1?'含税／不含税（按项目）':statement.tax_included?'含税':'不含税'}
 export function statementUnitPrice(value){
   if(value==null||value==='')return '-'
   const match=String(value).trim().match(/^([+-]?)(\d+)(?:\.(\d*))?$/)

@@ -2,7 +2,7 @@
   <article class="statement-paper">
     <h2><StatementEditableCell v-if="editable" v-model="statement.company" label="公司抬头" /><template v-else>{{statement.company}}</template></h2><h3><StatementEditableCell v-if="editable" v-model="statement.title" label="对账单标题" /><template v-else>{{statementTitle(statement)}}</template></h3>
     <div v-if="editable" class="statement-meta statement-meta--editable"><span>客户：<StatementEditableCell v-model="statement.client_name" label="客户名称" /></span><span>账单月份：<StatementEditableCell v-model="statement.month" label="账单月份显示文案" /><select v-model="statement.tax_included" aria-label="金额口径标签"><option :value="false">不含税</option><option :value="true">含税</option></select></span></div>
-    <div v-else class="statement-meta"><span>客户：{{statement.client_name}}</span><span>账单月份：{{statement.month}}　{{statement.tax_included?'含税':'不含税'}}</span></div>
+    <div v-else class="statement-meta"><span>客户：{{statement.client_name}}</span><span>账单月份：{{statement.month}}　{{statementTaxLabel(statement)}}</span></div>
     <div class="statement-table-wrap"><table class="statement-table">
       <colgroup><col v-if="interactive" style="width:48px" /><col v-if="hasOrigin" :style="{width:columnWidth(24)}" /><col v-if="hasCustomerOrder" :style="{width:columnWidth(24)}" /><col v-for="(weight,key) in statementColumnWeights" :key="key" :style="{width:columnWidth(weight)}" /><col v-if="interactive" style="width:48px" /></colgroup>
       <thead><tr><th v-if="interactive" class="statement-ui">选择</th><th v-if="hasOrigin">原客户</th><th v-if="hasCustomerOrder">客户单号</th><th class="statement-date">来稿日期</th><th>项目名称</th><th>翻译方向</th><th>工作量（计价方式）</th><th>单价</th><th>小计</th><th>备注</th><th v-if="interactive" class="statement-ui">操作</th></tr></thead>
@@ -20,7 +20,7 @@
             <td><StatementEditableCell v-model="row.subtotal" :label="`${row.order_no} 小计`" /></td>
             <td><span v-if="row.counted_in_total===false">汇总参考，不重复计入合计。</span><StatementEditableCell v-model="row.remarks" :label="`${row.order_no} 备注`" multiline /></td>
           </template>
-          <template v-else><td v-if="hasCustomerOrder">{{row.customer_order_no||''}}</td><td class="statement-date">{{row.received_date||'-'}}</td><td><button v-if="interactive" type="button" class="statement-order-link" :title="`编辑订单 ${row.order_no}`" @click.stop="emit('open-order',row)">{{row.project_name}}</button><template v-else>{{row.project_name}}</template></td><td>{{row.language_pair}}</td><td>{{row.quantity??''}}<br />{{statementBasis(row.basis)}}</td><td>{{row.unit_price==null?'-':`${row.currency} ${statementUnitPrice(row.unit_price)}`}}</td><td>{{row.subtotal==null?'待补':`${row.currency} ${row.subtotal}`}}</td><td>{{row.counted_in_total===false?'汇总参考，不重复计入合计。':''}}{{row.remarks}}</td></template>
+          <template v-else><td v-if="hasCustomerOrder">{{row.customer_order_no||''}}</td><td class="statement-date">{{row.received_date||'-'}}</td><td><button v-if="interactive" type="button" class="statement-order-link" :title="`编辑订单 ${row.order_no}`" @click.stop="emit('open-order',row)">{{row.project_name}}</button><template v-else>{{row.project_name}}</template></td><td>{{row.language_pair}}</td><td>{{row.quantity??''}}<br />{{statementBasis(row.basis)}}</td><td>{{row.unit_price==null?'-':`${row.currency} ${statementUnitPrice(row.unit_price)}`}}<small v-if="statementTaxLabel(statement).includes('按项目')">（{{row.unit_label}}）</small></td><td>{{row.subtotal==null?'待补':`${row.currency} ${row.subtotal}`}}</td><td>{{row.counted_in_total===false?'汇总参考，不重复计入合计。':''}}{{row.remarks}}</td></template>
           <td v-if="interactive" class="statement-ui"><el-button v-if="canWrite" link type="primary" :disabled="!canEdit" @click="emit('edit',row)">修改</el-button></td>
         </tr>
         <tr v-if="!statement.rows.length"><td :colspan="(interactive?9:7)+(hasOrigin?1:0)+(hasCustomerOrder?1:0)">暂无任务，可从另一份对账单拖入</td></tr>
@@ -33,7 +33,7 @@
 </template>
 <script setup>
 import {computed} from 'vue'
-import {statementUnitPrice,statementColumnWeights,statementBasis,statementTitle} from '@/utils/statementFormatting'
+import {statementUnitPrice,statementColumnWeights,statementBasis,statementTitle,statementTaxLabel} from '@/utils/statementFormatting'
 import StatementEditableCell from './StatementEditableCell.vue'
 const hasCustomerOrder=computed(()=>props.statement.rows.some(row=>String(row.customer_order_no||'').trim()))
 const hasOrigin=computed(()=>props.statement.rows.some(row=>row.origin_client_id||row.origin_client_name))

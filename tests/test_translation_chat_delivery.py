@@ -52,6 +52,52 @@ def test_date_folder_full_title_all_members_idempotency_and_resending(chat_case)
     assert db.query(service.TranslationProjectConversation).count()==1
 
 
+def test_project_supplementary_notes_after_order_number_before_project_type_in_mail_and_chat(chat_case):
+    import business_mail_service as mail
+    from discussion_chat_models import DiscussionMessage
+    db,actor,staff,root,service=chat_case
+    root.customer_requirement_professional='专业要求测试'
+    root.customer_requirement_special='特殊要求测试'
+    root.remarks='补充说明第一行\n补充说明第二行'
+    db.commit()
+    preview=mail.build_preview(db,'translation',project_id=root.id,current_user=actor,source={'sub_order_hierarchy':[{'level':1,'orders':2,'files':2}]})
+    body=preview['body']
+    assert '补充说明：\n补充说明第一行\n补充说明第二行' in body
+    assert body.index('订单号：')<body.index('补充说明：')<body.index('项目类型：')
+    assert body.count('补充说明：')==1
+    assert '补充说明第一行' in preview['body_html'] and '补充说明第二行' in preview['body_html']
+    assert '备注：' not in body
+    service.send(db,actor,root.id,uuid4())
+    message=db.query(DiscussionMessage).one()
+    assert '补充说明：\n补充说明第一行\n补充说明第二行' in message.content
+    assert message.content.index('订单号：')<message.content.index('补充说明：')<message.content.index('项目类型：')
+    root.remarks='  '
+    db.commit()
+    assert '补充说明：' not in mail.build_preview(db,'translation',project_id=root.id,current_user=actor)['body']
+
+
+def test_generated_conversation_and_date_folder_cannot_be_disabled(chat_case,monkeypatch):
+    from fastapi import HTTPException
+    from routers import chat_session_categories as api
+    from chat_session_category_models import ChatSessionCategory
+    import chat_session_category_service as categories
+    import discussion_chat_service as discussions
+    db,actor,staff,root,service=chat_case
+    result=service.send(db,actor,root.id,uuid4())
+    room=db.get(service.TranslationProjectConversation,(root.id,date(2026,11,9)))
+    monkeypatch.setattr(categories,'require_manager',lambda *_:None)
+    monkeypatch.setattr(categories,'changed',lambda *_:None)
+    catalog=categories.catalog(db,actor)
+    assert all(item['deletion_protected'] for item in catalog['items'] if item['id'] in (str(room.room_id),str(room.folder_id)))
+    assert next(item for item in discussions.catalog(db,actor) if item['project_id']==result['room_id'])['deletion_protected'] is True
+    for identifier in (room.room_id,room.folder_id):
+        item=db.get(ChatSessionCategory,identifier)
+        with pytest.raises(HTTPException,match='不能删除或停用') as error:
+            api.update(identifier,api.CategoryUpdate(active=False,revision=item.revision),db,actor)
+        assert error.value.status_code==422
+        assert db.get(ChatSessionCategory,identifier).active is True
+
+
 def test_draft_without_aggregate_blocks_chat_and_mail_but_emergency_can_preview(chat_case):
     from fastapi import HTTPException
     from translation_project_submission import apply

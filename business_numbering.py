@@ -63,6 +63,16 @@ def archive_number(db, scope, number, row, *, actor=None, extra=None):
     db.info['number_archived'].add(key)
     lock_scope(db, scope)
     values = {column.key:getattr(row,column.key) for column in inspect(row).mapper.column_attrs}
+    if row.__tablename__ in ('translation_project','translation_sub_order'):
+        from models import TranslationProject,Client,SubClient
+        root=row if row.__tablename__=='translation_project' else db.get(TranslationProject,row.parent_project_id)
+        if root is not None:
+            customer=db.get(Client,root.client_id) if root.client_id else None
+            sub_customer=db.get(SubClient,root.sub_client_id) if root.sub_client_id else None
+            if customer is None and sub_customer is not None:
+                customer=db.get(Client,sub_customer.parent_client_id)
+            if customer is not None:
+                values.update(client_id=str(customer.id),client_name=customer.client_name,client_short_name=customer.client_short_name)
     values.update(extra or {})
     owner = getattr(actor, 'id', None) or db.info.get('number_actor')
     name = getattr(actor, 'full_name', None) or getattr(actor, 'username', None) or db.info.get('number_actor_name')

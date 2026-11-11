@@ -51,7 +51,8 @@ export function firstUnreadMentionSession(sessions) {
 }
 
 export function filterClosedSessions(sessions, closedKeys = []) {
-  const closed = new Set(closedKeys.filter(key => !key.startsWith('discussion:')))
+  const closableDiscussions = new Set(sessions.filter(row => row.deletionProtected).map(row => row.key))
+  const closed = new Set(closedKeys.filter(key => !key.startsWith('discussion:') || closableDiscussions.has(key)))
   const closedGroups = new Set(sessions.filter(row => closed.has(row.key)).map(sessionListKey))
   // 关闭当前订单后，不能用自动关注的空白关联订单重新填回同名列表项。
   return sessions.filter(row => !closed.has(row.key) && (!closedGroups.has(sessionListKey(row)) || hasConversation(row)))
