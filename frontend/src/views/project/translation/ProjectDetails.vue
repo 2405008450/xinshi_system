@@ -4,6 +4,13 @@
       <div class="card-header">
         <span>{{ arrangementMode ? '项目安排' : '笔译项目管理' }}</span>
         <div v-if="!arrangementMode" class="header-actions">
+          <el-button
+            :type="defaultExpandSubOrders ? 'primary' : 'default'"
+            :plain="defaultExpandSubOrders"
+            :aria-pressed="defaultExpandSubOrders"
+            title="切换子订单默认展开模式，自动记住当前用户的选择"
+            @click="toggleDefaultSubOrderExpansion"
+          >子订单：{{ defaultExpandSubOrders ? '默认展开' : '默认收起' }}</el-button>
           <el-button v-if="!deleteMode" @click="statisticsVisible=true">数据统计</el-button>
           <ProjectExportMenu v-if="!deleteMode" module="translation" :build-filters="buildFilterParams" :sort="sortMode" />
           <TableColumnSettings settings-key="translation-projects"
@@ -1276,6 +1283,15 @@ const tableData = ref([])
 const projectStatusSavingIds = ref(new Set())
 const expandedProjectIds = ref([])
 const expandedProjectRowKeys = computed(() => expandedProjectIds.value)
+const subOrderExpansionStorageKey = `translation-details:default-expand-sub-orders:${localStorage.getItem('user_id') || localStorage.getItem('user_name') || 'anonymous'}`
+const readDefaultSubOrderExpansion = () => {
+  try {
+    return localStorage.getItem(subOrderExpansionStorageKey) === 'true'
+  } catch {
+    return false
+  }
+}
+const defaultExpandSubOrders = ref(readDefaultSubOrderExpansion())
 const currentProjectSubOrders = ref([])
 const createWithSubOrders = computed({
   get: () => form.createWithSubOrders,
@@ -1756,6 +1772,19 @@ const clearProjectExpansion = () => {
   expandedProjectIds.value = []
   expandedInlineChanges.value = new Map()
 }
+const toggleDefaultSubOrderExpansion = () => {
+  defaultExpandSubOrders.value = !defaultExpandSubOrders.value
+  try {
+    localStorage.setItem(subOrderExpansionStorageKey, String(defaultExpandSubOrders.value))
+  } catch {
+    // 浏览器存储不可用时，本次页面中的模式切换仍然生效。
+  }
+  if (defaultExpandSubOrders.value) {
+    expandedProjectIds.value = tableData.value.filter((item) => getSubOrderCount(item)).map((item) => item.id)
+  } else {
+    clearProjectExpansion()
+  }
+}
 const isProjectExpanded = (row) => expandedProjectIds.value.some((id) => String(id) === String(row.id))
 const handleProjectExpandChange = (row, expandedRows) => {
   const isExpanded = expandedRows.some((item) => String(item.id) === String(row.id))
@@ -1884,7 +1913,7 @@ const fetchData = async (options = {}) => {
     const expandableProjectIds = tableData.value
       .filter((item) => getSubOrderCount(item))
       .map((item) => item.id)
-    if (expandSubOrders) {
+    if (defaultExpandSubOrders.value || expandSubOrders) {
       expandedProjectIds.value = expandableProjectIds
     } else {
       const validProjectIds = new Set(expandableProjectIds.map(String))

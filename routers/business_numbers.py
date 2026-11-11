@@ -62,17 +62,20 @@ def history(kind:str,keyword:str='',skip:int=Query(0,ge=0),limit:int=Query(20,ge
     rows=query.order_by(H.deleted_at.desc(),H.id).offset(skip).limit(limit).all()
     return api_time({'items':[{'id':str(row.id),'number':row.number,'entity_id':row.entity_id,'entity_name':row.entity_name,'actor_name':row.actor_name or '未记录','deleted_at':row.deleted_at,'client_name':full_name,'client_short_name':short_name,'snapshot':{**row.snapshot,**({'client_name':full_name,'client_short_name':short_name} if full_name or short_name else {})}} for row,full_name,short_name in rows],'total':total})
 
-@router.post('/reserve')
-def reserve(payload: Reserve, db=Depends(get_db), user=Depends(get_current_user)):
+def require_number_write(kind, db, user):
     from routers.auth import require_any_permission
-    if payload.kind == 'hr_requirement':
+    if kind == 'hr_requirement':
         from hr_access import require_hr
         require_hr(db, user)
-    elif payload.kind in ('technical_task','technical_subtask','feedback'):
+    elif kind in ('technical_task','technical_subtask','feedback'):
         from technical_development import require_user
         require_user(user, db)
     else:
         require_any_permission('projects:write','clients:write','resources:write','talents:write','translators:write','recruitment_talents:write','consultations:write')(current_user=user, db=db)
+
+@router.post('/reserve')
+def reserve(payload: Reserve, db=Depends(get_db), user=Depends(get_current_user)):
+    require_number_write(payload.kind, db, user)
     db.info['number_actor'] = user.id
     scope, prefix, minimum, width = spec(db, payload.kind, payload.parent_id, payload.business_date)
     if not ready(db):
@@ -101,7 +104,6 @@ def heartbeat(token: UUID, db=Depends(get_db), user=Depends(get_current_user)):
 @router.post('/{token}/skip')
 def skip_number(token: UUID, db=Depends(get_db), user=Depends(get_current_user)):
     from business_numbering import lock_scope
-    from routers.auth import require_any_permission
 
     row = db.query(BusinessNumberLease).filter_by(id=token, owner_id=user.id).first()
     if not row or not live(row):
@@ -109,9 +111,9 @@ def skip_number(token: UUID, db=Depends(get_db), user=Depends(get_current_user))
     kind = row.scope.split(':', 1)[0]
     if kind not in {*SPECS, 'translation_suborder', 'annotation_suborder', 'subclient', 'technical_subtask', 'greeting'}:
         raise HTTPException(422, '不支持的编号类型')
-    require_any_permission('projects:write','clients:write','resources:write','talents:write','translators:write','recruitment_talents:write','consultations:write')(current_user=user, db=db)
+    require_number_write(kind, db, user)
     lock_scope(db, row.scope)
-    row = db.query(BusinessNumberLease).filter_by(id=token, owner_id=user.id).with_for_update().first()
+    row = db.query(BusinessNumberLease).filter_by(id=token, owner_id=user.id).populate_existing().with_for_update().first()
     if not row or not live(row):
         raise HTTPException(409, '当前编号已失效或已被使用，请先检查列表，避免重复录入')
     parent_id = UUID(row.scope.split(':', 1)[1]) if ':' in row.scope else None
