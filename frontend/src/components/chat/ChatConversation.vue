@@ -2,39 +2,10 @@
   <section @dragenter.prevent="dragEnter" @dragover.prevent="dragOver" @dragleave="dragLeave" @drop.prevent="dropFiles" class="annotation-group" :class="{ 'annotation-group--embedded': !conversationMode, 'annotation-group--search-side': searchOpen && historyPlacement === 'side' }">
     <div class="annotation-group__main">
     <Teleport :to="headerReady && toolbarTarget ? toolbarTarget : 'body'" :disabled="!toolbarTarget || !headerReady"><div v-show="!toolbarTarget || active" class="group-toolbar" :class="{ 'group-toolbar--header': toolbarTarget, 'group-toolbar--menu':toolbarMenu }">
-      <el-popover title="会话信息" v-if="!isDirect" :z-index="participantsZ" trigger="click" placement="bottom-end" :width="460" popper-class="annotation-members-popover annotation-participants-popover">
+      <ChatParticipantsPopover v-if="!isDirect" v-model="inviteIds" :members="group.members" :invitable-users="group.invitableUsers" :current-user-id="currentUserId" :z-index="participantsZ" :inviting="inviting" show-follow-note @invite="invite" @member-click="startDirect">
         <template #reference><el-button text size="small" class="group-participants" :icon="User" aria-label="参与人" title="参与人" @click="participantsZ = chatOverlayZIndex($event.currentTarget)"><template v-if="!toolbarTarget || toolbarMenu">参与人</template> <span class="group-member-count">{{ group.members.length }}</span></el-button></template>
-        <p class="participants-note">仅会话参与人可以查看和发言。<br>取消关注只停止未读提醒，不会退出会话。</p>
-        <section class="participants-section">
-          <div class="participants-section__heading"><span>会话成员</span><span class="participants-section__count">{{ group.members.length }} 人</span></div>
-          <div class="group-members participants-members">
-            <el-button v-for="member in group.members" :key="member.id" text :disabled="String(member.id) === String(currentUserId)" :title="member.name" @click="startDirect(member)">
-              <span class="participants-member__avatar" aria-hidden="true">{{ Array.from(member.name || '?')[0] }}</span>
-              <span class="participants-member__name">{{ member.name }}</span>
-              <span v-if="String(member.id) === String(currentUserId)" class="participants-member__self">我</span>
-            </el-button>
-          </div>
-        </section>
-        <section class="participants-section participants-invite">
-          <label class="participants-section__heading" :for="inviteInputId">邀请新成员</label>
-        <el-select
-          v-if="!isDirect" :id="inviteInputId" ref="inviteSelect" v-model="inviteIds" multiple filterable clearable collapse-tags
-          :max-collapse-tags="2" :teleported="true" :append-to="inviteDropdownTarget" placement="top-start"
-          @visible-change="updateInviteDropdownTarget"
-          :popper-style="{ zIndex: Math.max(100010, participantsZ + 1) }"
-          popper-class="chat-invite-users-popper"
-          placeholder="搜索并选择邀请用户"
-          :no-data-text="group.invitableUsers.length ? '未找到匹配用户' : '暂无可邀请的用户'" no-match-text="未找到匹配用户"
-          :disabled="inviting" style="width:100%"
-        >
-          <el-option v-for="user in group.invitableUsers" :key="user.id" :value="user.id" :label="user.name" />
-        </el-select>
-        <el-button type="primary" class="participants-invite__submit" v-if="!isDirect" :loading="inviting" :disabled="!inviteIds.length" @click="invite">{{ inviteIds.length ? `邀请 ${inviteIds.length} 人参与会话` : '邀请参与会话' }}</el-button>
-        </section>
-        <div class="participants-management">
-        <ChatParticipantActions :project-type="projectType" :project-id="projectId" :members="group.members" @changed="loadGroup" />
-        </div>
-      </el-popover>
+        <template #management><ChatParticipantActions :project-type="projectType" :project-id="projectId" :members="group.members" @changed="loadGroup" /></template>
+      </ChatParticipantsPopover>
       <span v-if="!toolbarTarget" class="group-toolbar-spacer" />
       <el-button text size="small" v-if="!isDirect" class="group-follow" :class="{ 'is-following': group.following }" :icon="group.following ? StarFilled : Star" :loading="followingBusy" :title="group.following ? '取消关注，不再接收普通消息未读提醒' : '关注后加入右上角收藏夹，并接收未读提醒'" :aria-label="group.following ? '取消关注' : '关注项目'" @click="toggleFollow"><template v-if="!toolbarTarget || toolbarMenu">{{ group.following ? '已关注' : '关注' }}</template></el-button>
       <el-button v-if="!toolbarTarget" text size="small" :icon="Search" aria-label="聊天记录" title="聊天记录" @click="openSearch">聊天记录</el-button>
@@ -68,6 +39,7 @@
 import { chatFileCategory, chatFileMaxBytes, chatFileHint, chatFileSupported, chatClipboardFiles } from '@/utils/chatFileTypes'
 import { matchesSearch } from '@/utils/searchMatching'
 import ChatParticipantActions from './ChatParticipantActions.vue'
+import ChatParticipantsPopover from './ChatParticipantsPopover.vue'
 import { chatOverlayZIndex } from '@/utils/chatOverlay'
 import { useChatMessageInteractions } from '@/composables/useChatMessageInteractions'
 
@@ -131,13 +103,6 @@ const newMessageId = () => {
 }
 const group = reactive({ members: [], eligibleUsers: [], invitableUsers: [], following: false })
 const participantsZ = ref(2110)
-const inviteSelect = ref(null)
-const inviteInputId = `chat-invite-${newMessageId()}`
-const inviteDropdownTarget = ref('body')
-function updateInviteDropdownTarget(visible) {
-  // 会话浮窗首次打开前尚未挂载，展开选择器时再获取实际传送目标。
-  if (visible) inviteDropdownTarget.value = inviteSelect.value?.$el?.closest('.annotation-participants-popover') || 'body'
-}
 const messages = ref([]), list = ref(null), input = ref(null), content = ref(''), replyTo = ref(null)
 const interactions = useChatMessageInteractions({ projectId: computed(() => props.projectId), projectType: computed(() => props.projectType), messages, active: computed(() => props.active) })
 const composer = ref(null), mentionMenu = ref(null), mentionOpen = ref(false), mentionQuery = ref(''), mentionIndex = ref(0), mentionStyle = ref({})
@@ -627,29 +592,7 @@ defineExpose({ openSearch, locate, cancelLocate, toggleFilters: openSearch })
 <style>
 .el-overlay:has(.chat-confirm-message-box){z-index:100001!important}
 .annotation-members-popover{max-width:calc(100vw - 32px)!important;max-height:min(560px,calc(100vh - 120px));overflow-y:auto}
-/* 下拉层挂到浮窗根节点，避开正文滚动裁切，且点击选项不会触发浮窗的外部关闭。 */
-.annotation-members-popover.annotation-participants-popover{overflow:visible}
-.el-popover.annotation-participants-popover{padding:20px;max-height:min(700px,calc(100vh - 32px));border-radius:12px;box-shadow:var(--shadow-dropdown)}
-.annotation-participants-popover .app-window-popover__header{min-height:40px;padding-bottom:14px}
-.annotation-participants-popover .app-window-popover__title{font-size:17px;font-weight:600}
-.annotation-participants-popover .app-window-popover__body{padding-top:16px}
-.participants-note{margin:0 0 20px;color:var(--color-text-muted);font-size:13px;line-height:1.8}
-.participants-section__heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;color:var(--color-text-primary);font-size:14px;font-weight:600}
-.participants-section__count{color:var(--color-text-muted);font-size:12px;font-weight:400}
-.annotation-participants-popover .participants-members{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;max-height:208px;margin:0;padding-right:6px;overflow-y:auto}
-.annotation-participants-popover .participants-members>.el-button{justify-content:flex-start;width:100%;height:46px;margin:0;padding:8px;border-radius:8px;color:var(--color-text-secondary)}
-.participants-members>.el-button>span{display:flex;align-items:center;gap:8px;min-width:0;width:100%}
-.participants-member__avatar{display:grid;place-items:center;flex-shrink:0;width:28px;height:28px;border-radius:9px;background:var(--color-surface-muted);color:var(--color-primary);font-size:12px;font-weight:600}
-.participants-member__name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
-.participants-member__self{flex-shrink:0;font-size:11px;color:var(--color-text-muted)}
-.annotation-participants-popover .participants-members>.el-button.is-disabled{color:var(--color-text-muted)}
-.participants-invite{margin-top:20px;padding-top:18px;border-top:1px solid var(--color-border)}
-.participants-invite .el-select__wrapper{min-height:40px;border-radius:8px}
-.participants-invite__submit{width:100%;min-height:38px;margin:12px 0 0;border-radius:8px}
-.participants-management{display:flex;flex-wrap:wrap;gap:12px;margin-top:20px;padding-top:16px;border-top:1px solid var(--color-border)}
-.participants-management>.el-button{flex:1;min-height:36px;margin:0;border-radius:8px;font-size:13px}
-@media(max-width:480px){.el-popover.annotation-participants-popover{padding:16px}.annotation-participants-popover .participants-members{grid-template-columns:repeat(2,minmax(0,1fr))}}
-.chat-invite-users-popper .el-select-dropdown__wrap{max-height:min(274px,calc(100vh - 96px))}
+
 </style>
 <style scoped>
 .chat-timeline-area{position:relative;display:flex;flex:1;min-height:0;min-width:0;overflow:hidden}

@@ -2248,3 +2248,7 @@ from statement_access import router as statement_access_router
 app.include_router(statement_access_router)
 from statement_reorganization import router as statement_reorganization_router
 app.include_router(statement_reorganization_router)
+
+# 本项目内置文件统计，不依赖外部统计服务。
+from routers.document_word_counts import router as document_word_count_router
+app.include_router(document_word_count_router)

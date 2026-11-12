@@ -30,6 +30,7 @@
       <OrderWordCountSource :order="draft" />
 
       <el-alert v-if="hasDuration" title="本项目可能属于标注项目，请与标注项目部沟通。" type="warning" :closable="false" show-icon />
+      <el-collapse v-if="!readOnly && draft" class="file-counter-collapse"><el-collapse-item title="选择文件／UNC 共享路径自动统计" name="files"><DocumentWordCounter :key="matrixOwner" :current-matrix="draft" @apply="applyFileCount" /></el-collapse-item></el-collapse>
       <div ref="matrixBody" v-loading="loading" class="word-count-matrix__body">
         <table>
           <thead>
@@ -114,6 +115,7 @@
 import { computed, nextTick, onBeforeUnmount, reactive, ref, toRef, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import ReadonlyField from './ReadonlyField.vue'
+import DocumentWordCounter from './DocumentWordCounter.vue'
 import { getWordCountMatrix, patchWordCountMatrix } from '@/api/wordCountMatrices'
 import { focusFormTarget, scrollFormTarget } from '@/utils/formNavigation'
 import { useFormDraft } from '@/composables/useFormDraft'
@@ -143,6 +145,14 @@ const props = defineProps({
   pendingDraft: { type: Object, default: undefined },
   draftScope: { type: String, default: '' }
 })
+
+function applyFileCount({dimension,metric,value}) {
+  const row=rows.value.find(row=>row.scope==='entity' && row.dimension===dimension)
+  if(!row || rowReadonly(row))return
+  WORD_COUNT_METRICS.forEach(({key})=>{row.values[key]=null})
+  row.values[metric]=value
+  ElMessage.success('已回填，请保存字数统计')
+}
 
 const emit = defineEmits(['update:modelValue', 'update:translators', 'saved', 'update:pendingDraft'])
 const visible = ref(false)
@@ -476,6 +486,7 @@ async function saveMatrix() {
 </script>
 
 <style scoped>
+.file-counter-collapse { flex: 0 1 auto; overflow: auto; min-height: 44px; max-height: 390px; }
 .word-count-matrix { display: flex; flex-direction: column; gap: 14px; max-height: min(680px, calc(100vh - 120px)); }
 .word-count-matrix__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 14px 16px; border: 1px solid var(--el-border-color-lighter); border-radius: 10px; background: var(--el-fill-color-lighter); }
 .word-count-matrix__header strong { font-size: 14px; color: var(--el-text-color-primary); }

@@ -3,6 +3,7 @@
     <strong>字数统计</strong>
     <p v-if="aggregated">此订单由下级汇总，请在末级子订单修改统计。</p>
     <p v-else>我司统计、客户统计每行可选字数类、份数、页数或时长。字数类可填多项，清空当前区域后可切换。预统计不用于计算费用。</p>
+    <DocumentWordCounter v-if="!disabled && !aggregated" :current-matrix="matrix" @apply="applyFileCount" />
     <div class="word-count-inline-scroll"><table><thead><tr><th>统计维度</th><th v-for="metric in WORD_COUNT_METRICS" :key="metric.key">{{ metric.label }}</th></tr></thead><tbody>
       <tr v-for="dimension in dimensions" :key="dimension.key">
         <th>
@@ -18,7 +19,9 @@
 </template>
 <script setup>
 import {computed} from 'vue'
+import DocumentWordCounter from './DocumentWordCounter.vue'
 import {WORD_COUNT_METRICS,createEmptyWordCountValues,normalizeWordCountMatrix,isWordCountRegionLocked} from '@/utils/wordCountMatrix'
+function applyFileCount({dimension,metric,value}){const next=normalizeWordCountMatrix(props.modelValue);Object.keys(next[dimension]).forEach(key=>next[dimension][key]=null);next[dimension][metric]=value;emit('update:modelValue',next)}
 const props=defineProps({modelValue:Object,disabled:Boolean,aggregated:Boolean});const emit=defineEmits(['update:modelValue'])
 const matrix=computed(()=>normalizeWordCountMatrix(props.modelValue))
 const dimensions=[{key:'company',label:'我司统计'},{key:'customer',label:'客户统计'},{key:'preliminary',label:'预统计'},{key:'translatorEstimate',label:'译员预定'}]

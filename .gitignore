@@ -141,3 +141,6 @@ blob-report/
 # 本机 HTTPS 凭据与证书生成工具
 /frontend/*.pem
 /frontend/mkcert.exe
+
+# 文件字数统计使用与验收
+!/docs/文件字数统计.md
