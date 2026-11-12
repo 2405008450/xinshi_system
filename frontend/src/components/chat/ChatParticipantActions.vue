@@ -1,6 +1,6 @@
 <template>
-  <el-button size="small" type="danger" plain @click="open">删除参与人</el-button>
-  <el-button size="small" :loading="leaving" @click="leave">退出群组</el-button>
+  <el-button size="small" type="danger" text @click="open">移出成员</el-button>
+  <el-button size="small" text :loading="leaving" @click="leave">退出群组</el-button>
   <DraggableFormDialog v-model="visible" :z-index="dialogZ" title="删除参与人" width="min(560px, calc(100vw - 32px))" top="8vh" append-to-body destroy-on-close class="chat-remove-participants" @open="selected = []; keyword = ''">
     <p>移出后，对方将无法查看此会话或继续发言；历史消息保留。</p>
     <AppForm :model="form" @submit.prevent="remove">
