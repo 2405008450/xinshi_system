@@ -7,10 +7,12 @@
             :key="item.key"
             :label="item.label"
             :span="item.span || 1"
+            :client-row="row"
           >
             <el-tag v-if="item.type === 'status'" :type="statusType(row[item.key])" size="small">
               {{ statusLabel(row[item.key]) }}
             </el-tag>
+            <ClientManagementLink v-else-if="isClientShortName(item.label, item.key)" :value="formatValue(item)" :row="row" :sub-client="item.label === '子客户简称' || /^sub_?client/i.test(item.key)" />
             <InlineTextField
               v-else-if="item.editable"
               :model-value="rawValue(item)"
@@ -37,6 +39,8 @@
 import { formatBusinessDateTime } from '@/utils/dateTime'
 
 import InlineTextField from './InlineTextField.vue'
+import ClientManagementLink from './ClientManagementLink.vue'
+import { isClientShortName } from '@/utils/clientManagementWindow'
 
 const emit = defineEmits(['field-saved', 'conflict'])
 

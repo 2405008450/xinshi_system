@@ -381,6 +381,14 @@ window.addEventListener('storage',accountStorageChanged)
 onBeforeUnmount(()=>{loadSequence++;pauseDraft();window.removeEventListener('auth-session-clearing',closeForAccountChange);window.removeEventListener('storage',accountStorageChanged)})
 defineExpose({prepareSubmit})
 
+function notifySavedCounts(changes) {
+  if (changes.some(change => change.scope === 'entity')) {
+    window.dispatchEvent(new CustomEvent('translation-word-count-saved', {
+      detail: { entityType: props.entityType, entityId: props.entityId }
+    }))
+  }
+}
+
 async function saveMatrix() {
   if(matrixOwner !== (localStorage.getItem('user_id')||'')){visible.value=false;return}
   if (!draft.value) return
@@ -396,6 +404,7 @@ async function saveMatrix() {
           saved = normalizeResponse(
             await patchWordCountMatrix(props.entityType, props.entityId, { changes: entityChanges })
           )
+          notifySavedCounts(entityChanges)
           saved.translators = clone(draft.value.translators)
         }
       }
@@ -439,6 +448,7 @@ async function saveMatrix() {
       translatorEstimate: saved.translator_estimate
     })
     emit('saved', saved)
+    notifySavedCounts(changes)
     clearPending()
     ElMessage.success('字数统计已保存')
     visible.value = false

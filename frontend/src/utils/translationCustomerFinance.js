@@ -19,7 +19,8 @@ export function customerFinanceWordCount(project) {
 export function customerFinanceUnitPrices(project) {
   return (project.customerChargeItems || []).map(item => {
     if (item.pricingMode === 'fixed') return `${item.itemName}：固定收费`
-    const values = [['不含税', item.unitPriceExclTax ?? item.unitPrice], ['含税', item.unitPriceInclTax]]
+    const excl = item.unitPriceExclTax ?? (item.unitPriceInclTax == null ? item.unitPrice : null)
+    const values = [['不含税', excl], ['含税', item.unitPriceInclTax]]
       .filter(([, value]) => present(value)).map(([label, value]) => `${label} ${item.currency || 'CNY'} ${Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 4 })}/${item.unitSize || 1000}${metricName(item.metricType)}`)
     return `${item.itemName}：${values.join('；') || '未填写'}`
   }).join('\n') || '-'

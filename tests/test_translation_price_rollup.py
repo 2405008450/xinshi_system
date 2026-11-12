@@ -75,10 +75,13 @@ def test_leaf_edit_updates_all_ancestors_and_parent_http_writes_are_rejected(dat
     with pytest.raises(HTTPException):patch_word_count_matrix(db,'project',root.id,WordCountMatrixPatch(changes=[dict(scope='entity',dimension='customer',metric_type='words',value=999)]),updated_by=actor.id)
 
 def test_legacy_parent_override_is_retained_but_not_added_twice(data):
-    db,_,root,_,_,_,_=data
+    db,actor,root,_,_,_,_=data
     stored=TranslationSubOrderChargeItem(id=uuid4(),translation_project_id=root.id,sequence_no=1,item_name='翻译费',pricing_mode='fixed',currency='CNY',total_excl_tax=999)
-    root.customer_charge_items.append(stored);db.commit()
+    root.customer_charge_items.append(stored)
+    finance.save_order_pricing_mode(db,root,root.id,'metric',actor.id)
+    db.commit()
     node=finance.read(db,root.id)['item']
+    assert node['pricing_mode']=='aggregate'
     assert node['totals_excl_tax']=={'CNY':'53.00'} and node['recorded_adjusted_total']=='999'
     assert stored.total_excl_tax==999
 
@@ -101,23 +104,18 @@ def test_parent_can_bill_directly_then_return_to_child_rollup(data):
     assert statement['totals'] == {'CNY': '85.00'}
     assert str(leaf.id) not in {row['task_id'] for row in statement['rows']}
 
-    workload = finance.update(root.id, finance.PriceWrite(
-        version=fixed['version'], order_id=root.id, order_pricing_mode='metric',
-        prices=[dict(language_pair=leaf.language_pair, metric='customer_auto:words', amount=1,
-                     currency='CNY', unit_size=1, tax_prices={'unit_price_excl_tax': 1})]), db, actor)
-    assert workload['item']['totals_excl_tax'] == {'CNY': '150.00'}
-    assert workload['item']['billing_totals'] == {'CNY': '150.00'}
-    assert workload['item']['children'][0]['totals_excl_tax'] == {'CNY': '70.00'}
+    with pytest.raises(HTTPException, match='只能选择子订单汇总或固定收费'):
+        finance.update(root.id, finance.PriceWrite(
+            version=fixed['version'], order_id=root.id, order_pricing_mode='metric'), db, actor)
+    with pytest.raises(HTTPException, match='只能选择子订单汇总或固定收费'):
+        finance.save_table_cell(db, actor, root.id, finance.TablePatch(
+            version=fixed['version'], order_id=middle.id, pricing_mode='metric'))
 
     restored = finance.save_table_cell(db, actor, root.id, finance.TablePatch(
-        version=workload['version'], order_id=root.id, pricing_mode='aggregate'))
-    assert restored['item']['price_aggregate']
-    assert restored['item']['totals_excl_tax'] == {'CNY': '85.00'}
-
-    work_mode = finance.save_table_cell(db, actor, root.id, finance.TablePatch(
-        version=restored['version'], order_id=middle.id, pricing_mode='metric'))
-    assert work_mode['item']['children'][0]['pricing_mode'] == 'metric'
-    assert work_mode['item']['children'][0]['children'][0]['totals_excl_tax'] == {'CNY': '18.00'}
+        version=fixed['version'], order_id=middle.id, pricing_mode='aggregate'))
+    assert restored['item']['children'][0]['pricing_mode'] == 'aggregate'
+    assert restored['item']['children'][0]['children'][0]['totals_excl_tax'] == {'CNY': '18.00'}
+    assert restored['item']['totals_excl_tax'] == {'CNY': '53.00'}
 
 
 def test_fixed_parent_cascades_without_replacing_descendant_prices(data):

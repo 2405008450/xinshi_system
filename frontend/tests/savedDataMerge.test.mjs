@@ -43,3 +43,27 @@ test('服务端时间未变化时也纠正本地时间格式；不把系统时�
  mergeSavedRecord(table,{items:[{id:'one',updated_at:timestamp,name:'原名'}]},{items:[]},()=>assert.fail('只差系统时间的行不算未保存业务修改'))
  assert.deepEqual(table.items,[])
 })
+
+test('新增单价保存为相同金额时，服务端行编号和金额格式不产生冲突',()=>{
+ const local={languagePair:'中→英',metric:'words',unitSize:1,amount:0.22,taxPrices:{unitPriceExclTax:0.22,unitPriceInclTax:0.22}}
+ const saved={id:'rate-1',language_pair:'中→英',metric:'words',unit_size:'1.0000',amount:'0.2200',
+   tax_prices:{unit_price_excl_tax:'0.2200',unit_price_incl_tax:'0.2200',total_excl_tax:null,total_incl_tax:null},
+   quantity:2200,quantity_dimension:'customer',quantity_metric:'words'}
+ const target={prices:[local]}
+ mergeSavedRecord(target,{prices:[]},{prices:[saved]},()=>assert.fail('相同单价不应提示冲突'))
+ assert.equal(target.prices[0],local)
+})
+
+test('未持久化的单价行只在双方计价值有分歧时提示冲突',()=>{
+ const remote={id:null,language_pair:'中→英',metric:'words',unit_size:'1',amount:'0.2000',quantity:1800}
+ const draft={languagePair:'中→英',metric:'words',unitSize:1,amount:0.22,quantity:1800}
+ const target={prices:[draft]}
+ const changes=[]
+ const capture=(...args)=>changes.push(args)
+ mergeSavedRecord(target,{prices:[remote]},{prices:[{...remote,quantity:2200}]},capture)
+ assert.equal(changes.length,0)
+ mergeSavedRecord(target,{prices:[remote]},{prices:[{...remote,amount:'0.2400'}]},capture)
+ assert.equal(changes.length,1)
+ assert.equal(changes[0][0],'prices')
+ assert.equal(target.prices[0].amount,0.22)
+})

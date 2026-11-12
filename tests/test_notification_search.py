@@ -106,3 +106,36 @@ def test_chat_channel_rule_covers_all_existing_and_future_chat_families(environm
     assert {row.notification_type for row in filter_notification_channel(query, AppNotification, 'chat').all()} == set(kinds)
     assert {row.notification_type for row in filter_notification_channel(query, AppNotification, 'system').all()} == {'workflow_chatty_update'}
     assert {row.notification_type for row in filter_notification_channel(query, AppNotification, 'business').all()} == {'workflow_chatty_update', 'chat_summary', 'resource_request_dispatch'}
+
+
+def test_received_notification_category_combines_with_search_read_state_and_pagination(environment):
+    db, user, client = setup_notifications(environment)
+    from business_time import business_now
+    from models import AppNotification
+
+    project_id = uuid4()
+    samples = [
+        ('legacy_handover', None, project_id, '旧笔译交接', 'translation'),
+        ('workflow_assign', 'interpretation', None, '口译安排', 'interpretation'),
+        ('workflow_assign', 'annotation', None, '标注安排', 'annotation'),
+        ('workflow_assign', 'recruitment', None, '招聘安排', 'recruitment'),
+        ('invoice_receipt', 'invoice_request', project_id, '发票回执', 'invoice'),
+        ('comp_time_request', None, None, '调休申请', 'administration'),
+        ('chat_summary', 'chat_summary', None, '总结同步 · 想法讨论', 'conversation_saved'),
+        ('chat_summary', 'chat_summary', None, '总结同步 · 决策批复', 'conversation_saved'),
+    ]
+    for kind, project_type, related_id, title, _ in samples:
+        db.add(AppNotification(id=uuid4(), recipient_user_id=user.id, notification_type=kind,
+            related_project_type=project_type, related_project_id=related_id, is_read=False,
+            title=title, content='ABC-201', created_at=business_now()))
+    db.commit()
+
+    response = client.get('/notifications/page', params={'channel': 'business', 'keyword': 'ABC-201'}).json()
+    assert {item['title']: item['category'] for item in response['items']} == {row[3]: row[4] for row in samples}
+    filters = {'channel': 'business', 'category': 'conversation_saved', 'summary_category': 'idea',
+               'keyword': 'ABC-201 想法', 'read_status': 'unread', 'limit': 1}
+    response = client.get('/notifications/page', params=filters).json()
+    assert response['total'] == 1 and response['items'][0]['summary_category'] == 'idea'
+    assert client.get('/notifications/page', params={**filters, 'skip': 1}).json() == {'items': [], 'total': 1}
+    assert client.get('/notifications/page', params={**filters, 'read_status': 'read'}).json()['total'] == 0
+    assert client.get('/notifications/page', params={**filters, 'channel': 'system'}).json()['total'] == 0

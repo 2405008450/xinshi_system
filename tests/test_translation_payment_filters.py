@@ -94,6 +94,15 @@ def test_amount_mismatch_uses_current_totals_before_pagination(context):
         assert result['total']==2 and {item['id'] for item in result['items']}==expected
     reset=http.get('/translation-customer-finance/page',params={**params,'payment_amount_mismatch':False,'limit':100}).json()
     assert reset['total']==5
+    # 主表付款状态沿用实时核对，并保留月份和客户条件。
+    table_params={'payment_status':'full_mismatch','include_payment_status':True,
+                  'paginate_children':True,'billing_month':'2026-11','client':clients[0].client_short_name}
+    table=http.get('/translation-customer-finance/page',params=table_params)
+    assert table.status_code==200
+    assert {item['id'] for item in table.json()['items']}==expected
+    assert all(item['payment_amount_mismatch'] for item in table.json()['items'])
+    for filter_override in ({'billing_month':'2020-01'},{'client':'不存在的客户'}):
+        assert http.get('/translation-customer-finance/page',params={**table_params,**filter_override}).json()['total']==0
 
 
 def test_amount_mismatch_currency_missing_zero_and_reference():

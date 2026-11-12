@@ -7,7 +7,7 @@
                   <el-descriptions-item label="内部协作角色" :span="2">{{ internalRolesText(row) }}</el-descriptions-item>
                   <el-descriptions-item label="具体任务" :span="2"><InlineTextField :model-value="row.taskDescription" :editable="editable" label="具体任务" multiline :save-field="(value) => saveField('taskDescription', value)" @conflict="emit('conflict')" /></el-descriptions-item>
                   <el-descriptions-item label="项目类型" :span="2">{{ projectTypesText(row) }}</el-descriptions-item>
-                  <el-descriptions-item label="客户简称">{{ textValue(row.clientShortName) }}</el-descriptions-item>
+                  <el-descriptions-item label="客户简称" :client-row="row">{{ textValue(row.clientShortName) }}</el-descriptions-item>
                   <el-descriptions-item label="客户编号">{{ textValue(row.clientCode) }}</el-descriptions-item>
                   <el-descriptions-item label="客户全称">{{ textValue(row.clientFullName) }}</el-descriptions-item>
                   <el-descriptions-item label="客户领域">{{ textValue(row.clientDomain) }}</el-descriptions-item>

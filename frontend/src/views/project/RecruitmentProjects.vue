@@ -152,7 +152,19 @@
               <el-col :xs="24" :md="12"><el-form-item label="订单号"><ReadonlyField :model-value="form.orderNo" source="auto" placeholder="保存后自动生成" /></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="项目状态" prop="projectStatus"><el-select v-model="form.projectStatus" style="width:100%"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>
             </el-row>
-            <el-row :gutter="16"><el-col :span="24"><el-form-item label="项目名称"><GeneratedProjectNameInput v-model="form.projectName" placeholder="可手工填写，或根据招聘信息自动生成" :loading="nameLoading" @manual-input="handleProjectNameInput" @regenerate="generateName" /></el-form-item></el-col></el-row>
+            <el-row :gutter="16">
+              <el-col :span="24">
+                <el-form-item label="项目名称">
+                  <GeneratedProjectNameInput
+                    v-model="form.projectName"
+                    hint="填齐后，按「拟履职周期 + 任职工作属地 + 外语/翻译方向 + 职位名称」生成。超过 3 个方向时仅列前 3 个并加「等方向」。"
+                    :loading="nameLoading"
+                    @manual-input="handleProjectNameInput"
+                    @regenerate="generateName"
+                  />
+                </el-form-item>
+              </el-col>
+            </el-row>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="职位名称/类型" prop="positionTitle"><el-input v-model="form.positionTitle" placeholder="例如：法语翻译、海外销售" /></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="招聘人数" prop="headcountMin"><div class="number-range"><el-input-number v-model="form.headcountMin" :min="0" :controls="false" placeholder="最低人数" /><span class="range-separator">—</span><el-input-number v-model="form.headcountMax" :min="form.headcountMin || 0" :controls="false" placeholder="最高人数" /><span class="range-unit">人</span></div></el-form-item></el-col>

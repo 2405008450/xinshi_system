@@ -3,6 +3,10 @@ import {calculateCustomerPrice} from './translationCustomerFinance.js'
 export const quantityBasisOptions=[{value:'customer_auto',label:'自动选择（客户优先，无则我司）'},{value:'company_characters_no_spaces',label:'我司统计（字符数（不计空格））'},{value:'company_words',label:'我司统计（字数）'},{value:'company_cjk_chars_korean_words',label:'我司统计（中朝）'},{value:'company_foreign_words',label:'我司统计（外文）'},{value:'company_documents',label:'我司统计（份数）'},{value:'company_pages',label:'我司统计（页数）'}]
 export const metricName=key=>WORD_COUNT_METRICS.find(row=>row.key===key)?.label||key
 export function basisLabel(mode){if(String(mode).startsWith('customer_auto')){const metric=String(mode).split(':')[1];return metric?`客户统计（${metricName(metric)}）`:'自动选择（客户优先，无则我司）'}return quantityBasisOptions.find(row=>row.value===mode)?.label||`历史客户口径（${metricName(mode)}）`}
+export function resolvedBasisLabel(mode,{dimension,metric}={}){
+  if(mode!=='customer_auto'||!metric)return basisLabel(mode)
+  return `${dimension==='company'?'我司统计':'客户统计'}（${metricName(metric)}）`
+}
 export function customerQuantityChoices(matrix){const values=normalizeWordCountMatrix(matrix).customer;return WORD_COUNT_METRICS.filter(row=>values[row.key]!=null).map(row=>({...row,value:values[row.key]}))}
 export function projectQuantityChoices(matrix){
   const values=normalizeWordCountMatrix(matrix)

@@ -100,7 +100,12 @@
                 <el-tag v-if="hasMoreSubOrders(row)" size="small" type="warning">当前仅显示前 {{ SUB_ORDER_PREVIEW_LIMIT }} 条</el-tag>
               </div>
               <div class="sub-order-panel__actions">
-                <el-button v-if="canWriteProjects" type="primary" plain @click="openBatchDialog(row)">按数量批量新增</el-button>
+                <el-button v-if="canWriteProjects" type="primary" plain @click="openBatchDialog(row)">
+                  按数量批量新增<span class="sub-order-action-note">（暂不用）</span>
+                </el-button>
+                <el-button v-if="canWriteProjects" type="primary" plain @click="openBatchDialog(row, 'localfiles')">
+                  从文件夹选择<span class="sub-order-action-note">（暂不用）</span>
+                </el-button>
                 <el-button v-if="getTotalSubOrderCount(row) > 0" type="primary" plain @click="goToSubOrderManagement(row)">进入子订单管理页</el-button>
               </div>
             </div>
@@ -320,6 +325,7 @@
                           show-word-limit
                           :placeholder="parentOrderNameAllowed ? '母订单项目名称可不带扩展名' : '每个订单只填一个真实文件名，必须保留扩展名'"
                         />
+                        <div class="project-name-hint">单文件项目可在「项目文件」中从原文路径读取文件名（含扩展名）。从文件夹创建母子订单时，母订单取根文件夹名，子订单取对应的文件或文件夹名。</div>
                       </el-form-item>
                       <el-form-item v-if="!form.id && createWithSubOrders && !form.pendingFolderImport && motherTab.name !== 'parentchildren'" label="子订单文件名称" prop="initialSubOrderNamesText">
                         <el-input v-model="form.initialSubOrderNamesText" type="textarea" :rows="3" placeholder="每行一个文件名称，须带扩展名；保存时同时创建子订单" />
@@ -2142,7 +2148,15 @@ function restoreDefaultExclusions(){
   handleSearch()
 }
 defineExpose({restoreDefaultExclusions})
-onActivated(()=>{if(!arrangementMode.value)restoreDefaultExclusions()})
+let wordCountRefreshPending = false
+function markWordCountsForRefresh(){ wordCountRefreshPending = true }
+onActivated(()=>{
+  if(!arrangementMode.value)restoreDefaultExclusions()
+  if(wordCountRefreshPending && !props.editorOnly){
+    wordCountRefreshPending = false
+    void fetchData()
+  }
+})
 const clearAdvancedFilters = () => { resetFilterModel(searchForm, translationAdvancedFilterFields); handleSearch() }
 const clearSearch = () => {
   searchForm.keyword = ''
@@ -2692,6 +2706,7 @@ async function openStatementOrderEditor(){
 }
 const projectFieldContext=computed(()=>({openProjectDetails,getTranslationClientDetailItems,projectDetailItems,getStatusLabel,getStatusType,canWriteProjects,deleteMode:deleteMode.value,saveProjectTextField,fetchData,canReadProjectFiles,openOriginalPath,copyOriginalPath,projectStatusSavingIds:projectStatusSavingIds.value,changeProjectStatus,normalizeStatus,openArrangementFromStatus,projectStatusOptions,saveProjectTranslatorCompletions,getLanguagePairSummary,formatAssignedTranslators,getAssignedTranslatorSummary,getWordCountListSummary,formatTableColumnValue,headerFilterDefinition,searchForm,handleConfiguredTextInput,handleSearch,getTimeSortMode,getSortDirection,isTimeSortActive,getTimeSortTitle,toggleTimeSort}))
 onMounted(async () => {
+  window.addEventListener('translation-word-count-saved',markWordCountsForRefresh)
   if(props.editorOnly) {
     await Promise.all([openStatementOrderEditor(),loadResourceRequestStatuses()])
     return
@@ -2715,6 +2730,7 @@ watch(mailComposerVisible,(value,previous)=>{
   if(props.editorOnly && previous && !value && !dialogVisible.value)emit('editor-closed')
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('translation-word-count-saved',markWordCountsForRefresh)
   clearTimeout(searchTimer)
   requestController?.abort()
 })
@@ -2728,6 +2744,7 @@ useProjectStatusSync('translation',tableData,{enabled:()=>!props.editorOnly,onCh
 </script>
 
 <style scoped>
+.sub-order-action-note { color: var(--el-color-danger); }
 .project-editor-identity { user-select: text; cursor: text; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5; }
 :deep(.dialog-field-search-header__heading:has(.project-editor-identity)) { min-width: 0; flex: 1; }
 :deep(.dialog-field-search-header__extra:has(.project-editor-identity)) { min-width: 0; max-width: 100%; }
@@ -2778,7 +2795,8 @@ useProjectStatusSync('translation',tableData,{enabled:()=>!props.editorOnly,onCh
 .client-suggestion { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .client-suggestion__meta { color: var(--el-text-color-secondary); font-size: 12px; }
 .client-autocomplete-field { width: 100%; }
-.client-autocomplete-hint { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
+.client-autocomplete-hint,
+.project-name-hint { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
 .subject-preview-field { width: 100%; min-width: 0; }
 .subject-preview-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
 .subject-preview-toolbar .el-button { flex: none; }

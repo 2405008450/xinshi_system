@@ -26,7 +26,8 @@ test('固定收费清空后，打开关联付款但不操作，返回可保存�
     ElMessage:{warning:value=>errors.push(value),success:()=>{}},emit:()=>{},load:async()=>{},getLocalizedErrorMessage:e=>e.message}
   vm.createContext(ctx)
   vm.runInContext(source.slice(source.indexOf('async function openLinkedPayment()'),source.indexOf('function onPaymentSaved(')),ctx)
-  vm.runInContext(source.slice(source.indexOf('async function save(syncToClient=false)'),source.indexOf('watch(()=>[editor.value.pricingMode')),ctx)
+  ctx.syncPreviewPending=ref(false)
+  vm.runInContext(source.slice(source.indexOf('let automaticRateCheck'),source.indexOf('watch(()=>[editor.value.pricingMode')),ctx)
   await ctx.openLinkedPayment();ctx.linkedPaymentVisible.value=false
   await ctx.save()
   assert.deepEqual(errors,[]);assert.equal(ctx.saveError.value,'')

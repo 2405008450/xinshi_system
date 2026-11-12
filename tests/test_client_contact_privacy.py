@@ -9,6 +9,8 @@ from schemas import ClientContactPersonInput
 from client_contact_people import replace_details,ClientContactPersonDetail,owner_rows
 from client_contact_privacy import can_view_client_contacts,ClientContactPrivacyMiddleware
 from project_client_contact_details import contact_details,save_project_contact_details
+from routers.client_management_window import read_window
+from fastapi import Response
 
 
 @pytest.mark.parametrize('department,allowed',[('客户部',True),('销售部',True),('销售',True),('行政部',True),('IT部',False),('项目部',False),('',False)])
@@ -25,6 +27,33 @@ def test_secondary_department_membership_is_supported(environment):
     department=Department(id=uuid4(),name='行政部',aliases=[])
     db.add(department);db.flush();db.add(DepartmentMember(department_id=department.id,user_id=user.id));db.flush()
     assert can_view_client_contacts(db,user)
+
+
+def test_management_window_masks_contact_data_and_resolves_ambiguous_names(environment, monkeypatch):
+    db, (user, _, _) = environment
+    first = Client(id=uuid4(), client_code='WINDOW-1', client_name='客户一', client_short_name='同名客户')
+    second = Client(id=uuid4(), client_code='WINDOW-2', client_name='客户二', client_short_name='同名客户')
+    db.add_all([first, second]); db.flush()
+    child = SubClient(id=uuid4(), parent_client_id=first.id, sub_client_code='WINDOW-SUB', client_name='子客户', client_short_name='子客户')
+    db.add(child); db.flush()
+    replace_details(db, first, [ClientContactPersonInput(name='张晓明', contact_method='+86 13812345678', description='备用电话 13911112222')])
+    db.flush()
+    user.department = '项目部'
+    response = Response()
+    result = read_window(response, client_id=first.id, short_name='', db=db, user=user)
+    assert result['contacts'] == [{'name': '张', 'method': '861'}]
+    assert not result['can_manage']
+    assert response.headers['Cache-Control'] == 'private, no-store'
+    assert len(read_window(Response(), short_name='同名客户', db=db, user=user)['matches']) == 2
+    with pytest.raises(HTTPException) as error:
+        read_window(Response(), client_id=second.id, sub_client_id=child.id, short_name='', db=db, user=user)
+    assert error.value.status_code == 404
+    user.department = '销售部'
+    monkeypatch.setattr('routers.client_management_window.user_has_permission', lambda *args: True)
+    full = read_window(Response(), client_id=first.id, short_name='', db=db, user=user)
+    assert full['contacts'][0]['name'] == '张晓明'
+    assert full['contacts'][0]['method'] == '+86 13812345678'
+    assert full['can_manage']
 
 
 def test_json_privacy_covers_nested_clients_projects_and_saved_email_subject():

@@ -8,7 +8,7 @@
         <el-dropdown-item v-if="hasPermission('projects:write')" command="request">资源需求</el-dropdown-item>
         <el-dropdown-item command="technical">技术需求</el-dropdown-item>
         <el-dropdown-item command="trials">试标试采管理</el-dropdown-item>
-        <el-dropdown-item command="ai" title="左键运行，右键查看分析结果"
+        <el-dropdown-item command="ai" title="查看分析进度和结果"
           @contextmenu.prevent.stop="openAiHistory" @keydown.shift.f10.prevent.stop="openAiHistory">AI 分析</el-dropdown-item>
       </el-dropdown-menu></template>
     </el-dropdown>
@@ -16,7 +16,7 @@
     <AnnotationProgressHost v-if="progressProjectId" :key="progressProjectId" embedded progress-only :progress-project-id="progressProjectId" @progress-closed="progressProjectId=''" />
     <AnnotationTrialsHost v-if="trialsProjectId" :key="trialsProjectId" workspace-only :workspace-project-id="trialsProjectId" @workspace-closed="trialsProjectId=''" />
     <AnnotationProgressHost v-if="editRequest" :key="`editor:${projectId}`" embedded editor-only :editor-project-id="projectId" :create-request="editRequest" />
-    <AnnotationChatAiDialog v-if="aiMode && projectId" :key="`ai:${projectId}`" :project-id="projectId" :initial-mode="aiMode" @close="aiMode=''" />
+    <AnnotationChatAiDialog v-if="aiVisible && projectId" :key="`ai:${projectId}`" :project-id="projectId" @close="aiVisible=false" />
   </el-config-provider>
 </template>
 <script setup>
@@ -35,15 +35,15 @@ const emit = defineEmits(['navigate'])
 const progressProjectId=ref(''),trialsProjectId=ref('')
 const source = ref(null)
 const editRequest = ref(0)
-const aiMode = ref('')
+const aiVisible = ref(false)
 const projectMenu = ref(null)
-watch(()=>props.projectId,()=>{editRequest.value=0; aiMode.value=''})
+watch(()=>props.projectId,()=>{editRequest.value=0; aiVisible.value=false})
 function openAiHistory() {
   projectMenu.value?.handleClose()
-  aiMode.value = 'history'
+  aiVisible.value = true
 }
 async function open(command) {
-  if (command === 'ai') aiMode.value = 'run'
+  if (command === 'ai') aiVisible.value = true
   if(command==='technical'){
     try{const room=await chatRequest(`technical/projects/${props.projectId}/room`,{method:'post',data:{userIds:[]}});useProjectChatDock().openChat({projectId:room.roomId,projectType:'discussion',title:room.title,subtitle:room.orderNo})}
     catch(e){ElMessage.error(e.detail||e.message||'打开技术需求失败')}

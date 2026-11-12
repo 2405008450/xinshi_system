@@ -114,3 +114,6 @@ export const getProjectTalentOptions = (capabilityType, params = {}, config = {}
   ...config,
   params: { ...params, capability_type: capabilityType }
 }).then(fromApi)
+
+export const getTalentIdentityOptions = (params = {}, config = {}) =>
+  api.get('/talent-options/identity', { ...config, params }).then(fromApi)

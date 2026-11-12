@@ -29,14 +29,15 @@ export function useFinanceTableEditing(onSaved){
     if(!state.pending.size)return true
     const pending=new Map(state.pending);state.pending.clear();state.saving=true;state.error=''
     try{
-      const current=await getCustomerFinanceProject(state.row.rootId),node=find(current.item,state.row.id)
+      const current=await getCustomerFinanceProject(state.row.rootId,{timeout:30000}),node=find(current.item,state.row.id)
       if(!node)throw new Error('订单已不存在，请刷新列表')
       const latest=financeDraft(node),patch={version:current.version,order_id:state.row.id}
       for(const [field,change] of pending){
-        if(!sameFinanceField(field,latest[field],state.base[field])&&!sameFinanceField(field,latest[field],change.value))throw new Error('该字段已被其他操作修改，请重新加载并核对后填写')
+        if(sameFinanceField(field,latest[field],change.value))continue
+        if(!sameFinanceField(field,latest[field],state.base[field]))throw new Error('该字段已被其他操作修改，请重新加载并核对后填写')
         patch[financePatchKeys[field]]=financeFieldValue(field,change.value)
       }
-      const result=await saveCustomerFinanceTable(state.row.rootId,patch)
+      const result=Object.keys(patch).length>2?await saveCustomerFinanceTable(state.row.rootId,patch):current
       const saved=financeDraft(find(result.item,state.row.id))
       for(const [field,change] of pending){
         state.base[field]=copyFinanceValue(saved[field])

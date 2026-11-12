@@ -1,11 +1,15 @@
 <template>
   <el-config-provider :locale="zhCn">
     <router-view />
+    <ClientManagementWindow v-if="clientManagementTarget" />
   </el-config-provider>
 </template>
 
 <script setup>
 import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
+import { defineAsyncComponent } from 'vue'
+import { clientManagementTarget } from '@/utils/clientManagementWindow'
+const ClientManagementWindow = defineAsyncComponent(() => import('@/components/common/ClientManagementWindow.vue'))
 </script>
 
 <style>

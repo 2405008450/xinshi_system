@@ -605,18 +605,21 @@ class TalentPathRecordResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class TalentOptionResponse(BaseModel):
-    """项目人员选择器仅返回识别所需字段，不泄露联系方式等敏感信息。"""
-
+class TalentIdentityResponse(BaseModel):
     id: UUID
     resource_code: Optional[str] = None
     full_name: str
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TalentOptionResponse(TalentIdentityResponse):
+    """项目人员选择器仅返回识别所需字段，不泄露联系方式等敏感信息。"""
+
     cooperation_type: Optional[str] = None
     status: TalentStatus
     gender: Optional[str] = None
     birth_date: Optional[date] = None
     annotation_language_skills: list[AnnotationLanguageSkillResponse] = Field(default_factory=list)
-    model_config = ConfigDict(from_attributes=True)
 
 
 class ResourcePersonDetailResponse(ResourcePersonListResponse):

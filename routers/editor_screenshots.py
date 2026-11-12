@@ -23,6 +23,30 @@ async def upload(file:UploadFile=File(...),retention:str=Form('business'),db:Ses
     except ValueError as error:raise HTTPException(422,str(error)) from error
 
 
+@router.post('/invoice-pdf', status_code=201)
+async def upload_invoice_pdf(file: UploadFile = File(...), request_id: UUID | None = Form(None), db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return await upload_invoice_file(file, request_id, db, user, 'pdf')
+
+
+@router.post('/invoice-ofd', status_code=201)
+async def upload_invoice_ofd(file: UploadFile = File(...), request_id: UUID | None = Form(None), db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return await upload_invoice_file(file, request_id, db, user, 'ofd')
+
+
+async def upload_invoice_file(file, request_id, db, user, extension):
+    from routers.auth import get_user_permission_codes
+    if request_id is not None:
+        from invoice_workflow import require_invoice_recipient
+        require_invoice_recipient(db, request_id, user)
+    elif not {'*', 'projects:write', 'finance:write'}.intersection(get_user_permission_codes(db, user.id)):
+        raise HTTPException(403, '无权上传发票文件')
+    content = await file.read(service.MAX_INVOICE_FILE_BYTES + 1)
+    try:
+        return service.save_invoice_file(db, user.id, content, extension)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+
+
 @router.get('/{image_id}')
 def download(image_id:UUID,request:Request,chat_message_id:str|None=Query(None),chat_kind:str|None=Query(None),db:Session=Depends(get_db),user:AppUser=Depends(get_current_user)):
     service.require_ready(db)
@@ -34,4 +58,8 @@ def download(image_id:UUID,request:Request,chat_message_id:str|None=Query(None),
     if row.blob_sha256 is None or (row.expires_at and service.api_time(row.expires_at)<=service.now()):raise HTTPException(410,'聊天截图已超过30天保留期，文字记录仍保留')
     blob=db.get(Blob,row.blob_sha256)
     grant,expires=service.grant(db,user.id,{image_id})
-    return Response(blob.content,media_type=blob.content_type,headers={'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','X-Screenshot-Grant':grant,'X-Screenshot-Grant-Expires':str(expires)})
+    headers = {'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','X-Screenshot-Grant':grant,'X-Screenshot-Grant-Expires':str(expires)}
+    if blob.content_type in ('application/pdf', 'application/ofd'):
+        extension = blob.content_type.split('/')[1]
+        headers['Content-Disposition'] = f'attachment; filename="invoice.{extension}"'
+    return Response(blob.content, media_type=blob.content_type, headers=headers)

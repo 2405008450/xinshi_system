@@ -3,15 +3,16 @@ import assert from 'node:assert/strict'
 import vm from 'node:vm'
 import {readFileSync} from 'node:fs'
 import {ref,reactive,computed} from 'vue'
+import {fullPaymentMismatchOption,paymentStatusLabel} from '../src/utils/paymentConfirmation.js'
 const source=readFileSync(new URL('../src/components/common/ProjectPaymentDialog.vue',import.meta.url),'utf8')
 
 function harness(response){
-  const ctx={paymentFilters:reactive({month:'2020-01',client:'其他客户',status:'unpaid',amountMismatch:true}),
+  const ctx={paymentFilters:reactive({months:['2020-01'],client:'其他客户',status:fullPaymentMismatchOption.value}),
     activeTab:ref('overview'),managerScope:ref('self'),managerIds:ref([]),projectPage:ref(2),props:{},selectedId:ref(''),
     searchSequence:0,controller:null,projectTimer:null,clearTimeout,AbortController,
     options:ref([{id:'old-unpaid',paymentStatus:'unpaid'}]),projectTotal:ref(1),error:ref(''),searching:ref(false),
     getCustomerFinancePage:async()=>response,getLocalizedErrorMessage:e=>e.message,load:async()=>{}}
-  ctx.mismatchView=computed(()=>ctx.activeTab.value==='overview'&&ctx.paymentFilters.amountMismatch)
+  ctx.mismatchView=computed(()=>ctx.activeTab.value==='overview'&&ctx.paymentFilters.status===fullPaymentMismatchOption.value)
   vm.createContext(ctx)
   vm.runInContext(source.slice(source.indexOf('function paymentQuery('),source.indexOf('function queueClientSearch(')),ctx)
   vm.runInContext(source.slice(source.indexOf('async function searchProjects('),source.indexOf('async function onPaymentTabChanged(')),ctx)
@@ -21,12 +22,18 @@ function harness(response){
 test('独立核对不发送左侧三条件，保留经理范围与分页；退出恢复原筛选',()=>{
   const ctx=harness({})
   const query=ctx.paymentQuery('订单')
-  assert.equal(query.billing_month,undefined);assert.equal(query.client,undefined);assert.equal(query.payment_status,undefined)
+  assert.equal(query.billing_months,undefined);assert.equal(query.client,undefined);assert.equal(query.payment_status,undefined)
   assert.equal(query.payment_amount_mismatch,true);assert.equal(query.only_mine,true)
   assert.equal(query.skip,20);assert.equal(query.keyword,'订单')
-  ctx.paymentFilters.amountMismatch=false
+  ctx.paymentFilters.status='unpaid'
   const ordinary=ctx.paymentQuery('')
-  assert.equal(ordinary.billing_month,'2020-01');assert.equal(ordinary.client,'其他客户');assert.equal(ordinary.payment_status,'unpaid')
+  assert.deepEqual(ordinary.billing_months,['2020-01']);assert.equal(ordinary.client,'其他客户');assert.equal(ordinary.payment_status,'unpaid')
+})
+
+test('只有已付全款且金额不匹配的记录使用新状态文案',()=>{
+  assert.equal(paymentStatusLabel({paymentStatus:'full',paymentAmountMismatch:true}),fullPaymentMismatchOption.label)
+  assert.equal(paymentStatusLabel({paymentStatus:'full',paymentAmountMismatch:false}),'已付全款')
+  assert.equal(paymentStatusLabel({paymentStatus:'deposit',paymentAmountMismatch:true}),'已付定金')
 })
 
 test('旧后端忽略参数或返回未付款项目时清空结果并提示，不能伪装筛选成功',async()=>{

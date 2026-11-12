@@ -78,12 +78,19 @@ def invalidate_metadata(db):
     db.info.pop('translation_charge_direction_cache',None);db.info.pop('translation_charge_direction_loaded',None)
 
 
+def order_unit_amount(charge):
+    for amount in (charge.unit_price_excl_tax, charge.unit_price_incl_tax, charge.unit_price):
+        if amount is not None:
+            return Decimal(str(amount)).normalize()
+    return None
+
+
 def order_rates(db,owner,language_pair=None,meta=None):
     charges=sorted([row for row in owner.customer_charge_items if row.pricing_mode=='metric' and row.item_name!='财务信息'],key=lambda row:row.sequence_no or 0)
     meta=metadata(db,[row.id for row in charges]) if meta is None else meta
     bases=quantity_basis.metadata(db,[row.id for row in charges])
     return [{'id':str(row.id),'language_pair':meta[row.id].language_pair if row.id in meta else language_pair or owner.language_pair or '',
-             'amount':str(Decimal(str(row.unit_price_excl_tax if row.unit_price_excl_tax is not None else row.unit_price)).normalize()) if row.unit_price_excl_tax is not None or row.unit_price is not None else None,
+             'amount':str(amount) if (amount:=order_unit_amount(row)) is not None else None,
              'currency':row.currency or 'CNY','metric':bases.get(row.id,row.metric_type),'unit_size':str(Decimal(str(row.unit_size or 1)).normalize()),
              'reference_id':str(meta[row.id].reference_id) if row.id in meta and meta[row.id].reference_id else None,
              'reference_revision':meta[row.id].reference_revision if row.id in meta else None, 'tax_prices':{key:str(getattr(row,key)) if getattr(row,key) is not None else None for key in TaxPrices.model_fields}} for row in charges]

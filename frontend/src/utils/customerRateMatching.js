@@ -1,4 +1,6 @@
 import {resolveRateQuantity,metricName} from './translationQuantityBasis.js'
+import {taxPriceForm} from './taxPrices.js'
+import {referenceDraft} from './customerTranslationRates.js'
 export function pricingUnit(mode,matrix,reference=false){
   if(mode==='customer_auto')return reference?null:resolveRateQuantity(matrix,mode).metric||null
   return String(mode||'').replace(/^customer_auto:/,'').replace(/^company_/,'')||null
@@ -13,6 +15,31 @@ export function priceMatch(reference,price,matrix){
   if((reference.currency||'CNY')!==(price.currency||'CNY'))reasons.push('币种不同')
   if(Number(reference.unitSize||1)!==Number(price.unitSize||1))reasons.push('单价对应数量不同')
   return {matched:!reasons.length,reasons}
+}
+export function fillCustomerReferencePrice(price,references,matrix){
+  if(price.referenceId||price.manualReference||price.amount!=null||
+    price.taxPrices?.unitPriceExclTax!=null||price.taxPrices?.unitPriceInclTax!=null)return false
+  const dimension=price.metric==='customer_auto'
+    ?resolveRateQuantity(matrix,price.metric).dimension
+    :String(price.metric).startsWith('company_')?'company':'customer'
+  const matching=references.filter(reference=>{
+    const referenceDimension=String(reference.metric).startsWith('company_')?'company':'customer'
+    return dimension===referenceDimension&&priceMatch(reference,price,matrix).matched
+  })
+  if(matching.length!==1)return false
+  const {amount,taxPrices,referenceId,referenceRevision}=referenceDraft(matching[0])
+  if(taxPrices.unitPriceExclTax==null&&taxPrices.unitPriceInclTax==null)taxPrices.unitPriceExclTax=amount
+  Object.assign(price,{amount,taxPrices,referenceId,referenceRevision})
+  return true
+}
+export function sameCustomerRatePrice(reference,price){
+  const amounts=row=>{
+    const amount=row.amount==null||row.amount===''?null:Number(row.amount)
+    const tax=taxPriceForm(row.taxPrices)
+    return [tax.unitPriceExclTax??(tax.unitPriceInclTax==null?amount:null),tax.unitPriceInclTax??null]
+  }
+  const [refExcl,refIncl]=amounts(reference),[excl,incl]=amounts(price)
+  return refExcl===excl&&refIncl===incl
 }
 export function expectedOrderPrices(prices,languagePair,matrix){
   return prices?.length?prices:String(languagePair||'').split('；').filter(Boolean).map(direction=>({languagePair:direction,metric:'customer_auto',currency:'CNY',unitSize:1}))

@@ -20,12 +20,18 @@ from notification_ws import notification_manager, connection_client_type
 from routers.auth import get_current_user, get_user_from_token_value
 from schemas import NotificationResponse
 from notification_channels import NotificationChannel
+from notification_categories import NotificationCategory, SummaryCategory
 from pagination_schemas import PageResponse
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
 
-@router.get('/page', response_model=PageResponse[NotificationResponse])
+class ClassifiedNotificationResponse(NotificationResponse):
+    category: NotificationCategory
+    summary_category: SummaryCategory | None = None
+
+
+@router.get('/page', response_model=PageResponse[ClassifiedNotificationResponse])
 def notification_page(
     skip: int = Query(0, ge=0), limit: int = Query(30, ge=1, le=100),
     keyword: str | None = Query(None, max_length=500),
@@ -33,11 +39,14 @@ def notification_page(
     channel: NotificationChannel = 'all',
     notification_type: str | None = Query(None, max_length=100),
     notification_types: list[str] | None = Query(None, max_length=20),
+    category: NotificationCategory | None = None,
+    summary_category: SummaryCategory | None = None,
     db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user),
 ):
     filters = dict(keyword=keyword, read_status=read_status, channel=channel,
-                   notification_type=notification_type, notification_types=notification_types)
-    return {'items': get_notifications(db, current_user.id, skip=skip, limit=limit, **filters),
+                   notification_type=notification_type, notification_types=notification_types,
+                   category=category, summary_category=summary_category)
+    return {'items': get_notifications(db, current_user.id, skip=skip, limit=limit, include_classification=True, **filters),
             'total': count_notifications(db, current_user.id, **filters)}
 
 

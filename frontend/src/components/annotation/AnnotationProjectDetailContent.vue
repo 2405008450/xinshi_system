@@ -22,7 +22,7 @@
         <el-descriptions-item label="具体任务" :span="2"><InlineTextField :model-value="displayRow.taskDescription" :editable="editable" label="具体任务" multiline :save-field="(value) => saveText('taskDescription', value)" @conflict="emit('conflict')" /></el-descriptions-item>
         <el-descriptions-item label="语言方向" :span="2"><LanguageTalentReservePopover v-if="allowNestedDetails && displayRow.languageItems?.length" :language-items="displayRow.languageItems" /><span v-else>{{ textValue(displayRow.languageItemsDisplay || (displayRow.languageItems || []).map(item => item.display || item.sourceLanguageLabel).filter(Boolean).join('；')) }}</span></el-descriptions-item>
         <el-descriptions-item label="（潜在）需求量" :span="2"><InlineTextField :model-value="displayRow.potentialDemand" :editable="editable" label="（潜在）需求量" multiline :save-field="(value) => saveText('potentialDemand', value)" @conflict="emit('conflict')" /></el-descriptions-item>
-        <el-descriptions-item label="客户简称">{{ textValue(displayRow.clientShortName) }}</el-descriptions-item>
+        <el-descriptions-item label="客户简称" :client-row="displayRow">{{ textValue(displayRow.clientShortName) }}</el-descriptions-item>
         <el-descriptions-item label="客户编号">{{ textValue(displayRow.clientCode) }}</el-descriptions-item>
         <el-descriptions-item label="客户全称" :span="2">{{ textValue(displayRow.clientFullName) }}</el-descriptions-item>
         <el-descriptions-item label="子客户/联系人"><InlineTextField :model-value="displayRow.contactName" :display-value="displayRow.contactName || displayRow.subClientContact" :editable="editable" label="子客户/联系人" :maxlength="255" :save-field="(value) => saveText('contactName', value)" @conflict="emit('conflict')" /></el-descriptions-item>

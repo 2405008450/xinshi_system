@@ -67,3 +67,123 @@ def test_customer_project_records_scope_filters_summary_pagination(context):
     assert pages[0]['items'][0]['invoice_proofs']=='该项目发票备注'
     assert http.get(path,params={'required':False}).json()['items'][0]['id']==str(no_need.id)
     assert http.get(f'/translation-customer-finance/project/{first.id}/invoice').json()['client_id']==str(clients[0].id)
+
+
+def test_batch_invoice_delivery_and_receipts(context):
+    from io import BytesIO
+    from uuid import uuid4
+    from PIL import Image
+    from sqlalchemy import event
+    from department_models import Department
+    from models import AppNotification, AppUser
+    from routers import auth
+    from routers.editor_screenshots import router as attachments
+    import invoice_workflow as workflow
+
+    http, db, clients, permissions, sender = setup(context)
+    http.app.include_router(workflow.router)
+    http.app.include_router(attachments)
+    permissions.update(('projects:write', 'system:users:write'))
+    receiver = AppUser(id=uuid4(), username='invoice_qa_xiong', full_name='熊旺', password_hash='unused', department='客户部', is_active=True)
+    db.add_all([receiver, Department(name='客户部')])
+    db.commit()
+    @event.listens_for(db, 'before_flush')
+    def emulate_postgres_user_id(session, _context, _instances):
+        for user in session.new:
+            if isinstance(user, AppUser) and user.id is None:
+                user.id = uuid4()
+    created = http.post('/invoice-workflow/settings/test-recipient', json={'password':'Invoice-Test-Password-123'})
+    assert created.status_code == 201, created.text
+    test_account = db.query(AppUser).filter_by(username=workflow.TEST_RECIPIENT_USERNAME).one()
+    assert test_account.department == '客户部'
+
+    project_ids = []
+    for number, client, currency, amount in [
+        ('BATCH-A', clients[0], 'CNY', '530.10'),
+        ('BATCH-B', clients[1], 'CNY', '530.00'),
+        ('BATCH-C', clients[0], 'CNY', '123.45'),
+        ('BATCH-D', clients[0], 'USD', '25.00'),
+    ]:
+        row = project(db, client, number, fixed=True, currency=currency)
+        current = finance.read(db, row.id)
+        finance.save(db, sender, row.id, finance.PriceWrite(version=current['version'], order_id=row.id,
+            pricing_mode='fixed', currency=currency, adjusted_total=500, adjusted_total_incl_tax=amount, billing_tax_mode='incl_tax'))
+        project_ids.append(str(row.id))
+    preview = http.post('/invoice-workflow/requests/preview', json={'project_ids':project_ids}).json()
+    groups = preview['customer_groups']
+    assert groups == [
+        {'client_id': str(clients[0].id), 'project_ids': [project_ids[0], project_ids[2], project_ids[3]],
+         'totals': {'CNY': '653.55', 'USD': '25.00'}},
+        {'client_id': str(clients[1].id), 'project_ids': [project_ids[1]], 'totals': {'CNY': '530.00'}},
+    ]
+    assert {person['id'] for person in preview['recipients']} == {str(receiver.id), str(test_account.id)}
+    payload = {'project_ids':project_ids, 'subject_key':'shenzhen', 'invoice_type':'electronic_special',
+        'tax_rate':6, 'settings_revision':preview['settings_revision'],
+        'expected_user_ids':[person['id'] for person in preview['recipients']], 'idempotency_key':str(uuid4()), 'note':'测试开票说明'}
+    assert http.post('/invoice-workflow/requests/batch', json=payload).status_code == 422
+    payload['tax_rate'] = 3
+    result = http.post('/invoice-workflow/requests/batch', json=payload)
+    assert result.status_code == 200, result.text
+    request_id = result.json()['id']
+    assert http.post('/invoice-workflow/requests/batch', json=payload).json()['id'] == request_id
+    assert db.query(AppNotification).filter_by(notification_type='invoice_request').count() == 2
+
+    url = f'/invoice-workflow/requests/{request_id}'
+    http.app.dependency_overrides[auth.get_current_user] = lambda: test_account
+    permissions.clear()
+    request = http.get(url).json()
+    assert request['is_recipient']
+    assert request['customer_groups'] == groups
+    for _ in range(2):
+        assert http.post(url + '/receipts', json={}).status_code == 200
+    assert db.query(AppNotification).filter_by(notification_type='invoice_receipt').count() == 1
+    invoice_url = f'{url}/projects/{project_ids[0]}/invoice'
+    invoice = http.get(invoice_url).json()
+    buffer = BytesIO()
+    Image.new('RGB', (16, 16), 'white').save(buffer, 'PDF')
+    attachment = http.post('/editor-screenshots/invoice-pdf', data={'request_id':request_id},
+        files={'file':('invoice.pdf', buffer.getvalue(), 'application/pdf')})
+    assert attachment.status_code == 201, attachment.text
+    proof = f"![截图]({attachment.json()['reference']})"
+    saved = http.put(invoice_url, json={'version':invoice['version'], 'invoice_status':'issued','proofs':proof})
+    assert saved.status_code == 200, saved.text
+    delivery_url = f'{url}/projects/{project_ids[0]}/deliver'
+    for _ in range(2):
+        delivered = http.post(delivery_url, json={'version':saved.json()['version']})
+        assert delivered.status_code == 200, delivered.text
+    assert db.query(AppNotification).filter_by(notification_type='invoice_delivered', recipient_user_id=sender.id).count() == 1
+
+    http.app.dependency_overrides[auth.get_current_user] = lambda: sender
+    permissions.update(('projects:read', 'projects:write'))
+    finance_url = f'/translation-customer-finance/project/{project_ids[0]}/invoice'
+    issued = http.get(finance_url).json()
+    assert issued['issued_by']['name'] == test_account.full_name
+    assert issued['issued_notification']['at'].endswith('+08:00')
+    marked = http.put(finance_url + '/customer-sent', json={'sent':True})
+    assert marked.status_code == 200
+    action = marked.json()['customer_sent']
+    assert action['name'] == sender.full_name and action['at'].endswith('+08:00')
+    assert http.put(finance_url + '/customer-sent', json={'sent':True}).json()['customer_sent'] == action
+    rows = http.get('/translation-customer-finance/page', params={'include_invoice_status':True,
+                    'payment_project_id':project_ids[0]}).json()['items']
+    assert rows[0]['customer_sent'] == action and rows[0]['issued_notification'] == issued['issued_notification']
+    received = http.post(url + '/receipts', json={'project_id':project_ids[0]})
+    assert received.status_code == 200
+    delivery = received.json()['snapshot']['deliveries'][project_ids[0]]
+    assert delivery['proofs'] == proof and delivery['receipt']['at'].endswith('+08:00')
+    assert db.query(AppNotification).filter_by(notification_type='invoice_receipt', recipient_user_id=test_account.id).count() == 1
+
+    http.app.dependency_overrides[auth.get_current_user] = lambda: receiver
+    assert http.post(url + '/receipts', json={}).status_code == 200
+    second_invoice_url = f'/translation-customer-finance/project/{project_ids[1]}/invoice'
+    pending = http.get(second_invoice_url).json()
+    assert pending['can_notify_requester'] is True
+    attached = http.post('/editor-screenshots/invoice-pdf',
+        files={'file':('second.pdf', buffer.getvalue(), 'application/pdf')}).json()
+    second_saved = http.put(second_invoice_url, json={'version':pending['version'], 'invoice_status':'issued',
+        'proofs':f"![截图]({attached['reference']})"})
+    assert second_saved.status_code == 200
+    notify_url = f'/invoice-workflow/projects/{project_ids[1]}/notify-issued'
+    assert http.post(notify_url, json={'version':second_saved.json()['version']}).json()['notified'] == 1
+    assert http.get(second_invoice_url).json()['issued_notification']['name'] == receiver.full_name
+    assert http.get(second_invoice_url).json()['can_notify_requester'] is False

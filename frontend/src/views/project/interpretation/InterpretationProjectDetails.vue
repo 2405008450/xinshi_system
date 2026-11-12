@@ -351,7 +351,7 @@
                 <el-form-item label="项目名称" prop="projectName">
                   <GeneratedProjectNameInput
                     v-model="form.projectName"
-                    placeholder="可手工填写，或根据时间、地点、方向和类型生成"
+                    hint="填齐后，按「预定时间 + 项目地点 + 口译方向 + 项目类型 + 项目」生成。"
                     :loading="nameLoading"
                     @manual-input="handleProjectNameInput"
                     @regenerate="generateProjectName"
@@ -479,10 +479,18 @@
                 <el-col :xs="24" :md="8"><el-form-item label="着装要求"><el-input v-model="form.interpreterDressRequirement" /></el-form-item></el-col>
               </el-row>
             </div>
-            <div v-for="(item, index) in form.interpreterAssignments" :key="index" class="repeat-card">
+            <div v-for="(item, index) in form.interpreterAssignments" :key="interpreterRowKey(item)" class="repeat-card">
               <div class="repeat-title">译员 {{ index + 1 }}<el-button link type="danger" @click="form.interpreterAssignments.splice(index, 1)">删除</el-button></div>
               <el-row :gutter="12">
-                <el-col :xs="24" :md="12"><el-form-item label="译员"><el-select v-model="item.translatorId" filterable remote :remote-method="searchInterpreterTalents" :loading="interpreterTalentLoading" @input.capture="handleInterpreterTalentInput" placeholder="从人才总库全库搜索姓名、资源编号" style="width: 100%" @visible-change="opened => opened && searchInterpreterTalents('')"><el-option v-for="person in interpreterTalentOptions" :key="person.id" :label="translatorOptionLabel(person)" :value="person.id" /></el-select></el-form-item></el-col>
+                <el-col :xs="24" :md="12">
+                  <el-form-item label="译员">
+                    <InterpreterTalentSelect
+                      v-model="item.translatorId"
+                      :selected-label="item.translatorLabel || translatorLabels.get(item.translatorId)"
+                      @select="person => item.translatorLabel = translatorOptionLabel(person)"
+                    />
+                  </el-form-item>
+                </el-col>
                 <el-col :xs="24" :md="12"><el-form-item label="客户评价"><el-select v-model="item.customerRating" clearable style="width: 100%"><el-option v-for="rating in ratingOptions" :key="rating.value" :label="rating.label" :value="rating.value" /></el-select></el-form-item></el-col>
                 <el-col :xs="24"><el-form-item label="评价备注"><el-input v-model="item.evaluationNote" type="textarea" :rows="2" /></el-form-item></el-col>
               </el-row>
@@ -613,8 +621,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import * as projectApi from '@/api/interpretationProjects'
 import * as clientApi from '@/api/clients'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
-import { getProjectTalentOptions } from '@/api/talents'
-import { createRemoteTalentSearch } from '@/utils/remoteTalentSearch'
+import { getTalentIdentityOptions } from '@/api/talents'
+import InterpreterTalentSelect from './InterpreterTalentSelect.vue'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
@@ -698,21 +706,13 @@ const tableData = ref([])
 const projectTableRef = ref(null)
 const clients = ref([])
 const translators = ref([])
-const interpreterTalentSearchState=ref({active:false,keyword:'',items:[],loading:false})
-const interpreterTalentLoading=computed(()=>interpreterTalentSearchState.value.loading)
-const interpreterTalentOptions=computed(()=>interpreterTalentSearchState.value.active?interpreterTalentSearchState.value.items:translators.value)
-const interpreterTalentSearch=createRemoteTalentSearch({
-  fetchOptions:(keyword,signal)=>getProjectTalentOptions(undefined,{keyword,limit:100},{signal}),
-  onUpdate:state=>{
-    interpreterTalentSearchState.value=state
-    const known=new Map(translators.value.map(person=>[person.id,person]))
-    for(const person of state.items)known.set(person.id,person)
-    translators.value=[...known.values()]
-  },
-  onError:()=>ElMessage.error('人才总库资源加载失败，请重试'),
-})
-const searchInterpreterTalents=keyword=>interpreterTalentSearch.search(keyword)
-const handleInterpreterTalentInput=event=>{if(event.target?.tagName==='INPUT')interpreterTalentSearch.input(event.target.value)}
+const translatorLabels = computed(() => new Map(translators.value.map(person => [person.id, translatorOptionLabel(person)])))
+const interpreterRowKeys = new WeakMap()
+let nextInterpreterRowKey = 0
+function interpreterRowKey(row) {
+  if (!interpreterRowKeys.has(row)) interpreterRowKeys.set(row, ++nextInterpreterRowKey)
+  return interpreterRowKeys.get(row)
+}
 const languages = ref([])
 const filterClientOptions = computed(() => clients.value.flatMap((client) => [
   { value: `client:${client.id}`, label: client.client_short_name || client.client_name },
@@ -1016,15 +1016,18 @@ const resetSearch = () => { searchForm.keyword = ''; resetFilterModel(searchForm
 const clearAdvanced = () => { resetFilterModel(searchForm, interpretationAdvancedFilterFields); handleSearch() }
 
 const loadReferenceData = async () => {
-  const [clientRows, translatorRows, languageRows] = await Promise.allSettled([
-    clientApi.getClients({ skip: 0, limit: 500, frequent_first: true }),
-    getProjectTalentOptions(),
-    projectApi.getInterpretationLanguages({ include_inactive: true }),
+  await Promise.allSettled([
+    clientApi.getClients({ skip: 0, limit: 500, frequent_first: true })
+      .then(rows => { clients.value = Array.isArray(rows) ? rows : [] }),
+    projectApi.getInterpretationLanguages({ include_inactive: true })
+      .then(rows => { languages.value = Array.isArray(rows) ? rows : [] }),
   ])
-  clients.value = clientRows.status === 'fulfilled' && Array.isArray(clientRows.value) ? clientRows.value : []
-  const initialTranslators=translatorRows.status === 'fulfilled' && Array.isArray(translatorRows.value) ? translatorRows.value : []
-  translators.value=[...new Map([...initialTranslators,...translators.value].map(person=>[person.id,person])).values()]
-  languages.value = languageRows.status === 'fulfilled' && Array.isArray(languageRows.value) ? languageRows.value : []
+}
+const loadTranslatorFilters = async () => {
+  const rows = await getTalentIdentityOptions({ limit: 500 })
+  if (Array.isArray(rows)) {
+    translators.value = [...new Map([...translators.value, ...rows].map(person => [person.id, person])).values()]
+  }
 }
 const loadDetail = async (id, force = false) => {
   if (!id) return null
@@ -1327,7 +1330,12 @@ const assignForm = (detail) => {
     languageDirections: detail.languageDirections?.length
       ? detail.languageDirections.map((item) => ({ languageIds: item.languageIds?.length ? item.languageIds : [item.sourceLanguageId, item.targetLanguageId], requiredCount: item.requiredCount ?? null }))
       : [emptyLanguageDirection()],
-    interpreterAssignments: (detail.interpreterAssignments || []).map((item) => ({ translatorId: item.translatorId, customerRating: item.customerRating || '', evaluationNote: item.evaluationNote || '' })),
+    interpreterAssignments: (detail.interpreterAssignments || []).map(item => ({
+      translatorId: item.translatorId,
+      translatorLabel: translatorOptionLabel(item),
+      customerRating: item.customerRating || '',
+      evaluationNote: item.evaluationNote || '',
+    })),
     roleAssignments: detail.roleAssignments || [],
   })
   form.subjectPrefix = extractSubjectPrefix(detail.emailSubjectPreview, form)
@@ -1514,13 +1522,14 @@ const openProjectPath = async (row) => openPathValue(await projectPath(row))
 const copyProjectPath = async (row) => copyPathValue(await projectPath(row))
 
 onMounted(async () => {
-  const editorReady = Promise.all([loadReferenceData(), loadResourceRequestStatuses()])
+  const editorReady = loadReferenceData()
+  void loadResourceRequestStatuses()
   if (!props.embedded && route.query.projectId) {
     await focusRouteProject(editorReady)
-    return
+  } else {
+    await fetchData()
   }
-  await editorReady
-  await fetchData()
+  void loadTranslatorFilters().catch(() => {})
 })
 watch(
   () => [route.query.projectId, route.query.openEditor],
@@ -1530,8 +1539,8 @@ watch(
     }
   }
 )
-onBeforeUnmount(() => { interpreterTalentSearch.dispose();clearTimeout(searchTimer); clearTimeout(autoNameTimer); requestController?.abort() })
-useProjectStatusSync('interpretation',tableData,{onChanged:()=>{if(!loading.value&&!dialogVisible.value)void fetchData()}})
+onBeforeUnmount(() => { clearTimeout(searchTimer); clearTimeout(autoNameTimer); requestController?.abort() })
+useProjectStatusSync('interpretation',tableData,{onChanged:()=>{if(!loading.value&&!deleting.value&&!dialogVisible.value)void fetchData()}})
 watch(dialogVisible,visible=>{if(visible)chatAudience.value=[]})
 </script>
 

@@ -5,6 +5,66 @@ import translation_customer_finance as finance
 import translation_document_requirements as documents
 import translation_project_invoices as invoices
 import translation_finance_audit as audit
+from io import BytesIO
+from zipfile import ZipFile
+import pytest
+from PIL import Image
+from routers.editor_screenshots import router as attachment_router
+
+
+@pytest.mark.parametrize('extension', ['pdf', 'ofd'])
+def test_invoice_file_upload_save_and_download(context, extension):
+    http, db, clients, permissions, _ = context
+    http.app.include_router(finance.router)
+    http.app.include_router(attachment_router)
+    row = project(db, clients[0], 'INV-PDF', fixed=True)
+    invoice_url = f'/translation-customer-finance/project/{row.id}/invoice'
+    upload_url = f'/editor-screenshots/invoice-{extension}'
+    buffer = BytesIO()
+    if extension == 'pdf':
+        Image.new('RGB', (32, 32), 'white').save(buffer, 'PDF')
+    else:
+        with ZipFile(buffer, 'w') as archive:
+            archive.writestr('OFD.xml', '<ofd:OFD xmlns:ofd="http://www.ofdspec.org/2016" />')
+    content = buffer.getvalue()
+    files = {'file': (f'发票.{extension.upper()}', content, 'application/octet-stream')}
+    assert http.post(upload_url, files=files).status_code == 403
+    permissions.add('projects:write')
+    assert http.post(upload_url, files={'file': (f'发票.{extension}', b'invalid file', f'application/{extension}')}).status_code == 422
+    uploaded = http.post(upload_url, files=files)
+    assert uploaded.status_code == 201
+    attachment = uploaded.json()
+    proofs = f"开票备注\n![截图]({attachment['reference']})"
+    saved = http.put(invoice_url, json={
+        'version': http.get(invoice_url).json()['version'], 'invoice_status': 'issued', 'proofs': proofs,
+    })
+    assert saved.status_code == 200
+    assert http.get(invoice_url).json()['proofs'] == proofs
+    downloaded = http.get(f"/editor-screenshots/{attachment['id']}")
+    assert downloaded.headers['content-type'] == f'application/{extension}'
+    assert downloaded.headers['content-disposition'] == f'attachment; filename="invoice.{extension}"'
+    assert downloaded.content == content
+
+
+def test_statement_customer_filter_matches_whole_customers_before_pagination(context):
+    http, db, clients, _, actor = context
+    http.app.include_router(finance.router)
+    required = project(db, clients[0], 'STATEMENT-1', month='2026-10')
+    same_customer = project(db, clients[0], 'STATEMENT-2')
+    other_customer = project(db, clients[1], 'STATEMENT-3')
+    for row, need in [(required, True), (same_customer, False), (other_customer, False)]:
+        documents.save(db, row, statement_required=need, actor_id=actor.id)
+    db.commit()
+    url = '/translation-customer-finance/page'
+    for mode, expected in [('include', {str(required.id), str(same_customer.id)}),
+                           ('exclude', {str(other_customer.id)})]:
+        pages = [http.get(url, params={'statement_customers':mode, 'limit':1, 'skip':skip}).json()
+                 for skip in range(len(expected))]
+        assert all(page['total'] == len(expected) for page in pages)
+        assert {page['items'][0]['id'] for page in pages} == expected
+    result = http.get(url, params={'billing_month':'2026-11', 'client_ids':str(clients[0].id),
+                                  'statement_customers':'include'}).json()
+    assert [item['id'] for item in result['items']] == [str(same_customer.id)]
 
 
 def test_document_notes_preserve_quotation_and_are_versioned(context):
@@ -44,6 +104,33 @@ def test_invoice_entry_reuses_status_and_proofs_and_filters_before_paging(contex
     assert {page['items'][0]['id'] for page in pages}=={str(first.id),str(second.id)}
     assert all(page['items'][0]['invoice_status']=='issued' for page in pages)
     assert not invoices.read(db,empty.id)['required']
+
+    for number in ('INV-D', 'INV-E'):
+        excluded = project(db, clients[0], number, fixed=True)
+        current = finance.read(db, excluded.id)
+        finance.save(db, actor, excluded.id, finance.PriceWrite(
+            version=current['version'], order_id=excluded.id, pricing_mode='fixed',
+            adjusted_total=500, billing_tax_mode='excl_tax',
+        ))
+    params['invoice_status'] = 'not_required'
+    pages = [http.get('/translation-customer-finance/page', params={**params, 'skip': skip}).json() for skip in (0, 1)]
+    assert all(page['total'] >= 2 and page['items'][0]['invoice_required'] is False for page in pages)
+    assert pages[0]['items'][0]['id'] != pages[1]['items'][0]['id']
+
+    unknown = project(db, clients[0], 'INV-F', fixed=True)
+    charge = unknown.customer_charge_items[0]
+    charge.total_excl_tax = charge.total_incl_tax = None
+    db.commit()
+    for requirement, expected, total in [('yes', True, 2), ('no', False, 3), ('unknown', None, 1)]:
+        result = http.get('/translation-customer-finance/page', params={
+            'include_invoice_status': True, 'invoice_required': requirement, 'limit': 1,
+        }).json()
+        assert result['total'] == total
+        assert result['items'][0]['invoice_required'] is expected
+    result = http.get('/translation-customer-finance/page', params={
+        'include_invoice_status': True, 'invoice_required': 'no', 'invoice_status': 'issued',
+    }).json()
+    assert result['total'] == 0 and result['items'] == []
 
 
 def test_invoice_write_requires_permission_and_does_not_pollute_quotation(context):

@@ -60,7 +60,7 @@ test('放弃计价方式切换后，重开恢复已保存的计价方式、单�
   vm.createContext(context)
   vm.runInContext([
     openEditor,
-    section('function paymentConfirmationInput(', 'function referenceDefaults('),
+    section('function paymentConfirmationInput(', 'function stopUsingReference('),
     section('async function closeEditor(done){','async function clearAllFinance('),
     section('function pricingModeSnapshot(', 'async function updateProjectFormFinance('),
   ].join('\n'),context)

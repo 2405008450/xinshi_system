@@ -4,16 +4,16 @@ export function hasPricingModeData(order){
   if(filled(order.adjustedTotal)||filled(order.adjustedTotalInclTax))return true
   return order.pricingMode!=='fixed'&&(order.prices||[]).some(row=>filled(row.taxPrices?.unitPriceExclTax)||filled(row.taxPrices?.unitPriceInclTax)||filled(row.amount))
 }
-export async function requestPricingModeSwitch(order,next,{confirm,createRate,apply=true}){
+export async function requestPricingModeSwitch(order,next,{confirm,createRate,apply=true,hasChildren=order.hasChildren??!!order.children?.length}){
   const previous=order.pricingMode||'metric'
-  if(next==='aggregate'&&order.children?.length&&previous!==next){
+  if(next===previous||!(hasChildren?['aggregate','fixed']:['metric','fixed']).includes(next))return false
+  if(next==='aggregate'){
     if(apply){
       order.pricingMode='aggregate'
       order.priceAggregate=true
     }
     return true
   }
-  if(!['metric','fixed'].includes(next)||next===previous)return false
   if(hasPricingModeData(order)){
     const old=previous==='fixed'?'固定收费':'工作量',target=next==='fixed'?'固定收费':'工作量'
     try{await confirm(`工作量/固定收费，只能选择填写其一。填写了${target}，将自动清除${old}的计价数据，请问是否继续？`)}catch{return false}

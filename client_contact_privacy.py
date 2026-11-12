@@ -3,7 +3,7 @@ import json
 from sqlalchemy import inspect
 from department_models import Department, DepartmentMember
 
-ALLOWED_DEPARTMENTS = {'客户部','客户','销售部','销售','行政部','行政'}
+ALLOWED_DEPARTMENTS = {'客户部','客户','销售部','销售','行政部','行政','行政部门'}
 
 
 def can_view_client_contacts(db,user):

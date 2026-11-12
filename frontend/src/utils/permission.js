@@ -116,6 +116,7 @@ export function hasPermission(permissionOrPermissions, userPermissions) {
  * 优先进入工作台，避免先跳固定地址后再由路由守卫二次重定向。
  */
 export function getDefaultRoute() {
+  if (isInvoiceReceiverTest()) return '/invoice-receiver'
   if (isSuperAdmin() || hasPermission(['projects:read', 'tasks:read'])) return '/workbench'
   if (hasPermission(['annotation_accounts:read', 'annotation_accounts:write'])) return '/annotation-details?section=accounts'
   if (hasPermission('system:users:read')) return '/hr-management/organization'
@@ -135,6 +136,7 @@ export function getDefaultRoute() {
  * @returns {boolean}
  */
 export function canAccessRoute(route) {
+  if (route.meta?.invoiceReceiverTest) return isInvoiceReceiverTest()
   if (route.meta?.technicalDevelopment) return canViewTechnicalDevelopment()
   if (route.meta?.organizationManagement) return canManageDepartments() || hasPermission('system:users:read') || canConfigureWorkReports()
   if (route.meta?.hrManagement) return canManageHr()
@@ -152,6 +154,10 @@ export function canAccessRoute(route) {
   const permissionAllowed = !hasPermissionRule || hasPermission(metaPermissions)
   const roleAllowed = !hasRoleRule || metaRoles.includes('*') || metaRoles.some((role) => userRoles.includes(role))
   return permissionAllowed && roleAllowed
+}
+
+function isInvoiceReceiverTest() {
+  return localStorage.getItem('user_name')?.trim().toLowerCase() === 'invoice_receiver_test'
 }
 
 export function canManageDepartments() {

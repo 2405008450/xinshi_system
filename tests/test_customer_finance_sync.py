@@ -44,6 +44,30 @@ def test_translation_manual_override_diff_and_confirmed_sync(environment,allowed
     assert stale.value.status_code==409
 
 
+def test_automatic_basis_compares_selected_unit_and_shows_it_for_real_differences(environment,allowed):
+    from word_count_models import WordCountMetric
+
+    db,(user,_,_)=environment
+    client,root,_,leaf=context(db,user)
+    db.query(WordCountMetric).filter_by(sub_order_id=leaf.id).filter(WordCountMetric.metric_type!='foreign_words').delete()
+    db.commit()
+    refs=[item(metric='customer_auto:foreign_words'),item(metric='customer_auto:pages',amount='1')]
+    rates.write_library(db,user,client.id,refs,rates.library(db,client.id)['version']);db.commit()
+    write(db,user,root,leaf,[item(metric='customer_auto')])
+    matched=sync.differences('translation',client.id,page=1,db=db,user=user)
+    assert matched['total']==0,matched['items']
+
+    write(db,user,root,leaf,[item(metric='customer_auto',amount='.3')])
+    diff=sync.differences('translation',client.id,page=1,db=db,user=user)
+    assert diff['total']==1
+    entry=diff['items'][0]
+    price=entry['project_rates'][0]
+    assert (price['metric'],price['quantity_dimension'],price['quantity_metric'])==('customer_auto','customer','foreign_words')
+    request=sync.SyncWrite(**{key:entry[key] for key in ('project_id','order_id','version','customer_version')},direction='project_to_client',confirmed=True)
+    sync.sync('translation',client.id,request,db=db,user=user)
+    assert sync.differences('translation',client.id,page=1,db=db,user=user)['total']==0
+
+
 def oral_setup(db):
     from models import Client
     from interpretation_models import InterpretationLanguage,InterpretationProject,InterpretationProjectLanguageDirection

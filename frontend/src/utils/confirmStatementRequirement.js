@@ -11,28 +11,15 @@ export function notifyStatementCustomerSync(scope) {
   }))
 }
 
-export async function confirmStatementRequirement({ projectId, clientId, billingMonth, value, currentOnly = false }) {
+export async function confirmStatementRequirement({ projectId, clientId, billingMonth, value, allowMonthSync = true }) {
   const nextLabel = value ? '需对账单' : '无需对账单'
-  if (currentOnly) {
-    try {
-      await ElMessageBox.confirm(`确认将当前订单标为「${nextLabel}」？`, '重新确认对账单需求', {
-        confirmButtonText: '确认',
-        cancelButtonText: '取消',
-        type: 'warning',
-      })
-      return { scope: null, customerScope: null }
-    } catch (action) {
-      if (action === 'cancel' || action === 'close') return null
-      throw action
-    }
-  }
   const context = await getStatementRequirementContext({
     project_id: projectId || undefined,
     client_id: clientId || undefined,
     billing_month: projectId ? undefined : billingMonth || currentStatementMonth(),
   })
   const defaultLabel = context.clientId ? defaultLabels[context.statementDefault] || '未知' : '未关联客户'
-  const hasPeers = context.otherCount > 0
+  const hasPeers = allowMonthSync && context.otherCount > 0
   const message = [`客户对账单默认设置：${defaultLabel}。本次将当前项目设为「${nextLabel}」。`]
   if (hasPeers) message.push(`${context.billingMonth} 还有 ${context.otherCount} 个同客户项目，是否也同步为「${nextLabel}」？`)
   let syncCustomer = false
@@ -48,8 +35,8 @@ export async function confirmStatementRequirement({ projectId, clientId, billing
     customerScope: syncCustomer ? { client_id: context.clientId, revision: context.preferenceRevision } : null,
   })
   try {
-    await ElMessageBox.confirm(content, '调整对账单需求', {
-      confirmButtonText: hasPeers ? '同步同月其他项目' : '确认调整',
+    await ElMessageBox.confirm(content, allowMonthSync ? '调整对账单需求' : '重新确认对账单需求', {
+      confirmButtonText: hasPeers ? '同步同月其他项目' : allowMonthSync ? '确认调整' : '确认',
       cancelButtonText: hasPeers ? '跳过同月同步' : '取消',
       distinguishCancelAndClose: true,
       closeOnClickModal: false,

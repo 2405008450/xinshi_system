@@ -3,7 +3,7 @@
     <div ref="headerRoot" class="project-summary project-summary--header" :style="gridStyle"><span data-column-key="__index">序号</span><span v-for="column in orderedColumns" :key="column.key" :data-column-key="column.key" class="arrangement-column-drag" title="拖动表头调整字段顺序"><slot name="header" :column="column">{{column.label}}</slot></span><span data-column-key="__actions" class="fixed-arrange">安排</span></div>
     <div v-for="(project,index) in projects" :key="project.id" class="arrangement-project" :style="{minWidth:gridStyle.minWidth}" @dragover.prevent @drop.prevent="drop($event,project)">
       <div class="project-summary" :style="gridStyle">
-        <span>{{offset+index+1}}</span><span v-for="column in orderedColumns" :key="column.key" class="arrangement-field-cell" :data-field="column.key"><slot name="field" :row="project" :column="column">{{cell(project,column)}}</slot></span>
+        <span>{{offset+index+1}}</span><span v-for="column in orderedColumns" :key="column.key" class="arrangement-field-cell" :data-field="column.key"><ClientManagementLink v-if="isClientShortName(column.label, column.key)" :value="cell(project,column)" :row="project" :sub-client="column.key === 'subClientShortName'" /><slot v-else name="field" :row="project" :column="column">{{cell(project,column)}}</slot></span>
         <span class="fixed-arrange"><el-button :disabled="!canWrite" type="primary" link @click="arrange(project)">安排</el-button><CustomerProjectRequirements v-if="String(project.customerRequirementProfessional||'').trim()||String(project.customerRequirementSpecial||'').trim()" :professional="project.customerRequirementProfessional" :special="project.customerRequirementSpecial" /></span>
       </div>
       <div v-if="opened===project.id" class="project-assignees">
@@ -20,6 +20,8 @@
   </div>
 </template>
 <script setup>
+import ClientManagementLink from '@/components/common/ClientManagementLink.vue'
+import { isClientShortName } from '@/utils/clientManagementWindow'
 import { useTableColumnOrder } from '@/composables/useTableColumnOrder'
 import { sortColumns, moveColumn } from '@/utils/tableColumnOrder'
 import { bindColumnDrag } from '@/utils/columnDragGesture'
