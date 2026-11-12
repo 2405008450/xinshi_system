@@ -111,7 +111,6 @@ const mentionProject = useAnnotationMentionManagers(computed(() => props.project
 const mentionCandidates = computed(() => projectMentionOrder([
   {id:'__all__',name:'所有人',all:true,outside:false},
   ...group.eligibleUsers.map(u => ({ ...u, outside: false })),
-  ...group.invitableUsers.filter(u => !group.members.some(member => member.id === u.id)).map(u => ({ ...u, outside: true })),
 ].filter(u => String(u.id) !== String(currentUserId) && matchesSearch(u.name, mentionQuery.value)), props.projectType === 'annotation' ? mentionProject.value : null))
 let mentionTrigger = -1
 const selected = ref([]), selectionMessage = ref(null), inviteIds = ref([]), mentionIds = ref([])
@@ -463,7 +462,7 @@ async function selectMention(user) {
   if (!mentionIds.value.includes(user.id)) mentionIds.value.push(user.id)
   closeMention(); await nextTick(); input.value.focus(); input.value.textarea.setSelectionRange(end, end)
 }
-function selectedMentionPeople(){const people=[{id:'__all__',name:'所有人',all:true},...group.eligibleUsers,...group.invitableUsers,...group.members];return mentionIds.value.map(id=>people.find(person=>person.id===id)||{id})}
+function selectedMentionPeople(){const people=[{id:'__all__',name:'所有人',all:true},...group.eligibleUsers,...group.members];return mentionIds.value.map(id=>people.find(person=>person.id===id)||{id})}
 function applyQuoteMention(result){content.value=result.content;mentionIds.value=result.selectedUsers.map(person=>person.id);automaticQuoteMention.value=result.automatic;if(result.warning)ElMessage.warning(result.warning)}
 async function quoteMessage(message){
   if(sending.value||retryPayload.value)return
@@ -476,7 +475,7 @@ async function send() {
   if (!canSend.value) return
   sending.value = true; sendError.value = ''
   closeMention()
-  const payload = retryPayload.value || { content: outgoingContent(), mentionAll:mentionIds.value.includes('__all__') && content.value.includes('@所有人 '), mentionedUserIds: mentionIds.value.filter(id => [...group.eligibleUsers, ...group.invitableUsers].some(u => u.id === id && content.value.includes(`@${u.name} `))), attachmentIds: files.value.map(f => f.data.id), replyToMessageId: replyTo.value?.id || null, clientMessageId: newMessageId() }
+  const payload = retryPayload.value || { content: outgoingContent(), mentionAll:mentionIds.value.includes('__all__') && content.value.includes('@所有人 '), mentionedUserIds: mentionIds.value.filter(id => group.eligibleUsers.some(u => u.id === id && content.value.includes(`@${u.name} `))), attachmentIds: files.value.map(f => f.data.id), replyToMessageId: replyTo.value?.id || null, clientMessageId: newMessageId() }
   try {
     const message = await createProjectChatMessage(props.projectId, payload, props.projectType)
     retryPayload.value = null; content.value = ''; files.value = []; imageQueue.clear(); replyTo.value = null; mentionIds.value = []

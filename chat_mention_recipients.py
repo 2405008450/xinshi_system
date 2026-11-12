@@ -8,7 +8,7 @@ def resolve_mentions(db, kind, conversation_id, sender, explicit=(), mention_all
     members = ({uid for uid, in db.query(ChatDirectMember.user_id).filter_by(conversation_id=conversation_id)}
                if kind == 'direct' else member_ids(db, kind, conversation_id))
     requested = set(explicit or ()) - {sender.id}
-    if kind in ('discussion', 'direct') and not requested.issubset(members):
+    if not requested.issubset(members):
         raise HTTPException(422, '只能提及当前会话成员')
     if mention_all:
         requested |= members - {sender.id}

@@ -93,7 +93,7 @@ function applyQuoteMention(result){content.value=result.content;automaticQuoteMe
 async function quoteMessage(message){if(sending.value||retryPayload.value)return;const result=quoteSpeakerMention({content:content.value,selectedUsers:selectedMentionPeople(),automatic:automaticQuoteMention.value,message,currentUserId,users:mentionUsers.value});replyTo.value=message;applyQuoteMention(result);await nextTick();input.value?.focus()}
 function cancelQuote(){if(sending.value||retryPayload.value)return;applyQuoteMention(clearAutomaticQuoteMention(content.value,selectedMentionPeople(),automaticQuoteMention.value));replyTo.value=null}
 watch(replyTo,value=>{if(!value&&automaticQuoteMention.value)applyQuoteMention(clearAutomaticQuoteMention(content.value,selectedMentionPeople(),automaticQuoteMention.value))})
-async function loadMentionUsers(){try{const group=await chatRequest(`${base}/group`);mentionUsers.value=[...(group.eligibleUsers||[]),...(group.invitableUsers||[]).map(person=>({...person,outside:true}))]}catch{mentionUsers.value=[]}}
+async function loadMentionUsers(){try{const group=await chatRequest(`${base}/group`);mentionUsers.value=group.eligibleUsers||[]}catch{mentionUsers.value=[]}}
 const canSend = computed(() => !screenshotUploading.value && !sending.value && (!!retryPayload.value || !!content.value.trim()))
 const base = `discussions/${props.projectId}`
 let disposed = false, reading = false, requestVersion = 0, controller, pollTimer, searchTimer, readVersion = '0'

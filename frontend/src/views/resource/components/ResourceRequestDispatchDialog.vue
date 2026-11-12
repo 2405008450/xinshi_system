@@ -61,6 +61,8 @@ import { associatedProject, createAssociatedProjectLoader } from '@/utils/associ
 import { fetchAssociatedProject } from '@/api/associatedProjectDetail'
 import { arrangementProjectRoute } from '@/utils/resourceArrangements'
 import { chatOverlayZIndex } from '@/utils/chatOverlay'
+import { getAnnotationProject } from '@/api/annotationProjects'
+import { getProject } from '@/api/projects'
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { formatBusinessDateTime as formatTime } from '@/utils/dateTime'
 const props=defineProps({batchId:{type:String,default:''}})
@@ -83,7 +85,21 @@ function closeDetails(){projectOpen.value=false;requestOpen.value=false;projectL
 function loadProject(){requestOpen.value=false;if(projectTarget.value)projectLoader.load(projectTarget.value)}
 async function loadRequest(){projectOpen.value=false;cancelRequest();const current=requestSequence;requestController=new AbortController();requestLoading.value=true;requestError.value='';requestDetail.value=null;try{const value=await getResourceRequest(requestId.value,{signal:requestController.signal});if(current===requestSequence)requestDetail.value=value}catch(e){if(current===requestSequence&&e.code!=='ERR_CANCELED')requestError.value=e.detail||e.message||'读取需求详情失败'}finally{if(current===requestSequence)requestLoading.value=false}}
 function enterProject(){if(!projectTarget.value)return;const target=projectTarget.value;closeDetails();emit('close');router.push(arrangementProjectRoute({source_type:target.sourceType,project_id:target.projectId}))}
-async function enterChat(){if(!canEnterChat.value)return;const target=projectTarget.value;const session={projectId:target.projectId,projectType:target.sourceType,title:data.value.snapshot.currentProjectName||data.value.snapshot.sourceProjectNameSnapshot,subtitle:orderNo.value,projectStatus:data.value.snapshot.currentProjectStatus||data.value.snapshot.sourceStatusSnapshot||'',syncSidebar:true};closeDetails();emit('close');await nextTick();dock.openChat(session)}
+async function enterChat(){
+  if(!canEnterChat.value||busy.value||loading.value)return
+  const target={...projectTarget.value}, expectedOrder=orderNo.value, batch=props.batchId, seq=sequence
+  busy.value=true;error.value=''
+  try{
+    const detail=await (target.sourceType==='annotation'?getAnnotationProject:getProject)(target.projectId)
+    if(seq!==sequence||batch!==props.batchId)return
+    if(!detail.id||String(detail.id)!==target.projectId)throw Error('项目身份校验失败，请重新打开需求通知')
+    if(expectedOrder!=='-'&&detail.orderNo!==expectedOrder)throw Error('需求通知的订单号与关联项目不一致，请核对需求关联项目后再进入会话')
+    const session={projectId:target.projectId,projectType:target.sourceType,title:detail.projectName,subtitle:detail.orderNo,projectStatus:detail.projectStatus||'',syncSidebar:true}
+    closeDetails();emit('close');await nextTick();dock.openChat(session)
+  }catch(e){if(seq===sequence)error.value=e.detail||e.message||'读取项目失败，请重试'}
+  finally{busy.value=false}
+}
+
 const executionForm=ref()
 const repliesByUser=computed(()=>{const result=new Map();for(const reply of data.value?.executionReplies || []){if(!result.has(reply.userId))result.set(reply.userId,[]);result.get(reply.userId).push(reply)}return result})
 const recipientReplies=id=>repliesByUser.value.get(id)||[]

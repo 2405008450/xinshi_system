@@ -39,7 +39,7 @@ def setup_discussion(db,users):
     db.add_all([DiscussionMember(room_id=room.id,user_id=user.id,last_read_id=0,pinned=False,starred=False) for user in users[:2]]);db.commit();return room.id
 
 
-def test_discussion_mentions_all_and_explicit_invite_idempotency_read_recall(chat_env):
+def test_discussion_mentions_all_and_outsider_rejection_idempotency_read_recall(chat_env):
     db,(sender,receiver,outsider)=chat_env
     from models import AppNotification
     from discussion_chat_models import DiscussionMention,DiscussionMember
@@ -67,9 +67,16 @@ def test_discussion_mentions_all_and_explicit_invite_idempotency_read_recall(cha
     assert next(row for row in service.catalog(db,receiver) if row['project_id']==str(room))['mention_unread']==0
     recall(room,int(result['id']),db,sender)
     assert list_mentions(db,receiver,project_type='discussion')['total']==0
-    explicit=service.send(db,sender,room,MessageCreate(content='@outsider 请查看',mentioned_user_ids=[outsider.id],client_message_id=uuid4()))
-    assert db.get(DiscussionMember,(room,outsider.id)) and len(explicit['mentions'])==1
-    assert list_mentions(db,outsider,project_type='discussion')['total']==1
+    before_notifications = db.query(AppNotification).count()
+    from discussion_chat_models import DiscussionMessage
+    before_messages = db.query(DiscussionMessage).count()
+    with pytest.raises(HTTPException) as error:
+        service.send(db,sender,room,MessageCreate(content='@outsider 请查看',mentioned_user_ids=[outsider.id],client_message_id=uuid4()))
+    assert error.value.status_code == 422
+    assert not db.get(DiscussionMember,(room,outsider.id))
+    assert db.query(DiscussionMessage).count() == before_messages
+    assert db.query(AppNotification).count() == before_notifications
+    assert list_mentions(db,outsider,project_type='discussion')['total']==0
     with pytest.raises(HTTPException):service.send(db,sender,room,MessageCreate(content='非法目标',mentioned_user_ids=[uuid4()],client_message_id=uuid4()))
 
 
@@ -178,3 +185,60 @@ def test_translation_all_uses_existing_members_and_keeps_individual_limit(chat_e
     assert db.query(ChatProjectMention).filter_by(message_id=message.id,mentioned_user_id=receiver.id).count()==1
     assert not db.get(ChatProjectMemberPref,(project.id,outsider.id))
     with pytest.raises(ValueError):service._normalize_mentioned_user_ids(sender.id,mentioned_user_ids=[uuid4() for _ in range(21)])
+
+
+@pytest.mark.parametrize('kind', ['annotation', 'translation', 'discussion', 'direct'])
+@pytest.mark.parametrize('mention_all', [False, True])
+def test_explicit_outsider_rejected_even_when_combined_with_all(kind, mention_all, chat_env):
+    db, (sender, receiver, outsider) = chat_env
+    from chat_mention_recipients import resolve_mentions
+    from chat_access_service import MEMBERS
+    from models import TranslationProject, ChatDirectConversation, ChatDirectMember
+    from annotation_models import AnnotationProject
+    if kind == 'discussion':
+        cid = setup_discussion(db, [sender, receiver, outsider])
+        model, column = MEMBERS[kind]
+    elif kind == 'direct':
+        row = ChatDirectConversation(id=uuid4(), user_low_id=min(sender.id, receiver.id), user_high_id=max(sender.id, receiver.id))
+        db.add(row); db.flush(); cid = row.id
+        model, column = ChatDirectMember, ChatDirectMember.conversation_id
+    else:
+        row = (AnnotationProject(id=uuid4(), order_no='AP-BOUNDARY', project_name='边界测试') if kind == 'annotation' else TranslationProject(id=uuid4(), order_no='T-BOUNDARY', project_name='边界测试'))
+        db.add(row); db.flush(); cid = row.id
+        model, column = MEMBERS[kind]
+    if kind != 'discussion':
+        db.add_all([model(**{column.key: cid, 'user_id': person.id}) for person in [sender, receiver]])
+        db.commit()
+    with pytest.raises(HTTPException) as error:
+        resolve_mentions(db, kind, cid, sender, [receiver.id, outsider.id], mention_all)
+    assert error.value.status_code == 422
+    assert db.get(model, (cid, outsider.id)) is None
+    assert resolve_mentions(db, kind, cid, sender, [receiver.id], mention_all) == [receiver.id]
+
+
+@pytest.mark.parametrize('kind', ['annotation', 'translation'])
+@pytest.mark.parametrize('mention_all', [False, True])
+def test_project_send_rejects_outsider_before_persisting_message(kind, mention_all, chat_env):
+    db, (sender, receiver, outsider) = chat_env
+    from models import TranslationProject, ChatProjectEnabled, ChatProjectMessage, AppNotification
+    from annotation_models import AnnotationProject
+    from chat_access_service import MEMBERS
+    from schemas import AnnotationProjectChatMessageCreate
+    import annotation_chat_service
+    import project_chat_crud
+    row = (AnnotationProject(id=uuid4(), order_no='AP-REJECT', project_name='边界测试') if kind == 'annotation' else TranslationProject(id=uuid4(), order_no='T-REJECT', project_name='边界测试'))
+    db.add(row); db.flush()
+    if kind == 'translation': db.add(ChatProjectEnabled(id=uuid4(), project_id=row.id, enabled=True))
+    model, column = MEMBERS[kind]
+    db.add_all([model(**{column.key: row.id, 'user_id': person.id}) for person in [sender, receiver]])
+    db.commit()
+    before_messages, before_notices = db.query(ChatProjectMessage).count(), db.query(AppNotification).count()
+    with pytest.raises(HTTPException) as error:
+        if kind == 'annotation':
+            annotation_chat_service.send_message(db, row.id, sender, AnnotationProjectChatMessageCreate(content='@outsider', mentioned_user_ids=[outsider.id], mention_all=mention_all, client_message_id=uuid4()))
+        else:
+            project_chat_crud.create_project_chat_message(db, row.id, sender, '@outsider', mentioned_user_ids=[outsider.id], mention_all=mention_all, client_message_id=uuid4())
+    assert error.value.status_code == 422
+    assert db.get(model, (row.id, outsider.id)) is None
+    assert db.query(ChatProjectMessage).count() == before_messages
+    assert db.query(AppNotification).count() == before_notices

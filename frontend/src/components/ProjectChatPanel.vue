@@ -651,12 +651,11 @@ const mentionProject = useAnnotationMentionManagers(computed(() => props.project
 const mentionUserGroups = computed(() => {
   const users = [{ id:'__all__',full_name:'所有人',all:true },
     ...userOptions.value.filter(user => String(user.id) !== currentUserId && memberUserIds.value.includes(String(user.id))).map(user => ({ ...user, outside: false })),
-    ...userOptions.value.filter(user => String(user.id) !== currentUserId && !memberUserIds.value.includes(String(user.id))).map(user => ({ ...user, outside: true })),
   ]
   const ordered = projectMentionOrder(users, props.projectType === 'annotation' ? mentionProject.value : null)
   const groups = new Map()
   for (const user of ordered) {
-    const label = user.mentionSection || (user.all ? '群组提醒' : user.outside ? '未参与人员 · 发送后自动加入' : '群组参与人')
+    const label = user.mentionSection || (user.all ? '群组提醒' : '群组参与人')
     if (!groups.has(label)) groups.set(label, { label, users: [] })
     groups.get(label).users.push(user)
   }
@@ -1280,7 +1279,7 @@ const ensureUsersLoaded = async () => {
     const data = await chatRequest(`conversations/${props.projectType}/${props.projectId}/participants`)
     if (version !== userOptionsVersion) return
     memberUserIds.value = data.members.map(user => String(user.id))
-    userOptions.value = [...data.members, ...data.eligibleUsers].map(user => ({ ...user, full_name: user.name, username: user.name }))
+    userOptions.value = data.members.map(user => ({ ...user, full_name: user.name, username: user.name }))
   } catch (error) { console.error('加载会话人员失败', error) }
 }
 

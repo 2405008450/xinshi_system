@@ -6,6 +6,8 @@ export function applySessionCategories(data) {
   if (data?.ready) {
     // 分类只停用不删除，保留较新修订，避免较早的轮询响应覆盖刚保存的结果。
     const rows = new Map(sessionCategories.items.map(row => [row.id, row]))
+    const visibleIds = new Set((data.items || []).map(row => row.id))
+    for (const id of rows.keys()) if (!visibleIds.has(id)) rows.delete(id)
     if (sessionCategories.technicalAccess && !data.technicalAccess) rows.clear()
     for (const row of data.items || []) if (!rows.has(row.id) || rows.get(row.id).revision <= row.revision) rows.set(row.id, row)
     Object.assign(sessionCategories, data, { technicalAccess: !!data.technicalAccess, items: [...rows.values()], loaded: true })

@@ -180,9 +180,8 @@ def send_message(db, project_id, user, payload, *, commit=True, max_mentions=20)
         if not can_view(db, db.get(AppUser, user_id)):
             raise HTTPException(400, '提及的用户无项目查看权限或已停用')
     all_members = bool(getattr(payload, 'mention_all', False))
-    if all_members:
-        from chat_mention_recipients import resolve_mentions
-        mention_ids = set(resolve_mentions(db, 'annotation', project_id, user, mention_ids, True))
+    from chat_mention_recipients import resolve_mentions
+    mention_ids = set(resolve_mentions(db, 'annotation', project_id, user, mention_ids, all_members))
     ensure_default_members(db, project_id)
     member = add_member(db, project_id, user.id)
     if not member.explicit_unfollow:

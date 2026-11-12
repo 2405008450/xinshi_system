@@ -1,0 +1,33 @@
+/* 消息侧栏统一采用灰蓝中性色，分类色保留给分组树。 */
+.chat-workspace__sessions{--chat-sidebar-border:#e3e9f0;--chat-sidebar-bg:#f7f9fc;--chat-hover-bg:#eff3f8;--chat-active-bg:#e8eef6;background:var(--chat-sidebar-bg);border-color:var(--chat-sidebar-border)}
+.chat-workspace__brand{height:48px;padding:0 16px;color:#334155}
+.chat-workspace__brand strong{font-size:14px;letter-spacing:.04em}
+.chat-workspace__split-tools{padding:0 12px 6px}
+.chat-workspace__split-tools button{color:#7a8ba0;font-size:11px;border-radius:5px}
+.chat-workspace__split-tools button:hover{color:#405b7b;background:#eaf0f7}
+.chat-workspace__session-tools{gap:6px;padding:6px 12px 8px}
+.chat-workspace__session-tools :deep(.el-input__wrapper),.chat-workspace__session-tools :deep(.el-select__wrapper){border-radius:7px;box-shadow:0 0 0 1px #dce5ef inset;background:#fff}
+.chat-workspace__filter{border-color:#dce5ef;border-radius:7px;color:#526882;background:#fff}
+.chat-workspace__filter:hover,.chat-workspace__filter.is-active{border-color:#afc0d3;background:#eef3f9;color:#334e6c}
+.chat-workspace__annotation-filters{padding:0 12px 10px;border-color:var(--chat-sidebar-border)}
+.chat-workspace__annotation-filters>div{padding:3px;border-radius:8px;background:#eaf0f6}
+.chat-workspace__annotation-filters button{border-radius:6px;color:#6b7d92}
+.chat-workspace__annotation-filters button.is-active{color:#334e6c;background:#fff;box-shadow:0 1px 3px #33415512}
+.chat-workspace__recent-closed{padding:5px 12px;border-color:var(--chat-sidebar-border);background:#f1f5f9}
+.chat-workspace__recent-closed>.el-popover__reference,.chat-workspace__recent-closed :deep(.el-button){color:#6b7d92;font-size:11px}
+.chat-workspace__list{padding:6px 10px 10px;scrollbar-width:thin;scrollbar-color:#c8d3df transparent;overflow-anchor:none}
+.chat-workspace__session{margin-bottom:4px;padding:11px 10px;border:1px solid transparent;border-radius:8px;background:#fff;transition:border-color .12s ease}
+.chat-workspace__session:nth-child(even){background:#f2f6fa}
+.chat-workspace__session:hover{background:#eff3f8;border-color:#cbd7e5}
+.chat-workspace__session.is-pinned{background:#edf2f8}
+.chat-workspace__session.is-active{background:#e8eef6;border-color:#a9bbd0;box-shadow:inset 3px 0 #526d8c}
+.chat-workspace__avatar{background:#e8eef6;color:#526882;border:1px solid #dce5ef;border-radius:9px}
+.chat-workspace__avatar--annotation{background:#eaf3ed;color:#4c7460;border-color:#d7e6dc}
+.chat-workspace__avatar--direct{background:#f0edf7;color:#75648e;border-color:#e2dced;border-radius:50%}
+.chat-workspace__session-title strong{color:#334155;font-size:13px}
+.chat-session-preview{color:#748499}
+.chat-workspace__rail{background:#eff3f8;border-color:#e3e9f0}
+.chat-workspace__rail button{border-radius:8px;color:#6b7d92}
+.chat-workspace__rail button.is-active{color:#334e6c;box-shadow:0 1px 3px #33415512}
+.chat-workspace--mobile .chat-workspace__session{margin-bottom:0;border-radius:0;border-width:0 0 1px;border-color:#eaf0f6}
+.chat-workspace--mobile .chat-workspace__session.is-active{box-shadow:inset 3px 0 #526d8c}

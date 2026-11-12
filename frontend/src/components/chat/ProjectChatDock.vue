@@ -364,7 +364,9 @@ function onChatAccessGranted(event) {
 function onChatAccessDenied(event) {
   const key = `${event.detail.projectType}:${event.detail.projectId}`
   const matches = state.windows.filter(row => (row.conversationKey || row.key) === key)
+  const deniedActive = matches.some(item => item.key === state.activeKey)
   for (const item of matches) closeChat(item.key, { recordRecent: false })
+  if (deniedActive) { state.activeKey = ''; ElMessage.error('该会话不可访问或已删除，请选择其他会话') }
   state.recentClosedSessions = state.recentClosedSessions.filter(item => !(item.sessionKeys || [item.key]).includes(key))
   refreshFollowed()
 }

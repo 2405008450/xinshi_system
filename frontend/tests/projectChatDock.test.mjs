@@ -578,22 +578,22 @@ test('固定小窗只显示当前会话，重新进入大屏再还原不展开�
 })
 
 
-test('@候选按群内与未参与分区，重名用户按 ID 保持独立且搜索不中断分区', () => {
+test('@候选只显示群成员，即使群外人员重名也不能出现在搜索结果', () => {
   const segment = annotationChat.slice(annotationChat.indexOf('const mentionCandidates = computed'), annotationChat.indexOf('let mentionTrigger'))
   const group = {members:[{id:'a',name:'甲'}], eligibleUsers:[{id:'a',name:'甲'}], invitableUsers:[{id:'a',name:'甲'},{id:'b',name:'甲'},{id:'c',name:'乙'}]}
   const result = runInNewContext(segment+';mentionCandidates.value', {projectMentionOrder, props:{projectType:"annotation"}, mentionProject:{value:null}, group, currentUserId:'self', computed:fn=>({value:fn()}),mentionQuery:{value:'甲'},matchesSearch:(name,query)=>name.includes(query)})
-  assert.deepEqual(Array.from(result,row=>[row.id,row.outside]), [['a',false],['b',true]])
+  assert.deepEqual(Array.from(result,row=>[row.id,row.outside]), [['a',false]])
 })
 
 
-test('@候选在群内、群外和搜索结果中均排除本人，重名其他人仍可选择', () => {
+test('@候选排除本人及群外人员，群内重名其他人仍可选择', () => {
   const segment = annotationChat.slice(annotationChat.indexOf('const mentionCandidates = computed'), annotationChat.indexOf('let mentionTrigger'))
   const group = { members: [{id: 1}], eligibleUsers: [{id: 1, name: '同名'}, {id: 2, name: '同名'}], invitableUsers: [{id: 1, name: '同名'}, {id: 3, name: '同名'}] }
   const result = runInNewContext(segment + ';mentionCandidates.value', {projectMentionOrder, props:{projectType:"annotation"}, mentionProject:{value:null}, group, currentUserId: '1', computed: fn => ({value: fn()}), mentionQuery: {value: '同名'}, matchesSearch: (name, query) => name.includes(query)})
-  assert.deepEqual(Array.from(result, row => row.id), [2, 3])
+  assert.deepEqual(Array.from(result, row => row.id), [2])
   const panelSegment = chatPanel.slice(chatPanel.indexOf('const mentionUserGroups = computed'), chatPanel.indexOf('const messages = ref'))
   const groups = runInNewContext(panelSegment + ';mentionUserGroups.value', {projectMentionOrder, props:{projectType:'annotation'}, mentionProject:{value:null}, currentUserId: '1', userOptions: {value: group.eligibleUsers.concat({id: 3, name: '同名'})}, memberUserIds: {value: ['1', '2']}, computed: fn => ({value: fn()})})
-  assert.deepEqual(Array.from(groups, section => Array.from(section.users, user => user.id)), [['__all__'], [2], [3]])
+  assert.deepEqual(Array.from(groups, section => Array.from(section.users, user => user.id)), [['__all__'], [2]])
 })
 
 test('收藏项目名称和沟通按钮使用同一准确项目 ID，详情直接打开项目沟通', () => {
@@ -740,7 +740,31 @@ test('顶部聊天等待窗口挂载后跳转 @我，零未读时进入消息面
 
 
 test('通知重复打开当前会话也会通知侧栏同步，普通会话点击保持原搜索上下文',async()=>{
- const h=createDockHarness();h.dock.openChat({projectId:'a',projectType:'annotation',title:'项目A',subtitle:'AP-A'});await Promise.resolve();assert.equal(h.viewport.events.length,0)
+ const h=createDockHarness();h.dock.openChat({projectId:'a',projectType:'annotation',title:'项目A',subtitle:'AP-A'});await Promise.resolve();assert.equal(h.viewport.events.filter(event=>event.type==='chat-conversation-activated').length,0)
  h.dock.openChat({projectId:'a',projectType:'annotation',title:'项目A',subtitle:'AP-A',syncSidebar:true});await Promise.resolve();await Promise.resolve()
  assert.equal(h.viewport.events.at(-1).type,'chat-conversation-activated');assert.equal(h.viewport.events.at(-1).detail.projectId,'a');h.dock.closeAllChats()
+})
+
+
+test('明确打开项目同步取消默认目录跳转，保持指定类型和ID', () => {
+  const h = createDockHarness()
+  h.dock.openChat({projectId:'other',projectType:'annotation',title:'其他项目',subtitle:'AP-OTHER'})
+  h.viewport.events.length = 0
+  const key = h.dock.openChat({projectId:'target',projectType:'annotation',title:'目标项目',subtitle:'AP-TARGET',syncSidebar:true})
+  assert.equal(h.viewport.events[0].type, 'chat-conversation-opening')
+  assert.equal(h.viewport.events[0].detail.projectId, 'target')
+  assert.equal(h.dock.state.activeKey, key)
+  assert.equal(h.dock.state.windows.find(row=>row.key===key).projectId, 'target')
+})
+
+test('已有明确会话时，延迟目录响应不能自动打开第一条其他项目', () => {
+  const fragment = workspace.slice(workspace.indexOf('function openContextFirst()'), workspace.indexOf('function openContextConversations'))
+  let opens = 0
+  runInNewContext(fragment + ';openContextFirst()', {
+    pendingContextFolder:'annotation-folder', props:{activeKey:'annotation:target'},
+    pane:{value:'messages'}, selectedFolder:{value:'annotation-folder'},
+    visibleSessions:{value:[{key:'annotation:wrong',opened:false}]},
+    emit:()=>opens++, nextTick:()=>{},sessionList:{value:null},
+  })
+  assert.equal(opens,0)
 })

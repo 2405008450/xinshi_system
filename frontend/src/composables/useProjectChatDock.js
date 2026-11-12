@@ -278,6 +278,8 @@ const activateWorkspace = (key) => {
 
 const openChat = ({ projectId, projectType = 'translation', title = '', subtitle = '', messageId = '', projectStatus = '', allowDuplicate = false, syncSidebar = false, deletionProtected = false }) => {
   if (!projectId) return null
+  // 在响应式目录刷新之前取消等待中的默认会话跳转。
+  window.dispatchEvent(new CustomEvent('chat-conversation-opening', { detail: { projectType, projectId: String(projectId) } }))
   ensurePreferences()
   const announce=()=>syncSidebar&&nextTick(()=>{const active=state.windows.find(row=>row.key===state.activeKey);if(active?.projectType===projectType&&active?.projectId===String(projectId))window.dispatchEvent(new CustomEvent('chat-conversation-activated',{detail:{projectType,projectId:String(projectId)}}))})
   const conversationKey = `${projectType}:${projectId}`

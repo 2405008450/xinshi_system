@@ -879,6 +879,11 @@ def create_project_chat_message(
         reply = db.query(ChatProjectMessage).filter_by(id=reply_to_message_id, project_id=project_id).first()
         if not reply or reply.recalled_at:
             raise ValueError('引用消息不存在或已撤回')
+    if message_type == 'user':
+        from chat_mention_recipients import resolve_mentions
+        mentioned_user_ids = resolve_mentions(db, 'translation', project_id, sender,
+            [*(mentioned_user_ids or []), *([mentioned_user_id] if mentioned_user_id else [])], mention_all)
+        mentioned_user_id = None
     normalized_json = normalize_rich_text_json(content_json)
     if normalized_json and len(json.dumps(normalized_json, ensure_ascii=False)) > 100000:
         raise ValueError('消息内容过长')
@@ -927,10 +932,6 @@ def create_project_chat_message(
         )
 
     if mention_all and message_type == 'user':
-        from chat_mention_recipients import resolve_mentions
-        mentioned_user_ids = resolve_mentions(db, 'translation', project_id, sender,
-            [*(mentioned_user_ids or []), *([mentioned_user_id] if mentioned_user_id else [])], True)
-        mentioned_user_id = None
         message.event_data = {**(message.event_data or {}), 'mention_all': True}
     mention_users = _create_chat_mentions(
         db,

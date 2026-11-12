@@ -9,7 +9,7 @@
     <DiscussionFileReferences :text="modelValue" :room-id="roomId" removable @remove="removeFile" />
     <el-input ref="field" :show-screenshot-tools="false" :model-value="textValue" type="textarea" :rows="3" resize="none" maxlength="10000" placeholder="输入讨论消息，@ 提及人员或所有人" :disabled="disabled" @update:model-value="updateText" @uploading-change="$emit('uploading-change',$event)" @input="changed" @click="changed" @keydown="keydown" @compositionstart="composing=true;open=false" @compositionend="composing=false;changed()" @blur="open=false" />
     <div v-if="open" class="discussion-mention-menu" role="listbox" aria-label="选择讨论提及人员" @mousedown.prevent>
-      <p>@所有人仅提醒当前会话成员</p><button v-for="(person,index) in candidates" :key="person.id" type="button" role="option" :aria-selected="index===selected" :class="{'is-active':index===selected}" @mouseenter="selected=index" @click="choose(person)"><span>{{person.name}}</span><small v-if="person.all">当前会话所有人</small><small v-else-if="person.outside">发送后加入会话</small><ChatDesktopPresence v-if="!person.all" :online="presence[person.id]" :loading="presenceLoading" /></button><small v-if="!candidates.length">没有匹配的人员</small>
+      <p>@所有人仅提醒当前会话成员</p><button v-for="(person,index) in candidates" :key="person.id" type="button" role="option" :aria-selected="index===selected" :class="{'is-active':index===selected}" @mouseenter="selected=index" @click="choose(person)"><span>{{person.name}}</span><small v-if="person.all">当前会话所有人</small><ChatDesktopPresence v-if="!person.all" :online="presence[person.id]" :loading="presenceLoading" /></button><small v-if="!candidates.length">没有匹配的人员</small>
     </div>
   </div>
 </template>
@@ -49,7 +49,7 @@ function removeFile(id){emit('update:modelValue',props.modelValue.replace(`[附�
 const current=localStorage.getItem('user_id')||''
 let trigger=-1
 const mentioned=(text,name)=>{const token=`@${name}`;for(let at=text.indexOf(token);at>=0;at=text.indexOf(token,at+1)){if(!/^[\p{L}\p{N}_]/u.test(text.slice(at+token.length,at+token.length+1)))return true}return false}
-const candidates=computed(()=>[{id:'__all__',name:'所有人',all:true},...props.users.filter(person=>person.id!==current)].filter(person=>matchesSearch(person.name,query.value)))
+const candidates=computed(()=>[{id:'__all__',name:'所有人',all:true},...props.users.filter(person=>String(person.id)!==String(current)&&!person.outside)].filter(person=>matchesSearch(person.name,query.value)))
 const {statuses:presence,loading:presenceLoading}=useDesktopPresence(computed(()=>candidates.value.filter(person=>!person.all).map(person=>person.id)),open)
 watch([()=>props.selectedUsers,()=>props.modelValue],([selectedUsers,value])=>{
   // 文本与外部选人状态同一轮更新；保留本控件刚选中的人员，避免互相覆盖。

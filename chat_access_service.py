@@ -47,21 +47,11 @@ def require_member(db, kind, conversation_id, user):
 
 
 def invite_mentioned_users(db, kind, conversation_id, actor, targets, baseline=0):
-    """显式提及的非成员在消息事务内加入；发信失败时一并回滚。"""
+    """兼容旧调用名称，仅校验成员资格；提及不得隐式邀请入群。"""
     require_member(db, kind, conversation_id, actor)
+    existing = member_ids(db, kind, conversation_id)
+    if any(target.id not in existing for target in targets):
+        raise ValueError('只能提及当前会话成员，请先通过添加成员邀请入群')
     import annotation_chat_service as annotation
     if any(not annotation.can_view(db, target) for target in targets):
         raise ValueError('被提及的用户已停用或没有项目沟通权限')
-    existing = member_ids(db, kind, conversation_id)
-    for target in targets:
-        if target.id in existing:
-            continue
-        if kind == 'annotation':
-            annotation.add_member(db, conversation_id, target.id, baseline=baseline)
-        else:
-            from sqlalchemy.dialects.postgresql import insert as pg_insert
-            from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-            insert_member = pg_insert if db.get_bind().dialect.name == 'postgresql' else sqlite_insert
-            db.execute(insert_member(ChatProjectMemberPref).values(project_id=conversation_id, user_id=target.id,
-                last_read_sequence=baseline, pinned=False, starred=False).on_conflict_do_nothing())
-    db.flush()

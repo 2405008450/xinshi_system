@@ -214,22 +214,20 @@ def test_migration_is_repeatable_preserves_existing_members_and_does_not_readmit
 
 
 @pytest.mark.parametrize('kind', ['annotation', 'translation'])
-def test_explicit_mention_invites_nonmember_atomically_and_retains_unread(kind, environment):
+def test_explicit_mention_cannot_invite_nonmember(kind, environment):
     db, (owner, member, outsider) = environment
-    from chat_access_service import MEMBERS, invite_mentioned_users, require_member
+    from chat_access_service import MEMBERS, invite_mentioned_users
     from models import TranslationProject
     row = project(db, owner) if kind == 'annotation' else TranslationProject(id=uuid4(), order_no='T-MENTION', project_name='隔离测试', created_by=owner.id)
     if kind == 'translation': db.add(row); db.flush()
     model, column = MEMBERS[kind]
-    db.add(model(**{column.key: row.id, 'user_id': owner.id})); db.commit()
+    db.add_all([model(**{column.key: row.id, 'user_id': person.id}) for person in [owner, member]])
+    db.commit()
     invite_mentioned_users(db, kind, row.id, owner, [member], baseline=7)
-    assert db.get(model, (row.id, member.id)).last_read_sequence == 7
-    require_member(db, kind, row.id, member)
-    db.rollback()
-    assert db.get(model, (row.id, member.id)) is None
-    outsider.is_active = False; db.commit()
-    with pytest.raises(ValueError): invite_mentioned_users(db, kind, row.id, owner, [member, outsider], baseline=7)
-    assert db.get(model, (row.id, member.id)) is None
+    with pytest.raises(ValueError, match='只能提及当前会话成员'):
+        invite_mentioned_users(db, kind, row.id, owner, [member, outsider], baseline=7)
+    assert db.get(model, (row.id, outsider.id)) is None
+    assert db.query(model).filter(column == row.id).count() == 2
 
 
 @pytest.mark.parametrize('kind', ['annotation', 'translation', 'discussion'])
@@ -258,13 +256,13 @@ def test_remove_and_leave_revoke_access_and_cannot_remove_self(kind, environment
     with pytest.raises(HTTPException): routes.conversation_leave(kind, cid, db, owner)
 
 
-def test_message_mention_itself_joins_target_and_is_unread(environment, monkeypatch):
+def test_message_mention_only_notifies_existing_member_and_is_unread(environment, monkeypatch):
     db, (owner, member, outsider) = environment
     from models import AnnotationChatMember, ChatProjectMessage, ChatProjectMention
     import project_chat_crud as crud
     from routers.chat_sessions import summaries
     row = project(db, owner)
-    db.add(AnnotationChatMember(project_id=row.id, user_id=owner.id, last_read_sequence=0)); db.commit()
+    db.add_all([AnnotationChatMember(project_id=row.id, user_id=person.id, last_read_sequence=0) for person in [owner, member]]); db.commit()
     message = ChatProjectMessage(id=uuid4(), annotation_project_id=row.id, sender_user_id=owner.id, sender_name='owner', content='@member 测试', message_type='user', sequence_no=8)
     db.add(message); db.flush()
     # 内存表不带生产 PG 的 UUID 默认值。
@@ -273,7 +271,27 @@ def test_message_mention_itself_joins_target_and_is_unread(environment, monkeypa
     db.flush()
     assert [target.id for target in users] == [member.id]
     membership = db.get(AnnotationChatMember, (row.id, member.id))
-    assert membership.last_read_sequence == 7
+    assert membership.last_read_sequence == 0
     stats = summaries(db, ChatProjectMessage.annotation_project_id, [row.id], {row.id: membership.last_read_sequence}, member.id)
     assert stats[row.id]['mention_unread'] == 1
     assert db.get(AnnotationChatMember, (row.id, outsider.id)) is None
+
+    with pytest.raises(ValueError, match='只能提及当前会话成员'):
+        crud._create_chat_mentions(db, message, owner, mentioned_user_ids=[outsider.id])
+    assert db.get(AnnotationChatMember, (row.id, outsider.id)) is None
+
+
+def test_category_catalog_hides_rooms_of_other_participants(environment, monkeypatch):
+    db, (owner, member, outsider) = environment
+    from chat_session_category_models import ChatSessionCategory, ChatSessionCategoryFolder
+    from discussion_chat_models import DiscussionMember
+    import chat_session_category_service as service
+    from discussion_chat_service import ANNOTATION_ROOT
+    room = ChatSessionCategory(id=uuid4(), name='目录权限测试', active=True, revision=1, updated_by=owner.id)
+    db.add(room); db.flush()
+    db.add(ChatSessionCategoryFolder(category_id=room.id, parent_key=ANNOTATION_ROOT))
+    db.add(DiscussionMember(room_id=room.id, user_id=member.id, last_read_id=0, pinned=False, starred=False))
+    db.commit()
+    assert str(room.id) in {row['id'] for row in service.catalog(db, member)['items']}
+    assert str(room.id) not in {row['id'] for row in service.catalog(db, outsider)['items']}
+    assert str(room.id) not in {row['id'] for row in service.catalog(db, owner)['items']}

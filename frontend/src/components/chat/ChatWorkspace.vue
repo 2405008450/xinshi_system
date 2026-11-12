@@ -52,7 +52,7 @@
               <button type="button" :aria-pressed="annotationMode === 'mention'" :class="{ 'is-active': annotationMode === 'mention' }" @click="annotationMode = 'mention'" @contextmenu="mentionSortMenu?.open($event)" @keydown.shift.f10="mentionSortMenu?.open($event)">@我</button>
             </div>
           </div>
-          <ChatSessionFolderTree ref="folderTreeRef" v-if="annotationMode !== 'direct'" :compact="mobile" :selected="selectedFolder" :active="active" :sessions="allMentionSessions" @select="selectFolder" @unread="openFolderUnread" @changed="emit('categories-changed')" @browse-annotation="annotationPickerVisible = true" @open-conversation="emit('open', $event)" />
+          <ChatSessionFolderTree ref="folderTreeRef" v-if="annotationMode !== 'direct'" :compact="mobile" :selected="selectedFolder" :active="active" :sessions="allMentionSessions" @select="selectFolder" @unread="openFolderUnread" @changed="emit('categories-changed')" @browse-annotation="annotationPickerVisible = true" @open-conversation="openFolderConversation" />
           <div class="chat-workspace__recent-closed">
             <el-popover title="会话详情" v-model:visible="recentClosedVisible" :z-index="recentMenuZ" trigger="click" placement="right-start" :width="300">
               <template #reference><el-button text size="small" @click="prepareRecentMenu">最近关闭（{{ recentInFolder.length }}/10）</el-button></template>
@@ -365,7 +365,8 @@ const searchMode = ref('sessions'), searchRevision = ref(0)
 const searchPlaceholder = computed(() => searchMode.value === 'messages' ? '搜索全部会话的聊天记录' : '搜索全部会话：名称、订单号、消息')
 watch(selectedFolder, value => { try { localStorage.setItem(folderStorageKey, value) } catch { /* 本次选择仍生效。 */ } })
 watch(() => [categories.loaded, ...folderNodes.value.map(row => row.id)], ([loaded]) => { if (loaded && selectedFolder.value && !folderNodes.value.some(row => row.id === selectedFolder.value)) selectedFolder.value = categories.items.find(row => row.id === selectedFolder.value)?.parentKey === resourceFolderId ? resourceFolderId : '' }, { immediate: true })
-function selectFolder(id) { tab.value = 'all'; selectedFolder.value = id }
+function selectFolder(id) { pendingContextFolder = ''; tab.value = 'all'; selectedFolder.value = id }
+function openFolderConversation(session) { pendingContextFolder = ''; pane.value = 'messages'; annotationMode.value = 'group'; tab.value = 'all'; selectedFolder.value = session.projectId; emit('open', session) }
 const mentionSort = ref('time_desc'), mentionSortMenu = ref(null)
 const mentionFilters = computed(() => ({ sort: mentionSort.value }))
 const annotationMode = ref(tab.value === 'direct' ? 'direct' : tab.value === 'mention' ? 'mention' : 'group')
@@ -426,9 +427,12 @@ function syncActiveConversation(context,external=false){
  if(external){pendingContextFolder='';pane.value='messages';keyword.value='';applyKeyword()}
  if(context.projectType==='direct'){annotationMode.value='direct';tab.value='direct';selectedFolder.value=''}
  else{if(annotationMode.value==='direct'||selectedFolder.value&&target!==selectedFolder.value||external&&!showMentions.value){annotationMode.value='group';tab.value='all'}selectedFolder.value=target}
- nextTick(()=>{folderTreeRef.value?.reveal(target);const element=sessionList.value?.querySelector('.chat-workspace__session.is-active');element?.scrollIntoView({block:'nearest'})})
+ if(external)nextTick(()=>{if(selectedFolder.value===target)folderTreeRef.value?.reveal(target)})
 }
-function activateFromOutside(event){nextTick(()=>syncActiveConversation(event.detail||{},true))}
+function cancelPendingContext(){pendingContextFolder=''}
+onMounted(()=>window.addEventListener('chat-conversation-opening',cancelPendingContext))
+onBeforeUnmount(()=>window.removeEventListener('chat-conversation-opening',cancelPendingContext))
+function activateFromOutside(event){const context=event.detail||{};nextTick(()=>{if(props.projectId===String(context.projectId)&&props.projectType===context.projectType)syncActiveConversation(context,true)})}
 watch(()=>[props.activeKey,props.projectId,props.projectType],()=>{if(props.activeKey)syncActiveConversation({projectId:props.projectId,projectType:props.projectType})},{flush:'post'})
 onMounted(()=>window.addEventListener('chat-conversation-activated',activateFromOutside))
 onBeforeUnmount(()=>window.removeEventListener('chat-conversation-activated',activateFromOutside))
@@ -437,6 +441,7 @@ function showSummary(event){pane.value='summary';summaryIssueId.value='';nextTic
 let pendingContextFolder = ''
 function openContextFirst() {
   if (!pendingContextFolder) return
+  if (props.activeKey) { pendingContextFolder = ''; return }
   if (pane.value !== 'messages' || selectedFolder.value !== pendingContextFolder) { pendingContextFolder = ''; return }
   const first = visibleSessions.value[0]
   if (!first) return
@@ -666,3 +671,5 @@ onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventLis
 .chat-workspace__split-handle{position:absolute;right:0;top:0;bottom:0;width:7px;z-index:3;cursor:col-resize;touch-action:none}
 .chat-workspace__split-handle:hover,.chat-workspace__split-handle:focus-visible{background:#bfdbfe;outline:0}
 </style>
+
+<style scoped src="./chatSidebar.css" />

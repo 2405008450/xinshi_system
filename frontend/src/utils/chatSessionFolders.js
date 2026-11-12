@@ -27,6 +27,7 @@ export function sessionMatchesFolder(session, id, nodes) {
   const type = session.projectType || session.kind
   if (id === resourceFolderId && type === 'discussion') return !session.subtitle || session.subtitle === '资源开拓讨论'
   const matches = row => {
+    if (row.isConversation && type === 'discussion' && String(session.projectId) === row.id) return true
     if (session.categoryIds?.includes(row.id)) return true
     if (row.ruleKey?.startsWith('status:')) return type === 'annotation' && normalizeAnnotationStatus(session.projectStatus) === row.ruleKey.slice(7)
     return ['annotation', 'translation', 'interpretation', 'recruitment'].includes(row.ruleKey) && type === row.ruleKey

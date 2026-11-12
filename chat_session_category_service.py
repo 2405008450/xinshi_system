@@ -50,6 +50,10 @@ def catalog(db, user):
     from discussion_chat_service import schema_ready as discussion_ready
     from discussion_chat_models import DiscussionMember
     rooms = {str(room) for room, in db.query(DiscussionMember.room_id).distinct()} if ready and discussion_ready(db) else set()
+    # 目录与消息接口共用参与人及业务范围边界，不能泄露其他人的群聊入口。
+    from discussion_chat_service import visible_room_specs
+    member_rooms = {str(room) for room, in db.query(DiscussionMember.room_id).filter_by(user_id=user.id)} if ready and discussion_ready(db) else set()
+    accessible_rooms = {row['id'] for row in visible_room_specs(db, user)} & member_rooms if rooms else set()
     from technical_task_conversations import can_access, restricted_ids, specs
     technical_access=can_access(db,user)
     hidden=set() if technical_access else restricted_ids(db)
@@ -59,7 +63,7 @@ def catalog(db, user):
     titles={**translation_aliases(db),**project_aliases(db)}
     return dict(ready=ready, hierarchy_ready=hierarchy_ready, can_manage=ready and can_manage_folders(db, user), technical_access=technical_access,
                 items=[dict(serialize(row), name=titles.get(str(row.id),task_rooms.get(str(row.id),{}).get('name',row.name)), parent_key=task_rooms.get(str(row.id),{}).get('parent_key',parents.get(str(row.id))), is_conversation=str(row.id) in rooms, deletion_protected=str(row.id) in titles, fixed_top=row.name=='技术/开发沟通')
-                       for row in db.query(Category).order_by(Category.created_at, Category.id) if row.id not in hidden] if ready else [])
+                       for row in db.query(Category).order_by(Category.created_at, Category.id) if row.id not in hidden and (str(row.id) not in rooms or str(row.id) in accessible_rooms)] if ready else [])
 
 
 def validate_parent(db, parent_key, *, conversation=False):

@@ -4,6 +4,8 @@ export function activeConversationFolder(session,nodes,current=''){
  if(type==='direct')return ''
  const resource=type==='discussion'&&(session.subtitle==='资源开拓讨论'||resourceDiscussionIds.includes(String(session.projectId)))
  if(current&&!(type==='discussion'&&current===resourceFolderId&&!resource)&&sessionMatchesFolder(session,current,nodes))return current
+ const own=type==='discussion'&&nodes.find(row=>row.isConversation&&row.id===String(session.projectId))
+ if(own)return own.id
  const categories=session.categoryIds||[]
  const category=nodes.find(row=>categories.includes(row.id))
  if(category){let root=category;const seen=new Set();while(root.parentKey&&!seen.has(root.id)){seen.add(root.id);const parent=nodes.find(row=>row.id===root.parentKey);if(!parent)break;root=parent}return root.id}
