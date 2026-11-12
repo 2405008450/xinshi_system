@@ -1,6 +1,6 @@
 <template>
   <el-button v-if="canWrite" @click="open">对账单设置</el-button>
-  <DraggableFormDialog v-model="visible" class="statement-settings-dialog" append-to-body width="min(760px, calc(100vw - 32px))" top="5vh" :before-close="close" :close-on-click-modal="false">
+  <DraggableFormDialog v-model="visible" class="statement-settings-dialog" data-auto-draft="off" append-to-body width="min(760px, calc(100vw - 32px))" top="5vh" :before-close="close" :close-on-click-modal="false">
     <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" title="对账单设置" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
     <div ref="body" v-loading="loading||saving">
       <p>公司主体、账户信息和印章由所有客户对账单共用，保存后用于新生成的对账单，已有对账单保持原抬头。</p>

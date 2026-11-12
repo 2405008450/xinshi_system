@@ -43,6 +43,26 @@ def test_independent_statistics_keep_finance_price_rollup_without_double_countin
     assert mid['calculated_totals_excl_tax']=={'CNY':'40.00'} and mid['totals_excl_tax']=={'CNY':'38.00'}
     assert not root.customer_charge_items and not middle.customer_charge_items
 
+
+def test_finance_pagination_counts_child_orders_and_keeps_ancestor_context(data):
+    db,actor,root,middle,leaf,document,sibling=data
+    params=dict(db=db,user=actor,payment_project_id=root.id,billing_month=None,limit=2,paginate_children=True)
+    first=finance.page(skip=0,**params)
+    second=finance.page(skip=2,**params)
+    assert first['total']==second['total']==4
+    assert first['pagination_unit']=='child_orders'
+    first_root=first['items'][0];second_root=second['items'][0]
+    assert first_root['id']==second_root['id']==str(root.id)
+    assert first_root['page_index'] is None and second_root['page_index'] is None
+    first_middle=first_root['children'][0];second_middle=second_root['children'][0]
+    assert first_middle['id']==second_middle['id']==str(middle.id)
+    assert first_middle['page_index']==1 and second_middle['page_index'] is None
+    assert [(node['id'],node['page_index']) for node in first_middle['children']]==[(str(leaf.id),2)]
+    assert [(node['id'],node['page_index']) for node in second_middle['children']]==[(str(document.id),3)]
+    assert (second_root['children'][1]['id'],second_root['children'][1]['page_index'])==(str(sibling.id),4)
+    assert first['client_subtotals']==second['client_subtotals']
+    assert first_root['totals_excl_tax']==second_root['totals_excl_tax']=={'CNY':'53.00'}
+
 def test_leaf_edit_updates_all_ancestors_and_parent_http_writes_are_rejected(data):
     db,actor,root,middle,leaf,page,sibling=data
     current=finance.read(db,root.id)
@@ -64,3 +84,71 @@ def test_legacy_parent_override_is_retained_but_not_added_twice(data):
     node=finance.read(db,root.id)['item']
     assert node['totals_excl_tax']=={'CNY':'53.00'} and node['recorded_adjusted_total']=='999'
     assert stored.total_excl_tax==999
+
+
+def test_parent_can_bill_directly_then_return_to_child_rollup(data):
+    db, actor, root, middle, leaf, _, _ = data
+    current = finance.read(db, root.id)
+    switched = finance.save_table_cell(db, actor, root.id, finance.TablePatch(
+        version=current['version'], order_id=middle.id, pricing_mode='fixed'))
+    assert switched['item']['children'][0]['pricing_mode'] == 'fixed'
+    fixed = finance.save_table_cell(db, actor, root.id, finance.TablePatch(
+        version=switched['version'], order_id=middle.id, adjusted_total=70))
+    assert fixed['item']['totals_excl_tax'] == {'CNY': '85.00'}
+    assert fixed['item']['billing_totals'] == {'CNY': '85.00'}
+    inherited = fixed['item']['children'][0]['children'][0]
+    assert inherited['pricing_mode'] == 'fixed' and inherited['fixed_pricing_from'] == middle.sub_order_no
+    assert inherited['prices'] == [] and inherited['totals_excl_tax'] == {}
+    from customer_statements import build_statement
+    statement = build_statement(db, root.id, None, finance.order_billing_month(root.order_no), 'project')
+    assert statement['totals'] == {'CNY': '85.00'}
+    assert str(leaf.id) not in {row['task_id'] for row in statement['rows']}
+
+    # 母订单改为直接按量计费时，使用本单独立填报数量。
+    patch_word_count_matrix(db,'project',root.id,WordCountMatrixPatch(changes=[
+        {'scope':'entity','dimension':'customer','metric_type':'words','value':150}
+    ]),updated_by=actor.id)
+    workload = finance.update(root.id, finance.PriceWrite(
+        version=finance.read(db,root.id)['version'], order_id=root.id, order_pricing_mode='metric',
+        prices=[dict(language_pair=leaf.language_pair, metric='customer_auto:words', amount=1,
+                     currency='CNY', unit_size=1, tax_prices={'unit_price_excl_tax': 1})]), db, actor)
+    assert workload['item']['totals_excl_tax'] == {'CNY': '150.00'}
+    assert workload['item']['billing_totals'] == {'CNY': '150.00'}
+    assert workload['item']['children'][0]['totals_excl_tax'] == {'CNY': '70.00'}
+
+    restored = finance.save_table_cell(db, actor, root.id, finance.TablePatch(
+        version=workload['version'], order_id=root.id, pricing_mode='aggregate'))
+    assert restored['item']['price_aggregate']
+    assert restored['item']['totals_excl_tax'] == {'CNY': '85.00'}
+
+    work_mode = finance.save_table_cell(db, actor, root.id, finance.TablePatch(
+        version=restored['version'], order_id=middle.id, pricing_mode='metric'))
+    assert work_mode['item']['children'][0]['pricing_mode'] == 'metric'
+    assert work_mode['item']['children'][0]['children'][0]['totals_excl_tax'] == {'CNY': '18.00'}
+
+
+def test_fixed_parent_cascades_without_replacing_descendant_prices(data):
+    db, actor, root, middle, leaf, _, _ = data
+    initial = finance.read(db, root.id)
+    original_prices = initial['item']['children'][0]['children'][0]['prices']
+    fixed = finance.update(root.id, finance.PriceWrite(
+        version=initial['version'], order_id=root.id, order_pricing_mode='fixed',
+        pricing_mode='fixed', adjusted_total=900,
+    ), db, actor)
+    listed = finance.page(db=db, user=actor, payment_project_id=root.id, billing_month=None, skip=0, limit=10)
+    for item in (fixed['item'], listed['items'][0]):
+        assert item['pricing_mode'] == 'fixed' and item['totals_excl_tax'] == {'CNY':'900.00'}
+        for child in [*item['children'], *item['children'][0]['children']]:
+            assert child['pricing_mode'] == 'fixed'
+            assert child['fixed_pricing_from'] == root.order_no and child['prices'] == []
+    with pytest.raises(HTTPException, match='继承上级固定收费'):
+        finance.save_table_cell(db,actor,root.id,finance.TablePatch(
+            version=fixed['version'],order_id=leaf.id,adjusted_total=10))
+    db.rollback()
+    restored = finance.save_table_cell(db, actor, root.id, finance.TablePatch(
+        version=fixed['version'],order_id=root.id,pricing_mode='aggregate'))
+    assert restored['item']['pricing_mode'] == 'aggregate'
+    restored_leaf = restored['item']['children'][0]['children'][0]
+    assert restored_leaf['pricing_mode'] == 'metric' and restored_leaf['fixed_pricing_from'] is None
+    assert restored_leaf['prices'] == original_prices
+    assert restored['item']['totals_excl_tax'] == initial['item']['totals_excl_tax']

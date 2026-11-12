@@ -21,7 +21,7 @@ import ReadonlyField from './ReadonlyField.vue'
 import {paymentConfirmationForm,paymentChangeEvent} from '@/utils/paymentConfirmation'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 const props=defineProps({modelValue:Object,projectId:String,prefix:String,fromDetails:Boolean,pricingMode:String,billingTaxMode:String,draftTotals:{type:Array,default:null}})
-const emit=defineEmits(['update:modelValue'])
+const emit=defineEmits(['update:modelValue','reference-change'])
 const value=computed(()=>paymentConfirmationForm(props.modelValue))
 const savedTotals=ref([]),loading=ref(false),error=ref('')
 const totals=computed(()=>props.draftTotals??savedTotals.value)
@@ -51,7 +51,7 @@ watch([()=>props.projectId,()=>props.draftTotals],load,{immediate:true,deep:true
 watch([totals,()=>value.value.fullPaymentCurrency,loading],()=>{
   if(loading.value)return
   const key=reference.value?.key||null
-  if(key!==value.value.fullPaymentTotalKey)emit('update:modelValue',{...value.value,fullPaymentTotalKey:key,fullReferenceLabel:'',fullReferenceAmount:null,fullMatchStatus:'pending'})
+  if(key!==value.value.fullPaymentTotalKey)emit('reference-change',key)
 },{immediate:true})
 onBeforeUnmount(()=>{window.removeEventListener(paymentChangeEvent,onPaymentChanged);sequence++;controller?.abort()})
 </script>

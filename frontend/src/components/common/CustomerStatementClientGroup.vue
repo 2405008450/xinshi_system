@@ -25,7 +25,7 @@ import CustomerStatementHistoryDialog from './CustomerStatementHistoryDialog.vue
 import {getStatementCustomerGroups,setStatementProgress} from '@/api/translationCustomerFinance'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import {hasPermission} from '@/utils/permission'
-const props=defineProps({required:Boolean,month:String,progressFilter:String,initialClient:Object,moving:Boolean,managerQuery:{type:Object,default:()=>({})}})
+const props=defineProps({required:Boolean,month:String,progressFilter:String,moving:Boolean,managerQuery:{type:Object,default:()=>({})}})
 const emit=defineEmits(['drop-client','move-client','managers'])
 const canWrite=hasPermission('projects:write'),pageSize=20
 const projectTables=new Map(),progressSaving=ref(new Set())
@@ -35,7 +35,7 @@ let controller,sequence=0,timer
 async function load(){
   if(!props.month)return
   clearTimeout(timer);controller?.abort();controller=new AbortController();const seq=++sequence;loading.value=true;error.value=''
-  try{const data=await getStatementCustomerGroups({...props.managerQuery,billing_month:props.month,statement_required:props.required,progress:props.progressFilter||undefined,keyword:keyword.value.trim()||undefined,skip:(page.value-1)*pageSize,limit:pageSize},{signal:controller.signal});if(seq!==sequence)return;items.value=data.items||[];total.value=data.total||0;expanded.value=expanded.value.filter(id=>items.value.some(client=>client.id===id));if(items.value.some(client=>client.id===props.initialClient?.id)&&!expanded.value.includes(props.initialClient.id))expanded.value.push(props.initialClient.id)}
+  try{const data=await getStatementCustomerGroups({...props.managerQuery,billing_month:props.month,statement_required:props.required,progress:props.progressFilter||undefined,keyword:keyword.value.trim()||undefined,skip:(page.value-1)*pageSize,limit:pageSize},{signal:controller.signal});if(seq!==sequence)return;items.value=data.items||[];total.value=data.total||0;expanded.value=expanded.value.filter(id=>items.value.some(client=>client.id===id))}
   catch(e){if(seq===sequence&&e.code!=='ERR_CANCELED'){error.value=getLocalizedErrorMessage(e,'客户加载失败');items.value=[];emit('managers',[])}}
   finally{if(seq===sequence)loading.value=false}
 }

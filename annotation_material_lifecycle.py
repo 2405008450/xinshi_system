@@ -18,6 +18,7 @@ def cleanup_once():
 
 @asynccontextmanager
 async def material_lifespan(app):
+    from annotation_chat_ai_lifecycle import chat_ai_lifespan
     stop = asyncio.Event()
 
     async def worker():
@@ -34,7 +35,8 @@ async def material_lifespan(app):
     task = asyncio.create_task(worker())
     monitor = asyncio.create_task(monitor_event_loop(stop))
     try:
-        yield
+        async with chat_ai_lifespan():
+            yield
     finally:
         stop.set()
         if task:

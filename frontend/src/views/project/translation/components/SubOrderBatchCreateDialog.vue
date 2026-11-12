@@ -71,7 +71,9 @@
         <div v-if="localFolders.length" class="import-summary"><el-tag>{{ localFolders.length }} 个文件夹</el-tag><el-tag>{{ localFolders.reduce((n,row)=>n+row.files.length,0) }} 个文件</el-tag><el-tag>生成 {{ treeOrderCount }} 个子订单</el-tag></div>
         <div v-else class="import-summary"><el-tag>共 {{ localRows.length }} 个文件</el-tag><el-tag type="success">已选 {{ selectedLocalIds.length }} 个</el-tag></div>
         <el-form-item v-if="localFolders.length" label="本地根文件夹完整路径"><el-input v-model="localRootPath" placeholder="请粘贴所选根文件夹的完整路径，如 D:\项目\客户资料" /><small>{{ localRootPathHint }}</small></el-form-item>
-        <el-alert v-if="localFolders.length" type="info" :closable="false" title="请核对完整根路径。导入后，母订单项目名称调整为所选根文件夹名称。" />
+        <FolderRootComparison v-if="localFolders.length" :comparison="localPathComparison" can-restore
+          @restore="localRootPath = selectedLocalRootPath" />
+        <el-alert v-if="localFolders.length" type="info" :closable="false" title="导入后，母订单项目名称调整为所选根文件夹名称。" />
         <el-table v-if="!localFolders.length" :data="localRows" border size="small" max-height="320" empty-text="请先选择本地文件或文件夹">
           <el-table-column label="选择" width="64"><template #default="{row}"><el-checkbox :model-value="selectedLocalIds.includes(row.id)" :disabled="row.status!=='create'" :aria-label="`选择${row.name}`" @change="checked=>toggleLocalFile(row.id,checked)" /></template></el-table-column>
           <el-table-column prop="name" label="文件名称" min-width="260" show-overflow-tooltip />
@@ -151,6 +153,8 @@ import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import {useBusinessNumber} from '@/composables/useBusinessNumber'
 import {givenLocalRootPath,localFolderCandidates} from '@/utils/localRootPath'
+import {compareFolderRoot, selectedFolderName} from '@/utils/translationFolderPaths'
+import FolderRootComparison from './FolderRootComparison.vue'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -286,7 +290,7 @@ const chooseLocalFolder=async()=>{
   try{
    const selected=await window.xinshiDesktop.chooseTranslationFolder();if(!selected)return
    for(const entry of selected.entries||[])for(const name of entry.files||[]){const error=translationFileNameError(name);if(error)throw new Error(`${name}：${error}`)}
-   localFolders.value=selected.entries||[];localRootPath.value=selected.rootPath||'';localRootPathHint.value='已由桌面文件夹选择器获取完整路径，可编辑。';folderDetectionComplete.value=true;localRows.value=[];selectedLocalIds.value=[]
+   localFolders.value=selected.entries||[];selectedLocalRootPath.value=selected.rootPath||'';localRootPath.value=selectedLocalRootPath.value;localRootPathHint.value='已由桌面文件夹选择器获取完整路径，可编辑。';folderDetectionComplete.value=true;localRows.value=[];selectedLocalIds.value=[]
   }catch(error){ElMessage.error(error.message||'读取本地文件夹失败')}
   return
  }
@@ -300,15 +304,22 @@ const chooseLocalFolder=async()=>{
 const localFolders=ref([])
 const localRootPath=ref('')
 const localRootPathHint=ref('')
+const selectedLocalRootPath = ref('')
+const localPathComparison = computed(() => compareFolderRoot(localFolders.value, localRootPath.value, selectedLocalRootPath.value))
 function fillLocalRootPath(entries,source={}){
-  const rootName=entries.find(row=>!row.relativePath?.includes('/')&&!row.relative_path?.includes('/'))?.relativePath||entries[0]?.relativePath?.split('/')[0]||entries[0]?.relative_path?.split('/')[0]
-  localRootPath.value=givenLocalRootPath(rootName,{...source,candidates:localFolderCandidates(localRootPath.value,props.project)})
-  localRootPathHint.value=localRootPath.value?'已带入匹配的已有路径，可编辑；普通浏览器不能核验目录是否相同，请确认路径。':'浏览器未提供完整路径，且没有匹配的已登记路径，请填写所选根文件夹的完整路径。'
+  const rootName = selectedFolderName(entries)
+  selectedLocalRootPath.value = givenLocalRootPath(rootName, source)
+  localRootPath.value = selectedLocalRootPath.value || givenLocalRootPath(rootName, {
+    candidates: localFolderCandidates(localRootPath.value, props.project),
+  })
+  localRootPathHint.value = selectedLocalRootPath.value ? '已带入选择器提供的完整路径。'
+    : localRootPath.value ? '已带入同名的已有路径，请确认它对应所选文件夹。'
+      : '浏览器未提供完整路径，请填写所选根文件夹的完整路径。'
 }
 const uncFolders=ref([])
 const importTree=ref(true)
 const treeEntries=computed(()=>mode.value==='localfiles'?localFolders.value:mode.value==='unc'&&importTree.value?uncFolders.value:[])
-const treeRows=computed(()=>folderOrderPreview(treeEntries.value,mode.value==='localfiles'?localRootPath.value:inspectedUncPath.value))
+const treeRows=computed(()=>folderOrderPreview(treeEntries.value,mode.value==='localfiles'?localPathComparison.value.entered:inspectedUncPath.value))
 const treeOrderCount=computed(()=>treeRows.value.filter(row=>row.level>0&&!row.empty).length)
 const emptyFolders=computed(()=>treeRows.value.filter(row=>row.empty))
 const localRows = ref([])
@@ -321,7 +332,7 @@ const readLocalFiles = (event) => {
     const directory=Array.from(event.target.files||[]).some(file=>file.webkitRelativePath)
     folderDetectionComplete.value=!directory
     localFolders.value=directory?localFolderEntries(event.target.files):[]
-    if(directory)fillLocalRootPath(localFolders.value,{files:event.target.files});else localRootPath.value=''
+    if(directory)fillLocalRootPath(localFolders.value,{files:event.target.files});else {localRootPath.value='';selectedLocalRootPath.value=''}
     const rows = directory?[]:localSubOrderFiles(event.target.files, props.existingNames)
     localRows.value = rows
     selectedLocalIds.value = rows.filter(row => row.status === 'create').map(row => row.id)
@@ -386,7 +397,12 @@ const canSubmit = computed(() => {
   if (directoryLoading.value) return false
   if (mode.value === 'directory') return Boolean(loadedDirectory.value && selectedFiles.value.length)
   if(props.folderOnly && !treeEntries.value.length)return false
-  if(treeEntries.value.length)return treeRows.value.length>0&&(mode.value!=='localfiles'||!!localRootPath.value.trim())
+  if (treeEntries.value.length) {
+    if (!treeRows.value.length) return false
+    if (mode.value !== 'localfiles') return true
+    const { entered, nameMismatch } = localPathComparison.value
+    return Boolean(entered) && !nameMismatch
+  }
   if (mode.value === 'unc' && (!inspectedUncPath.value || uncLoading.value)) return false
   if (mode.value === 'quantity') return quantityNames.value.length > 0 && quantityNames.value.every((name) => !translationFileNameError(name))
   return previewSummary.value.create > 0 && previewSummary.value.error === 0
@@ -409,7 +425,9 @@ const buildDefaults = () => ({
   clientFeedback: form.clientFeedback || null,
   translatorId: form.translatorId || null,
   translatorAssignmentTime: form.translatorAssignmentTime || null,
-  status: form.status || 'pending_confirmation',
+  ...(form.status && form.status !== (props.project.projectStatus || props.project.status)
+    ? { status: form.status }
+    : {}),
   translatorDeliveryProgress: progressValue(form.translatorDeliveryProgress),
   preReviewQcProgress: progressValue(form.preReviewQcProgress),
   reviewProgress: progressValue(form.reviewProgress),
@@ -434,8 +452,8 @@ const submit = async () => {
       ElMessage.success(`清单导入完成：新增${result.createdCount}单，空文件夹仅记录`);emit('created',{...result,rootPath:plan.rootPath});emit('update:modelValue',false);return
     }
     if(workflow.value==='paths'&&treeEntries.value.length){
-      const rootPath=mode.value==='unc'?inspectedUncPath.value:localRootPath.value.trim()
-      if(!props.project.id){emit('created',{draftFolderImport:{sourceKind:mode.value==='unc'?'unc':'local',rootPath,entries:treeEntries.value,emptyDetectionComplete:mode.value==='unc'||folderDetectionComplete.value}});emit('update:modelValue',false);return}
+      const rootPath=mode.value==='unc'?inspectedUncPath.value:localPathComparison.value.entered
+      if(!props.project.id){emit('created',{draftFolderImport:{sourceKind:mode.value==='unc'?'unc':'local',rootPath,selectedRootPath:mode.value==='unc'?rootPath:selectedLocalRootPath.value,entries:treeEntries.value,emptyDetectionComplete:mode.value==='unc'||folderDetectionComplete.value}});emit('update:modelValue',false);return}
       const result=await importSubOrderFolders({parentProjectId:props.project.id||null,orderNo:!props.project.id?props.project.orderNo:null,sourceKind:mode.value==='unc'?'unc':'local',rootPath,entries:treeEntries.value,emptyDetectionComplete:mode.value==='unc'||folderDetectionComplete.value},{headers:numbering.headers()})
       ElMessage.success(`按目录导入完成：新增${result.createdCount}单，跳过${result.skippedCount}项；空文件夹已记录`)
       emit('created',{...result,rootPath});emit('update:modelValue',false);return
@@ -468,6 +486,7 @@ const reset = () => {
   localFolders.value=[]
   importTree.value=true
   localRootPath.value=''
+  selectedLocalRootPath.value=''
   localRootPathHint.value=''
   selectedLocalIds.value = []
   clearUncListing()

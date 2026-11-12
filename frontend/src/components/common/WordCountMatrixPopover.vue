@@ -23,10 +23,11 @@
         <div>
 
           <strong>{{ readOnly ? '当前统计仅供查看' : '填写当前订单的统计数量' }}</strong>
-          <p>母订单与各级子订单独立填报，不再自动汇总或相互覆盖。{{ readOnly ? '当前入口为只读视图。' : '我司统计、客户统计每行仅填写一种口径；可点击“清空本行”重新选择。空白表示未填写，0 表示数量为零。' }}</p>
+          <p>母订单与各级子订单独立填报，不再自动汇总或相互覆盖。{{ readOnly ? '当前入口为只读视图。' : '我司统计、客户统计每行可填写同一区域的多个字数项；可点击“清空本行”切换统计区域。空白表示未填写，0 表示数量为零。' }}</p>
         </div>
         <el-tag size="small" :type="hasChanges ? 'warning' : 'info'">{{ hasChanges ? '未保存修改' : (readOnly ? '只读' : (localMode ? '随项目保存' : '本单独立统计')) }}</el-tag>
       </div>
+      <OrderWordCountSource :order="draft" />
 
       <el-alert v-if="hasDuration" title="本项目可能属于标注项目，请与标注项目部沟通。" type="warning" :closable="false" show-icon />
       <div ref="matrixBody" v-loading="loading" class="word-count-matrix__body">
@@ -116,10 +117,14 @@ import ReadonlyField from './ReadonlyField.vue'
 import { getWordCountMatrix, patchWordCountMatrix } from '@/api/wordCountMatrices'
 import { focusFormTarget, scrollFormTarget } from '@/utils/formNavigation'
 import { useFormDraft } from '@/composables/useFormDraft'
+import OrderWordCountSource from './OrderWordCountSource.vue'
 import {
   WORD_COUNT_METRICS,
   createEmptyWordCountMatrix,
+  createEmptyWordCountValues,
   formatWordCountMatrix,
+  hasMultipleWordCountRegions,
+  isWordCountRegionLocked,
   normalizeWordCountMatrix,
   normalizeWordCountValues
 } from '@/utils/wordCountMatrix'
@@ -174,10 +179,10 @@ const regularMetrics=WORD_COUNT_METRICS.filter(item=>!['minutes','hours'].includ
 const timeUnits=ref({})
 const hasDuration=computed(()=>rows.value.some(row=>row.values.minutes!=null||row.values.hours!=null))
 function timeMetric(row){return row.values.hours!=null?'hours':row.values.minutes!=null?'minutes':timeUnits.value[row.key]||'minutes'}
-function cellDisabled(row,key){return props.readOnly||(row.scope==='entity'&&['company','customer'].includes(row.dimension)&&row.values[key]==null&&WORD_COUNT_METRICS.some(item=>item.key!==key&&row.values[item.key]!=null))}
+function cellDisabled(row,key){return props.readOnly||(row.scope==='entity'&&['company','customer'].includes(row.dimension)&&isWordCountRegionLocked(row.values,key))}
 const rowReadonly = () => props.readOnly
 const rowHasValues = row => WORD_COUNT_METRICS.some(({ key }) => row.values[key] != null)
-const rowMetricHint = row => row.scope === 'entity' && ['company', 'customer'].includes(row.dimension) ? '单一口径' : '可填写多项'
+const rowMetricHint = row => row.scope === 'entity' && ['company', 'customer'].includes(row.dimension) ? '同一区域' : '可填写多项'
 const cellHint = row => rowReadonly(row) ? '当前入口仅可查看' : '本行已填写其他统计口径，请先点击“清空本行”'
 function clearRow(row) {
   if (rowReadonly(row)) return
@@ -193,6 +198,12 @@ function normalizeResponse(data = {}) {
     entity_type: data.entity_type || props.entityType,
     entity_id: data.entity_id || props.entityId,
     source: data.source,
+    wordCountParentOrderNo: data.word_count_parent_order_no ?? data.wordCountParentOrderNo,
+    wordCountMatchesParent: data.word_count_matches_parent ?? data.wordCountMatchesParent,
+    wordCountByDirection: (data.word_count_by_direction ?? data.wordCountByDirection ?? []).map(item => ({
+      languagePair: item.language_pair ?? item.languagePair,
+      wordCountMatrix: item.word_count_matrix ?? item.wordCountMatrix,
+    })),
     company: normalizeWordCountValues(data.company),
     customer: normalizeWordCountValues(data.customer),
     preliminary: normalizeWordCountValues(data.preliminary),
@@ -364,8 +375,8 @@ function clearPending() {
 }
 function validateMatrix(matrix) {
   for (const dimension of ['company','customer']) {
-    if (WORD_COUNT_METRICS.filter(item=>matrix?.[dimension]?.[item.key]!=null).length>1) {
-      ElMessage.warning(`${dimension==='company'?'我司统计':'客户统计'}只能填写一个统计字段，请先清空其他字段`)
+    if (hasMultipleWordCountRegions(matrix?.[dimension])) {
+      ElMessage.warning(`${dimension==='company'?'我司统计':'客户统计'}只能填写一个统计区域，请清空其他区域`)
       return false
     }
   }

@@ -1,14 +1,15 @@
 <template>
   <div class="project-list-row-actions">
     <PrimaryEditButton v-if="editable && !editInMore" @click="$emit('edit', $event)" />
-    <el-dropdown v-if="hasMoreActions" trigger="click" placement="bottom-end" @command="handleCommand">
+    <el-dropdown v-if="hasMoreActions" :disabled="moreDisabled" trigger="click" placement="bottom-end" @command="handleCommand">
       <el-button
         class="more-action-button"
         size="small"
         circle
         plain
+        :disabled="moreDisabled"
         aria-label="更多操作"
-        title="更多操作"
+        :title="moreDisabledReason || '更多操作'"
       >
         <el-icon><MoreFilled /></el-icon>
       </el-button>
@@ -44,6 +45,8 @@ const props = defineProps({
   startRequestLabel: { type: String, default: '发起需求' },
   extraActions: { type: Array, default: () => [] },
   editInMore: { type: Boolean, default: false },
+  moreDisabled: Boolean,
+  moreDisabledReason: String,
 })
 
 const emit = defineEmits(['edit', 'start-request', 'extra-command'])
@@ -54,7 +57,7 @@ const hasMoreActions = computed(() => (
 ))
 
 const handleCommand = (command) => {
-  if(!command)return
+  if(!command || props.moreDisabled)return
   if (command === 'edit') emit('edit')
   else if (command === 'start-request') emit('start-request')
   else emit('extra-command', command)

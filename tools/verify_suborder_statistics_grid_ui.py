@@ -50,8 +50,10 @@ const app=createApp({render:()=>h(Grid,{rows,editable:true,onSaved:()=>window.sa
         expect(parents.nth(0)).to_have_value('3430')
         expect(page.locator('select').nth(1)).to_have_value('pages')
         expect(parents.nth(1)).to_have_value('2')
-        # 本轮粘贴刻意改填客户字数，须明确切换口径。
+        # 页数已填写时锁定客户字数，清空页数后才可切换。
         page.locator('select').nth(1).select_option('words')
+        customer = table.nth(3).locator('input').nth(1)
+        expect(customer).to_be_disabled()
         for index in range(3):
             expect(table.nth(index).locator('input').nth(0)).to_have_value('3430')
             assert table.nth(index).locator('input').nth(0).get_attribute('readonly') is not None
@@ -63,6 +65,10 @@ const app=createApp({render:()=>h(Grid,{rows,editable:true,onSaved:()=>window.sa
         page.locator('select').nth(0).select_option('pages');page.locator('select').nth(0).select_option('words')
         expect(leaf).to_have_value('3430')
         expect(page.get_by_role('button',name='保存统计（0 单）')).to_be_disabled()
+        page.locator('select').nth(1).select_option('pages')
+        customer.fill('')
+        page.locator('select').nth(1).select_option('words')
+        expect(customer).to_be_enabled()
         leaf.fill('4000')
         for index in range(3):expect(table.nth(index).locator('input').nth(0)).to_have_value('4000')
         leaf.fill('')

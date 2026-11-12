@@ -27,6 +27,8 @@ from schemas import ProjectSourcePathInspectRequest, SubOrderSourceFilesResponse
 from project_file_service import list_sub_order_source_files
 from bounded_file_io import shared_file_io
 
+from translation_suborder_paths import SubOrderPathReplacement, replace_project_suborder_paths
+
 router = APIRouter(prefix="/sub-orders", tags=["sub-orders"], dependencies=[Depends(require_module_access("projects:read", "projects:write"))])
 logger = logging.getLogger(__name__)
 
@@ -37,6 +39,14 @@ async def read_source_files(payload: ProjectSourcePathInspectRequest):
         return await shared_file_io.run(list_sub_order_source_files, payload.storage_path)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+@router.post('/project/{project_id}/replace-paths', dependencies=[Depends(require_any_permission('projects:write'))])
+def replace_paths(project_id: UUID, payload: SubOrderPathReplacement, db: Session = Depends(get_db)):
+    try:
+        return replace_project_suborder_paths(db, project_id, payload)
+    except ValueError as error:
+        db.rollback()
+        raise HTTPException(422, str(error)) from error
 
 
 @router.post('/import-list/parse',dependencies=[Depends(require_any_permission('projects:write'))])

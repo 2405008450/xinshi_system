@@ -28,13 +28,16 @@ def create(case, **kw):
 def test_root_directions_create_once_and_added_direction_keeps_manual_values(case):
     from schemas import TranslationProjectUpdate
     db, user, crud = case
-    root = create(case, word_count_matrix={'company': {'words': 100}},network_file_path=r'D:\原文目录')
+    root = create(case, project_status='confirmed', word_count_matrix={'company': {'words': 100}},network_file_path=r'D:\原文目录')
     assert root.auto_created_child_count == 2
     children = sorted(root.sub_orders, key=lambda row: row.sub_order_no)
     assert all(row.network_file_path=='同上一级订单' for row in children)
     assert [row.sub_order_no for row in children] == ['TP-261107-901.001', 'TP-261107-901.002']
     assert {row.language_pair for row in children} == {'中文→英语', '中文→法语'}
     assert {row.sub_project_name for row in children} == {'原文件.docx'}
+    assert {row.status for row in children} == {'confirmed'}
+    from word_count_service import get_word_count_matrix
+    assert [get_word_count_matrix(db, 'suborder', row.id)['company']['words'] for row in children] == [100, 100]
     children[0].remarks = '人工备注保留'
     db.commit()
     again = crud.update_translation_project(db, root.id, TranslationProjectUpdate(language_pair=root.language_pair), actor_user_id=user.id)
@@ -46,9 +49,11 @@ def test_root_directions_create_once_and_added_direction_keeps_manual_values(cas
     assert updated.word_count_matrix['company']['words'] == 100
     assert updated.word_count_matrix_source == 'project'
     from schemas import TranslationSubOrderUpdate
-    from word_count_service import get_word_count_matrix,patch_word_count_matrix
+    from word_count_service import patch_word_count_matrix
     from word_count_schemas import WordCountMatrixPatch
-    crud.update_sub_order(db,children[0].id,TranslationSubOrderUpdate(word_count_matrix={'company':{'words':80}}))
+    crud.update_sub_order(db,children[0].id,TranslationSubOrderUpdate(status='paused', word_count_matrix={'company':{'words':80}}))
+    assert crud.get_sub_order(db, children[0].id).status == 'paused'
+    assert crud.get_sub_order(db, children[1].id).status == 'confirmed'
     assert get_word_count_matrix(db,'project',root.id)['company']['words']==100
     patch_word_count_matrix(db,'project',root.id,WordCountMatrixPatch(changes=[{'scope':'entity','dimension':'company','metric_type':'words','value':120}]),updated_by=user.id)
     assert get_word_count_matrix(db,'project',root.id)['company']['words']==120
@@ -73,7 +78,7 @@ def test_file_children_split_into_second_level_without_duplicate_root_siblings(c
         assert translation_suborder_parent(db, row) == parent.id
 
 
-def test_direction_splitting_reaches_fourth_level_but_never_fifth(case):
+def test_fourth_level_file_splits_into_shared_path_direction_children(case):
     from models import TranslationProject
     from schemas import TranslationSubOrderCreate, TranslationSubOrderUpdate
     db, user, crud = case
@@ -88,10 +93,15 @@ def test_direction_splitting_reaches_fourth_level_but_never_fifth(case):
     third=db.query(type(child)).filter(type(child).sub_order_no.startswith(grand.sub_order_no+'.')).first()
     crud.update_sub_order(db, third.id, TranslationSubOrderUpdate(language_pair='中文→英语；中文→法语'))
     fourth=db.query(type(child)).filter(type(child).sub_order_no.startswith(third.sub_order_no+'.')).first()
+    update = TranslationSubOrderUpdate(language_pair='中文→英语；中文→法语', network_file_path=r'D:\资料\原文件.docx')
+    assert crud.update_sub_order(db, fourth.id, update).auto_created_child_count == 2
+    assert crud.update_sub_order(db, fourth.id, update).auto_created_child_count == 0
+    leaves = db.query(type(child)).filter(type(child).sub_order_no.startswith(fourth.sub_order_no+'.')).all()
+    assert {row.language_pair for row in leaves} == {'中文→英语','中文→法语'}
+    assert all(row.sub_project_name == fourth.sub_project_name and row.network_file_path == '同上一级订单' for row in leaves)
     with pytest.raises(ValueError, match='只能选择一个'):
-        crud.update_sub_order(db, fourth.id, TranslationSubOrderUpdate(language_pair='中文→英语；中文→法语'))
+        crud.update_sub_order(db, leaves[0].id, update)
     db.rollback()
-    assert db.get(type(child), fourth.id).language_pair in {'中文→英语','中文→法语'}
 
 
 def test_child_creation_failure_rolls_back_entire_project(case, monkeypatch):
@@ -137,10 +147,15 @@ def test_second_level_matrix_uses_file_raw_values_and_does_not_multiply_on_repea
     db.add(root); db.commit()
     first = crud.create_sub_order(db, TranslationSubOrderCreate(parent_project_id=root.id,
         sub_project_name='文件.pdf', language_pair='中文→英语；中文→法语', created_by=user.id,
-        word_count_matrix={'customer': {'pages': 5}, 'company': {'words': 100}}))
+        status='paused', word_count_matrix={'customer': {'pages': 5}, 'company': {'words': 100}}))
     assert crud.get_translation_project(db, root.id).word_count_matrix['company']['words'] is None
+    first_direction = next(row for row in root.sub_orders if row.sub_order_no.startswith(first.sub_order_no + '.'))
+    crud.update_sub_order(db, first_direction.id, TranslationSubOrderUpdate(word_count_matrix={'company': {'words': 80}}))
     again = crud.update_sub_order(db, first.id, TranslationSubOrderUpdate(language_pair='中文→英语；中文→法语；中文→日语'))
     assert again.auto_created_child_count == 1
     matrix = crud.get_translation_project(db, root.id).word_count_matrix
     assert matrix['company']['words'] is None
     assert matrix['customer']['pages'] is None
+    children = [row for row in root.sub_orders if row.sub_order_no.startswith(first.sub_order_no + '.')]
+    assert sorted(row.word_count_matrix['company']['words'] for row in children) == [80, 100, 100]
+    assert {row.status for row in children} == {'paused'}

@@ -45,17 +45,38 @@ def validate_initial_details(details):
     return result
 
 
-def apply_initial_details(db, root, details):
-    if not details:
-        return
+def apply_initial_details(db, root, details, *, split_imported_files=False):
+    if not details and not split_imported_files:
+        return 0
     from translation_order_inheritance import prepare
     from crud import update_sub_order
+    from translation_direction_service import directions
+    from translation_folder_orders import info
+    from schemas import TranslationSubOrderUpdate
+
     context=prepare(db,root.id)
     by_suffix={row.sub_order_no[len(root.order_no)+1:]:row for row in context[1]}
-    for suffix,payload in validate_initial_details(details).items():
+    payloads = validate_initial_details(details)
+    suffixes = payloads.keys() | by_suffix.keys() if split_imported_files else payloads.keys()
+    created_count = 0
+    # 上级先保存，方向拆出的子单才能接收各自的预填资料。
+    for suffix in sorted(suffixes):
         if suffix not in by_suffix:
             raise ValueError('子订单预填内容与生成的订单不匹配，请重新打开子订单管理')
-        update_sub_order(db,by_suffix[suffix].id,payload,commit=False)
+        row = by_suffix[suffix]
+        payload = payloads.get(suffix)
+        if (split_imported_files and (payload is None or 'language_pair' not in payload.model_fields_set)
+                and len(directions(row.language_pair)) > 1 and not info(db, row.id)):
+            values = payload.model_dump(exclude_unset=True) if payload else {}
+            payload = TranslationSubOrderUpdate(language_pair=row.language_pair, **values)
+        if payload is None:
+            continue
+        updated = update_sub_order(db, row.id, payload, commit=False)
+        if count := updated.auto_created_child_count:
+            created_count += count
+            for child in db.query(TranslationSubOrder).filter_by(parent_project_id=root.id):
+                by_suffix[child.sub_order_no[len(root.order_no)+1:]] = child
+    return created_count
 
 
 def apply(db, root, mode, reviewed=False):

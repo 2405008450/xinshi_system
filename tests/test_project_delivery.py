@@ -16,6 +16,7 @@ def delivery(environment,monkeypatch):
     from business_mail_service import PROJECT_MODELS
     from models import Client
     db,users=environment
+    users[1].username = 'zixia'
     def ids(session,*_):
         for row in session.new:
             if hasattr(row,'id') and row.id is None and isinstance(row.__table__.c.id.type,Uuid):row.id=uuid4()
@@ -66,6 +67,28 @@ def test_missing_core_fields_block_and_emergency_keeps_validation(delivery,monke
         with pytest.raises(HTTPException,match='项目核心信息'):
             service.send(db,users[0],'interpretation',projects['interpretation'].id,uuid4(),emergency=emergency)
     assert db.query(DiscussionMessage).count()==0
+
+
+def test_interpretation_default_mentions_use_fixed_accounts_and_exclude_sender(delivery, monkeypatch):
+    import business_mail_service as mail
+    from discussion_chat_models import DiscussionMention
+    from models import AppUser
+
+    db, users, projects, service = delivery
+    kuangjiao = AppUser(id=uuid4(), username='kuangjiao', full_name='旷娇',
+                       password_hash='disabled', is_active=True, is_deleted=False)
+    db.add(kuangjiao)
+    db.commit()
+    monkeypatch.setattr(mail, 'policy_recipients', lambda *_: ([users[2]], []))
+    project_id = projects['interpretation'].id
+
+    service.send(db, users[0], 'interpretation', project_id, uuid4())
+    assert {row.user_id for row in db.query(DiscussionMention)} == {users[1].id, kuangjiao.id}
+
+    service.send(db, users[1], 'interpretation', project_id, uuid4())
+    assert [row.user_id for row in db.query(DiscussionMention).order_by(
+        DiscussionMention.message_id.desc()).limit(1)] == [kuangjiao.id]
+    assert db.query(DiscussionMention).count() == 3
 
 
 @pytest.mark.parametrize('module',['interpretation','annotation','recruitment'])

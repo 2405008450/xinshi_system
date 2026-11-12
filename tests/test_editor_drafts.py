@@ -1,6 +1,7 @@
 from datetime import date,datetime
 from uuid import uuid4
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 from test_chat_participant_access import environment
 import editor_drafts as drafts
@@ -23,6 +24,20 @@ def test_cloud_draft_preserves_incomplete_fields_and_rejects_old_windows(environ
     assert drafts.read(db,owner,'work-report','2026-10-30')['payload']==payload
     assert drafts.save_batch(db,owner,[write(revision=1,payload=None)])[0]['revision']==2
     assert drafts.save_batch(db,owner,[write(revision=1,payload=payload)])[0]['conflict'] is True
+
+
+def test_local_cannot_recover_or_replace_oa_statement_draft(environment,monkeypatch):
+    db,(owner,_,_)=environment
+    key='test:/finance|对账单设置|form|company||'
+    entry=drafts.DraftWrite(namespace='global',key=key,revision=0,payload={'data':{'account_number':'TEST-OA'}})
+    monkeypatch.setenv('APP_ENV','production')
+    drafts.save_batch(db,owner,[entry])
+
+    monkeypatch.setenv('APP_ENV','development')
+    with pytest.raises(HTTPException) as error:drafts.read(db,owner,'global',key)
+    assert error.value.status_code==403
+    with pytest.raises(HTTPException) as error:drafts.save_batch(db,owner,[entry.model_copy(update={'revision':1,'payload':None})])
+    assert error.value.status_code==403
 
 
 def test_formal_report_save_clears_draft_in_same_transaction(environment,monkeypatch):

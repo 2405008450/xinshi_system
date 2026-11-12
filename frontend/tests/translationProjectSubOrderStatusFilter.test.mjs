@@ -82,7 +82,7 @@ test('状态筛选查询及翻页后自动展开存在命中子订单的母订�
   )
   assert.match(
     projectDetailsSource,
-    /if \(expandSubOrders\) \{\s*expandedProjectIds\.value = expandableProjectIds/,
+    /if \(defaultExpandSubOrders\.value \|\| expandSubOrders\) \{\s*expandedProjectIds\.value = expandableProjectIds/,
   )
 })
 

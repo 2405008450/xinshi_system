@@ -24,6 +24,46 @@ def root_project(case):
     db.add(root);db.commit();return root
 
 
+def test_batch_replace_paths_requires_current_preview_and_preserves_relative_paths(case):
+    from fastapi import HTTPException
+    from models import TranslationSubOrder
+    from translation_folder_orders import TranslationOrderFolder
+    from translation_suborder_paths import SubOrderPathReplacement, replace_project_suborder_paths
+
+    db, user, _ = case
+    root = root_project(case)
+    root.network_file_path = r'D:\客户项目'
+    db.commit()
+    import_folders(db, folder_payload(root), user.id)
+    skipped = [
+        TranslationSubOrder(id=uuid4(), parent_project_id=root.id, sub_order_no=root.order_no + suffix,
+                            sub_project_name=name, network_file_path=path)
+        for suffix, name, path in [
+            ('.090', '独立.pdf', r'D:\客户项目备份\独立.pdf'),
+            ('.091', '继承.pdf', '同上一级订单'),
+        ]
+    ]
+    db.add_all(skipped)
+    db.commit()
+    payload = SubOrderPathReplacement(old_root=r'"d:\客户项目\"', new_root=r'E:\新目录')
+    preview = replace_project_suborder_paths(db, root.id, payload)
+    assert preview['changed_count'] == 6
+    assert preview['unchanged_count'] == 2
+    assert all(item['new_path'].startswith('E:\\新目录\\') for item in preview['changes'])
+    assert db.query(TranslationOrderFolder).first().root_path == r'D:\客户项目'
+    apply = payload.model_copy(update={'preview_token': preview['preview_token']})
+    moved = replace_project_suborder_paths(db, root.id, apply)
+    assert moved['changed_count'] == 6
+    assert root.network_file_path == r'D:\客户项目'
+    assert skipped[0].network_file_path == r'D:\客户项目备份\独立.pdf'
+    assert skipped[1].network_file_path == '同上一级订单'
+    assert all(folder.root_path == r'E:\新目录' and folder.relative_path.startswith('新目录/')
+               for folder in db.query(TranslationOrderFolder))
+    with pytest.raises(HTTPException) as conflict:
+        replace_project_suborder_paths(db, root.id, apply)
+    assert conflict.value.status_code == 409
+
+
 def test_folder_migration_only_creates_one_new_table_and_is_repeatable():
     from tools.apply_translation_order_folder_migration import apply_migration
     engine=create_engine('sqlite://')
@@ -188,8 +228,9 @@ def test_empty_folder_first_records_without_children_and_allows_later_basic_edit
     assert result['created_root'] and result['created_count']==0 and db.query(TranslationSubOrder).count()==0
     root=crud.get_translation_project(db,result['project_id'])
     assert root.folder_root is True and root.network_file_path==r'D:\空目录'
-    root=crud.update_translation_project(db,root.id,TranslationProjectUpdate(project_name='空目录',source_file_name='空目录'),actor_user_id=user.id)
+    root=crud.update_translation_project(db,root.id,TranslationProjectUpdate(project_name='空目录',source_file_name='空目录',language_pair='中文→英语；中文→法语'),actor_user_id=user.id)
     assert root.project_name=='空目录'
+    assert not root.sub_orders
 
 def test_new_project_directory_waits_for_outer_save_and_keeps_edited_root(case):
     from schemas import TranslationProjectCreate
@@ -213,6 +254,43 @@ def test_new_project_directory_waits_for_outer_save_and_keeps_edited_root(case):
     db.rollback()
     assert db.query(TranslationProject).count()==baseline
     assert db.query(TranslationSubOrder).count()==0
+
+
+def test_outer_save_splits_deep_file_but_not_folders(case):
+    from schemas import TranslationProjectCreate
+    from translation_folder_orders import TranslationOrderFolder
+    db, user, crud = case
+    plan = {'source_kind': 'local', 'root_path': r'D:\资料', 'entries': [
+        {'relative_path': path, 'files': ['原文.docx'] if path.endswith('/三级') else []}
+        for path in ['资料', '资料/一级', '资料/一级/二级', '资料/一级/二级/三级']
+    ]}
+    suffix = '001.001.001.001'
+    root = crud.create_translation_project(db, TranslationProjectCreate(
+        project_name='资料', created_by=user.id, project_status='confirmed', initial_folder_import=plan,
+        initial_sub_order_details={
+            suffix: {'language_pair': '中文→英语；中文→法语', 'word_count_matrix': {'company': {'words': 25}}},
+            suffix+'.002': {'word_count_matrix': {'company': {'words': 40}}},
+        }, submission_mode='normal_children', sub_orders_reviewed=True,
+    ), order_no='TP-261108-975')
+    assert db.query(TranslationOrderFolder).count() == 3
+    assert len(root.sub_orders) == 6
+    assert root.word_count_matrix['company']['words'] is None
+    assert {row.status for row in root.sub_orders} == {'confirmed'}
+    assert all(row.network_file_path == '同上一级订单' for row in root.sub_orders if row.sub_order_no.count('.') == 5)
+    from schemas import TranslationSubOrderResponse
+    from word_count_service import get_word_count_matrix
+    orders = {row.sub_order_no.removeprefix(root.order_no + '.'): row
+              for row in crud.get_sub_orders_by_project(db, root.id)}
+    folder = TranslationSubOrderResponse.model_validate(orders['001.001.001'])
+    assert folder.word_count_matrix.company.words is None
+    assert folder.word_count_matrix_source == 'suborder'
+    assert {item.language_pair: item.word_count_matrix.company.words
+            for item in folder.word_count_by_direction} == {'中文→英语': 25, '中文→法语': 40}
+    for direction_suffix, expected, matches in [('.001', 25, True), ('.002', 40, False)]:
+        counts = get_word_count_matrix(db, 'suborder', orders[suffix + direction_suffix].id)
+        assert counts['company']['words'] == expected
+        assert counts['word_count_parent_order_no'] == orders[suffix].sub_order_no
+        assert counts['word_count_matches_parent'] is matches
 
 
 def test_outer_save_failure_does_not_leave_directory_orders(case):

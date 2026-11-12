@@ -7,6 +7,8 @@ from tests.test_customer_statements import context,project
 import translation_customer_finance as finance
 import translation_payment_service as payments
 import translation_payment_confirmation as confirmation
+from models import FinancePayment, FinanceRecord
+from routers.translation_payments import confirm as confirm_payment
 
 
 def save(db,actor,row,current,details,amount=300,**extra):
@@ -23,6 +25,18 @@ def test_price_and_installments_save_together_and_reload(context):
     assert saved['item']['totals_excl_tax']=={'CNY':'300.00'}
     assert saved['payment']['payments'][0]['actual_amount']=='50.00'
     assert saved['payment']['payments'][0]['payment_time'].endswith('+08:00')
+    first = saved['payment']['payments'][0]
+    assert first['confirmed_by'] is None and first['confirmed_at'] is None
+    request=payments.PaymentConfirm(version=saved['payment']['version'],payment_id=first['id'])
+    with pytest.raises(HTTPException) as forbidden:
+        confirm_payment(row.id,request,db,actor)
+    assert forbidden.value.status_code==403
+    actor.department='行政部';db.commit()
+    saved['payment']=confirm_payment(row.id,request,db,actor)
+    first=saved['payment']['payments'][0]
+    assert first['confirmed_by'] == str(actor.id)
+    assert first['confirmed_by_name'] == (actor.full_name or actor.username)
+    assert first['confirmed_at'].endswith('+08:00')
     assert saved['payment']['confirmation']['proofs']=='定金备注'
     assert payments.read(db,row)['payments']==saved['payment']['payments']
     details=saved['payment']['payments']+[{'stage_type':'final','actual_amount':250}]
@@ -30,8 +44,44 @@ def test_price_and_installments_save_together_and_reload(context):
     assert final['payment']['confirmation']['full_payment_source']=='details'
     assert final['payment']['confirmation']['full_match_status']=='matched'
     assert final['payment']['confirmation']['full_payment_amount']=='300.00'
+    assert final['payment']['payments'][0]['confirmed_at'] == first['confirmed_at']
+    assert final['payment']['payments'][1]['confirmed_by'] is None
     db.expire_all()
-    assert len(finance.read(db,row.id)['payment']['payments'])==2
+    assert [item['stage_no'] for item in finance.read(db,row.id)['payment']['payments']]==[1,2]
+    stored=db.query(FinancePayment).join(FinanceRecord).filter(FinanceRecord.project_id==row.id).all()
+    assert {item.stage_type:item.stage_no for item in stored}=={'deposit':1,'final':1}
+    with_later_payment=save(db,actor,row,final,final['payment']['payments']+[
+        {'stage_type':'mid','actual_amount':10},
+    ],amount=310,full_payment_total_key='billing:CNY')
+    db.expire_all()
+    details=finance.read(db,row.id)['payment']['payments']
+    assert [(item['stage_type'],item['stage_no']) for item in details]==[('deposit',1),('final',2),('mid',3)]
+    with pytest.raises(HTTPException) as error:
+        save(db,actor,row,with_later_payment,details+[{'stage_type':'final','actual_amount':10}])
+    assert error.value.status_code==422
+    db.rollback()
+
+
+def test_full_payment_confirmation_survives_price_recheck(context):
+    _, db, clients, _, actor = context
+    row = project(db, clients[0], 'FULL-CONFIRM', fixed=True)
+    current = finance.read(db, row.id)
+    saved = save(db, actor, row, current, [], payment_option='full',
+                 full_payment_amount=300, full_payment_total_key='billing:CNY')
+    assert saved['payment']['confirmation']['full_payment_confirmed_at'] is None
+    actor.department='行政部';db.commit()
+    confirmed = confirm_payment(row.id,payments.PaymentConfirm(version=saved['payment']['version']),db,actor)['confirmation']
+    assert confirmed['full_payment_confirmed_by'] == str(actor.id)
+    assert confirmed['full_payment_confirmed_by_name'] == (actor.full_name or actor.username)
+    assert confirmed['full_payment_confirmed_at'].endswith('+08:00')
+    changed = finance.save(db, actor, row.id, finance.PriceWrite(
+        version=saved['version'], order_id=row.id, pricing_mode='fixed', adjusted_total=400,
+    ))['payment']['confirmation']
+    assert changed['full_match_status'] == 'mismatch'
+    assert changed['full_payment_confirmed_at'] == confirmed['full_payment_confirmed_at']
+    latest=finance.read(db,row.id)
+    changed_amount=save(db,actor,row,latest,[],amount=400,payment_option='full',full_payment_amount=400,full_payment_total_key='billing:CNY')
+    assert changed_amount['payment']['confirmation']['full_payment_confirmed_at'] is None
 
 
 def test_stale_payment_draft_rolls_back_price_changes(context):
@@ -52,15 +102,23 @@ def test_stale_payment_draft_rolls_back_price_changes(context):
     assert reloaded['payment']['payments'][0]['actual_amount']=='60.00'
 
 
-def test_aggregate_documents_save_and_duplicate_stages(context):
+def test_aggregate_documents_save_sequences_all_payments_and_rejects_duplicate_ids(context):
     _,db,clients,_,actor=context;row=project(db,clients[0],'DOCUMENTS',fixed=True)
     current=finance.read(db,row.id)
     saved=finance.save(db,actor,row.id,finance.PriceWrite(version=current['version'],order_id=row.id,documents_only=True,
         payment_version=current['payment']['version'],payment_draft=[{'stage_type':'deposit','actual_amount':25}],
         payment_confirmation={'is_paid':True,'payment_option':'deposit'}))
     assert saved['payment']['payments'][0]['actual_amount']=='25.00'
+    saved = save(db, actor, row, saved, [
+        saved['payment']['payments'][0],
+        {'stage_type': 'mid', 'stage_no': 1, 'actual_amount': 10},
+        {'stage_type': 'mid', 'stage_no': 1, 'actual_amount': 20},
+    ])
+    rows = saved['payment']['payments']
+    assert [item['stage_no'] for item in rows] == [1, 2, 3]
+    assert [item['actual_amount'] for item in rows] == ['25.00', '10.00', '20.00']
     with pytest.raises(HTTPException) as error:
-        save(db,actor,row,saved,[{'stage_type':'deposit','actual_amount':10},{'stage_type':'deposit','actual_amount':20}])
+        save(db, actor, row, saved, [rows[0], rows[0]])
     assert error.value.status_code==422
     db.rollback()
 

@@ -55,6 +55,30 @@ def test_multimonth_import_move_uniqueness_and_original_project_untouched(setup)
     assert state['payload']['tasks'][str(first.id)]['board_id']==board1
 
 
+def test_local_workspace_excludes_private_fields_from_documents_and_history(setup,monkeypatch):
+    http=setup[0]
+    monkeypatch.setenv('APP_ENV','production')
+    state=imported(setup)
+    board=state['documents'][0]
+    state=change(setup,state,'edit_board',{'board_id':board['id'],'fields':{'account_number':'TEST-OA-ACCOUNT'}})
+    assert state['documents'][0]['statement']['settings']['account_number']=='TEST-OA-ACCOUNT'
+    path=f"/translation-statement-workspaces/{state['client_id']}"
+
+    monkeypatch.setenv('APP_ENV','development')
+    local=http.get(path)
+    assert local.status_code==200 and 'TEST-OA-ACCOUNT' not in local.text
+    assert local.json()['documents'][0]['statement']['stamp_image'] is None
+    log=http.get(f'{path}/history')
+    assert 'TEST-OA-ACCOUNT' not in log.text
+    record_id=log.json()['items'][0]['id']
+    assert 'TEST-OA-ACCOUNT' not in http.get(f'{path}/history/{record_id}').text
+    change(setup,state,'edit_board',{'board_id':board['id'],'fields':{'account_number':'TEST-LOCAL-ACCOUNT'}},expected=403)
+    change(setup,state,'restore_history',{'history_id':record_id})
+
+    monkeypatch.setenv('APP_ENV','production')
+    assert http.get(path).json()['documents'][0]['statement']['settings']['account_number']=='TEST-OA-ACCOUNT'
+
+
 def test_edits_confirmation_audit_restore_and_immutable_identity(setup):
     http,db,_,_,user,first,_=setup
     state=imported(setup);board=state['documents'][0];line=board['statement']['rows'][0]
@@ -79,7 +103,8 @@ def test_edits_confirmation_audit_restore_and_immutable_identity(setup):
     assert http.get(f"/translation-statement-workspaces/{state['client_id']}/history").json()['total']==3
 
 
-def test_header_layout_excel_multisheet_and_formula_escape(setup):
+def test_header_layout_excel_multisheet_and_formula_escape(setup,monkeypatch):
+    monkeypatch.setenv('APP_ENV','production')
     http,db,_,_,_,first,_=setup
     state=imported(setup);first_board=state['documents'][0]['id']
     state=change(setup,state,'edit_board',{'board_id':first_board,'fields':{'company':'=1+1','title':'合并月结对账单','bank_name':'编排开户行','billing_label':'十月至十一月'}})
@@ -179,7 +204,8 @@ def test_delete_all_batch_validation_restore_and_regenerate(setup):
     change(setup,empty,'delete_boards',{'board_ids':ids,'confirmation':'删除'},expected=403)
 
 
-def test_inline_document_edit_audits_every_field_and_moves_month_without_changing_project(setup):
+def test_inline_document_edit_audits_every_field_and_moves_month_without_changing_project(setup,monkeypatch):
+    monkeypatch.setenv('APP_ENV','production')
     http,db,_,_,user,first,_=setup
     state=imported(setup);board=state['documents'][0];line=board['statement']['rows'][0]
     state=change(setup,state,'edit_document',{'board_id':board['id'],'fields':{'company':'对账单抬头','title':'核对清单','bank_name':'对账单专用银行'},'rows':[{'row_id':line['_row_id'],'fields':{'project_name':'对账专用名称','subtotal':'42.50','remarks':'协商调整','billing_month':'2026-12'}}]})

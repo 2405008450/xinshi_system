@@ -23,19 +23,26 @@
           <el-button v-if="canWriteProjects && !deleteMode" @click="openBatchDialog('quantity')">按数量批量新增</el-button>
           <el-button v-if="canWriteProjects && !deleteMode" @click="openBatchDialog('unc')">读取路径</el-button>
           <el-button v-if="canWriteProjects && !deleteMode" @click="openBatchDialog('filenames')">复制/文件导入</el-button>
+          <el-button v-if="canWriteProjects && !deleteMode" @click="replacePathsVisible = true">批量替换路径</el-button>
         </div>
       </div>
     </template>
 
     <p class="copyable-order-path">根路径：{{ project.networkFilePath || '未登记' }}</p>
     <MotherSplitReviewNotice :review="project.motherSplitReview" @edit="editMother" />
+    <div class="suborder-search">
+      <el-input v-model="searchInput" clearable placeholder="搜索子订单号、文件名称或路径" aria-label="搜索子订单" @input="queueSearch" @keyup.enter="applySearch" />
+      <el-button type="primary" @click="applySearch">查询</el-button>
+      <el-button @click="resetSearch">重置</el-button>
+      <span v-if="searchKeyword">匹配 {{ filteredSubOrders.length }} / {{ subOrders.length }} 条</span>
+    </div>
     <VerticalSplitPanels top-label="统计填写区" bottom-label="子订单列表">
     <template #top>
-    <SubOrderStatisticsGrid :root-path="project.networkFilePath" :rows="subOrders" :editable="canWriteProjects && !deleteMode" @saved="fetchSubOrders" />
+    <SubOrderStatisticsGrid :root-path="project.networkFilePath" :rows="subOrders" :visible-rows="filteredSubOrders" :editable="canWriteProjects && !deleteMode" @saved="fetchSubOrders" />
     </template>
     <template #bottom>
     <div class="suborder-list-region">
-    <el-table class="suborder-management-table" height="100%" scrollbar-always-on ref="subOrderTableRef" :data="subOrders" v-loading="loading" row-key="id" border @selection-change="handleDeleteSelectionChange">
+    <el-table class="suborder-management-table" height="100%" scrollbar-always-on ref="subOrderTableRef" :data="filteredSubOrders" v-loading="loading" row-key="id" border @selection-change="handleDeleteSelectionChange">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column type="index" label="序号" width="60" />
       <el-table-column label="子订单号" min-width="180">
@@ -85,7 +92,10 @@
       <el-table-column label="字数统计" min-width="220">
         <template #default="{ row }">
           <div class="word-count-summary">
-            <span>{{ formatWordCountMatrix(row.wordCountMatrix) }}</span>
+            <div>
+              <div>{{ formatWordCountMatrix(displayedMatrices.get(row.id)) }}</div>
+              <OrderWordCountSource :order="row" />
+            </div>
             <WordCountMatrixPopover
               v-model="row.wordCountMatrix"
               entity-type="suborder"
@@ -135,7 +145,8 @@
       <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="dialogTitle" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
       <div ref="subOrderEditorBodyRef">
       <AppForm number-scope="translation_suborder" number-field="subOrderNo" :number-active="dialogVisible && !subOrderForm.id" :number-parent="subOrderForm.parentSubOrderId || projectId" ref="subOrderFormRef" :model="subOrderForm" :rules="subOrderRules" label-width="130px">
-        <WordCountMatrixForm v-if="dialogTitle==='小量新增'" v-model="subOrderForm.wordCountMatrix" />
+        <OrderWordCountSource :order="subOrders.find(row => row.id === subOrderForm.id)" />
+        <WordCountMatrixForm v-model="subOrderForm.wordCountMatrix" :aggregated="subOrderForm.wordCountMatrixSource === 'suborder_aggregate'" />
                 <OriginalProjectInformation :value="subOrderForm.originalProjectInformation" />
         <el-form-item v-if="!subOrderForm.id" label="上级订单"><el-select v-model="subOrderForm.parentSubOrderId" clearable placeholder="母订单（创建一级子订单）"><el-option v-for="row in subOrders.filter(item=>item.subOrderNo.split('.').length<5)" :key="row.id" :value="row.id" :label="row.subOrderNo+' / '+row.subProjectName" /></el-select></el-form-item>
         <el-row :gutter="16">
@@ -148,11 +159,11 @@
         </el-row>
         <el-row :gutter="16">
           <el-col :span="12"><el-form-item label="文本类型"><el-input v-model="subOrderForm.fileTypeSecondary" /><OrderFieldHint :order="subOrderForm" field="fileTypeSecondary" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="翻译方向"><LanguagePairSelect allow-proofreading v-model="subOrderForm.languagePair" :single="(subOrderForm.subOrderNo || '').split('.').length > 4" :show-hint="false" /><div>多选方向将生成下一级子订单；最多四级子订单，第四级限一个方向。</div><OrderFieldHint :order="subOrderForm" field="languagePair" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="翻译方向"><LanguagePairSelect allow-proofreading v-model="subOrderForm.languagePair" :single="(subOrderForm.subOrderNo || '').split('.').length > 5" :show-hint="false" /><div>文件订单多选方向后生成下级子订单，共用原文路径。文件夹保留原层级。</div><OrderFieldHint :order="subOrderForm" field="languagePair" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="16">
           <el-col :span="12"><el-form-item label="优先级"><el-select v-model="subOrderForm.priority" clearable style="width: 100%"><el-option v-for="item in priorityOptions" :key="item" :label="item" :value="item" /></el-select></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="字数统计"><div class="word-count-summary"><span>{{ formatWordCountMatrix(subOrderForm.wordCountMatrix) }}</span><WordCountMatrixPopover v-model="subOrderForm.wordCountMatrix" entity-type="suborder" :entity-id="subOrderForm.id" title="子订单字数统计" @saved="fetchSubOrders" /></div></el-form-item><el-form-item label="价格与付款"><el-button type="primary" plain @click="customerFinanceEditorRef.openForForm(subOrderForm,project)">价格与付款</el-button></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="价格与付款"><el-button type="primary" plain @click="customerFinanceEditorRef.openForForm(subOrderForm,project)">价格与付款</el-button></el-form-item></el-col>
         </el-row>
         <el-row :gutter="16">
           <el-col :span="12"><el-form-item label="客户交稿时间"><el-date-picker v-model="subOrderForm.customerDeadlineTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /><OrderFieldHint :order="subOrderForm" field="customerDeadlineTime" /></el-form-item></el-col>
@@ -193,7 +204,7 @@
           </el-collapse-item>
         </el-collapse>
         <el-row :gutter="16">
-          <el-col :span="24"><el-form-item label="网络文件路径"><el-input v-model="subOrderForm.networkFilePath" /></el-form-item></el-col>
+          <el-col :span="24"><el-form-item label="文件路径"><el-input v-model="subOrderForm.networkFilePath" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="16">
           <el-col :span="24"><el-form-item label="客户反馈"><el-input v-model="subOrderForm.clientFeedback" /></el-form-item></el-col>
@@ -209,6 +220,8 @@
       </template>
     </DraggableFormDialog>
 
+    <ReplaceSubOrderPathsDialog v-model="replacePathsVisible" :project-id="projectId"
+      :root-path="project.networkFilePath" @saved="loadData" />
     <SubOrderBatchCreateDialog
       v-model="batchDialogVisible"
       :project="project"
@@ -231,7 +244,9 @@ import FolderImportRecords from './components/FolderImportRecords.vue'
 import SubOrderStatisticsGrid from './components/SubOrderStatisticsGrid.vue'
 import { getProjectStatusOptions } from '@/utils/projectStatus'
 import { validateTranslationFileName } from '@/utils/translationFileName'
-import { computed, onMounted, reactive, ref, watch, defineAsyncComponent } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, defineAsyncComponent } from 'vue'
+import { matchesSearchFields } from '@/utils/searchMatching'
+import { rollUpPendingRows } from '@/utils/translationChildSubmission'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Check } from '@element-plus/icons-vue'
@@ -240,6 +255,7 @@ import { createSubOrder, deleteSubOrder, getSubOrdersByProject, updateSubOrder,e
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
+import OrderWordCountSource from '@/components/common/OrderWordCountSource.vue'
 import TranslationCustomerFinance from './CustomerFinance.vue'
 import {projectFinanceFields} from '@/utils/projectFinanceFields'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
@@ -250,6 +266,7 @@ import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import InlineSubProjectName from './components/InlineSubProjectName.vue'
 import SubOrderBatchCreateDialog from './components/SubOrderBatchCreateDialog.vue'
+import ReplaceSubOrderPathsDialog from './components/ReplaceSubOrderPathsDialog.vue'
 import WordCountMatrixForm from '@/components/common/WordCountMatrixForm.vue'
 import MotherSplitReviewNotice from './components/MotherSplitReviewNotice.vue'
 import OriginalProjectInformation from './components/OriginalProjectInformation.vue'
@@ -259,7 +276,7 @@ const emit=defineEmits(['edit-mother'])
 function editMother(){if(props.embedded)emit('edit-mother');else motherEditorVisible.value=true}
 import TranslatorCompletionPopover from './components/TranslatorCompletionPopover.vue'
 import { useBatchDelete } from '@/composables/useBatchDelete'
-import { createEmptyWordCountMatrix, formatWordCountMatrix } from '@/utils/wordCountMatrix'
+import { createEmptyWordCountMatrix, formatWordCountMatrix, normalizeWordCountMatrix } from '@/utils/wordCountMatrix'
 import { formatBusinessDateTime } from '@/utils/deadlineDisplay'
 import { hasPermission } from '@/utils/permission'
 
@@ -272,6 +289,7 @@ const loading = ref(false)
 const dialogVisible = ref(false)
 const subOrderExpandedSections = ref([])
 const batchDialogVisible = ref(false)
+const replacePathsVisible = ref(false)
 const batchDialogMode=ref('quantity')
 const inlineChanges = ref(new Map())
 const inlineSaving = ref(false)
@@ -281,9 +299,44 @@ const subOrderEditorBodyRef=ref(null)
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(subOrderEditorBodyRef)
 const subOrderTableRef = ref(null)
 const subOrders = ref([])
+const displayedMatrices = computed(() => {
+  const rows = subOrders.value.map(row => ({
+    ...row, wordCountMatrix: normalizeWordCountMatrix(row.wordCountMatrix)
+  }))
+  rollUpPendingRows(rows)
+  return new Map(rows.map(row => [row.id, row.wordCountMatrix]))
+})
+const searchInput = ref('')
+const searchKeyword = ref('')
+let searchTimer
+const filteredSubOrders = computed(() => {
+  const keyword = searchKeyword.value
+  if (!keyword) return subOrders.value
+  return subOrders.value.filter(row => matchesSearchFields(
+    [row.subOrderNo, row.subProjectName, row.networkFilePath], keyword
+  ))
+})
+function applySearch() {
+  clearTimeout(searchTimer)
+  const keyword = searchInput.value.trim()
+  if (keyword !== searchKeyword.value) {
+    subOrderTableRef.value?.clearSelection()
+    searchKeyword.value = keyword
+  }
+}
+function queueSearch() {
+  clearTimeout(searchTimer)
+  if (!searchInput.value.trim()) applySearch()
+  else searchTimer = setTimeout(applySearch, 400)
+}
+function resetSearch() {
+  searchInput.value = ''
+  applySearch()
+}
+onBeforeUnmount(() => clearTimeout(searchTimer))
 const inlinePendingCount = computed(() => inlineChanges.value.size)
 const project = reactive({ childFieldDifferences:{}, serviceContent:'', customerRequirementProfessional:'', customerRequirementSpecial:'', remarks:'', id: '', orderNo: '', projectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), projectStatus: 'pending_confirmation', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorAssignmentTime: '', translatorDeliveryProgress: '', preReviewQcProgress: '', review1Progress: '', review2Progress: '', postReviewQcProgress: '', layoutProgress: '', consolidationProgress: '', networkFilePath: '' })
-const createSubOrderForm = () => ({ serviceContent:'', customerRequirementProfessional:'', customerRequirementSpecial:'', inheritedFields:[], childFieldDifferences:{}, id: '', parentSubOrderId: '', parentProjectId: projectId, subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: '', preReviewQcProgress: '', review1Progress: '', review2Progress: '', postReviewQcProgress: '', layoutProgress: '', consolidationProgress: '', networkFilePath: '', remarks: '' })
+const createSubOrderForm = () => ({ serviceContent:'', customerRequirementProfessional:'', customerRequirementSpecial:'', inheritedFields:[], childFieldDifferences:{}, id: '', parentSubOrderId: '', parentProjectId: projectId, subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), wordCountMatrixSource: 'suborder', customerChargeItems: [], customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: '', preReviewQcProgress: '', review1Progress: '', review2Progress: '', postReviewQcProgress: '', layoutProgress: '', consolidationProgress: '', networkFilePath: '', remarks: '' })
 const subOrderForm = reactive(createSubOrderForm())
 const projectStatusOptions = getProjectStatusOptions('translation')
 const priorityOptions = ['低', '中', '高', '紧急']
@@ -305,7 +358,7 @@ const subOrderDetailItems = [
   { label: '字数统计', key: 'wordCountMatrix', formatter: formatWordCountMatrix }, { label: '客户交稿时间', key: 'customerDeadlineTime' }, { label: '发客户时间', key: 'sentToClientTime' }, { label: '客户反馈', key: 'clientFeedback', span: 2 },
   { label: '译员分配时间', key: 'translatorAssignmentTime' }, { label: '译员回稿时间', key: 'translatorReturnTime', span: 2, formatter: (_value, row) => formatTranslatorReturnTimes(row.assignedTranslators) },
   { label: '译员交付进度', key: 'translatorDeliveryProgress' }, { label: '审校前QC', key: 'preReviewQcProgress' }, { label: '审校1', key: 'review1Progress' }, { label: '审校2', key: 'review2Progress' },
-  { label: '审校后QC', key: 'postReviewQcProgress' }, { label: '排版进度', key: 'layoutProgress' }, { label: '整合进度', key: 'consolidationProgress' }, { label: '网络文件路径', key: 'networkFilePath', span: 2 },
+  { label: '审校后QC', key: 'postReviewQcProgress' }, { label: '排版进度', key: 'layoutProgress' }, { label: '整合进度', key: 'consolidationProgress' }, { label: '文件路径', key: 'networkFilePath', span: 2 },
   { label: '备注', key: 'remarks', span: 2 }, { label: '创建时间', key: 'createdAt' }, { label: '更新时间', key: 'updatedAt' }
 ]
 const legacyStatusMap = { pending: 'pending_confirmation', in_progress: 'confirmed', completed: 'sent_to_client', terminated: 'cancelled' }
@@ -317,7 +370,14 @@ const assignReactive = (target, values) => { Object.keys(target).forEach((key) =
 const cleanPayload = (payload) => { const result = { ...payload }; NULLABLE_FIELDS.forEach((key) => { if (result[key] === '') result[key] = null }); return result }
 const buildDefaultsFromProject = () => ({ serviceContent:project.serviceContent, customerRequirementProfessional:project.customerRequirementProfessional, customerRequirementSpecial:project.customerRequirementSpecial, remarks:project.remarks, fileTypeSecondary: project.fileTypeSecondary, languagePair: project.languagePair, priority: project.priority, wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], customerDeadlineTime: project.customerDeadlineTime, sentToClientTime: project.sentToClientTime, clientFeedback: project.clientFeedback, translatorId: project.translatorId, translatorAssignmentTime: project.translatorAssignmentTime, status: normalizeStatus(project.projectStatus) || 'pending_confirmation', translatorDeliveryProgress: project.translatorDeliveryProgress, preReviewQcProgress: project.preReviewQcProgress, review1Progress: project.review1Progress, review2Progress: project.review2Progress, postReviewQcProgress: project.postReviewQcProgress, layoutProgress: project.layoutProgress, consolidationProgress: project.consolidationProgress, networkFilePath: project.networkFilePath })
 const fetchProject = async () => { const response = await getProject(projectId); assignReactive(project, { ...project, ...response }) }
-const fetchSubOrders = async () => { const response = await getSubOrdersByProject(projectId); subOrders.value = Array.isArray(response) ? response.sort((a, b) => (a.subOrderNo || '').localeCompare(b.subOrderNo || '')) : []; inlineChanges.value = new Map() }
+let subOrderRequest = 0
+const fetchSubOrders = async () => {
+  const request = ++subOrderRequest
+  const response = await getSubOrdersByProject(projectId)
+  if (request !== subOrderRequest) return
+  subOrders.value = Array.isArray(response) ? response.sort((a, b) => (a.subOrderNo || '').localeCompare(b.subOrderNo || '')) : []
+  inlineChanges.value = new Map()
+}
 const loadData = async () => { loading.value = true; try { await Promise.all([fetchProject(), fetchSubOrders()]) } catch (error) { ElMessage.error(getLocalizedErrorMessage(error, '加载子订单失败')) } finally { loading.value = false } }
 const goBack = () => router.push({ name: 'TranslationProjectDetails' })
 const resetSubOrderForm = () => { subOrderExpandedSections.value = []; assignReactive(subOrderForm, createSubOrderForm()); subOrderFormRef.value?.clearValidate() }
@@ -329,7 +389,15 @@ watch(()=>subOrderForm.parentSubOrderId,()=>{
  for(const key of ['serviceContent','languagePair','customerDeadlineTime','customerRequirementProfessional','customerRequirementSpecial','remarks','fileTypeSecondary'])subOrderForm[key]=parent[key]||''
  subOrderForm.status=parent.status||parent.projectStatus||'pending_confirmation'
 })
-const openEditDialog = (row) => { resetSubOrderForm(); dialogTitle.value = '编辑子订单'; assignReactive(subOrderForm, { ...createSubOrderForm(), ...row }); dialogVisible.value = true }
+const openEditDialog = (row) => {
+  resetSubOrderForm()
+  dialogTitle.value = '编辑子订单'
+  assignReactive(subOrderForm, {
+    ...createSubOrderForm(), ...row,
+    wordCountMatrix: displayedMatrices.value.get(row.id) ?? row.wordCountMatrix,
+  })
+  dialogVisible.value = true
+}
 const buildPayload = (source) => cleanPayload({ serviceContent:source.serviceContent||null, customerRequirementProfessional:source.customerRequirementProfessional||null, customerRequirementSpecial:source.customerRequirementSpecial||null, parentSubOrderId: source.parentSubOrderId || null, parentProjectId: projectId, subProjectName: source.subProjectName || '', fileTypeSecondary: source.fileTypeSecondary || '', languagePair: source.languagePair || '', priority: source.priority || '', wordCountMatrix: source.wordCountMatrix, customerChargeItems: source.customerChargeItems || [], customerDeadlineTime: source.customerDeadlineTime || '', sentToClientTime: source.sentToClientTime || '', clientFeedback: source.clientFeedback || '', translatorId: source.translatorId || '', translatorAssignmentTime: source.translatorAssignmentTime || '', status: normalizeStatus(source.status) || 'pending_confirmation', translatorDeliveryProgress: source.translatorDeliveryProgress || '', preReviewQcProgress: source.preReviewQcProgress || '', review1Progress: source.review1Progress || '', review2Progress: source.review2Progress || '', postReviewQcProgress: source.postReviewQcProgress || '', layoutProgress: source.layoutProgress || '', consolidationProgress: source.consolidationProgress || '', networkFilePath: source.networkFilePath || '', remarks: source.remarks || '' })
 const handleSubmit = async () => { if (!subOrderFormRef.value) return; const valid = await subOrderFormRef.value.validate().catch(() => false); if (!valid) return; try { const payload = projectFinanceFields(buildPayload(subOrderForm),!!subOrderForm.id); let saved; if (dialogTitle.value === '小量新增') { saved = await createSubOrder({...payload,preserveOriginalFile:true}); ElMessage.success('子订单创建成功') } else { saved = await updateSubOrder(subOrderForm.id, payload); ElMessage.success('子订单更新成功') } if (saved?.autoCreatedChildCount) ElMessage.success(`已按翻译方向自动生成 ${saved.autoCreatedChildCount} 个子订单`); dialogVisible.value = false; await loadData();if(saved?.motherSplitReview?.required)editMother() } catch (error) {
         await subOrderFormRef.value?.applyServerErrors(error)
@@ -410,6 +478,9 @@ const customerFinanceEditorRef=ref(null)
 .suborder-management :deep(.statistics-actions){flex:none;margin:0 0 8px}
 .suborder-management :deep(.statistics-scroll){flex:1;min-height:0;max-height:none}
 .suborder-list-region{height:100%;min-height:0;overflow:hidden}
+.suborder-search{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0 0 8px}
+.suborder-search .el-input{width:min(360px,100%)}
+.suborder-search .el-button+.el-button{margin-left:0}
 .suborder-management-table{height:100%;border-radius:0!important}
 .suborder-list-region :deep(.el-scrollbar__bar.is-horizontal){bottom:0;height:10px}
 .suborder-list-region :deep(.el-scrollbar__bar.is-vertical){right:0;width:10px}

@@ -1,10 +1,18 @@
 const filled=value=>value!=null&&value!==''
 export function hasPricingModeData(order){
+  if(order.pricingMode==='aggregate')return false
   if(filled(order.adjustedTotal)||filled(order.adjustedTotalInclTax))return true
   return order.pricingMode!=='fixed'&&(order.prices||[]).some(row=>filled(row.taxPrices?.unitPriceExclTax)||filled(row.taxPrices?.unitPriceInclTax)||filled(row.amount))
 }
 export async function requestPricingModeSwitch(order,next,{confirm,createRate,apply=true}){
   const previous=order.pricingMode||'metric'
+  if(next==='aggregate'&&order.children?.length&&previous!==next){
+    if(apply){
+      order.pricingMode='aggregate'
+      order.priceAggregate=true
+    }
+    return true
+  }
   if(!['metric','fixed'].includes(next)||next===previous)return false
   if(hasPricingModeData(order)){
     const old=previous==='fixed'?'固定收费':'工作量',target=next==='fixed'?'固定收费':'工作量'
@@ -12,6 +20,7 @@ export async function requestPricingModeSwitch(order,next,{confirm,createRate,ap
   }
   if(apply){
     order.pricingMode=next
+    order.priceAggregate=false
     order.prices=next==='fixed'?[]:[createRate(String(order.languagePair||'').split('；')[0]||'')]
     order.adjustedTotal=undefined;order.adjustedTotalInclTax=undefined
     order.billingTaxMode=null;order.effectiveBillingTaxMode=null

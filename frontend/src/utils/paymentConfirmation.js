@@ -15,15 +15,10 @@ export async function switchPaymentSelection(value,option,{payments=[],confirm})
   const next=other?clearPaymentSelection(current):current
   return {...next,isPaid:true,paymentOption:option,clearDetails:false,replaceDetails:current.replaceDetails||current.clearDetails||other,fullMatchStatus:option==='full'?'pending':'none'}
 }
-export function clearPaymentSelection(value){return {...paymentConfirmationForm(value),isPaid:false,paymentOption:null,paymentAccount:'',proofs:'',fullPaymentSource:null,fullPaymentAmount:null,fullPaymentTotalKey:null,fullMatchStatus:'none',fullReferenceLabel:'',fullReferenceAmount:null,mismatchReason:'',clearDetails:true}}
+export function clearPaymentSelection(value){return {...paymentConfirmationForm(value),isPaid:false,paymentOption:null,paymentAccount:'',proofs:'',fullPaymentSource:null,fullPaymentAmount:null,fullPaymentTotalKey:null,fullMatchStatus:'none',fullReferenceLabel:'',fullReferenceAmount:null,fullPaymentConfirmedByName:null,fullPaymentConfirmedAt:null,mismatchReason:'',clearDetails:true}}
 export function fixFirstDepositStage(confirmation,payments){
   if(!confirmation?.isPaid||confirmation.paymentOption!=='deposit'||!payments.length)return
-  const first=payments[0]
-  if(first.stage_type==='deposit')return
-  const used=new Set(payments.slice(1).filter(item=>item.stage_type==='deposit').map(item=>Number(item.stage_no)||1))
-  let number=Number(first.stage_no)||1
-  while(used.has(number))number++
-  first.stage_type='deposit';first.stage_no=number
+  payments[0].stage_type='deposit'
 }
 // 先保留人工已选项；首次进入或切换币种时，优先采用流程靠后的总价。
 export function preferredPaymentTotalKey(totals,currency,currentKey){
@@ -39,6 +34,8 @@ export function paymentConfirmationForm(value){
     fullPaymentSource:value?.fullPaymentSource??value?.full_payment_source??null,fullPaymentAmount:amount==null?null:Number(amount),fullPaymentCurrency:value?.fullPaymentCurrency??value?.full_payment_currency??'CNY',
     fullPaymentTotalKey:value?.fullPaymentTotalKey??value?.full_payment_total_key??null,mismatchReason:value?.mismatchReason??value?.mismatch_reason??'',
     fullMatchStatus:value?.fullMatchStatus??value?.full_match_status??(isPaid&&paymentOption==='full'?'unverified':'none'),
+    fullPaymentConfirmedByName:value?.fullPaymentConfirmedByName??value?.full_payment_confirmed_by_name??null,
+    fullPaymentConfirmedAt:value?.fullPaymentConfirmedAt??value?.full_payment_confirmed_at??null,
     fullReferenceLabel:value?.fullReferenceLabel??value?.full_reference_label??'',fullReferenceAmount:value?.fullReferenceAmount??value?.full_reference_amount??null}
 }
 export function paymentConfirmationPayload(value){const item=paymentConfirmationForm(value);return {revision:item.revision,clear_details:item.clearDetails,replace_details:item.replaceDetails,is_paid:item.isPaid,payment_option:item.paymentOption,payment_account:item.paymentAccount,proofs:item.proofs,full_payment_amount:item.fullPaymentAmount,full_payment_currency:item.fullPaymentCurrency,full_payment_total_key:item.fullPaymentTotalKey,mismatch_reason:item.mismatchReason}}

@@ -12,10 +12,10 @@
       <el-table-column label="收费项目" min-width="130">
         <template #default="{ row }"><el-input v-model="row.itemName" maxlength="100" /></template>
       </el-table-column>
-      <el-table-column label="计价模式" width="108">
+      <el-table-column label="计价方式" width="108">
         <template #default="{ row }">
           <el-select v-model="row.pricingMode" @change="onModeChange(row)">
-            <el-option label="按数量" value="metric" />
+            <el-option label="工作量" value="metric" />
             <el-option label="固定收费" value="fixed" />
           </el-select>
         </template>

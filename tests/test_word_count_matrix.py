@@ -10,6 +10,20 @@ from tests.test_arrangement_order_targets import orders
 from word_count_schemas import WordCountCellChange, WordCountMatrixPatch, WordCountValues
 
 
+def test_company_and_customer_allow_multiple_text_counts_but_reject_mixed_regions():
+    from fastapi import HTTPException
+    from word_count_schemas import WordCountCreateMatrix
+
+    matrix = WordCountCreateMatrix(
+        company={'words': 0, 'characters_no_spaces': 140, 'cjk_chars_korean_words': 80, 'foreign_words': 60},
+        customer={'pages': 3},
+    )
+    word_count_service.validate_matrix_regions(matrix)
+    matrix.company.documents = 1
+    with pytest.raises(HTTPException, match='我司统计.*统计区域'):
+        word_count_service.validate_matrix_regions(matrix)
+
+
 def test_word_count_values_accept_all_workload_units_and_reject_negative():
     values = WordCountValues(words=0, foreign_words=12, documents=3, pages=25)
     assert values.words == 0

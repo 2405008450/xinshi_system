@@ -32,16 +32,27 @@ def run():
         page=ctx.new_page();page.set_default_timeout(12000);page.on('pageerror',lambda e:errors.append(str(e)));page.goto(BASE+'/invoice-entries-test')
         table=page.locator('.finance-project-table');expect(table).to_contain_text('TP-261110-001')
         actions=table.locator('.el-table__body-wrapper tbody tr').first.locator('td').last
-        assert actions.get_by_role('button').all_text_contents()==['价格与付款','对账单','发票','修改记录']
-        table.get_by_role('button',name='收起操作栏',exact=True).click();expect(actions.get_by_role('button')).to_have_count(0)
-        table.get_by_role('button',name='展开操作栏',exact=True).click()
-        # 入口 A：财务操作列。
-        actions.get_by_role('button',name='发票',exact=True).click()
+        expect(actions.get_by_role('button',name='更多操作',exact=True)).to_have_count(1)
+        actions.get_by_role('button',name='更多操作',exact=True).click()
+        menu=page.get_by_role('menu').filter(has=page.get_by_role('menuitem',name='发票',exact=True))
+        expect(menu.get_by_role('menuitem')).to_have_text(['价格与付款','对账单','发票','修改记录'])
+        menu.get_by_role('menuitem',name='发票',exact=True).click()
         popup=page.locator('.project-invoice-dialog:visible')
         expect(popup.get_by_role('textbox',name='是否需发票',exact=True)).to_have_value('需（含税）')
-        initial=popup.bounding_box();header=popup.locator('.el-dialog__header').bounding_box()
-        page.mouse.move(header['x']+header['width']/2,header['y']+10);page.mouse.down()
-        page.mouse.move(header['x']+header['width']/2+50,header['y']+35,steps=8);page.mouse.up()
+        page.wait_for_timeout(300)  # 等待弹窗进场完成
+        initial=popup.bounding_box()
+        start=popup.locator('.el-dialog__header').evaluate('''header=>{
+          const rect=header.getBoundingClientRect()
+          for(let y=rect.top+8;y<rect.bottom-3;y+=5)
+            for(let x=rect.left+20;x<rect.right-20;x+=10){
+              const node=document.elementFromPoint(x,y)
+              if(node?.closest('.el-dialog__header')===header &&
+                 !node.closest('button,a,input,.is-copyable-title,.dialog-field-search-header__search'))return {x,y}
+            }
+        }''')
+        assert start, '标题栏应有可拖动区域'
+        page.mouse.move(start['x'],start['y']);page.mouse.down()
+        page.mouse.move(start['x']+50,start['y']+25,steps=8);page.mouse.up()
         moved=popup.bounding_box();assert moved['x']>initial['x']+20
         assert moved['x']>=0 and moved['x']+moved['width']<=1701
         popup.locator('.el-select').click();page.get_by_role('option',name='已开票',exact=True).click()
@@ -60,7 +71,8 @@ def run():
         popup.locator('.el-dialog__footer').get_by_role('button',name='关闭',exact=True).click()
         viewer.locator('.el-dialog__footer').get_by_role('button',name='关闭',exact=True).click()
         # 第一个入口：价格与付款的自动发票需求，三个说明独立填写。
-        actions.get_by_role('button',name='价格与付款',exact=True).click()
+        actions.get_by_role('button',name='更多操作',exact=True).click()
+        page.get_by_role('menuitem',name='价格与付款',exact=True).click()
         editor=page.locator('.customer-finance-dialog:visible').first
         expect(editor.get_by_role('textbox',name='是否需发票',exact=True)).to_have_attribute('readonly','')
         for label,value in [('报价单说明','报价备注'),('对账单说明','账单备注'),('发票说明','开票备注')]:editor.get_by_role('textbox',name=label,exact=True).fill(value)

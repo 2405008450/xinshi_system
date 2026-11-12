@@ -69,9 +69,9 @@ def run():
         popup=select_header('对账单','不需')
         page.wait_for_timeout(200);assert queries[-1]['statement_required']==['false']
         table.get_by_role('button',name='对账单筛选',exact=True).click()
-        popup=select_header('计价模式','固定收费')
+        popup=select_header('计价方式','固定收费')
         page.wait_for_timeout(200);assert queries[-1]['pricing_mode']==['fixed'] and queries[-1]['statement_required']==['false']
-        table.get_by_role('button',name='计价模式筛选',exact=True).click()
+        table.get_by_role('button',name='计价方式筛选',exact=True).click()
         table.get_by_role('button',name='项目状态筛选',exact=True).click()
         popup=page.locator('.column-header-filter-popover:visible').filter(has_text='项目状态筛选')
         popup.locator('label.el-checkbox').filter(has_text=re.compile('^已确认$')).click()

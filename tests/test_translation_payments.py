@@ -42,7 +42,9 @@ def test_clearing_and_foreign_ids_and_confirmation(environment):
     payment=db.query(FinancePayment).one();payment.confirmed_by=actor.id;payment.confirmed_at=datetime(2026,11,4,9);db.commit()
     current=read(row.id,db,actor);current['payments'][0]['actual_amount']='9'
     result=write(row.id,service.PaymentWrite(version=current['version'],payments=current['payments']),db,actor)
-    assert db.query(FinancePayment).one().confirmed_by is None
+    confirmed=db.query(FinancePayment).one()
+    assert confirmed.confirmed_by is None and confirmed.confirmed_at is None
+    assert result['payments'][0]['confirmed_at'] is None
     with pytest.raises(HTTPException) as error:write(other.id,service.PaymentWrite(version=read(other.id,db,actor)['version'],payments=result['payments']),db,actor)
     assert error.value.status_code==422
     db.rollback()

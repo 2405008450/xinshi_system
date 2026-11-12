@@ -31,6 +31,24 @@ export const createEmptyWordCountMatrix = () => ({
 
 const hasValue = (value) => value !== null && value !== undefined && value !== ''
 
+const wordCountRegions = [
+  ['words', 'characters_no_spaces', 'cjk_chars_korean_words', 'foreign_words'],
+  ['documents'],
+  ['pages'],
+  ['minutes', 'hours']
+]
+
+export function hasMultipleWordCountRegions(values = {}) {
+  return wordCountRegions.filter(region => region.some(key => hasValue(values[key]))).length > 1
+}
+
+export function isWordCountRegionLocked(values, metric) {
+  if (hasValue(values[metric])) return false
+  return wordCountRegions.some(region =>
+    !region.includes(metric) && region.some(key => hasValue(values[key]))
+  )
+}
+
 function readMetricValue(values = {}, metricKey) {
   const aliases = METRIC_KEY_ALIASES[metricKey] || [metricKey]
   for (const alias of aliases) {

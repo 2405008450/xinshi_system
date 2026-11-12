@@ -32,7 +32,9 @@ def pdf_bytes(statements):
     from reportlab.lib.units import mm
     from reportlab.lib.utils import ImageReader
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, LongTable, TableStyle, PageBreak, Flowable, KeepTogether
-    from customer_statements import statement_title,tax_label
+    from customer_statements import (
+        is_fixed_statement_row, statement_amount, statement_has_unit_column, statement_title, tax_label,
+    )
     output=BytesIO();font=chinese_font()
     document=SimpleDocTemplate(output,pagesize=landscape(A4),leftMargin=14*mm,rightMargin=14*mm,topMargin=14*mm,bottomMargin=14*mm,title='客户对账单',author='信实翻译')
     styles={key:ParagraphStyle(key,fontName=font,fontSize=size,leading=size*1.45,alignment=alignment,wordWrap='CJK') for key,size,alignment in [('cell',9,TA_CENTER),('date',8,TA_CENTER),('company',15,TA_CENTER),('title',16.5,TA_CENTER),('text',10,TA_LEFT),('footer',8,TA_LEFT),('right',10,TA_RIGHT),('heading',9,TA_CENTER),('total',9,TA_CENTER),('total_label',9,TA_RIGHT),('account',11.25,TA_LEFT),('pending',9,TA_LEFT)]}
@@ -54,15 +56,22 @@ def pdf_bytes(statements):
         meta.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]));story.extend([meta,Spacer(1,3*mm)])
         customer_order=any(str(row.get('customer_order_no') or '').strip() for row in data['rows'])
         origin=any(row.get('origin_client_id') or row.get('origin_client_name') for row in data['rows'])
-        headings=(['原客户'] if origin else [])+(['客户单号'] if customer_order else [])+['来稿日期','项目名称','翻译方向','工作量（计价方式）','单价','小计','备注']
-        weights=([24] if origin else [])+([24] if customer_order else [])+[24,35.7,17.6,29.7,30,22,34]
+        show_unit = statement_has_unit_column(data['rows'])
+        mixed_tax = '按项目' in tax_label(data)
+        headings=(['原客户'] if origin else [])+(['客户单号'] if customer_order else [])+['来稿日期','项目名称','翻译方向','工作量（计价方式）']
+        headings += (['单价','小计'] if show_unit else ['固定价格']) + ['备注']
+        weights=([24] if origin else [])+([24] if customer_order else [])+[24,35.7,17.6,29.7]+([30] if show_unit else [])+[22,34]
         cells=[[paragraph(label,'heading') for label in headings]]
         for row in data['rows']:
             basis=re.sub(r'[（(]每1(?:\.0+)?计价[）)]','',row.get('basis') or '')
             unit='-' if row.get('unit_price') is None else f"{row['currency']} {Decimal(str(row['unit_price'])).quantize(Decimal('.001'),rounding=ROUND_HALF_UP):.3f}"
-            if '按项目' in tax_label(data) and row.get('unit_label'):unit+='（'+row['unit_label']+'）'
+            fixed = is_fixed_statement_row(row)
+            if mixed_tax and row.get('unit_label') and not fixed:unit+='（'+row['unit_label']+'）'
             remark=('汇总参考，不重复计入合计。' if row.get('counted_in_total') is False else '')+(row.get('remarks') or '')
-            values=([row.get('origin_client_name') or data['client_name']] if origin else [])+([row.get('customer_order_no') or ''] if customer_order else [])+[str(row.get('received_date') or '-'),row['project_name'],row['language_pair'],str(row['quantity'])+'\n'+basis if row.get('quantity') is not None else basis,unit,f"{row['currency']} {row['subtotal']}" if row.get('subtotal') is not None else '待补',remark]
+            values=([row.get('origin_client_name') or data['client_name']] if origin else [])+([row.get('customer_order_no') or ''] if customer_order else [])+[str(row.get('received_date') or '-'),row['project_name'],row['language_pair'],str(row['quantity'])+'\n'+basis if row.get('quantity') is not None else basis]
+            if show_unit:
+                values.append('' if fixed else unit)
+            values.extend([statement_amount(row, mixed_tax), remark])
             cells.append([paragraph(value,'date' if column==int(origin)+int(customer_order) else 'cell') for column,value in enumerate(values)])
         label_width=document.width*sum(weights[:-2])/sum(weights)-12
         summary=LongTable([[paragraph('账单日期：'+(data.get('issue_date') or '—'),'footer'),paragraph('合计（已登记金额）' if data['pending'] else '合计','total_label')]],colWidths=[label_width*.6,label_width*.4])
@@ -74,9 +83,10 @@ def pdf_bytes(statements):
         story.append(table)
         if data.get('stamp_image'):
             story.append(Stamp(BytesIO(base64.b64decode(data['stamp_image'].split(',',1)[1]))))
-        account=[Spacer(1,8*mm),paragraph('收款账户信息','account')]
-        for label,key in [('开户行','bank_name'),('账户名','account_name'),('账号','account_number')]:account.extend([Spacer(1,2*mm),paragraph(label+'：'+(data['settings'].get(key) or ''),'text')])
-        story.append(KeepTogether(account))
+        if data.get('private_settings_available',True):
+            account=[Spacer(1,8*mm),paragraph('收款账户信息','account')]
+            for label,key in [('开户行','bank_name'),('账户名','account_name'),('账号','account_number')]:account.extend([Spacer(1,2*mm),paragraph(label+'：'+(data['settings'].get(key) or ''),'text')])
+            story.append(KeepTogether(account))
         if data['pending']:story.extend([Spacer(1,3*mm),paragraph('待补资料：'+'；'.join(data['pending']),'pending')])
     document.build(story)
     return output.getvalue()

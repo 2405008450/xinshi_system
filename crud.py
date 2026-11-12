@@ -2598,9 +2598,10 @@ def create_translation_project(
     from translation_direction_service import ensure_direction_children
     if not project.initial_folder_import:
         auto_created += len(ensure_direction_children(db, db_project, project.created_by))
-    db_project.auto_created_child_count = auto_created
     from translation_project_submission import apply as apply_submission, apply_initial_details
-    apply_initial_details(db, db_project, project.initial_sub_order_details)
+    auto_created += apply_initial_details(db, db_project, project.initial_sub_order_details,
+                                          split_imported_files=bool(project.initial_folder_import))
+    db_project.auto_created_child_count = auto_created
     apply_submission(db, db_project, project.submission_mode, project.sub_orders_reviewed)
     if project.initial_sub_order_names or project.initial_folder_import:
         db.expire(db_project, ['sub_orders'])
@@ -3871,6 +3872,7 @@ def get_all_sub_orders(db: Session, skip: int = 0, limit: int = 200, sub_order_n
 def _create_sub_order_in_transaction(
     db: Session, sub_order: TranslationSubOrderCreate,
     idempotency_key: Optional[str] = None,
+    *, direction_child: bool = False,
 ) -> TranslationSubOrder:
     from translation_file_name_rules import normalize_single_file_name
     from translation_folder_orders import TranslationOrderFolder, folder_name
@@ -3883,7 +3885,9 @@ def _create_sub_order_in_transaction(
         parent=db.query(TranslationSubOrder).filter_by(id=sub_order.parent_sub_order_id,parent_project_id=root.id).first()
         if not parent:raise ValueError('上级子订单不存在或不属于本项目')
     sub_order_no=sub_order.sub_order_no or next_number(db,root,parent)
-    if not re.fullmatch(re.escape(root.order_no)+r'(\.\d+){1,4}',sub_order_no):raise ValueError('子订单最多四级，编号必须属于当前母订单')
+    suffix_pattern = r'(\.\d+){1,5}' if direction_child else r'(\.\d+){1,4}'
+    if not re.fullmatch(re.escape(root.order_no) + suffix_pattern, sub_order_no):
+        raise ValueError('普通子订单最多四级，第五级由翻译方向拆分生成，编号必须属于当前母订单')
     prefix=sub_order_no.rsplit('.',1)[0]
     if prefix!=root.order_no and not db.query(TranslationSubOrder.id).filter_by(parent_project_id=root.id,sub_order_no=prefix).first():raise ValueError('请先创建上级子订单')
     if prefix != root.order_no:

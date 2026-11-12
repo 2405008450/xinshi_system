@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {pendingChildRows,missingChildStatistics,aggregatePendingStatistics,initialChildDetails,inheritPendingLanguage} from '../src/utils/translationChildSubmission.js'
+import {pendingChildRows,missingChildStatistics,aggregatePendingStatistics,initialChildDetails,inheritPendingField} from '../src/utils/translationChildSubmission.js'
 
 test('同一文件按方向拆单：各方向独立复制母单所有统计，零值有效',()=>{
   const form={sourceFileName:'原文.docx',languagePair:'中文→英语；中文→法语',wordCountMatrix:{company:{words:100},customer:{pages:0},preliminary:{words:120},translatorEstimate:{hours:1.5}}}
@@ -12,6 +12,11 @@ test('同一文件按方向拆单：各方向独立复制母单所有统计，�
   assert.equal(form.wordCountMatrix.company.words,100)
   assert.equal(rows[0].wordCountCopyBaseline.company.words,100)
   assert.equal(aggregatePendingStatistics(rows).company.words,180)
+  const details = initialChildDetails(rows, form)
+  assert.equal(details['001'].wordCountMatrix.company.words, 80)
+  assert.equal('wordCountMatrix' in details['002'], false)
+  const reopened = pendingChildRows({ ...form, wordCountMatrix: { company: { words: 130 } }, pendingSubOrderDetails: details })
+  assert.deepEqual(reopened.map(row => row.wordCountMatrix.company.words), [80, 130])
 })
 
 test('确认汇总后重开或新增方向，使用原始复制数值，保留人工修改与主动清空',()=>{
@@ -25,7 +30,23 @@ test('文件子单再次按方向拆分，只复制该文件统计，不套用�
   const rows=pendingChildRows({languagePair:'中文→英语；中文→法语',initialSubOrderNamesText:'a.pdf',wordCountMatrix:{company:{words:999}},pendingSubOrderDetails:{'001':{wordCountMatrix:{company:{words:30}}}}})
   assert.equal(rows[1].wordCountMatrix.company.words,30)
   assert.equal(rows[2].wordCountMatrix.company.words,30)
-  assert.equal(aggregatePendingStatistics(rows).company.words,60)
+  assert.equal(aggregatePendingStatistics(rows).company.words,30)
+})
+
+test('方向子单默认继承直属上级状态，保留单独调整的分支', () => {
+  const form = {
+    projectStatus: 'confirmed', languagePair: '中文→英语；中文→法语',
+    initialSubOrderNamesText: 'a.pdf',
+    pendingSubOrderDetails: { '001': { status: 'paused' }, '001.002': { status: 'reviewed' } },
+  }
+  const rows = pendingChildRows(form)
+  assert.deepEqual(rows.map(row => row.status), ['paused', 'paused', 'reviewed'])
+  rows[0].status = 'confirmed'
+  inheritPendingField(rows, rows[0].subOrderNo, 'status', 'paused', 'confirmed')
+  assert.deepEqual(rows.map(row => row.status), ['confirmed', 'confirmed', 'reviewed'])
+  const details = initialChildDetails(rows, form)
+  assert.equal('status' in details['001.001'], false)
+  assert.equal(details['001.002'].status, 'reviewed')
 })
 
 test('旧版方向预览留下的空矩阵补齐母单统计，不覆盖已有数字',()=>{
@@ -58,14 +79,15 @@ test('子订单预填清理空日期和译员，数字进度转为接口字符�
 })
 
 test('多层子订单只累计叶子统计，不重复计算中间订单，且不修改明细',()=>{
-  const form={orderNo:'TP-261108-001',initialSubOrderNamesText:'a.pdf\nb.docx',languagePair:'中文→英语；中文→法语',pendingSubOrderDetails:{
-    '001':{wordCountMatrix:{company:{words:999}}},
-    '001.001':{wordCountMatrix:{company:{words:10,minutes:30}}},
-    '001.002':{wordCountMatrix:{company:{words:20,hours:1}}},
-    '002.001':{wordCountMatrix:{company:{words:0}}},
-    '002.002':{wordCountMatrix:{customer:{pages:2}}},
-  }}
-  const rows=pendingChildRows(form),before=JSON.stringify(rows)
+  const rows=[
+    ['001',{company:{words:999}}],
+    ['001.001',{company:{words:10,minutes:30}}],
+    ['001.002',{company:{words:20,hours:1}}],
+    ['002',{}],
+    ['002.001',{company:{words:0}}],
+    ['002.002',{customer:{pages:2}}],
+  ].map(([id,wordCountMatrix])=>({id,subOrderNo:'TP-261108-001.'+id,wordCountMatrix}))
+  const before=JSON.stringify(rows)
   assert.equal(missingChildStatistics(rows).length,0)
   const matrix=aggregatePendingStatistics(rows)
   assert.equal(matrix.company.words,30)
@@ -107,7 +129,7 @@ test('目录子单方向继承母单，修改后跟随直属上级且保留独�
   assert.deepEqual(rows.map(row=>row.languagePair),['中文→英语','中文→英语','中文→英语'])
   rows[2].languagePair='中文→日语'
   rows[0].languagePair='中文→法语'
-  inheritPendingLanguage(rows,rows[0].subOrderNo,'中文→英语','中文→法语')
+  inheritPendingField(rows,rows[0].subOrderNo,'languagePair','中文→英语','中文→法语')
   assert.deepEqual(rows.map(row=>row.languagePair),['中文→法语','中文→法语','中文→日语'])
   form.pendingSubOrderDetails=initialChildDetails(rows,form)
   assert.equal(form.pendingSubOrderDetails['001'].languagePair,'中文→法语')

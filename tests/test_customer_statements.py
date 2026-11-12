@@ -93,7 +93,8 @@ def test_hierarchy_not_double_counted_fixed_and_adjustments(environment):
     finance.save(db,users[0],root.id,finance.PriceWrite(version=current['version'],order_id=third.id,pricing_mode='fixed',adjusted_total=30,billing_month='2026-11'))
     result=statements.build_statement(db,root.id,None,'2026-11','project');assert len(result['rows'])==1 and result['totals']=={'CNY':'30.00'}
 
-def test_company_settings_stamp_validation_export_and_permissions(context):
+def test_company_settings_stamp_validation_export_and_permissions(context,monkeypatch):
+    monkeypatch.setenv('APP_ENV','production')
     http,db,clients,granted,_=context
     root=project(db,clients[0]);settings=http.get('/customer-statement-settings').json()
     assert b64decode(settings['default_stamp'].split(',')[1]).startswith(b'\x89PNG')
@@ -112,6 +113,18 @@ def test_company_settings_stamp_validation_export_and_permissions(context):
     with ZipFile(BytesIO(result.content)) as zipfile:
         assert 'xl/media/image1.png' in zipfile.namelist()
         assert b'<col>3</col>' in zipfile.read('xl/drawings/drawing1.xml') # 合计左侧的浮动图片图层。
+    monkeypatch.setenv('APP_ENV','development')
+    assert http.get('/customer-statement-settings').status_code==403
+    assert http.put('/customer-statement-settings',json=body).status_code==403
+    local=preview(http,root).json()
+    assert local['private_settings_available'] is False
+    assert local['settings']=={} and local['stamp_image'] is None
+    local_export=http.get('/translation-statements/excel',params={'project_id':str(root.id),'month':'2026-11'})
+    assert local_export.status_code==200
+    with ZipFile(BytesIO(local_export.content)) as zipfile:
+        assert not any(name.startswith('xl/media/') for name in zipfile.namelist())
+    assert not any(cell.value=='账号：001234567890' for row in load_workbook(BytesIO(local_export.content)).active for cell in row)
+    monkeypatch.setenv('APP_ENV','production')
     granted.remove('clients:write');assert http.put('/customer-statement-settings',json=body).status_code==403
     granted.remove('projects:read');assert preview(http,root).status_code==403
 
@@ -145,10 +158,40 @@ def test_order_display_preview_and_excel_do_not_double_count(context):
         response=http.get('/translation-statements/excel',params={'project_id':str(root.id),'month':'2026-11','order_display':mode,'version':data['statement_version']})
         assert response.status_code==200,response.text
         sheet=load_workbook(BytesIO(response.content)).active
-        assert sheet.cell(6+len(data['rows']),6).value=='CNY 30.00'
-        if mode=='all':assert '汇总参考' in sheet['G6'].value
+        assert sheet.cell(6+len(data['rows']),5).value=='CNY 30.00'
+        if mode=='all':assert '汇总参考' in sheet['F6'].value
     assert preview(http,root,order_display='invalid').status_code==422
     assert http.get('/translation-statements/excel',params={'project_id':str(root.id),'month':'2026-11','order_display':'all','version':results['parents']['statement_version']}).status_code==409
+
+
+def test_fixed_fee_displays_workload_and_no_unit_price_in_exports(context):
+    from statement_pdf import pdf_bytes
+    http, db, clients, _, _ = context
+    fixed = project(db, clients[0], '010', fixed=True)
+    db.add_all([
+        WordCountMetric(id=uuid4(), project_id=fixed.id, dimension='company', metric_type='words', count_value=2000),
+        WordCountMetric(id=uuid4(), project_id=fixed.id, dimension='company', metric_type='pages', count_value=5),
+    ])
+    db.commit()
+    data = preview(http, fixed).json()
+    row = data['rows'][0]
+    assert row['pricing_mode'] == 'fixed' and row['unit_price'] is None
+    assert '客户统计：字数 1,234' in row['basis']
+    assert '我司统计：页数 5' in row['basis']
+    assert '2,000' not in row['basis']
+    assert row['subtotal'] == '500.00' and not data['pending']
+    sheet = load_workbook(BytesIO(statements.excel_bytes(data))).active
+    assert '单价' not in [cell.value for cell in sheet[5]]
+    assert sheet['E5'].value == '固定价格' and sheet['E6'].value == 'CNY 500.00'
+    assert '页数 5' in sheet['D6'].value
+    assert pdf_bytes([data]).startswith(b'%PDF-')
+
+    project(db, clients[0], '011')
+    mixed = preview(http, fixed, scope='customer').json()
+    sheet = load_workbook(BytesIO(statements.excel_bytes(mixed))).active
+    assert sheet['E5'].value == '单价'
+    assert sheet['E6'].value is None and sheet['F6'].value == 'CNY 500.00'
+    assert sheet['E7'].value == 'CNY 100.000'
 
 
 def test_order_display_keeps_standalone_projects_and_currency_groups(context):
@@ -160,7 +203,8 @@ def test_order_display_keeps_standalone_projects_and_currency_groups(context):
         assert result['totals']=={'CNY':'123.40','USD':'500.00'}
 
 
-def test_company_subject_and_conditional_customer_order_column(context):
+def test_company_subject_and_conditional_customer_order_column(context,monkeypatch):
+    monkeypatch.setenv('APP_ENV','production')
     http,db,clients,_,_=context
     root=project(db,clients[0])
     settings=http.get('/customer-statement-settings').json()
