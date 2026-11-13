@@ -51,6 +51,36 @@ def test_finance_read_batches_child_charge_queries(environment):
     assert 0<expanded<=baseline+1
 
 
+def test_finance_read_batches_child_charge_queries_after_expiration(environment):
+    """子单增加时，收费读取不得退化为逐条 SQL；仅使用隔离数据库。"""
+    from sqlalchemy import event
+    from models import TranslationSubOrder
+    db,(owner,_,_)=environment
+    root,_,_=setup(db,owner)
+    project_id=root.id
+
+    def measure():
+        db.expire_all()
+        statements=[]
+        def capture(conn,cursor,statement,parameters,context,executemany):
+            if statement.lstrip().upper().startswith('SELECT') and 'translation_sub_order_charge_item' in statement:
+                statements.append(statement)
+        event.listen(db.bind,'before_cursor_execute',capture)
+        try:
+            finance.read(db,project_id)
+        finally:
+            event.remove(db.bind,'before_cursor_execute',capture)
+        return len(statements)
+
+    initial=measure()
+    db.add_all([TranslationSubOrder(id=uuid4(),parent_project_id=root.id,
+        sub_order_no=f'{root.order_no}.{index:03}',sub_project_name='批量查询测试')
+        for index in range(2,22)])
+    db.commit()
+    assert initial > 0
+    assert measure() == initial
+
+
 def write(db,owner,root,order,amount,**kwargs):
     data=finance.read(db,root.id)
     return finance.save(db,owner,root.id,finance.PriceWrite(version=data['version'],order_id=order.id,amount=amount,**kwargs))

@@ -375,8 +375,7 @@ def missing_child_order_fields(root, order_directions):
 
 
 def read(db, project_id):
-    # Reload the order tree and all charge collections in batches. Expiring each
-    # collection after the eager load causes a separate query per sub-order.
+    # 保存后也会复用当前会话：通过公共查询批量刷新订单、收费及统计，避免逐个子单查询。
     project=crud.get_translation_project(db,project_id,refresh=True)
     if not project: raise HTTPException(404,'笔译项目不存在')
     result=tree(project)
