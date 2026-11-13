@@ -39,6 +39,7 @@
   </section>
 </template>
 <script setup>
+import {createRequestId} from '@/utils/requestId'
 import {computed,onMounted,onBeforeUnmount,reactive,ref,watch} from 'vue'
 import {ElMessage} from 'element-plus'
 import {getHomeOffice,getCompanyHomeOffice,applyHomeOfficeQualification,applyHomeOffice,saveHomeOfficeUsage} from '@/api/attendance'
@@ -58,7 +59,7 @@ const rules=computed(()=>({minutes:kind.value==='application'?[{required:true,me
 const statusLabel=value=>({pending:'待审批',approved:'已批准',rejected:'已驳回'})[value]||value
 let controller,sequence=0,alive=true,unsubscribe
 async function load(){controller?.abort();controller=new AbortController();const id=++sequence;loading.value=true;error.value='';try{const value=props.admin?await getCompanyHomeOffice():await getHomeOffice(requestedDate.value,{signal:controller.signal});if(alive&&id===sequence){data.value=value;emit('eligibility',value)}}catch(e){if(alive&&id===sequence&&e.code!=='ERR_CANCELED')error.value=e.detail||'读取居家办公申请失败'}finally{if(alive&&id===sequence)loading.value=false}}
-function open(value){kind.value=value;Object.assign(form,{id:`home-office-${value}`,reason:'',client_id:crypto.randomUUID(),minutes:data.value.allowed_minutes?.[0]||120});submitError.value='';visible.value=true}
+function open(value){kind.value=value;Object.assign(form,{id:`home-office-${value}`,reason:'',client_id:createRequestId(),minutes:data.value.allowed_minutes?.[0]||120});submitError.value='';visible.value=true}
 function close(done){if(saving.value)return;done()}
 async function submit(){if(saving.value)return;if(!await formRef.value.validate().catch(()=>false))return;saving.value=true;submitError.value='';try{const payload={client_id:form.client_id,reason:form.reason};const result=kind.value==='qualification'?await applyHomeOfficeQualification(payload):await applyHomeOffice({...payload,requested_date:requestedDate.value,minutes:form.minutes});ElMessage.success(result.message);data.value=result;emit('eligibility',result);visible.value=false}catch(e){submitError.value=typeof e.detail==='string'?e.detail:'申请未提交成功，请重试'}finally{saving.value=false}}
 function editUsage(row){usageTarget.value=row;Object.assign(usageForm,{id:`home-usage:${row.user_id}:${data.value.year}`,used_days:row.manual_used_days,note:''});submitError.value='';usageVisible.value=true}

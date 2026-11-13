@@ -9,6 +9,7 @@
   </DraggableFormDialog>
 </template>
 <script setup>
+import {createRequestId} from '@/utils/requestId'
 import {reactive,ref} from 'vue'
 import {ElMessage} from 'element-plus'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
@@ -17,7 +18,7 @@ import {formatBusinessDateTime,businessDateTimeInputValue} from '@/utils/dateTim
 const emit=defineEmits(['saved']),visible=ref(false),saving=ref(false),error=ref(''),items=ref([]),formRef=ref()
 const form=reactive({id:'delay-start-application',client_id:'',requested_start:'',reason:''})
 const rules={requested_start:[{required:true,message:'请选择预计上班时间',trigger:'change'}],reason:[{required:true,whitespace:true,message:'请填写申请事由',trigger:'blur'}]}
-async function open(){Object.assign(form,{client_id:crypto.randomUUID(),requested_start:businessDateTimeInputValue(new Date()),reason:''});error.value='';visible.value=true;try{const data=await getDelayStartApplications();items.value=data.items}catch(e){error.value=e.detail||'读取申请记录失败'}}
+async function open(){Object.assign(form,{client_id:createRequestId(),requested_start:businessDateTimeInputValue(new Date()),reason:''});error.value='';visible.value=true;try{const data=await getDelayStartApplications();items.value=data.items}catch(e){error.value=e.detail||'读取申请记录失败'}}
 function close(done){if(!saving.value)done()}
 async function submit(){if(saving.value||!await formRef.value.validate().catch(()=>false))return;saving.value=true;error.value='';try{const result=await applyDelayStart({client_id:form.client_id,requested_start:`${form.requested_start}+08:00`,reason:form.reason});ElMessage.success(result.message);visible.value=false;emit('saved')}catch(e){error.value=typeof e.detail==='string'?e.detail:'申请未确认提交成功，请重试'}finally{saving.value=false}}
 </script>

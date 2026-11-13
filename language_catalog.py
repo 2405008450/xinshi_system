@@ -212,8 +212,8 @@ def normalize_language_pairs(value: Optional[str]) -> Optional[str]:
     normalized = []
     normalized_keys = set()
     for pair in parts:
-        # 校对是业务标记，可独立使用或与翻译方向组合，不作为语种入库。
-        if pair == "校对":
+        # 校对和盖章是业务标记，可独立使用或与翻译方向组合，不作为语种入库。
+        if pair in ("校对", "盖章"):
             if pair not in normalized_keys:
                 normalized.append(pair)
                 normalized_keys.add(pair)
@@ -248,7 +248,7 @@ def validate_language_pairs_against_catalog(
     result = []
     result_keys = set()
     for pair in LANGUAGE_PAIR_SPLIT_PATTERN.split(normalized):
-        if pair == "校对":
+        if pair in ("校对", "盖章"):
             result.append(pair)
             continue
         source, _, target = pair.partition("→")

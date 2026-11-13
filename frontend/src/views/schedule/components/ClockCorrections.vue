@@ -26,6 +26,7 @@
 </section>
 </template>
 <script setup>
+import {createRequestId} from '@/utils/requestId'
 import {ref,reactive,computed,watch,onMounted,onBeforeUnmount,nextTick} from 'vue'
 import {ElMessage,ElMessageBox} from 'element-plus'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
@@ -50,7 +51,7 @@ watch(()=>form.deduct_invalid_time,value=>{if(value!==true){form.invalid_minutes
 const status=value=>({pending:'待行政确认',confirmed:'已确认',cancelled:'已撤回'})[value]||value
 let alive=true,controller,sequence=0,unsubscribe
 async function load(){controller?.abort();controller=new AbortController();const seq=++sequence;loading.value=true;error.value='';try{const value=await getClockCorrections(props.admin,{signal:controller.signal});if(alive&&seq===sequence)data.value=value}catch(e){if(alive&&seq===sequence&&e.code!=='ERR_CANCELED')error.value=e.detail||'读取补卡记录失败'}finally{if(alive&&seq===sequence)loading.value=false}}
-function open(kind){editingId.value=null;Object.assign(form,empty(),{kind,client_id:crypto.randomUUID()});saveError.value='';clearFieldSearch();visible.value=true;nextTick(()=>formRef.value?.clearValidate())}
+function open(kind){editingId.value=null;Object.assign(form,empty(),{kind,client_id:createRequestId()});saveError.value='';clearFieldSearch();visible.value=true;nextTick(()=>formRef.value?.clearValidate())}
 async function edit(row){
   editingId.value=row.id;editingVersion.value=row.history.length
   Object.assign(form,empty(),row.declarations||{},{client_id:row.client_id,day:row.day,kind:row.kind,record_id:row.record_id,segment:row.segment,requested_at:businessDateTimeInputValue(row.requested_at).replace(' ','T'),next_start:row.declarations?.next_start?businessDateTimeInputValue(row.declarations.next_start).replace(' ','T'):null,reason:row.reason,evidence:row.evidence})

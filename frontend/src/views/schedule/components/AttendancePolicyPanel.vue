@@ -34,6 +34,7 @@
   </section>
 </template>
 <script setup>
+import {createRequestId} from '@/utils/requestId'
 import {useAttendanceScheduleRefresh} from '@/composables/useAttendanceScheduleRefresh'
 import {ref,reactive,computed,onMounted,onBeforeUnmount} from 'vue'
 import {ElMessage,ElMessageBox} from 'element-plus'
@@ -49,7 +50,7 @@ const mine=computed(()=>data.value.balances?.[0]),monthlyRows=computed(()=>(data
 const rules={start_at:[{required:true,message:'请选择开始时间',trigger:'change'}],end_at:[{required:true,message:'请选择结束时间',trigger:'change'}],reason:[{required:true,whitespace:true,message:'请填写调休事由',trigger:'blur'}]}
 let controller,sequence=0,alive=true,unsubscribe
 async function load(){controller?.abort();controller=new AbortController();const id=++sequence;loading.value=true;error.value='';try{const value=await getAttendancePolicy(year.value,props.admin,{signal:controller.signal});if(alive&&id===sequence)data.value=value}catch(e){if(alive&&id===sequence&&e.code!=='ERR_CANCELED')error.value=typeof e.detail==='string'?e.detail:'读取规则记录失败'}finally{if(alive&&id===sequence)loading.value=false}}
-function open(){Object.assign(form,{client_id:crypto.randomUUID(),start_at:'',end_at:'',reason:''});submitError.value='';visible.value=true}
+function open(){Object.assign(form,{client_id:createRequestId(),start_at:'',end_at:'',reason:''});submitError.value='';visible.value=true}
 function close(done){if(!saving.value)done()}
 async function submit(){if(saving.value||!await formRef.value.validate().catch(()=>false))return;saving.value=true;submitError.value='';try{const value=await applyCompTime({client_id:form.client_id,start_at:`${form.start_at}+08:00`,end_at:`${form.end_at}+08:00`,reason:form.reason});ElMessage.success(value.message);visible.value=false;load()}catch(e){submitError.value=typeof e.detail==='string'?e.detail:'调休申请未保存，请重试'}finally{saving.value=false}}
 async function cancelRequest(id){try{await ElMessageBox.confirm('撤回后释放本次调休预留额度，确定撤回？','撤回调休申请',{type:'warning'});const value=await cancelCompTime(id);ElMessage.success(value.message);load()}catch(e){if(e!=='cancel'&&e!=='close')ElMessage.error(typeof e.detail==='string'?e.detail:'撤回失败，请重试')}}

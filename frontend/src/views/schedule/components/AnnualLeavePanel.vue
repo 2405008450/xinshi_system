@@ -21,6 +21,7 @@
   </section>
 </template>
 <script setup>
+import {createRequestId} from '@/utils/requestId'
 import {useAttendanceScheduleRefresh} from '@/composables/useAttendanceScheduleRefresh'
 import {computed,onMounted,onBeforeUnmount,reactive,ref,watch} from 'vue'
 import {ElMessage} from 'element-plus'
@@ -42,7 +43,7 @@ let controller,sequence=0,alive=true,timer,unsubscribe
 async function load(){controller?.abort();controller=new AbortController();const id=++sequence;loading.value=true;error.value='';try{const value=await getAnnualLeave(year.value,props.admin,{signal:controller.signal});if(alive&&id===sequence)data.value=value}catch(e){if(alive&&id===sequence&&e.code!=='ERR_CANCELED')error.value=typeof e.detail==='string'?e.detail:'读取年假抵扣失败'}finally{if(alive&&id===sequence)loading.value=false}}
 function search(){clearTimeout(timer);effectiveKeyword.value=keyword.value}
 function reset(){keyword.value='';search()}
-function edit(row){target.value=row;Object.assign(form,{id:`leave-settlement:${row.source_key}`,client_id:crypto.randomUUID(),mode:row.mode==='wage'?'auto':'wage',reason:''});submitError.value='';visible.value=true}
+function edit(row){target.value=row;Object.assign(form,{id:`leave-settlement:${row.source_key}`,client_id:createRequestId(),mode:row.mode==='wage'?'auto':'wage',reason:''});submitError.value='';visible.value=true}
 function close(done){if(!saving.value)done()}
 async function save(){if(saving.value||!await formRef.value.validate().catch(()=>false))return;saving.value=true;submitError.value='';try{const result=await saveLeaveSettlement({client_id:form.client_id,source_kind:target.value.source_kind,source_id:target.value.source_id,mode:form.mode,revision:target.value.revision,reason:form.reason});ElMessage.success(result.message);visible.value=false;window.dispatchEvent(new Event('annual-leave-changed'));load()}catch(e){submitError.value=typeof e.detail==='string'?e.detail:'调整未确认保存，请重试'}finally{saving.value=false}}
 watch(keyword,value=>{clearTimeout(timer);if(!value)search();else timer=setTimeout(search,400)})

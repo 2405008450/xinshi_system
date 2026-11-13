@@ -14,6 +14,7 @@
   </DraggableFormDialog>
 </template>
 <script setup>
+import {createRequestId,ensureRequestId} from '@/utils/requestId'
 import {ref,reactive,watch,onBeforeUnmount} from 'vue'
 import {ElMessage} from 'element-plus'
 import AppForm from '@/components/common/AppForm.vue'
@@ -28,10 +29,10 @@ const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField
 const rules={start_at:[{required:true,message:'请选择开始时间',trigger:'change'}],end_at:[{required:true,message:'请选择结束时间',trigger:'change'},{validator:(_rule,value,callback)=>callback(value&&value<=form.start_at?new Error('结束时间必须晚于开始时间'):undefined),trigger:'change'}],reason:[{required:true,whitespace:true,message:'请填写请假原因',trigger:'blur'}]}
 let timer,controller,sequence=0,clientId=''
 function beforeClose(done){if(!saving.value)done()}
-watch(visible,value=>{if(value){Object.assign(form,{start_at:'',end_at:'',reason:''});preview.value=null;error.value='';clientId=crypto.randomUUID();clearFieldSearch()}else{clearTimeout(timer);controller?.abort();sequence++}})
-watch(()=>[form.start_at,form.end_at],()=>{clearTimeout(timer);controller?.abort();const id=++sequence;clientId=crypto.randomUUID();preview.value=null;error.value='';previewing.value=false;if(!visible.value||!form.start_at||!form.end_at||form.end_at<=form.start_at)return;timer=setTimeout(async()=>{controller=new AbortController();previewing.value=true;try{const value=await previewAttendanceLeave(attendanceWindow(form),{signal:controller.signal});if(id===sequence)preview.value=value}catch(e){if(id===sequence&&e.code!=='ERR_CANCELED')error.value=e.detail||'读取班次失败，请重试'}finally{if(id===sequence)previewing.value=false}},400)})
-watch(()=>form.reason,()=>{if(!saving.value)clientId=crypto.randomUUID()})
-async function save(){if(saving.value)return;try{await formRef.value.validate()}catch{return}saving.value=true;try{const value=await submitAttendanceLeave({...attendanceWindow(form),reason:form.reason,client_id:clientId});ElMessage.success(value.message);visible.value=false;emit('saved')}catch(e){ElMessage.error(e.detail||'请假保存失败，尚未确认成功，请重试')}finally{saving.value=false}}
+watch(visible,value=>{if(value){Object.assign(form,{start_at:'',end_at:'',reason:''});preview.value=null;error.value='';clientId=createRequestId();clearFieldSearch()}else{clearTimeout(timer);controller?.abort();sequence++}})
+watch(()=>[form.start_at,form.end_at],()=>{clearTimeout(timer);controller?.abort();const id=++sequence;clientId=createRequestId();preview.value=null;error.value='';previewing.value=false;if(!visible.value||!form.start_at||!form.end_at||form.end_at<=form.start_at)return;timer=setTimeout(async()=>{controller=new AbortController();previewing.value=true;try{const value=await previewAttendanceLeave(attendanceWindow(form),{signal:controller.signal});if(id===sequence)preview.value=value}catch(e){if(id===sequence&&e.code!=='ERR_CANCELED')error.value=e.detail||'读取班次失败，请重试'}finally{if(id===sequence)previewing.value=false}},400)})
+watch(()=>form.reason,()=>{if(!saving.value)clientId=createRequestId()})
+async function save(){if(saving.value)return;try{await formRef.value.validate()}catch{return}clientId=ensureRequestId(clientId);saving.value=true;try{const value=await submitAttendanceLeave({...attendanceWindow(form),reason:form.reason,client_id:clientId});ElMessage.success(value.message);visible.value=false;emit('saved')}catch(e){ElMessage.error(e.detail||'请假保存失败，尚未确认成功，请重试')}finally{saving.value=false}}
 onBeforeUnmount(()=>{clearTimeout(timer);controller?.abort();sequence++})
 </script>
 <style scoped>.attendance-preview{margin-top:16px;font-size:13px;color:#475569}.attendance-preview p{line-height:1.7}.attendance-leave-dialog :deep(.el-date-editor){width:100%}</style>

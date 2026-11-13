@@ -209,7 +209,9 @@ const languagePairOptions = computed(() => {
     }))
   generated.sort((left, right) => left.commonRank - right.commonRank)
   if (props.allowProofreading) {
-    generated.unshift({ label: '校对', value: '校对', shortLabel: '业务标记', searchText: '校对', directionSearchText: '校对' })
+    generated.unshift(...['校对', '盖章'].map((value) => ({
+      label: value, value, shortLabel: '业务标记', searchText: value, directionSearchText: value,
+    })))
   }
   const known = new Set(generated.map((item) => item.value))
   const legacy = parseLanguagePairs(props.modelValue)
@@ -257,7 +259,7 @@ const handleVisibleChange = (visible) => {
 const hintText = computed(() => loadingFailed.value
   ? '语种候选项加载失败，请刷新页面后重试'
   : props.allowProofreading
-    ? '可选择“校对”，也可与翻译方向组合；支持“中英”“中译英”等简称搜索'
+    ? '可选择“校对”“盖章”，也可与翻译方向组合；支持“中英”“中译英”等简称搜索'
     : '可输入“中英”“中译英”等简称搜索；语种目录由各类项目共享')
 
 const loadLanguages = async () => {

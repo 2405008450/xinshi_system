@@ -51,6 +51,10 @@ const FIELD_LABELS = {
   status: '状态',
   name: '名称',
   phone: '联系电话',
+  start_at: '开始时间',
+  end_at: '结束时间',
+  requested_start: '预计上班时间',
+  reason: '申请原因',
   start_date: '开始日期',
   end_date: '结束日期',
   start_time: '开始时间',
@@ -111,10 +115,14 @@ const validationMessageByType = (item, label) => {
   return `${label}内容格式不正确`
 }
 
-export function formatValidationErrors(errors) {
+export function formatValidationErrors(errors, url = '') {
   if (!Array.isArray(errors) || !errors.length) return STATUS_FALLBACKS[422]
   return errors.map((item) => {
     const location = item?.loc || []
+    // 考勤的 client_id 是去重标识，与客户档案无关，也不是用户填写项。
+    if (/(?:^|\/)attendance(?:\/|$)/.test(url.split('?')[0]) && location[0] === 'body' && location[1] === 'client_id') {
+      return '申请提交校验失败，请保留填写内容并刷新页面后重试'
+    }
     const index = location.indexOf('initial_sub_order_details')
     const suffix = index >= 0 ? String(location[index + 1] || '') : ''
     const prefix = /^\d{3}(\.\d{3}){0,3}$/.test(suffix) ? `子订单 ${suffix} · ` : ''
@@ -141,7 +149,7 @@ export function getLocalizedErrorMessage(error, fallback = '操作失败，请�
   const status = error?.response?.status
   const resolvedFallback = statusFallback(status, fallback)
   const rawDetail = error?.rawDetail ?? error?.response?.data?.detail ?? error?.detail
-  if (Array.isArray(rawDetail)) return formatValidationErrors(rawDetail)
+  if (Array.isArray(rawDetail)) return formatValidationErrors(rawDetail, error?.config?.url || error?.response?.config?.url || '')
   if (rawDetail && typeof rawDetail === 'object') {
     return safeUserMessage(rawDetail.message, resolvedFallback)
   }
@@ -162,7 +170,7 @@ export function normalizeApiError(error) {
       ? '网络异常，请检查网络后重试'
       : statusFallback(error?.response?.status, '请求失败，请稍后重试')
   const detail = Array.isArray(rawDetail)
-    ? formatValidationErrors(rawDetail)
+    ? formatValidationErrors(rawDetail, error?.config?.url || error?.response?.config?.url || '')
     : getLocalizedErrorMessage({ ...error, rawDetail }, fallback)
 
   error.rawDetail = rawDetail
