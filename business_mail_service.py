@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Iterable, Optional
 from uuid import UUID
 
@@ -405,6 +406,43 @@ def policy_recipients(db: Session, project_type: str) -> tuple[list[AppUser], li
     return to_users, cc_users
 
 
+def _translation_delivery_fields(db: Session, project_id: UUID) -> dict:
+    """从已保存的路径组和财务数据生成通知摘要，不重新计算业务金额。"""
+    from crud import get_project_files_by_project
+    from translation_customer_finance import read as read_finance
+
+    files = get_project_files_by_project(db, project_id, limit=1)
+    finance = read_finance(db, project_id)
+    node, payment = finance['item'], finance['payment']
+    confirmation = payment['confirmation']
+    totals = node.get('billing_totals') or {}
+    tax_label = {'incl_tax': '含税', 'excl_tax': '不含税', 'mixed': '混合税口径'}.get(
+        node.get('effective_billing_tax_mode'), '计费口径')
+    amount = '；'.join(f'{currency} {Decimal(value):.2f}' for currency, value in sorted(totals.items()))
+    if amount:
+        amount += f'（{tax_label}）'
+        if node.get('incomplete'):
+            amount += '（部分金额待完善）'
+
+    currency = confirmation['full_payment_currency']
+    if confirmation['is_paid'] and confirmation['payment_option'] == 'full':
+        paid = confirmation['full_payment_amount']
+    elif payment['payments']:
+        actual = [row['actual_amount'] for row in payment['payments']]
+        paid = sum((Decimal(value) for value in actual if value is not None), Decimal('0')) if any(value is not None for value in actual) else None
+    else:
+        paid = None if confirmation['is_paid'] else Decimal('0')
+    paid_text = f'{currency} {Decimal(paid):.2f}' if paid is not None else '待完善'
+    if payment['payments'] and confirmation['payment_option'] != 'full' and any(row['actual_amount'] is None for row in payment['payments']):
+        if paid is not None:
+            paid_text += '（部分付款明细待完善）'
+    return {
+        'original_storage_path': files[0].storage_path if files else None,
+        'project_amount_display': amount or '待完善',
+        'paid_amount_display': paid_text,
+    }
+
+
 def _project_source(project_type: str, project) -> dict:
     client = getattr(project, "client", None) if project_type == "translation" else (
         getattr(project, "sub_client", None) or getattr(project, "client", None)
@@ -528,6 +566,7 @@ def build_preview(
         project_values = _project_source(project_type, project)
         if project_type == "translation":
             project_values["word_count_matrix"] = get_word_count_matrix(db, "project", project.id)
+            project_values.update(_translation_delivery_fields(db, project.id))
         values = {**project_values, **values}
     if getattr(db,'info',{}).get('client_contacts_visible') is False:
         values['manager_contact']=None
@@ -604,6 +643,12 @@ def build_preview(
         for label, key in BODY_LABELS[project_type]
         if (_clean(values.get(key)) or key in core_body_keys) and not (project_type == 'translation' and key in {'customer_requirement_professional','customer_requirement_special'})
     )
+    if project_type == 'translation':
+        lines.extend([
+            f"母订单原文路径：{_clean(values.get('original_storage_path')) or '-'}",
+            f"项目金额：{values.get('project_amount_display') or '待完善'}",
+            f"已付款金额：{values.get('paid_amount_display') or '待完善'}",
+        ])
     word_count_lines = _format_word_count_lines(values.get("word_count_matrix")) if project_type == "translation" else []
     if word_count_lines:
         lines.extend(["项目字数统计：", *word_count_lines])

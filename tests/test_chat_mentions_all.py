@@ -247,3 +247,54 @@ def test_project_send_rejects_outsider_before_persisting_message(kind, mention_a
     assert db.get(model, (row.id, outsider.id)) is None
     assert db.query(ChatProjectMessage).count() == before_messages
     assert db.query(AppNotification).count() == before_notices
+
+
+def test_receipt_clears_only_own_single_discussion_mention(chat_env):
+    db, (sender, receiver, outsider) = chat_env
+    import discussion_chat_service as service
+    from discussion_message_actions import set_action
+    from routers.discussion_chat import MessageCreate
+    from chat_mention_history import list_mentions
+    from discussion_chat_models import DiscussionMember
+    room = setup_discussion(db, [sender, receiver, outsider])
+    ids = [int(service.send(db, sender, room, MessageCreate(content='请确认', mentioned_user_ids=[receiver.id], client_message_id=uuid4()))['id']) for _ in range(2)]
+    set_action(db, receiver, room, ids[1], 'acknowledgement', True)
+    row = next(row for row in service.catalog(db, receiver) if row['project_id']==str(room))
+    assert row['mention_message_ids'] == [str(ids[0])]
+    assert db.get(DiscussionMember, (room, receiver.id)).last_read_id == 0
+    items = {item['message_id']: item for item in list_mentions(db, receiver, project_type='discussion')['items']}
+    assert items[str(ids[0])]['unread'] and not items[str(ids[1])]['unread']
+    set_action(db, receiver, room, ids[1], 'acknowledgement', False)
+    row = next(row for row in service.catalog(db, receiver) if row['project_id']==str(room))
+    assert row['mention_message_ids'] == [str(ids[0])]
+
+
+def test_project_receipt_clears_only_matching_mention(chat_env):
+    db, (sender, receiver, outsider) = chat_env
+    from annotation_models import AnnotationProject
+    from models import AnnotationChatMember, ChatProjectMessageAcknowledgement as Ack
+    from schemas import AnnotationProjectChatMessageCreate
+    import annotation_chat_service as service
+    from project_chat_crud import acknowledge_chat_message, unacknowledge_chat_message
+    from routers.chat_sessions import summaries
+    from models import ChatProjectMessage
+    from chat_mention_history import list_mentions
+    from sqlalchemy import event
+    def defaults(mapper, connection, row):
+        if row.id is None: row.id = uuid4()
+    event.listen(Ack, 'before_insert', defaults)
+    try:
+        project=AnnotationProject(id=uuid4(),order_no='AP-RECEIPT',project_name='Receipt',created_by=sender.id)
+        db.add(project);db.flush()
+        db.add_all([AnnotationChatMember(project_id=project.id,user_id=user.id,following=True,last_read_sequence=0) for user in [sender,receiver]])
+        db.commit()
+        messages=[service.send_message(db,project.id,sender,AnnotationProjectChatMessageCreate(content='Confirm',mentioned_user_ids=[receiver.id],client_message_id=uuid4())) for _ in range(2)]
+        acknowledge_chat_message(db,messages[1],receiver)
+        stats=summaries(db,ChatProjectMessage.annotation_project_id,[project.id],{project.id:0},receiver.id)[project.id]
+        assert stats['mention_message_ids']==[messages[0].id]
+        rows={str(row['message_id']):row for row in list_mentions(db,receiver,project_type='annotation')['items']}
+        assert rows[str(messages[0].id)]['unread'] and not rows[str(messages[1].id)]['unread']
+        unacknowledge_chat_message(db,messages[1],receiver)
+        assert summaries(db,ChatProjectMessage.annotation_project_id,[project.id],{project.id:0},receiver.id)[project.id]['mention_message_ids']==[messages[0].id]
+    finally:
+        event.remove(Ack,'before_insert',defaults)

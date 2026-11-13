@@ -81,6 +81,7 @@ function start() {
     subscribe('annotation_chat_changed', refresh),
     subscribe('direct_chat_changed', refresh),
     subscribe('chat_sessions_changed', refresh),
+    subscribe('chat_message_acknowledgement', refresh),
     subscribe('chat_conversation_removed', event => {
       window.dispatchEvent(new CustomEvent('chat-conversation-access-denied', { detail: { projectType: event.projectType, projectId: event.projectId } }))
       refresh()

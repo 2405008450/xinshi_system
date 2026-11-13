@@ -3,6 +3,7 @@ import vue from '@vitejs/plugin-vue'
 import Components from 'unplugin-vue-components/vite'
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { fileURLToPath, URL } from 'node:url'
+import { transcriptionReportPlugin } from './tools/transcription-report-package.mjs'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
@@ -10,6 +11,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [
+      transcriptionReportPlugin(),
       vue(),
       Components({ resolvers: [
         name => name === 'ElFormItem' ? { name: 'default', from: fileURLToPath(new URL('./src/components/common/ClientLinkFormItem.js', import.meta.url)).replaceAll('\\', '/'), sideEffects: 'element-plus/es/components/form/style/css' } : undefined,

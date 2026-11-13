@@ -333,7 +333,7 @@ async function favorite(message) {
   try { const result = await (message.isFavorited ? unfavoriteProjectChatMessage : favoriteProjectChatMessage)(message.id); Object.assign(message, result) } catch (e) { ElMessage.error(detail(e)) }
 }
 async function acknowledge(message) {
-  try { const result = await (message.isAcknowledged ? unacknowledgeProjectChatMessage : acknowledgeProjectChatMessage)(message.id); Object.assign(message, result) } catch (e) { ElMessage.error(detail(e)) }
+  try { const result = await (message.isAcknowledged ? unacknowledgeProjectChatMessage : acknowledgeProjectChatMessage)(message.id); Object.assign(message, result); if (message.isAcknowledged) { seenMentions.value = [...new Set([...seenMentions.value, message.id])]; void refreshSessions() } } catch (e) { ElMessage.error(detail(e)) }
 }
 async function recall(message) {
   try {

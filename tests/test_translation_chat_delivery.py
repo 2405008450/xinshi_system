@@ -76,6 +76,79 @@ def test_project_supplementary_notes_after_order_number_before_project_type_in_m
     assert '补充说明：' not in mail.build_preview(db,'translation',project_id=root.id,current_user=actor)['body']
 
 
+@pytest.mark.parametrize('option,actual,expected', [
+    (None, [], 'CNY 0.00'),
+    ('full', [50], 'CNY 150.00'),
+    ('deposit', [20.10, 30.20], 'CNY 50.30'),
+    ('deposit', [None], '待完善'),
+    ('deposit', [20, None], 'CNY 20.00（部分付款明细待完善）'),
+])
+def test_saved_path_and_finance_are_shared_by_mail_and_chat(chat_case, option, actual, expected):
+    import json
+    import business_mail_service as mail
+    from models import ProjectFile, TranslationSubOrderChargeItem, FinanceRecord, FinancePayment
+    from translation_payment_confirmation import TranslationPaymentConfirmation
+    from discussion_chat_models import DiscussionMessage
+    db, actor, staff, root, service = chat_case
+    path = r'\\Win-server\项目\中文合同<&>\原文.docx'
+    db.add(ProjectFile(translation_project_id=root.id, file_name='路径组', storage_path=path))
+    db.add(TranslationSubOrderChargeItem(translation_project_id=root.id, sequence_no=1,
+        item_name='翻译费', pricing_mode='fixed', currency='CNY', total_excl_tax=150))
+    if option:
+        db.add(TranslationPaymentConfirmation(project_id=root.id, is_paid=True,
+            payment_option=json.dumps({'type': option, 'full_payment': {'amount': '150.00', 'currency': 'CNY'}})))
+    if actual:
+        record = FinanceRecord(project_id=root.id)
+        db.add(record); db.flush()
+        for index, value in enumerate(actual):
+            db.add(FinancePayment(finance_id=record.id, stage_type='deposit' if index == 0 else 'mid',
+                stage_no=index+1, planned_amount=999, actual_amount=value))
+    db.commit()
+    preview = mail.build_preview(db, 'translation', project_id=root.id, current_user=actor)
+    expected_lines = [f'母订单原文路径：{path}', '项目金额：CNY 150.00（不含税）', f'已付款金额：{expected}']
+    for line in expected_lines:
+        assert line in preview['body']
+    assert '中文合同&lt;&amp;&gt;' in preview['body_html']
+    service.send(db, actor, root.id, uuid4())
+    message = db.query(DiscussionMessage).one()
+    for line in expected_lines:
+        assert line in message.content
+
+
+def test_missing_path_and_price_do_not_add_send_requirements(chat_case):
+    import business_mail_service as mail
+    db, actor, staff, root, service = chat_case
+    preview = mail.build_preview(db, 'translation', project_id=root.id, current_user=actor)
+    assert '母订单原文路径：-' in preview['body']
+    assert '项目金额：待完善' in preview['body']
+    assert not preview['missing_fields']
+
+
+def test_notification_uses_child_rollup_and_separates_currencies(chat_case):
+    import business_mail_service as mail
+    from models import TranslationSubOrder, TranslationSubOrderChargeItem
+    from translation_project_submission import apply
+    db, actor, staff, root, service = chat_case
+    for index, currency, excl, incl in [(1, 'CNY', 150, None), (2, 'USD', None, 25)]:
+        child = TranslationSubOrder(parent_project_id=root.id,
+            sub_order_no=f'{root.order_no}.{index:03}', sub_project_name=f'文件{index}.docx',
+            language_pair=root.language_pair)
+        db.add(child); db.flush()
+        db.add(TranslationSubOrderChargeItem(sub_order_id=child.id, sequence_no=1,
+            item_name='翻译费', pricing_mode='fixed', currency=currency,
+            total_excl_tax=excl, total_incl_tax=incl))
+    db.flush()
+    apply(db, root, 'emergency_notice')
+    db.commit()
+    preview = mail.build_preview(db, 'translation', project_id=root.id, current_user=actor)
+    line = '项目金额：CNY 150.00；USD 25.00（混合税口径）'
+    assert line in preview['body']
+    assert '（紧急）项目预告知' in preview['body']
+    service.send(db, actor, root.id, uuid4())
+    from discussion_chat_models import DiscussionMessage
+    assert line in db.query(DiscussionMessage).one().content
+
+
 def test_generated_conversation_and_date_folder_cannot_be_disabled(chat_case,monkeypatch):
     from fastapi import HTTPException
     from routers import chat_session_categories as api

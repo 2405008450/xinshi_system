@@ -1502,6 +1502,7 @@ const handleAcknowledgementToggle = async (message) => {
       ? await acknowledgeProjectChatMessage(message.id)
       : await unacknowledgeProjectChatMessage(message.id)
     syncAcknowledgementState(message, res)
+    if (message.isAcknowledged) { seenMentions.value = [...new Set([...seenMentions.value, message.id])]; void refreshSessions() }
     ElMessage.success(message.isAcknowledged ? '已标记收到' : '已取消收到')
   } catch (error) {
     ElMessage.error(getLocalizedErrorMessage(error, nextAcknowledged ? '标记收到失败' : '取消收到失败'))

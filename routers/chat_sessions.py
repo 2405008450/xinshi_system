@@ -253,6 +253,7 @@ def users(keyword: str = '', limit: int = Query(50, ge=1, le=100), scope: str = 
 
 
 def summaries(db, column, ids, baselines, user_id):
+    from chat_receipt_read import received
     if not ids:
         return {}
     latest = db.query(column.label('scope_id'), func.max(ChatProjectMessage.sequence_no).label('seq')).filter(column.in_(ids), ChatProjectMessage.message_type == 'user').group_by(column).subquery()
@@ -265,7 +266,7 @@ def summaries(db, column, ids, baselines, user_id):
     unread_rows = db.query(column, ChatProjectMessage.sequence_no, ChatProjectMessage.id,
         ChatProjectMention.mentioned_user_id, ChatProjectMessage.event_data['mention_all'].as_boolean()).outerjoin(ChatProjectMention,
         and_(ChatProjectMention.message_id == ChatProjectMessage.id, ChatProjectMention.mentioned_user_id == user_id)).filter(
-        column.in_(ids), ChatProjectMessage.message_type == 'user', ChatProjectMessage.recalled_at.is_(None), ChatProjectMessage.sender_user_id != user_id,
+        column.in_(ids), ~received(db, ChatProjectMessage, user_id), ChatProjectMessage.message_type == 'user', ChatProjectMessage.recalled_at.is_(None), ChatProjectMessage.sender_user_id != user_id,
         or_(*[and_(column == uid, ChatProjectMessage.sequence_no > baseline) for uid, baseline in baselines.items()])).order_by(ChatProjectMessage.sequence_no).all()
     result = {uid: {'unread': 0, 'mention_unread': 0, 'mention_all_unread': 0, 'mention_message_ids': [], 'last_message': None} for uid in ids}
     for uid, seq, mid, mentioned, mention_all in unread_rows:

@@ -757,6 +757,9 @@ def acknowledge_chat_message(
                 raise
             created = False
 
+    from chat_receipt_read import settle_received
+    settle_received(db, message, user.id)
+    db.commit()
     acknowledgements = list_chat_message_acknowledgements(db, message.id)
     if created:
         _broadcast_chat_acknowledgement(

@@ -134,13 +134,14 @@ def catalog(db, user):
         baselines = [and_(Message.room_id == UUID(row['id']), Message.id > (members[row['id']].last_read_id if row['id'] in members else 0)) for row in rooms]
         unread = {str(room): count for room, count in db.query(Message.room_id, func.count(Message.id)).filter(
             or_(*baselines), Message.sender_id != user.id, Message.recalled_at.is_(None)).group_by(Message.room_id)} if baselines else {}
+    from chat_receipt_read import received
     from discussion_mentions import ready as mentions_ready
     from discussion_chat_models import DiscussionMention
     mentioned = {}
     broadcast_unread = {}
     latest_mentions = {}
     if mentions_ready(db):
-        for mid,room_id,is_all in db.query(DiscussionMention.message_id,Message.room_id,DiscussionMention.is_all).join(Message,Message.id==DiscussionMention.message_id).filter(DiscussionMention.user_id==user.id,Message.room_id.in_([UUID(room['id']) for room in rooms]),Message.recalled_at.is_(None)):
+        for mid,room_id,is_all in db.query(DiscussionMention.message_id,Message.room_id,DiscussionMention.is_all).join(Message,Message.id==DiscussionMention.message_id).filter(DiscussionMention.user_id==user.id,~received(db,Message,user.id,discussion=True),Message.room_id.in_([UUID(room['id']) for room in rooms]),Message.recalled_at.is_(None)):
             room_key = str(room_id)
             if latest.get(room_key) and latest[room_key].id == mid:
                 latest_mentions[room_key] = bool(is_all)
@@ -206,6 +207,7 @@ def messages(db, user, room_id, before=None, after=None, limit=50, keyword='', f
     reply_ids = {row.reply_to_id for row in rows if row.reply_to_id}
     replies = {row.id: row for row in db.query(Message).filter(Message.id.in_(reply_ids), Message.room_id == room_id)} if reply_ids else {}
     admin = user_has_permission(db, user.id, '*')
+    from chat_receipt_read import received
     from discussion_mentions import ready as mentions_ready
     from discussion_chat_models import DiscussionMention
     mention_cache={}

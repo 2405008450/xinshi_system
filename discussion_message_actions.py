@@ -34,6 +34,9 @@ def set_action(db, user, room_id, message_id, action, enabled):
     row = db.get(Action,(message_id,user.id))
     field='favorited_at' if action == 'favorite' else 'acknowledged_at'
     setattr(row,field,(getattr(row,field) or now()) if enabled else None)
+    if action == 'acknowledgement' and enabled:
+        from chat_receipt_read import settle_received
+        settle_received(db, message, user.id, discussion=True)
     db.commit()
     import discussion_chat_service as service
     service.publish(db)

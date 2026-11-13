@@ -1,5 +1,6 @@
 """当前用户的历史提及收件箱；阅读位置只影响未读标记，不影响列表。"""
 from search_matching import keyword_ilike, keyword_or
+from chat_receipt_read import received
 from sqlalchemy import and_, case, false, func, literal, or_
 
 import annotation_chat_service as annotation
@@ -31,7 +32,7 @@ def mention_query(db, user, keyword='', *, project_type=None, project_status=Non
     query = query.add_columns(
         case((annotation_scope, literal('annotation')), else_=literal('translation')).label('kind'),
         title.label('title'), subtitle.label('subtitle'),
-        (message.sequence_no > case((annotation_scope, read_sequence), else_=translation_read)).label('unread'),
+        and_(~received(db,message,user.id), message.sequence_no > case((annotation_scope, read_sequence), else_=translation_read)).label('unread'),
     ).filter(ChatProjectMention.mentioned_user_id == user.id, message.message_type == 'user',
              message.recalled_at.is_(None))
     # 沿用各会话的查看权限与笔译群启用规则；退订不会删除有权查看的历史提及。
@@ -84,7 +85,7 @@ def history_query(db,user,keyword='',*,project_type=None,project_status=None,pro
             case((ChatProjectMessage.annotation_project_id.is_not(None),AnnotationProject.order_no),else_=TranslationProject.order_no).label('subtitle'),
             ChatProjectMessage.sender_name.label('sender_name'),ChatProjectMessage.content.label('content'),ChatProjectMessage.created_at.label('stamp'),ChatProjectMessage.sequence_no.label('sequence_no'),
             func.coalesce(ChatProjectMessage.event_data['mention_all'].as_boolean(), false()).label('mention_all'),
-            (ChatProjectMessage.sequence_no>case((ChatProjectMessage.annotation_project_id.is_not(None),func.coalesce(AnnotationChatMember.last_read_sequence,0)),else_=func.coalesce(ChatProjectMemberPref.last_read_sequence,0) if phase_one_ready(db) else literal(0))).label('unread')).statement)
+            and_(~received(db,ChatProjectMessage,user.id), ChatProjectMessage.sequence_no>case((ChatProjectMessage.annotation_project_id.is_not(None),func.coalesce(AnnotationChatMember.last_read_sequence,0)),else_=func.coalesce(ChatProjectMemberPref.last_read_sequence,0) if phase_one_ready(db) else literal(0))).label('unread')).statement)
     if project_type in (None,'direct') and not project_status and phase_one_ready(db):
         message=ChatProjectMessage
         query=db.query(message).join(ChatProjectMention,ChatProjectMention.message_id==message.id).join(ChatDirectConversation,ChatDirectConversation.id==message.direct_conversation_id).join(ChatDirectMember,and_(ChatDirectMember.conversation_id==ChatDirectConversation.id,ChatDirectMember.user_id==user.id)).filter(ChatProjectMention.mentioned_user_id==user.id,message.recalled_at.is_(None),or_(ChatDirectConversation.user_low_id==user.id,ChatDirectConversation.user_high_id==user.id))
@@ -92,7 +93,7 @@ def history_query(db,user,keyword='',*,project_type=None,project_status=None,pro
         if keyword.strip():
             from search_matching import keyword_contains
             query=query.filter(or_(*[keyword_contains(column,keyword) for column in (message.content,message.sender_name)]))
-        sources.append(query.with_entities(cast(message.id,String).label('message_id'),cast(message.direct_conversation_id,String).label('project_id'),literal('direct').label('kind'),literal('私聊').label('title'),literal('').label('subtitle'),message.sender_name.label('sender_name'),message.content.label('content'),message.created_at.label('stamp'),message.sequence_no.label('sequence_no'),func.coalesce(message.event_data['mention_all'].as_boolean(), false()).label('mention_all'),(message.sequence_no>ChatDirectMember.last_read_sequence).label('unread')).statement)
+        sources.append(query.with_entities(cast(message.id,String).label('message_id'),cast(message.direct_conversation_id,String).label('project_id'),literal('direct').label('kind'),literal('私聊').label('title'),literal('').label('subtitle'),message.sender_name.label('sender_name'),message.content.label('content'),message.created_at.label('stamp'),message.sequence_no.label('sequence_no'),func.coalesce(message.event_data['mention_all'].as_boolean(), false()).label('mention_all'),and_(~received(db,message,user.id),message.sequence_no>ChatDirectMember.last_read_sequence).label('unread')).statement)
     from discussion_mentions import ready
     if project_type in (None,'discussion') and not project_status and ready(db):
         import discussion_chat_service as discussion
@@ -108,7 +109,7 @@ def history_query(db,user,keyword='',*,project_type=None,project_status=None,pro
             from search_matching import keyword_contains
             query=query.filter(or_(*[keyword_contains(column,keyword) for column in (title,Message.content,Message.sender_name)]))
         stamp=func.timezone('Asia/Hong_Kong',Message.created_at) if db.get_bind().dialect.name=='postgresql' else Message.created_at
-        sources.append(query.with_entities(cast(Message.id,String).label('message_id'),cast(Message.room_id,String).label('project_id'),literal('discussion').label('kind'),title.label('title'),literal('讨论会话').label('subtitle'),Message.sender_name.label('sender_name'),Message.content.label('content'),stamp.label('stamp'),Message.id.label('sequence_no'),func.coalesce(Mention.is_all, false()).label('mention_all'),(Message.id>Member.last_read_id).label('unread')).statement)
+        sources.append(query.with_entities(cast(Message.id,String).label('message_id'),cast(Message.room_id,String).label('project_id'),literal('discussion').label('kind'),title.label('title'),literal('讨论会话').label('subtitle'),Message.sender_name.label('sender_name'),Message.content.label('content'),stamp.label('stamp'),Message.id.label('sequence_no'),func.coalesce(Mention.is_all, false()).label('mention_all'),and_(~received(db,Message,user.id,discussion=True),Message.id>Member.last_read_id).label('unread')).statement)
     if not sources:
         sources=[select(literal('').label('message_id'),literal('').label('project_id'),literal('').label('kind'),literal('').label('title'),literal('').label('subtitle'),literal('').label('sender_name'),literal('').label('content'),literal(datetime(1970,1,1)).label('stamp'),literal(0).label('sequence_no'),literal(False).label('mention_all'),literal(False).label('unread')).where(false())]
     return union_all(*sources).subquery()

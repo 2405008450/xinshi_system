@@ -63,7 +63,7 @@ export function useChatMentions(keyword, active, filters = ref({}), anchor = ref
   watch(active, value => { if (value) load(); else cancel() })
   onMounted(() => {
     if (active.value) load()
-    cleanup = ['annotation_chat_changed', 'chat_sessions_changed', 'chat_message', 'notification', 'connected'].map(event => subscribe(event, refresh))
+    cleanup = ['annotation_chat_changed', 'chat_sessions_changed', 'chat_message_acknowledgement', 'chat_message', 'notification', 'connected'].map(event => subscribe(event, refresh))
     timer = setInterval(refresh, 15000)
   })
   onBeforeUnmount(() => { cancel(); clearInterval(timer); cleanup.forEach(fn => fn()) })
