@@ -9,6 +9,8 @@ import { ElDescriptionsItem } from 'element-plus'
 // 仅隔离授权图片的网络请求，详情布局使用真实 Vue 与 Element Plus 渲染。
 const hooks = registerHooks({
   resolve(specifier, context, nextResolve) {
+    if (specifier === './ClientManagementLink.vue') return { url: 'mock:client-link', shortCircuit: true }
+    if (specifier === '@/utils/clientManagementWindow') return nextResolve(new URL('../src/utils/clientManagementWindow.js', import.meta.url).href, context)
     if (specifier === './ScreenshotText.vue') return { url: 'mock:screenshot-display', shortCircuit: true }
     if (specifier === '@/utils/screenshotReferences') {
       return nextResolve(new URL('../src/utils/screenshotReferences.js', import.meta.url).href, context)
@@ -16,6 +18,7 @@ const hooks = registerHooks({
     return nextResolve(specifier, context)
   },
   load(url, context, nextLoad) {
+    if (url === 'mock:client-link') return { format:'module', shortCircuit:true, source:`import {h} from ${JSON.stringify(import.meta.resolve('vue'))}; export default {props:['value'],setup:props=>()=>h('a',{class:'client-link-test'},props.value)}` }
     if (url === 'mock:screenshot-display') return {
       format: 'module', shortCircuit: true,
       source: `import { h } from ${JSON.stringify(import.meta.resolve('vue'))}; export default { props: ['text'], setup: props => () => h('span', { class: 'screenshot-test-preview' }, props.text) }`,

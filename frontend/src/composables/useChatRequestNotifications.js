@@ -1,13 +1,14 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { getNotificationPage, getUnreadNotificationCount, markNotificationRead } from '@/api/notifications'
 import { subscribe } from '@/utils/realtimeSocket'
-import { CONVERSATION_NOTIFICATION_TYPES } from '@/utils/notificationChannels'
+import { CONVERSATION_NOTIFICATION_TYPES, isBusinessNotification } from '@/utils/notificationChannels'
 
 const types = CONVERSATION_NOTIFICATION_TYPES
-const params = { channel: 'business', notification_types: types }
-export function useChatRequestNotifications() {
+export function useChatRequestNotifications({ allBusiness = false } = {}) {
+  const params = allBusiness ? { channel: 'business' } : { channel: 'business', notification_types: types }
   const items = ref([]), unread = ref(0), loading = ref(false), error = ref(''), total = ref(0), page = ref(1), pageSize = ref(30)
-  const filters = reactive({ keyword: '', notificationType: '', readStatus: 'all' })
+  const defaults = { keyword: '', notificationType: '', readStatus: 'all', category: '', summaryCategory: '' }
+  const filters = reactive({ ...defaults })
   const hasMore = computed(() => page.value * pageSize.value < total.value)
   let sequence = 0, timer, debounceTimer, controller, unsubscribe, unsubscribeSnapshot, disposed = false
   let applied = { keyword: undefined, read_status: 'all' }
@@ -21,7 +22,7 @@ export function useChatRequestNotifications() {
       const [result, count] = await Promise.all([
         getNotificationPage({ ...params, ...applied, skip: (page.value - 1) * pageSize.value, limit: pageSize.value }, { signal: controller.signal }),
         // 导航未读数字始终覆盖整个通知模块，不受搜索条件影响。
-        getUnreadNotificationCount(params, { signal: controller.signal }),
+        allBusiness ? null : getUnreadNotificationCount(params, { signal: controller.signal }),
       ])
       if (disposed || current !== sequence) return
       const last = Math.max(1, Math.ceil(result.total / pageSize.value))
@@ -36,7 +37,8 @@ export function useChatRequestNotifications() {
   function query() {
     clearTimeout(debounceTimer); debounceTimer = null
     applied = { keyword: filters.keyword.trim() || undefined, read_status: filters.readStatus,
-      notification_type: filters.notificationType || undefined }
+      notification_type: filters.notificationType || undefined, category: filters.category || undefined,
+      summary_category: filters.category === 'conversation_saved' ? filters.summaryCategory || undefined : undefined }
     page.value = 1
     return refresh()
   }
@@ -45,7 +47,7 @@ export function useChatRequestNotifications() {
     if (!filters.keyword.trim()) return query()
     debounceTimer = setTimeout(() => { debounceTimer = null; void query() }, 400)
   }
-  function reset() { Object.assign(filters, { keyword: '', notificationType: '', readStatus: 'all' }); return query() }
+  function reset() { Object.assign(filters, defaults); return query() }
   function pageChanged() { if (debounceTimer) return query(); return refresh() }
   function pageSizeChanged() { page.value = 1; return query() }
   const reload = () => { if (!debounceTimer) void refresh() }
@@ -60,7 +62,9 @@ export function useChatRequestNotifications() {
   onMounted(() => {
     reload()
     timer = window.setInterval(reload, 10000)
-    unsubscribe = subscribe('notification', payload => { if (types.includes(payload?.notification?.notification_type)) reload() })
+    unsubscribe = subscribe('notification', ({ notification } = {}) => {
+      if (notification && (allBusiness ? isBusinessNotification(notification) : types.includes(notification.notification_type))) reload()
+    })
     unsubscribeSnapshot = subscribe('snapshot', reload)
     window.addEventListener('business-notifications-changed', reload)
     window.addEventListener('focus', reload)

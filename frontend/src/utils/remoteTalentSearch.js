@@ -1,10 +1,3 @@
-import {matchesSearchFields} from './searchMatching.js'
-
-export function talentMatchesKeyword(person,keyword){
-  return matchesSearchFields([person.fullName,person.full_name,person.translatorName,person.translator_name,
-    person.resourceCode,person.resource_code,person.translatorCode,person.translator_code],keyword)
-}
-
 // 搜索结果独立于预加载目录及已选项；输入变化时立即失效旧请求和旧候选。
 export function createRemoteTalentSearch({fetchOptions,onUpdate,onError}){
   let sequence=0,controller,disposed=false
@@ -21,7 +14,7 @@ export function createRemoteTalentSearch({fetchOptions,onUpdate,onError}){
     try{
       const rows=await fetchOptions(keyword,controller.signal)
       if(disposed||request!==sequence)return
-      publish(keyword,(rows||[]).filter(row=>talentMatchesKeyword(row,keyword)),false)
+      publish(keyword, Array.isArray(rows) ? rows : [], false)
     }catch(error){
       if(disposed||request!==sequence)return
       publish(keyword,[],false)

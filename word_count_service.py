@@ -9,7 +9,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from manuscript_models import ManuscriptArrangement, ManuscriptDispatch
-from models import TranslationProject, TranslationSubOrder
+from models import AppUser, TranslationProject, TranslationSubOrder
 from word_count_models import WordCountMetric
 from word_count_schemas import WordCountCreateMatrix, WordCountMatrixPatch
 import preliminary_word_count as preliminary
@@ -152,6 +152,36 @@ def _entity_metric_rows(db,entity_type,entity_id):
     return _entity_metric_query(db,entity_type,entity_id).all()+preliminary.rows(db,
         project_ids=[entity_id] if entity_type=='project' else [],
         sub_order_ids=[entity_id] if entity_type=='suborder' else [])+duration.rows(db,project_ids=[entity_id] if entity_type=='project' else [],sub_order_ids=[entity_id] if entity_type=='suborder' else [])
+
+
+def _metric_values(rows):
+    return {(row.dimension,row.metric_type):float(row.count_value) if row.metric_type in {'minutes','hours'}
+            else int(row.count_value) for row in rows}
+
+
+def _record_word_count_changes(db, entity_type, entity, before, actor_id):
+    from translation_finance_audit import append_snapshots
+
+    after = _metric_values(_entity_metric_rows(db, entity_type, entity.id))
+    changed = sorted(key for key in before.keys() | after.keys() if before.get(key) != after.get(key))
+    if not changed:
+        return
+    actor = db.get(AppUser, actor_id)
+    if actor is None:
+        raise HTTPException(403, '无法确认字数修改人')
+    is_project = entity_type == 'project'
+    project_id = entity.id if is_project else entity.parent_project_id
+    order_key = str(entity.id)
+    metadata = {'order_no': entity.order_no if is_project else entity.sub_order_no,
+                'project_name': entity.project_name if is_project else entity.sub_project_name}
+
+    def snapshot(values):
+        return {order_key: {**metadata, 'word_count_cells': [
+            {'dimension': dimension, 'metric_type': metric, 'value': values.get((dimension, metric))}
+            for dimension, metric in changed
+        ]}}
+
+    append_snapshots(db, actor, project_id, snapshot(before), snapshot(after))
 
 
 def _arrangements_for_entity(
@@ -302,12 +332,19 @@ def patch_word_count_matrix(
 ) -> dict:
     entity = _load_entity(db, entity_type, entity_id)
     # 合并同一请求中的清空和填写后再校验，允许从旧口径切换到新口径。
-    touched={change.dimension for change in payload.changes if change.scope=='entity' and change.dimension in {'company','customer'}}
+    entity_changes = [change for change in payload.changes if change.scope == 'entity']
+    touched={change.dimension for change in entity_changes if change.dimension in {'company','customer'}}
+    record_changes = bool(entity_changes and updated_by is not None)
+    if touched or record_changes:
+        project_id = entity.id if entity_type == 'project' else entity.parent_project_id
+        db.query(TranslationProject).filter_by(id=project_id).with_for_update().first()
+        if entity_type == 'suborder':
+            db.query(TranslationSubOrder).filter_by(id=entity_id).with_for_update().first()
+        before = _metric_values(_entity_metric_rows(db,entity_type,entity_id))
     if touched:
-        db.query(TranslationProject if entity_type=='project' else TranslationSubOrder).filter_by(id=entity_id).with_for_update().first()
         values={dimension:{} for dimension in touched}
-        for cell in _entity_metric_rows(db,entity_type,entity_id):
-            if cell.dimension in touched:values[cell.dimension][cell.metric_type]=cell.count_value
+        for (dimension,metric),value in before.items():
+            if dimension in touched:values[dimension][metric]=value
         for change in payload.changes:
             if change.scope=='entity' and change.dimension in touched:values[change.dimension][change.metric_type]=change.value
         for dimension, items in values.items():
@@ -332,6 +369,9 @@ def patch_word_count_matrix(
                 value=change.value,
                 updated_by=updated_by,
             )
+        if record_changes:
+            db.flush()
+            _record_word_count_changes(db, entity_type, entity, before, updated_by)
         db.commit()
     except Exception:
         db.rollback()

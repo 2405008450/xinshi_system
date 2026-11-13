@@ -6,10 +6,11 @@
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
       <el-button v-if="error" link :disabled="busy" @click="refresh">重新加载</el-button>
       <el-button :disabled="busy||!context?.node.clientId" @click="adopt">采用最新客户参考价</el-button>
+      <CustomerTranslationRates v-if="row.clientId" :client-id="row.clientId" :can-write="canWriteClients" button-label="客户管理报价" />
       <small>{{references.length?'核对语种、单位、币种及计价数量后，手动选用报价。':'暂无完整匹配报价，可打开客户报价查看或编辑。'}}</small>
       <el-button v-if="canWriteClients" :disabled="busy||!context?.node.clientId||!context?.node.prices?.length" @click="syncClient">同步单价至客户信息…</el-button>
       <small v-if="canWriteClients">先比较现有参考价，确认后同步本订单已保存的单价。</small>
-      <SyncSameMonthPrices v-if="context" :project-id="row.rootId" :order-id="row.id" :client-id="context.node.clientId" :version="context.data.version" :month="context.node.billingMonth" :disabled="busy||!context.node.prices?.length" :prepare="prepareSameMonth" @synced="synced" />
+      <SyncSameMonthPrices v-if="context" :project-id="row.rootId" :order-id="row.id" :source-order-no="context.node.orderNo || row.orderNo" :client-id="context.node.clientId" :version="context.data.version" :month="context.node.billingMonth" :disabled="busy||!context.node.prices?.length" :prepare="prepareSameMonth" @synced="synced" />
       <small v-if="context&&!context.node.billingMonth">尚未登记账单月份，不能同步同月订单。</small>
     </div>
   </el-popover>
@@ -27,6 +28,7 @@ import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import SyncSameMonthPrices from './SyncSameMonthPrices.vue'
 import CustomerRateSyncPreview from './CustomerRateSyncPreview.vue'
 import CustomerReferencePriceDialog from './CustomerReferencePriceDialog.vue'
+import CustomerTranslationRates from './CustomerTranslationRates.vue'
 import {priceMatch,expectedOrderPrices,replaceMatchedReference} from '@/utils/customerRateMatching'
 const props=defineProps({row:Object,prepare:Function})
 const emit=defineEmits(['saved'])
@@ -46,7 +48,11 @@ function onShow(){if(!busy.value&&!error.value)void refresh()}
 async function persist(current,prices,sync=false,libraryVersion){
   const {data,node}=current
   const result=await saveCustomerFinanceProject(props.row.rootId,{version:data.version,order_id:props.row.id,pricing_mode:node.pricingMode||'metric',currency:node.currency||'CNY',prices:prices.map(ratePayload),adjusted_total:sync?node.adjustedTotal??null:null,adjusted_total_incl_tax:node.adjustedTotalInclTax??null,explanation:node.explanation||'',billing_month:node.billingMonth||null,update_library:sync,sync_confirmed:sync,library_version:libraryVersion})
-  emit('saved',result);visible.value=false;ElMessage.success(sync?'单价已同步至客户信息，并保留修改记录':'已采用最新客户参考价并保存')
+  const order = `订单 ${node.orderNo || props.row.orderNo}`
+  const clientRates = `客户管理 · ${node.clientShortName || props.row.clientShortName || node.clientName || '当前客户'}的笔译报价`
+  emit('saved',result)
+  visible.value=false
+  ElMessage.success(sync ? `已将${order}的单价同步至${clientRates}` : `已将${clientRates}同步至${order}`)
 }
 async function adopt(){
   if(busy.value)return;busy.value=true;error.value=''

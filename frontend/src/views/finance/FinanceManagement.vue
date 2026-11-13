@@ -66,7 +66,7 @@
                 <el-descriptions-item label="项目名称">
                   <span class="detail-value">{{ getDetailRow(row).project_name || '-' }}</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="客户简称">
+                <el-descriptions-item label="客户简称" :client-row="getDetailRow(row)">
                   <span class="detail-value">{{ getDetailRow(row).client_short_name || '-' }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="项目状态">

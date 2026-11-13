@@ -77,6 +77,18 @@ def required_expression(db):
     return func.coalesce(explicit,and_(customer_default,~full_payment_expression(db)))
 
 
+def statement_customer_ids(db, *, required_only=True):
+    from sqlalchemy import func, select
+    from models import TranslationProject, SubClient
+    client_id = func.coalesce(TranslationProject.client_id, SubClient.parent_client_id)
+    candidates = (db.query(client_id.label('client_id'))
+                  .outerjoin(SubClient, SubClient.id == TranslationProject.sub_client_id)
+                  .filter(TranslationProject.annotation_migrated_at.is_(None), client_id.is_not(None)))
+    if required_only:
+        candidates = candidates.filter(required_expression(db).is_(True))
+    return select(candidates.subquery().c.client_id)
+
+
 def full_payment_expression(db):
     from sqlalchemy import select,func,and_,or_,literal
     from models import TranslationProject

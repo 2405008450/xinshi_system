@@ -20,6 +20,37 @@ def setup(db, owner):
     return root,child,third
 
 
+def test_finance_read_batches_child_charge_queries(environment):
+    from sqlalchemy import event
+    from models import TranslationSubOrder
+
+    db,(owner,_,_)=environment
+    root,_,_=setup(db,owner)
+    root_id=root.id
+    queries=[]
+
+    def track(_connection, _cursor, statement, _params, _context, _many):
+        if 'FROM translation_sub_order_charge_item' in statement:
+            queries.append(statement)
+
+    def read_charge_query_count():
+        queries.clear()
+        event.listen(db.bind,'before_cursor_execute',track)
+        try:
+            result=finance.read(db,root_id)
+        finally:
+            event.remove(db.bind,'before_cursor_execute',track)
+        return len(queries),result['item']
+
+    baseline,_=read_charge_query_count()
+    db.add_all([TranslationSubOrder(id=uuid4(),parent_project_id=root_id,sub_order_no=f'{root.order_no}.{index:03}',
+                                    sub_project_name=f'批量子订单 {index}') for index in range(10,50)])
+    db.commit()
+    expanded,node=read_charge_query_count()
+    assert len(node['children'])>=40
+    assert 0<expanded<=baseline+1
+
+
 def write(db,owner,root,order,amount,**kwargs):
     data=finance.read(db,root.id)
     return finance.save(db,owner,root.id,finance.PriceWrite(version=data['version'],order_id=order.id,amount=amount,**kwargs))
@@ -90,7 +121,11 @@ def test_foreign_order_stale_and_decimal_rounding(environment):
 def test_new_child_inherits_without_adjustments(environment):
     from models import TranslationSubOrder
     db,(owner,_,_)=environment;root,_,_=setup(db,owner)
-    write(db,owner,root,root,'2',adjusted_total='100',explanation='说明')
+    write(db,owner,root,root,'2',explanation='说明')
+    # Simulate an adjustment recorded on the parent by older versions.
+    finance.primary(root).total_excl_tax=Decimal('100')
+    db.commit()
+    assert finance.read(db,root.id)['item']['adjusted_totals_excl_tax']=={}
     child=TranslationSubOrder(id=uuid4(),parent_project_id=root.id,sub_order_no=root.order_no+'.002',sub_project_name='新文件.docx')
     db.add(child);db.flush();finance.inherit_new_order(db,child);db.flush()
     assert finance.primary(child).unit_price_excl_tax==Decimal('2')

@@ -439,7 +439,16 @@
           <section class="form-section annotation-key-fields">
             <div class="annotation-key-fields__header"><div><h3>关键必填信息</h3><p>请优先完成以下内容，再补充其余项目资料。</p></div><el-tag type="danger" effect="plain">请完成必填项</el-tag></div>
             <el-row :gutter="16">
-              <el-col :xs="24"><el-form-item label="项目名称" prop="projectName"><GeneratedProjectNameInput v-model="form.projectName" placeholder="可手工填写，或根据客户、方向和类型生成" @manual-input="nameManuallyEdited=true" @regenerate="generateProjectName" /></el-form-item></el-col>
+              <el-col :xs="24">
+                <el-form-item label="项目名称" prop="projectName">
+                  <GeneratedProjectNameInput
+                    v-model="form.projectName"
+                    hint="按「【客户简称-订单日期（年月日共 8 位）-语种方向-项目类型】」生成。订单号未取到时用当天日期，超过 3 个方向时仅列前 3 个并加「等方向」。"
+                    @manual-input="nameManuallyEdited=true"
+                    @regenerate="generateProjectName"
+                  />
+                </el-form-item>
+              </el-col>
             </el-row>
             <el-row :gutter="16">
               <el-col :xs="24"><el-form-item label="项目类型" prop="projectTypes"><el-select v-model="form.projectTypes" multiple clearable collapse-tags collapse-tags-tooltip style="width:100%"><el-option v-for="item in projectTypeOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></el-col>

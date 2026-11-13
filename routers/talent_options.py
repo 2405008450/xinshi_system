@@ -9,8 +9,9 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from database import get_db
-from resource_schemas import CapabilityType, TalentOptionResponse
-from resource_service import get_talents
+from resource_schemas import CapabilityType, TalentIdentityResponse, TalentOptionResponse
+from resource_models import ResourcePerson
+from resource_service import get_talents, _talent_query
 from routers.auth import get_current_user, require_module_access
 from talent_privacy import can_view_talent_contacts
 
@@ -22,6 +23,22 @@ router = APIRouter(
 )
 
 ASSIGNABLE_TALENT_STATUSES = ("active", "standby")
+
+
+@router.get("/identity", response_model=List[TalentIdentityResponse])
+def read_talent_identity_options(
+    keyword: str | None = None,
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    """全库按姓名、别名或编号搜索，只读取选择器需要的字段。"""
+    return (
+        _talent_query(db, keyword=keyword, include_contact_search=False)
+        .with_entities(ResourcePerson.id, ResourcePerson.full_name, ResourcePerson.resource_code)
+        .order_by(ResourcePerson.updated_at.desc(), ResourcePerson.id.desc())
+        .limit(limit)
+        .all()
+    )
 
 
 @router.get("/", response_model=List[TalentOptionResponse])

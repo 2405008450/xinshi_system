@@ -12,6 +12,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       vue(),
       Components({ resolvers: [
+        name => name === 'ElFormItem' ? { name: 'default', from: fileURLToPath(new URL('./src/components/common/ClientLinkFormItem.js', import.meta.url)).replaceAll('\\', '/'), sideEffects: 'element-plus/es/components/form/style/css' } : undefined,
         name => name === 'ElCheckboxGroup' ? { name: 'SelectionCheckboxGroup', from: fileURLToPath(new URL('./src/components/common/selectionCheckboxGroup.js', import.meta.url)).replaceAll('\\', '/'), sideEffects: 'element-plus/es/components/checkbox-group/style/css' } : undefined,
         name => name === 'ElPopover' ? { name: 'default', from: fileURLToPath(new URL('./src/components/common/WindowPopover.vue', import.meta.url)).replaceAll('\\', '/'), sideEffects: 'element-plus/es/components/popover/style/css' } : undefined,
         name => name==='ElInput' ? {name:'default',from:fileURLToPath(new URL('./src/components/common/ScreenshotInput.vue',import.meta.url)).replaceAll('\\','/')} : undefined,

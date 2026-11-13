@@ -1,5 +1,5 @@
 <template>
-  <DraggableFormDialog v-model="visible" :title="mode === 'run' ? '运行 AI 分析' : 'AI 分析结果'"
+  <DraggableFormDialog v-model="visible" :title="mode === 'run' ? '运行 AI 分析' : 'AI 分析进度与结果'"
     width="min(820px, calc(100vw - 32px))" top="5vh" append-to-body class="annotation-chat-ai-dialog"
     @closed="emit('close')">
     <template v-if="mode === 'run'">
@@ -61,11 +61,14 @@
     <template #footer>
       <el-button @click="visible = false">关闭</el-button>
       <template v-if="mode === 'run'">
-        <el-button :disabled="submitting" @click="showHistory">查看分析结果</el-button>
+        <el-button :disabled="submitting" @click="showHistory">返回分析进度</el-button>
         <el-button type="primary" :loading="submitting && !applying" :disabled="submitting" @click="submit(false)">仅分析</el-button>
         <el-button v-if="canWrite" type="primary" :loading="submitting && applying" :disabled="submitting" @click="submit(true)">分析并加入进度</el-button>
       </template>
-      <el-button v-else-if="canWrite" type="primary" :disabled="!canImport" :loading="submitting" @click="addProgress">加入项目进度</el-button>
+      <template v-else>
+        <el-button v-if="canWrite && run?.state === 'succeeded'" :disabled="!canImport" :loading="submitting" @click="addProgress">加入项目进度</el-button>
+        <el-button type="primary" :disabled="submitting" @click="mode = 'run'; error = ''">新建分析</el-button>
+      </template>
     </template>
   </DraggableFormDialog>
 </template>
@@ -77,7 +80,7 @@ import { chatRequest } from '@/api/projectChat'
 import { formatBusinessDateTime } from '@/utils/dateTime'
 import { hasPermission } from '@/utils/permission'
 
-const props = defineProps({ projectId: { type: String, required: true }, initialMode: { type: String, required: true } })
+const props = defineProps({ projectId: { type: String, required: true } })
 const emit = defineEmits(['close'])
 const periods = [
   { value: 'day', label: '前一天', hint: '从昨天零点到本次运行时刻。' },
@@ -92,7 +95,7 @@ const categories = {
 const stateLabels = { queued: '排队中', running: '分析中', succeeded: '已完成', failed: '失败' }
 const progressTracks = new Set(['customer', 'project', 'annotator'])
 const canWrite = hasPermission('projects:write')
-const visible = ref(true), mode = ref(props.initialMode), scope = ref('current'), period = ref('day')
+const visible = ref(true), mode = ref('history'), scope = ref('current'), period = ref('day')
 const runs = ref([]), selected = ref(''), run = ref(null), hasMore = ref(false)
 const error = ref(''), loading = ref(false), submitting = ref(false), applying = ref(false)
 const importedIds = computed(() => new Set(run.value?.imports?.map(entry => entry.resultId)))
@@ -140,7 +143,10 @@ async function refresh() {
       loadedCount = data.items.length
       hasMore.value = data.hasMore
     }
-    if (!runs.value.some(row => row.id === selected.value)) selected.value = runs.value[0]?.id || ''
+    if (!runs.value.some(row => row.id === selected.value)) {
+      selected.value = (runs.value.find(row => row.state === 'running') ||
+        runs.value.find(row => row.state === 'queued') || runs.value[0])?.id || ''
+    }
     await loadDetail()
   } catch (cause) {
     if (!controller.signal.aborted) error.value = errorText(cause, '读取分析记录失败')
@@ -177,6 +183,7 @@ async function submit(autoApply) {
   try {
     const data = await request('', { method: 'post', data: { period: period.value, autoApply, allVisible: scope.value === 'all' } })
     ElMessage.success(data.queued ? `已提交 ${data.queued} 个会话的 AI 分析` : '所选会话在此时段没有可分析的消息')
+    if (data.queued) selected.value = ''
     showHistory()
   } catch (cause) {
     if (!controller.signal.aborted) error.value = errorText(cause, '提交分析失败')

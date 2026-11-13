@@ -237,7 +237,7 @@
         <el-descriptions v-if="currentProject" :column="2" border>
           <el-descriptions-item label="订单号">{{ currentProject.orderNo || currentProject.subOrderNo || currentProject.sub_order_no || '-' }}</el-descriptions-item>
           <el-descriptions-item :label="currentEntityType === 'suborder' ? '文件名称' : '项目名称'">{{ currentProject.projectName || currentProject.subProjectName || currentProject.sub_project_name || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="客户简称">{{ currentProject.clientShortName || currentProject.client_short_name || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="客户简称" :client-row="currentProject">{{ currentProject.clientShortName || currentProject.client_short_name || '-' }}</el-descriptions-item>
           <el-descriptions-item label="客户编号">{{ currentProject.clientCode || currentProject.client_code || '-' }}</el-descriptions-item>
           <el-descriptions-item label="项目状态">
             <el-tag :type="getStatusType(workflowState.projectStatus || currentProject.projectStatus || currentProject.project_status)" size="small">

@@ -60,3 +60,7 @@ def aggregate_node(node,children):
                 prices=aggregate_prices(children),adjusted_total=None,adjusted_total_incl_tax=None,quantity=None,own_total=None,
                 incomplete=any(child['incomplete'] for child in children),children=children)
     node.update({field:{currency:str(amount.quantize(Decimal('.01'))) for currency,amount in values.items()} for field,values in totals.items()})
+    for kind in ('excl_tax','incl_tax'):
+        field='adjusted_totals_'+kind
+        currencies={currency for child in children for currency in child.get(field,{})}
+        node[field]={currency:amount for currency,amount in node['totals_'+kind].items() if currency in currencies}

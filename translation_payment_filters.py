@@ -43,6 +43,7 @@ def attach_payment_status(db,result):
         pending=list(item.get('children',[]))
         while pending:
             child=pending.pop();child['payment_status']=item['payment_status']
+            child['payment_amount_mismatch']=item['payment_amount_mismatch']
             pending.extend(child.get('children',[]))
     return result
 

@@ -7,7 +7,7 @@
         <el-alert v-if="error" :title="error" type="error" :closable="false" />
         <CustomerFinanceModuleTabs v-model="financeModule" module="interpretation" :enabled="scope==='project'" :client-id="context.client_id"><template #interpretation>
         <AppForm v-if="draft&&!loading" ref="form" :model="draft" label-position="top" :disabled="saving||!canWrite||!context.ready">
-          <template v-if="scope==='project'"><el-form-item label="订单号"><ReadonlyField :model-value="context.order_no" source="auto" /></el-form-item><el-form-item label="项目名称"><ReadonlyField :model-value="context.project_name||'-'" source="auto" /></el-form-item><el-form-item label="客户简称"><ReadonlyField :model-value="context.client_short_name||'-'" source="auto" /></el-form-item><el-form-item label="项目状态"><ReadonlyField :model-value="getProjectStatusLabel('interpretation',context.project_status)" source="auto" /></el-form-item><el-form-item label="客户参考价"><el-button :disabled="!context.reference_rates?.length" @click="adopt">采用匹配方向的客户参考价</el-button></el-form-item><el-form-item v-if="canWriteClients&&context.client_id" label="同步客户参考价"><el-button @click="save(true)">保存并同步单价至客户信息…</el-button></el-form-item></template>
+          <template v-if="scope==='project'"><el-form-item label="订单号"><ReadonlyField :model-value="context.order_no" source="auto" /></el-form-item><el-form-item label="项目名称"><ReadonlyField :model-value="context.project_name||'-'" source="auto" /></el-form-item><el-form-item label="客户简称"><ClientManagementLink :value="context.client_short_name" :row="context" /></el-form-item><el-form-item label="项目状态"><ReadonlyField :model-value="getProjectStatusLabel('interpretation',context.project_status)" source="auto" /></el-form-item><el-form-item label="客户参考价"><el-button :disabled="!context.reference_rates?.length" @click="adopt">采用匹配方向的客户参考价</el-button></el-form-item><el-form-item v-if="canWriteClients&&context.client_id" label="同步客户参考价"><el-button @click="save(true)">保存并同步单价至客户信息…</el-button></el-form-item></template>
           <InterpretationFinanceFields v-model="draft" :directions="context.directions||[]" :reference-only="scope==='client'" />
         </AppForm>
         <p v-if="scope==='project'">对应税口径未填写的项目不参与该口径合计；未填写不代表零税率。</p>
@@ -25,6 +25,7 @@
   </span>
 </template>
 <script setup>
+import ClientManagementLink from './ClientManagementLink.vue'
 import {taxPricePayload} from '@/utils/taxPrices'
 import CustomerFinanceModuleTabs from './CustomerFinanceModuleTabs.vue'
 import {ref,onBeforeUnmount,watch} from 'vue'

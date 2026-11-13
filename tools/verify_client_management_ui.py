@@ -10,7 +10,7 @@ BASE = 'http://localhost:3000'
 def run():
     compiled = urlopen(BASE + '/src/views/project/ProjectWorkspace.vue', timeout=20).read().decode()
     dep = lambda name: re.search(r'from ["\']([^"\']*/' + name + r'\.js[^"\']*)', compiled).group(1)
-    html = '''<!doctype html><meta charset="UTF-8"><link rel="stylesheet" href="/node_modules/element-plus/dist/index.css"><div id="app"></div><script type="module">import {createApp} from VUE;import Clients from '/src/views/client/Clients.vue';import AppForm from '/src/components/common/AppForm.vue';createApp(Clients).component('AppForm',AppForm).mount('#app');</script>'''.replace('from VUE', 'from ' + json.dumps(dep('vue')))
+    html = '''<!doctype html><meta charset="UTF-8"><link rel="stylesheet" href="/node_modules/element-plus/dist/index.css"><style>html,body,#app{height:100%;margin:0}#app{display:flex;flex-direction:column}</style><div id="app"></div><script type="module">import {createApp} from VUE;import Clients from '/src/views/client/Clients.vue';import AppForm from '/src/components/common/AppForm.vue';createApp(Clients).component('AppForm',AppForm).mount('#app');</script>'''.replace('from VUE', 'from ' + json.dumps(dep('vue')))
     client = dict(id='c1', client_name='回归客户', client_short_name='回归', client_code='CL-TEST', client_manager='负责人', client_status='active', cooperation_info='原合作信息', sub_clients=[])
     client.update(operator_name='钟楚翘', operator_source='consultation_capture_backfill', operator_consultation_code='EQ-261105-001')
     writes, errors, project_requests = [], [], []
@@ -55,12 +55,12 @@ def run():
         expect(dialog.get_by_placeholder('请输入客户合作信息')).to_have_value('原合作信息')
         dialog.get_by_placeholder('请输入客户合作信息').fill('新的合作信息\n第二行')
         # 字段搜索自动展开非当前标签页。
-        search = dialog.get_by_placeholder('搜索客户字段，如客户负责人')
-        search.fill('负责人')
-        page.locator('.el-autocomplete-suggestion:visible li').filter(has_text='客户负责人').first.click()
+        search = dialog.get_by_placeholder('搜索客户字段，如客户联系人')
+        search.fill('联系人')
+        page.locator('.el-autocomplete-suggestion:visible li').filter(has_text='联系人').first.click()
         expect(dialog.get_by_role('tab', name='基本信息', exact=True)).to_have_attribute('aria-selected','true')
         # 非基本信息页提交时，必填校验仍定位基本页并聚焦。
-        manager = dialog.locator('.el-form-item').filter(has=page.locator('label').filter(has_text=re.compile('^客户负责人$'))).locator('input')
+        manager = dialog.get_by_role('textbox',name='客户联系人1',exact=True)
         manager.fill('')
         dialog.get_by_role('tab', name='合作信息', exact=True).click()
         dialog.get_by_role('button', name='确定', exact=True).click()

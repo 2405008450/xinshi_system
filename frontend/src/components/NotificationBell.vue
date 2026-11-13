@@ -18,6 +18,7 @@
     <div class="notification-panel">
       <div class="notification-panel__header">
         <span>系统通知</span>
+        <el-button text size="small" @click="openReceivedNotifications">收到的通知</el-button>
         <el-button
           v-if="unreadCount > 0"
           text
@@ -87,8 +88,10 @@
       </el-scrollbar>
     </div>
   </el-popover>
+  <ReceivedNotificationsDialog v-if="receivedVisible" :has-target="hasNotificationTarget" @close="receivedVisible=false" @open="openReceivedTarget" />
   <ResourceRequestDispatchDialog v-if="dispatchBatchId" :batch-id="dispatchBatchId" @close="dispatchBatchId=''" />
   <TranslationSimpleRequirementDialog v-if="simpleRequirementId||simpleDispatchId" :key="simpleRequirementId||simpleDispatchId" :requirement-id="simpleRequirementId" :dispatch-id="simpleDispatchId" @close="simpleRequirementId='';simpleDispatchId=''" />
+  <InvoiceRequestDialog v-if="invoiceRequestId" :key="invoiceRequestId" :request-id="invoiceRequestId" @close="invoiceRequestId=''" />
 </template>
 
 <script setup>
@@ -97,6 +100,9 @@ useDesktopHeartbeat()
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 const ResourceRequestDispatchDialog=defineAsyncComponent(()=>import('@/views/resource/components/ResourceRequestDispatchDialog.vue'))
 const TranslationSimpleRequirementDialog=defineAsyncComponent(()=>import('@/components/common/TranslationSimpleRequirementDialog.vue'))
+const InvoiceRequestDialog=defineAsyncComponent(()=>import('@/components/common/InvoiceRequestDialog.vue'))
+const invoiceRequestId=ref('')
+const ReceivedNotificationsDialog=defineAsyncComponent(()=>import('@/components/ReceivedNotificationsDialog.vue'))
 const simpleRequirementId=ref('')
 const simpleDispatchId=ref('')
 const dispatchBatchId=ref('')
@@ -129,6 +135,7 @@ const notifications = ref([])
 const unreadCount = ref(0)
 const badgeTotal = computed(() => unreadCount.value)
 const popoverVisible = ref(false)
+const receivedVisible = ref(false)
 const permissionRequesting = ref(false)
 const desktopTestStatus = ref('')
 const desktopNotificationState = ref(getDesktopNotificationState())
@@ -215,7 +222,7 @@ const markItemRead = async (item, showError = false) => {
     window.dispatchEvent(new CustomEvent('business-notifications-changed'))
     const listItem = notifications.value.find((candidate) => String(candidate.id) === id)
     if (listItem) listItem.is_read = true
-    unreadCount.value = Math.max(0, unreadCount.value - 1)
+    if (isSystemNotification(item)) unreadCount.value = Math.max(0, unreadCount.value - 1)
     return true
   } catch (error) {
     console.error('标记通知已读失败', error)
@@ -227,24 +234,52 @@ const markItemRead = async (item, showError = false) => {
 }
 
 import {canManageHr} from '@/utils/permission'
+const projectNotificationRoutes = {
+  translation: 'TranslationProjectDetails', interpretation: 'InterpretationProjectDetails',
+  annotation: 'AnnotationProjectDetails', recruitment: 'RecruitmentProjectDetails',
+}
+const workflowTargets = ['workflow_handover_pending', 'project_manager_handover_pending']
+const notificationEntityTargets = [
+  'translation_simple_dispatch', 'translation_simple_dispatch_receipt',
+  'translation_simple_requirement', 'translation_simple_requirement_receipt', 'resource_request_dispatch', 'chat_summary',
+]
+function hasNotificationTarget(item) {
+  return item.category === 'administration' || workflowTargets.includes(item.notification_type) ||
+    Boolean(item.related_project_id || (item.related_entity_id && (
+      projectNotificationRoutes[item.related_project_type] || notificationEntityTargets.includes(item.notification_type)
+    )))
+}
+function openReceivedNotifications() {
+  popoverVisible.value = false
+  receivedVisible.value = true
+}
+async function openReceivedTarget(item) {
+  if (!hasNotificationTarget(item) || !await markItemRead(item, true)) return
+  receivedVisible.value = false
+  try { await navigateToNotification(item) }
+  catch (error) {
+    receivedVisible.value = true
+    ElMessage.error(getLocalizedErrorMessage(error, '无法打开关联业务'))
+  }
+}
 const navigateToNotification = async (item) => {
+  if (item.related_project_type === 'invoice_request' && item.related_entity_id) {
+    popoverVisible.value = false
+    invoiceRequestId.value = String(item.related_entity_id)
+    return
+  }
   if(['translation_simple_dispatch','translation_simple_dispatch_receipt'].includes(item.notification_type)&&item.related_entity_id){popoverVisible.value=false;simpleRequirementId.value='';simpleDispatchId.value=String(item.related_entity_id);return}
   if(['translation_simple_requirement','translation_simple_requirement_receipt'].includes(item.notification_type)&&item.related_entity_id){popoverVisible.value=false;simpleDispatchId.value='';simpleRequirementId.value=String(item.related_entity_id);return}
   if(item.notification_type==='attendance_clock_correction'){popoverVisible.value=false;await router.push({path:canManageHr()?'/hr-management/attendance':'/workbench',query:{section:'attendance',attendanceSection:'corrections'}});await nextTick();window.dispatchEvent(new Event('attendance-open-corrections'));return}
-  if(['attendance_leave','home_office_application','attendance_delay_start'].includes(item.notification_type)){popoverVisible.value=false;await router.push({path:'/workbench',query:{section:'attendance'}});return}
+  if(item.category==='administration'||['attendance_leave','home_office_application','attendance_delay_start'].includes(item.notification_type)){popoverVisible.value=false;await router.push({path:'/workbench',query:{section:'attendance'}});return}
   if(item.notification_type==='resource_request_dispatch' && item.related_entity_id){popoverVisible.value=false;dispatchBatchId.value=String(item.related_entity_id);return}
   if(item.notification_type==='chat_summary'&&item.related_entity_id){useProjectChatDock().openFullscreen();await nextTick();window.dispatchEvent(new CustomEvent('chat-open-summary',{detail:{issueId:item.related_entity_id}}));return}
-  if (['workflow_handover_pending', 'project_manager_handover_pending'].includes(item.notification_type)) {
+  if (workflowTargets.includes(item.notification_type)) {
     await router.push('/workbench')
     return
   }
   if (item.related_project_type && item.related_entity_id) {
-    const routeName = {
-      translation: 'TranslationProjectDetails',
-      interpretation: 'InterpretationProjectDetails',
-      annotation: 'AnnotationProjectDetails',
-      recruitment: 'RecruitmentProjectDetails',
-    }[item.related_project_type]
+    const routeName = projectNotificationRoutes[item.related_project_type]
     if (routeName) {
       const query = { projectId: item.related_entity_id }
       await router.push({ name: routeName, query })

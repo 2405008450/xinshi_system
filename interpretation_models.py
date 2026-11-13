@@ -189,20 +189,24 @@ class InterpretationProject(Base):
     creator: Mapped[Optional[AppUser]] = relationship(AppUser, foreign_keys=[created_by])
     time_ranges: Mapped[list["InterpretationProjectTimeRange"]] = relationship(
         back_populates="project", cascade="all, delete-orphan",
+        passive_deletes=True,
         order_by="InterpretationProjectTimeRange.sequence_no",
     )
     language_directions: Mapped[list["InterpretationProjectLanguageDirection"]] = relationship(
         back_populates="project", cascade="all, delete-orphan",
+        passive_deletes=True,
         order_by="InterpretationProjectLanguageDirection.sequence_no",
     )
     interpreter_assignments: Mapped[list["InterpretationProjectInterpreter"]] = relationship(
         back_populates="project", cascade="all, delete-orphan",
+        passive_deletes=True,
         order_by="InterpretationProjectInterpreter.sequence_no",
     )
     workbench_responsibilities = relationship(
         "ProjectWorkbenchResponsibility",
         back_populates="interpretation_project",
         cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
     @property

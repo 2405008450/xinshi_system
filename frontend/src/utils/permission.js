@@ -117,6 +117,7 @@ export function hasPermission(permissionOrPermissions, userPermissions) {
  * 手机窄屏默认附带 openSession=1，由布局在进入后直接打开会话窗口。
  */
 export function getDefaultRoute() {
+  if (isInvoiceReceiverTest()) return '/invoice-receiver'
   const target = resolveDefaultPath()
   if (!isPhoneViewport()) return target
   return `${target}${target.includes('?') ? '&' : '?'}openSession=1`
@@ -138,6 +139,7 @@ function resolveDefaultPath() {
  * @returns {boolean}
  */
 export function canAccessRoute(route) {
+  if (route.meta?.invoiceReceiverTest) return isInvoiceReceiverTest()
   if (route.meta?.technicalDevelopment) return canViewTechnicalDevelopment()
   if (route.meta?.organizationManagement) return canManageDepartments() || hasPermission('system:users:read') || canConfigureWorkReports()
   if (route.meta?.hrManagement) return canManageHr()
@@ -155,6 +157,10 @@ export function canAccessRoute(route) {
   const permissionAllowed = !hasPermissionRule || hasPermission(metaPermissions)
   const roleAllowed = !hasRoleRule || metaRoles.includes('*') || metaRoles.some((role) => userRoles.includes(role))
   return permissionAllowed && roleAllowed
+}
+
+function isInvoiceReceiverTest() {
+  return localStorage.getItem('user_name')?.trim().toLowerCase() === 'invoice_receiver_test'
 }
 
 export function canManageDepartments() {

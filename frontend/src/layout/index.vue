@@ -74,6 +74,16 @@
           </el-breadcrumb>
         </div>
         <div class="header-right">
+          <el-dropdown v-if="showFinanceSettings" @command="openFinanceSetting" @visible-change="loadFinancePermissions">
+            <el-button text :icon="Setting" aria-label="财务设置">设置</el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="invoice">开票接收人</el-dropdown-item>
+                <el-dropdown-item v-if="canManageStatementAccess" command="permissions">权限管理</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+          <InvoiceSettingsDialog v-if="invoiceSettingsVisible" @close="invoiceSettingsVisible = false" />
           <UiZoomControl />
           <AutoDraftCenter :show-entry="false" />
           <ScreenshotControl />
@@ -165,9 +175,23 @@ import { useMobileViewport } from '@/composables/useMobileViewport'
 import { logout } from '@/api/auth'
 import { syncWebPushSubscription, stopWebPushSubscription } from '@/utils/webPushSubscription'
 import { clearAuthSession } from '@/utils/authSession'
+import { getStatementAccess } from '@/api/statementAccess'
 
 const route = useRoute()
 const router = useRouter()
+const showFinanceSettings = computed(() => route.path.startsWith('/finance-management'))
+const InvoiceSettingsDialog = defineAsyncComponent(() => import('@/components/common/InvoiceSettingsDialog.vue'))
+const invoiceSettingsVisible = ref(false)
+const canManageStatementAccess = ref(false)
+async function loadFinancePermissions(visible) {
+  if (!visible) return
+  try { canManageStatementAccess.value = Boolean((await getStatementAccess()).can_manage) }
+  catch { canManageStatementAccess.value = false }
+}
+function openFinanceSetting(command) {
+  if (command === 'permissions') void router.push('/finance-management/permissions')
+  else invoiceSettingsVisible.value = true
+}
 const { access: issueAccess, collector: issueCollector, refreshIssueAccess } = useResourceIssues()
 const issueCollectorLoaded = ref(false)
 const ChatIssueCollector = defineAsyncComponent(() => import('@/components/chat/ChatIssueCollector.vue'))

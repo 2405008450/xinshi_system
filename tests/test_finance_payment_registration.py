@@ -2,6 +2,8 @@
 from decimal import Decimal
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 from tests.test_chat_participant_access import environment
 from tests.test_customer_statements import context,project
 import translation_customer_finance as finance
@@ -84,6 +86,46 @@ def test_full_payment_confirmation_survives_price_recheck(context):
     assert changed_amount['payment']['confirmation']['full_payment_confirmed_at'] is None
 
 
+def test_mismatched_full_payment_saves_without_updating_project_price(context):
+    from io import BytesIO
+    from PIL import Image
+    import editor_screenshot_service as screenshots
+
+    _, db, clients, _, actor = context
+    row = project(db, clients[0], 'PAYMENT-ONLY', fixed=True)
+    content = BytesIO()
+    Image.new('RGB', (2, 2), 'blue').save(content, format='PNG')
+    picture = screenshots.save_image(db, actor.id, content.getvalue(), 'image/png', retention='chat')
+    proofs = '付款凭证备注 ' + picture['reference']
+    current = finance.read(db, row.id)
+    db.execute(text("""
+        CREATE TEMP TRIGGER reject_payment_project_update
+        BEFORE UPDATE ON translation_project
+        BEGIN
+            SELECT RAISE(ABORT, 'Payment-only save attempted to update the project');
+        END
+    """))
+
+    saved = finance.update(row.id, finance.PriceWrite(
+        version=current['version'], order_id=row.id, documents_only=True,
+        payment_confirmation={
+            'is_paid': True,
+            'payment_option': 'full',
+            'full_payment_amount': 260,
+            'full_payment_total_key': 'billing:CNY',
+            'mismatch_reason': '差额测试',
+            'proofs': proofs,
+        },
+    ), db, actor)
+
+    stored = finance.read(db, row.id)['payment']['confirmation']
+    assert saved['item']['totals_excl_tax'] == current['item']['totals_excl_tax']
+    assert stored['full_payment_amount'] == '260.00'
+    assert stored['full_match_status'] == 'mismatch'
+    assert stored['mismatch_reason'] == '差额测试'
+    assert stored['proofs'] == proofs
+
+
 def test_stale_payment_draft_rolls_back_price_changes(context):
     _,db,clients,_,actor=context;row=project(db,clients[0],'CONCURRENT',fixed=True)
     current=finance.read(db,row.id)
@@ -100,6 +142,46 @@ def test_stale_payment_draft_rolls_back_price_changes(context):
     reloaded=finance.read(db,row.id)
     assert reloaded['item']['totals_excl_tax']=={'CNY':'300.00'}
     assert reloaded['payment']['payments'][0]['actual_amount']=='60.00'
+
+
+def test_final_payment_retries_lock_timeout_without_duplicate_details(context, monkeypatch):
+    _, db, clients, _, actor = context
+    row = project(db, clients[0], 'FINAL-RETRY', fixed=True)
+    deposit = save(db, actor, row, finance.read(db, row.id), [{'stage_type': 'deposit', 'actual_amount': 40}])
+    deposit_payment = deposit['payment']['payments'][0]
+    payload = finance.PriceWrite(
+        version=deposit['version'], order_id=row.id, documents_only=True,
+        payment_version=deposit['payment']['version'],
+        payment_draft=[deposit_payment, {'stage_type': 'final', 'actual_amount': 260, 'proofs': '尾款凭证'}],
+        payment_confirmation={
+            **deposit['payment']['confirmation'],
+            'full_payment_total_key': 'billing:CNY',
+        },
+    )
+    class LockTimeout(Exception):
+        pgcode = '55P03'
+
+    write = finance._write_finance
+    calls = 0
+
+    def write_with_transient_lock(*args):
+        nonlocal calls
+        calls += 1
+        write(*args)
+        if calls == 1:
+            raise OperationalError(None, None, LockTimeout())
+
+    monkeypatch.setattr(finance, '_write_finance', write_with_transient_lock)
+    saved = finance.update(row.id, payload, db, actor)['payment']
+
+    assert calls == 2
+    assert [(detail['stage_type'], detail['actual_amount']) for detail in saved['payments']] == [
+        ('deposit', '40.00'), ('final', '260.00'),
+    ]
+    assert saved['payments'][0]['id'] == deposit_payment['id']
+    assert saved['payments'][1]['proofs'] == '尾款凭证'
+    assert saved['confirmation']['revision'] == deposit['payment']['confirmation']['revision'] + 1
+    assert saved['confirmation']['full_match_status'] == 'matched'
 
 
 def test_aggregate_documents_save_sequences_all_payments_and_rejects_duplicate_ids(context):

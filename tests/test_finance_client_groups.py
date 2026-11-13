@@ -33,3 +33,23 @@ def test_client_order_count_uses_filtered_roots_and_paginates_whole_clients(cont
     assert flat['total']==5 and len(flat['items'])==1
     standalone=http.get('/translation-customer-finance/page',params={'paginate_children':True,'keyword':a[0].order_no}).json()
     assert standalone['total']==1 and standalone['items'][0]['page_index']==1
+
+
+def test_display_offset_counts_parent_rows_repeated_across_order_pages():
+    def order(order_id, *children):
+        return {'id':order_id,'children':list(children)}
+
+    roots=[order('parent',order('a',order('a1'),order('a2')),order('b')),order('standalone')]
+
+    def row_ids(rows):
+        return [order_id for row in rows for order_id in (row['id'], *row_ids(row['children']))]
+
+    for skip, expected_offset, expected_rows in [
+        (0, 0, ['parent','a','a1']),
+        (2, 3, ['parent','a','a2','b']),
+        (4, 7, ['standalone']),
+    ]:
+        rows,total,offset=finance.paginate_child_orders(roots,skip,2)
+        assert total==5
+        assert offset==expected_offset
+        assert row_ids(rows)==expected_rows

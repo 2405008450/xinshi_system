@@ -28,6 +28,11 @@ const routes = [
     component: () => import('../layout/index.vue'),
     children: [
       {
+        path: 'invoice-receiver',
+        component: () => import('@/views/finance/InvoiceReceiverInbox.vue'),
+        meta: {title:'开票通知', invoiceReceiverTest:true},
+      },
+      {
         path: 'finance-management',
         redirect: '/finance-management/translation',
       },

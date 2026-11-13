@@ -4,15 +4,15 @@ import {createRemoteTalentSearch} from '../src/utils/remoteTalentSearch.js'
 
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return {promise,resolve,reject}}
 
-test('输入新姓名立即清除旧候选，后端返回的无关姓名不会展示',async()=>{
+test('显示后端按别名匹配的人才，输入新姓名立即清除旧候选',async()=>{
   let state
   const request=deferred()
   const search=createRemoteTalentSearch({fetchOptions:()=>request.promise,onUpdate:value=>state=value})
   const pending=search.search('曹柳云')
   assert.deepEqual(state.items,[])
-  request.resolve([{id:1,fullName:'魏昕奕',resourceCode:'RC037470'},{id:2,fullName:'曹柳云',resourceCode:'RC000002'}])
+  request.resolve([{id:1,fullName:'魏昕奕',resourceCode:'RC037470'}])
   await pending
-  assert.deepEqual(state.items.map(item=>item.fullName),['曹柳云'])
+  assert.deepEqual(state.items.map(item=>item.fullName),['魏昕奕'])
   search.input('赵')
   assert.deepEqual(state.items,[])
 })
@@ -28,13 +28,11 @@ test('慢请求及取消后的响应不会覆盖最新姓名搜索',async()=>{
   search.dispose()
 })
 
-test('资源编号和姓名支持多词、忽略大小写、普通文字匹配；清空后重新查询全库',async()=>{
+test('多词搜索原样提交；清空后重新查询全库',async()=>{
   let state,query
   const search=createRemoteTalentSearch({fetchOptions:async keyword=>{query=keyword;return [{fullName:'曹柳云',resourceCode:'RC000123'},{fullName:'曹柳云',resourceCode:'OTHER'}]},onUpdate:value=>state=value})
   await search.search('rc000 曹')
-  assert.equal(state.items.length,1)
-  await search.search('%')
-  assert.equal(state.items.length,0)
+  assert.equal(query,'rc000 曹')
   await search.search('')
   assert.equal(query,'');assert.equal(state.items.length,2)
 })

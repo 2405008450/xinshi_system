@@ -7,6 +7,33 @@ from models import TranslationSubOrder
 from word_count_models import WordCountMetric
 from word_count_schemas import WordCountMatrixPatch
 from word_count_service import get_word_count_matrix, patch_word_count_matrix
+
+
+def test_word_count_edits_are_visible_in_finance_and_audited(environment):
+    import translation_customer_finance as finance
+    from translation_finance_audit import history
+
+    db, (actor, _, _) = environment
+    root, _, leaf, _ = orders(db, actor)
+
+    def patch(value):
+        return patch_word_count_matrix(db, 'suborder', leaf.id, WordCountMatrixPatch(changes=[
+            {'scope':'entity','dimension':'customer','metric_type':'words','value':value},
+        ]), updated_by=actor.id)
+
+    patch(120)
+    patch(0)
+    patch(0)
+    assert get_word_count_matrix(db, 'suborder', leaf.id)['customer']['words'] == 0
+    root_node = finance.read(db, root.id)['item']
+    assert root_node['word_count_matrix']['customer']['words'] is None
+    assert get_word_count_matrix(db, 'suborder', leaf.id)['customer']['words'] == 0
+    records = history(db, root.id, leaf.id)
+    assert records['total'] == 2
+    latest = records['items'][0]
+    assert latest['actor_name'] == actor.full_name
+    assert latest['before']['word_count_cells'][0]['value'] == 120
+    assert latest['after']['word_count_cells'][0]['value'] == 0
 import crud
 
 

@@ -41,6 +41,43 @@ def signature(module, rows):
     return sorted([(str(key(row)), number(row['amount']),tax_signature(row)) for row in rows], key=str)
 
 
+def translation_rates_agree(rows, references, matrix):
+    from customer_translation_rates import rate_key
+    from translation_rate_matching import matches
+
+    automatic = [row for row in rows if row['metric'] == 'customer_auto']
+    if not automatic:
+        return signature('translation', rows) == signature('translation', references)
+
+    remaining = list(references)
+    manual = [row for row in rows if row['metric'] != 'customer_auto']
+    for row in [*manual, *automatic]:
+        def agrees(reference):
+            same_basis = (matches(reference, row, right_matrix=matrix, left_reference=True)
+                          if row['metric'] == 'customer_auto' else rate_key(reference) == rate_key(row))
+            return same_basis and number(reference['amount']) == number(row['amount']) and tax_signature(reference) == tax_signature(row)
+
+        index = next((index for index, reference in enumerate(remaining) if agrees(reference)), None)
+        if index is None:
+            return False
+        remaining.pop(index)
+
+    automatic_directions = {row['language_pair'].casefold() for row in automatic}
+    return all(reference['language_pair'].casefold() in automatic_directions for reference in remaining)
+
+
+def with_resolved_quantity_basis(rows, matrix):
+    from translation_quantity_basis import resolve
+
+    result = []
+    for row in rows:
+        if row['metric'] == 'customer_auto':
+            _, dimension, metric, _ = resolve(matrix, row['metric'])
+            row = dict(row, quantity_dimension=dimension, quantity_metric=metric)
+        result.append(row)
+    return result
+
+
 def oral_defaults(project, rows):
     directions = {' ↔ '.join(item.language_labels) for item in project.language_directions}
     return [{**deepcopy(row), 'quantity': '1'} for row in rows if row['direction'] in directions]
@@ -59,30 +96,37 @@ def auto_translation(db, user, client_id, before, after, project_id=None):
     import translation_quantity_basis as quantity_basis
     if not before and not after:return
     audit.require_ready(db)
-    previous = {rates.rate_key(row): row for row in before}
-    from translation_rate_matching import matches
+    from translation_rate_matching import automatic_reference, matches
     previous_ids={row['id']:row for row in before};current_ids={row['id']:row for row in after}
-    current = {rates.rate_key(row): row for row in after}
     query = db.query(TranslationProject).filter_by(client_id=client_id).filter(TranslationProject.annotation_migrated_at.is_(None))
     if project_id: query=query.filter_by(id=project_id)
     projects = query.order_by(TranslationProject.id).with_for_update().all()
     for project in projects:
         project = finance.crud.get_translation_project(db,project.id)
+        finance.crud._attach_word_count_matrices(db,projects=[project])
         captured = audit.capture(project)
         changed = False
         for owner in finance.hierarchy(project)[0]:
             if any(charge.pricing_mode=='fixed' for charge in owner.customer_charge_items):continue
             rows = rates.order_rates(db, owner, owner.language_pair or project.language_pair)
-            candidates = translation_defaults(owner, project, after) if not rows else rows
+            candidates = rows or translation_defaults(owner, project, after)
             by_id = {str(row.id): row for row in owner.customer_charge_items}
             for data in candidates:
-                key = rates.rate_key(data)
-                ref = current.get(key)
-                old = previous.get(key)
-                if data.get('reference_id'):
-                    linked=current_ids.get(data['reference_id']);linked_old=previous_ids.get(data['reference_id'])
-                    if linked and matches(linked,data,right_matrix=owner.word_count_matrix,left_reference=True):ref,old=linked,linked_old
-                if not ref or (rows and (not old or number(data['amount']) != number(old['amount']) or tax_signature(data)!=tax_signature(old))):
+                reference_id = data.get('reference_id')
+                if not rows:
+                    # 尚未设定项目计价口径时，沿用该方向的客户报价及其口径。
+                    ref=current_ids.get(reference_id)
+                elif reference_id:
+                    linked=current_ids.get(reference_id)
+                    old=previous_ids.get(reference_id)
+                    if not linked or not old or number(data['amount'])!=number(old['amount']) or tax_signature(data)!=tax_signature(old):
+                        continue
+                    ref=linked if matches(linked,data,right_matrix=owner.word_count_matrix,left_reference=True) else None
+                elif data['amount'] is None:
+                    ref=automatic_reference(after,data,owner.word_count_matrix)
+                else:
+                    continue
+                if not ref:
                     continue
                 charge = by_id.get(data.get('id'))
                 moment = business_now().replace(tzinfo=None)
@@ -93,10 +137,10 @@ def auto_translation(db, user, client_id, before, after, project_id=None):
                     owner.customer_charge_items.append(charge)
                 elif number(data['amount']) == number(ref['amount']) and data.get('reference_revision') == ref['revision']:
                     continue
-                charge.unit_price = Decimal(ref['amount'])
                 tax=ref.get('tax_prices')
                 charge.unit_price_excl_tax=Decimal(tax['unit_price_excl_tax']) if tax and tax.get('unit_price_excl_tax') is not None else (None if tax else Decimal(ref['amount']))
-                if tax is not None:charge.unit_price_incl_tax=Decimal(tax['unit_price_incl_tax']) if tax.get('unit_price_incl_tax') is not None else None
+                charge.unit_price_incl_tax=Decimal(tax['unit_price_incl_tax']) if tax and tax.get('unit_price_incl_tax') is not None else None
+                charge.unit_price=charge.unit_price_excl_tax if charge.unit_price_incl_tax is not None else Decimal(ref['amount'])
                 charge.currency = ref['currency']; charge.metric_type = quantity_basis.storage_metric(quantity_basis.resolve(owner.word_count_matrix,ref['metric'])[2]); charge.unit_size = Decimal(ref['unit_size'])
                 charge.updated_at = moment; owner.updated_at = moment; project.updated_at = moment
                 db.flush()
@@ -228,7 +272,10 @@ def differences(module: Literal['translation','interpretation','annotation'], cl
                 _, _, rows, version, number_ = project_state(module, db, project.id, owner.id)
             if not rows: continue  # 尚无项目单价时使用自动带出的客户参考价。
             expected = matching(module, project, owner, rows, refs)
-            if signature(module, rows) == signature(module, expected): continue
+            if module == 'translation':
+                if translation_rates_agree(rows, expected, owner.word_count_matrix): continue
+                rows = with_resolved_quantity_basis(rows, owner.word_count_matrix)
+            elif signature(module, rows) == signature(module, expected): continue
             result.append(dict(project_id=str(project.id), order_id=str(owner.id), order_no=number_, project_name=getattr(owner,'sub_project_name',None) or project.project_name,
                 project_rates=rows, customer_rates=expected, version=version, customer_version=customer_version))
     return dict(ready=True, items=result[(page-1)*10:page*10], total=len(result))
@@ -268,7 +315,17 @@ def sync(module: Literal['translation','interpretation','annotation'], client_id
             if not rows: raise HTTPException(422, '项目尚未登记单价')
             if module == 'translation':
                 import customer_translation_rates as rates
-                rates.write_library(db,user,client_id,[rates.RateInput(**row) for row in rows],customer_version,origin='project',merge=True)
+                from translation_rate_matching import matches, unit
+                values = []
+                for row in rows:
+                    if row['metric'] == 'customer_auto':
+                        metric = unit(row['metric'], owner.word_count_matrix)
+                        if not metric: raise HTTPException(422, '同步客户报价前，请先明确项目计量单位')
+                        candidates = [ref for ref in refs if matches(ref, row, right_matrix=owner.word_count_matrix, left_reference=True)]
+                        if len(candidates)>1: raise HTTPException(422, '客户报价存在多条完整匹配项，请先编辑客户报价消除重复')
+                        row = dict(row, metric=candidates[0]['metric'] if candidates else f'customer_auto:{metric}')
+                    values.append(rates.RateInput(**row))
+                rates.write_library(db,user,client_id,values,customer_version,origin='project',merge=True)
                 db.commit()
             else:
                 import interpretation_customer_finance as oral

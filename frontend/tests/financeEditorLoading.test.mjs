@@ -12,7 +12,7 @@ import {requestPricingModeSwitch} from '../src/utils/pricingModeSwitch.js'
 
 const source=readFileSync(new URL('../src/views/project/translation/CustomerFinance.vue',import.meta.url),'utf8')
 const section=(start,end)=>source.slice(source.indexOf(start),source.indexOf(end))
-const openEditor=section('async function openEditor(row){','async function rebaseEditorAfterLibrary(')
+const openEditor=section('function findFinanceOrder(', 'async function openSibling(')+section('async function openEditor(row,','async function rebaseEditorAfterLibrary(')
 
 for(const prices of [[{id:'price',languagePair:'中→英',amount:'0.2',unitSize:'1',taxPrices:{unitPriceExclTax:'0.2'}}],[]]){
   test(`收费窗口可打开同步层返回的响应式订单（${prices.length?'已有单价':'未填单价'}）`,async()=>{
@@ -23,7 +23,7 @@ for(const prices of [[{id:'price',languagePair:'中→英',amount:'0.2',unitSize
       timer:null,clearTimeout,controller:null,nextTick:async()=>{},clearFieldSearch:()=>{},referenceDefaults:()=>{throw new Error('不得自动采用客户参考价')},
       getCustomerFinanceProject:async()=>data,orderStatementMonth:()=> '2026-10',editorSignature:()=> 'signature',
       treeVersion:'',libraryVersion:'',original:ref(''),pricingModeOnlySignature:ref(null),originalPaymentConfirmation:ref(''),
-      projectFormTarget:ref(null),documentParent:ref(null),linkedQuotationVisible:ref(false),documentDraft:()=>({}),
+      switchingSibling:ref(false),siblingOrders:ref(null),invoiceReview:ref(false),projectFormTarget:ref(null),documentParent:ref(null),linkedQuotationVisible:ref(false),documentDraft:()=>({}),
       ElMessage:{error:error=>errors.push(error),warning:error=>errors.push(error)},getLocalizedErrorMessage:error=>error.message,
       editor:ref({}),editorVisible:ref(false),editorLoading:ref(false),saving:ref(false),loading:ref(false),financeModule:ref(''),paymentContextId:ref(''),localTarget:ref(null),localPaymentParent:ref(null),originalPrices:ref([]),referencePrices:ref([]),updateLibrary:ref(false),saveError:ref('')}
     vm.createContext(context)
@@ -51,7 +51,7 @@ test('放弃计价方式切换后，重开恢复已保存的计价方式、单�
     getCustomerFinanceProject:async()=>({item,version:'v1'}),orderStatementMonth:()=> '2026-10',
     treeVersion:'',libraryVersion:'',original:ref(''),pricingModeOnlySignature:ref(null),pricingModeBeforeSwitch:null,
     originalPaymentConfirmation:ref(''),formRef:ref(),pricingModeSwitching:ref(false),
-    projectFormTarget:ref(null),documentParent:ref(null),linkedQuotationVisible:ref(false),documentDraft:()=>({}),
+    switchingSibling:ref(false),siblingOrders:ref(null),invoiceReview:ref(false),projectFormTarget:ref(null),documentParent:ref(null),linkedQuotationVisible:ref(false),documentDraft:()=>({}),
     ElMessage:{error:error=>errors.push(error)},getLocalizedErrorMessage:error=>error.message,
     ElMessageBox:{confirm:async(_text,_title,options)=>confirmationButtons.push(options.confirmButtonText)},
     editor:ref({}),editorVisible:ref(false),editorLoading:ref(false),saving:ref(false),loading:ref(false),
@@ -60,7 +60,8 @@ test('放弃计价方式切换后，重开恢复已保存的计价方式、单�
   vm.createContext(context)
   vm.runInContext([
     openEditor,
-    section('function paymentConfirmationInput(', 'function referenceDefaults('),
+    section('function paymentConfirmationInput(', 'function stopUsingReference('),
+    section('async function confirmEditorDiscard(', 'async function closeEditor('),
     section('async function closeEditor(done){','async function clearAllFinance('),
     section('function pricingModeSnapshot(', 'async function updateProjectFormFinance('),
   ].join('\n'),context)

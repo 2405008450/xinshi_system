@@ -1,5 +1,5 @@
 <template>
-  <el-card class="common-page-card viewport-list-card compact-list-card">
+  <el-card v-if="!editorClientId" class="common-page-card viewport-list-card compact-list-card">
     <template #header>
       <div class="card-header">
         <div>
@@ -7,6 +7,7 @@
           <small class="header-hint">客户与子客户统一管理</small>
         </div>
         <div class="header-actions">
+          <el-button link type="primary" @click="helpVisible = true">帮助</el-button>
           <TableColumnSettings settings-key="client-information"
             v-model="visibleColumnKeys"
             :columns="clientColumnOptions"
@@ -254,13 +255,17 @@
       style="margin-top: 20px"
     />
 
-    <DraggableFormDialog
+  </el-card>
+  <FinanceWorkflowHelp v-if="helpVisible" v-model="helpVisible" title="客户管理帮助"
+    :help-sections="customerManagementHelpSections" search-placeholder="搜索客户管理帮助，例如：简称 编辑、开票" />
+  <DraggableFormDialog
       v-model="dialogVisible"
       :title="dialogTitle"
       class="client-form-dialog"
       width="min(960px, calc(100vw - 32px))"
       top="5vh"
       @close="handleDialogClose"
+      @closed="handleDialogClosed"
     >
       <template #header>
         <DialogFieldSearchHeader
@@ -412,6 +417,7 @@
       class="sub-client-editor-dialog"
       append-to-body
       @close="resetSubForm"
+      @closed="handleSubDialogClosed"
       :close-on-click-modal="false"
       :close-on-press-escape="false"
     >
@@ -463,7 +469,6 @@
         <el-button type="primary" :loading="subSubmitLoading" @click="handleSubSubmit">确定</el-button>
       </template>
     </DraggableFormDialog>
-  </el-card>
 </template>
 
 <script setup>
@@ -475,10 +480,13 @@ import CustomerCooperationProjects from '@/components/common/CustomerCooperation
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import CustomerSourceAnalysis from '@/components/common/CustomerSourceAnalysis.vue'
 import CustomerFinancePanel from '@/components/common/CustomerFinancePanel.vue'
+import FinanceWorkflowHelp from '@/components/common/FinanceWorkflowHelp.vue'
+import { customerManagementHelpSections } from '@/utils/customerManagementHelp'
 import CustomerRegionFields from '@/components/common/CustomerRegionFields.vue'
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { refreshAfterSave } from '@/utils/postSaveRefresh.js'
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import TableExpandButton from '@/components/common/TableExpandButton.vue'
 import * as clientApi from '@/api/clients'
@@ -498,8 +506,13 @@ import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useFormDraft } from '@/composables/useFormDraft'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 
+const props = defineProps({ editorClientId: String, editorSubClientId: String })
+const helpVisible = ref(false)
+const emit = defineEmits(['editor-closed', 'editor-load-error'])
 const loading = ref(false)
 const canWrite = hasPermission('clients:write')
+const route = useRoute()
+const router = useRouter()
 const submitLoading = ref(false)
 const dialogVisible = ref(false)
 const clientActiveTab = ref('basic')
@@ -782,6 +795,10 @@ const resetSearch = () => {
   }
   Object.assign(searchForm, { client_name: '', client_status: '' })
   resetFilterModel(advancedFilters,clientFilterFields)
+  if (route?.query.client_id) {
+    router.replace({ query: {} })
+    return
+  }
   handleSearch()
 }
 
@@ -809,6 +826,7 @@ const buildFilterParams = () => {
 }
 
 const fetchData = async () => {
+  if (props.editorClientId) return
   clientsRequestController?.abort()
   clientsRequestController = new AbortController()
   const requestId = ++clientsRequestId
@@ -819,11 +837,21 @@ const fetchData = async () => {
       skip: (pagination.page - 1) * pagination.limit,
       limit: pagination.limit
     }
-    const page = await clientApi.getClientPage(params, { signal: clientsRequestController.signal })
+    const options = { signal: clientsRequestController.signal }
+    const clientId = typeof route?.query.client_id === 'string' ? route.query.client_id : ''
+    const page = clientId
+      ? { items: [await clientApi.getClient(clientId, options)], total: 1 }
+      : await clientApi.getClientPage(params, options)
     if (requestId !== clientsRequestId) return
     tableData.value = page?.items || []
     expandedClientIds.value = new Set()
     pagination.total = page?.total || 0
+    const subClientId = route?.query.sub_client_id
+    const selectedClient = clientId && tableData.value[0]
+    if (selectedClient && subClientId && selectedClient.sub_clients?.some(child => child.id === subClientId)) {
+      await nextTick()
+      if (requestId === clientsRequestId) clientTableRef.value?.toggleRowExpansion(selectedClient, true)
+    }
 
     const lastPage = Math.max(1, Math.ceil(pagination.total / pagination.limit))
     if (pagination.page > lastPage) {
@@ -864,8 +892,29 @@ const loadClientDetail = async (id) => {
   }
 }
 
-const handleEdit = async (row) => {
-  try { row = { ...row, ...await clientApi.getClient(row.id) } } catch { ElMessage.error('读取最新客户联系人失败，请重试');return }
+let editRequestController
+const handleEdit = async (row, subClientId) => {
+  editRequestController?.abort()
+  const request = new AbortController()
+  editRequestController = request
+  try {
+    row = { ...row, ...await clientApi.getClient(row.id, { signal: request.signal }) }
+  } catch {
+    if (request.signal.aborted) return
+    ElMessage.error('读取最新客户资料失败，请重试')
+    if (props.editorClientId) emit('editor-load-error')
+    return
+  }
+  if (request.signal.aborted) return
+  if (subClientId) {
+    const child = row.sub_clients?.find(item => item.id === subClientId)
+    if (child) handleEditSub(child, row)
+    else {
+      ElMessage.error('该子客户已不存在或不属于当前客户')
+      emit('editor-load-error')
+    }
+    return
+  }
   dialogTitle.value = '客户管理 · 编辑窗口'
   resetForm()
   Object.assign(form, {
@@ -953,6 +1002,14 @@ const resetForm = () => {
 const handleDialogClose = () => {
   pauseDraft()
   resetForm()
+}
+
+const handleDialogClosed = () => {
+  if (props.editorClientId) emit('editor-closed')
+}
+
+const handleSubDialogClosed = () => {
+  if (props.editorSubClientId) emit('editor-closed')
 }
 
 const handleAddSub = () => {
@@ -1069,12 +1126,22 @@ const resetSubForm = () => {
 }
 
 onMounted(() => {
+  if (props.editorClientId) {
+    if (canWrite) handleEdit({ id: props.editorClientId }, props.editorSubClientId)
+    else emit('editor-load-error')
+    return
+  }
+  fetchData()
+})
+watch(() => [route?.query.client_id, route?.query.sub_client_id], () => {
+  pagination.page = 1
   fetchData()
 })
 
 onBeforeUnmount(() => {
   if (searchTimer) clearTimeout(searchTimer)
   clientsRequestController?.abort()
+  editRequestController?.abort()
 })
 </script>
 

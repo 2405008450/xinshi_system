@@ -375,6 +375,8 @@ app.include_router(project_languages.router)
 app.include_router(user_roles.router)
 app.include_router(project_files.router)
 app.include_router(clients.router)
+from routers.client_management_window import router as client_management_window_router
+app.include_router(client_management_window_router)
 app.include_router(client_contacts.router)
 app.include_router(translators.router)
 from routers import talent_duplicate_review

@@ -23,9 +23,34 @@ def setup(db,owner):
     for row in (target,child,third,other_month):db.add(WordCountMetric(id=uuid4(),project_id=row.id if row is target else None,sub_order_id=None if row is target else row.id,dimension='customer',metric_type='foreign_words',count_value=10))
     db.commit()
     write(db,owner,target,target,[item(amount='.5',metric='customer_auto')],billing_month='2026-11')
-    write(db,owner,target,child,[item(amount='.7',metric='customer_auto')],billing_month='2026-11',adjusted_total='3.33',explanation='保留调价')
+    write(db,owner,target,child,[item(amount='.7',metric='customer_auto')],billing_month='2026-11',explanation='保留调价')
+    finance.primary(child).total_excl_tax=Decimal('3.33')  # 历史记录仍应保留
+    db.commit()
     write(db,owner,target,other_month,[item(amount='.9',metric='customer_auto')],billing_month='2026-10')
     return source,target,child,third,other_month
+
+
+def test_project_scope_syncs_matching_children_only_and_preserves_billing_month(environment):
+    db,(owner,_,_)=environment
+    source,other_project,_,_,_=setup(db,owner)
+    _,branch,leaf=finance.hierarchy(source)[0]
+    target_rate=item(amount='.6',metric='customer_auto:foreign_words')
+    write(db,owner,source,branch,[target_rate])
+    write(db,owner,source,leaf,[target_rate],adjusted_total='3.33')
+    charge=finance.primary(leaf)
+    charge.billing_month='2026-10'
+    db.commit()
+    scope=sync.SyncScope(order_id=source.id,version=finance.read(db,source.id)['version'],scope='project_children')
+    preview,_=sync.plan(db,source.id,scope)
+    assert {target['order_id'] for target in preview['targets']}=={str(branch.id),str(leaf.id)}
+    scope.token=preview['token']
+    assert sync.apply(db,owner,source.id,scope)['updated_orders']==2
+    assert finance.primary(leaf).unit_price_excl_tax==Decimal('.2')
+    assert finance.primary(leaf).billing_month=='2026-10'
+    assert finance.primary(leaf).total_excl_tax==Decimal('3.33')
+    assert finance.primary(other_project).unit_price_excl_tax==Decimal('.5')
+    source_history=audit.history(db,source.id,source.id)['items']
+    assert any(row['after'].get('sync_operation',{}).get('type')=='project_child_prices' for row in source_history)
 
 
 def test_preview_then_sync_all_order_levels_preserves_other_month_and_adjustment(environment):

@@ -29,6 +29,131 @@ def write(db,owner,root,order,items,**extra):
     return finance.save(db,owner,root.id,finance.PriceWrite(version=finance.read(db,root.id)['version'],order_id=order.id,prices=items,**extra))
 
 
+def test_mother_lists_missing_fields_for_children_outside_the_page(environment):
+    from models import TranslationSubOrder
+
+    db,(owner,_,_)=environment
+    _,root,branch,leaf=context(db,owner)
+    root.language_pair=None
+    missing=TranslationSubOrder(id=uuid4(),parent_project_id=root.id,sub_order_no=root.order_no+'.002',
+                                sub_project_name='未登记子订单')
+    db.add(missing)
+    db.commit()
+    write(db,owner,root,leaf,[item(amount='0',tax_prices={'unit_price_incl_tax':'0'})])
+    full=finance.read(db,root.id)['item']
+    selections,total,_=finance.paginate_child_orders([full],0,1)
+    page_item=finance.apply_order_page(full,selections[0])
+    assert total==3
+    assert [child['id'] for child in page_item['children']]==[str(branch.id)]
+    assert page_item['missing_child_orders']=={
+        'language_pair':[missing.sub_order_no],
+        'word_count':[missing.sub_order_no],
+        'unit_price':[missing.sub_order_no],
+    }
+
+
+def test_aggregate_shows_adjusted_totals_only_for_child_overrides(environment):
+    from models import TranslationSubOrder
+
+    db,(owner,_,_)=environment
+    _,root,_,leaf=context(db,owner)
+    sibling=TranslationSubOrder(id=uuid4(),parent_project_id=root.id,sub_order_no=root.order_no+'.002',
+                                sub_project_name='同项目另一子订单',language_pair=leaf.language_pair)
+    db.add(sibling)
+    db.add(WordCountMetric(id=uuid4(),sub_order_id=sibling.id,dimension='customer',metric_type='foreign_words',count_value=10))
+    db.commit()
+    price=item(amount='1',tax_prices={'unit_price_excl_tax':'1','unit_price_incl_tax':'2'})
+    write(db,owner,root,sibling,[price])
+    result=write(db,owner,root,leaf,[price])['item']
+    assert result['calculated_totals_excl_tax']=={'CNY':'20.00'}
+    assert result['calculated_totals_incl_tax']=={'CNY':'40.00'}
+    assert result['adjusted_totals_excl_tax']==result['adjusted_totals_incl_tax']=={}
+
+    def update_child_adjustment(amount):
+        current=finance.read(db,root.id)
+        return finance.save_table_cell(db,owner,root.id,finance.TablePatch(
+            version=current['version'],order_id=leaf.id,adjusted_total_incl_tax=amount,
+        ))['item']
+
+    result=update_child_adjustment(15)
+    assert result['adjusted_totals_incl_tax']=={'CNY':'35.00'}
+    assert finance.read(db,root.id)['item']['adjusted_totals_incl_tax']=={'CNY':'35.00'}
+
+    result=update_child_adjustment(0)
+    assert result['adjusted_totals_excl_tax']=={}
+    assert result['children'][0]['adjusted_totals_incl_tax']=={'CNY':'0.00'}
+    assert result['adjusted_totals_incl_tax']=={'CNY':'20.00'}
+    assert result['calculated_totals_incl_tax']=={'CNY':'40.00'}
+    assert update_child_adjustment(None)['adjusted_totals_incl_tax']=={}
+
+    with pytest.raises(HTTPException,match='请在子订单填写'):
+        write(db,owner,root,root,[price],adjusted_total='30')
+
+
+@pytest.mark.parametrize('filled,empty', [('incl_tax', 'excl_tax'), ('excl_tax', 'incl_tax')])
+def test_one_sided_tax_rate_stays_separate_after_reopen_and_inheritance(environment, filled, empty):
+    from crud import get_sub_order
+    from models import TranslationSubOrder
+
+    db, (owner, _, _) = environment
+    _, root, _, leaf = context(db, owner)
+    filled_key, empty_key = f'unit_price_{filled}', f'unit_price_{empty}'
+    amount = Decimal('0.25')
+    write(db, owner, root, leaf, [item(amount=amount, tax_prices={filled_key: amount})])
+    charge = leaf.customer_charge_items[0]
+    assert getattr(charge, empty_key) is None
+    # Reproduce older records where the compatibility field held either tax basis.
+    charge.unit_price = amount
+    db.commit()
+
+    reopened = finance.read(db, root.id)['item']['children'][0]['children'][0]
+    price = reopened['prices'][0]
+    assert Decimal(price['tax_prices'][filled_key]) == amount
+    assert price['tax_prices'][empty_key] is None
+    assert reopened[f'totals_{filled}'] == {'CNY': '2.50'}
+    assert reopened[f'totals_{empty}'] == {}
+
+    project_form_charge = get_sub_order(db, leaf.id).customer_charge_items[0]
+    assert getattr(project_form_charge, empty_key) is None
+    assert getattr(project_form_charge, f'calculated_total_{empty}') is None
+
+    child = TranslationSubOrder(id=uuid4(), parent_project_id=root.id, sub_order_no=leaf.sub_order_no + '.001',
+                                sub_project_name='继承税口径', language_pair=leaf.language_pair)
+    db.add(child)
+    finance.inherit_new_order(db, child)
+    inherited = child.customer_charge_items[0]
+    assert getattr(inherited, filled_key) == amount
+    assert getattr(inherited, empty_key) is None
+
+
+def test_blank_project_rate_matches_customer_basis_and_manual_price_stays_detached(environment):
+    db, (owner, _, _) = environment
+    client, root, _, leaf = context(db, owner)
+    library = rates.write_library(db, owner, client.id, [item(metric='customer_auto:foreign_words')],
+                                  rates.library(db, client.id)['version'])
+    db.commit()
+
+    def set_price(metric, amount=None):
+        current = finance.read(db, root.id)
+        result = finance.save_table_cell(db, owner, root.id, finance.TablePatch(
+            version=current['version'], order_id=leaf.id,
+            prices=[{'language_pair':'英语→简中','metric':metric,'amount':amount}],
+        ))
+        return result['item']['children'][0]['children'][0]['prices'][0]
+
+    assert set_price('company_foreign_words')['amount'] is None
+    adopted = set_price('customer_auto:foreign_words')
+    assert adopted['reference_id'] == library['items'][0]['id']
+    assert Decimal(adopted['amount']) == Decimal('.1')
+    assert set_price('customer_auto:foreign_words', '.1')['reference_id'] is None
+    rates.write_library(db, owner, client.id, [item(metric='customer_auto:foreign_words', amount='.2')],
+                        library['version'])
+    db.commit()
+    latest = finance.read(db, root.id)['item']['children'][0]['children'][0]['prices'][0]
+    assert Decimal(latest['amount']) == Decimal('.1')
+    assert latest['reference_id'] is None
+
+
 @pytest.mark.parametrize('direction,metric',[('英语→简中','foreign_words'),('简体中文→英语','characters_no_spaces'),('日语→繁體中文','foreign_words'),('zh-CN→英语','characters_no_spaces')])
 def test_defaults(direction,metric):assert rates.default_metric(direction)=='customer_auto'
 

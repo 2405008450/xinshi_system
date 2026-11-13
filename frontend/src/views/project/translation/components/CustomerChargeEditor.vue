@@ -174,7 +174,7 @@ const lastSuggestions = new WeakMap()
 watch(
   () => props.modelValue,
   (rows) => rows.forEach((row) => {
-    if (row.unitPriceExclTax == null && row.unitPrice != null) row.unitPriceExclTax = row.unitPrice
+    if (row.unitPriceExclTax == null && row.unitPriceInclTax == null && row.unitPrice != null) row.unitPriceExclTax = row.unitPrice
     if (row.totalExclTax == null && row.amountOverride != null) row.totalExclTax = row.amountOverride
     if (!lastSuggestions.has(row)) rememberSuggestedTotals(row)
   }),

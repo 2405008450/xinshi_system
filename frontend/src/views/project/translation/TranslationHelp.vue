@@ -1,6 +1,6 @@
 <template>
   <el-card class="translation-help" shadow="never">
-    <template #header><div class="help-heading"><div><h2>笔译操作帮助</h2><p>先登记订单，再补齐统计、安排任务和发送通知。</p></div><el-tag effect="plain">更新于 2026-11-09 · 登记操作在前</el-tag></div>
+    <template #header><div class="help-heading"><div><h2>笔译操作帮助</h2><p>先登记订单，再补齐统计、安排任务和发送通知。</p></div><el-tag effect="plain">更新于 {{ translationHelpUpdatedAt }}</el-tag></div>
       <div class="help-search"><el-input v-model="keyword" clearable placeholder="搜索帮助，例如：母订单 子订单、路径、字数、邮件" aria-label="搜索笔译帮助" @keyup.enter="applySearch" /><el-button type="primary" @click="applySearch">查询</el-button><span>{{ visibleSections.length }} 个章节</span></div>
     </template>
     <div class="help-layout">
@@ -24,7 +24,7 @@
 <script setup>
 import {computed,onBeforeUnmount,ref,watch,nextTick} from 'vue'
 import {matchesSearchFields} from '@/utils/searchMatching'
-import {translationHelpSections} from './translationHelpContent'
+import {translationHelpSections,translationHelpUpdatedAt} from './translationHelpContent'
 const keyword=ref(''),appliedKeyword=ref(''),activeId=ref('order-basics'),content=ref(null),sectionElements={}
 const visibleSections=computed(()=>translationHelpSections.filter(section=>matchesSearchFields([section.title,section.summary,...(section.paragraphs||[]),...(section.steps||[]),...(section.rows||[]).flat(),section.tip,section.warning,section.example],appliedKeyword.value)))
 const groups=computed(()=>[...new Set(visibleSections.value.map(section=>section.group))])

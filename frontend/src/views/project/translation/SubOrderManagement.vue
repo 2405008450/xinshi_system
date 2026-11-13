@@ -7,6 +7,7 @@
           <p class="page-subtitle">{{ project.orderNo || route.query.orderNo || '-' }} / {{ project.projectName || route.query.projectName || '-' }}</p>
         </div>
         <div class="header-actions">
+          <el-button @click="structureVisible = true">子订单结构</el-button>
           <FolderImportRecords :project-id="projectId" />
           <el-button @click="downloadHierarchy">导出层级Excel</el-button>
           <el-button v-if="!embedded" @click="goBack">返回项目详情</el-button>
@@ -220,6 +221,7 @@
       </template>
     </DraggableFormDialog>
 
+    <SubOrderStructureDialog v-model="structureVisible" :project-id="projectId" />
     <ReplaceSubOrderPathsDialog v-model="replacePathsVisible" :project-id="projectId"
       :root-path="project.networkFilePath" @saved="loadData" />
     <SubOrderBatchCreateDialog
@@ -242,6 +244,7 @@ import OrderInheritedExtras from './components/OrderInheritedExtras.vue'
 import VerticalSplitPanels from '@/components/common/VerticalSplitPanels.vue'
 import FolderImportRecords from './components/FolderImportRecords.vue'
 import SubOrderStatisticsGrid from './components/SubOrderStatisticsGrid.vue'
+import SubOrderStructureDialog from './components/SubOrderStructureDialog.vue'
 import { getProjectStatusOptions } from '@/utils/projectStatus'
 import { validateTranslationFileName } from '@/utils/translationFileName'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, defineAsyncComponent } from 'vue'
@@ -290,6 +293,7 @@ const dialogVisible = ref(false)
 const subOrderExpandedSections = ref([])
 const batchDialogVisible = ref(false)
 const replacePathsVisible = ref(false)
+const structureVisible = ref(false)
 const batchDialogMode=ref('quantity')
 const inlineChanges = ref(new Map())
 const inlineSaving = ref(false)

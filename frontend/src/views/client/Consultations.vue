@@ -115,7 +115,7 @@
                 <el-descriptions-item label="客户全称">
                   <span class="detail-value">{{ getDetailRow(row).client_name || '-' }}</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="客户简称">
+                <el-descriptions-item label="客户简称" :client-row="getDetailRow(row)">
                   <span class="detail-value">{{ getDetailRow(row).client_short_name || '-' }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="子客户">
@@ -261,7 +261,7 @@
                 <el-descriptions-item label="客户全称">
                   <span class="detail-value">{{ getClientDetailRow(row).client_name || '-' }}</span>
                 </el-descriptions-item>
-                <el-descriptions-item label="客户简称">
+                <el-descriptions-item label="客户简称" :client-row="getClientDetailRow(row)">
                   <span class="detail-value">{{ getClientDetailRow(row).client_short_name || '-' }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="客户经理">
@@ -1152,7 +1152,7 @@
         <el-descriptions :column="2" border size="small" class="confirmation-summary">
           <el-descriptions-item label="咨询类型">{{ confirmationTypeLabel }}</el-descriptions-item>
           <el-descriptions-item label="预计订单号">{{ confirmationPreview.order_no || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="客户简称">{{ confirmationPreview.client_short_name || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="客户简称" :client-row="confirmationPreview">{{ confirmationPreview.client_short_name || '-' }}</el-descriptions-item>
           <el-descriptions-item label="客户经理联系方式">{{ confirmationPreview.manager_contact || '-' }}</el-descriptions-item>
           <el-descriptions-item label="发件人" :span="2">
             {{ confirmationPreview.sender_name || '未识别' }}

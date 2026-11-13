@@ -1380,7 +1380,7 @@ def _attach_customer_charge_amounts(owners) -> None:
             charge.language_pair=directions[charge.id].language_pair if charge.id in directions else None
             quantity = (quantity_basis.resolve(getattr(owner,'word_count_matrix',{}),bases[charge.id])[0] if getattr(charge,'id',None) in bases else customer_values.get(charge.metric_type)) if charge.pricing_mode == "metric" else None
             unit_price_excl_tax = getattr(charge, 'unit_price_excl_tax', None)
-            if unit_price_excl_tax is None:
+            if unit_price_excl_tax is None and charge.unit_price_incl_tax is None:
                 unit_price_excl_tax = charge.unit_price
 
             def calculated_total(unit_price):
@@ -1403,7 +1403,6 @@ def _attach_customer_charge_amounts(owners) -> None:
             if total_excl_tax is None:
                 total_excl_tax = calculated_excl_tax
             charge.quantity = quantity
-            charge.unit_price_excl_tax = unit_price_excl_tax
             charge.calculated_total_excl_tax = calculated_excl_tax
             charge.calculated_total_incl_tax = calculated_incl_tax
             charge.calculated_amount = calculated_excl_tax
@@ -1797,8 +1796,8 @@ def _is_auto_project_name(
     )
 
 
-def get_translation_project(db: Session, project_id: UUID) -> Optional[TranslationProject]:
-    project = (
+def get_translation_project(db: Session, project_id: UUID, *, refresh: bool = False) -> Optional[TranslationProject]:
+    query = (
         db.query(TranslationProject)
         .options(
             joinedload(TranslationProject.client),
@@ -1816,8 +1815,8 @@ def get_translation_project(db: Session, project_id: UUID) -> Optional[Translati
             TranslationProject.id == project_id,
             TranslationProject.annotation_migrated_at.is_(None),
         )
-        .first()
     )
+    project = (query.populate_existing() if refresh else query).first()
     if not project:
         return None
     _attach_project_client_fields(project)
@@ -2106,6 +2105,11 @@ def _apply_translation_project_filters(
         elif field == 'finance_statement_required':
             from translation_document_requirements import required_expression
             query = query.filter(required_expression(query.session).is_(descriptor['value']))
+        elif field == 'finance_statement_customers':
+            from translation_document_requirements import statement_customer_ids
+            client_id = func.coalesce(TranslationProject.client_id, SubClient.parent_client_id)
+            is_statement_customer = client_id.in_(statement_customer_ids(query.session))
+            query = query.filter(is_statement_customer.is_(True) if descriptor['value'] == 'include' else is_statement_customer.is_not(True))
         elif field == "contact_name":
             from translation_project_contact import TranslationProjectContact
             from search_matching import keyword_any
@@ -2921,6 +2925,8 @@ def _notification_query(
     notification_ids: Optional[List[UUID]] = None,
     keyword: Optional[str] = None,
     read_status: str = 'all',
+    category: Optional[str] = None,
+    summary_category: Optional[str] = None,
 ):
     from notification_channels import filter_notification_channel
     query = db.query(AppNotification).filter(AppNotification.recipient_user_id == recipient_user_id)
@@ -2940,6 +2946,12 @@ def _notification_query(
     if keyword:
         from search_matching import keyword_any
         query = query.filter(keyword_any([AppNotification.title, AppNotification.content], keyword))
+    if category or summary_category:
+        from notification_categories import category_expression, summary_category_expression
+        if category:
+            query = query.filter(category_expression(AppNotification) == category)
+        if summary_category:
+            query = query.filter(summary_category_expression(AppNotification) == summary_category)
     return query
 
 
@@ -2949,9 +2961,21 @@ def get_notifications(
     notification_type: Optional[str] = None, notification_types: Optional[List[str]] = None,
     keyword: Optional[str] = None, read_status: str = 'all',
     notification_ids: Optional[List[UUID]] = None,
+    category: Optional[str] = None, summary_category: Optional[str] = None,
+    include_classification: bool = False,
 ) -> List[AppNotification]:
-    query = _notification_query(db, recipient_user_id, unread_only, channel, notification_type, notification_types, notification_ids, keyword, read_status)
-    rows = query.order_by(AppNotification.created_at.desc(), AppNotification.id.desc()).offset(skip).limit(limit).all()
+    query = _notification_query(db, recipient_user_id, unread_only, channel, notification_type, notification_types, notification_ids, keyword, read_status, category, summary_category)
+    if include_classification:
+        from notification_categories import category_expression, summary_category_expression
+        query = query.add_columns(category_expression(AppNotification), summary_category_expression(AppNotification))
+    results = query.order_by(AppNotification.created_at.desc(), AppNotification.id.desc()).offset(skip).limit(limit).all()
+    rows = results
+    if include_classification:
+        rows = []
+        for row, group, summary_group in results:
+            row.category = group
+            row.summary_category = summary_group
+            rows.append(row)
     from resource_request_dispatch import annotate_sender_entries
     annotate_sender_entries(db, recipient_user_id, rows)
     return rows

@@ -53,10 +53,15 @@ def capture(project):
 
 
 def append(db,user,project,before):
-    require_ready(db);db.flush();after=capture(project)
+    db.flush()
+    append_snapshots(db,user,project.id,before,capture(project))
+
+
+def append_snapshots(db,user,project_id,before,after):
     changed=[key for key in set(before)|set(after) if before.get(key)!=after.get(key)]
     if not changed:return
-    event=TranslationFinanceEvent(id=uuid4(),project_id=project.id,actor_id=user.id,actor_name=user.full_name or user.username,created_at=business_now())
+    require_ready(db)
+    event=TranslationFinanceEvent(id=uuid4(),project_id=project_id,actor_id=user.id,actor_name=user.full_name or user.username,created_at=business_now())
     db.add(event);db.flush()
     from uuid import UUID
     for key in changed:

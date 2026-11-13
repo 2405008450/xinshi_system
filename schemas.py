@@ -824,7 +824,7 @@ class TranslationSubOrderChargeItemInput(BaseModel):
 
     @model_validator(mode='after')
     def validate_pricing_mode(self):
-        if self.unit_price_excl_tax is None:
+        if self.unit_price_excl_tax is None and self.unit_price_incl_tax is None:
             self.unit_price_excl_tax = self.unit_price
         if self.total_excl_tax is None:
             self.total_excl_tax = self.amount_override

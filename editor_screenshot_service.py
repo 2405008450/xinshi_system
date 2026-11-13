@@ -2,6 +2,8 @@ import hashlib
 import hmac
 import json
 import re
+from io import BytesIO
+from zipfile import BadZipFile, ZipFile
 from datetime import timedelta
 from uuid import UUID, uuid4
 from urllib.parse import unquote
@@ -12,6 +14,7 @@ from chat_time import now, api_time
 
 REFERENCE_RE=re.compile(r'screenshot://([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})')
 SIGNED_REFERENCE_RE=re.compile(REFERENCE_RE.pattern+r'#([0-9a-fA-F]{64})')
+MAX_INVOICE_FILE_BYTES = 10 * 1024 * 1024
 
 
 def signed_reference(image_id):
@@ -80,6 +83,27 @@ def save_image(db,user_id,content,content_type,retention='business'):
     else:
         from mail_inline_image_service import normalize_uploaded_image
         data,mime,*_=normalize_uploaded_image(content,content_type)
+    return _save_attachment(db, user_id, data, mime, retention)
+
+
+def save_invoice_file(db, user_id, content, extension):
+    require_ready(db)
+    if len(content) > MAX_INVOICE_FILE_BYTES:
+        raise ValueError('发票文件最大支持 10 MB')
+    if extension == 'pdf':
+        if not re.match(rb'%PDF-\d\.\d[\r\n]', content) or not content.rstrip().endswith(b'%%EOF'):
+            raise ValueError('文件不是有效的 PDF')
+    else:
+        try:
+            with ZipFile(BytesIO(content)) as archive:
+                if not archive.getinfo('OFD.xml').file_size:
+                    raise ValueError('文件不是有效的 OFD')
+        except (BadZipFile, KeyError) as error:
+            raise ValueError('文件不是有效的 OFD') from error
+    return _save_attachment(db, user_id, content, f'application/{extension}', 'business')
+
+
+def _save_attachment(db, user_id, data, mime, retention):
     digest=hashlib.sha256(data).hexdigest()
     dialect=db.get_bind().dialect.name
     if dialect in {'postgresql','sqlite'}:

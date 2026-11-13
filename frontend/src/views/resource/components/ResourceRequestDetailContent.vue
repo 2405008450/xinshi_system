@@ -8,7 +8,7 @@
     <el-descriptions-item label="需求项目订单号">{{ request.currentOrderNo || request.sourceOrderNoSnapshot || '-' }}</el-descriptions-item>
     <el-descriptions-item label="需求项目"><slot name="project">{{ request.currentProjectName || request.sourceProjectNameSnapshot || '-' }}</slot></el-descriptions-item>
     <el-descriptions-item label="客户编号">{{ request.clientCodeSnapshot || '-' }}</el-descriptions-item>
-    <el-descriptions-item label="客户简称">{{ request.clientShortNameSnapshot || '-' }}</el-descriptions-item>
+    <el-descriptions-item label="客户简称" :client-row="request">{{ request.clientShortNameSnapshot || '-' }}</el-descriptions-item>
     <el-descriptions-item :label="request.sourceType==='annotation' ? '项目经理' : '负责人'">{{ request.projectManagers?.map(p=>p.name).join('、') || ownerLabel || '-' }}</el-descriptions-item>
     <el-descriptions-item label="优先级">{{ priorities[request.priority] || '-' }}</el-descriptions-item>
     <el-descriptions-item label="发起时间">{{ formatBusinessDateTime(request.requestedAt) }}</el-descriptions-item>

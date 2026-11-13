@@ -1,6 +1,12 @@
 export const paymentOptions=[{value:'deposit',label:'已付定金'},{value:'full',label:'已付全款'}]
 export const paymentStatusLabels={unpaid:'未付款',deposit:'已付定金',mid:'已付进度款',full:'已付全款'}
 export const paymentStatusFilterOptions=[{value:'unpaid',label:'未付款'},{value:'deposit',label:'已付定金'},{value:'mid',label:'已付进度款'},{value:'full',label:'已付全款（含尾款）'},{value:'paid',label:'已付款（含部分）'}]
+export const fullPaymentMismatchOption={value:'full_mismatch',label:'已付全款（金额不匹配）'}
+export function paymentStatusLabel(row){
+  return row.paymentStatus==='full'&&row.paymentAmountMismatch===true
+    ?fullPaymentMismatchOption.label
+    :paymentStatusLabels[row.paymentStatus]||paymentStatusLabels.unpaid
+}
 export async function switchPaymentSelection(value,option,{payments=[],confirm}){
   const current=paymentConfirmationForm(value)
   if(current.isPaid&&current.paymentOption===option)return null

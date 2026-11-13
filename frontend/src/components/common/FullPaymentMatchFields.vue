@@ -1,13 +1,13 @@
 <template>
   <div class="full-payment-match" v-loading="loading">
     <div class="full-payment-inputs">
-      <el-form-item :label="fromDetails?'累计实付金额':'已付全款金额'" :prop="`${prefix}.fullPaymentAmount`" :rules="[{validator:validateAmount,trigger:'change'}]"><ReadonlyField v-if="fromDetails" :model-value="value.fullPaymentAmount==null?'待填写各次实际金额':value.fullPaymentAmount.toFixed(2)" source="auto" /><el-input-number v-else :model-value="value.fullPaymentAmount??undefined" :min="0" :precision="2" :controls="false" :aria-label="fromDetails?'累计实付金额':'已付全款金额'" @update:model-value="update('fullPaymentAmount',$event??null)" /></el-form-item>
+      <el-form-item :label="fromDetails?'累计实付金额':'已付全款金额'" :prop="`${prefix}.fullPaymentAmount`" :rules="[{validator:validateAmount,trigger:'change'}]"><ReadonlyField v-if="fromDetails" :model-value="value.fullPaymentAmount==null?'待填写各次实际金额':value.fullPaymentAmount.toFixed(2)" source="auto" /><el-input-number v-else :model-value="value.fullPaymentAmount??undefined" :min="0" :precision="2" :controls="false" aria-label="已付全款金额" @focus="editingAmount=true" @blur="editingAmount=false" @update:model-value="update('fullPaymentAmount',$event??null)" /></el-form-item>
       <el-form-item label="付款币种"><el-select :model-value="value.fullPaymentCurrency" aria-label="付款币种" @update:model-value="update('fullPaymentCurrency',$event)"><el-option v-for="currency in currencies" :key="currency" :value="currency" /></el-select></el-form-item>
       <el-form-item :label="referenceFieldLabel"><div class="full-payment-reference"><ReadonlyField :model-value="reference?`${reference.currency} ${reference.amount}`:'暂无可匹配总价'" source="auto" :aria-label="referenceFieldLabel" /><span v-if="reference&&!fixedCharge" class="full-payment-tax-mode">{{referenceTaxLabel}}</span></div><p v-if="fixedCharge" class="full-payment-hint full-payment-reference-hint">请在上面计费口径调整含税/不含税固定收费。</p></el-form-item>
     </div>
     <div class="full-payment-result-row">
     <p class="full-payment-result"><el-tag :type="status==='matched'?'success':status==='mismatch'?'danger':'info'">{{status==='matched'?'已匹配':status==='mismatch'?'不匹配':'待核对'}}</el-tag><span v-if="reference">{{fixedCharge?referenceFieldLabel:reference.label}}：{{reference.currency}} {{reference.amount}}</span><span v-else>项目暂无可匹配总价</span></p>
-    <el-form-item v-if="status==='mismatch'" class="full-payment-reason" label-position="left" data-screenshot-editor="own" label="不匹配原因" :prop="`${prefix}.mismatchReason`" :rules="[{required:true,whitespace:true,message:'请说明全款金额不匹配的原因',trigger:'blur'}]"><el-input :model-value="value.mismatchReason" type="textarea" :autosize="{minRows:1,maxRows:3}" maxlength="2000" show-word-limit aria-label="不匹配原因" @update:model-value="update('mismatchReason',$event)" /></el-form-item>
+    <el-form-item v-if="status==='mismatch'" ref="reasonField" class="full-payment-reason" label-position="left" data-screenshot-editor="own" label="不匹配原因" :prop="`${prefix}.mismatchReason`" :rules="[{required:true,whitespace:true,message:'请说明全款金额不匹配的原因',trigger:'blur'}]"><el-input :model-value="value.mismatchReason" type="textarea" :autosize="{minRows:1,maxRows:3}" maxlength="2000" show-word-limit aria-label="不匹配原因" @update:model-value="update('mismatchReason',$event)" /></el-form-item>
     </div>
     <p v-if="legacy" class="full-payment-hint">历史全款确认未登记金额，补充金额后可核对项目总价。</p>
     <p v-if="error" class="full-payment-error">{{error}} <el-button link @click="load">重新加载项目总价</el-button></p>
@@ -20,10 +20,12 @@ import api from '@/api'
 import ReadonlyField from './ReadonlyField.vue'
 import {paymentConfirmationForm,paymentChangeEvent} from '@/utils/paymentConfirmation'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
+import {focusFormTarget,scrollFormTarget} from '@/utils/formNavigation'
 const props=defineProps({modelValue:Object,projectId:String,prefix:String,fromDetails:Boolean,pricingMode:String,billingTaxMode:String,draftTotals:{type:Array,default:null}})
 const emit=defineEmits(['update:modelValue','reference-change'])
 const value=computed(()=>paymentConfirmationForm(props.modelValue))
 const savedTotals=ref([]),loading=ref(false),error=ref('')
+const reasonField=ref(null),editingAmount=ref(false)
 const totals=computed(()=>props.draftTotals??savedTotals.value)
 let sequence=0,controller
 const currencies=computed(()=>[...new Set(['CNY','USD','HKD','EUR','GBP','JPY',...totals.value.map(item=>item.currency)])])
@@ -48,6 +50,13 @@ async function load(){
 function onPaymentChanged(event){if(event.detail?.projectId===props.projectId)void load()}
 window.addEventListener(paymentChangeEvent,onPaymentChanged)
 watch([()=>props.projectId,()=>props.draftTotals],load,{immediate:true,deep:true})
+watch([status,reasonField,editingAmount],([match,field,isEditing])=>{
+  // 手填全款金额在结束输入后跳转，避免输入中途移走光标。
+  if(match!=='mismatch'||isEditing||error.value||value.value.mismatchReason?.trim())return
+  const target=field?.$el
+  if(!target?.getClientRects().length||!focusFormTarget(target))return
+  scrollFormTarget(target)
+},{flush:'post'})
 watch([totals,()=>value.value.fullPaymentCurrency,loading],()=>{
   if(loading.value)return
   const key=reference.value?.key||null

@@ -1,6 +1,19 @@
 import api from '@/api'
 import { screenshotIds } from './screenshotReferences'
 
+export async function uploadInvoiceFile(file, extension, requestId) {
+  if (file.size > 10 * 1024 * 1024) throw new Error('发票文件最大支持 10 MB')
+  const data = new FormData()
+  data.append('file', file)
+  if (requestId) data.append('request_id', requestId)
+  const saved = await api.post(`/editor-screenshots/invoice-${extension}`, data, {
+    headers: {'Content-Type': 'multipart/form-data'},
+    timeout: 60000,
+  })
+  screenshotIds(saved.reference)
+  return saved
+}
+
 export async function uploadEditorScreenshot(file,retention='business',options={}){
   const accountToken=localStorage.getItem('token')
   if (retention === 'chat') {

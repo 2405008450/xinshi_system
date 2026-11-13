@@ -31,23 +31,29 @@ def run():
         page.goto(BASE+'/payment-mismatch-test');page.get_by_role('button',name='Open',exact=True).click()
         page.get_by_role('tab',name='查账',exact=True).click()
         client=page.get_by_role('textbox',name='客户',exact=True);client.fill('其他客户')
-        page.locator('.payment-filter-bar .el-select').click()
-        page.get_by_role('option',name='未付款',exact=True).click()
-        label=page.locator('label.el-checkbox').filter(has_text='仅看已付全款且金额不匹配的项目')
-        label.click()
+        status=page.locator('.payment-filter-bar .el-select')
+        def choose_status(name):
+            status.click()
+            page.get_by_role('option',name=name,exact=True).click()
+        choose_status('已付全款（金额不匹配）')
         table=page.locator('.payment-overview .el-table')
         expect(table).to_contain_text('TP-MISMATCH');expect(table).not_to_contain_text('TP-UNPAID');expect(table).not_to_contain_text('CHILD')
-        expect(client).to_be_disabled();expect(page.get_by_role('button',name='查询',exact=True)).to_be_disabled()
+        expect(table).to_contain_text('已付全款（金额不匹配）')
+        expect(client).to_be_disabled();expect(page.get_by_role('button',name='重置',exact=True)).to_be_enabled()
         assert not any(key in queries[-1] for key in ('billing_month','billing_months','client','payment_status')),queries[-1]
         page.locator('.payment-overview .el-pager li').filter(has_text=re.compile('^2$')).click()
         page.wait_for_timeout(300)
         assert queries[-1]['skip']==['20'] and queries[-1]['payment_amount_mismatch']==['true']
         assert not any(key in queries[-1] for key in ('billing_month','billing_months','client','payment_status'))
-        label.click();expect(client).to_be_enabled();expect(table).to_contain_text('TP-UNPAID')
+        choose_status('未付款');expect(client).to_be_enabled();expect(table).to_contain_text('TP-UNPAID')
         assert queries[-1]['billing_months']==['2020-01'] and queries[-1]['client']==['其他客户'] and queries[-1]['payment_status']==['unpaid']
-        old_backend=True;label.click()
+        old_backend=True;choose_status('已付全款（金额不匹配）')
         expect(table).not_to_contain_text('TP-UNPAID');expect(table).not_to_contain_text('TP-MISMATCH')
         expect(page.locator('.el-alert--error')).to_contain_text('后端未正确执行')
+        page.get_by_role('tab',name='追账',exact=True).click()
+        status.click()
+        expect(page.get_by_role('option',name='已付全款（金额不匹配）',exact=True)).to_have_count(0)
+        assert 'payment_status' not in queries[-1]
         assert not errors,errors
         browser.close()
     print('PASS: independent filters, full-only results, pagination, restore, no child rows and stale-backend guard')
