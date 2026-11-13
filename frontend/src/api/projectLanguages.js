@@ -23,7 +23,12 @@ const normalize = (item) => ({
 
 export const getProjectLanguages = () => getCachedOptions(
   ACTIVE_LANGUAGE_CACHE_KEY,
-  () => api.get('/projects/languages').then((rows) => (Array.isArray(rows) ? rows.map(normalize) : [])),
+  () => api.get('/projects/languages').then((rows) => {
+    const items = Array.isArray(rows) ? rows.map(normalize) : []
+    // 空目录不能缓存成成功结果，否则“重新加载”仍会连续命中空缓存。
+    if (!items.length) throw new Error('语种目录暂无可用语种，请稍后重试')
+    return items
+  }),
   { ttlMs: 5 * 60_000 },
 )
 

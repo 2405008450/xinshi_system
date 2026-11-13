@@ -60,7 +60,7 @@ def read_languages(
     limit: int = Query(default=500, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
-    query = db.query(InterpretationLanguage)
+    query = db.query(InterpretationLanguage).options(selectinload(InterpretationLanguage.aliases))
     if not include_inactive:
         query = query.filter(InterpretationLanguage.is_active.is_(True))
     languages = query.order_by(

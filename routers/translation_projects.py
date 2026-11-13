@@ -35,6 +35,27 @@ from pagination_schemas import PageResponse, resolve_page_total
 router = APIRouter(prefix="/projects/translation", tags=["translation_projects"], dependencies=[Depends(require_module_access("projects:read", "projects:write"))])
 logger = logging.getLogger(__name__)
 
+
+def _save_with_lock_retry(db, save):
+    """仅重试数据库已中止的锁冲突事务，避免网络异常导致重复写入。"""
+    from time import sleep
+    for attempt in range(3):
+        try:
+            return save()
+        except DatabaseError as error:
+            db.rollback()
+            from customer_translation_rates import invalidate_metadata
+            from translation_quantity_basis import invalidate
+            invalidate_metadata(db)
+            invalidate(db)
+            db.info.pop('translation_billing_tax_modes', None)
+            code = getattr(error.orig, 'pgcode', None) or getattr(error.orig, 'sqlstate', None)
+            if code not in {'55P03', '40P01'}:
+                raise
+            if attempt == 2:
+                raise HTTPException(503, '当前有其他操作正在占用数据，项目尚未保存。已填写内容会保留，请稍后重试。') from error
+            sleep(0.15 * (attempt + 1))
+
 TRANSLATION_TEXT_FIELDS = {
     "project_name": TextFieldRule(max_length=255, required=True),
     "source_file_name": TextFieldRule(max_length=255, required=True),
@@ -158,9 +179,9 @@ def create_project_endpoint(
             return get_translation_project(db, existing.id)
     try:
         project_to_create = project.model_copy(update={"created_by": current_user.id})
-        return create_translation_project(
+        return _save_with_lock_retry(db, lambda: create_translation_project(
             db=db, project=project_to_create, idempotency_key=idempotency_key,
-        )
+        ))
     except HTTPException:
         raise
     except IntegrityError as e:
@@ -533,7 +554,7 @@ def update_project_endpoint(
     db: Session = Depends(get_db)
 ):
     try:
-        db_project = update_translation_project(db, project_id=project_id, project_update=project_update, actor_user_id=current_user.id)
+        db_project = _save_with_lock_retry(db, lambda: update_translation_project(db, project_id=project_id, project_update=project_update, actor_user_id=current_user.id))
     except ValueError as e:
         db.rollback()
         raise HTTPException(

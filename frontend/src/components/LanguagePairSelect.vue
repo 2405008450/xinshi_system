@@ -80,12 +80,14 @@
         </AppForm>
       </el-popover>
     </div>
+    <el-button v-if="loadingFailed" link type="primary" @click="loadLanguages">重新加载语种</el-button>
     <div v-if="showHint" class="language-pair-select__hint">{{ hintText }}</div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, shallowRef } from 'vue'
+import { buildLanguagePairOptions } from '@/utils/languagePairOptions'
 import { ElMessage } from 'element-plus'
 import { createProjectLanguage, getProjectLanguages } from '@/api/projectLanguages'
 
@@ -100,7 +102,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:modelValue'])
-const languages = ref([])
+const languages = shallowRef([])
 const searchKeyword = ref('')
 const loading = ref(false)
 const loadingFailed = ref(false)
@@ -147,12 +149,6 @@ const COMMON_LANGUAGE_PAIR_CODES = [
   ['zh-CN', 'ms-MY'],
   ['ms-MY', 'zh-CN'],
 ]
-const COMMON_LANGUAGE_PAIR_RANK = new Map(
-  COMMON_LANGUAGE_PAIR_CODES.map(([sourceCode, targetCode], index) => (
-    [`${sourceCode}→${targetCode}`, index]
-  ))
-)
-
 const parseLanguagePairs = (value) => {
   if (!value) return []
   return [...new Set(String(value).split(/[；;，,、\n]+/).map((item) => item.trim()).filter(Boolean))]
@@ -164,89 +160,28 @@ const isSameLanguage = (left, right) => (
   Boolean(comparableLanguageLabel(left)) && comparableLanguageLabel(left) === comparableLanguageLabel(right)
 )
 
-const normalizeSearchText = (value) => String(value || '').toLocaleLowerCase().replace(/\s+/g, '')
-const normalizeDirectionQuery = (value) => normalizeSearchText(value).replace(
-  /翻译成为|翻译成|翻译为|转换成为|转换成|转换为|译成|译为|转成|转为|翻译|转换|->|=>|→|译|转|到|至/g,
-  ''
-)
-
-const getSearchNames = (language) => {
-  return {
-    code: language.code || '',
-    aliases: language.aliases || [],
-    shortcuts: language.shortcuts?.length ? language.shortcuts : [language.label],
-  }
-}
-
-const shortestShortcut = (values) => [...values].sort((a, b) => a.length - b.length)[0] || ''
-
-const languagePairOptions = computed(() => {
-  const generated = languages.value.flatMap((source) => languages.value
-    .filter((target) => target.id !== source.id)
-    .map((target) => {
-      const sourceSearch = getSearchNames(source)
-      const targetSearch = getSearchNames(target)
-      const value = `${source.label}→${target.label}`
-      return {
-        label: value,
-        value,
-        commonRank: COMMON_LANGUAGE_PAIR_RANK.get(`${source.code}→${target.code}`) ?? Number.MAX_SAFE_INTEGER,
-        isCustom: source.isCustom || target.isCustom,
-        shortLabel: `${shortestShortcut(sourceSearch.shortcuts)}译${shortestShortcut(targetSearch.shortcuts)}`,
-        searchText: normalizeSearchText([
-          value,
-          sourceSearch.code,
-          targetSearch.code,
-          ...sourceSearch.aliases,
-          ...targetSearch.aliases,
-        ].join('|')),
-        directionSearchText: normalizeSearchText(
-          sourceSearch.shortcuts.flatMap((sourceShortcut) => (
-            targetSearch.shortcuts.map((targetShortcut) => `${sourceShortcut}${targetShortcut}`)
-          )).join('|')
-        ),
-      }
-    }))
-  generated.sort((left, right) => left.commonRank - right.commonRank)
-  if (props.allowProofreading) {
-    generated.unshift(...['校对', '盖章'].map((value) => ({
-      label: value, value, shortLabel: '业务标记', searchText: value, directionSearchText: value,
-    })))
-  }
-  const known = new Set(generated.map((item) => item.value))
-  const legacy = parseLanguagePairs(props.modelValue)
-    .filter((value) => !known.has(value))
-    .map((value) => ({
-      label: value,
-      value,
-      isCustom: true,
-      shortLabel: '',
-      searchText: normalizeSearchText(value),
-      directionSearchText: normalizeDirectionQuery(value),
-    }))
-  return [...legacy, ...generated]
-})
-
+const catalogOptions = computed(() => buildLanguagePairOptions(languages.value, COMMON_LANGUAGE_PAIR_CODES, searchKeyword.value, {allowProofreading: props.allowProofreading}))
 const filteredLanguagePairOptions = computed(() => {
-  const tokens = String(searchKeyword.value || '')
-    .toLocaleLowerCase()
-    .split(/[\s|/]+/)
-    .map(normalizeSearchText)
-    .filter(Boolean)
-  if (!tokens.length) return languagePairOptions.value
-  return languagePairOptions.value.filter((item) => tokens.every((token) => {
-    const directionToken = normalizeDirectionQuery(token)
-    return item.searchText.includes(token)
-      || Boolean(directionToken && item.directionSearchText.includes(directionToken))
-  }))
+  const options = catalogOptions.value
+  const known = new Set(options.map(item => item.value))
+  // 已选方向始终保留，包括历史目录项和当前搜索未命中的选项。
+  const selected = parseLanguagePairs(props.modelValue).filter(value => !known.has(value))
+    .map(value => ({label: value, value, shortLabel: ''}))
+  return [...selected, ...options]
 })
 
-const allowedLanguagePairSet = computed(() => new Set(languagePairOptions.value.map((item) => item.value)))
+const languageLabels = computed(() => new Set(languages.value.map(item => item.label)))
+const isAllowedLanguagePair = value => {
+  if (parseLanguagePairs(props.modelValue).includes(value)) return true
+  if (props.allowProofreading && ['校对', '盖章'].includes(value)) return true
+  const parts = value.split('→')
+  return parts.length === 2 && parts[0] !== parts[1] && parts.every(part => languageLabels.value.has(part))
+}
 const selectedPairs = computed({
   get: () => props.single ? parseLanguagePairs(props.modelValue)[0] : parseLanguagePairs(props.modelValue),
   set: (values) => {
     const normalized = [...new Set((Array.isArray(values)?values:values?[values]:[]).map((item) => String(item).trim())
-      .filter((item) => allowedLanguagePairSet.value.has(item)))]
+      .filter(isAllowedLanguagePair))]
     emit('update:modelValue', normalized.join('；'))
   },
 })
@@ -257,10 +192,10 @@ const handleVisibleChange = (visible) => {
 }
 
 const hintText = computed(() => loadingFailed.value
-  ? '语种候选项加载失败，请刷新页面后重试'
+  ? '语种候选项加载失败，请点击重新加载'
   : props.allowProofreading
-    ? '可选择“校对”“盖章”，也可与翻译方向组合；支持“中英”“中译英”等简称搜索'
-    : '可输入“中英”“中译英”等简称搜索；语种目录由各类项目共享')
+    ? '可选择“校对”“盖章”，也可与翻译方向组合；支持“中英”“中译英”等简称搜索，候选项最多显示200项'
+    : '可输入“中英”“中译英”等简称搜索，候选项最多显示200项；语种目录由各类项目共享')
 
 const loadLanguages = async () => {
   loading.value = true
@@ -278,8 +213,8 @@ const loadLanguages = async () => {
 
 const findLanguage = (label) => languages.value.find((item) => isSameLanguage(item.label, label))
 const addLanguageLocally = (language) => {
-  if (!findLanguage(language.label)) languages.value.push(language)
-  languages.value.sort((a, b) => Number(a.isCustom) - Number(b.isCustom) || a.label.localeCompare(b.label, 'zh-CN'))
+  if (!findLanguage(language.label)) languages.value = [...languages.value, language]
+  languages.value = [...languages.value].sort((a, b) => Number(a.isCustom) - Number(b.isCustom) || a.label.localeCompare(b.label, 'zh-CN'))
 }
 const ensureLanguage = async (label) => {
   const existing = findLanguage(label)

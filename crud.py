@@ -1506,7 +1506,8 @@ def _resolve_or_create_project_sub_client(
     sub_client_name: Optional[str] = None,
 ) -> Optional[UUID]:
     """在指定母客户下按名称复用或新建待完善的子客户。"""
-    normalized_name = (sub_client_short_name or "").strip()
+    # 项目表单允许只填全称，此时以全称作为简称及匹配名称，确保关联可保存、回显。
+    normalized_name = (sub_client_short_name or "").strip() or (sub_client_name or "").strip()
     if not normalized_name:
         return None
     if not parent_client_id:
@@ -1534,7 +1535,7 @@ def _resolve_or_create_project_sub_client(
         parent_client_id=parent_client_id,
         sub_client_code=generate_sub_client_code(db, parent_client_id),
         client_name=full_name,
-        client_short_name=normalized_name,
+        client_short_name=(sub_client_short_name or '').strip() or normalized_name[:100],
         client_status="pending",
     )
     db.add(sub_client)
@@ -2531,7 +2532,9 @@ def create_translation_project(
         if sub_client_id:
             project_data['sub_client_id'] = sub_client_id
 
-    if not project_data.get('sub_client_id') and (project.sub_client_short_name or '').strip():
+    if not project_data.get('sub_client_id') and (
+        (project.sub_client_short_name or '').strip() or (project.sub_client_name or '').strip()
+    ):
         project_data['sub_client_id'] = _resolve_or_create_project_sub_client(
             db,
             project_data.get('client_id'),
@@ -2660,8 +2663,14 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
     update_data.pop('mother_split_reviewed', None)
     db.query(TranslationProject).filter(TranslationProject.id == project_id).with_for_update().populate_existing().one()
     assert_fresh(db_project, project_update.expected_updated_at)
-    from translation_order_inheritance import prepare as prepare_inheritance, synchronize as synchronize_inheritance, FIELDS as INHERITED_FIELDS
-    inheritance_context = prepare_inheritance(db, project_id) if any(('status' if key == 'project_status' else key) in INHERITED_FIELDS for key in update_data) else None
+    from translation_order_inheritance import prepare as prepare_inheritance, synchronize as synchronize_inheritance, FIELDS as INHERITED_FIELDS, serial as inheritance_value
+    # 编辑表单会提交全部字段，只有继承值实际改变时才写入整棵订单树。
+    inheritance_changed = any(
+        ('status' if key == 'project_status' else key) in INHERITED_FIELDS
+        and inheritance_value(getattr(db_project, key, None)) != inheritance_value(value)
+        for key, value in update_data.items()
+    )
+    inheritance_context = prepare_inheritance(db, project_id) if inheritance_changed else None
     if 'client_manager_id' in project_update.model_fields_set:
         from project_client_manager import apply as apply_client_manager
         apply_client_manager(db, 'translation', db_project, project_update.client_manager_id, project_update.client_manager_change_reason, actor_user_id)
@@ -2703,7 +2712,9 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
             # 从原客户（尤其是子客户）切换到手工输入客户时，同步清除旧子客户关联。
             update_data['sub_client_id'] = sub_client_id
 
-    if not update_data.get('sub_client_id') and (project_update.sub_client_short_name or '').strip():
+    if not update_data.get('sub_client_id') and (
+        (project_update.sub_client_short_name or '').strip() or (project_update.sub_client_name or '').strip()
+    ):
         update_data['sub_client_id'] = _resolve_or_create_project_sub_client(
             db,
             update_data.get('client_id', db_project.client_id),
