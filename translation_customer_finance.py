@@ -4,11 +4,12 @@ from datetime import datetime
 import re
 from hashlib import sha256
 import json
+from collections import Counter
 from uuid import UUID, uuid4
 from typing import Literal, Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, ConfigDict
-from sqlalchemy import func
+from sqlalchemy import func, inspect
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, joinedload, selectinload, object_session
 from database import get_db
@@ -32,7 +33,7 @@ from customer_statement_progress import Progress,ProgressWrite
 METRICS = {'characters_no_spaces','words','foreign_words','cjk_chars_korean_words','documents','pages'}
 
 
-from translation_document_requirements import QuotationDraft,DocumentNotes,order_pricing_modes,save_order_pricing_mode
+from translation_document_requirements import QuotationDraft,DocumentNotes,PaymentMethod,payment_method,order_pricing_modes,save_order_pricing_mode
 from translation_project_invoices import InvoiceWrite, InvoiceCustomerSentWrite
 
 class StatementSyncScope(BaseModel):
@@ -51,6 +52,7 @@ class PriceWrite(BaseModel):
     payment_confirmation: PaymentConfirmationWrite | None = None
     payment_draft: list[ProjectPayment] | None = Field(default=None,max_length=100)
     payment_version: str | None = None
+    payment_method: PaymentMethod | None = None
     billing_tax_mode: Literal['excl_tax','incl_tax'] | None = None
     quotation_required: bool | None = None
     statement_required: bool | None = None
@@ -102,6 +104,7 @@ def version(project):
     owners, numbers, parents = hierarchy(project)
     fields = []
     fields.append(getattr(project,'document_notes',{}))
+    fields.append(getattr(project, 'recorded_payment_method', None))
     fields.append(order_pricing_modes(object_session(project), project))
     fields.append([bool(getattr(project,'quotation_required',False)),bool(getattr(project,'statement_required',True)),getattr(project,'quotation_draft',None)])
     for owner in owners:
@@ -132,6 +135,30 @@ def effective_billing_month(project,owner=None):
     if row and row.billing_month:return row.billing_month
     row=primary(project)
     return row.billing_month if row else None
+
+
+def attach_monthly_payment_peers(db, projects):
+    scopes = {}
+    for project in projects:
+        project.has_monthly_payment_peers = False
+        client_id = statement_client_id(project)
+        month = effective_billing_month(project)
+        if client_id and month:
+            scopes.setdefault((client_id, month), []).append(project)
+    if not scopes:
+        return
+
+    customer = func.coalesce(TranslationProject.client_id, SubClient.parent_client_id)
+    query = db.query(customer, TranslationProject.order_no).outerjoin(
+        SubClient, SubClient.id == TranslationProject.sub_client_id,
+    ).filter(TranslationProject.annotation_migrated_at.is_(None), customer.in_({client for client, _ in scopes}))
+    candidates = crud._apply_translation_project_filters(query, field_filters={
+        'finance_billing_month': {'value': sorted({month for _, month in scopes})},
+    })
+    counts = Counter((client, order_billing_month(number)) for client, number in candidates)
+    for scope, orders in scopes.items():
+        for project in orders:
+            project.has_monthly_payment_peers = counts[scope] > 1
 
 
 def statement_client_id(project):
@@ -207,6 +234,8 @@ def tree(project, billing_month=None, *, summary_only=False, include_billing_tax
         effective_client_id=project.client_id or (project.sub_client.parent_client_id if project.sub_client else None)
         nodes[key]['client_id']=str(effective_client_id) if effective_client_id else None
         nodes[key]['client_manager']=getattr(project,'client_manager',None) or ''
+        nodes[key]['payment_method']=payment_method(project)
+        nodes[key]['has_monthly_payment_peers']=getattr(project, 'has_monthly_payment_peers', False)
         nodes[key]['statement_status']=getattr(owner,'statement_status',[])
         if owner is project:
             nodes[key]['customer_statements']=getattr(project,'customer_statements',[])
@@ -379,10 +408,87 @@ def read(db, project_id):
     # collection after the eager load causes a separate query per sub-order.
     project=crud.get_translation_project(db,project_id,refresh=True)
     if not project: raise HTTPException(404,'笔译项目不存在')
+    attach_monthly_payment_peers(db,[project])
     result=tree(project)
     from translation_payment_service import read as read_payments
     result['payment']=read_payments(db,project)
     result['reference_prices']=rates.library(db,project.client_id) if project.client_id else {'ready':rates.ready(db),'items':[],'version':''}
+    return result
+
+
+def payment_summary(db, project, method=None):
+    """汇总母订单金额，已生成对账单以实际入账的账单为准。"""
+    if method is None:
+        attach_monthly_payment_peers(db, [project])
+        method = payment_method(project)
+    client_id, month = statement_client_id(project), effective_billing_month(project)
+    result = dict(method=method, month=month, totals_excl_tax={}, totals_incl_tax={}, billing_totals={},
+                  internal_notes=[], customer_notes=[], pending=False, board_name=None)
+    if method == 'individual' or not client_id or not month:
+        return result
+
+    def add_totals(field, amounts):
+        totals = result[field]
+        for currency, amount in amounts.items():
+            totals[currency] = Decimal(totals.get(currency, 0)) + Decimal(amount)
+
+    def add_notes(node, customer=True):
+        for field, note in [('internal_notes', node.get('explanation')), ('customer_notes', node.get('customer_explanation') if customer else None)]:
+            if note:
+                result[field].append(f"{node['order_no']}  {note}")
+
+    if method == 'statement':
+        from customer_statement_workspace import StatementWorkspace, display_rows
+        from translation_statement_status import attach as attach_statement_status
+        attach_statement_status(db, [project])
+        boards = getattr(project, 'statement_status', [])
+        if len(boards) > 1:
+            result.update(pending=True, message='项目关联多张对账单，请先核对实际付款对应的对账单。')
+            return result
+        if boards:
+            link = boards[0]
+            workspace = db.get(StatementWorkspace, UUID(link['client_id']))
+            if workspace:
+                board = next((entry for entry in workspace.payload['boards'] if entry['id'] == link['board_id']), None)
+                if board:
+                    _, lines = display_rows(workspace.payload, board)
+                    result.update(board_name=board['name'], statement_projects=[])
+                    roots = {}
+                    for line in lines:
+                        roots.setdefault(line['root_id'], set()).add(line['billing_month'])
+                        if not line.get('counted_in_total', True):
+                            continue
+                        if line['subtotal'] is not None:
+                            label = line.get('unit_label')
+                            incl = label == '含税' if label in ('含税', '不含税') else board['tax_included']
+                            add_totals('totals_incl_tax' if incl else 'totals_excl_tax', {line['currency']: line['subtotal']})
+                            add_totals('billing_totals', {line['currency']: line['subtotal']})
+                        else:
+                            result['pending'] = True
+                        if line.get('remarks'):
+                            result['customer_notes'].append(f"{line['order_no']}  {line['remarks']}")
+                    for order in db.query(TranslationProject).filter(TranslationProject.id.in_([UUID(key) for key in roots])).order_by(TranslationProject.order_no):
+                        charge = primary(order)
+                        add_notes({'order_no': order.order_no, **finance_notes.values(db, order, order, charge)}, customer=False)
+                        result['statement_projects'].append(dict(id=str(order.id), order_no=order.order_no,
+                            project_name=order.project_name, billing_month='、'.join(sorted(roots[str(order.id)]))))
+                    return result
+
+    fields = {'finance_client_ids': {'value': [str(client_id)]}, 'finance_billing_month': {'value': month}}
+    projects = crud.get_translation_projects(db, limit=None, field_filters=fields)
+    load_charge_metadata(db, projects)
+    for peer in projects:
+        peer.has_monthly_payment_peers = len(projects) > 1
+        peer_method = method if peer.id == project.id else payment_method(peer)
+        if peer_method != method:
+            continue
+        node = tree(peer, include_version=False)['item']
+        for field in ('totals_excl_tax', 'totals_incl_tax', 'billing_totals'):
+            add_totals(field, node[field])
+        result['pending'] |= node['incomplete'] or not node['billing_totals']
+        add_notes(node)
+    if method == 'statement':
+        result['message'] = '对账单尚未生成，当前按本月需对账单的项目预估。'
     return result
 
 
@@ -586,7 +692,12 @@ def _write_finance(db, user, project_id, payload, *, allow_incomplete=False):
     from translation_document_requirements import save as save_documents
     if 'billing_tax_mode' in payload.model_fields_set:billing_tax.save(db,user,project,by_id[key],payload.billing_tax_mode)
     if payload.quotation_required is not None:project.quotation_required=payload.quotation_required
-    save_documents(db,project,statement_required=payload.statement_required,quotation_draft=payload.quotation_draft,document_notes=payload.document_notes,actor_id=user.id)
+    if payload.payment_method is not None:
+        required = payload.payment_method == 'statement'
+        if payload.statement_required is not None and payload.statement_required != required:
+            raise HTTPException(422, '付款方式与对账单需求不一致')
+        payload = payload.model_copy(update={'statement_required': required})
+    save_documents(db,project,statement_required=payload.statement_required,quotation_draft=payload.quotation_draft,document_notes=payload.document_notes,payment_method=payload.payment_method,actor_id=user.id)
     if payload.statement_required is not None:
         project.statement_required=payload.statement_required
         project.statement_required_explicit=True
@@ -811,7 +922,7 @@ def apply_order_page(node,selection):
 
 
 @router.get('/page',dependencies=[Depends(require_module_access('projects:read','projects:write'))])
-def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None=None,project_status:str|None=None,billing_month:str|None=Query(None,pattern=r'^\d{4}-(0[1-9]|1[0-2])$'),client:str|None=None,client_manager:str|None=None,client_id:UUID|None=None,db:Session=Depends(get_db),only_mine:bool=False,user=Depends(get_current_user),manager_ids:list[UUID]|None=Query(None,max_length=2000),statement_required:bool|None=None,sort:Literal['client_short_name_asc','client_short_name_desc']|None=None,missing_word_count:bool=False,missing_unit_price:bool=False,missing_total:Literal['excl','incl','both','either','fixed']|None=None,project_statuses:list[str]|None=Query(None,max_length=100),client_order_count:Literal['single','multiple']|None=None,group_clients:bool=True,selected_client_ids:list[UUID]|None=Query(None,alias='client_ids',max_length=100),payment_status:Literal['unpaid','deposit','mid','full','paid','full_mismatch']|None=None,include_payment_status:bool=False,exclude_full:bool=False,payment_project_id:UUID|None=None,include_invoice_status:bool=False,invoice_status:Literal['unissued','partial','issued','not_required']|None=None,invoice_required:Literal['yes','no','unknown']|None=None,statement_customers:Literal['include','exclude']|None=None,payment_amount_mismatch:bool=False,pricing_mode:Literal['metric','fixed','aggregate']|None=None,billing_months:list[Annotated[str,Field(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')]]|None=Query(None,max_length=1200),paginate_children:bool=False):
+def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None=None,project_status:str|None=None,billing_month:str|None=Query(None,pattern=r'^\d{4}-(0[1-9]|1[0-2])$'),client:str|None=None,client_manager:str|None=None,client_id:UUID|None=None,db:Session=Depends(get_db),only_mine:bool=False,user=Depends(get_current_user),manager_ids:list[UUID]|None=Query(None,max_length=2000),statement_required:bool|None=None,sort:Literal['client_short_name_asc','client_short_name_desc','client_manager_asc','client_manager_desc']|None=None,missing_word_count:bool=False,missing_unit_price:bool=False,missing_total:Literal['excl','incl','both','either','fixed']|None=None,project_statuses:list[str]|None=Query(None,max_length=100),client_order_count:Literal['single','multiple']|None=None,group_clients:bool=True,selected_client_ids:list[UUID]|None=Query(None,alias='client_ids',max_length=100),payment_status:Literal['unpaid','deposit','mid','full','paid','full_mismatch']|None=None,include_payment_status:bool=False,exclude_full:bool=False,payment_project_id:UUID|None=None,include_invoice_status:bool=False,invoice_status:Literal['unissued','partial','issued','not_required']|None=None,invoice_required:Literal['yes','no','unknown']|None=None,statement_customers:Literal['include','exclude']|None=None,payment_amount_mismatch:bool=False,pricing_mode:Literal['metric','fixed','aggregate']|None=None,billing_months:list[Annotated[str,Field(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')]]|None=Query(None,max_length=1200),paginate_children:bool=False):
     filter_amount_mismatch = payment_amount_mismatch or payment_status == 'full_mismatch'
     filter_invoice = invoice_status is not None or invoice_required is not None
 
@@ -855,6 +966,7 @@ def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None
     missing_filters=missing_word_count or missing_unit_price or missing_total is not None
     all_matches=paginate_children or missing_filters or client_order_count is not None or filter_amount_mismatch or pricing_mode is not None or filter_invoice
     projects=crud.get_translation_projects(db,skip=0 if all_matches else skip,limit=None if all_matches else limit,sort=sort,**filters)
+    attach_monthly_payment_peers(db,projects)
     load_charge_metadata(db,projects)
     from translation_statement_status import customer_boards
     client_ids={project.id:(project.client_id or (project.sub_client.parent_client_id if project.sub_client else None)) for project in projects}
@@ -895,7 +1007,7 @@ def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None
             groups={key:values for key,values in groups.items() if (len(values)==1 if client_order_count=='single' else len(values)>1)}
             filtered=[node for values in groups.values() for node in values]
             if client_order_count=='multiple' and group_clients and not paginate_children:
-                ordered=sorted(groups.items(),key=lambda pair:((pair[1][0].get('client_short_name') or '').casefold(),pair[0]))
+                ordered=list(groups.items()) if sort else sorted(groups.items(),key=lambda pair:((pair[1][0].get('client_short_name') or '').casefold(),pair[0]))
                 selected=ordered[skip:skip+limit]
                 return finish({'items':[node for _,values in selected for node in values],'total':len(ordered),'order_total':len(filtered),'pagination_unit':'clients','client_subtotals':subtotal_nodes(filtered),'client_groups':[{'key':key,'name':values[0].get('client_short_name') or '未关联客户','count':len(values)} for key,values in selected]})
             matched=filtered
@@ -996,7 +1108,9 @@ def update_statement_required(project_id:UUID,payload:StatementRequiredWrite,db:
             sync_statement_customer(db, project, payload.statement_customer_sync, payload.statement_required, user, locked_client)
         if changed or payload.statement_customer_sync:
             db.commit()
-        return {'id':str(project.id),'statement_required':payload.statement_required,'updated_at':business_datetime(project.updated_at).isoformat() if project.updated_at else None,'previous_updated_at':previous_updated_at,'affected_count':changed}
+        project.statement_required = payload.statement_required
+        attach_monthly_payment_peers(db, [project])
+        return {'id':str(project.id),'statement_required':payload.statement_required,'payment_method':payment_method(project),'updated_at':business_datetime(project.updated_at).isoformat() if project.updated_at else None,'previous_updated_at':previous_updated_at,'affected_count':changed}
     except Exception:
         db.rollback();raise
 
@@ -1036,6 +1150,14 @@ def statement_customers(keyword:str|None=None,required_only:bool=True,skip:int=Q
 @router.get('/project/{project_id}',dependencies=[Depends(require_module_access('projects:read','projects:write'))])
 def detail(project_id:UUID,db:Session=Depends(get_db)):
     return read(db,project_id)
+
+
+@router.get('/project/{project_id}/payment-summary', dependencies=[Depends(require_module_access('projects:read','projects:write'))])
+def read_payment_summary(project_id: UUID, method: PaymentMethod, db: Session = Depends(get_db)):
+    project = crud.get_translation_project(db, project_id)
+    if not project:
+        raise HTTPException(404, '笔译项目不存在')
+    return payment_summary(db, project, method)
 
 
 @router.get('/project/{project_id}/history',dependencies=[Depends(require_module_access('projects:read','projects:write'))])

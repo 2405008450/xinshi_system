@@ -1,5 +1,22 @@
 const path=require('node:path'),fs=require('node:fs/promises'),{randomUUID}=require('node:crypto')
 const MAX_BYTES=20*1024*1024
+const MAX_INVOICE_BYTES = 10 * 1024 * 1024
+const invoiceSignatures = {
+ pdf: bytes => bytes.subarray(0, 5).toString() === '%PDF-',
+ ofd: bytes => bytes.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 3, 4])),
+ png: bytes => bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])),
+ jpg: bytes => bytes.subarray(0, 3).equals(Buffer.from([255, 216, 255])),
+}
+function invoiceFile(data) {
+ const {name, extension, base64} = data || {}
+ if (!Object.hasOwn(invoiceSignatures, extension) || typeof base64 !== 'string' ||
+     base64.length > Math.ceil(MAX_INVOICE_BYTES / 3) * 4 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) {
+  throw Error('发票附件格式或大小无效')
+ }
+ const bytes = Buffer.from(base64, 'base64')
+ if (bytes.length > MAX_INVOICE_BYTES || !invoiceSignatures[extension](bytes)) throw Error('发票附件格式或大小无效')
+ return {name: filename(name || '发票', '.' + extension), bytes}
+}
 function filename(value,extension){const name=String(value||'客户对账单').replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').replace(/[. ]+$/,'').slice(0,120).replace(/\.(xlsx|pdf)$/i,'');return (name||'客户对账单')+extension}
 function decodeFile(data){
  if(!data||typeof data.base64!=='string'||data.base64.length>MAX_BYTES*1.4||!/^[A-Za-z0-9+/]*={0,2}$/.test(data.base64))throw Error('对账单文件格式或大小不正确')
@@ -16,6 +33,11 @@ function registerStatementDrag({app,ipcMain,BrowserWindow},getWindow,trusted){
   await fs.writeFile(file,bytes);const icon=await app.getFileIcon(file);const token=randomUUID();files.set(token,{file,icon});return {token,name}
  }
  ipcMain.handle('xinshi:prepare-statement-file',async(event,data)=>{authorize(event);return store(filename(data?.name,data?.format==='pdf'?'.pdf':'.xlsx'),decodeFile(data))})
+ ipcMain.handle('xinshi:prepare-invoice-file', async (event, data) => {
+  authorize(event)
+  const {name, bytes} = invoiceFile(data)
+  return store(name, bytes)
+ })
  ipcMain.handle('xinshi:prepare-statement-pdf',async(event,data)=>{
   authorize(event);if(typeof data?.html!=='string'||data.html.length>4*1024*1024)throw Error('对账单打印内容无效或过长')
   const preview=new BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,javascript:false,webSecurity:true}})

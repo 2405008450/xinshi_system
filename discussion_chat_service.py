@@ -113,10 +113,17 @@ def catalog(db, user):
     from discussion_mentions import ready as mentions_ready
     from discussion_chat_models import DiscussionMention
     mentioned = {}
+    broadcast_unread = {}
+    latest_mentions = {}
     if mentions_ready(db):
-        for mid,room_id in db.query(DiscussionMention.message_id,Message.room_id).join(Message,Message.id==DiscussionMention.message_id).filter(DiscussionMention.user_id==user.id,Message.room_id.in_([UUID(room['id']) for room in rooms]),Message.recalled_at.is_(None)):
-            member=members.get(str(room_id))
-            if mid>(member.last_read_id if member else 0):mentioned.setdefault(str(room_id),[]).append(str(mid))
+        for mid,room_id,is_all in db.query(DiscussionMention.message_id,Message.room_id,DiscussionMention.is_all).join(Message,Message.id==DiscussionMention.message_id).filter(DiscussionMention.user_id==user.id,Message.room_id.in_([UUID(room['id']) for room in rooms]),Message.recalled_at.is_(None)):
+            room_key = str(room_id)
+            if latest.get(room_key) and latest[room_key].id == mid:
+                latest_mentions[room_key] = bool(is_all)
+            if mid > members[room_key].last_read_id:
+                mentioned.setdefault(room_key, []).append(str(mid))
+                if is_all:
+                    broadcast_unread[room_key] = broadcast_unread.get(room_key, 0) + 1
     rows = []
     for room in rooms:
         mid = room['id']; member = members.get(mid); last = latest.get(mid)
@@ -125,9 +132,9 @@ def catalog(db, user):
             technical_project_id=room.get('technical_project_id'),technical_order_no=room.get('technical_order_no'),
             subtitle='资源开拓讨论' if room.get('parent_key', RESOURCE_ROOT) == RESOURCE_ROOT else '群聊',
             category_ids=[mid], storage_ready=ready, pinned=bool(member and member.pinned),
-            starred=bool(member and member.starred), unread=unread.get(mid, 0), mention_unread=len(mentioned.get(mid,[])),mention_message_ids=mentioned.get(mid,[]),
+            starred=bool(member and member.starred), unread=unread.get(mid, 0), mention_unread=len(mentioned.get(mid,[])),mention_message_ids=mentioned.get(mid,[]), mention_all_unread=broadcast_unread.get(mid, 0),
             last_message=dict(id=str(last.id), sender_name=last.sender_name, preview='消息已撤回' if last.recalled_at else last.content[:140],
-                              created_at=business_iso(last.created_at),mentions_me=bool(last and str(last.id) in mentioned.get(mid,[]))) if last else None))
+                              created_at=business_iso(last.created_at),mentions_me=mid in latest_mentions, mention_all=latest_mentions.get(mid, False)) if last else None))
     return rows
 
 

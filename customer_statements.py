@@ -235,6 +235,9 @@ def money(value):
 
 
 def tax_label(data):
+    if data.get('module') == 'interpretation':
+        labels = {row['unit_label'] for row in data['rows'] if row.get('unit_label')}
+        return next(iter(labels)) if len(labels) == 1 else '税口径按项目' if labels else ''
     labels={row.get('unit_label') for row in data.get('rows',[]) if row.get('unit_label') in ('含税','不含税')}
     return '含税／不含税（按项目）' if len(labels)>1 else '含税' if data.get('tax_included') else '不含税'
 
@@ -455,6 +458,8 @@ def write_excel_sheet(sheet,data):
     sheet.merge_cells(start_row=3,start_column=1,end_row=3,end_column=4+offset);sheet['A3']=_safe_text(f"客户：{data['client_name']}")
     sheet.merge_cells(start_row=3,start_column=5+offset,end_row=3,end_column=column_count);sheet.cell(3,5+offset,_safe_text(f"账单月份：{data['month']}　{tax_label(data)}"))
     headings = ['来稿日期','项目名称','翻译方向','工作量（计价方式）']
+    if data.get('module') == 'interpretation':
+        headings[:3] = ['订单日期', '项目名称', '口译方向']
     headings.extend(['单价','小计'] if show_unit else ['固定价格'])
     sheet.append([]);sheet.append((['原客户'] if has_origin else [])+(['客户单号'] if has_customer_order else [])+headings+['备注'])
     for row in data['rows']:

@@ -13,6 +13,14 @@ test('原生文件拖出只接受生成的文件令牌，不接受任意路径',
   listeners['xinshi:drag-statement-file'](event,file.token);assert.equal(dragged.length,1);assert.ok(dragged[0].file.startsWith(temp+path.sep));assert.equal((await fs.readFile(dragged[0].file)).toString(),'PK\x03\x04test-fixture')
   listeners['xinshi:drag-statement-file'](event,'C:\\Windows\\secret');assert.equal(dragged.length,1)
   await assert.rejects(handlers['xinshi:prepare-statement-file']({...event,senderFrame:{url:frame.url}},data),/系统桌面窗口/)
+  const invoice = await handlers['xinshi:prepare-invoice-file'](event, {
+    name:'TP-123-发票-1',extension:'ofd',base64:data.base64,
+  })
+  assert.equal(invoice.name,'TP-123-发票-1.ofd')
+  listeners['xinshi:drag-statement-file'](event,invoice.token)
+  assert.deepEqual(await fs.readFile(dragged.at(-1).file),Buffer.from(data.base64,'base64'))
+  await assert.rejects(handlers['xinshi:prepare-invoice-file'](event,{...data,extension:'exe'}),/格式/)
+  await assert.rejects(handlers['xinshi:prepare-invoice-file'](event,{...data,extension:'pdf'}),/格式/)
   assert.throws(()=>decodeFile({base64:Buffer.from('arbitrary').toString('base64')}),/Excel/)
   assert.equal(filename('../test.pdf','.pdf'),'.._test.pdf')
  }finally{if(path.resolve(temp).startsWith(path.resolve(os.tmpdir())+path.sep)&&path.basename(temp).startsWith('xinshi-drag-test-'))await fs.rm(temp,{recursive:true,force:true})}

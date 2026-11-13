@@ -46,13 +46,16 @@
           <el-button type="primary" :disabled="searching || !selectedProjects.length" @click="requestVisible = true">开票需求</el-button>
           <span v-if="selectedProjects.length">已选 {{ selectedProjects.length }} 个项目</span>
         </div>
-        <el-table ref="projectTable" v-loading="searching" :data="options" border row-key="id" max-height="460" empty-text="暂无匹配项目" @selection-change="selectedProjects = $event">
+        <el-table ref="projectTable" v-loading="searching" :data="options" border row-key="id" max-height="460" empty-text="暂无匹配项目" @selection-change="selectedProjects = $event" @sort-change="sortProjects">
           <el-table-column v-if="activeTab==='invoice' && canWrite" type="selection" width="46" reserve-selection :selectable="canSelectInvoice" />
           <el-table-column prop="orderNo" label="订单号" min-width="160">
             <template #default="{row}"><TranslationOrderDetailPopover :order="row" /></template>
           </el-table-column>
           <el-table-column prop="projectName" label="项目名称" min-width="200" show-overflow-tooltip />
-          <el-table-column prop="clientShortName" label="客户简称" min-width="140" />
+          <el-table-column prop="clientShortName" label="客户简称" min-width="140" sortable="custom" />
+          <el-table-column prop="clientManager" label="客户经理" min-width="120" sortable="custom" show-overflow-tooltip>
+            <template #default="{row}">{{ row.clientManager || '未分配' }}</template>
+          </el-table-column>
           <el-table-column v-if="activeTab==='invoice'" label="是否需发票" width="120">
             <template #default="{row}">
               <el-button v-if="canReviewInvoice" link type="primary" title="在价格与付款中查看发票及价格" @click="emit('review-invoice', row)">{{invoiceRequirementLabel(row)}}</el-button>
@@ -110,7 +113,7 @@
 import {computed,defineAsyncComponent,onBeforeUnmount,reactive,ref,watch} from 'vue'
 import {ElMessage,ElMessageBox} from 'element-plus'
 import api from '@/api'
-import {getCustomerFinancePage,getStatementCustomers} from '@/api/translationCustomerFinance'
+import {customerFinanceSort,getCustomerFinancePage,getStatementCustomers} from '@/api/translationCustomerFinance'
 import {invoiceStatusOptions as recordedInvoiceStatusOptions,invoiceStatusLabels} from '@/utils/documentRequirements'
 import {hasPermission} from '@/utils/permission'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
@@ -128,6 +131,7 @@ const canWrite=hasPermission('projects:write')||hasPermission('finance:write')
 const body=ref(),options=ref([]),loading=ref(false),searching=ref(false),error=ref('')
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(body)
 const activeTab=ref('invoice'),projectPage=ref(1),showFilters=computed(()=>!props.lockProject)
+const projectSort=ref()
 const InvoiceRequestDialog = defineAsyncComponent(() => import('./InvoiceRequestDialog.vue'))
 const projectTable = ref()
 const selectedProjects = ref([])
@@ -224,14 +228,14 @@ function cacheManagers(people){managerNames.value={...managerNames.value,...Obje
 function openManagerPicker(){managerDraftScope.value=managerScope.value;managerDraftIds.value=[...managerIds.value];managerPickerVisible.value=true}
 async function applyManager(){managerScope.value=managerDraftScope.value==='name'&&!managerDraftIds.value.length?'all':managerDraftScope.value;managerIds.value=managerScope.value==='name'?[...managerDraftIds.value]:[];managerPickerVisible.value=false;await applyPaymentFilters()}
 function initPaymentFilters(){clearInvoiceCustomerFilters();Object.assign(paymentFilters,{months:[...new Set([props.query.billing_months,props.query.billing_month].flat().filter(Boolean))],client:'',status:'',invoiceStatus:'',invoiceRequired:''});projectKeyword.value='';managerIds.value=[...(props.query.manager_ids||[])];managerScope.value=props.lockProject?'all':managerIds.value.length?'name':props.query.only_mine?'self':'all'}
-function paymentQuery(keyword){return {keyword:keyword?.trim()||undefined,billing_months:mismatchView.value?undefined:paymentFilters.months?.length?paymentFilters.months:undefined,client:mismatchView.value?undefined:paymentFilters.client.trim()||undefined,payment_status:mismatchView.value||activeTab.value==='invoice'?undefined:paymentFilters.status||undefined,manager_ids:managerScope.value==='name'?managerIds.value:undefined,only_mine:managerScope.value==='self',include_payment_status:true,include_invoice_status:activeTab.value==='invoice',invoice_status:activeTab.value==='invoice'?paymentFilters.invoiceStatus||undefined:undefined,invoice_required:activeTab.value==='invoice'?paymentFilters.invoiceRequired||undefined:undefined,client_ids:activeTab.value==='invoice'&&invoiceClientIds.value.length?invoiceClientIds.value:undefined,statement_customers:activeTab.value==='invoice'?statementCustomerMode.value||undefined:undefined,payment_amount_mismatch:mismatchView.value,exclude_full:collectionDefaultView.value,payment_project_id:props.lockProject?props.initialProjectId||undefined:undefined,skip:(projectPage.value-1)*20,limit:20}}
+function paymentQuery(keyword){return {sort:projectSort.value,keyword:keyword?.trim()||undefined,billing_months:mismatchView.value?undefined:paymentFilters.months?.length?paymentFilters.months:undefined,client:mismatchView.value?undefined:paymentFilters.client.trim()||undefined,payment_status:mismatchView.value||activeTab.value==='invoice'?undefined:paymentFilters.status||undefined,manager_ids:managerScope.value==='name'?managerIds.value:undefined,only_mine:managerScope.value==='self',include_payment_status:true,include_invoice_status:activeTab.value==='invoice',invoice_status:activeTab.value==='invoice'?paymentFilters.invoiceStatus||undefined:undefined,invoice_required:activeTab.value==='invoice'?paymentFilters.invoiceRequired||undefined:undefined,client_ids:activeTab.value==='invoice'&&invoiceClientIds.value.length?invoiceClientIds.value:undefined,statement_customers:activeTab.value==='invoice'?statementCustomerMode.value||undefined:undefined,payment_amount_mismatch:mismatchView.value,exclude_full:collectionDefaultView.value,payment_project_id:props.lockProject?props.initialProjectId||undefined:undefined,skip:(projectPage.value-1)*20,limit:20}}
 function queueClientSearch(value){clearTimeout(filterTimer);controller?.abort();searchSequence++;if(!value.trim())void applyPaymentFilters();else filterTimer=setTimeout(applyPaymentFilters,400)}
 function queueProjectSearch(keyword=''){projectPage.value=1;projectKeyword.value=keyword;clearTimeout(projectTimer);controller?.abort();searchSequence++;if(!keyword.trim())void searchProjects('');else projectTimer=setTimeout(()=>searchProjects(keyword),400)}
 async function applyPaymentFilters(){clearTimeout(filterTimer);clearTimeout(projectTimer);projectPage.value=1;projectKeyword.value='';await searchProjects('')}
 async function resetPaymentFilters(){clearInvoiceCustomerFilters();Object.assign(paymentFilters,{months:[],client:'',status:'',invoiceStatus:'',invoiceRequired:''});managerIds.value=[];managerScope.value=props.query.only_mine?'self':'all';await applyPaymentFilters()}
 async function searchProjects(keyword=''){clearTimeout(projectTimer);const seq=++searchSequence;controller?.abort();controller=new AbortController();searching.value=true;error.value='';
   const query = paymentQuery(keyword)
-  const scope = JSON.stringify({...query, skip:undefined})
+  const scope = JSON.stringify({...query, skip:undefined, sort:undefined})
   if (scope !== previousSelectionScope) {
     projectTable.value?.clearSelection()
     selectedProjects.value = []
@@ -245,12 +249,17 @@ async function searchProjects(keyword=''){clearTimeout(projectTimer);const seq=+
     }))
     projectTotal.value=data.total||0}}catch(e){if(seq===searchSequence&&e.code!=='ERR_CANCELED'){options.value=[];projectTotal.value=0;error.value=getLocalizedErrorMessage(e,'项目搜索失败')}}finally{if(seq===searchSequence)searching.value=false}}
 async function onPaymentTabChanged(){projectPage.value=1;await searchProjects(projectKeyword.value)}
+function sortProjects(change){
+  projectSort.value=customerFinanceSort(change)
+  projectPage.value=1
+  void searchProjects(projectKeyword.value)
+}
 function openPaymentRow(row){emit('edit',row);emit('update:modelValue',false)}
 function reloadPayment(){void searchProjects(projectKeyword.value)}
 function beforeClose(done){done()}
 function onExternalPayment(event){if(props.modelValue&&event.detail?.projectId)void searchProjects(projectKeyword.value)}
 connectPaymentSync();window.addEventListener(paymentChangeEvent,onExternalPayment);window.addEventListener('translation-invoice-changed',onExternalPayment)
-watch(()=>props.modelValue,visible=>{searchSequence++;controller?.abort();clearTimeout(filterTimer);clearTimeout(projectTimer);clearFieldSearch();error.value='';if(!visible){managerPickerVisible.value=false;return}activeTab.value='invoice';projectPage.value=1;initPaymentFilters();options.value=[];void searchProjects()})
+watch(()=>props.modelValue,visible=>{searchSequence++;controller?.abort();clearTimeout(filterTimer);clearTimeout(projectTimer);clearFieldSearch();error.value='';if(!visible){managerPickerVisible.value=false;return}activeTab.value='invoice';projectPage.value=1;projectSort.value=undefined;initPaymentFilters();options.value=[];void searchProjects()})
 onBeforeUnmount(()=>{invoiceCustomerSearch?.abort();clearTimeout(filterTimer);clearTimeout(projectTimer);window.removeEventListener(paymentChangeEvent,onExternalPayment);window.removeEventListener('translation-invoice-changed',onExternalPayment);searchSequence++;controller?.abort()})
 </script>
 <style scoped>

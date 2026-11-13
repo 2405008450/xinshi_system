@@ -108,7 +108,7 @@ def outline(node):
     return {**{key:node.get(key) for key in ('id','order_no','project_name','language_pair','pricing_mode','explanation')},'children':[outline(child) for child in node['children']]}
 
 
-def display_data(payload,board,mode='children',issue_date=''):
+def display_rows(payload,board,mode='children'):
     tasks=[task for task in payload['tasks'].values() if task['board_id']==board['id']]
     ledger=[]
     for task in tasks:
@@ -130,6 +130,11 @@ def display_data(payload,board,mode='children',issue_date=''):
                       'task_ids':list(dict.fromkeys(item['task_id'] for item in rows if item['order_no']==line['order_no'] or item['order_no'].startswith(line['order_no']+'.')))}
                 line['billing_month']='、'.join(sorted({item['billing_month'] for item in rows if item['task_id'] in line['task_ids']}))
             rendered.append({**line,**board.get('overrides',{}).get(line['_row_id'],{})})
+    return tasks,rendered
+
+
+def display_data(payload,board,mode='children',issue_date=''):
+    tasks,rendered=display_rows(payload,board,mode)
     totals={};pending=[]
     for line in rendered:
         if line.get('counted_in_total',True):

@@ -1,11 +1,11 @@
 """口译客户财务：组合单价、客户参考价、金额计算及不可覆盖的调整记录。"""
 from decimal import Decimal, ROUND_HALF_UP
-from tax_prices import TaxPrices, reference_tax_prices
+from tax_prices import reference_tax_prices
+from interpretation_finance_schemas import FinanceWrite, InterpretationQuotationWrite, InterpretationSettlement
 from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint, CheckConstraint, inspect, or_, and_, func
 from sqlalchemy.exc import IntegrityError
 from models import Base, Client
@@ -40,76 +40,22 @@ class InterpretationCustomerFinanceHistory(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=business_now)
 
 
-class StrictInput(BaseModel):
-    model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
-
-
-class Rate(StrictInput):
-    tax_prices: TaxPrices | None = None
-    direction: str = Field(min_length=1, max_length=500)
-    amount: Decimal = Field(ge=0, max_digits=18, decimal_places=6)
-    currency: str = Field(default='CNY', pattern='^[A-Z]{3}$')
-    unit: Literal['月', '周', '天', '半天', '小时'] = '天'
-    quantity: Decimal = Field(default=1, ge=0, max_digits=10, decimal_places=4)
-    hours: Decimal | None = Field(default=None, gt=0, le=744, max_digits=8, decimal_places=4)
-    includes_lunch: bool = False
-
-    @model_validator(mode='after')
-    def defaults(self):
-        self.direction = self.direction.strip()
-        if not self.direction:
-            raise ValueError('请填写口译方向')
-        if self.unit in ('天', '半天'):
-            self.hours = self.hours or Decimal(8 if self.unit == '天' else 3)
-        else:
-            self.hours = None
-        if self.unit != '天':
-            self.includes_lunch = False
-        return self
-
-
-class Money(StrictInput):
-    amount: Decimal = Field(ge=0, max_digits=16, decimal_places=2)
-    currency: str = Field(default='CNY', pattern='^[A-Z]{3}$')
-    tax_prices: TaxPrices | None = None
-
-
-class FinanceWrite(StrictInput):
-    revision: int = Field(ge=0)
-    rates: list[Rate] = Field(default_factory=list, max_length=100)
-    has_overtime: bool = False
-    overtime: Money | None = None
-    adjusted_totals: list[Money] = Field(default_factory=list, max_length=20)
-    explanation: str = Field(default='', max_length=5000)
-    update_library: bool = False
-    library_revision: int | None = Field(default=None, ge=0)
-    sync_confirmed: bool = False
-
-    @model_validator(mode='after')
-    def validate_totals(self):
-        if self.has_overtime and self.overtime is None:
-            raise ValueError('有加班费时请填写总加班费')
-        if not self.has_overtime:
-            self.overtime = None
-        currencies = [row.currency for row in self.adjusted_totals]
-        if len(set(currencies)) != len(currencies):
-            raise ValueError('每种货币只能填写一个调整后总价')
-        return self
-
-
 def calculate(payload):
     totals = {}
     tax_totals = {'excl_tax': {}, 'incl_tax': {}}
+    def cents(value):
+        return Decimal(str(value)).quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
+
     for row in payload.get('rates', []):
         currency = row['currency']
-        totals[currency] = totals.get(currency, Decimal(0)) + Decimal(row['amount']) * Decimal(str(row['quantity']))
+        totals[currency] = totals.get(currency, Decimal(0)) + cents(Decimal(row['amount']) * Decimal(str(row['quantity'])))
         prices = row.get('tax_prices') or {}
         for kind, values in tax_totals.items():
             value = prices.get('total_' + kind)
             if value is None and prices.get('unit_price_' + kind) is not None:
                 value = Decimal(str(prices['unit_price_' + kind])) * Decimal(str(row['quantity']))
             if value is not None:
-                values[currency] = values.get(currency, Decimal(0)) + Decimal(str(value))
+                values[currency] = values.get(currency, Decimal(0)) + cents(value)
     if payload.get('has_overtime') and payload.get('overtime'):
         row = payload['overtime']
         totals[row['currency']] = totals.get(row['currency'], Decimal(0)) + Decimal(row['amount'])
@@ -126,6 +72,27 @@ def calculate(payload):
     return dict(totals=totals, adjusted_totals=adjusted,
                 totals_excl_tax={key: str(value.quantize(Decimal('.01'), rounding=ROUND_HALF_UP)) for key, value in tax_totals['excl_tax'].items()},
                 totals_incl_tax={key: str(value.quantize(Decimal('.01'), rounding=ROUND_HALF_UP)) for key, value in tax_totals['incl_tax'].items()})
+
+
+def settlement(payload):
+    return InterpretationSettlement.model_validate(payload.get('settlement') or {})
+
+
+def billing_totals(payload, amounts):
+    return amounts['adjusted_totals' if settlement(payload).tax_basis == 'legacy'
+                   else 'totals_' + settlement(payload).tax_basis]
+
+
+def incomplete_tax_basis(payload, basis):
+    adjustments = {row['currency'] for row in payload.get('adjusted_totals', [])
+                   if (row.get('tax_prices') or {}).get('total_' + basis) is not None}
+    for row in payload.get('rates', []):
+        prices = row.get('tax_prices') or {}
+        if row['currency'] not in adjustments and all(prices.get(field + basis) is None for field in ('total_', 'unit_price_')):
+            return True
+    overtime = payload.get('overtime') if payload.get('has_overtime') else None
+    return bool(overtime and overtime['currency'] not in adjustments and
+                (overtime.get('tax_prices') or {}).get('total_' + basis) is None)
 
 
 def ready(db):
@@ -150,31 +117,63 @@ def record(db, scope, target):
     return db.query(InterpretationCustomerFinance).filter_by(**{scope + '_id': target}).populate_existing().first()
 
 
-def context(db, scope, target):
-    entity = owner(db, scope, target)
-    available = ready(db)
-    row = record(db, scope, target) if available else None
+def finance_context(scope, entity, available, row, reference=None, *, include_quotation=False):
     from copy import deepcopy
-    payload = deepcopy(row.payload) if row else FinanceWrite(revision=0).model_dump(mode='json', exclude={'revision','update_library','library_revision','sync_confirmed'})
+    payload = FinanceWrite(revision=0).model_dump(mode='json', exclude={'revision','update_library','library_revision','sync_confirmed'})
+    if row:
+        payload.update(deepcopy(row.payload))
+    quotation = payload.pop('quotation', None)
     result = dict(ready=available, revision=row.revision if row else 0, payload=payload, **calculate(payload))
     if scope == 'project':
         result.update(id=str(entity.id), order_no=entity.order_no, project_name=entity.project_name,
                       client_short_name=entity.client_short_name or entity.client_full_name,
                       project_status=entity.project_status,
                       directions=[{'id': str(item.id), 'label': ' ↔ '.join(item.language_labels)} for item in entity.language_directions])
+        if include_quotation and quotation is not None:
+            result['quotation'] = quotation
         if entity.client_id and available:
-            reference = record(db, 'client', entity.client_id)
             result['reference_rates'] = reference.payload.get('rates', []) if reference else []
             result['client_id'] = str(entity.client_id)
             result['library_revision'] = reference.revision if reference else 0
-            if not payload['rates']:
+            if not row or 'rates' not in row.payload:
                 from customer_finance_sync import oral_defaults
                 payload['rates'] = oral_defaults(entity,result['reference_rates'])
                 result.update(calculate(payload))
+        result['billing_totals'] = billing_totals(payload, result)
     return result
 
 
-def save(db, user, scope, target, data):
+def context(db, scope, target):
+    entity = owner(db, scope, target)
+    available = ready(db)
+    row = record(db, scope, target) if available else None
+    reference = record(db, 'client', entity.client_id) if available and scope == 'project' and entity.client_id else None
+    return finance_context(scope, entity, available, row, reference, include_quotation=True)
+
+
+def project_directions(query):
+    from sqlalchemy.orm import selectinload
+    from interpretation_models import InterpretationProjectLanguageDirection as Direction, InterpretationProjectDirectionExtraLanguage as Extra
+
+    relation = selectinload(InterpretationProject.language_directions)
+    return query.options(relation.joinedload(Direction.source_language), relation.joinedload(Direction.target_language),
+                         relation.joinedload(Direction.extra_languages).joinedload(Extra.language))
+
+
+def finance_records(db, projects, available, include_references=False):
+    if not available or not projects:
+        return {}, {}
+    project_ids = [project.id for project in projects]
+    client_ids = {project.client_id for project in projects if project.client_id} if include_references else set()
+    rows = db.query(InterpretationCustomerFinance).filter(or_(
+        InterpretationCustomerFinance.project_id.in_(project_ids),
+        InterpretationCustomerFinance.client_id.in_(client_ids),
+    )).all()
+    return ({row.project_id: row for row in rows if row.project_id},
+            {row.client_id: row for row in rows if row.client_id})
+
+
+def save(db, user, scope, target, data, *, commit=True):
     permission(db, user, scope, True)
     entity = owner(db, scope, target)
     if not ready(db):
@@ -188,16 +187,25 @@ def save(db, user, scope, target, data):
         directions = {' ↔ '.join(item.language_labels) for item in entity.language_directions}
         if any(rate.direction not in directions for rate in data.rates):
             raise HTTPException(422, '口译方向已变更，请重新打开财务表单')
-    payload = data.model_dump(mode='json', exclude={'revision','update_library','library_revision','sync_confirmed'})
+    payload = data.model_dump(mode='json', exclude={'revision','update_library','library_revision','sync_confirmed','quotation_draft','library_client_id'})
+    row = record(db, scope, target)
+    before = row.payload if row else {}
+    if scope == 'project':
+        if data.settlement is None and 'settlement' in before:
+            payload['settlement'] = before['settlement']
+        if 'quotation' in before:
+            payload['quotation'] = before['quotation']
+        quotation = getattr(data, 'quotation_draft', None)
+        if quotation is not None:
+            payload['quotation'] = quotation.model_dump(mode='json')
     if scope == 'client':
+        payload.pop('settlement', None)
         for rate in payload['rates']:
             rate['quantity'] = '1'
             rate['tax_prices'] = reference_tax_prices(rate.get('tax_prices'))
         from customer_finance_sync import oral_key
         keys=[oral_key(item) for item in payload['rates']]
         if len(keys)!=len(set(keys)):raise HTTPException(422,'同方向、货币、单位及时长的客户参考价不能重复')
-    row = record(db, scope, target)
-    before = row.payload if row else {}
     if row:
         count = db.query(InterpretationCustomerFinance).filter_by(id=row.id, revision=data.revision).update(
             {'revision': data.revision + 1, 'payload': payload}, synchronize_session=False)
@@ -224,6 +232,9 @@ def save(db, user, scope, target, data):
         permission(db,user,'client',True)
         if not data.sync_confirmed:raise HTTPException(422,'请点击并确认同步客户参考价')
         if not client_id:raise HTTPException(422,'请先为项目选择客户')
+        if hasattr(data, 'library_client_id') and data.library_client_id != client_id:
+            raise HTTPException(409, '项目客户已变更，请重新确认同步客户单价')
+        if not payload['rates']:raise HTTPException(422,'请先登记需要同步的口译单价')
         reference = record(db,'client',client_id)
         if data.library_revision != (reference.revision if reference else 0):raise HTTPException(409,'客户参考价已更新，请重新打开后确认')
         keys=[oral_key(item) for item in payload['rates']]
@@ -231,14 +242,16 @@ def save(db, user, scope, target, data):
         from copy import deepcopy
         old=deepcopy(reference.payload) if reference else FinanceWrite(revision=0).model_dump(mode='json',exclude={'revision','update_library','library_revision','sync_confirmed'})
         merged={oral_key(item):item for item in old['rates']}
-        for item in payload['rates']:merged[oral_key(item)]={**item,'quantity':'1'}
+        for item in payload['rates']:
+            merged[oral_key(item)]={**item,'quantity':'1','tax_prices':reference_tax_prices(item.get('tax_prices'))}
         if len(merged)>100:raise HTTPException(422,'客户参考价不能超过100条')
         updated={**old,'rates':list(merged.values())}
         store_oral(db,user,'client',client_id,updated,reference)
         auto_oral(db,user,client_id,old['rates'],updated['rates'])
-    db.commit()
-    db.expire_all()
-    return context(db, scope, target)
+    if commit:
+        db.commit()
+        db.expire_all()
+        return context(db, scope, target)
 
 
 router = APIRouter(prefix='/interpretation-customer-finance', tags=['interpretation-customer-finance'])
@@ -260,8 +273,11 @@ def page(keyword: str = '', client_id: UUID | None = None, only_mine: bool = Tru
     elif client_manager.strip():
         query = query.filter(keyword_contains(manager_name_expression('interpretation', InterpretationProject.id, fallback), client_manager.strip()))
     query = query.filter(keyword_any([InterpretationProject.order_no, InterpretationProject.project_name, Client.client_name, Client.client_short_name, SubClient.client_name, SubClient.client_short_name], keyword))
-    projects = query.order_by(InterpretationProject.created_at.desc(), InterpretationProject.id).all()
-    items = [context(db, 'project', item.id) for item in projects]
+    projects = project_directions(query).order_by(InterpretationProject.created_at.desc(), InterpretationProject.id).all()
+    available = ready(db)
+    records, references = finance_records(db, projects, available, include_references=True)
+    items = [finance_context('project', item, available, records.get(item.id), references.get(item.client_id))
+             for item in projects]
     totals, adjusted, excl, incl = {}, {}, {}, {}
     for item in items:
         for field, acc in [('totals', totals), ('adjusted_totals', adjusted),('totals_excl_tax',excl),('totals_incl_tax',incl)]:
@@ -300,3 +316,76 @@ def put_context(scope: Literal['project', 'client'], target: UUID, data: Finance
     except Exception:
         db.rollback()
         raise
+
+
+def quotation_context(project, row, payload=None):
+    from interpretation_finance_schemas import InterpretationQuotation
+    saved = (row.payload if row else {}).get('quotation')
+    if saved is None:
+        payload = payload or {}
+        basis = settlement(payload).tax_basis
+        items = []
+        for rate in payload.get('rates', []):
+            price = rate['amount'] if basis == 'legacy' else (rate.get('tax_prices') or {}).get('unit_price_' + basis)
+            items.append(dict(description=project.project_name or '口译服务', language_pair=rate['direction'],
+                              quantity=rate['quantity'], unit=rate['unit'], unit_price=price, currency=rate['currency']))
+        overtime = payload.get('overtime') if payload.get('has_overtime') else None
+        if overtime:
+            price = overtime['amount'] if basis == 'legacy' else (overtime.get('tax_prices') or {}).get('total_' + basis)
+            items.append(dict(description='加班费', quantity=1, unit='项', unit_price=price, currency=overtime['currency']))
+        saved = dict(client_name=project.client_full_name or project.client_short_name or '',
+                     items=items[:100] or [dict(description=project.project_name or '口译服务')],
+                     notes=settlement(payload).customer_explanation)
+    document = InterpretationQuotation.model_validate(saved)
+    return dict(order_no=project.order_no, revision=row.revision if row else 0, document=document.model_dump(mode='json'))
+
+
+@router.get('/quotation/project/{target}')
+def get_quotation(target: UUID, db=Depends(get_db), user=Depends(get_current_user)):
+    permission(db, user, 'project')
+    project = owner(db, 'project', target)
+    if not ready(db):
+        raise HTTPException(503, '口译财务存储尚未初始化')
+    return quotation_context(project, record(db, 'project', target), context(db, 'project', target)['payload'])
+
+
+@router.put('/quotation/project/{target}')
+def put_quotation(target: UUID, data: InterpretationQuotationWrite, db=Depends(get_db), user=Depends(get_current_user)):
+    permission(db, user, 'project', True)
+    if not ready(db):
+        raise HTTPException(503, '口译财务存储尚未初始化')
+    project = db.query(InterpretationProject).filter_by(id=target).with_for_update().first()
+    if project is None:
+        raise HTTPException(404, '口译项目不存在')
+    row = record(db, 'project', target)
+    if data.revision != (row.revision if row else 0):
+        raise HTTPException(409, '口译财务数据已变化，请重新打开报价单')
+    from customer_finance_sync import store_oral
+    row = store_oral(db, user, 'project', target,
+                     {**(row.payload if row else {}), 'quotation': data.document.model_dump(mode='json')}, row)
+    db.commit()
+    return quotation_context(project, row)
+
+
+@router.get('/statement/project/{target}')
+def statement_preview(target: UUID, month: str = Query(pattern=r'^\d{4}-(0[1-9]|1[0-2])$'),
+                      scope: Literal['project', 'customer'] = 'project',
+                      basis: Literal['legacy', 'excl_tax', 'incl_tax'] | None = None,
+                      format: Literal['preview', 'excel', 'pdf'] = 'preview',
+                      version: str | None = None, db=Depends(get_db), user=Depends(get_current_user)):
+    from fastapi import Response
+    from interpretation_statements import build
+
+    permission(db, user, 'project')
+    result = build(db, target, month, scope, basis)
+    if format == 'preview':
+        return result
+    if version != result['statement_version']:
+        raise HTTPException(409, '对账单数据已变化，请重新生成后下载')
+    if not result['rows']:
+        raise HTTPException(422, '所选账单月份暂无可生成的项目')
+    if format == 'pdf':
+        from statement_pdf import pdf_bytes
+        return Response(pdf_bytes([result]), media_type='application/pdf')
+    from customer_statements import excel_bytes
+    return Response(excel_bytes(result), media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')

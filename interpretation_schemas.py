@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from path_security import validate_managed_path
 from language_catalog import normalize_language_label
 from schemas import ProjectRoleAssignmentInput, ProjectRoleAssignmentResponse
+from interpretation_finance_schemas import InterpretationProjectFinanceDraft
 
 
 PROJECT_TYPE_LABELS = {
@@ -139,6 +140,7 @@ class InterpretationInterpreterResponse(InterpretationInterpreterInput):
 
 
 class InterpretationProjectWrite(BaseModel):
+    finance_draft: InterpretationProjectFinanceDraft | None = None
     client_manager_id: Optional[UUID] = None
     client_manager_change_reason: Optional[str] = Field(default=None, max_length=500)
     project_name: Optional[str] = None

@@ -74,7 +74,7 @@
                 <span v-if="delivery(row).receipt">已回执</span>
                 <el-button v-else-if="request.is_sender" link type="primary" :loading="busy" @click="receipt(row.project_id)">发送发票收到回执</el-button>
                 <span v-else>已发送</span>
-                <ScreenshotText :text="delivery(row).proofs" :show-text="false" />
+                <ScreenshotText :text="delivery(row).proofs" :show-text="false" invoice-drag :invoice-order-no="row.order_no" />
               </template>
             </template>
           </el-table-column>

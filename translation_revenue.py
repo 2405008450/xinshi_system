@@ -8,6 +8,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy import func, inspect
 
 import crud
 import translation_customer_finance as finance
@@ -68,15 +69,17 @@ def bounds(start, period):
 
 
 def order_date(project):
-    match = re.match(r'^TP-(\d{8}|\d{6})-', (project.order_no or '').strip().upper())
+    match = re.match(r'^(?:TP|IP|AP|HP)-(\d{8}|\d{6})-', (project.order_no or '').strip().upper())
     if match:
         digits = match[1] if len(match[1]) == 8 else '20' + match[1]
         try:
             return date(int(digits[:4]), int(digits[4:6]), int(digits[6:])), False
         except ValueError:
             pass
-    if project.customer_reception_time:
-        return business_datetime(project.customer_reception_time).date(), True
+    fallback = (project.customer_reception_time if hasattr(project, 'customer_reception_time') else
+                project.customer_confirmation_time or project.customer_consultation_time or project.created_at)
+    if fallback:
+        return business_datetime(fallback).date(), True
     return None, False
 
 
@@ -178,6 +181,80 @@ def report(entries, period, anchor, currency='CNY', modes=None, keyword='', rank
             'client_options': [{'key': key, 'id': item['client_id'], 'name': item['client_name']} for key, item in sorted(all_clients.items(), key=lambda pair: (pair[1]['client_name'], pair[0]))]}
 
 
+def other_projects(db, module, client_id, fields):
+    from interpretation_models import InterpretationProject
+    from project_customer_finance import MODELS, project_query
+    from project_client_manager import manager_ids_expression
+
+    model = InterpretationProject if module == 'interpretation' else MODELS[module]
+    if not inspect(db.connection()).has_table(model.__tablename__):
+        return []
+    query = db.query(model) if module == 'interpretation' else project_query(db, module)
+    query = query.outerjoin(SubClient, model.sub_client_id == SubClient.id).outerjoin(
+        Client, func.coalesce(model.client_id, SubClient.parent_client_id) == Client.id)
+    query = query.options(joinedload(model.client), joinedload(model.sub_client).joinedload(SubClient.parent_client)) if module == 'interpretation' else query
+    if module == 'annotation':
+        # 子订单会复制母订单价格，按母订单统计，避免重复计入。
+        query = query.filter(model.parent_project_id.is_(None))
+    if client_id:
+        query = query.filter(Client.id == client_id)
+    if fields:
+        spec = next(iter(fields.values()))['value']
+        ids = [UUID(value) for value in (spec.get('ids') or [spec['id']])]
+        query = query.filter(manager_ids_expression(module, model.id, ids, spec['names'],
+                             func.coalesce(SubClient.client_manager, Client.client_manager)))
+    return query.all()
+
+
+def other_amounts(module, project, record):
+    if module == 'interpretation':
+        import interpretation_customer_finance as oral
+        payload = record.payload if record else {}
+        totals = oral.calculate(payload)
+        missing = ['totals_' + basis for basis in ('excl_tax', 'incl_tax') if oral.incomplete_tax_basis(payload, basis)]
+        if 'totals_' + oral.settlement(payload).tax_basis in missing:
+            missing.append('billing_totals')
+        return {**{field: totals[field] for field in ('totals_excl_tax', 'totals_incl_tax')},
+                'billing_totals': oral.billing_totals(payload, totals), 'incomplete_fields': missing}
+
+    from project_customer_finance import totals
+    amounts = totals(module, [project])
+    if module == 'recruitment':
+        legacy = {project.service_fee_currency or 'CNY': project.service_fee_amount} if project.service_fee_amount is not None else {}
+    else:
+        # 标注历史单价没有已确认工作量，只有已登记的总价可计入。
+        legacy = {}
+    excl, incl = amounts['totals_excl_tax'], amounts['totals_incl_tax']
+    result = {'totals_excl_tax': excl, 'totals_incl_tax': incl, 'billing_totals': {**legacy, **incl, **excl}}
+    result['incomplete_fields'] = ['totals_' + kind for kind, count in amounts['missing_totals'].items() if count]
+    return result
+
+
+def other_entries(db, module, client_id, fields, earliest, end):
+    from interpretation_customer_finance import finance_records, ready
+    projects = other_projects(db, module, client_id, fields)
+    selected, dates = [], {}
+    missing_date = fallback_date = 0
+    for project in projects:
+        day, fallback = order_date(project)
+        if day is None:
+            missing_date += 1
+        elif earliest <= day < end:
+            selected.append(project)
+            dates[project.id] = day
+            fallback_date += int(fallback)
+    records, _ = finance_records(db, selected, ready(db)) if module == 'interpretation' else ({}, {})
+    entries = []
+    for project in selected:
+        client = project.client or (project.sub_client.parent_client if project.sub_client else None)
+        uid = str(client.id) if client else None
+        entries.append(dict(key=uid or 'unlinked:' + str(project.id), client_id=uid,
+                            client_name=(client.client_name or client.client_short_name) if client else '未关联客户',
+                            client_short_name=(client.client_short_name or '') if client else '',
+                            day=dates[project.id], **other_amounts(module, project, records.get(project.id))))
+    return entries, missing_date, fallback_date
+
+
 @router.get('', dependencies=[Depends(require_module_access('projects:read', 'projects:write'))])
 def revenue(period: Literal['week', 'month', 'quarter', 'year'] = 'month', anchor: date | None = None,
             currency: str = Query('CNY', pattern=r'^[A-Z]{3}$'), client_basis: str = Query('{}', max_length=100000),
@@ -186,7 +263,8 @@ def revenue(period: Literal['week', 'month', 'quarter', 'year'] = 'month', ancho
             amount_max: Decimal | None = Query(None, allow_inf_nan=False),
             focus_client: str | None = Query(None, max_length=100), skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100),
             manager_ids: list[UUID] | None = Query(None, max_length=2000), only_mine: bool = False,
-            client_id: UUID | None = None, db: Session = Depends(get_db), user=Depends(get_current_user)):
+            client_id: UUID | None = None, db: Session = Depends(get_db), user=Depends(get_current_user),
+            project_type: Literal['all', 'translation', 'interpretation', 'annotation', 'recruitment'] = 'translation'):
     anchor = anchor or business_now().date()
     if not 2000 <= anchor.year <= 2100:
         raise HTTPException(422, '统计年份须为2000至2100年')
@@ -200,7 +278,6 @@ def revenue(period: Literal['week', 'month', 'quarter', 'year'] = 'month', ancho
         SubClient, TranslationProject.sub_client_id == SubClient.id).filter(TranslationProject.annotation_migrated_at.is_(None))
     query = crud._apply_translation_project_filters(query, field_filters=fields)
     if client_id:
-        from sqlalchemy import func
         query = query.filter(func.coalesce(TranslationProject.client_id, SubClient.parent_client_id) == client_id)
     query = query.options(joinedload(TranslationProject.client), joinedload(TranslationProject.sub_client).joinedload(SubClient.parent_client),
                           selectinload(TranslationProject.customer_charge_items),
@@ -213,7 +290,7 @@ def revenue(period: Literal['week', 'month', 'quarter', 'year'] = 'month', ancho
     projects = []
     dates = {}
     missing_date = fallback_date = 0
-    for project in query.all():
+    for project in (query.all() if project_type in ('all', 'translation') else []):
         day, fallback = order_date(project)
         if day is None:
             missing_date += 1
@@ -239,6 +316,16 @@ def revenue(period: Literal['week', 'month', 'quarter', 'year'] = 'month', ancho
         entries.append(entry)
         for field in FIELDS.values():
             currencies.update(entry[field])
+    for module in ('interpretation', 'annotation', 'recruitment'):
+        if project_type not in ('all', module):
+            continue
+        extra, undated, fallback = other_entries(db, module, client_id, fields, earliest, end)
+        entries.extend(extra)
+        missing_date += undated
+        fallback_date += fallback
+        for entry in extra:
+            for field in FIELDS.values():
+                currencies.update(entry[field])
     result = report(entries, period, anchor, currency, modes, keyword, rank_min, rank_max, amount_min, amount_max,
                     focus_client, skip, limit)
     result.update(currencies=sorted(currencies), missing_date=missing_date, fallback_date=fallback_date,

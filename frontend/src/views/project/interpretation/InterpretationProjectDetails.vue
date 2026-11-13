@@ -449,6 +449,10 @@
               </el-col>
             </el-row>
             <el-form-item label="客户预算"><el-input v-model="form.customerBudget" placeholder="可填写金额、计价单位及差旅说明" /></el-form-item>
+            <el-form-item label="价格与收费">
+              <InterpretationFinanceEditor v-model:pending="form.financeDraft" :target-id="form.id"
+                :project="financeProject" :can-write="canWrite" defer-save />
+            </el-form-item>
             <ProjectClientManagerField v-model="form.clientManagerId" v-model:reason="form.clientManagerChangeReason" :baseline-id="clientManagerBaseline" :baseline-name="form.currentClientManager" :project-id="form.id" project-type="interpretation" />
             <el-row :gutter="16">
 
@@ -645,6 +649,7 @@ import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { useFormDraft } from '@/composables/useFormDraft'
+import InterpretationFinanceEditor from '@/components/common/InterpretationFinanceEditor.vue'
 import { useResourceRequestStatuses } from '@/composables/useResourceRequestStatuses'
 import { notifyEmailSubjectGenerated, extractSubjectPrefix } from '@/utils/emailSubject'
 import { hasPermission } from '@/utils/permission'
@@ -895,6 +900,7 @@ const emptyLanguageDirection = () => ({ languageIds: ['', ''], requiredCount: nu
 const defaultForm = () => ({
   ...emptyProjectContactDetails(),
   id: '', orderNo: '', projectName: '', projectTypes: [], taskDescription: '',
+  financeDraft: null,
   clientId: '', subClientId: '', clientShortName: '', clientFullName: '', clientCode: '',
   clientDomain: '', currentClientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', contactName: '', customerOrderNo: '', projectStatus: 'initial_follow_up',
   locations: [''], customerBudget: '', customerConsultationTime: '', customerConfirmationTime: '',
@@ -906,6 +912,17 @@ const defaultForm = () => ({
   timeRanges: [emptyTimeRange()], languageDirections: [emptyLanguageDirection()], interpreterAssignments: [], roleAssignments: [],
 })
 const form = reactive(defaultForm())
+const financeProject = computed(() => {
+  const labels = new Map(languages.value.map(item => [item.id, item.label]))
+  const directions = form.languageDirections
+    .map(item => item.languageIds.map(id => labels.get(id)))
+    .filter(items => items.length >= 2 && items.every(Boolean))
+    .map(items => ({label: items.join(' ↔ ')}))
+  return {
+    clientId: form.clientId, clientShortName: form.clientShortName, clientFullName: form.clientFullName, orderNo: form.orderNo,
+    projectName: form.projectName, projectStatus: form.projectStatus, directions,
+  }
+})
 const { beginDraft, pauseDraft, clearDraft } = useFormDraft({
   namespace: 'interpretation-project',
   form,
@@ -1254,6 +1271,7 @@ const buildPayload = () => {
   validateNested(nested)
   return {
     ...projectContactPayload(form),
+    ...(form.financeDraft ? { financeDraft: form.financeDraft } : {}),
     clientManagerId: form.clientManagerId || null,
     clientManagerChangeReason: form.clientManagerChangeReason || null,
     projectName: form.projectName?.trim() || null,

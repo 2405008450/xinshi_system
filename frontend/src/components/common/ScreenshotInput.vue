@@ -8,7 +8,9 @@
       </label>
       <small>{{ allowInvoiceFiles ? '支持拖入截图、PDF 或 OFD，发票文件最大 10 MB' : chat ? '聊天截图保留30天' : '支持粘贴截图，长期保存' }}</small>
     </div>
-    <ScreenshotText v-if="enabled && ids.length" :text="String(modelValue||'')" :show-text="false" :removable="!readonly&&!uploading" @remove="remove" />
+    <ScreenshotText v-if="enabled && ids.length" :text="String(modelValue||'')" :show-text="false" :removable="!readonly&&!uploading"
+      :invoice-drag="allowInvoiceFiles" :invoice-order-no="invoiceOrderNo" @remove="remove" />
+    <small v-if="allowInvoiceFiles && ids.length" class="invoice-drag-help">拖动附件到其他订单的发票上传区。拖到桌面或聊天窗口可用桌面版，也可下载后从文件夹拖入。</small>
     <span v-if="error" role="alert" class="app-screenshot-error">{{ error }}<button type="button" @click="error=''">×</button></span>
   </div>
   <BaseInput v-else ref="control" v-bind="$attrs" :type="type" :model-value="modelValue" @update:model-value="value=>$emit('update:modelValue',value)" @input="value=>$emit('input',value)" @change="value=>$emit('change',value)"><template v-for="(_,name) in $slots" #[name]="data"><slot :name="name" v-bind="data" /></template></BaseInput>
@@ -21,7 +23,7 @@ import { screenshotIds,screenshotText,screenshotValue } from '@/utils/screenshot
 import { registerScreenshotUpload } from '@/utils/screenshotUploads'
 defineOptions({inheritAttrs:false})
 const ScreenshotText=defineAsyncComponent(()=>import('./ScreenshotText.vue'))
-const props=defineProps({modelValue:[String,Number],type:{type:String,default:'text'},allowInvoiceFiles:Boolean,invoiceRequestId:String})
+const props=defineProps({modelValue:[String,Number],type:{type:String,default:'text'},allowInvoiceFiles:Boolean,invoiceRequestId:String,invoiceOrderNo:String})
 const emit=defineEmits(['update:modelValue','input','change','uploading-change','attachment-added'])
 const attrs=useAttrs(),control=ref(),root=ref(),enabled=ref(true),chat=ref(false),uploading=ref(false),error=ref('')
 const ids=computed(()=>screenshotIds(props.modelValue)),plain=computed(()=>screenshotText(props.modelValue)),readonly=computed(()=>attrs.disabled!==undefined&&attrs.disabled!==false||attrs.readonly!==undefined&&attrs.readonly!==false)
@@ -96,3 +98,4 @@ function choose(event){void add(Array.from(event.target.files||[]));event.target
 <style scoped>.app-screenshot-input{width:100%;min-width:0}.app-screenshot-tools{display:flex;align-items:center;gap:10px;font-size:11px;margin-top:4px;color:#94a3b8;line-height:1.5}.app-screenshot-tools label{cursor:pointer;color:var(--el-color-primary)}.app-screenshot-tools input{display:none}.app-screenshot-error{display:block;color:#dc2626;font-size:12px}.app-screenshot-error button{border:0;background:none;cursor:pointer}</style>
 
 <style scoped>.app-screenshot-input :deep(.screenshot-previews){max-height:160px;overflow-y:auto}.app-screenshot-input :deep(.screenshot-preview .el-image){height:90px;max-width:180px}</style>
+<style scoped>.invoice-drag-help{display:block;margin-top:6px;color:var(--el-text-color-secondary);line-height:1.5}</style>

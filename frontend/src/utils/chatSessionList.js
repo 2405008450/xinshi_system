@@ -82,6 +82,7 @@ export function groupSessionList(sessions, activeKey) {
       catalogKeys: catalog.map(row => row.key),
       unread: variants.reduce((sum, row) => sum + (Number(row.unread) || 0), 0),
       mentionUnread: variants.reduce((sum, row) => sum + (Number(row.mentionUnread) || 0), 0),
+      mentionAllUnread: variants.reduce((sum, row) => sum + (Number(row.mentionAllUnread) || 0), 0),
       variants,
     }
   })

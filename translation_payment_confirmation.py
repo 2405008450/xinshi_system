@@ -92,10 +92,19 @@ def record_value(row):
 
 
 def project_totals(db,project_id):
-    from translation_customer_finance import read as read_finance
+    from translation_customer_finance import read as read_finance, payment_summary
+    import crud
     data=read_finance(db,project_id)
     node=data['item']
+    method=node['payment_method']
+    summary_label={'statement':'对账单总价','monthly':'订单汇总总价'}.get(method)
     items=[]
+    if summary_label and node['client_id'] and node['billing_month']:
+        summary=payment_summary(db,crud.get_translation_project(db,project_id),method)
+        if not summary['pending']:
+            items.extend({'key':f'{method}:{currency}','label':summary_label,'currency':currency,
+                          'amount':format(amount,'.2f'),'taxMode':None}
+                         for currency,amount in summary['billing_totals'].items())
     for key,label,field in [('billing','计费总价','billing_totals'),('excl','不含税总价','totals_excl_tax'),('incl','含税总价','totals_incl_tax'),('adjusted','调整后总价','adjusted_totals')]:
         for currency,amount in node.get(field,{}).items():
             items.append({'key':f'{key}:{currency}','label':label,'currency':currency,'amount':format(Decimal(amount),'.2f'),
@@ -170,8 +179,11 @@ def save(db,project_id,payload,actor_id,cleared_payments=None,detail_proofs=None
             raise HTTPException(422,'请填写已付全款金额并核对项目总价')
         totals=project_totals(db,project_id)['items']
         selected=next((item for item in totals if item['key']==payload.full_payment_total_key),None)
-        if selected is None and payload.full_payment_total_key:raise HTTPException(409,'选定的项目总价已变化，请重新选择')
-        if selected is None:selected=next((item for item in totals if item['currency']==payload.full_payment_currency and Decimal(item['amount'])==payload.full_payment_amount),None)
+        if selected is None and payload.full_payment_total_key:
+            if payload.full_payment_total_key.startswith(('statement:', 'monthly:')):
+                raise HTTPException(409,'当前付款币种的汇总金额待核对，请确认汇总项目和金额后重试')
+            raise HTTPException(409,'选定的项目总价已变化，请重新选择')
+        if selected is None:selected=next((item for item in totals if item['key'].split(':')[0] not in ('statement','monthly') and item['currency']==payload.full_payment_currency and Decimal(item['amount'])==payload.full_payment_amount),None)
         matched=bool(selected and selected['currency']==payload.full_payment_currency and Decimal(selected['amount'])==payload.full_payment_amount)
         if not matched and not payload.mismatch_reason.strip():raise HTTPException(422,'全款金额与项目总价不匹配，请填写原因')
         values['full_payment_total_key']=selected['key'] if selected else None
@@ -244,7 +256,10 @@ def recheck_after_fee_change(db,project_id,actor_id):
     if not current['is_paid'] or (current['payment_option']!='full' and current['full_payment_source']!='details') or current['full_payment_amount'] is None:return current
     totals=project_totals(db,project_id)['items']
     selected=next((item for item in totals if item['key']==current['full_payment_total_key']),None)
-    if selected is None:selected=next((item for item in totals if item['currency']==current['full_payment_currency'] and Decimal(item['amount'])==Decimal(current['full_payment_amount'])),None)
+    if selected is None and (current['full_payment_total_key'] or '').startswith(('statement:', 'monthly:')):
+        return current  # Keep the original payment reference if its summary is no longer available.
+    if selected is None:
+        selected=next((item for item in totals if item['key'].split(':')[0] not in ('statement','monthly') and item['currency']==current['full_payment_currency'] and Decimal(item['amount'])==Decimal(current['full_payment_amount'])),None)
     matched=bool(selected and selected['currency']==current['full_payment_currency'] and Decimal(selected['amount'])==Decimal(current['full_payment_amount']))
     status='matched' if matched else 'mismatch'
     if current['full_match_status']==status and current['full_reference_amount']==(selected['amount'] if selected else None):return current

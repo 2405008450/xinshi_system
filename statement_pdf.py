@@ -59,6 +59,9 @@ def pdf_bytes(statements):
         show_unit = statement_has_unit_column(data['rows'])
         mixed_tax = '按项目' in tax_label(data)
         headings=(['原客户'] if origin else [])+(['客户单号'] if customer_order else [])+['来稿日期','项目名称','翻译方向','工作量（计价方式）']
+        if data.get('module') == 'interpretation':
+            offset = int(origin) + int(customer_order)
+            headings[offset:offset + 3] = ['订单日期', '项目名称', '口译方向']
         headings += (['单价','小计'] if show_unit else ['固定价格']) + ['备注']
         weights=([24] if origin else [])+([24] if customer_order else [])+[24,35.7,17.6,29.7]+([30] if show_unit else [])+[22,34]
         cells=[[paragraph(label,'heading') for label in headings]]

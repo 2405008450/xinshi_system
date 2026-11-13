@@ -457,7 +457,21 @@ def _resolve_client(db: Session, data: dict) -> None:
 
 
 WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact", "client_contact_method", "client_contact_description", "client_contact_version"}
-NESTED_FIELDS = {"client_manager_id", "client_manager_change_reason", "time_ranges", "language_directions", "interpreter_assignments", "role_assignments"}
+NESTED_FIELDS = {"client_manager_id", "client_manager_change_reason", "time_ranges", "language_directions", "interpreter_assignments", "role_assignments", "finance_draft"}
+
+
+def _save_finance_draft(db, project, draft, actor_id):
+    if draft is None:
+        return
+    from interpretation_customer_finance import save
+    from fastapi import HTTPException
+    actor = db.get(AppUser, actor_id)
+    if actor is None:
+        raise HTTPException(403, '无权保存口译财务信息')
+    db.flush()
+    # Rebuilt directions use foreign keys and are loaded after the flush.
+    db.expire(project, ['language_directions'])
+    save(db, actor, 'project', project.id, draft, commit=False)
 
 
 def _direction_required_total(payload) -> Optional[int]:
@@ -556,6 +570,7 @@ def create_interpretation_project(
     validate_assignment_map(db, assignments)
     ensure_project_responsibilities(db, 'interpretation', project.id, assignments)
     _sync_nested(db, project, payload)
+    _save_finance_draft(db, project, payload.finance_draft, created_by)
     project.updated_at = datetime.now()
     record_project_operation(
         db, project_type="interpretation", operation_type="create", project=project,
@@ -572,14 +587,20 @@ def update_interpretation_project(
     project = get_interpretation_project(db, project_id)
     if not project:
         return None
+    data = payload.model_dump(exclude=NESTED_FIELDS | {VERSION_FIELD})
+    if payload.finance_draft is not None:
+        _resolve_client(db, data)
+        client_ids = {value for value in (project.client_id, data.get('client_id')) if value}
+        if client_ids:
+            db.query(Client).filter(Client.id.in_(client_ids)).order_by(Client.id).with_for_update().all()
     db.query(InterpretationProject).filter(InterpretationProject.id == project_id).with_for_update().populate_existing().one()
     assert_fresh(project, payload.expected_updated_at)
     if 'client_manager_id' in payload.model_fields_set:
         from project_client_manager import apply as apply_client_manager
         apply_client_manager(db, 'interpretation', project, payload.client_manager_id, payload.client_manager_change_reason, changed_by)
-    data = payload.model_dump(exclude=NESTED_FIELDS | {VERSION_FIELD})
     data["required_interpreter_count"] = _direction_required_total(payload)
-    _resolve_client(db, data)
+    if payload.finance_draft is None:
+        _resolve_client(db, data)
     from project_client_contact_details import save_project_contact_details
     save_project_contact_details(db,data)
     for key in WRITE_ONLY_CLIENT_FIELDS:
@@ -600,6 +621,7 @@ def update_interpretation_project(
     validate_assignment_map(db, assignments)
     ensure_active_project_responsibilities(db, 'interpretation', project.id, project.project_status, assignments)
     _sync_nested(db, project, payload)
+    _save_finance_draft(db, project, payload.finance_draft, changed_by)
     project.updated_at = datetime.now()
     db.commit()
     return get_interpretation_project(db, project.id)

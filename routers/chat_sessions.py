@@ -262,21 +262,24 @@ def summaries(db, column, ids, baselines, user_id):
         ChatProjectMention.mentioned_user_id == user_id)} if last else set()
     # 单次扫描各会话未读序号；不拉取历史正文。
     unread_rows = db.query(column, ChatProjectMessage.sequence_no, ChatProjectMessage.id,
-        ChatProjectMention.mentioned_user_id).outerjoin(ChatProjectMention,
+        ChatProjectMention.mentioned_user_id, ChatProjectMessage.event_data['mention_all'].as_boolean()).outerjoin(ChatProjectMention,
         and_(ChatProjectMention.message_id == ChatProjectMessage.id, ChatProjectMention.mentioned_user_id == user_id)).filter(
         column.in_(ids), ChatProjectMessage.message_type == 'user', ChatProjectMessage.recalled_at.is_(None), ChatProjectMessage.sender_user_id != user_id,
         or_(*[and_(column == uid, ChatProjectMessage.sequence_no > baseline) for uid, baseline in baselines.items()])).order_by(ChatProjectMessage.sequence_no).all()
-    result = {uid: {'unread': 0, 'mention_unread': 0, 'mention_message_ids': [], 'last_message': None} for uid in ids}
-    for uid, seq, mid, mentioned in unread_rows:
+    result = {uid: {'unread': 0, 'mention_unread': 0, 'mention_all_unread': 0, 'mention_message_ids': [], 'last_message': None} for uid in ids}
+    for uid, seq, mid, mentioned, mention_all in unread_rows:
         result[uid]['unread'] += 1
         if mentioned:
             result[uid]['mention_unread'] += 1
+            if mention_all:
+                result[uid]['mention_all_unread'] += 1
             result[uid]['mention_message_ids'].append(mid)
     for row in last:
         result[getattr(row, column.key)]['last_message'] = {'id': row.id,
             'preview': row.recall_label if row.recalled_at else ' '.join(row.content.split())[:140] or '[附件]',
             'sender_name': row.sender_name, 'created_at': api_time(row.created_at),
-            'mentions_me': not row.recalled_at and row.id in last_mentions}
+            'mentions_me': not row.recalled_at and row.id in last_mentions,
+            'mention_all': not row.recalled_at and row.id in last_mentions and (row.event_data or {}).get('mention_all') is True}
     return result
 
 
@@ -365,6 +368,7 @@ def mentions(keyword: str = Query('', max_length=200), before: str | None = Quer
              limit: int = Query(50, ge=1, le=100), project_type: Literal['annotation', 'translation', 'discussion', 'direct'] | None = None,
              project_status: str | None = None, project_id: UUID | None = None,
              sort: Literal['time_desc', 'time_asc', 'customer_asc', 'customer_desc'] = 'time_desc',
+             mention_kind: Literal['personal', 'all'] | None = None,
              db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     if project_id is not None and project_type is None:
         raise HTTPException(422, '指定项目时必须同时指定项目类型')
@@ -373,7 +377,7 @@ def mentions(keyword: str = Query('', max_length=200), before: str | None = Quer
     if project_status and project_type == 'translation':
         raise HTTPException(422, '标注项目状态不能用于笔译项目')
     return list_mentions(db, user, keyword=keyword, before=before, limit=limit,
-                         project_type=project_type, project_status=project_status, project_id=project_id, sort=sort)
+                         project_type=project_type, project_status=project_status, project_id=project_id, sort=sort, mention_kind=mention_kind)
 
 
 class PreferenceRequest(BaseModel):
