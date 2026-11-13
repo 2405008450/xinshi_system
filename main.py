@@ -337,6 +337,8 @@ app.include_router(annotator_progress_router)
 from routers.annotation_chat_ai import router as annotation_chat_ai_router
 app.include_router(annotation_chat_ai_router)
 app.include_router(annotation_comparisons.router)
+from routers.annotation_transcription_report import router as annotation_transcription_report_router
+app.include_router(annotation_transcription_report_router)
 app.include_router(annotation_notices.router)
 app.include_router(project_notices.router)
 app.include_router(company_management.router)
