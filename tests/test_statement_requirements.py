@@ -134,6 +134,77 @@ def test_requirement_filters_sort_and_pagination(setup):
     assert http.get(endpoint,params={**base,'sort':'invalid'}).status_code==422
 
 
+def test_finance_payment_method_is_shared_with_main_table(setup):
+    http, _, _, _, _, _, project_row, _ = setup
+    url = f'/translation-customer-finance/project/{project_row.id}'
+    page_url = '/translation-customer-finance/page'
+    current = http.get(url).json()
+    assert current['item']['payment_method'] == 'statement'
+    for method, required in [('monthly', False), ('statement', True), ('individual', False)]:
+        response = http.put(url, json={
+            'version': current['version'], 'order_id': str(project_row.id),
+            'documents_only': True, 'payment_method': method,
+        })
+        assert response.status_code == 200, response.text
+        current = response.json()
+        assert current['item']['payment_method'] == method
+        assert current['item']['statement_required'] is required
+        row = http.get(page_url, params={'keyword': project_row.order_no}).json()['items'][0]
+        assert row['payment_method'] == method
+        assert row['statement_required'] is required
+
+
+def test_finance_payment_defaults_use_customer_month_and_statement_priority(setup):
+    http, db, clients, _, _, october, november, personal = setup
+    peer = project(db, clients[0], '004', '2026-11')
+    db.add_all([
+        TranslationProjectDocuments(project_id=october.id, statement_required=False),
+        TranslationProjectDocuments(project_id=november.id, statement_required=False),
+    ])
+    db.commit()
+    expected = {str(october.id): 'individual', str(november.id): 'monthly',
+                str(peer.id): 'statement', str(personal.id): 'individual'}
+    for project_id, method in expected.items():
+        item = http.get(f'/translation-customer-finance/project/{project_id}').json()['item']
+        assert item['payment_method'] == method
+    result = http.get('/translation-customer-finance/page', params={'keyword': november.order_no, 'limit': 1}).json()
+    assert result['items'][0]['payment_method'] == 'monthly'
+    url = f'/translation-customer-finance/project/{november.id}/statement-required'
+    checked = http.put(url, json={'statement_required': True, 'expected_statement_required': False})
+    assert checked.status_code == 200, checked.text
+    assert checked.json()['payment_method'] == 'statement'
+    unchecked = http.put(url, json={'statement_required': False, 'expected_statement_required': True})
+    assert unchecked.status_code == 200, unchecked.text
+    assert unchecked.json()['payment_method'] == 'monthly'
+
+
+def test_finance_manager_sort_matches_project_display_before_pagination(setup):
+    from project_client_manager import ProjectClientManagerChange
+
+    http, db, clients, _, _, october, november, personal = setup
+    clients[0].client_manager = 'Zulu'
+    clients[1].client_manager = 'Mike'
+    db.add(ProjectClientManagerChange(project_type='translation', project_id=november.id,
+        revision=1, new_manager_name='Alpha', reason='调整客户经理'))
+    db.add(ProjectClientManagerChange(project_type='translation', project_id=october.id,
+        revision=1, reason='取消分配'))
+    db.commit()
+
+    for direction, expected in [
+        ('asc', [(november, 'Alpha'), (personal, 'Mike'), (october, '')]),
+        ('desc', [(personal, 'Mike'), (november, 'Alpha'), (october, '')]),
+    ]:
+        for skip, (project_row, manager_name) in enumerate(expected):
+            response = http.get('/translation-customer-finance/page', params={
+                'sort': f'client_manager_{direction}', 'limit': 1, 'skip': skip,
+            })
+            assert response.status_code == 200, response.text
+            result = response.json()
+            assert result['total'] == 3
+            assert result['items'][0]['id'] == str(project_row.id)
+            assert result['items'][0]['client_manager'] == manager_name
+
+
 def test_copy_same_client_and_bill_month_only(setup):
     http,db,clients,_,user,october,november,personal=setup
     other=project(db,clients[0],'004','2026-11')
@@ -199,6 +270,49 @@ def test_finance_page_exposes_real_statement_status(setup):
     status=by_id[str(november.id)]['statement_status']
     assert status and status[0]['months']==['2026-11'] and status[0]['board_id']==state['documents'][0]['id']
     assert by_id[str(personal.id)]['statement_status']==[]
+
+
+def test_group_payment_summary_uses_monthly_projects_and_generated_statement(setup):
+    http, db, clients, _, user, _, november, _ = setup
+    monthly = project(db, clients[0], '004', '2026-11', fixed=True)
+    peer = project(db, clients[0], '005', '2026-11', fixed=True)
+    statement = project(db, clients[0], '006', '2026-11', fixed=True)
+    db.add_all([
+        TranslationProjectDocuments(project_id=monthly.id, statement_required=False),
+        TranslationProjectDocuments(project_id=peer.id, statement_required=False),
+    ])
+    db.commit()
+    url = f'/translation-customer-finance/project/{monthly.id}'
+    response = http.get(f'{url}/payment-summary', params={'method': 'monthly'})
+    assert response.status_code == 200, response.text
+    summary = response.json()
+    assert summary['totals_excl_tax'] == {'CNY': 1000}
+    assert summary['totals_incl_tax'] == {'CNY': 1060}
+    assert summary['billing_totals'] == {'CNY': 1000}
+    assert len(summary['internal_notes']) == 2
+    assert not summary['pending']
+    assert {'key': 'monthly:CNY', 'label': '订单汇总总价', 'currency': 'CNY',
+            'amount': '1000.00', 'taxMode': None} in finance.confirmations.project_totals(db, monthly.id)['items']
+    confirmed = finance.confirmations.save(db, monthly.id, finance.confirmations.PaymentConfirmationWrite(
+        revision=0, is_paid=True, payment_option='full', full_payment_amount=1000,
+        full_payment_total_key='monthly:CNY',
+    ), user.id)
+    assert confirmed['full_match_status'] == 'matched'
+
+    db.add(TranslationProjectDocuments(project_id=november.id, statement_required=False))
+    db.commit()
+    imported = http.post('/translation-statement-workspaces/import', json={
+        'client_id': str(clients[0].id), 'months': ['2026-11'], 'scope': 'customer',
+        'order_ids': [str(statement.id)], 'revision': 0, 'confirmed': True,
+    })
+    assert imported.status_code == 200, imported.text
+    response = http.get(f'/translation-customer-finance/project/{statement.id}/payment-summary', params={'method': 'statement'})
+    assert response.status_code == 200, response.text
+    summary = response.json()
+    assert summary['board_name']
+    assert [item['id'] for item in summary['statement_projects']] == [str(statement.id)]
+    assert summary['billing_totals'] == {'CNY': 500}
+    assert not summary['pending']
 
 
 def test_customer_month_view_exists_even_when_this_project_not_imported(setup):

@@ -3,7 +3,7 @@
     <div class="full-payment-inputs">
       <el-form-item :label="fromDetails?'累计实付金额':'已付全款金额'" :prop="`${prefix}.fullPaymentAmount`" :rules="[{validator:validateAmount,trigger:'change'}]"><ReadonlyField v-if="fromDetails" :model-value="value.fullPaymentAmount==null?'待填写各次实际金额':value.fullPaymentAmount.toFixed(2)" source="auto" /><el-input-number v-else :model-value="value.fullPaymentAmount??undefined" :min="0" :precision="2" :controls="false" aria-label="已付全款金额" @focus="editingAmount=true" @blur="editingAmount=false" @update:model-value="update('fullPaymentAmount',$event??null)" /></el-form-item>
       <el-form-item label="付款币种"><el-select :model-value="value.fullPaymentCurrency" aria-label="付款币种" @update:model-value="update('fullPaymentCurrency',$event)"><el-option v-for="currency in currencies" :key="currency" :value="currency" /></el-select></el-form-item>
-      <el-form-item :label="referenceFieldLabel"><div class="full-payment-reference"><ReadonlyField :model-value="reference?`${reference.currency} ${reference.amount}`:'暂无可匹配总价'" source="auto" :aria-label="referenceFieldLabel" /><span v-if="reference&&!fixedCharge" class="full-payment-tax-mode">{{referenceTaxLabel}}</span></div><p v-if="fixedCharge" class="full-payment-hint full-payment-reference-hint">请在上面计费口径调整含税/不含税固定收费。</p></el-form-item>
+      <el-form-item :label="referenceFieldLabel"><div class="full-payment-reference"><ReadonlyField :model-value="reference?`${reference.currency} ${reference.amount}`:'暂无可匹配总价'" source="auto" :aria-label="referenceFieldLabel" /><span v-if="reference&&!fixedCharge&&!summaryLabel" class="full-payment-tax-mode">{{referenceTaxLabel}}</span></div><p v-if="fixedCharge" class="full-payment-hint full-payment-reference-hint">请在上面计费口径调整含税/不含税固定收费。</p></el-form-item>
     </div>
     <div class="full-payment-result-row">
     <p class="full-payment-result"><el-tag :type="status==='matched'?'success':status==='mismatch'?'danger':'info'">{{status==='matched'?'已匹配':status==='mismatch'?'不匹配':'待核对'}}</el-tag><span v-if="reference">{{fixedCharge?referenceFieldLabel:reference.label}}：{{reference.currency}} {{reference.amount}}</span><span v-else>项目暂无可匹配总价</span></p>
@@ -21,7 +21,7 @@ import ReadonlyField from './ReadonlyField.vue'
 import {paymentConfirmationForm,paymentChangeEvent} from '@/utils/paymentConfirmation'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import {focusFormTarget,scrollFormTarget} from '@/utils/formNavigation'
-const props=defineProps({modelValue:Object,projectId:String,prefix:String,fromDetails:Boolean,pricingMode:String,billingTaxMode:String,draftTotals:{type:Array,default:null}})
+const props=defineProps({modelValue:Object,projectId:String,prefix:String,fromDetails:Boolean,pricingMode:String,billingTaxMode:String,draftTotals:{type:Array,default:null},summaryLabel:String})
 const emit=defineEmits(['update:modelValue','reference-change'])
 const value=computed(()=>paymentConfirmationForm(props.modelValue))
 const savedTotals=ref([]),loading=ref(false),error=ref('')
@@ -30,11 +30,12 @@ const totals=computed(()=>props.draftTotals??savedTotals.value)
 let sequence=0,controller
 const currencies=computed(()=>[...new Set(['CNY','USD','HKD','EUR','GBP','JPY',...totals.value.map(item=>item.currency)])])
 const sameAmount=(a,b)=>Math.round(Number(a)*100)===Math.round(Number(b)*100)
-const reference=computed(()=>totals.value.find(item=>item.key===`billing:${value.value.fullPaymentCurrency}`))
+const referenceKey=computed(()=>`${props.summaryLabel==='对账单'?'statement':props.summaryLabel==='订单汇总'?'monthly':'billing'}:${value.value.fullPaymentCurrency}`)
+const reference=computed(()=>totals.value.find(item=>item.key===referenceKey.value))
 const referenceTaxLabel=computed(()=>({incl_tax:'含税',excl_tax:'不含税',mixed:'按子订单计费口径'})[reference.value?.taxMode]||'项目计费口径')
-const fixedCharge=computed(()=>props.pricingMode==='fixed')
-const referenceFieldLabel=computed(()=>fixedCharge.value?`${({incl_tax:'（含税）',excl_tax:'（不含税）'})[reference.value?.taxMode||props.billingTaxMode]||'（含税/不含税）'}固定收费`:'对应项目总价')
-const status=computed(()=>loading.value||value.value.fullPaymentAmount==null?'pending':reference.value&&reference.value.currency===value.value.fullPaymentCurrency&&sameAmount(reference.value.amount,value.value.fullPaymentAmount)?'matched':'mismatch')
+const fixedCharge=computed(()=>!props.summaryLabel&&props.pricingMode==='fixed')
+const referenceFieldLabel=computed(()=>props.summaryLabel?`对应${props.summaryLabel}总价`:fixedCharge.value?`${({incl_tax:'（含税）',excl_tax:'（不含税）'})[reference.value?.taxMode||props.billingTaxMode]||'（含税/不含税）'}固定收费`:'对应项目总价')
+const status=computed(()=>loading.value||value.value.fullPaymentAmount==null||(props.summaryLabel&&!totals.value.length)?'pending':reference.value&&reference.value.currency===value.value.fullPaymentCurrency&&sameAmount(reference.value.amount,value.value.fullPaymentAmount)?'matched':'mismatch')
 const legacy=computed(()=>value.value.fullMatchStatus==='unverified'&&value.value.fullPaymentAmount==null)
 function update(key,data){emit('update:modelValue',{...value.value,[key]:data})}
 function validateAmount(_rule,_amount,callback){callback(legacy.value?undefined:error.value?new Error('请先重新加载项目总价'):loading.value?new Error('项目总价正在加载'):value.value.fullPaymentAmount==null?new Error('请填写已付全款金额'):undefined)}
@@ -57,9 +58,9 @@ watch([status,reasonField,editingAmount],([match,field,isEditing])=>{
   if(!target?.getClientRects().length||!focusFormTarget(target))return
   scrollFormTarget(target)
 },{flush:'post'})
-watch([totals,()=>value.value.fullPaymentCurrency,loading],()=>{
+watch([totals,referenceKey,loading],()=>{
   if(loading.value)return
-  const key=reference.value?.key||null
+  const key=props.summaryLabel?referenceKey.value:reference.value?.key||null
   if(key!==value.value.fullPaymentTotalKey)emit('reference-change',key)
 },{immediate:true})
 onBeforeUnmount(()=>{window.removeEventListener(paymentChangeEvent,onPaymentChanged);sequence++;controller?.abort()})

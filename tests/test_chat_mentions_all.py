@@ -59,8 +59,11 @@ def test_discussion_mentions_all_and_outsider_rejection_idempotency_read_recall(
     decorate_member_counts(db, catalog)
     assert row['member_count'] == 2
     assert row['mention_unread']==1 and row['last_message']['mentions_me']
+    assert row['mention_all_unread'] == 1 and row['last_message']['mention_all']
     inbox=list_mentions(db,receiver,project_type='discussion');assert inbox['total']==1
     assert inbox['items'][0]['message_id']==result['id']
+    assert list_mentions(db, receiver, mention_kind='personal')['total'] == 0
+    assert list_mentions(db, receiver, mention_kind='all')['items'][0]['mention_all'] is True
     assert list_mentions(db,outsider,project_type='discussion')['total']==0
     service.preferences(db,receiver,room,PreferenceWrite(read_message_id=int(result['id'])))
     assert list_mentions(db,receiver,project_type='discussion')['items'][0]['unread'] is False
@@ -119,6 +122,8 @@ def test_direct_mentions_are_pair_only_and_global_inbox_cursor(chat_env):
     assert {first['items'][0]['project_type'],second['items'][0]['project_type']}=={'discussion','direct'}
     assert list_mentions(db,receiver,keyword='第二条')['total']==1
     assert list_mentions(db,outsider)['total']==0
+    assert list_mentions(db, receiver, mention_kind='all')['total'] == 2
+    assert list_mentions(db, receiver, mention_kind='personal')['total'] == 0
 
 
 def test_mention_sort_unread_first_customer_and_cursor(chat_env):

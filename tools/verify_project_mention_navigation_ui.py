@@ -3,6 +3,7 @@ import json
 import re
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from urllib.request import urlopen
 from playwright.sync_api import sync_playwright, expect
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +32,9 @@ def run():
     output.mkdir(parents=True, exist_ok=True)
     dependency_hash = json.loads((ROOT / 'frontend/node_modules/.vite/deps/_metadata.json').read_text(encoding='utf-8'))['browserHash']
     html = re.sub(r"(/node_modules/\.vite/deps/[^']+\.js)'", rf"\1?v={dependency_hash}'", HTML)
+    compiled_dock = urlopen('http://localhost:3000/src/components/chat/ProjectChatDock.vue', timeout=20).read().decode()
+    store_url = re.search(r'from ["\']([^"\']*useProjectChatDock\.js[^"\']*)', compiled_dock).group(1)
+    html = html.replace("'/src/composables/useProjectChatDock.js'", json.dumps(store_url))
     projects = [dict(key=f'annotation:{i}', project_id=str(i), kind='annotation', title=f'测试项目{i}',
                      subtitle=f'AP-{i}', project_status='trial_in_progress', following=True, unread=0, mention_unread=0)
                 for i in range(1, 5)]

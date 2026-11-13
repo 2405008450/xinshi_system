@@ -1,7 +1,7 @@
 <template>
 <section class="payment-registration-fields">
         <el-descriptions v-if="depositSelected" :column="3" border class="payment-summary"><el-descriptions-item label="预定合计">{{total('planned_amount')}}</el-descriptions-item><el-descriptions-item label="实际付款合计">{{total('actual_amount')}}</el-descriptions-item><el-descriptions-item label="付款状态">{{paymentStatus}}</el-descriptions-item></el-descriptions>
-        <PaymentConfirmationFields :pricing-mode="form.pricingMode" :billing-tax-mode="effectiveBillingTaxMode(form)" :draft-totals="draftTotals" :model-value="confirmation" :project-id="projectId" :details-in-payments="depositSelected" :payments="payments" :prefix="prefix" @update:model-value="updateConfirmation" @reference-change="updateReference">
+        <PaymentConfirmationFields :pricing-mode="form.pricingMode" :billing-tax-mode="effectiveBillingTaxMode(form)" :draft-totals="draftTotals" :summary-label="summaryLabel" :model-value="confirmation" :project-id="projectId" :details-in-payments="depositSelected" :payments="payments" :prefix="prefix" @update:model-value="updateConfirmation" @reference-change="updateReference">
           <template #actions><slot name="actions" /></template>
           <template #confirm-full><el-button v-if="canConfirm" :disabled="confirmDisabled || confirmation.fullPaymentAmount==null" @click="emit('confirm-payment',null)">{{confirmation.fullPaymentConfirmedAt?'重新确认全款':'确认全款'}}</el-button></template>
         </PaymentConfirmationFields>
@@ -33,7 +33,7 @@ import PaymentAccountSelect from './PaymentAccountSelect.vue'
 import ScreenshotInput from './ScreenshotInput.vue'
 import {paymentConfirmationForm,fixFirstDepositStage,clearPaymentSelection} from '@/utils/paymentConfirmation'
 const form=defineModel({type:Object,required:true})
-defineProps({projectId:String,draftTotals:{type:Array,default:null},prefix:{type:String,default:'paymentConfirmation'},canConfirm:Boolean,confirmDisabled:Boolean})
+defineProps({projectId:String,draftTotals:{type:Array,default:null},summaryLabel:String,prefix:{type:String,default:'paymentConfirmation'},canConfirm:Boolean,confirmDisabled:Boolean})
 const emit=defineEmits(['confirm-payment'])
 const confirmation=computed({get:()=>form.value.paymentConfirmation,set:value=>{form.value.paymentConfirmation=value}})
 const payments=computed({get:()=>form.value.paymentDraft||[],set:value=>{form.value.paymentDraft=value}})

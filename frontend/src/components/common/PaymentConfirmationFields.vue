@@ -1,6 +1,7 @@
 <template>
   <section class="payment-confirmation" data-dialog-field-search-group data-dialog-field-search-group-title="付款情况">
     <div class="payment-confirmation-heading"><strong>付款情况</strong><div><slot name="actions" /><el-button v-if="projectId" link @click="openHistory">付款修改记录</el-button></div></div>
+    <p v-if="summaryLabel" class="payment-confirmation-help">请按上方{{summaryLabel}}的计费合计付款，登记全款或尾款时按同一金额核对。</p>
     <el-form-item label="付款状态" :prop="`${prefix}.paymentOption`" :rules="value.isPaid?[{required:true,message:'请选择付款状态',trigger:'change'}]:[]">
       <div class="payment-status-controls">
         <el-radio-group :disabled="switching" :model-value="value.isPaid?value.paymentOption:null" @update:model-value="selectStatus"><el-radio v-for="item in paymentOptions" :key="item.value" :value="item.value">{{item.label}}</el-radio></el-radio-group>
@@ -8,7 +9,7 @@
       </div>
       <small v-if="value.paymentOption==='once'">历史：已登记分次付款</small>
     </el-form-item>
-    <FullPaymentMatchFields v-if="value.isPaid&&(value.paymentOption==='full'||value.fullPaymentSource==='details')" :draft-totals="draftTotals" :pricing-mode="pricingMode" :billing-tax-mode="billingTaxMode" :from-details="value.paymentOption!=='full'" @reference-change="emit('reference-change',$event)" :model-value="value" :project-id="projectId" :prefix="prefix" @update:model-value="emit('update:modelValue',$event)" />
+    <FullPaymentMatchFields v-if="value.isPaid&&(value.paymentOption==='full'||value.fullPaymentSource==='details')" :draft-totals="draftTotals" :summary-label="summaryLabel" :pricing-mode="pricingMode" :billing-tax-mode="billingTaxMode" :from-details="value.paymentOption!=='full'" @reference-change="emit('reference-change',$event)" :model-value="value" :project-id="projectId" :prefix="prefix" @update:model-value="emit('update:modelValue',$event)" />
     <el-form-item v-if="value.isPaid&&!detailsInPayments" label="付款账户" :prop="`${prefix}.paymentAccount`"><PaymentAccountSelect :model-value="value.paymentAccount" @update:model-value="update('paymentAccount',$event)" /></el-form-item>
     <el-row v-if="value.isPaid && value.paymentOption==='full'" :gutter="12">
       <el-col :xs="24" :md="12"><el-form-item label="确认人"><ReadonlyField :model-value="value.fullPaymentConfirmedByName || ''" source="auto" placeholder="待行政部确认" /></el-form-item></el-col>
@@ -37,7 +38,7 @@ import FullPaymentMatchFields from './FullPaymentMatchFields.vue'
 import ScreenshotText from './ScreenshotText.vue'
 import PaymentDetailsHistoryTable from './PaymentDetailsHistoryTable.vue'
 import DraggableFormDialog from './DraggableFormDialog.vue'
-const props=defineProps({modelValue:Object,projectId:{type:String,default:''},prefix:{type:String,default:'confirmation'},detailsInPayments:Boolean,pricingMode:String,billingTaxMode:String,payments:{type:Array,default:null},draftTotals:{type:Array,default:null}})
+const props=defineProps({modelValue:Object,projectId:{type:String,default:''},prefix:{type:String,default:'confirmation'},detailsInPayments:Boolean,pricingMode:String,billingTaxMode:String,payments:{type:Array,default:null},draftTotals:{type:Array,default:null},summaryLabel:String})
 const emit=defineEmits(['update:modelValue','reference-change'])
 const value=computed(()=>paymentConfirmationForm(props.modelValue))
 function update(key,data){emit('update:modelValue',{...value.value,[key]:data})}

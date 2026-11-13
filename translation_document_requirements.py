@@ -7,6 +7,17 @@ from fastapi import HTTPException
 from models import Base
 from annotation_progress_time import business_now
 
+PaymentMethod = Literal['individual', 'statement', 'monthly']
+
+
+def payment_method(project):
+    if getattr(project, 'statement_required', True):
+        return 'statement'
+    method = getattr(project, 'recorded_payment_method', None)
+    if method in ('individual', 'monthly'):
+        return method
+    return 'monthly' if getattr(project, 'has_monthly_payment_peers', False) else 'individual'
+
 
 class QuotationLine(BaseModel):
     model_config = ConfigDict(extra='forbid')
@@ -119,14 +130,15 @@ def attach(db, projects):
         choice=defaults.get(project.id,'unknown')
         inherited=choice=='required' if choice!='unknown' else getattr(project,'customer_type',None)!='个人客户'
         project.statement_required = row.statement_required if project.statement_required_explicit else inherited and not full_payment(getattr(project,'payment_confirmation',None))
+        project.recorded_payment_method = (row.quotation_data or {}).get('_payment_method') if row else None
         project.quotation_draft = quotation_value(row)
         project.document_notes = document_notes(row)
         project.invoice_data=(row.quotation_data or {}).get('_invoice',{}) if row else {}
         project.order_pricing_modes = (row.quotation_data or {}).get('_order_pricing_modes', {}) if row else {}
 
 
-def save(db, project, *, statement_required=None, quotation_draft=None, document_notes=None, actor_id=None):
-    if statement_required is None and quotation_draft is None and document_notes is None:
+def save(db, project, *, statement_required=None, quotation_draft=None, document_notes=None, payment_method=None, actor_id=None):
+    if statement_required is None and quotation_draft is None and document_notes is None and payment_method is None:
         return
     if not ready(db):
         raise HTTPException(503, '项目单据存储尚未初始化')
@@ -143,6 +155,9 @@ def save(db, project, *, statement_required=None, quotation_draft=None, document
     if document_notes is not None:
         stored['_document_notes']=document_notes.model_dump(mode='json')
         project.document_notes=document_notes.model_dump(mode='json')
+    if payment_method is not None:
+        stored['_payment_method'] = payment_method
+        project.recorded_payment_method = payment_method
     row.quotation_data=stored or None
     row.updated_by = actor_id
     row.updated_at = business_now()

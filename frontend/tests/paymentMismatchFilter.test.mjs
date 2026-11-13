@@ -8,7 +8,7 @@ const source=readFileSync(new URL('../src/components/common/ProjectPaymentDialog
 
 function harness(response){
   const ctx={paymentFilters:reactive({months:['2020-01'],client:'其他客户',status:fullPaymentMismatchOption.value}),
-    activeTab:ref('overview'),managerScope:ref('self'),managerIds:ref([]),projectPage:ref(2),props:{},selectedId:ref(''),
+    projectSort:ref(),activeTab:ref('overview'),managerScope:ref('self'),managerIds:ref([]),projectPage:ref(2),props:{},selectedId:ref(''),
     previousSelectionScope:'',projectTable:ref(null),selectedProjects:ref([]),searchSequence:0,controller:null,projectTimer:null,clearTimeout,AbortController,
     options:ref([{id:'old-unpaid',paymentStatus:'unpaid'}]),projectTotal:ref(1),error:ref(''),searching:ref(false),
     getCustomerFinancePage:async()=>response,getLocalizedErrorMessage:e=>e.message,load:async()=>{}}

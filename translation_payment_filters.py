@@ -38,7 +38,15 @@ def attach_payment_status(db,result):
         amount=confirmation.get('full_payment_amount') if confirmation.get('is_paid') and confirmation.get('payment_option')=='full' else amounts.get(item['id'],0)
         item['payment_status']=states.get(item['id'],'unpaid');item['payment_actual_total']=format(Decimal(str(amount)),'.2f') if amount is not None else None
         item['payment_currency']=confirmation.get('full_payment_currency','CNY')
-        item['payment_amount_mismatch']=payment_amount_mismatches(item,confirmation)
+        reference_item = item
+        reference_key = confirmation.get('full_payment_total_key') or ''
+        if item['payment_status'] == 'full' and reference_key.startswith(('statement:', 'monthly:')):
+            from translation_payment_confirmation import project_totals
+            totals = project_totals(db, UUID(item['id']))['items']
+            selected = next((total for total in totals if total['key'] == reference_key), None)
+            reference_item = {**item, 'billing_totals': {selected['currency']: selected['amount']} if selected else {}}
+            confirmation = {**confirmation, 'full_payment_total_key': f"billing:{reference_key.partition(':')[2]}"}
+        item['payment_amount_mismatch']=payment_amount_mismatches(reference_item,confirmation)
         # 付款属于母订单，下级展示同一份付款状态。
         pending=list(item.get('children',[]))
         while pending:

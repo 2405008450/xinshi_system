@@ -1,6 +1,10 @@
-const scaled = value => BigInt(Number(value).toFixed(4).replace('.', ''))
-export function quotationLineCents(item) {
+const scaled = (value, decimals) => BigInt(Number(value).toFixed(decimals).replace('.', ''))
+export function quotationLineCents(item, unitDecimals = 4) {
   if (item.quantity == null || item.unit_price == null) return null
-  return (scaled(item.quantity) * scaled(item.unit_price) + 500000n) / 1000000n
+  const divisor = 10n ** BigInt(unitDecimals + 2)
+  return (scaled(item.quantity, 4) * scaled(item.unit_price, unitDecimals) + divisor / 2n) / divisor
 }
-export const quotationMoney = cents => `${cents / 100n}.${String(cents % 100n).padStart(2, '0')}`
+export const quotationMoney = cents => {
+  const absolute = cents < 0n ? -cents : cents
+  return `${cents < 0n ? '-' : ''}${absolute / 100n}.${String(absolute % 100n).padStart(2, '0')}`
+}

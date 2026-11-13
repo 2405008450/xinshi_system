@@ -1,7 +1,13 @@
 <template>
   <div class="finance-workspace">
-    <RouteSectionNavigation :items="sections" label="财务管理分类"><template #actions><el-button link type="primary" @click="helpVisible=true">帮助</el-button></template></RouteSectionNavigation>
+    <RouteSectionNavigation :items="sections" label="财务管理分类">
+      <template #actions>
+        <el-button link type="primary" @click="helpVisible=true">帮助</el-button>
+        <el-button class="revenue-entry" size="small" @click="revenueVisible=true">营收统计</el-button>
+      </template>
+    </RouteSectionNavigation>
     <FinanceWorkflowHelp v-model="helpVisible" />
+    <RevenueStatisticsDialog v-model="revenueVisible" />
     <keep-alive>
       <component :is="activeComponent" v-if="activeComponent" :key="activeModule">
         <template v-if="activeModule === 'translation'" #project-type-filter>
@@ -25,12 +31,14 @@ import { computed, defineAsyncComponent, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import RouteSectionNavigation from '@/components/common/RouteSectionNavigation.vue'
 import FinanceWorkflowHelp from '@/components/common/FinanceWorkflowHelp.vue'
+import RevenueStatisticsDialog from '@/components/common/RevenueStatisticsDialog.vue'
 
 const route = useRoute()
 const helpVisible=ref(false)
+const revenueVisible=ref(false)
 const projectTypes = [
   { value: 'translation', label: '笔译', available: true },
-  { value: 'interpretation', label: '口译（待开发）', available: false },
+  { value: 'interpretation', label: '口译', available: true },
   { value: 'annotation', label: '标注（待开发）', available: false },
   { value: 'recruitment', label: '招聘（待开发）', available: false },
 ]
@@ -41,6 +49,7 @@ const sections = projectTypes.map(type => ({
 const views = {
   permissions:defineAsyncComponent(()=>import('../finance/StatementPermissions.vue')),
   translation: defineAsyncComponent(() => import('./translation/CustomerFinance.vue')),
+  interpretation: defineAsyncComponent(() => import('./interpretation/CustomerFinance.vue')),
 }
 const activeModule = computed(() => route.params.module)
 const activeProjectType = computed(() => projectTypes.find(type => type.value === activeModule.value))
@@ -49,5 +58,6 @@ const activeComponent = computed(() => views[activeModule.value])
 
 <style scoped>
 .finance-workspace { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.finance-workspace .revenue-entry { margin-inline-start: auto; }
 :global(.main-content:has(.finance-workspace)) { padding-bottom: 0; }
 </style>

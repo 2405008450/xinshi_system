@@ -12,7 +12,7 @@
         <el-form-item label="发票说明"><ReadonlyField :model-value="display.note||'-'" source="auto" /><small>说明在价格与付款中填写。</small></el-form-item>
         <el-form-item label="发票状态" prop="invoiceStatus" :rules="[{required:true,message:'请选择发票状态',trigger:'change'}]"><el-select v-model="form.invoiceStatus" style="width:100%"><el-option v-for="option in invoiceStatusOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></el-form-item>
         <el-form-item label="发票截图及备注">
-          <ScreenshotInput v-model="form.proofs" type="textarea" allow-invoice-files :invoice-request-id="requestId" :rows="3" :maxlength="20000"
+          <ScreenshotInput v-model="form.proofs" type="textarea" allow-invoice-files :invoice-request-id="requestId" :invoice-order-no="display.orderNo" :rows="3" :maxlength="20000"
             :disabled="loading || saving || !canWrite || !context.projectId" placeholder="拖入 PDF、OFD 发票或截图，也可填写开票备注"
             @uploading-change="onUploadingChange" @attachment-added="attachmentAdded = true" />
         </el-form-item>

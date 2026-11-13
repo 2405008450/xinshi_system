@@ -83,6 +83,7 @@ def history_query(db,user,keyword='',*,project_type=None,project_status=None,pro
             case((ChatProjectMessage.annotation_project_id.is_not(None),AnnotationProject.project_name),else_=TranslationProject.project_name).label('title'),
             case((ChatProjectMessage.annotation_project_id.is_not(None),AnnotationProject.order_no),else_=TranslationProject.order_no).label('subtitle'),
             ChatProjectMessage.sender_name.label('sender_name'),ChatProjectMessage.content.label('content'),ChatProjectMessage.created_at.label('stamp'),ChatProjectMessage.sequence_no.label('sequence_no'),
+            func.coalesce(ChatProjectMessage.event_data['mention_all'].as_boolean(), false()).label('mention_all'),
             (ChatProjectMessage.sequence_no>case((ChatProjectMessage.annotation_project_id.is_not(None),func.coalesce(AnnotationChatMember.last_read_sequence,0)),else_=func.coalesce(ChatProjectMemberPref.last_read_sequence,0) if phase_one_ready(db) else literal(0))).label('unread')).statement)
     if project_type in (None,'direct') and not project_status and phase_one_ready(db):
         message=ChatProjectMessage
@@ -91,7 +92,7 @@ def history_query(db,user,keyword='',*,project_type=None,project_status=None,pro
         if keyword.strip():
             from search_matching import keyword_contains
             query=query.filter(or_(*[keyword_contains(column,keyword) for column in (message.content,message.sender_name)]))
-        sources.append(query.with_entities(cast(message.id,String).label('message_id'),cast(message.direct_conversation_id,String).label('project_id'),literal('direct').label('kind'),literal('私聊').label('title'),literal('').label('subtitle'),message.sender_name.label('sender_name'),message.content.label('content'),message.created_at.label('stamp'),message.sequence_no.label('sequence_no'),(message.sequence_no>ChatDirectMember.last_read_sequence).label('unread')).statement)
+        sources.append(query.with_entities(cast(message.id,String).label('message_id'),cast(message.direct_conversation_id,String).label('project_id'),literal('direct').label('kind'),literal('私聊').label('title'),literal('').label('subtitle'),message.sender_name.label('sender_name'),message.content.label('content'),message.created_at.label('stamp'),message.sequence_no.label('sequence_no'),func.coalesce(message.event_data['mention_all'].as_boolean(), false()).label('mention_all'),(message.sequence_no>ChatDirectMember.last_read_sequence).label('unread')).statement)
     from discussion_mentions import ready
     if project_type in (None,'discussion') and not project_status and ready(db):
         import discussion_chat_service as discussion
@@ -107,9 +108,9 @@ def history_query(db,user,keyword='',*,project_type=None,project_status=None,pro
             from search_matching import keyword_contains
             query=query.filter(or_(*[keyword_contains(column,keyword) for column in (title,Message.content,Message.sender_name)]))
         stamp=func.timezone('Asia/Hong_Kong',Message.created_at) if db.get_bind().dialect.name=='postgresql' else Message.created_at
-        sources.append(query.with_entities(cast(Message.id,String).label('message_id'),cast(Message.room_id,String).label('project_id'),literal('discussion').label('kind'),title.label('title'),literal('讨论会话').label('subtitle'),Message.sender_name.label('sender_name'),Message.content.label('content'),stamp.label('stamp'),Message.id.label('sequence_no'),(Message.id>Member.last_read_id).label('unread')).statement)
+        sources.append(query.with_entities(cast(Message.id,String).label('message_id'),cast(Message.room_id,String).label('project_id'),literal('discussion').label('kind'),title.label('title'),literal('讨论会话').label('subtitle'),Message.sender_name.label('sender_name'),Message.content.label('content'),stamp.label('stamp'),Message.id.label('sequence_no'),func.coalesce(Mention.is_all, false()).label('mention_all'),(Message.id>Member.last_read_id).label('unread')).statement)
     if not sources:
-        sources=[select(literal('').label('message_id'),literal('').label('project_id'),literal('').label('kind'),literal('').label('title'),literal('').label('subtitle'),literal('').label('sender_name'),literal('').label('content'),literal(datetime(1970,1,1)).label('stamp'),literal(0).label('sequence_no'),literal(False).label('unread')).where(false())]
+        sources=[select(literal('').label('message_id'),literal('').label('project_id'),literal('').label('kind'),literal('').label('title'),literal('').label('subtitle'),literal('').label('sender_name'),literal('').label('content'),literal(datetime(1970,1,1)).label('stamp'),literal(0).label('sequence_no'),literal(False).label('mention_all'),literal(False).label('unread')).where(false())]
     return union_all(*sources).subquery()
 
 
@@ -140,7 +141,7 @@ def decorate_mention_sessions(db, user, rows, stats=None):
         row.update(mention_history_count=count, latest_mention_at=api_time(stamp), customer_name=customers.get(key, ''))
 
 
-def list_mentions(db, user, *, keyword='', before=None, limit=50, project_type=None, project_status=None, project_id=None, sort='time_desc'):
+def list_mentions(db, user, *, keyword='', before=None, limit=50, project_type=None, project_status=None, project_id=None, sort='time_desc', mention_kind=None):
     import base64,json
     from datetime import datetime
     from uuid import UUID
@@ -156,6 +157,8 @@ def list_mentions(db, user, *, keyword='', before=None, limit=50, project_type=N
         names.append((table.c.kind == kind, name))
     table = db.query(table, func.coalesce(case(*names, else_=''), '').label('customer_name')).subquery()
     query=db.query(table)
+    if mention_kind is not None:
+        query = query.filter(table.c.mention_all.is_(mention_kind == 'all'))
     total=query.count()
     ascending = sort == 'time_asc'
     customer_sort = sort.startswith('customer_')
@@ -187,7 +190,7 @@ def list_mentions(db, user, *, keyword='', before=None, limit=50, project_type=N
     items=[]
     for row in rows[:limit]:
         pid=UUID(row.project_id)
-        items.append(dict(message_id=str(row.message_id) if row.kind=='discussion' else UUID(row.message_id),sequence_no=row.sequence_no,key=f'{row.kind}:{pid}',project_id=pid,project_type=row.kind,title=row.title or '未命名会话',subtitle=row.subtitle or '',sender_name=row.sender_name,preview=' '.join((row.content or '').split())[:500] or '[附件]',created_at=api_time(row.stamp),unread=bool(row.unread)))
+        items.append(dict(message_id=str(row.message_id) if row.kind=='discussion' else UUID(row.message_id),sequence_no=row.sequence_no,key=f'{row.kind}:{pid}',project_id=pid,project_type=row.kind,title=row.title or '未命名会话',subtitle=row.subtitle or '',sender_name=row.sender_name,preview=' '.join((row.content or '').split())[:500] or '[附件]',created_at=api_time(row.stamp),unread=bool(row.unread),mention_all=bool(row.mention_all)))
     has_more=len(rows)>limit
     cursor=None
     if has_more and items:

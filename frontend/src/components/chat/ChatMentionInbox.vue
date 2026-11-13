@@ -3,7 +3,7 @@
     <div class="chat-mention-inbox__heading" title="右键可调整排序；未读始终优先"><span>{{ keyword ? '搜索结果' : sortLabel }} · 未读优先</span><small>{{ total }} 条</small></div>
     <p v-if="error" class="chat-mention-inbox__error" role="alert">{{ error }} <el-button link @click="reload">重试</el-button></p>
     <div v-if="loading && !items.length" class="chat-mention-inbox__status" role="status">正在加载提及消息…</div>
-    <el-empty v-else-if="!items.length && !error" :description="keyword ? '没有匹配的提及消息' : '暂无提及我的消息'" :image-size="48" />
+    <el-empty v-else-if="!items.length && !error" :description="keyword ? '没有匹配的提及消息' : filters.mentionKind === 'all' ? '暂无 @所有人 的消息' : '暂无提及我的消息'" :image-size="48" />
     <button v-for="item in items" :key="item.messageId" type="button" class="chat-mention-inbox__message"
       :class="{ 'is-active': selectedMessageId === item.messageId }" :title="`${item.title} · ${item.senderName}：${screenshotPreview(item.preview)}`"
       @click="select(item)">
@@ -11,7 +11,7 @@
       <span class="chat-mention-inbox__content">
         <span class="chat-mention-inbox__title"><strong>{{ item.title }}</strong><time :title="formatBusinessDateTime(item.createdAt)">{{ chatDateLabel(item.createdAt) }}</time></span>
         <span class="chat-mention-inbox__sender">{{ item.senderName }}<b v-if="item.unread">未读</b></span>
-        <span class="chat-mention-inbox__preview"><mark>@我</mark> {{ screenshotPreview(item.preview) }}</span>
+        <span class="chat-mention-inbox__preview"><mark :class="{ 'is-broadcast': item.mentionAll }">{{ item.mentionAll ? '@所有人' : '@我' }}</mark> {{ screenshotPreview(item.preview) }}</span>
         <small class="chat-mention-inbox__source">{{ ({annotation:'标注项目群',translation:'笔译项目群',discussion:'讨论会话',direct:'私聊'})[item.projectType] || '会话' }}<template v-if="item.subtitle"> · {{ item.subtitle }}</template></small>
       </span>
     </button>
@@ -52,6 +52,7 @@ function select(item) { selectedMessageId.value = item.messageId; emit('locate',
 .chat-mention-inbox__sender b{color:#dc2626;font-size:10px;font-weight:500}
 .chat-mention-inbox__preview{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;font-size:12px;line-height:1.6}
 .chat-mention-inbox__preview mark{border-radius:3px;background:#fef3c7;color:#92400e;padding:0 3px}
+.chat-mention-inbox__preview mark.is-broadcast{background:#ffedd5;color:#9a3412}
 .chat-mention-inbox__source{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#94a3b8;font-size:10px}
 .chat-mention-inbox__status{padding:16px;text-align:center;color:#94a3b8;font-size:12px}
 .chat-mention-inbox__error{padding:8px;color:#b91c1c;font-size:12px}

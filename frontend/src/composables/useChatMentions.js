@@ -23,7 +23,8 @@ export function useChatMentions(keyword, active, filters = ref({}), anchor = ref
     const version = ++generation
     const userId = localStorage.getItem('user_id')
     const params = { keyword: keyword.value, project_type: filters.value.projectType || undefined,
-      project_status: filters.value.projectStatus || undefined, project_id: filters.value.projectId || undefined, sort: filters.value.sort || undefined }
+      project_status: filters.value.projectStatus || undefined, project_id: filters.value.projectId || undefined, sort: filters.value.sort || undefined,
+      mention_kind: filters.value.mentionKind || undefined }
     const target = background ? Math.max(50, items.value.length) : 50
     const collected = []
     let before = append ? nextBefore : null

@@ -12,6 +12,10 @@ contextBridge.exposeInMainWorld('xinshiDesktop', Object.freeze({
     if(!document.hasFocus()||!navigator.userActivation.isActive)return Promise.reject(Error('请点击准备PDF文件'))
     return ipcRenderer.invoke('xinshi:prepare-statement-pdf',data)
   },
+  prepareInvoiceFile: data => {
+    if (!document.hasFocus() || !navigator.userActivation.isActive) return Promise.reject(Error('请点击准备桌面拖出'))
+    return ipcRenderer.invoke('xinshi:prepare-invoice-file', data)
+  },
   dragStatementFile: token => {
     if(document.hasFocus())ipcRenderer.send('xinshi:drag-statement-file',token)
   },

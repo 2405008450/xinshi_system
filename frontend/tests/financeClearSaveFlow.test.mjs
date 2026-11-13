@@ -25,6 +25,7 @@ test('固定收费清空后，打开关联付款但不操作，返回可保存�
     editorSignature:()=>'',original:ref(''),pricingModeOnlySignature:ref(null),originalPaymentConfirmation:ref(''),notifyPaymentChanged:()=>{},financePaymentSource:'test',editorVisible:ref(true),
     ElMessage:{warning:value=>errors.push(value),success:()=>{}},emit:()=>{},load:async()=>{},getLocalizedErrorMessage:e=>e.message}
   vm.createContext(ctx)
+  vm.runInContext(source.match(/const paymentMethodSignatureIndex=\d+/)[0]+';'+source.slice(source.indexOf('function changedPaymentMethod('),source.indexOf('function documentPayload(')),ctx)
   vm.runInContext(source.slice(source.indexOf('async function openLinkedPayment()'),source.indexOf('function onPaymentSaved(')),ctx)
   ctx.syncPreviewPending=ref(false)
   vm.runInContext(source.slice(source.indexOf('let automaticRateCheck'),source.indexOf('watch(()=>[editor.value.pricingMode')),ctx)

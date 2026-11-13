@@ -25,13 +25,13 @@
     <div class="chat-workspace__body">
       <nav v-if="maximized && !narrow" class="chat-workspace__rail" aria-label="沟通导航">
         <span class="chat-workspace__user-avatar" title="我的沟通">{{ chatAvatarText(currentUserName) }}</span>
-        <button v-for="item in panes" :key="item.key" type="button" :title="item.key === 'messages' && mentionTotal ? `${mentionTotal} 条未读 @我，点击查看` : item.label" :aria-label="item.label" :aria-pressed="pane === item.key" :class="{ 'is-active': pane === item.key }" @click="selectPane(item.key)" @contextmenu="openProjectMenu($event,item.key)" @keydown.shift.f10="openProjectMenu($event,item.key)">
+        <button v-for="item in panes" :key="item.key" type="button" :title="item.key === 'messages' && mentionTotal ? `${mentionTotal} 条未读提及，点击查看` : item.label" :aria-label="item.label" :aria-pressed="pane === item.key" :class="{ 'is-active': pane === item.key }" @click="selectPane(item.key)" @contextmenu="openProjectMenu($event,item.key)" @keydown.shift.f10="openProjectMenu($event,item.key)">
           <el-badge :value="item.key === 'notifications' ? notificationBadgeTotal : messageBadgeTotal" :max="99" :hidden="item.key === 'notifications' ? !notificationBadgeTotal : item.key !== 'messages' || !messageBadgeTotal" @click.stop="badgeClick(item.key)"><el-icon><component :is="item.icon" /></el-icon></el-badge><small><b v-if="item.key === 'messages' && mentionTotal" class="chat-mention-label">@</b>{{ item.label }}</small>
         </button>
       </nav>
       <aside v-show="!['summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(pane) && (!narrow || sidebarOpen)" class="chat-workspace__sessions" :style="{ width: `${sessionWidth}px` }">
         <div v-if="!maximized || narrow" class="chat-workspace__pane-tabs" role="tablist" aria-label="沟通导航"><button v-for="item in panes" :key="item.key" type="button" :aria-label="item.label" :aria-pressed="pane === item.key" :class="{ 'is-active': pane === item.key }" @click="selectPane(item.key)" @contextmenu="openProjectMenu($event,item.key)" @keydown.shift.f10="openProjectMenu($event,item.key)"><span>{{ item.label }}</span><b v-if="item.key === 'messages' && mentionTotal" class="chat-mention-label">@</b><span v-if="item.key === 'notifications' && notificationBadgeTotal" class="chat-pane-count" @click.stop="badgeClick(item.key)">{{ notificationBadgeTotal > 99 ? '99+' : notificationBadgeTotal }}</span><span v-if="item.key === 'messages' && messageBadgeTotal" class="chat-pane-count">{{ messageBadgeTotal > 99 ? '99+' : messageBadgeTotal }}</span></button></div>
-        <div v-else class="chat-workspace__brand"><strong>{{ pane === 'messages' && (showMentions || annotationMentionView) ? '@我' : panes.find(item => item.key === pane)?.label }}</strong><small>{{ pane === 'messages' ? showMentions ? `${filteredMentionTotal} 条提及` : '' : pane === 'contacts' ? '内部通讯录' : '' }}</small></div>
+        <div v-else class="chat-workspace__brand"><strong>{{ pane === 'messages' && (showMentions || annotationMentionView) ? (annotationMode === 'mention-all' ? '@所有人' : showMentions ? '@我' : '提及') : panes.find(item => item.key === pane)?.label }}</strong><small>{{ pane === 'messages' ? showMentions ? `${filteredMentionTotal} 条提及` : '' : pane === 'contacts' ? '内部通讯录' : '' }}</small></div>
         <div v-if="!narrow" class="chat-workspace__split-tools"><button type="button" title="恢复左右区域的默认宽度" @click="emit('split-reset')">恢复默认分区</button></div>
         <template v-if="pane === 'messages'">
           <div class="chat-workspace__session-tools">
@@ -49,7 +49,8 @@
             <div class="chat-workspace__annotation-mode" role="group" aria-label="消息范围">
               <button type="button" :aria-pressed="annotationMode === 'group'" :class="{ 'is-active': annotationMode === 'group' }" @click="annotationMode = 'group'">群聊</button>
               <button type="button" :aria-pressed="annotationMode === 'direct'" :class="{ 'is-active': annotationMode === 'direct' }" @click="annotationMode = 'direct'">单聊</button>
-              <button type="button" :aria-pressed="annotationMode === 'mention'" :class="{ 'is-active': annotationMode === 'mention' }" @click="annotationMode = 'mention'" @contextmenu="mentionSortMenu?.open($event)" @keydown.shift.f10="mentionSortMenu?.open($event)">@我</button>
+              <button type="button" :aria-pressed="annotationMode === 'mention'" :class="{ 'is-active': annotationMode === 'mention' }" @click="openMentionInbox('mention')" @contextmenu="mentionSortMenu?.open($event)" @keydown.shift.f10="mentionSortMenu?.open($event)">@我</button>
+              <button type="button" :aria-pressed="annotationMode === 'mention-all'" :class="{ 'is-active': annotationMode === 'mention-all' }" @click="openMentionInbox('mention-all')" @contextmenu="mentionSortMenu?.open($event)" @keydown.shift.f10="mentionSortMenu?.open($event)">@所有人</button>
             </div>
           </div>
           <ChatSessionFolderTree ref="folderTreeRef" v-if="annotationMode !== 'direct'" :compact="mobile" :selected="selectedFolder" :active="active" :sessions="allMentionSessions" @select="selectFolder" @unread="openFolderUnread" @changed="emit('categories-changed')" @browse-annotation="annotationPickerVisible = true" @open-conversation="openFolderConversation" />
@@ -70,19 +71,19 @@
           <div ref="sessionList" class="chat-workspace__list" @contextmenu="annotationMentionView && mentionSortMenu?.open($event)" @keydown.shift.f10="annotationMentionView && mentionSortMenu?.open($event)">
             <ChatMessageSearchResults v-if="searchMode === 'messages'" :keyword="appliedKeyword" :revision="searchRevision" @locate="emit('locate-mention', $event)" /><ChatMentionInbox v-else-if="showMentions" :keyword="appliedKeyword" :filters="mentionFilters" :active="pane === 'messages'" @total="filteredMentionTotal = $event" @locate="emit('locate-mention', $event)" />
             <template v-else>
-            <el-empty v-if="!visibleSessions.length" :description="annotationMentionView ? '当前筛选中没有提及我的项目' : tab === 'unread' ? '没有未读消息' : '暂无会话'" :image-size="48" />
+            <el-empty v-if="!visibleSessions.length" :description="annotationMentionView ? '当前筛选中没有提及消息的会话' : tab === 'unread' ? '没有未读消息' : '暂无会话'" :image-size="48" />
             <div v-for="session in visibleSessions" :key="session.key" class="chat-workspace__session" :class="{ 'is-active': session.opened && session.key === activeKey, 'is-pinned': session.pinned, 'has-unread-mention': !!session.mentionUnread }" role="button" tabindex="0" :title="[session.title, session.subtitle].filter(Boolean).join(' · ')" @click="emit(session.opened ? 'select' : 'open', session)" @keydown.enter.self="emit(session.opened ? 'select' : 'open', session)" @keydown.space.self.prevent="emit(session.opened ? 'select' : 'open', session)">
               <span class="chat-workspace__session-left"><span v-if="session.projectType !== 'direct' && Number.isFinite(session.memberCount)" class="chat-session-member-count" :title="`当前会话 ${session.memberCount} 位参与人`" :aria-label="`当前会话 ${session.memberCount} 人`">{{ session.memberCount }}人</span><span class="chat-workspace__avatar" :class="`chat-workspace__avatar--${session.projectType}`" aria-hidden="true">{{ chatAvatarText(session.title) }}<small>{{ typeLabel(session.projectType) }}</small></span></span>
               <span class="chat-workspace__session-main">
                 <span class="chat-workspace__session-title"><strong>{{ session.title || '未命名项目' }}</strong><el-icon v-if="session.starred" title="特别关注" class="chat-session-star"><StarFilled /></el-icon><time v-if="sessionDisplayTime(session)" :title="formatBusinessDateTime(sessionDisplayTime(session))">{{ chatDateLabel(sessionDisplayTime(session)) }}</time></span>
                 <ChatOrderIdentity :order-no="session.subtitle" :project-type="session.projectType" />
                 <span v-if="renamingDiscussion?.key === session.key" @click.stop @keydown.stop @mousedown.stop><ChatInlineNameEditor :initial-name="session.title" class="chat-compact-rename" label="会话名称" :saving="renameSaving" :error="renameError" @save="saveDiscussionName" @cancel="renamingDiscussion = null" /></span>
-                <span class="chat-workspace__preview-row"><small class="chat-session-preview"><b v-if="session.mentionUnread" class="chat-mention-label">[有人@我] </b><mark v-else-if="session.lastMessage?.mentionsMe" class="chat-mention-preview">[@我]</mark>{{ session.lastMessage ? `${session.lastMessage.senderName}：${screenshotPreview(session.lastMessage.preview)}` : session.projectType === 'discussion' && session.storageReady !== true ? '讨论暂未启用' : '暂无消息' }}</small><span v-if="session.mentionUnread" class="chat-session-unread" :aria-label="`${session.mentionUnread} 条未读提及`" title="未读 @我">{{ session.mentionUnread > 99 ? '99+' : session.mentionUnread }}</span><span v-if="sessionUnreadSignal(session).ordinary" class="chat-session-unread-dot" role="status" aria-label="有普通未读消息" title="有普通未读消息" /></span>
+                <span class="chat-workspace__preview-row"><b v-if="personalUnread(session)" class="chat-mention-label chat-session-mention">[@我]</b><b v-if="session.mentionAllUnread" class="chat-mention-broadcast chat-session-mention">[@所有人]</b><small class="chat-session-preview"><mark v-if="!session.mentionUnread && session.lastMessage?.mentionsMe" class="chat-mention-preview" :class="{ 'chat-mention-broadcast': session.lastMessage.mentionAll }">{{ session.lastMessage.mentionAll ? '[@所有人]' : '[@我]' }}</mark>{{ session.lastMessage ? `${session.lastMessage.senderName}：${screenshotPreview(session.lastMessage.preview)}` : session.projectType === 'discussion' && session.storageReady !== true ? '讨论暂未启用' : '暂无消息' }}</small><span v-if="session.mentionUnread" class="chat-session-unread" :aria-label="`${session.mentionUnread} 条未读提及`" title="未读提及">{{ session.mentionUnread > 99 ? '99+' : session.mentionUnread }}</span><span v-if="sessionUnreadSignal(session).ordinary" class="chat-session-unread-dot" role="status" aria-label="有普通未读消息" title="有普通未读消息" /></span>
                 <span v-if="session.variants.length > 1" class="chat-session-orders" @click.stop @keydown.stop>
                   <el-popover trigger="click" placement="right-start" :width="280">
                     <template #reference><el-button link size="small" :aria-label="`切换订单会话 ${session.subtitle}`">切换订单</el-button></template>
                     <div class="chat-session-order-options">
-                      <el-button v-for="variant in session.variants" :key="variant.key" link :type="variant.key === activeKey ? 'primary' : ''" @click="emit(variant.opened ? 'select' : 'open', variant)">{{ variant.subtitle }}<span v-if="variant.mentionUnread">（{{ variant.mentionUnread }} 条未读 @我）</span></el-button>
+                      <el-button v-for="variant in session.variants" :key="variant.key" link :type="variant.key === activeKey ? 'primary' : ''" @click="emit(variant.opened ? 'select' : 'open', variant)">{{ variant.subtitle }}<span v-if="variant.mentionUnread">（{{ variant.mentionUnread }} 条未读提及）</span></el-button>
                     </div>
                   </el-popover>
                 </span>
@@ -365,12 +366,24 @@ const searchMode = ref('sessions'), searchRevision = ref(0)
 const searchPlaceholder = computed(() => searchMode.value === 'messages' ? '搜索全部会话的聊天记录' : '搜索全部会话：名称、订单号、消息')
 watch(selectedFolder, value => { try { localStorage.setItem(folderStorageKey, value) } catch { /* 本次选择仍生效。 */ } })
 watch(() => [categories.loaded, ...folderNodes.value.map(row => row.id)], ([loaded]) => { if (loaded && selectedFolder.value && !folderNodes.value.some(row => row.id === selectedFolder.value)) selectedFolder.value = categories.items.find(row => row.id === selectedFolder.value)?.parentKey === resourceFolderId ? resourceFolderId : '' }, { immediate: true })
-function selectFolder(id) { pendingContextFolder = ''; tab.value = 'all'; selectedFolder.value = id }
+function selectFolder(id) {
+  pendingContextFolder = ''
+  if (annotationMode.value === 'mention-all') annotationMode.value = 'group'
+  tab.value = 'all'
+  selectedFolder.value = id
+}
+function openMentionInbox(mode) {
+  tab.value = 'all'
+  selectedFolder.value = ''
+  searchMode.value = 'sessions'
+  annotationMode.value = mode
+}
+const personalUnread = session => (Number(session.mentionUnread) || 0) > (Number(session.mentionAllUnread) || 0)
 function openFolderConversation(session) { pendingContextFolder = ''; pane.value = 'messages'; annotationMode.value = 'group'; tab.value = 'all'; selectedFolder.value = session.projectId; emit('open', session) }
 const mentionSort = ref('time_desc'), mentionSortMenu = ref(null)
-const mentionFilters = computed(() => ({ sort: mentionSort.value }))
+const mentionFilters = computed(() => ({ sort: mentionSort.value, mentionKind: annotationMode.value === 'mention-all' ? 'all' : 'personal' }))
 const annotationMode = ref(tab.value === 'direct' ? 'direct' : tab.value === 'mention' ? 'mention' : 'group')
-const showMentions = computed(() => annotationMode.value === 'mention' && !selectedFolder.value)
+const showMentions = computed(() => annotationMode.value === 'mention-all' || (annotationMode.value === 'mention' && !selectedFolder.value))
 const annotationMentionView = computed(() => annotationMode.value === 'mention')
 const filteredMentionTotal = ref(0)
 watch(tab, () => { groupsVisible.value = false; if (tab.value === 'direct') annotationMode.value = 'direct'; else if (tab.value === 'mention') { annotationMode.value = 'mention'; selectedFolder.value = '' } })
@@ -537,6 +550,17 @@ onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventLis
 .chat-workspace__session:hover{background:var(--chat-hover-bg)}
 .chat-workspace__session.is-active{background:var(--chat-active-bg)}
 .chat-workspace__session:focus-visible{outline:2px solid var(--color-primary);outline-offset:-2px}
+.chat-workspace__annotation-filters{flex:none;padding:0 12px 10px;border-bottom:1px solid #e6eaf0}
+.chat-session-mention-history{color:#64748b;font-size:11px}
+.chat-workspace__annotation-filters button{border:1px solid #dce3ed;border-radius:5px;background:#fff;color:#475569;padding:5px 7px;font:inherit;font-size:12px;cursor:pointer}
+.chat-workspace__annotation-filters button.is-active{background:var(--color-primary-soft);border-color:#cbd5e1;color:var(--color-primary-hover)}
+.chat-workspace__annotation-filters button.has-unread-mention{color:#b91c1c;border-color:#f2b8b8;background:#fff1f2}
+.chat-workspace__annotation-filters button.has-unread-mention.is-active{border-color:#b91c1c;box-shadow:inset 0 0 0 1px #b91c1c}
+.chat-workspace__annotation-filters button:focus-visible{outline:2px solid var(--color-primary);outline-offset:1px}
+.chat-workspace__annotation-mode{display:flex;gap:6px;margin-top:10px}
+.chat-workspace__annotation-mode button{flex:1;min-width:0;white-space:nowrap;padding-inline:2px}
+.chat-session-mention{flex:none;font-size:11px;white-space:nowrap}
+.chat-mention-broadcast{color:#9a3412;background:#ffedd5;border-radius:3px;padding:0 3px}
 .chat-workspace__session.has-unread-mention .chat-workspace__session-title strong{color:#b91c1c}
 .chat-workspace__session-left{display:flex;flex:none;align-self:stretch;flex-direction:column;align-items:center;justify-content:flex-start;gap:8px;width:38px;padding-top:1px}
 .chat-workspace__session-left>.chat-workspace__avatar:only-child{margin-top:8px}

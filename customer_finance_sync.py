@@ -187,7 +187,7 @@ def auto_oral(db, user, client_id, before, after):
         row = oral.record(db, 'project', project.id)
         payload = deepcopy(row.payload) if row else oral.FinanceWrite(revision=0).model_dump(mode='json', exclude={'revision','update_library','library_revision','sync_confirmed'})
         original = deepcopy(payload)
-        if not payload['rates']:
+        if not payload.get('rates'):
             payload['rates'] = oral_defaults(project, after)
         else:
             for item in payload['rates']:
@@ -357,6 +357,7 @@ def sync(module: Literal['translation','interpretation','annotation'], client_id
             import interpretation_customer_finance as oral
             existing = oral.record(db,'project',project.id)
             payload = deepcopy(existing.payload) if existing else oral.context(db,'project',project.id)['payload']
+            payload.pop('quotation', None)
             defaults = matching(module,project,owner,rows,refs)
             if not defaults: raise HTTPException(422,'客户尚未登记匹配方向的单价')
             quantities = {oral_key(row): row['quantity'] for row in rows}

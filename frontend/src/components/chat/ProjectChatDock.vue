@@ -390,14 +390,14 @@ function categoriesChanged(change) {
   refreshFollowed()
 }
 function updateTitle() {
-  const cleanTitle = document.title.replace(/^\[有人@我\]\s*/, '')
-  document.title = mentionTotal.value && !document.hasFocus() ? `[有人@我] ${cleanTitle}` : cleanTitle
+  const cleanTitle = document.title.replace(/^\[(?:有人@我|有未读提及)\]\s*/, '')
+  document.title = mentionTotal.value && !document.hasFocus() ? `[有未读提及] ${cleanTitle}` : cleanTitle
 }
 watch(mentionTotal, updateTitle)
 const route = useRoute()
 watch(() => route.fullPath, () => nextTick(updateTitle))
 onMounted(() => { window.addEventListener('focus', updateTitle); window.addEventListener('blur', updateTitle) })
-onBeforeUnmount(() => { window.removeEventListener('focus', updateTitle); window.removeEventListener('blur', updateTitle); document.title = document.title.replace(/^\[有人@我\]\s*/, '') })
+onBeforeUnmount(() => { window.removeEventListener('focus', updateTitle); window.removeEventListener('blur', updateTitle); document.title = document.title.replace(/^\[(?:有人@我|有未读提及)\]\s*/, '') })
 const workspaceUnread = computed(() => mentionUnreadCount(sessions.value))
 const workspaceFrameMode = computed(() => (state.workspaceMaximized ? 'maximized' : state.workspaceSize))
 const workspaceShellStyle = computed(() => {

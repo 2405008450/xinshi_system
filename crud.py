@@ -2291,6 +2291,11 @@ def get_translation_projects(
         parent_name=select(func.coalesce(func.nullif(Client.client_short_name,''),Client.client_name)).where(Client.id==SubClient.parent_client_id).correlate(SubClient).scalar_subquery()
         name=func.coalesce(func.nullif(Client.client_short_name,''),func.nullif(Client.client_name,''),parent_name)
         ordering=((name.asc() if sort.endswith('_asc') else name.desc()).nullslast(),TranslationProject.created_at.desc(),TranslationProject.id.desc())
+    elif sort in {'client_manager_asc', 'client_manager_desc'}:
+        from project_client_manager import manager_name_expression
+        manager = func.nullif(func.trim(manager_name_expression('translation', TranslationProject.id, Client.client_manager)), '')
+        direction = manager.asc() if sort.endswith('_asc') else manager.desc()
+        ordering = (direction.nullslast(), TranslationProject.created_at.desc(), TranslationProject.id.desc())
     elif sort in {
         "order_no_desc",
         "unfinished_first_order_no_desc",

@@ -4,3 +4,4 @@ export const getInterpretationFinancePage=(params,signal)=>api.get(`${base}/page
 export const getInterpretationFinance=(scope,id)=>api.get(`${base}/${scope}/${id}`)
 export const saveInterpretationFinance=(scope,id,data)=>api.put(`${base}/${scope}/${id}`,data)
 export const getInterpretationFinanceHistory=(scope,id,page)=>api.get(`${base}/${scope}/${id}/history`,{params:{page}})
+export const getInterpretationStatement=(id,params,config={})=>api.get(`${base}/statement/project/${id}`,{...config,params})
