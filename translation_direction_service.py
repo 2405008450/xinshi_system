@@ -2,7 +2,7 @@
 import re
 from sqlalchemy import select
 from models import TranslationProject,TranslationSubOrder
-from language_catalog import normalize_language_pairs
+from language_catalog import LANGUAGE_PAIR_SPLIT_PATTERN, normalize_language_pairs
 from translation_file_name_rules import normalize_single_file_name
 
 
@@ -10,15 +10,23 @@ def directions(value):
     return [item for item in (normalize_language_pairs(value) or '').split('；') if item]
 
 
+def stored_directions(value):
+    """历史订单可能保存服务名称或旧格式，读取时保留这些原值。"""
+    try:
+        return directions(value)
+    except ValueError:
+        return list(dict.fromkeys(part.strip() for part in LANGUAGE_PAIR_SPLIT_PATTERN.split(str(value or '')) if part.strip()))
+
+
 def level(row):
     return row.sub_order_no.count('.') if isinstance(row,TranslationSubOrder) else 0
 
 
-def preserves_order_statistics(owner, children):
+def preserves_order_statistics(owner, children, *, parse_directions=directions):
     """同一文件按方向拆单时，上级保留原文统计。"""
     if not children or getattr(owner, 'folder_info', None):
         return False
-    wanted = {pair.casefold() for pair in directions(owner.language_pair)}
+    wanted = {pair.casefold() for pair in parse_directions(owner.language_pair)}
     if len(wanted) < 2:
         return False
     if isinstance(owner, TranslationSubOrder):
@@ -28,7 +36,7 @@ def preserves_order_statistics(owner, children):
     name = str(name or '').strip().casefold()
     return bool(name) and all(
         (str(child.sub_project_name or '').strip().casefold() == name or child.network_file_path == '同上一级订单')
-        and len(pairs := directions(child.language_pair)) == 1 and pairs[0].casefold() in wanted
+        and len(pairs := parse_directions(child.language_pair)) == 1 and pairs[0].casefold() in wanted
         for child in children
     )
 

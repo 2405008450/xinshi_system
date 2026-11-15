@@ -581,6 +581,8 @@ def create_client(
     db: Session, client: ClientCreate, idempotency_key: Optional[str] = None,
 ) -> Client:
     data = client.model_dump(exclude={'customer_type','contact_names','contact_people'})
+    if client.contact_people is not None:
+        data.pop('manager_contact', None)
     if not getattr(db,'info',{}).get('client_contacts_visible',True):data.pop('manager_contact',None)
     if not data.get('client_code'):
         data['client_code'] = generate_client_code(db)
@@ -603,6 +605,8 @@ def update_client(db: Session, client_id: UUID, client_update: ClientUpdate) -> 
     if not db_client:
         return None
     update_data = client_update.model_dump(exclude_unset=True, exclude={VERSION_FIELD, 'customer_type','contact_names','contact_people'})
+    if client_update.contact_people is not None:
+        update_data.pop('manager_contact', None)
     if not getattr(db,'info',{}).get('client_contacts_visible',True):update_data.pop('manager_contact',None)
     assert_fresh(db_client, client_update.expected_updated_at)
     if 'customer_type' in client_update.model_fields_set:
@@ -750,6 +754,8 @@ def create_sub_client(
 ) -> SubClient:
     sub_code = sub_client.sub_client_code or generate_sub_client_code(db, sub_client.parent_client_id)
     data = sub_client.model_dump(exclude={'sub_client_code', 'customer_type','contact_names','contact_people'})
+    if sub_client.contact_people is not None:
+        data.pop('manager_contact', None)
     data['client_name'] = data.get('client_name') or sub_client.client_short_name
     if not getattr(db,'info',{}).get('client_contacts_visible',True):data.pop('manager_contact',None)
     db_sub = SubClient(
@@ -773,6 +779,8 @@ def update_sub_client(db: Session, sub_id: UUID, sub_update: SubClientUpdate) ->
     if not db_sub:
         return None
     update_data = sub_update.model_dump(exclude_unset=True, exclude={VERSION_FIELD, 'customer_type','contact_names','contact_people'})
+    if sub_update.contact_people is not None:
+        update_data.pop('manager_contact', None)
     if 'client_name' in update_data and not update_data['client_name']:
         update_data['client_name'] = db_sub.client_name or update_data.get('client_short_name') or db_sub.client_short_name
     if not getattr(db,'info',{}).get('client_contacts_visible',True):update_data.pop('manager_contact',None)
@@ -2058,14 +2066,17 @@ def _apply_translation_project_filters(
             value=descriptor['value']
             query=query.filter(manager_self_expression('translation',TranslationProject.id,UUID(value['id']),value['names'],Client.client_manager))
         elif field == 'finance_billing_month':
+            from translation_document_requirements import billing_period_month_expression
             value = descriptor.get('value')
             months = value if isinstance(value, list) else [value]
-            query = query.filter(or_(*[
+            assigned_month = billing_period_month_expression(query.session)
+            order_month_matches = or_(*[
                 condition for month in months for condition in (
                     TranslationProject.order_no.like(f"TP-{month[2:4]}{month[5:7]}__-%"),
                     TranslationProject.order_no.like(f"TP-{month[:4]}{month[5:7]}__-%"),
                 )
-            ]))
+            ])
+            query = query.filter(or_(assigned_month.in_(months), assigned_month.is_(None) & order_month_matches))
         elif field == 'finance_client_id':
             query = query.filter(TranslationProject.client_id == UUID(descriptor['value']))
         elif field == 'finance_invoice_status':

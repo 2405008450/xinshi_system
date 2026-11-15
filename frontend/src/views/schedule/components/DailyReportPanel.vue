@@ -23,8 +23,10 @@
         <el-button size="small" @click="openMailAccount">查看邮箱状态</el-button>
         <el-button v-if="editable&&!amending" size="small" :loading="loading" @click="loadReport(true)">重新汇总</el-button>
         <el-button v-if="editable" size="small" @click="sheetRef?.add()">新增一行</el-button>
-        <el-button v-if="editable&&!amending" size="small" type="primary" plain :loading="saving" @click="save(false)">保存草稿</el-button>
-        <el-button v-if="editable" size="small" type="success" :loading="saving" @click="save(true)">{{amending?'保存一次修订':'确认报告'}}</el-button>
+        <Teleport :to="footerTarget || 'body'" :disabled="!footerTarget">
+          <el-button v-if="editable&&!amending" size="small" type="primary" plain :loading="saving" @click="save(false)">保存草稿</el-button>
+          <el-button v-if="editable" size="small" type="success" :loading="saving" @click="save(true)">{{amending?'保存一次修订':'确认报告'}}</el-button>
+        </Teleport>
         <el-button v-if="report.can_amend&&!amending" size="small" type="warning" plain @click="amending=true">修改一次</el-button><el-button v-if="amending" size="small" :disabled="saving" @click="loadReport(false)">取消修订</el-button>
         <el-button v-if="report.status === 'finalized'&&!amending" size="small" type="primary" :loading="previewLoading" @click="openMailPreview">{{report.amendment_used?'再次发送邮箱':'发送邮箱'}}</el-button>
         <el-button size="small" :disabled="report.status !== 'finalized'" :loading="exporting" @click="downloadReport">导出 Excel</el-button>
@@ -159,6 +161,7 @@ import {readCloudDraft,queueCloudDraft,cloudDraftStatus,acknowledgeCloudDraft} f
 import {chooseDraft} from '@/utils/draftRecovery'
 import {createAutoDraftStore} from '@/utils/autoDraftStore'
 import {mergeAnnotationOperationRows,reportBusinessDate,reportWeekday,shiftReportDate,blockReportImages,requiresProjectIdentity} from '@/utils/workReportForm'
+import { formatBusinessDateTimeMinute } from '@/utils/dateTime'
 import { getPersonalMailAccount } from '@/api/auth'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import {
@@ -175,7 +178,7 @@ import {
 const DailyReportSpreadsheet = defineAsyncComponent(() => import('./DailyReportSpreadsheet.vue'))
 const MailBodyEditor = defineAsyncComponent(() => import('@/components/common/MailBodyEditor.vue'))
 
-const props = defineProps({ reportDate: { type: String, required: true } })
+const props = defineProps({ reportDate: { type: String, required: true }, initialFieldWork: Object, footerTarget: Object })
 const emit = defineEmits(['status-change','update:report-date'])
 const router = useRouter()
 const loading = ref(false)
@@ -263,7 +266,7 @@ async function loadReport(refresh = false) {
       await nextTick();dirtyCount.value=1
       if(draft===local&&cloud)queueCloudDraft('work-report',date,autoDraftPayload(date))
     }
-
+    if (sequence === loadSequence) await applyFieldWork(date)
   }catch(error){if(sequence===loadSequence&&error?.code!=='ERR_CANCELED'){loadedDate.value='';ElMessage.error(error?.detail||'加载工作报告失败')}}
   finally{if(sequence===loadSequence)loading.value=false}
 }
@@ -275,6 +278,44 @@ const taskHistory=ref([])
 try{const saved=JSON.parse(localStorage.getItem(historyKey)||'[]');if(Array.isArray(saved))taskHistory.value=saved.filter(value=>typeof value==='string').slice(0,200)}catch{/* 本地存储不可用时仍可编辑。 */}
 function rememberTask(value){if(!value?.trim())return;taskHistory.value=[value,...taskHistory.value.filter(item=>item!==value)].slice(0,200);try{localStorage.setItem(historyKey,JSON.stringify(taskHistory.value))}catch{/* 保留会话内历史。 */}}
 function autoDraftPayload(date){return {report_date:date,amending:amending.value,items:sheetRef.value?.getRows()||report.items,supplemental_note:report.supplemental_note,idle_minutes:report.idle_minutes,idle_declaration_confirmed:report.idle_declaration_confirmed}}
+let fieldWorkApplied = false
+async function applyFieldWork(date) {
+  const record = props.initialFieldWork
+  if (!record || fieldWorkApplied || date !== reportBusinessDate(record.start_at)) return
+  if (report.status === 'finalized' && !amending.value) {
+    ElMessage.warning('该日工作报告已确认，请先点击「修改一次」开启修订')
+    return
+  }
+  fieldWorkApplied = true
+  const index = report.items.findIndex(row => row.display_metadata?.field_work_id === record.id)
+  if (index >= 0) {
+    await nextTick()
+    sheetRef.value?.focusReportRow(index)
+    return
+  }
+  const typePath = record.type_path
+  const category = typePath[1] === 'bidding'
+    ? (typePath[2] === 'accompany' ? '陪标' : '投标')
+    : record.type_label.split(' / ').at(-1)
+  const duration = Math.round((Date.parse(record.end_at) - Date.parse(record.start_at)) / 60000)
+  const content = [
+    record.type_label, record.client_name, `地点：${record.location}`,
+    `${formatBusinessDateTimeMinute(record.start_at)} 至 ${formatBusinessDateTimeMinute(record.end_at)}`,
+    record.companion_names ? `陪同人：${record.companion_names}` : '',
+    record.notes,
+  ].filter(Boolean).join('\n')
+  report.items = [...report.items, {
+    source_type: 'manual', source_id: record.id, task_type: '外勤工作',
+    task_name: record.client_name || record.type_label,
+    progress_content: content, duration_minutes: duration > 0 && duration <= 1440 ? duration : 0,
+    display_metadata: { report_types: [`外勤工作::${category}`], field_work_id: record.id, _feedback_key: record.id },
+  }]
+  await nextTick()
+  dirtyCount.value = 1
+  cacheDraft(date)
+  sheetRef.value?.focusReportRow(report.items.length - 1)
+}
+watch(amending, value => { if (value && !loading.value) void applyFieldWork(props.reportDate) })
 function cacheDraft(date=props.reportDate){
  if((report.status==='finalized'&&!amending.value)||loadedDate.value!==date||!hasUnsavedChanges.value)return
  const value=autoDraftPayload(date)

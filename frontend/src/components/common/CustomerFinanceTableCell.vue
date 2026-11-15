@@ -9,13 +9,13 @@
     </el-popover>
     <small v-else-if="row.priceAggregate&&field==='unitPrice'">子订单单价待填写</small>
     <select v-else-if="field==='pricingMode'" :value="pricingMode" :disabled="readonly||state.saving||pricingModeSwitching" aria-label="计价方式" :title="row.fixedPricingFrom ? `随上级订单 ${row.fixedPricingFrom} 固定收费` : undefined" @change="changeTablePricingMode"><option v-if="hasChildren" value="aggregate">子订单汇总</option><option v-else value="metric">工作量</option><option value="fixed">固定收费</option></select>
-    <ReadonlyField v-else-if="field==='billingMonth'" :model-value="draft.billingMonth||'—'" source="auto" title="按订单号所属月份自动生成；跨月调配请在对账单管理中处理" />
+    <ReadonlyField v-else-if="field==='billingMonth'" :model-value="row.billingPeriod?.number ? `${draft.billingMonth} 第${row.billingPeriod.number}期` : draft.billingMonth||'—'" source="auto" title="在价格与付款窗口调整账期" />
     <template v-else-if="field==='unitPrice'">
       <select v-if="pricingMode==='fixed'" v-model="draft.currency" :disabled="readonly" aria-label="固定收费货币" @change="commit('currency')"><option v-for="currency in currencies" :key="currency">{{currency}}</option></select>
       <template v-else>
         <div v-for="(price,index) in draft.prices" :key="index" class="sheet-price">
           <div class="sheet-price-heading"><small>{{price.languagePair||'请选择方向'}}</small><button type="button" :aria-label="`减少单价 ${index+1}`" title="移除此单价" @click="removePrice(index)">－</button></div>
-          <small v-if="price.referenceId">来自客户管理 <button type="button" @click="useManualPrice(price,$event)">改用人工单价</button></small>
+          <small v-if="price.referenceId">来自客户管理 → 财务信息 → 笔译 → 客户单价 <button type="button" @click="useManualPrice(price,$event)">改用人工单价</button></small>
           <div class="sheet-price-tax-fields">
             <label>未税<input :value="price.taxPrices?.unitPriceExclTax??''" type="number" min="0" step="0.0001" :aria-label="`不含税单价 ${index+1}`" @input="setPrice(price,'unitPriceExclTax',$event.target.value)" @blur="commitNumber($event,'prices')" @keydown.enter.prevent="$event.target.blur()" /></label>
             <label>含税<input :value="price.taxPrices?.unitPriceInclTax??''" type="number" min="0" step="0.0001" :aria-label="`含税单价 ${index+1}`" @input="setPrice(price,'unitPriceInclTax',$event.target.value)" @blur="commitNumber($event,'prices')" @keydown.enter.prevent="$event.target.blur()" /></label>

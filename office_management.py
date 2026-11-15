@@ -39,6 +39,17 @@ class EmployeeOffice(Base):
     updated_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),nullable=False,default=now)
 
 
+class OfficeRemoteWorker(Base):
+    __tablename__ = 'organization_office_remote_worker'
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey('app_user.id', ondelete='CASCADE'), unique=True, nullable=False,
+    )
+    city: Mapped[str] = mapped_column(String(100), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+
 DEFAULT_OFFICES=[('广州','广州办公室'),('深圳','深圳南山办公室'),('上海','上海办公室')]
 def default_id(city):return uuid5(NAMESPACE_URL,f'xinshi-system:office-city:{city}')
 def ready(db):return all(inspect(db.connection()).has_table(name) for name in (OfficeSite.__tablename__,EmployeeOffice.__tablename__))
@@ -166,3 +177,106 @@ def overview(db=Depends(get_db)):return catalog(db)
 def create_office(payload:OfficeWrite,db=Depends(get_db)):return save(db,payload)
 @router.put('/{office_id}',dependencies=[Depends(require_any_permission('system:users:write','system:organization:write'))])
 def update_office(office_id:UUID,payload:OfficeUpdate,db=Depends(get_db)):return save(db,payload,office_id)
+
+
+class RemoteWorkerWrite(BaseModel):
+    city: str = Field(min_length=1, max_length=100)
+    user_id: UUID
+
+    @field_validator('city', mode='before')
+    @classmethod
+    def clean_city(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+
+class RemoteWorkerUpdate(RemoteWorkerWrite):
+    revision: int = Field(ge=1)
+
+
+def require_remote_workers(db):
+    if not inspect(db.connection()).has_table(OfficeRemoteWorker.__tablename__):
+        raise HTTPException(503, '居家办公人员登记表尚未初始化')
+
+
+def locked_remote_worker(db, record_id, revision):
+    row = db.query(OfficeRemoteWorker).filter_by(id=record_id).with_for_update().populate_existing().first()
+    if row is None:
+        raise HTTPException(404, '居家办公人员登记不存在')
+    if row.revision != revision:
+        raise HTTPException(409, '该登记已被修改，请刷新后重试')
+    return row
+
+
+def save_remote_worker(db, payload, record_id=None):
+    require_remote_workers(db)
+    person = db.query(AppUser.id).filter(AppUser.id == payload.user_id, AppUser.is_deleted.is_(False)).first()
+    if person is None:
+        raise HTTPException(422, '所选人员不存在，请刷新后重新选择')
+
+    if record_id is None:
+        row = OfficeRemoteWorker(revision=1)
+        db.add(row)
+    else:
+        row = locked_remote_worker(db, record_id, payload.revision)
+        row.revision += 1
+    row.user_id = payload.user_id
+    row.city = payload.city
+    try:
+        db.commit()
+    except IntegrityError as error:
+        db.rollback()
+        raise HTTPException(409, '人员已登记或已被移除，请刷新后重试') from error
+    return {'id': str(row.id), 'message': '居家办公人员已保存'}
+
+
+office_read = require_any_permission('system:users:read', 'system:users:write', 'system:organization:write')
+office_write = require_any_permission('system:users:write', 'system:organization:write')
+
+
+@router.get('/remote-workers', dependencies=[Depends(office_read)])
+def list_remote_workers(db=Depends(get_db)):
+    require_remote_workers(db)
+    rows = (
+        db.query(OfficeRemoteWorker, AppUser.full_name, AppUser.username, AppUser.is_active)
+        .join(AppUser, AppUser.id == OfficeRemoteWorker.user_id)
+        .filter(AppUser.is_deleted.is_(False))
+        .order_by(OfficeRemoteWorker.city, AppUser.full_name, AppUser.username)
+        .all()
+    )
+    return {'items': [
+        {'id': str(row.id), 'city': row.city, 'user_id': str(row.user_id),
+         'name': full_name or username, 'is_active': active, 'revision': row.revision}
+        for row, full_name, username, active in rows
+    ]}
+
+
+@router.get('/remote-workers/people', dependencies=[Depends(office_write)])
+def remote_worker_people(db=Depends(get_db)):
+    rows = (
+        db.query(AppUser.id, AppUser.full_name, AppUser.username, AppUser.is_active)
+        .filter(AppUser.is_deleted.is_(False))
+        .order_by(AppUser.is_active.desc(), AppUser.full_name, AppUser.username)
+        .all()
+    )
+    return {'items': [
+        {'id': str(user_id), 'name': full_name or username, 'username': username, 'is_active': active}
+        for user_id, full_name, username, active in rows
+    ]}
+
+
+@router.post('/remote-workers', dependencies=[Depends(office_write)])
+def create_remote_worker(payload: RemoteWorkerWrite, db=Depends(get_db)):
+    return save_remote_worker(db, payload)
+
+
+@router.put('/remote-workers/{record_id}', dependencies=[Depends(office_write)])
+def update_remote_worker(record_id: UUID, payload: RemoteWorkerUpdate, db=Depends(get_db)):
+    return save_remote_worker(db, payload, record_id)
+
+
+@router.delete('/remote-workers/{record_id}', dependencies=[Depends(office_write)])
+def delete_remote_worker(record_id: UUID, revision: int, db=Depends(get_db)):
+    require_remote_workers(db)
+    db.delete(locked_remote_worker(db, record_id, revision))
+    db.commit()
+    return {'message': '居家办公人员登记已删除'}

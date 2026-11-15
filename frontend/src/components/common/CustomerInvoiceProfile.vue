@@ -4,7 +4,7 @@
     <p v-if="!clientId">保存客户后可维护开票资料。</p>
     <template v-else>
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
-      <template v-else-if="data"><p>发票类型：{{kindLabel[data.invoice_kind]||'待选择'}}；开票主体：{{data.subject?.name||'待选择'}}</p><InvoicePartyDetails :party="data.party" /><template v-if="data.subject"><strong>开票主体资料 · {{data.subject.name}}</strong><InvoicePartyDetails :party="data.subject.party" /><small>主体信息在组织架构对应办公室维护，此处同步显示。</small></template></template>
+      <template v-else-if="data"><p>发票类型：{{kindLabel[data.invoice_kind]||'待选择'}}；开票主体：{{data.subject?.name||'待选择'}}</p><InvoicePartyDetails :party="data.party" /><template v-if="data.subject"><strong>开票主体资料 · {{data.subject.name}}</strong><InvoicePartyDetails :party="data.subject.party" /><small>主体信息在「财务管理 → 设置 → 发票设置」维护，此处同步显示。</small></template></template>
     </template>
     <DraggableFormDialog v-model="visible" class="invoice-party-editor" width="min(900px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close :close-on-click-modal="false" :before-close="beforeClose">
       <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" title="客户开票信息" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>

@@ -53,7 +53,7 @@ def test_statement_customer_filter_matches_whole_customers_before_pagination(con
     same_customer = project(db, clients[0], 'STATEMENT-2')
     other_customer = project(db, clients[1], 'STATEMENT-3')
     for row, need in [(required, True), (same_customer, False), (other_customer, False)]:
-        documents.save(db, row, statement_required=need, actor_id=actor.id)
+        documents.save(db, row, statement_required=need, payment_method='special', actor_id=actor.id)
     db.commit()
     url = '/translation-customer-finance/page'
     for mode, expected in [('include', {str(required.id), str(same_customer.id)}),
@@ -85,6 +85,9 @@ def test_invoice_entry_reuses_status_and_proofs_and_filters_before_paging(contex
     http,db,clients,permissions,actor=context;http.app.include_router(finance.router);permissions.add('projects:write')
     first=project(db,clients[0],'INV-A',fixed=True);second=project(db,clients[0],'INV-B',fixed=True)
     empty=project(db,clients[0],'INV-C',fixed=True)
+    for row in (first,second,empty):
+        documents.save(db,row,payment_method='individual',actor_id=actor.id)
+    db.commit()
     for row in (first,second):
         current=finance.read(db,row.id)
         finance.save(db,actor,row.id,finance.PriceWrite(version=current['version'],order_id=row.id,pricing_mode='fixed',adjusted_total=500,
@@ -110,7 +113,7 @@ def test_invoice_entry_reuses_status_and_proofs_and_filters_before_paging(contex
         current = finance.read(db, excluded.id)
         finance.save(db, actor, excluded.id, finance.PriceWrite(
             version=current['version'], order_id=excluded.id, pricing_mode='fixed',
-            adjusted_total=500, billing_tax_mode='excl_tax',
+            adjusted_total=500, billing_tax_mode='excl_tax', payment_method='individual',
         ))
     params['invoice_status'] = 'not_required'
     pages = [http.get('/translation-customer-finance/page', params={**params, 'skip': skip}).json() for skip in (0, 1)]
@@ -118,6 +121,7 @@ def test_invoice_entry_reuses_status_and_proofs_and_filters_before_paging(contex
     assert pages[0]['items'][0]['id'] != pages[1]['items'][0]['id']
 
     unknown = project(db, clients[0], 'INV-F', fixed=True)
+    documents.save(db,unknown,payment_method='individual',actor_id=actor.id)
     charge = unknown.customer_charge_items[0]
     charge.total_excl_tax = charge.total_incl_tax = None
     db.commit()

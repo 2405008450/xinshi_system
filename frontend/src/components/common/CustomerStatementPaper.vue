@@ -21,7 +21,7 @@
             <td><span v-if="row.counted_in_total===false">汇总参考，不重复计入合计。</span><StatementEditableCell v-model="row.remarks" :label="`${row.order_no} 备注`" multiline /></td>
           </template>
           <template v-else><td v-if="hasCustomerOrder">{{row.customer_order_no||''}}</td><td class="statement-date">{{row.received_date||'-'}}</td><td><button v-if="interactive" type="button" class="statement-order-link" :title="`编辑订单 ${row.order_no}`" @click.stop="emit('open-order',row)">{{row.project_name}}</button><template v-else>{{row.project_name}}</template></td><td>{{row.language_pair}}</td><td><template v-if="row.quantity!=null">{{row.quantity}}<br /></template>{{statementBasis(row.basis)}}</td><td v-if="showUnitPrice"><template v-if="!isFixedStatementRow(row)">{{row.unit_price==null?'-':`${row.currency} ${statementUnitPrice(row.unit_price)}`}}<small v-if="mixedTax">（{{row.unit_label}}）</small></template></td><td>{{row.subtotal==null?'待补':`${row.currency} ${row.subtotal}`}}<small v-if="mixedTax && isFixedStatementRow(row) && row.unit_label && row.subtotal!=null">（{{row.unit_label}}）</small></td><td>{{row.counted_in_total===false?'汇总参考，不重复计入合计。':''}}{{row.remarks}}</td></template>
-          <td v-if="interactive" class="statement-ui"><el-button v-if="canWrite" link type="primary" :disabled="!canEdit" @click="emit('edit',row)">修改</el-button></td>
+          <td v-if="interactive" class="statement-ui"><el-button v-if="canWrite&&canEdit" link type="primary" @click="emit('edit',row)">修改</el-button></td>
         </tr>
         <tr v-if="!statement.rows.length"><td :colspan="(interactive?8:6)+Number(showUnitPrice)+Number(hasOrigin)+Number(hasCustomerOrder)">暂无任务，可从另一份对账单拖入</td></tr>
       </tbody>

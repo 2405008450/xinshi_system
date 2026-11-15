@@ -69,6 +69,43 @@ def test_document_requirements_and_quotation_save_with_customer_prices(environme
     assert any(item['after'].get('quotation_required') is True for item in changes)
 
 
+@pytest.mark.parametrize('method', ['statement', 'monthly'])
+def test_grouped_payment_requires_review_of_mixed_tax_basis(environment, method):
+    from models import TranslationSubOrder
+    from translation_finance_audit import history
+
+    db, (owner, _, _) = environment
+    root, _, leaf = setup(db, owner)
+    extra = TranslationSubOrder(id=uuid4(), parent_project_id=root.id, sub_order_no=f'{root.order_no}.009')
+    db.add(extra)
+    db.commit()
+    for order, totals in [(leaf, {'adjusted_total': 100}), (extra, {'adjusted_total_incl_tax': 120})]:
+        write(db, owner, root, order, None, pricing_mode='fixed', **totals)
+    original = finance.read(db, root.id)
+    draft = dict(version=original['version'], order_id=root.id, documents_only=True,
+                 payment_method='monthly', statement_required=method=='statement')
+    with pytest.raises(HTTPException) as blocked:
+        finance.save(db, owner, root.id, finance.PriceWrite(**draft, document_consistency_review={'snapshot': []}))
+    assert blocked.value.status_code == 409
+    rows = blocked.value.detail['rows']
+    assert {row['tax'] for row in rows} >= {'incl_tax', 'excl_tax'}
+    row = next(row for row in rows if row['id'] == str(extra.id))
+    assert Decimal(row['totals_incl_tax']['CNY']) == 120
+    snapshot = [[row['id'], row['quotation'], row['statement'], row['invoice'], row['tax']] for row in rows]
+    assert finance.read(db, root.id)['version'] == original['version']
+    reason = '子订单使用客户已确认的不同计费口径'
+    saved = finance.save(db, owner, root.id, finance.PriceWrite(**draft,
+        document_consistency_review={'snapshot': snapshot, 'reason': reason}))
+    assert saved['document_consistency_review']['reason'] == reason
+    assert saved['document_consistency_review']['method'] == method
+    assert any((item['after'].get('document_consistency_review') or {}).get('reason') == reason
+               for item in history(db, root.id)['items'])
+    unified = finance.save(db, owner, root.id, finance.PriceWrite(version=saved['version'],
+        order_id=root.id, order_pricing_mode='fixed', pricing_mode='fixed', adjusted_total=220,
+        invoice_required=False, document_consistency_review={'snapshot': []}))
+    assert unified['document_consistency_review'] is None
+
+
 def test_parent_aggregate_can_save_documents_without_rewriting_prices(environment):
     db,(owner,_,_)=environment;root,child,third=setup(db,owner)
     initial=write(db,owner,root,third,'0.5')

@@ -3,7 +3,7 @@ export function reportBusinessDate(value=new Date()) {const date=value instanceo
 export const defaultWorkCategories = {
   项目工作: projectTypes,
   非项目工作: ['接待客户','研究工作','开发工作','技术支持','行政工作','人事工作','词汇整理'],
-  外勤工作: ['拜访客户','口译现场','投标','陪标'],
+  外勤工作: ['拜访客户','口译现场','投标','陪标','行政类','银行类','供应商走访','项目现场服务','招聘外勤','展会与会议','文件与物资交接'],
   管理工作: ['查看工作报告','分析数据','开发工作'],
   培训工作: ['AI知识培训','客户部培训','标注项目培训','笔译项目培训','口译项目培训','招聘项目培训','资源开拓培训','HR工作培训','排版培训','专检培训']
 }
@@ -34,7 +34,7 @@ export function mergeAnnotationOperationRows(draft,server) {
   for(const row of server){const metadata=row.display_metadata||{};if(metadata.operation_source==='annotation_daily_operation'&&metadata.personal_task_id&&!keys.has(metadata.personal_task_id)){rows.push(row);keys.add(metadata.personal_task_id)}}
   return rows
 }
-export function requiresProjectIdentity(row) {return rowTypes(row).some(type=>type!=='非项目工作'&&!type.startsWith('非项目工作::'))}
+export function requiresProjectIdentity(row) {return rowTypes(row).some(type=>!['非项目工作','外勤工作'].includes(type.split('::')[0]))}
 export function updateRowTypes(row,types) {types=[...new Set(types)];row.display_metadata.report_types=types;row.task_type=[...new Set(types.map(type=>projectTypes.includes(type)?'项目工作':type.split('::')[0]))].join('、')||'非项目工作'}
 export function appendReportRows(rows,count=1) {const n=Number(count);if(!Number.isInteger(n)||n<1||n>100)throw new Error('新增行数须为1至100的整数');rows.push(...Array.from({length:n},newReportRow))}
 export function blockReportImages(event) {

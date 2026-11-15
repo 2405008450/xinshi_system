@@ -6,13 +6,13 @@ from datetime import datetime, time, timedelta
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from fastapi import HTTPException
-from sqlalchemy import inspect, select, text, update
+from sqlalchemy import func, inspect, select, text, update
 
 import annotation_chat_service
 import thoughts_ai_service
 from annotation_annotator_progress_models import AnnotationAnnotatorProgress
 from annotation_annotator_progress_service import require_available as require_annotator_progress
-from annotation_chat_ai_inference import AnalysisError, analyze_chunk, chunks
+from annotation_chat_ai_inference import AnalysisError, analyze_chunk, chunks, message_query
 from annotation_chat_ai_models import AnnotationChatAnalysis as Job
 from annotation_customer_progress_models import AnnotationCustomerProgress
 from annotation_customer_progress_service import require_customer_progress
@@ -88,7 +88,7 @@ def enqueue_manual(db, project_id, user, period, auto_apply, all_visible):
     if not thoughts_ai_service.enabled():
         raise HTTPException(503, '数据分析 AI 服务尚未启用')
     if auto_apply:
-        require_writer(db, user)
+        raise HTTPException(422, '请在分析完成后勾选要加入项目进度的条目')
     moment = business_now()
     start, end = manual_range(period, moment)
     projects = [project_id]
@@ -164,15 +164,33 @@ def result_identity(project_id, result):
     return uuid5(NAMESPACE_URL, f'xinshi:annotation-chat-ai:{identity}')
 
 
-def import_progress(db, job, actor):
+def run_messages(job):
+    return message_query(job.project_id, job.range_start, job.range_end, include_empty=True)
+
+
+def message_coverage(db, job):
+    query = run_messages(job).with_only_columns(ChatProjectMessage.id)
+    total = db.scalar(select(func.count()).select_from(query.subquery()))
+    ids = sorted({UUID(source) for item in job.results for source in item['sources']})
+    classified = 0
+    for offset in range(0, len(ids), 500):
+        matched = query.where(ChatProjectMessage.id.in_(ids[offset:offset + 500]))
+        classified += db.scalar(select(func.count()).select_from(matched.subquery()))
+    return {'total': total, 'classified': classified, 'unclassified': max(0, total - classified)}
+
+
+def import_progress(db, job, actor, result_ids):
     require_writer(db, actor)
     if job.state != 'succeeded':
         raise HTTPException(409, '分析完成后才能加入项目进度')
+    eligible = {UUID(item['id']): item for item in job.results if item['category'] in PROGRESS_MODELS}
+    if not result_ids or not set(result_ids).issubset(eligible):
+        raise HTTPException(422, '请勾选本批次中可加入项目进度的条目')
     project = db.scalar(select(AnnotationProject).where(AnnotationProject.id == job.project_id).with_for_update())
     if project is None:
         raise HTTPException(404, '标注项目不存在')
     imported = {entry['result_id'] for entry in job.imports}
-    pending = [item for item in job.results if item['category'] in PROGRESS_MODELS and item['id'] not in imported]
+    pending = [eligible[item_id] for item_id in dict.fromkeys(result_ids) if str(item_id) not in imported]
     sources = {UUID(source) for item in pending for source in item['sources']}
     if sources:
         valid = set()
@@ -250,16 +268,9 @@ def process(session_factory, job_id, stopping=lambda: False):
             job = db.get(Job, job_id, with_for_update=True)
             if job is None or job.state != 'running':
                 return
-            actor = actor_for_job(db, job)
+            actor_for_job(db, job)
             job.results = list(results.values())
             job.state, job.updated_at = 'succeeded', business_now()
-            if job.auto_apply:
-                try:
-                    with db.begin_nested():
-                        import_progress(db, job, actor)
-                except Exception as exc:
-                    error = str(exc.detail) if isinstance(exc, HTTPException) else '自动加入项目进度失败，可在结果中重试'
-                    job.import_error = error[:500]
     except Exception as exc:
         error = str(exc) if isinstance(exc, AnalysisError) else (
             str(exc.detail) if isinstance(exc, HTTPException) else '分析处理失败，请重新运行')

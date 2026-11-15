@@ -403,6 +403,8 @@ from routers.monthly_shifts import router as monthly_shifts_router
 app.include_router(monthly_shifts_router)
 from routers.attendance import router as attendance_router
 app.include_router(attendance_router)
+from routers.field_work import router as field_work_router
+app.include_router(field_work_router)
 from attendance_corrections import router as attendance_corrections_router
 app.include_router(attendance_corrections_router)
 from weekend_night_duty import router as weekend_night_duty_router
@@ -431,6 +433,8 @@ from translation_requirement_dispatch import router as translation_requirement_d
 app.include_router(translation_requirement_dispatch_router)
 from project_client_manager import router as project_client_manager_router
 app.include_router(project_client_manager_router)
+from customer_requirements import router as customer_requirements_router
+app.include_router(customer_requirements_router)
 from routers.client_contact_people import router as client_contact_people_router
 app.include_router(client_contact_people_router)
 from routers.business_numbers import router as business_numbers_router

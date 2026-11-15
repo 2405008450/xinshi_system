@@ -14,7 +14,11 @@
       <AttendanceLeaveDialog v-model="leaveVisible" @saved="leaveSaved" />
       <AttendanceClockDialog v-model="clockVisible" :mode="clockMode" :record="clockRecord" :segment="today.next_segment||0" />
     </template>
-    </el-collapse-item><el-collapse-item name="corrections" title="补卡与跨日记录"><ClockCorrections v-if="expandedSections.includes('corrections')" ref="correctionPanel" :admin="admin" :show-actions="false" @changed="refresh" /></el-collapse-item><el-collapse-item name="statistics" title="考勤与加班统计"><header class="attendance-heading"><h3>{{admin?'考勤管理':'我的考勤统计'}}</h3><AttendanceRulesPopover /><ShiftPeriodControls action="统计" v-model:mode="mode" :value="periodValue" :disabled="loading" @update:value="setPeriod" /></header>
+    </el-collapse-item><el-collapse-item name="corrections" title="补卡与跨日记录"><ClockCorrections v-if="expandedSections.includes('corrections')" ref="correctionPanel" :admin="admin" :show-actions="false" @changed="refresh" /></el-collapse-item>
+    <el-collapse-item v-if="!admin" name="field-work" title="外勤管理">
+      <FieldWorkPanel v-if="expandedSections.includes('field-work')" />
+    </el-collapse-item>
+    <el-collapse-item name="statistics" title="考勤与加班统计"><header class="attendance-heading"><h3>{{admin?'考勤管理':'我的考勤统计'}}</h3><AttendanceRulesPopover /><ShiftPeriodControls action="统计" v-model:mode="mode" :value="periodValue" :disabled="loading" @update:value="setPeriod" /></header>
     <div v-if="admin" class="attendance-filters"><el-input v-model="keyword" placeholder="搜索姓名或账号" clearable aria-label="考勤人员搜索" @keyup.enter="query" @clear="query" /><el-select v-model="department" clearable filterable placeholder="全部部门" aria-label="考勤部门" @change="query"><el-option v-for="item in report.departments||[]" :key="item.id" :value="String(item.id)" :label="item.name" /></el-select><el-button @click="query">查询</el-button><el-button @click="reset">重置</el-button></div>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <p class="attendance-note">{{report.start}} 至 {{report.end}} · {{report.note||'迟到与加班按班次统计；加班时长已扣除午休 12:00–13:30 及其他班间休息。'}}</p>
@@ -31,6 +35,7 @@
 <script setup>
 import {subscribe} from '@/utils/realtimeSocket'
 import ClockCorrections from './ClockCorrections.vue'
+import FieldWorkPanel from './FieldWorkPanel.vue'
 import AnnualLeavePanel from './AnnualLeavePanel.vue'
 import AttendancePolicyPanel from './AttendancePolicyPanel.vue'
 import DelayStartApplication from './DelayStartApplication.vue'

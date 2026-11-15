@@ -26,6 +26,7 @@ import {hasPermission} from '@/utils/permission'
 import {ElMessageBox,ElMessage} from 'element-plus'
 import {changeStatementWorkspace} from '@/api/customerStatements'
 const props=defineProps({clientId:{type:String,required:true},mergeMonths:Boolean})
+const emit=defineEmits(['merged'])
 const canvasOpened=ref(false),months=ref([])
 const monthOptions=computed(()=>[...new Set(documents.value.flatMap(board=>board.statement?.months||[]))].sort().reverse())
 const selected=ref([]),displayIds=ref([]),revision=ref(0),canWrite=hasPermission('projects:write')
@@ -36,7 +37,7 @@ let controller,sequence=0,timer
 function search(){clearTimeout(timer);appliedKeyword.value=keyword.value}
 function queueSearch(value){clearTimeout(timer);if(!value.trim())search();else timer=setTimeout(search,400)}
 function onWorkspaceLoaded(data){documents.value=data.documents||[];revision.value=data.revision;selected.value=[]}
-async function merge(){const candidates=[...mergeCandidates.value];if(candidates.length<2)return;let name;try{name=(await ElMessageBox.prompt('填写合并后的对账单名称；各任务内容和原账单月份保持不变。','合并月份／对账单',{inputValue:months.value.length?`${months.value.join('、')} 对账单`:'',inputValidator:value=>!!value?.trim()||'请填写名称'})).value}catch{return}try{const data=await changeStatementWorkspace(props.clientId,{revision:revision.value,action:'merge_boards',data:{board_ids:candidates.map(board=>board.id),name},confirmed:true},'children');onWorkspaceLoaded(data);selectedId.value=candidates[0].id;ElMessage.success('已合并并保留调整前后记录');window.dispatchEvent(new CustomEvent('translation-statements-changed'))}catch(e){error.value=getLocalizedErrorMessage(e,'合并失败')}}
+async function merge(){const candidates=[...mergeCandidates.value];if(candidates.length<2)return;let name;try{name=(await ElMessageBox.prompt('填写合并后的对账单名称；各任务内容和原账单月份保持不变。','合并月份／对账单',{inputValue:months.value.length?`${months.value.join('、')} 对账单`:'',inputValidator:value=>!!value?.trim()||'请填写名称'})).value}catch{return}try{const data=await changeStatementWorkspace(props.clientId,{revision:revision.value,action:'merge_boards',data:{board_ids:candidates.map(board=>board.id),name},confirmed:true},'children');onWorkspaceLoaded(data);selectedId.value=candidates[0].id;emit('merged');ElMessage.success('已合并并保留调整前后记录');window.dispatchEvent(new CustomEvent('translation-statements-changed'))}catch(e){error.value=getLocalizedErrorMessage(e,'合并失败')}}
 window.addEventListener('customer-statement-history-refresh',load)
 onBeforeUnmount(()=>window.removeEventListener('customer-statement-history-refresh',load))
 async function load(){controller?.abort();controller=new AbortController();const seq=++sequence;loading.value=true;error.value='';try{const data=await getClientStatementWorkspace(props.clientId,'children',{signal:controller.signal});if(seq===sequence)onWorkspaceLoaded(data)}catch(e){if(seq===sequence&&e.code!=='ERR_CANCELED')error.value=getLocalizedErrorMessage(e,'历史对账单加载失败')}finally{if(seq===sequence)loading.value=false}}

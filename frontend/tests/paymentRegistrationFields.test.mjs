@@ -9,7 +9,8 @@ import {paymentDetailsForm,paymentDetailsPayload,paymentDetailsSignature} from '
 function editor(t){
   const scope=effectScope();t.after(()=>scope.stop())
   const form=ref({paymentConfirmation:paymentConfirmationForm({isPaid:true,paymentOption:'deposit'}),paymentDraft:[]})
-  const ctx={form,computed,watch,paymentConfirmationForm,fixFirstDepositStage,clearPaymentSelection,defineProps(){}}
+  const ctx={form,computed,ref,watch,paymentConfirmationForm,fixFirstDepositStage,clearPaymentSelection,
+    defineProps:()=>({matchOrders:[]}),defineEmits:()=>()=>{}}
   vm.createContext(ctx)
   const source=readFileSync(new URL('../src/components/common/PaymentRegistrationFields.vue',import.meta.url),'utf8')
   const script=source.split('<script setup>')[1].split('</script>')[0].replace(/^import .*$/gm,'').replace(/^const form=defineModel.*$/gm,'')

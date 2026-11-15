@@ -29,3 +29,17 @@ def test_legacy_contact_and_idempotent_migration(environment):
     owner=Client(id=uuid4(),client_code='LEGACY',client_name='客户',client_short_name='客户',client_manager='历史姓名',manager_contact='历史号码')
     db.add(owner);db.commit();attach(db,clients=[owner])
     assert owner.contact_people==[{'name':'历史姓名','contact_method':'历史号码','description':''}]
+
+
+def test_multiple_contact_methods_preserve_full_details(environment):
+    db, _ = environment
+    owner = Client(id=uuid4(), client_code='MULTI-CONTACT', client_name='客户', client_short_name='客户')
+    db.add(owner)
+    db.flush()
+    methods = '微信：example\n邮箱：' + 'a' * 90 + '@example.test\n自定义：example'
+    replace_details(db, owner, [ClientContactPersonInput(name='甲', contact_method=methods)])
+    db.commit()
+    db.expire_all()
+    attach(db, clients=[owner])
+    assert owner.contact_people[0]['contact_method'] == methods
+    assert owner.manager_contact == '微信：example'

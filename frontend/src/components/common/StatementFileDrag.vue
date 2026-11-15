@@ -15,7 +15,7 @@ import {ElMessage} from 'element-plus'
 import {exportStatementWorkspace,exportStatementWorkspacePdf} from '@/api/customerStatements'
 import {statementFileStem,statementFileName} from '@/utils/statementFormatting'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
-const props=defineProps({clientId:String,boardId:String,revision:Number,mode:String,name:String,disabled:Boolean,printHtml:Function})
+const props=defineProps({clientId:String,boardId:String,revision:Number,mode:String,settlementScope:String,name:String,disabled:Boolean,printHtml:Function})
 const nativePdf=!!window.xinshiDesktop?.prepareStatementPdf,folderSave=typeof window.showSaveFilePicker==='function'
 const format=ref(nativePdf?'pdf':'excel'),file=ref(null),busy=ref(false)
 let generation=0
@@ -24,16 +24,17 @@ async function prepare(){
   clear();const seq=generation;busy.value=true
   try{
     const name=statementFileStem(props.name)
+    const params={board_ids:[props.boardId],revision:props.revision,mode:props.mode,settlement_scope:props.settlementScope}
     if(format.value==='pdf'){
       // 与“下载 PDF”使用同一文件，避免桌面端再次按 HTML 生成另一种排版。
-      const blob=await exportStatementWorkspacePdf(props.clientId,{board_ids:[props.boardId],revision:props.revision,mode:props.mode})
+      const blob=await exportStatementWorkspacePdf(props.clientId,params)
       let native=null
       if(window.xinshiDesktop?.prepareStatementFile){
         try{native=await window.xinshiDesktop.prepareStatementFile({name,format:'pdf',base64:await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=reject;reader.readAsDataURL(blob)})})}catch{/* 旧桌面端不支持PDF令牌时保留标准文件拖出与下载。 */}
       }
       if(seq===generation)file.value={name:statementFileName(name,'pdf'),token:native?.name?.endsWith('.pdf')?native.token:undefined,blob,url:URL.createObjectURL(blob),mime:'application/pdf'}
     }else{
-      const blob=await exportStatementWorkspace(props.clientId,{board_ids:[props.boardId],revision:props.revision,mode:props.mode})
+      const blob=await exportStatementWorkspace(props.clientId,params)
       const native=window.xinshiDesktop?.prepareStatementFile?await window.xinshiDesktop.prepareStatementFile({name,base64:await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=reject;reader.readAsDataURL(blob)})}):null
       if(seq===generation)file.value={name:native?.name||statementFileName(name,'excel'),token:native?.token,blob,url:URL.createObjectURL(blob),mime:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}
     }
@@ -52,7 +53,7 @@ async function saveToFolder(){
   try{const handle=await window.showSaveFilePicker({suggestedName:file.value.name,types:[{description:file.value.mime==='application/pdf'?'PDF对账单':'Excel对账单',accept:{[file.value.mime]:[file.value.mime==='application/pdf'?'.pdf':'.xlsx']}}]});const stream=await handle.createWritable();await stream.write(file.value.blob);await stream.close();ElMessage.success('对账单文件已保存')}
   catch(e){if(e.name!=='AbortError')ElMessage.error('文件保存失败')}
 }
-watch(()=>[props.clientId,props.boardId,props.revision,props.mode],clear)
+watch(()=>[props.clientId,props.boardId,props.revision,props.mode,props.settlementScope],clear)
 onBeforeUnmount(clear)
 </script>
 <style scoped>

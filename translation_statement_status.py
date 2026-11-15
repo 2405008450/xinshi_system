@@ -44,5 +44,10 @@ def attach(db,projects):
                 targets.update(by_number[prefix] for index in range(1,len(parts)+1) if (prefix:='.'.join(parts[:index])) in by_number)
             for target in targets:grouped.setdefault((target,board_id),set()).add(task['month'])
         for (root_id,board_id),months in grouped.items():
-            owners[root_id].statement_status.append({'client_id':str(client_id),'board_id':board_id,'board_name':boards[board_id]['name'],'months':sorted(months)})
+            board=boards[board_id]
+            owners[root_id].statement_status.append({
+                'client_id':str(client_id),'board_id':board_id,'board_name':board['name'],
+                'months':sorted(months),
+                **({'period_number':board['period_number']} if board.get('period_number') else {}),
+            })
     for owner in owners.values():owner.statement_status.sort(key=lambda item:(item['months'],item['board_name'],item['board_id']))

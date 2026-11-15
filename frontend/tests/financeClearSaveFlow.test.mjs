@@ -20,6 +20,8 @@ test('固定收费清空后，打开关联付款但不操作，返回可保存�
     linkedPaymentVisible:ref(false),saving:ref(false),canWrite:true,formRef:ref({validate:async()=>!validate(editor.value)}),localTarget:ref(null),
     documentPayload:()=>({}),treeVersion:'v1',libraryVersion:'r1',billingTaxChoices:()=>[],effectiveBillingTaxMode:()=>null,paymentConfirmationDirty:ref(true),
     updateLibrary:ref(false),saveError:ref(''),updateProjectFormFinance:async()=>{},applyDocumentDraft:()=>{},syncSavedFinanceRows:()=>{},
+    reviewApplicable:ref(false),savedDocumentReview:ref(null),selectedCustomerDocuments:ref([]),
+    changedPaymentMethod:()=>undefined,documentRequirementsChanged:ref(false),documentParent:ref(null),props:{},
     notifyStatementCustomerSync:()=>{},window:{dispatchEvent:()=>{}},CustomEvent:class{},
     saveCustomerFinanceProject:async(id,payload)=>{calls.push(payload);return {item:{paymentConfirmation:{revision:6,isPaid:false}}}},
     editorSignature:()=>'',original:ref(''),pricingModeOnlySignature:ref(null),originalPaymentConfirmation:ref(''),notifyPaymentChanged:()=>{},financePaymentSource:'test',editorVisible:ref(true),

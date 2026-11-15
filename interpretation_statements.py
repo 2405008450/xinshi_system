@@ -110,7 +110,7 @@ def build(db, target: UUID, month, scope, basis=None):
             totals[code] = totals.get(code, Decimal(0)) + Decimal(row['subtotal'])
     subject = db.get(statements.CustomerStatementCompany, 'company')
     private = statements.private_statement_settings_available()
-    settings = statements.settings_value(db.get(statements.CustomerStatementSettings, 'company'), subject) if private else {}
+    settings = statements.settings_value(*statements.statement_company_settings(db)) if private else {}
     result = dict(company=subject.company if subject else statements.COMPANY, title='口译对账单',
                   client_name=(client.client_name or client.client_short_name) if client else (project.client_full_name or project.client_short_name or ''),
                   month=month, issue_date=business_now().date().isoformat(), scope=scope,

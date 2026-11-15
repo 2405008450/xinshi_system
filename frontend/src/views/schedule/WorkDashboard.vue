@@ -160,12 +160,19 @@
               </el-tag>
             </span>
           </template>
-          <DailyReportPanel :report-date="dailyReportDate" @update:report-date="dailyReportDate = $event" @status-change="onDailyReportStatus" />
+          <DailyReportPanel v-if="!fieldWorkReport" :report-date="dailyReportDate" @update:report-date="dailyReportDate = $event" @status-change="onDailyReportStatus" />
         </el-tab-pane>
         <el-tab-pane v-if="canReceiveReports" name="received-reports" label="查看工作报告" lazy><ReceivedWorkReports /></el-tab-pane>
       </el-tabs>
     </div>
 
+    <DraggableFormDialog v-if="fieldWorkReport" v-model="fieldWorkReportOpen" title="编辑工作报告"
+      class="field-work-report-dialog" width="min(1600px, calc(100vw - 32px))" top="5vh"
+      :close-on-click-modal="false" @closed="fieldWorkReport = null">
+      <DailyReportPanel :report-date="fieldWorkReportDate" :initial-field-work="fieldWorkReport" :footer-target="fieldWorkReportFooter"
+        @update:report-date="fieldWorkReportDate = $event" @status-change="onDailyReportStatus" />
+      <template #footer><div ref="fieldWorkReportFooter" class="field-work-report-footer" /><el-button @click="fieldWorkReportOpen = false">关闭</el-button></template>
+    </DraggableFormDialog>
     <ShiftMatrixDialog
       v-model="matrixVisible"
       :reference-date="scheduleDate"
@@ -233,8 +240,21 @@ function readInitialMainTab() {
 const activeSection = ref(readInitialMainTab())
 watch(()=>attendanceRoute.query.section,value=>{if(value==='attendance')activeSection.value='monthly-shift';if(value==='daily-report')activeSection.value='daily-report'},{immediate:true})
 function openMyWorkReport(){activeSection.value='daily-report';dailyReportDate.value=reportBusinessDate()}
+const fieldWorkReport = ref(null)
+const fieldWorkReportOpen = ref(false)
+const fieldWorkReportDate = ref('')
+const fieldWorkReportFooter = ref(null)
+function editFieldWorkReport(event) {
+  const row = event.detail
+  if (!row?.id || !hasPermission('reports:read') || fieldWorkReport.value) return
+  fieldWorkReportDate.value = reportBusinessDate(row.start_at)
+  fieldWorkReport.value = row
+  fieldWorkReportOpen.value = true
+}
 onMounted(()=>window.addEventListener('open-my-work-report',openMyWorkReport))
 onBeforeUnmount(()=>window.removeEventListener('open-my-work-report',openMyWorkReport))
+onMounted(() => window.addEventListener('edit-field-work-report', editFieldWorkReport))
+onBeforeUnmount(() => window.removeEventListener('edit-field-work-report', editFieldWorkReport))
 const dailyReportStatus = ref(null)
 const canManageProjectOwnership = computed(() => hasRole('项目经理') || isSuperAdmin())
 const canOperateWorkflow = computed(() => hasPermission(['projects:read', 'workflow:operate']))
@@ -418,6 +438,12 @@ onMounted(() => {
 </script>
 
 <style scoped>
+:global(.field-work-report-dialog) { display: flex; flex-direction: column; overflow: hidden; max-height: 90vh; }
+:global(.field-work-report-dialog .el-dialog__header), :global(.field-work-report-dialog .el-dialog__footer) { flex-shrink: 0; }
+:global(.field-work-report-dialog .el-dialog__body) { flex: 1; min-height: 0; overflow-y: auto; }
+:global(.field-work-report-dialog .el-dialog__footer) { display: flex; align-items: center; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--el-border-color-lighter); }
+.field-work-report-footer { display: flex; align-items: center; gap: 8px; }
+.field-work-report-footer .el-button + .el-button { margin-left: 0; }
 .workbench-card {
   border-color: var(--color-border);
   background: var(--color-surface);

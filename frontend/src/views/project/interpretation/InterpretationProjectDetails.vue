@@ -397,6 +397,7 @@
             </el-row>
             <el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="客户全称" prop="clientFullName"><ClientFullNameInput v-model="form.clientFullName" :client-id="form.clientId" include-sub-clients @select="handleClientSelect" /></el-form-item></el-col></el-row>
             <ProjectClientContactFields :client-id="form.clientId" :sub-client-id="form.subClientId" v-model:contact-name="form.contactName" v-model:contact-method="form.clientContactMethod" v-model:contact-description="form.clientContactDescription" v-model:contact-version="form.clientContactVersion" v-model:contacts-visible="form.clientContactsVisible" />
+            <ProjectCustomerRequirements module="interpretation" :project="form" @apply="values => Object.assign(form, values)" />
             <el-form-item label="补充说明" class="remarks-form-item"><el-input v-model="form.remarks" type="textarea" :rows="5" /></el-form-item>
             <el-form-item label="具体任务" prop="taskDescription">
               <el-input v-model="form.taskDescription" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" placeholder="请输入具体任务，可填写详细的工作内容和要求" resize="vertical" />
@@ -605,6 +606,7 @@ import ClientFullNameInput from '@/components/common/ClientFullNameInput.vue'
 import ProjectStatisticsDialog from '@/components/common/ProjectStatisticsDialog.vue'
 const statisticsVisible=ref(false)
 import ProjectClientContactFields from '@/components/common/ProjectClientContactFields.vue'
+import ProjectCustomerRequirements from '@/components/common/ProjectCustomerRequirements.vue'
 import {emptyProjectContactDetails,projectContactPayload} from '@/utils/projectClientContacts'
 
 import ClientNameGuidance from '@/components/common/ClientNameGuidance.vue'

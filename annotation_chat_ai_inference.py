@@ -26,15 +26,16 @@ class AnalysisError(Exception):
     pass
 
 
-def message_query(project_id, start, end):
+def message_query(project_id, start, end, *, include_empty=False):
     message = ChatProjectMessage
     query = select(message.id, message.sequence_no, message.sender_name, message.created_at, message.content).where(
         message.annotation_project_id == project_id,
         message.created_at < end,
         message.recalled_at.is_(None),
         message.message_type == 'user',
-        message.content != '',
     )
+    if not include_empty:
+        query = query.where(message.content != '')
     if start is not None:
         query = query.where(message.created_at >= start)
     return query

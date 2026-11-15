@@ -141,9 +141,23 @@
 </el-table>
     <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" class="pagination" @current-change="fetchData" @size-change="handleSizeChange" />
 
-    <DraggableFormDialog v-model="detailVisible" width="min(1120px, calc(100vw - 32px))" top="5vh" class="talent-detail-dialog" destroy-on-close>
-      <template #header><span class="talent-detail-title" @mousedown.stop>{{ selectedDetail.resourceCode || '人才' }} · {{ displayTalentName(selectedDetail) }} 详情</span></template>
-      <TalentDetailContent v-loading="detailLoadingId===selectedDetail.id" :detail="detailFor(selectedDetail)" :projects="projectCache[selectedDetail.id] || []" :projects-loading="projectsLoading" :projects-error="projectsError" :show-performance="!isRecruitmentPool" :show-annotation-willingness="!isRecruitmentPool" in-dialog @reload-projects="loadFullDetail(selectedDetail)" />
+    <DraggableFormDialog v-model="detailVisible" width="min(1120px, calc(100vw - 32px))" top="5vh" class="talent-detail-dialog" destroy-on-close @close="detailFieldSearch.clearFieldSearch">
+      <template #header>
+        <DialogFieldSearchHeader
+          ref="detailFieldSearchRef"
+          v-model="detailFieldSearchKeyword"
+          :title="`${selectedDetail.resourceCode || '人才'} · ${displayTalentName(selectedDetail)} 详情`"
+          copyable-title
+          :fetch-suggestions="detailFieldSearch.fetchFieldSuggestions"
+          placeholder="搜索人才详情字段，如简历年份"
+          search-label="搜索人才详情字段"
+          @select="detailFieldSearch.locateDialogField"
+          @clear="detailFieldSearch.clearFieldSearch"
+        />
+      </template>
+      <div ref="detailBodyRef">
+        <TalentDetailContent v-loading="detailLoadingId===selectedDetail.id" :detail="detailFor(selectedDetail)" :projects="projectCache[selectedDetail.id] || []" :projects-loading="projectsLoading" :projects-error="projectsError" :show-performance="!isRecruitmentPool" :show-annotation-willingness="!isRecruitmentPool" in-dialog @reload-projects="loadFullDetail(selectedDetail)" />
+      </div>
       <template #footer><el-button @click="detailVisible=false">关闭</el-button></template>
     </DraggableFormDialog>
 
@@ -595,6 +609,9 @@ function searchNow(){exitDeleteMode();clearTimeout(timer);pagination.page=1;fetc
 async function loadDetail(id,force=false){if(!force&&detailCache[id])return detailCache[id];detailLoadingId.value=id;try{detailCache[id]=await talentClient.value.detail(id);return detailCache[id]}catch(error){ElMessage.error(error.detail||'加载人才详情失败')}finally{detailLoadingId.value=null}}
 const detailFor=row=>detailCache[row.id]||row
 const detailVisible=ref(false),selectedDetail=ref({}),projectsLoading=ref(false),projectsError=ref('')
+const detailBodyRef = ref(null)
+const detailFieldSearch = useDialogFieldSearch(detailBodyRef, { readonly: true })
+const { fieldSearchRef: detailFieldSearchRef, fieldSearchKeyword: detailFieldSearchKeyword } = detailFieldSearch
 async function openTalentDetail(row){selectedDetail.value=row;detailVisible.value=true;await loadFullDetail(row)}
 async function loadFullDetail(row){projectsLoading.value=true;projectsError.value='';const id=row.id;try{const [,projects]=await Promise.all([loadDetail(id,true),talentClient.value.projects(id)]);projectCache[id]=projects}catch(error){if(selectedDetail.value.id===id)projectsError.value=error.detail||'项目情况加载失败，请重试'}finally{if(selectedDetail.value.id===id)projectsLoading.value=false}}
 

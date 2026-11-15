@@ -1,4 +1,5 @@
 from uuid import uuid4
+from datetime import datetime
 
 from sqlalchemy import create_engine, inspect
 
@@ -100,3 +101,75 @@ def test_project_summary_requires_both_customer_and_project_read(environment, mo
         assert http.get(f'/clients/{uuid4()}/projects').status_code == 404
         granted.remove('clients:read')
         assert http.get(path).status_code == 403
+
+
+def test_customer_managers_rank_consultation_then_projects_and_scope_project_details(environment):
+    from client_project_managers import attach_client_project_managers, client_manager_project_groups
+    from models import Consultation
+    from project_client_manager import ProjectClientManagerChange
+
+    db, (consultation_manager, first_manager, later_manager) = environment
+    client = Client(id=uuid4(), client_code='CL-M', client_name='同名客户', client_manager='联系人')
+    other = Client(id=uuid4(), client_code='CL-N', client_name='同名客户')
+    sub = SubClient(id=uuid4(), parent_client_id=client.id, sub_client_code='CL-M.001')
+    db.add_all([client, other, sub])
+    translation = TranslationProject(id=uuid4(), client_id=client.id, order_no='T-1',
+                                     project_name='笔译', created_at=datetime(2026, 1, 3))
+    interpretation = InterpretationProject(id=uuid4(), client_id=client.id, order_no='I-1',
+                                           project_name='口译', created_at=datetime(2026, 1, 4))
+    db.add_all([
+        Consultation(id=uuid4(), client_id=client.id, consultation_code='C-1',
+                     customer_service_id=consultation_manager.id, consultation_time=datetime(2026, 1, 1)),
+        Consultation(id=uuid4(), client_id=client.id, consultation_code='C-2',
+                     customer_service_id=later_manager.id, consultation_time=datetime(2026, 1, 2)),
+        translation, interpretation,
+        ProjectClientManagerChange(project_type='translation', project_id=translation.id, revision=1,
+                                   new_manager_id=consultation_manager.id, new_manager_name=consultation_manager.full_name),
+        ProjectClientManagerChange(project_type='translation', project_id=translation.id, revision=2,
+                                   new_manager_id=later_manager.id, new_manager_name=later_manager.full_name),
+        ProjectClientManagerChange(project_type='interpretation', project_id=interpretation.id, revision=1,
+                                   new_manager_id=later_manager.id, new_manager_name=later_manager.full_name),
+        AnnotationProject(id=uuid4(), sub_client_id=sub.id, order_no='A-1', project_name='标注',
+                          client_manager_id=first_manager.id, created_at=datetime(2026, 1, 2)),
+        RecruitmentProject(id=uuid4(), client_id=client.id, order_no='R-1', project_name='招聘',
+                           client_manager_id=later_manager.id, created_at=datetime(2026, 1, 5)),
+        RecruitmentProject(id=uuid4(), client_id=other.id, order_no='R-2', project_name='其他客户招聘',
+                           client_manager_id=later_manager.id, created_at=datetime(2026, 1, 1)),
+    ])
+    db.commit()
+
+    attach_client_project_managers(db, [client, other], read_consultations=True, read_projects=True)
+    assert [item['key'] for item in client.project_managers] == [
+        str(consultation_manager.id), str(first_manager.id), str(later_manager.id),
+    ]
+    assert [item['key'] for item in other.project_managers] == [str(later_manager.id)]
+    assert client_manager_project_groups(db, client.id, str(consultation_manager.id)) == {'groups': []}
+    groups = client_manager_project_groups(db, client.id, str(later_manager.id))['groups']
+    assert [(group['module'], [item['order_no'] for item in group['items']]) for group in groups] == [
+        ('translation', ['T-1']), ('interpretation', ['I-1']), ('recruitment', ['R-1']),
+    ]
+    assert client_manager_project_groups(db, client.id, str(first_manager.id))['groups'][0]['module'] == 'annotation'
+
+    attach_client_project_managers(db, [client], read_consultations=False, read_projects=True)
+    assert [item['key'] for item in client.project_managers] == [str(first_manager.id), str(later_manager.id)]
+
+
+def test_client_number_conflict_identifies_number_field(environment, monkeypatch):
+    from fastapi import HTTPException
+    from sqlalchemy.exc import IntegrityError
+    from types import SimpleNamespace
+    import pytest
+    from routers import clients
+
+    db, _ = environment
+
+    def duplicate(*args, **kwargs):
+        original = Exception('duplicate')
+        original.diag = SimpleNamespace(constraint_name='client_client_code_key')
+        raise IntegrityError('', {}, original)
+
+    monkeypatch.setattr(clients, 'update_client', duplicate)
+    with pytest.raises(HTTPException) as error:
+        clients.update_client_endpoint(uuid4(), ClientUpdate(client_code='CL-261113-015'), db)
+    assert error.value.status_code == 409
+    assert error.value.detail['fieldErrors'][0]['path'] == 'client_code'

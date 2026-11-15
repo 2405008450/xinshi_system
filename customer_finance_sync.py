@@ -1,4 +1,4 @@
-"""客户参考价单向自动下发；项目回写及差异覆盖均须显式确认。"""
+"""客户参考价同步与各业务模块的价格差异处理。"""
 from copy import deepcopy
 from decimal import Decimal
 from typing import Literal
@@ -84,12 +84,12 @@ def oral_defaults(project, rows):
 
 
 def translation_defaults(owner, project, rows):
-    choices = set(str(owner.language_pair or project.language_pair or '').split('；'))
+    from translation_rate_matching import references_for_new_prices
     return [dict(row, id=None, reference_id=row['id'], reference_revision=row['revision'])
-            for row in rows if row['language_pair'] in choices]
+            for row in references_for_new_prices(rows, owner.language_pair or project.language_pair, owner.word_count_matrix)]
 
 
-def auto_translation(db, user, client_id, before, after, project_id=None):
+def auto_translation(db, user, client_id, before, after, project_id=None, *, overwrite=False):
     import customer_translation_rates as rates
     import translation_customer_finance as finance
     import translation_finance_audit as audit
@@ -98,24 +98,45 @@ def auto_translation(db, user, client_id, before, after, project_id=None):
     audit.require_ready(db)
     from translation_rate_matching import automatic_reference, matches
     previous_ids={row['id']:row for row in before};current_ids={row['id']:row for row in after}
-    query = db.query(TranslationProject).filter_by(client_id=client_id).filter(TranslationProject.annotation_migrated_at.is_(None))
+    changed_refs = [row for row in after if row['id'] not in previous_ids or
+                    number(row['amount'])!=number(previous_ids[row['id']]['amount']) or
+                    tax_signature(row)!=tax_signature(previous_ids[row['id']])]
+    if overwrite and not changed_refs:
+        return
+    from models import SubClient
+    from sqlalchemy import func
+    query = db.query(TranslationProject).outerjoin(SubClient,SubClient.id==TranslationProject.sub_client_id).filter(
+        func.coalesce(TranslationProject.client_id,SubClient.parent_client_id)==client_id,
+        TranslationProject.annotation_migrated_at.is_(None))
     if project_id: query=query.filter_by(id=project_id)
-    projects = query.order_by(TranslationProject.id).with_for_update().all()
+    projects = query.order_by(TranslationProject.id).with_for_update(of=TranslationProject).all()
     for project in projects:
         project = finance.crud.get_translation_project(db,project.id)
         finance.crud._attach_word_count_matrices(db,projects=[project])
         captured = audit.capture(project)
         changed = False
-        for owner in finance.hierarchy(project)[0]:
+        owners, _, parents = finance.hierarchy(project)
+        modes = finance.order_pricing_modes(db, project)
+        for owner in owners:
+            if modes.get(str(owner.id))=='aggregate' or finance.inherits_fixed_pricing(project,parents,str(owner.id)):
+                continue
+            if str(owner.id) in getattr(project,'cleared_price_orders',()):continue
             if any(charge.pricing_mode=='fixed' for charge in owner.customer_charge_items):continue
             rows = rates.order_rates(db, owner, owner.language_pair or project.language_pair)
-            candidates = rows or translation_defaults(owner, project, after)
+            candidates = rows or translation_defaults(owner, project, changed_refs if overwrite else after)
             by_id = {str(row.id): row for row in owner.customer_charge_items}
             for data in candidates:
                 reference_id = data.get('reference_id')
                 if not rows:
-                    # 尚未设定项目计价口径时，沿用该方向的客户报价及其口径。
                     ref=current_ids.get(reference_id)
+                elif overwrite:
+                    linked=current_ids.get(reference_id)
+                    if linked and matches(linked,data,right_matrix=owner.word_count_matrix,left_reference=True):
+                        ref=linked if linked in changed_refs else None
+                    else:
+                        ref=automatic_reference(after,data,owner.word_count_matrix)
+                        if ref not in changed_refs:
+                            ref=None
                 elif reference_id:
                     linked=current_ids.get(reference_id)
                     old=previous_ids.get(reference_id)
@@ -135,7 +156,7 @@ def auto_translation(db, user, client_id, before, after, project_id=None):
                         sub_order_id=None if owner is project else owner.id, sequence_no=max((item.sequence_no or 0 for item in owner.customer_charge_items),default=0)+1,
                         item_name='翻译费', pricing_mode='metric', created_at=moment)
                     owner.customer_charge_items.append(charge)
-                elif number(data['amount']) == number(ref['amount']) and data.get('reference_revision') == ref['revision']:
+                elif number(data['amount']) == number(ref['amount']) and tax_signature(data)==tax_signature(ref) and data.get('reference_revision') == ref['revision']:
                     continue
                 tax=ref.get('tax_prices')
                 charge.unit_price_excl_tax=Decimal(tax['unit_price_excl_tax']) if tax and tax.get('unit_price_excl_tax') is not None else (None if tax else Decimal(ref['amount']))
@@ -151,7 +172,9 @@ def auto_translation(db, user, client_id, before, after, project_id=None):
                 meta.language_pair = ref['language_pair']; meta.reference_id = UUID(ref['id']); meta.reference_revision = ref['revision']
                 changed = True
         if changed:
-            db.flush(); rates.invalidate_metadata(db); audit.append(db, user, project, captured)
+            db.flush(); rates.invalidate_metadata(db); quantity_basis.invalidate(db)
+            finance.confirmations.recheck_after_fee_change(db,project.id,user.id)
+            audit.append(db, user, project, captured)
 
 
 def inherit_translation(db, project, user_id):
@@ -241,9 +264,65 @@ def matching(module, project, owner, rows, references):
 router = APIRouter(prefix='/customer-finance-sync', tags=['customer-finance-sync'])
 
 
+def translation_difference_tree(owners, numbers, parents, directions, differences):
+    children = {}
+    for order_id, parent_id in parents.items():
+        children.setdefault(parent_id, []).append(order_id)
+    by_id = {str(owner.id): owner for owner in owners}
+    by_order = {row['order_id']: row for row in differences}
+
+    def build(order_id):
+        owner = by_id[order_id]
+        subtree_directions = set(directions[order_id])
+        branches = []
+        for child_id in children.get(order_id, []):
+            child, child_directions = build(child_id)
+            subtree_directions.update(child_directions)
+            if child:
+                branches.append((child, child_directions))
+
+        own_difference = by_order.get(order_id)
+        if not own_difference and not branches:
+            return None, subtree_directions
+        node = own_difference or dict(
+            order_id=order_id, order_no=numbers[order_id],
+            project_name=getattr(owner, 'sub_project_name', None) or owners[0].project_name,
+        )
+        node = {**node, 'language_directions': sorted(subtree_directions - {''})}
+        if not branches:
+            return node, subtree_directions
+        if len(subtree_directions) == 1 and '' not in subtree_directions:
+            node['children'] = [child for child, _ in branches]
+            return node, subtree_directions
+
+        # Group only siblings whose entire branch uses the same known direction.
+        groups = {}
+        for child, child_directions in branches:
+            if len(child_directions) == 1 and '' not in child_directions:
+                groups.setdefault(next(iter(child_directions)), []).append(child)
+        node['children'] = []
+        node['expand_by_default'] = True
+        shown = set()
+        for child, child_directions in branches:
+            direction = next(iter(child_directions)) if len(child_directions) == 1 else None
+            siblings = groups.get(direction, [])
+            if len(siblings) < 2:
+                node['children'].append(child)
+            elif direction not in shown:
+                shown.add(direction)
+                node['children'].append(dict(
+                    order_id=f'{order_id}:direction:{direction}', direction_group=True,
+                    language_directions=[direction], children=siblings,
+                ))
+        return node, subtree_directions
+
+    return build(str(owners[0].id))[0]
+
+
 @router.get('/{module}/{client_id}/differences')
 def differences(module: Literal['translation','interpretation','annotation'], client_id: UUID,
-                page: int = Query(1, ge=1), db=Depends(get_db), user=Depends(get_current_user)):
+                page: int = Query(1, ge=1), db=Depends(get_db), user=Depends(get_current_user),
+                group_orders: bool = False):
     if module == 'annotation':
         from customer_annotation_rate_sync import differences as annotation_differences
         return annotation_differences(db, user, client_id, page)
@@ -255,19 +334,30 @@ def differences(module: Literal['translation','interpretation','annotation'], cl
     query = db.query(model).filter_by(client_id=client_id)
     if module == 'translation': query = query.filter(model.annotation_migrated_at.is_(None))
     result = []
+    grouped = module == 'translation' and group_orders
+    difference_count = 0
     for project in query.order_by(model.id).all():
         if module == 'translation':
             import translation_customer_finance as finance
             import customer_translation_rates as rates
             project=finance.crud.get_translation_project(db,project.id)
-            owners,numbers,_ = finance.hierarchy(project)
+            owners,numbers,parents = finance.hierarchy(project)
             version=finance.version(project)
         else:
             owners = [project]
+        project_differences = []
+        directions = {}
         for owner in owners:
             if module == 'translation':
                 rows=rates.order_rates(db,owner,owner.language_pair or project.language_pair)
                 number_=numbers[str(owner.id)]
+                if grouped:
+                    owner_direction = owner.language_pair or project.language_pair or ''
+                    directions[str(owner.id)] = {
+                        value.strip() for value in owner_direction.split('；') if value.strip()
+                    } | {row['language_pair'] for row in rows if row.get('language_pair')}
+                    if not directions[str(owner.id)]:
+                        directions[str(owner.id)].add('')
             else:
                 _, _, rows, version, number_ = project_state(module, db, project.id, owner.id)
             if not rows: continue  # 尚无项目单价时使用自动带出的客户参考价。
@@ -276,8 +366,16 @@ def differences(module: Literal['translation','interpretation','annotation'], cl
                 if translation_rates_agree(rows, expected, owner.word_count_matrix): continue
                 rows = with_resolved_quantity_basis(rows, owner.word_count_matrix)
             elif signature(module, rows) == signature(module, expected): continue
-            result.append(dict(project_id=str(project.id), order_id=str(owner.id), order_no=number_, project_name=getattr(owner,'sub_project_name',None) or project.project_name,
+            project_differences.append(dict(project_id=str(project.id), order_id=str(owner.id), order_no=number_, project_name=getattr(owner,'sub_project_name',None) or project.project_name,
                 project_rates=rows, customer_rates=expected, version=version, customer_version=customer_version))
+        if grouped:
+            if project_differences:
+                difference_count += len(project_differences)
+                result.append(translation_difference_tree(owners, numbers, parents, directions, project_differences))
+        else:
+            result.extend(project_differences)
+    if grouped:
+        return dict(ready=True, items=result[(page-1)*10:page*10], total=len(result), difference_count=difference_count)
     return dict(ready=True, items=result[(page-1)*10:page*10], total=len(result))
 
 

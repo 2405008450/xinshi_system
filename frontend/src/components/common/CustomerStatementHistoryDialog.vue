@@ -1,7 +1,7 @@
 <template>
   <DraggableFormDialog :model-value="modelValue" class="customer-statement-history-dialog" width="min(1280px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close @update:model-value="emit('update:modelValue',$event)">
     <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="`${mergeMonths?'合并月份':'客户管理 · 对账单'} · ${client?.shortName||client?.name||''}`" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
-    <div ref="body"><CustomerStatementHistory v-if="modelValue&&client?.id" :client-id="client.id" :merge-months="mergeMonths" /></div>
+    <div ref="body"><CustomerStatementHistory v-if="modelValue&&client?.id" :client-id="client.id" :merge-months="mergeMonths" @merged="emit('merged')" /></div>
     <template #footer><el-button @click="emit('update:modelValue',false)">关闭</el-button></template>
   </DraggableFormDialog>
 </template>
@@ -12,7 +12,7 @@ import DialogFieldSearchHeader from './DialogFieldSearchHeader.vue'
 import CustomerStatementHistory from './CustomerStatementHistory.vue'
 import {useDialogFieldSearch} from '@/composables/useDialogFieldSearch'
 const props=defineProps({modelValue:Boolean,client:Object,mergeMonths:Boolean})
-const emit=defineEmits(['update:modelValue'])
+const emit=defineEmits(['update:modelValue','merged'])
 const body=ref()
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(body)
 watch(()=>props.modelValue,clearFieldSearch)

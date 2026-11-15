@@ -13,6 +13,7 @@
 - 笔译客户财务窗口新增“收费设置 / 对账单”页签；对账单支持当前项目（含所选订单的下级）或该客户整月全部笔译项目（包含子客户）。账单月份优先采用本订单已登记月份，其次沿用最近上级，最后沿用母订单编号月份；编号无月份时回退客户接单时间月份。来稿日期直接使用母订单客户接单时间，按UTC+8展示。
 - 新表 `customer_statement_preference`：`client_id UUID` 主键/FK `client.id`（删除级联），`tax_included boolean not null`（默认false），`revision integer not null`，`updated_by UUID` FK `app_user.id`（删除置空），`updated_at timestamptz not null`（UTC+8）。客户财务信息中的“单价含税”即时保存；未勾选时对账单采用不含税口径，已明确登记的两种税口径金额不互相推算或覆盖。
 - 新表 `customer_statement_settings`：`key varchar(30)` 主键（公司配置使用company），`bank_name varchar(255)`，`account_name varchar(255)`，`account_number varchar(100)`，`stamp_image text`（经图片解码校验、去元数据及尺寸限制后的PNG data URL；空值采用示例章），`revision integer not null`，`updated_by UUID` FK `app_user.id`（删除置空），`updated_at timestamptz not null`（UTC+8）。账户及印章由全部客户对账单共用。
+- `finance_collection_account_materials`：`key varchar(30)` 主键兼外键，关联 `customer_statement_settings.key`，级联删除；`notes text` 保存账户备注；`attachments json` 保存文件名和 Base64 内容，最多 9 件，原始文件合计最多 8 MB。资料与收款账户同事务保存，共用账户版本及更新审计字段。仅正式线上系统的账户编辑人员可访问该资料，账单预览及导出不读取附件。
 - 设置和税口径修改使用版本校验防止覆盖；读取需要客户或项目查看权限，修改需要客户管理写权限。迁移入口 `tools/apply_customer_statements_migration.py` 只创建这两张表及必要约束，不修改既有表；服务自动迁移保持关闭。
 - `/translation-statements/preview` 和 `/translation-statements/excel` 使用同一生成逻辑：表头为“广州信实翻译服务公司 / 对账单”，包含来稿日期、项目名称、翻译方向、工作量及计价方式、含税/不含税单价、小计和备注。固定收费不做数量乘单价；只对最下级收费项或固定收费订单计费，父级明确调价单独列出差额，避免重复累计母子订单。
 - 金额以Decimal逐条四舍五入到分，按币种合计；缺少单价、工作量或所选税口径时标为待补，合计注明仅含已登记金额。导出Excel携带预览内容SHA256，数据或账户印章变化时拒绝下载并要求重新生成。Excel和打印版均将透明印章作为合计左侧的浮动图层叠盖表格线；账户名、账号保持文本，避免丢失前导零及公式注入。
@@ -2082,6 +2083,7 @@ JSON 的 `internships`、`annotation`、`interpretation`、`translation`、`othe
 - 组织架构增加办公室管理，第一分区为办公室人数设置；默认配置广州办公室、深圳南山办公室、上海办公室，城市分别为广州/深圳/上海。允许新增其他城市、办公室名称与工位数设置。工位数初始NULL表示待设置，可明确填0，不推算现有工位数。
 - `organization_office_site`：id UUID PK；city varchar(100)；city_key varchar(100) UNIQUE（trim/casefold）；name varchar(200)；seats integer NULL（0..100000）；revision integer；created_at/updated_at timestamptz。默认城市采用稳定UUID，迁移重复执行不重置工位或已修改名称。
 - `employee_office_city`：user_id UUID PK/FK app_user.id；office_city_id UUID FK organization_office_site.id（索引）；updated_at timestamptz。不修改既有app_user结构；未填城市不创建关联，清空删除关联，PATCH/PUT未提供城市时保留原关联。城市更名通过ID关联实时显示新名称，不批量改写人员。
+- `organization_office_remote_worker`：id UUID 主键，user_id UUID 唯一外键关联 app_user.id（物理删除人员时删除登记），city VARCHAR(100) 登记城市，revision INTEGER 并发版本。每人一条登记，城市可选择办公室城市或独立填写，人员从全体未删除人员中选择，停用人员标记显示。登记用于办公室管理名册。
 - 实际人数按人员管理is_active=true且is_deleted=false统计，跨部门不重复；请假不减少人数。另显示未删除登记人员数（含停用）及未设置城市的在用人数。点击实际人数打开人员管理同城市且在用的筛选列表，列表和总数复用同条件，可清除办公室筛选。
 - 人员新增/编辑姓名后增加城市下拉，只能选办公室管理的城市；列表、详情、创建/修改响应同步城市。用户新建/修改和城市保存共用事务，服务端验证城市ID，无效城市不写人员变更。城市字典姓名/工位变更不修改已有人员其他属性。
 - 办公室查看受system:users:read/write保护，编辑受system:users:write保护；仅城市名称选项供已登录人员使用，不含人数。工位/城市修改revision防覆盖、城市唯一约束防重复；UTC+8时间。
@@ -2481,7 +2483,7 @@ Python translation_file_name_rules.py 与前端 translationFileName.js 共用格
 
 计价口径与同月订单同步（2026-11-02）：
 
-- 新表`translation_charge_quantity_basis`：收费项ID主键/FK到`translation_sub_order_charge_item.id`（删除级联）、`mode varchar(40) not null`。保存计价数据来源，不改变旧收费表的metric枚举约束。新单价默认`customer_auto`；唯一已填的客户统计栏自动采用，零视为已填；客户多栏时须明确选择，记为`customer_auto:指标`。`company_characters_no_spaces`、`company_words`、`company_cjk_chars_korean_words`、`company_foreign_words`、`company_documents`、`company_pages`分别读取我司六种统计（字符数不计空格、字数、中朝、外文、份数、页数）。旧价格无附属行时仍按原客户指标计算，不自动改写。参考价的既有metric字符串字段保存对应模式，客户端与财务页共用选择器。
+- 新表`translation_charge_quantity_basis`：收费项ID主键/FK到`translation_sub_order_charge_item.id`（删除级联）、`mode varchar(40) not null`。保存计价数据来源，不改变旧收费表的metric枚举约束。新单价默认`customer_auto`；自动按客户统计、我司统计依次查找。每组按字符数（不计空格）、字数、中朝、外文字数、份数、页数、分钟、小时取首个已填值，零视为已填。手动指定客户口径记为`customer_auto:指标`。`company_characters_no_spaces`、`company_words`、`company_cjk_chars_korean_words`、`company_foreign_words`、`company_documents`、`company_pages`分别读取我司六种统计（字符数不计空格、字数、中朝、外文、份数、页数）。旧价格无附属行时仍按原客户指标计算，不自动改写。参考价的既有metric字符串字段保存对应模式，客户端与财务页共用选择器。
 - 财务表单在调整后总价之前展示计算得出的总价，按草稿单价实时计算；有下级时按执行保存后的继承规则汇总，保留独立改价的下级，避免重复累计各级数量。缺少数量或客户多栏未选择时标记待填写，不计为零。
 - 同月同步只以已保存的来源价格及账单月份为准，按同客户ID、同月份、同语种方向预览母/子/三级及更深订单，未独立登记月份的下级沿用最近上级；若整棵订单仅有一个已登记月份，母订单使用该月份。无可确定月份的订单不参与。确认时再次核对来源和全部匹配订单版本，并同事务更新各级单价及审计；保留数量、说明和能保留的手动调价，不能合并调价时整次回滚并提示具体订单。不写客户参考价，不改其他客户、其他月份或其他方向的订单。
 - 可重复执行创建脚本：`tools/apply_translation_quantity_basis_migration.py`，仅创建该新表及必要约束；启动自动迁移保持关闭。
@@ -2529,6 +2531,7 @@ Python translation_file_name_rules.py 与前端 translationFileName.js 共用格
 
 - `customer_statement_workspace`：`client_id uuid` 主键/FK 到 `client`（级联删除）；一个客户共用一个编排空间。`revision integer` 为乐观锁；`payload json` 保存 `boards`（对账单编号、名称、抬头/账户/印章/月份文案、显示覆盖、税口径标签、画布 x/y）、`tasks`（以订单 UUID 为唯一键，包含唯一的 `board_id`、独立账单月份、收费行及首次导入 `original` 快照）、`roots`（生成汇总所需的订单树快照）。`updated_by uuid` FK 到用户（删除置空），`updated_at timestamptz` 使用 UTC+8。
 - `customer_statement_workspace_history`：`id uuid` 主键；`client_id uuid` FK 到编排表（级联删除、索引）；`revision integer`、`actor_id uuid`（用户FK、删除置空）、`actor_name varchar(255)`、`action varchar(100)`、`changes json`（变更字段及前后值）、`before/after json`（完整编排快照）、`created_at timestamptz`（接口明确 `+08:00`）。恢复操作仍新增审计记录，不删除历史。
+- 同月分期使用 `payload.boards[].period_month`（YYYY-MM）和 `period_number`（正整数）。首次分期在同一事务中给原账单标为第1期并新增空白第2期，保留原账单 ID 与任务归属；导入按账期 ID 选择目标，任务的月份仍为 YYYY-MM。
 - 多月合并导入只添加尚未编排的任务，不覆盖已编辑内容或移动后的归属。任务按订单UUID唯一归属，同一订单的所有语种收费明细一起移动；只修改对账单，不回写项目名称、收费、工作量或原账单月份。修改、移动及恢复必须确认并校验版本；写入时锁定客户及其编排行。
 - 行内容可编辑日期、项目名称、翻译方向、数量、计价文案、单价、计价数量、税口径文案、货币、小计和备注，订单号和任务身份不允许修改。抬头、账户、印章、展示月份和画布位置独立保存。调整小计参与导出合计；同时显示父子时汇总参考行不重复计费。不同币种分别合计。
 - `tools/apply_customer_statement_workspace_migration.py` 可重复执行，只创建上述新表及索引/外键，不修改已有表；服务启动自动迁移继续关闭。预览、打印和Excel均读取已保存编排；导出检查编排版本，多个对账单输出到同一Excel的不同工作表。
@@ -2575,6 +2578,8 @@ Python translation_file_name_rules.py 与前端 translationFileName.js 共用格
 
 付款账户扩展：`payment_option` 的物理类型保持 Text；有付款账户时存储 JSON 文本 `{"type":"deposit","account":"广州公司公账"}`，兼容历史纯类型值 `full/deposit/once`。接口仍分别提供 `payment_option` 与 `payment_account`（最多50字），无需结构迁移。历史 before/after 保存同样的接口快照；付款明细账户仍复用 `finance_payment.payment_method`。预置账户及自定义账户由公共选择器提供，自定义值随付款记录保存；本机选项缓存按用户隔离。
 
+付款匹配订单复用该 JSON。全款选中的订单 UUID 记录于 `full_payment.matched_order_ids`，以所选订单的同币种计费合计作为核对金额，核对键为 `orders:币种`。分期付款按明细 UUID 在 `detail_matches` 独立保存订单 UUID 列表，修改选择随付款明细进入审计历史。
+
 付款联动与全款核对：实际付款明细有正金额时同步为定金／部分付款，不以“已登记的预定金额全部支付”判定整单全款。手工确认全款时保留已有明细，界面无需继续填写明细。`full_payment` 保存已付金额 `amount`、`currency`、选定项目总价 `total_key`、`reference_label`、`reference_amount`、`match_status`（matched／mismatch）和 `mismatch_reason`。接口以 `full_payment_amount`、`full_payment_currency`、`full_payment_total_key`、`full_match_status`、`full_reference_label`、`full_reference_amount`、`mismatch_reason` 分别返回；金额不匹配时原因必填，标签及比对快照纳入原有修改历史。收费总价变更后重新核对并记录标签变化；未登记金额的历史全款返回 unverified，不伪造匹配结果。付款确认和明细在同一事务中保存，并继续校验付款版本及确认 revision。
 
 尾款累计核对：付款确认为定金且明细包含尾款时，使用全部明细的实际金额累计（各次必须填写，零值有效），复用全款总价匹配、差异原因和历史记录机制。`full_payment.source=details` 表示服务器根据明细生成；`manual` 表示直接全款确认。累计金额不得由客户端覆盖。移除尾款后清除累计核对状态，保留其他明细。
@@ -2594,7 +2599,7 @@ Python translation_file_name_rules.py 与前端 translationFileName.js 共用格
 | updated_by | 修改人，外键置空 |
 | updated_at | 带时区时间，UTC+8 |
 
-我司统计、客户统计每行的普通数量及时间合计只能填写一项；修改接口合并清空／填写后校验，历史多项数据不批量删除。父级仍汇总下级，混合分钟和小时统一为分钟。财务 `customer_auto` 自动先用客户唯一已填项，无客户统计则取我司唯一已填项，均未填时返回补录提示；明确选择我司口径时按所选口径计算。时间计价通过既有 `translation_charge_quantity_basis.mode` 保存真实单位，收费表物理 metric_type 使用兼容占位，不将占位用于计价。
+我司统计、客户统计每行的普通数量及时间合计只能填写一项；修改接口合并清空／填写后校验，历史多项数据不批量删除。父级仍汇总下级，混合分钟和小时统一为分钟。财务 `customer_auto` 自动先用客户统计中优先级最高的已填项，无客户统计则按相同顺序取我司统计，均未填时返回补录提示；明确选择我司口径时按所选口径计算。时间计价通过既有 `translation_charge_quantity_basis.mode` 保存真实单位，收费表物理 metric_type 使用兼容占位，不将占位用于计价。
 
 
 对账单需求默认规则：`translation_project_documents.statement_required` 非空时保留手工选择；未手工指定时，个人客户、一次全款确认、或含尾款明细累计与项目总价匹配的已付清项目默认不需对账单，定金和未付清分期不自动取消。Python 读取、SQL 筛选、对账单客户候选及导入共用同一有效值。主表单与“是否需对账单”页签使用同一修改接口和并发检查；子订单随母订单。
@@ -2665,6 +2670,21 @@ Python translation_file_name_rules.py 与前端 translationFileName.js 共用格
 ### customer_statement_default（客户对账单默认需求）
 
 client_id UUID 主键关联 client，删除客户级联删除；choice varchar(20)，限 required（默认需）、not_required（默认不需）、unknown（未知）；updated_by UUID 关联 app_user，删除人员置空；updated_at timestamptz 统一 UTC+8。与客户税口径配置共用 customer_statement_preference.revision，同一事务保存。只作为 translation_project_documents.statement_required 为空时的派生默认，明确项目选择优先，已付全款的未设置项目默认不需，未知时沿用客户类型规则，不批量回写项目。
+
+### customer_translation_finance_default（客户笔译财务默认设置）
+
+| 字段 | 类型 | 用途 |
+|---|---|---|
+| client_id | UUID | 主键，关联 client.id，删除客户时级联删除 |
+| payment_method | varchar(20) | individual 逐笔独立结算、monthly 多单合并结算，空值沿用自动判断。历史 statement 按 monthly 读取，独立保留原对账单需求。 |
+| quotation_required | boolean | 默认是否需报价单，空值沿用项目原有规则 |
+| invoice_required | boolean | 默认是否需发票，空值沿用项目计费口径 |
+
+设置与 `customer_statement_preference.revision` 共用版本，项目的人工设置优先。项目单据 JSON 的 `_quotation_required` 标记已明确设置过报价单需求，`_invoice_required` 保存发票需求的项目覆盖值。
+
+笔译单据默认值与结算模式变更记录复用 `customer_translation_rate_history`，通过 `origin` 区分 `document_defaults_client`（客户管理）和 `document_defaults_project`（价格与付款）。前后快照只存变更的字段，同时保存操作人和 UTC+8 时间。项目单据 JSON 的 `_cleared_price_orders` 记录已主动清空单价的订单 ID，供参考价自动带入时跳过。
+
+笔译订单差异继续复用同一历史表。`order_rates` 和 `order_documents` 的后快照包含 `order_id`、`order_no`、`revision` 和 `values`，按订单和类别分别编号。订单保存自动记录差异，客户管理直接修改的最新设置同步到关联订单，单价按翻译方向、计价单位、计价数量和币种匹配。
 
 ### customer_statement_progress（客户月度对账单进度）
 
@@ -2832,6 +2852,38 @@ id UUID 主键；client_id / sub_client_id UUID 分别关联 client / sub_client
 
 `annotation_chat_analysis` 每行对应一个标注订单的一次独立分析。主键 `id` 为 UUID，`project_id` 关联标注订单，`requested_by` 记录手动发起人，`scheduled_on` 为自动分析的业务日期，同项目同日唯一。手动任务的 `period` 为 `day/week/month/all`，定时任务为 `workday`。聊天按 `range_start`（可为空）至 `range_end` 左闭右开筛选。任务时间字段按 UTC+8 本地时间存储，接口附带 `+08:00`。
 
-`state` 为 `queued/running/succeeded/failed`，`created_at` 记录提交时间，`updated_at` 记录处理时间与运行心跳，`error` 记录失败原因。`results` 存分类、摘要、依据消息 ID 与有效时间，不另存原始聊天正文。`auto_apply` 表示完成后请求自动写入进度，`imports` 保存进度记录 ID、分类、操作人、操作类型与时间，`import_error` 独立记录写入失败。写入复用现有客户进度、项目状态历史中的进度记录和标注员情况表。
+`state` 为 `queued/running/succeeded/failed`，`created_at` 记录提交时间，`updated_at` 记录处理时间与运行心跳，`error` 记录失败原因。`results` 存分类、摘要、依据消息 ID 与有效时间，不另存原始聊天正文。批次详情实时统计范围内未撤回的用户消息，按结果引用的消息 ID 去重统计已分类数量。来源接口仅返回同会话、同批次范围内当前可查看的原消息。`imports` 保存进度记录 ID、分类、操作人、操作类型与时间。写入复用现有客户进度、项目状态历史中的进度记录和标注员情况表。`auto_apply` 和 `import_error` 保留用于读取旧批次。
 
-初始化入口为 `tools/apply_annotation_chat_ai_migration.py`。数据分析的 `THOUGHTS_AI_ENABLED=true` 启用处理队列，`ANNOTATION_CHAT_AI_SCHEDULE_ENABLED=true` 启用工作日 11:00 入队。算力网关需支持 `annotation_chat` 操作。定时分析不写项目进度，手动任务可选自动写入。
+初始化入口为 `tools/apply_annotation_chat_ai_migration.py`。数据分析的 `THOUGHTS_AI_ENABLED=true` 启用处理队列，`ANNOTATION_CHAT_AI_SCHEDULE_ENABLED=true` 启用工作日 11:00 入队。算力网关需支持 `annotation_chat` 操作。分析完成后，由具备写权限的参与人勾选条目并提交 `result_ids` 写入进度。
+### attendance_field_work
+
+工作台外勤记录。客户管理的「外勤管理」读取同表中 `category = 'customer'` 的记录。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | UUID | 主键，新增重试沿用同一 ID |
+| user_id | UUID | 记录归属员工，关联 app_user |
+| category、type_path | VARCHAR(24)、JSON | 大类与完整分类路径，招投标包含正式投标和陪标 |
+| start_at、end_at | TIMESTAMPTZ | 起止时间，结束晚于开始，接口按 UTC+8 返回 |
+| location、notes | VARCHAR(255)、TEXT | 地点与补充说明 |
+| companions | JSON | 陪同人的员工 ID、姓名及账号快照 |
+| client_id、client_name | UUID、VARCHAR(255) | 可选客户关联及名称快照，关联客户删除后保留名称 |
+| photo、photo_type | BYTEA、VARCHAR(32) | 校验后的可选打卡照片与媒体类型，列表不读取照片字节 |
+| revision、updated_at | INTEGER、TIMESTAMPTZ | 编辑版本和更新时间 |
+
+按员工与开始时间、按类别与开始时间分别建索引。初始化使用 `tools/apply_field_work_migration.py`。
+
+### 客户要求历史（customer_requirement_history）
+
+| 字段 | 类型 | 用途 |
+| --- | --- | --- |
+| id | uuid | 历史记录主键 |
+| client_id | uuid | 关联客户；客户删除时级联清理 |
+| module | varchar(30) | 笔译、口译、标注或招聘 |
+| field | varchar(60) | 对应项目表单字段 |
+| content | text | 本次新增的要求或说明 |
+| added_at | timestamptz | 增加时间，接口按 UTC+8 返回 |
+| source_project_id | uuid | 回传来源项目，可空 |
+| source_order_no | varchar(100) | 回传时的订单号，可空 |
+
+按客户、项目类型和字段保留历史。空白或与最新内容一致时不新增；不同内容追加。项目表单带入每个字段的最新版本，随项目表单保存。初始化脚本为 `tools/apply_customer_requirement_history_migration.py`。

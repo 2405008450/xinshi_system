@@ -1,13 +1,21 @@
 <template>
   <section>
     <el-empty v-if="!clientId" description="请先保存客户，再维护各类项目的财务信息" />
-    <el-tabs v-else v-model="active">
+    <el-tabs v-else v-model="active" class="customer-finance-tabs">
       <el-tab-pane label="笔译" name="translation">
         <div v-if="active==='translation'" class="customer-finance-section">
-          <CustomerStatementTaxPreference :client-id="clientId" :can-write="canWrite" />
-          <CustomerTranslationRates :client-id="clientId" :can-write="canWrite" @saved="revision++" />
-          <CustomerRateDifferences module="translation" :client-id="clientId" :revision="revision" @saved="revision++" />
-          <TranslationFinance v-if="canReadStatements" :client-id="clientId" client-scope />
+          <el-card ref="settingsSection" shadow="never">
+            <template #header><strong>对账单设置</strong></template>
+            <CustomerStatementTaxPreference :client-id="clientId" :can-write="canWrite" />
+          </el-card>
+          <el-card ref="ratesSection" shadow="never">
+            <template #header><strong>客户单价</strong></template>
+            <div class="customer-finance-section">
+              <CustomerTranslationRates :client-id="clientId" :can-write="canWrite" :open-on-mount="initialSection==='rates'" @saved="revision++" />
+              <CustomerRateDifferences module="translation" :client-id="clientId" :revision="revision" @saved="revision++" />
+            </div>
+          </el-card>
+          <TranslationFinance v-if="canReadStatements" :client-id="clientId" client-scope collapsible />
         </div>
       </el-tab-pane>
       <el-tab-pane label="口译" name="interpretation">
@@ -31,25 +39,38 @@
         <div data-dialog-field-search-label="对账单">
           <el-empty v-if="!clientId" description="请先保存客户，再查看对账单" />
           <el-empty v-else-if="!canReadStatements" description="暂无财务对账单查看权限" />
-          <CustomerStatementHistory v-else-if="active==='statements'" :key="clientId" :client-id="clientId" />
+          <template v-else-if="active==='statements'">
+            <el-button @click="specialSettlementVisible=true">特殊结算</el-button>
+            <CustomerStatementHistory :key="clientId" :client-id="clientId" />
+            <CustomerStatementDialog v-if="specialSettlementVisible" v-model="specialSettlementVisible" title="特殊结算"
+              settlement-scope="special" :client-context="{id:clientId}" />
+          </template>
         </div>
       </el-tab-pane>
     </el-tabs>
   </section>
 </template>
 <script setup>
-import {defineAsyncComponent,ref} from 'vue'
+import {defineAsyncComponent,onMounted,ref} from 'vue'
 import {hasPermission} from '@/utils/permission'
+import {scrollFormTarget} from '@/utils/formNavigation'
 import CustomerInvoiceManagement from './CustomerInvoiceManagement.vue'
 import CustomerAnnotationRates from './CustomerAnnotationRates.vue'
 import CustomerStatementTaxPreference from './CustomerStatementTaxPreference.vue'
 import CustomerRateDifferences from './CustomerRateDifferences.vue'
 import CustomerTranslationRates from './CustomerTranslationRates.vue'
 import InterpretationFinanceEditor from './InterpretationFinanceEditor.vue'
-defineProps({clientId:{type:[String,Number],default:''},canWrite:Boolean})
+const props=defineProps({clientId:{type:[String,Number],default:''},canWrite:Boolean,initialSection:String})
+const settingsSection=ref(),ratesSection=ref()
+onMounted(()=>{
+  const section=props.initialSection==='rates'?ratesSection.value:props.initialSection==='settings'?settingsSection.value:null
+  if(section)scrollFormTarget(section.$el)
+})
 const revision=ref(0),active=ref('translation')
 const canReadStatements=hasPermission('projects:read')
 const CustomerStatementHistory=defineAsyncComponent(()=>import('./CustomerStatementHistory.vue'))
+const CustomerStatementDialog=defineAsyncComponent(()=>import('./CustomerStatementDialog.vue'))
+const specialSettlementVisible=ref(false)
 const TranslationFinance=defineAsyncComponent(()=>import('@/views/project/translation/CustomerFinance.vue'))
 const InterpretationFinance=defineAsyncComponent(()=>import('@/views/project/interpretation/CustomerFinance.vue'))
 const ProjectFinance=defineAsyncComponent(()=>import('@/views/project/ProjectCustomerFinance.vue'))

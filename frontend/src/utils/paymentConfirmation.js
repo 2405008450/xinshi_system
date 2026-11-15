@@ -21,7 +21,7 @@ export async function switchPaymentSelection(value,option,{payments=[],confirm})
   const next=other?clearPaymentSelection(current):current
   return {...next,isPaid:true,paymentOption:option,clearDetails:false,replaceDetails:current.replaceDetails||current.clearDetails||other,fullMatchStatus:option==='full'?'pending':'none'}
 }
-export function clearPaymentSelection(value){return {...paymentConfirmationForm(value),isPaid:false,paymentOption:null,paymentAccount:'',proofs:'',fullPaymentSource:null,fullPaymentAmount:null,fullPaymentTotalKey:null,fullMatchStatus:'none',fullReferenceLabel:'',fullReferenceAmount:null,fullPaymentConfirmedByName:null,fullPaymentConfirmedAt:null,mismatchReason:'',clearDetails:true}}
+export function clearPaymentSelection(value){return {...paymentConfirmationForm(value),isPaid:false,paymentOption:null,paymentAccount:'',proofs:'',fullPaymentSource:null,fullPaymentAmount:null,fullPaymentTotalKey:null,matchedOrderIds:[],fullMatchStatus:'none',fullReferenceLabel:'',fullReferenceAmount:null,fullPaymentConfirmedByName:null,fullPaymentConfirmedAt:null,mismatchReason:'',clearDetails:true}}
 export function fixFirstDepositStage(confirmation,payments){
   if(!confirmation?.isPaid||confirmation.paymentOption!=='deposit'||!payments.length)return
   payments[0].stage_type='deposit'
@@ -38,13 +38,14 @@ export function paymentConfirmationForm(value){
   const amount=value?.fullPaymentAmount??value?.full_payment_amount
   return {revision:value?.revision||0,clearDetails:!!(value?.clearDetails??value?.clear_details),replaceDetails:!!(value?.replaceDetails??value?.replace_details),isPaid,paymentOption,paymentAccount:value?.paymentAccount??value?.payment_account??'',proofs:value?.proofs||'',
     fullPaymentSource:value?.fullPaymentSource??value?.full_payment_source??null,fullPaymentAmount:amount==null?null:Number(amount),fullPaymentCurrency:value?.fullPaymentCurrency??value?.full_payment_currency??'CNY',
+    matchedOrderIds:[...(value?.matchedOrderIds??value?.matched_order_ids??[])],
     fullPaymentTotalKey:value?.fullPaymentTotalKey??value?.full_payment_total_key??null,mismatchReason:value?.mismatchReason??value?.mismatch_reason??'',
     fullMatchStatus:value?.fullMatchStatus??value?.full_match_status??(isPaid&&paymentOption==='full'?'unverified':'none'),
     fullPaymentConfirmedByName:value?.fullPaymentConfirmedByName??value?.full_payment_confirmed_by_name??null,
     fullPaymentConfirmedAt:value?.fullPaymentConfirmedAt??value?.full_payment_confirmed_at??null,
     fullReferenceLabel:value?.fullReferenceLabel??value?.full_reference_label??'',fullReferenceAmount:value?.fullReferenceAmount??value?.full_reference_amount??null}
 }
-export function paymentConfirmationPayload(value){const item=paymentConfirmationForm(value);return {revision:item.revision,clear_details:item.clearDetails,replace_details:item.replaceDetails,is_paid:item.isPaid,payment_option:item.paymentOption,payment_account:item.paymentAccount,proofs:item.proofs,full_payment_amount:item.fullPaymentAmount,full_payment_currency:item.fullPaymentCurrency,full_payment_total_key:item.fullPaymentTotalKey,mismatch_reason:item.mismatchReason}}
+export function paymentConfirmationPayload(value){const item=paymentConfirmationForm(value);return {revision:item.revision,clear_details:item.clearDetails,replace_details:item.replaceDetails,is_paid:item.isPaid,payment_option:item.paymentOption,payment_account:item.paymentAccount,proofs:item.proofs,full_payment_amount:item.fullPaymentAmount,full_payment_currency:item.fullPaymentCurrency,full_payment_total_key:item.fullPaymentTotalKey,matched_order_ids:item.matchedOrderIds,mismatch_reason:item.mismatchReason}}
 export function paymentConfirmationLabel(value){const item=paymentConfirmationForm(value);return (item.isPaid?(paymentOptions.find(option=>option.value===item.paymentOption)?.label||(item.paymentOption==='once'?'已登记分次付款':'已付款')):'未确认付款')+(item.paymentAccount?' · '+item.paymentAccount:'')+((item.paymentOption==='full'||item.fullPaymentSource==='details')&&item.fullPaymentAmount!=null?` · ${item.fullPaymentCurrency} ${item.fullPaymentAmount.toFixed(2)}`:'')+(item.fullMatchStatus==='mismatch'?` · 不匹配：${item.mismatchReason}`:item.fullMatchStatus==='matched'?` · 匹配${item.fullReferenceLabel} ${item.fullReferenceAmount}`:'')}
 export const paymentChangeEvent='translation-payment-changed'
 let paymentSyncChannel

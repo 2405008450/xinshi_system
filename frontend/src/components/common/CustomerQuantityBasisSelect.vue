@@ -1,15 +1,38 @@
 <template>
-  <el-select :model-value="modelValue" :disabled="disabled" placeholder="选择统计口径（数量可后补）" aria-label="统计口径" @update:model-value="emit('update:modelValue',$event)">
+  <el-select :model-value="modelValue" :disabled="disabled||confirming" placeholder="选择统计口径（数量可后补）" aria-label="统计口径" @update:model-value="selectBasis">
     <el-option v-for="option in options" :key="option.value" :value="option.value" :label="option.label" :disabled="option.disabled" />
   </el-select>
   <small v-if="matrix" :class="{'quantity-basis-warning':resolved.error}">{{resolved.error||quantitySummary}}</small>
 </template>
 <script setup>
-import {computed} from 'vue'
+import {computed,ref} from 'vue'
+import {ElMessageBox} from 'element-plus'
 import {WORD_COUNT_METRICS} from '@/utils/wordCountMatrix'
-import {rateQuantityOptions,resolveRateQuantity,resolvedBasisLabel,metricName} from '@/utils/translationQuantityBasis'
+import {basisLabel,rateQuantityOptions,resolveRateQuantity,resolvedBasisLabel,metricName} from '@/utils/translationQuantityBasis'
 const props=defineProps({modelValue:String,matrix:Object,disabled:Boolean,referenceMode:Boolean})
 const emit=defineEmits(['update:modelValue'])
+const confirming=ref(false)
+async function selectBasis(value){
+  const previous=props.modelValue
+  if(value===previous||props.disabled||confirming.value)return
+  if(props.referenceMode){
+    emit('update:modelValue',value)
+    return
+  }
+  confirming.value=true
+  try{
+    await ElMessageBox.confirm(
+      `确认将统计口径改为「${basisLabel(value)}」？收费金额将按新口径重新计算。`,
+      '确认修改统计口径',
+      {type:'warning',confirmButtonText:'确认修改',cancelButtonText:'取消'},
+    )
+    if(props.modelValue===previous&&!props.disabled)emit('update:modelValue',value)
+  }catch{
+    // The existing selection stays active when the dialog is dismissed.
+  }finally{
+    confirming.value=false
+  }
+}
 const resolved=computed(()=>resolveRateQuantity(props.matrix,props.modelValue))
 const automatic=computed(()=>!props.referenceMode&&props.modelValue==='customer_auto'&&!!resolved.value.metric)
 const quantitySummary=computed(()=>{

@@ -508,6 +508,7 @@
               <el-col :xs="24" :md="12"><el-form-item label="状态生效时间"><el-date-picker v-model="form.statusEffectiveOn" type="datetime" format="YYYY-MM-DD HH:mm" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" /></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="语言地区"><el-input v-model="form.languageRegion" placeholder="例如：肇庆" /></el-form-item></el-col>
             </el-row>
+            <ProjectCustomerRequirements module="annotation" :project="form" @apply="values => Object.assign(form, values)" />
             <el-form-item label="（潜在）需求量"><el-input v-model="form.potentialDemand" type="textarea" :rows="5" placeholder="可填写批次、交付周期、项目周期等完整说明" /></el-form-item>
             <div class="section-title-row section-title-row--compact"><span class="inline-section-label">客户单价</span><el-button type="primary" plain @click="addPriceItem">添加报价</el-button></div>
             <el-empty v-if="!form.priceItems.length" description="暂无客户单价明细" :image-size="70" />
@@ -633,6 +634,7 @@ import ClientFullNameInput from '@/components/common/ClientFullNameInput.vue'
 import ProjectStatisticsDialog from '@/components/common/ProjectStatisticsDialog.vue'
 const statisticsVisible=ref(false)
 import ProjectClientContactFields from '@/components/common/ProjectClientContactFields.vue'
+import ProjectCustomerRequirements from '@/components/common/ProjectCustomerRequirements.vue'
 import {emptyProjectContactDetails,projectContactPayload} from '@/utils/projectClientContacts'
 
 import ClientNameGuidance from '@/components/common/ClientNameGuidance.vue'

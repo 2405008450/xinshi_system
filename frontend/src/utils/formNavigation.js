@@ -56,7 +56,7 @@ export async function revealFormTarget(target) {
     if (pane.getAttribute?.('aria-hidden') !== 'true' && pane.style?.display !== 'none') continue
     const paneId = pane.id
     const tab = paneId && typeof document !== 'undefined'
-      ? document.querySelector?.(`[role="tab"][aria-controls="${paneId}"]`)
+      ? (pane.closest?.('.el-tabs') || document).querySelector?.(`[role="tab"][aria-controls="${paneId}"]`)
       : null
     if (tab?.getAttribute?.('aria-selected') !== 'true') {
       tab.click?.()

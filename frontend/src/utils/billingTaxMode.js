@@ -5,6 +5,9 @@ export function billingTaxChoices(order){
 }
 export const hasFixedFeeAmount=order=>[order.adjustedTotal,order.adjustedTotalInclTax].some(value=>value!=null&&value!=='')
 export function effectiveBillingTaxMode(order){
+  if(order.paymentMethod && order.paymentMethod!=='special'){
+    return order.unifiedBillingTaxMode ?? order.billingTaxMode ?? billingTaxChoices(order)[0] ?? null
+  }
   const choices=billingTaxChoices(order)
   return choices.length===1?choices[0]:choices.includes(order.billingTaxMode)?order.billingTaxMode:choices.includes(order.effectiveBillingTaxMode)?order.effectiveBillingTaxMode:choices[0]||null
 }

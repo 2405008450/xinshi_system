@@ -264,7 +264,7 @@
       <template #footer><el-button @click="arrangementHistoryVisible=false">关闭</el-button></template>
     </DraggableFormDialog>
     <CustomerQuotationDialog v-model="quotationVisible" :draft="form.quotationDraft" :draft-project="quotationDocumentProject" defer-save @update:draft="applyQuotationDraft" />
-    <CustomerStatementDialog :client-context="statementContext" :billing-month="statementContext?.month" @saved="onStatementRequiredSaved" v-model="statementVisible" />
+    <CustomerStatementDialog :client-context="statementContext" :billing-month="statementContext?.month" settlement-scope="standard" @saved="onStatementRequiredSaved" v-model="statementVisible" />
     <DraggableFormDialog
       v-model="dialogVisible"
       class="project-editor-dialog"
@@ -490,6 +490,7 @@
                   <el-row v-if="canReadProjectFiles" :gutter="16" justify="end">
                     <el-col :xs="24" :md="12"><el-form-item label="原文路径" prop="originalStoragePath" data-field-key="originalStoragePath"><el-input v-model="form.originalStoragePath" clearable :disabled="!canWriteProjectFiles || projectFilesTabRef?.fileLoading || !!projectFilesTabRef?.fileLoadError" placeholder="与项目文件中的原文路径同步" /></el-form-item></el-col>
                   </el-row>
+                <ProjectCustomerRequirements module="translation" :project="form" @apply="values => Object.assign(form, values)" />
                 <el-form-item label="客户专业要求" prop="customerRequirementProfessional" data-field-key="customerRequirementProfessional">
                   <el-input v-model="form.customerRequirementProfessional" type="textarea" :rows="2" placeholder="请输入客户专业要求；如确无要求，可填写无" />
                 <OrderFieldHint :order="form" field="customerRequirementProfessional" /></el-form-item>
@@ -983,6 +984,7 @@ import TranslationStatisticsDialog from './components/TranslationStatisticsDialo
 import PendingSubOrderManager from './components/PendingSubOrderManager.vue'
 import {pendingFolderRows,pendingChildRows,missingChildStatistics,normalizeInitialChildDetails,isDirectionOnlySplit} from '@/utils/translationChildSubmission'
 import OrderFieldHint from './components/OrderFieldHint.vue'
+import ProjectCustomerRequirements from '@/components/common/ProjectCustomerRequirements.vue'
 import OrderInheritedExtras from './components/OrderInheritedExtras.vue'
 import SubOrderManagement from './SubOrderManagement.vue'
 import ClientNameGuidance from '@/components/common/ClientNameGuidance.vue'
@@ -2706,6 +2708,7 @@ async function openStatementOrderEditor(){
 }
 const projectFieldContext=computed(()=>({openProjectDetails,getTranslationClientDetailItems,projectDetailItems,getStatusLabel,getStatusType,canWriteProjects,deleteMode:deleteMode.value,saveProjectTextField,fetchData,canReadProjectFiles,openOriginalPath,copyOriginalPath,projectStatusSavingIds:projectStatusSavingIds.value,changeProjectStatus,normalizeStatus,openArrangementFromStatus,projectStatusOptions,saveProjectTranslatorCompletions,getLanguagePairSummary,formatAssignedTranslators,getAssignedTranslatorSummary,getWordCountListSummary,formatTableColumnValue,headerFilterDefinition,searchForm,handleConfiguredTextInput,handleSearch,getTimeSortMode,getSortDirection,isTimeSortActive,getTimeSortTitle,toggleTimeSort}))
 onMounted(async () => {
+  window.addEventListener('translation-statements-changed',onFinanceSettingsChanged)
   window.addEventListener('translation-word-count-saved',markWordCountsForRefresh)
   if(props.editorOnly) {
     await Promise.all([openStatementOrderEditor(),loadResourceRequestStatuses()])
@@ -2730,6 +2733,7 @@ watch(mailComposerVisible,(value,previous)=>{
   if(props.editorOnly && previous && !value && !dialogVisible.value)emit('editor-closed')
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('translation-statements-changed',onFinanceSettingsChanged)
   window.removeEventListener('translation-word-count-saved',markWordCountsForRefresh)
   clearTimeout(searchTimer)
   requestController?.abort()
@@ -2738,8 +2742,34 @@ function onFinanceDocumentRequirementsSaved(value){
   if(value.quotationDraftChanged)quotationDraftDirty.value=!value.persisted
   if(value.documentNotesChanged)documentNotesDirty.value=!value.persisted
 }
+function onFinanceSettingsChanged(event){
+  const {financeItem:item,financeFields:fields=[]}=event.detail||{}
+  if(!item)return
+  if(dialogVisible.value && form.id===item.id){
+    if(fields.includes('quotationRequired'))form.quotationRequired=item.quotationRequired
+    if(fields.includes('statementRequired')){
+      form.statementRequired=item.statementRequired
+      form.statementRequiredExplicit=item.statementRequiredExplicit
+    }
+    form.paymentConfirmation=item.paymentConfirmation
+  }
+  if(!props.editorOnly)void fetchData()
+}
 const customerFinanceEditorRef=ref(null)
-function openCustomerFinance(target){customerFinanceEditorRef.value?.openForForm(target,form)}
+async function openCustomerFinance(target){
+  const shortName=(form.clientShortName||'').trim()
+  if(!form.id&&!form.clientId&&shortName){
+    try{
+      const clients=await getClients({skip:0,limit:20,client_short_name:shortName})
+      if((form.clientShortName||'').trim()!==shortName)return
+      const matches=(clients||[]).filter(client=>client.client_short_name?.trim().toLowerCase()===shortName.toLowerCase())
+      if(!form.clientId&&matches.length===1)handleClientSelect(matches[0])
+    }catch(error){
+      ElMessage.warning(getLocalizedErrorMessage(error,'客户设置暂未加载'))
+    }
+  }
+  await customerFinanceEditorRef.value?.openForForm(target,form)
+}
 useProjectStatusSync('translation',tableData,{enabled:()=>!props.editorOnly,onChanged:()=>{if(!loading.value&&!dialogVisible.value&&!subOrderDialogVisible.value&&!expandedInlineSaving.value&&!editorInlineSaving.value)void fetchData()}})
 </script>
 

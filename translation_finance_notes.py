@@ -23,12 +23,23 @@ def ready(db):
     if value:db.info['translation_finance_notes_ready']=True
     return value
 
-def rows(db,project_id):
-    if not db or not ready(db):return {}
+def load_rows(db, project_ids):
+    if not project_ids or not ready(db):
+        return
     cache=db.info.setdefault('translation_finance_notes_cache',{})
-    key=str(project_id)
-    if key not in cache:cache[key]={str(row.order_id):row for row in db.query(TranslationFinanceNote).filter_by(project_id=project_id).all()}
-    return cache[key]
+    missing = {project_id for project_id in project_ids if str(project_id) not in cache}
+    if not missing:
+        return
+    cache.update({str(project_id): {} for project_id in missing})
+    for row in db.query(TranslationFinanceNote).filter(TranslationFinanceNote.project_id.in_(missing)):
+        cache[str(row.project_id)][str(row.order_id)] = row
+
+
+def rows(db,project_id):
+    if db is None:
+        return {}
+    load_rows(db, [project_id])
+    return db.info.get('translation_finance_notes_cache', {}).get(str(project_id), {})
 
 def values(db,project,owner,charge):
     row=rows(db,project.id).get(str(owner.id))

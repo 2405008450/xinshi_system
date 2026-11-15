@@ -32,6 +32,19 @@ export function fillCustomerReferencePrice(price,references,matrix){
   Object.assign(price,{amount,taxPrices,referenceId,referenceRevision})
   return true
 }
+export function customerPricesForDirections(languagePair,references,matrix){
+  const {quantity,dimension,metric}=resolveRateQuantity(matrix,'customer_auto')
+  if(quantity==null)return []
+  const directions=new Set(String(languagePair||'').split('；').map(direction=>direction.trim()).filter(Boolean))
+  return [...directions].flatMap(direction=>{
+    const matching=references.filter(row=>row.languagePair===direction&&
+      (row.metric.startsWith('company_')?'company':'customer')===dimension&&pricingUnit(row.metric,null,true)===metric)
+    if(matching.length!==1)return []
+    const price=referenceDraft(matching[0])
+    if(price.taxPrices.unitPriceExclTax==null&&price.taxPrices.unitPriceInclTax==null)price.taxPrices.unitPriceExclTax=price.amount
+    return [price]
+  })
+}
 export function sameCustomerRatePrice(reference,price){
   const amounts=row=>{
     const amount=row.amount==null||row.amount===''?null:Number(row.amount)

@@ -1,7 +1,7 @@
 <template>
   <DraggableFormDialog
     :model-value="true"
-    :title="context.boardName ? `对账单项目 · ${context.boardName}` : isStatement ? '需对账单的项目' : '订单汇总付款'"
+    :title="context.boardName ? `对账单项目 · ${context.boardName}` : isStatement ? '需对账单的项目' : settlementModeLabels.monthly"
     width="min(840px, calc(100vw - 32px))"
     top="8vh"
     append-to-body
@@ -16,10 +16,11 @@
     <AppForm inline :model="filters">
       <el-form-item label="客户"><span>{{ context.clientName || '未关联客户' }}</span></el-form-item>
       <el-form-item label="账单月份">
-        <el-date-picker v-model="filters.month" type="month" value-format="YYYY-MM" :clearable="false" @change="search" />
+        <el-date-picker v-if="isStatement" v-model="filters.month" type="month" value-format="YYYY-MM" :clearable="false" @change="search" />
+        <span v-else>{{filters.month}} · {{context.periodNumber ? `第${context.periodNumber}期` : '未分期'}}</span>
       </el-form-item>
     </AppForm>
-    <p v-if="!isStatement" class="monthly-payment-help">同一客户在同一账单月份内无需对账单的项目，可勾选后汇总付款。</p>
+    <p v-if="!isStatement" class="monthly-payment-help">同一客户、同一账单月份且同一期的订单可合并结算。至少有两笔时，可在母订单价格窗口查看合并结算。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false">
       <el-button link @click="load">重新加载</el-button>
     </el-alert>
@@ -32,14 +33,14 @@
           <template v-else>{{ row.statementRequired ? '需' : '无需' }}</template>
         </template>
       </el-table-column>
-      <el-table-column v-if="!isStatement" label="订单汇总付款" min-width="160">
+      <el-table-column v-if="!isStatement" :label="settlementModeLabels.monthly" min-width="160">
         <template #default="{row}">
           <el-checkbox
-            :model-value="row.paymentMethod === 'monthly'"
+            :model-value="translationSettlementMode(row) === 'monthly'"
             :disabled="!canWrite || loading || saving.has(row.id)"
-            :aria-label="`${row.orderNo} 是否纳入订单汇总付款`"
+            :aria-label="`${row.orderNo} 是否纳入多单合并结算`"
             @change="setMonthly(row, $event)"
-          >{{ row.paymentMethod === 'monthly' ? '已纳入' : '是否纳入？' }}</el-checkbox>
+          >{{ translationSettlementMode(row) === 'monthly' ? '已纳入' : '是否纳入？' }}</el-checkbox>
         </template>
       </el-table-column>
     </el-table>
@@ -50,9 +51,10 @@
 </template>
 
 <script setup>
+import { settlementModeLabels, translationSettlementMode } from '@/utils/settlementModes'
 import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { getCustomerFinancePage } from '@/api/translationCustomerFinance'
-import { businessDateTimeInputValue } from '@/utils/dateTime'
+import { previousStatementMonth } from '@/utils/statementRequirementMonth'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import AppForm from './AppForm.vue'
 import DraggableFormDialog from './DraggableFormDialog.vue'
@@ -62,9 +64,7 @@ const props = defineProps({ context: Object, canWrite: Boolean, saveMethod: Func
 defineEmits(['close'])
 
 const isStatement = props.context.type === 'statement'
-const [year, month] = businessDateTimeInputValue().slice(0, 7).split('-').map(Number)
-const previousMonth = `${month === 1 ? year - 1 : year}-${String(month === 1 ? 12 : month - 1).padStart(2, '0')}`
-const filters = reactive({ month: props.context.month || previousMonth })
+const filters = reactive({ month: props.context.month || previousStatementMonth() })
 const pageSize = 20
 const page = ref(1)
 const rows = ref([])
@@ -82,7 +82,8 @@ async function load() {
   error.value = ''
   try {
     const result = await getCustomerFinancePage({
-      client_ids: [props.context.clientId], billing_month: filters.month,
+      client_ids: [props.context.clientId], billing_month: filters.month, statement_required:isStatement?true:undefined,
+      settlement_project_id: isStatement ? undefined : props.context.projectId,
       skip: (page.value - 1) * pageSize, limit: pageSize,
     }, { signal: request.signal })
     if (request.signal.aborted) return
@@ -92,7 +93,7 @@ async function load() {
     if (request.signal.aborted) return
     rows.value = []
     total.value = 0
-    error.value = getLocalizedErrorMessage(reason, '汇总付款项目加载失败')
+    error.value = getLocalizedErrorMessage(reason, '合并结算项目加载失败')
   } finally {
     if (!request.signal.aborted) loading.value = false
   }
@@ -108,7 +109,7 @@ async function setMonthly(row, checked) {
   if (saving.has(row.id)) return
   saving.add(row.id)
   try {
-    const item = await props.saveMethod(row, checked)
+    const item = await props.saveMethod(row, checked ? 'monthly' : 'individual')
     if (item) {
       rows.value = rows.value.map(project => project.id === item.id ? item : project)
       if (loading.value) void load()

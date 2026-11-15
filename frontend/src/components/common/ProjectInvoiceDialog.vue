@@ -1,13 +1,14 @@
 <template>
   <DraggableFormDialog :model-value="modelValue" class="project-invoice-dialog" width="min(800px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close :close-on-click-modal="false" :before-close="beforeClose" @update:model-value="$emit('update:modelValue',$event)">
-    <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="`发票 · ${display.orderNo||''}`" copyable-title :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
+    <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="`发票 · ${display.orderNo||''}${context.level ? `（${context.level}）` : ''}`" copyable-title :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
     <div ref="body" v-loading="loading">
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
+      <InvoiceChildOrderSummary v-if="modelValue && context.order && !requestId" :key="context.order.id" :order="context.order" />
       <CustomerInvoiceProfile v-if="info.clientId && !requestId" :client-id="info.clientId" :can-write="canWriteClient" />
       <AppForm ref="formRef" :model="form" label-position="top" :disabled="loading||saving||!canWrite">
         <el-form-item label="订单号"><ReadonlyField :model-value="display.orderNo||'保存项目后自动生成'" source="auto" /></el-form-item>
         <el-form-item label="客户"><ReadonlyField :model-value="display.clientName||'-'" source="auto" /></el-form-item>
-        <el-form-item label="是否需发票"><ReadonlyField :model-value="display.required===null?'按计费口径自动判断':display.required?'需（含税）':'无需（不含税）'" source="auto" /><small>由价格与付款中的计费口径决定，此处不可修改。</small></el-form-item>
+        <el-form-item label="是否需发票"><ReadonlyField :model-value="display.required==null?'待判断':display.required?'需':'无需'" source="auto" /><small>在价格与付款中设置。</small></el-form-item>
         <el-form-item label="项目计费金额"><ReadonlyField :model-value="formatTotals(display.totals)" source="auto" /></el-form-item>
         <el-form-item label="发票说明"><ReadonlyField :model-value="display.note||'-'" source="auto" /><small>说明在价格与付款中填写。</small></el-form-item>
         <el-form-item label="发票状态" prop="invoiceStatus" :rules="[{required:true,message:'请选择发票状态',trigger:'change'}]"><el-select v-model="form.invoiceStatus" style="width:100%"><el-option v-for="option in invoiceStatusOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></el-form-item>
@@ -43,15 +44,16 @@ import ReadonlyField from './ReadonlyField.vue'
 import ScreenshotInput from './ScreenshotInput.vue'
 import CustomerInvoiceProfile from './CustomerInvoiceProfile.vue'
 import CustomerInvoiceRecords from './CustomerInvoiceRecords.vue'
+import InvoiceChildOrderSummary from './InvoiceChildOrderSummary.vue'
 import {notifyInvoiceParties} from '@/api/invoiceParties'
 import {screenshotIds} from '@/utils/screenshotReferences'
-const props=defineProps({modelValue:Boolean,context:{type:Object,default:()=>({})},requestId:String,canDeliver:Boolean})
+const props=defineProps({modelValue:Boolean,context:{type:Object,default:()=>({})},requestId:String,canDeliver:Boolean,readonly:Boolean})
 const emit=defineEmits(['update:modelValue','saved'])
-const canWrite=computed(()=>props.requestId ? props.canDeliver : hasPermission('projects:write')||hasPermission('finance:write'))
+const canWrite=computed(()=>!props.readonly&&(props.requestId ? props.canDeliver : hasPermission('projects:write')||hasPermission('finance:write')))
 const invoiceUrl=computed(()=>props.requestId
   ? `/invoice-workflow/requests/${props.requestId}/projects/${props.context.projectId}/invoice`
   : `/translation-customer-finance/project/${props.context.projectId}/invoice`)
-const canWriteClient=hasPermission('clients:write')
+const canWriteClient=computed(()=>!props.readonly&&hasPermission('clients:write'))
 const body=ref(),formRef=ref(),loading=ref(false),saving=ref(false),error=ref(''),info=ref({}),form=reactive({invoiceStatus:'unissued',proofs:''})
 const uploading = ref(false)
 const attachmentAdded = ref(false)
@@ -77,7 +79,8 @@ async function onUploadingChange(value) {
 }
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(body)
 const camel=data=>Object.fromEntries(Object.entries(data).map(([key,value])=>[key.replace(/_([a-z])/g,(_,letter)=>letter.toUpperCase()),value]))
-const display=computed(()=>({...info.value,...props.context.preview}))
+const financePreview=ref(null)
+const display=computed(()=>({...info.value,...props.context.preview,...financePreview.value}))
 const formatTotals=totals=>Object.entries(totals||{}).map(([currency,amount])=>`${currency} ${Number(amount).toFixed(2)}`).join('；')||'-'
 let original='',version='',sequence=0,controller
 const signature=()=>JSON.stringify(form)
@@ -117,8 +120,25 @@ async function save(deliver = false) {
 }
 async function beforeClose(done){if(saving.value||uploading.value)return;if(signature()!==original){try{await ElMessageBox.confirm('发票信息有未保存修改，是否放弃？','关闭发票',{type:'warning',confirmButtonText:'放弃修改',cancelButtonText:'继续编辑'})}catch{return}}done()}
 function close(){void beforeClose(()=>emit('update:modelValue',false))}
-watch(()=>[props.modelValue,props.context.projectId,props.context.orderId],()=>{if(props.modelValue)void load();else{sequence++;controller?.abort()}},{immediate:true})
-onBeforeUnmount(()=>{sequence++;controller?.abort()})
+watch(()=>[props.modelValue,props.context.projectId,props.context.orderId],()=>{
+  financePreview.value=null
+  if(props.modelValue)void load()
+  else{sequence++;controller?.abort()}
+},{immediate:true})
+function refreshFinancePreview(event){
+  const item=event.detail?.financeItem
+  if(!props.modelValue || props.requestId || !item || item.id!==props.context.projectId)return
+  const orderId=props.context.orderId||item.id
+  const findOrder=order=>order.id===orderId?order:(order.children||[]).map(findOrder).find(Boolean)
+  const order=findOrder(item)
+  if(order)financePreview.value={required:order.invoiceRequired,totals:order.billingTotals}
+}
+window.addEventListener('translation-statements-changed',refreshFinancePreview)
+onBeforeUnmount(()=>{
+  window.removeEventListener('translation-statements-changed',refreshFinancePreview)
+  sequence++
+  controller?.abort()
+})
 </script>
 <style scoped>
 :global(.project-invoice-dialog){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}:global(.project-invoice-dialog>.el-dialog__header),:global(.project-invoice-dialog>.el-dialog__footer){flex:none}:global(.project-invoice-dialog>.el-dialog__body){flex:1;min-height:0;overflow-y:auto}.project-invoice-dialog small{width:100%;color:var(--el-text-color-secondary)}

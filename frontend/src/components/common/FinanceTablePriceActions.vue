@@ -6,8 +6,7 @@
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
       <el-button v-if="error" link :disabled="busy" @click="refresh">重新加载</el-button>
       <el-button :disabled="busy||!context?.node.clientId" @click="adopt">采用最新客户参考价</el-button>
-      <CustomerTranslationRates v-if="row.clientId" :client-id="row.clientId" :can-write="canWriteClients" button-label="客户管理报价" />
-      <small>{{references.length?'核对语种、单位、币种及计价数量后，手动选用报价。':'暂无完整匹配报价，可打开客户报价查看或编辑。'}}</small>
+      <small>{{references.length?'核对语种、单位、币种及计价数量后，手动选用报价。':'暂无完整匹配的客户参考价。'}}</small>
       <el-button v-if="canWriteClients" :disabled="busy||!context?.node.clientId||!context?.node.prices?.length" @click="syncClient">同步单价至客户信息…</el-button>
       <small v-if="canWriteClients">先比较现有参考价，确认后同步本订单已保存的单价。</small>
       <SyncSameMonthPrices v-if="context" :project-id="row.rootId" :order-id="row.id" :source-order-no="context.node.orderNo || row.orderNo" :client-id="context.node.clientId" :version="context.data.version" :month="context.node.billingMonth" :disabled="busy||!context.node.prices?.length" :prepare="prepareSameMonth" @synced="synced" />
@@ -28,7 +27,6 @@ import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import SyncSameMonthPrices from './SyncSameMonthPrices.vue'
 import CustomerRateSyncPreview from './CustomerRateSyncPreview.vue'
 import CustomerReferencePriceDialog from './CustomerReferencePriceDialog.vue'
-import CustomerTranslationRates from './CustomerTranslationRates.vue'
 import {priceMatch,expectedOrderPrices,replaceMatchedReference} from '@/utils/customerRateMatching'
 const props=defineProps({row:Object,prepare:Function})
 const emit=defineEmits(['saved'])

@@ -283,7 +283,13 @@ class ClientUpdate(BaseModel):
     cooperation_info: Optional[str] = None
     expected_updated_at: Optional[datetime] = None
 
+class ClientProjectManagerResponse(BaseModel):
+    key: str
+    name: str
+
+
 class ClientResponse(ClientBase):
+    project_managers: list[ClientProjectManagerResponse] = Field(default_factory=list)
     detailed_address: Optional[str] = Field(default=None, max_length=5000)
     full_address: Optional[str] = None
     client_status: Optional[str] = Field(default="pending",validation_alias=AliasChoices("_auto_client_status","client_status"))

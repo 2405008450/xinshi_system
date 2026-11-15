@@ -52,7 +52,7 @@ test('关联付款保存同步价格窗口与项目表单，并保留未保存�
   const editor=ref({rootId:'p1',adjustedTotal:600,paymentConfirmation:previous})
   const ctx={paymentDetailsSignature,originalPaymentDetails:ref('[]'),editor,original:ref(JSON.stringify(before)),originalPaymentConfirmation:ref(JSON.stringify(previous)),saveError:ref(''),
     paymentConfirmationInput:value=>value,documentParent:ref({paymentConfirmation:previous}),localPaymentParent:ref(null),paymentConfirmationForm,
-    rebaseEditorAfterLibrary:async()=>{},emit(){},getLocalizedErrorMessage:e=>e.message}
+    rebaseEditorAfterLibrary:async()=>{},loadPaymentSummary:async()=>{},emit(){},getLocalizedErrorMessage:e=>e.message}
   vm.createContext(ctx)
   vm.runInContext(finance.slice(finance.indexOf('async function onLinkedPaymentSaved('),finance.indexOf('watch(()=>[filters.projectStatus')),ctx)
   await ctx.onLinkedPaymentSaved({confirmation:current})
@@ -64,7 +64,7 @@ test('关联付款保存同步价格窗口与项目表单，并保留未保存�
 
 test('本窗口保存通过回调同步一次，其他窗口的保存通过广播同步',()=>{
   const calls=[]
-  const ctx={financePaymentSource:'editor',onPaymentSaved:result=>calls.push(result)}
+  const ctx={financePaymentSource:'editor',paymentSummary:ref(null),onPaymentSaved:result=>calls.push(result)}
   vm.createContext(ctx)
   vm.runInContext(finance.slice(finance.indexOf('function onPaymentChanged('),finance.indexOf('async function onLinkedPaymentSaved(')),ctx)
   for(const source of ['editor','editor-management','editor-linked'])ctx.onPaymentChanged({detail:{projectId:'p1',source}})

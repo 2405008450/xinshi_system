@@ -35,7 +35,7 @@ const groupName = (formItem) => {
   return directText(heading) || heading?.textContent?.trim() || ''
 }
 
-export const useDialogFieldSearch = (editorBodyRef) => {
+export const useDialogFieldSearch = (editorBodyRef, { readonly = false } = {}) => {
   const fieldSearchRef = ref(null)
   const fieldSearchKeyword = ref('')
   let highlightedElement = null
@@ -51,6 +51,7 @@ export const useDialogFieldSearch = (editorBodyRef) => {
 
   const clearFieldSearch = () => {
     fieldSearchKeyword.value = ''
+    suggestionTargets.clear()
     clearHighlight()
   }
 
@@ -60,7 +61,9 @@ export const useDialogFieldSearch = (editorBodyRef) => {
     const occurrences = new Map()
     suggestionTargets = new Map()
     const targets = Array.from(root.querySelectorAll(
-      '.el-form-item, [data-dialog-field-search-label]',
+      '.el-form-item, [data-dialog-field-search-label]' + (readonly
+        ? ', .el-descriptions__label, .el-table__header th, .el-collapse-item__header'
+        : ''),
     )).filter((element) => (
       element.matches('.el-form-item')
       || !element.closest('.el-form-item')
@@ -72,10 +75,20 @@ export const useDialogFieldSearch = (editorBodyRef) => {
       const label = (
         element.dataset.dialogFieldSearchLabel
         || labelElement?.textContent
+        || (readonly && element.matches('.el-descriptions__label, .el-table__header th, .el-collapse-item__header') ? element.textContent : '')
         || ''
       ).trim().replace(/[：:]$/, '')
       if (!label) return []
-      const section = sectionName(element)
+      const pane = readonly ? element.closest('.el-tab-pane') : null
+      const tab = pane?.closest('.el-tabs')?.querySelector(`[role="tab"][aria-controls="${pane.id}"]`)
+      const panels = []
+      if (readonly) {
+        for (let panel = element.closest('.el-collapse-item'); panel && root.contains(panel); panel = panel.parentElement?.closest('.el-collapse-item')) {
+          const title = panel.querySelector('.el-collapse-item__header')?.textContent.trim()
+          if (title && title !== label) panels.unshift(title)
+        }
+      }
+      const section = readonly ? [tab?.textContent.trim(), ...panels].filter(Boolean).join(' · ') || '人才详情' : sectionName(element)
       const group = groupName(element)
       const occurrenceKey = `${section}|${group}|${label}`
       const occurrence = (occurrences.get(occurrenceKey) || 0) + 1
@@ -120,6 +133,7 @@ export const useDialogFieldSearch = (editorBodyRef) => {
   const locateDialogField = async (item) => {
     let target = suggestionTargets.get(item?.key)
     if (!target?.isConnected) {
+      if (readonly) return false
       collectFields()
       target = suggestionTargets.get(item?.key)
     }
@@ -131,7 +145,7 @@ export const useDialogFieldSearch = (editorBodyRef) => {
     clearHighlight()
     target.classList.add('is-dialog-field-search-highlight')
     highlightedElement = target
-    focusFormTarget(target)
+    if (!readonly) focusFormTarget(target)
     highlightTimer = window.setTimeout(clearHighlight, 1500)
     return true
   }

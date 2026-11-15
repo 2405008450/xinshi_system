@@ -1,11 +1,15 @@
 <template>
   <DraggableFormDialog :model-value="modelValue" class="project-payment-dialog" width="min(1100px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close :close-on-click-modal="false" :before-close="beforeClose" @update:model-value="emit('update:modelValue',$event)">
-    <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" title="发票、查账与追账" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch"><template v-if="showFilters" #actions><span class="payment-manager-label">客户经理：<el-button :title="managerLabel" @click="openManagerPicker">{{managerLabel}}</el-button></span></template></DialogFieldSearchHeader></template>
+    <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="dialogTitle" :copyable-title="!!scopeOrder" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch"><template v-if="showFilters" #actions><span class="payment-manager-label">客户经理：<el-button :title="managerLabel" @click="openManagerPicker">{{managerLabel}}</el-button></span></template></DialogFieldSearchHeader></template>
     <div ref="body" v-loading="loading">
-      <el-tabs v-model="activeTab" @tab-change="onPaymentTabChanged"><el-tab-pane label="发票" name="invoice" /><el-tab-pane label="查账" name="overview" /><el-tab-pane label="追账" name="collection" /></el-tabs>
+      <el-tabs v-model="activeTab" @tab-change="onPaymentTabChanged"><el-tab-pane label="发票" name="invoice" /><el-tab-pane label="查账" name="overview" /><el-tab-pane label="追账" name="collection" /><el-tab-pane label="特殊结算发票" name="special_invoice" /></el-tabs>
+      <SpecialSettlementInvoices v-if="modelValue&&activeTab==='special_invoice'"
+        :client-id="scopeOrder?.clientId" :project-id="scopeOrder?.rootId||scopeOrder?.id||(lockProject?initialProjectId:undefined)"
+        :month="scopeMonth||undefined" :manager-query="specialInvoiceManagerQuery" />
+      <template v-else>
       <AppForm v-if="showFilters" :model="paymentFilters" inline class="payment-filter-bar" @submit.prevent="applyPaymentFilters">
-        <el-form-item label="账单月份"><el-date-picker v-model="paymentFilters.months" :disabled="mismatchView" type="months" value-format="YYYY-MM" placeholder="全部时间（可多选月份）" clearable style="width:230px" @change="applyPaymentFilters" /></el-form-item>
-        <el-form-item label="客户"><el-input v-model="paymentFilters.client" :disabled="mismatchView" placeholder="客户全称或简称" clearable style="width:190px" @input="queueClientSearch" @keyup.enter="applyPaymentFilters" /></el-form-item>
+        <el-form-item label="账单月份"><ReadonlyField v-if="scopeOrder" :model-value="scopeMonth || '未登记'" source="auto" style="width:150px" /><el-date-picker v-else v-model="paymentFilters.months" :disabled="mismatchView" type="months" value-format="YYYY-MM" placeholder="全部时间（可多选月份）" clearable style="width:230px" @change="applyPaymentFilters" /></el-form-item>
+        <el-form-item label="客户"><ReadonlyField v-if="scopeOrder" :model-value="scopeOrder.clientShortName || scopeOrder.clientName || '未关联客户'" source="auto" style="width:190px" /><el-input v-else v-model="paymentFilters.client" :disabled="mismatchView" placeholder="客户全称或简称" clearable style="width:190px" @input="queueClientSearch" @keyup.enter="applyPaymentFilters" /></el-form-item>
         <el-form-item v-if="activeTab!=='invoice'" label="付款状态"><el-select v-model="paymentFilters.status" clearable placeholder="全部状态" style="width:205px" @change="applyPaymentFilters"><el-option v-for="option in statusOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></el-form-item>
         <el-form-item v-if="activeTab==='invoice'" label="是否需发票">
           <el-select v-model="paymentFilters.invoiceRequired" aria-label="是否需发票" clearable placeholder="全部开票需求" style="width:145px" @change="applyPaymentFilters">
@@ -16,7 +20,7 @@
         </el-form-item>
         <el-form-item v-if="activeTab==='invoice'" label="发票状态"><el-select v-model="paymentFilters.invoiceStatus" clearable placeholder="全部状态" style="width:155px" @change="applyPaymentFilters"><el-option v-for="option in invoiceStatusOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></el-form-item>
         <el-form-item v-if="activeTab==='invoice'">
-          <el-popover trigger="click" placement="bottom-start" :width="325" @show="searchInvoiceCustomers('')">
+          <el-popover v-if="!scopeOrder" trigger="click" placement="bottom-start" :width="325" @show="searchInvoiceCustomers('')">
             <template #reference>
               <el-button :type="invoiceClientIds.length ? 'primary' : 'default'">
                 客户筛选{{ invoiceClientIds.length ? '（' + invoiceClientIds.length + '）' : '' }}
@@ -39,9 +43,11 @@
         </el-form-item>
         <el-form-item><el-button :loading="searching" @click="applyPaymentFilters">查询</el-button><el-button @click="resetPaymentFilters">重置</el-button></el-form-item>
       </AppForm>
+      <InvoiceChildOrderSummary v-if="modelValue && scopeOrder && activeTab==='invoice' && scopeOrder.paymentMethod!=='special'"
+        :key="scopeOrder.id" :order="scopeOrder" allow-open @invoice="emit('invoice',$event)" />
       <p v-if="showFilters" class="payment-filter-summary">匹配 {{projectTotal}} 个项目<span v-if="projectTotal>100">，可输入订单号或项目名称继续搜索</span></p>
       <section class="payment-overview">
-        <div class="payment-overview-search"><el-input v-model="projectKeyword" placeholder="搜索订单号、项目名称" clearable style="width:280px" @input="queueProjectSearch" @keyup.enter="searchProjects(projectKeyword)" /><span v-if="mismatchView" class="payment-help">此选项覆盖账单月份和客户筛选。币种不同或金额缺失的项目也列入。</span><span v-if="collectionDefaultView" class="payment-help">未选择付款状态时，仅列未付款、已付定金及已付进度款的项目。</span></div>
+        <div class="payment-overview-search"><el-input v-model="projectKeyword" placeholder="搜索订单号、项目名称" clearable style="width:280px" @input="queueProjectSearch" @keyup.enter="searchProjects(projectKeyword)" /><span v-if="mismatchView" class="payment-help">{{scopeOrder?'在当前客户及账单月份内核对。':'此选项覆盖账单月份和客户筛选。'}}币种不同或金额缺失的项目也列入。</span><span v-if="collectionDefaultView" class="payment-help">未选择付款状态时，仅列未付款、已付定金及已付进度款的项目。</span></div>
         <div v-if="activeTab==='invoice' && canWrite" class="invoice-request-toolbar">
           <el-button type="primary" :disabled="searching || !selectedProjects.length" @click="requestVisible = true">开票需求</el-button>
           <span v-if="selectedProjects.length">已选 {{ selectedProjects.length }} 个项目</span>
@@ -98,6 +104,7 @@
         <el-pagination v-model:current-page="projectPage" :page-size="20" :total="projectTotal" layout="total,prev,pager,next" @current-change="searchProjects(projectKeyword)" />
       </section>
       <el-alert v-if="error" :title="error" type="error" :closable="false"><el-button link @click="reloadPayment">重新加载付款情况</el-button></el-alert>
+      </template>
     </div>
     <DraggableFormDialog v-model="managerPickerVisible" title="客户经理筛选" width="min(560px, calc(100vw - 32px))" top="10vh" append-to-body>
       <el-radio-group v-model="managerDraftScope" class="payment-manager-choices"><el-radio value="self">本人（{{selfName}}）</el-radio><el-radio value="all">不指定人（全部订单）</el-radio><el-radio value="name">指定客户经理</el-radio></el-radio-group>
@@ -124,15 +131,30 @@ import DialogFieldSearchHeader from './DialogFieldSearchHeader.vue'
 import AppForm from './AppForm.vue'
 import CustomerDepartmentManagerSelect from './CustomerDepartmentManagerSelect.vue'
 import TranslationOrderDetailPopover from './TranslationOrderDetailPopover.vue'
+import InvoiceChildOrderSummary from './InvoiceChildOrderSummary.vue'
+import ReadonlyField from './ReadonlyField.vue'
+import {financeOrderLevel} from '@/utils/financeOrderLevel'
+import {orderStatementMonth} from '@/utils/statementRequirementMonth'
 import {paymentStatusLabel,paymentStatusFilterOptions,fullPaymentMismatchOption,paymentChangeEvent,connectPaymentSync} from '@/utils/paymentConfirmation'
-const props=defineProps({modelValue:Boolean,projects:{type:Array,default:()=>[]},query:{type:Object,default:()=>({})},initialProjectId:{type:String,default:''},lockProject:Boolean,canReviewInvoice:Boolean})
+const props=defineProps({modelValue:Boolean,scopeOrder:Object,initialProjectId:{type:String,default:''},lockProject:Boolean,canReviewInvoice:Boolean})
 const emit=defineEmits(['update:modelValue','edit','invoice','review-invoice'])
 const canWrite=hasPermission('projects:write')||hasPermission('finance:write')
 const body=ref(),options=ref([]),loading=ref(false),searching=ref(false),error=ref('')
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(body)
 const activeTab=ref('invoice'),projectPage=ref(1),showFilters=computed(()=>!props.lockProject)
+const scopeMonth=computed(()=>props.scopeOrder && (orderStatementMonth(props.scopeOrder.orderNo) || props.scopeOrder.billingMonth))
+const dialogTitle=computed(()=>{
+  if(!props.scopeOrder)return '发票、查账与追账'
+  const level=financeOrderLevel(props.scopeOrder)
+  return `发票、查账与追账 · ${props.scopeOrder.orderNo}${level ? `（${level}）` : ''}`
+})
 const projectSort=ref()
 const InvoiceRequestDialog = defineAsyncComponent(() => import('./InvoiceRequestDialog.vue'))
+const SpecialSettlementInvoices = defineAsyncComponent(() => import('./SpecialSettlementInvoices.vue'))
+const specialInvoiceManagerQuery=computed(()=>({
+  only_mine:managerScope.value==='self',
+  manager_ids:managerScope.value==='name'?managerIds.value:undefined,
+}))
 const projectTable = ref()
 const selectedProjects = ref([])
 const requestVisible = ref(false)
@@ -227,13 +249,45 @@ function collectBillingCurrencies(order, result = { excl_tax: new Set(), incl_ta
 function cacheManagers(people){managerNames.value={...managerNames.value,...Object.fromEntries(people.map(person=>[person.id,person.name]))}}
 function openManagerPicker(){managerDraftScope.value=managerScope.value;managerDraftIds.value=[...managerIds.value];managerPickerVisible.value=true}
 async function applyManager(){managerScope.value=managerDraftScope.value==='name'&&!managerDraftIds.value.length?'all':managerDraftScope.value;managerIds.value=managerScope.value==='name'?[...managerDraftIds.value]:[];managerPickerVisible.value=false;await applyPaymentFilters()}
-function initPaymentFilters(){clearInvoiceCustomerFilters();Object.assign(paymentFilters,{months:[...new Set([props.query.billing_months,props.query.billing_month].flat().filter(Boolean))],client:'',status:'',invoiceStatus:'',invoiceRequired:''});projectKeyword.value='';managerIds.value=[...(props.query.manager_ids||[])];managerScope.value=props.lockProject?'all':managerIds.value.length?'name':props.query.only_mine?'self':'all'}
-function paymentQuery(keyword){return {sort:projectSort.value,keyword:keyword?.trim()||undefined,billing_months:mismatchView.value?undefined:paymentFilters.months?.length?paymentFilters.months:undefined,client:mismatchView.value?undefined:paymentFilters.client.trim()||undefined,payment_status:mismatchView.value||activeTab.value==='invoice'?undefined:paymentFilters.status||undefined,manager_ids:managerScope.value==='name'?managerIds.value:undefined,only_mine:managerScope.value==='self',include_payment_status:true,include_invoice_status:activeTab.value==='invoice',invoice_status:activeTab.value==='invoice'?paymentFilters.invoiceStatus||undefined:undefined,invoice_required:activeTab.value==='invoice'?paymentFilters.invoiceRequired||undefined:undefined,client_ids:activeTab.value==='invoice'&&invoiceClientIds.value.length?invoiceClientIds.value:undefined,statement_customers:activeTab.value==='invoice'?statementCustomerMode.value||undefined:undefined,payment_amount_mismatch:mismatchView.value,exclude_full:collectionDefaultView.value,payment_project_id:props.lockProject?props.initialProjectId||undefined:undefined,skip:(projectPage.value-1)*20,limit:20}}
+function initPaymentFilters(){
+  clearInvoiceCustomerFilters()
+  Object.assign(paymentFilters,{months:[],client:'',status:'',invoiceStatus:'',invoiceRequired:''})
+  projectKeyword.value=''
+  managerIds.value=[]
+  managerScope.value='all'
+}
+function paymentQuery(keyword){
+  const order=props.scopeOrder
+  const scoped=Boolean(order?.clientId && scopeMonth.value)
+  const invoice=activeTab.value==='invoice'
+  return {
+    sort:projectSort.value,
+    keyword:keyword?.trim()||undefined,
+    billing_month:scoped?scopeMonth.value:undefined,
+    billing_months:!order&&!mismatchView.value&&paymentFilters.months?.length?paymentFilters.months:undefined,
+    client:!order&&!mismatchView.value?paymentFilters.client.trim()||undefined:undefined,
+    payment_status:invoice||(!order&&mismatchView.value)?undefined:paymentFilters.status||undefined,
+    manager_ids:managerScope.value==='name'?managerIds.value:undefined,
+    only_mine:managerScope.value==='self',
+    include_payment_status:true,
+    include_invoice_status:invoice,
+    settlement_scope:invoice?'standard':undefined,
+    invoice_status:invoice?paymentFilters.invoiceStatus||undefined:undefined,
+    invoice_required:invoice?paymentFilters.invoiceRequired||undefined:undefined,
+    client_ids:scoped?[order.clientId]:invoice&&!order&&invoiceClientIds.value.length?invoiceClientIds.value:undefined,
+    statement_customers:invoice?statementCustomerMode.value||undefined:undefined,
+    payment_amount_mismatch:!order&&mismatchView.value,
+    exclude_full:collectionDefaultView.value,
+    payment_project_id:order&&!scoped?(order.rootId||order.id):props.lockProject?props.initialProjectId||undefined:undefined,
+    skip:(projectPage.value-1)*20,
+    limit:20,
+  }
+}
 function queueClientSearch(value){clearTimeout(filterTimer);controller?.abort();searchSequence++;if(!value.trim())void applyPaymentFilters();else filterTimer=setTimeout(applyPaymentFilters,400)}
 function queueProjectSearch(keyword=''){projectPage.value=1;projectKeyword.value=keyword;clearTimeout(projectTimer);controller?.abort();searchSequence++;if(!keyword.trim())void searchProjects('');else projectTimer=setTimeout(()=>searchProjects(keyword),400)}
 async function applyPaymentFilters(){clearTimeout(filterTimer);clearTimeout(projectTimer);projectPage.value=1;projectKeyword.value='';await searchProjects('')}
-async function resetPaymentFilters(){clearInvoiceCustomerFilters();Object.assign(paymentFilters,{months:[],client:'',status:'',invoiceStatus:'',invoiceRequired:''});managerIds.value=[];managerScope.value=props.query.only_mine?'self':'all';await applyPaymentFilters()}
-async function searchProjects(keyword=''){clearTimeout(projectTimer);const seq=++searchSequence;controller?.abort();controller=new AbortController();searching.value=true;error.value='';
+async function resetPaymentFilters(){initPaymentFilters();await applyPaymentFilters()}
+async function searchProjects(keyword=''){clearTimeout(projectTimer);const seq=++searchSequence;controller?.abort();if(activeTab.value==='special_invoice'){searching.value=false;return}controller=new AbortController();searching.value=true;error.value='';
   const query = paymentQuery(keyword)
   const scope = JSON.stringify({...query, skip:undefined, sort:undefined})
   if (scope !== previousSelectionScope) {
@@ -244,6 +298,7 @@ async function searchProjects(keyword=''){clearTimeout(projectTimer);const seq=+
   try{const data=await getCustomerFinancePage(query,{signal:controller.signal});if(seq===searchSequence){if(activeTab.value==='invoice'&&data.invoiceFilterApplied!==true){options.value=[];projectTotal.value=0;error.value='后端发票功能尚未更新，请更新后端服务后重试';return}if(mismatchView.value&&(data.paymentAmountMismatchFilterApplied!==true||(data.items||[]).some(item=>item.paymentStatus!=='full'||item.paymentAmountMismatch!==true))){options.value=[];projectTotal.value=0;error.value='后端未正确执行已付全款金额核对，请更新后端服务后重试';return}
     options.value = (data.items || []).map(project => ({
       ...project,
+      hasChildren: Boolean(project.hasChildren || project.children?.length),
       billingCurrencies: collectBillingCurrencies(project),
       children: undefined,
     }))

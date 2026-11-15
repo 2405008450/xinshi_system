@@ -7,16 +7,26 @@ from fastapi import HTTPException
 from models import Base
 from annotation_progress_time import business_now
 
-PaymentMethod = Literal['individual', 'statement', 'monthly']
+PaymentMethod = Literal['individual', 'statement', 'monthly', 'special']
+SettlementMode = Literal['individual', 'monthly', 'special']
+StatementScope = Literal['standard', 'special']
+
+
+def matches_statement_scope(project, scope):
+    return scope is None or (payment_method(project) == 'special') == (scope == 'special')
 
 
 def payment_method(project):
-    if getattr(project, 'statement_required', True):
-        return 'statement'
-    method = getattr(project, 'recorded_payment_method', None)
-    if method in ('individual', 'monthly'):
-        return method
+    for field in ('recorded_payment_method', 'customer_payment_method'):
+        method = getattr(project, field, None)
+        if method in ('individual', 'monthly', 'statement', 'special'):
+            return 'monthly' if method == 'statement' else method
     return 'monthly' if getattr(project, 'has_monthly_payment_peers', False) else 'individual'
+
+
+def payment_summary_method(project):
+    mode = payment_method(project)
+    return 'statement' if mode == 'monthly' and project.statement_required else mode
 
 
 class QuotationLine(BaseModel):
@@ -71,6 +81,17 @@ def ready(db):
     return db.info[key]
 
 
+def billing_period_month_expression(db):
+    from sqlalchemy import literal, select
+    from models import TranslationProject
+
+    if not ready(db):
+        return literal(None)
+    return select(TranslationProjectDocuments.quotation_data['_billing_period']['month'].as_string()).where(
+        TranslationProjectDocuments.project_id == TranslationProject.id,
+    ).correlate(TranslationProject).scalar_subquery()
+
+
 def required_expression(db):
     """SQL 筛选与表单默认值一致：显式值优先，个人客户默认不需。"""
     from sqlalchemy import select,func,and_,or_,literal,case
@@ -120,25 +141,85 @@ def attach(db, projects):
         return
     from translation_payment_confirmation import attach as attach_payments
     attach_payments(db,projects)
-    from customer_statement_defaults import choices_for_projects
-    defaults=choices_for_projects(db,projects)
+    from customer_statement_defaults import defaults_for_projects
+    defaults=defaults_for_projects(db,projects)
     rows = {row.project_id: row for row in db.query(TranslationProjectDocuments).filter(
         TranslationProjectDocuments.project_id.in_([row.id for row in projects])).all()} if ready(db) else {}
     for project in projects:
         row = rows.get(project.id)
         project.statement_required_explicit=bool(row and row.statement_required is not None)
-        choice=defaults.get(project.id,'unknown')
+        choice, finance_default = defaults[project.id]
         inherited=choice=='required' if choice!='unknown' else getattr(project,'customer_type',None)!='个人客户'
-        project.statement_required = row.statement_required if project.statement_required_explicit else inherited and not full_payment(getattr(project,'payment_confirmation',None))
+        fully_paid=full_payment(getattr(project,'payment_confirmation',None))
+        project.statement_required = row.statement_required if project.statement_required_explicit else inherited and not fully_paid
         project.recorded_payment_method = (row.quotation_data or {}).get('_payment_method') if row else None
+        project.customer_payment_method = getattr(finance_default, 'payment_method', None)
+        stored = (row.quotation_data or {}) if row else {}
+        quotation_default = getattr(finance_default, 'quotation_required', None)
+        invoice_default = getattr(finance_default, 'invoice_required', None)
+        quotation_explicit = '_quotation_required' in stored or bool(project.quotation_required)
+        project.effective_quotation_required = bool(project.quotation_required if quotation_explicit else quotation_default)
+        project.effective_invoice_required = stored.get('_invoice_required', invoice_default)
+        project.order_invoice_requirements = stored.get('_order_invoice_requirements', {})
+        project.order_statement_requirements = stored.get('_order_statement_requirements', {})
+        project.billing_period = stored.get('_billing_period') or {}
+        project.customer_document_defaults = {
+            'statement_required': None if choice == 'unknown' else choice == 'required',
+            'quotation_required': quotation_default, 'invoice_required': invoice_default,
+            'payment_method': project.customer_payment_method,
+        }
+        project.customer_document_sources = {
+            'statement_required': not project.statement_required_explicit and choice != 'unknown' and (not fully_paid or choice=='not_required'),
+            'quotation_required': not quotation_explicit and quotation_default is not None,
+            'invoice_required': '_invoice_required' not in stored and invoice_default is not None,
+            'payment_method': not project.recorded_payment_method and project.customer_payment_method is not None,
+        }
         project.quotation_draft = quotation_value(row)
         project.document_notes = document_notes(row)
         project.invoice_data=(row.quotation_data or {}).get('_invoice',{}) if row else {}
         project.order_pricing_modes = (row.quotation_data or {}).get('_order_pricing_modes', {}) if row else {}
+        project.document_consistency_review = stored.get('_document_consistency_review')
+        project.cleared_price_orders = set(stored.get('_cleared_price_orders', []))
 
 
-def save(db, project, *, statement_required=None, quotation_draft=None, document_notes=None, payment_method=None, actor_id=None):
-    if statement_required is None and quotation_draft is None and document_notes is None and payment_method is None:
+def set_price_default_disabled(db, project, order_id, disabled, actor_id):
+    cleared = getattr(project, 'cleared_price_orders', set()).copy()
+    if (order_id in cleared) == disabled:
+        return
+    row = db.get(TranslationProjectDocuments, project.id)
+    if row is None:
+        row = TranslationProjectDocuments(project_id=project.id, quotation_revision=0)
+        db.add(row)
+    if disabled:
+        cleared.add(order_id)
+    else:
+        cleared.discard(order_id)
+    row.quotation_data = {**(row.quotation_data or {}), '_cleared_price_orders': sorted(cleared)}
+    row.updated_by = actor_id
+    row.updated_at = business_now()
+    project.cleared_price_orders = cleared
+
+
+def save_consistency_review(db, project, review, actor_id):
+    if not ready(db):
+        raise HTTPException(503, '项目单据存储尚未初始化')
+    row = db.get(TranslationProjectDocuments, project.id)
+    if row is None:
+        row = TranslationProjectDocuments(project_id=project.id, quotation_revision=0)
+        db.add(row)
+    stored = dict(row.quotation_data or {})
+    if review:
+        stored['_document_consistency_review'] = review
+    else:
+        stored.pop('_document_consistency_review', None)
+    row.quotation_data = stored or None
+    row.updated_by = actor_id
+    row.updated_at = business_now()
+    project.document_consistency_review = review
+
+
+def save(db, project, *, statement_required=None, quotation_draft=None, document_notes=None, payment_method=None, quotation_required=None, invoice_required=None, document_order_id=None, actor_id=None):
+    if all(value is None for value in (statement_required, quotation_draft, document_notes, payment_method, quotation_required, invoice_required)):
         return
     if not ready(db):
         raise HTTPException(503, '项目单据存储尚未初始化')
@@ -146,9 +227,33 @@ def save(db, project, *, statement_required=None, quotation_draft=None, document
     if row is None:
         row = TranslationProjectDocuments(project_id=project.id, quotation_revision=0)
         db.add(row)
-    if statement_required is not None:
-        row.statement_required = statement_required
+    is_child = document_order_id is not None and document_order_id != project.id
+    if statement_required is not None and not is_child:
+        row.statement_required = project.statement_required = statement_required
+        project.statement_required_explicit = True
     stored=dict(row.quotation_data or {})
+    if statement_required is not None and is_child:
+        overrides = dict(stored.get('_order_statement_requirements', {}))
+        overrides[str(document_order_id)] = statement_required
+        stored['_order_statement_requirements'] = project.order_statement_requirements = overrides
+    if quotation_required is not None:
+        stored['_quotation_required'] = quotation_required
+        project.quotation_required = project.effective_quotation_required = quotation_required
+    if any(value is not None for value in (statement_required, quotation_required, invoice_required, payment_method)):
+        sources = getattr(project, 'customer_document_sources', {}).copy()
+        for field,value in (('statement_required',statement_required),('quotation_required',quotation_required),
+                            ('invoice_required',invoice_required),('payment_method',payment_method)):
+            if value is not None:
+                sources[field] = False
+        project.customer_document_sources = sources
+    if invoice_required is not None:
+        if is_child:
+            overrides = dict(stored.get('_order_invoice_requirements', {}))
+            overrides[str(document_order_id)] = invoice_required
+            stored['_order_invoice_requirements'] = project.order_invoice_requirements = overrides
+        else:
+            stored['_invoice_required'] = invoice_required
+            project.effective_invoice_required = invoice_required
     if quotation_draft is not None:
         stored={**quotation_draft.model_dump(mode='json'),**{key:value for key,value in stored.items() if key.startswith('_')}}
         row.quotation_revision += 1
@@ -161,6 +266,48 @@ def save(db, project, *, statement_required=None, quotation_draft=None, document
     row.quotation_data=stored or None
     row.updated_by = actor_id
     row.updated_at = business_now()
+
+
+def apply_customer_documents(db, client_id, changes, actor_id):
+    from sqlalchemy import func
+    from models import TranslationProject, SubClient
+
+    if not ready(db):
+        return
+    projects = db.query(TranslationProject).outerjoin(SubClient,SubClient.id==TranslationProject.sub_client_id).filter(
+        func.coalesce(TranslationProject.client_id,SubClient.parent_client_id)==client_id,
+        TranslationProject.annotation_migrated_at.is_(None),
+    ).order_by(TranslationProject.id).with_for_update(of=TranslationProject).all()
+    rows = {row.project_id:row for row in db.query(TranslationProjectDocuments).filter(
+        TranslationProjectDocuments.project_id.in_([project.id for project in projects]))}
+    moment = business_now()
+    for project in projects:
+        row = rows.get(project.id)
+        stored = dict(row.quotation_data or {}) if row else {}
+        if 'quotation_required' in changes:
+            project.quotation_required = False  # Explicit values move back to the customer default.
+        for field in ('quotation_required','invoice_required','payment_method'):
+            if field in changes:
+                stored.pop('_'+field,None)
+        if row:
+            if 'statement_default' in changes:
+                row.statement_required=None
+            row.quotation_data=stored or None
+            row.updated_at=moment
+            row.updated_by=actor_id
+        project.updated_at=moment.replace(tzinfo=None)
+
+
+def load_order_pricing_modes(db, projects):
+    pending = {project.id: project for project in projects if not hasattr(project, 'order_pricing_modes')}
+    if not pending:
+        return
+    rows = {}
+    if ready(db):
+        rows = dict(db.query(TranslationProjectDocuments.project_id, TranslationProjectDocuments.quotation_data)
+                    .filter(TranslationProjectDocuments.project_id.in_(pending)).all())
+    for project_id, project in pending.items():
+        project.order_pricing_modes = (rows.get(project_id) or {}).get('_order_pricing_modes', {})
 
 
 def order_pricing_modes(db, project):

@@ -36,6 +36,33 @@ def test_finance_and_payment_dialog_share_record_and_conflict(environment):
     assert confirmation.history(db,row.id)['total']==2
 
 
+def test_payment_matches_persist_by_installment_and_reject_unrelated_orders(environment):
+    from uuid import uuid4
+    from models import TranslationSubOrder, TranslationSubOrderChargeItem
+    db,(actor,*_)=environment
+    root=project(db,actor)
+    children=[]
+    for index,amount in enumerate((120,180),1):
+        child=TranslationSubOrder(id=uuid4(),parent_project_id=root.id,sub_order_no=f'{root.order_no}.{index:03}')
+        child.customer_charge_items=[TranslationSubOrderChargeItem(id=uuid4(),item_name='翻译费',pricing_mode='fixed',
+            currency='CNY',total_excl_tax=amount,amount_override=amount)]
+        children.append(child)
+    db.add_all(children)
+    db.commit()
+    initial=payments.read(db,root)
+    data=write(root.id,payments.PaymentWrite(version=initial['version'],payments=[
+        {'stage_type':'deposit','actual_amount':20,'matched_order_ids':[children[0].id]},
+        {'stage_type':'mid','actual_amount':50,'matched_order_ids':[child.id for child in children]},
+    ]),db,actor)
+    assert [row['matched_order_ids'] for row in payments.read(db,root)['payments']]==[
+        [str(children[0].id)],[str(child.id) for child in children]]
+    assert confirmation.history(db,root.id)['items'][0]['after']['payment_details'][1]['matched_order_ids']==[
+        str(child.id) for child in children]
+    data['payments'][0]['matched_order_ids']=[uuid4()]
+    with pytest.raises(HTTPException,match='匹配订单已不在当前结算范围'):
+        write(root.id,payments.PaymentWrite(version=data['version'],payments=data['payments']),db,actor)
+
+
 def test_proof_bytes_persist_and_unchecking_keeps_proofs_and_history(environment):
     db,(actor,*_)=environment;row=project(db,actor)
     buf=BytesIO();Image.new('RGB',(32,32),'blue').save(buf,'PNG')

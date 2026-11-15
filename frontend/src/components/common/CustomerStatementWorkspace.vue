@@ -1,16 +1,18 @@
 <template>
   <section class="statement-workspace" v-loading="loading||saving">
     <el-config-provider size="small">
-    <details v-if="$slots['customer-projects']" open class="customer-projects-panel">
+    <details v-if="$slots['customer-projects']" :open="settlementScope==='special'" class="customer-projects-panel">
       <summary>客户项目<span class="customer-projects-toggle">展开 / 收起</span></summary>
-      <slot name="customer-projects" :months="filters.months" :mode="mode" />
+      <slot name="customer-projects" :months="filters.months" :mode="mode" :reload="load" />
     </details>
-    <slot name="client-actions" />
+    <slot name="client-actions" :reload="load" />
     <AppForm class="workspace-generation" :model="filters" :disabled="deleteMode||focusMissing" inline @submit.prevent="importMonths">
-      <el-form-item label="账单月份"><ReadonlyField v-if="lockMonth" :model-value="filters.months.join('、')" source="auto" style="width:180px" /><el-date-picker v-else v-model="filters.months" type="months" value-format="YYYY-MM" placeholder="选择一个或多个月份" style="width:210px;max-width:100%" /></el-form-item>
+      <el-form-item v-if="!lockMonth" label="账单月份"><el-date-picker v-model="filters.months" type="months" value-format="YYYY-MM" placeholder="选择一个或多个月份" style="width:210px;max-width:100%" /></el-form-item>
       <el-form-item v-if="!clientId" label="生成范围"><el-radio-group v-model="filters.scope"><el-radio value="project">当前项目</el-radio><el-radio value="customer">该客户全部项目</el-radio></el-radio-group></el-form-item>
       <el-form-item v-if="!projectSelection"><el-checkbox v-model="filters.requiredOnly">仅导入需对账单项目</el-checkbox></el-form-item>
-      <el-form-item><el-button type="primary" :disabled="!canWrite||loading||saving||!filters.months?.length" @click="importMonths">生成对账单</el-button></el-form-item>
+      <el-form-item>
+        <el-button type="primary" :disabled="!canWrite||loading||saving||!filters.months?.length" @click="importMonths">{{settlementScope==='special'?'生成特殊结算单':'生成对账单'}}</el-button>
+      </el-form-item>
     </AppForm>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <section v-if="visiblePendingTasks.length" class="statement-pending">
@@ -23,9 +25,9 @@
       <template v-if="!deleteMode">
       <el-select v-model="mode" aria-label="对账单订单显示方式" style="width:210px" @change="load"><el-option v-for="option in statementOrderDisplayOptions" :key="option.value" :value="option.value" :label="option.label" /></el-select>
       <el-button :disabled="!canWrite||!documents.length" @click="createBoard">新增账单</el-button>
-      <el-button :disabled="!state.revision" @click="openHistory">记录 / 恢复</el-button>
+      <el-button v-if="!settlementScope" :disabled="!state.revision" @click="openHistory">记录 / 恢复</el-button>
       <el-button v-if="!projectSelection" :disabled="!canWrite||!filters.months?.length||focusMissing" @click="importMonths">重新生成</el-button>
-      <CustomerStatementSettings v-if="state?.private_settings_available" /><el-dropdown v-if="!projectSelection" trigger="click" @command="reloadProjects"><el-button>更多操作 ▾</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item :disabled="loading||saving" command="reload">重新加载</el-dropdown-item></el-dropdown-menu></template></el-dropdown>
+      <el-dropdown v-if="!projectSelection" trigger="click" @command="reloadProjects"><el-button>更多操作 ▾</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item :disabled="loading||saving" command="reload">重新加载</el-dropdown-item></el-dropdown-menu></template></el-dropdown>
       <el-select v-model="scale" aria-label="对账单画布缩放" style="width:85px"><el-option v-for="value in [0.4,0.5,0.75,1]" :key="value" :value="value" :label="`${value*100}%`" /></el-select>
       <el-dropdown :disabled="downloading||!exportableBoardIds.length" trigger="click" @command="exportAll">
         <el-button :loading="downloading" :disabled="downloading||!exportableBoardIds.length">导出 / 打印 ▾</el-button>
@@ -35,18 +37,37 @@
     </div>
     <p v-if="!enforceStatementRequirement" class="statement-help workspace-hint">未勾选时使用全部筛选项目；修改仅影响对账单。</p>
     <div v-if="!deleteMode&&selected.length" class="selection-toolbar">
-      <span>已选 {{selected.length}} 项任务</span><el-button @click="selected=[]">清空选择</el-button><el-button :disabled="!canWrite" @click="splitSelected">分拆至新对账单</el-button><el-button :disabled="!canWrite" @click="openSchedule(selected)">设为待入账</el-button><el-button :disabled="!canWrite" @click="openMove(selected)">调整月份 / 移到另一份</el-button><el-button :disabled="!canEditContent" @click="restoreTasks">恢复任务原始内容</el-button>
+      <span>已选 {{selected.length}} 项任务</span><el-button @click="selected=[]">清空选择</el-button><el-button :disabled="!canWrite" @click="splitSelected">分拆至新对账单</el-button><el-button :disabled="!canWrite" @click="openSchedule(selected)">设为待入账</el-button><el-button :disabled="!canEditContent" @click="restoreTasks">恢复任务原始内容</el-button>
     </div>
     <el-empty v-if="state&&!documents.length" :description="focusBoardId?'该对账单已删除或不存在，可返回对账单管理查看记录':focusMonth?'该客户在此月份尚未生成对账单':'暂无对账单，请筛选或勾选下方项目后点击生成对账单'" />
     <div v-if="documents.length" class="statement-canvas-scroll">
       <div class="statement-canvas-space" :style="{width:`${canvasWidth*scale}px`,height:`${canvasHeight*scale}px`}">
         <div class="statement-canvas" :style="{width:`${canvasWidth}px`,height:`${canvasHeight}px`,transform:`scale(${scale})`}">
-          <section v-for="board in documents" :key="board.id" :data-statement-board="board.id" class="statement-board" :class="{'statement-board--drop':dropBoard===board.id}" :style="boardStyle(board)" @dragover.prevent="dropBoard=board.id" @dragleave.self="dropBoard=''" @drop.prevent="dropTasks($event,board)">
+          <section v-for="board in documents" :key="board.id" :data-statement-board="board.id" class="statement-board" :style="boardStyle(board)">
             <div class="statement-board-header"><el-checkbox v-if="deleteMode" :model-value="selectedBoardIds.includes(board.id)" :aria-label="`选择对账单：${board.name}`" @update:model-value="value=>selectBoard(board.id,value)">选择</el-checkbox><div class="statement-board-handle" @pointerdown="startBoardDrag($event,board)">⠿ {{board.name}}</div><span>任务 {{tasksFor(board.id).length}} 项</span></div>
-            <div v-if="!deleteMode" class="statement-board-actions"><el-button type="primary" plain @click="openInline(board)">{{canEditContent?'放大 / 直接编辑':'放大查看'}}</el-button><el-button :disabled="!canEditContent" @click="editHeader(board)">修改抬头 / 账户 / 印章</el-button><el-button :disabled="!board.statement.rows.length" @click="download([board.id])">Excel</el-button><el-button :disabled="!board.statement.rows.length" @click="printBoards([board.id])">打印</el-button><el-button :disabled="downloading||!board.statement.rows.length" @click="download([board.id],'pdf')">下载 PDF</el-button></div>
-            <div v-if="!deleteMode" class="statement-board-actions"><el-button v-if="canEditContent" link :disabled="saving" @click="syncCustomerNotes(board)">更新客户备注</el-button><StatementFileDrag :client-id="state.client_id" :board-id="board.id" :revision="state.revision" :mode="mode" :name="`${board.statement.client_name}-${board.name}`" :disabled="saving||!board.statement.rows.length" :print-html="()=>filePrintHtml(board.id)" /></div>
+            <div v-if="!deleteMode" class="statement-board-actions">
+              <template v-if="!standardStatement">
+                <el-button type="primary" plain @click="openInline(board)">{{canEditContent?'放大 / 直接编辑':'放大查看'}}</el-button>
+                <el-button :disabled="!canEditContent" @click="editHeader(board)">修改抬头 / 账户 / 印章</el-button>
+              </template>
+              <el-dropdown v-else-if="state.private_settings_available" trigger="click" :disabled="!canChangeCompany" @command="subject=>changeCompany(board,subject)">
+                <el-button :disabled="!canChangeCompany">调整公司主体</el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item v-for="(name,key) in companySubjects" :key="key" :command="key">{{name}}</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+              <el-tooltip v-else content="公司主体与收款账户在正式 OA 中调整">
+                <span><el-button disabled>调整公司主体</el-button></span>
+              </el-tooltip>
+              <el-button :disabled="!board.statement.rows.length" @click="download([board.id])">Excel</el-button>
+              <el-button :disabled="!board.statement.rows.length" @click="printBoards([board.id])">打印</el-button>
+              <el-button :disabled="downloading||!board.statement.rows.length" @click="download([board.id],'pdf')">下载 PDF</el-button>
+            </div>
+            <div v-if="!deleteMode" class="statement-board-actions"><el-button v-if="canEditContent" link :disabled="saving" @click="syncCustomerNotes(board)">更新客户备注</el-button><StatementFileDrag :client-id="state.client_id" :board-id="board.id" :revision="state.revision" :mode="mode" :settlement-scope="settlementScope" :name="`${board.statement.client_name}-${board.name}`" :disabled="saving||!board.statement.rows.length" :print-html="()=>filePrintHtml(board.id)" /></div>
             <p class="statement-system-meta">客户编号：{{board.statement.client_code||'—'}}（仅系统可见）</p>
-            <div class="statement-board-content" @click="clickBoard($event,board)"><CustomerStatementPaper :statement="board.statement" :interactive="!deleteMode" :can-write="canWrite&&!saving&&!deleteMode" :can-edit="canEditContent" :selected="selected" @select="selectTasks" @edit="openInline(board)" @task-pointer="startTaskPointer" @open-order="openOrder" /></div>
+            <div class="statement-board-content" @click="clickBoard($event,board)"><CustomerStatementPaper :statement="board.statement" :interactive="!deleteMode" :can-write="canWrite&&!saving&&!deleteMode" :can-edit="canEditContent&&!standardStatement" :selected="selected" @select="selectTasks" @edit="openInline(board)" @open-order="openOrder" /></div>
           </section>
         </div>
       </div>
@@ -71,10 +92,6 @@
       <template #footer><el-button :disabled="saving" @click="closeEdit()">取消</el-button><el-button type="primary" :loading="saving" @click="saveEdit">确认修改…</el-button></template>
     </DraggableFormDialog>
 
-    <DraggableFormDialog v-model="moveVisible" title="调整账单月份与任务归属" class="statement-edit-dialog" data-auto-draft="off" width="min(600px, calc(100vw - 32px))" top="10vh" append-to-body :close-on-click-modal="false">
-      <AppForm ref="moveForm" :model="moveDraft" label-position="top"><el-form-item label="所选任务"><span>{{moveIds.length}} 项任务，包含其全部收费明细</span></el-form-item><el-form-item label="目标对账单" prop="board_id" :rules="[{required:true,message:'请选择目标对账单',trigger:'change'}]"><el-select v-model="moveDraft.board_id" style="width:100%"><el-option v-for="board in documents" :key="board.id" :value="board.id" :label="board.name" /></el-select></el-form-item><el-form-item label="目标账单月份" prop="month" :rules="[{required:true,message:'请选择目标月份',trigger:'change'}]"><el-date-picker v-model="moveDraft.month" type="month" value-format="YYYY-MM" /></el-form-item></AppForm>
-      <template #footer><el-button @click="moveVisible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveMove">确认调配…</el-button></template>
-    </DraggableFormDialog>
 
     <DraggableFormDialog v-model="scheduleVisible" title="设置待入账月份" class="statement-edit-dialog" data-auto-draft="off" width="min(600px, calc(100vw - 32px))" top="8vh" append-to-body>
       <AppForm ref="scheduleForm" :model="scheduleDraft" label-position="top"><el-form-item label="所选任务">{{scheduleIds.length}} 项，包含全部收费明细；目标月份尚未生成对账单也可以设置。</el-form-item><el-form-item label="目标账单月份" prop="month" :rules="[{required:true,message:'请选择目标月份',trigger:'change'}]"><el-date-picker v-model="scheduleDraft.month" type="month" value-format="YYYY-MM" /></el-form-item></AppForm>
@@ -107,7 +124,6 @@ import ReadonlyField from './ReadonlyField.vue'
 import DialogFieldSearchHeader from './DialogFieldSearchHeader.vue'
 import CustomerStatementPaper from './CustomerStatementPaper.vue'
 import CustomerStatementInlineEditor from './CustomerStatementInlineEditor.vue'
-import CustomerStatementSettings from './CustomerStatementSettings.vue'
 import {useDialogFieldSearch} from '@/composables/useDialogFieldSearch'
 import {getStatementWorkspace,getClientStatementWorkspace,importStatementMonths,changeStatementWorkspace,getStatementWorkspaceHistory,getStatementWorkspaceHistoryEntry,exportStatementWorkspace,exportStatementWorkspacePdf} from '@/api/customerStatements'
 import {businessDateTimeInputValue,formatBusinessDateTime} from '@/utils/dateTime'
@@ -121,13 +137,16 @@ const TranslationProjectEditor=defineAsyncComponent(()=>import('@/views/project/
 const orderEditor=ref(null)
 function openOrder(row){if(!row.root_id)return ElMessage.warning('该订单缺少项目关联，无法打开');orderEditor.value={rootId:row.root_id,orderNo:row.order_no}}
 const emit=defineEmits(['loaded','show-boards'])
-const props=defineProps({lockMonth:Boolean,enforceStatementRequirement:Boolean,projectSelection:Function,projectReload:Function,visibleBoardIds:{type:Array,default:()=>[]},focusMonth:{type:String,default:''},focusBoardId:{type:String,default:''},projectId:{type:[String,Number],default:''},clientId:{type:[String,Number],default:''},billingMonth:String})
+const props=defineProps({periodNumber:Number,settlementScope:String,lockMonth:Boolean,enforceStatementRequirement:Boolean,projectSelection:Function,projectReload:Function,visibleBoardIds:{type:Array,default:()=>[]},focusMonth:{type:String,default:''},focusBoardId:{type:String,default:''},projectId:{type:[String,Number],default:''},clientId:{type:[String,Number],default:''},billingMonth:String})
 const canWrite=hasPermission('projects:write')
+const standardStatement=computed(()=>props.settlementScope==='standard')
+const companySubjects={guangzhou:'广州总公司',shenzhen:'深圳分公司',shanghai:'上海分公司'}
 const canEditContent=computed(()=>canWrite&&state.value?.capabilities?.edit_content===true)
+const canChangeCompany=computed(()=>canEditContent.value&&state.value?.private_settings_available&&!saving.value)
 const filters=reactive({months:[props.billingMonth||businessDateTimeInputValue().slice(0,7)],scope:'customer',requiredOnly:true})
 const modeStorageKey=`customer-statement-order-display:${localStorage.getItem('user_id')||localStorage.getItem('user_name')||'anonymous'}`
 const savedMode=localStorage.getItem(modeStorageKey)
-const state=ref(null),loading=ref(false),saving=ref(false),error=ref(''),mode=ref(statementOrderDisplayOptions.some(option=>option.value===savedMode)?savedMode:'children'),scale=ref(.75),selected=ref([]),dropBoard=ref(''),positions=reactive({})
+const state=ref(null),loading=ref(false),saving=ref(false),error=ref(''),mode=ref(statementOrderDisplayOptions.some(option=>option.value===savedMode)?savedMode:'children'),scale=ref(.75),selected=ref([]),positions=reactive({})
 watch(mode,value=>localStorage.setItem(modeStorageKey,value))
 const deleteMode=ref(false),selectedBoardIds=ref([])
 function enterDeleteMode(){selected.value=[];selectedBoardIds.value=[];deleteMode.value=true}
@@ -135,12 +154,13 @@ function exitDeleteMode(){deleteMode.value=false;selectedBoardIds.value=[]}
 function selectBoard(id,checked){selectedBoardIds.value=checked?[...new Set([...selectedBoardIds.value,id])]:selectedBoardIds.value.filter(value=>value!==id)}
 const visiblePendingTasks=computed(()=>{
   const tasks=state.value?.pending_tasks||[]
+  if(props.periodNumber)return tasks.filter(task=>task.month===props.billingMonth&&task.period_number===props.periodNumber)
   return props.lockMonth?tasks.filter(task=>task.month===props.billingMonth):tasks
 })
-const documents=computed(()=>{const all=(state.value?.documents||[]).filter(board=>!props.visibleBoardIds.length||props.visibleBoardIds.includes(board.id));return props.lockMonth&&props.billingMonth?all.filter(board=>(board.statement.months||[]).includes(props.billingMonth)):props.focusBoardId?all.filter(board=>board.id===props.focusBoardId):props.focusMonth?all.filter(board=>(board.statement.months||[]).includes(props.focusMonth)):all})
+const documents=computed(()=>{const all=(state.value?.documents||[]).filter(board=>(!props.visibleBoardIds.length||props.visibleBoardIds.includes(board.id)) && (!props.periodNumber||board.period_number===props.periodNumber && board.period_month===props.billingMonth));return props.lockMonth&&props.billingMonth?all.filter(board=>(board.statement.months||[]).includes(props.billingMonth)):props.focusBoardId?all.filter(board=>board.id===props.focusBoardId):props.focusMonth?all.filter(board=>(board.statement.months||[]).includes(props.focusMonth)):all})
 watch(()=>documents.value.length,count=>{scale.value=count>=3?.4:count===2?.5:.75})
 const focusMissing=computed(()=>!!(props.focusBoardId||props.focusMonth)&&!!state.value&&!documents.value.length)
-watch(()=>props.billingMonth,month=>{if(month)filters.months=[month]})
+watch(()=>[props.billingMonth,props.periodNumber],([month])=>{if(month)filters.months=[month]})
 const position=board=>positions[board.id]||{x:board.x||0,y:board.y||0}
 const canvasWidth=computed(()=>Math.max(980,...documents.value.map(board=>position(board).x+980)))
 const canvasHeight=computed(()=>Math.max(740,...documents.value.map(board=>position(board).y+740)))
@@ -150,10 +170,10 @@ let sequence=0,controller,disposed=false,drag=null
 const frames=new Set()
 const printSource=ref(),downloading=ref(false)
 function apply(data){emit('loaded',data);exitDeleteMode();state.value=data;selected.value=[];for(const key of Object.keys(positions))delete positions[key]}
-async function load(){const seq=++sequence;controller?.abort();controller=new AbortController();loading.value=true;error.value='';try{const data=await (props.clientId?getClientStatementWorkspace(props.clientId,mode.value,{signal:controller.signal}):getStatementWorkspace(props.projectId,mode.value,{signal:controller.signal}));if(seq===sequence)apply(data)}catch(e){if(seq===sequence&&e.code!=='ERR_CANCELED')error.value=getLocalizedErrorMessage(e,'对账单加载失败')}finally{if(seq===sequence)loading.value=false}}
+async function load(){const seq=++sequence;controller?.abort();controller=new AbortController();loading.value=true;error.value='';try{const data=await (props.clientId?getClientStatementWorkspace(props.clientId,mode.value,{signal:controller.signal,params:{settlement_scope:props.settlementScope}}):getStatementWorkspace(props.projectId,mode.value,{signal:controller.signal}));if(seq===sequence)apply(data)}catch(e){if(seq===sequence&&e.code!=='ERR_CANCELED')error.value=getLocalizedErrorMessage(e,'对账单加载失败')}finally{if(seq===sequence)loading.value=false}}
 async function reloadProjects(){if(props.projectReload&&await props.projectReload()===false)return;await load()}
 async function confirm(text,title='确认对账单修改'){try{await ElMessageBox.confirm(text,title,{type:'warning',confirmButtonText:'确认并记录',cancelButtonText:'取消'});return true}catch{return false}}
-async function mutate(action,data,text,confirmAction=()=>confirm(text)){if(saving.value||loading.value||!state.value)return false;const revision=state.value.revision;if(!await confirmAction()||disposed)return false;saving.value=true;error.value='';try{const result=await changeStatementWorkspace(state.value.client_id,{revision,action,data,confirmed:true},mode.value);if(!disposed){apply(result);window.dispatchEvent(new CustomEvent('translation-statements-changed'))}ElMessage.success('已保存并记录修改历史');return true}catch(e){error.value=getLocalizedErrorMessage(e,'对账单修改失败');return false}finally{saving.value=false}}
+async function mutate(action,data,text,confirmAction=()=>confirm(text)){if(saving.value||loading.value||!state.value)return false;const revision=state.value.revision;if(!await confirmAction()||disposed)return false;saving.value=true;error.value='';try{const result=await changeStatementWorkspace(state.value.client_id,{revision,action,data,confirmed:true},mode.value,props.settlementScope);if(!disposed){apply(result);window.dispatchEvent(new CustomEvent('translation-statements-changed'))}ElMessage.success('已保存并记录修改历史');return true}catch(e){error.value=getLocalizedErrorMessage(e,'对账单修改失败');return false}finally{saving.value=false}}
 async function deleteBoards(){
   const ids=[...selectedBoardIds.value];if(!ids.length||!canWrite)return
   const names=documents.value.filter(board=>ids.includes(board.id)).map(board=>board.name).join('、')
@@ -161,7 +181,7 @@ async function deleteBoards(){
   const confirmBatch=ids.length>1?async()=>{try{await ElMessageBox.prompt(text+'请输入“删除”确认。','批量删除对账单',{type:'warning',confirmButtonText:'确认删除并记录',cancelButtonText:'取消',inputValidator:value=>value==='删除'||'请输入“删除”确认'});return true}catch{return false}}:undefined
   await mutate('delete_boards',{board_ids:ids,...(ids.length>1?{confirmation:'删除'}:{})},text,confirmBatch)
 }
-async function importMonths(){if(!canWrite||saving.value||!filters.months?.length||!state.value)return;let orderIds;try{if(props.projectSelection){orderIds=await props.projectSelection();if(!orderIds)throw new Error('项目表尚未加载完成')}}catch(e){error.value=getLocalizedErrorMessage(e,'读取项目范围失败');return}const revision=state.value.revision;const months=[...filters.months];if(!await confirm(`将 ${months.join('、')} ${orderIds?`所选/筛选范围（${orderIds.length} 个订单）`:'的任务'}生成对账单，同时自动纳入目标为这些月份的全部待入账任务。已入账任务保持原归属，不重复加入。`,'确认合并月份'))return;saving.value=true;try{const data=await importStatementMonths({...(props.clientId?{client_id:props.clientId}:{project_id:props.projectId}),months,order_ids:orderIds,required_only:props.enforceStatementRequirement||(orderIds===undefined&&filters.requiredOnly),scope:props.clientId?'customer':filters.scope,revision,board_id:props.focusBoardId||(props.focusMonth?documents.value[0]?.id:null)||null,confirmed:true},mode.value);if(!disposed){apply(data);window.dispatchEvent(new CustomEvent('translation-statements-changed'))}ElMessage.success(`新增 ${data.imported} 项；${data.existing} 项已存在并保持原归属；${data.excluded||0} 项不需对账单未导入；自动纳入待入账 ${data.accepted_pending_count||0} 项`)}catch(e){error.value=getLocalizedErrorMessage(e,'月份导入失败')}finally{saving.value=false}}
+async function importMonths(){if(!canWrite||saving.value||!filters.months?.length||!state.value)return;let orderIds;try{if(props.projectSelection){orderIds=await props.projectSelection();if(!orderIds)throw new Error('项目表尚未加载完成')}}catch(e){error.value=getLocalizedErrorMessage(e,'读取项目范围失败');return}const revision=state.value.revision;const months=[...filters.months];if(!await confirm(`将 ${months.join('、')} ${orderIds?`所选/筛选范围（${orderIds.length} 个订单）`:'的任务'}生成对账单，同时自动纳入目标为这些月份的全部待入账任务。已入账任务保持原归属，不重复加入。`,'确认合并月份'))return;saving.value=true;try{const data=await importStatementMonths({...(props.clientId?{client_id:props.clientId}:{project_id:props.projectId}),months,period_number:props.periodNumber,settlement_scope:props.settlementScope,order_ids:orderIds,required_only:props.enforceStatementRequirement||(orderIds===undefined&&filters.requiredOnly),scope:props.clientId?'customer':filters.scope,revision,board_id:props.focusBoardId||(props.focusMonth?documents.value[0]?.id:null)||null,confirmed:true},mode.value);if(!disposed){apply(data);window.dispatchEvent(new CustomEvent('translation-statements-changed'))}ElMessage.success(`新增 ${data.imported} 项；${data.existing} 项已存在并保持原归属；${data.excluded||0} 项不需对账单未导入；自动纳入待入账 ${data.accepted_pending_count||0} 项`)}catch(e){error.value=getLocalizedErrorMessage(e,'月份导入失败')}finally{saving.value=false}}
 async function splitSelected(){let name;try{name=(await ElMessageBox.prompt('填写分拆后的对账单名称；保留任务内容与月份。','分拆对账单',{inputValidator:value=>!!value?.trim()||'请填写名称'})).value}catch{return}const before=new Set(state.value.documents.map(board=>board.id));const shown=documents.value.map(board=>board.id);if(await mutate('split_board',{task_ids:[...selected.value],name},`将所选 ${selected.value.length} 项任务分拆为“${name}”，保留原内容并记录前后归属？`)){const added=state.value.documents.filter(board=>!before.has(board.id)).map(board=>board.id);emit('show-boards',[...shown,...added])}}
 
 async function createBoard(){let name;try{name=(await ElMessageBox.prompt('输入对账单名称','新增一份对账单',{inputValue:`对账单 ${documents.value.length+1}`,inputValidator:value=>!!value?.trim()||'请输入名称'})).value}catch{return}await mutate('create_board',{name},`新增“${name}”，可将已有任务移动到这份对账单。`)}
@@ -172,14 +192,6 @@ const scheduleVisible=ref(false),scheduleForm=ref(),scheduleIds=ref([]),schedule
 function openSchedule(ids){scheduleIds.value=[...new Set(ids)];scheduleDraft.month=state.value.payload.tasks[ids[0]]?.month||filters.months[0];scheduleVisible.value=true}
 async function saveSchedule(){if(!await scheduleForm.value?.validate().catch(()=>false))return;if(await mutate('schedule_tasks',{task_ids:scheduleIds.value,month:scheduleDraft.month},`将 ${scheduleIds.value.length} 项任务设为 ${scheduleDraft.month} 待入账，从原对账单移出；生成目标月份时自动纳入，并保留调整记录。`))scheduleVisible.value=false}
 async function cancelPending(row){await mutate('cancel_pending',{task_ids:[row.id]},`撤销 ${row.order_no} 的待入账调整，恢复至调整前的对账单和月份？`)}
-const moveVisible=ref(false),moveForm=ref(),moveIds=ref([]),moveDraft=reactive({board_id:'',month:''})
-function openMove(ids,board){moveIds.value=[...new Set(ids)];const task=state.value.payload.tasks[moveIds.value[0]];moveDraft.board_id=board?.id||task?.board_id||documents.value[0]?.id;moveDraft.month=task?.month||filters.months[0]||businessDateTimeInputValue().slice(0,7);moveVisible.value=true}
-function dropTasks(event,board){dropBoard.value='';if(!canWrite||saving.value)return;try{const ids=JSON.parse(event.dataTransfer.getData('application/x-statement-tasks'));if(Array.isArray(ids)&&ids.length&&ids.every(id=>state.value.payload.tasks[id]))openMove(ids,board)}catch{}}
-let pointerTaskIds=[]
-function taskPointerMove(event){dropBoard.value=document.elementFromPoint(event.clientX,event.clientY)?.closest('[data-statement-board]')?.dataset.statementBoard||''}
-function finishTaskPointer(event){window.removeEventListener('pointermove',taskPointerMove);const board=documents.value.find(item=>item.id===document.elementFromPoint(event.clientX,event.clientY)?.closest('[data-statement-board]')?.dataset.statementBoard);const ids=pointerTaskIds;pointerTaskIds=[];dropBoard.value='';if(board&&ids.length)openMove(ids,board)}
-function startTaskPointer(event,ids){if(!canWrite||saving.value||deleteMode.value||event.button!==0)return;pointerTaskIds=[...ids];window.addEventListener('pointermove',taskPointerMove);window.addEventListener('pointerup',finishTaskPointer,{once:true})}
-async function saveMove(){if(!await moveForm.value?.validate().catch(()=>false))return;const target=documents.value.find(board=>board.id===moveDraft.board_id);if(await mutate('move_tasks',{task_ids:[...moveIds.value],...moveDraft},`将 ${moveIds.value.length} 项任务移至“${target.name}”，账单月份改为 ${moveDraft.month}。原对账单中将不再出现这些任务。`))moveVisible.value=false}
 async function restoreTasks(){await mutate('restore_task',{task_ids:[...selected.value]},`恢复所选 ${selected.value.length} 项任务首次导入时的内容、月份及对账单归属。`)}
 function startBoardDrag(event,board){if(!canWrite||saving.value||deleteMode.value||event.button!==0)return;event.preventDefault();const original=position(board);drag={id:board.id,startX:event.clientX,startY:event.clientY,original:{...original}};window.addEventListener('pointermove',moveBoard);window.addEventListener('pointerup',endBoard,{once:true})}
 function moveBoard(event){if(!drag)return;positions[drag.id]={x:Math.max(0,Math.min(20000,drag.original.x+(event.clientX-drag.startX)/scale.value)),y:Math.max(0,Math.min(20000,drag.original.y+(event.clientY-drag.startY)/scale.value))}}
@@ -187,7 +199,11 @@ async function endBoard(){window.removeEventListener('pointermove',moveBoard);co
 
 const inlineVisible=ref(false),inlineBoard=ref(null)
 let inlineRevision=0
-function openInline(board){if(deleteMode.value||saving.value||inlineVisible.value)return;inlineBoard.value=board;inlineRevision=state.value.revision;error.value='';inlineVisible.value=true}
+function openInline(board){if(standardStatement.value||deleteMode.value||saving.value||inlineVisible.value)return;inlineBoard.value=board;inlineRevision=state.value.revision;error.value='';inlineVisible.value=true}
+async function changeCompany(board,subject){
+  if(!canChangeCompany.value)return
+  await mutate('change_company_subject',{board_id:board.id,subject_key:subject},`将「${board.name}」的公司名称、收款账户和印章更新为${companySubjects[subject]}？`)
+}
 function clickBoard(event,board){if(event.target.closest('button,input,label,.statement-ui'))return;openInline(board)}
 async function saveInline(data){
   if(state.value.revision!==inlineRevision){error.value='对账单已变化，请关闭窗口重新打开后编辑';return}
@@ -236,15 +252,15 @@ async function download(ids,format='excel'){
   downloading.value=true;error.value=''
   try{
     const files=[]
-    for(const board of boards){const fetch=format==='pdf'?exportStatementWorkspacePdf:exportStatementWorkspace;const blob=await fetch(clientId,{board_ids:[board.id],revision,mode:displayMode});files.push({blob,name:statementFileName(`${board.statement.client_name}-${board.name}`,format)})}
+    for(const board of boards){const fetch=format==='pdf'?exportStatementWorkspacePdf:exportStatementWorkspace;const blob=await fetch(clientId,{board_ids:[board.id],revision,mode:displayMode,settlement_scope:props.settlementScope});files.push({blob,name:statementFileName(`${board.statement.client_name}-${board.name}`,format)})}
     for(const file of files){const url=URL.createObjectURL(file.blob),link=document.createElement('a');link.href=url;link.download=file.name;document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),300000)}
   }catch(e){error.value=getLocalizedErrorMessage(e,format==='pdf'?'对账单PDF下载失败':'对账单Excel下载失败')}
   finally{downloading.value=false}
 }
 function filePrintHtml(id){const element=printSource.value?.querySelector(`[data-statement-print="${CSS.escape(id)}"]`);return `<style>${statementPrintStyles}.statement-ui{display:none}</style>${element?.innerHTML||''}`}
 function printBoards(ids){const elements=[...(printSource.value?.querySelectorAll('[data-statement-print]')||[])].filter(element=>ids.includes(element.dataset.statementPrint));if(!elements.length)return;const frame=document.createElement('iframe');frame.style.cssText='position:fixed;width:0;height:0;border:0;right:0;bottom:0';frame.title='对账单打印';frames.add(frame);const cleanup=()=>{frames.delete(frame);frame.remove()};frame.srcdoc=`<!doctype html><meta charset="utf-8"><title>对账单</title><style>${statementPrintStyles}.statement-paper{break-after:page;min-width:0}.statement-paper:last-child{break-after:auto}.statement-ui{display:none}</style>${elements.map(element=>element.innerHTML).join('')}`;frame.onload=async()=>{try{await Promise.all([...frame.contentDocument.images].map(image=>image.decode().catch(()=>{})));frame.contentWindow.addEventListener('afterprint',cleanup,{once:true});frame.contentWindow.focus();frame.contentWindow.print()}catch{cleanup();ElMessage.error('打印窗口打开失败')}};document.body.appendChild(frame)}
-watch(()=>[props.clientId,props.projectId,props.focusBoardId,props.focusMonth],()=>{exitDeleteMode();inlineVisible.value=false;selected.value=[];editVisible.value=false;moveVisible.value=false;historyVisible.value=false;void load()},{immediate:true})
-onBeforeUnmount(()=>{disposed=true;sequence++;historySequence++;controller?.abort();window.removeEventListener('pointermove',moveBoard);window.removeEventListener('pointerup',endBoard);window.removeEventListener('pointermove',taskPointerMove);window.removeEventListener('pointerup',finishTaskPointer);for(const frame of frames)frame.remove()})
+watch(()=>[props.clientId,props.projectId,props.focusBoardId,props.focusMonth,props.periodNumber],()=>{exitDeleteMode();inlineVisible.value=false;selected.value=[];editVisible.value=false;historyVisible.value=false;void load()},{immediate:true})
+onBeforeUnmount(()=>{disposed=true;sequence++;historySequence++;controller?.abort();window.removeEventListener('pointermove',moveBoard);window.removeEventListener('pointerup',endBoard);for(const frame of frames)frame.remove()})
 </script>
 <style scoped>
 .workspace-generation{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 0 2px}.workspace-generation :deep(.el-form-item){margin:0 0 8px}.workspace-toolbar :deep(.el-button + .el-button){margin-left:0}.workspace-toolbar{padding-top:10px;border-top:1px solid var(--el-border-color-lighter)}.workspace-hint{margin:6px 0 12px}.workspace-toolbar :deep(.el-select){flex-shrink:0}

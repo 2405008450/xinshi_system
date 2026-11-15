@@ -126,7 +126,7 @@ def test_one_sided_tax_rate_stays_separate_after_reopen_and_inheritance(environm
     assert getattr(inherited, empty_key) is None
 
 
-def test_blank_project_rate_matches_customer_basis_and_manual_price_stays_detached(environment):
+def test_blank_project_rate_matches_customer_basis_and_latest_price_replaces_manual_rate(environment):
     db, (owner, _, _) = environment
     client, root, _, leaf = context(db, owner)
     library = rates.write_library(db, owner, client.id, [item(metric='customer_auto:foreign_words')],
@@ -150,8 +150,8 @@ def test_blank_project_rate_matches_customer_basis_and_manual_price_stays_detach
                         library['version'])
     db.commit()
     latest = finance.read(db, root.id)['item']['children'][0]['children'][0]['prices'][0]
-    assert Decimal(latest['amount']) == Decimal('.1')
-    assert latest['reference_id'] is None
+    assert Decimal(latest['amount']) == Decimal('.2')
+    assert latest['reference_id'] == library['items'][0]['id']
 
 
 @pytest.mark.parametrize('direction,metric',[('英语→简中','foreign_words'),('简体中文→英语','characters_no_spaces'),('日语→繁體中文','foreign_words'),('zh-CN→英语','characters_no_spaces')])

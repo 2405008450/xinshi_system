@@ -3,10 +3,10 @@
     <el-button :disabled="!clientId" @click="open">{{buttonLabel}}</el-button><small v-if="!clientId">请先保存客户，再维护参考价</small>
     <DraggableFormDialog v-model="visible" append-to-body class="customer-reference-dialog" width="min(960px, calc(100vw - 32px))" top="5vh" :close-on-click-modal="false" :before-close="close">
       <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" title="客户语种参考价" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
-      <div ref="body" v-loading="loading||saving"><p class="rate-sync-help">这里维护客户参考价。客户参考价自动同步至沿用客户价格的项目；项目单独调整的单价保留，并在财务区域提示差异供你选择同步。</p>
+      <div ref="body" v-loading="loading||saving"><p class="rate-sync-help">客户参考价保存后自动更新匹配的订单。订单单价的差异按单号和版本记录在下方。</p>
         <el-alert v-if="error" :title="error" type="error" :closable="false" />
         <AppForm ref="form" :model="draft" :disabled="!canWrite||saving||loading" label-position="top"><CustomerTranslationPriceEditor v-model="draft.prices" reference-mode :readonly="!canWrite" :disabled="saving||!ready" /></AppForm>
-        <el-collapse><el-collapse-item :title="`参考价修改记录（${historyTotal}）`" name="history"><el-collapse><el-collapse-item v-for="event in history" :key="event.id" :title="`${event.actorName} · ${formatTime(event.createdAt)} · ${event.origin==='project'?'项目同步':'客户资料'}`"><div v-for="[label,items] in [['变更前',event.before],['变更后',event.after]]" :key="label"><strong>{{label}}</strong><p v-for="item in items" :key="item.id">{{item.languagePair}} · {{item.currency}} {{item.amount}} / {{item.unitSize}} · {{basisLabel(item.metric)}}</p></div></el-collapse-item></el-collapse><el-pagination v-model:current-page="historyPage" :page-size="10" :total="historyTotal" layout="total, prev, pager, next" @current-change="loadHistory" /></el-collapse-item></el-collapse>
+        <el-collapse><el-collapse-item :title="`参考价修改记录（${historyTotal}）`" name="history"><el-collapse><el-collapse-item v-for="event in history" :key="event.id" :title="`${event.actorName} · ${formatTime(event.createdAt)} · ${event.orderNo?`${event.orderNo} · 第${event.revision}版`:event.origin==='project'?'项目同步':'客户资料'}`"><div v-for="[label,items] in [['变更前',event.before],['变更后',event.after]]" :key="label"><strong>{{label}}</strong><p v-for="(item,index) in items" :key="item.id||index">{{item.languagePair}} · {{item.currency}} {{item.amount}} / {{item.unitSize}} · {{basisLabel(item.metric)}}</p></div></el-collapse-item></el-collapse><el-pagination v-model:current-page="historyPage" :page-size="10" :total="historyTotal" layout="total, prev, pager, next" @current-change="loadHistory" /></el-collapse-item></el-collapse>
       </div>
       <template #footer><el-button :disabled="saving" @click="close()">关闭</el-button><el-button v-if="canWrite" type="primary" :disabled="!ready||loading" :loading="saving" @click="save">保存参考价</el-button></template>
     </DraggableFormDialog>
@@ -14,7 +14,7 @@
 </template>
 <script setup>
 import {taxPriceForm} from '@/utils/taxPrices'
-import {ref,watch,onBeforeUnmount} from 'vue'
+import {ref,watch,onBeforeUnmount,onMounted} from 'vue'
 import {ElMessage,ElMessageBox} from 'element-plus'
 import CustomerTranslationPriceEditor from './CustomerTranslationPriceEditor.vue'
 import DialogFieldSearchHeader from './DialogFieldSearchHeader.vue'
@@ -25,7 +25,7 @@ import {basisLabel} from '@/utils/translationQuantityBasis'
 import {formatBusinessDateTime as formatTime} from '@/utils/dateTime'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 const emit=defineEmits(['saved'])
-const props=defineProps({clientId:{type:[String,Number],default:''},canWrite:Boolean,buttonLabel:{type:String,default:'客户语种单价'}})
+const props=defineProps({clientId:{type:[String,Number],default:''},canWrite:Boolean,openOnMount:Boolean,buttonLabel:{type:String,default:'客户语种单价'}})
 const visible=ref(false),loading=ref(false),saving=ref(false),ready=ref(false),draft=ref({prices:[]}),history=ref([]),error=ref(''),form=ref(),body=ref()
 const historyTotal=ref(0),historyPage=ref(1)
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(body)
@@ -36,9 +36,16 @@ function applyHistory(data){history.value=data.items||[];historyTotal.value=data
 async function loadHistory(){const current=sequence,target=client,page=historyPage.value;try{const data=await getCustomerTranslationRateHistory(target,{page});if(current===sequence&&page===historyPage.value)applyHistory(data)}catch(e){if(current===sequence)error.value=getLocalizedErrorMessage(e,'修改记录加载失败')}}
 async function open(){if(!props.clientId)return;const current=++sequence;client=props.clientId;historyPage.value=1;visible.value=true;loading.value=true;error.value='';try{const [data,events]=await Promise.all([getCustomerTranslationRates(client),getCustomerTranslationRateHistory(client).catch(()=>({items:[]}))]);if(current!==sequence)return;apply(data);applyHistory(events);if(!data.ready)error.value='客户语种单价存储尚未初始化'}catch(e){if(current===sequence)error.value=getLocalizedErrorMessage(e,'参考价加载失败')}finally{if(current===sequence)loading.value=false}}
 async function close(done){if(saving.value)return;if(signature()!==original&&props.canWrite){try{await ElMessageBox.confirm('参考价有未保存修改，确定放弃？','关闭参考价',{confirmButtonText:'放弃修改',cancelButtonText:'继续编辑'})}catch{return}}if(typeof done==='function')done();else visible.value=false}
-async function save(){if(!props.canWrite||saving.value||!await form.value?.validate().catch(()=>false))return;const target=client,current=sequence;saving.value=true;error.value='';try{const data=await saveCustomerTranslationRates(target,{version,items:draft.value.prices.map(ratePayload)});if(current!==sequence)return;apply(data);historyPage.value=1;window.dispatchEvent(new CustomEvent('translation-finance-changed',{detail:{clientId:String(target)}}));emit('saved');ElMessage.success('客户参考价已保存并自动同步，项目独立调价保留');const events=await getCustomerTranslationRateHistory(target).catch(()=>({items:[]}));if(current===sequence)applyHistory(events)}catch(e){if(current===sequence)error.value=getLocalizedErrorMessage(e,'保存参考价失败')}finally{saving.value=false}}
+async function save(){if(!props.canWrite||saving.value||!await form.value?.validate().catch(()=>false))return;const target=client,current=sequence;saving.value=true;error.value='';try{const data=await saveCustomerTranslationRates(target,{version,items:draft.value.prices.map(ratePayload)});if(current!==sequence)return;apply(data);historyPage.value=1;window.dispatchEvent(new CustomEvent('translation-finance-changed',{detail:{clientId:String(target),fromCustomer:true}}));emit('saved');ElMessage.success('已保存客户参考价，并同步至匹配的订单');const events=await getCustomerTranslationRateHistory(target).catch(()=>({items:[]}));if(current===sequence)applyHistory(events)}catch(e){if(current===sequence)error.value=getLocalizedErrorMessage(e,'保存参考价失败')}finally{saving.value=false}}
 watch(()=>props.clientId,()=>{sequence++;visible.value=false;draft.value.prices=[];original='';version='';ready.value=false})
-onBeforeUnmount(()=>{sequence++})
+function refreshOrderHistory(event){
+  if(visible.value&&event.detail?.clientId===String(client))void loadHistory()
+}
+onBeforeUnmount(()=>{sequence++;window.removeEventListener('customer-order-finance-saved',refreshOrderHistory)})
+onMounted(()=>{
+  window.addEventListener('customer-order-finance-saved',refreshOrderHistory)
+  if(props.openOnMount)void open()
+})
 </script>
 <style scoped>
 .customer-reference-rates>small,.rate-sync-help{color:#64748b;font-size:12px}.customer-reference-rates>small{margin-left:8px}:global(.customer-reference-dialog){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}:global(.customer-reference-dialog .el-dialog__body){flex:1;min-height:0;overflow-y:auto}:global(.customer-reference-dialog .el-dialog__header),:global(.customer-reference-dialog .el-dialog__footer){flex-shrink:0}:global(.customer-reference-dialog .el-dialog__footer){border-top:1px solid #dbe3ec;background:#f8fafc}
