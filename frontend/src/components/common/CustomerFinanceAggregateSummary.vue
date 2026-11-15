@@ -11,7 +11,7 @@
         </div>
         <div class="aggregate-totals"><div><small>内部说明</small><ReadonlyField :model-value="order.explanation||'—'" source="auto" /></div><div><small>客户说明</small><ReadonlyField :model-value="order.customerExplanation||'—'" source="auto" /></div></div>
         <el-alert v-if="order.incomplete" title="部分子订单的数量或单价待补录，当前仅汇总已计算金额。" type="warning" :closable="false" />
-        <p v-if="order.recordedPricingMode==='fixed'||order.recordedAdjustedTotal!=null||order.recordedAdjustedTotalInclTax!=null">父级原收费记录保留；当前总价按子订单汇总，请在末级登记实际收费。</p>
+        <p v-if="order.recordedAdjustedTotal!=null||order.recordedAdjustedTotalInclTax!=null">父级原收费记录保留；当前总价按子订单汇总，请在末级登记实际收费。</p>
   </section>
 </template>
 <script setup>

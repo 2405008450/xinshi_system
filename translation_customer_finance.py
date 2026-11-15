@@ -1085,7 +1085,13 @@ def _apply_finance(db, user, project_id, payload, *, allow_incomplete=False):
             raise HTTPException(422,'有子订单的订单只能选择子订单汇总或固定收费')
         if payload.order_pricing_mode != 'aggregate' and payload.order_pricing_mode != payload.pricing_mode:
             raise HTTPException(422,'订单计价方式与收费明细不一致')
-        save_order_pricing_mode(db,project,by_id[key].id,payload.order_pricing_mode,user.id)
+        owner = by_id[key]
+        if payload.order_pricing_mode == 'aggregate' and order_pricing_modes(db, project).get(key) == 'fixed':
+            for charge in owner.customer_charge_items:
+                if charge.pricing_mode == 'fixed':
+                    charge.total_excl_tax = charge.total_incl_tax = charge.amount_override = None
+                    charge.updated_at = business_now().replace(tzinfo=None)
+        save_order_pricing_mode(db,project,owner.id,payload.order_pricing_mode,user.id)
         if payload.order_pricing_mode == 'aggregate':
             payload=payload.model_copy(update={'documents_only':True})
     from translation_document_requirements import save as save_documents

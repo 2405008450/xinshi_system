@@ -8,9 +8,15 @@ export async function requestPricingModeSwitch(order,next,{confirm,createRate,ap
   const previous=order.pricingMode||'metric'
   if(next===previous||!(hasChildren?['aggregate','fixed']:['metric','fixed']).includes(next))return false
   if(next==='aggregate'){
+    try{
+      await confirm('切换为子订单汇总后，保存时将清除当前订单的含税和不含税固定收费金额，并按原有子订单价格重新汇总。确认切换？')
+    }catch{return false}
     if(apply){
       order.pricingMode='aggregate'
       order.priceAggregate=true
+      order.adjustedTotal=undefined
+      order.adjustedTotalInclTax=undefined
+      order.billingTotals={}
     }
     return true
   }

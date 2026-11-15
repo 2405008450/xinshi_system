@@ -262,8 +262,11 @@
               </el-form-item>
             </section>
           </div>
-          <section v-if="reviewApplicable || editor.priceAggregate || taxAmountPending" class="finance-pricing-region finance-document-review" data-dialog-field-search-group>
-            <h4 data-dialog-field-search-group-title>{{regionTitle(reviewApplicable ? '订单单据核对与收费明细' : editor.priceAggregate ? '子订单收费明细' : '收费核对')}}</h4>
+          <section v-if="reviewApplicable || editor.priceAggregate || taxAmountPending || showMotherBillingTotal" class="finance-pricing-region finance-document-review" data-dialog-field-search-group>
+            <h4 v-if="reviewApplicable || editor.priceAggregate || taxAmountPending" data-dialog-field-search-group-title>{{regionTitle(reviewApplicable ? '订单单据核对与收费明细' : editor.priceAggregate ? '子订单收费明细' : '收费核对')}}</h4>
+            <el-form-item v-if="showMotherBillingTotal" label="母订单计费总价">
+              <ReadonlyField type="textarea" autosize :model-value="formatAmounts(editor.billingTotals)" source="auto" />
+            </el-form-item>
             <el-alert v-if="reviewApplicable || taxAmountPending" :type="orderReviewType" :closable="false">
               <template #title>{{orderReviewMessage}}</template>
               <div v-if="orderReviewIssues.length" class="finance-review-orders">
@@ -1070,6 +1073,7 @@ const editorHasChildren = computed(() => {
   return Boolean(children?.length || childOrderCount || hasChildren)
 })
 const editorLevelLabel = computed(() => financeOrderLevel(editor.value))
+const showMotherBillingTotal = computed(() => editorLevelLabel.value === '母订单')
 const editorTitle = computed(() => {
   const baseTitle = `价格与付款 · ${editor.value.orderNo || ''}`
   return editorLevelLabel.value ? `${baseTitle}（${editorLevelLabel.value}）` : baseTitle
