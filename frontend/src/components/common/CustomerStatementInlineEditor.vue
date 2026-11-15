@@ -28,7 +28,14 @@ const body=ref(),nameForm=ref(),draft=ref(null)
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(body)
 let baseline=null,signature=''
 const dirty=computed(()=>draft.value&&JSON.stringify(draft.value)!==signature)
-watch(()=>props.modelValue,visible=>{if(!visible)return;draft.value=JSON.parse(JSON.stringify(props.board));baseline=JSON.parse(JSON.stringify(draft.value));signature=JSON.stringify(draft.value);clearFieldSearch()})
+watch(()=>props.modelValue,visible=>{
+  if(!visible)return
+  draft.value=JSON.parse(JSON.stringify(props.board))
+  if(props.canWrite)draft.value.statement.rows=draft.value.statement.rows.flatMap(row=>row.direction_members||[row])
+  baseline=JSON.parse(JSON.stringify(draft.value))
+  signature=JSON.stringify(draft.value)
+  clearFieldSearch()
+})
 async function canClose(){if(props.saving)return false;if(!dirty.value)return true;try{await ElMessageBox.confirm('对账单有未保存修改，确定放弃？','关闭放大编辑',{type:'warning',confirmButtonText:'放弃修改',cancelButtonText:'继续编辑'});return true}catch{return false}}
 async function close(){if(await canClose())emit('update:modelValue',false)}
 async function beforeClose(done){if(await canClose())done()}

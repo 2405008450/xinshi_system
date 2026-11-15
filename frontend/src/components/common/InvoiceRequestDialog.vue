@@ -9,23 +9,25 @@
           <div class="invoice-request-fields">
             <el-form-item label="发票类型">
               <el-select v-model="form.type" placeholder="请选择" @change="form.rate = null">
-                <el-option v-for="item in types" :key="item.value" v-bind="item" />
+                <el-option v-for="(label,key) in invoiceTypeLabels" :key="key" :value="key" :label="label" />
               </el-select>
             </el-form-item>
             <el-form-item label="开票主体">
               <el-select v-model="form.subject" placeholder="请选择" @change="form.rate = null">
                 <el-option v-for="subject in preview.subjects" :key="subject.key" :value="subject.key" :label="subjectNames[subject.key]" />
               </el-select>
-              <span class="invoice-subject-hint">所选订单的对账单主体一致时自动带入，可调整本次开票主体。</span>
+              <span class="invoice-subject-hint">优先使用订单已保存的选择，其次采用客户默认设置或对账单主体。</span>
             </el-form-item>
             <el-form-item v-if="special" label="专票税率">
-              <el-select v-model="form.rate" :disabled="!form.subject" placeholder="请选择">
-                <el-option v-for="rate in availableRates" :key="rate" :value="rate" :label="rate + '%'" />
+              <ReadonlyField v-if="form.subject==='guangzhou'" model-value="6%" source="auto" />
+              <el-select v-else v-model="form.rate" :disabled="!form.subject" placeholder="请选择">
+                <el-option v-for="rate in [1,3]" :key="rate" :value="rate" :label="rate + '%'" />
               </el-select>
             </el-form-item>
           </div>
           <el-form-item label="说明"><el-input v-model="form.note" type="textarea" :rows="3" maxlength="2000" show-word-limit /></el-form-item>
         </AppForm>
+        <el-alert v-if="mixedSelection" title="所选订单的开票主体或票种不同，请确认本次使用的统一选项。" type="warning" :closable="false" />
         <p>接收人：{{ preview.recipients.map(person => person.name).join('、') || '请在财务设置中选择接收人' }}</p>
         <el-collapse>
           <el-collapse-item title="查看三个开票主体的资料" name="subjects">
@@ -61,9 +63,16 @@
             </el-descriptions>
           </el-collapse-item>
         </el-collapse>
+        <div v-if="preview" class="invoice-selection-settings">
+          <span>客户默认：{{subjectNames[group.customer.client_invoice_subject]||'主体未设置'}} · {{invoiceTypeLabels[group.customer.invoice_selection?.client_invoice_type]||'电子普票'}}</span>
+          <el-button link type="primary" @click="openClientInvoiceSettings(group.client_id)">查看客户管理开票设置</el-button>
+        </div>
         <el-table :data="group.projects" row-key="project_id">
           <el-table-column prop="order_no" label="订单号" min-width="150" />
           <el-table-column prop="project_name" label="项目" min-width="180" />
+          <el-table-column v-if="preview" label="订单开票选择" min-width="170">
+            <template #default="{row}">{{subjectNames[row.invoice_selection?.subject_key]||'主体未设置'}} · {{invoiceTypeLabels[row.invoice_selection?.invoice_type]||'电子普票'}}</template>
+          </el-table-column>
           <el-table-column label="项目含税金额" min-width="145">
             <template #default="{row}">{{ amountText(row.totals) }}</template>
           </el-table-column>
@@ -83,6 +92,7 @@
     </div>
     <template #footer>
       <el-button :disabled="busy" @click="close()">关闭</el-button>
+      <el-button v-if="preview" :loading="busy" :disabled="!canSaveSelection" @click="saveSelection">保存订单开票选择</el-button>
       <el-button v-if="preview" type="primary" :loading="busy" :disabled="!canSend" @click="send">发送开票需求</el-button>
     </template>
   </DraggableFormDialog>
@@ -92,15 +102,17 @@
 </template>
 
 <script setup>
-import {computed, onMounted, reactive, ref} from 'vue'
+import {computed, onBeforeUnmount, onMounted, reactive, ref} from 'vue'
 import {ElMessage} from 'element-plus'
 import api from '@/api'
-import {invoicePartyFields} from '@/api/invoiceParties'
+import {invoicePartyFields,invoiceTypeLabels,invoiceSubjectLabels as subjectNames,saveOrderInvoiceSelections,connectInvoiceParties,notifyInvoiceParties,invoicePartiesEvent} from '@/api/invoiceParties'
+import {clientManagementTarget} from '@/utils/clientManagementWindow'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import DraggableFormDialog from './DraggableFormDialog.vue'
 import AppForm from './AppForm.vue'
 import ProjectInvoiceDialog from './ProjectInvoiceDialog.vue'
 import ScreenshotText from './ScreenshotText.vue'
+import ReadonlyField from './ReadonlyField.vue'
 
 const props = defineProps({projectIds:{type:Array,default:()=>[]}, requestId:String})
 const emit = defineEmits(['close','sent'])
@@ -109,15 +121,17 @@ const invoiceProject = ref()
 const invoiceContext = computed(() => ({projectId:invoiceProject.value?.project_id,
   preview:{totals:invoiceProject.value?.totals, required:true}}))
 const form = reactive({type:'electronic_normal', subject:'', rate:null, note:''})
-let previousSubmission, submissionKey
-const types = [
-  {value:'electronic_special',label:'电子专票'}, {value:'electronic_normal',label:'电子普票'},
-  {value:'paper_special',label:'纸质专票'}, {value:'paper_normal',label:'纸质普票'},
-]
-const subjectNames = {guangzhou:'广州总公司',shenzhen:'深圳分公司',shanghai:'上海分公司'}
+let previousSubmission, submissionKey, loadedSelection=''
+let loadingSequence=0
+const eventSource=`invoice-selection-${Math.random()}`
 const special = computed(() => form.type.endsWith('_special'))
-const availableRates = computed(() => form.subject === 'guangzhou' ? [6] : [1,3])
-const canSend = computed(() => !loading.value && form.type && form.subject && (!special.value || form.rate) && preview.value?.recipients.length)
+const taxRate=computed(()=>special.value?(form.subject==='guangzhou'?6:form.rate):null)
+const canSaveSelection=computed(()=>!loading.value&&!!form.type&&!!form.subject)
+const canSend = computed(() => canSaveSelection.value && (!special.value || taxRate.value) && preview.value?.recipients.length)
+const mixedSelection=computed(()=>{
+  const rows=preview.value?.projects||[]
+  return new Set(rows.map(row=>row.default_subject)).size>1||new Set(rows.map(row=>row.invoice_selection?.invoice_type)).size>1
+})
 const projects = computed(() => {
   const snapshot = request.value?.snapshot
   return preview.value?.projects || snapshot?.projects || (snapshot ? [{...snapshot,
@@ -137,23 +151,66 @@ const amountText = totals => Object.entries(totals || {}).map(([currency, amount
 const delivery = row => request.value?.snapshot.deliveries?.[row.project_id]
 const openInvoice = row => { invoiceProject.value = row }
 
-async function load() {
+const selectionSignature=()=>JSON.stringify([form.subject,form.type,form.rate])
+function openClientInvoiceSettings(id){clientManagementTarget.value={client_id:id,financeSection:'invoice'}}
+function publishSelections(){
+  for(const id of new Set(preview.value.projects.map(row=>row.client_id))){
+    notifyInvoiceParties({kind:'records',clientId:id,source:eventSource})
+  }
+}
+function changed(event){
+  if(preview.value&&!busy.value&&event.detail?.source!==eventSource&&preview.value.projects.some(row=>row.client_id===event.detail?.clientId)){
+    void load({preserveSelection:selectionSignature()!==loadedSelection})
+  }
+}
+async function load({preserveSelection=false}={}) {
+  const sequence=++loadingSequence
+  const initialSelection=selectionSignature()
   loading.value = true
   error.value = ''
   try {
     if (props.requestId) {
-      request.value = await api.get(`/invoice-workflow/requests/${props.requestId}`)
+      const result=await api.get(`/invoice-workflow/requests/${props.requestId}`)
+      if(sequence===loadingSequence)request.value=result
     } else {
-      preview.value = await api.post('/invoice-workflow/requests/preview', {project_ids:props.projectIds}, {timeout:60000})
-      const defaults = new Set(preview.value.projects.map(row => row.default_subject))
-      if (defaults.size === 1) form.subject = preview.value.projects[0].default_subject || ''
+      const result=await api.post('/invoice-workflow/requests/preview', {project_ids:props.projectIds}, {timeout:60000})
+      if(sequence!==loadingSequence)return
+      preview.value=result
+      if(!preserveSelection&&selectionSignature()===initialSelection){
+        const subjects=new Set(preview.value.projects.map(row=>row.default_subject))
+        const types=new Set(preview.value.projects.map(row=>row.invoice_selection?.invoice_type||'electronic_normal'))
+        form.subject=subjects.size===1?preview.value.projects[0].default_subject||'':''
+        form.type=types.size===1?[...types][0]:''
+        form.rate=null
+        loadedSelection=selectionSignature()
+      }
     }
-  } catch (e) { error.value = getLocalizedErrorMessage(e, '加载开票需求失败') }
-  finally { loading.value = false }
+  } catch (e) {
+    if(sequence===loadingSequence)error.value=getLocalizedErrorMessage(e,'加载开票需求失败')
+  } finally {
+    if(sequence===loadingSequence)loading.value=false
+  }
+}
+async function saveSelection(){
+  if(busy.value||!canSaveSelection.value)return
+  busy.value=true
+  error.value=''
+  try{
+    await saveOrderInvoiceSelections(preview.value.projects.map(row=>({
+      project_id:row.project_id,revision:row.invoice_selection?.revision??0,
+      subject_key:form.subject,invoice_type:form.type,
+    })))
+    publishSelections()
+    await load({preserveSelection:true})
+    loadedSelection=selectionSignature()
+    ElMessage.success('订单开票选择已保存')
+  }catch(e){error.value=getLocalizedErrorMessage(e,'保存订单开票选择失败')}
+  finally{busy.value=false}
 }
 async function send() {
   if (busy.value || !canSend.value) return
-  const data = {project_ids:props.projectIds, invoice_type:form.type, subject_key:form.subject, tax_rate:form.rate,
+  const data = {project_ids:props.projectIds, invoice_type:form.type, subject_key:form.subject, tax_rate:taxRate.value,
+    selection_revisions:Object.fromEntries(preview.value.projects.map(row=>[row.project_id,row.invoice_selection?.revision??0])),
     note:form.note, settings_revision:preview.value.settings_revision,
     expected_user_ids:preview.value.recipients.map(person => person.id)}
   const signature = JSON.stringify(data)
@@ -165,6 +222,7 @@ async function send() {
   error.value = ''
   try {
     await api.post('/invoice-workflow/requests/batch', {...data,idempotency_key:submissionKey}, {timeout:60000})
+    publishSelections()
     ElMessage.success('开票需求已发送')
     emit('sent')
     emit('close')
@@ -186,13 +244,15 @@ function close(done) {
   if (typeof done === 'function') done()
   emit('close')
 }
-onMounted(load)
+onMounted(()=>{void load();connectInvoiceParties();window.addEventListener(invoicePartiesEvent,changed)})
+onBeforeUnmount(()=>{loadingSequence++;window.removeEventListener(invoicePartiesEvent,changed)})
 </script>
 
 <style scoped>
 .invoice-request-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
 .invoice-subject-hint { flex-basis: 100%; margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
 .invoice-request-note { white-space: pre-wrap; overflow-wrap: anywhere; }
+.invoice-selection-settings{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:8px 0;font-size:12px}
 .invoice-customer-group { margin-top: 16px; border: 1px solid var(--el-border-color-light); border-radius: 6px; padding: 12px; }
 .invoice-customer-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 8px; }
 .invoice-customer-heading h3 { margin: 0; }

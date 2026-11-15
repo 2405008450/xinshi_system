@@ -37,10 +37,59 @@ def test_special_settlement_can_choose_the_only_available_price(context):
     assert statements.build_statement(db,root.id,None,'2026-11','project')['totals']=={'CNY':'130.80'}
 
 
+def test_tax_included_only_unifies_nested_orders_and_monthly_peers(context):
+    from uuid import uuid4
+    from models import TranslationSubOrder
+    from translation_document_requirements import save
+    from word_count_models import WordCountMetric
+
+    _,db,clients,_,actor=context
+    root=project(db,clients[0])
+    root.customer_charge_items[0].unit_price_excl_tax=None
+    root.customer_charge_items[0].unit_price_incl_tax=100
+    branch=TranslationSubOrder(id=uuid4(),parent_project_id=root.id,sub_order_no=f'{root.order_no}.001',
+                               sub_project_name='文件夹',language_pair=root.language_pair)
+    db.add(branch)
+    leaf=TranslationSubOrder(id=uuid4(),parent_project_id=root.id,sub_order_no=f'{branch.sub_order_no}.001',
+                             sub_project_name='文件',language_pair=root.language_pair)
+    db.add(leaf)
+    db.add(WordCountMetric(id=uuid4(),sub_order_id=leaf.id,dimension='customer',
+                           metric_type='words',count_value=2000))
+    billing.save(db,actor,root,root,'excl_tax')
+    db.commit()
+
+    individual=finance.read(db,root.id)['item']
+    peer=project(db,clients[0],'002',fixed=True)
+    peer.customer_charge_items[0].total_excl_tax=None
+    both_prices=project(db,clients[0],'003',fixed=True)
+    for order in (root,peer,both_prices):
+        save(db,order,payment_method='monthly',actor_id=actor.id)
+        billing.save(db,actor,order,order,'excl_tax')
+    db.commit()
+
+    def verify(node,amount):
+        assert node['effective_billing_tax_mode']=='incl_tax'
+        assert node['billing_totals']=={'CNY':amount}
+        assert node['totals_excl_tax']=={}
+        assert not node['billing_tax_pending']
+        assert node['invoice_required'] and node['statement_required']
+
+    verify(individual,'200.00')
+    mother=finance.read(db,root.id)['item']
+    for node in (mother,mother['children'][0],mother['children'][0]['children'][0]):
+        verify(node,'200.00')
+    verify(finance.read(db,peer.id)['item'],'530.00')
+    both=finance.read(db,both_prices.id)['item']
+    assert both['effective_billing_tax_mode']=='incl_tax'
+    assert both['billing_totals']=={'CNY':'530.00'}
+    assert both['totals_excl_tax']=={'CNY':'500.00'}
+
+
 def test_child_tax_change_unifies_monthly_orders_and_both_document_requirements(context):
     from uuid import uuid4
     from models import TranslationSubOrder
     from translation_document_requirements import save
+    from word_count_models import WordCountMetric
 
     http,db,clients,permissions,actor=context
     permissions.add('projects:write')
@@ -77,6 +126,9 @@ def test_child_tax_change_unifies_monthly_orders_and_both_document_requirements(
     filtered=http.get('/translation-customer-finance/page',params={'statement_required':True}).json()
     assert {row['id'] for row in filtered['items']}=={str(root.id),str(peer.id),str(special.id)}
 
+    db.add(WordCountMetric(id=uuid4(),sub_order_id=child.id,dimension='customer',
+                           metric_type='words',count_value=1000))
+    db.commit()
     current=http.get(url).json()
     response=http.put(url,json={
         'version':current['version'],'order_id':str(root.id),'documents_only':True,

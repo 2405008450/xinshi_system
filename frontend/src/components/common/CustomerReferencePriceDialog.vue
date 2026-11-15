@@ -10,11 +10,12 @@
         <el-table-column prop="languagePair" label="语种方向" min-width="140" />
         <el-table-column label="计量单位" min-width="110"><template #default="{row}">{{unitLabel(row)}}</template></el-table-column>
         <el-table-column prop="currency" label="币种" width="70" /><el-table-column prop="unitSize" label="单价对应数量" width="115" />
-        <el-table-column label="报价" min-width="190"><template #default="{row}">{{taxPriceSummary(row.taxPrices,row.currency,row.unitSize+'单位',false)||row.amount}}</template></el-table-column>
+        <el-table-column label="当前项目单价" min-width="160"><template #default="{row}">{{row.projectPrice ? priceText(row.projectPrice) : '—'}}</template></el-table-column>
+        <el-table-column label="客户参考价" min-width="190"><template #default="{row}">{{priceText(row)}}</template></el-table-column>
         <el-table-column label="匹配情况" min-width="230"><template #default="{row}"><el-tag :type="row.match.matched?'success':'warning'">{{row.match.matched?'完整匹配':'不匹配'}}</el-tag><small>{{row.match.reasons.join('；')}}</small></template></el-table-column>
       </el-table>
     </div>
-    <template #footer><el-button @click="cancel()">取消</el-button><el-button type="primary" :disabled="loading||!!error||!selected" @click="accept">采用所选报价</el-button></template>
+    <template #footer><el-button @click="cancel()">保留当前单价</el-button><el-button type="primary" :disabled="loading||!!error||!selected" @click="accept">采用所选参考价</el-button></template>
   </DraggableFormDialog>
 </template>
 <script setup>
@@ -33,7 +34,16 @@ const expectedPrices=ref(null)
 const canWrite=hasPermission('clients:write')
 let resolver,sequence=0
 const unitLabel=row=>{const unit=pricingUnit(row.metric,null,true);return unit?metricName(unit):'未明确单位'}
-const rows=computed(()=>{const expected=expectedOrderPrices(expectedPrices.value??props.prices,props.languagePair,props.matrix);return (library.value?.items||[]).map(row=>{const matches=expected.map(price=>priceMatch(row,price,props.matrix));const match=matches.find(item=>item.matched)||matches.sort((a,b)=>a.reasons.length-b.reasons.length)[0]||{matched:false,reasons:['项目尚未设置语种或单价']};return {...row,match}})})
+const priceText=row=>taxPriceSummary(row.taxPrices,row.currency,row.unitSize+'单位',false)||(row.amount??'—')
+const rows=computed(()=>{
+  const expected=expectedOrderPrices(expectedPrices.value??props.prices,props.languagePair,props.matrix)
+  return (library.value?.items||[]).map(row=>{
+    const matches=expected.map(price=>({price,match:priceMatch(row,price,props.matrix)}))
+    const best=matches.find(item=>item.match.matched)||matches.sort((a,b)=>a.match.reasons.length-b.match.reasons.length)[0]
+    return {...row,match:best?.match||{matched:false,reasons:['项目尚未设置语种或单价']},
+      projectPrice:best?.match.matched?best.price:null}
+  })
+})
 function settle(value){resolver?.(value);resolver=undefined}
 function cancel(done){sequence++;visible.value=false;settle(null);if(typeof done==='function')done()}
 async function load(){const current=++sequence;loading.value=true;error.value='';selected.value='';try{const data=await getCustomerTranslationRates(props.clientId);if(current!==sequence)return;library.value=data;if(!data.ready)error.value='客户报价存储尚未初始化';const matching=rows.value.filter(row=>row.match.matched);if(matching.length===1)selected.value=matching[0].id}catch(e){if(current===sequence)error.value=getLocalizedErrorMessage(e,'客户报价加载失败')}finally{if(current===sequence)loading.value=false}}

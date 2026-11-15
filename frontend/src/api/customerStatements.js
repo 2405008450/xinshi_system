@@ -18,5 +18,8 @@ export const getStatementWorkspaceHistory=(clientId,params,config={})=>api.get(`
 export const exportStatementWorkspace=(clientId,params)=>api.get(`/translation-statement-workspaces/${clientId}/excel`,{params,paramsSerializer:{indexes:null},responseType:'blob'})
 
 export const getStatementWorkspaceHistoryEntry=(clientId,id)=>api.get(`/translation-statement-workspaces/${clientId}/history/${id}`)
+export const getStatementGenerationStatus=(clientId,data,config={})=>api.post(`/translation-statement-workspaces/${clientId}/generation-status`,data,config)
+export const getStatementGenerationVersions=(clientId,params,config={})=>api.get(`/translation-statement-workspaces/${clientId}/generation-versions`,{...config,params})
+export const getStatementGenerationVersion=(clientId,id,config={})=>api.get(`/translation-statement-workspaces/${clientId}/generation-versions/${id}`,config)
 
 export const exportStatementWorkspacePdf=(clientId,params)=>api.get(`/translation-statement-workspaces/${clientId}/pdf`,{params,paramsSerializer:{indexes:null},responseType:'blob'})

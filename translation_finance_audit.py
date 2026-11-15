@@ -39,7 +39,7 @@ def capture(project):
     from translation_customer_finance import tree
     result={}
     def visit(row):
-        fields=('order_no','project_name','prices','recorded_prices','price_aggregate','recorded_adjusted_total','recorded_adjusted_total_incl_tax','adjusted_total','explanation','customer_explanation','billing_month','recorded_billing_month','totals','adjusted_totals','calculated_totals_excl_tax','calculated_totals_incl_tax')
+        fields=('order_no','project_name','prices','recorded_prices','pricing_mode','price_aggregate','fixed_pricing_from','recorded_adjusted_total','recorded_adjusted_total_incl_tax','adjusted_total','explanation','customer_explanation','billing_month','recorded_billing_month','totals','adjusted_totals','calculated_totals_excl_tax','calculated_totals_incl_tax')
         result[row['id']]={field:row.get(field) for field in fields}
         result[row['id']].update({field:row.get(field) for field in ('billing_tax_mode','effective_billing_tax_mode','billing_totals','invoice_required','statement_required')})
         if row['id']==str(project.id):

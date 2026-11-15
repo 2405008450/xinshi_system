@@ -1,6 +1,6 @@
 <template>
-  <details v-if="hasChildren" class="invoice-child-orders" @toggle="load($event.currentTarget.open)">
-    <summary>下一级订单汇总</summary>
+  <details v-if="hasChildren" class="invoice-child-orders" :open="expanded" @toggle="load($event.currentTarget.open)">
+    <summary v-if="!expanded">子订单汇总</summary>
     <div v-loading="loading" class="invoice-child-orders-body">
       <el-alert v-if="error" :title="error" type="error" :closable="false">
         <el-button link @click="load(true)">重试</el-button>
@@ -16,8 +16,14 @@
         <el-table-column v-for="side in amountColumns" :key="side.total" :label="side.label" min-width="135">
           <template #default="{row}">{{ formatTotals(row[side.total], row[side.adjusted]) }}</template>
         </el-table-column>
-        <el-table-column v-if="allowOpen" label="操作" width="100">
-          <template #default="{row}"><el-button v-if="!row.fixedPricingFrom" link type="primary" @click="emit('invoice',row)">发票</el-button></template>
+        <el-table-column v-if="allowOpen||allowStatement" label="操作" :width="allowStatement?150:100">
+          <template #default="{row}">
+            <el-button v-if="allowOpen&&!row.fixedPricingFrom" link type="primary" @click="emit('invoice',row)">发票</el-button>
+            <template v-if="allowStatement">
+              <el-button v-if="row.statementRequired" link type="primary" @click="emit('statement',row)">查看对账单</el-button>
+              <span v-else>无需对账单</span>
+            </template>
+          </template>
         </el-table-column>
       </el-table>
     </div>
@@ -25,14 +31,14 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { getCustomerFinanceProject } from '@/api/translationCustomerFinance'
 import { documentRequirementLabel, invoiceRequirement } from '@/utils/documentRequirements'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import TranslationOrderDetailPopover from './TranslationOrderDetailPopover.vue'
 
-const props = defineProps({order:{type:Object,required:true},allowOpen:Boolean})
-const emit = defineEmits(['invoice'])
+const props = defineProps({order:{type:Object,required:true},allowOpen:Boolean,expanded:Boolean,allowStatement:Boolean})
+const emit = defineEmits(['invoice','statement'])
 const hasChildren = computed(() => Boolean(props.order.hasChildren || props.order.childOrderCount || props.order.children?.length))
 const children = ref([])
 const loading = ref(false)
@@ -70,6 +76,7 @@ async function load(open) {
     loading.value = false
   }
 }
+onMounted(()=>{if(props.expanded)void load(true)})
 onBeforeUnmount(() => controller?.abort())
 </script>
 

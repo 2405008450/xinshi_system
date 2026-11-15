@@ -1,26 +1,52 @@
 <template>
   <article class="statement-paper">
     <h2><StatementEditableCell v-if="editable" v-model="statement.company" label="公司抬头" /><template v-else>{{statement.company}}</template></h2><h3><StatementEditableCell v-if="editable" v-model="statement.title" label="对账单标题" /><template v-else>{{statementTitle(statement)}}</template></h3>
-    <div v-if="editable" class="statement-meta statement-meta--editable"><span>客户：<StatementEditableCell v-model="statement.client_name" label="客户名称" /></span><span>账单月份：<StatementEditableCell v-model="statement.month" label="账单月份显示文案" /><select v-model="statement.tax_included" aria-label="金额口径标签"><option :value="false">不含税</option><option :value="true">含税</option></select></span></div>
-    <div v-else class="statement-meta"><span>客户：{{statement.client_name}}</span><span>账单月份：{{statement.month}}　{{statementTaxLabel(statement)}}</span></div>
+    <div class="statement-meta" :class="{'statement-meta--editable':editable}">
+      <span>客户：<StatementEditableCell v-if="editable" v-model="statement.client_name" label="客户名称" /><template v-else>{{statement.client_name}}</template></span>
+      <div class="statement-meta-billing">
+        <span v-if="statement.statement_number">对账单编号：{{statement.statement_number}}</span>
+        <span v-if="editable">账单月份：<StatementEditableCell v-model="statement.month" label="账单月份显示文案" /><select v-model="statement.tax_included" aria-label="金额口径标签"><option :value="false">不含税</option><option :value="true">含税</option></select></span>
+        <span v-else>账单月份：{{statement.month}}　{{statementTaxLabel(statement)}}</span>
+      </div>
+    </div>
     <div class="statement-table-wrap"><table class="statement-table">
       <colgroup><col v-if="interactive" style="width:48px" /><col v-if="hasOrigin" :style="{width:columnWidth(24)}" /><col v-if="hasCustomerOrder" :style="{width:columnWidth(24)}" /><col v-for="(weight,key) in visibleColumnWeights" :key="key" :style="{width:columnWidth(weight)}" /><col v-if="interactive" style="width:48px" /></colgroup>
       <thead><tr><th v-if="interactive" class="statement-ui">选择</th><th v-if="hasOrigin">原客户</th><th v-if="hasCustomerOrder">客户单号</th><th class="statement-date">{{statement.module==='interpretation'?'订单日期':'来稿日期'}}</th><th>项目名称</th><th>{{statement.module==='interpretation'?'口译方向':'翻译方向'}}</th><th>工作量（计价方式）</th><th v-if="showUnitPrice">单价</th><th>{{showUnitPrice?'小计':'固定价格'}}</th><th>备注</th><th v-if="interactive" class="statement-ui">操作</th></tr></thead>
       <tbody>
-        <tr v-for="row in statement.rows" :key="row._row_id" :draggable="interactive&&canWrite" :class="{'statement-reference':row.counted_in_total===false}" @dragstart="startTaskDrag($event,row)" @dblclick="interactive&&canEdit&&emit('edit',row)">
+        <tr v-for="(row,index) in statement.rows" :key="row._row_id||row.line_id" :draggable="interactive&&canWrite" :class="{'statement-reference':row.counted_in_total===false}" @dragstart="startTaskDrag($event,row)" @dblclick="interactive&&canEdit&&emit('edit',row)">
           <td v-if="interactive" class="statement-ui"><button v-if="canWrite" type="button" class="statement-task-handle" :aria-label="`拖动任务 ${row.order_no}`" title="拖到另一份对账单" @pointerdown.prevent.stop="emit('task-pointer',$event,row.task_ids)">⠿</button><el-checkbox :model-value="row.task_ids.every(id=>selected.includes(id))" :disabled="!canWrite" :aria-label="`选择任务 ${row.order_no}`" @change="emit('select',row.task_ids,$event)" /></td>
           <td v-if="hasOrigin">{{row.origin_client_name||statement.client_name}}</td>
-          <template v-if="editable">
+          <template v-if="editable&&!row.direction_parent_summary">
             <td v-if="hasCustomerOrder"><StatementEditableCell v-model="row.customer_order_no" :label="`${row.order_no} 客户单号`" /></td>
-            <td><StatementEditableCell v-model="row.received_date" :label="`${row.order_no} 来稿日期`" type="date" /></td>
-            <td><StatementEditableCell v-model="row.project_name" :label="`${row.order_no} 项目名称`" multiline /></td>
+            <td v-if="sharedCellSpans[index]" :rowspan="sharedCellSpans[index]"><StatementEditableCell v-model="row.received_date" :label="`${row.order_no} 来稿日期`" type="date" /></td>
+            <td v-if="sharedCellSpans[index]" :rowspan="sharedCellSpans[index]"><StatementEditableCell v-if="!row.direction_detail" v-model="row.project_name" :label="`${row.order_no} 项目名称`" multiline /></td>
             <td><StatementEditableCell v-model="row.language_pair" :label="`${row.order_no} 翻译方向`" /></td>
-            <td><StatementEditableCell v-if="!isFixedStatementRow(row)" v-model="row.quantity" :label="`${row.order_no} 工作量`" /><StatementEditableCell v-model="row.basis" :label="`${row.order_no} 工作量及计价方式`" multiline /></td>
+            <td v-if="sharedCellSpans[index]" :rowspan="sharedCellSpans[index]"><template v-if="!row.direction_detail"><StatementEditableCell v-if="!isFixedStatementRow(row)" v-model="row.quantity" :label="`${row.order_no} 工作量`" /><StatementEditableCell v-model="row.basis" :label="`${row.order_no} 工作量及计价方式`" multiline /></template></td>
             <td v-if="showUnitPrice"><template v-if="!isFixedStatementRow(row)"><StatementEditableCell v-model="row.currency" :label="`${row.order_no} 货币`" /><StatementEditableCell v-model="row.unit_price" :label="`${row.order_no} 单价`" /><span class="statement-unit-size">每 <StatementEditableCell v-model="row.unit_size" :label="`${row.order_no} 计价数量`" /> 计价</span><StatementEditableCell v-model="row.unit_label" :label="`${row.order_no} 单价口径文案`" /></template></td>
             <td><template v-if="isFixedStatementRow(row)"><StatementEditableCell v-model="row.currency" :label="`${row.order_no} 货币`" /><StatementEditableCell v-if="mixedTax" v-model="row.unit_label" :label="`${row.order_no} 金额口径`" /></template><StatementEditableCell v-model="row.subtotal" :label="`${row.order_no} ${isFixedStatementRow(row)?'固定价格':'小计'}`" /></td>
             <td><span v-if="row.counted_in_total===false">汇总参考，不重复计入合计。</span><StatementEditableCell v-model="row.remarks" :label="`${row.order_no} 备注`" multiline /></td>
           </template>
-          <template v-else><td v-if="hasCustomerOrder">{{row.customer_order_no||''}}</td><td class="statement-date">{{row.received_date||'-'}}</td><td><button v-if="interactive" type="button" class="statement-order-link" :title="`编辑订单 ${row.order_no}`" @click.stop="emit('open-order',row)">{{row.project_name}}</button><template v-else>{{row.project_name}}</template></td><td>{{row.language_pair}}</td><td><template v-if="row.quantity!=null">{{row.quantity}}<br /></template>{{statementBasis(row.basis)}}</td><td v-if="showUnitPrice"><template v-if="!isFixedStatementRow(row)">{{row.unit_price==null?'-':`${row.currency} ${statementUnitPrice(row.unit_price)}`}}<small v-if="mixedTax">（{{row.unit_label}}）</small></template></td><td>{{row.subtotal==null?'待补':`${row.currency} ${row.subtotal}`}}<small v-if="mixedTax && isFixedStatementRow(row) && row.unit_label && row.subtotal!=null">（{{row.unit_label}}）</small></td><td>{{row.counted_in_total===false?'汇总参考，不重复计入合计。':''}}{{row.remarks}}</td></template>
+          <template v-else>
+            <td v-if="hasCustomerOrder">{{row.customer_order_no||''}}</td>
+            <td v-if="sharedCellSpans[index]" :rowspan="sharedCellSpans[index]" class="statement-date">{{row.received_date||'-'}}</td>
+            <td v-if="sharedCellSpans[index]" :rowspan="sharedCellSpans[index]"><button v-if="interactive&&row.project_name" type="button" class="statement-order-link" :title="`编辑订单 ${row.order_no}`" @click.stop="emit('open-order',row)">{{row.project_name}}</button><template v-else>{{row.project_name}}</template></td>
+            <td>{{row.language_pair}}</td>
+            <td v-if="sharedCellSpans[index]" :rowspan="sharedCellSpans[index]"><template v-if="row.quantity!=null">{{row.quantity}}<br /></template>{{statementBasis(row.basis)}}</td>
+            <td v-if="showUnitPrice">
+              <template v-if="!isFixedStatementRow(row)&&!row.direction_parent_summary">
+                {{row.unit_price==null?'-':`${row.currency} ${statementUnitPrice(row.unit_price)}`}}
+                <small v-if="row.direction_detail&&row.unit_price!=null&&Number(row.unit_size)!==1">（每{{Number(row.unit_size)}}计价）</small>
+                <small v-if="mixedTax">（{{row.unit_label}}）</small>
+              </template>
+            </td>
+            <td>
+              {{row.subtotal==null?'待补':`${row.currency} ${row.subtotal}`}}
+              <small v-if="mixedTax && isFixedStatementRow(row) && row.unit_label && row.subtotal!=null">（{{row.unit_label}}）</small>
+              <div v-if="row.direction_count">{{row.direction_count}} 个方向合计</div>
+              <div v-if="row.direction_parent_summary">不计入合计</div>
+            </td>
+            <td>{{row.counted_in_total===false&&!row.direction_parent_summary?'汇总参考，不重复计入合计。':''}}{{row.remarks}}</td>
+          </template>
           <td v-if="interactive" class="statement-ui"><el-button v-if="canWrite&&canEdit" link type="primary" @click="emit('edit',row)">修改</el-button></td>
         </tr>
         <tr v-if="!statement.rows.length"><td :colspan="(interactive?8:6)+Number(showUnitPrice)+Number(hasOrigin)+Number(hasCustomerOrder)">暂无任务，可从另一份对账单拖入</td></tr>
@@ -43,6 +69,20 @@ const visibleColumnWeights=computed(()=>Object.fromEntries(Object.entries(statem
   .filter(([key])=>key!=='unit_price'||showUnitPrice.value)))
 const columnWidth=weight=>`${weight/(Object.values(visibleColumnWeights.value).reduce((a,b)=>a+b,0)+(hasOrigin.value?24:0)+(hasCustomerOrder.value?24:0))*100}%`
 const props=defineProps({statement:{type:Object,required:true},interactive:Boolean,editable:Boolean,canWrite:Boolean,canEdit:Boolean,selected:{type:Array,default:()=>[]}})
+const sharedCellSpans=computed(()=>{
+  const spans=props.statement.rows.map(()=>1)
+  let start=-1
+  props.statement.rows.forEach((row,index)=>{
+    if(row.direction_parent_summary&&(!props.statement.rows[start]||row.root_id!==props.statement.rows[start].root_id||row.order_no!==props.statement.rows[start].order_no)){start=index;return}
+    const parent=props.statement.rows[start]
+    const parentNo=row.direction_parent_summary?row.order_no:row.direction_parent_no
+    if(parent&&(row.direction_detail||row.direction_parent_summary)&&row.root_id===parent.root_id&&parentNo===parent.order_no){
+      spans[start]++
+      spans[index]=0
+    }else start=-1
+  })
+  return spans
+})
 const displayTotals=computed(()=>{
   if(!props.editable)return props.statement.totals
   const totals={}
@@ -62,4 +102,5 @@ function startTaskDrag(event,row){if(!props.interactive||!props.canWrite){event.
 .statement-paper{padding:20px;background:white;color:#222;font-family:'Microsoft YaHei',sans-serif;min-width:760px}.statement-paper h2,.statement-paper h3{text-align:center;margin:0 0 12px}.statement-meta{display:flex;justify-content:space-between;gap:12px;margin:16px 0;white-space:pre-wrap}.statement-table-wrap{position:relative}.statement-table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:12px}.statement-table th,.statement-table td{border:1px solid #888;padding:8px 6px;text-align:center;white-space:pre-wrap;overflow-wrap:anywhere;max-width:260px}.statement-table tfoot{font-weight:bold}.statement-table .statement-total-label{text-align:right;padding-right:20px}.statement-total-summary{display:flex;justify-content:space-between;align-items:center;gap:12px}.statement-issue-date{font-size:11px;font-weight:400;color:#64748b;text-align:left}.statement-issue-date :deep(.statement-editable-cell){width:auto}.statement-table .statement-date{white-space:nowrap;overflow-wrap:normal}.statement-paper h2{font-size:20px}.statement-paper h3{font-size:22px}.statement-stamp{position:absolute;pointer-events:none;width:120px;height:120px;object-fit:contain;left:45%;bottom:-16px;opacity:.85;mix-blend-mode:multiply}.statement-account{margin-top:30px}.statement-account p{margin:6px 0}.statement-incomplete{font-size:12px;color:#a54a21}.statement-reference{background:#f5f7fa}.statement-ui{min-width:48px}tr[draggable=true]{cursor:grab}.statement-ui{cursor:default}.statement-task-handle{border:0;background:transparent;cursor:grab;touch-action:none;padding:4px;font-size:18px}.statement-task-handle:active{cursor:grabbing}
 .statement-meta--editable>span{display:flex;align-items:center;gap:6px;flex:1;min-width:0;flex-wrap:wrap}.statement-meta--editable :deep(.statement-editable-cell){flex:1;min-width:100px}.statement-unit-size{display:flex;align-items:center;gap:3px;white-space:nowrap}.statement-unit-size :deep(.statement-editable-cell){flex:1;min-width:0}.statement-account :deep(.statement-editable-cell){max-width:600px}.statement-meta--editable select{background:white;border:1px solid #cbd5e1;padding:4px}
 .statement-order-link{border:0;padding:0;background:transparent;font:inherit;color:var(--el-color-primary);cursor:pointer;text-align:inherit}.statement-order-link:hover{text-decoration:underline}
+.statement-meta{align-items:flex-end}.statement-meta-billing{display:grid;justify-items:end;gap:5px;text-align:right}.statement-meta--editable .statement-meta-billing>span{display:flex;align-items:center;gap:6px}.statement-table td[rowspan]{vertical-align:middle}
 </style>

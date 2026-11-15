@@ -54,6 +54,12 @@ export function sameCustomerRatePrice(reference,price){
   const [refExcl,refIncl]=amounts(reference),[excl,incl]=amounts(price)
   return refExcl===excl&&refIncl===incl
 }
+export function hasCustomerRateConflict(price,references,matrix){
+  if(!price||![price.amount,price.taxPrices?.unitPriceExclTax,price.taxPrices?.unitPriceInclTax]
+    .some(value=>value!=null&&value!==''))return false
+  const matching=references.filter(reference=>priceMatch(reference,price,matrix).matched)
+  return matching.length>0&&!matching.some(reference=>sameCustomerRatePrice(reference,price))
+}
 export function expectedOrderPrices(prices,languagePair,matrix){
   return prices?.length?prices:String(languagePair||'').split('；').filter(Boolean).map(direction=>({languagePair:direction,metric:'customer_auto',currency:'CNY',unitSize:1}))
 }

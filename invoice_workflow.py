@@ -12,9 +12,11 @@ from database import get_db
 from routers.auth import get_current_user,require_any_permission
 from annotation_progress_time import business_now,business_datetime
 from translation_project_invoices import InvoiceWrite
+from invoice_parties import (
+    INVOICE_TYPES, InvoiceType, effective_invoice_selection, invoice_subject_default,
+    order_invoice_selections, store_order_invoice_selection,
+)
 
-INVOICE_TYPES = {'electronic_special':'电子专票', 'electronic_normal':'电子普票',
-                 'paper_special':'纸质专票', 'paper_normal':'纸质普票'}
 TEST_RECIPIENT_USERNAME = 'invoice_receiver_test'
 
 class InvoiceSettings(Base):
@@ -106,12 +108,13 @@ class BatchSelection(BaseModel):
 
 class BatchWrite(BatchSelection):
     subject_key: Literal['guangzhou','shenzhen','shanghai']
-    invoice_type: Literal['electronic_special','electronic_normal','paper_special','paper_normal']
+    invoice_type: InvoiceType = 'electronic_normal'
     tax_rate: Literal[1, 3, 6] | None = None
     settings_revision: int
     expected_user_ids: list[UUID] = Field(min_length=1, max_length=500)
     idempotency_key: UUID
     note: str = Field(default='', max_length=2000)
+    selection_revisions: dict[UUID,int] | None = None
 
 
 class ReceiptWrite(BaseModel):
@@ -134,6 +137,26 @@ def selected_incl_totals(node):
     return totals
 
 
+def latest_invoice_selections(db, ids):
+    if not ids or not inspect(db.connection()).has_table(InvoiceRequest.__tablename__):
+        return {}
+    requested={str(uid) for uid in ids}
+    query=db.query(InvoiceRequest).filter(or_(InvoiceRequest.project_id.in_(ids),
+        *(cast(InvoiceRequest.snapshot,String).contains(uid) for uid in requested),
+    )).order_by(InvoiceRequest.created_at.desc(),InvoiceRequest.id.desc())
+    found={}
+    labels={label:key for key,label in INVOICE_TYPES.items()}
+    for request in query:
+        snapshot=request.snapshot
+        members={item.get('project_id') for item in snapshot.get('projects',[])} or {str(request.project_id)}
+        invoice_type=(snapshot.get('submission') or {}).get('invoice_type') or labels.get(snapshot.get('invoice_type'))
+        for uid in requested & members:
+            found.setdefault(uid,{'subject_key':request.subject_key,'invoice_type':invoice_type,'revision':0})
+        if requested <= found.keys():
+            break
+    return found
+
+
 def batch_projects(db, project_ids):
     from crud import get_translation_project
     from invoice_parties import profile
@@ -142,6 +165,7 @@ def batch_projects(db, project_ids):
         raise HTTPException(422, '项目不能重复')
     projects = []
     statement_subjects = {}
+    selections=order_invoice_selections(db,project_ids)
     for project_id in project_ids:
         project = get_translation_project(db, project_id)
         if project is None:
@@ -158,11 +182,13 @@ def batch_projects(db, project_ids):
             from customer_statement_workspace import invoice_subjects_by_order
             statement_subjects[client_id] = invoice_subjects_by_order(db, UUID(client_id))
         subjects = statement_subjects[client_id].get(str(node.get('root_id') or project.id), set())
-        default_subject = next(iter(subjects)) if len(subjects) == 1 else None if subjects else client['subject_key']
+        fallback_subject=invoice_subject_default(client['subject_key'],subjects)
+        selection=effective_invoice_selection(selections.get(str(project.id),{}),fallback_subject,client['invoice_type'])
         projects.append({'project_id': str(project.id), 'order_no': project.order_no,
                          'project_name': project.source_file_name or project.project_name,
                          'client_id': client['client_id'], 'client_name': client['client_name'],
-                         'client_party': client['party'], 'default_subject': default_subject,
+                         'client_party': client['party'], 'default_subject': selection['subject_key'],
+                         'invoice_selection':selection,'client_invoice_subject':client['subject_key'],
                          'totals': {currency: str(amount) for currency, amount in amounts.items()}})
     return projects
 
@@ -201,11 +227,15 @@ def commit_notices(db, notices):
 def send_batch(db, actor, payload):
     from invoice_parties import subject
     require_ready(db)
+    if payload.invoice_type.endswith('_special') and payload.subject_key=='guangzhou' and payload.tax_rate is None:
+        payload=payload.model_copy(update={'tax_rate':6})
     key = str(payload.idempotency_key)
     # Lock the selected orders in a stable order so a retry sees the committed request.
     db.query(TranslationProject.id).filter(TranslationProject.id.in_(payload.project_ids)).order_by(TranslationProject.id).with_for_update().all()
     previous = db.query(InvoiceRequest).filter_by(idempotency_key=key).first()
     submission = payload.model_dump(mode='json', exclude={'idempotency_key'})
+    if payload.selection_revisions is None:
+        submission.pop('selection_revisions')
     if previous:
         if previous.created_by != actor.id or previous.snapshot.get('submission') != submission:
             raise HTTPException(409, '需求发送标识不匹配')
@@ -230,6 +260,12 @@ def send_batch(db, actor, payload):
         client_id=UUID(first['client_id']), subject_key=payload.subject_key, recipients=config['user_ids'],
         snapshot=snapshot, created_by=actor.id, created_at=business_now())
     db.add(row)
+    if payload.selection_revisions is not None and payload.selection_revisions.keys()!=set(payload.project_ids):
+        raise HTTPException(422,'请重新加载所有订单的开票选择')
+    for project in projects:
+        project_id=UUID(project['project_id'])
+        store_order_invoice_selection(db,project_id,payload.subject_key,payload.invoice_type,actor.id,
+                                      revision=payload.selection_revisions[project_id] if payload.selection_revisions is not None else None)
     title = f"开票需求 · {first['order_no']}" + (f' 等 {len(projects)} 个项目' if len(projects) > 1 else '')
     notices = [create_notice(db, row, UUID(uid), 'invoice_request', title,
                              f"{snapshot['sender']}发来{snapshot['invoice_type']}开票需求，请确认收到。")

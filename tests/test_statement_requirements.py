@@ -455,9 +455,18 @@ def test_monthly_settlement_only_includes_orders_in_the_same_period(setup):
     }).json()
     assert candidates['total'] == 2
     assert candidates['items'][0]['id'] in expected
+    invoice_candidates = http.get('/translation-customer-finance/page', params={
+        'settlement_project_id': str(root.id), 'include_invoice_status': True,
+    })
+    assert invoice_candidates.status_code == 200, invoice_candidates.text
+    assert {row['id'] for row in invoice_candidates.json()['items']} == expected
     for order in (other, unassigned):
         response = http.get(f'/translation-customer-finance/project/{order.id}')
         assert response.json()['item']['payment_method'] == 'individual'
+        response = http.get('/translation-customer-finance/page', params={
+            'settlement_project_id': str(order.id), 'include_invoice_status': True,
+        })
+        assert [row['id'] for row in response.json()['items']] == [str(order.id)]
     version = http.get(endpoint).json()['version']
     response = http.put(endpoint, json={
         'version': version, 'order_id': str(root.id),
@@ -467,6 +476,35 @@ def test_monthly_settlement_only_includes_orders_in_the_same_period(setup):
     for order, mode in [(same, 'incl_tax'), (other, 'excl_tax'), (unassigned, 'excl_tax')]:
         response = http.get(f'/translation-customer-finance/project/{order.id}')
         assert response.json()['item']['effective_billing_tax_mode'] == mode
+
+
+def test_finance_row_dropdowns_and_filters_share_month_and_manager_scope(setup):
+    from models import TranslationSubOrder
+
+    http, db, clients, _, user, october, november, personal = setup
+    clients[0].client_manager = user.full_name or user.username
+    clients[1].client_manager = '其他客户经理'
+    english, japanese, korean = '中文（简体）→英语（英国）', '中文（简体）→日语', '中文（简体）→韩语'
+    october.language_pair, november.language_pair, personal.language_pair = korean, english, korean
+    db.add(TranslationSubOrder(id=uuid4(), parent_project_id=november.id,
+                              sub_order_no=f'{november.order_no}.001', sub_project_name='测试文件', language_pair=japanese))
+    november.quotation_required = True
+    db.add(TranslationProjectDocuments(project_id=november.id, quotation_data={'_payment_method': 'individual'}))
+    db.commit()
+    scope = {'billing_month': '2026-11', 'only_mine': True}
+    response = http.get('/translation-customer-finance/row-filter-options', params=scope)
+    assert response.status_code == 200, response.text
+    options = response.json()
+    assert [entry['id'] for entry in options['clients']] == [str(clients[0].id)]
+    assert set(options['directions']) == {english, japanese}
+    response = http.get('/translation-customer-finance/page', params={
+        **scope, 'language_direction': japanese, 'client_ids': str(clients[0].id),
+        'quotation_required': True, 'unassigned_period': True, 'settlement_mode': 'individual',
+    })
+    assert response.status_code == 200, response.text
+    assert [row['id'] for row in response.json()['items']] == [str(november.id)]
+    response = http.get('/translation-customer-finance/page', params={**scope, 'language_direction': korean})
+    assert response.json()['total'] == 0
 
 
 def test_monthly_selection_with_one_matching_order_uses_individual_payment_totals(setup):

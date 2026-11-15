@@ -5,35 +5,32 @@
       <small>{{row.orderNo}} · {{row.clientShortName||'当前客户'}}</small>
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
       <el-button v-if="error" link :disabled="busy" @click="refresh">重新加载</el-button>
-      <el-button :disabled="busy||!context?.node.clientId" @click="adopt">采用最新客户参考价</el-button>
-      <small>{{references.length?'核对语种、单位、币种及计价数量后，手动选用报价。':'暂无完整匹配的客户参考价。'}}</small>
-      <el-button v-if="canWriteClients" :disabled="busy||!context?.node.clientId||!context?.node.prices?.length" @click="syncClient">同步单价至客户信息…</el-button>
-      <small v-if="canWriteClients">先比较现有参考价，确认后同步本订单已保存的单价。</small>
+      <el-alert v-if="hasConflict" title="项目单价与客户参考价不同。请选择保留当前单价，或比较后采用客户参考价。" type="warning" :closable="false" />
+      <el-button v-if="hasConflict" :disabled="busy" @click="visible=false">保留当前单价</el-button>
+      <el-button :disabled="busy||!context?.node.clientId" @click="adopt">{{hasConflict?'比较并选择客户参考价':'选择客户参考价'}}</el-button>
+      <small v-if="context&&!references.length">暂无完整匹配的客户参考价。</small>
       <SyncSameMonthPrices v-if="context" :project-id="row.rootId" :order-id="row.id" :source-order-no="context.node.orderNo || row.orderNo" :client-id="context.node.clientId" :version="context.data.version" :month="context.node.billingMonth" :disabled="busy||!context.node.prices?.length" :prepare="prepareSameMonth" @synced="synced" />
       <small v-if="context&&!context.node.billingMonth">尚未登记账单月份，不能同步同月订单。</small>
     </div>
   </el-popover>
   <CustomerReferencePriceDialog v-if="context" ref="pickerRef" :client-id="context.node.clientId" :client-name="row.clientShortName" :prices="context.node.prices" :matrix="context.node.wordCountMatrix" :language-pair="context.node.languagePair" :refresh-project="readCurrent" />
-  <CustomerRateSyncPreview v-if="context" ref="previewRef" :client-id="context.node.clientId" :client-name="row.clientShortName" :prices="context.node.prices||[]" :matrix="context.node.wordCountMatrix" :refresh-project="readCurrent" />
 </template>
 
 <script setup>
 import {computed,ref} from 'vue'
 import {ElMessage} from 'element-plus'
 import {getCustomerFinanceProject,saveCustomerFinanceProject} from '@/api/translationCustomerFinance'
-import {defaultRateMetric,referenceDraft,ratePayload} from '@/utils/customerTranslationRates'
-import {hasPermission} from '@/utils/permission'
+import {referenceDraft,ratePayload} from '@/utils/customerTranslationRates'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import SyncSameMonthPrices from './SyncSameMonthPrices.vue'
-import CustomerRateSyncPreview from './CustomerRateSyncPreview.vue'
 import CustomerReferencePriceDialog from './CustomerReferencePriceDialog.vue'
-import {priceMatch,expectedOrderPrices,replaceMatchedReference} from '@/utils/customerRateMatching'
+import {priceMatch,expectedOrderPrices,replaceMatchedReference,hasCustomerRateConflict} from '@/utils/customerRateMatching'
 const props=defineProps({row:Object,prepare:Function})
 const emit=defineEmits(['saved'])
-const visible=ref(false),busy=ref(false),error=ref(''),context=ref(null),previewRef=ref(),pickerRef=ref()
-const canWriteClients=hasPermission('clients:write')
+const visible=ref(false),busy=ref(false),error=ref(''),context=ref(null),pickerRef=ref()
 const find=(node,id)=>node.id===id?node:(node.children||[]).map(child=>find(child,id)).find(Boolean)
 const references=computed(()=>(context.value?.data.referencePrices?.items||[]).filter(reference=>expectedOrderPrices(context.value?.node.prices,context.value?.node.languagePair,context.value?.node.wordCountMatrix).some(price=>priceMatch(reference,price,context.value?.node.wordCountMatrix).matched)))
+const hasConflict=computed(()=>context.value?.node.prices?.some(price=>hasCustomerRateConflict(price,references.value,context.value.node.wordCountMatrix)))
 async function readCurrent(){
   if(props.prepare&&!await props.prepare())throw new Error('有单元格尚未保存，请先处理提示')
   const data=await getCustomerFinanceProject(props.row.rootId),node=find(data.item,props.row.id)
@@ -43,25 +40,19 @@ async function readCurrent(){
 }
 async function refresh(){busy.value=true;error.value='';try{await readCurrent()}catch(e){context.value=null;error.value=getLocalizedErrorMessage(e,e.message||'参考价加载失败')}finally{busy.value=false}}
 function onShow(){if(!busy.value&&!error.value)void refresh()}
-async function persist(current,prices,sync=false,libraryVersion){
+async function persist(current,prices){
   const {data,node}=current
-  const result=await saveCustomerFinanceProject(props.row.rootId,{version:data.version,order_id:props.row.id,pricing_mode:node.pricingMode||'metric',currency:node.currency||'CNY',prices:prices.map(ratePayload),adjusted_total:sync?node.adjustedTotal??null:null,adjusted_total_incl_tax:node.adjustedTotalInclTax??null,explanation:node.explanation||'',billing_month:node.billingMonth||null,update_library:sync,sync_confirmed:sync,library_version:libraryVersion})
+  const result=await saveCustomerFinanceProject(props.row.rootId,{version:data.version,order_id:props.row.id,pricing_mode:node.pricingMode||'metric',currency:node.currency||'CNY',prices:prices.map(ratePayload),adjusted_total:node.adjustedTotal??null,adjusted_total_incl_tax:node.adjustedTotalInclTax??null,explanation:node.explanation||'',billing_month:node.billingMonth||null})
   const order = `订单 ${node.orderNo || props.row.orderNo}`
   const clientRates = `客户管理 · ${node.clientShortName || props.row.clientShortName || node.clientName || '当前客户'}的笔译报价`
   emit('saved',result)
   visible.value=false
-  ElMessage.success(sync ? `已将${order}的单价同步至${clientRates}` : `已将${clientRates}同步至${order}`)
+  ElMessage.success(`已将${clientRates}同步至${order}`)
 }
 async function adopt(){
   if(busy.value)return;busy.value=true;error.value=''
   try{await readCurrent();visible.value=false;const choice=await pickerRef.value.confirm();if(!choice)return;const current=await readCurrent();const prices=expectedOrderPrices(current.node.prices,current.node.languagePair,current.node.wordCountMatrix).map(price=>({...price}));const index=replaceMatchedReference(prices,choice.price,current.node.wordCountMatrix);prices[index]={...referenceDraft(choice.price),id:prices[index].id,metric:prices[index].metric};await persist(current,prices)}
   catch(e){error.value=getLocalizedErrorMessage(e,e.message||'采用参考价失败');visible.value=true}
-  finally{busy.value=false}
-}
-async function syncClient(){
-  if(busy.value)return;busy.value=true;error.value=''
-  try{const current=await readCurrent();visible.value=false;const library=await previewRef.value.confirm();if(library)await persist(context.value,context.value.node.prices,true,library.version)}
-  catch(e){error.value=getLocalizedErrorMessage(e,e.message||'同步客户参考价失败');visible.value=true}
   finally{busy.value=false}
 }
 async function prepareSameMonth(){

@@ -144,6 +144,8 @@ def save(db, project, payments, version, actor_id, confirmation=None):
         # 只有服务器确实无付款数据时才允许；新登记的付款仍受版本保护。
         if not current['payments'] and confirmations.already_cleared(confirmation,current['confirmation']):return current
         raise HTTPException(409, '付款情况已被修改，请重新打开后编辑')
+    from translation_settlement_number import apply as issue_settlement_numbers
+    issue_settlement_numbers(db,project.id)
     cleared_payments=None
     if confirmation is not None and confirmation.replace_details:
         cleared_payments=current['payments']
@@ -153,6 +155,9 @@ def save(db, project, payments, version, actor_id, confirmation=None):
         # 只有明确确认切换的请求允许清除原分期明细，并由确认历史留存。
         confirmations.save(db,project.id,confirmation,actor_id)
         return read(db,project)
+    if payments and not current['payments'] and not current['confirmation']['is_paid']:
+        from translation_customer_finance import preserve_paid_monthly_members
+        preserve_paid_monthly_members(db,project)
     ids=[row.id for row in payments if row.id]
     if len(set(ids))!=len(ids):
         raise HTTPException(422,'付款记录不能重复')
@@ -223,4 +228,5 @@ def save(db, project, payments, version, actor_id, confirmation=None):
                  for row, values, proofs in saved_details]
     _sync_confirmation(db,project,normalized,actor_id,confirmation,cleared_payments,detail_proofs=proof_map,
         payment_details_before=current['payments'],payment_details_after=snapshots,detail_matches=match_map)
+    issue_settlement_numbers(db,project.id,business_now())
     return read(db, project)

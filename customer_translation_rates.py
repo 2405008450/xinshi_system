@@ -204,7 +204,7 @@ def write_library(db,user,client_id,items,expected,origin='client',merge=False):
     db.add(CustomerTranslationRateHistory(client_id=client_id,actor_id=user.id,actor_name=user.full_name or user.username,origin=origin,
         before_snapshot=before['items'],after_snapshot=after['items'],created_at=business_now()))
     from customer_finance_sync import auto_translation
-    auto_translation(db,user,client_id,before['items'],after['items'],overwrite=origin=='client')
+    auto_translation(db,user,client_id,before['items'],after['items'],changed_only=origin=='client')
     return after
 
 

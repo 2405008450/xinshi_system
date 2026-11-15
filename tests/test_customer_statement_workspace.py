@@ -35,6 +35,39 @@ def change(setup,state,action,data,mode='children',expected=200):
     return response.json()
 
 
+def test_generation_versions_keep_order_combinations_and_amount_snapshots(setup):
+    http,db,clients,_,_,first,second=setup
+    path=f'/translation-statement-workspaces/{clients[0].id}'
+    body={'client_id':str(clients[0].id),'months':['2026-10'],
+          'order_ids':[str(first.id)],'confirmed':True,'revision':0}
+    assert http.post(f'{path}/generation-status',json=body).json()=={'exists':False}
+    original=http.post('/translation-statement-workspaces/import',json=body)
+    assert original.status_code==200,original.text
+    assert http.post(f'{path}/generation-status',json=body).json()=={'exists':True}
+    before=original.json()['documents'][0]['statement']['totals']
+    first.customer_charge_items[0].unit_price_excl_tax=200
+    db.commit()
+    repeated=http.post('/translation-statement-workspaces/import',json={**body,'revision':1})
+    assert repeated.status_code==200,repeated.text
+    assert repeated.json()['generation_saved']
+    assert repeated.json()['documents'][0]['statement']['totals']==before
+
+    other={**body,'months':['2026-11'],'order_ids':[str(second.id)],'revision':2}
+    assert http.post(f'{path}/generation-status',json=other).json()=={'exists':False}
+    result=http.post('/translation-statement-workspaces/import',json=other)
+    assert result.status_code==200,result.text
+
+    versions=http.get(f'{path}/generation-versions').json()
+    assert [row['revision'] for row in versions['items']]==[3,2,1]
+    latest,revised,initial=versions['items']
+    assert latest['orders']==[second.order_no]
+    assert revised['orders']==initial['orders']==[first.order_no]
+    snapshot=lambda row:http.get(f"{path}/generation-versions/{row['id']}").json()['documents'][0]['statement']
+    assert snapshot(initial)['totals']==before
+    assert snapshot(revised)['totals']=={'CNY':'246.80'}
+    assert snapshot(revised)['statement_number']==snapshot(initial)['statement_number']
+
+
 def test_multimonth_import_move_uniqueness_and_original_project_untouched(setup):
     http,db,clients,_,_,first,second=setup
     state=imported(setup);assert len(state['payload']['tasks'])==2
@@ -195,6 +228,84 @@ def test_add_periods_preserves_original_tasks_and_imports_into_selected_period(s
     assert saved['payload']['tasks'][str(new_order.id)]['month']=='2026-11'
 
 
+def test_statement_number_retains_parent_base_across_split_and_new_child(setup):
+    state=imported(setup,['2026-11'])
+    main=state['documents'][0]
+    number=main['statement']['statement_number']
+    assert number.startswith('TB-') and '.' not in number
+    state=change(setup,state,'split_board',{'task_ids':list(state['payload']['tasks']),'name':'分拆'})
+    assert state['documents'][1]['statement']['statement_number']==number+'.01'
+    child=state['documents'][1]
+    state=change(setup,state,'create_board',{'board_id':main['id'],'name':'新增'})
+    assert state['documents'][2]['statement']['statement_number']==number+'.02'
+    state=change(setup,state,'rename_board',{'board_id':child['id'],'name':'改名'})
+    assert state['documents'][1]['statement']['statement_number']==number+'.01'
+    response=setup[0].get(f"/translation-statement-workspaces/{state['client_id']}/excel",
+                          params={'revision':state['revision'],'board_ids':child['id']})
+    assert response.status_code==200
+    sheet=load_workbook(BytesIO(response.content)).active
+    assert sheet['A4'].value==f'对账单编号：{number}.01'
+
+
+def test_billing_period_has_its_own_number_and_repairs_legacy_family_on_save(setup):
+    from translation_statement_number import TranslationStatementNumber
+
+    _,db,*_=setup
+    state=imported(setup,['2026-11'])
+    first=state['documents'][0]
+    state=change(setup,state,'add_billing_period',{'month':'2026-11'})
+    second=state['documents'][1]
+    first_number=first['statement']['statement_number']
+    second_number=second['statement']['statement_number']
+    assert second_number!=first_number and '.' not in second_number
+    state=change(setup,state,'create_board',{'board_id':second['id'],'name':'第二期子单'})
+    child=state['documents'][2]
+    assert child['statement']['statement_number']==second_number+'.01'
+
+    first_entry=db.get(TranslationStatementNumber,first['id'])
+    for index, board in enumerate((second,child), 1):
+        entry=db.get(TranslationStatementNumber,board['id'])
+        entry.number=f'{first_number}.{index:02d}'
+        entry.date_code,entry.sequence,entry.child_sequence=first_entry.date_code,first_entry.sequence,index
+    db.commit()
+
+    state=change(setup,state,'create_board',{'board_id':second['id'],'name':'第二期另一张子单'})
+    numbers=[board['statement']['statement_number'] for board in state['documents']]
+    assert numbers[0]==first_number
+    assert numbers[1]!=first_number and '.' not in numbers[1]
+    assert numbers[2:]==[numbers[1]+'.01',numbers[1]+'.02']
+    state=change(setup,state,'rename_board',{'board_id':second['id'],'name':'第二期'})
+    assert [board['statement']['statement_number'] for board in state['documents']]==numbers
+
+
+def test_new_unpaid_orders_roll_to_next_period_and_keep_group_when_paid(setup):
+    from tests.test_translation_payment_filters import paid
+    import translation_customer_finance as finance
+
+    http,db,clients,_,actor,_,existing=setup
+    http.app.include_router(finance.router)
+    paid(db,actor,existing,[{'stage_type':'deposit','actual_amount':20}])
+    first=project(db,clients[0],'NEW-A',fixed=True)
+    second=project(db,clients[0],'NEW-B',fixed=True)
+    assignment=service.place_unpaid_orders_after_paid_period(db,[first],actor)
+    assert assignment['number']==2
+    board=db.get(service.statement_number.TranslationStatementNumber,assignment['board_id'])
+    assert '.' not in board.number
+    assert service.place_unpaid_orders_after_paid_period(db,[second],actor)==assignment
+    db.commit()
+    for order in (first,second):
+        item=finance.read(db,order.id)['item']
+        assert item['payment_method']=='monthly' and item['settlement_period_number']==2
+    paid(db,actor,first,[{'stage_type':'deposit','actual_amount':20}])
+    assert finance.read(db,second.id)['item']['payment_method']=='monthly'
+    third=project(db,clients[0],'NEW-C',fixed=True)
+    assert service.place_unpaid_orders_after_paid_period(db,[third],actor)['number']==3
+    db.commit()
+    assert finance.read(db,third.id)['item']['payment_method']=='individual'
+    summary=finance.payment_summary(db,first,'monthly',include_orders=True)
+    assert {row['id'] for row in summary['orders']}=={str(first.id),str(second.id)}
+
+
 def test_price_window_assigns_new_order_and_moves_existing_statement_task(setup):
     from translation_customer_finance import router
 
@@ -234,6 +345,13 @@ def test_price_window_assigns_new_order_and_moves_existing_statement_task(setup)
     assert response.status_code == 200, response.text
     state = response.json()
     assert state['payload']['tasks'][str(first.id)]['board_id'] == period['board_id']
+    preview = http.post('/translation-customer-finance/statement-preview', json={
+        'client_id':str(client.id),'month':'2026-11','order_ids':[str(first.id),str(second.id)],
+        'period_number':2,'settlement_scope':'standard',
+    })
+    assert preview.status_code==200,preview.text
+    target=next(board for board in state['documents'] if board['id']==period['board_id'])
+    assert preview.json()['statement_number']==target['statement']['statement_number']
     assert state['payload']['tasks'][str(second.id)]['board_id'] == first_board
     assign(second, state['revision'], board_id=period['board_id'])
     latest = http.get(f"/translation-statement-workspaces/{state['client_id']}").json()

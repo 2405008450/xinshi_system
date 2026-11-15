@@ -10,9 +10,17 @@
             <el-button v-if="canConfirm" :disabled="confirmDisabled || confirmation.fullPaymentAmount==null" @click="emit('confirm-payment',null)">{{confirmation.fullPaymentConfirmedAt?'重新确认全款':'确认全款'}}</el-button>
           </template>
         </PaymentConfirmationFields>
+        <TranslationSettlementNumbers v-if="projectId && !depositSelected" :project-id="projectId" :show-empty="isFull" />
         <p v-if="isFull" class="payment-help">已确认全款，无需填写分期明细；切换时确认清除的明细会记入历史。</p>
         <template v-if="depositSelected">
         <el-descriptions :column="3" border class="payment-summary"><el-descriptions-item label="预定合计">{{total('planned_amount')}}</el-descriptions-item><el-descriptions-item label="实际付款合计">{{total('actual_amount')}}</el-descriptions-item><el-descriptions-item label="付款状态">{{paymentStatus}}</el-descriptions-item></el-descriptions>
+        <details :key="projectId" class="payment-details">
+          <summary>
+            <span class="payment-details-collapse">折叠全部付款明细</span>
+            <span class="payment-details-expand">展开全部付款明细</span>
+            <span>（{{payments.length}} 笔）</span>
+          </summary>
+        <TranslationSettlementNumbers v-if="projectId" :project-id="projectId" show-empty />
         <div v-for="(item,index) in payments" :key="item.id||index" class="project-payment-row" data-dialog-field-search-group :data-dialog-field-search-group-title="`${sectionPrefix}付款明细 ${index+1}`">
           <div class="payment-row-heading">
             <strong>{{sectionPrefix}}付款明细 {{index+1}}</strong>
@@ -44,6 +52,7 @@
           </el-row>
         </div>
         <el-button :disabled="payments.length>=100" @click="addPayment">新增付款明细</el-button>
+        </details>
         </template>
 
         <slot name="footer" />
@@ -61,6 +70,7 @@ import ReadonlyField from './ReadonlyField.vue'
 import PaymentAccountSelect from './PaymentAccountSelect.vue'
 import ScreenshotInput from './ScreenshotInput.vue'
 import PaymentOrderMatchDialog from './PaymentOrderMatchDialog.vue'
+import TranslationSettlementNumbers from './TranslationSettlementNumbers.vue'
 import {collectMatchTotals,formatMatchTotals} from '@/utils/paymentOrderMatching'
 import {paymentConfirmationForm,fixFirstDepositStage,clearPaymentSelection} from '@/utils/paymentConfirmation'
 const form=defineModel({type:Object,required:true})
@@ -119,5 +129,7 @@ function removePayment(index){payments.value=payments.value.filter((_item,i)=>i!
 watch(()=>form.value.paymentConfirmation,ensureFirstDeposit,{immediate:true})
 </script>
 <style scoped>
+.payment-details > summary{width:fit-content;max-width:100%;padding:6px 0;color:var(--el-color-primary);cursor:pointer;font-weight:600}
+.payment-details[open] .payment-details-expand,.payment-details:not([open]) .payment-details-collapse{display:none}
 .project-payment-row{padding:14px;border:1px solid var(--el-border-color);border-radius:6px;margin:12px 0}.payment-row-heading{display:flex;justify-content:space-between;margin-bottom:10px}.project-payment-row .el-input-number{width:100%}.payment-detail-match{display:flex;align-items:center;gap:4px 8px;flex-wrap:wrap;margin-top:4px;line-height:1.5;width:100%}.payment-detail-match .el-button{margin:0}.payment-summary{margin:16px 0}.payment-help{font-size:12px;color:var(--el-text-color-secondary)}
 </style>

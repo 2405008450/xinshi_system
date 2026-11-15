@@ -53,6 +53,8 @@ def reorganize(payload,action,data):
     if any(payload['tasks'][uid].get('pending') for uid in ids):raise HTTPException(422,'待入账任务请先生成目标月份账单')
     sources=[board(payload,uid) for uid in dict.fromkeys(payload['tasks'][key]['board_id'] for key in ids)]
     target=new_board(payload,sources[0]['fields'],name(data.get('name')));target['tax_included']=sources[0]['tax_included']
+    if len(sources)==1:
+        target['number_parent_id']=sources[0]['id']
     before={uid:payload['tasks'][uid]['board_id'] for uid in ids}
     for source in sources:copy_overrides(payload,source,target,ids)
     for uid in ids:payload['tasks'][uid]['board_id']=target['id']

@@ -18,9 +18,9 @@
           <el-form-item v-if="settlementScope" label="账期"><StatementPeriodSelect v-model="clientFilters.period" :month="clientFilters.month" :client-id="clientContext.id" :settlement-scope="settlementScope" /></el-form-item>
         </AppForm>
         <h4 class="statement-client-context">{{clientContext.name||clientName}} · {{clientFilters.month}}</h4>
-        <CustomerStatementWorkspace :key="`${clientContext.id}:${clientFilters.month}`" :client-id="clientContext.id" :period-number="clientFilters.period" :settlement-scope="settlementScope" :billing-month="clientFilters.month" lock-month :enforce-statement-requirement="settlementScope!=='special'" :project-selection="()=>contextProjects?.statementSelection()" :project-reload="()=>contextProjects?.reloadProjects()" @loaded="clientName=$event.client_name||clientName">
-          <template #customer-projects="{months,mode,reload}">
-            <StatementClientFinance ref="contextProjects" :client-id="clientContext.id" :period-number="clientFilters.period" :settlement-scope="settlementScope" client-scope statement-client-view :require-statement-for-selection="settlementScope!=='special'" :initial-month="clientFilters.month" :preview-months="months" :preview-mode="mode" @special-payment-saved="reload" @saved="$event?.id && emit('saved',$event)" />
+        <CustomerStatementWorkspace :key="`${clientContext.id}:${clientFilters.month}`" :client-id="clientContext.id" :period-number="clientFilters.period" :settlement-scope="settlementScope" :billing-month="clientFilters.month" :focus-board-id="focusedBoardId" :visible-board-ids="focusedBoardId?[focusedBoardId]:[]" lock-month :enforce-statement-requirement="settlementScope!=='special'" :project-selection="options=>contextProjects?.statementSelection(options)" :project-reload="()=>contextProjects?.reloadProjects()" @loaded="clientName=$event.client_name||clientName">
+          <template #customer-projects="{months,mode,reload,selectionChanged}">
+            <StatementClientFinance ref="contextProjects" :client-id="clientContext.id" :period-number="clientFilters.period" :settlement-scope="settlementScope" client-scope statement-client-view :require-statement-for-selection="settlementScope!=='special'" :initial-month="clientFilters.month" :preview-months="months" :preview-mode="mode" @statement-selection-change="selectionChanged" @special-payment-saved="reload" @saved="$event?.id && emit('saved',$event)" />
           </template>
           <template #client-actions="{reload}">
             <CustomerStatementActions v-if="!settlementScope" :client="clientContext" @merged="reload" />
@@ -34,7 +34,7 @@
   </DraggableFormDialog>
 </template>
 <script setup>
-import {defineAsyncComponent,reactive,ref,watch} from 'vue'
+import {computed,defineAsyncComponent,reactive,ref,watch} from 'vue'
 import AppForm from './AppForm.vue'
 import StatementPeriodSelect from './StatementPeriodSelect.vue'
 import DraggableFormDialog from './DraggableFormDialog.vue'
@@ -52,7 +52,9 @@ const props=defineProps({modelValue:Boolean,billingMonth:String,clientContext:Ob
 const clientsRef=ref(),contextProjects=ref(),clientName=ref('')
 const activeTab=ref('settlement')
 const clientFilters=reactive({month:'',period:undefined})
-watch(()=>[props.modelValue,props.clientContext?.id,props.clientContext?.month,props.clientContext?.period],([visible,,month,period])=>{
+const focusedBoardId=computed(()=>clientFilters.month===props.clientContext?.month&&clientFilters.period===props.clientContext?.period
+  ? props.clientContext?.boardId : undefined)
+watch(()=>[props.modelValue,props.clientContext?.id,props.clientContext?.month,props.clientContext?.period,props.clientContext?.boardId],([visible,,month,period])=>{
   if(visible){clientFilters.month=month||props.billingMonth||currentStatementMonth();clientFilters.period=period}
 },{immediate:true})
 async function changeClientMonth(month){
