@@ -115,7 +115,7 @@
         <el-descriptions-item label="说明" :span="2"><div class="pre-wrap">{{ show(detail.interpretationRatingNote) }}</div></el-descriptions-item>
         <el-descriptions-item label="口译领域" :span="2"><div class="pre-wrap">{{ show(detail.interpretationDomains) }}</div></el-descriptions-item>
       </el-descriptions></el-collapse-item>
-      <el-collapse-item name="detail-domain-written" data-section-key="detail-domain-written" title="笔译"><h5>笔译</h5><div class="pre-wrap">专业领域（本人自述）：{{domainLabels.join("、")||"-"}}</div><div>常用CAT经验：{{resumeProfile.catTools.join("、")||"-"}}</div>
+      <el-collapse-item name="detail-domain-written" data-section-key="detail-domain-written" title="笔译"><h5>笔译</h5><div class="pre-wrap">专业领域（本人自述）：{{domainLabels.join("、")||"-"}}</div><div data-dialog-field-search-label="常用CAT经验">常用CAT经验：{{resumeProfile.catTools.join("、")||"-"}}</div>
       <el-descriptions :column="2" border size="small">
         <el-descriptions-item label="总体评价">{{ detail.writtenTranslationScore == null ? '-' : `${detail.writtenTranslationScore}分` }}</el-descriptions-item>
         <el-descriptions-item label="具体评价"><div class="pre-wrap">{{ show(detail.writtenTranslationEvaluation) }}</div><TalentEvaluationMeta :evaluation="detail" group-key="written_translation" /></el-descriptions-item>
@@ -151,7 +151,7 @@
         <el-table-column prop="status" label="状态" width="120" />
       </el-table>
     </section></el-collapse-item>
-  </CollapsibleSections></el-tab-pane><el-tab-pane v-if="section==='all'" label="英文简历 / English" name="en"><LocalizedResumeEditor :model-value="localizedVersion" locale="en" readonly /></el-tab-pane><el-tab-pane v-if="section==='all'" label="外文简历" name="foreign"><el-select v-model="foreignResumeLocale" filterable><el-option v-for="language in foreignResumeLanguages" :key="language.value" :label="language.label" :value="language.value" /></el-select><LocalizedResumeEditor :key="foreignResumeLocale" :model-value="localizedVersion" :locale="foreignResumeLocale" readonly /></el-tab-pane></el-tabs></div>
+  </CollapsibleSections></el-tab-pane><el-tab-pane v-if="section==='all'" label="英文简历 / English" name="en"><LocalizedResumeEditor :model-value="englishVersion" locale="en" readonly /></el-tab-pane><el-tab-pane v-if="section==='all'" label="外文简历" name="foreign"><el-select v-model="foreignResumeLocale" filterable data-dialog-field-search-label="简历语言"><el-option v-for="language in foreignResumeLanguages" :key="language.value" :label="language.label" :value="language.value" /></el-select><LocalizedResumeEditor :key="foreignResumeLocale" :model-value="foreignVersion" :locale="foreignResumeLocale" readonly /></el-tab-pane></el-tabs></div>
 </template>
 
 <script setup>
@@ -210,7 +210,9 @@ const resumeProfile=computed(()=>resumeProfileForm(props.detail.resumeProfile,pr
 const displayNames=computed(()=>resumeNames(props.detail))
 const domainLabels=computed(()=>professionalDomains(resumeProfile.value,props.detail.writtenProfile))
 const educationRows=computed(()=>educationFormRows(props.detail.educationExperiences||[],props.detail.resumeProfile?.educationPeriods))
-const localizedVersion=computed(()=>({...emptyResumeVersion(),...(resumeProfile.value.versions[resumeTab.value==='en'?'en':foreignResumeLocale.value]||{})}))
+const versionFor=locale=>({...emptyResumeVersion(),...resumeProfile.value.versions[locale]})
+const englishVersion=computed(()=>versionFor('en'))
+const foreignVersion=computed(()=>versionFor(foreignResumeLocale.value))
 const resumeWorkGroups=[{key:'annotation',label:'标注类经验'},{key:'interpretation',label:'口译经验'},{key:'translation',label:'笔译经验'},{key:'other',label:'其他经验'}]
 const formatOperationTime = formatDateTime
 const show = (value) => value === null || value === undefined || value === ''

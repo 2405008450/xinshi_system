@@ -8,10 +8,13 @@ import translation_quantity_basis as basis
 import translation_customer_finance as finance
 
 
-def test_customer_unique_zero_and_ambiguous_values():
+def test_automatic_basis_uses_source_and_metric_priority():
     assert basis.resolve({'customer':{'pages':0}},'customer_auto')[:3]==(0,'customer','pages')
     assert basis.resolve({'customer':{'foreign_words':120}},'customer_auto')[:3]==(120,'customer','foreign_words')
-    assert basis.resolve({'customer':{'words':10,'characters_no_spaces':30}},'customer_auto')[0] is None
+    assert basis.resolve({'customer':{'words':10,'characters_no_spaces':30}},'customer_auto')[:3]==(30,'customer','characters_no_spaces')
+    assert basis.resolve({'customer':{'documents':3},'company':{'words':90}},'customer_auto')[:3]==(3,'customer','documents')
+    assert basis.resolve({'company':{'cjk_chars_korean_words':20,'words':10}},'customer_auto')[:3]==(10,'company','words')
+    assert basis.resolve({'company':{'documents':2,'cjk_chars_korean_words':20}},'customer_auto')[:3]==(20,'company','cjk_chars_korean_words')
     assert basis.resolve({'customer':{'words':10,'characters_no_spaces':30}},'customer_auto:words')[0]==10
     assert basis.resolve({'customer':{'pages':5}},'customer_auto:words')==(None,'customer','words','未登记对应数量')
     assert basis.resolve({'customer':{}},'customer_auto')[0] is None
@@ -37,7 +40,7 @@ def test_company_price_persistence_and_other_project_views(environment,metric):
     assert db.get(basis.TranslationChargeQuantityBasis,charge.id).mode=='company_'+metric
 
 
-def test_customer_auto_tracks_the_current_unique_column(environment):
+def test_customer_auto_tracks_the_current_filled_column(environment):
     db,(owner,_,_)=environment;_,root,_,third=context(db,owner)
     db.query(WordCountMetric).filter_by(sub_order_id=third.id,dimension='customer').delete()
     row=WordCountMetric(id=uuid4(),sub_order_id=third.id,dimension='customer',metric_type='pages',count_value=5);db.add(row);db.commit()

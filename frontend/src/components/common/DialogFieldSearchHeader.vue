@@ -16,7 +16,7 @@
         clearable
         :placeholder="placeholder"
         popper-class="project-field-search-popper"
-        aria-label="搜索项目表单字段"
+        :aria-label="searchLabel"
         @update:model-value="$emit('update:modelValue', $event)"
         @select="$emit('select', $event)"
         @clear="$emit('clear')"
@@ -43,6 +43,7 @@ defineProps({
   modelValue: { type: String, default: '' },
   fetchSuggestions: { type: Function, required: true },
   placeholder: { type: String, default: '搜索字段，如客户交稿时间' },
+  searchLabel: { type: String, default: '搜索项目表单字段' },
 })
 
 defineEmits(['update:modelValue', 'select', 'clear'])
@@ -105,6 +106,9 @@ defineExpose({ blur: () => autocompleteRef.value?.blur?.() })
 }
 .project-field-search-option__location {
   flex-shrink: 0;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--el-text-color-secondary);
   font-size: 12px;
 }
@@ -133,6 +137,7 @@ defineExpose({ blur: () => autocompleteRef.value?.blur?.() })
   animation: dialog-field-search-pulse 0.75s ease-in-out 2;
   transition: background-color 0.2s ease, outline-color 0.2s ease, box-shadow 0.2s ease;
 }
+.is-dialog-field-search-highlight:is(td,th) { outline-offset: -2px; }
 @keyframes dialog-field-search-pulse {
   0%, 100% { box-shadow: 0 0 0 4px rgb(230 162 60 / 16%); }
   50% { box-shadow: 0 0 0 9px rgb(230 162 60 / 30%); }

@@ -40,10 +40,11 @@ def cancel(payload,ids):
     return changes
 
 
-def accept(payload,months,board):
+def accept(payload,months,target_board):
     changes=[]
     for task in payload['tasks'].values():
         if not pending(task) or task['month'] not in months:continue
+        board=target_board(task)
         task.update(board_id=board['id'],pending=False)
         invalidate_overrides(payload,task)
         changes.append({'task_id':task['id'],'order_no':task['rows'][0]['order_no'],'month':task['month'],'board_id':board['id'],'board_name':board['name']})

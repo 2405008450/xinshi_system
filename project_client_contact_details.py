@@ -4,7 +4,7 @@ import json
 from sqlalchemy import inspect
 from fastapi import HTTPException
 from models import Client,SubClient
-from client_contact_people import ClientContactPerson,ClientContactPersonDetail,attach,ensure,owner_rows
+from client_contact_people import ClientContactPerson,ClientContactPersonDetail,attach,ensure,owner_rows,primary_contact_summary
 from annotation_progress_time import business_now
 
 DETAIL_FIELDS={'client_contact_method','client_contact_description','client_contact_version'}
@@ -41,7 +41,7 @@ def save_project_contact_details(db,data):
     if detail is None:detail=ClientContactPersonDetail(person_id=person.id,contact_method=before['contact_method'] if before else '',description=before['description'] if before else '');db.add(detail)
     if visible and incoming is not None:detail.contact_method=incoming
     if supplied['client_contact_description'] is not None:detail.description=supplied['client_contact_description']
-    if owner.contact_names and owner.contact_names[0].casefold()==name.casefold():owner.manager_contact=detail.contact_method
+    if owner.contact_names and owner.contact_names[0].casefold()==name.casefold():owner.manager_contact=primary_contact_summary(detail.contact_method)
     moment=business_now()
     person.updated_at=moment
     owner.updated_at=moment.replace(tzinfo=None)

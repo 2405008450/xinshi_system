@@ -3,7 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import vm from 'node:vm'
-import {ref} from 'vue'
+import {computed,ref} from 'vue'
 import {clearFinanceForm,isClearedFinanceForm} from '../src/utils/clearFinanceForm.js'
 import {hasFixedFeeAmount} from '../src/utils/billingTaxMode.js'
 import {paymentConfirmationForm,paymentConfirmationPayload} from '../src/utils/paymentConfirmation.js'
@@ -16,19 +16,22 @@ test('固定收费清空后，打开关联付款但不操作，返回可保存�
   const editor=ref(clearFinanceForm({id:'root',rootId:'root',pricingMode:'fixed',adjustedTotal:330,paymentConfirmation:{revision:5,isPaid:false}}))
   assert.equal(editor.value.pricingMode,'fixed');assert.equal(validate(editor.value),undefined)
   const calls=[],errors=[]
-  const ctx={paymentDetailsDirty:ref(false),paymentDetailsForm,paymentDetailsSignature,paymentDetailsPayload,originalPaymentDetails:ref('[]'),editor,isClearedFinanceForm,hasFixedFeeAmount,paymentConfirmationForm,paymentConfirmationPayload,
+  const ctx={computed,paymentDetailsDirty:ref(false),paymentDetailsForm,paymentDetailsSignature,paymentDetailsPayload,originalPaymentDetails:ref('[]'),editor,isClearedFinanceForm,hasFixedFeeAmount,paymentConfirmationForm,paymentConfirmationPayload,
     linkedPaymentVisible:ref(false),saving:ref(false),canWrite:true,formRef:ref({validate:async()=>!validate(editor.value)}),localTarget:ref(null),
     documentPayload:()=>({}),treeVersion:'v1',libraryVersion:'r1',billingTaxChoices:()=>[],effectiveBillingTaxMode:()=>null,paymentConfirmationDirty:ref(true),
     updateLibrary:ref(false),saveError:ref(''),updateProjectFormFinance:async()=>{},applyDocumentDraft:()=>{},syncSavedFinanceRows:()=>{},
-    notifyStatementCustomerSync:()=>{},window:{dispatchEvent:()=>{}},CustomEvent:class{},
+    reviewApplicable:ref(false),savedDocumentReview:ref(null),selectedCustomerDocuments:ref([]),
+    changedPaymentMethod:()=>undefined,documentRequirementsChanged:ref(false),documentParent:ref(null),props:{},
+    notifyCustomerFinanceHistory:()=>{},notifyStatementCustomerSync:()=>{},window:{dispatchEvent:()=>{}},CustomEvent:class{},
     saveCustomerFinanceProject:async(id,payload)=>{calls.push(payload);return {item:{paymentConfirmation:{revision:6,isPaid:false}}}},
     editorSignature:()=>'',original:ref(''),pricingModeOnlySignature:ref(null),originalPaymentConfirmation:ref(''),notifyPaymentChanged:()=>{},financePaymentSource:'test',editorVisible:ref(true),
     ElMessage:{warning:value=>errors.push(value),success:()=>{}},emit:()=>{},load:async()=>{},getLocalizedErrorMessage:e=>e.message}
   vm.createContext(ctx)
-  vm.runInContext(source.match(/const paymentMethodSignatureIndex=\d+/)[0]+';'+source.slice(source.indexOf('function changedPaymentMethod('),source.indexOf('function documentPayload(')),ctx)
+  vm.runInContext(source.slice(source.indexOf('function findFinanceOrder('),source.indexOf('function updateOrderNavigation(')),ctx)
+  vm.runInContext(source.match(/const paymentMethodSignatureIndex=\d+/)[0]+';'+source.slice(source.indexOf('function changedPaymentMethod('),source.indexOf('\n}',source.indexOf('function changedPaymentMethod('))+2),ctx)
   vm.runInContext(source.slice(source.indexOf('async function openLinkedPayment()'),source.indexOf('function onPaymentSaved(')),ctx)
   ctx.syncPreviewPending=ref(false)
-  vm.runInContext(source.slice(source.indexOf('let automaticRateCheck'),source.indexOf('watch(()=>[editor.value.pricingMode')),ctx)
+  vm.runInContext(source.slice(source.indexOf('async function save(){'),source.indexOf('watch(()=>[editor.value.pricingMode')),ctx)
   await ctx.openLinkedPayment();ctx.linkedPaymentVisible.value=false
   await ctx.save()
   assert.deepEqual(errors,[]);assert.equal(ctx.saveError.value,'')

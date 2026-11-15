@@ -89,21 +89,52 @@ def write(db,owner,root,order,amount,**kwargs):
 def test_document_requirements_and_quotation_save_with_customer_prices(environment):
     db,(owner,_,_)=environment;root,child,third=setup(db,owner)
     quote={'title':'测试报价单','client_name':'测试客户','items':[{'description':'翻译','quantity':10,'unit':'字','unit_price':'0.5','currency':'CNY'}],'notes':'随价格保存'}
-    result=write(db,owner,root,third,'0.5',quotation_required=True,statement_required=False,quotation_draft=quote)
+    write(db,owner,root,third,'0.5')
+    result=write(db,owner,root,third,'0.5',payment_method='special',quotation_required=True,statement_required=False,quotation_draft=quote)
     assert result['item']['quotation_required'] is True
-    assert result['item']['statement_required'] is False
+    assert result['item']['statement_required'] is True
     assert result['item']['quotation_draft']['notes']=='随价格保存'
-    assert result['item']['children'][0]['statement_required'] is False
+    assert result['item']['children'][0]['statement_required'] is True
+    assert result['item']['children'][0]['children'][0]['statement_required'] is False
     from translation_finance_audit import history
     changes=history(db,root.id)['items']
     assert any(item['after'].get('quotation_required') is True for item in changes)
+
+
+@pytest.mark.parametrize('method', ['statement', 'invoice'])
+def test_default_settlement_rejects_manual_documents_and_unifies_requirements(environment, method):
+    from models import TranslationSubOrder
+    db, (owner, _, _) = environment
+    root, _, leaf = setup(db, owner)
+    extra = TranslationSubOrder(id=uuid4(), parent_project_id=root.id, sub_order_no=f'{root.order_no}.009')
+    db.add(extra)
+    db.commit()
+    for order, totals in [(leaf, {'adjusted_total': 100}), (extra, {'adjusted_total_incl_tax': 120})]:
+        write(db, owner, root, order, None, pricing_mode='fixed', **totals)
+    original = finance.read(db, root.id)
+    with pytest.raises(HTTPException) as manual:
+        finance.save(db, owner, root.id, finance.PriceWrite(version=original['version'], order_id=root.id,
+            documents_only=True, payment_method='monthly', **{method+'_required':True}))
+    assert manual.value.status_code == 422
+    assert finance.read(db, root.id)['version'] == original['version']
+    saved = finance.save(db, owner, root.id, finance.PriceWrite(version=original['version'], order_id=root.id,
+        documents_only=True, payment_method='monthly', document_consistency_review={'snapshot': []}))
+    assert saved['item']['payment_method'] == 'monthly'
+    assert saved['document_consistency_review'] is None
+    rows = finance.document_consistency_rows(saved['item'])
+    assert len({(row['quotation'],row['statement'],row['invoice'],row['tax']) for row in rows}) == 1
+    assert Decimal(next(row for row in rows if row['id']==str(extra.id))['totals_incl_tax']['CNY']) == 120
+    unified = finance.save(db, owner, root.id, finance.PriceWrite(version=saved['version'],
+        order_id=root.id, order_pricing_mode='fixed', pricing_mode='fixed', adjusted_total=220,
+        document_consistency_review={'snapshot': []}))
+    assert unified['document_consistency_review'] is None
 
 
 def test_parent_aggregate_can_save_documents_without_rewriting_prices(environment):
     db,(owner,_,_)=environment;root,child,third=setup(db,owner)
     initial=write(db,owner,root,third,'0.5')
     before=initial['item']['totals']
-    result=finance.save(db,owner,root.id,finance.PriceWrite(version=initial['version'],order_id=root.id,documents_only=True,quotation_required=True,statement_required=False))
+    result=finance.save(db,owner,root.id,finance.PriceWrite(version=initial['version'],order_id=root.id,documents_only=True,payment_method='special',quotation_required=True,statement_required=False))
     assert result['item']['totals']==before
     assert result['item']['children'][0]['children'][0]['amount']=='0.5'
     assert result['item']['quotation_required'] is True and result['item']['statement_required'] is False

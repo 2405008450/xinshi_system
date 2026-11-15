@@ -20,3 +20,19 @@ def automatic_reference(references, price, matrix):
         and matches(reference, price, right_matrix=matrix, left_reference=True)
     ]
     return candidates[0] if len(candidates) == 1 else None
+
+
+def references_for_new_prices(references, language_pair, matrix):
+    quantity, dimension, metric, _ = basis.resolve(matrix, 'customer_auto')
+    if quantity is None:
+        return []
+    result = []
+    for direction in dict.fromkeys(part.strip() for part in (language_pair or '').split('；')):
+        matching = [
+            row for row in references
+            if row['language_pair'] == direction
+            and basis.resolve({}, row['metric'])[1:3] == (dimension, metric)
+        ]
+        if len(matching) == 1:
+            result.append(matching[0])
+    return result

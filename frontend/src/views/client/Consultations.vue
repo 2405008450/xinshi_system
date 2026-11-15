@@ -2305,12 +2305,16 @@ function setConsultationContacts(owner) {
   const people = owner?.contact_people?.length ? owner.contact_people : (owner?.contact_names || []).map((name, index) => ({ name, contact_method: index === 0 ? owner.manager_contact || '' : '', description: '' }))
   form.contact_people = people.length ? people.map(value => ({ ...value })) : [{ name: '', contact_method: owner?.manager_contact || '', description: '' }]
   form.contact_people_updated_at = owner?.contact_people_updated_at || owner?.updated_at || null
-  form.manager_contact = form.contact_people[0]?.contact_method || ''
+  form.manager_contact = contactSummary(form.contact_people)
 }
 function updateConsultationContacts(people) {
   ++contactEditRevision
   form.contact_people = people
-  form.manager_contact = people[0]?.contact_method || ''
+  form.manager_contact = contactSummary(people)
+}
+function contactSummary(people) {
+  const first = (people[0]?.contact_method || '').split(/\r?\n/, 1)[0]
+  return Array.from(first).slice(0, 100).join('')
 }
 function handleSubClientContactsChange(value) {
   ++contactEditRevision

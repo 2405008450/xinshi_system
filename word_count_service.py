@@ -44,7 +44,7 @@ def _empty_values() -> dict[str, Optional[int]]:
 
 def attach_order_sources(projects, sub_orders):
     """仅标记订单来源与下级数量，统计值始终保留本单独立填报值。"""
-    from translation_direction_service import directions, preserves_order_statistics
+    from translation_direction_service import stored_directions, preserves_order_statistics
     children = {}
     by_number = {(row.parent_project_id, row.sub_order_no): row for row in sub_orders}
     for row in sub_orders:
@@ -68,7 +68,7 @@ def attach_order_sources(projects, sub_orders):
             for pair, matrix in visit(child).items():
                 add_direction_matrix(by_direction, pair, matrix)
         owner.word_count_sub_order_count = len(direct)
-        direction_split = preserves_order_statistics(owner, direct)
+        direction_split = preserves_order_statistics(owner, direct, parse_directions=stored_directions)
         owner.word_count_matrix_source = 'suborder' if hasattr(owner, 'sub_order_no') else 'project'
         owner.word_count_parent_order_no = None
         owner.word_count_matches_parent = False
@@ -78,7 +78,7 @@ def attach_order_sources(projects, sub_orders):
                 child.word_count_matches_parent = child.word_count_matrix == owner.word_count_matrix
         if not direct:
             owner.word_count_by_direction = []
-            return {pair: owner.word_count_matrix for pair in directions(owner.language_pair)}
+            return {pair: owner.word_count_matrix for pair in stored_directions(owner.language_pair)}
         for matrix in by_direction.values():
             for values in matrix.values():
                 if values['minutes'] is not None and values['hours'] is not None:

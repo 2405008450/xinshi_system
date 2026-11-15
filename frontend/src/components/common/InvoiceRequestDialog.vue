@@ -16,7 +16,7 @@
               <el-select v-model="form.subject" placeholder="请选择" @change="form.rate = null">
                 <el-option v-for="subject in preview.subjects" :key="subject.key" :value="subject.key" :label="subjectNames[subject.key]" />
               </el-select>
-              <span class="invoice-subject-hint">尽量选用税率较低的上海分公司或深圳分公司。</span>
+              <span class="invoice-subject-hint">所选订单的对账单主体一致时自动带入，可调整本次开票主体。</span>
             </el-form-item>
             <el-form-item v-if="special" label="专票税率">
               <el-select v-model="form.rate" :disabled="!form.subject" placeholder="请选择">

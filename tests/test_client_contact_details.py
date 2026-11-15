@@ -83,3 +83,15 @@ def test_project_new_contact_without_autoflush(environment,is_sub,visible):
     saved=contact_details(db,owner)[0]
     assert saved['description']=='项目采购'
     assert saved['contact_method']==('项目电话' if visible else '')
+def test_multiple_contact_methods_preserve_full_details(environment):
+    db, _ = environment
+    owner = Client(id=uuid4(), client_code='MULTI-CONTACT', client_name='客户', client_short_name='客户')
+    db.add(owner)
+    db.flush()
+    methods = '微信：example\n邮箱：' + 'a' * 90 + '@example.test\n自定义：example'
+    replace_details(db, owner, [ClientContactPersonInput(name='甲', contact_method=methods)])
+    db.commit()
+    db.expire_all()
+    attach(db, clients=[owner])
+    assert owner.contact_people[0]['contact_method'] == methods
+    assert owner.manager_contact == '微信：example'

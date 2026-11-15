@@ -16,21 +16,24 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, Uuid, func
+from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Integer, String, Text, Uuid, func, inspect
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
 
 from models import Base, Client, SubClient, TranslationProject, TranslationSubOrder
+from customer_translation_rates import CustomerTranslationRateHistory
 from database import get_db
 from routers.auth import require_permission, require_any_permission
 from annotation_progress_time import business_now, business_datetime
 import crud
 import translation_customer_finance as finance
-from customer_statement_defaults import CustomerStatementDefault
+from customer_statement_defaults import CustomerStatementDefault, CustomerTranslationFinanceDefault, finance_defaults_ready, write_finance_defaults
+from invoice_parties import SUBJECTS, SubjectKey
 
-COMPANIES = ('广州信实翻译服务有限公司','广州信实翻译服务有限公司深圳分公司','广州信实翻译服务有限公司上海分公司')
+COMPANIES = tuple(name for _, name in SUBJECTS.values())
 COMPANY = COMPANIES[0]
+COMPANY_KEYS = {name: key for key, (_, name) in SUBJECTS.items()}
 PAYMENT_ACCOUNT_FIELDS = ('bank_name', 'account_name', 'account_number')
 PRIVATE_STATEMENT_FIELDS = frozenset((*PAYMENT_ACCOUNT_FIELDS, 'stamp_image'))
 MONTH = r'^\d{4}-(0[1-9]|1[0-2])$'
@@ -52,6 +55,16 @@ class CustomerStatementPreference(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, default=business_now)
 
 
+def load_customer_tax_preferences(db, client_ids):
+    cache = db.info.setdefault('customer_statement_tax_preferences', {})
+    missing = {client_id for client_id in client_ids if client_id and client_id not in cache}
+    if missing:
+        cache.update(dict.fromkeys(missing, False))
+        cache.update(dict(db.query(CustomerStatementPreference.client_id, CustomerStatementPreference.tax_included)
+                          .filter(CustomerStatementPreference.client_id.in_(missing)).all()))
+    return cache
+
+
 class CustomerStatementSettings(Base):
     __tablename__ = 'customer_statement_settings'
     key = Column(String(30), primary_key=True)
@@ -64,11 +77,21 @@ class CustomerStatementSettings(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, default=business_now)
 
 
+class CollectionAccountMaterials(Base):
+    __tablename__ = 'finance_collection_account_materials'
+    key = Column(String(30), ForeignKey('customer_statement_settings.key', ondelete='CASCADE'), primary_key=True)
+    notes = Column(Text, nullable=False, default='')
+    attachments = Column(JSON, nullable=False, default=list)
+
+
 class PreferenceWrite(BaseModel):
     model_config = ConfigDict(extra='forbid')
     revision: int = Field(ge=0)
     tax_included: bool
     statement_default: Literal['required','not_required','unknown'] | None = None
+    payment_method: Literal['individual', 'monthly'] | None = None
+    quotation_required: bool | None = None
+    invoice_required: bool | None = None
 
 
 class CustomerStatementCompany(Base):
@@ -94,16 +117,16 @@ def png_url(image):
     return 'data:image/png;base64,' + base64.b64encode(output.getvalue()).decode()
 
 
-@lru_cache(maxsize=1)
-def default_stamp():
+@lru_cache(maxsize=4)
+def default_stamp(company=COMPANY):
     """透明底示例章；独立图层覆盖表格线，可由上传的正式章替换。"""
     size=480; image=Image.new('RGBA',(size,size)); draw=ImageDraw.Draw(image); red=(192,24,32,210)
     draw.ellipse((25,25,455,455),outline=red,width=9)
     fonts=[Path('C:/Windows/Fonts/msyh.ttc'),Path('/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc')]
     font_path=next((str(path) for path in fonts if path.exists()),None)
     font=ImageFont.truetype(font_path,32) if font_path else ImageFont.load_default(size=30)
-    for index,char in enumerate(COMPANY):
-        angle=-160+index*140/(len(COMPANY)-1)
+    for index,char in enumerate(company):
+        angle=-160+index*140/(len(company)-1)
         radians=math.radians(angle)
         tile=Image.new('RGBA',(70,70));ImageDraw.Draw(tile).text((35,35),char,font=font,fill=red,anchor='mm')
         tile=tile.rotate(-angle-90,resample=Image.Resampling.BICUBIC,expand=True)
@@ -132,10 +155,18 @@ def clean_stamp(value):
         raise HTTPException(422,'印章请上传不超过2MB的PNG、JPG或WebP图片，建议使用透明底PNG')
 
 
-def settings_value(row, company=None):
+def settings_value(row, company=COMPANY):
     return dict(bank_name=row.bank_name if row else '',account_name=row.account_name if row else '',
                 account_number=row.account_number if row else '',stamp_image=row.stamp_image if row else None,
-                company=company.company if company else COMPANY,company_options=list(COMPANIES),default_stamp=default_stamp(),revision=row.revision if row else 0)
+                company=company,company_options=list(COMPANIES),default_stamp=default_stamp(company),revision=row.revision if row else 0)
+
+
+def statement_company_settings(db, subject_key=None):
+    legacy = db.get(CustomerStatementCompany, 'company')
+    default_company = legacy.company if legacy and legacy.company in COMPANY_KEYS else COMPANY
+    company = SUBJECTS[subject_key][1] if subject_key else default_company
+    row = db.get(CustomerStatementSettings, 'company' if company == default_company else COMPANY_KEYS[company])
+    return row, company
 
 
 def private_statement_settings_available():
@@ -147,26 +178,129 @@ def require_private_statement_settings():
         raise HTTPException(403, '对账单印章和收款账户仅在 OA 管理')
 
 
-@router.get('/customer-statement-settings')
-def read_company_settings(db=Depends(get_db),user=Depends(read_settings)):
+COLLECTION_ACCOUNT_LIMIT = 8_000_000
+COLLECTION_ATTACHMENT_COUNT = 9
+
+
+class CollectionAccountAttachment(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    name: str = Field(min_length=1, max_length=255)
+    content: str = Field(min_length=4, max_length=10_666_668)
+
+
+class CollectionAccountWrite(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    revision: int = Field(ge=0)
+    bank_name: str = Field(default='', max_length=255)
+    account_name: str = Field(default='', max_length=255)
+    account_number: str = Field(default='', max_length=100)
+    notes: str = Field(default='', max_length=5000)
+    attachments: list[CollectionAccountAttachment] = Field(default_factory=list, max_length=COLLECTION_ATTACHMENT_COUNT)
+
+
+def require_collection_account(db):
     require_private_statement_settings()
-    return settings_value(db.get(CustomerStatementSettings,'company'),db.get(CustomerStatementCompany,'company'))
+    if not inspect(db.connection()).has_table(CollectionAccountMaterials.__tablename__):
+        raise HTTPException(503, '收款账户资料表尚未初始化')
+
+
+def collection_account_value(account, materials):
+    return {
+        **{key: getattr(account, key) if account else '' for key in PAYMENT_ACCOUNT_FIELDS},
+        'revision': account.revision if account else 0,
+        'notes': materials.notes if materials else '',
+        'attachments': materials.attachments if materials else [],
+    }
+
+
+@router.get('/finance/collection-account')
+def read_collection_account(response: Response, db=Depends(get_db), user=Depends(write_settings)):
+    require_collection_account(db)
+    response.headers['Cache-Control'] = 'no-store'
+    row = (
+        db.query(CustomerStatementSettings.revision, CustomerStatementSettings.bank_name,
+                 CustomerStatementSettings.account_name, CustomerStatementSettings.account_number,
+                 CollectionAccountMaterials)
+        .outerjoin(CollectionAccountMaterials, CustomerStatementSettings.key == CollectionAccountMaterials.key)
+        .filter(CustomerStatementSettings.key == 'company').first()
+    )
+    return collection_account_value(row, row.CollectionAccountMaterials if row else None)
+
+
+@router.put('/finance/collection-account')
+def save_collection_account(data: CollectionAccountWrite, response: Response, db=Depends(get_db), user=Depends(write_settings)):
+    require_collection_account(db)
+    attachments = []
+    total_size = 0
+    for item in data.attachments:
+        name = item.name.replace('\\', '/').rsplit('/', 1)[-1].strip()
+        try:
+            raw = base64.b64decode(item.content, validate=True)
+        except ValueError as exc:
+            raise HTTPException(422, '附件数据无效') from exc
+        if not name or not raw or any(ord(char) < 32 for char in name):
+            raise HTTPException(422, '附件名称或内容无效')
+        total_size += len(raw)
+        if total_size > COLLECTION_ACCOUNT_LIMIT:
+            raise HTTPException(422, '附件合计不得超过 8 MB')
+        attachments.append({'name': name, 'content': item.content})
+
+    account = db.query(CustomerStatementSettings).filter_by(key='company').with_for_update().populate_existing().first()
+    if data.revision != (account.revision if account else 0):
+        raise HTTPException(409, '收款账户已更新，请重新打开后编辑')
+    if account is None:
+        account = CustomerStatementSettings(key='company', revision=0)
+        db.add(account)
+    for key in PAYMENT_ACCOUNT_FIELDS:
+        setattr(account, key, getattr(data, key).strip())
+    account.revision += 1
+    account.updated_by = user.id
+    account.updated_at = business_now()
+    try:
+        db.flush()
+        materials = db.get(CollectionAccountMaterials, 'company')
+        if materials is None:
+            materials = CollectionAccountMaterials(key='company')
+            db.add(materials)
+        materials.notes = data.notes.strip()
+        materials.attachments = attachments
+        result = collection_account_value(account, materials)
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, '收款账户已更新，请重新打开后编辑') from exc
+    response.headers['Cache-Control'] = 'no-store'
+    return result
+
+
+@router.get('/customer-statement-settings')
+def read_company_settings(db=Depends(get_db),user=Depends(read_settings),subject_key:SubjectKey|None=None):
+    require_private_statement_settings()
+    return settings_value(*statement_company_settings(db,subject_key))
 
 
 @router.put('/customer-statement-settings')
-def save_company_settings(data:SettingsWrite,db=Depends(get_db),user=Depends(write_settings)):
+def save_company_settings(data:SettingsWrite,db=Depends(get_db),user=Depends(write_settings),subject_key:SubjectKey|None=None):
     require_private_statement_settings()
+    _, default_company = statement_company_settings(db)
+    company = SUBJECTS[subject_key][1] if subject_key else data.company
+    if subject_key and data.company != company:
+        raise HTTPException(422,'公司名称与所选主体不一致')
+    setting_key = subject_key if subject_key and company != default_company else 'company'
     try:
-        row=db.query(CustomerStatementSettings).filter_by(key='company').with_for_update().populate_existing().first()
+        row=db.query(CustomerStatementSettings).filter_by(key=setting_key).with_for_update().populate_existing().first()
         if data.revision!=(row.revision if row else 0):raise HTTPException(409,'对账单设置已更新，请重新打开后编辑')
         stamp=clean_stamp(data.stamp_image)
-        if row is None:row=CustomerStatementSettings(key='company',revision=0);db.add(row)
+        if row is None:row=CustomerStatementSettings(key=setting_key,revision=0);db.add(row)
         for key in ('bank_name','account_name','account_number'):setattr(row,key,getattr(data,key).strip())
         row.stamp_image=stamp;row.revision+=1;row.updated_at=business_now();row.updated_by=user.id
-        subject=db.get(CustomerStatementCompany,'company')
-        if subject is None:subject=CustomerStatementCompany(key='company');db.add(subject)
-        subject.company=data.company;subject.updated_by=user.id;subject.updated_at=business_now()
-        db.commit();return settings_value(row,subject)
+        if not subject_key and company != default_company:
+            if db.get(CustomerStatementSettings,COMPANY_KEYS[company]):
+                raise HTTPException(409,'该主体已单独维护，请按主体保存设置')
+            subject=db.get(CustomerStatementCompany,'company')
+            if subject is None:subject=CustomerStatementCompany(key='company');db.add(subject)
+            subject.company=company;subject.updated_by=user.id;subject.updated_at=business_now()
+        db.commit();return settings_value(row,company)
     except IntegrityError:
         db.rollback();raise HTTPException(409,'对账单设置已更新，请重新打开后编辑')
     except Exception:
@@ -177,7 +311,9 @@ def client_preference(db,client_id):
     if not db.get(Client,client_id):raise HTTPException(404,'客户不存在')
     row=db.get(CustomerStatementPreference,client_id)
     default=db.get(CustomerStatementDefault,client_id)
-    return dict(tax_included=bool(row.tax_included) if row else False,statement_default=default.choice if default else 'unknown',revision=row.revision if row else 0)
+    finance_default=db.get(CustomerTranslationFinanceDefault,client_id) if finance_defaults_ready(db) else None
+    return dict(tax_included=bool(row.tax_included) if row else False,statement_default=default.choice if default else 'unknown',revision=row.revision if row else 0,
+                **{field:getattr(finance_default,field,None) for field in ('payment_method','quotation_required','invoice_required')})
 
 
 def set_customer_statement_default(db, client_id, choice, actor_id):
@@ -190,7 +326,51 @@ def set_customer_statement_default(db, client_id, choice, actor_id):
     default.updated_at = business_now()
 
 
-def sync_project_statement_default(db, client_id, revision, required, user):
+DOCUMENT_DEFAULT_FIELDS = ('statement_default', 'quotation_required', 'invoice_required', 'payment_method')
+DOCUMENT_HISTORY_ORIGINS = ('document_defaults_client', 'document_defaults_project', 'order_documents')
+
+
+def record_order_documents(db, user, project, client_id, *, initial=False, **submitted):
+    from customer_translation_rates import record_order_finance
+    from translation_document_requirements import payment_method
+
+    if not client_id or not any(value is not None for value in submitted.values()):
+        return
+    previous = {
+        'statement_default': 'required' if project.statement_required else 'not_required',
+        'quotation_required': project.effective_quotation_required,
+        'invoice_required': project.effective_invoice_required,
+        'payment_method': payment_method(project),
+    }
+    after = {
+        field: ('required' if value else 'not_required') if field == 'statement_default' else value
+        for field,value in submitted.items() if value is not None
+    }
+    before = {field:previous[field] for field in after}
+    customer = client_preference(db, client_id)
+    if customer['payment_method']=='statement':
+        customer['payment_method']='monthly'
+    record_order_finance(db,user,client_id,project.id,project.order_no,'order_documents',
+                         {field:customer[field] for field in after} if initial else before,after,
+                         matches_customer=all(customer[field]==value for field,value in after.items()),initial=initial)
+
+
+def record_document_defaults(db, client_id, user, before, origin):
+    after = client_preference(db, client_id)
+    changed = {field for field in DOCUMENT_DEFAULT_FIELDS if before[field] != after[field]}
+    if not changed:
+        return
+    if not inspect(db.connection()).has_table(CustomerTranslationRateHistory.__tablename__):
+        raise HTTPException(503, '客户财务修改记录尚未初始化')
+    db.add(CustomerTranslationRateHistory(
+        client_id=client_id, actor_id=user.id, actor_name=user.full_name or user.username,
+        origin=origin, before_snapshot={field:before[field] for field in DOCUMENT_DEFAULT_FIELDS if field in changed},
+        after_snapshot={field:after[field] for field in DOCUMENT_DEFAULT_FIELDS if field in changed},
+        created_at=business_now(),
+    ))
+
+
+def sync_project_statement_default(db, client_id, revision, required, user, payment_method=None, finance_values=None):
     from permission_service import user_has_permission
 
     if not user_has_permission(db, user.id, 'clients:write'):
@@ -198,18 +378,38 @@ def sync_project_statement_default(db, client_id, revision, required, user):
     row = db.query(CustomerStatementPreference).filter_by(client_id=client_id).with_for_update().populate_existing().first()
     if revision != (row.revision if row else 0):
         raise HTTPException(409, '客户对账单默认设置已变化，请重新确认')
+    before = client_preference(db, client_id)
     if row is None:
         row = CustomerStatementPreference(client_id=client_id, revision=0, tax_included=False)
         db.add(row)
     row.revision += 1
     row.updated_at = business_now()
     row.updated_by = user.id
-    set_customer_statement_default(db, client_id, 'required' if required else 'not_required', user.id)
+    if required is not None:
+        set_customer_statement_default(db, client_id, 'required' if required else 'not_required', user.id)
+    finance_values = dict(finance_values or {})
+    if payment_method:
+        finance_values['payment_method'] = payment_method
+    if finance_values:
+        write_finance_defaults(db, client_id, finance_values)
+    db.flush()
+    record_document_defaults(db, client_id, user, before, 'document_defaults_project')
 
 
 @router.get('/clients/{client_id}/statement-preference')
 def read_preference(client_id:UUID,db=Depends(get_db),user=Depends(read_settings)):
     return client_preference(db,client_id)
+
+
+@router.get('/clients/{client_id}/statement-preference/history')
+def preference_history(client_id:UUID,page:int=Query(1,ge=1),db=Depends(get_db),user=Depends(read_settings)):
+    if not inspect(db.connection()).has_table(CustomerTranslationRateHistory.__tablename__):
+        return {'items': [], 'total': 0}
+    model = CustomerTranslationRateHistory
+    query = db.query(model).filter(model.client_id == client_id, model.origin.in_(DOCUMENT_HISTORY_ORIGINS))
+    rows = query.order_by(model.created_at.desc(),model.id.desc()).offset((page-1)*10).limit(10).all()
+    from customer_translation_rates import history_entry
+    return {'total':query.count(),'items':[history_entry(row) for row in rows]}
 
 
 @router.put('/clients/{client_id}/statement-preference')
@@ -219,10 +419,23 @@ def save_preference(client_id:UUID,data:PreferenceWrite,db=Depends(get_db),user=
             raise HTTPException(404,'客户不存在')
         row=db.query(CustomerStatementPreference).filter_by(client_id=client_id).with_for_update().populate_existing().first()
         if data.revision!=(row.revision if row else 0):raise HTTPException(409,'客户含税设置已更新，请重新加载后编辑')
+        before = client_preference(db, client_id)
         if row is None:row=CustomerStatementPreference(client_id=client_id,revision=0);db.add(row)
         row.tax_included=data.tax_included;row.revision+=1;row.updated_at=business_now();row.updated_by=user.id
-        if data.statement_default is not None:
-            set_customer_statement_default(db, client_id, data.statement_default, user.id)
+        db.info.get('customer_statement_tax_preferences', {}).pop(client_id, None)
+        defaults = data.model_dump(include=data.model_fields_set & {'payment_method','quotation_required','invoice_required'})
+        choice = data.statement_default
+        if choice is not None:
+            set_customer_statement_default(db, client_id, choice, user.id)
+        if defaults:
+            write_finance_defaults(db, client_id, defaults)
+        db.flush()
+        record_document_defaults(db, client_id, user, before, 'document_defaults_client')
+        after = client_preference(db, client_id)
+        changed = {field:after[field] for field in DOCUMENT_DEFAULT_FIELDS if before[field]!=after[field]}
+        if changed:
+            from translation_document_requirements import apply_customer_documents
+            apply_customer_documents(db,client_id,changed,user.id)
         db.commit();return client_preference(db,client_id)
     except IntegrityError:
         db.rollback();raise HTTPException(409,'客户含税设置已更新，请重新加载后编辑')
@@ -321,7 +534,7 @@ def statement_display_rows(node, rows, mode):
     return render(node)
 
 
-def build_statement(db,project_id,order_id,month,scope,order_display='children'):
+def build_statement(db,project_id,order_id,month,scope,order_display='children',*,special=False):
     if order_display not in ('parents','all','children'):raise HTTPException(422,'请选择有效的订单显示方式')
     project=crud.get_translation_project(db,project_id)
     if not project or project.annotation_migrated_at is not None:raise HTTPException(404,'笔译项目不存在')
@@ -337,11 +550,21 @@ def build_statement(db,project_id,order_id,month,scope,order_display='children')
                 selectinload(TranslationProject.customer_charge_items),selectinload(TranslationProject.sub_orders).selectinload(TranslationSubOrder.customer_charge_items)).order_by(TranslationProject.order_no).all()
     else:projects=[project]
     crud._attach_word_count_matrices(db,projects=projects)
+    from translation_document_requirements import attach as attach_documents
+    attach_documents(db,projects)
+    from translation_special_settlement import apply_settings, settings_by_project
+    from translation_document_requirements import payment_method
+    if special:
+        projects=[root for root in projects if payment_method(root)=='special']
+    special_settings=settings_by_project(db,[root.id for root in projects]) if special else {}
+    finance.attach_monthly_payment_peers(db,projects)
     rows=[];pending=[]
     for root in projects:
         crud._attach_project_client_fields(root)
         owners={str(owner.id):owner for owner in [root,*root.sub_orders]}
         node=finance.tree(root)['item']
+        if special:
+            apply_settings(node,special_settings.get(root.id,{}))
         effective_default=finance.order_billing_month(root.order_no) or (business_datetime(root.customer_reception_time).strftime('%Y-%m') if root.customer_reception_time else None)
         def find(item,wanted,inherited_month):
             current_month=item.get('billing_month') or inherited_month
@@ -355,12 +578,13 @@ def build_statement(db,project_id,order_id,month,scope,order_display='children')
             rows.append(dict(order_no=item['order_no'],customer_order_no=(root.customer_order_no or '').strip(),received_date=business_datetime(root.customer_reception_time).strftime('%Y-%m-%d') if root.customer_reception_time else None,
                 task_id=item['id'],root_id=str(root.id),line_id=f"{item['id']}:{line_index}",unit_size=format(Decimal(str(unit_size)),'f'),
                 project_name=item['project_name'] or '-',language_pair=item['language_pair'] or '-',quantity=quantity,basis=basis,
-                unit_price=str(unit) if unit is not None else None,unit_label='含税' if item.get('effective_billing_tax_mode')=='incl_tax' else '不含税' if item.get('effective_billing_tax_mode')=='excl_tax' else label,currency=currency,subtotal=money(amount),
+                statement_required=item['statement_required'],
+                unit_price=str(unit) if unit is not None else None,unit_label='含税' if item.get('special_tax_mode',item.get('effective_billing_tax_mode'))=='incl_tax' else '不含税' if item.get('special_tax_mode',item.get('effective_billing_tax_mode'))=='excl_tax' else label,currency=currency,subtotal=money(amount),
                 remarks=item.get('customer_explanation') or ''))
             if issue:pending.append(f"{item['order_no']}：{issue}")
         def visit(item,inherited_month):
             current_month=item.get('billing_month') or inherited_month
-            kind=item.get('effective_billing_tax_mode')
+            kind=item.get('special_tax_mode',item.get('effective_billing_tax_mode'))
             if kind not in ('incl_tax','excl_tax'):kind=billing_tax.effective(item,item.get('billing_tax_mode')) or ('incl_tax' if preference['tax_included'] else 'excl_tax')
             label='含税' if kind=='incl_tax' else '不含税'
             if item['pricing_mode']=='fixed':
@@ -379,7 +603,9 @@ def build_statement(db,project_id,order_id,month,scope,order_display='children')
                 if not prices:append(item,None,None,None,item['currency'],item.get('explanation',''),issue='未登记客户单价')
                 for price in prices:
                     tax=price.get('tax_prices') or {};unit=tax.get('unit_price_'+kind)
-                    if unit is None and not any(tax.get('unit_price_'+side) is not None for side in ('excl_tax','incl_tax')):unit=price['amount']
+                    if unit is None and not any(tax.get('unit_price_'+side) is not None for side in ('excl_tax','incl_tax')):
+                        if kind=='excl_tax' or not special and not item.get('unified_billing_tax_mode'):
+                            unit=price['amount']
                     quantity=price.get('quantity');size=price.get('unit_size') or '1';amount=tax.get('total_'+kind)
                     if amount is None and unit is not None and quantity is not None:amount=Decimal(str(unit))*Decimal(str(quantity))/Decimal(size)
                     dimension='我司统计' if price.get('quantity_dimension')=='company' else '客户统计'
@@ -406,7 +632,7 @@ def build_statement(db,project_id,order_id,month,scope,order_display='children')
         month=month,issue_date=business_now().date().isoformat(),scope=scope,order_display=order_display,tax_included=preference['tax_included'],rows=rows,totals={key:money(value) for key,value in sums.items()},pending=pending,
         private_settings_available=private_settings,settings={},stamp_image=None)
     if private_settings:
-        settings=settings_value(db.get(CustomerStatementSettings,'company'),subject)
+        settings=settings_value(*statement_company_settings(db))
         result.update(settings={key:settings[key] for key in PAYMENT_ACCOUNT_FIELDS},stamp_image=settings['stamp_image'] or settings['default_stamp'])
     labels={row['unit_label'] for row in rows if row.get('unit_label')}
     if len(labels)==1:result['tax_included']=next(iter(labels))=='含税'

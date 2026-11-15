@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from models import TranslationProject,TranslationSubOrder,SubClient
 from sqlalchemy import func
 
-def build(db,client_id,month,order_ids,mode='children'):
+def build(db,client_id,month,order_ids,mode='children',*,special=False):
     import customer_statements as statements
     ids=set(order_ids)
     roots=db.query(TranslationProject).filter(TranslationProject.id.in_(ids)).all()
@@ -16,13 +16,13 @@ def build(db,client_id,month,order_ids,mode='children'):
     if not ids:
         root=db.query(TranslationProject).outerjoin(SubClient,TranslationProject.sub_client_id==SubClient.id).filter(func.coalesce(TranslationProject.client_id,SubClient.parent_client_id)==client_id,TranslationProject.annotation_migrated_at.is_(None)).first()
         if root is None:raise HTTPException(422,'当前没有可预览的项目')
-        result=statements.build_statement(db,root.id,None,month,'project',mode)
+        result=statements.build_statement(db,root.id,None,month,'project',mode,special=special)
     for order_id in dict.fromkeys(order_ids):
         owner=owners[order_id]
         root=owner if isinstance(owner,TranslationProject) else db.get(TranslationProject,owner.parent_project_id)
         client=root.client or (root.sub_client.parent_client if root.sub_client else None)
         if not client or client.id!=client_id:raise HTTPException(422,'所选订单必须属于当前客户')
-        statement=statements.build_statement(db,root.id,owner.id,month,'project',mode)
+        statement=statements.build_statement(db,root.id,owner.id,month,'project',mode,special=special)
         if result is None:result=statement
         for line in statement['rows']:lines[line['line_id']]={**line,'billing_month':month,'_row_id':line['line_id']}
         pending.extend(statement['pending'])

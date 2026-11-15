@@ -51,7 +51,7 @@ def test_switching_pricing_modes_removes_other_mode_values_and_keeps_notes(table
     patch(http,root,explanation='内部说明',customer_explanation='客户说明',billing_tax_mode='incl_tax')
     fixed=patch(http,root,pricing_mode='fixed')['item']
     assert fixed['prices']==[] and fixed['adjusted_total'] is None and fixed['adjusted_total_incl_tax'] is None
-    assert fixed['billing_tax_mode'] is None
+    assert fixed['billing_tax_mode']=='incl_tax'
     patch(http,root,adjusted_total_incl_tax=200)
     metric=patch(http,root,pricing_mode='metric')['item']
     assert metric['adjusted_total'] is None and metric['adjusted_total_incl_tax'] is None

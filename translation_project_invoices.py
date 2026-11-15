@@ -34,10 +34,14 @@ def update_document_invoice(doc, invoice, actor_id, moment):
 
 
 def invoice_required(node):
+    mode = node.get('effective_billing_tax_mode')
+    if node.get('payment_method') != 'special':
+        return True if mode == 'incl_tax' else False if mode == 'excl_tax' else None
+    if node.get('invoice_requirement_override') is not None:
+        return node['invoice_requirement_override']
     if node.get('price_aggregate'):
         required=[invoice_required(child) for child in node['children']]
         return True if True in required else None if None in required or not required else False
-    mode=node.get('effective_billing_tax_mode')
     return True if mode=='incl_tax' else False if mode=='excl_tax' else None
 
 

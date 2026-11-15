@@ -1,5 +1,5 @@
 """项目付款确认与永久支付凭证，收费窗口和付款明细共用。"""
-from uuid import uuid4
+from uuid import UUID, uuid4
 from decimal import Decimal
 import json
 from typing import Literal
@@ -22,6 +22,7 @@ class PaymentConfirmationWrite(BaseModel):
     full_payment_amount:Decimal|None=Field(default=None,ge=0,max_digits=14,decimal_places=2)
     full_payment_currency:str=Field(default='CNY',pattern=r'^[A-Z]{3}$')
     full_payment_total_key:str|None=Field(default=None,max_length=80)
+    matched_order_ids:list[UUID]|None=Field(default=None,max_length=500)
     mismatch_reason:str=Field(default='',max_length=2000)
 
     @model_validator(mode='after')
@@ -71,10 +72,11 @@ def read(db,project_id):
 def record_value(row):
     option=row.payment_option if row else None
     account=''
-    full={};detail_proofs={};detail_order=[]
+    full={};detail_proofs={};detail_order=[];detail_matches={}
     if option and option.startswith('{'):
         try:
             data=json.loads(option);option=data.get('type');account=data.get('account','');full=data.get('full_payment') or {};detail_proofs=data.get('detail_proofs') or {};detail_order=data.get('detail_order') or []
+            detail_matches=data.get('detail_matches') or {}
         except (ValueError,AttributeError):option=None
     detail_proofs={str(key):value for key,value in detail_proofs.items() if isinstance(value,str)} if isinstance(detail_proofs,dict) else {}
     detail_order=[key for key in detail_order if isinstance(key,str)] if isinstance(detail_order,list) else []
@@ -82,12 +84,14 @@ def record_value(row):
             'payment_option':option,'payment_account':account,'proofs':row.proofs or '' if row else '',
             'full_payment_source':full.get('source'),'full_payment_amount':full.get('amount'),'full_payment_currency':full.get('currency','CNY'),
             'full_payment_total_key':full.get('total_key'),'mismatch_reason':full.get('mismatch_reason',''),
+            'matched_order_ids':full.get('matched_order_ids',[]),
             'full_match_status':full.get('match_status','unverified' if row and row.is_paid and option=='full' else 'none'),
             'full_reference_label':full.get('reference_label',''),'full_reference_amount':full.get('reference_amount'),
             'full_payment_confirmed_by':full.get('confirmed_by'),
             'full_payment_confirmed_by_name':full.get('confirmed_by_name'),
             'full_payment_confirmed_at':full.get('confirmed_at'),
             'payment_details_proofs':detail_proofs,
+            **({'payment_detail_matches':detail_matches} if detail_matches else {}),
             **({'payment_detail_order':detail_order} if detail_order else {})}
 
 
@@ -96,19 +100,32 @@ def project_totals(db,project_id):
     import crud
     data=read_finance(db,project_id)
     node=data['item']
-    method=node['payment_method']
-    summary_label={'statement':'对账单总价','monthly':'订单汇总总价'}.get(method)
     items=[]
-    if summary_label and node['client_id'] and node['billing_month']:
-        summary=payment_summary(db,crud.get_translation_project(db,project_id),method)
-        if not summary['pending']:
-            items.extend({'key':f'{method}:{currency}','label':summary_label,'currency':currency,
+    if node['payment_method']=='monthly' and node['client_id'] and node['billing_month']:
+        project=crud.get_translation_project(db,project_id)
+        summary=payment_summary(db,project,'monthly')
+        if summary['order_count']>1 and not summary['pending']:
+            items.extend({'key':f'monthly:{currency}','label':'订单汇总总价','currency':currency,
                           'amount':format(amount,'.2f'),'taxMode':None}
                          for currency,amount in summary['billing_totals'].items())
+        # Historical confirmations can still point to a generated statement.
+        if ((node.get('payment_confirmation') or {}).get('full_payment_total_key') or '').startswith('statement:'):
+            statement=payment_summary(db,project,'statement')
+            if not statement['pending']:
+                items.extend({'key':f'statement:{currency}','label':'对账单总价','currency':currency,
+                              'amount':format(amount,'.2f'),'taxMode':None}
+                             for currency,amount in statement['billing_totals'].items())
     for key,label,field in [('billing','计费总价','billing_totals'),('excl','不含税总价','totals_excl_tax'),('incl','含税总价','totals_incl_tax'),('adjusted','调整后总价','adjusted_totals')]:
         for currency,amount in node.get(field,{}).items():
             items.append({'key':f'{key}:{currency}','label':label,'currency':currency,'amount':format(Decimal(amount),'.2f'),
                           'taxMode':node.get('effective_billing_tax_mode') if key=='billing' else 'incl_tax' if key=='incl' else 'excl_tax' if key=='excl' else None})
+    confirmation=node.get('payment_confirmation') or {}
+    if confirmation.get('matched_order_ids'):
+        try:
+            items.append(matched_order_total(payment_match_roots(db,project_id),confirmation['matched_order_ids'],
+                                             confirmation['full_payment_currency']))
+        except HTTPException:
+            pass
     return {'items':items,'version':data['version']}
 
 
@@ -120,13 +137,52 @@ def attach(db,projects):
         project.payment_confirmation=record_value(row)
 
 
+def payment_match_roots(db, project_id):
+    from translation_customer_finance import read as read_finance, payment_summary, payment_match_order
+    root=read_finance(db,project_id)['item']
+    if root['payment_method']=='monthly':
+        summary=payment_summary(db,db.get(TranslationProject,project_id),'monthly',include_orders=True)
+        if summary['order_count']>1:
+            return summary['orders']
+    return [payment_match_order(node) for node in root['children']]
+
+
+def matched_order_total(roots, order_ids, currency=None):
+    selected={str(uid) for uid in order_ids}
+    if len(selected)!=len(order_ids):
+        raise HTTPException(422,'匹配订单不能重复')
+    found=set()
+    amount=Decimal(0)
+    def visit(node, parent_selected=False):
+        nonlocal amount
+        chosen=node['id'] in selected
+        if chosen:
+            if parent_selected:
+                raise HTTPException(422,'请勿同时匹配上级订单和其下级订单')
+            found.add(node['id'])
+            totals=node['billing_totals']
+            if node.get('fixed_pricing_from') or node['incomplete'] or not totals:
+                raise HTTPException(422,'所选订单计费金额待补齐')
+            if currency:
+                if currency not in totals:
+                    raise HTTPException(422,'所选订单缺少当前付款币种的计费金额')
+                amount+=Decimal(str(totals[currency]))
+        for child in node['children']:
+            visit(child,parent_selected or chosen)
+    for node in roots:
+        visit(node)
+    if selected!=found:
+        raise HTTPException(409,'匹配订单已不在当前结算范围，请重新选择')
+    return {'key':f'orders:{currency}','label':'所选订单计费合计','currency':currency,'amount':format(amount,'.2f')}
+
+
 def already_cleared(payload,current):
     return bool(payload and not payload.is_paid and payload.clear_details and not current['is_paid']
                 and not current['payment_option'] and not current['payment_account'] and not current['proofs']
                 and current['full_payment_amount'] is None)
 
 
-def save(db,project_id,payload,actor_id,cleared_payments=None,detail_proofs=None,payment_details_before=None,payment_details_after=None,*,confirm_full=False,detail_order=None):
+def save(db,project_id,payload,actor_id,cleared_payments=None,detail_proofs=None,payment_details_before=None,payment_details_after=None,*,confirm_full=False,detail_order=None,detail_matches=None):
     if payload is None:return read(db,project_id)
     if not ready(db):raise HTTPException(503,'付款确认存储尚未初始化')
     # 所有入口锁同一母订单，状态与既有付款记录不会分别覆盖。
@@ -146,10 +202,17 @@ def save(db,project_id,payload,actor_id,cleared_payments=None,detail_proofs=None
             cleared_payments=read_payments(db,project)['payments']
         if payload.clear_details:payload=payload.model_copy(update={'payment_option':None,'payment_account':'','proofs':'','full_payment_amount':None,'full_payment_total_key':None,'mismatch_reason':''})
     replacing=payload.replace_details
+    matches=payload.matched_order_ids
+    matches=[str(uid) for uid in matches] if matches is not None else before['matched_order_ids']
+    if clearing or payload.payment_option!='full':
+        matches=[]
+    previous_matches=before.get('payment_detail_matches',{})
+    next_matches={} if clearing else detail_matches if detail_matches is not None else {} if replacing else previous_matches
     next_proofs={} if clearing else detail_proofs if detail_proofs is not None else {} if replacing else before.get('payment_details_proofs',{})
     previous_order=before.get('payment_detail_order',[])
     next_order=[] if clearing else detail_order if detail_order is not None else [] if replacing else previous_order
     details_changed=(next_proofs!=before.get('payment_details_proofs',{})
+                     or next_matches!=previous_matches
                      or next_order!=previous_order
                      or payment_details_before is not None and payment_details_before!=payment_details_after)
     if replacing and cleared_payments is None:
@@ -168,27 +231,30 @@ def save(db,project_id,payload,actor_id,cleared_payments=None,detail_proofs=None
             if any(item.actual_amount is None for item in details):raise HTTPException(422,'登记尾款后，请填写每次付款的实际金额再核对总价')
             source='details'
             payload=payload.model_copy(update={'full_payment_amount':sum((Decimal(item.actual_amount) for item in details),Decimal('0')).quantize(Decimal('.01'))})
-    values=payload.model_dump(exclude={'revision','clear_details','replace_details'})
+    values=payload.model_dump(exclude={'revision','clear_details','replace_details','matched_order_ids'})
+    values['matched_order_ids']=matches
     if values['full_payment_amount'] is not None:values['full_payment_amount']=format(values['full_payment_amount'],'.2f')
     full={}
     unchanged=values=={key:before[key] for key in values}
-    same_full_payment=all(values[key]==before[key] for key in ('is_paid','payment_option','payment_account','proofs','full_payment_amount','full_payment_currency'))
+    same_full_payment=all(values[key]==before[key] for key in ('is_paid','payment_option','payment_account','proofs','full_payment_amount','full_payment_currency','matched_order_ids'))
     if payload.is_paid and (payload.payment_option=='full' or source=='details'):
         if payload.full_payment_amount is None:
             if unchanged:return before  # 兼容未登记金额的历史全款确认，不把它冒认为已匹配。
             raise HTTPException(422,'请填写已付全款金额并核对项目总价')
-        totals=project_totals(db,project_id)['items']
-        selected=next((item for item in totals if item['key']==payload.full_payment_total_key),None)
-        if selected is None and payload.full_payment_total_key:
+        totals=[] if matches else project_totals(db,project_id)['items']
+        selected=matched_order_total(payment_match_roots(db,project_id),matches,payload.full_payment_currency) if matches else next(
+            (item for item in totals if item['key']==payload.full_payment_total_key and not item['key'].startswith('orders:')),None)
+        if selected is None and payload.full_payment_total_key and not payload.full_payment_total_key.startswith('orders:'):
             if payload.full_payment_total_key.startswith(('statement:', 'monthly:')):
                 raise HTTPException(409,'当前付款币种的汇总金额待核对，请确认汇总项目和金额后重试')
             raise HTTPException(409,'选定的项目总价已变化，请重新选择')
-        if selected is None:selected=next((item for item in totals if item['key'].split(':')[0] not in ('statement','monthly') and item['currency']==payload.full_payment_currency and Decimal(item['amount'])==payload.full_payment_amount),None)
+        if selected is None:selected=next((item for item in totals if item['key'].split(':')[0] not in ('statement','monthly','orders') and item['currency']==payload.full_payment_currency and Decimal(item['amount'])==payload.full_payment_amount),None)
         matched=bool(selected and selected['currency']==payload.full_payment_currency and Decimal(selected['amount'])==payload.full_payment_amount)
         if not matched and not payload.mismatch_reason.strip():raise HTTPException(422,'全款金额与项目总价不匹配，请填写原因')
         values['full_payment_total_key']=selected['key'] if selected else None
         values['mismatch_reason']='' if matched else payload.mismatch_reason.strip()
         full={'source':source,'amount':values['full_payment_amount'],'currency':payload.full_payment_currency,'total_key':values['full_payment_total_key'],
+              'matched_order_ids':matches,
               'match_status':'matched' if matched else 'mismatch','mismatch_reason':values['mismatch_reason'],
               'reference_label':selected['label'] if selected else '项目暂无匹配总价','reference_amount':selected['amount'] if selected else None}
         if unchanged and not confirm_full and not details_changed and before['full_match_status']==full['match_status'] and before['full_reference_amount']==full['reference_amount'] and before['full_payment_source']==source:return before
@@ -223,7 +289,7 @@ def save(db,project_id,payload,actor_id,cleared_payments=None,detail_proofs=None
                         confirmed_by_name=before['full_payment_confirmed_by_name'],
                         confirmed_at=before['full_payment_confirmed_at'])
     # 复用既有 Text 存储付款类型及账户，兼容历史纯类型值，无需改表结构。
-    if payload.payment_account or full or next_proofs or next_order:row.payment_option=json.dumps({'type':payload.payment_option,'account':payload.payment_account,'full_payment':full,'detail_proofs':next_proofs,'detail_order':next_order},ensure_ascii=False)
+    if payload.payment_account or full or next_proofs or next_order or next_matches:row.payment_option=json.dumps({'type':payload.payment_option,'account':payload.payment_account,'full_payment':full,'detail_proofs':next_proofs,'detail_order':next_order,'detail_matches':next_matches},ensure_ascii=False)
     row.revision+=1;row.updated_by=actor_id;row.updated_at=business_now();db.flush()
     after=read(db,project_id)
     history_before={**before,'payment_details':cleared_payments or []} if clearing or replacing else before
@@ -256,7 +322,7 @@ def recheck_after_fee_change(db,project_id,actor_id):
     if not current['is_paid'] or (current['payment_option']!='full' and current['full_payment_source']!='details') or current['full_payment_amount'] is None:return current
     totals=project_totals(db,project_id)['items']
     selected=next((item for item in totals if item['key']==current['full_payment_total_key']),None)
-    if selected is None and (current['full_payment_total_key'] or '').startswith(('statement:', 'monthly:')):
+    if selected is None and (current['matched_order_ids'] or (current['full_payment_total_key'] or '').startswith(('statement:', 'monthly:'))):
         return current  # Keep the original payment reference if its summary is no longer available.
     if selected is None:
         selected=next((item for item in totals if item['key'].split(':')[0] not in ('statement','monthly') and item['currency']==current['full_payment_currency'] and Decimal(item['amount'])==Decimal(current['full_payment_amount'])),None)

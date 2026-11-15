@@ -14,7 +14,7 @@
             <el-form-item label="账单月份"><el-date-picker v-model="draft.settlement.billing_month" type="month" value-format="YYYY-MM" placeholder="默认按订单日期" /></el-form-item>
             <el-form-item label="计费税口径"><el-select v-model="draft.settlement.tax_basis" style="width:200px"><el-option label="不含税" value="excl_tax" /><el-option label="含税" value="incl_tax" /><el-option label="税口径未确认" value="legacy" /></el-select></el-form-item>
             <el-form-item label="当前计费合计"><ReadonlyField type="textarea" autosize :model-value="formatFinanceAmounts(interpretationFinanceTotals(draft))" source="auto" /></el-form-item>
-            <el-form-item label="付款方式"><el-radio-group v-model="draft.settlement.payment_method"><el-radio value="individual">单项付款</el-radio><el-radio value="statement">对账单汇总付款</el-radio><el-radio value="monthly">月度汇总付款</el-radio></el-radio-group></el-form-item>
+            <el-form-item label="结算模式"><el-radio-group v-model="draft.settlement.payment_method" aria-label="结算模式"><el-radio v-for="(label, mode) in settlementModeLabels" :key="mode" :value="mode">{{label}}</el-radio></el-radio-group></el-form-item>
             <el-form-item label="收款状态"><el-select v-model="draft.settlement.payment_status" style="width:200px"><el-option label="未登记" value="unrecorded" /><el-option label="已收定金" value="deposit" /><el-option label="已收部分款" value="partial" /><el-option label="已收全款" value="full" /></el-select></el-form-item>
             <section v-for="(receipt,index) in draft.settlement.payments" :key="index" class="finance-receipt"
               data-dialog-field-search-group :data-dialog-field-search-group-title="'收款明细 '+(index+1)">
@@ -53,6 +53,7 @@
   </span>
 </template>
 <script setup>
+import { settlementModeLabels } from '@/utils/settlementModes'
 import CustomerQuotationDialog from './CustomerQuotationDialog.vue'
 import InterpretationStatementDialog from './InterpretationStatementDialog.vue'
 import ClientManagementLink from './ClientManagementLink.vue'

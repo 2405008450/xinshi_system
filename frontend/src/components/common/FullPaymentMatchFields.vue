@@ -1,9 +1,10 @@
 <template>
   <div class="full-payment-match" v-loading="loading">
-    <div class="full-payment-inputs">
+    <div class="full-payment-inputs" :class="{'with-account':$slots.account}">
       <el-form-item :label="fromDetails?'累计实付金额':'已付全款金额'" :prop="`${prefix}.fullPaymentAmount`" :rules="[{validator:validateAmount,trigger:'change'}]"><ReadonlyField v-if="fromDetails" :model-value="value.fullPaymentAmount==null?'待填写各次实际金额':value.fullPaymentAmount.toFixed(2)" source="auto" /><el-input-number v-else :model-value="value.fullPaymentAmount??undefined" :min="0" :precision="2" :controls="false" aria-label="已付全款金额" @focus="editingAmount=true" @blur="editingAmount=false" @update:model-value="update('fullPaymentAmount',$event??null)" /></el-form-item>
       <el-form-item label="付款币种"><el-select :model-value="value.fullPaymentCurrency" aria-label="付款币种" @update:model-value="update('fullPaymentCurrency',$event)"><el-option v-for="currency in currencies" :key="currency" :value="currency" /></el-select></el-form-item>
-      <el-form-item :label="referenceFieldLabel"><div class="full-payment-reference"><ReadonlyField :model-value="reference?`${reference.currency} ${reference.amount}`:'暂无可匹配总价'" source="auto" :aria-label="referenceFieldLabel" /><span v-if="reference&&!fixedCharge&&!summaryLabel" class="full-payment-tax-mode">{{referenceTaxLabel}}</span></div><p v-if="fixedCharge" class="full-payment-hint full-payment-reference-hint">请在上面计费口径调整含税/不含税固定收费。</p></el-form-item>
+      <slot name="account" />
+      <el-form-item :label="referenceFieldLabel"><div class="full-payment-reference"><ReadonlyField :model-value="reference?`${reference.currency} ${reference.amount}`:'暂无可匹配总价'" source="auto" :aria-label="referenceFieldLabel" /><span v-if="reference&&!fixedCharge&&!summaryLabel" class="full-payment-tax-mode">{{referenceTaxLabel}}</span><div v-if="$slots.match" class="payment-match-actions"><slot name="match" /></div></div><p v-if="fixedCharge" class="full-payment-hint full-payment-reference-hint">请在上面计费口径调整含税/不含税固定收费。</p></el-form-item>
     </div>
     <div class="full-payment-result-row">
     <p class="full-payment-result"><el-tag :type="status==='matched'?'success':status==='mismatch'?'danger':'info'">{{status==='matched'?'已匹配':status==='mismatch'?'不匹配':'待核对'}}</el-tag><span v-if="reference">{{fixedCharge?referenceFieldLabel:reference.label}}：{{reference.currency}} {{reference.amount}}</span><span v-else>项目暂无可匹配总价</span></p>
@@ -30,11 +31,11 @@ const totals=computed(()=>props.draftTotals??savedTotals.value)
 let sequence=0,controller
 const currencies=computed(()=>[...new Set(['CNY','USD','HKD','EUR','GBP','JPY',...totals.value.map(item=>item.currency)])])
 const sameAmount=(a,b)=>Math.round(Number(a)*100)===Math.round(Number(b)*100)
-const referenceKey=computed(()=>`${props.summaryLabel==='对账单'?'statement':props.summaryLabel==='订单汇总'?'monthly':'billing'}:${value.value.fullPaymentCurrency}`)
+const referenceKey=computed(()=>`${value.value.matchedOrderIds.length&&!props.fromDetails?'orders':props.summaryLabel==='对账单'?'statement':props.summaryLabel==='订单汇总'?'monthly':'billing'}:${value.value.fullPaymentCurrency}`)
 const reference=computed(()=>totals.value.find(item=>item.key===referenceKey.value))
 const referenceTaxLabel=computed(()=>({incl_tax:'含税',excl_tax:'不含税',mixed:'按子订单计费口径'})[reference.value?.taxMode]||'项目计费口径')
-const fixedCharge=computed(()=>!props.summaryLabel&&props.pricingMode==='fixed')
-const referenceFieldLabel=computed(()=>props.summaryLabel?`对应${props.summaryLabel}总价`:fixedCharge.value?`${({incl_tax:'（含税）',excl_tax:'（不含税）'})[reference.value?.taxMode||props.billingTaxMode]||'（含税/不含税）'}固定收费`:'对应项目总价')
+const fixedCharge=computed(()=>!value.value.matchedOrderIds.length&&!props.summaryLabel&&props.pricingMode==='fixed')
+const referenceFieldLabel=computed(()=>value.value.matchedOrderIds.length&&!props.fromDetails?'所选订单计费合计':props.summaryLabel?`对应${props.summaryLabel}总价`:fixedCharge.value?`${({incl_tax:'（含税）',excl_tax:'（不含税）'})[reference.value?.taxMode||props.billingTaxMode]||'（含税/不含税）'}固定收费`:'对应项目总价')
 const status=computed(()=>loading.value||value.value.fullPaymentAmount==null||(props.summaryLabel&&!totals.value.length)?'pending':reference.value&&reference.value.currency===value.value.fullPaymentCurrency&&sameAmount(reference.value.amount,value.value.fullPaymentAmount)?'matched':'mismatch')
 const legacy=computed(()=>value.value.fullMatchStatus==='unverified'&&value.value.fullPaymentAmount==null)
 function update(key,data){emit('update:modelValue',{...value.value,[key]:data})}
@@ -67,8 +68,8 @@ onBeforeUnmount(()=>{window.removeEventListener(paymentChangeEvent,onPaymentChan
 </script>
 
 <style scoped>
-.full-payment-reference{display:flex;align-items:center;gap:10px;width:100%;min-width:0}.full-payment-reference>.el-input{flex:1;min-width:0}.full-payment-tax-mode{color:var(--el-color-danger);white-space:nowrap;font-size:13px}
+.full-payment-reference{display:flex;align-items:center;gap:10px;width:100%;min-width:0}.full-payment-reference>.el-input{flex:1 1 130px;min-width:0}.full-payment-reference{flex-wrap:wrap}.payment-match-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.full-payment-tax-mode{color:var(--el-color-danger);white-space:nowrap;font-size:13px}
 .full-payment-reference-hint{width:100%;margin:6px 0 0;line-height:1.5}
 .full-payment-result-row{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:12px}.full-payment-result-row .full-payment-result{flex:0 1 auto;margin:0;min-height:32px}.full-payment-reason{flex:1 1 300px;min-width:0;margin-bottom:0}.full-payment-reason :deep(.el-form-item__content){min-width:0}.full-payment-reason :deep(.el-textarea){width:100%}
-.full-payment-inputs{display:grid;grid-template-columns:1fr .7fr 1.8fr;gap:12px}.full-payment-inputs>*{min-width:0}.full-payment-inputs .el-select,.full-payment-inputs .el-input-number{width:100%}.full-payment-result{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px}.full-payment-hint{color:var(--el-text-color-secondary);font-size:12px}.full-payment-error{color:var(--el-color-danger)}@media(max-width:680px){.full-payment-inputs{grid-template-columns:1fr}}
+.full-payment-inputs{display:grid;grid-template-columns:1fr .7fr 1.8fr;gap:12px}.full-payment-inputs>*{min-width:0}.full-payment-inputs .el-select,.full-payment-inputs .el-input-number{width:100%}.full-payment-result{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px}.full-payment-hint{color:var(--el-text-color-secondary);font-size:12px}.full-payment-error{color:var(--el-color-danger)}.full-payment-inputs.with-account{grid-template-columns:minmax(0,1fr) minmax(0,.7fr) minmax(0,1fr) minmax(0,1.8fr)}@media(max-width:900px){.full-payment-inputs.with-account{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:540px){.full-payment-inputs,.full-payment-inputs.with-account{grid-template-columns:1fr}}
 </style>

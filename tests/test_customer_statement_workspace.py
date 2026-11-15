@@ -55,6 +55,231 @@ def test_multimonth_import_move_uniqueness_and_original_project_untouched(setup)
     assert state['payload']['tasks'][str(first.id)]['board_id']==board1
 
 
+def test_statement_windows_separate_project_lists_and_existing_bill_rows(setup):
+    from translation_customer_finance import router
+    from translation_document_requirements import save
+
+    http,db,clients,_,user,_,ordinary=setup
+    http.app.include_router(router)
+    special=project(db,clients[0],'003',fixed=True)
+    special_only=project(db,clients[1],'004',fixed=True)
+    save(db,ordinary,payment_method='individual',actor_id=user.id)
+    save(db,special,payment_method='special',statement_required=True,actor_id=user.id)
+    save(db,special_only,payment_method='special',statement_required=False,actor_id=user.id)
+    db.commit()
+    state=imported(setup,['2026-11'])
+    assert len(state['payload']['tasks'])==2
+    for scope, order in [('standard',ordinary),('special',special)]:
+        params={'settlement_scope':scope,'billing_month':'2026-11'}
+        page=http.get('/translation-customer-finance/page',params={**params,'client_ids':str(clients[0].id)}).json()
+        assert [item['id'] for item in page['items']]==[str(order.id)]
+        groups=http.get('/translation-customer-finance/statement-customer-groups',params={
+            **params,'statement_required':scope=='special',
+        }).json()
+        expected={str(clients[0].id),str(clients[1].id)} if scope=='special' else {str(clients[0].id)}
+        assert {item['id'] for item in groups['items']}==expected
+        workspace=http.get(f"/translation-statement-workspaces/{clients[0].id}",params={'settlement_scope':scope}).json()
+        assert set(workspace['payload']['tasks'])=={str(order.id)}
+        assert [row['root_id'] for row in workspace['documents'][0]['statement']['rows']]==[str(order.id)]
+    groups=http.get('/translation-customer-finance/statement-customer-groups',params={
+        'settlement_scope':'special','billing_month':'2026-11','statement_required':False,
+    }).json()
+    assert groups['items']==[]
+    response=http.post('/translation-statement-workspaces/import',json={
+        'project_id':str(special_only.id),'months':['2026-11'],'revision':0,'confirmed':True,
+        'settlement_scope':'special',
+    })
+    assert response.status_code==200,response.text
+    assert response.json()['documents'][0]['statement']['title']=='特殊结算单'
+
+
+def test_special_settlement_settings_are_independent_and_can_override_each_child(setup):
+    from models import TranslationSubOrder,TranslationSubOrderChargeItem
+    import translation_customer_finance as finance
+
+    http,db,clients,_,user,_,root=setup
+    http.app.include_router(finance.router)
+    root.customer_charge_items.clear()
+    children=[]
+    for suffix in ('.001','.002'):
+        child=TranslationSubOrder(id=uuid4(),parent_project_id=root.id,sub_order_no=root.order_no+suffix,
+                                  sub_project_name='子订单'+suffix,language_pair=root.language_pair)
+        db.add(child)
+        children.append(child)
+    db.commit()
+    with pytest.raises(service.HTTPException,match='填写单价'):
+        finance.save(db,user,root.id,finance.PriceWrite(version=finance.read(db,root.id)['version'],
+                     order_id=root.id,documents_only=True,payment_method='special'))
+    for child in children:
+        child.customer_charge_items.append(TranslationSubOrderChargeItem(
+            id=uuid4(),sequence_no=1,item_name='翻译费',pricing_mode='metric',currency='CNY',
+            metric_type='words',unit_size=1,unit_price_excl_tax=2,unit_price_incl_tax=3,
+            total_excl_tax=20,total_incl_tax=30,billing_month='2026-11',
+        ))
+    db.commit()
+    finance.save(db,user,root.id,finance.PriceWrite(version=finance.read(db,root.id)['version'],
+                 order_id=root.id,documents_only=True,payment_method='special'))
+    original=finance.read(db,root.id)
+    url=f'/translation-customer-finance/project/{root.id}/special-settlement'
+    for child,tax,required,whole in [(children[0],'incl_tax',True,True),(children[1],'excl_tax',False,False)]:
+        response=http.put(url,json={'order_id':str(child.id),'apply_to_order':whole,
+                                    'tax_mode':tax,'statement_required':required})
+        assert response.status_code==200,response.text
+    assert finance.read(db,root.id)==original
+    response=http.get('/translation-customer-finance/page',params={
+        'client_ids':str(clients[0].id),'settlement_scope':'special','billing_month':'2026-11',
+    })
+    assert response.status_code==200,response.text
+    changed=response.json()
+    assert [(row['special_tax_mode'],row['statement_required'],row['invoice_required'])
+            for row in changed['items'][0]['children']]==[('incl_tax',True,True),('excl_tax',False,False)]
+    assert changed['client_subtotals'][0]['totals_excl_tax']=={'CNY':'40.00'}
+    assert changed['client_subtotals'][0]['totals_incl_tax']=={'CNY':'60.00'}
+    response=http.post('/translation-statement-workspaces/import',json={
+        'project_id':str(root.id),'months':['2026-11'],'revision':0,'confirmed':True,'settlement_scope':'special',
+    })
+    assert response.status_code==200,response.text
+    rows=response.json()['documents'][0]['statement']['rows']
+    assert [(row['unit_label'],row['subtotal']) for row in rows]==[('含税','30.00'),('不含税','20.00')]
+    response=http.put(url,json={'order_id':str(children[0].id),'invoice_status':'issued','invoice_sent':True})
+    assert response.status_code==200,response.text
+    tracking={'settlement_scope':'special','special_invoice_tracking':True,'invoice_status':'issued'}
+    response=http.get('/translation-customer-finance/page',params=tracking)
+    assert response.status_code==200,response.text
+    invoice,=response.json()['items']
+    assert invoice['id']==str(children[0].id) and invoice['special_invoice_sent']
+    assert invoice['special_invoice_required'] and invoice['invoice_status']=='unissued'
+    standard=http.get('/translation-customer-finance/page',params={
+        'settlement_scope':'standard','include_invoice_status':True,
+    }).json()
+    assert str(root.id) not in {row['id'] for row in standard['items']}
+    before_payment=finance.read(db,root.id)
+    payment_path=f'/translation-statement-workspaces/{clients[0].id}/special-payment/2026-11'
+    deposit={'revision':0,'confirmation':{'is_paid':True,'payment_option':'deposit'},
+             'payments':[{'stage_type':'deposit','actual_amount':'20.00'}]}
+    response=http.put(payment_path,json=deposit)
+    assert response.status_code==200,response.text
+    assert response.json()['payments'][0]['actual_amount']=='20.00'
+    assert http.put(payment_path,json=deposit).status_code==409
+    response=http.put(payment_path,json={'revision':1,'confirmation':{
+        'is_paid':True,'payment_option':'full','full_payment_amount':'60.00',
+    },'payments':[]})
+    assert response.status_code==200,response.text
+    assert http.get(payment_path).json()['confirmation']['full_payment_amount']=='60.00'
+    assert http.get(payment_path,params={'period_number':2}).json()['revision']==0
+    assert finance.read(db,root.id)==before_payment
+
+
+def test_add_periods_preserves_original_tasks_and_imports_into_selected_period(setup):
+    http,_,_,_,_,_,second=setup
+    original=imported(setup,['2026-11'])
+    first_id=original['documents'][0]['id']
+    tasks=original['payload']['tasks']
+    second_period=change(setup,original,'add_billing_period',{'month':'2026-11'})
+    change(setup,original,'add_billing_period',{'month':'2026-11'},expected=409)
+    state=change(setup,second_period,'add_billing_period',{'month':'2026-11'})
+    assert state['payload']['tasks']==tasks
+    assert [board['statement']['month'] for board in state['documents']]==[
+        '2026年11月份第1期','2026年11月份第2期','2026年11月份第3期']
+    assert [board['period_number'] for board in state['documents']]==[1,2,3]
+    assert state['documents'][0]['id']==first_id
+    third_id=state['documents'][2]['id']
+    body={'project_id':str(second.id),'months':['2026-11'],'revision':state['revision'],'confirmed':True}
+    assert http.post('/translation-statement-workspaces/import',json=body).status_code==422
+    new_order=project(setup[1],setup[2][0],'003','2026-11',fixed=True)
+    response=http.post('/translation-statement-workspaces/import',json={**body,'board_id':third_id})
+    assert response.status_code==200,response.text
+    saved=response.json()
+    assert saved['payload']['tasks'][str(second.id)]['board_id']==first_id
+    assert saved['payload']['tasks'][str(new_order.id)]['board_id']==third_id
+    assert saved['payload']['tasks'][str(new_order.id)]['month']=='2026-11'
+
+
+def test_price_window_assigns_new_order_and_moves_existing_statement_task(setup):
+    from translation_customer_finance import router
+
+    http, _, (client, _), _, _, first, second = setup
+    http.app.include_router(router)
+    original = imported(setup, ['2026-11'])
+    first_board = original['documents'][0]['id']
+
+    def assign(order, revision, **fields):
+        url = f'/translation-statement-workspaces/project/{order.id}/billing-period'
+        version = http.get(f'/translation-customer-finance/project/{order.id}').json()['version']
+        response = http.put(url, json={'month':'2026-11','revision':revision,'version':version,**fields})
+        assert response.status_code == 200, response.text
+        return response.json()['item']['billing_period']
+
+    period = assign(first, original['revision'], create_period=True)
+    assert period['number'] == 2
+    for order, number in [(first, 2), (second, 1)]:
+        endpoint = f'/translation-customer-finance/project/{order.id}'
+        item = http.get(endpoint).json()['item']
+        assert item['settlement_period_number'] == number
+        summary = http.get(f'{endpoint}/payment-summary', params={'method':'monthly'}).json()
+        assert [entry['id'] for entry in summary['orders']] == [str(order.id)]
+    result = http.get('/translation-customer-finance/page', params={'billing_month':'2026-11'}).json()
+    assert {item['id'] for item in result['items']} == {str(first.id), str(second.id)}
+    options = http.get('/translation-statement-workspaces/period-options/2026-11',
+                       params={'client_id':str(client.id),'settlement_scope':'standard'})
+    assert options.status_code == 200 and options.json() == [1, 2]
+    result = http.get('/translation-customer-finance/page', params={
+        'billing_month':'2026-11','period_number':2,'settlement_scope':'standard',
+    }).json()
+    assert [item['id'] for item in result['items']] == [str(first.id)]
+    response = http.post('/translation-statement-workspaces/import', json={
+        'project_id':str(first.id),'months':['2026-11'],'revision':original['revision']+1,'confirmed':True,
+        'period_number':2,'settlement_scope':'standard',
+    })
+    assert response.status_code == 200, response.text
+    state = response.json()
+    assert state['payload']['tasks'][str(first.id)]['board_id'] == period['board_id']
+    assert state['payload']['tasks'][str(second.id)]['board_id'] == first_board
+    assign(second, state['revision'], board_id=period['board_id'])
+    latest = http.get(f"/translation-statement-workspaces/{state['client_id']}").json()
+    assert latest['payload']['tasks'][str(second.id)]['board_id'] == period['board_id']
+    merged = http.get(f'/translation-customer-finance/project/{first.id}/payment-summary',
+                      params={'method':'monthly'}).json()
+    assert {entry['id'] for entry in merged['orders']} == {str(first.id), str(second.id)}
+
+
+def test_statement_company_uses_subject_account_and_prefills_new_invoice(setup,monkeypatch):
+    from invoice_workflow import batch_projects
+    from invoice_parties import SUBJECTS
+    import translation_customer_finance as finance
+
+    http,db,_,_,user,_,order=setup
+    monkeypatch.setenv('APP_ENV','production')
+    settings_url='/customer-statement-settings'
+    for key in ('guangzhou','shenzhen'):
+        response=http.put(settings_url,params={'subject_key':key},json={
+            'company':SUBJECTS[key][1],'revision':0,'bank_name':f'{key} bank',
+            'account_name':SUBJECTS[key][1],'account_number':f'{key}-account',
+        })
+        assert response.status_code==200,response.text
+    current=finance.read(db,order.id)
+    finance.save(db,user,order.id,finance.PriceWrite(
+        version=current['version'],order_id=order.id,pricing_mode='fixed',
+        adjusted_total=500,adjusted_total_incl_tax=530,billing_tax_mode='incl_tax',payment_method='individual',
+    ))
+    state=imported(setup,['2026-11'])
+    board=state['documents'][0]
+    assert board['statement']['settings']['account_number']=='guangzhou-account'
+    data={'board_id':board['id'],'subject_key':'shenzhen'}
+    change(setup,state,'change_company_subject',{**data,'subject_key':'shanghai'},expected=422)
+    state=change(setup,state,'change_company_subject',data)
+    statement=state['documents'][0]['statement']
+    assert statement['company']==SUBJECTS['shenzhen'][1]
+    assert statement['settings']['account_number']=='shenzhen-account'
+    assert batch_projects(db,[order.id])[0]['default_subject']=='shenzhen'
+    response=http.get(f"/translation-statement-workspaces/{state['client_id']}/excel",
+                      params={'revision':state['revision'],'board_ids':board['id']})
+    assert response.status_code==200,response.text[:300]
+    workbook=load_workbook(BytesIO(response.content))
+    values={str(value) for row in workbook.active.values for value in row if value is not None}
+    assert SUBJECTS['shenzhen'][1] in values and any('shenzhen-account' in value for value in values)
+
+
 def test_local_workspace_excludes_private_fields_from_documents_and_history(setup,monkeypatch):
     http=setup[0]
     monkeypatch.setenv('APP_ENV','production')

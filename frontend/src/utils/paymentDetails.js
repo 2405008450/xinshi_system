@@ -5,6 +5,7 @@ export function paymentDetailsForm(rows=[]){
     planned_amount:(row.planned_amount??row.plannedAmount)==null?undefined:Number(row.planned_amount??row.plannedAmount),
     actual_amount:(row.actual_amount??row.actualAmount)==null?undefined:Number(row.actual_amount??row.actualAmount),
     payment_time:(row.payment_time??row.paymentTime)?businessDateTimeInputValue(row.payment_time??row.paymentTime):null,
+    matched_order_ids:[...(row.matched_order_ids??row.matchedOrderIds??[])],
     payment_method:row.payment_method??row.paymentMethod??'',proofs:row.proofs||'',
     confirmed_by_name:row.confirmed_by_name??row.confirmedByName??null,
     confirmed_at:row.confirmed_at??row.confirmedAt??null}))

@@ -15,6 +15,8 @@ def payment_amount_mismatches(item, confirmation):
         kind, _, selected_currency = key.partition(':')
         totals = item.get(fields.get(kind, ''), {})
         expected = totals.get(selected_currency) if selected_currency == currency else None
+        if kind=='orders' and selected_currency==currency:
+            expected=confirmation.get('full_reference_amount')
     else:
         totals = item.get('billing_totals', {})
         expected = totals.get(currency) if len(totals) == 1 else None
@@ -22,7 +24,7 @@ def payment_amount_mismatches(item, confirmation):
             or Decimal(str(amount)).quantize(Decimal('.01')) != Decimal(str(expected)).quantize(Decimal('.01')))
 
 
-def attach_payment_status(db,result):
+def attach_payment_status(db,result,*,check_amount=True):
     from decimal import Decimal
     from uuid import UUID
     from sqlalchemy import case
@@ -38,9 +40,11 @@ def attach_payment_status(db,result):
         amount=confirmation.get('full_payment_amount') if confirmation.get('is_paid') and confirmation.get('payment_option')=='full' else amounts.get(item['id'],0)
         item['payment_status']=states.get(item['id'],'unpaid');item['payment_actual_total']=format(Decimal(str(amount)),'.2f') if amount is not None else None
         item['payment_currency']=confirmation.get('full_payment_currency','CNY')
+        if not check_amount:
+            continue
         reference_item = item
         reference_key = confirmation.get('full_payment_total_key') or ''
-        if item['payment_status'] == 'full' and reference_key.startswith(('statement:', 'monthly:')):
+        if item['payment_status'] == 'full' and reference_key.startswith(('statement:', 'monthly:', 'orders:')):
             from translation_payment_confirmation import project_totals
             totals = project_totals(db, UUID(item['id']))['items']
             selected = next((total for total in totals if total['key'] == reference_key), None)

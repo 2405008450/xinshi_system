@@ -141,6 +141,7 @@ def batch_projects(db, project_ids):
     if len(set(project_ids)) != len(project_ids):
         raise HTTPException(422, '项目不能重复')
     projects = []
+    statement_subjects = {}
     for project_id in project_ids:
         project = get_translation_project(db, project_id)
         if project is None:
@@ -152,10 +153,16 @@ def batch_projects(db, project_ids):
         if not node.get('client_id'):
             raise HTTPException(422, f'{project.order_no} 尚未关联客户')
         client = profile(db, UUID(node['client_id']))
+        client_id = client['client_id']
+        if client_id not in statement_subjects:
+            from customer_statement_workspace import invoice_subjects_by_order
+            statement_subjects[client_id] = invoice_subjects_by_order(db, UUID(client_id))
+        subjects = statement_subjects[client_id].get(str(node.get('root_id') or project.id), set())
+        default_subject = next(iter(subjects)) if len(subjects) == 1 else None if subjects else client['subject_key']
         projects.append({'project_id': str(project.id), 'order_no': project.order_no,
                          'project_name': project.source_file_name or project.project_name,
                          'client_id': client['client_id'], 'client_name': client['client_name'],
-                         'client_party': client['party'], 'default_subject': client['subject_key'],
+                         'client_party': client['party'], 'default_subject': default_subject,
                          'totals': {currency: str(amount) for currency, amount in amounts.items()}})
     return projects
 

@@ -1,6 +1,7 @@
 <template>
   <ClientEditor v-if="editorTarget" :key="editorTarget.subClientId || editorTarget.clientId"
     :editor-client-id="editorTarget.clientId" :editor-sub-client-id="editorTarget.subClientId"
+    :editor-finance-section="editorTarget.financeSection"
     @editor-closed="close" @editor-load-error="editorTarget = null" />
   <DraggableFormDialog v-else :model-value="true" title="客户管理" width="min(720px, calc(100vw - 32px))" top="8vh" @update:model-value="close">
     <div v-loading="loading" class="client-window-content">
@@ -98,6 +99,12 @@ function close() {
 }
 watch(clientManagementTarget, target => {
   if (!target) return
+  if(target.financeSection && target.client_id && canWrite.value){
+    controller?.abort()
+    detail.value=null
+    editorTarget.value={clientId:target.client_id,financeSection:target.financeSection}
+    return
+  }
   editorTarget.value = null
   load(target)
 }, { immediate: true })

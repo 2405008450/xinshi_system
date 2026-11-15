@@ -1,5 +1,5 @@
 <template>
-  <div v-if="readonly" class="resume-year-display"><span>{{label}}</span><span>{{modelValue||'-'}}</span></div>
+  <div v-if="readonly" class="resume-year-display" :data-dialog-field-search-label="label"><span>{{label}}</span><span>{{modelValue||'-'}}</span></div>
   <el-form-item v-else class="resume-year-field" :label="label" :prop="fieldPath"><YearInput :model-value="modelValue" maxlength="50" placeholder="2026" :aria-label="label" @update:model-value="$emit('update:modelValue',$event)" /></el-form-item>
 </template>
 <script setup>

@@ -2,7 +2,7 @@
   <div class="project-contact-fields">
     <el-row :gutter="16">
       <el-col :xs="24" :md="12"><el-form-item label="客户联系人" prop="contactName" :rules="contactRules"><el-autocomplete v-model="name" :fetch-suggestions="suggest" value-key="name" :trigger-on-focus="true" :debounce="0" maxlength="100" clearable placeholder="选择已有联系人，或填写新姓名" style="width:100%" /></el-form-item></el-col>
-      <el-col :xs="24" :md="12"><el-form-item label="联系人联系方式" prop="clientContactMethod"><el-input v-if="visible" v-model="method" :disabled="loading" maxlength="5000" placeholder="电话、邮箱、微信等（选填）" /><ReadonlyField v-else model-value="仅客户部、销售部、行政部可查看" source="locked" /></el-form-item></el-col>
+      <el-col :xs="24" :md="12"><el-form-item label="联系人联系方式" prop="clientContactMethod"><el-input v-if="visible" v-model="method" :disabled="loading" type="textarea" :autosize="{ minRows: 1, maxRows: 5 }" maxlength="5000" placeholder="电话、邮箱、微信等（选填）" /><ReadonlyField v-else model-value="仅客户部、销售部、行政部可查看" source="locked" /></el-form-item></el-col>
     </el-row>
     <el-form-item label="联系人说明" prop="clientContactDescription"><el-input v-model="description" :disabled="loading" type="textarea" :rows="2" maxlength="5000" placeholder="职务、联系偏好或其他说明（选填）" /></el-form-item>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />

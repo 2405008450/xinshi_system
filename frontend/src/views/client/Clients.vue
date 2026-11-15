@@ -6,7 +6,7 @@
           <span>客户管理</span>
           <small class="header-hint">客户与子客户统一管理</small>
         </div>
-        <div class="header-actions">
+        <div v-if="listTab === 'clients'" class="header-actions">
           <el-button link type="primary" @click="helpVisible = true">帮助</el-button>
           <TableColumnSettings settings-key="client-information"
             v-model="visibleColumnKeys"
@@ -21,6 +21,12 @@
       </div>
     </template>
 
+    <el-tabs v-model="listTab">
+      <el-tab-pane name="clients" label="客户列表" />
+      <el-tab-pane name="field-work" label="外勤管理" />
+    </el-tabs>
+    <FieldWorkPanel v-if="listTab === 'field-work'" customer-view />
+    <div v-show="listTab === 'clients'">
     <div class="search-bar">
       <AppForm :inline="true" :model="searchForm" class="search-form-inline">
         <el-form-item label="客户名称">
@@ -131,7 +137,7 @@
         :prop="column.key"
         :label="column.label"
         :width="column.width"
-        show-overflow-tooltip
+        :show-overflow-tooltip="column.key !== 'project_managers'"
       >
         <template #header>
           <ConfiguredColumnHeaderFilter v-if="headerFilterDefinition(column.key)" :definition="headerFilterDefinition(column.key)" :model-value="advancedFilters[column.key]" @update:model-value="advancedFilters[column.key]=$event" @text-input="handleAdvancedTextInput" @change="handleSelectionChange" @enter="handleSearch" @clear="handleSelectionChange">
@@ -231,6 +237,19 @@
           <span v-else-if="column.key === 'cooperation_start_date'">
             {{ formatDatetime(row.cooperation_start_date) }}
           </span>
+          <div v-else-if="column.key === 'project_managers'" class="client-project-managers">
+            <template v-for="manager in row.project_managers" :key="manager.key">
+              <el-popover v-if="canReadProjects" trigger="click" placement="left" :width="760"
+                :persistent="false" :popper-style="{ maxWidth: 'calc(100vw - 32px)' }" :title="`${manager.name} · 合作项目`">
+                <template #reference><el-button link type="primary">{{ manager.name }}</el-button></template>
+                <div style="max-height: 560px; overflow-y: auto">
+                  <CustomerCooperationProjects :client-id="row.id" :manager-key="manager.key" />
+                </div>
+              </el-popover>
+              <span v-else>{{ manager.name }}</span>
+            </template>
+            <span v-if="!row.project_managers?.length">-</span>
+          </div>
           <span v-else-if="column.key === 'client_manager'">{{ (row.contact_names?.length ? row.contact_names : [row.client_manager]).filter(Boolean).join('、') || '-' }}</span>
           <span v-else>{{ row[column.key] || '-' }}</span>
         </template>
@@ -255,10 +274,12 @@
       style="margin-top: 20px"
     />
 
+    </div>
   </el-card>
   <FinanceWorkflowHelp v-if="helpVisible" v-model="helpVisible" title="客户管理帮助"
     :help-sections="customerManagementHelpSections" search-placeholder="搜索客户管理帮助，例如：简称 编辑、开票" />
   <DraggableFormDialog
+    :append-to-body="!!editorClientId"
       v-model="dialogVisible"
       :title="dialogTitle"
       class="client-form-dialog"
@@ -297,12 +318,13 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="客户编号" prop="client_code">
-              <ReadonlyField v-if="!form.id" :model-value="form.client_code" source="auto" placeholder="正在占用编号" /><el-input v-else v-model="form.client_code" />
+              <ReadonlyField :model-value="form.client_code" source="auto"
+                :placeholder="form.id ? '档案未登记编号' : '正在占用编号'" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="客户简称" prop="client_short_name">
-              <ClientShortNameInput v-model="form.client_short_name" v-model:full-name="form.client_name" />
+              <ClientShortNameInput v-model="form.client_short_name" v-model:full-name="form.client_name" :current-record-id="form.id || ''" />
             <ClientNameGuidance />
 </el-form-item>
           </el-col>
@@ -373,7 +395,7 @@
             <el-table-column prop="client_short_name" label="客户简称" min-width="150" show-overflow-tooltip />
             <el-table-column prop="customer_type" label="客户类型" min-width="120" />
             <el-table-column label="客户联系人" min-width="150"><template #default="{row}">{{ (row.contact_names?.length?row.contact_names:[row.client_manager]).filter(Boolean).join('、')||'-' }}</template></el-table-column>
-            <el-table-column label="联系方式" min-width="180"><template #default="{row}"><div v-for="(person,index) in peopleFor(row)" :key="index">{{person.name}}：{{person.contact_method||'-'}}</div></template></el-table-column>
+            <el-table-column label="联系方式" min-width="180"><template #default="{row}"><div v-for="(person,index) in peopleFor(row)" :key="index" class="contact-method-text">{{person.name}}：{{person.contact_method||'-'}}</div></template></el-table-column>
             <el-table-column label="说明" min-width="180"><template #default="{row}"><div v-for="(person,index) in peopleFor(row)" :key="index">{{person.description?`${person.name}：${person.description}`:''}}</div></template></el-table-column>
             <el-table-column label="详情" width="100" fixed="right"><template #default="{row}"><el-popover trigger="click" placement="left" :width="760" title="子客户详情"><template #reference><el-button link type="primary">查看详情</el-button></template><div style="max-height:560px;overflow-y:auto;overflow-wrap:anywhere"><el-descriptions :column="2" border size="small"><el-descriptions-item v-for="field in subDetailFields" :key="field.key" :label="field.label">{{subDetailValue(row,field.key)}}</el-descriptions-item><el-descriptions-item v-for="(person,index) in peopleFor(row)" :key="`person-${index}`" :label="`联系人${index+1}`">{{person.name}}　联系方式：{{person.contact_method||'-'}}　说明：{{person.description||'-'}}</el-descriptions-item></el-descriptions></div></el-popover></template></el-table-column>
             <el-table-column v-if="canWrite" label="操作" width="100" fixed="right" align="center">
@@ -390,7 +412,10 @@
           <CustomerSourceAnalysis v-if="clientActiveTab === 'sources'" :key="form.id || 'new'" :client-id="form.id" customer-mode />
         </el-tab-pane>
         <el-tab-pane label="财务信息" name="finance">
-          <CustomerFinancePanel v-if="clientActiveTab === 'finance'" :key="form.id || 'new'" :client-id="form.id" :can-write="canWrite" />
+          <CustomerFinancePanel v-if="clientActiveTab === 'finance'" :key="form.id || 'new'" :client-id="form.id" :can-write="canWrite" :initial-section="editorFinanceSection" />
+        </el-tab-pane>
+        <el-tab-pane label="客户要求" name="requirements">
+          <CustomerRequirementsPanel v-if="clientActiveTab === 'requirements'" :client-id="form.id" :can-write="canWrite" />
         </el-tab-pane>
         <el-tab-pane label="合作信息" name="cooperation">
           <div data-dialog-field-search-label="合作信息" class="cooperation-editor">
@@ -473,6 +498,7 @@
 
 <script setup>
 import ClientShortNameInput from '@/components/common/ClientShortNameInput.vue'
+import FieldWorkPanel from '@/views/schedule/components/FieldWorkPanel.vue'
 import ClientNameGuidance from '@/components/common/ClientNameGuidance.vue'
 import ClientContactNamesEditor from '@/components/common/ClientContactNamesEditor.vue'
 import { CUSTOMER_TYPES as customerTypes } from '@/utils/customerTypes'
@@ -480,6 +506,7 @@ import CustomerCooperationProjects from '@/components/common/CustomerCooperation
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import CustomerSourceAnalysis from '@/components/common/CustomerSourceAnalysis.vue'
 import CustomerFinancePanel from '@/components/common/CustomerFinancePanel.vue'
+import CustomerRequirementsPanel from '@/components/common/CustomerRequirementsPanel.vue'
 import FinanceWorkflowHelp from '@/components/common/FinanceWorkflowHelp.vue'
 import { customerManagementHelpSections } from '@/utils/customerManagementHelp'
 import CustomerRegionFields from '@/components/common/CustomerRegionFields.vue'
@@ -506,11 +533,13 @@ import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useFormDraft } from '@/composables/useFormDraft'
 import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 
-const props = defineProps({ editorClientId: String, editorSubClientId: String })
+const props = defineProps({ editorClientId: String, editorSubClientId: String, editorFinanceSection: String })
+const listTab = ref('clients')
 const helpVisible = ref(false)
 const emit = defineEmits(['editor-closed', 'editor-load-error'])
 const loading = ref(false)
 const canWrite = hasPermission('clients:write')
+const canReadProjects = hasPermission('projects:read')
 const route = useRoute()
 const router = useRouter()
 const submitLoading = ref(false)
@@ -536,6 +565,7 @@ const clientColumnOptions = [
   { key: 'client_code', label: '客户编号', width: 140 },
   { key: 'client_name', label: '客户全称', width: 175 },
   { key: 'client_short_name', label: '客户简称', width: 150 },
+  { key: 'project_managers', label: '客户经理', width: 160 },
   { key: 'customer_type', label: '客户类型', width: 150 },
   { key: 'english_name', label: '英文全称', width: 200 },
   { key: 'english_short_name', label: '英文简称', width: 150 },
@@ -574,6 +604,7 @@ const defaultVisibleColumnKeys = [
   'client_code',
   'client_name',
   'client_short_name',
+  'project_managers',
   'client_manager',
   'manager_contact',
   'field_level1',
@@ -591,7 +622,11 @@ const loadVisibleColumnKeys = () => {
     const filteredKeys = savedKeys.filter((key) => availableKeys.has(key))
     const usesLegacyDefault = filteredKeys.length === legacyDefaultVisibleColumnKeys.length
       && filteredKeys.every((key, index) => key === legacyDefaultVisibleColumnKeys[index])
-    return usesLegacyDefault ? [...defaultVisibleColumnKeys] : filteredKeys
+    const previousDefault = defaultVisibleColumnKeys.filter(key => key !== 'project_managers')
+    const usesPreviousDefault = filteredKeys.length === previousDefault.length
+      && filteredKeys.every((key, index) => key === previousDefault[index])
+    return usesLegacyDefault || (usesPreviousDefault && !localStorage.getItem(`${CLIENT_COLUMNS_STORAGE_KEY}:updated`))
+      ? [...defaultVisibleColumnKeys] : filteredKeys
   } catch {
     localStorage.removeItem(CLIENT_COLUMNS_STORAGE_KEY)
     return [...defaultVisibleColumnKeys]
@@ -606,6 +641,7 @@ const displayedClientColumns = computed(() => {
 
 watch(visibleColumnKeys, (keys) => {
   localStorage.setItem(CLIENT_COLUMNS_STORAGE_KEY, JSON.stringify(keys))
+  localStorage.setItem(`${CLIENT_COLUMNS_STORAGE_KEY}:updated`, '1')
 }, { deep: true })
 
 const resetVisibleColumns = () => {
@@ -667,7 +703,11 @@ const defaultClientForm = () => ({
 const form = reactive(defaultClientForm())
 const { beginDraft, pauseDraft, clearDraft } = useFormDraft({
   namespace: 'client', form, createDefault: defaultClientForm, formRef,
-  applyDraft: draft=>{const contacts=Array.isArray(draft.contact_names)?draft.contact_names:form.contact_names;Object.assign(form,{...defaultClientForm(),...form,...draft,contact_names:contacts})},
+  applyDraft: draft => {
+    const { id, client_code } = form
+    const contacts = Array.isArray(draft.contact_names) ? draft.contact_names : form.contact_names
+    Object.assign(form, { ...defaultClientForm(), ...form, ...draft, id, client_code, contact_names: contacts })
+  },
   legacyStorageKeys: [`client_form_drafts:${currentUserId || 'anonymous'}`],
 })
 
@@ -840,8 +880,8 @@ const fetchData = async () => {
     const options = { signal: clientsRequestController.signal }
     const clientId = typeof route?.query.client_id === 'string' ? route.query.client_id : ''
     const page = clientId
-      ? { items: [await clientApi.getClient(clientId, options)], total: 1 }
-      : await clientApi.getClientPage(params, options)
+      ? { items: [await clientApi.getClient(clientId, { ...options, params: { include_project_managers: true } })], total: 1 }
+      : await clientApi.getClientPage({ ...params, include_project_managers: true }, options)
     if (requestId !== clientsRequestId) return
     tableData.value = page?.items || []
     expandedClientIds.value = new Set()
@@ -917,6 +957,7 @@ const handleEdit = async (row, subClientId) => {
   }
   dialogTitle.value = '客户管理 · 编辑窗口'
   resetForm()
+  if(props.editorFinanceSection)clientActiveTab.value='finance'
   Object.assign(form, {
     id: row.id,
     operator_name: row.operator_name || null,
@@ -970,6 +1011,7 @@ const handleSubmit = async () => {
         // 日期选择器未填写时会产生空字符串，后端 Optional[datetime] 需要 null。
         submitData.cooperation_start_date = submitData.cooperation_start_date || null
         if (form.id) {
+          delete submitData.client_code
           await clientApi.updateClient(form.id, submitData)
           delete detailCache[form.id]
           ElMessage.success('更新成功')
@@ -1147,7 +1189,43 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .cooperation-editor label { display: block; margin-bottom: 12px; color: var(--el-text-color-regular); }
-.client-editor-tabs > :deep(.el-tabs__header) { position: sticky; top: -20px; z-index: 2; padding-top: 4px; background: var(--el-bg-color); }
+.client-project-managers { display: flex; flex-wrap: wrap; gap: 2px 10px; }
+.contact-method-text { white-space: pre-line; overflow-wrap: anywhere; }
+.client-project-managers :deep(.el-button) { margin-left: 0; white-space: normal; text-align: left; }
+.client-editor-tabs {
+  --client-editor-tab-height: 44px;
+}
+.client-editor-tabs > :deep(.el-tabs__header) {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  margin-bottom: 0;
+  padding-top: 4px;
+  background: var(--el-bg-color);
+}
+.client-editor-tabs > :deep(.el-tabs__header .el-tabs__item) {
+  height: calc(var(--client-editor-tab-height) - 4px);
+}
+.client-editor-tabs > :deep(.el-tabs__content) {
+  overflow: visible;
+  isolation: isolate;
+}
+.client-editor-tabs > :deep(.el-tabs__content > .el-tab-pane) {
+  padding-top: 12px;
+}
+.client-editor-tabs > :deep(.el-tabs__content > .el-tab-pane:has(> section > .customer-finance-tabs)) {
+  padding-top: 0;
+}
+.client-editor-tabs :deep(.customer-finance-tabs > .el-tabs__header) {
+  position: sticky;
+  top: var(--client-editor-tab-height);
+  z-index: 2;
+  margin-bottom: 0;
+  background: var(--el-bg-color);
+}
+.client-editor-tabs :deep(.customer-finance-tabs > .el-tabs__content) {
+  padding-top: 12px;
+}
 
 .card-header {
   display: flex;
@@ -1287,7 +1365,7 @@ onBeforeUnmount(() => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 20px 24px 4px;
+  padding: 0 24px 4px;
 }
 
 :global(.client-form-dialog .el-dialog__footer) {
@@ -1332,7 +1410,7 @@ onBeforeUnmount(() => {
   }
 
   :global(.client-form-dialog .el-dialog__body) {
-    padding: 16px 16px 4px;
+    padding: 0 16px 4px;
   }
 }
 </style>

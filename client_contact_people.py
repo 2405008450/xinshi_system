@@ -7,6 +7,11 @@ from models import Base, Client, SubClient
 from annotation_progress_time import business_now
 
 
+def primary_contact_summary(value):
+    """兼容长度为 100 的主联系方式字段，完整内容留在联系人详情。"""
+    return ((value or '').splitlines() or [''])[0][:100]
+
+
 class ClientContactPerson(Base):
     __tablename__ = 'client_contact_person'
     __table_args__ = (
@@ -59,7 +64,7 @@ def replace_details(db, owner, people):
     first=existing[names[0].casefold()]
     # 新详情尚未落库时直接使用本次创建的对象，兼容生产会话关闭 autoflush。
     if db.info.get('client_contacts_visible',True):
-        owner.manager_contact=details[first.id].contact_method or ''
+        owner.manager_contact=primary_contact_summary(details[first.id].contact_method)
 
 
 def ready(db):

@@ -4,7 +4,7 @@
     <div class="experience-grid-scroll">
       <table class="experience-grid" @keydown="handleTableArrowNavigation">
         <colgroup><col class="experience-index"/><col class="experience-period"/><col/><col class="experience-position"/><col v-if="annotation" class="experience-workload"/><col v-if="education" class="experience-degree"/><col v-if="!readonly" class="experience-action"/></colgroup>
-        <thead><tr><th>#</th><th>{{ label('起止年月日','Period') }}</th><th>{{ organizationLabel }}</th><th>{{ positionLabel }}</th><th v-if="annotation">{{ label('工作量','Workload') }}</th><th v-if="education">{{ label('学历','Education') }}</th><th v-if="!readonly">{{ label('操作','Actions') }}</th></tr></thead>
+        <thead><tr><th>#</th><th :data-dialog-field-search-label="readonly ? label('起止年月日','Period') : null">{{ label('起止年月日','Period') }}</th><th :data-dialog-field-search-label="readonly ? organizationLabel : null">{{ organizationLabel }}</th><th :data-dialog-field-search-label="readonly ? positionLabel : null">{{ positionLabel }}</th><th v-if="annotation" :data-dialog-field-search-label="readonly ? label('工作量','Workload') : null">{{ label('工作量','Workload') }}</th><th v-if="education" :data-dialog-field-search-label="readonly ? label('学历','Education') : null">{{ label('学历','Education') }}</th><th v-if="!readonly">{{ label('操作','Actions') }}</th></tr></thead>
         <tbody v-for="(row,index) in modelValue" :key="row._key || row.id" data-dialog-field-search-group>
           <tr>
             <td rowspan="2" class="experience-index"><span data-dialog-field-search-group-title>{{ groupTitle }} {{ index+1 }}</span></td>

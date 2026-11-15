@@ -1,4 +1,4 @@
-"""客户字数自动取唯一已填口径，以及我司字数计价。旧收费表保持原结构。"""
+"""按客户、我司及统计指标优先级选择计价数量。"""
 from sqlalchemy import Column,ForeignKey,String,Uuid,inspect
 from models import Base
 
@@ -21,19 +21,16 @@ def valid(mode):
 def resolve(matrix,mode):
     matrix=matrix or {}
     if str(mode).startswith('customer_auto'):
-        values=matrix.get('customer',{})
-        filled=[(key,values.get(key)) for key in METRICS if values.get(key) is not None]
         selected=str(mode).split(':',1)[1] if ':' in str(mode) else None
         if selected:
-            value=values.get(selected)
+            value=matrix.get('customer',{}).get(selected)
             return value,'customer',selected,None if value is not None else '未登记对应数量'
-        if len(filled)==1:return filled[0][1],'customer',filled[0][0],None
-        if not filled:
-            own=[(key,matrix.get('company',{}).get(key)) for key in METRICS if matrix.get('company',{}).get(key) is not None]
-            if len(own)==1:return own[0][1],'company',own[0][0],None
-            if len(own)>1:return None,'company',None,'我司统计有多栏，请选择统计口径'
-            return None,'customer',None,'客户统计和我司统计均未填写，请先登记数量和单位'
-        return None,'customer',None,'客户字数有多栏，请明确选择统计口径'
+        for dimension in ('customer', 'company'):
+            values = matrix.get(dimension, {})
+            for metric in METRICS:
+                if values.get(metric) is not None:
+                    return values[metric], dimension, metric, None
+        return None,'customer',None,'客户统计和我司统计均未填写，请先登记数量和单位'
     dimension='company' if str(mode).startswith('company_') else 'customer'
     metric=str(mode)[8:] if dimension=='company' else mode
     value=matrix.get(dimension,{}).get(metric)

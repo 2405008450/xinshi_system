@@ -4,7 +4,13 @@
       <div class="contact-person-heading"><strong>客户联系人 {{index+1}}</strong><el-button v-if="names.length>1" link type="danger" :aria-label="`移除联系人${index+1}`" @click="remove(index)">移除</el-button></div>
       <el-row :gutter="16">
         <el-col :xs="24" :md="12"><el-form-item label="联系人" :prop="['contact_people',index,'name']" :rules="nameRules(row)"><el-input :model-value="row.name" maxlength="100" placeholder="请输入联系人姓名" :aria-label="`客户联系人${index+1}`" @update:model-value="value=>update(index,'name',value)" /></el-form-item></el-col>
-        <el-col :xs="24" :md="12"><el-form-item label="联系方式" :prop="['contact_people',index,'contact_method']"><el-input v-if="canViewClientContacts" :model-value="row.contact_method" maxlength="5000" placeholder="电话、邮箱、微信等" :aria-label="`联系人${index+1}联系方式`" @update:model-value="value=>update(index,'contact_method',value)" /><ReadonlyField v-else model-value="仅客户部、销售部、行政部可查看" source="locked" /></el-form-item></el-col>
+        <el-col :xs="24" :md="12">
+          <el-form-item label="联系方式" :prop="['contact_people',index,'contact_method']" :rules="contactMethodRules">
+            <ClientContactMethods v-if="canViewClientContacts" :model-value="row.contact_method"
+              :label="`联系人${index+1}联系方式`" @update:model-value="value=>update(index,'contact_method',value)" />
+            <ReadonlyField v-else model-value="仅客户部、销售部、行政部可查看" source="locked" />
+          </el-form-item>
+        </el-col>
       </el-row>
       <el-form-item label="说明" :prop="['contact_people',index,'description']"><el-input :model-value="row.description" type="textarea" :rows="2" maxlength="5000" :aria-label="`联系人${index+1}说明`" placeholder="填写职务、联系偏好或其他说明" @update:model-value="value=>update(index,'description',value)" /></el-form-item>
     </section>
@@ -14,10 +20,12 @@
 <script setup>
 import { computed } from 'vue'
 import ReadonlyField from './ReadonlyField.vue'
+import ClientContactMethods from './ClientContactMethods.vue'
 import {useClientContactAccess} from '@/composables/useClientContactAccess'
 const {canViewClientContacts}=useClientContactAccess()
 const props=defineProps({modelValue:{type:Array,default:()=>[]},required:{type:Boolean,default:true}})
 const emit=defineEmits(['update:modelValue'])
+const contactMethodRules = [{ type: 'string', max: 5000, message: '联系方式合计不能超过 5000 个字符' }]
 const nameRules=row=>[
   {required:props.required || names.value.length>1 || Boolean(row.contact_method?.trim() || row.description?.trim()),whitespace:true,message:'请填写联系人姓名',trigger:['blur','change']},
   {validator:(_rule,value,done)=>{const key=String(value||'').trim().toLowerCase();done(key&&names.value.filter(item=>String(item.name||'').trim().toLowerCase()===key).length>1?new Error('联系人姓名不能重复'):undefined)},trigger:['blur','change']},

@@ -1,6 +1,7 @@
 import api from './index'
+import {notifyInvoiceParties} from './invoiceParties'
 const camel = value => Array.isArray(value) ? value.map(camel) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key,item]) => [key.replace(/_([a-z])/g,(_,letter)=>letter.toUpperCase()),camel(item)])) : value
-export const getCustomerFinancePage=(params,config={})=>api.get('/translation-customer-finance/page',{...config,params,paramsSerializer:{indexes:null}}).then(camel)
+export const getCustomerFinancePage=(params,config={})=>api.get('/translation-customer-finance/page',{timeout:25000,...config,params,paramsSerializer:{indexes:null}}).then(camel)
 const customerSortFields = { clientShortName: 'client_short_name', clientManager: 'client_manager' }
 export function customerFinanceSort({ prop, order }) {
   const field = customerSortFields[prop]
@@ -9,6 +10,11 @@ export function customerFinanceSort({ prop, order }) {
 }
 export const getFinanceManagerOptions=(config={})=>api.get('/translation-customer-finance/manager-options',config).then(camel)
 export const getCustomerFinanceProject=(id,config)=>api.get(`/translation-customer-finance/project/${id}`,config).then(camel)
+export async function saveSpecialSettlement(id,data){
+  const result=await api.put(`/translation-customer-finance/project/${id}/special-settlement`,data)
+  notifyInvoiceParties({kind:'special-settlement',projectId:id})
+  return result
+}
 export const getFinancePaymentSummary=(id,method,config)=>api.get(`/translation-customer-finance/project/${id}/payment-summary`,{...config,params:{method}}).then(camel)
 export const setProjectStatementRequired=(id,data)=>api.put(`/translation-customer-finance/project/${id}/statement-required`,data).then(camel)
 export const getStatementRequirementContext=params=>api.get('/translation-customer-finance/statement-requirement-context',{params}).then(camel)

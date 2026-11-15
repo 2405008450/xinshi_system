@@ -157,6 +157,31 @@ def library(db,client_id):
     return {'ready':True,'client':{'id':str(client.id),'name':client.client_name,'short_name':client.client_short_name,'code':client.client_code},'items':[serialize(row) for row in rows if row.active],'version':hashlib.sha256(json.dumps(digest).encode()).hexdigest()}
 
 
+def record_order_finance(db, user, client_id, order_id, order_no, origin, before, after, *, matches_customer=False, initial=False):
+    if not client_id or before == after or not ready(db):
+        return
+    query = db.query(CustomerTranslationRateHistory).filter_by(client_id=client_id, origin=origin)
+    previous = query.filter(CustomerTranslationRateHistory.after_snapshot['order_id'].as_string()==str(order_id)).order_by(
+        CustomerTranslationRateHistory.created_at.desc(), CustomerTranslationRateHistory.id.desc()).first()
+    if (matches_customer and not previous) or (initial and previous and previous.after_snapshot['values']==after):
+        return
+    revision = previous.after_snapshot['revision'] + 1 if previous else 1
+    db.add(CustomerTranslationRateHistory(
+        client_id=client_id, actor_id=user.id, actor_name=user.full_name or user.username,
+        origin=origin, before_snapshot=before,
+        after_snapshot={'order_id':str(order_id),'order_no':order_no,'revision':revision,'values':after},
+        created_at=business_now(),
+    ))
+
+
+def history_entry(row):
+    after = row.after_snapshot
+    order = after if isinstance(after, dict) and 'order_id' in after else {}
+    return {'id':str(row.id), 'actor_name':row.actor_name, 'created_at':business_datetime(row.created_at).isoformat(),
+            'origin':row.origin, 'before':row.before_snapshot, 'after':order.get('values', after),
+            **{field:order[field] for field in ('order_id','order_no','revision') if field in order}}
+
+
 def write_library(db,user,client_id,items,expected,origin='client',merge=False):
     if not ready(db):raise HTTPException(503,'客户语种单价存储尚未初始化')
     if not db.query(Client).filter_by(id=client_id).with_for_update().first():raise HTTPException(404,'客户不存在')
@@ -179,7 +204,7 @@ def write_library(db,user,client_id,items,expected,origin='client',merge=False):
     db.add(CustomerTranslationRateHistory(client_id=client_id,actor_id=user.id,actor_name=user.full_name or user.username,origin=origin,
         before_snapshot=before['items'],after_snapshot=after['items'],created_at=business_now()))
     from customer_finance_sync import auto_translation
-    auto_translation(db,user,client_id,before['items'],after['items'])
+    auto_translation(db,user,client_id,before['items'],after['items'],overwrite=origin=='client')
     return after
 
 
@@ -206,9 +231,10 @@ def put(client_id:UUID,payload:LibraryWrite,db=Depends(get_db),user=Depends(get_
 @router.get('/{client_id}/history',dependencies=[Depends(read_access)])
 def history(client_id:UUID,page:int=Query(1,ge=1),db=Depends(get_db)):
     if not ready(db):return {'items':[],'total':0}
-    query=db.query(CustomerTranslationRateHistory).filter_by(client_id=client_id)
+    query=db.query(CustomerTranslationRateHistory).filter_by(client_id=client_id).filter(
+        ~CustomerTranslationRateHistory.origin.in_(('document_defaults_client','document_defaults_project','order_documents')))
     total=query.count();rows=query.order_by(CustomerTranslationRateHistory.created_at.desc(),CustomerTranslationRateHistory.id.desc()).offset((page-1)*10).limit(10).all()
-    return {'total':total,'items':[{'id':str(row.id),'actor_name':row.actor_name,'created_at':business_datetime(row.created_at).isoformat(),'origin':row.origin,'before':row.before_snapshot,'after':row.after_snapshot} for row in rows]}
+    return {'total':total,'items':[history_entry(row) for row in rows]}
 
 
 class CustomerTranslationRateTax(TaxFieldsMixin, Base):

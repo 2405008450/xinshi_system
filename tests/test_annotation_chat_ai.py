@@ -1,6 +1,6 @@
 from datetime import datetime
 import json
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import HTTPException
@@ -88,14 +88,16 @@ def test_scheduled_jobs_once_per_workday_and_separate_rooms(environment, monkeyp
 def test_manual_permissions_chunking_and_transactional_progress_import(environment, monkeypatch):
     import annotation_chat_ai as ai
     from annotation_chat_ai_inference import PROMPT
-    from routers.annotation_chat_ai import add_progress, detail
+    from routers.annotation_chat_ai import ProgressSelection, add_progress, detail, sources
 
     db, (owner, member, outsider) = environment
     allowed = project(db, owner, 'AP-AI-ALLOWED')
     other = project(db, outsider, 'AP-AI-OTHER')
     add_member(db, allowed, owner)
     add_member(db, allowed, member)
-    seed_message(db, allowed, owner, 1, '客户要求、项目完成、质检情况。' * 360)
+    original = seed_message(db, allowed, owner, 1, '客户要求、项目完成、质检情况。' * 360)
+    seed_message(db, allowed, owner, 3, '')
+    seed_message(db, allowed, owner, 4, '撤回内容', recalled=True)
     seed_message(db, other, outsider, 2, '其他会话机密')
     monkeypatch.setattr(ai.thoughts_ai_service, 'enabled', lambda: True)
     monkeypatch.setattr(ai, 'business_now', lambda: datetime(2026, 11, 9, 11))
@@ -103,11 +105,11 @@ def test_manual_permissions_chunking_and_transactional_progress_import(environme
 
     with pytest.raises(HTTPException) as error:
         ai.enqueue_manual(db, allowed.id, member, 'all', True, False)
-    assert error.value.status_code == 403
+    assert error.value.status_code == 422
     with pytest.raises(HTTPException) as error:
         ai.enqueue_manual(db, allowed.id, outsider, 'all', False, False)
     assert error.value.status_code == 404
-    assert ai.enqueue_manual(db, allowed.id, owner, 'all', True, True) == {'queued': 1}
+    assert ai.enqueue_manual(db, allowed.id, owner, 'all', False, True) == {'queued': 1}
     inputs = []
 
     def generate(payload):
@@ -127,12 +129,26 @@ def test_manual_permissions_chunking_and_transactional_progress_import(environme
     run = detail(allowed.id, job_id, db, owner)
     assert run['state'] == 'succeeded'
     assert len(run['results']) == 4
-    assert {entry['track'] for entry in run['imports']} == {'customer', 'project', 'annotator'}
-    assert all(entry['actor_id'] == str(owner.id) and entry['at'].endswith('+08:00') for entry in run['imports'])
-    for model in ai.PROGRESS_MODELS.values():
-        rows = db.scalars(select(model)).all()
-        assert len(rows) == 1 and rows[0].change_note.startswith('【AI 分析】')
-    assert add_progress(allowed.id, job_id, db, owner)['created'] == 0
+    assert run['coverage'] == {'total': 2, 'classified': 1, 'unclassified': 1}
+    assert run['imports'] == []
+    by_track = {item['category']: UUID(item['id']) for item in run['results']}
+    assert sources(allowed.id, job_id, by_track['project'], db, owner)['items'][0]['id'] == original.id
+    with pytest.raises(HTTPException) as error:
+        sources(allowed.id, job_id, by_track['project'], db, outsider)
+    assert error.value.status_code == 404
+    with pytest.raises(HTTPException) as error:
+        add_progress(allowed.id, job_id, ProgressSelection(result_ids=[by_track['assignment']]), db, owner)
+    assert error.value.status_code == 422
+    selected = ProgressSelection(result_ids=[by_track['project']])
+    saved = add_progress(allowed.id, job_id, selected, db, owner)
+    assert saved['created'] == 1
+    assert [entry['track'] for entry in saved['run']['imports']] == ['project']
+    assert saved['run']['imports'][0]['actor_id'] == str(owner.id)
+    assert saved['run']['imports'][0]['at'].endswith('+08:00')
+    assert db.scalar(select(ai.PROGRESS_MODELS['project'])).change_note.startswith('【AI 分析】')
+    assert db.scalar(select(ai.PROGRESS_MODELS['customer'])) is None
+    assert db.scalar(select(ai.PROGRESS_MODELS['annotator'])) is None
+    assert add_progress(allowed.id, job_id, selected, db, owner)['created'] == 0
     with pytest.raises(HTTPException) as error:
         detail(allowed.id, job_id, db, outsider)
     assert error.value.status_code == 404

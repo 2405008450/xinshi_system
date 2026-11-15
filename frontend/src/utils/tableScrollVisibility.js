@@ -115,6 +115,9 @@ export function installTableScrollVisibility(doc = document) {
   function refresh() {
     frame = 0
     scaleCache = new WeakMap()
+    const modalLayers = [...doc.querySelectorAll('.el-overlay.el-modal-dialog')]
+      .filter(layer => layer.getClientRects().length)
+      .map(element => ({ element, z: Number.parseInt(win.getComputedStyle(element).zIndex, 10) || 0 }))
     const candidates = doc.querySelectorAll('.el-table, table, .arrangement-projects')
     const live = new Set()
     for (const root of candidates) {
@@ -153,11 +156,18 @@ export function installTableScrollVisibility(doc = document) {
       // row remains reachable without adding a blank strip below the scrollbar.
       if (horizontal && !item.padding) { item.padding = true; item.paddingValue = Number.parseFloat(win.getComputedStyle(item.paddingTarget).paddingBottom) || 0 }
       css(item.paddingTarget, 'paddingBottom', horizontal ? `${item.paddingValue + 14 / scaleOf(item.paddingTarget).y}px` : item.sourcePadding)
-      track.hidden = !horizontal || !geometry.visible
+      // Tracks live under body, so they do not inherit the table's modal layer.
+      // A modal blocks background interaction, including these portaled controls.
+      const owner = root.closest('.el-modal-dialog')
+      const ownerZ = owner ? Number.parseInt(win.getComputedStyle(owner).zIndex, 10) || 0 : -Infinity
+      const covered = modalLayers.some(({ element, z }) => !element.contains(root) &&
+        (z > ownerZ || (z === ownerZ && owner.compareDocumentPosition(element) & win.Node.DOCUMENT_POSITION_FOLLOWING)))
+      track.hidden = !horizontal || !geometry.visible || covered
       if (track.hidden) continue
       const metrics = horizontalThumb(source.clientWidth, source.scrollWidth, source.scrollLeft, geometry.width)
       item.metrics = metrics
-      css(track, 'left', `${geometry.left}px`); css(track, 'top', `${geometry.top}px`); css(track, 'width', `${geometry.width}px`); css(track, 'zIndex', `${bodyClip.z}`)
+      css(track, 'left', `${geometry.left}px`); css(track, 'top', `${geometry.top}px`); css(track, 'width', `${geometry.width}px`)
+      css(track, 'zIndex', `${owner ? ownerZ + 1 : bodyClip.z}`)
       css(thumb, 'width', `${metrics.width}px`); css(thumb, 'transform', `translateX(${metrics.left}px)`)
       track.setAttribute('aria-valuemax', `${Math.round(metrics.maximum)}`); track.setAttribute('aria-valuenow', `${Math.round(source.scrollLeft)}`)
     }

@@ -2,7 +2,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, defer
@@ -13,7 +13,8 @@ import thoughts_ai_service
 from annotation_chat_ai_models import AnnotationChatAnalysis as Job
 from annotation_customer_progress_service import CustomerProgressUnavailable
 from database import get_db
-from models import AppUser
+from business_time import business_iso
+from models import AppUser, ChatProjectMessage
 from routers.auth import get_current_user
 
 
@@ -24,6 +25,10 @@ class RunRequest(BaseModel):
     period: Literal['day', 'week', 'month', 'all']
     auto_apply: bool = False
     all_visible: bool = False
+
+
+class ProgressSelection(BaseModel):
+    result_ids: list[UUID] = Field(min_length=1)
 
 
 def require_access(db, project_id, user):
@@ -59,16 +64,38 @@ def history(project_id: UUID, skip: int = Query(0, ge=0), db: Session = Depends(
 def detail(project_id: UUID, job_id: UUID, db: Session = Depends(get_db),
            user: AppUser = Depends(get_current_user)):
     require_access(db, project_id, user)
-    return ai.public_job(get_job(db, project_id, job_id), include_results=True)
+    job = get_job(db, project_id, job_id)
+    data = ai.public_job(job, include_results=True)
+    if job.state == 'succeeded':
+        data['coverage'] = ai.message_coverage(db, job)
+    return data
+
+
+@router.get('/{project_id}/runs/{job_id}/results/{result_id}/sources')
+def sources(project_id: UUID, job_id: UUID, result_id: UUID, db: Session = Depends(get_db),
+            user: AppUser = Depends(get_current_user)):
+    require_access(db, project_id, user)
+    job = get_job(db, project_id, job_id)
+    result = next((item for item in job.results if item['id'] == str(result_id)), None)
+    if result is None:
+        raise HTTPException(404, '分析条目不存在')
+    ids = {UUID(source) for source in result['sources']}
+    message = ChatProjectMessage
+    rows = db.execute(ai.run_messages(job).where(message.id.in_(ids)).order_by(message.sequence_no)).all()
+    return {
+        'items': [{'id': row.id, 'sender_name': row.sender_name, 'content': row.content,
+                   'created_at': business_iso(row.created_at)} for row in rows],
+        'unavailable': len(ids) - len(rows),
+    }
 
 
 @router.post('/{project_id}/runs/{job_id}/progress')
-def add_progress(project_id: UUID, job_id: UUID, db: Session = Depends(get_db),
+def add_progress(project_id: UUID, job_id: UUID, payload: ProgressSelection, db: Session = Depends(get_db),
                  user: AppUser = Depends(get_current_user)):
     require_access(db, project_id, user)
     job = get_job(db, project_id, job_id, lock=True)
     try:
-        count = ai.import_progress(db, job, user)
+        count = ai.import_progress(db, job, user, payload.result_ids)
         db.commit()
     except (SQLAlchemyError, CustomerProgressUnavailable) as exc:
         db.rollback()

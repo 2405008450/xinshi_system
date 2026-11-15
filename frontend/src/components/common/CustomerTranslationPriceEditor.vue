@@ -1,10 +1,10 @@
 <template>
   <div class="customer-language-prices">
-    <div class="language-prices-toolbar"><div><strong>语种单价</strong><p v-if="matrix">已填写 {{projectQuantityChoices(matrix).length}} 项可计价统计；数量可后补，预统计不参与计费。</p></div><el-button v-if="!readonly" :disabled="disabled" type="primary" plain @click="addPrice">新增单价</el-button></div>
+    <div class="language-prices-toolbar"><div><strong>{{sectionPrefix}}语种单价</strong><p v-if="matrix">已填写 {{projectQuantityChoices(matrix).length}} 项可计价统计；数量可后补，预统计不参与计费。</p></div><el-button v-if="!readonly" :disabled="disabled" type="primary" plain @click="addPrice">新增单价</el-button></div>
     <slot v-if="!modelValue.length" name="before-prices" />
     <div v-if="!modelValue.length" class="language-prices-empty">暂无语种单价{{readonly?'':'，点击“新增单价”填写'}}</div>
-    <div v-for="(row,index) in modelValue" :key="row._key||row.id||index" class="language-price-row" data-dialog-field-search-group :data-dialog-field-search-group-title="`单价 ${index+1}`">
-      <div class="language-price-heading"><strong>单价 {{index+1}}</strong><el-button v-if="!readonly" link type="danger" :disabled="disabled" @click="emit('update:modelValue',modelValue.filter((_,i)=>i!==index))">移除单价</el-button></div>
+    <div v-for="(row,index) in modelValue" :key="row._key||row.id||index" class="language-price-row" data-dialog-field-search-group :data-dialog-field-search-group-title="`${sectionPrefix}单价 ${index+1}`">
+      <div class="language-price-heading"><strong>{{sectionPrefix}}单价 {{index+1}}</strong><el-button v-if="!readonly" link type="danger" :disabled="disabled" @click="emit('update:modelValue',modelValue.filter((_,i)=>i!==index))">移除单价</el-button></div>
       <slot name="before-prices" :row="row" :index="index" />
       <div class="price-fields-grid price-fields-grid--config">
         <el-form-item label="语种方向" :prop="`${fieldPrefix}.${index}.languagePair`" :rules="readonly?[]:[{required:true,message:'请选择语种方向',trigger:'change'}]"><ReadonlyField v-if="readonly" :model-value="row.languagePair||'-'" source="auto" /><LanguagePairSelect v-else :model-value="row.languagePair" single :allow-create="false" :show-hint="false" placeholder="每条单价选择一个语种方向" @update:model-value="setDirection(row,$event)" /></el-form-item>
@@ -47,7 +47,7 @@ import {newCustomerRate,nextCustomerRateDirection} from '@/utils/customerTransla
 import {calculateCustomerPrice} from '@/utils/translationCustomerFinance'
 import {resolveRateQuantity,metricName,projectQuantityChoices,validQuantityBasis,basisLabel} from '@/utils/translationQuantityBasis'
 import {fillCustomerReferencePrice} from '@/utils/customerRateMatching'
-const props=defineProps({modelValue:{type:Array,default:()=>[]},languagePair:String,fieldPrefix:{type:String,default:'prices'},matrix:Object,disabled:Boolean,readonly:Boolean,referenceMode:Boolean,hideCalculationSummary:Boolean,compactActions:Boolean,referencePrices:Array})
+const props=defineProps({sectionPrefix:{type:String,default:''},modelValue:{type:Array,default:()=>[]},languagePair:String,fieldPrefix:{type:String,default:'prices'},matrix:Object,disabled:Boolean,readonly:Boolean,referenceMode:Boolean,hideCalculationSummary:Boolean,compactActions:Boolean,referencePrices:Array})
 const emit=defineEmits(['update:modelValue','price-edit-finished'])
 const editedPrices=new WeakSet()
 function addPrice(){

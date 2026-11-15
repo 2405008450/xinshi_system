@@ -8,8 +8,10 @@ const source=readFileSync(new URL('../src/components/common/ProjectPaymentDialog
 
 function harness(response){
   const ctx={paymentFilters:reactive({months:['2020-01'],client:'其他客户',status:fullPaymentMismatchOption.value}),
-    projectSort:ref(),activeTab:ref('overview'),managerScope:ref('self'),managerIds:ref([]),projectPage:ref(2),props:{},selectedId:ref(''),
-    previousSelectionScope:'',projectTable:ref(null),selectedProjects:ref([]),searchSequence:0,controller:null,projectTimer:null,clearTimeout,AbortController,
+    activeTab:ref('overview'),managerScope:ref('self'),managerIds:ref([]),projectPage:ref(2),props:{},selectedId:ref(''),scopeMonth:ref('2020-02'),
+    projectSort:ref(),invoiceClientIds:ref([]),statementCustomerMode:ref(''),collectionDefaultView:ref(false),
+    previousSelectionScope:'',projectTable:ref(),selectedProjects:ref([]),collectBillingCurrencies:()=>({}),
+    searchSequence:0,controller:null,projectTimer:null,clearTimeout,AbortController,
     options:ref([{id:'old-unpaid',paymentStatus:'unpaid'}]),projectTotal:ref(1),error:ref(''),searching:ref(false),
     getCustomerFinancePage:async()=>response,getLocalizedErrorMessage:e=>e.message,load:async()=>{}}
   ctx.mismatchView=computed(()=>ctx.activeTab.value==='overview'&&ctx.paymentFilters.status===fullPaymentMismatchOption.value)
@@ -30,6 +32,19 @@ test('独立核对不发送左侧三条件，保留经理范围与分页；退�
   ctx.paymentFilters.status='unpaid'
   const ordinary=ctx.paymentQuery('')
   assert.deepEqual(Array.from(ordinary.billing_months),['2020-01']);assert.equal(ordinary.client,'其他客户');assert.equal(ordinary.payment_status,'unpaid')
+})
+
+test('行入口按客户和账单月份限定范围，金额核对仍限定在该范围',()=>{
+  const ctx=harness({})
+  ctx.props.scopeOrder={id:'child',rootId:'root',clientId:'customer'}
+  const query=ctx.paymentQuery('')
+  assert.deepEqual(Array.from(query.client_ids),['customer'])
+  assert.equal(query.billing_month,'2020-02')
+  assert.equal(query.payment_status,'full_mismatch')
+  assert.equal(query.payment_amount_mismatch,false)
+  assert.equal(query.payment_project_id,undefined)
+  ctx.props.scopeOrder.clientId=null
+  assert.equal(ctx.paymentQuery('').payment_project_id,'root')
 })
 
 test('只有已付全款且金额不匹配的记录使用新状态文案',()=>{

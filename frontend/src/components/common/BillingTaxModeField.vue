@@ -12,7 +12,8 @@ import ReadonlyField from './ReadonlyField.vue'
 import {billingTaxChoices,effectiveBillingTaxMode,billingTaxLabel} from '@/utils/billingTaxMode'
 const props=defineProps({modelValue:String,order:{type:Object,required:true},disabled:Boolean})
 defineEmits(['update:modelValue'])
-const choices=computed(()=>billingTaxChoices(props.order))
+const choices=computed(()=>props.order.paymentMethod && props.order.paymentMethod!=='special'
+  ? ['excl_tax','incl_tax'] : billingTaxChoices(props.order))
 const effective=computed(()=>effectiveBillingTaxMode({...props.order,billingTaxMode:props.modelValue}))
 </script>
 <style scoped>

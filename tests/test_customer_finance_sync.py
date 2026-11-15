@@ -18,30 +18,65 @@ def allowed(monkeypatch):
     monkeypatch.setattr(oral,'user_has_permission',lambda *_:True)
 
 
-def test_translation_manual_override_diff_and_confirmed_sync(environment,allowed):
+def test_translation_order_versions_and_latest_customer_rate(environment,allowed):
+    from word_count_models import WordCountMetric
+
     db,(user,_,_)=environment
     client,root,child,leaf=context(db,user)
+    db.query(WordCountMetric).filter(WordCountMetric.project_id==root.id,WordCountMetric.metric_type!='foreign_words').delete()
+    db.query(WordCountMetric).filter(WordCountMetric.sub_order_id.in_([child.id,leaf.id]),WordCountMetric.metric_type!='foreign_words').delete()
+    db.commit()
     library=rates.write_library(db,user,client.id,[item()],rates.library(db,client.id)['version']);db.commit()
     assert written.read(db,root.id)['item']['prices'][0]['amount']=='0.1'
     write(db,user,root,leaf,[item(amount='.8')],adjusted_total='15',explanation='独立金额')
+    write(db,user,root,leaf,[item(amount='.9')],adjusted_total='15',explanation='独立金额')
+    write(db,user,root,child,[item(amount='.7')])
+    entries=rates.history(client.id,page=1,db=db)['items']
+    order_entries=[event for event in entries if event['origin']=='order_rates']
+    assert {(event['order_id'],event['revision']) for event in order_entries}=={
+        (str(leaf.id),1),(str(leaf.id),2),(str(child.id),1)}
+    assert {event['order_no'] for event in order_entries}=={leaf.sub_order_no,child.sub_order_no}
+    assert Decimal(rates.library(db,client.id)['items'][0]['amount'])==Decimal('.1')
+    assert sync.differences('translation',client.id,page=1,db=db,user=user)['total']==2
+    grouped=sync.differences('translation',client.id,page=1,db=db,user=user,group_orders=True)
+    assert (grouped['total'],grouped['difference_count'])==(1,2)
+    mother=grouped['items'][0]
+    assert mother['order_id']==str(root.id) and not mother.get('expand_by_default')
+    assert mother['children'][0]['children'][0]['order_id']==str(leaf.id)
+
     rates.write_library(db,user,client.id,[item(amount='.2')],library['version']);db.commit()
-    result=written.read(db,root.id)['item']
-    assert result['prices'][0]['amount']=='0.8'  # 父级展示下级实际单价
-    assert result['recorded_prices'][0]['amount']=='0.2'
-    assert result['children'][0]['children'][0]['prices'][0]['amount']=='0.8'
-    diff=sync.differences('translation',client.id,page=1,db=db,user=user)
-    assert diff['total']==1
-    row=diff['items'][0]
-    request=sync.SyncWrite(**{k:row[k] for k in ('project_id','order_id','version','customer_version')},direction='client_to_project')
-    with pytest.raises(HTTPException) as unconfirmed:sync.sync('translation',client.id,request,db=db,user=user)
-    assert unconfirmed.value.status_code==422
-    sync.sync('translation',client.id,request.model_copy(update={'confirmed':True}),db=db,user=user)
     leaf_result=written.read(db,root.id)['item']['children'][0]['children'][0]
     assert leaf_result['prices'][0]['amount']=='0.2'
     assert Decimal(leaf_result['adjusted_total'])==15 and leaf_result['explanation']=='独立金额'
     assert sync.differences('translation',client.id,page=1,db=db,user=user)['total']==0
-    with pytest.raises(HTTPException) as stale:sync.sync('translation',client.id,request.model_copy(update={'confirmed':True}),db=db,user=user)
-    assert stale.value.status_code==409
+
+
+def test_mixed_order_tree_folds_only_siblings_with_the_same_direction():
+    from types import SimpleNamespace
+
+    owners=[SimpleNamespace(id=key, project_name=key) for key in ('root','a','b','c','nested')]
+    numbers={owner.id:owner.id for owner in owners}
+    parents={'a':'root','b':'root','c':'root','nested':'a'}
+    directions={'root':{'英→中','日→中'},'a':{'英→中'},'b':{'英→中'},'c':{'日→中'},'nested':{'英→中'}}
+    differences=[dict(order_id=key,order_no=key,project_name=key) for key in ('b','c','nested')]
+    result=sync.translation_difference_tree(owners,numbers,parents,directions,differences)
+    assert result['expand_by_default']
+    group, separate=result['children']
+    assert group['direction_group'] and group['language_directions']==['英→中']
+    assert [child['order_id'] for child in group['children']]==['a','b']
+    assert group['children'][0]['children'][0]['order_id']=='nested'
+    assert separate['order_id']=='c'
+
+
+def test_empty_order_uses_only_unique_matching_direction_and_effective_statistics():
+    from translation_rate_matching import references_for_new_prices
+
+    customer = {'language_pair':'英语→简中','metric':'customer_auto:words','unit_size':'1000'}
+    company = {**customer, 'metric':'company_words'}
+    other = {**customer, 'language_pair':'日语→简中'}
+    assert references_for_new_prices([customer,company,other],'英语→简中',{'customer':{'words':20}})==[customer]
+    assert references_for_new_prices([customer,company],'英语→简中',{'company':{'words':20}})==[company]
+    assert references_for_new_prices([customer],'英语→简中',{'customer':{'characters_no_spaces':20,'words':10}})==[]
 
 
 def test_automatic_basis_compares_selected_unit_and_shows_it_for_real_differences(environment,allowed):

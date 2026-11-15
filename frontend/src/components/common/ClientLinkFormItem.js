@@ -1,5 +1,7 @@
 import { defineComponent, h, inject } from 'vue'
 import { ElFormItem, formContextKey } from 'element-plus'
+// 通过包装组件加载时，按需解析器只引入表单容器样式；字段样式包含必填星号。
+import 'element-plus/es/components/form-item/style/css'
 import ClientManagementLink from './ClientManagementLink.vue'
 import { isClientShortName } from '@/utils/clientManagementWindow'
 

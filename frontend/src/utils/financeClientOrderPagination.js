@@ -1,12 +1,12 @@
-export function indexFinanceClientOrders(roots){
+export function indexFinanceClientOrders(roots,isExpanded=()=>true){
   let total=0
-  function index(node,counted){
+  function index(node){
     const start=total+1
-    const orderIndex=counted?++total:null
-    const children=(node.children||[]).map(child=>index(child,true))
+    const orderIndex=++total
+    const children=isExpanded(node.id)?(node.children||[]).map(index):[]
     return {node,start,end:total,orderIndex,children}
   }
-  const orders=roots.map(root=>index(root,!root.children?.length))
+  const orders=roots.map(index)
   return {orders,total}
 }
 
@@ -14,24 +14,23 @@ export function sliceFinanceClientOrders(orders,page,pageSize){
   const first=(page-1)*pageSize+1,last=first+pageSize-1
   function slice(entry){
     if(entry.end<first||entry.start>last)return []
-    return [{...entry.node,hasChildren:entry.children.length>0,
+    return [{...entry.node,hasChildren:!!entry.node.children?.length,
       pageIndex:entry.orderIndex>=first&&entry.orderIndex<=last?entry.orderIndex:null,
       children:entry.children.flatMap(slice)}]
   }
   return orders.flatMap(slice)
 }
 
-export function financeClientDisplayOffset(orders, page, pageSize){
-  const previousEnd = (page - 1) * pageSize
-  let offset = 0
-  function count(entry){
-    const last = Math.min(entry.end, previousEnd)
-    if(entry.start > last) return
-    offset += Math.floor((last - 1) / pageSize) - Math.floor((entry.start - 1) / pageSize) + 1
-    entry.children.forEach(count)
-  }
-  orders.forEach(count)
-  return offset
+// Ancestors outside the page keep the response tree intact but do not take up a table row.
+export function financeOrderPageRows(rows){
+  return rows.flatMap(row=>{
+    const children=financeOrderPageRows(row.children||[])
+    return row.pageIndex==null?children:[{...row,children}]
+  })
+}
+
+export function financeParentOrderRows(rows){
+  return rows.map(row=>({...row,hasChildren:row.hasChildren??!!row.children?.length,children:[]}))
 }
 
 export function financeDisplayIndexes(rows, offset = 0, indexes = new Map()){

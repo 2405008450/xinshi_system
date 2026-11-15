@@ -27,7 +27,7 @@
           @size-change="pagination[group.module].page = 1"
         />
       </section>
-      <el-empty v-if="!loading && !groups.length" description="暂无关联的合作项目" />
+      <el-empty v-if="!loading && !groups.length" :description="managerKey ? '该客户经理暂无关联项目' : '暂无关联的合作项目'" />
     </template>
   </section>
 </template>
@@ -39,7 +39,10 @@ import { getClientProjects } from '@/api/clients'
 import { hasPermission } from '@/utils/permission'
 import { getProjectStatusLabel } from '@/utils/projectStatus'
 
-const props = defineProps({ clientId: { type: [String, Number], default: '' } })
+const props = defineProps({
+  clientId: { type: [String, Number], default: '' },
+  managerKey: { type: String, default: '' },
+})
 const canRead = hasPermission('projects:read')
 const groups = ref([])
 const loading = ref(false)
@@ -72,7 +75,10 @@ async function load() {
   controller = new AbortController()
   loading.value = true
   try {
-    const result = await getClientProjects(props.clientId, { signal: controller.signal })
+    const result = await getClientProjects(props.clientId, {
+      signal: controller.signal,
+      params: props.managerKey ? { manager_key: props.managerKey } : undefined,
+    })
     if (current === requestId) groups.value = (result.groups || []).filter(group => group.items?.length)
   } catch (e) {
     if (current === requestId && e?.code !== 'ERR_CANCELED') error.value = e?.detail || '加载合作项目失败，请重试'
@@ -81,7 +87,7 @@ async function load() {
   }
 }
 
-watch(() => props.clientId, load, { immediate: true })
+watch(() => [props.clientId, props.managerKey], load, { immediate: true })
 onBeforeUnmount(() => { ++requestId; controller?.abort() })
 useProjectStatusSync('translation',()=>groups.value.flatMap(group=>pageRows(group).map(row=>({...row,_statusModule:group.module}))),{field:'project_status',typeForRow:row=>row._statusModule,onChanged:changes=>{for(const group of groups.value)for(const row of group.items){const status=changes.find(item=>item.projectType===group.module&&item.id===String(row.id));if(status)row.project_status=status.status}}})
 </script>

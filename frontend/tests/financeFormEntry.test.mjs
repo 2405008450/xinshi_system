@@ -22,7 +22,7 @@ test('已保存的母订单和子订单均调用同一个价格与付款编辑�
 test('新增项目保存后补存客户说明和参考价，使用新生成收费项ID',async()=>{
   const target={},pendingFormFinance=new WeakMap(),calls=[]
   pendingFormFinance.set(target,{pricingMode:'metric',prices:[{amount:0.2,referenceId:'reference'}],customerExplanation:'给客户的说明'})
-  const ctx={pendingFormFinance,getCustomerFinanceProject:async()=>({version:'v1',item:{id:'new-root',prices:[{id:'new-charge'}],children:[]}}),ratePayload:row=>row,saveCustomerFinanceTable:async(id,data)=>calls.push({id,data})}
+  const ctx={notifyCustomerFinanceHistory:()=>{},pendingFormFinance,getCustomerFinanceProject:async()=>({version:'v1',item:{id:'new-root',prices:[{id:'new-charge'}],children:[]}}),ratePayload:row=>row,saveCustomerFinanceTable:async(id,data)=>calls.push({id,data})}
   vm.createContext(ctx)
   vm.runInContext(source.slice(source.indexOf('async function persistForForm('),source.indexOf('async function openForForm(')),ctx)
   await ctx.persistForForm(target,{id:'new-root'})

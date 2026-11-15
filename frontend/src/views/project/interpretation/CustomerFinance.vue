@@ -4,6 +4,9 @@
       <div class="heading">
         <strong>{{clientScope?'口译项目收费':'口译'}}</strong>
         <div class="heading-actions">
+          <el-tooltip content="口译项目暂无子订单">
+            <span><el-button disabled>折叠子订单</el-button></span>
+          </el-tooltip>
           <template v-if="canReadProjects">
             <el-button @click="quotationVisible=true">报价单</el-button>
             <el-button @click="statementVisible=true">对账单</el-button>

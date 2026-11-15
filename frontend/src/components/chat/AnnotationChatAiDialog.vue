@@ -32,17 +32,38 @@
       <template v-if="run">
         <el-descriptions :column="1" size="small" border class="chat-ai-range">
           <el-descriptions-item label="聊天范围">{{ run.rangeStart ? formatBusinessDateTime(run.rangeStart) : '最早一条' }} 至 {{ formatBusinessDateTime(run.rangeEnd) }}</el-descriptions-item>
-          <el-descriptions-item label="运行状态">{{ stateLabels[run.state] }}{{ run.autoApply ? ' · 分析后加入进度' : '' }}</el-descriptions-item>
+          <el-descriptions-item label="运行状态">{{ stateLabels[run.state] }}</el-descriptions-item>
+          <el-descriptions-item v-if="run.coverage" label="聊天记录统计">
+            共 {{ run.coverage.total }} 条 · 已分类 {{ run.coverage.classified }} 条 · 未分类 {{ run.coverage.unclassified }} 条
+          </el-descriptions-item>
         </el-descriptions>
         <el-alert v-if="run.error || run.importError" :title="run.error || run.importError" type="error" :closable="false" />
         <template v-if="run.state === 'succeeded'">
           <el-empty v-if="!run.results.length" description="此时段没有可分类的聊天要点" :image-size="60" />
-          <section v-for="group in groupedResults" :key="group.key" class="chat-ai-group">
+          <section v-for="group in groupedResults" :key="`${run.id}:${group.key}`" class="chat-ai-group">
             <h3>{{ group.label }}（{{ group.items.length }}）</h3>
             <ul>
               <li v-for="item in group.items" :key="item.id">
-                <div class="chat-ai-summary">{{ item.summary }}</div>
-                <small class="chat-ai-muted">{{ formatBusinessDateTime(item.effectiveAt) }} · {{ item.sources.length }} 条来源消息<span v-if="importedIds.has(item.id)"> · 已加入项目进度</span></small>
+                <div class="chat-ai-result">
+                  <el-checkbox v-if="canWrite && progressTracks.has(item.category) && !importedIds.has(item.id)"
+                    v-model="checkedIds" :value="item.id" :aria-label="`选择进度：${item.summary}`" :disabled="submitting" />
+                  <div class="chat-ai-summary">{{ item.summary }}</div>
+                </div>
+                <small class="chat-ai-muted">{{ formatBusinessDateTime(item.effectiveAt) }}<span v-if="importedIds.has(item.id)"> · 已加入项目进度</span></small>
+                <details v-if="item.sources.length" class="chat-ai-sources" @toggle="loadSources(item.id, $event.currentTarget.open)">
+                  <summary>查看 {{ item.sources.length }} 条来源消息</summary>
+                  <template v-if="sourceById[item.id]">
+                    <p v-if="sourceById[item.id].loading" role="status">正在读取来源消息…</p>
+                    <p v-else-if="sourceById[item.id].error" role="alert">{{ sourceById[item.id].error }} <el-button link @click="loadSources(item.id, true)">重试</el-button></p>
+                    <template v-else>
+                      <div v-for="source in sourceById[item.id].items" :key="source.id" class="chat-ai-source">
+                        <strong>{{ source.senderName }}</strong> · {{ formatBusinessDateTime(source.createdAt) }}
+                        <div class="chat-ai-summary"><ScreenshotText :text="source.content" :chat-message-id="source.id" chat-kind="annotation" /></div>
+                      </div>
+                      <small v-if="sourceById[item.id].unavailable" class="chat-ai-muted">{{ sourceById[item.id].unavailable }} 条来源消息已撤回或不可查看</small>
+                    </template>
+                  </template>
+                </details>
               </li>
             </ul>
           </section>
@@ -62,11 +83,10 @@
       <el-button @click="visible = false">关闭</el-button>
       <template v-if="mode === 'run'">
         <el-button :disabled="submitting" @click="showHistory">返回分析进度</el-button>
-        <el-button type="primary" :loading="submitting && !applying" :disabled="submitting" @click="submit(false)">仅分析</el-button>
-        <el-button v-if="canWrite" type="primary" :loading="submitting && applying" :disabled="submitting" @click="submit(true)">分析并加入进度</el-button>
+        <el-button type="primary" :loading="submitting" @click="submit">运行分析</el-button>
       </template>
       <template v-else>
-        <el-button v-if="canWrite && run?.state === 'succeeded'" :disabled="!canImport" :loading="submitting" @click="addProgress">加入项目进度</el-button>
+        <el-button v-if="canWrite && run?.state === 'succeeded'" :disabled="!selectedProgressIds.length" :loading="submitting" @click="addProgress">加入项目进度{{ selectedProgressIds.length ? `（${selectedProgressIds.length}）` : '' }}</el-button>
         <el-button type="primary" :disabled="submitting" @click="mode = 'run'; error = ''">新建分析</el-button>
       </template>
     </template>
@@ -76,6 +96,7 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import ScreenshotText from '@/components/common/ScreenshotText.vue'
 import { chatRequest } from '@/api/projectChat'
 import { formatBusinessDateTime } from '@/utils/dateTime'
 import { hasPermission } from '@/utils/permission'
@@ -97,11 +118,13 @@ const progressTracks = new Set(['customer', 'project', 'annotator'])
 const canWrite = hasPermission('projects:write')
 const visible = ref(true), mode = ref('history'), scope = ref('current'), period = ref('day')
 const runs = ref([]), selected = ref(''), run = ref(null), hasMore = ref(false)
-const error = ref(''), loading = ref(false), submitting = ref(false), applying = ref(false)
+const error = ref(''), loading = ref(false), submitting = ref(false)
+const checkedIds = ref([])
+const sourceById = ref({})
 const importedIds = computed(() => new Set(run.value?.imports?.map(entry => entry.resultId)))
-const canImport = computed(() => run.value?.state === 'succeeded' && run.value.results.some(
-  item => progressTracks.has(item.category) && !importedIds.value.has(item.id),
-))
+const selectedProgressIds = computed(() => run.value?.state === 'succeeded' ? run.value.results
+  .filter(item => progressTracks.has(item.category) && checkedIds.value.includes(item.id) && !importedIds.value.has(item.id))
+  .map(item => item.id) : [])
 const groupedResults = computed(() => Object.entries(categories).map(([key, label]) => ({
   key, label, items: run.value?.results?.filter(item => item.category === key) || [],
 })).filter(group => group.items.length))
@@ -111,6 +134,19 @@ let detailVersion = 0
 let loadedCount = 0
 const request = (suffix = '', options = {}) => chatRequest(`annotation-ai/${props.projectId}/runs${suffix}`, { ...options, signal: controller.signal })
 const errorText = (cause, fallback) => cause.detail || cause.message || fallback
+watch(selected, () => { checkedIds.value = []; sourceById.value = {} }, { flush: 'sync' })
+
+async function loadSources(resultId, expanded) {
+  const runId = run.value?.id
+  if (!expanded || !runId || runId !== selected.value || sourceById.value[resultId]?.loading) return
+  const cache = sourceById.value
+  cache[resultId] = { loading: true }
+  try {
+    cache[resultId] = await request(`/${runId}/results/${resultId}/sources`)
+  } catch (cause) {
+    if (!controller.signal.aborted) cache[resultId] = { error: errorText(cause, '读取来源消息失败') }
+  }
+}
 
 function runLabel(row) {
   const label = row.scheduledOn ? '工作日自动分析' : periods.find(option => option.value === row.period)?.label
@@ -175,13 +211,12 @@ function showHistory() {
   mode.value = 'history'
 }
 
-async function submit(autoApply) {
+async function submit() {
   if (submitting.value) return
   submitting.value = true
-  applying.value = autoApply
   error.value = ''
   try {
-    const data = await request('', { method: 'post', data: { period: period.value, autoApply, allVisible: scope.value === 'all' } })
+    const data = await request('', { method: 'post', data: { period: period.value, allVisible: scope.value === 'all' } })
     ElMessage.success(data.queued ? `已提交 ${data.queued} 个会话的 AI 分析` : '所选会话在此时段没有可分析的消息')
     if (data.queued) selected.value = ''
     showHistory()
@@ -189,21 +224,21 @@ async function submit(autoApply) {
     if (!controller.signal.aborted) error.value = errorText(cause, '提交分析失败')
   } finally {
     submitting.value = false
-    applying.value = false
     if (mode.value === 'history') void refresh()
   }
 }
 
 async function addProgress() {
-  if (submitting.value || !canImport.value) return
+  if (submitting.value || !selectedProgressIds.value.length) return
   const id = run.value.id
   submitting.value = true
   error.value = ''
   try {
-    const data = await request(`/${id}/progress`, { method: 'post' })
+    const data = await request(`/${id}/progress`, { method: 'post', data: { resultIds: selectedProgressIds.value } })
     if (selected.value === id) {
       detailVersion++
-      run.value = data.run
+      run.value = { ...data.run, coverage: run.value?.coverage }
+      checkedIds.value = []
     }
     ElMessage.success(data.created ? `已加入 ${data.created} 条项目进度` : '对应进度已保存')
   } catch (cause) {
@@ -236,6 +271,10 @@ onBeforeUnmount(() => { clearInterval(timer); controller.abort() })
 .chat-ai-group ul { margin: 8px 0 0; padding-left: 20px; }
 .chat-ai-group li + li { margin-top: 8px; }
 .chat-ai-summary { white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-ai-result { display: flex; align-items: flex-start; gap: 8px; }
+.chat-ai-result .el-checkbox { height: 22px; flex: none; margin-right: 0; }
+.chat-ai-sources summary { cursor: pointer; color: var(--el-color-primary); font-size: 12px; }
+.chat-ai-source { padding: 8px; margin: 4px 0; background: #eff6ff; border-radius: 4px; }
 </style>
 
 <style>

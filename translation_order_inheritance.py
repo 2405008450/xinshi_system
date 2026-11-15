@@ -187,8 +187,11 @@ def attach(db, projects=(), sub_orders=()):
     roots = db.query(TranslationProject).filter(TranslationProject.id.in_(root_ids)).all()
     rows = db.query(TranslationSubOrder).filter(TranslationSubOrder.parent_project_id.in_(root_ids)).all()
     records = {r.sub_order_id:r for r in db.query(TranslationOrderInheritance).filter(TranslationOrderInheritance.sub_order_id.in_([r.id for r in rows])).all()}
+    children_by_root = {}
+    for row in rows:
+        children_by_root.setdefault(row.parent_project_id, []).append(row)
     for root in roots:
-        children = [r for r in rows if r.parent_project_id == root.id]
+        children = children_by_root.get(root.id, [])
         effective, overrides = effective_tree(root, children, records, reconcile_native=True)
         index = descendants_index(effective)
         root.child_field_differences = differences(root.order_no, effective, index)

@@ -1,14 +1,27 @@
 <template>
   <div>
     <div class="price-sync-scopes">
-      <el-button :disabled="disabled || loading || !month || !clientId" @click="open('same_month')">{{compact?'同步同月订单':'同步到同客户同月同语种同单位订单…'}}</el-button>
-      <el-button :disabled="disabled || loading || !projectId || !orderId" @click="open('project_children')">同步到本订单同语种同单位的各级子订单…</el-button>
+      <el-button :disabled="disabled || loading || !month || !clientId" @click="open('same_month')">{{sameMonthButtonLabel}}</el-button>
+      <el-button :disabled="disabled || loading || !projectId || !orderId" @click="open('project_children')">{{childButtonLabel}}</el-button>
       <small v-if="syncCount" class="sync-count">已同步 {{syncCount}} 次</small>
     </div>
     <DraggableFormDialog v-model="visible" append-to-body class="same-month-price-dialog" width="min(1100px, calc(100vw - 32px))" top="5vh" :title="childScope ? '确认同步本订单各级子订单单价' : '确认同步同客户同月同语种单价'" :close-on-click-modal="false" :before-close="close">
       <div v-loading="loading">
         <CustomerTranslationRates v-if="clientId" :client-id="clientId" :can-write="canWriteClients" button-label="查看／编辑客户笔译报价" @saved="open(scope)" />
-        <el-alert v-if="error" :title="error" type="error" :closable="false" />
+        <el-alert v-if="error" :title="error" type="error" :closable="false">
+          <template v-if="error === missingUnitMessage" #default>
+            关闭本窗口，按下方路径进入来源订单的「统计口径」。为每条要同步的单价选定具体口径，例如「客户统计（字数）」或「我司统计（页数）」。使用「自动选择」时，系统需要从已填的客户统计或我司统计中确定唯一口径。
+          </template>
+        </el-alert>
+        <div class="sync-entry-guide">
+          <strong>单价同步入口</strong>
+          <ul>
+            <li>财务管理 → 笔译 → 找到来源订单 → 操作列「更多操作」 → 价格与付款 → 同步单价 → {{compactSyncButtonLabel}}。</li>
+            <li>财务管理 → 笔译 → 找到来源订单 → 单价列 → 参考价／同步 → {{tableSyncButtonLabel}}。</li>
+          </ul>
+          <p v-if="error === missingUnitMessage">填写统计口径：在「价格与付款」中进入「语种单价」→ 对应单价 →「统计口径」；也可在列表「单价」列点击对应单价的「设置」→「统计口径」。修改后重新打开同步窗口，核对匹配订单，再点击「确认同步」。</p>
+          <p v-else>核对下方的匹配订单，再点击「确认同步」。</p>
+        </div>
         <p>{{`将${sourceOrder}的单价同步至${destination}。匹配 ${preview?.targets?.length || 0} 个订单。`}}</p>
         <p>语种方向、实际计量单位、币种和单价对应数量均匹配才会同步。各订单的工作量、调整金额和说明保留。</p>
         <el-table :data="preview?.targets||[]" border max-height="400"><el-table-column prop="orderNo" label="订单号" min-width="180" /><el-table-column prop="projectName" label="项目名称" min-width="180" /><el-table-column prop="languagePair" label="语种方向" min-width="160" /><el-table-column label="当前单价" min-width="220"><template #default="{row}"><p v-for="price in row.before" :key="price.id">{{text(price)}}</p></template></el-table-column><el-table-column label="将同步为" min-width="220"><template #default="{row}"><p v-for="(price,index) in row.prices" :key="index">{{text(price)}}</p></template></el-table-column></el-table>
@@ -31,6 +44,13 @@ const canWriteClients=hasPermission('clients:write')
 const visible=ref(false),loading=ref(false),saving=ref(false),preview=ref(null),error=ref('')
 const scope=ref('same_month')
 const childScope=computed(()=>scope.value==='project_children')
+const childButtonLabel='同步到本订单同语种同单位的各级子订单…'
+const compactSameMonthLabel='同步同客户同月同语种订单'
+const tableSameMonthLabel='同步到同客户同月同语种同单位订单…'
+const sameMonthButtonLabel=computed(()=>props.compact?compactSameMonthLabel:tableSameMonthLabel)
+const compactSyncButtonLabel=computed(()=>childScope.value?childButtonLabel:compactSameMonthLabel)
+const tableSyncButtonLabel=computed(()=>childScope.value?childButtonLabel:tableSameMonthLabel)
+const missingUnitMessage='请先明确单价的计量单位后再同步'
 const sourceOrder=computed(()=>props.sourceOrderNo ? `订单 ${props.sourceOrderNo}` : '当前订单')
 const destination=computed(()=>childScope.value
   ? '该订单下匹配的各级子订单'
@@ -73,6 +93,9 @@ async function apply(){
 </script>
 <style scoped>
 .price-sync-scopes{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.price-sync-scopes :deep(.el-button){margin-left:0;max-width:100%;height:auto;min-height:32px;white-space:normal;text-align:left}
+.sync-entry-guide { margin: 12px 0; padding: 12px 16px; background: var(--el-fill-color-light); line-height: 1.6; }
+.sync-entry-guide ul { margin: 4px 0; padding-inline-start: 20px; }
+.sync-entry-guide p { margin: 4px 0 0; }
 .sync-count{display:inline-block;margin:0 0 0 6px;padding:0 5px;border-radius:8px;background:var(--el-color-success-light-8);color:var(--el-color-success);font-size:11px;line-height:18px}
 small{display:block;font-size:12px;color:#64748b;margin-top:6px}:global(.same-month-price-dialog){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}:global(.same-month-price-dialog .el-dialog__body){flex:1;min-height:0;overflow-y:auto}:global(.same-month-price-dialog .el-dialog__header),:global(.same-month-price-dialog .el-dialog__footer){flex-shrink:0}:global(.same-month-price-dialog .el-dialog__footer){border-top:1px solid #dbe3ec;background:#f8fafc}
 </style>

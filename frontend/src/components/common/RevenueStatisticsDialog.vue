@@ -21,7 +21,9 @@
       <p class="revenue-help">按订单日期归属；无法识别订单日期时采用项目已有业务日期。周为周一至周日；按完整自然周期比较，当前周期可能尚未结束。币种分别统计。统计口径按客户选择后相加；选择仅影响本窗口并按当前用户记忆。</p>
       <div class="revenue-shortcuts"><span>排名快捷：</span><el-button v-for="item in rankShortcuts" :key="item.label" size="small" @click="chooseRank(item)">{{item.label}}</el-button><el-button size="small" @click="clearRank">不限排名</el-button><span>金额快捷：</span><el-button v-for="item in amountShortcuts" :key="item.label" size="small" @click="chooseAmount(item)">{{item.label}}</el-button><el-button size="small" @click="clearAmount">不限金额</el-button></div>
       <p v-if="rangeLabel" class="revenue-help">已选：{{rangeLabel}} <el-button link @click="clearRanges">清空区间条件</el-button></p>
-      <el-alert v-if="error" :title="error" type="error" :closable="false" />
+      <el-alert v-if="error" :title="error" type="error" :closable="false">
+        <el-button link @click="load">重新查询</el-button>
+      </el-alert>
       <div v-loading="loading">
         <template v-if="data">
           <h4 class="revenue-period">{{data.period.label}} · {{data.period.start}} 至 {{data.period.end}} <el-tag v-if="data.partial_period" type="warning" size="small">周期未结束</el-tag></h4>

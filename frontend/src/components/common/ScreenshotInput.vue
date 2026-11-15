@@ -7,6 +7,7 @@
         <input type="file" :accept="allowInvoiceFiles ? 'image/*,.pdf,application/pdf,.ofd,application/ofd' : 'image/*'" multiple :disabled="uploading" @change="choose" />
       </label>
       <small>{{ allowInvoiceFiles ? '支持拖入截图、PDF 或 OFD，发票文件最大 10 MB' : chat ? '聊天截图保留30天' : '支持粘贴截图，长期保存' }}</small>
+      <small v-if="uploadHelp" class="app-screenshot-upload-help">{{ uploadHelp }}</small>
     </div>
     <ScreenshotText v-if="enabled && ids.length" :text="String(modelValue||'')" :show-text="false" :removable="!readonly&&!uploading"
       :invoice-drag="allowInvoiceFiles" :invoice-order-no="invoiceOrderNo" @remove="remove" />
@@ -23,7 +24,7 @@ import { screenshotIds,screenshotText,screenshotValue } from '@/utils/screenshot
 import { registerScreenshotUpload } from '@/utils/screenshotUploads'
 defineOptions({inheritAttrs:false})
 const ScreenshotText=defineAsyncComponent(()=>import('./ScreenshotText.vue'))
-const props=defineProps({modelValue:[String,Number],type:{type:String,default:'text'},showScreenshotTools:{type:Boolean,default:true},allowInvoiceFiles:Boolean,invoiceRequestId:String,invoiceOrderNo:String})
+const props=defineProps({modelValue:[String,Number],type:{type:String,default:'text'},showScreenshotTools:{type:Boolean,default:true},allowInvoiceFiles:Boolean,invoiceRequestId:String,invoiceOrderNo:String,uploadHelp:String})
 const emit=defineEmits(['update:modelValue','input','change','uploading-change','attachment-added'])
 const attrs=useAttrs(),control=ref(),root=ref(),enabled=ref(true),chat=ref(false),uploading=ref(false),error=ref('')
 const ids=computed(()=>screenshotIds(props.modelValue)),plain=computed(()=>screenshotText(props.modelValue)),readonly=computed(()=>attrs.disabled!==undefined&&attrs.disabled!==false||attrs.readonly!==undefined&&attrs.readonly!==false)
@@ -95,7 +96,7 @@ function drop(event) {
 }
 function choose(event){void add(Array.from(event.target.files||[]));event.target.value=''}
 </script>
-<style scoped>.app-screenshot-input{width:100%;min-width:0}.app-screenshot-tools{display:flex;align-items:center;gap:10px;font-size:11px;margin-top:4px;color:#94a3b8;line-height:1.5}.app-screenshot-tools label{cursor:pointer;color:var(--el-color-primary)}.app-screenshot-tools input{display:none}.app-screenshot-error{display:block;color:#dc2626;font-size:12px}.app-screenshot-error button{border:0;background:none;cursor:pointer}</style>
+<style scoped>.app-screenshot-input{width:100%;min-width:0}.app-screenshot-tools{display:flex;align-items:center;flex-wrap:wrap;gap:2px 10px;font-size:11px;margin-top:4px;color:#94a3b8;line-height:1.5}.app-screenshot-tools small{font-size:inherit}.app-screenshot-upload-help{color:var(--el-text-color-secondary)}.app-screenshot-tools label{cursor:pointer;color:var(--el-color-primary)}.app-screenshot-tools input{display:none}.app-screenshot-error{display:block;color:#dc2626;font-size:12px}.app-screenshot-error button{border:0;background:none;cursor:pointer}</style>
 
 <style scoped>.app-screenshot-input :deep(.screenshot-previews){max-height:160px;overflow-y:auto}.app-screenshot-input :deep(.screenshot-preview .el-image){height:90px;max-width:180px}</style>
 <style scoped>.invoice-drag-help{display:block;margin-top:6px;color:var(--el-text-color-secondary);line-height:1.5}</style>

@@ -78,11 +78,17 @@
             <el-button text :icon="Setting" aria-label="财务设置">设置</el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="invoice">开票接收人</el-dropdown-item>
+                <el-dropdown-item command="invoice-subjects">发票设置</el-dropdown-item>
+                <el-dropdown-item command="statement-translation">对账单设置 · 笔译</el-dropdown-item>
+                <el-dropdown-item command="collection-account">收款账户管理</el-dropdown-item>
+                <el-dropdown-item command="invoice-recipients">开票接收人</el-dropdown-item>
                 <el-dropdown-item v-if="canManageStatementAccess" command="permissions">权限管理</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
+          <InvoiceSubjectSettingsDialog v-if="invoiceSubjectsVisible" @close="invoiceSubjectsVisible = false" />
+          <CustomerStatementSettings v-if="statementSettingsVisible" @close="statementSettingsVisible = false" />
+          <CollectionAccountDialog v-if="collectionAccountVisible" @close="collectionAccountVisible = false" />
           <InvoiceSettingsDialog v-if="invoiceSettingsVisible" @close="invoiceSettingsVisible = false" />
           <UiZoomControl />
           <AutoDraftCenter :show-entry="false" />
@@ -181,6 +187,12 @@ const route = useRoute()
 const router = useRouter()
 const showFinanceSettings = computed(() => route.path.startsWith('/finance-management'))
 const InvoiceSettingsDialog = defineAsyncComponent(() => import('@/components/common/InvoiceSettingsDialog.vue'))
+const InvoiceSubjectSettingsDialog = defineAsyncComponent(() => import('@/components/common/InvoiceSubjectSettingsDialog.vue'))
+const CustomerStatementSettings = defineAsyncComponent(() => import('@/components/common/CustomerStatementSettings.vue'))
+const CollectionAccountDialog = defineAsyncComponent(() => import('@/components/common/CollectionAccountDialog.vue'))
+const invoiceSubjectsVisible = ref(false)
+const statementSettingsVisible = ref(false)
+const collectionAccountVisible = ref(false)
 const invoiceSettingsVisible = ref(false)
 const canManageStatementAccess = ref(false)
 async function loadFinancePermissions(visible) {
@@ -190,7 +202,10 @@ async function loadFinancePermissions(visible) {
 }
 function openFinanceSetting(command) {
   if (command === 'permissions') void router.push('/finance-management/permissions')
-  else invoiceSettingsVisible.value = true
+  else if (command === 'invoice-subjects') invoiceSubjectsVisible.value = true
+  else if (command === 'statement-translation') statementSettingsVisible.value = true
+  else if (command === 'collection-account') collectionAccountVisible.value = true
+  else if (command === 'invoice-recipients') invoiceSettingsVisible.value = true
 }
 const { access: issueAccess, collector: issueCollector, refreshIssueAccess } = useResourceIssues()
 const issueCollectorLoaded = ref(false)

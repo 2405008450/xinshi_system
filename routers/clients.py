@@ -16,7 +16,7 @@ from crud import (
     get_sub_client, create_sub_client, update_sub_client, delete_sub_client
 )
 from schemas import ClientCreate, ClientUpdate, ClientResponse, SubClientCreate, SubClientUpdate, SubClientResponse
-from routers.auth import get_current_user, require_module_access, require_permission
+from routers.auth import get_current_user, require_module_access, require_permission, user_has_permission
 from models import Client, SubClient
 from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
 from pagination_schemas import ClientOptionResponse, PageResponse, resolve_page_total
@@ -199,7 +199,9 @@ def read_client_page(
     cooperation_start_date_to: Optional[date] = None,
     frequent_first: bool = Query(False),
     field_filters: Optional[str] = Query(None),
+    include_project_managers: bool = False,
     db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
     filters = dict(
         client_code=client_code, client_name=client_name,
@@ -215,6 +217,8 @@ def read_client_page(
     items = get_clients(
         db, skip=skip, limit=limit, frequent_first=frequent_first, **filters,
     )
+    if include_project_managers and items:
+        _add_project_managers(db, items, current_user.id)
     return {
         "items": items,
         "total": resolve_page_total(
@@ -223,24 +227,57 @@ def read_client_page(
     }
 
 @router.get("/{client_id}/projects", dependencies=[Depends(require_permission('projects:read'))])
-def read_client_projects(client_id: UUID, db: Session = Depends(get_db)):
+def read_client_projects(
+    client_id: UUID, manager_key: Optional[str] = Query(None, min_length=1, max_length=260),
+    db: Session = Depends(get_db),
+):
     if not db.query(Client.id).filter(Client.id == client_id).first():
         raise HTTPException(status_code=404, detail='客户不存在')
+    if manager_key:
+        if not manager_key.startswith('name:'):
+            try:
+                UUID(manager_key)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail='客户经理标识无效') from exc
+        from client_project_managers import client_manager_project_groups
+        return client_manager_project_groups(db, client_id, manager_key)
     from client_cooperation_projects import client_project_groups
     return client_project_groups(db, client_id)
 
 
+def _add_project_managers(db, clients, user_id):
+    from client_project_managers import attach_client_project_managers
+
+    attach_client_project_managers(
+        db, clients,
+        read_consultations=user_has_permission(db, user_id, 'consultations:read'),
+        read_projects=user_has_permission(db, user_id, 'projects:read'),
+    )
+
+
 @router.get("/{client_id}", response_model=ClientResponse)
-def read_client(client_id: UUID, db: Session = Depends(get_db)):
+def read_client(
+    client_id: UUID, include_project_managers: bool = False,
+    db: Session = Depends(get_db), current_user=Depends(get_current_user),
+):
     db_client = get_client(db, client_id=client_id)
     if not db_client:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="客户不存在")
+    if include_project_managers:
+        _add_project_managers(db, [db_client], current_user.id)
     return db_client
 
 @router.put("/{client_id}", response_model=ClientResponse)
 def update_client_endpoint(client_id: UUID, client_update: ClientUpdate, db: Session = Depends(get_db)):
     try:
         db_client = update_client(db, client_id=client_id, client_update=client_update)
+    except IntegrityError as exc:
+        db.rollback()
+        detail = integrity_error_detail(exc, '客户资料不符合保存要求，请检查后重试')
+        code = status.HTTP_409_CONFLICT if isinstance(detail, dict) and any(
+            error['path'] == 'client_code' for error in detail['fieldErrors']
+        ) else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=code, detail=detail) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     if not db_client:

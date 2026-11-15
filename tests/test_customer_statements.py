@@ -74,7 +74,7 @@ def test_zero_unknown_currency_and_sub_client(context):
     db.add(sub);db.flush();zero.client_id=None;zero.sub_client_id=sub.id;db.commit()
     result=preview(http,root,scope='customer').json();assert result['totals']=={'CNY':'123.40','USD':'0.00'}
     root.customer_charge_items[0].unit_price_excl_tax=None;db.commit()
-    result=preview(http,root).json();assert result['rows'][0]['subtotal']=='130.80' and result['rows'][0]['unit_label']=='含税' and not result['pending']
+    result=preview(http,root).json();assert result['rows'][0]['subtotal'] is None and result['rows'][0]['unit_label']=='不含税' and result['pending']
     root.customer_charge_items[0].unit_price_incl_tax=None;db.commit()
     result=preview(http,root).json();assert result['rows'][0]['subtotal'] is None and result['pending'] and result['totals']=={}
 
@@ -127,6 +127,38 @@ def test_company_settings_stamp_validation_export_and_permissions(context,monkey
     monkeypatch.setenv('APP_ENV','production')
     granted.remove('clients:write');assert http.put('/customer-statement-settings',json=body).status_code==403
     granted.remove('projects:read');assert preview(http,root).status_code==403
+
+def test_collection_account_shares_statement_account_but_keeps_materials_private(context, monkeypatch):
+    http, db, clients, granted, _ = context
+    from tools.apply_collection_account_materials_migration import apply_migration
+    statements.CollectionAccountMaterials.__table__.drop(db.connection())
+    apply_migration(db.connection())
+    apply_migration(db.connection())
+    endpoint = '/finance/collection-account'
+    monkeypatch.setenv('APP_ENV', 'production')
+    existing = http.put('/customer-statement-settings', json={'revision': 0, 'account_number': '001'})
+    assert existing.status_code == 200
+    account = http.get(endpoint)
+    assert account.headers['cache-control'] == 'no-store'
+    assert account.json()['account_number'] == '001'
+    entry = {**account.json(), 'account_number': '002', 'notes': '核对开户资料',
+             'attachments': [{'name': '资料.pdf', 'content': 'YWJj'}]}
+    saved = http.put(endpoint, json=entry)
+    assert saved.status_code == 200, saved.text
+    assert http.get(endpoint).json() == saved.json()
+    assert http.put(endpoint, json=entry).status_code == 409
+    assert http.put(endpoint, json={**saved.json(), 'attachments': [{'name': 'bad', 'content': '****'}]}).status_code == 422
+    statement = preview(http, project(db, clients[0])).json()
+    assert statement['settings']['account_number'] == '002'
+    assert 'attachments' not in statement['settings']
+    assert http.get('/customer-statement-settings').json()['stamp_image'] == existing.json()['stamp_image']
+    monkeypatch.setenv('APP_ENV', 'development')
+    assert http.get(endpoint).status_code == 403
+    assert http.put(endpoint, json=saved.json()).status_code == 403
+    monkeypatch.setenv('APP_ENV', 'production')
+    granted.remove('clients:write')
+    assert http.get(endpoint).status_code == 403
+
 
 def test_migration_repeatable_without_old_table_changes(environment):
     db,_=environment

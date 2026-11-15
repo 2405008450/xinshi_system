@@ -18,6 +18,7 @@ from finance_manager_scope import manager_fields
 from models import TranslationProject, TranslationSubOrder, Client, SubClient
 from routers.auth import get_current_user, require_module_access
 from search_matching import matches_keywords
+from translation_document_requirements import load_order_pricing_modes
 
 router = APIRouter(prefix='/translation-revenue', tags=['客户营收统计'])
 ZERO = Decimal('0')
@@ -138,7 +139,9 @@ def report(entries, period, anchor, currency='CNY', modes=None, keyword='', rank
     def value(group, key=None):
         if group is None:
             return None
-        return sum((row['amount'] for uid, row in group.items() if key is None or uid == key), ZERO)
+        if key is not None:
+            return group.get(key, {}).get('amount', ZERO)
+        return sum((row['amount'] for row in group.values()), ZERO)
 
     rows = []
     for key in keys:
@@ -279,43 +282,55 @@ def revenue(period: Literal['week', 'month', 'quarter', 'year'] = 'month', ancho
     query = crud._apply_translation_project_filters(query, field_filters=fields)
     if client_id:
         query = query.filter(func.coalesce(TranslationProject.client_id, SubClient.parent_client_id) == client_id)
-    query = query.options(joinedload(TranslationProject.client), joinedload(TranslationProject.sub_client).joinedload(SubClient.parent_client),
-                          selectinload(TranslationProject.customer_charge_items),
-                          selectinload(TranslationProject.sub_orders).selectinload(TranslationSubOrder.customer_charge_items))
     start = start_of(anchor, period)
     earliest = previous_year(shift(start, period, -11), period)
     if earliest is None:
         earliest = shift(start, period, -65)
     end = shift(start, period, 1)
-    projects = []
     dates = {}
     missing_date = fallback_date = 0
-    for project in (query.all() if project_type in ('all', 'translation') else []):
-        day, fallback = order_date(project)
-        if day is None:
-            missing_date += 1
-        elif earliest <= day < end:
-            dates[project.id] = day
-            fallback_date += int(fallback)
-            projects.append(project)
-    crud._attach_word_count_matrices(db, projects=projects)
+    if project_type in ('all', 'translation'):
+        candidates = query.with_entities(TranslationProject.id, TranslationProject.order_no,
+                                         TranslationProject.customer_reception_time)
+        for project in candidates:
+            day, fallback = order_date(project)
+            if day is None:
+                missing_date += 1
+            elif earliest <= day < end:
+                dates[project.id] = day
+                fallback_date += int(fallback)
+    projects_query = db.query(TranslationProject).options(
+        joinedload(TranslationProject.client),
+        joinedload(TranslationProject.sub_client).joinedload(SubClient.parent_client),
+        selectinload(TranslationProject.customer_charge_items),
+        selectinload(TranslationProject.sub_orders).selectinload(TranslationSubOrder.customer_charge_items),
+    )
     entries = []
     currencies = {'CNY'}
-    for project in projects:
-        crud._attach_project_client_fields(project)
-        node = finance.tree(project, summary_only=True)['item']
-        def incomplete(item, field):
-            return any(incomplete(child, field) for child in item['children']) if item['children'] else not item.get(field)
-        parent = project.client or (project.sub_client.parent_client if project.sub_client else None)
-        uid = str(parent.id) if parent else None
-        entry = {'key': uid or 'unlinked:' + str(project.id), 'client_id': uid,
-                 'client_name': parent.client_name if parent else (project.client_name or '未关联客户') + '（未关联）',
-                 'client_short_name': parent.client_short_name or '' if parent else '', 'day': dates[project.id],
-                 'incomplete_fields': [field for field in FIELDS.values() if incomplete(node, field)],
-                 **{field: node.get(field) or {} for field in FIELDS.values()}}
-        entries.append(entry)
-        for field in FIELDS.values():
-            currencies.update(entry[field])
+
+    def incomplete(item, field):
+        return any(incomplete(child, field) for child in item['children']) if item['children'] else not item.get(field)
+
+    project_ids = list(dates)
+    for offset in range(0, len(project_ids), 500):
+        projects = projects_query.filter(TranslationProject.id.in_(project_ids[offset:offset + 500])).all()
+        load_order_pricing_modes(db, projects)
+        finance.load_finance_details(db, projects, tax_only=True)
+        crud._attach_word_count_matrices(db, projects=projects)
+        for project in projects:
+            parent = project.client or (project.sub_client.parent_client if project.sub_client else None)
+            project.client_name = parent.client_name if parent else None
+            project.client_short_name = parent.client_short_name if parent else None
+            node = finance.tree(project, summary_only=True)['item']
+            uid = str(parent.id) if parent else None
+            entry = {'key': uid or 'unlinked:' + str(project.id), 'client_id': uid,
+                     'client_name': parent.client_name if parent else '未关联客户（未关联）',
+                     'client_short_name': parent.client_short_name or '' if parent else '', 'day': dates[project.id],
+                     'incomplete_fields': [field for field in FIELDS.values() if incomplete(node, field)],
+                     **{field: node.get(field) or {} for field in FIELDS.values()}}
+            entries.append(entry)
+            for field in FIELDS.values():
+                currencies.update(entry[field])
     for module in ('interpretation', 'annotation', 'recruitment'):
         if project_type not in ('all', module):
             continue

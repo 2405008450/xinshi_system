@@ -23,6 +23,7 @@ class ProjectPayment(BaseModel):
     payment_time: datetime | None = None
     payment_method: str | None = Field(default=None, max_length=50)
     proofs: str = Field(default='',max_length=20000)
+    matched_order_ids: list[UUID] | None = Field(default=None,max_length=500)
 
 
 class ProjectPaymentRead(ProjectPayment):
@@ -106,18 +107,20 @@ def read(db, project):
     if positions:
         rows.sort(key=lambda row: positions.get(str(row.id),len(positions)))
     proof_map=confirmation.get('payment_details_proofs',{})
+    match_map=confirmation.get('payment_detail_matches',{})
     values = [ProjectPaymentRead(id=row.id,stage_type=row.stage_type,stage_no=index+1,
         planned_amount=Decimal(row.planned_amount).quantize(Decimal('.01')) if row.planned_amount is not None else None,
         actual_amount=Decimal(row.actual_amount).quantize(Decimal('.01')) if row.actual_amount is not None else None,
         payment_time=business_datetime(row.payment_time) if row.payment_time else None,payment_method=row.payment_method,
         proofs=proof_map.get(str(row.id),confirmation.get('proofs','') if index==0 else ''),
+        matched_order_ids=match_map.get(str(row.id),[]),
         **confirmation_fields(row)).model_dump(mode='json') for index,row in enumerate(rows)]
     version = hashlib.sha256(json.dumps([str(finance.id) if finance else None,values,confirmation,
         [(str(row.confirmed_by),str(row.confirmed_at),str(row.updated_at)) for row in rows]],sort_keys=True).encode()).hexdigest()
     return dict(project_id=project.id,order_no=project.order_no,project_name=project.source_file_name or project.project_name,version=version,payments=values,confirmation=confirmation)
 
 
-def _sync_confirmation(db,project,payments,actor_id,confirmation=None,cleared_payments=None,detail_proofs=None,payment_details_before=None,payment_details_after=None):
+def _sync_confirmation(db,project,payments,actor_id,confirmation=None,cleared_payments=None,detail_proofs=None,payment_details_before=None,payment_details_after=None,detail_matches=None):
     current=confirmations.read(db,project.id)
     desired=confirmation or PaymentConfirmationWrite(**current)
     if not (desired.is_paid and desired.payment_option=='full'):
@@ -129,6 +132,7 @@ def _sync_confirmation(db,project,payments,actor_id,confirmation=None,cleared_pa
             desired=desired.model_copy(update={'is_paid':False,'payment_option':None})
     if payments and desired.is_paid and desired.payment_option!='full':desired=desired.model_copy(update={'proofs':payments[0].proofs})
     return confirmations.save(db,project.id,desired,actor_id,cleared_payments=cleared_payments,detail_proofs=detail_proofs,
+        detail_matches=detail_matches,
         payment_details_before=payment_details_before,payment_details_after=payment_details_after,
         detail_order=[row['id'] for row in payment_details_after] if payment_details_after is not None else None)
 
@@ -174,23 +178,30 @@ def save(db, project, payments, version, actor_id, confirmation=None):
     for row in existing.values():
         db.delete(row)
     db.flush()
-    proof_map={};saved_details=[];normalized=[]
+    proof_map={};match_map={};saved_details=[];normalized=[]
+    match_roots=None
     stage_numbers=Counter()
     for index,item in enumerate(payments):
         # 未携带新字段的旧客户端保留原凭证；新版显式空字符串表示清除。
         if 'proofs' not in item.model_fields_set:
             proof=(confirmation.proofs if index==0 and confirmation is not None and 'proofs' in confirmation.model_fields_set else previous_details.get(str(item.id),{}).get('proofs',''))
             item=item.model_copy(update={'proofs':proof})
+        old_matches=previous_details.get(str(item.id),{}).get('matched_order_ids',[])
+        matches=old_matches if item.matched_order_ids is None else [str(uid) for uid in item.matched_order_ids]
+        if matches and matches!=old_matches:
+            if match_roots is None:
+                match_roots=confirmations.payment_match_roots(db,project.id)
+            confirmations.matched_order_total(match_roots,matches)
         normalized.append(item)
         previous = existing.get(item.id)
-        data = item.model_dump(exclude={'id','proofs'})
+        data = item.model_dump(exclude={'id','proofs','matched_order_ids'})
         # 数据库按阶段编号，窗口期次按全部付款的顺序显示。
         stage_numbers[item.stage_type] += 1
         data['stage_no'] = stage_numbers[item.stage_type]
         data['payment_time'] = _date(item.payment_time)
         changed = previous is None or any(
             getattr(previous,key,None)!=value for key,value in data.items() if key != 'stage_no'
-        ) or item.proofs!=previous_details.get(str(item.id),{}).get('proofs','')
+        ) or item.proofs!=previous_details.get(str(item.id),{}).get('proofs','') or matches!=old_matches
         confirmed_by = previous.confirmed_by if previous else None
         confirmed_at = previous.confirmed_at if previous else None
         if item.actual_amount is None or changed:
@@ -201,7 +212,8 @@ def save(db, project, payments, version, actor_id, confirmation=None):
             confirmed_by=confirmed_by,confirmed_at=confirmed_at,**data)
         db.add(row)
         proof_map[str(row.id)]=item.proofs
-        snapshot={**data,'stage_no':index+1,'payment_time':business_datetime(row.payment_time) if row.payment_time else None}
+        if matches:match_map[str(row.id)]=matches
+        snapshot={**data,'matched_order_ids':matches,'stage_no':index+1,'payment_time':business_datetime(row.payment_time) if row.payment_time else None}
         for key in ('planned_amount','actual_amount'):
             if snapshot[key] is not None:snapshot[key]=Decimal(snapshot[key]).quantize(Decimal('.01'))
         saved_details.append((row, snapshot, item.proofs))
@@ -210,5 +222,5 @@ def save(db, project, payments, version, actor_id, confirmation=None):
     snapshots = [ProjectPaymentRead(id=row.id, **values, proofs=proofs, **confirmation_fields(row)).model_dump(mode='json')
                  for row, values, proofs in saved_details]
     _sync_confirmation(db,project,normalized,actor_id,confirmation,cleared_payments,detail_proofs=proof_map,
-        payment_details_before=current['payments'],payment_details_after=snapshots)
+        payment_details_before=current['payments'],payment_details_after=snapshots,detail_matches=match_map)
     return read(db, project)

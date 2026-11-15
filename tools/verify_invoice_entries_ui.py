@@ -1,7 +1,7 @@
 """三个入口共用发票、自动需求与说明框验收；全部业务请求使用模拟接口。"""
 import json,re
 from urllib.request import urlopen
-from urllib.parse import urlparse
+from urllib.parse import parse_qs,urlparse
 from playwright.sync_api import sync_playwright,expect
 BASE='http://localhost:3000'
 
@@ -10,10 +10,15 @@ def run():
     dep=lambda name:re.search(r'from ["\']([^"\']*/'+name+r'\.js[^"\']*)',source).group(1)
     html='''<!doctype html><meta charset="UTF-8"><link rel="stylesheet" href="/node_modules/element-plus/dist/index.css"><div id="app"></div><script type="module">import {createApp,h} from VUE;import {createRouter,createWebHistory} from ROUTER;import Finance from '/src/views/project/translation/CustomerFinance.vue';const app=createApp({render:()=>h(Finance,{clientId:'c1'})});app.use(createRouter({history:createWebHistory(),routes:[{path:'/invoice-entries-test',component:{render:()=>null}}]}));app.mount('#app');</script>'''.replace('from VUE','from '+json.dumps(dep('vue'))).replace('from ROUTER','from '+json.dumps(dep('vue-router')))
     state={'invoice_status':'unissued','proofs':'','version':'i1'}
-    notes={'quotation':'','statement':'','invoice':''};calls=[];errors=[]
-    def node():return {'id':'p1','root_id':'p1','order_no':'TP-261110-001','project_name':'发票入口测试','client_id':'c1','client_short_name':'测试客户','project_status':'confirmed','pricing_mode':'fixed','currency':'CNY','adjusted_total':'500','adjusted_total_incl_tax':'530','billing_tax_mode':'incl_tax','effective_billing_tax_mode':'incl_tax','billing_totals':{'CNY':'530'},'totals_excl_tax':{'CNY':'500'},'totals_incl_tax':{'CNY':'530'},'children':[],'prices':[],'word_count_matrix':{},'statement_required':True,'document_notes':dict(notes),'payment_confirmation':{'is_paid':False},'invoice_status':state['invoice_status'],'invoice_required':True}
+    notes={'quotation':'','statement':'','invoice':''};calls=[];invoice_queries=[];errors=[]
+    def node():
+        child={'id':'s1','root_id':'p1','order_no':'TP-261110-001.001','project_name':'一级子订单测试','effective_billing_tax_mode':'incl_tax','totals_incl_tax':{'CNY':'530'},'children':[]}
+        return {'id':'p1','root_id':'p1','order_no':'TP-261110-001','project_name':'发票入口测试','client_id':'c1','client_short_name':'测试客户','project_status':'confirmed','pricing_mode':'fixed','currency':'CNY','adjusted_total':'500','adjusted_total_incl_tax':'530','billing_tax_mode':'incl_tax','effective_billing_tax_mode':'incl_tax','billing_totals':{'CNY':'530'},'totals_excl_tax':{'CNY':'500'},'totals_incl_tax':{'CNY':'530'},'children':[child],'prices':[],'word_count_matrix':{},'statement_required':True,'document_notes':dict(notes),'payment_confirmation':{'is_paid':False},'invoice_status':state['invoice_status'],'invoice_required':True}
     def api(route):
-        path=urlparse(route.request.url).path
+        parsed=urlparse(route.request.url)
+        path=parsed.path
+        query=parse_qs(parsed.query)
+        if path.endswith('/page') and query.get('include_invoice_status')==['true']:invoice_queries.append(query)
         if route.request.method=='PUT':
             payload=route.request.post_data_json;calls.append((path,payload))
             if path.endswith('/invoice'):state.update(payload);state['version']='i2'
@@ -35,8 +40,18 @@ def run():
         expect(actions.get_by_role('button',name='更多操作',exact=True)).to_have_count(1)
         actions.get_by_role('button',name='更多操作',exact=True).click()
         menu=page.get_by_role('menu').filter(has=page.get_by_role('menuitem',name='发票',exact=True))
-        expect(menu.get_by_role('menuitem')).to_have_text(['价格与付款','对账单','发票','修改记录'])
+        expect(menu.get_by_role('menuitem',name='发票',exact=True)).to_be_visible()
         menu.get_by_role('menuitem',name='发票',exact=True).click()
+        viewer=page.locator('.project-payment-dialog:visible')
+        expect(viewer.get_by_role('tab',name='发票',exact=True)).to_have_attribute('aria-selected','true')
+        expect(viewer).to_contain_text('TP-261110-001（母订单）')
+        summary=viewer.locator('.invoice-child-orders summary')
+        summary.click()
+        expect(viewer.locator('.invoice-child-orders')).to_contain_text('TP-261110-001.001')
+        expect(viewer.locator('.invoice-child-orders')).to_contain_text('CNY 530.00')
+        assert invoice_queries[-1]['client_ids']==['c1'] and invoice_queries[-1]['billing_month']==['2026-11']
+        summary.click()
+        viewer.locator('.payment-overview .el-table').get_by_role('button',name='发票',exact=True).click()
         popup=page.locator('.project-invoice-dialog:visible')
         expect(popup.get_by_role('textbox',name='是否需发票',exact=True)).to_have_value('需（含税）')
         page.wait_for_timeout(300)  # 等待弹窗进场完成
@@ -58,6 +73,7 @@ def run():
         popup.locator('.el-select').click();page.get_by_role('option',name='已开票',exact=True).click()
         popup.get_by_role('textbox',name='发票截图及备注',exact=True).fill('三个入口共用的发票附件备注')
         popup.get_by_role('button',name='保存发票',exact=True).click();expect(popup).not_to_be_visible()
+        viewer.locator('.el-dialog__footer').get_by_role('button',name='关闭',exact=True).click()
         # 入口 B：发票、查账与追账的发票页签。
         page.get_by_role('button',name='发票、查账与追账',exact=True).click()
         viewer=page.locator('.project-payment-dialog:visible')
@@ -65,6 +81,8 @@ def run():
         expect(viewer.get_by_role('tab',name='发票',exact=True)).to_have_attribute('aria-selected','true')
         expect(viewer.get_by_role('tab',name='查账',exact=True)).to_be_visible()
         viewer.locator('.el-table').get_by_role('button',name='发票',exact=True).click()
+        assert not {'client_ids','billing_month','billing_months'} & invoice_queries[-1].keys()
+        assert invoice_queries[-1]['only_mine']==['false']
         reopened=popup.bounding_box();assert abs(reopened['x']-initial['x'])<3
         expect(popup.get_by_role('textbox',name='发票截图及备注',exact=True)).to_have_value('三个入口共用的发票附件备注')
         expect(popup.locator('.el-select')).to_contain_text('已开票')
@@ -74,10 +92,11 @@ def run():
         actions.get_by_role('button',name='更多操作',exact=True).click()
         page.get_by_role('menuitem',name='价格与付款',exact=True).click()
         editor=page.locator('.customer-finance-dialog:visible').first
-        expect(editor.get_by_role('textbox',name='是否需发票',exact=True)).to_have_attribute('readonly','')
+        requirement=editor.locator('[data-field-key="invoiceRequired"]')
+        expect(requirement.get_by_role('combobox',name='是否需发票',exact=True)).to_be_visible()
         for label,value in [('报价单说明','报价备注'),('对账单说明','账单备注'),('发票说明','开票备注')]:editor.get_by_role('textbox',name=label,exact=True).fill(value)
         editor.locator('.billing-tax-choice label.el-radio-button').filter(has_text=re.compile('^不含税$')).click()
-        expect(editor.get_by_role('textbox',name='是否需发票',exact=True)).to_have_value('无需')
+        expect(requirement).to_contain_text('无需（计费口径）')
         expect(editor.get_by_role('button',name='发票',exact=True)).to_have_count(0)
         editor.locator('.billing-tax-choice label.el-radio-button').filter(has_text=re.compile('^含税$')).click()
         editor.get_by_role('button',name='发票',exact=True).click()
@@ -88,7 +107,7 @@ def run():
         expect(popup.get_by_role('button',name='保存发票',exact=True)).to_be_in_viewport()
         popup.locator('.el-dialog__footer').get_by_role('button',name='关闭',exact=True).click()
         editor.get_by_role('button',name='保存',exact=True).click();expect(editor).not_to_be_visible()
-        assert calls[-1][1]['document_notes']=={'quotation':'报价备注','statement':'账单备注','invoice':'开票备注'}
+        assert next(payload['document_notes'] for _,payload in reversed(calls) if 'document_notes' in payload)=={'quotation':'报价备注','statement':'账单备注','invoice':'开票备注'}
         assert not errors,errors
         browser.close()
     print('PASS: three shared invoice entries, status/attachment roundtrip, auto tax requirement, three notes, action order/collapse, three tabs and small viewport')
