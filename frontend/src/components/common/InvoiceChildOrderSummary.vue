@@ -14,7 +14,7 @@
           <template #default="{row}">{{ documentRequirementLabel(special?row.specialInvoiceRequired:invoiceRequirement(row)) }}</template>
         </el-table-column>
         <el-table-column v-for="side in amountColumns" :key="side.total" :label="side.label" min-width="135">
-          <template #default="{row}">{{ formatTotals(row[side.total], row[side.adjusted]) }}</template>
+          <template #default="{row}">{{ formatTotals(row[side.total], row[side.adjusted]) }}<OrderPriceDetails :order="row" :side="side.kind" /></template>
         </el-table-column>
         <el-table-column v-if="allowOpen||allowStatement" label="操作" :width="allowStatement?150:100">
           <template #default="{row}">
@@ -45,8 +45,8 @@ const loading = ref(false)
 const error = ref('')
 let controller
 const amountColumns = [
-  {label:'不含税总价',total:'totalsExclTax',adjusted:'adjustedTotalsExclTax'},
-  {label:'含税总价',total:'totalsInclTax',adjusted:'adjustedTotalsInclTax'},
+  {label:'不含税总价',kind:'excl',total:'totalsExclTax',adjusted:'adjustedTotalsExclTax'},
+  {label:'含税总价',kind:'incl',total:'totalsInclTax',adjusted:'adjustedTotalsInclTax'},
 ]
 function formatTotals(totals, adjusted) {
   return Object.entries(totals || {}).map(([currency,amount]) =>

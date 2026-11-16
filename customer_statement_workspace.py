@@ -64,6 +64,7 @@ class ImportRequest(BaseModel):
     model_config=ConfigDict(extra='forbid')
     project_id:UUID|None=None
     client_id:UUID|None=None
+    sub_client_id:UUID|None=None
     months:list[str]=Field(min_length=1,max_length=36)
     scope:Literal['project','customer']='customer'
     revision:int=Field(ge=0)
@@ -83,6 +84,8 @@ def generation_key(data):
         'period_number':data.period_number,'settlement_scope':data.settlement_scope,
         'required_only':data.required_only,'board_id':data.board_id,
     }
+    if data.sub_client_id:
+        selection['sub_client_id']=str(data.sub_client_id)
     return hashlib.sha256(json.dumps(selection,sort_keys=True).encode()).hexdigest()
 
 
@@ -196,9 +199,12 @@ def display_data(payload,board,mode='children',issue_date='',*,group_directions=
     fields=board['fields'];months=sorted({task['month'] for task in tasks} or set(board.get('billing_months',[])))
     period_month=board.get('period_month')
     if period_month and period_month not in months:months=sorted([*months,period_month])
-    period_label=billing_period_name(period_month,board['period_number']) if period_month and months==[period_month] else ''
+    period_label=billing_period_name(period_month,board['period_number']) if board.get('period_number') and months==[period_month] else ''
     private_settings=source.private_statement_settings_available()
+    subject_key=next((key for key,(_,company) in SUBJECTS.items() if company==fields['company']),None)
     return dict(company=fields['company'],title=fields['title'],client_name=fields['client_name'],client_code=fields['client_code'],
+                subject_key=subject_key,
+                sub_client_name=board.get('sub_client_name'),sub_client_code=board.get('sub_client_code'),
                 month=fields.get('billing_label') or period_label or '、'.join(months),issue_date=fields.get('issue_date') or issue_date,months=months,rows=rendered,totals={key:source.money(value) for key,value in totals.items()},pending=pending,
                 private_settings_available=private_settings,
                 settings={key:fields.get(key,'') for key in source.PAYMENT_ACCOUNT_FIELDS} if private_settings else {},
@@ -464,7 +470,7 @@ def month_boards(payload, month):
     task_months = {}
     for task in payload['tasks'].values():
         task_months.setdefault(task['board_id'], set()).add(task['month'])
-    return [board for board in payload['boards'] if (
+    return [board for board in payload['boards'] if not board.get('sub_client_id') and (
         board.get('period_month') == month or not board.get('period_month') and
         (task_months.get(board['id']) or set(board.get('billing_months', []))) == {month}
     )]
@@ -474,8 +480,23 @@ def import_board_matches(payload, months):
     task_months = {}
     for task in payload['tasks'].values():
         task_months.setdefault(task['board_id'],set()).add(task['month'])
-    return [board for board in payload['boards']
-            if months & (set(board.get('billing_months',[])) | task_months.get(board['id'],set()))]
+    return [board for board in payload['boards'] if not board.get('sub_client_id')
+            and months & (set(board.get('billing_months',[])) | task_months.get(board['id'],set()))]
+
+
+def sub_client_board(payload, line, month, number, fields):
+    sub_id = line['sub_client_id']
+    scope = (sub_id, month, number)
+    for board in payload['boards']:
+        if (board.get('sub_client_id'),board.get('period_month'),board.get('period_number')) == scope and not board.get('number_parent_id'):
+            return board
+    label = billing_period_name(month, number) if number else month
+    name = line['sub_client_name'] or line['sub_client_code']
+    board = new_board(payload, fields, f'{name} · {label}')
+    board.update(sub_client_id=sub_id,sub_client_name=name,sub_client_code=line['sub_client_code'],
+                 period_month=month,period_number=number,billing_months=[month],
+                 settlement_scope='standard',tax_included=line.get('unit_label')=='含税')
+    return board
 
 
 def assigned_month_board(payload, month, assignment):
@@ -487,6 +508,7 @@ class BillingPeriodWrite(BaseModel):
     month: str = Field(pattern=source.MONTH)
     board_id: str | None = None
     create_period: bool = False
+    period_number: int | None = Field(default=None, ge=1)
     revision: int = Field(ge=0)
     version: str
 
@@ -511,9 +533,13 @@ def place_unpaid_orders_after_paid_period(db,projects,user):
     row=workspace(db,client_id,True)
     candidates=source.finance.settlement_candidates(db,{(client_id,month)})
     project_ids={order.id for order in projects}
-    if any(uid in project_ids and paid for uid,_,_,_,paid,_,_ in candidates):
+    if any(uid in project_ids and paid for uid,_,_,_,paid,_,_,_ in candidates):
         return None
-    paid_periods=[period if isinstance(period,int) else 1 for _,_,_,period,paid,mode,_ in candidates if paid and mode!='special']
+    sub_client_id=project.sub_client_id
+    if any(order.sub_client_id!=sub_client_id for order in projects):
+        return None
+    paid_periods=[period if isinstance(period,int) else 1 for _,_,_,period,paid,mode,_,sub_id in candidates
+                  if paid and mode!='special' and sub_id==sub_client_id]
     if not paid_periods:
         return None
     latest=max(paid_periods)
@@ -570,6 +596,8 @@ def place_unpaid_orders_after_paid_period(db,projects,user):
 def assign_billing_period(project_id: UUID, data: BillingPeriodWrite, db=Depends(get_db), user=Depends(write_access)):
     from translation_document_requirements import TranslationProjectDocuments, payment_method, ready as documents_ready
 
+    if sum((bool(data.board_id), data.create_period, data.period_number is not None)) > 1:
+        raise HTTPException(422, '请选择一种账期设置方式')
     if not documents_ready(db):
         raise HTTPException(503, '项目单据存储尚未初始化')
     client_id = source.finance.project_statement_client_id(db, project_id)
@@ -593,7 +621,24 @@ def assign_billing_period(project_id: UUID, data: BillingPeriodWrite, db=Depends
     scope = 'special' if payment_method(project)=='special' else 'standard'
     candidates = month_boards(scoped_payload(db,payload,scope), data.month)
     created = None
-    if data.create_period:
+    if data.period_number is not None:
+        if any(board.get('period_number') == data.period_number for board in candidates):
+            raise HTTPException(422, f'第{data.period_number}期已存在，请在账期中直接选择')
+        numbered = [board for board in candidates if board.get('period_number')]
+        template = max(numbered, key=lambda board: board['period_number']) if numbered else (
+            candidates[0] if len(candidates) == 1 else None
+        )
+        if template:
+            fields, tax_included = template['fields'], template['tax_included']
+        else:
+            statement = source.build_statement(db, project_id, None, data.month, 'project')
+            fields, tax_included = imported_fields(statement), statement['tax_included']
+        board = new_board(payload, fields, billing_period_name(data.month, data.period_number))
+        board.update(period_month=data.month, period_number=data.period_number, billing_months=[data.month],
+                     tax_included=tax_included)
+        board['fields']['billing_label'] = ''
+        created = {'board_id': board['id'], 'name': board['name']}
+    elif data.create_period:
         if not candidates:
             statement = source.build_statement(db, project_id, None, data.month, 'project')
             board = new_board(payload, imported_fields(statement), billing_period_name(data.month, 1))
@@ -625,7 +670,12 @@ def assign_billing_period(project_id: UUID, data: BillingPeriodWrite, db=Depends
     project.updated_at = moment.replace(tzinfo=None)
     for task_id in order_ids & payload['tasks'].keys():
         task = payload['tasks'][task_id]
-        task.update(month=data.month, board_id=None if pending_tasks.pending(task) else board['id'])
+        target=board
+        if payment_method(project)=='sub_client' and not pending_tasks.pending(task):
+            target=sub_client_board(payload,{**task['rows'][0],'sub_client_id':str(project.sub_client_id),
+                'sub_client_name':project.sub_client.client_name,'sub_client_code':project.sub_client.sub_client_code},
+                data.month,board.get('period_number'),board['fields'])
+        task.update(month=data.month, board_id=None if pending_tasks.pending(task) else target['id'])
         pending_tasks.invalidate_overrides(payload, task)
     save(db, user, client_id, row, before, payload, '调整订单账期', {
         'order_no': project.order_no, 'before': previous, 'after': assignment, 'created': created,
@@ -665,12 +715,16 @@ def read_billing_period(project_id: UUID, month: str = Query(pattern=source.MONT
         task for task in payload['tasks'].values() if task['rows'][0]['root_id']==str(project_id)
         and not pending_tasks.pending(task)
     ), None)
+    current_board=next((board for board in payload['boards'] if current_task and board['id']==current_task['board_id']),{})
     return {
         'revision': row.revision if row else 0,
-        'board_id': assignment.get('board_id') or (current_task and current_task['board_id']),
+        'board_id': assignment.get('board_id') or next((board['id'] for board in boards
+            if current_board.get('sub_client_id') and board.get('period_number')==current_board.get('period_number')),
+            current_task and current_task['board_id']),
         'can_create': len(payload['boards']) < 12 and (
             len(boards) < 2 or any(board.get('period_number') for board in boards)
         ),
+        'can_create_custom': len(payload['boards']) < 12,
         'boards': [{'id': board['id'], 'name': board['name'], 'number': board.get('period_number')}
                    for board in sorted(boards, key=lambda board: board.get('period_number') or 0)],
     }
@@ -856,15 +910,28 @@ def import_months(data:ImportRequest,mode:Literal['parents','all','children']='c
             statement['rows']=[line for line in statement['rows'] if line['statement_required']]
     project=source.crud.get_translation_project(db,project_id)
     client=project.client or project.sub_client.parent_client
+    if data.sub_client_id:
+        from models import SubClient
+        child=db.get(SubClient,data.sub_client_id)
+        if child is None or child.parent_client_id!=client.id:
+            raise HTTPException(422,'子客户不属于当前客户')
+        root_ids={str(uid) for uid, in db.query(TranslationProject.id).filter_by(sub_client_id=data.sub_client_id)}
+        for statement in statements:
+            statement['rows']=[line for line in statement['rows'] if line['root_id'] in root_ids]
     row=workspace(db,client.id,True);check_revision(row,data.revision)
     before=copy.deepcopy(row.payload if row else empty_payload());payload=copy.deepcopy(before)
     scoped = scoped_payload(db,payload,data.settlement_scope)
+    ordinary_rows=any(not line.get('sub_client_id') for statement in statements for line in statement['rows']) or (
+        not data.sub_client_id and any(pending_tasks.pending(task) and task['month'] in months and
+        not task['rows'][0].get('sub_client_id') for task in scoped['tasks'].values())
+    )
     if data.period_number:
         period = period_payload(scoped,data.period_number,months)
-        targets = period['boards']
-        if len(months)!=1 or len(targets)!=1:
+        targets = [item for item in period['boards'] if not item.get('sub_client_id')]
+        if len(months)!=1 or len(targets)>1 or not targets and ordinary_rows:
             raise HTTPException(422,'未找到唯一对应账期，请在价格与付款中核对账期')
-        data=data.model_copy(update={'board_id':targets[0]['id']})
+        if not data.board_id and targets:
+            data=data.model_copy(update={'board_id':targets[0]['id']})
         projects=source.crud.get_translation_projects(db,limit=None,field_filters={
             'finance_client_ids':{'value':[str(client.id)]},'finance_billing_month':{'value':months[0]},
         })
@@ -876,7 +943,7 @@ def import_months(data:ImportRequest,mode:Literal['parents','all','children']='c
     else:
         matches=import_board_matches(scoped,set(months))
         board=matches[0] if len(matches)==1 else None
-        if not matches:
+        if not matches and ordinary_rows:
             title='特殊结算单' if data.settlement_scope=='special' else '对账单'
             fields={**imported_fields(statements[0]),'title':title}
             board=new_board(payload,fields,'、'.join(months)+' '+title)
@@ -890,11 +957,20 @@ def import_months(data:ImportRequest,mode:Literal['parents','all','children']='c
     roots.update(UUID(line['root_id']) for task in payload['tasks'].values() if pending_tasks.pending(task)
                  and task['month'] in months for line in task['rows'])
     assignments=project_billing_assignments(db,roots)
-    if not board and not any(assignment.get('month') in months for assignment in assignments.values()):
+    if not board and ordinary_rows and not any(assignment.get('month') in months for assignment in assignments.values()):
         raise HTTPException(422,'所选月份有多份对账单，请先在价格与付款为订单选择账期')
 
-    def target_board(month, root_id):
+    def target_board(month, root_id, line):
         assignment=assignments.get(root_id, {})
+        sub_id=line.get('sub_client_id')
+        if not sub_id and board and board.get('sub_client_id'):
+            raise HTTPException(422,'请选择该子客户同期的订单')
+        if sub_id:
+            number=data.period_number or line.get('settlement_period_number')
+            if board and board.get('sub_client_id') and (board['sub_client_id'],board.get('period_month'),board.get('period_number'))!=(sub_id,month,number):
+                raise HTTPException(422,'请选择该子客户同期的订单')
+            template=board['fields'] if board else imported_fields(statements[months.index(month)])
+            return sub_client_board(payload,line,month,number,template)
         if assignment.get('month') == month:
             assigned=assigned_month_board(scoped,month,assignment)
             if not assigned:
@@ -919,7 +995,7 @@ def import_months(data:ImportRequest,mode:Literal['parents','all','children']='c
                 owner=db.get(access.StatementTaskOwner,task_id)
                 if owner and owner.client_id!=client.id:existing+=1;continue
             root_id=lines[0]['root_id']
-            target=target_board(month,root_id)
+            target=target_board(month,root_id,lines[0])
             if root_id not in payload['roots']:payload['roots'][root_id]=outline(source.finance.read(db,UUID(root_id))['item'])
             original={'rows':copy.deepcopy(lines),'month':month,'board_id':target['id']}
             payload['tasks'][task_id]={'id':task_id,'board_id':target['id'],'month':month,'rows':lines,'original':original}
@@ -929,7 +1005,10 @@ def import_months(data:ImportRequest,mode:Literal['parents','all','children']='c
     if data.period_number:
         pending_scope = {**scoped,'tasks':{key:task for key,task in scoped['tasks'].items()
                          if assignments.get(task['rows'][0]['root_id'],{}).get('board_id')==data.board_id}}
-    accepted=pending_tasks.accept(pending_scope,months,lambda task:target_board(task['month'],task['rows'][0]['root_id']))
+    if data.sub_client_id:
+        pending_scope={**pending_scope,'tasks':{key:task for key,task in pending_scope['tasks'].items()
+            if task['rows'][0]['root_id'] in root_ids}}
+    accepted=pending_tasks.accept(pending_scope,months,lambda task:target_board(task['month'],task['rows'][0]['root_id'],task['rows'][0]))
     if data.order_ids is not None and not added and not existing and not accepted:raise HTTPException(422,'当前筛选没有可生成的项目或待入账任务')
     if any(pending_tasks.pending(task) and task['month'] in months for task in pending_scope['tasks'].values()):raise HTTPException(409,'仍有待入账任务未纳入，本次生成已取消，请重新加载')
     for task_id,task in pending_scope['tasks'].items():
@@ -1074,12 +1153,14 @@ def action(client_id:UUID,request:ActionRequest,mode:Literal['parents','all','ch
         changes=add_billing_period(payload,data.get('month'),visible['boards'] if settlement_scope else None)
         label='新增账期'
     elif request.action=='create_board':
+        from statement_reorganization import inherit_sub_client_period
         candidates=visible['boards'] if settlement_scope else payload['boards']
         if not candidates:raise HTTPException(422,'请先选择月份重新生成对账单')
         template=board_by_id(payload,data['board_id']) if data.get('board_id') else candidates[0]
         name=str(data.get('name','新对账单')).strip()[:100]
         board=new_board(payload,template['fields'],name or '新对账单');board['tax_included']=template['tax_included'];label='新增对账单';changes={'name':board['name'],'parent_board_id':template['id']}
         board['number_parent_id']=template['id']
+        inherit_sub_client_period(board,template)
         if settlement_scope:board['settlement_scope']=settlement_scope
     elif request.action=='delete_boards':
         ids=data.get('board_ids')
@@ -1161,6 +1242,9 @@ def action(client_id:UUID,request:ActionRequest,mode:Literal['parents','all','ch
         for task_id in ids:
             task=payload['tasks'][task_id]
             if pending_tasks.pending(task):raise HTTPException(409,'任务正在待入账，请在待入账列表调整或撤销')
+            if request.action=='move_tasks':
+                from statement_reorganization import ensure_same_sub_client_period
+                ensure_same_sub_client_period([board_by_id(payload,task['board_id']),target])
             old={'month':task['month'],'board_id':task['board_id'],'board_name':board_by_id(payload,task['board_id'])['name']}
             old_rows=copy.deepcopy(task['rows'])
             if request.action=='restore_task':

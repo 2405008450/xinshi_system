@@ -3,12 +3,12 @@
     <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" title="子订单管理 · 保存前填写" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
     <div ref="editorBodyRef" class="pending-suborder-body">
     <el-alert :title="directionOnly
-      ? '请在母订单填写字数。方向子订单自动同步，可点击“调整字数”单独修改。'
-      : '请在文件订单填写我司统计或客户统计。方向子订单自动同步上一级，可点击“调整字数”单独修改。确认后随母订单一起保存。'"
+      ? '请在母订单填写工作量。方向子订单自动同步，可点击“调整工作量统计”单独修改。'
+      : '请在文件订单填写我司统计或客户统计。方向子订单自动同步上一级，可点击“调整工作量统计”单独修改。确认后随母订单一起保存。'"
       type="info" :closable="false" />
-    <VerticalSplitPanels v-if="modelValue" top-label="统计填写区" bottom-label="子订单编辑区" :default-ratio=".5" :min-top="140" :min-bottom="140">
+    <VerticalSplitPanels v-if="modelValue" top-label="工作量统计区" bottom-label="子订单编辑区" :default-ratio=".5" :min-top="140" :min-bottom="140">
     <template #top>
-    <SubOrderStatisticsGrid ref="grid" :rows="rows" editable local @saved="persist" />
+    <SubOrderStatisticsGrid ref="grid" :rows="rows" :root-path="form.pendingFolderImport?.rootPath" editable local @saved="persist" />
     </template>
     <template #bottom>
     <div class="pending-suborder-editor">
@@ -81,7 +81,7 @@ function persist(){
 async function cancel(){await grid.value?.save();persist();emit('update:modelValue',false)}
 async function confirm(){
  await grid.value?.save();persist()
- if(!rows.value.length){ElMessage.warning('请先读取文件或添加子订单，再填写字数');return}
+ if(!rows.value.length){ElMessage.warning('请先读取文件或添加子订单，再填写工作量');return}
  if(directionOnly.value && !hasActualWordCounts(props.form.pendingDirectionWordCountMatrix ?? props.form.wordCountMatrix)){
   ElMessage.warning('请返回母订单，填写我司统计或客户统计')
   return

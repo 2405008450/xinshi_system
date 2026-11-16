@@ -1,7 +1,7 @@
 <template>
   <el-card class="translation-help" shadow="never">
     <template #header><div class="help-heading"><div><h2>笔译操作帮助</h2><p>先登记订单，再补齐统计、安排任务和发送通知。</p></div><el-tag effect="plain">更新于 {{ translationHelpUpdatedAt }}</el-tag></div>
-      <div class="help-search"><el-input v-model="keyword" clearable placeholder="搜索帮助，例如：母订单 子订单、路径、字数、邮件" aria-label="搜索笔译帮助" @keyup.enter="applySearch" /><el-button type="primary" @click="applySearch">查询</el-button><span>{{ visibleSections.length }} 个章节</span></div>
+      <div class="help-search"><el-input v-model="keyword" clearable placeholder="搜索帮助，例如：母订单 子订单、路径、工作量统计、邮件" aria-label="搜索笔译帮助" @keyup.enter="applySearch" /><el-button type="primary" @click="applySearch">查询</el-button><span>{{ visibleSections.length }} 个章节</span></div>
     </template>
     <div class="help-layout">
       <nav class="help-directory" aria-label="笔译帮助目录"><template v-for="group in groups" :key="group"><strong>{{ group }}</strong><button v-for="section in visibleSections.filter(item=>item.group===group)" :key="section.id" type="button" :class="{active:activeId===section.id}" :aria-current="activeId===section.id?'location':undefined" @click="goTo(section.id)">{{ section.title }}</button></template></nav>

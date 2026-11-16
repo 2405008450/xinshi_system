@@ -27,11 +27,12 @@ class OperationWrite(BaseModel):
 
     @field_validator('content')
     @classmethod
-    def text_only(cls, value):
+    def validate_content(cls, value):
         value = value.strip()
-        if not value or 'screenshot://' in value.lower() or 'data:image/' in value.lower():
-            raise ValueError('请填写文字具体操作')
-        return value
+        if not value:
+            raise ValueError('请填写具体操作')
+        from editor_screenshot_service import validate_ordered_screenshots
+        return validate_ordered_screenshots(value)
 
 
 class ProjectOperations(BaseModel):

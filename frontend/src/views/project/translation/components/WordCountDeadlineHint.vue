@@ -41,7 +41,7 @@ const props = defineProps({
   historyOnly: Boolean,
   revision: [String, Object, Array],
 })
-const label = computed(() => props.kind === 'unit_price' ? '单价' : '字数')
+const label = computed(() => props.kind === 'unit_price' ? '单价' : '工作量统计')
 
 const receivedOn = computed(() => props.receivedAt ? businessDateTimeInputValue(props.receivedAt).slice(0, 10) : '')
 const statistics = computed(() => Object.values(normalizeWordCountMatrix(props.matrix || {})))

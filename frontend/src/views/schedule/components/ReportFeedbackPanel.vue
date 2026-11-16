@@ -1,22 +1,22 @@
 <template>
-  <section class="report-feedback" data-screenshot-editor="own" @paste.capture="blockReportImages" @drop.capture="blockReportImages">
+  <section class="report-feedback">
     <header><strong>逐项反馈与回复</strong><el-button link :loading="loading" @click="load">刷新沟通</el-button></header>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-alert v-if="!ready" title="报告沟通表待初始化" type="warning" :closable="false" />
     <el-select v-if="targets.length" v-model="selected" filterable placeholder="选择工作项查看或回复" aria-label="沟通工作项"><el-option v-for="target in targets" :key="target.key" :value="target.key" :label="target.label" /></el-select>
     <p v-if="!targets.length" class="muted">暂无反馈。查看人可针对具体工作项发起沟通。</p>
     <template v-if="selected">
-      <p class="subject">{{subject}}</p>
-      <div class="messages"><article v-for="message in currentMessages" :key="message.id"><header><b>{{message.author_name}}</b><small>{{formatBusinessDateTime(message.created_at)}}</small></header><p>{{message.content}}</p></article><p v-if="!currentMessages.length" class="muted">此项暂无反馈</p></div>
-      <AppForm ref="formRef" :model="draft" :rules="rules" label-position="top" @submit.prevent="send"><el-form-item label="反馈 / 回复" prop="content"><el-input v-model="draft.content" type="textarea" :rows="3" maxlength="4000" show-word-limit placeholder="围绕此项工作沟通，可多次来回回复" :disabled="sending||!ready" /></el-form-item><el-button type="primary" :loading="sending" :disabled="!ready" @click="send">发送{{currentMessages.length?'回复':'反馈'}}</el-button></AppForm>
+      <p class="subject"><ScreenshotText :text="subject" /></p>
+      <div class="messages"><article v-for="message in currentMessages" :key="message.id"><header><b>{{message.author_name}}</b><small>{{formatBusinessDateTime(message.created_at)}}</small></header><p><ScreenshotText :text="message.content" /></p></article><p v-if="!currentMessages.length" class="muted">此项暂无反馈</p></div>
+      <AppForm ref="formRef" :model="draft" :rules="rules" label-position="top" @submit.prevent="send"><el-form-item label="反馈 / 回复" prop="content"><el-input :key="selected" v-model="draft.content" type="textarea" :rows="3" maxlength="4000" show-word-limit placeholder="围绕此项工作沟通，可多次来回回复" :disabled="sending||!ready" /></el-form-item><el-button type="primary" :loading="sending" :disabled="!ready" @click="send">发送{{currentMessages.length?'回复':'反馈'}}</el-button></AppForm>
     </template>
   </section>
 </template>
 <script setup>
 import {computed,onBeforeUnmount,onMounted,reactive,ref,watch} from 'vue'
 import {getReportFeedback,addReportFeedback} from '@/api/tasks'
+import ScreenshotText from '@/components/common/ScreenshotText.vue'
 import {formatBusinessDateTime} from '@/utils/dateTime'
-import {blockReportImages} from '@/utils/workReportForm'
 const props=defineProps({reportId:{type:String,required:true},workItems:{type:Array,default:()=>[]},allowNew:Boolean})
 const messages=ref([]),ready=ref(true),loading=ref(false),sending=ref(false),error=ref(''),selected=ref(''),draft=reactive({content:''}),formRef=ref()
 const drafts=new Map()

@@ -1,7 +1,7 @@
 import {reactive} from 'vue'
 import {getCustomerFinanceProject,saveCustomerFinanceTable} from '@/api/translationCustomerFinance'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
-import {financeDraft,financeDraftFields,financePatchKeys,financeFieldValue,sameFinanceField,copyFinanceValue} from '@/utils/financeTableDraft'
+import {financeDraft,financeDraftFields,financePatchKeys,totalAdjustmentPatchKeys,financeFieldValue,sameFinanceField,copyFinanceValue} from '@/utils/financeTableDraft'
 
 export function useFinanceTableEditing(onSaved){
   const states=reactive(new Map()),queues=new Map()
@@ -35,7 +35,9 @@ export function useFinanceTableEditing(onSaved){
       for(const [field,change] of pending){
         if(sameFinanceField(field,latest[field],change.value))continue
         if(!sameFinanceField(field,latest[field],state.base[field]))throw new Error('该字段已被其他操作修改，请重新加载并核对后填写')
-        patch[financePatchKeys[field]]=financeFieldValue(field,change.value)
+        const adjustmentKey=totalAdjustmentPatchKeys[field]
+        if(adjustmentKey)(patch.total_adjustment??={})[adjustmentKey]=financeFieldValue(field,change.value)
+        else patch[financePatchKeys[field]]=financeFieldValue(field,change.value)
       }
       const result=Object.keys(patch).length>2?await saveCustomerFinanceTable(state.row.rootId,patch):current
       const saved=financeDraft(find(result.item,state.row.id))

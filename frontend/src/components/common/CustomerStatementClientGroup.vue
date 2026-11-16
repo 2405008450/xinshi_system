@@ -1,7 +1,7 @@
 <template>
   <section class="client-group" :class="{'drop-active':dragOver}" @dragover.prevent="dragOver=true" @dragleave="leave" @drop.prevent="drop">
     <header><strong>{{groupLabel}} · {{total}}</strong><div v-if="canExpand"><el-button link @click="expanded=items.map(client=>client.id)">全部展开</el-button><el-button link @click="expanded=[]">全部收起</el-button></div></header>
-    <el-input v-model="keyword" :aria-label="`${groupLabel}搜索`" placeholder="搜索客户名称、简称或编号" clearable @input="queueSearch" @keyup.enter="search"><template #append><el-button @click="search">查询</el-button></template></el-input>
+    <el-input v-model="keyword" :aria-label="`${groupLabel}搜索`" placeholder="搜索客户或子客户名称、简称或编号" clearable @input="queueSearch" @keyup.enter="search"><template #append><el-button @click="search">查询</el-button></template></el-input>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <div v-loading="loading" class="client-group-list">
       <p v-if="!settlementScope" class="drop-hint">{{dragOver?'松开鼠标移入此栏':'可将另一栏的客户拖到这里'}}</p>
@@ -10,9 +10,15 @@
         <el-collapse-item v-for="client in items" :key="client.id" :name="client.id" :disabled="!canExpand">
           <template #title><div class="client-title" :draggable="canWrite&&!moving&&!settlementScope" @dragstart="startDrag($event,client)" @dragend="dragOver=false"><div class="client-name-line"><strong>{{client.shortName||client.name}}</strong><el-select v-if="canExpand" :model-value="client.progress||'not_started'" :disabled="!canWrite||progressSaving.has(client.id)" size="small" :aria-label="settlementScope==='special'?'特殊结算进度':'对账单进度'" style="width:115px" @click.stop @mousedown.stop @dragstart.prevent.stop @change="saveProgress(client,$event)"><el-option label="未开始" value="not_started" /><el-option label="部分完成" value="partial" /><el-option label="全部完成" value="completed" /></el-select></div><small>{{client.code}} · {{client.projectCount}} 个项目<span v-if="client.pendingCount"> · 待入账 {{client.pendingCount}} 项</span> · 客户经理：{{client.clientManagers?.join('、')||'未分配'}}</small></div></template>
           <div class="client-workspace">
-            <CustomerStatementWorkspace v-if="expanded.includes(client.id)" :client-id="client.id" :settlement-scope="settlementScope" :period-number="periodNumber" :billing-month="month" :lock-month="!!periodNumber" :project-selection="options=>projectTables.get(client.id)?.statementSelection(options)" :project-reload="()=>projectTables.get(client.id)?.reloadProjects()">
+            <el-select v-if="client.subClients?.length" :model-value="selectedSubClient(client)" aria-label="子客户"
+              style="width:280px;margin:8px 0" @change="subClientSelection[client.id]=$event">
+              <el-option v-if="!client.filterSubClients" value="" label="全部项目" />
+              <el-option v-for="child in client.subClients" :key="child.id" :value="child.id" :label="`${child.name} · ${child.code}`" />
+            </el-select>
+            <CustomerStatementWorkspace v-if="expanded.includes(client.id)" :key="selectedSubClient(client)"
+              :client-id="client.id" :sub-client-id="selectedSubClient(client)||undefined" :settlement-scope="settlementScope" :period-number="periodNumber" :billing-month="month" :lock-month="!!periodNumber" :project-selection="options=>projectTables.get(client.id)?.statementSelection(options)" :project-reload="()=>projectTables.get(client.id)?.reloadProjects()">
               <template #customer-projects="{months,mode,reload,selectionChanged}">
-                <StatementClientFinance :ref="el=>el?projectTables.set(client.id,el):projectTables.delete(client.id)" :client-id="client.id" :settlement-scope="settlementScope" :period-number="periodNumber" client-scope statement-client-view :initial-month="month" :preview-months="months" :preview-mode="mode" :manager-query="managerQuery" @statement-selection-change="selectionChanged" @special-payment-saved="reload" />
+                <StatementClientFinance :ref="el=>el?projectTables.set(client.id,el):projectTables.delete(client.id)" :client-id="client.id" :sub-client-id="selectedSubClient(client)||undefined" :settlement-scope="settlementScope" :period-number="periodNumber" client-scope statement-client-view :initial-month="month" :preview-months="months" :preview-mode="mode" :manager-query="managerQuery" @statement-selection-change="selectionChanged" @special-payment-saved="reload" />
               </template>
               <template #client-actions="{reload}">
                 <CustomerStatementActions v-if="!settlementScope" :client="client" @merged="reload">
@@ -28,7 +34,7 @@
   </section>
 </template>
 <script setup>
-import {computed,defineAsyncComponent,onBeforeUnmount,ref,watch} from 'vue'
+import {computed,defineAsyncComponent,onBeforeUnmount,reactive,ref,watch} from 'vue'
 import CustomerStatementWorkspace from './CustomerStatementWorkspace.vue'
 const StatementClientFinance=defineAsyncComponent(()=>import('@/views/project/translation/CustomerFinance.vue'))
 import CustomerStatementActions from './CustomerStatementActions.vue'
@@ -42,6 +48,12 @@ const groupLabel=computed(()=>props.settlementScope==='special'
   : (props.required?'需对账单客户':'无需对账单客户'))
 const canExpand=computed(()=>props.settlementScope!=='special'||props.required)
 const canWrite=hasPermission('projects:write'),pageSize=20
+const subClientSelection=reactive({})
+function selectedSubClient(client){
+  const selected=subClientSelection[client.id]
+  if(client.subClients?.some(child=>child.id===selected))return selected
+  return client.filterSubClients?client.subClients?.[0]?.id||'':''
+}
 const projectTables=new Map(),progressSaving=ref(new Set())
 const items=ref([]),total=ref(0),page=ref(1),keyword=ref(''),expanded=ref([]),loading=ref(false),error=ref(''),dragOver=ref(false)
 let controller,sequence=0,timer

@@ -28,6 +28,77 @@ def imported(setup,months=None):
     return response.json()
 
 
+def test_sub_client_settlement_shares_preferences_and_groups_by_period(setup):
+    from models import SubClient
+    from tools.apply_sub_client_finance_migration import apply_migration as create_preferences
+    import crud
+    import translation_customer_finance as finance
+    from translation_document_requirements import TranslationProjectDocuments
+
+    http,db,clients,_,_,_,first=setup
+    http.app.include_router(finance.router)
+    create_preferences(db.connection())
+    create_preferences(db.connection())
+    client=clients[0]
+    client.client_code='CL-261116-017'
+    a=SubClient(id=uuid4(),parent_client_id=client.id,client_name='甲分部',client_short_name='甲部',
+                sub_client_code=crud.generate_sub_client_code(db,client.id))
+    db.add(a);db.flush()
+    b=SubClient(id=uuid4(),parent_client_id=client.id,client_name='乙分部',client_short_name='乙部',
+                sub_client_code=crud.generate_sub_client_code(db,client.id))
+    db.add(b);db.commit()
+    assert a.sub_client_code=='CL-261116-017.001'
+    assert b.sub_client_code=='CL-261116-017.002'
+    second=project(db,client,'003',fixed=True)
+    third=project(db,client,'004',fixed=True)
+    later=project(db,client,'005',fixed=True)
+    for order,child in [(first,a),(second,a),(third,b),(later,a)]:
+        order.sub_client_id=child.id
+    db.add(TranslationProjectDocuments(project_id=later.id,quotation_revision=0,
+        quotation_data={'_billing_period':{'month':'2026-11','number':2}}))
+    db.commit()
+    settings=f'/translation-customer-finance/sub-clients/{a.id}/preferences'
+    saved=http.put(settings,json={'revision':0,'quotation_required':True,'statement_required':True,'tax_mode':'incl_tax'})
+    assert saved.status_code==200,saved.text
+    assert http.get(settings).json()['tax_mode']=='incl_tax'
+    assert http.put(settings,json={'revision':0,'tax_mode':'excl_tax'}).status_code==409
+    for order in (first,second,later):
+        item=http.get(f'/translation-customer-finance/project/{order.id}').json()['item']
+        assert item['payment_method']=='sub_client'
+        assert item['quotation_required'] and item['statement_required']
+        assert item['effective_billing_tax_mode']=='incl_tax'
+    invoice_scope=http.get(f'/translation-customer-finance/project/{first.id}/invoice-scope').json()
+    assert {item['id'] for item in invoice_scope['items']}=={str(first.id),str(second.id)}
+    summary=http.get(f'/translation-customer-finance/project/{first.id}/payment-summary',params={'method':'sub_client'}).json()
+    assert summary['order_count']==2
+    assert http.get(f'/translation-customer-finance/project/{third.id}/payment-summary',params={'method':'sub_client'}).json()['order_count']==1
+    preview=http.post('/translation-customer-finance/statement-preview',json={
+        'client_id':str(client.id),'month':'2026-11','order_ids':[str(first.id),str(second.id),str(third.id)],
+        'settlement_scope':'standard',
+    })
+    assert preview.status_code==200,preview.text
+    assert {(item['client_name'],item['sub_client_name']) for item in preview.json()['settlement_previews']}=={
+        (client.client_name,a.client_name),(client.client_name,b.client_name),
+    }
+    result=http.post('/translation-statement-workspaces/import',json={'client_id':str(client.id),
+        'months':['2026-11'],'settlement_scope':'standard','revision':0,'confirmed':True})
+    assert result.status_code==200,result.text
+    groups={(board['sub_client_id'],board['period_number']):board for board in result.json()['documents']}
+    assert len(groups)==3
+    assert groups[(str(a.id),None)]['statement']['totals']=={'CNY':'1060.00'}
+    assert groups[(str(a.id),2)]['statement']['totals']=={'CNY':'530.00'}
+    statement=groups[(str(a.id),2)]['statement']
+    assert (statement['client_name'],statement['client_code'])==(client.client_name,client.client_code)
+    assert (statement['sub_client_name'],statement['sub_client_code'])==(a.client_name,a.sub_client_code)
+    from customer_statements import excel_bytes
+    sheet=load_workbook(BytesIO(excel_bytes(statement))).active
+    assert sheet['A3'].value==f'客户：{client.client_name}\n子客户：{a.client_name}'
+    matching=http.get('/translation-customer-finance/statement-customer-groups',params={
+        'billing_month':'2026-11','keyword':'甲分部','settlement_scope':'standard',
+    }).json()['items']
+    assert [child['id'] for child in matching[0]['sub_clients']]==[str(a.id)]
+
+
 def change(setup,state,action,data,mode='children',expected=200):
     http=setup[0]
     response=http.post(f"/translation-statement-workspaces/{state['client_id']}/actions",params={'mode':mode},json={'revision':state['revision'],'action':action,'data':data,'confirmed':True})
@@ -333,6 +404,39 @@ def test_new_unpaid_orders_roll_to_next_period_and_keep_group_when_paid(setup):
     assert {row['id'] for row in summary['orders']}=={str(first.id),str(second.id)}
 
 
+def test_price_window_can_skip_periods_and_fill_gaps(setup):
+    from translation_customer_finance import router
+
+    http, _, (client, _), _, _, first, second = setup
+    http.app.include_router(router)
+
+    def assign(order, **fields):
+        path = f'/translation-statement-workspaces/project/{order.id}/billing-period'
+        options = http.get(path, params={'month':'2026-12'}).json()
+        version = http.get(f'/translation-customer-finance/project/{order.id}').json()['version']
+        return http.put(path, json={'month':'2026-12','revision':options['revision'],'version':version,**fields})
+
+    path = '/translation-statement-workspaces/period-options/2026-12'
+    params = {'client_id':str(client.id),'settlement_scope':'standard'}
+    second_period = assign(first, period_number=2)
+    assert second_period.status_code == 200, second_period.text
+    assert second_period.json()['item']['billing_period']['number'] == 2
+    assert http.get(path, params=params).json() == [2]
+    assert assign(second, period_number=2).status_code == 422
+    assert assign(second, period_number=0).status_code == 422
+
+    third_period = assign(second, create_period=True)
+    assert third_period.status_code == 200, third_period.text
+    assert third_period.json()['item']['billing_period']['number'] == 3
+    assert http.get(path, params=params).json() == [2, 3]
+
+    first_period = assign(second, period_number=1)
+    assert first_period.status_code == 200, first_period.text
+    assert http.get(path, params=params).json() == [1, 2, 3]
+    saved = http.get(f'/translation-customer-finance/project/{first.id}').json()['item']
+    assert saved['billing_period']['number'] == 2
+
+
 def test_price_window_assigns_new_order_and_moves_existing_statement_task(setup):
     from translation_customer_finance import router
 
@@ -409,11 +513,13 @@ def test_statement_company_uses_subject_account_and_prefills_new_invoice(setup,m
     ))
     state=imported(setup,['2026-11'])
     board=state['documents'][0]
+    assert board['statement']['subject_key']=='guangzhou'
     assert board['statement']['settings']['account_number']=='guangzhou-account'
     data={'board_id':board['id'],'subject_key':'shenzhen'}
     change(setup,state,'change_company_subject',{**data,'subject_key':'shanghai'},expected=422)
     state=change(setup,state,'change_company_subject',data)
     statement=state['documents'][0]['statement']
+    assert statement['subject_key']=='shenzhen'
     assert statement['company']==SUBJECTS['shenzhen'][1]
     assert statement['settings']['account_number']=='shenzhen-account'
     assert batch_projects(db,[order.id])[0]['default_subject']=='shenzhen'

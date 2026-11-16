@@ -55,7 +55,12 @@ class TaskRow(BaseModel):
             except InvalidOperation:raise ValueError('工作量须为非负数字')
             if isinstance(quantity,bool) or not numeric.is_finite() or numeric<0:raise ValueError('工作量须为非负数字')
             if not str(self.display_metadata.get('quantity_unit') or '').strip():raise ValueError('填写工作量后请选择单位')
-        if 'screenshot://' in json.dumps(self.model_dump()).lower() or 'data:image/' in json.dumps(self.model_dump()).lower():raise ValueError('任务表单请填写文字，不支持截图')
+        from editor_screenshot_service import validate_ordered_screenshots
+        validate_ordered_screenshots(self.progress_content)
+        validate_ordered_screenshots(self.result_content)
+        metadata = self.model_dump(exclude={'progress_content', 'result_content'})
+        if any(token in json.dumps(metadata, ensure_ascii=False).lower() for token in ('screenshot://','data:image/','<img')):
+            raise ValueError('任务的项目信息和统计字段仅支持文字或数字')
         return self
 
 

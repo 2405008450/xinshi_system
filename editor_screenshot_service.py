@@ -30,6 +30,21 @@ def valid_references(value):
     return {UUID(uid) for uid,signature in SIGNED_REFERENCE_RE.findall(value) if hmac.compare_digest(signed_reference(uid).split('#')[1],signature.lower())}
 
 
+INLINE_SCREENSHOT_RE = re.compile(rf'!\[截图\]\(({SIGNED_REFERENCE_RE.pattern})\)')
+
+
+def validate_ordered_screenshots(text):
+    """Allow only signed, inline screenshot references in narrative fields."""
+    def remove_valid(match):
+        reference = match.group(1)
+        return '' if valid_references(reference) else match.group()
+
+    remainder = INLINE_SCREENSHOT_RE.sub(remove_valid, text or '').lower()
+    if any(fragment in remainder for fragment in ('screenshot://', 'data:image/', '<img')):
+        raise ValueError('截图引用无效，请使用编辑框插入截图')
+    return text
+
+
 def references(value):
     if isinstance(value,bytes):value=value.decode('utf-8',errors='ignore')
     if not isinstance(value,str):value=json.dumps(value,ensure_ascii=False,default=str)

@@ -1,4 +1,4 @@
-"""多维字数统计统一接口。"""
+"""多维工作量统计统一接口。"""
 from typing import Literal, Optional
 from uuid import UUID
 

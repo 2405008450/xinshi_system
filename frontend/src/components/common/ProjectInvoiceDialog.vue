@@ -25,6 +25,7 @@
             <span>{{row.invoiceRequired===false?'无需开票':row.invoiceRequired==null?'开票待确认':invoiceStatusLabels[row.invoiceStatus]||'未开票'}}</span>
             <span>{{formatTotals(row.invoiceTotals)}}</span>
           </summary>
+          <OrderPriceDetails :order="row.priceDetails" />
           <template v-if="openedMergedOrders.has(row.id)">
             <InvoiceChildOrderSummary v-if="row.hasChildren" :order="row" expanded />
             <ProjectInvoiceDialog :ref="instance=>setMergedEditor(row.id,instance)" inline compact-order persistent-inline
@@ -35,7 +36,7 @@
       <AppForm v-else-if="invoiceScopeAvailable" ref="formRef" class="invoice-form" :model="form" label-position="top" :disabled="loading||saving||!canWrite">
         <div class="invoice-form-row invoice-form-status">
           <el-form-item label="是否需发票"><ReadonlyField :model-value="display.required==null?'待判断':display.required?'需':'无需'" source="auto" /><small>{{special?'在特殊结算中设置。':'在价格与付款中设置。'}}</small></el-form-item>
-          <el-form-item :label="context.merged?'合并开票金额':'项目计费金额'"><ReadonlyField :model-value="formatTotals(display.totals)" source="auto" /></el-form-item>
+          <el-form-item :label="context.merged?'合并开票金额':'项目计费金额'"><ReadonlyField :model-value="formatTotals(display.totals)" source="auto" /><OrderPriceDetails :order="display.priceDetails" /></el-form-item>
           <el-form-item label="发票状态" prop="invoiceStatus" :rules="[{required:true,message:'请选择发票状态',trigger:'change'}]"><el-select v-model="form.invoiceStatus" style="width:100%"><el-option v-for="option in invoiceStatusOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></el-form-item>
         </div>
         <div class="invoice-form-row invoice-form-attachments">
@@ -214,11 +215,22 @@ watch(()=>[props.modelValue,props.context.projectId,props.context.orderId],()=>{
 },{immediate:true})
 function refreshFinancePreview(event){
   const item=event.detail?.financeItem
-  if(!props.modelValue || props.requestId || props.special || !item || item.id!==props.context.projectId)return
+  if(!props.modelValue || props.requestId || !item || item.id!==props.context.projectId)return
+  if(props.special){
+    const url=invoiceUrl.value, params=invoiceParams.value
+    void api.get(url,{params}).then(response=>{
+      if(props.modelValue&&invoiceUrl.value===url&&invoiceParams.value.order_id===params.order_id){
+        const {required,totals,priceDetails}=camel(response)
+        financePreview.value={required,totals,priceDetails}
+      }
+    }).catch(()=>{})
+    return
+  }
+  if(mergedScope.value?.merged)scopeRefresh.value++
   const orderId=props.context.orderId||item.id
   const findOrder=order=>order.id===orderId?order:(order.children||[]).map(findOrder).find(Boolean)
   const order=findOrder(item)
-  if(order)financePreview.value={required:order.invoiceRequired,totals:order.billingTotals}
+  if(order)financePreview.value={required:order.invoiceRequired,totals:order.billingTotals,priceDetails:order}
 }
 window.addEventListener('translation-statements-changed',refreshFinancePreview)
 onBeforeUnmount(()=>{

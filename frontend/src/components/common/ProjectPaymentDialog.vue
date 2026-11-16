@@ -6,10 +6,10 @@
         :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch">
         <template v-if="showFilters || mergedOrderNumbers.length" #actions>
           <el-popover v-if="mergedOrderNumbers.length" v-model:visible="mergedOrdersVisible"
-            trigger="click" placement="bottom-start" role="dialog" title="多单合并结算订单号" :width="250">
+            trigger="click" placement="bottom-start" role="dialog" :title="`${settlementGroupLabel}订单号`" :width="250">
             <template #reference>
               <el-button link type="primary">
-                多单合并结算（{{ mergedOrderNumbers.length }} 单）
+                {{ settlementGroupLabel }}（{{ mergedOrderNumbers.length }} 单）
               </el-button>
             </template>
             <ul class="payment-merged-order-numbers">
@@ -42,7 +42,7 @@
           <StatementPeriodSelect v-model="paymentFilters.period" :month="paymentFilters.months[0]" :client-id="invoiceClientId"
             :settlement-scope="embedded?'special':'standard'" @update:model-value="applyPaymentFilters" />
         </el-form-item>
-        <el-form-item label="客户"><ReadonlyField v-if="scopeOrder || invoiceClientId" :model-value="scopeOrder?.clientShortName || scopeOrder?.clientName || invoiceClientName || '当前客户'" source="auto" style="width:190px" /><el-input v-else v-model="paymentFilters.client" :disabled="mismatchView" placeholder="客户全称或简称" clearable style="width:190px" @input="queueClientSearch" @keyup.enter="applyPaymentFilters" /></el-form-item>
+        <el-form-item label="客户"><ReadonlyField v-if="scopeOrder || invoiceClientId" :model-value="[scopeOrder?.clientShortName || scopeOrder?.clientName || invoiceClientName || '当前客户',scopeOrder?.subClientShortName].filter(Boolean).join(' · ')" source="auto" style="width:190px" /><el-input v-else v-model="paymentFilters.client" :disabled="mismatchView" placeholder="客户或子客户名称" clearable style="width:190px" @input="queueClientSearch" @keyup.enter="applyPaymentFilters" /></el-form-item>
         <el-form-item v-if="activeTab!=='invoice'" label="付款状态"><el-select v-model="paymentFilters.status" clearable placeholder="全部状态" style="width:205px" @change="applyPaymentFilters"><el-option v-for="option in statusOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></el-form-item>
         <el-form-item v-if="activeTab==='invoice'" label="是否需发票">
           <el-select v-model="paymentFilters.invoiceRequired" aria-label="是否需发票" clearable placeholder="全部开票需求" style="width:145px" @change="applyPaymentFilters">
@@ -60,10 +60,10 @@
               </el-button>
             </template>
             <el-select v-model="invoiceClientIds" multiple filterable remote clearable
-              aria-label="选择开票客户" placeholder="搜索客户全称、简称或编号" style="width:100%"
+              aria-label="选择开票客户" placeholder="搜索客户或子客户名称、简称或编号" style="width:100%"
               :remote-method="searchInvoiceCustomers" :loading="invoiceCustomerLoading" @change="applyInvoiceCustomerFilters">
               <el-option v-for="customer in invoiceCustomerOptions" :key="customer.id" :value="customer.id"
-                :label="customer.shortName || customer.name" />
+                :label="[customer.parentName,customer.shortName || customer.name,customer.code].filter(Boolean).join(' · ')" />
             </el-select>
             <p v-if="invoiceCustomerError" role="alert">{{ invoiceCustomerError }}</p>
           </el-popover>
@@ -91,7 +91,12 @@
             <template #default="{row}"><TranslationOrderDetailPopover :order="row" /></template>
           </el-table-column>
           <el-table-column prop="projectName" label="项目名称" min-width="200" show-overflow-tooltip />
-          <el-table-column prop="clientShortName" label="客户简称" min-width="140" sortable="custom" />
+          <el-table-column prop="clientShortName" label="客户简称" min-width="140" sortable="custom">
+            <template #default="{row}">
+              <span>{{row.clientShortName}}</span>
+              <div v-if="row.subClientShortName">{{row.subClientShortName}} · {{row.subClientCode}}</div>
+            </template>
+          </el-table-column>
           <el-table-column prop="clientManager" label="客户经理" min-width="120" sortable="custom" show-overflow-tooltip>
             <template #default="{row}">{{ row.clientManager || '未分配' }}</template>
           </el-table-column>
@@ -127,10 +132,10 @@
           <el-table-column v-if="activeTab!=='invoice'" label="付款状态" min-width="175"><template #default="{row}">{{paymentStatusLabel(row)}}</template></el-table-column>
           <el-table-column v-if="activeTab!=='invoice'" label="已付金额" min-width="120"><template #default="{row}">{{row.paymentActualTotal==null?'未登记金额':`${row.paymentCurrency||'CNY'} ${row.paymentActualTotal}`}}</template></el-table-column>
           <el-table-column label="不含税总价" min-width="175">
-            <template #default="{row}">{{formatPaymentTotals(row.totalsExclTax, row.adjustedTotalsExclTax, row.billingCurrencies.excl_tax)}}</template>
+            <template #default="{row}">{{formatPaymentTotals(row.totalsExclTax, row.adjustedTotalsExclTax, row.billingCurrencies.excl_tax)}}<OrderPriceDetails :order="row" side="excl" /></template>
           </el-table-column>
           <el-table-column label="含税总价" min-width="175">
-            <template #default="{row}">{{formatPaymentTotals(row.totalsInclTax, row.adjustedTotalsInclTax, row.billingCurrencies.incl_tax)}}</template>
+            <template #default="{row}">{{formatPaymentTotals(row.totalsInclTax, row.adjustedTotalsInclTax, row.billingCurrencies.incl_tax)}}<OrderPriceDetails :order="row" side="incl" /></template>
           </el-table-column>
           <el-table-column label="操作" :width="embedded?210:activeTab==='invoice'&&scopeOrder?160:120" fixed="right">
             <template #default="{row}">
@@ -195,6 +200,7 @@ import ProjectInvoiceDialog from './ProjectInvoiceDialog.vue'
 import ReadonlyField from './ReadonlyField.vue'
 import StatementPeriodSelect from './StatementPeriodSelect.vue'
 import {financeOrderLevel} from '@/utils/financeOrderLevel'
+import {translationSettlementModeLabels} from '@/utils/settlementModes'
 import {orderStatementMonth} from '@/utils/statementRequirementMonth'
 import {paymentStatusLabel,paymentStatusFilterOptions,fullPaymentMismatchOption,paymentChangeEvent,connectPaymentSync} from '@/utils/paymentConfirmation'
 import {connectInvoiceParties,invoicePartiesEvent,notifyInvoiceParties} from '@/api/invoiceParties'
@@ -239,6 +245,7 @@ const specialInvoiceManagerQuery=computed(()=>({
 const projectTable = ref()
 const inlineInvoice=ref(null),inlineInvoiceForm=ref(null),inlineInvoiceAnchor=ref(null)
 const mergedOrderNumbers=ref([]),mergedOrdersVisible=ref(false)
+const settlementGroupLabel=computed(()=>translationSettlementModeLabels[props.scopeOrder?.paymentMethod]||translationSettlementModeLabels.monthly)
 function setMergedOrders(scope,projectId){
   const anchor=props.scopeOrder?.rootId||props.scopeOrder?.id
     || (props.lockProject?props.initialProjectId:undefined)
@@ -354,7 +361,7 @@ async function searchInvoiceCustomers(keyword = '') {
   invoiceCustomerLoading.value = true
   invoiceCustomerError.value = ''
   try {
-    const result = await getStatementCustomers({keyword:keyword.trim() || undefined, required_only:false, limit:50}, {signal:controller.signal})
+    const result = await getStatementCustomers({keyword:keyword.trim() || undefined, required_only:false, include_sub_clients:true, limit:50}, {signal:controller.signal})
     if (controller.signal.aborted) return
     const selected = invoiceCustomerOptions.value.filter(customer => invoiceClientIds.value.includes(customer.id))
     invoiceCustomerOptions.value = [...new Map([...selected, ...result.items].map(customer => [customer.id, customer])).values()]
@@ -437,6 +444,7 @@ function paymentQuery(keyword){
     invoice_status:invoice?paymentFilters.invoiceStatus||undefined:undefined,
     invoice_required:invoice?paymentFilters.invoiceRequired||undefined:undefined,
     client_ids:props.invoiceClientId?[props.invoiceClientId]:scoped?[order.clientId]:invoice&&!order&&invoiceClientIds.value.length?invoiceClientIds.value:undefined,
+    sub_client_id:scoped?order.subClientId:undefined,
     statement_customers:invoice&&!order?statementCustomerMode.value||undefined:undefined,
     statement_required:invoice&&order&&!completeInvoiceScope.value&&statementCustomerMode.value?statementCustomerMode.value==='include':undefined,
     payment_amount_mismatch:!order&&mismatchView.value,
@@ -509,11 +517,15 @@ function beforeTabLeave(){return confirmClose()}
 async function beforeClose(done){if(await confirmClose())done()}
 defineExpose({confirmClose})
 function onExternalPayment(event){if(props.modelValue&&event.detail?.projectId)void searchProjects(projectKeyword.value)}
-function onSpecialInvoiceChange(event){if(props.modelValue&&props.embedded&&event.detail?.kind==='special-settlement')void searchProjects(projectKeyword.value)}
+function onSpecialInvoiceChange(event){
+  if(props.modelValue && (event.detail?.kind==='sub-client-finance'||props.embedded&&event.detail?.kind==='special-settlement')){
+    void searchProjects(projectKeyword.value)
+  }
+}
 connectPaymentSync();window.addEventListener(paymentChangeEvent,onExternalPayment);window.addEventListener('translation-invoice-changed',onExternalPayment)
+connectInvoiceParties()
+window.addEventListener(invoicePartiesEvent,onSpecialInvoiceChange)
 if(props.embedded){
-  connectInvoiceParties()
-  window.addEventListener(invoicePartiesEvent,onSpecialInvoiceChange)
   watch(()=>[props.invoiceClientId,props.initialMonth,props.periodNumber],()=>{initPaymentFilters();void applyPaymentFilters()})
   watch(()=>props.managerQuery,()=>{void applyPaymentFilters()},{deep:true})
 }

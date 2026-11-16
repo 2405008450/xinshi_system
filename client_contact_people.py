@@ -36,13 +36,31 @@ class ClientContactPersonDetail(Base):
     description = Column(Text, nullable=False, default='')
 
 
-def attach_details(db, owner, people=None, details=None):
+class ClientContactPersonJobTitle(Base):
+    __tablename__ = 'client_contact_person_job_title'
+    person_id = Column(Uuid, ForeignKey('client_contact_person.id', ondelete='CASCADE'), primary_key=True)
+    job_title = Column(String(100), nullable=False)
+
+
+def load_job_titles(db, people):
+    if not people or not inspect(db.connection()).has_table(ClientContactPersonJobTitle.__tablename__):
+        return {}
+    table = ClientContactPersonJobTitle
+    return dict(db.query(table.person_id, table.job_title).filter(table.person_id.in_([p.id for p in people])).all())
+
+
+def attach_details(db, owner, people=None, details=None, job_titles=None):
     people = people if people is not None else [row for row in owner_rows(db,owner) if row.is_active]
     if details is None:
         details = {}
         if people and inspect(db.connection()).has_table(ClientContactPersonDetail.__tablename__):
             details = {row.person_id:row for row in db.query(ClientContactPersonDetail).filter(ClientContactPersonDetail.person_id.in_([p.id for p in people])).all()}
     owner.contact_people = [dict(name=p.contact_name,contact_method=details[p.id].contact_method if p.id in details else (owner.manager_contact or '') if index==0 else '',description=details[p.id].description if p.id in details else '') for index,p in enumerate(people)]
+    if job_titles is None:
+        job_titles = load_job_titles(db, people)
+    for person, entry in zip(people, owner.contact_people):
+        if person.id in job_titles:
+            entry['job_title'] = job_titles[person.id]
     if not people:
         owner.contact_people = [dict(name=name,contact_method=(owner.manager_contact or '') if index==0 else '',description='') for index,name in enumerate(owner.contact_names)]
 
@@ -51,6 +69,11 @@ def replace_details(db, owner, people):
     if not inspect(db.connection()).has_table(ClientContactPersonDetail.__tablename__):raise ValueError('客户联系人详情表尚未初始化')
     names=[p.name.strip() for p in people]
     if len({name.casefold() for name in names})!=len(names):raise ValueError('同一客户的联系人姓名不能重复')
+    has_job_titles = any(value.job_title is not None for value in people) and inspect(
+        db.connection(),
+    ).has_table(ClientContactPersonJobTitle.__tablename__)
+    if not has_job_titles and any((value.job_title or '').strip() for value in people):
+        raise ValueError('客户联系人职位表尚未初始化')
     replace(db,owner,names);db.flush()
     existing={p.normalized_name:p for p in owner_rows(db,owner)}
     for value in people:
@@ -59,6 +82,15 @@ def replace_details(db, owner, people):
         if detail is None:detail=ClientContactPersonDetail(person_id=person.id);db.add(detail)
         if db.info.get('client_contacts_visible',True):detail.contact_method=value.contact_method or ''
         detail.description=value.description or ''
+        if has_job_titles and value.job_title is not None:
+            title = value.job_title.strip()
+            stored = db.get(ClientContactPersonJobTitle, person.id)
+            if title and stored:
+                stored.job_title = title
+            elif title:
+                db.add(ClientContactPersonJobTitle(person_id=person.id, job_title=title))
+            elif stored:
+                db.delete(stored)
     first=existing[names[0].casefold()]
     owner.manager_contact=primary_contact_summary(db.get(ClientContactPersonDetail,first.id).contact_method)
 
@@ -97,7 +129,7 @@ def attach(db, clients=(), sub_clients=()):
     owners=[*clients,*sub_clients]
     for client in clients:owners.extend(client.sub_clients or [])
     unique={('sub' if isinstance(owner,SubClient) else 'client',owner.id):owner for owner in owners}
-    records={};people_by_owner={};details={}
+    records={};people_by_owner={};details={};job_titles={}
     if unique and ready(db):
         client_ids=[key[1] for key in unique if key[0]=='client'];sub_ids=[key[1] for key in unique if key[0]=='sub']
         rows=db.query(ClientContactPerson).filter(ClientContactPerson.is_active.is_(True),or_(ClientContactPerson.client_id.in_(client_ids),ClientContactPerson.sub_client_id.in_(sub_ids))).order_by(ClientContactPerson.position,ClientContactPerson.id).all()
@@ -107,9 +139,10 @@ def attach(db, clients=(), sub_clients=()):
             people_by_owner.setdefault(key,[]).append(row)
         if rows and inspect(db.connection()).has_table(ClientContactPersonDetail.__tablename__):
             details={row.person_id:row for row in db.query(ClientContactPersonDetail).filter(ClientContactPersonDetail.person_id.in_([p.id for p in rows])).all()}
+        job_titles = load_job_titles(db, rows)
     for key,owner in unique.items():
         owner.contact_names=records.get(key) or ([owner.client_manager] if owner.client_manager else [])
-        attach_details(db,owner,people_by_owner.get(key,[]),details)
+        attach_details(db,owner,people_by_owner.get(key,[]),details,job_titles)
 
 
 def replace(db, owner, names):

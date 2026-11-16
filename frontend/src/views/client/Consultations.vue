@@ -654,15 +654,15 @@
                 </el-form-item>
               </el-col>
             </el-row>
-            <el-form-item label="项目字数统计">
+            <el-form-item label="项目工作量统计">
               <div class="consultation-word-count-field">
                 <span>{{ formatWordCountMatrix(form.project_intake.word_count_matrix) }}</span>
                 <WordCountMatrixPopover
                   v-model="form.project_intake.word_count_matrix"
                   local
-                  title="项目字数统计"
+                  title="项目工作量统计"
                 >
-                  <template #reference><el-button type="primary" link>展开字数统计</el-button></template>
+                  <template #reference><el-button type="primary" link>展开工作量统计</el-button></template>
                 </WordCountMatrixPopover>
               </div>
             </el-form-item>
@@ -2433,7 +2433,14 @@ const buildPayload = () => {
     client_name: form.client_name?.trim() || null,
     client_short_name: form.client_short_name?.trim() || null,
     contact_name: form.contact_name?.trim() || form.contact_people.find(item => item.name?.trim())?.name.trim() || null,
-    contact_people: form.contact_people.filter(item => item.name?.trim() || item.contact_method?.trim() || item.description?.trim()).map(item => ({ name: item.name.trim(), contact_method: item.contact_method?.trim() || '', description: item.description?.trim() || '' })),
+    contact_people: form.contact_people
+      .filter(item => item.name?.trim() || item.job_title?.trim() || item.contact_method?.trim() || item.description?.trim())
+      .map(item => ({
+        name: item.name.trim(),
+        job_title: item.job_title?.trim(),
+        contact_method: item.contact_method?.trim() || '',
+        description: item.description?.trim() || '',
+      })),
     contact_people_updated_at: form.contact_people_updated_at,
     failure_reason: form.failure_reason,
     customer_order_no: form.customer_order_no?.trim() || null,

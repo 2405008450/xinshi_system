@@ -100,6 +100,11 @@ def normalized_entries(entries):
         if '/' in key and key.rsplit('/',1)[0] not in result:raise ValueError('缺少上级文件夹')
     return result
 
+def folder_root_name(path):
+    # ntpath.basename returns an empty string at the root of a UNC share.
+    return path.rstrip('\\/').replace('/', '\\').rsplit('\\', 1)[-1]
+
+
 def inspect_tree(root_path):
     from path_security import validate_managed_path
     from project_file_service import _is_reparse_point,_should_ignore_source_file
@@ -124,7 +129,7 @@ def inspect_tree(root_path):
         entries.append({'relative_path':relative,'files':sorted(files,key=str.casefold)})
         if len(entries)>500:raise ValueError('单次最多读取500个文件夹')
         for name in sorted(children,key=str.casefold):walk(path/name,relative+'/'+name)
-    try:walk(root,ntpath.basename(normalized.rstrip('\\')))
+    try:walk(root,folder_root_name(normalized))
     except OSError as exc:raise ValueError('无法读取共享目录，请核对路径和访问权限') from exc
     return {'storage_path':normalized,'folder_entries':entries}
 
@@ -147,7 +152,7 @@ def import_folders(db,payload,actor,idempotency_key=None,*,commit=True,update_ro
     elif not (ntpath.isabs(payload.root_path) or payload.root_path.startswith('/')):
         raise ValueError('请填写所选本地根文件夹的完整路径，如 D:\\项目\\客户资料')
     root_relative=next(key for key in entries if '/' not in key)
-    if ntpath.basename(payload.root_path.rstrip('\\/'))!=root_relative:raise ValueError('根路径末尾名称必须与所选根文件夹一致')
+    if folder_root_name(payload.root_path)!=root_relative:raise ValueError('根路径末尾名称必须与所选根文件夹一致')
     created_root=not payload.parent_project_id
     if created_root:
         from crud import create_translation_project

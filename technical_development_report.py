@@ -31,9 +31,12 @@ class ReportWrite(tasks.WriteModel):
 
     @field_validator('report_type', 'order_no', 'task_name', 'progress_content')
     @classmethod
-    def nonempty(cls, value):
+    def nonempty(cls, value, info):
         if not value.strip():
             raise ValueError('请完整填写工作报告字段')
+        if info.field_name == 'progress_content':
+            from editor_screenshot_service import validate_ordered_screenshots
+            return validate_ordered_screenshots(value.strip())
         if any(token in value.lower() for token in ('screenshot://', 'data:image/', '<img')):
             raise ValueError('工作报告字段仅允许文字')
         return value.strip()

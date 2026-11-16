@@ -137,7 +137,7 @@ def test_export_workbook_contains_complete_typed_project_and_sub_order_data():
     assert sub_row["我司统计-字数"] == 500
     assert sub_row["译员交付进度"] == 0.25
     assert charge_row["子订单号"] == "TP-260901-001.001"
-    assert charge_row["客户字数口径"] == "字数"
+    assert charge_row["客户工作量口径"] == "字数"
     assert charge_row["数量"] == 800
     assert charge_row["计算金额"] == 96
     assert charge_row["最终金额"] == 88
@@ -189,7 +189,7 @@ def test_reconciliation_flattens_children_and_parent_only_without_duplicates():
 
     assert formal_headers[:14] == (
         "订单号", "项目名称", "客户全称", "客户编号", "客户接单时间", "客户交稿时间",
-        "翻译方向", "字数", "含税单价", "不含税单价", "含税总价", "不含税总价",
+        "翻译方向", "工作量", "含税单价", "不含税单价", "含税总价", "不含税总价",
         "账单月份", "备注",
     )
     assert len(formal_records) == 1
@@ -198,7 +198,7 @@ def test_reconciliation_flattens_children_and_parent_only_without_duplicates():
     assert first_child_row["项目名称"] == "第一份文件.docx"
     assert first_child_row["客户全称"] == "子客户全称"
     assert first_child_row["客户编号"] == "CL-001.001"
-    assert first_child_row["字数"] == 800
+    assert first_child_row["工作量"] == 800
     assert first_child_row["含税单价"] == 127.2
     assert first_child_row["不含税总价"] == 88
     assert first_child_row["账单月份"] == "2026-09"
@@ -290,12 +290,12 @@ def test_reconciliation_charge_detail_keeps_each_currency_and_numeric_values():
 
     assert len(records) == 2
     assert [record["币种"] for record in records] == ["CNY", "USD"]
-    assert records[0]["字数"] == 800
+    assert records[0]["工作量"] == 800
     assert records[0]["不含税单价"] == 120
     assert records[0]["不含税总价"] == 88
     assert records[1]["不含税总价"] == 50
     assert records[1]["含税总价"] == 53
-    assert records[1]["字数"] is None
+    assert records[1]["工作量"] is None
 
 
 def test_reconciliation_exports_parent_charge_and_uses_snapshot_file_fallback():

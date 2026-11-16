@@ -34,7 +34,7 @@ const app=createApp({render:()=>h('div',{},[h('div',{id:'summary'},formatWordCou
         context.route(re.compile(r'^http://localhost:3000/api/'),api)
         context.route(BASE+'/matrix-draft-test',lambda route:route.fulfill(content_type='text/html',body=html))
         page=context.new_page();errors=[];page.on('pageerror',lambda error:errors.append(str(error)));page.goto(BASE+'/matrix-draft-test')
-        pop=page.locator('.word-count-matrix-popper:visible');opener=page.get_by_role('button',name='字数统计',exact=True)
+        pop=page.locator('.word-count-matrix-popper:visible');opener=page.get_by_role('button',name='工作量统计',exact=True)
         def open_box():opener.click();expect(pop).to_be_visible()
         def field(name):return pop.get_by_role('spinbutton',name=name,exact=True)
         def close_box():pop.get_by_role('button',name='关闭',exact=True).click();expect(pop).not_to_be_visible()

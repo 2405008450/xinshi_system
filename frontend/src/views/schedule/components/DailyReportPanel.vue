@@ -1,5 +1,5 @@
 <template>
-  <div class="daily-report-panel" data-auto-draft="off" data-screenshot-editor="own" @paste.capture="blockReportImages" @drop.capture="blockReportImages">
+  <div class="daily-report-panel" data-auto-draft="off">
     <div class="report-identity">
       <div class="report-date"><span>日期</span><el-button :disabled="saving||loading" @click="changeDate(shiftReportDate(reportDate,-1))">前一天</el-button><el-date-picker :model-value="reportDate" type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" :clearable="false" :disabled="saving||loading" aria-label="工作报告日期" @update:model-value="changeDate" /><strong>{{reportWeekday(reportDate)}}</strong><el-button :disabled="saving||loading" @click="changeDate(shiftReportDate(reportDate,1))">后一天</el-button><el-button :disabled="saving||loading" @click="changeDate(reportBusinessDate())">今天</el-button></div>
       <div>姓名：<strong>{{editorContext.user_name||report.user_name||'-'}}</strong></div><div class="report-departments">部门：<el-tag v-for="name in editorContext.departments" :key="name" effect="plain">{{name}}</el-tag><span v-if="!editorContext.departments.length">未设置部门</span></div>
@@ -133,7 +133,7 @@
           </el-form-item>
           <ReportIdleTime v-if="mailPreview.idle_minutes!=null" :minutes="mailPreview.idle_minutes" :confirmed="mailPreview.idle_declaration_confirmed" :declaration-text="mailPreview.idle_declaration_text||''" />
           <el-form-item v-if="mailPreview.supplemental_note" label="补充说明（来自已确认报告）">
-            <div class="readonly-note">{{ mailPreview.supplemental_note }}</div>
+            <div class="readonly-note"><ScreenshotText :text="mailPreview.supplemental_note" /></div>
           </el-form-item>
           <el-form-item v-if="mailPreview.signature_html" label="邮件签名">
             <div class="mail-signature-preview" v-html="mailPreview.signature_html" />
@@ -149,6 +149,7 @@
 </template>
 
 <script setup>
+import ScreenshotText from '@/components/common/ScreenshotText.vue'
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -160,7 +161,7 @@ import {subscribe} from '@/utils/realtimeSocket'
 import {readCloudDraft,queueCloudDraft,cloudDraftStatus,acknowledgeCloudDraft} from '@/utils/cloudDrafts'
 import {chooseDraft} from '@/utils/draftRecovery'
 import {createAutoDraftStore} from '@/utils/autoDraftStore'
-import {mergeAnnotationOperationRows,reportBusinessDate,reportWeekday,shiftReportDate,blockReportImages,requiresProjectIdentity} from '@/utils/workReportForm'
+import {mergeAnnotationOperationRows,reportBusinessDate,reportWeekday,shiftReportDate,requiresProjectIdentity} from '@/utils/workReportForm'
 import { formatBusinessDateTimeMinute } from '@/utils/dateTime'
 import { getPersonalMailAccount } from '@/api/auth'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'

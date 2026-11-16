@@ -37,22 +37,35 @@
     <template v-else-if="['totalPrice','totalInclTax','adjustedTotal'].includes(field)">
       <small>{{pricingMode==='fixed'?'固定收费':'计算额'}}</small>
       <ReadonlyField :model-value="calculationText" source="auto" />
-      <template v-if="row.priceAggregate">
-        <template v-if="aggregateAdjustment">
-          <small>调整后金额</small>
-          <ReadonlyField :model-value="aggregateAdjustment" source="auto" />
-        </template>
-      </template>
-      <template v-else>
+      <small>折扣</small>
+      <ReadonlyField v-if="readonly" :model-value="draft[discountKey]==null?'—':String(draft[discountKey]).padStart(2,'0')+' 折'" source="auto" />
+      <OrderDiscountField v-else v-model="draft[discountKey]" :label="amountLabel+'折扣'" @commit="commit(discountKey)" />
+      <small v-if="discountedAmount!=null">折后 {{row.totalAdjustment?.currency||draft.currency}} {{discountedAmount}}</small>
+      <template v-if="!row.priceAggregate && !row.fixedPricingFrom">
         <small>{{pricingMode==='fixed'?'登记金额':'调整后金额'}}</small>
         <ReadonlyField v-if="readonly" :model-value="effectiveText" source="auto" />
         <span v-else-if="multipleCurrencies" class="sheet-calculated">{{effectiveText}}</span>
         <input v-else :value="draft[amountKey]??''" type="number" min="0" step="0.01" :aria-label="amountLabel+'调整后金额'" :placeholder="draft.pricingMode==='fixed'?'填写固定收费':'采用计算额'" @input="draft[amountKey]=$event.target.value===''?null:Number($event.target.value)" @blur="commitNumber($event,amountKey)" @keydown.enter.prevent="$event.target.blur()" />
         <small v-if="!readonly">{{draft.currency||row.currency||'CNY'}}</small>
       </template>
+      <template v-if="usesOrderAdjustment">
+        <small>调整后金额 · {{row.totalAdjustment?.currency||draft.currency}}</small>
+        <ReadonlyField v-if="readonly" :model-value="effectiveText" source="auto" />
+        <input v-else :value="draft[adjustmentKey]??''" type="number" min="0" step="0.01" :aria-label="amountLabel+'调整后金额'" :placeholder="adjustmentPlaceholder" @input="draft[adjustmentKey]=$event.target.value===''?null:Number($event.target.value)" @blur="commitNumber($event,adjustmentKey)" @keydown.enter.prevent="$event.target.blur()" />
+        <small v-if="!readonly && aggregateAdjustment && (draft[adjustmentKey]==null || Object.keys(effectiveTotals).length>1)">当前结算金额 {{effectiveText}}</small>
+      </template>
+      <small v-if="!usesOrderAdjustment && !readonly && (discountedAmount!=null || draft[amountKey]!=null)">结算金额 {{effectiveText}}</small>
       <small v-if="!row.priceAggregate&&pricingMode!=='fixed'&&amountValue==null&&!projectQuantityChoices(row.wordCountMatrix).length" class="sheet-quantity-warning">客户统计和我司统计均未填写，请先登记数量和单位。</small>
     </template>
-    <div v-else-if="field==='explanation'" class="sheet-notes"><label>内部说明<ReadonlyField v-if="readonly" :model-value="draft.explanation||'—'" source="auto" /><textarea v-else v-model="draft.explanation" rows="2" maxlength="5000" aria-label="内部说明" placeholder="填写内部说明" @blur="commit('explanation')" /></label><label>客户说明<ReadonlyField v-if="readonly" :model-value="draft.customerExplanation||'—'" source="auto" /><textarea v-else v-model="draft.customerExplanation" rows="2" maxlength="5000" aria-label="客户说明" placeholder="填写客户说明" @blur="commit('customerExplanation')" /></label></div>
+    <div v-else-if="field==='explanation'" class="sheet-notes">
+      <div v-for="(caption, key) in { explanation: '内部说明', customerExplanation: '客户说明' }" :key="key">
+        <span>{{ caption }}</span>
+        <ScreenshotText v-if="readonly && screenshotIds(draft[key]).length" :text="draft[key]" />
+        <ReadonlyField v-else-if="readonly" :model-value="draft[key] || '—'" source="auto" />
+        <el-input v-else v-model="draft[key]" type="textarea" :rows="2" maxlength="5000" :aria-label="caption"
+          @change="commitNotes(key)" @uploading-change="value => setNotesUploading(key, value)" />
+      </div>
+    </div>
     <small v-if="cellError" class="sheet-save-error">未保存</small>
   </div>
 </template>
@@ -63,6 +76,8 @@ import {ElMessageBox} from 'element-plus'
 import {requestPricingModeSwitch} from '@/utils/pricingModeSwitch'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import CustomerQuantityBasisSelect from './CustomerQuantityBasisSelect.vue'
+import { screenshotIds } from '@/utils/screenshotReferences'
+import ScreenshotText from './ScreenshotText.vue'
 import ReadonlyField from './ReadonlyField.vue'
 import FinanceTablePriceActions from './FinanceTablePriceActions.vue'
 import CustomerAggregatePrices from './CustomerAggregatePrices.vue'
@@ -79,23 +94,46 @@ const hasChildren=computed(()=>props.row.hasChildren??!!props.row.children?.leng
 const pricingMode=computed(()=>props.row.fixedPricingFrom?'fixed':draft.value.pricingMode)
 const currencies=['CNY','USD','HKD','EUR','GBP','JPY']
 const amountKey=computed(()=>props.field==='totalInclTax'?'adjustedTotalInclTax':'adjustedTotal')
+const adjustmentKey=computed(()=>props.field==='totalInclTax'?'totalAdjustmentIncl':'totalAdjustmentExcl')
+const discountKey=computed(()=>props.field==='totalInclTax'?'discountIncl':'discountExcl')
+const discountedAmount=computed(()=>props.row.discountedTotals?.[props.field==='totalInclTax'?'inclTax':'exclTax'])
+const usesOrderAdjustment=computed(()=>props.row.priceAggregate||pricingMode.value==='fixed')
+const adjustmentPlaceholder=computed(()=>props.row.priceAggregate?'采用下级汇总':props.row.fixedPricingFrom?'选填':'采用登记金额')
 const logicalField=computed(()=>({unitPrice:'prices',totalPrice:'adjustedTotal',totalInclTax:'adjustedTotalInclTax',adjustedTotal:'adjustedTotal'}[props.field]||props.field))
-const cellError=computed(()=>props.state.error&&(!sameFinanceField(logicalField.value,draft.value[logicalField.value],props.state.base[logicalField.value])||props.field==='explanation'&&!sameFinanceField('customerExplanation',draft.value.customerExplanation,props.state.base.customerExplanation)))
+const cellError=computed(()=>{
+  if(!props.state.error)return false
+  const fields=[logicalField.value]
+  if(['totalPrice','totalInclTax','adjustedTotal'].includes(props.field))fields.push(discountKey.value,adjustmentKey.value)
+  if(props.field==='explanation')fields.push('customerExplanation')
+  return fields.some(field=>!sameFinanceField(field,draft.value[field],props.state.base[field]))
+})
 const amountLabel=computed(()=>({totalPrice:'不含税总价',totalInclTax:'含税总价',adjustedTotal:'调整后总价'}[props.field]))
 const calculated=computed(()=>calculateTaxOrderPriceTree({...props.row,...draft.value},props.row.prices||[]))
 const amounts=computed(()=>calculated.value[props.field==='totalInclTax'?'incl':'excl'].totals)
 const multipleCurrencies=computed(()=>draft.value.pricingMode!=='fixed'&&new Set(draft.value.prices.map(price=>price.currency)).size>1)
 const amountValue=computed(()=>draft.value[amountKey.value]??(draft.value.pricingMode==='fixed'?null:amounts.value[draft.value.prices[0]?.currency||draft.value.currency]))
 const formatAmounts=values=>Object.entries(values||{}).map(([currency,value])=>`${currency} ${Number(value).toFixed(2)}`).join('\n')||'待填写'
+const effectiveTotals=computed(()=>props.row[props.field==='totalInclTax'?'totalsInclTax':'totalsExclTax']||{})
 const calculationText=computed(()=>props.row.priceAggregate?formatAmounts(props.row[props.field==='totalInclTax'?'calculatedTotalsInclTax':'calculatedTotalsExclTax']):pricingMode.value==='fixed'?'按登记金额':formatAmounts(amounts.value))
 const aggregateAdjustment = computed(() => {
   const values = props.row[props.field === 'totalInclTax' ? 'adjustedTotalsInclTax' : 'adjustedTotalsExclTax']
   return values && Object.keys(values).length ? formatAmounts(values) : ''
 })
-const effectiveText=computed(()=>props.row.priceAggregate||props.readonly?formatAmounts(props.row[props.field==='totalInclTax'?'totalsInclTax':'totalsExclTax']):draft.value[amountKey.value]==null?formatAmounts(amounts.value):`${draft.value.currency||props.row.currency||'CNY'} ${Number(draft.value[amountKey.value]).toFixed(2)}`)
+const effectiveText=computed(()=>formatAmounts(effectiveTotals.value))
 const pricingModeSwitching=ref(false)
 async function changeTablePricingMode(event){const next=event.target.value;event.target.value=draft.value.pricingMode;if(pricingModeSwitching.value||props.state.saving)return;pricingModeSwitching.value=true;try{if(await requestPricingModeSwitch(draft.value,next,{apply:false,hasChildren:hasChildren.value,confirm:message=>ElMessageBox.confirm(message,'切换计价方式',{type:'warning',confirmButtonText:'继续并清除',cancelButtonText:'取消',closeOnClickModal:false})})){draft.value.pricingMode=next;commit('pricingMode')}}finally{pricingModeSwitching.value=false}}
 function commit(field){emit('commit',field)}
+const notesUploading = new Set()
+function setNotesUploading(field, value) {
+  if (value) notesUploading.add(field)
+  else {
+    notesUploading.delete(field)
+    commitNotes(field)
+  }
+}
+function commitNotes(field) {
+  if (!notesUploading.has(field)) commit(field)
+}
 
 function commitNumber(event,field){if(event.target.validity.valid){props.state.error='';commit(field)}else props.state.error='请输入有效的非负金额'}
 function setPrice(price,key,value){price.taxPrices={...price.taxPrices,[key]:value===''?null:Number(value)};price.amount=taxUnitAmount(price.taxPrices,null);price.referenceId=null;price.referenceRevision=null}

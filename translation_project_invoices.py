@@ -75,6 +75,7 @@ def invoice_document(db, project_id):
 
 
 def read(db,project_id,order_id=None,*,special=False):
+    from translation_price_rollup import price_details
     from translation_customer_finance import read as read_finance
     data=read_finance(db,project_id);root=data['item']
     def find(node):return node if node['id']==str(order_id or project_id) else next((found for child in node.get('children',[]) if (found:=find(child))),None)
@@ -99,6 +100,7 @@ def read(db,project_id,order_id=None,*,special=False):
     return {**state,'version':version,'project_id':str(project_id),'order_id':node['id'],'order_no':node['order_no'],
             'client_id':root.get('client_id'),'client_name':root.get('client_short_name') or '-','required':required,
             'tax_mode':tax_mode,'totals':totals,
+            'price_details': price_details(node),
             'note':(root.get('document_notes') or {}).get('invoice',''),'payment_version':data['payment']['version']}
 
 

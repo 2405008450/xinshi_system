@@ -1876,7 +1876,7 @@ def confirm_dispatch(
             for values in matrix.values()
             for value in values.values()
         ):
-            raise ValueError("请先填写子订单独立字数统计，再确认稿件安排")
+            raise ValueError("请先填写子订单独立工作量统计，再确认稿件安排")
     now = datetime.datetime.now()
     for arrangement in dispatch.arrangements:
         _validate_stored_arrangement_required_fields(arrangement)

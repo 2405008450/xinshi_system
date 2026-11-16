@@ -117,6 +117,7 @@ LANGUAGE_SEARCH_SHORTCUTS = {
 
 LANGUAGE_PAIR_SPLIT_PATTERN = re.compile(r"[；;，,、\n]+")
 LANGUAGE_LABEL_FORBIDDEN_PATTERN = re.compile(r"[→；;,，、\r\n]")
+PROOFREADING_MARKER = "校对"
 
 LANGUAGE_ENGLISH_NAMES = {
     "zh-CN": "Chinese (Simplified)", "zh-TW": "Chinese (Traditional, Taiwan)",
@@ -212,14 +213,17 @@ def normalize_language_pairs(value: Optional[str]) -> Optional[str]:
     normalized = []
     normalized_keys = set()
     for pair in parts:
-        source, separator, target = pair.partition("→")
-        if separator != "→":
-            raise ValueError(f"“{pair}”不是有效的翻译方向，请使用“原文语种→译文语种”格式")
-        source = normalize_language_label(source)
-        target = normalize_language_label(target)
-        if source.casefold() == target.casefold():
-            raise ValueError("翻译方向的原文语种和译文语种不能相同")
-        canonical_pair = f"{source}→{target}"
+        # “校对”可单独使用或与语言对组合，不作为语种查询。
+        canonical_pair = pair
+        if pair != PROOFREADING_MARKER:
+            source, separator, target = pair.partition("→")
+            if separator != "→":
+                raise ValueError(f"“{pair}”不是有效的翻译方向，请使用“原文语种→译文语种”格式")
+            source = normalize_language_label(source)
+            target = normalize_language_label(target)
+            if source.casefold() == target.casefold():
+                raise ValueError("翻译方向的原文语种和译文语种不能相同")
+            canonical_pair = f"{source}→{target}"
         canonical_key = canonical_pair.casefold()
         if canonical_key not in normalized_keys:
             normalized.append(canonical_pair)
@@ -242,6 +246,9 @@ def validate_language_pairs_against_catalog(
     result = []
     result_keys = set()
     for pair in LANGUAGE_PAIR_SPLIT_PATTERN.split(normalized):
+        if pair == PROOFREADING_MARKER:
+            result.append(pair)
+            continue
         source, _, target = pair.partition("→")
         source_label = catalog.get(source.casefold())
         target_label = catalog.get(target.casefold())

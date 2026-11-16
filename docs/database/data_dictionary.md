@@ -2892,3 +2892,21 @@ id UUID 主键；client_id / sub_client_id UUID 分别关联 client / sub_client
 | source_order_no | varchar(100) | 回传时的订单号，可空 |
 
 按客户、项目类型和字段保留历史。空白或与最新内容一致时不新增；不同内容追加。项目表单带入每个字段的最新版本，随项目表单保存。初始化脚本为 `tools/apply_customer_requirement_history_migration.py`。
+#### `sub_client_finance_preference`
+
+笔译子客户结算设置，按子客户保存。价格窗口、对账单窗口和客户管理共用。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `sub_client_id` | uuid | 主键，外键关联 `sub_client.id`，删除级联 |
+| `quotation_required` | boolean | 子客户报价单需求，空值按订单设置 |
+| `statement_required` | boolean | 子客户对账单需求，空值按计费口径判断 |
+| `tax_mode` | varchar(16) | `incl_tax` 或 `excl_tax`，空值由现有订单计价规则判断 |
+| `revision` | integer | 修改版本，非空 |
+| `updated_by` | uuid | 操作人，外键关联 `app_user.id`，删除时置空 |
+| `updated_at` | timestamptz | 修改时间，统一 UTC+8 |
+### 客户联系人职位（client_contact_person_job_title）
+
+- `person_id UUID` 为主键，引用 `client_contact_person.id`，删除联系人记录时级联删除。
+- `job_title VARCHAR(100)` 为职位。接口 `contact_people[].job_title` 可省略；省略时保留原职位，提交空串时清除。
+- 使用 `tools/apply_client_contact_job_title_migration.py` 初始化职位表。

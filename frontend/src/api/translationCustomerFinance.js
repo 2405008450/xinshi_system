@@ -12,6 +12,8 @@ export function customerFinanceSort({ prop, order }) {
 export const getFinanceManagerOptions=(config={})=>api.get('/translation-customer-finance/manager-options',config).then(camel)
 export const getCustomerFinanceProject=(id,config)=>api.get(`/translation-customer-finance/project/${id}`,config).then(camel)
 export const getProjectInvoiceScope=(id,config)=>api.get(`/translation-customer-finance/project/${id}/invoice-scope`,config).then(camel)
+export const getSubClientFinancePreferences=(id,config)=>api.get(`/translation-customer-finance/sub-clients/${id}/preferences`,config)
+export const saveSubClientFinancePreferences=(id,data)=>api.put(`/translation-customer-finance/sub-clients/${id}/preferences`,data)
 export async function saveSpecialSettlement(id,data){
   const result=await api.put(`/translation-customer-finance/project/${id}/special-settlement`,data)
   notifyInvoiceParties({kind:'special-settlement',projectId:id})

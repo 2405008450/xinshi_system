@@ -360,3 +360,28 @@ def test_selected_unc_still_requires_allowed_root(case, monkeypatch):
             TranslationProjectCreate(project_name='项目',network_file_path=r'D:\旧路径',initial_folder_import=plan)
     plan=FolderDraft(source_kind='unc',root_path=r'\\allowed\share\项目',entries=[{'relative_path':'项目','files':['a.pdf']}])
     assert TranslationProjectCreate(project_name='项目',initial_folder_import=plan).network_file_path==plan.root_path
+
+
+def test_unc_share_root_uses_share_name_and_same_order_hierarchy(case, tmp_path, monkeypatch):
+    from schemas import TranslationProjectCreate
+    import translation_folder_orders as folders
+
+    db, user, crud = case
+    path = r'\\allowed\share'
+    monkeypatch.setenv('OPENPATH_ALLOWED_ROOTS', path)
+    monkeypatch.setattr(folders, 'Path', lambda _: tmp_path)
+    (tmp_path / 'root.txt').write_text('root')
+    (tmp_path / '附件').mkdir()
+    (tmp_path / '附件' / 'nested.txt').write_text('nested')
+    (tmp_path / '空目录').mkdir()
+    entries = folders.inspect_tree(path)['folder_entries']
+    assert entries[0]['relative_path'] == 'share'
+    root = crud.create_translation_project(db, TranslationProjectCreate(
+        project_name='share', created_by=user.id, network_file_path=path,
+        initial_folder_import={'source_kind': 'unc', 'root_path': path, 'entries': entries},
+    ), order_no='TP-261110-976')
+    rows = {row.sub_project_name: row for row in root.sub_orders}
+    assert set(rows) == {'root.txt', '附件', 'nested.txt'}
+    assert rows['root.txt'].sub_order_no.endswith('.001')
+    assert rows['nested.txt'].sub_order_no.endswith('.002.001')
+    assert rows['nested.txt'].network_file_path == path + r'\附件\nested.txt'

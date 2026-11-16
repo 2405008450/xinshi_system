@@ -179,7 +179,7 @@
                     <div class="chat-bubble" :class="{ 'chat-bubble--own': item.isOwn }" tabindex="0" data-message-menu-anchor @contextmenu="messageMenuRef.open($event,item.message)" @keydown="messageMenuRef.openKeyboard($event,item.message)">
                       <button v-if="item.message.reply" class="group-reply" @click="references.open(item.message.reply.id,$event)">{{ item.message.reply.senderName }}：{{ item.message.reply.content }}</button>
                       <div @click="openMessageReferences(item.message,$event)"><div v-if="textOnly" class="chat-bubble__text"><ScreenshotText :text="item.message.content" :chat-message-id="item.message.id" /></div>
-                      <ScreenshotText v-else-if="screenshotIds(item.message.content).length" :text="item.message.content" :chat-message-id="item.message.id" /><RichTextContent v-else :document="highlightedMentionDocument(item.message)" :fallback="item.message.content" /></div>
+                      <ScreenshotText v-else-if="screenshotIds(item.message.content).length && !richTextHasImages(item.message.contentJson)" :text="item.message.content" :chat-message-id="item.message.id" /><RichTextContent v-else :document="highlightedMentionDocument(item.message)" :fallback="item.message.content" :chat-message-id="item.message.id" /></div>
                       <el-tag v-if="item.message.topicPath" size="small" effect="plain" class="chat-visible-topic">{{ item.message.topicPath }}</el-tag>
                       <div v-if="item.message.attachments?.length" class="message-attachments">
                         <div v-for="attachment in item.message.attachments" :key="attachment.id" class="message-attachment">
@@ -302,7 +302,7 @@
                 v-if="textOnly"
                 class="chat-message-card__content"
               ><ScreenshotText :text="message.content" :chat-message-id="message.id" /></div>
-              <ScreenshotText v-else-if="screenshotIds(message.content).length" :text="message.content" :chat-message-id="message.id" /><RichTextContent v-else :document="message.contentJson" :fallback="message.content" />
+              <ScreenshotText v-else-if="screenshotIds(message.content).length && !richTextHasImages(message.contentJson)" :text="message.content" :chat-message-id="message.id" /><RichTextContent v-else :document="message.contentJson" :fallback="message.content" :chat-message-id="message.id" />
               <div v-if="message.metadata?.tasks?.length" class="handover-task-list">
                 <div v-for="task in message.metadata.tasks" :key="task.workflowInstanceId">
                   <strong>{{ task.orderNo }}</strong>
@@ -391,24 +391,28 @@
               <span class="chat-composer__mention-count">{{ composer.mentionedUserIds.length }}/20</span>
             </div>
           </div>
-          <div class="chat-composer__body" data-screenshot-editor="own" @paste.capture="handleComposerPaste">
+          <div class="chat-composer__body">
             <el-input
               v-if="textOnly"
+              ref="composerInputRef"
               v-model="composer.content"
               :disabled="sending"
               type="textarea"
+              hide-screenshot-tools
+              @uploading-change="composerScreenshotUploading = $event"
               :autosize="compact ? { minRows: 2, maxRows: 4 } : false"
               :rows="compact ? undefined : 4"
               maxlength="10000"
               show-word-limit
               placeholder="输入项目沟通内容…"
             />
-            <RichTextComposer ref="richComposerRef" external-images
+            <RichTextComposer ref="richComposerRef" chat-screenshots
               v-else
               v-model="composer.contentJson"
               :disabled="sending"
               placeholder="输入项目沟通内容…"
               @update:plain-text="composer.content = $event"
+              @uploading-change="composerScreenshotUploading = $event"
             />
             <div class="chat-composer__actions">
               <el-button
@@ -425,7 +429,7 @@
             @add="addComposerImages" @retry="imageQueue.retry" @remove="imageQueue.remove" />
         </div>
 
-        <div v-if="settings.enabled && conversationMode" class="chat-composer chat-composer--conversation" data-screenshot-editor="own" @paste.capture="handleComposerPaste">
+        <div v-if="settings.enabled && conversationMode" class="chat-composer chat-composer--conversation">
           <div v-if="replyToMessage" class="group-compose-reply">回复 {{ replyToMessage.senderName }}：{{ replyToMessage.content }}<el-button link @click="replyToMessage=null">取消引用</el-button></div>
           <button type="button" class="chat-composer-resize" aria-label="调整输入区高度" title="拖动调整输入区高度" @pointerdown="startComposerResize" @keydown="resizeComposerByKeyboard" />
           <div v-if="composer.mentionedUserIds.length" class="chat-composer__mention-tags">
@@ -482,6 +486,8 @@
               v-model="composer.content"
               :disabled="sending"
               type="textarea"
+              hide-screenshot-tools
+              @uploading-change="composerScreenshotUploading = $event"
               :rows="3" :input-style="composerInputStyle" resize="none"
               maxlength="10000"
               placeholder="Enter 发送，Shift+Enter 换行"
@@ -490,12 +496,13 @@
               @compositionend="handleComposerCompositionEnd"
               @keydown="handleComposerKeydown"
             />
-            <RichTextComposer ref="richComposerRef" external-images
+            <RichTextComposer ref="richComposerRef" chat-screenshots
               v-else
               v-model="composer.contentJson"
               :disabled="sending"
               placeholder="输入项目沟通内容…"
               @update:plain-text="composer.content = $event"
+              @uploading-change="composerScreenshotUploading = $event"
             />
             <el-button
               type="primary"
@@ -535,7 +542,7 @@ import { combineRecallDraft } from '@/utils/recallDrafts'
 import { projectMentionOrder } from '@/utils/projectMentionOrder'
 import { useAnnotationMentionManagers } from '@/composables/useAnnotationMentionManagers'
 import ScreenshotText from '@/components/common/ScreenshotText.vue'
-import { screenshotIds } from '@/utils/screenshotReferences'
+import { editScreenshotText, screenshotIds } from '@/utils/screenshotReferences'
 import { useChatMessageInteractions } from '@/composables/useChatMessageInteractions'
 import ChatMessageActions from './chat/ChatMessageActions.vue'
 import ChatMessageReferences from './chat/ChatMessageReferences.vue'
@@ -577,6 +584,7 @@ import ChatHistorySearchPanel from '@/components/chat/ChatHistorySearchPanel.vue
 import { createChatImageQueue } from '@/utils/chatImageQueue'
 import RichTextComposer from '@/components/RichTextComposer.vue'
 import RichTextContent from '@/components/RichTextContent.vue'
+import { richTextHasImages } from '@/utils/richTextImages'
 
 const props = defineProps({
   targetMessageId: { type: String, default: '' },
@@ -616,7 +624,8 @@ const uploadTranslationFile = async file => {
   return annotationChatRequest(props.projectId,'files',{method:'post',data})
 }
 const attachmentsEnabled = computed(() => true)
-const imagesBlocked = computed(() => pendingImages.some(item => item.status !== 'ready'))
+const composerScreenshotUploading = ref(false)
+const imagesBlocked = computed(() => composerScreenshotUploading.value || pendingImages.some(item => item.status !== 'ready'))
 const imageQueue = createChatImageQueue(pendingImages, {
   upload: file=>uploadTranslationFile(file),
   allowFiles: true,
@@ -629,18 +638,24 @@ const clearComposerImages = () => {
   composerGeneration++
   imageQueue.clear()
 }
+let selectedScreenshots = []
 const addComposerImages = files => {
-  if (!sending.value && attachmentsEnabled.value) imageQueue.add(files)
-}
-const handleComposerPaste = event => {
-  if (!attachmentsEnabled.value) return
-  const files = [...(event.clipboardData?.items || [])]
-    .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
-    .map(item => item.getAsFile()).filter(Boolean)
-  if (!files.length) return
-  // 有文字时保留浏览器原生粘贴，确保光标位置、撤销与文字输入一致。
-  if (!event.clipboardData.getData('text/plain')) event.preventDefault()
-  addComposerImages(files)
+  if (sending.value || !attachmentsEnabled.value) return
+  const screenshots = files.filter(file => file.type.startsWith('image/'))
+  const documents = files.filter(file => !file.type.startsWith('image/'))
+  if (documents.length) imageQueue.add(documents)
+  if (!screenshots.length) return
+  const schedule = !selectedScreenshots.length
+  selectedScreenshots.push(...screenshots)
+  if (!schedule) return
+  const generation = composerGeneration
+  queueMicrotask(() => {
+    const batch = selectedScreenshots
+    selectedScreenshots = []
+    if (generation !== composerGeneration) return
+    const input = props.textOnly ? composerInputRef.value : richComposerRef.value
+    input?.addScreenshots(batch)
+  })
 }
 const userOptions = ref([])
 const memberUserIds = ref([])
@@ -1187,8 +1202,8 @@ const handleComposerInput = () => {
   nextTick(() => {
     const textarea = composerInputRef.value?.textarea
     const cursor = textarea?.selectionStart
-    if (!Number.isInteger(cursor) || cursor < 1 || composer.content[cursor - 1] !== '@') return
-    const previousCharacter = composer.content[cursor - 2] || ''
+    if (!Number.isInteger(cursor) || cursor < 1 || textarea.value[cursor - 1] !== '@') return
+    const previousCharacter = textarea.value[cursor - 2] || ''
     if (/[A-Za-z0-9._%+-]/.test(previousCharacter)) return
     activateAutomaticMention(cursor - 1)
   })
@@ -1209,14 +1224,14 @@ const handleMentionSelectionChange = (selectedUserIds) => {
   if (!hasNewMention) return
 
   const triggerIndex = automaticMentionTriggerIndex.value
-  if (triggerIndex >= 0 && composer.content[triggerIndex] === '@') {
-    composer.content = `${composer.content.slice(0, triggerIndex)}${composer.content.slice(triggerIndex + 1)}`
+  if (triggerIndex >= 0 && composerInputRef.value?.textarea?.value[triggerIndex] === '@') {
+    composer.content = editScreenshotText(composer.content, triggerIndex, triggerIndex + 1, '')
   }
   closeMentionPopover()
   nextTick(() => {
     const textarea = composerInputRef.value?.textarea
     composerInputRef.value?.focus?.()
-    const cursor = Math.min(Math.max(triggerIndex, 0), composer.content.length)
+    const cursor = Math.min(Math.max(triggerIndex, 0), textarea?.value.length ?? 0)
     textarea?.setSelectionRange?.(cursor, cursor)
   })
 }

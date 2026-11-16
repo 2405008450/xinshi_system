@@ -15,18 +15,18 @@
     <el-alert v-if="numbering.error.value" :title="numbering.error.value" type="error" :closable="false" />
     <el-tabs v-if="workflow==='paths'" v-model="mode">
 <el-tab-pane label="UNC" name="unc">
-        <el-form-item label="共享文件夹路径">
+        <el-form-item label="UNC 根文件夹完整路径">
           <el-input v-model="uncPath" placeholder="请输入企业 UNC 共享文件夹路径" clearable @keyup.enter="readUncFolder" />
+          <small>{{ canChooseUncFolder ? '可选择共享文件夹，完整路径会自动带入，也可直接填写或修改。' : '已有 UNC 根路径会自动带入。没有时，请从资源管理器复制完整共享路径。' }}</small>
         </el-form-item>
-        <el-alert type="info" :closable="false" show-icon title="保留所选根目录作为母订单，下面三层目录及其文件生成一至四级子订单，保存完整路径。" />
         <el-alert v-if="uncError" :title="uncError" type="error" :closable="false" show-icon />
         <div class="local-file-actions">
+          <el-button v-if="canChooseUncFolder" :loading="uncPicking" :disabled="uncLoading" @click="chooseUncFolder">选择 UNC 文件夹</el-button>
           <el-button :loading="uncLoading" :disabled="!uncPath.trim()" @click="readUncFolder">读取共享文件夹</el-button>
           <el-button v-if="!importTree" :disabled="!uncRows.length" @click="selectedUncIds=uncRows.filter(row=>row.status==='create').map(row=>row.id)">全选可用文件</el-button>
           <el-button v-if="!importTree" :disabled="!selectedUncIds.length" @click="selectedUncIds=[]">清空选择</el-button>
         </div>
-        <div v-if="importTree && uncFolders.length" class="import-summary"><el-tag>{{ uncFolders.length }} 个文件夹</el-tag><el-tag>{{ uncFolders.reduce((n,row)=>n+row.files.length,0) }} 个文件</el-tag><el-tag>生成 {{ treeOrderCount }} 个子订单</el-tag></div>
-        <div v-else class="import-summary"><el-tag>共 {{ uncRows.length }} 个文件</el-tag><el-tag type="success">已选 {{ selectedUncIds.length }} 个</el-tag></div>
+        <div v-if="!importTree" class="import-summary"><el-tag>共 {{ uncRows.length }} 个文件</el-tag><el-tag type="success">已选 {{ selectedUncIds.length }} 个</el-tag></div>
         <el-checkbox v-if="!folderOnly" v-model="importTree">按文件夹层级导入（根目录作为母订单）</el-checkbox>
         <el-table v-if="!importTree" :data="uncRows" border size="small" max-height="320" empty-text="请先读取 UNC 共享文件夹">
           <el-table-column label="选择" width="64"><template #default="{row}"><el-checkbox :model-value="selectedUncIds.includes(row.id)" :disabled="row.status!=='create'" :aria-label="`选择${row.name}`" @change="checked=>toggleUncFile(row.id,checked)" /></template></el-table-column>
@@ -36,23 +36,18 @@
         </el-table>
       </el-tab-pane>
 <el-tab-pane label="本地" name="localfiles">
-        <el-alert type="info" :closable="false" show-icon title="多选文件可逐文件创建订单；选择文件夹则按目录层级导入，根目录为母订单。最多三层子文件夹及其文件，不上传正文。" />
         <div class="local-file-actions">
           <el-button v-if="!folderOnly" @click="localFileInput.click()">选择本地文件（可多选）</el-button>
-          <el-button @click="chooseLocalFolder">选择本地文件夹</el-button>
+          <el-button :loading="localLoading" @click="chooseLocalFolder">选择本地文件夹</el-button>
           <input ref="localFileInput" type="file" multiple hidden aria-label="选择本地文件" @change="readLocalFiles" />
           <input ref="localFolderInput" type="file" multiple webkitdirectory hidden aria-label="选择本地文件夹" @change="readLocalFiles" />
           <el-button v-if="!localFolders.length" :disabled="!localRows.length" @click="selectedLocalIds=localRows.filter(row=>row.status==='create').map(row=>row.id)">全选可用文件</el-button>
           <el-button v-if="!localFolders.length" :disabled="!selectedLocalIds.length" @click="selectedLocalIds=[]">清空选择</el-button>
         </div>
-        <p class="local-file-help">选择文件夹时，系统窗口只显示文件夹，不显示其中的文件。选定文件夹后，点击“上传”或“选择文件夹”，文件名会显示在下方列表中。“全选可用文件”会勾选下方所有可创建子订单的文件。</p>
-        <div v-if="localFolders.length" class="import-summary"><el-tag>{{ localFolders.length }} 个文件夹</el-tag><el-tag>{{ localFolders.reduce((n,row)=>n+row.files.length,0) }} 个文件</el-tag><el-tag>生成 {{ treeOrderCount }} 个子订单</el-tag></div>
-        <div v-else class="import-summary"><el-tag>共 {{ localRows.length }} 个文件</el-tag><el-tag type="success">已选 {{ selectedLocalIds.length }} 个</el-tag></div>
+        <p class="local-file-help">选择文件夹时，系统窗口只显示文件夹。选定后，下方会显示目录和文件预览。</p>
+        <div v-if="!localFolders.length && !folderOnly" class="import-summary"><el-tag>共 {{ localRows.length }} 个文件</el-tag><el-tag type="success">已选 {{ selectedLocalIds.length }} 个</el-tag></div>
         <el-form-item v-if="localFolders.length" label="本地根文件夹完整路径"><el-input v-model="localRootPath" placeholder="请粘贴所选根文件夹的完整路径，如 D:\项目\客户资料" /><small>{{ localRootPathHint }}</small></el-form-item>
-        <FolderRootComparison v-if="localFolders.length" :comparison="localPathComparison" can-restore
-          @restore="localRootPath = selectedLocalRootPath" />
-        <el-alert v-if="localFolders.length" type="info" :closable="false" title="导入后，母订单项目名称调整为所选根文件夹名称。" />
-        <el-table v-if="!localFolders.length" :data="localRows" border size="small" max-height="320" empty-text="请先选择本地文件或文件夹">
+        <el-table v-if="!localFolders.length && !folderOnly" :data="localRows" border size="small" max-height="320" empty-text="请先选择本地文件或文件夹">
           <el-table-column label="选择" width="64"><template #default="{row}"><el-checkbox :model-value="selectedLocalIds.includes(row.id)" :disabled="row.status!=='create'" :aria-label="`选择${row.name}`" @change="checked=>toggleLocalFile(row.id,checked)" /></template></el-table-column>
           <el-table-column prop="name" label="文件名称" min-width="260" show-overflow-tooltip />
           <el-table-column label="状态" width="92"><template #default="{row}"><el-tag :type="previewTagType(row.status)" size="small">{{ previewStatusLabel(row.status) }}</el-tag></template></el-table-column>
@@ -74,6 +69,18 @@
     </div>
     <SubOrderListImport v-if="modelValue && workflow==='copy'" @plan="importPlan=$event" />
 
+    <el-alert v-if="workflow==='paths'" type="info" :closable="false" show-icon
+      title="根文件夹作为母订单，根目录文件作为一级子订单。读取路径时会自动提取工作量，包括字数、字符数（不计空格）和中朝统计，应用后带入对应子订单的我司统计。" />
+    <div v-if="workflow === 'paths' && (pathLoading || treeEntries.length)" class="import-summary" role="status">
+      <strong>路径读取</strong>
+      <span>{{ pathLoading ? '正在读取文件夹和文件路径…' : '已读取 ' + treeEntries.length + ' 个文件夹、' + treeFileCount + ' 个文件' }}</span>
+      <span v-if="pathLoading && !project.id">工作量提取：正在准备文件</span>
+    </div>
+    <template v-if="treeEntries.length">
+      <div class="import-summary"><el-tag>{{ treeEntries.length }} 个文件夹</el-tag><el-tag>{{ treeFileCount }} 个文件</el-tag><el-tag>生成 {{ treeOrderCount }} 个子订单</el-tag></div>
+      <FolderRootComparison :comparison="treePathComparison" :can-restore="mode==='localfiles'"
+        @restore="localRootPath = selectedLocalRootPath" />
+    </template>
     <el-alert v-if="emptyFolders.length" type="warning" :closable="false" :title="`发现${emptyFolders.length}个空文件夹：不生成订单，确认导入后记录路径、操作人和时间。`" />
     <el-alert v-if="localFolders.length && !folderDetectionComplete && mode==='localfiles'" type="warning" :closable="false" title="兼容选择模式只能读取文件，无法检测空文件夹；本次导入记录会标明这一情况。" />
     <el-table v-if="workflow==='paths' && treeEntries.length" :data="treeRows" border size="small" max-height="380">
@@ -82,6 +89,11 @@
       <el-table-column prop="kind" label="类型" width="90" />
       <el-table-column prop="path" label="完整路径" min-width="380" />
     </el-table>
+    <template v-if="modelValue">
+      <PendingOrderFileCounts v-for="job in countJobs" v-show="mode === job.mode" :key="job.id"
+        :plan="job.plan" :rows="job.rows" :local-folder-files="job.files" :unc-listing="job.listing"
+        @state="fileCountStates[job.mode] = { id: job.id, ...$event }" />
+    </template>
     <template v-if="!treeEntries.length && !folderOnly && !(workflow==='copy' && importPlan?.kind==='tree')">
     <el-divider content-position="left">批量公共字段</el-divider>
     <AppForm label-position="top">
@@ -107,7 +119,7 @@
     </div>
     <template #footer>
       <el-button @click="emit('update:modelValue', false)">取消</el-button>
-      <el-button type="primary" :loading="submitting" :disabled="!canSubmit" @click="submit">
+      <el-button type="primary" :loading="submitting" :disabled="!canSubmit || activeCountBusy" @click="submit">
         {{ !project.id && (treeEntries.length || importPlan?.kind==='tree') ? '应用到新增表单' : workflow==='copy' ? `确认导入 ${importPlan?.orderCount || 0} 单` : treeEntries.length ? `按目录导入 ${treeOrderCount} 单` : mode !== 'quantity' ? `确认导入 ${previewSummary.create} 条` : `批量创建 ${quantityNames.length} 条` }}
       </el-button>
     </template>
@@ -123,16 +135,19 @@ import { localSubOrderFiles,localFolderEntries,folderOrderPreview,enumerateFolde
 import { translationFileNameError, translationFileExtension } from '@/utils/translationFileName'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { createSubOrdersBulk, inspectSharedSubOrderFolder,inspectSharedSubOrderTree,importSubOrderFolders } from '@/api/subOrders'
+import { createSubOrdersBulk, inspectSharedSubOrderTree, importSubOrderFolders } from '@/api/subOrders'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import { createEmptyWordCountMatrix } from '@/utils/wordCountMatrix'
+import api from '@/api'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import {useBusinessNumber} from '@/composables/useBusinessNumber'
 import {givenLocalRootPath,localFolderCandidates} from '@/utils/localRootPath'
-import {compareFolderRoot, selectedFolderName} from '@/utils/translationFolderPaths'
+import {compareFolderRoot, normalizeFolderRootInput, selectedFolderName} from '@/utils/translationFolderPaths'
 import FolderRootComparison from './FolderRootComparison.vue'
+import PendingOrderFileCounts from './PendingOrderFileCounts.vue'
+import { pendingFolderRows } from '@/utils/translationChildSubmission'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -167,8 +182,12 @@ const uncRows = ref([])
 const selectedUncIds = ref([])
 const uncError = ref('')
 const uncLoading = ref(false)
+const uncPicking = ref(false)
+const canChooseUncFolder = Boolean(window.xinshiDesktop?.chooseTranslationFolder)
+const isUncPath = path => /^\\\\[^\\]+\\[^\\]+/.test(normalizeFolderRootInput(path).replaceAll('/', '\\'))
 let uncRequest = 0
 let uncController = null
+let uncListing
 const clearUncListing = () => {
   uncRequest += 1
   uncController?.abort()
@@ -184,17 +203,31 @@ const toggleUncFile = (id, checked) => {
 }
 const readUncFolder = async () => {
   clearUncListing()
-  if (!uncPath.value.trim()) return
+  const path = normalizeFolderRootInput(uncPath.value)
+  if (!path) return
+  if (!isUncPath(path)) {
+    uncError.value = '请输入完整 UNC 路径，例如 \\\\服务器\\共享目录\\项目。'
+    return
+  }
   const request = uncRequest
   uncController = new AbortController()
   uncLoading.value = true
+  const signal = uncController.signal
+  // Read the directory tree and prepare the list for word extraction together.
+  uncListing = !props.project.id
+    ? api.post('/document-word-count/discover', { path, recursive: true }, { signal, timeout: 60000 }).catch(() => null)
+    : undefined
   try {
-    const tree=await inspectSharedSubOrderTree(uncPath.value.trim(),{signal:uncController.signal})
+    const tree=await inspectSharedSubOrderTree(path,{signal})
     if(request!==uncRequest)return
-    uncFolders.value=tree.folderEntries||[]
+    const entries = tree.folderEntries || []
+    if (props.folderOnly) validateFolderFiles(entries)
+    const root=entries.find(row=>!row.relativePath.includes('/'))
+    const rows = props.folderOnly ? [] : localSubOrderFiles((root?.files||[]).map(name=>({name})),props.existingNames)
     inspectedUncPath.value=tree.storagePath
-    const root=uncFolders.value.find(row=>!row.relativePath.includes('/'))
-    uncRows.value=localSubOrderFiles((root?.files||[]).map(name=>({name})),props.existingNames)
+    uncPath.value = tree.storagePath
+    uncFolders.value=entries
+    uncRows.value=rows
     selectedUncIds.value=uncRows.value.filter(row=>row.status==='create').map(row=>row.id)
   } catch (error) {
     if (request === uncRequest) uncError.value = getLocalizedErrorMessage(error, '读取共享文件夹失败')
@@ -202,17 +235,55 @@ const readUncFolder = async () => {
     if (request === uncRequest) uncLoading.value = false
   }
 }
-watch(uncPath, clearUncListing, { flush: 'sync' })
-watch(mode,value=>{if(value!=='unc')clearUncListing()})
+watch(uncPath, path => {
+  if (path !== inspectedUncPath.value) clearUncListing()
+}, { flush: 'sync' })
 onBeforeUnmount(clearUncListing)
+watch(() => props.modelValue, visible => { if (!visible) clearUncListing() })
+const chooseUncFolder = async () => {
+  const request = uncRequest
+  uncPicking.value = true
+  try {
+    const selected = await window.xinshiDesktop.chooseTranslationFolder('unc')
+    if (request !== uncRequest || !props.modelValue || !selected?.rootPath) return
+    uncPath.value = selected.rootPath
+    await readUncFolder()
+  } catch (error) {
+    if (request === uncRequest && props.modelValue) uncError.value = error.message || '选择 UNC 文件夹失败'
+  } finally {
+    uncPicking.value = false
+  }
+}
+function validateFolderFiles(entries) {
+  for (const entry of entries) {
+    for (const name of entry.files || []) {
+      const error = translationFileNameError(name)
+      if (error) throw new Error(`${name}：${error}`)
+    }
+  }
+}
 const localFileInput = ref(null)
 const localFolderInput = ref(null)
+let localFolderFiles = new Map()
+const localLoading = ref(false)
 const folderDetectionComplete=ref(true)
 const chooseLocalFolder=async()=>{
+ if(localLoading.value)return
+ localLoading.value=true
+ try {
  if(window.xinshiDesktop?.chooseTranslationFolder){
   try{
-   const selected=await window.xinshiDesktop.chooseTranslationFolder();if(!selected)return
-   for(const entry of selected.entries||[])for(const name of entry.files||[]){const error=translationFileNameError(name);if(error)throw new Error(`${name}：${error}`)}
+   const desktop = window.xinshiDesktop
+   const selected=await desktop.chooseTranslationFolder(props.project.id ? undefined : 'local-count');if(!selected)return
+   validateFolderFiles(selected.entries || [])
+   localFolderFiles = new Map((selected.folderId && desktop.readTranslationFolderFile
+     ? (selected.entries || []).flatMap(entry => entry.files.map(name => {
+       const relative = entry.relativePath + '/' + name
+       return [relative, {
+         getSize: () => desktop.translationFolderFileSize(selected.folderId, relative),
+         getFile: async () => new File([await desktop.readTranslationFolderFile(selected.folderId, relative)], name),
+       }]
+     })) : []))
    localFolders.value=selected.entries||[];selectedLocalRootPath.value=selected.rootPath||'';localRootPath.value=selectedLocalRootPath.value;localRootPathHint.value='已由桌面文件夹选择器获取完整路径，可编辑。';folderDetectionComplete.value=true;localRows.value=[];selectedLocalIds.value=[]
   }catch(error){ElMessage.error(error.message||'读取本地文件夹失败')}
   return
@@ -220,9 +291,12 @@ const chooseLocalFolder=async()=>{
  if(!window.showDirectoryPicker){folderDetectionComplete.value=false;ElMessage.warning('当前浏览器使用兼容文件夹选择，无法识别空文件夹；完整记录空目录请使用本机Chrome/Edge的localhost或HTTPS入口，或使用UNC共享路径');localFolderInput.value.click();return}
  try{
   const handle=await window.showDirectoryPicker({mode:'read'})
-  const entries=await enumerateFolderHandle(handle)
+  const files = new Map()
+  const entries=await enumerateFolderHandle(handle, (relativePath, file) => files.set(relativePath, file))
+  localFolderFiles = files
   folderDetectionComplete.value=true;localFolders.value=entries;fillLocalRootPath(entries,{handle});localRows.value=[];selectedLocalIds.value=[]
  }catch(error){if(error.name!=='AbortError')ElMessage.error(error.message||'读取文件夹失败')}
+ } finally { localLoading.value=false }
 }
 const localFolders=ref([])
 const localRootPath=ref('')
@@ -242,9 +316,48 @@ function fillLocalRootPath(entries,source={}){
 const uncFolders=ref([])
 const importTree=ref(true)
 const treeEntries=computed(()=>mode.value==='localfiles'?localFolders.value:mode.value==='unc'&&importTree.value?uncFolders.value:[])
-const treeRows=computed(()=>folderOrderPreview(treeEntries.value,mode.value==='localfiles'?localPathComparison.value.entered:inspectedUncPath.value))
+const treePathComparison = computed(() => mode.value === 'localfiles' ? localPathComparison.value
+  : compareFolderRoot(treeEntries.value, uncPath.value, inspectedUncPath.value))
+const treeRows=computed(()=>folderOrderPreview(treeEntries.value,treePathComparison.value.entered))
+const treeFileCount = computed(() => treeEntries.value.reduce((count, entry) => count + entry.files.length, 0))
 const treeOrderCount=computed(()=>treeRows.value.filter(row=>row.level>0&&!row.empty).length)
 const emptyFolders=computed(()=>treeRows.value.filter(row=>row.empty))
+const pathLoading = computed(() => mode.value === 'unc' ? uncLoading.value : localLoading.value)
+const folderPlan = computed(() => {
+  if (!treeEntries.value.length) return null
+  const unc = mode.value === 'unc'
+  const rootPath = treePathComparison.value.entered
+  return { sourceKind: unc ? 'unc' : 'local', rootPath,
+    selectedRootPath: unc ? rootPath : selectedLocalRootPath.value,
+    entries: treeEntries.value, emptyDetectionComplete: unc || folderDetectionComplete.value }
+})
+const fileCountStates = reactive({})
+let countJobSequence = 0
+const jobIds = new WeakMap()
+function createCountJob(mode, plan, files, listing) {
+  if (!plan.entries.some(entry => entry.files.length)) return null
+  if (!jobIds.has(plan.entries)) jobIds.set(plan.entries, ++countJobSequence)
+  return { id: jobIds.get(plan.entries), mode, plan, files, listing, rows: pendingFolderRows({
+    orderNo: props.project.orderNo, pendingFolderImport: plan,
+  }) }
+}
+const localCountJob = computed(() => createCountJob('localfiles', {
+  sourceKind: 'local', rootPath: selectedFolderName(localFolders.value), entries: localFolders.value,
+}, localFolderFiles))
+const uncCountJob = computed(() => createCountJob('unc', {
+  sourceKind: 'unc', rootPath: inspectedUncPath.value, entries: uncFolders.value,
+}, null, uncListing))
+const countJobs = computed(() => !props.project.id && workflow.value === 'paths'
+  ? [localCountJob.value, uncCountJob.value].filter(Boolean) : [])
+const activeJob = computed(() => countJobs.value.find(job => job.mode === mode.value))
+const activeCountState = computed(() => {
+  const state = fileCountStates[mode.value]
+  return activeJob.value && activeJob.value.id === state?.id ? state : null
+})
+const activeCountBusy = computed(() => activeCountState.value?.busy
+  ?? Boolean(activeJob.value && (mode.value === 'unc' || activeJob.value.files?.size)))
+const currentFileDetails = computed(() => Object.fromEntries((activeCountState.value?.items || []).map(item =>
+  [item.id, { wordCountMatrix: { ...createEmptyWordCountMatrix(), company: { ...item.values } } }])))
 const localRows = ref([])
 const selectedLocalIds = ref([])
 const toggleLocalFile = (id, checked) => {
@@ -254,7 +367,11 @@ const readLocalFiles = (event) => {
   try {
     const directory=Array.from(event.target.files||[]).some(file=>file.webkitRelativePath)
     folderDetectionComplete.value=!directory
-    localFolders.value=directory?localFolderEntries(event.target.files):[]
+    const entries=directory?localFolderEntries(event.target.files):[]
+    localFolderFiles = new Map(directory
+      ? Array.from(event.target.files, file => [file.webkitRelativePath, file])
+      : [])
+    localFolders.value=entries
     if(directory)fillLocalRootPath(localFolders.value,{files:event.target.files});else {localRootPath.value='';selectedLocalRootPath.value=''}
     const rows = directory?[]:localSubOrderFiles(event.target.files, props.existingNames)
     localRows.value = rows
@@ -320,8 +437,7 @@ const canSubmit = computed(() => {
   if(props.folderOnly && !treeEntries.value.length)return false
   if (treeEntries.value.length) {
     if (!treeRows.value.length) return false
-    if (mode.value !== 'localfiles') return true
-    const { entered, nameMismatch } = localPathComparison.value
+    const { entered, nameMismatch } = treePathComparison.value
     return Boolean(entered) && !nameMismatch
   }
   if (mode.value === 'unc' && (!inspectedUncPath.value || uncLoading.value)) return false
@@ -362,7 +478,7 @@ const buildDefaults = () => ({
 })
 const submit = async () => {
   if(!await numbering.ensure()){ElMessage.error(numbering.error.value||'请等待订单号占用完成');return}
-  if (!canSubmit.value) return
+  if (!canSubmit.value || activeCountBusy.value) return
   if (submitting.value) return
   submitting.value = true
   try {
@@ -373,8 +489,15 @@ const submit = async () => {
       ElMessage.success(`清单导入完成：新增${result.createdCount}单，空文件夹仅记录`);emit('created',{...result,rootPath:plan.rootPath});emit('update:modelValue',false);return
     }
     if(workflow.value==='paths'&&treeEntries.value.length){
-      const rootPath=mode.value==='unc'?inspectedUncPath.value:localPathComparison.value.entered
-      if(!props.project.id){emit('created',{draftFolderImport:{sourceKind:mode.value==='unc'?'unc':'local',rootPath,selectedRootPath:mode.value==='unc'?rootPath:selectedLocalRootPath.value,entries:treeEntries.value,emptyDetectionComplete:mode.value==='unc'||folderDetectionComplete.value}});emit('update:modelValue',false);return}
+      const rootPath=treePathComparison.value.entered
+      if (!props.project.id) {
+        emit('created', {
+          draftFolderImport: folderPlan.value,
+          draftFolderDetails: currentFileDetails.value,
+        })
+        emit('update:modelValue', false)
+        return
+      }
       const result=await importSubOrderFolders({parentProjectId:props.project.id||null,orderNo:!props.project.id?props.project.orderNo:null,sourceKind:mode.value==='unc'?'unc':'local',rootPath,entries:treeEntries.value,emptyDetectionComplete:mode.value==='unc'||folderDetectionComplete.value},{headers:numbering.headers()})
       ElMessage.success(`按目录导入完成：新增${result.createdCount}单，跳过${result.skippedCount}项；空文件夹已记录`)
       emit('created',{...result,rootPath});emit('update:modelValue',false);return
@@ -399,17 +522,24 @@ const submit = async () => {
 }
 const reset = () => {
   importPlan.value=null
+  delete fileCountStates.localfiles
+  delete fileCountStates.unc
   clearFieldSearch()
   mode.value = props.folderOnly ? (props.initialMode==='unc'?'unc':'localfiles') : ['filenames', 'localfiles', 'unc'].includes(props.initialMode) ? props.initialMode : 'quantity'
   localRows.value = []
   localFolders.value=[]
+  localFolderFiles = new Map()
   importTree.value=true
   localRootPath.value=''
   selectedLocalRootPath.value=''
   localRootPathHint.value=''
   selectedLocalIds.value = []
   clearUncListing()
-  uncPath.value = ''
+  const project = props.project
+  uncPath.value = normalizeFolderRootInput([
+    project.pendingFolderImport?.rootPath, project.originalStoragePath, project.networkFilePath,
+    project.sourceFolderPath,
+  ].find(isUncPath))
   Object.assign(form, createForm())
 }
 watch(() => props.modelValue, (visible) => { if (visible) reset() })

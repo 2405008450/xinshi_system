@@ -11,24 +11,30 @@ from schemas import TranslationSubOrderChargeItemInput
 
 def test_metric_charge_calculates_and_preserves_manual_override():
     calculated = SimpleNamespace(
+        id=uuid4(),
         pricing_mode="metric",
         metric_type="words",
         unit_size=Decimal("1000"),
         unit_price=Decimal("123.4567"),
+        unit_price_incl_tax=None,
         amount_override=None,
     )
     overridden = SimpleNamespace(
+        id=uuid4(),
         pricing_mode="metric",
         metric_type="pages",
         unit_size=Decimal("1"),
         unit_price=Decimal("10"),
+        unit_price_incl_tax=None,
         amount_override=Decimal("88.00"),
     )
     fixed = SimpleNamespace(
+        id=uuid4(),
         pricing_mode="fixed",
         metric_type=None,
         unit_size=None,
         unit_price=None,
+        unit_price_incl_tax=None,
         amount_override=Decimal("50.00"),
     )
     sub_order = SimpleNamespace(
@@ -82,7 +88,7 @@ def test_charge_schema_supports_currency_and_rejects_incomplete_metric_charge():
     assert modern.unit_price == Decimal("100.0000")
     assert modern.amount_override == Decimal("150.00")
 
-    with pytest.raises(ValidationError, match="必须选择有效的客户字数口径"):
+    with pytest.raises(ValidationError, match="必须选择有效的客户工作量口径"):
         TranslationSubOrderChargeItemInput(
             item_name="翻译费",
             pricing_mode="metric",

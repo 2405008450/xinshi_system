@@ -1,4 +1,4 @@
-"""多维字数统计查询与保存服务。"""
+"""多维工作量统计查询与保存服务。"""
 from __future__ import annotations
 
 import datetime
@@ -162,9 +162,9 @@ def _load_entity(db: Session, entity_type: str, entity_id: UUID):
     elif entity_type == "suborder":
         entity = db.query(TranslationSubOrder).filter(TranslationSubOrder.id == entity_id).first()
     else:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="不支持的字数统计对象")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="不支持的工作量统计对象")
     if entity is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="字数统计对象不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="工作量统计对象不存在")
     return entity
 
 

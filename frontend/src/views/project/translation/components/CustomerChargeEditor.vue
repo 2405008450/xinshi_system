@@ -50,7 +50,7 @@
             :model-value="wordCountMatrix"
             :entity-type="entityType"
             :entity-id="entityId"
-            :title="entityType === 'suborder' ? '子订单字数统计' : '项目字数统计'"
+            :title="entityType === 'suborder' ? '子订单工作量统计' : '项目工作量统计'"
             initial-dimension="customer"
             :initial-metric-type="row.metricType"
             @update:model-value="emit('update:wordCountMatrix', $event)"

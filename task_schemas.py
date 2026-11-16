@@ -271,12 +271,19 @@ class DailyReportSaveRequest(BaseModel):
     items: Optional[list[DailyReportItemInput]] = None
 
     @model_validator(mode='after')
-    def reject_screenshots(self):
+    def validate_report_content(self):
         import json
+        from editor_screenshot_service import validate_ordered_screenshots
         from work_report_lunch import validate_report
         validate_report(self.items)
-        if 'screenshot://' in json.dumps(self.model_dump(mode='json'), ensure_ascii=False).lower() or 'data:image/' in json.dumps(self.model_dump(mode='json'), ensure_ascii=False).lower():
-            raise ValueError('工作报告所有字段禁止粘贴截图，请填写文字或数字')
+        validate_ordered_screenshots(self.supplemental_note)
+        metadata = []
+        for item in self.items or []:
+            validate_ordered_screenshots(item.progress_content)
+            validate_ordered_screenshots(item.result_content)
+            metadata.append(item.model_dump(mode='json', exclude={'progress_content', 'result_content'}))
+        if any(token in json.dumps(metadata, ensure_ascii=False).lower() for token in ('screenshot://', 'data:image/', '<img')):
+            raise ValueError('工作报告的项目信息和统计字段仅支持文字或数字')
         return self
 
 

@@ -211,6 +211,7 @@ import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 const emit = defineEmits(['status-change', 'update:referenceFilePathOne', 'update:sourceFileName', 'update:sourcePath', 'update:draft'])
 const props = defineProps({
   draft: { type: Object, default: undefined },
+  manualSourceExtraction: Boolean,
   sourcePath: { type: String, default: undefined },
   projectId: {
     type: [String, Number],
@@ -344,6 +345,7 @@ async function fillSourceFileNameFromPath({ force = false, notifySuccess = true,
 }
 
 function handleSourcePathBlur() {
+  if (props.manualSourceExtraction) return
   void fillSourceFileNameFromPath({ notifySuccess: false }).catch(() => {})
 }
 

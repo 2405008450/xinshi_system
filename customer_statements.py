@@ -720,6 +720,10 @@ def build_statement(db,project_id,order_id,month,scope,order_display='children',
                 direction_parent_quantity=str(parent_quantity) if parent_quantity is not None else None,
                 direction_parent_workload=fixed_workload(parent.word_count_matrix or {}) if parent is not None and quantity_basis is None else None,
                 statement_required=item['statement_required'],
+                sub_client_id=item.get('sub_client_id') if item['payment_method']=='sub_client' else None,
+                sub_client_name=root.sub_client.client_name if root.sub_client else None,
+                sub_client_code=item.get('sub_client_code'),
+                settlement_period_number=item.get('settlement_period_number'),
                 unit_price=str(unit) if unit is not None else None,unit_label='含税' if item.get('special_tax_mode',item.get('effective_billing_tax_mode'))=='incl_tax' else '不含税' if item.get('special_tax_mode',item.get('effective_billing_tax_mode'))=='excl_tax' else label,currency=currency,subtotal=money(amount),
                 remarks=item.get('customer_explanation') or ''))
             if issue:pending.append(f"{item['order_no']}：{issue}")
@@ -730,11 +734,12 @@ def build_statement(db,project_id,order_id,month,scope,order_display='children',
             label='含税' if kind=='incl_tax' else '不含税'
             if item['pricing_mode']=='fixed':
                 if current_month==month:
-                    value=item.get('adjusted_total_incl_tax' if kind=='incl_tax' else 'adjusted_total')
                     workload = fixed_workload(item.get('word_count_matrix') or {})
                     basis = '\n'.join(['固定收费', *workload_lines(workload)])
-                    append(item,None,None,value,item['currency'],item.get('explanation',''),basis,None if value is not None else f'未填写{label}固定收费')
-                    rows[-1].update(pricing_mode='fixed', fixed_workload=workload)
+                    amounts=item.get('totals_'+kind) or {item['currency']:None}
+                    for currency,value in amounts.items():
+                        append(item,None,None,value,currency,item.get('explanation',''),basis,None if value is not None else f'未填写{label}固定收费')
+                        rows[-1].update(pricing_mode='fixed', fixed_workload=workload)
                 return
             children=[] if item.get('direct_pricing') else item['children'];start=len(rows)
             if children:
@@ -755,8 +760,23 @@ def build_statement(db,project_id,order_id,month,scope,order_display='children',
                     append(line,str(quantity) if quantity is not None else None,unit,amount,price['currency'],item.get('explanation',''),basis,
                            f'未填写{label}单价或对应工作量' if unit is None or quantity is None or amount is None else None,
                            unit_size=size,quantity_basis=(price.get('quantity_dimension'),price.get('quantity_metric')))
+            manual=item.get('effective_total_adjustment') or {}
+            if kind in manual and current_month==month:
+                currency=manual['currency']
+                matching=[row for row in rows[start:] if row['currency']==currency and row.get('counted_in_total',True)]
+                for row in matching:
+                    if row['subtotal'] is None:
+                        row['counted_in_total']=False
+                difference=Decimal(manual[kind])-sum(Decimal(row['subtotal']) for row in matching if row['subtotal'] is not None)
+                if difference or not any(row['subtotal'] is not None for row in matching):
+                    side=kind.replace('_tax','_discount')
+                    adjustment=item.get('total_adjustment') or {}
+                    reason='总价调整'
+                    if kind not in adjustment and adjustment.get(side) is not None and item.get('adjusted_total_incl_tax' if kind=='incl_tax' else 'adjusted_total') is None:
+                        reason=f"总价调整（{adjustment[side]:02d}折）"
+                    append(item,None,None,difference,currency,item.get('explanation',''),reason)
             override=item.get('adjusted_total_incl_tax' if kind=='incl_tax' else 'adjusted_total')
-            if override is not None and current_month==month and len(rows)>start:
+            if kind not in manual and override is not None and current_month==month and len(rows)>start:
                 matching=[row for row in rows[start:] if row['currency']==item['currency']]
                 if matching and all(row['subtotal'] is not None for row in matching):
                     difference=Decimal(override)-sum(Decimal(row['subtotal']) for row in matching)
@@ -775,6 +795,8 @@ def build_statement(db,project_id,order_id,month,scope,order_display='children',
     result=dict(company=subject.company if subject else COMPANY,title='对账单',client_name=client.client_name or client.client_short_name,client_code=client.client_code,
         month=month,issue_date=business_now().date().isoformat(),scope=scope,order_display=order_display,tax_included=preference['tax_included'],rows=rows,totals={key:money(value) for key,value in sums.items()},pending=pending,
         private_settings_available=private_settings,settings={},stamp_image=None)
+    if scope=='project' and project.sub_client:
+        result.update(sub_client_name=project.sub_client.client_name,sub_client_code=project.sub_client.sub_client_code)
     if private_settings:
         settings=settings_value(*statement_company_settings(db))
         result.update(settings={key:settings[key] for key in PAYMENT_ACCOUNT_FIELDS},stamp_image=settings['stamp_image'] or settings['default_stamp'])
@@ -788,6 +810,13 @@ def build_statement(db,project_id,order_id,month,scope,order_display='children',
 @router.get('/translation-statements/preview')
 def preview(project_id:UUID,month:str=Query(pattern=MONTH),scope:Literal['project','customer']='project',order_id:UUID|None=None,order_display:Literal['parents','all','children']='children',db=Depends(get_db),user=Depends(read_projects)):
     return build_statement(db,project_id,order_id,month,scope,order_display)
+
+
+def statement_customer_label(data):
+    customer = f"客户：{data['client_name']}"
+    if child := data.get('sub_client_name'):
+        return f'{customer}\n子客户：{child}'
+    return customer
 
 
 def statement_title(data):
@@ -841,7 +870,9 @@ def write_excel_sheet(sheet,data):
     sheet.sheet_view.showGridLines=False
     sheet.merge_cells(f'A1:{last_col}1');sheet['A1']=_safe_text(data['company']);sheet['A1'].font=Font(name='微软雅黑',size=15,bold=True)
     sheet.merge_cells(f'A2:{last_col}2');sheet['A2']=_safe_text(statement_title(data));sheet['A2'].font=Font(name='微软雅黑',size=16.5,bold=True)
-    sheet.merge_cells(start_row=3,start_column=1,end_row=3,end_column=4+offset);sheet['A3']=_safe_text(f"客户：{data['client_name']}")
+    sheet.merge_cells(start_row=3,start_column=1,end_row=3,end_column=4+offset);sheet['A3']=_safe_text(statement_customer_label(data))
+    if data.get('sub_client_name'):
+        sheet.row_dimensions[3].height = 36
     sheet.merge_cells(start_row=3,start_column=5+offset,end_row=3,end_column=column_count);sheet.cell(3,5+offset,_safe_text(f"账单月份：{data['month']}　{tax_label(data)}"))
     headings = ['来稿日期','项目名称','翻译方向','工作量（计价方式）']
     if data.get('module') == 'interpretation':

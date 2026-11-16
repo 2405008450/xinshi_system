@@ -273,7 +273,7 @@ CHARGE_COLUMNS = [
     ExportColumn("收费项目", lambda item: _read(item[2], "item_name"), width=18),
     ExportColumn("计价模式", lambda item: "按数量" if _read(item[2], "pricing_mode") == "metric" else "固定收费", width=14),
     ExportColumn(
-        "客户字数口径",
+        "客户工作量口径",
         lambda item: WORD_COUNT_METRIC_LABELS.get(
             _read(item[2], "metric_type"), _read(item[2], "metric_type")
         ),
@@ -376,7 +376,7 @@ RECONCILIATION_COLUMNS = [
     ExportColumn("客户接单时间", lambda item: _read(item[0], "customer_reception_time"), "datetime", 20),
     ExportColumn("客户交稿时间", lambda item: _detail_value(item, "customer_deadline_time"), "datetime", 20),
     ExportColumn("翻译方向", lambda item: _detail_value(item, "language_pair"), width=24),
-    ExportColumn("字数", lambda item: _charge_value(item, "quantity"), "integer", 16),
+    ExportColumn("工作量", lambda item: _charge_value(item, "quantity"), "integer", 16),
     ExportColumn("含税单价", lambda item: _charge_value(item, "unit_price_incl_tax"), "decimal", 16),
     ExportColumn("不含税单价", lambda item: _charge_value(item, "unit_price_excl_tax"), "decimal", 16),
     ExportColumn("含税总价", lambda item: _charge_value(item, "total_incl_tax"), "money", 16),
@@ -384,7 +384,7 @@ RECONCILIATION_COLUMNS = [
     ExportColumn("账单月份", lambda item: _charge_value(item, "billing_month"), width=14),
     ExportColumn("备注", lambda item: _charge_value(item, "remarks"), width=36),
     ExportColumn("收费项目", lambda item: _charge_value(item, "item_name"), width=18),
-    ExportColumn("字数口径", _charge_metric_label, width=24),
+    ExportColumn("工作量口径", _charge_metric_label, width=24),
     ExportColumn("每计价单位", lambda item: _charge_value(item, "unit_size"), "decimal", 16),
     ExportColumn("币种", lambda item: _charge_value(item, "currency"), width=10),
 ]
@@ -505,7 +505,7 @@ def _missing_reconciliation_fields(item: tuple[Any, Any, Any | None]) -> list[st
         missing.append("账单月份")
     if _charge_value(item, "pricing_mode") == "metric":
         for label, field in (
-            ("字数", "quantity"),
+            ("工作量", "quantity"),
             ("含税单价", "unit_price_incl_tax"),
             ("不含税单价", "unit_price_excl_tax"),
         ):

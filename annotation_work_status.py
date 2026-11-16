@@ -56,9 +56,8 @@ class SubmissionWrite(ArrangementWrite):
     def text_required(cls, value):
         if not value.strip():
             raise ValueError('请填写今日目前已完成进度')
-        if 'screenshot://' in value.lower() or 'data:image/' in value.lower():
-            raise ValueError('请填写文字进度')
-        return value.strip()
+        from editor_screenshot_service import validate_ordered_screenshots
+        return validate_ordered_screenshots(value.strip())
 
 
 def ready(db):

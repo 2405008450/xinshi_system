@@ -101,6 +101,16 @@ def test_report_fields_reject_screenshots():
     with pytest.raises(ValidationError): DailyReportSaveRequest(items=[data])
 
 
+def test_report_preserves_signed_screenshots_in_narrative_order():
+    from editor_screenshot_service import signed_reference
+    first = signed_reference('00000000-0000-4000-8000-000000000001')
+    second = signed_reference('00000000-0000-4000-8000-000000000002')
+    content = f'说明一![截图]({first})\n说明二![截图]({second})'
+    item = row().model_copy(update={'progress_content': content})
+    report = DailyReportSaveRequest(items=[item], supplemental_note=content)
+    assert report.items[0].progress_content == report.supplemental_note == content
+
+
 def test_historical_incomplete_rows_still_readable():
     from task_schemas import DailyReportItemResponse
     item=DailyReportItemResponse(source_type='manual',task_type='笔译项目',task_name='旧项目',progress_content='旧任务',display_metadata={'report_types':['笔译项目']})

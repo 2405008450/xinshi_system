@@ -12,12 +12,14 @@
         :disabled="saving"
         :aria-label="`编辑${label}`"
         @keydown="handleKeydown"
+        @uploading-change="uploading = $event"
       />
       <div class="inline-text-field__actions">
         <el-button
           type="primary"
           link
           :loading="saving"
+          :disabled="uploading"
           :aria-label="`保存${label}`"
           @click="save"
         >
@@ -36,6 +38,12 @@
         {{ multiline ? 'Ctrl+Enter 保存，Esc 取消' : 'Enter 保存，Esc 取消' }}
       </span>
     </template>
+    <div v-else-if="hasScreenshots" class="inline-text-field__value">
+      <ScreenshotText :text="displayText" />
+      <el-button v-if="editable" link :disabled="triggerDisabled" :aria-label="`编辑${label}`" @click="beginEdit">
+        <el-icon><Edit /></el-icon>
+      </el-button>
+    </div>
     <button
       v-else-if="editable"
       type="button"
@@ -56,6 +64,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Check, Close, Edit } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { activeInlineTextEditorId } from '@/composables/useInlineTextEditGroup'
+import ScreenshotText from './ScreenshotText.vue'
+import { screenshotIds } from '@/utils/screenshotReferences'
 
 const props = defineProps({
   modelValue: { type: [String, Number], default: null },
@@ -75,6 +85,7 @@ const emit = defineEmits(['editing-change', 'saved', 'conflict'])
 const editorId = `inline-text-${Math.random().toString(36).slice(2)}`
 const editing = ref(false)
 const saving = ref(false)
+const uploading = ref(false)
 const draft = ref('')
 const inputRef = ref()
 
@@ -82,6 +93,7 @@ const displayText = computed(() => {
   const value = props.displayValue ?? props.modelValue
   return value === null || value === undefined || value === '' ? '-' : String(value)
 })
+const hasScreenshots = computed(() => screenshotIds(displayText.value).length > 0)
 const triggerDisabled = computed(() => (
   props.disabled
   || Boolean(activeInlineTextEditorId.value && activeInlineTextEditorId.value !== editorId)
@@ -118,7 +130,7 @@ const errorMessage = (error) => {
 }
 
 const save = async () => {
-  if (saving.value || !props.saveField) return
+  if (saving.value || uploading.value || !props.saveField) return
   const normalized = draft.value.trim()
   if (props.required && !normalized) {
     ElMessage.warning(`${props.label}不能为空`)

@@ -16,6 +16,7 @@ import { screenshotImageApi } from '@/utils/screenshotImageApi'
 const props = defineProps({
   document: { type: Object, default: null },
   enableLinks: Boolean,
+  chatMessageId: [String, Number],
   imageApi: { type: Object, default: null },
   fallback: { type: String, default: '' }
 })
@@ -25,7 +26,9 @@ const editor = props.document
       content: props.enableLinks ? linkifyDocument(props.document) : props.document,
       editable: false,
       extensions: [StarterKit.configure({ link: props.enableLinks ? noticeLinkOptions : false }), TextColor, YellowHighlight,
-        createAuthenticatedImage((props.imageApi||screenshotImageApi).read)]
+        createAuthenticatedImage((src, signal) => props.imageApi
+          ? props.imageApi.read(src, signal)
+          : screenshotImageApi.read(src, signal, props.chatMessageId ? { chat_message_id: props.chatMessageId } : undefined))]
     })
   : null
 

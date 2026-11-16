@@ -1,5 +1,5 @@
 """从直接下级逐级汇总单价展示，不把父级统计再次计费。"""
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from hashlib import sha256
 import json
 import translation_quantity_basis as basis
@@ -48,6 +48,50 @@ def aggregate_prices(children):
         for key in list(row):
             if key.startswith('_'):del row[key]
     return list(groups.values())
+
+
+def sum_child_amounts(children, field):
+    totals = {}
+    for child in children:
+        for currency, amount in child.get(field, {}).items():
+            totals[currency] = totals.get(currency, Decimal(0)) + Decimal(str(amount))
+    return {currency: format(amount, '.2f') for currency, amount in totals.items()}
+
+
+def price_details(node):
+    return {key:node.get(key) for key in (
+        'currency','pricing_mode','total_adjustment','discounted_totals','adjusted_total','adjusted_total_incl_tax'
+    )}
+
+
+def apply_total_adjustment(node, adjustment, matches):
+    if node.get('price_aggregate'):
+        currencies = set(node['totals_excl_tax']) | set(node['totals_incl_tax'])
+        if len(currencies) == 1:
+            node['currency'] = next(iter(currencies))
+    if not adjustment or not matches:
+        return
+    node['total_adjustment'] = adjustment
+    node['effective_total_adjustment'] = {}
+    node['discounted_totals'] = {}
+    currency = adjustment['currency']
+    for kind, manual_field in (('excl_tax', 'adjusted_total'), ('incl_tax', 'adjusted_total_incl_tax')):
+        values = node['totals_'+kind]
+        manual = adjustment.get(kind)
+        if node['pricing_mode'] == 'metric' and currency == node['currency']:
+            manual = node.get(manual_field)
+        discount = adjustment.get(kind.replace('_tax','_discount'))
+        base = values.get(currency) if node['pricing_mode'] != 'metric' or manual is None else node['calculated_totals_'+kind].get(currency)
+        if discount is not None and base is not None:
+            node['discounted_totals'][kind]=format((Decimal(base)*Decimal(discount)/100).quantize(Decimal('.01'),rounding=ROUND_HALF_UP),'.2f')
+        amount = manual if manual is not None else node['discounted_totals'].get(kind)
+        if amount is None:
+            continue
+        node['effective_total_adjustment'].update(currency=currency, **{kind:amount})
+        values[currency] = amount
+        node['adjusted_totals_'+kind][currency] = amount
+        if kind == 'excl_tax':
+            node['adjusted_totals'][currency] = amount
 
 
 def aggregate_node(node,children):

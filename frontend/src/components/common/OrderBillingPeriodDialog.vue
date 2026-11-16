@@ -11,7 +11,15 @@
             :label="board.number ? `第${board.number}期 · ${board.name}` : board.name" />
           <el-option v-if="options && !options.boards.length" value="monthly" label="整月（不分期）" />
           <el-option v-if="options?.can_create" value="new" :label="`新增第${nextPeriod}期`" />
+          <el-option v-if="options?.can_create_custom" value="custom" label="新增指定期次" />
         </el-select>
+      </el-form-item>
+      <el-form-item v-if="form.period==='custom'" label="指定期次" :error="customPeriodError">
+        <el-input-number v-model="form.periodNumber" aria-label="指定期次" :min="1" :max="Number.MAX_SAFE_INTEGER"
+          :step="1" step-strictly :controls="false" :disabled="saving" placeholder="例如 2">
+          <template #prefix>第</template>
+          <template #suffix>期</template>
+        </el-input-number>
       </el-form-item>
       <p v-if="form.period==='new' && options?.boards.length===1 && !options.boards[0].number">
         保存后原账单成为第1期，本订单归入第2期。
@@ -20,7 +28,7 @@
     </AppForm>
     <template #footer>
       <el-button :disabled="saving" @click="emit('close')">取消</el-button>
-      <el-button type="primary" :disabled="loading || !form.period || !options" :loading="saving" @click="save">保存</el-button>
+      <el-button type="primary" :disabled="!canSave" :loading="saving" @click="save">保存</el-button>
     </template>
   </DraggableFormDialog>
 </template>
@@ -35,12 +43,16 @@ import {currentStatementMonth} from '@/utils/statementRequirementMonth'
 
 const props=defineProps({projectId:String,month:String,version:String})
 const emit=defineEmits(['close','saved'])
-const form=reactive({month:props.month || currentStatementMonth(),period:''})
+const form=reactive({month:props.month || currentStatementMonth(),period:'',periodNumber:undefined})
 const options=ref(null),loading=ref(false),saving=ref(false),error=ref('')
 const nextPeriod=computed(()=>{
   const boards=options.value?.boards || []
   return boards.length ? Math.max(1,...boards.map(board=>board.number || 0))+1 : 1
 })
+const customPeriodError=computed(()=>form.period==='custom'&&options.value?.boards.some(board=>board.number===form.periodNumber)
+  ? `第${form.periodNumber}期已存在，请在账期中直接选择` : '')
+const canSave=computed(()=>!loading.value&&!!options.value&&!!form.period&&
+  (form.period!=='custom'||Number.isSafeInteger(form.periodNumber)&&form.periodNumber>0&&!customPeriodError.value))
 let request
 async function load(){
   request?.abort()
@@ -49,6 +61,7 @@ async function load(){
   loading.value=true
   options.value=null
   form.period=''
+  form.periodNumber=undefined
   error.value=''
   try{
     const result=await getOrderBillingPeriods(props.projectId,form.month,current.signal)
@@ -68,14 +81,15 @@ function beforeClose(){
   if(!saving.value)emit('close')
 }
 async function save(){
-  if(loading.value || saving.value || !options.value || !form.period)return
+  if(saving.value || !canSave.value)return
   saving.value=true
   error.value=''
   try{
     const {period,month}=form
     await saveOrderBillingPeriod(props.projectId,{
       month,board_id:options.value.boards.some(board=>board.id===period)?period:null,
-      create_period:period==='new',revision:options.value.revision,version:props.version,
+      create_period:period==='new',period_number:period==='custom'?form.periodNumber:undefined,
+      revision:options.value.revision,version:props.version,
     })
     emit('saved')
   }catch(e){

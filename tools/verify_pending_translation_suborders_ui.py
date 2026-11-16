@@ -39,7 +39,7 @@ const app=createApp({render:()=>h(Pending,{modelValue:state.visible,form,'onUpda
         def cell(index):
             return grid.locator(f'input[data-row="{index}"][data-col="0"]')
         def adjust(index, value):
-            grid.locator('tbody tr').nth(index).get_by_role('button', name='调整字数', exact=True).click()
+            grid.locator('tbody tr').nth(index).get_by_role('button', name='调整工作量统计', exact=True).click()
             popup = page.locator('.word-count-matrix-popper:visible')
             popup.get_by_role('spinbutton', name='我司统计-字数', exact=True).fill(value)
             popup.get_by_role('button', name='保存', exact=True).click()

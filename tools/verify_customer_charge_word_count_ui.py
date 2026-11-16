@@ -182,7 +182,7 @@ def run():
             expect(rows(dialog).nth(6).locator("td").nth(9).get_by_role("spinbutton")).to_have_value("888.00")
             checks.append("六种口径聚焦、未填写、零值、固定收费、金额联动、手动总价与外层草稿保护")
 
-            dialog.get_by_role("button", name="展开字数统计", exact=True).click()
+            dialog.get_by_role("button", name="展开工作量统计", exact=True).click()
             expect(popup().get_by_role("spinbutton", name="客户字数-字数", exact=True)).to_have_value("2000")
             popup().get_by_role("button", name="取消", exact=True).click()
             box, field = open_quantity(dialog, 0, "字数")
@@ -237,7 +237,7 @@ def run():
             save(box, local=True)
             assert len(writes) == before
             expect(rows(dialog).nth(0).get_by_role("button", name="填报客户字数", exact=True)).to_have_text("4,321")
-            dialog.get_by_role("button", name="展开字数统计", exact=True).click()
+            dialog.get_by_role("button", name="展开工作量统计", exact=True).click()
             expect(popup().get_by_role("spinbutton", name="客户字数-字数", exact=True)).to_have_value("4321")
             popup().get_by_role("button", name="取消", exact=True).click()
             checks.append("新增项目仅应用草稿，两个入口共享数据")

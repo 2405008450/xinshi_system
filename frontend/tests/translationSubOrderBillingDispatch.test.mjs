@@ -19,7 +19,7 @@ test('母订单与子订单字数保持独立维护，母订单始终可以手�
   assert.doesNotMatch(source, /:read-only="(?:row|form)\.wordCountMatrixSource/)
   assert.doesNotMatch(source, /来自 \{\{ form\.wordCountSubOrderCount \}\} 个子订单/)
   assert.doesNotMatch(source, /delete payloadSource\.wordCountMatrix\b/)
-  assert.match(source, /<WordCountMatrixPopover[\s\S]*?entity-type="project"[\s\S]*?title="项目字数统计"/)
+  assert.match(source, /<WordCountMatrixPopover[\s\S]*?entity-type="project"[\s\S]*?title="项目工作量统计"/)
 })
 
 test('客户收费计算能力保留，母子订单表单改用客户财务按钮', () => {

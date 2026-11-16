@@ -8,7 +8,7 @@
         <el-upload :show-file-list="false" :auto-upload="false" multiple :disabled="sending || !!retryPayload" :on-change="chooseFile"><el-button text size="small" :icon="Paperclip" :disabled="sending || !!retryPayload" aria-label="发送文件" title="发送文件" /></el-upload>
       </div>
       <div v-if="files.length" class="group-file-queue"><div v-for="file in files" :key="file.key">{{ file.file.name }} · {{ file.status === 'uploading' ? '上传中…' : file.status === 'failed' ? '上传失败' : '待发送' }}<el-button v-if="file.status==='failed'" link @click="uploadFile(file)">重试</el-button><el-button link :disabled="sending || !!retryPayload" @click="removeFile(file)">移除</el-button><span v-if="file.error" class="group-error">{{ file.error }}</span></div></div>
-      <el-input ref="input" v-model="content" @uploading-change="screenshotUploading=$event" type="textarea" :rows="3" :input-style="inputStyle" resize="none" maxlength="10000" :disabled="sending || !!retryPayload" :placeholder="isDirect ? '输入消息' : '输入消息，@ 提及用户'" :aria-expanded="mentionOpen" aria-autocomplete="list" :aria-controls="mentionOpen ? mentionListId : undefined" :aria-activedescendant="mentionOpen && mentionCandidates.length ? `${mentionListId}-${mentionIndex}` : undefined" @input="onInput" @click="onInput" @keyup.left="onInput" @keyup.right="onInput" @scroll.capture="closeMention" @blur="onMentionBlur" @keydown="onKeydown" @compositionstart="composing=true; closeMention()" @compositionend="finishComposition" @paste="paste" />
+      <el-input ref="input" v-model="content" @uploading-change="screenshotUploading=$event" type="textarea" :rows="3" :input-style="inputStyle" resize="none" hide-screenshot-tools maxlength="10000" :disabled="sending || !!retryPayload" :placeholder="isDirect ? '输入消息' : '输入消息，@ 提及用户'" :aria-expanded="mentionOpen" aria-autocomplete="list" :aria-controls="mentionOpen ? mentionListId : undefined" :aria-activedescendant="mentionOpen && mentionCandidates.length ? `${mentionListId}-${mentionIndex}` : undefined" @input="onInput" @click="onInput" @keyup.left="onInput" @keyup.right="onInput" @scroll.capture="closeMention" @blur="onMentionBlur" @keydown="onKeydown" @compositionstart="composing=true; closeMention()" @compositionend="finishComposition" />
       <div v-if="mentionOpen" :id="mentionListId" ref="mentionMenu" class="group-mention-menu" :style="mentionStyle" role="listbox" aria-label="选择提及用户" @mousedown="keepMentionFocus">
         <div class="group-mention-heading">提及用户<span>↑↓ 选择 · Enter 确认</span></div>
         <el-input v-model="mentionQuery" class="group-mention-search" clearable placeholder="搜索要 @ 的人员" aria-label="搜索要提及的人员" @input="mentionIndex = 0" @blur="onMentionBlur" @keydown="onKeydown" />
@@ -26,14 +26,14 @@
     </div>
 </template>
 <script setup>
-import { screenshotPreview } from '@/utils/screenshotReferences'
+import { editScreenshotText, screenshotEditorText, screenshotPreview } from '@/utils/screenshotReferences'
 import { computed, inject, nextTick } from 'vue'
 import ChatDesktopPresence from './ChatDesktopPresence.vue'
 import { useDesktopPresence } from '@/composables/useDesktopPresence'
 import { Paperclip, Picture } from '@element-plus/icons-vue'
 import { useChatComposerHeight } from '@/composables/useChatComposerHeight'
 const { inputStyle, start, resizeByKeyboard } = useChatComposerHeight()
-const { draft, props, composer, replyTo, cancelQuote, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, screenshotUploading, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect } = inject('chatController')
+const { draft, props, composer, replyTo, cancelQuote, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, screenshotUploading, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect } = inject('chatController')
 const { statuses: desktopPresence, workStatuses, loading: desktopPresenceLoading } = useDesktopPresence(computed(() => mentionCandidates.value.filter(user=>!user.all).map(user => user.id)), computed(() => props.active && mentionOpen.value))
 function keepMentionFocus(event) {
   // 搜索框需要获得焦点；候选按钮保留输入光标，确保选择时替换正确的 @ 文本。
@@ -44,9 +44,10 @@ function onMentionBlur(event) {
 }
 async function insertMention() {
   const textarea = input.value?.textarea
-  const cursor = textarea?.selectionStart ?? content.value.length, end = textarea?.selectionEnd ?? cursor
-  const text = `${cursor && !/\s$/.test(content.value.slice(0, cursor)) ? ' ' : ''}@`
-  content.value = content.value.slice(0, cursor) + text + content.value.slice(end)
+  const visible = textarea?.value ?? screenshotEditorText(content.value)
+  const cursor = textarea?.selectionStart ?? visible.length, end = textarea?.selectionEnd ?? cursor
+  const text = `${cursor && !/\s$/.test(visible.slice(0, cursor)) ? ' ' : ''}@`
+  content.value = editScreenshotText(content.value, cursor, end, text)
   await nextTick(); input.value?.focus(); textarea?.setSelectionRange(cursor + text.length, cursor + text.length); onInput()
 }
 </script>

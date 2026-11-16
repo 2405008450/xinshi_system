@@ -17,6 +17,21 @@ def board(payload,uid):
     from customer_statement_workspace import board_by_id
     return board_by_id(payload,uid)
 
+
+def ensure_same_sub_client_period(boards):
+    if any(item.get('sub_client_id') for item in boards) and len({
+        (item.get('sub_client_id'),item.get('period_month'),item.get('period_number')) for item in boards
+    }) > 1:
+        raise HTTPException(422,'子客户对账单仅可在同一子客户、同一账期内合并或分拆')
+
+
+def inherit_sub_client_period(target, source):
+    if source.get('sub_client_id'):
+        target.update({key:source.get(key) for key in (
+            'sub_client_id','sub_client_name','sub_client_code','period_month','period_number','settlement_scope'
+        )})
+        target['billing_months']=list(source['billing_months'])
+
 def copy_overrides(payload,source,target,ids):
     selected=set(ids);tasks=[task for task in payload['tasks'].values() if task['board_id']==source['id']]
     lines={row['line_id'] for task in tasks if task['id'] in selected for row in task['rows']}
@@ -39,6 +54,7 @@ def reorganize(payload,action,data):
         ids=data.get('board_ids')
         if not isinstance(ids,list) or not all(isinstance(uid,str) for uid in ids) or len(set(ids))<2 or len(set(ids))!=len(ids):raise HTTPException(422,'请选择至少两份不重复的对账单')
         sources=[board(payload,uid) for uid in ids];target=sources[0]
+        ensure_same_sub_client_period(sources)
         before=copy.deepcopy(sources)
         for source in sources[1:]:
             task_ids=[task['id'] for task in payload['tasks'].values() if task['board_id']==source['id']]
@@ -52,7 +68,9 @@ def reorganize(payload,action,data):
     if not isinstance(ids,list) or not ids or not all(isinstance(uid,str) and uid in payload['tasks'] for uid in ids) or len(set(ids))!=len(ids):raise HTTPException(422,'请选择有效且不重复的任务')
     if any(payload['tasks'][uid].get('pending') for uid in ids):raise HTTPException(422,'待入账任务请先生成目标月份账单')
     sources=[board(payload,uid) for uid in dict.fromkeys(payload['tasks'][key]['board_id'] for key in ids)]
+    ensure_same_sub_client_period(sources)
     target=new_board(payload,sources[0]['fields'],name(data.get('name')));target['tax_included']=sources[0]['tax_included']
+    inherit_sub_client_period(target,sources[0])
     if len(sources)==1:
         target['number_parent_id']=sources[0]['id']
     before={uid:payload['tasks'][uid]['board_id'] for uid in ids}

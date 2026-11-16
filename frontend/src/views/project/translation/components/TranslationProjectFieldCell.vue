@@ -41,7 +41,7 @@
                   v-for="item in context.projectStatusOptions"
                   :key="item.value"
                   :command="item.value"
-                  :disabled="item.value === context.normalizeStatus(row.projectStatus) || item.value === 'pending_confirmation' || context.projectStatusSavingIds.has(row.id)"
+                  :disabled="item.value === context.normalizeStatus(row.projectStatus) || context.projectStatusSavingIds.has(row.id)"
                 >
                   <span class="status-option-row">
                     <el-tag :type="context.getStatusType(item.value)" size="small" effect="plain" class="status-option-tag">{{ item.label }}</el-tag>
@@ -91,7 +91,7 @@
               v-model="row.wordCountMatrix"
               entity-type="project"
               :entity-id="row.id"
-              title="项目字数统计"
+              title="项目工作量统计"
               @saved="context.fetchData"
             >
               <template #reference>

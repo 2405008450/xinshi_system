@@ -1,7 +1,7 @@
 <template>
   <DraggableFormDialog v-model="visible" title="加至工作报告" class="development-report-dialog" width="min(840px, calc(100vw - 32px))" top="5vh" append-to-body :before-close="close" :close-on-click-modal="false" @closed="$emit('close')">
     <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" title="加至工作报告" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
-    <div ref="body" v-loading="loading" data-screenshot-editor="own" @paste.capture="blockReportImages" @drop.capture="blockReportImages">
+    <div ref="body" v-loading="loading">
       <el-alert v-if="error" :title="error" type="error" :closable="false" /><el-button v-if="error && !context" @click="load">重新加载</el-button>
       <template v-if="context">
         <p class="report-note">添加到 {{ context.report_date }} 的工作报告草稿。香港时间每天 07:00 换日，请完整填写本次工作记录。</p>
@@ -31,7 +31,7 @@ import AppForm from '@/components/common/AppForm.vue'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import TechnicalTaskReference from '@/components/common/TechnicalTaskReference.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
-import { blockReportImages, projectTypes, defaultWorkCategories, durationOptions, durationLabel, validQuantity } from '@/utils/workReportForm'
+import {  projectTypes, defaultWorkCategories, durationOptions, durationLabel, validQuantity } from '@/utils/workReportForm'
 import { getDevelopmentReportContext, addDevelopmentReport } from '@/api/technicalDevelopment'
 const props = defineProps({ taskId: { type: String, required: true } }), emit = defineEmits(['close', 'saved'])
 const visible = ref(true), body = ref(null), formRef = ref(null), loading = ref(false), saving = ref(false), error = ref(''), context = ref(null)

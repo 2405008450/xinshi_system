@@ -58,7 +58,7 @@ export function folderOrderPreview(entries,rootPath='') {
 }
 
 
-export async function enumerateFolderHandle(handle) {
+export async function enumerateFolderHandle(handle, onFile) {
   const entries=[];let total=0
   async function visit(directory,relative){
     if(relative.split('/').length>4)throw new Error('目录超过三层子文件夹，文件将超出四级子订单，请整理目录')
@@ -70,6 +70,7 @@ export async function enumerateFolderHandle(handle) {
       else if(child.kind==='file'){
         const error=translationFileNameError(child.name)
         if(error)throw new Error(`${child.name}：${error}`)
+        onFile?.(relative + '/' + child.name, child)
         entry.files.push(child.name);total++
         if(total>2000)throw new Error('单次最多读取2000个文件')
       }

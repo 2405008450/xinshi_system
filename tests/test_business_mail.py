@@ -242,7 +242,7 @@ def test_translation_preview_contains_complete_project_word_count_matrix(monkeyp
         },
     })
 
-    assert "项目字数统计：" in preview["body"]
+    assert "项目工作量统计：" in preview["body"]
     assert "我司统计：字数 1,200；页数 5" in preview["body"]
     assert "客户统计：字符数（不计空格） 2,345" in preview["body"]
     assert "译员预定（项目预估）：外文字数 1,000；份数 2" in preview["body"]

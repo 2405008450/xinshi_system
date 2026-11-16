@@ -1,4 +1,4 @@
-"""多维字数统计数据模型。"""
+"""多维工作量统计数据模型。"""
 from __future__ import annotations
 
 import datetime
@@ -12,7 +12,7 @@ from models import Base
 
 
 class WordCountMetric(Base):
-    """项目、子订单或译员安排下的单个字数统计单元格。"""
+    """项目、子订单或译员安排下的单个工作量统计单元格。"""
 
     __tablename__ = "word_count_metric"
     __table_args__ = (

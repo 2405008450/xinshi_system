@@ -13,12 +13,12 @@
   >
     <template #reference>
       <slot name="reference" :summary="summary">
-        <el-button type="primary" link>字数统计</el-button>
+        <el-button type="primary" link>工作量统计</el-button>
       </slot>
     </template>
 
     <div class="word-count-matrix" data-auto-draft="off">
-      <el-alert v-if="Object.keys(draft?.simpleRequirementWordCountMatrix||{}).length" type="info" :closable="false" :title="'本单统计已加入简单需求字数：'+formatWordCountMatrix(draft.simpleRequirementWordCountMatrix)" />
+      <el-alert v-if="Object.keys(draft?.simpleRequirementWordCountMatrix||{}).length" type="info" :closable="false" :title="'本单统计已加入简单需求工作量：'+formatWordCountMatrix(draft.simpleRequirementWordCountMatrix)" />
       <div class="word-count-matrix__header">
         <div>
 
@@ -70,7 +70,7 @@
               </td>
             </tr>
             <tr v-if="!rows.length">
-              <td :colspan="WORD_COUNT_METRICS.length + 1" class="word-count-matrix__empty">暂无可编辑的字数维度</td>
+              <td :colspan="WORD_COUNT_METRICS.length + 1" class="word-count-matrix__empty">暂无可编辑的统计维度</td>
             </tr>
           </tbody>
         </table>
@@ -114,7 +114,7 @@ const props = defineProps({
   local: { type: Boolean, default: false },
   translators: { type: Array, default: () => [] },
   modelValue: { type: Object, default: () => createEmptyWordCountMatrix() },
-  title: { type: String, default: '字数统计' },
+  title: { type: String, default: '工作量统计' },
   initialDimension: { type: String, default: '' },
   initialMetricType: { type: String, default: '' },
   readOnly: { type: Boolean, default: false },
@@ -249,7 +249,7 @@ async function loadMatrix() {
     }
   } catch (error) {
     if (sequence !== loadSequence) return
-    ElMessage.error(error.detail || '加载字数统计失败')
+    ElMessage.error(error.detail || '加载工作量统计失败')
     visible.value = false
   } finally {
     if (sequence === loadSequence) { loading.value = false; editing.value = !props.readOnly && visible.value }
@@ -421,10 +421,10 @@ async function saveMatrix() {
       }))
       emit('saved', saved)
       clearPending()
-      ElMessage.success(hybridMode.value ? '项目字数已保存，译员字数已带回稿件安排' : '字数统计已保存到当前项目表单')
+      ElMessage.success(hybridMode.value ? '项目工作量已保存，译员工作量已带回稿件安排' : '工作量统计已保存到当前项目表单')
       visible.value = false
     } catch (error) {
-      ElMessage.error(error.detail || '保存字数统计失败')
+      ElMessage.error(error.detail || '保存工作量统计失败')
     } finally {
       saving.value = false
     }
@@ -450,10 +450,10 @@ async function saveMatrix() {
     emit('saved', saved)
     notifySavedCounts(changes)
     clearPending()
-    ElMessage.success('字数统计已保存')
+    ElMessage.success('工作量统计已保存')
     visible.value = false
   } catch (error) {
-    ElMessage.error(error.detail || '保存字数统计失败')
+    ElMessage.error(error.detail || '保存工作量统计失败')
   } finally {
     saving.value = false
   }

@@ -151,6 +151,39 @@ def translation_statistics_endpoint(
     return report(db,start=start,end=end,granularity=granularity,date_basis=date_basis,tax_basis=tax_basis,client_keyword=client_keyword)
 
 
+@router.get("/sub-client-projects")
+def translation_sub_client_customers(
+    months: str = Query('', max_length=287),
+    keyword: str = Query('', max_length=200),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    from translation_sub_client_query import customer_groups
+    try:
+        return customer_groups(db, months=months, keyword=keyword, skip=skip, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/sub-client-projects/orders")
+def translation_sub_client_orders(
+    client: UUID | Literal['unlinked'],
+    months: str = Query('', max_length=287),
+    keyword: str = Query('', max_length=200),
+    presence: Literal['all', 'with', 'without'] = 'all',
+    skip: int = Query(0, ge=0),
+    limit: int = Query(15, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    from translation_sub_client_query import customer_projects
+    try:
+        return customer_projects(db, months=months, keyword=keyword, client=client,
+                                 presence=presence, skip=skip, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 @router.get("/next-order-no")
 def get_next_order_no(db: Session = Depends(get_db)):
     """获取下一个订单号"""

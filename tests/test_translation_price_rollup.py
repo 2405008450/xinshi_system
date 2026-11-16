@@ -44,6 +44,58 @@ def test_multiple_statistics_and_prices_aggregate_up_without_double_counting(dat
     assert not root.customer_charge_items and not middle.customer_charge_items
 
 
+def test_discount_and_adjustment_roll_up_with_price_precedence(data):
+    db, actor, root, middle, leaf, _, sibling = data
+
+    def adjust(order, **changes):
+        current = finance.read(db, root.id)
+        return finance.save_table_cell(db, actor, root.id, finance.TablePatch(
+            version=current['version'], order_id=order.id, total_adjustment=changes,
+        ))['item']
+
+    node = adjust(leaf, excl_discount=50, incl_discount=99)
+    priced_leaf = node['children'][0]['children'][0]
+    assert priced_leaf['totals_excl_tax'] == {'CNY': '18.00'}
+    assert priced_leaf['discounted_totals'] == {'excl_tax': '10.00', 'incl_tax': '21.78'}
+    node = adjust(middle, excl_discount=50, incl_discount=99, incl_tax=35)
+    assert node['children'][0]['totals_excl_tax'] == {'CNY': '19.00'}
+    assert node['totals_excl_tax'] == {'CNY': '34.00'}
+    assert node['totals_incl_tax'] == {'CNY': '51.50'}
+    assert node['children'][0]['discounted_totals']['incl_tax'] == '43.34'
+    node = adjust(root, excl_tax=0)
+    assert node['totals_excl_tax'] == {'CNY': '0.00'}
+    node = adjust(root, excl_tax=None)
+    assert node['totals_excl_tax'] == {'CNY': '34.00'}
+
+    from customer_statements import build_statement
+    from translation_project_invoices import read as read_invoice
+    statement = build_statement(db, root.id, None, finance.order_billing_month(root.order_no), 'project')
+    assert statement['totals'] == {'CNY': '34.00'}
+    invoice = read_invoice(db, root.id, middle.id)
+    assert invoice['price_details']['total_adjustment']['incl_discount'] == 99
+
+    current = finance.read(db, root.id)
+    fixed = finance.save_table_cell(db, actor, root.id, finance.TablePatch(
+        version=current['version'], order_id=sibling.id, pricing_mode='fixed', adjusted_total=25,
+    ))
+    assert fixed['item']['children'][1]['totals_excl_tax'] == {'CNY': '25.00'}
+    assert adjust(sibling, excl_discount=99)['totals_excl_tax'] == {'CNY': '43.75'}
+    assert adjust(sibling, excl_tax=20)['totals_excl_tax'] == {'CNY': '39.00'}
+
+    from translation_special_settlement import apply_settings, billing_totals
+    special = adjust(root, incl_discount=99)
+    apply_settings(special, {str(root.id): {'tax_mode': 'incl_tax'}})
+    assert billing_totals(special, tax_mode='incl_tax') == {'CNY': Decimal('34.65')}
+
+    current = finance.read(db, root.id)
+    finance.save_table_cell(db, actor, root.id, finance.TablePatch(
+        version=current['version'], order_id=middle.id, pricing_mode='fixed',
+    ))
+    inherited = adjust(leaf, excl_tax=12)
+    assert inherited['children'][0]['children'][0]['fixed_pricing_from'] == middle.sub_order_no
+    assert inherited['children'][0]['children'][0]['totals_excl_tax'] == {'CNY': '12.00'}
+
+
 def test_finance_pagination_counts_child_orders_and_keeps_ancestor_context(data):
     db,actor,root,middle,leaf,document,sibling=data
     params=dict(db=db,user=actor,payment_project_id=root.id,billing_month=None,limit=2,paginate_children=True)
@@ -82,7 +134,7 @@ def test_legacy_parent_override_is_retained_but_not_added_twice(data):
     db.commit()
     node=finance.read(db,root.id)['item']
     assert node['pricing_mode']=='aggregate'
-    assert node['totals_excl_tax']=={'CNY':'53.00'} and node['recorded_adjusted_total']=='999'
+    assert node['totals_excl_tax']=={'CNY':'53.00'} and Decimal(node['recorded_adjusted_total'])==999
     assert stored.total_excl_tax==999
 
 

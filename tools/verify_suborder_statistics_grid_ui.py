@@ -64,7 +64,7 @@ const app=createApp({render:()=>h(Grid,{rows,editable:true,onSaved:()=>window.sa
         leaf.click();expect(leaf).to_have_value('3430')
         page.locator('select').nth(0).select_option('pages');page.locator('select').nth(0).select_option('words')
         expect(leaf).to_have_value('3430')
-        expect(page.get_by_role('button',name='保存统计（0 单）')).to_be_disabled()
+        expect(page.get_by_role('button',name='保存工作量（0 单）')).to_be_disabled()
         page.locator('select').nth(1).select_option('pages')
         customer.fill('')
         page.locator('select').nth(1).select_option('words')
@@ -79,8 +79,8 @@ const app=createApp({render:()=>h(Grid,{rows,editable:true,onSaved:()=>window.sa
         expect(table.nth(4).locator('input').nth(0)).to_have_value('56')
         # 父级粘贴不会创建修改，仍然只能从叶子汇总。
         parents.nth(0).evaluate("el=>el.dispatchEvent(new InputEvent('input',{bubbles:true}))")
-        page.get_by_role('button',name='保存统计（2 单）').click()
-        expect(page.get_by_role('button',name='保存统计（0 单）')).to_be_disabled()
+        page.get_by_role('button',name='保存工作量（2 单）').click()
+        expect(page.get_by_role('button',name='保存工作量（0 单）')).to_be_disabled()
         assert len(writes)==2 and all(url.rsplit('/',1)[-1] in ('leaf','zero') for url,_ in writes),writes
         expect(leaf).to_have_value('12')
         leaf.click();expect(leaf).to_have_value('12')

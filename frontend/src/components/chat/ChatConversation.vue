@@ -62,6 +62,7 @@ import { copyTextToClipboard } from '@/utils/clipboard'
 import { formatBusinessDateTime as formatDateTime } from '@/utils/dateTime'
 import {useChatDraft} from '@/composables/useChatDraft'
 import {draftFiles} from '@/utils/chatDrafts'
+import { editScreenshotText } from '@/utils/screenshotReferences'
 import { mentionParts as splitMentionParts } from '@/utils/chatMentions'
 import { quoteSpeakerMention,clearAutomaticQuoteMention } from '@/utils/quoteSpeakerMention'
 import { projectMentionOrder } from '@/utils/projectMentionOrder'
@@ -341,7 +342,9 @@ async function download(file) {
 function chooseFile(file, uploadFiles) { addFiles([file.raw]); uploadFiles.splice(0) }
 function addFiles(chosen) {
   if (sending.value || retryPayload.value) return
-  for (const file of chosen) {
+  const images = chosen.filter(file => file.type.startsWith('image/'))
+  if (images.length) input.value?.addScreenshots(images)
+  for (const file of chosen.filter(file => !file.type.startsWith('image/'))) {
     if (files.value.length >= 9) { ElMessage.warning('每条消息最多9个附件'); break }
     const max = file.type.startsWith('image/') ? 10 : 20
     if (!file.size || file.size > max * 1024 * 1024) { ElMessage.warning(`文件不能为空，图片最多10MB，其他文件最多20MB：${file.name}`); continue }
@@ -352,20 +355,11 @@ async function uploadFile(row) {
   row.status = 'uploading'; row.error = ''
   const data = new FormData(); data.append('file', row.file)
   try {
-    if(row.file.type.startsWith('image/')){
-      const {uploadEditorScreenshot}=await import('@/utils/uploadEditorScreenshot')
-      const {screenshotIds,screenshotText,screenshotValue}=await import('@/utils/screenshotReferences')
-      if(screenshotIds(content.value).length>=9)throw new Error('每条消息最多9张截图')
-      const image=await uploadEditorScreenshot(row.file,'chat')
-      if(screenshotIds(content.value).length>=9)throw new Error('每条消息最多9张截图')
-      content.value=screenshotValue(screenshotText(content.value),[...screenshotIds(content.value),image.id]);removeFile(row);return
-    }
     row.data = await request(props.projectId, 'files', { method: 'post', data }); row.status = 'ready'
   }
   catch (e) { row.status = 'failed'; row.error = detail(e) }
 }
 function removeFile(file) { files.value = files.value.filter(f => f.key !== file.key) }
-function paste(event) { const images = [...(event.clipboardData?.files || [])].filter(f => f.type.startsWith('image/')); if (images.length) { if (!event.clipboardData.getData('text/plain')) event.preventDefault(); addFiles(images) } }
 function onKeydown(event) {
   if (event.isComposing || composing.value || event.keyCode === 229) return
   if (mentionOpen.value) {
@@ -388,7 +382,7 @@ async function onInput() {
   if (composing.value) return
   await nextTick()
   const textarea = input.value?.textarea, cursor = textarea?.selectionStart || 0
-  const match = content.value.slice(0, cursor).match(/(?:^|[^A-Za-z0-9@])@([^\s@]*)$/u)
+  const match = (textarea?.value || '').slice(0, cursor).match(/(?:^|[^A-Za-z0-9@])@([^\s@]*)$/u)
   if (!match || textarea.selectionStart !== textarea.selectionEnd) { closeMention(); return }
   mentionTrigger = cursor - match[1].length - 1
   mentionQuery.value = match[1]; mentionIndex.value = 0; mentionOpen.value = true
@@ -414,7 +408,7 @@ async function selectMention(user) {
   if (mentionTrigger < 0) return
   if (user.id!=='__all__' && !mentionIds.value.includes(user.id) && mentionIds.value.filter(id=>id!=='__all__').length >= 20) { ElMessage.warning('每条消息最多提及20人'); return }
   const cursor = input.value.textarea.selectionStart, text = `@${user.name} `, end = mentionTrigger + text.length
-  content.value = content.value.slice(0, mentionTrigger) + text + content.value.slice(cursor)
+  content.value = editScreenshotText(content.value, mentionTrigger, cursor, text)
   if (!mentionIds.value.includes(user.id)) mentionIds.value.push(user.id)
   closeMention(); await nextTick(); input.value.focus(); input.value.textarea.setSelectionRange(end, end)
 }
@@ -486,7 +480,7 @@ onBeforeUnmount(() => {
 })
 function openSearch() { searchOpen.value = !searchOpen.value }
 function onSearchLocate(messageId) { return locate(messageId) }
-provide('chatController', { recallDrafts, reeditMessage, draft, props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, download, copy, replyTo, quoteMessage, cancelQuote, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, screenshotUploading, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
+provide('chatController', { recallDrafts, reeditMessage, draft, props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, download, copy, replyTo, quoteMessage, cancelQuote, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, screenshotUploading, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
 defineExpose({ openSearch, locate, cancelLocate, toggleFilters: openSearch })
 </script>
 

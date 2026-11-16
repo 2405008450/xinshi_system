@@ -23,7 +23,7 @@
             <p v-if="row.cumulative_minutes">此前已汇报今日累计用时：{{durationLabel(row.cumulative_minutes)}}</p>
             <template v-if="submitted(row)">
               <el-tag type="success">{{workSlotLabel(slot)}}已提交</el-tag>
-              <p class="submitted-note">{{submitted(row).progress_note}}</p>
+              <p class="submitted-note"><ScreenshotText :text="submitted(row).progress_note" /></p>
               <p>今日累计用时：{{durationLabel(submitted(row).cumulative_minutes)}}</p>
             </template>
             <template v-else>
@@ -32,13 +32,13 @@
                 <el-col :xs="24" :md="12"><el-form-item label="预计还需时间" :prop="`entries.${index}.remaining_time`" :rules="required('请选择预计还需时间')"><el-select v-model="row.remaining_time" placeholder="请选择预计还需时间" clearable style="width:100%"><el-option v-for="option in remainingTimeOptions" :key="option.value" :value="option.value" :label="option.label" /></el-select></el-form-item></el-col>
               </el-row>
               <template v-if="!isArrangement">
-                <el-form-item label="今日目前已完成进度" :prop="`entries.${index}.progress_note`" :rules="[{required:true,whitespace:true,message:'请填写今日目前已完成进度',trigger:'blur'}]"><TextInput v-model="row.progress_note" type="textarea" :rows="4" maxlength="1800" show-word-limit placeholder="填写截至现在完成的工作与项目进度" /></el-form-item>
+                <el-form-item label="今日目前已完成进度" :prop="`entries.${index}.progress_note`" :rules="[{required:true,whitespace:true,message:'请填写今日目前已完成进度',trigger:'blur'}]"><el-input v-model="row.progress_note" type="textarea" :rows="4" maxlength="1800" show-word-limit placeholder="填写截至现在完成的工作与项目进度" /></el-form-item>
                 <el-form-item label="今日已耗费时间（累计）" :prop="`entries.${index}.minutes`" :rules="required('请选择今日累计用时')"><el-select v-model="row.minutes" filterable clearable placeholder="选择截至现在的今日累计用时" style="width:100%"><el-option v-for="minutes in durationOptions" :key="minutes" :value="minutes" :label="durationLabel(minutes)" :disabled="minutes<row.cumulative_minutes" /></el-select></el-form-item>
               </template>
               <el-button :loading="savingId===row.id" :disabled="saving" type="primary" @click="saveOne(row,index)">{{isArrangement?'保存今日安排':'提交本项目汇报'}}</el-button>
               <p v-if="row.error" class="save-error">{{row.error}}</p>
             </template>
-            <el-collapse v-if="row.submissions?.length"><el-collapse-item title="查看今日已提交汇报"><div v-for="entry in row.submissions" :key="entry.slot" class="submission-history"><strong>{{workSlotLabel(entry.slot)}} · {{durationLabel(entry.cumulative_minutes)}}（累计）</strong><p class="submitted-note">{{entry.progress_note}}</p></div></el-collapse-item></el-collapse>
+            <el-collapse v-if="row.submissions?.length"><el-collapse-item title="查看今日已提交汇报"><div v-for="entry in row.submissions" :key="entry.slot" class="submission-history"><strong>{{workSlotLabel(entry.slot)}} · {{durationLabel(entry.cumulative_minutes)}}（累计）</strong><p class="submitted-note"><ScreenshotText :text="entry.progress_note" /></p></div></el-collapse-item></el-collapse>
           </section>
         </AppForm>
         <el-empty v-if="isArrangement&&!formModel.entries.length" description="未找到本人负责的项目" />
@@ -52,7 +52,8 @@
 <script setup>
 import {computed,nextTick,onBeforeUnmount,reactive,ref,watch} from 'vue'
 import {useRouter} from 'vue-router'
-import {ElMessage,ElInput as TextInput} from 'element-plus'
+import {ElMessage} from 'element-plus'
+import ScreenshotText from '@/components/common/ScreenshotText.vue'
 import {getAnnotationWorkStatus,saveAnnotationWorkArrangement,submitAnnotationWorkStatus,saveAnnotationWorkAvailability,getInterpretationWorkArrangement,saveInterpretationWorkArrangement} from '@/api/projectArrangements'
 import {remainingTimeOptions,workSlotLabel} from '@/utils/annotationWorkStatus'
 import {durationOptions,durationLabel} from '@/utils/workReportForm'
