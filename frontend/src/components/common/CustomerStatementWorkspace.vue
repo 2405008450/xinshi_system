@@ -101,7 +101,27 @@
 
 
     <DraggableFormDialog v-model="scheduleVisible" title="设置待入账月份" class="statement-edit-dialog" data-auto-draft="off" width="min(600px, calc(100vw - 32px))" top="8vh" append-to-body>
-      <AppForm ref="scheduleForm" :model="scheduleDraft" label-position="top"><el-form-item label="所选任务">{{scheduleIds.length}} 项，包含全部收费明细；目标月份尚未生成对账单也可以设置。</el-form-item><el-form-item label="目标账单月份" prop="month" :rules="[{required:true,message:'请选择目标月份',trigger:'change'}]"><el-date-picker v-model="scheduleDraft.month" type="month" value-format="YYYY-MM" /></el-form-item></AppForm>
+      <AppForm ref="scheduleForm" :model="scheduleDraft" label-position="top">
+        <el-form-item label="所选任务">{{scheduleIds.length}} 项，包含全部收费明细。目标月份尚未生成对账单也可以设置。</el-form-item>
+        <el-form-item label="目前所在账期">
+          <div class="statement-schedule-periods" role="status">
+            <div v-for="label in scheduleCurrentPeriods" :key="label">{{label}}</div>
+            <span v-if="schedulePeriodsLoading">正在读取账期…</span>
+          </div>
+        </el-form-item>
+        <el-form-item label="目标账单月份" prop="month" :rules="[{required:true,message:'请选择目标月份',trigger:'change'}]">
+          <el-date-picker v-model="scheduleDraft.month" type="month" value-format="YYYY-MM" />
+        </el-form-item>
+        <el-form-item v-if="scheduleDraft.month" label="目标账期">
+          <div class="statement-schedule-periods" role="status">
+            <div v-for="label in scheduleTargetPeriods" :key="label">{{label}}</div>
+            <span v-if="schedulePeriodsLoading">正在读取账期…</span>
+          </div>
+        </el-form-item>
+        <el-alert v-if="schedulePeriodsError" :title="schedulePeriodsError" type="warning" :closable="false">
+          <el-button link type="primary" @click="schedulePeriodsRefresh++">重新读取账期</el-button>
+        </el-alert>
+      </AppForm>
       <template #footer><el-button @click="scheduleVisible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveSchedule">确认并记录</el-button></template>
     </DraggableFormDialog>
 
@@ -132,7 +152,7 @@ import DialogFieldSearchHeader from './DialogFieldSearchHeader.vue'
 import CustomerStatementPaper from './CustomerStatementPaper.vue'
 import CustomerStatementInlineEditor from './CustomerStatementInlineEditor.vue'
 import {useDialogFieldSearch} from '@/composables/useDialogFieldSearch'
-import {getStatementWorkspace,getClientStatementWorkspace,importStatementMonths,changeStatementWorkspace,getStatementWorkspaceHistory,getStatementWorkspaceHistoryEntry,exportStatementWorkspace,exportStatementWorkspacePdf,getStatementGenerationStatus} from '@/api/customerStatements'
+import {getStatementWorkspace,getClientStatementWorkspace,importStatementMonths,changeStatementWorkspace,getPendingStatementPeriods,getStatementWorkspaceHistory,getStatementWorkspaceHistoryEntry,exportStatementWorkspace,exportStatementWorkspacePdf,getStatementGenerationStatus} from '@/api/customerStatements'
 import CustomerStatementGenerationVersions from './CustomerStatementGenerationVersions.vue'
 import {businessDateTimeInputValue,formatBusinessDateTime} from '@/utils/dateTime'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
@@ -247,6 +267,41 @@ function selectTasks(ids,checked){selected.value=checked?[...new Set([...selecte
 const auditVisible=ref(false),auditLoading=ref(false),auditError=ref(''),auditEntry=ref(null)
 async function viewAudit(row){auditVisible.value=true;auditLoading.value=true;auditEntry.value=null;auditError.value='';try{auditEntry.value=await getStatementWorkspaceHistoryEntry(state.value.client_id,row.id)}catch(e){auditError.value=getLocalizedErrorMessage(e,'记录加载失败')}finally{auditLoading.value=false}}
 const scheduleVisible=ref(false),scheduleForm=ref(),scheduleIds=ref([]),scheduleDraft=reactive({month:''})
+const schedulePeriods=ref([]),schedulePeriodsLoading=ref(false),schedulePeriodsError=ref(''),schedulePeriodsRefresh=ref(0)
+function schedulePeriodLabels(labels){
+  const counts=new Map()
+  for(const label of labels)counts.set(label,(counts.get(label)||0)+1)
+  return [...counts].map(([label,count])=>counts.size>1?`${label}（${count} 项）`:label)
+}
+function periodLabel(month,number,needsPeriod){
+  return `${month} · ${number?`第 ${number} 期`:needsPeriod?'待指定账期':'未分账期'}`
+}
+const scheduleCurrentPeriods=computed(()=>schedulePeriodLabels(schedulePeriods.value.map(row=>{
+  const label=periodLabel(row.current_month,row.current_period,row.current_needs_period)
+  return row.current_pending?`${label}（待入账）`:label
+})))
+const scheduleTargetPeriods=computed(()=>schedulePeriodLabels(schedulePeriods.value.map(row=>
+  periodLabel(scheduleDraft.month,row.target_period,row.target_needs_period))))
+watch(()=>[scheduleVisible.value,scheduleDraft.month,scheduleIds.value,state.value?.client_id,props.settlementScope,schedulePeriodsRefresh.value],
+  async ([visible,month,ids,clientId,scope],_,onCleanup)=>{
+    schedulePeriods.value=[]
+    schedulePeriodsError.value=''
+    schedulePeriodsLoading.value=false
+    if(!visible||!clientId||!ids.length)return
+    const previewMonth=month||state.value.payload.tasks[ids[0]]?.month
+    if(!previewMonth)return
+    const request=new AbortController()
+    onCleanup(()=>request.abort())
+    schedulePeriodsLoading.value=true
+    try{
+      const result=await getPendingStatementPeriods(clientId,{month:previewMonth,task_ids:ids},scope,request.signal)
+      if(!request.signal.aborted)schedulePeriods.value=result
+    }catch(error){
+      if(!request.signal.aborted)schedulePeriodsError.value=getLocalizedErrorMessage(error,'账期读取失败')
+    }finally{
+      if(!request.signal.aborted)schedulePeriodsLoading.value=false
+    }
+  })
 function openSchedule(ids){scheduleIds.value=[...new Set(ids)];scheduleDraft.month=state.value.payload.tasks[ids[0]]?.month||filters.months[0];scheduleVisible.value=true}
 async function saveSchedule(){if(!await scheduleForm.value?.validate().catch(()=>false))return;if(await mutate('schedule_tasks',{task_ids:scheduleIds.value,month:scheduleDraft.month},`将 ${scheduleIds.value.length} 项任务设为 ${scheduleDraft.month} 待入账，从原对账单移出；生成目标月份时自动纳入，并保留调整记录。`))scheduleVisible.value=false}
 async function cancelPending(row){await mutate('cancel_pending',{task_ids:[row.id]},`撤销 ${row.order_no} 的待入账调整，恢复至调整前的对账单和月份？`)}

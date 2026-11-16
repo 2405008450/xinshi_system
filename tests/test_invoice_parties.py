@@ -167,8 +167,9 @@ def test_batch_invoice_delivery_and_receipts(context):
     for _ in range(2):
         assert http.post(url + '/receipts', json={}).status_code == 200
     assert db.query(AppNotification).filter_by(notification_type='invoice_receipt').count() == 1
-    invoice_url = f'{url}/projects/{project_ids[0]}/invoice'
+    invoice_url = f'{url}/projects/{project_ids[0]}/invoice?combined=true'
     invoice = http.get(invoice_url).json()
+    assert invoice['totals'] == groups[0]['totals']
     buffer = BytesIO()
     Image.new('RGB', (16, 16), 'white').save(buffer, 'PDF')
     attachment = http.post('/editor-screenshots/invoice-pdf', data={'request_id':request_id},
@@ -177,11 +178,17 @@ def test_batch_invoice_delivery_and_receipts(context):
     proof = f"![截图]({attachment.json()['reference']})"
     saved = http.put(invoice_url, json={'version':invoice['version'], 'invoice_status':'issued','proofs':proof})
     assert saved.status_code == 200, saved.text
-    delivery_url = f'{url}/projects/{project_ids[0]}/deliver'
+    http.app.dependency_overrides[auth.get_current_user] = lambda: sender
+    requester_view = http.get(invoice_url)
+    assert requester_view.status_code == 200 and requester_view.json()['proofs'] == proof
+    http.app.dependency_overrides[auth.get_current_user] = lambda: test_account
+    delivery_url = f'{url}/projects/{project_ids[0]}/deliver?combined=true'
     for _ in range(2):
         delivered = http.post(delivery_url, json={'version':saved.json()['version']})
         assert delivered.status_code == 200, delivered.text
     assert db.query(AppNotification).filter_by(notification_type='invoice_delivered', recipient_user_id=sender.id).count() == 1
+    assert {key for key, delivery in delivered.json()['snapshot']['deliveries'].items()
+            if delivery['proofs'] == proof} == set(groups[0]['project_ids'])
 
     http.app.dependency_overrides[auth.get_current_user] = lambda: sender
     permissions.update(('projects:read', 'projects:write'))
@@ -201,6 +208,8 @@ def test_batch_invoice_delivery_and_receipts(context):
     assert received.status_code == 200
     delivery = received.json()['snapshot']['deliveries'][project_ids[0]]
     assert delivery['proofs'] == proof and delivery['receipt']['at'].endswith('+08:00')
+    assert all(received.json()['snapshot']['deliveries'][key]['receipt'] == delivery['receipt']
+               for key in groups[0]['project_ids'])
     assert db.query(AppNotification).filter_by(notification_type='invoice_receipt', recipient_user_id=test_account.id).count() == 1
 
     http.app.dependency_overrides[auth.get_current_user] = lambda: receiver

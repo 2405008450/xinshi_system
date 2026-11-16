@@ -126,7 +126,7 @@ def test_statement_windows_separate_project_lists_and_existing_bill_rows(setup):
     assert response.json()['documents'][0]['statement']['title']=='特殊结算单'
 
 
-def test_special_settlement_settings_are_independent_and_can_override_each_child(setup):
+def test_special_settlement_settings_are_independent_and_can_override_each_child(setup, monkeypatch):
     from models import TranslationSubOrder,TranslationSubOrderChargeItem
     import translation_customer_finance as finance
 
@@ -182,6 +182,33 @@ def test_special_settlement_settings_are_independent_and_can_override_each_child
     invoice,=response.json()['items']
     assert invoice['id']==str(children[0].id) and invoice['special_invoice_sent']
     assert invoice['special_invoice_required'] and invoice['invoice_status']=='unissued'
+    shared = http.get('/translation-customer-finance/page',params={**tracking,'include_invoice_status':True}).json()
+    assert shared['invoice_filter_applied']
+    invoice,=shared['items']
+    assert invoice['invoice_status']=='issued' and invoice['special_invoice_totals']=={'CNY':'30.00'}
+    invoice_url=f'/translation-customer-finance/project/{root.id}/invoice'
+    query={'special':True,'order_id':str(children[0].id)}
+    special=http.get(invoice_url,params=query).json()
+    result=http.put(invoice_url,params=query,json={
+        'version':special['version'],'invoice_status':'partial','proofs':'特殊结算发票备注',
+    })
+    assert result.status_code==200,result.text
+    assert result.json()['proofs']=='特殊结算发票备注'
+    assert http.get(invoice_url).json()['invoice_status']=='unissued'
+
+    import invoice_parties
+    from invoice_workflow import batch_projects
+    monkeypatch.setattr(invoice_parties,'profile',lambda _db,client_id:{
+        'client_id':str(client_id),'client_name':'测试客户','party':{},
+        'subject_key':None,'invoice_type':'electronic_normal',
+    })
+    project,=batch_projects(db,[children[0].id],special=True)
+    assert project['project_id']==str(children[0].id) and project['root_id']==str(root.id)
+    assert project['totals']=={'CNY':'30.00'}
+    with pytest.raises(service.HTTPException,match='没有选定的含税金额'):
+        batch_projects(db,[children[1].id],special=True)
+    with pytest.raises(service.HTTPException,match='避免重复开票'):
+        batch_projects(db,[root.id,children[0].id],special=True)
     standard=http.get('/translation-customer-finance/page',params={
         'settlement_scope':'standard','include_invoice_status':True,
     }).json()

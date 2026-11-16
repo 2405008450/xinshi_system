@@ -34,8 +34,9 @@ async function save(){
   saving.value=true
   error.value=''
   try{
-    await saveOrderInvoiceSelections([{project_id:props.row.root_id||props.row.id,revision:saved.value.revision,
-      subject_key:draft.subject||null,invoice_type:draft.type||null}])
+    await saveOrderInvoiceSelections([{project_id:props.row.special?props.row.id:props.row.root_id||props.row.id,
+      revision:saved.value.revision,subject_key:draft.subject||null,invoice_type:draft.type||null}],
+      props.row.special?'special':undefined)
     notifyInvoiceParties({kind:'records',clientId:String(props.clientId)})
     ElMessage.success('订单开票选择已保存')
   }catch(e){error.value=getLocalizedErrorMessage(e,'保存订单开票选择失败')}

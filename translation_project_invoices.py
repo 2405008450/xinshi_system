@@ -4,9 +4,10 @@ from uuid import UUID,uuid4
 from typing import Literal
 from pydantic import BaseModel,Field
 from fastapi import HTTPException
-from models import TranslationProject,FinanceRecord,AppUser
+from models import TranslationProject,TranslationSubOrder,FinanceRecord,AppUser
 from annotation_progress_time import business_now
 import translation_document_requirements as documents
+import translation_special_settlement as special_settlement
 
 
 class InvoiceWrite(BaseModel):
@@ -45,35 +46,73 @@ def invoice_required(node):
     return True if mode=='incl_tax' else False if mode=='excl_tax' else None
 
 
-def read(db,project_id,order_id=None):
+def special_root_ids(db, order_ids):
+    roots = {order_id: order_id for order_id, in db.query(TranslationProject.id).filter(
+        TranslationProject.id.in_(order_ids), TranslationProject.annotation_migrated_at.is_(None))}
+    roots.update(db.query(TranslationSubOrder.id, TranslationSubOrder.parent_project_id)
+                 .filter(TranslationSubOrder.id.in_(order_ids)).all())
+    if len(roots) != len(order_ids):
+        raise HTTPException(404, '订单不存在')
+    return roots
+
+
+def special_order(root, settings, order_id):
+    if root.get('payment_method') != 'special':
+        raise HTTPException(422, '该项目不属于特殊结算')
+    special_settlement.apply_settings(root, settings)
+    node = next((node for node in special_settlement.order_nodes(root) if node['id'] == str(order_id)), None)
+    if node is None:
+        raise HTTPException(404, '订单不属于该笔译项目')
+    return node
+
+
+def invoice_document(db, project_id):
+    row = db.get(documents.TranslationProjectDocuments, project_id, populate_existing=True)
+    if row is None:
+        row = documents.TranslationProjectDocuments(project_id=project_id, quotation_revision=0)
+        db.add(row)
+    return row
+
+
+def read(db,project_id,order_id=None,*,special=False):
     from translation_customer_finance import read as read_finance
     data=read_finance(db,project_id);root=data['item']
     def find(node):return node if node['id']==str(order_id or project_id) else next((found for child in node.get('children',[]) if (found:=find(child))),None)
     node=find(root)
     if node is None:raise HTTPException(404,'订单不属于该笔译项目')
-    record=db.query(FinanceRecord).filter_by(project_id=project_id).first()
     doc=db.get(documents.TranslationProjectDocuments,project_id) if documents.ready(db) else None
-    invoice = document_invoice(doc)
-    state={'invoice_status':record.invoice_status if record else 'unissued','proofs':invoice.get('proofs',''),
-           'issued_by':invoice.get('issued_by'), 'issued_notification':invoice.get('issued_notification'),
-           'customer_sent':invoice.get('customer_sent')}
+    if special:
+        settings = (doc.quotation_data or {}).get('_special_settlement', {}) if doc else {}
+        node = special_order(root, settings, order_id or project_id)
+        state = special_settlement.invoice_state(settings.get(node['id'], {}))
+        required = node['invoice_required']
+        tax_mode = node['special_tax_mode']
+        totals = special_settlement.billing_totals(node)
+    else:
+        record=db.query(FinanceRecord).filter_by(project_id=project_id).first()
+        invoice = document_invoice(doc)
+        state={'invoice_status':record.invoice_status if record else 'unissued','proofs':invoice.get('proofs',''),
+               'issued_by':invoice.get('issued_by'), 'issued_notification':invoice.get('issued_notification'),
+               'customer_sent':invoice.get('customer_sent')}
+        required, tax_mode, totals = invoice_required(node), node.get('effective_billing_tax_mode'), node.get('billing_totals',{})
     version=hashlib.sha256(json.dumps(state,sort_keys=True).encode()).hexdigest()
     return {**state,'version':version,'project_id':str(project_id),'order_id':node['id'],'order_no':node['order_no'],
-            'client_id':root.get('client_id'),'client_name':root.get('client_short_name') or '-','required':invoice_required(node),
-            'tax_mode':node.get('effective_billing_tax_mode'),'totals':node.get('billing_totals',{}),
+            'client_id':root.get('client_id'),'client_name':root.get('client_short_name') or '-','required':required,
+            'tax_mode':tax_mode,'totals':totals,
             'note':(root.get('document_notes') or {}).get('invoice',''),'payment_version':data['payment']['version']}
 
 
-def save(db,project_id,payload,actor_id,order_id=None):
+def save(db,project_id,payload,actor_id,order_id=None,*,special=False,commit=True):
     import translation_finance_audit as audit
     from crud import get_translation_project
     from editor_screenshot_service import references,valid_references,ready,promote_business_references,now,api_time
     from editor_screenshot_models import EditorScreenshot
-    audit.require_ready(db)
+    if not special:
+        audit.require_ready(db)
     project=db.query(TranslationProject).filter_by(id=project_id).with_for_update().populate_existing().first()
     if project is None:raise HTTPException(404,'笔译项目不存在')
     project=get_translation_project(db,project_id)
-    current=read(db,project_id,order_id)
+    current=read(db,project_id,order_id,special=special)
     if current['version']!=payload.version:raise HTTPException(409,'发票信息已更新，请重新加载后核对')
     refs=references(payload.proofs)
     if refs:
@@ -83,19 +122,29 @@ def save(db,project_id,payload,actor_id,order_id=None):
         if len(images)!=len(refs) or any(not image.blob_sha256 or image.expires_at and api_time(image.expires_at)<=now() for image in images):raise HTTPException(422,'发票截图不存在或已过期')
         promote_business_references(db,refs)
     if not documents.ready(db):raise HTTPException(503,'项目单据存储尚未初始化')
+    moment=business_now()
+    doc=invoice_document(db, project_id)
+    actor=db.get(AppUser, actor_id)
+    if special:
+        state = {'invoice_status': payload.invoice_status, 'proofs': payload.proofs}
+        if payload.invoice_status == 'issued':
+            state['issued_by'] = current['issued_by'] or action_value(actor, moment)
+        else:
+            state.update(issued_by=None, issued_notification=None, invoice_sent=False, customer_sent=None)
+        special_settlement.update_order_data(doc, order_id or project_id, state, actor_id, moment)
+        if commit:
+            db.commit()
+        else:
+            db.flush()
+        return read(db, project_id, order_id, special=True)
     project.invoice_data = {key:current[key] for key in ('invoice_status', 'proofs')}
     project.invoice_data.update({key:current[key] for key in ('issued_by', 'issued_notification', 'customer_sent') if current[key]})
     before=audit.capture(project)
-    moment=business_now()
     record=db.query(FinanceRecord).filter_by(project_id=project_id).with_for_update().first()
     if record is None:
         record=FinanceRecord(id=uuid4(),project_id=project_id,created_at=moment.replace(tzinfo=None));db.add(record)
     record.invoice_status=payload.invoice_status;record.edited_by=actor_id;record.updated_at=moment.replace(tzinfo=None)
-    doc=db.get(documents.TranslationProjectDocuments,project_id)
-    if doc is None:
-        doc=documents.TranslationProjectDocuments(project_id=project_id,quotation_revision=0);db.add(doc)
     state = {**document_invoice(doc), 'invoice_status':payload.invoice_status, 'proofs':payload.proofs}
-    actor = db.get(AppUser, actor_id)
     if payload.invoice_status == 'issued' and (current['invoice_status'] != 'issued' or not current['issued_by']):
         state['issued_by'] = action_value(actor, moment)
     elif payload.invoice_status != 'issued':
@@ -103,11 +152,18 @@ def save(db,project_id,payload,actor_id,order_id=None):
         state.pop('issued_notification', None)
     update_document_invoice(doc, state, actor_id, moment)
     project.invoice_data=state
-    db.flush();audit.append(db,actor,project,before);db.commit()
+    db.flush();audit.append(db,actor,project,before)
+    if commit:
+        db.commit()
     return {**read(db,project_id,order_id),'previous_payment_version':current['payment_version']}
 
 
-def record_completion_notice(db, project_id, actor, moment):
+def record_completion_notice(db, project_id, actor, moment, *, order_id=None, special=False):
+    if special:
+        doc = invoice_document(db, project_id)
+        special_settlement.update_order_data(doc, order_id or project_id,
+            {'issued_notification': action_value(actor, moment)}, actor.id, moment)
+        return
     doc = db.get(documents.TranslationProjectDocuments, project_id)
     invoice = document_invoice(doc)
     action = action_value(actor, moment)
@@ -115,11 +171,23 @@ def record_completion_notice(db, project_id, actor, moment):
                                   'issued_notification':action}, actor.id, moment)
 
 
-def set_customer_sent(db, project_id, actor, sent):
+def set_customer_sent(db, project_id, actor, sent, *, order_id=None, special=False):
     if not documents.ready(db):
         raise HTTPException(503, '项目单据存储尚未初始化')
     if not db.query(TranslationProject.id).filter_by(id=project_id).with_for_update().first():
         raise HTTPException(404, '笔译项目不存在')
+    if special:
+        invoice = read(db, project_id, order_id, special=True)
+        if bool(invoice['customer_sent']) == sent:
+            return {'customer_sent': invoice['customer_sent']}
+        if sent and invoice['invoice_status'] != 'issued':
+            raise HTTPException(422, '请先确认已开票')
+        moment = business_now()
+        action = action_value(actor, moment) if sent else None
+        special_settlement.update_order_data(invoice_document(db, project_id), order_id or project_id,
+            {'invoice_sent': sent, 'customer_sent': action}, actor.id, moment)
+        db.commit()
+        return {'customer_sent': action}
     doc = db.get(documents.TranslationProjectDocuments, project_id)
     invoice = document_invoice(doc)
     if bool(invoice.get('customer_sent')) == sent:

@@ -10,6 +10,7 @@ function harness(response){
   const ctx={paymentFilters:reactive({months:['2020-01'],client:'其他客户',status:fullPaymentMismatchOption.value}),
     activeTab:ref('overview'),managerScope:ref('self'),managerIds:ref([]),projectPage:ref(2),props:{},selectedId:ref(''),scopeMonth:ref('2020-02'),
     projectSort:ref(),invoiceClientIds:ref([]),statementCustomerMode:ref(''),collectionDefaultView:ref(false),
+    completeInvoiceScope:ref(false),
     previousSelectionScope:'',projectTable:ref(),selectedProjects:ref([]),collectBillingCurrencies:()=>({}),
     searchSequence:0,controller:null,projectTimer:null,clearTimeout,AbortController,
     options:ref([{id:'old-unpaid',paymentStatus:'unpaid'}]),projectTotal:ref(1),error:ref(''),searching:ref(false),
@@ -53,6 +54,23 @@ test('只有已付全款且金额不匹配的记录使用新状态文案',()=>{
   assert.equal(paymentStatusLabel({paymentStatus:'deposit',paymentAmountMismatch:true}),'已付定金')
 })
 
+test('行入口固定使用订单客户经理，发票保留整个同期结算组',()=>{
+  const ctx=harness({})
+  ctx.props.scopeOrder={id:'root',clientId:'customer',clientManagerId:'manager-1',clientManager:'指定经理'}
+  assert.deepEqual(Array.from(ctx.paymentQuery('').manager_ids),['manager-1'])
+  assert.equal(ctx.paymentQuery('').only_mine,false)
+  delete ctx.props.scopeOrder.clientManagerId
+  assert.equal(ctx.paymentQuery('').fixed_manager_name,'指定经理')
+  delete ctx.props.scopeOrder.clientManager
+  assert.equal(ctx.paymentQuery('').fixed_manager_name,'')
+  ctx.activeTab.value='invoice'
+  const invoice=ctx.paymentQuery('')
+  assert.equal(invoice.settlement_project_id,'root')
+  assert.equal(invoice.manager_ids,undefined)
+  assert.equal(invoice.fixed_manager_name,undefined)
+  assert.equal(invoice.only_mine,false)
+})
+
 test('旧后端忽略参数或返回未付款项目时清空结果并提示，不能伪装筛选成功',async()=>{
   for(const response of [
     {items:[{id:'unpaid',paymentStatus:'unpaid'}],total:1},
@@ -73,7 +91,7 @@ test('核对列表只展示已付全款母订单，不混入没有独立付款�
 
 test('付款查看窗口移除登记选项卡，编辑操作回到统一价格与付款入口',()=>{
   assert.doesNotMatch(source, /label="付款登记"|name="register"|save\(sync/)
-  const events=[],ctx={emit:(...args)=>events.push(args)};vm.createContext(ctx)
+  const events=[],ctx={emit:(...args)=>events.push(args),beforeClose:done=>done()};vm.createContext(ctx)
   vm.runInContext(source.slice(source.indexOf('function openPaymentRow('),source.indexOf('function reloadPayment(')),ctx)
   ctx.openPaymentRow({id:'p1'})
   assert.equal(events[0][0],'edit');assert.equal(events[0][1].id,'p1')

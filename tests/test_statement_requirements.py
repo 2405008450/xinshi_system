@@ -40,6 +40,39 @@ def test_month_page_has_shared_statement_flag_and_total(setup):
     assert previous['total']==1 and previous['items'][0]['id']==str(october.id)
 
 
+def test_entry_deadline_retains_first_overdue_after_price_saved(setup, monkeypatch):
+    from datetime import datetime
+    from annotation_progress_time import business_datetime
+    from project_client_manager import ProjectClientManagerChange
+    from translation_entry_deadlines import project_status
+    from word_count_models import WordCountMetric
+
+    _, db, _, _, manager, _, order, _ = setup
+    order.customer_reception_time = datetime(2026, 11, 9, 9)
+    charge = order.customer_charge_items[0]
+    charge.unit_price = charge.unit_price_excl_tax = charge.unit_price_incl_tax = None
+    db.add(ProjectClientManagerChange(project_type='translation', project_id=order.id,
+         revision=1, new_manager_id=manager.id, reason='测试客户经理'))
+    db.add(WordCountMetric(id=uuid4(), project_id=order.id, dimension='preliminary',
+                          metric_type='documents', count_value=10))
+    db.commit()
+
+    monkeypatch.setattr('translation_entry_deadlines.business_now',
+                        lambda: business_datetime(datetime(2026, 11, 11, 23, 59)))
+    assert project_status(db, order.id)['first_overdue'] == {}
+    monkeypatch.setattr('translation_entry_deadlines.business_now',
+                        lambda: business_datetime(datetime(2026, 11, 12, 8)))
+    initial = project_status(db, order.id)
+    assert initial['overdue'] == {'word_count': False, 'unit_price': True}
+    assert initial['first_overdue']['unit_price']['overdue_on'] == '2026-11-12'
+    db.commit()
+    charge.unit_price_excl_tax = Decimal('1.2')
+    db.commit()
+    resolved = project_status(db, order.id)
+    assert not resolved['overdue']['unit_price']
+    assert resolved['first_overdue'] == initial['first_overdue']
+
+
 @pytest.mark.parametrize('setup', ['special'], indirect=True)
 def test_full_payments_default_no_statement_and_deposit_still_requires_one(setup):
     import json
@@ -235,11 +268,11 @@ def test_finance_payment_defaults_are_independent_of_statement_requirement(setup
 def test_finance_manager_sort_matches_project_display_before_pagination(setup):
     from project_client_manager import ProjectClientManagerChange
 
-    http, db, clients, _, _, october, november, personal = setup
+    http, db, clients, _, manager, october, november, personal = setup
     clients[0].client_manager = 'Zulu'
     clients[1].client_manager = 'Mike'
     db.add(ProjectClientManagerChange(project_type='translation', project_id=november.id,
-        revision=1, new_manager_name='Alpha', reason='调整客户经理'))
+        revision=1, new_manager_id=manager.id, new_manager_name='Alpha', reason='调整客户经理'))
     db.add(ProjectClientManagerChange(project_type='translation', project_id=october.id,
         revision=1, reason='取消分配'))
     db.commit()
@@ -257,6 +290,13 @@ def test_finance_manager_sort_matches_project_display_before_pagination(setup):
             assert result['total'] == 3
             assert result['items'][0]['id'] == str(project_row.id)
             assert result['items'][0]['client_manager'] == manager_name
+            if project_row is november:
+                assert result['items'][0]['client_manager_id'] == str(manager.id)
+
+    for name, ids in [('Alpha', [str(november.id)]), ('Al', []), ('', [str(october.id)])]:
+        response = http.get('/translation-customer-finance/page', params={'fixed_manager_name': name})
+        assert response.status_code == 200, response.text
+        assert [row['id'] for row in response.json()['items']] == ids
 
 
 def test_copy_same_client_and_bill_month_only(setup):
@@ -447,6 +487,12 @@ def test_monthly_settlement_only_includes_orders_in_the_same_period(setup):
         }))
     db.commit()
     endpoint = f'/translation-customer-finance/project/{root.id}'
+    # The other order comes first in the membership query and has not been loaded by a finance read yet.
+    anchor = max((root, same), key=lambda order: order.id)
+    initial_scope = http.get(f'/translation-customer-finance/project/{anchor.id}/invoice-scope')
+    assert initial_scope.status_code == 200, initial_scope.text
+    assert initial_scope.json()['merged'] is True
+    assert {row['id'] for row in initial_scope.json()['items']} == {str(root.id), str(same.id)}
     summary = http.get(f'{endpoint}/payment-summary', params={'method':'monthly'}).json()
     expected = {str(root.id), str(same.id)}
     assert {row['id'] for row in summary['orders']} == expected
@@ -460,6 +506,10 @@ def test_monthly_settlement_only_includes_orders_in_the_same_period(setup):
     })
     assert invoice_candidates.status_code == 200, invoice_candidates.text
     assert {row['id'] for row in invoice_candidates.json()['items']} == expected
+    invoice_scope = http.get(f'{endpoint}/invoice-scope')
+    assert invoice_scope.status_code == 200, invoice_scope.text
+    assert invoice_scope.json()['merged'] is True
+    assert {row['id'] for row in invoice_scope.json()['items']} == expected
     for order in (other, unassigned):
         response = http.get(f'/translation-customer-finance/project/{order.id}')
         assert response.json()['item']['payment_method'] == 'individual'
@@ -476,6 +526,11 @@ def test_monthly_settlement_only_includes_orders_in_the_same_period(setup):
     for order, mode in [(same, 'incl_tax'), (other, 'excl_tax'), (unassigned, 'excl_tax')]:
         response = http.get(f'/translation-customer-finance/project/{order.id}')
         assert response.json()['item']['effective_billing_tax_mode'] == mode
+    scope = http.get(f'{endpoint}/invoice-scope').json()
+    assert Decimal(str(scope['invoice_totals']['CNY'])) == sum(
+        Decimal(str(row['invoice_totals'].get('CNY', 0))) for row in scope['items']
+    )
+    assert all('has_children' in row for row in scope['items'])
 
 
 def test_finance_row_dropdowns_and_filters_share_month_and_manager_scope(setup):

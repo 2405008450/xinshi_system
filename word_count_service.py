@@ -353,6 +353,9 @@ def patch_word_count_matrix(
         row.id for row in _arrangements_for_entity(db, entity_type, entity, dispatch_id)
     }
     try:
+        if entity_changes:
+            from translation_entry_deadlines import project_status
+            project_status(db, entity.id if entity_type == 'project' else entity.parent_project_id)
         for change in payload.changes:
             if change.scope == "translator" and change.arrangement_id not in allowed_arrangements:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="译员安排不属于当前项目或批次")

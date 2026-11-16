@@ -71,3 +71,35 @@ def test_client_with_only_cross_month_pending_still_appears_in_target_month(setu
     assert result['total']==1 and result['items'][0]['pending_count']==1
     assert result['items'][0]['project_count']==0
     assert groups.customers(db,'2026-12',False,None,0,20)['total']==0
+
+
+def test_period_preview_reports_current_board_and_target_project_assignment(setup):
+    http,db,_,_,_,_,order=setup
+    state=imported(setup,['2026-11'])
+    state=change(setup,state,'add_billing_period',{'month':'2026-11'})
+    first,second=state['documents']
+    task_id=str(order.id)
+    url=f"/translation-statement-workspaces/{state['client_id']}/pending-period-preview"
+
+    def preview(month):
+        response=http.post(url,json={'month':month,'task_ids':[task_id]})
+        assert response.status_code==200,response.text
+        return response.json()[0]
+
+    state=change(setup,state,'move_tasks',{'task_ids':[task_id],'month':'2026-11','board_id':second['id']})
+    item=preview('2026-11')
+    assert item['current_period']==2 and item['target_needs_period'] is True
+    assert preview('2026-12')['target_needs_period'] is False
+    assignment={'month':'2026-11','number':1,'board_id':first['id']}
+    document=db.get(documents.TranslationProjectDocuments,order.id)
+    if document is None:
+        document=documents.TranslationProjectDocuments(project_id=order.id)
+        db.add(document)
+    document.quotation_data={**(document.quotation_data or {}),'_billing_period':assignment}
+    db.commit()
+    item=preview('2026-11')
+    assert item['current_period']==2 and item['target_period']==1
+    state=change(setup,state,'schedule_tasks',{'task_ids':[task_id],'month':'2026-11'})
+    item=preview('2026-12')
+    assert item['current_pending'] is True and item['current_period']==1
+    assert item['target_period'] is None and item['target_needs_period'] is False

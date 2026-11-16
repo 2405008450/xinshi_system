@@ -11,7 +11,7 @@
     </div>
     <ScreenshotText v-if="enabled && ids.length" :text="String(modelValue||'')" :show-text="false" :removable="!readonly&&!uploading"
       :invoice-drag="allowInvoiceFiles" :invoice-order-no="invoiceOrderNo" @remove="remove" />
-    <small v-if="allowInvoiceFiles && ids.length" class="invoice-drag-help">拖动附件到其他订单的发票上传区。拖到桌面或聊天窗口可用桌面版，也可下载后从文件夹拖入。</small>
+    <small v-if="allowInvoiceFiles && ids.length" class="invoice-drag-help">拖动附件到其他订单的发票上传区。{{desktopInvoiceDrag?'点击「准备拖出」后，可拖到桌面、微信或企微。':'可下载附件，再从下载文件夹拖到桌面、微信或企微。'}}</small>
     <span v-if="error" role="alert" class="app-screenshot-error">{{ error }}<button type="button" @click="error=''">×</button></span>
   </div>
   <BaseInput v-else ref="control" v-bind="$attrs" :type="type" :model-value="modelValue" @update:model-value="value=>$emit('update:modelValue',value)" @input="value=>$emit('input',value)" @change="value=>$emit('change',value)"><template v-for="(_,name) in $slots" #[name]="data"><slot :name="name" v-bind="data" /></template></BaseInput>
@@ -20,11 +20,12 @@
 import { computed,defineAsyncComponent,nextTick,onBeforeUnmount,onMounted,ref,useAttrs } from 'vue'
 import { ElInput as BaseInput } from 'element-plus'
 import 'element-plus/es/components/input/style/css'
-import { screenshotIds,screenshotText,screenshotValue } from '@/utils/screenshotReferences'
+import { invoiceDragType,screenshotIds,screenshotText,screenshotValue } from '@/utils/screenshotReferences'
 import { registerScreenshotUpload } from '@/utils/screenshotUploads'
 defineOptions({inheritAttrs:false})
 const ScreenshotText=defineAsyncComponent(()=>import('./ScreenshotText.vue'))
 const props=defineProps({modelValue:[String,Number],type:{type:String,default:'text'},showScreenshotTools:{type:Boolean,default:true},allowInvoiceFiles:Boolean,invoiceRequestId:String,invoiceOrderNo:String,uploadHelp:String})
+const desktopInvoiceDrag=Boolean(window.xinshiDesktop?.prepareInvoiceFile && window.xinshiDesktop?.dragStatementFile)
 const emit=defineEmits(['update:modelValue','input','change','uploading-change','attachment-added'])
 const attrs=useAttrs(),control=ref(),root=ref(),enabled=ref(true),chat=ref(false),uploading=ref(false),error=ref('')
 const ids=computed(()=>screenshotIds(props.modelValue)),plain=computed(()=>screenshotText(props.modelValue)),readonly=computed(()=>attrs.disabled!==undefined&&attrs.disabled!==false||attrs.readonly!==undefined&&attrs.readonly!==false)
@@ -82,16 +83,32 @@ async function add(files) {
   }
 }
 function paste(event){if(!enabled.value||readonly.value)return;const files=Array.from(event.clipboardData?.files||[]).filter(file=>file.type.startsWith('image/'));if(files.length){if(!event.clipboardData.getData('text/plain'))event.preventDefault();event.stopPropagation();void nextTick().then(()=>add(files))}}
-function drop(event) {
+async function drop(event) {
   if (!enabled.value || chat.value) return
   const dropped = Array.from(event.dataTransfer?.files || [])
-  if (!dropped.length) return
+  const internalInvoice = event.dataTransfer?.getData(invoiceDragType)
+  if (!dropped.length && !internalInvoice) return
   const files = dropped.filter(file => file.type.startsWith('image/') || invoiceFileExtension(file))
   if (!files.length && !props.allowInvoiceFiles) return
   event.preventDefault()
   event.stopPropagation()
   if (readonly.value || uploading.value) return
   if (files.length) void add(files)
+  else if (internalInvoice) {
+    try {
+      const {url,name} = JSON.parse(internalInvoice)
+      const source = new URL(url)
+      if (source.protocol !== 'blob:' || source.origin !== window.location.origin) throw new Error()
+      const response = await fetch(source)
+      if (!response.ok) throw new Error()
+      const blob = await response.blob()
+      const file = new File([blob], name, {type:blob.type})
+      if (!file.type.startsWith('image/') && !invoiceFileExtension(file)) throw new Error()
+      if (!disposed) await add([file])
+    } catch {
+      error.value = '无法读取拖出的发票，请下载附件后再拖入。'
+    }
+  }
   else error.value = '请拖入 PDF、OFD 或图片文件'
 }
 function choose(event){void add(Array.from(event.target.files||[]));event.target.value=''}

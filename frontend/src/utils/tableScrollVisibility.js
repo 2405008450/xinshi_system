@@ -118,7 +118,8 @@ export function installTableScrollVisibility(doc = document) {
     const modalLayers = [...doc.querySelectorAll('.el-overlay.el-modal-dialog')]
       .filter(layer => layer.getClientRects().length)
       .map(element => ({ element, z: Number.parseInt(win.getComputedStyle(element).zIndex, 10) || 0 }))
-    const candidates = doc.querySelectorAll('.el-table, table, .arrangement-projects')
+    // Descriptions use a table for field layout and share the dialog's scroll area.
+    const candidates = doc.querySelectorAll('.el-table, table:not(.el-descriptions__table), .arrangement-projects')
     const live = new Set()
     for (const root of candidates) {
       const item = descriptor(root)

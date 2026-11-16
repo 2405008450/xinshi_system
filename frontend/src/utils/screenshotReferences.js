@@ -1,4 +1,5 @@
 export const screenshotPattern=/!\[截图\]\(screenshot:\/\/([0-9a-f-]{36})(?:#[0-9a-f]{64})?\)/gi
+export const invoiceDragType='application/x-xinshi-invoice-file'
 export const screenshotIds=value=>{current();return [...new Set(Array.from(String(value||'').matchAll(/screenshot:\/\/([0-9a-f-]{36})(?:#([0-9a-f]{64}))?/gi),match=>{const id=match[1].toLowerCase();if(match[2])signedRefs.set(id,match[0]);return id}))]}
 const trailingRefs=/\n?(?:!\[截图\]\(screenshot:\/\/[0-9a-f-]{36}(?:#[0-9a-f]{64})?\)\n?)+$/i
 export const screenshotText=value=>{const text=String(value??'');return screenshotIds(text).length?text.replace(trailingRefs,'').replace(screenshotPattern,''):text}

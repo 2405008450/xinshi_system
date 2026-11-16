@@ -1,5 +1,6 @@
 """发票负责人、主动发送开票需求及发票文件附件。"""
 from decimal import Decimal
+import hashlib
 from uuid import UUID,uuid4
 from urllib.parse import quote
 from typing import Literal
@@ -104,6 +105,7 @@ class RequestWrite(BaseModel):
 
 class BatchSelection(BaseModel):
     project_ids: list[UUID] = Field(min_length=1, max_length=100)
+    settlement_scope: Literal['special'] | None = None
 
 
 class BatchWrite(BatchSelection):
@@ -148,7 +150,8 @@ def latest_invoice_selections(db, ids):
     labels={label:key for key,label in INVOICE_TYPES.items()}
     for request in query:
         snapshot=request.snapshot
-        members={item.get('project_id') for item in snapshot.get('projects',[])} or {str(request.project_id)}
+        members=({item.get('project_id') for item in snapshot['projects'] if not item.get('root_id')}
+                 if 'projects' in snapshot else {str(request.project_id)})
         invoice_type=(snapshot.get('submission') or {}).get('invoice_type') or labels.get(snapshot.get('invoice_type'))
         for uid in requested & members:
             found.setdefault(uid,{'subject_key':request.subject_key,'invoice_type':invoice_type,'revision':0})
@@ -157,35 +160,50 @@ def latest_invoice_selections(db, ids):
     return found
 
 
-def batch_projects(db, project_ids):
+def batch_projects(db, project_ids, *, special=False):
     from crud import get_translation_project
     from invoice_parties import profile
     from translation_customer_finance import tree
+    from translation_document_requirements import attach as attach_documents
+    from translation_project_invoices import special_order, special_root_ids
+    import translation_special_settlement as special_settlement
     if len(set(project_ids)) != len(project_ids):
         raise HTTPException(422, '项目不能重复')
     projects = []
     statement_subjects = {}
-    selections=order_invoice_selections(db,project_ids)
+    roots = special_root_ids(db, project_ids) if special else {}
+    settings = special_settlement.settings_by_project(db, set(roots.values()))
+    selections=order_invoice_selections(db,project_ids,special_roots=roots)
+    selected = {str(order_id) for order_id in project_ids}
     for project_id in project_ids:
-        project = get_translation_project(db, project_id)
+        project = get_translation_project(db, roots.get(project_id, project_id))
         if project is None:
             raise HTTPException(404, '项目不存在')
+        attach_documents(db, [project])
         node = tree(project, include_version=False)['item']
-        amounts = selected_incl_totals(node)
+        if special:
+            node = special_order(node, settings.get(project.id, {}), project_id)
+            if node.get('price_aggregate') and any(child['id'] in selected for child in special_settlement.order_nodes(node) if child is not node):
+                raise HTTPException(422, '已选择汇总订单，请取消勾选其下级订单，避免重复开票')
+            amounts = special_settlement.billing_totals(node, tax_mode='incl_tax')
+        else:
+            if node.get('payment_method') == 'special':
+                raise HTTPException(422, '请从特殊结算发票发起开票需求')
+            amounts = selected_incl_totals(node)
         if not amounts:
-            raise HTTPException(422, f'{project.order_no} 没有选定的含税金额')
+            raise HTTPException(422, f"{node['order_no']} 没有选定的含税金额")
         if not node.get('client_id'):
             raise HTTPException(422, f'{project.order_no} 尚未关联客户')
         client = profile(db, UUID(node['client_id']))
         client_id = client['client_id']
         if client_id not in statement_subjects:
             from customer_statement_workspace import invoice_subjects_by_order
-            statement_subjects[client_id] = invoice_subjects_by_order(db, UUID(client_id))
+            statement_subjects[client_id] = invoice_subjects_by_order(db, UUID(client_id), special=special)
         subjects = statement_subjects[client_id].get(str(node.get('root_id') or project.id), set())
         fallback_subject=invoice_subject_default(client['subject_key'],subjects)
-        selection=effective_invoice_selection(selections.get(str(project.id),{}),fallback_subject,client['invoice_type'])
-        projects.append({'project_id': str(project.id), 'order_no': project.order_no,
-                         'project_name': project.source_file_name or project.project_name,
+        selection=effective_invoice_selection(selections.get(str(project_id),{}),fallback_subject,client['invoice_type'])
+        projects.append({'project_id': str(project_id), **({'root_id':str(project.id)} if special else {}),
+                         'order_no': node['order_no'], 'project_name': node['project_name'],
                          'client_id': client['client_id'], 'client_name': client['client_name'],
                          'client_party': client['party'], 'default_subject': selection['subject_key'],
                          'invoice_selection':selection,'client_invoice_subject':client['subject_key'],
@@ -231,16 +249,24 @@ def send_batch(db, actor, payload):
         payload=payload.model_copy(update={'tax_rate':6})
     key = str(payload.idempotency_key)
     # Lock the selected orders in a stable order so a retry sees the committed request.
-    db.query(TranslationProject.id).filter(TranslationProject.id.in_(payload.project_ids)).order_by(TranslationProject.id).with_for_update().all()
+    special = payload.settlement_scope == 'special'
+    if special:
+        from translation_project_invoices import special_root_ids
+        roots = special_root_ids(db, payload.project_ids)
+    else:
+        roots = {}
+    db.query(TranslationProject.id).filter(TranslationProject.id.in_(roots.values() if special else payload.project_ids)).order_by(TranslationProject.id).with_for_update().all()
     previous = db.query(InvoiceRequest).filter_by(idempotency_key=key).first()
     submission = payload.model_dump(mode='json', exclude={'idempotency_key'})
     if payload.selection_revisions is None:
         submission.pop('selection_revisions')
+    if not special:
+        submission.pop('settlement_scope')
     if previous:
         if previous.created_by != actor.id or previous.snapshot.get('submission') != submission:
             raise HTTPException(409, '需求发送标识不匹配')
         return request_value(previous, actor)
-    projects = batch_projects(db, payload.project_ids)
+    projects = batch_projects(db, payload.project_ids, special=special)
     if payload.invoice_type.endswith('_special'):
         allowed = {6} if payload.subject_key == 'guangzhou' else {1, 3}
         if payload.tax_rate not in allowed:
@@ -256,7 +282,7 @@ def send_batch(db, actor, payload):
     snapshot = {'projects': projects, 'subject': issuer, 'invoice_type': INVOICE_TYPES[payload.invoice_type],
                 'tax_rate': payload.tax_rate, 'note': payload.note, 'sender': actor.full_name or actor.username,
                 'recipient_names': [names[uid] for uid in config['user_ids']], 'submission': submission}
-    row = InvoiceRequest(id=uuid4(), idempotency_key=key, project_id=UUID(first['project_id']),
+    row = InvoiceRequest(id=uuid4(), idempotency_key=key, project_id=UUID(first.get('root_id',first['project_id'])),
         client_id=UUID(first['client_id']), subject_key=payload.subject_key, recipients=config['user_ids'],
         snapshot=snapshot, created_by=actor.id, created_at=business_now())
     db.add(row)
@@ -265,7 +291,8 @@ def send_batch(db, actor, payload):
     for project in projects:
         project_id=UUID(project['project_id'])
         store_order_invoice_selection(db,project_id,payload.subject_key,payload.invoice_type,actor.id,
-                                      revision=payload.selection_revisions[project_id] if payload.selection_revisions is not None else None)
+                                      revision=payload.selection_revisions[project_id] if payload.selection_revisions is not None else None,
+                                      special_root=roots.get(project_id))
     title = f"开票需求 · {first['order_no']}" + (f' 等 {len(projects)} 个项目' if len(projects) > 1 else '')
     notices = [create_notice(db, row, UUID(uid), 'invoice_request', title,
                              f"{snapshot['sender']}发来{snapshot['invoice_type']}开票需求，请确认收到。")
@@ -305,6 +332,52 @@ def workflow_project(row, project_id):
     if project is None:
         raise HTTPException(404, '项目不在本次开票需求中')
     return project
+
+
+def invoice_group(row, project_id, combined):
+    project = workflow_project(row, project_id)
+    members = [item for item in row.snapshot.get('projects', []) if item['client_id'] == project.get('client_id')]
+    if len(members) < 2:
+        return [project]
+    deliveries = row.snapshot.get('deliveries', {})
+    if any(item['project_id'] in deliveries and not deliveries[item['project_id']].get('combined_invoice_id') for item in members):
+        if combined:
+            raise HTTPException(409, '该组已有逐单发送的发票，请继续查看各订单的原发票')
+        return [project]
+    return members
+
+
+def invoice_identity(project):
+    order_id = UUID(project['project_id'])
+    root_id = project.get('root_id')
+    return (UUID(root_id) if root_id else order_id), order_id, bool(root_id)
+
+
+def group_invoice(db, projects, *, lock=False):
+    from translation_project_invoices import read
+    identities = [invoice_identity(project) for project in projects]
+    if lock:
+        roots = {root for root, _, _ in identities}
+        db.query(TranslationProject.id).filter(TranslationProject.id.in_(roots)).order_by(
+            TranslationProject.id).with_for_update().all()
+    records = [read(db, root, order, special=special) for root, order, special in identities]
+    invoice = records[0]
+    if len(records) == 1:
+        return invoice, records
+    group = customer_groups(projects)[0]
+    versions = '\n'.join(record['version'] for record in records)
+    return {**invoice, 'version': hashlib.sha256(versions.encode()).hexdigest(), 'required': True, 'totals': group['totals']}, records
+
+
+def needs_combined_delivery(row, key):
+    projects = row.snapshot.get('projects', [])
+    project = next((item for item in projects if item['project_id'] == key), None)
+    if not project:
+        return False
+    group = [item for item in projects if item['client_id'] == project['client_id']]
+    deliveries = row.snapshot.get('deliveries', {})
+    return len(group) > 1 and not any(item['project_id'] in deliveries and
+        not deliveries[item['project_id']].get('combined_invoice_id') for item in group)
 
 
 def require_invoice_recipient(db, request_id, actor):
@@ -397,7 +470,7 @@ def create_test_recipient(payload: TestRecipientWrite, db=Depends(get_db), actor
 def preview_batch(payload: BatchSelection, db=Depends(get_db), actor=Depends(BATCH_WRITE)):
     from invoice_parties import SUBJECTS, subject
     config = batch_settings(db)
-    projects = batch_projects(db, payload.project_ids)
+    projects = batch_projects(db, payload.project_ids, special=payload.settlement_scope=='special')
     return {'projects': projects, 'customer_groups': customer_groups(projects),
             'subjects': [subject(db, key) for key in SUBJECTS],
             'settings_revision': config['revision'],
@@ -460,7 +533,9 @@ def confirm_receipt(request_id: UUID, payload: ReceiptWrite, db=Depends(get_db),
             raise HTTPException(409, '该项目尚未发送发票')
         if delivery.get('receipt'):
             return request_value(row, actor)
-        row.snapshot = {**row.snapshot, 'deliveries': {**deliveries, project['project_id']: {**delivery, 'receipt': receipt}}}
+        combined_id = delivery.get('combined_invoice_id')
+        received_ids = [key for key, value in deliveries.items() if value.get('combined_invoice_id') == combined_id] if combined_id else [project['project_id']]
+        row.snapshot = {**row.snapshot, 'deliveries': {**deliveries, **{key: {**deliveries[key], 'receipt': receipt} for key in received_ids}}}
         target = UUID(delivery['sender_id'])
         title, content = '发票收到回执', f"{name}已确认收到 {project['order_no']} 的发票。"
     commit_notices(db, [create_notice(db, row, target, 'invoice_receipt', title, content)])
@@ -468,48 +543,69 @@ def confirm_receipt(request_id: UUID, payload: ReceiptWrite, db=Depends(get_db),
 
 
 @router.get('/requests/{request_id}/projects/{project_id}/invoice')
-def read_request_invoice(request_id: UUID, project_id: UUID, db=Depends(get_db), actor=Depends(get_current_user)):
-    from translation_project_invoices import read
+def read_request_invoice(request_id: UUID, project_id: UUID, db=Depends(get_db), actor=Depends(get_current_user), combined:bool=False):
     row = accessible_request(db, request_id, actor)
-    workflow_project(row, project_id)
+    projects = invoice_group(row, project_id, combined)
     delivery = row.snapshot.get('deliveries', {}).get(str(project_id))
-    if str(actor.id) not in row.recipients and not delivery:
-        raise HTTPException(409, '该项目尚未发送发票')
-    invoice = read(db, project_id)
-    if delivery:
-        invoice.update(proofs=delivery['proofs'], invoice_status='issued')
+    uploaded = row.snapshot.get('uploaded_invoices', {}).get(str(project_id))
+    if str(actor.id) not in row.recipients and not (delivery or uploaded):
+        raise HTTPException(409, '发票尚未上传')
+    shared = delivery or (uploaded if str(actor.id) not in row.recipients else None)
+    if shared:
+        project = projects[0]
+        return {'proofs':shared['proofs'],'invoice_status':'issued','required':True,
+                'order_no':project['order_no'],'client_name':project.get('client_name'),
+                'totals':customer_groups(projects)[0]['totals'] if len(projects)>1 else project.get('totals',{})}
+    invoice, _ = group_invoice(db, projects)
     return invoice
 
 
 @router.put('/requests/{request_id}/projects/{project_id}/invoice')
-def save_request_invoice(request_id: UUID, project_id: UUID, payload: InvoiceWrite, db=Depends(get_db), actor=Depends(get_current_user)):
+def save_request_invoice(request_id: UUID, project_id: UUID, payload: InvoiceWrite, db=Depends(get_db), actor=Depends(get_current_user), combined:bool=False):
+    from editor_screenshot_service import valid_references
     from translation_project_invoices import save
     row = accessible_request(db, request_id, actor, lock=True)
     if str(actor.id) not in row.recipients:
         raise HTTPException(403, '仅开票接收人可操作')
     if str(actor.id) not in row.snapshot.get('request_receipts', {}):
         raise HTTPException(409, '请先发送开票需求的收到回执')
-    workflow_project(row, project_id)
-    if str(project_id) in row.snapshot.get('deliveries', {}):
+    projects = invoice_group(row, project_id, combined)
+    if any(project['project_id'] in row.snapshot.get('deliveries', {}) for project in projects):
         raise HTTPException(409, '该项目的发票已发送')
-    return save(db, project_id, payload, actor.id)
+    current, records = group_invoice(db, projects, lock=True)
+    if current['version'] != payload.version:
+        raise HTTPException(409, '发票信息已更新，请重新加载后核对')
+    for project, record in zip(projects, records):
+        root, order, special = invoice_identity(project)
+        save(db, root, payload.model_copy(update={'version':record['version']}), actor.id, order, special=special, commit=False)
+    uploaded = dict(row.snapshot.get('uploaded_invoices', {}))
+    for project in projects:
+        key = project['project_id']
+        if payload.invoice_status == 'issued' and valid_references(payload.proofs):
+            uploaded[key] = {'proofs':payload.proofs}
+        else:
+            uploaded.pop(key, None)
+    row.snapshot = {**row.snapshot, 'uploaded_invoices':uploaded}
+    db.commit()
+    invoice, _ = group_invoice(db, projects)
+    return invoice
 
 
 @router.post('/requests/{request_id}/projects/{project_id}/deliver')
-def deliver_invoice(request_id: UUID, project_id: UUID, payload: DeliveryWrite, db=Depends(get_db), actor=Depends(get_current_user)):
+def deliver_invoice(request_id: UUID, project_id: UUID, payload: DeliveryWrite, db=Depends(get_db), actor=Depends(get_current_user), combined:bool=False):
     row = accessible_request(db, request_id, actor, lock=True)
     if str(actor.id) not in row.recipients:
         raise HTTPException(403, '仅开票接收人可发送发票')
     if str(actor.id) not in row.snapshot.get('request_receipts', {}):
         raise HTTPException(409, '请先发送开票需求的收到回执')
-    workflow_project(row, project_id)
+    projects = invoice_group(row, project_id, combined)
     if str(project_id) in row.snapshot.get('deliveries', {}):
         return request_value(row, actor)
-    complete_deliveries(db, [row], project_id, actor, payload.version)
+    complete_deliveries(db, [row], project_id, actor, payload.version, projects=projects)
     return request_value(row, actor)
 
 
-def pending_invoice_requests(db, project_id, actor, *, lock=False):
+def pending_invoice_requests(db, project_id, actor, *, lock=False, special=False):
     if not inspect(db.connection()).has_table(InvoiceRequest.__tablename__):
         return []
     key = str(project_id)
@@ -520,38 +616,45 @@ def pending_invoice_requests(db, project_id, actor, *, lock=False):
     uid = str(actor.id)
     return [row for row in query if uid in row.recipients and uid in row.snapshot.get('request_receipts', {})
             and key not in row.snapshot.get('deliveries', {})
-            and (any(project['project_id'] == key for project in row.snapshot['projects'])
-                 if 'projects' in row.snapshot else row.project_id == project_id)]
+            and not needs_combined_delivery(row, key)
+            and (any(project['project_id'] == key and bool(project.get('root_id')) == special
+                     for project in row.snapshot['projects'])
+                 if 'projects' in row.snapshot else not special and row.project_id == project_id)]
 
 
 @router.post('/projects/{project_id}/notify-issued')
-def notify_issued(project_id: UUID, payload: DeliveryWrite, db=Depends(get_db), actor=Depends(BATCH_WRITE)):
-    rows = pending_invoice_requests(db, project_id, actor, lock=True)
+def notify_issued(project_id: UUID, payload: DeliveryWrite, db=Depends(get_db), actor=Depends(BATCH_WRITE), special:bool=False):
+    rows = pending_invoice_requests(db, project_id, actor, lock=True,special=special)
     if rows:
         complete_deliveries(db, rows, project_id, actor, payload.version)
     return {'notified': len(rows)}
 
 
-def complete_deliveries(db, rows, project_id, actor, version):
+def complete_deliveries(db, rows, project_id, actor, version, *, projects=None):
     from editor_screenshot_service import valid_references
-    from translation_project_invoices import read, record_completion_notice
-    db.query(TranslationProject.id).filter_by(id=project_id).with_for_update().first()
-    invoice = read(db, project_id)
+    from translation_project_invoices import record_completion_notice
+    projects = projects or [workflow_project(rows[0], project_id)]
+    invoice, records = group_invoice(db, projects, lock=True)
     if invoice['version'] != version:
         raise HTTPException(409, '发票资料已更新，请重新打开核对后发送')
-    if invoice['invoice_status'] != 'issued' or not valid_references(invoice['proofs']):
+    if not valid_references(invoice['proofs']) or any(record['invoice_status'] != 'issued' or
+            record['proofs'] != invoice['proofs'] for record in records):
         raise HTTPException(422, '请先上传发票附件并保存为已开票')
     moment = business_now()
     delivery = {'proofs': invoice['proofs'], 'sender_id': str(actor.id),
                 'sender': actor.full_name or actor.username, 'at': moment.isoformat()}
+    if len(projects) > 1:
+        delivery['combined_invoice_id'] = projects[0]['project_id']
     notices = []
     for row in rows:
         project = workflow_project(row, project_id)
-        deliveries = {**row.snapshot.get('deliveries', {}), str(project_id): delivery}
+        deliveries = {**row.snapshot.get('deliveries', {}), **{item['project_id']:delivery for item in projects}}
         row.snapshot = {**row.snapshot, 'deliveries': deliveries}
         notices.append(create_notice(db, row, row.created_by, 'invoice_delivered',
                        f"开票完成 · {project['order_no']}", f"{delivery['sender']}已开票并发送发票，请确认收到。"))
-    record_completion_notice(db, project_id, actor, moment)
+    for item in projects:
+        root, order, special = invoice_identity(item)
+        record_completion_notice(db, root, actor, moment, order_id=order, special=special)
     commit_notices(db, notices)
 
 

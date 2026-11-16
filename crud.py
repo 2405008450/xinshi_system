@@ -2080,6 +2080,9 @@ def _apply_translation_project_filters(
             from project_client_manager import manager_self_expression
             value=descriptor['value']
             query=query.filter(manager_self_expression('translation',TranslationProject.id,UUID(value['id']),value['names'],Client.client_manager))
+        elif field == 'finance_manager_exact':
+            name=manager_name_expression('translation',TranslationProject.id,Client.client_manager)
+            query=query.filter(func.lower(func.trim(func.coalesce(name,'')))==descriptor['value'])
         elif field == 'finance_billing_month':
             from translation_document_requirements import billing_period_month_expression
             value = descriptor.get('value')
@@ -2681,6 +2684,9 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
     update_data.pop('mother_split_reviewed', None)
     db.query(TranslationProject).filter(TranslationProject.id == project_id).with_for_update().populate_existing().one()
     assert_fresh(db_project, project_update.expected_updated_at)
+    if charge_updates is not None or matrix_update is not None or {'client_manager_id', 'customer_reception_time'} & project_update.model_fields_set:
+        from translation_entry_deadlines import project_status
+        project_status(db, project_id)
     from translation_order_inheritance import prepare as prepare_inheritance, synchronize as synchronize_inheritance, FIELDS as INHERITED_FIELDS, serial as inheritance_value
     # 编辑表单会提交全部字段，只有继承值实际改变时才写入整棵订单树。
     inheritance_changed = any(
@@ -4115,6 +4121,9 @@ def update_sub_order(db: Session, sub_order_id: UUID, sub_order_update: Translat
     completion_updates = sub_order_update.assigned_translator_completions
     charge_updates = sub_order_update.customer_charge_items
     matrix_update = sub_order_update.word_count_matrix
+    if charge_updates is not None or matrix_update is not None:
+        from translation_entry_deadlines import project_status
+        project_status(db, db_sub.parent_project_id)
     update_data = sub_order_update.model_dump(
         exclude_unset=True,
         exclude={'word_count_matrix', 'customer_charge_items', 'assigned_translator_completions', 'inherit_fields'},
