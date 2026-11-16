@@ -9,11 +9,15 @@ export const getStatement=(params,config={})=>api.get('/translation-statements/p
 export const exportStatement=params=>api.get('/translation-statements/excel',{params,responseType:'blob'})
 export const getStatementWorkspace=(projectId,mode,config={})=>api.get(`/translation-statement-workspaces/project/${projectId}`,{...config,params:{mode}})
 export const getOrderBillingPeriods=(projectId,month,signal)=>api.get(`/translation-statement-workspaces/project/${projectId}/billing-period`,{params:{month},signal})
-export const getStatementPeriodOptions=(month,clientId,settlementScope,signal)=>api.get(`/translation-statement-workspaces/period-options/${month}`,{params:{client_id:clientId,settlement_scope:settlementScope},signal})
+export const getStatementPeriodOptions=(month,clientId,settlementScope,signal)=>api.get(`/translation-statement-workspaces/period-options/${month}`,{params:{client_id:clientId||undefined,settlement_scope:settlementScope},signal})
 export const saveOrderBillingPeriod=(projectId,data)=>api.put(`/translation-statement-workspaces/project/${projectId}/billing-period`,data)
 export const getClientStatementWorkspace=(clientId,mode,config={})=>api.get(`/translation-statement-workspaces/${clientId}`,{...config,params:{...config.params,mode}})
 export const importStatementMonths=(data,mode)=>api.post('/translation-statement-workspaces/import',data,{params:{mode}})
 export const changeStatementWorkspace=(clientId,data,mode,settlementScope)=>api.post(`/translation-statement-workspaces/${clientId}/actions`,data,{params:{mode,settlement_scope:settlementScope}})
+export const getPendingStatementPeriods=(clientId,data,settlementScope,signal)=>api.post(
+  `/translation-statement-workspaces/${clientId}/pending-period-preview`,data,
+  {params:{settlement_scope:settlementScope},signal,skipDraftSubmit:true},
+)
 export const getStatementWorkspaceHistory=(clientId,params,config={})=>api.get(`/translation-statement-workspaces/${clientId}/history`,{...config,params})
 export const exportStatementWorkspace=(clientId,params)=>api.get(`/translation-statement-workspaces/${clientId}/excel`,{params,paramsSerializer:{indexes:null},responseType:'blob'})
 

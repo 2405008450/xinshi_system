@@ -4,7 +4,7 @@ export const saveInvoiceSubject=(key,data)=>api.put(`/invoice-parties/subjects/$
 export const getClientInvoiceProfile=id=>api.get(`/invoice-parties/clients/${id}`)
 export const saveClientInvoiceProfile=(id,data)=>api.put(`/invoice-parties/clients/${id}`,data)
 export const getClientInvoiceRecords=(id,params,config={})=>api.get(`/invoice-parties/clients/${id}/records`,{...config,params})
-export const saveOrderInvoiceSelections=items=>api.put('/invoice-parties/order-selections',{items})
+export const saveOrderInvoiceSelections=(items,settlement_scope)=>api.put('/invoice-parties/order-selections',{items,settlement_scope})
 export const invoiceTypeLabels={electronic_normal:'电子普票',electronic_special:'电子专票',paper_normal:'纸质普票',paper_special:'纸质专票'}
 export const invoiceSubjectLabels={guangzhou:'广州总公司',shenzhen:'深圳分公司',shanghai:'上海分公司'}
 export const invoicePartiesEvent='invoice-parties-changed'

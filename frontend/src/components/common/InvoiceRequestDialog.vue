@@ -25,10 +25,16 @@
               </el-select>
             </el-form-item>
           </div>
-          <el-form-item label="说明"><el-input v-model="form.note" type="textarea" :rows="3" maxlength="2000" show-word-limit /></el-form-item>
+          <div class="invoice-request-note-row">
+            <el-form-item label="说明" class="invoice-request-note-field">
+              <el-input v-model="form.note" type="textarea" :rows="3" maxlength="2000" show-word-limit />
+            </el-form-item>
+            <el-form-item label="接收人" class="invoice-request-recipient">
+              {{ preview.recipients.map(person => person.name).join('、') || '请在财务设置中选择接收人' }}
+            </el-form-item>
+          </div>
         </AppForm>
         <el-alert v-if="mixedSelection" title="所选订单的开票主体或票种不同，请确认本次使用的统一选项。" type="warning" :closable="false" />
-        <p>接收人：{{ preview.recipients.map(person => person.name).join('、') || '请在财务设置中选择接收人' }}</p>
         <el-collapse>
           <el-collapse-item title="查看三个开票主体的资料" name="subjects">
             <el-descriptions v-for="subject in preview.subjects" :key="subject.key" :title="subject.name" :column="2" border size="small">
@@ -67,6 +73,19 @@
           <span>客户默认：{{subjectNames[group.customer.client_invoice_subject]||'主体未设置'}} · {{invoiceTypeLabels[group.customer.invoice_selection?.client_invoice_type]||'电子普票'}}</span>
           <el-button link type="primary" @click="openClientInvoiceSettings(group.client_id)">查看客户管理开票设置</el-button>
         </div>
+        <div v-if="combinedGroup(group)" class="invoice-combined-actions">
+          <h4>多单合并结款（发票）项目</h4>
+          <template v-if="request">
+            <el-button v-if="request.is_recipient || availableProof(group.customer)" link type="primary"
+              @click="openInvoice(group.customer,group)">合并发票</el-button>
+            <template v-if="delivery(group.customer)">
+              <span v-if="delivery(group.customer).receipt">已回执</span>
+              <el-button v-else-if="request.is_sender" link type="primary" :loading="busy" @click="receipt(group.customer.project_id)">发送发票收到回执</el-button>
+              <span v-else>已发送</span>
+            </template>
+            <span v-else-if="!availableProof(group.customer)&&!request.is_recipient">待上传发票</span>
+          </template>
+        </div>
         <el-table :data="group.projects" row-key="project_id">
           <el-table-column prop="order_no" label="订单号" min-width="150" />
           <el-table-column prop="project_name" label="项目" min-width="180" />
@@ -76,9 +95,9 @@
           <el-table-column label="项目含税金额" min-width="145">
             <template #default="{row}">{{ amountText(row.totals) }}</template>
           </el-table-column>
-          <el-table-column v-if="request" label="操作" min-width="190">
+          <el-table-column v-if="request&&!combinedGroup(group)" label="操作" min-width="190">
             <template #default="{row}">
-              <el-button v-if="request.is_recipient || delivery(row)" link type="primary" @click="openInvoice(row)">发票</el-button>
+              <el-button v-if="request.is_recipient || availableProof(row)" link type="primary" @click="openInvoice(row)">发票</el-button>
               <template v-if="delivery(row)">
                 <span v-if="delivery(row).receipt">已回执</span>
                 <el-button v-else-if="request.is_sender" link type="primary" :loading="busy" @click="receipt(row.project_id)">发送发票收到回执</el-button>
@@ -97,7 +116,7 @@
     </template>
   </DraggableFormDialog>
   <ProjectInvoiceDialog v-if="invoiceProject" :model-value="true" :request-id="requestId"
-    :context="invoiceContext" :can-deliver="request.is_recipient && received && !delivery(invoiceProject)"
+    :context="invoiceContext" :special="!!invoiceProject.root_id" :can-deliver="request.is_recipient && received && !delivery(invoiceProject)"
     @update:model-value="invoiceProject = null" @saved="load" />
 </template>
 
@@ -114,12 +133,14 @@ import ProjectInvoiceDialog from './ProjectInvoiceDialog.vue'
 import ScreenshotText from './ScreenshotText.vue'
 import ReadonlyField from './ReadonlyField.vue'
 
-const props = defineProps({projectIds:{type:Array,default:()=>[]}, requestId:String})
+const props = defineProps({projectIds:{type:Array,default:()=>[]}, requestId:String, mergedSettlement:Boolean, specialSettlement:Boolean})
+const settlementScope=computed(()=>props.specialSettlement?'special':undefined)
 const emit = defineEmits(['close','sent'])
 const preview = ref(), request = ref(), loading = ref(false), busy = ref(false), error = ref('')
 const invoiceProject = ref()
+const invoiceGroup = ref()
 const invoiceContext = computed(() => ({projectId:invoiceProject.value?.project_id,
-  preview:{totals:invoiceProject.value?.totals, required:true}}))
+  merged:!!invoiceGroup.value, preview:{totals:invoiceGroup.value?.totals||invoiceProject.value?.totals, required:true}}))
 const form = reactive({type:'electronic_normal', subject:'', rate:null, note:''})
 let previousSubmission, submissionKey, loadedSelection=''
 let loadingSequence=0
@@ -149,7 +170,15 @@ const received = computed(() => Boolean(request.value?.snapshot.request_receipts
 const receivedNames = computed(() => Object.values(request.value?.snapshot.request_receipts || {}).map(item => item.name).join('、'))
 const amountText = totals => Object.entries(totals || {}).map(([currency, amount]) => `${currency} ${amount}`).join('；') || '—'
 const delivery = row => request.value?.snapshot.deliveries?.[row.project_id]
-const openInvoice = row => { invoiceProject.value = row }
+const availableProof = row => delivery(row)?.proofs || request.value?.snapshot.uploaded_invoices?.[row.project_id]?.proofs
+function combinedGroup(group){
+  return (group.projects.length>1 || preview.value&&props.mergedSettlement) &&
+    !group.projects.some(row=>delivery(row)&&!delivery(row).combined_invoice_id)
+}
+function openInvoice(row,group){
+  invoiceGroup.value=group
+  invoiceProject.value=row
+}
 
 const selectionSignature=()=>JSON.stringify([form.subject,form.type,form.rate])
 function openClientInvoiceSettings(id){clientManagementTarget.value={client_id:id,financeSection:'invoice'}}
@@ -159,6 +188,10 @@ function publishSelections(){
   }
 }
 function changed(event){
+  if(request.value&&!busy.value&&event.detail?.requestId===props.requestId){
+    void load()
+    return
+  }
   if(preview.value&&!busy.value&&event.detail?.source!==eventSource&&preview.value.projects.some(row=>row.client_id===event.detail?.clientId)){
     void load({preserveSelection:selectionSignature()!==loadedSelection})
   }
@@ -173,7 +206,7 @@ async function load({preserveSelection=false}={}) {
       const result=await api.get(`/invoice-workflow/requests/${props.requestId}`)
       if(sequence===loadingSequence)request.value=result
     } else {
-      const result=await api.post('/invoice-workflow/requests/preview', {project_ids:props.projectIds}, {timeout:60000})
+      const result=await api.post('/invoice-workflow/requests/preview', {project_ids:props.projectIds,settlement_scope:settlementScope.value}, {timeout:60000})
       if(sequence!==loadingSequence)return
       preview.value=result
       if(!preserveSelection&&selectionSignature()===initialSelection){
@@ -199,7 +232,7 @@ async function saveSelection(){
     await saveOrderInvoiceSelections(preview.value.projects.map(row=>({
       project_id:row.project_id,revision:row.invoice_selection?.revision??0,
       subject_key:form.subject,invoice_type:form.type,
-    })))
+    })),settlementScope.value)
     publishSelections()
     await load({preserveSelection:true})
     loadedSelection=selectionSignature()
@@ -209,7 +242,7 @@ async function saveSelection(){
 }
 async function send() {
   if (busy.value || !canSend.value) return
-  const data = {project_ids:props.projectIds, invoice_type:form.type, subject_key:form.subject, tax_rate:taxRate.value,
+  const data = {project_ids:props.projectIds, settlement_scope:settlementScope.value, invoice_type:form.type, subject_key:form.subject, tax_rate:taxRate.value,
     selection_revisions:Object.fromEntries(preview.value.projects.map(row=>[row.project_id,row.invoice_selection?.revision??0])),
     note:form.note, settings_revision:preview.value.settings_revision,
     expected_user_ids:preview.value.recipients.map(person => person.id)}
@@ -250,9 +283,14 @@ onBeforeUnmount(()=>{loadingSequence++;window.removeEventListener(invoiceParties
 
 <style scoped>
 .invoice-request-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.invoice-request-note-row { display:flex; flex-wrap:wrap; column-gap:16px; }
+.invoice-request-note-field { flex:3 1 340px; min-width:0; }
+.invoice-request-recipient { flex:1 1 160px; min-width:0; overflow-wrap:anywhere; }
 .invoice-subject-hint { flex-basis: 100%; margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
 .invoice-request-note { white-space: pre-wrap; overflow-wrap: anywhere; }
 .invoice-selection-settings{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:8px 0;font-size:12px}
+.invoice-combined-actions{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:20px 0 8px;padding-top:14px;border-top:1px solid var(--el-border-color)}
+.invoice-combined-actions h4{margin:0;font-size:14px}
 .invoice-customer-group { margin-top: 16px; border: 1px solid var(--el-border-color-light); border-radius: 6px; padding: 12px; }
 .invoice-customer-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 8px; }
 .invoice-customer-heading h3 { margin: 0; }

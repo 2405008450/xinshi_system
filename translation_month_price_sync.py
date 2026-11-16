@@ -126,9 +126,13 @@ def apply(db,user,project_id,payload):
     source=finance.crud.get_translation_project(db,project_id)
     source_snapshot=audit.capture(source)[str(payload.order_id)]
     captured={};roots={};moment=business_now().replace(tzinfo=None)
+    from translation_entry_deadlines import project_status
     for target in preview['targets']:
         root,owner=owners[target['order_id']]
-        if root.id not in captured:captured[root.id]=audit.capture(root);roots[root.id]=root
+        if root.id not in captured:
+            project_status(db, root.id)
+            captured[root.id]=audit.capture(root)
+            roots[root.id]=root
         owned={str(row.id):row for row in owner.customer_charge_items}
         for data in target['prices']:
             charge=owned.get(data.get('id'))

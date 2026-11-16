@@ -471,10 +471,14 @@
                           <el-button v-if="!form.id && isDirectionOnlySplit(form)" type="primary" link
                             @click="goToSubOrderManagement(form)">查看方向子订单</el-button>
                         </div>
+                        <WordCountDeadlineHint v-if="dialogVisible" :project-id="form.id" :matrix="form.wordCountMatrix"
+                          :received-at="form.customerReceptionTime" :manager-id="form.clientManagerId" />
                       </el-form-item>
                       <div class="project-finance-controls">
                         <div class="project-finance-actions">
-                          <el-form-item label="价格与付款"><el-button type="primary" plain @click="openCustomerFinance(form)">价格与付款</el-button></el-form-item>
+                          <el-form-item label="价格与付款"><el-button type="primary" plain @click="openCustomerFinance(form)">价格与付款</el-button>
+                            <div class="form-tip">单价填写期限与字数相同。打开价格与付款可查看截止日、逾期提示和记录。</div>
+                          </el-form-item>
                         </div>
                         <div class="project-client-documents">
                           <el-form-item label="客户类型" prop="customerType"><el-select v-model="form.customerType" clearable placeholder="请选择客户类型" @clear="form.customerType=null;applyDocumentDefaults()" @change="applyDocumentDefaults"><el-option v-for="item in customerTypes" :key="item" :label="item" :value="item" /></el-select></el-form-item>
@@ -1057,6 +1061,7 @@ import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import ProjectListRowActions from '@/components/common/ProjectListRowActions.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
+import WordCountDeadlineHint from './components/WordCountDeadlineHint.vue'
 import TableExpandButton from '@/components/common/TableExpandButton.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import TranslatorCompletionPopover from './components/TranslatorCompletionPopover.vue'

@@ -1,13 +1,16 @@
 <template>
-  <DraggableFormDialog :model-value="modelValue" class="customer-statement-dialog" width="min(1280px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close @update:model-value="emit('update:modelValue',$event)">
+  <DraggableFormDialog :model-value="modelValue" class="customer-statement-dialog" width="min(1280px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close
+    :before-close="beforeClose" @update:model-value="emit('update:modelValue',$event)">
     <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="title" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch"><template #actions><span class="statement-manager-label" @mousedown.stop>客户经理：{{clientContext ? (clientContext.manager || '未分配') : managerLabel}}</span></template></DialogFieldSearchHeader></template>
     <div ref="body">
-      <el-tabs v-if="settlementScope==='special'" v-model="activeTab">
+      <el-tabs v-if="settlementScope==='special'" v-model="activeTab" :before-leave="confirmClose">
         <el-tab-pane label="特殊结算" name="settlement" />
         <el-tab-pane label="特殊结算发票" name="invoice" />
       </el-tabs>
-      <SpecialSettlementInvoices v-if="modelValue&&settlementScope==='special'&&activeTab==='invoice'"
-        :client-id="clientContext?.id" :month="clientContext?clientFilters.month:billingMonth" :period-number="clientContext?clientFilters.period:undefined" :manager-query="managerQuery" />
+      <InvoiceWorkspace v-if="modelValue&&settlementScope==='special'&&activeTab==='invoice'" ref="invoiceWorkspace" model-value embedded
+        :invoice-client-id="clientContext?.id" :invoice-client-name="clientContext?.name||clientName"
+        :initial-month="clientContext?clientFilters.month:billingMonth" :period-number="clientContext?clientFilters.period:undefined"
+        :manager-query="managerQuery" @invoice-saved="emit('invoice-saved',$event)" />
       <template v-else>
       <div class="statement-section-heading"><strong>{{title}}管理</strong><el-dropdown trigger="click" @command="refreshData"><el-button>更多操作 ▾</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item command="history">{{settlementScope==='special'?'刷新特殊结算记录':'刷新历史对账单'}}</el-dropdown-item><el-dropdown-item command="clients">刷新客户</el-dropdown-item><el-dropdown-item command="reload">重新加载</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div>
       <template v-if="modelValue&&clientContext?.id">
@@ -30,7 +33,7 @@
       <CustomerStatementClients ref="clientsRef" v-else-if="modelValue" :billing-month="billingMonth" :settlement-scope="settlementScope" :manager-query="managerQuery" @saved="emit('saved',$event)" />
       </template>
     </div>
-    <template #footer><el-button @click="emit('update:modelValue',false)">关闭</el-button></template>
+    <template #footer><el-button @click="beforeClose(()=>emit('update:modelValue',false))">关闭</el-button></template>
   </DraggableFormDialog>
 </template>
 <script setup>
@@ -44,13 +47,16 @@ import CustomerStatementWorkspace from './CustomerStatementWorkspace.vue'
 import CustomerStatementActions from './CustomerStatementActions.vue'
 import {currentStatementMonth} from '@/utils/statementRequirementMonth'
 const StatementClientFinance=defineAsyncComponent(()=>import('@/views/project/translation/CustomerFinance.vue'))
-const SpecialSettlementInvoices=defineAsyncComponent(()=>import('./SpecialSettlementInvoices.vue'))
+const InvoiceWorkspace=defineAsyncComponent(()=>import('./ProjectPaymentDialog.vue'))
 import {useDialogFieldSearch} from '@/composables/useDialogFieldSearch'
 const props=defineProps({modelValue:Boolean,billingMonth:String,clientContext:Object,
   settlementScope:String,title:{type:String,default:'对账单'},
   managerLabel:{type:String,default:'全部'},managerQuery:{type:Object,default:()=>({})}})
 const clientsRef=ref(),contextProjects=ref(),clientName=ref('')
 const activeTab=ref('settlement')
+const invoiceWorkspace=ref()
+function confirmClose(){return invoiceWorkspace.value?.confirmClose() ?? true}
+async function beforeClose(done){if(await confirmClose())done()}
 const clientFilters=reactive({month:'',period:undefined})
 const focusedBoardId=computed(()=>clientFilters.month===props.clientContext?.month&&clientFilters.period===props.clientContext?.period
   ? props.clientContext?.boardId : undefined)
@@ -65,7 +71,7 @@ async function changeClientMonth(month){
 }
 function refreshData(command){if(command==='clients'){if(props.clientContext)void contextProjects.value?.reloadProjects();else clientsRef.value?.refresh()}else if(command==='reload')window.dispatchEvent(new CustomEvent('customer-statement-workspace-reload'));else refreshHistory()}
 function refreshHistory(){window.dispatchEvent(new CustomEvent('customer-statement-history-refresh'));window.dispatchEvent(new CustomEvent('translation-statements-changed'))}
-const emit=defineEmits(['update:modelValue','saved'])
+const emit=defineEmits(['update:modelValue','saved','invoice-saved'])
 const body=ref()
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(body)
 watch(()=>props.modelValue,visible=>{clearFieldSearch();if(visible)activeTab.value='settlement'})

@@ -459,6 +459,8 @@ def tree(project, billing_month=None, *, summary_only=False, include_billing_tax
         nodes[key]['client_id']=str(effective_client_id) if effective_client_id else None
         nodes[key]['billing_period']=getattr(project,'billing_period',{})
         nodes[key]['client_manager']=getattr(project,'client_manager',None) or ''
+        manager_id=getattr(project,'client_manager_id',None)
+        nodes[key]['client_manager_id']=str(manager_id) if manager_id else None
         nodes[key]['payment_method']=payment_method(project)
         if nodes[key]['payment_method']=='special' and owner is not project:
             nodes[key]['invoice_requirement_override']=getattr(project,'order_invoice_requirements',{}).get(key,nodes[key]['invoice_requirement_override'])
@@ -1131,6 +1133,9 @@ def _apply_finance(db, user, project_id, payload, *, allow_incomplete=False):
     db.query(TranslationSubOrder).filter_by(parent_project_id=project_id).order_by(TranslationSubOrder.id).with_for_update().populate_existing().all()
     project=crud.get_translation_project(db,project_id)
     if version(project)!=payload.version: raise HTTPException(409,'订单价格、字数或下级订单已变化，请重新打开后编辑')
+    if not payload.documents_only or payload.order_pricing_mode is not None:
+        from translation_entry_deadlines import project_status
+        project_status(db, project_id)
     owners,numbers,parents=hierarchy(project);by_id={str(row.id):row for row in owners};key=str(payload.order_id)
     if key not in by_id: raise HTTPException(422,'订单不属于该笔译项目')
     if key in parents.values() and (payload.adjusted_total is not None or payload.adjusted_total_incl_tax is not None):
@@ -1480,7 +1485,7 @@ def apply_order_page(node,selection):
 
 
 @router.get('/page',dependencies=[Depends(require_module_access('projects:read','projects:write'))])
-def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None=None,project_status:str|None=None,billing_month:str|None=Query(None,pattern=r'^\d{4}-(0[1-9]|1[0-2])$'),client:str|None=None,client_manager:str|None=None,client_id:UUID|None=None,db:Session=Depends(get_db),only_mine:bool=False,user=Depends(get_current_user),manager_ids:list[UUID]|None=Query(None,max_length=2000),statement_required:bool|None=None,sort:Literal['client_short_name_asc','client_short_name_desc','client_manager_asc','client_manager_desc']|None=None,missing_word_count:bool=False,missing_unit_price:bool=False,missing_total:Literal['excl','incl','both','either','fixed']|None=None,project_statuses:list[str]|None=Query(None,max_length=100),client_order_count:Literal['single','multiple']|None=None,group_clients:bool=True,selected_client_ids:list[UUID]|None=Query(None,alias='client_ids',max_length=100),payment_status:Literal['unpaid','deposit','mid','full','paid','full_mismatch']|None=None,include_payment_status:bool=False,exclude_full:bool=False,payment_project_id:UUID|None=None,include_invoice_status:bool=False,invoice_status:Literal['unissued','partial','issued','not_required']|None=None,invoice_required:Literal['yes','no','unknown']|None=None,statement_customers:Literal['include','exclude']|None=None,payment_amount_mismatch:bool=False,pricing_mode:Literal['metric','fixed','aggregate']|None=None,billing_months:list[Annotated[str,Field(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')]]|None=Query(None,max_length=1200),paginate_children:bool=False,count_parent_orders:bool=False,expand_all_orders:bool=True,order_expansion_ids:list[UUID]|None=Query(None), settlement_project_id:UUID|None=None, settlement_scope:StatementScope|None=None,period_number:int|None=Query(None,ge=1),special_invoice_tracking:bool=False,special_invoice_project_id:UUID|None=None, unassigned_period:bool=False, quotation_required:bool|None=None, settlement_mode:Literal['individual','monthly','special']|None=None, language_direction:str|None=Query(None,max_length=200)):
+def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None=None,project_status:str|None=None,billing_month:str|None=Query(None,pattern=r'^\d{4}-(0[1-9]|1[0-2])$'),client:str|None=None,client_manager:str|None=None,client_id:UUID|None=None,db:Session=Depends(get_db),only_mine:bool=False,user=Depends(get_current_user),manager_ids:list[UUID]|None=Query(None,max_length=2000),statement_required:bool|None=None,sort:Literal['client_short_name_asc','client_short_name_desc','client_manager_asc','client_manager_desc']|None=None,missing_word_count:bool=False,missing_unit_price:bool=False,missing_total:Literal['excl','incl','both','either','fixed']|None=None,project_statuses:list[str]|None=Query(None,max_length=100),client_order_count:Literal['single','multiple']|None=None,group_clients:bool=True,selected_client_ids:list[UUID]|None=Query(None,alias='client_ids',max_length=100),payment_status:Literal['unpaid','deposit','mid','full','paid','full_mismatch']|None=None,include_payment_status:bool=False,exclude_full:bool=False,payment_project_id:UUID|None=None,include_invoice_status:bool=False,invoice_status:Literal['unissued','partial','issued','not_required']|None=None,invoice_required:Literal['yes','no','unknown']|None=None,statement_customers:Literal['include','exclude']|None=None,payment_amount_mismatch:bool=False,pricing_mode:Literal['metric','fixed','aggregate']|None=None,billing_months:list[Annotated[str,Field(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')]]|None=Query(None,max_length=1200),paginate_children:bool=False,count_parent_orders:bool=False,expand_all_orders:bool=True,order_expansion_ids:list[UUID]|None=Query(None), settlement_project_id:UUID|None=None, settlement_scope:StatementScope|None=None,period_number:int|None=Query(None,ge=1),special_invoice_tracking:bool=False,special_invoice_project_id:UUID|None=None, unassigned_period:bool=False, quotation_required:bool|None=None, settlement_mode:Literal['individual','monthly','special']|None=None, language_direction:str|None=Query(None,max_length=200), fixed_manager_name:str|None=Query(None,max_length=255)):
     special_invoice_tracking=special_invoice_tracking and settlement_scope=='special'
     filter_amount_mismatch = payment_amount_mismatch or payment_status == 'full_mismatch'
     filter_invoice = invoice_status is not None or invoice_required is not None
@@ -1491,7 +1496,7 @@ def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None
     def finish(result):
         if settlement_scope=='special':
             result['client_subtotals']=original_subtotals
-        if include_invoice_status:
+        if include_invoice_status and not special_invoice_tracking:
             from translation_project_invoices import attach
             if settlement_scope=='special':
                 def original_invoice(node):
@@ -1499,6 +1504,7 @@ def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None
                     for child in node['children']:original_invoice(child)
                 for node in result['items']:original_invoice(node)
             attach(db,result)
+        if include_invoice_status:
             result['invoice_filter_applied']=True
             if invoice_scope_ids is not None:
                 result['merged_invoice_scope']=len(invoice_scope_ids)>1
@@ -1524,20 +1530,26 @@ def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None
     elif billing_month: fields['finance_billing_month']={'value':billing_month}
     from finance_manager_scope import manager_fields
     fields.update(manager_fields(db,user,manager_ids,only_mine,client_manager))
+    if isinstance(fixed_manager_name,str):
+        fields['finance_manager_exact']={'value':fixed_manager_name.strip().lower()}
     if client and client.strip(): fields['finance_client']={'value':client.strip()}
-    if statement_customers is not None:
-        candidates=db.query(TranslationProject).filter(TranslationProject.annotation_migrated_at.is_(None)).all()
-        required=effective_statement_requirements(db,candidates)
-        statement_clients={statement_client_id(project) for project in candidates if required[project.id]} - {None}
-        if statement_customers=='include' and not statement_clients:
-            return {'items':[],'total':0,'client_subtotals':[]}
-        statement_client_filter=statement_clients
+    invoice_scope=include_invoice_status and settlement_project_id is not None
+    if statement_customers is not None and invoice_scope:
+        if statement_required is None:
+            statement_required=statement_customers=='include'
+        statement_client_filter=None
+    elif statement_customers is not None:
+        if special_invoice_tracking:
+            statement_client_filter=None
+        else:
+            candidates=db.query(TranslationProject).filter(TranslationProject.annotation_migrated_at.is_(None)).all()
+            required=effective_statement_requirements(db,candidates)
+            statement_client_filter={statement_client_id(project) for project in candidates if required[project.id]} - {None}
     else:
         statement_client_filter=None
     status_values=project_statuses if isinstance(project_statuses,list) else []
     statuses=list(dict.fromkeys(status.strip() for status in status_values if status.strip()))
     if statuses and settlement_scope!='special':fields['project_status']={'value':statuses}
-    invoice_scope=include_invoice_status and settlement_project_id is not None
     if invoice_scope:
         source=crud.get_translation_project(db,settlement_project_id)
         if not source:
@@ -1624,14 +1636,25 @@ def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None
             for node in matched:
                 special_settlement.apply_settings(node,settings.get(UUID(node['id']),{}))
             if special_invoice_tracking:
-                def orders(node):
-                    yield node
-                    for child in node['children']:
-                        yield from orders(child)
                 client_names={str(project.id):project.client_name for project in projects}
-                matched=[{**node,'children':[]} for root in matched for node in orders(root)
-                         if matches_keywords(' '.join(filter(None,(node['order_no'],node['project_name'],
-                                                    node['client_short_name'],client_names.get(root['id'])))),keyword)]
+                if statement_customers is not None:
+                    statement_clients={root['client_id'] for root in matched if root['client_id'] and
+                                       (root['statement_required'] or root['has_statement_required_orders'])}
+                    matched=[root for root in matched if
+                             (root['client_id'] in statement_clients)==(statement_customers=='include')]
+                invoice_rows=[]
+                for root in matched:
+                    root_settings=settings.get(UUID(root['id']),{})
+                    for node in special_settlement.order_nodes(root):
+                        if not matches_keywords(' '.join(filter(None,(node['order_no'],node['project_name'],
+                                                node['client_short_name'],client_names.get(root['id'])))),keyword):
+                            continue
+                        state=special_settlement.invoice_state(root_settings.get(node['id'],{})) if include_invoice_status else {}
+                        state.pop('proofs',None)
+                        invoice_rows.append({**node,**state,'children':[], 'has_children':bool(node['children']),
+                            'special_invoice_totals':special_settlement.billing_totals(node,tax_mode='incl_tax'),
+                            'special_excl_totals':special_settlement.billing_totals(node,tax_mode='excl_tax')})
+                matched=invoice_rows
         if statement_required is not None:
             matched=[node for node in matched if (node['statement_required'] or node.get('has_statement_required_orders',False)) is statement_required]
         if quotation_required is not None:
@@ -1680,7 +1703,7 @@ def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None
             items=[apply_order_page(tree(by_id[row['id']],billing_month,include_version=False)['item'],row) for row in selected]
             return finish({'items':items,'total':total,'pagination_unit':'child_orders','display_offset':display_offset,'client_subtotals':subtotal_nodes(matched)})
         if special_invoice_tracking:
-            return {'items':matched[skip:skip+limit],'total':len(matched)}
+            return finish({'items':matched[skip:skip+limit],'total':len(matched)})
         return finish({'items':matched[skip:skip+limit],'total':len(matched),'client_subtotals':subtotal_nodes(matched)})
     return finish({'items':[tree(project,billing_month,include_version=False)['item'] for project in projects],'total':crud.count_translation_projects(db,**filters),'client_subtotals':client_subtotals(db,filters)})
 
@@ -1849,8 +1872,13 @@ def statement_customers(keyword:str|None=None,required_only:bool=True,skip:int=Q
 
 
 @router.get('/project/{project_id}',dependencies=[Depends(require_module_access('projects:read','projects:write'))])
-def detail(project_id:UUID,db:Session=Depends(get_db)):
-    return read(db,project_id)
+def detail(project_id:UUID,db:Session=Depends(get_db),special_invoice:bool=False):
+    result=read(db,project_id)
+    if special_invoice:
+        from translation_project_invoices import special_order
+        settings=special_settlement.settings_by_project(db,[project_id]).get(project_id,{})
+        special_order(result['item'],settings,project_id)
+    return result
 
 
 @router.get('/project/{project_id}/payment-summary', dependencies=[Depends(require_module_access('projects:read','projects:write'))])
@@ -2066,21 +2094,65 @@ def set_statement_progress(client_id:UUID,payload:ProgressWrite,db:Session=Depen
 
 
 @router.get('/project/{project_id}/invoice',dependencies=[Depends(require_any_permission('projects:read','finance:read','clients:read','clients:write'))])
-def read_invoice(project_id:UUID,order_id:UUID|None=None,db:Session=Depends(get_db),user=Depends(get_current_user)):
+def read_invoice(project_id:UUID,order_id:UUID|None=None,db:Session=Depends(get_db),user=Depends(get_current_user),special:bool=False):
     from translation_project_invoices import read
     from invoice_workflow import pending_invoice_requests
-    return {**read(db,project_id,order_id), 'can_notify_requester':bool(pending_invoice_requests(db,project_id,user))}
+    return {**read(db,project_id,order_id,special=special),
+            'can_notify_requester':bool(pending_invoice_requests(db,order_id if special and order_id else project_id,user,special=special))}
+
+
+@router.get('/project/{project_id}/invoice-scope', dependencies=[Depends(require_any_permission(
+    'projects:read','projects:write','finance:read','finance:write','clients:read','clients:write'
+))])
+def invoice_scope(project_id: UUID, db: Session = Depends(get_db)):
+    from invoice_workflow import selected_incl_totals
+    from translation_document_requirements import attach as attach_documents
+    from translation_project_invoices import attach as attach_invoices
+
+    source = crud.get_translation_project(db, project_id)
+    if source is None:
+        raise HTTPException(404, '笔译项目不存在')
+    attach_documents(db, [source])
+    attach_monthly_payment_peers(db, [source])
+    if payment_method(source) == 'special':
+        return {'merged': False, 'items': []}
+    peers = monthly_tax_projects(db, source) or [source]
+    # Monthly membership is queried separately from the data required to build the finance tree.
+    projects = crud.get_translation_projects(db, limit=None, field_filters={
+        'finance_invoice_project_ids': {'value': {peer.id for peer in peers}},
+    })
+    load_finance_details(db, projects, tax_only=True)
+    roots = [tree(project, summary_only=True, include_version=False)['item'] for project in projects]
+    attach_invoices(db, {'items': roots})
+    totals = {}
+    items = []
+    for node in sorted(roots, key=lambda item: item['order_no']):
+        invoice_totals = selected_incl_totals(node) if node['invoice_required'] is True else {}
+        for currency, amount in invoice_totals.items():
+            totals[currency] = totals.get(currency, Decimal(0)) + amount
+        items.append({
+            'id': node['id'], 'order_no': node['order_no'], 'project_name': node['project_name'],
+            'invoice_required': node['invoice_required'], 'invoice_status': node['invoice_status'],
+            'billing_totals': node['billing_totals'], 'invoice_totals': invoice_totals,
+            'has_invoice_amount': bool(invoice_totals), 'has_children': bool(node['children']),
+        })
+    return {
+        'merged': len(roots) > 1,
+        'items': items,
+        'invoice_totals': totals,
+    }
 
 
 @router.put('/project/{project_id}/invoice',dependencies=[Depends(require_any_permission('projects:write','finance:write'))])
-def save_invoice(project_id:UUID,payload:InvoiceWrite,order_id:UUID|None=None,db:Session=Depends(get_db),user=Depends(get_current_user)):
+def save_invoice(project_id:UUID,payload:InvoiceWrite,order_id:UUID|None=None,db:Session=Depends(get_db),user=Depends(get_current_user),special:bool=False):
     from translation_project_invoices import save
-    try:return save(db,project_id,payload,user.id,order_id)
+    try:return save(db,project_id,payload,user.id,order_id,special=special)
     except Exception:
         db.rollback();raise
 
 
 @router.put('/project/{project_id}/invoice/customer-sent', dependencies=[Depends(require_any_permission('projects:write','finance:write'))])
-def update_invoice_customer_sent(project_id: UUID, payload: InvoiceCustomerSentWrite, db=Depends(get_db), user=Depends(get_current_user)):
+def update_invoice_customer_sent(project_id: UUID, payload: InvoiceCustomerSentWrite, db=Depends(get_db), user=Depends(get_current_user),
+                                 order_id:UUID|None=None,special:bool=False):
     from translation_project_invoices import set_customer_sent
-    return set_customer_sent(db, project_id, user, payload.sent)
+    return set_customer_sent(db, project_id, user, payload.sent,order_id=order_id,special=special)

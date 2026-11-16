@@ -4,7 +4,7 @@
     <span class="screenshot-previews">
       <span v-for="(id,index) in ids" :key="id" class="screenshot-preview">
         <a v-if="files[id]?.extension" class="screenshot-document" :class="{'invoice-drag-handle':invoiceDrag}" :href="files[id].url"
-          :download="invoiceFilename(id,index)" :draggable="invoiceDrag" @click.stop @dragstart="dragInvoice($event,id,index)">下载 {{ files[id].extension.toUpperCase() }} 发票</a>
+          :download="invoiceFilename(id,index)" :draggable="invoiceDrag" @click.stop @dragstart="dragInvoice($event,id,index)">{{invoiceDrag?'下载或拖动':'下载'}} {{ files[id].extension.toUpperCase() }} 发票</a>
         <el-image v-else-if="files[id]" :src="files[id].url" :preview-src-list="imageUrls" preview-teleported fit="contain" @click.stop />
         <span v-else>{{ errors[id] || '正在加载附件…' }}</span>
         <button v-if="removable" type="button" :aria-label="files[id]?.extension ? '移除发票附件' : '移除截图'" @click.stop="$emit('remove',id)">×</button>
@@ -12,8 +12,8 @@
           <a v-if="!files[id].extension" class="invoice-drag-handle" :href="files[id].url" :download="invoiceFilename(id,index)" draggable="true"
             @click.stop @dragstart="dragInvoice($event,id,index)">下载或拖动截图</a>
           <template v-if="desktopDrag">
-            <el-button v-if="!files[id].nativeToken" link :loading="files[id].preparing" @click.stop="prepareInvoice(id,index)">准备桌面拖出</el-button>
-            <span v-else class="invoice-drag-handle" draggable="true" @dragstart="dragNativeInvoice($event,id)">拖到桌面或聊天窗口</span>
+            <el-button v-if="!files[id].nativeToken" link :loading="files[id].preparing" @click.stop="prepareInvoice(id,index)">准备拖出</el-button>
+            <span v-else class="invoice-drag-handle" draggable="true" @dragstart="dragNativeInvoice($event,id)">拖到桌面、微信或企微</span>
           </template>
         </template>
       </span>
@@ -24,14 +24,14 @@
 import { computed,onBeforeUnmount,ref,watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api'
-import { screenshotIds,screenshotText } from '@/utils/screenshotReferences'
+import { invoiceDragType,screenshotIds,screenshotText } from '@/utils/screenshotReferences'
 const props=defineProps({text:{type:String,default:''},showText:{type:Boolean,default:true},removable:Boolean,chatMessageId:[String,Number],chatKind:String,invoiceDrag:Boolean,invoiceOrderNo:String})
 defineEmits(['remove'])
 const ids=computed(()=>screenshotIds(props.text)),plain=computed(()=>screenshotText(props.text)),files=ref({}),errors=ref({})
 const imageUrls = computed(() => ids.value.filter(id => files.value[id] && !files.value[id].extension).map(id => files.value[id].url))
 const documentExtensions = {'application/pdf':'pdf','application/ofd':'ofd'}
 const imageExtensions = {'image/png':'png','image/jpeg':'jpg'}
-const desktopDrag = !!window.xinshiDesktop?.prepareInvoiceFile
+const desktopDrag = Boolean(window.xinshiDesktop?.prepareInvoiceFile && window.xinshiDesktop?.dragStatementFile)
 
 function invoiceStem(index) {
   const orderNo = props.invoiceOrderNo?.replace(/[^a-z0-9.-]/gi, '_')
@@ -51,7 +51,8 @@ function dragInvoice(event, id, index) {
   event.dataTransfer.effectAllowed = 'copy'
   event.dataTransfer.clearData()
   event.dataTransfer.setData('DownloadURL', `${blob.type}:${name}:${url}`)
-  event.dataTransfer.items.add(new File([blob], name, {type:blob.type}))
+  event.dataTransfer.setData(invoiceDragType, JSON.stringify({url,name}))
+  event.dataTransfer.items?.add(new File([blob], name, {type:blob.type}))
 }
 
 async function prepareInvoice(id, index) {

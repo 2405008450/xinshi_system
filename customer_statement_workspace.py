@@ -94,6 +94,11 @@ class ActionRequest(BaseModel):
     confirmed:bool=False
 
 
+class PendingPeriodPreview(BaseModel):
+    month:str=Field(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')
+    task_ids:list[str]=Field(min_length=1)
+
+
 def require_ready(db):
     schema=inspect(db.connection())
     if not all(schema.has_table(model.__tablename__) for model in (StatementWorkspace,StatementWorkspaceHistory)):
@@ -288,20 +293,21 @@ def preview_statement_number(db, client_id, months, rows, *, period_number=None,
     return statement_number.numbers(db, client_id).get(next(iter(candidates)))
 
 
-def invoice_subjects_by_order(db, client_id):
+def invoice_subjects_by_order(db, client_id, *, special=False):
     if not inspect(db.connection()).has_table(StatementWorkspace.__tablename__):
         return {}
     row=db.get(StatementWorkspace,client_id)
     if not row:
         return {}
     boards={}
-    for board in row.payload['boards']:
+    payload = scoped_payload(db, row.payload, 'special') if special else row.payload
+    for board in payload['boards']:
         fields=board['fields']
         key=fields.get('subject_key')
         if key in SUBJECTS and SUBJECTS[key][1]==fields['company']:
             boards[board['id']]=key
     subjects={}
-    for task in row.payload['tasks'].values():
+    for task in payload['tasks'].values():
         key=boards.get(task['board_id'])
         if key:
             for line in task['rows']:
@@ -309,15 +315,19 @@ def invoice_subjects_by_order(db, client_id):
     return subjects
 
 
-def pending_periods(db,payload):
+def project_billing_assignments(db, roots):
     from translation_document_requirements import TranslationProjectDocuments, ready
-    tasks={key:task for key,task in payload['tasks'].items() if pending_tasks.pending(task)}
-    if not tasks or not ready(db):
+    if not roots or not ready(db):
         return {}
+    return {str(root):(data or {}).get('_billing_period') or {} for root,data in
+            db.query(TranslationProjectDocuments.project_id,TranslationProjectDocuments.quotation_data)
+            .filter(TranslationProjectDocuments.project_id.in_(roots))}
+
+
+def pending_periods(db,payload):
+    tasks={key:task for key,task in payload['tasks'].items() if pending_tasks.pending(task)}
     roots={UUID(task['rows'][0]['root_id']) for task in tasks.values()}
-    assignments={str(root):(data or {}).get('_billing_period') or {} for root,data in
-                 db.query(TranslationProjectDocuments.project_id,TranslationProjectDocuments.quotation_data)
-                 .filter(TranslationProjectDocuments.project_id.in_(roots))}
+    assignments=project_billing_assignments(db,roots)
     boards={board['id']:board for board in payload['boards']}
     periods={}
     for key,task in tasks.items():
@@ -458,6 +468,18 @@ def month_boards(payload, month):
         board.get('period_month') == month or not board.get('period_month') and
         (task_months.get(board['id']) or set(board.get('billing_months', []))) == {month}
     )]
+
+
+def import_board_matches(payload, months):
+    task_months = {}
+    for task in payload['tasks'].values():
+        task_months.setdefault(task['board_id'],set()).add(task['month'])
+    return [board for board in payload['boards']
+            if months & (set(board.get('billing_months',[])) | task_months.get(board['id'],set()))]
+
+
+def assigned_month_board(payload, month, assignment):
+    return next((board for board in month_boards(payload,month) if board['id']==assignment.get('board_id')),None)
 
 
 class BillingPeriodWrite(BaseModel):
@@ -748,6 +770,56 @@ def period_options(month: str, db=Depends(get_db), user=Depends(read_access),
     return sorted(numbers)
 
 
+@router.post('/{client_id}/pending-period-preview')
+def pending_period_preview(client_id:UUID,data:PendingPeriodPreview,db=Depends(get_db),
+                           user=Depends(read_access),settlement_scope:StatementScope|None=None):
+    row=workspace(db,client_id)
+    if row is None:
+        raise HTTPException(404,'请先导入对账单任务')
+    payload=scoped_payload(db,row.payload,settlement_scope)
+    ids=list(dict.fromkeys(data.task_ids))
+    tasks=payload['tasks']
+    if any(key not in tasks for key in ids):
+        raise HTTPException(422,'请选择当前结算范围内的任务')
+    roots={UUID(tasks[key]['rows'][0]['root_id']) for key in ids}
+    assignments=project_billing_assignments(db,roots)
+    boards={board['id']:board for board in payload['boards']}
+    months={data.month,*(tasks[key]['month'] for key in ids)}
+    matches={month:import_board_matches(payload,{month}) for month in months}
+
+    def target_period(task,month):
+        assignment=assignments.get(task['rows'][0]['root_id'],{})
+        if assignment.get('month')==month:
+            board=assigned_month_board(payload,month,assignment)
+            return board.get('period_number') if board else None, board is None
+        candidates=matches[month]
+        if len(candidates)!=1:
+            return None,len(candidates)>1
+        board=candidates[0]
+        if board.get('period_month') and board['period_month']!=month:
+            return None,True
+        return board.get('period_number'),False
+
+    result=[]
+    for key in ids:
+        task=tasks[key]
+        current_month=task['month']
+        waiting=pending_tasks.pending(task)
+        if waiting:
+            current_number,current_needs_period=target_period(task,current_month)
+        else:
+            board=boards.get(task['board_id'],{})
+            current_number=board.get('period_number') if board.get('period_month')==current_month else None
+            current_needs_period=False
+        target_number,target_needs_period=target_period(task,data.month)
+        result.append({
+            'id':key,'current_month':current_month,'current_period':current_number,
+            'current_pending':waiting,'current_needs_period':current_needs_period,
+            'target_period':target_number,'target_needs_period':target_needs_period,
+        })
+    return result
+
+
 @router.post('/import')
 def import_months(data:ImportRequest,mode:Literal['parents','all','children']='children',db=Depends(get_db),user=Depends(write_access)):
     if not data.confirmed:raise HTTPException(422,'请确认后导入对账单')
@@ -802,7 +874,7 @@ def import_months(data:ImportRequest,mode:Literal['parents','all','children']='c
             statement['rows']=[line for line in statement['rows'] if line['root_id'] in allowed]
     if data.board_id:board=board_by_id(payload,data.board_id)
     else:
-        matches=[board for board in scoped['boards'] if set(months)&(set(board.get('billing_months',[]))|{task['month'] for task in scoped['tasks'].values() if task['board_id']==board['id']})]
+        matches=import_board_matches(scoped,set(months))
         board=matches[0] if len(matches)==1 else None
         if not matches:
             title='特殊结算单' if data.settlement_scope=='special' else '对账单'
@@ -814,23 +886,17 @@ def import_months(data:ImportRequest,mode:Literal['parents','all','children']='c
     if data.board_id and board not in scoped['boards']:
         raise HTTPException(422,'所选对账单属于另一种结算范围')
     if board and not before['boards']:board['tax_included']=statements[0]['tax_included']
-    from translation_document_requirements import TranslationProjectDocuments, ready as documents_ready
     roots = {UUID(line['root_id']) for statement in statements for line in statement['rows']}
     roots.update(UUID(line['root_id']) for task in payload['tasks'].values() if pending_tasks.pending(task)
                  and task['month'] in months for line in task['rows'])
-    assignments = {
-        str(root_id): (document or {}).get('_billing_period') or {}
-        for root_id, document in db.query(TranslationProjectDocuments.project_id, TranslationProjectDocuments.quotation_data)
-        .filter(TranslationProjectDocuments.project_id.in_(roots))
-    } if roots and documents_ready(db) else {}
+    assignments=project_billing_assignments(db,roots)
     if not board and not any(assignment.get('month') in months for assignment in assignments.values()):
         raise HTTPException(422,'所选月份有多份对账单，请先在价格与付款为订单选择账期')
 
     def target_board(month, root_id):
         assignment=assignments.get(root_id, {})
         if assignment.get('month') == month:
-            assigned=next((candidate for candidate in month_boards(scoped,month)
-                           if candidate['id']==assignment.get('board_id')), None)
+            assigned=assigned_month_board(scoped,month,assignment)
             if not assigned:
                 raise HTTPException(409,'订单选择的账期已变更，请在价格与付款中重新选择')
             return assigned

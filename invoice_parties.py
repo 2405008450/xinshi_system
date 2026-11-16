@@ -71,6 +71,7 @@ class OrderInvoiceSelectionWrite(BaseModel):
 
 class OrderInvoiceSelectionsWrite(BaseModel):
     items:list[OrderInvoiceSelectionWrite]=Field(min_length=1,max_length=100)
+    settlement_scope:Literal['special']|None=None
 
 
 def require_ready(db):
@@ -114,12 +115,17 @@ def client_invoice_type(row):
     return 'electronic_special' if row and row.invoice_kind=='special' else 'electronic_normal'
 
 
-def order_invoice_selections(db, ids):
+def order_invoice_selections(db, ids, *, special_roots=None):
     from translation_document_requirements import TranslationProjectDocuments,ready
     from invoice_workflow import latest_invoice_selections
 
     if not ids:
         return {}
+    if special_roots:
+        from translation_special_settlement import settings_by_project
+        settings=settings_by_project(db,set(special_roots.values()))
+        return {str(uid):settings.get(root,{}).get(str(uid),{}).get('invoice_selection',{})
+                for uid,root in special_roots.items()}
     stored={}
     if ready(db):
         for document in db.query(TranslationProjectDocuments).filter(TranslationProjectDocuments.project_id.in_(ids)):
@@ -140,22 +146,30 @@ def invoice_subject_default(client_subject, statement_subjects):
     return client_subject or (next(iter(statement_subjects)) if len(statement_subjects)==1 else None)
 
 
-def store_order_invoice_selection(db, project_id, subject_key, invoice_type, actor_id, *, revision=None):
+def store_order_invoice_selection(db, project_id, subject_key, invoice_type, actor_id, *, revision=None, special_root=None):
     from translation_document_requirements import TranslationProjectDocuments,ready
     if not ready(db):
         raise HTTPException(503,'项目单据存储尚未初始化')
-    row=db.get(TranslationProjectDocuments,project_id)
+    document_id=special_root or project_id
+    row=db.get(TranslationProjectDocuments,document_id)
     data=dict(row.quotation_data or {}) if row else {}
-    previous=data.get('_invoice_selection') or {}
+    previous=(data.get('_special_settlement',{}).get(str(project_id),{}).get('invoice_selection')
+              if special_root else data.get('_invoice_selection')) or {}
     current=previous.get('revision',0)
     if revision is not None and revision!=current:
         raise HTTPException(409,'订单开票选择已更新，请刷新后再编辑')
     if previous and previous.get('subject_key')==subject_key and previous.get('invoice_type')==invoice_type:
         return
     if row is None:
-        row=TranslationProjectDocuments(project_id=project_id,quotation_revision=0)
+        row=TranslationProjectDocuments(project_id=document_id,quotation_revision=0)
         db.add(row)
-    row.quotation_data={**data,'_invoice_selection':{'subject_key':subject_key,'invoice_type':invoice_type,'revision':current+1}}
+    selection={'subject_key':subject_key,'invoice_type':invoice_type,'revision':current+1}
+    if special_root:
+        from translation_special_settlement import update_order_data
+        update_order_data(row, project_id, {'invoice_selection': selection}, actor_id, business_now())
+        db.flush()
+        return
+    row.quotation_data={**data,'_invoice_selection':selection}
     row.updated_by=actor_id
     row.updated_at=business_now()
 
@@ -188,31 +202,53 @@ def read_profile(client_id:UUID,db=Depends(get_db),actor=Depends(READ)):
 
 @router.get('/clients/{client_id}/records')
 def records(client_id:UUID,keyword:str|None=None,required:bool|None=None,invoice_status:Literal['unissued','partial','issued']|None=None,
-            skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),db=Depends(get_db),actor=Depends(READ)):
+            skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),db=Depends(get_db),actor=Depends(READ),
+            settlement_scope:Literal['standard','special']|None=None):
     if db.get(Client,client_id) is None:raise HTTPException(404,'客户不存在')
     import crud
     from translation_customer_finance import tree,order_billing_month
     from translation_project_invoices import attach
-    from translation_document_requirements import TranslationProjectDocuments,ready
-    projects=crud.get_translation_projects(db,skip=0,limit=None,keyword=keyword,field_filters={'finance_client_ids':{'value':[str(client_id)]}})
+    from translation_document_requirements import TranslationProjectDocuments,ready,attach as attach_documents
+    import translation_special_settlement as special_settlement
+    from search_matching import matches_keywords
+    special=settlement_scope=='special'
+    projects=crud.get_translation_projects(db,skip=0,limit=None,keyword=None if special else keyword,field_filters={'finance_client_ids':{'value':[str(client_id)]}})
+    if settlement_scope:
+        from translation_document_requirements import matches_statement_scope
+        attach_documents(db,projects)
+        projects=[project for project in projects if matches_statement_scope(project,settlement_scope)]
     items=[tree(project,summary_only=True)['item'] for project in projects]
-    attach(db,{'items':items})
+    if special:
+        settings=special_settlement.settings_by_project(db,[project.id for project in projects])
+        special_items=[]
+        for root in items:
+            data=settings.get(UUID(root['id']),{})
+            special_settlement.apply_settings(root,data)
+            for node in special_settlement.order_nodes(root):
+                if matches_keywords(f"{node['order_no']} {node['project_name'] or ''}",keyword):
+                    special_items.append({**node,**special_settlement.invoice_state(data.get(node['id'],{})),
+                                          'billing_totals':special_settlement.billing_totals(node)})
+        items=special_items
+    else:
+        attach(db,{'items':items})
     summary={'projects':len(items),'required':sum(item['invoice_required'] is True for item in items),
              'issued':sum(item['invoice_status']=='issued' for item in items),'partial':sum(item['invoice_status']=='partial' for item in items),
              'unissued':sum(item['invoice_status']=='unissued' for item in items),'not_required':sum(item['invoice_required'] is False for item in items)}
     items=[item for item in items if (required is None or item['invoice_required']==required) and (invoice_status is None or item['invoice_status']==invoice_status)]
     total=len(items);items=items[skip:skip+limit]
     ids=[UUID(item['id']) for item in items]
-    selections=order_invoice_selections(db,ids)
+    roots={UUID(item['id']):UUID(item['root_id']) for item in items} if special else {}
+    selections=order_invoice_selections(db,ids,special_roots=roots)
     client_profile=db.get(ClientInvoiceProfile,client_id) if inspect(db.connection()).has_table(ClientInvoiceProfile.__tablename__) else None
     from customer_statement_workspace import invoice_subjects_by_order
-    statement_subjects=invoice_subjects_by_order(db,client_id)
-    proofs={str(row.project_id):(row.quotation_data or {}).get('_invoice',{}).get('proofs','') for row in db.query(TranslationProjectDocuments).filter(TranslationProjectDocuments.project_id.in_(ids))} if ids and ready(db) else {}
+    statement_subjects=invoice_subjects_by_order(db,client_id,special=special)
+    proofs={str(row.project_id):(row.quotation_data or {}).get('_invoice',{}).get('proofs','') for row in db.query(TranslationProjectDocuments).filter(TranslationProjectDocuments.project_id.in_(ids))} if not special and ids and ready(db) else {}
     rows=[{**{key:item.get(key) for key in ('id','root_id','order_no','project_name','invoice_status','invoice_required','billing_totals','effective_billing_tax_mode')},
            'billing_month':item.get('billing_month') or order_billing_month(item['order_no']),
-           'invoice_proofs':proofs.get(item['id'],''),
+           'invoice_proofs':item.get('proofs','') if special else proofs.get(item['id'],''),
+           'special':special,
            'invoice_selection':effective_invoice_selection(selections.get(item['id'],{}),
-               invoice_subject_default(client_profile.subject_key if client_profile else None,statement_subjects.get(item['id'],set())),
+               invoice_subject_default(client_profile.subject_key if client_profile else None,statement_subjects.get(item['root_id'],set())),
                client_invoice_type(client_profile))} for item in items]
     return {'items':rows,'total':total,'summary':summary}
 
@@ -242,12 +278,24 @@ def update_order_selections(payload:OrderInvoiceSelectionsWrite,db=Depends(get_d
     ids={item.project_id for item in payload.items}
     if len(ids)!=len(payload.items):
         raise HTTPException(422,'订单不能重复')
+    roots={}
+    if payload.settlement_scope=='special':
+        from translation_project_invoices import special_root_ids
+        roots=special_root_ids(db,ids)
+    root_ids=set(roots.values()) if roots else ids
     locked=db.query(TranslationProject.id).filter(
-        TranslationProject.id.in_(ids),TranslationProject.annotation_migrated_at.is_(None),
+        TranslationProject.id.in_(root_ids),TranslationProject.annotation_migrated_at.is_(None),
     ).order_by(TranslationProject.id).with_for_update().all()
-    if len(locked)!=len(ids):
+    if len(locked)!=len(root_ids):
         raise HTTPException(404,'订单不存在')
+    if roots:
+        from translation_document_requirements import attach, payment_method
+        projects=db.query(TranslationProject).filter(TranslationProject.id.in_(root_ids)).all()
+        attach(db,projects)
+        if any(payment_method(project)!='special' for project in projects):
+            raise HTTPException(422,'所选订单必须属于特殊结算')
     for item in payload.items:
-        store_order_invoice_selection(db,item.project_id,item.subject_key,item.invoice_type,actor.id,revision=item.revision)
+        store_order_invoice_selection(db,item.project_id,item.subject_key,item.invoice_type,actor.id,
+                                      revision=item.revision,special_root=roots.get(item.project_id))
     db.commit()
     return {'updated':len(ids)}

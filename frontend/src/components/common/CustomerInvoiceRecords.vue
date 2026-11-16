@@ -1,6 +1,6 @@
 <template>
   <section class="customer-invoice-records">
-    <h4>客户项目开票记录</h4>
+    <h4 v-if="!hideHeading">客户项目开票记录</h4>
     <p v-if="!clientId">保存客户后可查看项目开票记录。</p>
     <template v-else>
       <p class="invoice-record-summary">项目 {{summary.projects||0}} 个 · 需发票 {{summary.required||0}} 个 · 已开 {{summary.issued||0}} 个 · 部分开 {{summary.partial||0}} 个 · 未开 {{summary.unissued||0}} 个 · 无需 {{summary.not_required||0}} 个</p>
@@ -19,17 +19,17 @@ import OrderInvoiceSelection from './OrderInvoiceSelection.vue'
 import {invoiceStatusOptions,invoiceStatusLabels} from '@/utils/documentRequirements'
 import {getClientInvoiceRecords,invoiceSubjectLabels,invoiceTypeLabels,connectInvoiceParties,invoicePartiesEvent} from '@/api/invoiceParties'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
-const props=defineProps({clientId:{type:[String,Number],default:''},allowOpen:{type:Boolean,default:true},canWrite:Boolean})
+const props=defineProps({clientId:{type:[String,Number],default:''},allowOpen:{type:Boolean,default:true},canWrite:Boolean,hideHeading:Boolean,settlementScope:String})
 defineEmits(['open-invoice'])
 const filters=reactive({keyword:'',required:'',status:''}),rows=ref([]),summary=ref({}),total=ref(0),page=ref(1),loading=ref(false),error=ref('')
 let timer,controller,sequence=0,alive=true
 const needLabel=value=>value===null?'待判断':value?'需':'无需'
 const formatTotals=value=>Object.entries(value||{}).map(([key,amount])=>`${key} ${Number(amount).toFixed(2)}`).join('；')||'-'
-async function load(){if(!props.clientId){rows.value=[];total.value=0;return}controller?.abort();controller=new AbortController();const seq=++sequence;loading.value=true;error.value='';try{const data=await getClientInvoiceRecords(props.clientId,{keyword:filters.keyword.trim()||undefined,required:filters.required==='yes'?true:filters.required==='no'?false:undefined,invoice_status:filters.status||undefined,skip:(page.value-1)*10,limit:10},{signal:controller.signal});if(alive&&seq===sequence){rows.value=data.items||[];summary.value=data.summary||{};total.value=data.total||0;if(page.value>1&&!rows.value.length){page.value=Math.max(1,Math.ceil(total.value/10));void load()}}}catch(e){if(alive&&seq===sequence&&e.code!=='ERR_CANCELED')error.value=getLocalizedErrorMessage(e,'客户项目发票记录加载失败')}finally{if(seq===sequence)loading.value=false}}
+async function load(){if(!props.clientId){rows.value=[];total.value=0;return}controller?.abort();controller=new AbortController();const seq=++sequence;loading.value=true;error.value='';try{const data=await getClientInvoiceRecords(props.clientId,{settlement_scope:props.settlementScope,keyword:filters.keyword.trim()||undefined,required:filters.required==='yes'?true:filters.required==='no'?false:undefined,invoice_status:filters.status||undefined,skip:(page.value-1)*10,limit:10},{signal:controller.signal});if(alive&&seq===sequence){rows.value=data.items||[];summary.value=data.summary||{};total.value=data.total||0;if(page.value>1&&!rows.value.length){page.value=Math.max(1,Math.ceil(total.value/10));void load()}}}catch(e){if(alive&&seq===sequence&&e.code!=='ERR_CANCELED')error.value=getLocalizedErrorMessage(e,'客户项目发票记录加载失败')}finally{if(seq===sequence)loading.value=false}}
 function search(){clearTimeout(timer);page.value=1;void load()}
 function queueSearch(value){clearTimeout(timer);controller?.abort();sequence++;if(!value.trim())search();else timer=setTimeout(search,400)}
 function reset(){Object.assign(filters,{keyword:'',required:'',status:''});search()}
-function changed(event){if(event.type==='translation-invoice-changed'||['records','client'].includes(event.detail?.kind)&&String(event.detail.clientId)===String(props.clientId))void load()}
+function changed(event){if(event.type==='translation-invoice-changed'||(event.detail?.kind==='special-settlement'&&props.settlementScope==='special'||['records','client'].includes(event.detail?.kind)&&String(event.detail.clientId)===String(props.clientId)))void load()}
 watch(()=>props.clientId,()=>{clearTimeout(timer);controller?.abort();sequence++;search()},{immediate:true})
 onMounted(()=>{connectInvoiceParties();window.addEventListener(invoicePartiesEvent,changed);window.addEventListener('translation-invoice-changed',changed)})
 onBeforeUnmount(()=>{alive=false;clearTimeout(timer);controller?.abort();sequence++;window.removeEventListener(invoicePartiesEvent,changed);window.removeEventListener('translation-invoice-changed',changed)})

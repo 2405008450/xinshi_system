@@ -1,5 +1,5 @@
 <template>
-  <details v-if="hasChildren" class="invoice-child-orders" :open="expanded" @toggle="load($event.currentTarget.open)">
+  <component :is="expanded?'section':'details'" v-if="hasChildren" class="invoice-child-orders" @toggle="load($event.currentTarget.open)">
     <summary v-if="!expanded">子订单汇总</summary>
     <div v-loading="loading" class="invoice-child-orders-body">
       <el-alert v-if="error" :title="error" type="error" :closable="false">
@@ -11,7 +11,7 @@
         </el-table-column>
         <el-table-column prop="projectName" label="项目名称" min-width="160" show-overflow-tooltip />
         <el-table-column label="是否需发票" width="110">
-          <template #default="{row}">{{ documentRequirementLabel(invoiceRequirement(row)) }}</template>
+          <template #default="{row}">{{ documentRequirementLabel(special?row.specialInvoiceRequired:invoiceRequirement(row)) }}</template>
         </el-table-column>
         <el-table-column v-for="side in amountColumns" :key="side.total" :label="side.label" min-width="135">
           <template #default="{row}">{{ formatTotals(row[side.total], row[side.adjusted]) }}</template>
@@ -27,7 +27,7 @@
         </el-table-column>
       </el-table>
     </div>
-  </details>
+  </component>
 </template>
 
 <script setup>
@@ -37,7 +37,7 @@ import { documentRequirementLabel, invoiceRequirement } from '@/utils/documentRe
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import TranslationOrderDetailPopover from './TranslationOrderDetailPopover.vue'
 
-const props = defineProps({order:{type:Object,required:true},allowOpen:Boolean,expanded:Boolean,allowStatement:Boolean})
+const props = defineProps({order:{type:Object,required:true},allowOpen:Boolean,expanded:Boolean,allowStatement:Boolean,special:Boolean})
 const emit = defineEmits(['invoice','statement'])
 const hasChildren = computed(() => Boolean(props.order.hasChildren || props.order.childOrderCount || props.order.children?.length))
 const children = ref([])
@@ -66,7 +66,9 @@ async function load(open) {
   loading.value = true
   error.value = ''
   try {
-    const {item} = await getCustomerFinanceProject(props.order.rootId || props.order.id,{signal:controller.signal})
+    const {item} = await getCustomerFinanceProject(props.order.rootId || props.order.id,{
+      signal:controller.signal,params:props.special?{special_invoice:true}:undefined,
+    })
     const order = findOrder(item,props.order.id)
     if (!order) throw new Error('该订单已变更，请重新打开窗口')
     children.value = order.children || []

@@ -95,20 +95,22 @@
               @saved="context.fetchData"
             >
               <template #reference>
-                <el-button type="primary" link class="word-count-compact-link business-clickable-cell" :title="context.getWordCountListSummary(row).title">
+                <el-button type="primary" link class="word-count-compact-link business-clickable-cell" :title="wordCountSummary.title">
                   <span class="compact-cell-value">
-                    <span class="compact-cell-value__primary">{{ context.getWordCountListSummary(row).primary }}</span>
-                    <span v-if="context.getWordCountListSummary(row).extraCount" class="compact-cell-value__count">
-                      +{{ context.getWordCountListSummary(row).extraCount }}
+                    <span class="compact-cell-value__primary">{{ wordCountSummary.primary }}</span>
+                    <span v-if="wordCountSummary.extraCount" class="compact-cell-value__count">
+                      +{{ wordCountSummary.extraCount }}
                     </span>
                   </span>
                 </el-button>
               </template>
             </WordCountMatrixPopover>
+            <small v-if="wordCountSummary.sourceLabel" class="word-count-list-source">子订单汇总</small>
           </div>
           <span v-else>{{ context.formatTableColumnValue(row, column) }}</span>
 </template>
 <script setup>
+import { computed } from 'vue'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import TranslationClientManagerCell from './TranslationClientManagerCell.vue'
 import {CaretBottom,Check} from '@element-plus/icons-vue'
@@ -116,7 +118,8 @@ import PathActionButtons from '@/components/common/PathActionButtons.vue'
 import DeadlineHintCell from '@/components/common/DeadlineHintCell.vue'
 import WordCountMatrixPopover from '@/components/common/WordCountMatrixPopover.vue'
 import TranslatorCompletionPopover from './TranslatorCompletionPopover.vue'
-defineProps({row:{type:Object,required:true},column:{type:Object,required:true},context:{type:Object,required:true}})
+const props = defineProps({row:{type:Object,required:true},column:{type:Object,required:true},context:{type:Object,required:true}})
+const wordCountSummary = computed(() => props.context.getWordCountListSummary(props.row))
 </script>
 <style scoped>
 .order-no-actions { display: flex; align-items: center; gap: 6px; }
@@ -135,7 +138,8 @@ defineProps({row:{type:Object,required:true},column:{type:Object,required:true},
 .compact-cell-value__primary { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .compact-cell-value__count { flex-shrink: 0; padding: 0 5px; border-radius: 8px; background: var(--el-color-primary-light-9); color: var(--el-color-primary); font-size: 12px; line-height: 18px; }
 
-.word-count-list-cell { display: flex; align-items: center; min-width: 0; }
+.word-count-list-cell { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+.word-count-list-source { color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
 .word-count-compact-link { max-width: 100%; height: auto; padding: 0; }
 .word-count-compact-link :deep(.compact-cell-value) { max-width: 100%; }
 .word-count-compact-link :deep(.compact-cell-value__primary) { color: inherit; }

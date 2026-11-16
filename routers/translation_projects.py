@@ -20,6 +20,7 @@ from utils import generate_order_no
 from language_catalog import get_searchable_language_variants
 from routers.auth import get_current_user, require_module_access
 from models import AppUser, TranslationProject
+import translation_entry_deadlines
 from inline_text_update import TextFieldRule, TextFieldUpdate, apply_text_field_update
 from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
 from translation_project_export_service import (
@@ -101,6 +102,27 @@ def _export_field_filters(
         "to": date_end.isoformat(),
     }
     return filters
+
+
+@router.get("/word-count-deadline")
+def word_count_deadline(
+    received_on: date,
+    manager_id: UUID,
+    file_count: int = Query(ge=1),
+    word_count: int = Query(ge=0),
+    db: Session = Depends(get_db),
+):
+    """按客户接单日期、统计档和客户经理请休假计算填写截止日。"""
+    return translation_entry_deadlines.deadline(db, received_on, manager_id, file_count, word_count)
+
+
+@router.post("/{project_id}/entry-deadlines")
+def translation_entry_deadline_status(project_id: UUID, db: Session = Depends(get_db)):
+    result = translation_entry_deadlines.project_status(db, project_id)
+    if result is None:
+        raise HTTPException(404, "笔译项目不存在")
+    db.commit()
+    return result
 
 
 @router.get("/customer-history")

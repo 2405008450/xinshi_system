@@ -1,4 +1,5 @@
 """特殊结算的单据和税口径独立于项目收费。"""
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
@@ -25,6 +26,48 @@ def settings_by_project(db, project_ids):
     return {key: (data or {}).get('_special_settlement', {}) for key, data in
             db.query(TranslationProjectDocuments.project_id, TranslationProjectDocuments.quotation_data)
             .filter(TranslationProjectDocuments.project_id.in_(project_ids))}
+
+
+def order_nodes(node):
+    yield node
+    for child in node['children']:
+        yield from order_nodes(child)
+
+
+def billing_totals(node, *, tax_mode=None):
+    if not node.get('price_aggregate'):
+        mode = node['special_tax_mode']
+        if tax_mode is not None and mode != tax_mode:
+            return {}
+        fields = {'incl_tax': 'totals_incl_tax', 'excl_tax': 'totals_excl_tax'}
+        return node.get(fields.get(mode), {})
+    totals = {}
+    for child in node['children']:
+        for currency, amount in billing_totals(child, tax_mode=tax_mode).items():
+            totals[currency] = totals.get(currency, Decimal(0)) + Decimal(str(amount))
+    return totals
+
+
+def invoice_state(settings):
+    status = settings.get('invoice_status', 'unissued')
+    sent = settings.get('customer_sent')
+    return {
+        'invoice_status': status,
+        'proofs': settings.get('proofs', ''),
+        'issued_by': settings.get('issued_by'),
+        'issued_notification': settings.get('issued_notification'),
+        'customer_sent': (sent or {'name': '—', 'at': None})
+        if status == 'issued' and settings.get('invoice_sent') else None,
+    }
+
+
+def update_order_data(document, order_id, values, actor_id, moment):
+    data = dict(document.quotation_data or {})
+    settings = dict(data.get('_special_settlement', {}))
+    settings[str(order_id)] = {**settings.get(str(order_id), {}), **values}
+    document.quotation_data = {**data, '_special_settlement': settings}
+    document.updated_by = actor_id
+    document.updated_at = moment
 
 
 def apply_settings(node, settings, parent=None):
@@ -73,7 +116,11 @@ def save(db, project, order_ids, data, actor_id):
         if data.invoice_sent and status != 'issued':
             raise HTTPException(422, '请先标记已开票')
         if status != 'issued':
-            values['invoice_sent'] = False
+            values.update(invoice_sent=False, customer_sent=None, issued_by=None, issued_notification=None)
+        elif data.invoice_sent is not None:
+            from models import AppUser
+            from translation_project_invoices import action_value
+            values['customer_sent'] = action_value(db.get(AppUser, actor_id), business_now()) if data.invoice_sent else None
     for order_id in (order_ids if data.apply_to_order else [str(data.order_id)]):
         settings[order_id] = {**settings.get(order_id, {}), **values}
     row.quotation_data = {**stored, '_special_settlement': settings}

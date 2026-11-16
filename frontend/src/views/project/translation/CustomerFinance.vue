@@ -20,8 +20,8 @@
     </template>
     <MonthlyPaymentProjectsDialog v-if="paymentProjectsContext" :context="paymentProjectsContext" :can-write="canWrite"
       :save-method="saveTablePaymentMethod" :prepare="tableEditing.flush" @close="paymentProjectsContext=null" />
-    <ProjectPaymentDialog v-model="paymentVisible" :scope-order="paymentScopeOrder" :can-review-invoice="canWrite" @edit="editPaymentProject" @invoice="openInvoiceDetails" @review-invoice="reviewInvoicePricing" @statement="openInvoiceStatement" />
-    <ProjectPaymentDialog v-model="linkedPaymentVisible" :initial-project-id="editor.rootId" lock-project :can-review-invoice="canWrite" @edit="editPaymentProject" @invoice="openInvoiceDetails" @review-invoice="reviewInvoicePricing" />
+    <ProjectPaymentDialog v-model="paymentVisible" :scope-order="paymentScopeOrder" :can-review-invoice="canWrite" @edit="editPaymentProject" @invoice-saved="onInvoiceSaved" @review-invoice="reviewInvoicePricing" @statement="openInvoiceStatement" />
+    <ProjectPaymentDialog v-model="linkedPaymentVisible" :initial-project-id="editor.rootId" lock-project :can-review-invoice="canWrite" @edit="editPaymentProject" @invoice-saved="onInvoiceSaved" @review-invoice="reviewInvoicePricing" />
     <ProjectInvoiceDialog v-model="invoiceVisible" :context="invoiceContext" @saved="onInvoiceSaved" />
     <CustomerQuotationDialog v-model="quotationVisible" :projects="rows" :query="financeParams()" />
     <CustomerQuotationDialog v-model="linkedQuotationVisible" :draft="editor.quotationDraft" :draft-project="editorDocumentProject" defer-save @update:draft="value=>{editor.quotationDraft=value;editor.quotationDraftDirty=true}" />
@@ -336,6 +336,10 @@
             </template>
           </section>
           <p v-if="localTarget" class="finance-help">本次财务填写随项目表单一起保存。</p>
+          <WordCountDeadlineHint v-if="editorVisible && (editor.pricingMode!=='fixed' || editor.rootId)"
+            kind="unit_price" :history-only="editor.pricingMode==='fixed' && editor.id===editor.rootId" :project-id="editor.rootId"
+            :matrix="localPaymentParent?.wordCountMatrix || editor.wordCountMatrix"
+            :received-at="localPaymentParent?.customerReceptionTime" :manager-id="localPaymentParent?.clientManagerId" :revision="editor.prices" />
           <section v-if="!editor.priceAggregate" class="finance-pricing-region">
           <CustomerTranslationPriceEditor :section-prefix="regionPrefix" compact-actions hide-calculation-summary v-if="editor.pricingMode!=='fixed'" v-model="editor.prices" :language-pair="editor.languagePair" :matrix="editor.wordCountMatrix" :disabled="saving" :reference-prices="referencePrices"><template #before-prices="{row}"><el-form-item label="客户参考价" class="finance-reference-item"><div class="finance-reference-content"><el-button :disabled="!editor.clientId" :type="row?.referenceId?'success':undefined" :plain="!!row?.referenceId" @click="adoptReference(row)">{{hasCustomerRateConflict(row,referencePrices,editor.wordCountMatrix)?'比较并选择客户参考价':row?.referenceId?'重新选择客户参考价':'选择客户参考价'}}</el-button><el-button v-if="editor.clientId" link type="primary" @click="openCustomerFinanceSettings('rates')">{{row?.referenceId?'来自客户管理 → 财务信息 → 笔译 → 客户单价':'打开客户管理的笔译单价'}}</el-button><el-button v-if="row?.referenceId" link @click="stopUsingReference(row)">改用人工单价</el-button><span v-if="hasCustomerRateConflict(row,referencePrices,editor.wordCountMatrix)" class="finance-reference-conflict">当前保留项目单价。可比较后选择采用客户参考价。</span><span v-else>{{referencePrices.length?'按同客户、同语种、同单位、同币种和计价数量选择，保存后生效':'该客户暂无匹配的语种参考价，可在下方直接填写单价'}}</span></div></el-form-item></template><template #price-actions="{row}">
           <div v-if="editor.pricingMode!=='fixed'" class="finance-sync-actions">
@@ -494,6 +498,7 @@ import { translationSettlementModeLabels as settlementModeLabels, translationSet
 import {useProjectStatusSync} from '@/composables/useProjectStatusSync'
 import CustomerStatementPaper from '@/components/common/CustomerStatementPaper.vue'
 import StatementPeriodSelect from '@/components/common/StatementPeriodSelect.vue'
+import WordCountDeadlineHint from './components/WordCountDeadlineHint.vue'
 import {previewStatementProjects,getStatementPreference} from '@/api/customerStatements'
 import {clientManagementTarget} from '@/utils/clientManagementWindow'
 import {calculateTaxOrderPriceTree} from '@/utils/translationQuantityBasis'
@@ -661,7 +666,6 @@ function handleFinanceRowAction(row,command){
   if(command==='statement')return openRowStatement(row)
   if(command==='invoice'){paymentScopeOrder.value=row;paymentVisible.value=true}
 }
-function openInvoiceDetails(row){invoiceContext.value={projectId:row.rootId||row.id,orderId:row.id,order:row,level:financeOrderLevel(row)};invoiceVisible.value=true}
 function openEditorInvoice(){
   const order=editor.value
   invoiceContext.value={

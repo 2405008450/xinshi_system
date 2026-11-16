@@ -19,7 +19,7 @@ const api = axios.create({
 api.interceptors.request.use(
   async config => {
     numberLeaseHeaders(config)
-    if(['post','put','patch','delete'].includes(String(config.method).toLowerCase()))config.autoDraftSubmission=draftSubmitSnapshot(config.url)
+    if(!config.skipDraftSubmit&&['post','put','patch','delete'].includes(String(config.method).toLowerCase()))config.autoDraftSubmission=draftSubmitSnapshot(config.url)
     const token = localStorage.getItem('token')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
