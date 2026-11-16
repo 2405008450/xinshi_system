@@ -11,6 +11,49 @@ import translation_payment_service as service
 from routers.translation_payments import read, write
 
 
+def test_settlement_number_is_issued_only_after_saving_actual_amount(environment,monkeypatch):
+    from datetime import timezone,timedelta
+    import translation_settlement_number as numbers
+    from routers.translation_payments import numbered_payment_history
+
+    db,(actor,_,_)=environment
+    row=project(db,actor)
+    moment=datetime(2026,11,15,9,tzinfo=timezone(timedelta(hours=8)))
+    monkeypatch.setattr(service,'business_now',lambda:moment)
+    data=write(row.id,service.PaymentWrite(version=read(row.id,db,actor)['version'],
+        payments=[dict(stage_type='deposit',planned_amount=100)]),db,actor)
+    assert not numbers.records(db,row.id)
+    number_key=data['payments'][0]['id']
+    data['payments'][0]['actual_amount']=40
+    data=write(row.id,service.PaymentWrite(version=data['version'],payments=data['payments']),db,actor)
+    entry=numbers.records(db,row.id)[number_key]
+    assert entry.number=='TS-261115-001.01'
+    moment+=timedelta(days=1)
+    data['payments'][0]['actual_amount']=50
+    write(row.id,service.PaymentWrite(version=data['version'],payments=data['payments']),db,actor)
+    assert numbers.records(db,row.id)[number_key].number==entry.number
+    history=numbered_payment_history(row.id,entry.number,db,actor)
+    assert history['payments'][0]['before']['actual_amount']=='40.00'
+    assert history['payments'][0]['after']['actual_amount']=='50.00'
+
+
+def test_historical_full_number_uses_original_saved_amount_date(environment):
+    from uuid import uuid4
+    from translation_payment_confirmation import TranslationPaymentConfirmation,TranslationPaymentConfirmationHistory
+    import translation_settlement_number as numbers
+
+    db,(actor,_,_)=environment
+    row=project(db,actor)
+    db.add(TranslationPaymentConfirmation(project_id=row.id,revision=2,is_paid=True,
+        payment_option='{"type":"full","full_payment":{"amount":"96.00"}}',proofs='',updated_at=datetime(2026,11,20,10)))
+    db.add(TranslationPaymentConfirmationHistory(id=uuid4(),project_id=row.id,revision=1,actor_name='测试',
+        before={},after={'is_paid':True,'payment_option':'full','full_payment_amount':'80.00'},created_at=datetime(2026,11,15,9)))
+    db.flush()
+    assert numbers.apply(db,row.id)==1
+    assert numbers.apply(db,row.id)==0
+    assert numbers.records(db,row.id)['full'].number=='TS-261115-001'
+
+
 def project(db, actor, number='001'):
     row=TranslationProject(id=uuid4(),order_no='TP-261104-'+number,project_name='付款测试.docx',source_file_name='付款测试.docx',created_by=actor.id)
     db.add(row);db.commit();return row

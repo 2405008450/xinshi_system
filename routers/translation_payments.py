@@ -5,6 +5,7 @@ from database import get_db
 from models import TranslationProject
 from routers.auth import require_any_permission
 import translation_payment_service as payments
+import translation_settlement_number as settlement_numbers
 
 router=APIRouter(prefix='/translation-payments',tags=['笔译付款情况'])
 
@@ -44,6 +45,26 @@ def confirmation_history(project_id:UUID,page:int=Query(1,ge=1),db=Depends(get_d
 def totals(project_id:UUID,db=Depends(get_db),actor=Depends(require_any_permission('projects:read','finance:read'))):
     project(db,project_id)
     return payments.confirmations.project_totals(db,project_id)
+
+
+@router.get('/{project_id}/settlement-numbers')
+def numbered_payments(project_id:UUID,db=Depends(get_db),actor=Depends(require_any_permission('projects:read','finance:read'))):
+    project(db,project_id)
+    from annotation_progress_time import business_datetime
+    return {'ready':settlement_numbers.ready(db),'items':[
+        {'payment_key':entry.payment_key,'number':entry.number,'issued_at':business_datetime(entry.issued_at).isoformat()}
+        for entry in sorted(settlement_numbers.records(db,project_id).values(),key=lambda row:(row.date_code,row.sequence,row.installment or 0))
+    ]}
+
+
+@router.get('/{project_id}/settlement-numbers/{number}')
+def numbered_payment_history(project_id:UUID,number:str,db=Depends(get_db),
+                             actor=Depends(require_any_permission('projects:read','finance:read'))):
+    project(db,project_id)
+    entry=next((item for item in settlement_numbers.records(db,project_id).values() if item.number==number),None)
+    if entry is None:
+        raise HTTPException(404,'结算编号不存在')
+    return settlement_numbers.history(db,project_id,entry)
 
 
 @router.post('/{project_id}/confirm')

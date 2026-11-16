@@ -196,6 +196,9 @@ def save(db,project_id,payload,actor_id,cleared_payments=None,detail_proofs=None
             if not read_payments(db,project)['payments']:return before
         raise HTTPException(409,'付款情况已被修改，请重新打开后编辑')
     clearing=not payload.is_paid
+    if not clearing and not before['is_paid']:
+        from translation_customer_finance import preserve_paid_monthly_members
+        preserve_paid_monthly_members(db,project)
     if clearing:
         if cleared_payments is None:
             from translation_payment_service import read as read_payments
@@ -259,6 +262,8 @@ def save(db,project_id,payload,actor_id,cleared_payments=None,detail_proofs=None
               'reference_label':selected['label'] if selected else '项目暂无匹配总价','reference_amount':selected['amount'] if selected else None}
         if unchanged and not confirm_full and not details_changed and before['full_match_status']==full['match_status'] and before['full_reference_amount']==full['reference_amount'] and before['full_payment_source']==source:return before
     elif unchanged and not details_changed and before['full_match_status']=='none' and not cleared_payments:return before
+    from translation_settlement_number import apply as issue_settlement_numbers
+    issue_settlement_numbers(db,project_id,only_full=not bool(cleared_payments))
     from editor_screenshot_service import references,valid_references,ready as screenshots_ready,api_time,now,promote_business_references
     from editor_screenshot_models import EditorScreenshot
     proof_text='\n'.join([payload.proofs,*next_proofs.values()])
@@ -293,13 +298,14 @@ def save(db,project_id,payload,actor_id,cleared_payments=None,detail_proofs=None
     row.revision+=1;row.updated_by=actor_id;row.updated_at=business_now();db.flush()
     after=read(db,project_id)
     history_before={**before,'payment_details':cleared_payments or []} if clearing or replacing else before
-    history_after={**after,'payment_details':[],'action':'清除付款选择'} if clearing else {**after,'action':'切换付款状态并清除原付款数据'} if replacing else after
+    history_after={**after,'payment_details':[],'action':'清除付款选择'} if clearing else {**after,'payment_details':[],'action':'切换付款状态并清除原付款数据'} if replacing else after
     if confirm_full:history_after['action']='确认全款'
     if replacing and payment_details_after is not None:history_after={**history_after,'payment_details':payment_details_after}
     if details_changed and not (clearing or replacing):
         history_before={**before,'payment_details':payment_details_before or []}
         history_after={**after,'payment_details':payment_details_after or [],'action':'修改付款明细'}
     append_history(db,project_id,row.revision,actor,history_before,history_after)
+    issue_settlement_numbers(db,project_id,business_now(),only_full=True)
     return after
 
 

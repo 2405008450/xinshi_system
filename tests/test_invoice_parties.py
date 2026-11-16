@@ -47,12 +47,16 @@ def test_client_profile_subject_live_join_and_permissions(context):
 
 
 def test_customer_project_records_scope_filters_summary_pagination(context):
+    from translation_document_requirements import TranslationProjectDocuments
+
     http,db,clients,permissions,actor=setup(context);permissions.add('projects:write')
     first=project(db,clients[0],'INV-PROFILE-A',fixed=True)
     second=project(db,clients[0],'INV-PROFILE-B',fixed=True)
     pending=project(db,clients[0],'INV-PROFILE-C',fixed=True)
     no_need=project(db,clients[0],'INV-PROFILE-D',fixed=True)
     other=project(db,clients[1],'INV-PROFILE-OTHER',fixed=True)
+    db.add(TranslationProjectDocuments(project_id=no_need.id,quotation_data={'_payment_method':'individual'}))
+    db.commit()
     for row in (first,second,pending,other):
         current=finance.read(db,row.id)
         finance.save(db,actor,row.id,finance.PriceWrite(version=current['version'],order_id=row.id,pricing_mode='fixed',adjusted_total=500,adjusted_total_incl_tax=530,billing_tax_mode='incl_tax'))
@@ -67,6 +71,32 @@ def test_customer_project_records_scope_filters_summary_pagination(context):
     assert pages[0]['items'][0]['invoice_proofs']=='该项目发票备注'
     assert http.get(path,params={'required':False}).json()['items'][0]['id']==str(no_need.id)
     assert http.get(f'/translation-customer-finance/project/{first.id}/invoice').json()['client_id']==str(clients[0].id)
+
+
+def test_invoice_selection_retains_order_override_and_inherits_latest_client_default(context):
+    http,db,clients,_,_=setup(context)
+    order=project(db,clients[0],'INV-CHOICE',fixed=True)
+    path=f'/invoice-parties/clients/{clients[0].id}'
+
+    def selection():
+        return http.get(f'{path}/records').json()['items'][0]['invoice_selection']
+
+    assert selection()['invoice_type']=='electronic_normal'
+    assert http.put(path,json={'revision':0,'party':{},'subject_key':'guangzhou',
+                               'invoice_type':'electronic_special'}).status_code==200
+    assert selection()['subject_key']=='guangzhou'
+    assert selection()['invoice_type']=='electronic_special'
+    override={'project_id':str(order.id),'revision':0,'subject_key':'shenzhen','invoice_type':'paper_normal'}
+    assert http.put('/invoice-parties/order-selections',json={'items':[override]}).status_code==200
+    assert http.put(path,json={'revision':1,'party':{},'subject_key':'shanghai',
+                               'invoice_type':'paper_special'}).status_code==200
+    assert selection()['subject_key']=='shenzhen'
+    assert selection()['invoice_type']=='paper_normal'
+    assert http.put('/invoice-parties/order-selections',json={'items':[override]}).status_code==409
+    reset={**override,'revision':1,'subject_key':None,'invoice_type':None}
+    assert http.put('/invoice-parties/order-selections',json={'items':[reset]}).status_code==200
+    assert selection()['subject_key']=='shanghai'
+    assert selection()['invoice_type']=='paper_special'
 
 
 def test_batch_invoice_delivery_and_receipts(context):

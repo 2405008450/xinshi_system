@@ -7,6 +7,7 @@ test('只有一种税口径时自动采用，包括零值',()=>{
   assert.equal(effectiveBillingTaxMode(order),'incl_tax')
   assert.equal(effectiveBillingTaxMode({adjustedTotal:0}),'excl_tax')
   assert.equal(effectiveBillingTaxMode({...order,totalsExclTax:{CNY:'200'}}),'incl_tax')
+  assert.equal(effectiveBillingTaxMode({...order,paymentMethod:'individual',unifiedBillingTaxMode:'excl_tax'}),'incl_tax')
 })
 test('都有金额时尊重人工选择和已保存的默认口径',()=>{
   const order={prices:[{taxPrices:{unitPriceInclTax:.21,unitPriceExclTax:.2}}]}

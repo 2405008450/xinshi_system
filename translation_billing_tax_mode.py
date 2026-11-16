@@ -62,7 +62,10 @@ def save(db,user,project,owner,mode):
 def available(node):
     result=[]
     for mode,override in [('excl_tax','adjusted_total'),('incl_tax','adjusted_total_incl_tax')]:
-        if node.get(override) is not None or node.get('totals_'+mode) or any((price.get('tax_prices') or {}).get('unit_price_'+mode) is not None for price in node.get('prices',[])):
+        if node.get(override) is not None or node.get('totals_'+mode) or any(
+            (price.get('tax_prices') or {}).get(prefix+mode) is not None
+            for price in node.get('prices',[]) for prefix in ('unit_price_', 'total_')
+        ):
             result.append(mode)
     return result
 

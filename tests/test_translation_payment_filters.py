@@ -5,6 +5,13 @@ from models import FinanceRecord,FinancePayment
 import translation_payment_service as service
 import translation_payment_confirmation as confirmation
 import translation_customer_finance as finance
+from translation_document_requirements import TranslationProjectDocuments,save as save_documents
+
+
+def independent(db,actor,*orders):
+    for order in orders:
+        save_documents(db,order,payment_method='individual',actor_id=actor.id)
+    db.commit()
 
 def paid(db,actor,row,details,option='deposit'):
     data=service.read(db,row)
@@ -19,6 +26,7 @@ def test_payment_categories_are_exclusive_and_full_includes_final(context):
     mid=project(db,clients[1],'MID',fixed=True)
     final=project(db,clients[1],'FINAL',fixed=True)
     full=project(db,clients[0],'FULL',fixed=True)
+    independent(db,actor,unpaid,deposit,mid,final,full)
     paid(db,actor,deposit,[{'stage_type':'deposit','actual_amount':100}])
     paid(db,actor,mid,[{'stage_type':'deposit','actual_amount':100},{'stage_type':'mid','actual_amount':100}])
     paid(db,actor,final,[{'stage_type':'deposit','actual_amount':100},{'stage_type':'mid','actual_amount':100},{'stage_type':'final','actual_amount':300}])
@@ -70,6 +78,7 @@ def test_amount_mismatch_uses_current_totals_before_pagination(context):
     unpaid=project(db,clients[0],'UNPAID',fixed=True)
     other=project(db,clients[1],'OTHER',fixed=True)
     final=project(db,clients[0],'FINAL-MISMATCH',fixed=True)
+    independent(db,actor,matched,changed,partial,unpaid,other,final)
     for row in (matched,changed,other):paid(db,actor,row,[],option='full')
     paid(db,actor,partial,[{'stage_type':'deposit','actual_amount':100}])
     paid(db,actor,final,[{'stage_type':'deposit','actual_amount':100},{'stage_type':'final','actual_amount':400}])
@@ -120,6 +129,8 @@ def test_amount_mismatch_currency_missing_zero_and_reference():
 
 
 def test_finance_header_filters_combine_before_pagination(context):
+    from translation_billing_tax_mode import save as save_tax
+
     http,db,clients,_,actor=context;http.app.include_router(finance.router)
     first=project(db,clients[0],'HEADER-A',fixed=True)
     second=project(db,clients[0],'HEADER-B',fixed=True)
@@ -127,8 +138,8 @@ def test_finance_header_filters_combine_before_pagination(context):
     metric=project(db,clients[0],'HEADER-METRIC',fixed=False)
     for row in (first,second,excluded,metric):
         row.project_status='confirmed'
-        from translation_document_requirements import save as save_documents
-        save_documents(db,row,statement_required=row is not excluded,actor_id=actor.id)
+        save_documents(db,row,statement_required=row is not excluded,payment_method='individual',actor_id=actor.id)
+        save_tax(db,actor,row,row,'excl_tax' if row is excluded else 'incl_tax')
     db.commit()
     for row in (first,second,excluded):paid(db,actor,row,[],option='full')
     params={'pricing_mode':'fixed','payment_status':'full','statement_required':True,
@@ -144,3 +155,33 @@ def test_finance_header_filters_combine_before_pagination(context):
     assert workload['total']==1 and workload['items'][0]['id']==str(metric.id)
     assert workload['items'][0]['payment_status']=='unpaid'
     assert http.get('/translation-customer-finance/page',params={'pricing_mode':'invalid'}).status_code==422
+
+
+def test_merged_payment_status_uses_the_same_customer_month_and_period(context):
+    http,db,clients,_,actor=context
+    http.app.include_router(finance.router)
+    first=project(db,clients[0],'GROUP-A',fixed=True)
+    peer=project(db,clients[0],'GROUP-B',fixed=True)
+    other_period=project(db,clients[0],'GROUP-C',fixed=True)
+    individual=project(db,clients[0],'GROUP-D',fixed=True)
+    other_month=project(db,clients[0],'GROUP-E','2026-10',fixed=True)
+    other_client=project(db,clients[1],'GROUP-F',fixed=True)
+    independent(db,actor,individual)
+    for row in (first,peer,other_period,other_month,other_client):
+        save_documents(db,row,payment_method='monthly',actor_id=actor.id)
+    doc=db.get(TranslationProjectDocuments,other_period.id)
+    doc.quotation_data={**doc.quotation_data,'_billing_period':{'month':'2026-11','number':2}}
+    db.commit()
+    paid(db,actor,first,[],option='full')
+    paid(db,actor,peer,[{'stage_type':'deposit','actual_amount':20}])
+    params={'include_payment_status':True,'payment_status':'full','limit':1}
+    pages=[http.get('/translation-customer-finance/page',params={**params,'skip':offset}) for offset in (0,1)]
+    assert all(page.status_code==200 for page in pages),[page.text for page in pages]
+    assert all(page.json()['total']==2 for page in pages)
+    assert {page.json()['items'][0]['id'] for page in pages}=={str(first.id),str(peer.id)}
+    assert all(page.json()['items'][0]['payment_status']=='full' for page in pages)
+    unpaid=http.get('/translation-customer-finance/page',
+                    params={'include_payment_status':True,'exclude_full':True}).json()
+    assert {row['id'] for row in unpaid['items']}=={str(row.id) for row in (other_period,individual,other_month,other_client)}
+    summary=http.get(f'/translation-customer-finance/project/{peer.id}/payment-summary',params={'method':'monthly'}).json()
+    assert {row['id']:row['payment_status'] for row in summary['orders']}=={str(first.id):'full',str(peer.id):'full'}

@@ -22,8 +22,9 @@ class MergedProjects(BaseModel):
     only_mine:bool=False
     client_manager:str|None=None
 
-def prepare(db,user,data):
+def prepare(db,user,data,*,group_directions=True):
     from statement_project_preview import build
+    from customer_statements import direction_statement_rows
     from customer_statement_workspace import workspace
     from statement_customer_groups import project_query
     from finance_manager_scope import manager_fields
@@ -51,7 +52,7 @@ def prepare(db,user,data):
         selected[client.id].append(key)
     parts=[]
     for uid in data.client_ids:
-        part=build(db,uid,data.month,selected[uid],'children')
+        part=build(db,uid,data.month,selected[uid],'children',group_directions=False)
         if uid not in active_clients:part['rows']=[]
         for line in part['rows']:
             line['origin_client_id']=str(uid);line['origin_client_name']=clients[uid].client_short_name or clients[uid].client_name
@@ -86,6 +87,8 @@ def prepare(db,user,data):
         if line['subtotal'] is None:result['pending'].append(f"{line['order_no']}：金额待补录")
         elif line.get('counted_in_total',True):sums[line['currency']]=sums.get(line['currency'],Decimal(0))+Decimal(str(line['subtotal']))
     result['totals']={key:f'{value:.2f}' for key,value in sums.items()}
+    if group_directions:
+        result['rows']=direction_statement_rows(result['rows'])
     return dict(statement=result,existing_count=len(existing),versions={str(uid):row.revision if row else 0 for uid,row in workspaces.items()}),workspaces,waiting
 
 def generate(db,user,data):
@@ -96,7 +99,7 @@ def generate(db,user,data):
     try:
         db.query(Client).filter(Client.id.in_(data.client_ids)).order_by(Client.id).with_for_update().all()
         for uid in data.client_ids:check_revision(workspace(db,uid,True),data.versions[uid])
-        preview,rows,waiting=prepare(db,user,data);statement=preview['statement']
+        preview,rows,waiting=prepare(db,user,data,group_directions=False);statement=preview['statement']
         if not statement['rows']:raise HTTPException(422,'当前项目均已入账或没有可生成内容，请查看已有对账单')
         before={uid:copy.deepcopy(row.payload if row else empty_payload()) for uid,row in rows.items()};payloads=copy.deepcopy(before)
         target=payloads[data.target_client_id];board=new_board(target,imported_fields(statement),data.name.strip());board['tax_included']=statement['tax_included'];board['billing_months']=[data.month]

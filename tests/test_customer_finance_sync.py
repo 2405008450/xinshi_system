@@ -45,10 +45,13 @@ def test_translation_order_versions_and_latest_customer_rate(environment,allowed
     assert mother['children'][0]['children'][0]['order_id']==str(leaf.id)
 
     rates.write_library(db,user,client.id,[item(amount='.2')],library['version']);db.commit()
-    leaf_result=written.read(db,root.id)['item']['children'][0]['children'][0]
-    assert leaf_result['prices'][0]['amount']=='0.2'
+    saved=written.read(db,root.id)['item']
+    child_result=saved['children'][0]
+    leaf_result=child_result['children'][0]
+    assert rates.order_rates(db,child)[0]['amount']=='0.7'
+    assert leaf_result['prices'][0]['amount']=='0.9'
     assert Decimal(leaf_result['adjusted_total'])==15 and leaf_result['explanation']=='独立金额'
-    assert sync.differences('translation',client.id,page=1,db=db,user=user)['total']==0
+    assert sync.differences('translation',client.id,page=1,db=db,user=user)['total']==2
 
 
 def test_mixed_order_tree_folds_only_siblings_with_the_same_direction():

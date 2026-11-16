@@ -1,6 +1,13 @@
 """付款状态筛选：四种阶段互斥，已付款汇总各已付阶段；实付尾款按全款处理。"""
-from sqlalchemy import select,exists,and_,or_,false,func
+from sqlalchemy import select,exists,and_,or_,false,func,case
 from models import TranslationProject,FinanceRecord,FinancePayment
+
+
+def payment_record_condition(db):
+    recorded=exists(select(1).select_from(FinancePayment).join(
+        FinanceRecord,FinanceRecord.id==FinancePayment.finance_id
+    ).where(FinanceRecord.project_id==TranslationProject.id).correlate(TranslationProject))
+    return or_(recorded,payment_status_condition(db,'paid'))
 
 
 def payment_amount_mismatches(item, confirmation):
@@ -24,38 +31,75 @@ def payment_amount_mismatches(item, confirmation):
             or Decimal(str(amount)).quantize(Decimal('.01')) != Decimal(str(expected)).quantize(Decimal('.01')))
 
 
-def attach_payment_status(db,result,*,check_amount=True):
+def settlement_payment_states(db, projects):
+    """Resolve the effective payment stage before filtering or paginating orders."""
+    from translation_customer_finance import effective_billing_month, monthly_tax_projects, statement_client_id
+    from translation_document_requirements import payment_method
+
+    groups = {}
+    monthly_groups = {}
+    for project in projects:
+        groups[project.id] = (project.id,)
+        if payment_method(project)!='monthly':
+            continue
+        client,month=statement_client_id(project),effective_billing_month(project)
+        if not client or not month:
+            continue
+        key=(client,month,project.settlement_period_number)
+        if key not in monthly_groups:
+            monthly_groups[key]=tuple(sorted({project.id,*(peer.id for peer in monthly_tax_projects(db,project))}))
+        groups[project.id]=monthly_groups[key]
+    ids = sorted({uid for group in groups.values() for uid in group})
+    state = case((payment_status_condition(db,'full'),'full'),(payment_status_condition(db,'mid'),'mid'),
+                 (payment_status_condition(db,'deposit'),'deposit'),else_='unpaid')
+    states = {}
+    for offset in range(0,len(ids),1000):
+        states.update(db.query(TranslationProject.id,state).filter(TranslationProject.id.in_(ids[offset:offset+1000])).all())
+    priority = {'unpaid':0,'deposit':1,'mid':2,'full':3}
+    shared = {}
+    result = {}
+    for project_id, group in groups.items():
+        if group not in shared:
+            source = max(group,key=lambda uid:priority[states.get(uid,'unpaid')])
+            shared[group] = (source,states.get(source,'unpaid'),len(group)>1)
+        result[str(project_id)] = shared[group]
+    return result
+
+
+def attach_payment_status(db,result,*,settlement_states,check_amount=True):
     from decimal import Decimal
-    from uuid import UUID
-    from sqlalchemy import case
     from translation_payment_confirmation import TranslationPaymentConfirmation,ready,record_value
-    items=result.get('items',[]);ids=[UUID(item['id']) for item in items]
-    if not ids:return result
-    state=case((payment_status_condition(db,'full'),'full'),(payment_status_condition(db,'mid'),'mid'),(payment_status_condition(db,'deposit'),'deposit'),else_='unpaid')
-    states={str(uid):status for uid,status in db.query(TranslationProject.id,state).filter(TranslationProject.id.in_(ids))}
+    items=result.get('items',[])
+    if not items:return result
+    ids={settlement_states[item['id']][0] for item in items}
     amounts={str(uid):amount for uid,amount in db.query(FinanceRecord.project_id,func.sum(FinancePayment.actual_amount)).join(FinancePayment,FinancePayment.finance_id==FinanceRecord.id).filter(FinanceRecord.project_id.in_(ids)).group_by(FinanceRecord.project_id)}
     confirmations={str(row.project_id):record_value(row) for row in db.query(TranslationPaymentConfirmation).filter(TranslationPaymentConfirmation.project_id.in_(ids))} if ready(db) else {}
+    reference_totals={}
     for item in items:
-        confirmation=confirmations.get(item['id'],{})
-        amount=confirmation.get('full_payment_amount') if confirmation.get('is_paid') and confirmation.get('payment_option')=='full' else amounts.get(item['id'],0)
-        item['payment_status']=states.get(item['id'],'unpaid');item['payment_actual_total']=format(Decimal(str(amount)),'.2f') if amount is not None else None
+        source_id,status,merged=settlement_states[item['id']]
+        source_key=str(source_id)
+        confirmation=confirmations.get(source_key,{})
+        amount=confirmation.get('full_payment_amount') if confirmation.get('is_paid') and confirmation.get('payment_option')=='full' else amounts.get(source_key,0)
+        item['payment_status']=status;item['payment_actual_total']=format(Decimal(str(amount)),'.2f') if amount is not None else None
         item['payment_currency']=confirmation.get('full_payment_currency','CNY')
-        if not check_amount:
-            continue
-        reference_item = item
-        reference_key = confirmation.get('full_payment_total_key') or ''
-        if item['payment_status'] == 'full' and reference_key.startswith(('statement:', 'monthly:', 'orders:')):
+        if check_amount and status=='full':
+            reference_key = confirmation.get('full_payment_total_key') or f"billing:{item['payment_currency']}"
             from translation_payment_confirmation import project_totals
-            totals = project_totals(db, UUID(item['id']))['items']
-            selected = next((total for total in totals if total['key'] == reference_key), None)
-            reference_item = {**item, 'billing_totals': {selected['currency']: selected['amount']} if selected else {}}
-            confirmation = {**confirmation, 'full_payment_total_key': f"billing:{reference_key.partition(':')[2]}"}
-        item['payment_amount_mismatch']=payment_amount_mismatches(reference_item,confirmation)
+            if merged or reference_key.startswith(('statement:', 'monthly:', 'orders:')):
+                if source_id not in reference_totals:
+                    reference_totals[source_id]=project_totals(db,source_id)['items']
+                selected = next((total for total in reference_totals[source_id] if total['key'] == reference_key), None)
+                reference_item = {**item, 'billing_totals': {selected['currency']: selected['amount']} if selected else {}}
+                reference = {'full_payment_total_key': f"billing:{reference_key.partition(':')[2]}"}
+                item['payment_amount_mismatch']=payment_amount_mismatches(reference_item,reference)
+            else:
+                item['payment_amount_mismatch']=payment_amount_mismatches(item,confirmation)
         # 付款属于母订单，下级展示同一份付款状态。
         pending=list(item.get('children',[]))
         while pending:
             child=pending.pop();child['payment_status']=item['payment_status']
-            child['payment_amount_mismatch']=item['payment_amount_mismatch']
+            if 'payment_amount_mismatch' in item:
+                child['payment_amount_mismatch']=item['payment_amount_mismatch']
             pending.extend(child.get('children',[]))
     return result
 

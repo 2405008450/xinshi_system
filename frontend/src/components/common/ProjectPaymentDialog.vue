@@ -43,8 +43,6 @@
         </el-form-item>
         <el-form-item><el-button :loading="searching" @click="applyPaymentFilters">查询</el-button><el-button @click="resetPaymentFilters">重置</el-button></el-form-item>
       </AppForm>
-      <InvoiceChildOrderSummary v-if="modelValue && scopeOrder && activeTab==='invoice' && scopeOrder.paymentMethod!=='special'"
-        :key="scopeOrder.id" :order="scopeOrder" allow-open @invoice="emit('invoice',$event)" />
       <p v-if="showFilters" class="payment-filter-summary">匹配 {{projectTotal}} 个项目<span v-if="projectTotal>100">，可输入订单号或项目名称继续搜索</span></p>
       <section class="payment-overview">
         <div class="payment-overview-search"><el-input v-model="projectKeyword" placeholder="搜索订单号、项目名称" clearable style="width:280px" @input="queueProjectSearch" @keyup.enter="searchProjects(projectKeyword)" /><span v-if="mismatchView" class="payment-help">{{scopeOrder?'在当前客户及账单月份内核对。':'此选项覆盖账单月份和客户筛选。'}}币种不同或金额缺失的项目也列入。</span><span v-if="collectionDefaultView" class="payment-help">未选择付款状态时，仅列未付款、已付定金及已付进度款的项目。</span></div>
@@ -99,7 +97,22 @@
           <el-table-column label="含税总价" min-width="175">
             <template #default="{row}">{{formatPaymentTotals(row.totalsInclTax, row.adjustedTotalsInclTax, row.billingCurrencies.incl_tax)}}</template>
           </el-table-column>
-          <el-table-column label="操作" width="120" fixed="right"><template #default="{row}"><el-button v-if="activeTab==='invoice'" link type="primary" @click="emit('invoice',row)">发票</el-button><el-button v-else-if="canWrite" link type="primary" @click="openPaymentRow(row)">价格与付款</el-button></template></el-table-column>
+          <el-table-column label="操作" :width="activeTab==='invoice'&&scopeOrder?220:120" fixed="right">
+            <template #default="{row}">
+              <div v-if="activeTab==='invoice'" class="invoice-row-actions">
+                <el-button link type="primary" @click="emit('invoice',row)">发票</el-button>
+                <template v-if="scopeOrder">
+                  <el-button v-if="row.statementRequired" link type="primary" @click="emit('statement',row)">查看对账单</el-button>
+                  <span v-else class="payment-help">{{row.statementRequired===false?'无需对账单':'对账单待确认'}}</span>
+                </template>
+                <el-popover title="子订单详情" v-if="scopeOrder&&row.hasChildren" trigger="click" placement="left" width="min(760px, calc(100vw - 32px))" :persistent="false">
+                  <template #reference><el-button link type="primary" :aria-label="`查看 ${row.orderNo} 子订单`">查看子订单</el-button></template>
+                  <InvoiceChildOrderSummary :order="row" expanded allow-open allow-statement @invoice="emit('invoice',$event)" @statement="emit('statement',$event)" />
+                </el-popover>
+              </div>
+              <el-button v-else-if="canWrite" link type="primary" @click="openPaymentRow(row)">价格与付款</el-button>
+            </template>
+          </el-table-column>
         </el-table>
         <el-pagination v-model:current-page="projectPage" :page-size="20" :total="projectTotal" layout="total,prev,pager,next" @current-change="searchProjects(projectKeyword)" />
       </section>
@@ -137,12 +150,12 @@ import {financeOrderLevel} from '@/utils/financeOrderLevel'
 import {orderStatementMonth} from '@/utils/statementRequirementMonth'
 import {paymentStatusLabel,paymentStatusFilterOptions,fullPaymentMismatchOption,paymentChangeEvent,connectPaymentSync} from '@/utils/paymentConfirmation'
 const props=defineProps({modelValue:Boolean,scopeOrder:Object,initialProjectId:{type:String,default:''},lockProject:Boolean,canReviewInvoice:Boolean})
-const emit=defineEmits(['update:modelValue','edit','invoice','review-invoice'])
+const emit=defineEmits(['update:modelValue','edit','invoice','review-invoice','statement'])
 const canWrite=hasPermission('projects:write')||hasPermission('finance:write')
 const body=ref(),options=ref([]),loading=ref(false),searching=ref(false),error=ref('')
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(body)
 const activeTab=ref('invoice'),projectPage=ref(1),showFilters=computed(()=>!props.lockProject)
-const scopeMonth=computed(()=>props.scopeOrder && (orderStatementMonth(props.scopeOrder.orderNo) || props.scopeOrder.billingMonth))
+const scopeMonth=computed(()=>props.scopeOrder && (props.scopeOrder.billingMonth || orderStatementMonth(props.scopeOrder.orderNo)))
 const dialogTitle=computed(()=>{
   if(!props.scopeOrder)return '发票、查账与追账'
   const level=financeOrderLevel(props.scopeOrder)
@@ -158,7 +171,7 @@ const specialInvoiceManagerQuery=computed(()=>({
 const projectTable = ref()
 const selectedProjects = ref([])
 const requestVisible = ref(false)
-const canSelectInvoice = row => row.invoiceRequired === true && row.billingCurrencies.incl_tax.size > 0
+const canSelectInvoice = row => (!row.rootId || row.rootId === row.id) && row.invoiceRequired === true && row.billingCurrencies.incl_tax.size > 0
 let previousSelectionScope = ''
 const invoiceStatusOptions = [...recordedInvoiceStatusOptions, {value:'not_required', label:'无需'}]
 const invoiceStatusText = row => row.invoiceRequired === false ? '无需' : invoiceStatusLabels[row.invoiceStatus] || '未开票'
@@ -258,8 +271,8 @@ function initPaymentFilters(){
 }
 function paymentQuery(keyword){
   const order=props.scopeOrder
-  const scoped=Boolean(order?.clientId && scopeMonth.value)
   const invoice=activeTab.value==='invoice'
+  const scoped=Boolean(order?.clientId && scopeMonth.value && !invoice)
   return {
     sort:projectSort.value,
     keyword:keyword?.trim()||undefined,
@@ -278,7 +291,8 @@ function paymentQuery(keyword){
     statement_customers:invoice?statementCustomerMode.value||undefined:undefined,
     payment_amount_mismatch:!order&&mismatchView.value,
     exclude_full:collectionDefaultView.value,
-    payment_project_id:order&&!scoped?(order.rootId||order.id):props.lockProject?props.initialProjectId||undefined:undefined,
+    settlement_project_id:invoice&&order?(order.rootId||order.id):undefined,
+    payment_project_id:order&&!invoice&&!scoped?(order.rootId||order.id):props.lockProject?props.initialProjectId||undefined:undefined,
     skip:(projectPage.value-1)*20,
     limit:20,
   }
@@ -296,13 +310,24 @@ async function searchProjects(keyword=''){clearTimeout(projectTimer);const seq=+
     previousSelectionScope = scope
   }
   try{const data=await getCustomerFinancePage(query,{signal:controller.signal});if(seq===searchSequence){if(activeTab.value==='invoice'&&data.invoiceFilterApplied!==true){options.value=[];projectTotal.value=0;error.value='后端发票功能尚未更新，请更新后端服务后重试';return}if(mismatchView.value&&(data.paymentAmountMismatchFilterApplied!==true||(data.items||[]).some(item=>item.paymentStatus!=='full'||item.paymentAmountMismatch!==true))){options.value=[];projectTotal.value=0;error.value='后端未正确执行已付全款金额核对，请更新后端服务后重试';return}
-    options.value = (data.items || []).map(project => ({
+    const projects=data.items||[]
+    const order=props.scopeOrder
+    const selectedChild=activeTab.value==='invoice'&&order?.rootId&&order.id!==order.rootId&&!data.mergedInvoiceScope
+    function findOrder(nodes,id){
+      for(const node of nodes){
+        if(node.id===id)return node
+        const match=findOrder(node.children||[],id)
+        if(match)return match
+      }
+    }
+    const visibleProjects=selectedChild?[findOrder(projects,order.id)].filter(Boolean):projects
+    options.value = visibleProjects.map(project => ({
       ...project,
       hasChildren: Boolean(project.hasChildren || project.children?.length),
       billingCurrencies: collectBillingCurrencies(project),
       children: undefined,
     }))
-    projectTotal.value=data.total||0}}catch(e){if(seq===searchSequence&&e.code!=='ERR_CANCELED'){options.value=[];projectTotal.value=0;error.value=getLocalizedErrorMessage(e,'项目搜索失败')}}finally{if(seq===searchSequence)searching.value=false}}
+    projectTotal.value=selectedChild?visibleProjects.length:data.total||0}}catch(e){if(seq===searchSequence&&e.code!=='ERR_CANCELED'){options.value=[];projectTotal.value=0;error.value=getLocalizedErrorMessage(e,'项目搜索失败')}}finally{if(seq===searchSequence)searching.value=false}}
 async function onPaymentTabChanged(){projectPage.value=1;await searchProjects(projectKeyword.value)}
 function sortProjects(change){
   projectSort.value=customerFinanceSort(change)
@@ -319,6 +344,7 @@ onBeforeUnmount(()=>{invoiceCustomerSearch?.abort();clearTimeout(filterTimer);cl
 </script>
 <style scoped>
 .invoice-request-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.invoice-row-actions{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}.invoice-row-actions .el-button{margin-left:0;padding-inline:0}
 :global(.project-payment-dialog){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}:global(.project-payment-dialog>.el-dialog__header),:global(.project-payment-dialog>.el-dialog__footer){flex:none}:global(.project-payment-dialog>.el-dialog__body){flex:1;min-height:0;overflow:auto}.project-payment-row{padding:14px;border:1px solid var(--el-border-color);border-radius:6px;margin:12px 0}.payment-row-heading{display:flex;justify-content:space-between;margin-bottom:10px}.project-payment-row .el-input-number{width:100%}.payment-summary{margin-bottom:14px}.payment-help{font-size:12px;color:var(--el-text-color-secondary)}
 .payment-overview-search{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px}.payment-overview .el-pagination{margin-top:10px}.payment-filter-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.payment-filter-bar :deep(.el-form-item){margin-right:0;margin-bottom:8px}.payment-filter-summary{font-size:12px;color:var(--el-text-color-secondary);margin:0 0 8px}.payment-manager-label{font-size:14px;font-weight:400;color:var(--el-text-color-secondary)}.payment-manager-label .el-button{max-width:300px;white-space:normal;height:auto;min-height:30px}.payment-manager-choices{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px}
 </style>

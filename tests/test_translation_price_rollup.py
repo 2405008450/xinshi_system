@@ -127,7 +127,7 @@ def test_fixed_parent_cascades_without_replacing_descendant_prices(data):
     original_prices = initial['item']['children'][0]['children'][0]['prices']
     fixed = finance.update(root.id, finance.PriceWrite(
         version=initial['version'], order_id=root.id, order_pricing_mode='fixed',
-        pricing_mode='fixed', adjusted_total=900,
+        pricing_mode='fixed', adjusted_total=900, adjusted_total_incl_tax=954,
     ), db, actor)
     listed = finance.page(db=db, user=actor, payment_project_id=root.id, billing_month=None, skip=0, limit=10)
     for item in (fixed['item'], listed['items'][0]):
@@ -142,6 +142,9 @@ def test_fixed_parent_cascades_without_replacing_descendant_prices(data):
     restored = finance.save_table_cell(db, actor, root.id, finance.TablePatch(
         version=fixed['version'],order_id=root.id,pricing_mode='aggregate'))
     assert restored['item']['pricing_mode'] == 'aggregate'
+    assert restored['item']['recorded_adjusted_total'] is None
+    assert restored['item']['recorded_adjusted_total_incl_tax'] is None
+    assert root.customer_charge_items[0].amount_override is None
     restored_leaf = restored['item']['children'][0]['children'][0]
     assert restored_leaf['pricing_mode'] == 'metric' and restored_leaf['fixed_pricing_from'] is None
     assert restored_leaf['prices'] == original_prices

@@ -1,7 +1,6 @@
 """对账单文件导出：中文字体嵌入、固定业务排版，不包含浏览器页眉页脚。"""
 import base64
 import re
-from decimal import Decimal, ROUND_HALF_UP
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
@@ -33,7 +32,8 @@ def pdf_bytes(statements):
     from reportlab.lib.utils import ImageReader
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, LongTable, TableStyle, PageBreak, Flowable, KeepTogether
     from customer_statements import (
-        is_fixed_statement_row, statement_amount, statement_has_unit_column, statement_title, tax_label,
+        is_fixed_statement_row, statement_amount, statement_has_unit_column, statement_shared_cell_spans,
+        statement_title, statement_unit_amount, tax_label,
     )
     output=BytesIO();font=chinese_font()
     document=SimpleDocTemplate(output,pagesize=landscape(A4),leftMargin=14*mm,rightMargin=14*mm,topMargin=14*mm,bottomMargin=14*mm,title='客户对账单',author='信实翻译')
@@ -52,8 +52,11 @@ def pdf_bytes(statements):
     for index,data in enumerate(statements):
         if index:story.append(PageBreak())
         story.extend([paragraph(data['company'],'company'),Spacer(1,4*mm),paragraph(statement_title(data),'title'),Spacer(1,6*mm)])
-        meta=LongTable([[paragraph('客户：'+data['client_name'],'text'),paragraph('账单月份：'+data['month']+'　'+tax_label(data),'right')]],colWidths=[document.width*.6,document.width*.4])
-        meta.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP'),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]));story.extend([meta,Spacer(1,3*mm)])
+        billing='账单月份：'+data['month']+'　'+tax_label(data)
+        if data.get('statement_number'):
+            billing=f"对账单编号：{data['statement_number']}\n"+billing
+        meta=LongTable([[paragraph('客户：'+data['client_name'],'text'),paragraph(billing,'right')]],colWidths=[document.width*.6,document.width*.4])
+        meta.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'BOTTOM'),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]));story.extend([meta,Spacer(1,3*mm)])
         customer_order=any(str(row.get('customer_order_no') or '').strip() for row in data['rows'])
         origin=any(row.get('origin_client_id') or row.get('origin_client_name') for row in data['rows'])
         show_unit = statement_has_unit_column(data['rows'])
@@ -67,13 +70,12 @@ def pdf_bytes(statements):
         cells=[[paragraph(label,'heading') for label in headings]]
         for row in data['rows']:
             basis=re.sub(r'[（(]每1(?:\.0+)?计价[）)]','',row.get('basis') or '')
-            unit='-' if row.get('unit_price') is None else f"{row['currency']} {Decimal(str(row['unit_price'])).quantize(Decimal('.001'),rounding=ROUND_HALF_UP):.3f}"
+            unit=statement_unit_amount(row,mixed_tax)
             fixed = is_fixed_statement_row(row)
-            if mixed_tax and row.get('unit_label') and not fixed:unit+='（'+row['unit_label']+'）'
-            remark=('汇总参考，不重复计入合计。' if row.get('counted_in_total') is False else '')+(row.get('remarks') or '')
+            remark=('汇总参考，不重复计入合计。' if row.get('counted_in_total') is False and not row.get('direction_parent_summary') else '')+(row.get('remarks') or '')
             values=([row.get('origin_client_name') or data['client_name']] if origin else [])+([row.get('customer_order_no') or ''] if customer_order else [])+[str(row.get('received_date') or '-'),row['project_name'],row['language_pair'],str(row['quantity'])+'\n'+basis if row.get('quantity') is not None else basis]
             if show_unit:
-                values.append('' if fixed else unit)
+                values.append('' if fixed or row.get('direction_parent_summary') else unit)
             values.extend([statement_amount(row, mixed_tax), remark])
             cells.append([paragraph(value,'date' if column==int(origin)+int(customer_order) else 'cell') for column,value in enumerate(values)])
         label_width=document.width*sum(weights[:-2])/sum(weights)-12
@@ -83,6 +85,10 @@ def pdf_bytes(statements):
         table=LongTable(cells,colWidths=[document.width*weight/sum(weights) for weight in weights],repeatRows=1,splitInRow=1)
         date_column=int(origin)+int(customer_order)
         table.setStyle(TableStyle([('LEFTPADDING',(date_column,0),(date_column,-2),2),('RIGHTPADDING',(date_column,0),(date_column,-2),2),('GRID',(0,0),(-1,-1),.5,colors.HexColor('#888888')),('VALIGN',(0,0),(-1,-1),'MIDDLE'),('TOPPADDING',(0,0),(-1,-1),7),('BOTTOMPADDING',(0,0),(-1,-1),7),('SPAN',(0,-1),(-3,-1)),('SPAN',(-2,-1),(-1,-1))]))
+        for start,end in statement_shared_cell_spans(data['rows']):
+            for column in (date_column,date_column+1,date_column+3):
+                first,last=(column,start+1),(column,end+1)
+                table.setStyle(TableStyle([('SPAN',first,last)]))
         story.append(table)
         if data.get('stamp_image'):
             story.append(Stamp(BytesIO(base64.b64decode(data['stamp_image'].split(',',1)[1]))))

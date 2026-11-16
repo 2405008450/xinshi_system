@@ -2579,6 +2579,11 @@ Python translation_file_name_rules.py 与前端 translationFileName.js 共用格
 | translation_payment_confirmation_history | actor_id / actor_name | 操作人及姓名快照 |
 | translation_payment_confirmation_history | before / after | 修改前后 JSON，包含凭证引用 |
 | translation_payment_confirmation_history | created_at | 带时区操作时间，接口统一 +08:00 |
+| translation_settlement_number | project_id / payment_key | 笔译母订单与付款身份组成主键，全款为 full，分期为原付款 UUID |
+| translation_settlement_number | number / date_code / sequence / installment | 唯一 TS 编号、香港时间日期及流水、可选分期后缀 |
+| translation_settlement_number | issued_at | 首次保存实付金额的业务时间，保留历史登记日期 |
+| translation_statement_number | board_id / client_id | 对账单 ID 主键及所属客户 |
+| translation_statement_number | number / date_code / sequence / child_sequence | 唯一 TB 编号、主单日期及流水，子序号为 0 表示主单 |
 
 截图字节复用 `editor_screenshot_blob`，业务图片保留类型为 business、expires_at 为空，不随聊天图片到期清理；取消勾选保留截图，移除当前引用不移除历史凭证。所有入口保存时校验付款 revision，防止旧窗口覆盖新付款记录。初始化脚本 `tools/apply_translation_payment_confirmation_migration.py` 可重复执行，仅创建上述两表及必要索引，不更改现有表。
 

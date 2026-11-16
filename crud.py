@@ -2105,6 +2105,8 @@ def _apply_translation_project_filters(
             query = query.filter(~payment_status_condition(query.session,'full'))
         elif field == 'finance_payment_project_id':
             query = query.filter(TranslationProject.id==UUID(descriptor['value']))
+        elif field == 'finance_invoice_project_ids':
+            query = query.filter(TranslationProject.id.in_([UUID(str(value)) for value in descriptor['value']]))
         elif field == 'finance_client_ids':
             query = query.filter(func.coalesce(TranslationProject.client_id,SubClient.parent_client_id).in_([UUID(value) for value in descriptor['value']]))
         elif field == 'finance_client':
@@ -2639,6 +2641,11 @@ def create_translation_project(
     elif project.payment_confirmation is not None:
         from translation_payment_confirmation import save as save_payment_confirmation
         save_payment_confirmation(db,db_project.id,project.payment_confirmation,project.created_by)
+    if db_project.client_id and project.created_by:
+        from customer_statement_workspace import place_unpaid_orders_after_paid_period
+        actor=db.get(AppUser,project.created_by)
+        if actor:
+            place_unpaid_orders_after_paid_period(db,[db_project],actor)
     record_project_operation(
         db,
         project_type="translation",

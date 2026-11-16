@@ -89,7 +89,7 @@ def translation_defaults(owner, project, rows):
             for row in references_for_new_prices(rows, owner.language_pair or project.language_pair, owner.word_count_matrix)]
 
 
-def auto_translation(db, user, client_id, before, after, project_id=None, *, overwrite=False):
+def auto_translation(db, user, client_id, before, after, project_id=None, *, changed_only=False):
     import customer_translation_rates as rates
     import translation_customer_finance as finance
     import translation_finance_audit as audit
@@ -101,7 +101,8 @@ def auto_translation(db, user, client_id, before, after, project_id=None, *, ove
     changed_refs = [row for row in after if row['id'] not in previous_ids or
                     number(row['amount'])!=number(previous_ids[row['id']]['amount']) or
                     tax_signature(row)!=tax_signature(previous_ids[row['id']])]
-    if overwrite and not changed_refs:
+    changed_ids={row['id'] for row in changed_refs}
+    if changed_only and not changed_refs:
         return
     from models import SubClient
     from sqlalchemy import func
@@ -123,20 +124,12 @@ def auto_translation(db, user, client_id, before, after, project_id=None, *, ove
             if str(owner.id) in getattr(project,'cleared_price_orders',()):continue
             if any(charge.pricing_mode=='fixed' for charge in owner.customer_charge_items):continue
             rows = rates.order_rates(db, owner, owner.language_pair or project.language_pair)
-            candidates = rows or translation_defaults(owner, project, changed_refs if overwrite else after)
+            candidates = rows or translation_defaults(owner, project, changed_refs if changed_only else after)
             by_id = {str(row.id): row for row in owner.customer_charge_items}
             for data in candidates:
                 reference_id = data.get('reference_id')
                 if not rows:
                     ref=current_ids.get(reference_id)
-                elif overwrite:
-                    linked=current_ids.get(reference_id)
-                    if linked and matches(linked,data,right_matrix=owner.word_count_matrix,left_reference=True):
-                        ref=linked if linked in changed_refs else None
-                    else:
-                        ref=automatic_reference(after,data,owner.word_count_matrix)
-                        if ref not in changed_refs:
-                            ref=None
                 elif reference_id:
                     linked=current_ids.get(reference_id)
                     old=previous_ids.get(reference_id)
@@ -147,7 +140,7 @@ def auto_translation(db, user, client_id, before, after, project_id=None, *, ove
                     ref=automatic_reference(after,data,owner.word_count_matrix)
                 else:
                     continue
-                if not ref:
+                if not ref or (changed_only and ref['id'] not in changed_ids):
                     continue
                 charge = by_id.get(data.get('id'))
                 moment = business_now().replace(tzinfo=None)

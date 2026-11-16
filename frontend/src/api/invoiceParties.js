@@ -4,6 +4,9 @@ export const saveInvoiceSubject=(key,data)=>api.put(`/invoice-parties/subjects/$
 export const getClientInvoiceProfile=id=>api.get(`/invoice-parties/clients/${id}`)
 export const saveClientInvoiceProfile=(id,data)=>api.put(`/invoice-parties/clients/${id}`,data)
 export const getClientInvoiceRecords=(id,params,config={})=>api.get(`/invoice-parties/clients/${id}/records`,{...config,params})
+export const saveOrderInvoiceSelections=items=>api.put('/invoice-parties/order-selections',{items})
+export const invoiceTypeLabels={electronic_normal:'电子普票',electronic_special:'电子专票',paper_normal:'纸质普票',paper_special:'纸质专票'}
+export const invoiceSubjectLabels={guangzhou:'广州总公司',shenzhen:'深圳分公司',shanghai:'上海分公司'}
 export const invoicePartiesEvent='invoice-parties-changed'
 let channel
 export function connectInvoiceParties(){if(!channel&&typeof window.BroadcastChannel==='function'){channel=new window.BroadcastChannel('invoice-parties-sync');channel.onmessage=event=>window.dispatchEvent(new CustomEvent(invoicePartiesEvent,{detail:event.data}))}}

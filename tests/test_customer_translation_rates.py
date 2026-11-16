@@ -126,7 +126,7 @@ def test_one_sided_tax_rate_stays_separate_after_reopen_and_inheritance(environm
     assert getattr(inherited, empty_key) is None
 
 
-def test_blank_project_rate_matches_customer_basis_and_latest_price_replaces_manual_rate(environment):
+def test_matching_customer_rate_updates_linked_price_and_preserves_manual_price(environment):
     db, (owner, _, _) = environment
     client, root, _, leaf = context(db, owner)
     library = rates.write_library(db, owner, client.id, [item(metric='customer_auto:foreign_words')],
@@ -145,13 +145,19 @@ def test_blank_project_rate_matches_customer_basis_and_latest_price_replaces_man
     adopted = set_price('customer_auto:foreign_words')
     assert adopted['reference_id'] == library['items'][0]['id']
     assert Decimal(adopted['amount']) == Decimal('.1')
-    assert set_price('customer_auto:foreign_words', '.1')['reference_id'] is None
-    rates.write_library(db, owner, client.id, [item(metric='customer_auto:foreign_words', amount='.2')],
-                        library['version'])
+    library = rates.write_library(db, owner, client.id, [item(metric='customer_auto:foreign_words', amount='.2')],
+                                  library['version'])
     db.commit()
     latest = finance.read(db, root.id)['item']['children'][0]['children'][0]['prices'][0]
     assert Decimal(latest['amount']) == Decimal('.2')
     assert latest['reference_id'] == library['items'][0]['id']
+    assert set_price('customer_auto:foreign_words', '.2')['reference_id'] is None
+    rates.write_library(db, owner, client.id, [item(metric='customer_auto:foreign_words', amount='.3')],
+                        library['version'])
+    db.commit()
+    manual = finance.read(db, root.id)['item']['children'][0]['children'][0]['prices'][0]
+    assert Decimal(manual['amount']) == Decimal('.2')
+    assert manual['reference_id'] is None
 
 
 @pytest.mark.parametrize('direction,metric',[('英语→简中','foreign_words'),('简体中文→英语','characters_no_spaces'),('日语→繁體中文','foreign_words'),('zh-CN→英语','characters_no_spaces')])

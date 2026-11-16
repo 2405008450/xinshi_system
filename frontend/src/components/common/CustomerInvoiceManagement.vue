@@ -1,4 +1,4 @@
-<template><section><CustomerInvoiceProfile :client-id="clientId" :can-write="canWrite" /><CustomerInvoiceRecords :client-id="clientId" @open-invoice="openInvoice" /><ProjectInvoiceDialog v-model="visible" :context="context" /></section></template>
+<template><section><CustomerInvoiceProfile :client-id="clientId" :can-write="canWrite" /><CustomerInvoiceRecords :client-id="clientId" :can-write="canWrite" @open-invoice="openInvoice" /><ProjectInvoiceDialog v-model="visible" :context="context" /></section></template>
 <script setup>
 import {ref} from 'vue'
 import CustomerInvoiceProfile from './CustomerInvoiceProfile.vue'

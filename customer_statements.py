@@ -518,6 +518,7 @@ def statement_display_rows(node, rows, mode):
                            'language_pair':item['language_pair'] or '-', 'quantity':None, 'unit_price':None,
                            'pricing_mode':'fixed' if fixed else 'aggregate', 'basis':basis, 'currency':currency,
                            'subtotal':money(sum(amounts)) if amounts else None,
+                           'task_ids':list(dict.fromkeys(row['task_id'] for row in group)),
                            'remarks':item.get('customer_explanation') or '', 'counted_in_total':counted})
         return result
 
@@ -534,7 +535,136 @@ def statement_display_rows(node, rows, mode):
     return render(node)
 
 
-def build_statement(db,project_id,order_id,month,scope,order_display='children',*,special=False):
+def direction_statement_rows(rows, *, include_members=False):
+    """Consolidate direction rows after task selection, without changing ledger identities."""
+    rendered = []
+    groups = {}
+    workloads = {}
+
+    def collect_workload(family, label, source, quantity):
+        values = workloads.setdefault(family,{}).setdefault(label,(set(),set()))
+        if quantity is not None and quantity!='':
+            values[source].add(Decimal(str(quantity)))
+
+    for row in rows:
+        parent = row.get('direction_parent_no')
+        if not parent or (row.get('basis') or '').startswith(('订单汇总','总价调整')):
+            rendered.append(row)
+            continue
+        basis = (row.get('basis') or '').split('（每', 1)[0]
+        family = (row['root_id'],parent)
+        if not basis or is_fixed_statement_row(row):
+            for source,counts in enumerate((row.get('direction_parent_workload'),row.get('fixed_workload'))):
+                for dimension,metrics in (counts or {}).items():
+                    for metric,quantity in metrics.items():
+                        collect_workload(family,f'{dimension} · {WORKLOAD_METRICS[metric]}',source,quantity)
+        else:
+            collect_workload(family,basis,0,row.get('direction_parent_quantity'))
+            collect_workload(family,basis,1,row.get('quantity'))
+        detail = {**row, 'project_name':'', 'quantity':None, 'basis':'', 'direction_detail':True}
+        if row['unit_price'] is None or row['subtotal'] is None:
+            rendered.append(detail)
+            continue
+        unit = basis.split(' · ', 1)[-1]
+        key = (row['root_id'], parent, row.get('origin_client_id'), row.get('billing_month'),
+               row['currency'], row['unit_label'], Decimal(str(row['unit_price'])), Decimal(str(row.get('unit_size') or 1)), unit)
+        groups.setdefault(key, []).append((len(rendered), detail))
+        rendered.append(detail)
+    for positions in groups.values():
+        members = [row for _, row in positions]
+        directions = list(dict.fromkeys(row['language_pair'] for row in members))
+        if len(directions) < 2:
+            continue
+        task_ids = list(dict.fromkeys(task for row in members for task in row.get('task_ids', [row['task_id']])))
+        identities = sorted(row['line_id'] for row in members)
+        group_id = 'directions:' + hashlib.sha256('|'.join(identities).encode()).hexdigest()
+        group = {**members[0], 'line_id':group_id, '_row_id':group_id, 'task_ids':task_ids,
+                 'language_pair':'；'.join(directions), 'direction_count':len(directions),
+                 'subtotal':money(sum(Decimal(str(row['subtotal'])) for row in members)),
+                 'remarks':'\n'.join(dict.fromkeys(row['remarks'] for row in members if row.get('remarks')))}
+        if include_members:
+            group['direction_members'] = members
+        rendered[positions[0][0]] = group
+        for index, _ in positions[1:]:
+            rendered[index] = None
+    return direction_parent_subtotals([row for row in rendered if row is not None],workloads)
+
+
+def direction_parent_subtotals(rows,workloads):
+    def key(row, order_no):
+        return row['root_id'], order_no, row['currency']
+
+    def workload(row, order_no):
+        lines = []
+        for basis,(parent_values,child_values) in workloads.get((row['root_id'],order_no),{}).items():
+            values = parent_values or child_values
+            quantity = format(next(iter(values)).normalize(),'f') if len(values)==1 else None
+            if basis or quantity is not None:
+                lines.append((quantity,basis))
+        if len(lines)==1:
+            quantity,basis=lines[0]
+            return {'quantity':quantity,'basis':basis if quantity is not None else '待补'+(f' · {basis}' if basis else '')}
+        basis='\n'.join(' · '.join(filter(None,(quantity or '待补',label))) for quantity,label in lines)
+        return {'quantity':None,'basis':basis or '待补'}
+
+    details = {}
+    for row in rows:
+        if row.get('direction_detail'):
+            details.setdefault(key(row,row['direction_parent_no']), []).append(row)
+    existing = {key(row,row['order_no']) for row in rows if row.get('counted_in_total') is False}
+    result = []
+    for row in rows:
+        if row.get('counted_in_total') is False and key(row,row['order_no']) in details:
+            result.append({**row,**workload(row,row['order_no']),'direction_parent_summary':True})
+            continue
+        if row.get('direction_detail'):
+            parent = row['direction_parent_no']
+            group = key(row,parent)
+            if group not in existing:
+                existing.add(group)
+                members = details[group]
+                amounts = [Decimal(str(item['subtotal'])) for item in members if item['subtotal'] is not None]
+                task_ids = list(dict.fromkeys(uid for item in members for uid in item.get('task_ids',[item['task_id']])))
+                row_id = f"direction-parent:{row['root_id']}:{parent}:{row['currency']}"
+                result.append({**row,**workload(row,parent),'line_id':row_id,'_row_id':row_id,'order_no':parent,'task_ids':task_ids,
+                               'project_name':row.get('direction_parent_name') or parent,
+                               'language_pair':'','unit_price':None,'unit_label':'','remarks':'',
+                               'subtotal':money(sum(amounts)) if amounts else None,'counted_in_total':False,
+                               'direction_detail':False,'direction_count':None,'direction_members':None,
+                               'direction_parent_summary':True})
+        result.append(row)
+    families = {}
+    ordered = []
+    for row in result:
+        if row.get('direction_parent_summary') or row.get('direction_detail'):
+            family = (row['root_id'], row['order_no'] if row.get('direction_parent_summary') else row['direction_parent_no'])
+            if family not in families:
+                families[family] = []
+                ordered.append(families[family])
+            families[family].append(row)
+        else:
+            ordered.append([row])
+    return [row for family in ordered for row in family]
+
+
+def statement_shared_cell_spans(rows):
+    start = None
+    family = None
+    for index, row in enumerate(rows):
+        order_no = row['order_no'] if row.get('direction_parent_summary') else (
+            row.get('direction_parent_no') if row.get('direction_detail') else None
+        )
+        current = (row.get('root_id'),order_no) if order_no else None
+        if current == family:
+            continue
+        if start is not None and index-start>1:
+            yield start,index-1
+        family,start = current,index if row.get('direction_parent_summary') else None
+    if start is not None and len(rows)-start>1:
+        yield start,len(rows)-1
+
+
+def build_statement(db,project_id,order_id,month,scope,order_display='children',*,special=False,group_directions=True):
     if order_display not in ('parents','all','children'):raise HTTPException(422,'请选择有效的订单显示方式')
     project=crud.get_translation_project(db,project_id)
     if not project or project.annotation_migrated_at is not None:raise HTTPException(404,'笔译项目不存在')
@@ -562,6 +692,7 @@ def build_statement(db,project_id,order_id,month,scope,order_display='children',
     for root in projects:
         crud._attach_project_client_fields(root)
         owners={str(owner.id):owner for owner in [root,*root.sub_orders]}
+        owners_by_number={root.order_no: root, **{child.sub_order_no:child for child in root.sub_orders}}
         node=finance.tree(root)['item']
         if special:
             apply_settings(node,special_settings.get(root.id,{}))
@@ -573,11 +704,21 @@ def build_statement(db,project_id,order_id,month,scope,order_display='children',
         selected=find(node,order_id or root.id,effective_default) if scope=='project' else (node,effective_default)
         if selected is None:raise HTTPException(422,'所选订单不属于当前项目')
         line_counts={}
-        def append(item,quantity,unit,amount,currency,remark='',basis='',issue=None,unit_size='1'):
+        def append(item,quantity,unit,amount,currency,remark='',basis='',issue=None,unit_size='1',quantity_basis=None):
             line_index=line_counts.get(item['id'],0);line_counts[item['id']]=line_index+1
+            direction_parent=getattr(owners[item['id']], 'word_count_parent_order_no', None)
+            parent=owners_by_number.get(direction_parent)
+            parent_name=(root.source_file_name or root.project_name) if parent is root else getattr(parent,'sub_project_name',None)
+            parent_quantity=None
+            if parent is not None and quantity_basis is not None:
+                dimension,metric=quantity_basis
+                parent_quantity=(parent.word_count_matrix or {}).get(dimension,{}).get(metric)
             rows.append(dict(order_no=item['order_no'],customer_order_no=(root.customer_order_no or '').strip(),received_date=business_datetime(root.customer_reception_time).strftime('%Y-%m-%d') if root.customer_reception_time else None,
                 task_id=item['id'],root_id=str(root.id),line_id=f"{item['id']}:{line_index}",unit_size=format(Decimal(str(unit_size)),'f'),
                 project_name=item['project_name'] or '-',language_pair=item['language_pair'] or '-',quantity=quantity,basis=basis,
+                direction_parent_no=direction_parent,direction_parent_name=parent_name,
+                direction_parent_quantity=str(parent_quantity) if parent_quantity is not None else None,
+                direction_parent_workload=fixed_workload(parent.word_count_matrix or {}) if parent is not None and quantity_basis is None else None,
                 statement_required=item['statement_required'],
                 unit_price=str(unit) if unit is not None else None,unit_label='含税' if item.get('special_tax_mode',item.get('effective_billing_tax_mode'))=='incl_tax' else '不含税' if item.get('special_tax_mode',item.get('effective_billing_tax_mode'))=='excl_tax' else label,currency=currency,subtotal=money(amount),
                 remarks=item.get('customer_explanation') or ''))
@@ -612,7 +753,8 @@ def build_statement(db,project_id,order_id,month,scope,order_display='children',
                     basis=f"{dimension} · {METRICS.get(price.get('quantity_metric'),price.get('quantity_metric') or '')}"+(f"（每{Decimal(size):f}计价）" if Decimal(size)!=1 else '')
                     line={**item,'language_pair':price.get('language_pair') or item['language_pair']}
                     append(line,str(quantity) if quantity is not None else None,unit,amount,price['currency'],item.get('explanation',''),basis,
-                           f'未填写{label}单价或对应工作量' if unit is None or quantity is None or amount is None else None,unit_size=size)
+                           f'未填写{label}单价或对应工作量' if unit is None or quantity is None or amount is None else None,
+                           unit_size=size,quantity_basis=(price.get('quantity_dimension'),price.get('quantity_metric')))
             override=item.get('adjusted_total_incl_tax' if kind=='incl_tax' else 'adjusted_total')
             if override is not None and current_month==month and len(rows)>start:
                 matching=[row for row in rows[start:] if row['currency']==item['currency']]
@@ -623,6 +765,8 @@ def build_statement(db,project_id,order_id,month,scope,order_display='children',
         visit(*selected)
         rows[start:]=statement_display_rows(selected[0],rows[start:],order_display)
         if len(rows)>10000:raise HTTPException(422,'本次对账单超过10000条，请缩小项目范围')
+    if group_directions:
+        rows=direction_statement_rows(rows)
     sums={}
     for row in rows:
         if row.get('counted_in_total',True) and row['subtotal'] is not None:sums[row['currency']]=sums.get(row['currency'],Decimal(0))+Decimal(row['subtotal'])
@@ -658,11 +802,27 @@ def statement_has_unit_column(rows):
 
 def statement_amount(row, mixed_tax=False):
     if row.get('subtotal') is None:
-        return '待补'
+        return '待补（不计入合计）' if row.get('direction_parent_summary') else '待补'
     amount = f"{row['currency']} {row['subtotal']}"
     if mixed_tax and is_fixed_statement_row(row) and row.get('unit_label'):
         amount += f"（{row['unit_label']}）"
+    if row.get('direction_count'):
+        amount += f"（{row['direction_count']} 个方向合计）"
+    if row.get('direction_parent_summary'):
+        amount += '（不计入合计）'
     return amount
+
+
+def statement_unit_amount(row, mixed_tax=False):
+    unit_price = row.get('unit_price')
+    unit = '-' if unit_price is None else f"{row['currency']} {Decimal(str(unit_price)).quantize(Decimal('.001'),rounding=ROUND_HALF_UP):.3f}"
+    if row.get('direction_detail') and unit_price is not None:
+        size = Decimal(str(row.get('unit_size') or 1))
+        if size != 1:
+            unit += f'（每{size.normalize():f}计价）'
+    if mixed_tax and row.get('unit_label') and not is_fixed_statement_row(row):
+        unit += f"（{row['unit_label']}）"
+    return unit
 
 
 def write_excel_sheet(sheet,data):
@@ -687,18 +847,24 @@ def write_excel_sheet(sheet,data):
     if data.get('module') == 'interpretation':
         headings[:3] = ['订单日期', '项目名称', '口译方向']
     headings.extend(['单价','小计'] if show_unit else ['固定价格'])
-    sheet.append([]);sheet.append((['原客户'] if has_origin else [])+(['客户单号'] if has_customer_order else [])+headings+['备注'])
+    if data.get('statement_number'):
+        sheet.merge_cells(f'A4:{last_col}4')
+        sheet['A4']=_safe_text(f"对账单编号：{data['statement_number']}")
+    else:
+        sheet.append([])
+    sheet.append((['原客户'] if has_origin else [])+(['客户单号'] if has_customer_order else [])+headings+['备注'])
     for row in data['rows']:
         workload=(str(row['quantity'])+'\n' if row['quantity'] is not None else '')+re.sub(r'[（(]每1(?:\.0+)?计价[）)]','',row['basis'])
-        unit=f"{row['currency']} {Decimal(str(row['unit_price'])).quantize(Decimal('0.001'),rounding=ROUND_HALF_UP):.3f}" if row['unit_price'] is not None else '-'
+        unit=statement_unit_amount(row,mixed_tax)
         fixed = is_fixed_statement_row(row)
-        if mixed_tax and row.get('unit_label') and not fixed:unit+='（'+row['unit_label']+'）'
         values=([row.get('origin_client_name') or data['client_name']] if has_origin else [])+([row.get('customer_order_no','')] if has_customer_order else [])+[row['received_date'],row['project_name'],row['language_pair'],workload]
         if show_unit:
-            values.append(None if fixed else unit)
-        values.extend([statement_amount(row, mixed_tax), ('汇总参考，不重复计入合计。' if row.get('counted_in_total') is False else '')+(row['remarks'] or '')])
+            values.append(None if fixed or row.get('direction_parent_summary') else unit)
+        values.extend([statement_amount(row, mixed_tax), ('汇总参考，不重复计入合计。' if row.get('counted_in_total') is False and not row.get('direction_parent_summary') else '')+(row['remarks'] or '')])
         sheet.append(['-' if value=='-' else _safe_text(value) for value in values])
         sheet.row_dimensions[sheet.max_row].height = max(46, 16*(workload.count('\n')+1+len(workload)//24)) if fixed else 46
+        if row.get('direction_count'):
+            sheet.row_dimensions[sheet.max_row].height = max(46,16*(1+len(row['language_pair'])//14))
     total_row=sheet.max_row+1;sheet.merge_cells(start_row=total_row,start_column=1,end_row=total_row,end_column=3)
     if amount_column>5:sheet.merge_cells(start_row=total_row,start_column=4,end_row=total_row,end_column=amount_column-1)
     sheet.cell(total_row,1,'账单日期：'+(data.get('issue_date') or '-'))
@@ -711,6 +877,9 @@ def write_excel_sheet(sheet,data):
             cell.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
             if cell.row==3:cell.font=Font(name='微软雅黑',size=10)
             if cell.row>=5:cell.border=border;cell.font=Font(name='微软雅黑',size=10,bold=cell.row in (5,total_row))
+    for start,end in statement_shared_cell_spans(data['rows']):
+        for column in (1+offset,2+offset,4+offset):
+            sheet.merge_cells(start_row=start+6,start_column=column,end_row=end+6,end_column=column)
     sheet['A3'].alignment=Alignment(horizontal='left',vertical='center',wrap_text=True)
     sheet.cell(3,5+offset).alignment=Alignment(horizontal='right',vertical='center',wrap_text=True)
     sheet.cell(total_row,1).alignment=Alignment(horizontal='left',vertical='center')

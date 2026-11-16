@@ -39,3 +39,14 @@ test('只有默认选项不弹确认；主表确认时不提前修改草稿',asy
   assert.equal(draft.pricingMode,'fixed')
   assert.equal(draft.adjustedTotal,0)
 })
+
+test('切回子订单汇总时确认清除当前订单固定金额，保留子订单价格',async()=>{
+  const order={pricingMode:'fixed',adjustedTotal:900,adjustedTotalInclTax:954,children:[{prices:[{amount:2}]}]}
+  assert.equal(await requestPricingModeSwitch(order,'aggregate',{confirm:async()=>{throw new Error('cancel')}}),false)
+  assert.equal(order.adjustedTotal,900)
+  assert.equal(order.adjustedTotalInclTax,954)
+  assert.equal(await requestPricingModeSwitch(order,'aggregate',{confirm:async message=>assert.match(message,/保存时将清除/)}),true)
+  assert.equal(order.adjustedTotal,undefined)
+  assert.equal(order.adjustedTotalInclTax,undefined)
+  assert.equal(order.children[0].prices[0].amount,2)
+})
