@@ -19,19 +19,21 @@
     <el-progress v-if="busy && result" :percentage="Math.round(result.completed/Math.max(1,result.total)*100)" />
     <template v-if="result">
       <div class="counter-summary">{{ result.completed }} / {{ result.total }} 份已处理 · 成功 {{ result.counted_files }} 份 · 待处理／失败 {{ result.failed_files }} 份 · 合计 <strong>{{ result.words.toLocaleString('zh-CN') }}</strong> 字</div>
-      <el-table :data="result.files" max-height="220" size="small"><el-table-column prop="name" label="文件" min-width="200" show-overflow-tooltip /><el-table-column label="字数" width="95"><template #default="{row}">{{ row.words == null ? '—' : row.words.toLocaleString('zh-CN') }}</template></el-table-column><el-table-column label="状态／说明" min-width="160"><template #default="{row}">{{ row.status === 'counted' ? '完成' : row.message }}</template></el-table-column></el-table>
+      <div class="counter-metrics"><div v-for="item in FILE_WORD_COUNT_METRICS" :key="item.key" class="counter-metric"><span>{{ item.label }}</span><strong>{{ formatMetric(result[item.key]) }}</strong></div></div>
+      <el-table :data="result.files" max-height="220" size="small"><el-table-column prop="name" label="文件" min-width="200" show-overflow-tooltip /><el-table-column v-for="item in FILE_WORD_COUNT_METRICS" :key="item.key" :label="item.label" :min-width="item.key === 'cjk_chars_korean_words' ? 175 : 115"><template #default="{row}">{{ formatMetric(row[item.key]) }}</template></el-table-column><el-table-column label="状态／说明" min-width="160"><template #default="{row}">{{ row.status === 'counted' ? '完成' : row.message }}</template></el-table-column></el-table>
       <div v-if="result.status === 'completed'" class="counter-apply">
         <el-select v-model="dimension" aria-label="统计结果回填维度" style="width:140px"><el-option label="预统计" value="preliminary" /><el-option label="我司统计" value="company" /></el-select>
-        <el-select v-model="metric" aria-label="统计结果回填口径" style="width:160px"><el-option label="字数" value="words" /><el-option label="不计空格字符数" value="characters_no_spaces" /></el-select>
-        <el-button :disabled="!result.counted_files || result.failed_files > 0" @click="apply">回填统计结果</el-button><small v-if="result.failed_files">存在未成功统计的文件，请处理后重新统计，避免回填不完整总量。</small>
+        <select v-model="metric" aria-label="统计结果回填口径" class="counter-metric-select"><option v-for="item in FILE_WORD_COUNT_METRICS" :key="item.key" :value="item.key">{{ item.label }}</option></select>
+        <el-button :disabled="!canApply" @click="apply">回填统计结果</el-button><small v-if="result.failed_files">存在未成功统计的文件，请处理后重新统计，避免回填不完整总量。</small>
       </div>
-      <div v-if="replacing" class="counter-apply"><el-alert title="该维度已有统计数量，确认后将替换为本次结果。回填后仍需保存。" type="warning" :closable="false" /><el-button @click="replacing=false">取消替换</el-button><el-button type="primary" @click="confirmApply">确认替换统计</el-button></div>
+      <div v-if="replacing" class="counter-apply"><el-alert title="该字段已有统计或存在其他计量区域，确认后更新所选字段；同一区域的其他字数项保留。回填后仍需保存。" type="warning" :closable="false" /><el-button @click="replacing=false">取消替换</el-button><el-button type="primary" @click="confirmApply">确认替换统计</el-button></div>
     </template>
   </section>
 </template>
 <script setup>
 import {computed, onBeforeUnmount, ref, watch} from 'vue'
 import api from '@/api'
+import {FILE_WORD_COUNT_METRICS} from '@/utils/wordCountMatrix'
 const emit = defineEmits(['apply'])
 const props = defineProps({currentMatrix: {type:Object, default:()=>({})}})
 const source=ref('upload'), path=ref(''), recursive=ref(true), files=ref([]), available=ref([]), selected=ref([])
@@ -63,17 +65,30 @@ async function poll(id){
   try{
     const data=await api.get(`/document-word-count/jobs/${id}`)
     if(!active)return
+    // 滚动更新期间，旧后端汇总尚无新字段时，从同批成功文件计算；未知值保持为空。
+    for(const {key} of FILE_WORD_COUNT_METRICS){
+      if(data[key]==null){
+        const counted=(data.files || []).filter(file=>file.status==='counted')
+        data[key]=counted.length && counted.every(file=>Number.isSafeInteger(file[key]))
+          ? counted.reduce((total,file)=>total+file[key],0) : null
+      }
+    }
     result.value=data
     if(['completed','failed'].includes(data.status)){busy.value=false;if(data.status==='failed')error.value='任务中断，请重新统计';return}
     timer=setTimeout(()=>poll(id),800)
   }catch(exc){if(active){error.value=detail(exc);busy.value=false}}
 }
+function formatMetric(value){return Number.isSafeInteger(value) ? value.toLocaleString('zh-CN') : '—'}
+const canApply=computed(()=>result.value?.status==='completed' && result.value.counted_files>0 && result.value.failed_files===0 && Number.isSafeInteger(result.value[metric.value]) && result.value[metric.value]>=0)
 function apply(){
+  if(!canApply.value)return
   const current=props.currentMatrix?.[dimension.value] || {}
-  if(Object.values(current).some(value=>value!=null && value!=='')){replacing.value=true;return}
+  const otherRegion=dimension.value==='company' && ['documents','pages','minutes','hours'].some(key=>current[key]!=null)
+  if(current[metric.value]!=null || otherRegion){replacing.value=true;return}
   confirmApply()
 }
 function confirmApply(){
+  if(!canApply.value)return
   replacing.value=false
   emit('apply',{dimension:dimension.value,metric:metric.value,value:result.value[metric.value]})
 }
@@ -82,5 +97,5 @@ watch([source,path,recursive,includeHidden,includeExtra,files,selected],()=>{if(
 onBeforeUnmount(()=>{active=false;clearTimeout(timer)})
 </script>
 <style scoped>
-.document-counter{border:1px solid var(--el-border-color);border-radius:6px;padding:12px;margin:12px 0;background:var(--el-bg-color)}.counter-heading,.counter-options,.counter-apply{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0}.counter-heading span,.document-counter small{font-size:12px;color:var(--el-text-color-secondary)}.counter-input{display:grid;gap:8px;margin:10px 0}.counter-summary{padding:10px 0;font-size:13px}.counter-apply{padding-top:8px}
+.document-counter{border:1px solid var(--el-border-color);border-radius:6px;padding:12px;margin:12px 0;background:var(--el-bg-color)}.counter-heading,.counter-options,.counter-apply{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0}.counter-heading span,.document-counter small{font-size:12px;color:var(--el-text-color-secondary)}.counter-input{display:grid;gap:8px;margin:10px 0}.counter-summary{padding:10px 0;font-size:13px}.counter-apply{padding-top:8px}.counter-metric-select{width:230px;max-width:100%;height:32px;border:1px solid var(--el-border-color);border-radius:4px;padding:0 8px;background:var(--el-bg-color);color:var(--el-text-color-regular);font:inherit;font-size:13px;cursor:pointer}.counter-metric-select:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:1px}.counter-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:10px}.counter-metric{display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--el-fill-color-light);border:1px solid var(--el-border-color-lighter);border-radius:6px}.counter-metric span{font-size:12px;color:var(--el-text-color-secondary)}.counter-metric strong{font-size:18px;color:var(--el-text-color-primary)}
 </style>

@@ -15,7 +15,7 @@ def api(route):
     path=urlparse(route.request.url).path;requests.append((path,route.request.method))
     if path=='/api/document-word-count/discover':data={'files':[{'relative_path':'样本.docx','size':100}]}
     elif path in ['/api/document-word-count/upload','/api/document-word-count/paths']:data={'job_id':'test-job'}
-    elif path=='/api/document-word-count/jobs/test-job':data={'status':'completed','completed':1,'total':1,'counted_files':1,'failed_files':0,'words':8,'characters_no_spaces':20,'files':[{'name':'样本.docx','words':8,'status':'counted'}]}
+    elif path=='/api/document-word-count/jobs/test-job':data={'status':'completed','completed':1,'total':1,'counted_files':1,'failed_files':0,'words':8,'characters_no_spaces':20,'cjk_chars_korean_words':6,'foreign_words':2,'files':[{'name':'样本.docx','words':8,'characters_no_spaces':20,'cjk_chars_korean_words':6,'foreign_words':2,'status':'counted'}]}
     elif path=='/api/editor-drafts':data={'payload':None,'revision':0}
     else:data=[]
     route.fulfill(content_type='application/json',body=json.dumps(data,ensure_ascii=False))
@@ -34,12 +34,19 @@ with sync_playwright() as p:
         expect(page.get_by_text('成功 1 份',exact=False)).to_be_visible()
         page.get_by_role('button',name='回填统计结果',exact=True).click()
         expect(page.get_by_role('spinbutton',name='预统计-字数',exact=True)).to_have_value('8')
+        for label,field,expected in [('字符数（不计空格）','characters_no_spaces','20'),('中文字符和朝鲜语单词','cjk_chars_korean_words','6'),('外文字数','foreign_words','2')]:
+            page.get_by_role('combobox',name='统计结果回填口径').select_option(field)
+            page.get_by_role('button',name='回填统计结果',exact=True).click()
+            expect(page.get_by_role('spinbutton',name='预统计-'+label,exact=True)).to_have_value(expected)
+            expect(page.get_by_role('spinbutton',name='预统计-字数',exact=True)).to_have_value('8')
+
     page.get_by_text('UNC 共享路径',exact=True).click()
     page.get_by_role('textbox',name='统计共享路径').fill(r'\\Win-server\共享目录')
     page.get_by_role('button',name='读取文件列表',exact=True).click()
     page.locator('.document-counter .el-table__body .el-checkbox').first.click()
     page.get_by_role('button',name='开始统计',exact=True).click()
     expect(page.get_by_text('成功 1 份',exact=False)).to_be_visible()
+    page.get_by_role('combobox',name='统计结果回填口径').select_option('words')
     page.locator('.counter-apply .el-select').first.click()
     page.get_by_role('option',name='我司统计',exact=True).click()
     page.get_by_role('button',name='回填统计结果',exact=True).click()
@@ -49,6 +56,9 @@ with sync_playwright() as p:
     page.screenshot(path=str(output/'ui.png'),full_page=True)
     page.get_by_role('button',name='保存',exact=True).click()
     assert page.evaluate('window.testState.matrix.preliminary.words')==8
+    assert page.evaluate('window.testState.matrix.preliminary.characters_no_spaces')==20
+    assert page.evaluate('window.testState.matrix.preliminary.cjk_chars_korean_words')==6
+    assert page.evaluate('window.testState.matrix.preliminary.foreign_words')==2
     assert page.evaluate('window.testState.matrix.company.words')==8
     assert page.evaluate('window.testState.matrix.customer.words')==120
     assert not errors,errors

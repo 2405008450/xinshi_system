@@ -11,7 +11,19 @@ from file_word_counter import count_text
 from file_word_extractors import _extract_docx_content, _extract_xlsx_content, _extract_pptx_content, _extract_txt_content
 
 EXTENSIONS = {'.docx', '.xlsx', '.pptx', '.doc', '.xls', '.ppt', '.pdf', '.txt'}
-POLICY = 'file-text-v4-local-1'
+POLICY = 'file-text-v4-local-2'
+
+STATISTIC_FIELDS = ('words', 'characters_no_spaces', 'cjk_chars_korean_words', 'foreign_words', 'characters_with_spaces')
+
+def text_statistics(text):
+    """沿用原工具的中日韩候选口径；外文包含非中日韩各文字体系的词数。"""
+    metrics = count_text(text)
+    return dict(words=metrics.word_count, characters_no_spaces=metrics.non_space_chars,
+        characters_with_spaces=metrics.raw_chars,
+        cjk_chars_korean_words=metrics.han_count+metrics.kana_count+metrics.hangul_count+metrics.cjk_punct_count,
+        foreign_words=sum(getattr(metrics, key) for key in ('latin_word_count', 'mixed_latin_number_count',
+            'cyrillic_word_count', 'arabic_word_count', 'greek_word_count', 'hebrew_word_count', 'thai_word_count')))
+
 
 def count_file(path, include_hidden=False, include_extra=False):
     path = Path(path)
@@ -47,8 +59,7 @@ def count_file(path, include_hidden=False, include_extra=False):
         text = '\n'.join(page.extract_text() or '' for page in reader.pages)
         if not text.strip():
             return dict(status='needs_ocr', message='未提取到文字，需要 OCR 后统计', words=None, pages=len(reader.pages))
-        metrics = count_text(text)
-        return dict(status='counted',words=metrics.word_count,characters_no_spaces=metrics.non_space_chars,
+        return dict(status='counted', **text_statistics(text),
                     pages=len(reader.pages),hidden_words=0,extra_words=0,policy=POLICY)
     extractor = {'.docx':_extract_docx_content,'.xlsx':_extract_xlsx_content,'.pptx':_extract_pptx_content,'.txt':_extract_txt_content}[suffix]
     content = extractor(path)
@@ -61,10 +72,14 @@ def count_file(path, include_hidden=False, include_extra=False):
     main_words = count_text(main).word_count
     if suffix == '.docx' and content.portable_word_count is not None:
         main_words = content.portable_word_count
-    return dict(status='counted',words=main_words+(count_text(extra).word_count if include_extra else 0),
-        characters_no_spaces=count_text(main+(extra if include_extra else '')).non_space_chars,
+    statistics = text_statistics(main)
+    extra_statistics = text_statistics(extra)
+    if include_extra:
+        statistics = {key: statistics[key]+extra_statistics[key] for key in STATISTIC_FIELDS}
+    statistics['words'] = main_words + (extra_statistics['words'] if include_extra else 0)
+    return dict(status='counted', **statistics,
         pages=content.page_count or None,hidden_words=count_text(hidden).word_count,
-        extra_words=count_text(extra).word_count,policy=POLICY)
+        extra_words=extra_statistics['words'],policy=POLICY)
 
 if __name__ == '__main__':
     try:

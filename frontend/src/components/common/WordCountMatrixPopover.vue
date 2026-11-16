@@ -122,6 +122,7 @@ import { useFormDraft } from '@/composables/useFormDraft'
 import OrderWordCountSource from './OrderWordCountSource.vue'
 import {
   WORD_COUNT_METRICS,
+  applyFileWordCountValue,
   createEmptyWordCountMatrix,
   createEmptyWordCountValues,
   formatWordCountMatrix,
@@ -149,8 +150,7 @@ const props = defineProps({
 function applyFileCount({dimension,metric,value}) {
   const row=rows.value.find(row=>row.scope==='entity' && row.dimension===dimension)
   if(!row || rowReadonly(row))return
-  WORD_COUNT_METRICS.forEach(({key})=>{row.values[key]=null})
-  row.values[metric]=value
+  Object.assign(row.values,applyFileWordCountValue(row.values,dimension,metric,value))
   ElMessage.success('已回填，请保存字数统计')
 }
 
@@ -497,6 +497,31 @@ async function saveMatrix() {
 
 <style scoped>
 .file-counter-collapse { flex: 0 1 auto; overflow: auto; min-height: 44px; max-height: 390px; }
+.file-counter-collapse :deep(.el-collapse-item__header) {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  height: auto;
+  padding: 10px 14px;
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 8px;
+  background: var(--color-surface-muted, #f1f5f9);
+  color: var(--color-primary, #334155);
+  font-weight: 600;
+  line-height: 1.5;
+  cursor: pointer;
+  transition: background-color .15s, border-color .15s;
+}
+.file-counter-collapse :deep(.el-collapse-item__header:hover),
+.file-counter-collapse :deep(.el-collapse-item__header.is-active) {
+  background: var(--color-primary-soft, #e2e8f0);
+  border-color: #cbd5e1;
+}
+.file-counter-collapse :deep(.el-collapse-item__header:focus-visible) {
+  outline: 2px solid var(--color-primary, #334155);
+  outline-offset: -3px;
+}
+
 .word-count-matrix { display: flex; flex-direction: column; gap: 14px; max-height: min(680px, calc(100vh - 120px)); }
 .word-count-matrix__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 14px 16px; border: 1px solid var(--el-border-color-lighter); border-radius: 10px; background: var(--el-fill-color-lighter); }
 .word-count-matrix__header strong { font-size: 14px; color: var(--el-text-color-primary); }

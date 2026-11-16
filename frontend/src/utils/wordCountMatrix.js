@@ -146,3 +146,17 @@ export function sumWordCountValues(items = []) {
   })
   return totals
 }
+
+
+export const FILE_WORD_COUNT_METRICS = WORD_COUNT_METRICS.filter(item =>
+  ['words', 'characters_no_spaces', 'cjk_chars_korean_words', 'foreign_words'].includes(item.key))
+
+export function applyFileWordCountValue(values, dimension, metric, value) {
+  if (!FILE_WORD_COUNT_METRICS.some(item => item.key === metric) || !Number.isSafeInteger(value) || value < 0) return normalizeWordCountValues(values)
+  const next = normalizeWordCountValues(values)
+  if (dimension === 'company' || dimension === 'customer') {
+    for (const key of ['documents', 'pages', 'minutes', 'hours']) next[key] = null
+  }
+  next[metric] = value
+  return next
+}

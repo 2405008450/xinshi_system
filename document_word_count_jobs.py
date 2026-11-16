@@ -9,7 +9,7 @@ import sys
 import threading
 import time
 from uuid import uuid4
-from document_word_count_worker import EXTENSIONS, POLICY
+from document_word_count_worker import EXTENSIONS, POLICY, STATISTIC_FIELDS
 from path_security import validate_managed_path
 
 MAX_FILES = 50
@@ -122,8 +122,9 @@ def status(owner, identity):
         result={key:value for key,value in job.items() if key not in {'owner','touched'}}
         result['files']=[dict(row) for row in job['files']]
     good=[r for r in result['files'] if r['status']=='counted']
-    result['words']=sum(r['words'] for r in good)
-    result['characters_no_spaces']=sum(r.get('characters_no_spaces',0) for r in good)
+    for field in STATISTIC_FIELDS:
+        # 旧任务缺少某项时不能将未知值当作零回填。
+        result[field] = sum(r[field] for r in good) if all(r.get(field) is not None for r in good) else None
     result['counted_files']=len(good)
     result['failed_files']=sum(r['status']!='counted' for r in result['files'])
     return result

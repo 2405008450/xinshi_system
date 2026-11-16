@@ -68,3 +68,34 @@ def test_statistics_routes_require_authentication():
     app=FastAPI();app.include_router(router)
     with TestClient(app) as client:
         assert client.get('/document-word-count/jobs/unknown').status_code in {401,403}
+
+
+def test_all_four_metrics_have_distinct_values(tmp_path):
+    text='中文，한국어 hello Привет 123'
+    path=tmp_path/'mixed.txt';path.write_text(text,encoding='utf-8')
+    result=count_file(path)
+    assert result['words']==9
+    assert result['characters_no_spaces']==len('中文，한국어helloПривет123')
+    assert result['cjk_chars_korean_words']==6
+    assert result['foreign_words']==2
+    assert result['characters_with_spaces']==len(text)
+
+
+def test_extra_scope_applies_to_every_metric(tmp_path):
+    doc=Document();doc.add_paragraph('正文');doc.sections[0].header.paragraphs[0].text='extra'
+    path=tmp_path/'header.docx';doc.save(path)
+    main=count_file(path);combined=count_file(path,include_extra=True)
+    assert main['words']==2 and combined['words']==3
+    assert main['foreign_words']==0 and combined['foreign_words']==1
+    assert main['cjk_chars_korean_words']==combined['cjk_chars_korean_words']==2
+    assert combined['characters_no_spaces']-main['characters_no_spaces']==5
+
+
+def test_task_sums_metrics_without_using_words_for_other_fields(monkeypatch):
+    records=[dict(status='counted',words=4,characters_no_spaces=20,cjk_chars_korean_words=2,foreign_words=1,characters_with_spaces=24),
+             dict(status='counted',words=7,characters_no_spaces=30,cjk_chars_korean_words=5,foreign_words=2,characters_with_spaces=35)]
+    monkeypatch.setitem(jobs._jobs,'four-metrics',dict(owner='qa',status='completed',files=records,touched=0))
+    result=jobs.status('qa','four-metrics')
+    assert [result[key] for key in ['words','characters_no_spaces','cjk_chars_korean_words','foreign_words']]==[11,50,7,3]
+    records[0].pop('foreign_words')
+    assert jobs.status('qa','four-metrics')['foreign_words'] is None

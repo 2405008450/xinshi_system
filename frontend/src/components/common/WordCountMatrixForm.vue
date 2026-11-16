@@ -20,8 +20,8 @@
 <script setup>
 import {computed} from 'vue'
 import DocumentWordCounter from './DocumentWordCounter.vue'
-import {WORD_COUNT_METRICS,createEmptyWordCountValues,normalizeWordCountMatrix,isWordCountRegionLocked} from '@/utils/wordCountMatrix'
-function applyFileCount({dimension,metric,value}){const next=normalizeWordCountMatrix(props.modelValue);Object.keys(next[dimension]).forEach(key=>next[dimension][key]=null);next[dimension][metric]=value;emit('update:modelValue',next)}
+import {WORD_COUNT_METRICS,applyFileWordCountValue,createEmptyWordCountValues,normalizeWordCountMatrix,isWordCountRegionLocked} from '@/utils/wordCountMatrix'
+function applyFileCount({dimension,metric,value}){const next=normalizeWordCountMatrix(props.modelValue);next[dimension]=applyFileWordCountValue(next[dimension],dimension,metric,value);emit('update:modelValue',next)}
 const props=defineProps({modelValue:Object,disabled:Boolean,aggregated:Boolean});const emit=defineEmits(['update:modelValue'])
 const matrix=computed(()=>normalizeWordCountMatrix(props.modelValue))
 const dimensions=[{key:'company',label:'我司统计'},{key:'customer',label:'客户统计'},{key:'preliminary',label:'预统计'},{key:'translatorEstimate',label:'译员预定'}]
