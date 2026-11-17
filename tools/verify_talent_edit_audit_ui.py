@@ -68,7 +68,7 @@ def run():
                 expect(popup.get_by_text('补充人员（resume-editor）')).to_be_visible()
                 expect(popup.get_by_text('手机', exact=True)).to_be_visible()
                 expect(popup.get_by_text('简历补充 / 自我评价', exact=True)).to_be_visible()
-                expect(popup).to_contain_text('2026年11月17日')
+                expect(popup).to_contain_text('2026/11/17 10:15:00')
                 assert popup.get_attribute('data-popper-placement').startswith('left')
                 assert popup.locator('.history-body').evaluate('(el)=>el.scrollHeight>el.clientHeight')
                 popup.locator('.history-body').evaluate('(el)=>el.scrollTop=el.scrollHeight')
@@ -76,12 +76,16 @@ def run():
                 page.wait_for_timeout(300)
                 assert any('skip=20' in query for query in history_requests)
                 page.screenshot(path=str(OUT / 'desktop.png'))
-                page.mouse.click(20, 150)
+                popup.get_by_role('button', name='关闭窗口', exact=True).click()
                 expect(popup).not_to_be_visible()
                 page.set_viewport_size(dict(width=390, height=844))
+                page.wait_for_timeout(350)
                 button.click()
                 popup = page.locator('.talent-edit-history-popper:visible')
                 expect(popup).to_be_visible()
+                expect(popup.get_by_text('补充人员（resume-editor）')).to_be_visible()
+                page.wait_for_timeout(350)
+                assert parse_qs(history_requests[-1])['skip'] == ['0']
                 box = popup.bounding_box()
                 assert box['x'] >= 0 and box['x'] + box['width'] <= 391
                 page.screenshot(path=str(OUT / 'mobile.png'))
@@ -98,4 +102,7 @@ def run():
 
 
 if __name__ == '__main__':
+    import sys
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
     run()

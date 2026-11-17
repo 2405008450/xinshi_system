@@ -1,7 +1,7 @@
 <template>
   <el-popover trigger="click" placement="left" :width="760" title="人才编辑记录" popper-class="talent-edit-history-popper" @show="open" @hide="cancel">
     <template #reference><el-button link type="primary">编辑记录</el-button></template>
-    <div class="history-body" v-loading="loading">
+    <div class="history-content"><div class="history-body" v-loading="loading">
       <el-alert title="仅记录功能启用后的实际修改，无需填写原因。" type="info" :closable="false" />
       <el-alert v-if="error" :title="error" type="error" :closable="false"><el-button link @click="load">重试</el-button></el-alert>
       <el-empty v-else-if="!loading && !items.length" description="暂无编辑记录" />
@@ -14,7 +14,7 @@
           <el-table-column label="修改后" min-width="220"><template #default="{ row }"><div class="history-value">{{ display(row.after) }}</div></template></el-table-column>
         </el-table>
       </section>
-    </div>
+    </div></div>
     <el-pagination v-model:current-page="page" :page-size="20" :total="total" layout="total, prev, pager, next" @current-change="load" />
   </el-popover>
 </template>
@@ -62,4 +62,7 @@ onBeforeUnmount(cancel)
 .history-entry{margin:14px 0}.history-entry>div{margin:4px 0;color:var(--el-text-color-secondary)}
 .history-value{white-space:pre-wrap;overflow-wrap:anywhere}
 </style>
-<style>.talent-edit-history-popper{max-width:calc(100vw - 32px)!important}</style>
+<style>
+.talent-edit-history-popper{max-width:calc(100vw - 32px)!important}
+@media(max-width:800px){.talent-edit-history-popper{position:fixed!important;left:16px!important;top:64px!important;transform:none!important;margin:0!important}}
+</style>
