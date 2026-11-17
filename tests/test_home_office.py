@@ -90,6 +90,77 @@ def test_manual_usage_reflected_to_person_company_and_limits(office):
     with pytest.raises(HTTPException):service.company(db,person)
 
 
+def test_hr_restrictions_block_both_new_requests_and_can_be_lifted(office, monkeypatch):
+    db, (admin, person, _) = office
+    from tools.apply_home_office_restriction_migration import apply_migration
+    events = []
+    monkeypatch.setattr('notification_ws.dispatch_personal_message', lambda uid, event: events.append((uid, event)))
+    service.Restriction.__table__.drop(db.connection(), checkfirst=True)
+    assert service.overview(db, person)['application_restriction_message'] is None
+    apply_migration(db.connection())
+    apply_migration(db.connection())
+    pause = service.RestrictionWrite(restricted=True)
+    with pytest.raises(HTTPException) as denied:
+        service.set_restriction(db, person, person.id, pause)
+    assert denied.value.status_code == 403
+    with pytest.raises(HTTPException):
+        service.list_restrictions(db, person)
+
+    client = uuid4()
+    apply(db, person, client_id=client)
+    assert service.set_restriction(db, admin, person.id, pause) == {'restricted': True}
+    assert service.set_restriction(db, admin, person.id, pause) == {'restricted': True}
+    assert [(uid,event) for uid,event in events if event['type']=='home_office_restriction_changed'] == [
+        (person.id, {'type': 'home_office_restriction_changed'}),
+    ]
+    state = service.overview(db, person)
+    assert state['application_restriction_message'] == service.RESTRICTION_MESSAGE
+    assert not state['quota_available'] and not state['can_apply_qualification']
+    assert len(apply(db, person, client_id=client)['applications']) == 1
+    with pytest.raises(HTTPException) as application:
+        apply(db, person, '2026-10-29')
+    with pytest.raises(HTTPException) as qualification:
+        service.apply_qualification(db, person, service.QualificationWrite(client_id=uuid4(), reason='测试'))
+    assert application.value.status_code == qualification.value.status_code == 403
+    assert application.value.detail == qualification.value.detail == service.RESTRICTION_MESSAGE
+    assert next(row for row in service.list_restrictions(db, admin)['people'] if row['user_id'] == str(person.id))['restricted']
+    assert service.set_restriction(db, admin, person.id, service.RestrictionWrite(restricted=False)) == {'restricted': False}
+    result = service.apply(db, person, service.ApplicationWrite(client_id=uuid4(), requested_date='2026-10-29', minutes=240))
+    assert len(result['applications']) == 2
+
+
+def test_quota_reductions_apply_independently_for_current_and_next_year(office):
+    db, (admin, person, _) = office
+    with pytest.raises(ValidationError):
+        service.QuotaReductionWrite(year=2026, days=2, reason=' ')
+
+    def reduce(year, days, actor=admin):
+        return service.set_quota_reduction(db, actor, person.id,
+            service.QuotaReductionWrite(year=year, days=days, reason='  测试调整  '))
+
+    with pytest.raises(HTTPException) as denied:
+        reduce(2026, 2, person)
+    assert denied.value.status_code == 403
+    with pytest.raises(HTTPException) as invalid_year:
+        reduce(2028, 2)
+    assert invalid_year.value.status_code == 422
+    apply(db, person)
+    reduce(2026, 12)
+    reduce(2027, 3)
+    current = service.overview(db, person)
+    next_year = service.overview(db, person, date(2027, 1, 4))
+    assert (current['annual_limit'], current['annual_used'], current['annual_remaining']) == (0, 1, 0)
+    assert (next_year['annual_limit'], next_year['quota_reduction_reason']) == (9, '测试调整')
+    assert service.list_restrictions(db, admin)['years'] == [2026, 2027]
+    with pytest.raises(HTTPException, match='2026年度额度0天已满'):
+        apply(db, person, '2026-10-29')
+    reduce(2026, 0)
+    assert service.overview(db, person)['annual_limit'] == 12
+    result = service.apply(db, person, service.ApplicationWrite(client_id=uuid4(), requested_date='2026-10-29', minutes=240))
+    assert len(result['applications']) == 2
+    assert service.overview(db, person, date(2027, 1, 4))['annual_limit'] == 9
+
+
 def test_no_baseline_is_not_assumed_zero_and_notify_failure_rolls_back(office,monkeypatch):
     db,(admin,person,manager)=office
     db.delete(db.get(service.AnnualUsage,(person.id,2026)));db.commit()

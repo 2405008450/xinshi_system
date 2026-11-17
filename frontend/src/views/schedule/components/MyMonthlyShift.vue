@@ -23,7 +23,21 @@
       <el-descriptions-item label="工作时段"><p v-for="period in shift?.periods||[]" :key="period">{{period}}</p></el-descriptions-item><el-descriptions-item v-if="data.assignment?.leave_minutes" label="班次内请假"><el-tag type="warning">请假 {{durationLabel(data.assignment.leave_minutes)}}</el-tag><p v-for="leave in data.assignment.leaves" :key="leave.id">{{formatBusinessDateTime(leave.start_at)}} 至 {{formatBusinessDateTime(leave.end_at)}} · {{durationLabel(leave.minutes)}}</p></el-descriptions-item><el-descriptions-item label="班次说明">{{shift?.description}}</el-descriptions-item>
     </el-descriptions>
     <el-empty v-else-if="!loading" :description="mode==='week'?'所选周尚未安排班次':'所选月份尚未安排班次'" :image-size="60" />
-    </el-collapse-item><el-collapse-item name="duty" title="值班安排"><p>值班仅展示已同步安排，默认查看全部人员，也可仅看自己。实际完成的周末多值班（含居家）按规则先补班，再申请调休；待审批不等于已批准。</p><WeekendDutyOverview :mode="mode" :week="week" :month="month" :scope="scope" /></el-collapse-item><el-collapse-item name="home-office"><template #title>居家办公申请 <el-tag v-if="homeEligibility.can_apply_qualification" size="small" type="warning">已满3个月，可申请资格</el-tag></template><HomeOfficePanel @eligibility="homeEligibility=$event" /></el-collapse-item></el-collapse>
+    </el-collapse-item>
+    <el-collapse-item name="duty" title="值班安排">
+      <template v-if="dutyOpened">
+        <div class="my-shift-toolbar">
+          <el-radio-group v-model="dutyScope" aria-label="值班查看范围">
+            <el-radio-button value="all">全部人员</el-radio-button>
+            <el-radio-button value="mine">仅看自己</el-radio-button>
+          </el-radio-group>
+          <ShiftPeriodControls v-model:mode="dutyMode" :value="dutyMode==='week'?dutyWeek:dutyMonth" subject="值班" @update:value="setDutyPeriod" />
+        </div>
+        <p>实际完成的周末多值班（含居家）按规则先补班，再申请调休；待审批不等于已批准。</p>
+        <WeekendDutyOverview :mode="dutyMode" :week="dutyWeek" :month="dutyMonth" :scope="dutyScope" />
+      </template>
+    </el-collapse-item>
+    <el-collapse-item name="home-office"><template #title>居家办公申请 <el-tag v-if="homeEligibility.can_apply_qualification" size="small" type="warning">已满3个月，可申请资格</el-tag></template><HomeOfficePanel @eligibility="homeEligibility=$event" /></el-collapse-item></el-collapse>
   </section>
 </template>
 <script setup>
@@ -43,6 +57,9 @@ import {subscribe} from '@/utils/realtimeSocket'
 import {matchesSearch} from '@/utils/searchMatching'
 const historyWeek=ref(''),historyVisible=ref(false),expandedSections=ref([]),homeEligibility=ref({})
 const scope=ref('all'),mode=ref('week'),week=ref(currentShiftWeek()),month=ref(currentShiftMonth()),data=ref({}),monthPlans=ref([]),loading=ref(false),error=ref('')
+const dutyOpened=ref(false),dutyScope=ref('all'),dutyMode=ref('week'),dutyWeek=ref(currentShiftWeek()),dutyMonth=ref(currentShiftMonth())
+watch(expandedSections,value=>{if(value.includes('duty'))dutyOpened.value=true})
+function setDutyPeriod(value){if(dutyMode.value==='week')dutyWeek.value=value;else dutyMonth.value=value}
 const personSearch=ref(''),appliedPersonSearch=ref('')
 let searchTimer
 function applyPersonSearch(){clearTimeout(searchTimer);appliedPersonSearch.value=personSearch.value.trim();if(appliedPersonSearch.value)scope.value='all'}

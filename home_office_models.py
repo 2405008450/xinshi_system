@@ -1,7 +1,7 @@
 """居家资格与逐日申请；审批未开发时只记录待审批。"""
 from datetime import date,datetime
 from uuid import UUID,uuid4
-from sqlalchemy import Uuid,Date,DateTime,String,Text,ForeignKey,UniqueConstraint,Index,Integer,JSON
+from sqlalchemy import Uuid,Date,DateTime,String,Text,ForeignKey,UniqueConstraint,Index,Integer,JSON,Boolean,CheckConstraint
 from sqlalchemy.orm import Mapped,mapped_column
 from models import Base
 from chat_time import now
@@ -46,3 +46,22 @@ class HomeOfficeApplicationDuration(Base):
     __tablename__='home_office_application_duration'
     application_id:Mapped[UUID]=mapped_column(Uuid,ForeignKey('home_office_application.id'),primary_key=True)
     minutes:Mapped[int]=mapped_column(Integer,nullable=False)
+
+
+class HomeOfficeApplicationRestriction(Base):
+    __tablename__ = 'home_office_application_restriction'
+    user_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey('app_user.id'), primary_key=True)
+    restricted: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    updated_by: Mapped[UUID] = mapped_column(Uuid, ForeignKey('app_user.id'), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=now)
+
+
+class HomeOfficeQuotaReduction(Base):
+    __tablename__ = 'home_office_quota_reduction'
+    user_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey('app_user.id'), primary_key=True)
+    year: Mapped[int] = mapped_column(Integer, primary_key=True)
+    days: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_by: Mapped[UUID] = mapped_column(Uuid, ForeignKey('app_user.id'), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=now)
+    __table_args__ = (CheckConstraint('days BETWEEN 0 AND 12', name='ck_home_office_quota_reduction_days'),)

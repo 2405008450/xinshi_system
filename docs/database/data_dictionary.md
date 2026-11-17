@@ -1895,6 +1895,15 @@ POST /weekend-duty/transfer 将来源周六、周日对应到目标周六、周�
 | home_office_annual_usage | used_days / revision / history | integer 普通居家系统外历史天数，可0，可据实记录超额 / integer 乐观锁 / JSON 补录前后、原因、操作人及UTC+8时刻 |
 | home_office_annual_usage | updated_by / updated_at | UUID 外键 app_user / timestamptz |
 
+| 表 | 字段 | 类型与语义 |
+| --- | --- | --- |
+| home_office_application_restriction | user_id | UUID 主键，外键 app_user。未登记时按现行资格及额度规则申请 |
+| home_office_application_restriction | restricted | boolean。行政部暂停或恢复该人员新的普通居家办公资格及日期申请 |
+| home_office_application_restriction | updated_by / updated_at | UUID 外键 app_user / timestamptz。记录最近一次操作人及时间 |
+| home_office_quota_reduction | user_id / year | UUID 外键 app_user + integer 联合主键。行政部可维护当年与下一年 |
+| home_office_quota_reduction | days / reason | integer 0～12，0 表示取消调减 / text 记录调整理由。年度上限最低为 0 天 |
+| home_office_quota_reduction | updated_by / updated_at | UUID 外键 app_user / timestamptz。记录最近一次操作人及时间 |
+
 索引 ix_home_office_qualification_user(user_id,created_at)、ix_home_office_application_user_date(user_id,requested_date)，唯一约束 uq_home_office_user_date(user_id,requested_date)。按人员事务锁串行校验，年度补录与申请使用相同锁，不能通过并发越过额度。
 
 资格：按入职日期顺延日历月，满3个月可提交资格申请，理由必填，批准人为行政部职务“总经理”的赵震锋；满6个月自动有资格。资格申请待审批不视为获批，满6个月自动资格不依赖审批状态。缺入职日期提示填写，不推定资格。tools/configure_home_office_approver.py 仅按用户明确指令配置赵震锋的行政部总经理职务，先唯一匹配在用姓名与行政部，保留其他部门成员、主部门及职务，不更改系统角色。

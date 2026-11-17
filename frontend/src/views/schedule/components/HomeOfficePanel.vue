@@ -1,6 +1,6 @@
 <template>
   <section v-loading="loading" class="home-office-panel">
-    <header><div><strong>{{admin?'公司居家办公申请':'居家办公申请'}}</strong><el-tag type="info">审批：待开发</el-tag></div><div><AttendanceRulesPopover /><el-button :disabled="saving" @click="load">刷新</el-button></div></header>
+    <header><div><strong>{{admin?'公司居家办公申请':'居家办公申请'}}</strong><el-tag type="info">审批：待开发</el-tag></div><div><HomeOfficeRestrictionSettings v-if="data.can_manage_restrictions" :editable="desktop" /><AttendanceRulesPopover /><el-button :disabled="saving" @click="load">刷新</el-button></div></header>
     <p>普通居家：入职满6个月自动获资格，满3个月可申请资格；自然月最多16小时：可拆分8小时按2+2+4或4+4申请，2小时最多2次；另外8小时须整段申请。季度4天、半年8天、年度最多12天（8小时折算1天），任一额度用满即不能申请。公司要求的居家加班单独打卡、不占普通居家额度；审批待开发。</p><p v-if="!desktop">手机端可查看记录；排班考勤仅请假和延迟上班申请支持手机操作，其他操作请使用电脑端。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <HomeOvertimePanel v-if="!admin" />
@@ -8,12 +8,16 @@
       <el-table :data="data.usage_people||[]" border><el-table-column prop="name" label="人员" min-width="120" /><el-table-column label="补录已居家" min-width="120"><template #default="{row}">{{row.manual_used_days??'待补录'}}</template></el-table-column><el-table-column prop="system_used_days" label="系统申请" width="105" /><el-table-column prop="annual_used" label="年度已用" width="105" /><el-table-column prop="annual_limit" label="年度上限" width="105" /><el-table-column label="剩余额度" width="110"><template #default="{row}">{{Math.max(0,row.annual_limit-row.annual_used)}}天</template></el-table-column><el-table-column label="详情" width="100" fixed="right"><template #default="{row}"><el-popover title="居家办公记录" trigger="click" placement="left" :width="760"><template #reference><el-button link type="primary">查看详情</el-button></template><div class="usage-history"><h4>{{row.name}} · 补录记录</h4><el-descriptions :column="2" border size="small"><el-descriptions-item label="年度">{{data.year}}</el-descriptions-item><el-descriptions-item label="年度占用">{{row.annual_used}}天</el-descriptions-item></el-descriptions><p v-if="!row.history?.length">尚未补录</p><p v-for="(entry,index) in row.history||[]" :key="index">{{entry.actor_name}} · {{formatBusinessDateTime(entry.at)}}：{{entry.before??'未登记'}} → {{entry.after}}天。{{entry.note}}</p></div></el-popover></template></el-table-column><el-table-column label="操作" width="100" fixed="right"><template #default="{row}"><el-button link type="primary" :disabled="!desktop" @click="editUsage(row)">补录 / 修改</el-button></template></el-table-column></el-table>
     </template>
     <template v-if="!admin">
+      <el-alert v-if="data.application_restriction_message" :title="data.application_restriction_message" type="warning" :closable="false" />
       <el-alert :title="data.qualification_hint||'正在读取居家资格'" :type="data.qualified?'success':'info'" :closable="false" />
       <p>入职时间：{{annualLeaveDateLabel(data.hire_date)}}；满3个月可申请：{{annualLeaveDateLabel(data.qualification_apply_on)}}；满6个月自动获得资格：{{annualLeaveDateLabel(data.automatic_on)}}。</p>
       <div class="home-office-actions"><el-button type="primary" :disabled="!desktop||!data.ready||!data.can_apply_qualification||saving" @click="open('qualification')">申请居家办公资格</el-button><span>批准人：总经理 赵震锋；资格申请理由必填。</span></div>
       <div class="home-office-actions"><span>申请日期</span><el-date-picker v-model="requestedDate" type="date" value-format="YYYY-MM-DD" format="YYYY年MM月DD日" :clearable="false" :disabled="saving" aria-label="居家办公申请日期" /><el-button type="primary" :disabled="!desktop||!data.ready||!data.qualified||!data.quota_available||saving||loading" @click="open('application')">居家办公申请</el-button></div>
       <p>{{requestedDate}} 所属自然周期额度（含待审批申请）：月 {{data.month_hours||0}} / 16小时（2小时已用{{data.two_hour_count||0}}次，可拆分已用{{data.partial_hours||0}}/8小时）；季度 {{data.quarter_used||0}} / 4；半年 {{data.half_used||0}} / 8；年度 {{data.annual_used||0}} / {{data.annual_limit??'-'}}。</p>
       <p>{{requestedDate.slice(0,4)}}年补录已居家：{{data.manual_used_days==null?'待行政部补录':`${data.manual_used_days}天`}}；系统内申请：{{data.system_used_days||0}}天；年度剩余：{{data.annual_remaining??0}}天。补录仅扣年度额度，未提供具体日期时不分摊到月、季度或半年。</p>
+      <el-alert v-if="data.quota_reduction_days" type="warning" :closable="false"
+        :title="`${data.quota_date?.slice(0,4)} 年居家办公额度已调减 ${data.quota_reduction_days} 天`"
+        :description="data.quota_reduction_reason" />
       <el-alert v-if="data.limit_message" :title="data.limit_message" type="warning" :closable="false" />
       <p>每次申请2、4或8小时，所选时长必须符合剩余额度及组合；2/4小时当天须有两组上下班打卡，不限定时段。提交后通知行政部。未获批准前，请勿把待审批记录视为已获准居家。</p>
     </template>
@@ -50,13 +54,14 @@ import AttendanceRulesPopover from '@/components/common/AttendanceRulesPopover.v
 import {subscribe} from '@/utils/realtimeSocket'
 import {chatClientType} from '@/utils/chatDevice'
 import HomeOvertimePanel from './HomeOvertimePanel.vue'
+import HomeOfficeRestrictionSettings from './HomeOfficeRestrictionSettings.vue'
 const props=defineProps({admin:Boolean}),emit=defineEmits(['eligibility']),desktop=chatClientType(navigator)==='desktop'
 const requestedDate=ref(businessDateTimeInputValue(new Date()).slice(0,10)),data=ref({}),loading=ref(false),saving=ref(false),error=ref(''),visible=ref(false),kind=ref('qualification'),formRef=ref(),submitError=ref('')
 const form=reactive({id:'home-office-qualification',reason:'',client_id:'',minutes:120})
 const usageVisible=ref(false),usageTarget=ref(null),usageFormRef=ref(),usageForm=reactive({id:'',used_days:null,note:''}),usageRules={used_days:[{required:true,message:'请输入已居家天数，可填0天',trigger:'change'}]}
 const rules=computed(()=>({minutes:kind.value==='application'?[{required:true,message:'请选择申请时长'}]:[],reason:kind.value==='qualification'?[{required:true,whitespace:true,message:'请填写申请理由',trigger:'blur'}]:[]}))
 const statusLabel=value=>({pending:'待审批',approved:'已批准',rejected:'已驳回'})[value]||value
-let controller,sequence=0,alive=true,unsubscribe
+let controller,sequence=0,alive=true,unsubscribeUsage,unsubscribeRestriction
 async function load(){controller?.abort();controller=new AbortController();const id=++sequence;loading.value=true;error.value='';try{const value=props.admin?await getCompanyHomeOffice():await getHomeOffice(requestedDate.value,{signal:controller.signal});if(alive&&id===sequence){data.value=value;emit('eligibility',value)}}catch(e){if(alive&&id===sequence&&e.code!=='ERR_CANCELED')error.value=e.detail||'读取居家办公申请失败'}finally{if(alive&&id===sequence)loading.value=false}}
 function open(value){kind.value=value;Object.assign(form,{id:`home-office-${value}`,reason:'',client_id:crypto.randomUUID(),minutes:data.value.allowed_minutes?.[0]||120});submitError.value='';visible.value=true}
 function close(done){if(saving.value)return;done()}
@@ -64,6 +69,6 @@ async function submit(){if(saving.value)return;if(!await formRef.value.validate(
 function editUsage(row){usageTarget.value=row;Object.assign(usageForm,{id:`home-usage:${row.user_id}:${data.value.year}`,used_days:row.manual_used_days,note:''});submitError.value='';usageVisible.value=true}
 function closeUsage(done){if(!saving.value)done()}
 async function saveUsage(){if(saving.value||!await usageFormRef.value.validate().catch(()=>false))return;saving.value=true;submitError.value='';try{const result=await saveHomeOfficeUsage({user_id:usageTarget.value.user_id,year:data.value.year,used_days:usageForm.used_days,revision:usageTarget.value.revision,note:usageForm.note});ElMessage.success(result.message);usageVisible.value=false;await load()}catch(e){submitError.value=typeof e.detail==='string'?e.detail:'补录未保存成功'}finally{saving.value=false}}
-watch(requestedDate,load);onMounted(()=>{load();window.addEventListener('focus',load);unsubscribe=subscribe('home_office_usage_changed',load)});onBeforeUnmount(()=>{alive=false;sequence++;controller?.abort();unsubscribe?.();window.removeEventListener('focus',load)})
+watch(requestedDate,load);onMounted(()=>{load();window.addEventListener('focus',load);unsubscribeUsage=subscribe('home_office_usage_changed',load);unsubscribeRestriction=subscribe('home_office_restriction_changed',load)});onBeforeUnmount(()=>{alive=false;sequence++;controller?.abort();unsubscribeUsage?.();unsubscribeRestriction?.();window.removeEventListener('focus',load)})
 </script>
 <style scoped>.home-office-panel{font-size:13px;line-height:1.8;min-width:0}.home-office-panel header,.home-office-panel header>div,.home-office-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.home-office-panel header{justify-content:space-between;margin-bottom:12px}.home-office-actions{margin:12px 0}.home-office-panel p{color:#64748b}.home-office-panel h4{margin-bottom:8px}.home-office-panel .el-table{margin-bottom:16px}.usage-history{max-height:560px;overflow-y:auto;overflow-wrap:anywhere}</style>

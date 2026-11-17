@@ -121,3 +121,37 @@ def test_hierarchy_counts_only_root_aggregate(environment):
                              manager_ids=None, only_mine=False, client_id=None)
     assert result['overall']['amount'] == '10.00'
     assert sum(row['projects'] for row in result['items']) == 1
+
+
+@pytest.mark.parametrize('module, prefix', [('interpretation', 'IP'), ('annotation', 'AP'), ('recruitment', 'HP')])
+def test_other_modules_load_finance_only_for_selected_dates(context, monkeypatch, module, prefix):
+    from interpretation_models import InterpretationProject
+    from tests.test_project_customer_finance import project as other_project
+
+    _, db, clients, _, _ = context
+    def create(number):
+        if module == 'interpretation':
+            row = InterpretationProject(id=uuid4(), order_no=number, project_name='测试口译', client_id=clients[0].id)
+            db.add(row)
+            return row
+        row = other_project(db, module, clients[0], number)
+        row.order_no = number
+        return row
+
+    selected = create(f'{prefix}-261110-001')
+    create(f'{prefix}-251110-001')
+    fallback = create(f'{prefix}-INVALID-001')
+    fallback.customer_confirmation_time = datetime(2026, 11, 12)
+    db.commit()
+    processed = []
+    calculate = revenue.other_amounts
+
+    def track(module, row, record):
+        processed.append(row.id)
+        return calculate(module, row, record)
+
+    monkeypatch.setattr(revenue, 'other_amounts', track)
+    entries, _, fallback_count = revenue.other_entries(db, module, clients[0].id, {}, date(2026, 11, 1), date(2026, 12, 1))
+    assert set(processed) == {selected.id, fallback.id}
+    assert {entry['day'] for entry in entries} == {date(2026, 11, 10), date(2026, 11, 12)}
+    assert fallback_count == 1

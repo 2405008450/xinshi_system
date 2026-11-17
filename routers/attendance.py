@@ -44,6 +44,18 @@ def home_apply(payload:home.ApplicationWrite,request:Request,db=Depends(get_db),
 def home_company(db=Depends(get_db),user=Depends(get_current_user)):return home.company(db,user)
 @router.put('/home-office/usage')
 def home_usage(payload:home.UsageWrite,request:Request,db=Depends(get_db),user=Depends(get_current_user)):return home.save_usage(db,user,payload) if service.desktop_request(request) else reject_mobile()
+@router.get('/home-office/restrictions')
+def home_restrictions(db=Depends(get_db),user=Depends(get_current_user)):
+    return home.list_restrictions(db, user)
+
+@router.put('/home-office/restrictions/{user_id}')
+def home_restriction(user_id:UUID,payload:home.RestrictionWrite,request:Request,db=Depends(get_db),user=Depends(get_current_user)):
+    return home.set_restriction(db, user, user_id, payload) if service.desktop_request(request) else reject_mobile()
+
+@router.put('/home-office/quota-reductions/{user_id}')
+def home_quota_reduction(user_id:UUID,payload:home.QuotaReductionWrite,request:Request,db=Depends(get_db),user=Depends(get_current_user)):
+    return home.set_quota_reduction(db, user, user_id, payload) if service.desktop_request(request) else reject_mobile()
+
 @router.post('/arrival')
 def arrival(request:Request,db=Depends(get_db),user=Depends(get_current_user)):return service.auto_check_in(db,user,request)
 @router.get('/today')
