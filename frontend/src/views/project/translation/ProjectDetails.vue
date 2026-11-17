@@ -72,6 +72,7 @@
     </AppForm>
 
     <div class="list-table-region" :class="{'viewport-list-table':!props.embedded}">
+    <span v-if="listRefreshing" role="status">更新中…</span>
     <ProjectArrangementTable v-if="arrangementMode" :projects="tableData" :columns="visibleArrangementColumns" :people="arrangementPeople" :can-write="canWriteProjects && !deleteMode" :loading="loading" :offset="(pagination.page-1)*pagination.limit" :format-returns="formatTranslatorReturnTimes" :status-label="getStatusLabel" @changed="fetchData()">
       <template #header="{column}"><TranslationProjectColumnHeader :column="column" :context="projectFieldContext" /></template>
       <template #field="{row,column}"><TranslationProjectFieldCell :row="row" :column="column" :context="projectFieldContext" /></template>
@@ -1005,6 +1006,8 @@
 </template>
 
 <script setup>
+import { listResultTicket } from '@/utils/listResultCache'
+const listRefreshing = ref(false)
 import {applyFolderRootPath,restoreFolderRootPath,compareFolderRoot} from '@/utils/translationFolderPaths'
 import FolderRootComparison from './components/FolderRootComparison.vue'
 import ConversationAudiencePicker from '@/components/common/ConversationAudiencePicker.vue'
@@ -1951,6 +1954,7 @@ const fetchData = async (options = {}) => {
   requestController = new AbortController()
   const sequence = ++requestSequence
   loading.value = true
+  listRefreshing.value = true
   try {
     const params = {
       ...buildFilterParams(),
@@ -1958,8 +1962,12 @@ const fetchData = async (options = {}) => {
       skip: (pagination.page - 1) * pagination.limit,
       limit: pagination.limit
     }
+    const ticket = listResultTicket('translation-projects', params)
+    const cached = ticket.read()
+    if (cached) { tableData.value = cached.items.map(normalizeProject); pagination.total = cached.total; loading.value = false }
     const response = await getProjectPage(params, { signal: requestController.signal })
     if (sequence !== requestSequence) return
+    ticket.write(response)
     tableData.value = linkSavedCollection(response?.items,(Array.isArray(response?.items) ? response.items : []).map(normalizeProject),normalizeProject)
     const expandableProjectIds = tableData.value
       .filter((item) => getSubOrderCount(item))
@@ -1973,9 +1981,10 @@ const fetchData = async (options = {}) => {
     pagination.total = response?.total || 0
   } catch (error) {
     if (error?.code === 'ERR_CANCELED' || sequence !== requestSequence) return
+    if ([401, 403].includes(error.response?.status)) { tableData.value = []; pagination.total = 0 }
     ElMessage.error(getLocalizedErrorMessage(error, '网络异常，项目列表未刷新，请检查网络后重试'))
   } finally {
-    if (sequence === requestSequence) loading.value = false
+    if (sequence === requestSequence) { loading.value = false; listRefreshing.value = false }
   }
 }
 const hasActiveListFilters = () => Object.values(searchForm).some((value) => (

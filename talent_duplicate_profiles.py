@@ -1,5 +1,6 @@
 """核重的新简历及结算字段：独立字段比对，原始记录完整快照。"""
 from uuid import NAMESPACE_URL, uuid5
+from contextlib import contextmanager
 
 from sqlalchemy.orm import object_session
 
@@ -31,7 +32,29 @@ def auxiliary_rows(person):
     db = object_session(person) if hasattr(person, '_sa_instance_state') else None
     if db is None:
         return {}
+    cached = db.info.get('talent_review_auxiliary_batch', {})
+    if person.id in cached:
+        return cached[person.id]
     return {key: db.get(model, person.id, populate_existing=True) for key, model in AUX_MODELS.items()}
+
+
+@contextmanager
+def batch_auxiliary_rows(db, people):
+    """仅在一次列表核对中复用批量快照，退出即清理，保存/撤销不使用旧缓存。"""
+    identifiers = {person.id for person in people}
+    previous = db.info.get('talent_review_auxiliary_batch')
+    cached = {identifier: dict.fromkeys(AUX_MODELS) for identifier in identifiers}
+    for key, model in AUX_MODELS.items():
+        for row in db.query(model).filter(model.person_id.in_(identifiers)).populate_existing().all():
+            cached[row.person_id][key] = row
+    db.info['talent_review_auxiliary_batch'] = cached
+    try:
+        yield
+    finally:
+        if previous is None:
+            db.info.pop('talent_review_auxiliary_batch', None)
+        else:
+            db.info['talent_review_auxiliary_batch'] = previous
 
 
 def auxiliary_snapshot(person, columns):

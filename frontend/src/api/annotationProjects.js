@@ -1,18 +1,21 @@
 import api from './index'
 import { clearIdempotencyKey, resetIdempotencyKey, resolveIdempotencyKey } from '@/utils/idempotency'
-import { invalidateOptionCache } from '@/utils/optionCache'
+import { getCachedOptions, invalidateOptionCache } from '@/utils/optionCache'
 import { convertAnnotationKeys as convertKeys } from '@/utils/annotationStatus'
 import { normalizeAnnotationOrderLevel, supportsAnnotationGrandchildOrders, supportsAnnotationLanguageRegions, supportsAnnotationRegionFilters } from '@/utils/annotationOrderCapabilities'
 
 const projectCreateState = { key: '', signature: '' }
 export const getAnnotationChildProgress = (id, params = {}, config = {}) => api.get(`/projects/annotation/${id}/child-progress`,{...config,params}).then(res=>convertKeys(res,toCamelCase))
-export const getAnnotationListCapabilities = () => api.get('/openapi.json').then(schema => ({
-  grandchildOrders: supportsAnnotationGrandchildOrders(schema),
-  languageRegions: supportsAnnotationLanguageRegions(schema),
-  regionFilters: supportsAnnotationRegionFilters(schema),
-}))
-export const getAnnotationLanguageRegionCapabilities = () => api.get('/openapi.json').then(supportsAnnotationLanguageRegions)
-export const getAnnotationOrderCapabilities = () => api.get('/openapi.json').then(supportsAnnotationGrandchildOrders)
+export const getAnnotationListCapabilities = () => getCachedOptions('annotation-capabilities', async () => {
+  try { return await api.get('/projects/annotation/capabilities') }
+  catch (error) {
+    if (error.response?.status !== 404) throw error
+    const schema = await api.get('/openapi.json')
+    return {grandchildOrders: supportsAnnotationGrandchildOrders(schema), languageRegions: supportsAnnotationLanguageRegions(schema), regionFilters: supportsAnnotationRegionFilters(schema)}
+  }
+}, {ttlMs: 300000})
+export const getAnnotationLanguageRegionCapabilities = () => getAnnotationListCapabilities().then(value => value.languageRegions)
+export const getAnnotationOrderCapabilities = () => getAnnotationListCapabilities().then(value => value.grandchildOrders)
 export const getAnnotationManagerOptions = (config = {}) => api.get('/projects/annotation/manager-options', config)
 export const getAnnotationAreas = () => api.get('/projects/annotation/areas')
 export const createAnnotationArea = label => api.post('/projects/annotation/areas', {label})

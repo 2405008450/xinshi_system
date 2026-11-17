@@ -23,6 +23,7 @@
                 </el-select>
               </el-form-item>
               <el-form-item label="开拓方向（语种／方言）" :prop="`cells.${index}.targets`">
+                <div class="arrangement-target-field">
                 <el-select :model-value="cell.targets.map(arrangementTargetKey)" multiple filterable remote :remote-method="queueTargetSearch" popper-class="arrangement-target-dropdown" :loading="targetsLoading" placeholder="选择需求确认、全职招聘项目、自选语种或内部招聘" @update:model-value="keys => setTargets(cell, keys)" @visible-change="opened => targetDropdownChanged(opened, `${index}:targets`)">
                   <template #tag>
                     <el-tag v-for="target in cell.targets" :key="arrangementTargetKey(target)" :type="target.active === false ? 'warning' : 'info'" :closable="!saving" @close.stop="cell.targets = cell.targets.filter(item => arrangementTargetKey(item) !== arrangementTargetKey(target))">{{ target.kind === 'manual' ? `${target.label}（自选）` : arrangementTargetLabel(target) }}</el-tag>
@@ -33,6 +34,8 @@
                   <el-option-group label="其他"><el-option label="内部招聘" :value="'internal::'" /></el-option-group>
                   <template #footer><ArrangementOptionDetails v-if="detailContext === `${index}:targets` && detailTarget" v-model="detailVisible" :anchor="detailAnchor" :target="detailTarget" :users="options.users" /></template>
                 </el-select>
+                  <el-button v-if="options.can_configure" :disabled="saving" @click="openLanguageDialog(cell)">增加语言/方言</el-button>
+                </div>
                 <small class="muted">需求类候选仅显示“需求确认”；全职招聘候选不含已关闭或已取消项目。</small>
                 <small v-if="cell.targets.some(t => t.active === false)" class="arrangement-warning">已有失效方向仅在已选项中保留，可点击标签 × 移除。</small>
               </el-form-item>
@@ -72,6 +75,7 @@
       </AppForm>
     </div>
     <template #footer><el-button :disabled="saving" @click="beforeClose(() => visible = false)">取消</el-button><el-button type="primary" :loading="saving" :disabled="conflict" @click="save">保存</el-button></template>
+    <DevelopmentLanguageDialog ref="languageDialogRef" @created="languageCreated" />
   </DraggableFormDialog>
 </template>
 <script setup>
@@ -84,7 +88,26 @@ import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { arrangementCellChanged, arrangementCellPayload, arrangementProjectKey, arrangementProjectTypes, arrangementTargetKey, arrangementTargetLabel, normalizeArrangementRoles, arrangementDefinitions, groupArrangementAccounts, arrangementTableRows } from '@/utils/resourceArrangements'
 import DevelopmentArrangementProject from './DevelopmentArrangementProject.vue'
 import ArrangementOptionDetails from './ArrangementOptionDetails.vue'
-const props = defineProps({ options: { type: Object, required: true } }), emit = defineEmits(['saved'])
+import DevelopmentLanguageDialog from './DevelopmentLanguageDialog.vue'
+const props = defineProps({ options: { type: Object, required: true } }), emit = defineEmits(['saved', 'language-created'])
+const languageDialogRef = ref(), addedLanguages = ref([]), languageCellId = ref(null)
+const availableLanguages = computed(() => {
+  const languages = new Map(props.options.languages.map(language => [language.id, language]))
+  for (const language of addedLanguages.value) languages.set(language.id, language)
+  return [...languages.values()]
+})
+function openLanguageDialog(cell) {
+  if (saving.value || !props.options.can_configure) return
+  languageCellId.value = cell.platform_id
+  languageDialogRef.value.open()
+}
+function languageCreated(language) {
+  addedLanguages.value = [...addedLanguages.value.filter(item => item.id !== language.id), language]
+  const cell = form.cells.find(item => item.platform_id === languageCellId.value)
+  const target = { kind: 'manual', language_id: language.id, label: language.label }
+  if (cell && !cell.targets.some(item => arrangementTargetKey(item) === arrangementTargetKey(target))) cell.targets.push(target)
+  emit('language-created', language)
+}
 const visible = ref(false), saving = ref(false), conflict = ref(false), wholeDay = ref(false), warnings = ref([])
 const bodyRef = ref(), formRef = ref(), requestTargets = ref([]), recruitmentTargets = ref([]), targetsLoading = ref(false), targetKeyword = ref('')
 const form = reactive({ work_date: '', revision: 0, remarks: '', cells: [], carried_from: null })
@@ -127,10 +150,10 @@ function ownerOptions(cell) {
   const active = new Set(props.options.users.map(person => person.id))
   return [...props.options.users, ...(cell.owners || []).filter(person => !active.has(person.id)).map(person => ({ ...person, name: `${person.name}（已停用）`, inactive: true }))]
 }
-function languageOptions(cell) { const map = new Map(props.options.languages.map(l => [l.id,l])); for (const t of cell.targets) if (t.kind === 'manual' && !map.has(t.language_id)) map.set(t.language_id,{id:t.language_id,label:t.label,inactive:true}); return [...map.values()] }
+function languageOptions(cell) { const map = new Map(availableLanguages.value.map(l => [l.id,l])); for (const t of cell.targets) if (t.kind === 'manual' && !map.has(t.language_id)) map.set(t.language_id,{id:t.language_id,label:t.label,inactive:true}); return [...map.values()] }
 function requestOptions() { return requestTargets.value.filter(t => t.active !== false && (!t.demand_status || t.demand_status === 'confirmed') && (!targetKeyword.value || arrangementTargetLabel(t).includes(targetKeyword.value) || t.request_no?.includes(targetKeyword.value))) }
 function setTargets(cell, keys) {
-  const map = new Map([...cell.targets, ...requestTargets.value, ...recruitmentTargets.value, ...props.options.languages.map(l => ({kind:'manual',language_id:l.id,label:l.label})), {kind:'internal',label:'内部招聘'}].map(t => [arrangementTargetKey(t), t]))
+  const map = new Map([...cell.targets, ...requestTargets.value, ...recruitmentTargets.value, ...availableLanguages.value.map(l => ({kind:'manual',language_id:l.id,label:l.label})), {kind:'internal',label:'内部招聘'}].map(t => [arrangementTargetKey(t), t]))
   cell.targets = keys.map(key => map.get(key)).filter(Boolean)
   const automatic = new Set(cell.targets.filter(target => target.kind === 'recruitment_project' && target.project).map(target => arrangementProjectKey(target.project)))
   cell.manual_projects = cell.manual_projects.filter(project => !automatic.has(arrangementProjectKey(project)))
@@ -200,5 +223,8 @@ defineExpose({ open })
 .arrangement-project-languages .el-tag { max-width: 100%; height: auto; white-space: normal; overflow-wrap: anywhere; }
 .arrangement-language-label { color: var(--el-text-color-secondary); font-size: 12px; }
 .arrangement-child-order-badge { flex-shrink: 0; }
+.arrangement-target-field { display: flex; align-items: flex-start; gap: 8px; width: 100%; flex-wrap: wrap; }
+.arrangement-target-field > .el-select { flex: 1 1 240px; min-width: 0; }
+.arrangement-target-field > .el-button { flex: none; }
 @media(max-width:600px){.arrangement-project-selector{grid-template-columns:1fr}}
 </style>

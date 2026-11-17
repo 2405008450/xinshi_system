@@ -8,7 +8,11 @@
       <el-button size="small" :disabled="busy || disabled" @click="chooseFolder">选择本地文件夹</el-button>
     </template>
     <input ref="fileInput" type="file" hidden @change="chooseFile" />
-    <el-alert v-if="notice" :title="notice" :type="noticeType" :closable="false" show-icon />
+    <el-alert v-if="notice" :title="notice" :type="noticeType" :closable="false" show-icon>
+      <template v-if="showLanLink" #default>
+        <el-link href="https://oa.xinshify.com.cn/" target="_blank" rel="noopener noreferrer" type="primary">打开局域网版本：https://oa.xinshify.com.cn/</el-link>
+      </template>
+    </el-alert>
     <div v-if="result" class="single-source-counts">
       <span v-for="metric in documentCountMetrics" :key="metric.key">
         {{ metric.label }} {{ result[metric.key]?.toLocaleString('zh-CN') ?? '—' }}
@@ -20,7 +24,7 @@
 <script setup>
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { documentCountMetrics, documentCountValues, inspectSingleSharedSource, uploadDocumentCount, waitForDocumentCount } from '@/api/documentWordCounts'
-import { getLocalizedErrorMessage } from '@/utils/errorMessages'
+import { getLocalizedErrorMessage, getRawErrorDetail } from '@/utils/errorMessages'
 import { normalizeFolderRootInput } from '@/utils/translationFolderPaths'
 import { translationFileNameError } from '@/utils/translationFileName'
 
@@ -39,6 +43,7 @@ const busy = ref(false)
 const showLocalChoices = ref(false)
 const stage = ref('')
 const notice = ref('')
+const showLanLink = ref(false)
 const noticeType = ref('info')
 const result = ref(null)
 let controller
@@ -55,6 +60,7 @@ function reset() {
   busy.value = false
   showLocalChoices.value = false
   notice.value = ''
+  showLanLink.value = false
   result.value = null
 }
 watch(() => props.path, reset, { flush: 'sync' })
@@ -134,6 +140,7 @@ async function run(readSource) {
   busy.value = true
   stage.value = '正在提取文件名…'
   notice.value = ''
+  showLanLink.value = false
   result.value = null
   let name
   try {
@@ -174,6 +181,15 @@ async function run(readSource) {
     else publish('已填入项目名称和我司统计。', 'success')
   } catch (error) {
     if (signal.aborted || error.name === 'AbortError') return
+    // 云端无法访问局域网共享目录；保留权限校验、目录结构等业务错误的原有提示。
+    const rawMessage = String(getRawErrorDetail(error) ?? error.message ?? '')
+    if (!name && path.startsWith('\\\\')
+      && ['www.oa.xinshify.com.cn', '43.132.156.72'].includes(window.location.hostname)
+      && /no such file|\[errno\s+\d+\]|\[winerror\s+\d+\]|permission denied|路径不存在|无法访问|找不到.*路径/i.test(rawMessage)) {
+      showLanLink.value = true
+      publish('当前使用的是云端版本，无法读取局域网共享文件夹。请连接公司局域网，将系统链接更换为 https://oa.xinshify.com.cn/，登录后重新执行提取。切换前请先保存已填写的内容。', 'warning')
+      return
+    }
     if (name) emit('extracted', { name })
     const message = getLocalizedErrorMessage(error, name ? '工作量统计失败' : '读取原文路径失败')
     publish(name ? '已填入文件名。' + message : message, name ? 'warning' : 'error')

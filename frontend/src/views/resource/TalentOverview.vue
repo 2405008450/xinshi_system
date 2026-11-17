@@ -8,7 +8,7 @@
       <template #header>
         <div class="card-header">
           <div class="title-block">
-            <span class="page-title">人才概览</span>
+            <span class="page-title">人才概览</span><span v-if="poolLoading" role="status">更新中…</span>
             <span class="page-subtitle">
               语种与方言资源快照，共 {{ filteredRows.length }} 项<span v-if="hasActiveFilters">（全部 {{ displayedRows.length }} 项）</span>
             </span>
@@ -31,7 +31,7 @@
                 保存
               </el-button>
             </template>
-            <el-button v-else-if="canWrite" type="primary" :icon="Edit" @click="startEditing">
+            <el-button v-else-if="canWrite" type="primary" :icon="Edit" :disabled="loading || poolLoading" @click="startEditing">
               编辑
             </el-button>
           </div>
@@ -301,6 +301,7 @@
 </template>
 
 <script setup>
+import { listResultTicket } from '@/utils/listResultCache'
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { useTableColumnOrder } from '@/composables/useTableColumnOrder'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
@@ -514,8 +515,10 @@ function applyOverview(result) {
 async function fetchOverview() {
   loading.value = true
   try {
-    applyOverview(await getTalentOverview())
+    const cached = listResultTicket('talent-overview').read()
+    if (cached) { poolStatistics.value = cached; applyOverview(cached.overview); loading.value = false }
     await fetchPoolStatistics()
+    if (!poolStatistics.value) applyOverview(await getTalentOverview())
   } catch (error) {
     ElMessage.error(error?.detail || '人才概览加载失败')
   } finally {
@@ -539,18 +542,28 @@ async function fetchPoolStatistics() {
   if (poolLoading.value) return
   poolLoading.value = true
   try {
-    poolStatistics.value = await getTalentPoolStatistics()
+    const ticket = listResultTicket('talent-overview')
+    const result = await getTalentPoolStatistics()
+    ticket.write(result)
+    poolStatistics.value = result
     // 同一次响应更新语种行、修订号与人数，刷新时也能看到新补齐的行。
     if (!editing.value && poolStatistics.value.overview) applyOverview(poolStatistics.value.overview)
-  } catch {
-    poolStatistics.value = null
+  } catch (error) {
+    if ([401, 403].includes(error.response?.status)) {
+      poolStatistics.value = null
+      tableRows.value = []
+    }
     ElMessage.error('人才总库统计加载失败，请刷新重试')
   } finally {
     poolLoading.value = false
   }
 }
 
-function startEditing() {
+async function startEditing() {
+  loading.value = true
+  try { applyOverview(await getTalentOverview()) }
+  catch { ElMessage.error('获取最新概览失败，请重试'); return }
+  finally { loading.value = false }
   const cloned = cloneTalentOverview(overviewColumns.value, tableRows.value)
   draftColumns.value = cloned.columns
   draftRows.value = cloned.rows

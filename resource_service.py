@@ -654,8 +654,16 @@ def get_talent_project_histories(
     from recruitment_models import RecruitmentCandidate, RecruitmentProject
 
     requested_ids = list(dict.fromkeys(person_ids))
-    if review_ready(db) and requested_ids:
-        source_map = {source: target for target in requested_ids for source in family_ids(db, target)}
+    if review_ready(db) and requested_ids and not db.info.get("talent_history_direct", False):
+        # 一次取得当前页主档及其归档来源，避免每行重复查询主档与来源。
+        family_rows = db.query(ResourcePerson.id, ResourcePerson.archived_into_id).filter(or_(
+            ResourcePerson.id.in_(requested_ids), ResourcePerson.archived_into_id.in_(requested_ids),
+        )).all()
+        active_ids = {identifier for identifier, parent in family_rows
+                      if identifier in requested_ids and parent is None}
+        source_map = {identifier: identifier for identifier in requested_ids}
+        source_map.update({identifier: parent for identifier, parent in family_rows
+                           if parent in active_ids and identifier not in requested_ids})
         # 递归调用只负责旧的真实业务关联读取，最后按业务键归并到有效主档。
         db.info["talent_history_direct"] = db.info.get("talent_history_direct", False)
         if not db.info["talent_history_direct"] and set(source_map) != set(requested_ids):

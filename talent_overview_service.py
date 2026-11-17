@@ -388,8 +388,9 @@ def resolve_overview_for_language(
     *,
     data: dict | None = None,
     db: Session | None = None,
+    indexes: tuple[dict, dict] | None = None,
 ) -> tuple[dict | None, str | None]:
-    rows_by_key, keys_by_name = _overview_indexes(data or get_talent_overview(db))
+    rows_by_key, keys_by_name = indexes if indexes is not None else _overview_indexes(data or get_talent_overview(db))
     if language.talent_overview_key:
         row = rows_by_key.get(language.talent_overview_key)
         if row:

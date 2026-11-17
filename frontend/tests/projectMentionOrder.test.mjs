@@ -12,9 +12,9 @@ const project = { clientManagerId: 'client', roleAssignments: [
 
 test('标注项目的全部项目经理最前、客户经理其次，保留所有人和其他候选的稳定顺序', () => {
   const ordered = projectMentionOrder(users, project)
-  assert.deepEqual(ordered.map(user => user.id), ['pm1', 'pm2', 'client', '__all__', 'ordinary', 'outside'])
-  assert.deepEqual(ordered.slice(0, 3).map(user => user.mentionSection), ['项目经理', '项目经理', '客户经理'])
-  assert.equal(ordered[1].outside, true)
+  assert.deepEqual(ordered.map(user => user.id), ['pm1', 'client', '__all__', 'ordinary', 'outside', 'pm2'])
+  assert.deepEqual(ordered.slice(0, 3).map(user => user.mentionSection), ['项目经理', '客户经理', '群组提醒'])
+  assert.equal(ordered.at(-1).outside, true)
   assert.equal(users[0].id, '__all__')
 })
 
@@ -33,6 +33,6 @@ test('未加载项目及其他模块维持原列表；旧单项目经理字段�
 })
 
 test('搜索后的候选仍按经理顺序排列，没有匹配经理时照常展示其余人员', () => {
-  assert.deepEqual(projectMentionOrder(users.filter(user => user.name?.includes('经理')), project).map(user => user.id), ['pm1', 'pm2', 'client'])
+  assert.deepEqual(projectMentionOrder(users.filter(user => user.name?.includes('经理')), project).map(user => user.id), ['pm1', 'client', 'pm2'])
   assert.deepEqual(projectMentionOrder(users.filter(user => user.id === 'ordinary'), project).map(user => user.id), ['ordinary'])
 })

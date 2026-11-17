@@ -27,10 +27,11 @@
       <div v-if="mentionOpen" :id="mentionListId" ref="mentionMenu" class="group-mention-menu" :style="mentionStyle" role="listbox" aria-label="选择提及用户" @mousedown="keepMentionFocus">
         <div class="group-mention-heading">提及用户<span>↑↓ 选择 · Enter 确认</span></div>
         <el-input v-model="mentionQuery" class="group-mention-search" clearable placeholder="搜索要 @ 的人员" aria-label="搜索要提及的人员" @input="mentionIndex = 0" @blur="onMentionBlur" @keydown="onKeydown" />
+        <el-button v-if="mentionExternalAvailable && !mentionQuery.trim()" link size="small" @click="showExternalMentions = !showExternalMentions; mentionIndex = 0">{{ showExternalMentions ? '仅显示本群成员' : '显示群外人员' }}</el-button>
         <div class="group-mention-options">
           <template v-for="(user, index) in mentionCandidates" :key="user.id">
-            <div v-if="!index || (user.mentionSection || user.outside) !== (mentionCandidates[index - 1].mentionSection || mentionCandidates[index - 1].outside)" class="group-mention-section" :class="{ 'is-outside': user.outside }">{{ user.mentionSection || ('群组参与人') }}</div>
-            <button :id="`${mentionListId}-${index}`" type="button" role="option" :aria-selected="index === mentionIndex" :class="{ 'is-active': index === mentionIndex, 'is-outside': user.outside }" @mouseenter="mentionIndex=index" @click="selectMention(user)"><span class="group-mention-avatar">{{ user.name.slice(0, 1) }}</span><span class="group-mention-person"><span>{{ user.name }}</span><ChatDesktopPresence v-if="!user.all" :online="desktopPresence[user.id]" :work-status="workStatuses[user.id]" :loading="desktopPresenceLoading" /></span></button>
+            <div v-if="!index || (user.mentionSection || user.outside) !== (mentionCandidates[index - 1].mentionSection || mentionCandidates[index - 1].outside)" class="group-mention-section" :class="{ 'is-outside': user.outside }">{{ user.mentionSection || (user.outside ? '群外人员 · 发送后邀请入群' : '本群成员') }}</div>
+            <button :id="`${mentionListId}-${index}`" type="button" role="option" :aria-selected="index === mentionIndex" :class="{ 'is-active': index === mentionIndex, 'is-outside': user.outside }" @mouseenter="mentionIndex=index" @click="selectMention(user)"><span class="group-mention-avatar">{{ user.name.slice(0, 1) }}</span><span class="group-mention-person"><span>{{ user.name }}</span><small v-if="user.outside">发送后邀请入群</small><ChatDesktopPresence v-if="!user.all" :online="desktopPresence[user.id]" :work-status="workStatuses[user.id]" :loading="desktopPresenceLoading" /></span></button>
           </template>
           <div v-if="!mentionCandidates.length" class="group-mention-empty">没有匹配的用户</div>
         </div>
@@ -53,7 +54,7 @@ import { useDesktopPresence } from '@/composables/useDesktopPresence'
 import { Paperclip, Picture } from '@element-plus/icons-vue'
 import { useChatComposerHeight } from '@/composables/useChatComposerHeight'
 const { composerStyle, inputStyle, start, resizeByKeyboard } = useChatComposerHeight()
-const { contentTooLong, pendingImages, imageQueue, draft, props, composer, replyTo, cancelQuote, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError } = inject('chatController')
+const { contentTooLong, pendingImages, imageQueue, draft, props, composer, replyTo, cancelQuote, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, showExternalMentions, mentionExternalAvailable, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError } = inject('chatController')
 // 仅在发送时组合截图引用，文本框始终只编辑可见文字，兼容历史草稿。
 const legacyImageIds = computed(() => screenshotIds(content.value))
 const plainContent = computed({ get: () => screenshotText(content.value), set: value => { content.value = screenshotValue(value, legacyImageIds.value) } })

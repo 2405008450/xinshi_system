@@ -109,6 +109,11 @@ def enqueue(db, project_id, user_id, delivery, *, track, note, effective_on, att
         eligible={u.id for u in chat.eligible_users(db)}
         for uid in (set(default_user_ids(db)) | {user.id}) & eligible:
             chat.add_member(db, project_id, uid)
+    # 保存时选定的通知对象属于显式邀请，先入群再发送，不依赖 @ 的候选范围规则。
+    # 沿用当前消息序号作为阅读基线，保留新通知的未读状态；与业务保存同事务回滚。
+    baseline = chat.latest_sequence(db, project_id)
+    for uid in ids:
+        chat.add_member(db, project_id, uid, baseline=baseline)
     class ProgressMessage(AnnotationProjectChatMessageCreate):
         content: str = Field(default='', max_length=100000 if track=='creation' else 10000)
         mentioned_user_ids: list[UUID] = Field(default_factory=list, max_length=2000)

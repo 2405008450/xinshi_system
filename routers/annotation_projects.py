@@ -103,6 +103,11 @@ class AnnotationManagerOption(BaseModel):
     model_config = {'from_attributes': True}
 
 
+@router.get('/capabilities')
+def read_annotation_capabilities():
+    return {"grandchildOrders": True, "languageRegions": True, "regionFilters": True}
+
+
 @router.get('/manager-options', response_model=list[AnnotationManagerOption])
 def read_annotation_manager_options(db: Session = Depends(get_db)):
     return active_annotation_manager_users(db)

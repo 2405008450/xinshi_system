@@ -1,3 +1,4 @@
+import { mentionAudience } from '../src/utils/mentionAudience.js'
 import { projectMentionOrder } from '../src/utils/projectMentionOrder.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -578,21 +579,21 @@ test('固定小窗只显示当前会话，重新进入大屏再还原不展开�
 })
 
 
-test('@候选只显示群成员，即使群外人员重名也不能出现在搜索结果', () => {
+test('@搜索显示重名的群内和可邀请人员，按ID区分', () => {
   const segment = annotationChat.slice(annotationChat.indexOf('const mentionCandidates = computed'), annotationChat.indexOf('let mentionTrigger'))
   const group = {members:[{id:'a',name:'甲'}], eligibleUsers:[{id:'a',name:'甲'}], invitableUsers:[{id:'a',name:'甲'},{id:'b',name:'甲'},{id:'c',name:'乙'}]}
-  const result = runInNewContext(segment+';mentionCandidates.value', {projectMentionOrder, props:{projectType:"annotation"}, mentionProject:{value:null}, group, currentUserId:'self', computed:fn=>({value:fn()}),mentionQuery:{value:'甲'},matchesSearch:(name,query)=>name.includes(query)})
-  assert.deepEqual(Array.from(result,row=>[row.id,row.outside]), [['a',false]])
+  const result = runInNewContext(segment+';mentionCandidates.value', {mentionAudience, showExternalMentions:{value:false}, mentionSearchQuery:{value:""}, composer:{mentionedUserIds:[]}, projectMentionOrder, props:{projectType:"annotation"}, mentionProject:{value:null}, group, currentUserId:'self', computed:fn=>({value:fn()}),mentionQuery:{value:'甲'},matchesSearch:(name,query)=>name.includes(query)})
+  assert.deepEqual(Array.from(result,row=>[row.id,row.outside]), [['a',false], ['b',true]])
 })
 
 
-test('@候选排除本人及群外人员，群内重名其他人仍可选择', () => {
+test('@候选搜索群外人员，默认选人仍仅显示群内其他人', () => {
   const segment = annotationChat.slice(annotationChat.indexOf('const mentionCandidates = computed'), annotationChat.indexOf('let mentionTrigger'))
   const group = { members: [{id: 1}], eligibleUsers: [{id: 1, name: '同名'}, {id: 2, name: '同名'}], invitableUsers: [{id: 1, name: '同名'}, {id: 3, name: '同名'}] }
-  const result = runInNewContext(segment + ';mentionCandidates.value', {projectMentionOrder, props:{projectType:"annotation"}, mentionProject:{value:null}, group, currentUserId: '1', computed: fn => ({value: fn()}), mentionQuery: {value: '同名'}, matchesSearch: (name, query) => name.includes(query)})
-  assert.deepEqual(Array.from(result, row => row.id), [2])
+  const result = runInNewContext(segment + ';mentionCandidates.value', {mentionAudience, showExternalMentions:{value:false}, mentionSearchQuery:{value:""}, composer:{mentionedUserIds:[]}, projectMentionOrder, props:{projectType:"annotation"}, mentionProject:{value:null}, group, currentUserId: '1', computed: fn => ({value: fn()}), mentionQuery: {value: '同名'}, matchesSearch: (name, query) => name.includes(query)})
+  assert.deepEqual(Array.from(result, row => row.id), [2, 3])
   const panelSegment = chatPanel.slice(chatPanel.indexOf('const mentionUserGroups = computed'), chatPanel.indexOf('const messages = ref'))
-  const groups = runInNewContext(panelSegment + ';mentionUserGroups.value', {projectMentionOrder, props:{projectType:'annotation'}, mentionProject:{value:null}, currentUserId: '1', userOptions: {value: group.eligibleUsers.concat({id: 3, name: '同名'})}, memberUserIds: {value: ['1', '2']}, computed: fn => ({value: fn()})})
+  const groups = runInNewContext(panelSegment + ';mentionUserGroups.value', {mentionAudience, showExternalMentions:{value:false}, mentionSearchQuery:{value:""}, composer:{mentionedUserIds:[]}, projectMentionOrder, props:{projectType:'annotation'}, mentionProject:{value:null}, currentUserId: '1', userOptions: {value: group.eligibleUsers.concat({id: 3, name: '同名'})}, memberUserIds: {value: ['1', '2']}, computed: fn => ({value: fn()})})
   assert.deepEqual(Array.from(groups, section => Array.from(section.users, user => user.id)), [['__all__'], [2]])
 })
 

@@ -214,7 +214,7 @@ def test_migration_is_repeatable_preserves_existing_members_and_does_not_readmit
 
 
 @pytest.mark.parametrize('kind', ['annotation', 'translation'])
-def test_explicit_mention_cannot_invite_nonmember(kind, environment):
+def test_explicit_mention_invites_valid_nonmember_and_rolls_back(kind, environment):
     db, (owner, member, outsider) = environment
     from chat_access_service import MEMBERS, invite_mentioned_users
     from models import TranslationProject
@@ -224,10 +224,14 @@ def test_explicit_mention_cannot_invite_nonmember(kind, environment):
     db.add_all([model(**{column.key: row.id, 'user_id': person.id}) for person in [owner, member]])
     db.commit()
     invite_mentioned_users(db, kind, row.id, owner, [member], baseline=7)
-    with pytest.raises(ValueError, match='只能提及当前会话成员'):
-        invite_mentioned_users(db, kind, row.id, owner, [member, outsider], baseline=7)
+    invite_mentioned_users(db, kind, row.id, owner, [member, outsider], baseline=7)
+    assert db.get(model, (row.id, outsider.id)).last_read_sequence == 7
+    db.rollback()
     assert db.get(model, (row.id, outsider.id)) is None
     assert db.query(model).filter(column == row.id).count() == 2
+    outsider.is_active = False; db.commit()
+    with pytest.raises(ValueError):
+        invite_mentioned_users(db, kind, row.id, owner, [outsider], baseline=7)
 
 
 @pytest.mark.parametrize('kind', ['annotation', 'translation', 'discussion'])
@@ -276,8 +280,10 @@ def test_message_mention_only_notifies_existing_member_and_is_unread(environment
     assert stats[row.id]['mention_unread'] == 1
     assert db.get(AnnotationChatMember, (row.id, outsider.id)) is None
 
-    with pytest.raises(ValueError, match='只能提及当前会话成员'):
-        crud._create_chat_mentions(db, message, owner, mentioned_user_ids=[outsider.id])
+    crud._create_chat_mentions(db, message, owner, mentioned_user_ids=[outsider.id])
+    db.flush()
+    assert db.get(AnnotationChatMember, (row.id, outsider.id)).last_read_sequence == 7
+    db.rollback()
     assert db.get(AnnotationChatMember, (row.id, outsider.id)) is None
 
 

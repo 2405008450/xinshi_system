@@ -192,9 +192,9 @@ def group(project_id: UUID, db: Session = Depends(get_db), user: AppUser = Depen
     return {'project_name': project.project_name, 'order_no': project.order_no,
             'following': bool(me and me.following),
             'last_read_sequence': me.last_read_sequence if me else 0,
-            'members': [{'id': u.id, 'name': u.full_name or u.username} for u in users if u.id in members],
-            'eligible_users': [{'id': u.id, 'name': u.full_name or u.username} for u in users if u.id in members],
-            'invitable_users': [{'id': u.id, 'name': u.full_name or u.username} for u in users if u.id not in members]}
+            'members': [{'id': u.id, 'name': u.full_name or u.username, 'username': u.username} for u in users if u.id in members],
+            'eligible_users': [{'id': u.id, 'name': u.full_name or u.username, 'username': u.username} for u in users if u.id in members],
+            'invitable_users': [{'id': u.id, 'name': u.full_name or u.username, 'username': u.username} for u in users if u.id not in members]}
 
 
 @router.put('/{project_id}/following')

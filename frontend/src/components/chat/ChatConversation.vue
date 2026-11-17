@@ -37,6 +37,7 @@
 
 <script setup>
 import { chatFileCategory, chatFileMaxBytes, chatFileHint, chatFileSupported, chatClipboardFiles } from '@/utils/chatFileTypes'
+import { mentionAudience } from '@/utils/mentionAudience'
 import { matchesSearch } from '@/utils/searchMatching'
 import ChatParticipantActions from './ChatParticipantActions.vue'
 import ChatParticipantsPopover from './ChatParticipantsPopover.vue'
@@ -108,10 +109,12 @@ const interactions = useChatMessageInteractions({ projectId: computed(() => prop
 const composer = ref(null), mentionMenu = ref(null), mentionOpen = ref(false), mentionQuery = ref(''), mentionIndex = ref(0), mentionStyle = ref({})
 const mentionListId = `mention-${newMessageId()}`
 const mentionProject = useAnnotationMentionManagers(computed(() => props.projectId), computed(() => props.projectType === 'annotation' && props.active && mentionOpen.value))
-const mentionCandidates = computed(() => projectMentionOrder([
-  {id:'__all__',name:'所有人',all:true,outside:false},
-  ...group.eligibleUsers.map(u => ({ ...u, outside: false })),
-].filter(u => String(u.id) !== String(currentUserId) && matchesSearch(u.name, mentionQuery.value)), props.projectType === 'annotation' ? mentionProject.value : null))
+const showExternalMentions = ref(false)
+const mentionExternalAvailable = computed(() => group.invitableUsers.length > 0)
+watch(mentionOpen, value => { if (!value) showExternalMentions.value = false })
+const mentionCandidates = computed(() => projectMentionOrder(mentionAudience(group.eligibleUsers, group.invitableUsers, {
+  query: mentionQuery.value, expanded: showExternalMentions.value, currentUserId,
+}), props.projectType === 'annotation' ? mentionProject.value : null))
 let mentionTrigger = -1
 const selected = ref([]), selectionMessage = ref(null), inviteIds = ref([]), mentionIds = ref([])
 const files = ref([]), sending = ref(false), retryPayload = ref(null), sendError = ref(''), composing = ref(false)
@@ -462,7 +465,7 @@ async function selectMention(user) {
   if (!mentionIds.value.includes(user.id)) mentionIds.value.push(user.id)
   closeMention(); await nextTick(); input.value.focus(); input.value.textarea.setSelectionRange(end, end)
 }
-function selectedMentionPeople(){const people=[{id:'__all__',name:'所有人',all:true},...group.eligibleUsers,...group.members];return mentionIds.value.map(id=>people.find(person=>person.id===id)||{id})}
+function selectedMentionPeople(){const people=[{id:'__all__',name:'所有人',all:true},...group.eligibleUsers,...group.invitableUsers,...group.members];return mentionIds.value.map(id=>people.find(person=>person.id===id)||{id})}
 function applyQuoteMention(result){content.value=result.content;mentionIds.value=result.selectedUsers.map(person=>person.id);automaticQuoteMention.value=result.automatic;if(result.warning)ElMessage.warning(result.warning)}
 async function quoteMessage(message){
   if(sending.value||retryPayload.value)return
@@ -475,7 +478,7 @@ async function send() {
   if (!canSend.value) return
   sending.value = true; sendError.value = ''
   closeMention()
-  const payload = retryPayload.value || { content: outgoingContent(), mentionAll:mentionIds.value.includes('__all__') && content.value.includes('@所有人 '), mentionedUserIds: mentionIds.value.filter(id => group.eligibleUsers.some(u => u.id === id && content.value.includes(`@${u.name} `))), attachmentIds: files.value.map(f => f.data.id), replyToMessageId: replyTo.value?.id || null, clientMessageId: newMessageId() }
+  const payload = retryPayload.value || { content: outgoingContent(), mentionAll:mentionIds.value.includes('__all__') && content.value.includes('@所有人 '), mentionedUserIds: mentionIds.value.filter(id => [...group.eligibleUsers, ...group.invitableUsers].some(u => u.id === id && content.value.includes(`@${u.name} `))), attachmentIds: files.value.map(f => f.data.id), replyToMessageId: replyTo.value?.id || null, clientMessageId: newMessageId() }
   try {
     const message = await createProjectChatMessage(props.projectId, payload, props.projectType)
     retryPayload.value = null; content.value = ''; files.value = []; imageQueue.clear(); replyTo.value = null; mentionIds.value = []
@@ -583,7 +586,7 @@ onBeforeUnmount(() => {
 })
 function openSearch() { searchOpen.value = !searchOpen.value }
 function onSearchLocate(messageId) { return locate(messageId) }
-provide('chatController', { recallDrafts, reeditMessage, contentTooLong, pendingImages, imageQueue, draft, props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, fileBlob, download, copy, replyTo, quoteMessage, cancelQuote, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
+provide('chatController', { recallDrafts, reeditMessage, contentTooLong, pendingImages, imageQueue, draft, props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, fileBlob, download, copy, replyTo, quoteMessage, cancelQuote, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, showExternalMentions, mentionExternalAvailable, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
 defineExpose({ openSearch, locate, cancelLocate, toggleFilters: openSearch })
 </script>
 

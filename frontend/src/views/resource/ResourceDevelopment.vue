@@ -36,7 +36,7 @@
     </el-tabs>
     <ResourceRequests v-if="activeSection === 'requests' && canRequests" embedded />
     <DevelopmentIssuePanel v-if="activeSection === 'issues'" />
-    <DevelopmentArrangementPanel v-if="activeSection === 'arrangements' && optionsReady" :options="options" @add-platform="settingsRef.addPlatform()" />
+    <DevelopmentArrangementPanel v-if="activeSection === 'arrangements' && optionsReady" :options="options" @add-platform="settingsRef.addPlatform()" @language-created="languageCreated" />
     <template v-if="activeSection === 'logs'">
     <div class="development-filters search-bar">
       <el-date-picker v-model="filters.range" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" clearable @change="query" />

@@ -9,7 +9,7 @@
     <DiscussionFileReferences :text="modelValue" :room-id="roomId" removable @remove="removeFile" />
     <el-input ref="field" :model-value="textValue" type="textarea" :rows="3" resize="none" hide-screenshot-tools :screenshot-limit="9 - fileCount" maxlength="10000" placeholder="输入讨论消息，@ 提及人员或所有人" :disabled="disabled" @update:model-value="updateText" @uploading-change="value => { imageUploading = value; emit('uploading-change', value || uploading) }" @input="changed" @click="changed" @keydown="keydown" @compositionstart="composing=true;open=false" @compositionend="composing=false;changed()" @blur="open=false" />
     <div v-if="open" class="discussion-mention-menu" role="listbox" aria-label="选择讨论提及人员" @mousedown.prevent>
-      <p>@所有人仅提醒当前会话成员</p><button v-for="(person,index) in candidates" :key="person.id" type="button" role="option" :aria-selected="index===selected" :class="{'is-active':index===selected}" @mouseenter="selected=index" @click="choose(person)"><span>{{person.name}}</span><small v-if="person.all">当前会话所有人</small><ChatDesktopPresence v-if="!person.all" :online="presence[person.id]" :loading="presenceLoading" /></button><small v-if="!candidates.length">没有匹配的人员</small>
+      <p>@所有人仅提醒当前会话成员</p><template v-for="(person,index) in candidates" :key="person.id"><div v-if="!index || !!person.outside !== !!candidates[index-1].outside" class="discussion-mention-section" :class="{'is-outside':person.outside}">{{ person.outside ? '群外人员 · 发送后邀请入群' : '本群成员' }}</div><button type="button" role="option" :aria-selected="index===selected" :class="{'is-active':index===selected}" @mouseenter="selected=index" @click="choose(person)"><span>{{person.name}}</span><small v-if="person.all">当前会话所有人</small><small v-if="person.outside">发送后邀请入群</small><ChatDesktopPresence v-if="!person.all" :online="presence[person.id]" :loading="presenceLoading" /></button></template><button v-if="users.some(person=>person.outside) && !query.trim()" type="button" class="discussion-mention-expand" @click="showExternal=!showExternal;selected=0">{{ showExternal ? '仅显示本群成员' : '显示群外人员' }}</button><small v-if="!candidates.length">没有匹配的人员</small>
     </div>
   </div>
 </template>
@@ -22,7 +22,7 @@ import {ElMessage} from 'element-plus'
 import ChatDesktopPresence from './ChatDesktopPresence.vue'
 import {useDesktopPresence} from '@/composables/useDesktopPresence'
 import {editScreenshotText,screenshotEditorText} from '@/utils/screenshotReferences'
-import {matchesSearch} from '@/utils/searchMatching'
+import {mentionAudience} from '@/utils/mentionAudience'
 const props=defineProps({modelValue:{type:String,default:''},users:{type:Array,default:()=>[]},disabled:Boolean,roomId:String,selectedUsers:{type:Array,default:()=>[]}})
 const emit=defineEmits(['update:modelValue','selection','send','uploading-change'])
 const field=ref(),open=ref(false),query=ref(''),selected=ref(0),composing=ref(false),chosen=ref([...props.selectedUsers])
@@ -43,10 +43,12 @@ function chooseFile(item,files){files.splice(0);if(props.disabled)return;const f
   if(room===props.roomId){emit('update:modelValue',[props.modelValue,token].filter(Boolean).join('\n'));await nextTick()}
 }).catch(error=>ElMessage.error(error.response?.data?.detail||error.message||'附件上传失败')).finally(()=>{pendingUploads--;uploading.value=pendingUploads>0;emit('uploading-change',uploading.value || imageUploading.value)})}
 function removeFile(id){emit('update:modelValue',props.modelValue.replace(`[附件](discussion-file://${id})`,'').trimEnd())}
+const showExternal=ref(false)
+watch(open, value=>{if(!value)showExternal.value=false})
 const current=localStorage.getItem('user_id')||''
 let trigger=-1
 const mentioned=(text,name)=>{const token=`@${name}`;for(let at=text.indexOf(token);at>=0;at=text.indexOf(token,at+1)){if(!/^[\p{L}\p{N}_]/u.test(text.slice(at+token.length,at+token.length+1)))return true}return false}
-const candidates=computed(()=>[{id:'__all__',name:'所有人',all:true},...props.users.filter(person=>String(person.id)!==String(current)&&!person.outside)].filter(person=>matchesSearch(person.name,query.value)))
+const candidates=computed(()=>mentionAudience(props.users.filter(person=>!person.outside),props.users.filter(person=>person.outside),{query:query.value,expanded:showExternal.value,currentUserId:current}))
 const {statuses:presence,loading:presenceLoading}=useDesktopPresence(computed(()=>candidates.value.filter(person=>!person.all).map(person=>person.id)),open)
 watch([()=>props.selectedUsers,()=>props.modelValue],([selectedUsers,value])=>{
   // 文本与外部选人状态同一轮更新；保留本控件刚选中的人员，避免互相覆盖。
@@ -64,4 +66,5 @@ defineExpose({focus:()=>field.value?.focus()})
 </script>
 <style scoped>
 .discussion-mention-input{position:relative}.discussion-compose-tools{display:flex;align-items:center;gap:6px;margin-bottom:6px}.discussion-compose-tools>span{font-size:12px;color:#64748b}.discussion-mention-menu{position:absolute;bottom:100%;left:0;width:min(390px,100%);max-height:280px;overflow:auto;z-index:5;padding:6px;border:1px solid #dbe3ec;border-radius:8px;box-shadow:0 8px 24px #0f172a22;background:white;box-sizing:border-box}.discussion-mention-menu p{font-size:11px;color:#64748b;margin:5px}.discussion-mention-menu button{display:flex;align-items:center;gap:10px;width:100%;border:0;background:white;color:#334155;padding:9px 8px;text-align:left;cursor:pointer}.discussion-mention-menu button.is-active{background:#eff6ff}.discussion-mention-menu small{font-size:10px;color:#64748b}.discussion-mention-menu button>span{flex:1}
+.discussion-mention-section{padding:6px 8px;font-size:11px;background:#eff6ff;color:#1d4ed8}.discussion-mention-section.is-outside{background:#fff7ed;color:#9a3412}.discussion-mention-menu .discussion-mention-expand{justify-content:center;color:var(--el-color-primary);font-size:12px;border-top:1px solid #e2e8f0}
 </style>

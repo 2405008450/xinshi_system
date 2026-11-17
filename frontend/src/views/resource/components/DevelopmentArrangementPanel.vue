@@ -47,7 +47,7 @@
       </el-collapse>
     </div>
     <el-pagination v-if="total > pageSize" v-model:current-page="page" :page-size="pageSize" :total="total" layout="total, prev, pager, next" @current-change="load" />
-    <DevelopmentArrangementEditor ref="editorRef" :options="options" @saved="saved" />
+    <DevelopmentArrangementEditor ref="editorRef" :options="options" @saved="saved" @language-created="emit('language-created', $event)" />
   </div>
 </template>
 <script setup>
@@ -60,7 +60,7 @@ import DevelopmentArrangementEditor from './DevelopmentArrangementEditor.vue'
 import DevelopmentArrangementDetail from './DevelopmentArrangementDetail.vue'
 import DevelopmentDemandPanel from './DevelopmentDemandPanel.vue'
 import DevelopmentArrangementProject from './DevelopmentArrangementProject.vue'
-const props = defineProps({ options: { type: Object, required: true } }), emit = defineEmits(['add-platform'])
+const props = defineProps({ options: { type: Object, required: true } }), emit = defineEmits(['add-platform', 'language-created'])
 const tomorrow = arrangementTomorrow(), range = ref([tomorrow,tomorrow]), editDate = ref(tomorrow)
 const days = ref([]), total = ref(0), page = ref(1), pageSize = 14, loading = ref(false), completing = ref(false), editorRef = ref()
 const expandedDates = ref([]), demandRef = ref()

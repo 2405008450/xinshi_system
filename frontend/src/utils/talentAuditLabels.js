@@ -192,6 +192,7 @@ export const talentAuditLabels = {
   "language_skills": "语言能力",
   "certificate_received": "证书已收到",
   "updated_at": "最近更新",
+  "operated_by": "操作人ID",
   "operator_name": "操作人",
   "operated_at": "操作时间",
   "duplicate_review_required": "核重状态"

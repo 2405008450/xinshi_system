@@ -1,3 +1,5 @@
+import { invalidateOptionCache } from '@/utils/optionCache'
+import { clearListResults } from '@/utils/listResultCache'
 import axios from 'axios'
 import { normalizeApiError } from '@/utils/errorMessages'
 import { clearAuthSession } from '@/utils/authSession'
@@ -36,6 +38,7 @@ api.interceptors.request.use(
 // 响应拦截器
 api.interceptors.response.use(
   response => {
+    if (['post', 'put', 'patch', 'delete'].includes(response.config?.method) && !response.config?.url?.endsWith('/language-reserves/lookup')) { clearListResults(); invalidateOptionCache() }
     completeDraftSubmit(response.config?.autoDraftSubmission)
     rememberScreenshotGrant(response)
     const scope = chatConversationScope(response.config?.url)
@@ -44,6 +47,7 @@ api.interceptors.response.use(
     try{return rememberSavedRead(response)}catch{return response.data}
   },
   error => {
+    if ([401, 403].includes(error.response?.status)) clearListResults()
     const scope = chatConversationScope(error.config?.url)
     if (scope && [403, 404].includes(error.response?.status)) window.dispatchEvent(new CustomEvent('chat-conversation-access-denied', { detail: scope }))
     if (error.response?.status === 401) {

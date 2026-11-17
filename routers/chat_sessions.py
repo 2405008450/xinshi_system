@@ -103,7 +103,7 @@ def conversation_participants(kind: Literal['annotation', 'translation', 'discus
     import discussion_chat_service
     room = discussion_chat_service.require_room(db, user, conversation_id) if kind == 'discussion' else None
     eligible = [row for row in users if row.is_active and (discussion_chat_service.can_view_room(db, row, room) if kind == 'discussion' else annotation.can_view(db, row))]
-    item = lambda row: dict(id=row.id, name=row.full_name or row.username)
+    item = lambda row: dict(id=row.id, name=row.full_name or row.username, username=row.username)
     return dict(members=[item(row) for row in users if row.id in ids], eligible_users=[item(row) for row in eligible if row.id not in ids])
 
 

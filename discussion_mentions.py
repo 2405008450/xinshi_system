@@ -29,7 +29,7 @@ def group(db, user, room_id):
     room = service.require_room(db,user,room_id)
     member_ids = {uid for uid, in db.query(Member.user_id).filter_by(room_id=room_id)}
     users = eligible_users(db,room)
-    serialize = lambda person:dict(id=str(person.id),name=person.full_name or person.username)
+    serialize = lambda person:dict(id=str(person.id),name=person.full_name or person.username,username=person.username)
     return dict(members=[serialize(person) for person in users if person.id in member_ids],eligible_users=[serialize(person) for person in users if person.id in member_ids],invitable_users=[serialize(person) for person in users if person.id not in member_ids])
 
 
@@ -38,8 +38,6 @@ def recipients(db,user,room_id,payload):
     room=service.require_room(db,user,room_id)
     explicit=set(getattr(payload,'mentioned_user_ids',[]) or [])-{user.id}
     members={uid for uid, in db.query(Member.user_id).filter_by(room_id=room_id)}
-    if not explicit.issubset(members):
-        raise HTTPException(422, '只能提及当前会话成员，请先通过添加成员邀请入群')
     requested=explicit|(members-{user.id} if getattr(payload,'mention_all',False) else set())
     people=eligible_users(db,room,requested) if requested else []
     if not explicit.issubset({person.id for person in people}):raise HTTPException(422,'被提及的用户不存在、已停用或没有会话权限')
@@ -54,9 +52,15 @@ def create(db,user,message,payload,people,members):
     notifications=create_notifications_for_users(db,[person.id for person in people],title='讨论提及提醒',content=f'{message.sender_name} 在讨论中 @了你，点击查看消息',notification_type='discussion_chat_mention',related_project_type='discussion',related_entity_id=message.room_id,commit=False)
     by_user={notice.recipient_user_id:notice for notice in notifications}
     for person in people:
+        if person.id not in members:
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+            from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+            insert_member = pg_insert if db.get_bind().dialect.name == 'postgresql' else sqlite_insert
+            db.execute(insert_member(Member).values(room_id=message.room_id, user_id=person.id,
+                last_read_id=max(0, message.id - 1), pinned=False, starred=False).on_conflict_do_nothing())
         notice=by_user.get(person.id)
         if notice:notice.created_at=now().replace(tzinfo=None)
-        db.add(Mention(message_id=message.id,user_id=person.id,user_name=person.full_name or person.username,is_all=getattr(payload,'mention_all',False),notification_id=notice.id if notice else None))
+        db.add(Mention(message_id=message.id,user_id=person.id,user_name=person.full_name or person.username,is_all=bool(getattr(payload,'mention_all',False) and person.id in members),notification_id=notice.id if notice else None))
     return notifications
 
 

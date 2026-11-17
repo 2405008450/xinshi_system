@@ -39,7 +39,7 @@ def setup_discussion(db,users):
     db.add_all([DiscussionMember(room_id=room.id,user_id=user.id,last_read_id=0,pinned=False,starred=False) for user in users[:2]]);db.commit();return room.id
 
 
-def test_discussion_mentions_all_and_outsider_rejection_idempotency_read_recall(chat_env):
+def test_discussion_mentions_all_and_explicit_invitation_idempotency_read_recall(chat_env):
     db,(sender,receiver,outsider)=chat_env
     from models import AppNotification
     from discussion_chat_models import DiscussionMention,DiscussionMember
@@ -70,16 +70,10 @@ def test_discussion_mentions_all_and_outsider_rejection_idempotency_read_recall(
     assert next(row for row in service.catalog(db,receiver) if row['project_id']==str(room))['mention_unread']==0
     recall(room,int(result['id']),db,sender)
     assert list_mentions(db,receiver,project_type='discussion')['total']==0
-    before_notifications = db.query(AppNotification).count()
-    from discussion_chat_models import DiscussionMessage
-    before_messages = db.query(DiscussionMessage).count()
-    with pytest.raises(HTTPException) as error:
-        service.send(db,sender,room,MessageCreate(content='@outsider 请查看',mentioned_user_ids=[outsider.id],client_message_id=uuid4()))
-    assert error.value.status_code == 422
-    assert not db.get(DiscussionMember,(room,outsider.id))
-    assert db.query(DiscussionMessage).count() == before_messages
-    assert db.query(AppNotification).count() == before_notifications
-    assert list_mentions(db,outsider,project_type='discussion')['total']==0
+    result = service.send(db,sender,room,MessageCreate(content='@outsider 请查看',mentioned_user_ids=[outsider.id],client_message_id=uuid4()))
+    assert db.get(DiscussionMember,(room,outsider.id))
+    assert len(result['mentions']) == 1
+    assert list_mentions(db,outsider,project_type='discussion')['total']==1
     with pytest.raises(HTTPException):service.send(db,sender,room,MessageCreate(content='非法目标',mentioned_user_ids=[uuid4()],client_message_id=uuid4()))
 
 
@@ -194,7 +188,7 @@ def test_translation_all_uses_existing_members_and_keeps_individual_limit(chat_e
 
 @pytest.mark.parametrize('kind', ['annotation', 'translation', 'discussion', 'direct'])
 @pytest.mark.parametrize('mention_all', [False, True])
-def test_explicit_outsider_rejected_even_when_combined_with_all(kind, mention_all, chat_env):
+def test_explicit_invitation_allowed_for_groups_but_not_direct(kind, mention_all, chat_env):
     db, (sender, receiver, outsider) = chat_env
     from chat_mention_recipients import resolve_mentions
     from chat_access_service import MEMBERS
@@ -214,16 +208,21 @@ def test_explicit_outsider_rejected_even_when_combined_with_all(kind, mention_al
     if kind != 'discussion':
         db.add_all([model(**{column.key: cid, 'user_id': person.id}) for person in [sender, receiver]])
         db.commit()
-    with pytest.raises(HTTPException) as error:
-        resolve_mentions(db, kind, cid, sender, [receiver.id, outsider.id], mention_all)
-    assert error.value.status_code == 422
+    if kind == 'direct':
+        with pytest.raises(HTTPException) as error:
+            resolve_mentions(db, kind, cid, sender, [receiver.id, outsider.id], mention_all)
+        assert error.value.status_code == 422
+    else:
+        assert set(resolve_mentions(db, kind, cid, sender, [receiver.id, outsider.id], mention_all)) == {receiver.id, outsider.id}
+    # 解析候选本身不加入，只有消息成功发送才入群。
     assert db.get(model, (cid, outsider.id)) is None
     assert resolve_mentions(db, kind, cid, sender, [receiver.id], mention_all) == [receiver.id]
 
 
+
 @pytest.mark.parametrize('kind', ['annotation', 'translation'])
 @pytest.mark.parametrize('mention_all', [False, True])
-def test_project_send_rejects_outsider_before_persisting_message(kind, mention_all, chat_env):
+def test_project_send_explicitly_invites_outsider_with_message(kind, mention_all, chat_env):
     db, (sender, receiver, outsider) = chat_env
     from models import TranslationProject, ChatProjectEnabled, ChatProjectMessage, AppNotification
     from annotation_models import AnnotationProject
@@ -238,15 +237,14 @@ def test_project_send_rejects_outsider_before_persisting_message(kind, mention_a
     db.add_all([model(**{column.key: row.id, 'user_id': person.id}) for person in [sender, receiver]])
     db.commit()
     before_messages, before_notices = db.query(ChatProjectMessage).count(), db.query(AppNotification).count()
-    with pytest.raises(HTTPException) as error:
-        if kind == 'annotation':
-            annotation_chat_service.send_message(db, row.id, sender, AnnotationProjectChatMessageCreate(content='@outsider', mentioned_user_ids=[outsider.id], mention_all=mention_all, client_message_id=uuid4()))
-        else:
-            project_chat_crud.create_project_chat_message(db, row.id, sender, '@outsider', mentioned_user_ids=[outsider.id], mention_all=mention_all, client_message_id=uuid4())
-    assert error.value.status_code == 422
-    assert db.get(model, (row.id, outsider.id)) is None
-    assert db.query(ChatProjectMessage).count() == before_messages
-    assert db.query(AppNotification).count() == before_notices
+    if kind == 'annotation':
+        message = annotation_chat_service.send_message(db, row.id, sender, AnnotationProjectChatMessageCreate(content='@outsider', mentioned_user_ids=[outsider.id], mention_all=mention_all, client_message_id=uuid4()))
+    else:
+        message = project_chat_crud.create_project_chat_message(db, row.id, sender, '@outsider', mentioned_user_ids=[outsider.id], mention_all=mention_all, client_message_id=uuid4())
+    assert db.get(model, (row.id, outsider.id)) is not None
+    assert db.query(ChatProjectMessage).count() == before_messages + 1
+    assert db.query(AppNotification).count() > before_notices
+    assert {person.mentioned_user_id for person in message.mentions} == ({outsider.id, receiver.id} if mention_all else {outsider.id})
 
 
 def test_receipt_clears_only_own_single_discussion_mention(chat_env):
@@ -298,3 +296,51 @@ def test_project_receipt_clears_only_matching_mention(chat_env):
         assert summaries(db,ChatProjectMessage.annotation_project_id,[project.id],{project.id:0},receiver.id)[project.id]['mention_message_ids']==[messages[0].id]
     finally:
         event.remove(Ack,'before_insert',defaults)
+
+
+@pytest.mark.parametrize('mention_all', [False, True])
+def test_discussion_explicit_invitation_is_atomic_and_idempotent(chat_env, monkeypatch, mention_all):
+    db, (sender, receiver, outsider) = chat_env
+    from discussion_chat_models import DiscussionMember, DiscussionMessage, DiscussionMention
+    from models import AppNotification
+    from routers.discussion_chat import MessageCreate
+    import discussion_chat_service as service
+    import discussion_mentions
+    room = setup_discussion(db, [sender, receiver, outsider])
+    payload = MessageCreate(content='@outsider 请参会', mentioned_user_ids=[outsider.id], mention_all=mention_all, client_message_id=uuid4())
+    original_create = discussion_mentions.create
+    def fail_after_mentions(*args):
+        original_create(*args)
+        raise RuntimeError('隔离测试：模拟发送失败')
+    monkeypatch.setattr(discussion_mentions, 'create', fail_after_mentions)
+    with pytest.raises(RuntimeError):
+        service.send(db, sender, room, payload)
+    db.rollback()
+    assert db.get(DiscussionMember, (room, outsider.id)) is None
+    assert db.query(DiscussionMessage).count() == 0
+    assert db.query(AppNotification).count() == 0
+    monkeypatch.setattr(discussion_mentions, 'create', original_create)
+    message = service.send(db, sender, room, payload)
+    membership = db.get(DiscussionMember, (room, outsider.id))
+    assert membership is not None and membership.last_read_id == int(message['id']) - 1
+    mentions = db.query(DiscussionMention).filter_by(message_id=int(message['id'])).all()
+    assert {row.user_id for row in mentions} == ({receiver.id, outsider.id} if mention_all else {outsider.id})
+    assert not next(row for row in mentions if row.user_id == outsider.id).is_all
+    notices = db.query(AppNotification).count()
+    assert service.send(db, sender, room, payload)['id'] == message['id']
+    assert db.query(AppNotification).count() == notices
+    assert db.query(DiscussionMember).filter_by(room_id=room, user_id=outsider.id).count() == 1
+
+
+def test_discussion_cannot_invite_inactive_target_through_mention(chat_env):
+    db, (sender, receiver, outsider) = chat_env
+    from discussion_chat_models import DiscussionMember, DiscussionMessage
+    from routers.discussion_chat import MessageCreate
+    import discussion_chat_service as service
+    room = setup_discussion(db, [sender, receiver, outsider])
+    outsider.is_active = False; db.commit()
+    with pytest.raises(HTTPException) as error:
+        service.send(db, sender, room, MessageCreate(content='@outsider', mentioned_user_ids=[outsider.id], client_message_id=uuid4()))
+    assert error.value.status_code == 422
+    assert db.get(DiscussionMember, (room, outsider.id)) is None
+    assert db.query(DiscussionMessage).count() == 0

@@ -230,6 +230,8 @@ def test_talent_performance_sort_keeps_nulls_last_and_stable_ties():
 
 
 def test_recruitment_update_cannot_overwrite_talent_performance(monkeypatch):
+    monkeypatch.setattr('resource_service.begin_edit', lambda *args: {})
+    monkeypatch.setattr('resource_service.finish_edit', lambda *args: None)
     person = SimpleNamespace(
         id=uuid4(), resource_code="RC000123", full_name="招聘人才", chinese_name="招聘人才", english_name=None,
         nickname=None, other_names=[], overall_score=9, overall_rating="保留评价",
@@ -456,6 +458,8 @@ def test_project_talent_options_apply_assignable_status_filter(monkeypatch):
 
 
 def test_inline_talent_status_update_skips_write_when_unchanged(monkeypatch):
+    monkeypatch.setattr('resource_service.begin_edit', lambda *args: {})
+    monkeypatch.setattr('resource_service.finish_edit', lambda *args: None)
     from resource_service import update_talent_status
 
     person = SimpleNamespace(id=uuid4(), status="standby")
@@ -471,6 +475,8 @@ def test_inline_talent_status_update_skips_write_when_unchanged(monkeypatch):
 
 
 def test_inline_talent_status_update_writes_when_changed(monkeypatch):
+    monkeypatch.setattr('resource_service.begin_edit', lambda *args: {})
+    monkeypatch.setattr('resource_service.finish_edit', lambda *args: None)
     from resource_service import update_talent_status
 
     person = SimpleNamespace(id=uuid4(), status="standby", updated_at=None)
@@ -488,6 +494,8 @@ def test_inline_talent_status_update_writes_when_changed(monkeypatch):
 
 
 def test_inline_talent_name_update_preserves_other_profile_fields(monkeypatch):
+    monkeypatch.setattr('resource_service.begin_edit', lambda *args: {})
+    monkeypatch.setattr('resource_service.finish_edit', lambda *args: None)
     from resource_service import update_talent_name
 
     person = SimpleNamespace(

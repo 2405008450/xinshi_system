@@ -374,7 +374,8 @@
             <div class="chat-composer__mention-wrap">
               <el-select
                 v-model="composer.mentionedUserIds"
-                @visible-change="desktopPresenceOpen = $event"
+                @visible-change="handleMentionVisible"
+                :filter-method="value => mentionSearchQuery = value"
                 popper-class="chat-mention-user-options"
                 multiple
                 clearable
@@ -386,7 +387,8 @@
                 placeholder="@提醒用户（可多选）"
                 class="chat-composer__mention"
               >
-                <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id"><span>{{ user.full_name || user.username }}</span><ChatDesktopPresence v-if="user.id!=='__all__'" class="mention-desktop-state" :online="desktopPresence[user.id]" :work-status="workStatuses[user.id]" :loading="desktopPresenceLoading" /></el-option></el-option-group>
+                <template #header><el-button link size="small" @mousedown.prevent @click="showExternalMentions = !showExternalMentions">{{ showExternalMentions ? '仅显示本群成员' : '显示群外人员' }}</el-button></template>
+                <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id"><span>{{ user.full_name || user.username }}</span><small v-if="user.outside" class="mention-outside-hint">发送后邀请入群</small><ChatDesktopPresence v-if="user.id!=='__all__'" class="mention-desktop-state" :online="desktopPresence[user.id]" :work-status="workStatuses[user.id]" :loading="desktopPresenceLoading" /></el-option></el-option-group>
               </el-select>
               <span class="chat-composer__mention-count">{{ composer.mentionedUserIds.length }}/20</span>
             </div>
@@ -464,7 +466,8 @@
                 <el-select
                   ref="mentionSelectRef"
                   v-model="composer.mentionedUserIds"
-                @visible-change="desktopPresenceOpen = $event"
+                @visible-change="handleMentionVisible"
+                :filter-method="value => mentionSearchQuery = value"
                 popper-class="chat-mention-user-options"
                   multiple
                   filterable
@@ -476,7 +479,8 @@
                   style="width: 100%"
                   @change="handleMentionSelectionChange"
                 >
-                  <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id"><span>{{ user.full_name || user.username }}</span><ChatDesktopPresence v-if="user.id!=='__all__'" class="mention-desktop-state" :online="desktopPresence[user.id]" :work-status="workStatuses[user.id]" :loading="desktopPresenceLoading" /></el-option></el-option-group>
+                  <template #header><el-button link size="small" @mousedown.prevent @click="showExternalMentions = !showExternalMentions">{{ showExternalMentions ? '仅显示本群成员' : '显示群外人员' }}</el-button></template>
+                <el-option-group v-for="section in mentionUserGroups" :key="section.label" :label="section.label"><el-option v-for="user in section.users" :key="user.id" :label="user.full_name || user.username" :value="user.id"><span>{{ user.full_name || user.username }}</span><small v-if="user.outside" class="mention-outside-hint">发送后邀请入群</small><ChatDesktopPresence v-if="user.id!=='__all__'" class="mention-desktop-state" :online="desktopPresence[user.id]" :work-status="workStatuses[user.id]" :loading="desktopPresenceLoading" /></el-option></el-option-group>
                 </el-select>
               </div>
             </el-popover>
@@ -539,6 +543,7 @@ import { useDesktopPresence } from '@/composables/useDesktopPresence'
 import ChatRecalledMessage from './chat/ChatRecalledMessage.vue'
 import { useRecalledMessageDrafts } from '@/composables/useRecalledMessageDrafts'
 import { combineRecallDraft } from '@/utils/recallDrafts'
+import { mentionAudience } from '@/utils/mentionAudience'
 import { projectMentionOrder } from '@/utils/projectMentionOrder'
 import { useAnnotationMentionManagers } from '@/composables/useAnnotationMentionManagers'
 import ScreenshotText from '@/components/common/ScreenshotText.vue'
@@ -663,14 +668,21 @@ const memberUserIds = ref([])
 const desktopPresenceOpen = ref(false)
 const { statuses: desktopPresence, workStatuses, loading: desktopPresenceLoading } = useDesktopPresence(computed(() => userOptions.value.map(user => user.id)), computed(() => props.active && desktopPresenceOpen.value))
 const mentionProject = useAnnotationMentionManagers(computed(() => props.projectId), computed(() => props.projectType === 'annotation' && props.active && desktopPresenceOpen.value))
+const mentionSearchQuery = ref(''), showExternalMentions = ref(false)
+function handleMentionVisible(visible) {
+  desktopPresenceOpen.value = visible
+  if (!visible) { mentionSearchQuery.value = ''; showExternalMentions.value = false }
+}
 const mentionUserGroups = computed(() => {
-  const users = [{ id:'__all__',full_name:'所有人',all:true },
-    ...userOptions.value.filter(user => String(user.id) !== currentUserId && memberUserIds.value.includes(String(user.id))).map(user => ({ ...user, outside: false })),
-  ]
+  const users = mentionAudience(
+    userOptions.value.filter(user => memberUserIds.value.includes(String(user.id))),
+    userOptions.value.filter(user => !memberUserIds.value.includes(String(user.id))),
+    { query: mentionSearchQuery.value, expanded: showExternalMentions.value, currentUserId, selected: composer.mentionedUserIds },
+  )
   const ordered = projectMentionOrder(users, props.projectType === 'annotation' ? mentionProject.value : null)
   const groups = new Map()
   for (const user of ordered) {
-    const label = user.mentionSection || (user.all ? '群组提醒' : '群组参与人')
+    const label = user.mentionSection || (user.all ? '群组提醒' : user.outside ? '群外人员 · 发送后邀请入群' : '本群成员')
     if (!groups.has(label)) groups.set(label, { label, users: [] })
     groups.get(label).users.push(user)
   }
@@ -1294,7 +1306,7 @@ const ensureUsersLoaded = async () => {
     const data = await chatRequest(`conversations/${props.projectType}/${props.projectId}/participants`)
     if (version !== userOptionsVersion) return
     memberUserIds.value = data.members.map(user => String(user.id))
-    userOptions.value = data.members.map(user => ({ ...user, full_name: user.name, username: user.name }))
+    userOptions.value = [...data.members, ...data.eligibleUsers].map(user => ({ ...user, full_name: user.name, username: user.username || user.name }))
   } catch (error) { console.error('加载会话人员失败', error) }
 }
 
@@ -2573,7 +2585,7 @@ onBeforeUnmount(() => {
 
 <style scoped>.mention-desktop-state{display:flex;margin-top:2px}</style>
 
-<style>.chat-mention-user-options{max-width:calc(100vw - 32px)}.chat-mention-user-options .el-select-dropdown__item{height:auto;min-height:34px;padding-top:6px;padding-bottom:6px;line-height:1.5;white-space:normal}</style>
+<style>.chat-mention-user-options .mention-outside-hint{margin-left:8px;color:#9a3412;font-size:11px}.chat-mention-user-options{max-width:calc(100vw - 32px)}.chat-mention-user-options .el-select-dropdown__item{height:auto;min-height:34px;padding-top:6px;padding-bottom:6px;line-height:1.5;white-space:normal}</style>
 
 <style scoped src="./chat/chatQuotes.css" />
 

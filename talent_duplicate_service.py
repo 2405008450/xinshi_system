@@ -326,14 +326,19 @@ class ContactUsage(dict):
         self.sources = {}
 
 
-def contact_usage_index(db):
+def contact_usage_index(db, *, person_ids=None):
     """仅批量读取联系字段；按有效主档计数，归档来源不重复计人。"""
     from types import SimpleNamespace
     columns = [ResourcePerson.id, ResourcePerson.resource_code, *[getattr(ResourcePerson, field) for field in RESOURCE_CONTACT_FIELDS]]
     if review_ready(db):
         columns.append(ResourcePerson.archived_into_id)
     usage = ContactUsage()
-    for row in db.query(*columns).all():
+
+    def add_rows(rows):
+        for row in rows:
+            add_row(row)
+
+    def add_row(row):
         values = dict(row._mapping)
         owner = str(values.get("archived_into_id") or values["id"])
         for kind, tokens in contact_identifiers(SimpleNamespace(**values)).items():
@@ -345,6 +350,31 @@ def contact_usage_index(db):
                 if str(values.get(field) or "").strip().lower() not in PLACEHOLDERS | {""}:
                     usage.sources.setdefault(owner, []).append({"source_code": values["resource_code"],
                         "field": field_label(field), "value": values[field]})
+    query = db.query(*columns)
+    if person_ids is None or db.get_bind().dialect.name != 'postgresql':
+        add_rows(query.all())
+        return usage
+    # 列表只需当前同名组的完整联系方式，以及组内共享联系方式的全库使用人数。
+    # 先加载该组及归档来源，再在数据库预筛候选；仍用原解析器精确核对。
+    identifiers = set(person_ids)
+    own_rows = query.filter(or_(ResourcePerson.id.in_(identifiers),
+                               ResourcePerson.archived_into_id.in_(identifiers))).all()
+    add_rows(own_rows)
+    shared = [(kind, token) for (kind, token), owners in usage.items() if len(owners) > 1]
+    if shared:
+        fields = [getattr(ResourcePerson, field) for field in RESOURCE_CONTACT_FIELDS if field != 'identity_number']
+        combined = func.concat_ws(' ', *fields)
+        normalized = func.lower(combined)
+        digits = func.regexp_replace(combined, r'\D', '', 'g')
+        predicates = [(digits if kind == 'phone' else normalized).contains(token, autoescape=True)
+                      for kind, token in shared]
+        candidates = query.filter(ResourcePerson.id.notin_([row.id for row in own_rows]))
+        # 非 ASCII 数字的数据库正则语义可能与 Python 不同，保留全量精确回退。
+        if not any((kind == 'phone' and not token.isascii()) or
+                   any(not char.isascii() and char.lower() != char.upper() for char in token)
+                   for kind, token in shared):
+            candidates = candidates.filter(or_(*predicates))
+        add_rows(candidates.all())
     return usage
 
 
@@ -1000,18 +1030,28 @@ def annotate_review_states(db, people):
     keys = {name_key(person.full_name) for person in people if person.name_duplicate}
     if not keys:
         return
+    operations = _decision_query(db).filter(TalentDuplicateOperation.name_key.in_(keys)).order_by(TalentDuplicateOperation.created_at).all()
+    decided_keys = {op.name_key for op in operations if op.action == 'different' and not op.undone_at}
+    for person in people:
+        if person.name_duplicate:
+            person.__dict__["name_review_state"] = "pending"
+    keys &= decided_keys
+    if not keys:
+        return
     query = active_query(db, db.query(ResourcePerson)).options(*_person_options(), *review_options(db))
     if db.get_bind().dialect.name == "postgresql":
         query = query.filter(func.resource_person_duplicate_name_key(ResourcePerson.full_name).in_(keys))
     members = [p for p in query.all() if name_key(p.full_name) in keys]
-    operations = _decision_query(db).filter(TalentDuplicateOperation.name_key.in_(keys)).order_by(TalentDuplicateOperation.created_at).all()
-    usage = contact_usage_index(db) if any(op.decisions.get("decision_evidence_versions") is not None for op in operations) else None
-    for key in keys:
-        grouped = [p for p in members if name_key(p.full_name) == key]
-        decisions = _pair_decisions(grouped, [op for op in operations if op.name_key == key], usage)
-        for person in grouped:
-            others = [tuple(sorted((str(person.id), str(other.id)))) for other in grouped if other.id != person.id]
-            person.__dict__["name_review_state"] = "different" if others and all(decisions.get(pair) == "different" for pair in others) else "pending"
+    operations = [op for op in operations if op.name_key in keys]
+    usage = contact_usage_index(db, person_ids=[person.id for person in members]) if any(op.decisions.get("decision_evidence_versions") is not None for op in operations) else None
+    from talent_duplicate_profiles import batch_auxiliary_rows
+    with batch_auxiliary_rows(db, members):
+        for key in keys:
+            grouped = [p for p in members if name_key(p.full_name) == key]
+            decisions = _pair_decisions(grouped, [op for op in operations if op.name_key == key], usage)
+            for person in grouped:
+                others = [tuple(sorted((str(person.id), str(other.id)))) for other in grouped if other.id != person.id]
+                person.__dict__["name_review_state"] = "different" if others and all(decisions.get(pair) == "different" for pair in others) else "pending"
 
 
 def _typed(column, value):

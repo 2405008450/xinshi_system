@@ -1310,6 +1310,8 @@ def test_unknown_fields_lengths_and_transaction_failure(db, monkeypatch):
 def test_before_migration_ordinary_create_list_and_read_only_review(db):
     from sqlalchemy import inspect
     with db.get_bind().begin() as conn:
+        # 基础编号序列独立于核重迁移；隔离库需保留自动编号所需环境。
+        conn.execute(text('CREATE SEQUENCE IF NOT EXISTS resource_person_code_seq'))
         for table_name in inspect(conn).get_table_names():
             for trigger in conn.execute(text("SELECT tgname FROM pg_trigger WHERE tgrelid=to_regclass(:name) AND NOT tgisinternal"), {"name": table_name}).scalars():
                 conn.execute(text(f'DROP TRIGGER "{trigger}" ON "{table_name}"'))
