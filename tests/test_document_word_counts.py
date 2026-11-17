@@ -99,3 +99,63 @@ def test_task_sums_metrics_without_using_words_for_other_fields(monkeypatch):
     assert [result[key] for key in ['words','characters_no_spaces','cjk_chars_korean_words','foreign_words']]==[11,50,7,3]
     records[0].pop('foreign_words')
     assert jobs.status('qa','four-metrics')['foreign_words'] is None
+
+
+def test_image_worker_outputs_clean_json(tmp_path):
+    import subprocess,sys,json
+    from PIL import Image,ImageDraw,ImageFont
+    image=Image.new('RGB',(900,150),'white')
+    ImageDraw.Draw(image).text((20,30),'Word count test 123',font=ImageFont.truetype('C:/Windows/Fonts/arial.ttf',48),fill='black')
+    path=tmp_path/'scan.png';image.save(path)
+    process=subprocess.run([sys.executable,str(Path(__file__).parents[1]/'document_word_count_worker.py'),str(path),'0','0'],capture_output=True,timeout=120,env={**__import__('os').environ,'PYTHONIOENCODING':'utf-8'})
+    result=json.loads(process.stdout.decode('utf-8'))
+    assert result['status']=='counted',result
+    assert result['ocr_used'] and result['review_required']
+    assert 'Word' in result['ocr_text'] and '123' in result['ocr_text']
+    from document_word_count_worker import text_statistics
+    expected=text_statistics(result['ocr_text'])
+    assert all(result[key]==value for key,value in expected.items())
+
+
+def test_pdf_combines_native_and_scanned_pages_without_duplication(tmp_path,monkeypatch):
+    import pymupdf
+    from PIL import Image
+    import document_local_ocr
+    image=tmp_path/'scan.png';Image.new('RGB',(200,100),'white').save(image)
+    path=tmp_path/'mixed.pdf';document=pymupdf.open();document.new_page().insert_text((50,50),'Native page text')
+    page=document.new_page();page.insert_image(page.rect,filename=str(image));document.save(path);document.close()
+    monkeypatch.setattr(document_local_ocr,'recognize_image',lambda _:('中文 OCR text',[.99]))
+    result=count_file(path)
+    assert result['words']==7 and result['ocr_pages']==[2]
+    assert result['ocr_text'].count('Native page text')==1
+
+
+def test_unc_discovery_and_selected_paths_include_images(tmp_path,monkeypatch):
+    from PIL import Image
+    Image.new('RGB',(100,50),'white').save(tmp_path/'scan.jpg')
+    monkeypatch.setattr(jobs,'managed_root',lambda _:tmp_path)
+    assert jobs.discover('share')[0]['relative_path']=='scan.jpg'
+    assert jobs.selected_paths('share',['scan.jpg'])[0][1]==tmp_path/'scan.jpg'
+
+
+def test_image_upload_reaches_ocr_and_returns_all_metrics():
+    from PIL import Image,ImageDraw,ImageFont
+    image=Image.new('RGB',(900,150),'white')
+    ImageDraw.Draw(image).text((20,30),'Word count test 123',font=ImageFont.truetype('C:/Windows/Fonts/arial.ttf',48),fill='black')
+    payload=io.BytesIO();image.save(payload,format='PNG')
+    app=FastAPI();app.include_router(router)
+    for dependency in router.dependencies:app.dependency_overrides[dependency.dependency]=lambda:None
+    app.dependency_overrides[get_current_user]=lambda:SimpleNamespace(id='image-user')
+    with TestClient(app) as client:
+        response=client.post('/document-word-count/upload',files=[('files',('scan.png',payload.getvalue(),'image/png'))])
+        assert response.status_code==200,response.text
+        identity=response.json()['job_id']
+        for _ in range(150):
+            result=client.get('/document-word-count/jobs/'+identity).json()
+            if result['status']=='completed':break
+            time.sleep(.1)
+        assert result['counted_files']==1 and result['failed_files']==0,result
+        row=result['files'][0]
+        assert row['ocr_used'] and row['ocr_text'] and row['review_required']
+        for key in ['words','characters_no_spaces','cjk_chars_korean_words','foreign_words']:
+            assert result[key]==row[key]

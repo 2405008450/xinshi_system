@@ -59,6 +59,8 @@ def save_path_fields(db, person_id, payload, actor, *, contacts_visible):
     assert_writable(db, person)
     if not contacts_visible and set(payload.changes) & set(RESOURCE_CONTACT_FIELDS):
         raise HTTPException(403, '当前账号不能修改联系方式')
+    from talent_edit_audit import begin_edit, finish_edit
+    edit_before = begin_edit(db, person)
     changes = {}
     for key, value in payload.changes.items():
         original = getattr(person, key)
@@ -84,6 +86,7 @@ def save_path_fields(db, person_id, payload, actor, *, contacts_visible):
     db.flush()
     _sync_legacy_translator(db, person)
     db.flush()
+    finish_edit(db, person, edit_before, actor, 'path_edit')
     return person
 
 

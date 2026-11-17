@@ -29,5 +29,10 @@ beautifulsoup4>=4.12,<5
 chardet>=5,<6
 
 # 本机 CPU OCR 与扫描 PDF 渲染，模型随包提供，无需跨项目调用
-rapidocr_onnxruntime==1.4.4
+rapidocr_onnxruntime==1.4.4; python_version < "3.13"
+rapidocr>=3.10,<4; python_version >= "3.13"
+onnxruntime>=1.20,<2
 PyMuPDF>=1.25,<2
+
+# 当前字数统计默认使用已验收的 PaddleOCR v5 mobile
+-r requirements-paddleocr.txt

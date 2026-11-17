@@ -1,0 +1,5 @@
+# 当前字数统计使用的 PaddleOCR SDK，以下版本已在本项目 Python 3.13 CPU 环境实测。
+# 模型由代码固定为 PP-OCRv5 mobile；RapidOCR 保留为显式备选引擎。
+paddlepaddle==3.2.0
+paddleocr==3.7.0
+paddlex==3.7.2

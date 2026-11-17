@@ -10,8 +10,10 @@ from zipfile import ZipFile
 from file_word_counter import count_text
 from file_word_extractors import _extract_docx_content, _extract_xlsx_content, _extract_pptx_content, _extract_txt_content
 
-EXTENSIONS = {'.docx', '.xlsx', '.pptx', '.doc', '.xls', '.ppt', '.pdf', '.txt'}
-POLICY = 'file-text-v4-local-2'
+from document_local_ocr import IMAGE_EXTENSIONS
+
+EXTENSIONS = IMAGE_EXTENSIONS | {'.docx', '.xlsx', '.pptx', '.doc', '.xls', '.ppt', '.pdf', '.txt'}
+POLICY = 'file-text-v4-local-3-ocr'
 
 STATISTIC_FIELDS = ('words', 'characters_no_spaces', 'cjk_chars_korean_words', 'foreign_words', 'characters_with_spaces')
 
@@ -25,11 +27,25 @@ def text_statistics(text):
             'cyrillic_word_count', 'arabic_word_count', 'greek_word_count', 'hebrew_word_count', 'thai_word_count')))
 
 
+def count_ocr_file(path):
+    from document_local_ocr import extract
+    result=extract(path)
+    if not result['text'].strip():
+        return dict(status='needs_ocr',words=None,message='未识别到文字，请人工核验')
+    return dict(status='counted', **text_statistics(result['text']),pages=result['pages'],
+        hidden_words=0,extra_words=0,policy=POLICY,
+        ocr_used=result['ocr_used'],ocr_engine=result['ocr_engine'],ocr_pages=result['ocr_pages'],
+        review_required=result['review_required'],ocr_text=result['text'] if result['ocr_used'] else '',
+        message='本地 OCR 完成，请核对识别文本' if result['ocr_used'] else '')
+
+
 def count_file(path, include_hidden=False, include_extra=False):
     path = Path(path)
     suffix = path.suffix.lower()
     if suffix not in EXTENSIONS:
         raise ValueError('不支持的文件类型')
+    if suffix in IMAGE_EXTENSIONS:
+        return count_ocr_file(path)
     if suffix in {'.doc', '.xls', '.ppt'}:
         executable = os.getenv('LIBREOFFICE_PATH') or shutil.which('soffice') or shutil.which('libreoffice')
         if not executable:
@@ -56,9 +72,12 @@ def count_file(path, include_hidden=False, include_extra=False):
         reader = PdfReader(path)
         if reader.is_encrypted and not reader.decrypt(''):
             raise ValueError('加密 PDF 无法读取，请先解除密码')
-        text = '\n'.join(page.extract_text() or '' for page in reader.pages)
+        page_texts=[page.extract_text() or '' for page in reader.pages]
+        if any(len(text.strip())<40 and page.images for text,page in zip(page_texts,reader.pages)):
+            return count_ocr_file(path)
+        text='\n'.join(page_texts)
         if not text.strip():
-            return dict(status='needs_ocr', message='未提取到文字，需要 OCR 后统计', words=None, pages=len(reader.pages))
+            return dict(status='needs_ocr',message='未提取到文字，请核验空白文档或扫描内容',words=None)
         return dict(status='counted', **text_statistics(text),
                     pages=len(reader.pages),hidden_words=0,extra_words=0,policy=POLICY)
     extractor = {'.docx':_extract_docx_content,'.xlsx':_extract_xlsx_content,'.pptx':_extract_pptx_content,'.txt':_extract_txt_content}[suffix]
@@ -67,6 +86,20 @@ def count_file(path, include_hidden=False, include_extra=False):
     main = '\n'.join(item.text for item in items if not item.is_extra)
     extra = '\n'.join(item.text for item in items if item.is_extra)
     hidden = '\n'.join(item.text for item in content.items if item.is_hidden and not item.is_extra)
+    if not (main+extra).strip() and content.image_count and suffix in {'.docx','.pptx'}:
+        executable=os.getenv('LIBREOFFICE_PATH') or shutil.which('soffice') or shutil.which('libreoffice')
+        if not executable:
+            candidate=Path('C:/Program Files/LibreOffice/program/soffice.com')
+            if candidate.is_file():executable=str(candidate)
+        if not executable:raise ValueError('扫描 Office 文件需要本机 LibreOffice 渲染后 OCR，请配置 LIBREOFFICE_PATH')
+        with tempfile.TemporaryDirectory(prefix='xinshi-scan-office-') as temporary:
+            directory=Path(temporary)
+            subprocess.run([executable,'-env:UserInstallation='+(directory/'profile').as_uri(),'--headless',
+                '--convert-to','pdf','--outdir',str(directory),str(path)],capture_output=True,check=True,timeout=60,
+                creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+            pdf=directory/(path.stem+'.pdf')
+            if not pdf.is_file():raise ValueError('扫描 Office 渲染 PDF 失败')
+            return count_ocr_file(pdf)
     if not (main+extra).strip():
         return dict(status='needs_ocr',message='未提取到可编辑文字，空白或扫描文件需人工核验',words=None)
     main_words = count_text(main).word_count

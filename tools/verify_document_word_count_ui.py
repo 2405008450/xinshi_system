@@ -1,5 +1,5 @@
 """挂载实际字数矩阵组件，隔离所有 API，不写业务数据库。"""
-import json,re,tempfile
+import json,re,tempfile,os
 from pathlib import Path
 from urllib.request import urlopen
 from urllib.parse import urlparse
@@ -18,6 +18,8 @@ def api(route):
     elif path=='/api/document-word-count/jobs/test-job':data={'status':'completed','completed':1,'total':1,'counted_files':1,'failed_files':0,'words':8,'characters_no_spaces':20,'cjk_chars_korean_words':6,'foreign_words':2,'files':[{'name':'样本.docx','words':8,'characters_no_spaces':20,'cjk_chars_korean_words':6,'foreign_words':2,'status':'counted'}]}
     elif path=='/api/editor-drafts':data={'payload':None,'revision':0}
     else:data=[]
+    if os.getenv('WORDCOUNT_TEST_OCR') and path=='/api/document-word-count/jobs/test-job':
+        data['files'][0].update(ocr_used=True,review_required=True,ocr_engine='RapidOCR/ONNX',ocr_text='OCR sample text')
     route.fulfill(content_type='application/json',body=json.dumps(data,ensure_ascii=False))
 with sync_playwright() as p:
     browser=p.chromium.launch(channel='msedge');context=browser.new_context(viewport={'width':1500,'height':1000})
@@ -32,6 +34,11 @@ with sync_playwright() as p:
         page.get_by_label('选择待统计文件').set_input_files(str(path))
         page.get_by_role('button',name='开始统计',exact=True).click()
         expect(page.get_by_text('成功 1 份',exact=False)).to_be_visible()
+        if os.getenv('WORDCOUNT_TEST_OCR'):
+            page.locator('.document-counter .el-table__expand-icon').first.click()
+            expect(page.get_by_role('textbox',name='OCR识别文本')).to_have_value('OCR sample text')
+            expect(page.get_by_role('button',name='回填统计结果',exact=True)).to_be_disabled()
+            page.get_by_text('已核对 OCR 识别文本，允许回填统计结果',exact=True).click()
         page.get_by_role('button',name='回填统计结果',exact=True).click()
         expect(page.get_by_role('spinbutton',name='预统计-字数',exact=True)).to_have_value('8')
         for label,field,expected in [('字符数（不计空格）','characters_no_spaces','20'),('中文字符和朝鲜语单词','cjk_chars_korean_words','6'),('外文字数','foreign_words','2')]:
@@ -46,6 +53,8 @@ with sync_playwright() as p:
     page.locator('.document-counter .el-table__body .el-checkbox').first.click()
     page.get_by_role('button',name='开始统计',exact=True).click()
     expect(page.get_by_text('成功 1 份',exact=False)).to_be_visible()
+    if os.getenv('WORDCOUNT_TEST_OCR'):
+        page.get_by_text('已核对 OCR 识别文本，允许回填统计结果',exact=True).click()
     page.get_by_role('combobox',name='统计结果回填口径').select_option('words')
     page.locator('.counter-apply .el-select').first.click()
     page.get_by_role('option',name='我司统计',exact=True).click()

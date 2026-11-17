@@ -348,7 +348,7 @@ class ResourcePersonCreate(ResourcePersonWrite):
 
 
 class ResourcePersonUpdate(ResourcePersonWrite):
-    pass
+    expected_updated_at: Optional[datetime] = None
 
 
 class ResourcePersonNameUpdate(BaseModel):

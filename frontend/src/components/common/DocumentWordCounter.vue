@@ -3,8 +3,8 @@
     <div class="counter-heading"><strong>从文件统计字数</strong><span>统计结果先预览，回填后仍需保存项目统计。</span></div>
     <el-radio-group v-model="source" :disabled="busy" size="small"><el-radio-button value="upload">选择本机文件</el-radio-button><el-radio-button value="unc">UNC 共享路径</el-radio-button></el-radio-group>
     <div v-if="source === 'upload'" class="counter-input">
-      <input ref="fileInput" type="file" multiple accept=".docx,.xlsx,.pptx,.doc,.xls,.ppt,.pdf,.txt" :disabled="busy" aria-label="选择待统计文件" @change="pickFiles" />
-      <small>每批最多 50 份，单文件 50 MB，合计 200 MB。</small>
+      <input ref="fileInput" type="file" multiple accept=".docx,.xlsx,.pptx,.doc,.xls,.ppt,.pdf,.txt,.png,.jpg,.jpeg,.bmp,.tif,.tiff,.webp" :disabled="busy" aria-label="选择待统计文件" @change="pickFiles" />
+      <small>支持 Office、PDF、TXT 及图片；图片和扫描 PDF 使用本地 OCR。每批最多 50 份，单文件 50 MB，合计 200 MB。</small>
     </div>
     <div v-else class="counter-input">
       <el-input v-model="path" :disabled="busy" placeholder="例如 \\Win-server\共享目录\项目文件" aria-label="统计共享路径" @input="clearDiscovery" />
@@ -20,7 +20,8 @@
     <template v-if="result">
       <div class="counter-summary">{{ result.completed }} / {{ result.total }} 份已处理 · 成功 {{ result.counted_files }} 份 · 待处理／失败 {{ result.failed_files }} 份 · 合计 <strong>{{ result.words.toLocaleString('zh-CN') }}</strong> 字</div>
       <div class="counter-metrics"><div v-for="item in FILE_WORD_COUNT_METRICS" :key="item.key" class="counter-metric"><span>{{ item.label }}</span><strong>{{ formatMetric(result[item.key]) }}</strong></div></div>
-      <el-table :data="result.files" max-height="220" size="small"><el-table-column prop="name" label="文件" min-width="200" show-overflow-tooltip /><el-table-column v-for="item in FILE_WORD_COUNT_METRICS" :key="item.key" :label="item.label" :min-width="item.key === 'cjk_chars_korean_words' ? 175 : 115"><template #default="{row}">{{ formatMetric(row[item.key]) }}</template></el-table-column><el-table-column label="状态／说明" min-width="160"><template #default="{row}">{{ row.status === 'counted' ? '完成' : row.message }}</template></el-table-column></el-table>
+      <el-alert v-if="hasOcr" :title="`本次包含机器识别结果，请展开文件行核对识别文本后回填。实际引擎：${ocrEngineNames}。`" type="warning" :closable="false" /><el-table :data="result.files" max-height="260" size="small"><el-table-column type="expand" width="35"><template #default="{row}"><div class="ocr-preview"><strong>识别文本</strong><el-input v-if="row.ocr_text" :model-value="row.ocr_text" type="textarea" :rows="8" readonly aria-label="OCR识别文本" /><span v-else>该文件未使用 OCR。</span></div></template></el-table-column><el-table-column prop="name" label="文件" min-width="200" show-overflow-tooltip /><el-table-column v-for="item in FILE_WORD_COUNT_METRICS" :key="item.key" :label="item.label" :min-width="item.key === 'cjk_chars_korean_words' ? 175 : 115"><template #default="{row}">{{ formatMetric(row[item.key]) }}</template></el-table-column><el-table-column label="状态／说明" min-width="160"><template #default="{row}">{{ row.status === 'counted' ? (row.ocr_used ? 'OCR 完成，待复核' : '完成') : row.message }}</template></el-table-column></el-table>
+      <el-checkbox v-if="hasOcr" v-model="ocrConfirmed">已核对 OCR 识别文本，允许回填统计结果</el-checkbox>
       <div v-if="result.status === 'completed'" class="counter-apply">
         <el-select v-model="dimension" aria-label="统计结果回填维度" style="width:140px"><el-option label="预统计" value="preliminary" /><el-option label="我司统计" value="company" /></el-select>
         <select v-model="metric" aria-label="统计结果回填口径" class="counter-metric-select"><option v-for="item in FILE_WORD_COUNT_METRICS" :key="item.key" :value="item.key">{{ item.label }}</option></select>
@@ -38,6 +39,9 @@ const emit = defineEmits(['apply'])
 const props = defineProps({currentMatrix: {type:Object, default:()=>({})}})
 const source=ref('upload'), path=ref(''), recursive=ref(true), files=ref([]), available=ref([]), selected=ref([])
 const includeHidden=ref(false), includeExtra=ref(false), busy=ref(false), discovering=ref(false), error=ref(''), result=ref(null)
+const ocrConfirmed=ref(false)
+const ocrEngineNames=computed(()=>[...new Set((result.value?.files || []).filter(file=>file.ocr_used).map(file=>file.ocr_engine || '本地 OCR'))].join('、'))
+const hasOcr=computed(()=>result.value?.files?.some(file=>file.ocr_used))
 const dimension=ref('preliminary'), metric=ref('words'), replacing=ref(false)
 let timer, active=true
 const canStart=computed(()=>!discovering.value && (source.value==='upload' ? files.value.length>0 : selected.value.length>0))
@@ -50,7 +54,7 @@ async function discover(){
 }
 async function start(){
   if((source.value==='upload'?files.value.length:selected.value.length)>50){error.value='每批最多选择 50 份文件';return}
-  busy.value=true;error.value='';result.value=null
+  busy.value=true;error.value='';result.value=null;ocrConfirmed.value=false
   try{
     let response
     if(source.value==='upload'){
@@ -79,7 +83,7 @@ async function poll(id){
   }catch(exc){if(active){error.value=detail(exc);busy.value=false}}
 }
 function formatMetric(value){return Number.isSafeInteger(value) ? value.toLocaleString('zh-CN') : '—'}
-const canApply=computed(()=>result.value?.status==='completed' && result.value.counted_files>0 && result.value.failed_files===0 && Number.isSafeInteger(result.value[metric.value]) && result.value[metric.value]>=0)
+const canApply=computed(()=>result.value?.status==='completed' && result.value.counted_files>0 && result.value.failed_files===0 && (!hasOcr.value || ocrConfirmed.value) && Number.isSafeInteger(result.value[metric.value]) && result.value[metric.value]>=0)
 function apply(){
   if(!canApply.value)return
   const current=props.currentMatrix?.[dimension.value] || {}
@@ -93,9 +97,10 @@ function confirmApply(){
   emit('apply',{dimension:dimension.value,metric:metric.value,value:result.value[metric.value]})
 }
 watch([dimension,metric],()=>{replacing.value=false})
-watch([source,path,recursive,includeHidden,includeExtra,files,selected],()=>{if(!busy.value){result.value=null;error.value='';replacing.value=false}})
+watch(()=>result.value?.completed,()=>{ocrConfirmed.value=false})
+watch([source,path,recursive,includeHidden,includeExtra,files,selected],()=>{if(!busy.value){result.value=null;error.value='';replacing.value=false;ocrConfirmed.value=false}})
 onBeforeUnmount(()=>{active=false;clearTimeout(timer)})
 </script>
 <style scoped>
-.document-counter{border:1px solid var(--el-border-color);border-radius:6px;padding:12px;margin:12px 0;background:var(--el-bg-color)}.counter-heading,.counter-options,.counter-apply{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0}.counter-heading span,.document-counter small{font-size:12px;color:var(--el-text-color-secondary)}.counter-input{display:grid;gap:8px;margin:10px 0}.counter-summary{padding:10px 0;font-size:13px}.counter-apply{padding-top:8px}.counter-metric-select{width:230px;max-width:100%;height:32px;border:1px solid var(--el-border-color);border-radius:4px;padding:0 8px;background:var(--el-bg-color);color:var(--el-text-color-regular);font:inherit;font-size:13px;cursor:pointer}.counter-metric-select:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:1px}.counter-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:10px}.counter-metric{display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--el-fill-color-light);border:1px solid var(--el-border-color-lighter);border-radius:6px}.counter-metric span{font-size:12px;color:var(--el-text-color-secondary)}.counter-metric strong{font-size:18px;color:var(--el-text-color-primary)}
+.document-counter{border:1px solid var(--el-border-color);border-radius:6px;padding:12px;margin:12px 0;background:var(--el-bg-color)}.counter-heading,.counter-options,.counter-apply{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0}.counter-heading span,.document-counter small{font-size:12px;color:var(--el-text-color-secondary)}.counter-input{display:grid;gap:8px;margin:10px 0}.counter-summary{padding:10px 0;font-size:13px}.counter-apply{padding-top:8px}.counter-metric-select{width:230px;max-width:100%;height:32px;border:1px solid var(--el-border-color);border-radius:4px;padding:0 8px;background:var(--el-bg-color);color:var(--el-text-color-regular);font:inherit;font-size:13px;cursor:pointer}.counter-metric-select:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:1px}.ocr-preview{padding:12px;display:grid;gap:8px}.counter-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:10px}.counter-metric{display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--el-fill-color-light);border:1px solid var(--el-border-color-lighter);border-radius:6px}.counter-metric span{font-size:12px;color:var(--el-text-color-secondary)}.counter-metric strong{font-size:18px;color:var(--el-text-color-primary)}
 </style>

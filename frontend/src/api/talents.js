@@ -117,3 +117,5 @@ export const getProjectTalentOptions = (capabilityType, params = {}, config = {}
 
 export const getTalentIdentityOptions = (params = {}, config = {}) =>
   api.get('/talent-options/identity', { ...config, params }).then(fromApi)
+
+export const getTalentEditHistory = (id, params, config = {}) => api.get(`/talents/${id}/edit-history`, { ...config, params }).then(fromApi)

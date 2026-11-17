@@ -473,6 +473,15 @@ def read_talent(
     return data
 
 
+@router.get('/{person_id}/edit-history', dependencies=[Depends(require_any_permission('talents:read', 'talents:write', 'translators:read', 'translators:write'))])
+def read_talent_edit_history(person_id: UUID, skip: int = Query(0, ge=0),
+                            limit: int = Query(20, ge=1, le=100),
+                            db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    from talent_edit_audit import edit_history
+    return edit_history(db, person_id, skip=skip, limit=limit,
+                        contacts_visible=can_view_talent_contacts(db, current_user))
+
+
 @router.get('/{person_id}/evaluation-history')
 def read_talent_evaluation_history(person_id: UUID, group_key: str, skip: int = Query(0, ge=0),
                                    limit: int = Query(10, ge=1, le=100), db: Session = Depends(get_db)):

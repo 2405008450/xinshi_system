@@ -100,10 +100,10 @@ def _execute(identity, files, hidden, extra, temporary):
         for name,path in files:
             try:
                 process=subprocess.run([sys.executable,str(Path(__file__).with_name('document_word_count_worker.py')),str(path),'1' if hidden else '0','1' if extra else '0'],
-                    capture_output=True,timeout=90,env={**os.environ,'PYTHONIOENCODING':'utf-8'},creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+                    capture_output=True,timeout=300,env={**os.environ,'PYTHONIOENCODING':'utf-8'},creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
                 if process.returncode:raise ValueError('文件解析进程失败')
                 row=json.loads(process.stdout.decode('utf-8'))
-            except subprocess.TimeoutExpired:row=dict(status='failed',words=None,message='文件统计超过 90 秒，请拆分或转换后重试')
+            except subprocess.TimeoutExpired:row=dict(status='failed',words=None,message='文件统计超过 300 秒，请拆分或转换后重试')
             except Exception as exc:row=dict(status='failed',words=None,message=str(exc))
             row['name']=name
             with _lock:

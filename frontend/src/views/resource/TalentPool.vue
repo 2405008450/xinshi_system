@@ -131,6 +131,9 @@
           <span v-else>{{ tableDisplay(column, row) }}</span>
         </template>
       </el-table-column>
+      <el-table-column v-if="!isRecruitmentPool" label="编辑记录" width="100" fixed="right" align="center">
+        <template #default="{ row }"><TalentEditHistory :person-id="row.id" /></template>
+      </el-table-column>
       <el-table-column v-if="!deleteMode" label="操作" width="88" fixed="right" align="center">
         <template #default="{ row }">
           <div v-if="canWrite" class="action-buttons">
@@ -158,6 +161,7 @@
         />
       </template>
       <div ref="detailBodyRef">
+        <TalentEditHistory v-if="!isRecruitmentPool && selectedDetail.id" :person-id="selectedDetail.id" />
         <TalentDetailContent v-loading="detailLoadingId===selectedDetail.id" :detail="detailFor(selectedDetail)" :projects="projectCache[selectedDetail.id] || []" :projects-loading="projectsLoading" :projects-error="projectsError" :show-performance="!isRecruitmentPool" :show-annotation-willingness="!isRecruitmentPool" in-dialog @reload-projects="loadFullDetail(selectedDetail)" />
       </div>
       <template #footer><el-button @click="detailVisible=false">关闭</el-button></template>
@@ -353,6 +357,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElDescriptions, ElDescriptionsItem, ElMessage, ElMessageBox } from 'element-plus'
 import { CaretBottom, Check } from '@element-plus/icons-vue'
 import * as talentApi from '@/api/talents'
+import TalentEditHistory from './components/TalentEditHistory.vue'
 import { talentStatusOptions, talentStatusLabel, talentStatusType } from '@/utils/talentStatus'
 import CollapsibleSections from '@/components/common/CollapsibleSections.vue'
 import TalentResumeYear from './components/TalentResumeYear.vue'
@@ -755,6 +760,7 @@ async function openEdit(row){const detail=await loadDetail(row.id,true);if(!deta
 const cleanChild=item=>Object.fromEntries(Object.entries(item).filter(([key])=>key!=='_key'&&key!=='languageLabel'))
 const payload=(allowDuplicate=false)=>{
   const result={
+    ...(form.id ? { expectedUpdatedAt: form.updatedAt } : {}),
     resourceCode:form.resourceCode||null,
     resumeProfile:JSON.parse(JSON.stringify(resumeProfileForm(form.resumeProfile,form))),
     identityNumber:form.identityNumber?.trim()||null,eyesight:form.eyesight?.trim()||null,

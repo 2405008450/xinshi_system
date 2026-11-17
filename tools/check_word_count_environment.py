@@ -16,7 +16,12 @@ def check():
     from PIL import Image, ImageDraw, ImageFont
     import pymupdf
     import numpy as np
-    from rapidocr_onnxruntime import RapidOCR
+    import importlib.util
+    modern=not bool(importlib.util.find_spec('rapidocr_onnxruntime'))
+    if modern:
+        from rapidocr import RapidOCR
+    else:
+        from rapidocr_onnxruntime import RapidOCR
     soffice=os.getenv('LIBREOFFICE_PATH') or shutil.which('soffice') or shutil.which('libreoffice')
     if not soffice and Path('C:/Program Files/LibreOffice/program/soffice.exe').is_file():
         soffice='C:/Program Files/LibreOffice/program/soffice.exe'
@@ -46,8 +51,9 @@ def check():
         pix=pdf[0].get_pixmap(matrix=pymupdf.Matrix(2,2),alpha=False)
         pixels=np.frombuffer(pix.samples,dtype=np.uint8).reshape(pix.height,pix.width,3)
         pdf.close()
-        engine=RapidOCR(intra_op_num_threads=2,inter_op_num_threads=2)
-        lines,_=engine(pixels)
+        engine=RapidOCR(params={'EngineConfig.onnxruntime.intra_op_num_threads':2,'EngineConfig.onnxruntime.inter_op_num_threads':2}) if modern else RapidOCR(intra_op_num_threads=2,inter_op_num_threads=2)
+        recognized=engine(pixels)
+        lines=[(None,text,score) for text,score in zip(recognized.txts or [],recognized.scores or [])] if modern else (recognized[0] or [])
         text='\n'.join(line[1] for line in lines or [])
         report['ocr_text']=text
         report['ocr_passed']='字数统计环境测试' in text.replace(' ','') and 'Wordcounttest123' in text.replace(' ','').replace('\n','')

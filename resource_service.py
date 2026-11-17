@@ -35,6 +35,7 @@ from talent_duplicate_service import (
 )
 from business_time import business_now
 from talent_evaluation_audit import evaluation_snapshot, record_evaluation_changes
+from talent_edit_audit import begin_edit, finish_edit
 from talent_settlement import save_settlement
 from talent_resume_profile import save_resume_profile
 
@@ -1261,12 +1262,14 @@ def update_talent_name(
     assert_writable(db, person)
     if not person:
         return None
+    edit_before = begin_edit(db, person, None)
     if person.full_name != full_name:
         _record_talent_operation(person, actor)
         person.full_name = full_name
         person.updated_at = business_now()
         db.flush()
         _sync_legacy_translator(db, person)
+        finish_edit(db, person, edit_before, actor, 'quick_name')
         db.commit()
         return get_talent(db, person.id)
     return person
@@ -1280,12 +1283,14 @@ def update_talent_status(
     assert_writable(db, person)
     if not person:
         return None
+    edit_before = begin_edit(db, person, None)
     if person.status != status:
         _record_talent_operation(person, actor)
         person.status = status
         person.updated_at = business_now()
         db.flush()
         _sync_legacy_translator(db, person)
+        finish_edit(db, person, edit_before, actor, 'quick_status')
         db.commit()
         return get_talent(db, person.id)
     return person
@@ -1298,12 +1303,14 @@ def update_talent(
     *,
     check_contact_duplicates: bool = True,
     actor=None,
+    audit_source: str = 'manual',
 ) -> Optional[ResourcePerson]:
     lock_account_writes(db)
     person = get_talent(db, person_id)
     assert_writable(db, person)
     if not person:
         return None
+    edit_before = begin_edit(db, person, getattr(payload, 'expected_updated_at', None))
     evaluation_before = evaluation_snapshot(person)
     db.refresh(person, attribute_names=["wechat_account", "wechat_accounts", "wechat_accounts_revision", "wechat_contact_state"])
     write_talent_accounts(db, person, payload, actor=actor)
@@ -1313,7 +1320,7 @@ def update_talent(
     if duplicates and not payload.allow_duplicate:
         raise TalentDuplicateError(duplicates)
     data = payload.model_dump(exclude={
-        "resume_profile", "settlement", "capabilities", "written_profile", "interpretation_profile",
+        "expected_updated_at", "resume_profile", "settlement", "capabilities", "written_profile", "interpretation_profile",
         "annotation_profile", "annotation_language_skills", "career_profile",
         "education_experiences", "language_skills", "certificates", "allow_duplicate",
         *ACCOUNT_FIELDS,
@@ -1339,6 +1346,7 @@ def update_talent(
     person.updated_at = business_now()
     db.flush()
     _sync_legacy_translator(db, person)
+    finish_edit(db, person, edit_before, actor, audit_source)
     db.commit()
     return get_talent(db, person.id)
 
@@ -1357,6 +1365,7 @@ def update_recruitment_talent(
     assert_writable(db, person)
     if not person:
         return None
+    edit_before = begin_edit(db, person, getattr(payload, 'expected_updated_at', None))
     db.refresh(person, attribute_names=["wechat_account", "wechat_accounts", "wechat_accounts_revision", "wechat_contact_state"])
     write_talent_accounts(db, person, payload, actor=actor)
     duplicates = find_duplicate_talents(
@@ -1365,7 +1374,7 @@ def update_recruitment_talent(
     if duplicates and not payload.allow_duplicate:
         raise TalentDuplicateError(duplicates)
     data = payload.model_dump(exclude={
-        "resume_profile", "settlement", "capabilities", "written_profile", "interpretation_profile",
+        "expected_updated_at", "resume_profile", "settlement", "capabilities", "written_profile", "interpretation_profile",
         "annotation_profile", "annotation_language_skills", "career_profile",
         "education_experiences", "language_skills", "certificates", "allow_duplicate",
         *TALENT_MANAGED_FIELDS,
@@ -1393,6 +1402,7 @@ def update_recruitment_talent(
     person.updated_at = business_now()
     db.flush()
     _sync_legacy_translator(db, person)
+    finish_edit(db, person, edit_before, actor, 'recruitment')
     db.commit()
     return get_talent(db, person.id)
 
