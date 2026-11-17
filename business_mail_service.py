@@ -509,7 +509,7 @@ WORD_COUNT_METRIC_LABELS = (
 
 
 def _format_word_count_lines(matrix: Optional[dict]) -> list[str]:
-    """把项目字数统计完整转换为适合纯文本邮件阅读的行。"""
+    """把项目工作量统计完整转换为适合纯文本邮件阅读的行。"""
     if not isinstance(matrix, dict):
         return []
 
@@ -651,7 +651,7 @@ def build_preview(
         ])
     word_count_lines = _format_word_count_lines(values.get("word_count_matrix")) if project_type == "translation" else []
     if word_count_lines:
-        lines.extend(["项目字数统计：", *word_count_lines])
+        lines.extend(["项目工作量统计：", *word_count_lines])
     if _clean(values.get("consultation_description")):
         lines.append(f"咨询说明：{_clean(values.get('consultation_description'))}")
     if project_type != 'translation' and _clean(values.get("remarks")):
@@ -661,7 +661,7 @@ def build_preview(
             if _clean(values.get(key)):
                 lines.extend(['',f'{label}：',_clean(values[key])])
         if emergency_notice:
-            lines.extend(['', '（紧急）项目预告知：子订单字数及相关资料可能尚未完善，请后续补充确认。'])
+            lines.extend(['', '（紧急）项目预告知：子订单工作量统计及相关资料可能尚未完善，请后续补充确认。'])
         summary = values.get('sub_order_hierarchy') or []
         if summary:
             levels = {1:'一级', 2:'二级', 3:'三级', 4:'四级'}
@@ -845,7 +845,7 @@ def create_and_send(db: Session, payload, actor: AppUser) -> BusinessMail:
             raise ValueError(policy_error)
         if notice:
             payload.subject = '（紧急）项目预告知：' + payload.subject.removeprefix('（紧急）项目预告知：')
-            warning = '（紧急）项目预告知：子订单字数及相关资料可能尚未完善，请后续补充确认。'
+            warning = '（紧急）项目预告知：子订单工作量统计及相关资料可能尚未完善，请后续补充确认。'
             if warning not in payload.body:
                 payload.body += '\n\n' + warning
                 if payload.body_html:

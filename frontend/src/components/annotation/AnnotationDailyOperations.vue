@@ -19,7 +19,7 @@
       <article v-for="row in items.filter(item=>item.stage===group.key)" :key="row.id" class="operation-card" :class="{'is-added':row.report_added}" :draggable="['pending','in_progress'].includes(row.stage)&&!row.report_added&&!busy" @dragstart="startDrag($event,row)" @dragend="draggedId=''">
         <el-tag size="small" class="operation-type">{{row.project_type==='非项目工作'?'非项目任务':row.project_type||'标注项目'}}</el-tag>
         <strong>{{rowTitle(row)}}</strong>
-        <p class="operation-content">{{row.content}}</p>
+        <p class="operation-content"><ScreenshotText :text="row.content" /></p>
         <p class="operation-hint">今日预计花费时间：{{durationLabel(row.estimated_minutes)}}<template v-if="row.stage==='performed'"> · 今日实际花费时间：{{durationLabel(row.actual_minutes)}} · 工作量：{{row.quantity??'-'}} {{row.unit}}</template></p>
         <div class="operation-actions">
           <template v-if="!row.report_added">
@@ -63,6 +63,7 @@
 </template>
 
 <script setup>
+import ScreenshotText from '@/components/common/ScreenshotText.vue'
 import {computed,defineAsyncComponent,onBeforeUnmount,onMounted,reactive,ref,watch} from 'vue'
 import {ElMessage} from 'element-plus'
 import {getAnnotationOperations,createAnnotationOperations,editAnnotationOperation,addAnnotationOperationReport,importTranslationOperations} from '@/api/projectArrangements'

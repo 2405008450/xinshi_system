@@ -258,6 +258,8 @@ def build_daily_report_mail_preview(db: Session, user: AppUser, report_date: dat
 
 
 def render_daily_report_mail(rows: list[dict], supplemental_note: Optional[str], inline_image_html: str = "", idle_data: Optional[dict] = None) -> tuple[str, str]:
+    from editor_screenshot_service import INLINE_SCREENSHOT_RE
+
     header_html = "".join(
         f'<th style="border:1px solid #9ca3af;background:#dbeafe;color:#1e3a5f;padding:7px 9px;text-align:center;font-weight:700;">{html.escape(label)}</th>'
         for _, label in MAIL_COLUMNS
@@ -269,6 +271,7 @@ def render_daily_report_mail(rows: list[dict], supplemental_note: Optional[str],
         plain_values = []
         for key, _label in MAIL_COLUMNS:
             value = str(row.get(key, "") if row.get(key, "") is not None else "")
+            value = INLINE_SCREENSHOT_RE.sub('[截图，请在系统内查看]', value)
             plain_values.append(value.replace("\t", " ").replace("\r", " ").replace("\n", " / "))
             cells.append(
                 '<td style="border:1px solid #9ca3af;padding:7px 9px;vertical-align:top;white-space:pre-wrap;word-break:break-word;">'
@@ -290,6 +293,7 @@ def render_daily_report_mail(rows: list[dict], supplemental_note: Optional[str],
     plain_lines.append(f"当日工作耗时合计\t{total_text}")
     note_html = ""
     if supplemental_note:
+        supplemental_note = INLINE_SCREENSHOT_RE.sub('[截图，请在系统内查看]', supplemental_note)
         escaped_note = html.escape(supplemental_note)
         note_html = (
             '<table role="presentation" style="border-collapse:collapse;width:100%;margin-top:12px;font-family:Microsoft YaHei,Arial,sans-serif;font-size:13px;">'

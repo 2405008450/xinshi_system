@@ -74,7 +74,8 @@ def test_zero_unknown_currency_and_sub_client(context):
     db.add(sub);db.flush();zero.client_id=None;zero.sub_client_id=sub.id;db.commit()
     result=preview(http,root,scope='customer').json();assert result['totals']=={'CNY':'123.40','USD':'0.00'}
     root.customer_charge_items[0].unit_price_excl_tax=None;db.commit()
-    result=preview(http,root).json();assert result['rows'][0]['subtotal'] is None and result['rows'][0]['unit_label']=='不含税' and result['pending']
+    result=preview(http,root).json()
+    assert result['rows'][0]['subtotal']=='130.80' and result['rows'][0]['unit_label']=='含税'
     root.customer_charge_items[0].unit_price_incl_tax=None;db.commit()
     result=preview(http,root).json();assert result['rows'][0]['subtotal'] is None and result['pending'] and result['totals']=={}
 

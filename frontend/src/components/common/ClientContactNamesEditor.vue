@@ -5,6 +5,12 @@
       <el-row :gutter="16">
         <el-col :xs="24" :md="12"><el-form-item label="联系人" :prop="['contact_people',index,'name']" :rules="nameRules(row)"><el-input :model-value="row.name" maxlength="100" placeholder="请输入联系人姓名" :aria-label="`客户联系人${index+1}`" @update:model-value="value=>update(index,'name',value)" /></el-form-item></el-col>
         <el-col :xs="24" :md="12">
+          <el-form-item label="职位" :prop="['contact_people', index, 'job_title']">
+            <el-input :model-value="row.job_title ?? ''" maxlength="100" placeholder="请输入职位（选填）"
+              :aria-label="`联系人${index+1}职位`" @update:model-value="value => update(index, 'job_title', value)" />
+          </el-form-item>
+        </el-col>
+        <el-col :xs="24" :md="12">
           <el-form-item label="联系方式" :prop="['contact_people',index,'contact_method']" :rules="contactMethodRules">
             <ClientContactMethods v-if="canViewClientContacts" :model-value="row.contact_method"
               :label="`联系人${index+1}联系方式`" @update:model-value="value=>update(index,'contact_method',value)" />
@@ -12,7 +18,7 @@
           </el-form-item>
         </el-col>
       </el-row>
-      <el-form-item label="说明" :prop="['contact_people',index,'description']"><el-input :model-value="row.description" type="textarea" :rows="2" maxlength="5000" :aria-label="`联系人${index+1}说明`" placeholder="填写职务、联系偏好或其他说明" @update:model-value="value=>update(index,'description',value)" /></el-form-item>
+      <el-form-item label="说明" :prop="['contact_people',index,'description']"><el-input :model-value="row.description" type="textarea" :rows="2" maxlength="5000" :aria-label="`联系人${index+1}说明`" placeholder="填写联系偏好或其他说明" @update:model-value="value=>update(index,'description',value)" /></el-form-item>
     </section>
     <el-button link type="primary" @click="add">添加客户联系人</el-button>
   </div>
@@ -27,7 +33,7 @@ const props=defineProps({modelValue:{type:Array,default:()=>[]},required:{type:B
 const emit=defineEmits(['update:modelValue'])
 const contactMethodRules = [{ type: 'string', max: 5000, message: '联系方式合计不能超过 5000 个字符' }]
 const nameRules=row=>[
-  {required:props.required || names.value.length>1 || Boolean(row.contact_method?.trim() || row.description?.trim()),whitespace:true,message:'请填写联系人姓名',trigger:['blur','change']},
+  {required:props.required || names.value.length>1 || Boolean(row.job_title?.trim() || row.contact_method?.trim() || row.description?.trim()),whitespace:true,message:'请填写联系人姓名',trigger:['blur','change']},
   {validator:(_rule,value,done)=>{const key=String(value||'').trim().toLowerCase();done(key&&names.value.filter(item=>String(item.name||'').trim().toLowerCase()===key).length>1?new Error('联系人姓名不能重复'):undefined)},trigger:['blur','change']},
 ]
 const blank=()=>({name:'',contact_method:'',description:''})

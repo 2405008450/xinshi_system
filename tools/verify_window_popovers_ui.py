@@ -58,7 +58,7 @@ def run():
         expect(popup).to_have_count(0)
         assert page.evaluate('window.saved[0][0].translatorUnitPrice')==2.5
 
-        page.get_by_role('button',name='字数统计',exact=True).click()
+        page.get_by_role('button',name='工作量统计',exact=True).click()
         move_and_close(page.locator('.word-count-matrix-popper:visible'))
         page.get_by_role('button',name='字段设置',exact=True).click()
         move_and_close(page.locator('.table-column-settings-popover:visible'))

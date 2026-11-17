@@ -51,8 +51,8 @@ import {createApp,h} from VUE;import {createRouter,createWebHistory} from ROUTER
         cell.evaluate("el=>{const data=new DataTransfer();data.setData('text/plain','100\\t90\\t80\\t70\\n200\\t190\\t180\\t170');el.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}))}")
         expect(cell).to_have_value('100');expect(grid.locator('input[data-row="4"][data-col="1"]')).to_have_value('190')
         cell.press('Enter');expect(grid.locator('input[data-row="4"][data-col="0"]')).to_be_focused()
-        grid.get_by_role('button',name='保存统计（2 单）',exact=True).click()
-        expect(grid.get_by_role('button',name='保存统计（0 单）',exact=True)).to_be_disabled()
+        grid.get_by_role('button',name='保存工作量（2 单）',exact=True).click()
+        expect(grid.get_by_role('button',name='保存工作量（0 单）',exact=True)).to_be_disabled()
         assert len(patches)==2,patches
         assert next(change['value'] for change in patches[0][1]['changes'] if change['dimension']=='customer' and change['metric_type']=='words')==90
         expect(dialog).to_contain_text(r'D:\客户项目')

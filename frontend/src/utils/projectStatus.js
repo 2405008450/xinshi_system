@@ -182,8 +182,5 @@ export function getProjectStatusType(projectType, status) {
 }
 
 export function isProjectStatusOptionDisabled(projectType, optionValue, currentStatus) {
-  const current = normalizeProjectStatus(projectType, currentStatus)
-  if (optionValue === current) return true
-  if ((projectType || 'translation') === 'translation' && optionValue === 'pending_confirmation') return true
-  return false
+  return optionValue === normalizeProjectStatus(projectType, currentStatus)
 }

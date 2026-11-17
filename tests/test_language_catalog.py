@@ -1,6 +1,9 @@
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from interpretation_schemas import InterpretationLanguageCreate
@@ -68,6 +71,36 @@ def test_proofreading_filter_matches_standalone_and_combined_values():
         query = apply_scalar_filter(select(projects.c.id), projects.c.language_pair, {"op": "contains", "value": "校对"})
         assert session.execute(query.order_by(projects.c.id)).scalars().all() == [1, 2]
     engine.dispose()
+def test_proofreading_marker_passes_catalog_without_bypassing_language_checks():
+    assert validate_language_pairs_against_catalog("校对", []) == "校对"
+    assert validate_language_pairs_against_catalog(
+        " 校对；中文→英语；校对 ", ["中文", "英语"]
+    ) == "校对；中文→英语"
+    with pytest.raises(ValueError, match="不在共享语种目录中"):
+        validate_language_pairs_against_catalog("校对；中文→未知语种", ["中文"])
+
+
+def test_translation_page_keeps_historical_proofreading_projects(monkeypatch):
+    from routers import translation_projects
+
+    projects = [
+        {"id": uuid4(), "order_no": f"TP-261116-{index:03d}",
+         "project_name": "测试项目", "language_pair": direction, "_page_total": 2}
+        for index, direction in enumerate(["校对", "中文→英语；校对"], 1)
+    ]
+    monkeypatch.setattr(translation_projects, "get_translation_projects", lambda *_args, **_kwargs: projects)
+    app = FastAPI()
+    app.include_router(translation_projects.router)
+    app.dependency_overrides[translation_projects.get_db] = lambda: None
+    for dependency in translation_projects.router.dependencies:
+        app.dependency_overrides[dependency.dependency] = lambda: None
+
+    with TestClient(app) as client:
+        response = client.get("/projects/translation/page")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["total"] == 2
+    assert [item["language_pair"] for item in response.json()["items"]] == ["校对", "中文→英语；校对"]
 
 
 @pytest.mark.parametrize("value", [

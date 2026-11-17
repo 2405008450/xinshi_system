@@ -93,11 +93,21 @@ def customers(db,month,required,keyword,skip,limit,manager_scope=None,progress=N
     if progress:
         if progress_ready:query=query.outerjoin(StatementProgress,(StatementProgress.client_id==Client.id)&(StatementProgress.billing_month==month)).filter(func.coalesce(StatementProgress.progress,'not_started')==progress)
         elif progress!='not_started':query=query.filter(False)
-    if keyword and keyword.strip():query=query.filter(keyword_any([Client.client_name,Client.client_short_name,Client.client_code],keyword.strip()))
+    from search_matching import matches_keywords
+    child_match = {}
+    if keyword and keyword.strip():
+        eligible_ids={project.sub_client_id for project in scoped_projects if project.sub_client_id}
+        child_match={child.id:child.parent_client_id for child in db.query(SubClient).filter(
+            SubClient.id.in_(eligible_ids),
+            keyword_any([SubClient.client_name,SubClient.client_short_name,SubClient.sub_client_code],keyword.strip()))}
+        query=query.filter(or_(keyword_any([Client.client_name,Client.client_short_name,Client.client_code],keyword.strip()),
+                               Client.id.in_(set(child_match.values()))))
     total=query.count();items=[]
     for client,count,required_count in query.order_by(Client.client_short_name,Client.client_name,Client.id).offset(skip).limit(limit).all():
         _,version=snapshot(db,client.id,month,manager_scope,settlement_scope)
-        items.append(dict(id=str(client.id),name=client.client_name,short_name=client.client_short_name or client.client_name,code=client.client_code,project_count=count or 0,required_count=required_count or 0,pending_count=len(waiting.get(client.id,[])),version=version))
+        parent_matches=matches_keywords(' '.join(filter(None,(client.client_name,client.client_short_name,client.client_code))),keyword)
+        items.append(dict(id=str(client.id),name=client.client_name,short_name=client.client_short_name or client.client_name,code=client.client_code,project_count=count or 0,required_count=required_count or 0,pending_count=len(waiting.get(client.id,[])),version=version,
+                          sub_clients=[],filter_sub_clients=not parent_matches))
     managers={item['id']:set() for item in items}
     if items:
         client_ids={UUID(item['id']) for item in items}
@@ -108,10 +118,18 @@ def customers(db,month,required,keyword,skip,limit,manager_scope=None,progress=N
         if roots:projects=list({project.id:project for project in projects+db.query(TranslationProject).filter(TranslationProject.id.in_([UUID(uid) for uid in roots])).all()}.values())
         from project_client_manager import attach
         attach(db,'translation',projects)
+        items_by_id={item['id']:item for item in items}
+        seen_children=set()
         for project in projects:
             crud._attach_project_client_fields(project)
             client_id=str(project.client_id or project.sub_client.parent_client_id)
-            if project.id in monthly_ids and client_id in managers:managers[client_id].add(project.client_manager or '未分配')
+            if project.id in monthly_ids and client_id in managers:
+                managers[client_id].add(project.client_manager or '未分配')
+                child=project.sub_client
+                item=items_by_id[client_id]
+                if child and child.id not in seen_children and (not item['filter_sub_clients'] or child.id in child_match):
+                    seen_children.add(child.id)
+                    item['sub_clients'].append(dict(id=str(child.id),name=child.client_short_name or child.client_name,code=child.sub_client_code))
         by_id={str(project.id):project for project in projects}
         for item in items:
             for task in waiting.get(UUID(item['id']),[]):

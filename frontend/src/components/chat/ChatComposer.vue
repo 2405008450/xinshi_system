@@ -68,9 +68,10 @@ function onMentionBlur(event) {
 }
 async function insertMention() {
   const textarea = input.value?.textarea
-  const cursor = textarea?.selectionStart ?? content.value.length, end = textarea?.selectionEnd ?? cursor
-  const text = `${cursor && !/\s$/.test(content.value.slice(0, cursor)) ? ' ' : ''}@`
-  content.value = content.value.slice(0, cursor) + text + content.value.slice(end)
+  const visible = textarea?.value ?? plainContent.value
+  const cursor = textarea?.selectionStart ?? visible.length, end = textarea?.selectionEnd ?? cursor
+  const text = `${cursor && !/\s$/.test(visible.slice(0, cursor)) ? ' ' : ''}@`
+  plainContent.value = visible.slice(0, cursor) + text + visible.slice(end)
   await nextTick(); input.value?.focus(); textarea?.setSelectionRange(cursor + text.length, cursor + text.length); onInput()
 }
 </script>

@@ -7,7 +7,7 @@
     </template>
     <div ref="body">
       <el-alert v-if="optionsError" :title="optionsError" type="error" :closable="false"><el-button link @click="loadOptions">重试</el-button></el-alert>
-      <AppForm ref="form" :model="draft" :rules="rules" label-position="top" :disabled="saving" :saved-sync-enabled="false" data-screenshot-editor="own">
+      <AppForm ref="form" :model="draft" :rules="rules" label-position="top" :disabled="saving" :saved-sync-enabled="false">
         <el-form-item label="外勤类型" prop="type_path">
           <el-cascader v-model="draft.type_path" :options="categories" :disabled="optionsLoading" placeholder="选择外勤类型" />
         </el-form-item>

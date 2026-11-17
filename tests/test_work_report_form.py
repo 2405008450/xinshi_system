@@ -75,7 +75,7 @@ def test_own_report_metadata_roundtrip_and_history_isolation(environment,monkeyp
     with pytest.raises(ValueError):service.save_daily_report(db,owner,day,DailyReportSaveRequest(items=[row()]))
 
 
-@pytest.mark.parametrize('parent', ['项目工作', '外勤工作', '管理工作'])
+@pytest.mark.parametrize('parent', ['项目工作', '管理工作'])
 def test_identity_required_except_nonproject(parent):
     types = {'项目工作': '笔译项目', '外勤工作': '外勤工作::拜访客户', '管理工作': '管理工作::分析数据'}
     with pytest.raises(ValidationError):
@@ -99,6 +99,16 @@ def test_report_fields_reject_screenshots():
         DailyReportSaveRequest(items=[row()], supplemental_note='![截图](screenshot://00000000-0000-0000-0000-000000000000)')
     data=row().model_dump();data['display_metadata']['order_no']='data:image/png;base64,xx'
     with pytest.raises(ValidationError): DailyReportSaveRequest(items=[data])
+
+
+def test_report_preserves_signed_screenshots_in_narrative_order():
+    from editor_screenshot_service import signed_reference
+    first = signed_reference('00000000-0000-4000-8000-000000000001')
+    second = signed_reference('00000000-0000-4000-8000-000000000002')
+    content = f'说明一![截图]({first})\n说明二![截图]({second})'
+    item = row().model_copy(update={'progress_content': content})
+    report = DailyReportSaveRequest(items=[item], supplemental_note=content)
+    assert report.items[0].progress_content == report.supplemental_note == content
 
 
 def test_historical_incomplete_rows_still_readable():
@@ -162,3 +172,11 @@ def test_layout_task_presets_persist_without_polluting_work_categories(environme
     with pytest.raises(PermissionError):categories.add_layout_task_preset(db,other,'文件终检')
     with pytest.raises(ValueError): categories.validate_categories(db,other,[row(report_types=['项目工作::伪造分类'])])
     with pytest.raises(PermissionError):categories.validate_categories(db,other,[row(report_types=['其他项目'],custom_project_type='绕过权限')])
+
+
+def test_fieldwork_can_omit_project_identity():
+    item = row(report_types=["外勤工作::拜访客户"], order_no="")
+    assert item.display_metadata["order_no"] == ""
+    item = item.model_dump()
+    item["task_name"] = ""
+    assert DailyReportItemInput(**item).task_name == ""

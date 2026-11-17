@@ -46,8 +46,10 @@ class FeedbackWrite(BaseModel):
     @model_validator(mode='after')
     def clean(self):
         self.content=self.content.strip()
-        if not self.content or any(token in self.content.lower() for token in ['screenshot://','data:image/','<img']):
-            raise ValueError('请填写文字反馈，不支持截图')
+        if not self.content:
+            raise ValueError('请填写反馈')
+        from editor_screenshot_service import validate_ordered_screenshots
+        validate_ordered_screenshots(self.content)
         return self
 
 

@@ -103,7 +103,7 @@
             <el-table-column prop="language_pair" label="语种" min-width="80" show-overflow-tooltip>
               <template #header><ConfiguredColumnHeaderFilter :definition="projectHeaderFilter('languagePair')" :model-value="projectFilterModel.languagePair" @update:model-value="updateProjectFilter('languagePair', $event)" @text-input="onProjectKeywordInput" @change="loadContext" @enter="loadContext" @clear="loadContext" /></template>
             </el-table-column>
-            <el-table-column label="字数统计" width="126" min-width="116" header-align="left">
+            <el-table-column label="工作量统计" width="126" min-width="116" header-align="left">
               <template #default="{ row }">
                 <div class="legacy-word-count-summary legacy-word-count-summary--compact">
                   <WordCountMatrixPopover
@@ -111,7 +111,7 @@
                     :entity-type="matrixEntityType(row)"
                     :entity-id="matrixEntityId(row)"
                     :dispatch-id="activeDispatchFor(row)?.id"
-                    title="项目与译员字数统计"
+                    title="项目与译员工作量统计"
                     @saved="handleWordCountMatrixSaved"
                   >
                     <template #reference>
@@ -308,7 +308,7 @@
         <el-empty v-if="!selectedProject" description="选择稿件后在此填写译员合作信息" :image-size="72" />
         <div v-else class="legacy-assignment-body">
           <div class="legacy-project-meta">
-            <span>项目字数：{{ projectWordSummary(selectedProject) }}</span>
+            <span>项目工作量：{{ projectWordSummary(selectedProject) }}</span>
             <span>客户交稿时间：{{ formatDateTime(selectedProject.customer_deadline_time) }}</span>
             <span>项目助理：{{ selectedProject.project_assistant_name || '角色池' }}</span>
           </div>
@@ -362,7 +362,7 @@
                   </el-tabs>
 
                   <div v-if="activeWorkbenchAssignment" class="legacy-field-grid">
-                    <label class="is-required">字数与结算</label>
+                    <label class="is-required">工作量与结算</label>
                     <div class="legacy-word-count-summary">
                       <span>{{ assignmentWordSummary(activeWorkbenchAssignment) }}</span>
                       <WordCountMatrixPopover
@@ -372,11 +372,11 @@
                         :dispatch-id="selectedProjectDispatch?.id"
                         :local="!selectedProjectDispatch"
                         :translators="dispatchForm.arrangements"
-                        title="项目与译员字数统计"
+                        title="项目与译员工作量统计"
                         @update:translators="dispatchForm.arrangements = $event"
                         @saved="handleWordCountMatrixSaved"
                       >
-                        <template #reference><el-button type="primary" link>展开字数统计</el-button></template>
+                        <template #reference><el-button type="primary" link>展开工作量统计</el-button></template>
                       </WordCountMatrixPopover>
                     </div>
 
@@ -672,8 +672,8 @@
           <span>创建人：{{ selectedProjectDispatch.created_by_name || '-' }}</span>
           <span>创建时间：{{ formatDateTime(selectedProjectDispatch.created_at) }}</span>
           <span>人数：{{ activeAssignments(selectedProjectDispatch).length }}</span>
-          <span>预定结算字数：{{ assignmentTotalSummary(selectedProjectDispatch, 'planned') }}</span>
-          <span>实际结算字数：{{ assignmentTotalSummary(selectedProjectDispatch, 'actual') }}</span>
+          <span>预定结算工作量：{{ assignmentTotalSummary(selectedProjectDispatch, 'planned') }}</span>
+          <span>实际结算工作量：{{ assignmentTotalSummary(selectedProjectDispatch, 'actual') }}</span>
           <span>译员总价：{{ formatMoney(sumField(selectedProjectDispatch, 'translator_total_price', true)) }}</span>
         </div>
 
@@ -684,7 +684,7 @@
               <small>{{ cooperationLabel(row) }}</small>
             </template>
           </el-table-column>
-          <el-table-column label="字数与口径" width="230">
+          <el-table-column label="工作量与口径" width="230">
             <template #default="{ row }">
               <div>{{ assignmentWordSummary(row) }}</div>
               <WordCountMatrixPopover
@@ -692,10 +692,10 @@
                 :entity-type="matrixEntityType(selectedProject)"
                 :entity-id="matrixEntityId(selectedProject)"
                 :dispatch-id="selectedProjectDispatch.id"
-                title="项目与译员字数统计"
+                title="项目与译员工作量统计"
                 @saved="handleWordCountMatrixSaved"
               >
-                <template #reference><el-button type="primary" link size="small">编辑字数统计</el-button></template>
+                <template #reference><el-button type="primary" link size="small">编辑工作量统计</el-button></template>
               </WordCountMatrixPopover>
             </template>
           </el-table-column>
@@ -838,7 +838,7 @@
             </template>
           </el-table-column>
           <el-table-column prop="language_pair" label="语种" width="100" show-overflow-tooltip />
-          <el-table-column label="项目字数摘要" width="180">
+          <el-table-column label="项目工作量摘要" width="180">
             <template #default="{ row }">{{ projectWordSummary(row) }}</template>
           </el-table-column>
           <el-table-column label="客户交稿时间" width="155">
@@ -1017,7 +1017,7 @@
                   </template>
                 </el-table-column>
                 <el-table-column prop="translation_scope" label="需翻译部分" min-width="145" show-overflow-tooltip />
-                <el-table-column label="译员结算字数" width="175">
+                <el-table-column label="译员结算工作量" width="175">
                   <template #default="{ row: item }">
                     {{ assignmentWordSummary(item) }}
                   </template>
@@ -1151,7 +1151,7 @@
         <el-table-column label="人数" width="55" align="center">
           <template #default="{ row }">{{ activeAssignments(row).length }}</template>
         </el-table-column>
-        <el-table-column label="译员结算字数" width="165">
+        <el-table-column label="译员结算工作量" width="165">
           <template #default="{ row }">
             <div>{{ assignmentTotalSummary(row, 'planned') }} / {{ assignmentTotalSummary(row, 'actual') }}</div>
             <WordCountMatrixPopover
@@ -1159,10 +1159,10 @@
               :entity-type="matrixEntityType(row)"
               :entity-id="matrixEntityId(row)"
               :dispatch-id="row.id"
-              title="项目与译员字数统计"
+              title="项目与译员工作量统计"
               @saved="handleWordCountMatrixSaved"
             >
-              <template #reference><el-button type="primary" link size="small">字数统计</el-button></template>
+              <template #reference><el-button type="primary" link size="small">工作量统计</el-button></template>
             </WordCountMatrixPopover>
           </template>
         </el-table-column>
@@ -1300,7 +1300,7 @@
         <el-descriptions-item label="语种">{{ selectedProject.language_pair || '-' }}</el-descriptions-item>
         <el-descriptions-item label="文本类型">{{ selectedProject.file_type_secondary || '-' }}</el-descriptions-item>
         <el-descriptions-item label="优先级">{{ selectedProject.priority || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="项目字数">{{ projectWordSummary(selectedProject) }}</el-descriptions-item>
+        <el-descriptions-item label="项目工作量">{{ projectWordSummary(selectedProject) }}</el-descriptions-item>
         <el-descriptions-item label="客户交稿时间">{{ formatDateTime(selectedProject.customer_deadline_time) }}</el-descriptions-item>
         <el-descriptions-item label="派稿文路径" :span="3">{{ selectedProject.dispatch_path || '-' }}</el-descriptions-item>
       </el-descriptions>
@@ -1362,7 +1362,7 @@
 
           <el-row :gutter="16">
             <el-col :span="16">
-              <el-form-item label="字数与结算" required>
+              <el-form-item label="工作量与结算" required>
                 <div class="dialog-word-count-summary">
                   <span>{{ assignmentWordSummary(assignment) }}</span>
                   <WordCountMatrixPopover
@@ -1372,11 +1372,11 @@
                     :dispatch-id="dispatchForm.id"
                     :local="!dispatchForm.id"
                     :translators="dispatchForm.arrangements"
-                    title="项目与译员字数统计"
+                    title="项目与译员工作量统计"
                     @update:translators="dispatchForm.arrangements = $event"
                     @saved="handleWordCountMatrixSaved"
                   >
-                    <template #reference><el-button type="primary" link>展开字数统计</el-button></template>
+                    <template #reference><el-button type="primary" link>展开工作量统计</el-button></template>
                   </WordCountMatrixPopover>
                 </div>
               </el-form-item>
@@ -1733,7 +1733,7 @@
         </el-form-item>
 
         <el-divider content-position="left">新译员安排</el-divider>
-        <el-form-item label="字数与结算" required>
+        <el-form-item label="工作量与结算" required>
           <div class="dialog-word-count-summary">
             <span>{{ assignmentWordSummary(reassignForm.replacement) }}</span>
             <WordCountMatrixPopover
@@ -1742,10 +1742,10 @@
               :entity-id="matrixEntityId(reassignDispatch || {})"
               local
               :translators="[reassignForm.replacement]"
-              title="新译员字数统计"
+              title="新译员工作量统计"
               @update:translators="handleReassignMatrixUpdate"
             >
-              <template #reference><el-button type="primary" link>调整字数</el-button></template>
+              <template #reference><el-button type="primary" link>调整工作量统计</el-button></template>
             </WordCountMatrixPopover>
           </div>
         </el-form-item>
@@ -1824,12 +1824,12 @@
       </template>
     </DraggableFormDialog>
 
-    <DraggableFormDialog v-model="settlementDialogVisible" title="补录实际译员字数与结账信息" width="560px">
+    <DraggableFormDialog v-model="settlementDialogVisible" title="补录实际译员工作量与结账信息" width="560px">
       <AppForm :model="settlementForm" label-width="155px">
         <el-form-item label="译员">
           <el-input :model-value="settlementForm.translator_name" disabled />
         </el-form-item>
-        <el-form-item label="实际译员字数">
+        <el-form-item label="实际译员工作量">
           <div class="dialog-word-count-summary">
             <span>{{ formatWordCountValues(settlementForm.actual) }}</span>
             <WordCountMatrixPopover
@@ -1837,10 +1837,10 @@
               :entity-type="settlementForm.entity_type"
               :entity-id="settlementForm.entity_id"
               :dispatch-id="settlementForm.dispatch_id"
-              title="项目与译员字数统计"
+              title="项目与译员工作量统计"
               @saved="handleSettlementMatrixSaved"
             >
-              <template #reference><el-button type="primary" link>编辑字数统计</el-button></template>
+              <template #reference><el-button type="primary" link>编辑工作量统计</el-button></template>
             </WordCountMatrixPopover>
           </div>
         </el-form-item>
@@ -3229,7 +3229,7 @@ function defaultBody(translator) {
 项目名称：${projectName}
 语种：${selectedProject.value.language_pair || '待确认'}
 需翻译部分：待填写
-预定译员结算字数：待确认
+预定译员结算工作量：待确认
 
 请以项目经理提供的稿件文件和最终要求为准。`
 }
@@ -3718,8 +3718,8 @@ function validateDispatchForm() {
     const translatorName = translatorById(assignment.translator_id)?.translator_name || '译员'
     if (!hasWordCountValue(assignment.planned)) {
       return {
-        message: `${translatorName}：字数与结算至少需要填写一个字数数值`,
-        label: '字数与结算',
+        message: `${translatorName}：工作量与结算至少需要填写一个计量数值`,
+        label: '工作量与结算',
         occurrence: assignmentIndex + 1,
       }
     }
@@ -4057,7 +4057,7 @@ function updateReassignSelectedFiles(files) {
 function validateReassignment() {
   const assignment = reassignForm.replacement
   if (!hasWordCountValue(assignment.planned)) {
-    return '字数与结算至少需要填写一个计量数值'
+    return '工作量与结算至少需要填写一个计量数值'
   }
   if (!String(assignment.settlement_method || '').trim()) {
     return '请填写新译员结账方式'

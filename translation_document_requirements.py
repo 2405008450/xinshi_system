@@ -7,9 +7,10 @@ from fastapi import HTTPException
 from models import Base
 from annotation_progress_time import business_now
 
-PaymentMethod = Literal['individual', 'statement', 'monthly', 'special']
-SettlementMode = Literal['individual', 'monthly', 'special']
+PaymentMethod = Literal['individual', 'statement', 'monthly', 'sub_client', 'special']
+SettlementMode = Literal['individual', 'monthly', 'sub_client', 'special']
 StatementScope = Literal['standard', 'special']
+GROUPED_SETTLEMENT_MODES = ('monthly', 'sub_client')
 
 
 def matches_statement_scope(project, scope):
@@ -17,6 +18,11 @@ def matches_statement_scope(project, scope):
 
 
 def payment_method(project):
+    recorded = getattr(project, 'recorded_payment_method', None)
+    if recorded == 'special':
+        return 'special'
+    if getattr(project, 'sub_client_id', None):
+        return 'sub_client'
     for field in ('recorded_payment_method', 'customer_payment_method'):
         method = getattr(project, field, None)
         if method in ('individual', 'monthly', 'statement', 'special'):
@@ -178,6 +184,7 @@ def attach(db, projects):
         project.document_notes = document_notes(row)
         project.invoice_data=(row.quotation_data or {}).get('_invoice',{}) if row else {}
         project.order_pricing_modes = (row.quotation_data or {}).get('_order_pricing_modes', {}) if row else {}
+        project.order_total_adjustments = stored.get('_order_total_adjustments', {})
         project.document_consistency_review = stored.get('_document_consistency_review')
         project.cleared_price_orders = set(stored.get('_cleared_price_orders', []))
 
@@ -299,7 +306,7 @@ def apply_customer_documents(db, client_id, changes, actor_id):
 
 
 def load_order_pricing_modes(db, projects):
-    pending = {project.id: project for project in projects if not hasattr(project, 'order_pricing_modes')}
+    pending = {project.id: project for project in projects if not hasattr(project, 'order_total_adjustments')}
     if not pending:
         return
     rows = {}
@@ -307,14 +314,40 @@ def load_order_pricing_modes(db, projects):
         rows = dict(db.query(TranslationProjectDocuments.project_id, TranslationProjectDocuments.quotation_data)
                     .filter(TranslationProjectDocuments.project_id.in_(pending)).all())
     for project_id, project in pending.items():
-        project.order_pricing_modes = (rows.get(project_id) or {}).get('_order_pricing_modes', {})
+        stored = rows.get(project_id) or {}
+        project.order_pricing_modes = stored.get('_order_pricing_modes', {})
+        project.order_total_adjustments = stored.get('_order_total_adjustments', {})
 
 
 def order_pricing_modes(db, project):
-    if not hasattr(project, 'order_pricing_modes'):
-        row = db.get(TranslationProjectDocuments, project.id) if db and ready(db) else None
-        project.order_pricing_modes = (row.quotation_data or {}).get('_order_pricing_modes', {}) if row else {}
-    return project.order_pricing_modes
+    if db is not None:
+        load_order_pricing_modes(db, [project])
+    return getattr(project, 'order_pricing_modes', {})
+
+
+def save_order_total_adjustment(db, project, order_id, changes, currency, actor_id):
+    if not ready(db):
+        raise HTTPException(503, '项目单据存储尚未初始化')
+    row = db.get(TranslationProjectDocuments, project.id)
+    if row is None:
+        row = TranslationProjectDocuments(project_id=project.id, quotation_revision=0)
+        db.add(row)
+    stored = dict(row.quotation_data or {})
+    adjustments = dict(stored.get('_order_total_adjustments', {}))
+    entry = {**adjustments.get(order_id, {}), 'currency': currency}
+    for key, value in changes.items():
+        if value is None:
+            entry.pop(key, None)
+        else:
+            entry[key] = value if key.endswith('_discount') else format(value, '.2f')
+    if len(entry) > 1:
+        adjustments[order_id] = entry
+    else:
+        adjustments.pop(order_id, None)
+    row.quotation_data = {**stored, '_order_total_adjustments': adjustments}
+    row.updated_by = actor_id
+    row.updated_at = business_now()
+    project.order_total_adjustments = adjustments
 
 
 def save_order_pricing_mode(db, project, order_id, mode, actor_id):

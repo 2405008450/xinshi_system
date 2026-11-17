@@ -432,7 +432,7 @@ async function onInput() {
   if (composing.value) return
   await nextTick()
   const textarea = input.value?.textarea, cursor = textarea?.selectionStart || 0
-  const match = content.value.slice(0, cursor).match(/(?:^|[^A-Za-z0-9@])@([^\s@]*)$/u)
+  const match = (textarea?.value || '').slice(0, cursor).match(/(?:^|[^A-Za-z0-9@])@([^\s@]*)$/u)
   if (!match || textarea.selectionStart !== textarea.selectionEnd) { closeMention(); return }
   mentionTrigger = cursor - match[1].length - 1
   mentionQuery.value = match[1]; mentionIndex.value = 0; mentionOpen.value = true
@@ -458,7 +458,7 @@ async function selectMention(user) {
   if (mentionTrigger < 0) return
   if (user.id!=='__all__' && !mentionIds.value.includes(user.id) && mentionIds.value.filter(id=>id!=='__all__').length >= 20) { ElMessage.warning('每条消息最多提及20人'); return }
   const cursor = input.value.textarea.selectionStart, text = `@${user.name} `, end = mentionTrigger + text.length
-  content.value = content.value.slice(0, mentionTrigger) + text + content.value.slice(cursor)
+  content.value = screenshotValue(screenshotText(content.value).slice(0, mentionTrigger) + text + screenshotText(content.value).slice(cursor), screenshotIds(content.value))
   if (!mentionIds.value.includes(user.id)) mentionIds.value.push(user.id)
   closeMention(); await nextTick(); input.value.focus(); input.value.textarea.setSelectionRange(end, end)
 }

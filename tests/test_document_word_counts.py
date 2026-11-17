@@ -59,9 +59,58 @@ def test_async_upload_and_owner_isolation(tmp_path):
             if result['status']=='completed':break
             time.sleep(.1)
         assert result['words']==2 and result['counted_files']==1
+        assert result['files'][0]['file_index'] == 0
         app.dependency_overrides[get_current_user]=lambda:SimpleNamespace(id='user-b')
         assert client.get('/document-word-count/jobs/'+identity).status_code==404
         assert client.post('/document-word-count/upload',files=[('files',('danger.exe',b'x'))]).status_code==400
+
+
+def test_single_source_never_descends_or_chooses_between_files(tmp_path, monkeypatch):
+    file = tmp_path / 'source.txt'
+    file.write_text('hello', encoding='utf-8')
+    (tmp_path / 'desktop.ini').touch()
+    monkeypatch.setattr(jobs, 'managed_root', lambda value: tmp_path / value)
+    assert jobs.single_source_file('.') == file
+    assert jobs.single_source_file('source.txt') == file
+
+    other = tmp_path / 'other.png'
+    other.touch()
+    with pytest.raises(ValueError, match='新增母子订单'):
+        jobs.single_source_file('.')
+    other.unlink()
+    (tmp_path / 'empty').mkdir()
+    with pytest.raises(ValueError, match='新增母子订单'):
+        jobs.single_source_file('.')
+
+
+def test_single_source_endpoint_counts_text_and_preserves_an_unsupported_filename(tmp_path, monkeypatch):
+    source = tmp_path / 'archive.zip'
+    source.touch()
+    (tmp_path / 'source.txt').write_text('项目 hello world', encoding='utf-8')
+    monkeypatch.setattr(jobs, 'managed_root', lambda value: tmp_path / value)
+    app = FastAPI()
+    app.include_router(router)
+    endpoint = next(route for route in router.routes if route.path.endswith('/single-path'))
+    for dependency in endpoint.dependant.dependencies:
+        app.dependency_overrides[dependency.call] = lambda: SimpleNamespace(id='qa')
+
+    with TestClient(app) as client:
+        response = client.post('/document-word-count/single-path', json={'path':'archive.zip'})
+        assert response.status_code == 200
+        assert response.json() == {'name':'archive.zip', 'message':'该格式暂不支持自动统计'}
+
+        response = client.post('/document-word-count/single-path', json={'path':'source.txt'})
+        assert response.status_code == 200
+        assert response.json()['name'] == 'source.txt'
+        identity = response.json()['job_id']
+        for _ in range(100):
+            result = client.get('/document-word-count/jobs/' + identity).json()
+            if result['status'] == 'completed':
+                break
+            time.sleep(.1)
+        assert result['files'][0]['status'] == 'counted'
+        assert [result['files'][0][key] for key in
+                ['words', 'characters_no_spaces', 'cjk_chars_korean_words']] == [4, 12, 2]
 
 
 def test_statistics_routes_require_authentication():

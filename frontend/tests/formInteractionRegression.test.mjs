@@ -41,7 +41,7 @@ test('稿件安排的业务校验失败会定位对应字段而非只显示消�
   const source = read('src/views/manuscript/ManuscriptArrangements.vue')
   assert.match(source, /locateDialogFieldByLabel: locateDispatchFieldByLabel/)
   assert.match(source, /await locateDispatchFieldByLabel\(validationError\.label, validationError\.occurrence\)/)
-  for (const label of ['选择译员', '需翻译部分', '字数与结算', '译员交稿_预定时间', '译员结账方式']) {
+  for (const label of ['选择译员', '需翻译部分', '工作量与结算', '译员交稿_预定时间', '译员结账方式']) {
     assert.match(source, new RegExp(`label: '${label}'`))
   }
 })

@@ -33,19 +33,19 @@ def payment_amount_mismatches(item, confirmation):
 
 def settlement_payment_states(db, projects):
     """Resolve the effective payment stage before filtering or paginating orders."""
-    from translation_customer_finance import effective_billing_month, monthly_tax_projects, statement_client_id
-    from translation_document_requirements import payment_method
+    from translation_customer_finance import monthly_tax_projects, settlement_group_key
+    from translation_document_requirements import GROUPED_SETTLEMENT_MODES
 
     groups = {}
     monthly_groups = {}
     for project in projects:
         groups[project.id] = (project.id,)
-        if payment_method(project)!='monthly':
+        key=settlement_group_key(project)
+        if key[3] not in GROUPED_SETTLEMENT_MODES:
             continue
-        client,month=statement_client_id(project),effective_billing_month(project)
+        client,month=key[:2]
         if not client or not month:
             continue
-        key=(client,month,project.settlement_period_number)
         if key not in monthly_groups:
             monthly_groups[key]=tuple(sorted({project.id,*(peer.id for peer in monthly_tax_projects(db,project))}))
         groups[project.id]=monthly_groups[key]

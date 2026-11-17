@@ -21,8 +21,8 @@ const sourceLabel = computed(() => {
   }
   if (order.wordCountParentOrderNo) {
     return order.wordCountMatchesParent
-      ? '方向子订单 · 字数来自上一级订单'
-      : '方向子订单 · 字数与上一级不同'
+      ? '方向子订单 · 工作量来自上一级订单'
+      : '方向子订单 · 工作量与上一级不同'
   }
   return ''
 })

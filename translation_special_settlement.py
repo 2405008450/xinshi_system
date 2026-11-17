@@ -1,5 +1,5 @@
 """特殊结算的单据和税口径独立于项目收费。"""
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Literal
 from uuid import UUID
 
@@ -41,10 +41,23 @@ def billing_totals(node, *, tax_mode=None):
             return {}
         fields = {'incl_tax': 'totals_incl_tax', 'excl_tax': 'totals_excl_tax'}
         return node.get(fields.get(mode), {})
+    if tax_mode is None:
+        totals = {}
+        for mode in ('excl_tax', 'incl_tax'):
+            for currency, amount in billing_totals(node, tax_mode=mode).items():
+                totals[currency] = totals.get(currency, Decimal(0)) + Decimal(str(amount))
+        return totals
     totals = {}
     for child in node['children']:
         for currency, amount in billing_totals(child, tax_mode=tax_mode).items():
             totals[currency] = totals.get(currency, Decimal(0)) + Decimal(str(amount))
+    adjustment = node.get('total_adjustment') or {}
+    currency = adjustment.get('currency')
+    if node['special_tax_mode'] == tax_mode or totals:
+        if tax_mode in adjustment:
+            totals[currency] = Decimal(adjustment[tax_mode])
+        elif currency in totals and (discount := adjustment.get(tax_mode.replace('_tax','_discount'))) is not None:
+            totals[currency] = (totals[currency] * discount / 100).quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
     return totals
 
 

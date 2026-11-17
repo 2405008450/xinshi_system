@@ -433,6 +433,8 @@ from office_management import router as office_management_router
 app.include_router(office_management_router)
 app.include_router(manuscript_arrangements.router)
 app.include_router(word_counts.router)
+from routers.document_word_counts import router as document_word_count_router
+app.include_router(document_word_count_router)
 app.include_router(business_mails.settings_router)
 app.include_router(business_mails.mail_router)
 app.include_router(mail_inline_images.router)

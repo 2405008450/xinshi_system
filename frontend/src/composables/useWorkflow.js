@@ -70,7 +70,7 @@ const stageProgressMap = {
       { key: 'customerDeadlineTime', label: '交稿客户时间', type: 'date' },
       { key: 'fileTypeSecondary', label: '文本类型' },
       { key: 'languagePair', label: '翻译方向' },
-      { key: 'wordCount', label: '字数统计' }
+      { key: 'wordCount', label: '工作量统计' }
     ],
     readonly: [
       { key: 'clientShortName', label: '客户简称' }

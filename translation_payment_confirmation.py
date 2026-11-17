@@ -97,13 +97,14 @@ def record_value(row):
 
 def project_totals(db,project_id):
     from translation_customer_finance import read as read_finance, payment_summary
+    from translation_document_requirements import GROUPED_SETTLEMENT_MODES
     import crud
     data=read_finance(db,project_id)
     node=data['item']
     items=[]
-    if node['payment_method']=='monthly' and node['client_id'] and node['billing_month']:
+    if node['payment_method'] in GROUPED_SETTLEMENT_MODES and node['client_id'] and node['billing_month']:
         project=crud.get_translation_project(db,project_id)
-        summary=payment_summary(db,project,'monthly')
+        summary=payment_summary(db,project,node['payment_method'])
         if summary['order_count']>1 and not summary['pending']:
             items.extend({'key':f'monthly:{currency}','label':'订单汇总总价','currency':currency,
                           'amount':format(amount,'.2f'),'taxMode':None}
@@ -139,9 +140,10 @@ def attach(db,projects):
 
 def payment_match_roots(db, project_id):
     from translation_customer_finance import read as read_finance, payment_summary, payment_match_order
+    from translation_document_requirements import GROUPED_SETTLEMENT_MODES
     root=read_finance(db,project_id)['item']
-    if root['payment_method']=='monthly':
-        summary=payment_summary(db,db.get(TranslationProject,project_id),'monthly',include_orders=True)
+    if root['payment_method'] in GROUPED_SETTLEMENT_MODES:
+        summary=payment_summary(db,db.get(TranslationProject,project_id),root['payment_method'],include_orders=True)
         if summary['order_count']>1:
             return summary['orders']
     return [payment_match_order(node) for node in root['children']]

@@ -117,6 +117,7 @@ LANGUAGE_SEARCH_SHORTCUTS = {
 
 LANGUAGE_PAIR_SPLIT_PATTERN = re.compile(r"[；;，,、\n]+")
 LANGUAGE_LABEL_FORBIDDEN_PATTERN = re.compile(r"[→；;,，、\r\n]")
+PROOFREADING_MARKER = "校对"
 
 LANGUAGE_ENGLISH_NAMES = {
     "zh-CN": "Chinese (Simplified)", "zh-TW": "Chinese (Traditional, Taiwan)",

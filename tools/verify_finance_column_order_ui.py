@@ -29,6 +29,7 @@ def run():
         headers=table.locator('.el-table__header-wrapper thead th')
         def keys():return headers.evaluate_all('(nodes)=>nodes.map(node=>node.dataset.columnOrderKey).filter(Boolean)')
         expect(table).to_contain_text('TP-TEST')
+        expect(table.locator('th[data-column-order-key="wordCount"]')).to_contain_text('工作量统计')
         page.wait_for_function('document.querySelector(".finance-project-table th[data-column-order-key]")')
         assert keys()[:2]==['orderNo','projectName'],keys()
         page.get_by_role('button',name='字段设置',exact=True).click()

@@ -91,7 +91,12 @@ def test_existing_chat_acknowledgement_is_idempotent(monkeypatch):
         def all(self):
             return [existing]
 
-    db = SimpleNamespace(query=lambda *_args: Query())
+    db = SimpleNamespace(query=lambda *_args: Query(), commit=lambda: None)
+    receipts = []
+    monkeypatch.setattr(
+        "chat_receipt_read.settle_received",
+        lambda _db, _message, user_id: receipts.append(user_id),
+    )
     broadcasts = []
     monkeypatch.setattr(
         project_chat_crud,
@@ -104,6 +109,7 @@ def test_existing_chat_acknowledgement_is_idempotent(monkeypatch):
     assert acknowledgement is existing
     assert rows == [existing]
     assert broadcasts == []
+    assert receipts == [user.id]
 
 
 def test_annotation_chat_request_accepts_images_but_not_rich_text():

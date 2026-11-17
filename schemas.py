@@ -211,6 +211,7 @@ def _validate_client_name(value, info):
 # Client Schemas
 class ClientContactPersonInput(BaseModel):
     name: str = Field(min_length=1, max_length=100)
+    job_title: Optional[str] = Field(default=None, max_length=100)
     contact_method: str = Field(default='', max_length=5000)
     description: str = Field(default='', max_length=5000)
 
@@ -838,7 +839,7 @@ class TranslationSubOrderChargeItemInput(BaseModel):
         self.amount_override = self.total_excl_tax
         if self.pricing_mode == 'metric':
             if self.metric_type not in WORD_COUNT_METRIC_TYPES:
-                raise ValueError('计量计价必须选择有效的客户字数口径')
+                raise ValueError('计量计价必须选择有效的客户工作量口径')
             if self.unit_size is None:
                 self.unit_size = Decimal('1') if self.metric_type in {'documents', 'pages'} else Decimal('1000')
         else:

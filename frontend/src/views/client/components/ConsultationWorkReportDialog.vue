@@ -1,7 +1,7 @@
 <template>
   <DraggableFormDialog :model-value="true" title="工作报告填写 - 新咨询对接" class="consultation-report-dialog" width="min(840px, calc(100vw - 32px))" top="5vh" append-to-body :close-on-click-modal="false" :close-on-press-escape="false" :before-close="preventClose">
     <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" title="工作报告填写 - 新咨询对接" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
-    <div ref="editorBody" v-loading="loading" data-screenshot-editor="own" @paste.capture="blockReportImages" @drop.capture="blockReportImages">
+    <div ref="editorBody" v-loading="loading">
       <el-alert v-if="error" :title="error" type="error" :closable="false" /><el-button v-if="error && !context" @click="load">重新加载</el-button>
       <template v-if="context">
         <el-descriptions :column="2" border size="small"><el-descriptions-item label="咨询编号">{{context.consultation_code}}</el-descriptions-item><el-descriptions-item label="客户名称">{{context.client_name}}</el-descriptions-item></el-descriptions>
@@ -27,7 +27,7 @@ import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import {useDialogFieldSearch} from '@/composables/useDialogFieldSearch'
 import {getConsultationReportContext,saveConsultationReport} from '@/api/consultations'
-import {blockReportImages,durationOptions,durationLabel,validQuantity} from '@/utils/workReportForm'
+import {durationOptions,durationLabel,validQuantity} from '@/utils/workReportForm'
 const props=defineProps({consultationId:{type:String,required:true}}),emit=defineEmits(['saved'])
 const formRef=ref(),editorBody=ref(),context=ref(),loading=ref(false),saving=ref(false),error=ref('')
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(editorBody)

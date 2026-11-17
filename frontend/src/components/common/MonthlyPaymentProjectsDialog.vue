@@ -1,7 +1,7 @@
 <template>
   <DraggableFormDialog
     :model-value="true"
-    :title="context.boardName ? `对账单项目 · ${context.boardName}` : isStatement ? '需对账单的项目' : settlementModeLabels.monthly"
+    :title="context.boardName ? `对账单项目 · ${context.boardName}` : isStatement ? '需对账单的项目' : settlementModeLabels[context.type]"
     width="min(840px, calc(100vw - 32px))"
     top="8vh"
     append-to-body
@@ -20,7 +20,7 @@
         <span v-else>{{filters.month}} · {{context.periodNumber ? `第${context.periodNumber}期` : '未分期'}}</span>
       </el-form-item>
     </AppForm>
-    <p v-if="!isStatement" class="monthly-payment-help">同一客户、同一账单月份且同一期的订单可合并结算。至少有两笔时，可在母订单价格窗口查看合并结算。</p>
+    <p v-if="!isStatement" class="monthly-payment-help">同一{{context.type==='sub_client'?'子':''}}客户、同一账单月份且同一期的订单一起结算。只有一笔时独立结算。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false">
       <el-button link @click="load">重新加载</el-button>
     </el-alert>
@@ -29,11 +29,11 @@
       <el-table-column prop="projectName" label="项目名称" min-width="190" show-overflow-tooltip />
       <el-table-column label="对账单" width="90">
         <template #default="{row}">
-          <CustomerStatementRequiredToggle v-if="isStatement" :row="row" :prepare="prepare" @saved="load" />
+          <CustomerStatementRequiredToggle v-if="isStatement && context.type!=='sub_client' && !context.subClientId" :row="row" :prepare="prepare" @saved="load" />
           <template v-else>{{ row.statementRequired ? '需' : '无需' }}</template>
         </template>
       </el-table-column>
-      <el-table-column v-if="!isStatement" :label="settlementModeLabels.monthly" min-width="160">
+      <el-table-column v-if="context.type==='monthly'" :label="settlementModeLabels.monthly" min-width="160">
         <template #default="{row}">
           <el-checkbox
             :model-value="translationSettlementMode(row) === 'monthly'"
@@ -83,6 +83,7 @@ async function load() {
   try {
     const result = await getCustomerFinancePage({
       client_ids: [props.context.clientId], billing_month: filters.month, statement_required:isStatement?true:undefined,
+      sub_client_id:props.context.subClientId,period_number:props.context.subClientId?props.context.periodNumber:undefined,
       settlement_project_id: isStatement ? undefined : props.context.projectId,
       skip: (page.value - 1) * pageSize, limit: pageSize,
     }, { signal: request.signal })

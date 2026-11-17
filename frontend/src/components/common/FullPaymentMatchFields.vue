@@ -8,7 +8,7 @@
     </div>
     <div class="full-payment-result-row">
     <p class="full-payment-result"><el-tag :type="status==='matched'?'success':status==='mismatch'?'danger':'info'">{{status==='matched'?'已匹配':status==='mismatch'?'不匹配':'待核对'}}</el-tag><span v-if="reference">{{fixedCharge?referenceFieldLabel:reference.label}}：{{reference.currency}} {{reference.amount}}</span><span v-else>项目暂无可匹配总价</span></p>
-    <el-form-item v-if="status==='mismatch'" ref="reasonField" class="full-payment-reason" label-position="left" data-screenshot-editor="own" label="不匹配原因" :prop="`${prefix}.mismatchReason`" :rules="[{required:true,whitespace:true,message:'请说明全款金额不匹配的原因',trigger:'blur'}]"><el-input :model-value="value.mismatchReason" type="textarea" :autosize="{minRows:1,maxRows:3}" maxlength="2000" show-word-limit aria-label="不匹配原因" @update:model-value="update('mismatchReason',$event)" /></el-form-item>
+    <el-form-item v-if="status==='mismatch'" ref="reasonField" class="full-payment-reason" label-position="left" label="不匹配原因" :prop="`${prefix}.mismatchReason`" :rules="[{required:true,whitespace:true,message:'请说明全款金额不匹配的原因',trigger:'blur'}]"><el-input :model-value="value.mismatchReason" type="textarea" :autosize="{minRows:1,maxRows:3}" maxlength="2000" show-word-limit aria-label="不匹配原因" @update:model-value="update('mismatchReason',$event)" /></el-form-item>
     </div>
     <p v-if="legacy" class="full-payment-hint">历史全款确认未登记金额，补充金额后可核对项目总价。</p>
     <p v-if="error" class="full-payment-error">{{error}} <el-button link @click="load">重新加载项目总价</el-button></p>

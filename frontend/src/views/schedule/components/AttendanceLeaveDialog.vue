@@ -2,7 +2,7 @@
   <DraggableFormDialog v-model="visible" title="请假" width="min(840px, calc(100vw - 32px))" top="5vh" class="attendance-leave-dialog" :before-close="beforeClose" :close-on-click-modal="false" destroy-on-close>
     <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" title="请假" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
     <div ref="body">
-      <AppForm data-screenshot-editor="own" ref="formRef" :model="form" :rules="rules" label-width="100px">
+      <AppForm ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item label="开始时间" prop="start_at"><el-date-picker v-model="form.start_at" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" format="YYYY年MM月DD日 HH:mm" placeholder="选择请假开始时间" :disabled="saving" /></el-form-item>
         <el-form-item label="结束时间" prop="end_at"><el-date-picker v-model="form.end_at" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" format="YYYY年MM月DD日 HH:mm" placeholder="选择请假结束时间" :disabled="saving" /></el-form-item>
         <el-form-item label="请假原因" prop="reason"><el-input v-model="form.reason" type="textarea" :rows="3" maxlength="500" show-word-limit :disabled="saving" /></el-form-item>

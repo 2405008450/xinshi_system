@@ -1,3 +1,4 @@
+import {totalAdjustmentDraft,totalAdjustmentPatchKeys} from '../src/utils/financeTableDraft.js'
 import {paymentDetailsForm,paymentDetailsPayload,paymentDetailsSignature} from '../src/utils/paymentDetails.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -18,7 +19,7 @@ for(const prices of [[{id:'price',languagePair:'中→英',amount:'0.2',unitSize
   test(`收费窗口可打开同步层返回的响应式订单（${prices.length?'已有单价':'未填单价'}）`,async()=>{
     const data=reactive({version:'v1',item:{id:'order',rootId:'order',orderNo:'TP-261025-003',languagePair:'中→英',prices,children:[],paymentConfirmation:{}},referencePrices:{items:[],version:'r1'}})
     const errors=[]
-    const context={paymentDetailsForm,paymentDetailsSignature,originalPaymentDetails:ref('[]'),structuredClone,copySavedValue,paymentConfirmationForm,taxPriceForm,newCustomerRate,ratePayload,
+    const context={totalAdjustmentDraft,totalAdjustmentPatchKeys,paymentDetailsForm,paymentDetailsSignature,originalPaymentDetails:ref('[]'),structuredClone,copySavedValue,paymentConfirmationForm,taxPriceForm,newCustomerRate,ratePayload,
       canWrite:true,tableEditing:{flush:async()=>true},guardEditor:async()=>true,editorSequence:0,sequence:0,disposed:false,
       timer:null,clearTimeout,controller:null,nextTick:async()=>{},clearFieldSearch:()=>{},referenceDefaults:()=>{throw new Error('不得自动采用客户参考价')},
       getCustomerFinanceProject:async()=>data,orderStatementMonth:()=> '2026-10',editorSignature:()=> 'signature',
@@ -44,7 +45,7 @@ test('放弃计价方式切换后，重开恢复已保存的计价方式、单�
     adjustedTotal:'125',explanation:'原内部说明',children:[],paymentConfirmation:{isPaid:true,paymentOption:'full',fullPaymentAmount:125}})
   const confirmationButtons=[]
   const errors=[]
-  const context={paymentDetailsForm,paymentDetailsPayload,paymentDetailsSignature,originalPaymentDetails:ref('[]'),
+  const context={totalAdjustmentDraft,totalAdjustmentPatchKeys,paymentDetailsForm,paymentDetailsPayload,paymentDetailsSignature,originalPaymentDetails:ref('[]'),
     copySavedValue,paymentConfirmationForm,taxPriceForm,newCustomerRate,ratePayload,requestPricingModeSwitch,
     canWrite:true,tableEditing:{flush:async()=>true},editorSequence:0,sequence:0,disposed:false,
     timer:null,clearTimeout,controller:null,nextTick:async()=>{},clearFieldSearch:()=>{},

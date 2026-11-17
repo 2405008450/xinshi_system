@@ -1,4 +1,4 @@
-"""多维字数统计接口 Schema。"""
+"""多维工作量统计接口 Schema。"""
 from __future__ import annotations
 
 from typing import Literal, Optional

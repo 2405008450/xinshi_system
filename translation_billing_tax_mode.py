@@ -96,13 +96,24 @@ def attach(node,stored,fallback='excl_tax',unified=None):
             chosen.add(child.get('effective_billing_tax_mode'))
             for currency,amount in child.get('billing_totals',{}).items():amounts[currency]=amounts.get(currency,Decimal(0))+Decimal(amount)
         mode=unified or (next(iter(chosen)) if len(chosen)==1 else 'mixed')
+        override = node.get('effective_total_adjustment') or {}
+        if mode not in ('excl_tax', 'incl_tax') and override:
+            mode = effective(node, fallback=fallback)
+        if mode in override:
+            amounts[override['currency']] = override[mode]
         node['billing_totals']={currency:str(amount) for currency,amount in amounts.items()}
         if unified:
-            node['billing_tax_pending'] = any(child.get('billing_tax_pending') for child in node['children'])
+            node['billing_tax_pending'] = any(
+                child.get('billing_tax_pending') and (mode not in override or
+                    bool(set(child.get('totals_'+mode, {})) - {override['currency']}))
+                for child in node['children']
+            )
     else:
         node['billing_totals']=node.get('totals_'+mode,{}) if mode else {}
         if unified and not node.get('fixed_pricing_from'):
-            override = node.get('adjusted_total' if unified == 'excl_tax' else 'adjusted_total_incl_tax')
+            override = (node.get('effective_total_adjustment') or {}).get(
+                unified, node.get('adjusted_total' if unified == 'excl_tax' else 'adjusted_total_incl_tax')
+            )
             missing_price = any(
                 (price.get('tax_prices') or {}).get('unit_price_'+unified) is None
                 and (price.get('tax_prices') or {}).get('total_'+unified) is None
@@ -112,4 +123,12 @@ def attach(node,stored,fallback='excl_tax',unified=None):
     if unified:
         node['unified_billing_tax_mode']=unified
         node['incomplete'] |= node.get('billing_tax_pending', False)
+    direct_adjustment = node.get('total_adjustment') or {}
+    legacy_amount = node.get('adjusted_total_incl_tax' if mode=='incl_tax' else 'adjusted_total')
+    manual = direct_adjustment.get(mode) if node.get('price_aggregate') or node.get('pricing_mode')=='fixed' else legacy_amount
+    if manual is not None and node['billing_totals']:
+        currency = direct_adjustment.get('currency') or node['currency']
+        priced_currencies = {price.get('currency') for price in node.get('prices', [])}
+        if priced_currencies <= {currency}:
+            node['incomplete'] = False
     node['effective_billing_tax_mode']=mode

@@ -1,7 +1,7 @@
 <template>
-  <TechnicalTaskReference v-if="row.display_metadata?.technical_task_id" :task-id="row.display_metadata.technical_task_id" :label="text" :kind="kind === 'project' ? 'details' : 'progress'" />
+  <TechnicalTaskReference v-if="row.display_metadata?.technical_task_id" :task-id="row.display_metadata.technical_task_id" :label="screenshotPreview(text)" :kind="kind === 'project' ? 'details' : 'progress'" />
   <el-popover :title="target?.sourceType==='technical'?'开发任务详情':kind==='task'?'任务详情':target?.sourceType==='consultation'?'咨询详情':'项目详情'" v-else ref="popover" v-model:visible="visible" trigger="click" placement="left" :width="760" :z-index="zIndex" :popper-options="popoverOptions" popper-class="report-item-detail-popover" @show="load" @hide="cancel">
-    <template #reference><el-button type="primary" link class="report-item-link" :aria-label="`${kind==='project'?'查看项目':'查看任务'}：${text}`" @click.stop="raise">{{text}}</el-button></template>
+    <template #reference><el-button type="primary" link class="report-item-link" :aria-label="`${kind==='project'?'查看项目':'查看任务'}：${screenshotPreview(text)}`" @click.stop="raise">{{screenshotPreview(text)}}</el-button></template>
     <div ref="panel" class="report-item-detail" v-loading="loading">
       <el-alert v-if="error" :title="error" type="warning" :closable="false"><el-button link @click="load">重新加载</el-button></el-alert>
       <template v-if="target?.sourceType==='technical'&&state.detail">
@@ -14,10 +14,10 @@
           <el-descriptions-item label="项目 / 任务">{{row.task_name||'-'}}</el-descriptions-item>
           <el-descriptions-item label="订单号"><ReportItemLink v-if="identity.orderNo" :row="row" kind="project" :text="identity.orderNo" /><span v-else>-</span></el-descriptions-item>
           <el-descriptions-item label="任务类型" :span="2">{{(row.display_metadata?.report_types||[row.task_type]).join('、')}}</el-descriptions-item>
-          <el-descriptions-item label="具体任务" :span="2">{{row.progress_content||'-'}}</el-descriptions-item>
+          <el-descriptions-item label="具体任务" :span="2"><ScreenshotText :text="row.progress_content || '-'" /></el-descriptions-item>
           <el-descriptions-item label="工作量">{{row.display_metadata?.quantity??'-'}} {{row.display_metadata?.quantity_unit_other||row.display_metadata?.quantity_unit||''}}</el-descriptions-item>
           <el-descriptions-item label="耗时">{{durationLabel(row.duration_minutes)}}</el-descriptions-item>
-          <el-descriptions-item label="工作成果" :span="2">{{row.result_content||'-'}}</el-descriptions-item>
+          <el-descriptions-item label="工作成果" :span="2"><ScreenshotText :text="row.result_content || '-'" /></el-descriptions-item>
         </el-descriptions>
       </template>
       <template v-else>
@@ -29,6 +29,8 @@
   <TranslationProjectWindow v-if="translationEditorId" :key="translationEditorId" embedded editor-only :editor-project-id="translationEditorId" :editor-z-index="translationEditorZIndex" @editor-closed="translationEditorId=''" />
 </template>
 <script setup>
+import { screenshotPreview } from '@/utils/screenshotReferences'
+import ScreenshotText from '@/components/common/ScreenshotText.vue'
 import {computed,defineAsyncComponent,nextTick,onBeforeUnmount,reactive,ref,watch} from 'vue'
 import {useRouter} from 'vue-router'
 import {reportProjectIdentity,exactReportProject} from '@/utils/workReportTarget'

@@ -15,6 +15,19 @@ def png():
     buf=BytesIO();PILImage.new('RGB',(32,32),'blue').save(buf,'PNG');return buf.getvalue()
 
 
+def test_project_chat_preserves_inline_rich_text_screenshots():
+    from project_chat_crud import normalize_rich_text_json, rich_text_to_plain
+    references = [service.signed_reference(uuid4()), service.signed_reference(uuid4())]
+    nodes = []
+    for text, reference in zip(('说明一', '说明二'), references):
+        nodes.append({'type': 'paragraph', 'content': [{'type': 'text', 'text': text}]})
+        nodes.append({'type': 'image', 'attrs': {'src': reference}})
+    document = normalize_rich_text_json({'type': 'doc', 'content': nodes}, chat_images=True)
+    plain = rich_text_to_plain(document)
+    assert plain.index('说明一') < plain.index(references[0]) < plain.index('说明二') < plain.index(references[1])
+    assert service.valid_references(plain) == {UUID(reference.split('://')[1].split('#')[0]) for reference in references}
+
+
 def test_owner_grants_expire_and_are_account_scoped(environment):
     db,(owner,member,other)=environment
     saved=service.save_image(db,owner.id,png(),'image/png');uid=UUID(saved['id'])

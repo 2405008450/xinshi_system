@@ -41,6 +41,8 @@ def build(db,client_id,month,order_ids,mode='children',*,special=False,group_dir
         for root_id, entries in pending_rows.items():
             if root := saved.payload.get('roots',{}).get(root_id):
                 restore_direction_metadata(root, entries)
+    result.pop('sub_client_name', None)
+    result.pop('sub_client_code', None)
     result['rows']=list(lines.values());result['pending']=list(dict.fromkeys(pending))
     sums={}
     for line in result['rows']:

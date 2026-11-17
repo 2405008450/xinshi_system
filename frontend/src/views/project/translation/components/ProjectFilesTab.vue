@@ -242,6 +242,7 @@ const props = defineProps({
   existingSubOrders: { type: Array, default: () => [] },
   selectedFiles: { type: Array, default: () => [] },
   draft: { type: Object, default: undefined },
+  manualSourceExtraction: Boolean,
   sourcePath: { type: String, default: undefined },
   projectId: {
     type: [String, Number],
@@ -377,6 +378,7 @@ async function fillSourceFileNameFromPath({ force = false, notifySuccess = true,
 }
 
 function handleSourcePathBlur() {
+  if (props.manualSourceExtraction) return
   void fillSourceFileNameFromPath({ notifySuccess: false }).catch(() => {})
 }
 

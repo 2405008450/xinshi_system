@@ -52,4 +52,7 @@ def accept(payload,months,target_board):
 
 
 def summaries(payload):
-    return [{'id':task['id'],'order_no':task['rows'][0]['order_no'],'project_name':task['rows'][0]['project_name'],'month':task['month'],'actor_name':task.get('pending_actor',''),'created_at':task.get('pending_at','')} for task in payload['tasks'].values() if pending(task)]
+    return [{'id':task['id'],'order_no':task['rows'][0]['order_no'],'project_name':task['rows'][0]['project_name'],
+             'sub_client_id':task['rows'][0].get('sub_client_id'),'month':task['month'],
+             'actor_name':task.get('pending_actor',''),'created_at':task.get('pending_at','')}
+            for task in payload['tasks'].values() if pending(task)]

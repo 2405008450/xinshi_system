@@ -1,33 +1,36 @@
 <template>
-  <span ref="root" class="screenshot-text" @click.capture="preparePreview">
-    <span v-if="showText" class="screenshot-plain">{{ plain }}</span>
-    <span class="screenshot-previews">
-      <span v-for="(id,index) in ids" :key="id" class="screenshot-preview">
+  <span ref="root" @click.capture="preparePreview" class="screenshot-text" :class="{ 'screenshot-text--with-images': ids.length }">
+    <template v-for="(part, position) in parts" :key="position">
+      <span v-if="!part.id && showText && (!ids.length || part.text.trim())" class="screenshot-plain">{{ ids.length ? part.text.replace(/^\n|\n$/g, '') : part.text }}</span>
+      <span v-else-if="part.id" class="screenshot-preview">
+        <template v-for="id in [part.id]" :key="id">
         <a v-if="files[id]?.extension" class="screenshot-document" :class="{'invoice-drag-handle':invoiceDrag}" :href="files[id].url"
-          :download="invoiceFilename(id,index)" :draggable="invoiceDrag" @click.stop @dragstart="dragInvoice($event,id,index)">{{invoiceDrag?'下载或拖动':'下载'}} {{ files[id].extension.toUpperCase() }} 发票</a>
-        <el-image v-else-if="files[id]" :src="files[id].url" :preview-src-list="imageUrls" :z-index="previewZIndex" preview-teleported fit="contain" @click.stop />
+          :download="invoiceFilename(id,ids.indexOf(id))" :draggable="invoiceDrag" @click.stop @dragstart="dragInvoice($event,id,ids.indexOf(id))">{{invoiceDrag?'下载或拖动':'下载'}} {{ files[id].extension.toUpperCase() }} 发票</a>
+        <el-image v-else-if="files[id]" :src="files[id].url" :preview-src-list="imageUrls" :z-index="previewZIndex" :initial-index="imageUrls.indexOf(files[id].url)" preview-teleported fit="contain" @click.stop />
         <span v-else>{{ errors[id] || '正在加载附件…' }}</span>
         <button v-if="removable" type="button" :aria-label="files[id]?.extension ? '移除发票附件' : '移除截图'" @click.stop="$emit('remove',id)">×</button>
         <template v-if="invoiceDrag && files[id]?.fileExtension">
-          <a v-if="!files[id].extension" class="invoice-drag-handle" :href="files[id].url" :download="invoiceFilename(id,index)" draggable="true"
-            @click.stop @dragstart="dragInvoice($event,id,index)">下载或拖动截图</a>
+          <a v-if="!files[id].extension" class="invoice-drag-handle" :href="files[id].url" :download="invoiceFilename(id,ids.indexOf(id))" draggable="true"
+            @click.stop @dragstart="dragInvoice($event,id,ids.indexOf(id))">下载或拖动截图</a>
           <template v-if="desktopDrag">
-            <el-button v-if="!files[id].nativeToken" link :loading="files[id].preparing" @click.stop="prepareInvoice(id,index)">准备拖出</el-button>
+            <el-button v-if="!files[id].nativeToken" link :loading="files[id].preparing" @click.stop="prepareInvoice(id,ids.indexOf(id))">准备拖出</el-button>
             <span v-else class="invoice-drag-handle" draggable="true" @dragstart="dragNativeInvoice($event,id)">拖到桌面、微信或企微</span>
           </template>
         </template>
+        </template>
       </span>
-    </span>
+    </template>
   </span>
 </template>
 <script setup>
 import { computed,onBeforeUnmount,ref,watch } from 'vue'
 import { useZIndex, ElMessage } from 'element-plus'
 import api from '@/api'
-import { invoiceDragType,screenshotIds,screenshotText } from '@/utils/screenshotReferences'
+import { invoiceDragType,screenshotIds,screenshotParts } from '@/utils/screenshotReferences'
 const props=defineProps({text:{type:String,default:''},showText:{type:Boolean,default:true},removable:Boolean,chatMessageId:[String,Number],chatKind:String,invoiceDrag:Boolean,invoiceOrderNo:String})
 defineEmits(['remove'])
-const ids=computed(()=>screenshotIds(props.text)),plain=computed(()=>screenshotText(props.text)),files=ref({}),errors=ref({})
+const parts = computed(() => screenshotParts(props.text))
+const ids=computed(()=>screenshotIds(props.text)),files=ref({}),errors=ref({})
 const imageUrls = computed(() => ids.value.filter(id => files.value[id] && !files.value[id].extension).map(id => files.value[id].url))
 const documentExtensions = {'application/pdf':'pdf','application/ofd':'ofd'}
 const root=ref(null),previewZIndex=ref(),{nextZIndex}=useZIndex()
@@ -95,7 +98,7 @@ function dragNativeInvoice(event, id) {
   window.xinshiDesktop.dragStatementFile(files.value[id].nativeToken)
 }
 let version=0
-watch(() => [props.text, props.chatMessageId], async () => {
+watch([() => ids.value.join(','), () => props.chatMessageId, () => props.chatKind], async () => {
   const current = ++version
   for (const [id, file] of Object.entries(files.value)) {
     if (ids.value.includes(id)) continue
@@ -133,4 +136,4 @@ onBeforeUnmount(() => {
 .invoice-drag-handle { cursor: grab; padding: 5px 8px; color: var(--el-color-primary); border: 1px solid var(--el-border-color); border-radius: 4px; }
 .invoice-drag-handle:active { cursor: grabbing; }
 </style>
-<style scoped>.screenshot-text{display:inline-flex;flex-direction:column;max-width:100%;white-space:normal;vertical-align:top}.screenshot-plain{white-space:pre-wrap;overflow-wrap:anywhere}.screenshot-previews{display:flex;flex-wrap:wrap;gap:8px;margin-top:5px}.screenshot-preview{position:relative;display:inline-flex;flex-direction:column;max-width:280px;min-width:80px;font-size:11px;color:#94a3b8}.screenshot-preview .el-image{max-width:280px;height:130px;border:1px solid #e2e8f0;border-radius:6px}.screenshot-preview button{position:absolute;right:0;top:0;width:22px;height:22px;border:1px solid #cbd5e1;background:white;border-radius:4px;cursor:pointer}</style>
+<style scoped>.screenshot-text--with-images{display:inline-flex;flex-direction:column;gap:6px;max-width:100%;white-space:normal;vertical-align:top}.screenshot-plain{white-space:pre-wrap;overflow-wrap:anywhere}.screenshot-preview{position:relative;display:inline-flex;flex-direction:column;max-width:280px;min-width:80px;font-size:11px;color:#94a3b8}.screenshot-preview .el-image{max-width:280px;height:130px;border:1px solid #e2e8f0;border-radius:6px}.screenshot-preview button{position:absolute;right:0;top:0;width:22px;height:22px;border:1px solid #cbd5e1;background:white;border-radius:4px;cursor:pointer}</style>

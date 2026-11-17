@@ -1,6 +1,6 @@
 <template>
   <section class="suborder-statistics-grid" data-auto-draft="off">
-    <div class="statistics-actions"><strong>统计填写</strong><span>可直接输入、Tab切换，或从Excel粘贴多行四列。各订单独立填报，不自动汇总；我司统计和客户统计可填写同一区域的多个字数项。清空当前区域后可切换。方向子订单请通过“调整字数”单独修改。</span><el-button :loading="saving" :disabled="!editable || !pendingCount" type="primary" @click="save">{{ local?'暂存统计':'保存统计' }}（{{ pendingCount }} 单）</el-button></div>
+    <div class="statistics-actions"><strong>工作量统计</strong><span>可直接输入、Tab切换，或从Excel粘贴多行四列。各订单独立填报，不自动汇总；我司统计和客户统计可填写同一区域的多个字数项。清空当前区域后可切换。方向子订单请通过“调整工作量统计”单独修改。</span><el-button :loading="saving" :disabled="!editable || !pendingCount" type="primary" @click="save">{{ local?'暂存工作量':'保存工作量' }}（{{ pendingCount }} 单）</el-button></div>
     <p v-if="failure" role="alert" class="statistics-error">{{ failure }}</p>
     <div class="statistics-scroll"><table ref="grid"><thead><tr>
       <th class="statistics-index">序号</th>
@@ -18,15 +18,15 @@
             {{ row.subProjectName }}
             <template v-if="directionCopy(row)">
               <small class="statistics-copy-hint" :class="{ 'statistics-copy-hint--modified': hasDirectionCountOverride(row) }">
-                {{ hasDirectionCountOverride(row) ? '统计已单独调整' : '字数跟随' + row.wordCountCopySourceLabel }}
+                {{ hasDirectionCountOverride(row) ? '统计已单独调整' : '工作量跟随' + row.wordCountCopySourceLabel }}
               </small>
               <WordCountMatrixPopover v-if="editable" local
-                :model-value="previewMatrices.get(row.id)" :title="row.subOrderNo + ' · 调整字数'"
+                :model-value="previewMatrices.get(row.id)" :title="row.subOrderNo + ' · 调整工作量统计'"
                 :draft-scope="row.subOrderNo + ':' + row.languagePair"
                 :pending-draft="directionDrafts[row.id] ?? null"
                 @update:pending-draft="directionDrafts[row.id] = $event"
                 @update:model-value="adjustDirectionCounts(row, $event)">
-                <template #reference><el-button link type="primary" :disabled="saving">调整字数</el-button></template>
+                <template #reference><el-button link type="primary" :disabled="saving">调整工作量统计</el-button></template>
               </WordCountMatrixPopover>
               <el-button v-if="editable && hasDirectionCountOverride(row)" link :disabled="saving"
                 @click="adjustDirectionCounts(row, directionSource(row))">恢复同步</el-button>
@@ -37,7 +37,7 @@
           <td v-for="(dim, c) in dimensions" :key="dim.key">
             <ReadonlyField v-if="directionCopy(row)" :model-value="value(row, dim.key)" source="auto"
               placeholder="未填写"
-              tooltip="可通过调整字数小窗单独修改"
+              tooltip="可通过调整工作量统计小窗单独修改"
               :aria-label="row.subOrderNo + ' ' + dim.label" :data-row="r" :data-col="c" />
             <input v-else :value="value(row, dim.key)" :readonly="!editable" :disabled="saving || regionLocked(row, dim.key)"
               :aria-label="row.subOrderNo + ' ' + dim.label" inputmode="decimal" :data-row="r" :data-col="c"

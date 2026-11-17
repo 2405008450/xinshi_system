@@ -26,6 +26,7 @@ import MergedStatementClientsDialog from './MergedStatementClientsDialog.vue'
 import {moveStatementCustomer} from '@/api/translationCustomerFinance'
 import {currentStatementMonth} from '@/utils/statementRequirementMonth'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
+import {connectInvoiceParties,invoicePartiesEvent} from '@/api/invoiceParties'
 const props=defineProps({settlementScope:String,billingMonth:String,managerQuery:{type:Object,default:()=>({})}})
 const emit=defineEmits(['managers','saved'])
 const special=computed(()=>props.settlementScope==='special')
@@ -39,7 +40,13 @@ watch(()=>visibleGroups.value.flatMap(required=>managerLists[String(required)]||
 function refresh(){for(const group of groups.values())group.refresh()}
 defineExpose({refresh})
 window.addEventListener('translation-statements-changed',refresh)
-onBeforeUnmount(()=>window.removeEventListener('translation-statements-changed',refresh))
+function refreshSubClient(event){if(event.detail?.kind==='sub-client-finance')refresh()}
+connectInvoiceParties()
+window.addEventListener(invoicePartiesEvent,refreshSubClient)
+onBeforeUnmount(()=>{
+  window.removeEventListener('translation-statements-changed',refresh)
+  window.removeEventListener(invoicePartiesEvent,refreshSubClient)
+})
 async function moveClient(client,required){
   if(!client||moving.value||client.statementRequired===required)return
   try{await ElMessageBox.confirm(`将“${client.shortName||client.name}”在 ${filters.month} 当前客户经理筛选范围内的 ${client.projectCount} 个项目设为“${required?'需':'无需'}对账单”？`,'调整客户单据需求',{confirmButtonText:'确认调整',cancelButtonText:'取消',type:'warning'})}catch{return}

@@ -1,6 +1,6 @@
 <template>
   <span class="statement-editable-cell" :data-dialog-field-search-label="label">
-    <textarea v-if="multiline" :value="modelValue??''" :aria-label="label" rows="2" maxlength="5000" @input="emit('update:modelValue',$event.target.value)" />
+    <el-input v-if="multiline" type="textarea" :model-value="modelValue??''" :aria-label="label" :rows="2" maxlength="5000" @update:model-value="emit('update:modelValue',$event)" />
     <input v-else :value="modelValue??''" :aria-label="label" :type="type" :maxlength="5000" @input="emit('update:modelValue',$event.target.value)" />
   </span>
 </template>

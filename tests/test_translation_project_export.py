@@ -137,7 +137,7 @@ def test_export_workbook_contains_complete_typed_project_and_sub_order_data():
     assert sub_row["我司统计-字数"] == 500
     assert sub_row["译员交付进度"] == 0.25
     assert charge_row["子订单号"] == "TP-260901-001.001"
-    assert charge_row["客户字数口径"] == "字数"
+    assert charge_row["客户工作量口径"] == "字数"
     assert charge_row["数量"] == 800
     assert charge_row["计算金额"] == 96
     assert charge_row["最终金额"] == 88
@@ -323,7 +323,7 @@ def test_reconciliation_keeps_order_counts_independent_of_billing(with_sub_order
     assert row["字数"] == 100
     assert row["计费数量"] == (105 if pricing_mode == "metric" else None)
     assert row["计价模式"] == {"metric": "按数量", "fixed": "固定收费"}.get(pricing_mode)
-    assert row["字数口径"] == ("页数" if pricing_mode == "metric" else None)
+    assert row["工作量口径"] == ("页数" if pricing_mode == "metric" else None)
     for dimension, label in export_service.WORD_COUNT_DIMENSIONS[:2]:
         for metric, metric_label in export_service.WORD_COUNT_METRICS:
             assert row[f"{label}-{metric_label}"] == detail.word_count_matrix[dimension][metric]

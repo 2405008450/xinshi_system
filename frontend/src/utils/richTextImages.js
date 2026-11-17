@@ -4,6 +4,7 @@ import { linkifyTextNode } from './richTextLinks.js'
 
 export const MAX_PASTE_IMAGE_BYTES = 20 * 1024 * 1024
 export const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp']
+export const richTextHasImages = node => node?.type === 'image' || Boolean(node?.content?.some(richTextHasImages))
 export const isContentImagePath = src => typeof src === 'string'
   && (/^\/api\/company-management\/sections\/[0-9a-f-]{36}\/images\/[0-9a-f-]{36}$/.test(src)||/^screenshot:\/\/[0-9a-f-]{36}(?:#[0-9a-f]{64})?$/.test(src))
 

@@ -35,12 +35,20 @@ ALLOWED_RICH_TEXT_NODES = {
 ALLOWED_RICH_TEXT_MARKS = {'bold', 'italic', 'strike', 'code'}
 
 
-def normalize_rich_text_json(value: Optional[dict]) -> Optional[dict]:
+def normalize_rich_text_json(value: Optional[dict], *, chat_images=False) -> Optional[dict]:
     """只保留留言板支持的结构化节点，避免把任意 HTML 或危险属性写入数据库。"""
     if not isinstance(value, dict):
         return None
 
     def clean_node(node):
+        if chat_images and isinstance(node, dict) and node.get('type') == 'image':
+            from editor_screenshot_service import signed_reference, valid_references
+            attrs = node.get('attrs')
+            src = str(attrs.get('src') or '') if isinstance(attrs, dict) else ''
+            ids = valid_references(src)
+            if len(ids) != 1 or src != signed_reference(next(iter(ids))):
+                return None
+            return {'type': 'image', 'attrs': {'src': src, 'alt': '截图'}}
         if not isinstance(node, dict) or node.get('type') not in ALLOWED_RICH_TEXT_NODES:
             return None
         node_type = node['type']
@@ -77,6 +85,8 @@ def rich_text_to_plain(value: Optional[dict]) -> str:
             return
         if node.get('type') == 'text':
             parts.append(str(node.get('text') or ''))
+        elif node.get('type') == 'image' and node.get('attrs', {}).get('src'):
+            parts.append(f"\n![截图]({node['attrs']['src']})\n")
         elif node.get('type') in {'paragraph', 'heading', 'listItem', 'blockquote', 'codeBlock'} and parts:
             parts.append('\n')
         for child in node.get('content') or []:
@@ -887,12 +897,14 @@ def create_project_chat_message(
         mentioned_user_ids = resolve_mentions(db, 'translation', project_id, sender,
             [*(mentioned_user_ids or []), *([mentioned_user_id] if mentioned_user_id else [])], mention_all)
         mentioned_user_id = None
-    normalized_json = normalize_rich_text_json(content_json)
+    normalized_json = normalize_rich_text_json(content_json, chat_images=True)
     if normalized_json and len(json.dumps(normalized_json, ensure_ascii=False)) > 100000:
         raise ValueError('消息内容过长')
     plain_content = (content or '').strip()
     if normalized_json:
-        plain_content = (rich_text_to_plain(normalized_json) or plain_content)[:10000]
+        plain_content = rich_text_to_plain(normalized_json) or plain_content
+        if len(plain_content) > 10000:
+            raise ValueError('消息内容过长')
     attachment_ids = list(dict.fromkeys(attachment_ids or []))
     if not plain_content and not attachment_ids:
         raise ValueError('消息内容和附件不能同时为空')

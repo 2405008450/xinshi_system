@@ -57,9 +57,9 @@
           </el-collapse-item>
         </el-collapse>
       </template>
-      <section v-for="group in customerGroups" :key="group.client_id" class="invoice-customer-group">
+      <section v-for="group in customerGroups" :key="group.group_id || group.client_id" class="invoice-customer-group">
         <header class="invoice-customer-heading">
-          <h3>{{ group.customer.client_name }}</h3>
+          <h3>{{ [group.customer.client_name,group.customer.sub_client_name,group.customer.sub_client_code].filter(Boolean).join(' · ') }}</h3>
           <span>本次开票金额 <strong>{{ amountText(group.totals) }}</strong></span>
         </header>
         <el-collapse>
@@ -93,7 +93,7 @@
             <template #default="{row}">{{subjectNames[row.invoice_selection?.subject_key]||'主体未设置'}} · {{invoiceTypeLabels[row.invoice_selection?.invoice_type]||'电子普票'}}</template>
           </el-table-column>
           <el-table-column label="项目含税金额" min-width="145">
-            <template #default="{row}">{{ amountText(row.totals) }}</template>
+            <template #default="{row}">{{ amountText(row.totals) }}<OrderPriceDetails :order="row.price_details" side="incl" /></template>
           </el-table-column>
           <el-table-column v-if="request&&!combinedGroup(group)" label="操作" min-width="190">
             <template #default="{row}">

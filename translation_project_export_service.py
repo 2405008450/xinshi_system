@@ -273,7 +273,7 @@ CHARGE_COLUMNS = [
     ExportColumn("收费项目", lambda item: _read(item[2], "item_name"), width=18),
     ExportColumn("计价模式", lambda item: "按数量" if _read(item[2], "pricing_mode") == "metric" else "固定收费", width=14),
     ExportColumn(
-        "客户字数口径",
+        "客户工作量口径",
         lambda item: WORD_COUNT_METRIC_LABELS.get(
             _read(item[2], "metric_type"), _read(item[2], "metric_type")
         ),
@@ -384,7 +384,7 @@ RECONCILIATION_COLUMNS = [
     ExportColumn("账单月份", lambda item: _charge_value(item, "billing_month"), width=14),
     ExportColumn("备注", lambda item: _charge_value(item, "remarks"), width=36),
     ExportColumn("收费项目", lambda item: _charge_value(item, "item_name"), width=18),
-    ExportColumn("字数口径", _charge_metric_label, width=24),
+    ExportColumn("工作量口径", _charge_metric_label, width=24),
     ExportColumn("每计价单位", lambda item: _charge_value(item, "unit_size"), "decimal", 16),
     ExportColumn("币种", lambda item: _charge_value(item, "currency"), width=10),
     ExportColumn("计费数量", lambda item: _charge_value(item, "quantity"), "integer", 16),

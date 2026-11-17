@@ -41,7 +41,9 @@ class DraftWrite(BaseModel):
         try:encoded=json.dumps(self.payload,ensure_ascii=False,allow_nan=False)
         except (ValueError,TypeError):raise ValueError('草稿须为有效的JSON内容')
         if len(encoded.encode('utf-8'))>256*1024:raise ValueError('单份草稿不能超过256KB')
-        if self.namespace=='work-report' and any(value in encoded.lower() for value in ['screenshot://','data:image/','<img']):raise ValueError('工作报告禁止截图')
+        if self.namespace == 'work-report':
+            from editor_screenshot_service import validate_ordered_screenshots
+            validate_ordered_screenshots(encoded)
         return self
 
 

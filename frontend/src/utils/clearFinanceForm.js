@@ -3,6 +3,7 @@ import {clearPaymentSelection} from './paymentConfirmation.js'
 export function clearFinanceForm(order,createRate){
   return {...order,
     clearedAll:true,
+    totalAdjustmentExcl:null,totalAdjustmentIncl:null,discountExcl:null,discountIncl:null,
     ...(order.priceAggregate?{}:{pricingMode:order.pricingMode||'metric',currency:'CNY',prices:[],adjustedTotal:undefined,adjustedTotalInclTax:undefined,billingTaxMode:null,effectiveBillingTaxMode:null,totalsExclTax:{},totalsInclTax:{},billingTotals:{}}),
     explanation:'',customerExplanation:'',quotationRequired:false,statementRequired:false,statementRequiredDirty:true,statementSync:null,statementCustomerSync:null,syncCustomerDocuments:[],
     documentNotes:{quotation:'',statement:'',invoice:''},documentNotesDirty:true,
@@ -12,5 +13,5 @@ export function clearFinanceForm(order,createRate){
 }
 export function isClearedFinanceForm(order){
   const filled=value=>value!=null&&value!==''
-  return !!order.clearedAll&&!(order.prices||[]).some(row=>filled(row.taxPrices?.unitPriceExclTax)||filled(row.taxPrices?.unitPriceInclTax)||filled(row.amount))&&!filled(order.adjustedTotal)&&!filled(order.adjustedTotalInclTax)
+  return !!order.clearedAll&&!(order.prices||[]).some(row=>filled(row.taxPrices?.unitPriceExclTax)||filled(row.taxPrices?.unitPriceInclTax)||filled(row.amount))&&![order.adjustedTotal,order.adjustedTotalInclTax,order.totalAdjustmentExcl,order.totalAdjustmentIncl,order.discountExcl,order.discountIncl].some(filled)
 }

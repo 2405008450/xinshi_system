@@ -200,6 +200,8 @@ def read_client_page(
     frequent_first: bool = Query(False),
     field_filters: Optional[str] = Query(None),
     include_project_managers: bool = False,
+    has_sub_clients: bool = False,
+    sub_client_query: Optional[str] = Query(None, max_length=200),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -213,6 +215,8 @@ def read_client_page(
         cooperation_start_date_from=cooperation_start_date_from,
         cooperation_start_date_to=cooperation_start_date_to,
         field_filters=_field_filters(field_filters),
+        has_sub_clients=has_sub_clients,
+        sub_client_query=sub_client_query,
     )
     items = get_clients(
         db, skip=skip, limit=limit, frequent_first=frequent_first, **filters,

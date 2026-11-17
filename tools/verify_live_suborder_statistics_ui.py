@@ -35,7 +35,7 @@ with sync_playwright() as p:
   page.get_by_role('combobox',name='我司统计统计口径',exact=True).select_option('words');expect(cell(0,0)).to_have_value('15');expect(cell(5,0)).to_have_value('500')
   assert not requests,requests
   assert page.evaluate('JSON.stringify(sourceRows)===originalRows')
-  page.get_by_role('button',name=re.compile('暂存统计' if local else '保存统计')).click();page.wait_for_timeout(500)
+  page.get_by_role('button',name=re.compile('暂存工作量' if local else '保存工作量')).click();page.wait_for_timeout(500)
   if local:assert not requests
   else:
    assert len(requests)==3,requests

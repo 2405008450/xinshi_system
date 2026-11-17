@@ -1,4 +1,4 @@
-"""笔译项目中的本地文件字数统计，不写项目或计费数据。"""
+"""笔译项目中的本地文件工作量统计，不写项目或计费数据。"""
 from pathlib import Path
 import shutil
 import tempfile
@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from routers.auth import get_current_user, require_any_permission
 import document_word_count_jobs as jobs
 from document_word_count_worker import EXTENSIONS
+from translation_file_name_rules import normalize_single_file_name
 
 router=APIRouter(prefix='/document-word-count',tags=['document_word_count'],dependencies=[Depends(require_any_permission('projects:read','projects:write'))])
 
@@ -16,6 +17,28 @@ class PathSelection(BaseModel):
     relative_paths: list[str] = Field(default_factory=list,max_length=50)
     include_hidden: bool = False
     include_extra: bool = False
+
+class SinglePathSelection(BaseModel):
+    path: str = Field(min_length=1, max_length=2048)
+
+
+@router.post('/single-path', dependencies=[Depends(require_any_permission('project_files:write'))])
+def submit_single_path(payload: SinglePathSelection, user=Depends(get_current_user)):
+    try:
+        file = jobs.single_source_file(payload.path)
+        name = normalize_single_file_name(file.name)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    if file.suffix.lower() not in EXTENSIONS:
+        return {'name': name, 'message': '该格式暂不支持自动统计'}
+    try:
+        if file.stat().st_size > jobs.MAX_BYTES:
+            return {'name': name, 'message': '单文件超过 50 MB'}
+        return {'name': name, 'job_id': jobs.submit(user.id, [(file.name, file)])}
+    except (ValueError, OSError) as exc:
+        return {'name': name, 'message': str(exc) if isinstance(exc, ValueError) else '无法读取文件正文'}
+
 
 @router.post('/discover')
 def discover(payload:PathSelection):

@@ -23,10 +23,14 @@ class ConsultationReportWrite(BaseModel):
     @model_validator(mode='after')
     def valid(self):
         import math
-        for field in ['order_no','task_name','progress_content','quantity_unit']:
+        from editor_screenshot_service import validate_ordered_screenshots
+        for field in ['order_no','task_name','quantity_unit']:
             value=getattr(self,field).strip()
-            if not value or any(token in value.lower() for token in ['screenshot://','data:image/','<img']):raise ValueError('请完整填写文字字段，不支持截图')
+            if not value or any(token in value.lower() for token in ['screenshot://','data:image/','<img']):raise ValueError('请完整填写文字字段')
             setattr(self,field,value)
+        self.progress_content = validate_ordered_screenshots(self.progress_content.strip())
+        if not self.progress_content:
+            raise ValueError('请填写具体任务进度')
         try:number=float(self.quantity)
         except (ValueError,TypeError):raise ValueError('请填写非负数字工作量')
         if isinstance(self.quantity,bool) or not math.isfinite(number) or number<0:raise ValueError('请填写非负数字工作量')

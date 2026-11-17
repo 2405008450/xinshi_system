@@ -3,10 +3,10 @@
     <template v-if="editable">
       <el-select v-if="type === 'select'" v-model="draft" :aria-label="label" :clearable="clearable" filterable @change="save"><el-option v-for="option in availableOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select>
       <el-date-picker v-else-if="type === 'date'" v-model="draft" type="date" value-format="YYYY-MM-DD" :aria-label="label" clearable @change="save" />
-      <ScreenshotInput v-else-if="type === 'attachments'" v-model="draft" type="textarea" :rows="2" :maxlength="30000" :aria-label="label" @blur="save" @change="save" @uploading-change="uploadState" />
+      <ScreenshotInput v-else-if="type !== 'text'" v-model="draft" type="textarea" :autosize="{ minRows: 2, maxRows: 6 }" :maxlength="30000" :aria-label="label" @blur="save" @change="save" @uploading-change="uploadState" @keyup.ctrl.enter="save" @keyup.esc="reset" />
       <PlainInput v-else v-model="draft" :type="type === 'text' ? 'text' : 'textarea'" :autosize="{ minRows: 2, maxRows: 6 }" :maxlength="type === 'text' ? 300 : 30000" :aria-label="label" @blur="save" @keyup.ctrl.enter="save" @keyup.esc="reset" />
     </template>
-    <ScreenshotText v-else-if="type === 'attachments'" :text="modelValue || '-'" />
+    <ScreenshotText v-else-if="type === 'attachments' || screenshotIds(modelValue).length" :text="String(modelValue || '-')" />
     <div v-else class="feedback-cell-readonly">{{ displayValue || '-' }}</div>
     <a v-for="url in links" :key="url" :href="url" target="_blank" rel="noopener noreferrer" class="attachment-link">{{ url }}</a>
     <small v-if="saving">保存中…</small>
@@ -17,6 +17,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { ElInput as PlainInput } from 'element-plus'
 import ScreenshotInput from '@/components/common/ScreenshotInput.vue'
+import { screenshotIds } from '@/utils/screenshotReferences'
 import ScreenshotText from '@/components/common/ScreenshotText.vue'
 const props = defineProps({ modelValue: [String, Number], label: String, type: { type: String, default: 'textarea' }, editable: Boolean, clearable: Boolean, options: { type: Array, default: () => [] }, currentLabel: String, saveValue: { type: Function, required: true } })
 const draft = ref(props.modelValue ?? ''), base = ref(props.modelValue ?? ''), saving = ref(false), uploading = ref(false), error = ref('')

@@ -1,3 +1,4 @@
+import {totalAdjustmentDraft,totalAdjustmentPatchKeys} from '../src/utils/financeTableDraft.js'
 import {paymentDetailsForm,paymentDetailsPayload,paymentDetailsSignature} from '../src/utils/paymentDetails.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -16,7 +17,7 @@ test('固定收费清空后，打开关联付款但不操作，返回可保存�
   const editor=ref(clearFinanceForm({id:'root',rootId:'root',pricingMode:'fixed',adjustedTotal:330,paymentConfirmation:{revision:5,isPaid:false}}))
   assert.equal(editor.value.pricingMode,'fixed');assert.equal(validate(editor.value),undefined)
   const calls=[],errors=[]
-  const ctx={computed,paymentDetailsDirty:ref(false),paymentDetailsForm,paymentDetailsSignature,paymentDetailsPayload,originalPaymentDetails:ref('[]'),editor,isClearedFinanceForm,hasFixedFeeAmount,paymentConfirmationForm,paymentConfirmationPayload,
+  const ctx={totalAdjustmentDraft,totalAdjustmentPatchKeys,computed,paymentDetailsDirty:ref(false),paymentDetailsForm,paymentDetailsSignature,paymentDetailsPayload,originalPaymentDetails:ref('[]'),editor,isClearedFinanceForm,hasFixedFeeAmount,paymentConfirmationForm,paymentConfirmationPayload,
     linkedPaymentVisible:ref(false),saving:ref(false),canWrite:true,formRef:ref({validate:async()=>!validate(editor.value)}),localTarget:ref(null),
     documentPayload:()=>({}),treeVersion:'v1',libraryVersion:'r1',billingTaxChoices:()=>[],effectiveBillingTaxMode:()=>null,paymentConfirmationDirty:ref(true),
     updateLibrary:ref(false),saveError:ref(''),updateProjectFormFinance:async()=>{},applyDocumentDraft:()=>{},syncSavedFinanceRows:()=>{},

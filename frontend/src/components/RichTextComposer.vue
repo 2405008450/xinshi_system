@@ -33,7 +33,7 @@
       <el-button size="small" @click="editor.chain().focus().undo().run()">撤销</el-button>
       <el-button size="small" @click="editor.chain().focus().redo().run()">重做</el-button>
       <label v-if="imageApi" class="rich-editor__upload">插入截图<input type="file" accept="image/png,image/jpeg,image/webp" multiple :disabled="imageUploading||disabled" @change="chooseImages" /></label>
-      <span v-if="imageApi" class="rich-editor__color-label" role="status">{{ imageUploading ? '图片上传中，请稍候…' : props.imageApi?'支持粘贴截图及图片（PNG、JPEG、WebP，单张最多20MB）':'支持粘贴截图，长期保存（单张最多10MB）' }}</span>
+      <span v-if="imageApi" class="rich-editor__color-label" role="status">{{ imageUploading ? '图片上传中，请稍候…' : chatScreenshots ? '聊天截图保留30天' : props.imageApi?'支持粘贴截图及图片（PNG、JPEG、WebP，单张最多20MB）':'支持粘贴截图，长期保存（单张最多10MB）' }}</span>
     </fieldset>
     <EditorContent :editor="editor" class="rich-editor__content" />
   </div>
@@ -50,7 +50,7 @@ import { handleWebLinkClick, linkifyDocument, noticeLinkOptions } from '@/utils/
 import { clipboardImageTokens, createAuthenticatedImage, imageFileKey, imagePasteSlice, pasteImageFile } from '@/utils/richTextImages'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import '@/styles/rich-text-images.css'
-import { screenshotImageApi } from '@/utils/screenshotImageApi'
+import { chatScreenshotImageApi, screenshotImageApi } from '@/utils/screenshotImageApi'
 import { registerScreenshotUpload } from '@/utils/screenshotUploads'
 
 const props = defineProps({
@@ -61,6 +61,7 @@ const props = defineProps({
   enableLinks: Boolean,
   imageApi: { type: Object, default: null },
   externalImages: Boolean,
+  chatScreenshots: Boolean,
   imageSectionId: { type: String, default: '' },
   disabled: Boolean,
   minHeight: { type: String, default: '132px' }
@@ -73,7 +74,7 @@ const minHeight = computed(() => props.minHeight)
 const selectedColor = ref('#1f2937')
 const predefinedColors = ['#1f2937', '#475569', '#2563eb', '#0f766e', '#b45309', '#b91c1c', '#7e22ce']
 const imageUploading = ref(false)
-const root=ref(),imageApi=computed(()=>props.externalImages?null:props.imageApi||screenshotImageApi)
+const root=ref(),imageApi=computed(()=>props.externalImages?null:props.imageApi||(props.chatScreenshots ? chatScreenshotImageApi : screenshotImageApi))
 let finishUpload
 const uploadedImages = new Map()
 let pasteController
@@ -164,7 +165,10 @@ function handleImagePaste(view, event) {
   })()
   return true
 }
-function chooseImages(event){const files=Array.from(event.target.files||[]);event.target.value='';if(files.length)handleImagePaste(editor.value.view,{clipboardData:{files,getData:()=>''},preventDefault(){}})}
+function addScreenshots(files) {
+  if (files.length && editor.value) handleImagePaste(editor.value.view, { clipboardData: { files, getData: () => '' }, preventDefault() {} })
+}
+function chooseImages(event){const files=Array.from(event.target.files||[]);event.target.value='';addScreenshots(files)}
 
 const editor = useEditor({
   content: (props.enableLinks ? linkifyDocument(props.modelValue) : props.modelValue) || emptyDocument(),
@@ -191,7 +195,10 @@ const editor = useEditor({
   },
   onUpdate: ({ editor: currentEditor }) => {
     emit('update:modelValue', currentEditor.getJSON())
-    emit('update:plainText', currentEditor.getText({ blockSeparator: '\n' }).trim())
+    emit('update:plainText', currentEditor.getText({
+      blockSeparator: '\n',
+      ...(props.chatScreenshots ? { textSerializers: { image: ({ node }) => `![截图](${node.attrs.src})` } } : {}),
+    }).trim())
   },
   onSelectionUpdate: ({ editor: currentEditor }) => {
     selectedColor.value = currentEditor.getAttributes('textColor').color || '#1f2937'
@@ -219,6 +226,7 @@ watch(
 )
 
 defineExpose({
+  addScreenshots,
   cleanupDraftImages,
   markImagesSaved,
   clear: () => editor.value?.commands.setContent(emptyDocument(), false),

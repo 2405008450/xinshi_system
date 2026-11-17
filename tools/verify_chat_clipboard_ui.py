@@ -69,7 +69,7 @@ def verify(page, workspace, contexts, errors, requests, output, me, other, annot
         assert len(screenshots)==image_before+1 and len(uploaded)==file_before+1
         clean()
         composer.get_by_role('button',name='移除',exact=True).click()
-        composer.get_by_role('button',name='移除截图',exact=True).click()
+        composer.get_by_role('button',name='移除图片',exact=True).click()
         # 原生Ctrl+V仍可以粘贴纯文本。
         contexts[0].grant_permissions(['clipboard-read','clipboard-write'])
         page.evaluate("navigator.clipboard.writeText('纯文本粘贴正常')")

@@ -1,8 +1,14 @@
 const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('xinshiDesktop', Object.freeze({
-  chooseTranslationFolder:()=>{
-    if(!document.hasFocus()||!navigator.userActivation.isActive)return Promise.reject(Error('请点击选择本地文件夹'))
-    return ipcRenderer.invoke('xinshi:choose-translation-folder')
+  chooseTranslationFolder: kind => {
+    if(!document.hasFocus()||!navigator.userActivation.isActive)return Promise.reject(Error('请点击选择文件夹'))
+    return ipcRenderer.invoke('xinshi:choose-translation-folder', kind)
+  },
+  translationFolderFileSize: (id, relative) => ipcRenderer.invoke('xinshi:translation-folder-file', id, relative, false),
+  readTranslationFolderFile: (id, relative) => ipcRenderer.invoke('xinshi:translation-folder-file', id, relative, true),
+  inspectSingleTranslationSource: path => {
+    if(!document.hasFocus()||!navigator.userActivation.isActive)return Promise.reject(Error('请点击提取文件名与工作量'))
+    return ipcRenderer.invoke('xinshi:single-translation-source', path)
   },
   prepareStatementFile: data => {
     if(!document.hasFocus()||!navigator.userActivation.isActive)return Promise.reject(Error('请点击准备对账单文件'))

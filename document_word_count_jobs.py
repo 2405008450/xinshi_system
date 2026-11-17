@@ -15,6 +15,7 @@ from path_security import validate_managed_path
 MAX_FILES = 50
 MAX_BYTES = 50*1024*1024
 MAX_TOTAL = 200*1024*1024
+SINGLE_SOURCE_MESSAGE = '本选项卡只提取一级文件夹里的一个文件。目录有多个文件或包含子文件夹时，请到「新增母子订单」选项卡处理。'
 _pool = ThreadPoolExecutor(max_workers=2,thread_name_prefix='file-word-count')
 _lock = threading.Lock()
 _jobs = {}
@@ -34,6 +35,37 @@ def validate_components(path, root):
         if current == root:break
         if current == current.parent:raise ValueError('文件超出共享目录')
         current = current.parent
+
+def single_source_file(value):
+    """Read only the selected file or the immediate contents of a shared directory."""
+    from project_file_service import _should_ignore_source_file
+
+    root = managed_root(value)
+    validate_components(root, Path(root.anchor))
+    if root.is_file():
+        return root
+    if not root.is_dir():
+        raise ValueError('原文路径不存在或当前服务无权访问')
+
+    file = None
+    with os.scandir(root) as entries:
+        for entry in entries:
+            if entry.is_dir(follow_symlinks=False):
+                raise ValueError(SINGLE_SOURCE_MESSAGE)
+            if _should_ignore_source_file(entry.name):
+                continue
+            if entry.is_symlink():
+                raise ValueError(SINGLE_SOURCE_MESSAGE)
+            if not entry.is_file(follow_symlinks=False):
+                continue
+            candidate = root / entry.name
+            validate_components(candidate, root)
+            if file is not None:
+                raise ValueError(SINGLE_SOURCE_MESSAGE)
+            file = candidate
+    if file is None:
+        raise ValueError('原文路径中没有可读取的文件')
+    return file
 
 def discover(value, recursive=True):
     root = managed_root(value)
@@ -97,7 +129,7 @@ def submit(owner, files, include_hidden=False, include_extra=False, temporary=No
 def _execute(identity, files, hidden, extra, temporary):
     with _lock:_jobs[identity]['status']='running'
     try:
-        for name,path in files:
+        for file_index, (name, path) in enumerate(files):
             try:
                 process=subprocess.run([sys.executable,str(Path(__file__).with_name('document_word_count_worker.py')),str(path),'1' if hidden else '0','1' if extra else '0'],
                     capture_output=True,timeout=300,env={**os.environ,'PYTHONIOENCODING':'utf-8'},creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
@@ -106,6 +138,7 @@ def _execute(identity, files, hidden, extra, temporary):
             except subprocess.TimeoutExpired:row=dict(status='failed',words=None,message='文件统计超过 300 秒，请拆分或转换后重试')
             except Exception as exc:row=dict(status='failed',words=None,message=str(exc))
             row['name']=name
+            row['file_index']=file_index
             with _lock:
                 _jobs[identity]['files'].append(row);_jobs[identity]['completed']+=1
         with _lock:_jobs[identity]['status']='completed'

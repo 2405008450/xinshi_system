@@ -55,6 +55,7 @@
           </el-select>
         </el-form-item>
         <el-form-item>
+          <el-button @click="subClientQueryVisible = true">子客户查询</el-button>
           <el-button type="primary" @click="handleSearch">查询</el-button>
           <el-button @click="resetSearch">重置</el-button>
           <AdvancedFilterPopover
@@ -184,7 +185,7 @@
                   <span class="detail-value">{{ getDetailRow(row).english_short_name || '-' }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="客户联系人">
-                  <span class="detail-value">{{ getDetailRow(row).client_manager || '-' }}</span>
+                  <span class="detail-value">{{ contactNamesWithTitles(getDetailRow(row)) }}</span>
                 </el-descriptions-item>
                 <el-descriptions-item label="联系方式">
                   <span class="detail-value">{{ getDetailRow(row).manager_contact || '-' }}</span>
@@ -276,6 +277,8 @@
 
     </div>
   </el-card>
+  <SubClientQueryDialog v-if="subClientQueryVisible" :key="subClientQueryKeyword"
+    :initial-keyword="subClientQueryKeyword" @close="closeSubClientQuery" />
   <FinanceWorkflowHelp v-if="helpVisible" v-model="helpVisible" title="客户管理帮助"
     :help-sections="customerManagementHelpSections" search-placeholder="搜索客户管理帮助，例如：简称 编辑、开票" />
   <DraggableFormDialog
@@ -394,7 +397,7 @@
             <el-table-column prop="client_name" label="客户全称" />
             <el-table-column prop="client_short_name" label="客户简称" min-width="150" show-overflow-tooltip />
             <el-table-column prop="customer_type" label="客户类型" min-width="120" />
-            <el-table-column label="客户联系人" min-width="150"><template #default="{row}">{{ (row.contact_names?.length?row.contact_names:[row.client_manager]).filter(Boolean).join('、')||'-' }}</template></el-table-column>
+            <el-table-column label="客户联系人" min-width="150"><template #default="{row}">{{ contactNamesWithTitles(row) }}</template></el-table-column>
             <el-table-column label="联系方式" min-width="180"><template #default="{row}"><div v-for="(person,index) in peopleFor(row)" :key="index" class="contact-method-text">{{person.name}}：{{person.contact_method||'-'}}</div></template></el-table-column>
             <el-table-column label="说明" min-width="180"><template #default="{row}"><div v-for="(person,index) in peopleFor(row)" :key="index">{{person.description?`${person.name}：${person.description}`:''}}</div></template></el-table-column>
             <el-table-column label="详情" width="100" fixed="right"><template #default="{row}"><el-popover trigger="click" placement="left" :width="760" title="子客户详情"><template #reference><el-button link type="primary">查看详情</el-button></template><div style="max-height:560px;overflow-y:auto;overflow-wrap:anywhere"><el-descriptions :column="2" border size="small"><el-descriptions-item v-for="field in subDetailFields" :key="field.key" :label="field.label">{{subDetailValue(row,field.key)}}</el-descriptions-item><el-descriptions-item v-for="(person,index) in peopleFor(row)" :key="`person-${index}`" :label="`联系人${index+1}`">{{person.name}}　联系方式：{{person.contact_method||'-'}}　说明：{{person.description||'-'}}</el-descriptions-item></el-descriptions></div></el-popover></template></el-table-column>
@@ -488,6 +491,7 @@
           </el-row><el-form-item label="备注"><el-input v-model="subForm.remarks" type="textarea" :rows="3" /></el-form-item>
         </div>
       </AppForm>
+      <SubClientFinancePreferences v-if="subForm.id && subDialogVisible" :sub-client-id="subForm.id" :can-write="canWrite" />
       </div>
       <template #footer>
         <el-button @click="subDialogVisible = false">取消</el-button>
@@ -506,6 +510,7 @@ import CustomerCooperationProjects from '@/components/common/CustomerCooperation
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import CustomerSourceAnalysis from '@/components/common/CustomerSourceAnalysis.vue'
 import CustomerFinancePanel from '@/components/common/CustomerFinancePanel.vue'
+import SubClientFinancePreferences from '@/components/common/SubClientFinancePreferences.vue'
 import CustomerRequirementsPanel from '@/components/common/CustomerRequirementsPanel.vue'
 import FinanceWorkflowHelp from '@/components/common/FinanceWorkflowHelp.vue'
 import { customerManagementHelpSections } from '@/utils/customerManagementHelp'
@@ -525,6 +530,7 @@ import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHe
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
+import SubClientQueryDialog from './SubClientQueryDialog.vue'
 import { hasPermission } from '@/utils/permission'
 import { formatDateTimeMinute as formatDatetime, businessDateTimeInputValue } from '@/utils/dateTime'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
@@ -535,6 +541,8 @@ import { countActiveFilters, createFilterModel, resetFilterModel, serializeField
 
 const props = defineProps({ editorClientId: String, editorSubClientId: String, editorFinanceSection: String })
 const listTab = ref('clients')
+const subClientQueryVisible = ref(false)
+const subClientQueryKeyword = ref('')
 const helpVisible = ref(false)
 const emit = defineEmits(['editor-closed', 'editor-load-error'])
 const loading = ref(false)
@@ -542,6 +550,20 @@ const canWrite = hasPermission('clients:write')
 const canReadProjects = hasPermission('projects:read')
 const route = useRoute()
 const router = useRouter()
+watch(() => [route?.query.section, route?.query.sub_client_keyword], ([section, keyword]) => {
+  if (section !== 'sub-clients') return
+  subClientQueryKeyword.value = typeof keyword === 'string' ? keyword.slice(0, 200) : ''
+  subClientQueryVisible.value = true
+}, { immediate: true })
+
+function closeSubClientQuery() {
+  subClientQueryVisible.value = false
+  subClientQueryKeyword.value = ''
+  if (route?.query.section === 'sub-clients') {
+    const { section, sub_client_keyword, ...query } = route.query
+    void router.replace({ path: route.path, query, hash: route.hash })
+  }
+}
 const submitLoading = ref(false)
 const dialogVisible = ref(false)
 const clientActiveTab = ref('basic')
@@ -739,7 +761,24 @@ const subForm = reactive({
 
 const subDetailFields=[['sub_client_code','子客户编号'],['client_name','客户全称'],['client_short_name','客户简称'],['english_name','英文全称'],['english_short_name','英文简称'],['customer_type','客户类型'],['field_level1','客户领域一级'],['field_level2','客户领域二级'],['country','国家'],['province','省份'],['city','地级市'],['district','区县'],['detailed_address','详细地址'],['full_address','完整地址'],['client_status','状态'],['cooperation_start_date','开始合作时间'],['remarks','备注']].map(([key,label])=>({key,label}))
 function subDetailValue(row,key){if(key==='cooperation_start_date')return formatDatetime(row[key]);if(key==='client_status')return clientStatusOptions.find(item=>item.value===row[key])?.label||row[key]||'-';return row[key]||'-'}
-function peopleFor(model){const stored=model.contact_people||[];return (model.contact_names?.length?model.contact_names:['']).map((name,index)=>{const row=stored.find(item=>item.name===name)||stored[index]||{};return {name,contact_method:row.contact_method??(index===0?model.manager_contact||'':''),description:row.description||''}})}
+function peopleFor(model) {
+  const stored = model.contact_people || []
+  const names = model.contact_names?.length ? model.contact_names : [model.client_manager || '']
+  return names.map((name, index) => {
+    const row = stored.find(item => item.name === name) || stored[index] || {}
+    return {
+      name,
+      job_title: row.job_title,
+      contact_method: row.contact_method ?? (index === 0 ? model.manager_contact || '' : ''),
+      description: row.description || '',
+    }
+  })
+}
+function contactNamesWithTitles(model) {
+  return peopleFor(model).filter(person => person.name)
+    .map(person => person.job_title ? `${person.name}（${person.job_title}）` : person.name)
+    .join('、') || '-'
+}
 function setPeople(model,rows){model.contact_people=rows;model.contact_names=rows.map(row=>row.name);model.manager_contact=rows[0]?.contact_method||''}
 const contactListRules=[{required:true,type:'array',min:1,message:'请至少填写一位客户联系人',trigger:'change'}]
 const rules = {

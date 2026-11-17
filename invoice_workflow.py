@@ -128,10 +128,10 @@ class DeliveryWrite(BaseModel):
 
 
 def selected_incl_totals(node):
-    if not node.get('price_aggregate'):
-        if node.get('effective_billing_tax_mode') != 'incl_tax':
-            return {}
+    if node.get('effective_billing_tax_mode') == 'incl_tax':
         return {currency: Decimal(str(amount)) for currency, amount in node.get('billing_totals', {}).items()}
+    if not node.get('price_aggregate'):
+        return {}
     totals = {}
     for child in node.get('children', []):
         for currency, amount in selected_incl_totals(child).items():
@@ -161,9 +161,10 @@ def latest_invoice_selections(db, ids):
 
 
 def batch_projects(db, project_ids, *, special=False):
+    from translation_price_rollup import price_details
     from crud import get_translation_project
     from invoice_parties import profile
-    from translation_customer_finance import tree
+    from translation_customer_finance import attach_monthly_payment_peers, settlement_group_key, tree
     from translation_document_requirements import attach as attach_documents
     from translation_project_invoices import special_order, special_root_ids
     import translation_special_settlement as special_settlement
@@ -180,6 +181,7 @@ def batch_projects(db, project_ids, *, special=False):
         if project is None:
             raise HTTPException(404, '项目不存在')
         attach_documents(db, [project])
+        attach_monthly_payment_peers(db, [project])
         node = tree(project, include_version=False)['item']
         if special:
             node = special_order(node, settings.get(project.id, {}), project_id)
@@ -202,11 +204,16 @@ def batch_projects(db, project_ids, *, special=False):
         subjects = statement_subjects[client_id].get(str(node.get('root_id') or project.id), set())
         fallback_subject=invoice_subject_default(client['subject_key'],subjects)
         selection=effective_invoice_selection(selections.get(str(project_id),{}),fallback_subject,client['invoice_type'])
-        projects.append({'project_id': str(project_id), **({'root_id':str(project.id)} if special else {}),
+        sub_group = {}
+        if not special and node['payment_method']=='sub_client':
+            _,month,period,_,sub_id=settlement_group_key(project)
+            sub_group={'settlement_group':f'{sub_id}:{month}:{period}', 'sub_client_id':str(sub_id),
+                       'sub_client_name':node['sub_client_short_name'], 'sub_client_code':node['sub_client_code']}
+        projects.append({'project_id': str(project_id), **({'root_id':str(project.id)} if special else {}), **sub_group,
                          'order_no': node['order_no'], 'project_name': node['project_name'],
                          'client_id': client['client_id'], 'client_name': client['client_name'],
                          'client_party': client['party'], 'default_subject': selection['subject_key'],
-                         'invoice_selection':selection,'client_invoice_subject':client['subject_key'],
+                         'invoice_selection':selection,'client_invoice_subject':client['subject_key'],'price_details':price_details(node),
                          'totals': {currency: str(amount) for currency, amount in amounts.items()}})
     return projects
 
@@ -215,13 +222,19 @@ def customer_groups(projects):
     groups = {}
     for project in projects:
         client_id = project['client_id']
-        group = groups.setdefault(client_id, {'client_id': client_id, 'project_ids': [], 'totals': {}})
+        key = invoice_group_identity(project)
+        group = groups.setdefault(key, {'client_id': client_id, 'project_ids': [], 'totals': {},
+            **({'group_id':key} if project.get('settlement_group') else {})})
         group['project_ids'].append(project['project_id'])
         totals = group['totals']
         for currency, amount in (project.get('totals') or {}).items():
             totals[currency] = totals.get(currency, Decimal(0)) + Decimal(str(amount))
     return [{**group, 'totals': {currency: format(amount, '.2f') for currency, amount in group['totals'].items()}}
             for group in groups.values()]
+
+
+def invoice_group_identity(project):
+    return project.get('settlement_group') or project.get('client_id')
 
 
 def create_notice(db, row, recipient, kind, title, content):
@@ -336,7 +349,7 @@ def workflow_project(row, project_id):
 
 def invoice_group(row, project_id, combined):
     project = workflow_project(row, project_id)
-    members = [item for item in row.snapshot.get('projects', []) if item['client_id'] == project.get('client_id')]
+    members = [item for item in row.snapshot.get('projects', []) if invoice_group_identity(item) == invoice_group_identity(project)]
     if len(members) < 2:
         return [project]
     deliveries = row.snapshot.get('deliveries', {})
@@ -366,7 +379,8 @@ def group_invoice(db, projects, *, lock=False):
         return invoice, records
     group = customer_groups(projects)[0]
     versions = '\n'.join(record['version'] for record in records)
-    return {**invoice, 'version': hashlib.sha256(versions.encode()).hexdigest(), 'required': True, 'totals': group['totals']}, records
+    return {**invoice, 'version': hashlib.sha256(versions.encode()).hexdigest(), 'required': True,
+            'totals': group['totals'], 'price_details':None}, records
 
 
 def needs_combined_delivery(row, key):
@@ -374,7 +388,7 @@ def needs_combined_delivery(row, key):
     project = next((item for item in projects if item['project_id'] == key), None)
     if not project:
         return False
-    group = [item for item in projects if item['client_id'] == project['client_id']]
+    group = [item for item in projects if invoice_group_identity(item) == invoice_group_identity(project)]
     deliveries = row.snapshot.get('deliveries', {})
     return len(group) > 1 and not any(item['project_id'] in deliveries and
         not deliveries[item['project_id']].get('combined_invoice_id') for item in group)
@@ -555,6 +569,7 @@ def read_request_invoice(request_id: UUID, project_id: UUID, db=Depends(get_db),
         project = projects[0]
         return {'proofs':shared['proofs'],'invoice_status':'issued','required':True,
                 'order_no':project['order_no'],'client_name':project.get('client_name'),
+                'price_details':project.get('price_details') if len(projects)==1 else None,
                 'totals':customer_groups(projects)[0]['totals'] if len(projects)>1 else project.get('totals',{})}
     invoice, _ = group_invoice(db, projects)
     return invoice

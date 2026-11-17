@@ -11,6 +11,7 @@
             title="切换子订单默认展开模式，自动记住当前用户的选择"
             @click="toggleDefaultSubOrderExpansion"
           >子订单：{{ defaultExpandSubOrders ? '默认展开' : '默认收起' }}</el-button>
+          <el-button v-if="!deleteMode" @click="subClientQueryVisible = true">子客户查询</el-button>
           <el-button v-if="!deleteMode" @click="statisticsVisible=true">数据统计</el-button>
           <ProjectExportMenu v-if="!deleteMode" module="translation" :build-filters="buildFilterParams" :sort="sortMode" />
           <TableColumnSettings settings-key="translation-projects"
@@ -164,11 +165,11 @@
                 </template>
               </el-table-column>
               <el-table-column column-key="languagePair" v-if="isSubOrderColumnVisible('languagePair')" prop="languagePair" label="翻译方向" min-width="120" />
-              <el-table-column column-key="wordCountMatrix" v-if="isSubOrderColumnVisible('wordCountMatrix')" label="字数统计" width="132" min-width="120">
-                <template #header><ClickableColumnHeader label="字数统计" hint="点击查看子订单字数统计" /></template>
+              <el-table-column column-key="wordCountMatrix" v-if="isSubOrderColumnVisible('wordCountMatrix')" label="工作量统计" width="132" min-width="120">
+                <template #header><ClickableColumnHeader label="工作量统计" hint="点击查看子订单工作量统计" /></template>
                 <template #default="{ row: subRow }">
                   <div class="word-count-list-cell">
-                    <WordCountMatrixPopover v-model="subRow.wordCountMatrix" entity-type="suborder" :entity-id="subRow.id" title="子订单字数统计" @saved="fetchData">
+                    <WordCountMatrixPopover v-model="subRow.wordCountMatrix" entity-type="suborder" :entity-id="subRow.id" title="子订单工作量统计" @saved="fetchData">
                       <template #reference>
                         <el-button
                           type="primary"
@@ -310,7 +311,7 @@
               <div v-if="motherTab.name === (projectDialogTab === 'parentchildren' ? 'parentchildren' : 'basic')">
               <template v-if="motherTab.name === 'parentchildren'">
                 <div class="folder-creation-intro">
-                  <div class="folder-creation-intro__text"><strong>从项目文件夹创建订单</strong><span>读取根路径 → 自动提取目录与文件名 → 完善信息 → 保存登记</span><small>子订单名称从路径自动提取，无需重复填写；点击保存后才正式登记。发送前需完成子订单字数汇总，紧急预告可跳过汇总。</small></div>
+                  <div class="folder-creation-intro__text"><strong>从项目文件夹创建订单</strong><span>读取根路径 → 自动提取目录与文件名 → 完善信息 → 保存登记</span><small>子订单名称从路径自动提取，无需重复填写；点击保存后才正式登记。发送前需完成子订单工作量汇总，紧急预告可跳过汇总。</small></div>
                   <el-button v-if="canWriteProjects" type="primary" @click="openBatchDialog(form,'unc')">读取路径</el-button>
                 </div>
                 <FolderRootComparison v-if="pendingFolderPathComparison" :comparison="pendingFolderPathComparison" />
@@ -326,7 +327,17 @@
                     <el-tag type="danger" effect="plain">请完成必填项</el-tag>
                   </div>
                   <el-row :gutter="16">
-                    <el-col :xs="24">
+                    <el-col v-if="!form.id && motherTab.name === 'basic' && canReadProjectFiles" :xs="24" :md="12">
+                      <el-form-item label="原文路径" prop="originalStoragePath" data-field-key="originalStoragePath">
+                        <el-input v-model="form.originalStoragePath" clearable :disabled="!canWriteProjectFiles"
+                          placeholder="填写本地或 UNC 的文件或文件夹完整路径" />
+                        <SingleSourceExtraction v-if="dialogVisible" :path="form.originalStoragePath"
+                          :folder-imported="!!form.pendingFolderImport"
+                          :disabled="!canWriteProjectFiles || !canWriteProjects || submitLoading"
+                          :can-apply-counts="canApplySingleSourceCounts" @extracted="applySingleSource" />
+                      </el-form-item>
+                    </el-col>
+                    <el-col :xs="24" :md="!form.id && motherTab.name === 'basic' && canReadProjectFiles ? 12 : 24">
                       <el-form-item label="项目名称" prop="sourceFileName" data-field-key="sourceFileName" data-dialog-field-search-aliases="文件名称,原文文件名">
                         <el-input
                           v-model="form.sourceFileName"
@@ -335,7 +346,7 @@
                           show-word-limit
                           :placeholder="parentOrderNameAllowed ? '母订单项目名称可不带扩展名' : '每个订单只填一个真实文件名，必须保留扩展名'"
                         />
-                        <div class="project-name-hint">单文件项目可在「项目文件」中从原文路径读取文件名（含扩展名）。从文件夹创建母子订单时，母订单取根文件夹名，子订单取对应的文件或文件夹名。</div>
+                        <div class="project-name-hint">{{ !form.id && motherTab.name === 'basic' ? '可手动填入真实文件名（含扩展名），或从左侧原文路径提取。' : '从文件夹创建母子订单时，母订单取根文件夹名，子订单取对应的文件或文件夹名。' }}</div>
                       </el-form-item>
                       <el-form-item v-if="!form.id && createWithSubOrders && !form.pendingFolderImport && motherTab.name !== 'parentchildren'" label="子订单文件名称" prop="initialSubOrderNamesText">
                         <el-input v-model="form.initialSubOrderNamesText" type="textarea" :rows="3" placeholder="每行一个文件名称，须带扩展名；保存时同时创建子订单" />
@@ -455,12 +466,12 @@
                   </el-row>
                   <el-row :gutter="16">
                     <el-col :xs="24">
-                      <el-form-item label="字数与预估" :prop="motherTab.name === 'parentchildren' ? undefined : 'wordCountMatrix'" data-field-key="wordCountSummary">
+                      <el-form-item label="工作量统计" :prop="motherTab.name === 'parentchildren' ? undefined : 'wordCountMatrix'" data-field-key="wordCountSummary">
                         <div v-if="motherTab.name === 'parentchildren' && (form.id || !isDirectionOnlySplit(form))">
                           <div>此处暂不填写。请先填写子订单的我司统计或客户统计，再汇总至母订单；完成汇总后才能正式发送邮件或会话。</div>
-                          <div>{{ form.wordCountMatrixSource === 'suborder_aggregate' ? formatWordCountSummary(form) : '尚未汇总子订单字数' }}</div>
+                          <div>{{ form.wordCountMatrixSource === 'suborder_aggregate' ? formatWordCountSummary(form) : '尚未汇总子订单工作量' }}</div>
                           <OrderWordCountSource :order="form" />
-                          <el-button type="primary" plain @click="goToSubOrderManagement(form)">打开子订单管理（填写字数并汇总）</el-button>
+                          <el-button type="primary" plain @click="goToSubOrderManagement(form)">打开子订单管理（填写工作量并汇总）</el-button>
                         </div>
                         <div v-else class="word-count-summary">
                           <span>{{ formatWordCountSummary(form) }}</span>
@@ -473,10 +484,10 @@
                             draft-scope="translation-project"
                             entity-type="project"
                             :entity-id="form.id"
-                            title="项目字数统计"
+                            title="项目工作量统计"
                             @saved="handleProjectWordCountSaved"
                           >
-                            <template #reference><el-button type="primary" link>展开字数统计</el-button></template>
+                            <template #reference><el-button type="primary" link>展开工作量统计</el-button></template>
                           </WordCountMatrixPopover>
                           <el-button v-if="!form.id && isDirectionOnlySplit(form)" type="primary" link
                             @click="goToSubOrderManagement(form)">查看方向子订单</el-button>
@@ -487,7 +498,7 @@
                       <div class="project-finance-controls">
                         <div class="project-finance-actions">
                           <el-form-item label="价格与付款"><el-button type="primary" plain @click="openCustomerFinance(form)">价格与付款</el-button>
-                            <div class="form-tip">单价填写期限与字数相同。打开价格与付款可查看截止日、逾期提示和记录。</div>
+                            <div class="form-tip">单价填写期限与工作量统计相同。打开价格与付款可查看截止日、逾期提示和记录。</div>
                           </el-form-item>
                         </div>
                         <div class="project-client-documents">
@@ -501,7 +512,7 @@
                     <el-col :xs="24" :md="12"><el-form-item label="客户接单时间" prop="customerReceptionTime" data-field-key="customerReceptionTime"><el-date-picker v-model="form.customerReceptionTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
                     <el-col :xs="24" :md="12"><el-form-item label="客户交稿时间" prop="customerDeadlineTime" data-field-key="customerDeadlineTime"><el-date-picker v-model="form.customerDeadlineTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width: 100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /><OrderFieldHint :order="form" field="customerDeadlineTime" /></el-form-item></el-col>
                   </el-row>
-                  <el-row v-if="canReadProjectFiles" :gutter="16" justify="end">
+                  <el-row v-if="canReadProjectFiles && (form.id || motherTab.name !== 'basic')" :gutter="16" justify="end">
                     <el-col :xs="24" :md="12"><el-form-item label="原文路径" prop="originalStoragePath" data-field-key="originalStoragePath"><el-input v-model="form.originalStoragePath" clearable :disabled="!canWriteProjectFiles || projectFilesTabRef?.fileLoading || !!projectFilesTabRef?.fileLoadError" placeholder="与项目文件中的原文路径同步" /></el-form-item></el-col>
                   </el-row>
                 <ProjectCustomerRequirements module="translation" :project="form" @apply="values => Object.assign(form, values)" />
@@ -526,7 +537,7 @@
                     <div class="project-basic-collapse__body">
                       <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="订单号"><ReadonlyField :model-value="form.orderNo" source="auto" placeholder="保存后自动生成" /></el-form-item></el-col>
-                  <el-col :xs="24" :md="12"><el-form-item label="状态" prop="projectStatus" data-field-key="projectStatus"><el-select v-model="form.projectStatus" clearable style="width: 100%"><el-option v-for="item in projectStatusOptions" :key="item.value" :label="item.label" :value="item.value" :disabled="item.value === 'pending_confirmation'" /></el-select><OrderFieldHint :order="form" field="status" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="12"><el-form-item label="状态" prop="projectStatus" data-field-key="projectStatus"><el-select v-model="form.projectStatus" clearable style="width: 100%"><el-option v-for="item in projectStatusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select><OrderFieldHint :order="form" field="status" /></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24">
@@ -751,11 +762,11 @@
                     </template>
                   </el-table-column>
                   <el-table-column prop="languagePair" label="翻译方向" min-width="120" />
-                  <el-table-column label="字数统计" width="132" min-width="120">
-                    <template #header><ClickableColumnHeader label="字数统计" hint="点击查看子订单字数统计" /></template>
+                  <el-table-column label="工作量统计" width="132" min-width="120">
+                    <template #header><ClickableColumnHeader label="工作量统计" hint="点击查看子订单工作量统计" /></template>
                     <template #default="{ row }">
                       <div class="word-count-list-cell">
-                        <WordCountMatrixPopover v-if="form.id" v-model="row.wordCountMatrix" entity-type="suborder" :entity-id="row.id" title="子订单字数统计" @saved="fetchData">
+                        <WordCountMatrixPopover v-if="form.id" v-model="row.wordCountMatrix" entity-type="suborder" :entity-id="row.id" title="子订单工作量统计" @saved="fetchData">
                           <template #reference>
                             <el-button type="primary" link class="word-count-compact-link business-clickable-cell" :title="getWordCountListSummary(row).title">
                               <span class="compact-cell-value">
@@ -807,6 +818,7 @@
                 :existing-sub-orders="currentProjectSubOrders"
                 :selected-files="form.selectedSourceFiles"
                 @files-selected="form.selectedSourceFiles = $event"
+                :manual-source-extraction="!form.id"
                 entity-type="project"
                 :active="projectDialogTab === 'files'"
                 :show-save-action="false"
@@ -850,8 +862,8 @@
         <el-button v-if="canWriteProjects && form.id" @click="openSavedProjectMail">预览已保存项目邮件</el-button>
         <el-button v-if="canWriteProjects" type="primary" :loading="submitLoading && submitAction === 'save'" :disabled="submitLoading" @click="handleSubmit(false)">保存</el-button>
         <el-button v-if="canWriteProjects" :loading="submitLoading && submitAction === 'mail'" :disabled="submitLoading" @click="handleSubmit(true)">保存并发送邮件{{ deliveryMailCount ? `（${deliveryMailCount}次）` : '' }}</el-button>
-        <el-tooltip v-if="projectDialogTab === 'parentchildren'" content="须完成本页其余必填项：项目名称、客户全称与简称、联系人、服务内容、翻译方向、客户类型、对账单选项、接单与交稿时间、原文路径、专业及特殊要求（无要求填“无”）。仅可跳过子订单字数与汇总。" placement="top">
-          <span class="emergency-notice-hint">预告知：其余必填项须完成，可跳过字数与汇总</span>
+        <el-tooltip v-if="projectDialogTab === 'parentchildren'" content="须完成本页其余必填项：项目名称、客户全称与简称、联系人、服务内容、翻译方向、客户类型、对账单选项、接单与交稿时间、原文路径、专业及特殊要求（无要求填“无”）。仅可跳过子订单工作量统计与汇总。" placement="top">
+          <span class="emergency-notice-hint">预告知：其余必填项须完成，可跳过工作量统计与汇总</span>
         </el-tooltip>
         <ConversationAudiencePicker v-model="chatAudience" :disabled="submitLoading" />
         <el-button v-if="canWriteProjects" :loading="submitLoading && submitAction === 'emergency'" :disabled="submitLoading" type="warning" plain @click="handleSubmit(true,true,true)">（紧急）项目预告知（会话和邮件）</el-button>
@@ -864,6 +876,8 @@
     <ReuseTranslationProjectDialog v-model="reuseProjectVisible" :applying="reuseProjectLoading" @reuse="reuseProjectInformation" />
     <CustomerDirectionHistoryDialog v-model="directionHistoryVisible" :client-id="form.clientId || ''" :client-name="form.clientShortName || form.clientName || ''" :project-id="form.id || ''" @apply="applyHistoricalDirections" />
     <TranslationStatisticsDialog v-model="statisticsVisible" />
+    <TranslationSubClientQueryDialog v-if="subClientQueryVisible" :can-open-directory="canReadClients"
+      @close="subClientQueryVisible = false" @open-directory="openSubClientDirectory" />
     <BusinessNumberDeletionHistory v-model="orderDeletionHistoryVisible" kind="translation" />
     <PendingSubOrderManager v-model="pendingSubOrderManagerVisible" :form="form" @confirmed="confirmPendingSubOrders" />
     <DraggableFormDialog v-model="subOrderManagerVisible" class="project-suborder-manager-dialog" title="子订单管理" width="min(1600px, calc(100vw - 32px))" top="3vh" append-to-body destroy-on-close @closed="handleSubOrderManagerClosed">
@@ -1000,8 +1014,10 @@ import ClientFullNameInput from '@/components/common/ClientFullNameInput.vue'
 import deliveryApi from '@/api'
 import CustomerDirectionHistoryDialog from './components/CustomerDirectionHistoryDialog.vue'
 import TranslationStatisticsDialog from './components/TranslationStatisticsDialog.vue'
+import TranslationSubClientQueryDialog from './components/TranslationSubClientQueryDialog.vue'
 import PendingSubOrderManager from './components/PendingSubOrderManager.vue'
-import {pendingFolderRows,pendingChildRows,missingChildStatistics,normalizeInitialChildDetails,isDirectionOnlySplit} from '@/utils/translationChildSubmission'
+import SingleSourceExtraction from './components/SingleSourceExtraction.vue'
+import {pendingFolderRows,pendingChildRows,missingChildStatistics,normalizeInitialChildDetails,isDirectionOnlySplit,aggregatePendingStatistics} from '@/utils/translationChildSubmission'
 import OrderFieldHint from './components/OrderFieldHint.vue'
 import ProjectCustomerRequirements from '@/components/common/ProjectCustomerRequirements.vue'
 import OrderInheritedExtras from './components/OrderInheritedExtras.vue'
@@ -1085,7 +1101,7 @@ import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useFormDraft } from '@/composables/useFormDraft'
 import { useResourceRequestStatuses } from '@/composables/useResourceRequestStatuses'
-import { createEmptyWordCountMatrix, formatWordCountMatrix, getWordCountMatrixListSummary } from '@/utils/wordCountMatrix'
+import { createEmptyWordCountMatrix, formatWordCountMatrix, getWordCountMatrixListSummary, isWordCountRegionLocked, normalizeWordCountMatrix } from '@/utils/wordCountMatrix'
 import { getLanguagePairSummary } from '@/utils/languagePair'
 import { COMMON_SUBJECT_PREFIX_OPTIONS } from '@/utils/emailSubject'
 import { buildTranslationEmailSubject, extractTranslationSubjectPrefix, stripTranslationManagerContact } from '@/utils/translationEmailSubject'
@@ -1123,6 +1139,7 @@ import {customerStatementContext} from '@/utils/customerStatementContext'
 import {applyStatementRequirementResult} from '@/utils/statementRequirementSync'
 const SUB_ORDER_PREVIEW_LIMIT = 10
 const canWriteProjects = hasPermission('projects:write')
+const canReadClients = hasPermission('clients:read')
 const canReadProjectFiles = hasPermission('project_files:read')
 const canWriteProjectFiles = hasPermission('project_files:write')
 const mailComposerVisible = ref(false)
@@ -1253,6 +1270,13 @@ function applyHistoricalDirections(value){
  ElMessage.success('已带入翻译方向，可继续增减；保存当前项目后生效')
 }
 const statisticsVisible=ref(false)
+const subClientQueryVisible = ref(false)
+async function openSubClientDirectory(keyword) {
+  const failure = await router.push({ name: 'Clients', query: {
+    section: 'sub-clients', ...(keyword ? { sub_client_keyword: keyword } : {}),
+  } })
+  if (!failure) subClientQueryVisible.value = false
+}
 const submitLoading = ref(false)
 const submitAction = ref('')
 let submitLocked = false
@@ -1380,9 +1404,9 @@ const translationFilterFields = [
   { key: 'remarks', label: '备注', type: 'text' },
   { key: 'languagePair', label: '翻译方向', type: 'text', placeholder: '输入翻译方向或校对', quickOptions: [{ label: '校对', value: '校对' }] },
   { key: 'priority', label: '优先级', type: 'select', options: priorityOptions },
-  { key: 'wordCountDimension', apiKey: 'word_count_dimension', label: '字数统计口径', type: 'select', options: [{value:'company',label:'我司统计'},{value:'customer',label:'客户统计'},{value:'preliminary',label:'预统计（不用以计算费用）'},{value:'translator_estimate',label:'译员预估'}] },
-  { key: 'wordCountMetricType', apiKey: 'word_count_metric_type', label: '字数统计指标', type: 'select', options: [{value:'words',label:'字数'},{value:'characters_no_spaces',label:'字符数（不计空格）'},{value:'cjk_chars_korean_words',label:'中文字符和朝鲜语单词'},{value:'foreign_words',label:'外文字数'},{value:'documents',label:'份数'},{value:'pages',label:'页数'}] },
-  { key: 'wordCountMatrix', apiKey: 'word_count', label: '字数与预估', type: 'number-range', wide: true, min: 0 },
+  { key: 'wordCountDimension', apiKey: 'word_count_dimension', label: '工作量统计口径', type: 'select', options: [{value:'company',label:'我司统计'},{value:'customer',label:'客户统计'},{value:'preliminary',label:'预统计（不用以计算费用）'},{value:'translator_estimate',label:'译员预估'}] },
+  { key: 'wordCountMetricType', apiKey: 'word_count_metric_type', label: '工作量统计指标', type: 'select', options: [{value:'words',label:'字数'},{value:'characters_no_spaces',label:'字符数（不计空格）'},{value:'cjk_chars_korean_words',label:'中文字符和朝鲜语单词'},{value:'foreign_words',label:'外文字数'},{value:'documents',label:'份数'},{value:'pages',label:'页数'}] },
+  { key: 'wordCountMatrix', apiKey: 'word_count', label: '工作量统计', type: 'number-range', wide: true, min: 0 },
   { key: 'customerReceptionTime', label: props.arrangement?'客户来稿时间':'客户接单时间', type: 'date-range', wide: true },
   { key: 'customerDeadlineTime', label: props.arrangement?'客户回稿时间':'客户交稿时间', type: 'date-range', wide: true },
   { key: 'translatorReturnTime', label: '译员回稿时间', type: 'date-range', wide: true },
@@ -1445,7 +1469,7 @@ const tableColumnOverrides = {
   remarks: { minWidth: 240 },
   languagePair: { width: 110, minWidth: 100, showOverflowTooltip: false },
   priority: { minWidth: 80 },
-  wordCountMatrix: { label: '字数统计', width: 110, minWidth: 100, showOverflowTooltip: false, clickHint: '点击查看项目字数统计' },
+  wordCountMatrix: { label: '工作量统计', width: 110, minWidth: 100, showOverflowTooltip: false, clickHint: '点击查看项目工作量统计' },
   customerReceptionTime: { minWidth: 150 },
   customerDeadlineTime: { width: 170, minWidth: 160, showOverflowTooltip: false },
   sentToClientTime: { minWidth: 150 },
@@ -1474,7 +1498,7 @@ const tableColumns = projectDetailItems.filter((item) => item.key !== 'translato
 const subOrderTableColumns = [
   { key: 'subProjectName', label: '文件名称' },
   { key: 'languagePair', label: '翻译方向' },
-  { key: 'wordCountMatrix', label: '字数统计' },
+  { key: 'wordCountMatrix', label: '工作量统计' },
   { key: 'assignedTranslators', label: '译员安排' },
   { key: 'translatorReturnTime', label: '译员回稿时间' },
   { key: 'status', label: '状态' },
@@ -1626,7 +1650,7 @@ const validateWordCountMatrix = (_rule, value, callback) => {
       item !== null && item !== undefined && item !== '' && Number.isFinite(Number(item))
     ))
   ))
-  if (!hasWordCount) return callback(new Error('请至少填写一项字数或预估数据'))
+  if (!hasWordCount) return callback(new Error('请至少填写一项实际或预估工作量'))
   callback()
 }
 const rules = {
@@ -1677,10 +1701,26 @@ const getStatusType = (status) => ({
   paused: 'warning'
 }[normalizeStatus(status)] || 'info')
 
+function canApplySingleSourceCounts(values) {
+  const company = normalizeWordCountMatrix(form.wordCountMatrix).company
+  return Object.keys(values).every(key => !isWordCountRegionLocked(company, key))
+}
+
+function applySingleSource({ name, values }) {
+  form.sourceFileName = name
+  if (values) {
+    const matrix = normalizeWordCountMatrix(form.wordCountMatrix)
+    Object.assign(matrix.company, values)
+    form.wordCountMatrix = matrix
+    form.wordCountMatrixSource = 'project'
+    form.wordCountPendingDraft = null
+  }
+}
+
 function formatWordCountSummary(target = {}) {
   const pending=target.wordCountPendingDraft
   if(pending?.version==='word-count-matrix-v2' && pending.ownerId===localStorage.getItem('user_id') && pending.matrix) return formatWordCountMatrix(pending.matrix)+'（未保存修改）'
-  return (target.wordCountMatrixSource==='suborder_aggregate'?'【子订单累计】':'')+formatWordCountMatrix(target.wordCountMatrix)+(Object.keys(target.simpleRequirementWordCountMatrix||{}).length?'（含已加入的简单需求字数）':'')
+  return (target.wordCountMatrixSource==='suborder_aggregate'?'【子订单累计】':'')+formatWordCountMatrix(target.wordCountMatrix)+(Object.keys(target.simpleRequirementWordCountMatrix||{}).length?'（含已加入的简单需求工作量）':'')
 }
 function getWordCountListSummary(target = {}) {
   return getWordCountMatrixListSummary(target.wordCountMatrix, {
@@ -2438,18 +2478,18 @@ const handleSubmit = async (sendAfterSave = false, emergency = false, sendChat =
   // 先让按钮呈现忙碌状态，再执行整表与路径校验，避免点击后长时间没有反馈。
   await nextTick()
   try {
-    if (!childEntry && !String(form.sourceFileName || '').trim() && canReadProjectFiles && !projectFilesTabRef.value) {
+    if (form.id && !childEntry && !String(form.sourceFileName || '').trim() && canReadProjectFiles && !projectFilesTabRef.value) {
       // 文件页签按需挂载；历史项目缺少名称时先取得已有路径，再尝试读取。
       projectDialogTab.value = 'files'
       await nextTick()
     }
-    await projectFilesTabRef.value?.fillSourceFileNameFromPath({ notifySuccess: false, notifyError: false })
+    if (form.id) await projectFilesTabRef.value?.fillSourceFileNameFromPath({ notifySuccess: false, notifyError: false })
   } catch {
     // 路径不可读时仍允许手工填写真实文件名，并由表单校验定位空字段。
   }
   try{
     if (projectWordCountRef.value?.prepareSubmit?.() === false) { submitLoading.value=false;submitLocked=false;return }
-  }catch(error){ElMessage.error('尚未保存或发送：字数统计准备失败，'+getLocalizedErrorMessage(error,'请重新打开字数统计后重试'));submitLoading.value=false;submitLocked=false;return}
+  }catch(error){ElMessage.error('尚未保存或发送：工作量统计准备失败，'+getLocalizedErrorMessage(error,'请重新打开工作量统计后重试'));submitLoading.value=false;submitLocked=false;return}
   const valid = await formRef.value.validate().catch(error => {
     const messages=Object.values(error||{}).flat().map(item=>item?.message).filter(Boolean)
     ElMessage.warning('尚未保存或发送：'+(messages.length?[...new Set(messages)].slice(0,3).join('；'):getLocalizedErrorMessage(error,'请检查必填信息')))
@@ -2475,7 +2515,7 @@ const handleSubmit = async (sendAfterSave = false, emergency = false, sendChat =
   const childDraft=childEntry&&!emergency&&!sendAfterSave&&!sendChat&&!childStatisticsConfirmed
   if(!emergency&&!childDraft){
     if(childEntry&&!editorChildRows.value.length){
-      ElMessage.warning('请先读取文件或添加子订单，填写字数并汇总至母订单后再发送')
+      ElMessage.warning('请先读取文件或添加子订单，填写工作量并汇总至母订单后再发送')
       submitLoading.value=false;submitLocked=false;return
     }
     if(!form.id&&pendingChildRows(form).length&&pendingReviewedKey.value!==pendingTreeKey()){
@@ -2671,7 +2711,13 @@ const handleBatchCreated = async (result) => {
     const plan=JSON.parse(JSON.stringify(result.draftFolderImport))
     const root=plan.entries.find(entry=>!entry.relativePath.replace(/\\/g,'/').includes('/'))
     const name=root?.relativePath||plan.rootPath.replace(/\\/g,'/').split('/').pop()
-    Object.assign(form,{pendingFolderImport:plan,folderRoot:true,projectName:name,sourceFileName:name,originalStoragePath:plan.rootPath,networkFilePath:plan.rootPath,pendingSubOrderDetails:{},initialSubOrderNamesText:'',createWithSubOrders:true})
+    Object.assign(form,{pendingFolderImport:plan,folderRoot:true,projectName:name,sourceFileName:name,originalStoragePath:plan.rootPath,networkFilePath:plan.rootPath,pendingSubOrderDetails:result.draftFolderDetails ?? {},initialSubOrderNamesText:'',createWithSubOrders:true})
+    if (Object.keys(form.pendingSubOrderDetails).length || form.wordCountMatrixSource === 'suborder_aggregate') {
+      const rows = pendingChildRows(form)
+      form.wordCountMatrix = aggregatePendingStatistics(rows)
+      form.wordCountMatrixSource = 'suborder_aggregate'
+      form.wordCountSubOrderCount = rows.length
+    }
     applyFolderRootPath(form,plan.rootPath)
     pendingReviewedKey.value='';projectDialogTab.value='parentchildren'
     ElMessage.success('已读入目录，请填写资料后点击“保存”正式登记')

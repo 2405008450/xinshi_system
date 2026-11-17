@@ -65,7 +65,7 @@ INTAKE_FIELD_LABELS = {
     "price_items": "价格信息",
     "employment_start": "履职开始日期",
     "employment_end": "履职结束日期",
-    "word_count_matrix": "字数统计",
+    "word_count_matrix": "工作量统计",
 }
 
 

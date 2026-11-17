@@ -352,8 +352,23 @@ def _apply_client_filters(
     cooperation_start_date_from: Optional[date] = None,
     cooperation_start_date_to: Optional[date] = None,
     field_filters: Optional[dict] = None,
+    has_sub_clients: bool = False,
+    sub_client_query: Optional[str] = None,
 ):
     """为客户列表和总数查询复用完全一致的筛选条件。"""
+    if has_sub_clients:
+        query = query.filter(Client.sub_clients.any())
+    if sub_client_query and sub_client_query.strip():
+        query = query.filter(keyword_or(lambda term: or_(
+            keyword_ilike(Client.client_code, term),
+            keyword_ilike(Client.client_name, term),
+            keyword_ilike(Client.client_short_name, term),
+            Client.sub_clients.any(or_(
+                keyword_ilike(SubClient.sub_client_code, term),
+                keyword_ilike(SubClient.client_name, term),
+                keyword_ilike(SubClient.client_short_name, term),
+            )),
+        ), f"%{sub_client_query.strip()}%"))
     from client_cooperation_auto import expressions as cooperation_expressions
     client_state,client_start=cooperation_expressions(Client)
     sub_state,sub_start=cooperation_expressions(SubClient)
@@ -482,6 +497,8 @@ def get_clients(
     cooperation_start_date_to: Optional[date] = None,
     frequent_first: bool = False,
     field_filters: Optional[dict] = None,
+    has_sub_clients: bool = False,
+    sub_client_query: Optional[str] = None,
 ) -> List[Client]:
     query = db.query(Client).options(selectinload(Client.sub_clients))
     query = _apply_client_filters(
@@ -502,6 +519,8 @@ def get_clients(
         cooperation_start_date_from=cooperation_start_date_from,
         cooperation_start_date_to=cooperation_start_date_to,
         field_filters=field_filters,
+        has_sub_clients=has_sub_clients,
+        sub_client_query=sub_client_query,
     )
     if frequent_first:
         cooperation_stats = (
@@ -557,6 +576,8 @@ def count_clients(
     cooperation_start_date_from: Optional[date] = None,
     cooperation_start_date_to: Optional[date] = None,
     field_filters: Optional[dict] = None,
+    has_sub_clients: bool = False,
+    sub_client_query: Optional[str] = None,
 ) -> int:
     query = db.query(Client.id)
     query = _apply_client_filters(
@@ -577,6 +598,8 @@ def count_clients(
         cooperation_start_date_from=cooperation_start_date_from,
         cooperation_start_date_to=cooperation_start_date_to,
         field_filters=field_filters,
+        has_sub_clients=has_sub_clients,
+        sub_client_query=sub_client_query,
     )
     return query.count()
 
@@ -721,30 +744,16 @@ def delete_client_contact(db: Session, contact_id: UUID) -> bool:
 
 # SubClient CRUD
 def generate_sub_client_code(db: Session, parent_id: UUID) -> str:
-    """生成子客户流水号，格式 CL-YY-MMDD-NNN.NNN"""
-    parent = get_client(db, parent_id)
-    if not parent:
+    """生成子客户流水号，例如 CL-261116-017.001。"""
+    parent_code = db.query(Client.client_code).filter(Client.id == parent_id).scalar()
+    if not parent_code:
         raise ValueError("母客户不存在")
-    base_no = parent.client_code
-
-    last = (
-        db.query(SubClient)
-        .filter(SubClient.parent_client_id == parent_id)
-        .filter(keyword_like(SubClient.sub_client_code, f"{base_no}.%"))
-        .order_by(SubClient.sub_client_code.desc())
-        .first()
-    )
-    if last and last.sub_client_code:
-        try:
-            seq_str = last.sub_client_code.rsplit(".", 1)[-1]
-            new_seq = int(seq_str) + 1
-        except (ValueError, IndexError):
-            new_seq = 1
-    else:
-        new_seq = 1
-
+    prefix = parent_code + '.'
+    codes = db.query(SubClient.sub_client_code).filter(SubClient.sub_client_code.startswith(prefix, autoescape=True))
+    suffixes = (code[len(prefix):] for code, in codes)
+    new_seq = max((int(suffix) for suffix in suffixes if suffix.isascii() and suffix.isdecimal()), default=0) + 1
     from business_numbering import allocate
-    return allocate(db, f'subclient:{parent_id}', base_no + '.', new_seq)
+    return allocate(db, f'subclient:{parent_id}', prefix, new_seq)
 
 def get_sub_client(db: Session, sub_client_id: UUID) -> Optional[SubClient]:
     client = db.query(SubClient).filter(SubClient.id == sub_client_id).first()
@@ -1932,6 +1941,7 @@ def _apply_translation_project_filters(
             keyword_ilike(Client.client_short_name, _search_part),
             keyword_ilike(SubClient.client_name, _search_part),
             keyword_ilike(SubClient.client_short_name, _search_part),
+            keyword_ilike(SubClient.sub_client_code, _search_part),
         ), pattern))
     if created_by:
         query = query.filter(TranslationProject.created_by == created_by)
@@ -2111,14 +2121,19 @@ def _apply_translation_project_filters(
         elif field == 'finance_invoice_project_ids':
             query = query.filter(TranslationProject.id.in_([UUID(str(value)) for value in descriptor['value']]))
         elif field == 'finance_client_ids':
-            query = query.filter(func.coalesce(TranslationProject.client_id,SubClient.parent_client_id).in_([UUID(value) for value in descriptor['value']]))
+            ids=[UUID(value) for value in descriptor['value']]
+            query = query.filter(or_(func.coalesce(TranslationProject.client_id,SubClient.parent_client_id).in_(ids),
+                                     TranslationProject.sub_client_id.in_(ids)))
+        elif field == 'finance_sub_client_id':
+            query = query.filter(TranslationProject.sub_client_id == UUID(descriptor['value']))
         elif field == 'finance_client':
             from search_matching import keyword_any
             from sqlalchemy.orm import aliased
             parent=aliased(Client)
             parent_name=select(parent.client_name).where(parent.id==SubClient.parent_client_id).correlate(SubClient).scalar_subquery()
             parent_short_name=select(parent.client_short_name).where(parent.id==SubClient.parent_client_id).correlate(SubClient).scalar_subquery()
-            query = query.filter(keyword_any([Client.client_name, Client.client_short_name,parent_name,parent_short_name], descriptor.get('value')))
+            query = query.filter(keyword_any([Client.client_name,Client.client_short_name,Client.client_code,
+                parent_name,parent_short_name,SubClient.client_name,SubClient.client_short_name,SubClient.sub_client_code], descriptor.get('value')))
         elif field == 'finance_statement_required':
             from translation_document_requirements import required_expression
             query = query.filter(required_expression(query.session).is_(descriptor['value']))
@@ -4186,7 +4201,7 @@ def _validate_charge_metric_values(items, customer_values: dict) -> None:
     for charge in items or []:
         if getattr(charge,'id',None) in bases:continue
         if charge.pricing_mode == 'metric' and customer_values.get(charge.metric_type) is None:
-            raise ValueError(f'收费项“{charge.item_name}”对应的客户字数口径不能清空')
+            raise ValueError(f'收费项“{charge.item_name}”对应的客户工作量口径不能清空')
 
 
 def _replace_customer_charge_items(
@@ -4208,7 +4223,7 @@ def _replace_customer_charge_items(
         import translation_quantity_basis as quantity_basis
         has_basis=bool(payload.id and payload.id in quantity_basis.metadata(db,[payload.id]))
         if payload.pricing_mode == 'metric' and customer_values.get(payload.metric_type) is None and not has_basis and not payload.quantity_basis:
-            raise ValueError(f'收费项“{payload.item_name}”对应的客户字数口径尚未填写')
+            raise ValueError(f'收费项“{payload.item_name}”对应的客户工作量口径尚未填写')
         row = existing.get(payload.id) if payload.id else None
         if payload.id and row is None:
             raise ValueError('客户收费项不存在或不属于当前订单')
@@ -4243,7 +4258,7 @@ def _replace_customer_charge_items(
                 # 计费校验与列表展示均使用本单独立填报值，不取下级统计。
                 matrix = hierarchy_matrix(db, entity_type, owner).word_count_matrix
                 if not quantity_basis.valid(payload.quantity_basis) or quantity_basis.resolve(matrix,payload.quantity_basis)[0] is None:
-                    raise ValueError('请先填写并选择有效的项目字数统计项')
+                    raise ValueError('请先填写并选择有效的项目工作量统计项')
                 quantity_basis.store(db,row,payload.quantity_basis,matrix)
             if payload.language_pair and payload.pricing_mode == 'metric':
                 import customer_translation_rates as customer_rates

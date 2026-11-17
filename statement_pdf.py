@@ -33,7 +33,7 @@ def pdf_bytes(statements):
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, LongTable, TableStyle, PageBreak, Flowable, KeepTogether
     from customer_statements import (
         is_fixed_statement_row, statement_amount, statement_has_unit_column, statement_shared_cell_spans,
-        statement_title, statement_unit_amount, tax_label,
+        statement_customer_label, statement_title, statement_unit_amount, tax_label,
     )
     output=BytesIO();font=chinese_font()
     document=SimpleDocTemplate(output,pagesize=landscape(A4),leftMargin=14*mm,rightMargin=14*mm,topMargin=14*mm,bottomMargin=14*mm,title='客户对账单',author='信实翻译')
@@ -55,7 +55,7 @@ def pdf_bytes(statements):
         billing='账单月份：'+data['month']+'　'+tax_label(data)
         if data.get('statement_number'):
             billing=f"对账单编号：{data['statement_number']}\n"+billing
-        meta=LongTable([[paragraph('客户：'+data['client_name'],'text'),paragraph(billing,'right')]],colWidths=[document.width*.6,document.width*.4])
+        meta=LongTable([[paragraph(statement_customer_label(data),'text'),paragraph(billing,'right')]],colWidths=[document.width*.6,document.width*.4])
         meta.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'BOTTOM'),('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0)]));story.extend([meta,Spacer(1,3*mm)])
         customer_order=any(str(row.get('customer_order_no') or '').strip() for row in data['rows'])
         origin=any(row.get('origin_client_id') or row.get('origin_client_name') for row in data['rows'])

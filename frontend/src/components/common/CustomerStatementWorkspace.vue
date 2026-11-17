@@ -1,6 +1,7 @@
 <template>
   <section class="statement-workspace" v-loading="loading||saving">
     <el-config-provider size="small">
+    <SubClientFinancePreferences v-if="subClientId && settlementScope!=='special'" :sub-client-id="subClientId" :can-write="canWrite" />
     <details v-if="$slots['customer-projects']" :open="settlementScope==='special'" class="customer-projects-panel">
       <summary>客户项目<span class="customer-projects-toggle">展开 / 收起</span></summary>
       <slot name="customer-projects" :months="filters.months" :mode="mode" :reload="load" :selection-changed="queueGenerationStatus" />
@@ -50,15 +51,15 @@
                 <el-button :disabled="!canEditContent" @click="editHeader(board)">修改抬头 / 账户 / 印章</el-button>
               </template>
               <el-dropdown v-else-if="state.private_settings_available" trigger="click" :disabled="!canChangeCompany" @command="subject=>changeCompany(board,subject)">
-                <el-button :disabled="!canChangeCompany">调整公司主体</el-button>
+                <el-button :disabled="!canChangeCompany">对账单主体：{{statementCompanyLabel(board)}} ▾</el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
-                    <el-dropdown-item v-for="(name,key) in companySubjects" :key="key" :command="key">{{name}}</el-dropdown-item>
+                    <el-dropdown-item v-for="(name,key) in companySubjects" :key="key" :command="key">{{name}}{{key===board.statement.subject_key?'（当前）':''}}</el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
               <el-tooltip v-else content="公司主体与收款账户在正式 OA 中调整">
-                <span><el-button disabled>调整公司主体</el-button></span>
+                <span class="statement-company-label">对账单主体：{{statementCompanyLabel(board)}}</span>
               </el-tooltip>
               <el-button :disabled="!canWrite||saving" @click="createBoard(board)">新增子对账单</el-button>
               <el-dropdown :disabled="downloading||!board.statement.rows.length" trigger="click" @command="command=>exportStatements(command,[board.id])">
@@ -154,6 +155,7 @@ import CustomerStatementInlineEditor from './CustomerStatementInlineEditor.vue'
 import {useDialogFieldSearch} from '@/composables/useDialogFieldSearch'
 import {getStatementWorkspace,getClientStatementWorkspace,importStatementMonths,changeStatementWorkspace,getPendingStatementPeriods,getStatementWorkspaceHistory,getStatementWorkspaceHistoryEntry,exportStatementWorkspace,exportStatementWorkspacePdf,getStatementGenerationStatus} from '@/api/customerStatements'
 import CustomerStatementGenerationVersions from './CustomerStatementGenerationVersions.vue'
+import SubClientFinancePreferences from './SubClientFinancePreferences.vue'
 import {businessDateTimeInputValue,formatBusinessDateTime} from '@/utils/dateTime'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import {hasPermission} from '@/utils/permission'
@@ -165,10 +167,11 @@ const TranslationProjectEditor=defineAsyncComponent(()=>import('@/views/project/
 const orderEditor=ref(null)
 function openOrder(row){if(!row.root_id)return ElMessage.warning('该订单缺少项目关联，无法打开');orderEditor.value={rootId:row.root_id,orderNo:row.order_no}}
 const emit=defineEmits(['loaded','show-boards'])
-const props=defineProps({periodNumber:Number,settlementScope:String,lockMonth:Boolean,enforceStatementRequirement:Boolean,projectSelection:Function,projectReload:Function,visibleBoardIds:{type:Array,default:()=>[]},focusMonth:{type:String,default:''},focusBoardId:{type:String,default:''},projectId:{type:[String,Number],default:''},clientId:{type:[String,Number],default:''},billingMonth:String})
+const props=defineProps({periodNumber:Number,settlementScope:String,subClientId:String,lockMonth:Boolean,enforceStatementRequirement:Boolean,projectSelection:Function,projectReload:Function,visibleBoardIds:{type:Array,default:()=>[]},focusMonth:{type:String,default:''},focusBoardId:{type:String,default:''},projectId:{type:[String,Number],default:''},clientId:{type:[String,Number],default:''},billingMonth:String})
 const canWrite=hasPermission('projects:write')
 const standardStatement=computed(()=>props.settlementScope==='standard')
 const companySubjects={guangzhou:'广州总公司',shenzhen:'深圳分公司',shanghai:'上海分公司'}
+const statementCompanyLabel=board=>companySubjects[board.statement.subject_key]||board.statement.company||'待设置'
 const canEditContent=computed(()=>canWrite&&state.value?.capabilities?.edit_content===true)
 const canChangeCompany=computed(()=>canEditContent.value&&state.value?.private_settings_available&&!saving.value)
 const filters=reactive({months:[props.billingMonth||businessDateTimeInputValue().slice(0,7)],scope:'customer',requiredOnly:true})
@@ -181,11 +184,11 @@ function enterDeleteMode(){selected.value=[];selectedBoardIds.value=[];deleteMod
 function exitDeleteMode(){deleteMode.value=false;selectedBoardIds.value=[]}
 function selectBoard(id,checked){selectedBoardIds.value=checked?[...new Set([...selectedBoardIds.value,id])]:selectedBoardIds.value.filter(value=>value!==id)}
 const visiblePendingTasks=computed(()=>{
-  const tasks=state.value?.pending_tasks||[]
+  const tasks=(state.value?.pending_tasks||[]).filter(task=>!props.subClientId||props.settlementScope==='special'||task.sub_client_id===props.subClientId)
   if(props.periodNumber)return tasks.filter(task=>task.month===props.billingMonth&&task.period_number===props.periodNumber)
   return props.lockMonth?tasks.filter(task=>task.month===props.billingMonth):tasks
 })
-const documents=computed(()=>{const all=(state.value?.documents||[]).filter(board=>(!props.visibleBoardIds.length||props.visibleBoardIds.includes(board.id)) && (!props.periodNumber||board.period_number===props.periodNumber && board.period_month===props.billingMonth));return props.lockMonth&&props.billingMonth?all.filter(board=>(board.statement.months||[]).includes(props.billingMonth)):props.focusBoardId?all.filter(board=>board.id===props.focusBoardId):props.focusMonth?all.filter(board=>(board.statement.months||[]).includes(props.focusMonth)):all})
+const documents=computed(()=>{const all=(state.value?.documents||[]).filter(board=>(!props.subClientId||props.settlementScope==='special'||board.sub_client_id===props.subClientId||board.id===props.focusBoardId) && (!props.visibleBoardIds.length||props.visibleBoardIds.includes(board.id)) && (!props.periodNumber||board.period_number===props.periodNumber && board.period_month===props.billingMonth));return props.lockMonth&&props.billingMonth?all.filter(board=>(board.statement.months||[]).includes(props.billingMonth)):props.focusBoardId?all.filter(board=>board.id===props.focusBoardId):props.focusMonth?all.filter(board=>(board.statement.months||[]).includes(props.focusMonth)):all})
 watch(()=>documents.value.length,count=>{scale.value=count>=3?.4:count===2?.5:.75})
 const focusMissing=computed(()=>!!(props.focusBoardId||props.focusMonth)&&!!state.value&&!documents.value.length)
 watch(()=>[props.billingMonth,props.periodNumber],([month])=>{if(month)filters.months=[month]})
@@ -215,7 +218,7 @@ let generationTimer,generationRequest
 function generationPayload(orderIds){
   return {
     ...(props.clientId?{client_id:props.clientId}:{project_id:props.projectId}),
-    months:[...filters.months],period_number:props.periodNumber,settlement_scope:props.settlementScope,
+    months:[...filters.months],period_number:props.periodNumber,settlement_scope:props.settlementScope,sub_client_id:props.subClientId,
     order_ids:orderIds,required_only:props.enforceStatementRequirement||(orderIds===undefined&&filters.requiredOnly),
     scope:props.clientId?'customer':filters.scope,revision:state.value.revision,
     board_id:props.focusBoardId||(props.focusMonth?documents.value[0]?.id:null)||null,

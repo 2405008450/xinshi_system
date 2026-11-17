@@ -193,12 +193,12 @@ def check_field_search(page, can_write: bool) -> list[str]:
         )
         return target
 
-    word_count = locate("字数", "字数与预估", "wordCountSummary")
+    word_count = locate("工作量", "工作量统计", "wordCountSummary")
     active_tab = dialog.locator(".el-tabs__item.is-active").inner_text().strip()
     if active_tab != "基础信息":
-        failures.append(f"字数与预估定位失败，当前 Tab 为“{active_tab}”")
+        failures.append(f"工作量统计定位失败，当前 Tab 为“{active_tab}”")
     if "is-field-search-highlight" not in (word_count.get_attribute("class") or ""):
-        failures.append("字数与预估定位后未高亮")
+        failures.append("工作量统计定位后未高亮")
     if dialog.get_by_role("tab", name="分配与预估", exact=True).count():
         failures.append("仍存在已废弃的“分配与预估”页签")
 

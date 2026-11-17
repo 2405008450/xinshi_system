@@ -7,7 +7,7 @@
           <p class="page-subtitle">{{ project.orderNo || route.query.orderNo || '-' }} / {{ project.projectName || route.query.projectName || '-' }}</p>
         </div>
         <div class="header-actions">
-          <el-button @click="structureVisible = true">子订单结构</el-button>
+          <el-button @click="openOrderStructure()">子订单结构</el-button>
           <FolderImportRecords :project-id="projectId" />
           <el-button @click="downloadHierarchy">导出层级Excel</el-button>
           <el-button v-if="!embedded" @click="goBack">返回项目详情</el-button>
@@ -37,7 +37,7 @@
       <el-button @click="resetSearch">重置</el-button>
       <span v-if="searchKeyword">匹配 {{ filteredSubOrders.length }} / {{ subOrders.length }} 条</span>
     </div>
-    <VerticalSplitPanels top-label="统计填写区" bottom-label="子订单列表">
+    <VerticalSplitPanels top-label="工作量统计区" bottom-label="子订单列表">
     <template #top>
     <SubOrderStatisticsGrid :root-path="project.networkFilePath" :rows="subOrders" :visible-rows="filteredSubOrders" :editable="canWriteProjects && !deleteMode" @saved="fetchSubOrders" />
     </template>
@@ -90,7 +90,7 @@
       </el-table-column>
       <el-table-column label="完整路径" min-width="340"><template #default="{row}"><span class="copyable-order-path">{{ row.networkFilePath || '-' }}</span><el-button v-if="row.networkFilePath" link @click="copyPath(row.networkFilePath)">复制</el-button></template></el-table-column>
       <el-table-column prop="languagePair" label="翻译方向" min-width="120" />
-      <el-table-column label="字数统计" min-width="220">
+      <el-table-column label="工作量统计" min-width="220">
         <template #default="{ row }">
           <div class="word-count-summary">
             <div>
@@ -101,7 +101,7 @@
               v-model="row.wordCountMatrix"
               entity-type="suborder"
               :entity-id="row.id"
-              title="子订单字数统计"
+              title="子订单工作量统计"
               @saved="fetchSubOrders"
             />
           </div>
@@ -125,9 +125,10 @@
           <el-tag :type="getStatusType(row.status)">{{ getStatusLabel(row.status) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column v-if="canWriteProjects && !deleteMode" label="操作" width="88" fixed="right" align="center">
+      <el-table-column v-if="!deleteMode" label="操作" :width="canWriteProjects ? 116 : 68" fixed="right" align="center">
         <template #default="{ row }">
-          <PrimaryEditButton @click="openEditDialog(row)" />
+          <ProjectListRowActions :editable="canWriteProjects" :show-start-request="false"
+            :extra-actions="subOrderRowActions" @edit="openEditDialog(row)" @extra-command="openOrderStructure(row)" />
         </template>
       </el-table-column>
     </el-table>
@@ -221,7 +222,7 @@
       </template>
     </DraggableFormDialog>
 
-    <SubOrderStructureDialog v-model="structureVisible" :project-id="projectId" />
+    <SubOrderStructureDialog v-model="structureVisible" :project-id="projectId" :selected-order-no="structureOrderNo" />
     <ReplaceSubOrderPathsDialog v-model="replacePathsVisible" :project-id="projectId"
       :root-path="project.networkFilePath" @saved="loadData" />
     <SubOrderBatchCreateDialog
@@ -266,7 +267,7 @@ import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
-import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
+import ProjectListRowActions from '@/components/common/ProjectListRowActions.vue'
 import InlineSubProjectName from './components/InlineSubProjectName.vue'
 import SubOrderBatchCreateDialog from './components/SubOrderBatchCreateDialog.vue'
 import ReplaceSubOrderPathsDialog from './components/ReplaceSubOrderPathsDialog.vue'
@@ -294,6 +295,12 @@ const subOrderExpandedSections = ref([])
 const batchDialogVisible = ref(false)
 const replacePathsVisible = ref(false)
 const structureVisible = ref(false)
+const structureOrderNo = ref('')
+const subOrderRowActions = [{ command: 'structure', label: '子订单结构' }]
+function openOrderStructure(row) {
+  structureOrderNo.value = row?.subOrderNo || ''
+  structureVisible.value = true
+}
 const batchDialogMode=ref('quantity')
 const inlineChanges = ref(new Map())
 const inlineSaving = ref(false)
@@ -359,7 +366,7 @@ const formatTranslatorReturnTimes = (items) => {
 const subOrderDetailItems = [
   { label: '子订单号', key: 'subOrderNo' }, { label: '文件名称', key: 'subProjectName' },
   { label: '状态', key: 'status', type: 'status' }, { label: '文件二级类型', key: 'fileTypeSecondary' }, { label: '翻译方向', key: 'languagePair' }, { label: '优先级', key: 'priority' },
-  { label: '字数统计', key: 'wordCountMatrix', formatter: formatWordCountMatrix }, { label: '客户交稿时间', key: 'customerDeadlineTime' }, { label: '发客户时间', key: 'sentToClientTime' }, { label: '客户反馈', key: 'clientFeedback', span: 2 },
+  { label: '工作量统计', key: 'wordCountMatrix', formatter: formatWordCountMatrix }, { label: '客户交稿时间', key: 'customerDeadlineTime' }, { label: '发客户时间', key: 'sentToClientTime' }, { label: '客户反馈', key: 'clientFeedback', span: 2 },
   { label: '译员分配时间', key: 'translatorAssignmentTime' }, { label: '译员回稿时间', key: 'translatorReturnTime', span: 2, formatter: (_value, row) => formatTranslatorReturnTimes(row.assignedTranslators) },
   { label: '译员交付进度', key: 'translatorDeliveryProgress' }, { label: '审校前QC', key: 'preReviewQcProgress' }, { label: '审校1', key: 'review1Progress' }, { label: '审校2', key: 'review2Progress' },
   { label: '审校后QC', key: 'postReviewQcProgress' }, { label: '排版进度', key: 'layoutProgress' }, { label: '整合进度', key: 'consolidationProgress' }, { label: '文件路径', key: 'networkFilePath', span: 2 },

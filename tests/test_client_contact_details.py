@@ -95,3 +95,29 @@ def test_multiple_contact_methods_preserve_full_details(environment):
     attach(db, clients=[owner])
     assert owner.contact_people[0]['contact_method'] == methods
     assert owner.manager_contact == '微信：example'
+
+
+def test_job_title_is_per_contact_and_older_payloads_preserve_it(environment):
+    from consultation_contacts import sync_contacts
+    from client_contact_people import ClientContactPersonJobTitle
+    from tools.apply_client_contact_job_title_migration import apply_migration
+
+    db, _ = environment
+    ClientContactPersonJobTitle.__table__.drop(db.connection())
+    apply_migration(db.connection())
+    apply_migration(db.connection())
+    owner = Client(id=uuid4(), client_code='JOB-TITLES', client_name='测试', client_short_name='测试')
+    db.add(owner)
+    db.flush()
+    contacts = [
+        ClientContactPersonInput(name='甲', job_title=' 采购经理 '),
+        ClientContactPersonInput(name='乙', job_title='法务'),
+    ]
+    replace_details(db, owner, contacts)
+    db.commit()
+    sync_contacts(db, owner.id, None, [ClientContactPersonInput(name='甲')])
+    replace_details(db, owner, [ClientContactPersonInput(name='乙'), ClientContactPersonInput(name='甲', job_title='')])
+    db.commit()
+    db.expire_all()
+    attach(db, clients=[owner])
+    assert [(person['name'], person.get('job_title')) for person in owner.contact_people] == [('乙', '法务'), ('甲', None)]
