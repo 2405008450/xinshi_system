@@ -185,7 +185,7 @@
         </el-table-column>
         <el-table-column prop="orderNoDisplay" label="订单号" width="180" />
         <el-table-column prop="projectNameDisplay" label="项目名称" min-width="220" show-overflow-tooltip />
-        <el-table-column prop="clientShortName" label="客户简称" width="140" show-overflow-tooltip />
+        <el-table-column prop="clientShortName" label="客户简称" show-sub-client width="140" show-overflow-tooltip />
         <el-table-column label="项目状态" width="120">
           <template #default="{ row }">
             <el-tag size="small" :type="getStatusType(row.projectStatus)">
@@ -230,7 +230,7 @@
         <el-descriptions v-if="currentProject" :column="2" border>
           <el-descriptions-item label="订单号">{{ currentProject.orderNo || currentProject.subOrderNo || currentProject.sub_order_no || '-' }}</el-descriptions-item>
           <el-descriptions-item :label="currentEntityType === 'suborder' ? '文件名称' : '项目名称'">{{ currentProject.projectName || currentProject.subProjectName || currentProject.sub_project_name || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="客户简称" :client-row="currentProject">{{ currentProject.clientShortName || currentProject.client_short_name || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="客户简称" show-sub-client :client-row="currentProject">{{ currentProject.clientShortName || currentProject.client_short_name || '-' }}</el-descriptions-item>
           <el-descriptions-item label="客户编号">{{ currentProject.clientCode || currentProject.client_code || '-' }}</el-descriptions-item>
           <el-descriptions-item label="项目状态">
             <el-tag :type="getStatusType(workflowState.projectStatus || currentProject.projectStatus || currentProject.project_status)" size="small">
@@ -273,7 +273,7 @@
       </el-tab-pane>
 
       <el-tab-pane label="日志记录" name="logs">
-        <AppForm :inline="true" :model="logFilters" size="small" class="log-filter-bar">
+        <AppForm data-auto-draft="off" :inline="true" :model="logFilters" size="small" class="log-filter-bar">
           <el-form-item label="类型">
             <el-select v-model="logFilters.direction" clearable placeholder="全部" style="width: 120px">
               <el-option label="推进" value="forward" />

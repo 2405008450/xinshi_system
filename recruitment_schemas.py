@@ -173,6 +173,8 @@ class RecruitmentProjectResponse(RecruitmentProjectBase):
     id: UUID
     order_no: str
     client_short_name: Optional[str] = None
+    parent_client_short_name: Optional[str] = None
+    sub_client_name: Optional[str] = None
     client_code: Optional[str] = None
     client_name: Optional[str] = None
     client_domain: Optional[str] = None

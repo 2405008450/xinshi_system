@@ -160,6 +160,45 @@ test('前台恢复立即补查会话，旧挂起请求迟到也不能覆盖新�
   assert.equal(store.mentionTotal.value, 0)
 })
 
+test('会话接口暂时繁忙时保留未读数并自动补查', async () => {
+  const h = lifecycle()
+  const timers = new Map()
+  let nextTimer = 0
+  let response = { items: [{ key: 'room', kind: 'annotation', unread: 3 }], mentionTotal: 2 }
+  let requests = 0
+  const source = readFileSync(new URL('../src/composables/useAnnotationFollowed.js', import.meta.url), 'utf8')
+  const useStore = runInNewContext(source.replace(/^import .*\r?\n/gm, '').replace('export function ', 'function ') + '\n;useAnnotationFollowed', {
+    ...h, ref, computed,
+    window: {
+      ...h.window,
+      setTimeout(fn, delay) { timers.set(++nextTimer, { fn, delay }); return nextTimer },
+      clearTimeout(id) { timers.delete(id) },
+    },
+    chatRequest: async () => { requests++; if (response instanceof Error) throw response; return response },
+    ensureConnected() {}, applySessionCategories() {},
+    useChatTopics: () => ({ refresh: async () => {} }), useProjectChatDock: () => ({ state: { windows: [] } }),
+    refreshOpenAnnotationStatuses: async () => { throw new Error('项目信息请求失败') },
+  })
+  const store = useStore()
+  h.mounts.forEach(fn => fn())
+  await flush()
+  assert.equal(store.mentionTotal.value, 2)
+  assert.equal(store.error.value, '')
+  response = Object.assign(new Error('服务繁忙'), { response: { status: 503, headers: { 'retry-after': '2' } } })
+  await store.refresh()
+  assert.equal(store.mentionTotal.value, 2)
+  assert.equal(store.error.value, '')
+  const [retry] = timers.values()
+  assert.equal(retry.delay, 2000)
+  response = { items: [], mentionTotal: 0 }
+  retry.fn()
+  await flush()
+  assert.equal(requests, 3)
+  assert.equal(store.mentionTotal.value, 0)
+  assert.equal(store.error.value, '')
+  h.unmounts.forEach(fn => fn())
+})
+
 test('恢复补查未读提醒，忽略旧响应并避免实时事件和补查重复弹窗', async () => {
   const h = lifecycle(), displayed = []
   const source = readFileSync(new URL('../src/composables/useChatNotifications.js', import.meta.url), 'utf8')

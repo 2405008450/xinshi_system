@@ -1,7 +1,7 @@
 <template>
   <el-card class="project-customer-finance" shadow="never">
     <template #header><div class="finance-heading"><strong>{{moduleLabel}}</strong><TableColumnSettings v-model="selectedKeys" :settings-key="`${module}-customer-finance`" :columns="columns" @reset="resetColumns" /></div></template>
-    <AppForm :model="filters" inline @submit.prevent="search"><el-form-item label="关键词"><el-input v-model="filters.keyword" clearable placeholder="订单号、项目名称、客户名称" @input="queueSearch" @keyup.enter="search" /></el-form-item><el-form-item><el-button type="primary" @click="search">查询</el-button><el-button @click="reset">重置</el-button></el-form-item></AppForm>
+    <AppForm data-auto-draft="off" :model="filters" inline @submit.prevent="search"><el-form-item label="关键词"><el-input v-model="filters.keyword" clearable placeholder="订单号、项目名称、客户名称" @input="queueSearch" @keyup.enter="search" /></el-form-item><el-form-item><el-button type="primary" @click="search">查询</el-button><el-button @click="reset">重置</el-button></el-form-item></AppForm>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-table v-loading="loading" :data="rows" border row-key="id">
       <el-table-column type="index" label="序号" width="64" :index="index=>(page-1)*limit+index+1" />

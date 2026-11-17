@@ -48,7 +48,7 @@ import {taxPriceSummary} from '@/utils/taxPrices'
 import {annotationProjectTypeOptions} from '@/utils/annotationCatalog'
 import {settlementUnitOptions,settlementLabel} from '@/utils/talentSettlement'
 import {resolvedBasisLabel} from '@/utils/translationQuantityBasis'
-const props=defineProps({module:{type:String,required:true},clientId:{type:[String,Number],default:''},revision:{type:Number,default:0},disabled:Boolean})
+const props=defineProps({module:{type:String,required:true},subClientId:String,clientId:{type:[String,Number],default:''},revision:{type:Number,default:0},disabled:Boolean})
 const emit=defineEmits(['saved'])
 const canWriteProjects=hasPermission('projects:write'),canWriteClients=hasPermission('clients:write')
 const visible=ref(false),items=ref([]),page=ref(1),total=ref(0),loading=ref(false),busy=ref(false),error=ref(''),ready=ref(true)
@@ -100,7 +100,7 @@ async function load(){
   loading.value=true
   error.value=''
   try{
-    const data=await getCustomerRateDifferences(props.module,props.clientId,page.value,controller.signal)
+    const data=await getCustomerRateDifferences(props.module,props.clientId,page.value,controller.signal,props.subClientId)
     if(seq!==sequence)return
     items.value=data.items
     total.value=data.total
@@ -116,11 +116,11 @@ async function load(){
     if(seq===sequence)loading.value=false
   }
 }
-async function synchronize(row,direction){if(busy.value||props.disabled)return;const message=direction==='project_to_client'?(props.module==='annotation'?`确认将订单 ${row.order_no} 的这条单价引入客户资料？同类型、货币和单位的现有客户单价将更新，项目原报价保留。`:`确认将订单 ${row.order_no} 的以下单价同步至客户信息？客户价格变更会自动下发至仍沿用原价的项目。`):`确认以客户信息中的以下单价更新订单 ${row.order_no}？`;
+async function synchronize(row,direction){if(busy.value||props.disabled)return;const message=direction==='project_to_client'?(props.module==='annotation'?`确认将订单 ${row.order_no} 的这条单价引入客户资料？同类型、货币和单位的现有客户单价将更新，项目原报价保留。`:`确认将订单 ${row.order_no} 的以下单价同步至${props.subClientId?'子客户':'客户'}参考价？匹配的项目会按参考价规则自动更新。`):`确认以${props.subClientId?'子客户':'客户'}参考价更新订单 ${row.order_no}？`;
   try{await ElMessageBox.confirm(`${message}\n\n${describe(direction==='project_to_client'?row.project_rates:row.customer_rates)}`,'确认同步单价',{type:'warning',confirmButtonText:'确认同步',cancelButtonText:'取消'})}catch{return}
-  busy.value=true;try{await synchronizeCustomerRates(props.module,props.clientId,{project_id:row.project_id,order_id:row.order_id,version:row.version,customer_version:row.customer_version,direction,confirmed:true});ElMessage.success(props.module==='annotation'?'项目单价已引入客户资料':'单价已同步并保留调整记录');await load();emit('saved')}catch(e){error.value=getLocalizedErrorMessage(e,'同步失败，请刷新差异后重新确认')}finally{busy.value=false}}
+  busy.value=true;try{await synchronizeCustomerRates(props.module,props.clientId,{project_id:row.project_id,order_id:row.order_id,version:row.version,customer_version:row.customer_version,direction,confirmed:true,...(props.module==='translation'?{sub_client_id:props.subClientId||null}:{})});ElMessage.success(props.module==='annotation'?'项目单价已引入客户资料':'单价已同步并保留调整记录');await load();emit('saved')}catch(e){error.value=getLocalizedErrorMessage(e,'同步失败，请刷新差异后重新确认')}finally{busy.value=false}}
 function close(done){if(busy.value)return;if(typeof done==='function')done();else visible.value=false}
-watch(()=>[props.clientId,props.module,props.revision],()=>{page.value=1;void load()},{immediate:true})
+watch(()=>[props.clientId,props.subClientId,props.module,props.revision],()=>{page.value=1;void load()},{immediate:true})
 watch(()=>[props.clientId,props.module,visible.value],()=>expansionOverrides.value.clear())
 function refreshTranslation(event){
   if(props.module==='translation'&&event.detail?.clientId===String(props.clientId))void load()

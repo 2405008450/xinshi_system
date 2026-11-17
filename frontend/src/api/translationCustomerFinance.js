@@ -11,9 +11,12 @@ export function customerFinanceSort({ prop, order }) {
 }
 export const getFinanceManagerOptions=(config={})=>api.get('/translation-customer-finance/manager-options',config).then(camel)
 export const getCustomerFinanceProject=(id,config)=>api.get(`/translation-customer-finance/project/${id}`,config).then(camel)
+export const getSubClientPeriodProjects=(id,signal)=>api.get(`/translation-customer-finance/project/${id}/sub-client-period-projects`,{signal}).then(camel)
 export const getProjectInvoiceScope=(id,config)=>api.get(`/translation-customer-finance/project/${id}/invoice-scope`,config).then(camel)
 export const getSubClientFinancePreferences=(id,config)=>api.get(`/translation-customer-finance/sub-clients/${id}/preferences`,config)
 export const saveSubClientFinancePreferences=(id,data)=>api.put(`/translation-customer-finance/sub-clients/${id}/preferences`,data)
+export const getSubClientSettlementParty=(id,params,signal)=>api.get(`/translation-customer-finance/sub-clients/${id}/settlement-party`,{params,signal})
+export const saveSubClientSettlementParty=(id,data)=>api.put(`/translation-customer-finance/sub-clients/${id}/settlement-party`,data)
 export async function saveSpecialSettlement(id,data){
   const result=await api.put(`/translation-customer-finance/project/${id}/special-settlement`,data)
   notifyInvoiceParties({kind:'special-settlement',projectId:id})
@@ -26,9 +29,9 @@ export const getStatementCustomers=(params,config={})=>api.get('/translation-cus
 export const saveCustomerFinanceProject=(id,data)=>api.put(`/translation-customer-finance/project/${id}`,data,
   data.payment_draft!=null||data.payment_confirmation!=null?{timeout:30000}:undefined).then(camel)
 export const confirmProjectPayment=(id,data)=>api.post(`/translation-payments/${id}/confirm`,data).then(camel)
-export const getCustomerTranslationRates=id=>api.get(`/customer-translation-rates/${id}`).then(camel)
-export const saveCustomerTranslationRates=(id,data)=>api.put(`/customer-translation-rates/${id}`,data).then(camel)
-export const getCustomerTranslationRateHistory=(id,params={})=>api.get(`/customer-translation-rates/${id}/history`,{params}).then(camel)
+export const getCustomerTranslationRates=(id,config)=>api.get(`/customer-translation-rates/${id}`,config).then(camel)
+export const saveCustomerTranslationRates=(id,data,config)=>api.put(`/customer-translation-rates/${id}`,data,config).then(camel)
+export const getCustomerTranslationRateHistory=(id,params={},config={})=>api.get(`/customer-translation-rates/${id}/history`,{...config,params:{...config.params,...params}}).then(camel)
 export const getTranslationFinanceHistory=(id,params={},config={})=>api.get(`/translation-customer-finance/project/${id}/history`,{...config,params}).then(camel)
 export const previewSameMonthPrices=(id,data)=>api.post(`/translation-customer-finance/project/${id}/sync-orders/preview`,data).then(camel)
 export const applySameMonthPrices=(id,data)=>api.post(`/translation-customer-finance/project/${id}/sync-orders/apply`,data).then(camel)

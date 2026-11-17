@@ -1,6 +1,6 @@
 <template>
   <section>
-    <AppForm :model="filters" inline @submit.prevent="refresh">
+    <AppForm data-auto-draft="off" :model="filters" inline @submit.prevent="refresh">
       <el-form-item label="账单月份"><el-date-picker v-model="filters.month" type="month" value-format="YYYY-MM" :clearable="false" style="width:160px" @change="refresh" /></el-form-item>
       <el-form-item v-if="settlementScope" label="账期"><StatementPeriodSelect v-model="filters.period" :month="filters.month" :settlement-scope="settlementScope" /></el-form-item>
       <el-form-item label="客户分类"><el-radio-group v-model="filters.mode"><el-radio-button value="required">{{special?'特殊结算客户':'需对账单客户'}}</el-radio-button><el-radio-button value="optional">{{special?'非特殊结算客户':'无需对账单客户'}}</el-radio-button><el-radio-button value="both">并列打开</el-radio-button></el-radio-group></el-form-item>

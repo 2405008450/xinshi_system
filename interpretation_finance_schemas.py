@@ -15,6 +15,7 @@ class InterpretationSettlement(BaseModel):
 
     billing_month: str | None = Field(default=None, pattern=r'^\d{4}-(0[1-9]|1[0-2])$')
     tax_basis: Literal['excl_tax', 'incl_tax', 'legacy'] = 'legacy'
+    pricing_mode: Literal['time', 'fixed'] = 'time'
     payment_method: PaymentMethod = 'individual'
     payment_status: Literal['unrecorded', 'deposit', 'partial', 'full'] = 'unrecorded'
     payments: list['InterpretationReceipt'] = Field(default_factory=list, max_length=100)
@@ -73,6 +74,7 @@ class FinanceWrite(StrictInput):
     has_overtime: bool = False
     overtime: Money | None = None
     adjusted_totals: list[Money] = Field(default_factory=list, max_length=20)
+    fixed_totals: list[Money] = Field(default_factory=list, max_length=20)
     explanation: str = Field(default='', max_length=5000)
     settlement: InterpretationSettlement | None = None
     update_library: bool = False
@@ -85,9 +87,12 @@ class FinanceWrite(StrictInput):
             raise ValueError('有加班费时请填写总加班费')
         if not self.has_overtime:
             self.overtime = None
-        currencies = [row.currency for row in self.adjusted_totals]
-        if len(set(currencies)) != len(currencies):
-            raise ValueError('每种货币只能填写一个调整后总价')
+        for rows, label in ((self.adjusted_totals, '调整后总价'), (self.fixed_totals, '固定收费')):
+            currencies = [row.currency for row in rows]
+            if len(set(currencies)) != len(currencies):
+                raise ValueError(f'每种货币只能填写一个{label}')
+        if self.settlement and self.settlement.pricing_mode == 'fixed' and not self.fixed_totals:
+            raise ValueError('请至少填写一项固定收费')
         return self
 
 
@@ -105,6 +110,20 @@ class InterpretationQuotation(QuotationDraft):
 class InterpretationQuotationWrite(StrictInput):
     revision: int = Field(ge=0)
     document: InterpretationQuotation
+
+
+class InterpretationInvoice(StrictInput):
+    invoice_status: Literal['unissued', 'partial', 'issued'] = 'unissued'
+    proofs: str = Field(default='', max_length=20000)
+
+
+class InterpretationInvoiceWrite(InterpretationInvoice):
+    revision: int = Field(ge=0)
+
+
+class InterpretationSettlementModeWrite(StrictInput):
+    revision: int = Field(ge=0)
+    mode: Literal['individual', 'monthly', 'sub_client', 'special']
 
 
 class InterpretationProjectFinanceDraft(FinanceWrite):

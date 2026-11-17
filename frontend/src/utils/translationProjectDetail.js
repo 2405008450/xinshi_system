@@ -45,7 +45,7 @@ export const translationProjectDetailItems = [
   { label: '任务类型', key: 'taskType', editable: true, maxlength: 50 },
   { label: '来源咨询 ID', key: 'consultationId' },
   { label: '客户全称', key: 'clientName' },
-  { label: '客户简称', key: 'clientShortName' },
+  { label: '客户简称', key: 'clientShortName', showSubClient: true },
   { label: '客户编号', key: 'clientCode' },
   { label: '子客户全称', key: 'subClientName' },
   { label: '子客户简称', key: 'subClientShortName' },

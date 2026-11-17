@@ -88,6 +88,11 @@ def apply_settings(node, settings, parent=None):
     defaults = parent or {}
     tax = override.get('tax_mode', defaults.get('tax_mode'))
     required = override.get('statement_required', defaults.get('statement_required'))
+    if node.get('sub_client_id') and node.get('settlement_party') == 'client':
+        tax = node.get('effective_billing_tax_mode')
+        required = node['statement_required']
+    elif node.get('sub_client_statement_required') is not None:
+        required = node['sub_client_statement_required']
     selected_tax = tax or node.get('effective_billing_tax_mode')
     node['special_tax_mode'] = selected_tax
     node['special_invoice_status'] = override.get('invoice_status', 'unissued')
@@ -96,6 +101,8 @@ def apply_settings(node, settings, parent=None):
     if required is not None:
         node['statement_required'] = required
     node['invoice_required'] = selected_tax == 'incl_tax' if selected_tax in ('incl_tax', 'excl_tax') else None
+    if node.get('sub_client_invoice_required') is not None:
+        node['invoice_required'] = node['sub_client_invoice_required']
     for child in node['children']:
         apply_settings(child, settings, {'tax_mode': tax, 'statement_required': required})
     if node.get('price_aggregate'):

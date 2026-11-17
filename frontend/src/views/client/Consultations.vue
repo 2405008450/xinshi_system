@@ -20,7 +20,7 @@
       </div>
     </template>
 
-    <AppForm :inline="true" :model="searchForm" class="search-form project-list-search-form">
+    <AppForm data-auto-draft="off" :inline="true" :model="searchForm" class="search-form project-list-search-form">
       <div class="project-list-primary-filters">
         <el-form-item label="关键词" class="project-list-keyword-filter">
           <el-input

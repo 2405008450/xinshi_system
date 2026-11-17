@@ -36,7 +36,7 @@
 
     <ProjectArrangementLayout v-if="!props.editorOnly" v-model="arrangementPeople" :enabled="arrangementMode" :can-write="canWriteProjects">
     <ArrangementFilterToolbar v-if="arrangementMode" v-model:excluded="excludedArrangementStatuses" v-model:reception="searchForm.customerReceptionTime" v-model:deadline="searchForm.customerDeadlineTime" v-model:column-keys="arrangementColumnKeys" :statuses="projectStatusOptions" :columns="arrangementColumns" @reset-columns="resetArrangementColumns" @search="handleSearch" />
-    <AppForm :inline="true" :model="searchForm" class="search-form project-list-search-form">
+    <AppForm data-auto-draft="off" :inline="true" :model="searchForm" class="search-form project-list-search-form">
       <div class="project-list-primary-filters">
         <el-form-item label="关键词" class="project-list-keyword-filter">
           <el-input v-model="searchForm.keyword" placeholder="母/子订单号、项目名称、文件名称、客户名称或客户单号" clearable @input="handleTextSearch" @keyup.enter="handleSearch" />
@@ -226,6 +226,7 @@
         :key="column.key"
         :prop="column.key"
         :label="column.label"
+        show-sub-client
         :width="column.width"
         :min-width="column.minWidth"
         :show-overflow-tooltip="column.key !== 'sourceFileName' && column.showOverflowTooltip !== false"
@@ -353,7 +354,7 @@
                   </el-row>
                   <el-row :gutter="16">
                     <el-col :xs="24" :md="12">
-                      <el-form-item label="客户简称" prop="clientShortName" data-field-key="clientShortName">
+                      <el-form-item label="客户简称" show-sub-client prop="clientShortName" data-field-key="clientShortName">
                         <div class="client-autocomplete-field">
                           <el-autocomplete
                             v-model="form.clientShortName"
@@ -1416,7 +1417,7 @@ const tableColumnOverrides = {
   sourceFileName: { minWidth: PROJECT_LIST_COLUMN_WIDTHS.projectName },
   serviceContent: { minWidth: 96 },
   taskType: { minWidth: 110 },
-  clientShortName: { minWidth: PROJECT_LIST_COLUMN_WIDTHS.clientShortName },
+  clientShortName: { minWidth: 180 },
   subClientShortName: { minWidth: PROJECT_LIST_COLUMN_WIDTHS.clientShortName },
   clientCode: { minWidth: 100 },
   subClientCode: { minWidth: 120 },

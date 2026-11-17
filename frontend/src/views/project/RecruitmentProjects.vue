@@ -13,7 +13,7 @@
       </div>
     </template>
 
-    <AppForm :inline="true" :model="searchForm" class="search-form project-list-search-form">
+    <AppForm data-auto-draft="off" :inline="true" :model="searchForm" class="search-form project-list-search-form">
       <div class="project-list-primary-filters">
         <el-form-item label="关键词" class="project-list-keyword-filter"><el-input v-model="searchForm.keyword" clearable placeholder="订单号、项目名称、客户名称或客户单号" @input="handleTextSearch" @keyup.enter="handleSearch" /></el-form-item>
         <el-form-item label="项目状态" class="project-list-status-filter"><el-select v-model="searchForm.projectStatus" multiple collapse-tags :max-collapse-tags="1" clearable placeholder="全部" @change="handleSearch"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
@@ -30,7 +30,7 @@
 <OrderedTableColumns settings-key="recruitment-projects">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center"><template #default="{ $index }">{{ (pagination.page - 1) * pagination.limit + $index + 1 }}</template></el-table-column>
-      <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :label="column.label" :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="column.key !== 'projectName' && column.tooltip !== false">
+      <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :label="column.label" show-sub-client :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="column.key !== 'projectName' && column.tooltip !== false">
         <template #header>
           <ConfiguredColumnHeaderFilter v-if="headerFilterDefinition(column.key)" :definition="headerFilterDefinition(column.key)" :model-value="searchForm[headerFilterDefinition(column.key).key]" @update:model-value="searchForm[headerFilterDefinition(column.key).key]=$event" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch">
             <template #label><ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" /><span v-else>{{ column.label }}</span></template>
@@ -131,7 +131,7 @@
         <AppForm number-scope="recruitment" number-field="orderNo" :number-active="editorVisible && !form.id"  ref="formRef" :model="form" :rules="rules" label-width="140px" class="recruitment-form">
           <div class="form-section project-key-fields"><div class="project-key-fields__header"><div><h3>关键必填信息</h3><p>请优先完成以下内容，再补充其余项目资料。</p></div><el-tag type="danger" effect="plain">请完成必填项</el-tag></div>
             <el-row :gutter="16"><el-col :xs="24" :md="12">
-                <el-form-item label="客户简称" prop="clientShortName" data-field-key="clientShortName">
+                <el-form-item label="客户简称" show-sub-client prop="clientShortName" data-field-key="clientShortName">
                   <div class="client-autocomplete-field">
                     <el-autocomplete v-model="form.clientShortName" :fetch-suggestions="fetchClientSuggestions" value-key="client_short_name" placeholder="选择已有客户，或直接输入新客户简称" clearable :debounce="300" :trigger-on-focus="true" style="width:100%" @select="handleClientSelect" @input="handleClientShortNameInput" @clear="clearSelectedClient">
                       <template #default="{ item }">
@@ -450,7 +450,7 @@ const tableColumns = [
   {key:'headcount',label:'招聘人数',width:78},
   {key:'clientManagerName',label:'现客户经理',width:92},
   {key:'projectStatus',label:'项目状态',width:PROJECT_LIST_COLUMN_WIDTHS.projectStatus},
-  {key:'clientShortName',label:'客户简称',minWidth:PROJECT_LIST_COLUMN_WIDTHS.clientShortName,clickHint:'点击客户简称查看关联信息'},
+  {key:'clientShortName',label:'客户简称',minWidth:180,clickHint:'点击客户简称查看关联信息'},
   {key:'clientCode',label:'客户编号',width:96},
   {key:'clientName',label:'客户全称',minWidth:135},
   {key:'clientDomain',label:'客户领域',width:110},
@@ -564,7 +564,7 @@ const resetSearch = () => { searchForm.keyword='';resetFilterModel(searchForm,re
 const clearAdvanced = () => { resetFilterModel(searchForm,recruitmentAdvancedFilterFields);handleSearch() }
 const handleSizeChange = () => { pagination.page=1; fetchData() }
 
-const emptyForm = () => ({...emptyProjectContactDetails(),id:'',orderNo:'',projectName:'',jobDescription:'',positionTitle:'',headcountMin:null,headcountMax:null,projectStatus:'pending_setup',clientId:'',subClientId:'',clientSelection:'',clientShortName:'',clientCode:'',clientName:'',clientDomain:'',contactName:'',customerOrderNo:'',clientManagerId:localStorage.getItem('user_id')||'',clientManagerChangeReason:'',managerContact:'',targetOnboardType:'date',targetOnboardDate:'',employmentRange:[],workLocation:'',serviceFeeType:'',serviceFeeCurrency:'CNY',serviceFeeAmount:null,taxPrices:taxPriceForm(),serviceFeeRate:null,serviceFeeMultiplier:null,serviceFeeNote:'',customerConsultationTime:'',customerConfirmationTime:'',projectPath:'',quotationPath:'',contractPath:'',remarks:'',subjectPrefix:'',emailSubjectPreview:'',socialPostRequest:'',resourceRequest:'',languageDirections:[],roleAssignments:[]})
+const emptyForm = () => ({...emptyProjectContactDetails(),id:'',orderNo:'',projectName:'',jobDescription:'',positionTitle:'',headcountMin:null,headcountMax:null,projectStatus:'pending_setup',clientId:'',subClientId:'',parentClientShortName:'',subClientName:'',clientSelection:'',clientShortName:'',clientCode:'',clientName:'',clientDomain:'',contactName:'',customerOrderNo:'',clientManagerId:localStorage.getItem('user_id')||'',clientManagerChangeReason:'',managerContact:'',targetOnboardType:'date',targetOnboardDate:'',employmentRange:[],workLocation:'',serviceFeeType:'',serviceFeeCurrency:'CNY',serviceFeeAmount:null,taxPrices:taxPriceForm(),serviceFeeRate:null,serviceFeeMultiplier:null,serviceFeeNote:'',customerConsultationTime:'',customerConfirmationTime:'',projectPath:'',quotationPath:'',contractPath:'',remarks:'',subjectPrefix:'',emailSubjectPreview:'',socialPostRequest:'',resourceRequest:'',languageDirections:[],roleAssignments:[]})
 const form = reactive(emptyForm()); const formRef=ref(); const editorBodyRef=ref(); const editorVisible=ref(false); const jobDescriptionEditorVisible=ref(false); const saving=ref(false); const nameLoading=ref(false); const nameManuallyEdited=ref(false); const editorTitle=computed(()=>form.id?'编辑招聘项目':'新增招聘项目')
 const { beginDraft, pauseDraft, clearDraft } = useFormDraft({ namespace:'recruitment-project', form, createDefault:emptyForm, formRef, applyDraft:(draft)=>{Object.assign(form,emptyForm(),draft);nameManuallyEdited.value=Boolean(draft.projectName)} })
 const showManagerContactInput=computed(() => !form.clientId && Boolean(form.clientShortName?.trim() || form.clientName?.trim()))
@@ -582,6 +582,8 @@ const fetchClientSuggestions = fetchProjectClientSuggestions
 const handleClientSelect = (item) => {
   Object.assign(form, {
     clientId:item?.parent_client_id||item?.id||'',subClientId:item?.sub_client_id||'',
+    parentClientShortName:item?.parent_client_short_name||'',
+    subClientName:item?.sub_client_id ? item.client_name || '' : '',
     clientShortName:item?.client_short_name||'',clientCode:item?.client_code||'',
     clientName:item?.client_name||'',clientDomain:item?.client_domain||'',
     managerContact:item?.manager_contact||'',
@@ -589,11 +591,11 @@ const handleClientSelect = (item) => {
 }
 const handleClientShortNameInput = () => {
   const hadSelectedClient=Boolean(form.clientId||form.subClientId)
-  Object.assign(form,{clientId:'',subClientId:'',clientCode:'',clientDomain:'',managerContact:''})
+  Object.assign(form,{clientId:'',subClientId:'',parentClientShortName:'',subClientName:'',clientCode:'',clientDomain:'',managerContact:''})
   if(hadSelectedClient)form.clientName=''
 }
 const clearSelectedClient = () => {
-  Object.assign(form,{clientId:'',subClientId:'',clientShortName:'',clientCode:'',clientName:'',clientDomain:'',managerContact:''})
+  Object.assign(form,{clientId:'',subClientId:'',parentClientShortName:'',subClientName:'',clientShortName:'',clientCode:'',clientName:'',clientDomain:'',managerContact:''})
 }
 const resetForm = () => { jobDescriptionEditorVisible.value=false; Object.assign(form,emptyForm()); nameManuallyEdited.value=false; namePreviewRequestId+=1; formRef.value?.clearValidate(); clearFieldSearch() }
 const onEditorClosed = () => { pauseDraft(); resetForm() }

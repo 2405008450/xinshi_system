@@ -1,6 +1,6 @@
 <template>
   <span v-if="row.rootId&&row.id!==row.rootId" class="statement-inherited">{{row.paymentMethod==='special'?'':'随母订单：'}}{{row.statementRequired?'需':'无需'}}</span>
-  <span v-else-if="row.paymentMethod && row.paymentMethod!=='special'" title="随计费口径自动确定">{{row.statementRequired?'需':'无需'}}</span>
+  <span v-else-if="!usesSubClientDocumentSettings(row) && (row.subClientId || row.paymentMethod && row.paymentMethod!=='special')" title="按结算设置或计费口径确定">{{row.statementRequired?'需':'无需'}}</span>
   <el-checkbox v-else v-model="checked" :disabled="!canWrite||saving" :aria-label="`${row.orderNo} 是否需对账单`" @change="save">{{saving?'保存中':row.statementRequired?'需':allowMonthSync?'不需':'无需'}}</el-checkbox>
 </template>
 <script setup>
@@ -10,6 +10,8 @@ import {hasPermission} from '@/utils/permission'
 import {setProjectStatementRequired} from '@/api/translationCustomerFinance'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import {confirmStatementRequirement,notifyStatementCustomerSync} from '@/utils/confirmStatementRequirement'
+import {usesSubClientDocumentSettings} from '@/utils/documentRequirements'
+import {notifyInvoiceParties} from '@/api/invoiceParties'
 const props=defineProps({row:Object,month:String,prepare:Function,allowMonthSync:{type:Boolean,default:true}})
 const emit=defineEmits(['saved'])
 const canWrite=hasPermission('projects:write'),saving=ref(false)
@@ -21,10 +23,12 @@ async function save(value){
   try{
     if(props.prepare&&!await props.prepare())return ElMessage.warning('有单元格尚未保存，请先处理提示')
     const row=props.row
-    const confirmation=await confirmStatementRequirement({projectId:row.id,value,allowMonthSync:props.allowMonthSync,syncCustomerDefault:false})
+    const subClient=usesSubClientDocumentSettings(row)
+    const confirmation=subClient?{}:await confirmStatementRequirement({projectId:row.id,value,allowMonthSync:props.allowMonthSync,syncCustomerDefault:false})
     if(!confirmation || props.row.id!==row.id)return
     const data=await setProjectStatementRequired(row.id,{statement_required:value,expected_statement_required:row.statementRequired,expected_updated_at:row.updatedAt||null,statement_sync:confirmation.scope,statement_customer_sync:confirmation.customerScope})
     emit('saved',data)
+    if(subClient)notifyInvoiceParties({kind:'sub-client-finance',clientId:row.clientId,subClientId:row.subClientId})
     window.dispatchEvent(new CustomEvent('translation-statements-changed',{
       detail:{projectId:row.id,syncScope:confirmation.scope||confirmation.customerScope},
     }))

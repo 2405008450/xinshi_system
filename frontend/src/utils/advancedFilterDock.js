@@ -14,7 +14,7 @@ export function createAdvancedFilterDock({root,anchor,scope='',onChange=()=>{}})
   const key=filterDockStorageKey(location.pathname,moduleScope,localStorage.getItem('user_id')||localStorage.getItem('user_name'))
   let pinned=new Set(readDockKeys(localStorage,key)),editing=false,dragged=null,pointerDrag=null
   const records=new Map(),host=document.createElement('div'),hint=document.createElement('span')
-  host.className='advanced-filter-pinned-row';host.setAttribute('aria-label','常用筛选')
+  host.className='advanced-filter-pinned-row';host.setAttribute('aria-label','常用筛选');host.setAttribute('data-auto-draft','off')
   hint.className='advanced-filter-drop-hint';hint.textContent='将高级筛选项拖到这里，设为常用条件'
   host.append(hint)
   // 放在查询按钮前，同一查询栏可自动换行。

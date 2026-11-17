@@ -134,6 +134,41 @@ def test_project_picker_month_ranges_clamp_month_end():
     with pytest.raises(HTTPException):picker.order_date_range('invalid')
 
 
+def test_project_picker_filters_manager_roles_and_status_before_pagination(environment):
+    from uuid import uuid4
+    from annotation_models import AnnotationProject
+    from models import TranslationProject
+    from workflow_models import ProjectWorkbenchResponsibility
+    import report_project_picker as picker
+
+    db, (owner, member, outsider) = environment
+    owner.full_name = '刘经理'
+    translation = TranslationProject(id=uuid4(), order_no='TP-FILTER', project_manager_id=owner.id,
+                                     project_status='pending')
+    annotation = AnnotationProject(id=uuid4(), order_no='AP-FILTER', project_name='标注文稿',
+                                   project_status='project_in_progress')
+    db.add_all([translation, annotation])
+    db.flush()
+    db.add_all([
+        ProjectWorkbenchResponsibility(id=uuid4(), annotation_project_id=annotation.id,
+                                       role_code='project_manager', assignee_id=person.id)
+        for person in (owner, member)
+    ])
+    db.add(ProjectWorkbenchResponsibility(id=uuid4(), annotation_project_id=annotation.id,
+                                           role_code='project_specialist', assignee_id=outsider.id))
+    db.commit()
+
+    result = picker.search(db, '笔译项目', '', 1, 10, manager_keyword='经理 OWNER',
+                           project_status='pending_confirmation')
+    assert result['total'] == 1
+    assert result['items'][0]['project_status'] == 'pending_confirmation'
+    result = picker.search(db, '标注项目', '', 1, 1, manager_keyword='member', project_status='project_in_progress')
+    assert result['total'] == 1
+    assert set(result['items'][0]['project_manager_names']) == {'刘经理', 'member'}
+    assert picker.search(db, '标注项目', '', 1, 1, manager_keyword='outsider')['total'] == 0
+    assert picker.search(db, '标注项目', '', 1, 1, manager_keyword='member', project_status='paused')['total'] == 0
+
+
 def test_review_scope_applies_to_self_filled_tasks(environment):
     import work_report_access as access
     db,(owner,member,outsider)=environment

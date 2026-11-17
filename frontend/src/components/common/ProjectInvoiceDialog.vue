@@ -2,9 +2,9 @@
   <component :is="inline ? InlineInvoice : DraggableFormDialog" :model-value="modelValue" class="project-invoice-dialog" width="min(800px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close :close-on-click-modal="false" :before-close="beforeClose" @update:model-value="$emit('update:modelValue',$event)">
     <template v-if="!compactOrder" #header>
       <DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword"
-        :title="mergedInvoice || context.merged ? '发票 · 多单合并结算' : `发票 · ${display.orderNo||''}${context.level ? `（${context.level}）` : ''}`" copyable-title
+        :title="mergedInvoice || context.merged ? `发票 · ${mergedSettlementLabel}` : `发票 · ${display.orderNo||''}${context.level ? `（${context.level}）` : ''}`" copyable-title
         :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch">
-        <template v-if="display.clientName && display.clientName!=='-'" #actions>
+        <template v-if="!mergedInvoice && !context.merged && display.clientName && display.clientName!=='-'" #actions>
           <span class="invoice-header-client">客户 {{ display.clientName }}</span>
         </template>
       </DialogFieldSearchHeader>
@@ -12,8 +12,8 @@
     <div ref="body" v-loading="loading">
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
       <CustomerInvoiceProfile v-if="info.clientId && !requestId && !compactOrder"
-        :client-id="info.clientId" :can-write="canWriteClient" collapsible default-collapsed />
-      <section v-if="mergedInvoice" class="invoice-merged-summary">
+        :client-id="info.clientId" :sub-client-id="info.subClientId" :can-write="canWriteClient" collapsible default-collapsed />
+      <section v-if="mergedInvoice && modelValue" :key="context.projectId" class="invoice-merged-summary">
         <h4>合并开票金额 <strong>{{ formatTotals(mergedScope.invoiceTotals) }}</strong></h4>
         <el-alert v-if="mergedScope.items.some(row=>row.invoiceRequired && !row.hasInvoiceAmount)"
           type="warning" :closable="false" title="部分需开票订单缺少含税金额，合计仅包含已填写的金额。" />
@@ -70,7 +70,7 @@
       <InvoiceChildOrderSummary v-if="modelValue && context.order && !requestId && !mergedInvoice && !compactOrder && invoiceScopeAvailable" :key="context.order.id" :order="context.order" :special="special" />
       <details v-if="info.clientId && !requestId && !compactOrder" :key="context.orderId" class="invoice-records-disclosure">
         <summary>客户项目开票记录</summary>
-        <CustomerInvoiceRecords :client-id="info.clientId" :settlement-scope="special?'special':'standard'" :allow-open="false" hide-heading />
+        <CustomerInvoiceRecords :client-id="info.clientId" :sub-client-id="info.subClientId" :settlement-scope="special?'special':'standard'" :allow-open="false" hide-heading />
       </details>
     </div>
     <template #footer>
@@ -97,8 +97,9 @@ import ScreenshotInput from './ScreenshotInput.vue'
 import CustomerInvoiceProfile from './CustomerInvoiceProfile.vue'
 import CustomerInvoiceRecords from './CustomerInvoiceRecords.vue'
 import InvoiceChildOrderSummary from './InvoiceChildOrderSummary.vue'
-import {notifyInvoiceParties} from '@/api/invoiceParties'
+import {connectInvoiceParties, invoicePartiesEvent, notifyInvoiceParties} from '@/api/invoiceParties'
 import {screenshotIds} from '@/utils/screenshotReferences'
+import {translationSettlementModeLabels} from '@/utils/settlementModes'
 const props=defineProps({modelValue:Boolean,context:{type:Object,default:()=>({})},requestId:String,canDeliver:Boolean,readonly:Boolean,inline:Boolean,persistentInline:Boolean,compactOrder:Boolean,special:Boolean})
 const emit=defineEmits(['update:modelValue','saved','invoice-scope-loaded'])
 const InlineInvoice=defineComponent({
@@ -135,6 +136,7 @@ const camel=data=>Object.fromEntries(Object.entries(data).map(([key,value])=>[ke
 const financePreview=ref(null)
 const display=computed(()=>({...info.value,...props.context.preview,...financePreview.value}))
 const mergedScope=ref(null),scopeError=ref(''),scopeRefresh=ref(0)
+const mergedSettlementLabel=computed(()=>translationSettlementModeLabels[mergedScope.value?.settlementMode || props.context.order?.paymentMethod]||translationSettlementModeLabels.monthly)
 const mergedInvoice=computed(()=>props.inline&&!props.compactOrder&&!!mergedScope.value?.merged)
 const invoiceScopeAvailable=computed(()=>props.special||!props.inline||!props.persistentInline||props.compactOrder||!props.context.projectId||mergedScope.value!==null)
 const openedMergedOrders=reactive(new Set()),mergedEditors=new Map()
@@ -233,8 +235,31 @@ function refreshFinancePreview(event){
   if(order)financePreview.value={required:order.invoiceRequired,totals:order.billingTotals,priceDetails:order}
 }
 window.addEventListener('translation-statements-changed',refreshFinancePreview)
+let settingsRequest
+async function refreshSubClientSettings(event){
+  if(!props.modelValue || props.requestId || !props.context.projectId || event.detail?.kind!=='sub-client-finance')return
+  if(String(event.detail.clientId)!==String(info.value.clientId))return
+  settingsRequest?.abort()
+  const request=new AbortController()
+  settingsRequest=request
+  const url=invoiceUrl.value, params=invoiceParams.value
+  try{
+    const data=camel(await api.get(url,{params,signal:request.signal}))
+    if(request.signal.aborted || !props.modelValue || url!==invoiceUrl.value || params.order_id!==invoiceParams.value.order_id)return
+    const {clientName,subClientId,required,totals,priceDetails}=data
+    info.value={...info.value,clientName,subClientId}
+    financePreview.value={required,totals,priceDetails}
+    scopeRefresh.value++
+  }catch(cause){
+    if(!request.signal.aborted)error.value=getLocalizedErrorMessage(cause,'发票的子客户设置刷新失败')
+  }
+}
+connectInvoiceParties()
+window.addEventListener(invoicePartiesEvent,refreshSubClientSettings)
 onBeforeUnmount(()=>{
   window.removeEventListener('translation-statements-changed',refreshFinancePreview)
+  window.removeEventListener(invoicePartiesEvent,refreshSubClientSettings)
+  settingsRequest?.abort()
   sequence++
   controller?.abort()
 })

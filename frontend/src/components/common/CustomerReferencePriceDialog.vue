@@ -1,15 +1,15 @@
 <template>
-  <DraggableFormDialog v-model="visible" title="客户笔译报价 · 选择参考价" append-to-body width="min(1120px, calc(100vw - 32px))" top="5vh" class="reference-price-picker" :close-on-click-modal="false" :before-close="cancel">
+  <DraggableFormDialog v-model="visible" :title="activeSubClientId ? '子客户笔译报价 · 选择参考价' : '客户笔译报价 · 选择参考价'" append-to-body width="min(1120px, calc(100vw - 32px))" top="5vh" class="reference-price-picker" :close-on-click-modal="false" :before-close="cancel">
     <div v-loading="loading">
       <p>{{library?.client?.name||clientName||'当前客户'}} · 只可采用语种方向、计量单位、币种及单价对应数量全部匹配的报价。</p>
-      <CustomerTranslationRates :client-id="clientId" :can-write="canWrite" button-label="查看／编辑客户笔译报价" @saved="librarySaved" />
+      <CustomerTranslationRates :key="activeSubClientId || clientId" :client-id="clientId" :sub-client-id="activeSubClientId" :can-write="canWrite" button-label="查看／编辑客户笔译报价" @saved="librarySaved" />
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
       <el-alert v-else-if="!rows.some(row=>row.match.matched)" title="暂无完整匹配的报价，可查看并编辑客户报价，或先明确项目计量单位。" type="warning" :closable="false" />
       <el-table :data="rows" border max-height="400" row-key="id">
         <el-table-column label="选择" width="65"><template #default="{row}"><el-radio v-model="selected" :value="row.id" :disabled="!row.match.matched" :aria-label="`选用报价 ${row.languagePair} ${unitLabel(row)}`"><span /></el-radio></template></el-table-column>
         <el-table-column prop="languagePair" label="语种方向" min-width="140" />
         <el-table-column label="计量单位" min-width="110"><template #default="{row}">{{unitLabel(row)}}</template></el-table-column>
-        <el-table-column prop="currency" label="币种" width="70" /><el-table-column prop="unitSize" label="单价对应数量" width="115" />
+        <el-table-column prop="currency" label="币种" width="70" /><el-table-column label="单价对应数量" width="115"><template #default="{row}">{{ Number(row.unitSize) }}</template></el-table-column>
         <el-table-column label="当前项目单价" min-width="160"><template #default="{row}">{{row.projectPrice ? priceText(row.projectPrice) : '—'}}</template></el-table-column>
         <el-table-column label="客户参考价" min-width="190"><template #default="{row}">{{priceText(row)}}</template></el-table-column>
         <el-table-column label="匹配情况" min-width="230"><template #default="{row}"><el-tag :type="row.match.matched?'success':'warning'">{{row.match.matched?'完整匹配':'不匹配'}}</el-tag><small>{{row.match.reasons.join('；')}}</small></template></el-table-column>
@@ -27,14 +27,14 @@ import {taxPriceSummary} from '@/utils/taxPrices'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import {hasPermission} from '@/utils/permission'
 import CustomerTranslationRates from './CustomerTranslationRates.vue'
-const props=defineProps({clientId:String,clientName:String,prices:Array,matrix:Object,languagePair:String,refreshProject:Function})
+const props=defineProps({clientId:String,subClientId:String,clientName:String,prices:Array,matrix:Object,languagePair:String,refreshProject:Function})
 const emit=defineEmits(['library-saved'])
 const visible=ref(false),loading=ref(false),library=ref(null),error=ref(''),selected=ref('')
-const expectedPrices=ref(null)
+const expectedPrices=ref(null),activeSubClientId=ref()
 const canWrite=hasPermission('clients:write')
 let resolver,sequence=0
 const unitLabel=row=>{const unit=pricingUnit(row.metric,null,true);return unit?metricName(unit):'未明确单位'}
-const priceText=row=>taxPriceSummary(row.taxPrices,row.currency,row.unitSize+'单位',false)||(row.amount??'—')
+const priceText=row=>taxPriceSummary(row.taxPrices,row.currency,Number(row.unitSize)+'单位',false)||(row.amount??'—')
 const rows=computed(()=>{
   const expected=expectedOrderPrices(expectedPrices.value??props.prices,props.languagePair,props.matrix)
   return (library.value?.items||[]).map(row=>{
@@ -46,8 +46,8 @@ const rows=computed(()=>{
 })
 function settle(value){resolver?.(value);resolver=undefined}
 function cancel(done){sequence++;visible.value=false;settle(null);if(typeof done==='function')done()}
-async function load(){const current=++sequence;loading.value=true;error.value='';selected.value='';try{const data=await getCustomerTranslationRates(props.clientId);if(current!==sequence)return;library.value=data;if(!data.ready)error.value='客户报价存储尚未初始化';const matching=rows.value.filter(row=>row.match.matched);if(matching.length===1)selected.value=matching[0].id}catch(e){if(current===sequence)error.value=getLocalizedErrorMessage(e,'客户报价加载失败')}finally{if(current===sequence)loading.value=false}}
-function confirm(options={}){expectedPrices.value=options.prices||null;settle(null);library.value=null;visible.value=true;const result=new Promise(resolve=>resolver=resolve);void load();return result}
+async function load(){const current=++sequence;loading.value=true;error.value='';selected.value='';try{const data=await getCustomerTranslationRates(props.clientId,{params:{sub_client_id:activeSubClientId.value||undefined}});if(current!==sequence)return;library.value=data;if(!data.ready)error.value='客户报价存储尚未初始化';const matching=rows.value.filter(row=>row.match.matched);if(matching.length===1)selected.value=matching[0].id}catch(e){if(current===sequence)error.value=getLocalizedErrorMessage(e,'客户报价加载失败')}finally{if(current===sequence)loading.value=false}}
+function confirm(options={}){activeSubClientId.value=options.clientOnly?undefined:props.subClientId;expectedPrices.value=options.prices||null;settle(null);library.value=null;visible.value=true;const result=new Promise(resolve=>resolver=resolve);void load();return result}
 function accept(){const row=rows.value.find(item=>item.id===selected.value&&item.match.matched);if(!row)return;visible.value=false;settle({price:row,version:library.value.version})}
 async function librarySaved(){loading.value=true;try{await props.refreshProject?.();await load();emit('library-saved')}catch(e){error.value=getLocalizedErrorMessage(e,'项目价格刷新失败');loading.value=false}}
 onBeforeUnmount(()=>{sequence++;settle(null)})

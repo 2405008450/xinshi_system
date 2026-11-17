@@ -75,6 +75,10 @@ function flush() {
 function touched(event) {
   const target = event.target
   if (!target?.closest || target.closest('.auto-draft-center')) return
+  if (target.closest('[data-auto-draft="off"]')) {
+    armed = []
+    return
+  }
   let matching = effectiveEntries(target)
   if (!matching.length && target.matches('input,textarea,select,[contenteditable="true"]') && !target.disabled && !target.readOnly && !['password','hidden','file','button','submit'].includes(target.type) && ![...entries].some(entry=>entry.kind==='form'&&managed.has(model(entry))&&root(entry)?.contains(target))) {
     let native=[...entries].find(entry=>entry.native&&root(entry)===target)

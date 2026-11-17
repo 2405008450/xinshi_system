@@ -21,6 +21,7 @@
 .chat-fixed-window-controls>button:last-child:hover{background:#fee2e2;border-color:#fecaca;color:#dc2626}
 .chat-fixed-window-controls>button:disabled{opacity:.4;cursor:default}
 .chat-fixed-window-controls>button[aria-label="最小化会话窗口"]{margin-left:6px}
+.chat-fixed-window-controls :deep(.chat-work-report-entry){width:auto;padding-inline:8px;font-size:12px;white-space:nowrap}
 .chat-header-divider{height:18px;width:1px;margin:0 4px;background:#e2e8f0;flex:none}
 .chat-workspace--maximized:not(.chat-workspace--narrow){grid-template-rows:136px minmax(0,1fr)}
 .chat-workspace--narrow .chat-workspace__sessions{top:136px}

@@ -1,5 +1,5 @@
 <template>
-  <article class="statement-paper">
+  <article class="statement-paper" data-native-table-scroll>
     <h2><StatementEditableCell v-if="editable" v-model="statement.company" label="公司抬头" /><template v-else>{{statement.company}}</template></h2><h3><StatementEditableCell v-if="editable" v-model="statement.title" label="对账单标题" /><template v-else>{{statementTitle(statement)}}</template></h3>
     <div class="statement-meta" :class="{'statement-meta--editable':editable}">
       <div class="statement-meta-customer">

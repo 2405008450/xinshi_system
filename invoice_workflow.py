@@ -163,7 +163,7 @@ def latest_invoice_selections(db, ids):
 def batch_projects(db, project_ids, *, special=False):
     from translation_price_rollup import price_details
     from crud import get_translation_project
-    from invoice_parties import profile
+    from invoice_parties import project_invoice_profile
     from translation_customer_finance import attach_monthly_payment_peers, settlement_group_key, tree
     from translation_document_requirements import attach as attach_documents
     from translation_project_invoices import special_order, special_root_ids
@@ -196,7 +196,8 @@ def batch_projects(db, project_ids, *, special=False):
             raise HTTPException(422, f"{node['order_no']} 没有选定的含税金额")
         if not node.get('client_id'):
             raise HTTPException(422, f'{project.order_no} 尚未关联客户')
-        client = profile(db, UUID(node['client_id']))
+        sub_id = node.get('document_sub_client_id', node.get('sub_client_id'))
+        client = project_invoice_profile(db, UUID(node['client_id']), UUID(sub_id) if sub_id else None)
         client_id = client['client_id']
         if client_id not in statement_subjects:
             from customer_statement_workspace import invoice_subjects_by_order
@@ -204,11 +205,13 @@ def batch_projects(db, project_ids, *, special=False):
         subjects = statement_subjects[client_id].get(str(node.get('root_id') or project.id), set())
         fallback_subject=invoice_subject_default(client['subject_key'],subjects)
         selection=effective_invoice_selection(selections.get(str(project_id),{}),fallback_subject,client['invoice_type'])
-        sub_group = {}
+        sub_group = {
+            'sub_client_id': sub_id, 'sub_client_name': client.get('buyer_name') or node['sub_client_short_name'],
+            'sub_client_code': node['sub_client_code'], 'invoice_buyer_group': f'sub-client:{sub_id}',
+        } if sub_id else {}
         if not special and node['payment_method']=='sub_client':
             _,month,period,_,sub_id=settlement_group_key(project)
-            sub_group={'settlement_group':f'{sub_id}:{month}:{period}', 'sub_client_id':str(sub_id),
-                       'sub_client_name':node['sub_client_short_name'], 'sub_client_code':node['sub_client_code']}
+            sub_group['settlement_group'] = f'{sub_id}:{month}:{period}'
         projects.append({'project_id': str(project_id), **({'root_id':str(project.id)} if special else {}), **sub_group,
                          'order_no': node['order_no'], 'project_name': node['project_name'],
                          'client_id': client['client_id'], 'client_name': client['client_name'],
@@ -224,7 +227,7 @@ def customer_groups(projects):
         client_id = project['client_id']
         key = invoice_group_identity(project)
         group = groups.setdefault(key, {'client_id': client_id, 'project_ids': [], 'totals': {},
-            **({'group_id':key} if project.get('settlement_group') else {})})
+            **({'group_id':key} if key != client_id else {})})
         group['project_ids'].append(project['project_id'])
         totals = group['totals']
         for currency, amount in (project.get('totals') or {}).items():
@@ -234,7 +237,7 @@ def customer_groups(projects):
 
 
 def invoice_group_identity(project):
-    return project.get('settlement_group') or project.get('client_id')
+    return project.get('settlement_group') or project.get('invoice_buyer_group') or project.get('client_id')
 
 
 def create_notice(db, row, recipient, kind, title, content):
@@ -402,7 +405,7 @@ def require_invoice_recipient(db, request_id, actor):
 
 
 def send_request(db,actor,payload):
-    from invoice_parties import profile,subject
+    from invoice_parties import project_invoice_profile,subject
     from translation_project_invoices import read as read_invoice
     require_ready(db)
     project=db.query(TranslationProject).filter_by(id=payload.project_id).with_for_update().first()
@@ -417,10 +420,13 @@ def send_request(db,actor,payload):
     if not config['user_ids']:raise HTTPException(422,'请在财务设置选择开票负责人')
     invoice=read_invoice(db,project.id)
     if not invoice.get('client_id'):raise HTTPException(422,'请先为项目关联客户')
-    client=profile(db,UUID(invoice['client_id']));issuer=subject(db,payload.subject_key)
+    sub_id = invoice.get('sub_client_id')
+    client = project_invoice_profile(db, UUID(invoice['client_id']), UUID(sub_id) if sub_id else None)
+    issuer=subject(db,payload.subject_key)
     names={person['id']:person['name'] for person in config['users']}
+    buyer_name = client.get('buyer_name') or client['client_name']
     snapshot={'order_no':invoice['order_no'],'project_name':project.source_file_name or project.project_name,
-              'client_name':client['client_name'],'client_party':client['party'],'invoice_kind':client['invoice_kind'],
+              'client_name':buyer_name,'client_party':client['party'],'invoice_kind':client['invoice_kind'],
               'subject':issuer,'totals':invoice['totals'],'red_required':invoice.get('red_required',False),
               'note':payload.note,'sender':actor.full_name or actor.username,
               'recipient_names':[names[uid] for uid in config['user_ids']]}
@@ -428,7 +434,7 @@ def send_request(db,actor,payload):
         subject_key=payload.subject_key,recipients=config['user_ids'],snapshot=snapshot,created_by=actor.id,created_at=business_now())
     db.add(row)
     notices=[];moment=business_now()
-    content=f"订单：{invoice['order_no']}\n客户：{client['client_name']}\n开票主体：{issuer['name']}\n发送人：{snapshot['sender']}\n说明：{payload.note or '-'}"
+    content=f"订单：{invoice['order_no']}\n客户：{buyer_name}\n开票主体：{issuer['name']}\n发送人：{snapshot['sender']}\n说明：{payload.note or '-'}"
     for uid in config['user_ids']:
         notice=AppNotification(id=uuid4(),recipient_user_id=UUID(uid),title=f"开票需求 · {invoice['order_no']}"[:255],content=content,
             notification_type='invoice_request',related_project_id=project.id,related_project_type='invoice_request',related_entity_id=row.id,

@@ -141,7 +141,7 @@ def version(project):
                        [[str(row.id), str(signature(row)),str(row.unit_price_excl_tax),str(row.unit_price_incl_tax),str(Decimal(str(row.total_excl_tax)).normalize()) if row.total_excl_tax is not None else None,str(Decimal(str(row.total_incl_tax)).normalize()) if row.total_incl_tax is not None else None,row.billing_month,row.remarks,str(row.updated_at)] for row in owner.customer_charge_items]])
     db=object_session(project)
     if db:
-        if payment_method(project)=='sub_client':
+        if project.sub_client_id:
             preference=sub_client_finance.load(db,{project.sub_client_id}).get(project.sub_client_id)
             if preference:
                 fields.append(('sub_client_finance',str(project.sub_client_id),preference.revision))
@@ -181,6 +181,7 @@ def settlement_period_numbers(db, orders):
         return {}
     workspaces = dict(db.query(StatementWorkspace.client_id, StatementWorkspace.payload)
                      .filter(StatementWorkspace.client_id.in_(client_ids))) if inspect(db.connection()).has_table(StatementWorkspace.__tablename__) else {}
+    db.info.setdefault('settlement_workspace_payloads', {}).update(workspaces)
     boards_by_client = {}
     for client, payload in workspaces.items():
         boards = {board['id']: board for board in payload.get('boards', []) if board.get('period_number')}
@@ -230,6 +231,7 @@ def settlement_candidates(db, scopes):
     })
     records = []
     settings={}
+    explicit_modes = {}
     for order_id, client, number, paid, sub_client_id, documents, default_mode in candidates:
         documents=documents or {}
         assignment = (documents or {}).get('_billing_period') or {}
@@ -238,9 +240,16 @@ def settlement_candidates(db, scopes):
             continue
         records.append((order_id, client, month, assignment))
         recorded = documents.get('_payment_method')
-        mode = 'sub_client' if sub_client_id and recorded != 'special' else recorded or default_mode
+        explicit_modes[order_id] = recorded
+        mode = recorded or ('sub_client' if sub_client_id else default_mode)
         settings[order_id]=(bool(paid),mode,documents.get('_paid_monthly_members',[]),sub_client_id)
     periods = settlement_period_numbers(db, records)
+    explicit_monthly_groups = {(client,month,periods.get(order_id)) for order_id,client,month,_ in records
+                               if explicit_modes[order_id] in ('monthly','statement')}
+    for order_id,client,month,_ in records:
+        paid,mode,members,child_id = settings[order_id]
+        if not paid and not explicit_modes[order_id] and (client,month,periods.get(order_id)) in explicit_monthly_groups:
+            settings[order_id] = (paid,'monthly',members,child_id)
     return [(order_id,client,month,periods.get(order_id),*settings[order_id]) for order_id,client,month,_ in records]
 
 
@@ -248,7 +257,9 @@ def attach_monthly_payment_peers(db, projects):
     scopes = {}
     for project in projects:
         project.has_monthly_payment_peers = False
+        project.in_explicit_monthly_group = False
         project.settlement_period_number = None
+        project.settlement_party = 'sub_client' if project.sub_client_id else 'client'
         client_id,month = statement_client_id(project),effective_billing_month(project)
         if client_id and month:
             scopes.setdefault((client_id, month), []).append(project)
@@ -271,8 +282,12 @@ def attach_monthly_payment_peers(db, projects):
             candidate=by_id.get(project.id)
             if not candidate:
                 continue
-            _,client,month,period,paid,_,_,_=candidate
+            _,client,month,period,paid,mode,_,_=candidate
             project.settlement_period_number=period
+            project.in_explicit_monthly_group = mode == 'monthly' and not getattr(project,'recorded_payment_method',None)
+            if project.sub_client_id:
+                workspace = db.info.get('settlement_workspace_payloads', {}).get(client)
+                project.settlement_party = sub_client_finance.period_party(workspace, project.sub_client_id, month, period)
             group=(client,month,period)
             project.unpaid_monthly_member_ids=unpaid_groups.get(group,[])
             project.has_monthly_payment_peers=(*group,str(project.id)) in paid_members or (
@@ -354,11 +369,14 @@ def latest_monthly_tax_mode(db, peers):
 
 def unified_tax_mode(db, project, node, stored, fallback):
     method = payment_method(project)
-    if method == 'special':
-        return None
-    preference = sub_client_finance.load(db, {project.sub_client_id}).get(project.sub_client_id) if db is not None and method == 'sub_client' else None
+    if project.sub_client_id and getattr(project, 'settlement_party', None) == 'client':
+        return fallback
+    preference = (sub_client_finance.load(db, {project.sub_client_id}).get(project.sub_client_id)
+                  if db is not None and project.sub_client_id else None)
     if preference and preference.tax_mode:
         return preference.tax_mode
+    if method == 'special':
+        return None
     peers = monthly_tax_projects(db, project) if db and method in GROUPED_SETTLEMENT_MODES else [project]
     choices = set(billing_tax.available(node))
     if len(peers) > 1:
@@ -396,6 +414,8 @@ def save_settlement_tax(db, user, project, owner, mode):
         billing_tax.save(db, user, project, owner, mode)
         return []
     if payment_method(project) == 'sub_client':
+        if getattr(project, 'settlement_party', None) == 'client':
+            return []
         if mode is not None:
             sub_client_finance.write(db, project.sub_client_id, {'tax_mode':mode}, user.id)
         return []
@@ -465,8 +485,14 @@ def tree(project, billing_month=None, *, summary_only=False, include_billing_tax
     owners, numbers, parents = hierarchy(project)
     db=object_session(project)
     method = payment_method(project)
+    settlement_party = getattr(project, 'settlement_party', 'sub_client' if project.sub_client_id else 'client')
+    uses_parent_settings = bool(project.sub_client_id and settlement_party == 'client')
+    document_defaults = getattr(project, 'customer_document_defaults', {})
+    sub_documents = (sub_client_finance.document_settings(
+        db.info.get('settlement_workspace_payloads', {}).get(statement_client_id(project)), project.sub_client_id
+    ) if db is not None and project.sub_client_id and not uses_parent_settings else {})
     sub_finance = (sub_client_finance.load(db, {project.sub_client_id}).get(project.sub_client_id)
-                   if db is not None and method == 'sub_client' else None)
+                   if db is not None and project.sub_client_id and not uses_parent_settings else None)
     explicit_modes=order_pricing_modes(db,project)
     total_adjustments=getattr(project,'order_total_adjustments',{})
     meta=rates.metadata(db,[charge.id for owner in owners for charge in owner.customer_charge_items]) if db else {}
@@ -493,15 +519,26 @@ def tree(project, billing_month=None, *, summary_only=False, include_billing_tax
         effective_client_id=project.client_id or (project.sub_client.parent_client_id if project.sub_client else None)
         nodes[key]['client_id']=str(effective_client_id) if effective_client_id else None
         nodes[key]['sub_client_id']=str(project.sub_client_id) if project.sub_client_id else None
+        nodes[key]['settlement_party'] = settlement_party
+        nodes[key]['document_sub_client_id'] = nodes[key]['sub_client_id'] if settlement_party == 'sub_client' else None
+        nodes[key]['sub_client_invoice_required'] = sub_documents.get('invoice_required')
+        nodes[key]['sub_client_statement_required'] = sub_finance.statement_required if sub_finance else None
         nodes[key]['sub_client_short_name']=getattr(project,'sub_client_short_name',None)
+        nodes[key]['sub_client_name']=getattr(project,'sub_client_name',None)
         nodes[key]['sub_client_code']=getattr(project,'sub_client_code',None)
         nodes[key]['billing_period']=getattr(project,'billing_period',{})
         nodes[key]['client_manager']=getattr(project,'client_manager',None) or ''
         manager_id=getattr(project,'client_manager_id',None)
         nodes[key]['client_manager_id']=str(manager_id) if manager_id else None
         nodes[key]['payment_method']=method
-        if sub_finance and sub_finance.quotation_required is not None:
-            nodes[key]['quotation_required'] = sub_finance.quotation_required
+        if project.sub_client_id and not uses_parent_settings:
+            quotation_default = sub_finance.quotation_required if sub_finance else None
+            nodes[key]['quotation_required'] = (quotation_default if quotation_default is not None
+                                                else bool(project.quotation_required))
+            if getattr(project, 'customer_document_sources', {}).get('invoice_required'):
+                nodes[key]['invoice_requirement_override'] = None
+        if uses_parent_settings:
+            nodes[key]['quotation_required'] = bool(document_defaults.get('quotation_required'))
         if nodes[key]['payment_method']=='special' and owner is not project:
             nodes[key]['invoice_requirement_override']=getattr(project,'order_invoice_requirements',{}).get(key,nodes[key]['invoice_requirement_override'])
             nodes[key]['statement_required']=getattr(project,'order_statement_requirements',{}).get(key,nodes[key]['statement_required'])
@@ -600,6 +637,9 @@ def tree(project, billing_month=None, *, summary_only=False, include_billing_tax
         computed_tax={'excl_tax':{},'incl_tax':{}}
         adjusted_currencies={kind:set() for kind in tax_amounts}
         for price in node['prices']:
+            if price.get('reference_id'):
+                child_refs = getattr(project, 'sub_client_reference_ids', ())
+                price['reference_scope'] = 'sub_client' if price['reference_id'] in child_refs else 'client'
             quantity,dimension,actual_metric,quantity_error=quantity_basis.resolve(node['word_count_matrix'],price['metric'])
             price['quantity']=quantity
             price['quantity_dimension']=dimension;price['quantity_metric']=actual_metric;price['quantity_error']=quantity_error
@@ -687,11 +727,14 @@ def tree(project, billing_month=None, *, summary_only=False, include_billing_tax
         billing_tax.attach(root,stored,default_mode,unified_tax_mode(db,project,root,stored,default_mode))
         from translation_project_invoices import invoice_required
         for node in nodes.values():
+            if uses_parent_settings:
+                node['invoice_requirement_override'] = None
             node['invoice_required'] = invoice_required(node)
-            if method != 'special':
-                node['statement_required'] = (sub_finance.statement_required
-                    if sub_finance and sub_finance.statement_required is not None
-                    else node.get('effective_billing_tax_mode') == 'incl_tax')
+            if method != 'special' or project.sub_client_id:
+                statement_default = (document_defaults.get('statement_required') if uses_parent_settings
+                                     else sub_finance.statement_required if sub_finance else None)
+                node['statement_required'] = (statement_default if statement_default is not None
+                                             else node.get('effective_billing_tax_mode') == 'incl_tax')
                 node['statement_required_explicit'] = False
         if root['payment_method'] != 'special':
             root['customer_document_sources']['statement_required'] = False
@@ -733,12 +776,22 @@ def attach_customer_price_defaults(db, projects):
     owners = {project.id: project.client_id or (project.sub_client.parent_client_id if project.sub_client else None)
               for project in projects}
     references = {}
+    child_references = {}
     if any(owners.values()) and rates.ready(db):
         model = rates.CustomerTranslationRate
-        for row in db.query(model).filter(model.client_id.in_({key for key in owners.values() if key}),model.active.is_(True)).all():
+        query = db.query(model).filter(model.client_id.in_({key for key in owners.values() if key}),model.active.is_(True))
+        for row in query.filter(~model.rate_key.startswith('sub:')).all():
             references.setdefault(row.client_id, []).append(rates.serialize(row))
+        child_ids = {p.sub_client_id for p in projects if p.sub_client_id}
+        if child_ids and rates.sub_rates_ready(db):
+            scope = rates.SubClientTranslationRate
+            for row, sub_id in query.join(scope, scope.rate_id == model.id).add_columns(scope.sub_client_id).filter(scope.sub_client_id.in_(child_ids)):
+                child_references.setdefault((row.client_id, sub_id), []).append(rates.serialize(row))
     for project in projects:
-        project.customer_price_defaults = references.get(owners[project.id], [])
+        client_id = owners[project.id]
+        child_rates = child_references.get((client_id, project.sub_client_id), [])
+        project.sub_client_reference_ids = {row['id'] for row in child_rates}
+        project.customer_price_defaults = rates.project_rate_defaults(references.get(client_id, []), child_rates)
 
 
 def missing_child_order_fields(root, order_directions):
@@ -789,7 +842,9 @@ def read(db, project_id):
     result['document_consistency_review'] = getattr(project, 'document_consistency_review', None)
     from translation_payment_service import read as read_payments
     result['payment']=read_payments(db,project)
-    result['reference_prices']=rates.library(db,project.client_id) if project.client_id else {'ready':rates.ready(db),'items':[],'version':''}
+    result['reference_prices']=rates.library(db,client_id) if client_id else {'ready':rates.ready(db),'items':[],'version':''}
+    if client_id and project.sub_client_id:
+        result['sub_client_reference_prices'] = rates.library(db, client_id, project.sub_client_id)
     return result
 
 
@@ -847,6 +902,8 @@ def settlement_order_details(order, node, inherited=None):
     fixed = node['fixed_pricing_from']
     aggregate = bool(node.get('price_aggregate'))
     order['price_aggregate'] = aggregate
+    order['pricing_mode'] = node['pricing_mode']
+    order['billing_tax_pending'] = bool(node.get('billing_tax_pending'))
     order['document_requirements'] = dict(
         quotation=node['quotation_required'], statement=node['statement_required'],
         invoice=inherited['invoice'] if fixed and inherited else node['invoice_required'],
@@ -1024,9 +1081,13 @@ def save_prices(db,user,project,owners,parents,key,payload):
     submitted_ids=[item.id for item in payload.prices if item.id]
     if len(set(submitted_ids))!=len(submitted_ids):raise HTTPException(422,'同一收费项不能重复提交，请删除重复单价')
     if any(item.id and item.id not in own_ids for item in payload.prices):raise HTTPException(422,'单价不属于当前订单，请重新打开后编辑')
-    references={row.id:row for row in db.query(rates.CustomerTranslationRate).filter_by(client_id=project.client_id,active=True).all()} if project.client_id else {}
+    client_id = statement_client_id(project)
+    active_rate = rates.CustomerTranslationRate.active.is_(True)
+    parent_refs = rates.scoped_rates(db, client_id).filter(active_rate).all() if client_id else []
+    child_refs = rates.scoped_rates(db, client_id, project.sub_client_id).filter(active_rate).all() if client_id and project.sub_client_id else []
+    references = {row.id: row for row in [*parent_refs, *child_refs]}
     if references and any(data['amount'] is None for data in values):
-        quotes=[rates.serialize(reference) for reference in references.values()]
+        quotes = rates.project_rate_defaults(list(map(rates.serialize, parent_refs)), list(map(rates.serialize, child_refs)))
         for data in values:
             if data['amount'] is not None or data.get('reference_id'):
                 continue
@@ -1047,18 +1108,19 @@ def save_prices(db,user,project,owners,parents,key,payload):
     if payload.update_library:
         if not user_has_permission(db,user.id,'clients:write'):raise HTTPException(403,'同步客户参考价需要客户管理编辑权限')
         if not payload.sync_confirmed:raise HTTPException(422,'请点击并确认同步客户参考价')
-        if not project.client_id:raise HTTPException(422,'请先为项目选择客户')
+        if not client_id:raise HTTPException(422,'请先为项目选择客户')
         from translation_rate_matching import matches,unit
         library_items=[]
         for data in values:
             metric=unit(data['metric'],target.word_count_matrix)
             if not metric:raise HTTPException(422,'同步客户报价前，请先明确项目计量单位')
-            candidates=[ref for ref in references.values() if matches(rates.serialize(ref),data,right_matrix=target.word_count_matrix,left_reference=True)]
+            candidates=[ref for ref in (child_refs if project.sub_client_id else parent_refs) if matches(rates.serialize(ref),data,right_matrix=target.word_count_matrix,left_reference=True)]
             if len(candidates)>1:raise HTTPException(422,'客户报价存在多条完整匹配项，请先编辑客户报价消除重复')
             library_items.append(rates.RateInput(**{**data,'id':None,'reference_id':None,'reference_revision':None,'metric':candidates[0].metric if candidates else 'customer_auto:'+metric}))
-        rates.write_library(db,user,project.client_id,library_items,payload.library_version,origin='project',merge=True)
-        references={row.id:row for row in db.query(rates.CustomerTranslationRate).filter_by(client_id=project.client_id,active=True).all()}
-        by_key={row.rate_key:row for row in references.values()}
+        order_no = project.order_no if target is project else target.sub_order_no
+        rates.write_library(db,user,client_id,library_items,payload.library_version,origin='project',merge=True,
+                            sub_client_id=project.sub_client_id,project_id=project.id,order_id=target.id,order_no=order_no)
+        by_key={rates.rate_key(rates.serialize(row)):row for row in rates.scoped_rates(db,client_id,project.sub_client_id).filter(active_rate)}
         for data,library_item in zip(values,library_items):data.update(reference_id=by_key[rates.rate_key(library_item.model_dump())].id,reference_revision=by_key[rates.rate_key(library_item.model_dump())].revision)
     old={uid:rates.order_rates(db,owner,owner.language_pair or project.language_pair) for uid,owner in owners.items()}
     def comparable(items):
@@ -1203,8 +1265,6 @@ def _apply_finance(db, user, project_id, payload, *, allow_incomplete=False):
     project=crud.get_translation_project(db,project_id)
     if payload.payment_method == 'sub_client' and not project.sub_client_id:
         raise HTTPException(422,'请先在项目登记子客户')
-    if project.sub_client_id and payload.payment_method in ('individual','monthly'):
-        raise HTTPException(422,'已登记子客户的订单采用子客户结算')
     if version(project)!=payload.version: raise HTTPException(409,'订单价格、字数或下级订单已变化，请重新打开后编辑')
     if not payload.documents_only or payload.order_pricing_mode is not None:
         from translation_entry_deadlines import project_status
@@ -1257,17 +1317,20 @@ def _apply_finance(db, user, project_id, payload, *, allow_incomplete=False):
             payload=payload.model_copy(update={'documents_only':True})
     from translation_document_requirements import save as save_documents
     from customer_statements import record_order_documents
-    if payload.invoice_required is not None and (payload.payment_method or payment_method(project)) != 'special':
-        raise HTTPException(422,'发票需求由计费口径自动确定，只有特殊结算可单独调整')
     target_method = payload.payment_method or payment_method(project)
-    if payload.statement_required is not None and target_method not in ('special','sub_client'):
+    use_sub_client = bool(project.sub_client_id and project.settlement_party == 'sub_client')
+    if payload.invoice_required is not None and not use_sub_client and target_method != 'special':
+        raise HTTPException(422,'发票需求由计费口径自动确定，只有特殊结算可单独调整')
+    if payload.statement_required is not None and not use_sub_client and target_method != 'special':
         raise HTTPException(422,'对账单需求由计费口径自动确定，只有特殊结算可单独调整')
     child_document = key != str(project.id) and target_method=='special'
-    if target_method == 'sub_client':
-        policies = {field:getattr(payload,field) for field in ('statement_required','quotation_required')
-                    if getattr(payload,field) is not None}
-        if policies:
-            sub_client_finance.write(db,project.sub_client_id,policies,user.id)
+    policies = {field:getattr(payload,field) for field in ('statement_required','quotation_required','invoice_required')
+                if getattr(payload,field) is not None}
+    if policies:
+        if project.sub_client_id and not use_sub_client:
+            raise HTTPException(422,'当前账期采用客户结算设置，请在客户管理修改')
+        if use_sub_client:
+            sub_client_finance.write_preferences(db,project.sub_client_id,policies.copy(),user,revision=None)
             payload = payload.model_copy(update=dict.fromkeys(policies))
     record_order_documents(db,user,project,client_id,statement_default=None if child_document else payload.statement_required,
                            quotation_required=payload.quotation_required,invoice_required=None if child_document else payload.invoice_required,
@@ -1453,9 +1516,29 @@ def read_sub_client_preferences(sub_client_id:UUID,db:Session=Depends(get_db)):
 def write_sub_client_preferences(sub_client_id:UUID,payload:sub_client_finance.PreferenceWrite,
                                  db:Session=Depends(get_db),user=Depends(get_current_user)):
     changes=payload.model_dump(exclude={'revision'},exclude_unset=True)
-    result=sub_client_finance.write(db,sub_client_id,changes,user.id,revision=payload.revision)
+    sub_client_finance.write_preferences(db,sub_client_id,changes,user,payload.revision)
     db.commit()
-    return result
+    return sub_client_finance.read(db,sub_client_id)
+
+
+@router.get('/sub-clients/{sub_client_id}/settlement-party', dependencies=[Depends(require_any_permission(
+    'clients:read','clients:write','projects:read','projects:write','finance:read','finance:write'
+))])
+def read_sub_client_settlement_party(sub_client_id: UUID,
+                                     month: str = Query(pattern=r'^\d{4}-(0[1-9]|1[0-2])$'),
+                                     period: int | None = Query(None, ge=1), db: Session = Depends(get_db)):
+    child = db.get(SubClient, sub_client_id)
+    if child is None:
+        raise HTTPException(404, '子客户不存在')
+    return {'party': sub_client_finance.read_period_party(db, child, month, period)}
+
+
+@router.put('/sub-clients/{sub_client_id}/settlement-party', dependencies=[Depends(require_any_permission(
+    'clients:write','projects:write','finance:write'
+))])
+def write_sub_client_settlement_party(sub_client_id: UUID, data: sub_client_finance.PeriodPartyWrite,
+                                      db: Session = Depends(get_db), user=Depends(get_current_user)):
+    return sub_client_finance.write_period_party(db, sub_client_id, data, user)
 
 
 @router.put('/project/{project_id}/special-settlement')
@@ -1469,13 +1552,24 @@ def save_special_settlement(project_id:UUID,data:special_settlement.SettingsWrit
         raise HTTPException(404,'笔译项目不存在')
     from translation_document_requirements import attach
     attach(db,[project])
+    attach_monthly_payment_peers(db, [project])
     if payment_method(project)!='special':
         raise HTTPException(422,'此订单当前未采用特殊结算')
+    if project.sub_client_id and project.settlement_party == 'client' and (
+        data.tax_mode is not None or data.statement_required is not None
+    ):
+        raise HTTPException(422,'当前账期采用客户结算设置，请在客户管理修改')
     owners,_,_=hierarchy(project)
     order_ids=[str(owner.id) for owner in owners]
     if str(data.order_id) not in order_ids:
         raise HTTPException(422,'子订单不属于当前订单')
-    special_settlement.save(db,project,order_ids,data,user.id)
+    sync_sub_client_statement = bool(project.sub_client_id and project.settlement_party == 'sub_client'
+                                     and data.statement_required is not None)
+    if sync_sub_client_statement:
+        sub_client_finance.write(db,project.sub_client_id,{'statement_required':data.statement_required},user.id)
+        data = data.model_copy(update={'statement_required': None})
+    if not sync_sub_client_statement or data.model_dump(exclude={'order_id', 'apply_to_order'}, exclude_none=True):
+        special_settlement.save(db,project,order_ids,data,user.id)
     db.commit()
     return {'saved':True}
 
@@ -1620,7 +1714,7 @@ def apply_order_page(node,selection):
 
 
 @router.get('/page',dependencies=[Depends(require_module_access('projects:read','projects:write'))])
-def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None=None,project_status:str|None=None,billing_month:str|None=Query(None,pattern=r'^\d{4}-(0[1-9]|1[0-2])$'),client:str|None=None,client_manager:str|None=None,client_id:UUID|None=None,db:Session=Depends(get_db),only_mine:bool=False,user=Depends(get_current_user),manager_ids:list[UUID]|None=Query(None,max_length=2000),statement_required:bool|None=None,sort:Literal['client_short_name_asc','client_short_name_desc','client_manager_asc','client_manager_desc']|None=None,missing_word_count:bool=False,missing_unit_price:bool=False,missing_total:Literal['excl','incl','both','either','fixed']|None=None,project_statuses:list[str]|None=Query(None,max_length=100),client_order_count:Literal['single','multiple']|None=None,group_clients:bool=True,selected_client_ids:list[UUID]|None=Query(None,alias='client_ids',max_length=100),payment_status:Literal['unpaid','deposit','mid','full','paid','full_mismatch']|None=None,include_payment_status:bool=False,exclude_full:bool=False,payment_project_id:UUID|None=None,include_invoice_status:bool=False,invoice_status:Literal['unissued','partial','issued','not_required']|None=None,invoice_required:Literal['yes','no','unknown']|None=None,statement_customers:Literal['include','exclude']|None=None,payment_amount_mismatch:bool=False,pricing_mode:Literal['metric','fixed','aggregate']|None=None,billing_months:list[Annotated[str,Field(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')]]|None=Query(None,max_length=1200),paginate_children:bool=False,count_parent_orders:bool=False,expand_all_orders:bool=True,order_expansion_ids:list[UUID]|None=Query(None), settlement_project_id:UUID|None=None, settlement_scope:StatementScope|None=None,period_number:int|None=Query(None,ge=1),special_invoice_tracking:bool=False,special_invoice_project_id:UUID|None=None, unassigned_period:bool=False, quotation_required:bool|None=None, settlement_mode:SettlementMode|None=None, language_direction:str|None=Query(None,max_length=200), fixed_manager_name:str|None=Query(None,max_length=255),sub_client_id:UUID|None=None):
+def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None=None,project_status:str|None=None,billing_month:str|None=Query(None,pattern=r'^\d{4}-(0[1-9]|1[0-2])$'),client:str|None=None,client_manager:str|None=None,client_id:UUID|None=None,db:Session=Depends(get_db),only_mine:bool=False,user=Depends(get_current_user),manager_ids:list[UUID]|None=Query(None,max_length=2000),statement_required:bool|None=None,sort:Literal['client_short_name_asc','client_short_name_desc','client_manager_asc','client_manager_desc']|None=None,missing_word_count:bool=False,missing_unit_price:bool=False,missing_total:Literal['excl','incl','both','either','fixed']|None=None,project_statuses:list[str]|None=Query(None,max_length=100),client_order_count:Literal['single','multiple']|None=None,group_clients:bool=True,selected_client_ids:list[UUID]|None=Query(None,alias='client_ids',max_length=100),payment_status:Literal['unpaid','deposit','mid','full','paid','full_mismatch']|None=None,include_payment_status:bool=False,exclude_full:bool=False,payment_project_id:UUID|None=None,include_invoice_status:bool=False,invoice_status:Literal['unissued','partial','issued','not_required']|None=None,invoice_required:Literal['yes','no','unknown']|None=None,statement_customers:Literal['include','exclude']|None=None,payment_amount_mismatch:bool=False,pricing_mode:Literal['metric','fixed','aggregate']|None=None,billing_months:list[Annotated[str,Field(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')]]|None=Query(None,max_length=1200),paginate_children:bool=False,count_parent_orders:bool=False,expand_all_orders:bool=True,order_expansion_ids:list[UUID]|None=Query(None), settlement_project_id:UUID|None=None, settlement_scope:StatementScope|None=None,period_number:int|None=Query(None,ge=1),special_invoice_tracking:bool=False,special_invoice_project_id:UUID|None=None, unassigned_period:bool=False, quotation_required:bool|None=None, settlement_mode:SettlementMode|None=None, language_direction:str|None=Query(None,max_length=200), fixed_manager_name:str|None=Query(None,max_length=255),sub_client_id:UUID|None=None,sub_client:str|None=None):
     special_invoice_tracking=special_invoice_tracking and settlement_scope=='special'
     filter_amount_mismatch = payment_amount_mismatch or payment_status == 'full_mismatch'
     filter_invoice = invoice_status is not None or invoice_required is not None
@@ -1669,6 +1763,7 @@ def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None
     if isinstance(fixed_manager_name,str):
         fields['finance_manager_exact']={'value':fixed_manager_name.strip().lower()}
     if client and client.strip(): fields['finance_client']={'value':client.strip()}
+    if sub_client and sub_client.strip(): fields['finance_sub_client']={'value':sub_client.strip()}
     invoice_scope=include_invoice_status and settlement_project_id is not None
     if statement_customers is not None and invoice_scope:
         if statement_required is None:
@@ -1936,13 +2031,16 @@ def update_statement_required(project_id:UUID,payload:StatementRequiredWrite,db:
     attach_customer_types(db,[project])
     documents.attach(db,[project])
     attach_monthly_payment_peers(db,[project])
-    if payment_method(project) == 'sub_client':
+    if project.sub_client_id:
+        if project.settlement_party == 'client':
+            raise HTTPException(422,'当前账期采用客户结算设置，请在客户管理修改')
         current=read(db,project.id)['item']
         if current['statement_required'] != payload.expected_statement_required:
             raise HTTPException(409,'子客户对账单设置已更新，请刷新后重试')
         sub_client_finance.write(db,project.sub_client_id,{'statement_required':payload.statement_required},user.id)
         db.commit()
-        return {'id':str(project.id),'statement_required':payload.statement_required,'payment_method':'sub_client',
+        return {'id':str(project.id),'statement_required':payload.statement_required,'payment_method':payment_method(project),
+                'updated_at':business_datetime(project.updated_at).isoformat() if project.updated_at else None,
                 'affected_count':1}
     if payment_method(project) != 'special':
         raise HTTPException(422,'对账单需求由计费口径自动确定，只有特殊结算可单独调整')
@@ -2051,6 +2149,29 @@ def read_payment_summary(project_id: UUID, method: PaymentMethod, db: Session = 
     if not project:
         raise HTTPException(404, '笔译项目不存在')
     return payment_summary(db, project, method, include_orders=True)
+
+
+@router.get('/project/{project_id}/sub-client-period-projects', dependencies=[Depends(require_module_access('projects:read','projects:write'))])
+def read_sub_client_period_projects(project_id: UUID, db: Session = Depends(get_db)):
+    project = crud.get_translation_project(db, project_id)
+    if project is None:
+        raise HTTPException(404, '笔译项目不存在')
+    client_id, month = statement_client_id(project), effective_billing_month(project)
+    if not (client_id and project.sub_client_id and month):
+        return {'month': month, 'period': None, 'items': []}
+    candidates = settlement_candidates(db, {(client_id, month)})
+    source = next((row for row in candidates if row[0] == project_id), None)
+    period = source[3] if source else None
+    ids = {project_id}
+    if source:
+        ids.update(row[0] for row in candidates if row[3] == period and row[-1] == project.sub_client_id)
+    orders = db.query(TranslationProject.id, TranslationProject.order_no, TranslationProject.project_name,
+                      TranslationProject.source_file_name).filter(TranslationProject.id.in_(ids)).order_by(
+        TranslationProject.order_no, TranslationProject.id,
+    )
+    return {'month': month, 'period': period if isinstance(period, int) else None,
+            'items': [{'id': str(order.id), 'order_no': order.order_no,
+                       'project_name': order.source_file_name or order.project_name} for order in orders]}
 
 
 @router.get('/project/{project_id}/history',dependencies=[Depends(require_module_access('projects:read','projects:write'))])
@@ -2297,6 +2418,7 @@ def invoice_scope(project_id: UUID, db: Session = Depends(get_db)):
     projects = crud.get_translation_projects(db, limit=None, field_filters={
         'finance_invoice_project_ids': {'value': {peer.id for peer in peers}},
     })
+    attach_monthly_payment_peers(db, projects)
     load_finance_details(db, projects, tax_only=True)
     roots = [tree(project, summary_only=True, include_version=False)['item'] for project in projects]
     attach_invoices(db, {'items': roots})
@@ -2315,6 +2437,9 @@ def invoice_scope(project_id: UUID, db: Session = Depends(get_db)):
         })
     return {
         'merged': len(roots) > 1,
+        'settlement_mode': payment_method(source),
+        'client_short_name': source.client_short_name,
+        'sub_client_short_name': getattr(source, 'sub_client_short_name', None),
         'items': items,
         'invoice_totals': totals,
     }

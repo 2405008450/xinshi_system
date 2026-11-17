@@ -7,7 +7,7 @@
         :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" />
     </template>
     <div ref="body" v-loading="loading">
-      <AppForm :model="filters" inline @submit.prevent="load">
+      <AppForm data-auto-draft="off" :model="filters" inline @submit.prevent="load">
         <el-form-item label="项目">
           <el-select v-model="filters.id" filterable remote :remote-method="searchProjects" :loading="searching"
             placeholder="搜索订单号、项目名称或客户" style="width:300px;max-width:100%" @change="changeProject">
@@ -19,7 +19,7 @@
         </el-form-item>
         <el-form-item label="对账范围">
           <el-select v-model="filters.scope" style="width:130px" @change="load">
-            <el-option label="单个项目" value="project" /><el-option label="同客户汇总" value="customer" />
+            <el-option label="按项目结算模式" value="settlement" /><el-option label="单个项目" value="project" /><el-option label="同客户汇总" value="customer" />
           </el-select>
         </el-form-item>
         <el-form-item label="金额口径">
@@ -54,7 +54,7 @@ import DialogFieldSearchHeader from './DialogFieldSearchHeader.vue'
 const props=defineProps({modelValue:Boolean,projects:{type:Array,default:()=>[]},query:{type:Object,default:()=>({})}})
 defineEmits(['update:modelValue'])
 const body=ref(),options=ref([]),statement=ref(null),loading=ref(false),searching=ref(false),error=ref(''),exporting=ref('')
-const filters=reactive({id:'',month:'',scope:'project',basis:''})
+const filters=reactive({id:'',month:'',scope:'settlement',basis:''})
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(body)
 let searchController,loadController
 const params=()=>({month:filters.month,scope:filters.scope,basis:filters.basis||undefined})
@@ -77,7 +77,7 @@ async function searchProjects(keyword=''){
 function changeProject(){
   const row=options.value.find(item=>item.id===filters.id)
   const orderDate=row?.order_no?.match(/^IP-(?:20)?(\d{2})(\d{2})\d{2}-/)
-  filters.month=row?.payload?.settlement?.billing_month||(orderDate?`20${orderDate[1]}-${orderDate[2]}`:businessDateTimeInputValue().slice(0,7))
+  filters.month=row?.billing_month||row?.payload?.settlement?.billing_month||(orderDate?`20${orderDate[1]}-${orderDate[2]}`:businessDateTimeInputValue().slice(0,7))
   void load()
 }
 
@@ -116,7 +116,7 @@ watch(()=>props.modelValue,visible=>{
   if(!visible)return
   clearFieldSearch()
   options.value=[...props.projects]
-  Object.assign(filters,{id:options.value[0]?.id||'',scope:'project',basis:''})
+  Object.assign(filters,{id:options.value[0]?.id||'',scope:'settlement',basis:''})
   changeProject()
   void searchProjects()
 },{immediate:true})

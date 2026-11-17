@@ -27,7 +27,7 @@ def month_bounds(value):
     return bounds
 
 
-def filtered_projects(db, months, keyword):
+def filtered_projects(db, months, keyword, presence):
     project = TranslationProject
     client_id = func.coalesce(project.client_id, SubClient.parent_client_id)
     # 两个现有日期字段均保存香港业务本地时间。
@@ -39,11 +39,15 @@ def filtered_projects(db, months, keyword):
              .filter(project.annotation_migrated_at.is_(None),
                      or_(*(and_(received_at >= start, received_at < end) for start, end in bounds)),
                      keyword_any((Client.client_name, Client.client_short_name, Client.client_code), keyword)))
+    if presence == 'with':
+        query = query.filter(project.sub_client_id.is_not(None))
+    elif presence == 'without':
+        query = query.filter(project.sub_client_id.is_(None))
     return query, client_id, received_at
 
 
-def customer_groups(db, *, months, keyword, skip, limit):
-    query, client_id, _ = filtered_projects(db, months, keyword)
+def customer_groups(db, *, months, keyword, skip, limit, presence='all'):
+    query, client_id, _ = filtered_projects(db, months, keyword, presence)
     total_orders = func.count(TranslationProject.id)
     with_sub_client = func.sum(case((TranslationProject.sub_client_id.is_not(None), 1), else_=0))
     groups = (query.with_entities(client_id.label('client_id'), Client.client_name, Client.client_short_name,
@@ -55,22 +59,38 @@ def customer_groups(db, *, months, keyword, skip, limit):
     return {'items': [dict(row._mapping) for row in rows], 'total': groups.count()}
 
 
-def customer_projects(db, *, months, keyword, client, presence, skip, limit):
-    query, client_id, received_at = filtered_projects(db, months, keyword)
+def customer_projects(db, *, months, keyword, client, presence, skip, limit,
+                      project_keyword='', sub_client_id=None, sort_by='received_at', sort_direction='desc'):
+    query, client_id, received_at = filtered_projects(db, months, keyword, presence)
     project = TranslationProject
     query = query.filter(client_id.is_(None) if client == 'unlinked' else client_id == client)
-    if presence == 'with':
-        query = query.filter(project.sub_client_id.is_not(None))
-    elif presence == 'without':
-        query = query.filter(project.sub_client_id.is_(None))
+    sub_client_name = func.coalesce(func.nullif(SubClient.client_short_name, ''), SubClient.client_name)
+    sub_clients = []
+    if client != 'unlinked':
+        choices = (db.query(SubClient.id, SubClient.client_name, SubClient.client_short_name, SubClient.sub_client_code)
+                   .filter(SubClient.parent_client_id == client)
+                   .order_by(sub_client_name, SubClient.sub_client_code, SubClient.id))
+        sub_clients = [dict(row._mapping) for row in choices]
+    if sub_client_id is not None:
+        query = query.filter(project.sub_client_id == sub_client_id, SubClient.parent_client_id == client) if client != 'unlinked' else query.filter(False)
+    query = query.filter(keyword_any((project.order_no, project.project_name, SubClient.client_name,
+                                      SubClient.client_short_name, SubClient.sub_client_code), project_keyword))
     total = query.count()
+    sort_column = {'order_no': project.order_no, 'project_name': func.lower(project.project_name),
+                   'sub_client': func.lower(sub_client_name), 'received_at': received_at}[sort_by]
+    primary_sort = sort_column.asc() if sort_direction == 'asc' else sort_column.desc()
+    ordered = [primary_sort.nulls_last()]
+    if sort_by != 'received_at':
+        ordered.append(received_at.desc().nulls_last())
+    if sort_by != 'order_no':
+        ordered.append(project.order_no.desc().nulls_last())
     rows = (query.with_entities(project.id, project.order_no, project.project_name, project.sub_client_id,
                                SubClient.client_short_name.label('sub_client_short_name'),
                                SubClient.client_name.label('sub_client_name'), received_at.label('received_at'))
-            .order_by(received_at.desc(), project.order_no.desc(), project.id).offset(skip).limit(limit))
+            .order_by(*ordered, project.id).offset(skip).limit(limit))
     items = []
     for row in rows:
         data = dict(row._mapping)
         data['received_at'] = business_datetime(data['received_at']).isoformat()
         items.append(data)
-    return {'items': items, 'total': total}
+    return {'items': items, 'total': total, 'sub_clients': sub_clients}

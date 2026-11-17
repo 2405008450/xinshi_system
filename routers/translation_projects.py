@@ -155,13 +155,14 @@ def translation_statistics_endpoint(
 def translation_sub_client_customers(
     months: str = Query('', max_length=287),
     keyword: str = Query('', max_length=200),
+    presence: Literal['all', 'with', 'without'] = 'all',
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
     from translation_sub_client_query import customer_groups
     try:
-        return customer_groups(db, months=months, keyword=keyword, skip=skip, limit=limit)
+        return customer_groups(db, months=months, keyword=keyword, presence=presence, skip=skip, limit=limit)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
@@ -172,6 +173,10 @@ def translation_sub_client_orders(
     months: str = Query('', max_length=287),
     keyword: str = Query('', max_length=200),
     presence: Literal['all', 'with', 'without'] = 'all',
+    project_keyword: str = Query('', max_length=200),
+    sub_client_id: UUID | None = None,
+    sort_by: Literal['order_no', 'project_name', 'sub_client', 'received_at'] = 'received_at',
+    sort_direction: Literal['asc', 'desc'] = 'desc',
     skip: int = Query(0, ge=0),
     limit: int = Query(15, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -179,7 +184,9 @@ def translation_sub_client_orders(
     from translation_sub_client_query import customer_projects
     try:
         return customer_projects(db, months=months, keyword=keyword, client=client,
-                                 presence=presence, skip=skip, limit=limit)
+                                 presence=presence, skip=skip, limit=limit,
+                                 project_keyword=project_keyword, sub_client_id=sub_client_id,
+                                 sort_by=sort_by, sort_direction=sort_direction)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 

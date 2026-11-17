@@ -7,7 +7,7 @@
     class="annotation-progress-search-dialog"
     @closed="$emit('closed')"
   >
-    <AppForm :inline="true" :model="filters" class="progress-search-form">
+    <AppForm data-auto-draft="off" :inline="true" :model="filters" class="progress-search-form">
       <el-form-item label="关键词" class="progress-search-keyword">
         <el-input
           v-model="filters.keyword"

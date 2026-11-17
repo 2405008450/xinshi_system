@@ -12,7 +12,7 @@
             <el-tag v-if="item.type === 'status'" :type="statusType(row[item.key])" size="small">
               {{ statusLabel(row[item.key]) }}
             </el-tag>
-            <ClientManagementLink v-else-if="isClientShortName(item.label, item.key)" :value="formatValue(item)" :row="row" :sub-client="item.label === '子客户简称' || /^sub_?client/i.test(item.key)" />
+            <ClientManagementLink v-else-if="isClientShortName(item.label, item.key)" :value="formatValue(item)" :row="row" :sub-client="item.label === '子客户简称' || /^sub_?client/i.test(item.key)" :show-sub-client="item.showSubClient" />
             <InlineTextField
               v-else-if="item.editable"
               :model-value="rawValue(item)"

@@ -28,7 +28,7 @@
     <FieldWorkPanel v-if="listTab === 'field-work'" customer-view />
     <div v-show="listTab === 'clients'">
     <div class="search-bar">
-      <AppForm :inline="true" :model="searchForm" class="search-form-inline">
+      <AppForm data-auto-draft="off" :inline="true" :model="searchForm" class="search-form-inline">
         <el-form-item label="客户名称">
           <el-input
             v-model="advancedFilters.client_name"
@@ -485,6 +485,12 @@
         </div>
       </AppForm>
       <SubClientFinancePreferences v-if="subForm.id && subDialogVisible" :sub-client-id="subForm.id" :can-write="canWrite" />
+      <template v-if="subForm.id && subForm.parent_client_id && subDialogVisible">
+        <CustomerTranslationRates :client-id="subForm.parent_client_id" :sub-client-id="subForm.id"
+          :can-write="canWrite" button-label="子客户语种单价" @saved="subRateRevision++" />
+        <CustomerRateDifferences module="translation" :client-id="subForm.parent_client_id"
+          :sub-client-id="subForm.id" :revision="subRateRevision" @saved="subRateRevision++" />
+      </template>
       </div>
       <template #footer>
         <el-button @click="subDialogVisible = false">取消</el-button>
@@ -503,6 +509,8 @@ import CustomerCooperationProjects from '@/components/common/CustomerCooperation
 import CustomerSourceAnalysis from '@/components/common/CustomerSourceAnalysis.vue'
 import CustomerFinancePanel from '@/components/common/CustomerFinancePanel.vue'
 import SubClientFinancePreferences from '@/components/common/SubClientFinancePreferences.vue'
+import CustomerTranslationRates from '@/components/common/CustomerTranslationRates.vue'
+import CustomerRateDifferences from '@/components/common/CustomerRateDifferences.vue'
 import CustomerRequirementsPanel from '@/components/common/CustomerRequirementsPanel.vue'
 import FinanceWorkflowHelp from '@/components/common/FinanceWorkflowHelp.vue'
 import { customerManagementHelpSections } from '@/utils/customerManagementHelp'
@@ -651,6 +659,7 @@ const resetVisibleColumns = () => {
 }
 
 const subDialogVisible = ref(false)
+const subRateRevision = ref(0)
 const subDialogTitle = ref('新增子客户')
 const subSubmitLoading = ref(false)
 const subFormRef = ref(null)

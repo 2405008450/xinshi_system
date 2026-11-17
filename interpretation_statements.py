@@ -28,6 +28,11 @@ def order_day(project):
     return business_datetime(fallback).date() if fallback else None
 
 
+def billing_month(project, payload):
+    day = order_day(project)
+    return finance.settlement(payload).billing_month or (day.strftime('%Y-%m') if day else None)
+
+
 def project_rows(project, payload, basis):
     setting = finance.settlement(payload)
     day = order_day(project)
@@ -41,6 +46,12 @@ def project_rows(project, payload, basis):
                          language_pair=direction, quantity=quantity, basis=workload, unit_price=unit,
                          unit_label=label, currency=currency, subtotal=statements.money(subtotal),
                          remarks=setting.customer_explanation))
+
+    if setting.pricing_mode == 'fixed':
+        for row in payload.get('fixed_totals', []):
+            amount = row['amount'] if basis == 'legacy' else (row.get('tax_prices') or {}).get('total_' + basis)
+            add(row['currency'], '固定收费', amount)
+        return rows
 
     for rate in payload.get('rates', []):
         tax = rate.get('tax_prices') or {}
@@ -76,27 +87,43 @@ def project_rows(project, payload, basis):
     return rows
 
 
+def settlement_projects(db, project, month, scope):
+    target = project.id
+    client = project.client or (project.sub_client.parent_client if project.sub_client else None)
+    if scope == 'customer' and not client:
+        raise HTTPException(422, '请先为项目关联客户')
+    target_record = finance.record(db, 'project', target)
+    mode = finance.settlement_mode(target_record.payload if target_record else {})
+    grouped = scope == 'settlement' and mode in ('monthly', 'sub_client')
+    projects = [project]
+    if client and (scope == 'customer' or grouped):
+        query = db.query(InterpretationProject).outerjoin(SubClient, InterpretationProject.sub_client_id == SubClient.id).filter(
+            func.coalesce(InterpretationProject.client_id, SubClient.parent_client_id) == client.id)
+        if grouped and mode == 'sub_client':
+            query = query.filter(InterpretationProject.sub_client_id == project.sub_client_id) if project.sub_client_id else query.filter(InterpretationProject.id == target)
+        projects = query.order_by(InterpretationProject.order_no).all()
+    records, _ = finance.finance_records(db, projects, True)
+    matching = []
+    for item in projects:
+        row = records.get(item.id)
+        payload = row.payload if row else {}
+        if billing_month(item, payload) != month or (grouped and finance.settlement_mode(payload) != mode):
+            continue
+        matching.append((item, row))
+    is_single = scope == 'project' or (scope == 'settlement' and not grouped)
+    billed_client = (project.sub_client or client) if is_single or (grouped and mode == 'sub_client') else client
+    return mode, billed_client, matching
+
+
 def build(db, target: UUID, month, scope, basis=None):
     if not finance.ready(db):
         raise HTTPException(503, '口译财务存储尚未初始化')
     project = finance.owner(db, 'project', target)
-    client = project.client or (project.sub_client.parent_client if project.sub_client else None)
-    if scope == 'customer' and not client:
-        raise HTTPException(422, '请先为项目关联客户')
-    projects = [project] if scope == 'project' else db.query(InterpretationProject).outerjoin(
-        SubClient, InterpretationProject.sub_client_id == SubClient.id).filter(
-        func.coalesce(InterpretationProject.client_id, SubClient.parent_client_id) == client.id
-    ).order_by(InterpretationProject.order_no).all()
-    records, _ = finance.finance_records(db, projects, True)
+    mode, billed_client, projects = settlement_projects(db, project, month, scope)
     rows, pending = [], []
-    for item in projects:
-        row = records.get(item.id)
+    for item, row in projects:
         payload = row.payload if row else {}
-        day = order_day(item)
         setting = finance.settlement(payload)
-        billing_month = setting.billing_month or (day.strftime('%Y-%m') if day else None)
-        if billing_month != month:
-            continue
         lines = project_rows(item, payload, basis or setting.tax_basis)
         if any(line['subtotal'] is None and line.get('counted_in_total', True) for line in lines):
             pending.append(f'{item.order_no} 收费金额待补')
@@ -111,8 +138,9 @@ def build(db, target: UUID, month, scope, basis=None):
     subject = db.get(statements.CustomerStatementCompany, 'company')
     private = statements.private_statement_settings_available()
     settings = statements.settings_value(*statements.statement_company_settings(db)) if private else {}
-    result = dict(company=subject.company if subject else statements.COMPANY, title='口译对账单',
-                  client_name=(client.client_name or client.client_short_name) if client else (project.client_full_name or project.client_short_name or ''),
+    result = dict(company=subject.company if subject else statements.COMPANY,
+                  title='口译特殊结算对账单' if scope == 'settlement' and mode == 'special' else '口译对账单',
+                  client_name=(billed_client.client_name or billed_client.client_short_name) if billed_client else (project.client_full_name or project.client_short_name or ''),
                   month=month, issue_date=business_now().date().isoformat(), scope=scope,
                   tax_included={row['unit_label'] for row in rows} == {'含税'},
                   rows=rows, totals={code: statements.money(amount) for code, amount in totals.items()},

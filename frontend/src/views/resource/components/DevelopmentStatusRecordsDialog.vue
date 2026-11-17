@@ -1,6 +1,6 @@
 <template>
   <DraggableFormDialog v-model="visible" :title="`${entryState} · 跨日期开拓记录`" width="min(1380px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close class="development-status-dialog" @close="stopRequests">
-    <div class="status-filter-area">
+    <div class="status-filter-area" data-auto-draft="off">
       <div class="development-filters">
         <el-date-picker v-model="filters.range" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期（全部日期）" end-placeholder="结束日期" clearable @change="query" />
         <el-input v-model="filters.keyword" clearable placeholder="姓名、招呼编号、联系方式、语种/方言、开拓平台" @input="keywordChanged" @keyup.enter="query" />
@@ -8,7 +8,7 @@
         <el-button type="primary" @click="query">查询</el-button><el-button @click="reset">重置</el-button>
         <el-popover title="联系状态记录" v-model:visible="advanced" trigger="click" placement="bottom-end" :width="760" popper-class="development-advanced development-status-advanced">
           <template #reference><span ref="dockAnchor"><el-button>高级筛选{{ advancedCount ? `（${advancedCount}）` : '' }}</el-button></span></template>
-          <div ref="advancedBody" class="development-advanced-body">
+          <div ref="advancedBody" class="development-advanced-body" data-auto-draft="off">
             <AdvancedFilterFieldSearch :active="advanced" :anchor="dockAnchor" scope="development-status-advanced">
             <div class="development-form-grid">
               <div v-for="condition in advancedConditions" :key="condition.key"><label>{{ condition.label }}</label><el-select v-model="filters[condition.key]" clearable filterable :aria-label="condition.label" @change="commonChanged(condition.key)"><el-option v-for="option in condition.options" :key="option.id" :label="option.name" :value="option.id" /></el-select></div>
@@ -90,7 +90,8 @@ function columnTextInput(key, value) { setColumnFilter(key, value); keywordChang
 function commonChanged(key) { clearCommonColumn(key); query() }
 function clearColumns() { Object.keys(columnFilters).forEach(key => delete columnFilters[key]); query() }
 function clearAdvanced() { advancedConditions.value.forEach(condition => { filters[condition.key] = '' }); query() }
-function reset() { resetFilters(); query() }
+function reset() { resetFilters(entryState.value); query() }
+watch(advanced, open => { if (!open && visible.value) reset() })
 function chooseRange(key) { filters.range = developmentDateRange(key); query() }
 function pageChanged() { rows.value = []; reload() }
 function sizeChanged() { page.value = 1; pageChanged() }

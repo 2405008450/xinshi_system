@@ -304,6 +304,11 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
     annotation_counts = [dict(project_id=UUID(pid), count=count) for (kind, pid), (count, _stamp) in mention_stats.items() if kind == 'annotation']
     rows = []
     if annotation.can_view(db, user):
+        from workflow_models import ProjectWorkbenchResponsibility as Responsibility
+
+        manages_project = AnnotationProject.workbench_responsibilities.any(
+            and_(Responsibility.role_code == 'project_manager', Responsibility.assignee_id == user.id)
+        )
         # 直接沿用关注与退订条件，不重复执行结果未使用的未读查询。
         mentioned_projects = db.query(ChatProjectMessage.annotation_project_id).join(ChatProjectMention,
             ChatProjectMention.message_id == ChatProjectMessage.id).outerjoin(AnnotationChatMember,
@@ -314,12 +319,13 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
         conditions = [AnnotationChatMember.following.is_(True), AnnotationProject.id.in_(mentioned_projects)]
         if ready:
             conditions.extend([AnnotationChatMember.pinned.is_(True), AnnotationChatMember.starred.is_(True)])
-        projects = db.query(AnnotationProject, AnnotationChatMember).outerjoin(AnnotationChatMember,
+        projects = db.query(AnnotationProject, AnnotationChatMember, manages_project.label('is_project_manager')).outerjoin(AnnotationChatMember,
             and_(AnnotationChatMember.project_id == AnnotationProject.id, AnnotationChatMember.user_id == user.id)).filter(AnnotationChatMember.user_id == user.id, or_(*conditions)).all()
-        stats = summaries(db, ChatProjectMessage.annotation_project_id, [p.id for p, m in projects], {p.id: m.last_read_sequence if m else 0 for p, m in projects}, user.id)
-        for p, m in projects:
+        stats = summaries(db, ChatProjectMessage.annotation_project_id, [p.id for p, _, _ in projects], {p.id: m.last_read_sequence for p, m, _ in projects}, user.id)
+        for p, m, is_project_manager in projects:
             rows.append(dict(key=f'annotation:{p.id}', kind='annotation', project_id=p.id, title=p.project_name or '未命名项目',
-                subtitle=p.order_no, project_status=p.project_status, following=bool(m and m.following), pinned=bool(ready and m and m.pinned), starred=bool(ready and m and m.starred), is_creator=user.id in (p.created_by, p.client_manager_id), **stats[p.id]))
+                subtitle=p.order_no, project_status=p.project_status, is_project_manager=is_project_manager,
+                following=bool(m and m.following), pinned=bool(ready and m and m.pinned), starred=bool(ready and m and m.starred), is_creator=user.id in (p.created_by, p.client_manager_id), **stats[p.id]))
     if not ready:
         import discussion_chat_service
         rows.extend(discussion_chat_service.catalog(db, user))

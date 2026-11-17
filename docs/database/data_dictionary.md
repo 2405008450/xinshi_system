@@ -2517,6 +2517,8 @@ Python translation_file_name_rules.py 与前端 translationFileName.js 共用格
 
 - `interpretation_customer_finance`：`id`（字符串UUID主键）、`project_id`（口译项目FK，唯一，可空，级联删除）、`client_id`（客户FK，唯一，可空，级联删除）、`revision`（整数乐观锁版本）、`payload`（JSON）。项目与客户归属必须且只能设置一个。
 - 项目 `payload.settlement` 可存账单月份、计费税口径、付款方式、收款状态及明细（金额、币种、日期、备注）、报价单/发票需求、客户说明和付款说明。项目 `payload.quotation` 存报价单标题、客户名称、计时明细和报价说明，与收费共用版本及调整记录。旧 JSON 可缺少这两个键，客户参考价记录不保存项目结算或报价单。
+- 项目的 `payload.settlement.pricing_mode` 为 `time`（默认）或 `fixed`。固定收费金额按币种保存于 `payload.fixed_totals`，单价和加班费仅在按时长计费时参与合计。结算模式使用 `individual`、`monthly`、`sub_client`、`special`，历史 `statement` 按 `monthly` 处理。
+- 项目 `payload.invoice` 存开票状态（`unissued`、`partial`、`issued`）及附件引用和备注（`proofs`）。发票按项目保存，与价格记录共用版本和修改记录。合并结算入口按对应账单月份和结算范围列出项目。
 - `payload` 保存按方向组合的 `rates`（金额、货币、单位、数量、每日/半天小时数、含午餐时间）、加班费开关与总加班费、分币种调整后总价及说明。客户参考价同步只传递单价，不把项目数量、加班费或总价调整复制到客户。
 - `interpretation_customer_finance_history`：`id`（字符串UUID主键）、`finance_id`（财务记录FK及索引，级联删除）、`revision`、`actor_id`（用户FK，删除置空）、`actor_name`、`before`/`after`（JSON完整快照）、`created_at`（带时区时间，接口UTC+8）。
 - 客户参考价自动带入匹配方向的项目；仍沿用原单价的项目在客户改价时自动更新，保留各项目数量、加班费和调整后总价。独立改价的项目在客户财务区域显示差异，需选择同步方向并确认。项目普通保存不回写客户；显式同步须校验客户版本、项目版本及写入权限。
@@ -2919,3 +2921,13 @@ id UUID 主键；client_id / sub_client_id UUID 分别关联 client / sub_client
 - `person_id UUID` 为主键，引用 `client_contact_person.id`，删除联系人记录时级联删除。
 - `job_title VARCHAR(100)` 为职位。接口 `contact_people[].job_title` 可省略；省略时保留原职位，提交空串时清除。
 - 使用 `tools/apply_client_contact_job_title_migration.py` 初始化职位表。
+### 子客户开票资料（sub_client_invoice_profile）
+
+`sub_client_id UUID` 为主键，引用 `sub_client.id` 并级联删除。其余字段与 `client_invoice_profile` 对应，包括开票主体 `subject_key`、发票种类 `invoice_kind`、开票资料及发票类型 `data`、版本 `revision`、更新人 `updated_by` 和更新时间 `updated_at`。使用 `tools/apply_sub_client_invoice_profile_migration.py` 初始化。
+
+项目开票对象按母项目的子客户关联确定，子订单随母项目。关联子客户时使用其独立开票资料。项目及特殊结算开票记录均可按主客户、全部子客户或指定子客户筛选。
+### 笔译子客户参考价归属（sub_client_translation_rate）
+
+`rate_id UUID` 为主键，引用 `customer_translation_rate.id`。`sub_client_id UUID` 引用 `sub_client.id`，并建立索引。两个外键均级联删除关联记录。子客户参考价使用独立键及版本，不进入客户参考价目录。删除子客户后，其原参考价也不会进入客户目录。
+
+参考价保存沿用现有价格与税字段。项目按子客户匹配价优先，缺少匹配时可采用客户参考价。人工录入的不同价格可通过双向同步处理。使用 `tools/apply_sub_client_translation_rate_migration.py` 初始化。

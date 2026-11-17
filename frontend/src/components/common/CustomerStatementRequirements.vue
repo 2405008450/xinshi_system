@@ -1,11 +1,11 @@
 <template>
   <section class="statement-requirements">
-    <AppForm :model="filters" inline @submit.prevent="search">
+    <AppForm data-auto-draft="off" :model="filters" inline @submit.prevent="search">
       <el-form-item label="月份"><el-date-picker v-model="filters.month" type="month" value-format="YYYY-MM" :clearable="false" style="width:160px" @change="search" /></el-form-item>
       <el-form-item><el-button @click="selectMonth(currentStatementMonth())">本月</el-button><el-button @click="selectMonth(previousStatementMonth())">上个月</el-button></el-form-item>
       <el-form-item label="关键词"><el-input v-model="filters.keyword" placeholder="订单号、项目名称、客户名称" clearable @input="queueSearch" @keyup.enter="search" /></el-form-item>
       <el-form-item label="客户"><el-input v-model="filters.client" placeholder="客户全称或简称" clearable @input="queueSearch" @keyup.enter="search" /></el-form-item>
-      <el-form-item><el-button type="primary" @click="search">查询</el-button><el-button @click="reset">重置</el-button><AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" @clear="clearAdvanced" @reset="clearAdvanced"><el-form-item label="是否需对账单"><el-select v-model="filters.required" clearable placeholder="全部" @change="search"><el-option label="需对账单" value="yes" /><el-option label="不需对账单" value="no" /></el-select></el-form-item><el-form-item label="项目状态"><el-select v-model="filters.status" clearable placeholder="全部状态" @change="search"><el-option v-for="item in statuses" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></AdvancedFilterPopover></el-form-item>
+      <el-form-item><el-button type="primary" @click="search">查询</el-button><el-button @click="reset">重置</el-button><AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" @clear="clearAdvanced" @reset="reset"><el-form-item label="是否需对账单"><el-select v-model="filters.required" clearable placeholder="全部" @change="search"><el-option label="需对账单" value="yes" /><el-option label="不需对账单" value="no" /></el-select></el-form-item><el-form-item label="项目状态"><el-select v-model="filters.status" clearable placeholder="全部状态" @change="search"><el-option v-for="item in statuses" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item></AdvancedFilterPopover></el-form-item>
     </AppForm>
     <p class="statement-requirements-hint">按订单号所属月份显示笔译母订单；“是否需对账单”修改后立即保存，与项目主表单同步。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />

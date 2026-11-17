@@ -8,6 +8,7 @@
       <span v-else class="chat-order-identity__number" :title="`订单号：${orderNo}`">{{ orderNo }}</span>
       <ChatProjectActions v-if="showManagers && projectId && projectType === 'annotation'" :project-id="projectId" :project-type="projectType" hide-details icon-only />
       <ChatProjectManagersSummary v-if="showManagers && projectId" :project-id="projectId" :project-type="projectType" />
+      <slot name="filters" />
     </span>
   </span>
   <el-config-provider v-if="progressVisible" :z-index="10000"><AnnotationProgressHost :key="projectId" embedded progress-only :progress-project-id="projectId" @progress-closed="progressVisible=false" /></el-config-provider>

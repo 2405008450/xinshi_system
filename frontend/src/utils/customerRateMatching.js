@@ -1,6 +1,15 @@
 import {resolveRateQuantity,metricName} from './translationQuantityBasis.js'
 import {taxPriceForm} from './taxPrices.js'
 import {referenceDraft} from './customerTranslationRates.js'
+
+export function preferredCustomerRates(parent = [], child = []) {
+  const key = row => JSON.stringify([
+    row.languagePair, row.currency, Number(row.unitSize || 1),
+    String(row.metric).replace(/^customer_auto:/, ''),
+  ])
+  const childKeys = new Set(child.map(key))
+  return [...child, ...parent.filter(row => !childKeys.has(key(row)))]
+}
 export function pricingUnit(mode,matrix,reference=false){
   if(mode==='customer_auto')return reference?null:resolveRateQuantity(matrix,mode).metric||null
   return String(mode||'').replace(/^customer_auto:/,'').replace(/^company_/,'')||null

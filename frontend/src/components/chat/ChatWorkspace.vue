@@ -3,7 +3,11 @@
     <header class="chat-workspace__header" :class="{ 'chat-workspace__header--dragging': dragging, 'chat-workspace__header--pinned': maximized }" @mousedown="emit('header-mousedown', $event)" @dblclick="emit('header-dblclick', $event)">
       <el-button v-if="narrow" link aria-label="会话列表" :title="messageBadgeTotal ? `${messageBadgeTotal} 条未读提及，点击查看会话列表` : '会话列表'" @click="openMobileSessions"><el-badge :value="messageBadgeTotal" :max="99" :hidden="!messageBadgeTotal"><el-icon><ChatDotRound /></el-icon></el-badge></el-button>
       <div class="chat-workspace__heading" @mousedown.stop @dblclick.stop>
-        <ChatOrderIdentity v-if="!['summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(pane) && ['annotation', 'translation'].includes(projectType) && subtitle" :title="title" :order-no="subtitle" :project-type="projectType" :project-id="projectId" show-managers />
+        <ChatOrderIdentity v-if="!['summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(pane) && ['annotation', 'translation'].includes(projectType) && subtitle" :title="title" :order-no="subtitle" :project-type="projectType" :project-id="projectId" show-managers>
+          <template v-if="projectType === 'annotation' && pane === 'messages'" #filters>
+            <ChatAnnotationFilters v-bind="annotationFilters" @change="emit('annotation-filters', $event)" />
+          </template>
+        </ChatOrderIdentity>
         <strong v-else :title="title">{{ pane==='summary'?'总结':pane==='notifications'?'通知':isProjectPane(pane)?`${projectMine ? '我的' : ''}${panes.find(item=>item.key===pane)?.label || ''}`:title || '沟通' }}</strong>
         <el-tag v-if="projectType && !narrow" size="small" effect="plain">{{ typeLabel(projectType) }}</el-tag>
         <span v-if="projectType === 'direct' && subtitle && subtitle !== '内部私聊'" class="chat-workspace__subtitle">{{ subtitle }}</span>
@@ -52,6 +56,8 @@
               <button type="button" :aria-pressed="annotationMode === 'mention'" :class="{ 'is-active': annotationMode === 'mention' }" @click="openMentionInbox('mention')" @contextmenu="mentionSortMenu?.open($event)" @keydown.shift.f10="mentionSortMenu?.open($event)">@我</button>
               <button type="button" :aria-pressed="annotationMode === 'mention-all'" :class="{ 'is-active': annotationMode === 'mention-all' }" @click="openMentionInbox('mention-all')" @contextmenu="mentionSortMenu?.open($event)" @keydown.shift.f10="mentionSortMenu?.open($event)">@所有人</button>
             </div>
+            <el-button v-if="annotationMode === 'group' && annotationFiltersActive && projectType !== 'annotation'"
+              link @click="emit('annotation-filters', { mine: false, statuses: [] })">清除标注项目筛选</el-button>
           </div>
           <ChatSessionFolderTree ref="folderTreeRef" v-if="annotationMode !== 'direct'" :selected="selectedFolder" :active="active" :sessions="allMentionSessions" @select="selectFolder" @unread="openFolderUnread" @changed="emit('categories-changed')" @browse-annotation="annotationPickerVisible = true" @open-conversation="emit('open', $event)" />
           <div class="chat-workspace__recent-closed">
@@ -71,7 +77,7 @@
           <div ref="sessionList" class="chat-workspace__list" @contextmenu="annotationMentionView && mentionSortMenu?.open($event)" @keydown.shift.f10="annotationMentionView && mentionSortMenu?.open($event)">
             <ChatMessageSearchResults v-if="searchMode === 'messages'" :keyword="appliedKeyword" :revision="searchRevision" @locate="emit('locate-mention', $event)" /><ChatMentionInbox v-else-if="showMentions" :keyword="appliedKeyword" :filters="mentionFilters" :active="pane === 'messages'" @total="filteredMentionTotal = $event" @locate="emit('locate-mention', $event)" />
             <template v-else>
-            <el-empty v-if="!visibleSessions.length" :description="annotationMentionView ? '当前筛选中没有提及消息的会话' : tab === 'unread' ? '没有未读消息' : '暂无会话'" :image-size="48" />
+            <el-empty v-if="!visibleSessions.length" :description="annotationMode === 'group' && annotationFiltersActive ? '没有符合筛选条件的标注会话' : annotationMentionView ? '当前筛选中没有提及消息的会话' : tab === 'unread' ? '没有未读消息' : '暂无会话'" :image-size="48" />
             <div v-for="session in visibleSessions" :key="session.key" class="chat-workspace__session" :class="{ 'is-active': session.opened && session.key === activeKey, 'is-pinned': session.pinned, 'has-unread-mention': !!session.mentionUnread }" role="button" tabindex="0" :title="[session.title, session.subtitle].filter(Boolean).join(' · ')" @click="emit(session.opened ? 'select' : 'open', session)" @keydown.enter.self="emit(session.opened ? 'select' : 'open', session)" @keydown.space.self.prevent="emit(session.opened ? 'select' : 'open', session)">
               <span class="chat-workspace__session-left"><span v-if="session.projectType !== 'direct' && Number.isFinite(session.memberCount)" class="chat-session-member-count" :title="`当前会话 ${session.memberCount} 位参与人`" :aria-label="`当前会话 ${session.memberCount} 人`">{{ session.memberCount }}人</span><span class="chat-workspace__avatar" :class="`chat-workspace__avatar--${session.projectType}`" aria-hidden="true">{{ chatAvatarText(session.title) }}<small>{{ typeLabel(session.projectType) }}</small></span></span>
               <span class="chat-workspace__session-main">
@@ -121,6 +127,7 @@ import { screenshotPreview } from '@/utils/screenshotReferences'
 import {activeConversationFolder} from '@/utils/chatActiveFolder'
 import { matchesSearch } from '@/utils/searchMatching'
 import ChatOrderIdentity from './ChatOrderIdentity.vue'
+import ChatAnnotationFilters from './ChatAnnotationFilters.vue'
 import { chatRequest } from '@/api/projectChat'
 import ChatInlineNameEditor from './ChatInlineNameEditor.vue'
 import { canStartChatNameEditing } from '@/composables/useChatNameEditing'
@@ -157,6 +164,7 @@ import ChatSessionCategoryAssignment from './ChatSessionCategoryAssignment.vue'
 import { categoryKey, useChatSessionCategories } from '@/composables/useChatSessionCategories'
 
 const props = defineProps({
+  annotationFilters: { type: Object, default: () => ({ mine: false, statuses: [] }) },
   wideHeader: Boolean,
   active: { type: Boolean, default: true },
   projectId: { type: String, default: '' },
@@ -181,6 +189,7 @@ const props = defineProps({
   dragging: { type: Boolean, default: false },
 })
 const emit = defineEmits([
+  'annotation-filters',
   'split-start', 'split-keydown', 'split-reset',
   'restore-closed', 'browse-project-mentions', 'select-project-mention', 'more-project-mentions', 'retry-project-mentions',
   'project-navigate', 'normal-size', 'context-empty', 'duplicate-window', 'open-multiple', 'pane-change', 'preference', 'categories-changed', 'select', 'open', 'locate-mention', 'close', 'close-active', 'exit-workspace', 'minimize', 'cycle-size', 'toggle-maximize', 'toggle-layout',
@@ -378,9 +387,26 @@ watch(keyword, (value) => {
 
 watch(searchMode, () => applyKeyword())
 
+const annotationFiltersActive = computed(() => props.annotationFilters.mine || props.annotationFilters.statuses.length > 0)
+watch(() => props.annotationFilters, () => {
+  pane.value = 'messages'
+  annotationMode.value = 'group'
+  tab.value = 'all'
+  selectedFolder.value = ''
+  searchMode.value = 'sessions'
+  keyword.value = ''
+  applyKeyword()
+  nextTick(() => { if (sessionList.value) sessionList.value.scrollTop = 0 })
+})
+
 const sessionDisplayTime = session => annotationMentionView.value ? latestMentionAt(session) : session.lastMessage?.createdAt
 const visibleSessions = computed(() => groupSessionList((appliedKeyword.value ? [...new Map([...props.searchSessions,...props.sessions].map(row=>[row.key,row])).values()] : annotationMentionView.value ? allMentionSessions.value : props.sessions).filter((session) => {
   const directMode = annotationMode.value === 'direct'
+  if (annotationMode.value === 'group' && annotationFiltersActive.value) {
+    const { mine, statuses } = props.annotationFilters
+    if (session.projectType !== 'annotation' || (mine && !session.isProjectManager) ||
+      (statuses.length && !statuses.includes(normalizeAnnotationStatus(session.projectStatus)))) return false
+  }
   if (!appliedKeyword.value) {
     if (directMode ? session.projectType !== 'direct' : session.projectType === 'direct') return false
     if (!directMode && !sessionMatchesFolder(session, selectedFolder.value, folderNodes.value)) return false
@@ -395,7 +421,7 @@ function syncActiveConversation(context,external=false){
  if(!context.projectId)return
  const session=props.sessions.find(row=>String(row.projectId)===String(context.projectId)&&row.projectType===context.projectType)||{...context,categoryIds:[]}
  if(!external&&pane.value!=='messages')return
- if(!external&&showMentions.value)return
+ if(!external&&(showMentions.value || (annotationMode.value === 'group' && annotationFiltersActive.value)))return
  const target=activeConversationFolder(session,folderNodes.value,selectedFolder.value)
  if(external){pendingContextFolder='';pane.value='messages';keyword.value='';applyKeyword()}
  if(context.projectType==='direct'){annotationMode.value='direct';tab.value='direct';selectedFolder.value=''}

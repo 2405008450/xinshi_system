@@ -1,11 +1,12 @@
 <template>
   <div>
     <div class="price-sync-scopes">
-      <el-button :disabled="disabled || loading || !month || !clientId" @click="open('same_month')">{{sameMonthButtonLabel}}</el-button>
+      <el-button :disabled="disabled || loading || !month || !clientId" @click="open('same_month')">{{sameMonthLabel}}</el-button>
+      <el-button v-if="subClientId" :disabled="disabled || loading || !month" @click="open('same_sub_client_month')">{{subClientLabel}}</el-button>
       <el-button :disabled="disabled || loading || !projectId || !orderId" @click="open('project_children')">{{childButtonLabel}}</el-button>
       <small v-if="syncCount" class="sync-count">已同步 {{syncCount}} 次</small>
     </div>
-    <DraggableFormDialog v-model="visible" append-to-body class="same-month-price-dialog" width="min(1100px, calc(100vw - 32px))" top="5vh" :title="childScope ? '确认同步本订单各级子订单单价' : '确认同步同客户同月同语种单价'" :close-on-click-modal="false" :before-close="close">
+    <DraggableFormDialog v-model="visible" append-to-body class="same-month-price-dialog" width="min(1100px, calc(100vw - 32px))" top="5vh" :title="syncButtonLabel" :close-on-click-modal="false" :before-close="close">
       <div v-loading="loading">
         <CustomerTranslationRates v-if="clientId" :client-id="clientId" :can-write="canWriteClients" button-label="查看／编辑客户笔译报价" @saved="open(scope)" />
         <el-alert v-if="error" :title="error" type="error" :closable="false">
@@ -16,8 +17,8 @@
         <div class="sync-entry-guide">
           <strong>单价同步入口</strong>
           <ul>
-            <li>财务管理 → 笔译 → 找到来源订单 → 操作列「更多操作」 → 价格与付款 → 同步单价 → {{compactSyncButtonLabel}}。</li>
-            <li>财务管理 → 笔译 → 找到来源订单 → 单价列 → 参考价／同步 → {{tableSyncButtonLabel}}。</li>
+            <li>财务管理 → 笔译 → 找到来源订单 → 操作列「更多操作」 → 价格与付款 → 同步单价 → {{syncButtonLabel}}。</li>
+            <li>财务管理 → 笔译 → 找到来源订单 → 单价列 → 参考价／同步 → {{syncButtonLabel}}。</li>
           </ul>
           <p v-if="error === missingUnitMessage">填写统计口径：在「价格与付款」中进入「语种单价」→ 对应单价 →「统计口径」；也可在列表「单价」列点击对应单价的「设置」→「统计口径」。修改后重新打开同步窗口，核对匹配订单，再点击「确认同步」。</p>
           <p v-else>核对下方的匹配订单，再点击「确认同步」。</p>
@@ -38,23 +39,22 @@ import {ElMessage} from 'element-plus'
 import {previewSameMonthPrices,applySameMonthPrices,getSameMonthPriceSyncStatus} from '@/api/translationCustomerFinance'
 import {basisLabel} from '@/utils/translationQuantityBasis'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
-const props=defineProps({projectId:String,orderId:String,sourceOrderNo:String,version:String,month:String,clientId:String,disabled:Boolean,prepare:Function,compact:Boolean})
+const props=defineProps({projectId:String,orderId:String,sourceOrderNo:String,version:String,month:String,clientId:String,subClientId:String,disabled:Boolean,prepare:Function})
 const emit=defineEmits(['synced'])
 const canWriteClients=hasPermission('clients:write')
 const visible=ref(false),loading=ref(false),saving=ref(false),preview=ref(null),error=ref('')
 const scope=ref('same_month')
 const childScope=computed(()=>scope.value==='project_children')
 const childButtonLabel='同步到本订单同语种同单位的各级子订单…'
-const compactSameMonthLabel='同步同客户同月同语种订单'
-const tableSameMonthLabel='同步到同客户同月同语种同单位订单…'
-const sameMonthButtonLabel=computed(()=>props.compact?compactSameMonthLabel:tableSameMonthLabel)
-const compactSyncButtonLabel=computed(()=>childScope.value?childButtonLabel:compactSameMonthLabel)
-const tableSyncButtonLabel=computed(()=>childScope.value?childButtonLabel:tableSameMonthLabel)
+const sameMonthLabel='同步同客户同月同语种订单'
+const subClientLabel='同步同子客户同月同语种订单'
+const subClientScope=computed(()=>scope.value==='same_sub_client_month')
+const syncButtonLabel=computed(()=>childScope.value?childButtonLabel:subClientScope.value?subClientLabel:sameMonthLabel)
 const missingUnitMessage='请先明确单价的计量单位后再同步'
 const sourceOrder=computed(()=>props.sourceOrderNo ? `订单 ${props.sourceOrderNo}` : '当前订单')
 const destination=computed(()=>childScope.value
   ? '该订单下匹配的各级子订单'
-  : `${preview.value?.clientName || '同一客户'}在 ${preview.value?.billingMonth || props.month} 账单月份内匹配的订单`)
+  : `${subClientScope.value ? preview.value?.subClientName || '同一子客户' : preview.value?.clientName || '同一客户'}在 ${preview.value?.billingMonth || props.month} 账单月份内匹配的订单`)
 const syncCount=ref(0)
 let statusSequence=0
 watch(()=>[props.projectId,props.orderId],async()=>{const current=++statusSequence;syncCount.value=0;if(!props.projectId||!props.orderId)return;try{const data=await getSameMonthPriceSyncStatus(props.projectId,props.orderId);if(current===statusSequence)syncCount.value=data.syncCount||0}catch{}},{immediate:true})

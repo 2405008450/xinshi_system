@@ -4,7 +4,7 @@
       <strong>聊天记录</strong>
       <el-button link aria-label="关闭聊天记录" @click="emit('update:visible', false)">关闭</el-button>
     </header>
-    <div class="chat-history__filters">
+    <div class="chat-history__filters" data-auto-draft="off">
       <el-input
         v-model="filters.keyword"
         clearable
@@ -261,7 +261,19 @@ watch(() => [filters.kind, filters.sender, filters.favorites, (filters.dates || 
   runSearch()
 })
 watch(() => props.visible, (value) => {
-  if (!value) return
+  if (!value) {
+    window.clearTimeout(keywordTimer)
+    controller?.abort()
+    generation++
+    loading.value = false
+    loadingMore.value = false
+    items.value = []
+    nextCursor.value = ''
+    error.value = ''
+    revokeThumbs()
+    resetFilters()
+    return
+  }
   if (!props.allowFiles && filters.kind === 'file') filters.kind = 'all'
   runSearch()
 })

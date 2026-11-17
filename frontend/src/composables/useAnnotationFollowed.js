@@ -16,11 +16,22 @@ const total = ref(0)
 const error = ref('')
 let users = 0
 let timer = 0
+let retryTimer
 let pending = false
 let rerun = false
 let cleanup = []
 let generation = 0
 let controller
+
+function cancelRetry() {
+  if (retryTimer !== undefined) window.clearTimeout(retryTimer)
+  retryTimer = undefined
+}
+
+function transientFailure(cause) {
+  return [502, 503, 504].includes(cause.response?.status) ||
+    ['ERR_NETWORK', 'ECONNABORTED', 'ETIMEDOUT'].includes(cause.code)
+}
 
 async function refresh(options = {}) {
   if (!localStorage.getItem('user_id')) return
@@ -29,6 +40,7 @@ async function refresh(options = {}) {
     rerun = true
     return
   }
+  cancelRetry()
   pending = true
   const version = ++generation
   const userId = localStorage.getItem('user_id')
@@ -51,11 +63,22 @@ async function refresh(options = {}) {
       const session = sessions.value.find(row => row.key === (item.conversationKey || item.key))
       if (session) { item.unread = session.unread; item.mentionUnread = session.mentionUnread; item.projectStatus = session.projectStatus || ''; if (item.projectType === 'discussion') item.title = session.title }
     })
-    await refreshOpenAnnotationStatuses(sessions.value)
+    void refreshOpenAnnotationStatuses(sessions.value).catch(() => {})
   } catch (cause) {
     if (version === generation && !current.signal.aborted) {
-      console.warn('会话目录刷新失败', JSON.stringify({ code: cause.code, status: cause.response?.status, message: cause.message }))
-      error.value = '未读消息暂时无法加载'
+      if (!options?.retry && transientFailure(cause)) {
+        const retryAfter = Number(cause.response?.headers?.['retry-after'])
+        const delay = Math.max(1000, Math.min(10000, (retryAfter || 1) * 1000))
+        retryTimer = window.setTimeout(() => {
+          retryTimer = undefined
+          if (version === generation && userId === localStorage.getItem('user_id')) {
+            void refresh({ retry: true })
+          }
+        }, delay)
+      } else {
+        console.warn('会话目录刷新失败', JSON.stringify({ code: cause.code, status: cause.response?.status, message: cause.message }))
+        error.value = '未读消息暂时无法加载'
+      }
     }
   } finally {
     if (version === generation) {
@@ -93,6 +116,7 @@ function stop() {
   if (users !== 0) return
   ++generation
   controller?.abort()
+  cancelRetry()
   pending = false; rerun = false
   sessions.value = []
   applySessionCategories(null)
@@ -101,6 +125,7 @@ function stop() {
   mentionHistoryTotal.value = 0
   annotationMentionCounts.value = []
   phaseOneEnabled.value = false
+  error.value = ''
   window.clearInterval(timer)
   cleanup.forEach(fn => fn())
   cleanup = []

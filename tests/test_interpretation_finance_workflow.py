@@ -8,13 +8,68 @@ from sqlalchemy import event
 import interpretation_customer_finance as finance
 import interpretation_service as projects
 import interpretation_statements as statements
-from interpretation_finance_schemas import FinanceWrite, InterpretationQuotationWrite
+from interpretation_finance_schemas import FinanceWrite, InterpretationInvoiceWrite, InterpretationQuotationWrite, InterpretationSettlementModeWrite
 from interpretation_models import InterpretationLanguage, InterpretationProject
 from interpretation_schemas import InterpretationProjectCreate
-from models import Client
+from models import Client, SubClient
 from tests.test_chat_participant_access import environment
 from tests.test_customer_statements import context
 from translation_revenue import other_entries, report
+
+
+def test_fixed_and_timed_projects_follow_saved_settlement_scope(environment, monkeypatch):
+    db, (actor, *_) = environment
+    monkeypatch.setattr(finance, 'user_has_permission', lambda *_: True)
+    client = Client(id=uuid4(), client_code='CL-SETTLE', client_name='测试客户')
+    branches = [SubClient(id=uuid4(), parent_client_id=client.id, client_name=f'子客户 {i}')
+                for i in range(2)]
+    db.add_all([client, *branches])
+    db.flush()
+    records = [
+        ('monthly', None, 100), ('statement', branches[0], 200), ('individual', None, 300),
+        ('sub_client', branches[0], 40), ('sub_client', branches[0], 60),
+        ('sub_client', branches[1], 80), ('special', branches[0], 90),
+    ]
+    projects = []
+    for index, (mode, branch, amount) in enumerate(records):
+        project = InterpretationProject(id=uuid4(), order_no=f'IP-261101-{index:03}', client_id=client.id,
+                                        sub_client_id=branch.id if branch else None)
+        data = FinanceWrite(revision=0, settlement={'payment_method': mode, 'pricing_mode': 'fixed', 'tax_basis': 'incl_tax', 'invoice_required': True},
+                            rates=[{'direction': '中 ↔ 英', 'amount': 999, 'quantity': 3}],
+                            fixed_totals=[{'amount': amount, 'tax_prices': {'total_incl_tax': amount}}])
+        db.add(project)
+        db.add(finance.InterpretationCustomerFinance(project_id=project.id, revision=1, payload=data.model_dump(
+            mode='json', exclude={'revision', 'update_library', 'library_revision', 'sync_confirmed'})))
+        projects.append(project)
+    db.commit()
+    for project, expected in zip(projects, [300, 300, 300, 100, 100, 80, 90]):
+        result = statements.build(db, project.id, '2026-11', 'settlement')
+        assert result['totals'] == {'CNY': f'{expected}.00'}
+        assert all(row['basis'] == '固定收费' for row in result['rows'])
+    record = finance.record(db, 'project', projects[0].id)
+    assert finance.calculate(record.payload)['totals_incl_tax'] == {'CNY': '100.00'}
+    quotation = finance.quotation_context(projects[0], record, record.payload)['document']
+    assert quotation['items'][0]['unit_price'] == '100'
+    for index, others in [(0, [0, 1]), (2, [2]), (3, [3, 4]), (6, [6])]:
+        invoice = finance.get_invoice(projects[index].id, db=db, user=actor)
+        assert [item['id'] for item in invoice['items']] == [str(projects[item].id) for item in others]
+    filtered = finance.page(db=db,user=actor,only_mine=False,skip=0,limit=1,
+                            pricing_mode='fixed',payment_method='sub_client',month='2026-11')
+    assert filtered['total'] == 3 and len(filtered['items']) == 1
+    assert filtered['billing_totals'] == {'CNY': '180.00'}
+    updated = finance.change_settlement_mode(projects[2].id,
+        InterpretationSettlementModeWrite(revision=1, mode='monthly'), db=db, user=actor)
+    assert updated['settlement_mode'] == 'monthly'
+    assert updated['revision'] == 2 and updated['billing_totals'] == {'CNY': '300.00'}
+    issued = finance.put_invoice(projects[0].id, InterpretationInvoiceWrite(revision=1, invoice_status='issued', proofs='测试备注'), db=db, user=actor)
+    assert issued['invoice_status'] == 'issued'
+    with pytest.raises(HTTPException) as conflict:
+        finance.put_invoice(projects[0].id, InterpretationInvoiceWrite(revision=1), db=db, user=actor)
+    assert conflict.value.status_code == 409
+    db.rollback()
+    payload = finance.context(db, 'project', projects[0].id)['payload']
+    finance.save(db, actor, 'project', projects[0].id, FinanceWrite(revision=2, **payload))
+    assert finance.get_invoice(projects[0].id, db=db, user=actor)['items'][0]['proofs'] == '测试备注'
 
 
 def test_project_form_saves_finance_and_quotation_in_one_transaction(environment, monkeypatch):

@@ -4,7 +4,7 @@
     <template v-if="!embedded" #header>
       <DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="dialogTitle" :copyable-title="!!scopeOrder"
         :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch">
-        <template v-if="showFilters || mergedOrderNumbers.length" #actions>
+        <template v-if="showFilters || mergedOrderNumbers.length || headerClientName" #actions>
           <el-popover v-if="mergedOrderNumbers.length" v-model:visible="mergedOrdersVisible"
             trigger="click" placement="bottom-start" role="dialog" :title="`${settlementGroupLabel}订单号`" :width="250">
             <template #reference>
@@ -16,6 +16,7 @@
               <li v-for="number in mergedOrderNumbers" :key="number">{{ number }}</li>
             </ul>
           </el-popover>
+          <span v-if="headerClientName" class="payment-manager-label">{{headerClientName}}</span>
           <span v-if="showFilters" class="payment-manager-label">客户经理：
             <span v-if="scopeOrder">{{scopeOrder.clientManager || '未分配'}}</span>
             <el-button v-else :title="managerLabel" @click="openManagerPicker">{{managerLabel}}</el-button>
@@ -25,10 +26,10 @@
     </template>
     <div ref="body" v-loading="loading">
       <el-tabs v-if="!embedded" v-model="activeTab" :before-leave="beforeTabLeave" @tab-change="onPaymentTabChanged">
-        <el-tab-pane label="发票" name="invoice" />
-        <el-tab-pane label="特殊结算发票" name="special_invoice" />
-        <el-tab-pane label="查账" name="overview" />
-        <el-tab-pane label="追账" name="collection" />
+        <el-tab-pane v-if="!ledgerOnly" label="发票" name="invoice" />
+        <el-tab-pane v-if="!ledgerOnly" label="特殊结算发票" name="special_invoice" />
+        <el-tab-pane v-if="ledgerOnly" label="查账" name="overview" />
+        <el-tab-pane v-if="ledgerOnly" label="追账" name="collection" />
       </el-tabs>
       <ProjectPaymentDialog v-if="modelValue&&activeTab==='special_invoice'" ref="specialInvoiceWorkspace"
         model-value embedded
@@ -36,13 +37,13 @@
         :period-number="scopeOrder?.settlementPeriodNumber??scopeOrder?.billingPeriod?.number"
         :manager-query="specialInvoiceManagerQuery" @invoice-saved="emit('invoice-saved',$event)" />
       <template v-else>
-      <AppForm v-if="showFilters" :model="paymentFilters" inline class="payment-filter-bar" @submit.prevent="applyPaymentFilters">
+      <AppForm data-auto-draft="off" v-if="showFilters" :model="paymentFilters" inline class="payment-filter-bar" @submit.prevent="applyPaymentFilters">
         <el-form-item label="账单月份"><ReadonlyField v-if="scopeOrder" :model-value="scopeBillingPeriod" source="auto" style="width:195px" /><el-date-picker v-else v-model="paymentFilters.months" :disabled="mismatchView" type="months" value-format="YYYY-MM" placeholder="全部时间（可多选月份）" clearable style="width:230px" @change="changeMonths" /></el-form-item>
         <el-form-item v-if="activeTab==='invoice'&&!scopeOrder&&paymentFilters.months?.length===1" label="账期">
           <StatementPeriodSelect v-model="paymentFilters.period" :month="paymentFilters.months[0]" :client-id="invoiceClientId"
             :settlement-scope="embedded?'special':'standard'" @update:model-value="applyPaymentFilters" />
         </el-form-item>
-        <el-form-item label="客户"><ReadonlyField v-if="scopeOrder || invoiceClientId" :model-value="[scopeOrder?.clientShortName || scopeOrder?.clientName || invoiceClientName || '当前客户',scopeOrder?.subClientShortName].filter(Boolean).join(' · ')" source="auto" style="width:190px" /><el-input v-else v-model="paymentFilters.client" :disabled="mismatchView" placeholder="客户或子客户名称" clearable style="width:190px" @input="queueClientSearch" @keyup.enter="applyPaymentFilters" /></el-form-item>
+        <el-form-item label="客户"><ReadonlyField v-if="scopeOrder || invoiceClientId" :model-value="formatClientWithSubClient(scopeOrder, scopeOrder?.clientShortName || scopeOrder?.clientName || invoiceClientName || '当前客户')" source="auto" style="width:190px" /><el-input v-else v-model="paymentFilters.client" :disabled="mismatchView" placeholder="客户或子客户名称" clearable style="width:190px" @input="queueClientSearch" @keyup.enter="applyPaymentFilters" /></el-form-item>
         <el-form-item v-if="activeTab!=='invoice'" label="付款状态"><el-select v-model="paymentFilters.status" clearable placeholder="全部状态" style="width:205px" @change="applyPaymentFilters"><el-option v-for="option in statusOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></el-form-item>
         <el-form-item v-if="activeTab==='invoice'" label="是否需发票">
           <el-select v-model="paymentFilters.invoiceRequired" aria-label="是否需发票" clearable placeholder="全部开票需求" style="width:145px" @change="applyPaymentFilters">
@@ -53,13 +54,13 @@
         </el-form-item>
         <el-form-item v-if="activeTab==='invoice'" label="发票状态"><el-select v-model="paymentFilters.invoiceStatus" clearable placeholder="全部状态" style="width:155px" @change="applyPaymentFilters"><el-option v-for="option in invoiceStatusOptions" :key="option.value" :label="option.label" :value="option.value" /></el-select></el-form-item>
         <el-form-item v-if="activeTab==='invoice'">
-          <el-popover v-if="!scopeOrder && !invoiceClientId" trigger="click" placement="bottom-start" title="客户筛选" :width="325" @show="searchInvoiceCustomers('')">
+          <el-popover v-if="!scopeOrder && !invoiceClientId" v-model:visible="invoiceCustomerPickerVisible" trigger="click" placement="bottom-start" title="客户筛选" :width="325" @show="searchInvoiceCustomers('')">
             <template #reference>
               <el-button :type="invoiceClientIds.length ? 'primary' : 'default'">
                 客户筛选{{ invoiceClientIds.length ? '（' + invoiceClientIds.length + '）' : '' }}
               </el-button>
             </template>
-            <el-select v-model="invoiceClientIds" multiple filterable remote clearable
+            <el-select data-auto-draft="off" v-model="invoiceClientIds" multiple filterable remote clearable
               aria-label="选择开票客户" placeholder="搜索客户或子客户名称、简称或编号" style="width:100%"
               :remote-method="searchInvoiceCustomers" :loading="invoiceCustomerLoading" @change="applyInvoiceCustomerFilters">
               <el-option v-for="customer in invoiceCustomerOptions" :key="customer.id" :value="customer.id"
@@ -91,10 +92,9 @@
             <template #default="{row}"><TranslationOrderDetailPopover :order="row" /></template>
           </el-table-column>
           <el-table-column prop="projectName" label="项目名称" min-width="200" show-overflow-tooltip />
-          <el-table-column prop="clientShortName" label="客户简称" min-width="140" sortable="custom">
+          <el-table-column prop="clientShortName" label="客户简称" show-sub-client min-width="185" sortable="custom">
             <template #default="{row}">
               <span>{{row.clientShortName}}</span>
-              <div v-if="row.subClientShortName">{{row.subClientShortName}} · {{row.subClientCode}}</div>
             </template>
           </el-table-column>
           <el-table-column prop="clientManager" label="客户经理" min-width="120" sortable="custom" show-overflow-tooltip>
@@ -167,9 +167,9 @@
           @saved="emit('invoice-saved',$event)" />
       </div>
     </div>
-    <DraggableFormDialog v-model="managerPickerVisible" title="客户经理筛选" width="min(560px, calc(100vw - 32px))" top="10vh" append-to-body>
-      <el-radio-group v-model="managerDraftScope" class="payment-manager-choices"><el-radio value="self">本人（{{selfName}}）</el-radio><el-radio value="all">不指定人（全部订单）</el-radio><el-radio value="name">指定客户经理</el-radio></el-radio-group>
-      <CustomerDepartmentManagerSelect v-if="managerDraftScope==='name'" v-model="managerDraftIds" @options="cacheManagers" />
+    <DraggableFormDialog ref="managerPicker" v-model="managerPickerVisible" title="客户经理筛选" width="min(560px, calc(100vw - 32px))" top="10vh" append-to-body>
+      <el-radio-group data-auto-draft="off" v-model="managerDraftScope" class="payment-manager-choices"><el-radio value="self">本人（{{selfName}}）</el-radio><el-radio value="all">不指定人（全部订单）</el-radio><el-radio value="name">指定客户经理</el-radio></el-radio-group>
+      <CustomerDepartmentManagerSelect v-if="managerDraftScope==='name'" data-auto-draft="off" v-model="managerDraftIds" @options="cacheManagers" />
       <template #footer><el-button @click="managerPickerVisible=false">取消</el-button><el-button type="primary" @click="applyManager">确定</el-button></template>
     </DraggableFormDialog>
     <template v-if="!embedded" #footer><el-button @click="beforeClose(()=>emit('update:modelValue',false))">关闭</el-button></template>
@@ -189,6 +189,7 @@ import {customerFinanceSort,getCustomerFinancePage,getProjectInvoiceScope,getSta
 import {invoiceStatusOptions as recordedInvoiceStatusOptions,invoiceStatusLabels} from '@/utils/documentRequirements'
 import {hasPermission} from '@/utils/permission'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
+import {formatClientWithSubClient} from '@/utils/clientManagementWindow'
 import {formatBusinessDateTime} from '@/utils/dateTime'
 import {useDialogFieldSearch} from '@/composables/useDialogFieldSearch'
 import DraggableFormDialog from './DraggableFormDialog.vue'
@@ -205,7 +206,7 @@ import {orderStatementMonth} from '@/utils/statementRequirementMonth'
 import {paymentStatusLabel,paymentStatusFilterOptions,fullPaymentMismatchOption,paymentChangeEvent,connectPaymentSync} from '@/utils/paymentConfirmation'
 import {connectInvoiceParties,invoicePartiesEvent,notifyInvoiceParties} from '@/api/invoiceParties'
 const props=defineProps({modelValue:Boolean,scopeOrder:Object,initialProjectId:{type:String,default:''},lockProject:Boolean,canReviewInvoice:Boolean,
-  embedded:Boolean,invoiceClientId:[String,Number],invoiceClientName:String,initialMonth:String,periodNumber:Number,managerQuery:Object})
+  embedded:Boolean,ledgerOnly:Boolean,invoiceClientId:[String,Number],invoiceClientName:String,initialMonth:String,periodNumber:Number,managerQuery:Object})
 const emit=defineEmits(['update:modelValue','edit','invoice-saved','review-invoice','statement'])
 const canWrite=hasPermission('projects:write')||hasPermission('finance:write')
 const body=ref(),options=ref([]),loading=ref(false),searching=ref(false),error=ref('')
@@ -222,7 +223,7 @@ function openInvoiceStatement(row){
     month,period:row.settlementPeriodNumber??row.billingPeriod?.number}
 }
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(body)
-const activeTab=ref('invoice'),projectPage=ref(1),showFilters=computed(()=>!props.lockProject)
+const activeTab=ref(props.ledgerOnly?'overview':'invoice'),projectPage=ref(1),showFilters=computed(()=>!props.lockProject)
 const scopeMonth=computed(()=>props.scopeOrder && (props.scopeOrder.billingMonth || orderStatementMonth(props.scopeOrder.orderNo)))
 const scopeBillingPeriod=computed(()=>{
   if(!scopeMonth.value)return '未登记'
@@ -230,9 +231,10 @@ const scopeBillingPeriod=computed(()=>{
   return `${scopeMonth.value} · ${period ? `第 ${period} 期` : '未分账期'}`
 })
 const dialogTitle=computed(()=>{
-  if(!props.scopeOrder)return '发票、查账与追账'
+  const title=props.ledgerOnly?'查账追账':'发票'
+  if(!props.scopeOrder || mergedOrderNumbers.value.length)return title
   const level=financeOrderLevel(props.scopeOrder)
-  return `发票、查账与追账 · ${props.scopeOrder.orderNo}${level ? `（${level}）` : ''}`
+  return `${title} · ${props.scopeOrder.orderNo}${level ? `（${level}）` : ''}`
 })
 const projectSort=ref()
 const InvoiceRequestDialog = defineAsyncComponent(() => import('./InvoiceRequestDialog.vue'))
@@ -245,11 +247,17 @@ const specialInvoiceManagerQuery=computed(()=>({
 const projectTable = ref()
 const inlineInvoice=ref(null),inlineInvoiceForm=ref(null),inlineInvoiceAnchor=ref(null)
 const mergedOrderNumbers=ref([]),mergedOrdersVisible=ref(false)
-const settlementGroupLabel=computed(()=>translationSettlementModeLabels[props.scopeOrder?.paymentMethod]||translationSettlementModeLabels.monthly)
+const mergedScopeInfo=ref(null)
+const settlementGroupLabel=computed(()=>translationSettlementModeLabels[mergedScopeInfo.value?.settlementMode || props.scopeOrder?.paymentMethod]||translationSettlementModeLabels.monthly)
+const headerClientName=computed(()=>{
+  const row=props.scopeOrder || mergedScopeInfo.value
+  return row ? formatClientWithSubClient({...row,subClientName:row.subClientShortName || row.subClientName},row.clientShortName||row.clientName) : ''
+})
 function setMergedOrders(scope,projectId){
   const anchor=props.scopeOrder?.rootId||props.scopeOrder?.id
     || (props.lockProject?props.initialProjectId:undefined)
   if(anchor!==projectId)return
+  mergedScopeInfo.value=scope
   mergedOrderNumbers.value=scope.merged?scope.items.map(item=>item.orderNo):[]
   if(!mergedOrderNumbers.value.length)mergedOrdersVisible.value=false
 }
@@ -349,6 +357,7 @@ const displayedOptions = computed(()=>locallyFiltered.value && statementCustomer
   : options.value)
 const displayedProjectTotal = computed(()=>locallyFiltered.value?displayedOptions.value.length:projectTotal.value)
 const invoiceClientIds = ref([])
+const invoiceCustomerPickerVisible = ref(false)
 const invoiceCustomerOptions = ref([])
 const invoiceCustomerLoading = ref(false)
 const invoiceCustomerError = ref('')
@@ -389,6 +398,7 @@ const mismatchView=computed(()=>activeTab.value!=='invoice'&&paymentFilters.stat
 const collectionDefaultView=computed(()=>activeTab.value==='collection'&&!paymentFilters.status)
 const statusOptions=[...paymentStatusFilterOptions,fullPaymentMismatchOption]
 const selfName=localStorage.getItem('user_full_name')||localStorage.getItem('user_name')||'当前用户'
+const managerPicker=ref()
 const managerScope=ref('self'),managerIds=ref([]),managerNames=ref({}),managerPickerVisible=ref(false),managerDraftScope=ref('self'),managerDraftIds=ref([])
 const managerLabel=computed(()=>managerScope.value==='self'?`本人（${selfName}）`:managerScope.value==='name'?`指定（${managerIds.value.length}人）：${managerIds.value.map(id=>managerNames.value[id]||'已选人员').join('、')}`:'不指定人（全部订单）')
 let filterTimer,projectTimer,searchSequence=0,controller
@@ -412,13 +422,36 @@ function collectBillingCurrencies(order, result = { excl_tax: new Set(), incl_ta
 }
 function cacheManagers(people){managerNames.value={...managerNames.value,...Object.fromEntries(people.map(person=>[person.id,person.name]))}}
 function openManagerPicker(){managerDraftScope.value=managerScope.value;managerDraftIds.value=[...managerIds.value];managerPickerVisible.value=true}
-async function applyManager(){managerScope.value=managerDraftScope.value==='name'&&!managerDraftIds.value.length?'all':managerDraftScope.value;managerIds.value=managerScope.value==='name'?[...managerDraftIds.value]:[];managerPickerVisible.value=false;await applyPaymentFilters()}
+async function applyManager(){
+  managerScope.value=managerDraftScope.value==='name'&&!managerDraftIds.value.length?'all':managerDraftScope.value
+  managerIds.value=managerScope.value==='name'?[...managerDraftIds.value]:[]
+  managerPicker.value?.minimize()
+  await applyPaymentFilters()
+}
+const defaultManagerScope = () => props.scopeOrder || props.invoiceClientId || props.embedded ? 'all' : 'self'
+watch(managerPickerVisible, visible => {
+  if (visible) return
+  const changed = managerScope.value !== defaultManagerScope() || managerIds.value.length > 0
+  managerScope.value = defaultManagerScope()
+  managerIds.value = []
+  managerDraftScope.value = managerScope.value
+  managerDraftIds.value = []
+  if (changed && props.modelValue) void applyPaymentFilters()
+})
+watch(invoiceCustomerPickerVisible, visible => {
+  if (visible) return
+  invoiceCustomerSearch?.abort()
+  if (!invoiceClientIds.value.length) return
+  invoiceClientIds.value = []
+  if (props.modelValue) void applyInvoiceCustomerFilters()
+})
 function initPaymentFilters(){
+  invoiceCustomerPickerVisible.value=false
   clearInvoiceCustomerFilters()
   Object.assign(paymentFilters,{months:props.initialMonth?[props.initialMonth]:[],period:props.periodNumber,client:'',status:'',invoiceStatus:'',invoiceRequired:''})
   projectKeyword.value=''
   managerIds.value=[]
-  managerScope.value='all'
+  managerScope.value=defaultManagerScope()
 }
 function paymentQuery(keyword){
   const order=props.scopeOrder
@@ -531,11 +564,11 @@ if(props.embedded){
 }
 watch(()=>props.modelValue,visible=>{
   searchSequence++;controller?.abort();clearTimeout(filterTimer);clearTimeout(projectTimer);clearFieldSearch();error.value=''
-  mergedOrderNumbers.value=[];mergedOrdersVisible.value=false
-  if(!visible){requestController?.abort();managerPickerVisible.value=false;closeInlineInvoice();return}
-  activeTab.value='invoice';projectPage.value=1;projectSort.value=undefined;completeInvoiceScope.value=false
+  mergedOrderNumbers.value=[];mergedOrdersVisible.value=false;mergedScopeInfo.value=null
+  if(!visible){requestController?.abort();managerPickerVisible.value=false;initPaymentFilters();closeInlineInvoice();return}
+  activeTab.value=props.ledgerOnly?'overview':'invoice';projectPage.value=1;projectSort.value=undefined;completeInvoiceScope.value=false
   initPaymentFilters();options.value=[]
-  openInitialInvoice()
+  if(!props.ledgerOnly)openInitialInvoice()
   void searchProjects()
 },{immediate:true})
 onBeforeUnmount(()=>{requestController?.abort();invoiceCustomerSearch?.abort();clearTimeout(filterTimer);clearTimeout(projectTimer);window.removeEventListener(paymentChangeEvent,onExternalPayment);window.removeEventListener('translation-invoice-changed',onExternalPayment);window.removeEventListener(invoicePartiesEvent,onSpecialInvoiceChange);searchSequence++;controller?.abort()})

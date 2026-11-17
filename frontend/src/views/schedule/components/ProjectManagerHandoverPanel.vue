@@ -79,7 +79,7 @@
       </div>
     </div>
 
-    <AppForm :inline="true" :model="filterDraft" class="workbench-search-form">
+    <AppForm data-auto-draft="off" :inline="true" :model="filterDraft" class="workbench-search-form">
       <el-form-item label="关键词">
         <el-input v-model="filterDraft.project" clearable placeholder="项目、任务或订单号" class="workbench-search-input" @input="onTextFilterInput" @keyup.enter="applyFilters" @clear="applyFilters" />
       </el-form-item>
@@ -95,7 +95,7 @@
         <el-button type="primary" @click="applyFilters">查询</el-button>
         <el-button @click="resetFilters">重置</el-button>
         <AdvancedFilterPopover v-model:visible="advancedFilterVisible" :count="advancedFilterCount" popper-class="workbench-management-advanced-filter" @clear="clearAdvancedFilters" @reset="resetFilters">
-          <AppForm :model="filterDraft" label-width="100px" class="workbench-advanced-form">
+          <AppForm data-auto-draft="off" :model="filterDraft" label-width="100px" class="workbench-advanced-form">
             <el-row :gutter="16">
               <el-col :xs="24" :md="12">
                 <el-form-item label="项目类型">
@@ -335,7 +335,6 @@ import {
   WORKBENCH_FIELD_LABELS,
   WORKBENCH_PROJECT_TYPE_LABELS,
   WORKBENCH_PROJECT_TYPE_OPTIONS,
-  WORKBENCH_PROJECT_TYPE_VALUES
 } from '@/constants/workbenchFields'
 import {
   getProjectStatusLabel,
@@ -348,7 +347,6 @@ import {
   WORKBENCH_PAGE_SIZE_OPTIONS,
   clearWorkbenchFilterKeys,
   countActiveWorkbenchFilterGroups,
-  getWorkbenchFilterStorageKey,
   getWorkbenchLastPage,
   matchesWorkbenchFilterGroups,
   paginateWorkbenchRows,
@@ -425,8 +423,6 @@ const note = ref('')
 const canSelfClaim = hasRole('项目经理')
 const advancedFilterVisible = ref(false)
 
-const FILTER_STORAGE_KEY = getWorkbenchFilterStorageKey('management-projects', currentUserId)
-
 function projectStatusFilterKey(row) {
   const projectType = resolveProjectType(row)
   return `${projectType}:${normalizeProjectStatus(projectType, row?.project_status)}`
@@ -438,31 +434,10 @@ function personFilterKey(id, name, emptyKey) {
   return emptyKey
 }
 
-function readStoredFilters() {
-  const fallback = {
-    project_types: [], project_statuses: [], assignees: [], managers: [],
-    risk_states: [], project: '', client: '', language_pair: ''
-  }
-  try {
-    const parsed = JSON.parse(localStorage.getItem(FILTER_STORAGE_KEY) || 'null')
-    if (!parsed || typeof parsed !== 'object') return fallback
-    return {
-      project_types: Array.isArray(parsed.project_types) ? parsed.project_types.filter(value => WORKBENCH_PROJECT_TYPE_VALUES.includes(value)) : [],
-      project_statuses: Array.isArray(parsed.project_statuses) ? parsed.project_statuses.filter(value => typeof value === 'string' && value.includes(':')) : [],
-      assignees: Array.isArray(parsed.assignees) ? parsed.assignees.filter(value => typeof value === 'string') : [],
-      managers: Array.isArray(parsed.managers) ? parsed.managers.filter(value => typeof value === 'string') : [],
-      risk_states: Array.isArray(parsed.risk_states) ? parsed.risk_states.filter(value => ['overdue', 'urgent', 'normal'].includes(value)) : [],
-      project: typeof parsed.project === 'string' ? parsed.project : '',
-      client: typeof parsed.client === 'string' ? parsed.client : '',
-      language_pair: typeof parsed.language_pair === 'string' ? parsed.language_pair : ''
-    }
-  } catch {
-    localStorage.removeItem(FILTER_STORAGE_KEY)
-    return fallback
-  }
-}
-
-const filters = reactive(readStoredFilters())
+const filters = reactive({
+  project_types: [], project_statuses: [], assignees: [], managers: [], risk_states: [],
+  project: '', client: '', language_pair: '',
+})
 const filterDraft = reactive({
   ...filters,
   project_types: [...filters.project_types],
@@ -511,7 +486,6 @@ function resetFilters() {
     'project_types', 'project_statuses', 'assignees', 'managers', 'risk_states',
     'project', 'client', 'language_pair',
   ])
-  advancedFilterVisible.value = false
   applyFilters()
 }
 
@@ -598,12 +572,9 @@ function handleProjectPageSizeChange() {
   clearProjectSelection()
 }
 
-watch(filters, (value) => {
+watch(filters, () => {
   currentPage.value = 1
   clearProjectSelection()
-  try {
-    localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(value))
-  } catch {}
 })
 
 watch(() => filteredProjects.value.length, (total) => {

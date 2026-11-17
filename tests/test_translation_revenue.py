@@ -123,6 +123,29 @@ def test_hierarchy_counts_only_root_aggregate(environment):
     assert sum(row['projects'] for row in result['items']) == 1
 
 
+def test_ranking_details_follow_current_period_and_selected_basis(context):
+    http, db, clients, _, _ = context
+    http.app.include_router(revenue.router)
+    client = clients[0]
+    current = project(db, client, '001', fixed=True)
+    previous = project(db, client, '002', month='2026-10', fixed=True)
+    for order in (current, previous):
+        order.customer_charge_items[0].total_incl_tax = None
+    db.commit()
+    params = {'anchor':'2026-11-10','client_id':str(client.id)}
+    response = http.get('/translation-revenue', params={
+        **params, 'client_basis':__import__('json').dumps({str(client.id):'incl'}),
+    })
+    assert response.status_code == 200, response.text
+    row = response.json()['items'][0]
+    assert row['missing'] == 1
+    assert row['missing_orders'] == [{
+        'order_no':current.order_no, 'project_name':current.project_name,
+        'reasons':['固定收费的含税金额未填写'],
+    }]
+    assert http.get('/translation-revenue', params=params).json()['items'][0]['missing_orders'] == []
+
+
 @pytest.mark.parametrize('module, prefix', [('interpretation', 'IP'), ('annotation', 'AP'), ('recruitment', 'HP')])
 def test_other_modules_load_finance_only_for_selected_dates(context, monkeypatch, module, prefix):
     from interpretation_models import InterpretationProject

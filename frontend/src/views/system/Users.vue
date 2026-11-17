@@ -22,7 +22,7 @@
       show-icon
     />
 
-    <AppForm :inline="true" :model="searchForm" class="search-form">
+    <AppForm data-auto-draft="off" :inline="true" :model="searchForm" class="search-form">
       <el-form-item label="用户名">
         <el-input
           v-model="searchForm.username"

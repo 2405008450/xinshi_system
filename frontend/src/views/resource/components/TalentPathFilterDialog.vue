@@ -1,6 +1,6 @@
 <template>
   <DraggableFormDialog v-model="visible" title="路径筛选" width="min(1600px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close class="talent-path-dialog" :before-close="beforeClose" @closed="cancelRequests">
-    <div class="talent-path-filters">
+    <div class="talent-path-filters" data-auto-draft="off">
       <label for="talent-path-registered">路径登记</label>
       <el-select id="talent-path-registered" v-model="registered" clearable placeholder="全部" aria-label="路径登记" :disabled="busy" @change="query"><el-option label="有" :value="true" /><el-option label="无" :value="false" /></el-select>
       <el-button type="primary" :disabled="busy" @click="query">查询</el-button><el-button :disabled="busy" @click="reset">重置</el-button>

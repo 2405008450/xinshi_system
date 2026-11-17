@@ -2,7 +2,7 @@
   <DraggableFormDialog :model-value="modelValue" class="revenue-statistics-dialog" width="min(1320px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close :close-on-click-modal="false" @update:model-value="$emit('update:modelValue',$event)">
     <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" title="营收统计" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
     <div ref="body">
-      <AppForm :model="filters" inline class="revenue-query" @submit.prevent="search">
+      <AppForm data-auto-draft="off" :model="filters" inline class="revenue-query" @submit.prevent="search">
         <el-form-item label="项目类型"><el-select v-model="filters.projectType" style="width:110px" @change="changeProjectType"><el-option v-for="item in projectTypes" :key="item.value" :value="item.value" :label="item.label" /></el-select></el-form-item>
         <el-form-item label="统计周期"><el-select v-model="filters.period" style="width:100px" @change="search"><el-option v-for="item in revenuePeriods" :key="item.value" :value="item.value" :label="item.label" /></el-select></el-form-item>
         <el-form-item label="所属日期"><el-date-picker v-model="filters.anchor" type="date" value-format="YYYY-MM-DD" :clearable="false" style="width:150px" @change="search" /></el-form-item>
@@ -10,8 +10,8 @@
         <el-form-item label="客户经理">
           <CustomerDepartmentManagerSelect :model-value="filters.managerIds" placeholder="全体" style="width:180px" @update:model-value="changeManagers" />
         </el-form-item>
-        <el-form-item><el-button :loading="loading" @click="search">查询</el-button><el-button @click="reset">重置</el-button><AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" @clear="clearRanges" @reset="clearRanges">
-          <AppForm :model="filters" label-position="top" @submit.prevent="search">
+        <el-form-item><el-button :loading="loading" @click="search">查询</el-button><el-button @click="reset">重置</el-button><AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" @clear="clearRanges" @reset="reset">
+          <AppForm data-auto-draft="off" :model="filters" label-position="top" @submit.prevent="search">
             <div class="revenue-range-grid"><el-form-item label="排名区间"><div class="revenue-range"><el-input-number v-model="filters.rankMin" :min="1" :precision="0" :controls="false" placeholder="起始名次" aria-label="起始名次" @change="search" /><span>至</span><el-input-number v-model="filters.rankMax" :min="1" :precision="0" :controls="false" placeholder="结束名次" aria-label="结束名次" @change="search" /></div></el-form-item>
             <el-form-item :label="`金额范围（${filters.currency}）`"><div class="revenue-range"><el-input-number v-model="filters.amountMin" :precision="2" :controls="false" placeholder="最低金额" aria-label="最低金额" @change="search" /><span>至</span><el-input-number v-model="filters.amountMax" :precision="2" :controls="false" placeholder="最高金额" aria-label="最高金额" @change="search" /></div></el-form-item></div>
             <p class="revenue-help">区间包含两端；起止值倒序时自动按大小归一。排名、金额条件同时生效。</p>
@@ -49,7 +49,26 @@
               <p class="revenue-help">排名按本期金额降序，同额按客户名称及编号排列；区间筛选后保留原排名。上期或去年同期有记录的客户本期无营收时仍列出。上方总营收和趋势不受排名、金额、客户关键词筛选影响。</p>
               <el-table :data="data.items" border row-key="key" empty-text="暂无匹配客户" max-height="440">
                 <el-table-column prop="rank" label="排名" width="70" /><el-table-column prop="client_name" label="客户名称" min-width="170" show-overflow-tooltip /><el-table-column label="统计口径" width="170"><template #default="{row}"><el-select :model-value="row.basis" :disabled="!row.client_id" @change="value=>setBasis(row.client_id,value)"><el-option v-for="item in revenueBases" :key="item.value" :label="item.label" :value="item.value" /></el-select></template></el-table-column>
-                <el-table-column label="本期营收" min-width="125" align="right"><template #default="{row}">{{revenueAmount(row.amount)}}<el-tag v-if="row.missing" size="small" type="warning">待补</el-tag></template></el-table-column>
+                <el-table-column label="本期营收" min-width="145" align="right">
+                  <template #default="{row}">
+                    {{revenueAmount(row.amount)}}
+                    <el-popover v-if="row.missing" trigger="click" placement="left" :width="560"
+                      popper-class="revenue-missing-popover" :title="`${row.client_name} · 本期待补`">
+                      <template #reference>
+                        <el-button link type="warning" size="small" :aria-label="`查看 ${row.client_name} 本期待补明细`">
+                          待补 {{row.missing}}
+                        </el-button>
+                      </template>
+                      <el-table :data="row.missing_orders || []" border size="small" max-height="380" empty-text="暂无待补明细">
+                        <el-table-column prop="order_no" label="订单号" min-width="125" />
+                        <el-table-column prop="project_name" label="项目名称" min-width="135" />
+                        <el-table-column label="待补内容" min-width="150">
+                          <template #default="{row: order}">{{order.reasons.join('、')}}</template>
+                        </el-table-column>
+                      </el-table>
+                    </el-popover>
+                  </template>
+                </el-table-column>
                 <el-table-column prop="projects" label="计费项目数" width="100" />
                 <el-table-column label="同比" min-width="125"><template #default="{row}"><el-tooltip :content="`去年同期：${revenueAmount(row.yoy.amount)}；增减：${revenueAmount(row.yoy.difference)}`"><span>{{revenueChange(row.yoy)}}</span></el-tooltip></template></el-table-column>
                 <el-table-column label="环比" min-width="125"><template #default="{row}"><el-tooltip :content="`上期：${revenueAmount(row.mom.amount)}；增减：${revenueAmount(row.mom.difference)}`"><span>{{revenueChange(row.mom)}}</span></el-tooltip></template></el-table-column>
@@ -58,7 +77,7 @@
               <el-pagination :current-page="page" :page-size="20" :total="data.total" :disabled="loading" layout="total,prev,pager,next" @update:current-page="changePage" />
             </el-tab-pane>
             <el-tab-pane label="周期趋势／客户跟踪" name="trend" lazy>
-              <AppForm :model="filters" inline><el-form-item label="跟踪客户"><el-select v-model="focusClient" filterable clearable placeholder="全部客户汇总" style="width:320px;max-width:100%" @change="load"><el-option v-for="item in data.client_options" :key="item.key" :label="item.name" :value="item.key" /></el-select></el-form-item></AppForm>
+              <AppForm data-auto-draft="off" :model="filters" inline><el-form-item label="跟踪客户"><el-select v-model="focusClient" filterable clearable placeholder="全部客户汇总" style="width:320px;max-width:100%" @change="load"><el-option v-for="item in data.client_options" :key="item.key" :label="item.name" :value="item.key" /></el-select></el-form-item></AppForm>
               <p class="revenue-help">{{focusName}} · 最近12个{{periodLabel}} · {{data.currency}}。鼠标移到柱形可查看金额；下表列出每期同比、环比。</p>
               <svg class="revenue-chart" viewBox="0 0 1000 210" role="img" :aria-label="`${focusName}营收趋势`"><line x1="30" :y1="chart.zero" x2="990" :y2="chart.zero" stroke="currentColor" opacity=".25" /><g v-for="(item,index) in chart.bars" :key="item.start"><title>{{item.label}}：{{data.currency}} {{revenueAmount(item.amount)}}</title><rect :x="42+index*79" :y="item.y" width="42" :height="Math.max(item.height,1)" rx="3" :fill="Number(item.amount)>=0?'#415a77':'#b45309'" /><text :x="63+index*79" y="199" text-anchor="middle" font-size="11">{{item.label.replace('年','/').replace('第','').replace('季度','季')}}</text></g></svg>
               <el-table :data="data.timeline" border max-height="400"><el-table-column prop="label" label="周期" min-width="130" /><el-table-column label="日期范围" min-width="200"><template #default="{row}">{{row.start}} 至 {{row.end}}</template></el-table-column><el-table-column label="营收金额" min-width="130" align="right"><template #default="{row}">{{revenueAmount(row.amount)}}<el-tag v-if="row.missing" size="small" type="warning">待补</el-tag></template></el-table-column><el-table-column label="同比" min-width="110"><template #default="{row}">{{revenueChange(row.yoy)}}</template></el-table-column><el-table-column label="环比" min-width="110"><template #default="{row}">{{revenueChange(row.mom)}}</template></el-table-column></el-table>
@@ -159,6 +178,7 @@ onBeforeUnmount(()=>{sequence++;controller?.abort();clearTimeout(timer)})
 </script>
 
 <style scoped>
+:global(.revenue-missing-popover){max-width:calc(100vw - 32px)}
 .revenue-shortcut-section>summary{width:fit-content;cursor:pointer;font-size:13px;color:var(--el-text-color-regular)}
 :global(.el-dialog.revenue-statistics-dialog) { height: 90vh; box-sizing: border-box; }
 :global(.revenue-statistics-dialog > .el-dialog__body) { scrollbar-gutter: stable; overflow-anchor: none; }

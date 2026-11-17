@@ -185,6 +185,32 @@ def test_filters_and_client_subtotals_cover_all_pages(environment):
     assert not second['items'] and second['client_subtotals'][0]['totals']=={'CNY':'10.00'}
 
 
+def test_sub_client_filter_combines_with_customer_and_subtotals(environment):
+    from models import Client, SubClient, TranslationProject
+
+    db, (owner, _, _) = environment
+    root, _, _, foreign = orders(db, owner)
+    other = db.get(TranslationProject, foreign.parent_project_id)
+    client = Client(id=uuid4(), client_name='海湾翻译服务', client_short_name='海湾')
+    db.add(client)
+    db.flush()
+    sub_client = SubClient(id=uuid4(), parent_client_id=client.id, sub_client_code='CL-TEST.001',
+                           client_name='杭州海湾翻译团队', client_short_name='杭州海湾')
+    db.add(sub_client)
+    db.flush()
+    root.client_id = other.client_id = client.id
+    root.sub_client_id = sub_client.id
+    db.commit()
+
+    params = dict(db=db, user=owner, skip=0, limit=1, billing_month=None)
+    result = finance.page(**params, client='海湾', sub_client='翻译团队 cl-test.001')
+    assert result['total'] == 1
+    assert result['items'][0]['id'] == str(root.id)
+    assert result['client_subtotals'][0]['project_count'] == 1
+    assert finance.page(**params, client='其他', sub_client='杭州')['total'] == 0
+    assert finance.page(**params, sub_client='cl-test_001')['total'] == 0
+
+
 def test_order_number_month_includes_descendants_regardless_of_charge_month(environment):
     from models import TranslationSubOrder
     db,(owner,_,_)=environment;root,child,third=setup(db,owner)
