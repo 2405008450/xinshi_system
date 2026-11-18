@@ -15,6 +15,7 @@ from models import (AppUser, AnnotationChatMember, ChatDirectConversation, ChatD
 from annotation_models import AnnotationProject
 from annotation_schemas import ANNOTATION_PROJECT_STATUSES
 from chat_time import api_time, now
+from chat_catalog_read import catalog_read
 from permission_service import user_has_permission
 from notification_ws import broadcast_to_users
 import annotation_chat_service as annotation
@@ -253,7 +254,7 @@ def users(keyword: str = '', limit: int = Query(50, ge=1, le=100), scope: str = 
 
 
 def summaries(db, column, ids, baselines, user_id):
-    from chat_receipt_read import received
+    from models import AppNotification, ChatProjectMessageAcknowledgement as Ack, ChatMentionNotificationTarget as Target
     if not ids:
         return {}
     latest = db.query(column.label('scope_id'), func.max(ChatProjectMessage.sequence_no).label('seq')).filter(column.in_(ids), ChatProjectMessage.message_type == 'user').group_by(column).subquery()
@@ -267,12 +268,22 @@ def summaries(db, column, ids, baselines, user_id):
         sql_column('scope_id', column.type),
         sql_column('last_read_sequence', BigInteger),
     ).data(list(baselines.items())).cte('session_read_baselines')
-    unread_rows = db.query(column, ChatProjectMessage.sequence_no, ChatProjectMessage.id,
+    unread_query = db.query(column, ChatProjectMessage.sequence_no, ChatProjectMessage.id,
         ChatProjectMention.mentioned_user_id, ChatProjectMessage.event_data['mention_all'].as_boolean()).join(
         read_baselines, column == read_baselines.c.scope_id).outerjoin(ChatProjectMention,
-        and_(ChatProjectMention.message_id == ChatProjectMessage.id, ChatProjectMention.mentioned_user_id == user_id)).filter(
-        column.in_(ids), ~received(db, ChatProjectMessage, user_id), ChatProjectMessage.message_type == 'user', ChatProjectMessage.recalled_at.is_(None), ChatProjectMessage.sender_user_id != user_id,
-        ChatProjectMessage.sequence_no > read_baselines.c.last_read_sequence).order_by(ChatProjectMessage.sequence_no).all()
+        and_(ChatProjectMention.message_id == ChatProjectMessage.id, ChatProjectMention.mentioned_user_id == user_id)).outerjoin(
+        Ack, and_(Ack.message_id == ChatProjectMessage.id, Ack.user_id == user_id)).filter(
+        column.in_(ids), Ack.message_id.is_(None), ChatProjectMessage.message_type == 'user',
+        ChatProjectMessage.recalled_at.is_(None), ChatProjectMessage.sender_user_id != user_id,
+        ChatProjectMessage.sequence_no > read_baselines.c.last_read_sequence)
+    if phase_one_ready(db):
+        # 批量关联本人的已读通知，避免 OR 内相关子查询产生昂贵的 JIT 编译。
+        read_notifications = db.query(Target.message_id).join(AppNotification,
+            AppNotification.id == Target.notification_id).filter(
+            AppNotification.recipient_user_id == user_id, AppNotification.is_read.is_(True)).distinct().subquery()
+        unread_query = unread_query.outerjoin(read_notifications,
+            read_notifications.c.message_id == ChatProjectMessage.id).filter(read_notifications.c.message_id.is_(None))
+    unread_rows = unread_query.order_by(ChatProjectMessage.sequence_no).all()
     result = {uid: {'unread': 0, 'mention_unread': 0, 'mention_all_unread': 0, 'mention_message_ids': [], 'last_message': None} for uid in ids}
     for uid, seq, mid, mentioned, mention_all in unread_rows:
         result[uid]['unread'] += 1
@@ -347,6 +358,7 @@ def session_catalog(db: Session = Depends(get_db), user: AppUser = Depends(get_c
     return sessions(db, user, recent_only=True)
 
 
+@catalog_read
 def sessions(db, user, *, recent_only=False):
     from chat_session_activity import active_project_scope
     ready = phase_one_ready(db)

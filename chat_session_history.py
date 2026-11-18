@@ -2,10 +2,12 @@
 from uuid import UUID
 
 from chat_schema import phase_one_ready
+from chat_catalog_read import catalog_read
 from models import AppUser, ChatDirectConversation, TranslationProject
 from annotation_models import AnnotationProject
 
 
+@catalog_read
 def history_page(db, user, keyword='', offset=0, limit=30):
     from routers.chat_sessions import (annotation_sessions_query, translation_sessions_query,
                                       direct_sessions_query, decorate_member_counts)

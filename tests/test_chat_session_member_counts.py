@@ -75,3 +75,25 @@ def test_unread_baselines_keep_each_conversation_and_receipts_separate(environme
     assert stats[first.id]['mention_message_ids'] == [messages[1].id]
     assert stats[second.id]['unread'] == 1
     assert stats[second.id]['mention_message_ids'] == [messages[6].id]
+
+
+@pytest.mark.parametrize('scope', ['annotation_project_id', 'project_id', 'direct_conversation_id'])
+def test_read_notification_filter_keeps_other_recipients_and_unlinked_messages(environment, scope):
+    from models import AppNotification, ChatMentionNotificationTarget, ChatProjectMessage
+    from routers.chat_sessions import summaries
+
+    db, (owner, member, outsider) = environment
+    pid = project(db, owner, 'AP-NOTIFICATION-READ').id
+    messages = [ChatProjectMessage(id=uuid4(), **{scope: pid}, sender_user_id=owner.id,
+        sender_name=owner.username, content='隔离通知已读测试', message_type='user',
+        sequence_no=index + 1, event_data={}) for index in range(3)]
+    db.add_all(messages); db.flush()
+    for message, recipient, read in [(messages[0], member, True), (messages[0], member, True),
+                                     (messages[1], outsider, True), (messages[1], member, False)]:
+        notification = AppNotification(id=uuid4(), recipient_user_id=recipient.id, title='隔离提醒',
+                                       content='隔离内容', notification_type='project_chat_mention', is_read=read)
+        db.add(notification); db.flush()
+        db.add(ChatMentionNotificationTarget(notification_id=notification.id, message_id=message.id))
+    db.commit()
+    stats = summaries(db, getattr(ChatProjectMessage, scope), [pid], {pid: 0}, member.id)
+    assert stats[pid]['unread'] == 2

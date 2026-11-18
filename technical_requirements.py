@@ -1,4 +1,5 @@
 from uuid import UUID, uuid4
+from chat_catalog_read import catalog_cached
 import re
 from fastapi import HTTPException
 from sqlalchemy import inspect, func
@@ -12,10 +13,12 @@ DEFAULT_PEOPLE = [('黎涛',{'litao'}),('黄萌',{'huangmeng'}),('伟豪',{'weih
 IT_NAMES = {'it','it部','技术部','信息技术部'}
 
 
+@catalog_cached
 def ready(db):
     return inspect(db.connection()).has_table(TechnicalRoom.__tablename__)
 
 
+@catalog_cached
 def specs(db):
     if not ready(db): return []
     from discussion_chat_service import ANNOTATION_ROOT
