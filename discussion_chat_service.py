@@ -115,7 +115,7 @@ def publish(db):
     broadcast_to_users(ids, {'type': 'chat_sessions_changed'})
 
 
-def catalog(db, user):
+def catalog(db, user, *, recent_only=False):
     if not user or not user.is_active:
         return []
     ready = schema_ready(db)
@@ -123,6 +123,11 @@ def catalog(db, user):
         return []
     members = {str(row.room_id): row for row in db.query(Member).filter_by(user_id=user.id)} if ready else {}
     rooms = visible_room_specs(db, user, [row for row in room_specs(db) if row['id'] in members])
+    if recent_only:
+        from chat_session_activity import active_discussion_ids
+        active = active_discussion_ids(db, user.id)
+        rooms = [row for row in rooms if row['id'] in active or
+                 members[row['id']].pinned or members[row['id']].starred]
     if not rooms:
         return []
     latest = {}

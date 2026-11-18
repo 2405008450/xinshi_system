@@ -5,7 +5,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from pydantic import Field
-from sqlalchemy import func, or_, and_
+from sqlalchemy import BigInteger, column as sql_column, func, or_, and_, values
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, undefer, selectinload
 from database import get_db
@@ -262,12 +262,17 @@ def summaries(db, column, ids, baselines, user_id):
     last_mentions = {mid for (mid,) in db.query(ChatProjectMention.message_id).filter(
         ChatProjectMention.message_id.in_([row.id for row in last]),
         ChatProjectMention.mentioned_user_id == user_id)} if last else set()
-    # 单次扫描各会话未读序号；不拉取历史正文。
+    # 通过基线表关联未读序号，避免数百个 OR 分支触发昂贵的查询规划与 JIT。
+    read_baselines = values(
+        sql_column('scope_id', column.type),
+        sql_column('last_read_sequence', BigInteger),
+    ).data(list(baselines.items())).cte('session_read_baselines')
     unread_rows = db.query(column, ChatProjectMessage.sequence_no, ChatProjectMessage.id,
-        ChatProjectMention.mentioned_user_id, ChatProjectMessage.event_data['mention_all'].as_boolean()).outerjoin(ChatProjectMention,
+        ChatProjectMention.mentioned_user_id, ChatProjectMessage.event_data['mention_all'].as_boolean()).join(
+        read_baselines, column == read_baselines.c.scope_id).outerjoin(ChatProjectMention,
         and_(ChatProjectMention.message_id == ChatProjectMessage.id, ChatProjectMention.mentioned_user_id == user_id)).filter(
         column.in_(ids), ~received(db, ChatProjectMessage, user_id), ChatProjectMessage.message_type == 'user', ChatProjectMessage.recalled_at.is_(None), ChatProjectMessage.sender_user_id != user_id,
-        or_(*[and_(column == uid, ChatProjectMessage.sequence_no > baseline) for uid, baseline in baselines.items()])).order_by(ChatProjectMessage.sequence_no).all()
+        ChatProjectMessage.sequence_no > read_baselines.c.last_read_sequence).order_by(ChatProjectMessage.sequence_no).all()
     result = {uid: {'unread': 0, 'mention_unread': 0, 'mention_all_unread': 0, 'mention_message_ids': [], 'last_message': None} for uid in ids}
     for uid, seq, mid, mentioned, mention_all in unread_rows:
         result[uid]['unread'] += 1
@@ -298,34 +303,65 @@ def decorate_member_counts(db, rows):
                 row['member_count'] = counts.get(str(row['project_id']), 0)
 
 
+def annotation_sessions_query(db, user, ready):
+    from workflow_models import ProjectWorkbenchResponsibility as Responsibility
+    manages_project = AnnotationProject.workbench_responsibilities.any(and_(
+        Responsibility.role_code == 'project_manager', Responsibility.assignee_id == user.id))
+    mentioned_projects = db.query(ChatProjectMessage.annotation_project_id).join(ChatProjectMention,
+        ChatProjectMention.message_id == ChatProjectMessage.id).outerjoin(AnnotationChatMember,
+        and_(AnnotationChatMember.project_id == ChatProjectMessage.annotation_project_id,
+             AnnotationChatMember.user_id == user.id)).filter(
+        ChatProjectMention.mentioned_user_id == user.id, ChatProjectMessage.recalled_at.is_(None),
+        ChatProjectMessage.sequence_no > func.coalesce(AnnotationChatMember.last_read_sequence, 0))
+    conditions = [AnnotationChatMember.following.is_(True), AnnotationProject.id.in_(mentioned_projects)]
+    if ready:
+        conditions.extend([AnnotationChatMember.pinned.is_(True), AnnotationChatMember.starred.is_(True)])
+    query = db.query(AnnotationProject, AnnotationChatMember, manages_project.label('is_project_manager')).join(
+        AnnotationChatMember, and_(AnnotationChatMember.project_id == AnnotationProject.id,
+                                  AnnotationChatMember.user_id == user.id)).filter(or_(*conditions))
+    if ready:
+        query = query.options(undefer(AnnotationChatMember.pinned), undefer(AnnotationChatMember.starred))
+    return query
+
+
+def translation_sessions_query(db, user):
+    from chat_access_service import visible_ids
+    prefs = db.query(ChatProjectMemberPref.project_id).filter_by(user_id=user.id)
+    return db.query(TranslationProject).filter(TranslationProject.id.in_(visible_ids(db, 'translation', user))).outerjoin(
+        ChatProjectEnabled, ChatProjectEnabled.project_id == TranslationProject.id).filter(or_(
+        ChatProjectEnabled.enabled.is_(True), TranslationProject.id.in_(prefs),
+        TranslationProject.created_by == user.id, TranslationProject.id.in_(db.query(
+            ChatProjectMessage.project_id).filter(ChatProjectMessage.project_id.is_not(None),
+                                                 ChatProjectMessage.message_type == 'user'))))
+
+
+def direct_sessions_query(db, user):
+    return db.query(ChatDirectConversation, ChatDirectMember).join(ChatDirectMember,
+        ChatDirectMember.conversation_id == ChatDirectConversation.id).filter(
+        ChatDirectMember.user_id == user.id, ChatDirectMember.hidden_at.is_(None),
+        or_(ChatDirectConversation.user_low_id == user.id, ChatDirectConversation.user_high_id == user.id))
+
+
 @router.get('/sessions')
-def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+def session_catalog(db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return sessions(db, user, recent_only=True)
+
+
+def sessions(db, user, *, recent_only=False):
+    from chat_session_activity import active_project_scope
     ready = phase_one_ready(db)
     mention_stats = mention_session_statistics(db, user)
     history_total = sum(count for count, _stamp in mention_stats.values())
     annotation_counts = [dict(project_id=UUID(pid), count=count) for (kind, pid), (count, _stamp) in mention_stats.items() if kind == 'annotation']
     rows = []
     if annotation.can_view(db, user):
-        from workflow_models import ProjectWorkbenchResponsibility as Responsibility
-
-        manages_project = AnnotationProject.workbench_responsibilities.any(
-            and_(Responsibility.role_code == 'project_manager', Responsibility.assignee_id == user.id)
-        )
-        # 直接沿用关注与退订条件，不重复执行结果未使用的未读查询。
-        mentioned_projects = db.query(ChatProjectMessage.annotation_project_id).join(ChatProjectMention,
-            ChatProjectMention.message_id == ChatProjectMessage.id).outerjoin(AnnotationChatMember,
-            and_(AnnotationChatMember.project_id == ChatProjectMessage.annotation_project_id, AnnotationChatMember.user_id == user.id)).filter(
-            ChatProjectMention.mentioned_user_id == user.id, ChatProjectMessage.recalled_at.is_(None),
-            ChatProjectMessage.sequence_no > func.coalesce(AnnotationChatMember.last_read_sequence, 0))
-        # 未迁移时仅查询已有列，消息预览与提及统计仍复用完整逻辑。
-        conditions = [AnnotationChatMember.following.is_(True), AnnotationProject.id.in_(mentioned_projects)]
-        if ready:
-            conditions.extend([AnnotationChatMember.pinned.is_(True), AnnotationChatMember.starred.is_(True)])
-        projects_query = db.query(AnnotationProject, AnnotationChatMember, manages_project.label('is_project_manager')).outerjoin(AnnotationChatMember,
-            and_(AnnotationChatMember.project_id == AnnotationProject.id, AnnotationChatMember.user_id == user.id)).filter(AnnotationChatMember.user_id == user.id, or_(*conditions))
-        if ready:
-            # pinned/starred 是延迟加载列；不随主查询取回会在下方逐项目各补查两次。
-            projects_query = projects_query.options(undefer(AnnotationChatMember.pinned), undefer(AnnotationChatMember.starred))
+        projects_query = annotation_sessions_query(db, user, ready)
+        if recent_only:
+            projects_query = projects_query.filter(active_project_scope(db,
+                ChatProjectMessage.annotation_project_id, AnnotationProject.id,
+                AnnotationChatMember.last_read_sequence, user.id,
+                pinned=AnnotationChatMember.pinned if ready else None,
+                starred=AnnotationChatMember.starred if ready else None))
         projects = projects_query.all()
         stats = summaries(db, ChatProjectMessage.annotation_project_id, [p.id for p, m, _ in projects], {p.id: m.last_read_sequence if m else 0 for p, m, _ in projects}, user.id)
         for p, m, is_project_manager in projects:
@@ -334,7 +370,7 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
                 following=bool(m and m.following), pinned=bool(ready and m and m.pinned), starred=bool(ready and m and m.starred), is_creator=user.id in (p.created_by, p.client_manager_id), **stats[p.id]))
     if not ready:
         import discussion_chat_service
-        rows.extend(discussion_chat_service.catalog(db, user))
+        rows.extend(discussion_chat_service.catalog(db, user, recent_only=recent_only))
         decorate_member_counts(db, rows)
         session_categories.decorate_sessions(db, rows)
         decorate_mention_sessions(db, user, rows, mention_stats)
@@ -344,11 +380,15 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
             'mention_total': sum(r['mention_unread'] for r in rows)}
     if annotation.can_view(db, user):
         prefs = {m.project_id: m for m in db.query(ChatProjectMemberPref).filter_by(user_id=user.id)}
-        from chat_access_service import visible_ids
-        projects = db.query(TranslationProject).options(selectinload(TranslationProject.client)).filter(TranslationProject.id.in_(visible_ids(db, 'translation', user))).outerjoin(ChatProjectEnabled,
-            ChatProjectEnabled.project_id == TranslationProject.id).filter(or_(ChatProjectEnabled.enabled.is_(True),
-            TranslationProject.id.in_(prefs), TranslationProject.created_by == user.id,
-            TranslationProject.id.in_(db.query(ChatProjectMessage.project_id).filter(ChatProjectMessage.project_id.is_not(None), ChatProjectMessage.message_type == 'user')))).all()
+        projects_query = translation_sessions_query(db, user).options(selectinload(TranslationProject.client))
+        if recent_only:
+            projects_query = projects_query.outerjoin(ChatProjectMemberPref, and_(
+                ChatProjectMemberPref.project_id == TranslationProject.id,
+                ChatProjectMemberPref.user_id == user.id)).filter(active_project_scope(db,
+                    ChatProjectMessage.project_id, TranslationProject.id,
+                    ChatProjectMemberPref.last_read_sequence, user.id,
+                    pinned=ChatProjectMemberPref.pinned, starred=ChatProjectMemberPref.starred))
+        projects = projects_query.all()
         stats = summaries(db, ChatProjectMessage.project_id, [p.id for p in projects], {p.id: prefs[p.id].last_read_sequence if p.id in prefs else 0 for p in projects}, user.id)
         for p in projects:
             m = prefs.get(p.id)
@@ -357,9 +397,13 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
             rows.append(dict(key=f'translation:{p.id}', kind='translation', project_id=p.id, title=title,
                 subtitle=p.order_no, pinned=bool(m and m.pinned), starred=bool(m and m.starred),
                 is_creator=user.id in (p.created_by, p.project_manager_id), **stats[p.id]))
-    conversations = db.query(ChatDirectConversation, ChatDirectMember).join(ChatDirectMember,
-        ChatDirectMember.conversation_id == ChatDirectConversation.id).filter(ChatDirectMember.user_id == user.id,
-        ChatDirectMember.hidden_at.is_(None), or_(ChatDirectConversation.user_low_id == user.id, ChatDirectConversation.user_high_id == user.id)).all()
+    conversations_query = direct_sessions_query(db, user)
+    if recent_only:
+        conversations_query = conversations_query.filter(active_project_scope(db,
+            ChatProjectMessage.direct_conversation_id, ChatDirectConversation.id,
+            ChatDirectMember.last_read_sequence, user.id, pinned=ChatDirectMember.pinned,
+            starred=ChatDirectMember.starred))
+    conversations = conversations_query.all()
     target_ids = [p.user_high_id if p.user_low_id == user.id else p.user_low_id for p, m in conversations]
     targets = {u.id: u for u in db.query(AppUser).filter(AppUser.id.in_(target_ids))} if target_ids else {}
     stats = summaries(db, ChatProjectMessage.direct_conversation_id, [p.id for p, m in conversations], {p.id: m.last_read_sequence for p, m in conversations}, user.id)
@@ -368,11 +412,19 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
         rows.append(dict(key=f'direct:{p.id}', kind='direct', project_id=p.id, title=target.full_name or target.username,
             subtitle=((target.department or '').strip() + ('' if target.is_active else '（账号已停用）')), department=_department(target.department), pinned=m.pinned, starred=m.starred, is_creator=False, **stats[p.id]))
     import discussion_chat_service
-    rows.extend(discussion_chat_service.catalog(db, user))
+    rows.extend(discussion_chat_service.catalog(db, user, recent_only=recent_only))
     decorate_member_counts(db, rows)
     session_categories.decorate_sessions(db, rows)
     decorate_mention_sessions(db, user, rows, mention_stats)
     return {'phase_one_enabled': True, 'items': rows, 'session_categories': session_categories.catalog(db, user), 'total': sum(r['unread'] for r in rows), 'mention_history_total': history_total, 'mention_total': sum(r['mention_unread'] for r in rows), 'annotation_mention_counts': annotation_counts}
+
+
+@router.get('/sessions/history')
+def session_history(keyword: str = Query('', max_length=200), offset: int = Query(0, ge=0),
+                    limit: int = Query(30, ge=1, le=100), db: Session = Depends(get_db),
+                    user: AppUser = Depends(get_current_user)):
+    from chat_session_history import history_page
+    return history_page(db, user, keyword=keyword, offset=offset, limit=limit)
 
 
 @router.get('/mentions')

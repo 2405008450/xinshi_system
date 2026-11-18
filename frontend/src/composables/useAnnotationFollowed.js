@@ -50,7 +50,7 @@ function cancelRetry() {
 }
 
 function transientFailure(cause) {
-  return [502, 503, 504].includes(cause.response?.status) ||
+  return [429, 502, 503, 504].includes(cause.response?.status) ||
     ['ERR_NETWORK', 'ECONNABORTED', 'ETIMEDOUT'].includes(cause.code)
 }
 
@@ -79,6 +79,7 @@ async function fetchSessions() {
     state.windows.forEach((item) => {
       const session = sessions.value.find(row => row.key === (item.conversationKey || item.key))
       if (session) { item.unread = session.unread; item.mentionUnread = session.mentionUnread; item.projectStatus = session.projectStatus || ''; if (item.projectType === 'discussion') item.title = session.title }
+      else { item.unread = 0; item.mentionUnread = 0 }
     })
     void refreshOpenAnnotationStatuses(sessions.value).catch(() => {})
   } catch (cause) {
