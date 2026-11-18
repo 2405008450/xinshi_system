@@ -9,7 +9,7 @@
     <TalentResourceNav />
     <el-alert v-if="!ready" title="数据库尚未启用核重结构，当前可只读比对。启用需要单独授权数据库迁移。" type="warning" :closable="false" show-icon />
     <el-alert v-else-if="!canOperate" title="当前账号仅可查看脱敏比对；处理与撤销由超级管理员执行。" type="info" :closable="false" />
-    <AppForm :inline="true" class="review-query search-form" :model="filters">
+    <AppForm data-auto-draft="off" :inline="true" class="review-query search-form" :model="filters">
       <el-form-item label="姓名／编号"><el-input v-model="filters.keyword" clearable placeholder="搜索姓名或人才编号" @input="onInput" @keyup.enter="searchNow" /></el-form-item>
       <el-form-item label="处理状态"><el-select v-model="filters.status" @change="searchNow" style="width:150px"><el-option label="待核对" value="pending" /><el-option label="已区分" value="different" /><el-option label="暂缓处理" value="deferred" /><el-option label="全部" value="all" /></el-select></el-form-item>
       <el-form-item v-if="canOperate" label="Agent 初筛"><el-select v-model="filters.agent_bucket" @change="searchNow" style="width:190px"><el-option v-for="(label,key) in agentBucketLabels" :key="key" :label="label" :value="key" /></el-select></el-form-item>

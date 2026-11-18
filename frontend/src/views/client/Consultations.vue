@@ -20,7 +20,7 @@
       </div>
     </template>
 
-    <AppForm :inline="true" :model="searchForm" class="search-form project-list-search-form">
+    <AppForm data-auto-draft="off" :inline="true" :model="searchForm" class="search-form project-list-search-form">
       <div class="project-list-primary-filters">
         <el-form-item label="关键词" class="project-list-keyword-filter">
           <el-input
@@ -351,13 +351,14 @@
 
     <el-pagination
       class="consultations-pagination"
-      v-model:current-page="pagination.page"
-      v-model:page-size="pagination.limit"
+      :current-page="pagination.page"
+      :page-size="pagination.limit"
+      :disabled="loading"
       :total="pagination.total"
       :page-sizes="[10, 20, 50, 100]"
       layout="total, sizes, prev, pager, next, jumper"
-      @size-change="fetchData"
-      @current-change="fetchData"
+      @update:page-size="handlePageSizeChange"
+      @update:current-page="handlePageChange"
     />
 
     <DraggableFormDialog
@@ -1648,6 +1649,21 @@ const handleSearch = () => {
   fetchData()
 }
 
+const handlePageChange = (page) => {
+  if (page === pagination.page || loading.value) return
+  // 输入尚未提交时，先在新筛选条件下从第一页查询。
+  if (searchDebounceTimer) return handleSearch()
+  exitDeleteMode()
+  pagination.page = page
+  fetchData()
+}
+
+const handlePageSizeChange = (limit) => {
+  if (limit === pagination.limit || loading.value) return
+  pagination.limit = limit
+  handleSearch()
+}
+
 const handleDebouncedSearchInput = (value) => {
   if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
 
@@ -2462,18 +2478,30 @@ const buildSearchFilters = () => {
 const fetchData = async () => {
   consultationSearchController?.abort()
   consultationSearchController = new AbortController()
+  const { signal } = consultationSearchController
   const requestId = ++consultationRequestId
   loading.value = true
   try {
-    const params = {
-      skip: (pagination.page - 1) * pagination.limit,
-      limit: pagination.limit,
-      ...buildSearchFilters(),
+    const limit = pagination.limit
+    const filters = buildSearchFilters()
+    let currentPage = pagination.page
+    while (true) {
+      const page = await consultationApi.getConsultationPage({ ...filters, skip: (currentPage - 1) * limit, limit }, { signal })
+      if (requestId !== consultationRequestId || signal.aborted || searchDebounceTimer) return
+      const items = Array.isArray(page?.items) ? page.items : []
+      const total = page?.total || 0
+      const lastPage = Math.max(1, Math.ceil(total / limit))
+      // 空的后续页不能直接清空列表；重新读取仍有效的页，筛选参数保持不变。
+      const fallbackPage = currentPage > lastPage ? lastPage : (!items.length && currentPage > 1 ? 1 : currentPage)
+      if (fallbackPage < currentPage) {
+        currentPage = fallbackPage
+        continue
+      }
+      pagination.page = currentPage
+      pagination.total = total
+      tableData.value = items
+      break
     }
-    const page = await consultationApi.getConsultationPage(params, { signal: consultationSearchController.signal })
-    if (requestId !== consultationRequestId) return
-    tableData.value = Array.isArray(page?.items) ? page.items : []
-    pagination.total = page?.total || 0
   } catch (error) {
     if (requestId !== consultationRequestId) return
     if (error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError' || error?.name === 'AbortError') return

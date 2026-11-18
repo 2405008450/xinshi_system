@@ -3,6 +3,12 @@ import {createIdempotencyKey} from './idempotency.js'
 export const isChinese=value=>/^(中|简中|繁中)$|^zh|中文|汉语|简体|繁体|簡體|繁體/.test(String(value||'').replace(/\s/g,'').toLowerCase())
 export function defaultRateMetric(direction){return 'customer_auto'}
 export const newCustomerRate=(direction='')=>({_key:createIdempotencyKey(),languagePair:direction,amount:undefined,taxPrices:taxPriceForm(),currency:'CNY',metric:defaultRateMetric(direction),unitSize:1})
+export function hasCustomerRateContent(rate){
+  const filled=value=>value!=null&&String(value).trim()!==''
+  return Boolean(rate.referenceId || filled(rate.languagePair) || filled(rate.amount)
+    || Object.values(rate.taxPrices||{}).some(filled) || (rate.currency && rate.currency!=='CNY')
+    || (rate.metric && rate.metric!==defaultRateMetric(rate.languagePair)) || Number(rate.unitSize||1)!==1)
+}
 export function nextCustomerRateDirection(languagePair,prices){
   return String(languagePair||'').split(/[；;，,、\n]+/).map(direction=>direction.trim())
     .find(direction=>direction&&!prices.some(price=>price.languagePair===direction))||''

@@ -160,7 +160,8 @@
               </el-tag>
             </span>
           </template>
-          <DailyReportPanel v-if="!fieldWorkReport" :report-date="dailyReportDate" @update:report-date="dailyReportDate = $event" @status-change="onDailyReportStatus" />
+          <DailyReportPanel v-if="!fieldWorkReport" :report-date="dailyReportDate" :annotation-project="reportAnnotationProject"
+            @annotation-project-applied="clearReportProject" @update:report-date="dailyReportDate = $event" @status-change="onDailyReportStatus" />
         </el-tab-pane>
         <el-tab-pane v-if="canViewReports && canReceiveReports" name="received-reports" label="查看工作报告" lazy><ReceivedWorkReports /></el-tab-pane>
       </el-tabs>
@@ -193,6 +194,8 @@ import MyMonthlyShift from './components/MyMonthlyShift.vue'
 import { getMyWorkItems, getReportAccessContext } from '@/api/tasks'
 import { getOnLeaveUsers } from '@/api/leave'
 import { getMyEmployeeShift } from '@/api/schedule'
+import { getAnnotationProject } from '@/api/annotationProjects'
+import { ElMessage } from 'element-plus'
 import { hasPermission, hasRole, isSuperAdmin } from '@/utils/permission'
 import { DEADLINE_STATE, getWorkItemDeadlineState, isWorkItemOpen } from '@/utils/workItemDeadline'
 import { isDefaultVisibleWorkItem } from '@/utils/workItemScope'
@@ -247,6 +250,29 @@ function readInitialMainTab() {
 const activeSection = ref(readInitialMainTab())
 watch(()=>attendanceRoute.query.section,value=>{if(value==='attendance')activeSection.value='monthly-shift';if(value==='daily-report')activeSection.value='daily-report'},{immediate:true})
 function openMyWorkReport(){activeSection.value='daily-report';dailyReportDate.value=reportBusinessDate()}
+const reportAnnotationProject = ref(null)
+function clearReportProject(id) {
+  if (attendanceRoute.query.reportAnnotationProject !== id) return
+  const query = { ...attendanceRoute.query }
+  delete query.reportAnnotationProject
+  void router.replace({ query })
+}
+watch(() => attendanceRoute.query.reportAnnotationProject, async (id, _, onCleanup) => {
+  reportAnnotationProject.value = null
+  if (typeof id !== 'string' || !id) return
+  openMyWorkReport()
+  const controller = new AbortController()
+  onCleanup(() => controller.abort())
+  try {
+    const project = await getAnnotationProject(id, { signal: controller.signal })
+    if (!project?.projectName?.trim()) throw new Error('缺少项目名称')
+    if (!controller.signal.aborted) reportAnnotationProject.value = { id, name: project.projectName }
+  } catch (error) {
+    if (controller.signal.aborted) return
+    ElMessage.error(error.detail || '无法带入标注项目')
+    clearReportProject(id)
+  }
+}, { immediate: true })
 const fieldWorkReport = ref(null)
 const fieldWorkReportOpen = ref(false)
 const fieldWorkReportDate = ref('')

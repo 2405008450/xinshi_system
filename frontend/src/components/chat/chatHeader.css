@@ -18,6 +18,7 @@
 .chat-header-command-row :deep(.el-icon){width:var(--chat-icon-size,16px);height:var(--chat-icon-size,16px);font-size:var(--chat-icon-size,16px)!important;line-height:1;flex:none}
 .chat-header-command-row :deep(.group-member-count){position:absolute;top:0;right:0;min-width:12px;height:13px;padding:0 2px;font-size:9px;line-height:13px;background:#e8eef5;border-radius:6px}
 .chat-header-divider{height:16px;width:1px;margin:0 4px;background:var(--chat-border,#e2e8f0);flex:none}
+.chat-fixed-window-controls :deep(.chat-work-report-entry){width:auto;padding-inline:8px;font-size:12px;white-space:nowrap}
 .chat-workspace--maximized:not(.chat-workspace--narrow){grid-template-rows:136px minmax(0,1fr)}
 .chat-workspace--narrow .chat-workspace__sessions{top:136px}
 .chat-workspace__header>.el-button{grid-column:1;grid-row:1;justify-self:start;z-index:13;width:var(--chat-control-h,32px);height:var(--chat-control-h,32px);padding:6px}

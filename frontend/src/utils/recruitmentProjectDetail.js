@@ -19,7 +19,7 @@ export const recruitmentProjectDetailItems = [
   {label:'项目经理',key:'roleAssignments',formatter:(_value,row)=>roleAssignmentName(row,'project_manager')},
   {label:'项目专员',key:'roleAssignments',formatter:(_value,row)=>roleAssignmentName(row,'project_specialist')},
   {label:'项目助理',key:'roleAssignments',formatter:(_value,row)=>roleAssignmentName(row,'project_assistant')},
-  {label:'客户简称',key:'clientShortName'},
+  {label:'客户简称',key:'clientShortName',showSubClient:true},
   {label:'客户编号',key:'clientCode'},
   {label:'客户全称',key:'clientName'},
   {label:'客户领域',key:'clientDomain'},

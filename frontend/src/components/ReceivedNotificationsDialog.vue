@@ -1,7 +1,7 @@
 <template>
   <DraggableFormDialog class="received-notifications-dialog" :model-value="true" title="收到的通知"
     width="min(880px, calc(100vw - 32px))" top="6vh" @update:model-value="emit('close')">
-    <AppForm :model="filters" class="received-filters" :inline="true" @submit.prevent="query()">
+    <AppForm data-auto-draft="off" :model="filters" class="received-filters" :inline="true" @submit.prevent="query()">
       <el-form-item class="received-search">
         <el-input v-model="filters.keyword" clearable maxlength="500" placeholder="搜索通知标题、内容、订单号或需求编号"
           aria-label="搜索通知" @input="keywordInput" @keyup.enter="query()" />

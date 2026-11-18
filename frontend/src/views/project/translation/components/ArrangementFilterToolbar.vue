@@ -4,11 +4,11 @@
     <div class="arrangement-toolbar-actions">
       <el-button :disabled="confirming" :class="{'is-active-filter':shortcutActive('today')}" :aria-pressed="shortcutActive('today')" @click="shortcut('today')">今天回稿</el-button>
       <el-button :disabled="confirming" :class="{'is-active-filter':shortcutActive('tomorrow')}" :aria-pressed="shortcutActive('tomorrow')" @click="shortcut('tomorrow')">明日及前回稿</el-button>
-      <ProjectStatusExclusionControl :model-value="excluded" :statuses="statuses" @update:model-value="setExcluded" />
+      <ProjectStatusExclusionControl :model-value="excluded" :statuses="statuses" :default-value="DEFAULT_ARRANGEMENT_EXCLUSIONS" @update:model-value="setExcluded" />
       <el-button :type="excluded.includes('arranged')?'primary':''" :class="{'is-active-filter':excluded.includes('arranged')}" :aria-pressed="excluded.includes('arranged')" plain @click="toggleArranged">排除已安排</el-button>
       <el-popover title="时间筛选" v-model:visible="timeVisible" trigger="click" placement="bottom-end" :width="760" popper-class="arrangement-filter-popover">
         <template #reference><el-button :class="{'is-active-filter':timeCount}" :aria-pressed="timeCount>0" @click.capture="captureTimeClick">时间筛选<span v-if="timeCount">（{{timeCount}}）</span></el-button></template>
-        <div class="arrangement-date-filters">
+        <div class="arrangement-date-filters" data-auto-draft="off">
           <label><span>客户来稿时间（区间）</span><el-date-picker :model-value="reception" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" unlink-panels @update:model-value="updateRange('reception',$event)" /></label>
           <label><span>客户回稿时间（区间）</span><el-date-picker :model-value="deadline?.[0]?deadline:[]" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" unlink-panels @update:model-value="updateRange('deadline',$event)" /></label>
         </div>
@@ -20,17 +20,18 @@
   </div>
 </template>
 <script setup>
-import {computed,ref} from 'vue'
+import {computed,ref,watch} from 'vue'
 import {ElMessageBox} from 'element-plus'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import ProjectStatusExclusionControl from './ProjectStatusExclusionControl.vue'
-import {arrangementDeadlineShortcut} from '@/utils/arrangementFilters'
+import {arrangementDeadlineShortcut,DEFAULT_ARRANGEMENT_EXCLUSIONS} from '@/utils/arrangementFilters'
 const props=defineProps({excluded:{type:Array,default:()=>[]},statuses:{type:Array,default:()=>[]},reception:{type:Array,default:()=>[]},deadline:{type:Array,default:()=>[]},columnKeys:{type:Array,default:()=>[]},columns:{type:Array,default:()=>[]}})
 const emit=defineEmits(['update:excluded','update:reception','update:deadline','update:columnKeys','reset-columns','search'])
 const confirming=ref(false),timeVisible=ref(false),timeCount=computed(()=>[props.reception,props.deadline].filter(value=>value?.some(Boolean)).length)
 function setExcluded(values){emit('update:excluded',values);emit('search')}
 function toggleArranged(){setExcluded(props.excluded.includes('arranged')?props.excluded.filter(value=>value!=='arranged'):[...props.excluded,'arranged'])}
 function updateRange(key,value){emit(`update:${key}`,value||[]);emit('search')}
+watch(timeVisible, visible => { if (!visible && timeCount.value) clearDates() })
 function clearDates(){emit('update:reception',[]);emit('update:deadline',[]);emit('search')}
 function captureTimeClick(event){if(timeCount.value){event.stopImmediatePropagation();timeVisible.value=false;clearDates()}}
 function shortcutActive(kind){const range=arrangementDeadlineShortcut(kind).range;return props.deadline?.length===2&&range.every((value,index)=>value===(props.deadline[index]||''))}

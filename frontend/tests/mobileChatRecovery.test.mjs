@@ -183,6 +183,50 @@ test('前台恢复立即补查会话，旧挂起请求迟到也不能覆盖新�
   assert.equal(store.mentionTotal.value, 0)
 })
 
+test('会话接口暂时繁忙时保留未读数，遵循节流补查且仅重试一次', async () => {
+  const h = lifecycle(), timers = new Map()
+  let time = 0, nextTimer = 0, requests = 0
+  let response = { items: [{ key: 'room', kind: 'annotation', unread: 3 }], mentionTotal: 2 }
+  const clock = {
+    now: () => time,
+    setTimer(fn, delay) { timers.set(++nextTimer, { fn, at: time + delay }); return nextTimer },
+    clearTimer(id) { timers.delete(id) },
+  }
+  const advance = async ms => {
+    time += ms
+    for (const [id, timer] of [...timers]) if (timer.at <= time) { timers.delete(id); void timer.fn() }
+    await flush()
+  }
+  const source = readFileSync(new URL('../src/composables/useAnnotationFollowed.js', import.meta.url), 'utf8')
+  const useStore = runInNewContext(source.replace(/^import .*\r?\n/gm, '').replace('export function ', 'function ') + '\n;useAnnotationFollowed', {
+    ...h, ref, computed,
+    window: { ...h.window, setTimeout: clock.setTimer, clearTimeout: clock.clearTimer },
+    document: { visibilityState: 'visible' },
+    createCoalescedRefresh: (run, options) => createCoalescedRefresh(run, { ...options, ...clock }),
+    chatRequest: async () => { requests++; if (response instanceof Error) throw response; return response },
+    ensureConnected() {}, applySessionCategories() {},
+    useChatTopics: () => ({ refresh: async () => {} }), useProjectChatDock: () => ({ state: { windows: [] } }),
+    refreshOpenAnnotationStatuses: async () => { throw new Error('项目信息请求失败') },
+  })
+  const store = useStore(); h.mounts.forEach(fn => fn()); await advance(0)
+  assert.equal(store.mentionTotal.value, 2)
+  const busy = Object.assign(new Error('服务繁忙'), { response: { status: 503, headers: { 'retry-after': '2' } } })
+  response = busy; void store.refresh(); await advance(3000)
+  assert.equal(store.mentionTotal.value, 2); assert.equal(store.error.value, '')
+  assert.equal([...timers.values()][0].at, 5000)
+  response = { items: [], mentionTotal: 0 }
+  await advance(2000); assert.equal(requests, 2)
+  await advance(1000); assert.equal(requests, 3)
+  assert.equal(store.mentionTotal.value, 0); assert.equal(store.error.value, '')
+  response = busy; void store.refresh(); await advance(3000)
+  await advance(2000); await advance(1000)
+  assert.equal(requests, 5); assert.equal(store.error.value, '未读消息暂时无法加载')
+  assert.equal(timers.size, 0)
+  // 卸载同时取消待执行的补查，不能在退出后继续请求。
+  void store.refresh(); await advance(3000); assert.equal(timers.size, 1)
+  h.unmounts.forEach(fn => fn()); assert.equal(timers.size, 0)
+})
+
 test('恢复补查未读提醒，忽略旧响应并避免实时事件和补查重复弹窗', async () => {
   const h = lifecycle(), displayed = []
   const source = readFileSync(new URL('../src/composables/useChatNotifications.js', import.meta.url), 'utf8')

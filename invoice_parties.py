@@ -4,7 +4,7 @@ from typing import Literal
 from fastapi import APIRouter,Depends,HTTPException,Query
 from pydantic import BaseModel,ConfigDict,Field
 from sqlalchemy import Column,String,Uuid,JSON,Integer,DateTime,ForeignKey,inspect
-from models import Base,Client
+from models import Base,Client,SubClient
 from database import get_db
 from routers.auth import require_permission,require_any_permission
 from annotation_progress_time import business_now,business_datetime
@@ -48,6 +48,17 @@ class ClientInvoiceProfile(Base):
     revision=Column(Integer,nullable=False,default=1)
     updated_by=Column(Uuid,ForeignKey('app_user.id',ondelete='SET NULL'))
     updated_at=Column(DateTime(timezone=True),nullable=False,default=business_now)
+
+
+class SubClientInvoiceProfile(Base):
+    __tablename__ = 'sub_client_invoice_profile'
+    sub_client_id = Column(Uuid, ForeignKey('sub_client.id', ondelete='CASCADE'), primary_key=True)
+    subject_key = Column(String(30), ForeignKey('organization_invoice_subject.key'))
+    invoice_kind = Column(String(20))
+    data = Column(JSON, nullable=False)
+    revision = Column(Integer, nullable=False, default=1)
+    updated_by = Column(Uuid, ForeignKey('app_user.id', ondelete='SET NULL'))
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=business_now)
 
 
 class PartyWrite(BaseModel):
@@ -97,16 +108,39 @@ def subject(db,key):
             'updated_at':business_datetime(row.updated_at).isoformat() if row else None}
 
 
-def profile(db,client_id):
+def get_sub_client(db, client_id, sub_client_id, *, lock=False):
+    query = db.query(SubClient).filter_by(id=sub_client_id, parent_client_id=client_id)
+    row = (query.with_for_update() if lock else query).first()
+    if row is None:
+        raise HTTPException(404, '子客户不存在或不属于该客户')
+    return row
+
+
+def profile(db, client_id, sub_client_id=None):
     require_ready(db)
     client=db.get(Client,client_id)
     if client is None:raise HTTPException(404,'客户不存在')
-    row=db.get(ClientInvoiceProfile,client_id)
+    if sub_client_id:
+        buyer = get_sub_client(db, client_id, sub_client_id)
+        row = db.get(SubClientInvoiceProfile, sub_client_id) if sub_profile_ready(db) else None
+    else:
+        buyer = client
+        row = db.get(ClientInvoiceProfile,client_id)
     return {'client_id':str(client_id),'client_name':client.client_name,'party':party_value(row),
+            'sub_client_id':str(sub_client_id) if sub_client_id else None,
+            'buyer_name':buyer.client_name or buyer.client_short_name,
             'subject_key':row.subject_key if row else None,'subject':subject(db,row.subject_key) if row and row.subject_key else None,
             'invoice_kind':row.invoice_kind if row else None,'revision':row.revision if row else 0,
             'invoice_type':client_invoice_type(row),
             'updated_at':business_datetime(row.updated_at).isoformat() if row else None}
+
+
+def sub_profile_ready(db):
+    return inspect(db.connection()).has_table(SubClientInvoiceProfile.__tablename__)
+
+
+def project_invoice_profile(db, client_id, sub_client_id=None):
+    return profile(db, client_id, sub_client_id) if sub_client_id else profile(db, client_id)
 
 
 def client_invoice_type(row):
@@ -200,24 +234,52 @@ def read_profile(client_id:UUID,db=Depends(get_db),actor=Depends(READ)):
     return profile(db,client_id)
 
 
+@router.get('/clients/{client_id}/buyers')
+def buyers(client_id:UUID,db=Depends(get_db),actor=Depends(READ)):
+    client = db.get(Client, client_id)
+    if client is None:
+        raise HTTPException(404, '客户不存在')
+    children = db.query(SubClient).filter_by(parent_client_id=client_id).order_by(SubClient.sub_client_code, SubClient.id)
+    return {'client': {'name': client.client_name or client.client_short_name, 'code': client.client_code},
+            'sub_clients': [{'id': str(child.id), 'name': child.client_name or child.client_short_name,
+                             'code': child.sub_client_code} for child in children]}
+
+
+@router.get('/clients/{client_id}/sub-clients/{sub_client_id}')
+def read_sub_profile(client_id:UUID,sub_client_id:UUID,db=Depends(get_db),actor=Depends(READ)):
+    return profile(db, client_id, sub_client_id)
+
+
 @router.get('/clients/{client_id}/records')
 def records(client_id:UUID,keyword:str|None=None,required:bool|None=None,invoice_status:Literal['unissued','partial','issued']|None=None,
             skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),db=Depends(get_db),actor=Depends(READ),
-            settlement_scope:Literal['standard','special']|None=None):
-    if db.get(Client,client_id) is None:raise HTTPException(404,'客户不存在')
+            settlement_scope:Literal['standard','special']|None=None,
+            invoice_buyer:Literal['client','sub_clients']|UUID|None=None):
+    client = db.get(Client, client_id)
+    if client is None:raise HTTPException(404,'客户不存在')
     import crud
-    from translation_customer_finance import tree,order_billing_month
+    from translation_customer_finance import tree,order_billing_month,attach_monthly_payment_peers
     from translation_project_invoices import attach
     from translation_document_requirements import TranslationProjectDocuments,ready,attach as attach_documents
     import translation_special_settlement as special_settlement
     from search_matching import matches_keywords
     special=settlement_scope=='special'
     projects=crud.get_translation_projects(db,skip=0,limit=None,keyword=None if special else keyword,field_filters={'finance_client_ids':{'value':[str(client_id)]}})
+    if isinstance(invoice_buyer, UUID):
+        get_sub_client(db, client_id, invoice_buyer)
     if settlement_scope:
         from translation_document_requirements import matches_statement_scope
         attach_documents(db,projects)
         projects=[project for project in projects if matches_statement_scope(project,settlement_scope)]
+    attach_monthly_payment_peers(db, projects)
     items=[tree(project,summary_only=True)['item'] for project in projects]
+    if invoice_buyer == 'client':
+        items = [item for item in items if not item['document_sub_client_id']]
+    elif invoice_buyer == 'sub_clients':
+        items = [item for item in items if item['document_sub_client_id']]
+    elif isinstance(invoice_buyer, UUID):
+        items = [item for item in items if item['document_sub_client_id'] == str(invoice_buyer)]
+    items = [{**item, 'sub_client_id': item['document_sub_client_id']} for item in items]
     if special:
         settings=special_settlement.settings_by_project(db,[project.id for project in projects])
         special_items=[]
@@ -240,16 +302,26 @@ def records(client_id:UUID,keyword:str|None=None,required:bool|None=None,invoice
     roots={UUID(item['id']):UUID(item['root_id']) for item in items} if special else {}
     selections=order_invoice_selections(db,ids,special_roots=roots)
     client_profile=db.get(ClientInvoiceProfile,client_id) if inspect(db.connection()).has_table(ClientInvoiceProfile.__tablename__) else None
+    sub_ids = {UUID(item['sub_client_id']) for item in items if item.get('sub_client_id')}
+    sub_profiles = {}
+    if sub_ids and sub_profile_ready(db):
+        sub_profiles = {str(row.sub_client_id): row for row in db.query(SubClientInvoiceProfile).filter(
+            SubClientInvoiceProfile.sub_client_id.in_(sub_ids))}
     from customer_statement_workspace import invoice_subjects_by_order
     statement_subjects=invoice_subjects_by_order(db,client_id,special=special)
     proofs={str(row.project_id):(row.quotation_data or {}).get('_invoice',{}).get('proofs','') for row in db.query(TranslationProjectDocuments).filter(TranslationProjectDocuments.project_id.in_(ids))} if not special and ids and ready(db) else {}
-    rows=[{**{key:item.get(key) for key in ('id','root_id','order_no','project_name','invoice_status','invoice_required','billing_totals','effective_billing_tax_mode')},
+    def default_profile(item):
+        return sub_profiles.get(item['sub_client_id']) if item.get('sub_client_id') else client_profile
+
+    rows=[{**{key:item.get(key) for key in ('id','root_id','order_no','project_name','invoice_status','invoice_required','billing_totals','effective_billing_tax_mode','sub_client_id')},
+           'invoice_buyer_name': (item.get('sub_client_short_name') or item.get('sub_client_code') or '子客户')
+               if item.get('sub_client_id') else (client.client_short_name or client.client_name),
            'billing_month':item.get('billing_month') or order_billing_month(item['order_no']),
            'invoice_proofs':item.get('proofs','') if special else proofs.get(item['id'],''),
            'special':special,
            'invoice_selection':effective_invoice_selection(selections.get(item['id'],{}),
-               invoice_subject_default(client_profile.subject_key if client_profile else None,statement_subjects.get(item['root_id'],set())),
-               client_invoice_type(client_profile))} for item in items]
+               invoice_subject_default(getattr(default_profile(item), 'subject_key', None),statement_subjects.get(item['root_id'],set())),
+               client_invoice_type(default_profile(item)))} for item in items]
     return {'items':rows,'total':total,'summary':summary}
 
 
@@ -257,10 +329,29 @@ def records(client_id:UUID,keyword:str|None=None,required:bool|None=None,invoice
 def update_profile(client_id:UUID,payload:ClientProfileWrite,db=Depends(get_db),actor=Depends(require_permission('clients:write'))):
     require_ready(db)
     if db.query(Client).filter_by(id=client_id).with_for_update().first() is None:raise HTTPException(404,'客户不存在')
-    row=db.query(ClientInvoiceProfile).filter_by(client_id=client_id).with_for_update().populate_existing().first()
+    save_profile(db, ClientInvoiceProfile, 'client_id', client_id, payload, actor)
+    return profile(db, client_id)
+
+
+@router.put('/clients/{client_id}/sub-clients/{sub_client_id}')
+def update_sub_profile(client_id:UUID,sub_client_id:UUID,payload:ClientProfileWrite,
+                       db=Depends(get_db),actor=Depends(require_permission('clients:write'))):
+    require_ready(db)
+    get_sub_client(db, client_id, sub_client_id, lock=True)
+    if not sub_profile_ready(db):
+        raise HTTPException(503, '子客户开票信息表尚未初始化')
+    save_profile(db, SubClientInvoiceProfile, 'sub_client_id', sub_client_id, payload, actor)
+    return profile(db, client_id, sub_client_id)
+
+
+def save_profile(db, model, id_field, buyer_id, payload, actor):
+    identity = {id_field: buyer_id}
+    row=db.query(model).filter_by(**identity).with_for_update().populate_existing().first()
     if payload.revision!=(row.revision if row else 0):raise HTTPException(409,'客户开票资料已更新，请重新打开后编辑')
     if payload.subject_key and db.get(OrganizationInvoiceSubject,payload.subject_key) is None:raise HTTPException(422,'开票主体尚未初始化')
-    if row is None:row=ClientInvoiceProfile(client_id=client_id,revision=0);db.add(row)
+    if row is None:
+        row = model(**identity, revision=0)
+        db.add(row)
     data=payload.party.model_dump()
     if payload.invoice_type:
         data['_invoice_type']=payload.invoice_type
@@ -268,7 +359,7 @@ def update_profile(client_id:UUID,payload:ClientProfileWrite,db=Depends(get_db),
         data['_invoice_type']=row.data['_invoice_type']
     row.data=data;row.subject_key=payload.subject_key
     row.invoice_kind=payload.invoice_type.rsplit('_',1)[-1] if payload.invoice_type else payload.invoice_kind
-    row.revision+=1;row.updated_by=actor.id;row.updated_at=business_now();db.commit();return profile(db,client_id)
+    row.revision+=1;row.updated_by=actor.id;row.updated_at=business_now();db.commit()
 
 
 @router.put('/order-selections')

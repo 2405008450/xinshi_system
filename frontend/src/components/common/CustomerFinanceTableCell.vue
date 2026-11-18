@@ -15,7 +15,7 @@
       <template v-else>
         <div v-for="(price,index) in draft.prices" :key="index" class="sheet-price">
           <div class="sheet-price-heading"><small>{{price.languagePair||'请选择方向'}}</small><button type="button" :aria-label="`减少单价 ${index+1}`" title="移除此单价" @click="removePrice(index)">－</button></div>
-          <small v-if="price.referenceId">来自客户管理 → 财务信息 → 笔译 → 客户单价 <button type="button" @click="useManualPrice(price,$event)">改用人工单价</button></small>
+          <small v-if="price.referenceId">来自{{price.referenceScope === 'sub_client' ? '子客户参考价' : '客户参考价'}} <button type="button" @click="useManualPrice(price,$event)">改用人工单价</button></small>
           <div class="sheet-price-tax-fields">
             <label>未税<input :value="price.taxPrices?.unitPriceExclTax??''" type="number" min="0" step="0.0001" :aria-label="`不含税单价 ${index+1}`" @input="setPrice(price,'unitPriceExclTax',$event.target.value)" @blur="commitNumber($event,'prices')" @keydown.enter.prevent="$event.target.blur()" /></label>
             <label>含税<input :value="price.taxPrices?.unitPriceInclTax??''" type="number" min="0" step="0.0001" :aria-label="`含税单价 ${index+1}`" @input="setPrice(price,'unitPriceInclTax',$event.target.value)" @blur="commitNumber($event,'prices')" @keydown.enter.prevent="$event.target.blur()" /></label>
@@ -37,34 +37,37 @@
     <template v-else-if="['totalPrice','totalInclTax','adjustedTotal'].includes(field)">
       <small>{{pricingMode==='fixed'?'固定收费':'计算额'}}</small>
       <ReadonlyField :model-value="calculationText" source="auto" />
-      <small>折扣</small>
-      <ReadonlyField v-if="readonly" :model-value="draft[discountKey]==null?'—':String(draft[discountKey]).padStart(2,'0')+' 折'" source="auto" />
-      <OrderDiscountField v-else v-model="draft[discountKey]" :label="amountLabel+'折扣'" @commit="commit(discountKey)" />
-      <small v-if="discountedAmount!=null">折后 {{row.totalAdjustment?.currency||draft.currency}} {{discountedAmount}}</small>
-      <template v-if="!row.priceAggregate && !row.fixedPricingFrom">
-        <small>{{pricingMode==='fixed'?'登记金额':'调整后金额'}}</small>
+      <details class="sheet-disclosure">
+        <summary>折扣</summary>
+        <ReadonlyField v-if="readonly" :model-value="draft[discountKey]==null?'—':String(draft[discountKey]).padStart(2,'0')+' 折'" source="auto" />
+        <OrderDiscountField v-else v-model="draft[discountKey]" :label="amountLabel+'折扣'" @commit="commit(discountKey)" />
+        <small v-if="discountedAmount!=null">折后 {{row.totalAdjustment?.currency||draft.currency}} {{discountedAmount}}</small>
+      </details>
+      <component :is="pricingMode==='fixed'?'div':'details'" v-if="!row.priceAggregate && !row.fixedPricingFrom" class="sheet-disclosure">
+        <small v-if="pricingMode==='fixed'">登记金额</small>
+        <summary v-else>调整后金额</summary>
         <ReadonlyField v-if="readonly" :model-value="effectiveText" source="auto" />
         <span v-else-if="multipleCurrencies" class="sheet-calculated">{{effectiveText}}</span>
         <input v-else :value="draft[amountKey]??''" type="number" min="0" step="0.01" :aria-label="amountLabel+'调整后金额'" :placeholder="draft.pricingMode==='fixed'?'填写固定收费':'采用计算额'" @input="draft[amountKey]=$event.target.value===''?null:Number($event.target.value)" @blur="commitNumber($event,amountKey)" @keydown.enter.prevent="$event.target.blur()" />
         <small v-if="!readonly">{{draft.currency||row.currency||'CNY'}}</small>
-      </template>
-      <template v-if="usesOrderAdjustment">
-        <small>调整后金额 · {{row.totalAdjustment?.currency||draft.currency}}</small>
+      </component>
+      <details v-if="usesOrderAdjustment" class="sheet-disclosure">
+        <summary>调整后金额 · {{row.totalAdjustment?.currency||draft.currency}}</summary>
         <ReadonlyField v-if="readonly" :model-value="effectiveText" source="auto" />
         <input v-else :value="draft[adjustmentKey]??''" type="number" min="0" step="0.01" :aria-label="amountLabel+'调整后金额'" :placeholder="adjustmentPlaceholder" @input="draft[adjustmentKey]=$event.target.value===''?null:Number($event.target.value)" @blur="commitNumber($event,adjustmentKey)" @keydown.enter.prevent="$event.target.blur()" />
-        <small v-if="!readonly && aggregateAdjustment && (draft[adjustmentKey]==null || Object.keys(effectiveTotals).length>1)">当前结算金额 {{effectiveText}}</small>
-      </template>
+      </details>
+      <small v-if="usesOrderAdjustment && !readonly && aggregateAdjustment && (draft[adjustmentKey]==null || Object.keys(effectiveTotals).length>1)">当前结算金额 {{effectiveText}}</small>
       <small v-if="!usesOrderAdjustment && !readonly && (discountedAmount!=null || draft[amountKey]!=null)">结算金额 {{effectiveText}}</small>
       <small v-if="!row.priceAggregate&&pricingMode!=='fixed'&&amountValue==null&&!projectQuantityChoices(row.wordCountMatrix).length" class="sheet-quantity-warning">客户统计和我司统计均未填写，请先登记数量和单位。</small>
     </template>
     <div v-else-if="field==='explanation'" class="sheet-notes">
-      <div v-for="(caption, key) in { explanation: '内部说明', customerExplanation: '客户说明' }" :key="key">
-        <span>{{ caption }}</span>
+      <details v-for="(caption, key) in { explanation: '内部说明', customerExplanation: '客户说明' }" :key="key">
+        <summary>{{ caption }}</summary>
         <ScreenshotText v-if="readonly && screenshotIds(draft[key]).length" :text="draft[key]" />
         <ReadonlyField v-else-if="readonly" :model-value="draft[key] || '—'" source="auto" />
         <el-input v-else v-model="draft[key]" type="textarea" :rows="2" maxlength="5000" :aria-label="caption"
           @change="commitNotes(key)" @uploading-change="value => setNotesUploading(key, value)" />
-      </div>
+      </details>
     </div>
     <small v-if="cellError" class="sheet-save-error">未保存</small>
   </div>
@@ -112,9 +115,15 @@ const calculated=computed(()=>calculateTaxOrderPriceTree({...props.row,...draft.
 const amounts=computed(()=>calculated.value[props.field==='totalInclTax'?'incl':'excl'].totals)
 const multipleCurrencies=computed(()=>draft.value.pricingMode!=='fixed'&&new Set(draft.value.prices.map(price=>price.currency)).size>1)
 const amountValue=computed(()=>draft.value[amountKey.value]??(draft.value.pricingMode==='fixed'?null:amounts.value[draft.value.prices[0]?.currency||draft.value.currency]))
-const formatAmounts=values=>Object.entries(values||{}).map(([currency,value])=>`${currency} ${Number(value).toFixed(2)}`).join('\n')||'待填写'
+const formatAmounts=(values,empty='待填写')=>Object.entries(values||{}).map(([currency,value])=>`${currency} ${Number(value).toFixed(2)}`).join('\n')||empty
 const effectiveTotals=computed(()=>props.row[props.field==='totalInclTax'?'totalsInclTax':'totalsExclTax']||{})
-const calculationText=computed(()=>props.row.priceAggregate?formatAmounts(props.row[props.field==='totalInclTax'?'calculatedTotalsInclTax':'calculatedTotalsExclTax']):pricingMode.value==='fixed'?'按登记金额':formatAmounts(amounts.value))
+const calculationText=computed(()=>{
+  if(props.row.priceAggregate){
+    const key=props.field==='totalInclTax'?'calculatedTotalsInclTax':'calculatedTotalsExclTax'
+    return formatAmounts(props.row[key],'待计算')
+  }
+  return pricingMode.value==='fixed'?'按登记金额':formatAmounts(amounts.value,'待计算')
+})
 const aggregateAdjustment = computed(() => {
   const values = props.row[props.field === 'totalInclTax' ? 'adjustedTotalsInclTax' : 'adjustedTotalsExclTax']
   return values && Object.keys(values).length ? formatAmounts(values) : ''
@@ -162,7 +171,8 @@ function removePrice(index){draft.value.prices.splice(index,1);commit('prices')}
   gap: 4px;
 }
 .aggregate-price-details{max-height:min(440px,calc(100vh - 160px));overflow-y:auto;overscroll-behavior:contain}
-.sheet-notes{display:grid;gap:8px}.sheet-notes label{display:grid;gap:3px;font-size:12px}.finance-sheet-cell{min-width:0}.finance-sheet-cell input,.finance-sheet-cell select,.finance-sheet-cell textarea{box-sizing:border-box;width:100%;min-width:0;border:1px solid transparent;border-radius:3px;background:#fff;color:var(--el-text-color-regular);font:inherit;padding:3px;outline:none;line-height:1.45}.finance-sheet-cell select{font-size:12px;padding:3px 0}.finance-sheet-cell input:hover,.finance-sheet-cell select:hover,.finance-sheet-cell textarea:hover{border-color:var(--el-border-color)}.finance-sheet-cell input:focus,.finance-sheet-cell select:focus,.finance-sheet-cell textarea:focus{border-color:var(--el-color-primary)}.finance-sheet-cell input::-webkit-inner-spin-button{appearance:none}.finance-sheet-cell textarea{resize:vertical;min-height:28px}.finance-sheet-cell small{display:block;font-size:11px;color:var(--el-text-color-secondary);overflow-wrap:anywhere}.sheet-price-heading{display:flex;align-items:center;gap:2px}.sheet-price-heading small{flex:1;min-width:0}.sheet-price-heading button{color:var(--el-color-danger);font-weight:700}.finance-sheet-cell :deep(.readonly-field){font-size:12px;min-width:0;padding:3px}.finance-sheet-cell :deep(.el-input__wrapper){padding:0 4px}.finance-sheet-cell :deep(.el-input__inner){font-size:12px}.finance-sheet-cell :deep(.readonly-field__icon){font-size:10px}.sheet-price+ .sheet-price{border-top:1px solid var(--el-border-color-lighter);margin-top:5px;padding-top:5px}.sheet-price label{display:flex;align-items:center;gap:2px;font-size:11px;white-space:nowrap}.sheet-price label input{flex:1;text-align:right}.finance-sheet-cell button{border:0;background:transparent;color:var(--el-color-primary);padding:2px 0;font:inherit;font-size:11px;cursor:pointer}.sheet-price-config{display:grid;gap:14px}.sheet-settings-heading{display:flex;align-items:center;justify-content:space-between}.sheet-settings-field{display:grid;gap:6px;font-size:13px}.sheet-settings-field .el-select{width:100%}.sheet-settings-help{color:var(--el-text-color-secondary);font-size:12px}.sheet-calculated{background:#f1f5f9;white-space:pre-wrap}.finance-sheet-cell .sheet-save-error{color:var(--el-color-danger)}.has-error{outline:1px solid var(--el-color-danger)}
+.sheet-disclosure>summary{font-size:12px;cursor:pointer}.sheet-disclosure[open]>summary{margin-bottom:4px}
+.sheet-notes{display:grid;gap:8px}.sheet-notes summary{cursor:pointer}.sheet-notes details[open]>summary{margin-bottom:4px}.finance-sheet-cell{min-width:0}.finance-sheet-cell input,.finance-sheet-cell select,.finance-sheet-cell textarea{box-sizing:border-box;width:100%;min-width:0;border:1px solid transparent;border-radius:3px;background:#fff;color:var(--el-text-color-regular);font:inherit;padding:3px;outline:none;line-height:1.45}.finance-sheet-cell select{font-size:12px;padding:3px 0}.finance-sheet-cell input:hover,.finance-sheet-cell select:hover,.finance-sheet-cell textarea:hover{border-color:var(--el-border-color)}.finance-sheet-cell input:focus,.finance-sheet-cell select:focus,.finance-sheet-cell textarea:focus{border-color:var(--el-color-primary)}.finance-sheet-cell input::-webkit-inner-spin-button{appearance:none}.finance-sheet-cell textarea{resize:vertical;min-height:28px}.finance-sheet-cell small{display:block;font-size:11px;color:var(--el-text-color-secondary);overflow-wrap:anywhere}.sheet-price-heading{display:flex;align-items:center;gap:2px}.sheet-price-heading small{flex:1;min-width:0}.sheet-price-heading button{color:var(--el-color-danger);font-weight:700}.finance-sheet-cell :deep(.readonly-field){font-size:12px;min-width:0;padding:3px}.finance-sheet-cell :deep(.el-input__wrapper){padding:0 4px}.finance-sheet-cell :deep(.el-input__inner){font-size:12px}.finance-sheet-cell :deep(.readonly-field__icon){font-size:10px}.sheet-price+ .sheet-price{border-top:1px solid var(--el-border-color-lighter);margin-top:5px;padding-top:5px}.sheet-price label{display:flex;align-items:center;gap:2px;font-size:11px;white-space:nowrap}.sheet-price label input{flex:1;text-align:right}.finance-sheet-cell button{border:0;background:transparent;color:var(--el-color-primary);padding:2px 0;font:inherit;font-size:11px;cursor:pointer}.sheet-price-config{display:grid;gap:14px}.sheet-settings-heading{display:flex;align-items:center;justify-content:space-between}.sheet-settings-field{display:grid;gap:6px;font-size:13px}.sheet-settings-field .el-select{width:100%}.sheet-settings-help{color:var(--el-text-color-secondary);font-size:12px}.sheet-calculated{background:#f1f5f9;white-space:pre-wrap}.finance-sheet-cell .sheet-save-error{color:var(--el-color-danger)}.has-error{outline:1px solid var(--el-color-danger)}
 </style>
 
 <style>

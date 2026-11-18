@@ -86,7 +86,7 @@ def test_aggregate_shows_adjusted_totals_only_for_child_overrides(environment):
     assert result['calculated_totals_incl_tax']=={'CNY':'40.00'}
     assert update_child_adjustment(None)['adjusted_totals_incl_tax']=={}
 
-    with pytest.raises(HTTPException,match='请在子订单填写'):
+    with pytest.raises(HTTPException,match='请使用订单总价调整字段保存汇总金额'):
         write(db,owner,root,root,[price],adjusted_total='30')
 
 

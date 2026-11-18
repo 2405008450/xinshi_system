@@ -91,7 +91,7 @@ def annotation_managed(page: int = Query(1, ge=1), page_size: int = Query(10, ge
 
 
 @router.get('/project-search', dependencies=[Depends(require_permission('reports:read'))])
-def project_search(project_type: str, keyword: str = '', page: int = Query(1,ge=1), page_size: int = Query(10,ge=1,le=100), period: str = 'week', client_keyword: str = '', direction_keyword: str = '', db: Session = Depends(get_db), user: AppUser = Depends(get_current_user), task_scope: bool = False):
+def project_search(project_type: str, keyword: str = '', page: int = Query(1,ge=1), page_size: int = Query(10,ge=1,le=100), period: str = 'week', client_keyword: str = '', direction_keyword: str = '', db: Session = Depends(get_db), user: AppUser = Depends(get_current_user), task_scope: bool = False, manager_keyword: str = Query('', max_length=100), project_status: str = Query('', max_length=50), status_label: str = Query('', max_length=50)):
     scope_filter=None
     if task_scope:
         if project_type!='口译项目':
@@ -100,7 +100,9 @@ def project_search(project_type: str, keyword: str = '', page: int = Query(1,ge=
         scope_filter=interpretation_task_filter(db,user)
         from sqlalchemy import and_
         scope_filter=and_(scope_filter,interpretation_arrangement.today_filter(db,user))
-    return picker.search(db,project_type,keyword,page,page_size,period,client_keyword,direction_keyword,scope_filter=scope_filter)
+    return picker.search(db,project_type,keyword,page,page_size,period,client_keyword,direction_keyword,
+                        scope_filter=scope_filter, manager_keyword=manager_keyword,
+                        project_status=project_status, status_label=status_label)
 
 
 @router.post('/personal', dependencies=[Depends(require_permission('reports:read'))])

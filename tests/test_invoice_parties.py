@@ -46,6 +46,57 @@ def test_client_profile_subject_live_join_and_permissions(context):
     assert http.get(path).json()['party']['title']=='测试开票抬头'
 
 
+def test_sub_client_profile_is_independent_and_filters_project_records(context):
+    from uuid import uuid4
+    from models import SubClient
+    from tools.apply_sub_client_invoice_profile_migration import apply_migration as apply_sub_profile
+    from translation_document_requirements import TranslationProjectDocuments
+
+    http, db, clients, _, _ = setup(context)
+    parties.SubClientInvoiceProfile.__table__.drop(db.connection(), checkfirst=True)
+    apply_sub_profile(db.connection())
+    apply_sub_profile(db.connection())
+    child = SubClient(id=uuid4(), parent_client_id=clients[0].id, sub_client_code='SUB-INV',
+                      client_name='分支开票对象', client_short_name='分支')
+    db.add(child)
+    db.commit()
+    root = '/invoice-parties/clients'
+    path = f'{root}/{clients[0].id}'
+    child_path = f'{path}/sub-clients/{child.id}'
+    assert http.get(f'{root}/{clients[1].id}/sub-clients/{child.id}').status_code == 404
+    assert http.get(f'{path}/buyers').json()['sub_clients'][0]['id'] == str(child.id)
+    assert http.put(path, json={'revision': 0, 'party': {'title': '主客户抬头'}}).status_code == 200
+    payload = {'revision': 0, 'party': {'title': '子客户抬头'},
+               'subject_key': 'shenzhen', 'invoice_type': 'electronic_special'}
+    assert http.put(child_path, json=payload).status_code == 200
+    assert http.put(child_path, json=payload).status_code == 409
+    assert http.get(child_path).json()['party']['title'] == '子客户抬头'
+    assert http.get(path).json()['party']['title'] == '主客户抬头'
+
+    parent_order = project(db, clients[0], 'INV-PARENT', fixed=True)
+    child_order = project(db, clients[0], 'INV-CHILD', fixed=True)
+    child_order.sub_client_id = child.id
+    db.commit()
+    rows = f'{path}/records'
+    assert http.get(rows, params={'invoice_buyer': 'client'}).json()['items'][0]['id'] == str(parent_order.id)
+    for buyer in ('sub_clients', str(child.id)):
+        response = http.get(rows, params={'invoice_buyer': buyer})
+        assert response.status_code == 200, response.text
+        result = response.json()
+        assert result['total'] == result['summary']['projects'] == 1
+        row = result['items'][0]
+        assert row['id'] == str(child_order.id)
+        assert row['invoice_buyer_name'] == '分支'
+        assert row['invoice_selection']['subject_key'] == 'shenzhen'
+        assert row['invoice_selection']['invoice_type'] == 'electronic_special'
+    db.add(TranslationProjectDocuments(project_id=child_order.id, quotation_data={'_payment_method': 'special'}))
+    db.commit()
+    special = http.get(rows, params={'invoice_buyer': str(child.id), 'settlement_scope': 'special'})
+    assert special.status_code == 200, special.text
+    assert [row['id'] for row in special.json()['items']] == [str(child_order.id)]
+    assert http.get(rows, params={'invoice_buyer': 'client', 'settlement_scope': 'special'}).json()['total'] == 0
+
+
 def test_customer_project_records_scope_filters_summary_pagination(context):
     from translation_document_requirements import TranslationProjectDocuments
 

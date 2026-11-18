@@ -11,20 +11,21 @@
 <script setup>
 import {computed,ref,watch,onMounted,onBeforeUnmount} from 'vue'
 import {getWeekendDutyOverview} from '@/api/monthlyShifts'
-import {shiftWeekEnd} from '@/utils/monthlyShift'
+import {shiftWeekEnd,shiftBusinessDate} from '@/utils/monthlyShift'
 import {dutyDateLabel} from '@/utils/weekendDuty'
 import {subscribe} from '@/utils/realtimeSocket'
 import WeeklyShiftHistoryDialog from './WeeklyShiftHistoryDialog.vue'
 import WeekendNightDuty from './WeekendNightDuty.vue'
 const props=defineProps({mode:String,week:String,month:String,scope:String})
 const plans=ref([]),loading=ref(false),error=ref(''),historyMonth=ref(''),historyVisible=ref(false)
-const months=computed(()=>props.mode==='week'?[...new Set([props.week.slice(0,7),shiftWeekEnd(props.week).slice(0,7)])]:[props.month])
-const dates=computed(()=>plans.value.flatMap(plan=>plan.dates||[]).filter(day=>props.mode!=='week'||(day>=props.week&&day<=shiftWeekEnd(props.week))))
+const weekend=computed(()=>props.mode==='week'?[shiftBusinessDate(props.week,5),shiftWeekEnd(props.week)]:[])
+const months=computed(()=>props.mode==='week'?[...new Set(weekend.value.map(day=>day.slice(0,7)))]:[props.month])
+const dates=computed(()=>plans.value.flatMap(plan=>plan.dates||[]).filter(day=>props.mode!=='week'||weekend.value.includes(day)))
 const departments=computed(()=>plans.value[0]?.departments||[])
 const people=(department,day)=>plans.value.flatMap(plan=>plan.assignments||[]).filter(person=>person.date===day&&person.department===department&&(props.scope!=='mine'||person.user_id===plans.value[0]?.current_user_id))
 let sequence=0,controller,unsubscribe
 async function load(){controller?.abort();controller=new AbortController();const id=++sequence;loading.value=true;error.value='';plans.value=[];try{const result=await Promise.all(months.value.map(month=>getWeekendDutyOverview(month,{signal:controller.signal})));if(id===sequence)plans.value=result}catch(e){if(id===sequence&&e.code!=='ERR_CANCELED')error.value=e.detail||'读取值班安排失败'}finally{if(id===sequence)loading.value=false}}
-watch([months,()=>props.week],load,{immediate:true})
+watch(()=>months.value.join(','),load,{immediate:true})
 onMounted(()=>{unsubscribe=subscribe('weekend_duty_published',event=>{if(months.value.includes(event.month))load()});window.addEventListener('focus',load)})
 onBeforeUnmount(()=>{sequence++;controller?.abort();unsubscribe?.();window.removeEventListener('focus',load)})
 </script>

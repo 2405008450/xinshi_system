@@ -19,8 +19,12 @@ def matches_statement_scope(project, scope):
 
 def payment_method(project):
     recorded = getattr(project, 'recorded_payment_method', None)
-    if recorded == 'special':
-        return 'special'
+    if recorded in ('individual', 'monthly', 'statement', 'special'):
+        return 'monthly' if recorded == 'statement' else recorded
+    if recorded == 'sub_client' and getattr(project, 'sub_client_id', None):
+        return 'sub_client'
+    if getattr(project, 'in_explicit_monthly_group', False):
+        return 'monthly'
     if getattr(project, 'sub_client_id', None):
         return 'sub_client'
     for field in ('recorded_payment_method', 'customer_payment_method'):
@@ -294,7 +298,7 @@ def apply_customer_documents(db, client_id, changes, actor_id):
         if 'quotation_required' in changes:
             project.quotation_required = False  # Explicit values move back to the customer default.
         for field in ('quotation_required','invoice_required','payment_method'):
-            if field in changes:
+            if field in changes and (field != 'payment_method' or not project.sub_client_id):
                 stored.pop('_'+field,None)
         if row:
             if 'statement_default' in changes:
@@ -373,6 +377,10 @@ def quotation(db, project):
     if quotation_value(row):
         draft = QuotationDraft.model_validate(quotation_value(row))
     else:
-        draft = QuotationDraft(client_name=getattr(project, 'sub_client_name', None) or getattr(project, 'client_name', None) or '')
+        from translation_customer_finance import attach_monthly_payment_peers
+        attach_monthly_payment_peers(db, [project])
+        buyer = project.sub_client if project.settlement_party == 'sub_client' else (
+            project.client or (project.sub_client.parent_client if project.sub_client else None))
+        draft = QuotationDraft(client_name=buyer.client_name if buyer else getattr(project, 'client_name', None) or '')
         draft.items = [QuotationLine(description=project.source_file_name or project.project_name or '', language_pair=project.language_pair or '')]
     return dict(project_id=project.id, order_no=project.order_no, revision=row.quotation_revision if row else 0, document=draft.model_dump(mode='json'))

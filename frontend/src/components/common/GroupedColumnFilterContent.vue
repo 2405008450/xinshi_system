@@ -56,7 +56,6 @@ const selectAll = field => { drafts[field.key] = [...new Set([...(drafts[field.k
 const confirm = () => {
   props.definition.fields.filter(isMultiple).forEach(field => emit('update-field', field.key, [...(drafts[field.key] || [])]))
   emit('enter')
-  emit('close')
 }
 const clearGroup = () => {
   props.definition.fields.forEach(field => {

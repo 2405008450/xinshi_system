@@ -123,12 +123,13 @@ function paste(event,index,column){
 }
 function getRows(){syncReportChildren(model.rows);return model.rows.map(row=>({...row,display_metadata:{...row.display_metadata}}))}
 async function validate(){projectFilter.value='';appliedProjectFilter.value='';onlyLunch.value=false;if(lunchChoice.value&&!model.rows.some(row=>row.display_metadata.lunch_overtime)){ElMessage.error('请新增中午加班行并填写实际项目和时段');throw new Error('请填写中午加班')}if(model.rows.some(row=>row.display_metadata.lunch_overtime)&&!lunchConfirmed.value){ElMessage.error('请先确认中午确实加班且未顺延下午上班');throw new Error('请确认中午加班声明')}const lunchWindows=model.rows.filter(row=>row.display_metadata.lunch_overtime).map(row=>[minute(row.display_metadata.lunch_start),minute(row.display_metadata.lunch_end)]).sort((a,b)=>a[0]-b[0]);if(lunchWindows.some((row,index)=>index&&lunchWindows[index-1][1]>row[0])){ElMessage.error('中午加班时段不能重叠');throw new Error('中午加班时段重叠')}syncReportChildren(model.rows);await form.value.validate();for(const row of model.rows){if(props.canAddProjectCategory&&row.display_metadata.report_types.includes('其他项目')&&row.display_metadata.custom_project_type?.trim()!=='其他项目'){const name=row.display_metadata.custom_project_type.trim();try{const data=await createDailyReportCategory({parent:'项目工作',name});emit('categories-change',data);updateRowTypes(row,row.display_metadata.report_types.map(value=>value==='其他项目'?categoryValue('项目工作',name):value));delete row.display_metadata.custom_project_type}catch(error){ElMessage.error(error.detail||'保存自定义项目选项失败');throw error}}for(const parent of customParents(row)){const name=row.display_metadata.custom_work_types[parent].trim();let data;try{data=await createDailyReportCategory({parent,name})}catch(error){ElMessage.error(error.detail||'保存自定义工作选项失败');throw error}emit('categories-change',data);updateRowTypes(row,row.display_metadata.report_types.map(value=>value===`${parent}::__custom__`?categoryValue(parent,name):value))}delete row.display_metadata.custom_work_types}return true}
-async function focusReportRow(index) {
+async function focusReportRow(index, selector = 'input[inputmode="decimal"]') {
   projectFilter.value = ''
   appliedProjectFilter.value = ''
   onlyLunch.value = false
   await nextTick()
-  const input = form.value?.$el.querySelector(`[data-report-row="${index}"] input[inputmode="decimal"]`)
+  const row = form.value?.$el.querySelector(`[data-report-row="${index}"]`)
+  const input = row?.querySelector(selector) || row?.querySelector('input[inputmode="decimal"]')
   if (input) {
     scrollFormTarget(input)
     input.focus({ preventScroll: true })

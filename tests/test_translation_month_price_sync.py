@@ -27,6 +27,9 @@ def setup(db,owner):
     finance.primary(child).total_excl_tax=Decimal('3.33')  # 历史记录仍应保留
     db.commit()
     write(db,owner,target,other_month,[item(amount='.9',metric='customer_auto')],billing_month='2026-10')
+    # 当前保存入口统一账期；这里直接构造旧账期记录，验证同步不会修改历史跨月数据。
+    finance.primary(other_month).billing_month='2026-10'
+    db.commit()
     return source,target,child,third,other_month
 
 
@@ -69,6 +72,36 @@ def test_preview_then_sync_all_order_levels_preserves_other_month_and_adjustment
     assert finance.primary(other_month).unit_price_excl_tax==Decimal('.9')
     assert finance.primary(child).total_excl_tax==Decimal('3.33') and finance.primary(child).remarks=='保留调价'
     assert audit.history(db,target.id,child.id)['items'][0]['after']['prices'][0]['amount']=='0.2'
+
+
+def test_same_sub_client_scope_excludes_other_sub_clients(environment):
+    from models import SubClient
+
+    db, (owner, _, _) = environment
+    source, target, child, _, _ = setup(db, owner)
+    sub_clients = [
+        SubClient(id=uuid4(), parent_client_id=source.client_id, sub_client_code=code,
+                  client_name=name, client_short_name=name)
+        for code, name in [('SYNC-A', '甲分部'), ('SYNC-B', '乙分部')]
+    ]
+    db.add_all(sub_clients)
+    db.flush()
+    source.sub_client_id = sub_clients[0].id
+    target.sub_client_id = sub_clients[1].id
+    db.commit()
+
+    path = sync.SyncScope(order_id=source.id, version=finance.read(db, source.id)['version'],
+                          billing_month='2026-11', scope='same_sub_client_month')
+    preview, _ = sync.plan(db, source.id, path)
+    assert str(target.id) not in {row['project_id'] for row in preview['targets']}
+    assert str(child.id) not in {row['order_id'] for row in preview['targets']}
+    target.sub_client_id = sub_clients[0].id
+    db.commit()
+    preview, _ = sync.plan(db, source.id, path)
+    path.token = preview['token']
+    assert str(child.id) in {row['order_id'] for row in preview['targets']}
+    assert sync.apply(db, owner, source.id, path)['sync_count'] == 1
+    assert finance.primary(child).unit_price_excl_tax == Decimal('.2')
 
 
 def test_other_customer_direction_and_stale_preview_are_not_overwritten(environment):

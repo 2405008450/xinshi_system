@@ -9,8 +9,10 @@ export function customerStatementContext(project = {}) {
     name: project.clientShortName || project.clientName || '客户',
     month,
     manager: project.clientManager,
-    ...(project.paymentMethod === 'sub_client' ? {
-      subClientId: project.subClientId, subClientName: project.subClientShortName, period: project.settlementPeriodNumber,
+    ...(project.subClientId && (project.settlementParty === 'sub_client' ||
+      (!project.settlementParty && project.paymentMethod === 'sub_client')) ? {
+      subClientId: project.subClientId, subClientName: project.subClientShortName,
     } : {}),
+    period: project.settlementPeriodNumber,
   }
 }

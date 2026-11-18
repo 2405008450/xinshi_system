@@ -99,6 +99,99 @@ def test_sub_client_settlement_shares_preferences_and_groups_by_period(setup):
     assert [child['id'] for child in matching[0]['sub_clients']]==[str(a.id)]
 
 
+def test_period_party_and_explicit_settlement_modes_are_independent(setup):
+    from models import SubClient
+    import translation_customer_finance as finance
+    from customer_statement_defaults import CustomerStatementDefault, CustomerTranslationFinanceDefault
+    from customer_statements import CustomerStatementPreference, build_statement
+    from translation_document_requirements import TranslationProjectDocuments
+    from translation_project_invoices import read as read_invoice
+
+    http, db, clients, _, _, _, first = setup
+    http.app.include_router(finance.router)
+    client = clients[0]
+    children = [SubClient(id=uuid4(), parent_client_id=client.id, client_name=name,
+                          client_short_name=name, sub_client_code=code)
+                for name, code in [('甲分部', 'PARTY-A'), ('乙分部', 'PARTY-B')]]
+    db.add_all(children)
+    db.flush()
+    second = project(db, client, '003', fixed=True)
+    independent = project(db, client, '004', fixed=True)
+    other_period = project(db, client, '005', fixed=True)
+    inherited = project(db, client, '006', fixed=True)
+    for order, child, mode, period in [
+        (first, children[0], 'monthly', 1), (second, children[1], 'monthly', 1),
+        (independent, children[0], 'individual', 1), (other_period, children[0], 'monthly', 2),
+        (inherited, children[1], None, 1),
+    ]:
+        order.sub_client_id = child.id
+        db.add(TranslationProjectDocuments(project_id=order.id, quotation_revision=0, quotation_data={
+            '_payment_method': mode, '_billing_period': {'month': '2026-11', 'number': period},
+        }))
+    db.add_all([
+        CustomerStatementDefault(client_id=client.id, choice='required'),
+        CustomerTranslationFinanceDefault(client_id=client.id, quotation_required=True),
+        CustomerStatementPreference(client_id=client.id, tax_included=False),
+    ])
+    db.commit()
+    path = f'/translation-customer-finance/sub-clients/{children[0].id}/settlement-party'
+    period = {'month': '2026-11', 'period': 1}
+    assert http.get(path, params=period).json()['party'] == 'sub_client'
+    updated = http.put(path, json={**period, 'party': 'client', 'expected_party': 'sub_client'})
+    assert updated.status_code == 200, updated.text
+    assert http.put(path, json={**period, 'party': 'client', 'expected_party': 'sub_client'}).status_code == 409
+    assert http.get(path, params={**period, 'period': 2}).json()['party'] == 'sub_client'
+
+    assert finance.read(db, independent.id)['item']['payment_method'] == 'individual'
+    item = finance.read(db, first.id)['item']
+    assert item['payment_method'] == 'monthly'
+    assert item['quotation_required'] and item['statement_required']
+    assert item['effective_billing_tax_mode'] == 'excl_tax'
+    assert not build_statement(db, first.id, None, '2026-11', 'project').get('sub_client_name')
+    scope = http.get(f'/translation-customer-finance/project/{first.id}/invoice-scope').json()
+    assert {item['id'] for item in scope['items']} == {str(first.id), str(second.id), str(inherited.id)}
+    assert read_invoice(db, first.id)['sub_client_id'] is None
+    assert read_invoice(db, other_period.id)['sub_client_id'] == str(children[0].id)
+    assert read_invoice(db, second.id)['sub_client_id'] == str(children[1].id)
+    projects = http.get(f'/translation-customer-finance/project/{first.id}/sub-client-period-projects').json()
+    assert projects['month'] == '2026-11' and projects['period'] == 1
+    assert {order['id'] for order in projects['items']} == {str(first.id), str(independent.id)}
+
+
+def test_sub_client_invoice_setting_and_notes_share_the_preferences_endpoint(setup):
+    from models import SubClient
+    from tools.apply_sub_client_finance_migration import apply_migration as create_preferences
+    import translation_customer_finance as finance
+
+    http, db, clients, _, _, _, order = setup
+    http.app.include_router(finance.router)
+    create_preferences(db.connection())
+    child = SubClient(id=uuid4(), parent_client_id=clients[0].id, client_name='开票分部',
+                      client_short_name='开票分部', sub_client_code='DOCS-A')
+    db.add(child)
+    db.flush()
+    order.sub_client_id = child.id
+    db.commit()
+    path = f'/translation-customer-finance/sub-clients/{child.id}/preferences'
+    saved = http.put(path,json={'revision':0,'invoice_required':False,'document_notes':{'invoice':'请登记合同编号'}})
+    assert saved.status_code == 200, saved.text
+    assert http.get(path).json()['document_notes']['invoice'] == '请登记合同编号'
+    tax_update = http.put(path,json={'revision':1,'tax_mode':'incl_tax'})
+    assert tax_update.status_code == 200, tax_update.text
+    assert tax_update.json()['invoice_required'] is False
+    assert finance.read(db,order.id)['item']['invoice_required'] is False
+    project_path = f'/translation-customer-finance/project/{order.id}'
+    state = finance.read(db, order.id)
+    updated = http.put(project_path, json={
+        'version': state['version'], 'order_id': str(order.id), 'documents_only': True,
+        'payment_method': 'individual', 'quotation_required': True, 'invoice_required': True,
+    })
+    assert updated.status_code == 200, updated.text
+    preferences = http.get(path).json()
+    assert preferences['quotation_required'] is True and preferences['invoice_required'] is True
+    assert finance.read(db, order.id)['item']['payment_method'] == 'individual'
+
+
 def change(setup,state,action,data,mode='children',expected=200):
     http=setup[0]
     response=http.post(f"/translation-statement-workspaces/{state['client_id']}/actions",params={'mode':mode},json={'revision':state['revision'],'action':action,'data':data,'confirmed':True})

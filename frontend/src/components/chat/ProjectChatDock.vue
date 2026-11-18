@@ -6,6 +6,8 @@
         <ChatWorkspace
           :active="workspaceVisible"
           :mobile="workspaceMobile"
+          :annotation-filters="annotationFilters"
+          @annotation-filters="applyAnnotationFilters"
           :wide-header="contentRect.wideHeader"
           :sessions="sessions"
           :search-sessions="followed.map(row => ({...row,projectType:row.kind}))"
@@ -93,7 +95,11 @@
           @dblclick="onHeaderDblClick($event, chatWindow)"
         >
           <div class="project-chat-window__heading">
-            <ChatOrderIdentity v-if="['annotation', 'translation'].includes(chatWindow.projectType)" :title="chatWindow.title" :order-no="chatWindow.subtitle" :project-type="chatWindow.projectType" :project-id="chatWindow.projectId" show-managers />
+            <ChatOrderIdentity v-if="['annotation', 'translation'].includes(chatWindow.projectType)" :title="chatWindow.title" :order-no="chatWindow.subtitle" :project-type="chatWindow.projectType" :project-id="chatWindow.projectId" show-managers>
+              <template v-if="chatWindow.projectType === 'annotation' && state.layout !== 'workspace'" #filters>
+                <ChatAnnotationFilters v-bind="annotationFilters" @change="applyAnnotationFilters($event, chatWindow.key)" />
+              </template>
+            </ChatOrderIdentity>
             <div v-else class="project-chat-window__title-row">
               <strong :title="chatWindow.title">{{ chatWindow.title }}</strong>
               <el-tag size="small" effect="plain" :type="chatWindow.projectType === 'annotation' ? 'success' : 'primary'">
@@ -192,6 +198,7 @@
 
 <script setup>
 import ChatOrderIdentity from './ChatOrderIdentity.vue'
+import ChatAnnotationFilters from './ChatAnnotationFilters.vue'
 import ChatMultiWindowPicker from './ChatMultiWindowPicker.vue'
 import { chatTileLayout } from '@/utils/chatTiling'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
@@ -295,6 +302,12 @@ function cycleComposer(event) {
 const draggingKey = ref('')
 const workspacePane = ref('messages')
 const sidebarOpen = ref(true)
+const annotationFilters = ref({ mine: false, statuses: [] })
+function applyAnnotationFilters(filters, chatKey) {
+  if (chatKey) maximizeChat(chatKey)
+  sidebarOpen.value = true
+  annotationFilters.value = filters
+}
 const panelRefs = new Map()
 const mentionRefs = new Map()
 const setMentionRef = (key, el) => { if (el) mentionRefs.set(key, el); else mentionRefs.delete(key) }

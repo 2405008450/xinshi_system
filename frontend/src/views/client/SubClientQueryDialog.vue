@@ -2,7 +2,7 @@
   <DraggableFormDialog :model-value="true" title="子客户查询"
     width="min(960px, calc(100vw - 32px))" top="5vh" append-to-body
     class="sub-client-query-dialog" @update:model-value="closeIfHidden">
-    <AppForm :model="filters" inline @submit.prevent="search">
+    <AppForm data-auto-draft="off" :model="filters" inline @submit.prevent="search">
       <el-form-item label="客户或子客户">
         <el-input v-model="filters.keyword" clearable maxlength="200"
           placeholder="输入名称、简称或编号" @input="queueSearch" />

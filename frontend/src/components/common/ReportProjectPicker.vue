@@ -3,12 +3,25 @@
     <el-alert :title="rangeHint" type="info" :closable="false" class="project-picker-hint" />
     <div class="project-picker-search"><el-input v-model="keyword" clearable placeholder="订单号、项目名称、客户名称、翻译方向，可输入多个关键词" aria-label="搜索报告关联项目" @input="onInput" @clear="query" @keyup.enter="query" /><el-button :loading="loading" @click="query">查询</el-button><el-button @click="reset">重置</el-button></div>
     <div class="project-picker-fields"><el-input v-model="clientKeyword" clearable placeholder="搜索客户全称或简称" aria-label="搜索客户名称" @input="onInput" @clear="query" @keyup.enter="query" /><el-input v-model="directionKeyword" clearable placeholder="搜索翻译方向，如：日文 中文" aria-label="搜索翻译方向" @input="onInput" @clear="query" @keyup.enter="query" /></div>
+    <div class="project-picker-fields">
+      <el-input v-if="statusType !== 'consultation'" v-model="managerKeyword" clearable maxlength="100"
+        placeholder="项目经理姓名或账号" aria-label="项目经理" @input="onInput" @keyup.enter="query" />
+      <el-select v-model="projectStatus" clearable filterable placeholder="全部状态" aria-label="状态" @change="query">
+        <el-option v-for="status in statusOptions" :key="status.value" :label="status.label" :value="status.value" />
+      </el-select>
+    </div>
     <details class="project-picker-ranges"><summary>订单时间范围 · {{periodLabel}}</summary><div><el-button v-for="option in periods" :key="option.value" :type="period===option.value?'primary':'default'" @click="changePeriod(option.value)">{{option.label}}</el-button></div></details>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-table :data="rows" v-loading="loading" border highlight-current-row row-key="id" @current-change="selected=$event" @row-dblclick="select($event)">
       <el-table-column prop="order_no" label="订单号" width="180" /><el-table-column prop="project_name" label="项目名称" min-width="250" show-overflow-tooltip />
       <el-table-column label="客户名称" min-width="160" show-overflow-tooltip><template #default="{row}">{{row.client_name||row.client_short_name||'-'}}</template></el-table-column>
       <el-table-column prop="translation_direction" label="翻译方向" min-width="140" show-overflow-tooltip><template #default="{row}">{{row.translation_direction||'-'}}</template></el-table-column>
+      <el-table-column v-if="statusType !== 'consultation'" label="项目经理" min-width="130" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.project_manager_names?.join('、') || '-' }}</template>
+      </el-table-column>
+      <el-table-column label="状态" min-width="115" show-overflow-tooltip>
+        <template #default="{ row }">{{ statusLabel(row.project_status) }}</template>
+      </el-table-column>
       <el-table-column label="操作" width="85" fixed="right"><template #default="{row}"><el-button type="primary" link @click="select(row)">选定</el-button></template></el-table-column>
     </el-table>
     <el-pagination v-model:current-page="page" :total="total" :page-size="10" layout="total, prev, pager, next" @current-change="load" />
@@ -18,20 +31,63 @@
 <script setup>
 import {computed,onBeforeUnmount,ref,watch} from 'vue'
 import {searchReportProjects} from '@/api/projectArrangements'
+import { getProjectStatusLabel, PROJECT_STATUS_OPTIONS } from '@/utils/projectStatus'
 const props=defineProps({modelValue:Boolean,projectType:{type:String,default:''},taskScope:Boolean})
 const emit=defineEmits(['update:modelValue','selected'])
 const visible=computed({get:()=>props.modelValue,set:value=>emit('update:modelValue',value)})
 const keyword=ref(''),rows=ref([]),selected=ref(null),page=ref(1),total=ref(0),loading=ref(false),error=ref('')
 const clientKeyword=ref(''),directionKeyword=ref(''),period=ref('week'),dateFrom=ref(''),dateTo=ref('')
+const managerKeyword = ref('')
+const projectStatus = ref('')
+const statusTypes = { 口译项目: 'interpretation', 标注项目: 'annotation', 招聘项目: 'recruitment', 新咨询对接: 'consultation' }
+const consultationStatuses = [
+  { value: 'following', label: '跟进中' },
+  { value: 'emphasis', label: '重点跟进' },
+  { value: 'failed', label: '未成交' },
+  { value: 'success', label: '已确认' },
+]
+const statusType = computed(() => statusTypes[props.projectType] || 'translation')
+const statusOptions = computed(() => PROJECT_STATUS_OPTIONS[statusType.value] || consultationStatuses)
+function statusLabel(value) {
+  return statusType.value === 'consultation'
+    ? consultationStatuses.find(option => option.value === value)?.label || value || '-'
+    : getProjectStatusLabel(statusType.value, value)
+}
 const periods=[{value:'week',label:'最近一周订单'},{value:'month',label:'一个月订单'},{value:'quarter',label:'三个月订单'},{value:'year',label:'一年订单'},{value:'all',label:'全部订单'}]
 const periodLabel=computed(()=>periods.find(option=>option.value===period.value)?.label)
 const rangeHint=computed(()=>`${props.taskScope?'仅显示工作台“我的任务”中的未取消、未结款口译项目。':''}当前${period.value==='all'?'加载':'仅加载'}${periodLabel.value}${dateFrom.value&&dateTo.value?`（${dateFrom.value} 至 ${dateTo.value}）`:''}，按订单创建日期筛选（UTC+8）。可展开“订单时间范围”切换。`)
 let controller,sequence=0,timer
-async function load(){const id=++sequence;controller?.abort();controller=new AbortController();selected.value=null;loading.value=true;error.value='';try{const data=await searchReportProjects({project_type:props.projectType,task_scope:props.taskScope||undefined,keyword:keyword.value.trim(),client_keyword:clientKeyword.value.trim(),direction_keyword:directionKeyword.value.trim(),period:period.value,page:page.value},{signal:controller.signal});if(id!==sequence)return;rows.value=data.items;total.value=data.total;dateFrom.value=data.date_from||'';dateTo.value=data.date_to||''}catch(e){if(id===sequence&&e.code!=='ERR_CANCELED')error.value=e.detail||'搜索项目失败'}finally{if(id===sequence)loading.value=false}}
+async function load() {
+  const id = ++sequence
+  controller?.abort()
+  controller = new AbortController()
+  selected.value = null
+  loading.value = true
+  error.value = ''
+  try {
+    const data = await searchReportProjects({
+      project_type: props.projectType, task_scope: props.taskScope || undefined,
+      keyword: keyword.value.trim(), client_keyword: clientKeyword.value.trim(),
+      direction_keyword: directionKeyword.value.trim(), period: period.value, page: page.value,
+      manager_keyword: managerKeyword.value.trim() || undefined,
+      project_status: projectStatus.value || undefined,
+      status_label: statusOptions.value.find(option => option.value === projectStatus.value)?.label,
+    }, { signal: controller.signal })
+    if (id !== sequence) return
+    rows.value = data.items
+    total.value = data.total
+    dateFrom.value = data.date_from || ''
+    dateTo.value = data.date_to || ''
+  } catch (e) {
+    if (id === sequence && e.code !== 'ERR_CANCELED') error.value = e.detail || '搜索项目失败'
+  } finally {
+    if (id === sequence) loading.value = false
+  }
+}
 function query(){clearTimeout(timer);page.value=1;load()}
-function onInput(value){clearTimeout(timer);sequence++;controller?.abort();selected.value=null;if(!value.trim())query();else timer=setTimeout(query,400)}
+function onInput(value){clearTimeout(timer);sequence++;controller?.abort();selected.value=null;loading.value=true;if(!value.trim())query();else timer=setTimeout(query,400)}
 function changePeriod(value){period.value=value;dateFrom.value='';dateTo.value='';query()}
-function reset(){keyword.value='';clientKeyword.value='';directionKeyword.value='';changePeriod(props.taskScope?'all':'week')}
+function reset(){keyword.value='';clientKeyword.value='';directionKeyword.value='';managerKeyword.value='';projectStatus.value='';changePeriod(props.taskScope?'all':'week')}
 function select(row){if(!row||loading.value)return;emit('selected',row);visible.value=false}
 watch(()=>props.modelValue,open=>{clearTimeout(timer);if(open){rows.value=[];reset()}else{sequence++;controller?.abort();selected.value=null}},{immediate:true})
 onBeforeUnmount(()=>{clearTimeout(timer);sequence++;controller?.abort()})

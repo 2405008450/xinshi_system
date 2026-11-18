@@ -11,7 +11,7 @@
     </template>
 
     <div class="search-bar">
-      <AppForm :inline="true" :model="searchForm" class="search-form-inline">
+      <AppForm data-auto-draft="off" :inline="true" :model="searchForm" class="search-form-inline">
         <el-form-item label="项目编号">
           <el-input v-model="searchForm.project_no" placeholder="支持模糊搜索" clearable />
         </el-form-item>

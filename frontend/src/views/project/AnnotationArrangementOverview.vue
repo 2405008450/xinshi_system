@@ -52,7 +52,7 @@
           v-model:visible="advancedVisible"
           :count="advancedCount"
           @clear="clearAdvancedFilters"
-          @reset="clearAdvancedFilters"
+          @reset="resetFilters"
         >
           <div class="advanced-grid">
             <label>

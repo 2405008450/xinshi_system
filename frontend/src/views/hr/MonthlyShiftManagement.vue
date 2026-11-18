@@ -27,7 +27,15 @@
           <template v-else><p class="monthly-hint">月份视图仅供查看；请切换“进行排班”调整。各周独立保存，跨月周在相邻两个月共用同一份安排。</p><MonthlyWeekOverview :plans="plans" :month="month" :public="false" /></template>
         </el-card>
       </el-collapse-item>
-      <el-collapse-item name="duty" title="值班安排"><WeekendDutyArrangement v-if="dutyOpened" v-model:month="month" :month-change-disabled="navigationBusy" @busy="dutySaving=$event" /></el-collapse-item>
+      <el-collapse-item name="duty" title="值班安排">
+        <template v-if="dutyOpened">
+          <div class="duty-period">
+            <ShiftPeriodControls v-model:mode="dutyMode" :value="dutyMode==='week'?dutyWeek:dutyMonth" subject="值班" :disabled="navigationBusy" @update:value="setDutyPeriod" />
+          </div>
+          <WeekendDutyOverview v-if="dutyMode==='week'" :mode="dutyMode" :week="dutyWeek" :month="dutyMonth" scope="all" />
+          <WeekendDutyArrangement v-else :month="dutyMonth" hide-period-controls @busy="dutySaving=$event" />
+        </template>
+      </el-collapse-item>
       <el-collapse-item name="holidays"><template #title><strong>节假日安排</strong><el-tag class="holiday-pending" type="info" size="small">待开发</el-tag></template><el-empty description="待开发" :image-size="65" /></el-collapse-item>
     </el-collapse>
   </section>
@@ -40,6 +48,7 @@ import {getWeeklyShiftPlan} from '@/api/monthlyShifts'
 import {currentShiftMonth,shiftMonthTitle,currentShiftWeek,shiftWeek,shiftWeekTitle,shiftMonthWeeks} from '@/utils/monthlyShift'
 import {formatBusinessDateTime} from '@/utils/dateTime'
 import WeekendDutyArrangement from './WeekendDutyArrangement.vue'
+import WeekendDutyOverview from './WeekendDutyOverview.vue'
 import FixedShiftDialog from './FixedShiftDialog.vue'
 import WeekPlanOperationsDialog from './WeekPlanOperationsDialog.vue'
 import MonthlyWeekOverview from './MonthlyWeekOverview.vue'
@@ -49,6 +58,8 @@ const pendingWeeks=ref(new Set()),navigationBusy=computed(()=>busy.value||pendin
 function setPending(start,value){const next=new Set(pendingWeeks.value);if(value)next.add(start);else next.delete(start);pendingWeeks.value=next}
 const operationSource=ref(currentShiftWeek()),expandedWeeks=ref([]),plans=ref([])
 const expandedSections=ref(['shifts']),dutyOpened=ref(false),dutySaving=ref(false)
+const dutyMode=ref('month'),dutyWeek=ref(currentShiftWeek()),dutyMonth=ref(currentShiftMonth())
+function setDutyPeriod(value){if(dutyMode.value==='week')dutyWeek.value=value;else dutyMonth.value=value}
 watch(expandedSections,value=>{if(value.includes('duty'))dutyOpened.value=true})
 const mode=ref('week'),editingMode=ref('week'),week=ref(currentShiftWeek()),month=ref(currentShiftMonth())
 const loading=ref(false),error=ref('')
@@ -69,6 +80,7 @@ async function load(){
 watch(periodKey,load);onMounted(load);onBeforeUnmount(()=>{active=false;sequence++;controller?.abort()})
 </script>
 <style scoped>
+.duty-period{padding:12px 24px 0}
 .monthly-header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}.monthly-header h3{margin:0}.monthly-header>div{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.monthly-header :deep(.el-button+.el-button){margin-left:0}.monthly-hint{font-size:12px;line-height:1.7;color:#64748b}
 .monthly-shift-sections{padding:8px 6px;margin-inline:-12px}.monthly-shift-sections :deep(.el-collapse){border:0}.monthly-shift-sections :deep(.el-collapse>.el-collapse-item){margin-bottom:12px;border:1px solid #dbe3ec;border-radius:8px;overflow:hidden}.monthly-shift-sections :deep(.el-collapse-item__header){min-height:58px;padding:0 24px;font-size:16px;font-weight:600;background:#fff;box-sizing:border-box}.monthly-shift-sections :deep(.el-collapse-item__content){padding-bottom:0}.monthly-shift-sections :deep(.el-collapse-item__title){display:flex;align-items:center;gap:12px;flex:1;min-width:0}.holiday-pending{margin-left:12px}
 .shift-title-actions{display:flex;gap:8px;margin-left:auto;margin-right:14px;flex-wrap:wrap}.shift-title-actions .el-button+.el-button{margin-left:0}@media(max-width:600px){.monthly-shift-sections :deep(.el-collapse-item__header){height:auto;min-height:58px}.shift-title-actions{margin:6px 12px}}

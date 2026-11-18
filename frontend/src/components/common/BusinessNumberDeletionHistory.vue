@@ -1,12 +1,12 @@
 <template>
   <DraggableFormDialog :model-value="modelValue" :title="isTranslation?'订单删除记录':'编号删除记录'" class="number-deletion-history-dialog" width="min(1080px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close @update:model-value="$emit('update:modelValue',$event)">
-    <div v-if="isTranslation" class="order-history-search">
+    <div v-if="isTranslation" class="order-history-search" data-auto-draft="off">
       <label>订单号<el-input v-model="orderNo" clearable placeholder="母订单或各级子订单号，可输入多个关键词" @input="queueSearch" @keyup.enter="search" /></label>
       <label>客户名称<el-input v-model="clientName" clearable placeholder="客户全称或简称，可输入多个关键词" @input="queueSearch" @keyup.enter="search" /></label>
       <label class="order-history-date">删除时间<el-date-picker v-model="deletedRange" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" @change="search" /></label>
       <el-button type="primary" @click="search">查询</el-button><el-button @click="reset">重置</el-button>
     </div>
-    <div v-else class="number-history-search"><span>关键词</span><el-input v-model="keyword" clearable placeholder="编号、原名称、删除人，可输入多个关键词" @input="queueSearch" @keyup.enter="search" /><el-button @click="search">查询</el-button></div>
+    <div v-else class="number-history-search" data-auto-draft="off"><span>关键词</span><el-input v-model="keyword" clearable placeholder="编号、原名称、删除人，可输入多个关键词" @input="queueSearch" @keyup.enter="search" /><el-button @click="search">查询</el-button></div>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <p class="number-history-help">同一编号重新使用后，每次删除的原记录仍分别保留。</p>
     <el-table v-loading="loading" :data="rows" row-key="id" border empty-text="暂无删除记录" max-height="480">

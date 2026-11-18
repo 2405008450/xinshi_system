@@ -13,7 +13,7 @@
       <el-table-column prop="billingMonth" label="账单月份" width="125" />
     </el-table>
     <template v-else>
-    <AppForm inline :model="filters">
+    <AppForm data-auto-draft="off" inline :model="filters">
       <el-form-item label="客户"><span>{{ context.clientName || '未关联客户' }}</span></el-form-item>
       <el-form-item label="账单月份">
         <el-date-picker v-if="isStatement" v-model="filters.month" type="month" value-format="YYYY-MM" :clearable="false" @change="search" />

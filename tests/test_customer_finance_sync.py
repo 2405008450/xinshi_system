@@ -54,6 +54,81 @@ def test_translation_order_versions_and_latest_customer_rate(environment,allowed
     assert sync.differences('translation',client.id,page=1,db=db,user=user)['total']==2
 
 
+def test_sub_customer_reference_priority_and_bidirectional_sync(environment, allowed):
+    from models import SubClient
+    from tools.apply_sub_client_translation_rate_migration import apply_migration
+
+    db, (user, _, _) = environment
+    client, root, _, leaf = context(db, user)
+    apply_migration(db.connection())
+    apply_migration(db.connection())
+    child = SubClient(id=uuid4(), parent_client_id=client.id, sub_client_code='SUB-REF',
+                      client_name='子客户', client_short_name='子客户')
+    db.add(child)
+    root.sub_client_id = child.id
+    db.commit()
+
+    def library(sub_id=None):
+        return rates.library(db, client.id, sub_id)
+
+    def set_price(amount, sub_id=None):
+        rates.write_library(db, user, client.id, [item(amount=amount)], library(sub_id)['version'], sub_client_id=sub_id)
+        db.commit()
+
+    write(db, user, root, leaf, [item(amount='.1')])
+    set_price('.1')
+    set_price('.2', child.id)
+    assert rates.order_rates(db, leaf)[0]['reference_id'] == library(child.id)['items'][0]['id']
+    assert Decimal(rates.order_rates(db, leaf)[0]['amount']) == Decimal('.2')
+    set_price('.3')
+    assert Decimal(rates.order_rates(db, leaf)[0]['amount']) == Decimal('.2')
+
+    write(db, user, root, leaf, [item(amount='.9')])
+    set_price('.4', child.id)
+    assert Decimal(rates.order_rates(db, leaf)[0]['amount']) == Decimal('.9')
+    diff = sync.differences('translation', client.id, page=1, db=db, user=user, sub_client_id=child.id)
+    assert any(row['order_id'] == str(leaf.id) for row in diff['items'])
+
+    def confirm(direction, **kwargs):
+        sync.sync('translation', client.id, sync.SyncWrite(
+            project_id=root.id, order_id=leaf.id, version=written.read(db, root.id)['version'],
+            customer_version=library(child.id)['version'], direction=direction, confirmed=True, **kwargs,
+        ), db=db, user=user)
+
+    confirm('client_to_project', sub_client_id=child.id)
+    assert Decimal(rates.order_rates(db, leaf)[0]['amount']) == Decimal('.4')
+    write(db, user, root, leaf, [item(amount='.9')])
+    confirm('project_to_client')
+    assert Decimal(library(child.id)['items'][0]['amount']) == Decimal('.9')
+    assert Decimal(library()['items'][0]['amount']) == Decimal('.3')
+    history = rates.history(client.id, page=1, db=db, sub_client_id=child.id)['items']
+    manual_entry = next(event for event in history if event['action'] == 'manual_entry')
+    assert manual_entry['actor_name'] == (user.full_name or user.username)
+    assert manual_entry['before'] and manual_entry['after']
+    for action in ('manual_project_sync', 'manual_order_sync', 'automatic_order_sync'):
+        event = next(event for event in history if event['action'] == action and event['order_id'] == str(leaf.id))
+        assert event['project_id'] == str(root.id) and event['order_no'] == leaf.sub_order_no
+        assert event['created_at'].endswith('+08:00')
+    assert all(event['id'] not in {entry['id'] for entry in history}
+               for event in rates.history(client.id, page=1, db=db)['items'])
+
+
+def test_translation_differences_match_effective_basis_and_numeric_size():
+    from types import SimpleNamespace
+
+    reference = {'id':'rate', 'revision':1, 'language_pair':'英→中', 'metric':'customer_auto:foreign_words',
+                 'currency':'CNY', 'amount':'0.1000', 'unit_size':'1.0000'}
+    row = dict(reference, metric='foreign_words', amount='0.1', unit_size='1')
+    matrix = {'customer':{'characters_no_spaces':12, 'foreign_words':8}}
+    owner = SimpleNamespace(language_pair='英→中', word_count_matrix=matrix)
+    matching = sync.matching('translation', owner, owner, [row], [reference])
+    assert sync.translation_rates_agree([row], matching, matrix)
+    assert not sync.translation_rates_agree([dict(row, amount='0.2')], matching, matrix)
+    assert not sync.translation_rates_agree([dict(row, unit_size='2')], matching, matrix)
+    assert not sync.translation_rates_agree([dict(row, metric='company_foreign_words')], matching, matrix)
+    assert not sync.translation_rates_agree([dict(row, tax_prices={'unit_price_incl_tax':'0.1'})], matching, matrix)
+
+
 def test_mixed_order_tree_folds_only_siblings_with_the_same_direction():
     from types import SimpleNamespace
 

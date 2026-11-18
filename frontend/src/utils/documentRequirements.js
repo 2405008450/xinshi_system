@@ -3,8 +3,10 @@ import {effectiveBillingTaxMode} from './billingTaxMode.js'
 export const documentNotesForm=value=>({quotation:value?.quotation||'',statement:value?.statement||'',invoice:value?.invoice||''})
 export const invoiceStatusOptions=[{value:'unissued',label:'未开票'},{value:'partial',label:'部分开票'},{value:'issued',label:'已开票'}]
 export const invoiceStatusLabels=Object.fromEntries(invoiceStatusOptions.map(item=>[item.value,item.label]))
+export const usesSubClientDocumentSettings=order=>!!order.subClientId && order.settlementParty!=='client'
 
 export function invoiceRequirement(order){
+  if(typeof order.subClientInvoiceRequired==='boolean')return order.subClientInvoiceRequired
   if(order.paymentMethod && order.paymentMethod!=='special'){
     const mode=effectiveBillingTaxMode(order)
     return mode==='incl_tax'?true:mode==='excl_tax'?false:null
@@ -32,6 +34,7 @@ export function documentConsistencyRows(root, draft){
   const current = withDraft(root)
   const rows = []
   function invoiceNeeded(order){
+    if(typeof order.subClientInvoiceRequired==='boolean')return order.subClientInvoiceRequired
     if(draft.paymentMethod && draft.paymentMethod!=='special'){
       const basis=taxBasis(order)
       return basis==='incl_tax'?true:basis==='excl_tax'?false:null

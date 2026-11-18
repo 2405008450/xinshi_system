@@ -1,13 +1,20 @@
 <template>
   <DraggableFormDialog :model-value="true" title="子客户查询" class="translation-sub-client-query"
     width="min(1120px, calc(100vw - 32px))" top="5vh" append-to-body @update:model-value="closeIfHidden">
-    <AppForm :model="filters" inline @submit.prevent="search">
+    <AppForm data-auto-draft="off" :model="filters" inline @submit.prevent="search">
       <el-form-item label="月份">
         <el-date-picker v-model="filters.months" type="months" value-format="YYYY-MM" format="YYYY-MM"
           placeholder="选择一个或多个月份" :clearable="false" :show-confirm="true" :show-footer="true" @change="search" />
       </el-form-item>
       <el-form-item label="客户">
         <el-input v-model="filters.keyword" clearable maxlength="200" placeholder="客户全称、简称或编号" @input="queueSearch" />
+      </el-form-item>
+      <el-form-item label="子客户">
+        <el-select v-model="filters.presence" aria-label="子客户关联状态" style="width: 120px" @change="search">
+          <el-option label="全部项目" value="all" />
+          <el-option label="有子客户" value="with" />
+          <el-option label="无子客户" value="without" />
+        </el-select>
       </el-form-item>
       <el-form-item>
         <el-button native-type="submit" type="primary">查询</el-button>
@@ -57,8 +64,8 @@ import TranslationSubClientOrders from './TranslationSubClientOrders.vue'
 defineProps({ canOpenDirectory: Boolean })
 const emit = defineEmits(['close', 'open-directory'])
 const currentMonth = () => businessDateTimeInputValue().slice(0, 7)
-const filters = reactive({ months: [currentMonth()], keyword: '' })
-const applied = ref({ months: filters.months.join(','), keyword: '' })
+const filters = reactive({ months: [currentMonth()], keyword: '', presence: 'all' })
+const applied = ref({ months: filters.months.join(','), keyword: '', presence: filters.presence })
 const rows = ref([])
 const expanded = ref([])
 const page = ref(1)
@@ -97,7 +104,7 @@ async function load() {
 function search() {
   clearTimeout(timer)
   if (!filters.months?.length) filters.months = [currentMonth()]
-  applied.value = { months: filters.months.join(','), keyword: filters.keyword.trim() }
+  applied.value = { months: filters.months.join(','), keyword: filters.keyword.trim(), presence: filters.presence }
   page.value = 1
   total.value = 0
   return load()
@@ -116,6 +123,7 @@ function changePage() {
 function reset() {
   filters.months = [currentMonth()]
   filters.keyword = ''
+  filters.presence = 'all'
   return search()
 }
 

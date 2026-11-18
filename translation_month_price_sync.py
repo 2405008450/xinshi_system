@@ -5,8 +5,9 @@ from typing import Literal
 from uuid import UUID,uuid4
 from fastapi import APIRouter,Depends,HTTPException
 from pydantic import BaseModel,Field
+from sqlalchemy import func
 from database import get_db
-from models import TranslationProject,TranslationSubOrder,TranslationSubOrderChargeItem
+from models import SubClient,TranslationProject,TranslationSubOrder,TranslationSubOrderChargeItem
 from routers.auth import require_permission,get_current_user
 from annotation_progress_time import business_now
 import translation_customer_finance as finance
@@ -20,7 +21,7 @@ class SyncScope(BaseModel):
     order_id:UUID
     version:str
     billing_month:str|None=Field(default=None,pattern=r'^\d{4}-(0[1-9]|1[0-2])$')
-    scope:Literal['same_month','project_children']='same_month'
+    scope:Literal['same_month','same_sub_client_month','project_children']='same_month'
     token:str|None=None
     prices:list[rates.RateInput]|None=Field(default=None,min_length=1,max_length=100)
 
@@ -28,18 +29,29 @@ class SyncScope(BaseModel):
 def sync_count(db,order_id):
     if not audit.ready(db):return 0
     snapshots=db.query(audit.TranslationFinanceEventItem.after_snapshot).filter_by(order_id=order_id).all()
-    return sum(1 for (snapshot,) in snapshots if snapshot.get('sync_operation',{}).get('type') in {'same_month_prices','project_child_prices'})
+    return sum(1 for (snapshot,) in snapshots if snapshot.get('sync_operation',{}).get('type') in {
+        'same_month_prices','same_sub_client_month_prices','project_child_prices'})
 
 
 def plan(db,project_id,payload,lock=False):
     project_children=payload.scope=='project_children'
+    same_sub_client=payload.scope=='same_sub_client_month'
     source=finance.crud.get_translation_project(db,project_id)
     if not source:raise HTTPException(404,'笔译项目不存在')
-    if not project_children and (not source.client_id or not payload.billing_month):
+    client_id=finance.statement_client_id(source)
+    if not project_children and (not client_id or not payload.billing_month):
         raise HTTPException(422,'同步同月订单前，请先保存关联客户并确认账单月份')
+    if same_sub_client and not source.sub_client_id:
+        raise HTTPException(422,'请先保存关联的子客户')
     roots=db.query(TranslationProject).filter(TranslationProject.annotation_migrated_at.is_(None)).order_by(TranslationProject.id)
-    roots=roots.filter_by(id=project_id) if project_children else roots.filter_by(client_id=source.client_id)
-    if lock:roots=roots.with_for_update().populate_existing()
+    if project_children:
+        roots=roots.filter(TranslationProject.id==project_id)
+    else:
+        roots=roots.outerjoin(SubClient, SubClient.id==TranslationProject.sub_client_id).filter(
+            func.coalesce(TranslationProject.client_id, SubClient.parent_client_id)==client_id)
+        if same_sub_client:
+            roots=roots.filter(TranslationProject.sub_client_id==source.sub_client_id)
+    if lock:roots=roots.with_for_update(of=TranslationProject).populate_existing()
     roots=roots.all()
     if lock:db.query(TranslationSubOrder).filter(TranslationSubOrder.parent_project_id.in_([root.id for root in roots])).order_by(TranslationSubOrder.id).with_for_update().populate_existing().all()
     rates.invalidate_metadata(db);basis.invalidate(db)
@@ -69,7 +81,7 @@ def plan(db,project_id,payload,lock=False):
         root_owners,_,parents=finance.hierarchy(root)
         explicit_months={str(owner.id):{row.billing_month for row in owner.customer_charge_items if row.billing_month} for owner in root_owners}
         all_months=set().union(*explicit_months.values())
-        fixed_modes=finance.order_pricing_modes(db,root) if project_children else {}
+        fixed_modes=finance.order_pricing_modes(db,root) if project_children or same_sub_client else {}
         parent_ids=set(parents.values())
         fixed_orders={str(owner.id) for owner in root_owners
                       if fixed_modes.get(str(owner.id))=='fixed' or
@@ -80,6 +92,9 @@ def plan(db,project_id,payload,lock=False):
             parent=parents.get(owner_id)
             return effective_prices(parent) if parent else []
         def order_months(owner_id):
+            assignment=getattr(root,'billing_period',{})
+            if same_sub_client and assignment.get('month') and (assignment.get('board_id') or assignment.get('number')):
+                return {assignment['month']}
             generated=finance.order_billing_month(root.order_no)
             if generated:return {generated}
             if explicit_months[owner_id]:return explicit_months[owner_id]
@@ -88,14 +103,15 @@ def plan(db,project_id,payload,lock=False):
         for owner in root_owners:
             if owner.id==source_owner.id:continue
             owner_id=str(owner.id)
-            if project_children:
-                if owner is root:continue
+            if project_children and owner is root:continue
+            if not project_children and payload.billing_month not in order_months(owner_id):continue
+            if project_children or same_sub_client:
                 ancestor=owner_id
                 while ancestor and ancestor not in fixed_orders:ancestor=parents.get(ancestor)
                 if ancestor:
-                    skipped.append({'order_no':owner.sub_order_no,'reason':'固定收费或继承上级固定收费'})
+                    skipped.append({'order_no':root.order_no if owner is root else owner.sub_order_no,
+                                    'reason':'固定收费或继承上级固定收费'})
                     continue
-            elif payload.billing_month not in order_months(owner_id):continue
             choices=set(str(owner.language_pair or root.language_pair or '').split('；'))
             existing=own_prices[str(owner.id)]
             effective=effective_prices(str(owner.id)) or [{'language_pair':direction,'metric':'customer_auto','currency':'CNY','unit_size':'1'} for direction in choices if direction]
@@ -115,7 +131,9 @@ def plan(db,project_id,payload,lock=False):
             if str(root.id) not in versions:versions[str(root.id)]=finance.version(root)
     targets.sort(key=lambda row:(row['project_id'],row['order_no']))
     token=hashlib.sha256(json.dumps({'versions':versions,'scope':payload.scope,'month':payload.billing_month,'source':source_prices,'targets':targets},sort_keys=True,default=str).encode()).hexdigest()
-    return {'client_id':str(source.client_id) if source.client_id else None,'client_name':source.client_short_name or source.client_name,'billing_month':payload.billing_month,'directions':sorted(directions),'targets':targets,'skipped':skipped,'token':token,'sync_count':sync_count(db,payload.order_id)},owners
+    return {'client_id':str(client_id) if client_id else None,'client_name':source.client_short_name or source.client_name,
+            'sub_client_name':source.sub_client.client_short_name if same_sub_client and source.sub_client else None,
+            'billing_month':payload.billing_month,'directions':sorted(directions),'targets':targets,'skipped':skipped,'token':token,'sync_count':sync_count(db,payload.order_id)},owners
 
 
 def apply(db,user,project_id,payload):
@@ -146,7 +164,7 @@ def apply(db,user,project_id,payload):
             charge.unit_price_incl_tax=Decimal(tax['unit_price_incl_tax']) if tax and tax.get('unit_price_incl_tax') is not None else None
             charge.unit_price=charge.unit_price_excl_tax if charge.unit_price_incl_tax is not None else Decimal(data['amount'])
             charge.currency=data['currency'];charge.metric_type=basis.storage_metric(basis.resolve(owner.word_count_matrix,data['metric'])[2]);charge.unit_size=Decimal(data['unit_size']);charge.updated_at=moment
-            if payload.scope=='same_month':charge.billing_month=payload.billing_month
+            if payload.scope!='project_children':charge.billing_month=payload.billing_month
             db.flush();basis.store(db,charge,data['metric'],owner.word_count_matrix)
             meta=db.get(rates.TranslationChargeDirection,charge.id)
             if meta is None:meta=rates.TranslationChargeDirection(charge_id=charge.id);db.add(meta)
@@ -160,7 +178,8 @@ def apply(db,user,project_id,payload):
     event=audit.TranslationFinanceEvent(id=uuid4(),project_id=project_id,actor_id=user.id,actor_name=user.full_name or user.username,created_at=business_now())
     db.add(event);db.flush()
     after=audit.capture(source)[str(payload.order_id)]
-    after['sync_operation']={'type':'project_child_prices' if payload.scope=='project_children' else 'same_month_prices','count':count,'billing_month':payload.billing_month,'targets':[row['order_no'] for row in preview['targets']],
+    sync_types={'project_children':'project_child_prices','same_month':'same_month_prices','same_sub_client_month':'same_sub_client_month_prices'}
+    after['sync_operation']={'type':sync_types[payload.scope],'count':count,'billing_month':payload.billing_month,'targets':[row['order_no'] for row in preview['targets']],
         'prices':json.loads(json.dumps([row.model_dump() for row in payload.prices],default=str)) if payload.prices is not None else source_snapshot.get('prices',[])}
     db.add(audit.TranslationFinanceEventItem(event_id=event.id,order_id=payload.order_id,order_no=source_snapshot['order_no'],project_name=source_snapshot['project_name'] or '-',before_snapshot=source_snapshot,after_snapshot=after))
     db.commit()

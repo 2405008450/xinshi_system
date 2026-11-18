@@ -14,7 +14,7 @@
       </slot></span>
     </template>
 
-    <div class="advanced-filter-shell">
+    <div class="advanced-filter-shell" data-auto-draft="off">
       <div class="advanced-filter-header">
 
         <div class="advanced-filter-actions">
@@ -31,7 +31,7 @@
 </template>
 
 <script setup>
-import { computed,ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import AdvancedFilterFieldSearch from './AdvancedFilterFieldSearch.vue'
 
 const props = defineProps({
@@ -47,6 +47,9 @@ const referenceHost=ref()
 const visibleModel = computed({
   get: () => props.visible,
   set: (value) => emit('update:visible', value),
+})
+watch(() => props.visible, (visible, wasVisible) => {
+  if (wasVisible && !visible) emit('reset')
 })
 
 const popoverWidth = 'min(760px, calc(100vw - 32px))'

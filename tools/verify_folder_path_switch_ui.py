@@ -130,6 +130,11 @@ const app=createApp({render:()=>h(Projects,{ref:projects})});app.component('AppF
         assert page.evaluate('form().wordCountMatrix.company.words') == 30
         allow_local_stats_to_finish = False
         dialog.get_by_role('tab',name='新增母子订单',exact=True).click()
+        expect(name_input).to_have_attribute('readonly', '')
+        expect(name_input).to_have_value('')
+        expect(dialog.locator('[data-field-key=sourceFileName]:visible')).to_contain_text('请点击右上角的「读取路径」')
+        dialog.get_by_role('button',name='保存',exact=True).click()
+        expect(page.get_by_text('请先点击右上角的「读取路径」，并将读取结果应用到新增表单',exact=True)).to_be_visible()
         page.evaluate(r"Object.assign(window.form(),{originalStoragePath:'\\\\old-server\\share\\客户资料',networkFilePath:'\\\\old-server\\share\\客户资料',filePathDraft:{storage_path:'\\\\old-server\\share\\客户资料'},languagePair:'中文→英语',serviceContent:'翻译'})")
         dialog.get_by_role('button',name='读取路径',exact=True).click()
         batch=page.locator('.suborder-batch-create-dialog:visible')
@@ -154,6 +159,8 @@ const app=createApp({render:()=>h(Projects,{ref:projects})});app.component('AppF
         root.fill(r'D:\本机\客户资料')
         batch.get_by_role('button',name='应用到新增表单',exact=True).click()
         expect(batch).not_to_be_visible()
+        expect(name_input).to_have_value('客户资料')
+        expect(name_input).to_have_attribute('readonly', '')
         assert page.evaluate("form().pendingSubOrderDetails['001'].wordCountMatrix.company") == {
             'words':30, 'characters_no_spaces':47, 'cjk_chars_korean_words':0,
         }

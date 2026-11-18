@@ -161,7 +161,7 @@ import {subscribe} from '@/utils/realtimeSocket'
 import {readCloudDraft,queueCloudDraft,cloudDraftStatus,acknowledgeCloudDraft} from '@/utils/cloudDrafts'
 import {chooseDraft} from '@/utils/draftRecovery'
 import {createAutoDraftStore} from '@/utils/autoDraftStore'
-import {mergeAnnotationOperationRows,reportBusinessDate,reportWeekday,shiftReportDate,requiresProjectIdentity} from '@/utils/workReportForm'
+import {mergeAnnotationOperationRows,newReportRow,reportBusinessDate,reportWeekday,shiftReportDate,requiresProjectIdentity,updateRowTypes} from '@/utils/workReportForm'
 import { formatBusinessDateTimeMinute } from '@/utils/dateTime'
 import { getPersonalMailAccount } from '@/api/auth'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
@@ -179,8 +179,8 @@ import {
 const DailyReportSpreadsheet = defineAsyncComponent(() => import('./DailyReportSpreadsheet.vue'))
 const MailBodyEditor = defineAsyncComponent(() => import('@/components/common/MailBodyEditor.vue'))
 
-const props = defineProps({ reportDate: { type: String, required: true }, initialFieldWork: Object, footerTarget: Object })
-const emit = defineEmits(['status-change','update:report-date'])
+const props = defineProps({ reportDate: { type: String, required: true }, initialFieldWork: Object, footerTarget: Object, annotationProject: Object })
+const emit = defineEmits(['status-change','update:report-date','annotation-project-applied'])
 const router = useRouter()
 const loading = ref(false)
 const saving = ref(false)
@@ -317,6 +317,40 @@ async function applyFieldWork(date) {
   sheetRef.value?.focusReportRow(report.items.length - 1)
 }
 watch(amending, value => { if (value && !loading.value) void applyFieldWork(props.reportDate) })
+
+let handledAnnotationProject
+let warnedAnnotationProject
+watch([() => props.annotationProject, () => props.reportDate, loadedDate, loading, saving, amending], async () => {
+  const project = props.annotationProject
+  if (!project || handledAnnotationProject === project || loading.value || saving.value ||
+    loadedDate.value !== props.reportDate || props.reportDate !== reportBusinessDate() || !sheetRef.value) return
+  if (!editable.value) {
+    if (warnedAnnotationProject !== project) {
+      warnedAnnotationProject = project
+      ElMessage.warning(report.can_amend ? '当前工作报告已确认，请点击「修改一次」后填写' : '当前工作报告已确认，无法新增工作记录')
+    }
+    if (!report.can_amend) emit('annotation-project-applied', project.id)
+    return
+  }
+  handledAnnotationProject = project
+  const rows = sheetRef.value.getRows()
+  let index = rows.findIndex(row => row.source_type === 'manual' &&
+    row.display_metadata?.chat_annotation_project_id === project.id &&
+    row.display_metadata.report_types?.includes('标注项目') && !row.progress_content?.trim())
+  if (index === -1) {
+    const row = newReportRow()
+    row.task_name = Array.from(project.name).slice(0, 255).join('')
+    row.display_metadata.chat_annotation_project_id = project.id
+    updateRowTypes(row, ['标注项目'])
+    index = rows.length
+    report.items = [...rows, row]
+    await nextTick()
+    onEditorChange(Math.max(1, dirtyCount.value))
+  }
+  emit('annotation-project-applied', project.id)
+  await sheetRef.value?.focusReportRow(index, 'input[aria-label$="订单号"]')
+}, { flush: 'post' })
+
 function cacheDraft(date=props.reportDate){
  if((report.status==='finalized'&&!amending.value)||loadedDate.value!==date||!hasUnsavedChanges.value)return
  const value=autoDraftPayload(date)

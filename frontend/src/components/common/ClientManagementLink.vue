@@ -1,15 +1,17 @@
 <template>
   <button v-if="target" type="button" class="client-management-link" title="打开客户管理窗口" @click.stop="open">
-    {{ label || value }}
+    {{ displayName }}
   </button>
-  <span v-else>{{ label || value || '-' }}</span>
+  <span v-else>{{ displayName }}</span>
 </template>
 
 <script setup>
 import { computed } from 'vue'
-import { clientManagementRequest, clientManagementTarget } from '@/utils/clientManagementWindow'
+import { clientManagementRequest, clientManagementTarget, formatClientWithSubClient } from '@/utils/clientManagementWindow'
 
-const props = defineProps({ value: [String, Number], row: Object, label: String, subClient: Boolean })
+const props = defineProps({ value: [String, Number], row: Object, label: String, subClient: Boolean, showSubClient: Boolean })
+const displayName = computed(() => props.label ||
+  (props.showSubClient && !props.subClient ? formatClientWithSubClient(props.row, props.value) : props.value) || '-')
 const target = computed(() => clientManagementRequest(props.row, props.value, props.subClient))
 function open() {
   clientManagementTarget.value = target.value

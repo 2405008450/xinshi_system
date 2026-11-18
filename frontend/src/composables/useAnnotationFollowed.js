@@ -18,6 +18,8 @@ const error = ref('')
 let users = 0
 let timer = 0
 let refreshScheduler
+let retryTimer
+let retryPending = false
 let cleanup = []
 let generation = 0
 let controller
@@ -27,6 +29,8 @@ function refresh(options = {}) {
   if (options?.force === true) {
     // 前台恢复时旧连接可能已挂起；废弃旧响应，恢复请求与随后的连接事件仍合并。
     ++generation
+    cancelRetry()
+    retryPending = false
     controller?.abort()
     refreshScheduler.stop()
     refreshScheduler = createScheduler()
@@ -40,8 +44,21 @@ function createScheduler() {
   })
 }
 
+function cancelRetry() {
+  if (retryTimer !== undefined) window.clearTimeout(retryTimer)
+  retryTimer = undefined
+}
+
+function transientFailure(cause) {
+  return [502, 503, 504].includes(cause.response?.status) ||
+    ['ERR_NETWORK', 'ECONNABORTED', 'ETIMEDOUT'].includes(cause.code)
+}
+
 async function fetchSessions() {
   if (!localStorage.getItem('user_id')) return
+  const retry = retryPending
+  retryPending = false
+  cancelRetry()
   const version = ++generation
   const userId = localStorage.getItem('user_id')
   const current = new AbortController()
@@ -63,11 +80,23 @@ async function fetchSessions() {
       const session = sessions.value.find(row => row.key === (item.conversationKey || item.key))
       if (session) { item.unread = session.unread; item.mentionUnread = session.mentionUnread; item.projectStatus = session.projectStatus || ''; if (item.projectType === 'discussion') item.title = session.title }
     })
-    await refreshOpenAnnotationStatuses(sessions.value)
+    void refreshOpenAnnotationStatuses(sessions.value).catch(() => {})
   } catch (cause) {
     if (version === generation && !current.signal.aborted) {
-      console.warn('会话目录刷新失败', JSON.stringify({ code: cause.code, status: cause.response?.status, message: cause.message }))
-      error.value = '未读消息暂时无法加载'
+      if (!retry && transientFailure(cause)) {
+        const retryAfter = Number(cause.response?.headers?.['retry-after'])
+        const delay = Math.max(1000, Math.min(10000, (retryAfter || 1) * 1000))
+        retryTimer = window.setTimeout(() => {
+          retryTimer = undefined
+          if (version === generation && userId === localStorage.getItem('user_id')) {
+            retryPending = true
+            void refresh()
+          }
+        }, delay)
+      } else {
+        console.warn('会话目录刷新失败', JSON.stringify({ code: cause.code, status: cause.response?.status, message: cause.message }))
+        error.value = '未读消息暂时无法加载'
+      }
     }
   }
 }
@@ -101,6 +130,8 @@ function stop() {
   refreshScheduler?.stop()
   refreshScheduler = null
   controller?.abort()
+  cancelRetry()
+  retryPending = false
   sessions.value = []
   applySessionCategories(null)
   total.value = 0
@@ -108,6 +139,7 @@ function stop() {
   mentionHistoryTotal.value = 0
   annotationMentionCounts.value = []
   phaseOneEnabled.value = false
+  error.value = ''
   window.clearInterval(timer)
   cleanup.forEach(fn => fn())
   cleanup = []

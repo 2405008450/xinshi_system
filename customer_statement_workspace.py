@@ -484,18 +484,19 @@ def import_board_matches(payload, months):
             and months & (set(board.get('billing_months',[])) | task_months.get(board['id'],set()))]
 
 
-def sub_client_board(payload, line, month, number, fields):
+def sub_client_board(payload, line, month, number, fields, *, settlement_scope='standard'):
     sub_id = line['sub_client_id']
     scope = (sub_id, month, number)
     for board in payload['boards']:
-        if (board.get('sub_client_id'),board.get('period_month'),board.get('period_number')) == scope and not board.get('number_parent_id'):
+        if ((board.get('sub_client_id'),board.get('period_month'),board.get('period_number')) == scope
+                and board.get('settlement_scope','standard') == settlement_scope and not board.get('number_parent_id')):
             return board
     label = billing_period_name(month, number) if number else month
     name = line['sub_client_name'] or line['sub_client_code']
     board = new_board(payload, fields, f'{name} · {label}')
     board.update(sub_client_id=sub_id,sub_client_name=name,sub_client_code=line['sub_client_code'],
                  period_month=month,period_number=number,billing_months=[month],
-                 settlement_scope='standard',tax_included=line.get('unit_label')=='含税')
+                 settlement_scope=settlement_scope,tax_included=line.get('unit_label')=='含税')
     return board
 
 
@@ -662,6 +663,8 @@ def assign_billing_period(project_id: UUID, data: BillingPeriodWrite, db=Depends
         document = TranslationProjectDocuments(project_id=project_id, quotation_revision=0)
         db.add(document)
     assignment = {'month': data.month, 'board_id': board['id'], 'number': board.get('period_number')}
+    from sub_client_finance import period_party
+    party = period_party(payload, project.sub_client_id, data.month, assignment['number'])
     previous = getattr(project, 'billing_period', {})
     document.quotation_data = {**(document.quotation_data or {}), '_billing_period': assignment}
     moment = business_now()
@@ -671,7 +674,7 @@ def assign_billing_period(project_id: UUID, data: BillingPeriodWrite, db=Depends
     for task_id in order_ids & payload['tasks'].keys():
         task = payload['tasks'][task_id]
         target=board
-        if payment_method(project)=='sub_client' and not pending_tasks.pending(task):
+        if payment_method(project)=='sub_client' and party == 'sub_client' and not pending_tasks.pending(task):
             target=sub_client_board(payload,{**task['rows'][0],'sub_client_id':str(project.sub_client_id),
                 'sub_client_name':project.sub_client.client_name,'sub_client_code':project.sub_client.sub_client_code},
                 data.month,board.get('period_number'),board['fields'])
@@ -970,7 +973,7 @@ def import_months(data:ImportRequest,mode:Literal['parents','all','children']='c
             if board and board.get('sub_client_id') and (board['sub_client_id'],board.get('period_month'),board.get('period_number'))!=(sub_id,month,number):
                 raise HTTPException(422,'请选择该子客户同期的订单')
             template=board['fields'] if board else imported_fields(statements[months.index(month)])
-            return sub_client_board(payload,line,month,number,template)
+            return sub_client_board(payload,line,month,number,template,settlement_scope=data.settlement_scope or 'standard')
         if assignment.get('month') == month:
             assigned=assigned_month_board(scoped,month,assignment)
             if not assigned:
@@ -989,6 +992,11 @@ def import_months(data:ImportRequest,mode:Literal['parents','all','children']='c
                 existing+=1
                 task=payload['tasks'][task_id]
                 if task.get('board_id') and task_id in scoped['tasks']:
+                    current_board = board_by_id(payload, task['board_id'])
+                    if current_board.get('sub_client_id') != lines[0].get('sub_client_id') and task['month'] == month:
+                        target = target_board(month, lines[0]['root_id'], lines[0])
+                        pending_tasks.invalidate_overrides(payload, task)
+                        task.update(board_id=target['id'], rows=lines)
                     generated.setdefault(task_id,{**task,'rows':lines})
                 continue
             if access.ready(db):
@@ -1282,6 +1290,12 @@ def action(client_id:UUID,request:ActionRequest,mode:Literal['parents','all','ch
         if not history or not isinstance(history.before.get('boards'),list):raise HTTPException(422,'该记录无法恢复')
         if history.action=='跨客户对账单调配':raise HTTPException(422,'跨客户操作涉及多方账单，请通过跨客户调配移回；不能单独恢复一方版本')
         payload=copy.deepcopy(history.before)
+        from sub_client_finance import DOCUMENT_SETTINGS, PERIOD_PARTIES
+        for key in (PERIOD_PARTIES, DOCUMENT_SETTINGS):
+            if key in before:
+                payload[key] = before[key]
+            else:
+                payload.pop(key, None)
         if 'special_payments' in before:
             payload['special_payments']=before['special_payments']
         if not source.private_statement_settings_available():

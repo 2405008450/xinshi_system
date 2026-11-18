@@ -9,7 +9,8 @@ let request,watchResources,started=false,interval,queued,updateTimer,checking=fa
 const pendingResources=new Set()
 let activeMetadata=new Set()
 const clone=copySavedValue
-const skipped=/^\/(?:auth|notifications|saved-data-sync|project-status-sync|health|openapi\.json|chat|discussion-chat|annotation-chat)(?:\/|$)/
+// 营收是一次查询的汇总快照，通用数据同步无法按记录合并统计结果。
+const skipped=/^\/(?:auth|notifications|saved-data-sync|project-status-sync|translation-revenue|health|openapi\.json|chat|discussion-chat|annotation-chat)(?:\/|$)/
 const owner=()=>localStorage.getItem('user_id')||''
 // setupState包含按需计算的界面属性；隐藏工具尚未初始化时，读取它们可能抛错。
 // 同步只收集能安全读取的业务数据，单个展示属性不能中断列表请求。

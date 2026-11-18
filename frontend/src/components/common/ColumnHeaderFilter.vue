@@ -25,7 +25,7 @@
           <span v-if="activeCount" class="column-header-filter__count">{{ activeCount }}</span>
         </button>
       </template>
-      <div class="column-header-filter__content">
+      <div class="column-header-filter__content" data-auto-draft="off">
         <slot />
         <div v-if="!hideDefaultFooter" class="column-header-filter__footer">
           <el-button link type="primary" size="small" :disabled="!active" @click="$emit('clear')">
@@ -38,7 +38,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { Filter } from '@element-plus/icons-vue'
 
 defineProps({
@@ -50,9 +50,12 @@ defineProps({
   hideDefaultFooter: { type: Boolean, default: false },
 })
 
-defineEmits(['clear', 'before-enter'])
+const emit = defineEmits(['clear', 'before-enter', 'dismiss'])
 
 const visible = ref(false)
+watch(visible, (open, wasOpen) => {
+  if (wasOpen && !open) emit('dismiss')
+})
 // 表格横向滚动或视口缩小时，表头可能移出屏幕；浮层仍须留在视口内。
 const viewportPopperOptions = {
   modifiers: [{

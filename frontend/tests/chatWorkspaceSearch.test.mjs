@@ -20,7 +20,7 @@ test('列表保留置顶顺序，消息入口清除筛选并打开最新未读�
   const sessionList = { value: { scrollTop: 250 } }
   const handler = source.slice(source.indexOf('function openUnreadMentionConversations()'), source.indexOf('function openMobileSessions'))
   const result = runInNewContext(expression + ';' + handler + ';openUnreadMentionConversations();visibleSessions.value.map(row => row.key)', {
-    props: { sessions, narrow: false, sidebarOpen: true }, computed: fn => ({ get value() { return fn() } }),
+    props: { sessions, narrow: false, sidebarOpen: true }, annotationFiltersActive: { value: false }, computed: fn => ({ get value() { return fn() } }),
     pane, selectedFolder, tab, annotationMode, keyword, appliedKeyword, sessionList, nextTick: fn => fn(),
     applyKeyword: () => { appliedKeyword.value = keyword.value }, folderNodes: { value: [] }, annotationMentionView: { value: false },
     compareMentionSessions, mentionSort:{value:"time_desc"}, compareSessionActivity, allMentionSessions: { value: sessions }, matchesSearch, groupSessionList, firstUnreadMentionSession, sessionStamp: value => Number(value), sessionMatchesFolder: () => true,
@@ -58,7 +58,7 @@ function search(folder, keyword) {
     { key: 'd', projectType: 'direct', title: 'AABB', folder: '' },
   ]
   return runInNewContext(expression + '; visibleSessions.value.map(row => row.key)', {
-    props: { sessions, searchSessions: [] }, computed: fn => ({ value: fn() }), annotationMode: { value: 'group' },
+    props: { sessions, searchSessions: [] }, annotationFiltersActive: { value: false }, computed: fn => ({ value: fn() }), annotationMode: { value: 'group' },
     selectedFolder: { value: folder }, folderNodes: { value: [] }, tab: { value: 'all' }, annotationMentionView: { value: false },
     appliedKeyword: { value: keyword }, compareSessionActivity, matchesSearch, groupSessionList, sessionStamp: () => 0,
     sessionMatchesFolder: (session, id) => !id || session.folder === id,
@@ -84,7 +84,7 @@ test('通讯录发消息后切换消息单聊，清空原分组和搜索，仅�
         { key: 'direct:1', projectType: 'direct', title: '联系人甲' },
         { key: 'direct:2', projectType: 'direct', title: '联系人乙' },
       ] },
-      computed: fn => ({ value: fn() }), annotationMentionView: { value: false }, folderNodes: { value: [] },
+      annotationFiltersActive: { value: false }, computed: fn => ({ value: fn() }), annotationMentionView: { value: false }, folderNodes: { value: [] },
       compareSessionActivity, matchesSearch, groupSessionList, sessionStamp: () => 0, sessionMatchesFolder: () => false,
     }
     const result = runInNewContext(handler + '; contactOpened();\n' + expression + '; visibleSessions.value.map(row => row.key)', context)

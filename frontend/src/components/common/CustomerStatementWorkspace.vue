@@ -1,13 +1,13 @@
 <template>
   <section class="statement-workspace" v-loading="loading||saving">
     <el-config-provider size="small">
-    <SubClientFinancePreferences v-if="subClientId && settlementScope!=='special'" :sub-client-id="subClientId" :can-write="canWrite" />
+    <SubClientFinancePreferences v-if="subClientId && settlementScope!=='special'" :sub-client-id="subClientId" :can-write="canWrite" hide-tax />
     <details v-if="$slots['customer-projects']" :open="settlementScope==='special'" class="customer-projects-panel">
-      <summary>客户项目<span class="customer-projects-toggle">展开 / 收起</span></summary>
+      <summary>{{subClientId?'子客户项目':'客户项目'}}<span class="customer-projects-toggle">展开 / 收起</span></summary>
       <slot name="customer-projects" :months="filters.months" :mode="mode" :reload="load" :selection-changed="queueGenerationStatus" />
     </details>
     <slot name="client-actions" :reload="load" />
-    <AppForm class="workspace-generation" :model="filters" :disabled="deleteMode||focusMissing" inline @submit.prevent="importMonths">
+    <AppForm data-auto-draft="off" class="workspace-generation" :model="filters" :disabled="deleteMode||focusMissing" inline @submit.prevent="importMonths">
       <el-form-item v-if="!lockMonth" label="账单月份"><el-date-picker v-model="filters.months" type="months" value-format="YYYY-MM" placeholder="选择一个或多个月份" style="width:210px;max-width:100%" /></el-form-item>
       <el-form-item v-if="!clientId" label="生成范围"><el-radio-group v-model="filters.scope"><el-radio value="project">当前项目</el-radio><el-radio value="customer">该客户全部项目</el-radio></el-radio-group></el-form-item>
       <el-form-item v-if="!projectSelection"><el-checkbox v-model="filters.requiredOnly">仅导入需对账单项目</el-checkbox></el-form-item>
@@ -379,6 +379,7 @@ watch(()=>[props.clientId,props.projectId,props.focusBoardId,props.focusMonth,pr
 onBeforeUnmount(()=>{disposed=true;sequence++;historySequence++;controller?.abort();clearTimeout(generationTimer);generationRequest?.abort();window.removeEventListener('pointermove',moveBoard);window.removeEventListener('pointerup',endBoard);for(const frame of frames)frame.remove()})
 </script>
 <style scoped>
+.statement-canvas-space{overflow:clip}
 .workspace-generation{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 0 2px}.workspace-generation :deep(.el-form-item){margin:0 0 8px}.workspace-toolbar :deep(.el-button + .el-button){margin-left:0}.workspace-toolbar{padding-top:10px;border-top:1px solid var(--el-border-color-lighter)}.workspace-hint{margin:6px 0 12px}.workspace-toolbar :deep(.el-select){flex-shrink:0}
 
 .customer-projects-panel{margin-bottom:12px;border:1px solid var(--el-border-color);border-radius:6px;background:#fff;min-width:0}.customer-projects-panel>summary{cursor:pointer;padding:12px 16px;font-weight:600;user-select:none}.customer-projects-toggle{float:right;font-size:12px;font-weight:400;color:var(--el-text-color-secondary)}.customer-projects-panel :deep(.statement-client-finance > .el-card__header){display:none}.customer-projects-panel :deep(.statement-client-finance){border:0}

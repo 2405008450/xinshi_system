@@ -1,6 +1,6 @@
 <template>
   <div class="section-block">
-    <AppForm :inline="true" :model="filterDraft" class="workbench-search-form">
+    <AppForm data-auto-draft="off" :inline="true" :model="filterDraft" class="workbench-search-form">
       <el-form-item label="关键词">
         <el-input
           v-model="filterDraft.project"
@@ -47,7 +47,7 @@
           @clear="clearAdvancedFilters"
           @reset="resetFilters"
         >
-          <AppForm :model="filterDraft" label-width="100px" class="workbench-advanced-form">
+          <AppForm data-auto-draft="off" :model="filterDraft" label-width="100px" class="workbench-advanced-form">
             <el-row :gutter="16">
               <el-col :xs="24" :md="12">
                 <el-form-item label="项目类型">
@@ -559,7 +559,6 @@ import {
   WORKBENCH_PAGE_SIZE_OPTIONS,
   clearWorkbenchFilterKeys,
   countActiveWorkbenchFilterGroups,
-  getWorkbenchFilterStorageKey,
   getWorkbenchLastPage,
   matchesWorkbenchFilterGroups,
   paginateWorkbenchRows,
@@ -784,22 +783,10 @@ function projectStatusFilterKey(row) {
   return `${projectType}:${normalizeProjectStatus(projectType, row?.project_status)}`
 }
 
-function isValidStoredStatusKey(value) {
-  if (typeof value !== 'string') return false
-  const [projectType, status] = value.split(':', 2)
-  return WORKBENCH_PROJECT_TYPE_VALUES.includes(projectType) && !!status
-}
-
 function assigneeFilterKey(row) {
   if (row?.current_assignee_id) return `user:${row.current_assignee_id}`
   if (row?.current_assignee_name) return `name:${row.current_assignee_name}`
   return 'unassigned'
-}
-
-function isValidStoredAssigneeKey(value) {
-  return typeof value === 'string' && (
-    value === 'unassigned' || value.startsWith('user:') || value.startsWith('name:')
-  )
 }
 
 const ASSIGNMENT_SCOPE_DEFINITIONS = [
@@ -809,50 +796,10 @@ const ASSIGNMENT_SCOPE_DEFINITIONS = [
   { value: 'overview', label: '全局查看' }
 ]
 
-function isValidStoredAssignmentScope(value) {
-  return ASSIGNMENT_SCOPE_DEFINITIONS.some(option => option.value === value)
-}
-
-// 筛选条件按“页面 + 当前用户”持久化，不同登录用户互不影响（例如只负责口译项目的用户）
-const FILTER_STORAGE_KEY = getWorkbenchFilterStorageKey(
-  'my-tasks',
-  localStorage.getItem('user_id'),
-  localStorage.getItem('user_name'),
-)
-
-function readStoredFilters() {
-  const fallback = { project_types: [], project_statuses: [], assignees: [], assignment_scopes: [], risk_states: [], client: '', project: '', language_pair: '' }
-  try {
-    const raw = localStorage.getItem(FILTER_STORAGE_KEY)
-    if (!raw) return fallback
-    const parsed = JSON.parse(raw)
-    return {
-      project_types: Array.isArray(parsed.project_types)
-        ? parsed.project_types.filter(value => WORKBENCH_PROJECT_TYPE_VALUES.includes(value))
-        : [],
-      project_statuses: Array.isArray(parsed.project_statuses)
-        ? parsed.project_statuses.filter(isValidStoredStatusKey)
-        : [],
-      assignees: Array.isArray(parsed.assignees)
-        ? parsed.assignees.filter(isValidStoredAssigneeKey)
-        : [],
-      assignment_scopes: Array.isArray(parsed.assignment_scopes)
-        ? parsed.assignment_scopes.filter(isValidStoredAssignmentScope)
-        : [],
-      risk_states: Array.isArray(parsed.risk_states)
-        ? parsed.risk_states.filter(value => ['overdue', 'urgent', 'normal'].includes(value))
-        : [],
-      client: typeof parsed.client === 'string' ? parsed.client : '',
-      project: typeof parsed.project === 'string' ? parsed.project : '',
-      language_pair: typeof parsed.language_pair === 'string' ? parsed.language_pair : ''
-    }
-  } catch {
-    localStorage.removeItem(FILTER_STORAGE_KEY)
-    return fallback
-  }
-}
-
-const searchForm = reactive(readStoredFilters())
+const searchForm = reactive({
+  project_types: [], project_statuses: [], assignees: [], assignment_scopes: [], risk_states: [],
+  client: '', project: '', language_pair: '',
+})
 const filterDraft = reactive({
   ...searchForm,
   project_types: [...searchForm.project_types],
@@ -902,7 +849,6 @@ function resetFilters() {
     'project_types', 'project_statuses', 'assignees', 'assignment_scopes', 'risk_states',
     'client', 'project', 'language_pair',
   ])
-  advancedFilterVisible.value = false
   applyFilters()
 }
 
@@ -1063,21 +1009,9 @@ function handlePageSizeChange() {
   handlePageChange()
 }
 
-watch(searchForm, (value) => {
+watch(searchForm, () => {
   currentPage.value = 1
   clearTaskSelection()
-  try {
-    localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify({
-      project_types: value.project_types.filter(item => WORKBENCH_PROJECT_TYPE_VALUES.includes(item)),
-      project_statuses: value.project_statuses.filter(isValidStoredStatusKey),
-      assignees: value.assignees.filter(isValidStoredAssigneeKey),
-      assignment_scopes: value.assignment_scopes.filter(isValidStoredAssignmentScope),
-      risk_states: value.risk_states.filter(item => ['overdue', 'urgent', 'normal'].includes(item)),
-      client: value.client,
-      project: value.project,
-      language_pair: value.language_pair
-    }))
-  } catch {}
 })
 
 watch(() => filteredTasks.value.length, (total) => {

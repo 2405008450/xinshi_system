@@ -1,5 +1,5 @@
 <template>
-  <div class="annotation-manager-change-log-panel">
+  <div class="annotation-manager-change-log-panel" data-auto-draft="off">
     <AppForm :inline="true" class="manager-log-filters">
       <el-form-item label="关键词">
         <el-input
@@ -22,7 +22,7 @@
         <el-button @click="reset">重置</el-button>
         <el-popover title="负责人变更筛选" v-model:visible="advancedVisible" trigger="click" placement="bottom-end" :width="760" popper-class="manager-log-advanced-popover">
           <div class="manager-log-advanced-content">
-          <AdvancedFilterFieldSearch :active="advancedVisible" :anchor="dockAnchor" scope="manager-log-advanced-popover">
+          <AdvancedFilterFieldSearch data-auto-draft="off" :active="advancedVisible" :anchor="dockAnchor" scope="manager-log-advanced-popover">
       <el-form-item label="变更方式">
         <el-select v-model="filters.changeMode" clearable placeholder="全部" class="manager-log-short-filter" @change="search">
           <el-option label="批量交接" value="direct_transfer" />
@@ -84,7 +84,7 @@
 
 <script setup>
 import AdvancedFilterFieldSearch from '@/components/common/AdvancedFilterFieldSearch.vue'
-import { computed, onBeforeUnmount, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { getAnnotationManagerChangeLogs } from '@/api/annotationProjects'
 import AppForm from '@/components/common/AppForm.vue'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
@@ -144,6 +144,7 @@ const reset = () => {
   Object.assign(filters, { keyword: '', managerRole: '', changeMode: '', changedRange: [] })
   search()
 }
+watch(advancedVisible, visible => { if (!visible) reset() })
 const filterProject = row => {
   currentProject.value = { id: row.projectId, orderNo: row.orderNo, projectName: row.projectName }
   search()

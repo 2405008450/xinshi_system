@@ -1,7 +1,7 @@
 <template>
   <el-select :model-value="modelValue ?? 'all'" aria-label="账期" :loading="loading"
     :disabled="loading" style="width: 160px" @change="$emit('update:modelValue',$event==='all'?undefined:$event)">
-    <el-option value="all" label="全部期次" />
+    <el-option value="all" :label="allLabel" />
     <el-option v-if="allowUnassigned" value="unassigned" label="未分账期" />
     <el-option v-for="number in periods" :key="number" :value="number" :label="`第${number}期`" />
   </el-select>
@@ -13,7 +13,7 @@ import {getStatementPeriodOptions} from '@/api/customerStatements'
 import {ElMessage} from 'element-plus'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 
-const props=defineProps({modelValue:[Number,String],month:String,clientId:[String,Number],settlementScope:String,allowUnassigned:Boolean})
+const props=defineProps({modelValue:[Number,String],month:String,clientId:[String,Number],settlementScope:String,allowUnassigned:Boolean,allLabel:{type:String,default:'全部期次'}})
 const emit=defineEmits(['update:modelValue'])
 const periods=ref([]),loading=ref(false)
 watch(()=>[props.month,props.clientId,props.settlementScope],async ([month,clientId,scope],previous,onCleanup)=>{

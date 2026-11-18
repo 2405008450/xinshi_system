@@ -22,7 +22,10 @@ function descriptionSlot(attrs, slot) {
     const nodes = Array.isArray(valueNodes) ? valueNodes : valueNodes == null ? [] : [valueNodes]
     if (isClientShortName(attrs.label) && attrs['client-link-disabled'] === undefined) {
       const value = descriptionText(nodes)
-      if (value) return h(ClientManagementLink, { value, row: attrs['client-row'], subClient: subClientField(attrs.label) })
+      if (value) return h(ClientManagementLink, {
+        value, row: attrs['client-row'], subClient: subClientField(attrs.label),
+        showSubClient: attrs['show-sub-client'] === '' || attrs['show-sub-client'] === true,
+      })
     }
     return renderNodes(nodes)
   }
@@ -46,19 +49,25 @@ function renderNodes(nodes) {
 export const ScreenshotTableColumn=defineComponent({
   inheritAttrs:false,
   setup(_, {attrs,slots}) {
-    return ()=>h(ElTableColumn,attrs,{
-      ...slots,
-      ...(slots.default || attrs.prop || isClientShortName(attrs.label) ? {default:scope=>{
-        const value = fieldValue(scope.row, attrs.prop)
-        if (isClientShortName(attrs.label, attrs.prop)) {
-          const name = value ?? scope.row.clientShortName ?? scope.row.client_short_name ?? scope.row.shortName
-          if (typeof name === 'string') return h(ClientManagementLink, { value: name, row: scope.row, subClient: subClientField(attrs.label, attrs.prop) })
-        }
-        if (slots.default) return renderNodes(slots.default(scope))
-        const formatted=attrs.formatter?attrs.formatter(scope.row,scope.column,value,scope.$index):value
-        return screenshotIds(formatted).length?h(ScreenshotText,{text:String(formatted)}):formatted
-      }}:{})
-    })
+    return ()=>{
+      const { 'show-sub-client': showSubClient, ...columnAttrs } = attrs
+      return h(ElTableColumn,columnAttrs,{
+        ...slots,
+        ...(slots.default || attrs.prop || isClientShortName(attrs.label) ? {default:scope=>{
+          const value = fieldValue(scope.row, attrs.prop)
+          if (isClientShortName(attrs.label, attrs.prop)) {
+            const name = value ?? scope.row.clientShortName ?? scope.row.client_short_name ?? scope.row.shortName
+            if (typeof name === 'string') return h(ClientManagementLink, {
+              value: name, row: scope.row, subClient: subClientField(attrs.label, attrs.prop),
+              showSubClient: showSubClient === '' || showSubClient === true,
+            })
+          }
+          if (slots.default) return renderNodes(slots.default(scope))
+          const formatted=attrs.formatter?attrs.formatter(scope.row,scope.column,value,scope.$index):value
+          return screenshotIds(formatted).length?h(ScreenshotText,{text:String(formatted)}):formatted
+        }}:{})
+      })
+    }
   }
 })
 // Descriptions 按原生子项名称收集字段，必须保留 ElDescriptionsItem 节点身份。
@@ -68,7 +77,7 @@ export const ScreenshotDescriptionsItem=defineComponent({
   inheritAttrs:false,
   setup(_, {attrs,slots}) {
     return () => {
-      const { 'client-link-disabled': _disabled, 'client-row': _row, ...itemAttrs } = attrs
+      const { 'client-link-disabled': _disabled, 'client-row': _row, 'show-sub-client': _show, ...itemAttrs } = attrs
       return h(ElDescriptionsItem, itemAttrs, { ...slots, default: descriptionSlot(attrs, slots.default) })
     }
   }

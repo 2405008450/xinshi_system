@@ -40,6 +40,8 @@ export function installTableScrollVisibility(doc = document) {
     return doc.scrollingElement
   }
   function descriptor(root) {
+    // Chromium can report layout rectangles for the closed contents of <details>.
+    if (root.closest('details:not([open]), [data-native-table-scroll], [aria-hidden="true"]')) return null
     if (root.matches('.el-table')) return { root, header: own(root, '.el-table__header-wrapper'), source: own(root, '.el-table__body-wrapper .el-scrollbar__wrap') }
     if (root.matches('table')) {
       if (root.matches('.el-table__header,.el-table__body,.el-table__footer')) return null
@@ -176,7 +178,7 @@ export function installTableScrollVisibility(doc = document) {
   const observer = new win.MutationObserver(records => {
     if (records.some(record => !record.target.closest?.('.app-table-horizontal-scroll') && !(record.type === 'attributes' && record.target.classList?.contains('app-table-persistent-header')))) schedule()
   })
-  observer.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden', 'open'] })
+  observer.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden', 'open', 'aria-hidden', 'data-native-table-scroll'] })
   doc.addEventListener('scroll', schedule, { capture: true, passive: true }); win.addEventListener('resize', schedule)
   win.visualViewport?.addEventListener('resize', schedule)
   schedule()

@@ -7,6 +7,16 @@ export function isClientShortName(label, prop) {
     ['clientShortName', 'client_short_name', 'subClientShortName', 'sub_client_short_name'].includes(prop)
 }
 
+export function formatClientWithSubClient(row, value) {
+  const clean = name => String(name ?? '').trim()
+  const present = name => name && name !== '-' && name !== '—'
+  const client = [row?.parentClientShortName, row?.parent_client_short_name, value, row?.clientShortName, row?.client_short_name]
+    .map(clean).find(present)
+  const subClient = [row?.subClientName, row?.sub_client_name, row?.subClientShortName, row?.sub_client_short_name]
+    .map(clean).find(present)
+  return [...new Set([client, subClient].filter(Boolean))].join(' · ')
+}
+
 export function clientManagementRequest(row, value, subClient = false) {
   const shortName = String(value ?? '').trim()
   if (!shortName || shortName === '-' || shortName === '—') return null

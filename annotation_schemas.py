@@ -551,6 +551,8 @@ class AnnotationProjectListResponse(BaseModel):
     client_full_name: Optional[str] = None
     client_manager_name: Optional[str] = None
     sub_client_contact: Optional[str] = None
+    parent_client_short_name: Optional[str] = None
+    sub_client_name: Optional[str] = None
     language_items_display: Optional[str] = None
     customer_price_summary: Optional[str] = None
     assignee_summary: Optional[str] = None

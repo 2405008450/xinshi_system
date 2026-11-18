@@ -1,11 +1,11 @@
 <template>
   <div class="finance-document-layout">
     <div class="finance-document-requirements" :class="{'has-customer-settings':modelValue.clientId}">
-      <el-form-item label="是否需报价单" prop="quotationRequired" data-field-key="quotationRequired"><div class="finance-document-choice"><el-checkbox :model-value="modelValue.quotationRequired" @update:model-value="update('quotationRequired',$event)">需</el-checkbox><el-button v-if="modelValue.quotationRequired" link type="primary" @click="$emit('quotation')">打开报价单</el-button></div><el-input :model-value="notes.quotation" size="small" placeholder="说明" aria-label="报价单说明" data-dialog-field-search-label="报价单说明" :maxlength="2000" clearable @update:model-value="updateNote('quotation',$event)" /></el-form-item>
-      <el-form-item label="是否需对账单" prop="statementRequired" data-field-key="statementRequired"><div class="finance-document-choice"><el-checkbox v-if="modelValue.paymentMethod==='special'" v-model="statementChecked" :disabled="confirmingStatement" @change="update('statementRequired',$event)">需</el-checkbox><span v-else>{{modelValue.statementRequired ? '需（计费口径）' : '无需（计费口径）'}}</span><el-tag v-if="modelValue.paymentMethod==='special' && unknownDefault" type="warning" size="small" effect="plain">客户默认未知</el-tag><el-button v-if="modelValue.statementRequired" link type="primary" @click="$emit('statement')">打开对账单</el-button></div><el-input :model-value="notes.statement" size="small" placeholder="说明" aria-label="对账单说明" data-dialog-field-search-label="对账单说明" :maxlength="2000" clearable @update:model-value="updateNote('statement',$event)" /></el-form-item>
+      <el-form-item label="是否需报价单" prop="quotationRequired" data-field-key="quotationRequired"><div class="finance-document-choice"><el-checkbox :model-value="modelValue.quotationRequired" :disabled="usesParentSettings" @update:model-value="update('quotationRequired',$event)">需</el-checkbox><el-button v-if="modelValue.quotationRequired" link type="primary" @click="$emit('quotation')">打开报价单</el-button></div><el-input :model-value="notes.quotation" size="small" placeholder="说明" aria-label="报价单说明" data-dialog-field-search-label="报价单说明" :maxlength="2000" clearable @update:model-value="updateNote('quotation',$event)" /></el-form-item>
+      <el-form-item label="是否需对账单" prop="statementRequired" data-field-key="statementRequired"><div class="finance-document-choice"><el-checkbox v-if="(usesSubClient || modelValue.paymentMethod==='special') && !usesParentSettings" v-model="statementChecked" :disabled="confirmingStatement" @change="update('statementRequired',$event)">需</el-checkbox><span v-else>{{(modelValue.statementRequired ? '需' : '无需') + (usesParentSettings ? '（客户设置）' : '（计费口径）')}}</span><el-tag v-if="modelValue.paymentMethod==='special' && unknownDefault" type="warning" size="small" effect="plain">客户默认未知</el-tag><el-button v-if="modelValue.statementRequired" link type="primary" @click="$emit('statement')">打开对账单</el-button></div><el-input :model-value="notes.statement" size="small" placeholder="说明" aria-label="对账单说明" data-dialog-field-search-label="对账单说明" :maxlength="2000" clearable @update:model-value="updateNote('statement',$event)" /></el-form-item>
       <el-form-item label="是否需发票" data-field-key="invoiceRequired"><div class="finance-document-choice"><el-select v-if="editableInvoice" :model-value="modelValue.invoiceRequirementOverride ?? 'auto'" aria-label="是否需发票" @change="update('invoiceRequirementOverride',$event)"><el-option label="需" :value="true" /><el-option label="无需" :value="false" /><el-option v-if="modelValue.invoiceRequirementOverride==null" :label="invoiceNeeded===null?'按计费口径自动判断':invoiceNeeded?'需（计费口径）':'无需（计费口径）'" value="auto" /></el-select><ReadonlyField v-else :model-value="invoiceNeeded===null?'按计费口径自动判断':invoiceNeeded?'需':'无需'" source="auto" aria-label="是否需发票" /><el-button v-if="invoiceNeeded" link type="primary" @click="$emit('invoice')">发票</el-button></div><el-input :model-value="notes.invoice" size="small" placeholder="说明" aria-label="发票说明" data-dialog-field-search-label="发票说明" :maxlength="2000" clearable @update:model-value="updateNote('invoice',$event)" /></el-form-item>
       <div v-if="modelValue.clientId" class="document-customer-settings" data-dialog-field-search-label="客户单据设置同步">
-        <el-button link type="primary" @click="emit('customer-settings')">客户管理 → 财务信息 → 笔译 → 对账单设置</el-button>
+        <el-button link type="primary" @click="emit('customer-settings')">{{usesSubClient ? '客户管理 → 财务信息 → 笔译 → 子客户结算设置' : '客户管理 → 财务信息 → 笔译 → 对账单设置'}}</el-button>
         <div v-for="[field,label] in documentFields" :key="field" class="document-sync-row">
           <span>{{label}}</span>
           <el-tag v-if="modelValue.customerDocumentSources?.[field]" size="small" type="info">来自客户管理</el-tag>
@@ -23,13 +23,15 @@ import {confirmStatementRequirement} from '@/utils/confirmStatementRequirement'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import {getStatementRequirementContext} from '@/api/translationCustomerFinance'
 import ReadonlyField from './ReadonlyField.vue'
-import {documentNotesForm,invoiceRequirement} from '@/utils/documentRequirements'
+import {documentNotesForm,invoiceRequirement,usesSubClientDocumentSettings} from '@/utils/documentRequirements'
 const props=defineProps({modelValue:{type:Object,required:true},persistStatement:Function,editableInvoice:Boolean})
 const emit=defineEmits(['update:modelValue','quotation','statement','invoice','customer-settings'])
 const documentFields=[['quotationRequired','报价单'],['statementRequired','对账单'],['invoiceRequired','发票']]
 const notes=computed(()=>documentNotesForm(props.modelValue.documentNotes))
 const invoiceNeeded=computed(()=>invoiceRequirement(props.modelValue))
 const confirmingStatement=ref(false)
+const usesParentSettings=computed(()=>!!props.modelValue.subClientId && props.modelValue.settlementParty==='client')
+const usesSubClient=computed(()=>usesSubClientDocumentSettings(props.modelValue) && !!props.persistStatement)
 const statementChecked=ref(props.modelValue.statementRequired)
 watch(()=>props.modelValue.statementRequired,value=>{statementChecked.value=value})
 const unknownDefault=ref(false)
@@ -46,11 +48,18 @@ watch(()=>[props.modelValue.rootId,props.modelValue.clientId],async ([projectId,
 async function update(field,value){
   if(field!=='statementRequired'){
     if(field==='invoiceRequirementOverride'&&typeof value!=='boolean')return
-    emit('update:modelValue',{...props.modelValue,[field]:value})
+    const updates=field==='invoiceRequirementOverride'&&usesSubClient.value?{subClientInvoiceRequired:value}:{}
+    emit('update:modelValue',{...props.modelValue,...updates,[field]:value})
     return
   }
   if(confirmingStatement.value)return
   const order=props.modelValue
+  if(usesSubClient.value){
+    confirmingStatement.value=true
+    try{await props.persistStatement(value,{})}
+    finally{statementChecked.value=props.modelValue.statementRequired;confirmingStatement.value=false}
+    return
+  }
   if(order.paymentMethod==='special' && order.id!==order.rootId){
     emit('update:modelValue',{...order,statementRequired:value,statementRequiredDirty:true})
     return

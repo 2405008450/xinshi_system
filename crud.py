@@ -2126,6 +2126,12 @@ def _apply_translation_project_filters(
                                      TranslationProject.sub_client_id.in_(ids)))
         elif field == 'finance_sub_client_id':
             query = query.filter(TranslationProject.sub_client_id == UUID(descriptor['value']))
+        elif field == 'finance_sub_client':
+            from search_matching import keyword_any
+            query = query.filter(keyword_any(
+                [SubClient.client_name, SubClient.client_short_name, SubClient.sub_client_code],
+                descriptor.get('value'),
+            ))
         elif field == 'finance_client':
             from search_matching import keyword_any
             from sqlalchemy.orm import aliased

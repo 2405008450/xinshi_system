@@ -9,7 +9,12 @@ from sqlalchemy import inspect,text
 from models import AppUser,AppNotification
 from department_models import Department,DepartmentMember
 from employee_employment import EmployeeEmployment
-from home_office_models import HomeOfficeQualification as Qualification,HomeOfficeApplication as Application,HomeOfficeAnnualUsage as AnnualUsage,HomeOfficeApplicationDuration as Duration
+from home_office_models import (
+    HomeOfficeQualification as Qualification, HomeOfficeApplication as Application,
+    HomeOfficeAnnualUsage as AnnualUsage, HomeOfficeApplicationDuration as Duration,
+    HomeOfficeApplicationRestriction as Restriction, HomeOfficeQuotaReduction as QuotaReduction,
+)
+from hr_access import can_manage_hr, require_hr
 from chat_time import now,api_time
 from work_report_calendar import is_workday
 
@@ -40,6 +45,127 @@ class UsageWrite(BaseModel):
     used_days:int=Field(ge=0,le=366)
     revision:int=Field(ge=0)
     note:str=Field(default='',max_length=500)
+
+
+class RestrictionWrite(BaseModel):
+    restricted: bool
+
+
+class QuotaReductionWrite(BaseModel):
+    year: int
+    days: int = Field(ge=0, le=12)
+    reason: str = Field(min_length=1, max_length=500)
+
+    @field_validator('reason', mode='before')
+    @classmethod
+    def clean_reason(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+
+RESTRICTION_MESSAGE = '行政部已暂停你的普通居家办公申请，请联系行政部。'
+
+
+def restrictions_ready(db):
+    return inspect(db.connection()).has_table(Restriction.__tablename__)
+
+
+def quota_reduction_ready(db):
+    return inspect(db.connection()).has_table(QuotaReduction.__tablename__)
+
+
+def application_restricted(db, user_id):
+    row = db.get(Restriction, user_id) if restrictions_ready(db) else None
+    return bool(row and row.restricted)
+
+
+def require_application_allowed(db, user_id):
+    if application_restricted(db, user_id):
+        raise HTTPException(403, RESTRICTION_MESSAGE)
+
+
+def require_restriction_access(db, user):
+    require_hr(db, user)
+    if not restrictions_ready(db):
+        raise HTTPException(503, '居家办公申请限制表尚未初始化')
+
+
+def list_restrictions(db, user):
+    require_restriction_access(db, user)
+    year = now().year
+    years = [year, year + 1]
+    reduction_ready = quota_reduction_ready(db)
+    rows = (
+        db.query(AppUser.id, AppUser.full_name, AppUser.username, AppUser.is_active, Restriction.restricted)
+        .outerjoin(Restriction, Restriction.user_id == AppUser.id)
+        .filter(AppUser.is_deleted.is_(False), AppUser.is_active.is_(True) | Restriction.restricted.is_(True))
+        .order_by(AppUser.full_name, AppUser.username, AppUser.id)
+        .all()
+    )
+    reductions = {}
+    if reduction_ready and rows:
+        entries = db.query(QuotaReduction).filter(QuotaReduction.year.in_(years), QuotaReduction.user_id.in_([row.id for row in rows])).all()
+        for entry in entries:
+            reductions.setdefault(entry.user_id, {})[entry.year] = {'days': entry.days, 'reason': entry.reason}
+    people = [
+        {'user_id': str(uid), 'name': name or username, 'username': username, 'active': enabled,
+         'restricted': bool(restricted), 'reductions': reductions.get(uid, {})}
+        for uid, name, username, enabled, restricted in rows
+    ]
+    return {'years': years, 'reduction_ready': reduction_ready, 'people': people}
+
+
+def lookup_and_lock_target(db, user_id):
+    target = db.query(AppUser).filter_by(id=user_id, is_deleted=False).first()
+    if not target:
+        raise HTTPException(404, '人员不存在')
+    lock(db, target)
+    return target
+
+
+def refresh_application_status(user_id):
+    from notification_ws import dispatch_personal_message
+
+    try:
+        dispatch_personal_message(user_id, {'type': 'home_office_restriction_changed'})
+    except Exception:
+        pass
+
+
+def set_restriction(db, user, user_id, payload):
+    require_restriction_access(db, user)
+    target = lookup_and_lock_target(db, user_id)
+    row = db.get(Restriction, target.id)
+    if bool(row and row.restricted) != payload.restricted:
+        if row is None:
+            row = Restriction(user_id=target.id)
+            db.add(row)
+        row.restricted = payload.restricted
+        row.updated_by = user.id
+        row.updated_at = now()
+        db.commit()
+        refresh_application_status(user_id)
+    return {'restricted': payload.restricted}
+
+
+def set_quota_reduction(db, user, user_id, payload):
+    require_hr(db, user)
+    if not quota_reduction_ready(db):
+        raise HTTPException(503, '居家办公额度调减表尚未初始化')
+    year = now().year
+    if payload.year not in (year, year + 1):
+        raise HTTPException(422, '请选择当年或明年的额度')
+    target = lookup_and_lock_target(db, user_id)
+    row = db.get(QuotaReduction, (target.id, payload.year))
+    if row is None:
+        row = QuotaReduction(user_id=target.id, year=payload.year)
+        db.add(row)
+    row.days = payload.days
+    row.reason = payload.reason
+    row.updated_by = user.id
+    row.updated_at = now()
+    db.commit()
+    refresh_application_status(user_id)
+    return {'days': payload.days, 'reason': payload.reason}
 
 
 def add_months(day,months):
@@ -110,7 +236,10 @@ def quota(db,user,day):
     month=[row for row in values if row['requested_date'].year==day.year and row['requested_date'].month==day.month]
     month_minutes=sum(row['minutes'] for row in month);partial=sum(row['minutes'] for row in month if row['minutes']<480)
     two_count=sum(row['minutes']==120 for row in month);full_count=sum(row['minutes']==480 for row in month)
-    year_minutes=sum(row['minutes'] for row in values if row['requested_date'].year==day.year);limit=annual_limit(hire,day.year)
+    year_minutes=sum(row['minutes'] for row in values if row['requested_date'].year==day.year)
+    reduction = db.get(QuotaReduction, (user.id, day.year)) if quota_reduction_ready(db) else None
+    reduction_days = reduction.days if reduction else 0
+    limit = max(0, annual_limit(hire, day.year) - reduction_days)
     manual=db.get(AnnualUsage,(user.id,day.year));manual_days=manual.used_days if manual else 0
     manual_ready=manual is not None or day.year>now().year
     annual_minutes=year_minutes+manual_days*480
@@ -132,7 +261,8 @@ def quota(db,user,day):
         options.append(minutes)
     if not options and not messages:messages.append('本月剩余时长不满足申请组合或周期剩余额度不足')
     reason='；'.join(messages)+'，不能再申请' if messages else None
-    return {'month_limit':2,'month_used':month_minutes/480,'month_hours':month_minutes/60,'month_hour_limit':16,'partial_hours':partial/60,'two_hour_count':two_count,'full_day_count':full_count,'allowed_minutes':options if manual_ready else [],'quarter_limit':4,'quarter_used':quarter_minutes/480,'half_limit':8,'half_used':half_minutes/480,'annual_limit':limit,'annual_used':annual_minutes/480,'manual_used_days':manual_days if manual_ready else None,'manual_usage_ready':manual_ready,'system_used_days':year_minutes/480,'annual_remaining':max(0,(limit*480-annual_minutes)/480),'limit_message':reason,'quota_available':reason is None}
+    return {'month_limit':2,'month_used':month_minutes/480,'month_hours':month_minutes/60,'month_hour_limit':16,'partial_hours':partial/60,'two_hour_count':two_count,'full_day_count':full_count,'allowed_minutes':options if manual_ready else [],'quarter_limit':4,'quarter_used':quarter_minutes/480,'half_limit':8,'half_used':half_minutes/480,'annual_limit':limit,'annual_used':annual_minutes/480,'manual_used_days':manual_days if manual_ready else None,'manual_usage_ready':manual_ready,'system_used_days':year_minutes/480,'annual_remaining':max(0,(limit*480-annual_minutes)/480),'limit_message':reason,'quota_available':reason is None,
+            'quota_reduction_days': reduction_days, 'quota_reduction_reason': reduction.reason if reduction_days else None}
 
 
 def records(db,user):
@@ -142,10 +272,17 @@ def records(db,user):
 
 def overview(db,user,requested_date=None):
     active(user)
-    if not ready(db):return {'ready':False,'qualification_hint':'居家办公申请尚未初始化','applications':[],'qualification_requests':[]}
+    can_manage_restrictions = can_manage_hr(db, user)
+    if not ready(db):return {'ready':False,'qualification_hint':'居家办公申请尚未初始化','applications':[],'qualification_requests':[],'can_manage_restrictions':can_manage_restrictions}
     day=requested_date or now().date();state=eligibility(db,user)
     approver=manager(db)
-    return {**state,**quota(db,user,day),**records(db,user),'ready':True,'quota_date':day.isoformat(),'approver_name':'总经理 赵震锋','approver_ready':approver is not None,'approval_note':'审批：待开发'}
+    limits = quota(db, user, day)
+    restricted = application_restricted(db, user.id)
+    if restricted:
+        state['can_apply_qualification'] = False
+        limits.update(quota_available=False, allowed_minutes=[])
+    return {**state,**limits,**records(db,user),'ready':True,'quota_date':day.isoformat(),'approver_name':'总经理 赵震锋','approver_ready':approver is not None,'approval_note':'审批：待开发',
+            'can_manage_restrictions': can_manage_restrictions, 'application_restriction_message': RESTRICTION_MESSAGE if restricted else None}
 
 
 def notify(db,user,row,kind):
@@ -174,6 +311,7 @@ def apply_qualification(db,user,payload):
     if existing:
         if existing.user_id!=user.id:raise HTTPException(409,'申请标识已使用')
         return {'message':'资格申请已提交，请勿重复提交',**overview(db,user)}
+    require_application_allowed(db, user.id)
     state=eligibility(db,user)
     if not state['can_apply_qualification']:raise HTTPException(409,state['qualification_hint'])
     approver=manager(db)
@@ -191,6 +329,7 @@ def apply(db,user,payload):
     if existing:
         if existing.user_id!=user.id or existing.requested_date!=payload.requested_date or existing.reason!=payload.reason or durations(db,[existing]).get(existing.id,480)!=payload.minutes:raise HTTPException(409,'申请标识已使用')
         return {'message':'申请已提交，请勿重复提交',**overview(db,user,payload.requested_date)}
+    require_application_allowed(db, user.id)
     state=eligibility(db,user)
     if not state['qualified']:raise HTTPException(409,'尚未获得居家办公资格；未满6个月须先获资格批准')
     day=payload.requested_date
@@ -213,7 +352,6 @@ def apply(db,user,payload):
 
 
 def company(db,user):
-    from hr_access import require_hr
     from organization_service import directory
     require_hr(db,user);require_ready(db)
     people={person['id']:person for person in directory(db,user)['people']}
@@ -222,7 +360,7 @@ def company(db,user):
     overtime_records=[{'id':row.id,'name':people.get(str(row.user_id),{}).get('name','已删除人员'),'day':row.day,'check_in':row.check_in,'check_out':row.check_out,'invalid_minutes':row.confirmations.get('invalid_minutes',0),'invalid_reason':row.confirmations.get('invalid_reason','')} for row in overtime]
     applications=application_values(db,db.query(Application).order_by(Application.created_at.desc()).limit(500).all())
     for item in applications:item['name']=people.get(item['user_id'],{}).get('name','已删除人员')
-    return api_time({'company_overtime':overtime_records,'year':now().year,'usage_people':usage_people(db,people),'applications':applications,
+    return api_time({'company_overtime':overtime_records,'year':now().year,'usage_people':usage_people(db,people),'applications':applications,'can_manage_restrictions':True,
         'qualification_requests':[{'id':row.id,'name':people.get(str(row.user_id),{}).get('name','已删除人员'),'reason':row.reason,'status':row.status,'created_at':row.created_at} for row in db.query(Qualification).order_by(Qualification.created_at.desc()).limit(500).all()],'approval_note':'审批：待开发'})
 
 
@@ -230,14 +368,14 @@ def usage_people(db,people):
     year=now().year;ids=[UUID(uid) for uid in people]
     usage={str(row.user_id):row for row in db.query(AnnualUsage).filter(AnnualUsage.user_id.in_(ids),AnnualUsage.year==year).all()} if ids else {}
     hires={str(row.user_id):row.hire_date for row in db.query(EmployeeEmployment).filter(EmployeeEmployment.user_id.in_(ids)).all()} if ids else {}
+    reductions={str(row.user_id):row.days for row in db.query(QuotaReduction).filter(QuotaReduction.year==year,QuotaReduction.user_id.in_(ids)).all()} if ids and quota_reduction_ready(db) else {}
     system={}
     requests=db.query(Application).filter(Application.user_id.in_(ids),Application.requested_date>=date(year,1,1),Application.requested_date<date(year+1,1,1),Application.status.in_(['pending','approved'])).all() if ids else []
     for item in application_values(db,requests):system[item['user_id']]=system.get(item['user_id'],0)+item['minutes']/480
-    return [{'user_id':uid,'name':person['name'],'year':year,'hire_date':hires.get(uid),'manual_used_days':usage[uid].used_days if uid in usage else None,'revision':usage[uid].revision if uid in usage else 0,'system_used_days':system.get(uid,0),'annual_limit':annual_limit(hires.get(uid),year),'annual_used':(usage[uid].used_days if uid in usage else 0)+system.get(uid,0),'history':usage[uid].history if uid in usage else []} for uid,person in people.items()]
+    return [{'user_id':uid,'name':person['name'],'year':year,'hire_date':hires.get(uid),'manual_used_days':usage[uid].used_days if uid in usage else None,'revision':usage[uid].revision if uid in usage else 0,'system_used_days':system.get(uid,0),'annual_limit':max(0,annual_limit(hires.get(uid),year)-reductions.get(uid,0)),'annual_used':(usage[uid].used_days if uid in usage else 0)+system.get(uid,0),'history':usage[uid].history if uid in usage else []} for uid,person in people.items()]
 
 
 def save_usage(db,user,payload):
-    from hr_access import require_hr
     from notification_ws import dispatch_personal_message
     require_hr(db,user);require_ready(db)
     if payload.year!=now().year:raise HTTPException(422,'这里只补录今年的已居家天数')

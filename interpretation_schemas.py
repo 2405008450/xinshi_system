@@ -340,6 +340,8 @@ class InterpretationProjectListResponse(BaseModel):
     client_manager_id: Optional[UUID] = None
     manager_contact: Optional[str] = None
     sub_client_contact: Optional[str] = None
+    parent_client_short_name: Optional[str] = None
+    sub_client_name: Optional[str] = None
     language_directions_display: Optional[str] = None
     language_direction_counts_complete: bool = False
     assigned_interpreters_display: Optional[str] = None

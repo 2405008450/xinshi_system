@@ -229,6 +229,14 @@ class InterpretationProject(Base):
         ]
 
     @property
+    def parent_client_short_name(self) -> Optional[str]:
+        return (self.client.client_short_name or self.client.client_name) if self.client else None
+
+    @property
+    def sub_client_name(self) -> Optional[str]:
+        return (self.sub_client.client_name or self.sub_client.client_short_name) if self.sub_client else None
+
+    @property
     def client_short_name(self) -> Optional[str]:
         selected = self.sub_client or self.client
         return selected.client_short_name if selected else None

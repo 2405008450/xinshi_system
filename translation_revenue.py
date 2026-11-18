@@ -23,6 +23,7 @@ from translation_document_requirements import load_order_pricing_modes
 router = APIRouter(prefix='/translation-revenue', tags=['客户营收统计'])
 ZERO = Decimal('0')
 FIELDS = {'billing': 'billing_totals', 'excl': 'totals_excl_tax', 'incl': 'totals_incl_tax'}
+AMOUNT_LABELS = {'billing_totals': '计费金额', 'totals_excl_tax': '不含税金额', 'totals_incl_tax': '含税金额'}
 
 
 def money(value):
@@ -108,15 +109,14 @@ def invalid_modes():
     raise HTTPException(422, '请选择有效的客户统计口径')
 
 
-def aggregate(entries, start, period, currency, modes):
-    if start is None:
-        return None
-    end = shift(start, period, 1)
-    result = {}
+def aggregate_periods(entries, starts, period, currency, modes, *, details_start=None):
+    result = {start: {} for start in starts if start is not None}
     for entry in entries:
-        if not start <= entry['day'] < end:
+        start = start_of(entry['day'], period)
+        group_by_customer = result.get(start)
+        if group_by_customer is None:
             continue
-        group = result.setdefault(entry['key'], {'amount': ZERO, 'projects': 0, 'missing': 0})
+        group = group_by_customer.setdefault(entry['key'], {'amount': ZERO, 'projects': 0, 'missing': 0})
         field = FIELDS[modes.get(entry['client_id'], 'billing')]
         values = entry[field]
         if currency in values:
@@ -124,6 +124,12 @@ def aggregate(entries, start, period, currency, modes):
             group['projects'] += 1
         if not values or field in entry.get('incomplete_fields', []):
             group['missing'] += 1
+            if start == details_start:
+                details = entry.get('missing_orders') or ([{
+                    'order_no': entry.get('order_no'), 'project_name': entry.get('project_name'),
+                    'reasons': [f'{AMOUNT_LABELS[field]}待补'],
+                }] if entry.get('order_no') else [])
+                group.setdefault('missing_orders', []).extend(details)
     return result
 
 
@@ -131,8 +137,12 @@ def report(entries, period, anchor, currency='CNY', modes=None, keyword='', rank
            rank_max=None, amount_min=None, amount_max=None, focus_client=None, skip=0, limit=20):
     modes = modes or {}
     start = start_of(anchor, period)
-    starts = [start, shift(start, period, -1), previous_year(start, period)]
-    groups = [aggregate(entries, point, period, currency, modes) for point in starts]
+    timeline_starts = [shift(start, period, offset) for offset in range(-11, 1)]
+    comparisons = [(point, shift(point, period, -1), previous_year(point, period)) for point in timeline_starts]
+    starts = comparisons[-1]
+    report_starts = {point for comparison_dates in comparisons for point in comparison_dates}
+    by_period = aggregate_periods(entries, report_starts, period, currency, modes, details_start=start)
+    groups = [by_period.get(point) for point in starts]
     all_clients = {entry['key']: entry for entry in entries}
     keys = set().union(*(set(group or {}) for group in groups))
 
@@ -164,38 +174,39 @@ def report(entries, period, anchor, currency='CNY', modes=None, keyword='', rank
             and (amount_min is None or Decimal(row['amount']) >= amount_min)
             and (amount_max is None or Decimal(row['amount']) <= amount_max)
             and matches_keywords(' '.join([row['client_name'], row['client_short_name']]), keyword)]
+    page = rows[skip:skip + limit]
+    for row in page:
+        row['missing_orders'] = sorted(groups[0].get(row['key'], {}).get('missing_orders', []),
+                                       key=lambda item: item['order_no'])
     timeline = []
-    for offset in range(-11, 1):
-        point = shift(start, period, offset)
-        current_group = aggregate(entries, point, period, currency, modes)
+    for point, previous, last_year in comparisons:
+        current_group = by_period[point]
         current = value(current_group, focus_client)
         timeline.append({**bounds(point, period), 'amount': money(current),
-                         'mom': comparison(current, value(aggregate(entries, shift(point, period, -1), period, currency, modes), focus_client)),
-                         'yoy': comparison(current, value(aggregate(entries, previous_year(point, period), period, currency, modes), focus_client)),
+                         'mom': comparison(current, value(by_period[previous], focus_client)),
+                         'yoy': comparison(current, value(by_period.get(last_year), focus_client)),
                          'missing': sum(row['missing'] for key, row in current_group.items() if focus_client is None or key == focus_client)})
     overall = value(groups[0])
     return {'period': bounds(start, period), 'previous': bounds(starts[1], period), 'last_year': bounds(starts[2], period),
             'currency': currency, 'overall': {'amount': money(overall), 'mom': comparison(overall, value(groups[1])),
             'yoy': comparison(overall, value(groups[2])), 'customers': sum(row['projects'] > 0 for row in groups[0].values()),
             'missing': sum(row['missing'] for row in groups[0].values())},
-            'items': rows[skip:skip + limit], 'total': len(rows), 'ranked_customers': ranked_count,
+            'items': page, 'total': len(rows), 'ranked_customers': ranked_count,
             'filtered_amount': money(sum((Decimal(row['amount']) for row in rows), ZERO)),
             'timeline': timeline, 'focus_client': focus_client,
             'client_options': [{'key': key, 'id': item['client_id'], 'name': item['client_name']} for key, item in sorted(all_clients.items(), key=lambda pair: (pair[1]['client_name'], pair[0]))]}
 
 
-def other_projects(db, module, client_id, fields):
+def other_project_query(db, module, client_id, fields):
     from interpretation_models import InterpretationProject
-    from project_customer_finance import MODELS, project_query
+    from project_customer_finance import MODELS
     from project_client_manager import manager_ids_expression
 
     model = InterpretationProject if module == 'interpretation' else MODELS[module]
     if not inspect(db.connection()).has_table(model.__tablename__):
-        return []
-    query = db.query(model) if module == 'interpretation' else project_query(db, module)
-    query = query.outerjoin(SubClient, model.sub_client_id == SubClient.id).outerjoin(
+        return model, None
+    query = db.query(model).outerjoin(SubClient, model.sub_client_id == SubClient.id).outerjoin(
         Client, func.coalesce(model.client_id, SubClient.parent_client_id) == Client.id)
-    query = query.options(joinedload(model.client), joinedload(model.sub_client).joinedload(SubClient.parent_client)) if module == 'interpretation' else query
     if module == 'annotation':
         # 子订单会复制母订单价格，按母订单统计，避免重复计入。
         query = query.filter(model.parent_project_id.is_(None))
@@ -206,7 +217,7 @@ def other_projects(db, module, client_id, fields):
         ids = [UUID(value) for value in (spec.get('ids') or [spec['id']])]
         query = query.filter(manager_ids_expression(module, model.id, ids, spec['names'],
                              func.coalesce(SubClient.client_manager, Client.client_manager)))
-    return query.all()
+    return model, query
 
 
 def other_amounts(module, project, record):
@@ -235,27 +246,74 @@ def other_amounts(module, project, record):
 
 def other_entries(db, module, client_id, fields, earliest, end):
     from interpretation_customer_finance import finance_records, ready
-    projects = other_projects(db, module, client_id, fields)
-    selected, dates = [], {}
+    from project_customer_finance import project_query
+
+    model, query = other_project_query(db, module, client_id, fields)
+    if query is None:
+        return [], 0, 0
+    candidates = query.with_entities(model.id, model.order_no, model.customer_confirmation_time,
+                                     model.customer_consultation_time, model.created_at)
+    dates = {}
     missing_date = fallback_date = 0
-    for project in projects:
+    for project in candidates:
         day, fallback = order_date(project)
         if day is None:
             missing_date += 1
         elif earliest <= day < end:
-            selected.append(project)
             dates[project.id] = day
             fallback_date += int(fallback)
-    records, _ = finance_records(db, selected, ready(db)) if module == 'interpretation' else ({}, {})
     entries = []
-    for project in selected:
-        client = project.client or (project.sub_client.parent_client if project.sub_client else None)
-        uid = str(client.id) if client else None
-        entries.append(dict(key=uid or 'unlinked:' + str(project.id), client_id=uid,
-                            client_name=(client.client_name or client.client_short_name) if client else '未关联客户',
-                            client_short_name=(client.client_short_name or '') if client else '',
-                            day=dates[project.id], **other_amounts(module, project, records.get(project.id))))
+    if not dates:
+        return entries, missing_date, fallback_date
+    if module == 'interpretation':
+        details = db.query(model).options(joinedload(model.client),
+                                          joinedload(model.sub_client).joinedload(SubClient.parent_client))
+    else:
+        details = project_query(db, module).options(selectinload(model.sub_client).joinedload(SubClient.parent_client))
+    project_ids = list(dates)
+    for offset in range(0, len(project_ids), 500):
+        selected = details.filter(model.id.in_(project_ids[offset:offset + 500])).all()
+        records, _ = finance_records(db, selected, ready(db)) if module == 'interpretation' else ({}, {})
+        for project in selected:
+            client = project.client or (project.sub_client.parent_client if project.sub_client else None)
+            uid = str(client.id) if client else None
+            entries.append(dict(key=uid or 'unlinked:' + str(project.id), client_id=uid,
+                                client_name=(client.client_name or client.client_short_name) if client else '未关联客户',
+                                client_short_name=(client.client_short_name or '') if client else '',
+                                day=dates[project.id], order_no=project.order_no or '未登记订单号', project_name=project.project_name,
+                                **other_amounts(module, project, records.get(project.id))))
     return entries, missing_date, fallback_date
+
+
+def translation_missing_orders(node, field):
+    tax = node.get('effective_billing_tax_mode') if field == 'billing_totals' else field.removeprefix('totals_')
+    amount_field = 'totals_' + tax if tax in ('incl_tax', 'excl_tax') else field
+    amount_label = AMOUNT_LABELS[amount_field]
+    prices = node['prices']
+    override = node.get('total_adjustment') or {}
+    if tax in override and {price['currency'] for price in prices} <= {override['currency']}:
+        return []
+    if not node.get('direct_pricing') and node['children']:
+        return [item for child in node['children'] for item in translation_missing_orders(child, field)]
+    if node.get(field) and not (field == 'billing_totals' and node.get('billing_tax_pending')):
+        return []
+    if node['pricing_mode'] == 'fixed':
+        reasons = [f'固定收费的{amount_label}未填写']
+    else:
+        reasons = []
+        if tax in ('incl_tax', 'excl_tax'):
+            units = [(price.get('tax_prices') or {}).get('unit_price_' + tax) for price in prices]
+        else:
+            units = [price.get('amount') for price in prices]
+        if not units or all(unit is None for unit in units):
+            reasons.append(amount_label.replace('金额', '单价') + '未填写' if tax in ('incl_tax', 'excl_tax') else '未填写单价')
+        if (prices and all(price.get('quantity') is None for price in prices)) or (
+            not prices and finance.matches_missing_fields(node, word_count=True)
+        ):
+            reasons.append('缺少计价所需工作量')
+        if not reasons:
+            reasons.append(f'{amount_label}待补')
+    return [{'order_no':node['order_no'] or '未登记订单号', 'project_name':node['project_name'], 'reasons':reasons}]
 
 
 @router.get('', dependencies=[Depends(require_module_access('projects:read', 'projects:write'))])
@@ -308,9 +366,6 @@ def revenue(period: Literal['week', 'month', 'quarter', 'year'] = 'month', ancho
     entries = []
     currencies = {'CNY'}
 
-    def incomplete(item, field):
-        return any(incomplete(child, field) for child in item['children']) if item['children'] else not item.get(field)
-
     project_ids = list(dates)
     for offset in range(0, len(project_ids), 500):
         projects = projects_query.filter(TranslationProject.id.in_(project_ids[offset:offset + 500])).all()
@@ -323,10 +378,14 @@ def revenue(period: Literal['week', 'month', 'quarter', 'year'] = 'month', ancho
             project.client_short_name = parent.client_short_name if parent else None
             node = finance.tree(project, summary_only=True)['item']
             uid = str(parent.id) if parent else None
+            field = FIELDS[modes.get(uid, 'billing')]
+            missing = translation_missing_orders(node, field)
             entry = {'key': uid or 'unlinked:' + str(project.id), 'client_id': uid,
                      'client_name': parent.client_name if parent else '未关联客户（未关联）',
                      'client_short_name': parent.client_short_name or '' if parent else '', 'day': dates[project.id],
-                     'incomplete_fields': [field for field in FIELDS.values() if incomplete(node, field)],
+                     'order_no': node['order_no'] or '未登记订单号', 'project_name': node['project_name'],
+                     'incomplete_fields': [field] if missing else [],
+                     'missing_orders': missing if start_of(dates[project.id], period) == start else [],
                      **{field: node.get(field) or {} for field in FIELDS.values()}}
             entries.append(entry)
             for field in FIELDS.values():

@@ -36,6 +36,8 @@ def update_document_invoice(doc, invoice, actor_id, moment):
 
 def invoice_required(node):
     mode = node.get('effective_billing_tax_mode')
+    if node.get('sub_client_invoice_required') is not None:
+        return node['sub_client_invoice_required']
     if node.get('payment_method') != 'special':
         return True if mode == 'incl_tax' else False if mode == 'excl_tax' else None
     if node.get('invoice_requirement_override') is not None:
@@ -99,6 +101,7 @@ def read(db,project_id,order_id=None,*,special=False):
     version=hashlib.sha256(json.dumps(state,sort_keys=True).encode()).hexdigest()
     return {**state,'version':version,'project_id':str(project_id),'order_id':node['id'],'order_no':node['order_no'],
             'client_id':root.get('client_id'),'client_name':root.get('client_short_name') or '-','required':required,
+            'sub_client_id':root.get('document_sub_client_id', root.get('sub_client_id')),
             'tax_mode':tax_mode,'totals':totals,
             'price_details': price_details(node),
             'note':(root.get('document_notes') or {}).get('invoice',''),'payment_version':data['payment']['version']}

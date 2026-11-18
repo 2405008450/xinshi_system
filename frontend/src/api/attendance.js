@@ -13,6 +13,9 @@ export const applyHomeOffice=data=>api.post('/attendance/home-office/apply',data
 export const getCompanyHomeOffice=()=>api.get('/attendance/home-office/company')
 
 export const saveHomeOfficeUsage=data=>api.put('/attendance/home-office/usage',data)
+export const getHomeOfficeRestrictions=config=>api.get('/attendance/home-office/restrictions',config)
+export const saveHomeOfficeRestriction=(userId,restricted)=>api.put(`/attendance/home-office/restrictions/${userId}`,{restricted})
+export const saveHomeOfficeQuotaReduction=(userId,data)=>api.put(`/attendance/home-office/quota-reductions/${userId}`,data)
 
 export const getDelayStartApplications=()=>api.get('/attendance/delay-start')
 export const applyDelayStart=data=>api.post('/attendance/delay-start',data,{timeout:90000})

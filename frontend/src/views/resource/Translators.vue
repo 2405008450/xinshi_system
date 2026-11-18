@@ -17,7 +17,7 @@
     </template>
 
     <div class="search-area">
-      <AppForm :inline="true" :model="searchForm" class="search-form">
+      <AppForm data-auto-draft="off" :inline="true" :model="searchForm" class="search-form">
         <el-form-item label="姓名">
           <el-input
             v-model="searchForm.translator_name"
@@ -62,7 +62,7 @@
               </el-button>
             </template>
             <div class="advanced-filter-panel">
-              <AppForm :model="advancedFilters" label-width="104px" class="advanced-filter-form">
+              <AppForm data-auto-draft="off" :model="advancedFilters" label-width="104px" class="advanced-filter-form">
                 <el-row :gutter="16">
                   <el-col :xs="24" :sm="12">
                     <el-form-item label="译员编号">

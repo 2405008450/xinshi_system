@@ -4,7 +4,7 @@
       <el-form-item label="统计日期"><el-date-picker v-model="range" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" :clearable="false" @change="query" /></el-form-item>
       <el-form-item label="统计周期"><el-radio-group v-model="granularity" @change="query"><el-radio-button value="day">每天</el-radio-button><el-radio-button value="week">每周</el-radio-button><el-radio-button value="month">每月</el-radio-button></el-radio-group></el-form-item>
       <el-form-item label="客户名称"><el-input v-model="keyword" clearable placeholder="客户全称、简称或编号" @input="search" @keyup.enter="query" /></el-form-item>
-      <el-form-item><el-button type="primary" @click="query">查询</el-button><el-button @click="reset">重置</el-button><el-popover title="高级筛选" v-model:visible="advancedVisible" trigger="click" placement="bottom-end" :width="420" :popper-style="{maxWidth:'calc(100vw - 32px)'}"><template #reference><el-button>高级筛选{{ advancedCount?`（${advancedCount}）`:'' }}</el-button></template><div class="statistics-advanced"><label>日期依据</label><el-select v-model="dateBasis" aria-label="日期依据" @change="query"><el-option label="订单号中的日期" value="order" /><el-option :label="receptionLabel" value="reception" /></el-select><template v-if="showMoney"><label>金额口径</label><el-select v-model="taxBasis" aria-label="金额口径" @change="query"><el-option label="不含税金额" value="excl_tax" /><el-option label="含税金额" value="incl_tax" /></el-select></template><el-button @click="clearAdvanced">清空高级条件</el-button><el-button @click="advancedVisible=false">关闭</el-button></div></el-popover></el-form-item>
+      <el-form-item><el-button type="primary" @click="query">查询</el-button><el-button @click="reset">重置</el-button><el-popover title="高级筛选" v-model:visible="advancedVisible" trigger="click" placement="bottom-end" :width="420" :popper-style="{maxWidth:'calc(100vw - 32px)'}"><template #reference><el-button>高级筛选{{ advancedCount?`（${advancedCount}）`:'' }}</el-button></template><div class="statistics-advanced" data-auto-draft="off"><label>日期依据</label><el-select v-model="dateBasis" aria-label="日期依据" @change="query"><el-option label="订单号中的日期" value="order" /><el-option :label="receptionLabel" value="reception" /></el-select><template v-if="showMoney"><label>金额口径</label><el-select v-model="taxBasis" aria-label="金额口径" @change="query"><el-option label="不含税金额" value="excl_tax" /><el-option label="含税金额" value="incl_tax" /></el-select></template><el-button @click="clearAdvanced">清空高级条件</el-button><el-button @click="advancedVisible=false">关闭</el-button></div></el-popover></el-form-item>
     </AppForm>
     <div class="statistics-shortcuts"><el-button v-for="item in shortcuts" :key="item.key" size="small" @click="shortcut(item.key)">{{ item.label }}</el-button><span>按{{ dateBasis==='order'?'订单号日期':receptionLabel }}<template v-if="showMoney"> · {{ taxBasis==='excl_tax'?'不含税':'含税' }}</template> · 周一至周日</span></div>
     <details class="statistics-definition"><summary>统计口径说明</summary><p>每个母订单计为一单，不重复计算下级订单。统计包含全部已保存项目状态，不包含尚未保存的窗口内容。</p><p>新客户：在该日／周／月首次产生{{ moduleLabel }}订单的客户；老客户：更早已有{{ moduleLabel }}订单的客户。客户数量按客户档案去重，未关联客户的订单单列；客户占比以本周期有订单的已关联客户数为分母，订单占比以本周期全部母订单数为分母。筛选客户后，占比在筛选结果内计算。跨期范围只统计所选日期，新老客户仍按完整自然周期判断。</p><p v-if="showMoney">金额沿用“价格与付款”的实际计算及调整结果，按币种分列；总金额是目前已登记金额之和。单均金额＝该币种金额完整的母订单总金额÷对应订单数；金额待补或部分待补的订单不参与单均计算。日期依据缺失时回退到创建日期，所有日期以 UTC+8 为准。</p><p v-if="!showMoney">本窗口统计客户及订单数量；按本业务独立判断首次下单，客户咨询时间缺失时回退到创建日期，日期统一使用 UTC+8。</p></details>
@@ -79,7 +79,9 @@ async function load(){
  finally{if(current===sequence)loading.value=false}
 }
 function clearAdvanced(){dateBasis.value='order';taxBasis.value='excl_tax';query()}
-function reset(){range.value=defaultRange();keyword.value='';dateBasis.value='order';taxBasis.value='excl_tax';granularity.value='month';query()}
+function restoreFilterDefaults(){range.value=defaultRange();keyword.value='';dateBasis.value='order';taxBasis.value='excl_tax';granularity.value='month'}
+function reset(){restoreFilterDefaults();query()}
+watch(advancedVisible, open => { if (!open && props.modelValue) reset() })
 function shortcut(key){
  const now=new Date(today()+'T00:00:00+08:00');const day=new Date(now.getTime()+8*3600000)
  let left,right
@@ -91,7 +93,7 @@ function shortcut(key){
  range.value=[businessDateTimeInputValue(left).slice(0,10),businessDateTimeInputValue(right).slice(0,10)];query()
 }
 function cancel(){clearTimeout(timer);controller?.abort();sequence++;loading.value=false}
-watch(()=>[props.modelValue,props.module],([visible])=>{if(visible){data.value=null;failure.value='';page.value=1;query()}else{cancel();data.value=null}},{immediate:true})
+watch(()=>[props.modelValue,props.module],([visible])=>{if(visible){data.value=null;failure.value='';page.value=1;query()}else{cancel();data.value=null;advancedVisible.value=false;restoreFilterDefaults()}},{immediate:true})
 onBeforeUnmount(cancel)
 </script>
 <style>

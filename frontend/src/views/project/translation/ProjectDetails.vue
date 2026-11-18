@@ -43,7 +43,7 @@
 
     <ProjectArrangementLayout v-if="!props.editorOnly" v-model="arrangementPeople" :enabled="arrangementMode" :can-write="canWriteProjects">
     <ArrangementFilterToolbar v-if="arrangementMode" v-model:excluded="excludedArrangementStatuses" v-model:reception="searchForm.customerReceptionTime" v-model:deadline="searchForm.customerDeadlineTime" v-model:column-keys="arrangementColumnKeys" :statuses="projectStatusOptions" :columns="arrangementColumns" @reset-columns="resetArrangementColumns" @search="handleSearch" />
-    <AppForm :inline="true" :model="searchForm" class="search-form project-list-search-form">
+    <AppForm data-auto-draft="off" :inline="true" :model="searchForm" class="search-form project-list-search-form">
       <div class="project-list-primary-filters">
         <el-form-item label="关键词" class="project-list-keyword-filter">
           <el-input v-model="searchForm.keyword" placeholder="母/子订单号、项目名称、文件名称、客户名称或客户单号" clearable @input="handleTextSearch" @keyup.enter="handleSearch" />
@@ -236,6 +236,7 @@
         :key="column.key"
         :prop="column.key"
         :label="column.label"
+        show-sub-client
         :width="column.width"
         :min-width="column.minWidth"
         :show-overflow-tooltip="column.key !== 'sourceFileName' && column.showOverflowTooltip !== false"
@@ -340,14 +341,22 @@
                     </el-col>
                     <el-col :xs="24" :md="!form.id && motherTab.name === 'basic' && canReadProjectFiles ? 12 : 24">
                       <el-form-item label="项目名称" prop="sourceFileName" data-field-key="sourceFileName" data-dialog-field-search-aliases="文件名称,原文文件名">
+                        <ReadonlyField
+                          v-if="motherTab.name === 'parentchildren'"
+                          :model-value="form.id || form.pendingFolderImport ? form.sourceFileName : ''"
+                          source="auto"
+                          placeholder="读取路径后自动填写"
+                          tooltip="从读取的路径自动提取"
+                        />
                         <el-input
+                          v-else
                           v-model="form.sourceFileName"
                           clearable
                           maxlength="255"
                           show-word-limit
                           :placeholder="parentOrderNameAllowed ? '母订单项目名称可不带扩展名' : '每个订单只填一个真实文件名，必须保留扩展名'"
                         />
-                        <div class="project-name-hint">{{ !form.id && motherTab.name === 'basic' ? '可手动填入真实文件名（含扩展名），或从左侧原文路径提取。' : '从文件夹创建母子订单时，母订单取根文件夹名，子订单取对应的文件或文件夹名。' }}</div>
+                        <div class="project-name-hint">{{ motherTab.name === 'parentchildren' ? '不能在此处直接登记文件名。请点击右上角的「读取路径」，通过路径获取多个文件或多级文件夹及其中的文件。' : !form.id ? '可手动填入真实文件名（含扩展名），或从左侧原文路径提取。' : '从文件夹创建母子订单时，母订单取根文件夹名，子订单取对应的文件或文件夹名。' }}</div>
                       </el-form-item>
                       <el-form-item v-if="!form.id && createWithSubOrders && !form.pendingFolderImport && motherTab.name !== 'parentchildren'" label="子订单文件名称" prop="initialSubOrderNamesText">
                         <el-input v-model="form.initialSubOrderNamesText" type="textarea" :rows="3" placeholder="每行一个文件名称，须带扩展名；保存时同时创建子订单" />
@@ -356,7 +365,7 @@
                   </el-row>
                   <el-row :gutter="16">
                     <el-col :xs="24" :md="12">
-                      <el-form-item label="客户简称" prop="clientShortName" data-field-key="clientShortName">
+                      <el-form-item label="客户简称" show-sub-client prop="clientShortName" data-field-key="clientShortName">
                         <div class="client-autocomplete-field">
                           <el-autocomplete
                             v-model="form.clientShortName"
@@ -1443,7 +1452,7 @@ const tableColumnOverrides = {
   sourceFileName: { minWidth: PROJECT_LIST_COLUMN_WIDTHS.projectName },
   serviceContent: { minWidth: 96 },
   taskType: { minWidth: 110 },
-  clientShortName: { minWidth: PROJECT_LIST_COLUMN_WIDTHS.clientShortName },
+  clientShortName: { minWidth: 180 },
   subClientShortName: { minWidth: PROJECT_LIST_COLUMN_WIDTHS.clientShortName },
   clientCode: { minWidth: 100 },
   subClientCode: { minWidth: 120 },
@@ -2474,6 +2483,10 @@ const handleSubmit = async (sendAfterSave = false, emergency = false, sendChat =
   const childEntry=projectDialogTab.value==='parentchildren'
   if (!formRef.value) {ElMessage.warning('表单尚未准备好，请稍后再试');return}
   if (submitLocked) {ElMessage.info('正在校验或保存，请稍候');return}
+  if (childEntry && !form.id && !form.pendingFolderImport) {
+    ElMessage.warning('请先点击右上角的「读取路径」，并将读取结果应用到新增表单')
+    return
+  }
   if (!form.id && pendingFolderPathComparison.value?.nameMismatch) {
     projectDialogTab.value = 'parentchildren'
     ElMessage.warning('根路径与所选文件夹名称不一致，请核对后重新读取路径')

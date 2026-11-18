@@ -9,6 +9,7 @@
     :hide-default-footer="usesConfirmedSelection || isGroup"
     @before-enter="prepareDraft"
     @clear="clear"
+    @dismiss="discardFilters"
   >
     <template #label><slot name="label">{{ definition.label }}</slot></template>
     <GroupedColumnFilterContent
@@ -129,11 +130,19 @@ const confirm = () => {
     emit('update:modelValue', next)
     emit('change', next)
   }
-  popoverRef.value?.close()
 }
 const clear = () => {
   emit('update:modelValue', emptyFilterValue(props.definition))
   emit('clear')
+}
+const discardFilters = () => {
+  if (active.value) {
+    if (isGroup.value) {
+      props.definition.fields.forEach(field => emit('update-field', field.key, emptyFilterValue(field)))
+      emit('clear')
+    } else clear()
+  }
+  prepareDraft()
 }
 </script>
 

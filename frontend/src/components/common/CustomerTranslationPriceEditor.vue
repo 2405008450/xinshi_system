@@ -4,7 +4,7 @@
     <slot v-if="!modelValue.length" name="before-prices" />
     <div v-if="!modelValue.length" class="language-prices-empty">暂无语种单价{{readonly?'':'，点击“新增单价”填写'}}</div>
     <div v-for="(row,index) in modelValue" :key="row._key||row.id||index" class="language-price-row" data-dialog-field-search-group :data-dialog-field-search-group-title="`${sectionPrefix}单价 ${index+1}`">
-      <div class="language-price-heading"><strong>{{sectionPrefix}}单价 {{index+1}}</strong><el-button v-if="!readonly" link type="danger" :disabled="disabled" @click="emit('update:modelValue',modelValue.filter((_,i)=>i!==index))">移除单价</el-button></div>
+      <div class="language-price-heading"><strong>{{sectionPrefix}}单价 {{index+1}}</strong><el-button v-if="!readonly" link type="danger" :disabled="disabled || confirmingRemoval" @click="removePrice(row)">移除单价</el-button></div>
       <slot name="before-prices" :row="row" :index="index" />
       <div class="price-fields-grid price-fields-grid--config">
         <el-form-item label="语种方向" :prop="`${fieldPrefix}.${index}.languagePair`" :rules="readonly?[]:[{required:true,message:'请选择语种方向',trigger:'change'}]"><ReadonlyField v-if="readonly" :model-value="row.languagePair||'-'" source="auto" /><LanguagePairSelect v-else :model-value="row.languagePair" single :allow-create="false" :show-hint="false" placeholder="每条单价选择一个语种方向" @update:model-value="setDirection(row,$event)" /></el-form-item>
@@ -16,7 +16,7 @@
           <ReadonlyField v-if="readonly" :model-value="basisLabel(row.metric)" source="auto" />
           <CustomerQuantityBasisSelect v-else v-model="row.metric" :matrix="matrix" :reference-mode="referenceMode" :disabled="disabled" @update:model-value="changeBasis(row)" />
         </el-form-item>
-        <el-form-item v-if="referenceMode" label="单价对应数量" :prop="`${fieldPrefix}.${index}.unitSize`" :rules="readonly?[]:[{required:true,message:'请填写单价对应数量',trigger:'change'}]"><ReadonlyField v-if="readonly" :model-value="row.unitSize||1" source="auto" /><el-input-number v-else v-model="row.unitSize" :min="0.0001" :precision="4" :controls="false" :disabled="disabled" aria-label="单价对应数量" @change="clearReference(row)" /></el-form-item>
+        <el-form-item v-if="referenceMode" label="单价对应数量" :prop="`${fieldPrefix}.${index}.unitSize`" :rules="readonly?[]:[{required:true,message:'请填写单价对应数量',trigger:'change'}]"><ReadonlyField v-if="readonly" :model-value="Number(row.unitSize||1)" source="auto" /><el-input-number v-else v-model="row.unitSize" :min="0.0001" :step="0.0001" :controls="false" :disabled="disabled" aria-label="单价对应数量" @change="clearReference(row)" /></el-form-item>
       </div>
       <div class="language-price-bottom" :class="{'language-price-bottom--compact':compactActions&&index===modelValue.length-1&&$slots['price-actions']}">
       <div class="price-fields-grid" @focusout="finishPriceEdit(row,$event)">
@@ -38,18 +38,35 @@
   </div>
 </template>
 <script setup>
+import {ref} from 'vue'
+import {ElMessageBox} from 'element-plus'
 import {taxPriceForm,taxUnitAmount} from '@/utils/taxPrices'
 import LanguagePairSelect from '@/components/LanguagePairSelect.vue'
 import ReadonlyField from './ReadonlyField.vue'
 import CustomerQuantityBasisSelect from './CustomerQuantityBasisSelect.vue'
 import {settlementCurrencyOptions as currencies} from '@/utils/talentSettlement'
-import {newCustomerRate,nextCustomerRateDirection} from '@/utils/customerTranslationRates'
+import {newCustomerRate,nextCustomerRateDirection,hasCustomerRateContent} from '@/utils/customerTranslationRates'
 import {calculateCustomerPrice} from '@/utils/translationCustomerFinance'
 import {resolveRateQuantity,metricName,projectQuantityChoices,validQuantityBasis,basisLabel} from '@/utils/translationQuantityBasis'
 import {fillCustomerReferencePrice} from '@/utils/customerRateMatching'
 const props=defineProps({sectionPrefix:{type:String,default:''},modelValue:{type:Array,default:()=>[]},languagePair:String,fieldPrefix:{type:String,default:'prices'},matrix:Object,disabled:Boolean,readonly:Boolean,referenceMode:Boolean,hideCalculationSummary:Boolean,compactActions:Boolean,referencePrices:Array})
 const emit=defineEmits(['update:modelValue','price-edit-finished'])
 const editedPrices=new WeakSet()
+const confirmingRemoval=ref(false)
+async function removePrice(row){
+  if(props.readonly||props.disabled||confirmingRemoval.value)return
+  if(hasCustomerRateContent(row)){
+    confirmingRemoval.value=true
+    try{
+      await ElMessageBox.confirm(`确认移除${row.languagePair ? `「${row.languagePair}」` : '这条'}已填写的单价？`, '移除单价',
+        {type:'warning',confirmButtonText:'确认移除',cancelButtonText:'取消'})
+    }catch{return}
+    finally{confirmingRemoval.value=false}
+  }
+  if(!props.disabled && !props.readonly && props.modelValue.includes(row)){
+    emit('update:modelValue',props.modelValue.filter(price=>price!==row))
+  }
+}
 function addPrice(){
   const direction=nextCustomerRateDirection(props.languagePair,props.modelValue)
   const price=newCustomerRate(direction)

@@ -720,9 +720,9 @@ def build_statement(db,project_id,order_id,month,scope,order_display='children',
                 direction_parent_quantity=str(parent_quantity) if parent_quantity is not None else None,
                 direction_parent_workload=fixed_workload(parent.word_count_matrix or {}) if parent is not None and quantity_basis is None else None,
                 statement_required=item['statement_required'],
-                sub_client_id=item.get('sub_client_id') if item['payment_method']=='sub_client' else None,
-                sub_client_name=root.sub_client.client_name if root.sub_client else None,
-                sub_client_code=item.get('sub_client_code'),
+                sub_client_id=item.get('document_sub_client_id'),
+                sub_client_name=root.sub_client.client_name if item.get('document_sub_client_id') else None,
+                sub_client_code=item.get('sub_client_code') if item.get('document_sub_client_id') else None,
                 settlement_period_number=item.get('settlement_period_number'),
                 unit_price=str(unit) if unit is not None else None,unit_label='含税' if item.get('special_tax_mode',item.get('effective_billing_tax_mode'))=='incl_tax' else '不含税' if item.get('special_tax_mode',item.get('effective_billing_tax_mode'))=='excl_tax' else label,currency=currency,subtotal=money(amount),
                 remarks=item.get('customer_explanation') or ''))
@@ -795,7 +795,7 @@ def build_statement(db,project_id,order_id,month,scope,order_display='children',
     result=dict(company=subject.company if subject else COMPANY,title='对账单',client_name=client.client_name or client.client_short_name,client_code=client.client_code,
         month=month,issue_date=business_now().date().isoformat(),scope=scope,order_display=order_display,tax_included=preference['tax_included'],rows=rows,totals={key:money(value) for key,value in sums.items()},pending=pending,
         private_settings_available=private_settings,settings={},stamp_image=None)
-    if scope=='project' and project.sub_client:
+    if scope=='project' and project.sub_client and project.settlement_party=='sub_client':
         result.update(sub_client_name=project.sub_client.client_name,sub_client_code=project.sub_client.sub_client_code)
     if private_settings:
         settings=settings_value(*statement_company_settings(db))

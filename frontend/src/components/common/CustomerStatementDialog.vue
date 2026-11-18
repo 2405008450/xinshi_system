@@ -1,7 +1,7 @@
 <template>
   <DraggableFormDialog :model-value="modelValue" class="customer-statement-dialog" width="min(1280px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close
     :before-close="beforeClose" @update:model-value="emit('update:modelValue',$event)">
-    <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="clientContext?.subClientId && settlementScope==='standard' ? `${title} · 子客户结算` : title" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch"><template #actions><span class="statement-manager-label" @mousedown.stop>客户经理：{{clientContext ? (clientContext.manager || '未分配') : managerLabel}}</span></template></DialogFieldSearchHeader></template>
+    <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="clientContext?.subClientId && settlementScope==='standard' ? `${title} · 子客户合并结算` : title" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch"><template #actions><span class="statement-manager-label" @mousedown.stop>客户经理：{{clientContext ? (clientContext.manager || '未分配') : managerLabel}}</span></template></DialogFieldSearchHeader></template>
     <div ref="body">
       <el-tabs v-if="settlementScope==='special'" v-model="activeTab" :before-leave="confirmClose">
         <el-tab-pane label="特殊结算" name="settlement" />

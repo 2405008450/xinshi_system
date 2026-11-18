@@ -1,7 +1,7 @@
 """营收统计页面交互验收：接口全部模拟，不读写业务数据库。"""
 import json
 import re
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from urllib.parse import urlparse, parse_qs
 from urllib.request import urlopen
@@ -26,8 +26,10 @@ def run():
                             'day':date.fromisoformat(day),'billing_totals':{'CNY':str(amount)},'totals_excl_tax':{'CNY':str(amount)},
                             'totals_incl_tax':{'CNY':str(amount*Decimal('1.1'))}})
     queries = []
+    held = []
+    hold_next = True
     errors = []
-    def api(route):
+    def respond(route):
         query = parse_qs(urlparse(route.request.url).query)
         queries.append(query)
         get = lambda key, default=None:query.get(key,[default])[0]
@@ -38,27 +40,48 @@ def run():
                       decimal('amount_min'),decimal('amount_max'),get('focus_client'),int(get('skip','0')),int(get('limit','20')))
         data.update(currencies=['CNY','USD'],missing_date=0,fallback_date=0,partial_period=True,generated_at='2026-11-10T12:00:00+08:00')
         route.fulfill(content_type='application/json',body=json.dumps(data))
+    def api(route):
+        nonlocal hold_next
+        if hold_next:
+            hold_next = False
+            held.append(route)
+        else:
+            respond(route)
     with sync_playwright() as p:
         browser = p.chromium.launch(channel='msedge')
         context = browser.new_context(viewport={'width':1600,'height':1000})
         context.route(BASE+'/revenue-ui-test',lambda route:route.fulfill(content_type='text/html',body=html))
+        context.route(BASE+'/api/**', lambda route: route.fulfill(json={'items': []}))
         context.route(re.compile('^http://localhost:3000/api/translation-revenue'),api)
         page = context.new_page()
         page.set_default_timeout(12000)
         page.on('pageerror',lambda error:errors.append(str(error)))
+        page.clock.set_fixed_time(datetime(2026, 11, 10, 4, tzinfo=timezone.utc))
         page.goto(BASE+'/revenue-ui-test')
         page.get_by_role('button',name='Open',exact=True).click()
         dialog = page.locator('.revenue-statistics-dialog')
         expect(dialog).to_be_visible()
-        anchor = dialog.get_by_role('combobox',name='所属日期')
-        anchor.fill('2026-11-10');anchor.press('Enter')
-        page.locator('.revenue-period').click()
+        expect(dialog.get_by_role('status').filter(has_text='正在汇总营收数据')).to_be_visible()
+        page.wait_for_function("!document.querySelector('.revenue-statistics-dialog').closest('.el-overlay').className.includes('enter-active')")
+        loading_box = dialog.bounding_box()
+        respond(held.pop())
         expect(dialog.locator('.revenue-cards')).to_contain_text('46,500.00')
-        assert queries[-1]['only_mine']==['true']
+        assert dialog.bounding_box() == loading_box
+        assert queries[-1]['project_type'] == ['all']
+        hold_next = True
+        dialog.get_by_role('button', name='查询', exact=True).click()
+        expect(dialog.locator('.el-loading-mask:visible')).to_be_visible()
+        held.pop().fulfill(status=503, json={'detail': '查询失败，请重试'})
+        expect(dialog.get_by_text('当前显示上次查询结果', exact=False)).to_be_visible()
+        expect(dialog.locator('.revenue-cards')).to_contain_text('46,500.00')
+        assert dialog.bounding_box() == loading_box
+        dialog.get_by_role('button', name='重新查询', exact=True).click()
+        expect(dialog.get_by_text('当前显示上次查询结果', exact=False)).to_have_count(0)
         # 单个客户选择含税后，总营收与该客户同比环比、排名都采用该口径。
         dialog.locator('.el-table__body-wrapper .el-select').first.click()
         page.get_by_role('option',name='含税总价',exact=True).click()
         expect(dialog.locator('.revenue-cards')).to_contain_text('46,800.00')
+        dialog.locator('.revenue-shortcut-section > summary').click()
         dialog.get_by_role('button',name='1–10名',exact=True).click()
         expect(dialog.locator('.revenue-ranking-toolbar')).to_contain_text('匹配 10 / 30')
         dialog.get_by_role('button',name='20–50名',exact=True).click()
@@ -82,7 +105,7 @@ def run():
         assert queries[-1]['focus_client']==[str(UUID(int=30))]
         expect(dialog.locator('.el-tab-pane:visible')).to_contain_text('3,300.00')
         for label,value in [('周','week'),('季度','quarter'),('年','year'),('月','month')]:
-            dialog.locator('.revenue-query .el-select').first.click()
+            dialog.locator('.revenue-query .el-form-item').filter(has_text='统计周期').locator('.el-select').click()
             page.get_by_role('option',name=label,exact=True).click()
             page.wait_for_timeout(200)
             assert queries[-1]['period']==[value]

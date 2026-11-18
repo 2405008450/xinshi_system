@@ -27,7 +27,7 @@
       </div>
     </template>
 
-    <AppForm :inline="true" :model="searchForm" class="search-form project-list-search-form">
+    <AppForm data-auto-draft="off" :inline="true" :model="searchForm" class="search-form project-list-search-form">
       <div class="project-list-primary-filters">
         <el-form-item label="关键词" class="project-list-keyword-filter">
           <el-input
@@ -102,6 +102,7 @@
         :key="column.key"
         :prop="column.key"
         :label="column.label"
+        show-sub-client
         :width="column.width"
         :min-width="column.minWidth"
         :show-overflow-tooltip="!['projectName', 'projectStatus', 'currentClientManager'].includes(column.key)"
@@ -380,7 +381,7 @@
                 </el-form-item>
               </el-col>
               <el-col :xs="24" :md="12">
-                <el-form-item label="客户简称" prop="clientShortName" data-field-key="clientShortName">
+                <el-form-item label="客户简称" show-sub-client prop="clientShortName" data-field-key="clientShortName">
                   <div class="client-autocomplete-field">
                     <el-autocomplete
                       v-model="form.clientShortName"
@@ -803,7 +804,7 @@ const tableColumns = [
   { key: 'taskDescription', label: '具体任务', minWidth: PROJECT_LIST_COLUMN_WIDTHS.longText },
   { key: 'currentClientManager', label: '现客户经理', width: 160 },
   { key: 'projectStatus', label: '项目状态', width: PROJECT_LIST_COLUMN_WIDTHS.projectStatus },
-  { key: 'clientShortName', label: '客户简称', width: PROJECT_LIST_COLUMN_WIDTHS.clientShortName, clickHint: '点击客户简称查看关联信息' },
+  { key: 'clientShortName', label: '客户简称', minWidth: 180, clickHint: '点击客户简称查看关联信息' },
   { key: 'clientCode', label: '客户编号', width: 100 },
   { key: 'clientFullName', label: '客户全称', minWidth: 150 },
   { key: 'clientDomain', label: '客户领域', minWidth: 120 },
@@ -927,7 +928,7 @@ const defaultForm = () => ({
   ...emptyProjectContactDetails(),
   id: '', orderNo: '', projectName: '', projectTypes: [], taskDescription: '',
   financeDraft: null,
-  clientId: '', subClientId: '', clientShortName: '', clientFullName: '', clientCode: '',
+  clientId: '', subClientId: '', parentClientShortName: '', subClientName: '', clientShortName: '', clientFullName: '', clientCode: '',
   clientDomain: '', currentClientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', contactName: '', customerOrderNo: '', projectStatus: 'initial_follow_up',
   locations: [''], customerBudget: '', customerConsultationTime: '', customerConfirmationTime: '',
   requiredInterpreterGender: '', requiredInterpretationLevel: '',
@@ -945,7 +946,7 @@ const financeProject = computed(() => {
     .filter(items => items.length >= 2 && items.every(Boolean))
     .map(items => ({label: items.join(' ↔ ')}))
   return {
-    clientId: form.clientId, clientShortName: form.clientShortName, clientFullName: form.clientFullName, orderNo: form.orderNo,
+    clientId: form.clientId, subClientId: form.subClientId, clientShortName: form.clientShortName, clientFullName: form.clientFullName, orderNo: form.orderNo,
     projectName: form.projectName, projectStatus: form.projectStatus, directions,
   }
 })
@@ -1133,6 +1134,8 @@ const fetchClientSuggestions = fetchProjectClientSuggestions
 const handleClientSelect = (client) => {
   form.clientId = client.parent_client_id || client.id || ''
   form.subClientId = client.sub_client_id || ''
+  form.parentClientShortName = client.parent_client_short_name || ''
+  form.subClientName = form.subClientId ? client.client_name || '' : ''
   form.clientShortName = client.client_short_name || ''
   form.clientFullName = client.client_name || ''
   form.clientCode = client.client_code || ''
@@ -1144,6 +1147,8 @@ const handleClientShortNameInput = () => {
   const hadSelectedClient = Boolean(form.clientId || form.subClientId)
   form.clientId = ''
   form.subClientId = ''
+  form.parentClientShortName = ''
+  form.subClientName = ''
   form.clientCode = ''
   form.clientDomain = ''
 
@@ -1153,6 +1158,8 @@ const handleClientShortNameInput = () => {
 const clearSelectedClient = () => {
   form.clientId = ''
   form.subClientId = ''
+  form.parentClientShortName = ''
+  form.subClientName = ''
   form.clientShortName = ''
   form.clientFullName = ''
   form.clientCode = ''

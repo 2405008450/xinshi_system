@@ -1,8 +1,11 @@
 import api from './index'
 export const getInvoiceSubjects=()=>api.get('/invoice-parties/subjects')
 export const saveInvoiceSubject=(key,data)=>api.put(`/invoice-parties/subjects/${key}`,data)
-export const getClientInvoiceProfile=id=>api.get(`/invoice-parties/clients/${id}`)
-export const saveClientInvoiceProfile=(id,data)=>api.put(`/invoice-parties/clients/${id}`,data)
+const invoiceProfilePath = (id, subClientId) => `/invoice-parties/clients/${id}${subClientId ? `/sub-clients/${subClientId}` : ''}`
+export const getClientInvoiceProfile = (id, subClientId) => api.get(invoiceProfilePath(id, subClientId))
+export const saveClientInvoiceProfile = (id, data, subClientId) => api.put(invoiceProfilePath(id, subClientId), data)
+export const getClientInvoiceBuyers = (id, config) => api.get(`/invoice-parties/clients/${id}/buyers`, config)
+export const buyerLabel = buyer => [buyer.name, buyer.code].filter(Boolean).join(' · ')
 export const getClientInvoiceRecords=(id,params,config={})=>api.get(`/invoice-parties/clients/${id}/records`,{...config,params})
 export const saveOrderInvoiceSelections=(items,settlement_scope)=>api.put('/invoice-parties/order-selections',{items,settlement_scope})
 export const invoiceTypeLabels={electronic_normal:'电子普票',electronic_special:'电子专票',paper_normal:'纸质普票',paper_special:'纸质专票'}

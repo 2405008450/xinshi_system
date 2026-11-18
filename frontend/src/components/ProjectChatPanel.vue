@@ -33,7 +33,7 @@
                 查询筛选<span v-if="activeFilterCount">（{{ activeFilterCount }}）</span>
               </el-button>
             </template>
-            <AppForm :model="filters" label-position="top" size="small" class="chat-filter-bar chat-filter-bar--popover">
+            <AppForm data-auto-draft="off" :model="filters" label-position="top" size="small" class="chat-filter-bar chat-filter-bar--popover">
               <el-form-item label="关键词" class="chat-filter-bar__field">
                 <el-input v-model="filters.keyword" clearable placeholder="搜索消息内容" @keyup.enter="handleSearch" />
               </el-form-item>
@@ -87,7 +87,7 @@
         :title="settings.canManage ? '当前项目沟通未开启，可在右上角打开。' : '当前项目沟通未开启。'"
       />
 
-      <AppForm v-if="conversationMode && conversationFiltersVisible" :model="filters" label-position="top" size="small" class="chat-filter-bar chat-filter-bar--popover chat-filter-panel">
+      <AppForm data-auto-draft="off" v-if="conversationMode && conversationFiltersVisible" :model="filters" label-position="top" size="small" class="chat-filter-bar chat-filter-bar--popover chat-filter-panel">
         <el-form-item label="关键词" class="chat-filter-bar__field">
           <el-input v-model="filters.keyword" clearable placeholder="搜索消息内容" @keyup.enter="handleSearch" />
         </el-form-item>
@@ -212,7 +212,7 @@
         </button>
       </div>
 
-      <AppForm v-if="!conversationMode && !collapsibleFilters" :inline="true" :model="filters" size="small" class="chat-filter-bar">
+      <AppForm data-auto-draft="off" v-if="!conversationMode && !collapsibleFilters" :inline="true" :model="filters" size="small" class="chat-filter-bar">
           <el-form-item label="关键词" class="chat-filter-bar__field">
             <el-input v-model="filters.keyword" clearable :placeholder="compact ? '搜索消息内容' : '搜消息内容'" style="width: 180px" @keyup.enter="handleSearch" />
           </el-form-item>
@@ -1406,7 +1406,6 @@ const handleToggle = async (enabled) => {
 const handleSearch = () => {
   clearProgressSelection(true)
   pagination.page = 1
-  filterPopoverVisible.value = false
   loadMessages()
 }
 
@@ -1417,9 +1416,12 @@ const handleResetSearch = () => {
   filters.dateRange = []
   filters.favoritesOnly = false
   pagination.page = 1
-  filterPopoverVisible.value = false
   loadMessages()
 }
+
+watch([filterPopoverVisible, conversationFiltersVisible], ([popover, panel], [wasPopover, wasPanel]) => {
+  if ((wasPopover && !popover || wasPanel && !panel) && props.active && props.projectId) handleResetSearch()
+})
 
 const handlePageSizeChange = () => {
   clearProgressSelection(true)

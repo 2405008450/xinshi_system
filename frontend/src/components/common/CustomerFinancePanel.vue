@@ -15,6 +15,27 @@
               <CustomerRateDifferences module="translation" :client-id="clientId" :revision="revision" @saved="revision++" />
             </div>
           </el-card>
+          <el-card v-if="subClients.length" shadow="never">
+            <template #header><strong>子客户结算设置</strong></template>
+            <div class="sub-client-finance-selectors">
+              <el-select v-model="subClientId" aria-label="子客户" placeholder="选择子客户" filterable>
+                <el-option v-for="child in subClients" :key="child.id" :value="child.id" :label="buyerLabel(child)" />
+              </el-select>
+              <el-date-picker v-model="subClientMonth" type="month" value-format="YYYY-MM" placeholder="选择账单月份"
+                aria-label="子客户账单月份" @change="subClientPeriod=undefined" />
+              <StatementPeriodSelect v-if="subClientMonth" v-model="subClientPeriod" :month="subClientMonth"
+                :client-id="clientId" all-label="整月（不分期）" />
+            </div>
+            <SubClientFinancePreferences v-if="subClientId" :sub-client-id="subClientId" :can-write="canWrite"
+              :month="subClientMonth || undefined" :period="subClientPeriod" />
+            <div v-if="subClientId" :key="subClientId" class="customer-finance-section">
+              <small>项目优先采用子客户的匹配单价。单独填写且不同的项目单价可在差异中确认同步。</small>
+              <CustomerTranslationRates :client-id="clientId" :sub-client-id="subClientId" :can-write="canWrite"
+                button-label="子客户语种单价" @saved="revision++" />
+              <CustomerRateDifferences module="translation" :client-id="clientId" :sub-client-id="subClientId"
+                :revision="revision" @saved="revision++" />
+            </div>
+          </el-card>
           <TranslationFinance v-if="canReadStatements" :client-id="clientId" client-scope collapsible />
         </div>
       </el-tab-pane>
@@ -51,7 +72,7 @@
   </section>
 </template>
 <script setup>
-import {defineAsyncComponent,onMounted,ref} from 'vue'
+import {defineAsyncComponent,onMounted,ref,watch} from 'vue'
 import {hasPermission} from '@/utils/permission'
 import {scrollFormTarget} from '@/utils/formNavigation'
 import CustomerInvoiceManagement from './CustomerInvoiceManagement.vue'
@@ -60,6 +81,9 @@ import CustomerStatementTaxPreference from './CustomerStatementTaxPreference.vue
 import CustomerRateDifferences from './CustomerRateDifferences.vue'
 import CustomerTranslationRates from './CustomerTranslationRates.vue'
 import InterpretationFinanceEditor from './InterpretationFinanceEditor.vue'
+import SubClientFinancePreferences from './SubClientFinancePreferences.vue'
+import StatementPeriodSelect from './StatementPeriodSelect.vue'
+import {buyerLabel,getClientInvoiceBuyers} from '@/api/invoiceParties'
 const props=defineProps({clientId:{type:[String,Number],default:''},canWrite:Boolean,initialSection:String})
 const settingsSection=ref(),ratesSection=ref()
 onMounted(()=>{
@@ -67,6 +91,19 @@ onMounted(()=>{
   if(section)scrollFormTarget(section.$el)
 })
 const revision=ref(0),active=ref('translation')
+const subClients=ref([]),subClientId=ref(''),subClientMonth=ref(),subClientPeriod=ref()
+watch(()=>[props.clientId,active.value],async ([id,tab],_,onCleanup)=>{
+  if(!id||tab!=='translation')return
+  const request=new AbortController()
+  onCleanup(()=>request.abort())
+  subClients.value=[]
+  try{
+    const result=await getClientInvoiceBuyers(id,{signal:request.signal})
+    if(request.signal.aborted)return
+    subClients.value=result.sub_clients||[]
+    if(!subClients.value.some(child=>child.id===subClientId.value))subClientId.value=subClients.value[0]?.id||''
+  }catch{/* 主财务内容独立加载。 */}
+},{immediate:true})
 const canReadStatements=hasPermission('projects:read')
 const CustomerStatementHistory=defineAsyncComponent(()=>import('./CustomerStatementHistory.vue'))
 const CustomerStatementDialog=defineAsyncComponent(()=>import('./CustomerStatementDialog.vue'))
@@ -77,4 +114,5 @@ const ProjectFinance=defineAsyncComponent(()=>import('@/views/project/ProjectCus
 </script>
 <style scoped>
 .customer-finance-section{display:grid;gap:12px;min-width:0}
+.sub-client-finance-selectors{display:flex;flex-wrap:wrap;gap:8px 12px}.sub-client-finance-selectors .el-select{width:240px;max-width:100%}
 </style>

@@ -22,7 +22,7 @@
         <el-button type="primary" @click="query">查询</el-button><el-button @click="reset">重置</el-button>
         <AdvancedFilterPopover v-model:visible="advanced" :count="advancedCount" popper-class="issue-advanced" @clear="clearAdvanced" @reset="reset">
           <div @focusin.stop>
-            <AppForm :model="filters" label-position="top">
+            <AppForm data-auto-draft="off" :model="filters" label-position="top">
               <div class="issue-grid">
                 <el-form-item label="执行/同步部门"><el-select v-model="filters.department_id" clearable filterable @change="query"><el-option v-for="department in departments" :key="department.id" :value="department.id" :label="department.name" /></el-select></el-form-item>
                 <el-form-item label="提出人"><el-select v-model="filters.proposer_id" clearable filterable @change="query"><el-option v-for="person in users" :key="person.id" :value="person.id" :label="person.name" /></el-select></el-form-item>
