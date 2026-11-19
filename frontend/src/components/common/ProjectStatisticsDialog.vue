@@ -81,7 +81,6 @@ async function load(){
 function clearAdvanced(){dateBasis.value='order';taxBasis.value='excl_tax';query()}
 function restoreFilterDefaults(){range.value=defaultRange();keyword.value='';dateBasis.value='order';taxBasis.value='excl_tax';granularity.value='month'}
 function reset(){restoreFilterDefaults();query()}
-watch(advancedVisible, open => { if (!open && props.modelValue) reset() })
 function shortcut(key){
  const now=new Date(today()+'T00:00:00+08:00');const day=new Date(now.getTime()+8*3600000)
  let left,right

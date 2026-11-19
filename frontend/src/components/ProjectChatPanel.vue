@@ -1419,10 +1419,6 @@ const handleResetSearch = () => {
   loadMessages()
 }
 
-watch([filterPopoverVisible, conversationFiltersVisible], ([popover, panel], [wasPopover, wasPanel]) => {
-  if ((wasPopover && !popover || wasPanel && !panel) && props.active && props.projectId) handleResetSearch()
-})
-
 const handlePageSizeChange = () => {
   clearProgressSelection(true)
   pagination.page = 1

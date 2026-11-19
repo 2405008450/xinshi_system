@@ -91,7 +91,6 @@ function commonChanged(key) { clearCommonColumn(key); query() }
 function clearColumns() { Object.keys(columnFilters).forEach(key => delete columnFilters[key]); query() }
 function clearAdvanced() { advancedConditions.value.forEach(condition => { filters[condition.key] = '' }); query() }
 function reset() { resetFilters(entryState.value); query() }
-watch(advanced, open => { if (!open && visible.value) reset() })
 function chooseRange(key) { filters.range = developmentDateRange(key); query() }
 function pageChanged() { rows.value = []; reload() }
 function sizeChanged() { page.value = 1; pageChanged() }

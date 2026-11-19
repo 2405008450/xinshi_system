@@ -15,7 +15,16 @@ test('项目展示只使用安排范围并保留语种城市配对，旧安排�
   assert.deepEqual(arrangementProjectScopes([{ kind: 'recruitment_project', project: { languages: ['英语 → 日语'] } }]), ['项目语种：英语 → 日语'])
 })
 import { arrangementCellChanged, arrangementCellPayload, arrangementProjectRoute, arrangementTargetKey, normalizeArrangementRoles, arrangementChineseTime, groupArrangementAccounts, arrangementTableRows, arrangementTableSpan, arrangementTomorrow } from '../src/utils/resourceArrangements.js'
-import { arrangementTargetLabel } from '../src/utils/resourceArrangements.js'
+import { arrangementTargetLabel, arrangementTargetMatches } from '../src/utils/resourceArrangements.js'
+
+test('开拓方向输入部分名称匹配语种、方言与项目，兼容英文大小写和全角字符', () => {
+  assert.equal(arrangementTargetMatches({ label: '闽南语（泉州）' }, '闽南'), true)
+  assert.equal(arrangementTargetMatches({ label: 'English' }, ' ｅＮＧ '), true)
+  const target = { label: '资源需求', request_no: 'RR-123', project: { project_name: '海外采集', order_no: 'AP-456', languages: ['英语 → 日语'] }, scope: [{ language_label: '粤语' }] }
+  for (const keyword of ['采集', 'rr-123', 'ap-456', '日语', '粤语', '']) assert.equal(arrangementTargetMatches(target, keyword), true)
+  assert.equal(arrangementTargetMatches(target, '德语'), false)
+  assert.equal(arrangementTargetMatches({ label: '内部招聘' }, '德语'), false)
+})
 
 test('安排下拉项仅显示一次项目名称，订单号留在详情', () => {
   const project = { project_name: '对话采集项目', order_no: 'AP-001' }

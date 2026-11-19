@@ -75,6 +75,18 @@ test('临时标注会话即使已有名称也补齐状态，并在后续刷新�
   h.dock.closeAllChats()
 })
 
+test('同一会话的副本窗口复用目录状态，不再重复读取项目详情', async () => {
+  let calls = 0
+  const h = createDockHarness(new Map(), async () => { calls++; return { projectName: '隔离项目', orderNo: 'AP-001', projectStatus: 'trial_preparation' } })
+  h.dock.openChat({ projectId: '1', projectType: 'annotation' })
+  h.dock.openChat({ projectId: '1', projectType: 'annotation', allowDuplicate: true })
+  for (let index = 0; index < 12; index++) await Promise.resolve()
+  assert.equal(calls, 1)
+  await h.refreshStatuses([{ key: 'annotation:1' }])
+  assert.equal(calls, 1)
+  h.dock.closeAllChats()
+})
+
 function workspaceVisibility(state, followedItems = [{ projectId: 'followed-project' }]) {
   const source = dock.slice(dock.indexOf('const workspaceVisible = computed'), dock.indexOf('const minimizedWindows = computed'))
   return runInNewContext(`${source}\n;({ visible: workspaceVisible.value, task: showWorkspaceTask.value })`, {
@@ -516,7 +528,6 @@ test('沟通窗口支持小中大三档、会话列表布局，并按用户记�
   assert.match(workspace, /setTimeout\(applyKeyword, 400\)/)
   assert.match(workspace, /if \(!value\)/)
   assert.match(followedStore, /chatRequest\('sessions', \{ signal: current\.signal, timeout: 20000 \}\)/)
-  assert.match(followedStore, /setInterval\(refresh, 15000\)/)
   assert.match(historyPanel, /全部/)
   assert.match(historyPanel, /图片/)
   assert.match(historyPanel, /链接/)

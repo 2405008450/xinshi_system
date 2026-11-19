@@ -1,5 +1,6 @@
 """技术开发任务、三级层级与追加式进度/反馈记录。"""
 from datetime import datetime
+from chat_catalog_read import catalog_cached
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
@@ -167,6 +168,7 @@ class FeedbackWrite(WriteModel):
 TECHNICAL_DEPARTMENTS = ['开发部', '开发/IT部', '技术部', 'IT部']
 
 
+@catalog_cached
 def can_enter(db, user):
     return bool(user and user.is_active and not user.is_deleted and db.query(AppUser.id).filter(AppUser.id == user.id, department_condition(db, TECHNICAL_DEPARTMENTS)).first())
 

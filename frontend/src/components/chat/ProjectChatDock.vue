@@ -11,7 +11,7 @@
           :wide-header="contentRect.wideHeader"
           :sessions="sessions"
           :search-sessions="followed.map(row => ({...row,projectType:row.kind}))"
-          :recent-closed="state.recentClosedSessions.filter(item => followed.some(row => (item.sessionKeys || [item.key]).includes(row.key)))"
+          :recent-closed="state.recentClosedSessions"
           @restore-closed="restoreClosedSession"
           @pane-change="workspacePane = $event"
           @context-empty="state.activeKey = ''"

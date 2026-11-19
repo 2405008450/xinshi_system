@@ -1,5 +1,6 @@
 """资源讨论权限、独立消息、稳定分页及幂等发送。"""
 from datetime import timedelta
+from chat_catalog_read import catalog_cached
 from uuid import UUID
 from search_matching import keyword_contains
 from fastapi import HTTPException
@@ -61,11 +62,13 @@ def visible_room_specs(db, user, rooms=None):
     return result
 
 
+@catalog_cached
 def schema_ready(db):
     inspector = inspect(db.connection())
     return all(inspector.has_table(table.__tablename__) for table in (Member, Message))
 
 
+@catalog_cached
 def room_specs(db):
     rows = [dict(id=row['id'], name=row['name']) for row in BUILTIN_FOLDERS if row['parentKey'] == RESOURCE_ROOT]
     if folder_schema_ready(db):
@@ -115,7 +118,7 @@ def publish(db):
     broadcast_to_users(ids, {'type': 'chat_sessions_changed'})
 
 
-def catalog(db, user):
+def catalog(db, user, *, recent_only=False):
     if not user or not user.is_active:
         return []
     ready = schema_ready(db)
@@ -123,6 +126,11 @@ def catalog(db, user):
         return []
     members = {str(row.room_id): row for row in db.query(Member).filter_by(user_id=user.id)} if ready else {}
     rooms = visible_room_specs(db, user, [row for row in room_specs(db) if row['id'] in members])
+    if recent_only:
+        from chat_session_activity import active_discussion_ids
+        active = active_discussion_ids(db, user.id)
+        rooms = [row for row in rooms if row['id'] in active or
+                 members[row['id']].pinned or members[row['id']].starred]
     if not rooms:
         return []
     latest = {}

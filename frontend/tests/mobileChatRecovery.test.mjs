@@ -135,6 +135,49 @@ function lifecycle() {
   }
 }
 
+test('目录轮询降低频率，实时事件更新后跳过兜底，业务通知不重复刷新', async () => {
+  const h = lifecycle(), timers = new Map()
+  let time = 0, timerId = 0, poll, pollInterval, requests = 0, topics = 0
+  const document = { visibilityState: 'visible' }
+  const clock = {
+    now: () => time,
+    setTimer(fn, delay) { timers.set(++timerId, { fn, at: time + delay }); return timerId },
+    clearTimer(id) { timers.delete(id) },
+  }
+  const advance = async ms => {
+    time += ms
+    for (const [id, timer] of [...timers]) if (timer.at <= time) { timers.delete(id); void timer.fn() }
+    await flush()
+  }
+  const source = readFileSync(new URL('../src/composables/useAnnotationFollowed.js', import.meta.url), 'utf8')
+  const useStore = runInNewContext(source.replace(/^import .*\r?\n/gm, '').replace('export function ', 'function ') + '\n;useAnnotationFollowed', {
+    ...h, ref, computed, document, Date: { now: () => 100000 + time },
+    window: { ...h.window, setInterval(fn, interval) { poll = fn; pollInterval = interval; return 1 } },
+    createCoalescedRefresh: (run, options) => createCoalescedRefresh(run, { ...options, ...clock }),
+    chatRequest: async () => { requests++; return { items: [], mentionTotal: 0 } },
+    isChatNotification, CONVERSATION_NOTIFICATION_TYPES,
+    ensureConnected() {}, applySessionCategories() {},
+    useChatTopics: () => ({ refresh: async () => { topics++ } }),
+    useProjectChatDock: () => ({ state: { windows: [] } }), refreshOpenAnnotationStatuses: async () => {},
+  })
+  useStore(); h.mounts.forEach(fn => fn()); await advance(0)
+  assert.equal(requests, 1); assert.equal(topics, 1)
+  assert.ok(pollInterval >= 30000 && pollInterval < 35000)
+  poll(); await advance(400); assert.equal(requests, 1)
+  await advance(30000); poll(); await advance(400); assert.equal(requests, 2)
+  assert.equal(topics, 2)
+  h.subscribers.get('chat_message')(); await advance(3000); assert.equal(requests, 3)
+  assert.equal(topics, 2)
+  await advance(20000); poll(); await advance(400); assert.equal(requests, 3)
+  h.subscribers.get('notification')({ notification: { notification_type: 'workflow' } })
+  await advance(3000); assert.equal(requests, 3)
+  h.subscribers.get('notification')({ notification: { notification_type: 'direct_chat_mention' } })
+  await advance(400); assert.equal(requests, 4)
+  document.visibilityState = 'hidden'
+  await advance(35000); poll(); await advance(400); assert.equal(requests, 4)
+  h.unmounts.forEach(fn => fn())
+})
+
 test('前台恢复立即补查会话，旧挂起请求迟到也不能覆盖新未读数', async () => {
   const h = lifecycle()
   let time = 0, timerId = 0

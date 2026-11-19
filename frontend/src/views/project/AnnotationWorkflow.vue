@@ -70,7 +70,7 @@
 <script setup>
 import AnnotationOrderContext from '@/components/annotation/AnnotationOrderContext.vue'
 import { workflowFormValues, workflowRules } from '@/utils/annotationWorkflowForm.js'
-import { computed,onBeforeUnmount,onMounted,reactive,ref,watch } from 'vue'
+import { computed,onBeforeUnmount,onMounted,reactive,ref } from 'vue'
 import { Filter } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import * as annotationApi from '@/api/annotationProjects'
@@ -107,7 +107,6 @@ const handleProjectChange=async()=>{languageItemId.value='';await Promise.all([l
 const handleKeyword=value=>{clearTimeout(keywordTimer);if(!value)return loadRows();keywordTimer=setTimeout(loadRows,400)}
 const resetFilters=()=>{projectId.value='';keyword.value='';roleFilter.value='';statusFilter.value='';languageItemId.value='';languageFilterVisible.value=false;customFields.value=[];loadRows()}
 const clearLanguageFilter=()=>{languageItemId.value='';languageFilterVisible.value=false;loadRows()}
-watch(languageFilterVisible, visible => { if (!visible && languageItemId.value) clearLanguageFilter() })
 const editorProjectChanged=async()=>{form.languageItemId=null;form.customValues={};editorFields.value=form.projectId?await opsApi.getCustomFields('assignment',form.projectId):[]}
 const openEditor=async(row=null)=>{Object.assign(form,emptyForm(),row?workflowFormValues(row):{projectId:projectId.value});editorFields.value=form.projectId?await opsApi.getCustomFields('assignment',form.projectId):[];dialogVisible.value=true}
 const saveRow=async()=>{if(!await formRef.value?.validate().catch(()=>false))return;if (saving.value) return

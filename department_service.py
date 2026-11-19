@@ -1,4 +1,5 @@
 from fastapi import HTTPException
+from chat_catalog_read import catalog_cached
 from sqlalchemy import inspect, func
 from sqlalchemy.exc import IntegrityError
 from models import AppUser, WorkSchedule
@@ -26,6 +27,7 @@ def ready(db):
     return hasattr(db,'connection') and inspect(db.connection()).has_table(Department.__tablename__)
 
 
+@catalog_cached
 def alias_map(db):
     result = dict(DEPARTMENT_ALIASES)
     if ready(db):

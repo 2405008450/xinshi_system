@@ -1,5 +1,6 @@
 """团队归类共享，授权和目录范围始终由原会话决定。"""
 from fastapi import HTTPException
+from chat_catalog_read import catalog_cached
 import json
 from pathlib import Path
 from uuid import UUID
@@ -15,6 +16,7 @@ BUILTIN_FOLDERS = json.loads((Path(__file__).parent / 'data/chat_session_folders
 BUILTIN_INDEX = {row['id']: row for row in BUILTIN_FOLDERS}
 
 
+@catalog_cached
 def folder_schema_ready(db):
     return inspect(db.connection()).has_table(Folder.__tablename__)
 
@@ -28,6 +30,7 @@ SYSTEM_NAMES = frozenset(('消息', '置顶', '未读', '@我', '单聊', '特�
 TARGETS = {'translation': Link.project_id, 'annotation': Link.annotation_project_id, 'direct': Link.direct_conversation_id}
 
 
+@catalog_cached
 def schema_ready(db):
     inspector = inspect(db.connection())
     return all(inspector.has_table(name) for name in ('chat_session_category', 'chat_session_category_link'))

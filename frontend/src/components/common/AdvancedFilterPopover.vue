@@ -31,7 +31,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import AdvancedFilterFieldSearch from './AdvancedFilterFieldSearch.vue'
 
 const props = defineProps({
@@ -46,10 +46,8 @@ const referenceHost=ref()
 
 const visibleModel = computed({
   get: () => props.visible,
+  // 隐藏面板保留条件；重置和清空仅由对应按钮显式触发。
   set: (value) => emit('update:visible', value),
-})
-watch(() => props.visible, (visible, wasVisible) => {
-  if (wasVisible && !visible) emit('reset')
 })
 
 const popoverWidth = 'min(760px, calc(100vw - 32px))'

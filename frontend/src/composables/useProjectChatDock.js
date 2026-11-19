@@ -256,7 +256,7 @@ const fillChatWindowMeta = async (chatWindow, refresh = false) => {
 
 // 未关注但临时打开的项目不会进入会话接口，随已有刷新周期补齐其当前状态。
 export const refreshOpenAnnotationStatuses = sessions => Promise.all(state.windows
-  .filter(item => item.projectType === 'annotation' && !sessions.some(session => session.key === item.key))
+  .filter(item => item.projectType === 'annotation' && !sessions.some(session => session.key === (item.conversationKey || item.key)))
   .map(item => fillChatWindowMeta(item, true)))
 
 const focusWorkspace = () => {

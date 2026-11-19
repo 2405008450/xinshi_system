@@ -5,6 +5,7 @@ import { useProjectChatDock, refreshOpenAnnotationStatuses } from '@/composables
 import { applySessionCategories } from '@/composables/useChatSessionCategories'
 import { useChatTopics } from '@/composables/useChatTopics'
 import { createCoalescedRefresh } from '@/utils/coalescedRefresh'
+import { isChatNotification, CONVERSATION_NOTIFICATION_TYPES } from '@/utils/notificationChannels'
 const { refresh: refreshTopics } = useChatTopics()
 
 const sessions = ref([])
@@ -23,6 +24,7 @@ let retryPending = false
 let cleanup = []
 let generation = 0
 let controller
+let lastSuccessfulRefresh = 0
 
 function refresh(options = {}) {
   if (!refreshScheduler) return Promise.resolve()
@@ -50,7 +52,7 @@ function cancelRetry() {
 }
 
 function transientFailure(cause) {
-  return [502, 503, 504].includes(cause.response?.status) ||
+  return [429, 502, 503, 504].includes(cause.response?.status) ||
     ['ERR_NETWORK', 'ECONNABORTED', 'ETIMEDOUT'].includes(cause.code)
 }
 
@@ -66,9 +68,9 @@ async function fetchSessions() {
   try {
     const data = await chatRequest('sessions', { signal: current.signal, timeout: 20000 })
     if (version !== generation || userId !== localStorage.getItem('user_id')) return
+    lastSuccessfulRefresh = Date.now()
     sessions.value = data.items || []
     applySessionCategories(data.sessionCategories)
-    refreshTopics().catch(() => {})
     phaseOneEnabled.value = !!data.phaseOneEnabled
     mentionTotal.value = data.mentionTotal || 0
     mentionHistoryTotal.value = data.mentionHistoryTotal || 0
@@ -79,6 +81,7 @@ async function fetchSessions() {
     state.windows.forEach((item) => {
       const session = sessions.value.find(row => row.key === (item.conversationKey || item.key))
       if (session) { item.unread = session.unread; item.mentionUnread = session.mentionUnread; item.projectStatus = session.projectStatus || ''; if (item.projectType === 'discussion') item.title = session.title }
+      else { item.unread = 0; item.mentionUnread = 0 }
     })
     void refreshOpenAnnotationStatuses(sessions.value).catch(() => {})
   } catch (cause) {
@@ -105,6 +108,7 @@ function start() {
   if (users !== 1) return
   refreshScheduler = createScheduler()
   refreshScheduler.schedule({ immediate: true })
+  refreshTopics().catch(() => {})
   ensureConnected()
   cleanup = [
     subscribe('annotation_chat_changed', refresh),
@@ -117,11 +121,19 @@ function start() {
     }),
     subscribe('chat_topics_changed', () => refreshTopics(true).catch(() => {})),
     subscribe('chat_message', refresh),
-    subscribe('notification', refresh),
+    subscribe('notification', payload => {
+      const item = payload?.notification
+      if (isChatNotification(item) || CONVERSATION_NOTIFICATION_TYPES.includes(item?.notification_type)) refresh()
+    }),
     subscribe('connected', refresh),
     subscribe('foreground', () => refresh({ force: true })),
   ]
-  timer = window.setInterval(refresh, 15000)
+  // 实时事件继续合并刷新；跨环境仍以较低频率兜底，避免所有客户端同时请求。
+  timer = window.setInterval(() => {
+    if (document.visibilityState === 'hidden' || Date.now() - lastSuccessfulRefresh < 25000) return
+    void refresh()
+    refreshTopics().catch(() => {})
+  }, 30000 + Math.floor(Math.random() * 5000))
 }
 
 function stop() {
@@ -132,6 +144,7 @@ function stop() {
   controller?.abort()
   cancelRetry()
   retryPending = false
+  lastSuccessfulRefresh = 0
   sessions.value = []
   applySessionCategories(null)
   total.value = 0

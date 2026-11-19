@@ -57,6 +57,14 @@ export const arrangementTableSpan = ({ row, columnIndex }) => {
 }
 
 export const arrangementTargetKey = target => [target.kind, target.request_id || '', target.language_id || '', target.project_id || ''].join(':')
+export function arrangementTargetMatches(target, keyword) {
+  const normalize = value => String(value || '').normalize('NFKC').trim().toLocaleLowerCase('zh-CN')
+  const query = normalize(keyword)
+  if (!query) return true
+  return [target.label, target.source_name, target.request_no, target.project?.project_name,
+    target.project?.order_no, ...(target.project?.languages || []),
+    ...(target.scope || []).map(item => item.language_label)].some(value => normalize(value).includes(query))
+}
 export function arrangementTargetLabel(target) {
   const project = target.project?.project_name?.trim() || target.source_name?.trim() || ''
   const label = target.label?.trim() || ''

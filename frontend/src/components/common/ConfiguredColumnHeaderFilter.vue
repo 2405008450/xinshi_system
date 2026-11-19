@@ -9,7 +9,7 @@
     :hide-default-footer="usesConfirmedSelection || isGroup"
     @before-enter="prepareDraft"
     @clear="clear"
-    @dismiss="discardFilters"
+    @dismiss="prepareDraft"
   >
     <template #label><slot name="label">{{ definition.label }}</slot></template>
     <GroupedColumnFilterContent
@@ -112,6 +112,7 @@ const filteredOptions = computed(() => {
   return resolvedOptions.value.filter((option) => matchesSearch(option.label, keyword))
 })
 const prepareDraft = () => {
+  // 关闭只丢弃未确认的草稿，正式筛选只能通过确定或清除操作修改。
   groupOpenVersion.value++
   draftValue.value = Array.isArray(props.modelValue) ? [...props.modelValue] : []
   filterKeyword.value = ''
@@ -130,19 +131,11 @@ const confirm = () => {
     emit('update:modelValue', next)
     emit('change', next)
   }
+  popoverRef.value?.close()
 }
 const clear = () => {
   emit('update:modelValue', emptyFilterValue(props.definition))
   emit('clear')
-}
-const discardFilters = () => {
-  if (active.value) {
-    if (isGroup.value) {
-      props.definition.fields.forEach(field => emit('update-field', field.key, emptyFilterValue(field)))
-      emit('clear')
-    } else clear()
-  }
-  prepareDraft()
 }
 </script>
 

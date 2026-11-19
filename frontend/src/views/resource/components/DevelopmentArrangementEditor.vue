@@ -24,19 +24,22 @@
               </el-form-item>
               <el-form-item label="开拓方向（语种／方言）" :prop="`cells.${index}.targets`">
                 <div class="arrangement-target-field">
-                <el-select :model-value="cell.targets.map(arrangementTargetKey)" multiple filterable remote :remote-method="queueTargetSearch" popper-class="arrangement-target-dropdown" :loading="targetsLoading" placeholder="选择需求确认、全职招聘项目、自选语种或内部招聘" @update:model-value="keys => setTargets(cell, keys)" @visible-change="opened => targetDropdownChanged(opened, `${index}:targets`)">
+                <el-select :model-value="targetKeysByPlatform.get(cell.platform_id)" multiple filterable remote default-first-option :reserve-keyword="false" :debounce="0" :remote-method="queueTargetSearch" popper-class="arrangement-target-dropdown arrangement-direction-dropdown" fit-input-width placement="bottom-start" :fallback-placements="['top-start']" placeholder="输入语种、方言、项目名称或订单号搜索" no-match-text="未找到匹配方向" no-data-text="未找到匹配方向，可通过旁边的入口增加语言/方言" @update:model-value="keys => setTargets(cell, keys)" @visible-change="opened => targetDropdownChanged(opened, `${index}:targets`)">
                   <template #tag>
                     <el-tag v-for="target in cell.targets" :key="arrangementTargetKey(target)" :type="target.active === false ? 'warning' : 'info'" :closable="!saving" @close.stop="cell.targets = cell.targets.filter(item => arrangementTargetKey(item) !== arrangementTargetKey(target))">{{ target.kind === 'manual' ? `${target.label}（自选）` : arrangementTargetLabel(target) }}</el-tag>
                   </template>
                   <el-option-group label="需求确认"><el-option v-for="target in requestOptions()" :key="arrangementTargetKey(target)" :value="arrangementTargetKey(target)" :label="arrangementTargetLabel(target)" :disabled="target.active === false"><div class="arrangement-option-row"><span class="arrangement-option-title" :title="arrangementTargetLabel(target)">{{ arrangementTargetLabel(target) }}</span><el-button link type="primary" class="arrangement-option-more" :aria-label="`${arrangementTargetLabel(target)} 更多信息`" @mousedown.stop.prevent @click.stop="openOptionDetails(target, $event.currentTarget, `${index}:targets`)" @keydown.stop>更多信息</el-button></div></el-option></el-option-group>
-                  <el-option-group label="全职招聘项目"><el-option v-for="target in recruitmentTargets" :key="arrangementTargetKey(target)" :value="arrangementTargetKey(target)" :label="recruitmentOptionLabel(target)"><span>{{ target.project.project_name || '未命名项目' }} · {{ target.project.order_no || '无订单号' }} · {{ target.project.languages?.join('、') || '未配置语种' }}</span></el-option></el-option-group>
-                  <el-option-group label="自选语种／方言"><el-option v-for="language in languageOptions(cell).filter(item => !targetKeyword || item.label.includes(targetKeyword))" :key="language.id" :value="arrangementTargetKey({kind:'manual',language_id:language.id})" :label="`${language.label}（自选${language.inactive ? '，已停用' : ''}）`" :disabled="language.inactive" /></el-option-group>
-                  <el-option-group label="其他"><el-option label="内部招聘" :value="'internal::'" /></el-option-group>
-                  <template #footer><ArrangementOptionDetails v-if="detailContext === `${index}:targets` && detailTarget" v-model="detailVisible" :anchor="detailAnchor" :target="detailTarget" :users="options.users" /></template>
+                  <el-option-group label="全职招聘项目"><el-option v-for="target in recruitmentTargets.filter(item => arrangementTargetMatches(item, targetKeyword))" :key="arrangementTargetKey(target)" :value="arrangementTargetKey(target)" :label="recruitmentOptionLabel(target)"><span>{{ target.project.project_name || '未命名项目' }} · {{ target.project.order_no || '无订单号' }} · {{ target.project.languages?.join('、') || '未配置语种' }}</span></el-option></el-option-group>
+                  <el-option-group label="自选语种／方言"><el-option v-for="language in languageOptions(cell).filter(item => arrangementTargetMatches(item, targetKeyword))" :key="language.id" :value="arrangementTargetKey({kind:'manual',language_id:language.id})" :label="`${language.label}（自选${language.inactive ? '，已停用' : ''}）`" :disabled="language.inactive" /></el-option-group>
+                  <el-option-group v-if="arrangementTargetMatches({label: '内部招聘'}, targetKeyword)" label="其他"><el-option label="内部招聘" :value="arrangementTargetKey({kind: 'internal'})" /></el-option-group>
+                  <template #footer>
+                    <div class="arrangement-target-search-status" role="status" aria-live="polite"><span v-if="targetsLoading">正在更新项目候选…</span></div>
+                    <ArrangementOptionDetails v-if="detailContext === `${index}:targets` && detailTarget" v-model="detailVisible" :anchor="detailAnchor" :target="detailTarget" :users="options.users" />
+                  </template>
                 </el-select>
                   <el-button v-if="options.can_configure" :disabled="saving" @click="openLanguageDialog(cell)">增加语言/方言</el-button>
                 </div>
-                <small class="muted">需求类候选仅显示“需求确认”；全职招聘候选不含已关闭或已取消项目。</small>
+                <small class="muted">直接输入关键词匹配方向，按 ↑↓ 选择、回车添加，可连续选择多个；需求仅显示“需求确认”，全职招聘不含已关闭或已取消项目。</small>
                 <small v-if="cell.targets.some(t => t.active === false)" class="arrangement-warning">已有失效方向仅在已选项中保留，可点击标签 × 移除。</small>
               </el-form-item>
               <el-form-item label="岗位目标" :prop="`cells.${index}.role_tags`" :rules="roleRules">
@@ -85,7 +88,7 @@ import { MagicStick } from '@element-plus/icons-vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
 import { developmentApi as api } from '@/api/resourceDevelopment'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
-import { arrangementCellChanged, arrangementCellPayload, arrangementProjectKey, arrangementProjectTypes, arrangementTargetKey, arrangementTargetLabel, normalizeArrangementRoles, arrangementDefinitions, groupArrangementAccounts, arrangementTableRows } from '@/utils/resourceArrangements'
+import { arrangementCellChanged, arrangementCellPayload, arrangementProjectKey, arrangementProjectTypes, arrangementTargetKey, arrangementTargetLabel, arrangementTargetMatches, normalizeArrangementRoles, arrangementDefinitions, groupArrangementAccounts, arrangementTableRows } from '@/utils/resourceArrangements'
 import DevelopmentArrangementProject from './DevelopmentArrangementProject.vue'
 import ArrangementOptionDetails from './ArrangementOptionDetails.vue'
 import DevelopmentLanguageDialog from './DevelopmentLanguageDialog.vue'
@@ -111,13 +114,17 @@ function languageCreated(language) {
 const visible = ref(false), saving = ref(false), conflict = ref(false), wholeDay = ref(false), warnings = ref([])
 const bodyRef = ref(), formRef = ref(), requestTargets = ref([]), recruitmentTargets = ref([]), targetsLoading = ref(false), targetKeyword = ref('')
 const form = reactive({ work_date: '', revision: 0, remarks: '', cells: [], carried_from: null })
+// 保持已选值数组稳定，避免搜索触发重渲染时被 Select 当作选项变更而清空输入。
+const targetKeysByPlatform = computed(() => new Map(form.cells.map(cell => [cell.platform_id, cell.targets.map(arrangementTargetKey)])))
 const { fieldSearchRef, fieldSearchKeyword, fetchFieldSuggestions, locateDialogField, locateDialogFieldByLabel, clearFieldSearch } = useDialogFieldSearch(bodyRef)
 const projectType = ref('annotation'), projectOptions = ref([]), projectsLoading = ref(false), projectKeyword = ref('')
 let projectSearchTimer, targetSearchTimer
 function queueTargetSearch(keyword) {
   targetKeyword.value = String(keyword || '').trim()
   clearTimeout(targetSearchTimer); targetController?.abort(); targetSeq++
-  targetSearchTimer = setTimeout(() => refreshTargets(targetKeyword.value).catch(() => {}), targetKeyword.value ? 400 : 0)
+  targetsLoading.value = false
+  if (!targetKeyword.value) return refreshTargets('').catch(() => {})
+  targetSearchTimer = setTimeout(() => refreshTargets(targetKeyword.value).catch(() => {}), 400)
 }
 function queueProjectSearch(keyword) {
   projectKeyword.value = String(keyword || ''); clearTimeout(projectSearchTimer); projectController?.abort(); projectSeq++
@@ -130,8 +137,8 @@ const detailVisible = ref(false), detailContext = ref(''), detailAnchor = shallo
 function openOptionDetails(target, anchor, context) { detailVisible.value = false; detailContext.value = context; detailTarget.value = target; detailAnchor.value = anchor; detailVisible.value = true }
 function closeOptionDetails(context) { if (detailContext.value === context) { detailVisible.value = false; detailTarget.value = null } }
 function targetDropdownChanged(opened, context) {
-  if (opened) refreshTargets(targetKeyword.value).catch(() => {})
-  else { clearTimeout(targetSearchTimer); targetController?.abort(); targetSeq++; targetKeyword.value = ''; closeOptionDetails(context) }
+  // 展开时由 Select 的 remote-method 发起查询，避免重复请求打断首次展示。
+  if (!opened) { clearTimeout(targetSearchTimer); targetController?.abort(); targetSeq++; targetsLoading.value = false; targetKeyword.value = ''; closeOptionDetails(context) }
 }
 function projectDropdownChanged(opened, context) {
   if (opened) searchProjects(projectKeyword.value)
@@ -151,7 +158,7 @@ function ownerOptions(cell) {
   return [...props.options.users, ...(cell.owners || []).filter(person => !active.has(person.id)).map(person => ({ ...person, name: `${person.name}（已停用）`, inactive: true }))]
 }
 function languageOptions(cell) { const map = new Map(availableLanguages.value.map(l => [l.id,l])); for (const t of cell.targets) if (t.kind === 'manual' && !map.has(t.language_id)) map.set(t.language_id,{id:t.language_id,label:t.label,inactive:true}); return [...map.values()] }
-function requestOptions() { return requestTargets.value.filter(t => t.active !== false && (!t.demand_status || t.demand_status === 'confirmed') && (!targetKeyword.value || arrangementTargetLabel(t).includes(targetKeyword.value) || t.request_no?.includes(targetKeyword.value))) }
+function requestOptions() { return requestTargets.value.filter(t => t.active !== false && (!t.demand_status || t.demand_status === 'confirmed') && arrangementTargetMatches(t, targetKeyword.value)) }
 function setTargets(cell, keys) {
   const map = new Map([...cell.targets, ...requestTargets.value, ...recruitmentTargets.value, ...availableLanguages.value.map(l => ({kind:'manual',language_id:l.id,label:l.label})), {kind:'internal',label:'内部招聘'}].map(t => [arrangementTargetKey(t), t]))
   cell.targets = keys.map(key => map.get(key)).filter(Boolean)
@@ -226,5 +233,18 @@ defineExpose({ open })
 .arrangement-target-field { display: flex; align-items: flex-start; gap: 8px; width: 100%; flex-wrap: wrap; }
 .arrangement-target-field > .el-select { flex: 1 1 240px; min-width: 0; }
 .arrangement-target-field > .el-button { flex: none; }
+.arrangement-target-field .el-select__input { min-width: 120px; }
+/* 固定候选面板外形，结果数量和请求状态变化时只更新内部内容。 */
+.arrangement-direction-dropdown .el-select-dropdown { display: flex; flex-direction: column; height: min(360px, calc(100vh - 200px)); }
+.arrangement-direction-dropdown .el-scrollbar { flex: 1; min-height: 0; }
+.arrangement-direction-dropdown .el-select-dropdown__wrap { height: 100%; max-height: none; overscroll-behavior: contain; }
+.arrangement-direction-dropdown .el-select-dropdown__empty { display: flex; align-items: center; justify-content: center; flex: 1; margin: 0; padding: 16px; white-space: normal; }
+.arrangement-direction-dropdown .el-select-dropdown__footer { flex: none; padding: 8px 12px; border-top: 1px solid var(--el-border-color-lighter); }
+.arrangement-target-search-status { height: 22px; line-height: 22px; color: var(--el-text-color-secondary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arrangement-direction-dropdown .multi-select-summary [role="list"] { max-height: 56px !important; }
+.arrangement-direction-dropdown.el-zoom-in-top-enter-active,
+.arrangement-direction-dropdown.el-zoom-in-top-leave-active { transition: opacity 120ms ease; }
+.arrangement-direction-dropdown.el-zoom-in-top-enter-from,
+.arrangement-direction-dropdown.el-zoom-in-top-leave-to { transform: none; }
 @media(max-width:600px){.arrangement-project-selector{grid-template-columns:1fr}}
 </style>

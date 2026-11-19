@@ -1,5 +1,6 @@
 """笔译项目发送到按业务日期归档的全员会话；独立幂等发送记录。"""
 import re
+from chat_catalog_read import catalog_cached
 from datetime import date
 from types import SimpleNamespace
 from uuid import UUID, uuid4, uuid5, NAMESPACE_URL
@@ -153,6 +154,7 @@ def recipients(db,config,at,extra=()):
     return [users[uid] for uid in sorted(selected)],warnings
 
 
+@catalog_cached
 def aliases(db):
     if not ready(db):return {}
     result={}

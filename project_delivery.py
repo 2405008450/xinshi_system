@@ -1,5 +1,6 @@
 """口译、标注、招聘：按日项目会话和持久化邮件联动，仅显式发送时写入。"""
 from types import SimpleNamespace
+from chat_catalog_read import catalog_cached
 from uuid import UUID, uuid4, uuid5, NAMESPACE_URL
 from sqlalchemy import DateTime, ForeignKey, JSON, String, Text, Uuid, inspect, text
 from sqlalchemy.orm import mapped_column
@@ -51,6 +52,7 @@ def require_ready(db):
     if not ready(db):raise HTTPException(503,'项目会话发送表尚未初始化')
 
 
+@catalog_cached
 def aliases(db):
     if not ready(db):return {}
     result={}

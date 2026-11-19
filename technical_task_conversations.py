@@ -1,5 +1,6 @@
 """技术任务会话复用讨论消息，部门权限覆盖目录、成员和历史检索。"""
 from uuid import UUID, uuid4
+from chat_catalog_read import catalog_cached
 from fastapi import HTTPException
 from sqlalchemy import DateTime, ForeignKey, Uuid, inspect
 from sqlalchemy.orm import mapped_column
@@ -19,6 +20,7 @@ class TaskConversation(Base):
     created_by = mapped_column(Uuid, ForeignKey('app_user.id'), nullable=False)
     created_at = mapped_column(DateTime(timezone=True), nullable=False, default=now)
 
+@catalog_cached
 def ready(db): return inspect(db.connection()).has_table(TaskConversation.__tablename__)
 
 def can_access(db,user): return isinstance(user,AppUser) and tasks.can_enter(db,user)
@@ -27,6 +29,7 @@ def require_category_access(db,user,category_id):
     if category_id is not None and UUID(str(category_id)) in restricted_ids(db) and not can_access(db,user):
         raise HTTPException(403,'技术/开发项目仅开发/IT部可访问')
 
+@catalog_cached
 def restricted_ids(db):
     ids={UUID(ROOT_ID)}
     if inspect(db.connection()).has_table(Folder.__tablename__):
@@ -40,6 +43,7 @@ def eligible(db):
     from organization_service import department_condition
     return db.query(AppUser).filter(AppUser.is_active.is_(True), AppUser.is_deleted.is_(False),department_condition(db,tasks.TECHNICAL_DEPARTMENTS))
 
+@catalog_cached
 def specs(db):
     if not ready(db): return {}
     from technical_task_management import numbers

@@ -1,4 +1,5 @@
 from uuid import UUID
+from chat_catalog_read import catalog_cached
 
 from sqlalchemy.orm import Session
 
@@ -38,6 +39,7 @@ def set_role_permission_codes(db: Session, role_id: UUID, codes: list[str]) -> l
     return normalized
 
 
+@catalog_cached
 def get_user_permission_codes(db: Session, user_id: UUID) -> list[str]:
     role_names = {
         row.role_name

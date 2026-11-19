@@ -84,7 +84,7 @@
 
 <script setup>
 import AdvancedFilterFieldSearch from '@/components/common/AdvancedFilterFieldSearch.vue'
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { getAnnotationManagerChangeLogs } from '@/api/annotationProjects'
 import AppForm from '@/components/common/AppForm.vue'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
@@ -144,7 +144,6 @@ const reset = () => {
   Object.assign(filters, { keyword: '', managerRole: '', changeMode: '', changedRange: [] })
   search()
 }
-watch(advancedVisible, visible => { if (!visible) reset() })
 const filterProject = row => {
   currentProject.value = { id: row.projectId, orderNo: row.orderNo, projectName: row.projectName }
   search()
