@@ -47,9 +47,10 @@ api.interceptors.response.use(
     const scope = chatConversationScope(error.config?.url)
     if (scope && [403, 404].includes(error.response?.status)) window.dispatchEvent(new CustomEvent('chat-conversation-access-denied', { detail: scope }))
     if (error.response?.status === 401) {
-      clearAuthSession()
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login'
+      const token = localStorage.getItem('token')
+      if (token && error.config?.headers?.Authorization === `Bearer ${token}`) {
+        clearAuthSession()
+        if (window.location.pathname !== '/login') window.location.replace('/login')
       }
     }
     return Promise.reject(normalizeApiError(error))

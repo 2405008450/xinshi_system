@@ -90,11 +90,7 @@
               :aria-label="`${row.clientName}订单分页`" :current-page="row.currentPage" :page-size="clientOrderPageSize" :total="row.orderTotal"
               @update:current-page="changeClientOrderPage(row.groupKey,$event)" />
           </div>
-          <div v-else class="finance-order-index" :style="orderTree.rows.get(row.id)?.indent">
-            <template v-if="orderTree.rows.has(row.id)">
-              <span v-for="line in orderTree.rows.get(row.id).lines" :key="line.level" aria-hidden="true"
-                class="finance-order-tree-line" :class="'finance-order-tree-line--'+line.kind" :style="line.position" />
-            </template>
+          <div v-else class="finance-order-index" :style="orderTree.indents.get(row.id)">
             <span>{{filters.clientOrderCount==='multiple'||childPagination?displayIndexes.get(row.id):((page-1)*10+$index+1)}}</span>
             <TableExpandButton v-if="!statementClientView && (row.childOrderCount || (row.hasChildren ?? !!row.children?.length))"
               :expanded="isOrderExpanded(row.id)" :count="row.childOrderCount"
@@ -619,7 +615,7 @@ import {documentNotesForm,invoiceRequirement,documentConsistencyRows,documentCon
 import CustomerStatementDialog from '@/components/common/CustomerStatementDialog.vue'
 import {taxPriceForm,taxPriceSummary} from '@/utils/taxPrices'
 import {copySavedValue} from '@/utils/savedDataMerge'
-import { computed, onMounted, onActivated, onDeactivated, onBeforeUnmount, reactive, ref, watch, nextTick } from 'vue'
+import { computed, onMounted, onBeforeUnmount, reactive, ref, watch, nextTick } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ProjectListRowActions from '@/components/common/ProjectListRowActions.vue'
@@ -687,10 +683,15 @@ const specialSettlementView=computed(()=>props.statementClientView&&props.settle
 const financeCollapsed=ref(props.collapsible)
 const isCollapsed=computed(()=>props.collapsible&&financeCollapsed.value)
 async function toggleFinancePanel(){
+  if(!isCollapsed.value&&!await tableEditing.flush())return
   financeCollapsed.value=!financeCollapsed.value
   if(!isCollapsed.value){
     await nextTick()
     statementTableRef.value?.doLayout()
+  }else{
+    advancedVisible.value=false
+    managerPickerVisible.value=false
+    resetSearch()
   }
 }
 function canSelectStatementProject(row){return !row.fixedPricingFrom&&(!props.requireStatementForSelection||row.statementRequired===true)}
@@ -897,30 +898,22 @@ function onStatementExpandChange(row, expanded) {
   else statementExpansionOverrides.value.add(row.id)
 }
 const orderTree = computed(() => {
-  const rows = new Map()
+  const indents = new Map()
   let width = 92
   const step = 14
-  const line = (level, kind) => ({ level, kind, position: { '--finance-tree-x': `${9 + level * step}px` } })
-  function visit(siblings, continuations = []) {
-    siblings.forEach((row, index) => {
+  function visit(rows, level = 0) {
+    for (const row of rows) {
       if (row._clientGroup) {
-        visit(row.children)
-        return
+        visit(row.children, level)
+        continue
       }
-      const level = continuations.length
-      const hasNext = index < siblings.length - 1
-      const lines = continuations.flatMap((continues, ancestor) => {
-        if (ancestor === level - 1) return [line(ancestor, hasNext ? 'branch' : 'end')]
-        return continues ? [line(ancestor, 'through')] : []
-      })
-      if (row.children?.length) lines.push(line(level, 'start'))
-      rows.set(row.id, { indent: { paddingInlineStart: `${step * level}px` }, lines })
+      indents.set(row.id, { paddingInlineStart: `${step * level}px` })
       width = Math.max(width, 64 + step * level)
-      if (row.children?.length) visit(row.children, [...continuations, hasNext])
-    })
+      if (row.children?.length) visit(row.children, level + 1)
+    }
   }
   if (!props.statementClientView) visit(tableRows.value)
-  return { rows, width }
+  return { indents, width }
 })
 async function changeClientOrderPage(key,nextPage){
   if(await tableEditing.flush())clientOrderPages.value={...clientOrderPages.value,[key]:nextPage}
@@ -941,20 +934,9 @@ const activeManagerQuery = computed(() => ({
   manager_ids: managerScope.value === 'name' ? managerIds.value : undefined,
   only_mine: managerScope.value === 'self',
 }))
-watch(managerPickerVisible, visible => {
-  if (visible) {
-    managerDraftScope.value = managerScope.value
-    managerDraftIds.value = [...managerIds.value]
-    return
-  }
-  if (managerScope.value !== defaultManagerScope() || managerIds.value.length) {
-    managerScope.value = defaultManagerScope()
-    managerIds.value = []
-    clearRowFilters()
-    search()
-  }
-  managerDraftScope.value = defaultManagerScope()
-  managerDraftIds.value = []
+watch(managerPickerVisible, () => {
+  managerDraftScope.value = managerScope.value
+  managerDraftIds.value = [...managerIds.value]
 })
 function applyManager(){
   const scope=managerDraftScope.value==='name'&&!managerDraftIds.value.length?'all':managerDraftScope.value
@@ -964,7 +946,7 @@ function applyManager(){
   managerIds.value=ids
   filters.manager=''
   search()
-  managerPicker.value?.minimize()
+  managerPickerVisible.value=false
 }
 function clearRowFilters(){filters.clientShortName='';filters.languagePair=''}
 watch(()=>[filters.month,activeManagerQuery.value,props.clientId,props.clientIds],async ([month,manager,clientId,clientIds],_,onCleanup)=>{
@@ -1066,7 +1048,7 @@ function setBillingMonth(month){
 }
 function queueSearch(){clearTimeout(timer);controller?.abort();sequence++;if(!filters.keyword.trim())search();else timer=setTimeout(search,400)}
 function queueFilterSearch(value){clearTimeout(timer);controller?.abort();sequence++;if(!String(value||'').trim())search();else timer=setTimeout(search,400)}
-function resetSearch(){clearRowFilters();filters.clientOrderCount='';collapsedClients.value=[];filters.missingWordCount=false;filters.missingUnitPrice=false;filters.missingTotal='';filters.keyword='';filters.projectStatus=[];filters.paymentStatus='';filters.statementRequired=[];filters.paymentMethod='';filters.billingPeriod=undefined;filters.pricingMode='';filters.client='';filters.subClient='';filters.month='';filters.manager='';managerIds.value=[];managerScope.value=defaultManagerScope();search()}
+function resetSearch(){clearRowFilters();filters.clientOrderCount='';collapsedClients.value=[];filters.missingWordCount=false;filters.missingUnitPrice=false;filters.missingTotal='';filters.keyword='';filters.projectStatus=[];filters.paymentStatus='';filters.statementRequired=[];filters.paymentMethod='';filters.billingPeriod=undefined;filters.pricingMode='';filters.client='';filters.subClient='';filters.month=props.initialMonth||'';filters.manager='';managerIds.value=[];managerScope.value=defaultManagerScope();search()}
 const formatAmounts=values=>Object.entries(values||{}).map(([currency,value])=>`${currency} ${Number(value).toFixed(2)}`).join('\n')||'-'
 const languageDirections=value=>String(value||'').split('；').map(direction=>direction.trim()).filter(Boolean)
 function cell(row,key){
@@ -2353,8 +2335,7 @@ defineExpose({openForForm,persistForForm,openOrderPricing:openEditor,statementSe
 
 watch(()=>[props.clientId,props.subClientId],search)
 watch(()=>[props.initialMonth,props.periodNumber,JSON.stringify(props.managerQuery)],()=>{if(props.statementClientView){filters.month=props.initialMonth||'';search()}})
-onMounted(()=>{if(props.clientId||props.clientIds.length)void load()})
-onActivated(()=>{if(props.editorOnly)return;managerScope.value=defaultManagerScope();managerIds.value=[];managerDraftScope.value=defaultManagerScope();managerDraftIds.value=[];filters.manager='';managerPickerVisible.value=false;page.value=1;subtotalPage.value=1;void load()})
+onMounted(()=>{if(!props.editorOnly)void load()})
 function showsCustomer(clientId){
   return !!clientId&&((editorVisible.value&&String(editor.value.clientId)===String(clientId))||
     (!props.editorOnly&&rows.value.some(row=>String(row.clientId)===String(clientId))))
@@ -2413,10 +2394,9 @@ onBeforeUnmount(()=>window.removeEventListener(invoicePartiesEvent,refreshSubCli
 onMounted(()=>window.addEventListener('translation-word-count-saved',refreshWordCounts))
 onBeforeUnmount(()=>window.removeEventListener('translation-word-count-saved',refreshWordCounts))
 onMounted(()=>{connectPaymentSync();window.addEventListener('customer-statement-preference-saved',onCustomerStatementPreferenceSaved);window.addEventListener('translation-statements-changed',refreshStatementStatus);window.addEventListener('translation-finance-changed',onCustomerRatesSaved);window.addEventListener(paymentChangeEvent,onPaymentChanged)})
-onDeactivated(()=>{editorSequence++;editorLoading.value=false;paymentVisible.value=false;ledgerVisible.value=false;invoiceVisible.value=false;quotationVisible.value=false;statementVisible.value=false;specialStatementVisible.value=false;backupStatementVisible.value=false;managerPickerVisible.value=false;historyVisible.value=false;clearTimeout(timer);sequence++;controller?.abort();loading.value=false})
 async function guardEditor(){if(!await tableEditing.flush())return false;if(!editorVisible.value)return true;if(saving.value)return false;await closeEditor();return !editorVisible.value}
 onBeforeRouteLeave(guardEditor)
-onBeforeRouteUpdate((to,from)=>to.query.section!==from.query.section?guardEditor():true)
+onBeforeRouteUpdate((to,from)=>to.params.module!==from.params.module||to.query.section!==from.query.section?guardEditor():true)
 onBeforeUnmount(()=>{window.removeEventListener('customer-statement-preference-saved',onCustomerStatementPreferenceSaved);window.removeEventListener('translation-statements-changed',refreshStatementStatus);window.removeEventListener('translation-finance-changed',onCustomerRatesSaved);window.removeEventListener(paymentChangeEvent,onPaymentChanged);disposed=true;clearTimeout(timer);sequence++;controller?.abort()})
 useProjectStatusSync('translation',rows,{enabled:()=>!props.editorOnly,onChanged:()=>{if(!loading.value&&!editorLoading.value)void load({fromTable:true})}})
 </script>
@@ -2426,23 +2406,6 @@ useProjectStatusSync('translation',rows,{enabled:()=>!props.editorOnly,onChanged
 .finance-settlement-tabs--single > :deep(.el-tabs__header) { display: none; }
 .finance-order-index{display:flex;align-items:center;gap:4px;min-height:20px;line-height:20px;white-space:nowrap}
 .finance-project-table--order-controls :deep(td.finance-order-index-cell > .cell){overflow:visible}
-.finance-order-tree-line{
-  position:absolute;
-  inset-block:0;
-  inset-inline-start:var(--finance-tree-x);
-  border-inline-start:1px solid var(--el-text-color-placeholder);
-  pointer-events:none;
-}
-.finance-order-tree-line--start{inset-block-start:19px}
-.finance-order-tree-line--end{inset-block-end:auto;height:15px}
-.finance-order-tree-line--branch::after,.finance-order-tree-line--end::after{
-  content:'';
-  position:absolute;
-  inset-block-start:14px;
-  inset-inline-start:-1px;
-  width:9px;
-  border-block-end:1px solid var(--el-text-color-placeholder);
-}
 .finance-project-table--order-controls :deep(.el-table__expand-icon){display:none}
 .finance-client-group-header{display:inline-flex;align-items:center;gap:12px;white-space:nowrap}.finance-client-group-header small{color:var(--el-text-color-secondary)}.finance-client-group-header .el-pagination{margin:0}
 .finance-language-directions{display:flex;align-items:center;gap:4px;min-width:0}.finance-direction-text{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.finance-language-directions .el-button{flex:none;padding:0}.finance-direction-details{max-height:min(360px,calc(100vh - 160px));overflow-y:auto;margin:0;padding-inline-start:20px;overflow-wrap:anywhere}

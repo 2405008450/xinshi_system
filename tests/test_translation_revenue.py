@@ -77,6 +77,23 @@ def test_lost_clients_remain_and_keyword_is_multiword_literal():
     assert old['mom']['rate'] == '-100.00'
 
 
+def test_amount_shortcuts_count_all_keyword_matches_before_range_and_pagination():
+    entries = [entry('Alpha A', '2026-11-01', 45000, 50000),
+               entry('Alpha B', '2026-11-01', 12000),
+               entry('Alpha C', '2026-10-01', 300),
+               entry('Other', '2026-11-01', 80000)]
+    args = {'modes': {'Alpha A': 'incl'}, 'keyword': 'Alpha', 'limit': 1}
+    data = revenue.report(entries, 'month', date(2026, 11, 10), rank_max=1, **args)
+    assert data['total'] == 0 and data['amount_shortcut_total'] == 3
+    assert data['amount_shortcuts'][:2] == [
+        {'min': 50000, 'max': None, 'customers': 1},
+        {'min': 10000, 'max': 50000, 'customers': 2},
+    ]
+    selected = revenue.report(entries, 'month', date(2026, 11, 10), amount_min=10000, amount_max=50000, **args)
+    assert selected['amount_shortcuts'] == data['amount_shortcuts']
+    assert selected['total'] == 2 and len(selected['items']) == 1
+
+
 def test_order_dates_and_business_timezone_fallback():
     for number, expected in [('TP-261110-001', date(2026,11,10)), ('TP-20240229-001', date(2024,2,29))]:
         assert revenue.order_date(SimpleNamespace(order_no=number,customer_reception_time=None)) == (expected, False)
@@ -121,6 +138,33 @@ def test_hierarchy_counts_only_root_aggregate(environment):
                              manager_ids=None, only_mine=False, client_id=None)
     assert result['overall']['amount'] == '10.00'
     assert sum(row['projects'] for row in result['items']) == 1
+    assert result['items'][0]['missing'] == 0
+    assert revenue.translation_missing_orders({
+        'prices': [{'currency': 'CNY', 'tax_prices': {'unit_price_incl_tax': '0.5'}, 'quantity': None}],
+        'word_count_matrix': {'company': {'documents': 1}},
+        'children': [], 'pricing_mode': 'metric',
+    }, 'totals_excl_tax') == []
+
+
+def test_current_period_order_details_and_project_type_comparison(context):
+    http, db, clients, _, _ = context
+    http.app.include_router(revenue.router)
+    current = project(db, clients[0], '001', fixed=True)
+    project(db, clients[0], '002', month='2026-10', fixed=True)
+    project(db, clients[1], '003', fixed=True)
+    base = {'anchor': '2026-11-10', 'project_type': 'all'}
+    comparison = http.get('/translation-revenue', params=base).json()['project_type_totals']
+    assert comparison[0] == {'module': 'translation', 'customers': 2, 'orders': 2, 'amount': '1000.00'}
+    assert [item['module'] for item in comparison[1:]] == ['interpretation', 'annotation', 'recruitment']
+    assert all(item['orders'] == 0 for item in comparison[1:])
+    params = {**base, 'detail_client': str(clients[0].id)}
+    response = http.get('/translation-revenue', params=params)
+    assert response.status_code == 200, response.text
+    [order] = response.json()['items']
+    assert order['order_no'] == current.order_no
+    assert Decimal(order['totals_excl_tax']['CNY']) == 500
+    assert Decimal(order['totals_incl_tax']['CNY']) == 530
+    assert http.get('/translation-revenue', params={**params, 'client_id': str(clients[1].id)}).json()['items'] == []
 
 
 def test_ranking_details_follow_current_period_and_selected_basis(context):

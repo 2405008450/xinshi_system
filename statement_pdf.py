@@ -23,6 +23,67 @@ def chinese_font():
     return 'STSong-Light'
 
 
+def paginated_tables(cells, widths, shared_spans, date_column, first_height, page_height):
+    """先按完整数据行分组，再为各页单独建立表头及页内合并单元格。"""
+    from reportlab.lib import colors
+    from reportlab.platypus import LongTable, TableStyle
+
+    rows = cells[1:-1]
+
+    def build(start, end):
+        include_total = end == len(rows)
+        page_cells = [list(cells[0])] + [list(row) for row in rows[start:end]]
+        commands = [
+            ('GRID', (0, 0), (-1, -1), .5, colors.HexColor('#888888')),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 7),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 7),
+            ('LEFTPADDING', (date_column, 0), (date_column, -1), 2),
+            ('RIGHTPADDING', (date_column, 0), (date_column, -1), 2),
+        ]
+        for first, last in shared_spans:
+            left, right = max(first, start), min(last, end - 1)
+            if left > right:
+                continue
+            for column in (date_column, date_column + 1, date_column + 3):
+                page_cells[left - start + 1][column] = rows[first][column]
+                if right > left:
+                    commands.append(('SPAN', (column, left - start + 1), (column, right - start + 1)))
+        if include_total:
+            page_cells.append(list(cells[-1]))
+            commands.extend([('SPAN', (0, -1), (-3, -1)), ('SPAN', (-2, -1), (-1, -1))])
+        table = LongTable(page_cells, colWidths=widths, repeatRows=1, splitInRow=0)
+        table.setStyle(TableStyle(commands))
+        return table
+
+    start = 0
+    available = first_height
+    if not rows:
+        yield build(0, 0)
+        return
+    while start < len(rows):
+        chosen = None
+        end = start
+        for candidate_end in range(start + 1, len(rows) + 1):
+            candidate = build(start, candidate_end)
+            if candidate.wrap(sum(widths), available)[1] > available:
+                break
+            chosen, end = candidate, candidate_end
+        if chosen is None:
+            if available < page_height:
+                # 第一页抬头占用较多空间时，将表格完整移到下一页。
+                yield None
+                available = page_height
+                continue
+            # 单行超过整页时由 ReportLab 拆分内容，普通订单始终整行分页。
+            chosen = build(start, start + 1)
+            chosen.splitInRow = 1
+            end = start + 1
+        yield chosen
+        start = end
+        available = page_height
+
+
 def pdf_bytes(statements):
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
@@ -51,6 +112,7 @@ def pdf_bytes(statements):
     story=[]
     for index,data in enumerate(statements):
         if index:story.append(PageBreak())
+        intro_start = len(story)
         story.extend([paragraph(data['company'],'company'),Spacer(1,4*mm),paragraph(statement_title(data),'title'),Spacer(1,6*mm)])
         billing='账单月份：'+data['month']+'　'+tax_label(data)
         if data.get('statement_number'):
@@ -82,14 +144,24 @@ def pdf_bytes(statements):
         summary=LongTable([[paragraph('账单日期：'+(data.get('issue_date') or '—'),'footer'),paragraph('合计（已登记金额）' if data['pending'] else '合计','total_label')]],colWidths=[label_width*.6,label_width*.4])
         summary.setStyle(TableStyle([('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0)]))
         cells.append([summary]+['']*(len(headings)-3)+[paragraph('\n'.join(f'{key} {value}' for key,value in data['totals'].items()),'total'),''])
-        table=LongTable(cells,colWidths=[document.width*weight/sum(weights) for weight in weights],repeatRows=1,splitInRow=1)
         date_column=int(origin)+int(customer_order)
-        table.setStyle(TableStyle([('LEFTPADDING',(date_column,0),(date_column,-2),2),('RIGHTPADDING',(date_column,0),(date_column,-2),2),('GRID',(0,0),(-1,-1),.5,colors.HexColor('#888888')),('VALIGN',(0,0),(-1,-1),'MIDDLE'),('TOPPADDING',(0,0),(-1,-1),7),('BOTTOMPADDING',(0,0),(-1,-1),7),('SPAN',(0,-1),(-3,-1)),('SPAN',(-2,-1),(-1,-1))]))
-        for start,end in statement_shared_cell_spans(data['rows']):
-            for column in (date_column,date_column+1,date_column+3):
-                first,last=(column,start+1),(column,end+1)
-                table.setStyle(TableStyle([('SPAN',first,last)]))
-        story.append(table)
+        page_height = document.height - 12
+        intro_height = sum(item.wrap(document.width, document.height)[1]
+                           + item.getSpaceBefore() + item.getSpaceAfter() for item in story[intro_start:])
+        pages = paginated_tables(
+            cells, [document.width*weight/sum(weights) for weight in weights],
+            list(statement_shared_cell_spans(data['rows'])), date_column,
+            page_height - intro_height, page_height,
+        )
+        table_page_started = False
+        for table in pages:
+            if table is None:
+                story.append(PageBreak())
+                continue
+            if table_page_started:
+                story.append(PageBreak())
+            story.append(table)
+            table_page_started = True
         if data.get('stamp_image'):
             story.append(Stamp(BytesIO(base64.b64decode(data['stamp_image'].split(',',1)[1]))))
         if data.get('private_settings_available',True):

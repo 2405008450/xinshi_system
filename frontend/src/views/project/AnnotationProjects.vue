@@ -209,7 +209,7 @@
     <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" class="pagination" @size-change="handlePageSizeChange" @current-change="handlePageChange" />
 
     <AnnotationProgressSearchDialog
-      ref="progressSearchDialogRef"
+
       v-model="progressSearchVisible"
       @open-context="queueProgressSearchContext"
       @closed="openQueuedProgressContext"
@@ -960,7 +960,7 @@ const orderNoRules={
   ],
   reason:[{validator:(_rule,value,callback)=>String(value||'').trim()?callback():callback(new Error('请填写修改原因')),trigger:['blur','change']}],
 }
-const dialogTitle=ref('新增标注项目'), formRef=ref(), dialogBodyRef=ref(), detailLoadingId=ref(null), projectTableRef=ref(null), progressSearchDialogRef=ref(null)
+const dialogTitle=ref('新增标注项目'), formRef=ref(), dialogBodyRef=ref(), detailLoadingId=ref(null), projectTableRef=ref(null)
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,locateDialogFieldByLabel,clearFieldSearch}=useDialogFieldSearch(dialogBodyRef)
 const materialEditorRef=ref(),taskImagesRef=ref(),creationDeliveryRef=ref()
 const expandedProjectIds = ref([])
@@ -1110,7 +1110,7 @@ const clearAdvanced=()=>{resetFilterModel(searchForm,annotationAdvancedFilterFie
 const resetSearch=()=>{searchForm.keyword='';listSort.value='order_no_desc';resetFilterModel(searchForm,annotationFilterFields.value);handleSearch()}
 const loadReferenceData=async()=>{const results=await Promise.allSettled([clientApi.getClients({skip:0,limit:500,frequent_first:true}),userApi.getUsers({skip:0,limit:500}),getProjectLanguages(),talentApi.getProjectTalentOptions('annotation'),annotationApi.getAnnotationManagerOptions()]);clients.value=results[0].status==='fulfilled'&&Array.isArray(results[0].value)?results[0].value:[];users.value=results[1].status==='fulfilled'&&Array.isArray(results[1].value)?results[1].value:[];languages.value=results[2].status==='fulfilled'?results[2].value:[];annotationTalents.value=results[3].status==='fulfilled'&&Array.isArray(results[3].value)?results[3].value:[];annotationManagerUsers.value=results[4].status==='fulfilled'&&Array.isArray(results[4].value)?results[4].value:[];projectManagerOptions.value=annotationManagerUsers.value}
 const loadDetail=async(id,force=false)=>{if(!force&&detailCache[id])return detailCache[id];detailLoadingId.value=id;try{const detail=await annotationApi.getAnnotationProject(id);detailCache[id]=detail;return detail}catch(error){ElMessage.error(error.detail||'加载项目详情失败');return null}finally{detailLoadingId.value=null}}
-const resetProgressDialog=()=>{if(props.progressOnly)emit('progress-closed');entryTrack.value='project';customerProgress.reset();const shouldReturn=returnToSearchAfterProgressClose.value;activeProgressProject.value=null;progressRows.value=[];progressDialogTab.value='progress';targetProgressRecordId.value='';progressSearchReturnAvailable.value=false;returnToSearchAfterProgressClose.value=false;projectEntryDrafts.reset();statusFormRef.value?.clearValidate();if(!props.embedded && route.query.tab==='chat'){const query={...route.query};delete query.tab;router.replace({query}).catch(()=>{})}if(shouldReturn){progressSearchDialogRef.value?.preserveNextOpen();progressSearchVisible.value=true}}
+const resetProgressDialog=()=>{if(props.progressOnly)emit('progress-closed');entryTrack.value='project';customerProgress.reset();const shouldReturn=returnToSearchAfterProgressClose.value;activeProgressProject.value=null;progressRows.value=[];progressDialogTab.value='progress';targetProgressRecordId.value='';progressSearchReturnAvailable.value=false;returnToSearchAfterProgressClose.value=false;projectEntryDrafts.reset();statusFormRef.value?.clearValidate();if(!props.embedded && route.query.tab==='chat'){const query={...route.query};delete query.tab;router.replace({query}).catch(()=>{})}if(shouldReturn)progressSearchVisible.value=true}
 const focusProjectProgressEntry=async()=>{await nextTick();const target=progressNoteInputRef.value?.$el;scrollFormTarget(target);focusFormTarget(target)}
 const handleStatusEntryModeChange=async(mode)=>{if(mode===statusEntryMode.value||progressBusy.value)return;statusEntryMode.value=mode;await nextTick();statusFormRef.value?.clearValidate()}
 const handleProgressStatusSelect=()=>{if(statusEntryMode.value==='progress')selectedProgressStageKey.value=''}

@@ -116,7 +116,7 @@
     </template>
   </DraggableFormDialog>
   <ProjectInvoiceDialog v-if="invoiceProject" :model-value="true" :request-id="requestId"
-    :context="invoiceContext" :special="!!invoiceProject.root_id" :can-deliver="request.is_recipient && received && !delivery(invoiceProject)"
+    :context="invoiceContext" :special="!!invoiceProject.root_id" :can-deliver="request.is_recipient && received"
     @update:model-value="invoiceProject = null" @saved="load" />
 </template>
 

@@ -1403,12 +1403,10 @@ const handleResetSearch = () => {
   filters.dateRange = []
   filters.favoritesOnly = false
   pagination.page = 1
-  loadMessages()
+  if (props.active && props.projectId) loadMessages()
 }
 
-watch([filterPopoverVisible, conversationFiltersVisible], ([popover, panel], [wasPopover, wasPanel]) => {
-  if ((wasPopover && !popover || wasPanel && !panel) && props.active && props.projectId) handleResetSearch()
-})
+
 
 const handlePageSizeChange = () => {
   clearProgressSelection(true)

@@ -1,5 +1,5 @@
 <template>
-  <DraggableFormDialog v-model="visible" :title="`${entryState} · 跨日期开拓记录`" width="min(1380px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close class="development-status-dialog" @close="stopRequests">
+  <DraggableFormDialog v-model="visible" :title="`${entryState} · 跨日期开拓记录`" width="min(1380px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close class="development-status-dialog" @close="closeSearch">
     <div class="status-filter-area" data-auto-draft="off">
       <div class="development-filters">
         <el-date-picker v-model="filters.range" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期（全部日期）" end-placeholder="结束日期" clearable @change="query" />
@@ -63,6 +63,9 @@ function stopRequests() {
   clearTimeout(timer); controller?.abort(); sequence++; loading.value = false; advanced.value = false
   tableRef.value?.invalidateDetails()
 }
+function closeSearch() {
+  stopRequests(); resetFilters(entryState.value); page.value = 1; rows.value = []; total.value = 0
+}
 async function reload() {
   if (!visible.value) return
   clearTimeout(timer); controller?.abort()
@@ -91,7 +94,7 @@ function commonChanged(key) { clearCommonColumn(key); query() }
 function clearColumns() { Object.keys(columnFilters).forEach(key => delete columnFilters[key]); query() }
 function clearAdvanced() { advancedConditions.value.forEach(condition => { filters[condition.key] = '' }); query() }
 function reset() { resetFilters(entryState.value); query() }
-watch(advanced, open => { if (!open && visible.value) reset() })
+
 function chooseRange(key) { filters.range = developmentDateRange(key); query() }
 function pageChanged() { rows.value = []; reload() }
 function sizeChanged() { page.value = 1; pageChanged() }

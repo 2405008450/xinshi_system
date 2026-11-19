@@ -1,5 +1,5 @@
 <template>
-  <DraggableFormDialog v-model="visible" title="路径筛选" width="min(1600px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close class="talent-path-dialog" :before-close="beforeClose" @closed="cancelRequests">
+  <DraggableFormDialog v-model="visible" title="路径筛选" width="min(1600px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close class="talent-path-dialog" :before-close="beforeClose" @closed="closeSearch">
     <div class="talent-path-filters" data-auto-draft="off">
       <label for="talent-path-registered">路径登记</label>
       <el-select id="talent-path-registered" v-model="registered" clearable placeholder="全部" aria-label="路径登记" :disabled="busy" @change="query"><el-option label="有" :value="true" /><el-option label="无" :value="false" /></el-select>
@@ -64,7 +64,9 @@ async function load(){
 }
 function query(){if(!dirtyGuard())return;page.value=1;return load()}
 function reset(){if(!dirtyGuard())return;registered.value=null;return query()}
-function open(){if(visible.value)return;registered.value=true;page.value=1;pageSize.value=20;total.value=0;model.rows=[];visible.value=true;return load()}
+function restoreFilterDefaults(){registered.value=true;page.value=1;pageSize.value=20;total.value=0;model.rows=[];error.value='';needsRefill=false;applied={page:1,pageSize:20,registered:true}}
+function closeSearch(){if(visible.value)return;cancelRequests();restoreFilterDefaults()}
+function open(){if(visible.value)return;restoreFilterDefaults();visible.value=true;return load()}
 function undoRow(row){Object.assign(row,row._original);row._error='';formRef.value?.clearValidate();if(needsRefill&&!busy.value&&!model.rows.some(isDirty))void load()}
 async function saveRow(row,index){
   if(row._saving||!isDirty(row))return

@@ -1,5 +1,5 @@
 <template>
-  <el-popover title="高级筛选"
+  <el-popover title="高级筛选" retain-on-selection :draft-filter="false"
     v-model:visible="visibleModel"
     trigger="click"
     placement="bottom-end"
@@ -18,20 +18,24 @@
       <div class="advanced-filter-header">
 
         <div class="advanced-filter-actions">
-          <el-button type="primary" link @click="$emit('reset')">重置</el-button>
+          <el-button type="primary" @click="confirm">确定</el-button>
+          <el-button type="primary" link @click="cancelFilters">取消筛选</el-button>
           <el-button v-if="count" type="primary" link @click="$emit('clear')">清空高级条件</el-button>
           <el-button link @click="visibleModel = false">关闭</el-button>
         </div>
       </div>
       <div class="advanced-filter-body" :class="{ 'is-compact': compact }">
-        <AdvancedFilterFieldSearch :active="visible" :anchor="referenceHost" :scope="popperClass"><slot /></AdvancedFilterFieldSearch>
+        <FilterDraftScope ref="draftScope" :active="visible">
+          <AdvancedFilterFieldSearch :active="visible" :anchor="referenceHost" :scope="popperClass"><slot /></AdvancedFilterFieldSearch>
+        </FilterDraftScope>
       </div>
     </div>
   </el-popover>
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
+import FilterDraftScope from './FilterDraftScope'
 import AdvancedFilterFieldSearch from './AdvancedFilterFieldSearch.vue'
 
 const props = defineProps({
@@ -43,13 +47,13 @@ const props = defineProps({
 
 const emit = defineEmits(['update:visible', 'clear', 'reset'])
 const referenceHost=ref()
+const draftScope=ref()
+function confirm(){draftScope.value?.apply();visibleModel.value=false}
+function cancelFilters(){draftScope.value?.discard();emit('reset');visibleModel.value=false}
 
 const visibleModel = computed({
   get: () => props.visible,
   set: (value) => emit('update:visible', value),
-})
-watch(() => props.visible, (visible, wasVisible) => {
-  if (wasVisible && !visible) emit('reset')
 })
 
 const popoverWidth = 'min(760px, calc(100vw - 32px))'

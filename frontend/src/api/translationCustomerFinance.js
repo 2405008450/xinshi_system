@@ -39,7 +39,7 @@ export const getSameMonthPriceSyncStatus=(id,orderId)=>api.get(`/translation-cus
 
 export const saveCustomerFinanceTable=(id,data)=>api.patch(`/translation-customer-finance/project/${id}/table`,data,{timeout:30000}).then(camel)
 
-export const getStatementCustomerGroups=(params,config={})=>api.get('/translation-customer-finance/statement-customer-groups',{...config,params,paramsSerializer:{indexes:null}}).then(camel)
+export const getStatementCustomerGroups=(params,config={})=>api.get('/translation-customer-finance/statement-customer-groups',{timeout:30000,...config,params,paramsSerializer:{indexes:null}}).then(camel)
 export const moveStatementCustomer=(id,data)=>api.put(`/translation-customer-finance/statement-customer-groups/${id}`,data).then(camel)
 
 export const setStatementProgress=(id,data)=>api.put(`/translation-customer-finance/statement-customer-groups/${id}/progress`,data).then(camel)

@@ -12,6 +12,23 @@ from PIL import Image
 from routers.editor_screenshots import router as attachment_router
 
 
+def test_special_invoice_manual_status_changes_keep_separate_history(context):
+    _, db, clients, _, actor = context
+    row = project(db, clients[0], 'INV-SPECIAL-HISTORY', fixed=True)
+    documents.save(db, row, payment_method='special', actor_id=actor.id)
+    db.commit()
+    for status, note in [('issued', '原发票备注'), ('unissued', ''), ('partial', '人工调整')]:
+        current = invoices.read(db, row.id, special=True)
+        invoices.save(db, row.id, invoices.InvoiceWrite(
+            version=current['version'], invoice_status=status, proofs=note,
+        ), actor.id, special=True)
+    current = invoices.read(db, row.id, special=True)
+    assert current['invoice_status'] == 'partial'
+    assert len(current['history']) == 3
+    assert current['history'][1]['before']['proofs'] == '原发票备注'
+    assert invoices.read(db, row.id)['history'] == []
+
+
 @pytest.mark.parametrize('extension', ['pdf', 'ofd'])
 def test_invoice_file_upload_save_and_download(context, extension):
     http, db, clients, permissions, _ = context
@@ -44,6 +61,23 @@ def test_invoice_file_upload_save_and_download(context, extension):
     assert downloaded.headers['content-type'] == f'application/{extension}'
     assert downloaded.headers['content-disposition'] == f'attachment; filename="invoice.{extension}"'
     assert downloaded.content == content
+    removed = http.put(invoice_url, json={
+        'version': saved.json()['version'], 'invoice_status': 'unissued', 'proofs': '保留备注',
+    })
+    assert removed.status_code == 200, removed.text
+    result = removed.json()
+    assert result['invoice_status'] == 'unissued'
+    event = result['history'][-1]
+    assert event['before']['proofs'] == proofs
+    assert event['after'] == {'invoice_status': 'unissued', 'proofs': '保留备注'}
+    assert event['at'].endswith('+08:00') and event['actor_name']
+    manual = http.put(invoice_url, json={
+        'version': result['version'], 'invoice_status': 'partial', 'proofs': '保留备注',
+    })
+    assert manual.status_code == 200
+    assert manual.json()['invoice_status'] == 'partial'
+    assert len(manual.json()['history']) == 3
+    assert http.get(f"/editor-screenshots/{attachment['id']}").status_code == 200
 
 
 def test_statement_customer_filter_matches_whole_customers_before_pagination(context):

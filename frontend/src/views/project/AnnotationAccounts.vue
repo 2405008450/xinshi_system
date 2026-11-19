@@ -213,7 +213,7 @@ import { matchesSearch } from '@/utils/searchMatching'
 
 import AnnotationOrderContext from '@/components/annotation/AnnotationOrderContext.vue'
 import { refreshAfterSave } from '@/utils/postSaveRefresh.js'
-import { computed, defineAsyncComponent, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { QuestionFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
@@ -638,8 +638,6 @@ onBeforeRouteUpdate(async to=>{
 onBeforeRouteLeave(async()=>await discardDrafts())
 watch(viewMode,value=>emit('focus-mode-change',value==='project'),{immediate:true})
 watch(()=>[route.query.section,route.query.projectId,route.query.view],()=>{if(routeContextReady&&route.query.section==='accounts')void applyRouteContext(route.query)})
-onActivated(()=>{emit('focus-mode-change',viewMode.value==='project');if(routeContextReady&&route.query.section==='accounts')void applyRouteContext(route.query)})
-onDeactivated(()=>emit('focus-mode-change',false))
 onMounted(async()=>{const results=await Promise.allSettled([projectApi.getAnnotationProjects({skip:0,limit:500}),talentApi.getProjectTalentOptions('annotation'),getUsers({skip:0,limit:500})]);projects.value=results[0].status==='fulfilled'?results[0].value:[];talents.value=results[1].status==='fulfilled'?results[1].value:[];users.value=results[2].status==='fulfilled'&&Array.isArray(results[2].value)?results[2].value:[];routeContextReady=true;await applyRouteContext(route.query,{force:true})})
 onMounted(()=>window.addEventListener('beforeunload',beforeUnload))
 onBeforeUnmount(()=>{emit('focus-mode-change',false);clearTimeout(timer);clearTimeout(clientSearchTimer);controller?.abort();clientSearchController?.abort();window.removeEventListener('beforeunload',beforeUnload)})

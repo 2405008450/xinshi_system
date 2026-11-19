@@ -573,7 +573,8 @@ def read_request_invoice(request_id: UUID, project_id: UUID, db=Depends(get_db),
     shared = delivery or (uploaded if str(actor.id) not in row.recipients else None)
     if shared:
         project = projects[0]
-        return {'proofs':shared['proofs'],'invoice_status':'issued','required':True,
+        current, _ = group_invoice(db, projects)
+        return {**current, 'required':True,
                 'order_no':project['order_no'],'client_name':project.get('client_name'),
                 'price_details':project.get('price_details') if len(projects)==1 else None,
                 'totals':customer_groups(projects)[0]['totals'] if len(projects)>1 else project.get('totals',{})}
@@ -591,8 +592,6 @@ def save_request_invoice(request_id: UUID, project_id: UUID, payload: InvoiceWri
     if str(actor.id) not in row.snapshot.get('request_receipts', {}):
         raise HTTPException(409, '请先发送开票需求的收到回执')
     projects = invoice_group(row, project_id, combined)
-    if any(project['project_id'] in row.snapshot.get('deliveries', {}) for project in projects):
-        raise HTTPException(409, '该项目的发票已发送')
     current, records = group_invoice(db, projects, lock=True)
     if current['version'] != payload.version:
         raise HTTPException(409, '发票信息已更新，请重新加载后核对')

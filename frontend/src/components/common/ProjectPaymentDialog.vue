@@ -425,25 +425,18 @@ function openManagerPicker(){managerDraftScope.value=managerScope.value;managerD
 async function applyManager(){
   managerScope.value=managerDraftScope.value==='name'&&!managerDraftIds.value.length?'all':managerDraftScope.value
   managerIds.value=managerScope.value==='name'?[...managerDraftIds.value]:[]
-  managerPicker.value?.minimize()
+  managerPickerVisible.value=false
   await applyPaymentFilters()
 }
 const defaultManagerScope = () => props.scopeOrder || props.invoiceClientId || props.embedded ? 'all' : 'self'
-watch(managerPickerVisible, visible => {
-  if (visible) return
-  const changed = managerScope.value !== defaultManagerScope() || managerIds.value.length > 0
-  managerScope.value = defaultManagerScope()
-  managerIds.value = []
+watch(managerPickerVisible, () => {
   managerDraftScope.value = managerScope.value
-  managerDraftIds.value = []
-  if (changed && props.modelValue) void applyPaymentFilters()
+  managerDraftIds.value = [...managerIds.value]
 })
 watch(invoiceCustomerPickerVisible, visible => {
   if (visible) return
   invoiceCustomerSearch?.abort()
-  if (!invoiceClientIds.value.length) return
-  invoiceClientIds.value = []
-  if (props.modelValue) void applyInvoiceCustomerFilters()
+
 })
 function initPaymentFilters(){
   invoiceCustomerPickerVisible.value=false

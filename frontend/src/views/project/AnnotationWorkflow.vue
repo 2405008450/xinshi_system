@@ -35,7 +35,7 @@
         <el-table-column prop="resourceCode" label="人员编号" width="140"><template #default="{row}">{{ row.resourceCode || '-' }}</template></el-table-column>
         <el-table-column prop="personName" label="姓名" min-width="130" />
         <el-table-column min-width="160">
-          <template #header><el-popover title="按语种筛选" v-model:visible="languageFilterVisible" trigger="click" placement="bottom" :width="300"><template #reference><el-button link type="primary" class="language-filter-button">语种<span v-if="languageItemId">（已筛选）</span><el-icon><Filter /></el-icon></el-button></template><div class="language-filter-panel"><strong>按语种筛选</strong><el-select v-model="languageItemId" clearable filterable :disabled="!projectId" :placeholder="projectId?'全部语种':'请先选择项目'" style="width:100%" @change="loadRows"><el-option v-for="item in filterLanguageItems" :key="item.id" :label="item.display" :value="item.id" /></el-select><el-button link type="primary" @click="clearLanguageFilter">清除筛选</el-button></div></el-popover></template>
+          <template #header><el-popover title="按语种筛选" v-model:visible="languageFilterVisible" trigger="click" placement="bottom" :width="300"><template #reference><el-button link type="primary" class="language-filter-button">语种<span v-if="languageItemId">（已筛选）</span><el-icon><Filter /></el-icon></el-button></template><div class="language-filter-panel" data-auto-draft="off"><strong>按语种筛选</strong><el-select v-model="languageItemId" clearable filterable :disabled="!projectId" :placeholder="projectId?'全部语种':'请先选择项目'" style="width:100%" @change="loadRows"><el-option v-for="item in filterLanguageItems" :key="item.id" :label="item.display" :value="item.id" /></el-select><el-button link type="primary" @click="clearLanguageFilter">清除筛选</el-button></div></el-popover></template>
           <template #default="{row}">{{ row.languageDisplay || '-' }}</template>
         </el-table-column>
         <el-table-column label="人员价格" min-width="170"><template #default="{row}">{{ priceText(row.amount,row.unit,row.currency) }}</template></el-table-column>
@@ -107,7 +107,7 @@ const handleProjectChange=async()=>{languageItemId.value='';await Promise.all([l
 const handleKeyword=value=>{clearTimeout(keywordTimer);if(!value)return loadRows();keywordTimer=setTimeout(loadRows,400)}
 const resetFilters=()=>{projectId.value='';keyword.value='';roleFilter.value='';statusFilter.value='';languageItemId.value='';languageFilterVisible.value=false;customFields.value=[];loadRows()}
 const clearLanguageFilter=()=>{languageItemId.value='';languageFilterVisible.value=false;loadRows()}
-watch(languageFilterVisible, visible => { if (!visible && languageItemId.value) clearLanguageFilter() })
+
 const editorProjectChanged=async()=>{form.languageItemId=null;form.customValues={};editorFields.value=form.projectId?await opsApi.getCustomFields('assignment',form.projectId):[]}
 const openEditor=async(row=null)=>{Object.assign(form,emptyForm(),row?workflowFormValues(row):{projectId:projectId.value});editorFields.value=form.projectId?await opsApi.getCustomFields('assignment',form.projectId):[];dialogVisible.value=true}
 const saveRow=async()=>{if(!await formRef.value?.validate().catch(()=>false))return;if (saving.value) return

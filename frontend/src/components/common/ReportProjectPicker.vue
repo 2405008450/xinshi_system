@@ -1,9 +1,9 @@
 <template>
   <DraggableFormDialog v-model="visible" :title="`${projectType} · 搜索选择项目`" class="report-project-picker" width="min(960px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close>
     <el-alert :title="rangeHint" type="info" :closable="false" class="project-picker-hint" />
-    <div class="project-picker-search"><el-input v-model="keyword" clearable placeholder="订单号、项目名称、客户名称、翻译方向，可输入多个关键词" aria-label="搜索报告关联项目" @input="onInput" @clear="query" @keyup.enter="query" /><el-button :loading="loading" @click="query">查询</el-button><el-button @click="reset">重置</el-button></div>
-    <div class="project-picker-fields"><el-input v-model="clientKeyword" clearable placeholder="搜索客户全称或简称" aria-label="搜索客户名称" @input="onInput" @clear="query" @keyup.enter="query" /><el-input v-model="directionKeyword" clearable placeholder="搜索翻译方向，如：日文 中文" aria-label="搜索翻译方向" @input="onInput" @clear="query" @keyup.enter="query" /></div>
-    <div class="project-picker-fields">
+    <div class="project-picker-search" data-auto-draft="off"><el-input v-model="keyword" clearable placeholder="订单号、项目名称、客户名称、翻译方向，可输入多个关键词" aria-label="搜索报告关联项目" @input="onInput" @clear="query" @keyup.enter="query" /><el-button :loading="loading" @click="query">查询</el-button><el-button @click="reset">重置</el-button></div>
+    <div class="project-picker-fields" data-auto-draft="off"><el-input v-model="clientKeyword" clearable placeholder="搜索客户全称或简称" aria-label="搜索客户名称" @input="onInput" @clear="query" @keyup.enter="query" /><el-input v-model="directionKeyword" clearable placeholder="搜索翻译方向，如：日文 中文" aria-label="搜索翻译方向" @input="onInput" @clear="query" @keyup.enter="query" /></div>
+    <div class="project-picker-fields" data-auto-draft="off">
       <el-input v-if="statusType !== 'consultation'" v-model="managerKeyword" clearable maxlength="100"
         placeholder="项目经理姓名或账号" aria-label="项目经理" @input="onInput" @keyup.enter="query" />
       <el-select v-model="projectStatus" clearable filterable placeholder="全部状态" aria-label="状态" @change="query">
@@ -87,9 +87,10 @@ async function load() {
 function query(){clearTimeout(timer);page.value=1;load()}
 function onInput(value){clearTimeout(timer);sequence++;controller?.abort();selected.value=null;loading.value=true;if(!value.trim())query();else timer=setTimeout(query,400)}
 function changePeriod(value){period.value=value;dateFrom.value='';dateTo.value='';query()}
-function reset(){keyword.value='';clientKeyword.value='';directionKeyword.value='';managerKeyword.value='';projectStatus.value='';changePeriod(props.taskScope?'all':'week')}
+function restoreFilterDefaults(){keyword.value='';clientKeyword.value='';directionKeyword.value='';managerKeyword.value='';projectStatus.value='';period.value=props.taskScope?'all':'week';page.value=1;dateFrom.value='';dateTo.value=''}
+function reset(){restoreFilterDefaults();query()}
 function select(row){if(!row||loading.value)return;emit('selected',row);visible.value=false}
-watch(()=>props.modelValue,open=>{clearTimeout(timer);if(open){rows.value=[];reset()}else{sequence++;controller?.abort();selected.value=null}},{immediate:true})
+watch(()=>props.modelValue,open=>{clearTimeout(timer);sequence++;controller?.abort();rows.value=[];total.value=0;selected.value=null;error.value='';loading.value=false;restoreFilterDefaults();if(open)query()},{immediate:true})
 onBeforeUnmount(()=>{clearTimeout(timer);sequence++;controller?.abort()})
 </script>
 <style scoped>.project-picker-search{display:flex;gap:12px;margin-bottom:14px}.el-pagination{margin-top:14px;justify-content:flex-end;overflow-x:auto}</style>

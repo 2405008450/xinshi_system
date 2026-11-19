@@ -12,11 +12,7 @@ import {DEFAULT_ARRANGEMENT_EXCLUSIONS} from '@/utils/arrangementFilters'
 const props=defineProps({defaultValue:{type:Array,default:()=>[]},modelValue:{type:Array,default:()=>[]},statuses:{type:Array,default:()=>[]}})
 const emit=defineEmits(['update:modelValue'])
 const visible=ref(false)
-watch(visible, open => {
-  if (!open && (props.modelValue.length !== props.defaultValue.length || props.modelValue.some(value => !props.defaultValue.includes(value)))) {
-    emit('update:modelValue', [...props.defaultValue])
-  }
-})
+
 </script>
 <style scoped>
 .is-active-filter{--el-button-bg-color:#f1f5f9;--el-button-text-color:#334155;--el-button-border-color:#94a3b8;--el-button-hover-bg-color:#e2e8f0;--el-button-hover-text-color:#334155;--el-button-hover-border-color:#94a3b8;--el-button-active-bg-color:#e2e8f0;--el-button-active-border-color:#64748b}.exclusion-options{display:grid;grid-template-columns:1fr 1fr;gap:2px 10px}.exclusion-options :deep(.el-checkbox){margin-right:0}.filter-footer{display:flex;justify-content:flex-end;gap:12px;margin-top:12px;border-top:1px solid #e2e8f0;padding-top:10px}

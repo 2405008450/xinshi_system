@@ -31,9 +31,9 @@ const confirming=ref(false),timeVisible=ref(false),timeCount=computed(()=>[props
 function setExcluded(values){emit('update:excluded',values);emit('search')}
 function toggleArranged(){setExcluded(props.excluded.includes('arranged')?props.excluded.filter(value=>value!=='arranged'):[...props.excluded,'arranged'])}
 function updateRange(key,value){emit(`update:${key}`,value||[]);emit('search')}
-watch(timeVisible, visible => { if (!visible && timeCount.value) clearDates() })
+
 function clearDates(){emit('update:reception',[]);emit('update:deadline',[]);emit('search')}
-function captureTimeClick(event){if(timeCount.value){event.stopImmediatePropagation();timeVisible.value=false;clearDates()}}
+function captureTimeClick(){}
 function shortcutActive(kind){const range=arrangementDeadlineShortcut(kind).range;return props.deadline?.length===2&&range.every((value,index)=>value===(props.deadline[index]||''))}
 async function shortcut(kind){
   if(confirming.value)return

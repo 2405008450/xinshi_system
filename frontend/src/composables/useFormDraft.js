@@ -88,8 +88,9 @@ export const useFormDraft = ({
     clearCloudDraft(cloudNamespace,key)
   }
 
-  const saveActiveDraft = () => {
-    if (!savingEnabled.value || !activeDraftKey.value || !sameOwner()) return
+  const saveActiveDraft = (preserveOriginalOwner = false) => {
+    const ownerMatches = sameOwner()
+    if (!savingEnabled.value || !activeDraftKey.value || !draftOwner || (!ownerMatches && !preserveOriginalOwner)) return
     const drafts = readDrafts()
     const draft = {
       form: activeDraftKey.value === 'create' ? withoutBusinessNumbers(form,sanitizeDraft(form)) : sanitizeDraft(form),
@@ -101,7 +102,7 @@ export const useFormDraft = ({
     if (validateDraft && !validateDraft(draft, activeDraftKey.value)) return
     drafts[activeDraftKey.value] = draft
     writeDrafts(drafts)
-    queueCloudDraft(cloudNamespace,activeDraftKey.value,drafts[activeDraftKey.value])
+    if (ownerMatches) queueCloudDraft(cloudNamespace,activeDraftKey.value,drafts[activeDraftKey.value])
   }
 
   const cancelScheduledSave = () => {
@@ -159,14 +160,17 @@ export const useFormDraft = ({
     formRef?.value?.clearValidate?.()
   }
 
-  const pauseDraft = () => {
+  const stopDraft = (preserveOriginalOwner = false) => {
     generation++
+    const pending = saveTimer !== null
     cancelScheduledSave()
-    saveActiveDraft()
+    if (!preserveOriginalOwner || sameOwner() || pending) saveActiveDraft(preserveOriginalOwner)
     savingEnabled.value = false
     activeDraftKey.value = ''
     draftOwner = ''
   }
+  const pauseDraft = () => stopDraft()
+  const pauseForAuthSession = () => stopDraft(true)
 
   const clearDraft = () => {
     generation++
@@ -188,9 +192,9 @@ export const useFormDraft = ({
   const persist=()=>{cancelScheduledSave();saveActiveDraft()}
   const hidden=()=>{if(document.hidden)persist()}
   window.addEventListener('pagehide',persist)
-  window.addEventListener('auth-session-clearing',pauseDraft)
+  window.addEventListener('auth-session-clearing',pauseForAuthSession)
   document.addEventListener('visibilitychange',hidden)
-  onBeforeUnmount(()=>{persist();generation++;window.removeEventListener('pagehide',persist);window.removeEventListener('auth-session-clearing',pauseDraft);document.removeEventListener('visibilitychange',hidden)})
+  onBeforeUnmount(()=>{persist();generation++;window.removeEventListener('pagehide',persist);window.removeEventListener('auth-session-clearing',pauseForAuthSession);document.removeEventListener('visibilitychange',hidden)})
 
   return { beginDraft, pauseDraft, clearDraft, flushDraft, removeDraft, startFreshDraft }
 }

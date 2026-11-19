@@ -18,7 +18,7 @@
 
     <TalentResourceNav />
 
-    <AppForm :inline="true" :model="search" class="search-form project-list-search-form">
+    <AppForm data-auto-draft="off" :inline="true" :model="search" class="search-form project-list-search-form">
       <div class="project-list-primary-filters">
         <el-form-item label="关键词" class="project-list-keyword-filter">
           <el-input v-model="search.keyword" clearable :placeholder="canViewContacts ? '姓名、编号、电话或邮箱' : '姓名或编号'" @input="handleTextInput" @keyup.enter="searchNow" />

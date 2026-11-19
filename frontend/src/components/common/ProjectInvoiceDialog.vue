@@ -45,11 +45,25 @@
             <ScreenshotInput v-model="form.proofs" type="textarea" allow-invoice-files :invoice-request-id="requestId" :invoice-order-no="display.orderNo" :rows="3" :maxlength="20000"
               :disabled="loading || saving || !canWrite || !context.projectId" placeholder="拖入 PDF、OFD 发票或截图，也可填写开票备注"
               @uploading-change="onUploadingChange" @attachment-added="attachmentAdded = true" />
+            <el-button v-if="canWrite && screenshotIds(form.proofs).length" link type="danger"
+              :disabled="loading || saving || uploading" @click="removeInvoices">删除发票</el-button>
           </el-form-item>
         </div>
         <p v-if="!context.projectId">保存项目后可保存发票信息。</p>
         <p v-if="!compactOrder">{{context.merged?'发票状态和附件会同步保存到本次合并开票的各订单。':special?'发票状态和附件按特殊结算订单保存。':'发票状态和附件按母订单保存，三个入口共用同一份记录。'}}</p>
       </AppForm>
+      <details v-if="info.history?.length && !mergedInvoice" class="invoice-records-disclosure">
+        <summary>发票修改记录（{{info.history.length}}）</summary>
+        <el-collapse>
+          <el-collapse-item v-for="event in [...info.history].reverse()" :key="event.id" :name="event.id"
+            :title="`${event.actor_name} · ${formatBusinessDateTime(event.at)}`">
+            <div v-for="(value, label) in {'修改前':event.before,'修改后':event.after}" :key="label">
+              <strong>{{label}} · {{invoiceStatusLabels[value.invoice_status]||'未开票'}}</strong>
+              <ScreenshotText :text="value.proofs||''" />
+            </div>
+          </el-collapse-item>
+        </el-collapse>
+      </details>
       <el-alert v-if="scopeError" :title="scopeError" type="warning" :closable="false">
         <el-button link type="primary" @click="scopeRefresh++">重新加载结算范围</el-button>
       </el-alert>
@@ -94,11 +108,13 @@ import DialogFieldSearchHeader from './DialogFieldSearchHeader.vue'
 import AppForm from './AppForm.vue'
 import ReadonlyField from './ReadonlyField.vue'
 import ScreenshotInput from './ScreenshotInput.vue'
+import ScreenshotText from './ScreenshotText.vue'
+import {formatBusinessDateTime} from '@/utils/dateTime'
 import CustomerInvoiceProfile from './CustomerInvoiceProfile.vue'
 import CustomerInvoiceRecords from './CustomerInvoiceRecords.vue'
 import InvoiceChildOrderSummary from './InvoiceChildOrderSummary.vue'
 import {connectInvoiceParties, invoicePartiesEvent, notifyInvoiceParties} from '@/api/invoiceParties'
-import {screenshotIds} from '@/utils/screenshotReferences'
+import {screenshotIds,screenshotText} from '@/utils/screenshotReferences'
 import {translationSettlementModeLabels} from '@/utils/settlementModes'
 const props=defineProps({modelValue:Boolean,context:{type:Object,default:()=>({})},requestId:String,canDeliver:Boolean,readonly:Boolean,inline:Boolean,persistentInline:Boolean,compactOrder:Boolean,special:Boolean})
 const emit=defineEmits(['update:modelValue','saved','invoice-scope-loaded'])
@@ -129,6 +145,16 @@ async function onUploadingChange(value) {
   if (value || !attachmentAdded.value || !props.modelValue) return
   attachmentAdded.value = false
   form.invoiceStatus = 'issued'
+  await save(false,true)
+}
+async function removeInvoices() {
+  try {
+    await ElMessageBox.confirm('删除当前发票附件并将状态改为未开票？修改前后的内容将保留在发票修改记录中。', '删除发票', {
+      confirmButtonText:'确认删除',cancelButtonText:'取消',type:'warning',
+    })
+  } catch { return }
+  form.proofs=screenshotText(form.proofs)
+  form.invoiceStatus='unissued'
   await save(false,true)
 }
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(body)
@@ -175,6 +201,7 @@ async function save(deliver = false, keepOpen = false) {
       version, invoice_status:form.invoiceStatus, proofs:form.proofs,
     }, {params:invoiceParams.value}))
     version = data.version
+    info.value = {...info.value, ...data}
     original = signature()
     savedProjectId = projectId
     if (deliver) {

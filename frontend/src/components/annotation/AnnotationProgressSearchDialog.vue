@@ -149,7 +149,6 @@ const allLoadSentinel = ref(null)
 let searchTimer
 let requestController
 let requestId = 0
-let preserveOnNextOpen = false
 let allLoadObserver
 
 const canSearch = computed(() => Boolean(filters.keyword.trim()) && isProgressSearchRangeValid(filters.dateRange))
@@ -273,12 +272,15 @@ const handlePageChange = async () => {
   await requestPage({ mode: viewMode.value })
   resultsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
-const resetSearch = () => {
+const restoreFilterDefaults = () => {
   clearTimeout(searchTimer)
   filters.keyword = ''
   filters.track = 'all'
   filters.dateRange = defaultProgressSearchRange()
   pagination.page = 1
+}
+const resetSearch = () => {
+  restoreFilterDefaults()
   loadRecent(true)
 }
 const retryLoadAll = () => {
@@ -297,24 +299,13 @@ const setupAllLoadObserver = async () => {
   allLoadObserver.observe(allLoadSentinel.value)
 }
 
-const preserveNextOpen = () => {
-  preserveOnNextOpen = true
-}
-
 watch(() => props.modelValue, (isOpen) => {
+  restoreFilterDefaults()
   if (!isOpen) {
     allLoadObserver?.disconnect()
-    cancelRequest()
+    clearResults()
     return
   }
-  if (preserveOnNextOpen) {
-    preserveOnNextOpen = false
-    setupAllLoadObserver()
-    return
-  }
-  filters.keyword = ''
-  filters.track = 'all'
-  filters.dateRange = defaultProgressSearchRange()
   pageSizeMode.value = 10
   pagination.page = 1
   pagination.limit = 10
@@ -325,8 +316,6 @@ watch(
   setupAllLoadObserver,
   { flush: 'post' },
 )
-
-defineExpose({ preserveNextOpen })
 
 onBeforeUnmount(() => {
   clearTimeout(searchTimer)

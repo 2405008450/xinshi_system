@@ -34,6 +34,7 @@ const { setLayout } = useProjectChatDock()
 const { navigation, toggleRoot, cleanRoots } = useChatTopicNavigation()
 const roots = computed(() => orderedTopicRoots(topics.items, route.meta.chatContext))
 const menuVisible = ref(false), resultsVisible = ref(false), managerRef = ref(), selected = ref(), filter = ref('')
+watch(menuVisible, open => { if (!open) filter.value = '' })
 const activeId = computed(() => props.compact ? selected.value?.id : props.selectedId)
 function choose(row) {
   menuVisible.value = false
@@ -55,7 +56,7 @@ const TopicMenu = defineComponent({ setup: () => () => {
   const rowButton = (row, label, child = false) => h('button', { type: 'button', class: ['chat-topic-row', { 'is-active': activeId.value === row.id, 'is-child': child }], 'aria-current': activeId.value === row.id ? 'true' : undefined, title: row.description || row.name, onClick: () => choose(row) }, label || row.name)
   return h('div', { class: 'chat-topic-menu' }, [
     h('div', { class: 'chat-topic-toolbar' }, [
-      h(ElInput, { modelValue: filter.value, 'onUpdate:modelValue': value => filter.value = value, clearable: true, placeholder: '搜索主题', 'aria-label': '搜索主题', prefixIcon: Search }),
+      h(ElInput, { modelValue: filter.value, 'onUpdate:modelValue': value => filter.value = value, clearable: true, placeholder: '搜索主题', 'aria-label': '搜索主题', 'data-auto-draft': 'off', prefixIcon: Search }),
       topics.can_manage ? h(ElButton, { text: true, icon: Setting, 'aria-label': '管理讨论主题', title: '管理讨论主题', onClick: openManager }) : null,
     ]),
     h('div', { class: 'chat-topic-tree' }, [

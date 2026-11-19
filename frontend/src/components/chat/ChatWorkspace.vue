@@ -39,12 +39,12 @@
         <div v-if="!narrow" class="chat-workspace__split-tools"><button type="button" title="恢复左右区域的默认宽度" @click="emit('split-reset')">恢复默认分区</button></div>
         <template v-if="pane === 'messages'">
           <div class="chat-workspace__session-tools">
-            <div class="chat-workspace__search"><el-select v-model="searchMode" size="small" class="chat-search-mode" popper-class="chat-search-mode-options" aria-label="搜索范围"><el-option label="会话" value="sessions" /><el-option label="聊天记录" value="messages" /></el-select><el-input v-model="keyword" clearable size="small" :placeholder="searchPlaceholder" @keyup.enter="applyKeyword"><template #prefix><el-button link :icon="Search" aria-label="查询会话" title="查询" @click="applyKeyword" /></template></el-input></div>
+            <div class="chat-workspace__search" data-auto-draft="off"><el-select v-model="searchMode" size="small" class="chat-search-mode" popper-class="chat-search-mode-options" aria-label="搜索范围"><el-option label="会话" value="sessions" /><el-option label="聊天记录" value="messages" /></el-select><el-input v-model="keyword" clearable size="small" :placeholder="searchPlaceholder" @keyup.enter="applyKeyword"><template #prefix><el-button link :icon="Search" aria-label="查询会话" title="查询" @click="applyKeyword" /></template></el-input></div>
             <div class="chat-workspace__tabs">
-              <el-popover v-model:visible="groupsVisible" trigger="click" placement="bottom-end" :width="280" popper-class="chat-session-popover">
+              <el-popover ref="groupPicker" v-model:visible="groupsVisible" title="会话分组筛选" trigger="click" placement="bottom-end" :width="280" popper-class="chat-session-popover">
                 <template #reference><el-button text size="small" class="chat-workspace__filter" :aria-label="`会话分组 ${currentGroupLabel}`" :title="currentGroupLabel"><el-icon><Filter /></el-icon><span class="chat-workspace__filter-label">{{ currentGroupLabel }}</span></el-button></template>
                 <div class="chat-session-groups">
-                  <el-button v-for="group in groups" :key="group.key" link :type="tab === group.key ? 'primary' : ''" @click="tab = group.key; groupsVisible = false">{{ group.label }} ({{ groupCount(group.key) }})</el-button>
+                  <el-button v-for="group in groups" :key="group.key" link :type="tab === group.key ? 'primary' : ''" @click="tab = group.key; groupPicker?.minimize()">{{ group.label }} ({{ groupCount(group.key) }})</el-button>
                 </div>
               </el-popover>
             </div>
@@ -318,14 +318,11 @@ const currentGroupLabel = computed(() => {
   const folder=annotationMode.value!=='direct'&&folderNodes.value.find(row=>row.id===selectedFolder.value)
   return folder ? `${folder.name}${tab.value==='all'?'':` · ${base}`}` : base
 })
-const storageKey = `xinshi.chatGroup.${localStorage.getItem('user_id') || 'anonymous'}`
-let saved = 'all'
-try { saved = localStorage.getItem(storageKey) || 'all' } catch { /* 存储不可用时使用默认分组。 */ }
-const tab = ref(groups.some(g => g.key === saved) || saved.startsWith('category:') ? saved : 'all')
+const tab = ref('all')
 watch(() => [categories.loaded, categories.ready, categories.items.map(row => `${row.id}:${row.active}`).join(',')], ([loaded, ready]) => {
   if (loaded && tab.value.startsWith('category:') && (!ready || !categories.items.some(row => row.active && categoryKey(row.id) === tab.value))) tab.value = 'all'
 })
-const groupsVisible = ref(false)
+const groupsVisible = ref(false), groupPicker = ref(null)
 const folderStorageKey = `xinshi.chatFolder.${localStorage.getItem('user_id') || 'anonymous'}`
 let savedFolder = tab.value === 'annotation' ? annotationFolderId : ''
 try { savedFolder = localStorage.getItem(folderStorageKey) ?? savedFolder } catch { /* 使用默认目录。 */ }
@@ -351,12 +348,16 @@ function openMentionInbox(mode) {
 const personalUnread = session => (Number(session.mentionUnread) || 0) > (Number(session.mentionAllUnread) || 0)
 const mentionSort = ref('time_desc'), mentionSortMenu = ref(null)
 const mentionFilters = computed(() => ({ sort: mentionSort.value, mentionKind: annotationMode.value === 'mention-all' ? 'all' : 'personal' }))
-const annotationMode = ref(tab.value === 'direct' ? 'direct' : tab.value === 'mention' ? 'mention' : 'group')
+const annotationMode = ref('group')
 const showMentions = computed(() => annotationMode.value === 'mention-all' || (annotationMode.value === 'mention' && !selectedFolder.value))
 const annotationMentionView = computed(() => annotationMode.value === 'mention')
 const filteredMentionTotal = ref(0)
-watch(tab, () => { groupsVisible.value = false; if (tab.value === 'direct') annotationMode.value = 'direct'; else if (tab.value === 'mention') { annotationMode.value = 'mention'; selectedFolder.value = '' } })
-watch(tab, value => { try { localStorage.setItem(storageKey, value) } catch { /* 本次选择仍然生效。 */ } })
+watch(tab, (key, previous) => {
+  if (key === 'direct') annotationMode.value = 'direct'
+  else if (key === 'mention') { annotationMode.value = 'mention'; selectedFolder.value = '' }
+  else if (previous === 'direct' || previous === 'mention') annotationMode.value = 'group'
+})
+
 function inGroup(session, key) {
   if (key.startsWith('category:')) return !!session.categoryIds?.includes(key.slice('category:'.length))
   if (key === 'all') return true
@@ -386,6 +387,16 @@ watch(keyword, (value) => {
 })
 
 watch(searchMode, () => applyKeyword())
+watch(pane, (current, previous) => {
+  if (previous === 'notifications') void notificationFeed.reset()
+  if (previous === 'messages') {
+    groupsVisible.value = false
+    tab.value = 'all'
+    keyword.value = ''
+    searchMode.value = 'sessions'
+    applyKeyword()
+  }
+})
 
 const annotationFiltersActive = computed(() => props.annotationFilters.mine || props.annotationFilters.statuses.length > 0)
 watch(() => props.annotationFilters, () => {

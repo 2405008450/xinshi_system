@@ -21,7 +21,7 @@
         <el-button type="primary" @click="search">查询</el-button>
         <el-button @click="reset">重置</el-button>
         <el-popover title="负责人变更筛选" v-model:visible="advancedVisible" trigger="click" placement="bottom-end" :width="760" popper-class="manager-log-advanced-popover">
-          <div class="manager-log-advanced-content">
+          <div class="manager-log-advanced-content" data-auto-draft="off">
           <AdvancedFilterFieldSearch data-auto-draft="off" :active="advancedVisible" :anchor="dockAnchor" scope="manager-log-advanced-popover">
       <el-form-item label="变更方式">
         <el-select v-model="filters.changeMode" clearable placeholder="全部" class="manager-log-short-filter" @change="search">
@@ -144,7 +144,7 @@ const reset = () => {
   Object.assign(filters, { keyword: '', managerRole: '', changeMode: '', changedRange: [] })
   search()
 }
-watch(advancedVisible, visible => { if (!visible) reset() })
+
 const filterProject = row => {
   currentProject.value = { id: row.projectId, orderNo: row.orderNo, projectName: row.projectName }
   search()

@@ -2,10 +2,12 @@
   <section class="client-group" :class="{'drop-active':dragOver}" @dragover.prevent="dragOver=true" @dragleave="leave" @drop.prevent="drop">
     <header><strong>{{groupLabel}} · {{total}}</strong><div v-if="canExpand"><el-button link @click="expanded=items.map(client=>client.id)">全部展开</el-button><el-button link @click="expanded=[]">全部收起</el-button></div></header>
     <el-input v-model="keyword" :aria-label="`${groupLabel}搜索`" placeholder="搜索客户或子客户名称、简称或编号" clearable @input="queueSearch" @keyup.enter="search"><template #append><el-button @click="search">查询</el-button></template></el-input>
-    <el-alert v-if="error" :title="error" type="error" :closable="false" />
+    <el-alert v-if="error" :title="error" type="error" :closable="false">
+      <el-button link type="primary" :disabled="loading" @click="load">重试</el-button>
+    </el-alert>
     <div v-loading="loading" class="client-group-list">
       <p v-if="!settlementScope" class="drop-hint">{{dragOver?'松开鼠标移入此栏':'可将另一栏的客户拖到这里'}}</p>
-      <el-empty v-if="!items.length&&!loading" description="当前月份没有匹配客户" :image-size="55" />
+      <el-empty v-if="!items.length&&!loading&&!error" description="当前月份没有匹配客户" :image-size="55" />
       <el-collapse v-model="expanded">
         <el-collapse-item v-for="client in items" :key="client.id" :name="client.id" :disabled="!canExpand">
           <template #title><div class="client-title" :draggable="canWrite&&!moving&&!settlementScope" @dragstart="startDrag($event,client)" @dragend="dragOver=false"><div class="client-name-line"><strong>{{client.shortName||client.name}}</strong><el-select v-if="canExpand" :model-value="client.progress||'not_started'" :disabled="!canWrite||progressSaving.has(client.id)" size="small" :aria-label="settlementScope==='special'?'特殊结算进度':'对账单进度'" style="width:115px" @click.stop @mousedown.stop @dragstart.prevent.stop @change="saveProgress(client,$event)"><el-option label="未开始" value="not_started" /><el-option label="部分完成" value="partial" /><el-option label="全部完成" value="completed" /></el-select></div><small>{{client.code}} · {{client.projectCount}} 个项目<span v-if="client.pendingCount"> · 待入账 {{client.pendingCount}} 项</span> · 客户经理：{{client.clientManagers?.join('、')||'未分配'}}</small></div></template>

@@ -12,9 +12,7 @@
       </el-tabs>
     </el-card>
 
-    <keep-alive>
-      <component :is="activeComponent" @focus-mode-change="handleFocusModeChange" />
-    </keep-alive>
+    <component :is="activeComponent" @focus-mode-change="handleFocusModeChange" />
   </div>
 </template>
 
@@ -58,9 +56,7 @@ watch(
 
 const handleSectionChange = async (section) => {
   if (section !== 'accounts') focusMode.value = false
-  const nextQuery = { ...route.query }
-  if (section === 'projects') delete nextQuery.section
-  else nextQuery.section = section
+  const nextQuery = section === 'projects' ? {} : { section }
   await router.replace({ name: 'AnnotationProjectDetails', query: nextQuery })
   return activeSection.value === section
 }

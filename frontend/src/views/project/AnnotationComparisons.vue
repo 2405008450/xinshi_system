@@ -13,7 +13,7 @@
       </div>
     </template>
 
-    <AppForm :inline="true" class="comparison-search search-form" @submit.prevent>
+    <AppForm :inline="true" class="comparison-search search-form" data-auto-draft="off" @submit.prevent>
       <el-form-item label="关键字">
         <el-input v-model="keyword" clearable placeholder="比较组名称或比较说明" @input="handleKeywordInput" @keyup.enter="search" />
       </el-form-item>

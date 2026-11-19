@@ -23,12 +23,23 @@
         <summary>排名与金额快捷筛选</summary>
         <div class="revenue-shortcuts">
           <span>排名快捷：</span>
-          <el-button v-for="item in rankShortcuts" :key="item.label" size="small" @click="chooseRank(item)">{{item.label}}</el-button>
+          <el-button v-for="item in rankShortcuts" :key="item.label" size="small" :aria-pressed="activeRankShortcut === item" @click="chooseShortcut('rank',item)">{{item.label}}</el-button>
           <el-button size="small" @click="clearRank">不限排名</el-button>
+        </div>
+        <div class="revenue-shortcuts">
           <span>金额快捷：</span>
-          <el-button v-for="item in amountShortcuts" :key="item.label" size="small" @click="chooseAmount(item)">{{item.label}}</el-button>
+          <el-button v-for="item in amountShortcuts" :key="item.min" class="revenue-amount-shortcut"
+            :aria-pressed="activeAmountShortcut === item" @click="chooseShortcut('amount',item)">
+            <span class="revenue-amount-shortcut-content">
+              <strong>{{ item.max == null ? `${item.min}以上` : `${item.min}–${item.max}` }}</strong>
+              <span>{{ item.customers }} 位客户 · {{ amountShare(item.customers) }}</span>
+            </span>
+          </el-button>
           <el-button size="small" @click="clearAmount">不限金额</el-button>
         </div>
+        <p v-if="data?.amount_shortcut_total != null" class="revenue-help">
+          占比按当前查询范围内参与排名的 {{ data.amount_shortcut_total }} 位客户计算，金额档位包含两端。
+        </p>
       </details>
       <p v-if="rangeLabel" class="revenue-help">已选：{{rangeLabel}} <el-button link @click="clearRanges">清空区间条件</el-button></p>
       <el-alert v-if="error" :title="data ? `${error}，当前显示上次查询结果` : error" type="error" :closable="false">
@@ -42,6 +53,20 @@
         <template v-if="data">
           <h4 class="revenue-period">{{data.period.label}} · {{data.period.start}} 至 {{data.period.end}} <el-tag v-if="data.partial_period" type="warning" size="small">周期未结束</el-tag></h4>
           <div class="revenue-cards"><div><small>总营收 · {{data.currency}}</small><strong>{{revenueAmount(data.overall.amount)}}</strong><span>{{data.overall.customers}} 个有计费金额客户</span></div><div><small>同比 · {{data.last_year?.label||'无可比周期'}}</small><strong>{{revenueChange(data.overall.yoy)}}</strong><span>基期 {{revenueAmount(data.overall.yoy.amount)}} · 增减 {{revenueAmount(data.overall.yoy.difference)}}</span></div><div><small>环比 · {{data.previous.label}}</small><strong>{{revenueChange(data.overall.mom)}}</strong><span>基期 {{revenueAmount(data.overall.mom.amount)}} · 增减 {{revenueAmount(data.overall.mom.difference)}}</span></div></div>
+          <section v-if="data.project_type_totals" class="revenue-project-comparison" aria-label="本期项目对比">
+            <h3>本期项目对比</h3>
+            <el-table :data="data.project_type_totals" row-key="module" border size="small">
+              <el-table-column label="项目类型" min-width="105">
+                <template #default="{row}">{{ projectTypes.find(type => type.value === row.module)?.label }}</template>
+              </el-table-column>
+              <el-table-column prop="customers" label="客户数" min-width="90" align="right" />
+              <el-table-column prop="orders" label="订单数" min-width="90" align="right" />
+              <el-table-column :label="`总金额（${data.currency}）`" min-width="125" align="right">
+                <template #default="{row}">{{ revenueAmount(row.amount) }}</template>
+              </el-table-column>
+            </el-table>
+            <p class="revenue-help">客户数按类型去重，仅统计已关联客户。订单数含待补订单，母子订单按母单计数。总金额按所选币种及客户统计口径汇总。</p>
+          </section>
           <el-alert v-if="data.overall.missing||data.missing_date||data.fallback_date" type="warning" :closable="false" :title="`本期 ${data.overall.missing} 个项目金额待补；范围内 ${data.fallback_date} 个项目采用备用业务日期，另有 ${data.missing_date} 个项目无可用日期而未计入。金额待补时统计可能不完整。`" />
           <el-tabs v-model="activeTab">
             <el-tab-pane label="客户营收排名" name="ranking">
@@ -51,7 +76,7 @@
                 <el-table-column prop="rank" label="排名" width="70" /><el-table-column prop="client_name" label="客户名称" min-width="170" show-overflow-tooltip /><el-table-column label="统计口径" width="170"><template #default="{row}"><el-select :model-value="row.basis" :disabled="!row.client_id" @change="value=>setBasis(row.client_id,value)"><el-option v-for="item in revenueBases" :key="item.value" :label="item.label" :value="item.value" /></el-select></template></el-table-column>
                 <el-table-column label="本期营收" min-width="145" align="right">
                   <template #default="{row}">
-                    {{revenueAmount(row.amount)}}
+                    <RevenueOrderDetails :row="row" :query="orderDetailQuery" :period-label="data.period.label" />
                     <el-popover v-if="row.missing" trigger="click" placement="left" :width="560"
                       popper-class="revenue-missing-popover" :title="`${row.client_name} · 本期待补`">
                       <template #reference>
@@ -95,13 +120,14 @@ import {computed,onBeforeUnmount,reactive,ref,watch} from 'vue'
 import {getTranslationRevenue} from '@/api/translationRevenue'
 import {businessDateTimeInputValue,formatBusinessDateTime} from '@/utils/dateTime'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
-import {revenuePeriods,revenueBases,rankShortcuts,amountShortcuts,revenueAmount,revenueChange,normalizedRange} from '@/utils/revenueStatistics'
+import {revenuePeriods,revenueBases,rankShortcuts,revenueAmount,revenueChange,normalizedRange} from '@/utils/revenueStatistics'
 import {useDialogFieldSearch} from '@/composables/useDialogFieldSearch'
 import DraggableFormDialog from './DraggableFormDialog.vue'
 import DialogFieldSearchHeader from './DialogFieldSearchHeader.vue'
 import AdvancedFilterPopover from './AdvancedFilterPopover.vue'
 import AppForm from './AppForm.vue'
 import CustomerDepartmentManagerSelect from './CustomerDepartmentManagerSelect.vue'
+import RevenueOrderDetails from './RevenueOrderDetails.vue'
 
 const props=defineProps({modelValue:Boolean,clientId:[String,Number]})
 defineEmits(['update:modelValue'])
@@ -110,11 +136,18 @@ const projectTypes = [{value:'all',label:'全部项目'},{value:'translation',la
 const initial=()=>({projectType:'all',period:'month',anchor:businessDateTimeInputValue().slice(0,10),currency:'CNY',managerIds:[],keyword:'',rankMin:null,rankMax:null,amountMin:null,amountMax:null})
 const filters=reactive(initial()),data=ref(null),error=ref(''),loading=ref(false),page=ref(1),activeTab=ref('ranking'),advancedVisible=ref(false),focusClient=ref('')
 const displayedPeriod = ref('month')
+const orderDetailQuery = ref({})
 const storageKey=`translation-revenue-client-basis:${localStorage.getItem('user_id')||localStorage.getItem('user_name')||'anonymous'}`
 const modes=ref((()=>{try{const value=JSON.parse(localStorage.getItem(storageKey)||'{}');return Object.fromEntries(Object.entries(value).filter(([key,value])=>/^[a-f\d-]{36}$/i.test(key)&&['billing','excl','incl'].includes(value)))}catch{return {}}})())
 let timer, controller, pendingKey, sequence = 0
 const currencies=computed(()=>[...new Set([filters.currency,...(data.value?.currencies||['CNY'])])])
 const advancedCount=computed(()=>[filters.rankMin,filters.rankMax,filters.amountMin,filters.amountMax].filter(v=>v!=null&&v!=='').length)
+const rankRange=computed(()=>normalizedRange(filters.rankMin,filters.rankMax))
+const amountRange=computed(()=>normalizedRange(filters.amountMin,filters.amountMax))
+const amountShortcuts=computed(()=>data.value?.amount_shortcuts ?? [])
+const percentFormatter = new Intl.NumberFormat('zh-CN', { style: 'percent', maximumFractionDigits: 2 })
+const activeRankShortcut=computed(()=>activeShortcut(rankShortcuts,rankRange.value,amountRange.value))
+const activeAmountShortcut=computed(()=>activeShortcut(amountShortcuts.value,amountRange.value,rankRange.value))
 const periodLabel=computed(()=>revenuePeriods.find(item=>item.value===displayedPeriod.value)?.label||'月')
 const focusName=computed(()=>data.value?.client_options?.find(item=>item.key===data.value?.focus_client)?.name||'全部客户')
 const rangeLabel=computed(()=>{const [r1,r2]=normalizedRange(filters.rankMin,filters.rankMax),[a1,a2]=normalizedRange(filters.amountMin,filters.amountMax);return [r1!=null||r2!=null?`排名 ${r1??1}–${r2??'不限'}名`:'',a1!=null||a2!=null?`${filters.currency} ${a1??'不限'}–${a2??'不限'}`:''].filter(Boolean).join('；')})
@@ -140,6 +173,11 @@ async function load() {
       return load()
     }
     displayedPeriod.value = query.period
+    const { project_type, period, anchor, currency, manager_ids, client_id } = query
+    const detailQuery = { project_type, period, anchor, currency, manager_ids, client_id }
+    if (JSON.stringify(orderDetailQuery.value) !== JSON.stringify(detailQuery)) {
+      orderDetailQuery.value = detailQuery
+    }
     data.value = result
   } catch (e) {
     if (current === sequence && e.code !== 'ERR_CANCELED') {
@@ -165,21 +203,43 @@ function changeManagers(ids){
   search()
 }
 function queueSearch(value){clearTimeout(timer);controller?.abort();sequence++;pendingKey=undefined;loading.value=false;if(!value.trim())search();else timer=setTimeout(search,400)}
-function chooseRank(item){filters.rankMin=item.min;filters.rankMax=item.max;search()}
-function chooseAmount(item){filters.amountMin=item.min;filters.amountMax=item.max;search()}
+function activeShortcut(items,[min,max],otherRange){
+  if (otherRange.some(value=>value!=null)) return
+  return items.find(item=>item.min===min&&(item.max??undefined)===max)
+}
+function amountShare(customers) {
+  const total = data.value?.amount_shortcut_total
+  return percentFormatter.format(total ? customers / total : 0)
+}
+function chooseShortcut(kind,item){
+  if (kind==='rank') {
+    Object.assign(filters,{rankMin:item.min,rankMax:item.max,amountMin:null,amountMax:null})
+  } else {
+    Object.assign(filters,{rankMin:null,rankMax:null,amountMin:item.min,amountMax:item.max})
+    activeTab.value='ranking'
+  }
+  search()
+}
 function clearRank(){filters.rankMin=null;filters.rankMax=null;search()}
 function clearAmount(){filters.amountMin=null;filters.amountMax=null;search()}
 function clearRanges(){filters.rankMin=null;filters.rankMax=null;filters.amountMin=null;filters.amountMax=null;search()}
-function reset(){Object.assign(filters,initial());focusClient.value='';activeTab.value='ranking';search()}
+function restoreFilterDefaults(){Object.assign(filters,initial());focusClient.value='';activeTab.value='ranking'}
+function reset(){restoreFilterDefaults();if(props.modelValue)search()}
 function setBasis(id,value){if(!id)return;if(value==='billing')delete modes.value[id];else modes.value[id]=value;try{localStorage.setItem(storageKey,JSON.stringify(modes.value))}catch{}search()}
 function trackClient(key){focusClient.value=key;activeTab.value='trend';void load()}
-watch(()=>props.modelValue,visible=>{sequence++;controller?.abort();clearTimeout(timer);pendingKey=undefined;clearFieldSearch();advancedVisible.value=false;if(visible){data.value=null;reset()}else loading.value=false})
+watch(()=>props.modelValue,visible=>{sequence++;controller?.abort();clearTimeout(timer);pendingKey=undefined;clearFieldSearch();advancedVisible.value=false;data.value=null;restoreFilterDefaults();if(visible)search();else loading.value=false})
 onBeforeUnmount(()=>{sequence++;controller?.abort();clearTimeout(timer)})
 </script>
 
 <style scoped>
 :global(.revenue-missing-popover){max-width:calc(100vw - 32px)}
 .revenue-shortcut-section>summary{width:fit-content;cursor:pointer;font-size:13px;color:var(--el-text-color-regular)}
+.revenue-shortcuts .el-button[aria-pressed="true"]{background:#000;border-color:#000;color:#fff}
+.revenue-shortcuts .revenue-amount-shortcut { height: auto; padding: 8px 12px; }
+.revenue-amount-shortcut-content { display: grid; gap: 4px; line-height: 1.3; text-align: left; }
+.revenue-amount-shortcut-content > span { font-size: 12px; }
+.revenue-project-comparison { margin: 12px 0; }
+.revenue-project-comparison h3 { margin: 0 0 8px; font-size: 15px; }
 :global(.el-dialog.revenue-statistics-dialog) { height: 90vh; box-sizing: border-box; }
 :global(.revenue-statistics-dialog > .el-dialog__body) { scrollbar-gutter: stable; overflow-anchor: none; }
 .revenue-initial-loading { padding: 16px 0; color: var(--el-text-color-secondary); }

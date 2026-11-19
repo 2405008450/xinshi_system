@@ -1,9 +1,9 @@
 <template>
-  <span class="column-header-filter">
+  <span class="column-header-filter" data-auto-draft="off">
     <span class="column-header-filter__label">
       <slot name="label">{{ label }}</slot>
     </span>
-    <el-popover :title="`${label}筛选`"
+    <el-popover :title="`${label}筛选`" retain-on-selection :draft-filter="false"
       v-model:visible="visible"
       trigger="click"
       :placement="placement"

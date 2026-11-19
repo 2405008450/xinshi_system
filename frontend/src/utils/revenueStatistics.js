@@ -7,12 +7,6 @@ export const revenueBases = [
   {value:'excl',label:'不含税总价'}, {value:'incl',label:'含税总价'},
 ]
 export const rankShortcuts = [{label:'1–10名',min:1,max:10},{label:'20–50名',min:20,max:50}]
-export const amountShortcuts = [
-  {label:'5000以上',min:5000,max:null}, {label:'10000–5000',min:5000,max:10000},
-  {label:'5000–10000',min:5000,max:10000}, {label:'1000–5000',min:1000,max:5000},
-  {label:'500–1000',min:500,max:1000}, {label:'100–500',min:100,max:500},
-  {label:'1–100',min:1,max:100},
-]
 export function revenueChange(change) {
   if (!change || change.state === 'unavailable') return '无可比周期'
   if (change.state === 'new') return '基期为0'

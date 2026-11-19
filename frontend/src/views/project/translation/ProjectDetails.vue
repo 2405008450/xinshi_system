@@ -1043,7 +1043,7 @@ import { matchesSearchFields } from '@/utils/searchMatching'
 
 import { translationProjectDetailItems, translationSubOrderDetailItems, formatAssignedTranslators, formatTranslatorReturnTimes, formatTranslatorCompletionRemarks } from '@/utils/translationProjectDetail'
 import ProjectExportMenu from '@/components/common/ProjectExportMenu.vue'
-import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 const arrangementMode = computed(() => props.arrangement)
 const arrangementPeople = ref([])
 const excludedArrangementStatuses=ref(props.arrangement?[...DEFAULT_ARRANGEMENT_EXCLUSIONS]:[])
@@ -2204,15 +2204,7 @@ function restoreDefaultExclusions(){
   handleSearch()
 }
 defineExpose({restoreDefaultExclusions})
-let wordCountRefreshPending = false
-function markWordCountsForRefresh(){ wordCountRefreshPending = true }
-onActivated(()=>{
-  if(!arrangementMode.value)restoreDefaultExclusions()
-  if(wordCountRefreshPending && !props.editorOnly){
-    wordCountRefreshPending = false
-    void fetchData()
-  }
-})
+function refreshProjectWordCounts(){ if(!props.editorOnly)void fetchData() }
 const clearAdvancedFilters = () => { resetFilterModel(searchForm, translationAdvancedFilterFields); handleSearch() }
 const clearSearch = () => {
   searchForm.keyword = ''
@@ -2773,7 +2765,7 @@ async function openStatementOrderEditor(){
 const projectFieldContext=computed(()=>({openProjectDetails,getTranslationClientDetailItems,projectDetailItems,getStatusLabel,getStatusType,canWriteProjects,deleteMode:deleteMode.value,saveProjectTextField,fetchData,canReadProjectFiles,openOriginalPath,copyOriginalPath,projectStatusSavingIds:projectStatusSavingIds.value,changeProjectStatus,normalizeStatus,openArrangementFromStatus,projectStatusOptions,saveProjectTranslatorCompletions,getLanguagePairSummary,formatAssignedTranslators,getAssignedTranslatorSummary,getWordCountListSummary,formatTableColumnValue,headerFilterDefinition,searchForm,handleConfiguredTextInput,handleSearch,getTimeSortMode,getSortDirection,isTimeSortActive,getTimeSortTitle,toggleTimeSort}))
 onMounted(async () => {
   window.addEventListener('translation-statements-changed',onFinanceSettingsChanged)
-  window.addEventListener('translation-word-count-saved',markWordCountsForRefresh)
+  window.addEventListener('translation-word-count-saved',refreshProjectWordCounts)
   if(props.editorOnly) {
     await Promise.all([openStatementOrderEditor(),loadResourceRequestStatuses()])
     return
@@ -2798,7 +2790,7 @@ watch(mailComposerVisible,(value,previous)=>{
 })
 onBeforeUnmount(() => {
   window.removeEventListener('translation-statements-changed',onFinanceSettingsChanged)
-  window.removeEventListener('translation-word-count-saved',markWordCountsForRefresh)
+  window.removeEventListener('translation-word-count-saved',refreshProjectWordCounts)
   clearTimeout(searchTimer)
   requestController?.abort()
 })

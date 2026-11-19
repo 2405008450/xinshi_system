@@ -1,9 +1,9 @@
 <template>
-  <aside class="arrangement-personnel">
-    <div class="personnel-heading"><strong>部门人员</strong><span><el-popover v-if="departmentVisibility" v-model:visible="departmentPickerVisible" trigger="click" placement="bottom-start" :width="340" title="显示部门">
+  <aside class="arrangement-personnel" data-auto-draft="off">
+    <div class="personnel-heading"><strong>部门人员</strong><span><el-popover v-if="departmentVisibility" ref="departmentPicker" v-model:visible="departmentPickerVisible" trigger="click" placement="bottom-start" :width="340" title="显示部门">
       <template #reference><el-button link :disabled="loading || !!directoryError">显示部门<span v-if="departmentsFiltered">（{{selectedDepartments.length}}）</span></el-button></template>
       <div class="department-picker-actions"><el-button text @click="departmentDraft=departmentOptions.map(item=>String(item.id))">全选</el-button><el-button text @click="departmentDraft=[]">清空</el-button></div>
-      <el-checkbox-group v-model="departmentDraft" class="department-picker-options"><el-checkbox v-for="department in departmentOptions" :key="department.id" :value="String(department.id)">{{department.name}}</el-checkbox></el-checkbox-group>
+      <el-checkbox-group v-model="departmentDraft" class="department-picker-options" data-auto-draft="off"><el-checkbox v-for="department in departmentOptions" :key="department.id" :value="String(department.id)">{{department.name}}</el-checkbox></el-checkbox-group>
       <div class="department-picker-actions"><el-button @click="departmentPickerVisible=false">取消</el-button><el-button type="primary" @click="applyDepartments">确定</el-button></div>
     </el-popover><el-button link :loading="loading" @click="loadPersonnel">刷新</el-button></span></div>
     <el-input v-model="keyword" clearable placeholder="搜索全体人员或部门" aria-label="搜索安排人员" />
@@ -46,16 +46,16 @@ const countDistribution=computed(()=>dutyCountDistribution(people.value.filter(m
 const matchedPeopleCount=computed(()=>people.value.filter(matchesPerson).length)
 const loading=ref(false),directoryError=ref(''),serviceUnavailable=ref(false),viewMode=ref('departments')
 const order=ref({departments:[],people:{}}),orderDrag=ref(null)
-const departmentPickerVisible=ref(false),departmentDraft=ref([]),departmentSelection=ref(null)
-const departmentStorageKey=()=>`translation-arrangement:visible-departments:${localStorage.getItem('user_id')||'anonymous'}`
-try{const raw=localStorage.getItem(departmentStorageKey());if(raw!==null){const parsed=JSON.parse(raw);if(!Array.isArray(parsed)||parsed.some(id=>typeof id!=='string'))throw new Error('invalid departments');departmentSelection.value=parsed}}catch{try{localStorage.removeItem(departmentStorageKey())}catch{/* 使用全部部门。 */}}
+const departmentPicker=ref(null),departmentPickerVisible=ref(false),departmentDraft=ref([]),departmentSelection=ref(null)
 const departmentOptions=computed(()=>[...departments.value,{id:'ungrouped',name:'未分部门'}])
 const selectedDepartments=computed(()=>departmentSelection.value===null?departmentOptions.value.map(item=>String(item.id)):departmentSelection.value.filter(id=>departmentOptions.value.some(item=>String(item.id)===id)))
 const departmentsFiltered=computed(()=>props.departmentVisibility&&selectedDepartments.value.length<departmentOptions.value.length)
-watch(departmentPickerVisible,value=>{if(value)departmentDraft.value=[...selectedDepartments.value]})
+watch(departmentPickerVisible,value=>{
+  departmentDraft.value=[...selectedDepartments.value]
+})
 function visibleDepartment(id){return !props.departmentVisibility||selectedDepartments.value.includes(String(id))}
 function visiblePerson(person){if(!props.departmentVisibility)return true;const memberships=Array.isArray(person.departments)?person.departments:(people.value.find(item=>String(item.id)===String(person.id))?.departments||[]);return memberships.length?memberships.some(group=>visibleDepartment(group.id)):visibleDepartment('ungrouped')}
-function applyDepartments(){const ids=[...new Set(departmentDraft.value)].filter(id=>departmentOptions.value.some(item=>String(item.id)===id));departmentSelection.value=ids.length===departmentOptions.value.length?null:ids;try{if(departmentSelection.value===null)localStorage.removeItem(departmentStorageKey());else localStorage.setItem(departmentStorageKey(),JSON.stringify(ids))}catch{/* 本页仍生效。 */}departmentPickerVisible.value=false;expanded.value=visibleGroups.value.map(group=>group.id);emit('update:modelValue',props.modelValue.filter(visiblePerson))}
+function applyDepartments(){const ids=[...new Set(departmentDraft.value)].filter(id=>departmentOptions.value.some(item=>String(item.id)===id));departmentSelection.value=ids.length===departmentOptions.value.length?null:ids;departmentPickerVisible.value=false;expanded.value=visibleGroups.value.map(group=>group.id);emit('update:modelValue',props.modelValue.filter(visiblePerson))}
 const orderStorageKey=()=>{try{return `${props.monthly?'monthly-shift':'translation-arrangement'}:roster-order:${localStorage.getItem('user_id')||'anonymous'}`}catch{return ''}}
 try{const raw=localStorage.getItem(orderStorageKey());if(raw){const parsed=JSON.parse(raw);if(!Array.isArray(parsed.departments)||!parsed.people||typeof parsed.people!=='object'||Array.isArray(parsed.people))throw new Error('invalid order');order.value={departments:parsed.departments.filter(id=>typeof id==='string'),people:Object.fromEntries(Object.entries(parsed.people).filter(([,ids])=>Array.isArray(ids)).map(([key,ids])=>[key,ids.filter(id=>typeof id==='string')]))}}}catch{try{localStorage.removeItem(orderStorageKey())}catch{/* 使用默认顺序。 */}}
 const hasCustomOrder=computed(()=>order.value.departments.length>0||Object.values(order.value.people).some(ids=>ids.length))

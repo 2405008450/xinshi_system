@@ -15,7 +15,16 @@
         <span class="app-window-popover__title" @mousedown.stop>{{ title }}</span>
         <WindowControls :maximized="geometry.state.maximized" @minimize="minimized = true" @maximize="geometry.maximize" @restore="geometry.restore" @close="close" />
       </header>
-      <div ref="content" class="app-window-popover__body"><slot>{{ $attrs.content }}</slot></div>
+      <div ref="content" class="app-window-popover__body">
+        <FilterDraftScope v-if="isFilter" ref="draftScope" :active="!!visible">
+          <slot>{{ $attrs.content }}</slot>
+        </FilterDraftScope>
+        <slot v-else>{{ $attrs.content }}</slot>
+      </div>
+      <div v-if="isFilter" class="filter-window-actions">
+        <el-button link @click="cancelFilter">取消筛选</el-button>
+        <el-button type="primary" @click="applyFilter">确定</el-button>
+      </div>
       <i v-for="edge in geometry.state.maximized?[]:edges" :key="edge" class="app-window-resize" :class="`app-window-resize--${edge}`" @mousedown="geometry.start($event, edge)" />
     </template>
     <slot v-else>{{ $attrs.content }}</slot>
@@ -33,19 +42,26 @@ import { useWindowGeometry } from '@/composables/useWindowGeometry'
 import {isAdvancedFilterDockDragging} from '@/utils/advancedFilterDock'
 import SelectionPopoverSummary from './selectionPopoverSummary.js'
 import { multiSelectionContext } from './multiSelectionContext.js'
+import FilterDraftScope from './FilterDraftScope'
 
 defineOptions({ inheritAttrs: false })
-defineProps({ title: { type: String, default: '' } })
+const props = defineProps({ title: { type: String, default: '' }, retainOnSelection: Boolean,
+  draftFilter: { type: Boolean, default: undefined } })
+const isFilter = computed(() => props.draftFilter ?? /筛选|排除项目状态|负责人变更|联系状态记录/.test(props.title))
+const draftScope = ref()
+function applyFilter(){draftScope.value?.apply();close()}
+function cancelFilter(){draftScope.value?.cancel();close()}
 const emit = defineEmits(['update:visible'])
 const attrs = useAttrs()
 const selectionGroups = shallowReactive(new Map()), selectionSummary = ref()
 provide(multiSelectionContext, selectionGroups)
 function confirmSelection() {
+  if (isFilter.value) { applyFilter(); return }
   const panel = selectionSummary.value?.$el?.closest('.el-popover')
   const existing = [...(panel?.querySelectorAll('button') || [])].find(button =>
     !button.closest('.multi-select-summary') && button.getClientRects().length && /^(确定|确认|应用|保存|查询|完成|确认选择)$/.test(button.textContent.trim()))
   if (existing) { if (!existing.disabled) existing.click() }
-  else close()
+  else if (!props.retainOnSelection) close()
 }
 const popoverRef = ref(), content = ref(), minimized = ref(false), localVisible = ref(), locallyClosed = ref(false)
 // 兼容只传 :visible 的调用方：关闭按钮也必须即时关闭，而非等待外层状态回写。
@@ -86,6 +102,7 @@ watch(() => attrs.visible, value => {
 defineExpose({
   popperRef: computed(() => popoverRef.value?.popperRef),
   hide: close,
+  minimize: () => { if (visible.value) minimized.value = true },
   maximize: geometry.maximize,
   resetPosition: geometry.reset,
 })
@@ -99,4 +116,5 @@ defineExpose({
 .app-window-popover__header.is-dragging { cursor: grabbing; }
 .app-window-popover__body { flex: 1; min-height: 0; overflow: auto; }
 .app-window-popover__body > * { max-height: none !important; }
+.filter-window-actions{display:flex;justify-content:flex-end;gap:12px;padding-top:10px;margin-top:10px;border-top:1px solid var(--el-border-color-lighter);flex:none}
 </style>

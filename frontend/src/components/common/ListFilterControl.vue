@@ -1,6 +1,9 @@
 <template>
+  <ClientFilterInput v-if="definition.autocomplete === 'client'" :model-value="modelValue"
+    @update:model-value="update" @text-input="$emit('text-input',$event)"
+    @change="$emit('change',$event)" @enter="$emit('enter')" />
   <el-input
-    v-if="definition.type === 'text'"
+    v-else-if="definition.type === 'text'"
     :model-value="modelValue"
     :placeholder="definition.placeholder || `筛选${definition.label}`"
     clearable
@@ -73,6 +76,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import ClientFilterInput from './ClientFilterInput.vue'
 
 const props = defineProps({
   modelValue: { type: [String, Number, Boolean, Array, Object], default: '' },

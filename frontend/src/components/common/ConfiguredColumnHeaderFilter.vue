@@ -6,7 +6,7 @@
     :active-count="isGroup ? groupActiveCount : 0"
     :width="definition.headerWidth || (definition.wide ? 320 : 240)"
     :placement="placement"
-    :hide-default-footer="usesConfirmedSelection || isGroup"
+    hide-default-footer
     @before-enter="prepareDraft"
     @clear="clear"
     @dismiss="discardFilters"
@@ -49,20 +49,24 @@
       <div class="confirmed-header-filter__footer">
         <span>已选 {{ draftValue.length }} 项</span>
         <div>
+          <el-button link size="small" @click="clear">取消筛选</el-button>
           <el-button size="small" @click="cancel">取消</el-button>
           <el-button type="primary" size="small" @click="confirm">确定</el-button>
         </div>
       </div>
     </div>
+    <div v-else>
     <ListFilterControl
-      v-else
-      :model-value="modelValue"
+      :model-value="draftValue"
       :definition="definition"
-      @update:model-value="$emit('update:modelValue', $event)"
-      @text-input="$emit('text-input', $event)"
-      @change="$emit('change', $event)"
-      @enter="$emit('enter')"
+      @update:model-value="draftValue = $event"
+      @enter="confirm"
     />
+    <div class="confirmed-header-filter__footer">
+      <el-button link @click="clear">取消筛选</el-button>
+      <el-button type="primary" size="small" @click="confirm">确定</el-button>
+    </div>
+    </div>
   </ColumnHeaderFilter>
 </template>
 
@@ -113,7 +117,9 @@ const filteredOptions = computed(() => {
 })
 const prepareDraft = () => {
   groupOpenVersion.value++
-  draftValue.value = Array.isArray(props.modelValue) ? [...props.modelValue] : []
+  draftValue.value = Array.isArray(props.modelValue) ? [...props.modelValue]
+    : props.modelValue && typeof props.modelValue === 'object' ? { ...props.modelValue }
+    : props.modelValue ?? emptyFilterValue(props.definition)
   filterKeyword.value = ''
 }
 const selectAll = () => {
@@ -123,25 +129,16 @@ const selectAll = () => {
 }
 const cancel = () => { prepareDraft(); popoverRef.value?.close() }
 const confirm = () => {
-  const next = [...draftValue.value]
-  const current = Array.isArray(props.modelValue) ? props.modelValue : []
-  const changed = next.length !== current.length || next.some((value, index) => value !== current[index])
-  if (changed) {
-    emit('update:modelValue', next)
-    emit('change', next)
-  }
+  const next = Array.isArray(draftValue.value) ? [...draftValue.value] : draftValue.value
+  emit('update:modelValue', next)
+  emit('change', next)
+  popoverRef.value?.close()
 }
 const clear = () => {
   emit('update:modelValue', emptyFilterValue(props.definition))
   emit('clear')
 }
 const discardFilters = () => {
-  if (active.value) {
-    if (isGroup.value) {
-      props.definition.fields.forEach(field => emit('update-field', field.key, emptyFilterValue(field)))
-      emit('clear')
-    } else clear()
-  }
   prepareDraft()
 }
 </script>

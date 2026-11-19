@@ -1,6 +1,6 @@
 <template>
   <div class="unified-tasks-panel">
-    <el-radio-group v-if="!fixedSource" v-model="sourceFilter" size="small" class="source-filter">
+    <el-radio-group v-if="!fixedSource" v-model="sourceFilter" size="small" class="source-filter" data-auto-draft="off">
       <el-radio-button value="all">全部（{{ visibleTaskCount }}）</el-radio-button>
       <el-radio-button value="project">项目任务（{{ projectTotalCount }}）</el-radio-button>
       <el-radio-button value="non_project">非项目任务（{{ openNonProjectItems.length }}）</el-radio-button>
@@ -9,6 +9,7 @@
     <section v-if="sourceFilter !== 'non_project'">
       <div v-if="sourceFilter === 'all'" class="subsection-title">项目任务</div>
       <MyTasksPanel
+        :active="active"
         :current-user-name="currentUserName"
         :tasks-list="projectItems"
         @visible-count-change="projectVisibleCount = $event"
@@ -24,7 +25,7 @@
     <section v-if="sourceFilter !== 'project'" class="non-project-section">
       <div class="non-project-toolbar">
         <div v-if="sourceFilter === 'all'" class="subsection-title">非项目任务</div>
-        <div class="toolbar-actions">
+        <div class="toolbar-actions" data-auto-draft="off">
           <span class="non-project-result">筛选结果 {{ filteredNonProjectItems.length }} 条</span>
           <el-select v-model="nonProjectStatusFilter" size="small" style="width: 120px" @change="runNonProjectSearch">
             <el-option label="进行中" value="open" />
@@ -288,6 +289,7 @@ import { DEADLINE_STATE, compareWorkItemsByDeadline, getWorkItemDeadlineState } 
 import { WORKBENCH_PAGE_SIZE_OPTIONS, getWorkbenchLastPage, paginateWorkbenchRows } from '@/utils/workbenchList'
 
 const props = defineProps({
+  active: { type: Boolean, default: true },
   currentUserName: { type: String, default: '' },
   currentUserId: { type: String, default: '' },
   items: { type: Array, default: () => [] },
@@ -359,6 +361,14 @@ function resetNonProjectSearch() {
   nonProjectStatusFilter.value = 'open'
   runNonProjectSearch()
 }
+watch(() => props.active, active => {
+  if (active) return
+  sourceFilter.value = props.fixedSource || 'all'
+  resetNonProjectSearch()
+})
+watch(sourceFilter, source => {
+  if (source === 'project') resetNonProjectSearch()
+})
 
 function handleNonProjectPageSizeChange() {
   nonProjectPage.value = 1
