@@ -40,11 +40,19 @@
       <span>已选 {{selected.length}} 项任务</span><el-button @click="selected=[]">清空选择</el-button><el-button :disabled="!canWrite" @click="splitSelected">分拆至新对账单</el-button><el-button :disabled="!canWrite" @click="openSchedule(selected)">设为待入账</el-button><el-button :disabled="!canEditContent" @click="restoreTasks">恢复任务原始内容</el-button>
     </div>
     <el-empty v-if="state&&!documents.length" :description="focusBoardId?'该对账单已删除或不存在，可返回对账单管理查看记录':focusMonth?'该客户在此月份尚未生成对账单':'暂无对账单，请筛选或勾选下方项目后点击生成对账单'" />
-    <div v-if="documents.length" class="statement-canvas-scroll">
+    <div v-if="documents.length" ref="canvasScroll" class="statement-canvas-scroll">
       <div class="statement-canvas-space" :style="{width:`${canvasWidth*scale}px`,height:`${canvasHeight*scale}px`}">
         <div class="statement-canvas" :style="{width:`${canvasWidth}px`,height:`${canvasHeight}px`,transform:`scale(${scale})`}">
-          <section v-for="board in documents" :key="board.id" :data-statement-board="board.id" class="statement-board" :style="boardStyle(board)">
-            <div class="statement-board-header"><el-checkbox v-if="deleteMode" :model-value="selectedBoardIds.includes(board.id)" :aria-label="`选择对账单：${board.name}`" @update:model-value="value=>selectBoard(board.id,value)">选择</el-checkbox><div class="statement-board-handle" @pointerdown="startBoardDrag($event,board)">⠿ {{board.name}}</div><span>任务 {{tasksFor(board.id).length}} 项</span></div>
+          <section v-for="board in documents" :key="board.id" :data-statement-board="board.id" class="statement-board" :style="boardStyle(board)"
+            @pointerdown.capture="startBoardDrag($event,board)">
+            <div class="statement-board-header">
+              <el-checkbox v-if="deleteMode" :model-value="selectedBoardIds.includes(board.id)" :aria-label="`选择对账单：${board.name}`" @update:model-value="value=>selectBoard(board.id,value)">选择</el-checkbox>
+              <div class="statement-board-handle">⠿ {{board.name}}</div>
+              <button v-if="!deleteMode" type="button" class="statement-board-move" data-board-drag-handle
+                :aria-label="`拖动整张对账单：${board.name}`" title="按住并拖动，移动整张对账单">⠿ 拖动整张</button>
+              <span>任务 {{tasksFor(board.id).length}} 项</span>
+              <el-button v-if="!deleteMode" link :aria-label="`最大化查看对账单：${board.name}`" @click="maximizedBoardId=board.id">最大化查看</el-button>
+            </div>
             <div v-if="!deleteMode" class="statement-board-actions">
               <template v-if="!standardStatement">
                 <el-button type="primary" plain @click="openInline(board)">{{canEditContent?'放大 / 直接编辑':'放大查看'}}</el-button>
@@ -80,6 +88,14 @@
     </div>
     <div ref="printSource" class="statement-print-source" aria-hidden="true"><div v-for="board in documents" :key="board.id" :data-statement-print="board.id"><CustomerStatementPaper :statement="board.statement" /></div></div>
 
+    <DraggableFormDialog :model-value="!!maximizedBoard" default-maximized class="statement-maximized-view"
+      :title="`对账单 · ${maximizedBoard?.name||''}`" append-to-body destroy-on-close
+      width="min(1100px, calc(100vw - 32px))" top="5vh" @update:model-value="value=>{if(!value)maximizedBoardId=''}">
+      <CustomerStatementPaper v-if="maximizedBoard" :statement="maximizedBoard.statement"
+        :interactive="true" :can-write="false" :can-edit="false" :selected="[]"
+        @open-order="openOrder" />
+      <template #footer><el-button @click="maximizedBoardId=''">返回画布</el-button></template>
+    </DraggableFormDialog>
     <TranslationProjectEditor v-if="orderEditor" :key="`${orderEditor.rootId}:${orderEditor.orderNo}`" editor-only embedded :editor-project-id="orderEditor.rootId" :editor-order-no="orderEditor.orderNo" @editor-closed="orderEditor=null" />
     <CustomerStatementInlineEditor v-model="inlineVisible" :board="inlineBoard" :can-write="canEditContent" :saving="saving" :error="error" @save="saveInline" @open-order="openOrder" />
     <CustomerStatementGenerationVersions v-if="state?.client_id" v-model="generationVersionsVisible"
@@ -195,9 +211,13 @@ watch(()=>[props.billingMonth,props.periodNumber],([month])=>{if(month)filters.m
 const position=board=>positions[board.id]||{x:board.x||0,y:board.y||0}
 const canvasWidth=computed(()=>Math.max(980,...documents.value.map(board=>position(board).x+980)))
 const canvasHeight=computed(()=>Math.max(740,...documents.value.map(board=>position(board).y+740)))
-const boardStyle=board=>({left:`${position(board).x}px`,top:`${position(board).y}px`})
+const activeBoardId=ref('')
+const boardStyle=board=>({left:`${position(board).x}px`,top:`${position(board).y}px`,zIndex:activeBoardId.value===board.id?1:0})
 const tasksFor=boardId=>Object.values(state.value?.payload.tasks||{}).filter(task=>task.board_id===boardId)
-let sequence=0,controller,disposed=false,drag=null
+const canvasScroll=ref()
+const maximizedBoardId=ref('')
+const maximizedBoard=computed(()=>documents.value.find(board=>board.id===maximizedBoardId.value))
+let sequence=0,controller,disposed=false,drag=null,suppressBoardClickUntil=0
 const frames=new Set()
 const printSource=ref(),downloading=ref(false)
 function apply(data){emit('loaded',data);exitDeleteMode();state.value=data;selected.value=[];for(const key of Object.keys(positions))delete positions[key]}
@@ -309,9 +329,56 @@ function openSchedule(ids){scheduleIds.value=[...new Set(ids)];scheduleDraft.mon
 async function saveSchedule(){if(!await scheduleForm.value?.validate().catch(()=>false))return;if(await mutate('schedule_tasks',{task_ids:scheduleIds.value,month:scheduleDraft.month},`将 ${scheduleIds.value.length} 项任务设为 ${scheduleDraft.month} 待入账，从原对账单移出；生成目标月份时自动纳入，并保留调整记录。`))scheduleVisible.value=false}
 async function cancelPending(row){await mutate('cancel_pending',{task_ids:[row.id]},`撤销 ${row.order_no} 的待入账调整，恢复至调整前的对账单和月份？`)}
 async function restoreTasks(){await mutate('restore_task',{task_ids:[...selected.value]},`恢复所选 ${selected.value.length} 项任务首次导入时的内容、月份及对账单归属。`)}
-function startBoardDrag(event,board){if(!canWrite||saving.value||deleteMode.value||event.button!==0)return;event.preventDefault();const original=position(board);drag={id:board.id,startX:event.clientX,startY:event.clientY,original:{...original}};window.addEventListener('pointermove',moveBoard);window.addEventListener('pointerup',endBoard,{once:true})}
-function moveBoard(event){if(!drag)return;positions[drag.id]={x:Math.max(0,Math.min(20000,drag.original.x+(event.clientX-drag.startX)/scale.value)),y:Math.max(0,Math.min(20000,drag.original.y+(event.clientY-drag.startY)/scale.value))}}
-async function endBoard(){window.removeEventListener('pointermove',moveBoard);const moved=drag;drag=null;if(!moved)return;const next=positions[moved.id];if(!next||Math.abs(next.x-moved.original.x)+Math.abs(next.y-moved.original.y)<4){delete positions[moved.id];return}if(!await mutate('position_board',{board_id:moved.id,...next},'保存此份对账单的新位置？'))delete positions[moved.id]}
+function startBoardDrag(event,board) {
+  const explicitHandle=event.target.closest('[data-board-drag-handle]')
+  if(saving.value||loading.value||deleteMode.value||event.button!==0||
+    (!explicitHandle&&event.target.closest('button,input,label,a,select,textarea,[contenteditable],.statement-table-wrap,.statement-board-actions,.statement-ui')))return
+  if(drag)return
+  event.preventDefault()
+  event.stopPropagation()
+  activeBoardId.value=board.id
+  const scroll=canvasScroll.value
+  drag={id:board.id,startX:event.clientX,startY:event.clientY,original:{...position(board)},
+    scrollLeft:scroll?.scrollLeft||0,scrollTop:scroll?.scrollTop||0}
+  window.addEventListener('pointermove',moveBoard)
+  window.addEventListener('pointerup',endBoard,{once:true})
+  window.addEventListener('pointercancel',cancelBoardDrag,{once:true})
+}
+function moveBoard(event) {
+  if(!drag)return
+  const scroll=canvasScroll.value
+  if(scroll) {
+    const bounds=scroll.getBoundingClientRect()
+    const dx=event.clientX>bounds.right-36?24:event.clientX<bounds.left+36?-24:0
+    const dy=event.clientY>bounds.bottom-36?24:event.clientY<bounds.top+36?-24:0
+    scroll.scrollBy(dx,dy)
+  }
+  positions[drag.id]={
+    x:Math.max(0,Math.min(20000,drag.original.x+(event.clientX-drag.startX+(scroll?.scrollLeft||0)-drag.scrollLeft)/scale.value)),
+    y:Math.max(0,Math.min(20000,drag.original.y+(event.clientY-drag.startY+(scroll?.scrollTop||0)-drag.scrollTop)/scale.value)),
+  }
+  suppressBoardClickUntil=Date.now()+500
+}
+function cancelBoardDrag() {
+  window.removeEventListener('pointermove',moveBoard)
+  window.removeEventListener('pointerup',endBoard)
+  window.removeEventListener('pointercancel',cancelBoardDrag)
+  if(drag)delete positions[drag.id]
+  drag=null
+}
+async function endBoard() {
+  window.removeEventListener('pointermove',moveBoard)
+  window.removeEventListener('pointercancel',cancelBoardDrag)
+  const moved=drag
+  drag=null
+  if(!moved)return
+  const next=positions[moved.id]
+  if(!next||Math.abs(next.x-moved.original.x)+Math.abs(next.y-moved.original.y)<4) {
+    delete positions[moved.id]
+    return
+  }
+  if(canWrite&&!await mutate('position_board',{board_id:moved.id,...next},'',async()=>true))delete positions[moved.id]
+}
 
 const inlineVisible=ref(false),inlineBoard=ref(null)
 let inlineRevision=0
@@ -320,7 +387,7 @@ async function changeCompany(board,subject){
   if(!canChangeCompany.value)return
   await mutate('change_company_subject',{board_id:board.id,subject_key:subject},`将「${board.name}」的公司名称、收款账户和印章更新为${companySubjects[subject]}？`)
 }
-function clickBoard(event,board){if(event.target.closest('button,input,label,.statement-ui'))return;openInline(board)}
+function clickBoard(event,board){if(Date.now()<suppressBoardClickUntil||event.target.closest('button,input,label,.statement-ui'))return;openInline(board)}
 async function saveInline(data){
   if(state.value.revision!==inlineRevision){error.value='对账单已变化，请关闭窗口重新打开后编辑';return}
   if(await mutate('edit_document',data,'确认保存这份对账单的全部修改？仅修改对账单，每个字段的修改前后内容、操作人与时间都会记录。'))inlineVisible.value=false
@@ -374,11 +441,55 @@ async function download(ids,format='excel'){
   finally{downloading.value=false}
 }
 function filePrintHtml(id){const element=printSource.value?.querySelector(`[data-statement-print="${CSS.escape(id)}"]`);return `<style>${statementPrintStyles}.statement-ui{display:none}</style>${element?.innerHTML||''}`}
-function printBoards(ids){const elements=[...(printSource.value?.querySelectorAll('[data-statement-print]')||[])].filter(element=>ids.includes(element.dataset.statementPrint));if(!elements.length)return;const frame=document.createElement('iframe');frame.style.cssText='position:fixed;width:0;height:0;border:0;right:0;bottom:0';frame.title='对账单打印';frames.add(frame);const cleanup=()=>{frames.delete(frame);frame.remove()};frame.srcdoc=`<!doctype html><meta charset="utf-8"><title>对账单</title><style>${statementPrintStyles}.statement-paper{break-after:page;min-width:0}.statement-paper:last-child{break-after:auto}.statement-ui{display:none}</style>${elements.map(element=>element.innerHTML).join('')}`;frame.onload=async()=>{try{await Promise.all([...frame.contentDocument.images].map(image=>image.decode().catch(()=>{})));frame.contentWindow.addEventListener('afterprint',cleanup,{once:true});frame.contentWindow.focus();frame.contentWindow.print()}catch{cleanup();ElMessage.error('打印窗口打开失败')}};document.body.appendChild(frame)}
+async function printBoards(ids) {
+  if(!ids.length||!state.value||downloading.value)return
+  downloading.value=true
+  try {
+    const blob=await exportStatementWorkspacePdf(state.value.client_id,{
+      board_ids:ids,revision:state.value.revision,mode:mode.value,settlement_scope:props.settlementScope,
+    })
+    if(disposed)return
+    const url=URL.createObjectURL(blob)
+    const frame=document.createElement('iframe')
+    frame.style.cssText='position:fixed;width:1px;height:1px;border:0;right:0;bottom:0'
+    frame.title='对账单打印'
+    const cleanup=()=>{
+      frames.delete(cleanup)
+      frame.remove()
+      URL.revokeObjectURL(url)
+    }
+    frames.add(cleanup)
+    frame.onload=()=>{
+      try {
+        frame.contentWindow.addEventListener('afterprint',cleanup,{once:true})
+        frame.contentWindow.focus()
+        frame.contentWindow.print()
+      } catch {
+        cleanup()
+        ElMessage.error('打印窗口打开失败')
+      }
+    }
+    frame.onerror=()=>{cleanup();ElMessage.error('打印文件加载失败')}
+    frame.src=url
+    document.body.appendChild(frame)
+  } catch(error) {
+    ElMessage.error(getLocalizedErrorMessage(error,'打印文件生成失败'))
+  } finally {
+    downloading.value=false
+  }
+}
 watch(()=>[props.clientId,props.projectId,props.focusBoardId,props.focusMonth,props.periodNumber],()=>{exitDeleteMode();inlineVisible.value=false;selected.value=[];editVisible.value=false;historyVisible.value=false;void load()},{immediate:true})
-onBeforeUnmount(()=>{disposed=true;sequence++;historySequence++;controller?.abort();clearTimeout(generationTimer);generationRequest?.abort();window.removeEventListener('pointermove',moveBoard);window.removeEventListener('pointerup',endBoard);for(const frame of frames)frame.remove()})
+onBeforeUnmount(()=>{disposed=true;sequence++;historySequence++;controller?.abort();clearTimeout(generationTimer);generationRequest?.abort();cancelBoardDrag();for(const cleanup of frames)cleanup()})
 </script>
 <style scoped>
+.statement-board-header{cursor:grab;touch-action:none}
+.statement-board-header:active{cursor:grabbing}
+.statement-board-move{display:inline-flex;align-items:center;min-height:38px;padding:6px 14px;border:1px solid var(--el-border-color);border-radius:6px;background:#fff;color:var(--el-text-color-primary);font:inherit;font-weight:600;cursor:grab;touch-action:none;user-select:none}
+.statement-board-move:active{cursor:grabbing;background:var(--el-fill-color-light)}
+.statement-board-content :deep(.statement-paper>h2),.statement-board-content :deep(.statement-paper>h3){cursor:grab;touch-action:none}
+:global(.statement-maximized-view){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}
+:global(.statement-maximized-view>.el-dialog__body){flex:1;min-height:0;overflow:auto}
+:global(.statement-maximized-view>.el-dialog__header),:global(.statement-maximized-view>.el-dialog__footer){flex:none}
 .statement-canvas-space{overflow:clip}
 .workspace-generation{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 0 2px}.workspace-generation :deep(.el-form-item){margin:0 0 8px}.workspace-toolbar :deep(.el-button + .el-button){margin-left:0}.workspace-toolbar{padding-top:10px;border-top:1px solid var(--el-border-color-lighter)}.workspace-hint{margin:6px 0 12px}.workspace-toolbar :deep(.el-select){flex-shrink:0}
 

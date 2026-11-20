@@ -8,18 +8,16 @@
     </RouteSectionNavigation>
     <FinanceWorkflowHelp v-model="helpVisible" />
     <RevenueStatisticsDialog v-model="revenueVisible" />
-    <keep-alive>
-      <component :is="activeComponent" v-if="activeComponent" :key="activeModule">
-        <template v-if="activeModule === 'translation'" #project-type-filter>
-          <el-form-item label="项目类型">
-            <el-select model-value="translation" aria-label="项目类型" style="width: 160px">
-              <el-option v-for="type in projectTypes" :key="type.value" :value="type.value"
-                :label="type.label" :disabled="!type.available" />
-            </el-select>
-          </el-form-item>
-        </template>
-      </component>
-    </keep-alive>
+    <component :is="activeComponent" v-if="activeComponent" :key="activeModule">
+      <template v-if="activeModule === 'translation'" #project-type-filter>
+        <el-form-item label="项目类型">
+          <el-select model-value="translation" aria-label="项目类型" style="width: 160px">
+            <el-option v-for="type in projectTypes" :key="type.value" :value="type.value"
+              :label="type.label" :disabled="!type.available" />
+          </el-select>
+        </el-form-item>
+      </template>
+    </component>
     <el-card v-if="activeProjectType && !activeProjectType.available" shadow="never">
       <el-empty :description="activeProjectType.label" />
     </el-card>

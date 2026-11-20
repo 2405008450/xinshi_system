@@ -1,5 +1,8 @@
 <template>
-  <template v-if="definition.type === 'text'">
+  <ClientFilterInput v-if="definition.autocomplete === 'client'" :model-value="modelValue"
+    @update:model-value="update" @text-input="$emit('text-input', $event)"
+    @change="$emit('change', $event)" @enter="$emit('enter')" />
+  <template v-else-if="definition.type === 'text'">
     <el-input
       :model-value="emptySelected ? '' : modelValue"
       :disabled="emptySelected"
@@ -87,6 +90,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
+import ClientFilterInput from './ClientFilterInput.vue'
 
 const props = defineProps({
   modelValue: { type: [String, Number, Boolean, Array, Object], default: '' },

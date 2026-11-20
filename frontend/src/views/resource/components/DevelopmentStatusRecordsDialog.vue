@@ -1,5 +1,5 @@
 <template>
-  <DraggableFormDialog v-model="visible" :title="`${entryState} · 跨日期开拓记录`" width="min(1380px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close class="development-status-dialog" @close="stopRequests">
+  <DraggableFormDialog v-model="visible" :title="`${entryState} · 跨日期开拓记录`" width="min(1380px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close class="development-status-dialog" @close="closeSearch">
     <div class="status-filter-area" data-auto-draft="off">
       <div class="development-filters">
         <el-date-picker v-model="filters.range" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期（全部日期）" end-placeholder="结束日期" clearable @change="query" />
@@ -62,6 +62,9 @@ let controller, sequence = 0, timer
 function stopRequests() {
   clearTimeout(timer); controller?.abort(); sequence++; loading.value = false; advanced.value = false
   tableRef.value?.invalidateDetails()
+}
+function closeSearch() {
+  stopRequests(); resetFilters(entryState.value); page.value = 1; rows.value = []; total.value = 0
 }
 async function reload() {
   if (!visible.value) return

@@ -100,6 +100,9 @@ def read(db,project_id,order_id=None,*,special=False):
         required, tax_mode, totals = invoice_required(node), node.get('effective_billing_tax_mode'), node.get('billing_totals',{})
     version=hashlib.sha256(json.dumps(state,sort_keys=True).encode()).hexdigest()
     return {**state,'version':version,'project_id':str(project_id),'order_id':node['id'],'order_no':node['order_no'],
+            'history': [event for event in (doc.quotation_data or {}).get('_invoice_history', [])
+                        if event.get('order_id') == (node['id'] if special else str(project_id))
+                        and event.get('special', False) == special] if doc else [],
             'client_id':root.get('client_id'),'client_name':root.get('client_short_name') or '-','required':required,
             'sub_client_id':root.get('document_sub_client_id', root.get('sub_client_id')),
             'tax_mode':tax_mode,'totals':totals,
@@ -130,6 +133,16 @@ def save(db,project_id,payload,actor_id,order_id=None,*,special=False,commit=Tru
     moment=business_now()
     doc=invoice_document(db, project_id)
     actor=db.get(AppUser, actor_id)
+    before_invoice = {key: current[key] for key in ('invoice_status', 'proofs')}
+    after_invoice = {'invoice_status': payload.invoice_status, 'proofs': payload.proofs}
+    if before_invoice != after_invoice:
+        history = list((doc.quotation_data or {}).get('_invoice_history', []))
+        history.append({
+            'id': str(uuid4()), 'order_id': str(order_id or project_id) if special else str(project_id),
+            'special': special, 'actor_id': str(actor_id), 'actor_name': actor.full_name or actor.username,
+            'at': moment.isoformat(), 'before': before_invoice, 'after': after_invoice,
+        })
+        doc.quotation_data = {**(doc.quotation_data or {}), '_invoice_history': history}
     if special:
         state = {'invoice_status': payload.invoice_status, 'proofs': payload.proofs}
         if payload.invoice_status == 'issued':

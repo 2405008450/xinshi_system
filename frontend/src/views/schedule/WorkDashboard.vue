@@ -99,6 +99,7 @@
             <el-collapse-transition>
               <div v-show="managementExpanded" class="workbench-section__body">
                 <ProjectManagerHandoverPanel
+                  :active="managementExpanded"
                   @visible-count-change="managementProjectCount = $event"
                   @open-project="handleOpenProject"
                 />
@@ -131,6 +132,7 @@
             <el-collapse-transition>
               <div v-show="executionExpanded" class="workbench-section__body">
                 <UnifiedTasksPanel
+                  :active="executionExpanded"
                   :current-user-name="currentUserName"
                   :current-user-id="currentUserId"
                   :items="workItems"

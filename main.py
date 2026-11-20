@@ -199,6 +199,11 @@ async def stale_update_handler(_request: Request, exc: StaleUpdateError):
 
 @app.exception_handler(RequestValidationError)
 async def request_validation_error_handler(_request: Request, exc: RequestValidationError):
+    from request_failure_logging import safe_value
+    _request.state.failure_reason = safe_value([
+        {key: item[key] for key in ('loc', 'type', 'msg') if key in item}
+        for item in exc.errors()
+    ])
     return JSONResponse(
         status_code=422,
         content={"detail": jsonable_encoder(localize_validation_errors(exc.errors()))},
@@ -207,6 +212,8 @@ async def request_validation_error_handler(_request: Request, exc: RequestValida
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(_request: Request, exc: StarletteHTTPException):
+    from request_failure_logging import safe_value
+    _request.state.failure_reason = safe_value(exc.detail)
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": jsonable_encoder(localize_http_detail(exc.detail, exc.status_code))},
@@ -258,6 +265,7 @@ app.add_middleware(DatabaseRequestCapacityMiddleware, transfer_limit=4)
 async def add_security_headers(request: Request, call_next):
     incoming_request_id = (request.headers.get("X-Request-ID") or "").strip()
     metrics, metrics_token = begin_request(incoming_request_id[:128] or None)
+    request.state.failure_request_id = metrics.request_id
     status_code = 500
     logged = False
     try:
@@ -288,6 +296,9 @@ async def add_security_headers(request: Request, call_next):
         if not logged:
             finish_request_log(request, metrics, status_code)
         end_request(metrics_token)
+
+from request_failure_logging import RequestFailureLoggingMiddleware
+app.add_middleware(RequestFailureLoggingMiddleware)
 
 # 注册路由
 app.include_router(auth.router)

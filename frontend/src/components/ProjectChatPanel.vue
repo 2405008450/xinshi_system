@@ -1416,7 +1416,7 @@ const handleResetSearch = () => {
   filters.dateRange = []
   filters.favoritesOnly = false
   pagination.page = 1
-  loadMessages()
+  if (props.active && props.projectId) loadMessages()
 }
 
 const handlePageSizeChange = () => {

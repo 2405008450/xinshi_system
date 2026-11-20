@@ -77,7 +77,7 @@
 </template>
 <script setup>
 import {useProjectStatusSync} from '@/composables/useProjectStatusSync'
-import {computed,nextTick,ref,reactive,onMounted,onBeforeUnmount,onActivated,onDeactivated,watch} from 'vue'
+import {computed,nextTick,ref,reactive,onMounted,onBeforeUnmount,watch} from 'vue'
 import {getInterpretationFinancePage,saveInterpretationSettlementMode} from '@/api/interpretationCustomerFinance'
 import InterpretationFinanceEditor from '@/components/common/InterpretationFinanceEditor.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
@@ -172,7 +172,6 @@ function handleRowAction(row,command){
   openDocument(command,row)
 }
 let sequence=0,controller,timer
-let activated=false
 function queryParams(){return {client_id:props.clientId||undefined,month:filters.month||undefined,pricing_mode:filters.pricing||undefined,payment_method:filters.settlement||undefined,payment_status:filters.paymentStatus||undefined,missing_amount:filters.missingAmount||undefined,only_mine:filters.manager==='self',client_manager:filters.manager==='name'?filters.managerName:undefined}}
 async function load(){const seq=++sequence;controller?.abort();controller=new AbortController();loading.value=true;error.value='';try{const data=await getInterpretationFinancePage({...queryParams(),keyword:filters.keyword,skip:(page.value-1)*10,limit:10},controller.signal);if(seq===sequence){totalsExclTax.value=data.totals_excl_tax||{};totalsInclTax.value=data.totals_incl_tax||{};billingTotals.value=data.billing_totals||{};rows.value=data.items;total.value=data.total;incomplete.value=data.incomplete}}catch(e){if(seq===sequence&&e.code!=='ERR_CANCELED')error.value=getLocalizedErrorMessage(e,'口译财务加载失败')}finally{if(seq===sequence)loading.value=false}}
 function search(){clearTimeout(timer);page.value=1;void load()}
@@ -211,10 +210,8 @@ function cell(row,key){
   return row[key]||'-'
 }
 onMounted(()=>void load())
-onActivated(()=>{if(activated)void load();activated=true})
 watch(()=>props.clientId,search)
 onBeforeUnmount(()=>{sequence++;clearTimeout(timer);controller?.abort()})
-onDeactivated(()=>{quotationVisible.value=false;statementVisible.value=false;invoiceVisible.value=false;editorTarget.value=''})
 useProjectStatusSync('interpretation',rows,{field:'project_status',onChanged:()=>{if(!loading.value)void load()}})
 </script>
 <style scoped>

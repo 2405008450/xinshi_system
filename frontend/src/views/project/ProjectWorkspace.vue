@@ -10,9 +10,7 @@
         <el-tab-pane v-if="module === 'translation'" label="帮助" name="help" />
       </el-tabs>
     </el-card>
-    <keep-alive>
-      <component :is="activeComponent" ref="activeView" :key="`${module}:${activeSection}`" v-bind="activeProps" />
-    </keep-alive>
+    <component :is="activeComponent" ref="activeView" :key="`${module}:${activeSection}`" v-bind="activeProps" />
   </div>
 </template>
 
@@ -52,9 +50,7 @@ const activeProps = computed(() => activeSection.value === 'notices' ? { module:
 
 async function handleSectionChange(section) {
   if (section === activeSection.value) return true
-  const query = { ...route.query }
-  if (section !== 'projects') query.section = section
-  else delete query.section
+  const query = section === 'projects' ? {} : { section }
   // 使用路由导航触发公共编辑器的未保存保护，并支持前进、后退。
   await router.push({ path: route.path, query })
   return activeSection.value === section

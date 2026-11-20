@@ -409,7 +409,7 @@ const handleLogout = async () => {
       // 即使服务端暂时不可用，也要完成本地退出。
     }
     clearAuthSession()
-    router.push('/login')
+    window.location.replace(router.resolve('/login').href)
   } catch {
     // 用户取消
   }

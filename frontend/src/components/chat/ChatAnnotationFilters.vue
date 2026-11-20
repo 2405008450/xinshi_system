@@ -1,14 +1,14 @@
 <template>
-  <span class="chat-annotation-filters" @mousedown.stop @dblclick.stop>
+  <span class="chat-annotation-filters" data-auto-draft="off" @mousedown.stop @dblclick.stop>
     <el-button size="small" :type="mine ? 'primary' : 'default'" :aria-pressed="mine"
       @click="emit('change', { mine: !mine, statuses })">我是项目经理</el-button>
-    <el-popover title="项目状态" v-model:visible="visible" trigger="click" placement="bottom-end" :width="320" :z-index="popoverZ"
+    <el-popover v-model:visible="visible" title="项目状态筛选" :draft-filter="false" trigger="click" placement="bottom-end" :width="320" :z-index="popoverZ"
       popper-class="chat-annotation-status-popover" @show="draft = [...statuses]">
       <template #reference>
         <el-button size="small" :type="statuses.length ? 'primary' : 'default'" :aria-expanded="visible"
           @click="popoverZ = chatOverlayZIndex($event.currentTarget)">项目状态{{ statuses.length ? `（${statuses.length}）` : '' }}</el-button>
       </template>
-      <el-checkbox-group v-model="draft" class="chat-annotation-status-options" aria-label="项目状态">
+      <el-checkbox-group v-model="draft" class="chat-annotation-status-options" aria-label="项目状态" data-auto-draft="off">
         <el-checkbox v-for="(label, value) in annotationStatusLabels" :key="value" :value="value">{{ label }}</el-checkbox>
       </el-checkbox-group>
       <div class="chat-annotation-status-actions">
@@ -20,7 +20,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { annotationStatusLabels } from '@/utils/annotationStatus'
 import { chatOverlayZIndex } from '@/utils/chatOverlay'
 
@@ -30,9 +30,15 @@ const visible = ref(false)
 const draft = ref([])
 const popoverZ = ref(2120)
 function apply(statuses) {
+  draft.value = [...statuses]
+  emit('change', { mine: props.mine, statuses: [...draft.value] })
   visible.value = false
-  emit('change', { mine: props.mine, statuses: [...statuses] })
 }
+watch(visible, (open, wasOpen) => {
+  if (!wasOpen || open) return
+  draft.value = [...props.statuses]
+
+})
 </script>
 
 <style scoped>

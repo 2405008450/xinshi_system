@@ -1608,7 +1608,7 @@ const consultationFilterFields = [
   { key: 'consultation_code', label: '咨询编号', type: 'text' },
   { key: 'client_code', label: '客户编号', type: 'text' },
   { key: 'client_name', label: '客户全称', type: 'text' },
-  { key: 'client_short_name', label: '客户简称', type: 'text' },
+  { key: 'client_short_name', label: '客户简称', type: 'text', autocomplete: 'client', headerWidth: 360 },
   { key: 'status', label: '咨询状态', type: 'select', options: () => consultationStatusOptions },
   { key: 'consultation_date_range', apiKey: 'consultation_time', label: '咨询时间', type: 'date-range', wide: true },
   { key: 'consultation_method', label: '咨询方式', type: 'select', options: () => consultationMethodOptions },

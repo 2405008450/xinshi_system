@@ -5,7 +5,8 @@ from uuid import UUID
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, case, select, or_,inspect
-from models import Client, SubClient, TranslationProject
+from sqlalchemy.orm import joinedload, selectinload
+from models import Client, SubClient, TranslationProject, TranslationSubOrder
 from annotation_progress_time import business_now
 import crud
 import translation_document_requirements as documents
@@ -24,8 +25,20 @@ class CustomerGroupMove(BaseModel):
 
 
 def project_query(db,month,manager_scope=None):
-    query=db.query(TranslationProject).outerjoin(Client,Client.id==TranslationProject.client_id).outerjoin(SubClient,SubClient.id==TranslationProject.sub_client_id).filter(TranslationProject.annotation_migrated_at.is_(None))
+    query=db.query(TranslationProject).options(
+        joinedload(TranslationProject.client),
+        joinedload(TranslationProject.sub_client).joinedload(SubClient.parent_client),
+        selectinload(TranslationProject.customer_charge_items),
+        selectinload(TranslationProject.sub_orders).selectinload(TranslationSubOrder.customer_charge_items),
+    ).outerjoin(Client,Client.id==TranslationProject.client_id).outerjoin(SubClient,SubClient.id==TranslationProject.sub_client_id).filter(TranslationProject.annotation_migrated_at.is_(None))
     return crud._apply_translation_project_filters(query,field_filters={**({'finance_billing_month':{'value':month}} if month else {}),**(manager_scope or {})})
+
+
+def snapshot_version(rows, workspace_revision):
+    return sha256(json.dumps({
+        'projects': [(str(row.id), str(row.updated_at), bool(row.required)) for row in rows],
+        'workspace_revision': workspace_revision,
+    }).encode()).hexdigest()
 
 
 def snapshot(db,client_id,month,manager_scope=None,settlement_scope=None):
@@ -38,7 +51,7 @@ def snapshot(db,client_id,month,manager_scope=None,settlement_scope=None):
           if documents.matches_statement_scope(project,settlement_scope)]
     from customer_statement_workspace import StatementWorkspace
     workspace=db.get(StatementWorkspace,client_id) if inspect(db.connection()).has_table(StatementWorkspace.__tablename__) else None
-    version=sha256(json.dumps({'projects':[(str(row.id),str(row.updated_at),bool(row.required)) for row in rows],'workspace_revision':workspace.revision if workspace else 0}).encode()).hexdigest()
+    version=snapshot_version(rows, workspace.revision if workspace else 0)
     return rows,version
 
 
@@ -103,8 +116,20 @@ def customers(db,month,required,keyword,skip,limit,manager_scope=None,progress=N
         query=query.filter(or_(keyword_any([Client.client_name,Client.client_short_name,Client.client_code],keyword.strip()),
                                Client.id.in_(set(child_match.values()))))
     total=query.count();items=[]
-    for client,count,required_count in query.order_by(Client.client_short_name,Client.client_name,Client.id).offset(skip).limit(limit).all():
-        _,version=snapshot(db,client.id,month,manager_scope,settlement_scope)
+    selected_clients=query.order_by(Client.client_short_name,Client.client_name,Client.id).offset(skip).limit(limit).all()
+    from collections import namedtuple
+    from customer_statement_workspace import StatementWorkspace
+    entry=namedtuple('StatementRequirement','id updated_at required')
+    version_rows={client.id: [] for client, _, _ in selected_clients}
+    for project in sorted(projects, key=lambda project: project.id):
+        client_id=project.client_id or (project.sub_client.parent_client_id if project.sub_client else None)
+        if client_id in version_rows and documents.matches_statement_scope(project,settlement_scope):
+            version_rows[client_id].append(entry(project.id,project.updated_at,requirements[project.id]))
+    revisions=dict(db.query(StatementWorkspace.client_id, StatementWorkspace.revision).filter(
+        StatementWorkspace.client_id.in_(version_rows),
+    ).all()) if version_rows and inspect(db.connection()).has_table(StatementWorkspace.__tablename__) else {}
+    for client,count,required_count in selected_clients:
+        version=snapshot_version(version_rows[client.id],revisions.get(client.id,0))
         parent_matches=matches_keywords(' '.join(filter(None,(client.client_name,client.client_short_name,client.client_code))),keyword)
         items.append(dict(id=str(client.id),name=client.client_name,short_name=client.client_short_name or client.client_name,code=client.client_code,project_count=count or 0,required_count=required_count or 0,pending_count=len(waiting.get(client.id,[])),version=version,
                           sub_clients=[],filter_sub_clients=not parent_matches))

@@ -354,6 +354,7 @@ import {
 import ProjectRoleAssigneesPopover from './ProjectRoleAssigneesPopover.vue'
 import WorkbenchProjectTaskCell from './WorkbenchProjectTaskCell.vue'
 
+const props = defineProps({ active: { type: Boolean, default: true } })
 const emit = defineEmits(['updated', 'open-project', 'visible-count-change'])
 const canWriteProjects = hasPermission('projects:write')
 
@@ -422,6 +423,11 @@ const reason = ref('')
 const note = ref('')
 const canSelfClaim = hasRole('项目经理')
 const advancedFilterVisible = ref(false)
+watch(() => props.active, active => {
+  if (active) return
+  advancedFilterVisible.value = false
+  resetFilters()
+})
 
 function projectStatusFilterKey(row) {
   const projectType = resolveProjectType(row)

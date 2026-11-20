@@ -303,6 +303,9 @@ const draggingKey = ref('')
 const workspacePane = ref('messages')
 const sidebarOpen = ref(true)
 const annotationFilters = ref({ mine: false, statuses: [] })
+watch(() => !state.workspaceOpened && !state.windows.length, closed => {
+  if (closed) annotationFilters.value = { mine: false, statuses: [] }
+})
 function applyAnnotationFilters(filters, chatKey) {
   if (chatKey) maximizeChat(chatKey)
   sidebarOpen.value = true

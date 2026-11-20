@@ -478,7 +478,7 @@
         show-icon
         class="dialog-alert"
       />
-      <AppForm :inline="true" class="claim-search">
+      <AppForm :inline="true" class="claim-search" data-auto-draft="off">
         <el-form-item label="原负责人">
           <el-select v-model="claimFilters.ownerUserId" clearable filterable placeholder="全部" style="width: 180px" @change="loadTransferableTasks">
             <el-option v-for="owner in claimOwnerOptions" :key="owner.id" :label="owner.name" :value="owner.id" />
@@ -617,6 +617,7 @@ function formatStage(stageKey) {
 }
 
 const props = defineProps({
+  active: { type: Boolean, default: true },
   currentUserName: { type: String, default: '' },
   tasksList: { type: Array, default: () => [] }
 })
@@ -678,6 +679,11 @@ const taskTableRef = ref(null)
 const expandedTaskKeys = ref([])
 const showAllExecutionTaskKeys = ref(new Set())
 const advancedFilterVisible = ref(false)
+watch(() => props.active, active => {
+  if (active) return
+  advancedFilterVisible.value = false
+  resetFilters()
+})
 const eligibleUsers = ref([])
 const handoverVisible = ref(false)
 const handoverTargetUserId = ref('')
@@ -1238,6 +1244,19 @@ const runClaimSearch = () => {
   claimSearchTimer = null
   loadTransferableTasks()
 }
+
+watch(claimVisible, visible => {
+  if (visible) return
+  clearTimeout(claimSearchTimer)
+  claimSearchTimer = null
+  claimRequestId++
+  claimController?.abort()
+  claimLoading.value = false
+  claimFilters.ownerUserId = ''
+  claimFilters.keyword = ''
+  transferableTasks.value = []
+  claimSelectedTasks.value = []
+})
 
 const openClaimDialog = () => {
   claimFilters.ownerUserId = ''

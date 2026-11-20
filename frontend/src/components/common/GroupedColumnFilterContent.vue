@@ -1,6 +1,6 @@
 <template>
   <div class="grouped-column-filter">
-    <p class="grouped-column-filter__hint">不同条件同时满足。文本自动查询；多选勾选后点击“确定”。</p>
+    <p class="grouped-column-filter__hint">点击“确定”应用；关闭保留已生效的条件和结果，清除筛选后同步取消。</p>
     <div v-for="field in definition.fields" :key="field.key" class="grouped-column-filter__field">
       <div class="grouped-column-filter__label">{{ field.groupLabel || field.label }}</div>
       <template v-if="isMultiple(field)">
@@ -14,15 +14,14 @@
           <el-checkbox v-for="option in filteredOptions(field)" :key="String(option.value)" :value="option.value">{{ option.label }}</el-checkbox>
         </el-checkbox-group>
       </template>
-      <ListFilterControl v-else :definition="field" :model-value="model[field.key]"
-        @update:model-value="value => $emit('update-field', field.key, value)"
-        @text-input="$emit('text-input', $event)" @change="$emit('change')" @enter="$emit('enter')" />
+      <ListFilterControl v-else :definition="field" :model-value="drafts[field.key]"
+        @update:model-value="value => drafts[field.key] = value" @enter="confirm" />
     </div>
     <div class="grouped-column-filter__footer">
       <el-button link type="primary" size="small" @click="clearGroup">清除本组筛选</el-button>
       <div>
         <el-button size="small" @click="$emit('close')">{{ hasSelections ? '取消' : '关闭' }}</el-button>
-        <el-button type="primary" size="small" @click="confirm">{{ hasSelections ? '确定' : '查询' }}</el-button>
+        <el-button type="primary" size="small" @click="confirm">确定</el-button>
       </div>
     </div>
   </div>
@@ -31,7 +30,7 @@
 <script setup>
 import { matchesSearch } from '@/utils/searchMatching'
 
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive } from 'vue'
 import ListFilterControl from './ListFilterControl.vue'
 import { emptyFilterValue } from '@/utils/listFieldFilters'
 
@@ -41,10 +40,10 @@ const drafts = reactive({})
 const keywords = reactive({})
 const isMultiple = field => field.type === 'select' && field.multiple !== false
 const hasSelections = computed(() => props.definition.fields.some(isMultiple))
-// 外部重置或高级筛选修改后同步正式值；未确认的勾选不会写入页面条件。
-watch(() => props.definition.fields.filter(isMultiple).map(field => [field.key, props.model[field.key]]), values => {
-  values.forEach(([key, value]) => { drafts[key] = [...(value || [])] })
-}, { immediate: true, deep: true })
+props.definition.fields.forEach(field => {
+  const value = props.model[field.key] ?? emptyFilterValue(field)
+  drafts[field.key] = Array.isArray(value) ? [...value] : value
+})
 const options = field => {
   const values = typeof field.options === 'function' ? field.options() : field.options
   return (values || []).map(item => item && typeof item === 'object'
@@ -54,14 +53,14 @@ const options = field => {
 const filteredOptions = field => options(field).filter(item => matchesSearch(item.label, keywords[field.key]))
 const selectAll = field => { drafts[field.key] = [...new Set([...(drafts[field.key] || []), ...filteredOptions(field).map(item => item.value)])] }
 const confirm = () => {
-  props.definition.fields.filter(isMultiple).forEach(field => emit('update-field', field.key, [...(drafts[field.key] || [])]))
+  props.definition.fields.forEach(field => emit('update-field', field.key, Array.isArray(drafts[field.key]) ? [...drafts[field.key]] : drafts[field.key]))
   emit('enter')
   emit('close')
 }
 const clearGroup = () => {
   props.definition.fields.forEach(field => {
     emit('update-field', field.key, emptyFilterValue(field))
-    if (isMultiple(field)) drafts[field.key] = []
+    drafts[field.key] = emptyFilterValue(field)
     keywords[field.key] = ''
   })
   emit('clear')

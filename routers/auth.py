@@ -213,7 +213,9 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     db.info['number_actor_name'] = user.full_name or user.username
     from client_contact_privacy import can_view_client_contacts
     db.info['client_contacts_visible']=can_view_client_contacts(db,user)
-    if request is not None:request.state.client_contacts_visible=db.info['client_contacts_visible']
+    if request is not None:
+        request.state.client_contacts_visible=db.info['client_contacts_visible']
+        request.state.failure_actor={'id':str(user.id),'name':user.full_name or user.username}
     return user
 
 

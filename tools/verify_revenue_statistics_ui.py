@@ -13,7 +13,7 @@ BASE = 'http://localhost:3000'
 
 
 def run():
-    from translation_revenue import report
+    from translation_revenue import report, project_type_totals
     compiled = urlopen(BASE + '/src/components/common/RevenueStatisticsDialog.vue', timeout=20).read().decode()
     vue = re.search(r'from ["\']([^"\']*/vue\.js[^"\']*)', compiled).group(1)
     html = '''<!doctype html><meta charset="UTF-8"><link rel="stylesheet" href="/node_modules/element-plus/dist/index.css"><div id="app"></div><script type="module">import {createApp,ref,h} from VUE;import Revenue from '/src/components/common/RevenueStatisticsDialog.vue';createApp({setup(){const open=ref(false);return ()=>h('div',[h('button',{onClick:()=>open.value=true},'Open'),h(Revenue,{modelValue:open.value,'onUpdate:modelValue':v=>open.value=v,query:{only_mine:true},scopeLabel:'本人'})])}}).mount('#app')</script>'''.replace('from VUE', 'from ' + json.dumps(vue))
@@ -22,7 +22,7 @@ def run():
         uid = str(UUID(int=index))
         for day, factor in [('2026-11-01',1),('2026-10-01',.5),('2025-11-01',.25)]:
             amount = Decimal(str(index*100*factor))
-            entries.append({'key':uid,'client_id':uid,'client_name':f'测试客户{index:02}','client_short_name':f'客户{index:02}',
+            entries.append({'key':uid,'client_id':uid,'module':'translation','client_name':f'测试客户{index:02}','client_short_name':f'客户{index:02}',
                             'day':date.fromisoformat(day),'billing_totals':{'CNY':str(amount)},'totals_excl_tax':{'CNY':str(amount)},
                             'totals_incl_tax':{'CNY':str(amount*Decimal('1.1'))}})
     queries = []
@@ -33,12 +33,26 @@ def run():
         query = parse_qs(urlparse(route.request.url).query)
         queries.append(query)
         get = lambda key, default=None:query.get(key,[default])[0]
+        if get('detail_client'):
+            assert get('detail_client') == str(UUID(int=30))
+            route.fulfill(json={'items': [{
+                'id': 'one', 'order_no': 'TP-261101-001', 'project_name': '本期项目',
+                'date': '2026-11-01', 'depth': 0, 'prices': [
+                    {'currency': 'CNY', 'incl': '0.5', 'unit_size': '1', 'unit': 'words'},
+                ],
+                'totals_excl_tax': {}, 'totals_incl_tax': {'CNY': '3300'}, 'billing_totals': {'CNY': '3000'},
+            }]})
+            return
         integer = lambda key:int(get(key)) if get(key) else None
         decimal = lambda key:Decimal(get(key)) if get(key) else None
         data = report(entries,get('period','month'),date.fromisoformat(get('anchor')),get('currency','CNY'),
                       json.loads(get('client_basis','{}')),get('keyword',''),integer('rank_min'),integer('rank_max'),
                       decimal('amount_min'),decimal('amount_max'),get('focus_client'),int(get('skip','0')),int(get('limit','20')))
         data.update(currencies=['CNY','USD'],missing_date=0,fallback_date=0,partial_period=True,generated_at='2026-11-10T12:00:00+08:00')
+        if get('project_type') == 'all':
+            data['project_type_totals'] = project_type_totals(
+                entries, date(2026, 11, 1), date(2026, 12, 1), get('currency'), json.loads(get('client_basis', '{}')),
+            )
         route.fulfill(content_type='application/json',body=json.dumps(data))
     def api(route):
         nonlocal hold_next
@@ -81,24 +95,67 @@ def run():
         dialog.locator('.el-table__body-wrapper .el-select').first.click()
         page.get_by_role('option',name='含税总价',exact=True).click()
         expect(dialog.locator('.revenue-cards')).to_contain_text('46,800.00')
-        dialog.locator('.revenue-shortcut-section > summary').click()
-        dialog.get_by_role('button',name='1–10名',exact=True).click()
+        comparison = dialog.get_by_role('region', name='本期项目对比')
+        expect(comparison.get_by_role('row', name=re.compile('笔译'))).to_contain_text('46,800.00')
+        for module in ('口译', '标注', '招聘'):
+            expect(comparison.get_by_role('row', name=re.compile(module))).to_contain_text('0.00')
+        dialog.get_by_role('button', name=re.compile('查看 测试客户30 本期订单明细')).click()
+        details = page.locator('.el-popover:visible').filter(has_text='测试客户30')
+        expect(details).to_contain_text('TP-261101-001')
+        expect(details).to_contain_text('含税 CNY 0.5')
+        expect(details).to_contain_text('CNY 3,300.00')
+        dialog.get_by_text('本期项目对比', exact=True).click()
+        shortcuts = dialog.locator('.revenue-shortcut-section')
+        expect(shortcuts).not_to_have_attribute('open', '')
+        shortcuts.locator('summary').click()
+        first_rank = shortcuts.get_by_role('button',name='1–10名',exact=True)
+        top_amount = shortcuts.get_by_role('button',name=re.compile('^50000以上'))
+        populated_amount = shortcuts.get_by_role('button',name=re.compile('^1000–5000'))
+        expect(populated_amount).to_contain_text('21 位客户 · 70%')
+        first_rank.click()
         expect(dialog.locator('.revenue-ranking-toolbar')).to_contain_text('匹配 10 / 30')
+        expect(first_rank).to_have_attribute('aria-pressed', 'true')
+        expect(first_rank).to_have_css('background-color', 'rgb(0, 0, 0)')
         dialog.get_by_role('button',name='20–50名',exact=True).click()
         expect(dialog.locator('.revenue-ranking-toolbar')).to_contain_text('匹配 11 / 30')
-        dialog.get_by_role('button',name='5000以上',exact=True).click()
+        top_amount.click()
         expect(dialog.locator('.revenue-ranking-toolbar')).to_contain_text('匹配 0 / 30')
+        assert queries[-1]['amount_min'] == ['50000'] and 'amount_max' not in queries[-1]
+        assert 'rank_min' not in queries[-1] and 'rank_max' not in queries[-1]
+        expect(top_amount).to_have_css('background-color', 'rgb(0, 0, 0)')
+        second_amount = shortcuts.get_by_role('button',name=re.compile('^10000–50000'))
+        with page.expect_response(re.compile(r'/api/translation-revenue\?')):
+            second_amount.click()
+        assert queries[-1]['amount_min'] == ['10000'] and queries[-1]['amount_max'] == ['50000']
+        expect(second_amount).to_have_attribute('aria-pressed', 'true')
+        expect(top_amount).to_have_attribute('aria-pressed', 'false')
+        populated_amount.click()
+        expect(dialog.locator('.revenue-ranking-toolbar')).to_contain_text('匹配 21 / 30')
+        expect(dialog.locator('.revenue-ranking-toolbar')).to_contain_text('42,300.00')
+        first_rank.click()
+        expect(dialog.locator('.revenue-ranking-toolbar')).to_contain_text('匹配 10 / 30')
+        assert 'amount_min' not in queries[-1] and 'amount_max' not in queries[-1]
+        expect(second_amount).to_have_attribute('aria-pressed', 'false')
+        shortcuts.get_by_role('button',name='20–50名',exact=True).click()
+        expect(dialog.locator('.revenue-ranking-toolbar')).to_contain_text('匹配 11 / 30')
         dialog.get_by_role('button',name='不限金额',exact=True).click()
         dialog.get_by_role('button',name=re.compile('高级筛选')).click()
         popover=page.locator('.common-advanced-filter-popover:visible')
         end=popover.get_by_role('spinbutton',name='结束名次')
         end.fill('25');end.press('Tab')
-        expect(dialog.locator('.revenue-ranking-toolbar')).to_contain_text('匹配 6 / 30')
+        expect(dialog.locator('.revenue-ranking-toolbar')).to_contain_text('匹配 11 / 30')
         popover.get_by_role('button',name='关闭',exact=True).click()
+        expect(dialog.locator('.revenue-ranking-toolbar')).to_contain_text('匹配 11 / 30')
+        dialog.get_by_role('button',name=re.compile('高级筛选')).click()
+        expect(end).to_have_value('50')
+        end.fill('25');end.press('Tab')
+        popover.get_by_role('button',name='确定',exact=True).click()
+        expect(dialog.locator('.revenue-ranking-toolbar')).to_contain_text('匹配 6 / 30')
         dialog.get_by_role('button',name='不限排名',exact=True).click()
-        keyword=dialog.get_by_role('textbox',name='客户全称或简称，多关键词搜索')
+        keyword=dialog.get_by_placeholder('客户全称或简称，多关键词搜索')
         keyword.fill('客户 30')
         expect(dialog.locator('.revenue-ranking-toolbar')).to_contain_text('匹配 1 / 30')
+        expect(populated_amount).to_contain_text('1 位客户 · 100%')
         expect(dialog.locator('.revenue-cards')).to_contain_text('46,800.00')
         dialog.get_by_role('button',name='跟踪',exact=True).click()
         expect(dialog.locator('.revenue-chart')).to_be_visible()

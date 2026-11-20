@@ -4,6 +4,7 @@ import {readCloudDraft,queueCloudDraft,clearCloudDraft} from './cloudDrafts.js'
 import {withoutBusinessNumbers} from './businessNumberLeases.js'
 const entries = new Set(), managed = new WeakSet()
 const recoveryOffered = new Set()
+const transientQueryScope = '[data-auto-draft="off"],.search-form,.search-bar,.search-area,.filter-bar'
 function offered(entry,key){recoveryOffered.add(key);(entry.offeredKeys ||= new Set()).add(key)}
 function forgetRecovery(entry){for(const key of entry.offeredKeys||[])recoveryOffered.delete(key);entry.offeredKeys?.clear()}
 export const autoDraftState = reactive({ records: [], error: '', delay: AUTO_DRAFT_DELAY, lastWriteMs: 0 })
@@ -19,8 +20,19 @@ function currentStore() {
 export function refreshAutoDrafts() { autoDraftState.records = currentStore()?.list() || [] }
 function root(entry) { const el = entry.vm.$el; return el?.nodeType === 1 ? el : null }
 function model(entry) { return entry.kind === 'form' ? entry.vm.$props.model || entry.vm.$attrs.model : entry.vm.$props.modelValue }
+function draftDisabledComponent(instance) {
+  // 表头筛选的组件根节点在表头里，输入框则 teleport 到 body。
+  // 仅检查输入框的 DOM 祖先会漏掉带 modelValue 的外层筛选组件。
+  for (let current = instance; current; current = current.parent) {
+    const name = current.type?.name || current.type?.__name || ''
+    const attrs = current.vnode?.props || {}
+    if (/Filter/.test(name) || attrs['data-auto-draft'] === 'off') return true
+  }
+  return false
+}
 function excluded(entry) {
   const el = root(entry), props = entry.vm.$props, attrs = entry.vm.$attrs
+  if (draftDisabledComponent(entry.vm.$)) return true
   return !el || !el.isConnected || !el.getClientRects().length || !userKey() || location.pathname === '/login' || managed.has(model(entry)) || !!el.closest('[data-auto-draft="off"],.search-form,.search-bar,.search-area,.filter-bar,.chat-composer,.project-chat-panel,.group-composer,.discussion-chat__composer,.el-message-box,.el-select-dropdown,.el-picker-panel') || props.disabled || attrs.disabled === '' || attrs.disabled === true || props.readonly || attrs.readonly === '' || attrs.readonly === true || props.type === 'password' || /密码|口令|密钥|验证码|password|token|secret/i.test(String(attrs['aria-label']||'')+' '+String(attrs.placeholder||props.placeholder||'')) || /password|current-password|new-password|one-time-code/i.test(String(attrs.autocomplete || '')) || /^搜索|^筛选/.test(String(attrs.placeholder || props.placeholder || ''))
 }
 function context(entry) {
@@ -75,7 +87,7 @@ function flush() {
 function touched(event) {
   const target = event.target
   if (!target?.closest || target.closest('.auto-draft-center')) return
-  if (target.closest('[data-auto-draft="off"]')) {
+  if (target.closest(transientQueryScope)) {
     armed = []
     return
   }
@@ -156,6 +168,7 @@ export function installAutoDrafts(app) {
   app.mixin({
     mounted() {
       const name = this.$options.name || '', props = this.$props, attrs = this.$attrs
+      if (draftDisabledComponent(this.$)) return
       const form = props.model || attrs.model
       if (/Dialog|Drawer|Popover|Tooltip|Transfer|Table|Upload|InlineTextField/.test(name)) return
       const kind = form && typeof form === 'object' && /Form$/.test(name) ? 'form' : this.$.vnode.props?.['onUpdate:modelValue'] && 'modelValue' in props ? 'control' : ''
