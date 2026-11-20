@@ -1,34 +1,34 @@
 <template>
   <div class="material-explorer" @keydown="navigationKey">
     <div class="explorer-commandbar">
-      <div v-if="!readonly" class="explorer-commands">
-        <el-button class="explorer-desktop-action" size="small" :icon="FolderAdd" :disabled="disabled" @click="$emit('create', 1)">新建一级文件夹</el-button>
-        <el-button class="explorer-desktop-action" size="small" :icon="FolderAdd" :disabled="disabled || !folders.some(folder => !folder.parent_id)" @click="$emit('create', 2)">新建二级文件夹</el-button>
-        <el-dropdown popper-class="material-file-menu" class="explorer-mobile-action" trigger="click" :disabled="disabled" @command="level => $emit('create', level)">
-          <el-button size="small" :icon="FolderAdd" :disabled="disabled" aria-label="新建文件夹">新建</el-button>
-          <template #dropdown><el-dropdown-menu><el-dropdown-item :command="1">新建一级文件夹</el-dropdown-item><el-dropdown-item :command="2" :disabled="!folders.some(folder => !folder.parent_id)">新建二级文件夹</el-dropdown-item></el-dropdown-menu></template>
-        </el-dropdown>
-        <label class="explorer-upload" :class="{ disabled }"><el-icon><Upload /></el-icon>上传文件<input type="file" multiple :disabled="disabled" aria-label="上传项目资料" @change="uploadFiles"></label>
-      </div>
-      <div v-if="onlineEdit" class="explorer-commands">
-        <el-dropdown popper-class="material-file-menu" trigger="click" :disabled="!!createBlocked" @command="kind => $emit('create-document', kind)">
-          <el-button size="small" :icon="DocumentAdd" :disabled="!!createBlocked" :title="createBlocked || '在当前目录新建文档并在线编辑'">新建文档</el-button>
+      <div v-if="uploadAllowed || onlineEdit" class="explorer-commands explorer-primary-actions">
+        <label v-if="uploadAllowed" class="explorer-upload explorer-upload--primary" :class="{ disabled: disabled || deleteMode }">
+          <el-icon><Upload /></el-icon>
+          <span>上传文件</span>
+          <input type="file" multiple :disabled="disabled || deleteMode" aria-label="上传项目资料" @change="uploadFiles">
+        </label>
+        <el-dropdown v-if="onlineEdit" popper-class="material-file-menu" trigger="click" :disabled="!!createBlocked" @command="kind => $emit('create-document', kind)">
+          <el-button class="explorer-btn" size="small" :icon="DocumentAdd" :disabled="!!createBlocked" :title="createBlocked || '在当前目录新建文档并在线编辑'">新建文档</el-button>
           <template #dropdown><el-dropdown-menu><el-dropdown-item command="docx">Word 文档（.docx）</el-dropdown-item><el-dropdown-item command="xlsx">Excel 工作簿（.xlsx）</el-dropdown-item><el-dropdown-item command="markdown">Markdown（.md）</el-dropdown-item><el-dropdown-item command="text">文本文件（.txt）</el-dropdown-item></el-dropdown-menu></template>
+        </el-dropdown>
+        <el-dropdown v-if="uploadAllowed" popper-class="material-file-menu" trigger="click" :disabled="disabled || deleteMode" @command="level => $emit('create', level)">
+          <el-button class="explorer-btn" size="small" :icon="FolderAdd" :disabled="disabled || deleteMode" aria-label="新建文件夹">新建文件夹</el-button>
+          <template #dropdown><el-dropdown-menu><el-dropdown-item :command="1">新建一级文件夹</el-dropdown-item><el-dropdown-item :command="2" :disabled="!folders.some(folder => !folder.parent_id)">新建二级文件夹</el-dropdown-item></el-dropdown-menu></template>
         </el-dropdown>
       </div>
       <div class="explorer-commands explorer-selection-actions">
-        <el-button size="small" :icon="Download" :disabled="!selectedFile" @click="$emit('download', selectedFile)">下载</el-button>
-        <el-button v-if="onlineEdit" class="explorer-desktop-action" size="small" :icon="EditPen" :disabled="!selectedFile || !!editBlocked(selectedFile)" :title="selectedFile ? editBlocked(selectedFile) || (/\.(docx|xlsx)$/i.test(selectedFile.original_name) ? '在新标签页编辑并保存为新版本' : '在线编辑并保存为新版本') : ''" @click="$emit('edit', selectedFile)">在线编辑</el-button>
-        <el-button class="explorer-desktop-action" size="small" :disabled="!selectedFile" @click="$emit('history', selectedFile)">历史版本</el-button>
-        <el-button v-if="!readonly" class="explorer-desktop-action" size="small" :disabled="disabled || !selectedFile || hasReplacement(selectedFile.file_id)" @click="replaceFile(selectedFile)">上传新版</el-button>
-        <el-button v-if="!readonly" class="explorer-desktop-action" size="small" type="danger" plain :disabled="disabled || !selectedFile" @click="$emit('remove', selectedFile)">移除</el-button>
+        <el-button class="explorer-btn" size="small" :icon="Download" :disabled="!selectedFile" @click="$emit('download', selectedFile)">下载</el-button>
+        <el-button v-if="onlineEdit" class="explorer-btn explorer-desktop-action" size="small" :icon="EditPen" :disabled="!selectedFile || !!editBlocked(selectedFile)" :title="selectedFile ? editBlocked(selectedFile) || (/\.(docx|xlsx)$/i.test(selectedFile.original_name) ? '在新标签页编辑并保存为新版本' : '在线编辑并保存为新版本') : ''" @click="$emit('edit', selectedFile)">在线编辑</el-button>
+        <el-button class="explorer-btn explorer-desktop-action" size="small" :disabled="!selectedFile" @click="$emit('history', selectedFile)">历史版本</el-button>
+        <el-button v-if="uploadAllowed" class="explorer-btn explorer-desktop-action" size="small" :disabled="disabled || deleteMode || !selectedFile || hasReplacement(selectedFile.file_id)" @click="replaceFile(selectedFile)">上传新版</el-button>
+        <el-button v-if="!readonly" class="explorer-btn explorer-desktop-action" size="small" type="danger" plain :disabled="disabled || !selectedFile" @click="$emit('remove', selectedFile)">移除</el-button>
         <el-dropdown popper-class="material-file-menu" class="explorer-mobile-action" trigger="click" :disabled="!selectedFile" @command="command => entryCommand(command, selectedEntry)">
-          <el-button size="small" :disabled="!selectedFile" aria-label="选中文件的更多操作">更多</el-button>
+          <el-button class="explorer-btn" size="small" :disabled="!selectedFile" aria-label="选中文件的更多操作">更多</el-button>
           <template #dropdown><el-dropdown-menu>
             <el-dropdown-item v-if="onlineEdit" command="edit" :disabled="!selectedFile || !!editBlocked(selectedFile)">在线编辑</el-dropdown-item>
             <el-dropdown-item v-if="onlineEdit && /\.(docx|xlsx)$/i.test(selectedFile?.original_name || '')" command="edit-window" :disabled="!!editBlocked(selectedFile)">小窗编辑</el-dropdown-item>
             <el-dropdown-item command="history">历史版本</el-dropdown-item>
-            <el-dropdown-item v-if="!readonly" command="replace" :disabled="disabled || !selectedFile || hasReplacement(selectedFile.file_id)">上传新版</el-dropdown-item>
+            <el-dropdown-item v-if="uploadAllowed" command="replace" :disabled="disabled || deleteMode || !selectedFile || hasReplacement(selectedFile.file_id)">上传新版</el-dropdown-item>
             <el-dropdown-item v-if="!readonly" command="remove" :disabled="disabled" divided>移除文件</el-dropdown-item>
           </el-dropdown-menu></template>
         </el-dropdown>
@@ -36,10 +36,10 @@
     </div>
     <div class="explorer-addressbar">
       <div class="explorer-navigation">
-        <el-button :icon="ArrowLeft" size="small" aria-label="后退" title="后退（Alt+左箭头）" :disabled="historyIndex === 0" @click="travel(-1)" />
-        <el-button :icon="ArrowRight" size="small" aria-label="前进" title="前进（Alt+右箭头）" :disabled="historyIndex >= navigationHistory.length - 1" @click="travel(1)" />
-        <el-button :icon="Top" size="small" aria-label="返回上一级" title="返回上一级（Alt+上箭头）" :disabled="!folderId" @click="goUp" />
-        <el-button class="explorer-mobile-action" :icon="Folder" size="small" aria-label="目录树" :aria-expanded="mobileTreeExpanded" title="展开或收起目录树" @click="mobileTreeExpanded = !mobileTreeExpanded" />
+        <el-button class="explorer-nav-btn" :icon="ArrowLeft" size="small" aria-label="后退" title="后退（Alt+左箭头）" :disabled="historyIndex === 0" @click="travel(-1)" />
+        <el-button class="explorer-nav-btn" :icon="ArrowRight" size="small" aria-label="前进" title="前进（Alt+右箭头）" :disabled="historyIndex >= navigationHistory.length - 1" @click="travel(1)" />
+        <el-button class="explorer-nav-btn" :icon="Top" size="small" aria-label="返回上一级" title="返回上一级（Alt+上箭头）" :disabled="!folderId" @click="goUp" />
+        <el-button class="explorer-nav-btn explorer-mobile-action" :icon="Folder" size="small" aria-label="目录树" :aria-expanded="mobileTreeExpanded" title="展开或收起目录树" @click="mobileTreeExpanded = !mobileTreeExpanded" />
       </div>
       <nav class="explorer-breadcrumb" aria-label="资料路径">
         <el-icon class="explorer-path-icon"><FolderOpened /></el-icon>
@@ -64,7 +64,7 @@
               <tr v-for="entry in entries" :key="entry.key" :data-entry-key="entry.key" :data-entry-kind="entry.kind" :class="{ 'is-selected': selectedKey === entry.key }" :aria-selected="selectedKey === entry.key" tabindex="0" @click="selectEntry(entry)" @dblclick="openEntry(entry)" @contextmenu.prevent.stop="contextEntry(entry)" @keydown.enter.prevent="openEntry(entry)" @keydown.space.prevent="selectEntry(entry)">
                 <td v-if="deleteMode" @click.stop @dblclick.stop><el-checkbox v-if="entry.kind === 'file'" :model-value="checkedIds.includes(entry.file.file_id)" :disabled="disabled" :aria-label="`选择删除${entry.name}`" @change="$emit('toggle-delete', entry.file)" /></td>
                 <td class="explorer-name">
-                  <div class="explorer-name-content"><el-icon :class="entry.kind === 'folder' ? 'explorer-folder-icon' : 'explorer-file-icon'"><component :is="entryIcon(entry)" /></el-icon><span :title="entry.name">{{ entry.name }}</span><el-tag v-if="entry.kind === 'folder' && entry.folder.pending" size="small" type="info">待保存</el-tag><el-tag v-if="entry.kind === 'pending'" size="small" :type="entry.upload.status === 'failed' ? 'danger' : 'info'">{{ entry.upload.fileId ? '待保存新版' : '待保存新文件' }}</el-tag></div>
+                  <div class="explorer-name-content"><el-icon :class="entry.kind === 'folder' ? 'explorer-folder-icon' : 'explorer-file-icon'"><component :is="entryIcon(entry)" /></el-icon><span :title="entry.name">{{ entry.name }}</span><el-tag v-if="entry.kind === 'folder' && entry.folder.pending" size="small" type="info">待保存</el-tag><el-tag v-if="entry.kind === 'pending'" size="small" :type="entry.upload.status === 'failed' ? 'danger' : 'info'">{{ entry.upload.status === 'uploading' ? '上传中' : entry.upload.fileId ? '待保存新版' : '待保存新文件' }}</el-tag></div>
                   <template v-if="entry.kind === 'pending'">
                     <el-progress v-if="entry.upload.status === 'uploading'" :percentage="entry.upload.progress" :stroke-width="4" />
                     <small v-else :class="{ 'explorer-error': entry.upload.status === 'failed' }">{{ entry.upload.status === 'queued' ? '等待上传' : entry.upload.error || '已暂存，等待保存项目' }}</small>
@@ -84,22 +84,22 @@
                         <el-dropdown-item v-if="onlineEdit" command="edit" :disabled="!!editBlocked(entry.file)">在线编辑</el-dropdown-item>
                         <el-dropdown-item v-if="onlineEdit && /\.(docx|xlsx)$/i.test(entry.name)" command="edit-window" :disabled="!!editBlocked(entry.file)">小窗编辑</el-dropdown-item>
                         <el-dropdown-item command="history">历史版本</el-dropdown-item>
-                        <el-dropdown-item v-if="!readonly" command="replace" :disabled="disabled || hasReplacement(entry.file.file_id)">上传新版</el-dropdown-item>
+                        <el-dropdown-item v-if="uploadAllowed" command="replace" :disabled="disabled || hasReplacement(entry.file.file_id)">上传新版</el-dropdown-item>
                         <el-dropdown-item v-if="!readonly" command="remove" :disabled="disabled" divided>移除文件</el-dropdown-item>
                       </template>
-                      <template v-if="entry.kind === 'pending' && !readonly">
+                      <template v-if="entry.kind === 'pending' && uploadAllowed">
                         <el-dropdown-item v-if="entry.upload.status === 'failed'" command="retry" :disabled="disabled">重试</el-dropdown-item>
                         <el-dropdown-item command="discard" :disabled="disabled">取消上传</el-dropdown-item>
                       </template>
                     </el-dropdown-menu></template>
                   </el-dropdown>
-                  <template v-if="entry.kind === 'pending' && !readonly"><el-button v-if="entry.upload.status === 'failed'" link type="primary" :disabled="disabled" @click="$emit('retry', entry.upload)">重试</el-button><el-button link :disabled="disabled" @click="$emit('discard', entry.upload)">取消上传</el-button></template>
-                  <input v-if="entry.kind === 'file' && !readonly" :ref="element => registerReplacement(entry.file.file_id, element)" class="explorer-file-input" type="file" tabindex="-1" :disabled="disabled || hasReplacement(entry.file.file_id)" :aria-label="`为${entry.name}上传新版`" @change="replacementFiles($event, entry.file)">
+                  <template v-if="entry.kind === 'pending' && uploadAllowed"><el-button v-if="entry.upload.status === 'failed'" link type="primary" :disabled="disabled" @click="$emit('retry', entry.upload)">重试</el-button><el-button link :disabled="disabled" @click="$emit('discard', entry.upload)">取消上传</el-button></template>
+                  <input v-if="entry.kind === 'file' && uploadAllowed" :ref="element => registerReplacement(entry.file.file_id, element)" class="explorer-file-input" type="file" tabindex="-1" :disabled="disabled || hasReplacement(entry.file.file_id)" :aria-label="`为${entry.name}上传新版`" @change="replacementFiles($event, entry.file)">
                 </td>
               </tr>
             </tbody>
           </table>
-          <div v-if="!entries.length" class="explorer-empty"><el-icon><FolderOpened /></el-icon><span>此文件夹为空</span><small v-if="!readonly">可新建文件夹，或将文件拖到这里上传</small></div>
+          <div v-if="!entries.length" class="explorer-empty"><el-icon><FolderOpened /></el-icon><span>此文件夹为空</span><small v-if="uploadAllowed">点击上方“上传文件”或直接拖拽文件到这里</small></div>
         </div>
       </div>
     </div>
@@ -114,7 +114,8 @@ import { ArrowLeft, ArrowRight, Top, Folder, FolderAdd, FolderOpened, Upload, Do
 import { buildFolderTree, folderBreadcrumbs, materialFileType } from '@/utils/annotationMaterialFolders'
 import { materialOpenAction } from '@/utils/materialDocument'
 
-const props = defineProps({ folders: { type: Array, default: () => [] }, folderId: { type: String, default: null }, files: { type: Array, default: () => [] }, pending: { type: Array, default: () => [] }, readonly: Boolean, disabled: Boolean, deleteMode: Boolean, checkedIds: {type:Array,default:()=>[]}, onlineEdit: Boolean, editBlocked: { type: Function, default: () => '' }, createBlocked: { type: String, default: '' }, formatSize: { type: Function, required: true }, formatTime: { type: Function, required: true } })
+const props = defineProps({ folders: { type: Array, default: () => [] }, folderId: { type: String, default: null }, files: { type: Array, default: () => [] }, pending: { type: Array, default: () => [] }, readonly: Boolean, canUpload: { type: Boolean, default: undefined }, disabled: Boolean, deleteMode: Boolean, checkedIds: {type:Array,default:()=>[]}, onlineEdit: Boolean, editBlocked: { type: Function, default: () => '' }, createBlocked: { type: String, default: '' }, formatSize: { type: Function, required: true }, formatTime: { type: Function, required: true } })
+const uploadAllowed = computed(() => props.canUpload !== undefined ? props.canUpload : !props.readonly)
 const emit = defineEmits(['toggle-delete', 'update:folderId', 'create', 'create-document', 'edit', 'edit-window', 'upload', 'replace', 'download', 'history', 'remove', 'retry', 'discard'])
 const folderTree = computed(() => buildFolderTree(props.folders))
 const breadcrumbs = computed(() => folderBreadcrumbs(props.folders, props.folderId))
@@ -188,24 +189,24 @@ watch(() => props.folderId, async id => {
 })
 watch(entries, list => { if (!list.some(entry => entry.key === selectedKey.value)) selectedKey.value = '' })
 function registerReplacement(id, element) { if (element) replacementInputs.set(id, element); else replacementInputs.delete(id) }
-function replaceFile(file) { if (file && !props.disabled && !props.readonly) replacementInputs.get(file.file_id)?.click() }
-function uploadFiles(event) { const files = Array.from(event.target.files || []); event.target.value = ''; if (!props.disabled && !props.readonly) emit('upload', files) }
-function replacementFiles(event, file) { const files = Array.from(event.target.files || []); event.target.value = ''; if (!props.disabled && !props.readonly) emit('replace', { files, fileId: file.file_id }) }
+function replaceFile(file) { if (file && !props.disabled && !props.deleteMode && uploadAllowed.value) replacementInputs.get(file.file_id)?.click() }
+function uploadFiles(event) { const files = Array.from(event.target.files || []); event.target.value = ''; if (!props.disabled && !props.deleteMode && uploadAllowed.value) emit('upload', files) }
+function replacementFiles(event, file) { const files = Array.from(event.target.files || []); event.target.value = ''; if (!props.disabled && !props.deleteMode && uploadAllowed.value) emit('replace', { files, fileId: file.file_id }) }
 function entryCommand(command, entry) {
   if (!entry) return
   if (command === 'open') openEntry(entry)
   else if (command === 'replace') replaceFile(entry.file)
   else if (['download', 'history'].includes(command)) emit(command, entry.file)
   else if (['edit', 'edit-window'].includes(command)) { if (props.onlineEdit && entry.file && !props.editBlocked(entry.file)) emit(command, entry.file) }
-  else if (!props.disabled && !props.readonly) emit(command, entry.file || entry.upload)
+  else if (!props.disabled && (uploadAllowed.value || !props.readonly)) emit(command, entry.file || entry.upload)
 }
 function isFileDrag(event) { return Array.from(event.dataTransfer?.types || []).includes('Files') }
-function dragEnter(event) { if (isFileDrag(event) && !props.disabled && !props.readonly) { event.preventDefault(); dragDepth.value += 1 } }
+function dragEnter(event) { if (isFileDrag(event) && !props.disabled && !props.deleteMode && uploadAllowed.value) { event.preventDefault(); dragDepth.value += 1 } }
 function dragLeave(event) { if (isFileDrag(event)) dragDepth.value = Math.max(0, dragDepth.value - 1) }
-function dragOver(event) { if (event.dataTransfer) event.dataTransfer.dropEffect = props.disabled || props.readonly ? 'none' : 'copy' }
+function dragOver(event) { if (event.dataTransfer) event.dataTransfer.dropEffect = props.disabled || props.deleteMode || !uploadAllowed.value ? 'none' : 'copy' }
 function dropFiles(event) {
   dragDepth.value = 0
-  if (props.disabled || props.readonly) return
+  if (props.disabled || props.deleteMode || !uploadAllowed.value) return
   const items = Array.from(event.dataTransfer?.items || [])
   const directories = items.filter(item => item.webkitGetAsEntry?.()?.isDirectory)
   if (directories.length) ElMessage.warning('请上传文件；暂不支持拖放整个文件夹')
@@ -215,23 +216,27 @@ function dropFiles(event) {
 </script>
 
 <style scoped>
-.material-explorer { border: 1px solid var(--el-border-color-lighter); border-radius: 8px; overflow: hidden; background: #fff; }
+.material-explorer { border: 1px solid var(--color-border, #e2e8f0); border-radius: 8px; overflow: hidden; background: #fff; }
 .explorer-commandbar,.explorer-addressbar,.explorer-commands,.explorer-navigation { display: flex; align-items: center; gap: 8px; }
-.explorer-commandbar { flex-wrap: wrap; justify-content: flex-start; padding: 10px 12px; background: #f8fafc; border-bottom: 1px solid var(--el-border-color-lighter); }
-.explorer-commands { flex-wrap: wrap; gap: 6px; }
+.explorer-commandbar { flex-wrap: wrap; justify-content: space-between; padding: 9px 12px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; gap: 8px; }
+.explorer-commands { flex-wrap: wrap; gap: 6px; align-items: center; }
 .explorer-commands .el-button + .el-button,.explorer-navigation .el-button + .el-button { margin-left: 0; }
+.explorer-commands :deep(.explorer-btn) { height: 30px; min-height: 30px; padding: 0 10px; border-radius: 6px; font-size: 12.5px; line-height: 1; }
 .explorer-mobile-action { display: none; }
 .explorer-selection-actions { margin-left: auto; }
-.explorer-upload { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; border: 1px solid var(--el-border-color); border-radius: 4px; font-size: 12px; cursor: pointer; position: relative; background: white; }
+.explorer-upload { display: inline-flex; align-items: center; justify-content: center; gap: 5px; box-sizing: border-box; height: 30px; padding: 0 12px; border: 1px solid var(--color-border, #dce4ee); border-radius: 6px; font-size: 12.5px; font-weight: 500; line-height: 1; cursor: pointer; position: relative; background: #fff; color: #334155; transition: background-color .14s ease, border-color .14s ease, color .14s ease; }
+.explorer-upload--primary { background: var(--color-primary, #334155); border-color: var(--color-primary, #334155); color: #fff; }
+.explorer-upload--primary:hover:not(.disabled) { background: var(--color-primary-hover, #1e293b); border-color: var(--color-primary-hover, #1e293b); }
 .explorer-upload input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
 .explorer-upload.disabled { opacity: .5; cursor: not-allowed; }
-.explorer-upload:focus-within { outline: 2px solid var(--el-color-primary); outline-offset: 2px; }
-.explorer-addressbar { padding: 8px 12px; border-bottom: 1px solid var(--el-border-color-lighter); }
+.explorer-upload:focus-within { outline: 2px solid var(--color-primary, #334155); outline-offset: 2px; }
+.explorer-addressbar { padding: 8px 12px; border-bottom: 1px solid #eef2f6; background: #fff; }
 .explorer-navigation { flex: none; gap: 4px; }
-.explorer-navigation .el-button { width: 28px; padding: 0; }
-.explorer-breadcrumb { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; padding: 3px 8px; border: 1px solid var(--el-border-color-lighter); border-radius: 4px; }
-.explorer-breadcrumb button { flex: none; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 0; border-radius: 3px; background: transparent; color: var(--el-text-color-regular); padding: 3px 6px; cursor: pointer; font-size: 12px; }
-.explorer-breadcrumb button:hover { background: var(--el-color-primary-light-9); }
+.explorer-navigation :deep(.explorer-nav-btn) { width: 28px; min-width: 28px; height: 28px; min-height: 28px; padding: 0; border-radius: 6px; border-color: #dce4ee; color: #475569; }
+.explorer-navigation :deep(.explorer-nav-btn:hover:not(:disabled)) { background: #f1f5f9; border-color: #cbd5e1; color: #1e293b; }
+.explorer-breadcrumb { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; box-sizing: border-box; height: 28px; overflow-x: auto; padding: 0 10px; border: 1px solid #e2e8f0; border-radius: 6px; background: #f8fafc; }
+.explorer-breadcrumb button { flex: none; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 0; border-radius: 4px; background: transparent; color: #334155; padding: 2px 6px; cursor: pointer; font-size: 12px; }
+.explorer-breadcrumb button:hover { background: #e7eef6; color: #1e293b; }
 .explorer-path-icon { flex: none; color: #ca8a04; }
 .explorer-path-divider { color: var(--el-text-color-placeholder); }
 .material-directory-layout { display: grid; grid-template-columns: 180px minmax(0, 1fr); min-height: 200px; }

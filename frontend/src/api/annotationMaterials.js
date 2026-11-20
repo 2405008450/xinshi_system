@@ -34,6 +34,8 @@ export async function downloadMaterial(projectId, row) {
 export const readMaterialVersion = (projectId, row) => api.get(`${base}/${projectId}/materials/${row.file_id}/versions/${row.id}/download`, {
   responseType: 'blob', timeout: 300000,
 })
+export const commitMaterial = (projectId, data) => api.post(`${base}/${projectId}/materials`, data)
+export const createMaterialFolder = (projectId, data) => api.post(`${base}/${projectId}/material-folders`, data)
 export const commitOnlineVersion = (projectId, fileId, data) => api.post(`${base}/${projectId}/materials/${fileId}/online-versions`, data)
 export const createOnlineFile = (projectId, data) => api.post(`${base}/${projectId}/materials/online-files`, data)
 

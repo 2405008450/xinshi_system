@@ -4,7 +4,7 @@
     <el-input v-model="keyword" clearable placeholder="搜索会话名称、订单号" aria-label="搜索多窗会话" />
     <p>按屏幕自动分列排列，屏幕较小时可滚动查看。Tab 切换下一窗口输入框，Shift+Tab 切换上一个。</p>
     <el-checkbox-group v-model="selected" class="chat-multi-picker__list">
-      <el-checkbox v-for="item in filtered" :key="item.key" :value="item.key" :disabled="!selected.includes(item.key) && selected.length >= limit"><span class="chat-multi-picker__name">{{ item.title }}</span><small>{{ item.subtitle || (item.projectType === 'direct' ? '单聊' : '讨论') }}</small></el-checkbox>
+      <el-checkbox v-for="item in filtered" :key="item.key" :value="item.key" :disabled="!selected.includes(item.key) && selected.length >= limit"><span class="chat-multi-picker__name">{{ item.title }}</span><small>{{ item.subtitle || (item.projectType === 'direct' ? '私聊' : '讨论') }}</small></el-checkbox>
     </el-checkbox-group>
     <el-empty v-if="!filtered.length" description="没有匹配的会话" :image-size="40" />
     <template #footer><el-button @click="selected = []">清空选择</el-button><el-button @click="visible = false">取消</el-button><el-button type="primary" :disabled="!selected.length" @click="apply">打开并平铺 {{ selected.length }} 个窗口</el-button></template>

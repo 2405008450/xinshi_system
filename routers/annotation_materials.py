@@ -15,8 +15,8 @@ from models import AppUser
 from annotation_models import AnnotationProject
 from routers.auth import get_current_user, require_module_access, require_permission, require_super_admin
 from annotation_material_models import AnnotationMaterialUpload as Upload, AnnotationMaterialFile as Material, AnnotationMaterialVersion as Version, AnnotationMaterialFolder as Folder
-from annotation_material_schemas import OnlineVersionCreate, OnlineFileCreate
-from annotation_material_service import MAX_BYTES, storage_path, serialize_upload, versions, folders, queue_upload_deletion, attach_upload
+from annotation_material_schemas import OnlineVersionCreate, OnlineFileCreate, MaterialAddition, MaterialFolderCreation
+from annotation_material_service import MAX_BYTES, storage_path, serialize_upload, versions, folders, queue_upload_deletion, attach_upload, create_folders
 from annotation_material_storage import remote_origin, forward_upload, forward_delete, forward_download, forward_material_operation
 from pydantic import BaseModel, ConfigDict
 import annotation_material_trash_service as trash_service
@@ -175,6 +175,37 @@ async def download(project_id: UUID, file_id: UUID, version_id: UUID, request: R
     if result is None:
         return await forward_download(remote_origin(), request, project_id, file_id, version_id)
     return result
+
+
+@legacy_router.post('/{project_id}/materials', status_code=201, dependencies=[Depends(require_permission('projects:write'))])
+def commit_material(project_id: UUID, payload: MaterialAddition, db: Session = Depends(get_db),
+                    user: AppUser = Depends(get_current_user)):
+    # 直接上传到已保存项目只写资料表，不更新项目修改时间；remote 模式两端共用业务库，无需转发。
+    require_project(db, project_id)
+    try:
+        material, _version = attach_upload(
+            db, project_id, payload.upload_id, user.id, payload.category,
+            file_id=payload.file_id, folder_id=payload.folder_id,
+        )
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(400, str(exc)) from exc
+    return versions(db, project_id, material.id)[0]
+
+
+@legacy_router.post('/{project_id}/material-folders', status_code=201, dependencies=[Depends(require_permission('projects:write'))])
+def create_material_folder(project_id: UUID, payload: MaterialFolderCreation, db: Session = Depends(get_db)):
+    require_project(db, project_id)
+    try:
+        mapping = create_folders(db, project_id, [payload])
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(400, str(exc)) from exc
+    folder_id = mapping.get(payload.id, payload.id)
+    row = db.get(Folder, folder_id)
+    return {key: getattr(row, key) for key in ('id', 'parent_id', 'name', 'created_at')}
 
 
 @legacy_router.post('/{project_id}/materials/online-files', status_code=201, dependencies=[Depends(require_permission('projects:write'))])

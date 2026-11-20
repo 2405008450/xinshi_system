@@ -1,25 +1,25 @@
 <template>
   <div class="material-manager" v-loading="loading">
-    <div v-if="canManageSaved" class="material-heading material-manager-toolbar">
-      <BatchDeleteToolbar :active="deleteMode" :selected-count="selectedIds.length" :loading="deleting" @enter="enterDelete" @exit="exitDelete" @confirm="deleteSelected" />
-      <el-button :disabled="deleting" @click="openTrash(projectId)">回收站</el-button>
-    </div>
-    <el-alert v-if="deleteError" :title="deleteError" type="error" :closable="false" />
-    <el-alert v-if="loadError" :title="loadError" type="error" :closable="false">
+    <el-alert v-if="deleteError" :title="deleteError" type="error" :closable="false" class="material-alert" />
+    <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" class="material-alert">
       <el-button link type="primary" @click="reload">重新加载</el-button>
     </el-alert>
-    <p v-if="!readonly" class="material-hint">单文件最大 100MB，可一次选择多个文件。文件变更在保存项目后生效，取消编辑不会改变已保存资料。</p>
-    <section v-for="category in categories" :key="category.key" class="material-category" :data-dialog-field-search-label="category.label">
-      <div class="material-heading">
-        <strong>{{ category.label }}</strong>
-        <label v-if="!readonly && category.key !== 'project'" class="material-upload" :class="{ disabled }">
-          上传文件<input type="file" multiple :disabled="disabled || loading || !!loadError" :aria-label="`上传${category.label}`" @change="selectFiles($event, category.key)">
-        </label>
+
+    <section class="material-section material-section--primary" data-dialog-field-search-label="项目资料">
+      <div class="material-section-header">
+        <div class="material-section-title">
+          <strong>项目资料</strong>
+          <span class="material-section-hint">{{ !readonly ? '单文件 ≤ 100MB，保存项目后生效' : canManageSaved ? '单文件 ≤ 100MB，支持多选与拖拽直接上传' : '' }}</span>
+        </div>
+        <div v-if="canManageSaved" class="material-manager-tools">
+          <el-button class="material-tool-btn" size="small" :disabled="deleting" @click="openTrash(projectId)">回收站</el-button>
+          <BatchDeleteToolbar :active="deleteMode" :selected-count="selectedIds.length" :loading="deleting" @enter="enterDelete" @exit="exitDelete" @confirm="deleteSelected" />
+        </div>
       </div>
       <AnnotationMaterialExplorer
-        v-if="category.key === 'project'" :key="`${projectId}:${active}`" v-model:folder-id="selectedFolderId"
+        :key="`${projectId}:${active}`" v-model:folder-id="selectedFolderId"
         :folders="allFolders" :files="categoryRows('project')" :pending="categoryPending('project')"
-        :readonly="readonly" :disabled="disabled || deleting || loading || !!loadError" :format-size="sizeText" :format-time="timeText"
+        :readonly="readonly" :can-upload="canMutate" :disabled="disabled || deleting || loading || !!loadError" :format-size="sizeText" :format-time="timeText"
         :online-edit="canOnlineEdit && !deleteMode" :edit-blocked="editBlocked" :create-blocked="createBlocked"
         :delete-mode="deleteMode" :checked-ids="selectedIds" @toggle-delete="toggleDelete"
         @edit="editOnline" @edit-window="row => editOnline(row, true)" @create-document="openDocumentCreator"
@@ -27,37 +27,54 @@
         @replace="({ files, fileId }) => addFiles(files, 'project', fileId)"
         @download="download" @history="showHistory" @remove="remove" @retry="send" @discard="discard"
       />
-      <div v-else>
+    </section>
+
+    <div class="material-secondary-grid">
+      <section v-for="category in secondaryCategories" :key="category.key" class="material-card" :data-dialog-field-search-label="category.label">
+        <div class="material-card-header">
+          <div class="material-card-title">
+            <strong>{{ category.label }}</strong>
+            <span class="material-card-count">{{ categoryRows(category.key).length }}</span>
+          </div>
+          <label v-if="canMutate && !deleteMode" class="material-upload-btn" :class="{ disabled: disabled || loading || !!loadError }">
+            <el-icon><Upload /></el-icon>
+            <span>上传文件</span>
+            <input type="file" multiple :disabled="disabled || loading || !!loadError" :aria-label="`上传${category.label}`" @change="selectFiles($event, category.key)">
+          </label>
+        </div>
+        <div class="material-card-body">
           <div v-for="row in categoryRows(category.key)" :key="row.file_id" class="material-row">
             <el-checkbox v-if="deleteMode" :model-value="selectedIds.includes(row.file_id)" :disabled="deleting" :aria-label="`选择删除${row.original_name}`" @change="toggleDelete(row)" />
-            <div class="material-info"><span>{{ row.original_name }}</span><small>{{ sizeText(row.file_size) }} · V{{ row.version_no }} · {{ row.uploader_name }} · {{ timeText(row.created_at) }}</small></div>
+            <div class="material-info"><span :title="row.original_name">{{ row.original_name }}</span><small>{{ sizeText(row.file_size) }} · V{{ row.version_no }} · {{ row.uploader_name }} · {{ timeText(row.created_at) }}</small></div>
             <div class="material-actions">
-              <el-button link type="primary" @click="download(row)">下载</el-button>
-              <el-button link type="primary" @click="showHistory(row)">历史版本</el-button>
-              <label v-if="!readonly && !hasReplacement(row.file_id)" class="material-upload" :class="{ disabled }">上传新版<input type="file" :disabled="disabled" :aria-label="`为${row.original_name}上传新版`" @change="selectFiles($event, category.key, row.file_id)"></label>
-              <el-button v-if="!readonly" link type="danger" :disabled="disabled" @click="remove(row)">移除</el-button>
+              <el-button link type="primary" size="small" @click="download(row)">下载</el-button>
+              <el-button link type="primary" size="small" @click="showHistory(row)">历史</el-button>
+              <label v-if="canMutate && !deleteMode && !hasReplacement(row.file_id)" class="material-upload-link" :class="{ disabled }">上传新版<input type="file" :disabled="disabled" :aria-label="`为${row.original_name}上传新版`" @change="selectFiles($event, category.key, row.file_id)"></label>
+              <el-button v-if="!readonly" link type="danger" size="small" :disabled="disabled" @click="remove(row)">移除</el-button>
             </div>
           </div>
           <div v-for="item in categoryPending(category.key)" :key="item.key" class="material-row">
-            <div class="material-info"><span>{{ item.file.name }} <el-tag size="small">{{ item.fileId ? '待保存新版' : '待保存新文件' }}</el-tag></span>
-              <el-progress v-if="item.status === 'uploading'" :percentage="item.progress" />
+            <div class="material-info"><span>{{ item.file.name }} <el-tag size="small">{{ item.status === 'uploading' ? '上传中' : item.fileId ? '待保存新版' : '待保存新文件' }}</el-tag></span>
+              <el-progress v-if="item.status === 'uploading'" :percentage="item.progress" :stroke-width="4" />
               <small v-else-if="item.status === 'queued'">等待上传</small>
               <small v-else :class="{ 'material-error': item.status === 'failed' }">{{ item.error || '已暂存，等待保存项目' }}</small>
             </div>
-            <el-button v-if="item.status === 'failed'" link type="primary" :disabled="disabled" @click="send(item)">重试</el-button>
-            <el-button link :disabled="disabled" @click="discard(item)">取消上传</el-button>
+            <el-button v-if="item.status === 'failed'" link type="primary" size="small" :disabled="disabled" @click="send(item)">重试</el-button>
+            <el-button link size="small" :disabled="disabled" @click="discard(item)">取消</el-button>
           </div>
-          <small v-if="!categoryRows(category.key).length && !categoryPending(category.key).length" class="material-hint">暂无文件</small>
-      </div>
-    </section>
-    <div v-if="removed.length" class="material-hint">{{ removed.length }} 个文件将在保存后移入回收站（含全部版本）。<el-button link :disabled="disabled" @click="removed = []">撤销移除</el-button></div>
+          <div v-if="!categoryRows(category.key).length && !categoryPending(category.key).length" class="material-card-empty">暂无{{ category.label }}文件</div>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="removed.length" class="material-hint material-removed-bar">{{ removed.length }} 个文件将在保存后移入回收站（含全部版本）。<el-button link :disabled="disabled" @click="removed = []">撤销移除</el-button></div>
     <DraggableFormDialog v-model="folderCreatorVisible" :title="folderLevel === 1 ? '新建一级文件夹' : '新建二级文件夹'" width="min(480px, calc(100vw - 32px))" append-to-body class="material-folder-dialog">
       <AppForm ref="folderFormRef" :model="folderForm" :rules="folderRules" label-width="90px" @submit.prevent="confirmFolder">
         <el-form-item v-if="folderLevel === 2" label="一级文件夹" prop="parentId"><el-select v-model="folderForm.parentId" style="width:100%" placeholder="请选择一级文件夹"><el-option v-for="folder in rootFolders" :key="folder.id" :label="folder.name" :value="folder.id" /></el-select></el-form-item>
         <el-form-item label="文件夹名称" prop="name"><el-input v-model="folderForm.name" maxlength="100" show-word-limit placeholder="请输入文件夹名称" @keyup.enter="confirmFolder" /></el-form-item>
-        <p class="material-hint">创建后随项目保存生效，取消编辑不会保存文件夹。</p>
+        <p class="material-hint">{{ canManageSaved ? '创建后将立即保存到当前项目资料中。' : '创建后随项目保存生效，取消编辑不会保存文件夹。' }}</p>
       </AppForm>
-      <template #footer><el-button @click="folderCreatorVisible = false">取消</el-button><el-button type="primary" :disabled="disabled" @click="confirmFolder">创建</el-button></template>
+      <template #footer><el-button @click="folderCreatorVisible = false">取消</el-button><el-button type="primary" :loading="folderSaving" :disabled="disabled" @click="confirmFolder">创建</el-button></template>
     </DraggableFormDialog>
   </div>
 </template>
@@ -65,6 +82,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Upload } from '@element-plus/icons-vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import AppForm from '@/components/common/AppForm.vue'
 import AnnotationMaterialExplorer from '@/components/annotation/AnnotationMaterialExplorer.vue'
@@ -82,7 +100,11 @@ const props = defineProps({ projectId: { type: String, default: '' }, readonly: 
 const emit = defineEmits(['busy'])
 const { openHistory, openTrash } = useMaterialDialogs()
 const canManageSaved = computed(() => props.readonly && !!props.projectId && hasPermission('projects:write'))
-const deleteMode = ref(false), deleting = ref(false), selectedIds = ref([]), deleteError = ref('')
+const canMutate = computed(() => !props.readonly || canManageSaved.value)
+const deleteMode = ref(false), deleting = ref(false), folderSaving = ref(false), selectedIds = ref([]), deleteError = ref('')
+function syncBusy() {
+  emit('busy', deleting.value || folderSaving.value || pending.value.some(row => row.status === 'uploading' || row.status === 'queued'))
+}
 function exitDelete() { if (!deleting.value) { deleteMode.value = false; selectedIds.value = []; deleteError.value = '' } }
 function enterDelete() { if (!props.disabled && !loading.value && !loadError.value) { exitDelete(); deleteMode.value = true } }
 function toggleDelete(row) { if (!deleting.value) selectedIds.value = selectedIds.value.includes(row.file_id) ? selectedIds.value.filter(id => id !== row.file_id) : [...selectedIds.value, row.file_id] }
@@ -109,6 +131,7 @@ async function deleteSelected() {
   } finally { deleting.value = false; emit('busy', false) }
 }
 const categories = [{ key: 'project', label: '项目资料' }, { key: 'quotation', label: '报价单' }, { key: 'contract', label: '合同' }]
+const secondaryCategories = categories.filter(item => item.key !== 'project')
 const rows = ref([]), pending = ref([]), removed = ref([]), loading = ref(false), loadError = ref('')
 const savedFolders = ref([]), createdFolders = ref([]), selectedFolderId = ref(null)
 const defaultFolderId = ref(newFolderId())
@@ -173,8 +196,18 @@ const categoryRows = category => rows.value.filter(row => row.category === categ
 const categoryPending = category => pending.value.filter(item => item.category === category && inCurrentFolder(item))
 const hasReplacement = id => pending.value.some(item => item.fileId === id)
 
+async function ensurePersistedFolder(folderId) {
+  if (!folderId) return null
+  const folder = allFolders.value.find(item => item.id === folderId)
+  if (!folder?.default) return folderId
+  const created = await api.createMaterialFolder(props.projectId, { id: folder.id, parent_id: null, name: folder.name })
+  if (!savedFolders.value.some(item => item.id === created.id)) savedFolders.value = [...savedFolders.value, created]
+  if (selectedFolderId.value === folderId) selectedFolderId.value = created.id
+  return created.id
+}
+
 async function openFolderCreator(level) {
-  if (props.disabled || props.readonly || loading.value || loadError.value) return
+  if (props.disabled || !canMutate.value || deleteMode.value || loading.value || loadError.value) return
   folderLevel.value = level
   folderForm.name = ''; folderForm.parentId = folderParentId(allFolders.value, selectedFolderId.value)
   folderCreatorVisible.value = true
@@ -182,12 +215,30 @@ async function openFolderCreator(level) {
 }
 let creatingFolder = false
 async function confirmFolder() {
-  if (creatingFolder || props.disabled || props.readonly || !folderCreatorVisible.value) return
+  if (creatingFolder || props.disabled || !canMutate.value || !folderCreatorVisible.value) return
   creatingFolder = true
   const session = generation
   try {
     const valid = await folderFormRef.value?.validate().catch(() => false)
     if (!valid || session !== generation || !folderCreatorVisible.value) return
+    if (canManageSaved.value) {
+      folderSaving.value = true; syncBusy()
+      try {
+        const parentId = folderLevel.value === 2 ? await ensurePersistedFolder(folderForm.parentId) : null
+        const created = await api.createMaterialFolder(props.projectId, { id: newFolderId(), parent_id: parentId, name: folderForm.name.trim() })
+        if (session !== generation) return
+        if (!savedFolders.value.some(item => item.id === created.id)) savedFolders.value = [...savedFolders.value, created]
+        selectedFolderId.value = created.id
+        folderCreatorVisible.value = false
+        notifyMaterialSaved(props.projectId)
+        ElMessage.success({ message: `已创建文件夹“${created.name}”`, customClass: 'material-action-message' })
+      } catch (error) {
+        ElMessage.error({ message: error.detail || error.message || '创建文件夹失败', customClass: 'material-action-message' })
+      } finally {
+        folderSaving.value = false; syncBusy()
+      }
+      return
+    }
     if (allFolders.value.filter(folder => folder.pending || folder.default).length >= 200) { ElMessage.warning('每次保存最多创建200个文件夹'); return }
     const id = newFolderId()
     createdFolders.value.push({ id, parent_id: folderLevel.value === 2 ? folderForm.parentId : null, name: folderForm.name.trim() })
@@ -230,20 +281,33 @@ function reset() {
   defaultFolderId.value = newFolderId()
 }
 async function send(item) {
-  if (pending.value.filter(row => row !== item && row.status === 'uploading').length >= 3) { item.status = 'queued'; return }
+  if (pending.value.filter(row => row !== item && row.status === 'uploading').length >= 3) { item.status = 'queued'; syncBusy(); return }
   const session = generation
-  item.status = 'uploading'; item.error = ''; item.progress = 0; item.controller = new AbortController()
+  item.status = 'uploading'; item.error = ''; item.progress = item.upload ? 95 : 0; item.controller = new AbortController()
+  syncBusy()
   try {
-    const result = await api.uploadMaterial(item.file, event => { item.progress = Math.min(99, Math.round(event.loaded / (event.total || item.file.size) * 100)) }, item.controller.signal)
-    if (session !== generation || !pending.value.includes(item)) { release(result.id); return }
-    item.upload = result; item.status = 'ready'; item.progress = 100
+    const result = item.upload || await api.uploadMaterial(item.file, event => { item.progress = Math.min(95, Math.round(event.loaded / (event.total || item.file.size) * 95)) }, item.controller.signal)
+    if (session !== generation || !pending.value.includes(item)) { if (!item.upload) release(result.id); return }
+    item.upload = result
+    if (canManageSaved.value) {
+      const folderId = item.category === 'project' && !item.fileId ? await ensurePersistedFolder(item.folder_id) : null
+      await api.commitMaterial(props.projectId, { upload_id: result.id, category: item.category, file_id: item.fileId || null, folder_id: folderId })
+      if (session !== generation) return
+      pending.value = pending.value.filter(row => row !== item)
+      notifyMaterialSaved(props.projectId)
+      await reload({ silent: true })
+      ElMessage.success({ message: `已上传“${item.file.name}”`, customClass: 'material-action-message' })
+      return
+    }
+    item.status = 'ready'; item.progress = 100
   } catch (error) {
     if (session !== generation || !pending.value.includes(item)) return
-    item.status = 'failed'; item.error = error.detail || '上传失败，请重试或取消此文件'
+    item.status = 'failed'; item.error = error.detail || error.message || '上传失败，请重试或取消此文件'
   } finally {
     if (session === generation) {
       const next = pending.value.find(row => row.status === 'queued')
       if (next) void send(next)
+      syncBusy()
     }
   }
 }
@@ -252,7 +316,7 @@ function selectFiles(event, category, fileId = null) {
   addFiles(files, category, fileId)
 }
 function addFiles(files, category, fileId = null) {
-  if (props.disabled || props.readonly || loading.value || loadError.value) return
+  if (props.disabled || !canMutate.value || deleteMode.value || loading.value || loadError.value) return
   for (const file of files) {
     if (!file.size || file.size > 100 * 1024 * 1024) { ElMessage.error(`${file.name}：文件不能为空或超过100MB`); continue }
     if (pending.value.length >= 200) { ElMessage.warning('每次保存最多处理200个文件'); break }
@@ -263,7 +327,7 @@ function addFiles(files, category, fileId = null) {
     void send(pending.value[pending.value.length - 1])
   }
 }
-function discard(item) { item.controller?.abort(); release(item.upload?.id); pending.value = pending.value.filter(row => row !== item) }
+function discard(item) { item.controller?.abort(); release(item.upload?.id); pending.value = pending.value.filter(row => row !== item); syncBusy() }
 async function remove(row) {
   try { await ElMessageBox.confirm(`保存项目后将“${row.original_name}”及其全部历史版本移入回收站，可恢复。是否标记移除？`, '移除项目资料', { type: 'warning' }) } catch { return }
   pending.value.filter(item => item.fileId === row.file_id).forEach(discard)
@@ -301,22 +365,44 @@ defineExpose({ validate, changes, saved, reload })
 </script>
 
 <style scoped>
-.material-manager { width: 100%; min-width: 0; }
-.material-manager-toolbar{margin-bottom:8px;flex-wrap:wrap}.material-manager-toolbar :deep(.batch-delete-toolbar){flex-wrap:wrap;white-space:normal}
-.material-category { padding: 12px 0; border-bottom: 1px solid var(--el-border-color-lighter); }
-.material-heading,.material-row,.material-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.material-heading { justify-content: space-between; margin-bottom: 8px; }
-.material-row { padding: 8px 0; }
-.material-info { flex: 1; min-width: 160px; overflow-wrap: anywhere; }
-.material-info small { display: block; color: var(--el-text-color-secondary); margin-top: 4px; }
-.material-hint { color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.6; }
-.material-upload { color: var(--el-color-primary); cursor: pointer; font-size: 13px; position: relative; }
-.material-upload input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
-.material-upload:focus-within { outline: 2px solid var(--el-color-primary); outline-offset: 3px; }
-.material-upload.disabled { opacity: .5; cursor: default; }
+.material-manager { display: flex; flex-direction: column; gap: 14px; width: 100%; min-width: 0; }
+.material-alert { margin-bottom: 0; }
+.material-section { display: flex; flex-direction: column; gap: 8px; }
+.material-section-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.material-section-title { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.material-section-title strong { font-size: 14px; font-weight: 600; color: var(--color-text-primary, #111827); }
+.material-section-hint { font-size: 12px; color: var(--color-text-muted, #64748b); }
+.material-manager-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.material-manager-tools :deep(.el-button) { height: 30px; min-height: 30px; padding: 0 10px; border-radius: 6px; font-size: 12.5px; margin: 0; }
+.material-manager-tools :deep(.batch-delete-toolbar) { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; white-space: normal; }
+.material-secondary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.material-card { display: flex; flex-direction: column; border: 1px solid var(--color-border, #e2e8f0); border-radius: 8px; background: #fff; overflow: hidden; min-width: 0; }
+.material-card-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; background: #f8fafc; border-bottom: 1px solid #eef2f6; }
+.material-card-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.material-card-title strong { font-size: 13px; font-weight: 600; color: #1e293b; }
+.material-card-count { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 18px; padding: 0 6px; border-radius: 9px; background: #e8eef5; color: #475569; font-size: 11px; font-variant-numeric: tabular-nums; }
+.material-card-body { padding: 8px 12px; min-height: 64px; display: flex; flex-direction: column; justify-content: center; }
+.material-card-empty { text-align: center; color: #94a3b8; font-size: 12px; padding: 10px 0; }
+.material-upload-btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; box-sizing: border-box; height: 26px; padding: 0 9px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; color: #334155; font-size: 12px; font-weight: 500; cursor: pointer; position: relative; transition: background-color .14s ease, border-color .14s ease, color .14s ease; }
+.material-upload-btn:hover:not(.disabled) { background: #eef3f8; border-color: #94a3b8; color: #1e293b; }
+.material-upload-btn input,.material-upload-link input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.material-upload-btn.disabled,.material-upload-link.disabled { opacity: .5; cursor: not-allowed; }
+.material-upload-btn:focus-within,.material-upload-link:focus-within { outline: 2px solid var(--color-primary, #334155); outline-offset: 2px; }
+.material-upload-link { position: relative; display: inline-flex; align-items: center; color: var(--color-primary, #334155); font-size: 12px; cursor: pointer; padding: 2px 4px; border-radius: 4px; }
+.material-upload-link:hover:not(.disabled) { background: #f1f5f9; }
+.material-row,.material-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.material-row { padding: 7px 0; border-bottom: 1px solid #f1f5f9; }
+.material-row:last-child { border-bottom: 0; }
+.material-info { flex: 1; min-width: 120px; overflow-wrap: anywhere; font-size: 12.5px; color: #1e293b; }
+.material-info small { display: block; color: var(--color-text-muted, #64748b); font-size: 11px; margin-top: 2px; }
+.material-hint { color: var(--color-text-muted, #64748b); font-size: 12px; line-height: 1.6; }
+.material-removed-bar { padding: 8px 12px; border-radius: 6px; background: #fef9ec; border: 1px solid #fde68a; color: #92400e; }
 .material-info .material-error { color: var(--el-color-danger); }
 .material-history { max-height: 55vh; overflow-y: auto; }
-@media (max-width: 600px) { .material-actions { width: 100%; } }
+@media (max-width: 640px) {
+  .material-secondary-grid { grid-template-columns: minmax(0, 1fr); }
+  .material-actions { width: 100%; }
+}
 </style>
 
 <style>

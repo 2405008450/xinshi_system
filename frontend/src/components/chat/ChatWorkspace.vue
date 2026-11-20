@@ -45,10 +45,10 @@
         </div>
         <template v-if="pane === 'messages'">
           <div class="chat-workspace__session-tools">
-            <div class="chat-workspace__search" data-auto-draft="off"><el-input v-model="keyword" clearable :placeholder="searchPlaceholder" @keyup.enter="applyKeyword"><template #prepend><el-select v-model="searchMode" class="chat-search-mode" popper-class="chat-search-mode-options" aria-label="搜索范围"><el-option label="会话" value="sessions" /><el-option label="聊天记录" value="messages" /></el-select></template><template #prefix><button type="button" class="chat-search-submit" aria-label="查询会话" title="查询" @click="applyKeyword"><el-icon><Search /></el-icon></button></template></el-input></div>
+            <div class="chat-workspace__search" :title="searchMode === 'messages' ? '搜索聊天记录关键词' : '搜索会话名称、订单号'" data-auto-draft="off"><el-input v-model="keyword" clearable :placeholder="searchPlaceholder" @keyup.enter="applyKeyword"><template #prepend><el-select v-model="searchMode" class="chat-search-mode" popper-class="chat-search-mode-options" aria-label="搜索范围"><el-option label="会话" value="sessions" /><el-option label="聊天记录" value="messages" /></el-select></template><template #prefix><button type="button" class="chat-search-submit" aria-label="查询会话" title="查询" @click="applyKeyword"><el-icon><Search /></el-icon></button></template></el-input></div>
             <div class="chat-workspace__tabs">
               <el-popover ref="groupPicker" v-model:visible="groupsVisible" title="会话分组筛选" :draft-filter="false" trigger="click" placement="bottom-end" :width="280" popper-class="chat-session-popover">
-                <template #reference><el-button class="chat-workspace__filter" :class="{ 'is-active': tab !== 'all' }" :aria-label="`会话分组 ${currentGroupLabel}`" :title="currentGroupLabel"><el-icon><Filter /></el-icon><span class="chat-workspace__filter-label">{{ currentGroupLabel }}</span></el-button></template>
+                <template #reference><el-button class="chat-workspace__filter" :class="{ 'is-active': tab !== 'all' }" :aria-label="`会话分组 ${currentGroupLabel}`" :title="`分组筛选：${currentGroupLabel}`"><el-icon><Filter /></el-icon><span v-if="tab !== 'all'" class="chat-workspace__filter-dot" aria-hidden="true" /></el-button></template>
                 <div class="chat-session-groups">
                   <el-button v-for="group in groups" :key="group.key" link :type="tab === group.key ? 'primary' : ''" @click="tab = group.key; groupPicker?.minimize()">{{ group.label }} ({{ groupCount(group.key) }})</el-button>
                 </div>
@@ -58,7 +58,7 @@
           <div class="chat-workspace__annotation-filters">
             <div class="chat-workspace__annotation-mode" role="group" aria-label="消息范围">
               <button type="button" :aria-pressed="annotationMode === 'group'" :class="{ 'is-active': annotationMode === 'group' }" @click="annotationMode = 'group'">群聊</button>
-              <button type="button" :aria-pressed="annotationMode === 'direct'" :class="{ 'is-active': annotationMode === 'direct' }" @click="annotationMode = 'direct'">单聊</button>
+              <button type="button" :aria-pressed="annotationMode === 'direct'" :class="{ 'is-active': annotationMode === 'direct' }" @click="annotationMode = 'direct'">私聊</button>
               <button type="button" :aria-pressed="annotationMode === 'mention'" :class="{ 'is-active': annotationMode === 'mention' }" @click="openMentionInbox('mention')" @contextmenu="mentionSortMenu?.open($event)" @keydown.shift.f10="mentionSortMenu?.open($event)">@我</button>
               <button type="button" :aria-pressed="annotationMode === 'mention-all'" :class="{ 'is-active': annotationMode === 'mention-all' }" @click="openMentionInbox('mention-all')" @contextmenu="mentionSortMenu?.open($event)" @keydown.shift.f10="mentionSortMenu?.open($event)">@所有人</button>
             </div>
@@ -313,7 +313,7 @@ function selectPane(key) {
   if (key === 'messages' && mentionTotal.value > 0) openUnreadMentionConversations()
   else pane.value = key
 }
-const typeLabel = type => type === 'discussion' ? '讨论' : type === 'direct' ? '单聊' : type === 'annotation' ? '标注' : '笔译'
+const typeLabel = type => type === 'discussion' ? '讨论' : type === 'direct' ? '私聊' : type === 'annotation' ? '标注' : '笔译'
 function contactOpened() {
   annotationMode.value = 'direct'
   tab.value = 'direct'
@@ -322,7 +322,7 @@ function contactOpened() {
   pane.value = 'messages'
   emit('contact-opened')
 }
-const groups = [{ key: 'all', label: '消息' }, { key: 'pinned', label: '置顶' }, { key: 'unread', label: '未读' }, { key: 'mention', label: '@我' }, { key: 'direct', label: '单聊' }, { key: 'starred', label: '特别关注' }, { key: 'project', label: '项目群' }, { key: 'annotation', label: '标注项目群' }, { key: 'translation', label: '笔译项目群' }, { key: 'creator', label: '我创建的' }]
+const groups = [{ key: 'all', label: '消息' }, { key: 'pinned', label: '置顶' }, { key: 'unread', label: '未读' }, { key: 'mention', label: '@我' }, { key: 'direct', label: '私聊' }, { key: 'starred', label: '特别关注' }, { key: 'project', label: '项目群' }, { key: 'annotation', label: '标注项目群' }, { key: 'translation', label: '笔译项目群' }, { key: 'creator', label: '我创建的' }]
 const { categories } = useChatSessionCategories()
 const recentClosedVisible = ref(false)
 const recentMenuZ = ref(2101)
@@ -393,7 +393,7 @@ const selectedFolder = ref(savedFolder)
 const folderTreeRef=ref()
 const folderNodes = computed(() => sessionFolderNodes(categories.items, { technicalAccess: categories.technicalAccess }))
 const searchMode = ref('sessions'), searchRevision = ref(0)
-const searchPlaceholder = computed(() => searchMode.value === 'messages' ? '搜索聊天记录…' : '搜索名称、订单号…')
+const searchPlaceholder = computed(() => searchMode.value === 'messages' ? '关键词' : '名称/单号')
 watch(selectedFolder, value => { try { localStorage.setItem(folderStorageKey, value) } catch { /* 本次选择仍生效。 */ } })
 watch(() => [categories.loaded, ...folderNodes.value.map(row => row.id)], ([loaded]) => { if (loaded && selectedFolder.value && !folderNodes.value.some(row => row.id === selectedFolder.value)) selectedFolder.value = categories.items.find(row => row.id === selectedFolder.value)?.parentKey === resourceFolderId ? resourceFolderId : '' }, { immediate: true })
 function selectFolder(id) {
@@ -582,20 +582,27 @@ onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventLis
 .chat-workspace__pane-tabs .is-active{background:var(--chat-active-bg);color:var(--color-primary-hover);font-weight:600}
 .chat-pane-count{min-width:16px;padding:0 5px;border-radius:8px;background:#ef4444;color:#fff;font-size:10px;line-height:16px}
 
-/* 搜索与分组筛选：输入组与筛选按钮同高、同圆角、同边框 */
+/* 搜索与分组筛选：一体化 32px 搜索框 + 等高 32×32px 方形筛选按钮 */
 .chat-workspace__session-tools{display:flex;align-items:center;gap:6px;padding:2px 12px 8px;flex:none;min-width:0}
 .chat-workspace__search{flex:1;min-width:0}
-.chat-search-mode{width:78px}
-.chat-search-mode :deep(.el-select__wrapper){padding:0 6px 0 9px;gap:2px}
+.chat-workspace__search :deep(.el-input-group){display:flex;align-items:center;box-sizing:border-box;width:100%;height:32px;border:1px solid #dce4ee;border-radius:7px;background:#fff;overflow:hidden;transition:border-color .14s ease,box-shadow .14s ease}
+.chat-workspace__search :deep(.el-input-group:hover){border-color:#c6d4e5}
+.chat-workspace__search :deep(.el-input-group:focus-within){border-color:var(--color-primary,#334155);box-shadow:0 0 0 2px rgba(51,65,85,.08)}
+.chat-workspace__search :deep(.el-input-group__prepend){display:flex;align-items:center;flex:none;width:auto;height:30px;padding:0;border:0;border-right:1px solid #e2e8f0;border-radius:0;background:#f8fafc;box-shadow:none!important}
+.chat-workspace__search :deep(.el-input-group__prepend .el-select){margin:0!important}
+.chat-workspace__search :deep(.el-input__wrapper){flex:1;min-width:0;height:30px;min-height:30px;padding:0 6px 0 7px;border:0;border-radius:0;background:transparent;box-shadow:none!important;font-size:12px}
+.chat-workspace__search :deep(.el-input__inner::placeholder){color:#94a3b8;font-size:12px}
+.chat-search-mode{width:66px;margin:0}
+.chat-search-mode :deep(.el-select__wrapper){width:100%;box-sizing:border-box;height:30px;min-height:30px;padding:0 5px 0 8px;gap:2px;border:0;border-radius:0;background:transparent;box-shadow:none!important;font-size:12px;color:#334155}
 .chat-search-submit{display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;background:transparent;color:var(--chat-text-faint);cursor:pointer}
 .chat-search-submit:hover{color:var(--color-primary)}
 .chat-workspace__tabs{flex:none;min-width:0}
-.chat-workspace__filter{max-width:96px;height:var(--chat-control-h);margin:0;padding:0 9px;border-color:var(--chat-border);border-radius:var(--chat-radius);background:#fff;color:var(--chat-text-muted);font-size:12px}
-.chat-workspace__filter:hover{border-color:var(--el-color-primary-light-5);background:var(--chat-hover-bg);color:var(--color-primary-hover)}
-.chat-workspace__filter.is-active{border-color:var(--color-primary);background:var(--chat-active-bg);color:var(--color-primary-hover);font-weight:600}
-.chat-workspace__filter-label{display:inline-block;max-width:56px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+.chat-workspace__tabs :deep(.chat-workspace__filter){position:relative;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:32px;min-width:32px;height:32px;min-height:32px;margin:0;padding:0;border:1px solid #dce4ee;border-radius:7px;background:#fff;color:#475569;font-size:14px;transition:background-color .14s ease,border-color .14s ease,color .14s ease}
+.chat-workspace__tabs :deep(.chat-workspace__filter:hover){border-color:#c6d4e5;background:#eef3f8;color:#1e293b}
+.chat-workspace__tabs :deep(.chat-workspace__filter.is-active){border-color:var(--color-primary,#334155);background:#e7eef6;color:#1e293b}
+.chat-workspace__tabs :deep(.chat-workspace__filter-dot){display:block;position:absolute;top:4px;right:4px;width:6px;height:6px;margin:0!important;padding:0!important;border-radius:50%;background:var(--color-primary,#334155);pointer-events:none}
 
-/* 群聊 / 单聊 / @我 / @所有人：干净分段控件 */
+/* 群聊 / 私聊 / @我 / @所有人：干净分段控件 */
 .chat-workspace__annotation-filters{flex:none;padding:0 12px 10px;border-bottom:1px solid var(--chat-border)}
 .chat-workspace__annotation-mode{display:flex;gap:2px;padding:3px;border-radius:8px;background:#e9eef5}
 .chat-workspace__annotation-mode button{flex:1;min-width:0;height:26px;border:0;border-radius:6px;background:transparent;color:var(--chat-text-muted);padding:0 4px;font:inherit;font-size:12px;white-space:nowrap;cursor:pointer;transition:background-color .14s ease,color .14s ease,box-shadow .14s ease}
@@ -620,9 +627,9 @@ onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventLis
 .chat-session-groups .el-button{margin:0;justify-content:flex-start;padding:7px 8px}
 .chat-workspace__error{padding:8px 12px;color:#b91c1c;font-size:12px}
 
-/* 会话列表卡片：清爽三栏布局，无斑马纹 */
+/* 会话列表卡片：铺满右侧空间，悬停时操作按钮平滑覆盖右上角时间，无斑马纹、无右侧空列 */
 .chat-workspace__list{flex:1;min-height:0;overflow-y:auto;padding:6px 8px 10px}
-.chat-workspace__session{position:relative;display:flex;box-sizing:border-box;width:100%;min-height:64px;padding:9px 8px 9px 10px;align-items:center;gap:10px;border-radius:8px;color:var(--chat-text);cursor:pointer;font:inherit;transition:background-color .14s ease,border-color .14s ease}
+.chat-workspace__session{position:relative;display:flex;box-sizing:border-box;width:100%;min-height:64px;padding:9px 10px;align-items:center;gap:10px;border-radius:8px;color:var(--chat-text);cursor:pointer;font:inherit;transition:background-color .14s ease,border-color .14s ease}
 .chat-workspace__session.is-pinned{background:#f1f5f9}
 .chat-workspace__session:hover{background:var(--chat-hover-bg)}
 .chat-workspace__session.is-active{background:var(--chat-active-bg)}
@@ -635,11 +642,13 @@ onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventLis
 .chat-workspace__avatar--annotation{background:#e2f0ea;color:#2b6b56}
 .chat-workspace__avatar--direct{border-radius:50%;background:#ebe6f5;color:#62508a}
 .chat-workspace__session-main{display:flex;min-width:0;flex:1;flex-direction:column;gap:3px}
-.chat-workspace__session-title,.chat-workspace__preview-row{display:flex;align-items:center;gap:5px;min-width:0}
+.chat-workspace__session-title,.chat-workspace__preview-row{display:flex;align-items:center;gap:6px;min-width:0}
 .chat-workspace__session-title strong{font-size:13px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-primary)}
-.chat-workspace__session-title time{flex:none;font-size:11px;color:var(--chat-text-faint);pointer-events:none;font-variant-numeric:tabular-nums}
-.chat-workspace__session-sub{display:flex;align-items:center;gap:6px;min-width:0;font-size:11px;color:var(--chat-text-faint);line-height:1.35}
-.chat-workspace__session-sub :deep(.chat-order-identity){flex:0 1 auto;min-width:0}
+.chat-workspace__session-title time{flex:none;font-size:11px;color:var(--chat-text-faint);pointer-events:none;font-variant-numeric:tabular-nums;transition:opacity .12s ease}
+.chat-workspace__session-sub{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;font-size:11px;color:var(--chat-text-faint);line-height:1.35}
+.chat-workspace__session-sub :deep(.chat-order-identity){flex:1 1 auto;min-width:0}
+.chat-workspace__session-sub :deep(.chat-order-identity__details){flex-wrap:nowrap;overflow:hidden;white-space:nowrap}
+.chat-workspace__session-sub :deep(.chat-order-identity__number){overflow:hidden;text-overflow:ellipsis;white-space:nowrap;overflow-wrap:normal}
 .chat-session-member-inline{flex:none;font-size:11px;color:var(--chat-text-faint);white-space:nowrap}
 .chat-session-star{color:#d97706;font-size:12px;flex:none}
 .chat-session-preview{display:block;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--chat-text-muted)}
@@ -649,11 +658,12 @@ onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventLis
 .chat-mention-label{color:#dc2626}
 .chat-mention-preview{margin-right:4px;padding:0 3px;border-radius:3px;background:#fef3c7;color:#92400e}
 .chat-session-pin{position:absolute;top:4px;left:4px;font-size:9px;color:var(--chat-text-faint)}
-.chat-workspace__session-controls{display:flex;flex:none;align-items:center;justify-content:flex-end;opacity:0;transition:opacity .14s ease}
-.chat-workspace__session:hover .chat-workspace__session-controls,.chat-workspace__session:focus-within .chat-workspace__session-controls,.chat-workspace__session.is-active .chat-workspace__session-controls{opacity:1}
+.chat-workspace__session-controls{position:absolute;top:8px;right:8px;z-index:2;display:flex;align-items:center;justify-content:flex-end;opacity:0;pointer-events:none;transition:opacity .12s ease}
+.chat-workspace__session:hover .chat-workspace__session-controls,.chat-workspace__session:has(:focus-visible) .chat-workspace__session-controls{opacity:1;pointer-events:auto}
+.chat-workspace__session:hover .chat-workspace__session-title time,.chat-workspace__session:has(:focus-visible) .chat-workspace__session-title time{opacity:0}
 .chat-workspace__session-controls .el-button{margin:0}
-.chat-session-more-btn{width:24px;height:24px;padding:0;border-radius:5px;color:var(--chat-text-muted);font-size:15px}
-.chat-session-more-btn:hover{background:#dfe7f1;color:var(--chat-text)}
+.chat-workspace__session-controls :deep(.el-button.chat-session-more-btn){width:24px;min-width:24px;height:20px;min-height:20px;padding:0;line-height:18px;border-radius:5px;background:rgba(255,255,255,.94);border:1px solid #dce4ee;color:var(--chat-text-muted);font-size:14px}
+.chat-workspace__session-controls :deep(.el-button.chat-session-more-btn:hover){background:#fff;border-color:#cbd5e1;color:var(--chat-text)}
 .chat-compact-rename{width:100%;max-width:100%}
 
 /* 舞台与空状态 */
@@ -686,7 +696,7 @@ onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventLis
 .chat-workspace--narrow .chat-header-divider{margin:0 2px}
 .chat-workspace--narrow .chat-workspace__subtitle{display:none}
 .chat-workspace--narrow .chat-workspace__actions{gap:2px}
-@media (hover: none){.chat-workspace__session-controls{opacity:1}}
+@media (hover: none){.chat-workspace__session-controls{position:static;opacity:1;pointer-events:auto}.chat-workspace__session:hover .chat-workspace__session-title time,.chat-workspace__session:focus-within .chat-workspace__session-title time{opacity:1}}
 </style>
 
 <style scoped src="./chatHeader.css" />
@@ -719,9 +729,7 @@ onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventLis
 .chat-workspace--mobile .chat-workspace__sessions{position:static;top:auto;flex:1 1 auto;width:100%!important;max-width:none;border-right:0;background:#fff;box-shadow:none}
 .chat-workspace--list .chat-workspace__stage{display:none}
 .chat-workspace--mobile .chat-workspace__session-tools{padding:8px 10px 6px}
-.chat-workspace--mobile .chat-search-mode{width:80px}
-.chat-workspace--mobile .chat-workspace__filter-label{display:none}
-.chat-workspace--mobile .chat-workspace__filter{padding:0 10px}
+.chat-workspace--mobile .chat-search-mode{width:76px}
 .chat-workspace--mobile .chat-workspace__annotation-filters{padding:0 10px 6px;border-bottom:0}
 .chat-workspace--mobile .chat-workspace__annotation-filters button{height:32px;font-size:13px}
 .chat-workspace--mobile .chat-workspace__recent-closed{display:block}
@@ -763,9 +771,7 @@ onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventLis
 <style scoped>
 .chat-workspace__sessions{position:relative;container-type:inline-size}
 @container (max-width: 300px){
-  .chat-workspace__filter-label{display:none}
-  .chat-workspace__filter{padding:0 8px}
-  .chat-search-mode{width:76px}
+  .chat-search-mode{width:60px}
 }
 .chat-workspace__split-handle{position:absolute;right:0;top:0;bottom:0;width:6px;z-index:3;cursor:col-resize;touch-action:none;transition:background-color .14s ease}
 .chat-workspace__split-handle:hover,.chat-workspace__split-handle:focus-visible{background:#cbd5e1;outline:0}

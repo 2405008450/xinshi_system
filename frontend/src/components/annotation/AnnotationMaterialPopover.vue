@@ -5,7 +5,7 @@
     @update:visible="updateVisible"
     trigger="click"
     :placement="placement"
-    :width="760"
+    :width="840"
     :popper-options="popperOptions"
     title="项目资料"
     :popper-class="['annotation-material-popover', popperClass].filter(Boolean).join(' ')"

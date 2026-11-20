@@ -13,7 +13,13 @@
     </div>
   </section>
   <section v-else ref="panel" class="chat-folder-tree" aria-label="会话分组" :style="{ height: `${panelHeight}px` }">
-    <div class="chat-folder-tree__heading"><strong>会话分组</strong><span class="chat-folder-tree__heading-actions"><el-button v-if="categories.canManage" link :disabled="!!editing" @click="start(null, null, true)"><el-icon><ChatDotRound /></el-icon>新建一级会话</el-button><el-button v-if="categories.canManage" link :disabled="!!editing" @click="start()"><el-icon><Plus /></el-icon>新建分组</el-button></span></div>
+    <div class="chat-folder-tree__heading">
+      <strong>会话分组</strong>
+      <span v-if="categories.canManage" class="chat-folder-tree__heading-actions">
+        <button type="button" class="chat-folder-tree__head-btn" :disabled="!!editing" title="新建一级会话" aria-label="新建一级会话" @click="start(null, null, true)"><el-icon><ChatDotRound /></el-icon></button>
+        <button type="button" class="chat-folder-tree__head-btn" :disabled="!!editing" title="新建分组" aria-label="新建分组" @click="start()"><el-icon><FolderAdd /></el-icon></button>
+      </span>
+    </div>
     <p v-if="categories.canManage && !categories.hierarchyReady" class="chat-folder-tree__hint">分类管理暂未就绪，请联系系统管理员</p>
     <div class="chat-folder-tree__scroll">
       <button type="button" class="chat-folder-tree__all" :aria-pressed="!selected" @click="$emit('select', '')">全部分组</button>
@@ -22,20 +28,25 @@
           <button v-if="!root.isConversation && root.id !== resourceFolderId" type="button" class="chat-folder-tree__toggle" :aria-label="`${expanded.has(root.id) ? '收起' : '展开'}${root.name}`" :aria-expanded="expanded.has(root.id)" @click="toggle(root.id)"><el-icon><ArrowDown v-if="expanded.has(root.id)" /><ArrowRight v-else /></el-icon></button>
           <span v-else class="chat-folder-tree__toggle" aria-hidden="true"><el-icon v-if="root.isConversation"><ChatDotRound /></el-icon><template v-else>#</template></span>
           <span class="chat-folder-tree__grip" :draggable="!editing && !root.fixedTop" @dragstart.stop="beginDrag($event, root.id)" title="拖动调整分组顺序" aria-hidden="true">⠿</span>
-          <button type="button" class="chat-folder-tree__name" :aria-pressed="selected === root.id" :data-folder-id="root.id" :aria-haspopup="root.id === annotationFolderId ? 'dialog' : undefined" :title="root.id === annotationFolderId ? '右键搜索标注项目，加入会话' : undefined" @click="openChild(root)"><span>{{ root.name }}</span><small v-if="!root.isConversation" class="chat-folder-tree__count" :aria-label="`${count(root.id)} 个对话`">{{ count(root.id) }}</small><b v-if="mentionCount(root.id)" class="chat-folder-tree__mention" :aria-label="`${mentionCount(root.id)} 条未读提及`" role="button" tabindex="0" @click.stop.prevent="emit('unread',root.id)" @keydown.enter.stop.prevent="emit('unread',root.id)" @keydown.space.stop.prevent="emit('unread',root.id)">{{ mentionCount(root.id) > 99 ? '99+' : mentionCount(root.id) }}</b></button>
-          <el-button v-if="categories.canManage && !root.isConversation" link :disabled="!!editing || !categories.hierarchyReady" :aria-label="`在${root.name}下新建${root.id === resourceFolderId ? '讨论' : '会话'}`" :title="root.id === resourceFolderId ? '新建讨论' : '创建会话'" @click="start(root.id, null, true)"><el-icon><Plus /></el-icon></el-button>
-          <el-button v-if="categories.canManage && !root.isConversation && root.id !== resourceFolderId" link :disabled="!!editing || !categories.hierarchyReady" :aria-label="`在${root.name}下创建二级菜单`" title="创建二级菜单" @click="start(root.id, null, false, true)"><el-icon><FolderAdd /></el-icon></el-button>
-          <el-button v-if="categories.canManage && !root.builtin" link :disabled="!!editing" :aria-label="`重命名${root.name}`" @click="start(root.parentKey, root)"><el-icon><Edit /></el-icon></el-button>
-          <el-button v-if="categories.canManage && !root.builtin && !root.deletionProtected" link :disabled="!!editing || saving" :aria-label="`${root.isConversation ? '删除会话' : '移除'}${root.name}`" @click="remove(root)"><el-icon><Close /></el-icon></el-button>
+          <button type="button" class="chat-folder-tree__name" :aria-pressed="selected === root.id" :data-folder-id="root.id" :aria-haspopup="root.id === annotationFolderId ? 'dialog' : undefined" :title="root.id === annotationFolderId ? '右键搜索标注项目，加入会话' : undefined" @click="openChild(root)"><span class="chat-folder-tree__label">{{ root.name }}</span><span class="chat-folder-tree__badges"><b v-if="mentionCount(root.id)" class="chat-folder-tree__mention" :aria-label="`${mentionCount(root.id)} 条未读提及`" role="button" tabindex="0" @click.stop.prevent="emit('unread',root.id)" @keydown.enter.stop.prevent="emit('unread',root.id)" @keydown.space.stop.prevent="emit('unread',root.id)">{{ mentionCount(root.id) > 99 ? '99+' : mentionCount(root.id) }}</b><small v-if="!root.isConversation" class="chat-folder-tree__count" :aria-label="`${count(root.id)} 个对话`">{{ count(root.id) }}</small></span></button>
+          <span v-if="categories.canManage" class="chat-folder-tree__row-actions" @click.stop>
+            <el-button v-if="!root.isConversation" link :disabled="!!editing || !categories.hierarchyReady" :aria-label="`在${root.name}下新建${root.id === resourceFolderId ? '讨论' : '会话'}`" :title="root.id === resourceFolderId ? '新建讨论' : '创建会话'" @click="start(root.id, null, true)"><el-icon><Plus /></el-icon></el-button>
+            <el-button v-if="!root.isConversation && root.id !== resourceFolderId" link :disabled="!!editing || !categories.hierarchyReady" :aria-label="`在${root.name}下创建二级菜单`" title="创建二级菜单" @click="start(root.id, null, false, true)"><el-icon><FolderAdd /></el-icon></el-button>
+            <el-button v-if="!root.builtin" link :disabled="!!editing" :aria-label="`重命名${root.name}`" title="重命名" @click="start(root.parentKey, root)"><el-icon><Edit /></el-icon></el-button>
+            <el-button v-if="!root.builtin && !root.deletionProtected" link :disabled="!!editing || saving" :aria-label="`${root.isConversation ? '删除会话' : '移除'}${root.name}`" title="删除" @click="remove(root)"><el-icon><Close /></el-icon></el-button>
+          </span>
         </div>
         <div v-if="root.id !== resourceFolderId && expanded.has(root.id) || editing?.parentKey === root.id" class="chat-folder-tree__children">
           <el-button v-if="root.id===annotationFolderId" link class="chat-technical-entry" @click="technicalPicker.open()">技术需求</el-button>
           <template v-for="(child, childIndex) in visibleChildren(root.id)" :key="child.id">
           <div class="chat-folder-tree__row" :style="child.parentKey !== root.id ? {marginLeft:'18px'} : undefined" :class="{ 'is-active': selected === child.id, 'is-stripe': childIndex % 2 === 1 }" @contextmenu="openCategoryMenu($event, child)" @keydown.shift.f10="openCategoryMenu($event, child)" @dragstart.stop="beginDrag($event, child.id)" @dragover.prevent @drop.stop.prevent="drop(child.id)" @dragend="dragged = ''">
             <button v-if="children(child.id).length" type="button" class="chat-folder-tree__toggle" :aria-expanded="expanded.has(child.id)" :aria-label="`展开或收起${child.name}`" @click="toggle(child.id)"><el-icon><ArrowDown v-if="expanded.has(child.id)" /><ArrowRight v-else /></el-icon></button><span class="chat-folder-tree__grip" :draggable="!editing && !child.fixedTop" @dragstart.stop="beginDrag($event, child.id)" title="拖动调整分类顺序" aria-hidden="true">⠿</span>
-            <button type="button" class="chat-folder-tree__name" :data-folder-id="child.id" :title="child.name" :aria-pressed="selected === child.id" @click="openChild(child)"><el-icon v-if="child.isConversation"><ChatDotRound /></el-icon><span>{{ child.name }}</span><small v-if="!child.isConversation" class="chat-folder-tree__count" :aria-label="`${count(child.id)} 个对话`">{{ count(child.id) }}</small><b v-if="mentionCount(child.id)" class="chat-folder-tree__mention" :aria-label="`${mentionCount(child.id)} 条未读提及`" role="button" tabindex="0" @click.stop.prevent="emit('unread',child.id)" @keydown.enter.stop.prevent="emit('unread',child.id)" @keydown.space.stop.prevent="emit('unread',child.id)">{{ mentionCount(child.id) > 99 ? '99+' : mentionCount(child.id) }}</b></button>
-            <el-button v-if="categories.canManage && !child.builtin && !child.isConversation && child.parentKey === root.id" link :disabled="!!editing || !categories.hierarchyReady" :aria-label="`在${child.name}下新建会话`" title="新建会话" @click="start(child.id, null, true)"><el-icon><Plus /></el-icon></el-button>
-            <el-button v-if="categories.canManage && !child.builtin" link :disabled="!!editing" :aria-label="`重命名${child.name}`" @click="start(child.parentKey, child)"><el-icon><Edit /></el-icon></el-button><el-button v-if="categories.canManage && !child.builtin && !child.deletionProtected && child.parentKey !== resourceFolderId" link :disabled="!!editing || saving" :aria-label="`${child.isConversation ? '删除会话' : '删除分类'}${child.name}`" title="删除" @click="remove(child)"><el-icon><Close /></el-icon></el-button>
+            <button type="button" class="chat-folder-tree__name" :data-folder-id="child.id" :title="child.name" :aria-pressed="selected === child.id" @click="openChild(child)"><el-icon v-if="child.isConversation"><ChatDotRound /></el-icon><span class="chat-folder-tree__label">{{ child.name }}</span><span class="chat-folder-tree__badges"><b v-if="mentionCount(child.id)" class="chat-folder-tree__mention" :aria-label="`${mentionCount(child.id)} 条未读提及`" role="button" tabindex="0" @click.stop.prevent="emit('unread',child.id)" @keydown.enter.stop.prevent="emit('unread',child.id)" @keydown.space.stop.prevent="emit('unread',child.id)">{{ mentionCount(child.id) > 99 ? '99+' : mentionCount(child.id) }}</b><small v-if="!child.isConversation" class="chat-folder-tree__count" :aria-label="`${count(child.id)} 个对话`">{{ count(child.id) }}</small></span></button>
+            <span v-if="categories.canManage" class="chat-folder-tree__row-actions" @click.stop>
+              <el-button v-if="!child.builtin && !child.isConversation && child.parentKey === root.id" link :disabled="!!editing || !categories.hierarchyReady" :aria-label="`在${child.name}下新建会话`" title="新建会话" @click="start(child.id, null, true)"><el-icon><Plus /></el-icon></el-button>
+              <el-button v-if="!child.builtin" link :disabled="!!editing" :aria-label="`重命名${child.name}`" title="重命名" @click="start(child.parentKey, child)"><el-icon><Edit /></el-icon></el-button>
+              <el-button v-if="!child.builtin && !child.deletionProtected && child.parentKey !== resourceFolderId" link :disabled="!!editing || saving" :aria-label="`${child.isConversation ? '删除会话' : '删除分类'}${child.name}`" title="删除" @click="remove(child)"><el-icon><Close /></el-icon></el-button>
+            </span>
           </div>
           <ChatInlineNameEditor v-if="editing?.parentKey === child.id" :key="editKey" :initial-name="editing.name" label="会话名称" :saving="saving" :error="error" @save="save" @cancel="cancel" />
           </template>
@@ -235,28 +246,40 @@ async function save(name) {
 </style>
 
 <style scoped>
-/* 深蓝灰商务中性分组树：左侧 3px 语义色条区分模块，无粉彩铺底与斑马纹，行尾操作悬停显现。 */
+/* 深蓝灰商务中性分组树：左侧 3px 语义色条区分模块，所有一级/子级计数泡泡统一右对齐，行尾操作悬停浮层显示不占宽度。 */
 .chat-folder-tree{padding:8px 10px 10px;min-height:92px;border-color:var(--chat-sidebar-border,#e2e8f0)}
-.chat-folder-tree__heading{min-height:22px;margin-bottom:6px;color:#64748b}
-.chat-folder-tree__heading strong{font-size:11px;font-weight:600;letter-spacing:.04em}
-.chat-folder-tree__heading-actions{gap:6px}
+.chat-folder-tree__heading{min-height:24px;margin-bottom:6px;color:#64748b}
+.chat-folder-tree__heading strong{font-size:11.5px;font-weight:600;letter-spacing:.04em}
+.chat-folder-tree__heading-actions{display:flex;align-items:center;gap:2px}
+.chat-folder-tree__head-btn{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:1px solid transparent;border-radius:6px;background:transparent;color:#64748b;cursor:pointer;transition:background-color .14s ease,border-color .14s ease,color .14s ease}
+.chat-folder-tree__head-btn:hover:not(:disabled){background:#e7eef6;border-color:#d5e0ee;color:#1e293b}
+.chat-folder-tree__head-btn:disabled{opacity:.45;cursor:not-allowed}
+.chat-folder-tree__head-btn .el-icon{font-size:14px}
 .chat-folder-tree__all{display:block;width:100%;margin-bottom:4px;padding:5px 8px;border-radius:6px;text-align:left;color:#64748b;transition:background-color .14s ease,color .14s ease}
 .chat-folder-tree__all:hover{background:#eef2f7;color:#1e293b}
 .chat-folder-tree__all[aria-pressed="true"]{background:#e7eef6;color:#1e293b;font-weight:600}
 .chat-folder-tree__branch{margin-bottom:3px}
-.chat-folder-tree__row{min-height:31px;border-radius:6px;border-left:3px solid transparent;background:transparent;box-shadow:none;transition:background-color .14s ease,border-color .14s ease;color:#475569}
+.chat-folder-tree__row{position:relative;min-height:31px;border-radius:6px;border-left:3px solid transparent;background:transparent;box-shadow:none;transition:background-color .14s ease,border-color .14s ease;color:#475569}
 .chat-folder-tree__branch>.chat-folder-tree__row{background:#fff;border:1px solid #e9eef5;border-left:3px solid var(--folder-tint,#64748b);font-weight:500}
 .chat-folder-tree__children{margin:3px 0 2px 12px;padding-left:10px;border-left:1px solid #dce4ee}
-.chat-folder-tree__children .chat-folder-tree__row{min-height:28px;margin-bottom:2px;background:transparent;border-left:2px solid transparent;font-weight:400}
+.chat-folder-tree__children .chat-folder-tree__row{min-height:28px;margin-bottom:2px;background:transparent;border:1px solid transparent;border-left:2px solid transparent;font-weight:400}
 .chat-folder-tree__children .chat-folder-tree__row.is-stripe{background:transparent}
 .chat-folder-tree__row:not(.is-active):hover{background:#eef3f8;border-color:#d8e2ee}
 .chat-folder-tree__branch>.chat-folder-tree__row:not(.is-active):hover{border-left-color:var(--folder-tint,#64748b)}
 .chat-folder-tree__branch .chat-folder-tree__row.is-active{background:#e7eef6;border-color:#c6d4e5;border-left-color:var(--folder-tint,#334155);color:#1e293b;font-weight:600}
-.chat-folder-tree__row>.el-button{color:#64748b;opacity:0;transition:opacity .12s ease,color .12s ease}
-.chat-folder-tree__row:hover>.el-button,.chat-folder-tree__row:focus-within>.el-button{opacity:1}
-.chat-folder-tree__row>.el-button:hover{color:#1e293b}
-.chat-folder-tree__count,.chat-folder-tree__row.is-active .chat-folder-tree__count{background:#f1f5f9;color:#475569;border:1px solid #e2e8f0}
+.chat-folder-tree__grip{width:10px;font-size:11px;margin-left:-2px;text-align:center}
+.chat-folder-tree__name{padding:5px 8px 5px 2px;gap:6px}
+.chat-folder-tree__name>.chat-folder-tree__label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-folder-tree__name>.chat-folder-tree__badges{display:inline-flex;align-items:center;justify-content:flex-end;gap:4px;flex:none;margin-left:auto;overflow:visible}
+.chat-folder-tree__count,.chat-folder-tree__row.is-active .chat-folder-tree__count{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:18px;padding:0 6px;border-radius:9px;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;font-size:10.5px;line-height:1;font-variant-numeric:tabular-nums}
 .chat-folder-tree__row.is-active .chat-folder-tree__count{background:#fff;color:#1e293b;border-color:#cbd5e1}
+.chat-folder-tree__mention{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#dc2626;color:#fff;font-size:10.5px;line-height:1}
+.chat-folder-tree__row-actions{position:absolute;top:50%;right:4px;transform:translateY(-50%);display:inline-flex;align-items:center;gap:1px;padding:2px 2px 2px 18px;border-radius:5px;background:linear-gradient(90deg,transparent 0%,#eef3f8 18px,#eef3f8 100%);opacity:0;pointer-events:none;transition:opacity .12s ease}
+.chat-folder-tree__row-actions:empty{display:none}
+.chat-folder-tree__row.is-active .chat-folder-tree__row-actions{background:linear-gradient(90deg,transparent 0%,#e7eef6 18px,#e7eef6 100%)}
+.chat-folder-tree__row:hover .chat-folder-tree__row-actions,.chat-folder-tree__row:has(:focus-visible) .chat-folder-tree__row-actions{opacity:1;pointer-events:auto}
+.chat-folder-tree__row-actions .el-button{margin:0;width:22px;height:22px;padding:0;border-radius:4px;color:#64748b}
+.chat-folder-tree__row-actions .el-button:hover{background:#dbe5f1;color:#1e293b}
 .chat-folder-tree__scroll{scrollbar-width:thin;scrollbar-color:#cbd5e1 transparent}
-@media (hover: none){.chat-folder-tree__row>.el-button{opacity:1}}
+@media (hover: none){.chat-folder-tree__row-actions{position:static;transform:none;padding:0 4px 0 0;background:none!important;opacity:1;pointer-events:auto}}
 </style>

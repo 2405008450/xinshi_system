@@ -19,7 +19,7 @@ import { chatRequest } from '@/api/projectChat'
 
 const props = defineProps({ keyword: { type: String, default: '' }, active: Boolean, revision: Number })
 const emit = defineEmits(['open'])
-const labels = { annotation: '标注项目群', translation: '笔译项目群', direct: '单聊', discussion: '讨论群' }
+const labels = { annotation: '标注项目群', translation: '笔译项目群', direct: '私聊', discussion: '讨论群' }
 const pageSize = 30
 const items = ref([]), total = ref(0), page = ref(1), loading = ref(false), error = ref('')
 let controller, sequence = 0

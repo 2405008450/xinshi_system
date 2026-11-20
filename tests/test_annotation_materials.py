@@ -686,4 +686,41 @@ def test_online_endpoints_require_write_permission(env, monkeypatch):
                            json={'upload_id': str(upload.id), 'base_version_id': str(base_id)}).status_code == 403
         assert client.post(f'/projects/annotation/{project}/materials/online-files',
                            json={'upload_id': str(upload.id)}).status_code == 403
+        assert client.post(f'/projects/annotation/{project}/materials',
+                           json={'upload_id': str(upload.id), 'category': 'project'}).status_code == 403
+        assert client.post(f'/projects/annotation/{project}/material-folders',
+                           json={'id': str(uuid4()), 'name': '无权限目录'}).status_code == 403
     assert db.get(Upload, upload.id).consumed_at is None
+
+
+def test_direct_commit_material_and_folder_creation(env, client):
+    db, user, project, other_project = env
+    root_id, child_id, foreign_folder = uuid4(), uuid4(), uuid4()
+    service.apply_changes(db, other_project, MaterialChanges(created_folders=[{'id': foreign_folder, 'name': '外部目录'}]), user.id)
+    db.commit()
+
+    created_root = client.post(f'/projects/annotation/{project}/material-folders', json={'id': str(root_id), 'name': '2. 客户交付'})
+    assert created_root.status_code == 201, created_root.text
+    assert created_root.json()['id'] == str(root_id) and created_root.json()['parent_id'] is None
+
+    created_child = client.post(f'/projects/annotation/{project}/material-folders', json={'id': str(child_id), 'parent_id': str(root_id), 'name': '第一批'})
+    assert created_child.status_code == 201, created_child.text
+    assert created_child.json()['parent_id'] == str(root_id)
+
+    assert client.post(f'/projects/annotation/{project}/material-folders', json={'id': str(uuid4()), 'parent_id': str(root_id), 'name': '第一批'}).status_code == 400
+
+    pdf_upload = stage(db, user, '交付说明.pdf')
+    committed = client.post(f'/projects/annotation/{project}/materials', json={'upload_id': str(pdf_upload.id), 'category': 'project', 'folder_id': str(child_id)})
+    assert committed.status_code == 201, committed.text
+    body = committed.json()
+    assert body['folder_id'] == str(child_id) and body['version_no'] == 1 and body['category'] == 'project'
+
+    v2_upload = stage(db, user, '交付说明_v2.pdf')
+    replaced = client.post(f'/projects/annotation/{project}/materials', json={'upload_id': str(v2_upload.id), 'category': 'project', 'file_id': body['file_id']})
+    assert replaced.status_code == 201 and replaced.json()['version_no'] == 2
+
+    quote_upload = stage(db, user, '报价单.xlsx')
+    quote = client.post(f'/projects/annotation/{project}/materials', json={'upload_id': str(quote_upload.id), 'category': 'quotation'})
+    assert quote.status_code == 201 and quote.json()['category'] == 'quotation' and quote.json()['folder_id'] is None
+
+    assert client.post(f'/projects/annotation/{project}/materials', json={'upload_id': str(stage(db, user, '越权.pdf').id), 'category': 'project', 'folder_id': str(foreign_folder)}).status_code == 400

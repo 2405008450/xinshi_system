@@ -103,7 +103,7 @@
             <div v-else class="project-chat-window__title-row">
               <strong :title="chatWindow.title">{{ chatWindow.title }}</strong>
               <el-tag size="small" effect="plain" :type="chatWindow.projectType === 'annotation' ? 'success' : 'primary'">
-                {{ chatWindow.projectType === 'discussion' ? '讨论' : chatWindow.projectType === 'direct' ? '单聊' : chatWindow.projectType === 'annotation' ? '标注' : '笔译' }}
+                {{ chatWindow.projectType === 'discussion' ? '讨论' : chatWindow.projectType === 'direct' ? '私聊' : chatWindow.projectType === 'annotation' ? '标注' : '笔译' }}
               </el-tag>
             </div>
             <div class="project-chat-window__subtitle-row" :title="chatWindow.subtitle">

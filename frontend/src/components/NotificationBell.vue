@@ -29,7 +29,7 @@
         </el-button>
       </div>
 
-      <p class="notification-panel__hint">仅显示系统交接、待处理事项及业务动态。所有群聊、单聊、@ 和会话通知请到左侧“会话”查看。</p>
+      <p class="notification-panel__hint">仅显示系统交接、待处理事项及业务动态。所有群聊、私聊、@ 和会话通知请到左侧“会话”查看。</p>
       <div class="desktop-notification-card" :class="`desktop-notification-card--${desktopStatus.type}`">
         <div class="desktop-notification-card__content">
           <div class="desktop-notification-card__title">
