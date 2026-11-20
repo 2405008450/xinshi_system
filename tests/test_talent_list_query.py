@@ -99,12 +99,27 @@ def test_blank_operator_filter_combines_with_other_fields(talent_db):
     assert resource_service.count_talents(db, field_filters=filters) == 1
 
 
-def test_blank_filter_is_not_enabled_for_other_talent_fields():
-    from fastapi import HTTPException
+@pytest.mark.parametrize(("field", "filled_value"), [
+    ("eyesight", "正常"), ("overall_score", 0), ("duplicate_review_required", False),
+    ("operated_at", datetime(2026, 10, 9, 10, 0)), ("dialects", ["粤语"]),
+])
+def test_blank_filter_uses_field_type_and_preserves_zero_and_false(talent_db, field, filled_value):
+    db, ids = talent_db
+    query = db.query(ResourcePerson)
+    query.filter(ResourcePerson.id == ids[0]).update({field: [] if field == "dialects" else None})
+    query.filter(ResourcePerson.id.in_(ids[1:])).update({field: filled_value})
+    filters = _field_filters(json.dumps({field: {"op": "is_empty"}}))
+    assert [person.id for person in resource_service.get_talents(db, field_filters=filters)] == [ids[0]]
+    assert resource_service.count_talents(db, field_filters=filters) == 1
 
-    with pytest.raises(HTTPException) as error:
-        _field_filters(json.dumps({"full_name": {"op": "is_empty"}}))
-    assert error.value.status_code == 422
+
+def test_blank_experience_matches_absent_relationship_but_keeps_zero(talent_db):
+    db, ids = talent_db
+    db.query(ResourceCareerProfile).filter(ResourceCareerProfile.person_id == ids[0]).delete()
+    db.query(ResourceCareerProfile).filter(ResourceCareerProfile.person_id == ids[1]).update({"years_experience": 0})
+    filters = _field_filters(json.dumps({"years_experience": {"op": "is_empty"}}))
+    assert [person.id for person in resource_service.get_talents(db, field_filters=filters)] == [ids[0]]
+    assert resource_service.count_talents(db, field_filters=filters) == 1
 
 
 def test_capability_type_and_status_match_the_same_record(talent_db):

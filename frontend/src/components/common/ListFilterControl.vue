@@ -1,11 +1,11 @@
 <template>
+  <template v-if="!emptySelected">
   <ClientFilterInput v-if="definition.autocomplete === 'client'" :model-value="modelValue"
     @update:model-value="update" @text-input="$emit('text-input', $event)"
     @change="$emit('change', $event)" @enter="$emit('enter')" />
   <template v-else-if="definition.type === 'text'">
     <el-input
-      :model-value="emptySelected ? '' : modelValue"
-      :disabled="emptySelected"
+      :model-value="modelValue"
       :placeholder="definition.placeholder || `筛选${definition.label}`"
       clearable
       size="small"
@@ -21,7 +21,6 @@
       type="primary"
       @click="update(option.value); $emit('change', option.value)"
     >{{ option.label }}</el-button>
-    <el-checkbox v-if="definition.allowEmpty" :model-value="emptySelected" @change="changeEmpty">为空白</el-checkbox>
   </template>
   <el-select
     v-else-if="definition.type === 'select' || definition.type === 'boolean'"
@@ -86,11 +85,14 @@
       @change="changeRange(1, $event)"
     />
   </div>
+  </template>
+  <el-checkbox v-if="supportsBlankFilter(definition)" :model-value="emptySelected" @change="changeEmpty">为空白</el-checkbox>
 </template>
 
 <script setup>
 import { computed, ref } from 'vue'
 import ClientFilterInput from './ClientFilterInput.vue'
+import { BLANK_FILTER_VALUE, emptyFilterValue, isBlankFilter, supportsBlankFilter } from '@/utils/listFieldFilters'
 
 const props = defineProps({
   modelValue: { type: [String, Number, Boolean, Array, Object], default: '' },
@@ -98,9 +100,9 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:modelValue', 'text-input', 'change', 'enter'])
-const emptySelected = computed(() => props.definition.allowEmpty && props.modelValue?.op === 'is_empty')
+const emptySelected = computed(() => isBlankFilter(props.modelValue))
 const changeEmpty = (checked) => {
-  const value = checked ? { op: 'is_empty' } : ''
+  const value = checked ? BLANK_FILTER_VALUE : emptyFilterValue(props.definition)
   emit('update:modelValue', value)
   emit('change', value)
 }

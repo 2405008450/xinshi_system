@@ -32,14 +32,14 @@
           />
         </el-form-item>
         <el-form-item label="咨询状态" class="project-list-status-filter">
-          <el-select v-model="searchForm.status" multiple collapse-tags collapse-tags-tooltip placeholder="全部" clearable @change="handleSearch">
+          <ListFilterSelect v-model="searchForm.status" collapse-tags collapse-tags-tooltip placeholder="全部" clearable @change="handleSearch">
             <el-option
               v-for="item in consultationStatusOptions"
               :key="item.value"
               :label="item.label"
               :value="item.value"
             />
-          </el-select>
+          </ListFilterSelect>
         </el-form-item>
       </div>
       <el-form-item class="project-list-search-actions">
@@ -1324,6 +1324,7 @@ import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
+import ListFilterSelect from '@/components/common/ListFilterSelect.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import * as clientApi from '@/api/clients'
 import * as userApi from '@/api/users'

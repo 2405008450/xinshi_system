@@ -12,7 +12,7 @@ from typing import Optional
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Date as SqlDate, DateTime as SqlDateTime, Numeric, String, cast, column, exists as db_exists, func, or_, select, text, true
+from sqlalchemy import Date as SqlDate, DateTime as SqlDateTime, Numeric, String, cast, column, exists as db_exists, false, func, or_, select, text, true
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 from utils import normalize_email_subject_order_no
@@ -58,7 +58,7 @@ from models import (
 )
 from resource_request_models import ResourceRequest
 from project_order_no_models import ProjectOrderNoReservation
-from field_filtering import apply_scalar_filter, apply_scalar_specs
+from field_filtering import apply_scalar_filter, apply_scalar_specs, blank_condition
 
 
 ANNOTATION_TYPE_VALUES = {"标注项目", "annotation"}
@@ -330,7 +330,7 @@ def _keyword_enum_values(keyword: str, labels: dict[str, str]) -> tuple[str, ...
     )
 
 
-def _annotation_region_match(terms, *, match_any=False, language_ids=None, language_id=None):
+def _annotation_region_match(terms, *, match_any=False, language_ids=None, language_id=None, blank_fields=()):
     """同一条地区内组合匹配，避免城市与区县来自不同地区造成误命中。"""
     language_item = aliased(AnnotationProjectLanguageItem)
     entries = func.jsonb_array_elements(language_item.regions).table_valued(column('value', JSONB)).alias()
@@ -348,10 +348,13 @@ def _annotation_region_match(terms, *, match_any=False, language_ids=None, langu
     if language_id:
         match = match.where(or_(language_item.source_language_id == language_id,
                                 language_item.target_language_id == language_id))
+    blanks = [blank_condition(entries.c.value[key].astext) for key in blank_fields]
+    if blanks and not conditions:
+        return ~db_exists(match.where(or_(*(~condition for condition in blanks))))
     if match_any:
         match = match.where(or_(*conditions))
     else:
-        match = match.where(*conditions)
+        match = match.where(*conditions, *blanks)
     return db_exists(match)
 
 
@@ -391,15 +394,19 @@ def _apply_filters(
         query = query.filter(AnnotationProject.parent_project.has(AnnotationProject.parent_project_id.is_not(None)))
     if parent_project_id is not None:
         query = query.filter(AnnotationProject.parent_project_id == parent_project_id)
-    if area_ids:
+    blank_area = (field_filters or {}).get('area_ids', {}).get('op') == 'is_empty'
+    if area_ids or blank_area:
         child = aliased(AnnotationProject)
         grandchild = aliased(AnnotationProject)
-        query = query.filter(or_(
-            AnnotationProject.area_id.in_(area_ids),
-            db_exists(select(child.id).where(child.parent_project_id == AnnotationProject.id, child.area_id.in_(area_ids))),
+        def area_match(column):
+            return column.is_not(None) if blank_area else column.in_(area_ids)
+        match = or_(
+            area_match(AnnotationProject.area_id),
+            db_exists(select(child.id).where(child.parent_project_id == AnnotationProject.id, area_match(child.area_id))),
             db_exists(select(child.id).join(grandchild, grandchild.parent_project_id == child.id).where(
-                child.parent_project_id == AnnotationProject.id, grandchild.area_id.in_(area_ids))),
-        ))
+                child.parent_project_id == AnnotationProject.id, area_match(grandchild.area_id))),
+        )
+        query = query.filter(~match if blank_area else match)
     if keyword and keyword.strip():
         for term in search_terms(keyword):
             normalized_keyword = term
@@ -477,9 +484,10 @@ def _apply_filters(
     query = apply_managed_filter(query, 'annotation', field_filters)
     region_terms = {key: field_filters[f'region_{key}']['value'] for key in ('city', 'district', 'street')
                     if f'region_{key}' in field_filters and str(field_filters[f'region_{key}'].get('value') or '').strip()}
-    if region_terms:
+    blank_regions = [key for key in ('city', 'district', 'street') if field_filters.get(f'region_{key}', {}).get('op') == 'is_empty']
+    if region_terms or blank_regions:
         selected_languages = [UUID(str(value)) for value in field_filters.get('language_id', {}).get('value', [])]
-        query = query.filter(_annotation_region_match(region_terms, language_ids=selected_languages, language_id=language_id))
+        query = query.filter(_annotation_region_match(region_terms, language_ids=selected_languages, language_id=language_id, blank_fields=blank_regions))
     latest_progress_effective_on, _ = _latest_progress_expressions()
     query = apply_scalar_specs(query, field_filters, {
         "order_no": (AnnotationProject.order_no, "string"),
@@ -500,41 +508,53 @@ def _apply_filters(
         "updated_at": (AnnotationProject.updated_at, "datetime"),
     })
     for field, descriptor in field_filters.items():
+        empty = descriptor.get("op") == "is_empty"
         if field == "project_types":
             values = descriptor.get("value") or []
-            query = query.filter(or_(*(AnnotationProject.project_types.contains([value]) for value in values)))
+            query = query.filter(blank_condition(AnnotationProject.project_types, "collection") if empty else or_(*(AnnotationProject.project_types.contains([value]) for value in values)))
         elif field in {"client_short_name", "client_code", "client_full_name"}:
             parent_column, sub_column = {
                 "client_short_name": (Client.client_short_name, SubClient.client_short_name),
                 "client_code": (Client.client_code, SubClient.sub_client_code),
                 "client_full_name": (Client.client_name, SubClient.client_name),
             }[field]
+            if empty:
+                query = query.filter(blank_condition(func.coalesce(func.nullif(sub_column, ''), parent_column)))
+                continue
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
             query = query.filter(keyword_or(lambda _search_part: or_(keyword_ilike(parent_column, _search_part), keyword_ilike(sub_column, _search_part)), pattern))
         elif field == "language_id":
+            if empty:
+                query = query.filter(~AnnotationProject.language_items.any())
+                continue
             values = [UUID(str(value)) for value in descriptor.get("value") or []]
             query = query.join(AnnotationProjectLanguageItem, AnnotationProjectLanguageItem.project_id == AnnotationProject.id).filter(or_(AnnotationProjectLanguageItem.source_language_id.in_(values), AnnotationProjectLanguageItem.target_language_id.in_(values)))
         elif field == "assignee_person_id":
+            if empty:
+                query = query.filter(~AnnotationProject.assignees.any(AnnotationProjectAssignee.person_id.is_not(None)))
+                continue
             values = [UUID(str(value)) for value in descriptor.get("value") or []]
             query = query.join(AnnotationProjectAssignee, AnnotationProjectAssignee.project_id == AnnotationProject.id).filter(AnnotationProjectAssignee.person_id.in_(values))
         elif field == "project_manager_id":
             values = [UUID(str(value)) for value in descriptor.get("value") or []]
             responsibility = workflow_models.ProjectWorkbenchResponsibility
-            query = query.filter(db_exists().where(
+            match = db_exists().where(
                 responsibility.annotation_project_id == AnnotationProject.id,
                 responsibility.role_code == "project_manager",
-                responsibility.assignee_id.in_(values),
-            ))
+                responsibility.assignee_id.is_not(None) if empty else responsibility.assignee_id.in_(values),
+            )
+            query = query.filter(~match if empty else match)
         elif field == "has_customer_price":
             condition = AnnotationProject.price_items.any()
-            query = query.filter(condition if descriptor.get("value") else ~condition)
+            query = query.filter(false() if empty else condition if descriptor.get("value") else ~condition)
         elif field == "customer_price":
             conditions = [AnnotationProjectPriceItem.project_id == AnnotationProject.id]
             if descriptor.get("min") not in (None, ""):
                 conditions.append(AnnotationProjectPriceItem.amount >= descriptor["min"])
             if descriptor.get("max") not in (None, ""):
                 conditions.append(AnnotationProjectPriceItem.amount <= descriptor["max"])
-            query = query.filter(db_exists().where(*conditions))
+            match = db_exists().where(*conditions, AnnotationProjectPriceItem.amount.is_not(None))
+            query = query.filter(~match if empty else match)
         elif field == "latest_progress_effective_on":
             query = apply_scalar_filter(
                 query,
@@ -546,7 +566,10 @@ def _apply_filters(
             custom_id = field.split(":", 1)[1]
             expression = AnnotationProject.custom_values[custom_id].astext
             data_type = descriptor.get("data_type")
-            if descriptor.get("op") == "contains":
+            if empty:
+                kind = "collection" if data_type == "multi_select" else "string"
+                query = query.filter(blank_condition(expression, kind))
+            elif descriptor.get("op") == "contains":
                 query = query.filter(keyword_ilike(cast(expression, String), f"%{str(descriptor.get('value') or '').strip()}%"))
             elif descriptor.get("op") == "in":
                 values = descriptor.get("value") or []

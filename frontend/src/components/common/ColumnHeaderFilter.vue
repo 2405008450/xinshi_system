@@ -10,7 +10,7 @@
       :width="width"
       :popper-options="viewportPopperOptions"
       popper-class="column-header-filter-popover"
-      @before-enter="$emit('before-enter')"
+      @window-close="preserveOnClose = true"
     >
       <template #reference>
         <button
@@ -50,11 +50,14 @@ defineProps({
   hideDefaultFooter: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['clear', 'before-enter', 'dismiss'])
+const emit = defineEmits(['clear', 'dismiss'])
 
 const visible = ref(false)
+let preserveOnClose = false
 watch(visible, (open, wasOpen) => {
-  if (wasOpen && !open) emit('dismiss')
+  if (!wasOpen || open) return
+  if (!preserveOnClose) emit('dismiss')
+  preserveOnClose = false
 })
 // 表格横向滚动或视口缩小时，表头可能移出屏幕；浮层仍须留在视口内。
 const viewportPopperOptions = {
@@ -63,7 +66,10 @@ const viewportPopperOptions = {
     options: { rootBoundary: 'viewport', altAxis: true, tether: false, padding: 16 },
   }],
 }
-const close = () => { visible.value = false }
+function close({ preserveDraft = false } = {}) {
+  preserveOnClose = preserveDraft
+  visible.value = false
+}
 defineExpose({ close })
 </script>
 
@@ -125,6 +131,24 @@ defineExpose({ close })
 .column-header-filter__trigger.is-active:hover {
   background: var(--color-primary-hover);
   color: #fff;
+}
+
+/* 筛选可以在查询期间继续操作，加载遮罩仍保护表格数据行。 */
+.el-table:has(> .el-loading-mask):has(
+  > .el-table__inner-wrapper > .el-table__header-wrapper .column-header-filter__trigger,
+  > .el-table__inner-wrapper > .el-table__body-wrapper .el-table__body-header .column-header-filter__trigger
+) {
+  isolation: isolate;
+  & > .el-loading-mask { z-index: 10; }
+  & > .el-table__inner-wrapper > .el-table__header-wrapper {
+    position: relative;
+    z-index: 11;
+  }
+  & > .el-table__inner-wrapper > .el-table__body-wrapper .el-table__body-header {
+    position: sticky;
+    top: 0;
+    z-index: 11;
+  }
 }
 
 .column-header-filter-popover .column-header-filter__content {

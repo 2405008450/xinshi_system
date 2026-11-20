@@ -20,8 +20,9 @@
         <ChatConversationParticipants menu-layout v-if="['translation', 'discussion'].includes(projectType) && projectId" :key="`${projectType}:${projectId}`" :project-id="projectId" :project-type="projectType" />
           <AnnotationChatInbox menu-layout @conversation-opened="pane='messages'" @navigate="emit('project-navigate')" />
         </ChatConversationMore>
-        <span class="chat-header-divider" />
         <el-button v-if="activeKey && !narrow" link aria-label="固定小窗" title="固定当前小窗，边聊边工作" @click="emit('pin')"><el-icon><ChatPinIcon /></el-icon></el-button>
+        <div id="chat-workspace-session-close" class="chat-header-session-close" />
+        <span class="chat-header-divider" />
       </div>
       </div>
       <ChatWindowControls :project-id="projectId" :project-type="projectType" :show-entry="pane !== 'summary' && !listView" :show-search="pane !== 'summary' && !!activeKey && !listView" :show-resize="!mobile" :show-exit="!chatView" :maximized="maximized" @navigate="emit('project-navigate')" @search="emit('open-search')" @minimize="emit('minimize')" @maximize="emit('toggle-maximize')" @restore="emit('normal-size')" @exit="emit('exit-workspace')" />
@@ -30,13 +31,18 @@
       <nav v-if="maximized && !narrow" class="chat-workspace__rail" aria-label="沟通导航">
         <span class="chat-workspace__user-avatar" title="我的沟通">{{ chatAvatarText(currentUserName) }}</span>
         <button v-for="item in panes" :key="item.key" type="button" :title="item.key === 'messages' && mentionTotal ? `${mentionTotal} 条未读提及，点击查看` : item.label" :aria-label="item.label" :aria-pressed="pane === item.key" :class="{ 'is-active': pane === item.key }" @click="selectPane(item.key)" @contextmenu="openProjectMenu($event,item.key)" @keydown.shift.f10="openProjectMenu($event,item.key)">
-          <el-badge :value="item.key === 'notifications' ? notificationBadgeTotal : messageBadgeTotal" :max="99" :hidden="item.key === 'notifications' ? !notificationBadgeTotal : item.key !== 'messages' || !messageBadgeTotal" @click.stop="badgeClick(item.key)"><el-icon><component :is="item.icon" /></el-icon></el-badge><small><b v-if="item.key === 'messages' && mentionTotal" class="chat-mention-label">@</b>{{ item.label }}</small>
+          <el-badge :value="item.key === 'notifications' ? notificationBadgeTotal : messageBadgeTotal" :max="99" :hidden="item.key === 'notifications' ? !notificationBadgeTotal : item.key !== 'messages' || !messageBadgeTotal" @click.stop="badgeClick(item.key)"><el-icon><component :is="item.icon" /></el-icon></el-badge><small>{{ item.shortLabel || item.label }}</small>
         </button>
       </nav>
       <aside v-show="!['summary','notifications','annotation-projects','translation-projects','interpretation-projects','consultations'].includes(pane) && (!narrow || sidebarOpen)" class="chat-workspace__sessions" :style="{ width: `${sessionWidth}px` }">
-        <div v-if="!maximized || narrow" class="chat-workspace__pane-tabs" role="tablist" aria-label="沟通导航"><button v-for="item in panes" :key="item.key" type="button" :aria-label="item.label" :aria-pressed="pane === item.key" :class="{ 'is-active': pane === item.key }" @click="selectPane(item.key)" @contextmenu="openProjectMenu($event,item.key)" @keydown.shift.f10="openProjectMenu($event,item.key)"><span>{{ item.label }}</span><b v-if="item.key === 'messages' && mentionTotal" class="chat-mention-label">@</b><span v-if="item.key === 'notifications' && notificationBadgeTotal" class="chat-pane-count" @click.stop="badgeClick(item.key)">{{ notificationBadgeTotal > 99 ? '99+' : notificationBadgeTotal }}</span><span v-if="item.key === 'messages' && messageBadgeTotal" class="chat-pane-count">{{ messageBadgeTotal > 99 ? '99+' : messageBadgeTotal }}</span></button></div>
-        <div v-else class="chat-workspace__brand"><strong>{{ pane === 'messages' && (showMentions || annotationMentionView) ? (annotationMode === 'mention-all' ? '@所有人' : showMentions ? '@我' : '提及') : panes.find(item => item.key === pane)?.label }}</strong><small>{{ pane === 'messages' ? showMentions ? `${filteredMentionTotal} 条提及` : '' : pane === 'contacts' ? '内部通讯录' : '' }}</small></div>
-        <div v-if="!narrow" class="chat-workspace__split-tools"><button type="button" title="恢复左右区域的默认宽度" @click="emit('split-reset')">恢复默认分区</button></div>
+        <div v-if="!maximized || narrow" class="chat-workspace__pane-tabs" role="tablist" aria-label="沟通导航"><button v-for="item in panes" :key="item.key" type="button" :aria-label="item.label" :aria-pressed="pane === item.key" :class="{ 'is-active': pane === item.key }" @click="selectPane(item.key)" @contextmenu="openProjectMenu($event,item.key)" @keydown.shift.f10="openProjectMenu($event,item.key)"><span>{{ item.shortLabel || item.label }}</span><b v-if="item.key === 'messages' && mentionTotal" class="chat-mention-label">@</b><span v-if="item.key === 'notifications' && notificationBadgeTotal" class="chat-pane-count" @click.stop="badgeClick(item.key)">{{ notificationBadgeTotal > 99 ? '99+' : notificationBadgeTotal }}</span><span v-if="item.key === 'messages' && messageBadgeTotal" class="chat-pane-count">{{ messageBadgeTotal > 99 ? '99+' : messageBadgeTotal }}</span></button></div>
+        <div v-else class="chat-workspace__brand">
+          <div class="chat-workspace__brand-title">
+            <strong>{{ pane === 'messages' && (showMentions || annotationMentionView) ? (annotationMode === 'mention-all' ? '@所有人' : showMentions ? '@我' : '提及') : panes.find(item => item.key === pane)?.label }}</strong>
+            <small>{{ pane === 'messages' ? showMentions ? `${filteredMentionTotal} 条提及` : '' : pane === 'contacts' ? '内部通讯录' : '' }}</small>
+          </div>
+          <button v-if="!narrow" type="button" class="chat-workspace__split-reset" title="恢复左右区域的默认宽度" @click="emit('split-reset')">默认宽</button>
+        </div>
         <template v-if="pane === 'messages'">
           <div class="chat-workspace__session-tools">
             <div class="chat-workspace__search" data-auto-draft="off"><el-input v-model="keyword" clearable :placeholder="searchPlaceholder" @keyup.enter="applyKeyword"><template #prepend><el-select v-model="searchMode" class="chat-search-mode" popper-class="chat-search-mode-options" aria-label="搜索范围"><el-option label="会话" value="sessions" /><el-option label="聊天记录" value="messages" /></el-select></template><template #prefix><button type="button" class="chat-search-submit" aria-label="查询会话" title="查询" @click="applyKeyword"><el-icon><Search /></el-icon></button></template></el-input></div>
@@ -80,13 +86,16 @@
             <ChatMessageSearchResults v-else-if="searchMode === 'messages'" :keyword="appliedKeyword" :revision="searchRevision" @locate="emit('locate-mention', $event)" /><ChatMentionInbox v-else-if="showMentions" :keyword="appliedKeyword" :filters="mentionFilters" :active="pane === 'messages'" @total="filteredMentionTotal = $event" @locate="emit('locate-mention', $event)" />
             <template v-else>
             <el-empty v-if="!visibleSessions.length" :description="annotationMode === 'group' && annotationFiltersActive ? '没有符合筛选条件的标注会话' : annotationMentionView ? '当前筛选中没有提及消息的会话' : tab === 'unread' ? '没有未读消息' : '暂无会话'" :image-size="48" />
-            <div v-for="session in visibleSessions" :key="session.key" class="chat-workspace__session" :class="{ 'is-active': session.opened && session.key === activeKey, 'is-pinned': session.pinned, 'has-unread-mention': !!session.mentionUnread }" role="button" tabindex="0" :title="[session.title, session.subtitle].filter(Boolean).join(' · ')" @click="emit(session.opened ? 'select' : 'open', session)" @keydown.enter.self="emit(session.opened ? 'select' : 'open', session)" @keydown.space.self.prevent="emit(session.opened ? 'select' : 'open', session)">
-              <span class="chat-workspace__session-left"><span v-if="session.projectType !== 'direct' && Number.isFinite(session.memberCount)" class="chat-session-member-count" :title="`当前会话 ${session.memberCount} 位参与人`" :aria-label="`当前会话 ${session.memberCount} 人`">{{ session.memberCount }}人</span><span class="chat-workspace__avatar" :class="`chat-workspace__avatar--${session.projectType}`" aria-hidden="true">{{ chatAvatarText(session.title) }}<small>{{ typeLabel(session.projectType) }}</small></span></span>
+            <div v-for="session in visibleSessions" :key="session.key" class="chat-workspace__session" :class="{ 'is-active': session.opened && session.key === activeKey, 'is-pinned': session.pinned, 'has-unread-mention': !!session.mentionUnread }" role="button" tabindex="0" :title="[session.title, session.subtitle, session.projectType !== 'direct' && Number.isFinite(session.memberCount) ? `${session.memberCount}人` : ''].filter(Boolean).join(' · ')" @click="emit(session.opened ? 'select' : 'open', session)" @keydown.enter.self="emit(session.opened ? 'select' : 'open', session)" @keydown.space.self.prevent="emit(session.opened ? 'select' : 'open', session)">
+              <span class="chat-workspace__session-left"><span class="chat-workspace__avatar" :class="`chat-workspace__avatar--${session.projectType}`" aria-hidden="true">{{ chatAvatarText(session.title) }}</span></span>
               <span class="chat-workspace__session-main">
                 <span class="chat-workspace__session-title"><strong>{{ session.title || '未命名项目' }}</strong><el-icon v-if="session.starred" title="特别关注" class="chat-session-star"><StarFilled /></el-icon><time v-if="sessionDisplayTime(session)" :title="formatBusinessDateTime(sessionDisplayTime(session))">{{ chatDateLabel(sessionDisplayTime(session)) }}</time></span>
-                <ChatOrderIdentity :order-no="session.subtitle" :project-type="session.projectType" />
+                <span v-if="['annotation', 'translation'].includes(session.projectType) && session.subtitle || (session.projectType !== 'direct' && Number.isFinite(session.memberCount))" class="chat-workspace__session-sub">
+                  <ChatOrderIdentity :order-no="session.subtitle" :project-type="session.projectType" />
+                  <span v-if="session.projectType !== 'direct' && Number.isFinite(session.memberCount)" class="chat-session-member-inline" :aria-label="`当前会话 ${session.memberCount} 人`">{{ typeLabel(session.projectType) }} · {{ session.memberCount }}人</span>
+                </span>
                 <span v-if="renamingDiscussion?.key === session.key" @click.stop @keydown.stop @mousedown.stop><ChatInlineNameEditor :initial-name="session.title" class="chat-compact-rename" label="会话名称" :saving="renameSaving" :error="renameError" @save="saveDiscussionName" @cancel="renamingDiscussion = null" /></span>
-                <span class="chat-workspace__preview-row"><b v-if="personalUnread(session)" class="chat-mention-label chat-session-mention">[@我]</b><b v-if="session.mentionAllUnread" class="chat-mention-broadcast chat-session-mention">[@所有人]</b><small class="chat-session-preview"><mark v-if="!session.mentionUnread && session.lastMessage?.mentionsMe" class="chat-mention-preview" :class="{ 'chat-mention-broadcast': session.lastMessage.mentionAll }">{{ session.lastMessage.mentionAll ? '[@所有人]' : '[@我]' }}</mark>{{ session.lastMessage ? `${session.lastMessage.senderName}：${screenshotPreview(session.lastMessage.preview)}` : session.projectType === 'discussion' && session.storageReady !== true ? '讨论暂未启用' : '暂无消息' }}</small><span v-if="session.mentionUnread" class="chat-session-unread" :aria-label="`${session.mentionUnread} 条未读提及`" title="未读提及">{{ session.mentionUnread > 99 ? '99+' : session.mentionUnread }}</span><span v-if="sessionUnreadSignal(session).ordinary" class="chat-session-unread-dot" role="status" aria-label="有普通未读消息" title="有普通未读消息" /></span>
+                <span class="chat-workspace__preview-row"><b v-if="personalUnread(session)" class="chat-mention-label chat-session-mention">[@我]</b><b v-if="session.mentionAllUnread" class="chat-mention-broadcast chat-session-mention">[@所有人]</b><small class="chat-session-preview"><mark v-if="!session.mentionUnread && session.lastMessage?.mentionsMe" class="chat-mention-preview" :class="{ 'chat-mention-broadcast': session.lastMessage.mentionAll }">{{ session.lastMessage.mentionAll ? '[@所有人]' : '[@我]' }}</mark><span v-if="session.lastMessage && isUrgentPreview(session.lastMessage.preview)" class="chat-preview-urgent">急</span>{{ session.lastMessage ? `${session.lastMessage.senderName}：${cleanPreviewText(session.lastMessage.preview)}` : session.projectType === 'discussion' && session.storageReady !== true ? '讨论暂未启用' : '暂无消息' }}</small><span v-if="session.mentionUnread" class="chat-session-unread" :aria-label="`${session.mentionUnread} 条未读提及`" title="未读提及">{{ session.mentionUnread > 99 ? '99+' : session.mentionUnread }}</span><span v-if="sessionUnreadSignal(session).ordinary" class="chat-session-unread-dot" role="status" aria-label="有普通未读消息" title="有普通未读消息" /></span>
                 <span v-if="session.variants.length > 1" class="chat-session-orders" @click.stop @keydown.stop>
                   <el-popover trigger="click" placement="right-start" :width="280">
                     <template #reference><el-button link size="small" :aria-label="`切换订单会话 ${session.subtitle}`">切换订单</el-button></template>
@@ -101,9 +110,19 @@
               </span>
               <el-icon v-if="session.pinned" title="已置顶" class="chat-session-pin"><Top /></el-icon>
               <span class="chat-workspace__session-controls" @click.stop @keydown.stop @mousedown.stop>
-                <template v-if="session.projectType === 'discussion'"><el-button v-if="categories.canManage && !session.technicalProjectId" link class="chat-rename-button" :aria-label="`修改名称 ${session.title}`" @click="startDiscussionRename(session)">修改名称</el-button><el-button v-if="categories.canManage && !session.deletionProtected && session.subtitle !== '资源开拓讨论'" link class="chat-rename-button" type="danger" @click="deleteDiscussion(session)">删除会话</el-button><el-button v-if="session.deletionProtected" link class="chat-workspace__session-close" @click="emit('close',session)">关闭会话</el-button><small v-if="!categories.canManage && !session.deletionProtected" class="chat-discussion-protected">固定讨论</small></template>
+                <template v-if="session.projectType === 'discussion'">
+                  <el-popover v-if="(categories.canManage && !session.technicalProjectId) || session.deletionProtected" trigger="click" placement="bottom-end" :width="144" popper-class="chat-session-popover">
+                    <template #reference><el-button link class="chat-session-more-btn" aria-label="会话操作">⋯</el-button></template>
+                    <div class="chat-session-groups">
+                      <el-button v-if="categories.canManage && !session.technicalProjectId" link :aria-label="`修改名称 ${session.title}`" @click="startDiscussionRename(session)">修改名称</el-button>
+                      <el-button v-if="session.deletionProtected" link @click="emit('close', session)">关闭会话</el-button>
+                      <el-button v-if="categories.canManage && !session.deletionProtected && session.subtitle !== '资源开拓讨论'" link type="danger" @click="deleteDiscussion(session)">删除会话</el-button>
+                    </div>
+                  </el-popover>
+                  <small v-else class="chat-discussion-protected">固定</small>
+                </template>
                 <template v-else>
-                  <el-popover trigger="click" placement="bottom-end" :width="150" popper-class="chat-session-popover"><template #reference><el-button link aria-label="会话操作">⋯</el-button></template><div class="chat-session-groups"><el-button link @click="emit('preference', { session, data: { pinned: !session.pinned } })">{{ session.pinned ? '取消置顶' : '置顶' }}</el-button><el-button link @click="emit('preference', { session, data: { starred: !session.starred } })">{{ session.starred ? '取消特别关注' : '特别关注' }}</el-button><el-button v-if="categories.ready" link @click="categoryAssignment.open(session)">设置分类</el-button><el-button link @click="emit('preference', { session, data: { markRead: true } })">标为已读</el-button></div></el-popover>
+                  <el-popover trigger="click" placement="bottom-end" :width="150" popper-class="chat-session-popover"><template #reference><el-button link class="chat-session-more-btn" aria-label="会话操作">⋯</el-button></template><div class="chat-session-groups"><el-button link @click="emit('preference', { session, data: { pinned: !session.pinned } })">{{ session.pinned ? '取消置顶' : '置顶' }}</el-button><el-button link @click="emit('preference', { session, data: { starred: !session.starred } })">{{ session.starred ? '取消特别关注' : '特别关注' }}</el-button><el-button v-if="categories.ready" link @click="categoryAssignment.open(session)">设置分类</el-button><el-button link @click="emit('preference', { session, data: { markRead: true } })">标为已读</el-button></div></el-popover>
                 </template>
               </span>
             </div>
@@ -211,7 +230,9 @@ const emit = defineEmits([
   'open-search', 'toggle-sidebar', 'header-mousedown', 'header-dblclick', 'retry', 'pin', 'resize', 'fullscreen', 'contact-opened',
 ])
 
-const panes = [{ key: 'messages', label: '消息', icon: ChatDotRound }, { key: 'contacts', label: '通讯录', icon: User }, { key: 'summary', label: '总结', icon: Collection }, { key: 'notifications', label: '通知', icon: Bell }, ...(hasPermission('projects:read') ? [{ key: 'annotation-projects', label: '标注项目', icon: Headset },{key:'translation-projects',label:'笔译项目',icon:EditPen},{key:'interpretation-projects',label:'口译项目',icon:Microphone}] : []), ...(hasPermission('consultations:read')?[{key:'consultations',label:'新咨询管理',icon:Phone}]:[]), { key: 'settings', label: '设置', icon: Setting }]
+const panes = [{ key: 'messages', label: '消息', icon: ChatDotRound }, { key: 'contacts', label: '通讯录', icon: User }, { key: 'summary', label: '总结', icon: Collection }, { key: 'notifications', label: '通知', icon: Bell }, ...(hasPermission('projects:read') ? [{ key: 'annotation-projects', label: '标注项目', icon: Headset },{key:'translation-projects',label:'笔译项目',icon:EditPen},{key:'interpretation-projects',label:'口译项目',icon:Microphone}] : []), ...(hasPermission('consultations:read')?[{key:'consultations',label:'新咨询管理',shortLabel:'新咨询',icon:Phone}]:[]), { key: 'settings', label: '设置', icon: Setting }]
+const isUrgentPreview = text => /^\s*\*\*急\*\*/.test(String(text || ''))
+const cleanPreviewText = text => screenshotPreview(String(text || '').replace(/^\s*\*\*急\*\*\s*/, ''))
 const paneStorageKey = `xinshi.chatPane.${localStorage.getItem('user_id') || 'anonymous'}`
 const currentUserName = localStorage.getItem('user_full_name') || localStorage.getItem('user_name') || '我'
 let savedPane = 'messages'
@@ -372,7 +393,7 @@ const selectedFolder = ref(savedFolder)
 const folderTreeRef=ref()
 const folderNodes = computed(() => sessionFolderNodes(categories.items, { technicalAccess: categories.technicalAccess }))
 const searchMode = ref('sessions'), searchRevision = ref(0)
-const searchPlaceholder = computed(() => searchMode.value === 'messages' ? '搜索全部会话的聊天记录' : '搜索全部会话：名称、订单号')
+const searchPlaceholder = computed(() => searchMode.value === 'messages' ? '搜索聊天记录…' : '搜索名称、订单号…')
 watch(selectedFolder, value => { try { localStorage.setItem(folderStorageKey, value) } catch { /* 本次选择仍生效。 */ } })
 watch(() => [categories.loaded, ...folderNodes.value.map(row => row.id)], ([loaded]) => { if (loaded && selectedFolder.value && !folderNodes.value.some(row => row.id === selectedFolder.value)) selectedFolder.value = categories.items.find(row => row.id === selectedFolder.value)?.parentKey === resourceFolderId ? resourceFolderId : '' }, { immediate: true })
 function selectFolder(id) {
@@ -549,8 +570,11 @@ onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventLis
 /* ===== 主体与侧栏 ===== */
 .chat-workspace__body{display:flex;min-height:0;flex:1}
 .chat-workspace__sessions{display:flex;min-width:0;min-height:0;flex:none;flex-direction:column;overflow:hidden;box-sizing:border-box;border-right:1px solid var(--chat-border);background:var(--chat-sidebar-bg)}
-.chat-workspace__brand{display:flex;align-items:center;justify-content:space-between;height:52px;flex:none;padding:0 16px;box-sizing:border-box;color:var(--color-text-primary)}
+.chat-workspace__brand{display:flex;align-items:center;justify-content:space-between;gap:8px;height:46px;flex:none;padding:0 12px 0 14px;box-sizing:border-box;color:var(--color-text-primary)}
+.chat-workspace__brand-title{display:flex;align-items:baseline;gap:6px;min-width:0}
 .chat-workspace__brand small{font-size:11px;color:var(--chat-text-faint)}
+.chat-workspace__split-reset{flex:none;border:0;border-radius:5px;background:transparent;padding:3px 6px;font:inherit;font-size:11px;color:var(--chat-text-faint);cursor:pointer;transition:background-color .14s ease,color .14s ease}
+.chat-workspace__split-reset:hover{background:var(--chat-hover-bg);color:var(--chat-text)}
 .chat-workspace__pane-tabs{display:flex;padding:8px 10px;gap:4px;flex:none;overflow-x:auto;scrollbar-width:none}
 .chat-workspace__pane-tabs::-webkit-scrollbar{display:none}
 .chat-workspace__pane-tabs button{display:flex;flex:1 0 auto;align-items:center;justify-content:center;gap:4px;min-width:0;height:var(--chat-control-h);border:0;border-radius:var(--chat-radius);padding:0 10px;font:inherit;font-size:12px;color:var(--chat-text-muted);background:transparent;cursor:pointer;white-space:nowrap}
@@ -559,28 +583,30 @@ onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventLis
 .chat-pane-count{min-width:16px;padding:0 5px;border-radius:8px;background:#ef4444;color:#fff;font-size:10px;line-height:16px}
 
 /* 搜索与分组筛选：输入组与筛选按钮同高、同圆角、同边框 */
-.chat-workspace__session-tools{display:flex;align-items:center;gap:8px;padding:10px 12px 8px;flex:none;min-width:0}
+.chat-workspace__session-tools{display:flex;align-items:center;gap:6px;padding:2px 12px 8px;flex:none;min-width:0}
 .chat-workspace__search{flex:1;min-width:0}
-.chat-search-mode{width:92px}
+.chat-search-mode{width:78px}
+.chat-search-mode :deep(.el-select__wrapper){padding:0 6px 0 9px;gap:2px}
 .chat-search-submit{display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;background:transparent;color:var(--chat-text-faint);cursor:pointer}
 .chat-search-submit:hover{color:var(--color-primary)}
 .chat-workspace__tabs{flex:none;min-width:0}
-.chat-workspace__filter{max-width:108px;height:var(--chat-control-h);margin:0;padding:0 10px;border-color:var(--chat-border);border-radius:var(--chat-radius);background:#fff;color:var(--chat-text-muted);font-size:12px}
+.chat-workspace__filter{max-width:96px;height:var(--chat-control-h);margin:0;padding:0 9px;border-color:var(--chat-border);border-radius:var(--chat-radius);background:#fff;color:var(--chat-text-muted);font-size:12px}
 .chat-workspace__filter:hover{border-color:var(--el-color-primary-light-5);background:var(--chat-hover-bg);color:var(--color-primary-hover)}
 .chat-workspace__filter.is-active{border-color:var(--color-primary);background:var(--chat-active-bg);color:var(--color-primary-hover);font-weight:600}
-.chat-workspace__filter-label{display:inline-block;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+.chat-workspace__filter-label{display:inline-block;max-width:56px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
 
-/* 群聊 / 单聊 / @我：分段控件 */
+/* 群聊 / 单聊 / @我 / @所有人：干净分段控件 */
 .chat-workspace__annotation-filters{flex:none;padding:0 12px 10px;border-bottom:1px solid var(--chat-border)}
-.chat-workspace__annotation-mode{display:flex;gap:2px;padding:2px;border-radius:var(--chat-radius);background:var(--chat-active-bg)}
-.chat-workspace__annotation-filters button{flex:1;height:28px;border:0;border-radius:4px;background:transparent;color:var(--chat-text-muted);padding:0 6px;font:inherit;font-size:12px;cursor:pointer}
-.chat-workspace__annotation-filters button:hover{color:var(--color-primary-hover)}
-.chat-workspace__annotation-filters button.is-active{background:#fff;color:var(--color-primary-hover);font-weight:600;box-shadow:0 1px 2px #0f172a1f}
-.chat-workspace__annotation-filters button.has-unread-mention{color:#b91c1c}
-.chat-workspace__annotation-filters button.has-unread-mention.is-active{box-shadow:inset 0 0 0 1px #b91c1c}
-.chat-workspace__annotation-filters button:focus-visible{outline:2px solid var(--color-primary);outline-offset:1px}
+.chat-workspace__annotation-mode{display:flex;gap:2px;padding:3px;border-radius:8px;background:#e9eef5}
+.chat-workspace__annotation-mode button{flex:1;min-width:0;height:26px;border:0;border-radius:6px;background:transparent;color:var(--chat-text-muted);padding:0 4px;font:inherit;font-size:12px;white-space:nowrap;cursor:pointer;transition:background-color .14s ease,color .14s ease,box-shadow .14s ease}
+.chat-workspace__annotation-mode button:hover{color:var(--color-primary-hover)}
+.chat-workspace__annotation-mode button.is-active{background:#fff;color:var(--color-primary-hover);font-weight:600;box-shadow:0 1px 2px rgba(15,23,42,.08)}
+.chat-workspace__annotation-mode button.has-unread-mention{color:#b91c1c}
+.chat-workspace__annotation-mode button.has-unread-mention.is-active{box-shadow:0 1px 2px rgba(185,28,28,.16),inset 0 0 0 1px rgba(185,28,28,.3)}
+.chat-workspace__annotation-mode button:focus-visible{outline:2px solid var(--color-primary);outline-offset:1px}
+.chat-session-mention-history{color:#64748b;font-size:11px}
 
-.chat-workspace__recent-closed{flex:none;padding:4px 10px;border-bottom:1px solid var(--chat-border)}
+.chat-workspace__recent-closed{display:flex;align-items:center;gap:4px;flex:none;padding:4px 10px;border-bottom:1px solid var(--chat-border)}
 .chat-recent-closed{max-height:min(440px,calc(100vh - 120px));overflow-y:auto}
 .chat-recent-closed__tools{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-bottom:8px;border-bottom:1px solid var(--chat-divider);font-size:12px}
 .chat-recent-closed__item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--chat-divider)}
@@ -591,81 +617,76 @@ onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventLis
 .chat-session-order-options{display:flex;flex-direction:column;align-items:flex-start;gap:10px;max-height:320px;overflow-y:auto}
 .chat-session-order-options .el-button{margin:0;white-space:normal;text-align:left}
 .chat-session-groups{display:flex;flex-direction:column;align-items:stretch;max-height:400px;overflow:auto}
-.chat-session-groups .el-button{margin:0;justify-content:flex-start;padding:8px}
+.chat-session-groups .el-button{margin:0;justify-content:flex-start;padding:7px 8px}
 .chat-workspace__error{padding:8px 12px;color:#b91c1c;font-size:12px}
 
-/* 会话列表卡片 */
-.chat-workspace__list{flex:1;min-height:0;overflow-y:auto;padding:4px 6px 10px}
-.chat-workspace__session{position:relative;display:flex;box-sizing:border-box;width:100%;min-height:72px;padding:12px 8px;align-items:center;gap:10px;border-radius:8px;color:var(--chat-text);cursor:pointer;font:inherit}
-.chat-workspace__session.is-pinned{background:#eef2f7}
+/* 会话列表卡片：清爽三栏布局，无斑马纹 */
+.chat-workspace__list{flex:1;min-height:0;overflow-y:auto;padding:6px 8px 10px}
+.chat-workspace__session{position:relative;display:flex;box-sizing:border-box;width:100%;min-height:64px;padding:9px 8px 9px 10px;align-items:center;gap:10px;border-radius:8px;color:var(--chat-text);cursor:pointer;font:inherit;transition:background-color .14s ease,border-color .14s ease}
+.chat-workspace__session.is-pinned{background:#f1f5f9}
 .chat-workspace__session:hover{background:var(--chat-hover-bg)}
 .chat-workspace__session.is-active{background:var(--chat-active-bg)}
 .chat-workspace__session:focus-visible{outline:2px solid var(--color-primary);outline-offset:-2px}
-.chat-workspace__annotation-filters{flex:none;padding:0 12px 10px;border-bottom:1px solid #e6eaf0}
-.chat-session-mention-history{color:#64748b;font-size:11px}
-.chat-workspace__annotation-filters button{border:1px solid #dce3ed;border-radius:5px;background:#fff;color:#475569;padding:5px 7px;font:inherit;font-size:12px;cursor:pointer}
-.chat-workspace__annotation-filters button.is-active{background:var(--color-primary-soft);border-color:#cbd5e1;color:var(--color-primary-hover)}
-.chat-workspace__annotation-filters button.has-unread-mention{color:#b91c1c;border-color:#f2b8b8;background:#fff1f2}
-.chat-workspace__annotation-filters button.has-unread-mention.is-active{border-color:#b91c1c;box-shadow:inset 0 0 0 1px #b91c1c}
-.chat-workspace__annotation-filters button:focus-visible{outline:2px solid var(--color-primary);outline-offset:1px}
-.chat-workspace__annotation-mode{display:flex;gap:6px;margin-top:10px}
-.chat-workspace__annotation-mode button{flex:1;min-width:0;white-space:nowrap;padding-inline:2px}
 .chat-session-mention{flex:none;font-size:11px;white-space:nowrap}
 .chat-mention-broadcast{color:#9a3412;background:#ffedd5;border-radius:3px;padding:0 3px}
 .chat-workspace__session.has-unread-mention .chat-workspace__session-title strong{color:#b91c1c}
-.chat-workspace__session-left{display:flex;flex:none;align-self:stretch;flex-direction:column;align-items:center;justify-content:flex-start;gap:8px;width:38px;padding-top:1px}
-.chat-workspace__session-left>.chat-workspace__avatar:only-child{margin-top:8px}
-.chat-session-member-count{position:relative;left:-6px;flex:none;display:inline-flex;align-items:center;padding:1px 4px;border-radius:4px;background:var(--chat-active-bg);color:var(--chat-text-muted);font-size:10px;font-weight:500;line-height:16px;white-space:nowrap}
-.chat-workspace__avatar{position:relative;display:grid;flex:none;place-items:center;width:38px;height:38px;border-radius:10px;background:#e0e7f1;color:#475f85;font-size:16px;font-weight:500}
-.chat-workspace__avatar--annotation{background:#dcebe5;color:#2f7560}
-.chat-workspace__avatar--direct{border-radius:50%;background:#e9e5f3;color:#6f5d98}
-.chat-workspace__avatar small{position:absolute;bottom:-6px;right:-3px;padding:1px 3px;border:2px solid var(--chat-sidebar-bg);border-radius:4px;background:#fff;color:var(--chat-text-muted);font-size:8px;line-height:12px}
-.chat-workspace__session-main{display:flex;min-width:0;flex:1;flex-direction:column;gap:8px}
+.chat-workspace__session-left{display:flex;flex:none;align-items:center;justify-content:center;width:36px}
+.chat-workspace__avatar{position:relative;display:grid;flex:none;place-items:center;width:36px;height:36px;border-radius:10px;background:#e4ebf4;color:#3b526b;font-size:14px;font-weight:600}
+.chat-workspace__avatar--annotation{background:#e2f0ea;color:#2b6b56}
+.chat-workspace__avatar--direct{border-radius:50%;background:#ebe6f5;color:#62508a}
+.chat-workspace__session-main{display:flex;min-width:0;flex:1;flex-direction:column;gap:3px}
 .chat-workspace__session-title,.chat-workspace__preview-row{display:flex;align-items:center;gap:5px;min-width:0}
 .chat-workspace__session-title strong{font-size:13px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-primary)}
-.chat-workspace__session-title time{flex:none;font-size:11px;color:var(--chat-text-faint);pointer-events:none}
-.chat-session-star{color:#d2a235;font-size:12px}
+.chat-workspace__session-title time{flex:none;font-size:11px;color:var(--chat-text-faint);pointer-events:none;font-variant-numeric:tabular-nums}
+.chat-workspace__session-sub{display:flex;align-items:center;gap:6px;min-width:0;font-size:11px;color:var(--chat-text-faint);line-height:1.35}
+.chat-workspace__session-sub :deep(.chat-order-identity){flex:0 1 auto;min-width:0}
+.chat-session-member-inline{flex:none;font-size:11px;color:var(--chat-text-faint);white-space:nowrap}
+.chat-session-star{color:#d97706;font-size:12px;flex:none}
 .chat-session-preview{display:block;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--chat-text-muted)}
+.chat-preview-urgent{display:inline-flex;align-items:center;justify-content:center;margin-right:4px;padding:0 4px;height:15px;border-radius:3px;background:#fee2e2;color:#dc2626;font-size:10px;font-weight:600;line-height:15px;vertical-align:1px}
 .chat-session-unread{flex:none;min-width:16px;box-sizing:border-box;padding:1px 5px;border-radius:10px;background:#ef4444;color:#fff;font-size:10px;text-align:center}
-.chat-session-unread-dot{display:inline-block;flex:none;width:6px;height:6px;border-radius:50%;background:var(--chat-text-faint);margin:0 4px}
+.chat-session-unread-dot{display:inline-block;flex:none;width:6px;height:6px;border-radius:50%;background:var(--chat-text-faint);margin:0 2px}
 .chat-mention-label{color:#dc2626}
 .chat-mention-preview{margin-right:4px;padding:0 3px;border-radius:3px;background:#fef3c7;color:#92400e}
-.chat-session-pin{position:absolute;top:3px;left:4px;font-size:9px;color:var(--chat-text-faint)}
-.chat-workspace__session-controls{display:flex;flex:none;flex-direction:column;align-items:flex-end;justify-content:space-between;align-self:stretch;gap:8px}
+.chat-session-pin{position:absolute;top:4px;left:4px;font-size:9px;color:var(--chat-text-faint)}
+.chat-workspace__session-controls{display:flex;flex:none;align-items:center;justify-content:flex-end;opacity:0;transition:opacity .14s ease}
+.chat-workspace__session:hover .chat-workspace__session-controls,.chat-workspace__session:focus-within .chat-workspace__session-controls,.chat-workspace__session.is-active .chat-workspace__session-controls{opacity:1}
 .chat-workspace__session-controls .el-button{margin:0}
-.chat-rename-button{font-size:10px;padding:2px 4px;min-height:20px}
-.chat-compact-rename{width:150px;max-width:100%}
+.chat-session-more-btn{width:24px;height:24px;padding:0;border-radius:5px;color:var(--chat-text-muted);font-size:15px}
+.chat-session-more-btn:hover{background:#dfe7f1;color:var(--chat-text)}
+.chat-compact-rename{width:100%;max-width:100%}
 
 /* 舞台与空状态 */
 .chat-workspace__stage{min-width:0;flex:1;background:var(--chat-stage-bg)}
-.chat-workspace__empty{display:flex;height:100%;align-items:center;justify-content:center;flex-direction:column;gap:14px;color:var(--chat-text-faint);font-size:13px}
+.chat-workspace__empty{display:flex;height:100%;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:var(--chat-text-faint);font-size:13px}
 .chat-workspace__empty .el-icon{font-size:44px;color:#cbd5e1}
-.chat-workspace__empty strong{font-weight:500;font-size:17px;color:var(--chat-text-muted)}
+.chat-workspace__empty strong{font-weight:500;font-size:16px;color:var(--chat-text-muted)}
 
 /* 最大化时的左侧导航栏 */
-.chat-workspace__rail{display:flex;width:56px;box-sizing:border-box;flex:none;flex-direction:column;align-items:center;gap:8px;min-height:0;overflow-y:auto;padding:16px 4px;border-right:1px solid var(--chat-border);background:#eef2f6}
-.chat-workspace__user-avatar{display:grid;place-items:center;width:32px;height:32px;margin-bottom:14px;border-radius:10px;background:var(--color-primary);color:#fff;font-size:14px}
+.chat-workspace__rail{display:flex;width:var(--chat-rail-w,64px);box-sizing:border-box;flex:none;flex-direction:column;align-items:center;gap:4px;min-height:0;overflow-y:auto;padding:14px 4px;border-right:1px solid var(--chat-border);background:var(--chat-rail-bg,#f1f5f9)}
+.chat-workspace__user-avatar{display:grid;place-items:center;width:34px;height:34px;margin-bottom:12px;border-radius:10px;background:var(--color-primary);color:#fff;font-size:14px;font-weight:600}
 .chat-workspace__rail>button,.chat-workspace__user-avatar{flex-shrink:0}
-.chat-workspace__rail button{display:flex;flex-direction:column;align-items:center;gap:6px;width:44px;padding:10px 0;border:0;border-radius:8px;background:transparent;color:var(--chat-text-muted);cursor:pointer}
-.chat-workspace__rail button:hover{background:var(--chat-active-bg)}
-.chat-workspace__rail button.is-active{background:#fff;color:var(--color-primary-hover);box-shadow:0 1px 3px #0f172a1a}
-.chat-workspace__rail .el-icon{font-size:20px}
-.chat-workspace__rail small{font-size:10px}
+.chat-workspace__rail button{display:flex;flex-direction:column;align-items:center;gap:4px;width:54px;padding:8px 2px;border:0;border-radius:8px;background:transparent;color:var(--chat-text-muted);cursor:pointer;transition:background-color .14s ease,color .14s ease}
+.chat-workspace__rail button:hover{background:var(--chat-active-bg);color:var(--chat-text)}
+.chat-workspace__rail button.is-active{background:#fff;color:var(--color-primary-hover);font-weight:600;box-shadow:0 1px 3px rgba(15,23,42,.1)}
+.chat-workspace__rail .el-icon{font-size:19px}
+.chat-workspace__rail small{font-size:10.5px;line-height:1.2;white-space:nowrap}
 .chat-workspace__rail :deep(.el-badge__content){font-size:9px;height:15px;line-height:15px;padding:0 4px}
 
 /* 最大化与窄屏布局（行高见 chatHeader.css） */
-.chat-workspace--maximized:not(.chat-workspace--narrow){display:grid;grid-template-columns:56px var(--chat-session-width) minmax(0,1fr)}
+.chat-workspace--maximized:not(.chat-workspace--narrow){display:grid;grid-template-columns:var(--chat-rail-w,64px) var(--chat-session-width) minmax(0,1fr)}
 .chat-workspace--maximized:not(.chat-workspace--narrow) .chat-workspace__body{display:contents}
 .chat-workspace--maximized:not(.chat-workspace--narrow) .chat-workspace__rail{grid-column:1;grid-row:1 / 3}
 .chat-workspace--maximized:not(.chat-workspace--narrow) .chat-workspace__sessions{grid-column:2;grid-row:1 / 3}
 .chat-workspace--maximized:not(.chat-workspace--narrow) .chat-workspace__header{grid-column:3;grid-row:1}
 .chat-workspace--maximized:not(.chat-workspace--narrow) .chat-workspace__stage{grid-column:3;grid-row:2}
 .chat-workspace--narrow .chat-workspace__sessions{position:absolute;z-index:1;bottom:0;left:0;max-width:calc(100% - 16px);box-shadow:var(--el-box-shadow-light)}
-.chat-workspace--narrow .chat-workspace__header{padding:0 6px;gap:4px}
-.chat-workspace--narrow .chat-workspace__heading strong{font-size:12px}
+.chat-workspace--narrow .chat-workspace__header{padding:0 8px;gap:4px}
+.chat-workspace--narrow .chat-workspace__heading strong{font-size:13px}
 .chat-workspace--narrow .chat-header-divider{margin:0 2px}
 .chat-workspace--narrow .chat-workspace__subtitle{display:none}
-.chat-workspace--narrow .chat-workspace__actions{gap:0}
+.chat-workspace--narrow .chat-workspace__actions{gap:2px}
+@media (hover: none){.chat-workspace__session-controls{opacity:1}}
 </style>
 
 <style scoped src="./chatHeader.css" />
@@ -744,13 +765,10 @@ onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventLis
 @container (max-width: 300px){
   .chat-workspace__filter-label{display:none}
   .chat-workspace__filter{padding:0 8px}
-  .chat-search-mode{width:72px}
+  .chat-search-mode{width:76px}
 }
-.chat-workspace__split-tools{display:flex;justify-content:flex-end;flex:none;padding:0 12px 4px}
-.chat-workspace__split-tools button{border:0;background:transparent;font:inherit;font-size:11px;color:#64748b;cursor:pointer;padding:3px 5px}
-.chat-workspace__split-tools button:hover{color:#2563eb;background:#eff6ff}
-.chat-workspace__split-handle{position:absolute;right:0;top:0;bottom:0;width:7px;z-index:3;cursor:col-resize;touch-action:none}
-.chat-workspace__split-handle:hover,.chat-workspace__split-handle:focus-visible{background:#bfdbfe;outline:0}
+.chat-workspace__split-handle{position:absolute;right:0;top:0;bottom:0;width:6px;z-index:3;cursor:col-resize;touch-action:none;transition:background-color .14s ease}
+.chat-workspace__split-handle:hover,.chat-workspace__split-handle:focus-visible{background:#cbd5e1;outline:0}
 </style>
 
 <style scoped src="./chatSidebar.css" />

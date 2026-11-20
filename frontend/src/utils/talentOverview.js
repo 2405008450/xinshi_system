@@ -1,3 +1,5 @@
+import { isBlankFilter, isBlankValue } from './listFieldFilters.js'
+
 function numericCount(value) {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0
 }
@@ -5,12 +7,13 @@ function numericCount(value) {
 export const TALENT_OVERVIEW_BLANK_FILTER_VALUE = '__talent_overview_blank__'
 
 export function normalizeTalentOverviewFilterValue(value) {
-  return value === null || value === undefined || value === ''
+  return isBlankValue(value)
     ? TALENT_OVERVIEW_BLANK_FILTER_VALUE
     : value
 }
 
-function matchesTalentOverviewFilter(selectedValues, value) {
+export function matchesTalentOverviewFilter(selectedValues, value) {
+  if (isBlankFilter(selectedValues)) return isBlankValue(value)
   return !Array.isArray(selectedValues)
     || !selectedValues.length
     || selectedValues.includes(normalizeTalentOverviewFilterValue(value))

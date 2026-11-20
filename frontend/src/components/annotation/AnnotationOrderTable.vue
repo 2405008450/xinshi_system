@@ -93,7 +93,7 @@ import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { getAnnotationChildren } from '@/api/annotationProjects'
 import TableExpandButton from '@/components/common/TableExpandButton.vue'
 import { useMobileViewport } from '@/composables/useMobileViewport'
-const props = defineProps({ columnSettingsKey: { type: String, default: 'annotation-projects' }, rows: {type:Array,default:()=>[]}, columns: {type:Array,default:()=>[]}, editable:Boolean, deleteMode:Boolean, nested:Boolean, conversationPicker:Boolean, pickerActionLabel:{type:String,default:'加入会话'}, revision:Number, areaIds:Array, rowClass:Function, supportsGrandchildOrders:{type:Boolean,default:true} })
+const props = defineProps({ columnSettingsKey: { type: String, default: 'annotation-projects' }, rows: {type:Array,default:()=>[]}, columns: {type:Array,default:()=>[]}, editable:Boolean, deleteMode:Boolean, nested:Boolean, conversationPicker:Boolean, pickerActionLabel:{type:String,default:'加入会话'}, revision:Number, areaIds:[Array,Object], rowClass:Function, supportsGrandchildOrders:{type:Boolean,default:true} })
 const emit = defineEmits(['selection-change','create','manage','updated'])
 const { isMobile } = useMobileViewport()
 const tableRef = ref(), expanded = ref([]), loadingIds = reactive(new Set())
@@ -111,7 +111,7 @@ const load = async row => {
   requests.get(row.id)?.abort(); const controller = new AbortController(); requests.set(row.id, controller)
   loadingIds.add(row.id); errors[row.id] = ''
   try {
-    const page = await getAnnotationChildren(row.id, {conversation_picker:props.conversationPicker ? '1' : undefined,skip:((pages[row.id] || 1)-1)*10,limit:10,area_ids:props.areaIds?.length ? props.areaIds : undefined}, {signal:controller.signal})
+    const page = await getAnnotationChildren(row.id, {conversation_picker:props.conversationPicker ? '1' : undefined,skip:((pages[row.id] || 1)-1)*10,limit:10,area_ids:props.areaIds?.length ? props.areaIds : undefined,area_is_empty:props.areaIds?.op==='is_empty'||undefined}, {signal:controller.signal})
     if (requests.get(row.id) !== controller) return
     children[row.id] = page.items; totals[row.id] = page.total
   } catch (error) { if (requests.get(row.id) === controller && error.code !== 'ERR_CANCELED') errors[row.id] = error.detail || '下级订单加载失败' }

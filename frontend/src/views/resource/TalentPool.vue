@@ -24,9 +24,9 @@
           <el-input v-model="search.keyword" clearable :placeholder="canViewContacts ? '姓名、编号、电话或邮箱' : '姓名或编号'" @input="handleTextInput" @keyup.enter="searchNow" />
         </el-form-item>
         <el-form-item label="状态" class="project-list-status-filter">
-          <el-select v-model="search.status" multiple collapse-tags :max-collapse-tags="1" clearable placeholder="全部状态" @change="searchNow">
+          <ListFilterSelect v-model="search.status" collapse-tags :max-collapse-tags="1" clearable placeholder="全部状态" @change="searchNow">
             <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
-          </el-select>
+          </ListFilterSelect>
         </el-form-item>
       </div>
       <el-form-item class="project-list-search-actions">
@@ -377,6 +377,7 @@ import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
+import ListFilterSelect from '@/components/common/ListFilterSelect.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
@@ -405,7 +406,7 @@ import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useFormDraft } from '@/composables/useFormDraft'
 import { hasPermission, isSuperAdmin } from '@/utils/permission'
-import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
+import { countActiveFilters, createFilterModel, isBlankFilter, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 import { countTalentNames, getTalentDisplayName } from '@/utils/talentNames'
 import { normalizeForeignLanguagePriorities } from '@/utils/talentLanguageSkills'
 import { focusFormTarget } from '@/utils/formNavigation'
@@ -626,7 +627,7 @@ async function openTalentDetail(row){selectedDetail.value=row;detailVisible.valu
 async function loadFullDetail(row){projectsLoading.value=true;projectsError.value='';const id=row.id;try{const [,projects]=await Promise.all([loadDetail(id,true),talentClient.value.projects(id)]);projectCache[id]=projects}catch(error){if(selectedDetail.value.id===id)projectsError.value=error.detail||'项目情况加载失败，请重试'}finally{if(selectedDetail.value.id===id)projectsLoading.value=false}}
 
 function setStatusSaving(id,saving){const next=new Set(statusSavingIds.value);if(saving)next.add(id);else next.delete(id);statusSavingIds.value=next}
-async function changeStatus(row,value){if(!value||value===row.status)return;setStatusSaving(row.id,true);try{const updated=await talentClient.value.patchStatus(row.id,value);Object.assign(row,updated);if(detailCache[row.id])detailCache[row.id]={...detailCache[row.id],...updated};ElMessage.success('人才状态已更新');if(search.status?.length&&!search.status.includes(updated.status))await fetchData()}catch(error){ElMessage.error(getLocalizedErrorMessage(error,'人才状态更新失败'))}finally{setStatusSaving(row.id,false)}}
+async function changeStatus(row,value){if(!value||value===row.status)return;setStatusSaving(row.id,true);try{const updated=await talentClient.value.patchStatus(row.id,value);Object.assign(row,updated);if(detailCache[row.id])detailCache[row.id]={...detailCache[row.id],...updated};ElMessage.success('人才状态已更新');if((isBlankFilter(search.status) || (search.status?.length && !search.status.includes(updated.status))))await fetchData()}catch(error){ElMessage.error(getLocalizedErrorMessage(error,'人才状态更新失败'))}finally{setStatusSaving(row.id,false)}}
 
 const birthDateParts=value=>{const match=String(value||'').match(/^(\d{4})-(\d{2})-(\d{2})/);return match?{year:Number(match[1]),month:Number(match[2]),day:Number(match[3])}:null}
 const calculateAge=value=>{const parts=birthDateParts(value);if(!parts)return null;const now=new Date();let age=now.getFullYear()-parts.year;if(now.getMonth()+1<parts.month||(now.getMonth()+1===parts.month&&now.getDate()<parts.day))age--;return age>=0?age:null}

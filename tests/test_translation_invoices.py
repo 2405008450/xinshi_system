@@ -101,6 +101,26 @@ def test_statement_customer_filter_matches_whole_customers_before_pagination(con
     assert [item['id'] for item in result['items']] == [str(same_customer.id)]
 
 
+def test_finance_blank_filters_apply_before_pagination(context):
+    http, db, clients, _, _ = context
+    http.app.include_router(finance.router)
+    missing = project(db, clients[0], 'BLANK-1')
+    with_direction = project(db, clients[0], 'BLANK-2')
+    with_status = project(db, clients[1], 'BLANK-3')
+    missing.language_pair = missing.project_status = None
+    with_direction.language_pair, with_direction.project_status = '英译中', None
+    with_status.language_pair, with_status.project_status = None, 'confirmed'
+    db.commit()
+    url = '/translation-customer-finance/page'
+    params = [('blank_fields', 'language_pair'), ('blank_fields', 'project_status'), ('limit', 1)]
+    response = http.get(url, params=params)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result['total'] == 1 and [item['id'] for item in result['items']] == [str(missing.id)]
+    assert http.get(url, params=[*params, ('skip', 1)]).json()['items'] == []
+    assert http.get(url, params={'blank_fields':'payment_status'}).json()['total'] == 0
+
+
 def test_document_notes_preserve_quotation_and_are_versioned(context):
     _,db,clients,_,actor=context;row=project(db,clients[0],'NOTES',fixed=True)
     current=finance.read(db,row.id)

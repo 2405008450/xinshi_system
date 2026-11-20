@@ -320,6 +320,7 @@ import TalentOverviewColumnSettings from '@/views/resource/components/TalentOver
 import { formatOverviewDate, formatOverviewCount } from '@/utils/talentOverviewWecom'
 import { hasPermission } from '@/utils/permission'
 import { formatDateTimeMinute } from '@/utils/dateTime'
+import { isBlankFilter, isBlankValue } from '@/utils/listFieldFilters'
 import {
   appendTalentOverviewColumn,
   appendTalentOverviewRow,
@@ -329,8 +330,7 @@ import {
   cloneTalentOverview,
   filterTalentOverviewRows,
   formatTalentCount,
-  normalizeTalentOverviewFilterValue,
-  TALENT_OVERVIEW_BLANK_FILTER_VALUE,
+  matchesTalentOverviewFilter,
 } from '@/utils/talentOverview'
 
 const overviewPanelRef = ref(null)
@@ -395,8 +395,8 @@ const filteredRows = computed(() => filterTalentOverviewRows(
   displayedRows.value,
   displayedColumns.value,
   filterValues,
-).filter(row => !poolCountFilter.value.length || poolCountFilter.value.includes(
-  normalizeTalentOverviewFilterValue(poolStatistics.value ? (poolCounts.value[row.overviewKey] || 0) : null),
+).filter(row => matchesTalentOverviewFilter(
+  poolCountFilter.value, poolStatistics.value ? (poolCounts.value[row.overviewKey] || 0) : null,
 )))
 const columnGroups = computed(() => Object.entries(groupLabels).map(([key, label]) => ({
   key,
@@ -413,30 +413,22 @@ const fullscreenActive = computed(() => nativeFullscreen.value || fallbackFullsc
 const tableHeight = computed(() => fullscreenActive.value ? 'calc(100vh - 320px)' : 'calc(100vh - 322px)')
 const liveColumnTotals = computed(() => calculateTalentColumnTotals(filteredRows.value, displayedColumns.value))
 const liveGrandTotal = computed(() => calculateTalentGrandTotal(filteredRows.value, displayedColumns.value))
-const hasActiveFilters = computed(() => (
-  poolCountFilter.value.length > 0
-  || filterValues.language.length > 0
-  || filterValues.updatedAt.length > 0
-  || filterValues.rowTotal.length > 0
-  || Object.values(filterValues.counts).some(values => values?.length)
-))
+const hasActiveFilters = computed(() => [poolCountFilter.value, filterValues.language, filterValues.updatedAt,
+  filterValues.rowTotal, ...Object.values(filterValues.counts)].some(value => isBlankFilter(value) || value?.length))
 
 function buildFilterOptions(values, formatter = value => String(value)) {
   const uniqueValues = new Map()
-  values.forEach(value => {
-    const normalized = normalizeTalentOverviewFilterValue(value)
-    uniqueValues.set(`${typeof normalized}:${String(normalized)}`, normalized)
+  values.filter(value => !isBlankValue(value)).forEach(value => {
+    uniqueValues.set(`${typeof value}:${String(value)}`, value)
   })
   return [...uniqueValues.values()]
     .sort((left, right) => {
-      if (left === TALENT_OVERVIEW_BLANK_FILTER_VALUE) return 1
-      if (right === TALENT_OVERVIEW_BLANK_FILTER_VALUE) return -1
       if (typeof left === 'number' && typeof right === 'number') return left - right
       return String(left).localeCompare(String(right), 'zh-CN', { numeric: true })
     })
     .map(value => ({
       value,
-      label: value === TALENT_OVERVIEW_BLANK_FILTER_VALUE ? '空白' : formatter(value),
+      label: formatter(value),
     }))
 }
 

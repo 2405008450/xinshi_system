@@ -38,7 +38,7 @@
       </div>
       <small v-if="contentTooLong" class="group-error" role="alert">文字与图片引用合计超过10000字，请减少文字或图片后发送</small>
       <small v-if="draft.error.value" role="alert">{{draft.error.value}}</small>
-      <div class="group-compose-footer"><el-button v-if="retryPayload" size="small" @click="cancelRetry">继续编辑</el-button><el-button type="primary" size="small" :loading="sending" :disabled="!canSend" title="Enter 发送，Shift+Enter 换行" @click="send">{{ retryPayload ? '发送失败，重试' : '发送' }}</el-button></div>
+      <div class="group-compose-footer"><span class="group-compose-shortcut">Enter 发送 · Shift+Enter 换行</span><el-button v-if="retryPayload" size="small" @click="cancelRetry">继续编辑</el-button><el-button type="primary" size="small" :loading="sending" :disabled="!canSend" title="Enter 发送，Shift+Enter 换行" @click="send">{{ retryPayload ? '发送失败，重试' : '发送' }}</el-button></div>
       <div v-if="sendError" class="group-error" role="alert">{{ sendError }}</div>
     </div>
 </template>
@@ -77,11 +77,12 @@ async function insertMention() {
 }
 </script>
 <style scoped src="./chatConversation.css" />
-<style scoped>.group-composer{margin:10px 12px 14px;border:1px solid var(--chat-border,#e2e8f0);border-radius:12px;padding:8px 10px;box-shadow:0 2px 6px #0f172a03}.group-compose-tools .el-icon{font-size:var(--chat-icon-size,16px)}.group-composer:focus-within{border-color:var(--el-color-primary);box-shadow:0 0 0 2px var(--el-color-primary-light-9)}.group-compose-tools{flex-wrap:wrap;gap:6px}.group-compose-footer{justify-content:flex-end;gap:10px}.chat-composer-resize{position:absolute;top:-5px;left:20%;width:60%;height:8px;padding:0;border:0;background:transparent;cursor:ns-resize;touch-action:none}.chat-composer-resize:focus-visible{outline:2px solid var(--el-color-primary)}.group-mention-search{flex-shrink:0;margin-bottom:5px}.group-mention-section{position:sticky;top:0;padding:7px;background:#eff6ff;color:#1d4ed8;font-size:11px;font-weight:600;border-bottom:1px solid #dbeafe}.group-mention-section.is-outside{background:#fff7ed;color:#9a3412;border-top:2px solid #fed7aa;border-bottom-color:#ffedd5}.group-mention-options button small{margin-left:auto;flex:none;color:#9a3412;font-size:10px}
+<style scoped>.group-composer{margin:10px 14px 14px;border:1px solid #dce4ee;border-radius:12px;padding:8px 12px 10px;background:#fff;box-shadow:0 2px 8px rgba(15,23,42,.03);transition:border-color .14s ease,box-shadow .14s ease}.group-compose-tools .el-icon{font-size:var(--chat-icon-size,15px)}.group-composer:focus-within{border-color:var(--color-primary,#334155);box-shadow:0 0 0 3px rgba(51,65,85,.08)}.group-compose-tools{flex-wrap:wrap;gap:4px}.group-compose-footer{justify-content:flex-end;gap:8px;margin-top:6px}.group-compose-shortcut{margin-right:auto;font-size:11px;color:#94a3b8}.chat-composer-resize{position:absolute;top:-5px;left:20%;width:60%;height:8px;padding:0;border:0;background:transparent;cursor:ns-resize;touch-action:none}.chat-composer-resize:focus-visible{outline:2px solid var(--el-color-primary)}.group-mention-search{flex-shrink:0;margin-bottom:5px}.group-mention-section{position:sticky;top:0;padding:5px 8px;border-radius:4px;background:#f1f5f9;color:#475569;font-size:11px;font-weight:600;border-bottom:1px solid #e2e8f0}.group-mention-section.is-outside{background:#fff7ed;color:#9a3412;border-top:2px solid #fed7aa;border-bottom-color:#ffedd5}.group-mention-options button small{margin-left:auto;flex:none;color:#9a3412;font-size:10px}
 </style>
 <style scoped>
 /* 手机端输入区仿微信：输入框与发送按钮同一行，快捷工具收在下方一行，贴底固定。 */
 @media (max-width: 640px) {
+  .group-compose-shortcut{display:none}
   .group-composer{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:'reply reply' 'queue queue' 'images images' 'input send' 'tools tools' 'error error';align-items:end;gap:6px 8px;margin:0;padding:8px 10px calc(8px + env(safe-area-inset-bottom));border:0;border-top:1px solid var(--chat-border,#e2e8f0);border-radius:0;background:var(--chat-sidebar-bg,#f8fafc);box-shadow:none}
   .group-composer:focus-within{border-color:var(--chat-border,#e2e8f0);box-shadow:none}
   .chat-composer-resize{display:none}

@@ -170,7 +170,7 @@
     <DraggableFormDialog ref="managerPicker" v-model="managerPickerVisible" title="客户经理筛选" width="min(560px, calc(100vw - 32px))" top="10vh" append-to-body>
       <el-radio-group data-auto-draft="off" v-model="managerDraftScope" class="payment-manager-choices"><el-radio value="self">本人（{{selfName}}）</el-radio><el-radio value="all">不指定人（全部订单）</el-radio><el-radio value="name">指定客户经理</el-radio></el-radio-group>
       <CustomerDepartmentManagerSelect v-if="managerDraftScope==='name'" data-auto-draft="off" v-model="managerDraftIds" @options="cacheManagers" />
-      <template #footer><el-button @click="managerPickerVisible=false">取消</el-button><el-button type="primary" @click="applyManager">确定</el-button></template>
+      <template #footer><el-button @click="cancelManagerPicker">取消</el-button><el-button type="primary" @click="applyManager">确定</el-button></template>
     </DraggableFormDialog>
     <template v-if="!embedded" #footer><el-button @click="beforeClose(()=>emit('update:modelValue',false))">关闭</el-button></template>
   </component>
@@ -183,6 +183,7 @@
 </template>
 <script setup>
 import {computed,defineAsyncComponent,nextTick,onBeforeUnmount,reactive,ref,watch} from 'vue'
+import { useManagerFilterDraft } from '@/composables/useManagerFilterDraft'
 import {ElMessage,ElMessageBox} from 'element-plus'
 import api from '@/api'
 import {customerFinanceSort,getCustomerFinancePage,getProjectInvoiceScope,getStatementCustomers} from '@/api/translationCustomerFinance'
@@ -399,7 +400,10 @@ const collectionDefaultView=computed(()=>activeTab.value==='collection'&&!paymen
 const statusOptions=[...paymentStatusFilterOptions,fullPaymentMismatchOption]
 const selfName=localStorage.getItem('user_full_name')||localStorage.getItem('user_name')||'当前用户'
 const managerPicker=ref()
-const managerScope=ref('self'),managerIds=ref([]),managerNames=ref({}),managerPickerVisible=ref(false),managerDraftScope=ref('self'),managerDraftIds=ref([])
+const managerScope=ref('self'),managerIds=ref([]),managerNames=ref({})
+const { managerPickerVisible, managerDraftScope, managerDraftIds, resetManagerDraft, cancelManagerPicker, getManagerSelection } = useManagerFilterDraft(() => ({
+  only_mine: managerScope.value === 'self', manager_ids: managerIds.value,
+}))
 const managerLabel=computed(()=>managerScope.value==='self'?`本人（${selfName}）`:managerScope.value==='name'?`指定（${managerIds.value.length}人）：${managerIds.value.map(id=>managerNames.value[id]||'已选人员').join('、')}`:'不指定人（全部订单）')
 let filterTimer,projectTimer,searchSequence=0,controller
 const invoiceRequirementLabel = row => row.invoiceRequired == null ? '待判断' : row.invoiceRequired ? '需' : '无需'
@@ -421,18 +425,16 @@ function collectBillingCurrencies(order, result = { excl_tax: new Set(), incl_ta
   return result
 }
 function cacheManagers(people){managerNames.value={...managerNames.value,...Object.fromEntries(people.map(person=>[person.id,person.name]))}}
-function openManagerPicker(){managerDraftScope.value=managerScope.value;managerDraftIds.value=[...managerIds.value];managerPickerVisible.value=true}
+function openManagerPicker(){managerPickerVisible.value=true}
 async function applyManager(){
-  managerScope.value=managerDraftScope.value==='name'&&!managerDraftIds.value.length?'all':managerDraftScope.value
-  managerIds.value=managerScope.value==='name'?[...managerDraftIds.value]:[]
+  const { scope, ids } = getManagerSelection()
+  managerScope.value=scope
+  managerIds.value=ids
+  resetManagerDraft()
   managerPickerVisible.value=false
   await applyPaymentFilters()
 }
 const defaultManagerScope = () => props.scopeOrder || props.invoiceClientId || props.embedded ? 'all' : 'self'
-watch(managerPickerVisible, () => {
-  managerDraftScope.value = managerScope.value
-  managerDraftIds.value = [...managerIds.value]
-})
 watch(invoiceCustomerPickerVisible, visible => {
   if (visible) return
   invoiceCustomerSearch?.abort()
@@ -445,6 +447,7 @@ function initPaymentFilters(){
   projectKeyword.value=''
   managerIds.value=[]
   managerScope.value=defaultManagerScope()
+  resetManagerDraft()
 }
 function paymentQuery(keyword){
   const order=props.scopeOrder

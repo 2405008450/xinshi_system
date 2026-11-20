@@ -50,13 +50,14 @@
     <CustomerDepartmentManagerSelect v-if="managerDraftScope==='name'" v-model="managerDraftIds"
       data-auto-draft="off" @options="cacheManagers" />
     <template #footer>
-      <el-button @click="managerPickerVisible=false">取消</el-button>
+      <el-button @click="cancelManagerPicker">取消</el-button>
       <el-button type="primary" @click="applyManager">确定</el-button>
     </template>
   </DraggableFormDialog>
 </template>
 <script setup>
 import {computed,defineAsyncComponent,reactive,ref,watch} from 'vue'
+import { useManagerFilterDraft } from '@/composables/useManagerFilterDraft'
 import AppForm from './AppForm.vue'
 import StatementPeriodSelect from './StatementPeriodSelect.vue'
 import DraggableFormDialog from './DraggableFormDialog.vue'
@@ -76,12 +77,10 @@ const clientsRef=ref(),contextProjects=ref(),clientName=ref('')
 const activeTab=ref('settlement')
 const invoiceWorkspace=ref()
 const selfName=localStorage.getItem('user_full_name')||localStorage.getItem('user_name')||'当前用户'
-const managerPickerVisible=ref(false)
-const managerDraftScope=ref('all')
-const managerDraftIds=ref([])
 const managerNames=ref({})
 const managerOverride=ref(null)
 const selectedManagerQuery=computed(()=>managerOverride.value?.query ?? props.managerQuery)
+const { managerPickerVisible, managerDraftScope, managerDraftIds, resetManagerDraft, cancelManagerPicker, getManagerSelection } = useManagerFilterDraft(() => selectedManagerQuery.value)
 const selectedManagerLabel=computed(()=>managerOverride.value?.label ?? props.managerLabel)
 function cacheManagers(people) {
   managerNames.value={...managerNames.value,...Object.fromEntries(people.map(person=>[
@@ -89,21 +88,18 @@ function cacheManagers(people) {
   ]))}
 }
 function openManagerPicker() {
-  const query=selectedManagerQuery.value
-  managerDraftIds.value=[...(query.manager_ids||[])]
-  managerDraftScope.value=query.only_mine?'self':managerDraftIds.value.length?'name':'all'
   managerPickerVisible.value=true
 }
 async function applyManager() {
   if (!await confirmClose()) return
-  const scope=managerDraftScope.value==='name'&&!managerDraftIds.value.length?'all':managerDraftScope.value
-  const ids=scope==='name'?[...managerDraftIds.value]:[]
+  const { scope, ids } = getManagerSelection()
   const label=scope==='self'?`本人（${selfName}）`:scope==='all'?'不指定人（全部订单）':
     `指定（${ids.length}人）：${ids.map(id=>managerNames.value[id]||'已选人员').join('、')}`
   managerOverride.value={query:{manager_ids:scope==='name'?ids:undefined,only_mine:scope==='self'},label}
+  resetManagerDraft()
   managerPickerVisible.value=false
 }
-watch(()=>props.modelValue,()=>{managerOverride.value=null;managerPickerVisible.value=false})
+watch(()=>props.modelValue,()=>{managerOverride.value=null;cancelManagerPicker()})
 watch(()=>props.managerQuery,()=>{managerOverride.value=null},{deep:true})
 function confirmClose(){return invoiceWorkspace.value?.confirmClose() ?? true}
 async function beforeClose(done){if(await confirmClose())done()}

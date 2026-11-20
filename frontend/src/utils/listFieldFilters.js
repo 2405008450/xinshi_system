@@ -1,3 +1,8 @@
+export const BLANK_FILTER_VALUE = Object.freeze({ op: 'is_empty' })
+export const isBlankFilter = value => value?.op === 'is_empty'
+export const supportsBlankFilter = definition => definition.allowEmpty !== false
+export const isBlankValue = value => value == null || (typeof value === 'string' && !value.trim()) || (Array.isArray(value) && value.length === 0)
+
 export const emptyFilterValue = (definition) => {
   if (definition.type === 'select') return definition.multiple === false ? '' : []
   if (definition.type === 'date-range' || definition.type === 'number-range') return []
@@ -6,6 +11,7 @@ export const emptyFilterValue = (definition) => {
 }
 
 export const isActiveFilterValue = (definition, value) => {
+  if (isBlankFilter(value)) return supportsBlankFilter(definition)
   if (Array.isArray(value)) return value.some((item) => item !== null && item !== undefined && item !== '')
   if (definition.type === 'boolean') return value !== null && value !== undefined && value !== ''
   return String(value ?? '').trim() !== ''
@@ -30,9 +36,8 @@ export const buildFieldFilters = (model, definitions) => {
     const value = model[definition.key]
     if (!isActiveFilterValue(definition, value)) return
     const apiKey = definition.apiKey || definition.key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
-    if (definition.type === 'text') result[apiKey] = definition.allowEmpty && value?.op === 'is_empty'
-      ? { op: 'is_empty' }
-      : { op: 'contains', value: String(value).trim() }
+    if (isBlankFilter(value)) result[apiKey] = BLANK_FILTER_VALUE
+    else if (definition.type === 'text') result[apiKey] = { op: 'contains', value: String(value).trim() }
     else if (definition.type === 'date-range') result[apiKey] = { op: 'between', from: value?.[0] || null, to: value?.[1] || null }
     else if (definition.type === 'number-range') result[apiKey] = { op: 'between', min: value?.[0] ?? null, max: value?.[1] ?? null }
     else if (definition.type === 'boolean') result[apiKey] = { op: 'eq', value }

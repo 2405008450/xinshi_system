@@ -9,13 +9,15 @@ from typing import Any, Mapping, Optional
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import func
+from sqlalchemy import String, cast, func
 
 
 ALLOWED_OPERATORS = {"contains", "in", "between", "eq", "is_empty"}
 MAX_FILTER_FIELDS = 100
 MAX_IN_VALUES = 100
 MAX_TEXT_LENGTH = 500
+FILTER_CONTROL_FIELDS = {"managed_user_id", "excluded_project_status"}
+BLANK_TEXT_CHARS = " \t\r\n\v\f\u00a0\u3000"
 
 
 def parse_field_filters(raw: Optional[str]) -> dict[str, dict[str, Any]]:
@@ -94,6 +96,8 @@ def ensure_filter_operators(
             continue
         allowed = rules.get(field, set())
         operator = descriptor.get("op")
+        if operator == "is_empty" and field in rules and field not in FILTER_CONTROL_FIELDS:
+            continue
         if operator not in allowed:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -127,13 +131,20 @@ def _coerce(value: Any, value_type: str) -> Any:
         raise HTTPException(status_code=422, detail="筛选值格式不正确") from exc
 
 
+def blank_condition(expression, value_type: str = "string"):
+    """统一匹配未填写的值，保留零、否和已填写的枚举值。"""
+    if value_type == "string":
+        return func.trim(func.coalesce(expression, ""), BLANK_TEXT_CHARS) == ""
+    if value_type == "collection":
+        return func.coalesce(cast(expression, String), "").in_(("", "[]", "{}", "null"))
+    return expression.is_(None)
+
+
 def apply_scalar_filter(query, expression, descriptor: Mapping[str, Any], *, value_type: str = "string"):
-    """对普通列应用 contains/in/eq/between，复杂关联字段由各业务服务自行处理。"""
+    """对普通列应用字段筛选，复杂关联字段由各业务服务自行处理。"""
     operator = descriptor["op"]
     if operator == "is_empty":
-        if value_type != "string":
-            raise HTTPException(status_code=422, detail="该字段不支持空白筛选")
-        return query.filter(func.trim(func.coalesce(expression, ""), " \t\r\n\u3000") == "")
+        return query.filter(blank_condition(expression, value_type))
     if operator == "contains":
         if value_type != "string":
             raise HTTPException(status_code=422, detail="该字段不支持包含匹配")

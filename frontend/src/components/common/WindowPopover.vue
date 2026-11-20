@@ -3,6 +3,7 @@
     ref="popoverRef"
     v-bind="$attrs"
     :title="''"
+    :trigger="attrs.trigger ?? (isFilter ? 'click' : undefined)"
     :visible="minimized ? true : visible"
     :popper-class="normalizeClass([$attrs.popperClass || $attrs['popper-class'], title && 'app-window-popover', geometry.state.maximized && 'app-window-popover--maximized'])"
     :popper-style="[$attrs.popperStyle || $attrs['popper-style'], windowStyle]"
@@ -13,10 +14,10 @@
     <template v-if="title">
       <header class="app-window-popover__header" :class="{ 'is-dragging': geometry.state.dragging }" @mousedown="drag" @dblclick.self="geometry.maximize">
         <span class="app-window-popover__title" @mousedown.stop>{{ title }}</span>
-        <WindowControls :maximized="geometry.state.maximized" @minimize="minimized = true" @maximize="geometry.maximize" @restore="geometry.restore" @close="close" />
+        <WindowControls :maximized="geometry.state.maximized" @minimize="minimized = true" @maximize="geometry.maximize" @restore="geometry.restore" @close="closeWindow" />
       </header>
       <div ref="content" class="app-window-popover__body">
-        <FilterDraftScope v-if="isFilter" ref="draftScope" :active="!!visible">
+        <FilterDraftScope v-if="isFilter" ref="draftScope">
           <slot>{{ $attrs.content }}</slot>
         </FilterDraftScope>
         <slot v-else>{{ $attrs.content }}</slot>
@@ -30,7 +31,7 @@
     <slot v-else>{{ $attrs.content }}</slot>
     <SelectionPopoverSummary ref="selectionSummary" :groups="selectionGroups" @confirm="confirmSelection" />
   </ElPopover>
-  <WindowMinibar v-if="minimized" :title="title" @restore="minimized = false" @close="close" />
+  <WindowMinibar v-if="minimized" :title="title" @restore="minimized = false" @close="closeWindow" />
 </template>
 
 <script setup>
@@ -51,7 +52,7 @@ const isFilter = computed(() => props.draftFilter ?? /筛选|排除项目状态|
 const draftScope = ref()
 function applyFilter(){draftScope.value?.apply();close()}
 function cancelFilter(){draftScope.value?.cancel();close()}
-const emit = defineEmits(['update:visible'])
+const emit = defineEmits(['update:visible', 'window-close'])
 const attrs = useAttrs()
 const selectionGroups = shallowReactive(new Map()), selectionSummary = ref()
 provide(multiSelectionContext, selectionGroups)
@@ -90,6 +91,10 @@ function close() {
   minimized.value = false
   updateVisible(false)
   popoverRef.value?.hide()
+}
+function closeWindow() {
+  emit('window-close')
+  close()
 }
 function reset() { minimized.value = false; geometry.reset() }
 function drag(event) {

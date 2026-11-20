@@ -1713,8 +1713,10 @@ def apply_order_page(node,selection):
 
 
 @router.get('/page',dependencies=[Depends(require_module_access('projects:read','projects:write'))])
-def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None=None,project_status:str|None=None,billing_month:str|None=Query(None,pattern=r'^\d{4}-(0[1-9]|1[0-2])$'),client:str|None=None,client_manager:str|None=None,client_id:UUID|None=None,db:Session=Depends(get_db),only_mine:bool=False,user=Depends(get_current_user),manager_ids:list[UUID]|None=Query(None,max_length=2000),statement_required:bool|None=None,sort:Literal['client_short_name_asc','client_short_name_desc','client_manager_asc','client_manager_desc']|None=None,missing_word_count:bool=False,missing_unit_price:bool=False,missing_total:Literal['excl','incl','both','either','fixed']|None=None,project_statuses:list[str]|None=Query(None,max_length=100),client_order_count:Literal['single','multiple']|None=None,group_clients:bool=True,selected_client_ids:list[UUID]|None=Query(None,alias='client_ids',max_length=100),payment_status:Literal['unpaid','deposit','mid','full','paid','full_mismatch']|None=None,include_payment_status:bool=False,exclude_full:bool=False,payment_project_id:UUID|None=None,include_invoice_status:bool=False,invoice_status:Literal['unissued','partial','issued','not_required']|None=None,invoice_required:Literal['yes','no','unknown']|None=None,statement_customers:Literal['include','exclude']|None=None,payment_amount_mismatch:bool=False,pricing_mode:Literal['metric','fixed','aggregate']|None=None,billing_months:list[Annotated[str,Field(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')]]|None=Query(None,max_length=1200),paginate_children:bool=False,count_parent_orders:bool=False,expand_all_orders:bool=True,order_expansion_ids:list[UUID]|None=Query(None), settlement_project_id:UUID|None=None, settlement_scope:StatementScope|None=None,period_number:int|None=Query(None,ge=1),special_invoice_tracking:bool=False,special_invoice_project_id:UUID|None=None, unassigned_period:bool=False, quotation_required:bool|None=None, settlement_mode:SettlementMode|None=None, language_direction:str|None=Query(None,max_length=200), fixed_manager_name:str|None=Query(None,max_length=255),sub_client_id:UUID|None=None,sub_client:str|None=None):
+def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None=None,project_status:str|None=None,billing_month:str|None=Query(None,pattern=r'^\d{4}-(0[1-9]|1[0-2])$'),client:str|None=None,client_manager:str|None=None,client_id:UUID|None=None,db:Session=Depends(get_db),only_mine:bool=False,user=Depends(get_current_user),manager_ids:list[UUID]|None=Query(None,max_length=2000),statement_required:bool|None=None,sort:Literal['client_short_name_asc','client_short_name_desc','client_manager_asc','client_manager_desc']|None=None,missing_word_count:bool=False,missing_unit_price:bool=False,missing_total:Literal['excl','incl','both','either','fixed']|None=None,project_statuses:list[str]|None=Query(None,max_length=100),client_order_count:Literal['single','multiple']|None=None,group_clients:bool=True,selected_client_ids:list[UUID]|None=Query(None,alias='client_ids',max_length=100),payment_status:Literal['unpaid','deposit','mid','full','paid','full_mismatch']|None=None,include_payment_status:bool=False,exclude_full:bool=False,payment_project_id:UUID|None=None,include_invoice_status:bool=False,invoice_status:Literal['unissued','partial','issued','not_required']|None=None,invoice_required:Literal['yes','no','unknown']|None=None,statement_customers:Literal['include','exclude']|None=None,payment_amount_mismatch:bool=False,pricing_mode:Literal['metric','fixed','aggregate']|None=None,billing_months:list[Annotated[str,Field(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')]]|None=Query(None,max_length=1200),paginate_children:bool=False,count_parent_orders:bool=False,expand_all_orders:bool=True,order_expansion_ids:list[UUID]|None=Query(None), settlement_project_id:UUID|None=None, settlement_scope:StatementScope|None=None,period_number:int|None=Query(None,ge=1),special_invoice_tracking:bool=False,special_invoice_project_id:UUID|None=None, unassigned_period:bool=False, quotation_required:bool|None=None, settlement_mode:SettlementMode|None=None, language_direction:str|None=Query(None,max_length=200), fixed_manager_name:str|None=Query(None,max_length=255),sub_client_id:UUID|None=None,sub_client:str|None=None,
+         blank_fields:list[Literal['client_short_name','language_pair','payment_status','statement_required','payment_method','project_status','pricing_mode']]|None=Query(None,max_length=7)):
     special_invoice_tracking=special_invoice_tracking and settlement_scope=='special'
+    blanks = set(blank_fields) if isinstance(blank_fields, list) else set()
     filter_amount_mismatch = payment_amount_mismatch or payment_status == 'full_mismatch'
     filter_invoice = invoice_status is not None or invoice_required is not None
 
@@ -1745,6 +1747,10 @@ def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None
         billing_month=None;billing_months=None;client=None
     if filter_amount_mismatch:payment_status='full'
     fields={}
+    if blanks & {'payment_status', 'payment_method', 'pricing_mode'}:
+        # 这三列展示系统计算状态，即使没有配置或付款记录也有业务默认值。
+        fields['finance_populated_field_is_blank'] = {'op':'is_empty'}
+        blanks -= {'payment_status', 'payment_method', 'pricing_mode'}
     if invoice_status and invoice_status != 'not_required' and settlement_scope!='special':
         fields['finance_invoice_status']={'value':invoice_status}
     if payment_project_id:fields['finance_payment_project_id']={'value':str(payment_project_id)}
@@ -1791,7 +1797,7 @@ def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None
         fields['finance_invoice_project_ids']={'value':invoice_scope_ids}
     filters=dict(keyword=keyword,project_status=None if statuses else project_status,field_filters=fields)
     missing_filters=missing_word_count or missing_unit_price or missing_total is not None
-    all_matches=paginate_children or missing_filters or client_order_count is not None or filter_payment or pricing_mode is not None or filter_invoice or statement_required is not None or statement_client_filter is not None or settlement_project_id is not None or settlement_scope is not None or isinstance(period_number,int) or unassigned_period or quotation_required is not None or settlement_mode is not None or isinstance(language_direction,str)
+    all_matches=paginate_children or blanks or missing_filters or client_order_count is not None or filter_payment or pricing_mode is not None or filter_invoice or statement_required is not None or statement_client_filter is not None or settlement_project_id is not None or settlement_scope is not None or isinstance(period_number,int) or unassigned_period or quotation_required is not None or settlement_mode is not None or isinstance(language_direction,str)
     projects=crud.get_translation_projects(db,skip=0 if all_matches else skip,limit=None if all_matches else limit,sort=sort,
                                           **({**filters,'keyword':None} if special_invoice_tracking else filters))
     if isinstance(language_direction,str):
@@ -1886,6 +1892,20 @@ def page(skip:int=Query(0,ge=0),limit:int=Query(10,ge=1,le=100),keyword:str|None
                             'special_invoice_totals':special_settlement.billing_totals(node,tax_mode='incl_tax'),
                             'special_excl_totals':special_settlement.billing_totals(node,tax_mode='excl_tax')})
                 matched=invoice_rows
+        if blanks:
+            from translation_direction_service import stored_directions
+            from translation_project_invoices import invoice_required as order_requires_invoice
+
+            def matches_blanks(node):
+                conditions = {
+                    'client_short_name': lambda: not node.get('client_id') and not node.get('sub_client_id'),
+                    'language_pair': lambda: not any(stored_directions(order.get('language_pair')) for order in special_settlement.order_nodes(node)),
+                    'statement_required': lambda: (node.get('invoice_required') if settlement_scope == 'special' else order_requires_invoice(node)) is None,
+                    'project_status': lambda: not str(node.get('project_status') or '').strip(),
+                }
+                return all(conditions[field]() for field in blanks)
+
+            matched = [node for node in matched if matches_blanks(node)]
         if statement_required is not None:
             matched=[node for node in matched if (node['statement_required'] or node.get('has_statement_required_orders',False)) is statement_required]
         if quotation_required is not None:

@@ -7,9 +7,8 @@
     :width="definition.headerWidth || (definition.wide ? 320 : 240)"
     :placement="placement"
     hide-default-footer
-    @before-enter="prepareDraft"
     @clear="clear"
-    @dismiss="prepareDraft"
+    @dismiss="discardDraft"
   >
     <template #label><slot name="label">{{ definition.label }}</slot></template>
     <GroupedColumnFilterContent
@@ -22,32 +21,34 @@
       @change="$emit('change')"
       @enter="$emit('enter')"
       @clear="$emit('clear')"
-      @close="popoverRef?.close()"
+      @close="popoverRef?.close({ preserveDraft: true })"
+      @cancel="popoverRef?.close()"
     />
     <div v-else-if="usesConfirmedSelection" class="confirmed-header-filter">
       <div class="confirmed-header-filter__header">
         <span>选择{{ definition.label }}</span>
-        <div>
+        <div v-if="!blankSelected">
           <el-button link type="primary" size="small" @click="selectAll">{{ filterKeyword ? '全选结果' : '全选' }}</el-button>
           <el-button link size="small" :disabled="!draftValue.length" @click="draftValue = []">清空</el-button>
         </div>
       </div>
       <el-input
-        v-if="resolvedOptions.length > 8 && definition.filterable !== false"
+        v-if="!blankSelected && resolvedOptions.length > 8 && definition.filterable !== false"
         v-model="filterKeyword"
         class="confirmed-header-filter__search"
         :placeholder="`搜索${definition.label}`"
         clearable
         size="small"
       />
-      <el-checkbox-group v-model="draftValue" class="confirmed-header-filter__options">
+      <el-checkbox v-if="supportsBlankFilter(definition)" :model-value="blankSelected" @change="draftValue = $event ? BLANK_FILTER_VALUE : []">为空白</el-checkbox>
+      <el-checkbox-group v-if="!blankSelected" v-model="draftValue" class="confirmed-header-filter__options">
         <el-checkbox v-for="option in filteredOptions" :key="String(option.value)" :value="option.value">
           {{ option.label }}
         </el-checkbox>
         <el-empty v-if="!filteredOptions.length" description="暂无匹配选项" :image-size="48" />
       </el-checkbox-group>
       <div class="confirmed-header-filter__footer">
-        <span>已选 {{ draftValue.length }} 项</span>
+        <span>已选 {{ blankSelected ? 1 : draftValue.length }} 项</span>
         <div>
           <el-button link size="small" @click="clear">取消筛选</el-button>
           <el-button size="small" @click="cancel">取消</el-button>
@@ -73,11 +74,11 @@
 <script setup>
 import { matchesSearch } from '@/utils/searchMatching'
 
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import ColumnHeaderFilter from './ColumnHeaderFilter.vue'
 import ListFilterControl from './ListFilterControl.vue'
 import GroupedColumnFilterContent from './GroupedColumnFilterContent.vue'
-import { countActiveFilters, emptyFilterValue, isActiveFilterValue } from '@/utils/listFieldFilters'
+import { BLANK_FILTER_VALUE, countActiveFilters, emptyFilterValue, isActiveFilterValue, isBlankFilter, supportsBlankFilter } from '@/utils/listFieldFilters'
 
 const props = defineProps({
   definition: { type: Object, required: true },
@@ -95,6 +96,7 @@ const active = computed(() => isGroup.value ? groupActiveCount.value > 0 : isAct
 const usesConfirmedSelection = computed(() => props.definition.type === 'select' && props.definition.multiple !== false)
 const popoverRef = ref()
 const draftValue = ref([])
+const blankSelected = computed(() => isBlankFilter(draftValue.value))
 const filterKeyword = ref('')
 const resolvedOptions = computed(() => {
   const source = typeof props.definition.options === 'function'
@@ -115,20 +117,21 @@ const filteredOptions = computed(() => {
   if (!keyword) return resolvedOptions.value
   return resolvedOptions.value.filter((option) => matchesSearch(option.label, keyword))
 })
-const prepareDraft = () => {
-  // 关闭只丢弃未确认的草稿，正式筛选只能通过确定或清除操作修改。
+const discardDraft = () => {
   groupOpenVersion.value++
   draftValue.value = Array.isArray(props.modelValue) ? [...props.modelValue]
     : props.modelValue && typeof props.modelValue === 'object' ? { ...props.modelValue }
     : props.modelValue ?? emptyFilterValue(props.definition)
+  if (usesConfirmedSelection.value && !Array.isArray(draftValue.value) && !isBlankFilter(draftValue.value)) draftValue.value = []
   filterKeyword.value = ''
 }
+watch(() => props.modelValue, discardDraft, { immediate: true, deep: true })
 const selectAll = () => {
   const selected = new Set(draftValue.value)
   filteredOptions.value.forEach((option) => selected.add(option.value))
   draftValue.value = [...selected]
 }
-const cancel = () => { prepareDraft(); popoverRef.value?.close() }
+const cancel = () => popoverRef.value?.close()
 const confirm = () => {
   const next = Array.isArray(draftValue.value) ? [...draftValue.value] : draftValue.value
   const current = props.modelValue
@@ -137,10 +140,14 @@ const confirm = () => {
     emit('update:modelValue', next)
     emit('change', next)
   }
-  popoverRef.value?.close()
+  filterKeyword.value = ''
+  popoverRef.value?.close({ preserveDraft: true })
 }
 const clear = () => {
-  emit('update:modelValue', emptyFilterValue(props.definition))
+  const value = emptyFilterValue(props.definition)
+  draftValue.value = value
+  filterKeyword.value = ''
+  emit('update:modelValue', value)
   emit('clear')
 }
 </script>

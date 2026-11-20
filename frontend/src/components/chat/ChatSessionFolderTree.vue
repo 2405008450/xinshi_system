@@ -106,11 +106,11 @@ const preferenceKey = `xinshi.chatFolderLayout.${localStorage.getItem('user_id')
 let saved = {}
 try { saved = JSON.parse(localStorage.getItem(preferenceKey) || '{}') || {} } catch { /* 使用默认布局。 */ }
 const order = ref(Array.isArray(saved.order) ? saved.order.filter(id => typeof id === 'string') : [])
-const panel = ref(), panelHeight = ref(Math.max(100, Math.min(Number(saved.height) || 270, window.innerHeight * .55))), dragged = ref('')
+const panel = ref(), panelHeight = ref(Math.max(92, Math.min(Number(saved.height) || 200, window.innerHeight * .55))), dragged = ref('')
 const roots = computed(() => nodes.value.filter(row => !row.parentKey).sort((a, b) => rank(a.id) - rank(b.id)))
 const rank = id => order.value.includes(id) ? order.value.indexOf(id) : order.value.length
 function persist() { try { localStorage.setItem(preferenceKey, JSON.stringify({ order: order.value, height: panelHeight.value, expanded: [...expanded.value] })) } catch { /* 本次调整仍然生效。 */ } }
-function folderTint(row) { const colors = ['#edf2f8','#edf5ef','#edf3fc','#f2eef8','#faf2e8','#eaf4f4']; const index = ['resource','annotation','translation','interpretation','recruitment','technical'].indexOf(row.ruleKey); return colors[index < 0 ? [...row.id].reduce((n,c)=>n+c.charCodeAt(0),0)%colors.length : index] }
+function folderTint(row) { const colors = ['#64748b','#0d9488','#334155','#7c3aed','#d97706','#0284c7']; const index = ['resource','annotation','translation','interpretation','recruitment','technical'].indexOf(row.ruleKey); return colors[index < 0 ? [...row.id].reduce((n,c)=>n+c.charCodeAt(0),0)%colors.length : index] }
 function beginDrag(event, id) { dragged.value = id; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', id) }
 function drop(id) {
   if (!dragged.value || dragged.value === id) return
@@ -235,23 +235,28 @@ async function save(name) {
 </style>
 
 <style scoped>
-/* 分类底色贯穿各级；悬停只增加轮廓，避免鼠标经过时改变分类颜色。 */
-.chat-folder-tree{padding:12px 12px 10px;border-color:var(--chat-sidebar-border,#e3e9f0)}
-.chat-folder-tree__heading{min-height:24px;margin-bottom:8px;color:#64748b}
-.chat-folder-tree__heading strong{font-size:11px;font-weight:600;letter-spacing:.05em}
+/* 深蓝灰商务中性分组树：左侧 3px 语义色条区分模块，无粉彩铺底与斑马纹，行尾操作悬停显现。 */
+.chat-folder-tree{padding:8px 10px 10px;min-height:92px;border-color:var(--chat-sidebar-border,#e2e8f0)}
+.chat-folder-tree__heading{min-height:22px;margin-bottom:6px;color:#64748b}
+.chat-folder-tree__heading strong{font-size:11px;font-weight:600;letter-spacing:.04em}
 .chat-folder-tree__heading-actions{gap:6px}
-.chat-folder-tree__all{display:block;width:100%;margin-bottom:6px;border-radius:7px;text-align:left;color:#64748b}
-.chat-folder-tree__all[aria-pressed="true"]{background:#e8eef5;color:#334155}
-.chat-folder-tree__branch{margin-bottom:6px}
-.chat-folder-tree__row{border-radius:7px;box-shadow:inset 0 0 0 1px transparent;transition:box-shadow .12s ease;color:#475569}
-.chat-folder-tree__branch>.chat-folder-tree__row{background:var(--folder-tint)}
-.chat-folder-tree__children{margin:4px 0 0 12px;padding-left:12px;border-left-color:color-mix(in srgb,var(--folder-tint) 65%,#aab8c8)}
-.chat-folder-tree__children .chat-folder-tree__row{margin-bottom:3px;background:color-mix(in srgb,var(--folder-tint) 28%,white);font-weight:400}
-.chat-folder-tree__children .chat-folder-tree__row.is-stripe{background:color-mix(in srgb,var(--folder-tint) 64%,white)}
-.chat-folder-tree__row:not(.is-active):hover{box-shadow:inset 0 0 0 1px #bdcbd9}
-.chat-folder-tree__branch .chat-folder-tree__row.is-active{border-left-color:#526d8c;box-shadow:inset 0 0 0 1px #9fb0c4;color:#263e59;font-weight:600}
-.chat-folder-tree__row>.el-button{color:#738398}
-.chat-folder-tree__row>.el-button:hover{color:#334e6c}
-.chat-folder-tree__count,.chat-folder-tree__row.is-active .chat-folder-tree__count{background:#ffffffa6;color:#526882;border:1px solid #dce5ef}
-.chat-folder-tree__scroll{scrollbar-width:thin;scrollbar-color:#c8d3df transparent}
+.chat-folder-tree__all{display:block;width:100%;margin-bottom:4px;padding:5px 8px;border-radius:6px;text-align:left;color:#64748b;transition:background-color .14s ease,color .14s ease}
+.chat-folder-tree__all:hover{background:#eef2f7;color:#1e293b}
+.chat-folder-tree__all[aria-pressed="true"]{background:#e7eef6;color:#1e293b;font-weight:600}
+.chat-folder-tree__branch{margin-bottom:3px}
+.chat-folder-tree__row{min-height:31px;border-radius:6px;border-left:3px solid transparent;background:transparent;box-shadow:none;transition:background-color .14s ease,border-color .14s ease;color:#475569}
+.chat-folder-tree__branch>.chat-folder-tree__row{background:#fff;border:1px solid #e9eef5;border-left:3px solid var(--folder-tint,#64748b);font-weight:500}
+.chat-folder-tree__children{margin:3px 0 2px 12px;padding-left:10px;border-left:1px solid #dce4ee}
+.chat-folder-tree__children .chat-folder-tree__row{min-height:28px;margin-bottom:2px;background:transparent;border-left:2px solid transparent;font-weight:400}
+.chat-folder-tree__children .chat-folder-tree__row.is-stripe{background:transparent}
+.chat-folder-tree__row:not(.is-active):hover{background:#eef3f8;border-color:#d8e2ee}
+.chat-folder-tree__branch>.chat-folder-tree__row:not(.is-active):hover{border-left-color:var(--folder-tint,#64748b)}
+.chat-folder-tree__branch .chat-folder-tree__row.is-active{background:#e7eef6;border-color:#c6d4e5;border-left-color:var(--folder-tint,#334155);color:#1e293b;font-weight:600}
+.chat-folder-tree__row>.el-button{color:#64748b;opacity:0;transition:opacity .12s ease,color .12s ease}
+.chat-folder-tree__row:hover>.el-button,.chat-folder-tree__row:focus-within>.el-button{opacity:1}
+.chat-folder-tree__row>.el-button:hover{color:#1e293b}
+.chat-folder-tree__count,.chat-folder-tree__row.is-active .chat-folder-tree__count{background:#f1f5f9;color:#475569;border:1px solid #e2e8f0}
+.chat-folder-tree__row.is-active .chat-folder-tree__count{background:#fff;color:#1e293b;border-color:#cbd5e1}
+.chat-folder-tree__scroll{scrollbar-width:thin;scrollbar-color:#cbd5e1 transparent}
+@media (hover: none){.chat-folder-tree__row>.el-button{opacity:1}}
 </style>

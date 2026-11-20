@@ -177,7 +177,7 @@
                   </div>
                   <div class="chat-conversation-item__bubble-row">
                     <div class="chat-bubble" :class="{ 'chat-bubble--own': item.isOwn }" tabindex="0" data-message-menu-anchor @contextmenu="messageMenuRef.open($event,item.message)" @keydown="messageMenuRef.openKeyboard($event,item.message)">
-                      <button v-if="item.message.reply" class="group-reply" @click="references.open(item.message.reply.id,$event)">{{ item.message.reply.senderName }}：{{ item.message.reply.content }}</button>
+                      <button v-if="item.message.reply" class="group-reply" title="点击查看完整引用" @click="references.open(item.message.reply.id,$event)"><span class="chat-quote-clamp">{{ item.message.reply.senderName }}：{{ item.message.reply.content }}</span></button>
                       <div @click="openMessageReferences(item.message,$event)"><div v-if="textOnly" class="chat-bubble__text"><ScreenshotText :text="item.message.content" :chat-message-id="item.message.id" /></div>
                       <ScreenshotText v-else-if="screenshotIds(item.message.content).length && !richTextHasImages(item.message.contentJson)" :text="item.message.content" :chat-message-id="item.message.id" /><RichTextContent v-else :document="highlightedMentionDocument(item.message)" :fallback="item.message.content" :chat-message-id="item.message.id" /></div>
                       <el-tag v-if="item.message.topicPath" size="small" effect="plain" class="chat-visible-topic">{{ item.message.topicPath }}</el-tag>
@@ -450,6 +450,7 @@
           <div class="chat-composer__tools">
             <el-button text size="small" aria-label="提及用户" title="提及用户" :disabled="sending" @click="ensureUsersLoaded(); mentionPopoverVisible = true">@</el-button>
             <ChatImageAttachments :items="[]" :disabled="sending" tools-only @add="addComposerImages" />
+            <el-button v-if="!textOnly" text size="small" :class="{ 'is-active': richFormatToolbarVisible }" aria-label="富文本格式工具栏" title="展开或收起富文本格式工具栏" :disabled="sending" @click="richFormatToolbarVisible = !richFormatToolbarVisible">Aa</el-button>
           </div>
           <div class="chat-composer__input-row">
             <el-popover
@@ -502,8 +503,10 @@
             />
             <RichTextComposer ref="richComposerRef" chat-screenshots
               v-else
+              :class="{ 'rich-editor--compact-chat': !richFormatToolbarVisible }"
               v-model="composer.contentJson"
               :disabled="sending"
+              min-height="64px"
               placeholder="输入项目沟通内容…"
               @update:plain-text="composer.content = $event"
               @uploading-change="composerScreenshotUploading = $event"
@@ -617,6 +620,7 @@ const messagesLoading = ref(false)
 const chatListRef = ref(null)
 const composerInputRef = ref(null)
 const richComposerRef = ref(null)
+const richFormatToolbarVisible = ref(false)
 const mentionSelectRef = ref(null)
 const sending = ref(false)
 const { topics, refresh: refreshTopics } = useChatTopics()
@@ -2235,6 +2239,7 @@ onBeforeUnmount(() => {
   height: 100%;
   min-height: 0;
   gap: 0;
+  background: var(--chat-stage-bg, #f4f6f9);
 }
 
 .project-chat-panel--conversation .chat-toolbar {
@@ -2260,14 +2265,14 @@ onBeforeUnmount(() => {
   height: 100%;
   border: 0;
   border-radius: 0;
-  background: var(--el-bg-color);
+  background: var(--chat-stage-bg, #f4f6f9);
 }
 
 .chat-conversation {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px 12px;
+  gap: 12px;
+  padding: 16px 20px;
 }
 
 .chat-conversation__notice {
@@ -2279,17 +2284,17 @@ onBeforeUnmount(() => {
 .chat-date-divider {
   display: flex;
   align-items: center;
-  gap: 12px;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
+  justify-content: center;
+  margin: 6px 0;
 }
 
-.chat-date-divider::before,
-.chat-date-divider::after {
-  height: 1px;
-  flex: 1;
-  background: var(--el-border-color-lighter);
-  content: '';
+.chat-date-divider > span {
+  padding: 2px 10px;
+  border-radius: 10px;
+  background: #e8edf4;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .chat-system-message {
@@ -2307,7 +2312,7 @@ onBeforeUnmount(() => {
   gap: 8px;
   border-radius: 12px;
   color: var(--el-text-color-secondary);
-  background: var(--el-fill-color-light);
+  background: #e8edf4;
   font-size: 12px;
   line-height: 1.5;
 }
@@ -2320,11 +2325,11 @@ onBeforeUnmount(() => {
 .chat-conversation-item {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 10px;
 }
 
 .chat-conversation-item--grouped {
-  margin-top: -4px;
+  margin-top: -6px;
 }
 
 .chat-conversation-item__avatar {
@@ -2338,17 +2343,18 @@ onBeforeUnmount(() => {
   height: 32px;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
-  color: #fff;
-  background: var(--el-color-primary-light-3);
-  font-size: 14px;
+  border-radius: 50%;
+  color: #3b526b;
+  background: #e3ebf5;
+  border: 1px solid #d5e0ee;
+  font-size: 12.5px;
   font-weight: 600;
 }
 
 .chat-conversation-item__main {
   display: flex;
   min-width: 0;
-  max-width: calc(100% - 40px);
+  max-width: min(680px, calc(100% - 42px));
   flex-direction: column;
   gap: 3px;
 }
@@ -2356,32 +2362,39 @@ onBeforeUnmount(() => {
 .chat-conversation-item__meta {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   flex-wrap: wrap;
-  color: var(--el-text-color-secondary);
+  color: #64748b;
   font-size: 12px;
 }
 
+.chat-conversation-item__meta strong {
+  color: #334155;
+  font-weight: 600;
+}
+
 .chat-conversation-item__time {
-  color: var(--el-text-color-placeholder);
+  color: #94a3b8;
   font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .chat-conversation-item__bubble-row {
   display: flex;
-  align-items: flex-end;
-  gap: 4px;
+  align-items: center;
+  gap: 6px;
 }
 
 .chat-bubble {
   min-width: 0;
-  padding: 8px 12px;
-  border-radius: 10px;
-  border-top-left-radius: 4px;
-  background: var(--el-fill-color);
-  color: var(--el-text-color-primary);
-  font-size: 13px;
-  line-height: 1.6;
+  padding: 10px 13px;
+  border: 1px solid var(--chat-bubble-border, #e5eaf0);
+  border-radius: 4px 12px 12px 12px;
+  background: var(--chat-bubble-bg, #ffffff);
+  box-shadow: var(--chat-bubble-shadow, 0 1px 2px rgba(15, 23, 42, 0.04));
+  color: var(--chat-text, #1e293b);
+  font-size: 13.5px;
+  line-height: 1.65;
   word-break: break-word;
 }
 
@@ -2406,13 +2419,12 @@ onBeforeUnmount(() => {
 }
 
 .chat-bubble--own {
-  border-radius: 10px;
-  border-top-right-radius: 4px;
-  background: var(--el-color-primary-light-8);
+  border-radius: 12px 4px 12px 12px;
+  background: var(--chat-bubble-own-bg, #e3ecf6);
+  border-color: var(--chat-bubble-own-border, #ccd9e8);
 }
 
 .chat-conversation-item__tools {
-  visibility: visible;
   flex: none;
 }
 
@@ -2569,7 +2581,7 @@ onBeforeUnmount(() => {
 }
 </style>
 <style scoped>
-.chat-mention-jump{position:absolute;right:12px;top:48px;z-index:2}.chat-conversation-item--mentioned :deep(.chat-bubble){background:#eaf4ff;border-left:3px solid #60a5fa}
+.chat-mention-jump{position:absolute;right:12px;top:12px;z-index:2}.chat-conversation-item--mentioned :deep(.chat-bubble){background:var(--chat-bubble-mention-bg,#fef9ec);border-color:#f3d99b;border-left:3px solid var(--chat-bubble-mention-accent,#d97706)}
 </style>
 
 <style scoped>
@@ -2578,7 +2590,10 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .chat-toolbar--header{padding:0!important;border:0!important;flex:none;gap:4px}.chat-toolbar--header .chat-toolbar__title .el-tag{font-size:10px;height:20px}.chat-toolbar--header .chat-toolbar__actions{flex-wrap:nowrap}
-.chat-composer--conversation{position:relative;margin:10px 12px 14px;padding:8px 10px;border:1px solid #dfe5ee;border-radius:12px;background:white;display:flex;flex-direction:column;gap:6px}.chat-composer--conversation:focus-within{border-color:var(--el-color-primary);box-shadow:0 0 0 2px var(--el-color-primary-light-9)}.chat-composer__input-row{display:flex;flex-wrap:wrap;justify-content:flex-end}.chat-composer__input-row .el-input,.chat-composer__input-row .el-textarea{flex:1 0 100%;width:100%}.chat-composer--conversation :deep(.el-textarea__inner){box-shadow:none;background:transparent;line-height:1.6;padding:6px 8px}.chat-composer-resize{position:absolute;top:-5px;left:20%;width:60%;height:8px;padding:0;border:0;background:transparent;cursor:ns-resize;touch-action:none}.chat-conversation-item__time{white-space:normal;overflow-wrap:anywhere}
+.chat-composer--conversation{position:relative;margin:10px 14px 14px;padding:8px 12px 10px;border:1px solid #dce4ee;border-radius:12px;background:#fff;box-shadow:0 2px 8px rgba(15,23,42,.03);display:flex;flex-direction:column;gap:6px;transition:border-color .14s ease,box-shadow .14s ease}.chat-composer--conversation:focus-within{border-color:var(--color-primary,#334155);box-shadow:0 0 0 3px rgba(51,65,85,.08)}.chat-composer__input-row{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px}.chat-composer__input-row .el-input,.chat-composer__input-row .el-textarea{flex:1 0 100%;width:100%}.chat-composer--conversation :deep(.el-textarea__inner){box-shadow:none;background:transparent;line-height:1.6;padding:4px 2px}.chat-composer-resize{position:absolute;top:-5px;left:20%;width:60%;height:8px;padding:0;border:0;background:transparent;cursor:ns-resize;touch-action:none}.chat-conversation-item__time{white-space:normal;overflow-wrap:anywhere}
+.chat-composer--conversation :deep(.rich-editor){border:0;border-radius:0;background:transparent}
+.chat-composer--conversation :deep(.rich-editor--compact-chat .rich-editor__toolbar){display:none}
+.chat-composer--conversation :deep(.rich-editor__content .tiptap){padding:4px 2px}
 </style>
 
 <style scoped>.mention-desktop-state{display:flex;margin-top:2px}</style>
@@ -2587,4 +2602,8 @@ onBeforeUnmount(() => {
 
 <style scoped src="./chat/chatQuotes.css" />
 
-<style scoped>.chat-composer__tools{display:flex;align-items:center;gap:6px;margin-bottom:6px}</style>
+<style scoped>
+.chat-composer__tools{display:flex;align-items:center;gap:4px;margin-bottom:2px;padding-bottom:4px;border-bottom:1px solid #f1f5f9}
+.chat-composer__tools :deep(.el-button){margin:0;width:28px;height:28px;padding:0;border-radius:6px;color:#475569;font-size:13px}
+.chat-composer__tools :deep(.el-button:hover),.chat-composer__tools :deep(.el-button.is-active){background:#eef2f7;color:#1e293b}
+</style>

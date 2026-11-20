@@ -40,7 +40,7 @@
     </div>
     <div v-if="statementClientView" class="finance-preview-actions"><el-button :loading="previewLoading" :disabled="loading" @click="previewProjects">{{specialSettlementView?'特殊结算预览':'对账单预览'}}</el-button><span v-if="requireStatementForSelection">已选 {{statementSelected.length}} 项。未勾选时使用筛选结果中标记为「需」的项目。「无需」项目可在对账单列重新确认。</span><span v-else>已选 {{statementSelected.length}} 项；未勾选时使用全部筛选结果</span></div>
     <AppForm data-auto-draft="off" v-if="statementClientView" :inline="true" :model="filters" @submit.prevent="search">
-      <el-form-item label="项目状态"><el-select v-model="filters.projectStatus" multiple collapse-tags collapse-tags-tooltip clearable placeholder="全部状态" style="width:260px;max-width:100%" @change="search"><el-option v-for="status in statuses" :key="status.value" :value="status.value" :label="status.label" /></el-select></el-form-item>
+      <el-form-item label="项目状态"><ListFilterSelect v-model="filters.projectStatus" collapse-tags collapse-tags-tooltip clearable placeholder="全部状态" style="width:260px;max-width:100%" @change="search"><el-option v-for="status in statuses" :key="status.value" :value="status.value" :label="status.label" /></ListFilterSelect></el-form-item>
       <el-form-item><el-button native-type="button" :disabled="loading||!statementParentIds.length" @click="toggleStatementChildren">{{statementExpandedIds.length?'折叠子订单':'展开子订单'}}</el-button></el-form-item>
     </AppForm>
     <AppForm data-auto-draft="off" v-if="!statementClientView" :inline="true" :disabled="editorLoading" :model="filters" class="finance-search" @submit.prevent="search">
@@ -52,7 +52,7 @@
       </div>
       <el-form-item label="客户经理"><el-button :class="{'manager-filter-active':managerScope!=='all'}" :title="managerLabel" @click="managerPickerVisible=true">{{managerLabel}}</el-button></el-form-item>
       <el-form-item label="订单客户"><el-select v-model="filters.clientOrderCount" style="width:150px" placeholder="全部客户" aria-label="订单客户" @change="search"><el-option label="全部客户" value="" /><el-option label="单订单客户" value="single" /><el-option label="多订单客户" value="multiple" /></el-select></el-form-item>
-      <el-form-item><el-button type="primary" @click="search">查询</el-button><el-button @click="resetSearch">重置</el-button><AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" @clear="clearAdvanced" @reset="resetSearch"><el-form-item label="项目状态"><el-select v-model="filters.projectStatus" multiple collapse-tags collapse-tags-tooltip clearable placeholder="全部状态" @change="search"><el-option v-for="status in statuses" :key="status.value" :value="status.value" :label="status.label" /></el-select></el-form-item>
+      <el-form-item><el-button type="primary" @click="search">查询</el-button><el-button @click="resetSearch">重置</el-button><AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" @clear="clearAdvanced" @reset="resetSearch"><el-form-item label="项目状态"><ListFilterSelect v-model="filters.projectStatus" collapse-tags collapse-tags-tooltip clearable placeholder="全部状态" @change="search"><el-option v-for="status in statuses" :key="status.value" :value="status.value" :label="status.label" /></ListFilterSelect></el-form-item>
         <el-form-item label="客户" class="finance-customer-filter">
           <div class="finance-customer-filter-inputs">
             <el-input v-model="filters.client" aria-label="客户全称或简称" clearable placeholder="客户全称或简称" @input="queueFilterSearch" @keyup.enter="search" />
@@ -68,7 +68,7 @@
       <el-radio-group data-auto-draft="off" v-model="managerDraftScope" class="manager-filter-choices"><el-radio value="self">本人（{{selfName}}）</el-radio><el-radio value="all">不指定人（全部订单）</el-radio><el-radio value="name">指定客户经理</el-radio></el-radio-group>
       <CustomerDepartmentManagerSelect v-if="managerDraftScope==='name'" data-auto-draft="off" v-model="managerDraftIds" @options="cacheManagers" />
       <p class="finance-help">点击“确定”后收起窗口并查看结果，关闭筛选窗口后恢复默认条件。</p>
-      <template #footer><el-button @click="managerPickerVisible=false">取消</el-button><el-button type="primary" @click="applyManager">确定</el-button></template>
+      <template #footer><el-button @click="cancelManagerPicker">取消</el-button><el-button type="primary" @click="applyManager">确定</el-button></template>
     </DraggableFormDialog>
     <p v-if="!statementClientView" class="finance-help">按语种方向维护多条单价，默认优先采用客户统计的数量和单位，客户未填时采用我司统计；也可手动选择我司统计，两者均未填时提示补录。母订单单价复制至匹配语种的下级，单独改价的下级保留；工作量时父级汇总下级金额，各币种单独小计；固定收费直接采用登记的一口价。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false">
@@ -616,6 +616,8 @@ import CustomerStatementDialog from '@/components/common/CustomerStatementDialog
 import {taxPriceForm,taxPriceSummary} from '@/utils/taxPrices'
 import {copySavedValue} from '@/utils/savedDataMerge'
 import { computed, onMounted, onBeforeUnmount, reactive, ref, watch, nextTick } from 'vue'
+import { useManagerFilterDraft } from '@/composables/useManagerFilterDraft'
+import { isBlankFilter } from '@/utils/listFieldFilters'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ProjectListRowActions from '@/components/common/ProjectListRowActions.vue'
@@ -626,6 +628,7 @@ import { canManageHr, hasPermission } from '@/utils/permission'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import { useTableColumns } from '@/composables/useTableColumns'
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
+import ListFilterSelect from '@/components/common/ListFilterSelect.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { scrollFormTarget } from '@/utils/formNavigation'
@@ -817,7 +820,7 @@ const headerFilterDefinitions={
     languagePair:{key:'languagePair',label:'翻译方向',type:'select',multiple:false,headerWidth:320,options:()=>directionFilterOptions.value},
   }:{}),
   paymentStatus:{key:'paymentStatus',label:'付款状态',type:'select',multiple:false,options:[...paymentStatusFilterOptions,fullPaymentMismatchOption]},
-  statementRequired:{key:'statementRequired',label:props.statementClientView?'对账单':'报价单/对账单',type:'select',options:[
+  statementRequired:{key:'statementRequired',label:props.statementClientView?'对账单':'报价单/对账单',type:'select',allowEmpty:!props.statementClientView,options:[
     {value:'required',label:'需对账单'},{value:'not_required',label:'无需对账单'},
     ...(!props.statementClientView?[
       {value:'invoice_required',label:'需发票'},{value:'invoice_not_required',label:'无需发票'},
@@ -927,23 +930,20 @@ async function discardTableDrafts(){try{await ElMessageBox.confirm('放弃尚未
 const selfName=localStorage.getItem('user_full_name')||localStorage.getItem('user_name')||'当前用户'
 const defaultManagerScope=()=>props.clientScope?'all':'self'
 const managerPicker=ref()
-const managerScope=ref(defaultManagerScope()),managerDraftScope=ref(defaultManagerScope()),managerIds=ref([]),managerDraftIds=ref([]),managerPickerVisible=ref(false),managerNames=ref({})
+const managerScope=ref(defaultManagerScope()),managerIds=ref([]),managerNames=ref({})
 function cacheManagers(people){managerNames.value={...managerNames.value,...Object.fromEntries(people.map(person=>[person.id,`${person.name}${person.username&&person.username!==person.name?`（${person.username}）`:''}`]))}}
 const managerLabel=computed(()=>managerScope.value==='self'?`本人（${selfName}）`:managerScope.value==='name'?`指定（${managerIds.value.length}人）：${managerIds.value.map(id=>managerNames.value[id]||'已选人员').join('、')}`:'不指定人（全部订单）')
 const activeManagerQuery = computed(() => ({
   manager_ids: managerScope.value === 'name' ? managerIds.value : undefined,
   only_mine: managerScope.value === 'self',
 }))
-watch(managerPickerVisible, () => {
-  managerDraftScope.value = managerScope.value
-  managerDraftIds.value = [...managerIds.value]
-})
+const { managerPickerVisible, managerDraftScope, managerDraftIds, resetManagerDraft, cancelManagerPicker, getManagerSelection } = useManagerFilterDraft(() => activeManagerQuery.value)
 function applyManager(){
-  const scope=managerDraftScope.value==='name'&&!managerDraftIds.value.length?'all':managerDraftScope.value
-  const ids=scope==='name'?[...managerDraftIds.value]:[]
+  const { scope, ids } = getManagerSelection()
   if(scope!==managerScope.value||ids.length!==managerIds.value.length||ids.some(id=>!managerIds.value.includes(id)))clearRowFilters()
   managerScope.value=scope
   managerIds.value=ids
+  resetManagerDraft()
   filters.manager=''
   search()
   managerPickerVisible.value=false
@@ -967,7 +967,7 @@ watch(()=>[filters.month,activeManagerQuery.value,props.clientId,props.clientIds
     if(!request.signal.aborted)ElMessage.error(getLocalizedErrorMessage(e,'客户和翻译方向选项加载失败'))
   }
 },{immediate:true})
-const advancedCount=computed(()=>Number(filters.projectStatus.length>0)+Number(!!filters.client.trim())+Number(!!filters.subClient.trim())+Number(filters.missingWordCount)+Number(filters.missingUnitPrice)+Number(!!filters.missingTotal))
+const advancedCount=computed(()=>Number(isBlankFilter(filters.projectStatus)||filters.projectStatus.length>0)+Number(!!filters.client.trim())+Number(!!filters.subClient.trim())+Number(filters.missingWordCount)+Number(filters.missingUnitPrice)+Number(!!filters.missingTotal))
 function clearAdvanced(){filters.projectStatus=[];filters.client='';filters.subClient='';filters.missingWordCount=false;filters.missingUnitPrice=false;filters.missingTotal='';search()}
 let timer,controller,sequence=0,disposed=false
 const financeSort=ref()
@@ -978,20 +978,23 @@ function documentFilterValue(required, notRequired){
 }
 function financeParams(){
   const invoiceRequired=documentFilterValue('invoice_required','invoice_not_required')
-  const clientIds=filters.clientShortName?[filters.clientShortName]:props.clientIds
+  const value = key => isBlankFilter(filters[key]) ? undefined : filters[key] || undefined
+  const clientIds=value('clientShortName')?[value('clientShortName')]:props.clientIds
+  const blankFields=Object.keys(headerFilterDefinitions).filter(key=>isBlankFilter(filters[key]))
   return {
     period_number:props.periodNumber??(typeof filters.billingPeriod==='number'?filters.billingPeriod:undefined),
     unassigned_period:filters.billingPeriod==='unassigned'||undefined,
     settlement_scope:props.settlementScope,sub_client_id:props.subClientId,sort:financeSort.value,include_payment_status:true,
-    payment_status:filters.paymentStatus||undefined,statement_required:documentFilterValue('required','not_required'),
+    blank_fields:blankFields.length?blankFields.map(key=>key.replace(/[A-Z]/g, letter=>`_${letter.toLowerCase()}`)):undefined,
+    payment_status:value('paymentStatus'),statement_required:documentFilterValue('required','not_required'),
     quotation_required:documentFilterValue('quotation_required','quotation_not_required'),
     invoice_required:invoiceRequired===undefined?undefined:invoiceRequired?'yes':'no',
-    settlement_mode:filters.paymentMethod||undefined,pricing_mode:filters.pricingMode||undefined,
+    settlement_mode:value('paymentMethod'),pricing_mode:value('pricingMode'),
     client_order_count:filters.clientOrderCount||undefined,
     client_id:props.statementClientView?undefined:props.clientId||undefined,
     client_ids:props.statementClientView&&props.clientId?[props.clientId]:clientIds.length?clientIds:undefined,
     keyword:filters.keyword.trim()||undefined,project_statuses:filters.projectStatus.length?filters.projectStatus:undefined,
-    client:filters.client.trim()||undefined,sub_client:filters.subClient.trim()||undefined,language_direction:filters.languagePair||undefined,billing_month:filters.month||undefined,
+    client:filters.client.trim()||undefined,sub_client:filters.subClient.trim()||undefined,language_direction:value('languagePair'),billing_month:filters.month||undefined,
     ...activeManagerQuery.value,...(props.statementClientView?props.managerQuery:{}),
     missing_word_count:filters.missingWordCount||undefined,missing_unit_price:filters.missingUnitPrice||undefined,
     missing_total:filters.missingTotal||undefined,
@@ -1048,7 +1051,7 @@ function setBillingMonth(month){
 }
 function queueSearch(){clearTimeout(timer);controller?.abort();sequence++;if(!filters.keyword.trim())search();else timer=setTimeout(search,400)}
 function queueFilterSearch(value){clearTimeout(timer);controller?.abort();sequence++;if(!String(value||'').trim())search();else timer=setTimeout(search,400)}
-function resetSearch(){clearRowFilters();filters.clientOrderCount='';collapsedClients.value=[];filters.missingWordCount=false;filters.missingUnitPrice=false;filters.missingTotal='';filters.keyword='';filters.projectStatus=[];filters.paymentStatus='';filters.statementRequired=[];filters.paymentMethod='';filters.billingPeriod=undefined;filters.pricingMode='';filters.client='';filters.subClient='';filters.month=props.initialMonth||'';filters.manager='';managerIds.value=[];managerScope.value=defaultManagerScope();search()}
+function resetSearch(){clearRowFilters();filters.clientOrderCount='';collapsedClients.value=[];filters.missingWordCount=false;filters.missingUnitPrice=false;filters.missingTotal='';filters.keyword='';filters.projectStatus=[];filters.paymentStatus='';filters.statementRequired=[];filters.paymentMethod='';filters.billingPeriod=undefined;filters.pricingMode='';filters.client='';filters.subClient='';filters.month=props.initialMonth||'';filters.manager='';managerIds.value=[];managerScope.value=defaultManagerScope();resetManagerDraft();search()}
 const formatAmounts=values=>Object.entries(values||{}).map(([currency,value])=>`${currency} ${Number(value).toFixed(2)}`).join('\n')||'-'
 const languageDirections=value=>String(value||'').split('；').map(direction=>direction.trim()).filter(Boolean)
 function cell(row,key){

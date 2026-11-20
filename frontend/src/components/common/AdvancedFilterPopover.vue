@@ -25,7 +25,7 @@
         </div>
       </div>
       <div class="advanced-filter-body" :class="{ 'is-compact': compact }">
-        <FilterDraftScope ref="draftScope" :active="visible">
+        <FilterDraftScope ref="draftScope">
           <AdvancedFilterFieldSearch :active="visible" :anchor="referenceHost" :scope="popperClass"><slot /></AdvancedFilterFieldSearch>
         </FilterDraftScope>
       </div>

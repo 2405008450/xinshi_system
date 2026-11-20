@@ -1,4 +1,4 @@
-/* 各类会话共用的引用摘要与待发送引用预览。 */
+/* 各类会话共用的引用摘要与待发送引用预览：深蓝灰商务风格，气泡内长引用最多展示 3 行。 */
 .group-reply,
 .group-compose-reply,
 .discussion-chat__bubble blockquote,
@@ -6,36 +6,59 @@
 :deep(.rich-content blockquote),
 :deep(.rich-editor__prose blockquote) {
   box-sizing: border-box;
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  border-left: 3px solid #93c5fd;
+  background: var(--chat-quote-bg, #f1f5f9);
+  border: 1px solid var(--chat-quote-border, #e2e8f0);
+  border-left: 3px solid var(--chat-quote-accent, #64748b);
   border-radius: 6px;
-  color: #475569;
-  padding: 6px 8px;
+  color: var(--chat-text-secondary, #475569);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 6px 9px;
   overflow-wrap: anywhere;
 }
 
-.group-reply {
+.group-reply,
+.discussion-chat__bubble blockquote {
   display: block;
   max-width: 100%;
-  margin-bottom: 7px;
+  margin: 0 0 8px;
   text-align: left;
-  white-space: pre-wrap;
   cursor: pointer;
+  transition: background-color .14s ease, border-color .14s ease;
 }
 
-.group-compose-reply {
+.chat-quote-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.group-reply:hover,
+.discussion-chat__bubble blockquote:hover {
+  background: #e8eef5;
+  border-color: #cbd5e1;
+  border-left-color: #334155;
+}
+
+.group-compose-reply,
+.discussion-chat__reply {
   max-height: 60px;
   overflow: auto;
+  margin-bottom: 6px;
 }
 
 .group-bubble:has(.group-reply),
 .chat-bubble:has(.group-reply),
 .discussion-chat__bubble:has(blockquote) {
-  border-color: #bfdbfe;
+  border-color: var(--chat-bubble-border, #dce4ee);
 }
 
-.group-reply:focus-visible {
-  outline: 2px solid #60a5fa;
+.group-reply:focus-visible,
+.discussion-chat__bubble blockquote:focus-visible {
+  outline: 2px solid var(--color-primary, #334155);
   outline-offset: 2px;
 }

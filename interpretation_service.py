@@ -39,7 +39,7 @@ from language_catalog import (
     normalize_language_search_text,
 )
 from models import AppUser, Client, Consultation, SubClient, TranslationProject, Translator
-from field_filtering import apply_scalar_specs
+from field_filtering import apply_scalar_filter, apply_scalar_specs, blank_condition
 
 
 INTERPRETATION_TYPE_VALUES = {"口译项目", "interpretation", "口译"}
@@ -380,35 +380,48 @@ def _apply_filters(
         "updated_at": (InterpretationProject.updated_at, "datetime"),
     })
     for field, descriptor in field_filters.items():
+        empty = descriptor.get("op") == "is_empty"
         if field == "current_client_manager":
             from project_client_manager import manager_name_expression
             expression = manager_name_expression("interpretation", InterpretationProject.id, func.coalesce(SubClient.client_manager, Client.client_manager))
-            query = query.filter(keyword_ilike(expression, f"%{str(descriptor.get('value') or '').strip()}%"))
+            query = apply_scalar_filter(query, expression, descriptor)
         elif field == "project_types":
             values = descriptor.get("value") or []
-            query = query.filter(or_(*(InterpretationProject.project_types.contains([value]) for value in values)))
+            query = query.filter(blank_condition(InterpretationProject.project_types, "collection") if empty else or_(*(InterpretationProject.project_types.contains([value]) for value in values)))
         elif field in {"client_short_name", "client_code", "client_full_name", "client_domain", "current_client_manager", "manager_contact"}:
             parent_column, sub_column = {
                 "client_short_name": (Client.client_short_name, SubClient.client_short_name),
                 "client_code": (Client.client_code, SubClient.sub_client_code),
                 "client_full_name": (Client.client_name, SubClient.client_name),
-                "client_domain": (func.concat_ws(" / ", Client.field_level1, Client.field_level2), func.concat_ws(" / ", SubClient.field_level1, SubClient.field_level2)),
+                "client_domain": (func.concat_ws(" / ", func.nullif(Client.field_level1, ''), func.nullif(Client.field_level2, '')), func.concat_ws(" / ", func.nullif(SubClient.field_level1, ''), func.nullif(SubClient.field_level2, ''))),
                 "current_client_manager": (Client.client_manager, SubClient.client_manager),
                 "manager_contact": (Client.manager_contact, SubClient.manager_contact),
             }[field]
+            if empty:
+                query = query.filter(blank_condition(func.coalesce(func.nullif(sub_column, ''), parent_column)))
+                continue
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
             query = query.filter(keyword_or(lambda _search_part: or_(keyword_ilike(parent_column, _search_part), keyword_ilike(sub_column, _search_part)), pattern))
         elif field == "locations":
-            query = query.filter(keyword_ilike(cast(InterpretationProject.locations, String), f"%{str(descriptor.get('value') or '').strip()}%"))
+            query = query.filter(blank_condition(InterpretationProject.locations, "collection") if empty else keyword_ilike(cast(InterpretationProject.locations, String), f"%{str(descriptor.get('value') or '').strip()}%"))
         elif field == "translator_codes":
             keyword = str(descriptor.get("value") or "").strip()
-            if keyword:
+            if empty:
+                query = query.filter(~InterpretationProject.interpreter_assignments.any(
+                    InterpretationProjectInterpreter.translator.has(~blank_condition(Translator.translator_code))))
+            elif keyword:
                 query = query.filter(InterpretationProject.interpreter_assignments.any(
                     InterpretationProjectInterpreter.translator.has(
                         keyword_ilike(Translator.translator_code, f"%{keyword}%")
                     )
                 ))
         elif field in {"scheduled_date", "language_id", "translator_id"}:
+            if empty:
+                relationship = {"scheduled_date": InterpretationProject.time_ranges,
+                                "language_id": InterpretationProject.language_directions,
+                                "translator_id": InterpretationProject.interpreter_assignments}[field]
+                query = query.filter(~relationship.any())
+                continue
             if field == "scheduled_date":
                 start, end = descriptor.get("from"), descriptor.get("to")
                 query = query.join(InterpretationProjectTimeRange, InterpretationProjectTimeRange.project_id == InterpretationProject.id)

@@ -16,7 +16,7 @@
     <AppForm data-auto-draft="off" :inline="true" :model="searchForm" class="search-form project-list-search-form">
       <div class="project-list-primary-filters">
         <el-form-item label="关键词" class="project-list-keyword-filter"><el-input v-model="searchForm.keyword" clearable placeholder="订单号、项目名称、客户名称或客户单号" @input="handleTextSearch" @keyup.enter="handleSearch" /></el-form-item>
-        <el-form-item label="项目状态" class="project-list-status-filter"><el-select v-model="searchForm.projectStatus" multiple collapse-tags :max-collapse-tags="1" clearable placeholder="全部" @change="handleSearch"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
+        <el-form-item label="项目状态" class="project-list-status-filter"><ListFilterSelect v-model="searchForm.projectStatus" collapse-tags :max-collapse-tags="1" clearable placeholder="全部" @change="handleSearch"><el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" /></ListFilterSelect></el-form-item>
       </div>
       <el-form-item class="project-list-search-actions">
         <el-button type="primary" @click="handleSearch">查询</el-button><el-button @click="resetSearch">重置</el-button>
@@ -412,6 +412,7 @@ import PathInput from '@/components/common/PathInput.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
+import ListFilterSelect from '@/components/common/ListFilterSelect.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import ProjectListRowActions from '@/components/common/ProjectListRowActions.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
@@ -439,7 +440,7 @@ import {
 import RecruitmentLanguageDirections from '@/components/common/LanguageDirectionsEditor.vue'
 import RecruitmentCandidateTable from './recruitment/RecruitmentCandidateTable.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
-import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
+import { countActiveFilters, createFilterModel, isBlankFilter, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 
 const canWrite = hasPermission('projects:write')
 const route = useRoute()
@@ -664,7 +665,7 @@ const saveProject = async (sendAfterSave=false,emergency=false,sendChat=false) =
         await formRef.value?.applyServerErrors(error)
 ElMessage.error(error?.detail||'保存失败')} finally{saving.value=false;submitLocked=false} }
 const setProjectStatusSaving=(id,saving)=>{const next=new Set(projectStatusSavingIds.value);if(saving)next.add(id);else next.delete(id);projectStatusSavingIds.value=next}
-const changeProjectStatus=async(row,value)=>{if(!value||value===row.projectStatus)return;setProjectStatusSaving(row.id,true);try{const updated=await patchRecruitmentProjectStatus(row.id,value);Object.assign(row,updated);ElMessage.success('项目状态已更新');if(searchForm.projectStatus?.length&&!searchForm.projectStatus.includes(updated.projectStatus))await fetchData()}catch(error){ElMessage.error(error?.detail||'项目状态更新失败')}finally{setProjectStatusSaving(row.id,false)}}
+const changeProjectStatus=async(row,value)=>{if(!value||value===row.projectStatus)return;setProjectStatusSaving(row.id,true);try{const updated=await patchRecruitmentProjectStatus(row.id,value);Object.assign(row,updated);ElMessage.success('项目状态已更新');if((isBlankFilter(searchForm.projectStatus) || (searchForm.projectStatus?.length && !searchForm.projectStatus.includes(updated.projectStatus))))await fetchData()}catch(error){ElMessage.error(error?.detail||'项目状态更新失败')}finally{setProjectStatusSaving(row.id,false)}}
 
 watch(
   () => [form.employmentRange, form.workLocation, form.positionTitle, form.languageDirections],

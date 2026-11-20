@@ -123,15 +123,18 @@
             <ChatConversationParticipants menu-layout v-if="['translation', 'discussion'].includes(chatWindow.projectType)" :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" />
             <AnnotationChatInbox menu-layout @navigate="minimizeChat(chatWindow.key)" />
             </ChatConversationMore>
-            <span class="chat-header-divider" />
             <el-button v-if="!isCompactScreen" link aria-label="固定小窗" title="固定当前小窗，边聊边工作" @click="pinChat(chatWindow.key)"><el-icon><ChatPinIcon /></el-icon></el-button>
+            <div :id="`chat-close-${chatWindow.key.replaceAll(':', '-')}`" class="chat-header-session-close" />
+            <span class="chat-header-divider" />
 
           </div>
           </div>
           <ChatWindowControls :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" @navigate="minimizeChat(chatWindow.key)" @search="openSearch(chatWindow.key)" @minimize="minimizeChat(chatWindow.key)" @maximize="maximizeChat(chatWindow.key)" @exit="closeAllChats" />
         </header>
         <div class="project-chat-window__body">
-          <div class="chat-conversation-close-row"><button type="button" aria-label="关闭当前会话" title="关闭当前会话，保留聊天记录" @click.stop="state.layout === 'workspace' ? closeWorkspaceSession() : closeChat(chatWindow.key)"><el-icon><Close /></el-icon></button></div>
+          <Teleport :to="state.layout === 'workspace' ? '#chat-workspace-session-close' : `#chat-close-${chatWindow.key.replaceAll(':', '-')}`" :disabled="!dockReady || (state.layout === 'workspace' && !workspaceVisible)">
+            <button v-show="state.layout !== 'workspace' || chatWindow.key === state.activeKey" type="button" class="chat-session-close-btn" aria-label="关闭当前会话" title="关闭当前会话，保留聊天记录" @mousedown.stop @dblclick.stop @click.stop="state.layout === 'workspace' ? closeWorkspaceSession() : closeChat(chatWindow.key)"><el-icon><CircleClose /></el-icon></button>
+          </Teleport>
           <component
             :is="chatWindow.projectType === 'discussion' ? DiscussionConversation : chatWindow.projectType === 'direct' ? DirectChat : chatWindow.projectType === 'annotation' ? AnnotationGroupChat : ProjectChatPanel"
             :ref="(el) => setPanelRef(chatWindow.key, el)"
@@ -203,7 +206,7 @@ import ChatMultiWindowPicker from './ChatMultiWindowPicker.vue'
 import { chatTileLayout } from '@/utils/chatTiling'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { ChatDotRound, Close } from '@element-plus/icons-vue'
+import { ChatDotRound, CircleClose } from '@element-plus/icons-vue'
 import ProjectChatPanel from '@/components/ProjectChatPanel.vue'
 import { chatRequest } from '@/api/projectChat'
 import { filterClosedSessions, mentionUnreadCount } from '@/utils/chatSessionList'
@@ -277,6 +280,7 @@ function normalWorkspace(){const active=state.activeKey;workspaceRect.value=null
 watch(()=>state.workspaceMaximized,()=>{workspaceRect.value=null})
 watch(()=>state.workspaceSize,()=>{workspaceRect.value=null})
 watch(()=>state.windows.map(row=>row.key),keys=>{for(const key of Object.keys(chatRects.value))if(!keys.includes(key))delete chatRects.value[key]})
+const dockReady = ref(false)
 const isCompactScreen = ref(false)
 const viewportSize = ref({ width: window.innerWidth, height: window.innerHeight })
 const multiPicker = ref(null)
@@ -412,7 +416,7 @@ function updateTitle() {
 watch(mentionTotal, updateTitle)
 const route = useRoute()
 watch(() => route.fullPath, () => nextTick(updateTitle))
-onMounted(() => { window.addEventListener('focus', updateTitle); window.addEventListener('blur', updateTitle) })
+onMounted(() => { dockReady.value = true; window.addEventListener('focus', updateTitle); window.addEventListener('blur', updateTitle) })
 onBeforeUnmount(() => { window.removeEventListener('focus', updateTitle); window.removeEventListener('blur', updateTitle); document.title = document.title.replace(/^\[(?:有人@我|有未读提及)\]\s*/, '') })
 const workspaceUnread = computed(() => mentionUnreadCount(sessions.value))
 const workspaceFrameMode = computed(() => (state.workspaceMaximized ? 'maximized' : state.workspaceSize))
@@ -432,10 +436,10 @@ const workspaceShellStyle = computed(() => {
 const contentRect = computed(() => {
   void viewportSize.value
   const size = !state.workspaceMaximized && workspaceRect.value || resolveChatSize(workspaceFrameMode.value)
-  const side = sidebarWidth.value + (state.workspaceMaximized && !workspaceNarrow.value ? 56 : 0)
+  const side = sidebarWidth.value + (state.workspaceMaximized && !workspaceNarrow.value ? 64 : 0)
   const width = Math.max(160, size.width - side)
-  const wideHeader = width >= 840
-  const headerHeight = wideHeader ? 100 : 150
+  const wideHeader = width >= 560
+  const headerHeight = wideHeader ? 60 : 76
   return {
     x: state.workspaceX + side,
     y: state.workspaceY + headerHeight,
@@ -685,14 +689,17 @@ onBeforeUnmount(() => {
 }
 
 .project-chat-window--immersive :deep(.group-timeline),
-.project-chat-window--immersive :deep(.chat-conversation) {
-  padding: 20px 28px;
-  background: var(--el-fill-color-light);
+.project-chat-window--immersive :deep(.chat-conversation),
+.project-chat-window--immersive :deep(.discussion-chat__timeline) {
+  padding: 18px 26px;
+  background: var(--chat-stage-bg, #f4f6f9);
 }
 
 .project-chat-window--immersive :deep(.group-composer),
-.project-chat-window--immersive :deep(.chat-composer--conversation) {
-  padding: 12px 24px;
+.project-chat-window--immersive :deep(.chat-composer--conversation),
+.project-chat-window--immersive :deep(.discussion-chat__composer) {
+  margin: 10px 24px 16px;
+  padding: 10px 14px;
 }
 
 .project-chat-window--immersive :deep(.group-composer textarea) {
@@ -830,7 +837,7 @@ onBeforeUnmount(() => {
 .project-chat-dock__taskbar {
   position: fixed;
   right: 16px;
-  bottom: 16px;
+  bottom: 12px;
   display: flex;
   max-width: calc(100vw - 32px);
   justify-content: flex-end;
@@ -849,17 +856,27 @@ onBeforeUnmount(() => {
 :slotted(.floating-dock-task) {
   display: inline-flex;
   flex-shrink: 0;
-  max-width: 280px;
-  height: 38px;
-  padding: 0 14px;
+  max-width: 248px;
+  height: 34px;
+  padding: 0 12px;
   align-items: center;
-  gap: 7px;
-  border: 1px solid var(--el-color-primary-light-5);
-  border-radius: 19px;
-  color: var(--el-color-primary-dark-2);
-  background: var(--el-bg-color);
-  box-shadow: var(--el-box-shadow-light);
+  gap: 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 17px;
+  color: var(--color-primary-hover, #1e293b);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.1);
+  backdrop-filter: blur(6px);
+  font-size: 12.5px;
   cursor: pointer;
+  transition: border-color .14s ease, box-shadow .14s ease, transform .14s ease;
+}
+
+.project-chat-task:hover,
+:slotted(.floating-dock-task:hover) {
+  border-color: var(--color-primary, #334155);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.14);
+  transform: translateY(-1px);
 }
 
 .project-chat-task span {
@@ -921,9 +938,6 @@ onBeforeUnmount(() => {
 @media(max-width:600px){.project-chat-window__title-row .el-tag{display:none}.project-chat-window__header{gap:4px;padding:0 5px}}
 .project-chat-window__body{position:relative;display:flex;flex-direction:column;min-height:0}
 .project-chat-window__body>:deep(.annotation-group),.project-chat-window__body>:deep(.project-chat-panel),.project-chat-window__body>:deep(.project-chat),.project-chat-window__body>:deep(.discussion-chat){flex:1;min-height:0}
-.chat-conversation-close-row{display:flex;align-items:center;justify-content:flex-end;flex:none;height:32px;background:var(--chat-stage-bg,#f1f5f9);padding-right:8px;z-index:2}
-.chat-conversation-close-row button{display:inline-flex;align-items:center;justify-content:center;width:28px;height:24px;padding:0;border:0;border-radius:var(--chat-radius,6px);background:transparent;color:var(--chat-text-muted,#64748b);cursor:pointer}
-.chat-conversation-close-row button .el-icon{font-size:var(--chat-icon-size,16px)}
-.chat-conversation-close-row button:hover{background:var(--chat-danger-bg,#fee2e2);color:var(--chat-danger,#dc2626)}
-.chat-conversation-close-row button:focus-visible{outline:2px solid var(--color-primary,#334155);outline-offset:1px}
+.project-chat-window__body>.chat-session-close-btn{position:absolute;top:8px;right:10px;z-index:3;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:1px solid var(--chat-border,#e2e8f0);border-radius:var(--chat-radius,6px);background:rgba(255,255,255,.92);color:var(--chat-text-muted,#64748b);cursor:pointer}
+.project-chat-window__body>.chat-session-close-btn:hover{background:var(--chat-danger-bg,#fee2e2);border-color:var(--chat-danger-border,#fecaca);color:var(--chat-danger,#dc2626)}
 </style>

@@ -28,12 +28,12 @@ const emit = defineEmits(['navigate', 'search', 'minimize', 'maximize', 'restore
 </script>
 
 <style scoped>
-.chat-fixed-window-controls{display:flex;align-items:center;gap:4px;height:var(--chat-control-h,32px);background:#fff}
-.chat-fixed-window-controls>button,.chat-fixed-window-controls :deep(.el-button){position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;box-sizing:border-box;width:var(--chat-control-h,32px);min-width:var(--chat-control-h,32px);height:var(--chat-control-h,32px);min-height:var(--chat-control-h,32px);margin:0;padding:0;border:1px solid transparent;border-radius:var(--chat-radius,6px);background:transparent;color:var(--chat-text-muted,#64748b);cursor:pointer}
-.chat-fixed-window-controls>button:hover,.chat-fixed-window-controls :deep(.el-button:hover){background:var(--chat-hover-bg,#f1f5f9);border-color:var(--chat-border,#e2e8f0);color:var(--chat-text,#334155)}
+.chat-fixed-window-controls{display:flex;align-items:center;gap:2px;height:var(--chat-control-h,30px);background:transparent}
+.chat-fixed-window-controls>button,.chat-fixed-window-controls :deep(.el-button){position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;box-sizing:border-box;width:var(--chat-control-h,30px);min-width:var(--chat-control-h,30px);height:var(--chat-control-h,30px);min-height:var(--chat-control-h,30px);margin:0;padding:0;border:1px solid transparent;border-radius:var(--chat-radius,6px);background:transparent;color:var(--chat-text-muted,#64748b);cursor:pointer;transition:background-color .14s ease,border-color .14s ease,color .14s ease}
+.chat-fixed-window-controls>button:hover,.chat-fixed-window-controls :deep(.el-button:hover){background:var(--chat-hover-bg,#f1f5f9);border-color:var(--chat-border,#e2e8f0);color:var(--chat-text,#1e293b)}
 .chat-fixed-window-controls>button:focus-visible,.chat-fixed-window-controls :deep(.el-button:focus-visible){outline:2px solid var(--color-primary,#334155);outline-offset:1px}
 .chat-fixed-window-controls :deep(.el-button>span){display:inline-flex;align-items:center;justify-content:center}
-.chat-fixed-window-controls .el-icon,.chat-fixed-window-controls :deep(.el-icon){width:var(--chat-icon-size,16px);height:var(--chat-icon-size,16px);font-size:var(--chat-icon-size,16px)!important;line-height:1}
-.chat-fixed-window-controls>button.chat-window-control--first{margin-left:6px}
+.chat-fixed-window-controls .el-icon,.chat-fixed-window-controls :deep(.el-icon){width:var(--chat-icon-size,15px);height:var(--chat-icon-size,15px);font-size:var(--chat-icon-size,15px)!important;line-height:1}
+.chat-fixed-window-controls>button.chat-window-control--first{margin-left:4px}
 .chat-fixed-window-controls>button.chat-window-control--exit:hover{background:var(--chat-danger-bg,#fee2e2);border-color:var(--chat-danger-border,#fecaca);color:var(--chat-danger,#dc2626)}
 </style>

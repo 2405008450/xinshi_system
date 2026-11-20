@@ -2003,7 +2003,7 @@ import {
   normalizeWordCountValues,
   sumWordCountValues
 } from '@/utils/wordCountMatrix'
-import { createFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
+import { createFilterModel, isBlankFilter, isBlankValue, serializeFieldFilters } from '@/utils/listFieldFilters'
 
 const route = useRoute()
 const loading = ref(false)
@@ -2804,16 +2804,20 @@ const filteredTranslators = computed(() => {
       row.translation_type
     ], keyword)) return false
     const textMatches = (key, values) => {
+      if (isBlankFilter(translatorFilterModel[key])) return values.every(isBlankValue)
       const filterValue = String(translatorFilterModel[key] || '').trim().toLowerCase()
       return !filterValue || matchesSearchFields(values, filterValue)
     }
     if (!textMatches('translatorCode', [row.translator_code])) return false
     if (!textMatches('translatorName', [row.translator_name])) return false
     if (!textMatches('availableTimeSlot', [row.available_time_slot])) return false
-    if (!textMatches('languageCapability', [row.languages, row.direction, row.translation_type, formatDomains(row.domain_skills)])) return false
+    const domains = isBlankFilter(translatorFilterModel.languageCapability) ? row.domain_skills : formatDomains(row.domain_skills)
+    if (!textMatches('languageCapability', [row.languages, row.direction, row.translation_type, domains])) return false
     if (!textMatches('remarks', [row.remarks, row.schedule_remarks])) return false
-    if (translatorFilterModel.cooperationType.length && !translatorFilterModel.cooperationType.includes(cooperationGroup(row))) return false
-    if (translatorFilterModel.status.length && !translatorFilterModel.status.includes(String(row.status || 'standby'))) return false
+    if (isBlankFilter(translatorFilterModel.cooperationType) ? !isBlankValue(row.cooperation_type)
+      : translatorFilterModel.cooperationType.length && !translatorFilterModel.cooperationType.includes(cooperationGroup(row))) return false
+    if (isBlankFilter(translatorFilterModel.status) ? !isBlankValue(row.status)
+      : translatorFilterModel.status.length && !translatorFilterModel.status.includes(String(row.status || 'standby'))) return false
     return true
   })
 })

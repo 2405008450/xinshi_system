@@ -31,17 +31,17 @@
       <AppForm data-auto-draft="off" :inline="true" :model="searchForm" class="search-form-inline">
         <el-form-item label="客户名称">
           <el-input
-            v-model="advancedFilters.client_name"
-            placeholder="支持客户全称、简称及子客户名称模糊搜索"
+            :model-value="isBlankFilter(advancedFilters.client_name) ? '' : advancedFilters.client_name"
+            :placeholder="isBlankFilter(advancedFilters.client_name) ? '为空白' : '支持客户全称、简称及子客户名称模糊搜索'"
             clearable
+            @update:model-value="advancedFilters.client_name = $event"
             @input="handleSearchInput"
             @keyup.enter="handleSearch"
           />
         </el-form-item>
         <el-form-item label="客户状态">
-          <el-select
+          <ListFilterSelect
             v-model="advancedFilters.client_status"
-            multiple
             collapse-tags
             :max-collapse-tags="1"
             placeholder="全部状态"
@@ -52,7 +52,7 @@
             <el-option label="合作中" value="active" />
             <el-option label="已停止" value="inactive" />
             <el-option label="待合作" value="pending" />
-          </el-select>
+          </ListFilterSelect>
         </el-form-item>
         <el-form-item>
           <el-button @click="subClientQueryVisible = true">子客户查询</el-button>
@@ -534,6 +534,7 @@ import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
+import ListFilterSelect from '@/components/common/ListFilterSelect.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import PrimaryEditButton from '@/components/common/PrimaryEditButton.vue'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
@@ -545,7 +546,7 @@ import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useFormDraft } from '@/composables/useFormDraft'
-import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
+import { countActiveFilters, createFilterModel, isBlankFilter, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 
 const props = defineProps({ editorClientId: String, editorSubClientId: String, editorFinanceSection: String })
 const listTab = ref('clients')

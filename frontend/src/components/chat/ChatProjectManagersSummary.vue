@@ -48,7 +48,7 @@ const unsubscribe = subscribeAnnotationManagersUpdated(id => { if (id === props.
 onBeforeUnmount(() => { ++generation; controller?.abort(); unsubscribe() })
 </script>
 <style scoped>
-.chat-project-managers{display:flex;align-items:center;flex-wrap:wrap;gap:3px 14px;font-size:11px;color:#64748b;line-height:1.5;user-select:text;cursor:text}.chat-project-managers__more{border:0;background:none;color:#2563eb;padding:0;font:inherit;cursor:pointer;text-decoration:underline;text-underline-offset:2px}.chat-project-managers__list{display:flex;flex-direction:column;gap:8px;max-height:220px;overflow-y:auto;font-size:12px}
+.chat-project-managers{display:flex;align-items:center;flex-wrap:wrap;gap:3px 14px;font-size:11px;color:#64748b;line-height:1.5;user-select:text;cursor:text}.chat-project-managers__more{border:0;background:none;color:var(--color-primary,#334155);padding:0;font:inherit;font-weight:500;cursor:pointer;text-decoration:underline;text-underline-offset:2px}.chat-project-managers__more:hover{color:var(--color-primary-hover,#1e293b)}.chat-project-managers__list{display:flex;flex-direction:column;gap:8px;max-height:220px;overflow-y:auto;font-size:12px}
 </style>
 <style scoped>
 .chat-project-managers__list > .el-button{margin:0;justify-content:flex-start;min-height:28px}

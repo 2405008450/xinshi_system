@@ -49,9 +49,9 @@
           <el-input v-model="searchForm.keyword" placeholder="母/子订单号、项目名称、文件名称、客户名称或客户单号" clearable @input="handleTextSearch" @keyup.enter="handleSearch" />
         </el-form-item>
         <el-form-item label="项目状态" class="project-list-status-filter">
-          <el-select v-model="searchForm.projectStatus" multiple collapse-tags :max-collapse-tags="1" placeholder="请选择状态" clearable @change="handleSearch">
+          <ListFilterSelect v-model="searchForm.projectStatus" collapse-tags :max-collapse-tags="1" placeholder="请选择状态" clearable @change="handleSearch">
             <el-option v-for="item in projectStatusOptions" :key="item.value" :label="item.label" :value="item.value" />
-          </el-select>
+          </ListFilterSelect>
         </el-form-item>
       </div>
       <el-form-item class="project-list-search-actions">
@@ -1093,6 +1093,7 @@ import { getClient, getClients } from '@/api/clients'
 import BusinessDetailPopover from '@/components/common/BusinessDetailPopover.vue'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
+import ListFilterSelect from '@/components/common/ListFilterSelect.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import BusinessMailComposer from '@/components/common/BusinessMailComposer.vue'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
@@ -1128,7 +1129,7 @@ import {
   formatBusinessDateTime as formatDateTime,
 } from '@/utils/deadlineDisplay'
 
-import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
+import { countActiveFilters, createFilterModel, isBlankFilter, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 import {
   DEFAULT_TRANSLATION_PROJECT_SORT,
   TRANSLATION_PROJECT_TIME_SORT_MODES,
@@ -2458,7 +2459,7 @@ const changeProjectStatus = async (row, value) => {
     const updated = normalizeProject(await updateProject(row.id, { projectStatus: nextStatus }))
     Object.assign(row, updated)
     ElMessage.success('项目状态已更新')
-    if (searchForm.projectStatus?.length && !searchForm.projectStatus.includes(updated.projectStatus)) {
+    if ((isBlankFilter(searchForm.projectStatus) || (searchForm.projectStatus?.length && !searchForm.projectStatus.includes(updated.projectStatus)))) {
       await fetchData()
     }
   } catch (error) {

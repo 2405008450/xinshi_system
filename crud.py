@@ -5,7 +5,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload, joinedload
-from sqlalchemy import Integer, String, and_, case, cast, exists as db_exists, func, or_, select
+from sqlalchemy import Integer, String, and_, case, cast, exists as db_exists, false, func, or_, select
 
 from models import AppUser, Role, TranslationProject, TranslationSubOrder, TranslationSubOrderChargeItem, UserRole, ProjectFile, Client, ClientContact, SubClient, Translator, Consultation, FinanceRecord, AppNotification, ProjectRoleAssignment
 from project_roles import (
@@ -33,7 +33,7 @@ from utils import generate_order_no, normalize_email_subject_order_no
 from project_audit_service import record_project_operation
 from department_utils import department_filter_values
 from mail_group_members import remove_unavailable_user_memberships
-from field_filtering import apply_scalar_specs
+from field_filtering import apply_scalar_filter, apply_scalar_specs, blank_condition
 from concurrency import VERSION_FIELD, assert_fresh
 from language_catalog import compact_translation_direction, validate_language_pairs_against_catalog
 from translation_project_identity import normalize_translation_name_payload
@@ -431,6 +431,9 @@ def _apply_client_filters(
         ))
     for field, descriptor in (field_filters or {}).items():
         if field == "cooperation_start_date":
+            if descriptor.get("op") == "is_empty":
+                query = query.filter(client_start.is_(None))
+                continue
             start_value, end_value = descriptor.get("from"), descriptor.get("to")
             if start_value:
                 start_at = datetime.combine(date.fromisoformat(str(start_value)), time.min)
@@ -440,6 +443,9 @@ def _apply_client_filters(
                 query = query.filter(or_(client_start <= end_at, Client.sub_clients.any(sub_start <= end_at)))
             continue
         if field == "client_status":
+            if descriptor.get("op") == "is_empty":
+                query = query.filter(blank_condition(client_state))
+                continue
             values = descriptor.get("value") or []
             query = query.filter(or_(client_state.in_(values), Client.sub_clients.any(sub_state.in_(values))))
             continue
@@ -458,6 +464,8 @@ def _apply_client_filters(
             ), pattern))
             continue
         columns = {
+            "client_name": (Client.client_name, SubClient.client_name),
+            "english_name": (Client.english_name, SubClient.english_name),
             "client_code": (Client.client_code, SubClient.sub_client_code),
             "client_short_name": (Client.client_short_name, SubClient.client_short_name),
             "english_short_name": (Client.english_short_name, SubClient.english_short_name),
@@ -471,7 +479,9 @@ def _apply_client_filters(
             "district": (Client.district, SubClient.district),
             "remarks": (Client.remarks, SubClient.remarks),
         }.get(field)
-        if columns and descriptor.get("op") == "contains":
+        if columns and descriptor.get("op") == "is_empty":
+            query = query.filter(blank_condition(columns[0]))
+        elif columns and descriptor.get("op") == "contains":
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
             query = query.filter(keyword_or(lambda _search_part: or_(keyword_ilike(columns[0], _search_part), Client.sub_clients.any(keyword_ilike(columns[1], _search_part))), pattern))
     return query
@@ -2011,6 +2021,7 @@ def _apply_translation_project_filters(
         "major_project_manager_confirmation": (TranslationProject.major_project_manager_confirmation, "string"),
         "translator_assignment_time": (TranslationProject.translator_assignment_time, "datetime"),
         "client_feedback": (TranslationProject.client_feedback, "string"),
+        "remarks": (TranslationProject.remarks, "string"),
         "created_at": (TranslationProject.created_at, "datetime"),
         "updated_at": (TranslationProject.updated_at, "datetime"),
         "pm_confirmed_by": (TranslationProject.pm_confirmed_by, "uuid"),
@@ -2020,46 +2031,48 @@ def _apply_translation_project_filters(
         project_status_values = [
             str(value) for value in (project_status_descriptor.get("value") or [])
         ]
-        query = query.filter(or_(
-            TranslationProject.project_status.in_(project_status_values),
-            TranslationProject.sub_orders.any(
-                TranslationSubOrder.status.in_(project_status_values)
-            ),
-        ))
+        if project_status_descriptor.get("op") == "is_empty":
+            query = query.filter(or_(blank_condition(TranslationProject.project_status),
+                TranslationProject.sub_orders.any(blank_condition(TranslationSubOrder.status))))
+        else:
+            query = query.filter(or_(TranslationProject.project_status.in_(project_status_values),
+                TranslationProject.sub_orders.any(TranslationSubOrder.status.in_(project_status_values))))
     word_count_descriptor = field_filters.get("word_count", {})
     word_count_dimension = field_filters.get("word_count_dimension", {})
     word_count_metric_type = field_filters.get("word_count_metric_type", {})
+    blank_word_count = any(item.get("op") == "is_empty" for item in (word_count_descriptor, word_count_dimension, word_count_metric_type))
     if word_count_descriptor or word_count_dimension or word_count_metric_type:
         from word_count_models import WordCountMetric
         conditions = [WordCountMetric.project_id == TranslationProject.id]
-        if word_count_dimension:
+        if word_count_dimension.get('value'):
             conditions.append(WordCountMetric.dimension.in_(word_count_dimension.get("value") or []))
-        if word_count_metric_type:
+        if word_count_metric_type.get('value'):
             conditions.append(WordCountMetric.metric_type.in_(word_count_metric_type.get("value") or []))
         if word_count_descriptor.get("min") not in (None, ""):
             conditions.append(WordCountMetric.count_value >= int(word_count_descriptor["min"]))
         if word_count_descriptor.get("max") not in (None, ""):
             conditions.append(WordCountMetric.count_value <= int(word_count_descriptor["max"]))
         count_match=db_exists().where(and_(*conditions))
-        if not word_count_dimension or 'preliminary' in (word_count_dimension.get('value') or []):
+        session = getattr(query, "session", None)
+        if session is not None and (not word_count_dimension.get('value') or 'preliminary' in word_count_dimension['value']):
             import preliminary_word_count as preliminary
-            if preliminary.ready(query.session):
+            if preliminary.ready(session):
                 model=preliminary.PreliminaryWordCountMetric
                 preliminary_conditions=[model.project_id==TranslationProject.id]
-                if word_count_metric_type:preliminary_conditions.append(model.metric_type.in_(word_count_metric_type.get('value') or []))
+                if word_count_metric_type.get('value'):preliminary_conditions.append(model.metric_type.in_(word_count_metric_type['value']))
                 if word_count_descriptor.get('min') not in (None,''):preliminary_conditions.append(model.count_value>=int(word_count_descriptor['min']))
                 if word_count_descriptor.get('max') not in (None,''):preliminary_conditions.append(model.count_value<=int(word_count_descriptor['max']))
                 count_match=or_(count_match,db_exists().where(and_(*preliminary_conditions)))
         import translation_duration_metrics as duration
-        if duration.ready(query.session):
+        if session is not None and duration.ready(session):
             model=duration.TranslationDurationMetric
             duration_conditions=[model.project_id==TranslationProject.id]
-            if word_count_dimension:duration_conditions.append(model.dimension.in_(word_count_dimension.get('value') or []))
-            if word_count_metric_type:duration_conditions.append(model.metric_type.in_(word_count_metric_type.get('value') or []))
+            if word_count_dimension.get('value'):duration_conditions.append(model.dimension.in_(word_count_dimension['value']))
+            if word_count_metric_type.get('value'):duration_conditions.append(model.metric_type.in_(word_count_metric_type['value']))
             if word_count_descriptor.get('min') not in (None,''):duration_conditions.append(model.count_value>=Decimal(str(word_count_descriptor['min'])))
             if word_count_descriptor.get('max') not in (None,''):duration_conditions.append(model.count_value<=Decimal(str(word_count_descriptor['max'])))
             count_match=or_(count_match,db_exists().where(and_(*duration_conditions)))
-        query = query.filter(count_match)
+        query = query.filter(~count_match if blank_word_count else count_match)
 
     translator_return_time_descriptor = field_filters.get("translator_return_time")
     if translator_return_time_descriptor:
@@ -2078,7 +2091,9 @@ def _apply_translation_project_filters(
                 ManuscriptArrangement.planned_delivery_at
                 < datetime.combine(upper + timedelta(days=1), time.min)
             )
-        query = query.filter(db_exists().where(and_(*return_time_conditions)))
+        match = db_exists().where(*return_time_conditions)
+        query = query.filter(~match.where(ManuscriptArrangement.planned_delivery_at.is_not(None))
+                             if translator_return_time_descriptor.get("op") == "is_empty" else match)
 
     from project_client_manager import manager_name_expression
     for field, descriptor in field_filters.items():
@@ -2118,6 +2133,8 @@ def _apply_translation_project_filters(
             query = query.filter(~payment_status_condition(query.session,'full'))
         elif field == 'finance_payment_project_id':
             query = query.filter(TranslationProject.id==UUID(descriptor['value']))
+        elif field == 'finance_populated_field_is_blank':
+            query = query.filter(false())
         elif field == 'finance_invoice_project_ids':
             query = query.filter(TranslationProject.id.in_([UUID(str(value)) for value in descriptor['value']]))
         elif field == 'finance_client_ids':
@@ -2151,7 +2168,10 @@ def _apply_translation_project_filters(
         elif field == "contact_name":
             from translation_project_contact import TranslationProjectContact
             from search_matching import keyword_any
-            query = query.filter(db_exists().where(and_(TranslationProjectContact.project_id == TranslationProject.id, keyword_any([TranslationProjectContact.contact_name], descriptor.get('value')))))
+            empty = descriptor.get("op") == "is_empty"
+            condition = ~blank_condition(TranslationProjectContact.contact_name) if empty else keyword_any([TranslationProjectContact.contact_name], descriptor.get('value'))
+            match = db_exists().where(TranslationProjectContact.project_id == TranslationProject.id, condition)
+            query = query.filter(~match if empty else match)
         elif field in {
             "client_name", "client_short_name", "client_code", "client_manager", "manager_contact",
             "sub_client_name", "sub_client_short_name", "sub_client_code",
@@ -2166,8 +2186,7 @@ def _apply_translation_project_filters(
                 "sub_client_short_name": SubClient.client_short_name,
                 "sub_client_code": SubClient.sub_client_code,
             }[field]
-            pattern = f"%{str(descriptor.get('value') or '').strip()}%"
-            query = query.filter(keyword_ilike(column, pattern))
+            query = apply_scalar_filter(query, column, descriptor)
         elif field in {"word_count", "word_count_dimension", "word_count_metric_type", "translator_return_time"}:
             continue
         elif field == "translator_assigned":
@@ -2181,41 +2200,46 @@ def _apply_translation_project_filters(
                 ManuscriptDispatch.confirmed_at.is_not(None),
             ))
             assigned = or_(TranslationProject.translator_id.is_not(None), confirmed_arrangement)
-            query = query.filter(assigned if descriptor.get("value") is True else ~assigned)
+            query = query.filter(false() if descriptor.get("op") == "is_empty" else assigned if descriptor.get("value") is True else ~assigned)
         elif field == "translator_name":
-            if descriptor.get("op") != "contains":
-                raise HTTPException(status_code=422, detail="译员姓名只支持包含筛选")
+            empty = descriptor.get("op") == "is_empty"
+            if not empty and descriptor.get("op") != "contains":
+                raise HTTPException(status_code=422, detail="译员姓名仅支持包含与空白筛选")
             keyword = str(descriptor.get("value") or "").strip()
-            if keyword:
+            if keyword or empty:
                 from manuscript_models import ManuscriptArrangement, ManuscriptDispatch
-                pattern = f"%{keyword}%"
+                def name_match(column):
+                    return ~blank_condition(column) if empty else keyword_ilike(column, f"%{keyword}%")
+
                 confirmed_arrangement = db_exists().where(and_(
                     ManuscriptArrangement.translation_project_id == TranslationProject.id,
                     ManuscriptArrangement.status != "cancelled",
-                    keyword_ilike(ManuscriptArrangement.translator_name_snapshot, pattern),
+                    name_match(ManuscriptArrangement.translator_name_snapshot),
                     ManuscriptDispatch.id == ManuscriptArrangement.dispatch_id,
                     ManuscriptDispatch.status != "cancelled",
                     ManuscriptDispatch.confirmed_at.is_not(None),
                 ))
-                query = query.filter(or_(
-                    TranslationProject.translator.has(keyword_ilike(Translator.translator_name, pattern)),
+                match = or_(
+                    TranslationProject.translator.has(name_match(Translator.translator_name)),
                     confirmed_arrangement,
-                ))
+                )
+                query = query.filter(~match if empty else match)
         elif field == "translator_id":
             translator_ids = descriptor.get("value") or []
             if not isinstance(translator_ids, (list, tuple, set)):
                 translator_ids = [translator_ids]
-            if translator_ids:
+            empty = descriptor.get("op") == "is_empty"
+            if translator_ids or empty:
                 from manuscript_models import ManuscriptArrangement, ManuscriptDispatch
                 confirmed_arrangement = db_exists().where(and_(
                     ManuscriptArrangement.translation_project_id == TranslationProject.id,
-                    ManuscriptArrangement.translator_id.in_(translator_ids),
+                    ManuscriptArrangement.translator_id.is_not(None) if empty else ManuscriptArrangement.translator_id.in_(translator_ids),
                     ManuscriptArrangement.status != "cancelled",
                     ManuscriptDispatch.id == ManuscriptArrangement.dispatch_id,
                     ManuscriptDispatch.status != "cancelled",
                     ManuscriptDispatch.confirmed_at.is_not(None),
                 ))
-                query = query.filter(or_(
+                query = query.filter(TranslationProject.translator_id.is_(None), ~confirmed_arrangement) if empty else query.filter(or_(
                     TranslationProject.translator_id.in_(translator_ids),
                     confirmed_arrangement,
                 ))
@@ -2226,12 +2250,17 @@ def _apply_translation_project_filters(
                 "layout_specialist_name": "layout_specialist",
             }[field]
             keyword = str(descriptor.get("value") or "").strip()
-            query = query.filter(TranslationProject.project_role_assignments.any(and_(
+            empty = descriptor.get("op") == "is_empty"
+            if empty:
+                has_name = or_(~blank_condition(AppUser.full_name), ~blank_condition(AppUser.username))
+            else:
+                has_name = keyword_or(lambda part: or_(keyword_ilike(AppUser.full_name, part),
+                                                      keyword_ilike(AppUser.username, part)), f"%{keyword}%")
+            match = TranslationProject.project_role_assignments.any(and_(
                 ProjectRoleAssignment.role_code == role_code,
-                ProjectRoleAssignment.assignee.has(keyword_or(lambda _search_part: or_(
-                    keyword_ilike(AppUser.full_name, _search_part), keyword_ilike(AppUser.username, _search_part)
-                ), f"%{keyword}%")),
-            )))
+                ProjectRoleAssignment.assignee.has(has_name),
+            ))
+            query = query.filter(~match if empty else match)
         elif field in {"project_specialist_id", "project_assistant_id", "layout_specialist_id"}:
             role_code = {
                 "project_specialist_id": "project_specialist",
@@ -2239,11 +2268,13 @@ def _apply_translation_project_filters(
                 "layout_specialist_id": "layout_specialist",
             }[field]
             assignee_ids = [UUID(str(value)) for value in descriptor.get("value") or []]
-            if assignee_ids:
-                query = query.filter(TranslationProject.project_role_assignments.any(and_(
+            empty = descriptor.get("op") == "is_empty"
+            if assignee_ids or empty:
+                match = TranslationProject.project_role_assignments.any(and_(
                     ProjectRoleAssignment.role_code == role_code,
-                    ProjectRoleAssignment.assignee_id.in_(assignee_ids),
-                )))
+                    ProjectRoleAssignment.assignee_id.is_not(None) if empty else ProjectRoleAssignment.assignee_id.in_(assignee_ids),
+                ))
+                query = query.filter(~match if empty else match)
         elif field.startswith("project_file_"):
             file_column = {
                 "project_file_translation_domain_level1": ProjectFile.translation_domain_level1,
@@ -2257,9 +2288,14 @@ def _apply_translation_project_filters(
                 "project_file_difficulty": ProjectFile.file_difficulty,
             }[field]
             keyword = str(descriptor.get("value") or "").strip()
-            query = query.filter(TranslationProject.project_file.any(keyword_ilike(file_column, f"%{keyword}%")))
+            empty = descriptor.get("op") == "is_empty"
+            match = TranslationProject.project_file.any(~blank_condition(file_column) if empty else keyword_ilike(file_column, f"%{keyword}%"))
+            query = query.filter(~match if empty else match)
         elif field in {"translator_delivery_progress", "pre_review_qc_progress", "review1_progress", "review2_progress", "post_review_qc_progress", "layout_progress", "consolidation_progress"}:
             expression = getattr(TranslationProject, field)
+            if descriptor.get("op") == "is_empty":
+                query = query.filter(blank_condition(expression))
+                continue
             numeric = cast(func.nullif(func.replace(expression, "%", ""), ""), Integer)
             if descriptor.get("min") not in (None, ""):
                 query = query.filter(numeric >= int(descriptor["min"]))
@@ -3597,16 +3633,20 @@ def _apply_consultation_filters(
                 "client_name": Client.client_name,
                 "client_short_name": Client.client_short_name,
             }[field]
-            keyword_value = str(descriptor.get("value") or "").strip()
-            if keyword_value:
-                query = query.filter(keyword_ilike(column, f"%{keyword_value}%"))
+            query = apply_scalar_filter(query, column, descriptor)
         elif field == "consultation_type":
+            if descriptor.get("op") == "is_empty":
+                query = query.filter(blank_condition(Consultation.consultation_type))
+                continue
             values = []
             for value in descriptor.get("value") or []:
                 values.extend(CONSULTATION_TYPE_FILTER_ALIASES.get(str(value), (str(value),)))
             if values:
                 query = query.filter(Consultation.consultation_type.in_(set(values)))
         elif field == "consultation_method":
+            if descriptor.get("op") == "is_empty":
+                query = query.filter(blank_condition(Consultation.consultation_method))
+                continue
             values = [str(value) for value in descriptor.get("value") or []]
             if values:
                 regular_values = [value for value in values if value != "other"]

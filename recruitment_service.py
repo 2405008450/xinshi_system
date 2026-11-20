@@ -42,7 +42,7 @@ from recruitment_schemas import (
     RecruitmentProjectCreate,
     RecruitmentProjectUpdate,
 )
-from field_filtering import apply_scalar_specs
+from field_filtering import apply_scalar_specs, blank_condition
 
 
 RECRUITMENT_TYPE_VALUES = {"招聘项目", "recruitment", "招聘"}
@@ -188,33 +188,46 @@ def _apply_filters(
         "updated_at": (RecruitmentProject.updated_at, "datetime"),
     })
     for field, descriptor in field_filters.items():
+        empty = descriptor.get("op") == "is_empty"
         if field in {"client_short_name", "client_code", "client_name", "client_domain"}:
             parent_column, sub_column = {
                 "client_short_name": (Client.client_short_name, SubClient.client_short_name),
                 "client_code": (Client.client_code, SubClient.sub_client_code),
                 "client_name": (Client.client_name, SubClient.client_name),
-                "client_domain": (func.concat_ws(" / ", Client.field_level1, Client.field_level2), func.concat_ws(" / ", SubClient.field_level1, SubClient.field_level2)),
+                "client_domain": (func.concat_ws(" / ", func.nullif(Client.field_level1, ''), func.nullif(Client.field_level2, '')), func.concat_ws(" / ", func.nullif(SubClient.field_level1, ''), func.nullif(SubClient.field_level2, ''))),
             }[field]
+            if empty:
+                query = query.filter(blank_condition(func.coalesce(func.nullif(sub_column, ''), parent_column)))
+                continue
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
             query = query.filter(keyword_or(lambda _search_part: or_(keyword_ilike(parent_column, _search_part), keyword_ilike(sub_column, _search_part)), pattern))
         elif field == "language_id":
+            if empty:
+                query = query.filter(~RecruitmentProject.language_directions.any())
+                continue
             values = [UUID(str(value)) for value in descriptor.get("value") or []]
             query = query.join(RecruitmentProjectLanguageDirection, RecruitmentProjectLanguageDirection.project_id == RecruitmentProject.id).filter(or_(RecruitmentProjectLanguageDirection.source_language_id.in_(values), RecruitmentProjectLanguageDirection.target_language_id.in_(values)))
         elif field in {"headcount", "employment_period"}:
             lower = descriptor.get("min", descriptor.get("from"))
             upper = descriptor.get("max", descriptor.get("to"))
             if field == "headcount":
+                if empty:
+                    query = query.filter(RecruitmentProject.headcount_min.is_(None), RecruitmentProject.headcount_max.is_(None))
                 if lower not in (None, ""):
                     query = query.filter(RecruitmentProject.headcount_max >= int(lower))
                 if upper not in (None, ""):
                     query = query.filter(RecruitmentProject.headcount_min <= int(upper))
             else:
+                if empty:
+                    query = query.filter(RecruitmentProject.employment_start.is_(None), RecruitmentProject.employment_end.is_(None))
                 if lower:
                     query = query.filter(RecruitmentProject.employment_end >= datetime.fromisoformat(str(lower)).date())
                 if upper:
                     query = query.filter(RecruitmentProject.employment_start <= datetime.fromisoformat(str(upper)).date())
         elif field == "candidate_count":
             candidate_count = select(func.count(RecruitmentCandidate.id)).where(RecruitmentCandidate.project_id == RecruitmentProject.id).correlate(RecruitmentProject).scalar_subquery()
+            if empty:
+                query = query.filter(candidate_count.is_(None))
             if descriptor.get("min") not in (None, ""):
                 query = query.filter(candidate_count >= int(descriptor["min"]))
             if descriptor.get("max") not in (None, ""):

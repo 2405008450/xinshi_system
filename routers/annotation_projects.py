@@ -130,7 +130,7 @@ ANNOTATION_FILTER_FIELDS = {
     "managed_user_id",
     "order_no", "project_name", "project_types", "task_description", "project_status", "priority",
     "client_short_name", "client_code", "client_full_name", "contact_name", "customer_order_no",
-    "language_id", "language_region", "region_city", "region_district", "region_street",
+    "language_id", "language_region", "region_city", "region_district", "region_street", "area_ids",
     "potential_demand", "has_customer_price", "customer_price",
     "assignee_person_id", "task_dispatched_at", "task_submitted_at", "client_manager_id",
     "project_manager_id",
@@ -183,6 +183,8 @@ def read_manager_change_logs(
 def _field_filters(raw: Optional[str], db: Session):
     value = parse_field_filters(raw)
     ensure_filter_fields(value, ANNOTATION_FILTER_FIELDS, allow_custom=True)
+    if "area_ids" in value and value["area_ids"]["op"] != "is_empty":
+        raise HTTPException(status_code=422, detail="原片区字段仅支持空白条件")
     ranges = {"customer_price", "task_dispatched_at", "task_submitted_at", "customer_consultation_time", "customer_confirmation_time", "created_at", "updated_at", "latest_progress_effective_on"}
     enums = {"managed_user_id",
         "project_types", "project_status", "priority", "language_id", "assignee_person_id",
@@ -208,7 +210,7 @@ def _field_filters(raw: Optional[str], db: Session):
             "number": "between", "date": "between", "datetime": "between",
             "boolean": "eq", "single_select": "in", "multi_select": "in",
         }.get(definition.data_type, "contains")
-        if descriptor.get("op") != allowed_operator:
+        if descriptor.get("op") not in {allowed_operator, "is_empty"}:
             raise HTTPException(status_code=422, detail=f"动态字段 {definition.field_label} 不支持该操作符")
         descriptor["data_type"] = definition.data_type
     return value
@@ -509,13 +511,15 @@ def create_project(
 
 
 @router.get("/{project_id}/children", response_model=PageResponse[AnnotationProjectListResponse])
-def read_children(project_id: UUID, skip: int = Query(0, ge=0), limit: int = Query(10, ge=1, le=500), area_ids: Optional[List[UUID]] = Query(None), db: Session = Depends(get_db)):
+def read_children(project_id: UUID, skip: int = Query(0, ge=0), limit: int = Query(10, ge=1, le=500), area_ids: Optional[List[UUID]] = Query(None), db: Session = Depends(get_db), area_is_empty: bool = False):
     parent = get_annotation_project(db, project_id)
     if not parent:
         raise HTTPException(status_code=404, detail="上级订单不存在")
     if parent.order_level >= 2:
         raise HTTPException(status_code=400, detail="三级订单没有下一级订单")
     filters = {"order_scope": "all", "parent_project_id": project_id, "area_ids": area_ids}
+    if area_is_empty:
+        filters["field_filters"] = {"area_ids": {"op": "is_empty"}}
     items = get_annotation_projects(db, skip=skip, limit=limit, **filters)
     return {"items": items, "total": resolve_page_total(items, skip, lambda: count_annotation_projects(db, **filters))}
 

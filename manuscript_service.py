@@ -11,6 +11,7 @@ from uuid import UUID
 
 from sqlalchemy import Integer, and_, case, cast, func, or_
 from sqlalchemy.orm import Session, aliased, joinedload
+from field_filtering import blank_condition
 
 from crud import create_translator as create_translator_record, get_user_roles_with_role_names
 from leave_service import assignment_disabled_reason, get_active_leave
@@ -1072,6 +1073,23 @@ def _get_active_manuscript_projects(
 
     field_filters = field_filters or {}
     for field, descriptor in field_filters.items():
+        if descriptor.get("op") == "is_empty":
+            if field == "project_assistant_id":
+                query = query.filter(~db.query(ProjectRoleAssignment.id).filter(
+                    ProjectRoleAssignment.translation_project_id == TranslationProject.id,
+                    ProjectRoleAssignment.role_code == "project_assistant", ProjectRoleAssignment.assignee_id.is_not(None),
+                ).exists())
+            elif field == "project_summary":
+                query = query.filter(*(blank_condition(column) for column in (TranslationProject.project_name, TranslationSubOrder.sub_project_name, Client.client_short_name)))
+            else:
+                columns = {
+                    "order_no": (effective_order_no, "string"),
+                    "language_pair": (func.coalesce(TranslationSubOrder.language_pair, TranslationProject.language_pair), "string"),
+                    "customer_deadline_time": (deadline, "datetime"),
+                    "project_status": (func.coalesce(TranslationSubOrder.status, TranslationProject.project_status), "string"),
+                }
+                query = query.filter(blank_condition(*columns[field]))
+            continue
         if field == "order_no":
             value = str(descriptor.get("value") or "").strip()
             if value:
@@ -1485,6 +1503,20 @@ def _dispatch_list_query(
         )
     field_filters = field_filters or {}
     for field, descriptor in field_filters.items():
+        if descriptor.get("op") == "is_empty":
+            if field in {"translator_name", "delivery_status", "completion_status"}:
+                columns = {"translator_name": ManuscriptArrangement.translator_name_snapshot,
+                           "delivery_status": ManuscriptArrangement.status,
+                           "completion_status": ManuscriptArrangement.completion_remarks}
+                query = query.filter(~ManuscriptDispatch.arrangements.any(~blank_condition(columns[field])))
+            else:
+                columns = {"order_no": (ManuscriptDispatch.order_no_snapshot, "string"),
+                           "project_name": (ManuscriptDispatch.project_name_snapshot, "string"),
+                           "status": (ManuscriptDispatch.status, "string"),
+                           "created_by": (ManuscriptDispatch.created_by, "uuid"),
+                           "created_at": (ManuscriptDispatch.created_at, "datetime")}
+                query = query.filter(blank_condition(*columns[field]))
+            continue
         if field == "order_no":
             value = str(descriptor.get("value") or "").strip()
             if value:

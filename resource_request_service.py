@@ -13,6 +13,7 @@ from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from annotation_models import AnnotationProject
+from field_filtering import BLANK_TEXT_CHARS
 from interpretation_models import InterpretationLanguage, InterpretationProject
 from models import Client, SubClient, TranslationProject
 from recruitment_models import RecruitmentProject
@@ -589,9 +590,33 @@ def _view_filter_sql(*, keyword=None, source_type=None, request_category=None, r
         "source_type": "source_type", "priority": "priority", "request_status": "request_status", "demand_status": "demand_status",
         "request_category": "request_category", "owner_id": "owner_id", "project_status": "current_project_status",
     }
+
+    def blank(column):
+        params['blank_chars'] = BLANK_TEXT_CHARS
+        return f"BTRIM(COALESCE({column}, ''), :blank_chars) = ''"
+
     for index, (field, descriptor) in enumerate(field_filters.items()):
         prefix = f"ff_{index}"
         operator = descriptor.get("op")
+        if operator == "is_empty":
+            if field in text_columns:
+                clauses.append(blank(text_columns[field]))
+            elif field in scalar_columns:
+                column = scalar_columns[field]
+                clauses.append(f"{column} IS NULL" if field == "owner_id" else blank(column))
+            elif field == "project_type":
+                clauses.append("COALESCE(CAST(source_project_types_snapshot AS TEXT), '[]') IN ('[]', 'null')")
+            elif field == "owner_name":
+                clauses.append(f"NOT EXISTS (SELECT 1 FROM app_user u WHERE u.id=owner_id AND NOT ({blank('u.full_name')} AND {blank('u.username')}))")
+            elif field == "languages":
+                clauses.append("NOT EXISTS (SELECT 1 FROM resource_request_item item WHERE item.request_id=v_resource_request_display.id AND (item.source_language_id IS NOT NULL OR item.target_language_id IS NOT NULL OR EXISTS (SELECT 1 FROM resource_request_item_extra_language extra WHERE extra.item_id=item.id)))")
+            elif field == "request_detail":
+                clauses.append(f"{blank('request_detail')} AND NOT EXISTS (SELECT 1 FROM resource_request_item item WHERE item.request_id=v_resource_request_display.id AND NOT ({blank('item.requirement_detail')}))")
+            elif field == "required_count":
+                clauses.append("NOT EXISTS (SELECT 1 FROM resource_request_item item WHERE item.request_id=v_resource_request_display.id AND item.required_count IS NOT NULL)")
+            elif field in {"progress_percent", "requested_at"}:
+                clauses.append(f"{field} IS NULL")
+            continue
         if field in text_columns and operator == "contains":
             clauses.append(f"{text_columns[field]} ILIKE :{prefix}")
             params[prefix] = f"%{str(descriptor.get('value') or '').strip()}%"

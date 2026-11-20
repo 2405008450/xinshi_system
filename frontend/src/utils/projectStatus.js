@@ -1,3 +1,5 @@
+import { isBlankFilter, isBlankValue } from './listFieldFilters.js'
+
 const TRANSLATION_STATUS_ALIASES = {
   '简单需求': 'simple_requirement',
   '原文件+简单需求': 'source_file_simple_requirement',
@@ -146,6 +148,7 @@ export function normalizeProjectStatus(projectType, status) {
 
 export function filterTranslationSubOrdersByStatus(subOrders, selectedStatuses) {
   if (!Array.isArray(subOrders)) return []
+  if (isBlankFilter(selectedStatuses)) return subOrders.filter(subOrder => isBlankValue(subOrder?.status))
 
   const statusValues = Array.isArray(selectedStatuses)
     ? selectedStatuses

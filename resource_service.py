@@ -27,7 +27,7 @@ from resource_models import (
     WrittenTranslationProfile,
 )
 from resource_schemas import ResourcePersonCreate, ResourcePersonUpdate
-from field_filtering import apply_scalar_specs
+from field_filtering import apply_scalar_specs, blank_condition
 from talent_wechat_accounts import ACCOUNT_FIELDS, lock_account_writes, write_talent_accounts
 from talent_duplicate_service import (
     active_query, archive_options, assert_writable, canonical_id, family_ids,
@@ -333,12 +333,17 @@ def _apply_talent_detail_filters(query, field_filters):
         (ResourceCertificate, ResourcePerson.certificates, certificate_specs, "certificate_language"),
     ):
         conditions = apply_scalar_specs(select(model.id), field_filters, specs)
-        if language_field in field_filters:
-            value = str(field_filters[language_field].get("value") or "").strip()
+        language_descriptor = field_filters.get(language_field, {})
+        if language_descriptor:
+            value = str(language_descriptor.get("value") or "").strip()
             if value:
                 conditions = conditions.where(model.language.has(keyword_ilike(InterpretationLanguage.label, f"%{value}%")))
+            elif language_descriptor.get("op") == "is_empty":
+                conditions = conditions.where(~model.language.has(~blank_condition(InterpretationLanguage.label)))
         if conditions.whereclause is not None:
-            query = query.filter(relationship.any(conditions.whereclause))
+            relevant = [descriptor for field, descriptor in field_filters.items() if field in specs or field == language_field]
+            match = relationship.any(conditions.whereclause)
+            query = query.filter(or_(match, ~relationship.any()) if all(item.get("op") == "is_empty" for item in relevant) else match)
     return query
 
 
@@ -451,19 +456,28 @@ def _talent_query(
         "resume_path_registered": (func.length(func.trim(func.coalesce(ResourcePerson.resume_path, ""), " \t\r\n\u3000")) > 0, "boolean"),
     })
     for field, descriptor in field_filters.items():
+        empty = descriptor.get("op") == "is_empty"
         if field == "capability_types":
             values = descriptor.get("value") or []
-            query = query.filter(ResourcePerson.capabilities.any(and_(
-                ResourceCapability.capability_type.in_(values),
+            match = ResourcePerson.capabilities.any(and_(
+                ~blank_condition(ResourceCapability.capability_type) if empty else ResourceCapability.capability_type.in_(values),
                 ResourceCapability.status != "inactive",
-            )))
+            ))
+            query = query.filter(~match if empty else match)
         elif field == "language_directions":
+            if empty:
+                query = query.filter(~ResourcePerson.written_profile.has(~blank_condition(WrittenTranslationProfile.languages)),
+                                     ~ResourcePerson.interpretation_profile.has(~blank_condition(InterpretationProfile.languages)))
+                continue
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
             query = query.filter(keyword_or(lambda _search_part: or_(
                 ResourcePerson.written_profile.has(keyword_ilike(WrittenTranslationProfile.languages, _search_part)),
                 ResourcePerson.interpretation_profile.has(keyword_ilike(InterpretationProfile.languages, _search_part)),
             ), pattern))
         elif field == "annotation_language_directions":
+            if empty:
+                query = query.filter(~ResourcePerson.annotation_language_skills.any())
+                continue
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
             query = query.filter(ResourcePerson.annotation_language_skills.any(keyword_or(lambda _search_part: or_(
                 ResourceAnnotationLanguageSkill.source_language.has(keyword_ilike(InterpretationLanguage.label, _search_part)),
@@ -472,8 +486,12 @@ def _talent_query(
         elif field in {"industries", "job_titles"}:
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
             column = ResourceCareerProfile.industries if field == "industries" else ResourceCareerProfile.job_titles
-            query = query.filter(ResourcePerson.career_profile.has(keyword_ilike(cast(column, String), pattern)))
+            query = query.filter(~ResourcePerson.career_profile.has(~blank_condition(column, "collection")) if empty else
+                                 ResourcePerson.career_profile.has(keyword_ilike(cast(column, String), pattern)))
         elif field == "years_experience":
+            if empty:
+                query = query.filter(~ResourcePerson.career_profile.has(ResourceCareerProfile.years_experience.is_not(None)))
+                continue
             conditions = []
             if descriptor.get("min") not in (None, ""):
                 conditions.append(ResourceCareerProfile.years_experience >= float(descriptor["min"]))
@@ -482,6 +500,9 @@ def _talent_query(
             if conditions:
                 query = query.filter(ResourcePerson.career_profile.has(and_(*conditions)))
         elif field == "age":
+            if empty:
+                query = query.filter(blank_condition(ResourcePerson.birth_year_month), ResourcePerson.birth_date.is_(None), ResourcePerson.reported_age.is_(None))
+                continue
             today = date.today()
             minimum, maximum = descriptor.get("min"), descriptor.get("max")
             if minimum not in (None, ""):
@@ -502,8 +523,11 @@ def _talent_query(
                 ))
         elif field in {"dialects", "dialect_regions"}:
             column = ResourcePerson.dialects if field == "dialects" else ResourcePerson.dialect_regions
-            query = query.filter(keyword_ilike(cast(column, String), f"%{str(descriptor.get('value') or '').strip()}%"))
+            query = query.filter(blank_condition(column, "collection") if empty else keyword_ilike(cast(column, String), f"%{str(descriptor.get('value') or '').strip()}%"))
         elif field == "region_summary":
+            if empty:
+                query = query.filter(*(blank_condition(column) for column in (ResourcePerson.ancestral_home, ResourcePerson.native_place, ResourcePerson.residence_address)))
+                continue
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
             query = query.filter(keyword_or(lambda _search_part: or_(
                 keyword_ilike(ResourcePerson.ancestral_home, _search_part),
@@ -511,9 +535,16 @@ def _talent_query(
                 keyword_ilike(ResourcePerson.residence_address, _search_part),
             ), pattern))
         elif field == "education_summary":
+            if empty:
+                query = query.filter(blank_condition(ResourcePerson.highest_education), ~ResourcePerson.education_experiences.any(or_(
+                    *(~blank_condition(column) for column in (ResourceEducationExperience.institution, ResourceEducationExperience.major, ResourceEducationExperience.minor_major)))))
+                continue
             value = str(descriptor.get("value") or "").strip()
             query = query.filter(_education_summary_condition(value))
         elif field == "language_summary":
+            if empty:
+                query = query.filter(~ResourcePerson.language_skills.any(), ~ResourcePerson.certificates.any())
+                continue
             pattern = f"%{str(descriptor.get('value') or '').strip()}%"
             query = query.filter(keyword_or(lambda _search_part: or_(
                 ResourcePerson.language_skills.any(
@@ -527,7 +558,8 @@ def _talent_query(
             ), pattern))
         elif field == "project_situation":
             value = str(descriptor.get("value") or "").strip()
-            query = query.filter(_project_situation_condition(value, include_archived=review_ready(db)))
+            match = _project_situation_condition(value, include_archived=review_ready(db))
+            query = query.filter(match.is_not(True) if empty else match)
     # 关联筛选使用 EXISTS，人员主表不会产生重复行；避免对 JSON 字段做 DISTINCT。
     return query
 

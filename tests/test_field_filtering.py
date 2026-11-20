@@ -108,6 +108,13 @@ class RecordingTranslationDb:
         (consultation_field_filters, {"follow_up_count": {"op": "between", "min": 1, "max": 5}}),
         (manuscript_project_field_filters, {"project_status": {"op": "in", "value": ["confirmed", "organized"]}}),
         (manuscript_dispatch_field_filters, {"completion_status": {"op": "in", "value": ["pending"]}}),
+        (client_field_filters, {"english_short_name": {"op": "is_empty"}}),
+        (consultation_field_filters, {"editor_id": {"op": "is_empty"}}),
+        (translation_field_filters, {"customer_deadline_time": {"op": "is_empty"}}),
+        (interpretation_field_filters, {"locations": {"op": "is_empty"}}),
+        (recruitment_field_filters, {"service_fee_amount": {"op": "is_empty"}}),
+        (request_field_filters, {"languages": {"op": "is_empty"}}),
+        (manuscript_dispatch_field_filters, {"completion_status": {"op": "is_empty"}}),
     ],
 )
 def test_module_field_filter_contract_accepts_supported_shapes(parser, payload):
@@ -127,6 +134,7 @@ def test_module_field_filter_contract_accepts_supported_shapes(parser, payload):
         (consultation_field_filters, {"follow_up_count": {"op": "contains", "value": "2"}}),
         (manuscript_project_field_filters, {"customer_deadline_time": {"op": "contains", "value": "2026-09"}}),
         (manuscript_dispatch_field_filters, {"unknown": {"op": "contains", "value": "x"}}),
+        (translation_field_filters, {"excluded_project_status": {"op": "is_empty"}}),
     ],
 )
 def test_module_field_filter_contract_rejects_unknown_fields_and_wrong_operators(parser, payload):
@@ -434,7 +442,8 @@ def test_client_and_talent_field_filters_compile_to_related_record_predicates():
     ))
     assert "client.client_name" in client_sql
     assert "sub_client.client_name" in client_sql
-    assert "client.client_status in" in client_sql
+    assert "coalesce(client.client_status" in client_sql
+    assert "in ('active', 'pending')" in client_sql
 
     talent_sql = compiled_sql(_talent_query(Session(), field_filters={
         "capability_types": {"op": "in", "value": ["written_translation", "interpretation"]},

@@ -1,16 +1,17 @@
 <template>
   <div class="grouped-column-filter">
-    <p class="grouped-column-filter__hint">点击“确定”应用；关闭保留已生效的条件和结果，清除筛选后同步取消。</p>
+    <p class="grouped-column-filter__hint">点击“确定”应用筛选，关闭窗口可保留待确认的输入。</p>
     <div v-for="field in definition.fields" :key="field.key" class="grouped-column-filter__field">
       <div class="grouped-column-filter__label">{{ field.groupLabel || field.label }}</div>
       <template v-if="isMultiple(field)">
-        <div class="grouped-column-filter__selection-actions">
+        <el-checkbox v-if="supportsBlankFilter(field)" :model-value="isBlankFilter(drafts[field.key])" @change="drafts[field.key] = $event ? BLANK_FILTER_VALUE : []">为空白</el-checkbox>
+        <div v-if="!isBlankFilter(drafts[field.key])" class="grouped-column-filter__selection-actions">
           <span>已选 {{ drafts[field.key]?.length || 0 }} 项</span>
           <el-button link type="primary" size="small" @click="selectAll(field)">{{ keywords[field.key] ? '全选结果' : '全选' }}</el-button>
           <el-button link size="small" @click="drafts[field.key] = []">清空</el-button>
         </div>
-        <el-input v-if="options(field).length > 8 && field.filterable !== false" v-model="keywords[field.key]" :placeholder="`搜索${field.label}`" clearable size="small" />
-        <el-checkbox-group v-model="drafts[field.key]" class="grouped-column-filter__options">
+        <el-input v-if="!isBlankFilter(drafts[field.key]) && options(field).length > 8 && field.filterable !== false" v-model="keywords[field.key]" :placeholder="`搜索${field.label}`" clearable size="small" />
+        <el-checkbox-group v-if="!isBlankFilter(drafts[field.key])" v-model="drafts[field.key]" class="grouped-column-filter__options">
           <el-checkbox v-for="option in filteredOptions(field)" :key="String(option.value)" :value="option.value">{{ option.label }}</el-checkbox>
         </el-checkbox-group>
       </template>
@@ -20,7 +21,8 @@
     <div class="grouped-column-filter__footer">
       <el-button link type="primary" size="small" @click="clearGroup">清除本组筛选</el-button>
       <div>
-        <el-button size="small" @click="$emit('close')">{{ hasSelections ? '取消' : '关闭' }}</el-button>
+        <el-button v-if="hasSelections" size="small" @click="$emit('cancel')">取消</el-button>
+        <el-button v-else size="small" @click="$emit('close')">关闭</el-button>
         <el-button type="primary" size="small" @click="confirm">确定</el-button>
       </div>
     </div>
@@ -30,20 +32,25 @@
 <script setup>
 import { matchesSearch } from '@/utils/searchMatching'
 
-import { computed, reactive } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import ListFilterControl from './ListFilterControl.vue'
-import { emptyFilterValue } from '@/utils/listFieldFilters'
+import { BLANK_FILTER_VALUE, emptyFilterValue, isBlankFilter, supportsBlankFilter } from '@/utils/listFieldFilters'
 
 const props = defineProps({ definition: { type: Object, required: true }, model: { type: Object, required: true } })
-const emit = defineEmits(['update-field', 'text-input', 'change', 'enter', 'clear', 'close'])
+const emit = defineEmits(['update-field', 'text-input', 'change', 'enter', 'clear', 'close', 'cancel'])
 const drafts = reactive({})
 const keywords = reactive({})
 const isMultiple = field => field.type === 'select' && field.multiple !== false
 const hasSelections = computed(() => props.definition.fields.some(isMultiple))
-props.definition.fields.forEach(field => {
-  const value = props.model[field.key] ?? emptyFilterValue(field)
-  drafts[field.key] = Array.isArray(value) ? [...value] : value
-})
+const applied = computed(() => props.definition.fields.map(field => props.model[field.key] ?? emptyFilterValue(field)))
+watch(() => JSON.stringify(applied.value), (current, previous) => {
+  const oldValues = previous ? JSON.parse(previous) : []
+  JSON.parse(current).forEach((value, index) => {
+    if (JSON.stringify(value) !== JSON.stringify(oldValues[index])) {
+      drafts[props.definition.fields[index].key] = value
+    }
+  })
+}, { immediate: true })
 const options = field => {
   const values = typeof field.options === 'function' ? field.options() : field.options
   return (values || []).map(item => item && typeof item === 'object'

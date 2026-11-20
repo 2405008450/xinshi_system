@@ -39,9 +39,9 @@
           />
         </el-form-item>
         <el-form-item label="项目状态" class="project-list-status-filter">
-          <el-select v-model="searchForm.projectStatus" multiple collapse-tags :max-collapse-tags="1" clearable placeholder="全部" @change="handleSearch">
+          <ListFilterSelect v-model="searchForm.projectStatus" collapse-tags :max-collapse-tags="1" clearable placeholder="全部" @change="handleSearch">
             <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
-          </el-select>
+          </ListFilterSelect>
         </el-form-item>
       </div>
       <el-form-item class="project-list-search-actions">
@@ -648,6 +648,7 @@ import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
+import ListFilterSelect from '@/components/common/ListFilterSelect.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
@@ -678,7 +679,7 @@ import { copyTextToClipboard } from '@/utils/clipboard'
 import { launchOpenPath } from '@/utils/openPath'
 import { createIdempotencyKey } from '@/utils/idempotency'
 import { formatBusinessDateTimeMinute as formatDateTime } from '@/utils/dateTime'
-import { countActiveFilters, createFilterModel, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
+import { countActiveFilters, createFilterModel, isBlankFilter, resetFilterModel, serializeFieldFilters } from '@/utils/listFieldFilters'
 import { groupProjectProgressRows } from '@/utils/annotationProgress'
 
 const canWrite = hasPermission('projects:write')
@@ -1545,7 +1546,7 @@ const confirmStatusChange = async () => {
     await nextTick()
     statusFormRef.value?.clearValidate()
     ElMessage.success(progressOnly ? '具体进度已添加' : '项目状态已更新')
-    if (!progressOnly && searchForm.projectStatus?.length && !searchForm.projectStatus.includes(updated.projectStatus)) await fetchData()
+    if (!progressOnly && (isBlankFilter(searchForm.projectStatus) || (searchForm.projectStatus?.length && !searchForm.projectStatus.includes(updated.projectStatus)))) await fetchData()
   } catch (error) {
     await statusFormRef.value?.applyServerErrors(error)
     ElMessage.error(error?.detail || (progressOnly ? '添加具体进度失败' : '项目状态更新失败'))

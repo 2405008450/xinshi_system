@@ -1,4 +1,4 @@
-import { cloneVNode, defineComponent, h, isVNode, reactive, watch } from 'vue'
+import { cloneVNode, defineComponent, h, isVNode, reactive } from 'vue'
 import { emptyFilterValue } from '@/utils/listFieldFilters'
 
 const copy = value => value == null ? value : JSON.parse(JSON.stringify(value))
@@ -14,20 +14,29 @@ const empty = props => {
 }
 
 // 只管理筛选浮层的输入副本；正式条件始终由业务页面持有。
-// 关闭丢弃未确认修改；下次打开从当前生效条件恢复，保持条件和结果一致。
+// 关闭只隐藏浮层，输入副本保留到确认、清除或正式条件发生变化。
 export default defineComponent({
   name: 'FilterDraftScope',
-  props: { active: Boolean },
   emits: ['apply', 'cancel'],
   setup(props, { slots, expose, emit }) {
     const values = reactive(new Map())
     const bindings = new Map()
     let pendingQuery
     const discard = () => { values.clear(); bindings.clear(); pendingQuery = undefined }
-    watch(() => props.active, discard)
+    function bind(key, appliedValue, binding) {
+      const applied = JSON.stringify(appliedValue)
+      if (!bindings.has(key) || bindings.get(key).applied !== applied) {
+        values.set(key, copy(appliedValue))
+      }
+      bindings.set(key, { ...binding, applied })
+    }
     function apply() {
-      for (const [key, binding] of bindings) binding.write(copy(values.get(key)))
+      for (const [key, binding] of bindings) {
+        const value = values.get(key)
+        if (JSON.stringify(value) !== binding.applied) binding.write(copy(value))
+      }
       const query = pendingQuery || [...bindings.values()].find(binding => binding.query)?.query
+      pendingQuery = undefined
       query?.()
       emit('apply')
     }
@@ -45,8 +54,7 @@ export default defineComponent({
         const original = node.props || {}
         next.props = { ...original }
         if (typeof original['onUpdate:modelValue'] === 'function' || Array.isArray(original['onUpdate:modelValue'])) {
-          if (!values.has(key)) values.set(key, copy(original.modelValue))
-          bindings.set(key, { write: value => call(original['onUpdate:modelValue'], value),
+          bind(key, original.modelValue, { write: value => call(original['onUpdate:modelValue'], value),
             empty: empty(original),
             query: () => call(original.onEnter || original.onChange || original.onTextInput || original.onInput, values.get(key)) })
           next.props.modelValue = values.get(key)
@@ -62,11 +70,10 @@ export default defineComponent({
           const model = {}
           for (const field of fields) {
             const fieldKey = key + ':' + field.key
-            if (!values.has(fieldKey)) values.set(fieldKey, copy(original.model[field.key] ?? emptyFilterValue(field)))
-            model[field.key] = values.get(fieldKey)
-            bindings.set(fieldKey, { write: value => call(original.onUpdate, field.key, value),
+            bind(fieldKey, original.model[field.key] ?? emptyFilterValue(field), { write: value => call(original.onUpdate, field.key, value),
               empty: emptyFilterValue(field),
               query: () => call(original.onEnter || original.onChange, field, values.get(fieldKey)) })
+            model[field.key] = values.get(fieldKey)
           }
           next.props.model = model
           next.props.onUpdate = (field, value) => values.set(key + ':' + field, copy(value))

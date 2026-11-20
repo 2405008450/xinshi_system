@@ -34,9 +34,9 @@
             />
           </el-form-item>
           <el-form-item label="状态" class="project-list-status-filter">
-            <el-select v-model="filterModel.requestStatus" multiple collapse-tags :max-collapse-tags="1" clearable placeholder="请求状态" @change="search">
+            <ListFilterSelect v-model="filterModel.requestStatus" collapse-tags :max-collapse-tags="1" clearable placeholder="请求状态" @change="search">
               <el-option v-for="(label, value) in statusLabels" :key="value" :label="label" :value="value" />
-            </el-select>
+            </ListFilterSelect>
           </el-form-item>
         </div>
         <el-form-item class="project-list-search-actions">
@@ -299,6 +299,7 @@ import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
 import InlineTextField from '@/components/common/InlineTextField.vue'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
+import ListFilterSelect from '@/components/common/ListFilterSelect.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import { useResourceNotesDock } from '@/composables/useResourceNotesDock'
 import { useTableColumns } from '@/composables/useTableColumns'
