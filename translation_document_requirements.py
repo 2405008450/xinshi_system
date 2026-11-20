@@ -291,8 +291,13 @@ def apply_customer_documents(db, client_id, changes, actor_id):
     ).order_by(TranslationProject.id).with_for_update(of=TranslationProject).all()
     rows = {row.project_id:row for row in db.query(TranslationProjectDocuments).filter(
         TranslationProjectDocuments.project_id.in_([project.id for project in projects]))}
+    attach(db,projects)
+    from translation_customer_finance import attach_monthly_payment_peers
+    attach_monthly_payment_peers(db,projects)
     moment = business_now()
     for project in projects:
+        if project.sub_client_id and project.settlement_party != 'client':
+            continue
         row = rows.get(project.id)
         stored = dict(row.quotation_data or {}) if row else {}
         if 'quotation_required' in changes:

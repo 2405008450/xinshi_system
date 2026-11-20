@@ -149,6 +149,56 @@ def test_notification_uses_child_rollup_and_separates_currencies(chat_case):
     assert line in db.query(DiscussionMessage).one().content
 
 
+def test_sub_client_source_path_and_saved_quotation_in_mail_and_chat(chat_case):
+    import business_mail_service as mail
+    import translation_document_requirements as documents
+    from models import Client, SubClient, ProjectFile
+    from discussion_chat_models import DiscussionMessage
+
+    db, actor, _, root, service = chat_case
+    client = Client(id=uuid4(), client_code='MAIL-CLIENT', client_name='母客户', client_short_name='母简称')
+    child = SubClient(id=uuid4(), parent_client=client, sub_client_code='MAIL-CHILD',
+                      client_name='子客户全称', client_short_name='子简称')
+    root.client, root.sub_client = client, child
+    root.network_file_path = r'D:\旧路径'
+    root.quotation_status = '已报价'
+    root.quotation_path = r'D:\报价\报价单.xlsx'
+    path = r'\\server\原文\合同 & <附件>'
+    db.add(ProjectFile(id=uuid4(), translation_project_id=root.id, file_name='原文', storage_path=path))
+    documents.save(db, root, quotation_draft=documents.QuotationDraft(
+        title='合同报价单', client_name='子客户全称', items=[
+            dict(description='翻译', quantity='3', unit='字', unit_price='0.335', currency='CNY'),
+            dict(description='排版', quantity='2', unit='页', unit_price='5', currency='USD'),
+        ], notes='保留格式 & <核对>'), actor_id=actor.id)
+    db.commit()
+    preview = mail.build_preview(db, 'translation', project_id=root.id, current_user=actor)
+    for text in (
+        '子客户编号：MAIL-CHILD', '子客户全称：子客户全称', '子客户简称：子简称',
+        f'母订单原文路径：{path}', r'报价单路径：D:\报价\报价单.xlsx', '报价单状态：已报价',
+        '数量：3字', '单价：0.335 CNY/字', '金额：1.01 CNY',
+        '报价合计：1.01 CNY', '报价合计：10.00 USD', '报价备注：\n保留格式 & <核对>',
+    ):
+        assert text in preview['body']
+    assert preview['body'].count('原文路径：') == 1
+    assert root.network_file_path not in preview['body']
+    assert '&lt;附件&gt;' in preview['body_html'] and '&lt;核对&gt;' in preview['body_html']
+    assert '<附件>' not in preview['body_html']
+    service.send(db, actor, root.id, uuid4())
+    assert db.query(DiscussionMessage).one().content.endswith(preview['body'])
+
+    root.sub_client = None
+    root.network_file_path = None
+    root.quotation_path = None
+    root.quotation_status = None
+    db.query(ProjectFile).filter_by(translation_project_id=root.id).delete(synchronize_session=False)
+    db.query(documents.TranslationProjectDocuments).filter_by(project_id=root.id).delete(synchronize_session=False)
+    db.commit()
+    db.expire(root, ['project_file'])
+    empty = mail.build_preview(db, 'translation', project_id=root.id, current_user=actor)
+    assert '母订单原文路径：-' in empty['body']
+    assert all(label not in empty['body'] for label in ('子客户编号：', '子客户全称：', '子客户简称：', '报价信息：', '报价单路径：', '报价单状态：'))
+
+
 def test_generated_conversation_and_date_folder_cannot_be_disabled(chat_case,monkeypatch):
     from fastapi import HTTPException
     from routers import chat_session_categories as api

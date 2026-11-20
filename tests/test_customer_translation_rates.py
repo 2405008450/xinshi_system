@@ -126,7 +126,7 @@ def test_one_sided_tax_rate_stays_separate_after_reopen_and_inheritance(environm
     assert getattr(inherited, empty_key) is None
 
 
-def test_matching_customer_rate_updates_linked_price_and_preserves_manual_price(environment):
+def test_matching_customer_rate_updates_linked_and_manually_entered_price(environment):
     db, (owner, _, _) = environment
     client, root, _, leaf = context(db, owner)
     library = rates.write_library(db, owner, client.id, [item(metric='customer_auto:foreign_words')],
@@ -156,8 +156,8 @@ def test_matching_customer_rate_updates_linked_price_and_preserves_manual_price(
                         library['version'])
     db.commit()
     manual = finance.read(db, root.id)['item']['children'][0]['children'][0]['prices'][0]
-    assert Decimal(manual['amount']) == Decimal('.2')
-    assert manual['reference_id'] is None
+    assert Decimal(manual['amount']) == Decimal('.3')
+    assert manual['reference_id'] == library['items'][0]['id']
 
 
 @pytest.mark.parametrize('direction,metric',[('英语→简中','foreign_words'),('简体中文→英语','characters_no_spaces'),('日语→繁體中文','foreign_words'),('zh-CN→英语','characters_no_spaces')])
@@ -189,7 +189,7 @@ def test_multirates_inheritance_and_metrics(environment):
     result=write(db,owner,root,third,[item(amount='.5')])
     assert result['item']['totals']=={'CNY':'5.00'}
     result=write(db,owner,root,root,[item(amount='.3'),item('简中→英语','.4')])
-    assert result['item']['children'][0]['children'][0]['prices'][0]['amount']=='0.5'
+    assert result['item']['children'][0]['children'][0]['prices'][0]['amount']=='0.3'
 
 
 def test_automatic_customer_sync_and_confirmed_project_sync(environment,monkeypatch):

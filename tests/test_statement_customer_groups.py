@@ -60,6 +60,6 @@ def test_month_groups_search_move_and_stale_snapshot(environment):
     assert customers(db,'2026-10',False,None,0,20)['total']==2
     documents.attach(db,projects)
     assert not projects[0].statement_required and not projects[1].statement_required
-    assert projects[2].statement_required
+    assert not projects[2].statement_required  # 自动同步客户默认，同时更新其他账期。
     with pytest.raises(HTTPException) as stale:move(db,actor,client.id,CustomerGroupMove(billing_month='2026-10',statement_required=True,expected_version=row['version']))
     assert stale.value.status_code==409

@@ -1,6 +1,5 @@
 <template>
   <span v-if="row.rootId&&row.id!==row.rootId" class="statement-inherited">{{row.paymentMethod==='special'?'':'随母订单：'}}{{row.statementRequired?'需':'无需'}}</span>
-  <span v-else-if="!usesSubClientDocumentSettings(row) && (row.subClientId || row.paymentMethod && row.paymentMethod!=='special')" title="按结算设置或计费口径确定">{{row.statementRequired?'需':'无需'}}</span>
   <el-checkbox v-else v-model="checked" :disabled="!canWrite||saving" :aria-label="`${row.orderNo} 是否需对账单`" @change="save">{{saving?'保存中':row.statementRequired?'需':allowMonthSync?'不需':'无需'}}</el-checkbox>
 </template>
 <script setup>

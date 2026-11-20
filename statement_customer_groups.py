@@ -17,6 +17,7 @@ class CustomerGroupMove(BaseModel):
     model_config=ConfigDict(extra='forbid')
     billing_month:str=Field(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')
     statement_required:bool
+    period_number:int|None=Field(default=None,ge=1)
     expected_version:str=Field(min_length=64,max_length=64)
     manager_ids:list[UUID]=Field(default_factory=list,max_length=2000)
     only_mine:bool=False
@@ -41,14 +42,15 @@ def snapshot_version(rows, workspace_revision):
     }).encode()).hexdigest()
 
 
-def snapshot(db,client_id,month,manager_scope=None,settlement_scope=None):
+def snapshot(db,client_id,month,manager_scope=None,settlement_scope=None,period_number=None):
     from collections import namedtuple
     from translation_customer_finance import effective_statement_requirements
     projects=project_query(db,month,manager_scope).filter(func.coalesce(TranslationProject.client_id,SubClient.parent_client_id)==client_id).order_by(TranslationProject.id).all()
     required=effective_statement_requirements(db,projects)
     entry=namedtuple('StatementRequirement','id updated_at required')
     rows=[entry(project.id,project.updated_at,required[project.id]) for project in projects
-          if documents.matches_statement_scope(project,settlement_scope)]
+          if documents.matches_statement_scope(project,settlement_scope)
+          and (period_number is None or project.settlement_period_number==period_number)]
     from customer_statement_workspace import StatementWorkspace
     workspace=db.get(StatementWorkspace,client_id) if inspect(db.connection()).has_table(StatementWorkspace.__tablename__) else None
     version=snapshot_version(rows, workspace.revision if workspace else 0)
@@ -123,7 +125,7 @@ def customers(db,month,required,keyword,skip,limit,manager_scope=None,progress=N
     version_rows={client.id: [] for client, _, _ in selected_clients}
     for project in sorted(projects, key=lambda project: project.id):
         client_id=project.client_id or (project.sub_client.parent_client_id if project.sub_client else None)
-        if client_id in version_rows and documents.matches_statement_scope(project,settlement_scope):
+        if client_id in version_rows and documents.matches_statement_scope(project,settlement_scope) and (period_number is None or project.settlement_period_number==period_number):
             version_rows[client_id].append(entry(project.id,project.updated_at,requirements[project.id]))
     revisions=dict(db.query(StatementWorkspace.client_id, StatementWorkspace.revision).filter(
         StatementWorkspace.client_id.in_(version_rows),
@@ -174,7 +176,7 @@ def move(db,user,client_id:UUID,payload):
         from finance_manager_scope import manager_fields
         scope=manager_fields(db,user,payload.manager_ids,payload.only_mine,payload.client_manager)
         projects=project_query(db,payload.billing_month,scope).filter(func.coalesce(TranslationProject.client_id,SubClient.parent_client_id)==client_id).order_by(TranslationProject.id).with_for_update(of=TranslationProject).populate_existing().all()
-        rows,version=snapshot(db,client_id,payload.billing_month,scope,payload.settlement_scope)
+        rows,version=snapshot(db,client_id,payload.billing_month,scope,payload.settlement_scope,payload.period_number)
         if version!=payload.expected_version:raise HTTPException(409,'客户项目或单据需求已变化，请刷新后重试')
         if not payload.statement_required and client_id in pending_clients(db,payload.billing_month,scope,payload.settlement_scope):raise HTTPException(422,'该客户当月仍有待入账任务，请先调整或撤销待入账任务')
         if not rows:raise HTTPException(422,'该客户在所选账单月份没有项目')
@@ -182,12 +184,17 @@ def move(db,user,client_id:UUID,payload):
         projects=[project for project in projects if project.id in before]
         from translation_customer_finance import effective_statement_requirements
         effective_statement_requirements(db,projects)
-        if any(before[project.id]!=payload.statement_required and documents.payment_method(project)!='special' for project in projects):
-            raise HTTPException(422,'存在按计费口径自动确定对账单需求的订单，请在价格与付款中调整计费口径')
         for project in projects:
             if before[project.id]==payload.statement_required:continue
             documents.save(db,project,statement_required=payload.statement_required,actor_id=user.id)
             project.updated_at=business_now().replace(tzinfo=None);changed+=1
+        from customer_statements import auto_sync_document_defaults
+        import sub_client_finance
+        sub_ids={project.sub_client_id for project in projects if project.sub_client_id and project.settlement_party!='client'}
+        for sub_id in sub_ids:
+            sub_client_finance.write_preferences(db,sub_id,{'statement_required':payload.statement_required},user,revision=None)
+        if any(not project.sub_client_id or project.settlement_party=='client' for project in projects):
+            auto_sync_document_defaults(db,user,client_id,statement_default='required' if payload.statement_required else 'not_required')
         db.commit()
         return dict(client_id=str(client_id),billing_month=payload.billing_month,statement_required=payload.statement_required,affected_count=changed)
     except Exception:

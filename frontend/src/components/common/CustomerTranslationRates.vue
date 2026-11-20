@@ -49,6 +49,7 @@ import {ratePayload,newCustomerRate} from '@/utils/customerTranslationRates'
 import {basisLabel} from '@/utils/translationQuantityBasis'
 import {formatBusinessDateTime as formatTime} from '@/utils/dateTime'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
+import {connectInvoiceParties,notifyInvoiceParties,invoicePartiesEvent} from '@/api/invoiceParties'
 const emit=defineEmits(['saved'])
 const props=defineProps({subClientId:String,clientId:{type:[String,Number],default:''},canWrite:Boolean,openOnMount:Boolean,buttonLabel:{type:String,default:'客户语种单价'}})
 const visible=ref(false),loading=ref(false),saving=ref(false),ready=ref(false),draft=ref({prices:[]}),history=ref([]),form=ref(),body=ref()
@@ -63,6 +64,7 @@ function applyHistory(data){history.value=data.items||[];historyTotal.value=data
 const historyActions = {
   manual_entry: '人工登记',
   manual_project_sync: '从项目人工同步参考价',
+  automatic_project_sync: '项目单价自动同步客户资料',
   automatic_order_sync: '自动同步至项目',
   manual_order_sync: '人工同步至项目',
 }
@@ -129,7 +131,7 @@ function open() {
   void loadRates()
 }
 async function close(done){if(saving.value)return;if(signature()!==original&&props.canWrite){try{await ElMessageBox.confirm('参考价有未保存修改，确定放弃？','关闭参考价',{confirmButtonText:'放弃修改',cancelButtonText:'继续编辑'})}catch{return}}if(typeof done==='function')done();else visible.value=false}
-async function save(){if(!props.canWrite||!ready.value||saving.value||!await form.value?.validate().catch(()=>false))return;const target=client,current=sequence;saving.value=true;saveError.value='';try{const data=await saveCustomerTranslationRates(target,{version,items:draft.value.prices.map(ratePayload)},{params:{sub_client_id:props.subClientId||undefined}});if(current!==sequence)return;apply(data);historyPage.value=1;historyTotal.value=null;window.dispatchEvent(new CustomEvent('translation-finance-changed',{detail:{clientId:String(target),fromCustomer:true}}));emit('saved');ElMessage.success('已保存客户参考价，并同步至匹配的订单');void loadHistory()}catch(e){if(current===sequence)saveError.value=getLocalizedErrorMessage(e,'保存参考价失败')}finally{saving.value=false}}
+async function save(){if(!props.canWrite||!ready.value||saving.value||!await form.value?.validate().catch(()=>false))return;const target=client,current=sequence;saving.value=true;saveError.value='';try{const data=await saveCustomerTranslationRates(target,{version,items:draft.value.prices.map(ratePayload)},{params:{sub_client_id:props.subClientId||undefined}});if(current!==sequence)return;apply(data);historyPage.value=1;historyTotal.value=null;window.dispatchEvent(new CustomEvent('translation-finance-changed',{detail:{clientId:String(target),fromCustomer:true}}));notifyInvoiceParties({kind:'translation-finance',clientId:String(target),subClientId:props.subClientId});emit('saved');ElMessage.success('已保存客户参考价，并同步至匹配的订单');void loadHistory()}catch(e){if(current===sequence)saveError.value=getLocalizedErrorMessage(e,'保存参考价失败')}finally{saving.value=false}}
 function resetDialog() {
   sequence++
   rateRequest?.abort()
@@ -151,6 +153,10 @@ watch(()=>[props.clientId,props.subClientId],()=>{visible.value=false})
 watch(expandedSections, sections => {
   if (sections.includes('history')) void loadHistory()
 })
+function refreshAutomaticRates(event){if(event.detail?.kind!=='translation-finance'||String(event.detail.clientId)!==String(props.clientId)||saving.value)return;if(visible.value&&signature()===original)void loadRates();refreshOrderHistory(event)}
+connectInvoiceParties()
+window.addEventListener(invoicePartiesEvent,refreshAutomaticRates)
+onBeforeUnmount(()=>window.removeEventListener(invoicePartiesEvent,refreshAutomaticRates))
 function refreshOrderHistory(event){
   if(visible.value&&event.detail?.clientId===String(client)){historyTotal.value=null;void loadHistory()}
 }

@@ -17,6 +17,13 @@ def number(value):
     return str(Decimal(str(value)).normalize()) if value is not None else None
 
 
+def has_registered_unit_price(row):
+    tax = row.get('tax_prices') or {}
+    return any(value is not None and value != '' for value in (
+        row.get('amount'), tax.get('unit_price_excl_tax'), tax.get('unit_price_incl_tax'),
+    ))
+
+
 def oral_key(row):
     return (row['direction'], row['currency'], row['unit'],
             number(row.get('hours')) if row['unit'] in ('天', '半天') else None,
@@ -88,7 +95,7 @@ def translation_defaults(owner, project, rows):
             for row in references_for_new_prices(rows, owner.language_pair or project.language_pair, owner.word_count_matrix)]
 
 
-def auto_translation(db, user, client_id, before, after, project_id=None, *, changed_only=False, sub_client_id=None):
+def auto_translation(db, user, client_id, before, after, project_id=None, *, changed_only=False, sub_client_id=None, overwrite=False):
     import customer_translation_rates as rates
     import translation_customer_finance as finance
     import translation_finance_audit as audit
@@ -139,7 +146,13 @@ def auto_translation(db, user, client_id, before, after, project_id=None, *, cha
             changed = False
             for data in candidates:
                 reference_id = data.get('reference_id')
-                if not rows:
+                if overwrite:
+                    ref = automatic_reference(defaults,data,owner.word_count_matrix)
+                    if not ref:
+                        linked = current_ids.get(reference_id)
+                        if linked and matches(linked,data,right_matrix=owner.word_count_matrix,left_reference=True):
+                            ref = linked
+                elif not rows:
                     ref=current_ids.get(reference_id)
                 elif reference_id:
                     linked=current_ids.get(reference_id)
@@ -402,9 +415,14 @@ def differences(module: Literal['translation','interpretation','annotation'], cl
                         directions[str(owner.id)].add('')
             else:
                 _, _, rows, version, number_ = project_state(module, db, project.id, owner.id)
+            if module == 'translation':
+                rows = [row for row in rows if has_registered_unit_price(row)]
             if not rows: continue  # 尚无项目单价时使用自动带出的客户参考价。
             expected = matching(module, project, owner, rows, refs)
             if module == 'translation':
+                expected = [reference for reference in expected if any(
+                    translation_basis_matches(reference, row, owner.word_count_matrix) for row in rows
+                )]
                 if translation_rates_agree(rows, expected, owner.word_count_matrix): continue
                 rows = with_resolved_quantity_basis(rows, owner.word_count_matrix)
             elif signature(module, rows) == signature(module, expected): continue

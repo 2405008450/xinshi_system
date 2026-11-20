@@ -15,3 +15,9 @@ test('三类说明独立，混合税口径的父订单含税部分需发票',()=
   assert.deepEqual(notes,{quotation:'报价说明',statement:'',invoice:'开票说明'})
   assert.equal(invoiceRequirement({priceAggregate:true,children:[{pricingMode:'fixed',adjustedTotal:100},{pricingMode:'fixed',adjustedTotalInclTax:106}]}),true)
 })
+
+test('自动同步的单据设置优先于税口径，子客户设置优先于客户设置',()=>{
+  const order={paymentMethod:'individual',billingTaxMode:'incl_tax',invoiceRequirementOverride:false}
+  assert.equal(invoiceRequirement(order),false)
+  assert.equal(invoiceRequirement({...order,subClientInvoiceRequired:true}),true)
+})

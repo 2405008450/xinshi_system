@@ -4,9 +4,12 @@
     <SubClientFinancePreferences v-if="subClientId && settlementScope!=='special'" :sub-client-id="subClientId" :can-write="canWrite" hide-tax />
     <details v-if="$slots['customer-projects']" :open="settlementScope==='special'" class="customer-projects-panel">
       <summary>{{subClientId?'子客户项目':'客户项目'}}<span class="customer-projects-toggle">展开 / 收起</span></summary>
-      <slot name="customer-projects" :months="filters.months" :mode="mode" :reload="load" :selection-changed="queueGenerationStatus" />
+      <div class="customer-projects-scroll" tabindex="0" aria-label="客户项目滚动区域"><slot name="customer-projects" :months="filters.months" :mode="mode" :reload="load" :selection-changed="queueGenerationStatus" /></div>
     </details>
     <slot name="client-actions" :reload="load" />
+    <StatementGenerationProgressDialog v-if="progressPromptMonths.length && settlementScope!=='special' && state?.client_id"
+      :client-id="String(state.client_id)" :months="progressPromptMonths" :manager-query="managerQuery"
+      @close="closeGenerationProgress" />
     <AppForm data-auto-draft="off" class="workspace-generation" :model="filters" :disabled="deleteMode||focusMissing" inline @submit.prevent="importMonths">
       <el-form-item v-if="!lockMonth" label="账单月份"><el-date-picker v-model="filters.months" type="months" value-format="YYYY-MM" placeholder="选择一个或多个月份" style="width:210px;max-width:100%" /></el-form-item>
       <el-form-item v-if="!clientId" label="生成范围"><el-radio-group v-model="filters.scope"><el-radio value="project">当前项目</el-radio><el-radio value="customer">该客户全部项目</el-radio></el-radio-group></el-form-item>
@@ -58,7 +61,7 @@
                 <el-button type="primary" plain @click="openInline(board)">{{canEditContent?'放大 / 直接编辑':'放大查看'}}</el-button>
                 <el-button :disabled="!canEditContent" @click="editHeader(board)">修改抬头 / 账户 / 印章</el-button>
               </template>
-              <el-dropdown v-else-if="state.private_settings_available" trigger="click" :disabled="!canChangeCompany" @command="subject=>changeCompany(board,subject)">
+              <el-dropdown v-if="state.private_settings_available" trigger="click" :disabled="!canChangeCompany" @command="subject=>changeCompany(board,subject)">
                 <el-button :disabled="!canChangeCompany">对账单主体：{{statementCompanyLabel(board)}} ▾</el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
@@ -182,9 +185,17 @@ import {calculateCustomerPrice} from '@/utils/translationCustomerFinance'
 const TranslationProjectEditor=defineAsyncComponent(()=>import('@/views/project/translation/ProjectDetails.vue'))
 const orderEditor=ref(null)
 function openOrder(row){if(!row.root_id)return ElMessage.warning('该订单缺少项目关联，无法打开');orderEditor.value={rootId:row.root_id,orderNo:row.order_no}}
+import {connectInvoiceParties,notifyInvoiceParties,invoicePartiesEvent} from '@/api/invoiceParties'
+import StatementGenerationProgressDialog from './StatementGenerationProgressDialog.vue'
 const emit=defineEmits(['loaded','show-boards'])
-const props=defineProps({periodNumber:Number,settlementScope:String,subClientId:String,lockMonth:Boolean,enforceStatementRequirement:Boolean,projectSelection:Function,projectReload:Function,visibleBoardIds:{type:Array,default:()=>[]},focusMonth:{type:String,default:''},focusBoardId:{type:String,default:''},projectId:{type:[String,Number],default:''},clientId:{type:[String,Number],default:''},billingMonth:String})
+const props=defineProps({periodNumber:Number,settlementScope:String,subClientId:String,lockMonth:Boolean,enforceStatementRequirement:Boolean,projectSelection:Function,projectReload:Function,managerQuery:{type:Object,default:()=>({})},visibleBoardIds:{type:Array,default:()=>[]},focusMonth:{type:String,default:''},focusBoardId:{type:String,default:''},projectId:{type:[String,Number],default:''},clientId:{type:[String,Number],default:''},billingMonth:String})
 const canWrite=hasPermission('projects:write')
+const progressPromptMonths=ref([])
+function closeGenerationProgress(){
+  progressPromptMonths.value=[]
+  window.dispatchEvent(new CustomEvent('translation-statements-changed',{detail:{clientId:state.value?.client_id}}))
+}
+
 const standardStatement=computed(()=>props.settlementScope==='standard')
 const companySubjects={guangzhou:'广州总公司',shenzhen:'深圳分公司',shanghai:'上海分公司'}
 const statementCompanyLabel=board=>companySubjects[board.statement.subject_key]||board.statement.company||'待设置'
@@ -233,7 +244,7 @@ async function deleteBoards(){
   await mutate('delete_boards',{board_ids:ids,...(ids.length>1?{confirmation:'删除'}:{})},text,confirmBatch)
 }
 const generationExists=ref(false),generationVersionsVisible=ref(false)
-const generationLabel=computed(()=>`${generationExists.value?'再次生成':'生成'}${props.settlementScope==='special'?'特殊结算单':'对账单'}`)
+const generationLabel=computed(()=>`${generationExists.value?'再次生成':'生成'}对账单`)
 let generationTimer,generationRequest
 function generationPayload(orderIds){
   return {
@@ -274,8 +285,14 @@ async function importMonths(){
   saving.value=true
   try{
     const data=await importStatementMonths({...payload,confirmed:true},mode.value)
-    if(!disposed){apply(data);window.dispatchEvent(new CustomEvent('translation-statements-changed'))}
+    if(!disposed){
+      apply(data)
+      // 普通项目可能因自动标记为“需对账单”移到另一栏，先保留进度提示，关闭后再刷新客户分组。
+      if(props.settlementScope==='special')window.dispatchEvent(new CustomEvent('translation-statements-changed'))
+    }
     ElMessage.success(data.generation_saved?`已保存第 ${data.revision} 版，可在「生成版本」查看`:`新增 ${data.imported} 项，已有 ${data.existing} 项`)
+    if(!disposed && props.settlementScope!=='special')progressPromptMonths.value=[...payload.months]
+
   }catch(e){error.value=getLocalizedErrorMessage(e,'生成对账单失败')}
   finally{saving.value=false}
 }
@@ -363,10 +380,10 @@ function cancelBoardDrag() {
   window.removeEventListener('pointermove',moveBoard)
   window.removeEventListener('pointerup',endBoard)
   window.removeEventListener('pointercancel',cancelBoardDrag)
-  if(drag)delete positions[drag.id]
+  if(drag)positions[drag.id]={...drag.original}
   drag=null
 }
-async function endBoard() {
+function endBoard() {
   window.removeEventListener('pointermove',moveBoard)
   window.removeEventListener('pointercancel',cancelBoardDrag)
   const moved=drag
@@ -374,10 +391,9 @@ async function endBoard() {
   if(!moved)return
   const next=positions[moved.id]
   if(!next||Math.abs(next.x-moved.original.x)+Math.abs(next.y-moved.original.y)<4) {
-    delete positions[moved.id]
+    if(next)positions[moved.id]={...moved.original}
     return
   }
-  if(canWrite&&!await mutate('position_board',{board_id:moved.id,...next},'',async()=>true))delete positions[moved.id]
 }
 
 const inlineVisible=ref(false),inlineBoard=ref(null)
@@ -385,7 +401,8 @@ let inlineRevision=0
 function openInline(board){if(standardStatement.value||deleteMode.value||saving.value||inlineVisible.value)return;inlineBoard.value=board;inlineRevision=state.value.revision;error.value='';inlineVisible.value=true}
 async function changeCompany(board,subject){
   if(!canChangeCompany.value)return
-  await mutate('change_company_subject',{board_id:board.id,subject_key:subject},`将「${board.name}」的公司名称、收款账户和印章更新为${companySubjects[subject]}？`)
+  const changed=await mutate('change_company_subject',{board_id:board.id,subject_key:subject},`将对应客户或子客户的对账单主体同步为${companySubjects[subject]}，同时更新其对账单的公司名称、收款账户和印章？`)
+  if(changed)notifyInvoiceParties({kind:'statement-subject',clientId:String(state.value.client_id),subClientId:board.sub_client_id})
 }
 function clickBoard(event,board){if(Date.now()<suppressBoardClickUntil||event.target.closest('button,input,label,.statement-ui'))return;openInline(board)}
 async function saveInline(data){
@@ -419,6 +436,10 @@ async function selectStamp(event){const file=event.target.files?.[0];if(!file)re
 const historyVisible=ref(false),historyLoading=ref(false),historyPage=ref(1),history=reactive({items:[],total:0})
 let historySequence=0
 async function loadHistory(){const seq=++historySequence;historyLoading.value=true;try{const data=await getStatementWorkspaceHistory(state.value.client_id,{skip:(historyPage.value-1)*20,limit:20});if(seq===historySequence&&!disposed)Object.assign(history,data)}catch(e){error.value=getLocalizedErrorMessage(e,'修改记录加载失败')}finally{if(seq===historySequence)historyLoading.value=false}}
+function refreshSubject(event){if(['customer-statement-settings','sub-client-finance','statement-subject'].includes(event.detail?.kind)&&String(event.detail.clientId)===String(state.value?.client_id)&&!saving.value)void load()}
+connectInvoiceParties()
+window.addEventListener(invoicePartiesEvent,refreshSubject)
+onBeforeUnmount(()=>window.removeEventListener(invoicePartiesEvent,refreshSubject))
 window.addEventListener('customer-statement-history-refresh',load)
 window.addEventListener('customer-statement-workspace-reload',reloadProjects)
 onBeforeUnmount(()=>{window.removeEventListener('customer-statement-history-refresh',load);window.removeEventListener('customer-statement-workspace-reload',reloadProjects)})
@@ -493,7 +514,7 @@ onBeforeUnmount(()=>{disposed=true;sequence++;historySequence++;controller?.abor
 .statement-canvas-space{overflow:clip}
 .workspace-generation{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 0 2px}.workspace-generation :deep(.el-form-item){margin:0 0 8px}.workspace-toolbar :deep(.el-button + .el-button){margin-left:0}.workspace-toolbar{padding-top:10px;border-top:1px solid var(--el-border-color-lighter)}.workspace-hint{margin:6px 0 12px}.workspace-toolbar :deep(.el-select){flex-shrink:0}
 
-.customer-projects-panel{margin-bottom:12px;border:1px solid var(--el-border-color);border-radius:6px;background:#fff;min-width:0}.customer-projects-panel>summary{cursor:pointer;padding:12px 16px;font-weight:600;user-select:none}.customer-projects-toggle{float:right;font-size:12px;font-weight:400;color:var(--el-text-color-secondary)}.customer-projects-panel :deep(.statement-client-finance > .el-card__header){display:none}.customer-projects-panel :deep(.statement-client-finance){border:0}
+.customer-projects-scroll{max-height:min(560px,60vh);overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;overscroll-behavior:contain}.customer-projects-panel{margin-bottom:12px;border:1px solid var(--el-border-color);border-radius:6px;background:#fff;min-width:0}.customer-projects-panel>summary{cursor:pointer;padding:12px 16px;font-weight:600;user-select:none}.customer-projects-toggle{float:right;font-size:12px;font-weight:400;color:var(--el-text-color-secondary)}.customer-projects-panel :deep(.statement-client-finance > .el-card__header){display:none}.customer-projects-panel :deep(.statement-client-finance){border:0}
 
 .statement-workspace{min-width:0}.statement-help{font-size:12px;line-height:1.7;color:var(--el-text-color-secondary)}.workspace-toolbar,.selection-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0}.statement-canvas-scroll{overflow:auto;max-height:72vh;border:1px solid var(--el-border-color);background:#eef2f6}.statement-canvas-space{position:relative;min-width:100%}.statement-canvas{position:relative;transform-origin:top left}.statement-board{position:absolute;width:960px;height:720px;background:white;border:1px solid #ccd3de;border-radius:8px;display:flex;flex-direction:column;box-shadow:0 2px 10px #0001}.statement-board--drop{outline:3px solid var(--el-color-primary)}.statement-board-header{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:12px;border-bottom:1px solid #ddd;flex:none}.statement-board-handle{flex:1;cursor:grab;touch-action:none;user-select:none;font-weight:600}.statement-board-handle:active{cursor:grabbing}.statement-board-actions{padding:10px;display:flex;gap:8px;flex-wrap:wrap;flex:none}.statement-system-meta{margin:8px 16px;color:var(--el-text-color-secondary);font-size:12px}.statement-board-content{flex:1;min-height:0;overflow:auto}.statement-edit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px}.statement-edit-stamp{display:block;width:130px;height:130px;object-fit:contain}.statement-history-changes{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto}.statement-print-source{position:fixed;left:-20000px;top:0;width:1050px;pointer-events:none}.statement-workspace .el-pagination{margin-top:12px}.statement-edit-grid .el-date-editor{max-width:100%;width:100%}
 :global(.statement-edit-dialog){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}:global(.statement-edit-dialog .el-dialog__header),:global(.statement-edit-dialog .el-dialog__footer){flex:none}:global(.statement-edit-dialog .el-dialog__body){flex:1;min-height:0;overflow:auto}:global(.statement-edit-dialog .el-dialog__footer){border-top:1px solid var(--el-border-color);background:var(--el-fill-color-light)}@media(max-width:680px){.statement-edit-grid{grid-template-columns:minmax(0,1fr)}}

@@ -273,6 +273,25 @@ def test_translation_preview_includes_both_customer_requirements(monkeypatch):
     assert '客户经理联系方式' not in preview['body']
 
 
+def test_quotation_preview_keeps_zero_and_does_not_present_partial_prices_as_total(monkeypatch):
+    monkeypatch.setattr(business_mail_service, "policy_recipients", lambda *_: ([], []))
+    monkeypatch.setattr(business_mail_service, "resolve_project_sender", lambda *_: (None, {}))
+    preview = build_preview(object(), "translation", source={
+        "order_no": "TP-261120-001", "project_name": "合同.docx",
+        "service_content": "翻译", "language_pair": "中英",
+        "quotation_draft": {"items": [
+            {"description": "免费项", "quantity": "10", "unit_price": "0", "currency": "CNY"},
+            {"description": "待定项", "quantity": "10", "unit_price": None, "currency": "CNY"},
+            {"description": "美元项", "quantity": "3", "unit_price": "0.335", "currency": "USD"},
+        ]},
+    })
+    assert "金额：0.00 CNY" in preview["body"]
+    assert "金额：待完善" in preview["body"]
+    assert "已登记金额小计：0.00 CNY" in preview["body"]
+    assert "报价合计：0.00 CNY" not in preview["body"]
+    assert "报价合计：1.01 USD" in preview["body"]
+
+
 def test_recipient_group_requires_name_and_internal_members():
     with pytest.raises(ValidationError):
         MailRecipientGroupWrite(name="   ", user_ids=[])

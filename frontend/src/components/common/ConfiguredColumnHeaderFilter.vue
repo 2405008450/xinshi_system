@@ -61,6 +61,7 @@
       :model-value="draftValue"
       :definition="definition"
       @update:model-value="draftValue = $event"
+      @change="definition.applyOnChange && confirm()"
       @enter="confirm"
     />
     <div class="confirmed-header-filter__footer">

@@ -50,4 +50,7 @@ def attach(db,projects):
                 'months':sorted(months),
                 **({'period_number':board['period_number']} if board.get('period_number') else {}),
             })
-    for owner in owners.values():owner.statement_status.sort(key=lambda item:(item['months'],item['board_name'],item['board_id']))
+    for owner in owners.values():
+        owner.statement_status.sort(key=lambda item:(item['months'],item['board_name'],item['board_id']))
+        if owner.statement_status:
+            owner.statement_required=True

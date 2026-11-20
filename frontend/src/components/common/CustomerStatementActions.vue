@@ -1,6 +1,6 @@
 <template>
   <div class="customer-statement-actions">
-    <el-button link type="primary" @click="openHistory(false)">查看历史对账单</el-button>
+    <el-button link type="primary" @click="openHistory(false)">查看历史{{'对账单'}}</el-button>
     <el-button v-if="canWrite" link @click="openHistory(true)">合并月份</el-button>
     <slot />
     <CustomerStatementHistoryDialog
@@ -8,6 +8,7 @@
       v-model="historyVisible"
       :client="client"
       :merge-months="mergeMonths"
+      :settlement-scope="settlementScope"
       @merged="emit('merged')"
     />
   </div>
@@ -18,7 +19,7 @@ import { ref } from 'vue'
 import CustomerStatementHistoryDialog from './CustomerStatementHistoryDialog.vue'
 import { hasPermission } from '@/utils/permission'
 
-defineProps({ client: { type: Object, required: true } })
+defineProps({ client: { type: Object, required: true }, settlementScope:String })
 const emit = defineEmits(['merged'])
 const canWrite = hasPermission('projects:write')
 const historyVisible = ref(false)

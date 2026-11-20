@@ -354,8 +354,11 @@ def _apply_client_filters(
     field_filters: Optional[dict] = None,
     has_sub_clients: bool = False,
     sub_client_query: Optional[str] = None,
+    manager_client_ids: Optional[list] = None,
 ):
     """为客户列表和总数查询复用完全一致的筛选条件。"""
+    if manager_client_ids is not None:
+        query = query.filter(Client.id.in_(manager_client_ids))
     if has_sub_clients:
         query = query.filter(Client.sub_clients.any())
     if sub_client_query and sub_client_query.strip():
@@ -509,6 +512,7 @@ def get_clients(
     field_filters: Optional[dict] = None,
     has_sub_clients: bool = False,
     sub_client_query: Optional[str] = None,
+    manager_client_ids: Optional[list] = None,
 ) -> List[Client]:
     query = db.query(Client).options(selectinload(Client.sub_clients))
     query = _apply_client_filters(
@@ -531,6 +535,7 @@ def get_clients(
         field_filters=field_filters,
         has_sub_clients=has_sub_clients,
         sub_client_query=sub_client_query,
+        manager_client_ids=manager_client_ids,
     )
     if frequent_first:
         cooperation_stats = (
@@ -588,6 +593,7 @@ def count_clients(
     field_filters: Optional[dict] = None,
     has_sub_clients: bool = False,
     sub_client_query: Optional[str] = None,
+    manager_client_ids: Optional[list] = None,
 ) -> int:
     query = db.query(Client.id)
     query = _apply_client_filters(
@@ -610,6 +616,7 @@ def count_clients(
         field_filters=field_filters,
         has_sub_clients=has_sub_clients,
         sub_client_query=sub_client_query,
+        manager_client_ids=manager_client_ids,
     )
     return query.count()
 

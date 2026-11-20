@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Iterable, Optional
 from uuid import UUID
 
@@ -407,11 +407,9 @@ def policy_recipients(db: Session, project_type: str) -> tuple[list[AppUser], li
 
 
 def _translation_delivery_fields(db: Session, project_id: UUID) -> dict:
-    """从已保存的路径组和财务数据生成通知摘要，不重新计算业务金额。"""
-    from crud import get_project_files_by_project
+    """从已保存的财务数据生成通知摘要。"""
     from translation_customer_finance import read as read_finance
 
-    files = get_project_files_by_project(db, project_id, limit=1)
     finance = read_finance(db, project_id)
     node, payment = finance['item'], finance['payment']
     confirmation = payment['confirmation']
@@ -437,7 +435,6 @@ def _translation_delivery_fields(db: Session, project_id: UUID) -> dict:
         if paid is not None:
             paid_text += '（部分付款明细待完善）'
     return {
-        'original_storage_path': files[0].storage_path if files else None,
         'project_amount_display': amount or '待完善',
         'paid_amount_display': paid_text,
     }
@@ -462,6 +459,18 @@ def _project_source(project_type: str, project) -> dict:
     }
     source.update({name: getattr(project, name, None) for name in field_names[project_type]})
     if project_type == "translation":
+        sub_client = getattr(project, "sub_client", None)
+        source.update({
+            "sub_client_code": getattr(sub_client, "sub_client_code", None),
+            "sub_client_name": getattr(sub_client, "client_name", None),
+            "sub_client_short_name": getattr(sub_client, "client_short_name", None),
+            "original_storage_path": list(dict.fromkeys(
+                _clean(item.storage_path) for item in (getattr(project, "project_file", None) or [])
+                if _clean(item.storage_path)
+            )) or getattr(project, "network_file_path", None),
+            "quotation_status": getattr(project, "quotation_status", None),
+            "quotation_path": getattr(project, "quotation_path", None),
+        })
         source["sub_order_count"] = len(getattr(project, "sub_orders", []) or [])
         from translation_order_inheritance import hierarchy_summary
         source['sub_order_hierarchy'] = hierarchy_summary(getattr(project, 'sub_orders', []) or [])
@@ -544,6 +553,47 @@ def _format_word_count_lines(matrix: Optional[dict]) -> list[str]:
     return result
 
 
+def _translation_quotation_lines(document) -> list[str]:
+    """按已保存报价生成正文；金额逐项四舍五入，币种分别汇总。"""
+    if not document:
+        return []
+    lines = ["", "报价信息："]
+    title = _clean(document.get("title"))
+    if title:
+        lines.append(f"报价单名称：{title}")
+    client_name = _clean(document.get("client_name"))
+    if client_name:
+        lines.append(f"报价客户：{client_name}")
+    totals = {}
+    incomplete = set()
+    for index, item in enumerate(document.get("items") or [], 1):
+        details = []
+        for key, label in (("description", "项目"), ("language_pair", "翻译方向")):
+            if _clean(item.get(key)):
+                details.append(f"{label}：{_clean(item[key])}")
+        currency = _clean(item.get("currency")) or "CNY"
+        quantity, price = item.get("quantity"), item.get("unit_price")
+        unit = _clean(item.get("unit"))
+        if quantity is not None:
+            details.append(f"数量：{quantity}{unit}")
+        if price is not None:
+            details.append(f"单价：{price} {currency}" + (f"/{unit}" if unit else ""))
+        if quantity is not None and price is not None:
+            amount = (Decimal(str(quantity)) * Decimal(str(price))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            details.append(f"金额：{amount:.2f} {currency}")
+            totals[currency] = totals.get(currency, Decimal(0)) + amount
+        else:
+            incomplete.add(currency)
+            details.append("金额：待完善")
+        lines.append(f"  {index}. " + "；".join(details))
+    for currency, amount in totals.items():
+        label = "已登记金额小计" if currency in incomplete else "报价合计"
+        lines.append(f"{label}：{amount:.2f} {currency}")
+    if _clean(document.get("notes")):
+        lines.extend(["报价备注：", _clean(document["notes"])])
+    return lines
+
+
 def build_preview(
     db: Session,
     project_type: str,
@@ -567,6 +617,11 @@ def build_preview(
         if project_type == "translation":
             project_values["word_count_matrix"] = get_word_count_matrix(db, "project", project.id)
             project_values.update(_translation_delivery_fields(db, project.id))
+            from translation_document_requirements import (
+                TranslationProjectDocuments, quotation_value, ready as documents_ready,
+            )
+            if documents_ready(db):
+                project_values["quotation_draft"] = quotation_value(db.get(TranslationProjectDocuments, project.id))
         values = {**project_values, **values}
     if getattr(db,'info',{}).get('client_contacts_visible') is False:
         values['manager_contact']=None
@@ -631,6 +686,13 @@ def build_preview(
     )
     if project_type == 'translation':
         common = (common[1], common[0], *common[2:])
+        common += (
+            ("子客户编号", values.get("sub_client_code")),
+            ("子客户全称", values.get("sub_client_name")),
+            ("子客户简称", values.get("sub_client_short_name")),
+            ("报价单状态", values.get("quotation_status")),
+            ("报价单路径", values.get("quotation_path")),
+        )
     lines = [f"{label}：{_clean(value)}" for label, value in common if _clean(value) and not (project_type == 'translation' and label == '客户经理联系方式')]
     if project_type == 'translation' and _clean(values.get('remarks')):
         position = 1 if order_no else 0
@@ -652,6 +714,8 @@ def build_preview(
     word_count_lines = _format_word_count_lines(values.get("word_count_matrix")) if project_type == "translation" else []
     if word_count_lines:
         lines.extend(["项目工作量统计：", *word_count_lines])
+    if project_type == "translation":
+        lines.extend(_translation_quotation_lines(values.get("quotation_draft")))
     if _clean(values.get("consultation_description")):
         lines.append(f"咨询说明：{_clean(values.get('consultation_description'))}")
     if project_type != 'translation' and _clean(values.get("remarks")):
