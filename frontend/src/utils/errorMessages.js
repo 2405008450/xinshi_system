@@ -75,6 +75,22 @@ const STATUS_FALLBACKS = {
   503: '服务暂时不可用，请稍后重试'
 }
 
+const INVOICE_REQUEST_FIELD_LABELS = {
+  project_ids: '待开票订单',
+  settlement_scope: '结算范围',
+  subject_key: '开票主体',
+  invoice_type: '发票类型',
+  tax_rate: '专票税率',
+  note: '说明'
+}
+
+const INVOICE_REQUEST_RELOAD_MESSAGES = {
+  idempotency_key: '系统未能生成有效的开票发送标识，请保留说明内容，刷新页面后重试',
+  settings_revision: '开票接收人设置无法校验，请重新打开开票需求后核对接收人',
+  expected_user_ids: '开票接收人信息无效，请重新打开开票需求后核对接收人',
+  selection_revisions: '订单开票选择无法校验，请重新打开开票需求后核对订单'
+}
+
 const hasChinese = (value) => /[\u3400-\u9fff]/.test(value)
 const hasEnglishWord = (value) => /[A-Za-z]{2,}/.test(value)
 const hasTechnicalDetail = (value) => /(?:axios|pydantic|sqlalchemy|integrityerror|operationalerror|traceback|validationerror|field required|network error|request failed with status code|timeout of \d+ms exceeded|\b(?:select|insert|update|delete)\b[^\n]*(?:from|into|set|where))/i.test(value)
@@ -117,16 +133,22 @@ const validationMessageByType = (item, label) => {
 
 export function formatValidationErrors(errors, url = '') {
   if (!Array.isArray(errors) || !errors.length) return STATUS_FALLBACKS[422]
+  const path = url.split('?')[0]
+  const invoiceRequest = /(?:^|\/)invoice-workflow\/requests\/(?:preview|batch)\/?$/.test(path)
   return errors.map((item) => {
     const location = item?.loc || []
     // 考勤的 client_id 是去重标识，与客户档案无关，也不是用户填写项。
-    if (/(?:^|\/)attendance(?:\/|$)/.test(url.split('?')[0]) && location[0] === 'body' && location[1] === 'client_id') {
+    if (/(?:^|\/)attendance(?:\/|$)/.test(path) && location[0] === 'body' && location[1] === 'client_id') {
       return '申请提交校验失败，请保留填写内容并刷新页面后重试'
     }
+    const invoiceField = invoiceRequest && location[0] === 'body' ? location[1] : undefined
+    if (Object.hasOwn(INVOICE_REQUEST_RELOAD_MESSAGES, invoiceField)) return INVOICE_REQUEST_RELOAD_MESSAGES[invoiceField]
     const index = location.indexOf('initial_sub_order_details')
     const suffix = index >= 0 ? String(location[index + 1] || '') : ''
     const prefix = /^\d{3}(\.\d{3}){0,3}$/.test(suffix) ? `子订单 ${suffix} · ` : ''
-    const label = prefix + fieldLabelFromLocation(location)
+    const label = Object.hasOwn(INVOICE_REQUEST_FIELD_LABELS, invoiceField)
+      ? INVOICE_REQUEST_FIELD_LABELS[invoiceField]
+      : prefix + fieldLabelFromLocation(location)
     const message = String(item?.msg || '').trim()
     return hasChinese(message) ? `${label}：${message}` : validationMessageByType(item, label)
   }).join('；')

@@ -31,6 +31,21 @@ test('未知接口字段不暴露字段路径', () => {
   assert.doesNotMatch(message, /internal_field_name/)
 })
 
+test('开票发送标识缺失提示刷新，表单字段错误显示弹窗中的名称', () => {
+  const error = normalizeApiError({
+    config: { url: '/invoice-workflow/requests/batch' },
+    response: {
+      status: 422,
+      data: { detail: [{ type: 'missing', loc: ['body', 'idempotency_key'], msg: '此字段为必填项' }] },
+    },
+  })
+  assert.equal(getLocalizedErrorMessage(error), '系统未能生成有效的开票发送标识，请保留说明内容，刷新页面后重试')
+  assert.equal(formatValidationErrors([
+    { type: 'missing', loc: ['body', 'subject_key'], msg: '此字段为必填项' },
+    { type: 'literal_error', loc: ['body', 'tax_rate'] },
+  ], '/invoice-workflow/requests/batch'), '开票主体：此字段为必填项；专票税率的选项无效')
+})
+
 test('人才专业领域错误提示显示字段与明细序号', () => {
   assert.equal(formatValidationErrors([{type:'string_type',loc:['body','resume_profile','professional_domains',3],msg:'Input should be a valid string'}]),'专业领域（本人自述）第4项应为文字')
 })

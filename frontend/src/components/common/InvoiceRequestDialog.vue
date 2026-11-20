@@ -127,6 +127,7 @@ import api from '@/api'
 import {invoicePartyFields,invoiceTypeLabels,invoiceSubjectLabels as subjectNames,saveOrderInvoiceSelections,connectInvoiceParties,notifyInvoiceParties,invoicePartiesEvent} from '@/api/invoiceParties'
 import {clientManagementTarget} from '@/utils/clientManagementWindow'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
+import {createRequestId} from '@/utils/requestId'
 import DraggableFormDialog from './DraggableFormDialog.vue'
 import AppForm from './AppForm.vue'
 import ProjectInvoiceDialog from './ProjectInvoiceDialog.vue'
@@ -142,7 +143,7 @@ const invoiceGroup = ref()
 const invoiceContext = computed(() => ({projectId:invoiceProject.value?.project_id,
   merged:!!invoiceGroup.value, preview:{totals:invoiceGroup.value?.totals||invoiceProject.value?.totals, required:true}}))
 const form = reactive({type:'electronic_normal', subject:'', rate:null, note:''})
-let previousSubmission, submissionKey, loadedSelection=''
+let previousSubmission, loadedSelection=''
 let loadingSequence=0
 const eventSource=`invoice-selection-${Math.random()}`
 const special = computed(() => form.type.endsWith('_special'))
@@ -246,15 +247,14 @@ async function send() {
     selection_revisions:Object.fromEntries(preview.value.projects.map(row=>[row.project_id,row.invoice_selection?.revision??0])),
     note:form.note, settings_revision:preview.value.settings_revision,
     expected_user_ids:preview.value.recipients.map(person => person.id)}
-  const signature = JSON.stringify(data)
-  if (signature !== previousSubmission) {
-    previousSubmission = signature
-    submissionKey = crypto.randomUUID()
-  }
   busy.value = true
   error.value = ''
   try {
-    await api.post('/invoice-workflow/requests/batch', {...data,idempotency_key:submissionKey}, {timeout:60000})
+    const signature = JSON.stringify(data)
+    if (signature !== previousSubmission?.signature) {
+      previousSubmission = {signature, key: createRequestId()}
+    }
+    await api.post('/invoice-workflow/requests/batch', {...data,idempotency_key:previousSubmission.key}, {timeout:60000})
     publishSelections()
     ElMessage.success('开票需求已发送')
     emit('sent')
