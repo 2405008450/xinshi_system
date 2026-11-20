@@ -202,7 +202,7 @@ def display_data(payload,board,mode='children',issue_date='',*,group_directions=
     period_label=billing_period_name(period_month,board['period_number']) if board.get('period_number') and months==[period_month] else ''
     private_settings=source.private_statement_settings_available()
     subject_key=next((key for key,(_,company) in SUBJECTS.items() if company==fields['company']),None)
-    return dict(company=fields['company'],title=fields['title'],client_name=fields['client_name'],client_code=fields['client_code'],
+    return dict(company=fields['company'],title='对账单' if fields['title']=='特殊结算单' else fields['title'],client_name=fields['client_name'],client_code=fields['client_code'],
                 subject_key=subject_key,
                 sub_client_name=board.get('sub_client_name'),sub_client_code=board.get('sub_client_code'),
                 month=fields.get('billing_label') or period_label or '、'.join(months),issue_date=fields.get('issue_date') or issue_date,months=months,rows=rendered,totals={key:source.money(value) for key,value in totals.items()},pending=pending,
@@ -357,11 +357,13 @@ def serialize(row,mode='children',user=None,db=None,settlement_scope=None):
             'private_settings_available':private_settings,
             'capabilities':access.capabilities(db or object_session(row),user,row.client_id,payload) if row and user else {'edit_content':False,'cross_client':False},
             'pending_tasks':[{**task,'period_number':periods.get(task['id'])} for task in pending_tasks.summaries(payload)],
-            'documents':[{**board,'statement':{**display_data(payload,board,mode,dates.get(board['id'],'')),
+            'documents':[{**board,'name':board['name'].replace('特殊结算单','对账单'),'statement':{**display_data(payload,board,mode,dates.get(board['id'],'')),
                                                 'statement_number':numbers.get(board['id'])}} for board in payload['boards']]}
 
 
 def save(db,user,client_id,row,before,payload,action,changes,commit=True,*,generation=None):
+    from statement_subject_sync import apply_defaults
+    apply_defaults(db,payload)
     ids=[board['id'] for board in payload['boards']]
     if len(ids)!=len(set(ids)) or not 0<=len(ids)<=12:raise HTTPException(422,'对账单最多12份，编号不能重复')
     if len(payload['tasks'])>10000:raise HTTPException(422,'客户编排最多保留10000项任务，请缩小导入范围')
@@ -947,7 +949,7 @@ def import_months(data:ImportRequest,mode:Literal['parents','all','children']='c
         matches=import_board_matches(scoped,set(months))
         board=matches[0] if len(matches)==1 else None
         if not matches and ordinary_rows:
-            title='特殊结算单' if data.settlement_scope=='special' else '对账单'
+            title='对账单'
             fields={**imported_fields(statements[0]),'title':title}
             board=new_board(payload,fields,'、'.join(months)+' '+title)
             if data.settlement_scope:board['settlement_scope']=data.settlement_scope
@@ -1022,9 +1024,29 @@ def import_months(data:ImportRequest,mode:Literal['parents','all','children']='c
     for task_id,task in pending_scope['tasks'].items():
         if pending_tasks.pending(before['tasks'].get(task_id,{})) and not pending_tasks.pending(task):
             generated[task_id]=task
-    row=save(db,user,client.id,row,before,payload,'导入月份',{'months':months,'added_tasks':added,'existing_tasks_kept':existing,'excluded_tasks':excluded,'accepted_pending':accepted},
+    requirement_changes=mark_generated_statement_required(db,user,generated)
+    row=save(db,user,client.id,row,before,payload,'导入月份',{'months':months,'added_tasks':added,'existing_tasks_kept':existing,'excluded_tasks':excluded,'accepted_pending':accepted,
+             'statement_requirements':requirement_changes},
              generation=(generation_request,mode,generated) if generated else None)
     return {**serialize(row,mode,user=user,db=db,settlement_scope=data.settlement_scope),'imported':added,'existing':existing,'excluded':excluded,'accepted_pending_count':len(accepted),'generation_saved':bool(generated)}
+
+
+def mark_generated_statement_required(db,user,tasks):
+    """仅标记实际纳入本次对账单的项目，与生成结果一起提交。"""
+    from translation_document_requirements import TranslationProjectDocuments,save as save_documents
+    roots={UUID(line['root_id']) for task in tasks.values() if task.get('board_id') for line in task.get('rows',[]) if line.get('root_id')}
+    if not roots:return []
+    projects=db.query(TranslationProject).filter(TranslationProject.id.in_(roots)).order_by(TranslationProject.id).with_for_update().all()
+    records={record.project_id:record for record in db.query(TranslationProjectDocuments).filter(TranslationProjectDocuments.project_id.in_(roots))}
+    changes=[]
+    for project in projects:
+        record=records.get(project.id)
+        if record and record.statement_required is True:continue
+        previous=record.statement_required if record else None
+        save_documents(db,project,statement_required=True,actor_id=user.id)
+        project.updated_at=business_now().replace(tzinfo=None)
+        changes.append({'project_id':str(project.id),'order_no':project.order_no,'before':previous,'after':True})
+    return changes
 
 
 def clean_fields(values,allowed):
@@ -1204,7 +1226,9 @@ def action(client_id:UUID,request:ActionRequest,mode:Literal['parents','all','ch
         if not changes:
             raise HTTPException(422,'本对账单已使用此主体的最新资料')
         fields.update(values)
-        label='调整公司主体'
+        from statement_subject_sync import apply
+        apply(db,payload,subject_key,board.get('sub_client_id'))
+        label='调整公司主体并同步客户设置'
     elif request.action=='edit_document':
         changes=edit_document(payload,data,mode);label='直接编辑对账单'
     elif request.action=='edit_board':

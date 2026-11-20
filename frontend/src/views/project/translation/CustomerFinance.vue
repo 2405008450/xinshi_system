@@ -2,7 +2,7 @@
   <el-card class="customer-finance" :class="{'finance-editor-only':editorOnly,'statement-client-finance':statementClientView,'finance-collapsed':isCollapsed}" shadow="never">
     <template #header>
       <div v-if="!statementClientView" class="finance-heading">
-        <strong>笔译</strong>
+        <strong>{{clientScope?'笔译项目':'笔译'}}</strong>
         <div class="finance-heading-actions">
           <el-button v-if="collapsible" :aria-expanded="!isCollapsed" @click="toggleFinancePanel">{{isCollapsed?'展开笔译':'折叠笔译'}}</el-button>
           <template v-if="!isCollapsed">
@@ -70,7 +70,7 @@
       <p class="finance-help">点击“确定”后收起窗口并查看结果，关闭筛选窗口后恢复默认条件。</p>
       <template #footer><el-button @click="managerPickerVisible=false">取消</el-button><el-button type="primary" @click="applyManager">确定</el-button></template>
     </DraggableFormDialog>
-    <p v-if="!statementClientView" class="finance-help">按语种方向维护多条单价，默认优先采用客户统计的数量和单位，客户未填时采用我司统计；也可手动选择我司统计，两者均未填时提示补录。母订单单价复制至匹配语种的下级，单独改价的下级保留；工作量时父级汇总下级金额，各币种单独小计；固定收费直接采用登记的一口价。</p>
+    <p v-if="!statementClientView" class="finance-help">按语种方向维护多条单价，默认优先采用客户统计的数量和单位，客户未填时采用我司统计；也可手动选择我司统计，两者均未填时提示补录。单价保存后自动同步对应客户或子客户资料及匹配订单，以最近一次保存为准；工作量时父级汇总下级金额，各币种单独小计；固定收费直接采用登记的一口价。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false">
       <el-button link type="primary" :disabled="loading" @click="load()">重试</el-button>
     </el-alert>
@@ -81,7 +81,7 @@
     <el-table v-loading="loading||editorLoading" ref="statementTableRef" @selection-change="statementSelected=$event;projectPreview=null" @sort-change="sortFinanceRows" @expand-change="onStatementExpandChange" class="finance-project-table" :class="{'finance-project-table--order-controls':!statementClientView}" :data="tableRows" :span-method="clientGroupSpan" :row-class-name="({row})=>row._clientGroup?'finance-client-group-row':''" row-key="id" border :default-expand-all="!statementClientView" :expand-row-keys="statementClientView?statementExpandedIds:undefined" scrollbar-always-on empty-text="暂无笔译项目">
       <OrderedTableColumns settings-key="translation-customer-finance" preserve-fixed>
       <el-table-column v-if="statementClientView" type="selection" :selectable="canSelectStatementProject" reserve-selection width="44" />
-      <el-table-column type="index" label="序号" class-name="finance-order-index-cell" :fixed="fixedColumns.length?'left':false" :width="statementClientView?60:orderTree.width" :index="index => (page-1)*10+index+1">
+      <el-table-column type="index" :label="statementClientView?'序号 / 账期':'序号'" class-name="finance-order-index-cell" :fixed="fixedColumns.length?'left':false" :width="statementClientView?142:orderTree.width" :index="index => (page-1)*10+index+1">
         <template #default="{row,$index}">
           <div v-if="row._clientGroup" class="finance-client-group-header">
             <button type="button" class="finance-client-group-toggle" :aria-expanded="!row.collapsed" @click="toggleClientGroup(row.groupKey)">{{row.collapsed?'▶':'▼'}} {{row.clientName}}</button>
@@ -92,6 +92,11 @@
           </div>
           <div v-else class="finance-order-index" :style="orderTree.indents.get(row.id)">
             <span>{{filters.clientOrderCount==='multiple'||childPagination?displayIndexes.get(row.id):((page-1)*10+$index+1)}}</span>
+            <div v-if="statementClientView" class="statement-order-period">
+              <small>{{row.billingMonth || initialMonth}}{{row.settlementPeriodNumber ? ` · 第${row.settlementPeriodNumber}期` : ' · 整月'}}</small>
+              <el-button v-if="canWrite && row.id===row.rootId" link type="primary" :loading="tableBillingPeriodLoading===row.id" @click.stop="openTableBillingPeriod(row)">调整账期</el-button>
+              <small v-else-if="row.id!==row.rootId">随母订单</small>
+            </div>
             <TableExpandButton v-if="!statementClientView && (row.childOrderCount || (row.hasChildren ?? !!row.children?.length))"
               :expanded="isOrderExpanded(row.id)" :count="row.childOrderCount"
               :expand-label="financeChildOrdersLabel(row,'展开')"
@@ -123,7 +128,7 @@
           <div v-else-if="column.key==='statementRequired'" class="finance-statement-payment">
             <div v-if="!statementClientView" class="finance-document-flag">
               <span>报价单：</span>
-              <el-checkbox v-if="canWrite&&row.id===row.rootId&&(!row.subClientId||usesSubClientDocumentSettings(row))" :model-value="row.quotationRequired"
+              <el-checkbox v-if="canWrite&&row.id===row.rootId" :model-value="row.quotationRequired"
                 :disabled="savingTableDocuments.has(row.id)" :aria-label="`${row.orderNo} 是否需报价单`"
                 @change="saveTableQuotationRequired(row,$event)">{{row.quotationRequired?'需':'无需'}}</el-checkbox>
               <span v-else>{{row.id!==row.rootId?'随母订单：':''}}{{row.quotationRequired?'需':'无需'}}</span>
@@ -148,7 +153,7 @@
               <el-button v-if="row.statementRequired && row.clientId" link type="primary" @click="openPaymentProjects(row,'statement')">对账单项目</el-button>
               <div class="finance-document-flag finance-document-flag--invoice">
                 <span>发票：</span>
-                <el-select v-if="canWrite&&row.id===row.rootId&&(usesSubClientDocumentSettings(row)||!row.subClientId&&paymentMethodFor(row)==='special')" :model-value="(usesSubClientDocumentSettings(row)?row.subClientInvoiceRequired:row.invoiceRequirementOverride) ?? 'auto'" size="small"
+                <el-select v-if="canWrite&&row.id===row.rootId" :model-value="(usesSubClientDocumentSettings(row)?row.subClientInvoiceRequired:row.invoiceRequirementOverride) ?? 'auto'" size="small"
                   :disabled="savingTableDocuments.has(row.id)" :aria-label="`${row.orderNo} 是否需发票`"
                   @change="saveTableInvoiceRequired(row,$event)">
                   <el-option label="需" :value="true" />
@@ -282,7 +287,7 @@
             </section>
             <section class="finance-pricing-region" data-dialog-field-search-group>
               <h3 class="finance-pricing-region-title" data-dialog-field-search-group-title>{{regionTitle('客户结算设置')}}</h3>
-              <TranslationDocumentRequirements :model-value="editor" :editable-invoice="usesSubClientDocumentSettings(editor) || (editor.paymentMethod==='special' && !editor.subClientId)" :persist-statement="localTarget?undefined:saveEditorStatementRequirement"
+              <TranslationDocumentRequirements :model-value="editor" :editable-invoice="true" :persist-statement="localTarget?undefined:saveEditorStatementRequirement"
                 @customer-settings="usesSubClientDocumentSettings(editor)?openSubClientSettings(editor):openCustomerFinanceSettings('settings')"
                 @update:model-value="updateEditorDocuments" @quotation="linkedQuotationVisible=true" @statement="openEditorStatement" @invoice="openEditorInvoice" />
               <SubClientFinancePreferences v-if="editor.subClientId && !localTarget"
@@ -566,6 +571,8 @@
     </DraggableFormDialog>
     <OrderBillingPeriodDialog v-if="editorVisible && billingPeriodVisible" :project-id="editor.rootId"
       :month="editor.billingMonth" :version="treeVersion" @close="billingPeriodVisible=false" @saved="onBillingPeriodSaved" />
+    <OrderBillingPeriodDialog v-if="tableBillingPeriod" :project-id="tableBillingPeriod.projectId"
+      :month="tableBillingPeriod.month" :version="tableBillingPeriod.version" @close="tableBillingPeriod=null" @saved="onTableBillingPeriodSaved" />
     <CustomerReferencePriceDialog v-if="editorVisible" ref="referencePickerRef" :client-id="editor.clientId" :sub-client-id="editor.subClientId" :client-name="editor.clientShortName" :prices="editor.prices" :matrix="editor.wordCountMatrix" :language-pair="editor.languagePair" :refresh-project="rebaseEditorAfterLibrary" />
     <SubOrderStructureDialog v-model="structureVisible" :project-id="structureProjectId" :selected-order-no="structureOrderNo" />
     <DraggableFormDialog v-model="historyVisible" append-to-body class="customer-finance-dialog" width="min(1000px, calc(100vw - 32px))" top="5vh" :title="`财务修改记录 · ${historyOrder?.orderNo||''}`"><TranslationFinanceHistory v-if="historyVisible&&historyOrder" :project-id="historyOrder.rootId" :order-id="historyOrder.id" /><template #footer><el-button @click="historyVisible=false">关闭</el-button></template></DraggableFormDialog>
@@ -824,7 +831,7 @@ const headerFilterDefinitions={
       {value:'quotation_required',label:'需报价单'},{value:'quotation_not_required',label:'无需报价单'},
     ]:[]),
   ]},
-  paymentMethod:{key:'paymentMethod',label:'结算模式',type:'select',multiple:false,options:()=>paymentMethods},
+  paymentMethod:{key:'paymentMethod',label:'结算模式',type:'select',multiple:false,applyOnChange:true,options:()=>paymentMethods},
   projectStatus:{key:'projectStatus',label:'项目状态',type:'select',options:statuses},
   pricingMode:{key:'pricingMode',label:'计价方式',type:'select',multiple:false,options:[{value:'metric',label:'工作量'},{value:'fixed',label:'固定收费'},{value:'aggregate',label:'子订单汇总'}]},
 }
@@ -999,10 +1006,7 @@ function financeParams(){
 }
 async function load(options={}){
   if(editorLoading.value)return
-  if(!options?.fromTable&&!options?.skipFlush&&!await tableEditing.flush()){
-    // The row editor keeps drafts by order ID while the main list is filtered or paginated.
-    if(props.statementClientView)return false
-  }
+  // 列表查询只读取数据；编辑草稿由各单元格自己的保存动作提交。
   const current=++sequence;controller?.abort();controller=new AbortController();if(!options?.fromTable)loading.value=true;error.value=''
   try{
     const params=financeParams()
@@ -1195,7 +1199,7 @@ function onTableStatementSaved(row,result){
   emit('saved',result)
 }
 function notifyCustomerFinanceHistory(clientId){
-  if(clientId)window.dispatchEvent(new CustomEvent('customer-order-finance-saved',{detail:{clientId:String(clientId)}}))
+  if(clientId){window.dispatchEvent(new CustomEvent('customer-order-finance-saved',{detail:{clientId:String(clientId)}}));notifyInvoiceParties({kind:'translation-finance',clientId:String(clientId)})}
 }
 async function saveEditorStatementRequirement(value,confirmation){
   if(saving.value)return
@@ -1253,7 +1257,7 @@ function changeEditorSettlementMode(mode){
 }
 function statementPayload(){
   const draft=editor.value
-  if(!draft.statementRequiredDirty||draft.paymentMethod!=='special')return {}
+  if(!draft.statementRequiredDirty)return {}
   return {statement_required:draft.statementRequired,statement_sync:draft.statementSync,statement_customer_sync:draft.statementCustomerSync}
 }
 const changedCustomerDocuments=computed(()=>{
@@ -1270,7 +1274,7 @@ function documentPayload(){
   const draft=editor.value
   const baseline=JSON.parse(original.value||'[]')
   return {quotation_required:draft.quotationRequired!==baseline[10]?draft.quotationRequired:undefined,
-    invoice_required:(draft.paymentMethod==='special' || usesSubClientDocumentSettings(draft)) && (draft.invoiceRequirementOverride??null)!==baseline[22]?draft.invoiceRequirementOverride:undefined,
+    invoice_required: (draft.invoiceRequirementOverride??null)!==baseline[22]?draft.invoiceRequirementOverride:undefined,
     ...statementPayload(),quotation_draft:draft.quotationDraftDirty?draft.quotationDraft:undefined,
     document_notes:draft.documentNotesDirty?draft.documentNotes:undefined,documents_only:!!(draft.priceAggregate||draft.fixedPricingFrom)}
 }
@@ -1283,6 +1287,25 @@ function applyDocumentDraft(persisted){
 const originalPaymentConfirmation=ref(''),originalPaymentDetails=ref('[]')
 const editorVisible=ref(false),editorLoading=ref(false),saving=ref(false),saveError=ref(''),editor=ref({}),formRef=ref(),editorBody=ref()
 const billingPeriodVisible=ref(false)
+const tableBillingPeriod=ref(null),tableBillingPeriodLoading=ref('')
+async function openTableBillingPeriod(row){
+  if(!canWrite||tableBillingPeriodLoading.value)return
+  tableBillingPeriodLoading.value=row.id
+  try{
+    const latest=await getCustomerFinanceProject(row.rootId)
+    tableBillingPeriod.value={projectId:row.rootId,month:latest.item.billingMonth||props.initialMonth,version:latest.version}
+  }catch(error){ElMessage.error(getLocalizedErrorMessage(error,'账期读取失败'))}
+  finally{tableBillingPeriodLoading.value=''}
+}
+async function onTableBillingPeriodSaved(){
+  const projectId=tableBillingPeriod.value?.projectId
+  tableBillingPeriod.value=null
+  projectPreview.value=null
+  emit('saved',{id:projectId})
+  window.dispatchEvent(new CustomEvent('translation-statements-changed',{detail:{projectId,clientId:props.clientId}}))
+  ElMessage.success('账单月份与期次已更新')
+  await load({fromTable:true})
+}
 watch(editorVisible,visible=>{if(!visible)billingPeriodVisible.value=false})
 function billingPeriodLabel(order){
   if(!order.billingMonth)return '保存项目后自动生成'
@@ -2250,9 +2273,8 @@ async function saveLocalFinance(){
   const previous=pendingFormFinance.get(localTarget.value)
   const documents={...previous?.documents}
   if(changedCustomerDocuments.value.includes('quotationRequired'))documents.quotation_required=editor.value.quotationRequired
-  if(editor.value.paymentMethod!=='special')delete documents.invoice_required
-  else if(changedCustomerDocuments.value.includes('invoiceRequired'))documents.invoice_required=editor.value.invoiceRequirementOverride
-  pendingFormFinance.set(localTarget.value,{prices:copySavedValue(editor.value.prices),customerExplanation:editor.value.customerExplanation||'',pricingMode:editor.value.pricingMode,billingTaxMode:editor.value.billingTaxMode||null,statementSync:editor.value.paymentMethod==='special'?editor.value.statementSync:undefined,statementCustomerSync:editor.value.paymentMethod==='special'?editor.value.statementCustomerSync:undefined,statementRequired:editor.value.statementRequired,statementChanged:editor.value.paymentMethod==='special'&&(editor.value.statementRequiredDirty||previous?.statementChanged),paymentMethod,documents,clientId:editor.value.clientId})
+  if(changedCustomerDocuments.value.includes('invoiceRequired'))documents.invoice_required=editor.value.invoiceRequirementOverride
+  pendingFormFinance.set(localTarget.value,{prices:copySavedValue(editor.value.prices),customerExplanation:editor.value.customerExplanation||'',pricingMode:editor.value.pricingMode,billingTaxMode:editor.value.billingTaxMode||null,statementSync:editor.value.paymentMethod==='special'?editor.value.statementSync:undefined,statementCustomerSync:editor.value.paymentMethod==='special'?editor.value.statementCustomerSync:undefined,statementRequired:editor.value.statementRequired,statementChanged:editor.value.statementRequiredDirty||previous?.statementChanged,paymentMethod,documents,clientId:editor.value.clientId})
   applyDocumentDraft(false)
   localPaymentParent.value.paymentConfirmation=JSON.parse(JSON.stringify(editor.value.paymentConfirmation))
   localPaymentParent.value.paymentDraft=paymentDetailsPayload(editor.value.paymentDraft)
@@ -2343,7 +2365,7 @@ function showsCustomer(clientId){
 function onCustomerRatesSaved(event){
   refreshStatementStatus(event)
   if(event.detail?.fromCustomer&&showsCustomer(event.detail?.clientId)){
-    ElMessage.info('客户参考价已更新。如与项目单价不同，可在项目中比较后选择。')
+    ElMessage.info('客户参考价已自动同步至匹配订单。')
   }
 }
 function refreshStatementStatus(event){
@@ -2383,6 +2405,8 @@ function refreshWordCounts(event){
   refreshStatementStatus({detail:{projectId:entityType==='project'?entityId:undefined}})
 }
 function refreshSubClientFinance(event){
+  if(event.detail?.kind==='translation-finance')refreshStatementStatus(event)
+  if(event.detail?.kind==='customer-statement-settings')onCustomerStatementPreferenceSaved(event)
   if(event.detail?.kind==='sub-client-finance')refreshStatementStatus({detail:{
     clientId:event.detail.clientId,subClientId:event.detail.subClientId,syncScope:true,
     financeFields:['quotationRequired','statementRequired','invoiceRequired'],
@@ -2402,6 +2426,8 @@ useProjectStatusSync('translation',rows,{enabled:()=>!props.editorOnly,onChanged
 </script>
 
 <style scoped>
+.statement-order-period{display:flex;flex-direction:column;align-items:flex-start;gap:4px;white-space:normal}.statement-order-period small{font-size:11px;line-height:1.5;color:var(--el-text-color-secondary)}.statement-client-finance .finance-order-index{flex-wrap:wrap;align-items:flex-start}
+
 .finance-reference-content>.finance-reference-conflict{color:var(--el-color-warning-dark-2)}
 .finance-settlement-tabs--single > :deep(.el-tabs__header) { display: none; }
 .finance-order-index{display:flex;align-items:center;gap:4px;min-height:20px;line-height:20px;white-space:nowrap}

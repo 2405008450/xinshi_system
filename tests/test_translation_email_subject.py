@@ -44,6 +44,8 @@ def test_shared_translation_subject_matches_confirmation_and_mail_window(case, m
 
 
 def test_project_mail_preserves_manual_subject_and_uses_real_file_name(monkeypatch):
+    monkeypatch.setattr('translation_document_requirements.ready', lambda *_: False)
+    monkeypatch.setattr('translation_project_submission.mail_policy', lambda *_: (False, ''))
     project = SimpleNamespace(id=uuid4(), order_no='TP-261009-001', project_name='历史摘要',
         source_file_name='合同.docx', email_subject_preview='人工主题 TP-261009-001',
         client=SimpleNamespace(client_short_name='客户', manager_contact='经理'), sub_orders=[],

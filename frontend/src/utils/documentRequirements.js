@@ -7,11 +7,11 @@ export const usesSubClientDocumentSettings=order=>!!order.subClientId && order.s
 
 export function invoiceRequirement(order){
   if(typeof order.subClientInvoiceRequired==='boolean')return order.subClientInvoiceRequired
+  if(typeof order.invoiceRequirementOverride==='boolean')return order.invoiceRequirementOverride
   if(order.paymentMethod && order.paymentMethod!=='special'){
     const mode=effectiveBillingTaxMode(order)
     return mode==='incl_tax'?true:mode==='excl_tax'?false:null
   }
-  if(typeof order.invoiceRequirementOverride==='boolean')return order.invoiceRequirementOverride
   if(order.priceAggregate||order.pricingMode==='aggregate'){
     const children=(order.children||[]).map(invoiceRequirement)
     return children.includes(true)?true:children.includes(null)||!children.length?null:false
@@ -35,11 +35,11 @@ export function documentConsistencyRows(root, draft){
   const rows = []
   function invoiceNeeded(order){
     if(typeof order.subClientInvoiceRequired==='boolean')return order.subClientInvoiceRequired
+    if(typeof order.invoiceRequirementOverride==='boolean')return order.invoiceRequirementOverride
     if(draft.paymentMethod && draft.paymentMethod!=='special'){
       const basis=taxBasis(order)
       return basis==='incl_tax'?true:basis==='excl_tax'?false:null
     }
-    if(typeof order.invoiceRequirementOverride==='boolean')return order.invoiceRequirementOverride
     if(order.priceAggregate || order.pricingMode==='aggregate'){
       const children=order.children.map(invoiceNeeded)
       return children.includes(true)?true:children.includes(null)||!children.length?null:false
@@ -62,7 +62,7 @@ export function documentConsistencyRows(root, draft){
     const invoice = order.fixedPricingFrom ? inheritedInvoice : invoiceNeeded(order)
     const tax = order.fixedPricingFrom ? inheritedTax : taxBasis(order)
     rows.push({id:order.id, orderNo:order.orderNo, quotation:!!order.quotationRequired,
-      statement:draft.paymentMethod&&draft.paymentMethod!=='special'?tax==='incl_tax':order.statementRequired!==false,
+      statement:order.statementRequired!==false,
       invoice, tax, fixedPricingFrom:order.fixedPricingFrom,
       totalsExclTax:order.totalsExclTax, totalsInclTax:order.totalsInclTax})
     for(const child of order.children)visit(child, invoice, tax)

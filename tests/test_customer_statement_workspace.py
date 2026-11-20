@@ -28,6 +28,43 @@ def imported(setup,months=None):
     return response.json()
 
 
+@pytest.mark.parametrize('use_sub_client',[False,True])
+def test_generation_marks_only_included_projects_statement_required(setup,use_sub_client):
+    import crud
+    import translation_customer_finance as finance
+    import translation_document_requirements as documents
+    from models import SubClient
+    from sub_client_finance import write as write_sub_preferences
+    from tools.apply_sub_client_finance_migration import apply_migration as create_sub_preferences
+
+    http,db,clients,_,user,first,second=setup
+    for order in (first,second):
+        documents.save(db,order,statement_required=False,actor_id=user.id)
+    if use_sub_client:
+        create_sub_preferences(db.connection())
+        child=SubClient(id=uuid4(),parent_client_id=clients[0].id,sub_client_code='SUB-GENERATED',client_name='generated child',client_short_name='generated child')
+        db.add(child);db.flush();first.sub_client_id=child.id
+        write_sub_preferences(db,child.id,{'statement_required':False},user.id)
+    db.commit()
+    failed=http.post('/translation-statement-workspaces/import',json={
+        'project_id':str(first.id),'months':['2026-10'],'revision':0,'confirmed':True,'board_id':'missing-board',
+    })
+    assert failed.status_code==404
+    assert db.get(documents.TranslationProjectDocuments,first.id).statement_required is False
+    imported(setup,['2026-10'])
+    assert db.get(documents.TranslationProjectDocuments,first.id).statement_required is True
+    assert db.get(documents.TranslationProjectDocuments,second.id).statement_required is False
+    assert finance.read(db,first.id)['item']['statement_required'] is True
+    assert crud.get_translation_project(db,first.id).statement_required is True
+    changes=db.query(service.StatementWorkspaceHistory).filter_by(client_id=clients[0].id).order_by(service.StatementWorkspaceHistory.revision.desc()).first().changes
+    assert changes['statement_requirements']==[{'project_id':str(first.id),'order_no':first.order_no,'before':False,'after':True}]
+    # 已存在的历史对账单即使旧需求为否，也按实际生成记录展示为是；读取不回写旧记录。
+    document=db.get(documents.TranslationProjectDocuments,first.id)
+    document.statement_required=False;db.commit()
+    assert finance.read(db,first.id)['item']['statement_required'] is True
+    assert db.get(documents.TranslationProjectDocuments,first.id).statement_required is False
+
+
 def test_sub_client_settlement_shares_preferences_and_groups_by_period(setup):
     from models import SubClient
     from tools.apply_sub_client_finance_migration import apply_migration as create_preferences
@@ -192,6 +229,34 @@ def test_sub_client_invoice_setting_and_notes_share_the_preferences_endpoint(set
     assert finance.read(db, order.id)['item']['payment_method'] == 'individual'
 
 
+def test_sub_client_statement_subject_sync_is_isolated(setup):
+    from models import SubClient
+    from tools.apply_sub_client_finance_migration import apply_migration as create_preferences
+    import translation_customer_finance as finance
+    import statement_subject_sync as subjects
+
+    http,db,clients,_,user,_,_=setup
+    http.app.include_router(finance.router)
+    create_preferences(db.connection())
+    child=SubClient(id=uuid4(),parent_client_id=clients[0].id,client_name='subject child',
+                    client_short_name='subject child',sub_client_code='SUB-SUBJECT')
+    db.add(child);db.commit()
+    subjects.write(db,user,clients[0].id,'guangzhou');db.commit()
+    path=f'/translation-customer-finance/sub-clients/{child.id}/preferences'
+    response=http.put(path,json={'revision':0,'statement_subject_key':'shanghai'})
+    assert response.status_code==200,response.text
+    assert http.get(path).json()['statement_subject_key']=='shanghai'
+    assert subjects.read(db,clients[0].id)=='guangzhou'
+    payload={'boards':[{'fields':{}},{'sub_client_id':str(child.id),'fields':{}}],
+             subjects.KEY:{'client':'guangzhou',str(child.id):'shanghai'}}
+    subjects.apply_defaults(db,payload)
+    assert [board['fields']['subject_key'] for board in payload['boards']]==['guangzhou','shanghai']
+    subjects.apply(db,payload,'shenzhen',child.id)
+    assert [board['fields']['subject_key'] for board in payload['boards']]==['guangzhou','shenzhen']
+    subjects.apply(db,payload,None,child.id)
+    assert [board['fields']['subject_key'] for board in payload['boards']]==['guangzhou','guangzhou']
+
+
 def change(setup,state,action,data,mode='children',expected=200):
     http=setup[0]
     response=http.post(f"/translation-statement-workspaces/{state['client_id']}/actions",params={'mode':mode},json={'revision':state['revision'],'action':action,'data':data,'confirmed':True})
@@ -287,7 +352,44 @@ def test_statement_windows_separate_project_lists_and_existing_bill_rows(setup):
         'settlement_scope':'special',
     })
     assert response.status_code==200,response.text
-    assert response.json()['documents'][0]['statement']['title']=='特殊结算单'
+    assert response.json()['documents'][0]['statement']['title']=='对账单'
+
+
+def test_special_statement_uses_statement_title_and_synced_subject(setup,monkeypatch):
+    from translation_document_requirements import save as save_documents
+    from invoice_parties import SUBJECTS
+
+    http,db,clients,_,user,_,order=setup
+    monkeypatch.setenv('APP_ENV','production')
+    for key in ('guangzhou','shenzhen'):
+        response=http.put('/customer-statement-settings',params={'subject_key':key},json={
+            'company':SUBJECTS[key][1],'revision':0,'bank_name':key+' bank',
+            'account_name':SUBJECTS[key][1],'account_number':key+' account',
+        })
+        assert response.status_code==200,response.text
+    save_documents(db,order,payment_method='special',statement_required=True,actor_id=user.id)
+    db.commit()
+    response=http.post('/translation-statement-workspaces/import',json={
+        'project_id':str(order.id),'months':['2026-11'],'revision':0,'confirmed':True,
+        'settlement_scope':'special',
+    })
+    assert response.status_code==200,response.text
+    state=response.json()
+    board=state['documents'][0]
+    assert board['name']=='2026-11 对账单'
+    assert board['statement']['title']=='对账单'
+    state=change(setup,state,'change_company_subject',{'board_id':board['id'],'subject_key':'shenzhen'})
+    assert state['documents'][0]['statement']['subject_key']=='shenzhen'
+    assert http.get(f'/clients/{clients[0].id}/statement-preference').json()['statement_subject_key']=='shenzhen'
+    # 已保存的旧称在读取时兼容显示，不额外写入业务记录。
+    row=db.get(service.StatementWorkspace,clients[0].id)
+    payload=deepcopy(row.payload)
+    payload['boards'][0]['fields']['title']='特殊结算单'
+    payload['boards'][0]['name']='2026-11 特殊结算单'
+    row.payload=payload;db.commit()
+    state=http.get(f'/translation-statement-workspaces/{clients[0].id}',params={'settlement_scope':'special'}).json()
+    assert state['documents'][0]['name']=='2026-11 对账单'
+    assert state['documents'][0]['statement']['title']=='对账单'
 
 
 def test_special_settlement_settings_are_independent_and_can_override_each_child(setup, monkeypatch):
@@ -615,6 +717,15 @@ def test_statement_company_uses_subject_account_and_prefills_new_invoice(setup,m
     assert statement['subject_key']=='shenzhen'
     assert statement['company']==SUBJECTS['shenzhen'][1]
     assert statement['settings']['account_number']=='shenzhen-account'
+    preference_url=f"/clients/{state['client_id']}/statement-preference"
+    preference=http.get(preference_url).json()
+    assert preference['statement_subject_key']=='shenzhen'
+    response=http.put(preference_url,json={'revision':preference['revision'],
+        'tax_included':preference['tax_included'],'statement_subject_key':'guangzhou'})
+    assert response.status_code==200,response.text
+    state=http.get(f"/translation-statement-workspaces/{state['client_id']}").json()
+    assert all(item['statement']['subject_key']=='guangzhou' for item in state['documents'])
+    state=change(setup,state,'change_company_subject',data)
     assert batch_projects(db,[order.id])[0]['default_subject']=='shenzhen'
     response=http.get(f"/translation-statement-workspaces/{state['client_id']}/excel",
                       params={'revision':state['revision'],'board_ids':board['id']})

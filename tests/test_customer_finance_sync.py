@@ -18,99 +18,92 @@ def allowed(monkeypatch):
     monkeypatch.setattr(oral,'user_has_permission',lambda *_:True)
 
 
-def test_translation_order_versions_and_latest_customer_rate(environment,allowed):
-    from word_count_models import WordCountMetric
-
+def test_unfilled_translation_prices_are_not_differences_but_zero_is(environment, allowed):
+    from models import TranslationSubOrderChargeItem
     db,(user,_,_)=environment
     client,root,child,leaf=context(db,user)
-    db.query(WordCountMetric).filter(WordCountMetric.project_id==root.id,WordCountMetric.metric_type!='foreign_words').delete()
-    db.query(WordCountMetric).filter(WordCountMetric.sub_order_id.in_([child.id,leaf.id]),WordCountMetric.metric_type!='foreign_words').delete()
+    for owner,amount in ((child,None),(leaf,Decimal('0'))):
+        db.add(TranslationSubOrderChargeItem(
+            id=uuid4(),sub_order_id=owner.id,pricing_mode='metric',currency='CNY',
+            metric_type='foreign_words',unit_size=1,unit_price=amount,
+        ))
     db.commit()
-    library=rates.write_library(db,user,client.id,[item()],rates.library(db,client.id)['version']);db.commit()
-    assert written.read(db,root.id)['item']['prices'][0]['amount']=='0.1'
-    write(db,user,root,leaf,[item(amount='.8')],adjusted_total='15',explanation='独立金额')
-    write(db,user,root,leaf,[item(amount='.9')],adjusted_total='15',explanation='独立金额')
-    write(db,user,root,child,[item(amount='.7')])
-    entries=rates.history(client.id,page=1,db=db)['items']
-    order_entries=[event for event in entries if event['origin']=='order_rates']
-    assert {(event['order_id'],event['revision']) for event in order_entries}=={
-        (str(leaf.id),1),(str(leaf.id),2),(str(child.id),1)}
-    assert {event['order_no'] for event in order_entries}=={leaf.sub_order_no,child.sub_order_no}
-    assert Decimal(rates.library(db,client.id)['items'][0]['amount'])==Decimal('.1')
-    assert sync.differences('translation',client.id,page=1,db=db,user=user)['total']==2
+    result=sync.differences('translation',client.id,page=1,db=db,user=user)
+    assert {row['order_id'] for row in result['items']}=={str(leaf.id)}
     grouped=sync.differences('translation',client.id,page=1,db=db,user=user,group_orders=True)
-    assert (grouped['total'],grouped['difference_count'])==(1,2)
-    mother=grouped['items'][0]
-    assert mother['order_id']==str(root.id) and not mother.get('expand_by_default')
-    assert mother['children'][0]['children'][0]['order_id']==str(leaf.id)
-
-    rates.write_library(db,user,client.id,[item(amount='.2')],library['version']);db.commit()
-    saved=written.read(db,root.id)['item']
-    child_result=saved['children'][0]
-    leaf_result=child_result['children'][0]
-    assert rates.order_rates(db,child)[0]['amount']=='0.7'
-    assert leaf_result['prices'][0]['amount']=='0.9'
-    assert Decimal(leaf_result['adjusted_total'])==15 and leaf_result['explanation']=='独立金额'
-    assert sync.differences('translation',client.id,page=1,db=db,user=user)['total']==2
+    assert grouped['difference_count']==1
+    assert grouped['items'][0]['children'][0].get('project_rates') is None
 
 
-def test_sub_customer_reference_priority_and_bidirectional_sync(environment, allowed):
+def test_document_requirements_automatically_sync_in_both_directions(environment):
+    import customer_statements as statements
+    db,(user,_,_)=environment
+    client,root,_,_=context(db,user)
+    _,peer,_,_=context(db,user)
+    peer.client_id=client.id
+    db.commit()
+    written.save(db,user,root.id,written.PriceWrite(
+        version=written.read(db,root.id)['version'],order_id=root.id,documents_only=True,
+        quotation_required=True,statement_required=True,invoice_required=True,
+    ))
+    preference=statements.client_preference(db,client.id)
+    assert preference['quotation_required'] and preference['invoice_required']
+    assert preference['statement_default']=='required'
+    node=written.read(db,peer.id)['item']
+    assert node['quotation_required'] and node['statement_required'] and node['invoice_required']
+    statements.save_preference(client.id,statements.PreferenceWrite(
+        revision=preference['revision'],tax_included=False,
+        quotation_required=False,statement_default='not_required',invoice_required=False,
+    ),db=db,user=user)
+    for project in (root,peer):
+        node=written.read(db,project.id)['item']
+        assert not node['quotation_required'] and not node['statement_required'] and not node['invoice_required']
+
+
+def test_translation_order_versions_and_latest_customer_rate(environment,allowed):
+    db,(user,_,_)=environment
+    client,root,child,leaf=context(db,user)
+    rates.write_library(db,user,client.id,[item()],rates.library(db,client.id)['version']);db.commit()
+    write(db,user,root,leaf,[item(amount='.8')],adjusted_total='15',explanation='independent total')
+    write(db,user,root,leaf,[item(amount='.9')],adjusted_total='15',explanation='independent total')
+    write(db,user,root,child,[item(amount='.7')])
+    assert Decimal(rates.library(db,client.id)['items'][0]['amount'])==Decimal('.7')
+    assert Decimal(rates.order_rates(db,leaf)[0]['amount'])==Decimal('.7')
+    assert sync.differences('translation',client.id,page=1,db=db,user=user)['total']==0
+    entries=rates.history(client.id,page=1,db=db)['items']
+    assert any(event.get('action')=='automatic_project_sync' for event in entries)
+    latest=rates.library(db,client.id)
+    rates.write_library(db,user,client.id,[item(amount='.2')],latest['version']);db.commit()
+    result=written.read(db,root.id)['item']['children'][0]['children'][0]
+    assert Decimal(result['prices'][0]['amount'])==Decimal('.2')
+    assert Decimal(result['adjusted_total'])==15 and result['explanation']=='independent total'
+    with pytest.raises(HTTPException) as stale:
+        rates.write_library(db,user,client.id,[item(amount='.3')],latest['version'])
+    assert stale.value.status_code==409
+
+
+def test_sub_customer_reference_priority_and_bidirectional_sync(environment,allowed):
     from models import SubClient
     from tools.apply_sub_client_translation_rate_migration import apply_migration
-
-    db, (user, _, _) = environment
-    client, root, _, leaf = context(db, user)
+    db,(user,_,_)=environment
+    client,root,_,leaf=context(db,user)
     apply_migration(db.connection())
-    apply_migration(db.connection())
-    child = SubClient(id=uuid4(), parent_client_id=client.id, sub_client_code='SUB-REF',
-                      client_name='子客户', client_short_name='子客户')
-    db.add(child)
-    root.sub_client_id = child.id
-    db.commit()
-
-    def library(sub_id=None):
-        return rates.library(db, client.id, sub_id)
-
-    def set_price(amount, sub_id=None):
-        rates.write_library(db, user, client.id, [item(amount=amount)], library(sub_id)['version'], sub_client_id=sub_id)
+    child=SubClient(id=uuid4(),parent_client_id=client.id,sub_client_code='SUB-REF',client_name='child',client_short_name='child')
+    db.add(child);root.sub_client_id=child.id;db.commit()
+    def set_price(amount,sub_id=None):
+        rates.write_library(db,user,client.id,[item(amount=amount)],rates.library(db,client.id,sub_id)['version'],sub_client_id=sub_id)
         db.commit()
-
-    write(db, user, root, leaf, [item(amount='.1')])
-    set_price('.1')
-    set_price('.2', child.id)
-    assert rates.order_rates(db, leaf)[0]['reference_id'] == library(child.id)['items'][0]['id']
-    assert Decimal(rates.order_rates(db, leaf)[0]['amount']) == Decimal('.2')
-    set_price('.3')
-    assert Decimal(rates.order_rates(db, leaf)[0]['amount']) == Decimal('.2')
-
-    write(db, user, root, leaf, [item(amount='.9')])
-    set_price('.4', child.id)
-    assert Decimal(rates.order_rates(db, leaf)[0]['amount']) == Decimal('.9')
-    diff = sync.differences('translation', client.id, page=1, db=db, user=user, sub_client_id=child.id)
-    assert any(row['order_id'] == str(leaf.id) for row in diff['items'])
-
-    def confirm(direction, **kwargs):
-        sync.sync('translation', client.id, sync.SyncWrite(
-            project_id=root.id, order_id=leaf.id, version=written.read(db, root.id)['version'],
-            customer_version=library(child.id)['version'], direction=direction, confirmed=True, **kwargs,
-        ), db=db, user=user)
-
-    confirm('client_to_project', sub_client_id=child.id)
-    assert Decimal(rates.order_rates(db, leaf)[0]['amount']) == Decimal('.4')
-    write(db, user, root, leaf, [item(amount='.9')])
-    confirm('project_to_client')
-    assert Decimal(library(child.id)['items'][0]['amount']) == Decimal('.9')
-    assert Decimal(library()['items'][0]['amount']) == Decimal('.3')
-    history = rates.history(client.id, page=1, db=db, sub_client_id=child.id)['items']
-    manual_entry = next(event for event in history if event['action'] == 'manual_entry')
-    assert manual_entry['actor_name'] == (user.full_name or user.username)
-    assert manual_entry['before'] and manual_entry['after']
-    for action in ('manual_project_sync', 'manual_order_sync', 'automatic_order_sync'):
-        event = next(event for event in history if event['action'] == action and event['order_id'] == str(leaf.id))
-        assert event['project_id'] == str(root.id) and event['order_no'] == leaf.sub_order_no
-        assert event['created_at'].endswith('+08:00')
-    assert all(event['id'] not in {entry['id'] for entry in history}
-               for event in rates.history(client.id, page=1, db=db)['items'])
+    write(db,user,root,leaf,[item(amount='.1')])
+    set_price('.1');set_price('.2',child.id);set_price('.3')
+    assert Decimal(rates.order_rates(db,leaf)[0]['amount'])==Decimal('.2')
+    write(db,user,root,leaf,[item(amount='.9')])
+    assert Decimal(rates.library(db,client.id,child.id)['items'][0]['amount'])==Decimal('.9')
+    assert Decimal(rates.library(db,client.id)['items'][0]['amount'])==Decimal('.3')
+    set_price('.4',child.id)
+    assert Decimal(rates.order_rates(db,leaf)[0]['amount'])==Decimal('.4')
+    history=rates.history(client.id,page=1,db=db,sub_client_id=child.id)['items']
+    assert any(event['action']=='automatic_project_sync' for event in history)
+    assert all(event['created_at'].endswith('+08:00') for event in history)
 
 
 def test_translation_differences_match_effective_basis_and_numeric_size():
@@ -172,13 +165,9 @@ def test_automatic_basis_compares_selected_unit_and_shows_it_for_real_difference
 
     write(db,user,root,leaf,[item(metric='customer_auto',amount='.3')])
     diff=sync.differences('translation',client.id,page=1,db=db,user=user)
-    assert diff['total']==1
-    entry=diff['items'][0]
-    price=entry['project_rates'][0]
-    assert (price['metric'],price['quantity_dimension'],price['quantity_metric'])==('customer_auto','customer','foreign_words')
-    request=sync.SyncWrite(**{key:entry[key] for key in ('project_id','order_id','version','customer_version')},direction='project_to_client',confirmed=True)
-    sync.sync('translation',client.id,request,db=db,user=user)
-    assert sync.differences('translation',client.id,page=1,db=db,user=user)['total']==0
+    assert diff['total']==0
+    matching=sync.matching('translation',root,leaf,rates.order_rates(db,leaf),rates.library(db,client.id)['items'])
+    assert any(Decimal(ref['amount'])==Decimal('.3') for ref in matching)
 
 
 def oral_setup(db):

@@ -3,8 +3,13 @@
     <el-checkbox :model-value="preference.tax_included" :disabled="disabled" @change="persist({tax_included:$event})">单价含税</el-checkbox>
     <span>对账单采用客户选择的税口径；未勾选时标注“不含税”。</span>
     <div class="statement-document-settings">
-      <label>特殊结算对账单默认值
-        <el-select :model-value="preference.statement_default" aria-label="特殊结算对账单默认值" :disabled="disabled" @change="persist({statement_default:$event})">
+      <label>对账单主体
+        <el-select :model-value="preference.statement_subject_key || 'default'" aria-label="对账单主体" :disabled="disabled" @change="persist({statement_subject_key:$event==='default'?null:$event})">
+          <el-option label="系统默认" value="default" /><el-option label="广州总公司" value="guangzhou" /><el-option label="深圳分公司" value="shenzhen" /><el-option label="上海分公司" value="shanghai" />
+        </el-select>
+      </label>
+      <label>是否需对账单
+        <el-select :model-value="preference.statement_default" aria-label="是否需对账单" :disabled="disabled" @change="persist({statement_default:$event})">
           <el-option label="需" value="required" /><el-option label="无需" value="not_required" /><el-option label="未知" value="unknown" />
         </el-select>
       </label>
@@ -13,8 +18,8 @@
           <el-option label="需" :value="true" /><el-option label="无需" :value="false" /><el-option label="未设置" value="default" />
         </el-select>
       </label>
-      <label>特殊结算发票默认值
-        <el-select :model-value="preference.invoice_required ?? 'default'" aria-label="特殊结算发票默认值" :disabled="disabled" @change="saveRequirement('invoice_required',$event)">
+      <label>是否需发票
+        <el-select :model-value="preference.invoice_required ?? 'default'" aria-label="是否需发票" :disabled="disabled" @change="saveRequirement('invoice_required',$event)">
           <el-option label="需" :value="true" /><el-option label="无需" :value="false" /><el-option label="按项目计费口径" value="default" />
         </el-select>
       </label>
@@ -50,6 +55,7 @@ import {computed,ref,watch,onMounted,onBeforeUnmount} from 'vue'
 import {getStatementPreference,saveStatementPreference,getStatementPreferenceHistory} from '@/api/customerStatements'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import {formatBusinessDateTime} from '@/utils/dateTime'
+import {connectInvoiceParties,notifyInvoiceParties,invoicePartiesEvent} from '@/api/invoiceParties'
 const props=defineProps({clientId:{type:[String,Number],default:''},canWrite:Boolean})
 const emptyPreference=()=>({tax_included:false,statement_default:'unknown',revision:0})
 const preference=ref(emptyPreference()),loading=ref(false),saving=ref(false),error=ref('')
@@ -97,6 +103,7 @@ async function persist(patch){
     const data=await saveStatementPreference(id,{revision,tax_included,...patch})
     if(seq===sequence){
       preference.value=data
+      notifyInvoiceParties({kind:'customer-statement-settings',clientId:String(id)})
       historyPage.value=1
       if(historyOpen.value)void loadHistory()
       window.dispatchEvent(new CustomEvent('customer-statement-preference-saved',{detail:{clientId:id}}))
@@ -107,11 +114,15 @@ async function persist(patch){
 }
 watch(()=>props.clientId,load,{immediate:true})
 function refreshAfterProjectSync(event){
-  if(event.detail?.fromProject&&event.detail.clientId===props.clientId&&!saving.value){void load();if(historyOpen.value)void loadHistory()}
+  if(event.detail?.clientId===props.clientId&&!saving.value){void load();if(historyOpen.value)void loadHistory()}
 }
 function refreshOrderHistory(event){
   if(historyOpen.value&&event.detail?.clientId===String(props.clientId))void loadHistory()
 }
+function automaticSettings(event){if(['translation-finance','customer-statement-settings','statement-subject'].includes(event.detail?.kind))refreshAfterProjectSync(event)}
+connectInvoiceParties()
+window.addEventListener(invoicePartiesEvent,automaticSettings)
+onBeforeUnmount(()=>window.removeEventListener(invoicePartiesEvent,automaticSettings))
 onMounted(()=>{
   window.addEventListener('customer-statement-preference-saved',refreshAfterProjectSync)
   window.addEventListener('customer-order-finance-saved',refreshOrderHistory)

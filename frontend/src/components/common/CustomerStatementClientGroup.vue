@@ -1,34 +1,19 @@
 <template>
-  <section class="client-group" :class="{'drop-active':dragOver}" @dragover.prevent="dragOver=true" @dragleave="leave" @drop.prevent="drop">
+  <section class="client-group" :class="{'drop-active':dragOver}" @dragover="over" @dragleave="leave" @drop.prevent="drop">
     <header><strong>{{groupLabel}} · {{total}}</strong><div v-if="canExpand"><el-button link @click="expanded=items.map(client=>client.id)">全部展开</el-button><el-button link @click="expanded=[]">全部收起</el-button></div></header>
     <el-input v-model="keyword" :aria-label="`${groupLabel}搜索`" placeholder="搜索客户或子客户名称、简称或编号" clearable @input="queueSearch" @keyup.enter="search"><template #append><el-button @click="search">查询</el-button></template></el-input>
     <el-alert v-if="error" :title="error" type="error" :closable="false">
       <el-button link type="primary" :disabled="loading" @click="load">重试</el-button>
     </el-alert>
     <div v-loading="loading" class="client-group-list">
-      <p v-if="!settlementScope" class="drop-hint">{{dragOver?'松开鼠标移入此栏':'可将另一栏的客户拖到这里'}}</p>
+      <p v-if="settlementScope!=='special'" class="drop-hint">{{dragOver?'松开鼠标移入此栏':'可将另一栏的客户拖到这里'}}</p>
       <el-empty v-if="!items.length&&!loading&&!error" description="当前月份没有匹配客户" :image-size="55" />
       <el-collapse v-model="expanded">
         <el-collapse-item v-for="client in items" :key="client.id" :name="client.id" :disabled="!canExpand">
-          <template #title><div class="client-title" :draggable="canWrite&&!moving&&!settlementScope" @dragstart="startDrag($event,client)" @dragend="dragOver=false"><div class="client-name-line"><strong>{{client.shortName||client.name}}</strong><el-select v-if="canExpand" :model-value="client.progress||'not_started'" :disabled="!canWrite||progressSaving.has(client.id)" size="small" :aria-label="settlementScope==='special'?'特殊结算进度':'对账单进度'" style="width:115px" @click.stop @mousedown.stop @dragstart.prevent.stop @change="saveProgress(client,$event)"><el-option label="未开始" value="not_started" /><el-option label="部分完成" value="partial" /><el-option label="全部完成" value="completed" /></el-select></div><small>{{client.code}} · {{client.projectCount}} 个项目<span v-if="client.pendingCount"> · 待入账 {{client.pendingCount}} 项</span> · 客户经理：{{client.clientManagers?.join('、')||'未分配'}}</small></div></template>
-          <div class="client-workspace">
-            <el-select v-if="client.subClients?.length" :model-value="selectedSubClient(client)" aria-label="子客户"
-              style="width:280px;margin:8px 0" @change="subClientSelection[client.id]=$event">
-              <el-option v-if="!client.filterSubClients" value="" label="全部项目" />
-              <el-option v-for="child in client.subClients" :key="child.id" :value="child.id" :label="`${child.name} · ${child.code}`" />
-            </el-select>
-            <CustomerStatementWorkspace v-if="expanded.includes(client.id)" :key="selectedSubClient(client)"
-              :client-id="client.id" :sub-client-id="selectedSubClient(client)||undefined" :settlement-scope="settlementScope" :period-number="periodNumber" :billing-month="month" :lock-month="!!periodNumber" :project-selection="options=>projectTables.get(client.id)?.statementSelection(options)" :project-reload="()=>projectTables.get(client.id)?.reloadProjects()">
-              <template #customer-projects="{months,mode,reload,selectionChanged}">
-                <StatementClientFinance :ref="el=>el?projectTables.set(client.id,el):projectTables.delete(client.id)" :client-id="client.id" :sub-client-id="selectedSubClient(client)||undefined" :settlement-scope="settlementScope" :period-number="periodNumber" client-scope statement-client-view :initial-month="month" :preview-months="months" :preview-mode="mode" :manager-query="managerQuery" @statement-selection-change="selectionChanged" @special-payment-saved="reload" />
-              </template>
-              <template #client-actions="{reload}">
-                <CustomerStatementActions v-if="!settlementScope" :client="client" @merged="reload">
-                  <el-button v-if="canWrite" link :disabled="moving" @click="emit('move-client',{...client,statementRequired:required})">移至{{required?'无需':'需'}}</el-button>
-                </CustomerStatementActions>
-              </template>
-            </CustomerStatementWorkspace>
-          </div>
+          <template #title><div class="client-title" :draggable="canWrite&&!moving&&settlementScope!=='special'" @dragstart="startDrag($event,client)" @dragend="dragOver=false"><div class="client-name-line"><strong>{{client.shortName||client.name}}</strong><el-select v-if="canExpand" :model-value="client.progress||'not_started'" :disabled="!canWrite||progressSaving.has(client.id)" size="small" :aria-label="settlementScope==='special'?'特殊结算进度':'对账单进度'" style="width:115px" @click.stop @mousedown.stop @dragstart.prevent.stop @change="saveProgress(client,$event)"><el-option label="未开始" value="not_started" /><el-option label="部分完成" value="partial" /><el-option label="全部完成" value="completed" /></el-select></div><small>{{client.code}} · {{client.projectCount}} 个项目<span v-if="client.pendingCount"> · 待入账 {{client.pendingCount}} 项</span> · 客户经理：{{client.clientManagers?.join('、')||'未分配'}}</small></div></template>
+          <CustomerStatementClientWorkspace v-if="expanded.includes(client.id)" :client="client" :month="month"
+            :period-number="periodNumber" :settlement-scope="settlementScope" :required="required" :moving="moving"
+            :manager-query="managerQuery" @move-client="emit('move-client',$event)" />
         </el-collapse-item>
       </el-collapse>
     </div>
@@ -36,28 +21,20 @@
   </section>
 </template>
 <script setup>
-import {computed,defineAsyncComponent,onBeforeUnmount,reactive,ref,watch} from 'vue'
-import CustomerStatementWorkspace from './CustomerStatementWorkspace.vue'
-const StatementClientFinance=defineAsyncComponent(()=>import('@/views/project/translation/CustomerFinance.vue'))
-import CustomerStatementActions from './CustomerStatementActions.vue'
+import {computed,onBeforeUnmount,ref,watch} from 'vue'
+import CustomerStatementClientWorkspace from './CustomerStatementClientWorkspace.vue'
 import {getStatementCustomerGroups,setStatementProgress} from '@/api/translationCustomerFinance'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import {hasPermission} from '@/utils/permission'
-const props=defineProps({periodNumber:Number,settlementScope:String,required:Boolean,month:String,progressFilter:String,moving:Boolean,managerQuery:{type:Object,default:()=>({})}})
-const emit=defineEmits(['drop-client','move-client','managers'])
+const props=defineProps({keywordValue:{type:String,default:''},periodNumber:Number,settlementScope:String,required:Boolean,month:String,progressFilter:String,moving:Boolean,managerQuery:{type:Object,default:()=>({})}})
+const emit=defineEmits(['drop-client','move-client','managers','keyword-change'])
 const groupLabel=computed(()=>props.settlementScope==='special'
   ? (props.required?'特殊结算客户':'非特殊结算客户')
   : (props.required?'需对账单客户':'无需对账单客户'))
 const canExpand=computed(()=>props.settlementScope!=='special'||props.required)
 const canWrite=hasPermission('projects:write'),pageSize=20
-const subClientSelection=reactive({})
-function selectedSubClient(client){
-  const selected=subClientSelection[client.id]
-  if(client.subClients?.some(child=>child.id===selected))return selected
-  return client.filterSubClients?client.subClients?.[0]?.id||'':''
-}
-const projectTables=new Map(),progressSaving=ref(new Set())
-const items=ref([]),total=ref(0),page=ref(1),keyword=ref(''),expanded=ref([]),loading=ref(false),error=ref(''),dragOver=ref(false)
+const progressSaving=ref(new Set())
+const items=ref([]),total=ref(0),page=ref(1),keyword=ref(props.keywordValue),expanded=ref([]),loading=ref(false),error=ref(''),dragOver=ref(false)
 let controller,sequence=0,timer
 async function load(){
   if(!props.month)return
@@ -68,12 +45,14 @@ async function load(){
 }
 async function saveProgress(client,progress){progressSaving.value.add(client.id);try{const result=await setStatementProgress(client.id,{billing_month:props.month,progress,revision:client.progressRevision||0,...props.managerQuery});Object.assign(client,result);if(props.progressFilter&&props.progressFilter!==progress)await load()}catch(e){error.value=getLocalizedErrorMessage(e,'对账单进度保存失败');if(e.response?.status===409)await load()}finally{progressSaving.value.delete(client.id)}}
 function search(){page.value=1;void load()}
-function queueSearch(value){clearTimeout(timer);controller?.abort();sequence++;if(!value.trim())search();else timer=setTimeout(search,400)}
-function startDrag(event,client){event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('application/x-statement-client',JSON.stringify({...client,statementRequired:props.required}))}
-function drop(event){dragOver.value=false;if(!canWrite||props.moving||props.settlementScope)return;try{const value=JSON.parse(event.dataTransfer.getData('application/x-statement-client'));emit('drop-client',value)}catch{}}
+function queueSearch(value){emit('keyword-change',value);clearTimeout(timer);controller?.abort();sequence++;if(!value.trim())search();else timer=setTimeout(search,400)}
+function startDrag(event,client){if(!canWrite||props.moving||props.settlementScope==='special'){event.preventDefault();return}event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('application/x-statement-client',JSON.stringify({...client,statementRequired:props.required,statementBillingMonth:props.month}))}
+function over(event){if(!canWrite||props.moving||props.settlementScope==='special'||!Array.from(event.dataTransfer?.types||[]).includes('application/x-statement-client'))return;event.preventDefault();event.dataTransfer.dropEffect='move';dragOver.value=true}
+function drop(event){dragOver.value=false;if(!canWrite||props.moving||props.settlementScope==='special')return;try{const value=JSON.parse(event.dataTransfer.getData('application/x-statement-client'));emit('drop-client',value)}catch{}}
 function leave(event){if(!event.currentTarget.contains(event.relatedTarget))dragOver.value=false}
 watch([items,expanded],()=>{const shown=expanded.value.length?items.value.filter(client=>expanded.value.includes(client.id)):items.value;emit('managers',[...new Set(shown.flatMap(client=>client.clientManagers||[]))])},{deep:true})
 watch(()=>[props.month,props.periodNumber,props.progressFilter,JSON.stringify(props.managerQuery)],()=>{expanded.value=[];search()},{immediate:true})
+watch(()=>props.keywordValue,value=>{if(value!==keyword.value){keyword.value=value;queueSearch(value)}})
 onBeforeUnmount(()=>{sequence++;clearTimeout(timer);controller?.abort()})
 defineExpose({refresh:search})
 </script>

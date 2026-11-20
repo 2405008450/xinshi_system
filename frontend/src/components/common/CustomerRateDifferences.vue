@@ -73,7 +73,8 @@ let sequence=0,controller
 function describe(rows){
   if(props.module==='annotation')return rows.map(row=>`${settlementLabel(annotationProjectTypeOptions,row.project_type)}：${taxPriceSummary(row.tax_prices,row.currency,settlementLabel(settlementUnitOptions,row.unit),false)||('原单价（税口径未确认） '+row.currency+' '+row.amount+'/'+settlementLabel(settlementUnitOptions,row.unit))}`).join('\n')||'未登记匹配的客户单价'
   if(props.module==='interpretation')return financeSummary({rates:rows.map(row=>({...row,quantity:1}))})
-  return rows.map(row=>{
+  return rows.filter(row=>[row.amount,row.tax_prices?.unit_price_excl_tax,row.tax_prices?.unit_price_incl_tax]
+    .some(value=>value!=null&&value!=='')).map(row=>{
     const basis=resolvedBasisLabel(row.metric,{dimension:row.quantity_dimension,metric:row.quantity_metric})
     const unit=`${Number(row.unit_size)} ${basis}`
     const summary=taxPriceSummary(row.tax_prices,row.currency,unit,false)||`原参考价（税口径未确认） ${row.currency} ${row.amount}/${unit}`

@@ -38,6 +38,22 @@ def _field_filters(raw: Optional[str]):
     return value
 
 
+def _manager_clients(db, user_id):
+    from types import SimpleNamespace
+    clients = [SimpleNamespace(id=row.id) for row in db.query(Client.id)]
+    _add_project_managers(db, clients, user_id)
+    return clients
+
+
+@router.get("/project-manager-options")
+def project_manager_options(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    managers = {manager['key']: manager['name']
+                for client in _manager_clients(db, current_user.id)
+                for manager in client.project_managers}
+    return [{'value': key, 'label': name}
+            for key, name in sorted(managers.items(), key=lambda item: (item[1].casefold(), item[0]))]
+
+
 @router.get("/options", response_model=List[ClientOptionResponse])
 def read_client_options(
     keyword: Optional[str] = Query(None),
@@ -199,6 +215,7 @@ def read_client_page(
     frequent_first: bool = Query(False),
     field_filters: Optional[str] = Query(None),
     include_project_managers: bool = False,
+    project_manager_keys: Optional[str] = Query(None, max_length=10000),
     has_sub_clients: bool = False,
     sub_client_query: Optional[str] = Query(None, max_length=200),
     db: Session = Depends(get_db),
@@ -217,6 +234,12 @@ def read_client_page(
         has_sub_clients=has_sub_clients,
         sub_client_query=sub_client_query,
     )
+    if project_manager_keys:
+        keys = set(project_manager_keys.split(","))
+        filters["manager_client_ids"] = [
+            client.id for client in _manager_clients(db, current_user.id)
+            if any(manager["key"] in keys for manager in client.project_managers)
+        ]
     items = get_clients(
         db, skip=skip, limit=limit, frequent_first=frequent_first, **filters,
     )

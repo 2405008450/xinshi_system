@@ -85,6 +85,7 @@ class CollectionAccountMaterials(Base):
 
 
 class PreferenceWrite(BaseModel):
+    statement_subject_key: Literal['guangzhou','shenzhen','shanghai'] | None = None
     model_config = ConfigDict(extra='forbid')
     revision: int = Field(ge=0)
     tax_included: bool
@@ -312,7 +313,8 @@ def client_preference(db,client_id):
     row=db.get(CustomerStatementPreference,client_id)
     default=db.get(CustomerStatementDefault,client_id)
     finance_default=db.get(CustomerTranslationFinanceDefault,client_id) if finance_defaults_ready(db) else None
-    return dict(tax_included=bool(row.tax_included) if row else False,statement_default=default.choice if default else 'unknown',revision=row.revision if row else 0,
+    from statement_subject_sync import read as read_subject
+    return dict(statement_subject_key=read_subject(db,client_id),tax_included=bool(row.tax_included) if row else False,statement_default=default.choice if default else 'unknown',revision=row.revision if row else 0,
                 **{field:getattr(finance_default,field,None) for field in ('payment_method','quotation_required','invoice_required')})
 
 
@@ -370,6 +372,31 @@ def record_document_defaults(db, client_id, user, before, origin):
     ))
 
 
+def auto_sync_document_defaults(db, user, client_id, **values):
+    """项目单据设置反写客户默认，并使其他入口使用同一来源；不提交事务。"""
+    if not client_id:
+        return
+    before=client_preference(db,client_id)
+    changes={key:value for key,value in values.items() if value is not None and before.get(key)!=value}
+    if not changes:
+        return
+    row=db.get(CustomerStatementPreference,client_id)
+    if row is None:
+        row=CustomerStatementPreference(client_id=client_id,revision=0,tax_included=False)
+        db.add(row)
+    row.revision+=1
+    row.updated_at=business_now()
+    row.updated_by=user.id
+    if 'statement_default' in changes:
+        set_customer_statement_default(db,client_id,changes['statement_default'],user.id)
+    write_finance_defaults(db,client_id,{key:value for key,value in changes.items()
+                                      if key in ('quotation_required','invoice_required')})
+    db.flush()
+    record_document_defaults(db,client_id,user,before,'document_defaults_project')
+    from translation_document_requirements import apply_customer_documents
+    apply_customer_documents(db,client_id,changes,user.id)
+
+
 def sync_project_statement_default(db, client_id, revision, required, user, payment_method=None, finance_values=None):
     from permission_service import user_has_permission
 
@@ -394,6 +421,11 @@ def sync_project_statement_default(db, client_id, revision, required, user, paym
         write_finance_defaults(db, client_id, finance_values)
     db.flush()
     record_document_defaults(db, client_id, user, before, 'document_defaults_project')
+    after=client_preference(db,client_id)
+    changed={field:after[field] for field in DOCUMENT_DEFAULT_FIELDS if before[field]!=after[field]}
+    if changed:
+        from translation_document_requirements import apply_customer_documents
+        apply_customer_documents(db,client_id,changed,user.id)
 
 
 @router.get('/clients/{client_id}/statement-preference')
@@ -436,6 +468,9 @@ def save_preference(client_id:UUID,data:PreferenceWrite,db=Depends(get_db),user=
         if changed:
             from translation_document_requirements import apply_customer_documents
             apply_customer_documents(db,client_id,changed,user.id)
+        if 'statement_subject_key' in data.model_fields_set:
+            from statement_subject_sync import write as write_subject
+            write_subject(db,user,client_id,data.statement_subject_key)
         db.commit();return client_preference(db,client_id)
     except IntegrityError:
         db.rollback();raise HTTPException(409,'客户含税设置已更新，请重新加载后编辑')

@@ -40,6 +40,19 @@ class ProgressWrite(BaseModel):
 
 def ready(db):return inspect(db.connection()).has_table(StatementProgress.__tablename__)
 
+def read(db,user,client_id,month,manager_ids=None,only_mine=False,client_manager=None):
+    from statement_customer_groups import snapshot,pending_clients
+    from finance_manager_scope import manager_fields
+    if not ready(db):raise HTTPException(503,'对账单进度存储尚未初始化')
+    if not db.get(Client,client_id):raise HTTPException(404,'客户不存在')
+    scope=manager_fields(db,user,manager_ids or [],only_mine,client_manager)
+    projects,_=snapshot(db,client_id,month,scope)
+    if not projects and client_id not in pending_clients(db,month,scope):
+        raise HTTPException(422,'该客户不在当前月份和客户经理的项目范围内')
+    row=db.get(StatementProgress,(client_id,month))
+    return dict(progress=row.progress if row else 'not_started',progress_revision=row.revision if row else 0)
+
+
 def write(db,user,client_id,data):
     from statement_customer_groups import snapshot,pending_clients
     from finance_manager_scope import manager_fields

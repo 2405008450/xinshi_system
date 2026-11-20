@@ -20,7 +20,7 @@ export async function confirmStatementRequirement({ projectId, clientId, billing
   })
   const defaultLabel = context.clientId ? defaultLabels[context.statementDefault] || '未知' : '未关联客户'
   const hasPeers = allowMonthSync && context.otherCount > 0
-  const message = [`客户对账单默认设置：${defaultLabel}。本次将当前项目设为「${nextLabel}」。`]
+  const message = [`客户对账单默认设置：${defaultLabel}。本次设为「${nextLabel}」，并自动同步对应客户设置及关联订单。`]
   if (paymentMethodLabel) message.unshift(`${saveImmediately ? '确认' : '保存'}后，当前项目的结算模式将设为「${paymentMethodLabel}」。`)
   if (hasPeers) {
     const change = paymentMethodLabel ? `结算模式为「${paymentMethodLabel}」` : `对账单需求为「${nextLabel}」`

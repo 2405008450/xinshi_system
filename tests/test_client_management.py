@@ -103,7 +103,7 @@ def test_project_summary_requires_both_customer_and_project_read(environment, mo
         assert http.get(path).status_code == 403
 
 
-def test_customer_managers_rank_consultation_then_projects_and_scope_project_details(environment):
+def test_customer_managers_rank_consultation_then_projects_and_scope_project_details(environment, monkeypatch):
     from client_project_managers import attach_client_project_managers, client_manager_project_groups
     from models import Consultation
     from project_client_manager import ProjectClientManagerChange
@@ -137,6 +137,23 @@ def test_customer_managers_rank_consultation_then_projects_and_scope_project_det
                            client_manager_id=later_manager.id, created_at=datetime(2026, 1, 1)),
     ])
     db.commit()
+
+    from routers import clients as client_routes
+    monkeypatch.setattr(client_routes, 'user_has_permission', lambda *_: True)
+    options = client_routes.project_manager_options(db=db, current_user=consultation_manager)
+    assert {option['value'] for option in options} == {
+        str(consultation_manager.id), str(first_manager.id), str(later_manager.id),
+    }
+    page = client_routes.read_client_page(
+        skip=0, limit=1, frequent_first=False, field_filters=None, sub_client_query=None,
+        project_manager_keys=str(first_manager.id), db=db, current_user=consultation_manager,
+    )
+    assert [row.id for row in page['items']] == [client.id] and page['total'] == 1
+    page = client_routes.read_client_page(
+        skip=1, limit=1, frequent_first=False, field_filters=None, sub_client_query=None,
+        project_manager_keys=str(later_manager.id), db=db, current_user=consultation_manager,
+    )
+    assert len(page['items']) == 1 and page['total'] == 2
 
     attach_client_project_managers(db, [client, other], read_consultations=True, read_projects=True)
     assert [item['key'] for item in client.project_managers] == [

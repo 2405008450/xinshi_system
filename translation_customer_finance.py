@@ -510,7 +510,7 @@ def tree(project, billing_month=None, *, summary_only=False, include_billing_tax
             adjusted_total=str(row.total_excl_tax) if row and row.total_excl_tax is not None else None,
             adjusted_total_incl_tax=str(row.total_incl_tax) if row and row.total_incl_tax is not None else None,
             billing_month=effective_billing_month(project,owner),recorded_billing_month=row.billing_month if row else None,statement_required=bool(getattr(project,'statement_required',True)),
-            quotation_required=bool(getattr(project,'effective_quotation_required',project.quotation_required)),invoice_requirement_override=getattr(project,'effective_invoice_required',None) if payment_method(project)=='special' else None,quotation_draft=getattr(project,'quotation_draft',None),document_notes=dict(getattr(project,'document_notes',{}) or {}),invoice_data=getattr(project,'invoice_data',{}),statement_required_explicit=bool(getattr(project,'statement_required_explicit',False)),
+            quotation_required=bool(getattr(project,'effective_quotation_required',project.quotation_required)),invoice_requirement_override=getattr(project,'effective_invoice_required',None),quotation_draft=getattr(project,'quotation_draft',None),document_notes=dict(getattr(project,'document_notes',{}) or {}),invoice_data=getattr(project,'invoice_data',{}),statement_required_explicit=bool(getattr(project,'statement_required_explicit',False)),
             explanation=row.remarks or '' if row else '',word_count_matrix=owner.word_count_matrix)
         nodes[key]['word_count_matrix_source']=getattr(owner,'word_count_matrix_source','project' if owner is project else 'suborder')
         if not summary_only:nodes[key].update(finance_notes.values(db,project,owner,row))
@@ -728,11 +728,13 @@ def tree(project, billing_month=None, *, summary_only=False, include_billing_tax
         from translation_project_invoices import invoice_required
         for node in nodes.values():
             if uses_parent_settings:
-                node['invoice_requirement_override'] = None
+                node['invoice_requirement_override'] = document_defaults.get('invoice_required')
             node['invoice_required'] = invoice_required(node)
             if method != 'special' or project.sub_client_id:
                 statement_default = (document_defaults.get('statement_required') if uses_parent_settings
-                                     else sub_finance.statement_required if sub_finance else None)
+                                     else sub_finance.statement_required if sub_finance else
+                                     project.statement_required if getattr(project,'statement_required_explicit',False) else
+                                     document_defaults.get('statement_required'))
                 node['statement_required'] = (statement_default if statement_default is not None
                                              else node.get('effective_billing_tax_mode') == 'incl_tax')
                 node['statement_required_explicit'] = False
@@ -740,6 +742,12 @@ def tree(project, billing_month=None, *, summary_only=False, include_billing_tax
             root['customer_document_sources']['statement_required'] = False
         elif any(node['statement_required'] for node in nodes.values() if not node.get('fixed_pricing_from')):
             root['has_statement_required_orders'] = True
+    # 已实际形成对账单的项目/子订单，不再被客户默认值或税口径显示为“不需”。
+    for node in nodes.values():
+        if node.get('statement_status'):
+            node['statement_required']=True
+    if root['payment_method']=='special' and any(node['statement_required'] for node in nodes.values() if not node.get('fixed_pricing_from')):
+        root['has_statement_required_orders']=True
     return {'item':root,'version':version(project) if include_version and not summary_only else None}
 
 
@@ -1183,6 +1191,24 @@ def save_prices(db,user,project,owners,parents,key,payload):
     if not payload.update_library:
         record_order_rates(db,user,project,target,hierarchy(project)[1][key],old[key],values,
                            initial=payload.record_initial_finance)
+        # 单价保存与客户参考价属于同一事务；空价格和订单总额不进入参考价。
+        if client_id:
+            from customer_finance_sync import number, tax_signature
+            scoped = rates.library(db,client_id,project.sub_client_id)
+            updates=[]
+            for data in values:
+                if data['amount'] is None:
+                    continue
+                ref=rate_matching.automatic_reference(scoped['items'],data,target.word_count_matrix)
+                if ref and number(ref['amount'])==number(data['amount']) and tax_signature(ref)==tax_signature(data):
+                    continue
+                metric=ref['metric'] if ref else data['metric']
+                updates.append(rates.RateInput(**{**data,'id':None,'reference_id':None,'reference_revision':None,'metric':metric}))
+            if updates:
+                rates.write_library(db,user,client_id,updates,scoped['version'],origin='automatic_project',merge=True,
+                                    sub_client_id=project.sub_client_id,project_id=project.id,order_id=target.id,
+                                    order_no=hierarchy(project)[1][key])
+
 
 
 def save_payment_changes(db,project,payload,actor_id):
@@ -1319,16 +1345,10 @@ def _apply_finance(db, user, project_id, payload, *, allow_incomplete=False):
     from customer_statements import record_order_documents
     target_method = payload.payment_method or payment_method(project)
     use_sub_client = bool(project.sub_client_id and project.settlement_party == 'sub_client')
-    if payload.invoice_required is not None and not use_sub_client and target_method != 'special':
-        raise HTTPException(422,'发票需求由计费口径自动确定，只有特殊结算可单独调整')
-    if payload.statement_required is not None and not use_sub_client and target_method != 'special':
-        raise HTTPException(422,'对账单需求由计费口径自动确定，只有特殊结算可单独调整')
     child_document = key != str(project.id) and target_method=='special'
     policies = {field:getattr(payload,field) for field in ('statement_required','quotation_required','invoice_required')
                 if getattr(payload,field) is not None}
     if policies:
-        if project.sub_client_id and not use_sub_client:
-            raise HTTPException(422,'当前账期采用客户结算设置，请在客户管理修改')
         if use_sub_client:
             sub_client_finance.write_preferences(db,project.sub_client_id,policies.copy(),user,revision=None)
             payload = payload.model_copy(update=dict.fromkeys(policies))
@@ -1365,6 +1385,11 @@ def _apply_finance(db, user, project_id, payload, *, allow_incomplete=False):
             raise HTTPException(422, '请选择要同步的财务设置')
         sync_statement_customer(db, project, payload.statement_customer_sync, payload.statement_required, user,
                                 client_id, None if payload.payment_method=='special' else payload.payment_method, finance_values)
+    if policies and not use_sub_client:
+        from customer_statements import auto_sync_document_defaults
+        auto_sync_document_defaults(db,user,client_id,
+            statement_default=('required' if policies['statement_required'] else 'not_required') if 'statement_required' in policies else None,
+            quotation_required=policies.get('quotation_required'),invoice_required=policies.get('invoice_required'))
     if payload.quotation_draft is not None:project.quotation_draft=payload.quotation_draft.model_dump(mode='json')
     if payload.documents_only:
         finance_notes.apply(db,user,project,by_id[key],internal=payload.explanation if 'explanation' in payload.model_fields_set else None,customer=payload.customer_explanation)
@@ -2031,9 +2056,7 @@ def update_statement_required(project_id:UUID,payload:StatementRequiredWrite,db:
     attach_customer_types(db,[project])
     documents.attach(db,[project])
     attach_monthly_payment_peers(db,[project])
-    if project.sub_client_id:
-        if project.settlement_party == 'client':
-            raise HTTPException(422,'当前账期采用客户结算设置，请在客户管理修改')
+    if project.sub_client_id and project.settlement_party != 'client':
         current=read(db,project.id)['item']
         if current['statement_required'] != payload.expected_statement_required:
             raise HTTPException(409,'子客户对账单设置已更新，请刷新后重试')
@@ -2042,8 +2065,6 @@ def update_statement_required(project_id:UUID,payload:StatementRequiredWrite,db:
         return {'id':str(project.id),'statement_required':payload.statement_required,'payment_method':payment_method(project),
                 'updated_at':business_datetime(project.updated_at).isoformat() if project.updated_at else None,
                 'affected_count':1}
-    if payment_method(project) != 'special':
-        raise HTTPException(422,'对账单需求由计费口径自动确定，只有特殊结算可单独调整')
     before=bool(project.statement_required)
     previous_updated_at=business_datetime(project.updated_at).isoformat() if project.updated_at else None
     if before!=payload.expected_statement_required:raise HTTPException(409,'是否需对账单已被其他人修改，请刷新后重试')
@@ -2067,8 +2088,10 @@ def update_statement_required(project_id:UUID,payload:StatementRequiredWrite,db:
             documents.save(db, project, statement_required=payload.statement_required, actor_id=user.id)
             project.updated_at = business_now().replace(tzinfo=None)
             changed += 1
+        from customer_statements import auto_sync_document_defaults
         if payload.statement_customer_sync:
             sync_statement_customer(db, project, payload.statement_customer_sync, payload.statement_required, user, locked_client)
+        auto_sync_document_defaults(db,user,locked_client,statement_default='required' if payload.statement_required else 'not_required')
         if changed or payload.statement_customer_sync:
             db.commit()
         project.statement_required = payload.statement_required
@@ -2382,6 +2405,14 @@ def update_table(project_id:UUID,payload:TablePatch,db:Session=Depends(get_db),u
     try:return save_table_cell(db,user,project_id,payload)
     except Exception:
         db.rollback();raise
+
+@router.get('/statement-customer-groups/{client_id}/progress',dependencies=[Depends(require_module_access('projects:read','projects:write'))])
+def get_statement_progress(client_id:UUID,billing_month:str=Query(pattern=r'^\d{4}-(0[1-9]|1[0-2])$'),
+                           manager_ids:list[UUID]|None=Query(None,max_length=2000),only_mine:bool=False,client_manager:str|None=None,
+                           db:Session=Depends(get_db),user=Depends(get_current_user)):
+    from customer_statement_progress import read
+    return read(db,user,client_id,billing_month,manager_ids,only_mine,client_manager)
+
 
 @router.put('/statement-customer-groups/{client_id}/progress',dependencies=[Depends(require_permission('projects:write'))])
 def set_statement_progress(client_id:UUID,payload:ProgressWrite,db:Session=Depends(get_db),user=Depends(get_current_user)):

@@ -788,7 +788,9 @@ const searchForm = reactive({
 })
 
 const clientStatusOptions=[{label:'合作中',value:'active'},{label:'已停止',value:'inactive'},{label:'待合作',value:'pending'}]
+const projectManagerOptions = ref([])
 const clientFilterFields=[
+  {key:"project_managers",label:"客户经理",type:"select",options:()=>projectManagerOptions.value},
   {key:'client_code',label:'客户编号',type:'text'},{key:'client_name',label:'客户全称',type:'text'},
   {key:'client_short_name',label:'客户简称',type:'text'},{key:'english_name',label:'英文全称',type:'text'},
   {key:'english_short_name',label:'英文简称',type:'text'},{key:'client_manager',label:'客户联系人',type:'text'},
@@ -887,7 +889,10 @@ const handleCurrentChange = () => {
 }
 
 const buildFilterParams = () => {
-  return {field_filters:serializeFieldFilters(advancedFilters,clientFilterFields)}
+  return {
+    field_filters:serializeFieldFilters(advancedFilters,clientFilterFields.filter(field=>field.key!=="project_managers")),
+    project_manager_keys:advancedFilters.project_managers.join(",") || undefined,
+  }
 }
 
 const fetchData = async () => {
@@ -1187,6 +1192,7 @@ const resetSubForm = () => {
 }
 
 onMounted(() => {
+  clientApi.getProjectManagerOptions().then(options=>{projectManagerOptions.value=options}).catch(()=>{ElMessage.error("客户经理筛选选项加载失败")})
   if (props.editorClientId) {
     if (canWrite) handleEdit({ id: props.editorClientId }, props.editorSubClientId)
     else emit('editor-load-error')

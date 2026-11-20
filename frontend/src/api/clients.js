@@ -54,3 +54,5 @@ export const updateSubClient = (subId, data) => {
 export const deleteSubClient = (subId) => {
   return api.delete(`/clients/sub_clients/${subId}`)
 }
+
+export const getProjectManagerOptions = config => api.get("/clients/project-manager-options", config)

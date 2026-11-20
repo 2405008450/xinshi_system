@@ -13,6 +13,11 @@
     <p v-if="party === 'client'">本账期采用客户的报价单、对账单和含税设置，新生成的对账单及发票使用客户资料。</p>
     <template v-if="settings">
       <div class="sub-client-finance-fields">
+        <el-form-item label="对账单主体">
+          <el-select :model-value="settings.statement_subject_key || 'default'" aria-label="子客户对账单主体" :disabled="!canWrite || saving" @change="save('statement_subject_key',$event)">
+            <el-option label="系统默认" value="default" /><el-option label="广州总公司" value="guangzhou" /><el-option label="深圳分公司" value="shenzhen" /><el-option label="上海分公司" value="shanghai" />
+          </el-select>
+        </el-form-item>
         <el-form-item v-for="field in documentFields" :key="field.key" :label="field.label">
           <div class="sub-client-document-choice">
             <el-select :model-value="settings[field.key] ?? 'default'"
@@ -138,7 +143,7 @@ function saveNote(kind,value){
 }
 
 function onSettingsChanged(event) {
-  if (event.detail?.kind !== 'sub-client-finance' || event.detail.subClientId !== props.subClientId) return
+  if (!['sub-client-finance','statement-subject'].includes(event.detail?.kind) || event.detail.subClientId !== props.subClientId) return
   if (!saving.value) void load()
   if (!switching.value) void loadParty()
 }

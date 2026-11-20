@@ -43,3 +43,4 @@ export const getStatementCustomerGroups=(params,config={})=>api.get('/translatio
 export const moveStatementCustomer=(id,data)=>api.put(`/translation-customer-finance/statement-customer-groups/${id}`,data).then(camel)
 
 export const setStatementProgress=(id,data)=>api.put(`/translation-customer-finance/statement-customer-groups/${id}/progress`,data).then(camel)
+export const getStatementProgress=(id,params,config={})=>api.get(`/translation-customer-finance/statement-customer-groups/${id}/progress`,{...config,params,paramsSerializer:{indexes:null}}).then(camel)

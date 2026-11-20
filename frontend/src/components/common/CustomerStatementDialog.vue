@@ -31,7 +31,7 @@
             <StatementClientFinance ref="contextProjects" :client-id="clientContext.id" :sub-client-id="clientContext.subClientId" :period-number="clientFilters.period" :settlement-scope="settlementScope" client-scope statement-client-view :require-statement-for-selection="settlementScope!=='special'" :initial-month="clientFilters.month" :preview-months="months" :preview-mode="mode" @statement-selection-change="selectionChanged" @special-payment-saved="reload" @saved="$event?.id && emit('saved',$event)" />
           </template>
           <template #client-actions="{reload}">
-            <CustomerStatementActions v-if="!settlementScope" :client="clientContext" @merged="reload" />
+            <CustomerStatementActions :client="clientContext" :settlement-scope="settlementScope" @merged="reload" />
           </template>
         </CustomerStatementWorkspace>
       </template>

@@ -6,14 +6,24 @@ from tools.apply_statement_progress_migration import apply_migration
 import translation_customer_finance as finance
 
 def test_customer_progress_month_scope_filter_concurrency_and_history(setup):
-    http,db,clients,_,_,first,_=setup
+    http,db,clients,_,user,first,second=setup
     http.app.include_router(finance.router)
     apply_migration(db.connection());apply_migration(db.connection())
-    first.project_status='已确认';db.commit()
+    from translation_document_requirements import save as save_documents
+    first.project_status='已确认'
+    for order in (first,second):
+        save_documents(db,order,statement_required=True,actor_id=user.id)
+    db.commit()
     url=f'/translation-customer-finance/statement-customer-groups/{clients[0].id}/progress'
+    response=http.get(url,params={'billing_month':'2026-10'})
+    assert response.status_code==200,response.text
+    assert response.json()=={'progress':'not_started','progress_revision':0}
+    assert db.get(StatementProgress,(clients[0].id,'2026-10')) is None
+    assert db.query(StatementProgressEvent).count()==0
     body={'billing_month':'2026-10','progress':'partial','revision':0}
     result=http.put(url,json=body);assert result.status_code==200,result.text
     assert result.json()=={'progress':'partial','progress_revision':1}
+    assert http.get(url,params={'billing_month':'2026-10'}).json()==result.json()
     assert db.query(StatementProgressEvent).count()==1
     assert http.put(url,json={**body,'progress':'completed'}).status_code==409
     assert http.put(url,json={**body,'revision':1}).status_code==200
@@ -25,3 +35,5 @@ def test_customer_progress_month_scope_filter_concurrency_and_history(setup):
     assert customers(db,'2026-10',True,None,0,20,progress='completed')['total']==0
     assert customers(db,'2026-11',True,None,0,20,progress='not_started')['total']>=1
     assert http.put(url,json={**body,'billing_month':'2027-02'}).status_code==422
+    assert http.get(url,params={'billing_month':'2027-02'}).status_code==422
+    assert http.get(url,params={'billing_month':'2026-99'}).status_code==422

@@ -26,6 +26,7 @@ class SubClientFinancePreference(Base):
 
 
 class PreferenceWrite(BaseModel):
+    statement_subject_key: Literal['guangzhou','shenzhen','shanghai'] | None = None
     model_config = ConfigDict(extra='forbid')
     revision: int
     quotation_required: bool | None = None
@@ -58,7 +59,7 @@ def settings_payload(db, client_id):
 def write_preferences(db, sub_client_id, changes, user, revision):
     from customer_statement_workspace import workspace, empty_payload, save
 
-    extra = {key: changes.pop(key) for key in ('invoice_required', 'document_notes') if key in changes}
+    extra = {key: changes.pop(key) for key in ('invoice_required', 'document_notes', 'statement_subject_key') if key in changes}
     if not extra:
         return write(db, sub_client_id, changes, user.id, revision=revision)
     child = db.get(SubClient, sub_client_id)
@@ -72,6 +73,9 @@ def write_preferences(db, sub_client_id, changes, user, revision):
     result = write(db, sub_client_id, changes, user.id, revision=revision)
     payload = deepcopy(before)
     payload.setdefault(DOCUMENT_SETTINGS, {})[str(sub_client_id)] = updated
+    if 'statement_subject_key' in extra:
+        from statement_subject_sync import apply
+        apply(db,payload,extra['statement_subject_key'],sub_client_id)
     save(db, user, client_id, workspace_row, before, payload, '修改子客户单据设置', {
         'sub_client_id': str(sub_client_id), 'before': previous, 'after': updated,
     }, commit=False)
@@ -166,7 +170,9 @@ def read(db, sub_client_id: UUID):
     if sub_client is None:
         raise HTTPException(404, '子客户不存在')
     preferences = values(sub_client, load(db, {sub_client_id}).get(sub_client_id))
-    return {**preferences, **document_settings(settings_payload(db, sub_client.parent_client_id), sub_client_id)}
+    from statement_subject_sync import read as read_subject
+    return {**preferences, **document_settings(settings_payload(db, sub_client.parent_client_id), sub_client_id),
+            'statement_subject_key':read_subject(db,sub_client.parent_client_id,sub_client_id)}
 
 
 def write(db, sub_client_id: UUID, changes, actor_id: UUID, *, revision=None):

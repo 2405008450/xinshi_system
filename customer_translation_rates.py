@@ -266,10 +266,10 @@ def write_library(db,user,client_id,items,expected,origin='client',merge=False,*
     db.flush()
     after=library(db,client_id,sub_client_id)
     record_library_history(db,user,client_id,sub_client_id,before['items'],after['items'],
-                           'manual_project_sync' if origin=='project' else 'manual_entry',
+                           'automatic_project_sync' if origin=='automatic_project' else 'manual_project_sync' if origin=='project' else 'manual_entry',
                            project_id=project_id,order_id=order_id,order_no=order_no)
     from customer_finance_sync import auto_translation
-    auto_translation(db,user,client_id,before['items'],after['items'],changed_only=origin=='client',sub_client_id=sub_client_id)
+    auto_translation(db,user,client_id,before['items'],after['items'],changed_only=True,sub_client_id=sub_client_id,overwrite=True)
     return after
 
 
