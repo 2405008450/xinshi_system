@@ -121,6 +121,7 @@ import {
   markNotificationRead,
 } from '../api/notifications'
 import { closeSocket, ensureConnected, subscribe } from '@/utils/realtimeSocket'
+import { createVisiblePolling } from '@/utils/visiblePolling'
 import {
   disableDesktopNotifications,
   enableDesktopNotifications,
@@ -139,16 +140,19 @@ const receivedVisible = ref(false)
 const permissionRequesting = ref(false)
 const desktopTestStatus = ref('')
 const desktopNotificationState = ref(getDesktopNotificationState())
-let notificationPollTimer = null
 let notificationPollInFlight = false
 let unsubscribeNotification = null
 let unsubscribeSnapshot = null
+let unsubscribeConnected = null
 let disposed = false
 
 const seenNotificationIds = new Set()
 const readingNotificationIds = new Set()
 const MAX_SEEN_NOTIFICATIONS = 200
-const NOTIFICATION_POLL_INTERVAL_MS = 10 * 1000
+// 推送为主通道，轮询只补偿局域网与云端后端互不同步的通知；隐藏页面放慢，保留桌面提醒能力。
+const NOTIFICATION_POLL_INTERVAL_MS = 30 * 1000
+const NOTIFICATION_HIDDEN_POLL_INTERVAL_MS = 120 * 1000
+const NOTIFICATION_LIST_LIMIT = 10
 
 const desktopStatus = computed(() => {
   const state = desktopNotificationState.value
@@ -319,12 +323,17 @@ const pollNotifications = async () => {
 
   notificationPollInFlight = true
   try {
-    const data = await getNotifications({ limit: 10, channel: 'system' })
+    const data = await getNotifications({ limit: NOTIFICATION_LIST_LIMIT, channel: 'system' })
     const latestNotifications = Array.isArray(data) ? data.filter(isSystemNotification) : []
     const incomingNotifications = latestNotifications.filter((item) => rememberNotification(item.id))
 
     notifications.value = latestNotifications
-    await loadUnreadCount()
+    // 列表未满一页时已包含全部系统通知（含已读），未读数可直接得出，省去一次数据库往返。
+    if (Array.isArray(data) && data.length < NOTIFICATION_LIST_LIMIT) {
+      unreadCount.value = latestNotifications.filter((item) => !item.is_read).length
+    } else {
+      await loadUnreadCount()
+    }
     if (!incomingNotifications.length) return
     // 接口按时间倒序返回；按正序弹出，避免多条提醒遮挡时顺序颠倒。
     incomingNotifications.slice().reverse().forEach(displayIncomingNotification)
@@ -335,16 +344,18 @@ const pollNotifications = async () => {
   }
 }
 
+const notificationPolling = createVisiblePolling({
+  task: pollNotifications,
+  visibleMs: NOTIFICATION_POLL_INTERVAL_MS,
+  hiddenMs: NOTIFICATION_HIDDEN_POLL_INTERVAL_MS,
+})
+
 const startNotificationPolling = () => {
-  if (notificationPollTimer) window.clearInterval(notificationPollTimer)
-  notificationPollTimer = window.setInterval(pollNotifications, NOTIFICATION_POLL_INTERVAL_MS)
+  notificationPolling.stop()
+  notificationPolling.start()
 }
 
-const stopNotificationPolling = () => {
-  if (!notificationPollTimer) return
-  window.clearInterval(notificationPollTimer)
-  notificationPollTimer = null
-}
+const stopNotificationPolling = () => notificationPolling.stop()
 
 // 旧快照的 business 数量含会话业务通知，不能用于系统铃铛。
 const handleSocketSnapshot = () => { loadUnreadCount() }
@@ -435,6 +446,9 @@ onMounted(() => {
   loadUnreadCount()
   unsubscribeSnapshot = subscribe('snapshot', handleSocketSnapshot)
   unsubscribeNotification = subscribe('notification', handleSocketNotification)
+  // 推送重连期间可能漏掉通知；重连成功后补查一次（15 秒内已查过则合并）。
+  const mountedAt = Date.now()
+  unsubscribeConnected = subscribe('connected', () => { if (Date.now() - mountedAt > 5000) void notificationPolling.trigger(false) })
   ensureConnected()
   startNotificationPolling()
   window.addEventListener('business-notifications-changed', handlePopoverShow)
@@ -446,6 +460,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('business-notifications-changed', handlePopoverShow)
   unsubscribeSnapshot?.()
   unsubscribeNotification?.()
+  unsubscribeConnected?.()
   closeSocket()
   stopNotificationPolling()
   window.removeEventListener('focus', syncDesktopNotificationState)

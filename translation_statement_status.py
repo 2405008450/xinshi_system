@@ -26,7 +26,8 @@ def attach(db,projects):
     query=db.query(StatementWorkspace.client_id,StatementWorkspace.payload)
     if db.get_bind().dialect.name=='postgresql':
         from sqlalchemy.dialects.postgresql import JSONB
-        roots=cast(StatementWorkspace.payload,JSONB)['roots']
+        # 不使用 cast(...)['roots']：SQLAlchemy 2.0.45 会渲染成非法 SQL，函数形式在各 2.x 版本一致。
+        roots=func.jsonb_extract_path(cast(StatementWorkspace.payload,JSONB),'roots')
         query=query.filter(or_(*(roots.op('?')(key) for key in by_id)))
     elif db.get_bind().dialect.name=='sqlite':
         query=query.filter(or_(*(func.json_type(StatementWorkspace.payload,f'$.roots."{key}"').isnot(None) for key in by_id)))

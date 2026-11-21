@@ -177,8 +177,8 @@
                   </div>
                   <div class="chat-conversation-item__bubble-row">
                     <div class="chat-bubble" :class="{ 'chat-bubble--own': item.isOwn }" tabindex="0" data-message-menu-anchor @contextmenu="messageMenuRef.open($event,item.message)" @keydown="messageMenuRef.openKeyboard($event,item.message)">
-                      <button v-if="item.message.reply" class="group-reply" title="点击查看完整引用" @click="references.open(item.message.reply.id,$event)"><span class="chat-quote-clamp">{{ item.message.reply.senderName }}：{{ item.message.reply.content }}</span></button>
-                      <div @click="openMessageReferences(item.message,$event)"><div v-if="textOnly" class="chat-bubble__text"><ScreenshotText :text="item.message.content" :chat-message-id="item.message.id" /></div>
+                      <blockquote v-if="item.message.reply" class="group-reply"><span class="chat-quote-clamp">{{ item.message.reply.senderName }}：{{ item.message.reply.content }}</span></blockquote>
+                      <div><div v-if="textOnly" class="chat-bubble__text"><ScreenshotText :text="item.message.content" :chat-message-id="item.message.id" /></div>
                       <ScreenshotText v-else-if="screenshotIds(item.message.content).length && !richTextHasImages(item.message.contentJson)" :text="item.message.content" :chat-message-id="item.message.id" /><RichTextContent v-else :document="highlightedMentionDocument(item.message)" :fallback="item.message.content" :chat-message-id="item.message.id" /></div>
                       <el-tag v-if="item.message.topicPath" size="small" effect="plain" class="chat-visible-topic">{{ item.message.topicPath }}</el-tag>
                       <div v-if="item.message.attachments?.length" class="message-attachments">
@@ -696,7 +696,6 @@ const messages = ref([])
 const interactionRoot = ref(), references = ref(), replyToMessage = ref(null)
 const messageInteractions = useChatMessageInteractions({projectId:computed(()=>String(props.projectId)),projectType:computed(()=>props.projectType),messages,active:computed(()=>props.active)})
 async function startMessageReply(message) { replyToMessage.value=message;await nextTick();interactionRoot.value?.querySelector('.chat-composer textarea, .chat-composer [contenteditable="true"]')?.focus() }
-function openMessageReferences(message,event) { if(message.reply || messageInteractions.stats[message.id]?.replyCount)references.value.open(message.reply?.id||message.id,event) }
 
 const favoriteSavingIds = ref(new Set())
 const acknowledgementSavingIds = ref(new Set())

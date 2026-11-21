@@ -1,6 +1,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { getNotificationPage, getUnreadNotificationCount, markNotificationRead } from '@/api/notifications'
 import { subscribe } from '@/utils/realtimeSocket'
+import { createVisiblePolling } from '@/utils/visiblePolling'
 import { CONVERSATION_NOTIFICATION_TYPES, isBusinessNotification } from '@/utils/notificationChannels'
 
 const types = CONVERSATION_NOTIFICATION_TYPES
@@ -10,7 +11,7 @@ export function useChatRequestNotifications({ allBusiness = false } = {}) {
   const defaults = { keyword: '', notificationType: '', readStatus: 'all', category: '', summaryCategory: '' }
   const filters = reactive({ ...defaults })
   const hasMore = computed(() => page.value * pageSize.value < total.value)
-  let sequence = 0, timer, debounceTimer, controller, unsubscribe, unsubscribeSnapshot, disposed = false
+  let sequence = 0, polling, debounceTimer, controller, unsubscribe, unsubscribeSnapshot, disposed = false
   let applied = { keyword: undefined, read_status: 'all' }
   function cancelRequest() { controller?.abort(); sequence++; loading.value = false }
   async function refresh() {
@@ -61,7 +62,8 @@ export function useChatRequestNotifications({ allBusiness = false } = {}) {
   }
   onMounted(() => {
     reload()
-    timer = window.setInterval(reload, 10000)
+    // 推送为主通道；该列表只在页面可见时兜底刷新。
+    polling = createVisiblePolling({ task: reload, visibleMs: 30000, hiddenMs: null }); polling.start()
     unsubscribe = subscribe('notification', ({ notification } = {}) => {
       if (notification && (allBusiness ? isBusinessNotification(notification) : types.includes(notification.notification_type))) reload()
     })
@@ -70,7 +72,7 @@ export function useChatRequestNotifications({ allBusiness = false } = {}) {
     window.addEventListener('focus', reload)
   })
   onBeforeUnmount(() => {
-    disposed = true; cancelRequest(); clearTimeout(debounceTimer); window.clearInterval(timer)
+    disposed = true; cancelRequest(); clearTimeout(debounceTimer); polling?.stop()
     unsubscribe?.(); unsubscribeSnapshot?.()
     window.removeEventListener('business-notifications-changed', reload)
     window.removeEventListener('focus', reload)

@@ -1,0 +1,9 @@
+[Unit]
+Description=Xinshi PostgreSQL backup
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/xinshi-db-backup
+TimeoutStartSec=70min
+UMask=0077

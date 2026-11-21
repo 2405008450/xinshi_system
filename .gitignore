@@ -136,6 +136,7 @@ blob-report/
 !/docs/database/
 !/docs/deploy_release_guide.md
 !/docs/infra.md
+!/docs/云端数据库自动备份.md
 !/docs/前端优化.md
 !/docs/项目业务与逻辑框架分析.md
 

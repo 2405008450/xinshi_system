@@ -4,7 +4,7 @@
     <p class="chat-message-references__count">共 {{ total }} 条引用 · 直接引用原消息 {{ directCount }} 条<span v-if="loading"> · 正在加载全部引用…</span></p>
     <p class="chat-message-references__hint">从上向下显示完整引用链，同一节点的不同引用左右分支。可滚动查看全部引用；点击引用对象可突出显示对应节点。</p>
     <div ref="listRef" class="chat-reference-graph" role="region" aria-label="完整引用链" tabindex="0">
-      <ChatReferenceBranch v-if="graphRoot" :node="graphRoot" :project-type="projectType" :selected-id="selectedId" :highlighted-id="highlightedId" @focus="showNode" @locate="locate" />
+      <ChatReferenceBranch v-if="graphRoot" :node="graphRoot" :project-type="projectType" :current-user-id="currentUserId" :selected-id="selectedId" :highlighted-id="highlightedId" @focus="showNode" @locate="locate" />
     </div>
     <el-empty v-if="!loading && !error && !items.length" description="暂无引用" :image-size="44" />
     <template #footer><span v-if="loading">正在加载…</span><el-button :disabled="loading" @click="load(true)">刷新</el-button><el-button @click="visible=false">关闭</el-button></template>
@@ -19,6 +19,7 @@ import { chatRequest } from '@/api/projectChat'
 import { chatOverlayZIndex } from '@/utils/chatOverlay'
 const props=defineProps({projectId:{type:[String,Number],required:true},projectType:{type:String,required:true}})
 const emit=defineEmits(['locate'])
+const currentUserId=localStorage.getItem('user_id')||''
 const visible=ref(false),original=ref(null),items=ref([]),total=ref(0),hasMore=ref(false),loading=ref(false),error=ref(''),dialogZ=ref(2120)
 const directCount=ref(0),selectedId=ref(''),highlightedId=ref(''),listRef=ref()
 const graphRoot=computed(()=>referenceGraphRoot(original.value,items.value))
@@ -54,7 +55,7 @@ defineExpose({open})
 </style>
 <style scoped>
 .chat-message-references__count,.chat-message-references__hint{font-size:12px;color:#64748b;margin:4px 0 10px;line-height:1.6}
-.chat-reference-graph{overflow:auto;max-height:calc(70vh - 120px);min-height:160px;padding:14px 8px 20px;box-sizing:border-box;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc}
+.chat-reference-graph{overflow:auto;max-height:calc(70vh - 120px);min-height:160px;padding:14px 8px 20px;box-sizing:border-box;border:1px solid #e2e8f0;border-radius:8px;background:var(--chat-stage-bg,#f4f6f9)}
 .chat-reference-graph:focus-visible{outline:2px solid #93c5fd;outline-offset:2px}
 .chat-reference-graph>:deep(.reference-branch){min-width:100%}
 </style>

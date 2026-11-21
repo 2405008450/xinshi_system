@@ -6,7 +6,7 @@ export function useChatMessageInteractions({ projectId, projectType, messages, a
   const stats = reactive({}), viewsAvailable = ref(null), error = ref('')
   const base = computed(() => `conversations/${projectType.value}/${projectId.value}`)
   const elements = new Map(), visible = new Set(), recorded = new Set()
-  let observer, timer, refreshTimer, flushTimer, request, version = 0, disposed = false, posting = false
+  let observer, timer, refreshTimer, flushTimer, request, version = 0, disposed = false, posting = false, inflight = false, dirty = false
   let unsubscribe = []
   const foreground = () => active.value && document.visibilityState === 'visible' && document.hasFocus()
   function queueRefresh() { clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, 180) }
@@ -14,7 +14,10 @@ export function useChatMessageInteractions({ projectId, projectType, messages, a
     if (disposed || !active.value || !projectId.value) return
     const ids = [...new Set([...visible, ...messages.value.slice(-100).map(row => String(row.id))])].slice(0, 100)
     if (!ids.length) return
-    request?.abort(); request = new AbortController(); const current = ++version
+    // 已有统计请求在途时只登记一次补查，不取消在途请求：取消只会让浏览器放弃响应，后端仍要完整执行，
+    // 滚动或新消息密集到达时反而叠加数据库负载。
+    if (inflight) { dirty = true; return }
+    inflight = true; request = new AbortController(); const current = ++version
     try {
       const data = await chatRequest(`${base.value}/message-stats`, { method: 'post', data: { messageIds: ids }, signal: request.signal })
       if (disposed || current !== version) return
@@ -22,6 +25,7 @@ export function useChatMessageInteractions({ projectId, projectType, messages, a
       for (const item of data.items || []) stats[String(item.messageId)] = item
       queueFlush()
     } catch (e) { if (current === version && e.code !== 'ERR_CANCELED') error.value = '消息状态暂未加载' }
+    finally { inflight = false; if (dirty && !disposed) { dirty = false; queueRefresh() } }
   }
   function queueFlush() { clearTimeout(flushTimer); flushTimer = setTimeout(flush, 350) }
   async function flush() {

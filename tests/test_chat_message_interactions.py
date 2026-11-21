@@ -162,3 +162,29 @@ def test_missing_migration_does_not_break_replies_or_fabricate_reads_and_migrati
     apply_migration(db.connection()); apply_migration(db.connection())
     assert db.query(ChatMessageView).count() == 0
     assert service.stats(db, 'annotation', row.id, owner, [str(message.id)])['views_available'] is True
+
+
+def test_references_include_mentions_and_hide_recalled_mentions(environment):
+    import chat_message_interactions as service
+    from models import ChatProjectMention, ChatProjectMessage
+    db, (owner, member, _), row, original = setup_messages(environment)
+    original.content = f'@{member.username} 请确认原消息'
+    original.event_data = {'mention_all': True}
+    db.add(ChatProjectMention(id=uuid4(), message_id=original.id, mentioned_user_id=member.id, mentioned_user_name=member.username))
+    reply = ChatProjectMessage(id=uuid4(), annotation_project_id=row.id, sender_user_id=member.id,
+        sender_name=member.username, content=f'@{owner.username} 收到', message_type='user', sequence_no=2,
+        reply_to_message_id=original.id, created_at=datetime(2026, 10, 22, 11, 0))
+    db.add(reply); db.flush()
+    db.add(ChatProjectMention(id=uuid4(), message_id=reply.id, mentioned_user_id=owner.id, mentioned_user_name=owner.username))
+    db.commit()
+
+    result = service.references(db, 'annotation', row.id, owner, str(reply.id))
+    assert result['original']['mentions'] == [dict(mentioned_user_id=str(member.id), mentioned_user_name=member.username)]
+    assert result['original']['metadata'] == dict(mention_all=True)
+    assert result['items'][0]['mentions'] == [dict(mentioned_user_id=str(owner.id), mentioned_user_name=owner.username)]
+    assert result['items'][0]['metadata'] == {}
+
+    original.recalled_at = datetime(2026, 10, 22, 12, 0); db.commit()
+    recalled = service.references(db, 'annotation', row.id, owner, str(original.id))
+    assert recalled['original']['mentions'] == []
+    assert recalled['original']['metadata'] == {}

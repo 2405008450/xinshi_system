@@ -14,10 +14,10 @@
           <span v-if="message.senderUserId !== currentUserId && chatGroupStart(message, messages[index - 1])" class="group-message-avatar" aria-hidden="true">{{ chatAvatarText(message.senderName) }}</span>
           <div class="group-message-main">
           <div class="group-bubble" tabindex="0" data-message-menu-anchor :title="showMessageTime && timestampIndexes.has(index) ? chatMessageTime(message.createdAt) : ''" @contextmenu="messageMenu.open($event,message)" @keydown="messageMenu.openKeyboard($event,message)">
-            <button v-if="message.reply" class="group-reply" title="点击查看完整引用" @click.stop="references.open(message.reply.id,$event)"><span class="chat-quote-clamp">{{ message.reply.senderName }}：{{ screenshotPreview(message.reply.content) }}</span></button>
+            <blockquote v-if="message.reply" class="group-reply"><span class="chat-quote-clamp">{{ message.reply.senderName }}：{{ screenshotPreview(message.reply.content) }}</span></blockquote>
             <AnnotationCreationCard v-if="message.contentJson?.type==='annotation_creation'" :card="message.contentJson" :chat-message-id="message.id" />
             <ScreenshotText v-else-if="screenshotIds(message.content).length" :text="message.content" :chat-message-id="message.id" />
-            <p v-else-if="message.content" class="group-content" :class="{'has-references':message.reply || interactions.stats[message.id]?.replyCount}" :role="message.reply || interactions.stats[message.id]?.replyCount ? 'button' : undefined" :tabindex="message.reply || interactions.stats[message.id]?.replyCount ? 0 : undefined" @click="openReferences(message,$event)" @keydown.enter.stop="openReferences(message,$event)"><template v-for="(part, index) in mentionParts(message)" :key="index"><mark v-if="part.highlight">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></p>
+            <p v-else-if="message.content" class="group-content"><template v-for="(part, index) in mentionParts(message)" :key="index"><mark v-if="part.highlight">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></p>
             <el-tag v-if="message.topicPath" size="small" effect="plain" class="group-topic-label">{{ message.topicPath }}</el-tag>
             <div v-if="message.mentions?.some(m => !message.content?.includes(`@${m.mentionedUserName}`))" class="group-mentions">{{ message.mentions.filter(m => !message.content?.includes(`@${m.mentionedUserName}`)).map(m => `@${m.mentionedUserName}`).join(' ') }}</div>
             <div v-for="file in message.attachments" :key="file.id" class="group-file">
@@ -56,7 +56,6 @@ const { props, interactions, messages, list, hasEarlier, loadingEarlier, loadEar
 const timestampIndexes = computed(() => chatTimestampIndexes(messages.value))
 const { recallDrafts, reeditMessage } = inject('chatController')
 const messageMenu = ref(), references = ref(), ackBusy = ref(new Set())
-function openReferences(message,event) { if(message.reply || interactions.stats[message.id]?.replyCount) references.value.open(message.reply?.id || message.id,event) }
 async function confirmReceived(message) {
   if(ackBusy.value.has(message.id))return
   ackBusy.value.add(message.id)
@@ -78,7 +77,6 @@ const menuHandlers = {
 .group-message{position:relative;padding-left:42px;margin:14px 0}.group-message--own{padding-left:0;padding-right:0}.group-message--grouped{margin-top:-6px}.group-message-avatar{position:absolute;left:0;top:1px;display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:#e3ebf5;color:#3b526b;font-size:12.5px;font-weight:600;border:1px solid #d5e0ee}.group-date-divider{display:flex;align-items:center;justify-content:center;margin:18px 0}.group-date-divider>span{padding:2px 10px;border-radius:10px;background:#e8edf4;color:#64748b;font-size:11px;line-height:1.5}.group-message-meta{flex-wrap:wrap}.group-message-meta time{white-space:normal;overflow-wrap:anywhere}
 </style>
 
-<style scoped>.group-content.has-references{cursor:pointer}.group-content.has-references:hover{text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px}</style>
 <style scoped>
 /* 手机端：气泡与背景更接近微信，自己发送的消息为绿色。 */
 @media (max-width: 640px) {

@@ -5,6 +5,7 @@ import { chatRequest } from '@/api/projectChat'
 import { createChatNotificationFeed } from '@/utils/chatNotificationPolicy'
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { subscribe } from '@/utils/realtimeSocket'
+import { createVisiblePolling } from '@/utils/visiblePolling'
 import { showDesktopNotification } from '@/utils/desktopNotifications'
 import { isChatNotification, isChatMentionNotification, CONVERSATION_NOTIFICATION_TYPES } from '@/utils/notificationChannels'
 import { notificationAcknowledgements } from '@/utils/notificationAcknowledgements'
@@ -14,7 +15,7 @@ export function useChatNotifications() {
   const { openChat, openFullscreen } = useProjectChatDock()
   const isConversationNotice = item => CONVERSATION_NOTIFICATION_TYPES.includes(String(item?.notification_type))
   const feed = createChatNotificationFeed(), reading = new Set()
-  let timer, controller, loading = false, disposed = false, generation = 0, pendingInitial = false
+  let polling, controller, loading = false, disposed = false, generation = 0, pendingInitial = false
   const cleanups = []
   const remember = id => feed.remember(id)
   async function activateNotification(item, showError = false) {
@@ -82,7 +83,8 @@ export function useChatNotifications() {
     finally { if (version === generation) { loading = false; if (pendingInitial) { pendingInitial = false; poll(true) } } }
   }
   onMounted(() => {
-    poll(true); timer = window.setInterval(() => poll(), 10000)
+    // 推送为主通道；轮询补偿跨后端推送，隐藏页面放慢但保留桌面提醒。
+    poll(true); polling = createVisiblePolling({ task: () => poll(), visibleMs: 30000, hiddenMs: 120000 }); polling.start()
     cleanups.push(subscribe('notification', payload => {
       const item = payload?.notification
       if (item && (isChatNotification(item) || isConversationNotice(item)) && remember(item.id)) display(item)
@@ -94,6 +96,6 @@ export function useChatNotifications() {
     cleanups.push(subscribe('foreground', () => poll(true, true)))
   })
   onBeforeUnmount(() => {
-    disposed = true; ++generation; controller?.abort(); window.clearInterval(timer); cleanups.forEach(cleanup => cleanup())
+    disposed = true; ++generation; controller?.abort(); polling?.stop(); cleanups.forEach(cleanup => cleanup())
   })
 }

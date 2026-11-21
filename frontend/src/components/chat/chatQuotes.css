@@ -23,8 +23,8 @@
   max-width: 100%;
   margin: 0 0 8px;
   text-align: left;
-  cursor: pointer;
-  transition: background-color .14s ease, border-color .14s ease;
+  cursor: text;
+  user-select: text;
 }
 
 .chat-quote-clamp {
@@ -35,13 +35,6 @@
   text-overflow: ellipsis;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-
-.group-reply:hover,
-.discussion-chat__bubble blockquote:hover {
-  background: #e8eef5;
-  border-color: #cbd5e1;
-  border-left-color: #334155;
 }
 
 .group-compose-reply,
@@ -55,10 +48,4 @@
 .chat-bubble:has(.group-reply),
 .discussion-chat__bubble:has(blockquote) {
   border-color: var(--chat-bubble-border, #dce4ee);
-}
-
-.group-reply:focus-visible,
-.discussion-chat__bubble blockquote:focus-visible {
-  outline: 2px solid var(--color-primary, #334155);
-  outline-offset: 2px;
 }

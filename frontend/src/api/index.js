@@ -8,6 +8,7 @@ import { screenshotIds, screenshotGrantHeaders, rememberScreenshotGrant } from '
 import {draftSubmitSnapshot,completeDraftSubmit} from '@/utils/autoDrafts'
 import {rememberSavedRead,savedReadPromise} from '@/utils/savedDataRegistry'
 import {numberLeaseHeaders} from '@/utils/businessNumberLeases'
+import { retryDelayMs, withRetryMark } from '@/utils/requestRetry'
 
 const api = axios.create({
   baseURL: '/api',
@@ -47,6 +48,14 @@ api.interceptors.response.use(
     try{return rememberSavedRead(response)}catch{return response.data}
   },
   error => {
+    // 服务繁忙（503）或网关瞬断时，幂等 GET 自动重试一次，用户无需手动刷新。
+    const retryDelay = retryDelayMs(error)
+    if (retryDelay != null) {
+      return new Promise(resolve => setTimeout(resolve, retryDelay)).then(() => {
+        if (error.config.signal?.aborted) return Promise.reject(normalizeApiError(error))
+        return api.request(withRetryMark(error.config))
+      })
+    }
     if ([401, 403].includes(error.response?.status)) clearListResults()
     const scope = chatConversationScope(error.config?.url)
     if (scope && [403, 404].includes(error.response?.status)) window.dispatchEvent(new CustomEvent('chat-conversation-access-denied', { detail: scope }))

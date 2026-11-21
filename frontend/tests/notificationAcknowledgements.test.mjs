@@ -65,6 +65,8 @@ function mountChat(browser, item, markRead = async () => {}, desktopEnabled = tr
     getNotifications: async () => [{ ...item }], markNotificationRead: markRead,
     subscribe: (name, callback) => { subscriptions[name] = callback; return () => {} },
     showDesktopNotification: (notification, onClick) => { if (!desktopEnabled) return false; desktops.push({notification,onClick}); return true }, isChatNotification, isChatMentionNotification, isChatAttentionNotification,
+    // 轮询调度由 visiblePolling.test.mjs 覆盖；这里用惰性实现，由用例手动触发 poll。
+    createVisiblePolling: () => ({ start() {}, stop() {}, trigger() {} }),
     localStorage: browser.storage, window: { focus() {}, setInterval() {}, clearInterval() {} }, AbortController, ...overrides,
   })
   mounts.forEach(fn => fn())

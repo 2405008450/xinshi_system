@@ -343,10 +343,17 @@ def monthly_tax_projects(db, project):
     key = (client_id, month)
     cache = db.info.setdefault('translation_monthly_tax_projects', {})
     if key not in cache:
-        from translation_document_requirements import attach as attach_documents
-        candidates = statement_month_projects(db, client_id, month).order_by(TranslationProject.id).all()
+        from translation_document_requirements import attach as attach_documents, load_order_pricing_modes
+        # 同月同客户的订单会被逐个汇总；关系与单据在此一次批量加载，避免每个订单各发十余条查询。
+        candidates = statement_month_projects(db, client_id, month).options(
+            joinedload(TranslationProject.client), joinedload(TranslationProject.sub_client),
+            selectinload(TranslationProject.customer_charge_items),
+            selectinload(TranslationProject.sub_orders).selectinload(TranslationSubOrder.customer_charge_items),
+        ).order_by(TranslationProject.id).all()
         attach_documents(db, [candidate for candidate in candidates if candidate.id != project.id])
         attach_monthly_payment_peers(db, candidates)
+        load_order_pricing_modes(db, candidates)
+        sub_client_finance.load(db, {candidate.sub_client_id for candidate in candidates if candidate.sub_client_id})
         cache[key] = candidates
     group = settlement_group_key(project)
     return [candidate for candidate in cache[key] if settlement_group_key(candidate) == group]
@@ -384,6 +391,8 @@ def unified_tax_mode(db, project, node, stored, fallback):
         cache = db.info.setdefault('translation_monthly_tax_modes', {})
         if key not in cache:
             others = [peer for peer in peers if peer.id != project.id]
+            from project_client_manager import attach as attach_client_managers
+            attach_client_managers(db, 'translation', [peer for peer in others if '_project_client_manager' not in peer.__dict__])
             for peer in others:
                 crud._attach_project_client_fields(peer)
             crud._attach_word_count_matrices(db, projects=others)
@@ -1036,6 +1045,10 @@ def client_subtotals(db, filters):
     crud._attach_word_count_matrices(db,projects=projects)
     load_charge_metadata(db,projects)
     attach_customer_price_defaults(db,projects)
+    # tree() 逐个项目读取订单定价与子客户财务偏好；这里整体批量加载，查询数不再随项目数增长。
+    from translation_document_requirements import load_order_pricing_modes
+    load_order_pricing_modes(db,projects)
+    sub_client_finance.load(db,{project.sub_client_id for project in projects if project.sub_client_id})
     groups={}
     for project in projects:
         project.client_short_name=(project.client.client_short_name or project.client.client_name) if project.client else '-'

@@ -2,8 +2,8 @@
 from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy import inspect, select
-from models import AppUser, ChatProjectMessage, ChatDirectMember
-from discussion_chat_models import DiscussionMessage
+from models import AppUser, ChatProjectMessage, ChatProjectMention, ChatDirectMember
+from discussion_chat_models import DiscussionMessage, DiscussionMention
 from chat_access_service import MEMBERS, member_ids
 from chat_message_view_models import ChatMessageView
 from chat_time import api_time, now
@@ -38,11 +38,45 @@ def sender_id(message, kind):
     return message.sender_id if kind == 'discussion' else message.sender_user_id
 
 
-def brief(message, kind):
+def load_mentions(db, kind, rows):
+    ids = [row.id for row in rows if row is not None and not row.recalled_at]
+    if not ids:
+        return {}
+    grouped = {}
+    if kind == 'discussion':
+        import discussion_mentions
+        if not discussion_mentions.ready(db):
+            return {}
+        for row in db.query(DiscussionMention).filter(DiscussionMention.message_id.in_(ids)).order_by(DiscussionMention.user_name, DiscussionMention.user_id).all():
+            grouped.setdefault(row.message_id, []).append(dict(
+                mentioned_user_id=str(row.user_id),
+                mentioned_user_name=row.user_name,
+                is_all=bool(row.is_all),
+            ))
+        return grouped
+    for row in db.query(ChatProjectMention).filter(ChatProjectMention.message_id.in_(ids)).order_by(ChatProjectMention.mentioned_user_name, ChatProjectMention.mentioned_user_id).all():
+        grouped.setdefault(row.message_id, []).append(dict(
+            mentioned_user_id=str(row.mentioned_user_id),
+            mentioned_user_name=row.mentioned_user_name,
+        ))
+    return grouped
+
+
+def brief(message, kind, mentions_map=None):
     recalled = bool(message.recalled_at)
+    row_mentions = [] if recalled else (mentions_map or {}).get(message.id, [])
+    meta = {}
+    if not recalled:
+        if kind == 'discussion':
+            if any(item.get('is_all') for item in row_mentions):
+                meta = dict(mention_all=True)
+        else:
+            raw_meta = getattr(message, 'event_data', None) or {}
+            if raw_meta.get('mention_all') or raw_meta.get('mentionAll'):
+                meta = dict(mention_all=True)
     return api_time(dict(id=str(message.id), sender_user_id=sender_id(message, kind), sender_name=message.sender_name,
         content='消息已撤回' if recalled else message.content or '[附件]', created_at=message.created_at,
-        recalled_at=message.recalled_at))
+        recalled_at=message.recalled_at, mentions=row_mentions, metadata=meta))
 
 
 def ready(db):
@@ -136,6 +170,7 @@ def references(db, kind, conversation_id, user, message_id, offset=0, limit=30):
     total = len(catalog)
     rows = replies.offset(offset).limit(limit).all()
     parent_rows = {row.id: row for row in query.filter(model.id.in_({parent_id(row) for row in rows})).all()} if rows else {}
+    mentions_map = load_mentions(db, kind, [original, *rows])
     items = []
     for row in rows:
         pid = parent_id(row)
@@ -143,10 +178,10 @@ def references(db, kind, conversation_id, user, message_id, offset=0, limit=30):
         current = pid
         while current is not None and current != original.id and current not in seen:
             seen.add(current); path.append(current); current = parents.get(current)
-        items.append(dict(brief(row, kind), parent_id=str(pid) if pid else None,
+        items.append(dict(brief(row, kind, mentions_map), parent_id=str(pid) if pid else None,
             reference_number=numbers[row.id], parent_reference_number=numbers.get(pid), depth=len(path)+1,
             ancestor_ids=[str(value) for value in reversed(path)],
             parent=brief(parent_rows[pid], kind) if pid in parent_rows else None))
-    return dict(original=brief(original, kind), selected_message_id=str(mid),
+    return dict(original=brief(original, kind, mentions_map), selected_message_id=str(mid),
         selected_reference_number=numbers.get(mid), items=items, total=total,
         direct_count=sum(pid == original.id for _, pid in catalog), has_more=offset + len(rows) < total)

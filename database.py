@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from fastapi import Request
 
 from database_pool_policy import application_name,pool_options,install_idle_session_timeout
+from database_schema_cache import install_schema_introspection_cache
 from performance_monitoring import install_sqlalchemy_performance_hooks, ObservedQueuePool
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
@@ -47,6 +48,9 @@ if DATABASE_URL.startswith("postgresql"):
         )
     }
 engine = create_engine(DATABASE_URL, **engine_options)
+if DATABASE_URL.startswith("postgresql"):
+    # 迁移就绪探测（has_table/get_columns）在公网数据库下每次约 16ms，按进程缓存“已存在”的结果。
+    install_schema_introspection_cache(engine)
 install_sqlalchemy_performance_hooks(engine)
 install_idle_session_timeout(engine)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

@@ -7,6 +7,7 @@ import {
   setStoredAccess, setStoredHrAccess
 } from '../utils/permission'
 import { getCurrentSession } from '../api/auth'
+import { createSessionPermissionSync } from '../utils/sessionPermissionSync'
 import { refreshIssueAccess } from '@/composables/useResourceIssues'
 import { refreshTechnicalDevelopmentAccess } from '@/composables/useTechnicalDevelopmentAccess'
 import { resourceRequestsLocation, resolveDevelopmentSection } from '@/utils/resourceDevelopmentNavigation'
@@ -463,23 +464,17 @@ const router = createRouter({
   routes
 })
 
-let sessionPermissionSyncAt = 0
-
-const syncSessionPermissions = async (force = false) => {
-  if (!force && Date.now() - sessionPermissionSyncAt < 60_000) return true
-  try {
-    const session = await getCurrentSession()
+const syncSessionPermissions = createSessionPermissionSync({
+  fetchSession: getCurrentSession,
+  apply: (session) => {
     localStorage.setItem('user_id', session.user_id || '')
     localStorage.setItem('user_name', session.username || '')
     localStorage.setItem('user_full_name', session.full_name || session.username || '')
     setStoredAccess(session.roles, session.permissions)
     setStoredHrAccess(session.can_manage_hr)
-    sessionPermissionSyncAt = Date.now()
-    return true
-  } catch {
-    return false
-  }
-}
+  },
+  hasCachedSession: () => Boolean(localStorage.getItem('token') && localStorage.getItem('user_id')),
+})
 
 // 路由守卫：认证 + 角色权限
 router.beforeEach(async (to, from, next) => {

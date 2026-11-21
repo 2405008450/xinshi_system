@@ -2,6 +2,7 @@ import { onMounted, onBeforeUnmount } from 'vue'
 import api from '@/api'
 import { subscribe } from '@/utils/realtimeSocket'
 import { technicalDevelopmentAccess } from '@/utils/technicalDevelopmentAccess'
+import { createVisiblePolling } from '@/utils/visiblePolling'
 let pending, pendingUser
 export async function refreshTechnicalDevelopmentAccess() {
   const userId = localStorage.getItem('user_id') || ''
@@ -13,8 +14,10 @@ export async function refreshTechnicalDevelopmentAccess() {
   finally { if (pending === request) pending = null }
 }
 export function useTechnicalDevelopmentAccess() {
-  let timer, unsubscribe
-  const refresh = () => { void refreshTechnicalDevelopmentAccess().catch(() => {}) }
-  onMounted(() => { refresh(); timer = setInterval(refresh, 30000); window.addEventListener('focus', refresh); unsubscribe = subscribe('departments_changed', refresh) })
-  onBeforeUnmount(() => { clearInterval(timer); window.removeEventListener('focus', refresh); unsubscribe?.() })
+  let unsubscribe
+  // 权限变化由 departments_changed 推送；轮询只兜底跨后端推送不可达的情况，隐藏页面不轮询。
+  const polling = createVisiblePolling({ task: () => refreshTechnicalDevelopmentAccess().catch(() => {}), visibleMs: 5 * 60 * 1000, hiddenMs: null })
+  const onFocus = () => { void polling.trigger(false) }
+  onMounted(() => { polling.start({ immediate: true }); window.addEventListener('focus', onFocus); unsubscribe = subscribe('departments_changed', () => { void polling.trigger(true) }) })
+  onBeforeUnmount(() => { polling.stop(); window.removeEventListener('focus', onFocus); unsubscribe?.() })
 }

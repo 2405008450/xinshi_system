@@ -276,6 +276,7 @@ test('恢复补查未读提醒，忽略旧响应并避免实时事件和补查�
   const useNotifications = runInNewContext(source.replace(/^import .*\r?\n/gm, '').replace('export function ', 'function ') + '\n;useChatNotifications', {
     CONVERSATION_NOTIFICATION_TYPES, createChatNotificationFeed, isPersistentChatNotification, isVisibleConversation,
     isChatWindowVisible: () => false, document: { visibilityState: 'hidden', hasFocus: () => false },
+    createVisiblePolling: () => ({ start() {}, stop() {}, trigger() {} }),
     ...h, h: (...args) => args, ElMessage: { info() {}, error() {} },
     ElNotification: options => { displayed.push(options); return { close() {} } },
     getNotifications: (params, options) => params.channel === 'business' ? Promise.resolve([]) : h.request({ params, ...options }),
