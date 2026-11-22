@@ -19,21 +19,11 @@
     <InterpretationFinanceEditor ref="financeEditor" :target-id="editorTarget" :can-write="canWrite" hide-trigger @saved="saved" />
     <AppForm data-auto-draft="off" :model="filters" inline @submit.prevent="search">
       <el-form-item label="关键词"><el-input v-model="filters.keyword" placeholder="订单号、项目名称、客户名称" clearable @input="queueSearch" @keyup.enter="search" /></el-form-item>
-      <el-form-item label="账单月份"><el-date-picker v-model="filters.month" type="month" value-format="YYYY-MM" placeholder="全部月份" @change="search" /></el-form-item>
       <el-form-item label="客户经理"><el-select v-model="filters.manager" placeholder="选择或输入客户经理" @change="search"><el-option :label="`本人（${selfName}）`" value="self" /><el-option label="全部客户经理" value="all" /><el-option label="指定客户经理" value="name" /></el-select><FinanceManagerNameSelect v-if="filters.manager==='name'" v-model="filters.managerName" @change="search" /></el-form-item>
       <el-form-item>
         <el-button type="primary" @click="search">查询</el-button><el-button @click="reset">重置</el-button>
         <AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" @clear="clearAdvanced" @reset="reset">
           <div class="finance-advanced">
-            <el-form-item label="计价方式"><el-select v-model="filters.pricing" clearable placeholder="全部" @change="search">
-              <el-option v-for="(label,value) in pricingModes" :key="value" :label="label" :value="value" />
-            </el-select></el-form-item>
-            <el-form-item label="结算模式"><el-select v-model="filters.settlement" clearable placeholder="全部" @change="search">
-              <el-option v-for="(label,value) in settlementModeLabels" :key="value" :label="label" :value="value" />
-            </el-select></el-form-item>
-            <el-form-item label="收款状态"><el-select v-model="filters.paymentStatus" clearable placeholder="全部" @change="search">
-              <el-option v-for="(label,value) in paymentStatus" :key="value" :label="label" :value="value" />
-            </el-select></el-form-item>
             <el-form-item label="金额"><el-checkbox v-model="filters.missingAmount" @change="search">计费金额待填写</el-checkbox></el-form-item>
           </div>
         </AdvancedFilterPopover>
@@ -43,6 +33,10 @@
     <el-table v-loading="loading" :data="rows" border row-key="id">
       <el-table-column type="index" label="序号" width="65" :index="index=>(page-1)*10+index+1" />
       <el-table-column v-for="column in visibleColumns" :key="column.key" :label="column.label" show-sub-client :min-width="column.width">
+        <template #header>
+          <ConfiguredColumnHeaderFilter :definition="headerDefinitions[column.key]" :model-value="columnFilters[column.key]"
+            @update:model-value="columnFilters[column.key]=$event" @change="search" @clear="search" />
+        </template>
         <template #default="{row}">
           <el-select v-if="column.key==='settlement_mode'&&canWrite&&row.ready" :model-value="row.settlement_mode||'individual'"
             :disabled="settlementSaving.has(row.id)" :aria-label="`${row.order_no} 结算模式`" @change="changeSettlement(row,$event)">
@@ -85,7 +79,7 @@ import {useTableColumns} from '@/composables/useTableColumns'
 import {translationSettlementModeLabels as settlementModeLabels} from '@/utils/settlementModes'
 import {formatFinanceAmounts,interpretationUnitPrice,interpretationWorkload} from '@/utils/interpretationCustomerFinance'
 import {ElMessage} from 'element-plus'
-import {getProjectStatusLabel} from '@/utils/projectStatus'
+import {getProjectStatusLabel,PROJECT_STATUS_OPTIONS} from '@/utils/projectStatus'
 import {hasPermission} from '@/utils/permission'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import FinanceManagerNameSelect from '@/components/common/FinanceManagerNameSelect.vue'
@@ -93,6 +87,8 @@ import CustomerQuotationDialog from '@/components/common/CustomerQuotationDialog
 import InterpretationStatementDialog from '@/components/common/InterpretationStatementDialog.vue'
 import InterpretationInvoiceDialog from '@/components/common/InterpretationInvoiceDialog.vue'
 import ProjectListRowActions from '@/components/common/ProjectListRowActions.vue'
+import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
+import {createFilterModel,resetFilterModel,serializeFieldFilters} from '@/utils/listFieldFilters'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 const emit=defineEmits(['saved'])
 function saved(){emit('saved');void load()}
@@ -131,9 +127,9 @@ const actionRow=ref(null),financeEditor=ref(null),editorTarget=ref('')
 const totalsExclTax=ref({}),totalsInclTax=ref({}),billingTotals=ref({})
 const pricingModes={time:'按时长计费',fixed:'固定收费'}
 const advancedVisible=ref(false),settlementSaving=reactive(new Set())
-const defaultAdvanced=()=>({pricing:'',settlement:'',paymentStatus:'',missingAmount:false})
-const filters=reactive({keyword:'',month:'',manager:props.clientScope?'all':'self',managerName:'',...defaultAdvanced()}),rows=ref([]),incomplete=ref(0),page=ref(1),total=ref(0),loading=ref(false),error=ref('')
-const advancedCount=computed(()=>[filters.pricing,filters.settlement,filters.paymentStatus,filters.missingAmount].filter(Boolean).length)
+const defaultAdvanced=()=>({missingAmount:false})
+const filters=reactive({keyword:'',manager:props.clientScope?'all':'self',managerName:'',...defaultAdvanced()}),rows=ref([]),incomplete=ref(0),page=ref(1),total=ref(0),loading=ref(false),error=ref('')
+const advancedCount=computed(()=>Number(filters.missingAmount))
 const documentProjects=computed(()=>actionRow.value?[actionRow.value]:rows.value)
 function financeRowActions(row){
   const history={command:'history',label:'修改记录'}
@@ -172,12 +168,12 @@ function handleRowAction(row,command){
   openDocument(command,row)
 }
 let sequence=0,controller,timer
-function queryParams(){return {client_id:props.clientId||undefined,month:filters.month||undefined,pricing_mode:filters.pricing||undefined,payment_method:filters.settlement||undefined,payment_status:filters.paymentStatus||undefined,missing_amount:filters.missingAmount||undefined,only_mine:filters.manager==='self',client_manager:filters.manager==='name'?filters.managerName:undefined}}
+function queryParams(){return {field_filters:serializeFieldFilters(columnFilters,headerFields),client_id:props.clientId||undefined,missing_amount:filters.missingAmount||undefined,only_mine:filters.manager==='self',client_manager:filters.manager==='name'?filters.managerName:undefined}}
 async function load(){const seq=++sequence;controller?.abort();controller=new AbortController();loading.value=true;error.value='';try{const data=await getInterpretationFinancePage({...queryParams(),keyword:filters.keyword,skip:(page.value-1)*10,limit:10},controller.signal);if(seq===sequence){totalsExclTax.value=data.totals_excl_tax||{};totalsInclTax.value=data.totals_incl_tax||{};billingTotals.value=data.billing_totals||{};rows.value=data.items;total.value=data.total;incomplete.value=data.incomplete}}catch(e){if(seq===sequence&&e.code!=='ERR_CANCELED')error.value=getLocalizedErrorMessage(e,'口译财务加载失败')}finally{if(seq===sequence)loading.value=false}}
 function search(){clearTimeout(timer);page.value=1;void load()}
 function queueSearch(){clearTimeout(timer);controller?.abort();sequence++;if(!filters.keyword.trim())search();else timer=setTimeout(search,400)}
 function clearAdvanced(){Object.assign(filters,defaultAdvanced());search()}
-function reset(){Object.assign(filters,defaultAdvanced());filters.keyword='';filters.month='';filters.manager=props.clientScope?'all':'self';filters.managerName='';search()}
+function reset(){resetFilterModel(columnFilters,headerFields);Object.assign(filters,defaultAdvanced());filters.keyword='';filters.manager=props.clientScope?'all':'self';filters.managerName='';search()}
 async function changeSettlement(row,mode){
   if(settlementSaving.has(row.id)||mode===row.settlement_mode)return
   settlementSaving.add(row.id)
@@ -193,6 +189,25 @@ async function changeSettlement(row,mode){
   }finally{settlementSaving.delete(row.id)}
 }
 const paymentStatus={unrecorded:'未登记',deposit:'已收定金',partial:'已收部分款',full:'已收全款'}
+const enumOptions={
+  project_status:PROJECT_STATUS_OPTIONS.interpretation,
+  pricing_mode:Object.entries(pricingModes).map(([value,label])=>({value,label})),
+  settlement_mode:Object.entries(settlementModeLabels).map(([value,label])=>({value,label})),
+  payment_status:Object.entries(paymentStatus).map(([value,label])=>({value,label})),
+  documents:[{value:'quotation',label:'需报价单'},{value:'invoice',label:'需发票'},{value:'none',label:'均未勾选'}],
+}
+const amountFields=new Set(['totals_excl_tax','totals_incl_tax','billing_totals','totals','adjusted_totals'])
+const headerFields=columns.map(column=>({
+  key:column.key,label:column.label,
+  type:enumOptions[column.key]?'select':amountFields.has(column.key)?'number-range':'text',
+  options:enumOptions[column.key],precision:amountFields.has(column.key)?2:undefined,
+  headerWidth:amountFields.has(column.key)?300:260,
+  placeholder:column.key==='billing_month'?'如 2026-11':column.key==='rates'?'方向、币种、单价或单位':
+    column.key==='workload'?'方向、数量或计时单位':undefined,
+}))
+const headerDefinitions=Object.fromEntries(headerFields.map(field=>[field.key,field]))
+const columnFilters=reactive(createFilterModel(headerFields))
+
 function cell(row,key){
   if(key==='project_status')return getProjectStatusLabel('interpretation',row[key])
   if(key==='directions')return row.directions.map(x=>x.label).join('\n')||'-'

@@ -187,6 +187,10 @@ def test_order_display_preview_and_excel_do_not_double_count(context):
     assert [row['order_no'] for row in results['parents']['rows']]==[root.order_no]
     assert {row['order_no'] for row in results['children']['rows']}=={root.order_no+'.001.001',root.order_no+'.002'}
     assert {row['order_no'] for row in results['all']['rows']}=={root.order_no,root.order_no+'.001',root.order_no+'.001.001',root.order_no+'.002'}
+    parents=[row for row in results['all']['rows'] if row['order_no'] in (root.order_no,root.order_no+'.001')]
+    assert len(parents)==2 and all(row.get('ordinary_parent_reference') and row['unit_price'] is None and row['subtotal'] is None for row in parents)
+    assert all(statements.statement_amount(row)=='—' for row in parents)
+    assert not results['all']['pending']
     for mode,data in results.items():
         response=http.get('/translation-statements/excel',params={'project_id':str(root.id),'month':'2026-11','order_display':mode,'version':data['statement_version']})
         assert response.status_code==200,response.text
@@ -234,6 +238,20 @@ def test_order_display_keeps_standalone_projects_and_currency_groups(context):
         result=preview(http,root,scope='customer',order_display=mode).json()
         assert len(result['rows'])==2
         assert result['totals']=={'CNY':'123.40','USD':'500.00'}
+
+
+def test_direction_children_keep_one_filename_in_children_and_all_modes():
+    number='TP-261101-001'
+    node={'order_no':number,'project_name':'同一文件.docx','language_pair':'中文→英语；中文→法语','price_aggregate':True,'customer_explanation':'','children':[
+        {'order_no':number+'.001','project_name':'同一文件.docx','language_pair':'中文→英语','children':[]},
+        {'order_no':number+'.002','project_name':'同一文件.docx','language_pair':'中文→法语','children':[]},
+    ]}
+    rows=[dict(order_no=child['order_no'],task_id=str(index),root_id='root',line_id=str(index),project_name='同一文件.docx',language_pair=child['language_pair'],quantity='100',basis='字数',currency='CNY',unit_price=str(0.1+index*0.1),unit_size='1',unit_label='不含税',subtotal=str(10+index*10),remarks='',direction_parent_no=number,direction_parent_name='同一文件.docx',direction_parent_quantity='100') for index,child in enumerate(node['children'])]
+    for mode in ('children','all'):
+        displayed=statements.direction_statement_rows(statements.statement_display_rows(node,rows,mode))
+        assert sum(bool(row.get('project_name')) for row in displayed)==1
+        assert {row['language_pair'] for row in displayed if row.get('direction_detail')}=={'中文→英语','中文→法语'}
+        assert not any(row.get('ordinary_parent_reference') for row in displayed)
 
 
 def test_company_subject_and_conditional_customer_order_column(context,monkeypatch):

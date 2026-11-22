@@ -11,6 +11,7 @@
       <el-collapse v-model="expanded">
         <el-collapse-item v-for="client in items" :key="client.id" :name="client.id" :disabled="!canExpand">
           <template #title><div class="client-title" :draggable="canWrite&&!moving&&settlementScope!=='special'" @dragstart="startDrag($event,client)" @dragend="dragOver=false"><div class="client-name-line"><strong>{{client.shortName||client.name}}</strong><el-select v-if="canExpand" :model-value="client.progress||'not_started'" :disabled="!canWrite||progressSaving.has(client.id)" size="small" :aria-label="settlementScope==='special'?'特殊结算进度':'对账单进度'" style="width:115px" @click.stop @mousedown.stop @dragstart.prevent.stop @change="saveProgress(client,$event)"><el-option label="未开始" value="not_started" /><el-option label="部分完成" value="partial" /><el-option label="全部完成" value="completed" /></el-select></div><small>{{client.code}} · {{client.projectCount}} 个项目<span v-if="client.pendingCount"> · 待入账 {{client.pendingCount}} 项</span> · 客户经理：{{client.clientManagers?.join('、')||'未分配'}}</small></div></template>
+          <CustomerStatementSubClientWorkspaces v-if="expanded.includes(client.id)&&required&&settlementScope!=='special'" :client="client" :month="month" :period-number="periodNumber" :manager-query="managerQuery" />
           <CustomerStatementClientWorkspace v-if="expanded.includes(client.id)" :client="client" :month="month"
             :period-number="periodNumber" :settlement-scope="settlementScope" :required="required" :moving="moving"
             :manager-query="managerQuery" @move-client="emit('move-client',$event)" />
@@ -23,6 +24,7 @@
 <script setup>
 import {computed,onBeforeUnmount,ref,watch} from 'vue'
 import CustomerStatementClientWorkspace from './CustomerStatementClientWorkspace.vue'
+import CustomerStatementSubClientWorkspaces from './CustomerStatementSubClientWorkspaces.vue'
 import {getStatementCustomerGroups,setStatementProgress} from '@/api/translationCustomerFinance'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import {hasPermission} from '@/utils/permission'

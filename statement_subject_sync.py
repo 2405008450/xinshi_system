@@ -38,6 +38,7 @@ def apply(db, payload, subject_key, sub_client_id=None, *, only_new=False):
         # 切换主体时不能沿用另一主体的银行账号或印章。
         fields.update({key: '' for key in source.PRIVATE_STATEMENT_FIELDS})
     for board in payload['boards']:
+        if board.get('settlement_scope')=='special':continue
         if str(board.get('sub_client_id') or 'client') == scope:
             if not only_new or board['fields'].get('subject_key') != subject_key:
                 board['fields'].update(fields)

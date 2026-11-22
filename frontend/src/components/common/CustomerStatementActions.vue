@@ -7,6 +7,7 @@
       v-if="historyVisible"
       v-model="historyVisible"
       :client="client"
+      :sub-client-id="subClientId"
       :merge-months="mergeMonths"
       :settlement-scope="settlementScope"
       @merged="emit('merged')"
@@ -19,7 +20,7 @@ import { ref } from 'vue'
 import CustomerStatementHistoryDialog from './CustomerStatementHistoryDialog.vue'
 import { hasPermission } from '@/utils/permission'
 
-defineProps({ client: { type: Object, required: true }, settlementScope:String })
+defineProps({ client: { type: Object, required: true }, settlementScope:String, subClientId:String })
 const emit = defineEmits(['merged'])
 const canWrite = hasPermission('projects:write')
 const historyVisible = ref(false)

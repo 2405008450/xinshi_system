@@ -1,4 +1,4 @@
-"""客户对账单独立编排、唯一任务归属、版本审计和恢复；不修改项目收费。"""
+"""客户对账单独立编排、唯一项目归属、版本审计和恢复；不修改项目收费。"""
 import copy
 import base64
 import json
@@ -18,7 +18,7 @@ from sqlalchemy.orm import object_session
 
 from models import Base, Client, TranslationProject
 from database import get_db
-from routers.auth import require_permission
+from routers.auth import require_permission,require_any_permission
 from annotation_progress_time import business_now, business_datetime
 import customer_statements as source
 import statement_pending_tasks as pending_tasks
@@ -28,6 +28,8 @@ from invoice_parties import SUBJECTS
 from translation_payment_confirmation import PaymentConfirmationWrite
 from translation_payment_service import PaymentWrite
 import translation_statement_number as statement_number
+import statement_document_status as document_status
+import statement_customer_notes as statement_notes
 
 router=APIRouter(prefix='/translation-statement-workspaces',tags=['对账单编排'])
 read_access=require_permission('projects:read')
@@ -92,7 +94,7 @@ def generation_key(data):
 class ActionRequest(BaseModel):
     model_config=ConfigDict(extra='forbid')
     revision:int=Field(ge=1)
-    action:Literal['create_board','add_billing_period','delete_boards','edit_board','edit_row','edit_document','change_company_subject','sync_customer_notes','rename_board','merge_boards','split_board','move_tasks','schedule_tasks','cancel_pending','reorder_boards','position_board','restore_task','restore_history']
+    action:Literal['set_special_invoice','remove_special_projects','set_board_period','set_historical_status','edit_customer_note','accept_pending','set_board_status','create_board','add_billing_period','delete_boards','edit_board','edit_row','edit_document','change_company_subject','sync_customer_notes','rename_board','merge_boards','split_board','move_tasks','schedule_tasks','cancel_pending','reorder_boards','position_board','restore_task','restore_history']
     data:dict
     confirmed:bool=False
 
@@ -100,6 +102,33 @@ class ActionRequest(BaseModel):
 class PendingPeriodPreview(BaseModel):
     month:str=Field(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')
     task_ids:list[str]=Field(min_length=1)
+
+
+class SpecialStatementInvoiceWrite(BaseModel):
+    revision:int=Field(ge=1)
+    status:Literal['unissued','partial','issued']='unissued'
+    proofs:str=Field(default='',max_length=20000)
+    subject_key:Literal['guangzhou','shenzhen','shanghai']|None=None
+
+
+class CollectionTermsWrite(BaseModel):
+    revision:int=Field(ge=0)
+    value:str=Field(max_length=300)
+
+
+class ProjectCoverageRequest(BaseModel):
+    months:list[str]=Field(min_length=1,max_length=36)
+    period_number:int|None=Field(default=None,ge=1)
+    sub_client_id:UUID|None=None
+    manager_ids:list[UUID]=Field(default_factory=list,max_length=2000)
+    only_mine:bool=False
+    client_manager:str|None=None
+
+
+class HistoricalStatusRequest(BaseModel):
+    version_id:str
+    board_id:str
+    status:Literal['active','void']
 
 
 def require_ready(db):
@@ -113,7 +142,7 @@ def empty_payload():return {'boards':[],'tasks':{},'roots':{}}
 
 def workspace(db,client_id,lock=False):
     require_ready(db)
-    client=db.query(Client).filter_by(id=client_id)
+    client=db.query(Client.id).filter(Client.id==client_id)
     if lock:client=client.with_for_update()
     if not client.first():raise HTTPException(404,'客户不存在')
     query=db.query(StatementWorkspace).filter_by(client_id=client_id)
@@ -180,12 +209,14 @@ def display_rows(payload,board,mode='children',*,group_directions=True):
             origins={(item.get('origin_client_id'),item.get('origin_client_name')) for item in rows if item.get('origin_client_id')}
             if len(origins)==1:
                 origin_id,origin_name=next(iter(origins));line={**line,'origin_client_id':origin_id,'origin_client_name':origin_name}
-            # 汇总行可覆盖不同任务，不沿用首条任务的身份。
+            # 汇总行可覆盖不同项目，不沿用首条项目的身份。
             if line.get('basis','').startswith('订单汇总'):
                 line={**line,'_row_id':f"summary:{root_id}:{line['order_no']}:{line['currency']}",
                       'task_ids':list(dict.fromkeys(item['task_id'] for item in rows if item['order_no']==line['order_no'] or item['order_no'].startswith(line['order_no']+'.')))}
                 line['billing_month']='、'.join(sorted({item['billing_month'] for item in rows if item['task_id'] in line['task_ids']}))
-            rendered.append({**line,**board.get('overrides',{}).get(line['_row_id'],{})})
+            displayed={**line,**board.get('overrides',{}).get(line['_row_id'],{})}
+            if displayed.get('ordinary_parent_reference'):displayed.update(unit_price=None,subtotal=None,quantity=None,counted_in_total=False)
+            rendered.append(displayed)
     return tasks,source.direction_statement_rows(rendered,include_members=True) if group_directions else rendered
 
 
@@ -197,15 +228,17 @@ def display_data(payload,board,mode='children',issue_date='',*,group_directions=
             if line['subtotal'] is None:pending.append(f"{line['order_no']}：金额待补录")
             else:totals[line['currency']]=totals.get(line['currency'],Decimal(0))+Decimal(str(line['subtotal']))
     fields=board['fields'];months=sorted({task['month'] for task in tasks} or set(board.get('billing_months',[])))
+    if document_status.number(board):months=sorted(set(months)|set(board.get('billing_months',[])))
     period_month=board.get('period_month')
     if period_month and period_month not in months:months=sorted([*months,period_month])
-    period_label=billing_period_name(period_month,board['period_number']) if board.get('period_number') and months==[period_month] else ''
+    number=document_status.number(board) if board.get('settlement_scope')!='special' else None
+    period_label=(billing_period_name(months[0],number) if len(months)==1 else f"{'、'.join(months)} · 第 {number} 期") if number else ''
     private_settings=source.private_statement_settings_available()
     subject_key=next((key for key,(_,company) in SUBJECTS.items() if company==fields['company']),None)
     return dict(company=fields['company'],title='对账单' if fields['title']=='特殊结算单' else fields['title'],client_name=fields['client_name'],client_code=fields['client_code'],
                 subject_key=subject_key,
                 sub_client_name=board.get('sub_client_name'),sub_client_code=board.get('sub_client_code'),
-                month=fields.get('billing_label') or period_label or '、'.join(months),issue_date=fields.get('issue_date') or issue_date,months=months,rows=rendered,totals={key:source.money(value) for key,value in totals.items()},pending=pending,
+                month=period_label or fields.get('billing_label') or '、'.join(months),issue_date=fields.get('issue_date') or issue_date,months=months,rows=rendered,totals={key:source.money(value) for key,value in totals.items()},pending=pending,
                 private_settings_available=private_settings,
                 settings={key:fields.get(key,'') for key in source.PAYMENT_ACCOUNT_FIELDS} if private_settings else {},
                 stamp_image=(fields.get('stamp_image') or source.default_stamp(fields['company'] if fields['company'] in source.COMPANIES else source.COMPANY)) if private_settings else None,tax_included=board['tax_included'])
@@ -215,9 +248,19 @@ def board_issue_dates(db,row):
     if not row or db is None:return {}
     missing={board['id'] for board in row.payload['boards'] if not board['fields'].get('issue_date')}
     if not missing:return {}
+    if db.get_bind().dialect.name=='postgresql':
+        from sqlalchemy import JSON,column,true,func
+        # 历史 boards 也含印章等大字段；在库内按账单 ID 求首次出现时间，只返回 ID 和日期。
+        boards=func.json_array_elements(StatementWorkspaceHistory.after['boards']).table_valued(column('value',JSON)).alias('history_boards')
+        board_id=boards.c.value['id'].as_string()
+        dates=db.query(board_id,func.min(StatementWorkspaceHistory.created_at)).select_from(
+            StatementWorkspaceHistory).join(boards,true()).filter(
+                StatementWorkspaceHistory.client_id==row.client_id,board_id.in_(missing)).group_by(board_id)
+        return {key:business_datetime(created_at).date().isoformat() for key,created_at in dates}
     result={}
-    for after,created_at in db.query(StatementWorkspaceHistory.after,StatementWorkspaceHistory.created_at).filter_by(client_id=row.client_id).order_by(StatementWorkspaceHistory.revision):
-        for board in after.get('boards',[]):
+    # 只取开具日期所需的账单元数据，不能为此下载每个历史版本的全部订单快照。
+    for boards,created_at in db.query(StatementWorkspaceHistory.after['boards'],StatementWorkspaceHistory.created_at).filter(StatementWorkspaceHistory.client_id==row.client_id).order_by(StatementWorkspaceHistory.revision):
+        for board in boards or []:
             if board['id'] in missing and board['id'] not in result:result[board['id']]=business_datetime(created_at).date().isoformat()
         if missing<=result.keys():break
     return result
@@ -260,8 +303,8 @@ def scoped_payload(db, payload, scope):
 def period_payload(payload, number, months=None):
     if not number:
         return payload
-    boards=[board for board in payload['boards'] if board.get('period_number')==number and
-            (months is None or board.get('period_month') in months)]
+    boards=[board for board in payload['boards'] if board.get('status')!='void' and (board.get('period_number') or board.get('status_period_number'))==number and
+            (months is None or set(document_status.months(payload,board)) & set(months))]
     ids={board['id'] for board in boards}
     return {**payload,'boards':boards,'tasks':{
         key:task for key,task in payload['tasks'].items() if task['board_id'] in ids
@@ -337,6 +380,9 @@ def pending_periods(db,payload):
     boards={board['id']:board for board in payload['boards']}
     periods={}
     for key,task in tasks.items():
+        if task.get('pending_target_board_id'):
+            periods[key]=boards.get(task['pending_target_board_id'],{}).get('period_number')
+            continue
         assignment=assignments.get(task['rows'][0]['root_id'],{})
         board=boards.get(assignment.get('board_id'),{})
         if task['month']==assignment.get('month')==board.get('period_month') and board.get('period_number'):
@@ -345,9 +391,11 @@ def pending_periods(db,payload):
 
 
 def serialize(row,mode='children',user=None,db=None,settlement_scope=None):
-    payload=row.payload if row else empty_payload()
+    payload=copy.deepcopy(row.payload) if row else empty_payload()
+    document_status.normalize(payload)
     payload={key:value for key,value in payload.items() if key!='special_payments'}
     payload=scoped_payload(db,payload,settlement_scope)
+    statement_notes.refresh(db or (object_session(row) if row else None),payload)
     private_settings=source.private_statement_settings_available()
     periods=pending_periods(db or object_session(row),payload) if row else {}
     dates=board_issue_dates(db or (object_session(row) if row else None),row)
@@ -357,23 +405,57 @@ def serialize(row,mode='children',user=None,db=None,settlement_scope=None):
             'private_settings_available':private_settings,
             'capabilities':access.capabilities(db or object_session(row),user,row.client_id,payload) if row and user else {'edit_content':False,'cross_client':False},
             'pending_tasks':[{**task,'period_number':periods.get(task['id'])} for task in pending_tasks.summaries(payload)],
-            'documents':[{**board,'name':board['name'].replace('特殊结算单','对账单'),'statement':{**display_data(payload,board,mode,dates.get(board['id'],'')),
+            'documents':[{**board,'period_number':board.get('period_number') or board.get('status_period_number'),'period_month':board.get('period_month') or board.get('status_period_month'),'name':board['name'].replace('特殊结算单','对账单'),'statement':{**display_data(payload,board,mode,dates.get(board['id'],'')),
                                                 'statement_number':numbers.get(board['id'])}} for board in payload['boards']]}
 
 
 def save(db,user,client_id,row,before,payload,action,changes,commit=True,*,generation=None):
+    history_uid=uuid4()
+    status_changes=document_status.normalize(payload)
+    from statement_project_uniqueness import validate as validate_project_membership
+    validate_project_membership(db,client_id,payload)
+    if status_changes:changes={**(changes if isinstance(changes,dict) else {'items':changes}),'status_changes':status_changes}
+    old_boards={board['id']:board for board in before['boards']}
+    current_boards={board['id']:board for board in payload['boards']}
+    archived=list(changes.get('archive',{}).get('documents',[])) if isinstance(changes,dict) else []
+    archive_before=None;archive_payload=None
+    for uid,board in {**old_boards,**current_boards}.items():
+        removed=uid not in current_boards
+        void=board.get('status')=='void' and not board.get('archived_revision')
+        if not removed and not void:continue
+        if removed:
+            if archive_before is None:
+                archive_before=copy.deepcopy(before);statement_notes.refresh(db,archive_before)
+            snapshot=archive_before
+        else:
+            if archive_payload is None:
+                archive_payload=copy.deepcopy(payload)
+                for item in archive_payload['boards']:
+                    if item.get('status')=='void' and not item.get('archived_revision'):item['status']='active'
+                statement_notes.refresh(db,archive_payload)
+            snapshot=archive_payload
+        snapshot_board=next(item for item in snapshot['boards'] if item['id']==uid)
+        archived.append({'id':uid,'name':board['name'],'status':'void','reason':'删除对账单' if removed else action,
+            'settlement_scope':board.get('settlement_scope'),
+            'statement':display_data(snapshot,snapshot_board),'period_number':board.get('period_number') or board.get('status_period_number')})
+        if not removed:board['archived_revision']=(row.revision if row else 0)+1
+    if archived:
+        numbers=statement_number.numbers(db,client_id) if statement_number.ready(db) else {}
+        for board in archived:board['statement']['statement_number']=numbers.get(board['id'])
+        changes={**(changes if isinstance(changes,dict) else {'items':changes}),'archive':{'documents':archived,'scopes':sorted({board.get('settlement_scope') or 'standard' for board in archived}),'months':sorted({month for board in archived for month in board['statement']['months']}),
+            'orders':sorted({line['order_no'] for board in archived for line in board['statement']['rows']})}}
     from statement_subject_sync import apply_defaults
     apply_defaults(db,payload)
     ids=[board['id'] for board in payload['boards']]
     if len(ids)!=len(set(ids)) or not 0<=len(ids)<=12:raise HTTPException(422,'对账单最多12份，编号不能重复')
-    if len(payload['tasks'])>10000:raise HTTPException(422,'客户编排最多保留10000项任务，请缩小导入范围')
-    if any((task['board_id'] is not None if pending_tasks.pending(task) else task['board_id'] not in ids) or not MONTH.fullmatch(str(task.get('month',''))) or task_id!=task.get('id') for task_id,task in payload['tasks'].items()):raise HTTPException(422,'任务归属或待入账状态无效')
+    if len(payload['tasks'])>10000:raise HTTPException(422,'客户编排最多保留10000项项目，请缩小导入范围')
+    if any((task['board_id'] is not None if pending_tasks.pending(task) else task['board_id'] not in ids) or not MONTH.fullmatch(str(task.get('month',''))) or task_id!=task.get('id') for task_id,task in payload['tasks'].items()):raise HTTPException(422,'项目归属或待入账状态无效')
     if access.ready(db):
         keys=set(payload['tasks'])|set(before.get('tasks',{}))
         owners={item.task_id:item for item in db.query(access.StatementTaskOwner).filter(access.StatementTaskOwner.task_id.in_(keys)).with_for_update().all()} if keys else {}
         for task_id in payload['tasks']:
             owner=owners.get(task_id)
-            if owner and owner.client_id!=client_id:raise HTTPException(409,'任务已归属其他客户对账单，不能重复纳入或恢复；请使用跨客户调配')
+            if owner and owner.client_id!=client_id:raise HTTPException(409,'项目已归属其他客户对账单，不能重复纳入或恢复；请使用跨客户调配')
             if not owner:db.add(access.StatementTaskOwner(task_id=task_id,client_id=client_id))
         for task_id in set(before.get('tasks',{}))-set(payload['tasks']):
             if task_id in owners and owners[task_id].client_id==client_id:db.delete(owners[task_id])
@@ -394,6 +476,8 @@ def save(db,user,client_id,row,before,payload,action,changes,commit=True,*,gener
         generation_payload = {**payload,'tasks':selected}
         numbers = statement_number.numbers(db,client_id)
         board_ids = {task['board_id'] for task in selected.values()}
+        for board in payload['boards']:
+            if board['id'] in board_ids and board.get('status')!='void' and not board.get('active_history_id'):board['active_history_id']=str(history_uid)
         documents = [{
             'id':board['id'], 'name':board['name'],
             'statement':{**display_data(generation_payload,{**board,'overrides':{}},mode),
@@ -408,8 +492,8 @@ def save(db,user,client_id,row,before,payload,action,changes,commit=True,*,gener
     if row is None:row=StatementWorkspace(client_id=client_id,revision=0);db.add(row)
     row.payload=copy.deepcopy(payload);row.revision+=1;row.updated_by=user.id;row.updated_at=business_now()
     try:db.flush()
-    except IntegrityError:db.rollback();raise HTTPException(409,'对账单任务归属同时变化，请重新加载')
-    db.add(StatementWorkspaceHistory(id=uuid4(),client_id=client_id,revision=row.revision,actor_id=user.id,
+    except IntegrityError:db.rollback();raise HTTPException(409,'对账单项目归属同时变化，请重新加载')
+    db.add(StatementWorkspaceHistory(id=history_uid,client_id=client_id,revision=row.revision,actor_id=user.id,
         actor_name=user.full_name or user.username or '用户',action=action,changes=changes,before=before,after=copy.deepcopy(payload),created_at=business_now()))
     try:
         if commit:db.commit()
@@ -423,6 +507,7 @@ def new_board(payload,template,name):
     index=len(payload['boards'])
     fields=template if source.private_statement_settings_available() else without_private_fields(template)
     board={'id':str(uuid4()),'name':name,'fields':copy.deepcopy(fields),'overrides':{},'tax_included':False,'x':(index%3)*980,'y':(index//3)*900}
+    document_status.activate(payload,board)
     board['fields']['issue_date']=business_now().date().isoformat()
     payload['boards'].append(board);return board
 
@@ -482,7 +567,7 @@ def import_board_matches(payload, months):
     task_months = {}
     for task in payload['tasks'].values():
         task_months.setdefault(task['board_id'],set()).add(task['month'])
-    return [board for board in payload['boards'] if not board.get('sub_client_id')
+    return [board for board in payload['boards'] if board.get('status')!='void' and not board.get('sub_client_id')
             and months & (set(board.get('billing_months',[])) | task_months.get(board['id'],set()))]
 
 
@@ -620,7 +705,7 @@ def assign_billing_period(project_id: UUID, data: BillingPeriodWrite, db=Depends
     if access.ready(db) and db.query(access.StatementTaskOwner).filter(
         access.StatementTaskOwner.task_id.in_(order_ids), access.StatementTaskOwner.client_id != client_id,
     ).first():
-        raise HTTPException(409, '该订单已有任务调配到其他客户，请先处理跨客户归属')
+        raise HTTPException(409, '该订单已有项目调配到其他客户，请先处理跨客户归属')
     scope = 'special' if payment_method(project)=='special' else 'standard'
     candidates = month_boards(scoped_payload(db,payload,scope), data.month)
     created = None
@@ -735,10 +820,46 @@ def read_billing_period(project_id: UUID, month: str = Query(pattern=source.MONT
     }
 
 
+@router.get('/special-invoice-documents')
+def special_invoice_documents(months:list[str]|None=Query(None),client_id:UUID|None=None,manager_ids:list[UUID]|None=Query(None),only_mine:bool=False,client_manager:str|None=None,db=Depends(get_db),user=Depends(read_access)):
+    from statement_invoice_documents import StatementInvoiceRef,read_documents
+    from statement_customer_groups import project_query
+    from finance_manager_scope import manager_fields
+    from translation_special_settlement import apply_settings,settings_by_project,order_nodes
+    query=db.query(StatementWorkspace)
+    if client_id:query=query.filter_by(client_id=client_id)
+    allowed={str(uid) for uid, in project_query(db,None,manager_fields(db,user,manager_ids,only_mine,client_manager)).with_entities(TranslationProject.id).all()}
+    eligible=[];rows={};root_ids=set();board_lines={}
+    for row in query:
+        rows[row.client_id]=row
+        for board in row.payload.get('boards',[]):
+            if board.get('settlement_scope')!='special' or board.get('status')=='void':continue
+            if months and not set(months)&set(document_status.months(row.payload,board)):continue
+            lines=[line for task in row.payload['tasks'].values() if task.get('board_id')==board['id'] for line in task['rows']]
+            if not lines or not any(line['root_id'] in allowed for line in lines):continue
+            eligible.append(StatementInvoiceRef(client_id=row.client_id,board_id=board['id'],revision=row.revision))
+            board_lines[board['id']]=lines
+            root_ids.update(line['root_id'] for line in lines)
+    projects=source.crud.get_translation_projects(db,limit=None,field_filters={'finance_invoice_project_ids':{'value':list(root_ids)}}) if root_ids else []
+    source.finance.attach_monthly_payment_peers(db,projects)
+    source.finance.load_finance_details(db,projects)
+    settings=settings_by_project(db,[project.id for project in projects]);nodes={}
+    for project in projects:
+        node=source.finance.tree(project,include_version=False)['item']
+        apply_settings(node,settings.get(project.id,{}))
+        nodes[str(project.id)]={item['id']:item.get('invoice_required') for item in order_nodes(node)}
+    items=read_documents(db,eligible,workspace_rows=rows)
+    for entry in items:
+        requirements=[nodes.get(line['root_id'],{}).get(line['task_id']) for line in board_lines[entry['board_id']]]
+        if entry['invoice_required'] is None:entry['invoice_required']=True if True in requirements else None if None in requirements else False
+    return dict(items=items,total=len(items))
+
+
 @router.get('/{client_id}')
 def read_client_workspace(client_id:UUID,mode:Literal['parents','all','children']='children',db=Depends(get_db),user=Depends(read_access),settlement_scope:StatementScope|None=None):
     row=workspace(db,client_id)
-    return {**serialize(row,mode,user=user,db=db,settlement_scope=settlement_scope),'client_id':str(client_id),'client_name':db.get(Client,client_id).client_name}
+    client_name=db.query(Client.client_name).filter(Client.id==client_id).scalar()
+    return {**serialize(row,mode,user=user,db=db,settlement_scope=settlement_scope),'client_id':str(client_id),'client_name':client_name}
 
 
 class SpecialPaymentWrite(PaymentWrite):
@@ -829,17 +950,66 @@ def period_options(month: str, db=Depends(get_db), user=Depends(read_access),
     return sorted(numbers)
 
 
+@router.post('/{client_id}/historical-status-preview')
+def historical_status_preview(client_id:UUID,data:HistoricalStatusRequest,db=Depends(get_db),user=Depends(read_access),settlement_scope:StatementScope|None=None):
+    from statement_history_status import proposal
+    row=workspace(db,client_id)
+    if row is None:raise HTTPException(404,'对账单工作区不存在')
+    payload=copy.deepcopy(row.payload);document_status.normalize(payload)
+    result=proposal(db,user,client_id,payload,data.model_dump(),settlement_scope)
+    return {**{key:value for key,value in result.items() if key!='superseded'},'will_replace_current':bool(result.get('superseded'))}
+
+
+@router.post('/{client_id}/project-coverage')
+def project_coverage(client_id:UUID,data:ProjectCoverageRequest,db=Depends(get_db),user=Depends(read_access),settlement_scope:StatementScope|None=None):
+    from sqlalchemy import func
+    from models import SubClient
+    from statement_customer_groups import project_query
+    from finance_manager_scope import manager_fields
+    from translation_document_requirements import attach,matches_statement_scope
+    from translation_customer_finance import attach_monthly_payment_peers
+    if any(not MONTH.fullmatch(month) for month in data.months):raise HTTPException(422,'请选择有效的账单月份')
+    current=workspace(db,client_id)
+    payload=copy.deepcopy(current.payload) if current else empty_payload()
+    document_status.normalize(payload)
+    payload=scoped_payload(db,payload,settlement_scope)
+    boards={board['id']:board for board in payload['boards'] if board.get('status')!='void'}
+    scope=manager_fields(db,user,data.manager_ids,data.only_mine,data.client_manager)
+    items=[];waiting={}
+    for month in dict.fromkeys(data.months):
+        eligible_boards={uid for uid,board in boards.items() if month in document_status.months(payload,board) and (not data.period_number or (board.get('period_number') or board.get('status_period_number'))==data.period_number)}
+        if not eligible_boards:continue
+        represented={line['root_id'] for task in payload['tasks'].values() if task.get('board_id') in eligible_boards and task['month']==month for line in task['rows']}
+        pending_by_root={line['root_id']:task for task in payload['tasks'].values() if pending_tasks.pending(task) for line in task['rows']}
+        query=project_query(db,month,scope).filter(func.coalesce(TranslationProject.client_id,SubClient.parent_client_id)==client_id)
+        if data.sub_client_id:query=query.filter(TranslationProject.sub_client_id==data.sub_client_id)
+        projects=query.all()
+        attach(db,projects);attach_monthly_payment_peers(db,projects)
+        for project in projects:
+            if not matches_statement_scope(project,settlement_scope) or data.period_number and project.settlement_period_number!=data.period_number:continue
+            uid=str(project.id)
+            if uid in represented:continue
+            item=dict(id=uid,order_no=project.order_no,project_name=project.project_name,month=month,period_number=project.settlement_period_number)
+            if uid in pending_by_root:
+                waiting[uid]={**item,'target_month':pending_by_root[uid]['month']}
+            else:items.append(item)
+    return dict(items=items,pending=list(waiting.values()))
+
+
+
+
 @router.post('/{client_id}/pending-period-preview')
 def pending_period_preview(client_id:UUID,data:PendingPeriodPreview,db=Depends(get_db),
                            user=Depends(read_access),settlement_scope:StatementScope|None=None):
     row=workspace(db,client_id)
     if row is None:
-        raise HTTPException(404,'请先导入对账单任务')
-    payload=scoped_payload(db,row.payload,settlement_scope)
+        raise HTTPException(404,'请先导入对账单项目')
+    payload=scoped_payload(db,copy.deepcopy(row.payload),settlement_scope)
+    statement_notes.refresh(db,payload)
     ids=list(dict.fromkeys(data.task_ids))
     tasks=payload['tasks']
     if any(key not in tasks for key in ids):
-        raise HTTPException(422,'请选择当前结算范围内的任务')
+        raise HTTPException(422,'请选择当前结算范围内的项目')
     roots={UUID(tasks[key]['rows'][0]['root_id']) for key in ids}
     assignments=project_billing_assignments(db,roots)
     boards={board['id']:board for board in payload['boards']}
@@ -847,6 +1017,9 @@ def pending_period_preview(client_id:UUID,data:PendingPeriodPreview,db=Depends(g
     matches={month:import_board_matches(payload,{month}) for month in months}
 
     def target_period(task,month):
+        if pending_tasks.pending(task) and task['month']==month and task.get('pending_target_board_id'):
+            target=boards.get(task['pending_target_board_id'])
+            return (target.get('period_number'),False) if target else (None,True)
         assignment=assignments.get(task['rows'][0]['root_id'],{})
         if assignment.get('month')==month:
             board=assigned_month_board(payload,month,assignment)
@@ -925,6 +1098,10 @@ def import_months(data:ImportRequest,mode:Literal['parents','all','children']='c
             statement['rows']=[line for line in statement['rows'] if line['root_id'] in root_ids]
     row=workspace(db,client.id,True);check_revision(row,data.revision)
     before=copy.deepcopy(row.payload if row else empty_payload());payload=copy.deepcopy(before)
+    if special:
+        from statement_special_documents import import_documents
+        return import_documents(db,user,client,row,before,payload,data,statements,mode)
+    document_status.normalize(payload)
     scoped = scoped_payload(db,payload,data.settlement_scope)
     ordinary_rows=any(not line.get('sub_client_id') for statement in statements for line in statement['rows']) or (
         not data.sub_client_id and any(pending_tasks.pending(task) and task['month'] in months and
@@ -963,7 +1140,10 @@ def import_months(data:ImportRequest,mode:Literal['parents','all','children']='c
                  and task['month'] in months for line in task['rows'])
     assignments=project_billing_assignments(db,roots)
     if not board and ordinary_rows and not any(assignment.get('month') in months for assignment in assignments.values()):
-        raise HTTPException(422,'所选月份有多份对账单，请先在价格与付款为订单选择账期')
+        waiting=[task for task in scoped['tasks'].values() if pending_tasks.pending(task) and task['month'] in months and not task['rows'][0].get('sub_client_id')]
+        new_unassigned=any(not line.get('sub_client_id') and line['task_id'] not in payload['tasks'] for statement in statements for line in statement['rows'])
+        if not waiting or any(not task.get('pending_target_board_id') for task in waiting) or new_unassigned:
+            raise HTTPException(422,'所选月份有多份有效对账单，请先选择具体账期')
 
     def target_board(month, root_id, line):
         assignment=assignments.get(root_id, {})
@@ -978,11 +1158,11 @@ def import_months(data:ImportRequest,mode:Literal['parents','all','children']='c
             return sub_client_board(payload,line,month,number,template,settlement_scope=data.settlement_scope or 'standard')
         if assignment.get('month') == month:
             assigned=assigned_month_board(scoped,month,assignment)
-            if not assigned:
+            if not assigned or assigned.get('status')=='void':
                 raise HTTPException(409,'订单选择的账期已变更，请在价格与付款中重新选择')
             return assigned
         if not board:
-            raise HTTPException(422,'所选月份有多份对账单，请先在价格与付款为订单选择账期')
+            raise HTTPException(422,'所选月份有多份有效对账单，请先在价格与付款为订单选择账期')
         board['billing_months']=sorted(set(board.get('billing_months',[]))|{month})
         return board
     added=0;existing=0;generated={}
@@ -995,10 +1175,10 @@ def import_months(data:ImportRequest,mode:Literal['parents','all','children']='c
                 task=payload['tasks'][task_id]
                 if task.get('board_id') and task_id in scoped['tasks']:
                     current_board = board_by_id(payload, task['board_id'])
-                    if current_board.get('sub_client_id') != lines[0].get('sub_client_id') and task['month'] == month:
+                    if current_board.get('status')=='void' or current_board.get('sub_client_id') != lines[0].get('sub_client_id') and task['month'] == month:
                         target = target_board(month, lines[0]['root_id'], lines[0])
                         pending_tasks.invalidate_overrides(payload, task)
-                        task.update(board_id=target['id'], rows=lines)
+                        task.update(board_id=target['id'], rows=lines,month=month)
                     generated.setdefault(task_id,{**task,'rows':lines})
                 continue
             if access.ready(db):
@@ -1014,13 +1194,19 @@ def import_months(data:ImportRequest,mode:Literal['parents','all','children']='c
     pending_scope = scoped
     if data.period_number:
         pending_scope = {**scoped,'tasks':{key:task for key,task in scoped['tasks'].items()
-                         if assignments.get(task['rows'][0]['root_id'],{}).get('board_id')==data.board_id}}
+                         if (task.get('pending_target_board_id') or assignments.get(task['rows'][0]['root_id'],{}).get('board_id'))==data.board_id}}
     if data.sub_client_id:
         pending_scope={**pending_scope,'tasks':{key:task for key,task in pending_scope['tasks'].items()
             if task['rows'][0]['root_id'] in root_ids}}
-    accepted=pending_tasks.accept(pending_scope,months,lambda task:target_board(task['month'],task['rows'][0]['root_id'],task['rows'][0]))
-    if data.order_ids is not None and not added and not existing and not accepted:raise HTTPException(422,'当前筛选没有可生成的项目或待入账任务')
-    if any(pending_tasks.pending(task) and task['month'] in months for task in pending_scope['tasks'].values()):raise HTTPException(409,'仍有待入账任务未纳入，本次生成已取消，请重新加载')
+    def pending_target(task):
+        if task.get('pending_target_board_id'):
+            target=next((item for item in scoped['boards'] if item['id']==task['pending_target_board_id']),None)
+            if target is None or target.get('status')=='void':raise HTTPException(409,'待入账项目指定的账期已删除、废除或不在当前范围，请重新选择账期')
+            return target
+        return target_board(task['month'],task['rows'][0]['root_id'],task['rows'][0])
+    accepted=pending_tasks.accept(pending_scope,months,pending_target)
+    if data.order_ids is not None and not added and not existing and not accepted:raise HTTPException(422,'当前筛选没有可生成的项目或待入账项目')
+    if any(pending_tasks.pending(task) and task['month'] in months for task in pending_scope['tasks'].values()):raise HTTPException(409,'仍有待入账项目未纳入，本次生成已取消，请重新加载')
     for task_id,task in pending_scope['tasks'].items():
         if pending_tasks.pending(before['tasks'].get(task_id,{})) and not pending_tasks.pending(task):
             generated[task_id]=task
@@ -1087,22 +1273,22 @@ def edit_document(payload,data,mode):
             target=board if key in ('name','tax_included') else board['fields']
             changes['fields'][key]={'before':target.get(key),'after':value};target[key]=value
     edits=data.get('rows',[])
-    if not isinstance(edits,list) or len(edits)>10000:raise HTTPException(422,'任务修改格式错误')
+    if not isinstance(edits,list) or len(edits)>10000:raise HTTPException(422,'项目修改格式错误')
     visible={line['_row_id']:line for line in display_data(payload,board,mode,group_directions=False)['rows']}
     seen=set();months={}
     for edit in edits:
-        if not isinstance(edit,dict) or not isinstance(edit.get('row_id'),str) or edit['row_id'] in seen:raise HTTPException(422,'任务修改编号无效或重复')
+        if not isinstance(edit,dict) or not isinstance(edit.get('row_id'),str) or edit['row_id'] in seen:raise HTTPException(422,'项目修改编号无效或重复')
         seen.add(edit['row_id']);line=visible.get(edit['row_id'])
-        if line is None:raise HTTPException(409,'任务已变化，请重新加载后编辑')
+        if line is None:raise HTTPException(409,'项目已变化，请重新加载后编辑')
         values=edit.get('fields')
         if not isinstance(values,dict) or not values:raise HTTPException(422,'请选择修改字段')
         values=dict(values);month=values.pop('billing_month',None)
         if month is not None:
             if not isinstance(month,str) or not MONTH.fullmatch(month):raise HTTPException(422,'账单月份格式应为YYYY-MM')
             if board.get('period_month') and board['period_month']!=month:
-                raise HTTPException(422,'跨月任务请通过“调整月份 / 移到另一份”移至目标月份对账单')
+                raise HTTPException(422,'跨月项目请通过“调整月份 / 移到另一份”移至目标月份对账单')
             for task_id in line['task_ids']:
-                if task_id in months and months[task_id]!=month:raise HTTPException(422,'同一任务的各行账单月份必须一致')
+                if task_id in months and months[task_id]!=month:raise HTTPException(422,'同一项目的各行账单月份必须一致')
                 months[task_id]=month
         cleaned=clean_fields(values,ROW_FIELDS) if values else {}
         diff={key:{'before':line.get(key),'after':value} for key,value in cleaned.items()}
@@ -1125,7 +1311,7 @@ def edit_document(payload,data,mode):
 @router.post('/{client_id}/actions')
 def action(client_id:UUID,request:ActionRequest,mode:Literal['parents','all','children']='children',db=Depends(get_db),user=Depends(write_access),settlement_scope:StatementScope|None=None):
     if not request.confirmed:raise HTTPException(422,'请在弹窗确认后应用修改')
-    content_action=request.action in ('edit_document','edit_row','edit_board','change_company_subject','sync_customer_notes','restore_task','restore_history')
+    content_action=request.action in ('set_historical_status','edit_customer_note','edit_document','edit_row','edit_board','change_company_subject','sync_customer_notes','restore_task','restore_history')
     if content_action:
         preliminary=workspace(db,client_id)
         lock_clients=access.content_clients(client_id,preliminary.payload if preliminary else empty_payload())
@@ -1136,25 +1322,78 @@ def action(client_id:UUID,request:ActionRequest,mode:Literal['parents','all','ch
             if previous:lock_clients|=access.content_clients(client_id,previous.before)
         db.query(Client).filter(Client.id.in_([UUID(uid) for uid in lock_clients])).order_by(Client.id).with_for_update().all()
     row=workspace(db,client_id,True)
-    if row is None:raise HTTPException(404,'请先导入对账单任务')
+    if row is None:raise HTTPException(404,'请先导入对账单项目')
     check_revision(row,request.revision);before=copy.deepcopy(row.payload);payload=copy.deepcopy(before);data=request.data
     if settlement_scope:
         visible = scoped_payload(db,payload,settlement_scope)
         board_ids = set(data.get('board_ids') or [])
-        if data.get('board_id'):
+        if data.get('board_id') and request.action!='set_historical_status':
             board_ids.add(data['board_id'])
         visible_ids = {board['id'] for board in visible['boards']}
         hidden_board_ids = {task['board_id'] for key,task in payload['tasks'].items() if key not in visible['tasks']}
         if board_ids - visible_ids or set(data.get('task_ids') or []) - visible['tasks'].keys():
-            raise HTTPException(422,'请选择当前结算范围内的对账单或任务')
+            raise HTTPException(422,'请选择当前结算范围内的对账单或项目')
         if request.action in ('delete_boards','merge_boards','edit_document','edit_board','sync_customer_notes') and board_ids & hidden_board_ids:
-            raise HTTPException(422,'该账单含另一种结算范围的任务，请通过对账单（备份）处理整份账单')
+            raise HTTPException(422,'该账单含另一种结算范围的项目，请通过对账单（备份）处理整份账单')
         if request.action=='restore_history':
             raise HTTPException(422,'请通过对账单（备份）恢复客户的完整历史版本')
     if content_action:
         access.require(db,user,access.content_clients(client_id,payload),'edit_content')
     changes={};label=request.action
-    if request.action=='sync_customer_notes':
+    if request.action=='set_special_invoice':
+        board=board_by_id(payload,data.get('board_id'))
+        if board.get('settlement_scope')!='special' or board.get('status')=='void':raise HTTPException(422,'请选择有效特殊结算对账单')
+        status=data.get('status');proofs=data.get('proofs','')
+        if status not in ('unissued','partial','issued') or not isinstance(proofs,str) or len(proofs)>20000:raise HTTPException(422,'请填写有效的发票状态及资料')
+        from statement_special_documents import validate_invoice_proofs
+        validate_invoice_proofs(db,proofs)
+        if data.get('subject_key') not in (*SUBJECTS,None):raise HTTPException(422,'请选择有效的开票主体')
+        changes={'board_id':board['id'],'before':copy.deepcopy(board.get('invoice',{}))}
+        board['invoice']={key:data.get(key) for key in ('status','proofs','subject_key')}
+        board['invoice'].update(actor_name=user.full_name or user.username,updated_at=business_now().isoformat())
+        changes['after']=board['invoice'];label='登记特殊结算单发票'
+    elif request.action=='remove_special_projects':
+        from statement_special_documents import remove_projects
+        changes=remove_projects(payload,data.get('board_id'),data.get('task_ids'));label='从特殊结算单移除项目'
+    elif request.action=='set_board_period':
+        board=board_by_id(payload,data.get('board_id'))
+        changes={'board_id':board['id'],'before':document_status.number(board),'after':data.get('period_number')}
+        document_status.set_period(payload,board,data.get('period_number'))
+        label='调整对账单账期'
+    elif request.action=='set_historical_status':
+        from statement_history_status import proposal
+        document_status.normalize(payload)
+        changes=proposal(db,user,client_id,payload,data,settlement_scope)
+        if data.get('status')=='active' and (changes['conflicts'] or changes.get('superseded')) and data.get('expected_plan')!=changes['plan']:
+            raise HTTPException(409,'该月份/账期已有有效对账单，请查看冲突清单并确认后再调整')
+        if changes.get('superseded'):changes['archive']={'documents':changes.pop('superseded')}
+        label='调整历史版本状态'
+    elif request.action=='edit_customer_note':
+        changes=statement_notes.edit(db,user,payload,data.get('board_id'),data.get('row_id'),data.get('customer_note'),mode);label='同步对账单客户说明'
+    elif request.action=='accept_pending':
+        ids=data.get('task_ids');target=board_by_id(payload,data.get('board_id'))
+        if not isinstance(ids,list) or not ids or any(not isinstance(uid,str) or uid not in payload['tasks'] or not pending_tasks.pending(payload['tasks'][uid]) for uid in ids):raise HTTPException(422,'请选择有效的待入账项目')
+        if target.get('status')=='void':raise HTTPException(422,'不能将项目加入废除的对账单')
+        months=document_status.months(payload,target)
+        for uid in ids:
+            task=payload['tasks'][uid]
+            if task['month'] not in months:raise HTTPException(422,'待入账项目与目标账单月份不匹配')
+            expected=next((board for board in payload['boards'] if board['id']==task.get('pending_target_board_id')),None)
+            if expected and (expected.get('period_number') or expected.get('status_period_number'))!=(target.get('period_number') or target.get('status_period_number')):raise HTTPException(422,'待入账项目与目标账期不匹配')
+            if (task['rows'][0].get('sub_client_id') or None)!=(target.get('sub_client_id') or None):raise HTTPException(422,'待入账项目与目标客户或子客户不匹配')
+        selected={**payload,'tasks':{uid:payload['tasks'][uid] for uid in dict.fromkeys(ids)}}
+        if any(not pending_tasks.pending(task) for task in selected['tasks'].values()):raise HTTPException(409,'项目已纳入对账单，请刷新后操作')
+        changes={'accepted_pending':pending_tasks.accept(selected,months,lambda task:target)};label='拖入待入账项目'
+    elif request.action=='set_board_status':
+        board=board_by_id(payload,data.get('board_id'));status=data.get('status')
+        if status not in ('active','void'):raise HTTPException(422,'请选择有效或废除状态')
+        changes={'board_id':board['id'],'name':board['name'],'before':board.get('status','active'),'after':status}
+        if status=='active':
+            document_status.activate(payload,board)
+            board.pop('archived_revision',None)
+        else:board['status']='void'
+        label='调整对账单状态'
+    elif request.action=='sync_customer_notes':
         board=board_by_id(payload,data.get('board_id'));notes={}
         for task in payload['tasks'].values():
             if task.get('board_id')!=board['id']:continue
@@ -1187,11 +1426,19 @@ def action(client_id:UUID,request:ActionRequest,mode:Literal['parents','all','ch
         candidates=visible['boards'] if settlement_scope else payload['boards']
         if not candidates:raise HTTPException(422,'请先选择月份重新生成对账单')
         template=board_by_id(payload,data['board_id']) if data.get('board_id') else candidates[0]
+        special_board=template.get('settlement_scope')=='special'
+        next_number=None if special_board else document_status.next_period(payload,template)
         name=str(data.get('name','新对账单')).strip()[:100]
         board=new_board(payload,template['fields'],name or '新对账单');board['tax_included']=template['tax_included'];label='新增对账单';changes={'name':board['name'],'parent_board_id':template['id']}
         board['number_parent_id']=template['id']
         inherit_sub_client_period(board,template)
+        board['billing_months']=document_status.months(payload,template)
         if settlement_scope:board['settlement_scope']=settlement_scope
+        else:board['settlement_scope']=template.get('settlement_scope') or 'standard'
+        if next_number is not None:document_status.set_period(payload,board,next_number)
+        else:
+            for key in ('period_number','period_month','status_period_number','status_period_month'):board.pop(key,None)
+        changes.update(period_number=next_number,original_period_number=document_status.number(template))
     elif request.action=='delete_boards':
         ids=data.get('board_ids')
         if not isinstance(ids,list) or not ids or not all(isinstance(uid,str) for uid in ids) or len(ids)!=len(set(ids)):raise HTTPException(422,'请选择有效且不重复的对账单')
@@ -1227,9 +1474,11 @@ def action(client_id:UUID,request:ActionRequest,mode:Literal['parents','all','ch
             raise HTTPException(422,'本对账单已使用此主体的最新资料')
         fields.update(values)
         from statement_subject_sync import apply
-        apply(db,payload,subject_key,board.get('sub_client_id'))
+        if board.get('settlement_scope')!='special':apply(db,payload,subject_key,board.get('sub_client_id'))
         label='调整公司主体并同步客户设置'
     elif request.action=='edit_document':
+        for edit in data.get('rows',[]):
+            if 'remarks' in edit.get('fields',{}):statement_notes.edit(db,user,payload,data.get('board_id'),edit.get('row_id'),edit['fields']['remarks'],mode)
         changes=edit_document(payload,data,mode);label='直接编辑对账单'
     elif request.action=='edit_board':
         board=board_by_id(payload,data.get('board_id'));values=clean_fields(data.get('fields',{}),HEADER_FIELDS|{'name'})
@@ -1239,8 +1488,9 @@ def action(client_id:UUID,request:ActionRequest,mode:Literal['parents','all','ch
     elif request.action=='edit_row':
         board=board_by_id(payload,data.get('board_id'));row_id=data.get('row_id')
         visible=display_data(payload,board,mode,group_directions=False)['rows'];line=next((line for line in visible if line['_row_id']==row_id),None)
-        if not line:raise HTTPException(409,'该任务已变化，请重新加载')
+        if not line:raise HTTPException(409,'该项目已变化，请重新加载')
         values=clean_fields(data.get('fields',{}),ROW_FIELDS)
+        if 'remarks' in values:changes['customer_note_sync']=statement_notes.edit(db,user,payload,board['id'],row_id,values['remarks'],mode)
         for key,value in values.items():changes[key]={'before':line.get(key),'after':value}
         found=False
         for task in payload['tasks'].values():
@@ -1250,21 +1500,26 @@ def action(client_id:UUID,request:ActionRequest,mode:Literal['parents','all','ch
                     if source.is_fixed_statement_row(stored):stored['pricing_mode']='fixed'
                     stored.update(values);found=True
         if not found:board['overrides'].setdefault(row_id,{}).update(values)
-        label='修改任务内容';changes={'order_no':line['order_no'],'fields':changes}
+        label='修改项目内容';changes={'order_no':line['order_no'],'fields':changes}
     elif request.action in ('schedule_tasks','cancel_pending'):
         ids=data.get('task_ids')
-        if not isinstance(ids,list) or not ids or not all(isinstance(uid,str) and uid in payload['tasks'] for uid in ids):raise HTTPException(422,'请选择有效任务')
+        if not isinstance(ids,list) or not ids or not all(isinstance(uid,str) and uid in payload['tasks'] for uid in ids):raise HTTPException(422,'请选择有效项目')
         ids=list(dict.fromkeys(ids))
         if request.action=='schedule_tasks':
             month=data.get('month')
             if not isinstance(month,str) or not MONTH.fullmatch(month):raise HTTPException(422,'请选择目标账单月份')
-            changes=pending_tasks.schedule(payload,ids,month,user);label='调整待入账月份'
+            target=board_by_id(payload,data['board_id']) if data.get('board_id') else None
+            if target:
+                target_months={target['period_month']} if target.get('period_month') else set(target.get('billing_months',[]))|{task['month'] for task in payload['tasks'].values() if task.get('board_id')==target['id']}
+                if month not in target_months:raise HTTPException(422,'目标账期与所选账单月份不一致')
+                if any((payload['tasks'][key]['rows'][0].get('sub_client_id') or None)!=(target.get('sub_client_id') or None) for key in ids):raise HTTPException(422,'请选择同一客户或子客户的目标账期')
+            changes=pending_tasks.schedule(payload,ids,month,user,target);label='调整待入账月份'
         else:changes=pending_tasks.cancel(payload,ids);label='撤销待入账调整'
     elif request.action in ('move_tasks','restore_task'):
         submitted=data.get('task_ids',[])
-        if not isinstance(submitted,list) or not all(isinstance(item,str) for item in submitted):raise HTTPException(422,'任务选择格式错误')
+        if not isinstance(submitted,list) or not all(isinstance(item,str) for item in submitted):raise HTTPException(422,'项目选择格式错误')
         ids=list(dict.fromkeys(submitted))
-        if not ids or any(task_id not in payload['tasks'] for task_id in ids):raise HTTPException(422,'请选择有效任务')
+        if not ids or any(task_id not in payload['tasks'] for task_id in ids):raise HTTPException(422,'请选择有效项目')
         if request.action=='move_tasks':
             target=board_by_id(payload,data.get('board_id'));month=data.get('month')
             if not isinstance(month,str) or not MONTH.fullmatch(month):raise HTTPException(422,'请选择目标账单月份')
@@ -1273,7 +1528,7 @@ def action(client_id:UUID,request:ActionRequest,mode:Literal['parents','all','ch
         changes=[]
         for task_id in ids:
             task=payload['tasks'][task_id]
-            if pending_tasks.pending(task):raise HTTPException(409,'任务正在待入账，请在待入账列表调整或撤销')
+            if pending_tasks.pending(task):raise HTTPException(409,'项目正在待入账，请在待入账列表调整或撤销')
             if request.action=='move_tasks':
                 from statement_reorganization import ensure_same_sub_client_period
                 ensure_same_sub_client_period([board_by_id(payload,task['board_id']),target])
@@ -1283,16 +1538,16 @@ def action(client_id:UUID,request:ActionRequest,mode:Literal['parents','all','ch
                 original=task['original']
                 if not any(board['id']==original['board_id'] for board in payload['boards']):raise HTTPException(409,'原对账单已不在当前版本，请从修改记录恢复')
                 task.update(copy.deepcopy(original))
-                for key in ('pending','pending_from','pending_actor','pending_at'):task.pop(key,None)
+                for key in ('pending','pending_from','pending_actor','pending_at','pending_target_board_id'):task.pop(key,None)
             else:task.update(board_id=target['id'],month=month)
-            # 清除涉及该任务的展示汇总覆盖，防止移动后留下旧金额。
+            # 清除涉及该项目的展示汇总覆盖，防止移动后留下旧金额。
             root_ids={line['root_id'] for line in task['rows']}
             for board in payload['boards']:
                 board['overrides']={key:value for key,value in board['overrides'].items() if not any(key.startswith('summary:'+root_id+':') for root_id in root_ids)}
             item={'task_id':task_id,'order_no':task['rows'][0]['order_no'],'before':old,'after':{'month':task['month'],'board_id':task['board_id'],'board_name':board_by_id(payload,task['board_id'])['name']}}
             if request.action=='restore_task':item['content']={'before':old_rows,'after':copy.deepcopy(task['rows'])}
             changes.append(item)
-        label='恢复任务原始内容' if request.action=='restore_task' else '调配任务月份及对账单'
+        label='恢复项目原始内容' if request.action=='restore_task' else '调配项目月份及对账单'
     elif request.action=='reorder_boards':
         ids=data.get('board_ids',[])
         if not isinstance(ids,list) or not all(isinstance(uid,str) for uid in ids):raise HTTPException(422,'对账单排列无效')
@@ -1335,6 +1590,105 @@ def action(client_id:UUID,request:ActionRequest,mode:Literal['parents','all','ch
     return serialize(row,mode,user=user,db=db,settlement_scope=settlement_scope)
 
 
+@router.get('/{client_id}/special-invoice-originals/{board_id}')
+def special_invoice_originals(client_id:UUID,board_id:str,db=Depends(get_db),user=Depends(read_access)):
+    import translation_project_invoices as invoices
+    row=workspace(db,client_id)
+    if row is None:raise HTTPException(404,'对账单不存在')
+    board=board_by_id(row.payload,board_id)
+    if board.get('settlement_scope')!='special':raise HTTPException(422,'请选择特殊结算对账单')
+    items=[];seen=set()
+    for task in row.payload['tasks'].values():
+        if task.get('board_id')!=board_id:continue
+        for line in task['rows']:
+            root=UUID(line['root_id']);uid=UUID(line['task_id'])
+            if (root,uid) in seen:continue
+            seen.add((root,uid))
+            for special in (False,True):
+                value=invoices.read(db,root,uid,special=special)
+                if value.get('proofs') or value.get('invoice_status')!='unissued':items.append(dict(order_no=line['order_no'],kind='原特殊结算发票' if special else '原项目发票',proofs=value.get('proofs',''),status=value.get('invoice_status','unissued')))
+    return dict(items=items)
+
+
+@router.put('/{client_id}/special-invoice/{board_id}')
+def write_special_statement_invoice(client_id:UUID,board_id:str,data:SpecialStatementInvoiceWrite,db=Depends(get_db),user=Depends(require_any_permission('projects:write','finance:write','clients:write'))):
+    return action(client_id,ActionRequest(revision=data.revision,action='set_special_invoice',confirmed=True,
+        data={'board_id':board_id,**data.model_dump(exclude={'revision'})}),mode='children',db=db,user=user,settlement_scope='special')
+
+
+@router.put('/{client_id}/collection-terms')
+def write_collection_terms(client_id:UUID,data:CollectionTermsWrite,db=Depends(get_db),user=Depends(require_any_permission('projects:write','finance:write','clients:write'))):
+    row=workspace(db,client_id,True)
+    before=copy.deepcopy(row.payload if row else empty_payload());payload=copy.deepcopy(before)
+    current=payload.get('collection_terms') or {}
+    if data.revision!=current.get('revision',0):raise HTTPException(409,'客户付款账期已更新，请重新查询后编辑')
+    result=dict(value=data.value.strip(),revision=data.revision+1,actor_name=user.full_name or user.username,updated_at=business_now().isoformat())
+    payload['collection_terms']=result
+    save(db,user,client_id,row,before,payload,'设置客户付款账期',dict(before=current,after=result))
+    return result
+
+
+def client_ledger_units(db,user,client_id,months=None,manager_ids=None,only_mine=False):
+    from finance_manager_scope import manager_fields
+    from finance_settlement_ledger import build
+    from translation_statement_status import attach
+    fields={'finance_client_ids':{'value':[str(client_id)]},**manager_fields(db,user,manager_ids,only_mine,None)}
+    if months:
+        if any(not MONTH.fullmatch(month) for month in months):raise HTTPException(422,'请选择有效月份')
+        fields['finance_billing_month']={'value':months}
+    projects=source.crud.get_translation_projects(db,limit=None,field_filters=fields)
+    from finance_settlement_ledger import statement_root_ids
+    extra=statement_root_ids(db,fields,months)-{str(project.id) for project in projects}
+    if extra:
+        extra_fields={key:value for key,value in fields.items() if key not in ('finance_billing_month','finance_client_ids')}
+        extra_fields['finance_invoice_project_ids']={'value':list(extra)}
+        projects.extend(source.crud.get_translation_projects(db,limit=None,field_filters=extra_fields))
+    source.finance.attach_monthly_payment_peers(db,projects);source.finance.load_finance_details(db,projects);attach(db,projects)
+    nodes=[source.finance.tree(project,include_version=False)['item'] for project in projects]
+    units,summary=build(db,nodes,nodes,months=months)
+    return units,summary
+
+
+@router.get('/{client_id}/ledger-orders')
+def client_ledger_orders(client_id:UUID,months:list[str]|None=Query(None),manager_ids:list[UUID]|None=Query(None),only_mine:bool=False,db=Depends(get_db),user=Depends(read_access)):
+    units,summary=client_ledger_units(db,user,client_id,months,manager_ids,only_mine)
+    return dict(items=[{**order,'settlement_label':unit['ledger_label']} for unit in units for order in unit['ledger_orders']],summary=summary)
+
+
+class LedgerRebateWrite(BaseModel):
+    unit_id:str=Field(min_length=1,max_length=500)
+    revision:int=Field(ge=0)
+    recipient:str=Field(max_length=200)
+    rate:Decimal=Field(ge=0,le=100,max_digits=9,decimal_places=6)
+    payment_status:Literal['unpaid','partial','full']='unpaid'
+    paid_amounts:dict[str,Decimal]=Field(default_factory=dict,max_length=20)
+    note:str=Field(default='',max_length=5000)
+
+
+@router.put('/{client_id}/ledger-rebate')
+def write_ledger_rebate(client_id:UUID,data:LedgerRebateWrite,db=Depends(get_db),user=Depends(require_any_permission('projects:write','finance:write','clients:write'))):
+    from finance_settlement_ledger import rebate_amounts
+    units,_=client_ledger_units(db,user,client_id)
+    unit=next((unit for unit in units if unit['id']==data.unit_id and unit.get('client_id')==str(client_id)),None)
+    if unit is None:raise HTTPException(409,'结算单元已调整或不存在，请重新查询')
+    if unit.get('ledger_pending'):raise HTTPException(422,'请先补全项目计费金额，再登记返点')
+    row=workspace(db,client_id,True);before=copy.deepcopy(row.payload if row else empty_payload());payload=copy.deepcopy(before)
+    records=payload.setdefault('ledger_rebates',{});current=records.get(data.unit_id,{})
+    if data.revision!=current.get('revision',0):raise HTTPException(409,'返点记录已更新，请重新查询后编辑')
+    if not data.recipient.strip():raise HTTPException(422,'请填写返点人')
+    amounts=rebate_amounts(unit['ledger_amounts'],data.rate)
+    paid={currency:format(value,'.2f') for currency,value in data.paid_amounts.items()}
+    if any(not value.is_finite() or value<0 or value.as_tuple().exponent < -2 for value in data.paid_amounts.values()):raise HTTPException(422,'已支付金额应为非负金额，最多两位小数')
+    if data.payment_status=='unpaid':paid={currency:'0.00' for currency in amounts}
+    elif data.payment_status=='full':paid=amounts.copy()
+    elif not any(Decimal(value)>0 for value in paid.values()) or any(currency not in amounts or Decimal(value)>Decimal(amounts[currency]) for currency,value in paid.items()) or all(Decimal(paid.get(currency,0))==Decimal(value) for currency,value in amounts.items()):
+        raise HTTPException(422,'部分支付须填写大于零且未付清的返点金额，不能超过应付返点金额')
+    result=dict(recipient=data.recipient.strip(),rate=str(data.rate),amounts=amounts,payment_status=data.payment_status,paid_amounts=paid,note=data.note.strip(),revision=data.revision+1,actor_name=user.full_name or user.username,updated_at=business_now().isoformat())
+    records[data.unit_id]=result
+    save(db,user,client_id,row,before,payload,'登记返点',dict(unit_id=data.unit_id,before=current,after=result))
+    return result
+
+
 @router.get('/{client_id}/history')
 def history(client_id:UUID,skip:int=Query(0,ge=0),limit:int=Query(20,ge=1,le=100),db=Depends(get_db),user=Depends(read_access)):
     workspace(db,client_id)
@@ -1345,6 +1699,8 @@ def history(client_id:UUID,skip:int=Query(0,ge=0),limit:int=Query(20,ge=1,le=100
 
 
 def history_changes(changes, private_settings=True):
+    if isinstance(changes,dict) and 'archive' in changes:
+        changes={**changes,'archive':{key:value for key,value in changes['archive'].items() if key!='documents'}}
     if isinstance(changes,dict) and 'generation' in changes:
         changes={key:value for key,value in changes.items() if key!='generation'}
     return changes if private_settings else without_private_fields(changes)
@@ -1399,6 +1755,68 @@ def generation_version(client_id:UUID,history_id:UUID,db=Depends(get_db),user=De
     return result
 
 
+@router.get('/{client_id}/historical-versions')
+def historical_versions(client_id:UUID,settlement_scope:StatementScope|None=None,skip:int=Query(0,ge=0),limit:int=Query(20,ge=1,le=100),db=Depends(get_db),user=Depends(read_access)):
+    from sqlalchemy import or_
+    current=workspace(db,client_id)
+    payload=copy.deepcopy(current.payload) if current else empty_payload()
+    document_status.normalize(payload)
+    virtual=[board for board in scoped_payload(db,payload,settlement_scope)['boards'] if board.get('status')=='void' and not board.get('archived_revision')]
+    active_versions={board.get('active_history_id') for board in payload['boards'] if board.get('status')!='void'}
+    model=StatementWorkspaceHistory
+    query=db.query(model).filter(model.client_id==client_id,or_(model.changes['archive']['months'].as_string().is_not(None),
+        model.changes['deleted_boards'].as_string().is_not(None),model.changes['generation']['key'].as_string().is_not(None)))
+    # 归档记录按各自快照再做结算范围隔离；列表不下载 roots 或项目全文。
+    items=[dict(id='current:'+board['id'],revision=current.revision,created_at=business_datetime(current.updated_at).isoformat(),actor_name='',
+        months=document_status.months(payload,board),period_number=board.get('period_number'),orders=[],name=board['name'],status='void',action='已废除') for board in virtual]
+    records=query.with_entities(model.id,model.revision,model.created_at,model.actor_name,model.action,model.changes['archive']['months'],
+        model.changes['archive']['orders'],model.changes['generation']['months'],model.changes['generation']['orders'],model.changes['generation']['period_number'],model.changes['generation']['settlement_scope'])
+    if settlement_scope:
+        records=records.filter(or_(model.changes['archive']['scopes'].as_string().contains('"'+settlement_scope+'"'),model.changes['deleted_boards'].as_string().is_not(None),
+            model.changes['generation']['settlement_scope'].as_string().in_([settlement_scope,''])))
+    total=len(items)+records.count()
+    available=items[skip:skip+limit]
+    remaining=limit-len(available)
+    if remaining:
+        for uid,revision,created_at,actor,action,archive_months,archive_orders,months,orders,period,scope in records.order_by(model.revision.desc()).offset(max(0,skip-len(items))).limit(remaining):
+            available.append(dict(id=str(uid),revision=revision,created_at=business_datetime(created_at).isoformat(),actor_name=actor,
+                months=sorted(set((archive_months or [])+(months or []))),orders=sorted(set((archive_orders or [])+(orders or []))),period_number=period,status='active' if str(uid) in active_versions else 'void',action=action))
+    return {'items':available,'total':total}
+
+
+@router.get('/{client_id}/historical-versions/{version_id}')
+def historical_version(client_id:UUID,version_id:str,settlement_scope:StatementScope|None=None,db=Depends(get_db),user=Depends(read_access)):
+    current=workspace(db,client_id)
+    if version_id.startswith('current:'):
+        payload=copy.deepcopy(current.payload) if current else empty_payload()
+        document_status.normalize(payload)
+        board=board_by_id(scoped_payload(db,payload,settlement_scope),version_id.removeprefix('current:'))
+        if board.get('status')!='void' and board.get('active_history_id')!=version_id:raise HTTPException(409,'该对账单当前有效，请刷新历史版本')
+        numbers=statement_number.numbers(db,client_id)
+        result=dict(revision=current.revision,created_at=business_datetime(current.updated_at).isoformat(),documents=[dict(id=board['id'],name=board['name'],status=board.get('status','void'),statement={**display_data(payload,board),'statement_number':numbers.get(board['id'])})])
+    else:
+        try:uid=UUID(version_id)
+        except ValueError:raise HTTPException(404,'历史版本不存在')
+        row=db.query(StatementWorkspaceHistory).filter_by(id=uid,client_id=client_id).first()
+        if not row:raise HTTPException(404,'历史版本不存在')
+        archived=row.changes.get('archive',{}).get('documents')
+        if archived is not None:
+            docs=copy.deepcopy(archived)+copy.deepcopy(row.changes.get('generation',{}).get('documents',[]))
+        elif row.changes.get('deleted_boards'):
+            payload=scoped_payload(db,row.before,settlement_scope)
+            ids={board['id'] for board in row.changes['deleted_boards']}
+            docs=[dict(id=board['id'],name=board['name'],statement=display_data(payload,board)) for board in payload['boards'] if board['id'] in ids]
+        else:docs=copy.deepcopy(row.changes.get('generation',{}).get('documents',[]))
+        if settlement_scope:
+            allowed={board['id'] for board in scoped_payload(db,row.after,settlement_scope)['boards']}|{board['id'] for board in scoped_payload(db,row.before,settlement_scope)['boards']}
+            docs=[board for board in docs if board['id'] in allowed]
+        result=dict(revision=row.revision,created_at=business_datetime(row.created_at).isoformat(),documents=[{**board,'status':'active' if current and any(item['id']==board['id'] and item.get('status')!='void' and item.get('active_history_id')==version_id for item in current.payload['boards']) else 'void'} for board in docs])
+    if source.private_statement_settings_available():return result
+    result=without_private_fields(result)
+    for board in result['documents']:board['statement']['private_settings_available']=False
+    return result
+
+
 @router.get('/{client_id}/history/{history_id}')
 def history_entry(client_id:UUID,history_id:UUID,db=Depends(get_db),user=Depends(read_access)):
     workspace(db,client_id)
@@ -1423,10 +1841,11 @@ def export(client_id:UUID,revision:int,board_ids:list[str]=Query(...),mode:Liter
     output=Workbook();output.remove(output.active)
     dates=board_issue_dates(db,row)
     numbers=statement_number.numbers(db,client_id)
-    payload=scoped_payload(db,row.payload,settlement_scope)
+    payload=scoped_payload(db,copy.deepcopy(row.payload),settlement_scope)
+    statement_notes.refresh(db,payload)
     for index,uid in enumerate(board_ids):
         board=board_by_id(payload,uid);statement={**display_data(payload,board,mode,dates.get(uid,'')),'statement_number':numbers.get(uid)}
-        if not statement['rows']:raise HTTPException(422,f"{board['name']}没有任务")
+        if not statement['rows']:raise HTTPException(422,f"{board['name']}没有项目")
         target=output.create_sheet(f'对账单{index+1}')
         source.write_excel_sheet(target,statement)
     buffer=BytesIO();output.save(buffer)
@@ -1441,10 +1860,11 @@ def export_pdf(client_id:UUID,revision:int,board_ids:list[str]=Query(...),mode:L
     if not 1<=len(board_ids)<=12 or len(set(board_ids))!=len(board_ids):raise HTTPException(422,'请选择1至12份不同的对账单')
     dates=board_issue_dates(db,row);statements=[]
     numbers=statement_number.numbers(db,client_id)
-    payload=scoped_payload(db,row.payload,settlement_scope)
+    payload=scoped_payload(db,copy.deepcopy(row.payload),settlement_scope)
+    statement_notes.refresh(db,payload)
     for uid in board_ids:
         board=board_by_id(payload,uid);statement={**display_data(payload,board,mode,dates.get(uid,'')),'statement_number':numbers.get(uid)}
-        if not statement['rows']:raise HTTPException(422,f"{board['name']}没有任务")
+        if not statement['rows']:raise HTTPException(422,f"{board['name']}没有项目")
         statements.append(statement)
     from statement_pdf import pdf_bytes
     return Response(pdf_bytes(statements),media_type='application/pdf',headers={'Content-Disposition':'attachment; filename=customer-statements.pdf'})

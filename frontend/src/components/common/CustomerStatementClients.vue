@@ -2,11 +2,11 @@
   <section>
     <AppForm data-auto-draft="off" :model="filters" inline @submit.prevent="refresh">
       <el-form-item label="账单月份"><el-date-picker v-model="filters.months" type="months" value-format="YYYY-MM" :clearable="false" style="width:280px;max-width:100%" @change="changeMonths" /></el-form-item>
-      <el-form-item v-if="settlementScope" label="账期"><StatementPeriodSelect v-model="filters.period" :month="filters.months[0]" :months="filters.months" :settlement-scope="settlementScope" /></el-form-item>
+      <el-form-item v-if="settlementScope && settlementScope!=='special'" label="账期"><StatementPeriodSelect v-model="filters.period" :month="filters.months[0]" :months="filters.months" :settlement-scope="settlementScope" /></el-form-item>
       <el-form-item label="客户分类"><el-radio-group v-model="filters.mode"><el-radio-button value="required">{{special?'特殊结算客户':'需对账单客户'}}</el-radio-button><el-radio-button value="optional">{{special?'非特殊结算客户':'无需对账单客户'}}</el-radio-button><el-radio-button value="both">并列打开</el-radio-button></el-radio-group></el-form-item>
       <el-form-item :label="special?'特殊结算进度':'对账单进度'"><el-select v-model="filters.progress" clearable placeholder="全部进度" style="width:140px" @change="refresh"><el-option label="未开始" value="not_started" /><el-option label="部分完成" value="partial" /><el-option label="全部完成" value="completed" /></el-select></el-form-item>
       <el-form-item label="展示方式"><el-radio-group v-model="filters.layout" aria-label="展示方式"><el-radio-button value="month">月份 → 客户</el-radio-button><el-radio-button value="client">客户 → 月份</el-radio-button></el-radio-group></el-form-item>
-      <el-form-item v-if="!settlementScope"><el-button @click="mergeVisible=true">合并客户</el-button></el-form-item>
+      <el-form-item v-if="!settlementScope||special"><el-button @click="mergeMode='customers';mergeVisible=true">合并客户</el-button><el-button v-if="special" @click="mergeMode='projects';mergeVisible=true">合并筛选项目</el-button></el-form-item>
     </AppForm>
     <p v-if="special" class="client-hint">选择本月（相应账期）需特殊结算的客户，集中筛选项目并进行特殊结算处理；客户档案与原始项目不变。</p>
     <p v-else class="client-hint">可拖动客户在两栏之间调整对账单需求，保存后自动同步对应客户或子客户的结算设置。</p>
@@ -26,7 +26,7 @@
         @keyword-change="keywords[String(required)]=$event" @managers="updateManagers(`client:${required}`,$event)"
         @drop-client="moveClient($event,required,$event.statementBillingMonth)" @move-client="moveClient($event,!required,$event.statementBillingMonth)" />
     </div>
-    <MergedStatementClientsDialog v-if="!settlementScope" v-model="mergeVisible" :month="filters.months[0]" :manager-query="managerQuery" @saved="refresh();emit('saved',$event)" />
+    <MergedStatementClientsDialog v-if="!settlementScope||special" :settlement-scope="settlementScope" :merge-mode="mergeMode" v-model="mergeVisible" :month="filters.months[0]" :manager-query="managerQuery" @saved="refresh();emit('saved',$event)" />
   </section>
 </template>
 <script setup>
@@ -49,7 +49,7 @@ const selectedMonths=computed(()=>[...new Set(filters.months||[])].sort())
 function changeMonths(){if(!filters.months?.length)filters.months=[props.billingMonth||currentStatementMonth()];filters.period=undefined}
 const visibleGroups=computed(()=>filters.mode==='both'?[true,false]:[filters.mode==='required'])
 const groups=new Map(),managerLists=reactive({}),moving=ref(false),error=ref('')
-const mergeVisible=ref(false),keywords=reactive({'true':'','false':''})
+const mergeMode=ref('customers'),mergeVisible=ref(false),keywords=reactive({'true':'','false':''})
 function setGroup(required,el){if(el)groups.set(required,el);else groups.delete(required)}
 function updateManagers(required,values){managerLists[String(required)]=values}
 watch(()=>filters.layout==='client'?visibleGroups.value.flatMap(required=>managerLists[`client:${required}`]||[]):selectedMonths.value.flatMap(month=>visibleGroups.value.flatMap(required=>managerLists[`${month}:${required}`]||[])),values=>emit('managers',[...new Set(values)]),{immediate:true})

@@ -63,7 +63,7 @@
           <span>本次开票金额 <strong>{{ amountText(group.totals) }}</strong></span>
         </header>
         <el-collapse>
-          <el-collapse-item title="客户开票信息" :name="group.client_id">
+          <el-collapse-item title="客户开票信息" :name="group.client_id"><el-select v-if="preview&&group.customer.client_party_options?.length>1" :model-value="partyChoices[group.client_id]||0" @change="index=>selectParty(group,index)"><el-option v-for="(party,index) in group.customer.client_party_options" :key="index" :value="index" :label="party.title||`开票信息 ${index+1}`" /></el-select>
             <el-descriptions :column="2" border size="small">
               <el-descriptions-item v-for="field in invoicePartyFields" :key="field.key" :label="field.label">{{ group.customer.client_party?.[field.key] || '待填写' }}</el-descriptions-item>
             </el-descriptions>
@@ -73,7 +73,7 @@
           <span>客户默认：{{subjectNames[group.customer.client_invoice_subject]||'主体未设置'}} · {{invoiceTypeLabels[group.customer.invoice_selection?.client_invoice_type]||'电子普票'}}</span>
           <el-button link type="primary" @click="openClientInvoiceSettings(group.client_id)">查看客户管理开票设置</el-button>
         </div>
-        <div v-if="combinedGroup(group)" class="invoice-combined-actions">
+        <div v-if="!invoiceStatements.length&&combinedGroup(group)" class="invoice-combined-actions">
           <h4>多单合并结款（发票）项目</h4>
           <template v-if="request">
             <el-button v-if="request.is_recipient || availableProof(group.customer)" link type="primary"
@@ -86,7 +86,7 @@
             <span v-else-if="!availableProof(group.customer)&&!request.is_recipient">待上传发票</span>
           </template>
         </div>
-        <el-table :data="group.projects" row-key="project_id">
+        <el-table v-if="!invoiceStatements.length" :data="group.projects" row-key="project_id">
           <el-table-column prop="order_no" label="订单号" min-width="150" />
           <el-table-column prop="project_name" label="项目" min-width="180" />
           <el-table-column v-if="preview" label="订单开票选择" min-width="170">
@@ -108,35 +108,43 @@
           </el-table-column>
         </el-table>
       </section>
+      <section v-for="document in invoiceStatements" :key="document.board_id"><el-button v-if="request" link type="primary" @click="statementInvoice=document">发票</el-button><details><summary>{{document.statement.statement_number||document.name}} · {{amountText(document.totals)}} · {{subjectNames[document.subject_key]||'开票主体待选择'}}</summary><div class="invoice-statement-scroll"><CustomerStatementPaper :statement="document.statement" /></div></details></section>
     </div>
     <template #footer>
       <el-button :disabled="busy" @click="close()">关闭</el-button>
-      <el-button v-if="preview" :loading="busy" :disabled="!canSaveSelection" @click="saveSelection">保存订单开票选择</el-button>
+      <el-button v-if="preview&&!statementRefs.length" :loading="busy" :disabled="!canSaveSelection" @click="saveSelection">保存订单开票选择</el-button>
       <el-button v-if="preview" type="primary" :loading="busy" :disabled="!canSend" @click="send">发送开票需求</el-button>
     </template>
   </DraggableFormDialog>
+  <SpecialStatementInvoices v-if="statementInvoice" editor-only :invoice-client-id="statementInvoice.client_id" :focus-board-id="statementInvoice.board_id" :read-only="!request?.is_recipient" @close="statementInvoice=null" @saved="load" />
   <ProjectInvoiceDialog v-if="invoiceProject" :model-value="true" :request-id="requestId"
     :context="invoiceContext" :special="!!invoiceProject.root_id" :can-deliver="request.is_recipient && received"
     @update:model-value="invoiceProject = null" @saved="load" />
 </template>
 
 <script setup>
-import {computed, onBeforeUnmount, onMounted, reactive, ref} from 'vue'
+import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, reactive, ref} from 'vue'
 import {ElMessage} from 'element-plus'
 import api from '@/api'
 import {invoicePartyFields,invoiceTypeLabels,invoiceSubjectLabels as subjectNames,saveOrderInvoiceSelections,connectInvoiceParties,notifyInvoiceParties,invoicePartiesEvent} from '@/api/invoiceParties'
 import {clientManagementTarget} from '@/utils/clientManagementWindow'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import DraggableFormDialog from './DraggableFormDialog.vue'
+import CustomerStatementPaper from './CustomerStatementPaper.vue'
 import AppForm from './AppForm.vue'
 import ProjectInvoiceDialog from './ProjectInvoiceDialog.vue'
 import ScreenshotText from './ScreenshotText.vue'
 import ReadonlyField from './ReadonlyField.vue'
 
-const props = defineProps({projectIds:{type:Array,default:()=>[]}, requestId:String, mergedSettlement:Boolean, specialSettlement:Boolean})
+const props = defineProps({projectIds:{type:Array,default:()=>[]}, requestId:String, mergedSettlement:Boolean, specialSettlement:Boolean,statementRefs:{type:Array,default:()=>[]}})
 const settlementScope=computed(()=>props.specialSettlement?'special':undefined)
 const emit = defineEmits(['close','sent'])
 const preview = ref(), request = ref(), loading = ref(false), busy = ref(false), error = ref('')
+const SpecialStatementInvoices=defineAsyncComponent(()=>import('./SpecialStatementInvoices.vue'))
+const statementInvoice=ref(null)
+const partyChoices=reactive({})
+function selectParty(group,index){partyChoices[group.client_id]=index;for(const row of preview.value.projects)if(row.client_id===group.client_id)row.client_party=row.client_party_options[index]}
+const invoiceStatements=computed(()=>preview.value?.statements||request.value?.snapshot?.statements||[])
 const invoiceProject = ref()
 const invoiceGroup = ref()
 const invoiceContext = computed(() => ({projectId:invoiceProject.value?.project_id,
@@ -206,7 +214,7 @@ async function load({preserveSelection=false}={}) {
       const result=await api.get(`/invoice-workflow/requests/${props.requestId}`)
       if(sequence===loadingSequence)request.value=result
     } else {
-      const result=await api.post('/invoice-workflow/requests/preview', {project_ids:props.projectIds,settlement_scope:settlementScope.value}, {timeout:60000})
+      const result=await api.post('/invoice-workflow/requests/preview', {project_ids:props.projectIds,statement_refs:props.statementRefs,settlement_scope:settlementScope.value}, {timeout:60000})
       if(sequence!==loadingSequence)return
       preview.value=result
       if(!preserveSelection&&selectionSignature()===initialSelection){
@@ -242,8 +250,8 @@ async function saveSelection(){
 }
 async function send() {
   if (busy.value || !canSend.value) return
-  const data = {project_ids:props.projectIds, settlement_scope:settlementScope.value, invoice_type:form.type, subject_key:form.subject, tax_rate:taxRate.value,
-    selection_revisions:Object.fromEntries(preview.value.projects.map(row=>[row.project_id,row.invoice_selection?.revision??0])),
+  const data = {project_ids:props.projectIds,statement_refs:props.statementRefs, settlement_scope:settlementScope.value, invoice_type:form.type, subject_key:form.subject, tax_rate:taxRate.value,
+    client_party_choices:partyChoices,selection_revisions:props.statementRefs.length?undefined:Object.fromEntries(preview.value.projects.map(row=>[row.project_id,row.invoice_selection?.revision??0])),
     note:form.note, settings_revision:preview.value.settings_revision,
     expected_user_ids:preview.value.recipients.map(person => person.id)}
   const signature = JSON.stringify(data)
@@ -299,4 +307,8 @@ onBeforeUnmount(()=>{loadingSequence++;window.removeEventListener(invoiceParties
 :global(.invoice-workflow-dialog > .el-dialog__body) { flex:1; min-height:0; overflow:auto; }
 :global(.invoice-workflow-dialog > .el-dialog__header),
 :global(.invoice-workflow-dialog > .el-dialog__footer) { flex:none; }
+</style>
+
+<style scoped>
+.invoice-statement-scroll{max-height:55vh;overflow-y:scroll;overflow-x:auto;overscroll-behavior:contain;scrollbar-gutter:stable}summary{cursor:pointer}
 </style>

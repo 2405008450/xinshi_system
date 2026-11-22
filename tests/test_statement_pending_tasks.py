@@ -103,3 +103,34 @@ def test_period_preview_reports_current_board_and_target_project_assignment(setu
     item=preview('2026-12')
     assert item['current_pending'] is True and item['current_period']==1
     assert item['target_period'] is None and item['target_needs_period'] is False
+
+
+def test_explicit_pending_period_survives_preview_and_generation(setup):
+    http,_,_,_,_,_,order=setup
+    state=imported(setup,['2026-11'])
+    state=change(setup,state,'add_billing_period',{'month':'2026-11'})
+    target=next(board for board in state['documents'] if board['period_number']==2)
+    task_id=str(order.id)
+    rows=deepcopy(state['payload']['tasks'][task_id]['rows'])
+    state=change(setup,state,'schedule_tasks',{'task_ids':[task_id],'month':'2026-11','board_id':target['id']})
+    assert state['pending_tasks'][0]['period_number']==2
+    preview=http.post(f"/translation-statement-workspaces/{state['client_id']}/pending-period-preview",json={'month':'2026-11','task_ids':[task_id]})
+    assert preview.status_code==200
+    assert preview.json()[0]['current_period']==2
+    assert preview.json()[0]['target_period']==2
+    state=generate(setup,state,['2026-11'])
+    assert not state['pending_tasks'] and state['accepted_pending_count']==1
+    task=state['payload']['tasks'][task_id]
+    assert task['board_id']==target['id'] and task['rows']==rows
+    assert 'pending_target_board_id' not in task
+
+
+def test_pending_period_validates_month_and_cancel_clears_target(setup):
+    state=imported(setup,['2026-11'])
+    state=change(setup,state,'add_billing_period',{'month':'2026-11'})
+    target=state['documents'][1]
+    task_id=str(setup[6].id)
+    change(setup,state,'schedule_tasks',{'task_ids':[task_id],'month':'2026-12','board_id':target['id']},expected=422)
+    state=change(setup,state,'schedule_tasks',{'task_ids':[task_id],'month':'2026-11','board_id':target['id']})
+    state=change(setup,state,'cancel_pending',{'task_ids':[task_id]})
+    assert 'pending_target_board_id' not in state['payload']['tasks'][task_id]

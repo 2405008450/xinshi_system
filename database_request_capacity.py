@@ -16,14 +16,18 @@ class DatabaseRequestCapacityMiddleware:
             reserve = min(2,max(1,size//3))
             limit = max(1, size + max(0, overflow) - reserve)
         self.capacity = anyio.CapacityLimiter(limit)
+        # 使用预留连接中的一个名额，避免业务列表把登录和会话校验饿死。
+        self.auth_capacity = anyio.CapacityLimiter(1)
         self.queue_timeout = float(queue_timeout if queue_timeout is not None else os.getenv('DB_REQUEST_QUEUE_TIMEOUT_SECONDS', '5'))
 
     async def __call__(self, scope, receive, send):
         if scope['type'] != 'http':
             return await self.app(scope, receive, send)
         # 等候名额也有上限，避免浏览器已超时的请求仍在队尾无限堆积。
+        auth_paths = {'/auth/session', '/auth/login', '/auth/login/json', '/auth/captcha', '/auth/captcha/required'}
+        capacity = self.auth_capacity if scope.get('path', '').rstrip('/') in auth_paths else self.capacity
         with anyio.move_on_after(self.queue_timeout) as waiting:
-            await self.capacity.acquire()
+            await capacity.acquire()
         if waiting.cancel_called:
             body = json.dumps({'detail': '服务繁忙，请稍后重试'}, ensure_ascii=False).encode('utf-8')
             await send({'type': 'http.response.start', 'status': 503, 'headers': [
@@ -34,4 +38,4 @@ class DatabaseRequestCapacityMiddleware:
         try:
             await self.app(scope, receive, send)
         finally:
-            self.capacity.release()
+            capacity.release()

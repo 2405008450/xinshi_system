@@ -29,7 +29,7 @@
     <CustomerQuotationDialog v-model="linkedQuotationVisible" :draft="editor.quotationDraft" :draft-project="editorDocumentProject" defer-save @update:draft="value=>{editor.quotationDraft=value;editor.quotationDraftDirty=true}" />
     <CustomerStatementDialog v-model="statementVisible" settlement-scope="standard" :client-context="statementContext" :billing-month="filters.month"
       :manager-label="managerLabel" :manager-query="activeManagerQuery" />
-    <CustomerStatementDialog v-model="backupStatementVisible" title="对账单（备份）" :billing-month="filters.month"
+    <BackupCustomerStatementDialog v-model="backupStatementVisible" title="对账单（备份）" :billing-month="filters.month"
       :manager-label="managerLabel" :manager-query="activeManagerQuery" />
     <CustomerStatementDialog v-model="specialStatementVisible" :client-context="specialStatementContext" settlement-scope="special" title="特殊结算" :billing-month="filters.month"
       :manager-label="managerLabel" :manager-query="activeManagerQuery" />
@@ -106,12 +106,12 @@
       </el-table-column>
       <el-table-column v-for="column in visibleColumns" :key="column.key" :label="column.label" show-sub-client :width="column.width" :fixed="fixedColumns.includes(column.key)?'left':false" :prop="column.key" :sortable="!statementClientView && ['clientShortName','clientManager'].includes(column.key) ? 'custom' : false">
         <template #header><div class="finance-column-heading"><ConfiguredColumnHeaderFilter v-if="headerFilterDefinitions[column.key] && !(requireStatementForSelection && column.key==='statementRequired')" :definition="headerFilterDefinitions[column.key]" :model-value="filters[column.key]" @update:model-value="filters[column.key]=$event" @change="search" @clear="search" /><span v-else>{{column.key==='statementRequired' && statementClientView ? '对账单' : column.label}}</span><button v-if="['orderNo','projectName'].includes(column.key)" type="button" class="finance-pin-toggle" :aria-label="`${fixedColumns.includes(column.key)?'取消固定':'固定'}${column.label}`" :title="`${fixedColumns.includes(column.key)?'取消固定':'固定'}${column.label}`" :aria-pressed="fixedColumns.includes(column.key)" @click.stop="toggleFixedColumn(column.key)">{{fixedColumns.includes(column.key)?'◆':'◇'}}</button></div></template>
-        <template #default="{row}"><span v-if="row._clientGroup" />
+        <template #default="{row}"><span v-if="row._clientGroup" /><span v-else-if="readOnlyPreview">{{cell(row,column.key)}}</span>
           <div v-else-if="specialSettlementView && ['totalPrice','totalInclTax'].includes(column.key)">
             {{cell(row,column.key)}}<OrderPriceDetails :order="row" :side="column.key==='totalPrice'?'excl':'incl'" />
           </div>
           <div v-else-if="column.key==='paymentMethod'" class="finance-statement-payment">
-            <el-select v-if="canWrite && row.id===row.rootId" :model-value="paymentMethodFor(row)" size="small"
+            <el-select v-if="canWrite && row.id===row.rootId && !specialSettlementView" :model-value="paymentMethodFor(row)" size="small"
               :disabled="savingTableDocuments.has(row.id)" :aria-label="`${row.orderNo} 结算模式`"
               @change="saveTablePaymentMethod(row,$event)">
               <el-option v-for="method in paymentMethods" :key="method.value" :value="method.value" :label="method.label"
@@ -122,7 +122,7 @@
             <el-button v-if="isGroupedSettlement(paymentMethodFor(row)) && row.clientId" link type="primary"
               @click="openPaymentProjects(row,paymentMethodFor(row))">查看汇总项目</el-button>
             <small v-if="row.customerDocumentSources?.paymentMethod">来自客户管理</small>
-            <el-button v-if="row.clientId&&row.id===row.rootId" link type="primary"
+            <el-button v-if="row.clientId&&row.id===row.rootId&&!specialSettlementView" link type="primary"
                 @click="row.subClientId&&row.settlementParty!=='client' ? openSubClientSettings(row) : openCustomerFinanceSettings('settings',row.clientId)">客户结算设置</el-button>
           </div>
           <div v-else-if="column.key==='statementRequired'" class="finance-statement-payment">
@@ -135,11 +135,12 @@
             </div>
             <div class="finance-document-flag">
               <span v-if="!statementClientView">对账单：</span>
-              <el-checkbox v-if="specialSettlementView" :model-value="row.statementRequired"
-                :disabled="!canWrite || savingTableDocuments.has(row.rootId) || (row.subClientId && row.settlementParty==='client')" :aria-label="`${row.orderNo} 是否需对账单`"
+              <el-checkbox v-if="specialSettlementView" :model-value="true"
+                :disabled="true" :aria-label="`${row.orderNo} 是否需对账单`"
                 @change="changeSpecialSettlement(row,{statement_required:$event})">{{row.statementRequired?'需':'无需'}}</el-checkbox>
               <CustomerStatementRequiredToggle v-else :row="row" :allow-month-sync="!requireStatementForSelection" :prepare="tableEditing.flush" @saved="onTableStatementSaved(row,$event)" />
             </div>
+            <div v-if="statementClientView" class="finance-statement-membership"><ProjectStatementStatus :value="row.statementStatus||[]" detailed empty-label="未入对账单" /><small v-if="!row.statementStatus?.length">{{row.settlementPeriodNumber?`第 ${row.settlementPeriodNumber} 期`:'未分账期'}}</small></div>
             <div v-if="specialSettlementView" class="finance-document-flag">
               <el-select :model-value="row.specialTaxMode||'unknown'" size="small" :aria-label="`${row.orderNo} 计费口径`"
                 :disabled="!canWrite || savingTableDocuments.has(row.rootId) || (row.subClientId && row.settlementParty==='client')" @change="changeSpecialSettlement(row,{tax_mode:$event})">
@@ -147,7 +148,7 @@
                 <el-option v-if="row.specialTaxMode==='mixed'" label="混合口径" value="mixed" disabled />
                 <el-option v-if="!row.specialTaxMode" label="待选择" value="unknown" disabled />
               </el-select>
-              <span>发票 {{row.invoiceRequired==null?'待判断':row.invoiceRequired?'需':'无需'}}</span>
+              <span>发票</span><el-select :model-value="row.invoiceRequired==null?'unknown':row.invoiceRequired?'yes':'no'" :disabled="!canWrite||savingTableDocuments.has(row.rootId)" @change="value=>changeSpecialSettlement(row,{invoice_required:value==='yes'})"><el-option label="需" value="yes" /><el-option label="无需" value="no" /><el-option v-if="row.invoiceRequired==null" label="待判断" value="unknown" disabled /></el-select>
             </div>
             <template v-if="!statementClientView">
               <el-button v-if="row.statementRequired && row.clientId" link type="primary" @click="openPaymentProjects(row,'statement')">对账单项目</el-button>
@@ -580,6 +581,7 @@
 </template>
 
 <script setup>
+import BackupCustomerStatementDialog from '@/components/common/statementBackup/BackupCustomerStatementDialog.vue'
 import { translationSettlementModeLabels as settlementModeLabels, translationSettlementMode as paymentMethodFor, isGroupedSettlement, settlementModeDisabled } from '@/utils/settlementModes'
 import SubClientFinancePreferences from '@/components/common/SubClientFinancePreferences.vue'
 import {connectInvoiceParties,invoicePartiesEvent,notifyInvoiceParties} from '@/api/invoiceParties'
@@ -623,6 +625,7 @@ import CustomerStatementDialog from '@/components/common/CustomerStatementDialog
 import {taxPriceForm,taxPriceSummary} from '@/utils/taxPrices'
 import {copySavedValue} from '@/utils/savedDataMerge'
 import { computed, onMounted, onBeforeUnmount, reactive, ref, watch, nextTick } from 'vue'
+import { loadedStatementOrderIds } from '@/utils/statementLoadedSelection'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ProjectListRowActions from '@/components/common/ProjectListRowActions.vue'
@@ -652,6 +655,7 @@ import OrderDiscountField from '@/components/common/OrderDiscountField.vue'
 import {totalAdjustmentDraft,totalAdjustmentPatchKeys} from '@/utils/financeTableDraft'
 import CustomerAggregatePrices from '@/components/common/CustomerAggregatePrices.vue'
 import CustomerStatementRequiredToggle from '@/components/common/CustomerStatementRequiredToggle.vue'
+import ProjectStatementStatus from '@/components/common/ProjectStatementStatus.vue'
 import CustomerReferencePriceDialog from '@/components/common/CustomerReferencePriceDialog.vue'
 import OrderBillingPeriodDialog from '@/components/common/OrderBillingPeriodDialog.vue'
 import {expectedOrderPrices,replaceMatchedReference,fillCustomerReferencePrice,customerPricesForDirections,hasCustomerRateConflict,preferredCustomerRates} from '@/utils/customerRateMatching'
@@ -684,7 +688,7 @@ function toggleFixedColumn(key){fixedColumns.value=fixedColumns.value.includes(k
 
 const statuses=getProjectStatusOptions('translation'),canWrite=hasPermission('projects:write'),canWriteClients=hasPermission('clients:write')
 const emit=defineEmits(['saved','editor-closed','document-requirements-saved','special-payment-saved','statement-selection-change'])
-const props=defineProps({clientId:{type:[String,Number],default:''},subClientId:String,clientIds:{type:Array,default:()=>[]},statementPreview:Function,editorOnly:Boolean,clientScope:Boolean,collapsible:Boolean,statementClientView:Boolean,periodNumber:Number,settlementScope:String,requireStatementForSelection:Boolean,previewMode:String,previewMonths:Array,initialMonth:String,managerQuery:{type:Object,default:()=>({})}})
+const props=defineProps({clientId:{type:[String,Number],default:''},subClientId:String,clientIds:{type:Array,default:()=>[]},statementPreview:Function,readOnlyPreview:Boolean,editorOnly:Boolean,clientScope:Boolean,collapsible:Boolean,statementClientView:Boolean,periodNumber:Number,settlementScope:String,requireStatementForSelection:Boolean,previewMode:String,previewMonths:Array,initialMonth:String,managerQuery:{type:Object,default:()=>({})}})
 const statementTableRef=ref(),statementSelected=ref([]),projectPreview=ref(null),previewLoading=ref(false)
 const specialSettlementView=computed(()=>props.statementClientView&&props.settlementScope==='special')
 const financeCollapsed=ref(props.collapsible)
@@ -708,6 +712,13 @@ async function statementSelection({flush=true,signal}={}){
   const requiredFilter = {settlement_scope:props.settlementScope,statement_required:props.requireStatementForSelection?true:undefined}
   const ids=new Set()
   const months=props.previewMonths?.length?props.previewMonths:[filters.month]
+  if(props.statementClientView){
+    await financeLoadTask
+    if(signal?.aborted)return []
+    const loaded=loadedStatementOrderIds({rows:rows.value,total:total.value,loadedQuery:loadedSelectionQuery,
+      currentQuery:financeParams(),months,requireStatement:props.requireStatementForSelection})
+    if(loaded!==null)return loaded
+  }
   for(const month of months){let skip=0;while(true){const data=await getCustomerFinancePage({...financeParams(),...requiredFilter,billing_month:month||undefined,skip,limit:100},{signal});for(const row of data.items||[])ids.add(row.id);skip+=100;if(skip>=data.total||!data.items?.length)break}}
   return [...ids]
 }
@@ -805,6 +816,7 @@ function openInvoiceStatement(row){
   openStandardStatement({...context,period:board?.periodNumber??period,boardId:board?.boardId})
 }
 const filters=reactive({clientOrderCount:'',keyword:'',projectStatus:[],paymentStatus:'',statementRequired:[],paymentMethod:'',billingPeriod:undefined,pricingMode:'',client:'',subClient:'',month:props.initialMonth||'',manager:'',missingWordCount:false,missingUnitPrice:false,missingTotal:''}),rows=ref([]),subtotals=ref([]),page=ref(1),total=ref(0),loading=ref(false),error=ref(''),advancedVisible=ref(false)
+const statementBoardOptions=ref([])
 const subtotalPageSize = 10
 const subtotalPage = ref(1)
 const subtotalPageCount = computed(() => Math.ceil(subtotals.value.length / subtotalPageSize))
@@ -824,8 +836,10 @@ const headerFilterDefinitions={
     languagePair:{key:'languagePair',label:'翻译方向',type:'select',multiple:false,headerWidth:320,options:()=>directionFilterOptions.value},
   }:{}),
   paymentStatus:{key:'paymentStatus',label:'付款状态',type:'select',multiple:false,options:[...paymentStatusFilterOptions,fullPaymentMismatchOption]},
-  statementRequired:{key:'statementRequired',label:props.statementClientView?'对账单':'报价单/对账单',type:'select',options:[
+  statementRequired:{key:'statementRequired',label:props.statementClientView?'对账单':'报价单/对账单',type:'select',options:()=>[
     {value:'required',label:'需对账单'},{value:'not_required',label:'无需对账单'},
+    ...(props.statementClientView?[{value:'has_statement',label:'已入对账单'},{value:'no_statement',label:'未入对账单'},{value:'has_period',label:'已分账期'},{value:'no_period',label:'未分账期'}]:[]),
+    ...(props.statementClientView?statementBoardOptions.value:[]),
     ...(!props.statementClientView?[
       {value:'invoice_required',label:'需发票'},{value:'invoice_not_required',label:'无需发票'},
       {value:'quotation_required',label:'需报价单'},{value:'quotation_not_required',label:'无需报价单'},
@@ -985,12 +999,16 @@ function documentFilterValue(required, notRequired){
 }
 function financeParams(){
   const invoiceRequired=documentFilterValue('invoice_required','invoice_not_required')
+    const statementPresence=documentFilterValue('has_statement','no_statement')
+    const statementPeriod=documentFilterValue('has_period','no_period')
   const clientIds=filters.clientShortName?[filters.clientShortName]:props.clientIds
   return {
     period_number:props.periodNumber??(typeof filters.billingPeriod==='number'?filters.billingPeriod:undefined),
     unassigned_period:filters.billingPeriod==='unassigned'||undefined,
     settlement_scope:props.settlementScope,sub_client_id:props.subClientId,sort:financeSort.value,include_payment_status:true,
     payment_status:filters.paymentStatus||undefined,statement_required:documentFilterValue('required','not_required'),
+    statement_presence:statementPresence===undefined?undefined:statementPresence?'present':'absent',statement_period_state:statementPeriod===undefined?undefined:statementPeriod?'assigned':'unassigned',
+    statement_board_ids:filters.statementRequired.filter(value=>value.startsWith('board:')).map(value=>value.slice(6)),
     quotation_required:documentFilterValue('quotation_required','quotation_not_required'),
     invoice_required:invoiceRequired===undefined?undefined:invoiceRequired?'yes':'no',
     settlement_mode:filters.paymentMethod||undefined,pricing_mode:filters.pricingMode||undefined,
@@ -1004,10 +1022,17 @@ function financeParams(){
     missing_total:filters.missingTotal||undefined,
   }
 }
+let financeLoadTask,loadedSelectionQuery=null
 async function load(options={}){
+  const task=loadRows(options)
+  financeLoadTask=task
+  try{return await task}
+  finally{if(financeLoadTask===task)financeLoadTask=null}
+}
+async function loadRows(options={}){
   if(editorLoading.value)return
   // 列表查询只读取数据；编辑草稿由各单元格自己的保存动作提交。
-  const current=++sequence;controller?.abort();controller=new AbortController();if(!options?.fromTable)loading.value=true;error.value=''
+  const current=++sequence;controller?.abort();controller=new AbortController();if(!options?.fromTable)loading.value=true;error.value='';loadedSelectionQuery=null
   try{
     const params=financeParams()
     const paginateChildren=(childOrdersExpanded.value||orderExpansionOverrides.value.size>0)&&!props.statementClientView&&filters.clientOrderCount!=='multiple'
@@ -1016,10 +1041,12 @@ async function load(options={}){
       order_expansion_ids:paginateChildren?[...orderExpansionOverrides.value]:undefined,
       skip:(page.value-1)*10,limit:10},{signal:controller.signal})
     if(current===sequence){
+      loadedSelectionQuery=JSON.parse(JSON.stringify(params))
       appliedBillingMonth.value=params.billing_month||''
       childPagination.value=data.paginationUnit==='child_orders'
       orderDisplayOffset.value=data.displayOffset ?? 0
       rows.value=data.items||[];subtotals.value=data.clientSubtotals||[];total.value=data.total||0;clientGroups.value=data.clientGroups||[];groupOrderTotal.value=data.orderTotal||0
+      if(props.statementClientView&&rows.value.length){const options=new Map();for(const row of rows.value)for(const board of [...(row.customerStatements||[]),...(row.statementStatus||[])]){if(!board.boardId)continue;options.set(board.boardId,{value:'board:'+board.boardId,label:`${board.boardName} · ${(board.months||[]).join('、')}${board.periodNumber?` · 第 ${board.periodNumber} 期`:''}`})}statementBoardOptions.value=[...options.values()]}
     }
   }
   catch(e){if(current===sequence&&e.code!=='ERR_CANCELED')error.value=getLocalizedErrorMessage(e,'客户财务列表加载失败')}
@@ -1112,6 +1139,7 @@ async function changeSpecialSettlement(row, fields) {
       }
     }
     await saveSpecialSettlement(row.rootId,{order_id:row.id,apply_to_order:applyToOrder,...fields})
+    notifyInvoiceParties({kind:'special-settlement',clientId:row.clientId,projectId:row.rootId})
     if(usesSubClientDocumentSettings(row) && fields.statement_required!==undefined){
       notifyInvoiceParties({kind:'sub-client-finance',clientId:row.clientId,subClientId:row.subClientId})
     }

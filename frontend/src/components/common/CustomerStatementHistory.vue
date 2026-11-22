@@ -9,11 +9,11 @@
       <el-table-column type="selection" width="45" />
       <el-table-column prop="name" :label="`${documentLabel}名称`" min-width="220" show-overflow-tooltip />
       <el-table-column label="账单月份" min-width="180"><template #default="{row}">{{(row.statement?.months||[]).join('、')||'未登记'}}</template></el-table-column>
-      <el-table-column label="任务数" width="90"><template #default="{row}">{{row.statement?.rows?.length||0}}</template></el-table-column>
+      <el-table-column label="项目数" width="90"><template #default="{row}">{{row.statement?.rows?.length||0}}</template></el-table-column>
       <el-table-column label="操作" width="100" fixed="right"><template #default="{row}"><el-button link type="primary" @click="selectedId=row.id">打开</el-button></template></el-table-column>
     </el-table>
-    <CustomerStatementWorkspace v-else :key="`${clientId}:${selectedId}:${displayIds.join(',')}`" :client-id="clientId" :settlement-scope="settlementScope" :focus-board-id="selectedId" :visible-board-ids="displayIds" @show-boards="ids=>{selectedId='';displayIds=ids}" :billing-month="documents.find(board=>board.id===selectedId)?.statement?.months?.[0]" @loaded="onWorkspaceLoaded" />
-    <details v-if="!selectedId" class="all-statements" @toggle="canvasOpened=$event.target.open"><summary>查看全部{{documentLabel}}画布及修改记录</summary><CustomerStatementWorkspace v-if="canvasOpened" :client-id="clientId" :settlement-scope="settlementScope" @loaded="onWorkspaceLoaded" /></details>
+    <CustomerStatementWorkspace v-else :key="`${clientId}:${selectedId}:${displayIds.join(',')}`" :client-id="clientId" :sub-client-id="subClientId" :settlement-scope="settlementScope" :focus-board-id="selectedId" :visible-board-ids="displayIds" @show-boards="ids=>{selectedId='';displayIds=ids}" :billing-month="documents.find(board=>board.id===selectedId)?.statement?.months?.[0]" @loaded="onWorkspaceLoaded" />
+    <details v-if="!selectedId" class="all-statements" @toggle="canvasOpened=$event.target.open"><summary>查看全部{{documentLabel}}画布及修改记录</summary><CustomerStatementWorkspace v-if="canvasOpened" :client-id="clientId" :sub-client-id="subClientId" :settlement-scope="settlementScope" @loaded="onWorkspaceLoaded" /></details>
   </section>
 </template>
 <script setup>
@@ -25,7 +25,7 @@ import {matchesSearchFields} from '@/utils/searchMatching'
 import {hasPermission} from '@/utils/permission'
 import {ElMessageBox,ElMessage} from 'element-plus'
 import {changeStatementWorkspace} from '@/api/customerStatements'
-const props=defineProps({clientId:{type:String,required:true},mergeMonths:Boolean,settlementScope:String})
+const props=defineProps({clientId:{type:String,required:true},mergeMonths:Boolean,settlementScope:String,subClientId:String})
 const emit=defineEmits(['merged'])
 const documentLabel=computed(()=>'对账单')
 const canvasOpened=ref(false),months=ref([])
@@ -37,7 +37,7 @@ const mergeCandidates=computed(()=>selected.value.length?filtered.value.filter(b
 let controller,sequence=0,timer
 function search(){clearTimeout(timer);appliedKeyword.value=keyword.value}
 function queueSearch(value){clearTimeout(timer);if(!value.trim())search();else timer=setTimeout(search,400)}
-function onWorkspaceLoaded(data){documents.value=data.documents||[];revision.value=data.revision;selected.value=[]}
+function onWorkspaceLoaded(data){documents.value=(data.documents||[]).filter(board=>!props.subClientId||board.sub_client_id===props.subClientId);revision.value=data.revision;selected.value=[]}
 async function merge(){
   const candidates=[...mergeCandidates.value]
   if(candidates.length<2)return
@@ -63,7 +63,7 @@ async function merge(){
 window.addEventListener('customer-statement-history-refresh',load)
 onBeforeUnmount(()=>window.removeEventListener('customer-statement-history-refresh',load))
 async function load(){controller?.abort();controller=new AbortController();const seq=++sequence;loading.value=true;error.value='';try{const data=await getClientStatementWorkspace(props.clientId,'children',{signal:controller.signal,params:{settlement_scope:props.settlementScope}});if(seq===sequence)onWorkspaceLoaded(data)}catch(e){if(seq===sequence&&e.code!=='ERR_CANCELED')error.value=getLocalizedErrorMessage(e,'历史对账单加载失败')}finally{if(seq===sequence)loading.value=false}}
-watch(()=>[props.clientId,props.settlementScope],()=>{documents.value=[];selectedId.value='';displayIds.value=[];selected.value=[];keyword.value='';search();void load()},{immediate:true})
+watch(()=>[props.clientId,props.settlementScope,props.subClientId],()=>{documents.value=[];selectedId.value='';displayIds.value=[];selected.value=[];keyword.value='';search();void load()},{immediate:true})
 onBeforeUnmount(()=>{sequence++;controller?.abort();clearTimeout(timer)})
 </script>
 <style scoped>

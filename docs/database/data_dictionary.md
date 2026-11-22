@@ -2635,7 +2635,15 @@ Python translation_file_name_rules.py 与前端 translationFileName.js 共用格
 
 ### 对账单待入账任务（2026-11-05）
 
-复用 `customer_statement_workspace.payload.tasks`，不新增表或修改已有表结构。任务唯一键不变；`pending=true` 时 `board_id=null`，`month` 为目标账单月份，`pending_from` 保存调配前月份和对账单，`pending_actor`、`pending_at` 保存操作人及 UTC+8 时间。原始项目、收费和订单月份均不修改。
+对账单有效状态复用 `payload.boards`：`status=active|void`（有效/废除），`activation_order` 为客户工作区内的启用顺序；按客户/子客户、结算范围、月份及期次保证唯一有效，合并月份账单占用其包含的每个月份。子账单使用 `status_period_month/status_period_number` 继承所属账期，保留原有父子编号规则。新建或手动启用优先，其他冲突账单自动废除。历史无状态字段按账单顺序计算兼容结果，读取不回写业务库。
+
+废除或删除时，在既有历史表 `changes.archive` 保存完整对账单展示快照、状态 `void`、归档原因、月份、订单及结算范围。保留原任务和金额内容，主窗口不显示废除账单；历史版本接口按工作区和结算范围读取快照，沿用私有字段脱敏规则。`archived_revision` 防止同一废除状态被反复归档。现有删除记录可从 `before` 快照还原历史展示，不进行历史数据维护或表结构迁移。
+
+“查看历史版本”同时包含原生成快照、删除和废除记录，可逐份调整有效/废除。`active_history_id` 标记当前启用版本；恢复历史单据前先预览同月同期冲突并校验确认摘要，确认后废除冲突单据、保留新历史快照。普通结算项目按 `root_id` 校验不得同时归入多份有效账单，含跨客户工作区；特殊结算显式例外。违反约束时阻止保存并提示在财务主表调整“结款模式”为“特殊结算”，不会自动修改项目模式。客户项目列表返回实际有效账单及期次，并支持已入/未入、已分期/未分期和具体账单筛选；计数与分页使用同一筛选条件。
+
+当前有效对账单的备注默认读取 `translation_finance_note.customer_note`；在对账单内修改备注时，同事务更新对应财务客户说明，并保留财务与工作区审计。历史版本使用归档快照，不随现行说明变化。母订单或中间级子订单保存客户/内部说明时，按子订单号层级前缀同步写入其全部下级对应字段；两类说明独立同步。覆盖下级非空且不同内容前，返回变更清单和校验摘要，前端弹窗确认后以 `X-Finance-Note-Sync-Plans` 重试；摘要含订单、字段和修改前后值，内容发生变化时必须重新确认。取消不提交本次事务。不新增表，不自动迁移或回填历史数据。
+
+复用 `customer_statement_workspace.payload.tasks`，不新增表或修改已有表结构。任务唯一键不变；`pending=true` 时 `board_id=null`，`month` 为目标账单月份，`pending_from` 保存调配前月份和对账单，`pending_actor`、`pending_at` 保存操作人及 UTC+8 时间。可选 `pending_target_board_id` 保存明确选择的目标账期对账单 ID，生成时优先使用该目标，预览和待入账列表回显其期次；重新选择自动匹配、撤销或纳入账单时清除。目标必须属于当前客户/子客户、月份及结算范围；目标已删除时拒绝生成并保留队列。原始项目、收费和订单月份均不修改。
 
 生成月份时在客户锁及工作区版本校验内自动接收目标月份的全部待入账任务；不受原订单月份、当前项目范围或需对账单筛选排除。任务原文及单价等已编辑内容保留。任务字典保证唯一归属，重复生成不重复加入，所有变更与自动纳入清单进入既有历史表的前后快照。删除已接收待入账任务的账单时，这些任务退回待入账，避免重建遗漏；撤销待入账恢复调配前归属，原账单已删除则拒绝撤销并保留队列。
 
@@ -2931,3 +2939,21 @@ id UUID 主键；client_id / sub_client_id UUID 分别关联 client / sub_client
 `rate_id UUID` 为主键，引用 `customer_translation_rate.id`。`sub_client_id UUID` 引用 `sub_client.id`，并建立索引。两个外键均级联删除关联记录。子客户参考价使用独立键及版本，不进入客户参考价目录。删除子客户后，其原参考价也不会进入客户目录。
 
 参考价保存沿用现有价格与税字段。项目按子客户匹配价优先，缺少匹配时可采用客户参考价。人工录入的不同价格可通过双向同步处理。使用 `tools/apply_sub_client_translation_rate_migration.py` 初始化。
+
+### 客户联系人部门与公司（client_contact_person_affiliation）
+
+- person_id 为联系人主键及外键，删除联系人时级联删除。
+- department VARCHAR(100) 为部门，company VARCHAR(200) 为所在公司。
+- 接口 contact_people[].department/company 可省略，省略时保留原值，空串清除。适用于客户和子客户。
+- 使用 tools/apply_client_contact_affiliation_migration.py 创建新表，启动时不自动迁移。
+
+
+### 特殊结算独立单据与多组开票资料（2026-11-22）
+
+复用现有 JSON，不执行结构迁移。`customer_statement_workspace.payload.boards[].settlement_scope=special` 的单据不分账期，不参与同月有效单唯一约束；`tasks` 使用独立 UUID 实例键，`source_task_id` 指向原订单 UUID，收费行保留原 `task_id/root_id`。同一原订单可出现在不同特殊结算单，单内项目、金额、备注独立保存，不回写原项目；仅明确确认的特殊合并操作改变原项目结款模式并记录财务审计。单据 `invoice` 保存本单的 `status/proofs/subject_key/actor_name/updated_at`（UTC+8）。开票需求快照 `statements` 保留所选单据、金额及版本，发送前校验工作区版本。
+
+`client_invoice_profile.data` 及 `sub_client_invoice_profile.data` 增加 `_subject_keys`（可选开票主体列表）与 `_parties`（多组客户开票资料）。原主体及主开票资料继续作为默认值，原接口兼容；元数据不进入 `InvoiceParty` 字段校验。
+
+查账追账：工作区 JSON `collection_terms` 保存客户付款账期、独立 revision、操作人及 UTC+8 修改时间。结算列表按有效对账单／多单合并／单笔项目生成展示单元，付款差额为各期累计实际付款减实际应付项目金额，按币种分别汇总全部筛选结果。毛利率仅预留展示字段，暂不计算、不存储。
+
+返点记录保存在 `customer_statement_workspace.payload.ledger_rebates`，以结算单元 ID 为键；字段包含 recipient、rate（百分数）、amounts（服务器十进制计算并四舍五入至分）、payment_status、paid_amounts、note、revision、actor_name、updated_at（+08:00）。变更进入既有工作区审计，独立于财务主表价格及客户收款记录；毛利率暂不关联返点计算。

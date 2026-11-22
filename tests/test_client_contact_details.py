@@ -6,6 +6,35 @@ from schemas import ClientContactPersonInput
 from client_contact_people import replace_details,attach,ensure,ClientContactPersonDetail
 from tools.apply_client_contact_details_migration import apply_migration
 
+
+@pytest.mark.parametrize('is_sub', [False, True])
+def test_affiliation_save_reload_and_legacy_update(environment, is_sub):
+    from tools.apply_client_contact_affiliation_migration import apply_migration
+    from client_contact_people import ClientContactPersonAffiliation
+    from consultation_contacts import sync_contacts
+    db, _ = environment
+    ClientContactPersonAffiliation.__table__.drop(db.connection(), checkfirst=True)
+    apply_migration(db.connection())
+    apply_migration(db.connection())
+    client = Client(id=uuid4(), client_code='AFFILIATION', client_name='客户')
+    db.add(client)
+    db.flush()
+    owner = SubClient(id=uuid4(), parent_client_id=client.id, sub_client_code='AFF-SUB') if is_sub else client
+    db.add(owner)
+    db.flush()
+    replace_details(db, owner, [ClientContactPersonInput(name='甲', department=' 采购部 ', company=' 公司A ')])
+    db.commit()
+    sync_contacts(db, client.id, owner.id if is_sub else None, [ClientContactPersonInput(name='甲')])
+    db.expire_all()
+    attach(db, sub_clients=[owner]) if is_sub else attach(db, clients=[owner])
+    assert owner.contact_people[0]['department'] == '采购部'
+    assert owner.contact_people[0]['company'] == '公司A'
+    replace_details(db, owner, [ClientContactPersonInput(name='甲', department='法务部', company='')])
+    db.commit()
+    attach(db, sub_clients=[owner]) if is_sub else attach(db, clients=[owner])
+    assert owner.contact_people[0]['department'] == '法务部'
+    assert owner.contact_people[0]['company'] == ''
+
 @pytest.mark.parametrize('is_sub',[False,True])
 def test_details_are_per_person_preserved_after_project_add_and_reload(environment,is_sub):
     db,_=environment

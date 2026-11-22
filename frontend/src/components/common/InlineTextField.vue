@@ -1,5 +1,5 @@
 <template>
-  <div class="inline-text-field" :class="{ 'is-editing': editing, 'is-multiline': multiline }">
+  <div class="inline-text-field" :data-field-copy="isCopyableBusinessField(label) ? 'true' : undefined" :class="{ 'is-editing': editing, 'is-multiline': multiline }">
     <template v-if="editing">
       <el-input
         ref="inputRef"
@@ -60,6 +60,7 @@
 </template>
 
 <script setup>
+import { isCopyableBusinessField } from '@/utils/fieldCopy'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Check, Close, Edit } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'

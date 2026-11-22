@@ -16,7 +16,7 @@
       <div v-show="!collapsible||expanded" :id="detailsId">
         <template v-if="data&&!error">
           <p>默认发票类型：{{invoiceTypeLabels[data.invoice_type]||'电子普票'}}；开票主体：{{data.subject?.name||'待选择'}}</p>
-          <InvoicePartyDetails :party="data.party" />
+          <InvoicePartyDetails :party="data.party" /><template v-for="(party,index) in (data.parties||[]).slice(1)" :key="index"><h4>客户开票信息 {{index+2}}</h4><InvoicePartyDetails :party="party" /></template><p v-if="data.subject_keys?.length>1">可选开票主体：{{data.subject_keys.map(key=>subjects.find(item=>item.key===key)?.name||key).join('、')}}</p>
           <template v-if="data.subject">
             <strong>开票主体资料 · {{data.subject.name}}</strong>
             <InvoicePartyDetails :party="data.subject.party" />
@@ -27,7 +27,7 @@
     </template>
     <DraggableFormDialog v-model="visible" class="invoice-party-editor" width="min(900px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close :close-on-click-modal="false" :before-close="beforeClose">
       <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword"  :title="profileTitle" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
-      <div ref="body"><AppForm ref="formRef" :model="form" label-position="top" :disabled="saving"><el-form-item label="发票类型"><el-select v-model="form.invoice_type" ><el-option v-for="(label,key) in invoiceTypeLabels" :key="key" :value="key" :label="label" /></el-select></el-form-item><el-form-item label="开票主体"><el-select v-model="form.subject_key" clearable placeholder="请选择开票主体" style="width:100%"><el-option v-for="item in subjects" :key="item.key" :label="item.name" :value="item.key" /></el-select></el-form-item><InvoicePartyFields v-model="form.party" /></AppForm><el-alert v-if="saveError" :title="saveError" type="error" :closable="false" /></div>
+      <div ref="body"><AppForm ref="formRef" :model="form" label-position="top" :disabled="saving"><el-form-item label="发票类型"><el-select v-model="form.invoice_type" ><el-option v-for="(label,key) in invoiceTypeLabels" :key="key" :value="key" :label="label" /></el-select></el-form-item><el-form-item label="开票主体"><el-select v-model="form.subject_keys" multiple clearable placeholder="请选择开票主体" style="width:100%"><el-option v-for="item in subjects" :key="item.key" :label="item.name" :value="item.key" /></el-select></el-form-item><h4>客户开票信息 1（默认）</h4><InvoicePartyFields v-model="form.party" /><section v-for="(party,index) in form.parties" :key="index" data-dialog-field-search-group :data-dialog-field-search-group-title="`客户开票信息 ${index+2}`"><h4>客户开票信息 {{index+2}} <el-button type="danger" link @click="form.parties.splice(index,1)">移除此组</el-button></h4><InvoicePartyFields v-model="form.parties[index]" /></section><el-button @click="form.parties.push(emptyInvoiceParty())">增加客户开票信息</el-button></AppForm><el-alert v-if="saveError" :title="saveError" type="error" :closable="false" /></div>
       <template #footer><el-button :disabled="saving" @click="close">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存开票信息</el-button></template>
     </DraggableFormDialog>
   </section>
@@ -48,19 +48,19 @@ const props=defineProps({clientId:{type:[String,Number],default:''},subClientId:
 const profileTitle = computed(() => props.subClientId ? '子客户开票资料' : '客户开（专）票信息')
 const expanded=ref(!props.defaultCollapsed),detailsId=useId()
 const data=ref(null),subjects=ref([]),loading=ref(false),error=ref(''),visible=ref(false),saving=ref(false),saveError=ref(''),formRef=ref(),body=ref()
-const form=reactive({party:emptyInvoiceParty(),subject_key:null,invoice_type:'electronic_normal'})
+const form=reactive({party:emptyInvoiceParty(),subject_key:null,subject_keys:[],parties:[],invoice_type:'electronic_normal'})
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(body)
 const source=`client-invoice-${Math.random().toString(36).slice(2)}`
 let seq=0,alive=true,revision=0,original=''
 const signature=()=>JSON.stringify(form)
 async function load(){const current=++seq;if(!props.clientId){data.value=null;return}loading.value=true;error.value='';try{const value=await getClientInvoiceProfile(props.clientId,props.subClientId);if(alive&&current===seq)data.value=value}catch(e){if(alive&&current===seq)error.value=getLocalizedErrorMessage(e,'客户开票信息加载失败')}finally{if(current===seq)loading.value=false}}
-async function edit(){saveError.value='';try{subjects.value=(await getInvoiceSubjects()).items||[];const fresh=await getClientInvoiceProfile(props.clientId,props.subClientId);data.value=fresh;revision=fresh.revision;Object.assign(form,{party:{...emptyInvoiceParty(),...fresh.party},subject_key:fresh.subject_key,invoice_type:fresh.invoice_type||'electronic_normal'});original=signature();clearFieldSearch();visible.value=true}catch(e){ElMessage.error(getLocalizedErrorMessage(e,'开票信息加载失败'))}}
-async function save(){if(saving.value||!await formRef.value?.validate().catch(()=>false))return;saving.value=true;try{data.value=await saveClientInvoiceProfile(props.clientId,{revision,party:form.party,subject_key:form.subject_key||null,invoice_type:form.invoice_type},props.subClientId);visible.value=false;original=signature();notifyInvoiceParties({kind:'client',clientId:String(props.clientId),source});ElMessage.success('客户开票信息已保存，与发票窗口同步')}catch(e){saveError.value=getLocalizedErrorMessage(e,'开票信息保存失败')}finally{saving.value=false}}
+async function edit(){saveError.value='';try{subjects.value=(await getInvoiceSubjects()).items||[];const fresh=await getClientInvoiceProfile(props.clientId,props.subClientId);data.value=fresh;revision=fresh.revision;Object.assign(form,{party:{...emptyInvoiceParty(),...fresh.party},subject_key:fresh.subject_key,subject_keys:fresh.subject_keys||[fresh.subject_key].filter(Boolean),parties:(fresh.parties||[]).slice(1),invoice_type:fresh.invoice_type||'electronic_normal'});original=signature();clearFieldSearch();visible.value=true}catch(e){ElMessage.error(getLocalizedErrorMessage(e,'开票信息加载失败'))}}
+async function save(){if(saving.value||!await formRef.value?.validate().catch(()=>false))return;saving.value=true;try{data.value=await saveClientInvoiceProfile(props.clientId,{revision,party:form.party,subject_key:form.subject_keys[0]||null,subject_keys:form.subject_keys,parties:[form.party,...form.parties],invoice_type:form.invoice_type},props.subClientId);visible.value=false;original=signature();notifyInvoiceParties({kind:'client',clientId:String(props.clientId),source});ElMessage.success('客户开票信息已保存，与发票窗口同步')}catch(e){saveError.value=getLocalizedErrorMessage(e,'开票信息保存失败')}finally{saving.value=false}}
 async function beforeClose(done){if(saving.value)return;if(signature()!==original){try{await ElMessageBox.confirm('开票资料有未保存修改，是否放弃？','关闭客户开票信息',{type:'warning'})}catch{return}}done()}
 function close(){void beforeClose(()=>visible.value=false)}
 function changed(event){if(event.detail?.source===source)return;if(event.detail?.kind==='subject'||String(event.detail?.clientId)===String(props.clientId))void load()}
 watch(()=>[props.clientId,props.subClientId],()=>{visible.value=false;void load()},{immediate:true})
-onMounted(()=>{connectInvoiceParties();window.addEventListener(invoicePartiesEvent,changed)})
+onMounted(()=>{void getInvoiceSubjects().then(result=>subjects.value=result.items||[]);connectInvoiceParties();window.addEventListener(invoicePartiesEvent,changed)})
 onBeforeUnmount(()=>{alive=false;seq++;window.removeEventListener(invoicePartiesEvent,changed)})
 </script>
 <style scoped>

@@ -7,6 +7,8 @@ import {
   setStoredAccess, setStoredHrAccess
 } from '../utils/permission'
 import { getCurrentSession } from '../api/auth'
+import { ElMessage } from 'element-plus'
+import { createSessionPermissionSync } from '../utils/sessionPermissionSync'
 import { refreshIssueAccess } from '@/composables/useResourceIssues'
 import { refreshTechnicalDevelopmentAccess } from '@/composables/useTechnicalDevelopmentAccess'
 import { resourceRequestsLocation, resolveDevelopmentSection } from '@/utils/resourceDevelopmentNavigation'
@@ -457,23 +459,19 @@ const router = createRouter({
   routes
 })
 
-let sessionPermissionSyncAt = 0
-
-const syncSessionPermissions = async (force = false) => {
-  if (!force && Date.now() - sessionPermissionSyncAt < 60_000) return true
-  try {
-    const session = await getCurrentSession()
+const syncSessionPermissions = createSessionPermissionSync({
+  getToken: () => localStorage.getItem('token'),
+  fetchSession: getCurrentSession,
+  applySession: (session) => {
     localStorage.setItem('user_id', session.user_id || '')
     localStorage.setItem('user_name', session.username || '')
     localStorage.setItem('user_full_name', session.full_name || session.username || '')
     setStoredAccess(session.roles, session.permissions)
     setStoredHrAccess(session.can_manage_hr)
-    sessionPermissionSyncAt = Date.now()
-    return true
-  } catch {
-    return false
   }
-}
+})
+
+const notifySessionUnavailable = () => ElMessage.warning('服务暂时繁忙，已保留登录状态，请稍后重试')
 
 // 路由守卫：认证 + 角色权限
 router.beforeEach(async (to, from, next) => {
@@ -489,7 +487,13 @@ router.beforeEach(async (to, from, next) => {
     return
   }
 
-  if (!await syncSessionPermissions()) {
+  const sessionReady = await syncSessionPermissions()
+  if (sessionReady === null) {
+    notifySessionUnavailable()
+    next(false)
+    return
+  }
+  if (!sessionReady) {
     next('/login')
     return
   }
@@ -525,7 +529,14 @@ router.beforeEach(async (to, from, next) => {
   }
   if (!canAccessRoute(to)) {
     // 权限可能刚被管理员调整，拒绝导航前强制再同步一次。
-    if (!await syncSessionPermissions(true) || !canAccessRoute(to)) {
+    const refreshed = await syncSessionPermissions(true)
+    if (refreshed === null) {
+      notifySessionUnavailable()
+      next(false)
+      return
+    }
+    if (!refreshed) { next('/login'); return }
+    if (!canAccessRoute(to)) {
       next(getDefaultRoute())
       return
     }

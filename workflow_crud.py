@@ -440,6 +440,9 @@ def get_my_tasks(db: Session, user_id: UUID, *, include_all: bool = False) -> li
 
     # 查询母订单工作流
     proj_query = db.query(WorkflowInstance, TranslationProject, Client)\
+        .options(joinedload(WorkflowInstance.current_assignee),
+                 joinedload(TranslationProject.project_manager),
+                 selectinload(TranslationProject.project_role_assignments).joinedload(ProjectRoleAssignment.assignee))\
         .join(TranslationProject, WorkflowInstance.translation_project_id == TranslationProject.id)\
         .outerjoin(Client, TranslationProject.client_id == Client.id)\
         .filter(*scope_conditions, WorkflowInstance.current_stage_key != 'completed',
@@ -449,6 +452,9 @@ def get_my_tasks(db: Session, user_id: UUID, *, include_all: bool = False) -> li
 
     # 查询子订单工作流
     sub_query = db.query(WorkflowInstance, TranslationSubOrder, TranslationProject, Client)\
+        .options(joinedload(WorkflowInstance.current_assignee),
+                 joinedload(TranslationProject.project_manager),
+                 selectinload(TranslationProject.project_role_assignments).joinedload(ProjectRoleAssignment.assignee))\
         .join(TranslationSubOrder, WorkflowInstance.sub_order_id == TranslationSubOrder.id)\
         .join(TranslationProject, TranslationSubOrder.parent_project_id == TranslationProject.id)\
         .outerjoin(Client, TranslationProject.client_id == Client.id)\

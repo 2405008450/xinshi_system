@@ -4,6 +4,7 @@ import ScreenshotText from './ScreenshotText.vue'
 import { screenshotIds } from '@/utils/screenshotReferences'
 import ClientManagementLink from './ClientManagementLink.vue'
 import { isClientShortName } from '@/utils/clientManagementWindow'
+import { isCopyableBusinessField } from '@/utils/fieldCopy'
 
 const fieldValue = (row, prop) => String(prop || '').split('.').reduce((value, key) => value?.[key], row)
 const subClientField = (label, prop) => label === '子客户简称' || /^sub_?client/i.test(prop || '')
@@ -52,6 +53,9 @@ export const ScreenshotTableColumn=defineComponent({
   setup(_, {attrs,slots}) {
     return ()=>{
       const { 'show-sub-client': showSubClient, ...columnAttrs } = attrs
+      if(isCopyableBusinessField(attrs.label,attrs.prop)){
+        columnAttrs.className=[attrs.className||attrs['class-name'],'app-field-copy-cell'].filter(Boolean).join(' ')
+      }
       return h(ElTableColumn,columnAttrs,{
         ...slots,
         ...(slots.default || attrs.prop || isClientShortName(attrs.label) ? {default:scope=>{

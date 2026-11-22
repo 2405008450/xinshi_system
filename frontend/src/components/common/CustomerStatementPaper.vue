@@ -13,13 +13,13 @@
       </div>
     </div>
     <div class="statement-table-wrap"><table class="statement-table">
-      <colgroup><col v-if="interactive" style="width:48px" /><col v-if="hasOrigin" :style="{width:columnWidth(24)}" /><col v-if="hasCustomerOrder" :style="{width:columnWidth(24)}" /><col v-for="(weight,key) in visibleColumnWeights" :key="key" :style="{width:columnWidth(weight)}" /><col v-if="interactive" style="width:48px" /></colgroup>
-      <thead><tr><th v-if="interactive" class="statement-ui">选择</th><th v-if="hasOrigin">原客户</th><th v-if="hasCustomerOrder">客户单号</th><th class="statement-date">{{statement.module==='interpretation'?'订单日期':'来稿日期'}}</th><th>项目名称</th><th>{{statement.module==='interpretation'?'口译方向':'翻译方向'}}</th><th>工作量（计价方式）</th><th v-if="showUnitPrice">单价</th><th>{{showUnitPrice?'小计':'固定价格'}}</th><th>备注</th><th v-if="interactive" class="statement-ui">操作</th></tr></thead>
+      <colgroup><col v-if="interactive" style="width:48px" /><col v-if="hasOrigin" :style="{width:columnWidth(24)}" /><col v-if="hasCustomerOrder" :style="{width:columnWidth(24)}" /><col v-for="(weight,key) in visibleColumnWeights" :key="key" :style="{width:columnWidth(weight)}" /></colgroup>
+      <thead><tr><th v-if="interactive" class="statement-ui">选择</th><th v-if="hasOrigin">原客户</th><th v-if="hasCustomerOrder">客户单号</th><th class="statement-date">{{statement.module==='interpretation'?'订单日期':'来稿日期'}}</th><th>项目名称</th><th>{{statement.module==='interpretation'?'口译方向':'翻译方向'}}</th><th>工作量（计价方式）</th><th v-if="showUnitPrice">单价</th><th>{{showUnitPrice?'小计':'固定价格'}}</th><th>备注</th></tr></thead>
       <tbody>
         <tr v-for="(row,index) in statement.rows" :key="row._row_id||row.line_id" :draggable="interactive&&canWrite" :class="{'statement-reference':row.counted_in_total===false}" @dragstart="startTaskDrag($event,row)" @dblclick="interactive&&canEdit&&emit('edit',row)">
-          <td v-if="interactive" class="statement-ui"><button v-if="canWrite" type="button" class="statement-task-handle" :aria-label="`拖动任务 ${row.order_no}`" title="拖到另一份对账单" @pointerdown.prevent.stop="emit('task-pointer',$event,row.task_ids)">⠿</button><el-checkbox :model-value="row.task_ids.every(id=>selected.includes(id))" :disabled="!canWrite" :aria-label="`选择任务 ${row.order_no}`" @change="emit('select',row.task_ids,$event)" /></td>
+          <td v-if="interactive" class="statement-ui"><button v-if="canWrite" type="button" class="statement-task-handle" :aria-label="`拖动项目 ${row.order_no}`" title="拖到另一份对账单" @pointerdown.prevent.stop="emit('task-pointer',$event,row.task_ids)">⠿</button><el-checkbox :model-value="row.task_ids.every(id=>selected.includes(id))" :disabled="!canWrite" :aria-label="`选择项目 ${row.order_no}`" @change="emit('select',row.task_ids,$event)" /></td>
           <td v-if="hasOrigin">{{row.origin_client_name||statement.client_name}}</td>
-          <template v-if="editable&&!row.direction_parent_summary">
+          <template v-if="editable&&!row.direction_parent_summary&&!row.ordinary_parent_reference">
             <td v-if="hasCustomerOrder"><StatementEditableCell v-model="row.customer_order_no" :label="`${row.order_no} 客户单号`" /></td>
             <td v-if="sharedCellSpans[index]" :rowspan="sharedCellSpans[index]"><StatementEditableCell v-model="row.received_date" :label="`${row.order_no} 来稿日期`" type="date" /></td>
             <td v-if="sharedCellSpans[index]" :rowspan="sharedCellSpans[index]"><StatementEditableCell v-if="!row.direction_detail" v-model="row.project_name" :label="`${row.order_no} 项目名称`" multiline /></td>
@@ -32,36 +32,35 @@
           <template v-else>
             <td v-if="hasCustomerOrder">{{row.customer_order_no||''}}</td>
             <td v-if="sharedCellSpans[index]" :rowspan="sharedCellSpans[index]" class="statement-date">{{row.received_date||'-'}}</td>
-            <td v-if="sharedCellSpans[index]" :rowspan="sharedCellSpans[index]"><button v-if="interactive&&row.project_name" type="button" class="statement-order-link" :title="`编辑订单 ${row.order_no}`" @click.stop="emit('open-order',row)">{{row.project_name}}</button><template v-else>{{row.project_name}}</template></td>
+            <td v-if="sharedCellSpans[index]" :rowspan="sharedCellSpans[index]"><button v-if="interactive&&canOpenOrder&&row.project_name" type="button" class="statement-order-link" :title="`编辑订单 ${row.order_no}`" @click.stop="emit('open-order',row)">{{row.project_name}}</button><template v-else>{{row.project_name}}</template></td>
             <td>{{row.language_pair}}</td>
             <td v-if="sharedCellSpans[index]" :rowspan="sharedCellSpans[index]"><template v-if="row.quantity!=null">{{row.quantity}}<br /></template>{{statementBasis(row.basis)}}</td>
             <td v-if="showUnitPrice">
-              <template v-if="!isFixedStatementRow(row)&&!row.direction_parent_summary">
+              <template v-if="!isFixedStatementRow(row)&&!row.direction_parent_summary&&!row.ordinary_parent_reference">
                 {{row.unit_price==null?'-':`${row.currency} ${statementUnitPrice(row.unit_price)}`}}
                 <small v-if="row.direction_detail&&row.unit_price!=null&&Number(row.unit_size)!==1">（每{{Number(row.unit_size)}}计价）</small>
                 <small v-if="mixedTax">（{{row.unit_label}}）</small>
               </template>
             </td>
             <td>
-              {{row.subtotal==null?'待补':`${row.currency} ${row.subtotal}`}}
+              {{row.ordinary_parent_reference?'—':row.subtotal==null?'待补':`${row.currency} ${row.subtotal}`}}
               <small v-if="mixedTax && isFixedStatementRow(row) && row.unit_label && row.subtotal!=null">（{{row.unit_label}}）</small>
               <div v-if="row.direction_count">{{row.direction_count}} 个方向合计</div>
               <div v-if="row.direction_parent_summary">不计入合计</div>
             </td>
-            <td>{{row.counted_in_total===false&&!row.direction_parent_summary?'汇总参考，不重复计入合计。':''}}{{row.remarks}}</td>
+            <td><span v-if="row.counted_in_total===false&&!row.direction_parent_summary">汇总参考，不重复计入合计。</span><el-input v-if="canEditNotes&&interactive" type="textarea" :model-value="noteDrafts[row._row_id]??row.remarks??''" :aria-label="`${row.order_no} 客户说明`" :rows="2" maxlength="5000" @pointerdown.stop @dragstart.prevent.stop @update:model-value="value=>noteDrafts[row._row_id]=value" @change="value=>{if(value!==(row.remarks||''))emit('customer-note',row,value)}" /><template v-else>{{row.remarks}}</template></td>
           </template>
-          <td v-if="interactive" class="statement-ui"><el-button v-if="canWrite&&canEdit" link type="primary" @click="emit('edit',row)">修改</el-button></td>
         </tr>
-        <tr v-if="!statement.rows.length"><td :colspan="(interactive?8:6)+Number(showUnitPrice)+Number(hasOrigin)+Number(hasCustomerOrder)">暂无任务，可从另一份对账单拖入</td></tr>
+        <tr v-if="!statement.rows.length"><td :colspan="(interactive?7:6)+Number(showUnitPrice)+Number(hasOrigin)+Number(hasCustomerOrder)">暂无项目，可从另一份对账单拖入</td></tr>
       </tbody>
-      <tfoot><tr><td class="statement-total-label" :colspan="(interactive?5:4)+Number(showUnitPrice)+Number(hasOrigin)+Number(hasCustomerOrder)"><div class="statement-total-summary"><span class="statement-issue-date">账单日期：<StatementEditableCell v-if="editable" v-model="statement.issue_date" label="账单日期" type="date" /><template v-else>{{statement.issue_date||'—'}}</template></span><span>{{statement.pending.length?'合计（已登记金额）':'合计'}}</span></div></td><td :colspan="interactive?3:2"><div v-for="(amount,currency) in displayTotals" :key="currency">{{currency}} {{amount}}</div></td></tr></tfoot>
+      <tfoot><tr><td class="statement-total-label" :colspan="(interactive?5:4)+Number(showUnitPrice)+Number(hasOrigin)+Number(hasCustomerOrder)"><div class="statement-total-summary"><span class="statement-issue-date">账单日期：<StatementEditableCell v-if="editable" v-model="statement.issue_date" label="账单日期" type="date" /><template v-else>{{statement.issue_date||'—'}}</template></span><span>{{statement.pending.length?'合计（已登记金额）':'合计'}}</span></div></td><td colspan="2"><div v-for="(amount,currency) in displayTotals" :key="currency">{{currency}} {{amount}}</div></td></tr></tfoot>
     </table><img v-if="statement.rows.length && statement.stamp_image" class="statement-stamp" :src="statement.stamp_image" alt="对账单印章" /></div>
     <section v-if="statement.private_settings_available !== false" class="statement-account"><h4>收款账户信息</h4><p>开户行：<StatementEditableCell v-if="editable" v-model="statement.settings.bank_name" label="开户行" /><template v-else>{{statement.settings.bank_name}}</template></p><p>账户名：<StatementEditableCell v-if="editable" v-model="statement.settings.account_name" label="账户名" /><template v-else>{{statement.settings.account_name}}</template></p><p>账号：<StatementEditableCell v-if="editable" v-model="statement.settings.account_number" label="账号" /><template v-else>{{statement.settings.account_number}}</template></p></section>
     <p v-if="statement.pending.length" class="statement-incomplete">待补资料：{{statement.pending.join('；')}}</p>
   </article>
 </template>
 <script setup>
-import {computed} from 'vue'
+import {computed,reactive,watch} from 'vue'
 import {statementUnitPrice,statementColumnWeights,statementBasis,statementTitle,statementTaxLabel,isFixedStatementRow} from '@/utils/statementFormatting'
 import StatementEditableCell from './StatementEditableCell.vue'
 const hasCustomerOrder=computed(()=>props.statement.rows.some(row=>String(row.customer_order_no||'').trim()))
@@ -71,7 +70,9 @@ const mixedTax=computed(()=>statementTaxLabel(props.statement).includes('按项�
 const visibleColumnWeights=computed(()=>Object.fromEntries(Object.entries(statementColumnWeights)
   .filter(([key])=>key!=='unit_price'||showUnitPrice.value)))
 const columnWidth=weight=>`${weight/(Object.values(visibleColumnWeights.value).reduce((a,b)=>a+b,0)+(hasOrigin.value?24:0)+(hasCustomerOrder.value?24:0))*100}%`
-const props=defineProps({statement:{type:Object,required:true},interactive:Boolean,editable:Boolean,canWrite:Boolean,canEdit:Boolean,selected:{type:Array,default:()=>[]}})
+const props=defineProps({statement:{type:Object,required:true},interactive:Boolean,canOpenOrder:{type:Boolean,default:true},editable:Boolean,canWrite:Boolean,canEdit:Boolean,canEditNotes:Boolean,selected:{type:Array,default:()=>[]}})
+const noteDrafts=reactive({})
+watch(()=>props.statement,()=>{for(const key of Object.keys(noteDrafts))delete noteDrafts[key]})
 const sharedCellSpans=computed(()=>{
   const spans=props.statement.rows.map(()=>1)
   let start=-1
@@ -98,7 +99,7 @@ const displayTotals=computed(()=>{
   }
   return Object.fromEntries(Object.entries(totals).map(([currency,value])=>{const abs=value<0n?-value:value;return [currency,`${value<0n?'-':''}${abs/100n}.${String(abs%100n).padStart(2,'0')}`]}))
 })
-const emit=defineEmits(['edit','select','task-drag','task-pointer','open-order'])
+const emit=defineEmits(['edit','select','task-drag','task-pointer','open-order','customer-note'])
 function startTaskDrag(event,row){if(!props.interactive||!props.canWrite){event.preventDefault();return}event.stopPropagation();event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('application/x-statement-tasks',JSON.stringify(row.task_ids));emit('task-drag',row.task_ids)}
 </script>
 <style scoped>

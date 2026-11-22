@@ -26,7 +26,7 @@ def test_two_notes_round_trip_and_generated_statement_uses_customer_only(setup):
     assert records[0]['before']['customer_explanation']=='客户说明独立' and records[0]['after']['customer_explanation']==''
     apply_migration(db.connection());apply_migration(db.connection())
 
-def test_history_is_snapshot_and_fee_window_save_preserves_both_notes(setup):
+def test_current_statement_follows_finance_notes_and_generation_history_stays_frozen(setup):
     http,db,clients,_,actor,root,_=setup
     previous=imported(setup,['2026-10'])
     initial=finance.read(db,root.id)
@@ -34,9 +34,12 @@ def test_history_is_snapshot_and_fee_window_save_preserves_both_notes(setup):
     saved=finance.save(db,actor,root.id,payload)
     assert saved['item']['explanation']=='新的内部说明' and saved['item']['customer_explanation']=='不进入账单的客户说明'
     old=http.get(f"/translation-statement-workspaces/{clients[0].id}").json()
-    assert old['documents'][0]['statement']['rows'][0]['remarks']==previous['documents'][0]['statement']['rows'][0]['remarks']
+    assert old['documents'][0]['statement']['rows'][0]['remarks']=='不进入账单的客户说明'
+    versions=http.get(f"/translation-statement-workspaces/{clients[0].id}/generation-versions").json()['items']
+    snapshot=http.get(f"/translation-statement-workspaces/{clients[0].id}/generation-versions/{versions[0]['id']}").json()
+    assert snapshot['documents'][0]['statement']['rows'][0]['remarks']==previous['documents'][0]['statement']['rows'][0]['remarks']
 
-def test_parent_notes_do_not_create_prices_or_overwrite_child_notes(environment):
+def test_parent_notes_sync_to_empty_descendants_without_creating_prices(environment):
     from tests.test_customer_translation_rates import context as make_tree
     db,(actor,*_)=environment
     _,root,middle,leaf=make_tree(db,actor)
@@ -45,7 +48,7 @@ def test_parent_notes_do_not_create_prices_or_overwrite_child_notes(environment)
     assert updated['item']['explanation']=='母单内部' and updated['item']['customer_explanation']=='母单客户'
     assert not root.customer_charge_items
     child=updated['item']['children'][0]
-    assert child['explanation']=='' and child['customer_explanation']==''
+    assert child['explanation']=='母单内部' and child['customer_explanation']=='母单客户'
 
 def test_existing_statement_updates_customer_notes_only_with_confirmed_audit(setup):
     http,db,clients,_,actor,root,_=setup
@@ -63,7 +66,7 @@ def test_existing_statement_updates_customer_notes_only_with_confirmed_audit(set
 
 def test_parent_summary_never_uses_internal_explanation():
     node={'order_no':'TP-261001-001','project_name':'母单','language_pair':'中→英','children':[{}],'explanation':'不能外发的内部说明','customer_explanation':'客户可见说明'}
-    rows=[{'order_no':'TP-261001-001.001','currency':'CNY','subtotal':'12','remarks':'子单客户说明'}]
+    rows=[{'task_id':'child','order_no':'TP-261001-001.001','currency':'CNY','subtotal':'12','remarks':'子单客户说明'}]
     for mode in ('parents','all'):
         # all模式递归需要完整子节点；此处验证生成父级汇总的核心路径。
         if mode=='all':continue

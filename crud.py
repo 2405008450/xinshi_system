@@ -2280,21 +2280,23 @@ def get_translation_projects(
     created_date_end: Optional[date] = None,
     sort: Optional[str] = None,
     field_filters: Optional[dict] = None,
+    finance_only: bool = False,
 ) -> List[TranslationProject]:
+    loaders = [
+        joinedload(TranslationProject.client), joinedload(TranslationProject.sub_client),
+        selectinload(TranslationProject.customer_charge_items),
+        selectinload(TranslationProject.sub_orders).selectinload(TranslationSubOrder.customer_charge_items),
+    ]
+    if not finance_only:
+        loaders.extend([
+            joinedload(TranslationProject.translator), joinedload(TranslationProject.project_manager),
+            selectinload(TranslationProject.project_role_assignments).joinedload(ProjectRoleAssignment.assignee),
+            joinedload(TranslationProject.project_file),
+            selectinload(TranslationProject.sub_orders).joinedload(TranslationSubOrder.translator),
+        ])
     query = (
         db.query(TranslationProject)
-        .options(
-            joinedload(TranslationProject.client),
-            joinedload(TranslationProject.sub_client),
-            joinedload(TranslationProject.translator),
-            joinedload(TranslationProject.project_manager),
-            selectinload(TranslationProject.project_role_assignments)
-            .joinedload(ProjectRoleAssignment.assignee),
-            joinedload(TranslationProject.project_file),
-            selectinload(TranslationProject.customer_charge_items),
-            selectinload(TranslationProject.sub_orders).joinedload(TranslationSubOrder.translator),
-            selectinload(TranslationProject.sub_orders).selectinload(TranslationSubOrder.customer_charge_items),
-        )
+        .options(*loaders)
         .outerjoin(Client, TranslationProject.client_id == Client.id)
         .outerjoin(SubClient, TranslationProject.sub_client_id == SubClient.id)
         .filter(TranslationProject.annotation_migrated_at.is_(None))
@@ -2410,8 +2412,20 @@ def get_translation_projects(
     attach_client_managers(db, 'translation', projects)
     for project in projects:
         _attach_project_client_fields(project)
-        _attach_project_file_detail_fields(project)
-    _attach_manuscript_assignees(db, projects=projects)
+        if not finance_only:
+            _attach_project_file_detail_fields(project)
+    if finance_only:
+        from translation_customer_type import attach as attach_customer_types
+        from translation_document_requirements import attach as attach_documents
+        from translation_statement_status import attach as attach_statement_status
+        from translation_order_inheritance import attach as attach_inheritance
+        attach_customer_types(db, projects)
+        attach_documents(db, projects)
+        attach_statement_status(db, projects)
+        _attach_word_count_matrices(db, projects=projects)
+        attach_inheritance(db, projects=projects)
+    else:
+        _attach_manuscript_assignees(db, projects=projects)
     if sort in {'assigned_translator_name_asc','assigned_translator_name_desc'}:
         from translation_project_sorting import translator_name_key
         for project in projects:

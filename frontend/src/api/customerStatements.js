@@ -7,17 +7,18 @@ export const getStatementSettings=subjectKey=>api.get('/customer-statement-setti
 export const saveStatementSettings=(data,subjectKey)=>api.put('/customer-statement-settings',data,{params:{subject_key:subjectKey}})
 export const getStatement=(params,config={})=>api.get('/translation-statements/preview',{...config,params})
 export const exportStatement=params=>api.get('/translation-statements/excel',{params,responseType:'blob'})
-export const getStatementWorkspace=(projectId,mode,config={})=>api.get(`/translation-statement-workspaces/project/${projectId}`,{...config,params:{mode}})
+export const getStatementWorkspace=(projectId,mode,config={})=>api.get(`/translation-statement-workspaces/project/${projectId}`,{timeout:30000,...config,params:{mode}})
 export const getOrderBillingPeriods=(projectId,month,signal)=>api.get(`/translation-statement-workspaces/project/${projectId}/billing-period`,{params:{month},signal})
 export const getStatementPeriodOptions=(month,clientId,settlementScope,signal)=>api.get(`/translation-statement-workspaces/period-options/${month}`,{params:{client_id:clientId||undefined,settlement_scope:settlementScope},signal})
 export const saveOrderBillingPeriod=(projectId,data)=>api.put(`/translation-statement-workspaces/project/${projectId}/billing-period`,data)
-export const getClientStatementWorkspace=(clientId,mode,config={})=>api.get(`/translation-statement-workspaces/${clientId}`,{...config,params:{...config.params,mode}})
+export const getClientStatementWorkspace=(clientId,mode,config={})=>api.get(`/translation-statement-workspaces/${clientId}`,{timeout:30000,...config,params:{...config.params,mode}})
 export const importStatementMonths=(data,mode)=>api.post('/translation-statement-workspaces/import',data,{params:{mode}})
 export const changeStatementWorkspace=(clientId,data,mode,settlementScope)=>api.post(`/translation-statement-workspaces/${clientId}/actions`,data,{params:{mode,settlement_scope:settlementScope}})
 export const getPendingStatementPeriods=(clientId,data,settlementScope,signal)=>api.post(
   `/translation-statement-workspaces/${clientId}/pending-period-preview`,data,
   {params:{settlement_scope:settlementScope},signal,skipDraftSubmit:true},
 )
+export const getStatementProjectCoverage=(clientId,data,settlementScope,signal)=>api.post(`/translation-statement-workspaces/${clientId}/project-coverage`,data,{params:{settlement_scope:settlementScope},signal,timeout:30000,skipDraftSubmit:true})
 export const getStatementWorkspaceHistory=(clientId,params,config={})=>api.get(`/translation-statement-workspaces/${clientId}/history`,{...config,params})
 export const exportStatementWorkspace=(clientId,params)=>api.get(`/translation-statement-workspaces/${clientId}/excel`,{params,paramsSerializer:{indexes:null},responseType:'blob'})
 
@@ -25,5 +26,8 @@ export const getStatementWorkspaceHistoryEntry=(clientId,id)=>api.get(`/translat
 export const getStatementGenerationStatus=(clientId,data,config={})=>api.post(`/translation-statement-workspaces/${clientId}/generation-status`,data,config)
 export const getStatementGenerationVersions=(clientId,params,config={})=>api.get(`/translation-statement-workspaces/${clientId}/generation-versions`,{...config,params})
 export const getStatementGenerationVersion=(clientId,id,config={})=>api.get(`/translation-statement-workspaces/${clientId}/generation-versions/${id}`,config)
+export const getStatementHistoricalVersions=(clientId,params,config={})=>api.get(`/translation-statement-workspaces/${clientId}/historical-versions`,{...config,params})
+export const getStatementHistoricalVersion=(clientId,id,settlementScope,config={})=>api.get(`/translation-statement-workspaces/${clientId}/historical-versions/${id}`,{...config,params:{settlement_scope:settlementScope}})
+export const previewStatementVersionStatus=(clientId,data,settlementScope)=>api.post(`/translation-statement-workspaces/${clientId}/historical-status-preview`,data,{params:{settlement_scope:settlementScope},skipDraftSubmit:true})
 
 export const exportStatementWorkspacePdf=(clientId,params)=>api.get(`/translation-statement-workspaces/${clientId}/pdf`,{params,paramsSerializer:{indexes:null},responseType:'blob'})

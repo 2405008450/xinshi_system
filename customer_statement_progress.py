@@ -47,7 +47,7 @@ def read(db,user,client_id,month,manager_ids=None,only_mine=False,client_manager
     if not db.get(Client,client_id):raise HTTPException(404,'客户不存在')
     scope=manager_fields(db,user,manager_ids or [],only_mine,client_manager)
     projects,_=snapshot(db,client_id,month,scope)
-    if not projects and client_id not in pending_clients(db,month,scope):
+    if not projects and client_id not in pending_clients(db,month,scope,client_ids={client_id}):
         raise HTTPException(422,'该客户不在当前月份和客户经理的项目范围内')
     row=db.get(StatementProgress,(client_id,month))
     return dict(progress=row.progress if row else 'not_started',progress_revision=row.revision if row else 0)
@@ -61,7 +61,7 @@ def write(db,user,client_id,data):
         if not db.query(Client).filter_by(id=client_id).with_for_update().first():raise HTTPException(404,'客户不存在')
         scope=manager_fields(db,user,data.manager_ids,data.only_mine,data.client_manager)
         projects,_=snapshot(db,client_id,data.billing_month,scope)
-        if not projects and client_id not in pending_clients(db,data.billing_month,scope):raise HTTPException(422,'该客户不在当前月份和客户经理的项目范围内')
+        if not projects and client_id not in pending_clients(db,data.billing_month,scope,client_ids={client_id}):raise HTTPException(422,'该客户不在当前月份和客户经理的项目范围内')
         row=db.get(StatementProgress,(client_id,data.billing_month))
         if (row.revision if row else 0)!=data.revision:raise HTTPException(409,'进度已被其他人调整，请刷新客户后重试')
         previous=row.progress if row else 'not_started'

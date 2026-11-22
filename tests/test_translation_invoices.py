@@ -87,7 +87,7 @@ def test_statement_customer_filter_matches_whole_customers_before_pagination(con
     same_customer = project(db, clients[0], 'STATEMENT-2')
     other_customer = project(db, clients[1], 'STATEMENT-3')
     for row, need in [(required, True), (same_customer, False), (other_customer, False)]:
-        documents.save(db, row, statement_required=need, payment_method='special', actor_id=actor.id)
+        documents.save(db, row, statement_required=need, payment_method='individual', actor_id=actor.id)
     db.commit()
     url = '/translation-customer-finance/page'
     for mode, expected in [('include', {str(required.id), str(same_customer.id)}),
