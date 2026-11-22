@@ -232,7 +232,7 @@ const { openPanel, syncFromStorage } = useUiZoom()
 
 const STORAGE_COLLAPSE_KEY = 'sidebar_collapse'
 const appVersion = 'V2'
-const appUpdatedAt = '2026-11-21 16:20'
+const appUpdatedAt = '2026-11-22 13:20'
 
 /** 侧边栏是否折叠 */
 const { isMobile: isMobileViewport } = useMobileViewport()
