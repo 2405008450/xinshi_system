@@ -115,9 +115,9 @@
     </OrderedTableColumns>
 </el-table>
     </div>
-    <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" class="pagination" @current-change="fetchData" @size-change="handleSizeChange" />
+    <el-pagination v-model:current-page="pagination.page" v-model:page-size="pagination.limit" :total="pagination.total" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" class="pagination" @current-change="handlePageChange" @size-change="handleSizeChange" />
 
-    <DraggableFormDialog v-model="editorVisible" width="min(1000px, calc(100vw - 32px))" top="5vh" class="recruitment-editor" @closed="onEditorClosed">
+    <DraggableFormDialog v-model="editorVisible" width="min(1080px, calc(100vw - 32px))" top="5vh" class="recruitment-editor" @closed="onEditorClosed">
       <template #header>
         <DialogFieldSearchHeader
           ref="fieldSearchRef"
@@ -129,9 +129,9 @@
           @clear="clearFieldSearch"
         />
       </template>
-      <div ref="editorBodyRef" class="editor-body">
-        <AppForm number-scope="recruitment" number-field="orderNo" :number-active="editorVisible && !form.id"  ref="formRef" :model="form" :rules="rules" label-width="140px" class="recruitment-form">
-          <div class="form-section project-key-fields"><div class="project-key-fields__header"><div><h3>关键必填信息</h3><p>请优先完成以下内容，再补充其余项目资料。</p></div><el-tag type="danger" effect="plain">请完成必填项</el-tag></div>
+      <div ref="editorBodyRef" class="editor-body unified-editor-body">
+        <AppForm number-scope="recruitment" number-field="orderNo" :number-active="editorVisible && !form.id"  ref="formRef" :model="form" :rules="rules" label-width="124px" class="recruitment-form">
+          <div class="form-section unified-form-section project-key-fields unified-key-fields"><div class="project-key-fields__header unified-section-header"><div><h3>关键必填信息</h3><p>请优先完成以下内容，再补充其余项目资料。</p></div><el-tag type="danger" effect="plain">请完成必填项</el-tag></div>
             <el-row :gutter="16"><el-col :xs="24" :md="12">
                 <el-form-item label="客户简称" show-sub-client prop="clientShortName" data-field-key="clientShortName">
                   <div class="client-autocomplete-field">
@@ -183,22 +183,18 @@
             </el-form-item>
           </div>
 
-          <div class="form-section"><h3>客户信息</h3>
-
+          <div class="form-section unified-form-section"><h3>客户信息</h3>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="客户编号"><ReadonlyField v-model="form.clientCode" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '新客户不填则自动生成'" /></el-form-item></el-col>
-
-            </el-row>
-            <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="客户领域"><ReadonlyField :model-value="form.clientDomain" source="auto" placeholder="选择客户后自动带出" /></el-form-item></el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="客户单号/项目标识"><el-input v-model="form.customerOrderNo" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
+              <el-col :xs="24" :md="12"><el-form-item label="客户单号/项目标识"><el-input v-model="form.customerOrderNo" /></el-form-item></el-col>
               <el-col :xs="24" :md="12"><ProjectClientManagerField v-model="form.clientManagerId" v-model:reason="form.clientManagerChangeReason" :baseline-id="clientManagerBaseline" :baseline-name="form.clientManagerName" :project-id="form.id" project-type="recruitment" /></el-col>
             </el-row>
           </div>
 
-          <div class="form-section"><h3>招聘要求</h3>
+          <div class="form-section unified-form-section"><h3>招聘要求</h3>
             <el-form-item label="外语/翻译方向"><RecruitmentLanguageDirections v-model="form.languageDirections" /></el-form-item>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="拟履职周期" prop="employmentRange"><el-date-picker v-model="form.employmentRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" style="width:100%" /></el-form-item></el-col>
@@ -210,7 +206,7 @@
             </el-row>
           </div>
 
-          <div class="form-section"><h3>服务费用与扩展信息</h3>
+          <div class="form-section unified-form-section"><h3>服务费用与扩展信息</h3>
             <el-row :gutter="16">
               <el-col :xs="24" :md="8"><el-form-item label="结算方式"><el-select v-model="form.serviceFeeType" clearable placeholder="选择结算方式" style="width:100%"><el-option label="固定金额" value="fixed" /><el-option label="年薪比例" value="annual_salary_rate" /><el-option label="月薪倍数" value="monthly_salary_multiple" /><el-option label="其他" value="other" /></el-select></el-form-item></el-col>
               <el-col :xs="24"><TaxPriceFields v-model="form.taxPrices" prefix="taxPrices" @change="value=>form.serviceFeeAmount=value.totalExclTax??value.totalInclTax??taxUnitAmount(value,form.serviceFeeAmount)" /></el-col>
@@ -241,7 +237,7 @@
 
           <InternalProjectRolesForm v-model="form.roleAssignments" />
 
-          <div v-if="form.id" class="form-section candidate-section">
+          <div v-if="form.id" class="form-section unified-form-section candidate-section">
             <div class="section-heading">
               <h3>简历人选管理</h3>
               <div class="candidate-heading-actions">
@@ -460,25 +456,25 @@ const candidateStageLabel = (value) => candidateStageOptions.find((item) => item
 const tableColumns = [
   {key:'orderNo',label:'订单号',width:PROJECT_LIST_COLUMN_WIDTHS.orderNo,tooltip:false,clickHint:'点击订单号查看项目详情'},
   {key:'projectName',label:'项目名称',minWidth:PROJECT_LIST_COLUMN_WIDTHS.projectName,tooltip:false,clickHint:'点击项目名称查看项目进度'},
-  {key:'jobDescription',label:'职位描述',width:PROJECT_LIST_COLUMN_WIDTHS.longText,tooltip:false,clickHint:'点击职位描述查看完整内容'},
+  {key:'jobDescription',label:'职位描述',minWidth:PROJECT_LIST_COLUMN_WIDTHS.longText,tooltip:false,clickHint:'点击职位描述查看完整内容'},
   {key:'positionTitle',label:'职位名称/类型',width:118},
-  {key:'headcount',label:'招聘人数',width:78},
-  {key:'clientManagerName',label:'现客户经理',width:92},
+  {key:'headcount',label:'招聘人数',width:PROJECT_LIST_COLUMN_WIDTHS.shortCount},
+  {key:'clientManagerName',label:'现客户经理',width:PROJECT_LIST_COLUMN_WIDTHS.personName},
   {key:'projectStatus',label:'项目状态',width:PROJECT_LIST_COLUMN_WIDTHS.projectStatus},
-  {key:'clientShortName',label:'客户简称',minWidth:180,clickHint:'点击客户简称查看关联信息'},
+  {key:'clientShortName',label:'客户简称',width:PROJECT_LIST_COLUMN_WIDTHS.clientShortName,clickHint:'点击客户简称查看关联信息'},
   {key:'clientCode',label:'客户编号',width:96},
   {key:'clientName',label:'客户全称',minWidth:135},
   {key:'clientDomain',label:'客户领域',width:110},
   {key:'contactName',label:'子客户/联系人',width:115},
   {key:'customerOrderNo',label:'客户单号/项目标识',width:135},
-  {key:'languageSummary',label:'外语/翻译方向',minWidth:PROJECT_LIST_COLUMN_WIDTHS.languageDirection},
-  {key:'targetOnboard',label:'拟入职日期',width:100},
-  {key:'employmentPeriod',label:'拟履职周期',width:155},
-  {key:'workLocation',label:'任职工作属地',minWidth:92},
+  {key:'languageSummary',label:'外语/翻译方向',width:130},
+  {key:'targetOnboard',label:'拟入职日期',width:PROJECT_LIST_COLUMN_WIDTHS.dateShort},
+  {key:'employmentPeriod',label:'拟履职周期',width:144},
+  {key:'workLocation',label:'任职工作属地',width:120},
   {key:'serviceFee',label:'服务费用',width:88},
-  {key:'candidateCount',label:'简历人选数',width:95,clickHint:'点击人数查看候选人跟进情况'},
-  {key:'customerConsultationTime',label:'客户咨询时间',width:140},
-  {key:'customerConfirmationTime',label:'客户确认时间',width:140},
+  {key:'candidateCount',label:'简历人选数',width:124,clickHint:'点击人数查看候选人跟进情况'},
+  {key:'customerConsultationTime',label:'客户咨询时间',width:PROJECT_LIST_COLUMN_WIDTHS.dateTime},
+  {key:'customerConfirmationTime',label:'客户确认时间',width:PROJECT_LIST_COLUMN_WIDTHS.dateTime},
   {key:'quotationPath',label:'报价单路径',minWidth:155},
   {key:'contractPath',label:'合同路径',minWidth:155},
   {key:'projectPath',label:'项目路径',minWidth:155},
@@ -486,8 +482,8 @@ const tableColumns = [
   {key:'emailSubjectPreview',label:'会话标题预览',minWidth:165},
   {key:'socialPostRequest',label:'发圈请求',minWidth:150},
   {key:'resourceRequest',label:'资源请求',minWidth:150},
-  {key:'createdAt',label:'创建时间',width:140},
-  {key:'updatedAt',label:'更新时间',width:140},
+  {key:'createdAt',label:'创建时间',width:PROJECT_LIST_COLUMN_WIDTHS.dateTime},
+  {key:'updatedAt',label:'更新时间',width:PROJECT_LIST_COLUMN_WIDTHS.dateTime},
 ]
 const defaultColumnKeys = [
   'orderNo','projectName','jobDescription','headcount','projectStatus','clientShortName',
@@ -525,7 +521,7 @@ const clientOptions = computed(() => clients.value.flatMap((client) => [
   }))),
 ]))
 
-const pagination = reactive({page:1,limit:20,total:0})
+const pagination = reactive({page:1,limit:10,total:0})
 const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows,tableRef:projectTableRef,pagination,deleteRow:(row)=>deleteRecruitmentProject(row.id),getLabel:(row)=>row.orderNo||row.projectName,reload:()=>fetchData(),entityName:'招聘项目'})
 const searchForm = reactive({keyword:'',projectStatus:'',clientManagerId:'',employmentRange:[],clientSelection:'',languageId:'',targetOnboardRange:[],createdRange:[]})
 const projectStatusSavingIds = ref(new Set())
@@ -577,7 +573,8 @@ const updateConfiguredFilter=(key,value)=>{searchForm[key]=value}
 const handleConfiguredTextInput=(value)=>handleTextSearch(value)
 const resetSearch = () => { searchForm.keyword='';resetFilterModel(searchForm,recruitmentFilterFields);handleSearch() }
 const clearAdvanced = () => { resetFilterModel(searchForm,recruitmentAdvancedFilterFields);handleSearch() }
-const handleSizeChange = () => { pagination.page=1; fetchData() }
+const handlePageChange = () => { exitDeleteMode(); fetchData() }
+const handleSizeChange = () => { exitDeleteMode(); pagination.page=1; fetchData() }
 
 const emptyForm = () => ({...emptyProjectContactDetails(),id:'',orderNo:'',projectName:'',jobDescription:'',positionTitle:'',headcountMin:null,headcountMax:null,projectStatus:'pending_setup',clientId:'',subClientId:'',parentClientShortName:'',subClientName:'',clientSelection:'',clientShortName:'',clientCode:'',clientName:'',clientDomain:'',contactName:'',customerOrderNo:'',clientManagerId:localStorage.getItem('user_id')||'',clientManagerChangeReason:'',managerContact:'',targetOnboardType:'date',targetOnboardDate:'',employmentRange:[],workLocation:'',serviceFeeType:'',serviceFeeCurrency:'CNY',serviceFeeAmount:null,taxPrices:taxPriceForm(),serviceFeeRate:null,serviceFeeMultiplier:null,serviceFeeNote:'',customerConsultationTime:'',customerConfirmationTime:'',projectPath:'',quotationPath:'',contractPath:'',remarks:'',subjectPrefix:'',emailSubjectPreview:'',socialPostRequest:'',resourceRequest:'',languageDirections:[],roleAssignments:[]})
 const form = reactive(emptyForm()); const formRef=ref(); const editorBodyRef=ref(); const editorVisible=ref(false); const jobDescriptionEditorVisible=ref(false); const saving=ref(false); const nameLoading=ref(false); const nameManuallyEdited=ref(false); const editorTitle=computed(()=>form.id?'编辑招聘项目':'新增招聘项目')
@@ -758,11 +755,10 @@ watch(editorVisible,visible=>{if(visible)chatAudience.value=[]})
 :deep(.workbench-target-row > td.el-table__cell) { background: var(--el-color-primary-light-9) !important; }
 .client-autocomplete-field{width:100%}.client-autocomplete-hint{margin-top:4px;color:var(--el-text-color-secondary);font-size:12px;line-height:1.4}.client-suggestion{display:flex;flex-direction:column;min-width:0;padding:4px 0;line-height:1.45}.client-suggestion__meta{overflow:hidden;color:var(--el-text-color-secondary);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
 :global(.recruitment-advanced-filter-popover){max-width:calc(100vw - 32px)!important;max-height:calc(100vh - 32px);overflow:hidden}:global(.recruitment-advanced-filter-popover .advanced-content){max-height:calc(100vh - 64px);overflow-y:auto}
-.card-header,.header-actions,.advanced-footer,.candidate-toolbar,.inline-create,.number-range,.money-field,.candidate-heading-actions{display:flex;align-items:center;gap:8px}.card-header,.candidate-toolbar{justify-content:space-between}.search-form{margin-bottom:8px}.pagination{margin-top:20px}.advanced-content{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-footer{justify-content:flex-end;border-top:1px solid var(--el-border-color-lighter);padding-top:10px}.order-cell{display:flex;align-items:center}.description-preview{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.long-text-detail{max-height:560px;overflow-y:auto;white-space:pre-wrap;word-break:break-word}.editor-body{overflow-y:auto}.section-heading{position:relative}.section-heading h3{padding-right:210px}.candidate-heading-actions{position:absolute;right:8px;top:6px}.number-range .el-input-number{width:130px}.money-field{width:100%;min-width:0}.money-field .el-select{width:120px;flex:none}.money-field .el-input-number{flex:1;min-width:140px}.suffix{margin-left:6px}.editor-footer{justify-content:flex-end}.inline-create{margin-bottom:18px}.inline-create .el-input{flex:1}.progress-create{padding:8px 0}.progress-create :deep(.el-date-editor){width:210px;flex:none}.progress-note{margin:8px 0;white-space:pre-wrap}.candidate-toolbar{margin-bottom:12px}
+.card-header,.advanced-footer,.candidate-toolbar,.inline-create,.number-range,.money-field,.candidate-heading-actions{display:flex;align-items:center;gap:8px}.card-header,.candidate-toolbar{justify-content:space-between}.advanced-content{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-footer{justify-content:flex-end;border-top:1px solid var(--el-border-color-lighter);padding-top:10px}.order-cell{display:flex;align-items:center}.description-preview{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.long-text-detail{max-height:560px;overflow-y:auto;white-space:pre-wrap;word-break:break-word}.editor-body{overflow-y:auto}.section-heading{position:relative}.section-heading h3{padding-right:210px}.candidate-heading-actions{position:absolute;right:8px;top:6px}.number-range .el-input-number{width:130px}.money-field{width:100%;min-width:0}.money-field .el-select{width:120px;flex:none}.money-field .el-input-number{flex:1;min-width:140px}.suffix{margin-left:6px}.editor-footer{justify-content:flex-end}.inline-create{margin-bottom:18px}.inline-create .el-input{flex:1}.progress-create{padding:8px 0}.progress-create :deep(.el-date-editor){width:210px;flex:none}.progress-note{margin:8px 0;white-space:pre-wrap}.candidate-toolbar{margin-bottom:12px}
 .progress-dialog-heading{display:flex;align-items:baseline;gap:10px;padding-right:36px}.progress-dialog-title{color:var(--el-text-color-primary);font-size:18px;font-weight:600}.progress-dialog-order{color:var(--el-text-color-secondary);font-size:12px}.progress-project-name{display:grid;grid-template-columns:72px minmax(0,1fr);gap:12px;margin-bottom:16px;padding:14px 16px;border:1px solid var(--el-border-color-lighter);border-radius:8px;background:var(--el-fill-color-extra-light)}.progress-project-name__label{padding-top:1px;color:var(--el-text-color-secondary);font-size:13px}.progress-project-name :deep(.inline-text-field__trigger){font-weight:600;line-height:1.5}.progress-project-name :deep(.inline-text-field__value){color:var(--el-text-color-primary)}.progress-card-heading,.progress-edit-actions{display:flex;align-items:center;justify-content:space-between;gap:12px}.progress-edit-form{display:flex;flex-direction:column;gap:12px}.progress-edit-form :deep(.el-date-editor){width:100%}.progress-edit-actions{justify-content:flex-end}
 .candidate-count-link{gap:2px}
-.recruitment-list-table :deep(.el-table__cell){padding:6px 0}.recruitment-list-table :deep(.cell){padding-right:5px;padding-left:5px;line-height:1.35}.recruitment-list-table .order-cell{gap:2px}
-.recruitment-list-table .order-cell{min-width:0;gap:4px}.recruitment-list-table .order-cell :deep(.el-popover__reference-wrapper){flex:1;min-width:0}.recruitment-list-table .order-no-link{display:block;width:100%;height:auto;min-width:0;padding:0;overflow:hidden;text-align:left;text-overflow:ellipsis;white-space:nowrap}
+.recruitment-list-table .order-cell{min-width:0;gap:2px}.recruitment-list-table .order-cell :deep(.el-popover__reference-wrapper){flex:1;min-width:0}.recruitment-list-table .order-no-link{display:block;width:100%;height:auto;min-width:0;padding:0;overflow:hidden;text-align:left;text-overflow:ellipsis;white-space:nowrap}
 .employment-period-text{font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:-.1px;white-space:nowrap}
 .status-switch-tag.el-tag{display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;max-width:100%;cursor:pointer;user-select:none;vertical-align:middle;transition:opacity .15s ease}.status-switch-tag :deep(.el-tag__content){display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;white-space:nowrap;line-height:1}.status-switch-text{line-height:1}.status-switch-caret{width:10px;height:10px;flex-shrink:0;margin:0;font-size:10px}.status-switch-tag:hover{opacity:.85}.status-switch-tag.is-updating{pointer-events:none;opacity:.55}.status-option-row{display:inline-flex;align-items:center;gap:8px;width:100%}.status-current-icon{color:var(--el-color-primary)}
 .candidate-interview-editor{margin-bottom:14px;padding:14px 14px 2px;border:1px solid var(--el-border-color-lighter);border-radius:8px;background:var(--el-fill-color-extra-light)}.candidate-interview-editor__heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;color:var(--el-text-color-primary);font-size:14px;font-weight:600}.candidate-interview-actions{display:flex;justify-content:center;margin:-2px 0 18px}
@@ -773,8 +769,7 @@ watch(editorVisible,visible=>{if(visible)chatAudience.value=[]})
 :global(.candidate-list-dialog){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}:global(.candidate-list-dialog .el-dialog__header){flex:none}:global(.candidate-list-dialog .el-dialog__body){flex:1;min-width:0;min-height:0;overflow-x:hidden;overflow-y:auto}:global(.candidate-list-dialog .candidate-toolbar){position:sticky;top:0;z-index:2;padding-bottom:10px;background:var(--el-bg-color)}
 :global(.progress-dialog){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}:global(.progress-dialog .el-dialog__header){flex:none}:global(.progress-dialog .el-dialog__body){flex:1;min-height:0;overflow-y:auto}
 :global(.candidate-editor-dialog){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}:global(.candidate-editor-dialog .el-dialog__header),:global(.candidate-editor-dialog .el-dialog__footer){flex:none}:global(.candidate-editor-dialog .el-dialog__body){display:flex;flex:1;min-height:0;overflow:hidden;padding-top:8px}:global(.candidate-editor-dialog .candidate-editor-body){box-sizing:border-box;flex:1;min-width:0;min-height:0;overflow-x:hidden;overflow-y:auto;padding:0 4px}:global(.candidate-editor-dialog .candidate-editor-body>.el-form){box-sizing:border-box;width:100%}:global(.candidate-editor-dialog .el-dialog__footer){border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-lighter)}
-.editor-dialog-heading{display:flex;flex-direction:column;gap:4px;padding-right:36px}.editor-dialog-title{color:var(--el-text-color-primary);font-size:18px;font-weight:600;line-height:1.35}.editor-dialog-subtitle{color:var(--el-text-color-secondary);font-size:12px;font-weight:400}.editor-body{padding:16px 24px 20px;background:var(--el-fill-color-lighter)}.recruitment-form{max-width:100%}.form-section{margin-bottom:16px;padding:20px 20px 4px;border:1px solid var(--el-border-color-lighter);border-radius:10px;background:var(--el-bg-color);box-shadow:0 2px 8px rgb(15 23 42 / 4%)}.form-section:last-child{margin-bottom:0}.form-section h3{display:flex;align-items:center;gap:8px;margin:-20px -20px 20px;padding:12px 20px;border-bottom:1px solid var(--el-border-color-lighter);border-radius:10px 10px 0 0;background:var(--color-surface-muted);color:var(--el-text-color-primary);font-size:15px;font-weight:600}.form-section h3::before{width:3px;height:16px;border-radius:2px;background:var(--el-color-primary);content:""}.recruitment-form :deep(.el-form-item){margin-bottom:18px}.recruitment-form :deep(.el-input__wrapper),.recruitment-form :deep(.el-select__wrapper),.recruitment-form :deep(.el-textarea__inner){transition:border-color .2s ease,box-shadow .2s ease}.soft-action-button{--el-button-bg-color:var(--el-color-primary-light-9);--el-button-border-color:var(--el-color-primary-light-7);--el-button-text-color:var(--el-color-primary-dark-2);--el-button-hover-bg-color:var(--el-color-primary-light-8);--el-button-hover-border-color:var(--el-color-primary-light-5);--el-button-hover-text-color:var(--el-color-primary);font-weight:500}.number-range{width:100%;min-width:0}.number-range .el-input-number{flex:1;width:auto;min-width:0}.number-range :deep(.el-input__inner),.money-field :deep(.el-input__inner){text-align:left}.range-separator,.range-unit{flex:none;color:var(--el-text-color-secondary)}.range-unit{font-size:13px}.money-field .el-input-number{flex:1;min-width:140px}.editor-footer{gap:10px}.editor-footer .el-button{min-width:88px}:deep(.recruitment-editor .el-dialog__body){padding:0}:deep(.recruitment-editor .el-dialog__footer){padding:14px 24px;background:var(--el-bg-color);box-shadow:0 -4px 14px rgb(15 23 42 / 5%)}
-@media(max-width:720px){.search-form :deep(.el-form-item){display:flex;margin-right:0}.search-form :deep(.el-form-item__content){flex:1}.money-field,.progress-create,.subject-preview-toolbar{align-items:stretch;flex-direction:column}.money-field .el-select,.progress-create :deep(.el-date-editor){width:100%}.subject-preview-toolbar .el-button{align-self:flex-end}.recruitment-form :deep(.el-form-item){display:block}.recruitment-form :deep(.el-form-item__label){width:auto!important;margin-bottom:6px;justify-content:flex-start}.recruitment-form :deep(.el-form-item__content){margin-left:0!important}.editor-body{padding:12px 12px 16px}.form-section{padding:16px 14px 4px}.form-section h3{margin:-16px -14px 16px}.section-heading h3{padding-right:8px;padding-bottom:52px}.candidate-heading-actions{left:8px;right:auto;top:38px}}
+.editor-dialog-heading{display:flex;flex-direction:column;gap:4px;padding-right:36px}.editor-dialog-title{color:var(--el-text-color-primary);font-size:18px;font-weight:600;line-height:1.35}.editor-dialog-subtitle{color:var(--el-text-color-secondary);font-size:12px;font-weight:400}.recruitment-form{max-width:100%}.recruitment-form :deep(.el-form-item){margin-bottom:16px}.recruitment-form :deep(.el-input__wrapper),.recruitment-form :deep(.el-select__wrapper),.recruitment-form :deep(.el-textarea__inner){transition:border-color .2s ease,box-shadow .2s ease}.soft-action-button{--el-button-bg-color:var(--el-color-primary-light-9);--el-button-border-color:var(--el-color-primary-light-7);--el-button-text-color:var(--el-color-primary-dark-2);--el-button-hover-bg-color:var(--el-color-primary-light-8);--el-button-hover-border-color:var(--el-color-primary-light-5);--el-button-hover-text-color:var(--el-color-primary);font-weight:500}.number-range{width:100%;min-width:0}.number-range .el-input-number{flex:1;width:auto;min-width:0}.number-range :deep(.el-input__inner),.money-field :deep(.el-input__inner){text-align:left}.range-separator,.range-unit{flex:none;color:var(--el-text-color-secondary)}.range-unit{font-size:13px}.money-field .el-input-number{flex:1;min-width:140px}.editor-footer{gap:10px}.editor-footer .el-button{min-width:88px}:deep(.recruitment-editor .el-dialog__body){padding:0}:deep(.recruitment-editor .el-dialog__footer){padding:12px 20px;background:var(--el-fill-color-light);box-shadow:0 -3px 10px rgb(0 0 0 / 4%)}
+@media(max-width:720px){.search-form :deep(.el-form-item){display:flex;margin-right:0}.search-form :deep(.el-form-item__content){flex:1}.money-field,.progress-create,.subject-preview-toolbar{align-items:stretch;flex-direction:column}.money-field .el-select,.progress-create :deep(.el-date-editor){width:100%}.subject-preview-toolbar .el-button{align-self:flex-end}.recruitment-form :deep(.el-form-item){display:block}.recruitment-form :deep(.el-form-item__label){width:auto!important;margin-bottom:6px;justify-content:flex-start}.recruitment-form :deep(.el-form-item__content){margin-left:0!important}.section-heading h3{padding-right:8px;padding-bottom:52px}.candidate-heading-actions{left:8px;right:auto;top:38px}}
 :global(.progress-dialog .el-dialog__footer){flex:none;border-top:1px solid var(--el-border-color-lighter);background:var(--el-bg-color)}
-.project-key-fields{border-color:var(--el-color-primary-light-7)}.project-key-fields__header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}.project-key-fields__header h3{margin:0;padding:0;border:0;background:transparent}.project-key-fields__header p{font-size:12px;color:var(--el-text-color-secondary);margin:8px 0 0}
 </style>

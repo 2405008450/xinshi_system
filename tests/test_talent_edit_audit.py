@@ -1,5 +1,5 @@
 """内存隔离库验证编辑历史、权限、版本保护和事务，不访问业务数据库。"""
-from datetime import timedelta
+from datetime import timedelta, timezone
 from uuid import uuid4
 
 import pytest
@@ -50,7 +50,7 @@ def test_difference_permissions_pagination_and_retention(environment):
 def test_transaction_rollback_and_stale_version(environment, monkeypatch):
     from resource_service import update_talent_status
     from talent_edit_audit import begin_edit, finish_edit, TalentEditLog
-    from business_time import business_now
+    from business_time import BUSINESS_TIMEZONE
     import resource_service
     db, users = environment
     row = person(db)
@@ -61,9 +61,12 @@ def test_transaction_rollback_and_stale_version(environment, monkeypatch):
     db.rollback()
     assert db.get(type(row), row.id).remarks == '旧备注'
     assert db.query(TalentEditLog).count() == 0
+    current_utc = row.updated_at.replace(tzinfo=BUSINESS_TIMEZONE).astimezone(timezone.utc)
+    assert begin_edit(db, row, current_utc)['remarks'] == '旧备注'
     with pytest.raises(HTTPException) as stale:
-        begin_edit(db, row, business_now() - timedelta(days=1))
+        begin_edit(db, row, current_utc - timedelta(microseconds=1))
     assert stale.value.status_code == 409
+    assert stale.value.detail['code'] == 'talent_version_conflict'
     monkeypatch.setattr(resource_service, 'lock_account_writes', lambda db: None)
     monkeypatch.setattr(resource_service, '_sync_legacy_translator', lambda *args: None)
     update_talent_status(db, row.id, 'active', actor=users[1])

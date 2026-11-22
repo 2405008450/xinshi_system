@@ -69,7 +69,10 @@ def begin_edit(db, person, expected_updated_at=None):
     db.execute(select(ResourcePerson.id).where(ResourcePerson.id == person.id).with_for_update())
     db.refresh(person)
     if expected_updated_at is not None and business_iso(person.updated_at) != business_iso(expected_updated_at):
-        raise HTTPException(409, '该人才已被其他人修改，请重新打开并核对后保存；当前输入已保留')
+        raise HTTPException(409, {
+            'code': 'talent_version_conflict',
+            'message': '人才档案版本已更新，请核对最新资料后保存；当前输入已保留',
+        })
     return snapshot(db, person)
 
 

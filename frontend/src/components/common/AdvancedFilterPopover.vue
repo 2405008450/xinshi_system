@@ -16,12 +16,17 @@
 
     <div class="advanced-filter-shell" data-auto-draft="off">
       <div class="advanced-filter-header">
-
+        <div class="advanced-filter-status">
+          <span class="advanced-filter-badge" :class="{ 'is-active': count > 0 }">
+            已启用 {{ count }} 项
+          </span>
+          <span class="advanced-filter-hint">多条件按「且」组合筛选</span>
+        </div>
         <div class="advanced-filter-actions">
-          <el-button type="primary" @click="confirm">确定</el-button>
-          <el-button type="primary" link @click="cancelFilters">取消筛选</el-button>
           <el-button v-if="count" type="primary" link @click="clearFilters">清空高级条件</el-button>
-          <el-button link @click="visibleModel = false">关闭</el-button>
+          <el-button link @click="cancelFilters">取消筛选</el-button>
+          <el-button @click="visibleModel = false">关闭</el-button>
+          <el-button type="primary" @click="confirm">确定</el-button>
         </div>
       </div>
       <div class="advanced-filter-body" :class="{ 'is-compact': compact }">
@@ -75,37 +80,84 @@ const popoverWidth = 'min(760px, calc(100vw - 32px))'
   flex: none;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--el-border-color-lighter);
+  gap: 12px;
+  padding: 9px 16px;
+  background: var(--color-page-bg, #f8fafc);
+  border-bottom: 1px solid var(--color-border, #e2e8f0);
 }
 
-.advanced-filter-title {
+.advanced-filter-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.advanced-filter-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-surface-muted, #f1f5f9);
+  color: var(--color-text-muted, #64748b);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.advanced-filter-badge.is-active {
+  background: #e2e8f0;
+  color: var(--color-primary-hover, #1e293b);
   font-weight: 600;
-  color: var(--el-text-color-primary);
+}
+
+.advanced-filter-hint {
+  color: var(--color-text-muted, #64748b);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .advanced-filter-actions {
   display: flex;
   flex: none;
   align-items: center;
+  gap: 8px;
+}
+
+.advanced-filter-actions .el-button {
+  min-height: 28px;
+  height: 28px;
+  margin-left: 0;
+  padding: 4px 12px;
+  font-size: 13px;
+}
+
+.advanced-filter-actions .el-button.is-link {
+  padding: 2px 4px;
 }
 
 .advanced-filter-body {
   flex: 1;
   min-height: 0;
   max-height: min(560px, calc(100vh - 120px));
-  padding-top: 16px;
+  padding: 12px 16px 14px;
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
 }
 
 .advanced-filter-body.is-compact {
-  padding-top: 12px;
+  padding: 10px 16px 14px;
+}
+
+:global(.common-advanced-filter-popover .app-window-popover__body) {
+  padding: 0;
 }
 
 :global(.common-advanced-filter-popover.is-compact) {
-  padding: 12px !important;
+  padding: 0 !important;
 }
 
 .advanced-filter-count {

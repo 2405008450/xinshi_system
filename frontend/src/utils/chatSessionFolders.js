@@ -3,17 +3,21 @@ import { sessionListKey } from './chatSessionList.js'
 import { annotationStatusLabels, normalizeAnnotationStatus } from './annotationStatus.js'
 
 export const annotationFolderId = defaults.find(row => row.ruleKey === 'annotation').id
+export const annotationStatusGroupId = 'annotation:statuses'
 export const resourceFolderId = defaults.find(row => row.ruleKey === 'resource').id
 export const technicalFolderId = defaults.find(row => row.ruleKey === 'technical').id
 export const resourceDiscussionIds = defaults.filter(row => row.parentKey === resourceFolderId).map(row => row.id)
 export function sessionFolderNodes(items = [], { technicalAccess = false } = {}) {
   const builtins = defaults.filter(row => !row.parentKey && (row.id !== technicalFolderId || technicalAccess)).map(row => ({ ...row, builtin: true, active: true, assignable: false }))
+  const statusGroup = {
+    id: annotationStatusGroupId, name: '项目状态', parentKey: annotationFolderId, ruleKey: 'annotation_statuses', builtin: true, active: true, assignable: false, fixedTop: true,
+  }
   const statuses = Object.entries(annotationStatusLabels).map(([status, name]) => ({
-    id: `status:${status}`, name, parentKey: annotationFolderId, ruleKey: `status:${status}`, builtin: true, active: true, assignable: false,
+    id: `status:${status}`, name, parentKey: annotationStatusGroupId, ruleKey: `status:${status}`, builtin: true, active: true, assignable: false,
   }))
   const builtinIds = new Set(defaults.map(row => row.id))
   const custom = items.filter(row => !builtinIds.has(row.id) && row.parentKey !== resourceFolderId && (technicalAccess || row.name !== '技术/开发沟通')).map(row => ({ ...row, assignable: true }))
-  const all = [...builtins, ...statuses, ...custom]
+  const all = [...builtins, statusGroup, ...statuses, ...custom]
   const roots = new Set(all.filter(row => row.active && !row.parentKey).map(row => row.id))
   const visible = new Set(roots)
   for (let depth = 0; depth < 2; depth++) for (const row of all) if (row.active && visible.has(row.parentKey)) visible.add(row.id)

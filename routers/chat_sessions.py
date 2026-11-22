@@ -445,6 +445,7 @@ def mentions(keyword: str = Query('', max_length=200), before: str | None = Quer
              project_status: str | None = None, project_id: UUID | None = None,
              sort: Literal['time_desc', 'time_asc', 'customer_asc', 'customer_desc'] = 'time_desc',
              mention_kind: Literal['personal', 'all'] | None = None,
+             sender_id: UUID | None = None,
              db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     if project_id is not None and project_type is None:
         raise HTTPException(422, '指定项目时必须同时指定项目类型')
@@ -453,7 +454,25 @@ def mentions(keyword: str = Query('', max_length=200), before: str | None = Quer
     if project_status and project_type == 'translation':
         raise HTTPException(422, '标注项目状态不能用于笔译项目')
     return list_mentions(db, user, keyword=keyword, before=before, limit=limit,
-                         project_type=project_type, project_status=project_status, project_id=project_id, sort=sort, mention_kind=mention_kind)
+                         project_type=project_type, project_status=project_status, project_id=project_id,
+                         sort=sort, mention_kind=mention_kind, sender_id=sender_id)
+
+
+@router.get('/mentions/senders')
+def mention_senders(keyword: str = Query('', max_length=200),
+                    project_type: Literal['annotation', 'translation', 'discussion', 'direct'] | None = None,
+                    project_status: str | None = None, project_id: UUID | None = None,
+                    mention_kind: Literal['personal', 'all'] | None = None,
+                    db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    if project_id is not None and project_type is None:
+        raise HTTPException(422, '指定项目时必须同时指定项目类型')
+    if project_status is not None and project_status not in ANNOTATION_PROJECT_STATUSES:
+        raise HTTPException(422, '无效的标注项目状态')
+    if project_status and project_type == 'translation':
+        raise HTTPException(422, '标注项目状态不能用于笔译项目')
+    from chat_mention_history import list_mention_senders
+    return list_mention_senders(db, user, keyword=keyword, project_type=project_type,
+                                project_status=project_status, project_id=project_id, mention_kind=mention_kind)
 
 
 class PreferenceRequest(BaseModel):

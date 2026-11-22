@@ -3,7 +3,7 @@
     <span class="column-header-filter__label">
       <slot name="label">{{ label }}</slot>
     </span>
-    <el-popover :title="`${label}筛选`" retain-on-selection :draft-filter="false"
+    <el-popover :title="`${label}筛选`" retain-on-selection hide-selection-summary :draft-filter="false"
       v-model:visible="visible"
       trigger="click"
       :placement="placement"
@@ -46,7 +46,7 @@ defineProps({
   active: { type: Boolean, default: false },
   activeCount: { type: Number, default: 0 },
   placement: { type: String, default: 'bottom-start' },
-  width: { type: Number, default: 240 },
+  width: { type: Number, default: 288 },
   hideDefaultFooter: { type: Boolean, default: false },
 })
 
@@ -151,22 +151,32 @@ defineExpose({ close })
   }
 }
 
+.column-header-filter-popover.app-window-popover > .app-window-popover__body {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
 .column-header-filter-popover .column-header-filter__content {
-  display: grid;
-  gap: 10px;
-  max-height: min(480px, calc(100vh - 120px));
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  max-height: min(500px, calc(100vh - 112px));
+  overflow: hidden;
 }
 
 .column-header-filter-popover .column-header-filter__group-label {
   margin-bottom: 6px;
-  color: var(--el-text-color-secondary);
+  color: var(--color-text-muted, #64748b);
   font-size: 12px;
 }
 
 .column-header-filter-popover .column-header-filter__footer {
-  padding-top: 8px;
-  border-top: 1px solid var(--el-border-color-lighter);
+  padding: 8px 14px;
+  background: var(--color-page-bg, #f8fafc);
+  border-top: 1px solid var(--color-border, #e2e8f0);
   text-align: right;
 }
 

@@ -9,7 +9,7 @@
     >
       <header class="order-card__head">
         <el-checkbox v-if="deleteMode && !nested" :model-value="selectedIds.includes(row.id)" @change="toggleSelected(row)" />
-        <span class="order-card__index">{{ index + 1 }}</span>
+        <span class="order-card__index">{{ nested ? index + 1 : pageOffset + index + 1 }}</span>
         <div class="order-card__order"><slot name="order" :row="row" :toggle="() => toggleRow(row)" /></div>
       </header>
       <dl v-if="columns.length" class="order-card__fields">
@@ -73,27 +73,28 @@
         </div>
       </template>
     </el-table-column>
-    <el-table-column label="序号" width="84" :fixed="nested ? false : 'left'">
-      <template #default="{ row, $index }"><div class="order-index"><span>{{ $index + 1 }}</span>
+    <el-table-column label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.indexExpandable" align="center" :fixed="nested ? false : 'left'">
+      <template #default="{ row, $index }"><div class="order-index"><span>{{ nested ? $index + 1 : pageOffset + $index + 1 }}</span>
         <TableExpandButton v-if="canExpand(row)" :expanded="expanded.includes(row.id)" :count="Number(row.childCount)" :expand-label="row.orderLevel === 1 ? '展开三级订单' : '展开子订单'" collapse-label="收起下级订单" @click="tableRef.toggleRowExpansion(row)" />
       </div></template>
     </el-table-column>
-    <el-table-column label="订单号" :width="nested || rows.some(row => row.parentProjectId) ? 240 : 200" :fixed="nested ? false : 'left'"><template #header><slot name="header" :column="{key:'orderNo',label:'订单号'}" /></template><template #default="{ row }"><slot name="order" :row="row" :toggle="() => tableRef.toggleRowExpansion(row)" /></template></el-table-column>
+    <el-table-column label="订单号" :width="nested || rows.some(row => row.parentProjectId) ? 220 : 176" :fixed="nested ? false : 'left'"><template #header><slot name="header" :column="{key:'orderNo',label:'订单号'}" /></template><template #default="{ row }"><slot name="order" :row="row" :toggle="() => tableRef.toggleRowExpansion(row)" /></template></el-table-column>
     <el-table-column v-for="column in columns" :key="column.key" :prop="column.key" :label="column.label" show-sub-client :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="!['projectName','projectStatus'].includes(column.key)">
       <template #header><slot name="header" :column="column" /></template><template #default="{ row }"><slot name="cell" :row="row" :column="column" /></template>
     </el-table-column>
-    <el-table-column v-if="!deleteMode" :label="conversationPicker ? pickerActionLabel : '操作'" width="120" fixed="right"><template #default="{ row }"><slot name="actions" :row="row" /></template></el-table-column>
+    <el-table-column v-if="!deleteMode" :label="conversationPicker ? pickerActionLabel : '操作'" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center"><template #default="{ row }"><slot name="actions" :row="row" /></template></el-table-column>
   </OrderedTableColumns>
 </el-table>
 </template>
 
 <script setup>
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
+import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { getAnnotationChildren } from '@/api/annotationProjects'
 import TableExpandButton from '@/components/common/TableExpandButton.vue'
 import { useMobileViewport } from '@/composables/useMobileViewport'
-const props = defineProps({ columnSettingsKey: { type: String, default: 'annotation-projects' }, rows: {type:Array,default:()=>[]}, columns: {type:Array,default:()=>[]}, editable:Boolean, deleteMode:Boolean, nested:Boolean, conversationPicker:Boolean, pickerActionLabel:{type:String,default:'加入会话'}, revision:Number, areaIds:[Array,Object], rowClass:Function, supportsGrandchildOrders:{type:Boolean,default:true} })
+const props = defineProps({ columnSettingsKey: { type: String, default: 'annotation-projects' }, rows: {type:Array,default:()=>[]}, columns: {type:Array,default:()=>[]}, pageOffset: { type: Number, default: 0 }, editable:Boolean, deleteMode:Boolean, nested:Boolean, conversationPicker:Boolean, pickerActionLabel:{type:String,default:'加入会话'}, revision:Number, areaIds:[Array,Object], rowClass:Function, supportsGrandchildOrders:{type:Boolean,default:true} })
 const emit = defineEmits(['selection-change','create','manage','updated'])
 const { isMobile } = useMobileViewport()
 const tableRef = ref(), expanded = ref([]), loadingIds = reactive(new Set())

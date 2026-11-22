@@ -3,6 +3,8 @@ import {copySavedValue,mergeSavedRecord,savedRecords,savedFieldKey,convertSavedL
 
 const sources=new Map(),views=new Map(),conflicts=new WeakMap()
 const boundModels=new Map(),bindingByModel=new WeakMap()
+const manuallySyncedModels=new WeakSet()
+export function manageSavedModelSync(model){manuallySyncedModels.add(model)}
 export const SAVED_SOURCE=Symbol('saved-data-source')
 export const savedConflictRevision=ref(0)
 let request,watchResources,started=false,interval,queued,updateTimer,checking=false,revision=0
@@ -60,7 +62,7 @@ function roots(){
 function targets(){activeMetadata=new Set();const result=new Map(),seen=new WeakSet();for(const root of roots())collect(root,result,seen,0);for(const binding of boundModels.values()){if(binding.instance.isUnmounted||!binding.instance.vnode.el?.getClientRects?.().length)continue;if(binding.source)activeMetadata.add(binding.source);if(!binding.id)continue;if(!result.has(binding.id))result.set(binding.id,new Set());result.get(binding.id).add(binding.model)}return result}
 function collect(value,result,seen,depth){
   try{value=unref(value)}catch{return}
-  if(!value||typeof value!=='object'||depth>8||seen.has(value)||value instanceof Element||value instanceof Map||value instanceof Set||value.$el||value.__v_skip||(value.vnode&&value.type&&value.uid!=null))return
+  if(!value||typeof value!=='object'||depth>8||seen.has(value)||manuallySyncedModels.has(value)||value instanceof Element||value instanceof Map||value instanceof Set||value.$el||value.__v_skip||(value.vnode&&value.type&&value.uid!=null))return
   seen.add(value)
   if(value[SAVED_SOURCE])activeMetadata.add(value[SAVED_SOURCE].entry)
   if(Array.isArray(value)){for(const item of value.slice(0,10000))collect(item,result,seen,depth+1);return}
@@ -100,7 +102,7 @@ function syncViewCollections(before,after){
   if(!lists.length)return
   const seen=new WeakSet()
   function walk(value,depth=0){
-    try{value=unref(value)}catch{return}if(!value||typeof value!=='object'||seen.has(value)||depth>7||value instanceof Element||value instanceof Map||value instanceof Set||value.$el||value.__v_skip||(value.vnode&&value.type&&value.uid!=null))return
+    try{value=unref(value)}catch{return}if(!value||typeof value!=='object'||seen.has(value)||manuallySyncedModels.has(value)||depth>7||value instanceof Element||value instanceof Map||value instanceof Set||value.$el||value.__v_skip||(value.vnode&&value.type&&value.uid!=null))return
     seen.add(value)
     if(Array.isArray(value)){
       const ids=value.length&&value.every(row=>row&&typeof row==='object'&&row.id!=null)?JSON.stringify(value.map(row=>String(row.id))):null
@@ -153,7 +155,7 @@ export function installSavedDataRegistry(app,{send,watch:watcher,onEvent,onResum
 
 // 旧表单有些将记录ID放在外层。只在明确的关联ID与唯一字段投影同时匹配时绑定，绝不按名称猜记录。
 export function bindSavedForm(instance,model){
-  if(!model||typeof model!=='object'||Array.isArray(model)||model instanceof Map||model.id)return
+  if(!model||typeof model!=='object'||manuallySyncedModels.has(model)||Array.isArray(model)||model instanceof Map||model.id)return
   if(boundModels.get(instance.uid)?.model===model)return
   const meta=model[SAVED_SOURCE]
   if(meta){const binding={model,instance,source:meta.entry,path:meta.path,id:String(model.id||'')};boundModels.set(instance.uid,binding);schedule();return}

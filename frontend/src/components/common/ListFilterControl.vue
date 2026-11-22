@@ -86,7 +86,10 @@
     />
   </div>
   </template>
-  <el-checkbox v-if="supportsBlankFilter(definition)" :model-value="emptySelected" @change="changeEmpty">为空白</el-checkbox>
+  <div v-if="supportsBlankFilter(definition)" class="list-filter-blank" :class="{ 'is-active': emptySelected }">
+    <el-checkbox :model-value="emptySelected" @change="changeEmpty">空</el-checkbox>
+    <span class="list-filter-blank__hint">仅匹配未填写项</span>
+  </div>
 </template>
 
 <script setup>
@@ -152,9 +155,24 @@ const changeRange = (index, value) => {
 </script>
 
 <style scoped>
+.list-filter-date-range {
+  width: 100%;
+  min-width: 0;
+}
+
 .el-select,
-.el-date-editor {
+.el-date-editor,
+.list-filter-date-range :deep(.el-date-editor),
+.list-filter-date-range :deep(.el-date-editor.el-input__wrapper) {
   width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box;
+}
+
+.list-filter-date-range :deep(.el-range-input) {
+  min-width: 0;
+  width: 100%;
 }
 
 .list-filter-number-range {
@@ -166,5 +184,48 @@ const changeRange = (index, value) => {
 
 .list-filter-number-range .el-input-number {
   width: 100%;
+}
+
+.list-filter-blank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-page-bg, #f8fafc);
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.list-filter-blank:hover {
+  border-color: #cbd5e1;
+}
+
+.list-filter-blank.is-active {
+  border-color: #94a3b8;
+  background: var(--color-surface-muted, #f1f5f9);
+}
+
+.list-filter-blank :deep(.el-checkbox) {
+  height: 22px;
+  margin-right: 0;
+}
+
+.list-filter-blank__hint {
+  color: var(--color-text-muted, #64748b);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* 在紧凑高级筛选网格中隐藏辅助说明，保持单元格简洁单行。 */
+:global(.compact-filter-grid .list-filter-blank) {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+:global(.compact-filter-grid .list-filter-blank__hint) {
+  display: none;
 }
 </style>

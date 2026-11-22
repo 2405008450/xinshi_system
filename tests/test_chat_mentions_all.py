@@ -344,3 +344,53 @@ def test_discussion_cannot_invite_inactive_target_through_mention(chat_env):
     assert error.value.status_code == 422
     assert db.get(DiscussionMember, (room, outsider.id)) is None
     assert db.query(DiscussionMessage).count() == 0
+
+
+def test_mentions_filter_by_sender_and_aggregate_senders(chat_env):
+    db, (sender, receiver, outsider) = chat_env
+    from models import AnnotationChatMember
+    from annotation_models import AnnotationProject
+    from schemas import AnnotationProjectChatMessageCreate
+    import annotation_chat_service as annotation_service
+    from routers.discussion_chat import MessageCreate
+    import discussion_chat_service as discussion_service
+    from chat_mention_history import list_mentions, list_mention_senders
+
+    project = AnnotationProject(id=uuid4(), order_no='AP-SENDER-1', project_name='按提及人筛选', created_by=sender.id)
+    db.add(project)
+    db.flush()
+    db.add_all([AnnotationChatMember(project_id=project.id, user_id=u.id, following=True, last_read_sequence=0) for u in (sender, receiver, outsider)])
+    db.commit()
+
+    # sender mentions receiver twice (1 personal, 1 all); outsider mentions receiver once (personal)
+    m1 = annotation_service.send_message(db, project.id, sender, AnnotationProjectChatMessageCreate(
+        content='@receiver 第一条', mentioned_user_ids=[receiver.id], client_message_id=uuid4()))
+    annotation_service.send_message(db, project.id, sender, AnnotationProjectChatMessageCreate(
+        content='@所有人 全体通知', mention_all=True, client_message_id=uuid4()))
+    room = setup_discussion(db, [sender, receiver, outsider])
+    from discussion_chat_models import DiscussionMember
+    db.add(DiscussionMember(room_id=room, user_id=outsider.id, last_read_id=0))
+    db.commit()
+    discussion_service.send(db, outsider, room, MessageCreate(
+        content='@receiver 讨论提及', mentioned_user_ids=[receiver.id], client_message_id=uuid4()))
+
+    # Mark project message read so outsider's unread mention sorts ahead of sender's read mention
+    db.get(AnnotationChatMember, (project.id, receiver.id)).last_read_sequence = m1.sequence_no + 10
+    db.commit()
+
+    personal_senders = list_mention_senders(db, receiver, mention_kind='personal')
+    assert personal_senders['total'] == 2
+    assert personal_senders['unread_total'] == 1
+    assert [row['user_id'] for row in personal_senders['items']] == [str(outsider.id), str(sender.id)]
+    assert personal_senders['items'][0]['unread_count'] == 1 and personal_senders['items'][0]['count'] == 1
+    assert personal_senders['items'][1]['unread_count'] == 0 and personal_senders['items'][1]['count'] == 1
+
+    filtered = list_mentions(db, receiver, mention_kind='personal', sender_id=sender.id)
+    assert filtered['total'] == 1
+    assert filtered['items'][0]['sender_id'] == str(sender.id)
+    # senders list still exposes all personal senders so user can switch directly
+    assert {row['user_id'] for row in filtered['senders']} == {str(sender.id), str(outsider.id)}
+
+    all_senders = list_mention_senders(db, receiver, mention_kind='all')
+    assert all_senders['total'] == 1
+    assert [row['user_id'] for row in all_senders['items']] == [str(sender.id)]

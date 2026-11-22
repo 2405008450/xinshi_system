@@ -83,6 +83,7 @@ def history_query(db,user,keyword='',*,project_type=None,project_status=None,pro
         sources.append(query.with_entities(cast(ChatProjectMessage.id,String).label('message_id'),cast(pid,String).label('project_id'),for_kind.label('kind'),
             case((ChatProjectMessage.annotation_project_id.is_not(None),AnnotationProject.project_name),else_=TranslationProject.project_name).label('title'),
             case((ChatProjectMessage.annotation_project_id.is_not(None),AnnotationProject.order_no),else_=TranslationProject.order_no).label('subtitle'),
+            func.coalesce(cast(ChatProjectMessage.sender_user_id,String),literal('')).label('sender_id'),
             ChatProjectMessage.sender_name.label('sender_name'),ChatProjectMessage.content.label('content'),ChatProjectMessage.created_at.label('stamp'),ChatProjectMessage.sequence_no.label('sequence_no'),
             func.coalesce(ChatProjectMessage.event_data['mention_all'].as_boolean(), false()).label('mention_all'),
             and_(~received(db,ChatProjectMessage,user.id), ChatProjectMessage.sequence_no>case((ChatProjectMessage.annotation_project_id.is_not(None),func.coalesce(AnnotationChatMember.last_read_sequence,0)),else_=func.coalesce(ChatProjectMemberPref.last_read_sequence,0) if phase_one_ready(db) else literal(0))).label('unread')).statement)
@@ -93,7 +94,7 @@ def history_query(db,user,keyword='',*,project_type=None,project_status=None,pro
         if keyword.strip():
             from search_matching import keyword_contains
             query=query.filter(or_(*[keyword_contains(column,keyword) for column in (message.content,message.sender_name)]))
-        sources.append(query.with_entities(cast(message.id,String).label('message_id'),cast(message.direct_conversation_id,String).label('project_id'),literal('direct').label('kind'),literal('私聊').label('title'),literal('').label('subtitle'),message.sender_name.label('sender_name'),message.content.label('content'),message.created_at.label('stamp'),message.sequence_no.label('sequence_no'),func.coalesce(message.event_data['mention_all'].as_boolean(), false()).label('mention_all'),and_(~received(db,message,user.id),message.sequence_no>ChatDirectMember.last_read_sequence).label('unread')).statement)
+        sources.append(query.with_entities(cast(message.id,String).label('message_id'),cast(message.direct_conversation_id,String).label('project_id'),literal('direct').label('kind'),literal('私聊').label('title'),literal('').label('subtitle'),func.coalesce(cast(message.sender_user_id,String),literal('')).label('sender_id'),message.sender_name.label('sender_name'),message.content.label('content'),message.created_at.label('stamp'),message.sequence_no.label('sequence_no'),func.coalesce(message.event_data['mention_all'].as_boolean(), false()).label('mention_all'),and_(~received(db,message,user.id),message.sequence_no>ChatDirectMember.last_read_sequence).label('unread')).statement)
     from discussion_mentions import ready
     if project_type in (None,'discussion') and not project_status and ready(db):
         import discussion_chat_service as discussion
@@ -109,9 +110,9 @@ def history_query(db,user,keyword='',*,project_type=None,project_status=None,pro
             from search_matching import keyword_contains
             query=query.filter(or_(*[keyword_contains(column,keyword) for column in (title,Message.content,Message.sender_name)]))
         stamp=func.timezone('Asia/Hong_Kong',Message.created_at) if db.get_bind().dialect.name=='postgresql' else Message.created_at
-        sources.append(query.with_entities(cast(Message.id,String).label('message_id'),cast(Message.room_id,String).label('project_id'),literal('discussion').label('kind'),title.label('title'),literal('讨论会话').label('subtitle'),Message.sender_name.label('sender_name'),Message.content.label('content'),stamp.label('stamp'),Message.id.label('sequence_no'),func.coalesce(Mention.is_all, false()).label('mention_all'),and_(~received(db,Message,user.id,discussion=True),Message.id>Member.last_read_id).label('unread')).statement)
+        sources.append(query.with_entities(cast(Message.id,String).label('message_id'),cast(Message.room_id,String).label('project_id'),literal('discussion').label('kind'),title.label('title'),literal('讨论会话').label('subtitle'),func.coalesce(cast(Message.sender_id,String),literal('')).label('sender_id'),Message.sender_name.label('sender_name'),Message.content.label('content'),stamp.label('stamp'),Message.id.label('sequence_no'),func.coalesce(Mention.is_all, false()).label('mention_all'),and_(~received(db,Message,user.id,discussion=True),Message.id>Member.last_read_id).label('unread')).statement)
     if not sources:
-        sources=[select(literal('').label('message_id'),literal('').label('project_id'),literal('').label('kind'),literal('').label('title'),literal('').label('subtitle'),literal('').label('sender_name'),literal('').label('content'),literal(datetime(1970,1,1)).label('stamp'),literal(0).label('sequence_no'),literal(False).label('mention_all'),literal(False).label('unread')).where(false())]
+        sources=[select(literal('').label('message_id'),literal('').label('project_id'),literal('').label('kind'),literal('').label('title'),literal('').label('subtitle'),literal('').label('sender_id'),literal('').label('sender_name'),literal('').label('content'),literal(datetime(1970,1,1)).label('stamp'),literal(0).label('sequence_no'),literal(False).label('mention_all'),literal(False).label('unread')).where(false())]
     return union_all(*sources).subquery()
 
 
@@ -142,12 +143,91 @@ def decorate_mention_sessions(db, user, rows, stats=None):
         row.update(mention_history_count=count, latest_mention_at=api_time(stamp), customer_name=customers.get(key, ''))
 
 
-def list_mentions(db, user, *, keyword='', before=None, limit=50, project_type=None, project_status=None, project_id=None, sort='time_desc', mention_kind=None):
+def _normalize_uid(raw):
+    from uuid import UUID
+    if not raw:
+        return ''
+    try:
+        return str(UUID(str(raw)))
+    except (ValueError, TypeError):
+        return str(raw)
+
+
+def _aggregate_senders(db, table, mention_kind=None):
+    """按发送人聚合当前可见范围内的 @我 统计，未读优先、其次按条数与最近时间排序。"""
+    from uuid import UUID
+    from models import AppUser
+    query = db.query(
+        table.c.sender_id,
+        func.max(table.c.sender_name).label('sender_name'),
+        func.count().label('count'),
+        func.sum(case((table.c.unread, 1), else_=0)).label('unread_count'),
+        func.max(table.c.stamp).label('latest_at'),
+    )
+    if mention_kind is not None:
+        query = query.filter(table.c.mention_all.is_(mention_kind == 'all'))
+    rows = query.group_by(table.c.sender_id).all()
+    merged = {}
+    uuid_list = []
+    for raw_sid, fallback_name, count, unread_count, latest_at in rows:
+        sid = _normalize_uid(raw_sid)
+        if not sid:
+            continue
+        entry = merged.get(sid)
+        if entry is None:
+            merged[sid] = dict(
+                user_id=sid,
+                name=fallback_name or '未知用户',
+                count=int(count or 0),
+                unread_count=int(unread_count or 0),
+                latest_at=latest_at,
+            )
+            try:
+                uuid_list.append(UUID(sid))
+            except (ValueError, TypeError):
+                pass
+        else:
+            entry['count'] += int(count or 0)
+            entry['unread_count'] += int(unread_count or 0)
+            if latest_at and (entry['latest_at'] is None or latest_at > entry['latest_at']):
+                entry['latest_at'] = latest_at
+                if fallback_name:
+                    entry['name'] = fallback_name
+    if uuid_list:
+        for person in db.query(AppUser.id, AppUser.full_name, AppUser.username).filter(AppUser.id.in_(uuid_list)).all():
+            key = str(person.id)
+            if key in merged:
+                merged[key]['name'] = person.full_name or person.username or merged[key]['name']
+    items = sorted(
+        merged.values(),
+        key=lambda row: (
+            -int(row['unread_count'] > 0),
+            -row['unread_count'],
+            -row['count'],
+            -(row['latest_at'].timestamp() if row['latest_at'] else 0),
+            row['name'].casefold(),
+        ),
+    )
+    return [api_time(row) for row in items]
+
+
+def list_mention_senders(db, user, *, keyword='', project_type=None, project_status=None, project_id=None, mention_kind=None):
+    table = history_query(db, user, keyword, project_type=project_type, project_status=project_status, project_id=project_id)
+    items = _aggregate_senders(db, table, mention_kind=mention_kind)
+    return dict(
+        items=items,
+        total=sum(row['count'] for row in items),
+        unread_total=sum(row['unread_count'] for row in items),
+    )
+
+
+def list_mentions(db, user, *, keyword='', before=None, limit=50, project_type=None, project_status=None, project_id=None, sort='time_desc', mention_kind=None, sender_id=None):
     import base64,json
     from datetime import datetime
     from uuid import UUID
     from fastapi import HTTPException
     table=history_query(db,user,keyword,project_type=project_type,project_status=project_status,project_id=project_id)
+    senders = _aggregate_senders(db, table, mention_kind=mention_kind)
     from sqlalchemy import String, cast, select
     from models import Client
     # 关联真实客户字段；无客户的讨论和私聊排在客户项目之后。
@@ -160,6 +240,9 @@ def list_mentions(db, user, *, keyword='', before=None, limit=50, project_type=N
     query=db.query(table)
     if mention_kind is not None:
         query = query.filter(table.c.mention_all.is_(mention_kind == 'all'))
+    if sender_id is not None:
+        sender_uuid = sender_id if isinstance(sender_id, UUID) else UUID(str(sender_id))
+        query = query.filter(table.c.sender_id.in_([str(sender_uuid), sender_uuid.hex]))
     total=query.count()
     ascending = sort == 'time_asc'
     customer_sort = sort.startswith('customer_')
@@ -191,9 +274,9 @@ def list_mentions(db, user, *, keyword='', before=None, limit=50, project_type=N
     items=[]
     for row in rows[:limit]:
         pid=UUID(row.project_id)
-        items.append(dict(message_id=str(row.message_id) if row.kind=='discussion' else UUID(row.message_id),sequence_no=row.sequence_no,key=f'{row.kind}:{pid}',project_id=pid,project_type=row.kind,title=row.title or '未命名会话',subtitle=row.subtitle or '',sender_name=row.sender_name,preview=' '.join((row.content or '').split())[:500] or '[附件]',created_at=api_time(row.stamp),unread=bool(row.unread),mention_all=bool(row.mention_all)))
+        items.append(dict(message_id=str(row.message_id) if row.kind=='discussion' else UUID(row.message_id),sequence_no=row.sequence_no,key=f'{row.kind}:{pid}',project_id=pid,project_type=row.kind,title=row.title or '未命名会话',subtitle=row.subtitle or '',sender_id=_normalize_uid(row.sender_id),sender_name=row.sender_name,preview=' '.join((row.content or '').split())[:500] or '[附件]',created_at=api_time(row.stamp),unread=bool(row.unread),mention_all=bool(row.mention_all)))
     has_more=len(rows)>limit
     cursor=None
     if has_more and items:
         last=rows[limit-1];cursor='v3.'+base64.urlsafe_b64encode(json.dumps([sort, *values_from(last)]).encode()).decode()
-    return dict(items=items,total=total,has_more=has_more,next_before=cursor)
+    return dict(items=items,total=total,has_more=has_more,next_before=cursor,senders=senders)

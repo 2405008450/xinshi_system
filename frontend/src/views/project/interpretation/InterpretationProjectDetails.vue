@@ -70,7 +70,9 @@
     <el-table :height="props.embedded ? undefined : '100%'" ref="projectTableRef" :data="tableData" v-loading="loading" row-key="id" :row-class-name="projectRowClass" border class="interpretation-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
 <OrderedTableColumns settings-key="interpretation-projects">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
-      <el-table-column type="index" label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center" fixed="left" />
+      <el-table-column label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center" fixed="left">
+        <template #default="{ $index }">{{ (pagination.page - 1) * pagination.limit + $index + 1 }}</template>
+      </el-table-column>
       <el-table-column column-key="orderNo" v-if="isVisible('orderNo')" label="订单号" :width="PROJECT_LIST_COLUMN_WIDTHS.orderNo" fixed="left">
         <template #header>
           <ConfiguredColumnHeaderFilter :definition="headerFilterDefinition('orderNo')" :model-value="searchForm.orderNo" @update:model-value="searchForm.orderNo = $event" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch">
@@ -238,8 +240,8 @@
       :page-sizes="[10, 20, 50, 100]"
       layout="total, sizes, prev, pager, next, jumper"
       class="pagination"
-      @size-change="fetchData"
-      @current-change="fetchData"
+      @size-change="handlePageSizeChange"
+      @current-change="handlePageChange"
     />
 
     <DraggableFormDialog v-model="progressVisible" width="min(760px, calc(100vw - 32px))" top="5vh" class="interpretation-progress-dialog" @closed="resetProgressDialog">
@@ -352,10 +354,10 @@
           @clear="clearFieldSearch"
         />
       </template>
-      <div ref="dialogBodyRef" class="editor-body">
+      <div ref="dialogBodyRef" class="editor-body unified-editor-body">
         <AppForm number-scope="interpretation" number-field="orderNo" :number-active="dialogVisible && !form.id"  ref="formRef" :model="form" :rules="rules" label-width="120px">
-          <section class="form-section interpretation-key-fields">
-            <div class="interpretation-key-fields__header">
+          <section class="form-section unified-form-section interpretation-key-fields unified-key-fields">
+            <div class="interpretation-key-fields__header unified-section-header">
               <div><h3>关键必填信息</h3><p>请优先完成以下内容，再补充其余项目资料。</p></div>
               <el-tag type="danger" effect="plain">请完成必填项</el-tag>
             </div>
@@ -452,7 +454,7 @@
             </el-form-item>
           </section>
 
-          <section class="form-section">
+          <section class="form-section unified-form-section">
             <h3>基础与客户</h3>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="订单号"><ReadonlyField :model-value="form.orderNo" source="auto" placeholder="保存后自动生成" /></el-form-item></el-col>
@@ -462,20 +464,21 @@
                 </el-form-item>
               </el-col>
             </el-row>
-            <el-form-item label="客户预算"><el-input v-model="form.customerBudget" placeholder="可填写金额、计价单位及差旅说明" /></el-form-item>
-            <el-form-item label="现客户经理" prop="currentClientManager">
-              <CustomerSpecialistSelect v-model="form.currentClientManager" :options="customerSpecialists" :loading="customerSpecialistsLoading" />
-            </el-form-item>
+            <el-row :gutter="16">
+              <el-col :xs="24" :md="12"><el-form-item label="客户预算"><el-input v-model="form.customerBudget" placeholder="可填写金额、计价单位及差旅说明" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="现客户经理" prop="currentClientManager">
+                  <CustomerSpecialistSelect v-model="form.currentClientManager" :options="customerSpecialists" :loading="customerSpecialistsLoading" />
+                </el-form-item>
+              </el-col>
+            </el-row>
             <el-form-item label="价格与收费">
               <InterpretationFinanceEditor v-model:pending="form.financeDraft" :target-id="form.id"
                 :project="financeProject" :can-write="canWrite" defer-save />
             </el-form-item>
             <el-row :gutter="16">
-
               <el-col :xs="24" :md="8"><el-form-item label="客户编号"><ReadonlyField :model-value="form.clientCode" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '新客户不填则自动生成'" @update:model-value="form.clientCode = $event" /></el-form-item></el-col>
               <el-col :xs="24" :md="8"><el-form-item label="客户领域"><ReadonlyField :model-value="form.clientDomain" source="auto" placeholder="选择客户后自动带出" /></el-form-item></el-col>
-            </el-row>
-            <el-row :gutter="16">
               <el-col :xs="24" :md="8"><el-form-item label="客户单号/标识"><el-input v-model="form.customerOrderNo" /></el-form-item></el-col>
             </el-row>
             <el-row :gutter="16">
@@ -484,7 +487,7 @@
             </el-row>
           </section>
 
-          <section class="form-section">
+          <section class="form-section unified-form-section">
             <div class="section-title-row"><h3>译员安排与评价</h3></div>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="译员性别"><el-select v-model="form.requiredInterpreterGender" clearable placeholder="不限" style="width: 100%"><el-option label="不限" value="不限" /><el-option label="男" value="男" /><el-option label="女" value="女" /></el-select></el-form-item></el-col>
@@ -518,7 +521,7 @@
             <el-button class="interpreter-add-button" :icon="Plus" @click="addInterpreter">增加译员</el-button>
           </section>
 
-          <section class="form-section">
+          <section class="form-section unified-form-section">
             <h3>扩展信息</h3>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="口译领域"><el-input v-model="form.interpretationDomain" type="textarea" :rows="2" /></el-form-item></el-col>
@@ -801,46 +804,46 @@ const ratingMap = Object.fromEntries(ratingOptions.map((item) => [item.value, it
 const tableColumns = [
   { key: 'orderNo', label: '订单号', width: PROJECT_LIST_COLUMN_WIDTHS.orderNo },
   { key: 'projectName', label: '项目名称', minWidth: PROJECT_LIST_COLUMN_WIDTHS.projectName },
-  { key: 'projectTypes', label: '项目类型', minWidth: 150 },
+  { key: 'projectTypes', label: '项目类型', width: 130 },
   { key: 'taskDescription', label: '具体任务', minWidth: PROJECT_LIST_COLUMN_WIDTHS.longText },
-  { key: 'currentClientManager', label: '现客户经理', width: 160 },
+  { key: 'currentClientManager', label: '现客户经理', width: 116 },
   { key: 'projectStatus', label: '项目状态', width: PROJECT_LIST_COLUMN_WIDTHS.projectStatus },
-  { key: 'clientShortName', label: '客户简称', minWidth: 180, clickHint: '点击客户简称查看关联信息' },
-  { key: 'clientCode', label: '客户编号', width: 100 },
+  { key: 'clientShortName', label: '客户简称', width: PROJECT_LIST_COLUMN_WIDTHS.clientShortName, clickHint: '点击客户简称查看关联信息' },
+  { key: 'clientCode', label: '客户编号', width: 96 },
   { key: 'clientFullName', label: '客户全称', minWidth: 150 },
-  { key: 'clientDomain', label: '客户领域', minWidth: 120 },
-  { key: 'managerContact', label: '客户经理联系方式', minWidth: 150 },
-  { key: 'subClientContact', label: '子客户/联系人', minWidth: 125 },
-  { key: 'customerOrderNo', label: '客户单号/项目标识', minWidth: 140 },
-  { key: 'timeRanges', label: '项目时间', minWidth: 200 },
-  { key: 'locations', label: '项目地点', minWidth: 140 },
-  { key: 'languageDirectionsDisplay', label: '口译方向', minWidth: PROJECT_LIST_COLUMN_WIDTHS.languageDirection },
-  { key: 'customerBudget', label: '客户预算', minWidth: 120 },
-  { key: 'customerConsultationTime', label: '客户咨询时间', minWidth: 150 },
-  { key: 'customerConfirmationTime', label: '客户确认时间', minWidth: 150 },
-  { key: 'interpretationDomain', label: '口译领域', minWidth: 120 },
-  { key: 'interpretationContent', label: '口译内容', minWidth: 160 },
-  { key: 'requiredInterpreterCount', label: '总需求人数', width: 105 },
-  { key: 'requiredInterpreterGender', label: '译员性别', width: 90 },
-  { key: 'requiredInterpretationLevel', label: '口译水平', width: 90 },
+  { key: 'clientDomain', label: '客户领域', width: 110 },
+  { key: 'managerContact', label: '客户经理联系方式', width: 140 },
+  { key: 'subClientContact', label: '子客户/联系人', width: 120 },
+  { key: 'customerOrderNo', label: '客户单号/项目标识', width: 135 },
+  { key: 'timeRanges', label: '项目时间', minWidth: 180 },
+  { key: 'locations', label: '项目地点', width: 130 },
+  { key: 'languageDirectionsDisplay', label: '口译方向', width: PROJECT_LIST_COLUMN_WIDTHS.languageDirection },
+  { key: 'customerBudget', label: '客户预算', width: 108 },
+  { key: 'customerConsultationTime', label: '客户咨询时间', width: PROJECT_LIST_COLUMN_WIDTHS.dateTime },
+  { key: 'customerConfirmationTime', label: '客户确认时间', width: PROJECT_LIST_COLUMN_WIDTHS.dateTime },
+  { key: 'interpretationDomain', label: '口译领域', width: 120 },
+  { key: 'interpretationContent', label: '口译内容', minWidth: 150 },
+  { key: 'requiredInterpreterCount', label: '总需求人数', width: 96 },
+  { key: 'requiredInterpreterGender', label: '译员性别', width: 88 },
+  { key: 'requiredInterpretationLevel', label: '口译水平', width: 88 },
   { key: 'interpreterSpecialRequirements', label: '特殊要求', minWidth: 140 },
-  { key: 'interpreterHeightRequirement', label: '译员身高', minWidth: 110 },
-  { key: 'interpreterAppearanceRequirement', label: '译员相貌', minWidth: 110 },
-  { key: 'interpreterDressRequirement', label: '着装要求', minWidth: 120 },
-  { key: 'assignedInterpretersDisplay', label: '译员安排', minWidth: 140, clickHint: '点击查看译员要求与安排详情' },
-  { key: 'translatorCodes', label: '译员编号', minWidth: 110 },
-  { key: 'filePath', label: '项目文件路径', minWidth: 180 },
-  { key: 'quotationPath', label: '报价单路径', minWidth: 180 },
-  { key: 'contractPath', label: '合同路径', minWidth: 180 },
-  { key: 'clientRating', label: '客户对信实评价', minWidth: 130 },
-  { key: 'clientRatingNote', label: '评价备注', minWidth: 160 },
-  { key: 'interpreterAssignments', label: '客户对译员评价', minWidth: 180 },
-  { key: 'remarks', label: '备注', minWidth: 180 },
-  { key: 'emailSubjectPreview', label: '邮件主题预览', minWidth: 200 },
-  { key: 'socialPostRequest', label: '发圈请求', minWidth: 150 },
-  { key: 'resourceRequest', label: '资源请求', minWidth: 150 },
-  { key: 'createdAt', label: '创建时间', minWidth: 150 },
-  { key: 'updatedAt', label: '更新时间', minWidth: 150 },
+  { key: 'interpreterHeightRequirement', label: '译员身高', width: 100 },
+  { key: 'interpreterAppearanceRequirement', label: '译员相貌', width: 100 },
+  { key: 'interpreterDressRequirement', label: '着装要求', width: 110 },
+  { key: 'assignedInterpretersDisplay', label: '译员安排', width: 120, clickHint: '点击查看译员要求与安排详情' },
+  { key: 'translatorCodes', label: '译员编号', width: 104 },
+  { key: 'filePath', label: '项目文件路径', minWidth: 160 },
+  { key: 'quotationPath', label: '报价单路径', minWidth: 160 },
+  { key: 'contractPath', label: '合同路径', minWidth: 160 },
+  { key: 'clientRating', label: '客户对信实评价', width: 124 },
+  { key: 'clientRatingNote', label: '评价备注', minWidth: 150 },
+  { key: 'interpreterAssignments', label: '客户对译员评价', minWidth: 160 },
+  { key: 'remarks', label: '备注', minWidth: 160 },
+  { key: 'emailSubjectPreview', label: '邮件主题预览', minWidth: 180 },
+  { key: 'socialPostRequest', label: '发圈请求', minWidth: 140 },
+  { key: 'resourceRequest', label: '资源请求', minWidth: 140 },
+  { key: 'createdAt', label: '创建时间', width: PROJECT_LIST_COLUMN_WIDTHS.dateTime },
+  { key: 'updatedAt', label: '更新时间', width: PROJECT_LIST_COLUMN_WIDTHS.dateTime },
 ]
 const defaultColumns = [
   'orderNo', 'projectName', 'taskDescription', 'currentClientManager', 'projectStatus', 'clientShortName',
@@ -1050,6 +1053,8 @@ const fetchData = async () => {
   }
 }
 const handleSearch = () => { exitDeleteMode(); clearTimeout(searchTimer); pagination.page = 1; fetchData() }
+const handlePageChange = () => { exitDeleteMode(); fetchData() }
+const handlePageSizeChange = () => { exitDeleteMode(); pagination.page = 1; fetchData() }
 const handleTextSearch = (value) => {
   clearTimeout(searchTimer)
   if (!value?.trim()) return handleSearch()
@@ -1615,27 +1620,18 @@ watch(dialogVisible,visible=>{if(visible)chatAudience.value=[]})
 .client-autocomplete-hint { margin-top: 4px; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.4; }
 .client-suggestion { display: flex; flex-direction: column; min-width: 0; padding: 4px 0; line-height: 1.45; }
 .client-suggestion__meta { overflow: hidden; color: var(--el-text-color-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.card-header, .header-actions, .advanced-header, .section-title-row, .repeat-title, .order-cell { display: flex; align-items: center; }
+.card-header, .advanced-header, .section-title-row, .repeat-title, .order-cell { display: flex; align-items: center; }
 .card-header, .advanced-header, .section-title-row, .repeat-title { justify-content: space-between; }
-.header-actions { display: flex; gap: 8px; }
-.search-form { margin-bottom: 4px; }
 .filter-count { display: inline-flex; min-width: 18px; height: 18px; margin-left: 5px; padding: 0 5px; align-items: center; justify-content: center; border-radius: 9px; color: #fff; background: var(--el-color-primary); font-size: 11px; }
 .advanced-panel { max-height: min(560px, calc(100vh - 120px)); overflow-y: auto; }
 .advanced-header { margin-bottom: 12px; font-weight: 600; }
-.pagination { margin-top: 20px; }
 .order-cell { min-width: 0; gap: 4px; }
 .order-cell :deep(.el-popover__reference-wrapper) { flex: 1; min-width: 0; }
 .order-cell :deep(.path-action-buttons) { width: 40px; min-width: 40px; }
 .order-cell :deep(.path-action-buttons .el-button) { width: 19px; height: 22px; }
 .order-no-link { display: block; width: 100%; height: auto; min-width: 0; padding: 0; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .editor-body { min-height: 0; }
-.form-section { margin-bottom: 18px; padding: 16px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; background: var(--el-fill-color-blank); }
-.form-section h3 { margin: 0 0 16px; font-size: 16px; }
 .form-section h4 { margin: 0; font-size: 15px; }
-.interpretation-key-fields { border-color: var(--el-color-primary-light-7); background: var(--el-color-primary-light-9); }
-.interpretation-key-fields__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
-.interpretation-key-fields__header h3 { margin-bottom: 0; }
-.interpretation-key-fields__header p { margin: 3px 0 0; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
 .composite-required-item :deep(.el-form-item__content), .direction-panel { width: 100%; }
 .composite-required-item .location-panel { width: 100%; margin-top: 0; }
 .section-title-row { margin-bottom: 12px; }

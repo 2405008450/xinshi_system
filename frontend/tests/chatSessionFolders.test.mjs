@@ -8,7 +8,7 @@ const source = readFileSync(new URL('../src/utils/chatSessionFolders.js', import
 const defaults = JSON.parse(readFileSync(new URL('../../data/chat_session_folders.json', import.meta.url), 'utf8'))
 const statusSource = readFileSync(new URL('../src/utils/annotationStatus.js', import.meta.url), 'utf8')
 const { annotationStatusLabels, normalizeAnnotationStatus } = runInNewContext(statusSource.replaceAll('export ', '') + '\n;({annotationStatusLabels, normalizeAnnotationStatus})')
-const api = runInNewContext(source.replace(/^import .*\r?\n/gm, '').replaceAll('export ', '') + '\n;({sessionFolderMentionUnread, sessionFolderNodes, sessionMatchesFolder, sessionFolderCount, assignableSessionFolders, annotationFolderId, resourceFolderId})', { defaults, annotationStatusLabels, normalizeAnnotationStatus, sessionListKey })
+const api = runInNewContext(source.replace(/^import .*\r?\n/gm, '').replaceAll('export ', '') + '\n;({sessionFolderMentionUnread, sessionFolderNodes, sessionMatchesFolder, sessionFolderCount, assignableSessionFolders, annotationFolderId, annotationStatusGroupId, resourceFolderId})', { defaults, annotationStatusLabels, normalizeAnnotationStatus, sessionListKey })
 
 test('技术开发分组和所属会话按部门授权显示并汇总',()=>{
   const root=defaults.find(row=>row.ruleKey==='technical').id
@@ -41,10 +41,15 @@ test('标注分组数量按主订单系列统计，与会话列表保持一致',
   assert.equal(api.sessionFolderCount(sessions, api.annotationFolderId, api.sessionFolderNodes()), 2)
 })
 
-test('默认五个一级分组、全部标注状态；六个资源讨论不是二级分类', () => {
+test('默认五个一级分组、标注项目状态归入可折叠“项目状态”分组；六个资源讨论不是二级分类', () => {
   const nodes = api.sessionFolderNodes()
   assert.deepEqual(Array.from(nodes.filter(row => !row.parentKey), row => row.name), ['资源开拓讨论', '标注项目', '笔译项目', '口译项目', '招聘项目'])
-  assert.equal(nodes.filter(row => row.parentKey === api.annotationFolderId).length, Object.keys(annotationStatusLabels).length)
+  const annotationDirect = nodes.filter(row => row.parentKey === api.annotationFolderId)
+  assert.deepEqual(Array.from(annotationDirect, row => row.id), [api.annotationStatusGroupId])
+  assert.equal(annotationDirect[0].name, '项目状态')
+  assert.equal(annotationDirect[0].fixedTop, true)
+  assert.equal(annotationDirect[0].assignable, false)
+  assert.equal(nodes.filter(row => row.parentKey === api.annotationStatusGroupId).length, Object.keys(annotationStatusLabels).length)
   assert.equal(nodes.some(row => row.name === '平台讨论'), false)
   assert.equal(api.sessionMatchesFolder({ projectType: 'discussion' }, api.resourceFolderId, nodes), true)
 })
@@ -94,6 +99,7 @@ test('二级分类数量按授权会话去重统计，状态改变后数量同�
   const nodes = api.sessionFolderNodes()
   assert.equal(api.sessionFolderCount(rows, 'status:project_in_progress', nodes), 1)
   assert.equal(api.sessionFolderCount(rows, 'status:trial_preparation', nodes), 1)
+  assert.equal(api.sessionFolderCount(rows, api.annotationStatusGroupId, nodes), 2)
   assert.equal(api.sessionFolderCount(rows, api.annotationFolderId, nodes), 2)
   rows[2].projectStatus = 'project_in_progress'
   assert.equal(api.sessionFolderCount(rows, 'status:project_in_progress', nodes), 2)
@@ -117,6 +123,7 @@ test('未读提及数字汇总到父分组及状态分组，同一订单重复�
     {key:'d', projectType:'direct', mentionUnread:9},
   ]
   assert.equal(api.sessionFolderMentionUnread(rows, api.annotationFolderId, nodes), 6)
+  assert.equal(api.sessionFolderMentionUnread(rows, api.annotationStatusGroupId, nodes), 6)
   assert.equal(api.sessionFolderMentionUnread(rows, 'status:trial_preparation', nodes), 5)
   assert.equal(api.sessionFolderMentionUnread(rows, api.resourceFolderId, nodes), 0)
 })

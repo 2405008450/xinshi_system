@@ -1,6 +1,6 @@
 <template>
   <el-select :model-value="selection" multiple @update:model-value="update">
-    <el-option label="为空白" :value="blankOption" />
+    <el-option label="空" :value="blankOption" />
     <slot />
   </el-select>
 </template>

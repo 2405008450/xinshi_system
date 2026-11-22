@@ -26,38 +26,41 @@
       </div>
     </template>
 
-    <AppForm data-auto-draft="off" :inline="true" :model="searchForm" class="search-form">
-      <div class="annotation-search-toolbar">
-        <div class="project-list-primary-filters">
-          <el-form-item v-if="props.orderScope === 'child'" :label="effectiveOrderScope === 'grandchild' ? '子订单' : '订单'"><el-select v-model="parentFilterId" filterable remote clearable :remote-method="searchParentFilters" style="width:250px" @change="handleSearch"><el-option v-for="parent in parentFilterOptions" :key="parent.id" :value="parent.id" :label="`${parent.orderNo} · ${parent.projectName || ''}`" /></el-select></el-form-item>
-          <el-form-item label="关键词" class="project-list-keyword-filter">
-            <el-input
-              v-model="searchForm.keyword"
-              placeholder="订单号、项目名称、类型/状态、客户/联系人等"
-              clearable
-              @input="handleTextSearch"
-              @keyup.enter="handleSearch"
-            />
-          </el-form-item>
-        </div>
-        <el-form-item class="annotation-search-actions">
-          <el-button type="primary" @click="handleSearch">查询</el-button>
-          <el-button @click="resetSearch">重置</el-button>
-          <el-button :type="progressSortActive ? 'primary' : 'default'" plain @click="toggleProgressSort">
-            {{ progressSortActive ? '恢复订单号排序' : '按最新进度排序' }}
-          </el-button>
-          <AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" popper-class="annotation-advanced-popover" @clear="clearAdvanced" @reset="resetSearch">
-            <CompactFilterGrid :fields="annotationAdvancedFilterFields" :model="searchForm" @update="updateConfiguredFilter" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" />
-          </AdvancedFilterPopover>
+    <AppForm data-auto-draft="off" :inline="true" :model="searchForm" class="search-form project-list-search-form">
+      <div class="project-list-primary-filters">
+        <el-form-item v-if="props.orderScope === 'child'" :label="effectiveOrderScope === 'grandchild' ? '子订单' : '订单'" class="project-list-parent-filter"><el-select v-model="parentFilterId" filterable remote clearable :remote-method="searchParentFilters" @change="handleSearch"><el-option v-for="parent in parentFilterOptions" :key="parent.id" :value="parent.id" :label="`${parent.orderNo} · ${parent.projectName || ''}`" /></el-select></el-form-item>
+        <el-form-item label="关键词" class="project-list-keyword-filter">
+          <el-input
+            v-model="searchForm.keyword"
+            placeholder="订单号、项目名称、类型/状态、客户/联系人等"
+            clearable
+            @input="handleTextSearch"
+            @keyup.enter="handleSearch"
+          />
+        </el-form-item>
+        <el-form-item label="项目进度" class="project-list-status-filter">
+          <ListFilterSelect v-model="searchForm.projectStatus" collapse-tags :max-collapse-tags="1" clearable placeholder="全部" @change="handleSearch">
+            <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </ListFilterSelect>
         </el-form-item>
       </div>
+      <el-form-item class="project-list-search-actions">
+        <el-button type="primary" @click="handleSearch">查询</el-button>
+        <el-button @click="resetSearch">重置</el-button>
+        <el-button :type="progressSortActive ? 'primary' : 'default'" plain :title="progressSortActive ? '当前按最新进度排序，点击恢复订单号排序' : '点击按最新进度排序'" @click="toggleProgressSort">
+          最新进度排序
+        </el-button>
+        <AdvancedFilterPopover v-model:visible="advancedVisible" :count="advancedCount" popper-class="annotation-advanced-popover" @clear="clearAdvanced" @reset="resetSearch">
+          <CompactFilterGrid :fields="annotationAdvancedFilterFields" :model="searchForm" @update="updateConfiguredFilter" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" />
+        </AdvancedFilterPopover>
+      </el-form-item>
     </AppForm>
 
     <el-alert v-if="capabilitiesLoaded && !supportsGrandchildOrders" title="当前后端尚未启用三级订单、片区和字段继承；订单、子订单仍可正常使用。" type="info" :closable="false" show-icon />
     <el-alert v-if="capabilitiesLoaded && !supportsLanguageRegions" title="当前后端尚未启用语种地区，暂不能录入城市、区县、街道；其他项目字段仍可正常使用。" type="info" :closable="false" show-icon />
     <div class="viewport-list-table">
     <span v-if="listRefreshing" role="status">更新中…</span>
-    <AnnotationOrderTable :column-settings-key="props.orderScope === 'child' ? 'annotation-child-orders' : 'annotation-projects'" :conversation-picker="props.conversationPicker" :picker-action-label="props.pickerActionLabel" ref="projectTableRef" :supports-grandchild-orders="supportsGrandchildOrders" :rows="tableData" :columns="visibleTableColumns" :editable="canWrite" :delete-mode="deleteMode" :revision="childRevision" :area-ids="supportsGrandchildOrders ? searchForm.areaIds : []" :row-class="projectRowClass" v-loading="loading" class="annotation-table" @selection-change="handleDeleteSelectionChange" @create="openChildCreate" @manage="row => goChildManagement(row.id, row.orderLevel)" @updated="handleOrderUpdated">
+    <AnnotationOrderTable :column-settings-key="props.orderScope === 'child' ? 'annotation-child-orders' : 'annotation-projects'" :conversation-picker="props.conversationPicker" :picker-action-label="props.pickerActionLabel" ref="projectTableRef" :supports-grandchild-orders="supportsGrandchildOrders" :rows="tableData" :columns="visibleTableColumns" :page-offset="(pagination.page - 1) * pagination.limit" :editable="canWrite" :delete-mode="deleteMode" :revision="childRevision" :area-ids="supportsGrandchildOrders ? searchForm.areaIds : []" :row-class="projectRowClass" v-loading="loading" class="annotation-table" @selection-change="handleDeleteSelectionChange" @create="openChildCreate" @manage="row => goChildManagement(row.id, row.orderLevel)" @updated="handleOrderUpdated">
       <template #header="{ column }">
           <AnnotationRegionColumnHeader v-if="column.key === 'regionSummary'" v-model:level="regionDisplayLevel" :definition="regionFilterDefinition" :model="searchForm" @update-field="(key,value)=>searchForm[key]=value" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch" />
           <ConfiguredColumnHeaderFilter v-else-if="headerFilterDefinition(column.key)" :definition="headerFilterDefinition(column.key)" :model-value="searchForm[headerFilterDefinition(column.key).key]" @update:model-value="searchForm[headerFilterDefinition(column.key).key]=$event" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch">
@@ -431,14 +434,14 @@
           @clear="clearFieldSearch"
         ><template #actions><el-button v-if="!form.id" link type="primary" @click="creationDeliveryRef.openCreationDefaults()">设置默认@</el-button></template></DialogFieldSearchHeader>
       </template>
-      <div ref="dialogBodyRef" class="editor-body">
+      <div ref="dialogBodyRef" class="editor-body unified-editor-body">
         <el-alert v-if="form.parentProjectId" type="info" :closable="false"><template #title>{{ form.orderLevel === 2 ? '所属子订单' : '所属订单' }}：{{ form.parentOrderNo }} · {{ form.parentProjectName || '' }} <el-button link type="primary" @click="openParent(form)">查看上级订单</el-button></template></el-alert>
         <AnnotationInheritancePanel v-if="supportsGrandchildOrders && form.parentProjectId" :overrides="form.inheritanceOverrides" :custom-fields="visibleProjectCustomFields" v-model="form.restoreInheritance" />
         <el-tabs v-model="editorTab">
           <el-tab-pane label="订单信息" name="form">
-        <AppForm :number-scope="form.parentProjectId ? 'annotation_suborder' : 'annotation'" number-field="orderNo" :number-active="dialogVisible && !form.id" :number-parent="form.parentProjectId || undefined" ref="formRef" :model="form" :rules="rules" label-width="125px">
-          <section class="form-section annotation-key-fields">
-            <div class="annotation-key-fields__header"><div><h3>关键必填信息</h3><p>请优先完成以下内容，再补充其余项目资料。</p></div><el-tag type="danger" effect="plain">请完成必填项</el-tag></div>
+        <AppForm :number-scope="form.parentProjectId ? 'annotation_suborder' : 'annotation'" number-field="orderNo" :number-active="dialogVisible && !form.id" :number-parent="form.parentProjectId || undefined" ref="formRef" :model="form" :rules="rules" label-width="120px">
+          <section class="form-section unified-form-section annotation-key-fields unified-key-fields">
+            <div class="annotation-key-fields__header unified-section-header"><div><h3>关键必填信息</h3><p>请优先完成以下内容，再补充其余项目资料。</p></div><el-tag type="danger" effect="plain">请完成必填项</el-tag></div>
             <el-row :gutter="16">
               <el-col :xs="24">
                 <el-form-item label="项目名称" prop="projectName">
@@ -459,16 +462,20 @@
               <el-col :xs="24" :md="12"><el-form-item label="项目经理"><el-select v-model="projectManagerIds" multiple filterable clearable collapse-tags collapse-tags-tooltip style="width:100%"><el-option v-for="item in projectManagerOptions" :key="item.id" :label="userLabel(item)" :value="item.id" /></el-select></el-form-item></el-col>
             </el-row>
             <el-form-item label="具体任务" prop="taskDescription"><AnnotationTaskImages ref="taskImagesRef" v-model="form.taskImageUploadIds" :project-id="form.id" :active="dialogVisible" :disabled="submitLoading"><el-input v-model="form.taskDescription" type="textarea" :rows="3" placeholder="请输入具体任务，支持粘贴截图" /></AnnotationTaskImages></el-form-item>
-            <el-form-item label="客户简称" show-sub-client prop="clientShortName" data-field-key="clientShortName">
-              <div class="client-autocomplete-field">
-                <el-autocomplete v-model="form.clientShortName" :fetch-suggestions="fetchClientSuggestions" value-key="client_short_name" placeholder="选择已有客户，或直接输入新客户简称" clearable :debounce="300" :trigger-on-focus="true" style="width:100%" @select="handleClientSelect" @input="handleClientShortNameInput" @clear="clearSelectedClient">
-                  <template #default="{ item }"><div class="client-suggestion"><span>{{ item.client_short_name }} <el-tag v-if="item.sub_client_id" size="small" type="warning">子客户</el-tag></span><span class="client-suggestion__meta">{{ item.client_code }} · {{ item.client_name }}{{ item.parent_client_short_name ? ` · 归属 ${item.parent_client_short_name}` : '' }}</span></div></template>
-                </el-autocomplete>
-                <div class="client-autocomplete-hint">没有匹配客户时，填写客户全称及简称后，保存项目会自动新增客户。</div>
-              </div>
-            <ClientNameGuidance />
-</el-form-item>
-            <el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="客户全称" prop="clientFullName"><ClientFullNameInput v-model="form.clientFullName" :client-id="form.clientId" include-sub-clients @select="handleClientSelect" /></el-form-item></el-col></el-row>
+            <el-row :gutter="16">
+              <el-col :xs="24" :md="12">
+                <el-form-item label="客户简称" show-sub-client prop="clientShortName" data-field-key="clientShortName">
+                  <div class="client-autocomplete-field">
+                    <el-autocomplete v-model="form.clientShortName" :fetch-suggestions="fetchClientSuggestions" value-key="client_short_name" placeholder="选择已有客户，或直接输入新客户简称" clearable :debounce="300" :trigger-on-focus="true" style="width:100%" @select="handleClientSelect" @input="handleClientShortNameInput" @clear="clearSelectedClient">
+                      <template #default="{ item }"><div class="client-suggestion"><span>{{ item.client_short_name }} <el-tag v-if="item.sub_client_id" size="small" type="warning">子客户</el-tag></span><span class="client-suggestion__meta">{{ item.client_code }} · {{ item.client_name }}{{ item.parent_client_short_name ? ` · 归属 ${item.parent_client_short_name}` : '' }}</span></div></template>
+                    </el-autocomplete>
+                    <div class="client-autocomplete-hint">没有匹配客户时，填写客户全称及简称后，保存项目会自动新增客户。</div>
+                  </div>
+                <ClientNameGuidance />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="客户全称" prop="clientFullName"><ClientFullNameInput v-model="form.clientFullName" :client-id="form.clientId" include-sub-clients @select="handleClientSelect" /></el-form-item></el-col>
+            </el-row>
             <ProjectClientContactFields :client-id="form.clientId" :sub-client-id="form.subClientId" v-model:contact-name="form.contactName" v-model:contact-method="form.clientContactMethod" v-model:contact-description="form.clientContactDescription" v-model:contact-version="form.clientContactVersion" v-model:contacts-visible="form.clientContactsVisible" />
             <el-form-item v-if="form.orderLevel === 2" label="语种方向">
               <div style="width:100%">
@@ -503,7 +510,7 @@
             </el-row>
           </section>
 
-          <section class="form-section">
+          <section class="form-section unified-form-section">
             <h3>基础与客户</h3>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="订单号"><div class="order-no-field"><ReadonlyField :model-value="form.orderNo" source="auto" placeholder="保存后自动生成" /><el-button v-if="canChangeOrderNo && form.id && form.orderLevel < 2 && !form.childCount" type="primary" plain @click="openOrderNoDialog">修改订单号</el-button></div></el-form-item></el-col>
@@ -530,16 +537,13 @@
               </el-row>
             </div>
             <el-row :gutter="16">
-              <el-col :xs="24" :md="8"><el-form-item label="客户编号"><ReadonlyField :model-value="form.clientCode" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '新客户不填则自动生成'" @update:model-value="form.clientCode = $event" /></el-form-item></el-col>
-
-            </el-row>
-            <el-row :gutter="16">
+              <el-col :xs="24" :md="12"><el-form-item label="客户编号"><ReadonlyField :model-value="form.clientCode" :source="form.clientId ? 'auto' : 'editable'" :placeholder="form.clientId ? '选择客户后自动带出' : '新客户不填则自动生成'" @update:model-value="form.clientCode = $event" /></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="客户单号/项目标识"><el-input v-model="form.customerOrderNo" /></el-form-item></el-col>
             </el-row>
 
           </section>
 
-          <section v-if="visibleProjectCustomFields.length" class="form-section">
+          <section v-if="visibleProjectCustomFields.length" class="form-section unified-form-section">
             <h3>自定义业务字段</h3>
             <el-row :gutter="16"><el-col v-for="field in visibleProjectCustomFields" :key="field.id" :xs="24" :md="12"><el-form-item :label="field.fieldLabel" :prop="['customValues', field.id]" :rules="customFieldRules(field)">
               <el-switch v-if="field.dataType==='boolean'" v-model="form.customValues[field.id]" />
@@ -552,7 +556,7 @@
             </el-form-item></el-col></el-row>
           </section>
 
-          <section class="form-section">
+          <section class="form-section unified-form-section">
             <div class="section-title-row"><h3>标注人员安排</h3><div><CustomFieldManager v-if="form.id" table-code="assignment" :project-id="form.id" @changed="loadAssignmentCustomFields" /><el-button type="primary" plain @click="addAssignee">添加人员</el-button></div></div>
             <el-empty v-if="!form.assignees.length" description="暂无标注人员" :image-size="70" />
             <div v-for="(item,index) in form.assignees" :key="index" class="price-card">
@@ -573,7 +577,7 @@
             </div>
           </section>
 
-          <section class="form-section">
+          <section class="form-section unified-form-section">
             <h3>项目资料</h3>
             <el-form-item label="文件路径" prop="projectPath">
               <el-input v-model="form.projectPath" clearable placeholder="请输入文件路径，例如 \\Win-server\项目资料\项目名称" />
@@ -684,6 +688,7 @@ import { groupAnnotationProgressRows } from '@/utils/annotationProgress'
 import BatchDeleteToolbar from '@/components/common/BatchDeleteToolbar.vue'
 import AdvancedFilterPopover from '@/components/common/AdvancedFilterPopover.vue'
 import CompactFilterGrid from '@/components/common/CompactFilterGrid.vue'
+import ListFilterSelect from '@/components/common/ListFilterSelect.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import ClickableColumnHeader from '@/components/common/ClickableColumnHeader.vue'
 import { PROJECT_LIST_COLUMN_WIDTHS } from '@/constants/projectListTable'
@@ -892,7 +897,7 @@ const regionDisplayLevel=ref(readAnnotationRegionLevel(localStorage,regionPrefer
 watch(regionDisplayLevel,value=>saveAnnotationRegionLevel(localStorage,regionPreferenceKey,value))
 
 const staticTableColumns = [
-  { key:'orderNo',label:'订单号',width:200 },{ key:'projectName',label:'项目名称',minWidth:200,clickHint:'点击项目名称查看项目进度' },{ key:'projectTypes',label:'项目类型',minWidth:110 },{ key:'clientManagerName',label:'客户经理',width:128 },{ key:'projectManagerName',label:'项目经理',width:128 },{ key:'taskDescription',label:'具体任务',minWidth:PROJECT_LIST_COLUMN_WIDTHS.longText,clickHint:'点击具体任务打开项目安排' },{ key:'projectStatus',label:'项目进度',width:PROJECT_LIST_COLUMN_WIDTHS.projectStatus,clickHint:'点击项目进度录入或查看节点' },{ key:'latestCustomerProgressNote',label:'最新客户进度',minWidth:240,clickHint:'点击查看客户进度' },{ key:'latestCustomerProgressEffectiveOn',label:'客户进度时间',width:190,type:'datetime' },{ key:'priority',label:'优先次序',width:96 },{ key:'clientShortName',label:'客户简称',minWidth:180,clickHint:'点击客户简称查看关联信息' },{ key:'clientCode',label:'客户编号',minWidth:125 },{ key:'clientFullName',label:'客户全称',minWidth:180 },{ key:'subClientContact',label:'子客户/联系人',minWidth:125 },{ key:'customerOrderNo',label:'客户单号/项目标识',minWidth:135 },{ key:'languageItemsDisplay',label:'语言方向',minWidth:150,clickHint:'点击查看语种地区及人才储备' },{ key:'regionSummary',label:'地区（城市/区县/街道）',minWidth:180 },{ key:'potentialDemand',label:'（潜在）需求量',minWidth:125 },{ key:'customerPriceSummary',label:'客户单价',minWidth:135 },{ key:'assigneeSummary',label:'标注人员安排',minWidth:140 },{ key:'taskDispatchedAt',label:'任务派发时间',width:98,type:'datetime' },{ key:'taskSubmittedAt',label:'任务提交时间',width:140,type:'datetime' },{ key:'projectPath',label:'项目路径',minWidth:150 },{ key:'quotationPath',label:'报价单路径',minWidth:150 },{ key:'contractPath',label:'合同路径',minWidth:150 },
+  { key:'orderNo',label:'订单号',width:176 },{ key:'projectName',label:'项目名称',minWidth:PROJECT_LIST_COLUMN_WIDTHS.projectName,clickHint:'点击项目名称查看项目进度' },{ key:'projectTypes',label:'项目类型',width:116 },{ key:'clientManagerName',label:'客户经理',width:112 },{ key:'projectManagerName',label:'项目经理',width:112 },{ key:'taskDescription',label:'具体任务',minWidth:PROJECT_LIST_COLUMN_WIDTHS.longText,clickHint:'点击具体任务打开项目安排' },{ key:'projectStatus',label:'项目进度',width:PROJECT_LIST_COLUMN_WIDTHS.projectStatus,clickHint:'点击项目进度录入或查看节点' },{ key:'latestCustomerProgressNote',label:'最新客户进度',minWidth:200,clickHint:'点击查看客户进度' },{ key:'latestCustomerProgressEffectiveOn',label:'客户进度时间',width:PROJECT_LIST_COLUMN_WIDTHS.dateTime,type:'datetime' },{ key:'priority',label:'优先次序',width:90 },{ key:'clientShortName',label:'客户简称',width:PROJECT_LIST_COLUMN_WIDTHS.clientShortName,clickHint:'点击客户简称查看关联信息' },{ key:'clientCode',label:'客户编号',width:100 },{ key:'clientFullName',label:'客户全称',minWidth:150 },{ key:'subClientContact',label:'子客户/联系人',width:120 },{ key:'customerOrderNo',label:'客户单号/项目标识',width:130 },{ key:'languageItemsDisplay',label:'语言方向',width:126,clickHint:'点击查看语种地区及人才储备' },{ key:'regionSummary',label:'地区（城市/区县/街道）',minWidth:150 },{ key:'potentialDemand',label:'（潜在）需求量',width:120 },{ key:'customerPriceSummary',label:'客户单价',width:128 },{ key:'assigneeSummary',label:'标注人员安排',width:130 },{ key:'taskDispatchedAt',label:'任务派发时间',width:120,type:'datetime' },{ key:'taskSubmittedAt',label:'任务提交时间',width:120,type:'datetime' },{ key:'projectPath',label:'项目路径',minWidth:150 },{ key:'quotationPath',label:'报价单路径',minWidth:150 },{ key:'contractPath',label:'合同路径',minWidth:150 },
 ]
 const { fields:projectCustomFields, load:loadProjectCustomFields } = useAnnotationCustomFields('project')
 const mergedProjectFieldLabels = new Set(['项目经理', '跟进状态'])
@@ -1388,50 +1393,14 @@ watch(dialogVisible,visible=>{if(visible)chatAudience.value=[]})
 @media(max-width:600px) { .language-item-card .language-row { flex-wrap:wrap; } .language-item-card .language-row > .el-select { min-width:140px; } }
 
 /* 查询与分页固定在可视区域，长列表和展开的子订单只在表格内部滚动。 */
-.annotation-card {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-}
-.annotation-card :deep(> .el-card__header) {
-  flex: none;
-  padding: 8px 16px;
-}
 .annotation-card :deep(> .el-card__body) {
   container-type: inline-size;
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-  padding: 8px 16px;
-}
-.annotation-card :deep(> .el-card__body > .search-form) {
-  flex: none;
-  margin-bottom: 8px;
-  padding: 8px 12px;
-}
-.annotation-card :deep(> .el-card__body > .search-form .el-form-item) {
-  margin-bottom: 0;
 }
 .annotation-table {
   flex: 1 1 0;
   min-height: 0;
 }
-.annotation-card :deep(> .el-card__body > .pagination) {
-  flex: none;
-  margin-top: 8px;
-  padding-top: 8px;
-}
-@media (max-width: 768px) {
-  .annotation-card .annotation-search-toolbar { flex-wrap: wrap; gap: 8px; }
-  .annotation-card .annotation-search-toolbar .project-list-primary-filters { flex-basis: 100%; flex-wrap: wrap; gap: 8px; }
-  .annotation-card .annotation-search-toolbar .annotation-search-actions { white-space: normal; }
-}
 :deep(.workbench-target-row > td.el-table__cell) { background: var(--el-color-primary-light-9) !important; }
-.annotation-search-toolbar{display:flex;width:100%;align-items:flex-start;gap:16px;flex-wrap:nowrap}.annotation-search-toolbar .project-list-primary-filters{flex:1 1 auto;width:auto;min-width:0}.annotation-search-actions{flex:0 0 auto;margin-right:0!important;white-space:nowrap}
 .client-autocomplete-field{width:100%}.client-autocomplete-hint{margin-top:4px;color:var(--el-text-color-secondary);font-size:12px;line-height:1.4}.client-suggestion{display:flex;flex-direction:column;min-width:0;padding:4px 0;line-height:1.45}.client-suggestion__meta{overflow:hidden;color:var(--el-text-color-secondary);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
 .status-timeline{padding-left:6px}.history-note{margin-left:8px;color:var(--el-text-color-secondary)}
 .project-progress-link{height:auto;padding:0}
@@ -1440,12 +1409,10 @@ watch(dialogVisible,visible=>{if(visible)chatAudience.value=[]})
 .progress-child-delete{margin-left:auto}.progress-delete-preview{margin-top:14px;padding:10px 12px;border:1px solid var(--el-border-color-lighter);border-radius:6px;background:var(--el-fill-color-light)}.progress-delete-preview__meta{color:var(--el-text-color-secondary);font-size:12px}.progress-delete-preview__note{margin-top:6px;max-height:120px;overflow-y:auto;color:var(--el-text-color-primary);line-height:1.6;white-space:pre-wrap;word-break:break-word}.progress-delete-form{margin-top:18px}
 .progress-chat-source{margin:-2px 0 10px;padding:7px 10px;border:1px solid var(--el-color-primary-light-7);border-radius:6px;color:var(--el-color-primary-dark-2);background:rgba(255,255,255,.72);font-size:12px;line-height:1.5}
 .inline-manager-select{width:100%}.order-no-field{display:flex;width:100%;align-items:center;gap:8px}.order-no-field>:first-child{min-width:0;flex:1}.order-no-change-form{margin-top:18px}
-.annotation-row-actions{display:inline-grid;grid-template-columns:16px 78px;align-items:center;justify-content:center;gap:6px;width:100px;white-space:nowrap}
+.annotation-row-actions{display:inline-grid;grid-template-columns:16px 56px;align-items:center;justify-content:center;gap:4px;width:78px;white-space:nowrap}
 .arrangement-status-slot{display:inline-flex;align-items:center;justify-content:center;width:16px;height:24px}
 .arrangement-included-indicator{color:var(--el-color-success);font-size:16px}
-.card-header,.header-actions,.advanced-header,.section-title-row,.language-row,.repeat-title,.order-cell{display:flex;align-items:center}.card-header,.advanced-header,.section-title-row,.repeat-title{justify-content:space-between}.header-actions{gap:8px}.order-cell{min-width:0;gap:4px}.order-cell :deep(.el-popover__reference-wrapper){flex:1;min-width:0}.order-no-link{display:block;width:100%;height:auto;min-width:0;padding:0;overflow:hidden;text-align:left;text-overflow:ellipsis;white-space:nowrap}.filter-count{display:inline-flex;min-width:18px;height:18px;margin-left:5px;padding:0 5px;align-items:center;justify-content:center;border-radius:9px;color:#fff;background:var(--el-color-primary);font-size:11px}.advanced-panel{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-header{margin-bottom:12px;font-weight:600}.pagination{margin-top:20px}.form-section{margin-bottom:18px;padding:16px;border:1px solid var(--el-border-color-lighter);border-radius:8px}.form-section h3{margin:0 0 16px;font-size:16px}.section-title-row{margin-bottom:12px}.section-title-row h3{margin:0}.section-title-row--compact{margin-top:4px}.inline-section-label{color:var(--el-text-color-primary);font-size:14px;font-weight:600}.language-row{gap:10px;margin-bottom:10px}.direction-arrow{color:var(--el-color-primary);font-size:20px;font-weight:700}.new-tag{float:right;margin-left:8px}.price-card{margin-bottom:12px;padding:12px 12px 0;border:1px solid var(--el-border-color-lighter);border-radius:6px;background:var(--el-fill-color-light)}.repeat-title{margin-bottom:8px;font-weight:600}.pre-wrap{white-space:pre-wrap;word-break:break-word}.price-detail-list>div+div{margin-top:4px}.assignee-detail-item+.assignee-detail-item{margin-top:8px;padding-top:8px;border-top:1px dashed var(--el-border-color-lighter)}.assignee-detail-item .el-tag{margin-left:8px}.detail-secondary{color:var(--el-text-color-secondary);font-size:12px}.assignee-detail-item>.detail-secondary{display:flex;gap:16px;margin-top:4px}.client-source-tip{margin:-4px 0 16px}.project-name-cell{display:block;white-space:normal;word-break:break-word;line-height:1.5}.compact-datetime{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help}.action-buttons{display:inline-flex;align-items:center;flex-wrap:nowrap;white-space:nowrap}.status-switch-tag.el-tag{display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;max-width:100%;cursor:pointer;user-select:none;vertical-align:middle;transition:opacity .15s ease}.status-switch-tag :deep(.el-tag__content){display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;white-space:nowrap;line-height:1}.status-switch-text{line-height:1}.status-switch-caret{width:10px;height:10px;flex-shrink:0;margin:0;font-size:10px}.status-switch-tag:hover{opacity:.85}.status-switch-tag.is-updating{pointer-events:none;opacity:.55}.status-option-row{display:inline-flex;align-items:center;gap:8px;width:100%}.status-current-icon{color:var(--el-color-primary)}.subject-preview-field{width:100%;min-width:0}.subject-preview-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px;color:var(--el-text-color-secondary);font-size:12px;line-height:1.5}.subject-preview-toolbar .el-button{flex:none}.soft-action-button{--el-button-bg-color:var(--el-color-primary-light-9);--el-button-border-color:var(--el-color-primary-light-7);--el-button-text-color:var(--el-color-primary-dark-2);--el-button-hover-bg-color:var(--el-color-primary-light-8);--el-button-hover-border-color:var(--el-color-primary-light-5);--el-button-hover-text-color:var(--el-color-primary);flex:none;font-weight:500}
-.annotation-key-fields{border-color:var(--el-color-primary-light-7);background:var(--el-color-primary-light-9)}
-.annotation-key-fields__header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px}.annotation-key-fields__header h3{margin-bottom:0}.annotation-key-fields__header p{margin:3px 0 0;color:var(--el-text-color-secondary);font-size:12px;line-height:1.5}
+.card-header,.advanced-header,.section-title-row,.language-row,.repeat-title,.order-cell{display:flex;align-items:center}.card-header,.advanced-header,.section-title-row,.repeat-title{justify-content:space-between}.order-cell{min-width:0;gap:4px}.order-cell :deep(.el-popover__reference-wrapper){flex:1;min-width:0}.order-no-link{display:block;width:100%;height:auto;min-width:0;padding:0;overflow:hidden;text-align:left;text-overflow:ellipsis;white-space:nowrap}.filter-count{display:inline-flex;min-width:18px;height:18px;margin-left:5px;padding:0 5px;align-items:center;justify-content:center;border-radius:9px;color:#fff;background:var(--el-color-primary);font-size:11px}.advanced-panel{max-height:min(560px,calc(100vh - 120px));overflow-y:auto}.advanced-header{margin-bottom:12px;font-weight:600}.section-title-row{margin-bottom:12px}.section-title-row h3{margin:0}.section-title-row--compact{margin-top:4px}.inline-section-label{color:var(--el-text-color-primary);font-size:14px;font-weight:600}.language-row{gap:10px;margin-bottom:10px}.direction-arrow{color:var(--el-color-primary);font-size:20px;font-weight:700}.new-tag{float:right;margin-left:8px}.price-card{margin-bottom:12px;padding:12px 12px 0;border:1px solid var(--el-border-color-lighter);border-radius:6px;background:var(--el-fill-color-light)}.repeat-title{margin-bottom:8px;font-weight:600}.pre-wrap{white-space:pre-wrap;word-break:break-word}.price-detail-list>div+div{margin-top:4px}.assignee-detail-item+.assignee-detail-item{margin-top:8px;padding-top:8px;border-top:1px dashed var(--el-border-color-lighter)}.assignee-detail-item .el-tag{margin-left:8px}.detail-secondary{color:var(--el-text-color-secondary);font-size:12px}.assignee-detail-item>.detail-secondary{display:flex;gap:16px;margin-top:4px}.client-source-tip{margin:-4px 0 16px}.project-name-cell{display:block;white-space:normal;word-break:break-word;line-height:1.5}.compact-datetime{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help}.action-buttons{display:inline-flex;align-items:center;flex-wrap:nowrap;white-space:nowrap}.status-switch-tag.el-tag{display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;max-width:100%;cursor:pointer;user-select:none;vertical-align:middle;transition:opacity .15s ease}.status-switch-tag :deep(.el-tag__content){display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;white-space:nowrap;line-height:1}.status-switch-text{line-height:1}.status-switch-caret{width:10px;height:10px;flex-shrink:0;margin:0;font-size:10px}.status-switch-tag:hover{opacity:.85}.status-switch-tag.is-updating{pointer-events:none;opacity:.55}.status-option-row{display:inline-flex;align-items:center;gap:8px;width:100%}.status-current-icon{color:var(--el-color-primary)}.subject-preview-field{width:100%;min-width:0}.subject-preview-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px;color:var(--el-text-color-secondary);font-size:12px;line-height:1.5}.subject-preview-toolbar .el-button{flex:none}.soft-action-button{--el-button-bg-color:var(--el-color-primary-light-9);--el-button-border-color:var(--el-color-primary-light-7);--el-button-text-color:var(--el-color-primary-dark-2);--el-button-hover-bg-color:var(--el-color-primary-light-8);--el-button-hover-border-color:var(--el-color-primary-light-5);--el-button-hover-text-color:var(--el-color-primary);flex:none;font-weight:500}
 .annotation-language-form-item :deep(.el-form-item__content),.annotation-language-panel{width:100%}.annotation-language-panel .section-title-row h3{font-size:15px}
 .annotation-language-reserve-cell{display:flex;align-items:baseline;flex-wrap:wrap;line-height:1.45}.language-item-separator{color:var(--el-text-color-secondary)}
 .progress-entry-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:2px 0 10px}
@@ -1453,7 +1420,7 @@ watch(dialogVisible,visible=>{if(visible)chatAudience.value=[]})
 .progress-draft-indicator{display:inline-block;margin-left:6px;font-size:10px;opacity:.8}
 .progress-current-status{color:var(--el-text-color-secondary);font-size:12px}
 @media(max-width:768px){.progress-entry-actions .progress-entry-mode{flex-wrap:wrap;justify-content:flex-start;gap:8px}.progress-entry-actions>.el-button{align-self:flex-end}}
-@media(max-width:768px){.annotation-search-toolbar{gap:8px;flex-wrap:wrap}.annotation-search-toolbar .project-list-primary-filters{flex-basis:100%}.annotation-search-actions{margin-bottom:0}.annotation-table :deep(.el-table-fixed-column--left),.annotation-table :deep(.el-table-fixed-column--right){position:static!important;z-index:auto!important;right:auto!important;left:auto!important}.progress-dialog-heading{align-items:flex-start;flex-direction:column;gap:5px}.progress-dialog-project{width:100%;align-items:flex-start;flex-direction:column;gap:3px}.progress-dialog-project__separator{display:none}.progress-dialog-project__name{white-space:normal;word-break:break-word}.progress-entry-panel__header{align-items:flex-start;flex-direction:column}.progress-entry-mode{width:100%;justify-content:space-between}.progress-note-control{align-items:stretch;flex-direction:column}.progress-note-control .el-button{align-self:flex-end}}
+@media(max-width:768px){.annotation-table :deep(.el-table-fixed-column--left),.annotation-table :deep(.el-table-fixed-column--right){position:static!important;z-index:auto!important;right:auto!important;left:auto!important}.progress-dialog-heading{align-items:flex-start;flex-direction:column;gap:5px}.progress-dialog-project{width:100%;align-items:flex-start;flex-direction:column;gap:3px}.progress-dialog-project__separator{display:none}.progress-dialog-project__name{white-space:normal;word-break:break-word}.progress-entry-panel__header{align-items:flex-start;flex-direction:column}.progress-entry-mode{width:100%;justify-content:space-between}.progress-note-control{align-items:stretch;flex-direction:column}.progress-note-control .el-button{align-self:flex-end}}
 
 /* 与笔译列表一致：序号下方放置展开按钮，原生展开列仅承载展开内容。 */
 .annotation-index-cell { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-height: 40px; line-height: 20px; }
@@ -1495,14 +1462,15 @@ watch(dialogVisible,visible=>{if(visible)chatAudience.value=[]})
   .annotation-card .card-header > span { flex: 1 0 100%; font-size: 16px; font-weight: 600; }
   .annotation-card .header-actions { justify-content: flex-start; gap: 6px; width: 100%; }
   .annotation-card .header-actions :deep(.el-button) { padding: 5px 9px; font-size: 12px; }
-  .annotation-card .annotation-search-toolbar { flex-direction: column; align-items: stretch; gap: 8px; }
-  .annotation-card .annotation-search-toolbar .project-list-primary-filters { flex: none; flex-direction: column; gap: 8px; width: 100%; }
+  .annotation-card .project-list-search-form { flex-direction: column; align-items: stretch; gap: 8px; }
+  .annotation-card .project-list-primary-filters { flex: none; flex-direction: column; gap: 8px; width: 100%; }
   .annotation-card .project-list-primary-filters > .el-form-item { flex: none; }
-  .annotation-card .project-list-keyword-filter { width: 100%; margin-right: 0; }
+  .annotation-card .project-list-keyword-filter,
+  .annotation-card .project-list-status-filter,
+  .annotation-card .project-list-parent-filter { width: 100%; max-width: 100%; margin-right: 0; }
   .annotation-card .project-list-keyword-filter :deep(.el-form-item__content) { flex: 1; min-width: 0; }
-  .annotation-card .annotation-search-toolbar .el-select { width: 100% !important; }
-  .annotation-card .annotation-search-actions { width: 100%; margin-right: 0; }
-  .annotation-card .annotation-search-actions :deep(.el-form-item__content) { flex-wrap: wrap; gap: 6px; }
+  .annotation-card .project-list-search-actions { width: 100%; margin-right: 0; }
+  .annotation-card .project-list-search-actions :deep(.el-form-item__content) { flex-wrap: wrap; gap: 6px; }
   .annotation-card .annotation-table { flex: none; min-height: 0; margin-top: 8px; }
   .annotation-card :deep(> .el-card__body > .pagination) { justify-content: center; margin-top: 12px; }
   .annotation-card :deep(.order-cell) { flex-direction: column; align-items: stretch; gap: 4px; }

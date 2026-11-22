@@ -182,6 +182,7 @@
         />
       </template>
       <div ref="editorBodyRef" class="talent-editor-body" :inert="saving" :aria-busy="saving">
+        <SavedDataConflict ref="editConflictRef" :pending="editConflicts" :format-label="editConflictLabel" @resolve="resolveEditConflict" />
         <AppForm number-scope="talent" number-field="resourceCode" :number-active="editorVisible && creatingTalent && !form.id" ref="formRef" :model="form" :rules="rules" label-position="top" class="talent-editor-form"><el-tabs v-model="resumeTab"><el-tab-pane label="中文简历" name="zh"><CollapsibleSections :reset-key="editorSectionsKey">
         <template #actions><TalentResumeYear v-model="form.resumeProfile.resumeYear" field-path="resumeProfile.resumeYear" /></template>
         <el-collapse-item  name="editor-section-1" data-section-key="editor-section-1" title="姓名与身份"><div class="form-section">
@@ -381,6 +382,11 @@ import ListFilterSelect from '@/components/common/ListFilterSelect.vue'
 import ConfiguredColumnHeaderFilter from '@/components/common/ConfiguredColumnHeaderFilter.vue'
 import DialogFieldSearchHeader from '@/components/common/DialogFieldSearchHeader.vue'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'
+import SavedDataConflict from '@/components/common/SavedDataConflict.vue'
+import { manageSavedModelSync } from '@/utils/savedDataRegistry'
+import { copySavedValue, savedFieldKey } from '@/utils/savedDataMerge'
+import { talentAuditLabels } from '@/utils/talentAuditLabels'
+import { mergeTalentEdit, talentEditValues } from '@/utils/talentEditDraft'
 import {talentPhotoCategories,validTalentPhoto} from '@/utils/talentPhotoCategories'
 import TalentQuickRegisterDialog from './components/TalentQuickRegisterDialog.vue'
 import ResumeExperienceGrid from './components/ResumeExperienceGrid.vue'
@@ -661,6 +667,11 @@ const emptyForm=()=>({
   careerProfile:{industries:[],functions:[],jobTitles:[],yearsExperience:null,preferredLocations:[],expectedSalary:'',summary:''},
 })
 const form=reactive(emptyForm())
+// 整表保存使用打开时的精确版本，由编辑器统一合并最新档案和草稿。
+manageSavedModelSync(form)
+const editConflicts = ref([])
+const editConflictRef = ref(null)
+let editBaseline = null
 const otherNamesText=computed({get:()=>form.otherNames.join('\n'),set:value=>{form.otherNames=String(value||'').split(/\r?\n/)}})
 const resumeTab=ref('zh'),foreignResumeLocale=ref('ar')
 watch([resumeTab,foreignResumeLocale],()=>{if(resumeTab.value!=='zh')ensureResumeVersion(form.resumeProfile,resumeTab.value==='en'?'en':foreignResumeLocale.value)},{flush:'sync'});const formRef=ref(null);const editorVisible=ref(false);const saving=ref(false);const editorTitle=ref('新增人才');const nameFieldsExpanded=ref(true)
@@ -701,7 +712,20 @@ const queueAttachment=(category,file)=>{
   if(!queuedAttachments[category].some(item=>item.uid===file.uid))queuedAttachments[category].push(file)
 }
 const unqueueAttachment=(category,file)=>{queuedAttachments[category]=queuedAttachments[category].filter(item=>item.uid!==file.uid)}
-const {beginDraft,pauseDraft,clearDraft}=useFormDraft({namespace:'talent',form,createDefault:emptyForm,formRef,applyDraft:restored=>{Object.assign(form,emptyForm(),restored);form.resumeProfile=resumeProfileForm(form.resumeProfile,form)}})
+const { beginDraft, pauseDraft, clearDraft, startFreshDraft } = useFormDraft({
+  namespace: 'talent', form, createDefault: emptyForm, formRef,
+  canRestoreCloud: () => !saving.value,
+  draftComparison: values => ({ ...values, unresolvedEditPaths: editConflicts.value.map(row => row.path) }),
+  captureContext: () => editBaseline && { base: editBaseline.values, unresolved: editConflicts.value.map(row => row.path) },
+  applyDraft(restored, key, context) {
+    if (key === 'create' && !restored.id) {
+      Object.assign(form, emptyForm(), restored)
+      form.resumeProfile = resumeProfileForm(form.resumeProfile, form)
+    } else if (key === `edit:${form.id}` && restored.id === form.id && editBaseline) {
+      applyEditChanges(restored, context?.base, context?.unresolved, true)
+    }
+  },
+})
 const editorBodyRef=ref(null)
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField:locateDialogFieldBase,clearFieldSearch}=useDialogFieldSearch(editorBodyRef)
 const locateDialogField=async item=>{if(['中文姓名','外文姓名','昵称','其他名字'].includes(item?.searchLabel))nameFieldsExpanded.value=true;await nextTick();return locateDialogFieldBase(item)}
@@ -712,9 +736,46 @@ const cleanAnnotationProfile=p=>p?{...p,qualityScore:blankToNull(p.qualityScore)
 const cleanCareerProfile=p=>p?{...p,expectedSalary:blankToNull(p.expectedSalary),summary:blankToNull(p.summary)}:null
 const contactPayloadKeys=['identityNumber','contactInfo','primaryPhone','secondaryPhone','primaryEmail','secondaryEmail','otherContact','wechat','whatsapp','skype','line']
 const talentManagedPayloadKeys=['interpretationDomains','interpretationRating','interpretationRatingNote','writtenTranslationScore','writtenTranslationEvaluation','annotationWillingness','talentGrade','overallScore','overallRating','cooperationLevel','cooperationNote','punctualityLevel','punctualityNote','audioAnnotationScore','audioAnnotationEvaluation','nonAudioAnnotationScore','nonAudioAnnotationEvaluation','collectionScore','collectionEvaluation']
+const editFields = Object.keys(emptyForm())
+function editableValues(values, restoring = false) {
+  const excluded = []
+  if (isRecruitmentPool.value) excluded.push(...talentManagedPayloadKeys, 'capabilityTypes', 'writtenProfile', 'interpretationProfile', 'annotationProfile', 'annotationLanguageSkills')
+  if (!canViewContacts.value) {
+    excluded.push('settlement')
+    if (restoring && values.contactRestricted !== true) excluded.push(...contactPayloadKeys)
+  }
+  return talentEditValues(values, editFields, excluded)
+}
+function applyEditChanges(draft, base, unresolved = [], restoring = false) {
+  const { values, changes } = mergeTalentEdit(editBaseline.values, editableValues(draft, restoring), base, unresolved)
+  // 云端撤回本机草稿时也从打开时的档案恢复，避免沿用已撤回的输入。
+  const latest = copySavedValue(editBaseline.form)
+  for (const key of ['resumeProfile', 'settlement']) {
+    if (values[key]) values[key] = { ...values[key], revision: latest[key].revision }
+  }
+  Object.assign(form, latest, values)
+  editConflicts.value = changes
+}
+function setEditBaseline(detail) {
+  const latest = copySavedValue(fromDetail(detail))
+  editBaseline = { form: latest, version: latest.updatedAt, values: editableValues(latest) }
+  Object.assign(form, copySavedValue(latest))
+}
+const editConflictLabel = path => path.split('.').map(key => talentAuditLabels[savedFieldKey(key)] || key).join(' / ')
+function resolveEditConflict(row, acceptLatest) {
+  if (acceptLatest) {
+    const target = row.keys.slice(0, -1).reduce((value, key) => value?.[key], form)
+    const key = row.keys.at(-1)
+    if (target && row.latest === undefined) delete target[key]
+    else if (target) target[key] = copySavedValue(row.latest)
+  }
+  editConflicts.value = editConflicts.value.filter(item => item.path !== row.path)
+}
 function resetForm() {
   resumeTab.value='zh'
-  Object.assign(form, emptyForm())
+  Object.assign(form, emptyForm(), { updatedAt: null })
+  editBaseline = null
+  editConflicts.value = []
   nameFieldsExpanded.value = true
   queuedAttachments.photo = []
   queuedAttachments.id_photo = []
@@ -759,11 +820,11 @@ async function openCreate() {
   await beginDraft('create')
 }
 function fromDetail(d){if(d.contactRestricted)d={...d,...Object.fromEntries(contactPayloadKeys.map(key=>[key,'']))};const base=emptyForm();return {...base,...d,settlement:settlementForm(d.settlement),resumeProfile:resumeProfileForm(d.resumeProfile,d),evaluationOriginal:evaluationSnapshot(d),id:d.id,wechatAccounts:normalizeWechatAccounts(d.wechatAccounts,d.wechatAccount),wechatAccountsOriginal:normalizeWechatAccounts(d.wechatAccounts,d.wechatAccount),wechatAccountsRevision:d.wechatAccountsRevision||1,...resumeNamesWithAliases(d),birthYearMonth:d.birthYearMonth||String(d.birthDate||'').slice(0,7)||null,capabilityTypes:d.capabilityTypes||[],educationExperiences:educationFormRows(d.educationExperiences||[],d.resumeProfile?.educationPeriods),languageSkills:normalizeForeignLanguagePriorities(d.languageSkills||[]).map(item=>({...item,expectedAccent:item.accent||'',_key:recordKey()})),certificates:(d.certificates||[]).map(item=>({...item,_key:recordKey()})),attachments:d.attachments||[],writtenProfile:{...base.writtenProfile,...(d.writtenProfile||{})},interpretationProfile:{...base.interpretationProfile,...(d.interpretationProfile||{})},annotationProfile:{...base.annotationProfile,...(d.annotationProfile||{})},annotationLanguageSkills:(d.annotationLanguageSkills||[]).map(item=>({sourceLanguageId:item.sourceLanguageId,targetLanguageId:item.targetLanguageId||null})),careerProfile:{...base.careerProfile,...(d.careerProfile||{})}}}
-async function openEdit(row){const detail=await loadDetail(row.id,true);if(!detail)return;if(detail.archivedIntoId){ElMessage.info('此档案已归档，请打开保留档案');return}pauseDraft();resetForm();creatingTalent.value=false;keepBatchInfo.value=false;Object.assign(form,fromDetail(detail));nameFieldsExpanded.value=true;editorTitle.value=`编辑人才：${displayTalentName(detail,'人才')}`;editorVisible.value=true;await beginDraft(`edit:${detail.id}`)}
+async function openEdit(row){const detail=await loadDetail(row.id,true);if(!detail)return;if(detail.archivedIntoId){ElMessage.info('此档案已归档，请打开保留档案');return}pauseDraft();resetForm();creatingTalent.value=false;keepBatchInfo.value=false;setEditBaseline(detail);nameFieldsExpanded.value=true;editorTitle.value=`编辑人才：${displayTalentName(detail,'人才')}`;editorVisible.value=true;await beginDraft(`edit:${detail.id}`)}
 const cleanChild=item=>Object.fromEntries(Object.entries(item).filter(([key])=>key!=='_key'&&key!=='languageLabel'))
 const payload=(allowDuplicate=false)=>{
   const result={
-    ...(form.id ? { expectedUpdatedAt: form.updatedAt } : {}),
+    ...(form.id ? { expectedUpdatedAt: editBaseline?.version ?? form.updatedAt } : {}),
     resourceCode:form.resourceCode||null,
     resumeProfile:JSON.parse(JSON.stringify(resumeProfileForm(form.resumeProfile,form))),
     identityNumber:form.identityNumber?.trim()||null,eyesight:form.eyesight?.trim()||null,
@@ -825,7 +886,7 @@ async function flushQueuedAttachments(personId) {
 }
 async function removeSavedAttachment(item){try{await ElMessageBox.confirm(`确认删除附件“${item.originalName}”？`,'删除附件',{type:'warning'});await talentApi.deleteTalentAttachment(form.id,item.id);form.attachments=form.attachments.filter(value=>value.id!==item.id);delete detailCache[form.id];ElMessage.success('附件已删除')}catch(error){if(error!=='cancel'&&error!=='close')ElMessage.error(error.detail||'删除附件失败')}}
 async function submit(continueCreating = false) {
-  if (saving.value) return
+  if (saving.value || editConflictRef.value?.checkBeforeSave() === false) return
   saving.value = true
   continuingSave.value = continueCreating && canContinueCreate.value
   let invalidForm = false
@@ -855,6 +916,23 @@ async function submit(continueCreating = false) {
       saved = await savePayload()
     } catch (error) {
       const detail = error.rawDetail
+      if (editBaseline && (detail?.code === 'talent_version_conflict' ||
+          String(detail).startsWith('该人才已被其他人修改，请重新打开并核对后保存'))) {
+        const draft = copySavedValue(form)
+        const base = editBaseline.values
+        const latest = await loadDetail(form.id, true)
+        if (!latest) return
+        if (latest.archivedIntoId) { ElMessage.warning('此档案已归档，请打开保留档案；当前输入已保留'); return }
+        setEditBaseline(latest)
+        applyEditChanges(draft, base)
+        if (editConflicts.value.length) {
+          await nextTick()
+          editConflictRef.value?.checkBeforeSave()
+        } else {
+          ElMessage.info('已合并最新档案和本次修改，请确认后保存')
+        }
+        return
+      }
       if (detail?.code !== 'duplicate_talent') throw error
       const first = detail.duplicates?.[0]
       let openExisting = false
@@ -875,12 +953,18 @@ async function submit(continueCreating = false) {
     }
     // 档案已落库：后续附件失败也必须使用同一 ID 更新，不能再次创建。
     form.id = saved.id
+    form.updatedAt = saved.updatedAt
     form.resourceCode = saved.resourceCode || form.resourceCode
     form.wechatAccounts = normalizeWechatAccounts(saved.wechatAccounts, saved.wechatAccount)
     form.wechatAccountsOriginal = [...form.wechatAccounts]
     form.wechatAccountsRevision = saved.wechatAccountsRevision || 1
     if(saved.settlement)form.settlement.revision=saved.settlement.revision
     if(saved.resumeProfile)form.resumeProfile.revision=saved.resumeProfile.revision
+    if (Object.values(queuedAttachments).some(items => items.length)) {
+      editBaseline = { form: copySavedValue(form), version: form.updatedAt, values: editableValues(form) }
+      clearDraft()
+      startFreshDraft(`edit:${saved.id}`)
+    }
     delete detailCache[saved.id]
     attachmentStage = true
     await flushQueuedAttachments(saved.id)

@@ -10,7 +10,7 @@
             :aria-pressed="defaultExpandSubOrders"
             title="切换子订单默认展开模式，自动记住当前用户的选择"
             @click="toggleDefaultSubOrderExpansion"
-          >子订单：{{ defaultExpandSubOrders ? '默认展开' : '默认收起' }}</el-button>
+          >子订单：{{ defaultExpandSubOrders ? '展开' : '收起' }}</el-button>
           <el-button v-if="!deleteMode" @click="subClientQueryVisible = true">子客户查询</el-button>
           <el-button v-if="!deleteMode" @click="statisticsVisible=true">数据统计</el-button>
           <ProjectExportMenu v-if="!deleteMode" module="translation" :build-filters="buildFilterParams" :sort="sortMode" />
@@ -49,7 +49,7 @@
           <el-input v-model="searchForm.keyword" placeholder="母/子订单号、项目名称、文件名称、客户名称或客户单号" clearable @input="handleTextSearch" @keyup.enter="handleSearch" />
         </el-form-item>
         <el-form-item label="项目状态" class="project-list-status-filter">
-          <ListFilterSelect v-model="searchForm.projectStatus" collapse-tags :max-collapse-tags="1" placeholder="请选择状态" clearable @change="handleSearch">
+          <ListFilterSelect v-model="searchForm.projectStatus" collapse-tags :max-collapse-tags="1" placeholder="全部" clearable @change="handleSearch">
             <el-option v-for="item in projectStatusOptions" :key="item.value" :label="item.label" :value="item.value" />
           </ListFilterSelect>
         </el-form-item>
@@ -219,7 +219,7 @@
       <el-table-column label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.indexExpandable" align="center">
         <template #default="{ row, $index }">
           <div class="index-cell">
-            <span>{{ $index + 1 }}</span>
+            <span>{{ (pagination.page - 1) * pagination.limit + $index + 1 }}</span>
             <TableExpandButton
               v-if="getSubOrderCount(row)"
               :expanded="isProjectExpanded(row)"
@@ -267,8 +267,8 @@
       :total="pagination.total"
       :page-sizes="[10, 20, 50, 100]"
       layout="total, sizes, prev, pager, next, jumper"
-      @size-change="applyPagination"
-      @current-change="applyPagination"
+      @size-change="handlePageSizeChange"
+      @current-change="handlePageChange"
     />
     </ProjectArrangementLayout>
 
@@ -320,8 +320,8 @@
               </template>
               <el-alert v-if="!form.id && motherTab.name === 'basic'" title="本选项卡仅用于新增母订单和母订单有多个翻译方向、自动生成子订单的情况。如在新增母订单的过程中需要补充子订单，请填写完本选项卡内容后，再到“补充子订单”选项卡补充。" type="info" :closable="false" show-icon class="sub-order-alert" />
               <div class="form-section">
-                <div class="project-key-fields">
-                  <div class="project-key-fields__header">
+                <div class="project-key-fields unified-form-section unified-key-fields">
+                  <div class="project-key-fields__header unified-section-header">
                     <div>
                       <h3>关键必填信息</h3>
                       <p>请优先完成以下内容，再补充其余项目资料。</p>
@@ -550,7 +550,7 @@
                   <el-col :xs="24" :md="12"><el-form-item label="状态" prop="projectStatus" data-field-key="projectStatus"><el-select v-model="form.projectStatus" clearable style="width: 100%"><el-option v-for="item in projectStatusOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select><OrderFieldHint :order="form" field="status" /></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
-                  <el-col :xs="24">
+                  <el-col :xs="24" :md="12">
                     <el-form-item label="标题前缀">
                       <el-select
                         v-model="form.subjectPrefix"
@@ -565,19 +565,6 @@
                       </el-select>
                     </el-form-item>
                   </el-col>
-                  <el-col :xs="24">
-                    <el-form-item label="邮件主题预览" data-field-key="emailSubjectPreview">
-                      <div class="subject-preview-field">
-                        <el-input v-model="form.emailSubjectPreview" type="textarea" :rows="2" />
-                        <div class="subject-preview-toolbar">
-                          <span>按“标题前缀、订单号、客户简称、翻译方向、交稿时间、批次”顺序生成，不使用文件名或客户单号。</span>
-                          <el-button class="soft-action-button" :icon="MagicStick" @click="generateEmailSubject">生成邮件主题</el-button>
-                        </div>
-                      </div>
-                    </el-form-item>
-                  </el-col>
-                </el-row>
-                <el-row :gutter="16">
                   <el-col :xs="24" :md="12">
                     <el-form-item label="任务类型" data-field-key="taskType">
                       <el-select
@@ -594,17 +581,29 @@
                   </el-col>
                 </el-row>
                 <el-row :gutter="16">
+                  <el-col :xs="24">
+                    <el-form-item label="邮件主题预览" data-field-key="emailSubjectPreview">
+                      <div class="subject-preview-field">
+                        <el-input v-model="form.emailSubjectPreview" type="textarea" :rows="2" />
+                        <div class="subject-preview-toolbar">
+                          <span>按“标题前缀、订单号、客户简称、翻译方向、交稿时间、批次”顺序生成，不使用文件名或客户单号。</span>
+                          <el-button class="soft-action-button" :icon="MagicStick" @click="generateEmailSubject">生成邮件主题</el-button>
+                        </div>
+                      </div>
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+                <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="客户编号" data-field-key="clientCode"><ReadonlyField :model-value="form.clientCode" source="auto" :placeholder="form.clientId ? '选择客户后自动带出' : '保存后自动生成'" /></el-form-item></el-col>
                   <el-col :xs="24" :md="12"><el-form-item label="子客户编号" data-field-key="subClientCode"><ReadonlyField :model-value="form.subClientCode" source="auto" placeholder="选择子客户后自动带出" /></el-form-item></el-col>
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><el-form-item label="客户单号" data-field-key="customerOrderNo"><el-input v-model="form.customerOrderNo" placeholder="客户公司内部用于记录该外包项目的单号" /></el-form-item></el-col>
+                  <el-col :xs="24" :md="12"><el-form-item label="文本类型" data-field-key="fileTypeSecondary"><el-input v-model="form.fileTypeSecondary" /><OrderFieldHint :order="form" field="fileTypeSecondary" /></el-form-item></el-col>
+                </el-row>
+                <el-row :gutter="16">
                   <el-col :xs="24" :md="12"><ProjectClientManagerField v-model="form.clientManagerId" v-model:reason="form.clientManagerChangeReason" :baseline-id="clientManagerBaseline" :baseline-name="form.clientManager" :project-id="form.id" project-type="translation" /></el-col>
                 </el-row>
-
-                      <el-row :gutter="16">
-                  <el-col :xs="24" :md="12"><el-form-item label="文本类型" data-field-key="fileTypeSecondary"><el-input v-model="form.fileTypeSecondary" /><OrderFieldHint :order="form" field="fileTypeSecondary" /></el-form-item></el-col>
-                      </el-row>
                     </div>
                   </el-collapse-item>
 
@@ -1449,65 +1448,69 @@ const headerFilterDefinition = (columnKey) => {
   return translationFilterFields.find((item) => item.key === fieldKey) || null
 }
 const tableColumnOverrides = {
-  orderNo: { width: PROJECT_LIST_COLUMN_WIDTHS.orderNo, minWidth: PROJECT_LIST_COLUMN_WIDTHS.orderNo, showOverflowTooltip: false, clickHint: '点击订单号查看笔译项目管理' },
-  sourceFileName: { minWidth: PROJECT_LIST_COLUMN_WIDTHS.projectName },
-  serviceContent: { minWidth: 96 },
-  taskType: { minWidth: 110 },
-  clientShortName: { minWidth: 180 },
-  subClientShortName: { minWidth: PROJECT_LIST_COLUMN_WIDTHS.clientShortName },
-  clientCode: { minWidth: 100 },
-  subClientCode: { minWidth: 120 },
-  customerOrderNo: { minWidth: 120 },
-  projectManagerName: { minWidth: 90 },
-  clientManager: { minWidth: 110 },
-  contactName: { minWidth: 150 },
-  projectStatus: { label: '项目状态', minWidth: PROJECT_LIST_COLUMN_WIDTHS.projectStatus, showOverflowTooltip: false },
-  fileTypeSecondary: { minWidth: 110 },
-  projectFileTranslationDomainLevel1: { minWidth: 180 },
-  projectFileTranslationDomainLevel2: { minWidth: 180 },
-  projectFileTypeLevel1: { minWidth: 180 },
-  projectFileTypeLevel2: { minWidth: 180 },
-  projectFileFormat: { minWidth: 100 },
-  projectFileAttributeLevel1: { minWidth: 200 },
-  projectFileAttributeLevel2: { minWidth: 200 },
-  projectFileAttributeLevel3: { minWidth: 200 },
-  projectFileDifficulty: { minWidth: 96 },
-  projectContractType: { minWidth: 180 },
-  projectContractStatus: { minWidth: 140 },
-  quotationRequired: { minWidth: 200 },
-  quotationStatus: { minWidth: 140 },
-  quotationPath: { minWidth: 240 },
-  customerRequirementProfessional: { minWidth: 240 },
-  customerRequirementSpecial: { minWidth: 240 },
-  remarks: { minWidth: 240 },
-  languagePair: { width: 110, minWidth: 100, showOverflowTooltip: false },
-  priority: { minWidth: 80 },
-  wordCountMatrix: { label: '工作量统计', width: 110, minWidth: 100, showOverflowTooltip: false, clickHint: '点击查看项目工作量统计' },
-  customerReceptionTime: { minWidth: 150 },
-  customerDeadlineTime: { width: 170, minWidth: 160, showOverflowTooltip: false },
-  sentToClientTime: { minWidth: 150 },
-  clientFeedback: { minWidth: 240 },
-  majorProjectManagerConfirmation: { minWidth: 160 },
-  assignedTranslators: { width: 100, minWidth: 96, showOverflowTooltip: false },
-  translatorReturnTime: { minWidth: 190 },
-  translatorAssignmentTime: { minWidth: 150 },
-  translatorDeliveryProgress: { minWidth: 110 },
-  preReviewQcProgress: { minWidth: 96 },
-  review1Progress: { minWidth: 84 },
-  review2Progress: { minWidth: 84 },
-  postReviewQcProgress: { minWidth: 96 },
-  layoutProgress: { minWidth: 90 },
-  consolidationProgress: { minWidth: 90 },
-  createdBy: { minWidth: 280 },
-  createdAt: { minWidth: 150 },
-  updatedAt: { minWidth: 150 },
+  orderNo: { width: PROJECT_LIST_COLUMN_WIDTHS.orderNo, showOverflowTooltip: false, clickHint: '点击订单号查看笔译项目管理' },
+  sourceFileName: { minWidth: 180 },
+  serviceContent: { width: 100 },
+  taskType: { width: 108 },
+  clientShortName: { width: PROJECT_LIST_COLUMN_WIDTHS.clientShortName },
+  subClientShortName: { width: 104 },
+  clientCode: { width: 96 },
+  subClientCode: { width: 112 },
+  customerOrderNo: { width: 120 },
+  projectManagerName: { width: PROJECT_LIST_COLUMN_WIDTHS.personName },
+  clientManager: { width: PROJECT_LIST_COLUMN_WIDTHS.personName },
+  contactName: { width: 120 },
+  projectStatus: { label: '项目状态', width: PROJECT_LIST_COLUMN_WIDTHS.projectStatus, showOverflowTooltip: false },
+  fileTypeSecondary: { width: 108 },
+  projectFileTranslationDomainLevel1: { minWidth: 150 },
+  projectFileTranslationDomainLevel2: { minWidth: 150 },
+  projectFileTypeLevel1: { minWidth: 140 },
+  projectFileTypeLevel2: { minWidth: 140 },
+  projectFileFormat: { width: 96 },
+  projectFileAttributeLevel1: { minWidth: 150 },
+  projectFileAttributeLevel2: { minWidth: 150 },
+  projectFileAttributeLevel3: { minWidth: 150 },
+  projectFileDifficulty: { width: 90 },
+  projectContractType: { width: 130 },
+  projectContractStatus: { width: 110 },
+  quotationRequired: { width: 108 },
+  statementRequired: { width: PROJECT_LIST_COLUMN_WIDTHS.booleanFlag },
+  quotationStatus: { width: 110 },
+  quotationPath: { minWidth: 200 },
+  customerRequirementProfessional: { minWidth: 200 },
+  customerRequirementSpecial: { minWidth: 200 },
+  remarks: { minWidth: 180 },
+  languagePair: { width: 104, showOverflowTooltip: false },
+  priority: { width: 80 },
+  wordCountMatrix: { label: '工作量统计', width: PROJECT_LIST_COLUMN_WIDTHS.workload, showOverflowTooltip: false, clickHint: '点击查看项目工作量统计' },
+  customerReceptionTime: { width: PROJECT_LIST_COLUMN_WIDTHS.dateTime },
+  customerDeadlineTime: { width: PROJECT_LIST_COLUMN_WIDTHS.deadlineTime, showOverflowTooltip: false },
+  sentToClientTime: { width: PROJECT_LIST_COLUMN_WIDTHS.dateTime },
+  clientFeedback: { minWidth: 180 },
+  majorProjectManagerConfirmation: { width: 140 },
+  assignedTranslators: { width: 112, showOverflowTooltip: false },
+  translatorReturnTime: { width: PROJECT_LIST_COLUMN_WIDTHS.deadlineTime },
+  translatorAssignmentTime: { width: PROJECT_LIST_COLUMN_WIDTHS.dateTime },
+  translatorDeliveryProgress: { width: 104 },
+  preReviewQcProgress: { width: 96 },
+  review1Progress: { width: 84 },
+  review2Progress: { width: 84 },
+  postReviewQcProgress: { width: 96 },
+  layoutProgress: { width: 90 },
+  consolidationProgress: { width: 90 },
+  createdBy: { width: 100 },
+  createdAt: { width: PROJECT_LIST_COLUMN_WIDTHS.dateTime },
+  updatedAt: { width: PROJECT_LIST_COLUMN_WIDTHS.dateTime },
 }
-const tableColumns = projectDetailItems.filter((item) => item.key !== 'translatorCompletionRemarks').map((item) => ({
-  ...item,
-  minWidth: 140,
-  showOverflowTooltip: true,
-  ...(tableColumnOverrides[item.key] || {}),
-}))
+const tableColumns = projectDetailItems.filter((item) => item.key !== 'translatorCompletionRemarks').map((item) => {
+  const override = tableColumnOverrides[item.key] || {}
+  return {
+    ...item,
+    ...(override.width ? {} : { minWidth: 140 }),
+    showOverflowTooltip: true,
+    ...override,
+  }
+})
 const subOrderTableColumns = [
   { key: 'subProjectName', label: '文件名称' },
   { key: 'languagePair', label: '翻译方向' },
@@ -1882,6 +1885,15 @@ const getVisibleSubOrders = (row) => [...getFilteredSubOrders(row)].sort(compare
 const applyPagination = () => {
   clearProjectExpansion()
   fetchData({ expandSubOrders: hasSubOrderListFilter() })
+}
+const handlePageChange = () => {
+  exitDeleteMode()
+  applyPagination()
+}
+const handlePageSizeChange = () => {
+  exitDeleteMode()
+  pagination.page = 1
+  applyPagination()
 }
 const cleanPayload = (payload) => {
   const result = { ...payload }
@@ -2904,19 +2916,6 @@ useProjectStatusSync('translation',tableData,{enabled:()=>!props.editorOnly,onCh
 .translation-editor-only{border:0;box-shadow:none;background:transparent}
 .translation-editor-only :deep(.el-card__body){padding:0}
 :deep(.workbench-target-row > td.el-table__cell) { background: var(--el-color-primary-light-9) !important; }
-.search-form {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 6px 10px;
-  margin-bottom: 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
-  background: var(--el-fill-color-extra-light);
-}
-.search-form :deep(.el-form-item) { margin: 0; }
-.header-actions { display: flex; align-items: center; gap: 12px; }
 .advanced-filter-content { max-height: min(560px, calc(100vh - 120px)); overflow-y: auto; }
 .advanced-filter-footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 8px; border-top: 1px solid var(--el-border-color-lighter); }
 :global(.advanced-filter-popover) { max-width: calc(100vw - 32px) !important; }

@@ -32,7 +32,7 @@
           />
         </el-form-item>
         <el-form-item label="咨询状态" class="project-list-status-filter">
-          <ListFilterSelect v-model="searchForm.status" collapse-tags collapse-tags-tooltip placeholder="全部" clearable @change="handleSearch">
+          <ListFilterSelect v-model="searchForm.status" collapse-tags :max-collapse-tags="1" collapse-tags-tooltip placeholder="全部" clearable @change="handleSearch">
             <el-option
               v-for="item in consultationStatusOptions"
               :key="item.value"
@@ -68,8 +68,10 @@
     <el-table :height="props.embedded ? undefined : '100%'" ref="consultationTableRef" :data="tableData" v-loading="loading" row-key="id" border class="consultation-list-table project-detail-list-table" @selection-change="handleDeleteSelectionChange">
 <OrderedTableColumns settings-key="client-consultations">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
-      <el-table-column type="index" label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center" />
-      <el-table-column prop="consultation_code" label="咨询编号" width="160">
+      <el-table-column label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center">
+        <template #default="{ $index }">{{ (pagination.page - 1) * pagination.limit + $index + 1 }}</template>
+      </el-table-column>
+      <el-table-column prop="consultation_code" label="咨询编号" :width="PROJECT_LIST_COLUMN_WIDTHS.consultationCode">
         <template #header>
           <ConfiguredColumnHeaderFilter
             :definition="headerFilterDefinition('consultation_code')"
@@ -215,6 +217,7 @@
         :prop="column.key"
         :label="column.label"
         :width="column.width"
+        :min-width="column.minWidth"
         :show-overflow-tooltip="column.key !== 'status'"
       >
         <template #header>
@@ -340,7 +343,7 @@
           <span v-else>{{ row[column.key] ?? '-' }}</span>
         </template>
       </el-table-column>
-      <el-table-column v-if="canWrite && !deleteMode" label="操作" width="88" fixed="right" align="center">
+      <el-table-column v-if="canWrite && !deleteMode" label="操作" :width="PROJECT_LIST_COLUMN_WIDTHS.singleAction" fixed="right" align="center">
         <template #default="{ row }">
           <PrimaryEditButton @click="handleEdit(row)" />
         </template>
@@ -364,7 +367,7 @@
     <DraggableFormDialog
       v-model="dialogVisible"
       class="consultation-dialog"
-      width="min(1040px, calc(100vw - 32px))"
+      width="min(1080px, calc(100vw - 32px))"
       top="5vh"
       @opened="handleConsultationDialogOpened"
       @close="handleDialogClose"
@@ -1485,28 +1488,28 @@ const currentUserId = localStorage.getItem('user_id') || null
 const CONSULTATION_COLUMNS_STORAGE_KEY = `consultation_visible_columns:${currentUserId || 'anonymous'}`
 
 const consultationColumnOptions = [
-  { key: 'client_code', label: '客户编号', width: 150 },
-  { key: 'client_name', label: '客户全称', width: 200 },
-  { key: 'client_short_name', label: '客户简称', width: 150 },
-  { key: 'status', label: '咨询状态', width: 120 },
-  { key: 'consultation_time', label: '咨询时间', width: 180 },
-  { key: 'consultation_method', label: '咨询方式', width: 120 },
-  { key: 'consultation_type', label: '咨询类型', width: 140 },
-  { key: 'client_source', label: '客户来源', width: 120 },
-  { key: 'source_keyword', label: '来源关键词', width: 150 },
-  { key: 'handling_method', label: '处理方式', width: 120 },
-  { key: 'customer_service_id', label: '客户经理', width: 120, type: 'user' },
-  { key: 'sales_person_id', label: '销售人员', width: 120, type: 'user' },
-  { key: 'editor_id', label: '编辑人', width: 120, type: 'user' },
-  { key: 'follow_up_person_id', label: '跟进人', width: 120, type: 'user' },
-  { key: 'follow_up_count', label: '跟进次数', width: 100 },
-  { key: 'follow_up_time', label: '跟进时间', width: 180, type: 'datetime' },
-  { key: 'follow_up_status', label: '跟进状态', width: 150 },
-  { key: 'consultation_description', label: '咨询描述', width: 220 },
-  { key: 'follow_up_remarks', label: '跟进备注', width: 220 },
-  { key: 'remarks', label: '备注', width: 220 },
-  { key: 'created_at', label: '创建时间', width: 180, type: 'datetime' },
-  { key: 'updated_at', label: '更新时间', width: 180, type: 'datetime' },
+  { key: 'client_code', label: '客户编号', width: 108 },
+  { key: 'client_name', label: '客户全称', minWidth: 160 },
+  { key: 'client_short_name', label: '客户简称', minWidth: PROJECT_LIST_COLUMN_WIDTHS.clientShortName },
+  { key: 'status', label: '咨询状态', width: PROJECT_LIST_COLUMN_WIDTHS.projectStatus },
+  { key: 'consultation_time', label: '咨询时间', width: PROJECT_LIST_COLUMN_WIDTHS.dateTime },
+  { key: 'consultation_method', label: '咨询方式', width: 96 },
+  { key: 'consultation_type', label: '咨询类型', width: 112 },
+  { key: 'client_source', label: '客户来源', width: 96 },
+  { key: 'source_keyword', label: '来源关键词', minWidth: 116 },
+  { key: 'handling_method', label: '处理方式', width: 96 },
+  { key: 'customer_service_id', label: '客户经理', width: 88, type: 'user' },
+  { key: 'sales_person_id', label: '销售人员', width: 88, type: 'user' },
+  { key: 'editor_id', label: '编辑人', width: 88, type: 'user' },
+  { key: 'follow_up_person_id', label: '跟进人', width: 88, type: 'user' },
+  { key: 'follow_up_count', label: '跟进次数', width: PROJECT_LIST_COLUMN_WIDTHS.shortCount },
+  { key: 'follow_up_time', label: '跟进时间', width: PROJECT_LIST_COLUMN_WIDTHS.dateTime, type: 'datetime' },
+  { key: 'follow_up_status', label: '跟进状态', width: 116 },
+  { key: 'consultation_description', label: '咨询描述', minWidth: 180 },
+  { key: 'follow_up_remarks', label: '跟进备注', minWidth: 180 },
+  { key: 'remarks', label: '备注', minWidth: 180 },
+  { key: 'created_at', label: '创建时间', width: PROJECT_LIST_COLUMN_WIDTHS.dateTime, type: 'datetime' },
+  { key: 'updated_at', label: '更新时间', width: PROJECT_LIST_COLUMN_WIDTHS.dateTime, type: 'datetime' },
 ]
 const defaultVisibleColumnKeys = [
   'status',
@@ -3376,63 +3379,27 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.column-settings {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  max-height: 420px;
-  overflow-y: auto;
-  gap: 4px 12px;
-}
-
-.column-settings .el-checkbox {
-  margin-right: 0;
-}
-
-.column-settings-footer {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px solid var(--el-border-color-lighter);
-}
-
 .consultation-editor {
-  padding: 0 6px;
+  padding: 0 4px;
 }
 
 .consultation-form-section,
 .consultation-project-intake {
   position: relative;
-  margin: 0;
-  padding: 22px 8px 8px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
-
-.consultation-editor .form-section + .form-section {
-  border-top: 1px solid var(--el-border-color-lighter);
+  margin: 0 0 16px;
+  padding: 16px 18px 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
 }
 
 .consultation-form-section--primary {
-  padding-top: 4px;
+  border-color: var(--el-color-primary-light-7);
+  background: var(--el-color-primary-light-9);
 }
 
 .consultation-form-section--plain {
-  background: transparent;
+  background: var(--color-surface);
 }
 
 .consultation-confirmation-fields {
@@ -3504,34 +3471,6 @@ onBeforeUnmount(() => {
 .intake-direction-count { width: 150px; flex: 0 0 150px; }
 @media (max-width: 768px) { .intake-inline-row { align-items: stretch; flex-direction: column; } .intake-direction-count { width: 100%; flex-basis: auto; } }
 
-.consultations-card :deep(.el-card__header) {
-  padding: 10px 16px;
-}
-
-.consultations-card :deep(.el-card__body) {
-  padding: 12px 16px 14px;
-}
-
-.search-form {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 6px 10px;
-  margin-bottom: 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
-  background: var(--el-fill-color-extra-light);
-}
-
-.search-form :deep(.el-form-item) {
-  margin: 0;
-}
-
-.search-form :deep(.el-form-item:last-child) {
-  margin-left: auto;
-}
-
 .advanced-filter-count {
   display: inline-flex;
   align-items: center;
@@ -3585,9 +3524,6 @@ onBeforeUnmount(() => {
 }
 
 .consultations-pagination {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 20px;
   overflow-x: auto;
 }
 

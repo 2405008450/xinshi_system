@@ -102,10 +102,10 @@ def verify_talent_and_grouped_filters():
         close_window()
 
         operator.click()
-        panel.get_by_text('为空白', exact=True).click()
+        panel.get_by_text('空', exact=True).click()
         close_window()
         operator.click()
-        expect(panel.get_by_role('checkbox', name='为空白', exact=True)).to_be_checked()
+        expect(panel.get_by_role('checkbox', name='空', exact=True)).to_be_checked()
         with page.expect_request(lambda req: '/api/talents/page?' in req.url):
             panel.get_by_role('button', name='确定', exact=True).click()
         assert json.loads(parse_qs(urlparse(requests[-1]).query)['field_filters'][0]) == {'operator_name': {'op': 'is_empty'}}
@@ -115,7 +115,7 @@ def verify_talent_and_grouped_filters():
 
         operated_at = page.get_by_role('button', name='操作时间筛选', exact=True)
         operated_at.click()
-        panel.get_by_text('为空白', exact=True).click()
+        panel.get_by_text('空', exact=True).click()
         with page.expect_request(lambda req: '/api/talents/page?' in req.url):
             panel.get_by_role('button', name='确定', exact=True).click()
         assert json.loads(parse_qs(urlparse(requests[-1]).query)['field_filters'][0]) == {'operated_at': {'op': 'is_empty'}}
@@ -160,12 +160,12 @@ def verify_talent_and_grouped_filters():
         panel.get_by_role('button', name='确定', exact=True).click()
         expect(trigger).not_to_have_class(re.compile('is-active'))
         open_status()
-        panel.get_by_text('为空白', exact=True).click()
+        panel.get_by_text('空', exact=True).click()
         expect(panel.get_by_role('checkbox', name='活跃', exact=True)).to_have_count(0)
         with page.expect_request(lambda req: '/api/talents/page?' in req.url):
             panel.get_by_role('button', name='确定', exact=True).click()
         assert json.loads(parse_qs(urlparse(requests[-1]).query)['field_filters'][0]) == {'status': {'op': 'is_empty'}}
-        expect(page.locator('.project-list-status-filter')).to_contain_text('为空白')
+        expect(page.locator('.project-list-status-filter')).to_contain_text('空')
         print('人才总库：加载可点击、关闭保留、明确清空、文本/日期/状态空白查询 PASS', flush=True)
 
         # 挂载真实公共组件，覆盖组合筛选及独立时间/排除状态控件。
@@ -221,7 +221,7 @@ h(Arrangement,{excluded:s.excluded,statuses:options,reception:s.reception,deadli
         assert page.evaluate('testState.resets') == 1
         group_trigger.click()
         status_field = group.locator('.grouped-column-filter__field').filter(has_text='状态')
-        status_field.get_by_text('为空白', exact=True).click()
+        status_field.get_by_text('空', exact=True).click()
         group.get_by_role('button', name='确定', exact=True).click()
         assert page.evaluate('testState.status') == {'op': 'is_empty'}
         page.locator('#outside').click()
@@ -330,11 +330,11 @@ const app=createApp({setup(){
 
         advanced.click()
         name_filter = popup.locator('.compact-filter-cell').filter(has=page.locator('.compact-filter-cell__label', has_text='名称'))
-        name_filter.get_by_text('为空白', exact=True).click()
+        name_filter.get_by_text('空', exact=True).click()
         popup.get_by_role('button', name='确定', exact=True).click()
         expect(result).to_contain_text('is_empty')
         advanced.click()
-        expect(name_filter.get_by_role('checkbox', name='为空白', exact=True)).to_be_checked()
+        expect(name_filter.get_by_role('checkbox', name='空', exact=True)).to_be_checked()
         popup.get_by_role('button', name='清空高级条件', exact=True).click()
         popup.get_by_role('button', name='关闭', exact=True).click()
 

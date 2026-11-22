@@ -38,6 +38,7 @@ export const useFormDraft = ({
   captureContext,
   restoreContext,
   validateDraft,
+  canRestoreCloud,
 }) => {
   markManagedDraft(form)
   const userKey = () => requireUserId ? localStorage.getItem('user_id') || '' : currentUserKey()
@@ -143,11 +144,11 @@ export const useFormDraft = ({
       draft.version === createDraftVersion && draft.ownerId === draftOwner && !draft.form.id
     ))
     const initial=clone(form),stored=readDrafts()[key],local=usable(stored)?stored:undefined
-    const restore=(draft)=>{if(draft?.form){const restored=key==='create'?withoutBusinessNumbers(form,clone(draft.form)):clone(draft.form);if(applyDraft)applyDraft(restored,key);else Object.assign(form,createDefault(),restored);if(draft.context&&restoreContext)restoreContext(clone(draft.context),key)}}
+    const restore=(draft)=>{if(draft?.form){const restored=key==='create'?withoutBusinessNumbers(form,clone(draft.form)):clone(draft.form);if(applyDraft)applyDraft(restored,key,draft.context);else Object.assign(form,createDefault(),restored);if(draft.context&&restoreContext)restoreContext(clone(draft.context),key)}}
     try{restore(local)}catch{ElMessage.warning('草稿自动恢复失败，原内容仍保留，请勿覆盖')}
     const baseline=comparison()
     void readCloudDraft(cloudNamespace,key).then(cloud=>{
-      if(current!==generation||!sameOwner()||activeDraftKey.value!==key||comparison()!==baseline)return
+      if(current!==generation||!sameOwner()||activeDraftKey.value!==key||comparison()!==baseline||(canRestoreCloud&&!canRestoreCloud()))return
       // 旧格式或归属不明的新增草稿不能覆盖当前账号的新内容。
       const checkedCloud = cloud?.payload && !usable(cloud.payload) ? { ...cloud, payload: null, revision: 0 } : cloud
       const chosen=chooseDraft(local,checkedCloud)

@@ -32,7 +32,7 @@
         <el-form-item label="客户名称">
           <el-input
             :model-value="isBlankFilter(advancedFilters.client_name) ? '' : advancedFilters.client_name"
-            :placeholder="isBlankFilter(advancedFilters.client_name) ? '为空白' : '支持客户全称、简称及子客户名称模糊搜索'"
+            :placeholder="isBlankFilter(advancedFilters.client_name) ? '空' : '支持客户全称、简称及子客户名称模糊搜索'"
             clearable
             @update:model-value="advancedFilters.client_name = $event"
             @input="handleSearchInput"

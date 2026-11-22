@@ -4,6 +4,7 @@ import { subscribe } from '@/utils/realtimeSocket'
 
 export function useChatMentions(keyword, active, filters = ref({}), anchor = ref('')) {
   const items = ref([])
+  const senders = ref([])
   const total = ref(0)
   const loading = ref(false)
   const error = ref('')
@@ -24,7 +25,7 @@ export function useChatMentions(keyword, active, filters = ref({}), anchor = ref
     const userId = localStorage.getItem('user_id')
     const params = { keyword: keyword.value, project_type: filters.value.projectType || undefined,
       project_status: filters.value.projectStatus || undefined, project_id: filters.value.projectId || undefined, sort: filters.value.sort || undefined,
-      mention_kind: filters.value.mentionKind || undefined }
+      mention_kind: filters.value.mentionKind || undefined, sender_id: filters.value.senderId || undefined }
     const target = background ? Math.max(50, items.value.length) : 50
     const collected = []
     let before = append ? nextBefore : null
@@ -43,6 +44,7 @@ export function useChatMentions(keyword, active, filters = ref({}), anchor = ref
         (!append && anchor.value && !collected.some(row => row.messageId === anchor.value))))
       const rows = append ? [...items.value, ...collected] : collected
       items.value = [...new Map(rows.map(row => [row.messageId, row])).values()]
+      if (Array.isArray(data.senders)) senders.value = data.senders
       total.value = data.total || 0
       hasMore.value = !!data.hasMore
       nextBefore = data.nextBefore
@@ -67,5 +69,5 @@ export function useChatMentions(keyword, active, filters = ref({}), anchor = ref
     timer = setInterval(refresh, 15000)
   })
   onBeforeUnmount(() => { cancel(); clearInterval(timer); cleanup.forEach(fn => fn()) })
-  return { items, total, loading, error, hasMore, reload: () => load(), refresh: () => load({ background: true }), loadMore: () => load({ append: true }) }
+  return { items, senders, total, loading, error, hasMore, reload: () => load(), refresh: () => load({ background: true }), loadMore: () => load({ append: true }) }
 }

@@ -50,7 +50,19 @@
               <el-popover ref="groupPicker" v-model:visible="groupsVisible" title="会话分组筛选" :draft-filter="false" trigger="click" placement="bottom-end" :width="280" popper-class="chat-session-popover">
                 <template #reference><el-button class="chat-workspace__filter" :class="{ 'is-active': tab !== 'all' }" :aria-label="`会话分组 ${currentGroupLabel}`" :title="`分组筛选：${currentGroupLabel}`"><el-icon><Filter /></el-icon><span v-if="tab !== 'all'" class="chat-workspace__filter-dot" aria-hidden="true" /></el-button></template>
                 <div class="chat-session-groups">
-                  <el-button v-for="group in groups" :key="group.key" link :type="tab === group.key ? 'primary' : ''" @click="tab = group.key; groupPicker?.minimize()">{{ group.label }} ({{ groupCount(group.key) }})</el-button>
+                  <template v-for="group in groups" :key="group.key">
+                    <div v-if="group.key === 'mention'" class="chat-session-group-row">
+                      <el-button link :type="tab === 'mention' && !selectedMentionSender ? 'primary' : ''" @click="tab = 'mention'; selectedMentionSender = ''; groupPicker?.minimize()">{{ group.label }} ({{ groupCount(group.key) }})</el-button>
+                      <button v-if="globalMentionSenders.items.value.length" type="button" class="chat-session-group-toggle" :aria-expanded="filterMentionExpanded" :aria-label="`${filterMentionExpanded ? '收起' : '展开'}按提及人筛选`" @click.stop="filterMentionExpanded = !filterMentionExpanded"><el-icon><ArrowDown v-if="filterMentionExpanded" /><ArrowRight v-else /></el-icon></button>
+                    </div>
+                    <div v-if="group.key === 'mention' && filterMentionExpanded && globalMentionSenders.items.value.length" class="chat-session-group-sub">
+                      <el-button v-for="person in globalMentionSenders.items.value" :key="person.userId" link :type="annotationMode === 'mention' && selectedMentionSender === person.userId ? 'primary' : ''" @click="openMentionSender(person.userId, true)">
+                        <span>{{ person.name }} ({{ person.count }})</span>
+                        <b v-if="person.unreadCount" class="chat-session-group-unread">{{ person.unreadCount > 99 ? '99+' : person.unreadCount }}</b>
+                      </el-button>
+                    </div>
+                    <el-button v-else-if="group.key !== 'mention'" link :type="tab === group.key ? 'primary' : ''" @click="tab = group.key; selectedMentionSender = ''; groupPicker?.minimize()">{{ group.label }} ({{ groupCount(group.key) }})</el-button>
+                  </template>
                 </div>
               </el-popover>
             </div>
@@ -83,8 +95,17 @@
           <p v-if="error" class="chat-workspace__error" role="alert">{{ error }} <el-button link @click="emit('retry')">重试</el-button></p>
           <div ref="sessionList" class="chat-workspace__list" @contextmenu="annotationMentionView && mentionSortMenu?.open($event)" @keydown.shift.f10="annotationMentionView && mentionSortMenu?.open($event)">
             <ChatSessionHistory v-if="searchMode === 'sessions' && !showMentions && !annotationMentionView && (historyVisible || appliedKeyword)" :keyword="appliedKeyword" :revision="searchRevision" :active="active && pane === 'messages'" @open="emit('open', $event)" />
-            <ChatMessageSearchResults v-else-if="searchMode === 'messages'" :keyword="appliedKeyword" :revision="searchRevision" @locate="emit('locate-mention', $event)" /><ChatMentionInbox v-else-if="showMentions" :keyword="appliedKeyword" :filters="mentionFilters" :active="pane === 'messages'" @total="filteredMentionTotal = $event" @locate="emit('locate-mention', $event)" />
+            <ChatMessageSearchResults v-else-if="searchMode === 'messages'" :keyword="appliedKeyword" :revision="searchRevision" @locate="emit('locate-mention', $event)" /><ChatMentionInbox v-else-if="showMentions" :keyword="appliedKeyword" :filters="mentionFilters" :active="pane === 'messages'" @total="filteredMentionTotal = $event" @locate="emit('locate-mention', $event)" @select-sender="selectMentionSender" />
             <template v-else>
+            <div v-if="annotationMentionView && scopedMentionSenders.items.value.length" class="chat-workspace__mention-senders" role="group" aria-label="按当前分组提及人筛选">
+              <button type="button" class="chat-mention-sender-pill" :class="{ 'is-active': !selectedMentionSender }" :aria-pressed="!selectedMentionSender" @click="selectMentionSender('')">全部提及人</button>
+              <button v-for="person in visibleScopedMentionSenders" :key="person.userId" type="button" class="chat-mention-sender-pill" :class="{ 'is-active': selectedMentionSender === person.userId }" :aria-pressed="selectedMentionSender === person.userId" :title="`${person.name} · 共 ${person.count} 条${person.unreadCount ? `（未读 ${person.unreadCount} 条）` : ''}`" @click="selectMentionSender(person.userId)">
+                <span class="chat-mention-sender-pill__name">{{ person.name }}</span>
+                <b v-if="person.unreadCount" class="chat-mention-sender-pill__unread">{{ person.unreadCount > 99 ? '99+' : person.unreadCount }}</b>
+                <small v-else class="chat-mention-sender-pill__count">{{ person.count }}</small>
+              </button>
+              <button v-if="scopedMentionSenders.items.value.length > 5" type="button" class="chat-mention-sender-pill chat-mention-sender-pill--more" @click="scopedSendersExpanded = !scopedSendersExpanded">{{ scopedSendersExpanded ? '收起' : `展开 (${scopedMentionSenders.items.value.length}人)` }}</button>
+            </div>
             <el-empty v-if="!visibleSessions.length" :description="annotationMode === 'group' && annotationFiltersActive ? '没有符合筛选条件的标注会话' : annotationMentionView ? '当前筛选中没有提及消息的会话' : tab === 'unread' ? '没有未读消息' : '暂无会话'" :image-size="48" />
             <div v-for="session in visibleSessions" :key="session.key" class="chat-workspace__session" :class="{ 'is-active': session.opened && session.key === activeKey, 'is-pinned': session.pinned, 'has-unread-mention': !!session.mentionUnread }" role="button" tabindex="0" :title="[session.title, session.subtitle, session.projectType !== 'direct' && Number.isFinite(session.memberCount) ? `${session.memberCount}人` : ''].filter(Boolean).join(' · ')" @click="emit(session.opened ? 'select' : 'open', session)" @keydown.enter.self="emit(session.opened ? 'select' : 'open', session)" @keydown.space.self.prevent="emit(session.opened ? 'select' : 'open', session)">
               <span class="chat-workspace__session-left"><span class="chat-workspace__avatar" :class="`chat-workspace__avatar--${session.projectType}`" aria-hidden="true">{{ chatAvatarText(session.title) }}</span></span>
@@ -168,7 +189,7 @@ import { compareMentionSessions, latestMentionAt } from '@/utils/chatMentionSort
 import { groupSessionList, sessionListKey, mentionUnreadCount, sessionUnreadSignal, firstUnreadMentionSession, compareSessionActivity } from '@/utils/chatSessionList'
 
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { Bell, ArrowLeft, ChatDotRound, Collection, Headset, Filter, MoreFilled, Search, Setting, StarFilled, Top, User, EditPen, Microphone, Phone } from '@element-plus/icons-vue'
+import { Bell, ArrowDown, ArrowLeft, ArrowRight, ChatDotRound, Collection, Headset, Filter, MoreFilled, Search, Setting, StarFilled, Top, User, EditPen, Microphone, Phone } from '@element-plus/icons-vue'
 const DevelopmentIssuePanel=defineAsyncComponent(()=>import('@/views/resource/components/DevelopmentIssuePanel.vue'))
 import ChatSettings from './ChatSettings.vue'
 import { hasPermission } from '@/utils/permission'
@@ -192,7 +213,8 @@ import ChatPinIcon from './ChatPinIcon.vue'
 import ChatSessionFolderTree from './ChatSessionFolderTree.vue'
 import ChatAnnotationProjectPicker from './ChatAnnotationProjectPicker.vue'
 import { normalizeAnnotationStatus } from '@/utils/annotationStatus'
-import { annotationFolderId, resourceFolderId, resourceDiscussionIds, sessionFolderNodes, sessionMatchesFolder } from '@/utils/chatSessionFolders'
+import { annotationFolderId, annotationStatusGroupId, resourceFolderId, resourceDiscussionIds, sessionFolderNodes, sessionMatchesFolder } from '@/utils/chatSessionFolders'
+import { useChatMentionSenders } from '@/composables/useChatMentionSenders'
 import ChatSessionCategoryAssignment from './ChatSessionCategoryAssignment.vue'
 import { categoryKey, useChatSessionCategories } from '@/composables/useChatSessionCategories'
 
@@ -398,6 +420,8 @@ watch(selectedFolder, value => { try { localStorage.setItem(folderStorageKey, va
 watch(() => [categories.loaded, ...folderNodes.value.map(row => row.id)], ([loaded]) => { if (loaded && selectedFolder.value && !folderNodes.value.some(row => row.id === selectedFolder.value)) selectedFolder.value = categories.items.find(row => row.id === selectedFolder.value)?.parentKey === resourceFolderId ? resourceFolderId : '' }, { immediate: true })
 function selectFolder(id) {
   pendingContextFolder = ''
+  selectedMentionSender.value = ''
+  scopedSendersExpanded.value = false
   if (annotationMode.value === 'mention-all') annotationMode.value = 'group'
   tab.value = 'all'
   selectedFolder.value = id
@@ -405,17 +429,61 @@ function selectFolder(id) {
 function openMentionInbox(mode) {
   tab.value = 'all'
   selectedFolder.value = ''
+  selectedMentionSender.value = ''
+  scopedSendersExpanded.value = false
   searchMode.value = 'sessions'
   annotationMode.value = mode
 }
+function openMentionSender(userId, fromFilter = false) {
+  pendingContextFolder = ''
+  tab.value = fromFilter ? 'mention' : 'all'
+  selectedFolder.value = ''
+  searchMode.value = 'sessions'
+  annotationMode.value = 'mention'
+  selectedMentionSender.value = String(userId || '')
+  if (fromFilter) groupPicker.value?.minimize()
+}
+function selectMentionSender(userId) {
+  selectedMentionSender.value = String(userId || '')
+}
 const personalUnread = session => (Number(session.mentionUnread) || 0) > (Number(session.mentionAllUnread) || 0)
-function openFolderConversation(session) { pendingContextFolder = ''; pane.value = 'messages'; annotationMode.value = 'group'; tab.value = 'all'; selectedFolder.value = session.projectId; emit('open', session) }
+function openFolderConversation(session) { pendingContextFolder = ''; pane.value = 'messages'; annotationMode.value = 'group'; tab.value = 'all'; selectedMentionSender.value = ''; selectedFolder.value = session.projectId; emit('open', session) }
 const mentionSort = ref('time_desc'), mentionSortMenu = ref(null)
-const mentionFilters = computed(() => ({ sort: mentionSort.value, mentionKind: annotationMode.value === 'mention-all' ? 'all' : 'personal' }))
+const selectedMentionSender = ref('')
+const filterMentionExpanded = ref(false)
+const scopedSendersExpanded = ref(false)
+const globalMentionSenders = useChatMentionSenders(computed(() => props.active && pane.value === 'messages'), computed(() => ({ mentionKind: 'personal' })))
+const mentionFolderParams = computed(() => {
+  const id = selectedFolder.value
+  if (!id) return {}
+  if (id === annotationFolderId || id === annotationStatusGroupId) return { projectType: 'annotation' }
+  if (id.startsWith('status:')) return { projectType: 'annotation', projectStatus: id.slice(7) }
+  if (id === resourceFolderId) return { projectType: 'discussion' }
+  const node = folderNodes.value.find(row => row.id === id)
+  if (!node) return {}
+  if (node.ruleKey === 'translation') return { projectType: 'translation' }
+  if (node.isConversation) return { projectType: 'discussion', projectId: node.id }
+  return {}
+})
+const hasMentionFolderScope = computed(() => Object.keys(mentionFolderParams.value).length > 0)
+const scopedMentionSenders = useChatMentionSenders(
+  computed(() => props.active && pane.value === 'messages' && annotationMode.value === 'mention' && !!selectedFolder.value && !selectedMentionSender.value && hasMentionFolderScope.value),
+  computed(() => ({ mentionKind: 'personal', ...mentionFolderParams.value })),
+)
+const visibleScopedMentionSenders = computed(() => scopedSendersExpanded.value ? scopedMentionSenders.items.value : scopedMentionSenders.items.value.slice(0, 5))
+const mentionFilters = computed(() => ({
+  sort: mentionSort.value,
+  mentionKind: annotationMode.value === 'mention-all' ? 'all' : 'personal',
+  senderId: selectedMentionSender.value || undefined,
+  ...(annotationMode.value === 'mention' ? mentionFolderParams.value : {}),
+}))
 const annotationMode = ref('group')
-const showMentions = computed(() => annotationMode.value === 'mention-all' || (annotationMode.value === 'mention' && !selectedFolder.value))
+const showMentions = computed(() => annotationMode.value === 'mention-all' || (annotationMode.value === 'mention' && (!selectedFolder.value || !!selectedMentionSender.value)))
 const annotationMentionView = computed(() => annotationMode.value === 'mention')
 const filteredMentionTotal = ref(0)
+watch(annotationMode, value => {
+  if (value !== 'mention' && value !== 'mention-all') selectedMentionSender.value = ''
+})
 watch(tab, (key, previous) => {
   if (key === 'direct') annotationMode.value = 'direct'
   else if (key === 'mention') { annotationMode.value = 'mention'; selectedFolder.value = '' }
@@ -466,6 +534,8 @@ watch(pane, (current, previous) => {
   if (previous === 'notifications') void notificationFeed.reset()
   if (previous === 'messages') {
     groupsVisible.value = false
+    filterMentionExpanded.value = false
+    selectedMentionSender.value = ''
     tab.value = 'all'
     keyword.value = ''
     searchMode.value = 'sessions'
@@ -625,6 +695,22 @@ onBeforeUnmount(() => { window.clearTimeout(keywordTimer); window.removeEventLis
 .chat-session-order-options .el-button{margin:0;white-space:normal;text-align:left}
 .chat-session-groups{display:flex;flex-direction:column;align-items:stretch;max-height:400px;overflow:auto}
 .chat-session-groups .el-button{margin:0;justify-content:flex-start;padding:7px 8px}
+.chat-session-group-row{display:flex;align-items:center;justify-content:space-between;gap:4px}
+.chat-session-group-row .el-button{flex:1;min-width:0}
+.chat-session-group-toggle{display:inline-flex;align-items:center;justify-content:center;flex:none;width:24px;height:24px;border:0;border-radius:4px;background:transparent;color:#64748b;cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.chat-session-group-toggle:hover{background:#eef3f8;color:#1e293b}
+.chat-session-group-sub{display:flex;flex-direction:column;align-items:stretch;margin:2px 0 4px 12px;padding-left:10px;border-left:1px solid #dce4ee}
+.chat-session-group-sub .el-button{padding:5px 8px;font-size:12px}
+.chat-session-group-unread{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;margin-left:6px;padding:0 4px;border-radius:8px;background:#dc2626;color:#fff;font-size:10px;font-weight:600;line-height:1}
+.chat-workspace__mention-senders{display:flex;flex-wrap:wrap;gap:5px;padding:4px 4px 8px;margin-bottom:6px;border-bottom:1px solid #e9eef5}
+.chat-mention-sender-pill{display:inline-flex;align-items:center;gap:4px;max-width:100%;height:24px;padding:0 8px;border:1px solid #dce4ee;border-radius:12px;background:#fff;color:#475569;font:inherit;font-size:11.5px;line-height:1;cursor:pointer;transition:background-color .12s ease,border-color .12s ease,color .12s ease}
+.chat-mention-sender-pill:hover{background:#eef3f8;border-color:#cbd5e1;color:#1e293b}
+.chat-mention-sender-pill.is-active{background:#334155;border-color:#334155;color:#fff;font-weight:500}
+.chat-mention-sender-pill__name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:96px}
+.chat-mention-sender-pill__count{font-size:10.5px;color:#94a3b8;font-variant-numeric:tabular-nums}
+.chat-mention-sender-pill.is-active .chat-mention-sender-pill__count{color:rgba(255,255,255,.78)}
+.chat-mention-sender-pill__unread{display:inline-flex;align-items:center;justify-content:center;min-width:15px;height:15px;padding:0 4px;border-radius:8px;background:#dc2626;color:#fff;font-size:10px;font-weight:600;line-height:1}
+.chat-mention-sender-pill--more{border-style:dashed;background:transparent;color:#64748b}
 .chat-workspace__error{padding:8px 12px;color:#b91c1c;font-size:12px}
 
 /* 会话列表卡片：铺满右侧空间，悬停时操作按钮平滑覆盖右上角时间，无斑马纹、无右侧空列 */

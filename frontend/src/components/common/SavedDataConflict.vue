@@ -13,11 +13,12 @@
 import {computed,ref} from 'vue'
 import DraggableFormDialog from './DraggableFormDialog.vue'
 import {modelSavedConflicts,resolveSavedConflict} from '@/utils/savedDataRegistry'
-const props=defineProps({model:{default:null},fields:{type:Array,default:()=>[]}}),visible=ref(false)
-const changes=computed(()=>props.model?modelSavedConflicts(props.model):[])
-const label=path=>props.fields.find(field=>String(field.prop)===path||path.startsWith(String(field.prop)+'.'))?.label||path
+const props=defineProps({model:{default:null},fields:{type:Array,default:()=>[]},pending:{type:Array,default:null},formatLabel:Function}),visible=ref(false)
+const emit=defineEmits(['resolve'])
+const changes=computed(()=>props.pending??(props.model?modelSavedConflicts(props.model):[]))
+const label=path=>props.formatLabel?.(path)||props.fields.find(field=>String(field.prop)===path||path.startsWith(String(field.prop)+'.'))?.label||path
 const text=value=>value==null?'（空）':typeof value==='object'?JSON.stringify(value,null,2):String(value)
-function resolve(row,accept){resolveSavedConflict(props.model,row.path,accept);if(!changes.value.length)visible.value=false}
+function resolve(row,accept){if(props.pending){emit('resolve',row,accept);if(changes.value.length===1)visible.value=false}else{resolveSavedConflict(props.model,row.path,accept);if(!changes.value.length)visible.value=false}}
 defineExpose({checkBeforeSave:()=>{if(!changes.value.length)return true;visible.value=true;return false}})
 </script>
 <style scoped>
