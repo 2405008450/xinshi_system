@@ -11,6 +11,12 @@ test('useChatMentions 透传 sender_id 参数并返回聚合提及人列表', ()
   assert.match(composable, /return\s*\{\s*items,\s*senders,/)
 })
 
+test('会话面板在注册分组提及人的监听前初始化会话模式', () => {
+  const workspace = read('components/chat/ChatWorkspace.vue')
+  // Vue 注册监听时会立即读取启用条件，此时会话模式必须已有初始值。
+  assert.match(workspace, /const annotationMode = ref\('group'\)[\s\S]*?const scopedMentionSenders = useChatMentionSenders\(/)
+})
+
 test('@我 收件箱、分组内 @我 与分组筛选支持按具体提及人下钻，且不在会话分组树多造一级假分组', () => {
   const inbox = read('components/chat/ChatMentionInbox.vue')
   const tree = read('components/chat/ChatSessionFolderTree.vue')

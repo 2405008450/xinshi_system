@@ -449,6 +449,7 @@ function selectMentionSender(userId) {
 const personalUnread = session => (Number(session.mentionUnread) || 0) > (Number(session.mentionAllUnread) || 0)
 function openFolderConversation(session) { pendingContextFolder = ''; pane.value = 'messages'; annotationMode.value = 'group'; tab.value = 'all'; selectedMentionSender.value = ''; selectedFolder.value = session.projectId; emit('open', session) }
 const mentionSort = ref('time_desc'), mentionSortMenu = ref(null)
+const annotationMode = ref('group')
 const selectedMentionSender = ref('')
 const filterMentionExpanded = ref(false)
 const scopedSendersExpanded = ref(false)
@@ -477,7 +478,6 @@ const mentionFilters = computed(() => ({
   senderId: selectedMentionSender.value || undefined,
   ...(annotationMode.value === 'mention' ? mentionFolderParams.value : {}),
 }))
-const annotationMode = ref('group')
 const showMentions = computed(() => annotationMode.value === 'mention-all' || (annotationMode.value === 'mention' && (!selectedFolder.value || !!selectedMentionSender.value)))
 const annotationMentionView = computed(() => annotationMode.value === 'mention')
 const filteredMentionTotal = ref(0)
