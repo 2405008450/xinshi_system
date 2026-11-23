@@ -50,7 +50,7 @@
           class="filter-blank-row"
           :class="{ 'is-active': blankSelected }"
         >
-          <el-checkbox :model-value="blankSelected" @change="draftValue = $event ? BLANK_FILTER_VALUE : []">空</el-checkbox>
+          <el-checkbox :model-value="blankSelected" @change="draftValue = $event ? BLANK_FILTER_VALUE : []">(空白)</el-checkbox>
           <span class="filter-blank-row__hint">仅匹配未填写项</span>
         </div>
         <div v-if="!blankSelected && selectedDraftOptions.length" class="confirmed-header-filter__selected-tags">

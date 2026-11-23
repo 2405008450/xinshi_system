@@ -10,6 +10,9 @@ export default defineConfig(({ mode }) => {
   const apiProxyTarget = env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8000'
 
   return {
+    define: {
+      __APP_BUILT_AT__: JSON.stringify(env.VITE_RELEASE_BUILT_AT || new Date().toISOString()),
+    },
     plugins: [
       transcriptionReportPlugin(),
       vue(),

@@ -54,7 +54,7 @@ test('五大业务板块切页与切页大小均退出删除模式并重置页�
   assert.match(recruitment, /handleSizeChange\s*=\s*\(\)\s*=>\s*\{\s*exitDeleteMode\(\);\s*pagination\.page=1/)
 })
 
-test('公共筛选组件中的空值筛选项统一使用“空”而非“为空白”', () => {
+test('公共筛选组件中的空值筛选项统一使用“(空白)”', () => {
   const filterFiles = [
     'src/components/common/ConfiguredColumnHeaderFilter.vue',
     'src/components/common/GroupedColumnFilterContent.vue',
@@ -66,8 +66,9 @@ test('公共筛选组件中的空值筛选项统一使用“空”而非“为�
     const source = read(file)
     assert.doesNotMatch(source, /为空白/, `${file} 不应保留“为空白”文案`)
   }
-  assert.match(read('src/components/common/ConfiguredColumnHeaderFilter.vue'), />空<\/el-checkbox>/)
-  assert.match(read('src/components/common/GroupedColumnFilterContent.vue'), />空<\/el-checkbox>/)
-  assert.match(read('src/components/common/ListFilterControl.vue'), />空<\/el-checkbox>/)
-  assert.match(read('src/components/common/ListFilterSelect.vue'), /label="空"/)
+  assert.match(read('src/components/common/ConfiguredColumnHeaderFilter.vue'), />\(空白\)<\/el-checkbox>/)
+  assert.match(read('src/components/common/GroupedColumnFilterContent.vue'), />\(空白\)<\/el-checkbox>/)
+  assert.match(read('src/components/common/ListFilterControl.vue'), />\(空白\)<\/el-checkbox>/)
+  assert.match(read('src/components/common/ListFilterSelect.vue'), /label="\(空白\)"/)
+  assert.match(read('src/views/client/Clients.vue'), /\?\s*'\(空白\)'/)
 })

@@ -159,6 +159,7 @@ import ProjectChatDock from '@/components/chat/ProjectChatDock.vue'
 import { useAnnotationFollowed } from '@/composables/useAnnotationFollowed'
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { chatEntryContext } from '@/utils/chatEntryContext'
+import { businessDateTimeInputValue } from '@/utils/dateTime'
 import { canManageDepartments, canConfigureWorkReports, canManageHr } from '@/utils/permission'
 import { useDepartmentCatalog } from '@/composables/useDepartmentCatalog'
 useDepartmentCatalog()
@@ -231,8 +232,8 @@ onBeforeUnmount(closeNotes)
 const { openPanel, syncFromStorage } = useUiZoom()
 
 const STORAGE_COLLAPSE_KEY = 'sidebar_collapse'
-const appVersion = 'V2'
-const appUpdatedAt = '2026-11-22 13:20'
+const appVersion = 'V2.1'
+const appUpdatedAt = businessDateTimeInputValue(__APP_BUILT_AT__).slice(0, 16)
 
 /** 侧边栏是否折叠 */
 const { isMobile: isMobileViewport } = useMobileViewport()

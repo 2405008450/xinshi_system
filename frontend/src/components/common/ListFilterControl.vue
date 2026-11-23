@@ -88,7 +88,7 @@
   </div>
   </template>
   <div v-if="supportsBlankFilter(definition)" class="list-filter-blank" :class="{ 'is-active': emptySelected }">
-    <el-checkbox :model-value="emptySelected" @change="changeEmpty">空</el-checkbox>
+    <el-checkbox :model-value="emptySelected" @change="changeEmpty">(空白)</el-checkbox>
     <span class="list-filter-blank__hint">仅匹配未填写项</span>
   </div>
 </template>

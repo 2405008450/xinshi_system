@@ -6,7 +6,7 @@
         <div class="grouped-column-filter__label">{{ field.groupLabel || field.label }}</div>
         <template v-if="isMultiple(field)">
           <div v-if="supportsBlankFilter(field)" class="grouped-column-filter__blank" :class="{ 'is-active': isBlankFilter(drafts[field.key]) }">
-            <el-checkbox :model-value="isBlankFilter(drafts[field.key])" @change="drafts[field.key] = $event ? BLANK_FILTER_VALUE : []">空</el-checkbox>
+            <el-checkbox :model-value="isBlankFilter(drafts[field.key])" @change="drafts[field.key] = $event ? BLANK_FILTER_VALUE : []">(空白)</el-checkbox>
             <span class="grouped-column-filter__blank-hint">仅匹配未填写项</span>
           </div>
           <div v-if="!isBlankFilter(drafts[field.key])" class="grouped-column-filter__selection-actions">
