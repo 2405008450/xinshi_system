@@ -162,6 +162,7 @@
               </el-tag>
             </span>
           </template>
+          <el-button v-if="reportChatProject" style="margin-bottom: 12px" @click="returnToReportChat">返回刚才的会话</el-button>
           <DailyReportPanel v-if="!fieldWorkReport" :report-date="dailyReportDate" :annotation-project="reportAnnotationProject"
             @annotation-project-applied="clearReportProject" @update:report-date="dailyReportDate = $event" @status-change="onDailyReportStatus" />
         </el-tab-pane>
@@ -197,6 +198,7 @@ import { getMyWorkItems, getReportAccessContext } from '@/api/tasks'
 import { getOnLeaveUsers } from '@/api/leave'
 import { getMyEmployeeShift } from '@/api/schedule'
 import { getAnnotationProject } from '@/api/annotationProjects'
+import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { ElMessage } from 'element-plus'
 import { hasPermission, hasRole, isSuperAdmin } from '@/utils/permission'
 import { DEADLINE_STATE, getWorkItemDeadlineState, isWorkItemOpen } from '@/utils/workItemDeadline'
@@ -246,6 +248,11 @@ const activeSection = ref(readInitialMainTab())
 watch(()=>attendanceRoute.query.section,value=>{if(value==='attendance')activeSection.value='monthly-shift';if(value==='daily-report')activeSection.value='daily-report'},{immediate:true})
 function openMyWorkReport(){activeSection.value='daily-report';dailyReportDate.value=reportBusinessDate()}
 const reportAnnotationProject = ref(null)
+const reportChatProject = computed(() => typeof attendanceRoute.query.reportChatProject === 'string' ? attendanceRoute.query.reportChatProject : '')
+function returnToReportChat() {
+  if (!reportChatProject.value) return
+  useProjectChatDock().openChat({ projectId: reportChatProject.value, projectType: 'annotation', syncSidebar: true })
+}
 function clearReportProject(id) {
   if (attendanceRoute.query.reportAnnotationProject !== id) return
   const query = { ...attendanceRoute.query }

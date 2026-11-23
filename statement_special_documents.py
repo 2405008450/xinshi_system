@@ -64,13 +64,48 @@ def local_note(payload,board_id,row_id,text,mode):
     return dict(board_id=board_id,before=previous,after=text)
 
 
-def remove_projects(payload,board_id,ids):
+def remove_projects(payload,board_id,ids,actor=None):
     from customer_statement_workspace import board_by_id
+    from annotation_progress_time import business_now
     board=board_by_id(payload,board_id)
-    if not is_special(board):raise HTTPException(422,'仅特殊结算单支持在本单移除项目')
+    if not is_special(board) or board.get('status')=='void':raise HTTPException(422,'请选择有效特殊结算对账单')
     if not isinstance(ids,list) or not ids or any(uid not in payload['tasks'] or payload['tasks'][uid].get('board_id')!=board_id for uid in ids):
         raise HTTPException(422,'请选择本对账单的项目')
-    from statement_pending_tasks import invalidate_overrides
-    for uid in set(ids):
-        invalidate_overrides(payload,payload['tasks'][uid]);payload['tasks'].pop(uid)
-    return dict(board_id=board_id,removed_tasks=ids)
+    removed=[]
+    for uid in dict.fromkeys(ids):
+        task=payload['tasks'][uid];roots={line['root_id'] for line in task['rows']}
+        keys={line['line_id'] for line in task['rows']}
+        overrides={key:deepcopy(value) for key,value in board.get('overrides',{}).items() if key in keys or any(key.startswith('summary:'+root+':') for root in roots)}
+        entry=dict(id=str(uuid4()),task=deepcopy(task),overrides=overrides,
+                   related_tasks=sorted(key for key,value in payload['tasks'].items() if value.get('board_id')==board_id and any(line['root_id'] in roots for line in value['rows'])),
+                   actor_name=(actor.full_name or actor.username) if actor else '',removed_at=business_now().isoformat())
+        board.setdefault('removed_projects',[]).append(entry);removed.append(entry['id'])
+        board['overrides']={key:value for key,value in board.get('overrides',{}).items() if key not in overrides}
+        payload['tasks'].pop(uid)
+    return dict(board_id=board_id,removed_tasks=ids,removed_project_ids=removed)
+
+
+def restore_projects(payload,board_id,ids):
+    from customer_statement_workspace import board_by_id
+    board=board_by_id(payload,board_id)
+    if not is_special(board) or board.get('status')=='void':raise HTTPException(422,'请选择有效特殊结算对账单')
+    entries={entry['id']:entry for entry in board.get('removed_projects',[])}
+    if not isinstance(ids,list) or not ids or any(uid not in entries for uid in ids):raise HTTPException(409,'已移除项目记录已变化，请重新加载')
+    sources={task.get('source_task_id') or task['rows'][0]['task_id'] for task in payload['tasks'].values() if task.get('board_id')==board_id}
+    for uid in dict.fromkeys(ids):
+        task=entries[uid]['task'];source=task.get('source_task_id') or task['rows'][0]['task_id']
+        if task['id'] in payload['tasks'] or source in sources:raise HTTPException(409,'本单已重新添加该项目，请先核对现有项目，不能重复恢复')
+        sources.add(source)
+    restored=[]
+    for uid in dict.fromkeys(ids):
+        entry=entries[uid];task=deepcopy(entry['task']);payload['tasks'][task['id']]=task;restored.append(task['id'])
+    for uid in dict.fromkeys(ids):
+        entry=entries[uid]
+        for key,value in entry.get('overrides',{}).items():
+            if key.startswith('summary:'):
+                roots={line['root_id'] for line in entry['task']['rows']}
+                current={uid for uid,task in payload['tasks'].items() if task.get('board_id')==board_id and any(line['root_id'] in roots for line in task['rows'])}
+                if current!=set(entry.get('related_tasks',[])):continue
+            board.setdefault('overrides',{}).setdefault(key,deepcopy(value))
+    board['removed_projects']=[entry for entry in board.get('removed_projects',[]) if entry['id'] not in ids]
+    return dict(board_id=board_id,restored_tasks=restored,removed_project_ids=ids)

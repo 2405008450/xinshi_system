@@ -91,7 +91,7 @@
                 <span class="statement-company-label">对账单主体：{{statementCompanyLabel(board)}}</span>
               </el-tooltip>
               <el-button :disabled="!canWrite||saving" @click="createBoard(board)">{{settlementScope==='special'?'新增对账单':'新增下一期对账单'}}</el-button>
-              <template v-if="settlementScope==='special'"><el-button :disabled="!canWrite||saving" @click="addSpecialProjects(board)">添加筛选／勾选项目</el-button><el-button type="danger" plain :disabled="!canWrite||saving||!selected.some(id=>state.payload.tasks[id]?.board_id===board.id)" @click="removeSpecialProjects(board)">移除所选项目</el-button></template>
+              <template v-if="settlementScope==='special'"><el-tooltip content="有勾选添加勾选项目；未勾选添加上方客户项目的全部筛选结果。本单已有项目跳过，不改变财务主表。"><el-button :disabled="!canWrite||saving" @click="addSpecialProjects(board)">添加筛选／勾选项目</el-button></el-tooltip><el-button type="danger" plain :disabled="!canWrite||saving||!selected.some(id=>state.payload.tasks[id]?.board_id===board.id)" @click="removeSpecialProjects(board)">移除所选项目</el-button><el-button :disabled="!board.removed_projects?.length" @click="removedBoardId=board.id;removedVisible=true">已移除项目／恢复（{{board.removed_projects?.length||0}}）</el-button></template>
               <el-dropdown :disabled="downloading||!board.statement.rows.length" trigger="click" @command="command=>exportStatements(command,[board.id])">
                 <el-button :disabled="downloading||!board.statement.rows.length">导出 / 打印 ▾</el-button>
                 <template #dropdown><el-dropdown-menu>
@@ -168,6 +168,12 @@
         </el-alert>
       </AppForm>
       <template #footer><el-button @click="scheduleVisible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveSchedule">确认并记录</el-button></template>
+    </DraggableFormDialog>
+
+    <DraggableFormDialog v-model="removedVisible" title="已移除项目／恢复" class="statement-edit-dialog" width="min(960px, calc(100vw - 32px))" top="5vh" append-to-body>
+      <el-alert title="恢复仅将所选项目及其原有内容放回本单，保留此后其他修改；财务主表不变。本单已重新添加的项目不能重复恢复。" type="info" :closable="false" />
+      <el-table :data="removedProjects" row-key="id" border max-height="460"><el-table-column label="订单号" min-width="150"><template #default="{row}">{{row.task.rows[0].order_no}}</template></el-table-column><el-table-column label="项目名称" min-width="200"><template #default="{row}">{{row.task.rows[0].project_name}}</template></el-table-column><el-table-column prop="actor_name" label="移除人" width="110" /><el-table-column label="移除时间" width="180"><template #default="{row}">{{formatBusinessDateTime(row.removed_at)}}</template></el-table-column><el-table-column label="操作" fixed="right" width="90"><template #default="{row}"><el-button link type="primary" :disabled="!canWrite||saving" @click="restoreRemovedProject(row)">恢复项目</el-button></template></el-table-column></el-table>
+      <template #footer><el-button @click="removedVisible=false">关闭</el-button></template>
     </DraggableFormDialog>
 
     <DraggableFormDialog v-model="auditVisible" title="对账单调整前后" class="statement-edit-dialog" data-auto-draft="off" width="min(1100px, calc(100vw - 32px))" top="5vh" append-to-body>
@@ -352,8 +358,11 @@ async function importMonths(){
 async function splitSelected(){let name;try{name=(await ElMessageBox.prompt('填写分拆后的对账单名称；保留项目内容与月份。','分拆对账单',{inputValidator:value=>!!value?.trim()||'请填写名称'})).value}catch{return}const before=new Set(state.value.documents.map(board=>board.id));const shown=documents.value.map(board=>board.id);if(await mutate('split_board',{task_ids:[...selected.value],name},`将所选 ${selected.value.length} 项项目分拆为“${name}”，保留原内容并记录前后归属？`)){const added=state.value.documents.filter(board=>!before.has(board.id)).map(board=>board.id);emit('show-boards',[...shown,...added])}}
 
 const specialTarget=ref('')
+const removedVisible=ref(false),removedBoardId=ref('')
+const removedProjects=computed(()=>state.value?.payload.boards.find(board=>board.id===removedBoardId.value)?.removed_projects||[])
+async function restoreRemovedProject(row){await mutate('restore_special_projects',{board_id:removedBoardId.value,removed_project_ids:[row.id]},`将 ${row.task.rows[0].order_no} 恢复到本特殊结算对账单，保留之后其他修改？`)}
 async function addSpecialProjects(board){specialTarget.value=board.id;try{await importMonths()}finally{specialTarget.value=''}}
-async function removeSpecialProjects(board){const ids=selected.value.filter(id=>state.value.payload.tasks[id]?.board_id===board.id);await mutate('remove_special_projects',{board_id:board.id,task_ids:ids},`仅从本特殊结算单移除 ${ids.length} 个项目，保留修改记录，财务主表不变。`)}
+async function removeSpecialProjects(board){const ids=selected.value.filter(id=>state.value.payload.tasks[id]?.board_id===board.id);await mutate('remove_special_projects',{board_id:board.id,task_ids:ids},`仅从本特殊结算单移除 ${ids.length} 个项目，可在本单「已移除项目／恢复」逐项恢复，保留修改记录，财务主表不变。`)}
 async function createBoard(board){
   if(props.settlementScope==='special'){await mutate('create_board',{name:`特殊结算对账单 ${documents.value.length+1}`,board_id:board.id},'新增一份独立特殊结算对账单，同月可有多份有效单，可重复纳入同一项目。');return}
   const months=new Set(statementBoardMonths(board))

@@ -2957,3 +2957,15 @@ id UUID 主键；client_id / sub_client_id UUID 分别关联 client / sub_client
 查账追账：工作区 JSON `collection_terms` 保存客户付款账期、独立 revision、操作人及 UTC+8 修改时间。结算列表按有效对账单／多单合并／单笔项目生成展示单元，付款差额为各期累计实际付款减实际应付项目金额，按币种分别汇总全部筛选结果。毛利率仅预留展示字段，暂不计算、不存储。
 
 返点记录保存在 `customer_statement_workspace.payload.ledger_rebates`，以结算单元 ID 为键；字段包含 recipient、rate（百分数）、amounts（服务器十进制计算并四舍五入至分）、payment_status、paid_amounts、note、revision、actor_name、updated_at（+08:00）。变更进入既有工作区审计，独立于财务主表价格及客户收款记录；毛利率暂不关联返点计算。
+
+特殊结算对账单 boards[].removed_projects 保存单内移除项目快照：id、task、overrides、related_tasks、actor_name、removed_at（+08:00）。移除不删除源项目，不影响其他账单；restore_special_projects 逐项恢复并清理相应回收记录，拒绝本单已重新纳入的源项目。移除和恢复均写入既有工作区审计，不需要新表或结构迁移。
+
+
+### 口译、标注、招聘财务扩展（2026-11-23）
+
+- `interpretation_customer_finance.payload.settlement_adjustments`：按币种保存 excl/incl/legacy_discount（1–99，百分数）、excl/incl/legacy_amount（最终金额，允许零）。调整后金额优先于折扣，Decimal 四舍五入至分；项目原报价保留。
+- `payload.settlement.period_number`：可空账期 1–999；`payments[].stage_type` 为 deposit/mid/tail/full，历史空值不改写。实付差异按币种累计实付减最终应付计算。
+- `project_customer_finance_history.after._ledger`：标注／招聘独立财务快照，含 revision、rates（direction/currency/amount/unit/quantity）、settlement、settlement_adjustments、salary_basis、explanation、invoice。before._ledger 保存前态；序号锁定源项目后递增。原项目报价不被改写；缺少验收量或价格的币种不产生已确定金额。
+- `interpretation_customer_finance` 客户级行的 `payload._oral_workspace`：共享单据存储，group 按模块、结算模式、客户／子客户／项目隔离；含 revision、boards、pending、history。boards 保存独立 statement、months、period_number、active/void、removed_projects；移除项目可逐项恢复。普通结算校验有效月份／账期及项目有效归属冲突，特殊结算允许多单重复。单内修改不回写主表。
+- `payload._oral_invoice_requests`：口译项目级／标注招聘客户级开票需求快照，以 UUID 为键，含 module、anchor_id、revision、recipients、submission、snapshot、request_receipts、completion_receipts、invoices。幂等发送并校验源财务版本、接收人配置版本；仅发送人与接收人可查看，只有接收人可登记开票及完成。通知 related_project_type 为 business_invoice_request，related_project_id 为空，避免错误关联笔译外键。
+- 工作区及需求变更写入既有口译财务历史；业务时间明确 `+08:00`。上述扩展均使用现有 JSON／审计字段，不新增或修改数据库结构。

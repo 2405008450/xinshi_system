@@ -2,79 +2,66 @@
   <span>
     <el-button v-if="!hideTrigger" :disabled="!targetId&&!deferSave" :link="scope==='project'&&!deferSave" type="primary" @click="open()">{{scope==='client'?'口译参考价及调整记录':'价格与收费'}}</el-button>
     <DraggableFormDialog v-model="visible" append-to-body class="interpretation-finance-dialog" width="min(1100px, calc(100vw - 32px))" top="5vh" :before-close="close" :close-on-click-modal="false">
-      <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="scope==='client'?'客户口译参考价':`${historyOnly?'修改记录':'价格与收费'}${context.order_no?' · '+context.order_no:''}`" copyable-title :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
+      <template #header>
+        <DialogFieldSearchHeader class="interpretation-finance-heading" ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="scope==='client'?'客户口译参考价':`${historyOnly?'修改记录':'价格与收费'}${context.order_no?' · '+context.order_no:''}`" copyable-title :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch">
+          <template v-if="scope==='project'" #actions>
+            <span class="interpretation-finance-meta" @mousedown.stop>
+              <span class="interpretation-finance-project-name">{{context.project_name||'-'}}</span>
+              <span>客户简称：<ClientManagementLink :value="context.client_short_name" :row="context" show-sub-client /></span>
+              <span>项目状态：{{getProjectStatusLabel('interpretation',context.project_status)}}</span>
+            </span>
+          </template>
+        </DialogFieldSearchHeader>
+      </template>
       <div ref="body" v-loading="loading||saving">
         <el-alert v-if="error" :title="error" type="error" :closable="false" />
         <el-button v-if="loadFailed" link type="primary" @click="open({history:historyOnly})">重新加载财务信息</el-button>
         <CustomerFinanceModuleTabs v-model="financeModule" module="interpretation" :enabled="scope==='project'" :client-id="context.client_id"><template #interpretation>
         <AppForm v-if="draft&&!loading&&!historyOnly" ref="form" :model="draft" label-position="top" :disabled="saving||!canWrite||!context.ready">
-          <section v-if="scope==='project'" class="finance-region finance-identifiers"
-            data-dialog-field-search-group data-dialog-field-search-group-title="订单信息">
-            <el-form-item label="订单号"><ReadonlyField :model-value="context.order_no||''" source="auto" placeholder="保存后自动生成" /></el-form-item>
-            <el-form-item label="项目名称"><ReadonlyField :model-value="context.project_name||'-'" source="auto" /></el-form-item>
-            <el-form-item label="客户简称"><ClientManagementLink :value="context.client_short_name" :row="context" show-sub-client /></el-form-item>
-            <el-form-item label="项目状态"><ReadonlyField :model-value="getProjectStatusLabel('interpretation',context.project_status)" source="auto" /></el-form-item>
-          </section>
-          <section v-if="scope==='project'" class="finance-region" data-dialog-field-search-group data-dialog-field-search-group-title="计价与结算">
-            <h3>计价与结算</h3>
-            <el-form-item label="结算模式" prop="settlement.payment_method" :rules="[{validator:validateSettlement,trigger:'change'}]">
-              <div class="settlement-options">
-                <el-radio-group v-model="draft.settlement.payment_method" aria-label="结算模式">
-                  <el-radio v-for="(label, mode) in settlementModeLabels" :key="mode" :value="mode"
-                    :disabled="mode==='sub_client'&&!context.sub_client_id">{{label}}</el-radio>
+          <div v-if="scope==='project'" class="interpretation-order-config">
+            <section class="finance-region interpretation-settlement-region" data-dialog-field-search-group data-dialog-field-search-group-title="结算模式">
+              <h3>结算模式</h3>
+              <el-form-item prop="settlement.payment_method" data-dialog-field-search-label="结算模式" :rules="[{validator:validateSettlement,trigger:'change'}]">
+                <el-radio-group v-model="draft.settlement.payment_method" aria-label="结算模式" class="interpretation-settlement-options">
+                  <div v-for="(label,mode) in settlementModeLabels" :key="mode">
+                    <el-radio :value="mode" :disabled="mode==='sub_client'&&!context.sub_client_id">{{label}}</el-radio>
+                    <p>{{settlementHints[mode]}}</p>
+                  </div>
                 </el-radio-group>
-                <small>{{settlementHints[draft.settlement.payment_method]}}</small>
-              </div>
-            </el-form-item>
-            <el-form-item label="计价方式">
-              <el-radio-group v-model="draft.settlement.pricing_mode" aria-label="计价方式">
-                <el-radio-button value="time">按时长计费</el-radio-button>
-                <el-radio-button value="fixed">固定收费</el-radio-button>
-              </el-radio-group>
-            </el-form-item>
-            <el-form-item label="账单月份"><el-date-picker v-model="draft.settlement.billing_month" type="month" value-format="YYYY-MM" :placeholder="context.billing_month||'默认按订单日期'" /></el-form-item>
-            <el-form-item label="计费税口径"><el-select v-model="draft.settlement.tax_basis" style="width:200px"><el-option label="不含税" value="excl_tax" /><el-option label="含税" value="incl_tax" /><el-option label="税口径未确认" value="legacy" /></el-select></el-form-item>
-          </section>
-            <section v-if="scope==='project'" class="finance-region finance-documents" data-dialog-field-search-group data-dialog-field-search-group-title="单据需求">
-            <h3>单据需求</h3>
-            <el-form-item label="单据需求"><el-checkbox v-model="draft.settlement.quotation_required">需报价单</el-checkbox><el-checkbox v-model="draft.settlement.invoice_required">需发票</el-checkbox></el-form-item>
-            <el-form-item label="单据">
-              <el-button @click="quotationVisible=true">报价单</el-button>
-              <el-button :disabled="!targetId" @click="statementVisible=true">对账单</el-button>
-            </el-form-item>
+              </el-form-item>
             </section>
-          <div v-if="scope==='project'&&draft.settlement.pricing_mode==='time'" class="finance-reference-actions">
+            <section class="finance-region" data-dialog-field-search-group data-dialog-field-search-group-title="计价方式">
+              <h3>计价方式</h3>
+              <el-form-item data-dialog-field-search-label="计价方式">
+                <el-radio-group :model-value="draft.settlement.pricing_mode" :disabled="pricingModeSwitching" aria-label="计价方式" @update:model-value="changePricingMode">
+                  <el-radio-button value="time">按时长计费</el-radio-button>
+                  <el-radio-button value="fixed">固定收费</el-radio-button>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item label="计费税口径"><el-select v-model="draft.settlement.tax_basis" style="width:200px;max-width:100%"><el-option label="不含税" value="excl_tax" /><el-option label="含税" value="incl_tax" /><el-option label="税口径未确认" value="legacy" /></el-select></el-form-item>
+          <div v-if="draft.settlement.pricing_mode==='time'" class="finance-reference-actions">
             <el-form-item label="客户参考价"><el-button :disabled="!context.reference_rates?.length" @click="adopt">采用匹配方向的客户参考价</el-button></el-form-item>
             <el-form-item v-if="canWriteClients&&context.client_id&&context.library_revision!=null" label="同步客户参考价">
               <el-button @click="save(true)">保存并同步单价至客户信息…</el-button>
             </el-form-item>
           </div>
-          <InterpretationFinanceFields v-model="draft" :directions="activeDirections" :reference-only="scope==='client'" />
+            </section>
+            <section class="finance-region finance-documents" data-dialog-field-search-group data-dialog-field-search-group-title="单据需求">
+              <h3>单据需求</h3>
+              <el-form-item label="单据需求"><el-checkbox v-model="draft.settlement.quotation_required">需报价单</el-checkbox><el-checkbox v-model="draft.settlement.invoice_required">需发票</el-checkbox></el-form-item>
+              <el-form-item label="单据"><el-button @click="quotationVisible=true">报价单</el-button><el-button :disabled="!targetId" @click="statementVisible=true">对账单</el-button></el-form-item>
+              <el-form-item label="账单月份"><el-date-picker v-model="draft.settlement.billing_month" type="month" value-format="YYYY-MM" :placeholder="context.billing_month||'默认按订单日期'" /></el-form-item>
+            </section>
+          </div>
+          <InterpretationFinanceFields v-model="draft" :directions="activeDirections" :reference-only="scope==='client'" :compact="scope==='project'">
+            <template v-if="scope==='project'" #notes>
+              <el-form-item label="内部说明"><el-input v-model="draft.explanation" type="textarea" :rows="2" maxlength="5000" show-word-limit /></el-form-item>
+              <el-form-item label="客户说明"><el-input v-model="draft.settlement.customer_explanation" type="textarea" :rows="2" maxlength="5000" show-word-limit /></el-form-item>
+            </template>
+          </InterpretationFinanceFields>
           <template v-if="scope==='project'">
-            <el-form-item label="客户说明"><el-input v-model="draft.settlement.customer_explanation" type="textarea" :rows="2" maxlength="5000" /></el-form-item>
-            <section class="finance-region" data-dialog-field-search-group data-dialog-field-search-group-title="结算金额">
-              <h3>结算金额</h3>
-              <div class="finance-identifiers">
-                <el-form-item label="不含税结算总价"><ReadonlyField type="textarea" autosize :model-value="formatFinanceAmounts(interpretationFinanceTotals(draft,'excl_tax'))" source="auto" /></el-form-item>
-                <el-form-item label="含税结算总价"><ReadonlyField type="textarea" autosize :model-value="formatFinanceAmounts(interpretationFinanceTotals(draft,'incl_tax'))" source="auto" /></el-form-item>
-                <el-form-item label="当前计费合计"><ReadonlyField type="textarea" autosize :model-value="formatFinanceAmounts(interpretationFinanceTotals(draft))" source="auto" /></el-form-item>
-              </div>
-              <p>结算金额已包含加班费和总价调整，计费合计按上方的计费税口径取值。</p>
-            </section>
-            <section class="finance-region" data-dialog-field-search-group data-dialog-field-search-group-title="收款情况">
-            <h3>收款情况</h3>
-            <el-form-item label="收款状态"><el-select v-model="draft.settlement.payment_status" style="width:200px"><el-option label="未登记" value="unrecorded" /><el-option label="已收定金" value="deposit" /><el-option label="已收部分款" value="partial" /><el-option label="已收全款" value="full" /></el-select></el-form-item>
-            <section v-for="(receipt,index) in draft.settlement.payments" :key="index" class="finance-receipt"
-              data-dialog-field-search-group :data-dialog-field-search-group-title="'收款明细 '+(index+1)">
-              <el-form-item label="实收金额" :prop="'settlement.payments.'+index+'.amount'" :rules="[{required:true,message:'请填写实收金额'}]"><el-input-number v-model="receipt.amount" :min="0" :precision="2" :controls="false" /></el-form-item>
-              <el-form-item label="实收货币"><el-select v-model="receipt.currency" filterable allow-create><el-option v-for="code in interpretationCurrencies" :key="code" :value="code" /></el-select></el-form-item>
-              <el-form-item label="收款日期"><el-date-picker v-model="receipt.received_on" type="date" value-format="YYYY-MM-DD" /></el-form-item>
-              <el-form-item label="收款备注"><el-input v-model="receipt.note" maxlength="2000" /></el-form-item>
-              <el-button link type="danger" @click="draft.settlement.payments.splice(index,1)">移除收款明细</el-button>
-            </section>
-            <el-button :disabled="draft.settlement.payments.length>=100" @click="draft.settlement.payments.push({currency:'CNY',received_on:null,note:''})">新增收款明细</el-button>
-            <el-form-item label="付款说明"><el-input v-model="draft.settlement.payment_note" type="textarea" :rows="2" maxlength="5000" /></el-form-item>
-            </section>
+            <InterpretationSettlementAmounts v-model="draft" />
+            <InterpretationPaymentFields v-model="draft" />
             <p v-if="deferSave">收费和报价单随项目保存，对账单使用已保存的收费。</p>
           </template>
         </AppForm>
@@ -114,6 +101,8 @@ import {ElMessage,ElMessageBox} from 'element-plus'
 import DialogFieldSearchHeader from './DialogFieldSearchHeader.vue'
 import CustomerRateDifferences from './CustomerRateDifferences.vue'
 import InterpretationFinanceFields from './InterpretationFinanceFields.vue'
+import InterpretationSettlementAmounts from './InterpretationSettlementAmounts.vue'
+import InterpretationPaymentFields from './InterpretationPaymentFields.vue'
 import ReadonlyField from './ReadonlyField.vue'
 import {useDialogFieldSearch} from '@/composables/useDialogFieldSearch'
 import {getInterpretationFinance,saveInterpretationFinance,getInterpretationFinanceHistory} from '@/api/interpretationCustomerFinance'
@@ -122,6 +111,7 @@ import {formatBusinessDateTime as formatTime} from '@/utils/dateTime'
 import {getProjectStatusLabel} from '@/utils/projectStatus'
 import {hasPermission} from '@/utils/permission'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
+import {requestInterpretationPricingModeSwitch} from '@/utils/interpretationPricingModeSwitch'
 const props=defineProps({
   scope:{type:String,default:'project'},targetId:{type:[String,Number],default:''},canWrite:Boolean,
   deferSave:Boolean, hideTrigger:Boolean, project:{type:Object,default:()=>({})}, pending:{type:Object,default:null},
@@ -129,6 +119,14 @@ const props=defineProps({
 const emit=defineEmits(['saved','update:pending'])
 const canWriteClients=hasPermission('clients:write')
 const financeModule=ref('interpretation')
+const pricingModeSwitching=ref(false)
+async function changePricingMode(next){
+  if(pricingModeSwitching.value||saving.value||!props.canWrite||!draft.value)return
+  const current=draft.value
+  pricingModeSwitching.value=true
+  try{if(await requestInterpretationPricingModeSwitch(current,next,message=>ElMessageBox.confirm(message,'切换计价方式',{type:'warning',confirmButtonText:'继续并清空',cancelButtonText:'取消',closeOnClickModal:false}))&&draft.value===current)form.value?.clearValidate()}
+  finally{pricingModeSwitching.value=false}
+}
 const historyOnly=ref(false)
 const settlementHints={
   individual:'每个项目单独结算。',
@@ -246,7 +244,7 @@ function adopt(){
   draft.value.rates=financeDraft({...draft.value,rates}).rates
 }
 async function close(done){
-  if(saving.value)return
+  if(saving.value||pricingModeSwitching.value)return
   if(draft.value&&signature()!==original.value&&props.canWrite){
     try{await ElMessageBox.confirm('存在未保存的财务调整，确定关闭？','关闭财务表单')}catch{return}
   }
@@ -254,18 +252,14 @@ async function close(done){
   if(typeof done==='function')done();else visible.value=false
 }
 async function save(syncToClient=false){
-  if(saving.value||!props.canWrite||!await form.value?.validate().catch(()=>false))return
+  if(saving.value||pricingModeSwitching.value||!props.canWrite||!await form.value?.validate().catch(()=>false))return
   if(syncToClient){
     try{await ElMessageBox.confirm(
       props.deferSave?'确认在保存项目时同步单价至客户管理？':'确认同步单价至客户管理？客户参考价变更会同步至仍沿用原价的项目。',
       '确认同步客户单价',{type:'warning',confirmButtonText:'确认同步',cancelButtonText:'取消'})}
     catch{return}
   }
-  const fixed=draft.value.settlement.pricing_mode==='fixed'
-  const savedFields=financeDraft(props.pending||context.value.payload)
-  const activeFields=fixed?{...draft.value,rates:savedFields.rates,has_overtime:savedFields.has_overtime,
-    overtime:savedFields.overtime,adjusted_totals:savedFields.adjusted_totals}:{...draft.value,fixed_totals:savedFields.fixed_totals}
-  const payload={...interpretationFinancePayload(activeFields),revision:props.pending?.revision??context.value.revision,
+  const payload={...interpretationFinancePayload(draft.value),revision:props.pending?.revision??context.value.revision,
     update_library:syncToClient,sync_confirmed:syncToClient,
     library_revision:syncToClient?context.value.library_revision:undefined}
   if(props.deferSave){
@@ -306,4 +300,22 @@ defineExpose({open})
 </script>
 <style scoped>
 .finance-region{margin:16px 0;padding:14px;border:1px solid var(--el-border-color);border-radius:8px}.finance-identifiers{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0 12px}.finance-reference-actions{display:flex;flex-wrap:wrap;gap:0 12px}.finance-documents{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:20px}.finance-documents h3{width:100%}.finance-region h3{margin:0 0 12px}.settlement-options{display:grid}.settlement-options small{color:var(--el-text-color-secondary)}.finance-receipt{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;border:1px solid var(--el-border-color);padding:12px;margin-bottom:8px}.finance-receipt .el-date-editor{max-width:100%}.finance-text{white-space:pre-wrap;overflow-wrap:anywhere}:global(.interpretation-finance-dialog){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}:global(.interpretation-finance-dialog .el-dialog__header),:global(.interpretation-finance-dialog .el-dialog__footer){flex-shrink:0}:global(.interpretation-finance-dialog .el-dialog__body){flex:1;min-height:0;overflow-y:auto}:global(.interpretation-finance-dialog .el-dialog__footer){border-top:1px solid #e2e8f0;background:#f8fafc}
+</style>
+
+<style scoped>
+.interpretation-finance-heading :deep(.dialog-field-search-header__heading){flex:1 1 auto;min-width:0}
+.interpretation-finance-heading :deep(.dialog-field-search-header__extra){flex:1 1 180px;min-width:0}
+.interpretation-finance-meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;min-width:0;user-select:text;cursor:text;font-size:13px;font-weight:400;line-height:1.5;color:var(--el-text-color-regular)}
+.interpretation-finance-project-name{flex-basis:100%;overflow-wrap:anywhere;font-size:14px}
+</style>
+
+<style scoped>
+.interpretation-order-config{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:12px;margin:16px 0}
+.interpretation-order-config>.finance-region{margin:0;min-width:0}
+.interpretation-settlement-region{grid-row:span 2}
+.interpretation-settlement-options{display:flex;flex-direction:column;align-items:stretch;gap:10px;width:100%}
+.interpretation-settlement-options>div{min-width:0}
+.interpretation-settlement-options p{margin:0;line-height:1.5;color:var(--el-text-color-secondary);font-size:12px;overflow-wrap:anywhere}
+.interpretation-order-config :deep(.el-form-item:last-child){margin-bottom:0}
+@media(max-width:880px){.interpretation-order-config{grid-template-columns:minmax(0,1fr)}.interpretation-settlement-region{grid-row:auto}}
 </style>

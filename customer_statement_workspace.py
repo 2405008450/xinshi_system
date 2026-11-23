@@ -94,7 +94,7 @@ def generation_key(data):
 class ActionRequest(BaseModel):
     model_config=ConfigDict(extra='forbid')
     revision:int=Field(ge=1)
-    action:Literal['set_special_invoice','remove_special_projects','set_board_period','set_historical_status','edit_customer_note','accept_pending','set_board_status','create_board','add_billing_period','delete_boards','edit_board','edit_row','edit_document','change_company_subject','sync_customer_notes','rename_board','merge_boards','split_board','move_tasks','schedule_tasks','cancel_pending','reorder_boards','position_board','restore_task','restore_history']
+    action:Literal['set_special_invoice','remove_special_projects','restore_special_projects','set_board_period','set_historical_status','edit_customer_note','accept_pending','set_board_status','create_board','add_billing_period','delete_boards','edit_board','edit_row','edit_document','change_company_subject','sync_customer_notes','rename_board','merge_boards','split_board','move_tasks','schedule_tasks','cancel_pending','reorder_boards','position_board','restore_task','restore_history']
     data:dict
     confirmed:bool=False
 
@@ -1354,7 +1354,10 @@ def action(client_id:UUID,request:ActionRequest,mode:Literal['parents','all','ch
         changes['after']=board['invoice'];label='登记特殊结算单发票'
     elif request.action=='remove_special_projects':
         from statement_special_documents import remove_projects
-        changes=remove_projects(payload,data.get('board_id'),data.get('task_ids'));label='从特殊结算单移除项目'
+        changes=remove_projects(payload,data.get('board_id'),data.get('task_ids'),user);label='从特殊结算单移除项目'
+    elif request.action=='restore_special_projects':
+        from statement_special_documents import restore_projects
+        changes=restore_projects(payload,data.get('board_id'),data.get('removed_project_ids'));label='恢复特殊结算单已移除项目'
     elif request.action=='set_board_period':
         board=board_by_id(payload,data.get('board_id'))
         changes={'board_id':board['id'],'before':document_status.number(board),'after':data.get('period_number')}

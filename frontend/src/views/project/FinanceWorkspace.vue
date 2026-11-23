@@ -37,14 +37,16 @@ const revenueVisible=ref(false)
 const projectTypes = [
   { value: 'translation', label: '笔译', available: true },
   { value: 'interpretation', label: '口译', available: true },
-  { value: 'annotation', label: '标注（待开发）', available: false },
-  { value: 'recruitment', label: '招聘（待开发）', available: false },
+  { value: 'annotation', label: '标注', available: true },
+  { value: 'recruitment', label: '招聘', available: true },
 ]
 const sections = projectTypes.map(type => ({
   path: `/finance-management/${type.value}`,
   label: type.label,
 }))
 const views = {
+  annotation:defineAsyncComponent(()=>import('./BusinessFinance.vue')),
+  recruitment:defineAsyncComponent(()=>import('./BusinessFinance.vue')),
   permissions:defineAsyncComponent(()=>import('../finance/StatementPermissions.vue')),
   translation: defineAsyncComponent(() => import('./translation/CustomerFinance.vue')),
   interpretation: defineAsyncComponent(() => import('./interpretation/CustomerFinance.vue')),

@@ -73,3 +73,37 @@ def test_invoice_preview_uses_statement_amount_and_rejects_stale_document(setup)
     assert listed.json()['items'][0]['totals']=={'CNY':'333.00'}
     state=change(setup,state,'rename_board',dict(board_id=board['id'],name='新版'))
     assert http.post('/invoice-workflow/requests/preview',json=data).status_code==409
+
+
+def test_restore_removed_project_preserves_edits_and_other_later_changes(setup):
+    http,db,clients,_,actor,first,_=setup
+    state=generate(setup);state=generate(setup,state)
+    board,other=state['documents'];line=board['statement']['rows'][0]
+    state=change(setup,state,'edit_row',dict(board_id=board['id'],row_id=line['_row_id'],fields={'subtotal':'777.00','remarks':'删除前备注'}))
+    task_id=next(uid for uid,task in state['payload']['tasks'].items() if task['board_id']==board['id'])
+    state=change(setup,state,'remove_special_projects',dict(board_id=board['id'],task_ids=[task_id]))
+    archived=state['payload']['boards'][0]['removed_projects'][0]
+    assert archived['actor_name'] and archived['removed_at'].endswith('+08:00')
+    state=change(setup,state,'rename_board',dict(board_id=other['id'],name='删除后另外修改的名称'))
+    result=http.post(f"/translation-statement-workspaces/{clients[0].id}/actions",params={'settlement_scope':'special'},json={'revision':state['revision'],'action':'restore_special_projects','data':{'board_id':board['id'],'removed_project_ids':[archived['id']]},'confirmed':True})
+    assert result.status_code==200,result.text
+    restored=result.json()
+    assert restored['documents'][0]['statement']['totals']=={'CNY':'777.00'}
+    assert restored['documents'][0]['statement']['rows'][0]['remarks']=='删除前备注'
+    assert restored['documents'][1]['name']=='删除后另外修改的名称'
+    assert restored['payload']['boards'][0]['removed_projects']==[]
+    assert task_id in restored['payload']['tasks']
+    duplicate=http.post(f"/translation-statement-workspaces/{clients[0].id}/actions",json={'revision':restored['revision'],'action':'restore_special_projects','data':{'board_id':board['id'],'removed_project_ids':[archived['id']]},'confirmed':True})
+    assert duplicate.status_code==409
+
+
+def test_removed_project_cannot_restore_duplicate_after_adding_again(setup):
+    http,_,clients,*_=setup
+    state=generate(setup);board=state['documents'][0]
+    task_id=next(iter(state['payload']['tasks']))
+    state=change(setup,state,'remove_special_projects',dict(board_id=board['id'],task_ids=[task_id]))
+    archived=state['payload']['boards'][0]['removed_projects'][0]
+    state=generate(setup,state,board['id'])
+    result=http.post(f"/translation-statement-workspaces/{clients[0].id}/actions",json={'revision':state['revision'],'action':'restore_special_projects','data':{'board_id':board['id'],'removed_project_ids':[archived['id']]},'confirmed':True})
+    assert result.status_code==409
+    assert len(state['payload']['tasks'])==1

@@ -325,6 +325,8 @@ from customer_annotation_rates import router as customer_annotation_rates_router
 app.include_router(customer_annotation_rates_router)
 from project_customer_finance import router as project_customer_finance_router
 app.include_router(project_customer_finance_router)
+from business_finance import router as business_finance_router
+app.include_router(business_finance_router)
 from customer_statements import router as customer_statements_router
 app.include_router(customer_statements_router)
 from geography_catalog import router as geography_catalog_router

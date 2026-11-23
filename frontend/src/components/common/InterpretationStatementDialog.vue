@@ -1,132 +1,100 @@
 <template>
-  <DraggableFormDialog :model-value="modelValue" class="interpretation-statement-dialog"
-    width="min(1160px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close
-    @update:model-value="$emit('update:modelValue',$event)">
-    <template #header>
-      <DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" title="口译对账单"
-        :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" />
-    </template>
-    <div ref="body" v-loading="loading">
-      <AppForm data-auto-draft="off" :model="filters" inline @submit.prevent="load">
-        <el-form-item label="项目">
-          <el-select v-model="filters.id" filterable remote :remote-method="searchProjects" :loading="searching"
-            placeholder="搜索订单号、项目名称或客户" style="width:300px;max-width:100%" @change="changeProject">
-            <el-option v-for="row in options" :key="row.id" :value="row.id" :label="`${row.order_no} · ${row.project_name||'-'}`" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="账单月份">
-          <el-date-picker v-model="filters.month" type="month" value-format="YYYY-MM" :clearable="false" @change="load" />
-        </el-form-item>
-        <el-form-item label="对账范围">
-          <el-select v-model="filters.scope" style="width:130px" @change="load">
-            <el-option label="按项目结算模式" value="settlement" /><el-option label="单个项目" value="project" /><el-option label="同客户汇总" value="customer" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="金额口径">
-          <el-select v-model="filters.basis" style="width:140px" @change="load">
-            <el-option label="按项目设置" value="" /><el-option label="不含税" value="excl_tax" />
-            <el-option label="含税" value="incl_tax" /><el-option label="税口径未确认" value="legacy" />
-          </el-select>
-        </el-form-item>
+  <DraggableFormDialog :model-value="modelValue" class="interpretation-statement-dialog" width="min(1450px, calc(100vw - 32px))" top="4vh" append-to-body destroy-on-close @update:model-value="emit('update:modelValue',$event)">
+    <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="moduleLabel+(initialMode==='special'?'特殊结算':'对账单')" :subtitle="managerLabel" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
+    <div ref="body" v-loading="loading||saving">
+      <h3>对账单管理</h3>
+      <AppForm :model="filters" inline @submit.prevent="load">
+        <el-form-item label="客户／项目"><el-select v-model="filters.id" filterable remote :remote-method="searchProjects" :loading="searching" placeholder="搜索订单号、项目名称或客户" style="width:300px;max-width:100%" @change="changeProject"><el-option v-for="row in options" :key="row.id" :value="row.id" :label="`${row.client_short_name||row.client_name||''} · ${row.order_no} · ${row.project_name||'-'}`" /></el-select></el-form-item>
+        <el-form-item label="账单月份"><el-date-picker v-model="filters.months" type="months" value-format="YYYY-MM" :clearable="false" @change="load" /></el-form-item>
+        <el-form-item label="结算模式"><el-select v-model="filters.mode" :disabled="initialMode==='special'" style="width:180px" @change="filters.period=undefined;load()"><el-option v-for="(label,key) in modeLabels" :key="key" :value="key" :label="label" /></el-select></el-form-item>
+        <el-form-item v-if="filters.mode!=='special'" label="账期"><el-select v-model="filters.period" clearable placeholder="全部期次" style="width:140px"><el-option label="未分账期（整月）" :value="0" /><el-option v-for="period in periods" :key="period" :value="period" :label="`第${period}期`" /></el-select></el-form-item>
       </AppForm>
-      <el-alert v-if="error" type="error" :title="error" :closable="false" />
-      <div v-if="statement?.rows.length" class="interpretation-statement-paper"><CustomerStatementPaper :statement="statement" /></div>
-      <el-empty v-else-if="!loading&&!error" :description="filters.id?'所选月份暂无对账明细':'请选择口译项目'" />
+      <el-alert v-if="error" type="error" :title="error" :closable="false"><el-button link @click="load">重新加载</el-button></el-alert>
+      <template v-if="state">
+        <h4>{{state.client_name}} · {{filters.months.join('、')}} · {{modeLabels[filters.mode]}}</h4>
+        <p class="statement-hint">{{modeHint}}</p>
+        <details class="oral-customer-projects"><summary>客户项目（{{state.candidates.length}}）</summary><el-table :data="state.candidates" row-key="id" border max-height="340" @selection-change="candidateIds=$event.map(row=>row.id)"><el-table-column type="selection" width="42" /><el-table-column prop="order_no" label="订单号" min-width="145" /><el-table-column prop="project_name" label="项目名称" min-width="230" /><el-table-column prop="billing_month" label="账单月份" width="110" /><el-table-column label="计费金额" min-width="150"><template #default="{row}">{{money(row.billing_totals)}}</template></el-table-column><el-table-column label="当前有效对账单" min-width="200"><template #default="{row}">{{memberships(row.id)}}</template></el-table-column></el-table></details>
+        <div class="statement-toolbar"><el-button @click="historyVisible=true">查看历史对账单／历史版本</el-button><el-button :disabled="!canWrite||selectedBoards.length<2" @click="change('merge',null,{board_ids:selectedBoards},'合并所选有效对账单，原单自动废除并保留历史？')">合并月份／所选账单</el-button><el-button type="primary" :disabled="!canWrite" @click="generate">{{visibleBoards.length?'再次生成对账单':'生成对账单'}}</el-button></div>
+        <div v-if="uncovered.length" class="oral-uncovered"><strong>本月尚未体现的项目（{{uncovered.length}}）</strong><p>可拖入对应对账单，或在客户项目中勾选后添加。</p><div v-for="row in uncovered" :key="row.id" draggable="true" class="oral-drag-project" @dragstart="dragProject($event,row.id,null)">⠿ {{row.order_no}} · {{row.project_name}} · {{row.billing_month}}</div></div>
+        <div v-if="visiblePending.length" class="oral-pending"><strong>待入账项目（{{visiblePending.length}}）</strong><div v-for="item in visiblePending" :key="item.id">{{item.rows[0]?.order_no}} · {{item.rows[0]?.project_name}} → {{item.month}} {{item.period_number?`第${item.period_number}期`:'整月'}} <el-button link :disabled="!canWrite" @click="change('cancel_pending',item.source_board_id,{pending_id:item.id},'撤销待入账并恢复原单？')">撤销待入账</el-button></div></div>
+        <div class="statement-toolbar"><el-button type="danger" plain :disabled="!canWrite||!selectedBoards.length" @click="voidSelected">删除管理（废除所选）</el-button><el-select v-model="scale" aria-label="对账单缩放" style="width:100px"><el-option v-for="value in [50,75,100]" :key="value" :value="value" :label="value+'%'" /></el-select><span>勾选账单可合并或废除；单内修改不回写财务主表。</span></div>
+        <div class="oral-statement-canvas">
+          <section v-for="board in visibleBoards" :key="board.id" class="oral-statement-board" :style="{zoom:scale/100}" @dragover.prevent @drop.prevent="dropProject($event,board)">
+            <header draggable="true" @dragstart="dragBoard($event,board)"><el-checkbox :model-value="selectedBoards.includes(board.id)" @update:model-value="toggleBoard(board.id,$event)" /><strong>{{board.name}} {{board.period_number?`· 第${board.period_number}期`:''}}</strong><el-select :model-value="board.status" style="width:90px" :disabled="!canWrite" @change="value=>change('set_status',board.id,{status:value},'将本单设为废除并保留历史？')"><el-option label="有效" value="active" /><el-option label="废除" value="void" /></el-select><span>项目 {{new Set(board.statement.rows.map(row=>row.root_id)).size}} 项</span></header>
+            <p v-if="board.months.length>1" class="oral-merged">合并对账单 · 共 {{board.months.length}} 个月份：{{board.months.join('、')}}</p>
+            <div class="statement-toolbar"><el-button :disabled="!canWrite" @click="editHeader(board)">修改抬头／账户</el-button><el-button v-if="filters.mode!=='special'" :disabled="!canWrite" @click="setPeriod(board)">调整账期</el-button><el-button :disabled="!canWrite" @click="change('new_board',board.id,{},filters.mode==='special'?'新增独立特殊结算对账单？':'新增下一期对账单；未分期的原单调整为第1期？')">{{filters.mode==='special'?'新增对账单':'新增下一期对账单'}}</el-button><el-button :disabled="!canWrite" @click="addTo(board)">添加筛选／勾选项目</el-button><el-button :disabled="exporting" @click="download(board,'excel')">Excel</el-button><el-button :disabled="exporting" @click="download(board,'pdf')">PDF</el-button><el-button @click="maximized=board">最大化查看</el-button></div>
+            <details class="oral-board-projects"><summary>项目明细／增删操作</summary><el-table :data="board.statement.rows" row-key="line_id" size="small" border max-height="260" @selection-change="boardSelected[board.id]=[...new Set($event.map(row=>row.root_id))]"><el-table-column type="selection" width="40" /><el-table-column label="拖动" width="50"><template #default="{row}"><span draggable="true" @dragstart="dragProject($event,row.root_id,board.id)">⠿</span></template></el-table-column><el-table-column prop="order_no" label="订单号" min-width="145" /><el-table-column prop="project_name" label="项目名称" min-width="190" /><el-table-column prop="subtotal" label="金额" width="110" /><el-table-column label="编辑" width="80"><template #default="{row}"><el-button link :disabled="!canWrite" @click="editLine(board,row)">编辑</el-button></template></el-table-column></el-table><div class="statement-toolbar"><el-button :disabled="!canWrite||!boardSelected[board.id]?.length" @click="change('remove_projects',board.id,{},'仅从本单移除所选项目，可逐项恢复？',boardSelected[board.id])">移除所选项目</el-button><el-button :disabled="!canWrite||!boardSelected[board.id]?.length" @click="schedule(board)">设为待入账</el-button><el-button :disabled="!board.removed_projects.length" @click="removedBoard=board">已移除项目／恢复（{{board.removed_projects.length}}）</el-button></div></details>
+            <div class="oral-board-scroll"><CustomerStatementPaper :statement="board.statement" /></div>
+          </section>
+        </div>
+        <el-empty v-if="!visibleBoards.length" description="所选月份／账期尚无有效对账单" />
+      </template>
     </div>
-    <template #footer>
-      <el-button @click="$emit('update:modelValue',false)">关闭</el-button>
-      <el-button :disabled="!statement?.rows.length||!!exporting" :loading="exporting==='excel'" @click="download('excel')">导出 Excel</el-button>
-      <el-button :disabled="!statement?.rows.length||!!exporting" :loading="exporting==='pdf'" @click="download('pdf')">下载 PDF</el-button>
-    </template>
+    <template #footer><el-button @click="emit('update:modelValue',false)">关闭</el-button></template>
   </DraggableFormDialog>
+  <DraggableFormDialog v-model="historyVisible" title="对账单历史版本" width="min(1100px, calc(100vw - 32px))" append-to-body class="oral-child-dialog"><div ref="historyBody"><el-table :data="state?.documents||[]" border max-height="350"><el-table-column prop="number" label="对账单编号" min-width="180" /><el-table-column prop="name" label="名称" min-width="200" /><el-table-column label="状态" width="110"><template #default="{row}"><el-select :model-value="row.status" :disabled="!canWrite" @change="value=>change('set_status',row.id,{status:value},'调整历史账单状态？同月份／账期或项目有效归属冲突时将提示。')"><el-option label="有效" value="active" /><el-option label="废除" value="void" /></el-select></template></el-table-column><el-table-column label="查看" width="90"><template #default="{row}"><el-button link @click="maximized=row">查看</el-button></template></el-table-column></el-table><el-table :data="state?.history||[]" size="small" max-height="260"><el-table-column prop="revision" label="版本" width="65" /><el-table-column prop="action" label="操作" min-width="130" /><el-table-column prop="actor_name" label="操作人" width="100" /><el-table-column label="时间" width="180"><template #default="{row}">{{formatBusinessDateTime(row.created_at)}}</template></el-table-column><el-table-column label="恢复" width="140"><template #default="{row}"><el-button link :disabled="!canWrite" @click="change('restore_version',null,{history_id:row.id},'恢复本结算范围至该次操作前？当前状态也会留存新历史记录。')">恢复操作前版本</el-button></template></el-table-column></el-table></div><template #footer><el-button @click="historyVisible=false">关闭</el-button></template></DraggableFormDialog>
+  <DraggableFormDialog :model-value="!!removedBoard" title="已移除项目／恢复" width="min(900px, calc(100vw - 32px))" append-to-body @update:model-value="removedBoard=null"><el-table :data="removedBoard?.removed_projects||[]" border max-height="420"><el-table-column label="项目"><template #default="{row}">{{row.rows.map(item=>item.order_no+' · '+item.project_name).join('；')}}</template></el-table-column><el-table-column prop="actor_name" label="移除人" width="100" /><el-table-column label="恢复" width="90"><template #default="{row}"><el-button link :disabled="!canWrite" @click="restoreRemoved(row)">恢复项目</el-button></template></el-table-column></el-table><template #footer><el-button @click="removedBoard=null">关闭</el-button></template></DraggableFormDialog>
+  <DraggableFormDialog :model-value="!!maximized" title="对账单" width="min(1400px, calc(100vw - 32px))" append-to-body class="oral-child-dialog" @update:model-value="maximized=null"><CustomerStatementPaper v-if="maximized" :statement="maximized.statement" /><template #footer><el-button @click="maximized=null">关闭</el-button></template></DraggableFormDialog>
+  <DraggableFormDialog v-model="editVisible" :title="editingRow?'编辑单内项目':'修改单据抬头／账户'" width="min(760px, calc(100vw - 32px))" append-to-body class="oral-child-dialog"><template #header><DialogFieldSearchHeader ref="editFieldSearchRef" v-model="editFieldKeyword" :title="editingRow?'编辑单内项目':'修改单据抬头／账户'" :fetch-suggestions="editSuggestions" @select="editLocate" @clear="editClear" /></template><div ref="editBody"><AppForm :model="editForm" label-position="top"><el-form-item v-for="field in editFields" :key="field.key" :label="field.label"><el-input-number v-if="field.key==='subtotal'" v-model="editForm[field.key]" :precision="2" :controls="false" /><el-input v-else v-model="editForm[field.key]" :type="field.key==='remarks'?'textarea':'text'" /></el-form-item></AppForm></div><template #footer><el-button @click="editVisible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveEdit">保存并记录</el-button></template></DraggableFormDialog>
 </template>
-
 <script setup>
-import {onBeforeUnmount,reactive,ref,watch} from 'vue'
-import {getInterpretationFinancePage,getInterpretationStatement} from '@/api/interpretationCustomerFinance'
+import {computed,onBeforeUnmount,reactive,ref,watch} from 'vue'
+import {ElMessageBox} from 'element-plus'
+import api from '@/api'
+import {getInterpretationFinancePage} from '@/api/interpretationCustomerFinance'
 import {useDialogFieldSearch} from '@/composables/useDialogFieldSearch'
-import {businessDateTimeInputValue} from '@/utils/dateTime'
+import {businessDateTimeInputValue,formatBusinessDateTime} from '@/utils/dateTime'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
-import {statementFileName} from '@/utils/statementFormatting'
+import {translationSettlementModeLabels as modeLabels} from '@/utils/settlementModes'
+import {hasPermission} from '@/utils/permission'
 import CustomerStatementPaper from './CustomerStatementPaper.vue'
+import DraggableFormDialog from './DraggableFormDialog.vue'
+import AppForm from './AppForm.vue'
 import DialogFieldSearchHeader from './DialogFieldSearchHeader.vue'
-
-const props=defineProps({modelValue:Boolean,projects:{type:Array,default:()=>[]},query:{type:Object,default:()=>({})}})
-defineEmits(['update:modelValue'])
-const body=ref(),options=ref([]),statement=ref(null),loading=ref(false),searching=ref(false),error=ref(''),exporting=ref('')
-const filters=reactive({id:'',month:'',scope:'settlement',basis:''})
+const props=defineProps({modelValue:Boolean,projects:{type:Array,default:()=>[]},query:{type:Object,default:()=>({})},initialMode:String,module:{type:String,default:'interpretation'}})
+const moduleLabel=computed(()=>({interpretation:'口译',annotation:'标注',recruitment:'招聘'}[props.module]))
+const emit=defineEmits(['update:modelValue'])
+const body=ref(),options=ref([]),state=ref(null),loading=ref(false),saving=ref(false),searching=ref(false),error=ref(''),exporting=ref(false)
+const filters=reactive({id:'',months:[],mode:'individual',period:undefined}),candidateIds=ref([]),selectedBoards=ref([]),boardSelected=reactive({}),scale=ref(75),historyVisible=ref(false),historyBody=ref(),removedBoard=ref(null),maximized=ref(null)
+const editBody=ref()
+const {fieldSearchRef:editFieldSearchRef,fieldSearchKeyword:editFieldKeyword,fetchFieldSuggestions:editSuggestions,locateDialogField:editLocate,clearFieldSearch:editClear}=useDialogFieldSearch(editBody)
+const editVisible=ref(false),editingRow=ref(null),editingBoard=ref(null),editForm=reactive({})
+const canWrite=hasPermission('projects:write')
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(body)
-let searchController,loadController
-const params=()=>({month:filters.month,scope:filters.scope,basis:filters.basis||undefined})
-
-async function searchProjects(keyword=''){
-  searchController?.abort()
-  const controller=searchController=new AbortController()
-  searching.value=true
-  try{
-    const data=await getInterpretationFinancePage({...props.query,keyword,skip:0,limit:40},controller.signal)
-    if(controller.signal.aborted)return
-    const selected=options.value.find(row=>row.id===filters.id)
-    options.value=data.items
-    if(selected&&!options.value.some(row=>row.id===selected.id))options.value.unshift(selected)
-  }catch(e){
-    if(!controller.signal.aborted)error.value=getLocalizedErrorMessage(e,'口译项目搜索失败')
-  }finally{if(!controller.signal.aborted)searching.value=false}
-}
-
-function changeProject(){
-  const row=options.value.find(item=>item.id===filters.id)
-  const orderDate=row?.order_no?.match(/^IP-(?:20)?(\d{2})(\d{2})\d{2}-/)
-  filters.month=row?.billing_month||row?.payload?.settlement?.billing_month||(orderDate?`20${orderDate[1]}-${orderDate[2]}`:businessDateTimeInputValue().slice(0,7))
-  void load()
-}
-
-async function load(){
-  loadController?.abort()
-  statement.value=null;error.value='';loading.value=false
-  if(!filters.id||!filters.month)return
-  const controller=loadController=new AbortController()
-  loading.value=true
-  try{
-    const data=await getInterpretationStatement(filters.id,params(),{signal:controller.signal})
-    if(!controller.signal.aborted)statement.value=data
-  }catch(e){
-    if(!controller.signal.aborted)error.value=getLocalizedErrorMessage(e,'口译对账单生成失败')
-  }finally{if(!controller.signal.aborted)loading.value=false}
-}
-
-async function download(format){
-  const data=statement.value
-  if(!data||exporting.value)return
-  exporting.value=format
-  try{
-    const blob=await getInterpretationStatement(filters.id,{...params(),format,version:data.statement_version},{responseType:'blob'})
-    const url=URL.createObjectURL(blob),link=document.createElement('a')
-    link.href=url
-    link.download=statementFileName(`${data.client_name} 口译对账单 ${data.month}`,format)
-    link.click()
-    setTimeout(()=>URL.revokeObjectURL(url),30000)
-  }catch(e){error.value=getLocalizedErrorMessage(e,'导出失败，请重新生成对账单后重试')}
-  finally{exporting.value=''}
-}
-
-function cancelRequests(){searchController?.abort();loadController?.abort()}
-watch(()=>props.modelValue,visible=>{
-  cancelRequests()
-  if(!visible)return
-  clearFieldSearch()
-  options.value=[...props.projects]
-  Object.assign(filters,{id:options.value[0]?.id||'',scope:'settlement',basis:''})
-  changeProject()
-  void searchProjects()
-},{immediate:true})
-onBeforeUnmount(cancelRequests)
+const managerLabel=computed(()=>props.query.only_mine?'客户经理：本人':props.query.client_manager?`客户经理：${props.query.client_manager}`:'客户经理：全部')
+const visibleBoards=computed(()=>(state.value?.documents||[]).filter(board=>board.status==='active'&&board.months.some(month=>filters.months.includes(month))&&(filters.mode==='special'||filters.period==null||(board.period_number||0)===filters.period)))
+const periods=computed(()=>[...new Set((state.value?.documents||[]).map(board=>board.period_number).filter(Boolean))].sort((a,b)=>a-b))
+const modeHint=computed(()=>({individual:'逐笔结算：仅当前项目，保留独立账单及版本。',monthly:'多单合并：同客户、同模式项目合并出账；每月份／账期仅一份有效单。',sub_client:'子客户合并：只列当前子客户的项目和账单，独立制作。',special:'特殊结算：同月可多份有效单，可重复使用项目，不区分账期；单据编辑不回写财务主表。'}[filters.mode]))
+const uncovered=computed(()=>{const represented=new Set(visibleBoards.value.flatMap(board=>board.statement.rows.map(row=>row.root_id)));const pending=new Set((state.value?.pending||[]).map(item=>item.project_id));return (state.value?.candidates||[]).filter(item=>!represented.has(item.id)&&!pending.has(item.id))})
+const visiblePending=computed(()=>(state.value?.pending||[]).filter(item=>filters.months.includes(item.month)&&(filters.period==null||(item.period_number||0)===filters.period)))
+const money=value=>Object.entries(value||{}).map(([key,total])=>`${key} ${total}`).join(' / ')||'待填写'
+const memberships=id=>(state.value?.documents||[]).filter(board=>board.status==='active'&&board.statement.rows.some(row=>row.root_id===id)).map(board=>board.number+(board.period_number?` 第${board.period_number}期`:'')).join('；')||'未入账'
+const editFields=computed(()=>editingRow.value?[{key:'project_name',label:'项目名称'},{key:'subtotal',label:'单内金额'},{key:'remarks',label:'单内备注'}]:[{key:'company',label:'对账单主体／公司抬头'},{key:'title',label:'标题'},{key:'issue_date',label:'账单日期'},{key:'bank_name',label:'开户行'},{key:'account_name',label:'账户名称'},{key:'account_number',label:'银行账号'}])
+let searchController,loadController,sequence=0
+async function searchProjects(keyword=''){searchController?.abort();const request=searchController=new AbortController();searching.value=true;try{const data=await (props.module==='interpretation'?getInterpretationFinancePage({...props.query,keyword,payment_method:props.initialMode||undefined,skip:0,limit:100},request.signal):api.get(`/business-finance/${props.module}/page`,{params:{...props.query,keyword,skip:0,limit:100},signal:request.signal}));if(!request.signal.aborted){const current=options.value.find(row=>row.id===filters.id);options.value=data.items;if(current&&!options.value.some(row=>row.id===current.id))options.value.unshift(current)}}catch(e){if(!request.signal.aborted)error.value=getLocalizedErrorMessage(e,'项目加载失败')}finally{if(!request.signal.aborted)searching.value=false}}
+function changeProject(){const row=options.value.find(item=>item.id===filters.id);filters.mode=props.initialMode||row?.settlement_mode||'individual';filters.months=[row?.billing_month||businessDateTimeInputValue().slice(0,7)];filters.period=undefined;void load()}
+async function load(){loadController?.abort();if(!filters.id||!filters.months.length)return;const request=loadController=new AbortController(),seq=++sequence;loading.value=true;error.value='';try{const data=await api.get(`/interpretation-customer-finance/statement-workspace/project/${filters.id}`,{params:{module:props.module,mode:filters.mode,months:filters.months},paramsSerializer:{indexes:null},signal:request.signal});if(seq===sequence){state.value=data;candidateIds.value=[];selectedBoards.value=[]}}catch(e){if(!request.signal.aborted)error.value=getLocalizedErrorMessage(e,'对账单加载失败')}finally{if(seq===sequence)loading.value=false}}
+async function change(action,boardId,data={},message='',ids=[] ,extra={}){if(!canWrite||saving.value||!state.value)return false;if(message){try{await ElMessageBox.confirm(message,'确认口译对账单修改',{type:'warning',confirmButtonText:'确认并记录',cancelButtonText:'取消',closeOnClickModal:false})}catch{return false}}saving.value=true;error.value='';try{const result=await api.post(`/interpretation-customer-finance/statement-workspace/project/${filters.id}`,{revision:state.value.revision,mode:filters.mode,action,board_id:boardId,months:filters.months,period_number:filters.period||null,project_ids:ids,data,...extra},{params:{module:props.module}});state.value={...result,candidates:state.value.candidates};selectedBoards.value=[];return true}catch(e){error.value=getLocalizedErrorMessage(e,'对账单操作失败');return false}finally{saving.value=false}}
+async function generate(){if(filters.mode!=='special'&&filters.period==null&&visibleBoards.value.length>1){error.value='所选月份有多份有效对账单，请先选择具体账期';return}await change('generate',null,{},'生成本结算范围的独立对账单版本？普通模式的同月同账期旧单自动废除，源项目收费不变。',candidateIds.value)}
+function toggleBoard(id,value){selectedBoards.value=value?[...selectedBoards.value,id]:selectedBoards.value.filter(key=>key!==id)}
+async function voidSelected(){for(const id of [...selectedBoards.value])if(!await change('set_status',id,{status:'void'},'将所选单据设为废除并进入历史版本？'))break}
+async function addTo(board){await change('add_projects',board.id,{},'勾选时添加所选项目，未勾选时添加全部筛选项目；本单已有项目跳过？',candidateIds.value)}
+async function setPeriod(board){try{const {value}=await ElMessageBox.prompt('填写账期正整数；留空表示整月未分期。','调整账期',{inputValue:board.period_number?String(board.period_number):'',inputValidator:value=>!value||/^[1-9]\d{0,2}$/.test(value)||'请填写1–999'});await change('set_period',board.id,{},'调整账期？有效账单冲突时将提示。',[],{period_number:value?Number(value):null})}catch{}}
+async function schedule(board){try{const {value}=await ElMessageBox.prompt('填写目标月份，可附账期，例如 2026-12 或 2026-12/2。','设置待入账月份／账期',{inputValue:filters.months[0],inputValidator:value=>/^\d{4}-(0[1-9]|1[0-2])(\/[1-9]\d{0,2})?$/.test(value)||'请填写有效月份／账期'});const [month,period]=value.split('/');await change('schedule',board.id,{},'将所选项目移出本单，设为目标月份／账期待入账？',boardSelected[board.id],{months:[month],period_number:period?Number(period):null})}catch{}}
+function dragProject(event,id,boardId){event.stopPropagation();event.dataTransfer.setData('application/x-oral-statement-project',JSON.stringify({id,boardId}));event.dataTransfer.effectAllowed='move'}
+function dragBoard(event,board){event.dataTransfer.setData('application/x-oral-statement-board',board.id)}
+async function dropProject(event,board){const sourceBoard=event.dataTransfer.getData('application/x-oral-statement-board');if(sourceBoard){const ids=state.value.documents.map(item=>item.id).filter(id=>id!==sourceBoard);ids.splice(ids.indexOf(board.id),0,sourceBoard);await change('reorder',null,{board_ids:ids});return}const value=event.dataTransfer.getData('application/x-oral-statement-project');if(!value)return;try{const source=JSON.parse(value);if(source.boardId===board.id)return;await change(source.boardId?'move_projects':'add_projects',source.boardId||board.id,{target_board_id:board.id},'将该项目加入目标账单？',[source.id])}catch{}}
+function editLine(board,row){editingBoard.value=board;editingRow.value=row;Object.keys(editForm).forEach(key=>delete editForm[key]);Object.assign(editForm,{project_name:row.project_name,subtotal:row.subtotal==null?undefined:Number(row.subtotal),remarks:row.remarks||''});editVisible.value=true}
+function editHeader(board){editingBoard.value=board;editingRow.value=null;Object.keys(editForm).forEach(key=>delete editForm[key]);for(const key of ['company','title','issue_date'])editForm[key]=board.statement[key]||'';for(const key of ['bank_name','account_name','account_number'])editForm[key]=board.statement.settings?.[key]||'';editVisible.value=true}
+async function saveEdit(){const data=editingRow.value?{row_id:editingRow.value.line_id,fields:{...editForm}}:{...editForm};if(await change(editingRow.value?'edit_row':'edit_header',editingBoard.value.id,data,'保存本单修改并记录？源项目财务不变。'))editVisible.value=false}
+async function restoreRemoved(row){const id=removedBoard.value.id;if(await change('restore_project',id,{removed_id:row.id},'恢复所选项目原内容，保留后续其他修改？'))removedBoard.value=state.value.documents.find(board=>board.id===id)}
+async function download(board,format){exporting.value=true;try{const data=await api.get(`/interpretation-customer-finance/statement-workspace/project/${filters.id}/export/${board.id}`,{params:{format,module:props.module},responseType:'blob'});const url=URL.createObjectURL(data);const link=document.createElement('a');link.href=url;link.download=`${board.number}-${board.name}.${format==='excel'?'xlsx':'pdf'}`;link.click();URL.revokeObjectURL(url)}catch(e){error.value=getLocalizedErrorMessage(e,'导出失败')}finally{exporting.value=false}}
+watch(()=>[props.modelValue,props.projects[0]?.id,props.initialMode],async([visible])=>{if(!visible){loadController?.abort();searchController?.abort();return}clearFieldSearch();options.value=[...props.projects];filters.id=props.projects[0]?.id||'';if(filters.id)changeProject();await searchProjects();if(!filters.id&&options.value.length){filters.id=options.value[0].id;changeProject()}},{immediate:true})
+onBeforeUnmount(()=>{sequence++;loadController?.abort();searchController?.abort()})
 </script>
-
+<style>
+.interpretation-statement-dialog,.oral-child-dialog{display:flex;flex-direction:column;max-height:90vh;overflow:hidden}.interpretation-statement-dialog>.el-dialog__header,.interpretation-statement-dialog>.el-dialog__footer,.oral-child-dialog>.el-dialog__header,.oral-child-dialog>.el-dialog__footer{flex:none}.interpretation-statement-dialog>.el-dialog__body,.oral-child-dialog>.el-dialog__body{min-height:0;overflow-y:auto;flex:1}.interpretation-statement-dialog>.el-dialog__footer,.oral-child-dialog>.el-dialog__footer{border-top:1px solid var(--el-border-color);background:var(--el-fill-color-light)}
+</style>
 <style scoped>
-:global(.interpretation-statement-dialog){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}
-:global(.interpretation-statement-dialog>.el-dialog__header),:global(.interpretation-statement-dialog>.el-dialog__footer){flex:none}
-:global(.interpretation-statement-dialog>.el-dialog__body){flex:1;min-height:0;overflow:auto}
-:global(.interpretation-statement-dialog>.el-dialog__footer){border-top:1px solid var(--el-border-color-light)}
-.interpretation-statement-paper{overflow:auto}
+h3,h4{margin:8px 0}.statement-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:10px 0}.statement-toolbar .el-button+.el-button{margin-left:0}.statement-toolbar span,.statement-hint{font-size:12px;color:var(--el-text-color-secondary)}.oral-customer-projects,.oral-uncovered,.oral-pending{padding:10px;border:1px solid var(--el-border-color);border-radius:7px;margin:10px 0}summary{cursor:pointer;font-weight:600;padding:6px}.oral-drag-project{padding:6px;cursor:grab}.oral-statement-canvas{display:flex;align-items:flex-start;gap:16px;overflow-x:auto;background:var(--el-fill-color-light);padding:12px}.oral-statement-board{flex:0 0 980px;min-width:0;background:white;border:1px solid var(--el-border-color);border-radius:8px;padding:12px;max-height:80vh;overflow-y:scroll;overscroll-behavior-y:contain;scrollbar-gutter:stable}.oral-statement-board header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;cursor:grab}.oral-merged{background:var(--el-color-primary-light-9);padding:8px;color:var(--el-color-primary)}.oral-board-scroll{max-height:60vh;overflow-y:scroll;overscroll-behavior-y:contain;scrollbar-gutter:stable}.oral-board-projects{margin:8px 0}.oral-child-dialog :deep(.el-input-number){width:100%}
 </style>

@@ -127,7 +127,7 @@
 
           </div>
           </div>
-          <div class="chat-fixed-window-controls" @mousedown.stop @dblclick.stop><ChatProjectEntry :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" @navigate="minimizeChat(chatWindow.key)" /><el-button link aria-label="聊天记录" title="聊天记录" @click="openSearch(chatWindow.key)"><el-icon><Search /></el-icon></el-button><button type="button" aria-label="最小化会话窗口" title="最小化" @click="minimizeChat(chatWindow.key)">−</button><button type="button" aria-label="最大化会话窗口" title="最大化" @click="maximizeChat(chatWindow.key)">□</button><button type="button" aria-label="退出整个会话窗口" title="退出整个会话窗口，保留聊天记录" @click.stop="closeAllChats">×</button></div>
+          <div class="chat-fixed-window-controls" @mousedown.stop @dblclick.stop><ChatProjectEntry :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" :order-no="chatWindow.subtitle" @navigate="minimizeChat(chatWindow.key)" /><el-button link aria-label="聊天记录" title="聊天记录" @click="openSearch(chatWindow.key)"><el-icon><Search /></el-icon></el-button><button type="button" aria-label="最小化会话窗口" title="最小化" @click="minimizeChat(chatWindow.key)">−</button><button type="button" aria-label="最大化会话窗口" title="最大化" @click="maximizeChat(chatWindow.key)">□</button><button type="button" aria-label="退出整个会话窗口" title="退出整个会话窗口，保留聊天记录" @click.stop="closeAllChats">×</button></div>
         </header>
         <div class="project-chat-window__body">
           <div class="chat-conversation-close-row"><button type="button" aria-label="关闭当前会话" title="关闭当前会话，保留聊天记录" @click.stop="state.layout === 'workspace' ? closeWorkspaceSession() : closeChat(chatWindow.key)">×</button></div>

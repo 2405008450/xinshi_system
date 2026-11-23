@@ -16,7 +16,7 @@ ENUM_FIELDS = {
     'payment_status': {'unrecorded', 'deposit', 'partial', 'full'},
     'documents': {'quotation', 'invoice', 'none'},
 }
-MONEY_FIELDS = {'totals_excl_tax', 'totals_incl_tax', 'billing_totals', 'totals', 'adjusted_totals'}
+MONEY_FIELDS = {'totals_excl_tax', 'totals_incl_tax', 'billing_totals', 'totals', 'adjusted_totals','received_totals','payment_difference'}
 
 
 class TextFilter(BaseModel):

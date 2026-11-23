@@ -25,9 +25,9 @@
       </DialogFieldSearchHeader>
     </template>
     <div ref="body" v-loading="loading">
-      <el-tabs v-if="!embedded" v-model="activeTab" :before-leave="beforeTabLeave" @tab-change="onPaymentTabChanged">
+      <el-tabs v-if="!embedded&&(ledgerOnly||showSpecialInvoiceTab)" v-model="activeTab" :before-leave="beforeTabLeave" @tab-change="onPaymentTabChanged">
         <el-tab-pane v-if="!ledgerOnly" label="发票" name="invoice" />
-        <el-tab-pane v-if="!ledgerOnly" label="特殊结算发票" name="special_invoice" />
+        <el-tab-pane v-if="!ledgerOnly&&showSpecialInvoiceTab" label="特殊结算发票" name="special_invoice" />
         <el-tab-pane v-if="ledgerOnly" label="查账" name="overview" />
         <el-tab-pane v-if="ledgerOnly" label="追账" name="collection" />
       </el-tabs>
@@ -242,6 +242,8 @@ function openInvoiceStatement(row){
 }
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(body)
 const activeTab=ref(props.ledgerOnly?'overview':'invoice'),projectPage=ref(1),showFilters=computed(()=>!props.lockProject)
+const showSpecialInvoiceTab=computed(()=>props.scopeOrder?.paymentMethod==='special'||props.lockProject&&options.value.some(row=>(row.id===props.initialProjectId||row.rootId===props.initialProjectId)&&row.paymentMethod==='special'))
+watch(showSpecialInvoiceTab,visible=>{if(!visible&&activeTab.value==='special_invoice')activeTab.value='invoice'})
 const scopeMonth=computed(()=>props.scopeOrder && (props.scopeOrder.billingMonth || orderStatementMonth(props.scopeOrder.orderNo)))
 const scopeBillingPeriod=computed(()=>{
   if(!scopeMonth.value)return '未登记'
