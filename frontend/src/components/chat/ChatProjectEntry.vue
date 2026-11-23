@@ -29,11 +29,13 @@ import { hasPermission } from '@/utils/permission'
 import { chatRequest } from '@/api/projectChat'
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { ElMessage } from 'element-plus'
+import { copyTextToClipboard } from '@/utils/clipboard'
+import { getAnnotationProject } from '@/api/annotationProjects'
 const ResourceRequestEditor = defineAsyncComponent(() => import('@/views/resource/ResourceRequests.vue'))
 const AnnotationProgressHost = defineAsyncComponent(() => import('@/views/project/AnnotationProjects.vue'))
 const AnnotationTrialsHost = defineAsyncComponent(() => import('@/views/project/AnnotationTrials.vue'))
 const AnnotationChatAiDialog = defineAsyncComponent(() => import('./AnnotationChatAiDialog.vue'))
-const props = defineProps({ projectId: String, projectType: String })
+const props = defineProps({ projectId: String, projectType: String, orderNo: String })
 const emit = defineEmits(['navigate'])
 const router = useRouter()
 const openingReport = ref(false)
@@ -51,9 +53,14 @@ async function openWorkReport() {
   if (openingReport.value) return
   openingReport.value = true
   try {
+    const projectId = props.projectId
+    const details = props.orderNo ? null : await getAnnotationProject(projectId).catch(() => null)
+    const orderNo = props.orderNo || details?.orderNo
+    const copied = await copyTextToClipboard(orderNo)
+    if (!copied) ElMessage.warning('订单号自动复制失败，请手动复制')
     const failure = await router.push({
       name: 'WorkDashboard',
-      query: { section: 'daily-report', reportAnnotationProject: props.projectId },
+      query: { section: 'daily-report', reportAnnotationProject: projectId, reportChatProject: projectId },
     })
     if (!failure || router.currentRoute.value.query.reportAnnotationProject === props.projectId) emit('navigate')
   } catch (error) {

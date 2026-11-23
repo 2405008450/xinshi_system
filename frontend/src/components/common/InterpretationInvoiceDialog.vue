@@ -9,6 +9,8 @@
     <div ref="body" v-loading="loading">
       <el-alert v-if="error" type="error" :title="error" :closable="false" />
       <div v-if="scope">
+        <el-button :disabled="!current||dirty||busy" @click="requestVisible=true">发送开票需求／查看回执</el-button>
+        <el-descriptions v-if="subject" :column="1" border size="small"><el-descriptions-item label="开票主体">{{subject.name}}</el-descriptions-item><el-descriptions-item label="税号">{{subject.party?.tax_number||'未填写'}}</el-descriptions-item></el-descriptions>
         <p>{{[scope.client_name,scope.month,settlementModeLabels[scope.mode]].filter(Boolean).join(' · ')}}</p>
         <div v-if="scope.mode==='special'" class="invoice-actions">
           <el-button :disabled="!scope.month||busy" @click="navigate('statement')">特殊结算对账单</el-button>
@@ -31,6 +33,7 @@
             <el-form-item label="订单号"><ReadonlyField :model-value="current.order_no" source="auto" /></el-form-item>
             <el-form-item label="是否需发票"><ReadonlyField :model-value="current.required?'需发票':'未勾选需发票'" source="auto" /></el-form-item>
             <el-form-item label="项目含税金额"><ReadonlyField :model-value="formatFinanceAmounts(current.totals)" source="auto" /></el-form-item>
+            <el-form-item label="开票主体"><el-select v-model="draft.subject_key" clearable><el-option v-for="row in subjects" :key="row.key" :value="row.key" :label="row.name" /></el-select></el-form-item>
             <el-form-item label="发票状态"><el-select v-model="draft.invoice_status">
               <el-option v-for="option in invoiceStatusOptions" :key="option.value" v-bind="option" />
             </el-select></el-form-item>
@@ -49,9 +52,12 @@
       <el-button v-if="canWrite" type="primary" :loading="saving" :disabled="!current||loading||uploading||!dirty" @click="save">保存发票</el-button>
     </template>
   </DraggableFormDialog>
+  <BusinessInvoiceRequestDialog v-if="requestVisible" v-model="requestVisible" :project-id="selection.id" :module="module" @saved="emit('saved')" />
 </template>
 
 <script setup>
+import api from '@/api'
+import BusinessInvoiceRequestDialog from './BusinessInvoiceRequestDialog.vue'
 import {computed,onBeforeUnmount,reactive,ref,watch} from 'vue'
 import {ElMessage,ElMessageBox} from 'element-plus'
 import {getInterpretationInvoice,saveInterpretationInvoice} from '@/api/interpretationCustomerFinance'
@@ -66,12 +72,14 @@ import DialogFieldSearchHeader from './DialogFieldSearchHeader.vue'
 import ReadonlyField from './ReadonlyField.vue'
 import ScreenshotInput from './ScreenshotInput.vue'
 
-const props=defineProps({modelValue:Boolean,projectId:String,canWrite:Boolean})
+const props=defineProps({modelValue:Boolean,projectId:String,canWrite:Boolean,module:{type:String,default:'interpretation'}})
 const emit=defineEmits(['update:modelValue','saved','statement','price'])
+const requestVisible=ref(false),subjects=ref([])
+const subject=computed(()=>subjects.value.find(row=>row.key===draft.subject_key))
 const canWriteClients=hasPermission('clients:write')
 const canReadClients=canWriteClients||hasPermission('clients:read')
 const scope=ref(null),error=ref(''),loading=ref(false),saving=ref(false),uploading=ref(false),body=ref()
-const selection=reactive({id:''}),draft=reactive({invoice_status:'unissued',proofs:''})
+const selection=reactive({id:''}),draft=reactive({invoice_status:'unissued',proofs:'',subject_key:null,invoice_type:'electronic_normal',buyer_index:0})
 const {fieldSearchRef,fieldSearchKeyword,fetchFieldSuggestions,locateDialogField,clearFieldSearch}=useDialogFieldSearch(body)
 const current=computed(()=>scope.value?.items.find(item=>item.id===selection.id))
 const grouped=computed(()=>['monthly','sub_client'].includes(scope.value?.mode))
@@ -79,12 +87,12 @@ const title=computed(()=>{
   const heading={special:'特殊结算',monthly:'合并结算发票',sub_client:'子客户结算发票'}[scope.value?.mode]||'发票'
   return current.value ? `${heading} · ${current.value.order_no}` : heading
 })
-const dirty=computed(()=>!!current.value&&(draft.invoice_status!==current.value.invoice_status||draft.proofs!==current.value.proofs))
+const dirty=computed(()=>!!current.value&&(draft.invoice_status!==current.value.invoice_status||draft.proofs!==current.value.proofs||draft.subject_key!==(current.value.subject_key||null)))
 const busy=computed(()=>saving.value||uploading.value)
 let controller
 function assign(id){
   selection.id=id
-  Object.assign(draft,{invoice_status:current.value?.invoice_status||'unissued',proofs:current.value?.proofs||''})
+  Object.assign(draft,{invoice_status:current.value?.invoice_status||'unissued',proofs:current.value?.proofs||'',subject_key:current.value?.subject_key||null,invoice_type:current.value?.invoice_type||'electronic_normal',buyer_index:current.value?.buyer_index||0})
 }
 async function canLeave(){
   if(busy.value)return false
@@ -104,7 +112,7 @@ async function save(){
   const {id,revision}=current.value
   saving.value=true;error.value=''
   try{
-    const item=await saveInterpretationInvoice(id,{...draft,revision})
+    const item=await (props.module==='interpretation'?saveInterpretationInvoice(id,{...draft,revision}):api.put(`/business-finance/${props.module}/project/${id}/invoice`,{...draft,revision}))
     scope.value.items=scope.value.items.map(row=>row.id===id?item:row)
     assign(id)
     emit('saved')
@@ -117,9 +125,10 @@ watch(()=>[props.modelValue,props.projectId],async ([opened,id])=>{
   if(!opened||!id)return
   const request=controller=new AbortController()
   clearFieldSearch()
+  api.get('/invoice-parties/subjects').then(data=>subjects.value=data.items).catch(()=>{})
   scope.value=null;error.value='';loading.value=true
   try{
-    const data=await getInterpretationInvoice(id,{signal:request.signal})
+    const data=await (props.module==='interpretation'?getInterpretationInvoice(id,{signal:request.signal}):api.get(`/business-finance/${props.module}/project/${id}/invoice`,{signal:request.signal}))
     if(!request.signal.aborted){scope.value=data;assign(id)}
   }catch(e){if(!request.signal.aborted)error.value=getLocalizedErrorMessage(e,'口译发票加载失败')}
   finally{if(!request.signal.aborted)loading.value=false}

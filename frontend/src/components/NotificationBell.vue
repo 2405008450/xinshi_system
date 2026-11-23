@@ -91,6 +91,7 @@
   <ReceivedNotificationsDialog v-if="receivedVisible" :has-target="hasNotificationTarget" @close="receivedVisible=false" @open="openReceivedTarget" />
   <ResourceRequestDispatchDialog v-if="dispatchBatchId" :batch-id="dispatchBatchId" @close="dispatchBatchId=''" />
   <TranslationSimpleRequirementDialog v-if="simpleRequirementId||simpleDispatchId" :key="simpleRequirementId||simpleDispatchId" :requirement-id="simpleRequirementId" :dispatch-id="simpleDispatchId" @close="simpleRequirementId='';simpleDispatchId=''" />
+  <BusinessInvoiceRequestDialog v-if="businessInvoiceRequestId" :model-value="!!businessInvoiceRequestId" :request-id="businessInvoiceRequestId" @update:model-value="businessInvoiceRequestId=''" />
   <InvoiceRequestDialog v-if="invoiceRequestId" :key="invoiceRequestId" :request-id="invoiceRequestId" @close="invoiceRequestId=''" />
 </template>
 
@@ -101,6 +102,8 @@ import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, r
 const ResourceRequestDispatchDialog=defineAsyncComponent(()=>import('@/views/resource/components/ResourceRequestDispatchDialog.vue'))
 const TranslationSimpleRequirementDialog=defineAsyncComponent(()=>import('@/components/common/TranslationSimpleRequirementDialog.vue'))
 const InvoiceRequestDialog=defineAsyncComponent(()=>import('@/components/common/InvoiceRequestDialog.vue'))
+const businessInvoiceRequestId=ref('')
+const BusinessInvoiceRequestDialog=defineAsyncComponent(()=>import('./common/BusinessInvoiceRequestDialog.vue'))
 const invoiceRequestId=ref('')
 const ReceivedNotificationsDialog=defineAsyncComponent(()=>import('@/components/ReceivedNotificationsDialog.vue'))
 const simpleRequirementId=ref('')
@@ -248,6 +251,7 @@ const notificationEntityTargets = [
   'translation_simple_requirement', 'translation_simple_requirement_receipt', 'resource_request_dispatch', 'chat_summary',
 ]
 function hasNotificationTarget(item) {
+  if(['business_invoice_request','interpretation_invoice_request','invoice_request'].includes(item.related_project_type)&&item.related_entity_id)return true
   return item.category === 'administration' || workflowTargets.includes(item.notification_type) ||
     Boolean(item.related_project_id || (item.related_entity_id && (
       projectNotificationRoutes[item.related_project_type] || notificationEntityTargets.includes(item.notification_type)
@@ -267,6 +271,7 @@ async function openReceivedTarget(item) {
   }
 }
 const navigateToNotification = async (item) => {
+  if(['business_invoice_request','interpretation_invoice_request'].includes(item.related_project_type)&&item.related_entity_id){popoverVisible.value=false;businessInvoiceRequestId.value=String(item.related_entity_id);return}
   if (item.related_project_type === 'invoice_request' && item.related_entity_id) {
     popoverVisible.value = false
     invoiceRequestId.value = String(item.related_entity_id)

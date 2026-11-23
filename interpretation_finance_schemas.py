@@ -14,6 +14,7 @@ class InterpretationSettlement(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
     billing_month: str | None = Field(default=None, pattern=r'^\d{4}-(0[1-9]|1[0-2])$')
+    period_number: int | None = Field(default=None, ge=1, le=999)
     tax_basis: Literal['excl_tax', 'incl_tax', 'legacy'] = 'legacy'
     pricing_mode: Literal['time', 'fixed'] = 'time'
     payment_method: PaymentMethod = 'individual'
@@ -32,6 +33,7 @@ class InterpretationReceipt(BaseModel):
     currency: str = Field(default='CNY', pattern=r'^[A-Z]{3}$')
     received_on: date | None = None
     note: str = Field(default='', max_length=2000)
+    stage_type: Literal['deposit','mid','tail','full'] | None = None
 
 
 class StrictInput(BaseModel):
@@ -68,6 +70,16 @@ class Money(StrictInput):
     tax_prices: TaxPrices | None = None
 
 
+class SettlementAmountAdjustment(StrictInput):
+    currency: str = Field(default='CNY', pattern=r'^[A-Z]{3}$')
+    excl_discount: int | None = Field(default=None, ge=1, le=99)
+    incl_discount: int | None = Field(default=None, ge=1, le=99)
+    legacy_discount: int | None = Field(default=None, ge=1, le=99)
+    excl_amount: Decimal | None = Field(default=None, ge=0, max_digits=16, decimal_places=2)
+    incl_amount: Decimal | None = Field(default=None, ge=0, max_digits=16, decimal_places=2)
+    legacy_amount: Decimal | None = Field(default=None, ge=0, max_digits=16, decimal_places=2)
+
+
 class FinanceWrite(StrictInput):
     revision: int = Field(ge=0)
     rates: list[Rate] = Field(default_factory=list, max_length=100)
@@ -75,14 +87,25 @@ class FinanceWrite(StrictInput):
     overtime: Money | None = None
     adjusted_totals: list[Money] = Field(default_factory=list, max_length=20)
     fixed_totals: list[Money] = Field(default_factory=list, max_length=20)
+    settlement_adjustments: list[SettlementAmountAdjustment] = Field(default_factory=list, max_length=20)
     explanation: str = Field(default='', max_length=5000)
     settlement: InterpretationSettlement | None = None
     update_library: bool = False
     library_revision: int | None = Field(default=None, ge=0)
     sync_confirmed: bool = False
 
+    @model_validator(mode='before')
+    @classmethod
+    def server_metadata(cls,value):
+        # 允许内部参考价同步读取旧快照；客户端不能覆盖独立单据工作区和需求记录。
+        if isinstance(value,dict):return {key:item for key,item in value.items() if key not in ('_oral_workspace','_oral_invoice_requests')}
+        return value
+
     @model_validator(mode='after')
     def validate_totals(self):
+        currencies=[row.currency for row in self.settlement_adjustments]
+        if len(set(currencies))!=len(currencies):
+            raise ValueError('每种货币只能填写一组结算折扣和调整后金额')
         if self.has_overtime and self.overtime is None:
             raise ValueError('有加班费时请填写总加班费')
         if not self.has_overtime:
@@ -115,6 +138,9 @@ class InterpretationQuotationWrite(StrictInput):
 class InterpretationInvoice(StrictInput):
     invoice_status: Literal['unissued', 'partial', 'issued'] = 'unissued'
     proofs: str = Field(default='', max_length=20000)
+    subject_key: Literal['guangzhou','shenzhen','shanghai'] | None = None
+    invoice_type: Literal['electronic_special','electronic_normal','paper_special','paper_normal'] = 'electronic_normal'
+    buyer_index: int = Field(default=0, ge=0, le=29)
 
 
 class InterpretationInvoiceWrite(InterpretationInvoice):

@@ -7,13 +7,16 @@
           <template v-if="canReadProjects">
             <el-button @click="openDocument('quotation')">报价单</el-button>
             <el-button @click="openDocument('statement')">对账单</el-button>
+            <el-button @click="openInvoicePicker">发票</el-button><el-button @click="openSpecial">特殊结算</el-button><el-button @click="ledgerVisible=true">查账追账</el-button>
           </template>
           <TableColumnSettings v-model="selectedKeys" settings-key="interpretation-customer-finance" :columns="columns" @reset="resetColumns" />
         </div>
       </div>
     </template>
     <CustomerQuotationDialog v-if="quotationVisible" v-model="quotationVisible" module="interpretation" :projects="documentProjects" :query="queryParams()" @saved="saved" />
-    <InterpretationStatementDialog v-if="statementVisible" v-model="statementVisible" :projects="documentProjects" :query="queryParams()" />
+    <BusinessFinanceLedgerDialog v-if="ledgerVisible" v-model="ledgerVisible" module="interpretation" :query="queryParams()" />
+    <DraggableFormDialog v-model="invoicePicker" title="选择开票项目" width="min(760px, calc(100vw - 32px))" append-to-body><el-select v-model="invoiceTarget" filterable remote :remote-method="searchInvoiceProjects" :loading="invoiceSearching" style="width:100%"><el-option v-for="row in invoiceOptions" :key="row.id" :value="row.id" :label="row.order_no+' · '+row.project_name" /></el-select><template #footer><el-button @click="invoicePicker=false">取消</el-button><el-button :disabled="!invoiceTarget" type="primary" @click="chooseInvoice">打开发票窗口</el-button></template></DraggableFormDialog>
+    <InterpretationStatementDialog v-if="statementVisible" v-model="statementVisible" :projects="documentProjects" :query="queryParams()" :initial-mode="specialEntry?'special':undefined" />
     <InterpretationInvoiceDialog v-if="invoiceVisible" v-model="invoiceVisible" :project-id="actionRow?.id"
       :can-write="canWrite" @saved="saved" @statement="openDocument('statement',actionRow)" @price="openPrice(actionRow)" />
     <InterpretationFinanceEditor ref="financeEditor" :target-id="editorTarget" :can-write="canWrite" hide-trigger @saved="saved" />
@@ -43,6 +46,15 @@
             <el-option v-for="(label,value) in settlementModeLabels" :key="value" :label="label" :value="value"
               :disabled="value==='sub_client'&&!row.sub_client_id" />
           </el-select>
+          <template v-else-if="['totals_excl_tax','totals_incl_tax'].includes(column.key)">
+            <div v-for="currency in amountCurrencies(row,column.key)" :key="currency" class="finance-amount-cell">
+              <strong>{{currency}}</strong><small>折扣前：{{baseAmount(row,currency,column.key)}}</small>
+              <template v-if="canWrite&&row.ready"><label>折扣（%）<el-input-number :model-value="amountAdjustment(row,currency)[amountPrefix(column.key)+'_discount']" :min="1" :max="99" :precision="0" :controls="false" placeholder="01–99" :disabled="settlementSaving.has(row.id)" @change="value=>saveAmountCell(row,currency,amountPrefix(column.key)+'_discount',value)" /></label><label>调整后价格<el-input-number :model-value="amountAdjustment(row,currency)[amountPrefix(column.key)+'_amount']" :min="0" :precision="2" :controls="false" placeholder="选填，优先于折扣" :disabled="settlementSaving.has(row.id)" @change="value=>saveAmountCell(row,currency,amountPrefix(column.key)+'_amount',value)" /></label></template>
+              <template v-else><small>折扣：{{amountAdjustment(row,currency)[amountPrefix(column.key)+'_discount']??'—'}}%</small><small>调整后价格：{{amountAdjustment(row,currency)[amountPrefix(column.key)+'_amount']??'—'}}</small></template>
+              <strong>结算总价：{{row[column.key]?.[currency]??'待填写'}}</strong>
+            </div>
+          </template>
+          <template v-else-if="column.key==='payment_status'"><span>{{cell(row,column.key)}}</span><el-button v-if="canWrite" link type="primary" @click="openPrice(row)">登记／修改付款</el-button></template>
           <template v-else-if="['rates','workload'].includes(column.key)&&row.pricing_mode!=='fixed'&&row.payload?.rates?.length">
             <div v-for="(rate,index) in row.payload.rates" :key="index" class="finance-rate">
               <strong>{{rate.direction}}</strong>
@@ -72,18 +84,19 @@
 <script setup>
 import {useProjectStatusSync} from '@/composables/useProjectStatusSync'
 import {computed,nextTick,ref,reactive,onMounted,onBeforeUnmount,watch} from 'vue'
-import {getInterpretationFinancePage,saveInterpretationSettlementMode} from '@/api/interpretationCustomerFinance'
+import {saveInterpretationFinance,getInterpretationFinancePage,saveInterpretationSettlementMode} from '@/api/interpretationCustomerFinance'
 import InterpretationFinanceEditor from '@/components/common/InterpretationFinanceEditor.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
 import {useTableColumns} from '@/composables/useTableColumns'
 import {translationSettlementModeLabels as settlementModeLabels} from '@/utils/settlementModes'
-import {formatFinanceAmounts,interpretationUnitPrice,interpretationWorkload} from '@/utils/interpretationCustomerFinance'
+import {financeDraft,interpretationFinancePayload,interpretationFinanceTotals,formatFinanceAmounts,interpretationUnitPrice,interpretationWorkload} from '@/utils/interpretationCustomerFinance'
 import {ElMessage} from 'element-plus'
 import {getProjectStatusLabel,PROJECT_STATUS_OPTIONS} from '@/utils/projectStatus'
 import {hasPermission} from '@/utils/permission'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import FinanceManagerNameSelect from '@/components/common/FinanceManagerNameSelect.vue'
 import CustomerQuotationDialog from '@/components/common/CustomerQuotationDialog.vue'
+import BusinessFinanceLedgerDialog from '@/components/common/BusinessFinanceLedgerDialog.vue'
 import InterpretationStatementDialog from '@/components/common/InterpretationStatementDialog.vue'
 import InterpretationInvoiceDialog from '@/components/common/InterpretationInvoiceDialog.vue'
 import ProjectListRowActions from '@/components/common/ProjectListRowActions.vue'
@@ -103,25 +116,32 @@ const columns=[
   {key:'pricing_mode',label:'计价方式',width:106},
   {key:'billing_month',label:'账单月份',width:105},
   {key:'rates',label:'单价',width:186},
-  {key:'totals_excl_tax',label:'不含税总价',width:127},
-  {key:'totals_incl_tax',label:'含税总价',width:127},
+  {key:'totals_excl_tax',label:'不含税总价',width:220},
+  {key:'totals_incl_tax',label:'含税总价',width:220},
   {key:'settlement_mode',label:'结算模式',width:148},
   {key:'documents',label:'单据需求',width:121},
-  {key:'payment_status',label:'收款状态',width:105},
-  {key:'billing_totals',label:'计费合计',width:127},
+  {key:'payment_status',label:'付款状态',width:140},
+  {key:'billing_totals',label:'项目计费金额',width:145},
+  {key:'received_totals',label:'实际付款（各期累计）',width:155},
+  {key:'payment_difference',label:'付款差额（实付－应付）',width:165},
   {key:'explanation',label:'说明',width:165},
   {key:'totals',label:'原总价（税口径未确认）',width:185},
   {key:'adjusted_totals',label:'调整后总价',width:145},
 ]
 const {selectedKeys,isVisible,reset:resetColumns}=useTableColumns('interpretation-customer-finance',columns,
   ['order_no','project_name','client_short_name','project_status','directions','workload','pricing_mode','billing_month',
-    'rates','totals_excl_tax','totals_incl_tax','settlement_mode','documents','payment_status'],{
+    'rates','totals_excl_tax','totals_incl_tax','settlement_mode','documents','payment_status','billing_totals','received_totals','payment_difference'],{
     legacyDefaultKeys:['order_no','project_name','client_short_name','project_status','directions','pricing_mode','billing_month',
       'settlement_mode','rates','totals_excl_tax','totals_incl_tax','billing_totals'],
   })
 const visibleColumns=computed(()=>columns.filter(col=>isVisible(col.key)))
 const canWrite=hasPermission('projects:write'),selfName=localStorage.getItem('user_full_name')||localStorage.getItem('user_name')||'当前用户'
 const canReadProjects=hasPermission('projects:read')||canWrite
+const ledgerVisible=ref(false),invoicePicker=ref(false),invoiceTarget=ref(''),invoiceOptions=ref([]),invoiceSearching=ref(false),specialEntry=ref(false)
+async function searchInvoiceProjects(keyword=''){invoiceSearching.value=true;try{invoiceOptions.value=(await getInterpretationFinancePage({...queryParams(),keyword,skip:0,limit:100})).items}catch(e){ElMessage.error(getLocalizedErrorMessage(e,'项目加载失败'))}finally{invoiceSearching.value=false}}
+function openInvoicePicker(){invoiceOptions.value=[...rows.value];invoiceTarget.value='';invoicePicker.value=true;void searchInvoiceProjects()}
+function chooseInvoice(){actionRow.value=invoiceOptions.value.find(row=>row.id===invoiceTarget.value);invoicePicker.value=false;invoiceVisible.value=true}
+function openSpecial(){actionRow.value=null;specialEntry.value=true;statementVisible.value=true}
 const quotationVisible=ref(false),statementVisible=ref(false),invoiceVisible=ref(false)
 const actionRow=ref(null),financeEditor=ref(null),editorTarget=ref('')
 const totalsExclTax=ref({}),totalsInclTax=ref({}),billingTotals=ref({})
@@ -134,7 +154,7 @@ const documentProjects=computed(()=>actionRow.value?[actionRow.value]:rows.value
 function financeRowActions(row){
   const history={command:'history',label:'修改记录'}
   const mode=row.settlement_mode
-  if(mode==='special')return [{command:'invoice',label:'特殊结算'},history]
+  if(mode==='special')return [{command:'statement',label:'特殊结算对账单'},{command:'invoice',label:'特殊结算发票'},{command:'price',label:'价格与收费'},history]
   const labels={
     monthly:['合并对账单','合并结算发票'],
     sub_client:['子客户对账单','子客户结算发票'],
@@ -149,7 +169,7 @@ function financeRowActions(row){
   ]
 }
 function openDocument(command,row=null){
-  actionRow.value=row
+  actionRow.value=row;specialEntry.value=false
   if(command==='quotation')quotationVisible.value=true
   if(command==='statement')statementVisible.value=true
 }
@@ -188,7 +208,12 @@ async function changeSettlement(row,mode){
     void load()
   }finally{settlementSaving.delete(row.id)}
 }
-const paymentStatus={unrecorded:'未登记',deposit:'已收定金',partial:'已收部分款',full:'已收全款'}
+const amountPrefix=key=>key==='totals_incl_tax'?'incl':'excl'
+const amountAdjustment=(row,currency)=>(row.payload?.settlement_adjustments||[]).find(item=>item.currency===currency)||{}
+function amountCurrencies(row,key){const result=new Set([...Object.keys(row[key]||{}),...(row.payload?.settlement_adjustments||[]).map(item=>item.currency)]);return result.size?[...result]:['CNY']}
+function baseAmount(row,currency,key){return interpretationFinanceTotals(financeDraft(row.payload),key==='totals_incl_tax'?'incl_tax':'excl_tax',false,false)[currency]??'待填写'}
+async function saveAmountCell(row,currency,key,value){if(settlementSaving.has(row.id))return;const data=financeDraft(row.payload);const list=data.settlement_adjustments;let entry=list.find(item=>item.currency===currency);if(!entry){entry={currency};list.push(entry)}if(value==null||value==='')delete entry[key];else entry[key]=value;if(Object.keys(entry).length===1)list.splice(list.indexOf(entry),1);const payload=interpretationFinancePayload(data);const fields=['rates','has_overtime','overtime','adjusted_totals','fixed_totals','settlement_adjustments','explanation','settlement'];settlementSaving.add(row.id);try{const saved=await saveInterpretationFinance('project',row.id,{revision:row.revision,...Object.fromEntries(fields.map(field=>[field,payload[field]]))});Object.assign(row,saved);ElMessage.success('金额已保存并记录');emit('saved');void load()}catch(e){ElMessage.error(getLocalizedErrorMessage(e,'金额保存失败'));void load()}finally{settlementSaving.delete(row.id)}}
+const paymentStatus={unrecorded:'未付款',deposit:'已付定金',partial:'已付进度款',full:'已付全款（含尾款）'}
 const enumOptions={
   project_status:PROJECT_STATUS_OPTIONS.interpretation,
   pricing_mode:Object.entries(pricingModes).map(([value,label])=>({value,label})),
@@ -196,7 +221,7 @@ const enumOptions={
   payment_status:Object.entries(paymentStatus).map(([value,label])=>({value,label})),
   documents:[{value:'quotation',label:'需报价单'},{value:'invoice',label:'需发票'},{value:'none',label:'均未勾选'}],
 }
-const amountFields=new Set(['totals_excl_tax','totals_incl_tax','billing_totals','totals','adjusted_totals'])
+const amountFields=new Set(['totals_excl_tax','totals_incl_tax','billing_totals','totals','adjusted_totals','received_totals','payment_difference'])
 const headerFields=columns.map(column=>({
   key:column.key,label:column.label,
   type:enumOptions[column.key]?'select':amountFields.has(column.key)?'number-range':'text',
@@ -220,7 +245,7 @@ function cell(row,key){
     const format=key==='rates'?interpretationUnitPrice:interpretationWorkload
     return (row.payload?.rates||[]).map(rate=>`${rate.direction}\n${format(rate)}`).join('\n')||'待填写'
   }
-  if(['totals','adjusted_totals','totals_excl_tax','totals_incl_tax','billing_totals'].includes(key))return formatFinanceAmounts(row[key])
+  if(['totals','adjusted_totals','totals_excl_tax','totals_incl_tax','billing_totals','received_totals','payment_difference'].includes(key))return formatFinanceAmounts(row[key])
   if(key==='explanation')return row.payload.explanation||'-'
   return row[key]||'-'
 }
@@ -232,3 +257,5 @@ useProjectStatusSync('interpretation',rows,{field:'project_status',onChanged:()=
 <style scoped>
 .heading,.heading-actions{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}.heading-actions>.el-button{margin:0}.finance-rate{display:grid;gap:3px;line-height:1.45}.finance-rate+.finance-rate{margin-top:6px;padding-top:6px;border-top:1px solid var(--el-border-color-lighter)}.finance-rate strong{font-size:12px}.finance-advanced{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0 12px}.finance-text{white-space:pre-wrap;overflow-wrap:anywhere}.finance-detail{max-height:560px;overflow-y:auto}.el-pagination{margin:16px 0}.el-select{width:100%}.finance-advanced :deep(.el-form-item){margin-right:0}p{font-size:12px;color:#64748b}
 </style>
+
+<style scoped>.finance-amount-cell{display:grid;gap:5px;margin-bottom:8px}.finance-amount-cell label{display:grid;grid-template-columns:80px minmax(0,1fr);align-items:center;font-size:12px}.finance-amount-cell small{color:var(--el-text-color-secondary)}.finance-amount-cell :deep(.el-input-number){width:100%}</style>

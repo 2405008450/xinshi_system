@@ -1,6 +1,6 @@
 <template>
   <div class="chat-fixed-window-controls" @mousedown.stop @dblclick.stop>
-    <ChatProjectEntry v-if="showEntry" :project-id="projectId" :project-type="projectType" @navigate="emit('navigate')" />
+    <ChatProjectEntry v-if="showEntry" :project-id="projectId" :project-type="projectType" :order-no="orderNo" @navigate="emit('navigate')" />
     <button v-if="showSearch" type="button" aria-label="聊天记录" title="聊天记录" @click="emit('search')"><el-icon><Search /></el-icon></button>
     <template v-if="showResize">
       <button type="button" class="chat-window-control--first" aria-label="最小化会话窗口" title="最小化" @click="emit('minimize')"><el-icon><Minus /></el-icon></button>
@@ -18,6 +18,7 @@ import ChatProjectEntry from './ChatProjectEntry.vue'
 defineProps({
   projectId: { type: String, default: '' },
   projectType: { type: String, default: '' },
+  orderNo: { type: String, default: '' },
   showEntry: { type: Boolean, default: true },
   showSearch: { type: Boolean, default: true },
   showResize: { type: Boolean, default: true },

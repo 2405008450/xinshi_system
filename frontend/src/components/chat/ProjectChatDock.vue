@@ -129,7 +129,7 @@
 
           </div>
           </div>
-          <ChatWindowControls :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" @navigate="minimizeChat(chatWindow.key)" @search="openSearch(chatWindow.key)" @minimize="minimizeChat(chatWindow.key)" @maximize="maximizeChat(chatWindow.key)" @exit="closeAllChats" />
+          <ChatWindowControls :project-id="chatWindow.projectId" :project-type="chatWindow.projectType" :order-no="chatWindow.subtitle" @navigate="minimizeChat(chatWindow.key)" @search="openSearch(chatWindow.key)" @minimize="minimizeChat(chatWindow.key)" @maximize="maximizeChat(chatWindow.key)" @exit="closeAllChats" />
         </header>
         <div class="project-chat-window__body">
           <Teleport :to="state.layout === 'workspace' ? '#chat-workspace-session-close' : `#chat-close-${chatWindow.key.replaceAll(':', '-')}`" :disabled="!dockReady || (state.layout === 'workspace' && !workspaceVisible)">

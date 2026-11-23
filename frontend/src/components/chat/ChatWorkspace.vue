@@ -25,7 +25,7 @@
         <span class="chat-header-divider" />
       </div>
       </div>
-      <ChatWindowControls :project-id="projectId" :project-type="projectType" :show-entry="pane !== 'summary' && !listView" :show-search="pane !== 'summary' && !!activeKey && !listView" :show-resize="!mobile" :show-exit="!chatView" :maximized="maximized" @navigate="emit('project-navigate')" @search="emit('open-search')" @minimize="emit('minimize')" @maximize="emit('toggle-maximize')" @restore="emit('normal-size')" @exit="emit('exit-workspace')" />
+      <ChatWindowControls :project-id="projectId" :project-type="projectType" :show-entry="pane !== 'summary' && !listView" :show-search="pane !== 'summary' && !!activeKey && !listView" :show-resize="!mobile" :show-exit="!chatView" :maximized="maximized" :order-no="subtitle" @navigate="emit('project-navigate')" @search="emit('open-search')" @minimize="emit('minimize')" @maximize="emit('toggle-maximize')" @restore="emit('normal-size')" @exit="emit('exit-workspace')" />
     </header>
     <div class="chat-workspace__body">
       <nav v-if="maximized && !narrow" class="chat-workspace__rail" aria-label="沟通导航">

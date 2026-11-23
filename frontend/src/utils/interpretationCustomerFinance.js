@@ -3,7 +3,7 @@ import {quotationLineCents,quotationMoney} from './quotation.js'
 export const interpretationUnits = ['月','周','天','半天','小时']
 export const interpretationCurrencies = ['CNY','USD','EUR','HKD','GBP','JPY','KRW','AUD','CAD','SGD']
 export const emptyInterpretationFinance = () => ({
-  rates: [], has_overtime: false, overtime: null, adjusted_totals: [], fixed_totals: [], explanation: '',
+  rates: [], has_overtime: false, overtime: null, adjusted_totals: [], fixed_totals: [], settlement_adjustments:[], explanation: '',
   settlement: {billing_month:null,tax_basis:'legacy',pricing_mode:'time',payment_method:'individual',quotation_required:false,
     invoice_required:false,customer_explanation:'',payment_note:'',payment_status:'unrecorded',payments:[]},
 })
@@ -30,7 +30,7 @@ export function interpretationLineTotal(row,basis,automatic=false){
   return quotationLineCents({quantity:row.quantity,unit_price:unit},6)
 }
 
-export function interpretationFinanceTotals(draft,basis=draft?.settlement.tax_basis,automatic=false){
+export function interpretationFinanceTotals(draft,basis=draft?.settlement.tax_basis,automatic=false,final=true){
   if(!draft)return {}
   const result={}
   function add(code, cents){
@@ -48,6 +48,15 @@ export function interpretationFinanceTotals(draft,basis=draft?.settlement.tax_ba
     const cents=toCents(basis==='legacy'?row.amount:taxTotal(row))
     if(cents!=null)result[row.currency]=cents
   }
+  if(!automatic&&final){
+    const prefix=basis==='incl_tax'?'incl':basis==='excl_tax'?'excl':'legacy'
+    for(const row of draft.settlement_adjustments||[]){
+      const manual=row[prefix+'_amount'],discount=row[prefix+'_discount']
+      if(manual!=null&&manual!=='')addFinal(row.currency,toCents(manual))
+      else if(discount!=null&&result[row.currency]!=null)addFinal(row.currency,(result[row.currency]*BigInt(discount)+50n)/100n)
+    }
+  }
+  function addFinal(currency,value){if(value!=null)result[currency]=value}
   return Object.fromEntries(Object.entries(result).map(([code,cents])=>[code,quotationMoney(cents)]))
 }
 export function interpretationUnitPrice(row){
@@ -69,6 +78,7 @@ export function financeSummary(data={}){
   if(data.has_overtime&&data.overtime)rates.push(taxPriceSummary(data.overtime.taxPrices||data.overtime.tax_prices,data.overtime.currency)||`原加班费（税口径未确认）：${data.overtime.currency} ${data.overtime.amount}`)
   for(const row of data.adjusted_totals||[])rates.push(taxPriceSummary(row.taxPrices||row.tax_prices,row.currency)||`原调整总价（税口径未确认）：${row.currency} ${row.amount}`)
   for(const row of data.fixed_totals||[])rates.push(`固定收费：${taxPriceSummary(row.taxPrices||row.tax_prices,row.currency)||row.currency+' '+row.amount}`)
+  for(const row of data.settlement_adjustments||[])rates.push(`结算调整 ${row.currency}：${['excl','incl','legacy'].flatMap((key,index)=>[row[key+'_discount']!=null?['不含税','含税','税口径未确认'][index]+'折扣 '+row[key+'_discount']+'%':'',row[key+'_amount']!=null?'调整后金额 '+row[key+'_amount']:'']).filter(Boolean).join('；')}`)
   if(data.invoice){
     const labels={unissued:'未开票',partial:'部分开票',issued:'已开票'}
     rates.push(`发票状态：${labels[data.invoice.invoice_status]||'未开票'}`)
@@ -86,5 +96,6 @@ export function financeDraft(data){
   draft.adjusted_totals=draft.adjusted_totals.map(row=>({...row,taxPrices:taxPriceForm(row.tax_prices),amount:Number(row.amount)}))
   draft.fixed_totals=draft.fixed_totals.map(row=>({...row,taxPrices:taxPriceForm(row.tax_prices),amount:Number(row.amount)}))
   draft.settlement.payments=draft.settlement.payments.map(row=>({...row,amount:row.amount==null?undefined:Number(row.amount)}))
+  for(const row of draft.settlement_adjustments||[])for(const key of Object.keys(row))if(key!=='currency'&&row[key]!=null)row[key]=Number(row[key])
   return draft
 }

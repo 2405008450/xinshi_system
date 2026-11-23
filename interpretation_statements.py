@@ -47,10 +47,26 @@ def project_rows(project, payload, basis):
                          unit_label=label, currency=currency, subtotal=statements.money(subtotal),
                          remarks=setting.customer_explanation))
 
+    def apply_settlement_adjustments():
+        prefix={'legacy':'legacy','excl_tax':'excl','incl_tax':'incl'}[basis]
+        calculated=finance.calculate(payload)
+        final=calculated['adjusted_totals' if basis=='legacy' else 'totals_'+basis]
+        for item in payload.get('settlement_adjustments',[]):
+            currency=item['currency']
+            if currency not in final or item.get(prefix+'_amount') is None and item.get(prefix+'_discount') is None:continue
+            matching=[row for row in rows if row['currency']==currency]
+            if all(row['subtotal'] is not None for row in matching):
+                difference=Decimal(str(final[currency]))-sum((Decimal(row['subtotal']) for row in matching),Decimal(0))
+                if difference:add(currency,'结算折扣／调整',difference)
+            elif item.get(prefix+'_amount') is not None:
+                for row in matching:row['counted_in_total']=False
+                add(currency,'调整后结算金额',final[currency])
+
     if setting.pricing_mode == 'fixed':
         for row in payload.get('fixed_totals', []):
             amount = row['amount'] if basis == 'legacy' else (row.get('tax_prices') or {}).get('total_' + basis)
             add(row['currency'], '固定收费', amount)
+        apply_settlement_adjustments()
         return rows
 
     for rate in payload.get('rates', []):
@@ -84,6 +100,7 @@ def project_rows(project, payload, basis):
             add(item['currency'], '调整后总价', value)
     if not rows:
         add('CNY', '待登记收费')
+    apply_settlement_adjustments()
     return rows
 
 

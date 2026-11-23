@@ -44,6 +44,7 @@ class InterpretationCustomerFinanceHistory(Base):
 
 
 def calculate(payload):
+    settlement_adjustments=payload.get('settlement_adjustments',[])
     fixed = settlement(payload).pricing_mode == 'fixed'
     if fixed:
         payload = {'adjusted_totals': payload.get('fixed_totals', [])}
@@ -75,9 +76,15 @@ def calculate(payload):
             if value is not None: values[row['currency']]=Decimal(str(value))
     totals = {key: str(value.quantize(Decimal('.01'), rounding=ROUND_HALF_UP)) for key, value in totals.items()}
     adjusted = {**totals, **{row['currency']: row['amount'] for row in payload.get('adjusted_totals', [])}}
+    for row in settlement_adjustments:
+        currency=row['currency']
+        for prefix,values in [('legacy',adjusted),('excl',tax_totals['excl_tax']),('incl',tax_totals['incl_tax'])]:
+            manual=row.get(prefix+'_amount');discount=row.get(prefix+'_discount')
+            if manual is not None:values[currency]=str(cents(manual))
+            elif discount is not None and currency in values:values[currency]=str(cents(Decimal(str(values[currency]))*Decimal(str(discount))/100))
     return dict(totals=adjusted if fixed else totals, adjusted_totals=adjusted,
-                totals_excl_tax={key: str(value.quantize(Decimal('.01'), rounding=ROUND_HALF_UP)) for key, value in tax_totals['excl_tax'].items()},
-                totals_incl_tax={key: str(value.quantize(Decimal('.01'), rounding=ROUND_HALF_UP)) for key, value in tax_totals['incl_tax'].items()})
+                totals_excl_tax={key: str(cents(value)) for key, value in tax_totals['excl_tax'].items()},
+                totals_incl_tax={key: str(cents(value)) for key, value in tax_totals['incl_tax'].items()})
 
 
 def settlement(payload):
@@ -95,9 +102,11 @@ def billing_totals(payload, amounts):
 
 
 def incomplete_tax_basis(payload, basis):
+    prefix='incl' if basis=='incl_tax' else 'excl'
+    final={row['currency'] for row in payload.get('settlement_adjustments',[]) if row.get(prefix+'_amount') is not None}
     if settlement(payload).pricing_mode == 'fixed':
-        return any((row.get('tax_prices') or {}).get('total_' + basis) is None for row in payload.get('fixed_totals', []))
-    adjustments = {row['currency'] for row in payload.get('adjusted_totals', [])
+        return any(row['currency'] not in final and (row.get('tax_prices') or {}).get('total_' + basis) is None for row in payload.get('fixed_totals', []))
+    adjustments = final | {row['currency'] for row in payload.get('adjusted_totals', [])
                    if (row.get('tax_prices') or {}).get('total_' + basis) is not None}
     for row in payload.get('rates', []):
         prices = row.get('tax_prices') or {}
@@ -137,6 +146,8 @@ def finance_context(scope, entity, available, row, reference=None, *, include_qu
         payload.update(deepcopy(row.payload))
     quotation = payload.pop('quotation', None)
     payload.pop('invoice', None)
+    payload.pop('_oral_workspace', None)
+    payload.pop('_oral_invoice_requests', None)
     result = dict(ready=available, revision=row.revision if row else 0, payload=payload, **calculate(payload))
     if scope == 'project':
         result.update(id=str(entity.id), order_no=entity.order_no, project_name=entity.project_name,
@@ -156,6 +167,11 @@ def finance_context(scope, entity, available, row, reference=None, *, include_qu
                 payload['rates'] = oral_defaults(entity,result['reference_rates'])
                 result.update(calculate(payload))
         result['billing_totals'] = billing_totals(payload, result)
+        received={}
+        for payment in settlement(payload).payments:received[payment.currency]=received.get(payment.currency,Decimal(0))+payment.amount
+        result['received_totals']={key:format(value,'.2f') for key,value in received.items()}
+        result['payment_difference']={key:format(received.get(key,Decimal(0))-Decimal(str(result['billing_totals'].get(key,0))),'.2f') for key in received.keys()|result['billing_totals'].keys()}
+
         from interpretation_statements import billing_month
         result.update(billing_month=billing_month(entity, payload), settlement_mode=settlement_mode(payload),
                       pricing_mode=settlement(payload).pricing_mode, sub_client_id=str(entity.sub_client_id) if entity.sub_client_id else None)
@@ -212,6 +228,8 @@ def save(db, user, scope, target, data, *, commit=True):
     payload = data.model_dump(mode='json', exclude={'revision','update_library','library_revision','sync_confirmed','quotation_draft','library_client_id'})
     row = record(db, scope, target)
     before = row.payload if row else {}
+    for key in ('_oral_workspace','_oral_invoice_requests'):
+        if key in before:payload[key]=before[key]
     if scope == 'project':
         if data.settlement is None and 'settlement' in before:
             payload['settlement'] = before['settlement']
@@ -224,6 +242,7 @@ def save(db, user, scope, target, data, *, commit=True):
     if scope == 'client':
         payload.pop('settlement', None)
         payload.pop('fixed_totals', None)
+        payload.pop('settlement_adjustments', None)
         for rate in payload['rates']:
             rate['quantity'] = '1'
             rate['tax_prices'] = reference_tax_prices(rate.get('tax_prices'))
@@ -509,3 +528,10 @@ def statement_preview(target: UUID, month: str = Query(pattern=r'^\d{4}-(0[1-9]|
         return Response(pdf_bytes([result]), media_type='application/pdf')
     from customer_statements import excel_bytes
     return Response(excel_bytes(result), media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+from interpretation_statement_workspace import router as statement_workspace_router
+router.include_router(statement_workspace_router)
+
+from interpretation_invoice_requests import router as interpretation_invoice_requests_router
+router.include_router(interpretation_invoice_requests_router)
