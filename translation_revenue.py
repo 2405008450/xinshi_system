@@ -36,6 +36,7 @@ def money(value):
 
 
 def start_of(day, period):
+    if period=='all':return date.min
     if period == 'week':
         return day - timedelta(days=day.weekday())
     if period == 'year':
@@ -44,6 +45,7 @@ def start_of(day, period):
 
 
 def shift(start, period, count):
+    if period=='all':return date.max
     if period == 'week':
         return start + timedelta(weeks=count)
     months = start.year * 12 + start.month - 1 + count * {'month': 1, 'quarter': 3, 'year': 12}[period]
@@ -52,6 +54,7 @@ def shift(start, period, count):
 
 
 def previous_year(start, period):
+    if period=='all':return None
     if period == 'week':
         year, week, _ = start.isocalendar()
         try:
@@ -64,6 +67,7 @@ def previous_year(start, period):
 def bounds(start, period):
     if start is None:
         return None
+    if period=='all':return {'start':date.min.isoformat(),'end':date.max.isoformat(),'label':'历史全部'}
     end = shift(start, period, 1)
     if period == 'week':
         year, week, _ = start.isocalendar()
@@ -173,14 +177,14 @@ def report(entries, period, anchor, currency='CNY', modes=None, keyword='', rank
            rank_max=None, amount_min=None, amount_max=None, focus_client=None, skip=0, limit=20):
     modes = modes or {}
     start = start_of(anchor, period)
-    timeline_starts = [shift(start, period, offset) for offset in range(-11, 1)]
-    comparisons = [(point, shift(point, period, -1), previous_year(point, period)) for point in timeline_starts]
+    timeline_starts = [shift(start, period, offset) for offset in range(-11, 1)] if period!='all' else [start]
+    comparisons = [(point, shift(point, period, -1), previous_year(point, period)) for point in timeline_starts] if period!='all' else [(start,None,None)]
     starts = comparisons[-1]
     report_starts = {point for comparison_dates in comparisons for point in comparison_dates}
     by_period = aggregate_periods(entries, report_starts, period, currency, modes, details_start=start)
     groups = [by_period.get(point) for point in starts]
     all_clients = {entry['key']: entry for entry in entries}
-    keys = set().union(*(set(group or {}) for group in groups))
+    keys = set(groups[0] or {})
 
     def value(group, key=None):
         if group is None:
@@ -194,8 +198,8 @@ def report(entries, period, anchor, currency='CNY', modes=None, keyword='', rank
         entry = all_clients[key]
         current = value(groups[0], key)
         metrics = groups[0].get(key, {})
-        if not any((group or {}).get(key, {}).get('visible') for group in groups):
-            continue  # 该币种在三个周期均未出现的客户不参与排名。
+        if not metrics.get('visible'):
+            continue  # 排名仅包括本期该币种的项目，不把上期或历史客户混入。
         rows.append({'key': key, 'client_id': entry['client_id'], 'client_name': entry['client_name'],
                      'client_short_name': entry['client_short_name'], 'amount': money(current),
                      'projects': metrics.get('projects', 0), 'missing': metrics.get('missing', 0),
@@ -224,11 +228,16 @@ def report(entries, period, anchor, currency='CNY', modes=None, keyword='', rank
         current_group = by_period[point]
         current = value(current_group, focus_client)
         timeline.append({**bounds(point, period), 'amount': money(current),
-                         'mom': comparison(current, value(by_period[previous], focus_client)),
+                         'mom': comparison(current, value(by_period.get(previous), focus_client)),
                          'yoy': comparison(current, value(by_period.get(last_year), focus_client)),
                          'missing': sum(row['missing'] for key, row in current_group.items() if focus_client is None or key == focus_client)})
     overall = value(groups[0])
-    return {'period': bounds(start, period), 'previous': bounds(starts[1], period), 'last_year': bounds(starts[2], period),
+    period_bounds=bounds(start,period)
+    if period=='all':
+        days=[entry['day'] for entry in entries if entry['day']!=date.min]
+        period_bounds={**period_bounds,'start':min(days).isoformat() if days else anchor.isoformat(),'end':max(days).isoformat() if days else anchor.isoformat()}
+        for point in timeline:point.update(period_bounds)
+    return {'period': period_bounds, 'previous': bounds(starts[1], period), 'last_year': bounds(starts[2], period),
             'currency': currency, 'overall': {'amount': money(overall), 'mom': comparison(overall, value(groups[1])),
             'yoy': comparison(overall, value(groups[2])), 'customers': sum(row['projects'] > 0 for row in groups[0].values()),
             'missing': sum(row['missing'] for row in groups[0].values())},
@@ -305,7 +314,7 @@ def other_amounts(module, project, record):
     return result
 
 
-def other_entries(db, module, client_id, fields, earliest, end, detail_key=None):
+def other_entries(db, module, client_id, fields, earliest, end, detail_key=None,include_undated=False):
     from interpretation_customer_finance import finance_records, ready
     from project_customer_finance import project_query
 
@@ -320,6 +329,7 @@ def other_entries(db, module, client_id, fields, earliest, end, detail_key=None)
         day, fallback = order_date(project)
         if day is None:
             missing_date += 1
+            if include_undated:dates[project.id]=date.min
         elif earliest <= day < end:
             dates[project.id] = day
             fallback_date += int(fallback)
@@ -433,7 +443,7 @@ def translation_missing_orders(node, field):
 
 
 @router.get('', dependencies=[Depends(require_module_access('projects:read', 'projects:write'))])
-def revenue(period: Literal['week', 'month', 'quarter', 'year'] = 'month', anchor: date | None = None,
+def revenue(period: Literal['week', 'month', 'quarter', 'year', 'all'] = 'month', anchor: date | None = None,
             currency: str = Query('CNY', pattern=r'^[A-Z]{3}$'), client_basis: str = Query('{}', max_length=100000),
             keyword: str = Query('', max_length=300), rank_min: int | None = Query(None, ge=1),
             rank_max: int | None = Query(None, ge=1), amount_min: Decimal | None = Query(None, allow_inf_nan=False),
@@ -467,7 +477,7 @@ def revenue(period: Literal['week', 'month', 'quarter', 'year'] = 'month', ancho
         query = query.filter(client_column == client_id)
     query = scope_detail(query, client_column, TranslationProject.id, detail_key)
     start = start_of(anchor, period)
-    earliest = previous_year(shift(start, period, -11), period)
+    earliest = date.min if period=='all' else previous_year(shift(start, period, -11), period)
     if earliest is None:
         earliest = shift(start, period, -65)
     if detail_key is not None:
@@ -482,6 +492,7 @@ def revenue(period: Literal['week', 'month', 'quarter', 'year'] = 'month', ancho
             day, fallback = order_date(project)
             if day is None:
                 missing_date += 1
+                if period=='all':dates[project.id]=date.min
             elif earliest <= day < end:
                 dates[project.id] = day
                 fallback_date += int(fallback)
@@ -524,7 +535,7 @@ def revenue(period: Literal['week', 'month', 'quarter', 'year'] = 'month', ancho
     for module in ('interpretation', 'annotation', 'recruitment'):
         if project_type not in ('all', module):
             continue
-        extra, undated, fallback = other_entries(db, module, client_id, fields, earliest, end, detail_key)
+        extra, undated, fallback = other_entries(db, module, client_id, fields, earliest, end, detail_key,include_undated=period=='all')
         entries.extend(extra)
         missing_date += undated
         fallback_date += fallback
@@ -533,12 +544,12 @@ def revenue(period: Literal['week', 'month', 'quarter', 'year'] = 'month', ancho
                 currencies.update(entry[field])
     if detail_key is not None:
         entries.sort(key=lambda entry: (entry['day'], entry['order_no']), reverse=True)
-        return {'items': [{**order, 'date': entry['day'].isoformat()}
+        return {'items': [{**order, 'date': entry['day'].isoformat() if entry['day']!=date.min else None}
                           for entry in entries for order in entry['order_details']]}
     result = report(entries, period, anchor, currency, modes, keyword, rank_min, rank_max, amount_min, amount_max,
                     focus_client, skip, limit)
     if project_type == 'all':
         result['project_type_totals'] = project_type_totals(entries, start, end, currency, modes)
-    result.update(currencies=sorted(currencies), missing_date=missing_date, fallback_date=fallback_date,
-                  generated_at=business_now().isoformat(), partial_period=start <= business_now().date() < end)
+    result.update(currencies=sorted(currencies), missing_date=missing_date if period!='all' else 0,undated_included=missing_date if period=='all' else 0, fallback_date=fallback_date,
+                  generated_at=business_now().isoformat(), partial_period=period!='all' and start <= business_now().date() < end)
     return result

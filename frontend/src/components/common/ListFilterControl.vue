@@ -26,6 +26,7 @@
     v-else-if="definition.type === 'select' || definition.type === 'boolean'"
     :model-value="modelValue"
     :multiple="definition.multiple !== false && definition.type !== 'boolean'"
+    :teleported="definition.teleported !== false"
     :filterable="definition.filterable !== false"
     clearable
     collapse-tags

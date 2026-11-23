@@ -1,8 +1,8 @@
 <template>
-  <button v-if="target" type="button" class="client-management-link" title="打开客户管理窗口" @click.stop="open">
+  <button v-if="target" type="button" class="client-management-link" :data-field-copy="!label||label===value ? 'true' : undefined" title="打开客户管理窗口" @click.stop="open">
     {{ displayName }}
   </button>
-  <span v-else>{{ displayName }}</span>
+  <span v-else :data-field-copy="!label||label===value ? 'true' : undefined">{{ displayName }}</span>
 </template>
 
 <script setup>

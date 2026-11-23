@@ -11,6 +11,18 @@
           </el-form-item>
         </el-col>
         <el-col :xs="24" :md="12">
+          <el-form-item label="部门" :prop="['contact_people', index, 'department']">
+            <el-input :model-value="row.department ?? ''" maxlength="100" placeholder="请输入部门（选填）"
+              :aria-label="`联系人${index+1}部门`" @update:model-value="value => update(index, 'department', value)" />
+          </el-form-item>
+        </el-col>
+        <el-col v-if="row.company != null" :xs="24" :md="12">
+          <el-form-item label="所在公司" :prop="['contact_people', index, 'company']">
+            <el-input :model-value="row.company" maxlength="200" placeholder="请输入所在公司（选填）"
+              :aria-label="`联系人${index+1}所在公司`" @update:model-value="value => update(index, 'company', value)" />
+          </el-form-item>
+        </el-col>
+        <el-col :xs="24" :md="12">
           <el-form-item label="联系方式" :prop="['contact_people',index,'contact_method']" :rules="contactMethodRules">
             <ClientContactMethods v-if="canViewClientContacts" :model-value="row.contact_method"
               :label="`联系人${index+1}联系方式`" @update:model-value="value=>update(index,'contact_method',value)" />
@@ -18,6 +30,7 @@
           </el-form-item>
         </el-col>
       </el-row>
+      <el-button v-if="row.company == null" link type="primary" :aria-label="`联系人${index+1}添加所在公司`" @click="update(index,'company','')">添加所在公司</el-button>
       <el-form-item label="说明" :prop="['contact_people',index,'description']"><el-input :model-value="row.description" type="textarea" :rows="2" maxlength="5000" :aria-label="`联系人${index+1}说明`" placeholder="填写联系偏好或其他说明" @update:model-value="value=>update(index,'description',value)" /></el-form-item>
     </section>
     <el-button link type="primary" @click="add">添加客户联系人</el-button>
@@ -33,7 +46,7 @@ const props=defineProps({modelValue:{type:Array,default:()=>[]},required:{type:B
 const emit=defineEmits(['update:modelValue'])
 const contactMethodRules = [{ type: 'string', max: 5000, message: '联系方式合计不能超过 5000 个字符' }]
 const nameRules=row=>[
-  {required:props.required || names.value.length>1 || Boolean(row.job_title?.trim() || row.contact_method?.trim() || row.description?.trim()),whitespace:true,message:'请填写联系人姓名',trigger:['blur','change']},
+  {required:props.required || names.value.length>1 || Boolean(row.department?.trim() || row.company?.trim() || row.job_title?.trim() || row.contact_method?.trim() || row.description?.trim()),whitespace:true,message:'请填写联系人姓名',trigger:['blur','change']},
   {validator:(_rule,value,done)=>{const key=String(value||'').trim().toLowerCase();done(key&&names.value.filter(item=>String(item.name||'').trim().toLowerCase()===key).length>1?new Error('联系人姓名不能重复'):undefined)},trigger:['blur','change']},
 ]
 const blank=()=>({name:'',contact_method:'',description:''})

@@ -2,7 +2,7 @@
   <DraggableFormDialog :model-value="modelValue" class="customer-statement-dialog" width="min(1280px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close
     :before-close="beforeClose" @update:model-value="emit('update:modelValue',$event)">
     <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="clientContext?.subClientId && settlementScope==='standard' ? `${title} · 子客户合并结算` : title" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch"><template #actions>
-      <span v-if="clientContext" class="statement-manager-label" @mousedown.stop>客户经理：{{clientContext.manager || '未分配'}}</span>
+      <span v-if="clientContext&&settlementScope!=='special'" class="statement-manager-label" @mousedown.stop>客户经理：{{clientContext.manager || '未分配'}}</span>
       <el-button v-else class="statement-manager-button" @mousedown.stop @click="openManagerPicker">
         客户经理：{{selectedManagerLabel}}
       </el-button>
@@ -23,12 +23,12 @@
           <el-form-item label="账单月份">
             <el-date-picker :model-value="clientFilters.month" type="month" value-format="YYYY-MM" :clearable="false" style="width:160px" @update:model-value="changeClientMonth" />
           </el-form-item>
-          <el-form-item v-if="settlementScope" label="账期"><StatementPeriodSelect v-model="clientFilters.period" :month="clientFilters.month" :client-id="clientContext.id" :settlement-scope="settlementScope" /></el-form-item>
+          <el-form-item v-if="settlementScope && settlementScope!=='special'" label="账期"><StatementPeriodSelect v-model="clientFilters.period" :month="clientFilters.month" :client-id="clientContext.id" :settlement-scope="settlementScope" /></el-form-item>
         </AppForm>
         <h4 class="statement-client-context">{{[clientContext.name||clientName,clientContext.subClientName,clientFilters.month].filter(Boolean).join(' · ')}}</h4>
         <CustomerStatementWorkspace :key="`${clientContext.id}:${clientContext.subClientId||''}:${clientFilters.month}`" :client-id="clientContext.id" :sub-client-id="clientContext.subClientId" :period-number="clientFilters.period" :settlement-scope="settlementScope" :billing-month="clientFilters.month" :focus-board-id="focusedBoardId" :visible-board-ids="focusedBoardId?[focusedBoardId]:[]" lock-month :enforce-statement-requirement="settlementScope!=='special'" :project-selection="options=>contextProjects?.statementSelection(options)" :project-reload="()=>contextProjects?.reloadProjects()" @loaded="clientName=$event.client_name||clientName">
           <template #customer-projects="{months,mode,reload,selectionChanged}">
-            <StatementClientFinance ref="contextProjects" :client-id="clientContext.id" :sub-client-id="clientContext.subClientId" :period-number="clientFilters.period" :settlement-scope="settlementScope" client-scope statement-client-view :require-statement-for-selection="settlementScope!=='special'" :initial-month="clientFilters.month" :preview-months="months" :preview-mode="mode" @statement-selection-change="selectionChanged" @special-payment-saved="reload" @saved="$event?.id && emit('saved',$event)" />
+            <StatementClientFinance ref="contextProjects" :manager-query="selectedManagerQuery" :client-id="clientContext.id" :sub-client-id="clientContext.subClientId" :period-number="clientFilters.period" :settlement-scope="settlementScope" client-scope statement-client-view :require-statement-for-selection="settlementScope!=='special'" :initial-month="clientFilters.month" :preview-months="months" :preview-mode="mode" @statement-selection-change="selectionChanged" @special-payment-saved="reload" @saved="$event?.id && emit('saved',$event)" />
           </template>
           <template #client-actions="{reload}">
             <CustomerStatementActions :client="clientContext" :settlement-scope="settlementScope" @merged="reload" />
@@ -68,7 +68,7 @@ import CustomerStatementActions from './CustomerStatementActions.vue'
 import CustomerDepartmentManagerSelect from './CustomerDepartmentManagerSelect.vue'
 import {currentStatementMonth} from '@/utils/statementRequirementMonth'
 const StatementClientFinance=defineAsyncComponent(()=>import('@/views/project/translation/CustomerFinance.vue'))
-const InvoiceWorkspace=defineAsyncComponent(()=>import('./ProjectPaymentDialog.vue'))
+const InvoiceWorkspace=defineAsyncComponent(()=>import('./SpecialStatementInvoices.vue'))
 import {useDialogFieldSearch} from '@/composables/useDialogFieldSearch'
 const props=defineProps({modelValue:Boolean,billingMonth:String,clientContext:Object,
   settlementScope:String,title:{type:String,default:'对账单'},

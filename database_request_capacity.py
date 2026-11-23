@@ -18,6 +18,8 @@ class DatabaseRequestCapacityMiddleware:
             # 给 WebSocket 鉴权及后台任务留出连接；截图授权使用独立连接池。
             reserve = min(2,max(1,size//3))
             limit = max(1, size + max(0, overflow) - reserve)
+        # 使用预留连接中的一个名额，避免业务列表把登录和会话校验饿死。
+        self.auth_capacity = anyio.CapacityLimiter(1)
         self.queue_timeout = float(queue_timeout if queue_timeout is not None else os.getenv('DB_REQUEST_QUEUE_TIMEOUT_SECONDS', '5'))
         # 文件请求单独使用预算内的少量名额，慢下载不能占满普通列表额度。
         transfer_limit = min(transfer_limit, max(0, limit - 1))
@@ -35,7 +37,11 @@ class DatabaseRequestCapacityMiddleware:
         if scope['type'] != 'http' or scope.get('path') == '/':
             return await self.app(scope, receive, send)
         started = perf_counter()
-        capacity = self.transfer_capacity if self.is_transfer(scope) else self.capacity
+        auth_paths = {'/auth/session', '/auth/login', '/auth/login/json', '/auth/captcha', '/auth/captcha/required'}
+        if scope.get('path', '').rstrip('/') in auth_paths:
+            capacity = self.auth_capacity
+        else:
+            capacity = self.transfer_capacity if self.is_transfer(scope) else self.capacity
         # 普通请求与文件请求分别排队，等候超时后返回可重试响应。
         with anyio.move_on_after(self.queue_timeout) as waiting:
             await capacity.acquire()

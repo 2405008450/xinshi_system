@@ -65,3 +65,26 @@ def test_queue_timeout_returns_retryable_error_without_running_endpoint(path):
         await middleware({'type':'http','path':path},unused,send)
         assert called==[True]
     anyio.run(check)
+
+
+def test_auth_can_run_when_business_capacity_is_full_and_remains_bounded():
+    async def check():
+        called = []
+        messages = []
+        async def endpoint(scope, *args): called.append(scope['path'])
+        async def unused(*args): pass
+        async def send(message): messages.append(message)
+        middleware = DatabaseRequestCapacityMiddleware(endpoint, limit=1, queue_timeout=.01)
+        async with middleware.capacity:
+            await middleware({'type': 'http', 'path': '/auth/session'}, unused, send)
+            await middleware({'type': 'http', 'path': '/auth/login/json'}, unused, send)
+            async with anyio.create_task_group() as tasks:
+                tasks.start_soon(middleware, {'type': 'http', 'path': '/work-items/my'}, unused, send)
+        assert called == ['/auth/session', '/auth/login/json']
+        assert messages[0]['status'] == 503
+        async with middleware.auth_capacity:
+            async with anyio.create_task_group() as tasks:
+                tasks.start_soon(middleware, {'type': 'http', 'path': '/auth/session'}, unused, send)
+        assert messages[-2]['status'] == 503
+        assert middleware.auth_capacity.borrowed_tokens == 0
+    anyio.run(check)

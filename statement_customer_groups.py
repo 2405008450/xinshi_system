@@ -57,10 +57,28 @@ def snapshot(db,client_id,month,manager_scope=None,settlement_scope=None,period_
     return rows,version
 
 
-def pending_clients(db,month,manager_scope=None,settlement_scope=None):
+def pending_clients(db,month,manager_scope=None,settlement_scope=None,*,keyword=None,client_ids=None):
     from customer_statement_workspace import StatementWorkspace
     if not inspect(db.connection()).has_table(StatementWorkspace.__tablename__):return {}
-    result={row.client_id:tasks for row in db.query(StatementWorkspace).all() if (tasks:=[task for task in row.payload.get('tasks',{}).values() if task.get('pending') is True and task.get('month')==month])}
+    query=db.query(StatementWorkspace.client_id)
+    if client_ids is not None:
+        query=query.filter(StatementWorkspace.client_id.in_(client_ids))
+    if keyword and keyword.strip():
+        child_parents=select(SubClient.parent_client_id).where(keyword_any(
+            [SubClient.client_name,SubClient.client_short_name,SubClient.sub_client_code],keyword.strip()))
+        matches=select(Client.id).where(or_(keyword_any(
+            [Client.client_name,Client.client_short_name,Client.client_code],keyword.strip()),Client.id.in_(child_parents)))
+        query=query.filter(StatementWorkspace.client_id.in_(matches))
+    if db.get_bind().dialect.name=='postgresql':
+        from sqlalchemy import cast
+        from sqlalchemy.dialects.postgresql import JSONB
+        # 由数据库提取当月待入账项目，避免下载所有客户的完整 roots/订单快照。
+        tasks=func.jsonb_path_query_array(cast(StatementWorkspace.payload['tasks'],JSONB),
+            '$.* ? (@.pending == true && @.month == $month)',cast({'month':month},JSONB))
+        result={client:tasks for client,tasks in query.add_columns(tasks) if tasks}
+    else:
+        result={client:tasks for client,values in query.add_columns(StatementWorkspace.payload['tasks'])
+                if (tasks:=[task for task in (values or {}).values() if task.get('pending') is True and task.get('month')==month])}
     if manager_scope or settlement_scope:
         roots={UUID(line['root_id']) for tasks in result.values() for task in tasks for line in task['rows']}
         projects=project_query(db,None,manager_scope).filter(TranslationProject.id.in_(roots)).all() if roots else []
@@ -75,8 +93,19 @@ def pending_clients(db,month,manager_scope=None,settlement_scope=None):
 def customers(db,month,required,keyword,skip,limit,manager_scope=None,progress=None,settlement_scope=None,period_number=None):
     from translation_customer_finance import effective_statement_requirements
     special_view=settlement_scope=='special'
-    waiting=pending_clients(db,month,manager_scope,settlement_scope) if not special_view or required else {}
-    projects=project_query(db,month,manager_scope).all()
+    waiting=pending_clients(db,month,manager_scope,settlement_scope,keyword=keyword) if not special_view or required else {}
+    project_scope_query=project_query(db,month,manager_scope)
+    if keyword and keyword.strip():
+        # 先确定匹配的母客户，再保留这些客户的完整项目范围；不能按命中的单个子客户截断计数。
+        customer=func.coalesce(TranslationProject.client_id,SubClient.parent_client_id)
+        parent_matches=select(Client.id).where(keyword_any(
+            [Client.client_name,Client.client_short_name,Client.client_code],keyword.strip()))
+        matching_clients=project_scope_query.with_entities(customer.label('client_id')).filter(or_(
+            customer.in_(parent_matches),
+            keyword_any([SubClient.client_name,SubClient.client_short_name,SubClient.sub_client_code],keyword.strip()),
+        )).distinct().subquery()
+        project_scope_query=project_scope_query.filter(customer.in_(select(matching_clients.c.client_id)))
+    projects=project_scope_query.all()
     requirements=effective_statement_requirements(db,projects)
     project_scope='standard' if special_view and not required else settlement_scope
     scoped_projects=[project for project in projects if documents.matches_statement_scope(project,project_scope)
@@ -146,17 +175,24 @@ def customers(db,month,required,keyword,skip,limit,manager_scope=None,progress=N
         from project_client_manager import attach
         attach(db,'translation',projects)
         items_by_id={item['id']:item for item in items}
-        seen_children=set()
+        child_entries={}
         for project in projects:
             crud._attach_project_client_fields(project)
             client_id=str(project.client_id or project.sub_client.parent_client_id)
             if project.id in monthly_ids and client_id in managers:
                 managers[client_id].add(project.client_manager or '未分配')
-                child=project.sub_client
-                item=items_by_id[client_id]
-                if child and child.id not in seen_children and (not item['filter_sub_clients'] or child.id in child_match):
-                    seen_children.add(child.id)
-                    item['sub_clients'].append(dict(id=str(child.id),name=child.client_short_name or child.client_name,code=child.sub_client_code))
+            child=project.sub_client
+            item=items_by_id.get(client_id)
+            if not child or not item or (item['filter_sub_clients'] and child.id not in child_match):continue
+            entry=child_entries.get(child.id)
+            if entry is None:
+                entry=dict(id=str(child.id),name=child.client_short_name or child.client_name,code=child.sub_client_code,
+                           statement_project_count=0,statement_required_count=0,pending_count=0)
+                child_entries[child.id]=entry;item['sub_clients'].append(entry)
+            if documents.payment_method(project)=='sub_client':
+                entry['statement_project_count']+=1
+                entry['statement_required_count']+=int(requirements.get(project.id,str(project.id) in roots))
+                entry['pending_count']+=int(str(project.id) in roots)
         by_id={str(project.id):project for project in projects}
         for item in items:
             for task in waiting.get(UUID(item['id']),[]):
@@ -178,7 +214,7 @@ def move(db,user,client_id:UUID,payload):
         projects=project_query(db,payload.billing_month,scope).filter(func.coalesce(TranslationProject.client_id,SubClient.parent_client_id)==client_id).order_by(TranslationProject.id).with_for_update(of=TranslationProject).populate_existing().all()
         rows,version=snapshot(db,client_id,payload.billing_month,scope,payload.settlement_scope,payload.period_number)
         if version!=payload.expected_version:raise HTTPException(409,'客户项目或单据需求已变化，请刷新后重试')
-        if not payload.statement_required and client_id in pending_clients(db,payload.billing_month,scope,payload.settlement_scope):raise HTTPException(422,'该客户当月仍有待入账任务，请先调整或撤销待入账任务')
+        if not payload.statement_required and client_id in pending_clients(db,payload.billing_month,scope,payload.settlement_scope,client_ids={client_id}):raise HTTPException(422,'该客户当月仍有待入账项目，请先调整或撤销待入账项目')
         if not rows:raise HTTPException(422,'该客户在所选账单月份没有项目')
         before={row.id:bool(row.required) for row in rows};changed=0
         projects=[project for project in projects if project.id in before]

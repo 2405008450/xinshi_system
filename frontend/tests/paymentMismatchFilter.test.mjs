@@ -11,6 +11,7 @@ function harness(response){
     activeTab:ref('overview'),managerScope:ref('self'),managerIds:ref([]),projectPage:ref(2),props:{},selectedId:ref(''),scopeMonth:ref('2020-02'),
     projectSort:ref(),invoiceClientIds:ref([]),statementCustomerMode:ref(''),collectionDefaultView:ref(false),
     completeInvoiceScope:ref(false),
+    auditSummary:ref(null),settlementSummary:ref(null),paymentTermsDraft:{},termsSaving:new Set(),
     previousSelectionScope:'',projectTable:ref(),selectedProjects:ref([]),collectBillingCurrencies:()=>({}),
     searchSequence:0,controller:null,projectTimer:null,clearTimeout,AbortController,
     options:ref([{id:'old-unpaid',paymentStatus:'unpaid'}]),projectTotal:ref(1),error:ref(''),searching:ref(false),

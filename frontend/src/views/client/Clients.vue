@@ -779,6 +779,8 @@ function peopleFor(model) {
     return {
       name,
       job_title: row.job_title,
+      department: row.department,
+      company: row.company,
       contact_method: row.contact_method ?? (index === 0 ? model.manager_contact || '' : ''),
       description: row.description || '',
     }

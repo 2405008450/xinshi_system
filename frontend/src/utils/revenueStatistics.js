@@ -1,6 +1,6 @@
 export const revenuePeriods = [
   {value:'week',label:'周'}, {value:'month',label:'月'},
-  {value:'quarter',label:'季度'}, {value:'year',label:'年'},
+  {value:'quarter',label:'季度'}, {value:'year',label:'年'}, {value:'all',label:'历史全部'},
 ]
 export const revenueBases = [
   {value:'billing',label:'项目计费口径'},

@@ -12,8 +12,8 @@ const hooks = registerHooks({
     if (specifier === './ClientManagementLink.vue') return { url: 'mock:client-link', shortCircuit: true }
     if (specifier === '@/utils/clientManagementWindow') return nextResolve(new URL('../src/utils/clientManagementWindow.js', import.meta.url).href, context)
     if (specifier === './ScreenshotText.vue') return { url: 'mock:screenshot-display', shortCircuit: true }
-    if (specifier === '@/utils/screenshotReferences') {
-      return nextResolve(new URL('../src/utils/screenshotReferences.js', import.meta.url).href, context)
+    if (specifier === '@/utils/screenshotReferences' || specifier === '@/utils/fieldCopy') {
+      return nextResolve(new URL(`../src/${specifier.slice(2)}.js`, import.meta.url).href, context)
     }
     return nextResolve(specifier, context)
   },

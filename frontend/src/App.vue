@@ -1,6 +1,7 @@
 <template>
   <el-config-provider :locale="zhCn">
     <router-view />
+    <FieldCopyContextMenu />
     <ClientManagementWindow v-if="clientManagementTarget" />
   </el-config-provider>
 </template>
@@ -9,6 +10,7 @@
 import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
 import { defineAsyncComponent, onBeforeUnmount } from 'vue'
 import { watchAuthSession } from '@/utils/authSession'
+import FieldCopyContextMenu from '@/components/common/FieldCopyContextMenu.vue'
 import { clientManagementTarget } from '@/utils/clientManagementWindow'
 const ClientManagementWindow = defineAsyncComponent(() => import('@/components/common/ClientManagementWindow.vue'))
 onBeforeUnmount(watchAuthSession())

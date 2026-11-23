@@ -2526,10 +2526,12 @@ const buildPayload = () => {
     client_short_name: form.client_short_name?.trim() || null,
     contact_name: form.contact_name?.trim() || form.contact_people.find(item => item.name?.trim())?.name.trim() || null,
     contact_people: form.contact_people
-      .filter(item => item.name?.trim() || item.job_title?.trim() || item.contact_method?.trim() || item.description?.trim())
+      .filter(item => item.name?.trim() || item.department?.trim() || item.company?.trim() || item.job_title?.trim() || item.contact_method?.trim() || item.description?.trim())
       .map(item => ({
         name: item.name.trim(),
         job_title: item.job_title?.trim(),
+        department: item.department?.trim(),
+        company: item.company?.trim(),
         contact_method: item.contact_method?.trim() || '',
         description: item.description?.trim() || '',
       })),

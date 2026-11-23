@@ -8,7 +8,7 @@ test('开户行修改显示账单名称、修改前后，不暴露内部编号�
 })
 test('多项任务修改保留订单号，零值、税口径、印章显示业务含义',()=>{
   const rows=statementAuditRows({rows:[{order_no:'TP-001',fields:{subtotal:{before:null,after:0},tax_included:{before:false,after:true},stamp_image:{before:'',after:'data:image/png;base64,secret'}}}]})
-  assert.equal(rows[0].field,'任务 / TP-001 / 小计');assert.equal(rows[0].after,'0')
+  assert.equal(rows[0].field,'项目 / TP-001 / 小计');assert.equal(rows[0].after,'0')
   assert.equal(rows[1].before,'不含税');assert.equal(rows[1].after,'含税')
   assert.equal(rows[2].after,'已设置印章');assert.ok(!JSON.stringify(rows).includes('base64'))
 })

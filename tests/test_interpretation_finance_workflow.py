@@ -57,6 +57,13 @@ def test_fixed_and_timed_projects_follow_saved_settlement_scope(environment, mon
                             pricing_mode='fixed',payment_method='sub_client',month='2026-11')
     assert filtered['total'] == 3 and len(filtered['items']) == 1
     assert filtered['billing_totals'] == {'CNY': '180.00'}
+    import json
+    filtered = finance.page(db=db,user=actor,only_mine=False,skip=0,limit=1,field_filters=json.dumps({
+        'settlement_mode': {'op': 'in', 'value': ['sub_client']},
+        'totals_incl_tax': {'op': 'between', 'min': 50, 'max': 80},
+    }))
+    assert filtered['total'] == 2 and len(filtered['items']) == 1
+    assert filtered['billing_totals'] == {'CNY': '140.00'}
     updated = finance.change_settlement_mode(projects[2].id,
         InterpretationSettlementModeWrite(revision=1, mode='monthly'), db=db, user=actor)
     assert updated['settlement_mode'] == 'monthly'

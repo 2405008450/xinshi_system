@@ -59,6 +59,11 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 def get_db(request: Request = None):
     db = SessionLocal()
     db.info['number_tokens'] = request.headers.get('X-Business-Number-Leases', '[]') if request else '[]'
+    import json
+    try:
+        plans=json.loads(request.headers.get('X-Finance-Note-Sync-Plans','[]')) if request else []
+    except (ValueError,TypeError):plans=[]
+    db.info['finance_note_sync_plans']=[value for value in plans if isinstance(value,str) and len(value)==64][:100] if isinstance(plans,list) else []
     try:
         yield db
     finally:

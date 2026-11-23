@@ -14,6 +14,19 @@ def setup(context):
     return http,db,clients,permissions,actor
 
 
+def test_multiple_client_invoice_profiles_survive_refresh_and_legacy_updates(context):
+    http,db,clients,_,_=setup(context)
+    path=f'/invoice-parties/clients/{clients[0].id}'
+    data=dict(revision=0,party={'title':'默认抬头'},parties=[{'title':'默认抬头'},{'title':'第二抬头','tax_number':'SECOND'}],subject_key='guangzhou',subject_keys=['guangzhou','shenzhen'])
+    response=http.put(path,json=data)
+    assert response.status_code==200,response.text
+    assert response.json()['subject_keys']==['guangzhou','shenzhen']
+    assert http.get(path).json()['parties'][1]['tax_number']=='SECOND'
+    response=http.put(path,json=dict(revision=1,party={'title':'更新默认'},subject_key='guangzhou'))
+    assert response.status_code==200,response.text
+    assert len(response.json()['parties'])==2
+
+
 def test_three_subjects_blank_and_migration_repeat_preserves_filled_data(context):
     http,db,_,permissions,_=setup(context)
     values=http.get('/invoice-parties/subjects').json()['items']

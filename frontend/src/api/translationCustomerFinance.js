@@ -1,7 +1,7 @@
 import api from './index'
 import {notifyInvoiceParties} from './invoiceParties'
 const camel = value => Array.isArray(value) ? value.map(camel) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key,item]) => [key.replace(/_([a-z])/g,(_,letter)=>letter.toUpperCase()),camel(item)])) : value
-export const getCustomerFinancePage=(params,config={})=>api.get('/translation-customer-finance/page',{timeout:25000,...config,params,paramsSerializer:{indexes:null}}).then(camel)
+export const getCustomerFinancePage=(params,config={})=>api.get('/translation-customer-finance/page',{timeout:60000,...config,params,paramsSerializer:{indexes:null}}).then(camel)
 export const getFinanceRowFilterOptions=(params,signal)=>api.get('/translation-customer-finance/row-filter-options',{params,signal,paramsSerializer:{indexes:null}})
 const customerSortFields = { clientShortName: 'client_short_name', clientManager: 'client_manager' }
 export function customerFinanceSort({ prop, order }) {

@@ -5,6 +5,7 @@ import { createSessionPermissionSync } from '../src/utils/sessionPermissionSync.
 function setup({ fetchSession, cached = true } = {}) {
   let clock = 1_000_000, fetches = 0; const applied = []
   const sync = createSessionPermissionSync({
+    getToken: () => 'token',
     fetchSession: async () => { fetches++; return fetchSession() },
     apply: session => applied.push(session), hasCachedSession: () => cached, now: () => clock,
   })
@@ -38,7 +39,7 @@ test('超时、网络中断和 503 在已有本地会话时放行，并在约 10
 
 test('没有本地会话时临时故障不放行', async () => {
   const ctx = setup({ cached: false, fetchSession: () => { throw { code: 'ECONNABORTED' } } })
-  assert.equal(await ctx.sync(), false)
+  assert.equal(await ctx.sync(), null)
 })
 
 test('并发的校验共用同一次请求，强制校验仍会重新请求', async () => {
@@ -48,4 +49,22 @@ test('并发的校验共用同一次请求，强制校验仍会重新请求', as
   assert.deepEqual(await Promise.all([first, second]), [true, true]); assert.equal(ctx.fetches(), 1)
   const forced = ctx.sync(true); await Promise.resolve(); release({ user_id: 'u' }); await forced
   assert.equal(ctx.fetches(), 2)
+})
+
+test('concurrent navigation shares validation and token changes invalidate cached permissions', async () => {
+  let token = 'first', calls = 0, applied = 0, resolve
+  const sync = createSessionPermissionSync({ getToken: () => token, fetchSession: () => { calls++; return new Promise(r => { resolve = r }) }, apply: () => { applied++ }, hasCachedSession: () => true })
+  const first = sync(), second = sync()
+  assert.equal(calls, 1)
+  resolve({})
+  assert.deepEqual(await Promise.all([first, second]), [true, true])
+  assert.equal(await sync(), true)
+  assert.equal(calls, 1)
+  token = 'second'
+  const changed = sync()
+  assert.equal(calls, 2)
+  token = 'third'
+  resolve({})
+  assert.equal(await changed, null)
+  assert.equal(applied, 1)
 })

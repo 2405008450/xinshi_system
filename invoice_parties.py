@@ -71,6 +71,8 @@ class ClientProfileWrite(PartyWrite):
     subject_key:SubjectKey|None=None
     invoice_kind:Literal['normal','special']|None=None
     invoice_type:InvoiceType|None=None
+    subject_keys:list[SubjectKey]|None=Field(default=None,max_length=30)
+    parties:list[InvoiceParty]|None=Field(default=None,max_length=30)
 
 
 class OrderInvoiceSelectionWrite(BaseModel):
@@ -92,7 +94,7 @@ def require_ready(db):
 
 
 def party_value(row,title=None):
-    values={key:value for key,value in (row.data if row else {}).items() if key!='_invoice_type'}
+    values={key:value for key,value in (row.data if row else {}).items() if not key.startswith('_')}
     value=InvoiceParty.model_validate(values).model_dump()
     if title is not None:value['title']=title
     return value
@@ -127,6 +129,8 @@ def profile(db, client_id, sub_client_id=None):
         buyer = client
         row = db.get(ClientInvoiceProfile,client_id)
     return {'client_id':str(client_id),'client_name':client.client_name,'party':party_value(row),
+            'parties':(row.data or {}).get('_parties',[party_value(row)]) if row else [],
+            'subject_keys':(row.data or {}).get('_subject_keys',[row.subject_key] if row.subject_key else []) if row else [],
             'sub_client_id':str(sub_client_id) if sub_client_id else None,
             'buyer_name':buyer.client_name or buyer.client_short_name,
             'subject_key':row.subject_key if row else None,'subject':subject(db,row.subject_key) if row and row.subject_key else None,
@@ -353,6 +357,19 @@ def save_profile(db, model, id_field, buyer_id, payload, actor):
         row = model(**identity, revision=0)
         db.add(row)
     data=payload.party.model_dump()
+    for key,value in (('_subject_keys',payload.subject_keys),('_parties',payload.parties)):
+        if value is not None:
+            if key=='_subject_keys':
+                if len(set(value))!=len(value):raise HTTPException(422,'开票主体不能重复')
+                for subject_key in value:
+                    if db.get(OrganizationInvoiceSubject,subject_key) is None:raise HTTPException(422,'开票主体尚未初始化')
+                data[key]=value
+            else:data[key]=[item.model_dump() for item in value]
+        elif row and key in (row.data or {}):data[key]=row.data[key]
+    if data.get('_parties'):
+        data['_parties'][0]=payload.party.model_dump()
+    if payload.subject_key and '_subject_keys' in data:
+        data['_subject_keys']=[payload.subject_key,*[key for key in data['_subject_keys'] if key!=payload.subject_key]]
     if payload.invoice_type:
         data['_invoice_type']=payload.invoice_type
     elif 'invoice_type' not in payload.model_fields_set and 'invoice_kind' not in payload.model_fields_set and (row.data or {}).get('_invoice_type'):

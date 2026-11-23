@@ -164,6 +164,7 @@ def attach(db, projects):
         project.statement_required = row.statement_required if project.statement_required_explicit else inherited and not fully_paid
         project.recorded_payment_method = (row.quotation_data or {}).get('_payment_method') if row else None
         project.customer_payment_method = getattr(finance_default, 'payment_method', None)
+        if payment_method(project)=='special':project.statement_required=True
         stored = (row.quotation_data or {}) if row else {}
         quotation_default = getattr(finance_default, 'quotation_required', None)
         invoice_default = getattr(finance_default, 'invoice_required', None)

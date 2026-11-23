@@ -15,6 +15,7 @@ class SettingsWrite(BaseModel):
     order_id: UUID
     apply_to_order: bool = False
     statement_required: bool | None = None
+    invoice_required: bool | None = None
     tax_mode: Literal['incl_tax', 'excl_tax'] | None = None
     invoice_status: Literal['unissued', 'partial', 'issued'] | None = None
     invoice_sent: bool | None = None
@@ -98,13 +99,14 @@ def apply_settings(node, settings, parent=None):
     node['special_invoice_status'] = override.get('invoice_status', 'unissued')
     node['special_invoice_sent'] = override.get('invoice_sent', False)
     node['original_invoice_required'] = node.get('invoice_required')
-    if required is not None:
-        node['statement_required'] = required
+    node['statement_required'] = True
     node['invoice_required'] = selected_tax == 'incl_tax' if selected_tax in ('incl_tax', 'excl_tax') else None
-    if node.get('sub_client_invoice_required') is not None:
+    invoice_required=override.get('invoice_required',defaults.get('invoice_required',node.get('invoice_requirement_override')))
+    if invoice_required is not None:node['invoice_required']=invoice_required
+    if node.get('sub_client_invoice_required') is not None and invoice_required is None:
         node['invoice_required'] = node['sub_client_invoice_required']
     for child in node['children']:
-        apply_settings(child, settings, {'tax_mode': tax, 'statement_required': required})
+        apply_settings(child, settings, {'tax_mode': tax, 'statement_required': True,'invoice_required':invoice_required})
     if node.get('price_aggregate'):
         modes = {child['special_tax_mode'] for child in node['children']}
         node['special_tax_mode'] = next(iter(modes)) if len(modes) == 1 else 'mixed' if modes else selected_tax

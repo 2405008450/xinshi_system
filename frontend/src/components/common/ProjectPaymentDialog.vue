@@ -31,7 +31,7 @@
         <el-tab-pane v-if="ledgerOnly" label="查账" name="overview" />
         <el-tab-pane v-if="ledgerOnly" label="追账" name="collection" />
       </el-tabs>
-      <ProjectPaymentDialog v-if="modelValue&&activeTab==='special_invoice'" ref="specialInvoiceWorkspace"
+      <SpecialStatementInvoices v-if="modelValue&&activeTab==='special_invoice'" ref="specialInvoiceWorkspace"
         model-value embedded
         :invoice-client-id="scopeOrder?.clientId" :invoice-client-name="scopeOrder?.clientShortName||scopeOrder?.clientName" :initial-month="scopeMonth||undefined"
         :period-number="scopeOrder?.settlementPeriodNumber??scopeOrder?.billingPeriod?.number"
@@ -75,11 +75,15 @@
             :aria-pressed="statementCustomerMode === 'exclude'"
             @click="toggleStatementCustomers('exclude')">{{scopeOrder?'无需对账单':'排除对账单客户'}}</el-button>
         </el-form-item>
+        <el-form-item v-if="ledgerOnly&&activeTab==='overview'"><AdvancedFilterPopover popper-class="ledger-audit-filter-popover" v-model:visible="auditFiltersVisible" :count="auditFilterCount" @clear="clearAuditFilters" @reset="resetPaymentFilters">
+          <CompactFilterGrid :fields="auditFields" :model="auditFilters" @update="(key,value)=>auditFilters[key]=value" @change="applyPaymentFilters" />
+        </AdvancedFilterPopover></el-form-item>
         <el-form-item><el-button :loading="searching" @click="applyPaymentFilters">查询</el-button><el-button @click="resetPaymentFilters">重置</el-button></el-form-item>
       </AppForm>
-      <p v-if="showFilters" class="payment-filter-summary">匹配 {{displayedProjectTotal}} 个项目<span v-if="displayedProjectTotal>100">，可输入订单号或项目名称继续搜索</span></p>
+      <p v-if="showFilters" class="payment-filter-summary">匹配 {{displayedProjectTotal}} {{ledgerOnly?'个结算单元':'个项目'}}<span v-if="displayedProjectTotal>100">，可输入订单号或项目名称继续搜索</span></p>
+      <section v-if="ledgerOnly&&activeTab==='overview'&&auditSummary" class="ledger-audit-summary"><p>匹配 {{auditSummary.projectCount}} 个项目 · {{auditSummary.clientCount}} 个客户；需开票金额 {{formatTotals(auditSummary.invoiceTotals)}}；未开票金额 {{formatTotals(auditSummary.unissuedTotals)}}</p><details><summary>按客户汇总查看</summary><el-table :data="auditSummary.clients" border max-height="240"><el-table-column prop="name" label="客户" /><el-table-column prop="projectCount" label="项目数" width="100" /><el-table-column label="需开票金额"><template #default="{row}">{{formatTotals(row.invoiceTotals)}}</template></el-table-column></el-table></details></section>
       <section class="payment-overview">
-        <div class="payment-overview-search"><el-input v-model="projectKeyword" placeholder="搜索订单号、项目名称" clearable style="width:280px" @input="queueProjectSearch" @keyup.enter="searchProjects(projectKeyword)" /><span v-if="mismatchView" class="payment-help">{{scopeOrder?'在当前客户及账单月份内核对。':'此选项覆盖账单月份和客户筛选。'}}币种不同或金额缺失的项目也列入。</span><span v-if="collectionDefaultView" class="payment-help">未选择付款状态时，仅列未付款、已付定金及已付进度款的项目。</span></div>
+        <div class="payment-overview-search"><el-input v-model="projectKeyword"  :placeholder="ledgerOnly?'搜索对账单编号、多单合并序号、项目名称':'搜索订单号、项目名称'" clearable style="width:280px" @input="queueProjectSearch" @keyup.enter="searchProjects(projectKeyword)" /><span v-if="mismatchView" class="payment-help">{{scopeOrder?'在当前客户及账单月份内核对。':'此选项覆盖账单月份和客户筛选。'}}币种不同或金额缺失的项目也列入。</span><span v-if="collectionDefaultView" class="payment-help">未选择付款状态时，仅列未付款、已付定金及已付进度款的项目。</span></div>
         <div v-if="activeTab==='invoice' && canWrite" class="invoice-request-toolbar">
           <el-button type="primary" :loading="openingRequest"
             :disabled="searching || (!scopeOrder && !selectedProjects.length)" @click="openInvoiceRequest">开票需求</el-button>
@@ -88,13 +92,16 @@
         </div>
         <el-table ref="projectTable" v-loading="searching" :data="displayedOptions" border row-key="id" max-height="460" empty-text="暂无匹配项目" @selection-change="selectedProjects = $event" @sort-change="sortProjects">
           <el-table-column v-if="activeTab==='invoice' && canWrite && !scopeOrder" type="selection" width="46" reserve-selection :selectable="canSelectInvoice" />
-          <el-table-column prop="orderNo" label="订单号" min-width="160">
+          <el-table-column v-if="!ledgerOnly" prop="orderNo" label="订单号" min-width="160">
             <template #default="{row}"><TranslationOrderDetailPopover :order="row" /></template>
           </el-table-column>
-          <el-table-column prop="projectName" label="项目名称" min-width="200" show-overflow-tooltip />
+          <el-table-column v-if="ledgerOnly&&activeTab==='overview'" label="填写情况" min-width="175"><template #default="{row}">工作量：{{row.ledgerWordCountFilled?'已填':'未填'}} · 单价：{{row.ledgerUnitPriceFilled?'已填':'未填'}}</template></el-table-column>
+          <el-table-column v-if="ledgerOnly&&activeTab==='overview'" label="计价／结算" min-width="170"><template #default="{row}">{{({fixed:'固定收费',metric:'按工作量',aggregate:'子订单汇总'})[row.pricingMode]||row.pricingMode}} · {{translationSettlementModeLabels[row.paymentMethod]||row.paymentMethod}}</template></el-table-column>
+          <el-table-column v-if="ledgerOnly" label="对账单／多单合并／项目名称" min-width="260"><template #default="{row}"><LedgerOrdersPopover :label="row.ledgerLabel||row.projectName" :title="`${row.ledgerLabel||row.projectName} · 订单明细`" :orders="row.ledgerOrders||[]" /></template></el-table-column>
+          <el-table-column v-if="!ledgerOnly" prop="projectName" label="项目名称" min-width="200" show-overflow-tooltip />
           <el-table-column prop="clientShortName" label="客户简称" show-sub-client min-width="185" sortable="custom">
             <template #default="{row}">
-              <span>{{row.clientShortName}}</span>
+              <LedgerOrdersPopover v-if="ledgerOnly&&row.clientId" :label="row.clientShortName||row.clientName" :title="`${row.clientShortName||row.clientName} · 所选月份订单`" :client-id="row.clientId" :months="paymentFilters.months" :manager-query="ledgerManagerQuery" /><span v-else>{{row.clientShortName}}</span>
             </template>
           </el-table-column>
           <el-table-column prop="clientManager" label="客户经理" min-width="120" sortable="custom" show-overflow-tooltip>
@@ -129,12 +136,17 @@
               <span v-else>否</span>
             </template>
           </el-table-column>
-          <el-table-column v-if="activeTab!=='invoice'" label="付款状态" min-width="175"><template #default="{row}">{{paymentStatusLabel(row)}}</template></el-table-column>
-          <el-table-column v-if="activeTab!=='invoice'" label="已付金额" min-width="120"><template #default="{row}">{{row.paymentActualTotal==null?'未登记金额':`${row.paymentCurrency||'CNY'} ${row.paymentActualTotal}`}}</template></el-table-column>
-          <el-table-column label="不含税总价" min-width="175">
+          <el-table-column v-if="activeTab!=='invoice'" label="付款状态" min-width="175"><template #default="{row}">{{ledgerOnly&&row.ledgerPaymentLabel?row.ledgerPaymentLabel:paymentStatusLabel(row)}}</template></el-table-column>
+          <el-table-column v-if="activeTab!=='invoice'" :label="ledgerOnly?'客户实际付款（各期累计）':'已付金额'" min-width="180"><template #default="{row}">{{ledgerOnly?formatTotals(row.ledgerReceivedTotals):row.paymentActualTotal==null?'未登记金额':`${row.paymentCurrency||'CNY'} ${row.paymentActualTotal}`}}</template></el-table-column>
+          <el-table-column v-if="ledgerOnly" label="金额／项目计费金额" min-width="260"><template #default="{row}"><div>不含税 {{formatTotals(row.totalsExclTax)}}</div><div>含税 {{formatTotals(row.totalsInclTax)}}</div><strong>项目计费金额 {{formatTotals(row.ledgerAmounts)}}</strong><small v-if="row.ledgerPending"> · 部分金额待补</small></template></el-table-column>
+          <el-table-column v-if="ledgerOnly" label="付款差额（累计实付－应付）" min-width="235"><template #default="{row}">{{formatTotals(row.ledgerPaymentDifference)}}<small v-if="row.ledgerPending"> · 应付金额待补，差额待核实</small></template></el-table-column>
+          <el-table-column v-if="ledgerOnly" label="返点" width="130"><template #default="{row}"><LedgerRebate :row="row" :can-write="canWrite" @saved="value=>row.ledgerRebate=value" /></template></el-table-column>
+          <el-table-column v-if="ledgerOnly" label="毛利率" width="115"><template #default><span title="后续开发，暂不计算">待开发</span></template></el-table-column>
+          <el-table-column v-if="ledgerOnly&&activeTab==='collection'" label="客户付款账期" min-width="265"><template #default="{row}"><template v-if="row.clientId"><el-select :model-value="paymentTermOptions.includes(termValue(row))?termValue(row):''" placeholder="选择付款账期" :disabled="!canWrite||termsSaving.has(row.clientId)" @change="value=>setTerm(row,value,true)"><el-option v-for="value in paymentTermOptions" :key="value" :value="value" :label="value" /></el-select><el-input :model-value="termValue(row)" :disabled="!canWrite||termsSaving.has(row.clientId)" placeholder="可自由填写付款账期" maxlength="300" @update:model-value="value=>setTerm(row,value,false)" @blur="saveTerm(row)" @keyup.enter="saveTerm(row)" /></template><span v-else>未关联客户</span></template></el-table-column>
+          <el-table-column v-if="!ledgerOnly" label="不含税总价" min-width="175">
             <template #default="{row}">{{formatPaymentTotals(row.totalsExclTax, row.adjustedTotalsExclTax, row.billingCurrencies.excl_tax)}}<OrderPriceDetails :order="row" side="excl" /></template>
           </el-table-column>
-          <el-table-column label="含税总价" min-width="175">
+          <el-table-column v-if="!ledgerOnly" label="含税总价" min-width="175">
             <template #default="{row}">{{formatPaymentTotals(row.totalsInclTax, row.adjustedTotalsInclTax, row.billingCurrencies.incl_tax)}}<OrderPriceDetails :order="row" side="incl" /></template>
           </el-table-column>
           <el-table-column label="操作" :width="embedded?210:activeTab==='invoice'&&scopeOrder?160:120" fixed="right">
@@ -155,6 +167,7 @@
             </template>
           </el-table-column>
         </el-table>
+        <p v-if="ledgerOnly&&settlementSummary" class="ledger-total"><strong>项目计费金额小计（全部筛选结果）：{{formatTotals(settlementSummary.billingTotals)}}</strong><span v-if="settlementSummary.pendingCount"> · {{settlementSummary.pendingCount}} 个结算单元金额待补，小计尚不完整</span><br><strong>客户实际付款小计：{{formatTotals(settlementSummary.receivedTotals)}}　付款差额小计：{{formatTotals(settlementSummary.paymentDifferenceTotals)}}</strong><small>（负数为尚欠，正数为超付；按币种分别统计）</small></p>
         <el-pagination v-model:current-page="projectPage" :page-size="20" :total="displayedProjectTotal" layout="total,prev,pager,next" @current-change="searchProjects(projectKeyword)" />
       </section>
       <el-alert v-if="error" :title="error" type="error" :closable="false"><el-button link @click="reloadPayment">重新加载付款情况</el-button></el-alert>
@@ -193,6 +206,11 @@ import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import {formatClientWithSubClient} from '@/utils/clientManagementWindow'
 import {formatBusinessDateTime} from '@/utils/dateTime'
 import {useDialogFieldSearch} from '@/composables/useDialogFieldSearch'
+import LedgerOrdersPopover from './LedgerOrdersPopover.vue'
+import LedgerRebate from './LedgerRebate.vue'
+import CompactFilterGrid from './CompactFilterGrid.vue'
+import AdvancedFilterPopover from './AdvancedFilterPopover.vue'
+import SpecialStatementInvoices from './SpecialStatementInvoices.vue'
 import DraggableFormDialog from './DraggableFormDialog.vue'
 import DialogFieldSearchHeader from './DialogFieldSearchHeader.vue'
 import AppForm from './AppForm.vue'
@@ -349,6 +367,26 @@ async function changeCustomerSent(row, sent) {
     customerSentSaving.value = false
   }
 }
+const settlementSummary=ref(null),paymentTermsDraft=reactive({}),termsSaving=reactive(new Set())
+const paymentTermOptions=['月结','（验收后）月结',...Array.from({length:12},(_,index)=>`${index+1}月结`),...Array.from({length:12},(_,index)=>`（验收后）${index+1}月结`)]
+const ledgerManagerQuery=computed(()=>{const query=paymentQuery('');return{manager_ids:query.manager_ids,only_mine:query.only_mine}})
+function termValue(row){return paymentTermsDraft[row.clientId]??row.paymentTerms??''}
+function setTerm(row,value,save){paymentTermsDraft[row.clientId]=value;if(save)void saveTerm(row)}
+async function saveTerm(row){const value=termValue(row).trim();if(!row.clientId||termsSaving.has(row.clientId)||value===(row.paymentTerms||''))return;termsSaving.add(row.clientId);try{const saved=await api.put(`/translation-statement-workspaces/${row.clientId}/collection-terms`,{revision:row.paymentTermsRevision||0,value});for(const item of options.value)if(item.clientId===row.clientId){item.paymentTerms=saved.value;item.paymentTermsRevision=saved.revision}paymentTermsDraft[row.clientId]=saved.value;ElMessage.success('客户付款账期已保存')}catch(e){error.value=getLocalizedErrorMessage(e,'付款账期保存失败')}finally{termsSaving.delete(row.clientId)}}
+const formatTotals=value=>Object.entries(value||{}).map(([currency,total])=>`${currency} ${total}`).join(' / ')||'—'
+const auditFiltersVisible=ref(false),auditSummary=ref(null),auditFilters=reactive({wordCountState:'',unitPriceState:'',documentType:'',documentRequirement:'',documentPresence:'',pricingMode:'',settlementMode:'',invoiceStatus:''})
+const auditFields=[
+  ['wordCountState','工作量填写',[['filled','已填写'],['missing','未填写']]],
+  ['unitPriceState','单价填写',[['filled','已填写'],['missing','未填写']]],
+  ['documentType','单据类型',[['statement','对账单'],['quotation','报价单'],['invoice','发票']]],
+  ['documentRequirement','单据需求',[['yes','需'],['no','无需'],['unknown','未明确']]],
+  ['documentPresence','单据填写／开具',[['present','已填写／已开具'],['absent','未填写／未开具']]],
+  ['pricingMode','计价方式',[['fixed','固定收费'],['metric','按工作量付款'],['aggregate','子订单汇总']]],
+  ['settlementMode','结算方式',Object.entries(translationSettlementModeLabels)],
+  ['invoiceStatus','发票状态',invoiceStatusOptions.map(item=>[item.value,item.label])],
+].map(([key,label,options])=>({key,label,type:'select',multiple:false,teleported:false,options:options.map(([value,label])=>({value,label}))}))
+const auditFilterCount=computed(()=>Object.values(auditFilters).filter(Boolean).length)
+function clearAuditFilters(){Object.keys(auditFilters).forEach(key=>auditFilters[key]='');paymentFilters.invoiceStatus='';void applyPaymentFilters()}
 const paymentFilters=reactive({months:[],period:undefined,client:'',status:'',invoiceStatus:'',invoiceRequired:''}),projectKeyword=ref(''),projectTotal=ref(0)
 const statementCustomerMode = ref('')
 const completeInvoiceScope = ref(false)
@@ -441,6 +479,7 @@ watch(invoiceCustomerPickerVisible, visible => {
 
 })
 function initPaymentFilters(){
+  Object.keys(auditFilters).forEach(key=>auditFilters[key]='');auditSummary.value=null;
   invoiceCustomerPickerVisible.value=false
   clearInvoiceCustomerFilters()
   Object.assign(paymentFilters,{months:props.initialMonth?[props.initialMonth]:[],period:props.periodNumber,client:'',status:'',invoiceStatus:'',invoiceRequired:''})
@@ -455,7 +494,9 @@ function paymentQuery(keyword){
   const scoped=Boolean(order?.clientId && scopeMonth.value && !invoice)
   const assignedManagerId=scoped?order.clientManagerId:undefined
   const requestedManagerIds=!order&&managerScope.value==='name'?managerIds.value:undefined
+  const audit=props.ledgerOnly&&activeTab.value==='overview'
   return {
+    ledger_view:props.ledgerOnly||undefined,ledger_audit:audit||undefined,word_count_state:audit?auditFilters.wordCountState||undefined:undefined,unit_price_state:audit?auditFilters.unitPriceState||undefined:undefined,document_type:audit?auditFilters.documentType||undefined:undefined,document_requirement:audit?auditFilters.documentRequirement||undefined:undefined,document_presence:audit?auditFilters.documentPresence||undefined:undefined,pricing_mode:audit?auditFilters.pricingMode||undefined:undefined,settlement_mode:audit?auditFilters.settlementMode||undefined:undefined,
     sort:projectSort.value,
     keyword:keyword?.trim()||undefined,
     billing_month:scoped?scopeMonth.value:undefined,
@@ -466,11 +507,11 @@ function paymentQuery(keyword){
     fixed_manager_name:scoped&&!assignedManagerId?order.clientManager||'':undefined,
     only_mine:!order&&managerScope.value==='self',
     include_payment_status:!props.embedded,
-    include_invoice_status:invoice,
+    include_invoice_status:invoice||audit,
     settlement_scope:invoice?(props.embedded?'special':'standard'):undefined,
     special_invoice_tracking:props.embedded||undefined,
     period_number:invoice&&!order&&paymentFilters.months?.length===1?paymentFilters.period:undefined,
-    invoice_status:invoice?paymentFilters.invoiceStatus||undefined:undefined,
+    invoice_status:invoice||audit?paymentFilters.invoiceStatus||undefined:undefined,
     invoice_required:invoice?paymentFilters.invoiceRequired||undefined:undefined,
     client_ids:props.invoiceClientId?[props.invoiceClientId]:scoped?[order.clientId]:invoice&&!order&&invoiceClientIds.value.length?invoiceClientIds.value:undefined,
     sub_client_id:scoped?order.subClientId:undefined,
@@ -499,6 +540,7 @@ async function searchProjects(keyword=''){clearTimeout(projectTimer);const seq=+
     previousSelectionScope = scope
   }
   try{const data=await getCustomerFinancePage(query,{signal:controller.signal});if(seq===searchSequence){if(activeTab.value==='invoice'&&data.invoiceFilterApplied!==true){options.value=[];projectTotal.value=0;error.value='后端发票功能尚未更新，请更新后端服务后重试';return}if(mismatchView.value&&(data.paymentAmountMismatchFilterApplied!==true||(data.items||[]).some(item=>item.paymentStatus!=='full'||item.paymentAmountMismatch!==true))){options.value=[];projectTotal.value=0;error.value='后端未正确执行已付全款金额核对，请更新后端服务后重试';return}
+    auditSummary.value=data.ledgerSummary||null;settlementSummary.value=data.settlementSummary||null;for(const key of Object.keys(paymentTermsDraft))if(!termsSaving.has(key))delete paymentTermsDraft[key]
     const projects=data.items||[]
     const order=props.scopeOrder
     const selectedChild=activeTab.value==='invoice'&&order?.rootId&&order.id!==order.rootId&&!data.mergedInvoiceScope
@@ -537,7 +579,7 @@ function sortProjects(change){
   projectPage.value=1
   void searchProjects(projectKeyword.value)
 }
-function openPaymentRow(row){beforeClose(()=>{emit('edit',row);emit('update:modelValue',false)})}
+function openPaymentRow(row){beforeClose(()=>{emit('edit',row.ledgerAnchorId?{...row,id:row.ledgerAnchorId}:row);emit('update:modelValue',false)})}
 function reloadPayment(){void searchProjects(projectKeyword.value)}
 function confirmClose(){
   return (specialInvoiceWorkspace.value || inlineInvoiceForm.value)?.confirmClose() ?? true

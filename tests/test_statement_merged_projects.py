@@ -19,6 +19,23 @@ def preview(http,data):
     assert response.status_code==200,response.text
     return response.json()
 
+
+def test_special_merge_converts_only_confirmed_projects_and_allows_duplicate_bills(setup):
+    http,db,clients,_,user,first,_=setup;data={**body(setup),'settlement_scope':'special'}
+    assert finance.payment_method(first)!='special'
+    scope=preview(http,data)
+    assert scope['settlement_modes'] and finance.payment_method(first)!='special'
+    response=http.post('/statement-reorganization/generate-projects',json={**data,'versions':scope['versions']})
+    assert response.status_code==200,response.text
+    from translation_document_requirements import attach
+    attach(db,[first]);assert finance.payment_method(first)=='special'
+    scope=preview(http,data)
+    response=http.post('/statement-reorganization/generate-projects',json={**data,'versions':scope['versions']})
+    assert response.status_code==200,response.text
+    state=response.json()
+    assert len([board for board in state['documents'] if board['status']=='active'])==2
+    assert len(state['payload']['tasks'])==4
+
 def test_merged_preview_generation_is_atomic_unique_and_keeps_sources(setup):
     http,db,clients,_,user,first,_=setup;data=body(setup)
     result=preview(http,data)

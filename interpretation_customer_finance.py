@@ -288,7 +288,9 @@ def page(keyword: str = '', client_id: UUID | None = None, only_mine: bool = Tru
          month: str | None = None, pricing_mode: Literal['time', 'fixed'] | None = None,
          payment_method: Literal['individual', 'monthly', 'sub_client', 'special'] | None = None,
          payment_status: Literal['unrecorded', 'deposit', 'partial', 'full'] | None = None,
-         missing_amount: bool = False):
+         missing_amount: bool = False, field_filters: str | None = None):
+    from interpretation_finance_filters import parse_filters, matches
+    column_filters = parse_filters(field_filters)
     # 客户财务页只开放该客户的统计；项目财务页沿用项目权限。
     permission(db, user, 'client' if client_id else 'project')
     from models import SubClient
@@ -313,7 +315,8 @@ def page(keyword: str = '', client_id: UUID | None = None, only_mine: bool = Tru
              and (not pricing_mode or item['pricing_mode'] == pricing_mode)
              and (not payment_method or item['settlement_mode'] == payment_method)
              and (not payment_status or settlement(item['payload']).payment_status == payment_status)
-             and (not missing_amount or not item['billing_totals'])]
+             and (not missing_amount or not item['billing_totals'])
+             and matches(item, column_filters)]
     totals, adjusted, excl, incl, billed = {}, {}, {}, {}, {}
     for item in items:
         for field, acc in [('totals', totals), ('adjusted_totals', adjusted), ('totals_excl_tax', excl),

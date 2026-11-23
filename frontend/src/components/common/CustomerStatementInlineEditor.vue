@@ -3,8 +3,8 @@
     <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="`${canWrite?'对账单放大编辑':'对账单放大查看'} · ${board?.name||''}`" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
     <div v-if="draft" ref="body">
       <p class="inline-help">客户编号：{{draft.statement.client_code||'—'}}（仅系统可见）</p>
-      <p v-if="canWrite" class="inline-help">点击账单内的文字或单元格直接修改。订单号不可修改；每项任务的“账单月份”可从 A 月改为 B 月，只改变对账单归属月份。保存时逐项记录修改前后内容，不改变项目数据。</p>
-      <p v-if="!canWrite" class="inline-help">当前未获该账单所涉及客户的内容修改授权，仅可查看。任务调配、合并与分拆请返回账单管理操作。</p>
+      <p v-if="canWrite" class="inline-help">点击账单内的文字或单元格直接修改。订单号不可修改；每项项目的“账单月份”可从 A 月改为 B 月，只改变对账单归属月份。保存时逐项记录修改前后内容，不改变项目数据。</p>
+      <p v-if="!canWrite" class="inline-help">当前未获该账单所涉及客户的内容修改授权，仅可查看。项目调配、合并与分拆请返回账单管理操作。</p>
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
       <AppForm ref="nameForm" :model="draft" label-position="top"><el-form-item label="对账单名称" prop="name" :rules="[{required:true,whitespace:true,message:'请填写对账单名称',trigger:'blur'}]"><el-input v-model="draft.name" :disabled="!canWrite||saving" maxlength="100" /></el-form-item></AppForm>
       <label v-if="canWrite && draft.statement.private_settings_available !== false" class="inline-stamp">更换印章<input type="file" accept="image/png,image/jpeg,image/webp" :disabled="saving" @change="selectStamp" /></label>

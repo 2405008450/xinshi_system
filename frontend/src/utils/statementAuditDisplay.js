@@ -1,5 +1,5 @@
 // 审计原始数据保持不变；这里只转换为可阅读的业务对照行。
-const names={before:'修改前',after:'修改后',fields:'',rows:'任务',boards:'对账单',tasks:'任务',name:'名称',board_name:'对账单',order_no:'订单号',month:'账单月份',months:'账单月份',board_id:'所属对账单',task_id:'任务',task_ids:'任务',company:'公司抬头',title:'对账单标题',client_name:'客户名称',client_code:'客户编号',customer_order_no:'客户单号',bank_name:'开户行',account_name:'账户名',account_number:'账号',stamp_image:'印章',tax_included:'金额口径',issue_date:'账单日期',billing_label:'账单月份显示',billing_month:'账单月份',billing_months:'账单月份',project_name:'项目名称',language_pair:'翻译方向',received_date:'来稿日期',quantity:'工作量',basis:'计价方式',unit_price:'单价',unit_size:'每份单价对应数量',unit_label:'单价口径',currency:'货币',subtotal:'小计',remarks:'备注',counted_in_total:'计入合计',pending:'待入账',pending_from:'原归属',origin_client_name:'原客户',added_tasks:'新增任务',existing_tasks_kept:'保留已有任务',deleted_boards:'删除对账单',removed_tasks:'移除任务',excluded_tasks:'排除无需对账单任务',accepted_pending:'纳入待入账任务',returned_to_pending:'退回待入账任务',restored_before_revision:'恢复到版本',x:'横向位置',y:'纵向位置',content:'任务内容',overrides:'汇总行调整',reason:'原因',action:'操作',target:'目标',source:'来源',from:'原位置',to:'新位置'}
+const names={period_number:'账期',original_period_number:'原单账期',parent_board_id:'原对账单',before:'修改前',after:'修改后',fields:'',rows:'项目',boards:'对账单',tasks:'项目',name:'名称',board_name:'对账单',order_no:'订单号',month:'账单月份',months:'账单月份',board_id:'所属对账单',task_id:'项目',task_ids:'项目',company:'公司抬头',title:'对账单标题',client_name:'客户名称',client_code:'客户编号',customer_order_no:'客户单号',bank_name:'开户行',account_name:'账户名',account_number:'账号',stamp_image:'印章',tax_included:'金额口径',issue_date:'账单日期',billing_label:'账单月份显示',billing_month:'账单月份',billing_months:'账单月份',project_name:'项目名称',language_pair:'翻译方向',received_date:'来稿日期',quantity:'工作量',basis:'计价方式',unit_price:'单价',unit_size:'每份单价对应数量',unit_label:'单价口径',currency:'货币',subtotal:'小计',remarks:'备注',counted_in_total:'计入合计',pending:'待入账',pending_from:'原归属',origin_client_name:'原客户',added_tasks:'新增项目',existing_tasks_kept:'保留已有项目',deleted_boards:'删除对账单',removed_tasks:'移除项目',excluded_tasks:'排除无需对账单项目',accepted_pending:'纳入待入账项目',returned_to_pending:'退回待入账项目',restored_before_revision:'恢复到版本',x:'横向位置',y:'纵向位置',content:'项目内容',overrides:'汇总行调整',reason:'原因',action:'操作',target:'目标',source:'来源',from:'原位置',to:'新位置'}
 const internal=new Set(['id','row_id','line_id','root_id','origin_client_id','client_id','version','roots'])
 const uuid=/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i
 const object=value=>value!==null&&typeof value==='object'&&!Array.isArray(value)
@@ -8,8 +8,8 @@ export function statementAuditRows(changes,{labels={},before={},after={},boards=
   for(const payload of [before,after,{boards,tasks}]){
     for(const board of payload?.boards||[])references.set(board.id,board.name||'未命名对账单')
     for(const [id,task] of Object.entries(payload?.tasks||{})){
-      references.set(id,task.rows?.[0]?.order_no||'任务')
-      for(const row of task.rows||[])references.set(row.line_id,row.order_no||row.project_name||'任务')
+      references.set(id,task.rows?.[0]?.order_no||'项目')
+      for(const row of task.rows||[])references.set(row.line_id,row.order_no||row.project_name||'项目')
     }
   }
   const label=key=>dictionary[key]??references.get(key)??(uuid.test(key)?'记录':'变更项')

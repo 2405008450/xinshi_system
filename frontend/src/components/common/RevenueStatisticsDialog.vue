@@ -4,8 +4,8 @@
     <div ref="body">
       <AppForm data-auto-draft="off" :model="filters" inline class="revenue-query" @submit.prevent="search">
         <el-form-item label="项目类型"><el-select v-model="filters.projectType" style="width:110px" @change="changeProjectType"><el-option v-for="item in projectTypes" :key="item.value" :value="item.value" :label="item.label" /></el-select></el-form-item>
-        <el-form-item label="统计周期"><el-select v-model="filters.period" style="width:100px" @change="search"><el-option v-for="item in revenuePeriods" :key="item.value" :value="item.value" :label="item.label" /></el-select></el-form-item>
-        <el-form-item label="所属日期"><el-date-picker v-model="filters.anchor" type="date" value-format="YYYY-MM-DD" :clearable="false" style="width:150px" @change="search" /></el-form-item>
+        <el-form-item label="统计周期"><el-select v-model="filters.period" style="width:130px" @change="search"><el-option v-for="item in revenuePeriods" :key="item.value" :value="item.value" :label="item.label" /></el-select></el-form-item>
+        <el-form-item label="所属日期"><el-date-picker v-model="filters.anchor" :disabled="filters.period==='all'" type="date" value-format="YYYY-MM-DD" :clearable="false" style="width:150px" @change="search" /></el-form-item>
         <el-form-item label="币种"><el-select v-model="filters.currency" style="width:100px" @change="search"><el-option v-for="currency in currencies" :key="currency" :value="currency" :label="currency" /></el-select></el-form-item>
         <el-form-item label="客户经理">
           <CustomerDepartmentManagerSelect :model-value="filters.managerIds" placeholder="全体" style="width:180px" @update:model-value="changeManagers" />
@@ -52,7 +52,7 @@
         </div>
         <template v-if="data">
           <h4 class="revenue-period">{{data.period.label}} · {{data.period.start}} 至 {{data.period.end}} <el-tag v-if="data.partial_period" type="warning" size="small">周期未结束</el-tag></h4>
-          <div class="revenue-cards"><div><small>总营收 · {{data.currency}}</small><strong>{{revenueAmount(data.overall.amount)}}</strong><span>{{data.overall.customers}} 个有计费金额客户</span></div><div><small>同比 · {{data.last_year?.label||'无可比周期'}}</small><strong>{{revenueChange(data.overall.yoy)}}</strong><span>基期 {{revenueAmount(data.overall.yoy.amount)}} · 增减 {{revenueAmount(data.overall.yoy.difference)}}</span></div><div><small>环比 · {{data.previous.label}}</small><strong>{{revenueChange(data.overall.mom)}}</strong><span>基期 {{revenueAmount(data.overall.mom.amount)}} · 增减 {{revenueAmount(data.overall.mom.difference)}}</span></div></div>
+          <div class="revenue-cards"><div><small>总营收 · {{data.currency}}</small><strong>{{revenueAmount(data.overall.amount)}}</strong><span>{{data.overall.customers}} 个有计费金额客户</span></div><div><small>同比 · {{data.last_year?.label||'无可比周期'}}</small><strong>{{revenueChange(data.overall.yoy)}}</strong><span>基期 {{revenueAmount(data.overall.yoy.amount)}} · 增减 {{revenueAmount(data.overall.yoy.difference)}}</span></div><div><small>环比 · {{data.previous?.label||'无可比周期'}}</small><strong>{{revenueChange(data.overall.mom)}}</strong><span>基期 {{revenueAmount(data.overall.mom.amount)}} · 增减 {{revenueAmount(data.overall.mom.difference)}}</span></div></div>
           <section v-if="data.project_type_totals" class="revenue-project-comparison" aria-label="本期项目对比">
             <h3>本期项目对比</h3>
             <el-table :data="data.project_type_totals" row-key="module" border size="small">
@@ -67,11 +67,12 @@
             </el-table>
             <p class="revenue-help">客户数按类型去重，仅统计已关联客户。订单数含待补订单，母子订单按母单计数。总金额按所选币种及客户统计口径汇总。</p>
           </section>
+          <el-alert v-if="data.undated_included" type="info" :closable="false" :title="`历史全部范围已计入 ${data.undated_included} 个无可用日期的项目。`" />
           <el-alert v-if="data.overall.missing||data.missing_date||data.fallback_date" type="warning" :closable="false" :title="`本期 ${data.overall.missing} 个项目金额待补；范围内 ${data.fallback_date} 个项目采用备用业务日期，另有 ${data.missing_date} 个项目无可用日期而未计入。金额待补时统计可能不完整。`" />
           <el-tabs v-model="activeTab">
             <el-tab-pane label="客户营收排名" name="ranking">
               <div class="revenue-ranking-toolbar"><el-input v-model="filters.keyword" clearable placeholder="客户全称或简称，多关键词搜索" style="width:290px;max-width:100%" @input="queueSearch" @keyup.enter="search" /><span>匹配 {{data.total}} / {{data.ranked_customers}} 个客户 · 筛选后合计 {{data.currency}} {{revenueAmount(data.filtered_amount)}}</span></div>
-              <p class="revenue-help">排名按本期金额降序，同额按客户名称及编号排列；区间筛选后保留原排名。上期或去年同期有记录的客户本期无营收时仍列出。上方总营收和趋势不受排名、金额、客户关键词筛选影响。</p>
+              <p class="revenue-help">排名按本期金额降序，同额按客户名称及编号排列；区间筛选后保留原排名。仅列出所选统计周期和所属日期范围内有项目的客户；全年或历史全部请切换统计周期。上方总营收和趋势不受排名、金额、客户关键词筛选影响。</p>
               <el-table :data="data.items" border row-key="key" empty-text="暂无匹配客户" max-height="440">
                 <el-table-column prop="rank" label="排名" width="70" /><el-table-column prop="client_name" label="客户名称" min-width="170" show-overflow-tooltip /><el-table-column label="统计口径" width="170"><template #default="{row}"><el-select :model-value="row.basis" :disabled="!row.client_id" @change="value=>setBasis(row.client_id,value)"><el-option v-for="item in revenueBases" :key="item.value" :label="item.label" :value="item.value" /></el-select></template></el-table-column>
                 <el-table-column label="本期营收" min-width="145" align="right">
@@ -103,7 +104,7 @@
             </el-tab-pane>
             <el-tab-pane label="周期趋势／客户跟踪" name="trend" lazy>
               <AppForm data-auto-draft="off" :model="filters" inline><el-form-item label="跟踪客户"><el-select v-model="focusClient" filterable clearable placeholder="全部客户汇总" style="width:320px;max-width:100%" @change="load"><el-option v-for="item in data.client_options" :key="item.key" :label="item.name" :value="item.key" /></el-select></el-form-item></AppForm>
-              <p class="revenue-help">{{focusName}} · 最近12个{{periodLabel}} · {{data.currency}}。鼠标移到柱形可查看金额；下表列出每期同比、环比。</p>
+              <p class="revenue-help">{{focusName}} · {{displayedPeriod==='all'?'历史全部':'最近12个'+periodLabel}} · {{data.currency}}。鼠标移到柱形可查看金额；下表列出每期同比、环比。</p>
               <svg class="revenue-chart" viewBox="0 0 1000 210" role="img" :aria-label="`${focusName}营收趋势`"><line x1="30" :y1="chart.zero" x2="990" :y2="chart.zero" stroke="currentColor" opacity=".25" /><g v-for="(item,index) in chart.bars" :key="item.start"><title>{{item.label}}：{{data.currency}} {{revenueAmount(item.amount)}}</title><rect :x="42+index*79" :y="item.y" width="42" :height="Math.max(item.height,1)" rx="3" :fill="Number(item.amount)>=0?'#415a77':'#b45309'" /><text :x="63+index*79" y="199" text-anchor="middle" font-size="11">{{item.label.replace('年','/').replace('第','').replace('季度','季')}}</text></g></svg>
               <el-table :data="data.timeline" border max-height="400"><el-table-column prop="label" label="周期" min-width="130" /><el-table-column label="日期范围" min-width="200"><template #default="{row}">{{row.start}} 至 {{row.end}}</template></el-table-column><el-table-column label="营收金额" min-width="130" align="right"><template #default="{row}">{{revenueAmount(row.amount)}}<el-tag v-if="row.missing" size="small" type="warning">待补</el-tag></template></el-table-column><el-table-column label="同比" min-width="110"><template #default="{row}">{{revenueChange(row.yoy)}}</template></el-table-column><el-table-column label="环比" min-width="110"><template #default="{row}">{{revenueChange(row.mom)}}</template></el-table-column></el-table>
             </el-tab-pane>

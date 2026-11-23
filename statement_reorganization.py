@@ -26,6 +26,10 @@ def ensure_same_sub_client_period(boards):
 
 
 def inherit_sub_client_period(target, source):
+    if source.get('period_month') or source.get('status_period_month'):
+        target.update(status_period_month=source.get('period_month') or source.get('status_period_month'),status_period_number=source.get('period_number') or source.get('status_period_number'))
+    if source.get('billing_months'):
+        target['billing_months']=list(source['billing_months'])
     if source.get('sub_client_id'):
         target.update({key:source.get(key) for key in (
             'sub_client_id','sub_client_name','sub_client_code','period_month','period_number','settlement_scope'
@@ -39,7 +43,7 @@ def copy_overrides(payload,source,target,ids):
         applies=key in lines
         if key.startswith('summary:'):
             root=key.split(':')[1];members={task['id'] for task in tasks if any(row['root_id']==root for row in task['rows'])}
-            if members&selected and members-selected:raise HTTPException(422,'所选任务涉及整组汇总调整，无法自动分配；请选择该汇总的全部任务后分拆')
+            if members&selected and members-selected:raise HTTPException(422,'所选项目涉及整组汇总调整，无法自动分配；请选择该汇总的全部项目后分拆')
             applies=bool(members&selected)
         if applies:
             if key in target.get('overrides',{}) and target['overrides'][key]!=value:raise HTTPException(422,'账单存在相互冲突的汇总调整，未进行合并，请先核对')
@@ -65,8 +69,8 @@ def reorganize(payload,action,data):
         payload['boards']=[item for item in payload['boards'] if item['id'] not in ids[1:]]
         return '合并历史对账单',{'before':before,'after':copy.deepcopy(target),'task_ids':[task['id'] for task in payload['tasks'].values() if task['board_id']==target['id']]}
     ids=data.get('task_ids')
-    if not isinstance(ids,list) or not ids or not all(isinstance(uid,str) and uid in payload['tasks'] for uid in ids) or len(set(ids))!=len(ids):raise HTTPException(422,'请选择有效且不重复的任务')
-    if any(payload['tasks'][uid].get('pending') for uid in ids):raise HTTPException(422,'待入账任务请先生成目标月份账单')
+    if not isinstance(ids,list) or not ids or not all(isinstance(uid,str) and uid in payload['tasks'] for uid in ids) or len(set(ids))!=len(ids):raise HTTPException(422,'请选择有效且不重复的项目')
+    if any(payload['tasks'][uid].get('pending') for uid in ids):raise HTTPException(422,'待入账项目请先生成目标月份账单')
     sources=[board(payload,uid) for uid in dict.fromkeys(payload['tasks'][key]['board_id'] for key in ids)]
     ensure_same_sub_client_period(sources)
     target=new_board(payload,sources[0]['fields'],name(data.get('name')));target['tax_included']=sources[0]['tax_included']
@@ -142,9 +146,9 @@ def cross_apply(data:CrossWrite,db=Depends(get_db),user=Depends(get_current_user
         source_boards=[(item.client_id,board(payloads[item.client_id],item.board_id)) for item in data.boards]
         available={key for uid,item in source_boards for key,task in payloads[uid]['tasks'].items() if task['board_id']==item['id']}
         ids=available if data.task_ids is None else set(data.task_ids)
-        if not ids or not ids<=available or data.task_ids is not None and len(ids)!=len(data.task_ids):raise HTTPException(422,'请选择有效且不重复的账单任务')
+        if not ids or not ids<=available or data.task_ids is not None and len(ids)!=len(data.task_ids):raise HTTPException(422,'请选择有效且不重复的账单项目')
         fresh_origins={UUID(task['origin_client_id']) for uid,payload in payloads.items() for key,task in payload['tasks'].items() if uid!=data.target_client_id and key in ids and task.get('origin_client_id')}
-        if not fresh_origins<=locked:raise HTTPException(409,'任务来源客户已变化，请重新加载')
+        if not fresh_origins<=locked:raise HTTPException(409,'项目来源客户已变化，请重新加载')
         target_payload=payloads[data.target_client_id];target_client=db.get(Client,data.target_client_id)
         if data.target_board_id:target=board(target_payload,data.target_board_id)
         else:
@@ -165,7 +169,7 @@ def cross_apply(data:CrossWrite,db=Depends(get_db),user=Depends(get_current_user
             for key in selected:
                 task=payload['tasks'][key]
                 if uid!=data.target_client_id:
-                    if key in target_payload['tasks']:raise HTTPException(409,'目标客户已包含该任务，不能重复调配')
+                    if key in target_payload['tasks']:raise HTTPException(409,'目标客户已包含该项目，不能重复调配')
                     task=payload['tasks'].pop(key);target_payload['tasks'][key]=task
                     source_client=db.get(Client,uid)
                     task.setdefault('origin_client_id',str(uid));task.setdefault('origin_client_name',source_client.client_short_name or source_client.client_name)
@@ -173,16 +177,21 @@ def cross_apply(data:CrossWrite,db=Depends(get_db),user=Depends(get_current_user
                 source_client=db.get(Client,uid)
                 moved.append(dict(task_id=key,order_no=task['rows'][0]['order_no'],origin_client_id=task.get('origin_client_id',str(uid)),before={'client_id':str(uid),'client_name':source_client.client_short_name or source_client.client_name,'board_id':task['board_id'],'board_name':item['name']},after={'client_id':str(data.target_client_id),'client_name':target_client.client_short_name or target_client.client_name,'board_id':target['id'],'board_name':target['name']}))
                 task['board_id']=target['id']
-        for uid,payload in payloads.items():
-            if data.task_ids is None:
-                selected_board_ids={item.board_id for item in data.boards if item.client_id==uid}
-                payload['boards']=[item for item in payload['boards'] if item['id']==target['id'] or item['id'] not in selected_board_ids or any(task['board_id']==item['id'] for task in payload['tasks'].values())]
-            roots={line['root_id'] for task in payload['tasks'].values() for line in task['rows']}
-            payload['roots']={key:value for key,value in payload['roots'].items() if key in roots}
-            save(db,user,uid,rows[uid],before[uid],payload,'跨客户对账单调配',dict(operation_id=operation_id,tasks=moved,target_client_id=str(data.target_client_id),target_board_id=target['id']),commit=False)
+        # 在同一事务的最终快照上校验，避免先保存目标时误把尚未落库的源单算作重复。
+        db.info['statement_pending_payloads']=payloads
+        try:
+            for uid,payload in payloads.items():
+                if data.task_ids is None:
+                    selected_board_ids={item.board_id for item in data.boards if item.client_id==uid}
+                    payload['boards']=[item for item in payload['boards'] if item['id']==target['id'] or item['id'] not in selected_board_ids or any(task['board_id']==item['id'] for task in payload['tasks'].values())]
+                roots={line['root_id'] for task in payload['tasks'].values() for line in task['rows']}
+                payload['roots']={key:value for key,value in payload['roots'].items() if key in roots}
+                save(db,user,uid,rows[uid],before[uid],payload,'跨客户对账单调配',dict(operation_id=operation_id,tasks=moved,target_client_id=str(data.target_client_id),target_board_id=target['id']),commit=False)
+        finally:
+            db.info.pop('statement_pending_payloads',None)
         db.commit()
         return dict(operation_id=operation_id,moved_count=len(moved),target_client_id=str(data.target_client_id),target_board_id=target['id'])
     except IntegrityError:
-        db.rollback();raise HTTPException(409,'任务归属发生并发变化，请刷新后重试')
+        db.rollback();raise HTTPException(409,'项目归属发生并发变化，请刷新后重试')
     except Exception:
         db.rollback();raise

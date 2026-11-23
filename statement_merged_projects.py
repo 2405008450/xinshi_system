@@ -2,7 +2,8 @@
 import copy
 import re
 from decimal import Decimal
-from uuid import UUID
+from uuid import UUID,uuid4
+from typing import Literal
 from fastapi import HTTPException
 from pydantic import BaseModel,ConfigDict,Field
 from models import Client,TranslationProject,TranslationSubOrder
@@ -10,7 +11,7 @@ import statement_access as access
 
 class MergedProjects(BaseModel):
     model_config=ConfigDict(extra='forbid')
-    client_ids:list[UUID]=Field(min_length=2,max_length=30)
+    client_ids:list[UUID]=Field(min_length=1,max_length=30)
     source_client_ids:list[UUID]|None=Field(default=None,min_length=1,max_length=30)
     target_client_id:UUID
     month:str=Field(pattern=r'^\d{4}-(0[1-9]|1[0-2])$')
@@ -18,6 +19,7 @@ class MergedProjects(BaseModel):
     versions:dict[UUID,int]=Field(default_factory=dict)
     name:str=Field(default='',max_length=100)
     confirmed:bool=False
+    settlement_scope:Literal['special']|None=None
     manager_ids:list[UUID]=Field(default_factory=list,max_length=2000)
     only_mine:bool=False
     client_manager:str|None=None
@@ -52,7 +54,7 @@ def prepare(db,user,data,*,group_directions=True):
         selected[client.id].append(key)
     parts=[]
     for uid in data.client_ids:
-        part=build(db,uid,data.month,selected[uid],'children',group_directions=False)
+        part=build(db,uid,data.month,selected[uid],'children',special=False,group_directions=False)
         if uid not in active_clients:part['rows']=[]
         for line in part['rows']:
             line['origin_client_id']=str(uid);line['origin_client_name']=clients[uid].client_short_name or clients[uid].client_name
@@ -76,7 +78,7 @@ def prepare(db,user,data,*,group_directions=True):
     for part in parts:
         for line in part['rows']:
             key=line['task_id'];owner=db.get(access.StatementTaskOwner,key) if access.ready(db) else None
-            if owner and key not in waiting:existing.add(key);continue
+            if owner and key not in waiting and data.settlement_scope!='special':existing.add(key);continue
             if key in waiting:
                 uid,task=waiting[key]
                 source=next((item for item in task['rows'] if item['line_id']==line['line_id']),line)
@@ -89,7 +91,8 @@ def prepare(db,user,data,*,group_directions=True):
     result['totals']={key:f'{value:.2f}' for key,value in sums.items()}
     if group_directions:
         result['rows']=direction_statement_rows(result['rows'])
-    return dict(statement=result,existing_count=len(existing),versions={str(uid):row.revision if row else 0 for uid,row in workspaces.items()}),workspaces,waiting
+    modes={str(project.id):{'project_id':str(project.id),'order_no':project.order_no,'payment_method':__import__('translation_customer_finance').payment_method(project)} for project in db.query(TranslationProject).filter(TranslationProject.id.in_(root_ids))}
+    return dict(settlement_modes=list(modes.values()),statement=result,existing_count=len(existing),versions={str(uid):row.revision if row else 0 for uid,row in workspaces.items()}),workspaces,waiting
 
 def generate(db,user,data):
     from customer_statement_workspace import workspace,check_revision,empty_payload,new_board,imported_fields,outline,save,serialize
@@ -103,23 +106,33 @@ def generate(db,user,data):
         if not statement['rows']:raise HTTPException(422,'当前项目均已入账或没有可生成内容，请查看已有对账单')
         before={uid:copy.deepcopy(row.payload if row else empty_payload()) for uid,row in rows.items()};payloads=copy.deepcopy(before)
         target=payloads[data.target_client_id];board=new_board(target,imported_fields(statement),data.name.strip());board['tax_included']=statement['tax_included'];board['billing_months']=[data.month]
+        if data.settlement_scope=='special':board['settlement_scope']='special'
         grouped={}
         for line in statement['rows']:grouped.setdefault(line['task_id'],[]).append(line)
         # 待入账转移和最终唯一归属在同一事务内完成。
-        pending_ids=set(grouped)&set(waiting)
+        pending_ids=set(grouped)&set(waiting) if data.settlement_scope!='special' else set()
         if pending_ids and access.ready(db):db.query(access.StatementTaskOwner).filter(access.StatementTaskOwner.task_id.in_(pending_ids)).delete(synchronize_session=False);db.flush()
         changed={data.target_client_id};moved=[]
         for key,lines in grouped.items():
             origin=lines[0]['origin_client_id'];origin_name=lines[0]['origin_client_name']
-            if key in waiting:
+            if key in waiting and data.settlement_scope!='special':
                 uid,task=waiting[key];task=copy.deepcopy(task);payloads[uid]['tasks'].pop(key);changed.add(uid)
             else:task={'id':key,'original':{'rows':copy.deepcopy(lines),'month':data.month,'board_id':board['id']}}
             task.update(board_id=board['id'],month=data.month,rows=lines,origin_client_id=origin,origin_client_name=origin_name,pending=False)
+            if data.settlement_scope=='special':
+                source_key=key;key=str(uuid4());task.update(id=key,source_task_id=source_key)
             target['tasks'][key]=task
             for line in lines:
                 root=line['root_id']
                 if root not in target['roots']:target['roots'][root]=outline(source.finance.read(db,UUID(root))['item'])
             moved.append({'order_no':lines[0]['order_no'],'origin_client_name':origin_name})
+        if data.settlement_scope=='special':
+            from translation_document_requirements import save as save_documents
+            from translation_finance_audit import append_snapshots
+            for project in db.query(TranslationProject).filter(TranslationProject.id.in_({UUID(line['root_id']) for line in statement['rows']})).order_by(TranslationProject.id).with_for_update():
+                previous={'order_no':project.order_no,'project_name':project.project_name,'payment_method':source.finance.payment_method(project)}
+                save_documents(db,project,payment_method='special',actor_id=user.id)
+                append_snapshots(db,user,project.id,{str(project.id):previous},{str(project.id):{**previous,'payment_method':'special'}})
         for uid in sorted(changed,key=str):
             payload=payloads[uid]
             row=save(db,user,uid,rows[uid],before[uid],payload,'合并客户项目生成对账单',{'board_name':board['name'],'target_client_name':statement['client_name'],'month':data.month,'tasks':moved,'existing_tasks_kept':preview['existing_count']},commit=False)

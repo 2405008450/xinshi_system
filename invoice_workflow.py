@@ -103,8 +103,12 @@ class RequestWrite(BaseModel):
     note:str=Field(default='',max_length=2000)
 
 
+from statement_invoice_documents import StatementInvoiceRef
+
 class BatchSelection(BaseModel):
-    project_ids: list[UUID] = Field(min_length=1, max_length=100)
+    project_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    statement_refs:list[StatementInvoiceRef]=Field(default_factory=list,max_length=100)
+    client_party_choices:dict[UUID,int]=Field(default_factory=dict)
     settlement_scope: Literal['special'] | None = None
 
 
@@ -215,7 +219,7 @@ def batch_projects(db, project_ids, *, special=False):
         projects.append({'project_id': str(project_id), **({'root_id':str(project.id)} if special else {}), **sub_group,
                          'order_no': node['order_no'], 'project_name': node['project_name'],
                          'client_id': client['client_id'], 'client_name': client['client_name'],
-                         'client_party': client['party'], 'default_subject': selection['subject_key'],
+                         'client_party': client['party'], 'client_party_options':client.get('parties') or [client['party']], 'default_subject': selection['subject_key'],
                          'invoice_selection':selection,'client_invoice_subject':client['subject_key'],'price_details':price_details(node),
                          'totals': {currency: str(amount) for currency, amount in amounts.items()}})
     return projects
@@ -258,6 +262,14 @@ def commit_notices(db, notices):
         })
 
 
+def apply_party_choices(projects,choices):
+    for project in projects:
+        index=choices.get(UUID(project['client_id']),0)
+        options=project.get('client_party_options') or [project['client_party']]
+        if index<0 or index>=len(options):raise HTTPException(422,'客户开票信息已变化，请重新选择')
+        project['client_party']=options[index]
+
+
 def send_batch(db, actor, payload):
     from invoice_parties import subject
     require_ready(db)
@@ -282,7 +294,19 @@ def send_batch(db, actor, payload):
         if previous.created_by != actor.id or previous.snapshot.get('submission') != submission:
             raise HTTPException(409, '需求发送标识不匹配')
         return request_value(previous, actor)
-    projects = batch_projects(db, payload.project_ids, special=special)
+    documents=[]
+    if payload.statement_refs:
+        if not special:raise HTTPException(422,'对账单开票仅用于特殊结算')
+        from statement_invoice_documents import read_documents,invoice_projects
+        documents=read_documents(db,payload.statement_refs);projects=invoice_projects(db,documents)
+    else:
+        if not payload.project_ids:raise HTTPException(422,'请选择项目或特殊结算对账单')
+        from statement_invoice_documents import read_documents,invoice_projects
+    documents=read_documents(db,payload.statement_refs) if payload.statement_refs else []
+    if documents and not special:raise HTTPException(422,'对账单开票请使用特殊结算发票')
+    if not documents and not payload.project_ids:raise HTTPException(422,'请选择项目或对账单')
+    projects = invoice_projects(db,documents) if documents else batch_projects(db, payload.project_ids, special=special)
+    apply_party_choices(projects,payload.client_party_choices)
     if payload.invoice_type.endswith('_special'):
         allowed = {6} if payload.subject_key == 'guangzhou' else {1, 3}
         if payload.tax_rate not in allowed:
@@ -295,7 +319,7 @@ def send_batch(db, actor, payload):
     issuer = subject(db, payload.subject_key)
     first = projects[0]
     names = {person['id']: person['name'] for person in config['users']}
-    snapshot = {'projects': projects, 'subject': issuer, 'invoice_type': INVOICE_TYPES[payload.invoice_type],
+    snapshot = {'statements':documents,'projects': projects, 'subject': issuer, 'invoice_type': INVOICE_TYPES[payload.invoice_type],
                 'tax_rate': payload.tax_rate, 'note': payload.note, 'sender': actor.full_name or actor.username,
                 'recipient_names': [names[uid] for uid in config['user_ids']], 'submission': submission}
     row = InvoiceRequest(id=uuid4(), idempotency_key=key, project_id=UUID(first.get('root_id',first['project_id'])),
@@ -304,7 +328,7 @@ def send_batch(db, actor, payload):
     db.add(row)
     if payload.selection_revisions is not None and payload.selection_revisions.keys()!=set(payload.project_ids):
         raise HTTPException(422,'请重新加载所有订单的开票选择')
-    for project in projects:
+    for project in ([] if documents else projects):
         project_id=UUID(project['project_id'])
         store_order_invoice_selection(db,project_id,payload.subject_key,payload.invoice_type,actor.id,
                                       revision=payload.selection_revisions[project_id] if payload.selection_revisions is not None else None,
@@ -490,8 +514,20 @@ def create_test_recipient(payload: TestRecipientWrite, db=Depends(get_db), actor
 def preview_batch(payload: BatchSelection, db=Depends(get_db), actor=Depends(BATCH_WRITE)):
     from invoice_parties import SUBJECTS, subject
     config = batch_settings(db)
-    projects = batch_projects(db, payload.project_ids, special=payload.settlement_scope=='special')
-    return {'projects': projects, 'customer_groups': customer_groups(projects),
+    documents=[]
+    if payload.statement_refs:
+        if payload.settlement_scope!='special':raise HTTPException(422,'对账单开票仅用于特殊结算')
+        from statement_invoice_documents import read_documents,invoice_projects
+        documents=read_documents(db,payload.statement_refs);projects=invoice_projects(db,documents)
+    else:
+        if not payload.project_ids:raise HTTPException(422,'请选择项目或对账单')
+        from statement_invoice_documents import read_documents,invoice_projects
+    documents=read_documents(db,payload.statement_refs) if payload.statement_refs else []
+    if documents and payload.settlement_scope!='special':raise HTTPException(422,'对账单开票请使用特殊结算发票')
+    if not documents and not payload.project_ids:raise HTTPException(422,'请选择项目或对账单')
+    projects = invoice_projects(db,documents) if documents else batch_projects(db, payload.project_ids, special=payload.settlement_scope=='special')
+    apply_party_choices(projects,payload.client_party_choices)
+    return {'statements':documents,'projects': projects, 'customer_groups': customer_groups(projects),
             'subjects': [subject(db, key) for key in SUBJECTS],
             'settings_revision': config['revision'],
             'recipients': [user for user in config['users'] if user['id'] in config['user_ids']]}

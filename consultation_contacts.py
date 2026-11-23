@@ -48,8 +48,9 @@ def sync_contacts(db, client_id, sub_client_id, people, expected_updated_at=None
         seen.add(key)
         if key in positions:
             position = positions[key]
-            if item.job_title is None:
-                item = item.model_copy(update={'job_title': merged[position].job_title})
+            preserved = {field: getattr(merged[position], field)
+                         for field in ('job_title', 'department', 'company') if getattr(item, field) is None}
+            item = item.model_copy(update=preserved)
             if merged[position].model_dump() != item.model_dump():
                 changed_existing = True
                 merged[position] = item

@@ -19,6 +19,7 @@
                   </el-select>
                 </div>
               </template>
+              <CustomerStatementSubClientWorkspaces v-if="expandedMonths.includes(monthKey(client,entry))&&required&&settlementScope!=='special'" :client="entry.client" :month="entry.month" :period-number="periodNumber" :manager-query="managerQuery" />
               <CustomerStatementClientWorkspace v-if="expandedMonths.includes(monthKey(client,entry))" :client="entry.client" :month="entry.month" :period-number="periodNumber" :settlement-scope="settlementScope" :required="required" :moving="moving" :manager-query="managerQuery" @move-client="emit('move-client',$event)" />
             </el-collapse-item>
           </el-collapse>
@@ -32,6 +33,7 @@
 <script setup>
 import {computed,onBeforeUnmount,ref,watch} from 'vue'
 import CustomerStatementClientWorkspace from './CustomerStatementClientWorkspace.vue'
+import CustomerStatementSubClientWorkspaces from './CustomerStatementSubClientWorkspaces.vue'
 import {getStatementCustomerGroups,setStatementProgress} from '@/api/translationCustomerFinance'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 import {hasPermission} from '@/utils/permission'

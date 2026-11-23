@@ -564,6 +564,9 @@ def statement_display_rows(node, rows, mode):
         exact=[row for row in details if row['order_no']==item['order_no']]
         # 固定收费订单已是独立结算行，不再额外添加相同金额的汇总。
         result=summaries(item,details,False) if item.get('price_aggregate') else []
+        direction_parent=any(row.get('direction_parent_no')==item['order_no'] for row in details)
+        if item.get('children') and not direction_parent:
+            for row in result:row.update(ordinary_parent_reference=True,subtotal=None,unit_price=None,quantity=None,basis='订单汇总（母订单不计费）')
         for child in item['children']:result.extend(render(child))
         result.extend(exact)
         return result
@@ -865,6 +868,7 @@ def statement_has_unit_column(rows):
 
 
 def statement_amount(row, mixed_tax=False):
+    if row.get('ordinary_parent_reference'):return '—'
     if row.get('subtotal') is None:
         return '待补（不计入合计）' if row.get('direction_parent_summary') else '待补'
     amount = f"{row['currency']} {row['subtotal']}"

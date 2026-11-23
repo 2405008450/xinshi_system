@@ -7,11 +7,13 @@ def customer_boards(db,client_ids):
     from customer_statement_workspace import StatementWorkspace
     if not client_ids or not inspect(db.connection()).has_table(StatementWorkspace.__tablename__):return {}
     result={}
-    for client_id,payload in db.query(StatementWorkspace.client_id,StatementWorkspace.payload).filter(StatementWorkspace.client_id.in_(client_ids)).all():
+    for client_id,boards,tasks in db.query(StatementWorkspace.client_id,StatementWorkspace.payload['boards'],StatementWorkspace.payload['tasks']).filter(StatementWorkspace.client_id.in_(client_ids)).all():
+        from statement_document_status import normalize
+        normalize({'boards':boards or [],'tasks':tasks or {}})
         months={}
-        for task in payload.get('tasks',{}).values():months.setdefault(task.get('board_id'),set()).add(task['month'])
-        result[str(client_id)]=[{'client_id':str(client_id),'board_id':board['id'],'board_name':board['name'],'months':sorted(months[board['id']])}
-            for board in payload.get('boards',[]) if months.get(board['id'])]
+        for task in (tasks or {}).values():months.setdefault(task.get('board_id'),set()).add(task['month'])
+        result[str(client_id)]=[{'client_id':str(client_id),'board_id':board['id'],'board_name':board['name'],'months':sorted(months[board['id']]),'period_number':board.get('period_number') or board.get('status_period_number')}
+            for board in boards or [] if board.get('status')!='void' and months.get(board['id'])]
     return result
 
 
@@ -23,7 +25,7 @@ def attach(db,projects):
     for owner in owners.values():owner.statement_status=[]
     if not inspect(db.connection()).has_table(StatementWorkspace.__tablename__):return
     by_id={str(project.id):project for project in projects}
-    query=db.query(StatementWorkspace.client_id,StatementWorkspace.payload)
+    query=db.query(StatementWorkspace.client_id,StatementWorkspace.payload['boards'],StatementWorkspace.payload['tasks'])
     if db.get_bind().dialect.name=='postgresql':
         from sqlalchemy.dialects.postgresql import JSONB
         # 不使用 cast(...)['roots']：SQLAlchemy 2.0.45 会渲染成非法 SQL，函数形式在各 2.x 版本一致。
@@ -31,10 +33,12 @@ def attach(db,projects):
         query=query.filter(or_(*(roots.op('?')(key) for key in by_id)))
     elif db.get_bind().dialect.name=='sqlite':
         query=query.filter(or_(*(func.json_type(StatementWorkspace.payload,f'$.roots."{key}"').isnot(None) for key in by_id)))
-    for client_id,payload in query.all():
-        boards={board['id']:board for board in payload.get('boards',[])}
+    for client_id,board_rows,tasks in query.all():
+        from statement_document_status import normalize
+        normalize({'boards':board_rows or [],'tasks':tasks or {}})
+        boards={board['id']:board for board in board_rows or [] if board.get('status')!='void'}
         grouped={}
-        for task in payload.get('tasks',{}).values():
+        for task in (tasks or {}).values():
             board_id=task.get('board_id')
             if board_id not in boards:continue
             for root_id in {line.get('root_id') for line in task.get('rows',[])}&by_id.keys():
@@ -49,7 +53,7 @@ def attach(db,projects):
             owners[root_id].statement_status.append({
                 'client_id':str(client_id),'board_id':board_id,'board_name':board['name'],
                 'months':sorted(months),
-                **({'period_number':board['period_number']} if board.get('period_number') else {}),
+                **({'period_number':board.get('period_number') or board.get('status_period_number')} if board.get('period_number') or board.get('status_period_number') else {}),
             })
     for owner in owners.values():
         owner.statement_status.sort(key=lambda item:(item['months'],item['board_name'],item['board_id']))

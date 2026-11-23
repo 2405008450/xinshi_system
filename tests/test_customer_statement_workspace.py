@@ -28,6 +28,30 @@ def imported(setup,months=None):
     return response.json()
 
 
+def test_new_statement_advances_period_and_rejects_active_duplicate(setup):
+    state=imported(setup)
+    original=state['documents'][0]
+    original_tasks=deepcopy(state['payload']['tasks'])
+    state=change(setup,state,'create_board',{'board_id':original['id'],'name':'下一期'})
+    first,second=state['documents']
+    assert [first['period_number'],second['period_number']]==[1,2]
+    assert state['payload']['tasks']==original_tasks
+    assert '第 1 期' in first['statement']['month']
+    assert '第 2 期' in second['statement']['month']
+    assert second['statement']['months']==['2026-10','2026-11']
+    from translation_customer_finance import settlement_period_numbers
+    _,db,clients,_,_,october,november=setup
+    assert settlement_period_numbers(db,[(october.id,clients[0].id,'2026-10',{}),(november.id,clients[0].id,'2026-11',{})])=={october.id:1,november.id:1}
+    state=change(setup,state,'create_board',{'board_id':second['id'],'name':'第三期'})
+    third=state['documents'][2]
+    assert third['period_number']==3
+    change(setup,state,'set_board_period',{'board_id':third['id'],'period_number':2},expected=422)
+    state=change(setup,state,'set_board_period',{'board_id':third['id'],'period_number':4})
+    state=change(setup,state,'set_board_status',{'board_id':second['id'],'status':'void'})
+    state=change(setup,state,'set_board_period',{'board_id':third['id'],'period_number':2})
+    assert [board['period_number'] for board in state['documents'] if board['status']=='active']==[1,2]
+
+
 @pytest.mark.parametrize('use_sub_client',[False,True])
 def test_generation_marks_only_included_projects_statement_required(setup,use_sub_client):
     import crud
@@ -134,6 +158,9 @@ def test_sub_client_settlement_shares_preferences_and_groups_by_period(setup):
         'billing_month':'2026-11','keyword':'甲分部','settlement_scope':'standard',
     }).json()['items']
     assert [child['id'] for child in matching[0]['sub_clients']]==[str(a.id)]
+    assert matching[0]['sub_clients'][0]['statement_project_count']==3
+    scoped=http.get('/translation-customer-finance/statement-customer-groups',params={'billing_month':'2026-11','keyword':'甲分部','settlement_scope':'standard','period_number':2}).json()['items']
+    assert scoped[0]['sub_clients'][0]['statement_project_count']==1
 
 
 def test_period_party_and_explicit_settlement_modes_are_independent(setup):
@@ -306,7 +333,7 @@ def test_multimonth_import_move_uniqueness_and_original_project_untouched(setup)
     board2=state['documents'][1]['id']
     state=change(setup,state,'move_tasks',{'task_ids':[str(first.id)],'board_id':board2,'month':'2026-12'})
     assert [len(board['statement']['rows']) for board in state['documents']]==[1,1]
-    assert state['documents'][1]['statement']['month']=='2026-12'
+    assert '2026-12' in state['documents'][1]['statement']['month'] and '第 2 期' in state['documents'][1]['statement']['month']
     assert first.customer_charge_items[0].billing_month=='2026-10'
     body={'project_id':str(first.id),'months':['2026-10','2026-11'],'revision':state['revision'],'confirmed':True,'board_id':board1}
     duplicate=http.post('/translation-statement-workspaces/import',json=body).json()
@@ -336,10 +363,16 @@ def test_statement_windows_separate_project_lists_and_existing_bill_rows(setup):
         page=http.get('/translation-customer-finance/page',params={**params,'client_ids':str(clients[0].id)}).json()
         assert [item['id'] for item in page['items']]==[str(order.id)]
         groups=http.get('/translation-customer-finance/statement-customer-groups',params={
+            # 普通项目已生成真实对账单，也必须归入“需”，与财务列表一致。
             **params,'statement_required':True,
         }).json()
         expected={str(clients[0].id),str(clients[1].id)} if scope=='special' else {str(clients[0].id)}
         assert {item['id'] for item in groups['items']}==expected
+        if scope=='standard':
+            unneeded=http.get('/translation-customer-finance/statement-customer-groups',params={
+                **params,'statement_required':False,
+            }).json()
+            assert str(clients[0].id) not in {item['id'] for item in unneeded['items']}
         workspace=http.get(f"/translation-statement-workspaces/{clients[0].id}",params={'settlement_scope':scope}).json()
         assert set(workspace['payload']['tasks'])=={str(order.id)}
         assert [row['root_id'] for row in workspace['documents'][0]['statement']['rows']]==[str(order.id)]
@@ -380,7 +413,7 @@ def test_special_statement_uses_statement_title_and_synced_subject(setup,monkeyp
     assert board['statement']['title']=='对账单'
     state=change(setup,state,'change_company_subject',{'board_id':board['id'],'subject_key':'shenzhen'})
     assert state['documents'][0]['statement']['subject_key']=='shenzhen'
-    assert http.get(f'/clients/{clients[0].id}/statement-preference').json()['statement_subject_key']=='shenzhen'
+    assert http.get(f'/clients/{clients[0].id}/statement-preference').json()['statement_subject_key'] is None
     # 已保存的旧称在读取时兼容显示，不额外写入业务记录。
     row=db.get(service.StatementWorkspace,clients[0].id)
     payload=deepcopy(row.payload)
@@ -431,7 +464,7 @@ def test_special_settlement_settings_are_independent_and_can_override_each_child
     assert response.status_code==200,response.text
     changed=response.json()
     assert [(row['special_tax_mode'],row['statement_required'],row['invoice_required'])
-            for row in changed['items'][0]['children']]==[('incl_tax',True,True),('excl_tax',False,False)]
+            for row in changed['items'][0]['children']]==[('incl_tax',True,True),('excl_tax',True,False)]
     assert changed['client_subtotals'][0]['totals_excl_tax']=={'CNY':'40.00'}
     assert changed['client_subtotals'][0]['totals_incl_tax']=={'CNY':'60.00'}
     response=http.post('/translation-statement-workspaces/import',json={
@@ -529,15 +562,17 @@ def test_statement_number_retains_parent_base_across_split_and_new_child(setup):
     state=change(setup,state,'split_board',{'task_ids':list(state['payload']['tasks']),'name':'分拆'})
     assert state['documents'][1]['statement']['statement_number']==number+'.01'
     child=state['documents'][1]
-    state=change(setup,state,'create_board',{'board_id':main['id'],'name':'新增'})
-    assert state['documents'][2]['statement']['statement_number']==number+'.02'
+    state=change(setup,state,'create_board',{'board_id':child['id'],'name':'新增'})
+    child_number=state['documents'][1]['statement']['statement_number']
+    assert '.' not in child_number
+    assert state['documents'][2]['period_number']==2
     state=change(setup,state,'rename_board',{'board_id':child['id'],'name':'改名'})
-    assert state['documents'][1]['statement']['statement_number']==number+'.01'
+    assert state['documents'][1]['statement']['statement_number']==child_number
     response=setup[0].get(f"/translation-statement-workspaces/{state['client_id']}/excel",
                           params={'revision':state['revision'],'board_ids':child['id']})
     assert response.status_code==200
     sheet=load_workbook(BytesIO(response.content)).active
-    assert sheet['A4'].value==f'对账单编号：{number}.01'
+    assert sheet['A4'].value==f'对账单编号：{child_number}'
 
 
 def test_billing_period_has_its_own_number_and_repairs_legacy_family_on_save(setup):
@@ -553,7 +588,7 @@ def test_billing_period_has_its_own_number_and_repairs_legacy_family_on_save(set
     assert second_number!=first_number and '.' not in second_number
     state=change(setup,state,'create_board',{'board_id':second['id'],'name':'第二期子单'})
     child=state['documents'][2]
-    assert child['statement']['statement_number']==second_number+'.01'
+    assert child['period_number']==3 and '.' not in child['statement']['statement_number']
 
     first_entry=db.get(TranslationStatementNumber,first['id'])
     for index, board in enumerate((second,child), 1):
@@ -566,7 +601,8 @@ def test_billing_period_has_its_own_number_and_repairs_legacy_family_on_save(set
     numbers=[board['statement']['statement_number'] for board in state['documents']]
     assert numbers[0]==first_number
     assert numbers[1]!=first_number and '.' not in numbers[1]
-    assert numbers[2:]==[numbers[1]+'.01',numbers[1]+'.02']
+    assert [board['period_number'] for board in state['documents']]==[1,2,3,4]
+    assert len(set(numbers))==4 and all('.' not in value for value in numbers)
     state=change(setup,state,'rename_board',{'board_id':second['id'],'name':'第二期'})
     assert [board['statement']['statement_number'] for board in state['documents']]==numbers
 
@@ -933,7 +969,8 @@ def test_membership_tracks_board_months_delete_restore_and_customer_snapshot(set
     assert crud.get_translation_project(db,first.id).statement_status[0]['client_id']==str(clients[0].id)
     state=change(setup,state,'delete_boards',{'board_ids':[other]})
     assert crud.get_translation_project(db,first.id).statement_status==[]
-    assert crud.get_translation_project(db,second.id).statement_status
+    # 新增账期保留原单有效，原项目仍属于第一期。
+    assert crud.get_translation_project(db,second.id).statement_status[0]['board_id']==board
     log=http.get(f"/translation-statement-workspaces/{state['client_id']}/history").json()['items'][0]
     state=change(setup,state,'restore_history',{'history_id':log['id']})
     assert crud.get_translation_project(db,first.id).statement_status[0]['months']==['2027-01']

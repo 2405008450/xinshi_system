@@ -16,6 +16,19 @@ def entry(client, day, amount, incl=None, currency='CNY'):
             'totals_incl_tax': {currency: str(incl if incl is not None else amount)}}
 
 
+def test_revenue_keeps_order_month_after_statement_moves_to_another_month(context):
+    from customer_statement_workspace import StatementWorkspace
+    http,db,clients,_,_=context;http.app.include_router(revenue.router)
+    order=project(db,clients[0],'REVENUE-MOVED',month='2026-11',fixed=True)
+    db.add(StatementWorkspace(client_id=clients[0].id,revision=1,payload={
+        'boards':[{'id':'moved','name':'十二月对账单','billing_months':['2026-12']}],
+        'roots':{},'tasks':{str(order.id):{'id':str(order.id),'board_id':'moved','month':'2026-12','rows':[{'root_id':str(order.id)}]}}}))
+    db.commit()
+    response=http.get('/translation-revenue',params={'anchor':'2026-11-15','client_id':str(clients[0].id)})
+    assert response.status_code==200,response.text
+    assert response.json()['overall']['amount']=='500.00'
+
+
 def test_client_specific_tax_selections_add_together_and_apply_to_comparisons():
     entries = [entry('A', '2026-11-01', 100, 106), entry('B', '2026-11-02', 200, 212),
                entry('A', '2026-10-01', 50, 53), entry('B', '2026-10-02', 100, 106),
@@ -68,13 +81,12 @@ def test_rank_before_range_and_pagination_with_currency_separation():
     assert revenue.report(entries, 'month', date(2026, 11, 10), currency='USD')['overall']['amount'] == '999999.00'
 
 
-def test_lost_clients_remain_and_keyword_is_multiword_literal():
+def test_only_current_period_clients_rank_and_keyword_is_multiword_literal():
     entries = [entry('OLD', '2026-10-01', 300), entry('AA BB%', '2026-11-01', 0)]
     data = revenue.report(entries, 'month', date(2026, 11, 10), keyword='BB% AA')
     assert data['total'] == 1 and data['items'][0]['amount'] == '0.00'
     all_rows = revenue.report(entries, 'month', date(2026, 11, 10))['items']
-    old = next(row for row in all_rows if row['key'] == 'OLD')
-    assert old['mom']['rate'] == '-100.00'
+    assert all(row['key']!='OLD' for row in all_rows)
 
 
 def test_amount_shortcuts_count_all_keyword_matches_before_range_and_pagination():
@@ -84,7 +96,7 @@ def test_amount_shortcuts_count_all_keyword_matches_before_range_and_pagination(
                entry('Other', '2026-11-01', 80000)]
     args = {'modes': {'Alpha A': 'incl'}, 'keyword': 'Alpha', 'limit': 1}
     data = revenue.report(entries, 'month', date(2026, 11, 10), rank_max=1, **args)
-    assert data['total'] == 0 and data['amount_shortcut_total'] == 3
+    assert data['total'] == 0 and data['amount_shortcut_total'] == 2
     assert data['amount_shortcuts'][:2] == [
         {'min': 50000, 'max': None, 'customers': 1},
         {'min': 10000, 'max': 50000, 'customers': 2},
@@ -92,6 +104,35 @@ def test_amount_shortcuts_count_all_keyword_matches_before_range_and_pagination(
     selected = revenue.report(entries, 'month', date(2026, 11, 10), amount_min=10000, amount_max=50000, **args)
     assert selected['amount_shortcuts'] == data['amount_shortcuts']
     assert selected['total'] == 2 and len(selected['items']) == 1
+
+
+def test_month_year_and_all_history_use_the_selected_date_scope():
+    entries=[entry('CURRENT','2026-11-01',100),entry('EARLIER','2026-10-01',200),entry('OLD','2024-11-01',300)]
+    monthly=revenue.report(entries,'month',date(2026,11,22))
+    assert [row['key'] for row in monthly['items']]==['CURRENT']
+    yearly=revenue.report(entries,'year',date(2026,11,22))
+    assert yearly['overall']['amount']=='300.00' and {row['key'] for row in yearly['items']}=={'CURRENT','EARLIER'}
+    lifetime=revenue.report(entries,'all',date(2026,11,22))
+    assert lifetime['overall']['amount']=='600.00' and lifetime['total']==3
+    assert lifetime['period']=={'start':'2024-11-01','end':'2026-11-01','label':'历史全部'}
+    assert lifetime['previous'] is None and lifetime['last_year'] is None
+    assert lifetime['overall']['mom']['state']=='unavailable'
+
+
+def test_all_history_endpoint_includes_undated_projects(context):
+    from sqlalchemy import update
+    from models import TranslationProject
+    http,db,clients,_,_=context
+    http.app.include_router(revenue.router)
+    dated=project(db,clients[0],'DATED','2024-11',fixed=True)
+    undated=project(db,clients[1],'UNKNOWN','2026-11',fixed=True)
+    db.execute(update(TranslationProject).where(TranslationProject.id==undated.id).values(order_no='UNKNOWN',customer_reception_time=None,created_at=None));db.commit()
+    response=http.get('/translation-revenue',params={'period':'all','anchor':'2026-11-22','project_type':'translation'})
+    assert response.status_code==200,response.text
+    data=response.json()
+    assert data['total']==2 and data['overall']['amount']=='1000.00'
+    assert data['undated_included']==1 and data['missing_date']==0
+    assert data['period']['start']=='2024-11-01' and data['partial_period'] is False
 
 
 def test_order_dates_and_business_timezone_fallback():

@@ -212,6 +212,8 @@ def _validate_client_name(value, info):
 class ClientContactPersonInput(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     job_title: Optional[str] = Field(default=None, max_length=100)
+    department: Optional[str] = Field(default=None, max_length=100)
+    company: Optional[str] = Field(default=None, max_length=200)
     contact_method: str = Field(default='', max_length=5000)
     description: str = Field(default='', max_length=5000)
 
