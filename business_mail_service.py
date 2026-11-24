@@ -467,7 +467,7 @@ CORE_FIELDS = {
 
 BODY_LABELS = {
     "translation": (("服务内容", "service_content"), ("文本类型", "file_type_secondary"), ("翻译方向", "language_pair"), ("客户交稿时间", "customer_deadline_time"), ("优先级", "priority"), ("客户专业要求", "customer_requirement_professional"), ("客户特殊要求", "customer_requirement_special")),
-    "interpretation": (("口译类型", "project_types"), ("具体任务", "task_description"), ("预定时段", "time_ranges"), ("地点", "locations"), ("口译方向", "language_directions"), ("客户预算", "customer_budget"), ("总需求人数", "required_interpreter_count"), ("译员性别", "required_interpreter_gender"), ("口译水平", "required_interpretation_level"), ("口译领域", "interpretation_domain"), ("口译内容", "interpretation_content"), ("特殊要求", "interpreter_special_requirements")),
+    "interpretation": (("口译类型", "project_types"), ("具体任务", "task_description"), ("预定时段", "time_ranges"), ("地点", "locations"), ("口译方向", "language_directions"), ("客户预算", "customer_budget"), ("总需求人数", "required_interpreter_count"), ("译员性别", "required_interpreter_gender"), ("口译水平", "required_interpretation_level"), ("口译领域", "interpretation_domain"), ("客户要求", "interpreter_special_requirements")),
     "annotation": (("项目类型", "project_types"), ("具体任务", "task_description"), ("潜在需求量", "potential_demand"), ("语言范围", "language_items"), ("客户价格", "price_items")),
     "recruitment": (("职位名称/类型", "position_title"), ("职位描述", "job_description"), ("招聘人数下限", "headcount_min"), ("招聘人数上限", "headcount_max"), ("外语/翻译方向", "language_directions"), ("拟履职开始", "employment_start"), ("拟履职结束", "employment_end"), ("任职工作属地", "work_location"), ("拟入职日期", "target_onboard_date"), ("服务费用类型", "service_fee_type"), ("服务费用金额", "service_fee_amount"), ("服务费用比例", "service_fee_rate"), ("费用说明", "service_fee_note")),
 }

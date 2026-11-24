@@ -302,6 +302,8 @@ from routers import departments
 app.include_router(departments.router)
 app.include_router(roles.router)
 app.include_router(translation_projects.router)
+from translation_project_progress import router as translation_project_progress_router
+app.include_router(translation_project_progress_router)
 from project_statistics import router as project_statistics_router
 app.include_router(project_statistics_router)
 from project_delivery import router as project_delivery_router

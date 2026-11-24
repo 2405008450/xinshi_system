@@ -16,6 +16,7 @@ from utils import normalize_email_subject_order_no
 from project_audit_service import record_project_operation
 
 from concurrency import VERSION_FIELD, assert_fresh
+from annotation_progress_time import project_progress_datetime, business_now
 
 import workflow_models  # noqa: F401  注册 TranslationProject 的既有工作流关系
 from annotation_models import AnnotationProject
@@ -454,21 +455,27 @@ def update_recruitment_project(
 
 
 def update_recruitment_project_status(
-    db: Session, project_id: UUID, project_status: str, operator_id: Optional[UUID]
+    db: Session, project_id: UUID, project_status: str, operator_id: Optional[UUID],
+    *, note: Optional[str] = None, occurred_at: Optional[datetime] = None,
+    expected_updated_at: Optional[datetime] = None,
 ) -> Optional[RecruitmentProject]:
     project = get_recruitment_project(db, project_id)
     if not project:
         return None
+    if expected_updated_at is not None:
+        db.query(RecruitmentProject).filter_by(id=project_id).with_for_update().populate_existing().one()
+        assert_fresh(project, expected_updated_at)
     old_status = project.project_status
-    if old_status == project_status:
+    if old_status == project_status and not note:
         return project
     project.project_status = project_status
-    project.updated_at = datetime.now()
+    project.updated_at = project_progress_datetime(business_now())
     from project_workbench_service import ensure_active_project_responsibilities
     ensure_active_project_responsibilities(db, 'recruitment', project.id, project_status)
     _add_progress(
         db, project, operator_id=operator_id, from_status=old_status,
-        to_status=project_status, note="项目状态变更",
+        to_status=project_status, note=note or "项目状态变更", is_system=not bool(note),
+        occurred_at=project_progress_datetime(occurred_at) if occurred_at else project.updated_at,
     )
     db.commit()
     return get_recruitment_project(db, project.id)

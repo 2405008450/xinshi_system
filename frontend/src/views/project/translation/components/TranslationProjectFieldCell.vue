@@ -18,42 +18,7 @@
           </div>
           <TranslationClientManagerCell v-else-if="column.key === 'clientManager'" :row="row" :editable="context.canWriteProjects && !context.deleteMode" @saved="updated => { Object.assign(row, updated); context.fetchData() }" />
           <span v-else-if="column.key === 'sourceFileName'" class="project-name-ellipsis" :title="row.sourceFileName || '-'">{{ row.sourceFileName || '-' }}</span>
-          <el-dropdown
-            v-else-if="column.key === 'projectStatus' && context.canWriteProjects"
-            trigger="click"
-            :disabled="context.projectStatusSavingIds.has(row.id)"
-            @command="(command) => context.changeProjectStatus(row, command)"
-          >
-            <el-tag
-              :type="context.getStatusType(row.projectStatus)"
-              size="small"
-              class="status-switch-tag"
-              :class="{ 'is-updating': context.projectStatusSavingIds.has(row.id) }"
-              :title="context.normalizeStatus(row.projectStatus)==='arranged'?'右键查看项目安排和调整记录':''"
-              @contextmenu="context.openArrangementFromStatus($event,row)"
-            >
-              <span class="status-switch-text">{{ context.getStatusLabel(row.projectStatus) }}</span>
-              <el-icon class="status-switch-caret"><CaretBottom /></el-icon>
-            </el-tag>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item
-                  v-for="item in context.projectStatusOptions"
-                  :key="item.value"
-                  :command="item.value"
-                  :disabled="item.value === context.normalizeStatus(row.projectStatus) || context.projectStatusSavingIds.has(row.id)"
-                >
-                  <span class="status-option-row">
-                    <el-tag :type="context.getStatusType(item.value)" size="small" effect="plain" class="status-option-tag">{{ item.label }}</el-tag>
-                    <el-icon v-if="item.value === context.normalizeStatus(row.projectStatus)" class="status-current-icon"><Check /></el-icon>
-                  </span>
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-          <el-tag v-else-if="column.key === 'projectStatus'" :type="context.getStatusType(row.projectStatus)" :title="context.normalizeStatus(row.projectStatus)==='arranged'?'右键查看项目安排和调整记录':''" @contextmenu="context.openArrangementFromStatus($event,row)">
-            {{ context.getStatusLabel(row.projectStatus) }}
-          </el-tag>
+          <el-button v-else-if="column.key === 'projectStatus'" type="primary" link :disabled="context.deleteMode" @click="context.openProjectProgress(row)" @contextmenu="context.openArrangementFromStatus($event,row)"><el-tag :type="context.getStatusType(row.projectStatus)">{{ context.getStatusLabel(row.projectStatus) }}</el-tag></el-button>
           <DeadlineHintCell
             v-else-if="column.key === 'customerDeadlineTime'"
             :deadline="row.customerDeadlineTime"

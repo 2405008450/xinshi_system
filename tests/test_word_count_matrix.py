@@ -9,8 +9,7 @@ import word_count_service
 from word_count_schemas import WordCountCellChange, WordCountMatrixPatch, WordCountValues
 
 
-def test_company_and_customer_allow_multiple_text_counts_but_reject_mixed_regions():
-    from fastapi import HTTPException
+def test_company_and_customer_allow_text_documents_pages_and_duration_together():
     from word_count_schemas import WordCountCreateMatrix
 
     matrix = WordCountCreateMatrix(
@@ -19,8 +18,10 @@ def test_company_and_customer_allow_multiple_text_counts_but_reject_mixed_region
     )
     word_count_service.validate_matrix_regions(matrix)
     matrix.company.documents = 1
-    with pytest.raises(HTTPException, match='我司统计.*统计区域'):
-        word_count_service.validate_matrix_regions(matrix)
+    matrix.company.pages = 3
+    matrix.company.minutes = 12.5
+    word_count_service.validate_matrix_regions(matrix)
+    assert matrix.company.words == 0 and matrix.company.documents == 1
 
 
 def test_word_count_values_accept_all_workload_units_and_reject_negative():

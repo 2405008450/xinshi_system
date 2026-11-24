@@ -180,7 +180,8 @@ def test_api_denies_settings_to_other_users_even_if_admin(environment):
         assert client.get('/daily-reports/access-settings').status_code==403
         assert client.post('/daily-reports/access-settings',json=payload(viewer).model_dump(mode='json')).status_code==403
         assert client.put(f'/daily-reports/access-settings/{uuid4()}',json=payload(viewer).model_dump(mode='json')).status_code==403
-        assert client.get('/daily-reports/received').json()=={'total':0,'items':[]}
+        assert client.get('/daily-reports/received').json()=={'total':0,'items':[],'idle_over_limit_count':0}
+        assert client.get('/daily-reports/idle-statistics?anchor=2026-11-24&period=week').json()['total']==0
 
 
 def test_migration_can_repeat_without_creating_rules():

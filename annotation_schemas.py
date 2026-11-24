@@ -457,9 +457,9 @@ class AnnotationProjectStatusUpdate(BaseModel):
 
     @model_validator(mode="after")
     def validate_note_length(self):
-        max_length = 10000 if self.progress_only else 500
+        max_length = 10000
         if len(self.change_note) > max_length:
-            label = "具体进度" if self.progress_only else "变更说明"
+            label = "进度/说明"
             raise ValueError(f"{label}不能超过 {max_length} 字")
         return self
 

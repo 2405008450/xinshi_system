@@ -92,11 +92,13 @@ def test_free_requirement_rejects_hidden_counts_and_keeps_project_unchanged(cont
  assert history(db,root.id)['total']==0
 
 
-def test_mismatched_leaf_units_rejected_zero_preserved_and_migration_is_create_only(context):
+def test_mixed_leaf_units_accumulated_zero_preserved_and_migration_is_create_only(context):
  db,actor,member,_,root,_=context
  db.add(WordCountMetric(id=uuid4(),project_id=root.id,dimension='company',metric_type='pages',count_value=3));db.commit()
- with pytest.raises(HTTPException,match='') as error:service.create_requirement(db,root.id,payload(root,member,word_count_matrix={'company':{'words':10}}),actor)
- assert error.value.status_code==422;db.rollback()
+ added=service.create_requirement(db,root.id,payload(root,member,word_count_matrix={'company':{'words':10,'documents':2}}),actor)
+ assert added['word_count_matrix']['company']['words']==10
+ assert added['word_count_matrix']['company']['documents']==2
+ assert added['word_count_matrix']['company']['pages']==3
  result=service.create_requirement(db,root.id,payload(root,member,word_count_matrix={'company':{'pages':0}}),actor)
  assert result['word_count_added'] and result['word_count_matrix']['company']['pages']==3
  from tools.apply_simple_requirement_word_count_migration import apply_migration

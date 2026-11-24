@@ -285,11 +285,7 @@
           @conflict="refreshProgressProject"
         />
       </div>
-      <div class="inline-create progress-create" v-if="canWrite">
-        <el-date-picker v-model="progressOccurredAt" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" placeholder="选择发生时间" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" />
-        <el-input v-model="progressNote" placeholder="补充进度说明" @keyup.enter="addProgress" />
-        <el-button type="primary" :loading="progressSaving" @click="addProgress">添加记录</el-button>
-      </div>
+      <ProjectProgressEntryForm v-if="canWrite" ref="recruitmentProgressEntryRef" :show-submit="false" :disabled="progressLoading || progressUpdating || !!editingProgressId" v-model="progressEntryForm" :statuses="statusOptions" :saving="progressSaving" @submit="addProgress" />
       <el-timeline v-loading="progressLoading">
         <el-timeline-item v-for="item in progressRows" :key="item.id" :timestamp="formatDateTime(item.occurredAt)" :type="item.isSystem ? 'primary' : 'success'" placement="top">
           <el-card shadow="never">
@@ -315,6 +311,7 @@
           </el-card>
         </el-timeline-item>
       </el-timeline>
+      <template #footer><el-button :disabled="progressSaving" @click="progressVisible=false">关闭</el-button><el-button v-if="canWrite" type="primary" :loading="progressSaving" :disabled="progressLoading || progressUpdating || !!editingProgressId" @click="recruitmentProgressEntryRef?.submit()">保存项目进度</el-button></template>
     </DraggableFormDialog>
 
     <DraggableFormDialog v-model="candidateVisible" :title="`${activeProject?.projectName || activeProject?.orderNo || ''} 简历人选跟进情况表`" width="min(980px, calc(100vw - 32px))" top="5vh" append-to-body class="candidate-list-dialog">
@@ -359,6 +356,8 @@
 </template>
 
 <script setup>
+import ProjectProgressEntryForm from '@/components/common/ProjectProgressEntryForm.vue'
+import {businessDateTimeInputValue} from '@/utils/dateTime'
 import ConsultationWorkReportDialog from '@/views/client/components/ConsultationWorkReportDialog.vue'
 import { useProjectCreationReport } from '@/composables/useProjectCreationReport'
 
@@ -665,17 +664,17 @@ watch(
   {deep:true},
 )
 
-const currentLocalDateTime = () => {
-  const now = new Date()
-  const pad = (value) => String(value).padStart(2, '0')
-  return `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
-}
+const currentLocalDateTime = () => businessDateTimeInputValue().replace(' ','T')
+
 const progressVisible=ref(false), progressLoading=ref(false), progressSaving=ref(false), progressUpdating=ref(false), progressRows=ref([]), progressNote=ref(''), progressOccurredAt=ref(currentLocalDateTime()), activeProject=ref(null)
+const recruitmentProgressEntryRef=ref()
+const progressStatus=ref('')
+const progressEntryForm=computed({get:()=>({projectStatus:progressStatus.value,effectiveOn:progressOccurredAt.value,changeNote:progressNote.value}),set:value=>{progressStatus.value=value.projectStatus;progressOccurredAt.value=value.effectiveOn;progressNote.value=value.changeNote}})
 const editingProgressId=ref(''), editingProgressNote=ref(''), editingProgressOccurredAt=ref('')
 const cancelEditProgress=()=>{editingProgressId.value='';editingProgressNote.value='';editingProgressOccurredAt.value=''}
-const openProgress = async (row) => { activeProject.value=row; progressNote.value=''; progressOccurredAt.value=currentLocalDateTime(); cancelEditProgress(); progressVisible.value=true; progressLoading.value=true; try{progressRows.value=await getRecruitmentProgress(row.id)}catch{ElMessage.error('进度记录加载失败')}finally{progressLoading.value=false} }
+const openProgress = async (row) => { activeProject.value=row; progressStatus.value=row.projectStatus; progressNote.value=''; progressOccurredAt.value=currentLocalDateTime(); cancelEditProgress(); progressVisible.value=true; progressLoading.value=true; try{progressRows.value=await getRecruitmentProgress(row.id)}catch{ElMessage.error('进度记录加载失败')}finally{progressLoading.value=false} }
 const refreshProgressProject = async () => { const id=activeProject.value?.id; if(!id)return; try{const updated=await getRecruitmentProject(id); const listRow=rows.value.find((item)=>String(item.id)===String(id)); if(listRow)Object.assign(listRow,updated); activeProject.value=listRow||updated}catch{void fetchData()} }
-const addProgress = async () => { if(!progressOccurredAt.value)return ElMessage.warning('请选择发生时间'); if(!progressNote.value.trim())return ElMessage.warning('请输入进度说明'); progressSaving.value=true; try{await createRecruitmentProgress(activeProject.value.id,{note:progressNote.value.trim(),occurredAt:progressOccurredAt.value}); progressNote.value=''; progressOccurredAt.value=currentLocalDateTime(); progressRows.value=await getRecruitmentProgress(activeProject.value.id)}catch(error){ElMessage.error(error?.detail||'添加失败')}finally{progressSaving.value=false} }
+const addProgress = async () => { if(!progressOccurredAt.value)return ElMessage.warning('请选择发生时间'); if(!progressNote.value.trim())return ElMessage.warning('请输入进度说明'); progressSaving.value=true; try{const updated=await patchRecruitmentProjectStatus(activeProject.value.id,{projectStatus:progressStatus.value,note:progressNote.value.trim(),occurredAt:progressOccurredAt.value+'+08:00',expectedUpdatedAt:activeProject.value.updatedAt});Object.assign(activeProject.value,updated);const listRow=rows.value.find(row=>row.id===updated.id);if(listRow)Object.assign(listRow,updated); progressNote.value=''; progressOccurredAt.value=currentLocalDateTime(); progressRows.value=await getRecruitmentProgress(activeProject.value.id)}catch(error){ElMessage.error(error?.detail||'添加失败')}finally{progressSaving.value=false} }
 const startEditProgress=(item)=>{editingProgressId.value=item.id;editingProgressNote.value=item.note||'';editingProgressOccurredAt.value=item.occurredAt||''}
 const saveProgressEdit=async(item)=>{if(!editingProgressOccurredAt.value)return ElMessage.warning('请选择发生时间');if(!editingProgressNote.value.trim())return ElMessage.warning('请输入进度说明');progressUpdating.value=true;try{const updated=await updateRecruitmentProgress(activeProject.value.id,item.id,{note:editingProgressNote.value.trim(),occurredAt:editingProgressOccurredAt.value});const index=progressRows.value.findIndex((row)=>row.id===item.id);if(index>=0)progressRows.value.splice(index,1,updated);progressRows.value.sort((a,b)=>new Date(b.occurredAt)-new Date(a.occurredAt));cancelEditProgress();ElMessage.success('进度记录已更新')}catch(error){ElMessage.error(error?.detail||'更新失败')}finally{progressUpdating.value=false}}
 

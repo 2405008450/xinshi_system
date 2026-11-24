@@ -4,7 +4,7 @@ import {resolveRateQuantity,quantityBasisOptions,calculateOrderPriceTree} from '
 test('自动计价按统计来源及指标顺序选取已填项，包含零值',()=>{
   assert.equal(resolveRateQuantity({customer:{pages:0}},'customer_auto').quantity,0)
   assert.equal(resolveRateQuantity({customer:{foreignWords:123}},'customer_auto').quantity,123)
-  assert.equal(resolveRateQuantity({customer:{words:20,charactersNoSpaces:50}},'customer_auto').quantity,50)
+  assert.equal(resolveRateQuantity({customer:{words:20,charactersNoSpaces:50}},'customer_auto').quantity,20)
   assert.deepEqual(resolveRateQuantity({customer:{documents:2},company:{words:30}},'customer_auto'),{quantity:2,metric:'documents',dimension:'customer'})
   assert.deepEqual(resolveRateQuantity({company:{words:10,cjkCharsKoreanWords:20}},'customer_auto'),{quantity:10,metric:'words',dimension:'company'})
   assert.equal(resolveRateQuantity({customer:{words:20,charactersNoSpaces:50}},'customer_auto:words').quantity,20)
@@ -25,5 +25,15 @@ test('父级草稿计算下级总价，保留独立修改价且不重复计数',
   const node={languagePair:'英语→简中',wordCountMatrix:{customer:{words:999}},prices:[price(.2)],children:[{languagePair:'英语→简中',wordCountMatrix:{customer:{words:100}},prices:[price(.1)]},{languagePair:'英语→简中',wordCountMatrix:{customer:{words:20}},prices:[price(.5)]}]}
   assert.deepEqual(calculateOrderPriceTree(node,[price(.1)]),{totals:{CNY:'30.00'},incomplete:false})
   node.children[0].wordCountMatrix.customer.charactersNoSpaces=50
-  assert.deepEqual(calculateOrderPriceTree(node,[price(.1)]),{totals:{CNY:'20.00'},incomplete:false})
+  assert.deepEqual(calculateOrderPriceTree(node,[price(.1)]),{totals:{CNY:'30.00'},incomplete:false})
+})
+
+test('自动口径按字数类、份数、页数、分钟、小时顺序匹配，零值不回退',()=>{
+  const priorities=['words','characters_no_spaces','cjk_chars_korean_words','foreign_words','documents','pages','minutes','hours']
+  const customer=Object.fromEntries(priorities.map((key,index)=>[key,index+1]))
+  for(const key of priorities){
+    assert.equal(resolveRateQuantity({customer},'customer_auto').metric,key)
+    delete customer[key]
+  }
+  assert.equal(resolveRateQuantity({customer:{words:0,documents:9,pages:8}},'customer_auto').quantity,0)
 })

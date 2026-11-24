@@ -3,7 +3,7 @@ from copy import deepcopy
 from uuid import uuid4
 from fastapi import HTTPException
 from sqlalchemy import Column,DateTime,ForeignKey,JSON,Uuid,inspect
-from models import Base,TranslationSubOrder
+from models import Base
 from annotation_progress_time import business_now
 
 class SimpleRequirementWordCount(Base):
@@ -50,18 +50,14 @@ def add(db,parent,requirement,matrix,actor_id):
     data=normalized(matrix)
     if not data:return False
     if not ready(db):raise HTTPException(503,'简单需求统计表尚未初始化')
-    from word_count_service import _entity_metric_rows, _apply_cell, _owner_filters, validate_matrix_regions, has_multiple_word_count_regions, hierarchy_matrix
+    from word_count_service import _entity_metric_rows, _apply_cell, _owner_filters, validate_matrix_regions, hierarchy_matrix
     from word_count_schemas import WordCountCreateMatrix
     validate_matrix_regions(WordCountCreateMatrix.model_validate(data))
     before = deepcopy(normalized(hierarchy_matrix(db, 'project', parent).word_count_matrix))
     base={}
     for row in _entity_metric_rows(db,'project',parent.id):base.setdefault(row.dimension,{})[row.metric_type]=row.count_value
-    has_children=db.query(TranslationSubOrder.id).filter_by(parent_project_id=parent.id).first() is not None
     for dim,counts in data.items():
         existing=base.setdefault(dim,{})
-        if not has_children and dim in ('company', 'customer') and has_multiple_word_count_regions({**existing, **counts}):
-            label = '我司统计' if dim == 'company' else '客户统计'
-            raise HTTPException(422, f'{label}请使用当前订单已登记的统计区域')
         for metric,value in counts.items():
             # 分钟和小时统一累计至当前使用的单位，不直接把小时当分钟相加。
             actual=metric

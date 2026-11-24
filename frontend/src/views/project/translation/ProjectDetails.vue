@@ -997,12 +997,14 @@
       @sent="onDeliveryMailSent"
     />
 
+    <TranslationProjectProgressDialog v-model="unifiedProgressVisible" :project="unifiedProgressProject" :can-write="canWriteProjects && !deleteMode" @saved="onUnifiedProgressSaved" />
     <TranslationCustomerFinance ref="customerFinanceEditorRef" editor-only @document-requirements-saved="onFinanceDocumentRequirementsSaved" />
     <ConsultationWorkReportDialog v-if="pendingProjectReportId && !submitLoading" :key="pendingProjectReportId" :translation-project-id="pendingProjectReportId" @saved="onProjectReportSaved" />
   </el-card>
 </template>
 
 <script setup>
+import TranslationProjectProgressDialog from '@/components/common/TranslationProjectProgressDialog.vue'
 import {applyFolderRootPath,restoreFolderRootPath,compareFolderRoot} from '@/utils/translationFolderPaths'
 import FolderRootComparison from './components/FolderRootComparison.vue'
 import ConversationAudiencePicker from '@/components/common/ConversationAudiencePicker.vue'
@@ -2790,7 +2792,10 @@ async function openStatementOrderEditor(){
     openSubOrderEditorFromList(project,child)
   }catch(error){ElMessage.error(getLocalizedErrorMessage(error,'订单编辑窗口加载失败'));emit('editor-closed')}
 }
-const projectFieldContext=computed(()=>({openProjectDetails,getTranslationClientDetailItems,projectDetailItems,getStatusLabel,getStatusType,canWriteProjects,deleteMode:deleteMode.value,saveProjectTextField,fetchData,canReadProjectFiles,openOriginalPath,copyOriginalPath,projectStatusSavingIds:projectStatusSavingIds.value,changeProjectStatus,normalizeStatus,openArrangementFromStatus,projectStatusOptions,saveProjectTranslatorCompletions,getLanguagePairSummary,formatAssignedTranslators,getAssignedTranslatorSummary,getWordCountListSummary,formatTableColumnValue,headerFilterDefinition,searchForm,handleConfiguredTextInput,handleSearch,getTimeSortMode,getSortDirection,isTimeSortActive,getTimeSortTitle,toggleTimeSort}))
+const unifiedProgressVisible=ref(false),unifiedProgressProject=ref(null)
+const openProjectProgress=row=>{unifiedProgressProject.value=row;unifiedProgressVisible.value=true}
+const onUnifiedProgressSaved=data=>{if(unifiedProgressProject.value){unifiedProgressProject.value.projectStatus=data.project_status;unifiedProgressProject.value.updatedAt=data.updated_at}void fetchData()}
+const projectFieldContext=computed(()=>({openProjectProgress,openProjectDetails,getTranslationClientDetailItems,projectDetailItems,getStatusLabel,getStatusType,canWriteProjects,deleteMode:deleteMode.value,saveProjectTextField,fetchData,canReadProjectFiles,openOriginalPath,copyOriginalPath,projectStatusSavingIds:projectStatusSavingIds.value,changeProjectStatus,normalizeStatus,openArrangementFromStatus,projectStatusOptions,saveProjectTranslatorCompletions,getLanguagePairSummary,formatAssignedTranslators,getAssignedTranslatorSummary,getWordCountListSummary,formatTableColumnValue,headerFilterDefinition,searchForm,handleConfiguredTextInput,handleSearch,getTimeSortMode,getSortDirection,isTimeSortActive,getTimeSortTitle,toggleTimeSort}))
 onMounted(async () => {
   window.addEventListener('beforeunload', preventPendingReportUnload)
   if (!props.editorOnly) void restorePendingProjectReports()

@@ -196,7 +196,7 @@ def received_reports(db, user, date_from, date_to, sender_id, page, page_size, d
         raise HTTPException(422, '开始日期不能晚于结束日期')
     allowed = sender_ids_for_rules(db, receiving_rules(db, user))
     allowed=filter_people_ids(db,allowed,department_id,keyword)
-    query = db.query(DailyReport).options(joinedload(DailyReport.user), selectinload(DailyReport.items)).filter(DailyReport.user_id.in_(allowed), DailyReport.status == 'finalized')
+    query = db.query(DailyReport).options(joinedload(DailyReport.user), joinedload(DailyReport.idle_declaration), selectinload(DailyReport.items)).filter(DailyReport.user_id.in_(allowed), DailyReport.status == 'finalized')
     if date_from:
         query = query.filter(DailyReport.report_date >= date_from)
     if date_to:
@@ -204,8 +204,22 @@ def received_reports(db, user, date_from, date_to, sender_id, page, page_size, d
     if sender_id:
         query = query.filter(DailyReport.user_id == sender_id)
     total = query.count()
+    from task_models import DailyReportIdleDeclaration
+    from work_report_idle_statistics import IDLE_WARNING_MINUTES, declared_minutes, totals_for_reports
+    over_limit_count = query.join(DailyReport.idle_declaration).filter(
+        DailyReportIdleDeclaration.confirmed.is_(True),
+        DailyReportIdleDeclaration.idle_minutes > IDLE_WARNING_MINUTES,
+    ).count()
     rows = query.order_by(DailyReport.report_date.desc(), DailyReport.id).offset((page - 1) * page_size).limit(page_size).all()
-    return {'total': total, 'items': [{'id': row.id, 'user_name': row.user.full_name or row.user.username, 'report_date': row.report_date, 'finalized_at': api_time(row.finalized_at), 'duration_minutes': sum(item.duration_minutes for item in row.items)} for row in rows]}
+    period_totals = totals_for_reports(db, rows)
+    return {'total': total, 'idle_over_limit_count': over_limit_count, 'items': [{
+        'id': row.id, 'user_name': row.user.full_name or row.user.username, 'report_date': row.report_date,
+        'finalized_at': api_time(row.finalized_at), 'duration_minutes': sum(item.duration_minutes for item in row.items),
+        'saved_at': api_time(row.updated_at),
+        'idle_minutes': declared_minutes(row.idle_declaration),
+        'has_lunch_work': any((item.display_metadata or {}).get('lunch_overtime') is True for item in row.items),
+        **period_totals[row.id],
+    } for row in rows]}
 
 
 def received_report(db, user, report_id):

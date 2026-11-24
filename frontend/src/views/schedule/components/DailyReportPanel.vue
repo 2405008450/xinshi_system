@@ -11,29 +11,27 @@
             {{ report.status === 'finalized' ? '已确认' : '草稿' }}
           </el-tag>
           <el-tag v-if="dirtyCount" size="small" :type="reportCloud.state==='synced'?'success':'warning'">{{reportCloud.state==='synced'?'草稿已自动保存':'编辑内容待同步'}}</el-tag>
-          <el-tag v-if="mailAccount.is_verified" size="small" type="success" effect="plain">个人邮箱已验证</el-tag>
-          <el-tag v-else-if="mailAccount.is_bound" size="small" type="warning" effect="plain">邮箱待验证</el-tag>
         </div>
         <span v-if="editable" class="sheet-tip">
           <el-icon class="sheet-tip__icon"><InfoFilled /></el-icon>
-          直接填写单元格，Tab 切换；重复订单归入二级，系统记录为灰底只读。每天早上 07:00 换日。
+          直接填写单元格，Tab 切换；重复订单归入二级，系统记录为灰底只读。报告归属所选日期，保存与提交时间另行记录。
         </span>
       </div>
       <div class="toolbar-actions">
-        <el-button size="small" @click="openMailAccount">查看邮箱状态</el-button>
         <el-button v-if="editable&&!amending" size="small" :loading="loading" @click="loadReport(true)">重新汇总</el-button>
         <el-button v-if="editable" size="small" @click="sheetRef?.add()">新增一行</el-button>
         <Teleport :to="footerTarget || 'body'" :disabled="!footerTarget">
-          <el-button v-if="editable&&!amending" size="small" type="primary" plain :loading="saving" @click="save(false)">保存草稿</el-button>
-          <el-button v-if="editable" size="small" type="success" :loading="saving" @click="save(true)">{{amending?'保存一次修订':'确认报告'}}</el-button>
+          <el-button v-if="editable&&!amending" size="small" type="primary" plain :loading="saving || validating" @click="save(false)">保存草稿</el-button>
+          <el-button v-if="editable" size="small" type="success" :loading="saving || validating" @click="save(true)">{{amending?'保存一次修订':'确认报告'}}</el-button>
         </Teleport>
         <el-button v-if="report.can_amend&&!amending" size="small" type="warning" plain @click="amending=true">修改一次</el-button><el-button v-if="amending" size="small" :disabled="saving" @click="loadReport(false)">取消修订</el-button>
-        <el-button v-if="report.status === 'finalized'&&!amending" size="small" type="primary" :loading="previewLoading" @click="openMailPreview">{{report.amendment_used?'再次发送邮箱':'发送邮箱'}}</el-button>
         <el-button size="small" :disabled="report.status !== 'finalized'" :loading="exporting" @click="downloadReport">导出 Excel</el-button>
       </div>
     </div>
 
     <div class="report-autosave-state" role="status">{{autosaveLabel}}</div><el-alert v-if="localDraftError||reportCloud.error" :title="localDraftError||reportCloud.error" type="warning" :closable="false" />
+    <el-alert v-if="submitNotice" :title="submitNotice" :type="submitNoticeType" show-icon :closable="false" class="report-submit-notice" />
+    <ReportDailyNotices :idle-minutes="report.idle_minutes" :has-lunch-work="hasLunchWork" />
     <ReportIdleTime ref="idleTimeRef" :report-date="reportDate" v-model:minutes="report.idle_minutes" v-model:confirmed="report.idle_declaration_confirmed" :declaration-text="report.idle_declaration_text||''" :editable="editable&&!saving" @change="onIdleChange" />
     <DailyReportEditor ref="sheetRef" :rows="report.items" :editable="editable && !saving" :loading="loading" :history="taskHistory" :categories="editorContext.work_categories" :layout-department="editorContext.is_layout_department" :task-presets="editorContext.layout_task_presets" :can-add-project-category="editorContext.can_add_project_category" :category-storage-ready="editorContext.category_storage_ready" @categories-change="Object.assign(editorContext,$event)" @dirty-change="onEditorChange" @remember="rememberTask" />
 
@@ -71,99 +69,23 @@
       </el-collapse-transition>
     </section>
 
-    <DraggableFormDialog
-      v-model="mailPreviewDialog"
-      title="发送工作报告"
-      width="min(1180px, calc(100vw - 32px))"
-      top="5vh"
-      class="daily-report-dialog mail-preview-dialog"
-      destroy-on-close
-      @closed="clearMailImageDraft"
-    >
-      <div v-loading="previewLoading" class="mail-preview-content">
-        <el-alert
-          v-if="mailPreview.delivery_mode === 'test'"
-          :title="`测试模式：实际邮件只会发送到 ${mailPreview.test_recipient_masked || '测试收件箱'}`"
-          type="warning"
-          :closable="false"
-          show-icon
-        />
-        <el-alert
-          v-if="mailPreview.blocking_reasons?.length"
-          :title="mailPreview.blocking_reasons.join('；')"
-          type="error"
-          :closable="false"
-          show-icon
-        />
-        <el-descriptions :column="2" border size="small" class="mail-meta">
-          <el-descriptions-item label="发件人">{{ mailPreview.sender_name || '-' }} · {{ mailPreview.sender_email || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="日报日期">{{ mailPreview.report_date || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="主送" :span="2">
-            <el-tag v-for="item in mailPreview.to_users || []" :key="item.user_id" class="recipient-tag">{{ item.display_name }} · {{ item.email }}</el-tag>
-            <span v-if="!mailPreview.to_users?.length">-</span>
-          </el-descriptions-item>
-          <el-descriptions-item label="抄送" :span="2">
-            <el-tag v-for="item in mailPreview.cc_users || []" :key="item.user_id" class="recipient-tag" type="info">{{ item.display_name }} · {{ item.email }}</el-tag>
-            <span v-if="!mailPreview.cc_users?.length">-</span>
-          </el-descriptions-item>
-        </el-descriptions>
-        <AppForm label-position="top" class="mail-form">
-          <el-form-item label="邮件主题" required>
-            <el-input v-model="mailPreview.subject" maxlength="1000" />
-          </el-form-item>
-          <el-form-item label="邮件正文表格（修改仅影响本次发送）">
-            <DailyReportSpreadsheet
-              ref="mailSheetRef"
-              :rows="mailRows"
-              mail-mode
-              editable
-              height="390px"
-            />
-          </el-form-item>
-          <el-form-item label="正文图片（位于表格后、补充说明前）">
-            <MailBodyEditor
-              ref="mailBodyEditorRef"
-              v-model:html-value="mailPreview.inline_image_html"
-              :images="mailPreview.inline_images"
-              image-only
-              min-height="150px"
-              @update:images="mailPreview.inline_images = $event"
-              @uploading-change="mailImageUploading = $event"
-            />
-          </el-form-item>
-          <ReportIdleTime v-if="mailPreview.idle_minutes!=null" :minutes="mailPreview.idle_minutes" :confirmed="mailPreview.idle_declaration_confirmed" :declaration-text="mailPreview.idle_declaration_text||''" />
-          <el-form-item v-if="mailPreview.supplemental_note" label="补充说明（来自已确认报告）">
-            <div class="readonly-note"><ScreenshotText :text="mailPreview.supplemental_note" /></div>
-          </el-form-item>
-          <el-form-item v-if="mailPreview.signature_html" label="邮件签名">
-            <div class="mail-signature-preview" v-html="mailPreview.signature_html" />
-          </el-form-item>
-        </AppForm>
-      </div>
-      <template #footer>
-        <el-button @click="mailPreviewDialog = false">取消</el-button>
-        <el-button type="primary" :loading="sending" :disabled="mailImageUploading || !mailPreview.can_send || !mailPreview.subject?.trim()" @click="sendMail">确认发送</el-button>
-      </template>
-    </DraggableFormDialog>
   </div>
 </template>
 
 <script setup>
-import ScreenshotText from '@/components/common/ScreenshotText.vue'
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DailyReportEditor from './DailyReportEditor.vue'
 import ReportIdleTime from './ReportIdleTime.vue'
+import ReportDailyNotices from './ReportDailyNotices.vue'
 import ReportFeedbackPanel from './ReportFeedbackPanel.vue'
 import ReportRevisionHistory from './ReportRevisionHistory.vue'
 import {subscribe} from '@/utils/realtimeSocket'
-import {readCloudDraft,queueCloudDraft,cloudDraftStatus,acknowledgeCloudDraft} from '@/utils/cloudDrafts'
+import {readCloudDraft,queueCloudDraft,saveCloudDraft,cloudDraftStatus,cloudDraftRevision,acknowledgeCloudDraft} from '@/utils/cloudDrafts'
 import {chooseDraft} from '@/utils/draftRecovery'
 import {createAutoDraftStore} from '@/utils/autoDraftStore'
 import {mergeAnnotationOperationRows,newReportRow,reportBusinessDate,reportWeekday,shiftReportDate,requiresProjectIdentity,updateRowTypes} from '@/utils/workReportForm'
 import { formatBusinessDateTimeMinute } from '@/utils/dateTime'
-import { getPersonalMailAccount } from '@/api/auth'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import {
   getDailyReportEditorContext,
@@ -171,44 +93,29 @@ import {
   exportDailyReport,
   finalizeDailyReport,
   previewDailyReport,
-  previewDailyReportMail,
-  saveDailyReport,
-  sendDailyReportMail
 } from '@/api/tasks'
 
-const DailyReportSpreadsheet = defineAsyncComponent(() => import('./DailyReportSpreadsheet.vue'))
-const MailBodyEditor = defineAsyncComponent(() => import('@/components/common/MailBodyEditor.vue'))
 
 const props = defineProps({ reportDate: { type: String, required: true }, initialFieldWork: Object, footerTarget: Object, annotationProject: Object })
 const emit = defineEmits(['status-change','update:report-date','annotation-project-applied'])
-const router = useRouter()
 const loading = ref(false)
 const saving = ref(false)
+const validating = ref(false)
+const submitNotice = ref('')
+const submitNoticeType = ref('warning')
 const exporting = ref(false)
-const previewLoading = ref(false)
-const sending = ref(false)
 const dirtyCount = ref(0)
 const supplementDirty = ref(false)
 const supplementExpanded = ref(false)
 const sheetRef = ref(null)
-const mailSheetRef = ref(null)
-const mailBodyEditorRef = ref(null)
-const mailImageUploading = ref(false)
-const mailPreviewDialog = ref(false)
-const mailRows = ref([])
+const hasLunchWork = ref(false)
 const localDraftError=ref('')
 const reportCloud=computed(()=>cloudDraftStatus('work-report',props.reportDate))
-const autosaveLabel=computed(()=>localDraftError.value||reportCloud.value.error?'自动保存异常，本机内容仍保留':reportCloud.value.state==='synced'?'草稿已同步云端':reportCloud.value.state==='saving'?'正在同步云端…':hasUnsavedChanges.value?'已在本机备份，等待同步云端':'自动保存已开启：本机400毫秒，云端约3秒')
+const autosaveLabel=computed(()=>localDraftError.value||reportCloud.value.error?'自动保存异常，请查看下方提示':reportCloud.value.state==='synced'?'草稿已同步云端':reportCloud.value.state==='saving'?'正在同步云端…':hasUnsavedChanges.value?'已在本机备份，等待同步云端':'自动保存已开启：本机即时备份，云端约3秒')
 const idleTimeRef=ref()
 const report = reactive({idle_minutes:null,idle_declaration_confirmed:false,idle_declaration_text:null, can_amend:false,amendment_used:false,user_name: '', id: null, status: 'draft', supplemental_note: '', items: [] })
-const mailAccount = reactive({ email: null, is_bound: false, is_verified: false, verified_at: null })
-const mailPreview = reactive({
-  report_id: null, report_date: '', sender_name: '', sender_email: null, subject: '', rows: [],
-  supplemental_note: null, to_users: [], cc_users: [], can_send: false, blocking_reasons: [],
-  inline_image_html: '', inline_images: [],
-  signature_html: '', signature_text: '',
-  delivery_mode: 'disabled', test_recipient_masked: null
-})
+watch(() => report.items, items => { hasLunchWork.value = items.some(item => item.display_metadata?.lunch_overtime === true) }, { flush: 'sync' })
+
 
 const amending=ref(false)
 const loadedDate=ref('')
@@ -265,7 +172,7 @@ async function loadReport(refresh = false) {
       report.idle_minutes=draft.idle_minutes??null
       report.idle_declaration_confirmed=draft.idle_declaration_confirmed===true
       await nextTick();dirtyCount.value=1
-      if(draft===local&&cloud)queueCloudDraft('work-report',date,autoDraftPayload(date))
+      if(draft===local&&cloud)cacheDraft(date,true)
     }
     if (sequence === loadSequence) await applyFieldWork(date)
   }catch(error){if(sequence===loadSequence&&error?.code!=='ERR_CANCELED'){loadedDate.value='';ElMessage.error(error?.detail||'加载工作报告失败')}}
@@ -351,20 +258,30 @@ watch([() => props.annotationProject, () => props.reportDate, loadedDate, loadin
   await sheetRef.value?.focusReportRow(index, 'input[aria-label$="订单号"]')
 }, { flush: 'post' })
 
-function cacheDraft(date=props.reportDate){
- if((report.status==='finalized'&&!amending.value)||loadedDate.value!==date||!hasUnsavedChanges.value)return
+function cacheDraft(date=props.reportDate,force=false){
+ if((report.status==='finalized'&&!amending.value)||loadedDate.value!==date||(!force&&!hasUnsavedChanges.value))return
  const value=autoDraftPayload(date)
+ let snapshot={...value,_savedAt:Date.now(),_baseRevision:cloudDraftRevision('work-report',date)}
  try{
   const previous=JSON.parse(localStorage.getItem(draftKey(date))||'null')
-  if(!previous||JSON.stringify({...previous,_savedAt:undefined})!==JSON.stringify(value))localStorage.setItem(draftKey(date),JSON.stringify({...value,_savedAt:Date.now()}))
+  if(previous&&JSON.stringify({...previous,_savedAt:undefined,_baseRevision:undefined})===JSON.stringify(value))snapshot=previous
+  else localStorage.setItem(draftKey(date),JSON.stringify(snapshot))
   localDraftError.value=''
  }catch{localDraftError.value='浏览器备份失败，请检查存储空间；正在尝试同步云端'}
- queueCloudDraft('work-report',date,value)
+ queueCloudDraft('work-report',date,snapshot)
+ return snapshot
 }
-let draftTimer
-function onIdleChange(){supplementDirty.value=true;clearTimeout(draftTimer);draftTimer=setTimeout(()=>cacheDraft(),400)}
-function onEditorChange(count){dirtyCount.value=count;clearTimeout(draftTimer);draftTimer=setTimeout(()=>cacheDraft(),400)}
-function changeDate(date){if(!date||date===props.reportDate)return;clearTimeout(draftTimer);cacheDraft();emit('update:report-date',date)}
+function onIdleChange(){submitNotice.value='';supplementDirty.value=true;cacheDraft()}
+function onEditorChange(count){
+  submitNotice.value=''
+  dirtyCount.value=count
+  // el-input 的 input 事件早于 update:modelValue，等待该轮赋值后再备份。
+  nextTick(()=>{
+    hasLunchWork.value=(sheetRef.value?.getRows()||report.items).some(item=>item.display_metadata?.lunch_overtime===true)
+    cacheDraft()
+  })
+}
+function changeDate(date){if(!date||date===props.reportDate)return;cacheDraft();emit('update:report-date',date)}
 async function loadEditorContext(){try{const data=await getDailyReportEditorContext();Object.assign(editorContext,data);taskHistory.value=[...new Set([...taskHistory.value,...(data.task_history||[])])].slice(0,200)}catch(error){ElMessage.error(error?.detail||'读取姓名与部门失败')}}
 
 function reportPayload() {
@@ -382,28 +299,94 @@ function reportPayload() {
 }
 
 async function save(finalize) {
-  if(saving.value||loading.value||!editable.value)return
-  const date=props.reportDate
-  if(!await idleTimeRef.value?.validate().catch(()=>false))return
-  if(!await sheetRef.value?.validate().catch(()=>false)||date!==props.reportDate)return
-  const payload = reportPayload()
-  if (payload.items.some(item => !item.task_type?.trim() || (requiresProjectIdentity(item)&&!item.task_name?.trim()) || !item.progress_content?.trim())) {
-    ElMessage.warning('请补全任务类型、具体任务及必填的项目名称')
+  if (!finalize) return saveEditDraft()
+  if (saving.value || validating.value) return
+  if (loading.value || !editable.value) {
+    submissionNotice('当前报告尚未加载完成或已确认，请等待加载完成后再操作')
     return
   }
+  const date = props.reportDate
+  const amendment = amending.value
+  validating.value = true
+  submitNotice.value = ''
+  cacheDraft(date,true)
   try {
-    if (finalize) await ElMessageBox.confirm(amending.value?'保存后将用完本日报告的一次修改机会，修改记录对查看人可见。是否保存？':'确认后将保存工作报告，仅有一次修订机会，是否继续？', '确认报告', { type: 'warning' })
-    if (saving.value||date!==props.reportDate) return
+    try {
+      if (!idleTimeRef.value || !await idleTimeRef.value.validate()) {
+        throw new Error('请填写空闲时间并确认声明')
+      }
+    } catch {
+      submissionNotice('尚未提交：请填写空闲时间并确认声明')
+      return
+    }
+    try {
+      if (!sheetRef.value || !await sheetRef.value.validate()) {
+        throw new Error('请检查工作报告必填内容')
+      }
+    } catch (error) {
+      const firstField = error && !(error instanceof Error)
+        ? Object.entries(error).find(([, issues]) => Array.isArray(issues) && issues.length)
+        : null
+      const index = firstField?.[0].match(/^rows\.(\d+)\./)?.[1]
+      const detail = firstField?.[1]?.[0]?.message
+      const message = detail
+        ? `${index === undefined ? '' : '第' + (Number(index) + 1) + '行：'}${detail}`
+        : getLocalizedErrorMessage(error, '请补全任务类型、具体任务、工作量、单位和耗时')
+      submissionNotice('尚未提交：' + message)
+      return
+    }
+    if (date !== props.reportDate) {
+      submissionNotice('报告日期已变化，请核对当前日期后重新提交')
+      return
+    }
+    const payload = reportPayload()
+    if (payload.items.some(item => !item.task_type?.trim() || (requiresProjectIdentity(item)&&!item.task_name?.trim()) || !item.progress_content?.trim())) {
+      submissionNotice('尚未提交：请补全任务类型、具体任务及必填的项目名称')
+      return
+    }
+    if (finalize) await ElMessageBox.confirm(`报告日期：${date}。`+(amending.value?'保存后将更新已提交的工作报告，并用完本日报告的一次修改机会，修改记录对查看人可见。是否保存？':'确认后将保存并发送该日期的工作报告，接收人可在系统「查看工作报告」中查看。确认后仅有一次修订机会，是否继续？'), '确认报告', { type: 'warning' })
+    if (date !== props.reportDate) {
+      submissionNotice('报告日期已变化，请核对当前日期后重新提交')
+      return
+    }
     saving.value = true
-    const data=await (amending.value?amendDailyReport:finalize?finalizeDailyReport:saveDailyReport)(date, payload)
+    const data=await (amending.value?amendDailyReport:finalizeDailyReport)(date, payload)
+    if (!data?.id || data.report_date !== date || data.status !== (finalize || amendment ? 'finalized' : 'draft')) {
+      throw new Error('未收到正确的保存结果，请刷新报告核对提交状态')
+    }
     try{localStorage.removeItem(draftKey(date))}catch{/* 不影响数据库保存结果。 */}
     acknowledgeCloudDraft('work-report',date,data.edit_draft_revision||0)
     if(date===props.reportDate)applyReport(data)
     if(data.status==='finalized')window.dispatchEvent(new Event('work-report-lunch-changed'))
-    ElMessage.success(finalize ? '报告已确认' : '草稿已保存')
+    submissionNotice(amendment ? '工作报告修订已保存，接收人可查看更新后的报告'
+      : finalize ? `工作报告已保存并发送，报告日期：${date}，可在系统「查看工作报告」中查看` : '草稿已保存', 'success')
   } catch (error) {
-    if (error !== 'cancel' && error !== 'close') ElMessage.error(getLocalizedErrorMessage(error, '保存日报失败'))
-  } finally { saving.value = false }
+    if (error !== 'cancel' && error !== 'close') {
+      submissionNotice('保存或提交未完成：' + getLocalizedErrorMessage(error, '请求失败，请稍后重试'), 'error')
+    }
+  } finally { saving.value = false; validating.value = false }
+}
+
+async function saveEditDraft() {
+  if(saving.value||validating.value||loading.value||!editable.value)return
+  const date=props.reportDate
+  saving.value=true
+  submitNotice.value=''
+  try{
+    const snapshot=cacheDraft(date,true)
+    if(!snapshot)throw new Error('当前日期的报告尚未准备好，请稍后重试')
+    await saveCloudDraft('work-report',date,snapshot)
+    submissionNotice(`草稿已保存，报告日期：${date}，未填写完整的内容也已保留，刷新后可继续填写`,'success')
+  }catch(error){
+    submissionNotice('云端草稿保存未完成：'+getLocalizedErrorMessage(error,'请稍后重试')+
+      (localDraftError.value?'；'+localDraftError.value:'；本机已备份当前内容'),'error')
+  }finally{saving.value=false}
+}
+
+function submissionNotice(message, type = 'warning') {
+  submitNotice.value = message
+  submitNoticeType.value = type
+  ElMessage({ message, type })
 }
 
 async function downloadReport() {
@@ -418,58 +401,6 @@ async function downloadReport() {
   finally { exporting.value = false }
 }
 
-async function loadMailAccount() {
-  try { Object.assign(mailAccount, await getPersonalMailAccount()) }
-  catch (error) { ElMessage.error(error?.detail || '读取个人邮箱状态失败') }
-}
-
-function openMailAccount() { router.push('/profile') }
-
-function clearMailImageDraft() {
-  mailBodyEditorRef.value?.cleanupDraftImages()
-  mailPreview.inline_image_html = ''
-  mailPreview.inline_images = []
-}
-
-async function openMailPreview() {
-  previewLoading.value = true
-  mailPreviewDialog.value = true
-  try {
-    const preview = await previewDailyReportMail(props.reportDate)
-    Object.assign(mailPreview, preview)
-    mailRows.value = (preview.rows || []).map(item => ({ ...item }))
-  } catch (error) {
-    mailPreviewDialog.value = false
-    ElMessage.error(error?.detail || '加载邮件预览失败')
-  } finally { previewLoading.value = false }
-}
-
-function idempotencyKey() {
-  const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
-  return `daily-report-${report.id || props.reportDate}-${random}`
-}
-
-async function sendMail() {
-  const rows = mailSheetRef.value?.getRows?.() || mailRows.value
-  try {
-    await ElMessageBox.confirm(`确认以 ${mailPreview.sender_email} 向固定工作报告收件组发送邮件？`, '确认发送', { type: 'warning' })
-    sending.value = true
-    const result = await sendDailyReportMail(props.reportDate, {
-      subject: mailPreview.subject.trim(), rows, supplemental_note: mailPreview.supplemental_note || null,
-      inline_image_html: mailPreview.inline_image_html || null,
-      inline_image_ids: mailPreview.inline_images.map(item => item.id),
-      idempotency_key: idempotencyKey()
-    })
-    if (result.status === 'sent') {
-      mailBodyEditorRef.value?.markImagesSaved()
-      mailPreviewDialog.value = false
-      ElMessage.success('工作报告邮件发送成功')
-    } else ElMessage.error(result.send_error || '邮件发送失败，可重新打开预览后重试')
-  } catch (error) {
-    if (error !== 'cancel' && error !== 'close') ElMessage.error(getLocalizedErrorMessage(error, '邮件发送失败'))
-  } finally { sending.value = false }
-}
-
 function onReportHidden(){if(document.hidden)cacheDraft()}
 function refreshAnnotationOperations(){if(saving.value||props.reportDate!==reportBusinessDate())return;cacheDraft();loadReport(false)}
 function beforeUnload() {
@@ -478,20 +409,20 @@ function beforeUnload() {
 }
 
 watch(() => props.reportDate, async (_date,previousDate) => {
-  clearTimeout(draftTimer);cacheDraft(previousDate)
+  submitNotice.value = ''
+  cacheDraft(previousDate)
   supplementExpanded.value = false
   await loadReport(false)
 })
 const stopUpdates=subscribe('daily_report_updated',event=>{if(event.user_id!==owner||event.report_date!==props.reportDate)return;if(hasUnsavedChanges.value)ElMessage.info('新咨询工作项已追加，保存当前修改时会自动保留');else loadReport(false)})
-onMounted(() => { loadReport(false); loadMailAccount(); loadEditorContext(); window.addEventListener('annotation-operation-report-added',refreshAnnotationOperations);window.addEventListener('open-my-work-report',refreshAnnotationOperations);window.addEventListener('beforeunload', beforeUnload);document.addEventListener('visibilitychange',onReportHidden) })
-onBeforeUnmount(() => {stopUpdates();cacheDraft();clearTimeout(draftTimer);loadSequence++;loadController?.abort();window.removeEventListener('annotation-operation-report-added',refreshAnnotationOperations);window.removeEventListener('open-my-work-report',refreshAnnotationOperations);window.removeEventListener('beforeunload', beforeUnload);document.removeEventListener('visibilitychange',onReportHidden)})
-defineExpose({prepareClose(){if(saving.value||sending.value)return false;clearTimeout(draftTimer);cacheDraft();return !localDraftError.value}})
+onMounted(() => { loadReport(false); loadEditorContext(); window.addEventListener('annotation-operation-report-added',refreshAnnotationOperations);window.addEventListener('open-my-work-report',refreshAnnotationOperations);window.addEventListener('beforeunload', beforeUnload);document.addEventListener('visibilitychange',onReportHidden) })
+onBeforeUnmount(() => {stopUpdates();cacheDraft();loadSequence++;loadController?.abort();window.removeEventListener('annotation-operation-report-added',refreshAnnotationOperations);window.removeEventListener('open-my-work-report',refreshAnnotationOperations);window.removeEventListener('beforeunload', beforeUnload);document.removeEventListener('visibilitychange',onReportHidden)})
+defineExpose({prepareClose(){if(saving.value||validating.value)return false;cacheDraft();return !localDraftError.value}})
 </script>
 
 <style scoped>
-.report-identity{display:flex;flex-wrap:wrap;gap:14px 24px;align-items:center;padding:12px 0 16px}.report-date{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.report-date :deep(.el-date-editor){width:150px}.report-departments{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.daily-report-panel{min-width:0}.report-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.toolbar-primary{display:flex;align-items:center;gap:10px;flex:1;min-width:0;flex-wrap:wrap}.toolbar-status,.toolbar-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.toolbar-actions{justify-content:flex-end;flex-shrink:0}.sheet-tip{display:inline-flex;align-items:center;gap:4px;font-size:12px;line-height:1.4;color:var(--el-color-info)}.sheet-tip__icon{flex-shrink:0;font-size:14px}.supplement-section{margin-top:8px;border:1px solid var(--el-border-color-lighter);border-radius:6px;background:var(--el-bg-color);overflow:hidden}.supplement-trigger{display:flex;align-items:center;width:100%;min-height:38px;padding:7px 12px;border:0;background:var(--el-fill-color-light);color:var(--el-text-color-primary);cursor:pointer;text-align:left}.supplement-trigger:hover{background:var(--el-fill-color)}.supplement-trigger:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:-2px}.supplement-trigger__title{font-size:14px;font-weight:600}.supplement-trigger__status{margin-left:8px;padding:1px 7px;border-radius:10px;background:var(--el-color-primary-light-9);color:var(--el-color-primary);font-size:12px}.supplement-trigger__hint{margin-left:auto;color:var(--el-text-color-secondary);font-size:12px}.supplement-trigger__arrow{margin-left:6px;transition:transform .2s}.supplement-trigger__arrow.is-expanded{transform:rotate(180deg)}.supplement-form{padding:10px 12px 12px}.supplement-form :deep(.el-form-item){margin-bottom:0}.mail-meta{margin:14px 0}.recipient-tag{margin:2px 6px 2px 0}.mail-form{margin-top:14px}.mail-preview-content{min-height:300px}.readonly-note{width:100%;padding:10px 12px;border:1px solid var(--el-border-color);border-radius:6px;background:#f1f5f9;color:#475569;white-space:pre-wrap;word-break:break-word}:global(.daily-report-dialog){display:flex;max-height:90vh;overflow:hidden;flex-direction:column}:global(.daily-report-dialog .el-dialog__header),:global(.daily-report-dialog .el-dialog__footer){flex:none}:global(.daily-report-dialog .el-dialog__body){flex:1;min-height:0;overflow-y:auto}:global(.daily-report-dialog .el-dialog__footer){display:flex;align-items:center;border-top:1px solid var(--el-border-color-lighter);background:var(--el-fill-color-light)}
-.mail-signature-preview{width:100%;padding:10px 12px;border:1px solid var(--el-border-color);border-radius:6px;background:#f1f5f9;color:#475569;line-height:1.65;word-break:break-word}.mail-signature-preview :deep(p){margin:0 0 6px}
-@media(max-width:768px){.report-toolbar{align-items:flex-start;flex-direction:column}.toolbar-primary{width:100%}.toolbar-actions{width:100%;justify-content:flex-start}.mail-meta{--el-descriptions-table-border:var(--el-border-color-lighter)}}
+.report-identity{display:flex;flex-wrap:wrap;gap:14px 24px;align-items:center;padding:12px 0 16px}.report-date{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.report-date :deep(.el-date-editor){width:150px}.report-departments{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.daily-report-panel{min-width:0}.report-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.toolbar-primary{display:flex;align-items:center;gap:10px;flex:1;min-width:0;flex-wrap:wrap}.toolbar-status,.toolbar-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.toolbar-actions{justify-content:flex-end;flex-shrink:0}.sheet-tip{display:inline-flex;align-items:center;gap:4px;font-size:12px;line-height:1.4;color:var(--el-color-info)}.sheet-tip__icon{flex-shrink:0;font-size:14px}.supplement-section{margin-top:8px;border:1px solid var(--el-border-color-lighter);border-radius:6px;background:var(--el-bg-color);overflow:hidden}.supplement-trigger{display:flex;align-items:center;width:100%;min-height:38px;padding:7px 12px;border:0;background:var(--el-fill-color-light);color:var(--el-text-color-primary);cursor:pointer;text-align:left}.supplement-trigger:hover{background:var(--el-fill-color)}.supplement-trigger:focus-visible{outline:2px solid var(--el-color-primary);outline-offset:-2px}.supplement-trigger__title{font-size:14px;font-weight:600}.supplement-trigger__status{margin-left:8px;padding:1px 7px;border-radius:10px;background:var(--el-color-primary-light-9);color:var(--el-color-primary);font-size:12px}.supplement-trigger__hint{margin-left:auto;color:var(--el-text-color-secondary);font-size:12px}.supplement-trigger__arrow{margin-left:6px;transition:transform .2s}.supplement-trigger__arrow.is-expanded{transform:rotate(180deg)}.supplement-form{padding:10px 12px 12px}.supplement-form :deep(.el-form-item){margin-bottom:0}
+@media(max-width:768px){.report-toolbar{align-items:flex-start;flex-direction:column}.toolbar-primary{width:100%}.toolbar-actions{width:100%;justify-content:flex-start}}
 </style>
 
 <style scoped>.report-feedback-section{margin-top:20px;padding:16px;border:1px solid #dbe3ec;border-radius:8px}</style>

@@ -6,7 +6,7 @@ export const requirementModules = {
   } },
   interpretation: { label: '口译', fields: {
     taskDescription: '具体任务',
-    interpreterSpecialRequirements: '特殊要求',
+    interpreterSpecialRequirements: '客户要求',
     remarks: '补充说明',
   } },
   annotation: { label: '标注', fields: {

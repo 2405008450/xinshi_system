@@ -64,6 +64,7 @@ def run():
             container.locator('.el-cascader').nth(index).click()
             page.locator('.el-cascader-node__label:visible').get_by_text('项目工作',exact=True).click()
             page.locator('.el-cascader-node:visible').filter(has_text=name).locator('.el-checkbox').click()
+            container.locator('.report-grid tbody tr').nth(index).get_by_role('button',name='选择项目',exact=True).click()
         choose_type(personal,'笔译项目')
         picker=page.locator('.report-project-picker.el-dialog');expect(picker).to_be_visible()
         picker.get_by_role('button',name='选定',exact=True).click();expect(picker).not_to_be_visible()

@@ -34,6 +34,14 @@ test('尚未读取云端版本时主动清空，也会清除已有草稿而不�
   await queue.flushCloudDrafts()
   assert.equal(writes.length,before)
   assert.equal(queue.cloudDraftStatus('form:translation-project','other-create').state,'conflict')
+  await assert.rejects(queue.saveCloudDraft('form:translation-project','other-create',{form:{projectName:'本机新内容'}}),/另一份草稿/)
+  await queue.readCloudDraft('work-report','manual-save')
+  failWrites=true
+  await assert.rejects(queue.saveCloudDraft('work-report','manual-save',{items:[{progress_content:'未选类型的草稿'}]}),/offline/)
+  assert.equal(queue.cloudDraftState.pending,2)
+  failWrites=false
+  await queue.saveCloudDraft('work-report','manual-save',{items:[{progress_content:'未选类型的草稿'}]})
+  assert.equal(server.payload.items[0].progress_content,'未选类型的草稿')
  }finally{delete globalThis.__clearDraftHarness;delete globalThis.localStorage}
 })
 
@@ -60,10 +68,11 @@ test('云端合并队列去重、限制批次，慢请求中继续编辑不丢�
   assert.equal(calls,1)
   queue.queueCloudDraft('work-report','day',{content:'edited during request'})
   await queue.flushCloudDrafts();assert.equal(calls,1)
+  const manualSave=queue.saveCloudDraft('work-report','day',{content:'edited during request'})
   release();await first
-  assert.equal(queue.cloudDraftState.pending,1)
-  const second=queue.flushCloudDrafts();await Promise.resolve();release();await second
+  await Promise.resolve();release();await manualSave
   assert.equal(maxActive,1)
+  assert.equal(queue.cloudDraftRevision('work-report','day'),2)
   assert.equal(records.get('day').payload.content,'edited during request')
   assert.equal(queue.cloudDraftState.pending,0)
   queue.queueCloudDraft('work-report','day',{content:'edited during request'})

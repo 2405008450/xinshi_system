@@ -14,6 +14,7 @@ from utils import normalize_email_subject_order_no
 from project_audit_service import record_project_operation
 
 from concurrency import VERSION_FIELD, assert_fresh
+from annotation_progress_time import business_now, project_progress_datetime
 
 import workflow_models  # noqa: F401  注册 TranslationProject 的既有工作流关系
 from interpretation_models import (
@@ -26,6 +27,7 @@ from interpretation_models import (
     InterpretationProjectLanguageDirection,
     InterpretationProjectTimeRange,
 )
+from interpretation_schedule_groups import attach as attach_schedule_groups, save as save_schedule_groups
 from interpretation_schemas import (
     PROJECT_TYPE_LABELS,
     InterpretationNamePreviewRequest,
@@ -224,6 +226,7 @@ def get_interpretation_project(db: Session, project_id: UUID) -> Optional[Interp
     if project:
         from project_client_manager import attach
         attach(db, 'interpretation', [project])
+        attach_schedule_groups(db, [project])
     return project
 
 
@@ -274,6 +277,7 @@ def get_interpretation_projects(
         projects.append(project)
     from project_client_manager import attach
     attach(db, 'interpretation', projects)
+    attach_schedule_groups(db, projects)
     return projects
 
 
@@ -506,7 +510,7 @@ def _sync_nested(db: Session, project: InterpretationProject, payload) -> None:
     db.flush()
 
     project.time_ranges = [
-        InterpretationProjectTimeRange(sequence_no=index, **item.model_dump())
+        InterpretationProjectTimeRange(sequence_no=index, **item.model_dump(exclude={'locations','language_directions'}))
         for index, item in enumerate(payload.time_ranges, start=1)
     ]
     directions = []
@@ -526,6 +530,7 @@ def _sync_nested(db: Session, project: InterpretationProject, payload) -> None:
         ]
         directions.append(direction)
     project.language_directions = directions
+    save_schedule_groups(db, project, payload.time_ranges)
     project.interpreter_assignments = [
         InterpretationProjectInterpreter(sequence_no=index, **{**item.model_dump(),'translator_id':translator_ids_by_resource[item.translator_id]})
         for index, item in enumerate(payload.interpreter_assignments, start=1)
@@ -652,12 +657,12 @@ def update_interpretation_project_status(
     previous_status = project.project_status
     if not progress_only:
         project.project_status = project_status
-    project.updated_at = datetime.now()
+    project.updated_at = project_progress_datetime(business_now())
     db.add(InterpretationProjectStatusHistory(
         project_id=project.id,
         from_status=project_status if progress_only else previous_status,
         to_status=project_status,
-        effective_on=effective_on or datetime.now(),
+        effective_on=project_progress_datetime(effective_on or business_now()),
         changed_by=changed_by,
         change_note=change_note,
     ))

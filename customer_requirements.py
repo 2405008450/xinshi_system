@@ -2,9 +2,9 @@
 from typing import Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import Column, DateTime, ForeignKey, Index, String, Text, Uuid, inspect, or_
+from sqlalchemy import Column, DateTime, ForeignKey, Index, String, Text, Uuid, inspect, or_, func
 from sqlalchemy.orm import Session
 
 from annotation_models import AnnotationProject
@@ -28,6 +28,14 @@ MODELS = {
     'interpretation': InterpretationProject,
     'annotation': AnnotationProject,
     'recruitment': RecruitmentProject,
+}
+PROJECT_FIELDS = {
+    'translation': {'customerRequirementProfessional': 'customer_requirement_professional',
+                    'customerRequirementSpecial': 'customer_requirement_special', 'remarks': 'remarks'},
+    'interpretation': {'taskDescription': 'task_description',
+                       'interpreterSpecialRequirements': 'interpreter_special_requirements', 'remarks': 'remarks'},
+    'annotation': {'taskDescription': 'task_description', 'potentialDemand': 'potential_demand'},
+    'recruitment': {'jobDescription': 'job_description', 'remarks': 'remarks'},
 }
 
 
@@ -94,6 +102,33 @@ def read_requirements(client_id: UUID, module: Module, latest: bool = False,
          'added_at': business_datetime(row.added_at).isoformat(), 'source_order_no': row.source_order_no}
         for row in query
     ]}
+
+
+@router.get('/{module}/projects', dependencies=[
+    Depends(require_permission('clients:read')), Depends(require_permission('projects:read')),
+])
+def read_project_requirements(client_id: UUID, module: Module, page: int = Query(1, ge=1),
+                              page_size: int = Query(10, ge=1, le=100), db: Session = Depends(get_db)):
+    if not db.get(Client, client_id):
+        raise HTTPException(404, '客户不存在')
+    model = MODELS[module]
+    fields = PROJECT_FIELDS[module]
+    query = db.query(model).outerjoin(SubClient, SubClient.id == model.sub_client_id).filter(
+        or_(model.client_id == client_id, SubClient.parent_client_id == client_id),
+        or_(*(func.trim(getattr(model, field)).notin_(['', '\n', '\r\n', '\t']) for field in fields.values())),
+    )
+    if module == 'translation':
+        query = query.filter(model.annotation_migrated_at.is_(None))
+    # Python strip also handles mixed whitespace in legacy text.
+    rows = query.order_by(model.order_no.desc(), model.id.desc()).all()
+    items = []
+    for row in rows:
+        values = {key: value for key, field in fields.items()
+                  if (value := (getattr(row, field) or '').strip())}
+        if values:
+            items.append({'id': str(row.id), 'order_no': row.order_no,
+                          'project_name': row.project_name, 'values': values})
+    return {'items': items[(page - 1) * page_size:page * page_size], 'total': len(items)}
 
 
 @router.post('/{module}', dependencies=[Depends(require_permission('clients:write'))])

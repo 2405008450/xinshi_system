@@ -345,6 +345,15 @@ def work_report_statistics(anchor: date, period: str='day', department_id: Optio
     return report_access.report_statistics(db,user,anchor,period,department_id,keyword,sender_id)
 
 
+@reports_router.get('/idle-statistics')
+def work_report_idle_statistics(anchor: date, period: str = 'day', department_id: Optional[UUID] = None,
+                                keyword: Optional[str] = None, sender_id: Optional[UUID] = None,
+                                page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
+                                db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    from work_report_idle_statistics import statistics
+    return statistics(db, user, anchor, period, department_id, keyword, sender_id, page, page_size)
+
+
 @reports_router.get('/feedback-inbox')
 def work_report_feedback_inbox(date_from: Optional[date]=None,date_to: Optional[date]=None,page:int=Query(1,ge=1),page_size:int=Query(20,ge=1,le=100),db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     return report_collaboration.feedback_inbox(db,user,date_from,date_to,page,page_size)

@@ -243,7 +243,7 @@
       <section v-if="canWrite" v-show="entryTrack === 'project'" ref="progressEntryPanelRef" class="progress-entry-panel">
         <div class="progress-entry-panel__header">
           <div class="progress-entry-panel__title">
-            {{ statusEntryMode === 'progress' ? '填写项目进度' : '切换项目状态' }}
+            项目进度
             <span v-if="statusEntryMode === 'progress' && statusForm.projectStatus" class="progress-entry-panel__selection">· {{ statusLabel(statusForm.projectStatus) }}</span>
           </div>
           <span v-if="statusEntryMode === 'status'" class="progress-current-status">当前状态：{{ statusLabel(activeProgressProject?.projectStatus) }}</span>
@@ -251,25 +251,26 @@
         <AppForm :key="statusEntryMode" ref="statusFormRef" :model="statusForm" :rules="statusRules" :disabled="progressWriting || progressTrackSwitching" label-width="76px" size="small" class="progress-entry-form">
           <el-row :gutter="14" class="progress-entry-metadata">
             <el-col :xs="24" :sm="12">
-              <el-form-item :label="statusEntryMode === 'progress' ? '所属状态' : '新状态'" prop="projectStatus">
+              <el-form-item label="项目状态" prop="projectStatus">
                 <el-select v-model="statusForm.projectStatus" :validate-event="!progressBusy && entryTrack === 'project'" :loading="statusEntryMode === 'progress' && progressLoading" style="width:100%" @change="handleProgressStatusSelect">
-                  <el-option v-for="item in availableEntryStatusOptions" :key="item.value" :label="item.label" :value="item.value" :disabled="statusEntryMode === 'status' && item.value === activeProgressProject?.projectStatus" />
+                  <el-option v-for="item in availableEntryStatusOptions" :key="item.value" :label="item.label" :value="item.value"  />
                 </el-select>
-                <div v-if="statusEntryMode === 'progress'" class="progress-status-hint">仅展示项目已经流转到的状态，也可在下方流程节点直接点击“补充进度”</div>
+                <div v-if="selectedProgressStageKey" class="progress-status-hint">正在补充所选流程节点，不改变当前状态；重新选择下拉状态可切换状态。</div>
+                <div v-else class="progress-status-hint">状态不变时追加进度，选择新状态时一并更新项目状态。</div>
               </el-form-item>
             </el-col>
             <el-col :xs="24" :sm="12">
-              <el-form-item :label="statusEntryMode === 'progress' ? '节点时间' : '生效时间'" prop="effectiveOn">
+              <el-form-item label="节点时间" prop="effectiveOn">
                 <el-date-picker v-model="statusForm.effectiveOn" :validate-event="!progressBusy && entryTrack === 'project'" type="datetime" format="YYYY-MM-DD HH:mm" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" />
               </el-form-item>
             </el-col>
           </el-row>
-          <el-form-item :label="statusEntryMode === 'progress' ? '具体进度' : '变更说明'" prop="changeNote" label-width="124px" class="progress-note-item annotation-progress-note-item">
-            <template #label>
-              <AnnotationProgressTrackSelect :model-value="entryTrack" :disabled="progressBusy" :project-has-draft="hasProjectProgressDraft" :customer-has-draft="customerProgress.hasDraft()" @change="handleProgressTrackChange" />
+          <el-form-item label="进度/说明" prop="changeNote" label-width="124px" class="progress-note-item annotation-progress-note-item">
+            <template #label><div class="unified-progress-note-label">
+              <AnnotationProgressTrackSelect :model-value="entryTrack" :disabled="progressBusy" :project-has-draft="hasProjectProgressDraft" :customer-has-draft="customerProgress.hasDraft()" @change="handleProgressTrackChange" /><span>进度/说明</span></div>
             </template>
             <div class="progress-note-control">
-              <el-input ref="progressNoteInputRef" v-model="statusForm.changeNote" :validate-event="!progressBusy && entryTrack === 'project'" type="textarea" :aria-label="statusEntryMode === 'progress' ? '项目具体进度' : '变更说明'" :rows="3" :maxlength="statusEntryMode === 'progress' ? 10000 : 500" show-word-limit :placeholder="statusEntryMode === 'progress' ? '例如：一个语种暂时找不到合适人员' : '填写本次项目状态变化的原因或说明'" />
+              <el-input ref="progressNoteInputRef" v-model="statusForm.changeNote" :validate-event="!progressBusy && entryTrack === 'project'" type="textarea" aria-label="进度/说明" :rows="3" maxlength="10000" show-word-limit placeholder="填写项目进度或状态变更说明" />
             </div>
           </el-form-item>
         </AppForm>
@@ -277,15 +278,7 @@
           已从项目沟通带入项目进度：{{ progressDraftSource.messageCount }} 条消息 · {{ progressDraftSource.senderSummary }}，保存前可编辑
           <el-button link type="primary" :disabled="progressBusy" @click="transferProjectDraftToCustomer">转到客户进度</el-button>
         </div>
-        <div class="progress-entry-actions">
-          <div class="progress-entry-mode">
-            <span class="progress-entry-mode__label">操作类型</span>
-            <el-radio-group :model-value="statusEntryMode" :disabled="progressBusy" size="small" aria-label="项目进度操作类型" @change="handleStatusEntryModeChange">
-              <el-radio-button value="progress"><span>补充进度</span><small v-if="projectEntryDrafts.hasDraft('progress')" class="progress-draft-indicator">未保存</small></el-radio-button>
-              <el-radio-button value="status"><span>切换状态</span><small v-if="projectEntryDrafts.hasDraft('status')" class="progress-draft-indicator">未保存</small></el-radio-button>
-            </el-radio-group>
-          </div>
-        </div>
+
       </section>
       <AnnotationCustomerProgress
         v-if="canWrite && activeProgressProject?.id" v-show="entryTrack === 'customer'" ref="customerProgressEntryRef"
@@ -945,10 +938,9 @@ const progressBusy=computed(()=>progressWriting.value || statusValidating.value 
 const statusRules={
   projectStatus:[
     {required:true,message:'请选择项目状态',trigger:'change'},
-    {validator:(_rule,value,callback)=>statusEntryMode.value==='status'&&value===activeProgressProject.value?.projectStatus?callback(new Error('新状态不能与当前状态相同')):callback(),trigger:'change'},
   ],
   effectiveOn:[{required:true,message:'请选择节点时间',trigger:'change'}],
-  changeNote:[{validator:(_rule,value,callback)=>{const note=String(value||'').trim();if(!note)return callback(new Error(statusEntryMode.value==='progress'?'请填写具体进度':'请填写变更说明'));const maxLength=statusEntryMode.value==='progress'?10000:500;return note.length<=maxLength?callback():callback(new Error(statusEntryMode.value==='progress'?'具体进度不能超过 10000 字':'变更说明不能超过 500 字'))},trigger:['blur','change']}],
+  changeNote:[{validator:(_rule,value,callback)=>{const note=String(value||'').trim();if(!note)return callback(new Error('请填写进度/说明'));const maxLength=10000;return note.length<=maxLength?callback():callback(new Error('进度/说明不能超过 10000 字'))},trigger:['blur','change']}],
 }
 const progressDeleteVisible=ref(false), progressDeleteSubmitting=ref(false), progressDeleteFormRef=ref(), progressDeleteTarget=ref(null)
 const progressDeleteForm=reactive({reason:''})
@@ -993,13 +985,13 @@ const customerProgress=useAnnotationCustomerProgress({
   onEdit:()=>{entryTrack.value='customer'},
   onSaved:async()=>{targetProgressRecordId.value='';entryTrack.value='customer';await refreshCustomerProgressSummary()},
 })
-const progressSubmitLabel=computed(()=>entryTrack.value==='annotator'?'添加标注员情况':entryTrack.value==='customer'?(customerProgress.editingId?'保存客户进度':'添加客户进度'):(statusEntryMode.value==='progress'?'添加项目进度':'确认切换项目状态'))
+const progressSubmitLabel=computed(()=>entryTrack.value==='annotator'?'添加标注员情况':entryTrack.value==='customer'?(customerProgress.editingId?'保存客户进度':'添加客户进度'):'保存项目进度')
 const progressSubmitLoading=computed(()=>statusSubmitting.value||customerProgress.submitting||!!annotatorProgressRef.value?.busy)
 const progressSubmitDisabled=computed(()=>progressBusy.value||(entryTrack.value==='annotator'&&!!annotatorProgressRef.value?.unavailable)||(entryTrack.value==='customer'&&(customerProgress.loading||Boolean(customerProgress.loadError))))
 const submitProgressEntry=()=>entryTrack.value==='annotator'?annotatorProgressRef.value?.save():entryTrack.value==='customer'?customerProgress.save():confirmStatusChange()
 const progressGroups=computed(()=>groupAnnotationProgressRows(progressRows.value,activeProgressProject.value?.projectStatus))
 const progressStatusOptions=computed(()=>{const reached=new Set(progressGroups.value.map((group)=>group.status));if(activeProgressProject.value?.projectStatus)reached.add(activeProgressProject.value.projectStatus);return statusOptions.filter((item)=>reached.has(item.value))})
-const availableEntryStatusOptions=computed(()=>statusEntryMode.value==='progress'?progressStatusOptions.value:statusOptions)
+const availableEntryStatusOptions=computed(()=>statusOptions)
 const {deleteMode,deleting,selectedRows,enterDeleteMode,exitDeleteMode,handleDeleteSelectionChange,confirmBatchDelete}=useBatchDelete({rows:tableData,tableRef:projectTableRef,pagination,deleteRow:(row)=>annotationApi.deleteAnnotationProject(row.id),getLabel:(row)=>row.orderNo||row.projectName,reload:()=>fetchData(),onDeleted:(row)=>{delete detailCache[row.id]},entityName:'标注项目'})
 const searchForm=reactive({keyword:'',projectStatus:'',projectType:'',languageId:'',clientManagerId:'',dispatchedRange:[],submittedRange:[],clientSelection:'',assigneePersonId:'',createdRange:[],consultationRange:[],confirmationRange:[]})
 let requestController, requestId=0, languageReserveRequestId=0, searchTimer
@@ -1275,7 +1267,8 @@ const setProjectStatusSaving=(id,saving)=>{const next=new Set(projectStatusSavin
 const confirmStatusChange=async()=>{
   if(progressBusy.value)return
   const project=activeProgressProject.value;if(!project)return
-  const progressOnly=statusEntryMode.value==='progress',selectedStatus=statusForm.value.projectStatus
+  const targetStage=selectedProgressStageKey.value
+  const progressOnly=Boolean(targetStage)||statusForm.value.projectStatus===project.projectStatus,selectedStatus=statusForm.value.projectStatus
   statusValidating.value=true
   try{
     if(!await statusFormRef.value?.validate().catch(()=>false))return
@@ -1287,6 +1280,7 @@ const confirmStatusChange=async()=>{
     const row=tableData.value.find((item)=>item.id===project.id);if(row)Object.assign(row,updated)
     activeProgressProject.value=updated;detailCache[project.id]=updated;targetProgressRecordId.value='';entryTrack.value='project'
     projectEntryDrafts.clear(statusEntryMode.value,progressOnly?selectedStatus:'')
+    if(progressOnly&&targetStage)selectedProgressStageKey.value=targetStage
     if(!progressOnly&&!projectEntryDrafts.hasDraft('progress'))projectEntryDrafts.setInitialProjectStatus(updated.projectStatus)
     await nextTick();statusFormRef.value?.clearValidate();ElMessage.success(progressOnly?'具体进度已添加':'项目状态已更新')
     try{
@@ -1453,3 +1447,5 @@ watch(dialogVisible,visible=>{if(visible)chatAudience.value=[]})
 .order-cell-progress-read{display:flex;justify-content:flex-start;min-height:0;margin-top:4px;margin-bottom:-9.5px}
 .order-cell-progress-read :deep(.child-progress-notice){font-size:8px;line-height:12px;height:12px;min-height:12px}
 </style>
+
+<style scoped>.unified-progress-note-label{display:flex;flex-direction:column;gap:6px}</style>

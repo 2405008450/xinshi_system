@@ -22,7 +22,7 @@
       <div class="word-count-matrix__header">
         <div>
 
-          <p>{{ aggregated ? '此订单各单位分别由子订单逐级累计，可同时出现字数、份数等多项；请在末级订单填写。' : '我司统计、客户统计每行可选字数类、份数、页数或时长。字数类可填多项，清空当前区域后可切换。0 也算已填写。' }}</p>
+          <p>{{ aggregated ? '此订单各单位分别由子订单逐级累计，可同时出现字数、份数等多项；请在末级订单填写。' : '字数类、份数、页数与时长可同时填写；分钟和小时可切换。0 表示已登记为零，预统计不用于计算费用。' }}</p>
         </div>
         <el-tag size="small" :type="hasChanges ? 'warning' : 'info'">{{ hasChanges ? '未保存修改' : (aggregated ? '下级自动汇总' : (localMode ? '随项目保存' : '已保存统计')) }}</el-tag>
       </div>
@@ -101,7 +101,6 @@ import {
   createEmptyWordCountMatrix,
   createEmptyWordCountValues,
   formatWordCountMatrix,
-  hasMultipleWordCountRegions,
   isWordCountRegionLocked,
   normalizeWordCountMatrix,
   normalizeWordCountValues
@@ -348,20 +347,10 @@ function clearPending() {
   clearDraft()
   if (controlledDraft.value) emit('update:pendingDraft', null)
 }
-function validateMatrix(matrix) {
-  if (matrix?.source !== 'suborder_aggregate') for (const dimension of ['company','customer']) {
-    if (hasMultipleWordCountRegions(matrix?.[dimension])) {
-      ElMessage.warning(`${dimension==='company'?'我司统计':'客户统计'}只能填写一个统计区域，请清空其他区域`)
-      return false
-    }
-  }
-  return true
-}
 // 外层保存新项目时，同步提交尚未点击统计弹窗“保存”的本账号输入。
 function prepareSubmit() {
   if (!controlledDraft.value || !validPending(props.pendingDraft)) return true
   const matrix = normalizeResponse(props.pendingDraft.matrix)
-  if (!validateMatrix(matrix)) return false
   publishMatrix(matrix)
   return true
 }
@@ -392,7 +381,6 @@ function notifySavedCounts(changes) {
 async function saveMatrix() {
   if(matrixOwner !== (localStorage.getItem('user_id')||'')){visible.value=false;return}
   if (!draft.value) return
-  if (!validateMatrix(draft.value)) return
   if (localMode.value) {
     if (saving.value) return
     saving.value = true

@@ -2971,3 +2971,20 @@ id UUID 主键；client_id / sub_client_id UUID 分别关联 client / sub_client
 - `interpretation_customer_finance` 客户级行的 `payload._oral_workspace`：共享单据存储，group 按模块、结算模式、客户／子客户／项目隔离；含 revision、boards、pending、history。boards 保存独立 statement、months、period_number、active/void、removed_projects；移除项目可逐项恢复。普通结算校验有效月份／账期及项目有效归属冲突，特殊结算允许多单重复。单内修改不回写主表。
 - `payload._oral_invoice_requests`：口译项目级／标注招聘客户级开票需求快照，以 UUID 为键，含 module、anchor_id、revision、recipients、submission、snapshot、request_receipts、completion_receipts、invoices。幂等发送并校验源财务版本、接收人配置版本；仅发送人与接收人可查看，只有接收人可登记开票及完成。通知 related_project_type 为 business_invoice_request，related_project_id 为空，避免错误关联笔译外键。
 - 工作区及需求变更写入既有口译财务历史；业务时间明确 `+08:00`。上述扩展均使用现有 JSON／审计字段，不新增或修改数据库结构。
+
+
+### 口译时间段地点与方向分组（2026-11-24）
+
+- 新表 `interpretation_project_schedule_groups`：`project_id UUID` 为主键，引用 `interpretation_project.id` 并级联删除；`groups JSON` 非空，按时间段顺序保存各组的 `locations` 与 `language_directions`（`language_ids`、`source_language_id`、`target_language_id`、`required_count`）。
+- 每个时间段默认一个项目地点和一个口译方向，地点不设四项上限。每组独立维护，读取时按时间段顺序回填；未记录分组的历史项目保留原数据。
+- 既有项目级地点和方向保留为兼容汇总。地点去重；同一方向跨时间段重复时，项目级需求人数采用该方向各段最大值，各时间段的原始人数分别保留，不把多天需求重复相加。
+- 使用 `tools/apply_interpretation_schedule_groups_migration.py` 只创建新表；可重复执行，不启用启动自动迁移。
+- 口译“客户要求”继续使用 `interpreter_special_requirements` 及客户要求历史中的 `interpreterSpecialRequirements`，仅变更显示名称，不迁移或改写历史内容。
+
+
+### 统一项目进度与笔译进度记录
+
+- 新表 `translation_project_progress`：`id UUID` 主键；`project_id UUID` 引用 `translation_project.id` 并级联删除；`request_id UUID` 与项目组成唯一约束，防止重复提交；`from_status`、`to_status` 为状态，`note TEXT` 为进度/说明；`actor_id` 引用用户并在用户删除时置空，`actor_name` 保留姓名快照；`effective_on` 与 `created_at` 均为 timestamptz，接口统一输出 UTC+8。建立 `(project_id,effective_on)` 索引。
+- 笔译状态变更继续调用既有项目更新业务，进度记录与状态在同一事务提交，保留版本校验和项目状态继承规则。同状态追加记录不修改项目状态；重试使用 `request_id` 幂等识别。仅创建新表，不改写已有表结构，使用 `tools/apply_translation_project_progress_migration.py` 初始化，不开启启动自动迁移。
+- 口译、标注保留既有状态历史；统一“项目状态、节点时间、进度/说明”输入，说明上限统一 10000 字。选择历史流程节点补充进度时不回退当前状态；用户重新选择下拉状态才按新状态保存。
+- 招聘复用 `recruitment_project_progress`，状态与说明一次提交，保留当前状态及原历史。新的统一进度入口带项目版本进行并发校验。既有短记录、审计记录保持原用途，不挪用作进度存储。

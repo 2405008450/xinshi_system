@@ -46,7 +46,7 @@ export const updateRecruitmentProject = (id, data) => api.put(`/projects/recruit
 export const updateRecruitmentProjectTextField = (id, field, value, expectedUpdatedAt) => api.patch(`/projects/recruitment/${id}/text-field`, {
   field: toSnakeCase(field), value, expected_updated_at: expectedUpdatedAt,
 }).then(fromApi)
-export const patchRecruitmentProjectStatus = (id, projectStatus) => api.patch(`/projects/recruitment/${id}/status`, { project_status: projectStatus }).then(fromApi)
+export const patchRecruitmentProjectStatus = (id, projectStatus) => api.patch(`/projects/recruitment/${id}/status`, typeof projectStatus === 'string' ? {project_status:projectStatus} : toApi(projectStatus)).then(fromApi)
 export const deleteRecruitmentProject = (id) => api.delete(`/projects/recruitment/${id}`).then((res) => {
   invalidateOptionCache('source-projects:recruitment:')
   return res

@@ -4,7 +4,7 @@ export const quantityBasisOptions=[{value:'customer_auto',label:'自动选择（
 export const metricName=key=>WORD_COUNT_METRICS.find(row=>row.key===key)?.label||key
 // 与后端 translation_quantity_basis.METRICS 的自动计价顺序一致。
 const automaticMetricPriority=[
-  'characters_no_spaces','words','cjk_chars_korean_words','foreign_words','documents','pages','minutes','hours',
+  'words','characters_no_spaces','cjk_chars_korean_words','foreign_words','documents','pages','minutes','hours',
 ]
 export function basisLabel(mode){if(String(mode).startsWith('customer_auto')){const metric=String(mode).split(':')[1];return metric?`客户统计（${metricName(metric)}）`:'自动选择（客户优先，无则我司）'}return quantityBasisOptions.find(row=>row.value===mode)?.label||`历史客户口径（${metricName(mode)}）`}
 export function resolvedBasisLabel(mode,{dimension,metric}={}){

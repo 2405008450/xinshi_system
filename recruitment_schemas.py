@@ -163,6 +163,15 @@ class RecruitmentProjectUpdate(RecruitmentProjectBase):
 
 class RecruitmentProjectStatusUpdate(BaseModel):
     project_status: str
+    note: Optional[str] = Field(default=None, max_length=10000)
+    occurred_at: Optional[datetime] = None
+    expected_updated_at: Optional[datetime] = None
+
+    @field_validator('note')
+    @classmethod
+    def validate_progress_note(cls, value):
+        if value is not None and not value.strip():raise ValueError('请填写进度/说明')
+        return value.strip() if value is not None else None
 
     @field_validator("project_status")
     @classmethod

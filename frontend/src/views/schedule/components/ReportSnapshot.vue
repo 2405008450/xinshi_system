@@ -1,6 +1,7 @@
 <template>
   <section class="report-snapshot">
-    <el-descriptions :column="2" border size="small"><el-descriptions-item label="姓名">{{report.user_name||'-'}}</el-descriptions-item><el-descriptions-item label="日期">{{report.report_date||'-'}}</el-descriptions-item><el-descriptions-item label="补充说明" :span="2"><ScreenshotText :text="report.supplemental_note || '-'" /></el-descriptions-item></el-descriptions>
+    <ReportDailyNotices :idle-minutes="report.idle_minutes" :items="report.items || []" />
+    <el-descriptions :column="2" border size="small"><el-descriptions-item label="姓名">{{report.user_name||'-'}}</el-descriptions-item><el-descriptions-item label="报告日期">{{report.report_date||'-'}}</el-descriptions-item><el-descriptions-item label="最近保存时间">{{formatBusinessDateTime(report.saved_at)}}</el-descriptions-item><el-descriptions-item label="提交时间">{{formatBusinessDateTime(report.finalized_at)}}</el-descriptions-item><el-descriptions-item label="补充说明" :span="2"><ScreenshotText :text="report.supplemental_note || '-'" /></el-descriptions-item></el-descriptions>
     <ReportIdleTime v-if="report.idle_minutes!=null" :minutes="report.idle_minutes" :confirmed="report.idle_declaration_confirmed" :declaration-text="report.idle_declaration_text||''" />
     <div class="snapshot-filter"><el-input v-model="projectFilter" placeholder="筛选项目名称或订单号" clearable /><el-checkbox v-model="onlyLunch">仅看中午加班</el-checkbox></div>
     <article v-for="(item,index) in report.items||[]" :key="item.display_metadata?._feedback_key||item.id||index" v-show="matchesItem(item)" :class="{'is-child':item.display_metadata?.parent_item_key}">
@@ -16,6 +17,7 @@ import ScreenshotText from '@/components/common/ScreenshotText.vue'
 import {formatBusinessDateTime} from '@/utils/dateTime'
 import ReportItemLink from './ReportItemLink.vue'
 import ReportIdleTime from './ReportIdleTime.vue'
+import ReportDailyNotices from './ReportDailyNotices.vue'
 import {durationLabel} from '@/utils/workReportForm'
 import {computed,ref,watch,onBeforeUnmount} from 'vue'
 import {matchesSearch} from '@/utils/searchMatching'
