@@ -38,6 +38,7 @@ class DiscussionMessage(Base):
     reply_to_id = mapped_column(BigInteger, ForeignKey('chat_discussion_message.id'))
     created_at = mapped_column(DateTime(timezone=True), nullable=False, default=category_now)
     recalled_at = mapped_column(DateTime(timezone=True))
+    edited_at = mapped_column(DateTime(timezone=True))
 
 
 class DiscussionMember(Base):

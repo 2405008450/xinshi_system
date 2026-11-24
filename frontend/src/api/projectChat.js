@@ -44,6 +44,8 @@ export const getProjectChatSettings = (projectId) => {
 
 export const recallProjectChatMessage = (projectId,messageId) => api.post(`/project-chat/${projectId}/messages/${messageId}/recall`).then(res=>convertKeys(res,toCamelCase))
 
+export const editProjectChatMessage = (projectId, messageId, data) => api.patch(`/project-chat/${projectId}/messages/${messageId}`, convertKeys(data, toSnakeCase)).then(res => convertKeys(res, toCamelCase))
+
 export const updateProjectChatSettings = (projectId, data) => {
   return api.post(`/project-chat/${projectId}/settings`, convertKeys(data, toSnakeCase)).then(res => convertKeys(res, toCamelCase))
 }

@@ -114,6 +114,11 @@ class MessageCreate(BaseModel):
         return value
 
 
+class MessageEdit(BaseModel):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+    content: str = Field(min_length=1, max_length=10000)
+
+
 class PreferenceWrite(BaseModel):
     model_config = ConfigDict(extra='forbid')
     pinned: bool | None = None
@@ -172,3 +177,8 @@ def recall(room_id: UUID, message_id: int, db=Depends(get_db), user=Depends(acto
     row.recalled_at = service.category_now()
     db.commit(); service.publish(db)
     return service.serialize(db, row, user)
+
+
+@router.patch('/{room_id}/messages/{message_id}')
+def edit(room_id: UUID, message_id: int, payload: MessageEdit, db=Depends(get_db), user=Depends(actor)):
+    return service.edit(db, user, room_id, message_id, payload)

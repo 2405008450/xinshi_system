@@ -16,7 +16,7 @@
           <div v-if="undisplayedMentions(message,currentUserId).length" class="discussion-chat__mention-recipients" aria-label="消息提及人员"><span v-for="item in undisplayedMentions(message,currentUserId)" :key="item.id" :class="{'discussion-mention-highlight':item.highlight}">{{ item.label }}</span></div>
           <ChatRecalledMessage v-if="message.recalledAt" :message="message" :can-reedit="recallDrafts.canReedit(message)" @reedit="reeditMessage" />
           <template v-else>
-            <div class="discussion-chat__message-main"><div class="discussion-chat__bubble" tabindex="0" data-message-menu-anchor @contextmenu="messageMenu?.open($event,message)" @keydown="messageMenu?.openKeyboard($event,message)"><blockquote v-if="message.reply"><span class="chat-quote-clamp">{{ message.reply.senderName }}：{{ screenshotPreview(message.reply.content) }}</span></blockquote><p><template v-for="(part,partIndex) in mentionParts(message,currentUserId)" :key="partIndex"><span :class="{'discussion-mention-highlight':part.highlight}"><template v-for="(seg,segIndex) in splitUrgentText(part.text.replace(/\[附件\]\(discussion-file:\/\/[0-9a-f-]{36}\)/gi,''))" :key="segIndex"><span v-if="seg.urgent" class="chat-urgent-badge">急</span><ScreenshotText v-else :text="seg.text" :chat-message-id="message.id" chat-kind="discussion" /></template></span></template></p><DiscussionFileReferences :text="message.content" :room-id="projectId" /></div>
+            <div class="discussion-chat__message-main"><div class="discussion-chat__bubble" tabindex="0" data-message-menu-anchor @contextmenu="messageMenu?.open($event,message)" @keydown="messageMenu?.openKeyboard($event,message)"><blockquote v-if="message.reply"><span class="chat-quote-clamp">{{ message.reply.senderName }}：{{ screenshotPreview(message.reply.content) }}</span></blockquote><ChatMessageInlineEditor v-if="editingMessageId === message.id" :message="message" :saving="editingSaving" :error="editingError" preserve-discussion-files @save="payload => saveEdit(message, payload)" @cancel="cancelEdit" /><template v-else><p><template v-for="(part,partIndex) in mentionParts(message,currentUserId)" :key="partIndex"><span :class="{'discussion-mention-highlight':part.highlight}"><template v-for="(seg,segIndex) in splitUrgentText(part.text.replace(/\[附件\]\(discussion-file:\/\/[0-9a-f-]{36}\)/gi,''))" :key="segIndex"><span v-if="seg.urgent" class="chat-urgent-badge">急</span><ScreenshotText v-else :text="seg.text" :chat-message-id="message.id" chat-kind="discussion" /></template></span></template></p><span v-if="message.editedAt" class="chat-edited-tag" :title="`已编辑于 ${chatMessageTime(message.editedAt)}`">已编辑</span></template><DiscussionFileReferences :text="message.content" :room-id="projectId" /></div>
             <button type="button" class="chat-message-more" aria-label="消息操作" @click="messageMenu?.open($event,message)">⋯</button></div>
             <ChatMessageActions :message="message" :current-user-id="currentUserId" :stats="messageInteractions.stats[message.id]" :views-available="messageInteractions.viewsAvailable.value" @acknowledge="acknowledge" @reply="quoteMessage" @references="(id,event)=>references.open(id,event)" />
           </template>
@@ -41,6 +41,7 @@
 import { useChatAutoScroll } from '@/composables/useChatAutoScroll'
 import {useChatDraft} from '@/composables/useChatDraft'
 import ChatRecalledMessage from './ChatRecalledMessage.vue'
+import ChatMessageInlineEditor from './ChatMessageInlineEditor.vue'
 import { useRecalledMessageDrafts } from '@/composables/useRecalledMessageDrafts'
 import { combineRecallDraft } from '@/utils/recallDrafts'
 import {quoteSpeakerMention,clearAutomaticQuoteMention} from '@/utils/quoteSpeakerMention'
@@ -109,6 +110,7 @@ const merge = rows => {
   for (const row of rows) map.set(row.id, row)
   messages.value = [...map.values()].sort((a, b) => BigInt(a.id) < BigInt(b.id) ? -1 : BigInt(a.id) > BigInt(b.id) ? 1 : 0)
   if (replyTo.value && map.get(replyTo.value.id)?.recalledAt) replyTo.value = null
+  if (editingMessageId.value && map.get(editingMessageId.value)?.recalledAt) { editingMessageId.value = ''; editingError.value = '' }
 }
 async function markRead() {
   const last = messages.value.at(-1)?.id
@@ -168,6 +170,32 @@ async function recall(message) {
   try { await ElMessageBox.confirm('撤回后其他用户将无法查看该消息，确定撤回？','确认撤回',{type:'warning',customClass:'chat-confirm-message-box'}); await recallDrafts.remember(message); const row = await chatRequest(`${base}/messages/${message.id}/recall`, { method: 'put' }); if (!disposed) merge([row]) }
   catch (e) { if (!disposed && e !== 'cancel' && e !== 'close') error.value = e.message }
 }
+const editingMessageId = ref(''), editingSaving = ref(false), editingError = ref('')
+function startEdit(message) {
+  if (!message || message.recalledAt || !message.canEdit) return
+  editingMessageId.value = message.id
+  editingError.value = ''
+}
+function cancelEdit() {
+  if (editingSaving.value) return
+  editingMessageId.value = ''
+  editingError.value = ''
+}
+async function saveEdit(message, payload) {
+  if (editingSaving.value || !message) return
+  editingSaving.value = true
+  editingError.value = ''
+  try {
+    const row = await chatRequest(`${base}/messages/${message.id}`, { method: 'patch', data: payload })
+    if (disposed) return
+    merge([row])
+    editingMessageId.value = ''
+  } catch (e) {
+    if (!disposed) editingError.value = e.detail || e.message || '编辑失败，请重试'
+  } finally {
+    editingSaving.value = false
+  }
+}
 async function reeditMessage(message) {
   if (sending.value || retryPayload.value) return ElMessage.warning('请先处理当前正在发送或发送失败的消息')
   const recovered = await recallDrafts.restore(message)
@@ -189,7 +217,7 @@ const acknowledge = message=>action(message,'acknowledgement',!message.isAcknowl
 const menuHandlers=computed(()=>({
   copy:async(message,excerpt)=>{if(!await copyTextToClipboard(excerpt||message.content))ElMessage.error('复制失败，请使用 Ctrl+C')},
   reply:quoteMessage,
-  favorite:message=>action(message,'favorite',!message.isFavorited),acknowledge,recall,
+  favorite:message=>action(message,'favorite',!message.isFavorited),acknowledge,edit:startEdit,recall,
   ...(technicalRoom.value?{technical:message=>technicalPanel.value.append(message)}:{}),
   ...(canCreateDevelopmentTask.value ? { 'development-task': createDevelopmentTask } : {}),
 }))
@@ -225,4 +253,5 @@ defineExpose({ openSearch: () => { searchOpen.value = true }, locate })
 
 <style scoped>
 .discussion-chat__mention-recipients{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 5px;color:#334155;font-size:12px}.is-own .discussion-chat__mention-recipients{justify-content:flex-end}.discussion-chat__mention-recipients span{padding:1px 7px;border-radius:10px;background:#e8eef6;color:#334155;font-weight:500}.discussion-chat__mention-recipients span.discussion-mention-highlight{background:#fef3c7;color:#92400e}
+.chat-edited-tag{display:inline-block;margin-top:4px;font-size:11px;color:#94a3b8}
 </style>

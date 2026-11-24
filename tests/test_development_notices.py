@@ -102,6 +102,40 @@ def test_api_permissions_are_isolated(store,monkeypatch):
         assert response.status_code==201,response.text
         assert client.get('/project-notices/invalid/tree').status_code==422
 
+
+def test_attachment_api_allows_readers_to_download_but_only_editors_can_write(store, monkeypatch):
+    db, editor, _ = store
+    reader = AppUser(id=uuid4(), username='notice-reader', full_name='只读用户', password_hash='unused', fixed_tasks=[])
+    db.add(reader)
+    db.commit()
+    section_id = create(db)['id']
+    path = f'/project-notices/development/sections/{section_id}/attachments'
+    monkeypatch.setattr(auth, 'get_user_permission_codes',
+                        lambda _db, user_id: ['talents:write'] if user_id == editor.id else [])
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_db] = lambda: db
+
+    content = b'notice attachment test'
+    with TestClient(app) as client:
+        app.dependency_overrides[auth.get_current_user] = lambda: editor
+        response = client.post(path, files={'file': ('notice.txt', content, 'text/plain')})
+        assert response.status_code == 201, response.text
+        attachment_id = response.json()['id']
+        download_path = f'{path}/{attachment_id}'
+
+        app.dependency_overrides[auth.get_current_user] = lambda: reader
+        assert client.get(path).json()[0]['id'] == attachment_id
+        downloaded = client.get(download_path)
+        assert downloaded.status_code == 200
+        assert downloaded.content == content
+        assert client.post(path, files={'file': ('notice.txt', content, 'text/plain')}).status_code == 403
+        assert client.delete(download_path).status_code == 403
+
+        app.dependency_overrides[auth.get_current_user] = lambda: editor
+        assert client.delete(download_path).status_code == 204
+        assert client.get(download_path).status_code == 404
+
 def test_new_tables_migration_is_idempotent(store):
     db,_,_=store
     from tools.apply_development_notices_migration import apply_migration

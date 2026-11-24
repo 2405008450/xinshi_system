@@ -205,6 +205,7 @@ function merge(rows) {
 
   selected.value = selected.value.filter(id => merged.has(id) && !merged.get(id).recalledAt)
   if (replyTo.value && merged.get(replyTo.value.id)?.recalledAt) replyTo.value = null
+  if (editingMessageId.value && merged.get(editingMessageId.value)?.recalledAt) { editingMessageId.value = ''; editingError.value = '' }
   const validImages = new Set(messages.value.flatMap(m => m.attachments || []).map(f => f.id))
   Object.keys(imageUrls).forEach(id => {
     if (!validImages.has(id)) {
@@ -344,6 +345,33 @@ async function recall(message) {
     await recallDrafts.remember(message, fileBlob)
     const data = await request(props.projectId, `messages/${message.id}/recall`, { method: 'post' }); merge([data]); await sync()
   } catch (e) { if (e !== 'cancel' && e !== 'close') ElMessage.error(detail(e)) }
+}
+const editingMessageId = ref(''), editingSaving = ref(false), editingError = ref('')
+function startEdit(message) {
+  if (!message || message.recalledAt || !message.canEdit) return
+  editingMessageId.value = message.id
+  editingError.value = ''
+}
+function cancelEdit() {
+  if (editingSaving.value) return
+  editingMessageId.value = ''
+  editingError.value = ''
+}
+async function saveEdit(message, payload) {
+  if (editingSaving.value || !message) return
+  editingSaving.value = true
+  editingError.value = ''
+  try {
+    const data = await request(props.projectId, `messages/${message.id}`, { method: 'patch', data: payload })
+    if (disposed) return
+    merge([data])
+    editingMessageId.value = ''
+    await sync()
+  } catch (e) {
+    if (!disposed) editingError.value = detail(e)
+  } finally {
+    editingSaving.value = false
+  }
 }
 async function reeditMessage(message) {
   if (sending.value || retryPayload.value) return ElMessage.warning('请先处理当前正在发送或发送失败的消息')
@@ -586,7 +614,7 @@ onBeforeUnmount(() => {
 })
 function openSearch() { searchOpen.value = !searchOpen.value }
 function onSearchLocate(messageId) { return locate(messageId) }
-provide('chatController', { recallDrafts, reeditMessage, contentTooLong, pendingImages, imageQueue, draft, props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, fileBlob, download, copy, replyTo, quoteMessage, cancelQuote, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, showExternalMentions, mentionExternalAvailable, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
+provide('chatController', { recallDrafts, reeditMessage, editingMessageId, editingSaving, editingError, startEdit, cancelEdit, saveEdit, contentTooLong, pendingImages, imageQueue, draft, props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, selectionMessage, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, fileBlob, download, copy, replyTo, quoteMessage, cancelQuote, favorite, acknowledge, recall, toProgress, mentionsMe, mentionParts, composer, sending, retryPayload, files, chooseFile, uploadFile, removeFile, input, content, mentionOpen, mentionListId, mentionQuery, mentionCandidates, showExternalMentions, mentionExternalAvailable, mentionIndex, onInput, closeMention, onKeydown, composing, finishComposition, paste, mentionMenu, mentionStyle, selectMention, cancelRetry, canSend, send, sendError, isDirect })
 defineExpose({ openSearch, locate, cancelLocate, toggleFilters: openSearch })
 </script>
 

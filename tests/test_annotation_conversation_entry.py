@@ -34,3 +34,31 @@ def test_department_member_can_join_existing_and_status_is_accurate(environment)
     assert after['joined'] and db.get(AnnotationChatMember,(row.id,outsider.id))
     start(row.id,db,outsider)
     assert db.query(AnnotationChatMember).filter_by(project_id=row.id,user_id=outsider.id).count()==1
+
+
+def test_any_authorized_viewer_can_self_join_existing_conversation(environment, monkeypatch):
+    db, (owner, member, outsider) = environment
+    import pytest
+    from fastapi import HTTPException
+    import annotation_chat_service as service
+    from routers.annotation_chat import start, conversation_status, conversation_capabilities, ConversationStatusRequest
+    from models import AnnotationChatMember
+    row = project(db, owner, 'AP-SELF-JOIN')
+    start(row.id, db, owner)
+    assert db.get(AnnotationChatMember, (row.id, outsider.id)) is None
+    caps = conversation_capabilities(db, outsider)
+    assert caps == {'can_create': True, 'can_join_existing': True}
+    payload = ConversationStatusRequest(project_ids=[row.id])
+    before = conversation_status(payload, db, outsider)['items'][0]
+    assert before['created'] and before['can_join'] and not before['joined']
+    start(row.id, db, outsider)
+    after = conversation_status(payload, db, outsider)['items'][0]
+    assert after['joined'] and db.get(AnnotationChatMember, (row.id, outsider.id)).following is True
+    # 无项目查看权限的用户仍禁止查看状态或自主入群。
+    monkeypatch.setattr(service, 'can_view', lambda _db, _user: False)
+    with pytest.raises(HTTPException) as status_denied:
+        conversation_status(payload, db, outsider)
+    assert status_denied.value.status_code == 403
+    with pytest.raises(HTTPException) as start_denied:
+        start(row.id, db, outsider)
+    assert start_denied.value.status_code == 403

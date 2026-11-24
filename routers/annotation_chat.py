@@ -19,6 +19,7 @@ from models import AnnotationChatMember, AppUser, ChatProjectMessage, ChatProjec
 from annotation_models import AnnotationProject
 from annotation_chat_conversation import AnnotationChatConversation, created_ids, ready as conversation_registry_ready
 from routers.auth import get_current_user
+from schemas import ProjectChatMessageEditRequest
 
 router = APIRouter(prefix='/annotation')
 
@@ -121,7 +122,8 @@ class ConversationStatusRequest(BaseModel):
 
 @router.get('/conversation-capabilities')
 def conversation_capabilities(db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
-    return {'can_create': service.can_view(db, user), 'can_join_existing': service.annotation_department_member(db, user)}
+    can_access = service.can_view(db, user)
+    return {'can_create': can_access, 'can_join_existing': can_access}
 
 
 @router.post('/conversation-status')
@@ -132,9 +134,8 @@ def conversation_status(payload: ConversationStatusRequest, db: Session = Depend
     projects = db.query(AnnotationProject.id).filter(AnnotationProject.id.in_(ids)).all()
     created = created_ids(db,ids)
     joined = created & {pid for pid, in db.query(AnnotationChatMember.project_id).filter(AnnotationChatMember.project_id.in_(ids), AnnotationChatMember.user_id == user.id)}
-    can_join = service.annotation_department_member(db, user)
     return {'items': [dict(project_id=pid, created=pid in created, joined=pid in joined,
-        can_join=pid in joined or can_join or pid not in created) for pid, in projects]}
+        can_join=True) for pid, in projects]}
 
 
 @router.post('/{project_id}/start')
@@ -143,11 +144,10 @@ def start(project_id: UUID, db: Session = Depends(get_db), user: AppUser = Depen
     if project_id in created_ids(db,[project_id]) and db.query(AnnotationChatMember).filter_by(project_id=project_id).first():
         from chat_access_service import is_member
         if not is_member(db, 'annotation', project_id, user):
-            if not service.annotation_department_member(db, user):
-                service.require_project(db, project_id, user)
             service.add_member(db, project_id, user.id, baseline=0)
             db.commit()
             service.publish(db, project_id, 'members')
+            service.notify_state(user.id, project_id)
         return {'project_id': project.id, 'created': True, 'joined': True}
     if db.query(ChatProjectMessage.id).filter_by(annotation_project_id=project_id).first():
         raise HTTPException(404, '历史会话尚未配置参与人，请联系管理员')
@@ -302,6 +302,12 @@ def sent(project_id: UUID, client_message_id: UUID, db: Session = Depends(get_db
 @router.post('/{project_id}/messages/{message_id}/recall')
 def recall(project_id: UUID, message_id: UUID, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     row = service.recall_message(db, project_id, message_id, user)
+    return service.serialize_many(db, [row], user)[0]
+
+
+@router.patch('/{project_id}/messages/{message_id}')
+def edit(project_id: UUID, message_id: UUID, payload: ProjectChatMessageEditRequest, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    row = service.edit_message(db, project_id, message_id, user, payload)
     return service.serialize_many(db, [row], user)[0]
 
 

@@ -1821,6 +1821,14 @@ class AnnotationProjectChatMessageCreate(BaseModel):
         return self
 
 
+class ProjectChatMessageEditRequest(BaseModel):
+    """编辑已发送的聊天消息正文；保留原引用、附件和提及关系。"""
+
+    content: str = Field(default='', max_length=10000)
+    content_json: Optional[dict] = None
+    model_config = ConfigDict(extra='forbid')
+
+
 class ProjectChatAttachmentResponse(BaseModel):
     id: UUID
     original_name: str
@@ -1863,6 +1871,8 @@ class ProjectChatMessageResponse(BaseModel):
     recalled_at: Optional[datetime] = None
     recall_label: Optional[str] = None
     can_recall: bool = False
+    edited_at: Optional[datetime] = None
+    can_edit: bool = False
     reply: Optional[dict] = None
     id: UUID
     project_id: UUID

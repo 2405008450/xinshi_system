@@ -37,6 +37,7 @@ from schemas import (
     ProjectChatAcknowledgementItemResponse,
     ProjectChatAcknowledgementResponse,
     ProjectChatMessageCreate,
+    ProjectChatMessageEditRequest,
     ProjectChatFavoriteResponse,
     ProjectChatMessageQueryResponse,
     ProjectChatMentionResponse,
@@ -129,7 +130,7 @@ def _serialize_message(
     current_user_id: UUID | None = None,
 ) -> ProjectChatMessageResponse:
     from chat_time import api_time
-    from annotation_chat_service import can_recall
+    from annotation_chat_service import can_recall, can_edit
     from chat_topic_service import message_metadata
     mention_rows = sorted(
         getattr(message, 'mentions', None) or [],
@@ -191,6 +192,8 @@ def _serialize_message(
         recalled_at=api_time(message.recalled_at),
         recall_label=message.recall_label,
         can_recall=can_recall(message,current_user_id),
+        edited_at=None if getattr(message, 'recalled_at', None) else api_time(getattr(message, 'edited_at', None)),
+        can_edit=can_edit(message, current_user_id),
         created_at=api_time(message.created_at),
         updated_at=api_time(message.updated_at),
         mentioned_user_id=mention.mentioned_user_id if mention else None,
@@ -330,6 +333,65 @@ def recall_translation_message(project_id: UUID, message_id: UUID, db: Session =
         from chat_access_service import member_ids
         broadcast_to_users(member_ids(db,'translation',project_id),{'type':'chat_sessions_changed'})
     return _serialize_message(row,'translation',None,current_user.id)
+
+
+@router.patch('/{project_id}/messages/{message_id}', response_model=ProjectChatMessageResponse)
+def edit_translation_message(
+    project_id: UUID,
+    message_id: UUID,
+    payload: ProjectChatMessageEditRequest,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(get_current_user),
+):
+    from chat_access_service import require_member, member_ids
+    from annotation_chat_service import can_edit, chat_now
+    from project_chat_crud import normalize_rich_text_json, rich_text_to_plain
+    from chat_time import api_time
+    from notification_ws import broadcast_to_users
+
+    require_member(db, 'translation', project_id, current_user)
+    _require_project(db, project_id)
+    row = db.query(ChatProjectMessage).filter_by(id=message_id, project_id=project_id).with_for_update().first()
+    if row is None:
+        raise HTTPException(404, '消息不存在')
+    if row.sender_user_id != current_user.id:
+        raise HTTPException(403, '不能编辑他人的消息')
+    if row.recalled_at:
+        raise HTTPException(409, '已撤回的消息不能编辑')
+    if not can_edit(row, current_user.id):
+        raise HTTPException(403, '只能编辑本人一小时内发送的普通消息')
+
+    if payload.content_json is not None:
+        next_json = normalize_rich_text_json(payload.content_json, chat_images=True)
+        next_content = (rich_text_to_plain(next_json) if next_json else (payload.content or '')).strip()
+    else:
+        next_json = None
+        next_content = (payload.content or '').strip()
+
+    if not next_content and not row.attachment_links:
+        raise HTTPException(422, '消息内容不能为空')
+
+    if next_content != row.content or next_json != row.content_json:
+        stamp = chat_now()
+        row.content = next_content
+        row.content_json = next_json
+        row.edited_at = stamp
+        row.updated_at = stamp
+        db.commit()
+        recipients = member_ids(db, 'translation', project_id)
+        broadcast_to_users(recipients, {
+            'type': 'chat_message_edited',
+            'projectId': str(project_id),
+            'projectType': 'translation',
+            'messageId': str(row.id),
+            'content': row.content,
+            'contentJson': row.content_json,
+            'editedAt': api_time(row.edited_at).isoformat() if row.edited_at else None,
+            'updatedAt': api_time(row.updated_at).isoformat() if row.updated_at else None,
+        })
+        broadcast_to_users(recipients, {'type': 'chat_sessions_changed'})
+    favorites = get_chat_message_favorite_times(db, [row.id], current_user.id)
+    return _serialize_message(row, 'translation', favorites.get(row.id), current_user.id)
 
 
 @router.post('/annotation/{project_id}/messages', response_model=ProjectChatMessageResponse, status_code=status.HTTP_201_CREATED)

@@ -15,9 +15,13 @@
           <div class="group-message-main">
           <div class="group-bubble" tabindex="0" data-message-menu-anchor :title="showMessageTime && timestampIndexes.has(index) ? chatMessageTime(message.createdAt) : ''" @contextmenu="messageMenu.open($event,message)" @keydown="messageMenu.openKeyboard($event,message)">
             <blockquote v-if="message.reply" class="group-reply"><span class="chat-quote-clamp">{{ message.reply.senderName }}：{{ screenshotPreview(message.reply.content) }}</span></blockquote>
-            <AnnotationCreationCard v-if="message.contentJson?.type==='annotation_creation'" :card="message.contentJson" :chat-message-id="message.id" />
-            <ScreenshotText v-else-if="screenshotIds(message.content).length" :text="message.content" :chat-message-id="message.id" />
-            <p v-else-if="message.content" class="group-content"><template v-for="(part, index) in mentionParts(message)" :key="index"><mark v-if="part.highlight">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></p>
+            <ChatMessageInlineEditor v-if="editingMessageId === message.id" :message="message" :saving="editingSaving" :error="editingError" @save="payload => saveEdit(message, payload)" @cancel="cancelEdit" />
+            <template v-else>
+              <AnnotationCreationCard v-if="message.contentJson?.type==='annotation_creation'" :card="message.contentJson" :chat-message-id="message.id" />
+              <ScreenshotText v-else-if="screenshotIds(message.content).length" :text="message.content" :chat-message-id="message.id" />
+              <p v-else-if="message.content" class="group-content"><template v-for="(part, index) in mentionParts(message)" :key="index"><mark v-if="part.highlight">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></p>
+            </template>
+            <span v-if="message.editedAt && editingMessageId !== message.id" class="chat-edited-tag" :title="`已编辑于 ${chatMessageTime(message.editedAt)}`">已编辑</span>
             <el-tag v-if="message.topicPath" size="small" effect="plain" class="group-topic-label">{{ message.topicPath }}</el-tag>
             <div v-if="message.mentions?.some(m => !message.content?.includes(`@${m.mentionedUserName}`))" class="group-mentions">{{ message.mentions.filter(m => !message.content?.includes(`@${m.mentionedUserName}`)).map(m => `@${m.mentionedUserName}`).join(' ') }}</div>
             <div v-for="file in message.attachments" :key="file.id" class="group-file">
@@ -49,12 +53,13 @@ import { screenshotIds } from '@/utils/screenshotReferences'
 import ChatMessageActions from './ChatMessageActions.vue'
 import ChatMessageReferences from './ChatMessageReferences.vue'
 import ChatRecalledMessage from './ChatRecalledMessage.vue'
+import ChatMessageInlineEditor from './ChatMessageInlineEditor.vue'
 import { chatAvatarText, chatDayKey, chatGroupStart, chatTimestampIndexes } from '@/utils/chatLayout'
 import { useChatTimeDisplay } from '@/composables/useChatTimeDisplay'
 const { formatMessageTime: chatMessageTime, formatMessageDay, showMessageTime, showMessageDates } = useChatTimeDisplay()
 const { props, interactions, messages, list, hasEarlier, loadingEarlier, loadEarlier, loading, currentUserId, selected, highlighted, observeMessage, onScroll, formatDateTime, locate, imageUrls, imageErrors, sizeLabel, loadImage, fileBlob, download, copy, replyTo, favorite, acknowledge, recall, mentionsMe, mentionParts, input, toProgress, quoteMessage } = inject('chatController')
 const timestampIndexes = computed(() => chatTimestampIndexes(messages.value))
-const { recallDrafts, reeditMessage } = inject('chatController')
+const { recallDrafts, reeditMessage, editingMessageId, editingSaving, editingError, startEdit, cancelEdit, saveEdit } = inject('chatController')
 const messageMenu = ref(), references = ref(), ackBusy = ref(new Set())
 async function confirmReceived(message) {
   if(ackBusy.value.has(message.id))return
@@ -62,7 +67,7 @@ async function confirmReceived(message) {
   try { await acknowledge(message) } finally { ackBusy.value.delete(message.id) }
 }
 const menuHandlers = {
-  copy, favorite, acknowledge, recall,
+  copy, favorite, acknowledge, edit: startEdit, recall,
   reply: async message => { await quoteMessage(message) },
   progress: (message, excerpt) => toProgress([{ ...message, content: excerpt || message.content }]),
   select: message => { if (!selected.value.includes(message.id)) selected.value.push(message.id) },
@@ -74,6 +79,7 @@ const menuHandlers = {
 .group-message--mentioned .group-bubble{background:var(--chat-bubble-mention-bg,#fef9ec);border-color:#f3d99b;border-left:3px solid var(--chat-bubble-mention-accent,#d97706)}.group-content mark{background:#fef3c7;color:#92400e;border-radius:4px;padding:0 3px;font-weight:500}
 .group-message-main{display:flex;align-items:center;gap:6px}.group-message--own .group-message-main{flex-direction:row-reverse}.group-message-main .group-bubble{margin-left:0;max-width:min(680px,calc(100% - 34px))}.group-bubble:focus-visible{outline:2px solid var(--el-color-primary-light-5);outline-offset:2px}
 .group-topic-label{margin-top:6px;max-width:100%;height:auto;white-space:normal;overflow-wrap:anywhere}
+.chat-edited-tag{display:inline-block;margin-top:4px;font-size:11px;color:#94a3b8}
 .group-message{position:relative;padding-left:42px;margin:14px 0}.group-message--own{padding-left:0;padding-right:0}.group-message--grouped{margin-top:-6px}.group-message-avatar{position:absolute;left:0;top:1px;display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:#e3ebf5;color:#3b526b;font-size:12.5px;font-weight:600;border:1px solid #d5e0ee}.group-date-divider{display:flex;align-items:center;justify-content:center;margin:18px 0}.group-date-divider>span{padding:2px 10px;border-radius:10px;background:#e8edf4;color:#64748b;font-size:11px;line-height:1.5}.group-message-meta{flex-wrap:wrap}.group-message-meta time{white-space:normal;overflow-wrap:anywhere}
 </style>
 

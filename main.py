@@ -497,6 +497,7 @@ CHAT_MESSAGE_COLUMN_STATEMENTS = (
     "ALTER TABLE chat_project_message ADD COLUMN IF NOT EXISTS message_type VARCHAR(30) NOT NULL DEFAULT 'user'",
     "ALTER TABLE chat_project_message ADD COLUMN IF NOT EXISTS content_json JSONB",
     "ALTER TABLE chat_project_message ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb",
+    "ALTER TABLE chat_project_message ADD COLUMN IF NOT EXISTS edited_at TIMESTAMP",
 )
 TRANSLATION_PROJECT_COLUMN_STATEMENTS = (
     "ALTER TABLE translation_project ADD COLUMN IF NOT EXISTS major_project_manager_confirmation VARCHAR(255)",
@@ -815,11 +816,13 @@ def ensure_project_file_detail_columns():
 
 def ensure_chat_message_columns():
     inspector = inspect(engine)
-    if "chat_project_message" not in inspector.get_table_names():
-        return
+    table_names = set(inspector.get_table_names())
     with engine.begin() as conn:
-        for statement in CHAT_MESSAGE_COLUMN_STATEMENTS:
-            conn.execute(text(statement))
+        if "chat_project_message" in table_names:
+            for statement in CHAT_MESSAGE_COLUMN_STATEMENTS:
+                conn.execute(text(statement))
+        if "chat_discussion_message" in table_names:
+            conn.execute(text("ALTER TABLE chat_discussion_message ADD COLUMN IF NOT EXISTS edited_at TIMESTAMP WITH TIME ZONE"))
 
 
 def ensure_translation_project_columns():

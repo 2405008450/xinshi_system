@@ -60,7 +60,9 @@ def serialize_many(db, rows, user):
         data = _serialize_message(row, 'direct', favorites.get(row.id), user.id).model_dump()
         data.update(sequence_no=row.sequence_no, client_message_id=row.client_message_id,
             recalled_at=row.recalled_at, recall_label=row.recall_label,
-            can_recall=group_service.can_recall(row, user.id), reply=None)
+            can_recall=group_service.can_recall(row, user.id),
+            edited_at=None if row.recalled_at else row.edited_at,
+            can_edit=group_service.can_edit(row, user.id), reply=None)
         reply = replies.get(row.reply_to_message_id)
         if reply and reply.direct_conversation_id == row.direct_conversation_id:
             data['reply'] = {'id': reply.id, 'sender_name': reply.sender_name,
@@ -147,6 +149,30 @@ def recall_message(db, project_id, message_id, user):
     from chat_message_notifications import settle_notifications
     settle_notifications(db, 'direct', project_id, message=message)
     db.commit(); publish(db, project_id, 'recall', message.id)
+    return message
+
+
+def edit_message(db, project_id, message_id, user, payload):
+    require_project(db, project_id, user, lock=True)
+    message = message_query(db, project_id).filter_by(id=message_id).with_for_update().populate_existing().first()
+    if not message:
+        raise HTTPException(404, '消息不存在')
+    if message.sender_user_id != user.id:
+        raise HTTPException(403, '不能编辑他人的消息')
+    if message.recalled_at:
+        raise HTTPException(409, '已撤回的消息不能编辑')
+    if not group_service.can_edit(message, user.id):
+        raise HTTPException(403, '只能编辑本人一小时内发送的普通消息')
+    next_content = (payload.content or '').strip()
+    if not next_content and not message.attachment_links:
+        raise HTTPException(422, '消息内容不能为空')
+    if next_content != message.content:
+        stamp = now().replace(tzinfo=None)
+        message.content = next_content
+        message.edited_at = stamp
+        message.updated_at = stamp
+        db.commit()
+        publish(db, project_id, 'edit', message.id)
     return message
 
 

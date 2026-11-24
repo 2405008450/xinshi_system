@@ -26,7 +26,8 @@ async function join(){
   if(status.value?.error){refresh(props.projectId);return}
   busy.value=true
   try{
-    if(!status.value.joined)await annotationChatRequest(props.projectId,'start',{method:'post'})
+    const wasJoined=Boolean(status.value.joined)
+    if(!wasJoined)await annotationChatRequest(props.projectId,'start',{method:'post'})
     await refreshSessions()
     let session=sessions.value.find(row=>row.key===`annotation:${props.projectId}`)
     if(!session){await annotationChatRequest(props.projectId,'following',{method:'put',data:{following:true}});await refreshSessions();session=sessions.value.find(row=>row.key===`annotation:${props.projectId}`)}
@@ -34,8 +35,8 @@ async function join(){
     revealSession(target)
     refresh(props.projectId)
     emit('joined',target)
-    if(status.value.joined)openChat(target)
-    ElMessage.success('已加入会话列表')
+    if(wasJoined || props.inline)openChat(target)
+    if(!wasJoined)ElMessage.success('已加入会话列表')
   }catch(e){ElMessage.error(e.detail || '创建／加入会话失败')}
   finally{busy.value=false}
 }

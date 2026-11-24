@@ -112,9 +112,24 @@ def test_file_mail_and_environment_reads_stay_on_lan(uri):
     assert route("GET", uri) == "lan"
 
 
-def test_switch_off_routes_everything_to_lan():
+def test_switch_off_keeps_ordinary_queries_on_lan():
     assert route("GET", "/api/talents/page", split="off") == "lan"
     assert route("GET", "/api/projects/translation/page", split="off") == "lan"
+
+
+def test_development_notice_attachments_use_cloud_without_lan_fallback():
+    rule = re.search(r"location ~ (\^/api/project-notices/development/\S+) \{(.*?)\n        \}", TEXT, re.S)
+    pattern, body = rule.groups()
+    base = "/api/project-notices/development/sections/s1"
+    for path in ("/attachments", "/attachments/a1", "/attachments/a1/"):
+        assert re.search(pattern, base + path)
+    for path in (base, base + "/content", base + "/attachments-extra",
+                 "/api/project-notices/translation/sections/s1/attachments/a1"):
+        assert not re.search(pattern, path)
+    assert "proxy_pass https://xinshi_cloud_api;" in body
+    assert "proxy_ssl_verify on;" in body
+    assert "proxy_next_upstream off;" in body
+    assert "error_page" not in body
 
 
 def test_thoughts_ai_submit_poll_and_cancel_use_same_backend():

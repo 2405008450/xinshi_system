@@ -2,7 +2,6 @@
   <DraggableFormDialog v-model="visible" width="min(1600px, calc(100vw - 32px))" top="5vh" append-to-body class="development-dialog development-batch-dialog" destroy-on-close :close-on-click-modal="false" :close-on-press-escape="!saving" :before-close="beforeClose">
     <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" class="batch-entry-header" title="新增资源开拓 · 表格录入" placeholder="搜索字段或行号" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch"><template #actions><el-button v-if="options.can_configure" :disabled="saving" @click="languageDialogRef.open()">增加语言/方言</el-button><TableColumnSettings v-model="selectedFields" :settings-key="fieldSettingsKey" :columns="batchFields" :column-count="2" title="录入字段" hint="勾选显示字段；隐藏不会清空已填内容。保存时自动展开缺失的必填项。" @reset="resetFields" /></template></DialogFieldSearchHeader></template>
     <div ref="bodyRef">
-      <p class="muted">每行一位资源；方向键或 Tab 切换单元格，下拉框保留原有按键操作。点击该行右侧“复制”，在弹窗中选择要新增的行数；可删除任意未保存行。</p>
       <AppForm ref="formRef" :model="model" :disabled="saving" label-position="top" @submit.prevent>
         <div class="batch-grid-scroll">
           <table class="batch-grid" @keydown="handleTableArrowNavigation"><thead ref="columnHeaderRef"><tr><th class="batch-index">序号</th><th v-for="field in visibleFields" :key="field.key" :data-column-key="field.key" class="batch-field-header" title="拖动表头调整字段顺序" :style="{ minWidth: `${field.width}px` }">{{ field.label }}</th><th class="batch-row-actions">操作</th></tr></thead>
@@ -43,8 +42,9 @@
           </table>
         </div>
       </AppForm>
+      <p class="muted batch-entry-help">每行一位资源。方向键或 Tab 切换单元格，下拉框保留原有按键操作。可复制或删除未保存行。保存后成功行移出，失败行保留供修改。</p>
     </div>
-    <template #footer><span class="muted">逐行保存；成功行移出，失败行保留内容供修改。</span><el-button :disabled="saving" @click="visible = false">取消</el-button><el-button type="primary" :disabled="!model.rows.length" :loading="saving" @click="save">保存全部</el-button></template>
+    <template #footer><el-button :disabled="saving" @click="visible = false">取消</el-button><el-button type="primary" :disabled="!model.rows.length" :loading="saving" @click="save">保存全部</el-button></template>
   </DraggableFormDialog>
   <DraggableFormDialog v-model="copyVisible" :title="`复制第 ${copySourceIndex + 1} 行`" width="min(420px, calc(100vw - 32px))" append-to-body destroy-on-close :close-on-click-modal="false">
     <AppForm ref="copyFormRef" :model="copyForm" label-position="top" @submit.prevent="confirmCopy">
@@ -102,7 +102,9 @@ function readFields() {
     if (raw === null) return resetFields()
     const keys = JSON.parse(raw)
     if (!Array.isArray(keys)) throw new Error('invalid settings')
-    selectedFields.value = keys.filter(key => batchFields.value.some(field => field.key === key))
+    const fields = batchFields.value.filter(field => keys.includes(field.key))
+    if (!fields.length) return resetFields()
+    selectedFields.value = fields.map(field => field.key)
   } catch { resetFields() }
 }
 watch(selectedFields, keys => {
@@ -200,7 +202,13 @@ defineExpose({ open })
 .batch-field-header:active { cursor: grabbing; }
 .batch-entry-header :deep(.dialog-field-search-header__heading){flex:1 1 auto;min-width:0}
 .batch-entry-header :deep(.dialog-field-search-header__extra){margin-left:auto;margin-right:auto}
-@media(max-width:768px){.batch-entry-header :deep(.dialog-field-search-header__extra){margin-left:0;margin-right:0}}
+.batch-entry-help{margin:10px 0 0}
+:global(.el-dialog.development-batch-dialog > .el-dialog__body){padding-block:12px}
+@media(max-width:768px){
+  :global(.el-dialog.development-batch-dialog > .el-dialog__header){padding:32px 12px 8px}
+  .batch-entry-header{gap:8px;padding-right:0}
+  .batch-entry-header :deep(.dialog-field-search-header__extra){margin-left:0;margin-right:0}
+}
 .batch-grid-scroll{overflow:auto;max-height:60vh;border:1px solid var(--el-border-color)}
 .batch-grid{border-collapse:separate;border-spacing:0;width:max-content;min-width:100%;font-size:13px}
 .batch-grid th,.batch-grid td{padding:6px 8px;vertical-align:top;border-right:1px solid var(--el-border-color-lighter);border-bottom:1px solid var(--el-border-color-lighter);background:var(--el-bg-color)}

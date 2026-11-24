@@ -330,7 +330,8 @@ Nginx 由 `SYSTEM` 计划任务启动。SSH 管理员会话直接执行 `nginx -
 
 | 请求 | 去向 |
 | --- | --- |
-| POST/PUT/PATCH/DELETE 等全部写操作、HEAD/OPTIONS | 本机 8000 |
+| 开拓须知的 `/api/project-notices/development/sections/{id}/attachments` 及其附件详情路径 | 云端 HTTPS，独立于只读分流开关 |
+| 其余 POST/PUT/PATCH/DELETE 等写操作、HEAD/OPTIONS | 本机 8000 |
 | `/api/notifications/ws`（通知推送随写操作所在进程） | 本机 8000 |
 | GET `/api/auth`、`/push`、`/health`、`/mail-settings`、`/project-mails`、`/mail-inline-images`、`/editor-screenshots` | 本机 8000 |
 | GET `/api/projects/annotation/office/*` | 本机 8000 |
@@ -351,9 +352,15 @@ Nginx 由 `SYSTEM` 计划任务启动。SSH 管理员会话直接执行 `nginx -
 3. 上游证书信任文件 `E:\xinshi_system\.conda_env\Lib\site-packages\certifi\cacert.pem` 存在（httpx 依赖的 certifi 公共 CA 包）。该文件在配置加载时读取，**开关为 `off` 时也必须存在**，否则 `nginx -t` 失败；因此更新本配置后务必先执行 `nginx -t`，通过后才能重启 Nginx。
 4. 局域网服务器能直连 `43.132.156.72:443`。
 
-**切换与回退**：备份当前 `nginx-lan.conf`，把开关改为 `on` 后，按上一节方式执行 `nginx -t` 并通过 `XinshiLanProductionFrontend` 计划任务重启 Nginx；局域网后端与云端均无需重启。回退时把开关改回 `default off;`（全部 `/api` 回到本机 8000），校验后同样重启 Nginx。云端网关不可连接或超时时，GET 查询会自动回退本机（`lan-fallback`），但这不能替代上述回退步骤。
+**切换与回退**：备份当前 `nginx-lan.conf`，把开关改为 `on` 后，按上一节方式执行 `nginx -t` 并通过 `XinshiLanProductionFrontend` 计划任务重启 Nginx；局域网后端与云端均无需重启。回退时把开关改回 `default off;`，普通 GET 查询恢复到本机 8000，校验后同样重启 Nginx。云端网关不可连接或超时时，已分流的普通 GET 查询会自动回退本机（`lan-fallback`），但这不能替代上述回退步骤。
 
 **已知边界**：通知 WebSocket 仍是各后端进程内存实现，云端入口与局域网入口的用户之间互相收不到对方触发的实时推送，此行为与分流前一致。云端 `/api/` 读取超时为 30 秒，超长查询应优化 SQL，而不是改回局域网。
+
+## 开拓须知附件存储
+
+局域网入口将开拓须知附件的列表、上传、下载和删除统一转发至云端，由云端校验用户凭证及业务权限，并读写 `PROJECT_NOTICE_UPLOAD_DIR/development` 持久化卷。云端不可用时请求直接失败，以免文件重新分散。公告正文和其他板块附件继续走原有路由。
+
+云端网关和前端代理需同时为上传接口保留 `22m` 请求体上限，后端继续执行 20 MB 文件上限。迁移局域网历史附件时按数据库 `storage_name` 和 `file_size` 核对，保留记录 ID，复制前后验证 SHA-256，同名内容不一致时停止覆盖并核查。局域网原件保留为迁移备份。
 
 ## 公网生产 HTTPS 入口
 

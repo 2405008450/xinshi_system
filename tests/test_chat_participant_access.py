@@ -55,7 +55,7 @@ def project(db, owner, number='AP-261021-001'):
     return row
 
 
-def test_defaults_shared_new_chat_only_and_nonparticipant_cannot_join_existing(environment):
+def test_defaults_shared_new_chat_only_and_viewer_can_self_join_existing(environment):
     db, (owner, member, outsider) = environment
     import chat_default_participant_service as defaults
     import annotation_chat_service as service
@@ -67,13 +67,13 @@ def test_defaults_shared_new_chat_only_and_nonparticipant_cannot_join_existing(e
     start(row.id, db, owner)
     assert {uid for uid, in db.query(AnnotationChatMember.user_id).filter_by(project_id=row.id)} == {owner.id, member.id}
     assert {user['id'] for user in group(row.id, db, owner)['members']} == {owner.id, member.id}
-    with pytest.raises(HTTPException) as denied:
-        start(row.id, db, outsider)
-    assert denied.value.status_code == 404
     with pytest.raises(HTTPException):
         service.require_project(db, row.id, outsider)
     defaults.save(db, owner, [outsider.id])
     assert db.get(AnnotationChatMember, (row.id, outsider.id)) is None
+    assert start(row.id, db, outsider)['joined'] is True
+    assert db.get(AnnotationChatMember, (row.id, outsider.id)) is not None
+    service.require_project(db, row.id, outsider)
     other = project(db, owner, 'AP-261021-002')
     start(other.id, db, owner)
     assert db.get(AnnotationChatMember, (other.id, outsider.id)) is not None

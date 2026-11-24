@@ -1017,6 +1017,7 @@ class ChatProjectMessage(Base):
     recalled_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     recalled_by: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid)
     recall_label: Mapped[Optional[str]] = mapped_column(String(500))
+    edited_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     annotation_project: Mapped[Optional['AnnotationProject']] = relationship('AnnotationProject', back_populates='chat_messages')
     sender: Mapped[Optional['AppUser']] = relationship('AppUser', back_populates='chat_sent_messages')
     mentions: Mapped[list['ChatProjectMention']] = relationship('ChatProjectMention', back_populates='message', cascade='all, delete-orphan')

@@ -24,6 +24,8 @@ export function buildMessageMenu(message, { handlers = {}, currentUserId = '', c
   if (normal && text && annotationProgress) items.push({id:'annotation-progress',label:'添加进度',icon:'progress',submenu:true,separator:true})
   else if (text && canProgress && handlers.progress) items.push({ id: 'progress', label: excerpt ? '添加选中内容为进度' : '添加为进度', icon: 'progress', separator: true })
   if (text && canProgress && handlers.select) items.push({ id: 'select', label: selecting ? '选择这条消息' : '多选', icon: 'select' })
-  if (normal && message.senderUserId === currentUserId && message.canRecall && handlers.recall) items.push({ id: 'recall', label: '撤回', icon: 'recall', danger: true, separator: true })
+  const canEditOwn = normal && message.senderUserId === currentUserId && message.canEdit && handlers.edit
+  if (canEditOwn) items.push({ id: 'edit', label: '编辑', icon: 'edit', separator: true })
+  if (normal && message.senderUserId === currentUserId && message.canRecall && handlers.recall) items.push({ id: 'recall', label: '撤回', icon: 'recall', danger: true, separator: !canEditOwn })
   return items
 }

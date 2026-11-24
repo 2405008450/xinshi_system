@@ -19,7 +19,7 @@
 <script setup>
 import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { CopyDocument, ChatLineRound, Star, CircleCheck, PriceTag, DocumentAdd, CirclePlus, Select, Delete, TrendCharts, User, UserFilled, Refresh, ChatDotRound, Checked, List, Warning, Bell, Tickets } from '@element-plus/icons-vue'
+import { CopyDocument, ChatLineRound, Star, CircleCheck, PriceTag, DocumentAdd, CirclePlus, Select, Delete, EditPen, TrendCharts, User, UserFilled, Refresh, ChatDotRound, Checked, List, Warning, Bell, Tickets } from '@element-plus/icons-vue'
 import { useResourceIssues } from '@/composables/useResourceIssues'
 import { issueCategories } from '@/utils/resourceIssues'
 import { buildMessageMenu, clampMessageMenu, nativeMessageContextSelector } from '@/utils/chatMessageMenu'
@@ -29,7 +29,7 @@ import { hasPermission } from '@/utils/permission'
 const props = defineProps({ currentUserId: {type:String,default:''}, handlers:{type:Object,default:()=>({})}, projectType:String,projectId:[String,Number],canProgress:Boolean, selecting:Boolean, messages:{type:Array,default:()=>[]}, active:{type:Boolean,default:true} })
 const { access, collect, refreshIssueAccess } = useResourceIssues()
 const instanceId = getCurrentInstance().uid
-const icons = {copy:CopyDocument,reply:ChatLineRound,favorite:Star,acknowledge:CircleCheck,classify:PriceTag,collect:DocumentAdd,progress:CirclePlus,technical:DocumentAdd,select:Select,recall:Delete}
+const icons = {copy:CopyDocument,reply:ChatLineRound,favorite:Star,acknowledge:CircleCheck,classify:PriceTag,collect:DocumentAdd,progress:CirclePlus,technical:DocumentAdd,select:Select,edit:EditPen,recall:Delete}
 const categoryIcons = {arrangement:Refresh,request:DocumentAdd,idea:ChatDotRound,decision:Checked,execution:List,problem:Warning,risk:Bell,standard:Tickets}
 const visible=ref(false), message=ref(null), excerpt=ref(''), menuRef=ref(), submenuRef=ref(), topicRef=ref(), submenu=ref('')
 const position=reactive({left:0,top:0}), subPosition=reactive({left:0,top:0})
@@ -95,7 +95,7 @@ async function activate(item,event) {
     await nextTick(); topicRef.value?.openAt(anchor)
     return
   }
-  close(!['reply','progress','select','recall'].includes(item.id))
+  close(!['reply','progress','select','recall','edit'].includes(item.id))
   try { await props.handlers[item.id]?.(row,text) } catch(e) { ElMessage.error(e.detail || e.message || '操作失败，请重试') }
 }
 function collectIssue(category) { const id=message.value.id; close(); collect(id,category,props.projectType==='discussion'?props.projectId:null) }

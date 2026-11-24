@@ -11,7 +11,7 @@ from database import get_db
 from models import AppUser, ChatDirectMember, ChatProjectMessage
 from routers.auth import get_current_user
 from routers.annotation_chat import ReadRequest, RefreshRequest
-from schemas import AnnotationProjectChatMessageCreate
+from schemas import AnnotationProjectChatMessageCreate, ProjectChatMessageEditRequest
 from chat_common_handlers import chat_timeline, upload_chat_file
 from chat_history_search import search_chat_history
 from chat_time import api_time
@@ -81,6 +81,11 @@ def read(project_id: UUID, payload: ReadRequest, db: Session = Depends(get_db), 
 @router.post('/{project_id}/messages/{message_id}/recall')
 def recall(project_id: UUID, message_id: UUID, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
     return service.serialize_many(db, [service.recall_message(db, project_id, message_id, user)], user)[0]
+
+
+@router.patch('/{project_id}/messages/{message_id}')
+def edit(project_id: UUID, message_id: UUID, payload: ProjectChatMessageEditRequest, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    return service.serialize_many(db, [service.edit_message(db, project_id, message_id, user, payload)], user)[0]
 
 
 @router.get('/{project_id}/history')

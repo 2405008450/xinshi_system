@@ -178,8 +178,20 @@
                   <div class="chat-conversation-item__bubble-row">
                     <div class="chat-bubble" :class="{ 'chat-bubble--own': item.isOwn }" tabindex="0" data-message-menu-anchor @contextmenu="messageMenuRef.open($event,item.message)" @keydown="messageMenuRef.openKeyboard($event,item.message)">
                       <blockquote v-if="item.message.reply" class="group-reply"><span class="chat-quote-clamp">{{ item.message.reply.senderName }}：{{ item.message.reply.content }}</span></blockquote>
-                      <div><div v-if="textOnly" class="chat-bubble__text"><ScreenshotText :text="item.message.content" :chat-message-id="item.message.id" /></div>
-                      <ScreenshotText v-else-if="screenshotIds(item.message.content).length && !richTextHasImages(item.message.contentJson)" :text="item.message.content" :chat-message-id="item.message.id" /><RichTextContent v-else :document="highlightedMentionDocument(item.message)" :fallback="item.message.content" :chat-message-id="item.message.id" /></div>
+                      <ChatMessageInlineEditor
+                        v-if="editingMessageId === String(item.message.id)"
+                        :message="item.message"
+                        :saving="editingSaving"
+                        :error="editingError"
+                        :rich-text="!textOnly && Boolean(item.message.contentJson)"
+                        @save="payload => saveEditMessage(item.message, payload)"
+                        @cancel="cancelEditMessage"
+                      />
+                      <template v-else>
+                        <div><div v-if="textOnly" class="chat-bubble__text"><ScreenshotText :text="item.message.content" :chat-message-id="item.message.id" /></div>
+                        <ScreenshotText v-else-if="screenshotIds(item.message.content).length && !richTextHasImages(item.message.contentJson)" :text="item.message.content" :chat-message-id="item.message.id" /><RichTextContent v-else :document="highlightedMentionDocument(item.message)" :fallback="item.message.content" :chat-message-id="item.message.id" /></div>
+                        <span v-if="item.message.editedAt" class="chat-edited-tag" :title="`已编辑于 ${chatMessageTime(item.message.editedAt)}`">已编辑</span>
+                      </template>
                       <el-tag v-if="item.message.topicPath" size="small" effect="plain" class="chat-visible-topic">{{ item.message.topicPath }}</el-tag>
                       <div v-if="item.message.attachments?.length" class="message-attachments">
                         <div v-for="attachment in item.message.attachments" :key="attachment.id" class="message-attachment">
@@ -298,11 +310,23 @@
                   <button type="button" class="chat-message-more" aria-label="消息操作" @click.stop="messageMenuRef.open($event,message)">⋯</button>
                 </div>
               </div>
-              <div
-                v-if="textOnly"
-                class="chat-message-card__content"
-              ><ScreenshotText :text="message.content" :chat-message-id="message.id" /></div>
-              <ScreenshotText v-else-if="screenshotIds(message.content).length && !richTextHasImages(message.contentJson)" :text="message.content" :chat-message-id="message.id" /><RichTextContent v-else :document="message.contentJson" :fallback="message.content" :chat-message-id="message.id" />
+              <ChatMessageInlineEditor
+                v-if="editingMessageId === String(message.id)"
+                :message="message"
+                :saving="editingSaving"
+                :error="editingError"
+                :rich-text="!textOnly && Boolean(message.contentJson)"
+                @save="payload => saveEditMessage(message, payload)"
+                @cancel="cancelEditMessage"
+              />
+              <template v-else>
+                <div
+                  v-if="textOnly"
+                  class="chat-message-card__content"
+                ><ScreenshotText :text="message.content" :chat-message-id="message.id" /></div>
+                <ScreenshotText v-else-if="screenshotIds(message.content).length && !richTextHasImages(message.contentJson)" :text="message.content" :chat-message-id="message.id" /><RichTextContent v-else :document="message.contentJson" :fallback="message.content" :chat-message-id="message.id" />
+                <span v-if="message.editedAt" class="chat-edited-tag" :title="`已编辑于 ${chatMessageTime(message.editedAt)}`">已编辑</span>
+              </template>
               <div v-if="message.metadata?.tasks?.length" class="handover-task-list">
                 <div v-for="task in message.metadata.tasks" :key="task.workflowInstanceId">
                   <strong>{{ task.orderNo }}</strong>
@@ -544,6 +568,7 @@
 import ChatDesktopPresence from '@/components/chat/ChatDesktopPresence.vue'
 import { useDesktopPresence } from '@/composables/useDesktopPresence'
 import ChatRecalledMessage from './chat/ChatRecalledMessage.vue'
+import ChatMessageInlineEditor from './chat/ChatMessageInlineEditor.vue'
 import { useRecalledMessageDrafts } from '@/composables/useRecalledMessageDrafts'
 import { combineRecallDraft } from '@/utils/recallDrafts'
 import { mentionAudience } from '@/utils/mentionAudience'
@@ -578,6 +603,7 @@ import { ensureConnected, subscribe } from '@/utils/realtimeSocket'
 import {
   acknowledgeProjectChatMessage,
   createProjectChatMessage,
+  editProjectChatMessage,
   recallProjectChatMessage,
   favoriteProjectChatMessage,
   getProjectChatAttachmentBlob,
@@ -806,6 +832,7 @@ const selectedProgressCharacterCount = computed(() => selectedProgressMessages.v
 const allProgressMessagesSelected = computed(() => eligibleProgressMessages.value.length > 0 && selectedProgressMessages.value.length === eligibleProgressMessages.value.length)
 let pollTimer = null
 let unsubscribeChatMessage = null
+let unsubscribeChatMessageEdited = null
 let unsubscribeChatAcknowledgement = null
 let unsubscribeSocketConnected = null
 let newerMessageNoticeShown = false
@@ -870,7 +897,62 @@ const handleAddSelectedToProgress = () => {
 }
 
 const closeProgressTextMenu = () => messageMenuRef.value?.close()
+const editingMessageId = ref('')
+const editingSaving = ref(false)
+const editingError = ref('')
+
+const startEditMessage = (message) => {
+  if (!message || message.recalledAt || !message.canEdit) return
+  editingMessageId.value = String(message.id)
+  editingError.value = ''
+}
+
+const cancelEditMessage = () => {
+  if (editingSaving.value) return
+  editingMessageId.value = ''
+  editingError.value = ''
+}
+
+const applyEditedMessageLocally = (messageId, patch) => {
+  const targetId = String(messageId)
+  const target = messages.value.find(item => String(item.id) === targetId)
+  if (target) Object.assign(target, patch)
+  const preview = String(patch.content || '').slice(0, 200) || '[附件]'
+  for (const item of messages.value) {
+    if (item.reply && String(item.reply.id) === targetId) {
+      item.reply = { ...item.reply, content: preview }
+    }
+  }
+}
+
+const saveEditMessage = async (message, payload) => {
+  if (editingSaving.value || !message) return
+  editingSaving.value = true
+  editingError.value = ''
+  try {
+    const updated = await editProjectChatMessage(props.projectId, message.id, payload)
+    applyEditedMessageLocally(message.id, updated)
+    editingMessageId.value = ''
+  } catch (e) {
+    editingError.value = getLocalizedErrorMessage(e, '编辑失败，请重试')
+  } finally {
+    editingSaving.value = false
+  }
+}
+
+const handleRealtimeChatMessageEdited = (event) => {
+  if (!event || String(event.projectId) !== String(props.projectId)) return
+  if (event.projectType && event.projectType !== props.projectType) return
+  applyEditedMessageLocally(event.messageId, {
+    content: event.content,
+    contentJson: event.contentJson,
+    editedAt: event.editedAt,
+    updatedAt: event.updatedAt,
+  })
+}
+
 const messageMenuHandlers = {
+  edit: startEditMessage,
   recall: async message=>{
     try{await ElMessageBox.confirm('撤回后其他用户将无法查看该消息，确定撤回？','确认撤回',{type:'warning',customClass:'chat-confirm-message-box'});await recallDrafts.remember(message, file=>getProjectChatAttachmentBlob(file.id));Object.assign(message,await recallProjectChatMessage(props.projectId,message.id))}
     catch(e){if(e!=='cancel'&&e!=='close')ElMessage.error(e.message||'撤回失败')}
@@ -1706,6 +1788,7 @@ onMounted(() => {
   window.addEventListener('focus', scheduleRead)
   ensureUsersLoaded()
   unsubscribeChatMessage = subscribe('chat_message', handleRealtimeChatMessage)
+  unsubscribeChatMessageEdited = subscribe('chat_message_edited', handleRealtimeChatMessageEdited)
   unsubscribeChatAcknowledgement = subscribe('chat_message_acknowledgement', handleRealtimeChatAcknowledgement)
   unsubscribeSocketConnected = subscribe('connected', handleSocketConnected)
   ensureConnected()
@@ -1719,6 +1802,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('focus', scheduleRead)
   clearComposerImages()
   unsubscribeChatMessage?.()
+  unsubscribeChatMessageEdited?.()
   unsubscribeChatAcknowledgement?.()
   unsubscribeSocketConnected?.()
   clearPolling()
@@ -1728,6 +1812,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .chat-bubble:focus-visible,.chat-message-card:focus-visible{outline:2px solid var(--el-color-primary-light-5);outline-offset:2px}
+.chat-edited-tag{display:inline-block;margin-top:4px;font-size:11px;color:#94a3b8}
 .project-chat-panel {
   position: relative;
   display: flex;

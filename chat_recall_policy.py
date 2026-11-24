@@ -10,3 +10,7 @@ def can_recall_own(sender_id, user_id, created_at, recalled_at=None, current=Non
     if current.tzinfo is None:
         current = current.replace(tzinfo=BUSINESS_TIMEZONE)
     return timedelta(0) <= current - created <= timedelta(hours=1)
+
+
+def can_edit_own(sender_id, user_id, created_at, recalled_at=None, current=None):
+    return can_recall_own(sender_id, user_id, created_at, recalled_at=recalled_at, current=current)

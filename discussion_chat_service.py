@@ -182,12 +182,14 @@ def serialize(db, row, user, *, admin=None, replies=None, mention_cache=None, ac
         created = created.replace(tzinfo=BUSINESS_TIMEZONE)
     from discussion_mentions import serialize as mentions
     mention_rows = [] if row.recalled_at else mention_cache.get(row.id,[]) if mention_cache is not None else mentions(db,row.id)
-    from chat_recall_policy import can_recall_own
+    from chat_recall_policy import can_recall_own, can_edit_own
     from discussion_message_actions import load
     actions = {} if row.recalled_at else (action_cache if action_cache is not None else load(db,[row.id],user.id)).get(row.id,{})
     return dict(**actions,mentions=mention_rows,metadata={'mention_all':any(item['is_all'] for item in mention_rows)},id=str(row.id), sequence_no=str(row.id), sender_user_id=str(row.sender_id), sender_name=row.sender_name,
         content='' if row.recalled_at else row.content, created_at=business_iso(row.created_at),
         recalled_at=business_iso(row.recalled_at), can_recall=can_recall_own(row.sender_id,user.id,row.created_at,row.recalled_at),
+        edited_at=None if row.recalled_at else business_iso(row.edited_at),
+        can_edit=can_edit_own(row.sender_id,user.id,row.created_at,row.recalled_at),
         reply=dict(id=str(reply.id), sender_name=reply.sender_name, content='消息已撤回' if reply.recalled_at else reply.content[:200])
               if reply and not row.recalled_at and reply.room_id == row.room_id else None)
 
@@ -252,6 +254,32 @@ def send(db, user, room_id, payload):
     from project_chat_crud import _push_notifications
     _push_notifications(notifications)
     publish(db)
+    return serialize(db, row, user)
+
+
+def edit(db, user, room_id, message_id, payload):
+    require_room(db, user, room_id)
+    row = db.query(Message).filter_by(id=message_id, room_id=room_id).with_for_update().first()
+    if not row:
+        raise HTTPException(404, '消息不存在')
+    if row.sender_id != user.id:
+        raise HTTPException(403, '不能编辑他人的消息')
+    if row.recalled_at:
+        raise HTTPException(409, '已撤回的消息不能编辑')
+    from chat_recall_policy import can_edit_own
+    if not can_edit_own(row.sender_id, user.id, row.created_at, row.recalled_at):
+        raise HTTPException(403, '只能编辑本人一小时内发送的普通消息')
+    next_content = (payload.content or '').strip()
+    if not next_content:
+        raise HTTPException(422, '消息内容不能为空')
+    from discussion_chat_files import validate_files
+    validate_files(db, user, room_id, next_content)
+    if next_content != row.content:
+        row.content = next_content
+        row.edited_at = category_now()
+        db.commit()
+        db.refresh(row)
+        publish(db)
     return serialize(db, row, user)
 
 
