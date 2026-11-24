@@ -991,6 +991,7 @@ def create_annotation_project(
     record_project_operation(
         db, project_type="annotation", operation_type="create", project=project,
         actor_user_id=created_by, operation_source=operation_source,
+        snapshot_extra={'work_report_required': True} if operation_source == 'project_form' else None,
     )
     auto_count = 0
     if not parent:

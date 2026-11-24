@@ -204,23 +204,36 @@ def test_load_owned_images_rejects_other_users_and_total_limit():
         load_owned_images(_ImageDb(rows), image_ids, owner)
 
 
-@pytest.mark.parametrize("allow_bound", [False, True])
-def test_load_images_accepts_ten_and_rejects_eleven_images(allow_bound):
+def test_load_owned_images_allows_more_than_five_and_preserves_order():
     owner = uuid4()
-    image_ids = [uuid4() for _ in range(10)]
-    rows = [SimpleNamespace(id=image_id, uploaded_by=owner, file_size=1024) for image_id in image_ids]
+    ids = [uuid4() for _ in range(12)]
+    rows = [SimpleNamespace(id=identifier, uploaded_by=owner, file_size=1024) for identifier in reversed(ids)]
+    assert [row.id for row in load_owned_images(_ImageDb(rows), ids, owner)] == ids
+    assert [row.id for row in load_owned_or_bound_images(
+        _AuthorizedImageDb(rows, []), ids, owner, scope_type='business_mail', scope_id=uuid4())] == ids
 
-    def load(ids):
-        if allow_bound:
-            return load_owned_or_bound_images(
-                _AuthorizedImageDb(rows, []), ids, owner,
-                scope_type="manuscript_arrangement", scope_id=uuid4(),
-            )
-        return load_owned_images(_ImageDb(rows), ids, owner)
 
-    assert load(image_ids) == rows
-    with pytest.raises(ValueError, match="最多插入 10 张"):
-        load([*image_ids, uuid4()])
+def test_image_lists_still_reject_duplicates():
+    identifier = uuid4()
+    with pytest.raises(ValueError, match='不能重复'):
+        load_owned_images(_ImageDb([]), [identifier, identifier], uuid4())
+    with pytest.raises(ValueError, match='不能重复'):
+        load_owned_or_bound_images(_AuthorizedImageDb([], []), [identifier, identifier], uuid4(),
+                                  scope_type='business_mail', scope_id=uuid4())
+
+
+def test_mail_request_schemas_allow_more_than_five_images():
+    from business_mail_schemas import BusinessMailSendRequest
+    from daily_report_mail_schemas import DailyReportMailSendRequest
+    from mail_inline_image_schemas import InlineImagePayload
+    from routers.consultations import ConsultationConfirmationFields
+    ids = [uuid4() for _ in range(12)]
+    project = BusinessMailSendRequest(project_type='translation', project_id=uuid4(),
+        source_kind='project_manual', to_user_ids=[uuid4()], subject='测试邮件', body='正文',
+        idempotency_key='twelve-images', inline_image_ids=ids)
+    daily = DailyReportMailSendRequest(subject='日报', rows=[], idempotency_key='twelve-images', inline_image_ids=ids)
+    confirmation = ConsultationConfirmationFields(expected_order_no='TP-261124-001', inline_image_ids=ids)
+    assert all(item.inline_image_ids == ids for item in (project, daily, confirmation, InlineImagePayload(inline_image_ids=ids)))
 
 
 def test_bound_image_can_be_reused_by_another_authorized_sender():

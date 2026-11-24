@@ -882,7 +882,7 @@
           </template>
 
           <template v-else-if="isInterpretationConsultationType(form.consultation_type)">
-            <el-form-item label="项目类型" prop="project_intake.project_types"><el-select v-model="form.project_intake.project_types" multiple style="width:100%"><el-option v-for="item in interpretationTypeOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
+            <el-form-item label="项目类型" prop="project_intake.project_types"><div style="display:flex;align-items:center;gap:12px;width:100%"><el-select v-model="form.project_intake.project_types" multiple style="flex:1;min-width:0"><el-option v-if="form.project_intake.project_types?.includes('escort')" label="陪同口译（历史类型）" value="escort" disabled /><el-option v-for="item in interpretationTypeOptions" :key="item.value" :label="item.label" :value="item.value" /></el-select><InterpretationTypeHelp /></div></el-form-item>
             <el-form-item label="具体任务"><el-input v-model="form.project_intake.task_description" type="textarea" :rows="2" /></el-form-item>
             <el-form-item label="地点" prop="project_intake.locations">
               <el-input v-model="interpretationLocationText" clearable placeholder="请输入地点，如：广州" />
@@ -1309,7 +1309,8 @@
 
 <script setup>
 import {pairedProjectTypes} from "@/utils/annotationPaired"
-
+import { projectTypeOptions as interpretationTypeOptions } from '@/utils/interpretationProjectDetail'
+import InterpretationTypeHelp from '@/components/interpretation/InterpretationTypeHelp.vue'
 import ClientContactNamesEditor from '@/components/common/ClientContactNamesEditor.vue'
 import ConsultationFailureReasonDialog from '@/components/common/ConsultationFailureReasonDialog.vue'
 import ClientNameGuidance from '@/components/common/ClientNameGuidance.vue'
@@ -1929,14 +1930,7 @@ const isSupportedProjectType = (value) => (
   isTranslationConsultationType(value) || isInterpretationConsultationType(value)
   || isAnnotationConsultationType(value) || isRecruitmentConsultationType(value)
 )
-const interpretationTypeOptions = [
-  { value: 'onsite', label: '现场口译' }, { value: 'booth', label: '展会摊位口译' },
-  { value: 'exhibition_escort', label: '展会陪同口译' }, { value: 'escort', label: '陪同口译' },
-  { value: 'small_business_meeting', label: '小型商务会议口译' }, { value: 'consecutive', label: '会议交传口译' },
-  { value: 'small_non_business_meeting', label: '小型（非商务）会议口译' },
-  { value: 'simultaneous', label: '会议同传口译' }, { value: 'online_meeting', label: '线上会议口译' },
-  { value: 'online_simultaneous', label: '线上同传口译' },
-]
+
 const annotationTypeOptions = [
   ...pairedProjectTypes,
   { value: 'audio_collection', label: '音频采集' },

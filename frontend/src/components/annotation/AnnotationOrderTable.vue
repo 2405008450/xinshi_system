@@ -79,7 +79,7 @@
       </div></template>
     </el-table-column>
     <el-table-column label="订单号" :width="nested || rows.some(row => row.parentProjectId) ? 220 : 176" :fixed="nested ? false : 'left'"><template #header><slot name="header" :column="{key:'orderNo',label:'订单号'}" /></template><template #default="{ row }"><slot name="order" :row="row" :toggle="() => tableRef.toggleRowExpansion(row)" /></template></el-table-column>
-    <el-table-column v-for="column in columns" :key="column.key" :prop="column.key" :label="column.label" show-sub-client :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="!['projectName','projectStatus'].includes(column.key)">
+    <el-table-column v-for="column in columns" :key="column.key" :prop="column.key" :label="column.label" show-sub-client :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="!['projectName','projectStatus','taskDescription'].includes(column.key)">
       <template #header><slot name="header" :column="column" /></template><template #default="{ row }"><slot name="cell" :row="row" :column="column" /></template>
     </el-table-column>
     <el-table-column v-if="!deleteMode" :label="conversationPicker ? pickerActionLabel : '操作'" :width="PROJECT_LIST_COLUMN_WIDTHS.actions" fixed="right" align="center"><template #default="{ row }"><slot name="actions" :row="row" /></template></el-table-column>

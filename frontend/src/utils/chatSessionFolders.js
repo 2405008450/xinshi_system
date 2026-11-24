@@ -1,4 +1,5 @@
 import defaults from '../../../data/chat_session_folders.json'
+import companyChatRooms from '../../../data/company_chat_rooms.json'
 import { sessionListKey } from './chatSessionList.js'
 import { annotationStatusLabels, normalizeAnnotationStatus } from './annotationStatus.js'
 
@@ -7,6 +8,15 @@ export const annotationStatusGroupId = 'annotation:statuses'
 export const resourceFolderId = defaults.find(row => row.ruleKey === 'resource').id
 export const technicalFolderId = defaults.find(row => row.ruleKey === 'technical').id
 export const resourceDiscussionIds = defaults.filter(row => row.parentKey === resourceFolderId).map(row => row.id)
+
+export function placeCompanyConversations(roots) {
+  const conversations = companyChatRooms.flatMap(name => roots.filter(row => row.isConversation && row.name === name))
+  const conversationIds = new Set(conversations.map(row => row.id))
+  const remaining = roots.filter(row => !conversationIds.has(row.id))
+  const resourceIndex = remaining.findIndex(row => row.id === resourceFolderId)
+  remaining.splice(resourceIndex < 0 ? remaining.length : resourceIndex + 1, 0, ...conversations)
+  return remaining
+}
 export function sessionFolderNodes(items = [], { technicalAccess = false } = {}) {
   const builtins = defaults.filter(row => !row.parentKey && (row.id !== technicalFolderId || technicalAccess)).map(row => ({ ...row, builtin: true, active: true, assignable: false }))
   const statusGroup = {

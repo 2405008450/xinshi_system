@@ -362,6 +362,34 @@ def test_interpretation_preview_uses_business_labels_instead_of_internal_values(
     assert str(source_language_id) not in preview["body"]
 
 
+@pytest.mark.parametrize('emergency', [False, True])
+@pytest.mark.parametrize('contacts_visible', [False, True])
+def test_interpretation_preview_omits_contacts_and_places_remarks_fourth(monkeypatch, emergency, contacts_visible):
+    monkeypatch.setattr(business_mail_service, 'policy_recipients', lambda *_: ([], []))
+    monkeypatch.setattr(business_mail_service, 'resolve_project_sender', lambda *_: (None, {}))
+    db = SimpleNamespace(info={'client_contacts_visible': contacts_visible})
+    preview = build_preview(db, 'interpretation', emergency_notice=emergency, source={
+        'order_no': 'IP-261123-001', 'project_name': '测试项目', 'client_short_name': '测试客户',
+        'manager_contact': '13800009999', 'customer_order_no': '客户标识',
+        'project_types': ['business_escort'], 'time_ranges': ['2026-11-23'],
+        'locations': ['广州'], 'language_directions': ['中英'], 'required_interpreter_count': 1,
+        'remarks': '重点要求\n第二行说明',
+    })
+    assert preview['body'].splitlines()[:5] == [
+        '项目类型：口译', '订单号：IP-261123-001', '项目名称：测试项目',
+        '补充说明：重点要求', '第二行说明',
+    ]
+    assert preview['body'].count('重点要求') == 1
+    assert '13800009999' not in preview['body'] + preview['subject'] + preview['body_html']
+    assert '客户经理联系方式' not in preview['body']
+    assert not preview['missing_fields']
+
+
+def test_saved_interpretation_project_source_includes_remarks():
+    project = SimpleNamespace(remarks='保存的补充说明', time_ranges=[], language_directions=[])
+    assert business_mail_service._project_source('interpretation', project)['remarks'] == '保存的补充说明'
+
+
 def test_annotation_preview_uses_chinese_types_and_readable_languages(monkeypatch):
     source_language_id = uuid4()
     db = _InterpretationPreviewDb([

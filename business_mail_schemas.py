@@ -95,7 +95,7 @@ class BusinessMailSendRequest(BaseModel):
     subject: str = Field(min_length=1, max_length=1000)
     body: str = Field(min_length=1, max_length=50000)
     body_html: Optional[str] = Field(default=None, max_length=100000)
-    inline_image_ids: list[UUID] = Field(default_factory=list, max_length=5)
+    inline_image_ids: list[UUID] = Field(default_factory=list)
     idempotency_key: str = Field(min_length=8, max_length=100, pattern=r"^[A-Za-z0-9._:-]+$")
 
     @field_validator("subject")

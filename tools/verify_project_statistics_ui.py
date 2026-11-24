@@ -42,6 +42,7 @@ const module=new URLSearchParams(location.search).get('module');const app=create
             page.get_by_role('button',name='数据统计',exact=True).click()
             dialog=page.locator('.translation-statistics-dialog:visible')
             expect(dialog).to_contain_text(label+'项目 · 数据统计')
+            dialog.get_by_role('tab',name='周期概览',exact=True).click()
             expect(dialog.locator('.statistics-overview')).to_contain_text('33.33%')
             assert requests[-1][0]==module and 'tax_basis' not in requests[-1][1]
             expect(dialog.get_by_text('总金额（按币种）',exact=True)).to_have_count(0)

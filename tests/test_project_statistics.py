@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from models import Client, SubClient
 from tests.test_chat_participant_access import environment
-from project_statistics import MODELS, report, project_day, router
+from project_statistics import MODELS, report, project_day, project_period_bounds, router, INTERPRETATION_STATUSES
 
 
 def client(db, name):
@@ -90,3 +90,50 @@ def test_routes_require_project_access(environment):
     app=FastAPI();app.include_router(router)
     response=TestClient(app).get('/project-statistics/recruitment?start=2026-11-01&end=2026-11-30')
     assert response.status_code in (401,403)
+
+
+@pytest.mark.parametrize('granularity', ['week', 'month', 'quarter', 'all'])
+def test_interpretation_status_counts_shares_and_merge(environment, granularity):
+    db, _ = environment
+    c = client(db, '状态客户')
+    for index, status in enumerate(INTERPRETATION_STATUSES):
+        add(db, 'interpretation', c, date(2026,11,2), suffix=f'{index:03}', project_status=status)
+    add(db, 'interpretation', c, date(2026,9,30), project_status='in_progress')
+    db.commit()
+    args = dict(start=date(2026,11,2), end=date(2026,11,8), granularity=granularity)
+    result = report(db, 'interpretation', **args)
+    row = result['periods'][0]
+    assert result['order_count'] == 8
+    assert row['order_count'] == sum(item['count'] for item in row['status_counts'].values()) == 8
+    assert all(item == {'count':1, 'share':12.5} for item in row['status_counts'].values())
+    merged = report(db, 'interpretation', merge_deal_statuses=True, **args)
+    values = merged['periods'][0]['status_counts']
+    assert values['deal_merged'] == {'count':4, 'share':50}
+    assert 'in_progress' not in values and 'ended' not in values
+    assert sum(item['count'] for item in values.values()) == 8
+    assert sum(item['share'] for item in values.values()) == 100
+
+
+def test_all_dates_ignores_range_keeps_client_filter_and_unknown_status(environment):
+    db, _ = environment
+    c, other = client(db, '历史客户'), client(db, '其他客户')
+    add(db, 'interpretation', c, date(2019,12,31), project_status='legacy-status')
+    add(db, 'interpretation', c, date(2026,11,2), project_status='settled')
+    add(db, 'interpretation', other, date(2026,11,2), project_status='settled',suffix='002')
+    db.commit()
+    result = report(db, 'interpretation', start=date(2026,11,1), end=date(2026,11,3),
+        granularity='all', all_dates=True, client_keyword='历史 客户')
+    assert result['start'] == '2019-12-31' and result['end'] == '2026-11-02'
+    assert len(result['periods']) == 1 and result['order_count'] == 2
+    assert result['periods'][0]['status_counts']['legacy-status'] == {'count':1,'share':50}
+    empty = report(db, 'interpretation', start=date(2026,11,1), end=date(2026,11,3),
+        granularity='all', all_dates=True, client_keyword='不存在')
+    assert empty['order_count'] == 0
+    assert all(item == {'count':0,'share':0} for item in empty['periods'][0]['status_counts'].values())
+
+
+def test_quarter_bounds_and_week_year_boundary():
+    start, end = date(2026,1,1), date(2026,12,31)
+    assert project_period_bounds(date(2026,12,31), 'quarter', start, end) == (date(2026,10,1), date(2026,12,31))
+    assert project_period_bounds(date(2026,4,1), 'quarter', start, end) == (date(2026,4,1), date(2026,6,30))
+    assert project_period_bounds(date(2026,1,1), 'week', start, end) == (date(2025,12,29), date(2026,1,4))

@@ -51,18 +51,10 @@
 
       <el-tabs v-model="activeSection" type="border-card" class="workbench-tabs">
         <el-tab-pane v-if="canViewTasks" name="my-tasks" label="我的任务与思考" lazy>
-          <section class="my-tasks-upper" aria-label="我的任务上方区域：今日任务">
-            <TodayTasks :day="dailyReportDate" />
+          <section class="my-tasks-upper" aria-label="我的项目任务">
+            <TodayTasks :day="dailyReportDate" @open-project="handleOpenProject" />
           </section>
           <el-collapse v-model="personalSections" class="personal-work-sections">
-            <el-collapse-item title="我的项目任务" name="projects">
-              <el-collapse v-model="projectGroupsExpanded">
-                <el-collapse-item v-for="group in personalProjectGroups" :key="group.key" :name="group.key">
-                  <template #title>{{group.label}}<span v-if="projectGroupCounts[group.key]!==undefined">（{{projectGroupCounts[group.key]}}）</span></template>
-                  <MyProjectTaskGroup v-if="personalSections.includes('projects')&&projectGroupsExpanded.includes(group.key)" :group="group.key" @count-change="projectGroupCounts[group.key]=$event" @open-project="handleOpenProject" />
-                </el-collapse-item>
-              </el-collapse>
-            </el-collapse-item>
             <el-collapse-item title="我的非项目任务" name="non-project">
               <UnifiedTasksPanel v-if="personalSections.includes('non-project')" fixed-source="non_project" :current-user-name="currentUserName" :current-user-id="currentUserId" :items="workItems" :reference-date="scheduleDate" @refresh="loadMyWorkItems" />
             </el-collapse-item>
@@ -206,10 +198,8 @@ import { isDefaultVisibleWorkItem } from '@/utils/workItemScope'
 
 const UnifiedTasksPanel = defineAsyncComponent(() => import('./components/UnifiedTasksPanel.vue'))
 const TodayTasks = defineAsyncComponent(() => import('./components/TodayTasks.vue'))
-const MyProjectTaskGroup = defineAsyncComponent(() => import('./components/MyProjectTaskGroup.vue'))
 const MyThoughts = defineAsyncComponent(() => import('./components/MyThoughts.vue'))
-const personalSections=ref(['projects','non-project','thoughts']),projectGroupsExpanded=ref(['translation']),projectGroupCounts=ref({})
-const personalProjectGroups=[{key:'translation',label:'笔译项目'},{key:'interpretation',label:'口译项目'},{key:'annotation',label:'标注项目'},{key:'recruitment',label:'招聘项目'}]
+const personalSections=ref(['non-project','thoughts'])
 const DailyReportPanel = defineAsyncComponent(() => import('./components/DailyReportPanel.vue'))
 const ReceivedWorkReports = defineAsyncComponent(() => import('./components/ReceivedWorkReports.vue'))
 const canReceiveReports=ref(false)

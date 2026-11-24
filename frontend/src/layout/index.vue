@@ -74,6 +74,8 @@
           </el-breadcrumb>
         </div>
         <div class="header-right">
+          <span id="page-header-actions" class="page-header-actions" />
+          <FinanceWorkReportEntry v-if="showFinanceSettings" />
           <el-dropdown v-if="showFinanceSettings" @command="openFinanceSetting" @visible-change="loadFinancePermissions">
             <el-button text :icon="Setting" aria-label="财务设置">设置</el-button>
             <template #dropdown>
@@ -187,6 +189,7 @@ import { getStatementAccess } from '@/api/statementAccess'
 const route = useRoute()
 const router = useRouter()
 const showFinanceSettings = computed(() => route.path.startsWith('/finance-management'))
+const FinanceWorkReportEntry=defineAsyncComponent(()=>import('@/components/common/FinanceWorkReportEntry.vue'))
 const InvoiceSettingsDialog = defineAsyncComponent(() => import('@/components/common/InvoiceSettingsDialog.vue'))
 const InvoiceSubjectSettingsDialog = defineAsyncComponent(() => import('@/components/common/InvoiceSubjectSettingsDialog.vue'))
 const CustomerStatementSettings = defineAsyncComponent(() => import('@/components/common/CustomerStatementSettings.vue'))
@@ -916,3 +919,4 @@ const handleLogout = async () => {
 </style>
 
 <style scoped>.system-section-navigation{margin-bottom:8px}</style>
+<style scoped>.page-header-actions{display:inline-flex;align-items:center}.page-header-actions:empty{display:none}</style>

@@ -13,12 +13,12 @@
         :http-request="({ file }) => addFile(file)"
         accept="image/jpeg,image/png,image/webp"
         multiple
-        :disabled="uploading || images.length >= MAX_IMAGE_COUNT"
+        :disabled="uploading"
       >
         <el-button size="small" :loading="uploading">插入图片</el-button>
       </el-upload>
-      <span>支持选择、粘贴或拖拽；单张 2MB，最多 {{ MAX_IMAGE_COUNT }} 张，合计 8MB</span>
-      <strong>{{ images.length }}/{{ MAX_IMAGE_COUNT }} · {{ formattedTotalSize }}</strong>
+      <span>支持选择、粘贴或拖拽；单张 2MB，合计 8MB</span>
+      <strong>{{ images.length }} 张 · {{ formattedTotalSize }}</strong>
     </div>
     <EditorContent
       v-if="editor"
@@ -46,7 +46,6 @@ import {
 
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024
 const MAX_TOTAL_BYTES = 8 * 1024 * 1024
-const MAX_IMAGE_COUNT = 10
 const MAX_EDGE = 1920
 
 const props = defineProps({
@@ -171,11 +170,6 @@ async function addFile(file) {
   setBusy(true)
   try {
     while (fileQueue.length) {
-      if (props.images.length >= MAX_IMAGE_COUNT) {
-        fileQueue.splice(0)
-        ElMessage.warning(`每封邮件最多插入 ${MAX_IMAGE_COUNT} 张图片`)
-        break
-      }
       const nextFile = fileQueue.shift()
       try {
         const compressed = await compressImage(nextFile)
@@ -209,14 +203,14 @@ function handlePaste(event) {
     .map(item => item.getAsFile()).filter(Boolean)
   if (!files.length) return
   event.preventDefault()
-  files.slice(0, MAX_IMAGE_COUNT - props.images.length).forEach(addFile)
+  files.forEach(addFile)
 }
 
 function handleDrop(event) {
   dragging.value = false
   if (props.readonly) return
   const files = [...(event.dataTransfer?.files || [])].filter(file => file.type.startsWith('image/'))
-  files.slice(0, MAX_IMAGE_COUNT - props.images.length).forEach(addFile)
+  files.forEach(addFile)
 }
 
 async function removeDraftOnServer(id) {

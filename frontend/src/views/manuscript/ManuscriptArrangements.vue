@@ -958,14 +958,22 @@
       </div>
     </el-card>
 
-    <el-card class="panel-card records-panel">
+    <el-card class="panel-card records-panel" :class="{ 'is-collapsed': recordsPanelCollapsed }">
       <template #header>
         <div class="panel-header">
           <div>
-            <h2>稿件安排记录</h2>
-            <span>点击记录可在上方查看译员派稿信息，展开后查看每位译员的分工与发送结果</span>
+            <h2>
+              <button class="records-panel-toggle" type="button"
+                :aria-expanded="!recordsPanelCollapsed"
+                :aria-label="recordsPanelCollapsed ? '展开稿件安排记录' : '收起稿件安排记录'"
+                @click="recordsPanelCollapsed = !recordsPanelCollapsed">
+                <span class="project-panel-chevron" :class="{ 'is-collapsed': recordsPanelCollapsed }" aria-hidden="true" />
+                稿件安排记录
+              </button>
+            </h2>
+            <span>{{ recordsPanelCollapsed ? '点击标题展开记录' : '点击记录可在上方查看译员派稿信息，展开后查看每位译员的分工与发送结果' }}</span>
           </div>
-          <div class="panel-tools">
+          <div v-show="!recordsPanelCollapsed" class="panel-tools">
             <el-input
               v-model="dispatchKeyword"
               size="small"
@@ -2131,6 +2139,7 @@ const quickTranslatorRules = {
 const manuscriptLayoutUserKey = localStorage.getItem('user_id') || localStorage.getItem('user_name') || 'anonymous'
 const projectPanelStorageKey = `manuscript_project_panel_collapsed:${manuscriptLayoutUserKey}`
 const projectPanelCollapsed = ref(false)
+const recordsPanelCollapsed = ref(true)
 try {
   projectPanelCollapsed.value = localStorage.getItem(projectPanelStorageKey) === '1'
 } catch {}
@@ -4601,6 +4610,31 @@ onBeforeUnmount(() => {
 
 .records-panel :deep(.el-card__header) {
   padding: 6px 12px;
+}
+
+.records-panel.is-collapsed :deep(.el-card__body) {
+  display: none;
+}
+
+.records-panel-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.records-panel-toggle:hover {
+  color: var(--el-color-primary);
+}
+
+.records-panel-toggle:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 3px;
 }
 
 .dispatch-records-pagination {

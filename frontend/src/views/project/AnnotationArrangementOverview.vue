@@ -153,7 +153,7 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column v-for="column in visibleTableColumns" :key="column.key" :label="column.label" :prop="column.key" :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="!['orderNo','projectStatus','arrangementStatus'].includes(column.key)">
+            <el-table-column v-for="column in visibleTableColumns" :key="column.key" :label="column.label" :prop="column.key" :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="!['orderNo','projectStatus','arrangementStatus','taskDescription'].includes(column.key)">
               <template #default="{ row }">
                 <AnnotationProjectDetailPopover v-if="column.key === 'orderNo'" :project-id="row.id" :summary="row" :editable="canWrite">
                   <template #reference><el-button type="primary" link class="overview-order-link" @click.stop>{{ row.orderNo }}</el-button></template>
@@ -161,9 +161,8 @@
                 <el-button v-else-if="column.key === 'projectStatus'" type="primary" link @click="openProjectProgress(row)">
                   <el-tag :type="statusType(row.projectStatus)" effect="plain">{{ statusLabel(row.projectStatus) }}</el-tag>
                 </el-button>
-                <el-tooltip v-else-if="column.key === 'taskDescription'" :content="textValue(row.taskDescription)" placement="top" :disabled="!row.taskDescription">
-                  <span class="ellipsis-cell">{{ textValue(row.taskDescription) }}</span>
-                </el-tooltip>
+                <ProjectTaskPopover v-else-if="column.key==='taskDescription'" :row="row" module="annotation"
+                  :editable="canWrite" @saved="updated=>Object.assign(row,updated)" />
                 <span v-else-if="column.key === 'projectTypes'">{{ projectTypesText(row.projectTypes) }}</span>
                 <el-tag v-else-if="column.key === 'priority'" :type="priorityType(row.priority)" size="small">{{ priorityLabel(row.priority) }}</el-tag>
                 <el-tag v-else-if="column.key === 'arrangementStatus'" :type="row.arrangementStatus === 'arranged' ? 'success' : 'warning'">
@@ -276,7 +275,7 @@
 
 <script setup>
 import {pairedProjectTypes} from "@/utils/annotationPaired"
-
+import ProjectTaskPopover from '@/components/common/ProjectTaskPopover.vue'
 import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'

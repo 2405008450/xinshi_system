@@ -20,10 +20,20 @@ with sync_playwright() as p:
  browser=p.chromium.launch(channel='msedge');page=browser.new_page(viewport={'width':1250,'height':1000});errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
  page.add_init_script("localStorage.setItem('user_id','qa')");page.route(re.compile(r'^http://localhost:3000/api/'),api);page.route(BASE+'/simple-count-test',lambda r:r.fulfill(content_type='text/html',body=html))
  page.goto(BASE+'/simple-count-test');page.get_by_role('button',name='简单需求',exact=True).click();dialog=page.locator('.simple-requirement-dialog:visible');expect(dialog).to_be_visible()
- dialog.get_by_role('button',name='统计工作量',exact=True).click();expect(dialog.locator('.word-count-inline')).to_be_visible()
+ expect(dialog.get_by_role('button',name='统计工作量',exact=True)).to_have_count(0)
+ dialog.locator('label.el-radio').filter(has_text=re.compile('^不收费$')).click()
+ expect(dialog.locator('.word-count-inline')).to_have_count(0)
+ dialog.locator('label.el-radio').filter(has_text=re.compile('^收费$')).click()
+ expect(dialog.locator('.word-count-inline')).to_be_visible()
+ dialog.locator('.word-count-inline input[aria-label="我司统计 字数"]').fill('99')
+ dialog.locator('label.el-radio').filter(has_text=re.compile('^不收费$')).click()
+ expect(dialog.locator('.word-count-inline')).to_have_count(0)
+ expect(dialog.get_by_role('button',name='统计工作量',exact=True)).to_have_count(0)
+ dialog.locator('label.el-radio').filter(has_text=re.compile('^收费$')).click()
+ expect(dialog.locator('.word-count-inline input[aria-label="我司统计 字数"]')).to_have_value('')
  dialog.locator('.word-count-inline input[aria-label="我司统计 字数"]').fill('20');dialog.locator('.word-count-inline input[aria-label="客户统计 字数"]').fill('18')
  assert not writes
- dialog.locator('textarea').nth(0).fill('测试简单需求');dialog.locator('textarea').nth(1).fill('Simple requirement test');dialog.get_by_text('不收费',exact=True).click()
+ dialog.locator('textarea').nth(0).fill('测试简单需求');dialog.locator('textarea').nth(1).fill('Simple requirement test')
  dialog.get_by_role('button',name='保存需求',exact=True).click()
  expect(dialog.locator('.requirement-added-counts')).to_contain_text('已加入简单需求工作量');assert len(writes)==1
  assert writes[0]['word_count_matrix']['company']['words']==20 and writes[0]['word_count_matrix']['customer']['words']==18

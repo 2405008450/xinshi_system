@@ -9,8 +9,8 @@ const progressUtility = readFileSync(new URL('../src/utils/annotationProgress.js
 
 test('具体任务列默认展示但不再绕过安排池', () => {
   assert.match(page, /defaultColumns = \[[^\]]*'taskDescription'/)
-  assert.match(page, /column\.key === 'taskDescription'/)
-  assert.doesNotMatch(page, /column\.key === 'taskDescription'[\s\S]{0,300}@click\.stop="openArrangement\(row\)"/)
+  assert.match(page, /<ProjectTaskPopover v-else-if="column\.key\s*===\s*'taskDescription'"/)
+  assert.doesNotMatch(page, /column\.key\s*===\s*'taskDescription'[\s\S]{0,300}@click\.stop="openArrangement\(row\)"/)
   assert.match(page, /<AnnotationProjectArrangementQuickDialog/)
   assert.match(page, /row\.arrangementIncluded/)
 })
