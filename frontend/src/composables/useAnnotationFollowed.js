@@ -17,11 +17,20 @@ const error = ref('')
 let users = 0
 let timer = 0
 let retryTimer
+let eventRefreshTimer
 let pending = false
 let rerun = false
 let cleanup = []
 let generation = 0
 let controller
+
+function scheduleRefresh() {
+  if (!users || eventRefreshTimer !== undefined) return
+  eventRefreshTimer = window.setTimeout(() => {
+    eventRefreshTimer = undefined
+    void refresh()
+  }, 1000)
+}
 
 function cancelRetry() {
   if (retryTimer !== undefined) window.clearTimeout(retryTimer)
@@ -35,6 +44,7 @@ function transientFailure(cause) {
 
 async function refresh(options = {}) {
   if (!localStorage.getItem('user_id')) return
+  if (!options?.force && typeof document !== 'undefined' && document.visibilityState === 'hidden') return
   if (options?.force) { controller?.abort(); pending = false; rerun = false }
   if (pending) {
     rerun = true
@@ -51,7 +61,6 @@ async function refresh(options = {}) {
     if (version !== generation || userId !== localStorage.getItem('user_id')) return
     sessions.value = data.items || []
     applySessionCategories(data.sessionCategories)
-    refreshTopics().catch(() => {})
     phaseOneEnabled.value = !!data.phaseOneEnabled
     mentionTotal.value = data.mentionTotal || 0
     mentionHistoryTotal.value = data.mentionHistoryTotal || 0
@@ -85,7 +94,7 @@ async function refresh(options = {}) {
       pending = false
       if (rerun) {
         rerun = false
-        refresh()
+        scheduleRefresh()
       }
     }
   }
@@ -94,18 +103,19 @@ async function refresh(options = {}) {
 function start() {
   if (users !== 1) return
   refresh()
+  refreshTopics().catch(() => {})
   ensureConnected()
   cleanup = [
-    subscribe('annotation_chat_changed', refresh),
-    subscribe('direct_chat_changed', refresh),
-    subscribe('chat_sessions_changed', refresh),
+    subscribe('annotation_chat_changed', scheduleRefresh),
+    subscribe('direct_chat_changed', scheduleRefresh),
+    subscribe('chat_sessions_changed', scheduleRefresh),
     subscribe('chat_conversation_removed', event => {
       window.dispatchEvent(new CustomEvent('chat-conversation-access-denied', { detail: { projectType: event.projectType, projectId: event.projectId } }))
-      refresh()
+      scheduleRefresh()
     }),
     subscribe('chat_topics_changed', () => refreshTopics(true).catch(() => {})),
-    subscribe('chat_message', refresh),
-    subscribe('notification', refresh),
+    subscribe('chat_message', scheduleRefresh),
+    subscribe('notification', scheduleRefresh),
     subscribe('connected', () => refresh({ force: true })),
     subscribe('foreground', () => refresh({ force: true })),
   ]
@@ -117,6 +127,8 @@ function stop() {
   ++generation
   controller?.abort()
   cancelRetry()
+  window.clearTimeout(eventRefreshTimer)
+  eventRefreshTimer = undefined
   pending = false; rerun = false
   sessions.value = []
   applySessionCategories(null)

@@ -126,7 +126,7 @@ function lifecycle() {
     mounts, unmounts, subscribers, requests,
     onMounted: fn => mounts.push(fn), onBeforeUnmount: fn => unmounts.push(fn),
     localStorage: { getItem: key => ({ token: 'test-only', user_id: 'actor' })[key] },
-    window: { setInterval: () => 1, clearInterval() {} }, AbortController, console,
+    window: { setInterval: () => 1, clearInterval() {}, setTimeout() {}, clearTimeout() {} }, AbortController, console,
     subscribe(type, fn) { subscribers.set(type, fn); return () => subscribers.delete(type) },
     request(options) { return new Promise(resolve => requests.push({ ...options, resolve })) },
   }
@@ -222,4 +222,37 @@ test('恢复补查未读提醒，忽略旧响应并避免实时事件和补查�
   h.subscribers.get('notification')({ notification: item })
   assert.equal(displayed.length, 1)
   h.unmounts.forEach(fn => fn())
+})
+
+test('群聊事件风暴合并为一次目录刷新，后台暂停，前台立即补查', async () => {
+  const h = lifecycle(), timers = new Map(), document = { visibilityState: 'visible' }
+  let nextTimer = 0, topics = 0
+  h.window.setTimeout = (fn, delay) => { timers.set(++nextTimer, { fn, delay }); return nextTimer }
+  h.window.clearTimeout = id => timers.delete(id)
+  const source = readFileSync(new URL('../src/composables/useAnnotationFollowed.js', import.meta.url), 'utf8')
+  const useStore = runInNewContext(source.replace(/^import .*\r?\n/gm, '').replace('export function ', 'function ') + '\n;useAnnotationFollowed', {
+    ...h, document, ref, computed, chatRequest: (_path, options) => h.request(options),
+    ensureConnected() {}, applySessionCategories() {},
+    useChatTopics: () => ({ refresh: async () => { topics++ } }),
+    useProjectChatDock: () => ({ state: { windows: [] } }), refreshOpenAnnotationStatuses: async () => {},
+  })
+  const store = useStore(); h.mounts.forEach(fn => fn())
+  h.requests[0].resolve({ items: [] }); await flush()
+  for (let i = 0; i < 60; i++) {
+    h.subscribers.get('notification')({})
+    h.subscribers.get('chat_sessions_changed')({})
+  }
+  assert.equal(h.requests.length, 1)
+  assert.equal(timers.size, 1)
+  const [id, timer] = [...timers][0]; timers.delete(id); timer.fn()
+  assert.equal(h.requests.length, 2)
+  h.requests[1].resolve({ items: [] }); await flush()
+  assert.equal(topics, 1)
+  document.visibilityState = 'hidden'
+  await store.refresh()
+  assert.equal(h.requests.length, 2)
+  document.visibilityState = 'visible'; h.subscribers.get('foreground')()
+  assert.equal(h.requests.length, 3)
+  h.unmounts.forEach(fn => fn())
+  assert.equal(timers.size, 0)
 })

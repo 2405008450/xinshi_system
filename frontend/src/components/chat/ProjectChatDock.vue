@@ -173,11 +173,14 @@
               {{ workspaceUnread > 99 ? '99+' : workspaceUnread }}
             </span>
           </button>
-          <button
+          <div
             v-for="chatWindow in minimizedWindows"
             :key="chatWindow.key"
+            class="project-chat-task project-chat-task--closable"
+          >
+          <button
             type="button"
-            class="project-chat-task"
+            class="project-chat-task__restore"
             :title="`恢复 ${chatWindow.title}`"
             @click="restoreChat(chatWindow.key)"
           >
@@ -188,6 +191,8 @@
               {{ chatWindow.mentionUnread > 99 ? '99+' : chatWindow.mentionUnread }}
             </span>
           </button>
+          <button type="button" class="project-chat-task__close" :aria-label="`关闭会话 ${chatWindow.title}`" :title="`关闭 ${chatWindow.title}`" @click.stop="closeChat(chatWindow.key)">×</button>
+          </div>
         </div>
         <slot name="tasks" />
       </div>
@@ -308,7 +313,10 @@ watch(() => !state.workspaceOpened && !state.windows.length, closed => {
 function applyAnnotationFilters(filters, chatKey) {
   if (chatKey) maximizeChat(chatKey)
   sidebarOpen.value = true
-  annotationFilters.value = filters
+  annotationFilters.value = {
+    mine: filters.mine ?? annotationFilters.value.mine,
+    statuses: [...(filters.statuses ?? annotationFilters.value.statuses)],
+  }
 }
 const panelRefs = new Map()
 const mentionRefs = new Map()
@@ -841,6 +849,36 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.project-chat-task--closable { padding-right: 6px; }
+.project-chat-task__restore {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  align-items: center;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.project-chat-task__close {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--el-text-color-secondary);
+  font-size: 18px;
+  cursor: pointer;
+}
+.project-chat-task__close:hover { color: var(--el-color-danger); background: var(--el-color-danger-light-9); }
+.project-chat-task__close:focus-visible { outline: 2px solid var(--el-color-primary); }
 
 .project-chat-task__subtitle {
   color: var(--el-text-color-secondary);

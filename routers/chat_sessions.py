@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from pydantic import Field
 from sqlalchemy import func, or_, and_
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, selectinload, undefer
 from database import get_db
 from routers.auth import get_current_user
 from models import (AppUser, AnnotationChatMember, ChatDirectConversation, ChatDirectMember,
@@ -319,8 +319,12 @@ def sessions(db: Session = Depends(get_db), user: AppUser = Depends(get_current_
         conditions = [AnnotationChatMember.following.is_(True), AnnotationProject.id.in_(mentioned_projects)]
         if ready:
             conditions.extend([AnnotationChatMember.pinned.is_(True), AnnotationChatMember.starred.is_(True)])
-        projects = db.query(AnnotationProject, AnnotationChatMember, manages_project.label('is_project_manager')).outerjoin(AnnotationChatMember,
-            and_(AnnotationChatMember.project_id == AnnotationProject.id, AnnotationChatMember.user_id == user.id)).filter(AnnotationChatMember.user_id == user.id, or_(*conditions)).all()
+        project_query = db.query(AnnotationProject, AnnotationChatMember, manages_project.label('is_project_manager')).outerjoin(AnnotationChatMember,
+            and_(AnnotationChatMember.project_id == AnnotationProject.id, AnnotationChatMember.user_id == user.id)).filter(AnnotationChatMember.user_id == user.id, or_(*conditions))
+        if ready:
+            # 置顶、特别关注默认延迟加载；目录批量取出，避免每个会话再查两次成员表。
+            project_query = project_query.options(undefer(AnnotationChatMember.pinned), undefer(AnnotationChatMember.starred))
+        projects = project_query.all()
         stats = summaries(db, ChatProjectMessage.annotation_project_id, [p.id for p, _, _ in projects], {p.id: m.last_read_sequence for p, m, _ in projects}, user.id)
         for p, m, is_project_manager in projects:
             rows.append(dict(key=f'annotation:{p.id}', kind='annotation', project_id=p.id, title=p.project_name or '未命名项目',
