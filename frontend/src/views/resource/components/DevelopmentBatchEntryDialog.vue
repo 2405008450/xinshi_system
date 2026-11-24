@@ -65,7 +65,7 @@ import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { handleTableArrowNavigation } from '@/utils/tableArrowNavigation'
 import { developmentApi as api } from '@/api/resourceDevelopment'
 import { categoryOptions, progressChannels, progressStatuses, isGroupChannel, restoreDevelopmentBatch } from '@/utils/resourceDevelopment'
-import { entryFields, newEntryRow, entryPayload, entryNeedsEnrollment, capabilityOptions, saveEntryRow } from '@/utils/developmentBatchEntry'
+import { entryFields, newEntryRow, restoreEntryRow, entryPayload, entryNeedsEnrollment, capabilityOptions, saveEntryRow } from '@/utils/developmentBatchEntry'
 import DevelopmentResourceAccounts from './DevelopmentResourceAccounts.vue'
 import DevelopmentLanguageDialog from './DevelopmentLanguageDialog.vue'
 import TableColumnSettings from '@/components/common/TableColumnSettings.vue'
@@ -113,6 +113,17 @@ watch(selectedFields, keys => {
 }, { deep: true })
 const visible = ref(false), saving = ref(false), bodyRef = ref(null), formRef = ref(null), languageDialogRef = ref(null)
 const model = reactive({ rows: [] })
+// 公共草稿恢复会直接替换整组行，渲染前先补齐旧草稿的行结构。
+watch(() => model.rows, rows => {
+  if (!Array.isArray(rows)) {
+    model.rows = [newEntryRow(props.options)]
+    return
+  }
+  rows.forEach((row, index) => {
+    const restored = restoreEntryRow(props.options, row)
+    if (restored !== row) rows[index] = restored
+  })
+}, { flush: 'sync' })
 const copyVisible = ref(false), copying = ref(false), copySourceId = ref(null), copyFormRef = ref(null), copyForm = reactive({ count: 1 })
 const copySourceIndex = computed(() => model.rows.findIndex(row => row.id === copySourceId.value))
 const copyLimit = computed(() => Math.max(0, 100 - model.rows.length))

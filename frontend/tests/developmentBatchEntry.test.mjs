@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { newEntryRow, entryPayload, entryNeedsEnrollment, saveEntryRow } from '../src/utils/developmentBatchEntry.js'
+import { newEntryRow, restoreEntryRow, entryPayload, entryNeedsEnrollment, saveEntryRow } from '../src/utils/developmentBatchEntry.js'
 import { dateText } from '../src/utils/resourceDevelopment.js'
 
 test('新增默认香港当天，周一不回退周五，UTC 午夜前后不受浏览器时区影响', () => {
@@ -31,6 +31,33 @@ test('保存只发送业务字段，稳定 UUID 支持响应丢失后重试，�
   assert.deepEqual(entryPayload(row), payload)
   row._statuses.wechat = '已添加'
   assert.equal(entryNeedsEnrollment(row), true)
+})
+
+test('恢复缺少跟进进展的旧草稿后，表格仍可录入并保留已有内容和标识', () => {
+  const options = { user_id: 'u' }
+  const { id, _followupId, work_date } = newEntryRow(options)
+  const restored = restoreEntryRow(options, { id, _followupId, work_date, full_name: '旧草稿', custom_fields: { f: '已填写' } })
+  assert.ok(Object.values(restored._statuses).every(value => value === ''))
+  assert.equal(entryNeedsEnrollment(restored), false)
+  assert.deepEqual(entryPayload(restored).actions, [])
+  assert.equal(restored.id, id)
+  assert.equal(restored._followupId, _followupId)
+  assert.equal(restored.work_date, work_date)
+  assert.equal(restored.full_name, '旧草稿')
+  assert.deepEqual(restored.custom_fields, { f: '已填写' })
+  assert.equal(restoreEntryRow(options, restored), restored)
+})
+
+test('恢复只记录部分渠道的草稿时，保留已填写进展及对应请求标识', () => {
+  const options = { user_id: 'u' }
+  const original = newEntryRow(options)
+  const restored = restoreEntryRow(options, {
+    ...original, _statuses: { wechat: '已添加' }, _actionIds: { wechat: original._actionIds.wechat },
+  })
+  assert.equal(entryNeedsEnrollment(restored), true)
+  assert.equal(restored._statuses.enterprise, '')
+  assert.ok(restored._actionIds.enterprise)
+  assert.deepEqual(entryPayload(restored).actions.map(({ id, status }) => ({ id, status })), [{ id: original._actionIds.wechat, status: '已添加' }])
 })
 
 test('恢复旧草稿的标识冲突时换新标识保存，兼容旧后端返回旧记录', async () => {
