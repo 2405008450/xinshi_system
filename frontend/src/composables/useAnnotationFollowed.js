@@ -25,6 +25,7 @@ let cleanup = []
 let generation = 0
 let controller
 let lastSuccessfulRefresh = 0
+const RATE_LIMIT_STALE_MS = 60000
 
 function refresh(options = {}) {
   if (!refreshScheduler) return Promise.resolve()
@@ -86,9 +87,11 @@ async function fetchSessions() {
     void refreshOpenAnnotationStatuses(sessions.value).catch(() => {})
   } catch (cause) {
     if (version === generation && !current.signal.aborted) {
+      const rateLimited = cause.response?.status === 429
       if (!retry && transientFailure(cause)) {
         const retryAfter = Number(cause.response?.headers?.['retry-after'])
         const delay = Math.max(1000, Math.min(10000, (retryAfter || 1) * 1000))
+          + (rateLimited ? Math.floor(Math.random() * 1500) : 0)
         retryTimer = window.setTimeout(() => {
           retryTimer = undefined
           if (version === generation && userId === localStorage.getItem('user_id')) {
@@ -96,7 +99,7 @@ async function fetchSessions() {
             void refresh()
           }
         }, delay)
-      } else {
+      } else if (!rateLimited || !lastSuccessfulRefresh || Date.now() - lastSuccessfulRefresh >= RATE_LIMIT_STALE_MS) {
         console.warn('会话目录刷新失败', JSON.stringify({ code: cause.code, status: cause.response?.status, message: cause.message }))
         error.value = '未读消息暂时无法加载'
       }

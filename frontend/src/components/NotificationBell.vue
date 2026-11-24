@@ -262,12 +262,21 @@ function openReceivedNotifications() {
   receivedVisible.value = true
 }
 async function openReceivedTarget(item) {
-  if (!hasNotificationTarget(item) || !await markItemRead(item, true)) return
+  if (!hasNotificationTarget(item)) return
   receivedVisible.value = false
-  try { await navigateToNotification(item) }
+  try { await openNotificationAndMarkRead(item, true) }
   catch (error) {
     receivedVisible.value = true
     ElMessage.error(getLocalizedErrorMessage(error, '无法打开关联业务'))
+  }
+}
+async function openNotificationAndMarkRead(item, showError) {
+  const opening = ElMessage({ type: 'info', message: '正在打开通知目标…', duration: 0 })
+  try {
+    await navigateToNotification(item)
+    void markItemRead(item, showError)
+  } finally {
+    opening.close()
   }
 }
 const navigateToNotification = async (item) => {
@@ -306,10 +315,9 @@ const navigateToNotification = async (item) => {
 const activateNotification = async (item, showError = false) => {
   notificationAcknowledgements.acknowledge(item.id)
   window.focus()
-  await markItemRead(item, showError)
   try {
     popoverVisible.value = false
-    await navigateToNotification(item)
+    await openNotificationAndMarkRead(item, showError)
   } catch (error) {
     console.error('跳转通知目标失败', error)
     popoverVisible.value = true

@@ -243,6 +243,8 @@ test('会话接口暂时繁忙时保留未读数，遵循节流补查且仅重�
   const source = readFileSync(new URL('../src/composables/useAnnotationFollowed.js', import.meta.url), 'utf8')
   const useStore = runInNewContext(source.replace(/^import .*\r?\n/gm, '').replace('export function ', 'function ') + '\n;useAnnotationFollowed', {
     ...h, ref, computed,
+    Date: { now: () => time + 1 },
+    Math: Object.assign(Object.create(Math), { random: () => 0.5 }),
     window: { ...h.window, setTimeout: clock.setTimer, clearTimeout: clock.clearTimer },
     document: { visibilityState: 'visible' },
     createCoalescedRefresh: (run, options) => createCoalescedRefresh(run, { ...options, ...clock }),
@@ -265,6 +267,16 @@ test('会话接口暂时繁忙时保留未读数，遵循节流补查且仅重�
   await advance(2000); await advance(1000)
   assert.equal(requests, 5); assert.equal(store.error.value, '未读消息暂时无法加载')
   assert.equal(timers.size, 0)
+  response = { items: [], mentionTotal: 4 }
+  void store.refresh(); await advance(3000)
+  response = Object.assign(new Error('超过并发限制'), { response: { status: 429, headers: { 'retry-after': '3' } } })
+  void store.refresh(); await advance(3000)
+  assert.equal([...timers.values()][0].at, time + 3750)
+  await advance(3750)
+  assert.equal(store.mentionTotal.value, 4); assert.equal(store.error.value, '')
+  await advance(60000)
+  void store.refresh(); await advance(400); await advance(3750)
+  assert.equal(store.error.value, '未读消息暂时无法加载')
   // 卸载同时取消待执行的补查，不能在退出后继续请求。
   void store.refresh(); await advance(3000); assert.equal(timers.size, 1)
   h.unmounts.forEach(fn => fn()); assert.equal(timers.size, 0)

@@ -6,6 +6,23 @@ import { runInNewContext } from 'node:vm'
 import { createNotificationAcknowledgements } from '../src/utils/notificationAcknowledgements.js'
 import { isChatNotification, isChatMentionNotification, isChatAttentionNotification, CONVERSATION_NOTIFICATION_TYPES } from '../src/utils/notificationChannels.js'
 
+test('系统通知先打开目标，已读接口未完成也会结束跳转等待提示', async () => {
+  const bell = readFileSync(new URL('../src/components/NotificationBell.vue', import.meta.url), 'utf8')
+  const handler = bell.match(/async function openNotificationAndMarkRead\(item, showError\) \{[\s\S]*?\n\}/)[0]
+  const calls = []
+  let finishNavigation
+  const open = runInNewContext(handler + '\n;openNotificationAndMarkRead', {
+    ElMessage: () => ({ close: () => calls.push('closed') }),
+    navigateToNotification: () => new Promise(resolve => { finishNavigation = resolve; calls.push('opening') }),
+    markItemRead: () => { calls.push('read'); return new Promise(() => {}) },
+  })
+  const result = open({ id: 'notification' }, true)
+  assert.deepEqual(calls, ['opening'])
+  finishNavigation()
+  await result
+  assert.deepEqual(calls, ['opening', 'read', 'closed'])
+})
+
 function browsers() {
   const data = new Map([['user_id', 'alice'], ['token', 'test-token']]), targets = []
   const storage = {

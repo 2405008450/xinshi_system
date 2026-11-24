@@ -17,6 +17,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 from utils import normalize_email_subject_order_no
 from project_audit_service import record_project_operation
+from project_client_contact_details import DETAIL_FIELDS
 from annotation_manager_change_service import (
     record_annotation_manager_change, attach_manager_assignment_history,
     validate_manager_change_reason,
@@ -628,7 +629,7 @@ def count_annotation_projects(db: Session, *, sort: str = "order_no_desc", **fil
     return _apply_filters(query, **filters).distinct().count()
 
 
-WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact", "client_contact_method", "client_contact_description", "client_contact_version"}
+WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact"} | DETAIL_FIELDS
 NESTED_FIELDS = {"language_items", "price_items", "assignees", "role_assignments", "material_changes", "task_image_upload_ids", "chat_delivery"}
 
 # 订单仅提供创建时的快照，子订单保存后独立维护。
