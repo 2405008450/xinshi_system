@@ -7,6 +7,22 @@ import { useDevelopmentFilters } from '../src/composables/useDevelopmentFilters.
 const pageSource = readFileSync(new URL('../src/views/resource/ResourceDevelopment.vue', import.meta.url), 'utf8')
 const dialogSource = readFileSync(new URL('../src/views/resource/components/DevelopmentBatchEntryDialog.vue', import.meta.url), 'utf8')
 
+test('页面已加载开拓选项时，新增弹窗不重复请求选项', async () => {
+  let opened = false
+  const errors = []
+  const context = vm.createContext({
+    optionsReady: { value: true },
+    loadOptions: async () => { throw new Error('重复请求选项失败') },
+    batchEditorRef: { value: { open: async () => { opened = true } } },
+    ElMessage: { error: message => errors.push(message) },
+  })
+  vm.runInContext(pageSource.match(/async function ensureOptions\(\) \{[\s\S]*?\n\}/)[0], context)
+  vm.runInContext(pageSource.match(/async function openBatchEditor\(\) \{[\s\S]*?\n\}/)[0], context)
+  await context.openBatchEditor()
+  assert.equal(opened, true)
+  assert.deepEqual(errors, [])
+})
+
 test('新增保存后清除旧条件并定位成功记录日期及第一页，刷新失败明确提示已保存', async () => {
   const state = useDevelopmentFilters()
   Object.assign(state.filters, { keyword: '旧姓名', owner_id: 'other', range: ['2026-10-01', '2026-10-02'], state: '已添加' })

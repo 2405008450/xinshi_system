@@ -156,7 +156,14 @@ let listController, recordController, listSeq = 0, recordSeq = 0, timer
 const cancelled = e => ['ERR_CANCELED','CanceledError','AbortError'].includes(e.code || e.name)
 async function loadOptions() { Object.assign(options, await api.options()) }
 const batchEditorRef = ref(null)
-async function openBatchEditor() { try { await loadOptions(); await batchEditorRef.value.open() } catch (error) { ElMessage.error(error.message) } }
+async function openBatchEditor() {
+  try {
+    await ensureOptions()
+    await batchEditorRef.value.open()
+  } catch (error) {
+    ElMessage.error(error.message || '无法打开新增开拓，请稍后重试')
+  }
+}
 function languageCreated(language) {
   options.languages = [...options.languages.filter(item => item.id !== language.id), language]
 }
