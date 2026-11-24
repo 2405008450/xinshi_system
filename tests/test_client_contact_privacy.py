@@ -113,6 +113,35 @@ def test_hidden_contacts_are_not_erased_by_client_or_project_edits(environment):
     assert denied.value.status_code==403
 
 
+@pytest.mark.parametrize('is_sub', [False, True])
+def test_project_contact_profile_roundtrip_preserves_omitted_fields_and_detects_conflict(environment, is_sub):
+    db, _ = environment
+    db.info['client_contacts_visible'] = True
+    client = Client(id=uuid4(), client_code='PROFILE', client_name='客户')
+    db.add(client); db.flush()
+    owner = SubClient(id=uuid4(), parent_client_id=client.id, sub_client_code='PROFILE-S') if is_sub else client
+    db.add(owner); db.flush()
+    replace_details(db, owner, [ClientContactPersonInput(name='甲', contact_method='保留电话',
+        job_title='原职位', department='原部门', company='原公司')])
+    db.commit()
+    before = contact_details(db, owner)[0]
+    base = {'client_id':client.id, 'sub_client_id':owner.id if is_sub else None, 'contact_name':'甲'}
+    save_project_contact_details(db, {**base, 'client_contact_version':before['version'],
+        'client_contact_job_title':' 采购经理 ', 'client_contact_department':'采购部', 'client_contact_company':'新公司'})
+    db.commit()
+    after = contact_details(db, owner)[0]
+    assert (after['job_title'], after['department'], after['company']) == ('采购经理', '采购部', '新公司')
+    assert after['contact_method'] == '保留电话'
+    assert after['version'] != before['version']
+    with pytest.raises(HTTPException) as conflict:
+        save_project_contact_details(db, {**base, 'client_contact_version':before['version'], 'client_contact_department':'过期内容'})
+    assert conflict.value.status_code == 409
+    save_project_contact_details(db, {**base, 'client_contact_version':after['version'], 'client_contact_description':'仅改说明'})
+    db.commit()
+    after = contact_details(db, owner)[0]
+    assert (after['job_title'], after['department'], after['company']) == ('采购经理', '采购部', '新公司')
+
+
 def test_new_contact_without_customer_data_reuses_existing_tables(environment):
     db,_=environment;db.info['client_contacts_visible']=True
     owner=Client(id=uuid4(),client_code='NEW-CONTACT',client_name='新客户',client_short_name='新客户')

@@ -1,6 +1,6 @@
 <template>
   <DraggableFormDialog v-model="visible" width="min(800px, calc(100vw - 32px))" top="5vh" class="development-dialog" destroy-on-close :close-on-click-modal="false">
-    <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" title="每日开拓工作" placeholder="搜索字段，如工作时间段" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
+    <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" title="工作报告" placeholder="搜索字段，如工作时间段" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
     <div ref="bodyRef"><AppForm ref="formRef" :model="form" :rules="rules" label-position="top">
       <div class="development-form-grid">
         <el-form-item label="日期" prop="work_date"><el-date-picker v-model="form.work_date" value-format="YYYY-MM-DD" :clearable="false" :disabled="loaded" @change="loadWork" /></el-form-item>

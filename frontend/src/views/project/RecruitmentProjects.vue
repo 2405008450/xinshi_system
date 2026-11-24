@@ -30,7 +30,7 @@
 <OrderedTableColumns settings-key="recruitment-projects">
       <el-table-column v-if="deleteMode" type="selection" width="48" fixed="left" />
       <el-table-column label="序号" :width="PROJECT_LIST_COLUMN_WIDTHS.index" align="center"><template #default="{ $index }">{{ (pagination.page - 1) * pagination.limit + $index + 1 }}</template></el-table-column>
-      <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :label="column.label" show-sub-client :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="column.key !== 'projectName' && column.tooltip !== false">
+      <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :label="column.label" show-sub-client :width="column.width" :min-width="column.minWidth" :show-overflow-tooltip="!['projectName','jobDescription'].includes(column.key) && column.tooltip !== false">
         <template #header>
           <ConfiguredColumnHeaderFilter v-if="headerFilterDefinition(column.key)" :definition="headerFilterDefinition(column.key)" :model-value="searchForm[headerFilterDefinition(column.key).key]" @update:model-value="searchForm[headerFilterDefinition(column.key).key]=$event" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch">
             <template #label><ClickableColumnHeader v-if="column.clickHint" :label="column.label" :hint="column.clickHint" /><span v-else>{{ column.label }}</span></template>
@@ -55,10 +55,8 @@
           </div>
           <ProjectClientManagerHistory v-else-if="column.key === 'clientManagerName'" project-type="recruitment" :project-id="row.id" :label="row.clientManagerName || '未分配'" />
           <el-button v-else-if="column.key === 'projectName'" type="primary" link class="project-name-ellipsis business-clickable-cell" :title="row.projectName || '待生成'" @click="openProgress(row)">{{ row.projectName || '待生成' }}</el-button>
-          <el-popover title="职位说明" v-else-if="column.key === 'jobDescription'" trigger="click" placement="left" :width="560">
-            <template #reference><el-button type="primary" link class="description-preview business-clickable-cell">{{ row.jobDescription || '-' }}</el-button></template>
-            <div class="long-text-detail">{{ row.jobDescription || '-' }}</div>
-          </el-popover>
+          <ProjectTaskPopover v-else-if="column.key==='jobDescription'" :row="row" module="recruitment"
+            :editable="canWrite&&!deleteMode" @saved="updated=>Object.assign(row,updated)" />
           <el-popover title="客户关联信息" v-else-if="column.key === 'clientShortName'" trigger="click" placement="left" :width="420">
             <template #reference><el-button type="primary" link class="business-clickable-cell">{{ row.clientShortName || '-' }}</el-button></template>
             <el-descriptions title="客户关联信息" :column="1" border size="small">
@@ -141,12 +139,11 @@
                         </div>
                       </template>
                     </el-autocomplete>
-                    <div class="client-autocomplete-hint">没有匹配客户时，填写客户全称及简称后，保存项目会自动新增客户。</div>
                   </div>
-                <ClientNameGuidance />
+                <ClientNameGuidance create-on-save />
 </el-form-item>
               </el-col><el-col :xs="24" :md="12"><el-form-item label="客户全称" prop="clientName"><ClientFullNameInput v-model="form.clientName" :client-id="form.clientId" include-sub-clients @select="handleClientSelect" /></el-form-item></el-col></el-row>
-            <ProjectClientContactFields :client-id="form.clientId" :sub-client-id="form.subClientId" v-model:contact-name="form.contactName" v-model:contact-method="form.clientContactMethod" v-model:contact-description="form.clientContactDescription" v-model:contact-version="form.clientContactVersion" v-model:contacts-visible="form.clientContactsVisible" />
+            <ProjectClientContactFields :active="dialogVisible" v-model:contact-job-title="form.clientContactJobTitle" v-model:contact-department="form.clientContactDepartment" v-model:contact-company="form.clientContactCompany" :client-id="form.clientId" :sub-client-id="form.subClientId" v-model:contact-name="form.contactName" v-model:contact-method="form.clientContactMethod" v-model:contact-description="form.clientContactDescription" v-model:contact-version="form.clientContactVersion" v-model:contacts-visible="form.clientContactsVisible" />
             <ProjectCustomerRequirements module="recruitment" :project="form" @apply="values => Object.assign(form, values)" />
             <el-form-item label="补充说明"><el-input v-model="form.remarks" type="textarea" :rows="3" /></el-form-item>
             <el-row :gutter="16">
@@ -356,11 +353,16 @@
       </AppForm></div>
       <template #footer><el-button @click="candidateEditorVisible=false">取消</el-button><el-button type="primary" :loading="candidateSaving" @click="saveCandidate">保存</el-button></template>
     </DraggableFormDialog>
+    <ConsultationWorkReportDialog v-if="pendingReportId && !saving" :key="pendingReportId" :project-id="pendingReportId" project-type="recruitment" @saved="completeReport" />
   </el-card>
   <ProjectStatisticsDialog v-model="statisticsVisible" module="recruitment" />
 </template>
 
 <script setup>
+import ConsultationWorkReportDialog from '@/views/client/components/ConsultationWorkReportDialog.vue'
+import { useProjectCreationReport } from '@/composables/useProjectCreationReport'
+
+import ProjectTaskPopover from '@/components/common/ProjectTaskPopover.vue'
 import {useProjectDelivery} from '@/composables/useProjectDelivery'
 import ConversationAudiencePicker from '@/components/common/ConversationAudiencePicker.vue'
 const {sendConversation,chatAudience}=useProjectDelivery('recruitment')
@@ -448,7 +450,7 @@ const tableColumns = [
   {key:'jobDescription',label:'职位描述',width:PROJECT_LIST_COLUMN_WIDTHS.longText,tooltip:false,clickHint:'点击职位描述查看完整内容'},
   {key:'positionTitle',label:'职位名称/类型',width:118},
   {key:'headcount',label:'招聘人数',width:78},
-  {key:'clientManagerName',label:'现客户经理',width:92},
+  {key:'clientManagerName',label:'客户经理',width:92},
   {key:'projectStatus',label:'项目状态',width:PROJECT_LIST_COLUMN_WIDTHS.projectStatus},
   {key:'clientShortName',label:'客户简称',minWidth:180,clickHint:'点击客户简称查看关联信息'},
   {key:'clientCode',label:'客户编号',width:96},
@@ -519,7 +521,7 @@ const recruitmentFilterFields=[
   {key:'orderNo',label:'订单号',type:'text'},{key:'projectName',label:'项目名称',type:'text'},
   {key:'jobDescription',label:'职位描述',type:'text'},{key:'positionTitle',label:'职位名称/类型',type:'text'},
   {key:'headcount',label:'招聘人数',type:'number-range',wide:true,min:0},
-  {key:'clientManagerName',apiKey:'client_manager_id',label:'现客户经理',type:'select',options:()=>activeUsers.value.map((user)=>({label:userLabel(user),value:user.id}))},
+  {key:'clientManagerName',apiKey:'client_manager_id',label:'客户经理',type:'select',options:()=>activeUsers.value.map((user)=>({label:userLabel(user),value:user.id}))},
   {key:'projectStatus',label:'项目状态',type:'select',options:statusOptions},
   {key:'clientShortName',label:'客户简称',type:'text'},{key:'clientCode',label:'客户编号',type:'text'},
   {key:'clientName',label:'客户全称',type:'text'},{key:'clientDomain',label:'客户领域',type:'text'},
@@ -646,7 +648,8 @@ const handleProjectNameInput = () => { nameManuallyEdited.value=true; namePrevie
 const generateEmailSubject = () => {
   form.emailSubjectPreview = buildEmailSubject({...form,managerContact:''}).subject; ElMessage.success('会话标题已生成')
 }
-const saveProject = async (sendAfterSave=false,emergency=false,sendChat=false) => { if(!formRef.value||submitLocked)return; submitLocked=true; const valid=await formRef.value.validate().catch(()=>false); if(!valid){ submitLocked=false; return } saving.value=true; try { const payload=buildPayload(); const saved=form.id?await updateRecruitmentProject(form.id,payload):await createRecruitmentProject(payload); ElMessage.success(form.id?'招聘项目已更新':'招聘项目已创建'); clearDraft(); editorVisible.value=false; if(sendChat||sendAfterSave)await sendConversation(saved?.id||form.id,emergency);  fetchData() } catch(error){
+const {pendingReportId,requireReport,completeReport}=useProjectCreationReport('recruitment')
+const saveProject = async (sendAfterSave=false,emergency=false,sendChat=false) => { if(!formRef.value||submitLocked)return; submitLocked=true; const valid=await formRef.value.validate().catch(()=>false); if(!valid){ submitLocked=false; return } saving.value=true; try { const payload=buildPayload(); const wasNew=!form.id; const saved=form.id?await updateRecruitmentProject(form.id,payload):await createRecruitmentProject(payload); if(wasNew)requireReport(saved); ElMessage.success(form.id?'招聘项目已更新':'招聘项目已创建'); clearDraft(); editorVisible.value=false; if(sendChat||sendAfterSave)await sendConversation(saved?.id||form.id,emergency);  fetchData() } catch(error){
         await formRef.value?.applyServerErrors(error)
 ElMessage.error(error?.detail||'保存失败')} finally{saving.value=false;submitLocked=false} }
 const setProjectStatusSaving=(id,saving)=>{const next=new Set(projectStatusSavingIds.value);if(saving)next.add(id);else next.delete(id);projectStatusSavingIds.value=next}

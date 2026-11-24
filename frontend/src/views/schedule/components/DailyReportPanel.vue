@@ -485,6 +485,7 @@ watch(() => props.reportDate, async (_date,previousDate) => {
 const stopUpdates=subscribe('daily_report_updated',event=>{if(event.user_id!==owner||event.report_date!==props.reportDate)return;if(hasUnsavedChanges.value)ElMessage.info('新咨询工作项已追加，保存当前修改时会自动保留');else loadReport(false)})
 onMounted(() => { loadReport(false); loadMailAccount(); loadEditorContext(); window.addEventListener('annotation-operation-report-added',refreshAnnotationOperations);window.addEventListener('open-my-work-report',refreshAnnotationOperations);window.addEventListener('beforeunload', beforeUnload);document.addEventListener('visibilitychange',onReportHidden) })
 onBeforeUnmount(() => {stopUpdates();cacheDraft();clearTimeout(draftTimer);loadSequence++;loadController?.abort();window.removeEventListener('annotation-operation-report-added',refreshAnnotationOperations);window.removeEventListener('open-my-work-report',refreshAnnotationOperations);window.removeEventListener('beforeunload', beforeUnload);document.removeEventListener('visibilitychange',onReportHidden)})
+defineExpose({prepareClose(){if(saving.value||sending.value)return false;clearTimeout(draftTimer);cacheDraft();return !localDraftError.value}})
 </script>
 
 <style scoped>

@@ -269,6 +269,9 @@ class AnnotationProjectWrite(BaseModel):
     manager_contact: Optional[str] = None
     client_contact_method: Optional[str] = Field(default=None,max_length=5000)
     client_contact_description: Optional[str] = Field(default=None,max_length=5000)
+    client_contact_job_title: Optional[str] = Field(default=None, max_length=100)
+    client_contact_department: Optional[str] = Field(default=None, max_length=100)
+    client_contact_company: Optional[str] = Field(default=None, max_length=200)
     client_contact_version: Optional[str] = Field(default=None,max_length=64)
     contact_name: Optional[str] = None
     customer_order_no: Optional[str] = None

@@ -407,6 +407,7 @@ def create_recruitment_project(
     record_project_operation(
         db, project_type="recruitment", operation_type="create", project=project,
         actor_user_id=created_by, operation_source=operation_source,
+        snapshot_extra={'work_report_required': True} if operation_source == 'project_form' else None,
     )
     db.commit()
     return get_recruitment_project(db, project.id)

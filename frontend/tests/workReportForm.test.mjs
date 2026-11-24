@@ -4,6 +4,16 @@ import {durationOptions,durationLabel,normalizeReportRow,rowTypes,updateRowTypes
 import {layoutTaskContent,layoutTaskExtra} from '../src/utils/layoutReportTasks.js'
 import {mergeAnnotationOperationRows} from '../src/utils/workReportForm.js'
 
+test('财务工作有四种对账分类，独立填写免订单，混选项目仍须订单',()=>{
+ const group=buildWorkTypeOptions().find(row=>row.value==='财务工作')
+ for(const name of ['客户对账','资源对账','供应商对账','其他对账']){
+  assert.ok(group.children.some(row=>row.value===`财务工作::${name}`))
+  const row={display_metadata:{report_types:[`财务工作::${name}`]}}
+  assert.equal(requiresProjectIdentity(row),false)
+  assert.equal(requiresProjectIdentity({display_metadata:{report_types:[...row.display_metadata.report_types,'笔译项目']}}),true)
+ }
+})
+
 test('旧报告草稿补入标注操作，保留用户修改且不重复',()=>{
  const server={progress_content:'检查样本',display_metadata:{operation_source:'annotation_daily_operation',personal_task_id:'operation-1'}}
  const edited={...server,progress_content:'用户修改后的具体操作'}
@@ -48,10 +58,10 @@ test('日期和星期固定UTC+8，跨月跨年正确',()=>{
 })
 test('工作量支持小数和空值，拒绝负数非数字',()=>{for(const n of ['',null,0,'1.25'])assert.equal(validQuantity(n),true);for(const n of ['x',-1,Infinity])assert.equal(validQuantity(n),false)})
 
-test('工作分类保留层级，只有纯非项目工作免填订单和项目名称',()=>{
- const options=buildWorkTypeOptions();assert.deepEqual(options.map(option=>option.label),['项目工作','非项目工作','外勤工作','管理工作','培训工作'])
- for(const types of [['非项目工作'],['非项目工作::接待客户']])assert.equal(requiresProjectIdentity({display_metadata:{report_types:types}}),false)
- for(const types of [['笔译项目'],['外勤工作::拜访客户'],['管理工作::分析数据'],['培训工作::AI知识培训'],['非项目工作::接待客户','管理工作::分析数据']])assert.equal(requiresProjectIdentity({display_metadata:{report_types:types}}),true)
+test('工作分类保留层级，非项目、外勤及财务工作免填订单和项目名称',()=>{
+ const options=buildWorkTypeOptions();assert.deepEqual(options.map(option=>option.label),['项目工作','非项目工作','财务工作','外勤工作','管理工作','培训工作'])
+ for(const types of [['非项目工作'],['非项目工作::接待客户'],['外勤工作::拜访客户'],['财务工作::客户对账']])assert.equal(requiresProjectIdentity({display_metadata:{report_types:types}}),false)
+ for(const types of [['笔译项目'],['管理工作::分析数据'],['培训工作::AI知识培训'],['非项目工作::接待客户','管理工作::分析数据']])assert.equal(requiresProjectIdentity({display_metadata:{report_types:types}}),true)
  const row={display_metadata:{}};updateRowTypes(row,['外勤工作::拜访客户','管理工作::分析数据']);assert.equal(row.task_type,'外勤工作、管理工作')
 })
 

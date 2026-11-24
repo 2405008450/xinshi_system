@@ -136,9 +136,8 @@
           />
           <ProjectClientManagerHistory v-else-if="column.key === 'clientManagerName'" project-type="annotation" :project-id="row.id" :label="row.clientManagerName || '未分配'" />
           <el-button v-else-if="column.key === 'projectName'" type="primary" link class="project-name-ellipsis business-clickable-cell" :title="textValue(row.projectName)" @click.stop="openProgress(row)">{{ textValue(row.projectName) }}</el-button>
-          <el-tooltip v-else-if="column.key === 'taskDescription'" :content="textValue(row.taskDescription)" placement="top" :disabled="!row.taskDescription">
-            <span class="project-name-ellipsis">{{ textValue(row.taskDescription) }}</span>
-          </el-tooltip>
+          <ProjectTaskPopover v-else-if="column.key==='taskDescription'" :row="row" module="annotation"
+            :editable="canWrite&&!deleteMode" @saved="updated=>{Object.assign(row,updated);detailCache[row.id]=updated}" />
           <span v-else-if="column.key === 'projectTypes'">{{ projectTypesText(row.projectTypes) }}</span>
           <span v-else-if="column.key === 'projectManagerName'">{{ roleAssignmentName(row, 'project_manager') }}</span>
           <el-popover
@@ -460,12 +459,11 @@
                 <el-autocomplete v-model="form.clientShortName" :fetch-suggestions="fetchClientSuggestions" value-key="client_short_name" placeholder="选择已有客户，或直接输入新客户简称" clearable :debounce="300" :trigger-on-focus="true" style="width:100%" @select="handleClientSelect" @input="handleClientShortNameInput" @clear="clearSelectedClient">
                   <template #default="{ item }"><div class="client-suggestion"><span>{{ item.client_short_name }} <el-tag v-if="item.sub_client_id" size="small" type="warning">子客户</el-tag></span><span class="client-suggestion__meta">{{ item.client_code }} · {{ item.client_name }}{{ item.parent_client_short_name ? ` · 归属 ${item.parent_client_short_name}` : '' }}</span></div></template>
                 </el-autocomplete>
-                <div class="client-autocomplete-hint">没有匹配客户时，填写客户全称及简称后，保存项目会自动新增客户。</div>
               </div>
-            <ClientNameGuidance />
+            <ClientNameGuidance create-on-save />
 </el-form-item>
             <el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="客户全称" prop="clientFullName"><ClientFullNameInput v-model="form.clientFullName" :client-id="form.clientId" include-sub-clients @select="handleClientSelect" /></el-form-item></el-col></el-row>
-            <ProjectClientContactFields :client-id="form.clientId" :sub-client-id="form.subClientId" v-model:contact-name="form.contactName" v-model:contact-method="form.clientContactMethod" v-model:contact-description="form.clientContactDescription" v-model:contact-version="form.clientContactVersion" v-model:contacts-visible="form.clientContactsVisible" />
+            <ProjectClientContactFields :active="dialogVisible" v-model:contact-job-title="form.clientContactJobTitle" v-model:contact-department="form.clientContactDepartment" v-model:contact-company="form.clientContactCompany" :client-id="form.clientId" :sub-client-id="form.subClientId" v-model:contact-name="form.contactName" v-model:contact-method="form.clientContactMethod" v-model:contact-description="form.clientContactDescription" v-model:contact-version="form.clientContactVersion" v-model:contacts-visible="form.clientContactsVisible" />
             <el-form-item v-if="form.orderLevel === 2" label="语种方向">
               <div style="width:100%">
                 <ReadonlyField :model-value="form.languageItems.map(languageItemLabel).join('、')" source="auto" placeholder="由所属子订单带出" />
@@ -622,11 +620,15 @@
     />
     <DraggableFormDialog v-model="departmentRosterVisible" title="标注项目部" class="department-roster-dialog" width="min(1000px, calc(100vw - 32px))" top="5vh" append-to-body destroy-on-close><DepartmentRoster department-name="标注项目部" /><template #footer><el-button @click="departmentRosterVisible=false">关闭</el-button></template></DraggableFormDialog>
     <ResourceRequestEditor v-if="resourceRequestSource" editor-only :source-request="resourceRequestSource" @requests-changed="loadResourceRequestStatuses" @editor-closed="resourceRequestSource=null;loadResourceRequestStatuses()" />
+    <ConsultationWorkReportDialog v-if="pendingReportId && !submitLoading" :key="pendingReportId" :project-id="pendingReportId" project-type="annotation" @saved="completeReport" />
   </el-card>
   <ProjectStatisticsDialog v-model="statisticsVisible" module="annotation" />
 </template>
 
 <script setup>
+import ConsultationWorkReportDialog from '@/views/client/components/ConsultationWorkReportDialog.vue'
+import { useProjectCreationReport } from '@/composables/useProjectCreationReport'
+
 import {useProjectDelivery} from '@/composables/useProjectDelivery'
 import ConversationAudiencePicker from '@/components/common/ConversationAudiencePicker.vue'
 const {sendConversation,chatAudience}=useProjectDelivery('annotation')
@@ -720,6 +722,7 @@ import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { useAnnotationCustomFields } from '@/composables/useAnnotationCustomFields'
+import ProjectTaskPopover from '@/components/common/ProjectTaskPopover.vue'
 import { useFormDraft } from '@/composables/useFormDraft'
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { useResourceRequestStatuses } from '@/composables/useResourceRequestStatuses'
@@ -733,6 +736,7 @@ import { countActiveFilters, createFilterModel, resetFilterModel, serializeField
 import { isValidAnnotationOrderNo, normalizeAnnotationOrderNo } from '@/utils/annotationOrderNo'
 
 const props = defineProps({ embedded: Boolean, myProjects: Boolean, createOnly: Boolean, editorOnly: Boolean, editorProjectId: String, createRequest: Number, childParentId: String, childOrderScope: {type:String,default:'child'}, progressOnly: Boolean, progressProjectId: String, orderScope: { type: String, default: 'parent' }, conversationPicker: Boolean, pickerActionLabel: {type:String,default:'加入会话'}, pickerJoinedLabel: {type:String,default:'已加入会话'}, joinedProjectIds: { type: Array, default: () => [] }, joiningProjectIds: { type: Array, default: () => [] } })
+const {pendingReportId,requireReport,completeReport}=useProjectCreationReport('annotation',{restore:!props.createOnly&&!props.editorOnly&&!props.progressOnly&&!props.conversationPicker})
 const emit = defineEmits(['join-conversation', 'open-conversation','progress-closed','open-child-management','close-child-management'])
 const canWrite = !props.conversationPicker && hasPermission('projects:write')
 const canAdjustManagers = !props.conversationPicker && hasPermission(['projects:read', 'projects:write'])
@@ -874,7 +878,7 @@ const regionDisplayLevel=ref(readAnnotationRegionLevel(localStorage,regionPrefer
 watch(regionDisplayLevel,value=>saveAnnotationRegionLevel(localStorage,regionPreferenceKey,value))
 
 const staticTableColumns = [
-  { key:'orderNo',label:'订单号',width:200 },{ key:'projectName',label:'项目名称',minWidth:200,clickHint:'点击项目名称查看项目进度' },{ key:'projectTypes',label:'项目类型',minWidth:110 },{ key:'clientManagerName',label:'客户经理',width:128 },{ key:'projectManagerName',label:'项目经理',width:128 },{ key:'taskDescription',label:'具体任务',minWidth:PROJECT_LIST_COLUMN_WIDTHS.longText,clickHint:'点击具体任务打开项目安排' },{ key:'projectStatus',label:'项目进度',width:PROJECT_LIST_COLUMN_WIDTHS.projectStatus,clickHint:'点击项目进度录入或查看节点' },{ key:'latestCustomerProgressNote',label:'最新客户进度',minWidth:240,clickHint:'点击查看客户进度' },{ key:'latestCustomerProgressEffectiveOn',label:'客户进度时间',width:190,type:'datetime' },{ key:'priority',label:'优先次序',width:96 },{ key:'clientShortName',label:'客户简称',minWidth:180,clickHint:'点击客户简称查看关联信息' },{ key:'clientCode',label:'客户编号',minWidth:125 },{ key:'clientFullName',label:'客户全称',minWidth:180 },{ key:'subClientContact',label:'子客户/联系人',minWidth:125 },{ key:'customerOrderNo',label:'客户单号/项目标识',minWidth:135 },{ key:'languageItemsDisplay',label:'语言方向',minWidth:150,clickHint:'点击查看语种地区及人才储备' },{ key:'regionSummary',label:'地区（城市/区县/街道）',minWidth:180 },{ key:'potentialDemand',label:'（潜在）需求量',minWidth:125 },{ key:'customerPriceSummary',label:'客户单价',minWidth:135 },{ key:'assigneeSummary',label:'标注人员安排',minWidth:140 },{ key:'taskDispatchedAt',label:'任务派发时间',width:98,type:'datetime' },{ key:'taskSubmittedAt',label:'任务提交时间',width:140,type:'datetime' },{ key:'projectPath',label:'项目路径',minWidth:150 },{ key:'quotationPath',label:'报价单路径',minWidth:150 },{ key:'contractPath',label:'合同路径',minWidth:150 },
+  { key:'orderNo',label:'订单号',width:200 },{ key:'projectName',label:'项目名称',minWidth:200,clickHint:'点击项目名称查看项目进度' },{ key:'projectTypes',label:'项目类型',minWidth:110 },{ key:'clientManagerName',label:'客户经理',width:128 },{ key:'projectManagerName',label:'项目经理',width:128 },{ key:'taskDescription',label:'具体任务',minWidth:PROJECT_LIST_COLUMN_WIDTHS.longText,clickHint:'点击具体任务查看或编辑完整内容' },{ key:'projectStatus',label:'项目进度',width:PROJECT_LIST_COLUMN_WIDTHS.projectStatus,clickHint:'点击项目进度录入或查看节点' },{ key:'latestCustomerProgressNote',label:'最新客户进度',minWidth:240,clickHint:'点击查看客户进度' },{ key:'latestCustomerProgressEffectiveOn',label:'客户进度时间',width:190,type:'datetime' },{ key:'priority',label:'优先次序',width:96 },{ key:'clientShortName',label:'客户简称',minWidth:180,clickHint:'点击客户简称查看关联信息' },{ key:'clientCode',label:'客户编号',minWidth:125 },{ key:'clientFullName',label:'客户全称',minWidth:180 },{ key:'subClientContact',label:'子客户/联系人',minWidth:125 },{ key:'customerOrderNo',label:'客户单号/项目标识',minWidth:135 },{ key:'languageItemsDisplay',label:'语言方向',minWidth:150,clickHint:'点击查看语种地区及人才储备' },{ key:'regionSummary',label:'地区（城市/区县/街道）',minWidth:180 },{ key:'potentialDemand',label:'（潜在）需求量',minWidth:125 },{ key:'customerPriceSummary',label:'客户单价',minWidth:135 },{ key:'assigneeSummary',label:'标注人员安排',minWidth:140 },{ key:'taskDispatchedAt',label:'任务派发时间',width:98,type:'datetime' },{ key:'taskSubmittedAt',label:'任务提交时间',width:140,type:'datetime' },{ key:'projectPath',label:'项目路径',minWidth:150 },{ key:'quotationPath',label:'报价单路径',minWidth:150 },{ key:'contractPath',label:'合同路径',minWidth:150 },
 ]
 const { fields:projectCustomFields, load:loadProjectCustomFields } = useAnnotationCustomFields('project')
 const mergedProjectFieldLabels = new Set(['项目经理', '跟进状态'])
@@ -1264,7 +1268,7 @@ const confirmOrderNoChange=async()=>{normalizeOrderNoInput();const valid=await o
         await orderNoFormRef.value?.applyServerErrors(error)
 ElMessage.error(getLocalizedErrorMessage(error,'订单号修改失败'))}finally{orderNoSubmitting.value=false}}
 const scrollEditorToTop=async()=>{await nextTick();if(await formRef.value?.locateFirstError?.())return;dialogBodyRef.value?.parentElement?.scrollTo({top:0,behavior:'smooth'})}
-const handleSubmit=async(sendAfterSave=false,emergency=false,sendChat=false)=>{if(submitLocked)return;editorTab.value='form';await nextTick();submitLocked=true;const valid=await formRef.value?.validate().catch(()=>false);if(!valid){submitLocked=false;return}submitLoading.value=true;let projectSaved=false;try{if(!materialEditorRef.value?.validate()){await locateDialogFieldByLabel('项目资料');return}if(!taskImagesRef.value?.validate()){await locateDialogFieldByLabel('具体任务');ElMessage.warning('请等待截图上传完成或处理失败的截图');return}const payload={...buildPayload(),materialChanges:materialEditorRef.value.changes()};if(!form.id){const delivery=await creationDeliveryRef.value.request(form.projectName,'','creation');if(!delivery)return;payload.chatDelivery=delivery}if((form.id&&managerEditBaseline.value)||!form.id){const baseline=form.id?managerEditBaseline.value:{clientManagerId:localStorage.getItem('user_id')||'',roleAssignments:payload.roleAssignments};const changes=managerChanges(baseline,payload);if(changes.some(item=>item.requiresReason)){const reason=await managerReasonDialog.value.request({orderNo:form.orderNo,changes});if(reason===null)return;payload.managerChangeReason=reason}}const wasNew=!form.id;let saved=form.id?await annotationApi.updateAnnotationProject(form.id,payload):await annotationApi.createAnnotationProject(payload);projectSaved=true;for(const id of Object.keys(detailCache))delete detailCache[id];materialEditorRef.value?.saved();form.id=saved.id;form.updatedAt=saved.updatedAt;delete detailCache[saved.id];if(saved?.id)detailCache[saved.id]=saved;ElMessage.success(`${wasNew?'标注项目已创建':'标注项目已更新'}${saved.autoCreatedChildCount?`，自动生成 ${saved.autoCreatedChildCount} 个子订单`:''}`);clearDraft();dialogVisible.value=false;if(sendChat||sendAfterSave)await sendConversation(saved?.id||form.id,emergency);await fetchData()}catch(error){
+const handleSubmit=async(sendAfterSave=false,emergency=false,sendChat=false)=>{if(submitLocked)return;editorTab.value='form';await nextTick();submitLocked=true;const valid=await formRef.value?.validate().catch(()=>false);if(!valid){submitLocked=false;return}submitLoading.value=true;let projectSaved=false;try{if(!materialEditorRef.value?.validate()){await locateDialogFieldByLabel('项目资料');return}if(!taskImagesRef.value?.validate()){await locateDialogFieldByLabel('具体任务');ElMessage.warning('请等待截图上传完成或处理失败的截图');return}const payload={...buildPayload(),materialChanges:materialEditorRef.value.changes()};if(!form.id){const delivery=await creationDeliveryRef.value.request(form.projectName,'','creation');if(!delivery)return;payload.chatDelivery=delivery}if((form.id&&managerEditBaseline.value)||!form.id){const baseline=form.id?managerEditBaseline.value:{clientManagerId:localStorage.getItem('user_id')||'',roleAssignments:payload.roleAssignments};const changes=managerChanges(baseline,payload);if(changes.some(item=>item.requiresReason)){const reason=await managerReasonDialog.value.request({orderNo:form.orderNo,changes});if(reason===null)return;payload.managerChangeReason=reason}}const wasNew=!form.id;let saved=form.id?await annotationApi.updateAnnotationProject(form.id,payload):await annotationApi.createAnnotationProject(payload);projectSaved=true;if(wasNew)requireReport(saved);for(const id of Object.keys(detailCache))delete detailCache[id];materialEditorRef.value?.saved();form.id=saved.id;form.updatedAt=saved.updatedAt;delete detailCache[saved.id];if(saved?.id)detailCache[saved.id]=saved;ElMessage.success(`${wasNew?'标注项目已创建':'标注项目已更新'}${saved.autoCreatedChildCount?`，自动生成 ${saved.autoCreatedChildCount} 个子订单`:''}`);clearDraft();dialogVisible.value=false;if(sendChat||sendAfterSave)await sendConversation(saved?.id||form.id,emergency);await fetchData()}catch(error){
         await formRef.value?.applyServerErrors(error)
 ElMessage.error(projectSaved?'项目已保存，但后续操作失败，请刷新列表确认。'+getLocalizedErrorMessage(error,''):getLocalizedErrorMessage(error,'保存失败'))}finally{submitLoading.value=false;submitLocked=false}}
 const setProjectStatusSaving=(id,saving)=>{const next=new Set(projectStatusSavingIds.value);if(saving)next.add(id);else next.delete(id);projectStatusSavingIds.value=next}

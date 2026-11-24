@@ -10,12 +10,14 @@
         <el-form-item label="原文" prop="original_text"><el-input v-model="form.original_text" type="textarea" :rows="3" maxlength="2000" show-word-limit :disabled="saving" /></el-form-item>
         <el-form-item label="译文" prop="translated_text"><el-input v-model="form.translated_text" type="textarea" :rows="3" maxlength="2000" show-word-limit :disabled="saving" /></el-form-item>
       </div>
-      <div class="requirement-count-actions"><el-button :disabled="saving" @click="countVisible=!countVisible">{{ countVisible?'收起工作量统计':'统计工作量' }}</el-button><span>保存需求时，将本次统计累加到当前单号的相应统计中；重复重试不会重复加入。</span></div>
-      <WordCountMatrixForm v-if="countVisible" v-model="form.wordCountMatrix" :disabled="saving" />
       <div class="requirement-editor-options">
         <el-form-item label="是否收费" prop="chargeable"><el-radio-group v-model="form.chargeable" :disabled="saving"><el-radio :value="true">收费</el-radio><el-radio :value="false">不收费</el-radio></el-radio-group></el-form-item>
         <el-form-item label="发送通知人（笔译项目部，可多选）" prop="recipient_ids"><el-select v-model="form.recipient_ids" multiple filterable :disabled="saving || loading" placeholder="请选择通知人"><el-option v-for="person in people" :key="person.id" :value="person.id" :label="person.name" /></el-select></el-form-item>
       </div>
+      <template v-if="form.chargeable === true">
+        <div class="requirement-count-actions"><el-button :disabled="saving" @click="countVisible=!countVisible">{{ countVisible?'收起工作量统计':'统计工作量' }}</el-button><span>请人工填写本次工作量。保存需求后自动累加到本项目统计，并在修改记录中标注“简单需求新增工作量”；重复重试不会重复加入。</span></div>
+        <WordCountMatrixForm v-if="countVisible" v-model="form.wordCountMatrix" :disabled="saving" />
+      </template>
       <p class="requirement-tip">保存需求保留当前项目状态并通知所选人员；项目状态可用上方按钮单独调整。</p>
     </AppForm>
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
@@ -50,7 +52,8 @@ const legacyItems=ref([]), legacyTotal=ref(0), legacyPage=ref(1)
 const statuses=getProjectStatusOptions('translation'),customerDeadlineTime=ref(null),deadlineDraft=ref(''),deadlineDirty=ref(false),latestRequirement=ref(null),dispatchPanel=ref()
 const countVisible=ref(false)
 const form=reactive({original_text:'',translated_text:'',chargeable:null,recipient_ids:[],wordCountMatrix:createEmptyWordCountMatrix()})
-function countPayload(){const matrix=normalizeWordCountMatrix(form.wordCountMatrix);if(!Object.values(matrix).some(values=>Object.values(values).some(value=>value!==null)))return null;const {translatorEstimate,...other}=matrix;return {...other,translator_estimate:translatorEstimate}}
+function countPayload(){if(form.chargeable!==true)return null;const matrix=normalizeWordCountMatrix(form.wordCountMatrix);if(!Object.values(matrix).some(values=>Object.values(values).some(value=>value!==null)))return null;const {translatorEstimate,...other}=matrix;return {...other,translator_estimate:translatorEstimate}}
+watch(()=>form.chargeable,value=>{countVisible.value=value===true;if(value!==true)form.wordCountMatrix=createEmptyWordCountMatrix()},{flush:'sync'})
 const rules={original_text:[{validator:(_r,value,done)=>String(value||'').trim()?done():done(new Error('请填写原文')),trigger:'blur'}],chargeable:[{validator:(_r,value,done)=>typeof value==='boolean'?done():done(new Error('请选择收费或不收费')),trigger:'change'}],recipient_ids:[{type:'array',required:true,min:1,message:'请选择通知人',trigger:'change'}]}
 const status=value=>getProjectStatusLabel('translation',value)
 let sequence=0, controller, attempt, settingsAttempt, defaultsInitialized=false, legacySequence=0

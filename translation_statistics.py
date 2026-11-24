@@ -29,17 +29,18 @@ def period_bounds(day,granularity):
 
 def percentage(value,total):return float((Decimal(value)*100/total).quantize(Decimal('.01'),rounding=ROUND_HALF_UP)) if total else 0
 
-def summarize(records,first_dates,start,end,granularity,tax_basis):
+def summarize(records,first_dates,start,end,granularity,tax_basis,*,period_bounds_fn=None):
     periods={};customers={}
-    cursor=period_bounds(start,granularity)[0]
+    bounds=period_bounds_fn or (lambda day:period_bounds(day,granularity))
+    cursor=bounds(start)[0]
     while cursor<=end:
-        left,right=period_bounds(cursor,granularity)
+        left,right=bounds(cursor)
         periods[left]=dict(period_start=left.isoformat(),period_end=right.isoformat(),range_start=max(left,start).isoformat(),range_end=min(right,end).isoformat(),order_count=0,_clients=set(),_new=set(),new_order_count=0,old_order_count=0,unknown_order_count=0,_money={})
         cursor=right+timedelta(days=1)
     for record in records:
         day=record['day']
         if not start<=day<=end:continue
-        left,right=period_bounds(day,granularity);period=periods[left]
+        left,right=bounds(day);period=periods[left]
         key=record['client_key'];first=first_dates.get(key) if key else None
         cohort='unknown' if not first else 'new' if left<=first<=right else 'old'
         period['order_count']+=1;period[cohort+'_order_count']+=1

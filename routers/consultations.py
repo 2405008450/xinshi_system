@@ -144,7 +144,7 @@ class ConsultationConfirmationFields(BaseModel):
     email_subject: Optional[str] = Field(default=None, max_length=1000)
     email_body: Optional[str] = Field(default=None, max_length=50000)
     email_body_html: Optional[str] = Field(default=None, max_length=100000)
-    inline_image_ids: List[UUID] = Field(default_factory=list, max_length=5)
+    inline_image_ids: List[UUID] = Field(default_factory=list)
     idempotency_key: Optional[str] = Field(default=None, min_length=8, max_length=100)
 
 

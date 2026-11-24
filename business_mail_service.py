@@ -419,7 +419,7 @@ def _project_source(project_type: str, project) -> dict:
     }
     field_names = {
         "translation": ("service_content", "file_type_secondary", "language_pair", "customer_deadline_time", "priority", "customer_requirement_professional", "customer_requirement_special", "remarks"),
-        "interpretation": ("project_types", "task_description", "locations", "customer_budget", "required_interpreter_count", "required_interpreter_gender", "required_interpretation_level", "interpretation_domain", "interpretation_content", "interpreter_special_requirements"),
+        "interpretation": ("project_types", "task_description", "locations", "customer_budget", "required_interpreter_count", "required_interpreter_gender", "required_interpretation_level", "interpretation_domain", "interpretation_content", "interpreter_special_requirements", "remarks"),
         "annotation": ("project_types", "task_description", "potential_demand"),
         "recruitment": ("position_title", "job_description", "headcount_min", "headcount_max", "employment_start", "employment_end", "work_location", "target_onboard_date", "service_fee_type", "service_fee_amount", "service_fee_rate", "service_fee_note"),
     }
@@ -593,6 +593,8 @@ def build_preview(
         values['email_subject_preview']=None
     if project_type == "interpretation":
         values = _normalize_interpretation_mail_values(db, values)
+        # 口译邮件与会话均不自动带出客户联系方式，与发送人的查看权限无关。
+        values["manager_contact"] = None
     elif project_type == "annotation":
         values = _normalize_annotation_mail_values(db, values)
     elif project_type == "recruitment":
@@ -663,6 +665,8 @@ def build_preview(
     if project_type == 'translation' and _clean(values.get('remarks')):
         position = 1 if order_no else 0
         lines[position:position] = ['', '补充说明：', _clean(values['remarks']), '']
+    elif project_type == 'interpretation' and _clean(values.get('remarks')):
+        lines[3:3] = [f"补充说明：{_clean(values['remarks'])}"]
     core_body_keys = {key for _label, key in CORE_FIELDS[project_type]}
     # 核心字段为空时也要在邮件预览中保留对应行，避免用户只能从“缺失字段”标签猜测正文缺了什么。
     # 缺失核心字段会继续阻止发送，因此“（待填写）”只用于预览提示，不会进入实际投递邮件。
@@ -678,7 +682,7 @@ def build_preview(
         lines.extend(_translation_quotation_lines(values.get("quotation_draft")))
     if _clean(values.get("consultation_description")):
         lines.append(f"咨询说明：{_clean(values.get('consultation_description'))}")
-    if project_type != 'translation' and _clean(values.get("remarks")):
+    if project_type not in {'translation', 'interpretation'} and _clean(values.get("remarks")):
         lines.append(f"备注：{_clean(values.get('remarks'))}")
     if project_type == 'translation':
         for label,key in [('客户专业要求','customer_requirement_professional'),('客户特殊要求','customer_requirement_special')]:

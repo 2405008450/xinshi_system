@@ -80,7 +80,7 @@ class DailyReportMailSendRequest(BaseModel):
     rows: list[DailyReportMailRow]
     supplemental_note: Optional[str] = Field(default=None, max_length=10000)
     inline_image_html: Optional[str] = Field(default=None, max_length=50000)
-    inline_image_ids: list[UUID] = Field(default_factory=list, max_length=5)
+    inline_image_ids: list[UUID] = Field(default_factory=list)
     idempotency_key: str = Field(min_length=8, max_length=100, pattern=r"^[A-Za-z0-9._:-]+$")
 
     @field_validator("subject")

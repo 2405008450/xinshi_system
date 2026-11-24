@@ -42,7 +42,7 @@ def interpretation_task_filter(db, user):
     return and_(active_status, current_manager)
 
 
-def search(db, user, group, keyword='', page=1, page_size=10):
+def project_query(db, user, group):
     if group not in MODELS:
         raise HTTPException(422, '请选择有效项目分类')
     model = MODELS[group]
@@ -53,7 +53,7 @@ def search(db, user, group, keyword='', page=1, page_size=10):
         own = interpretation_task_filter(db, user)
     elif group == 'assigned_translation':
         if not ready(db):
-            return {'items': [], 'total': 0, 'ready': False}
+            return model, query.filter(false())
         own = exists().where(ProjectArrangement.project_id == model.id, ProjectArrangement.assignee_id == user.id)
     else:
         if group == 'translation':
@@ -74,7 +74,13 @@ def search(db, user, group, keyword='', page=1, page_size=10):
                                   (Consultation.customer_service_id.is_not(None), Consultation.customer_service_id == user.id),
                                   else_=func.lower(func.trim(legacy)).in_(names))
         own = or_(manager, client_manager)
-    query = query.filter(own)
+    return model, query.filter(own)
+
+
+def search(db, user, group, keyword='', page=1, page_size=10):
+    model, query = project_query(db, user, group)
+    if group == 'assigned_translation' and not ready(db):
+        return {'items': [], 'total': 0, 'ready': False}
     fields = [model.order_no, model.project_name, Client.client_name, Client.client_short_name, SubClient.client_name, SubClient.client_short_name]
     if model is TranslationProject:
         fields.append(model.source_file_name)

@@ -16,6 +16,9 @@ PROJECT_TYPE_LABELS = {
     "booth": "展会摊位口译",
     "exhibition_escort": "展会陪同口译",
     "escort": "陪同口译",
+    "tourism_escort": "旅游陪同口译",
+    "business_escort": "商务陪同口译",
+    "other_escort": "其他陪同口译",
     "small_business_meeting": "小型商务会议口译",
     "small_non_business_meeting": "小型（非商务）会议口译",
     "consecutive": "会议交传口译",
@@ -154,6 +157,9 @@ class InterpretationProjectWrite(BaseModel):
     manager_contact: Optional[str] = Field(default=None, max_length=100)
     client_contact_method: Optional[str] = Field(default=None,max_length=5000)
     client_contact_description: Optional[str] = Field(default=None,max_length=5000)
+    client_contact_job_title: Optional[str] = Field(default=None, max_length=100)
+    client_contact_department: Optional[str] = Field(default=None, max_length=100)
+    client_contact_company: Optional[str] = Field(default=None, max_length=200)
     client_contact_version: Optional[str] = Field(default=None,max_length=64)
     contact_name: Optional[str] = None
     customer_order_no: Optional[str] = None

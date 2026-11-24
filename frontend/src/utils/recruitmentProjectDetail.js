@@ -14,7 +14,7 @@ export const recruitmentProjectDetailItems = [
   {label:'职位描述',key:'jobDescription',span:2,editable:true,multiline:true},
   {label:'职位名称/类型',key:'positionTitle',editable:true,required:true,maxlength:255},
   {label:'招聘人数',key:'headcount',formatter:(_value,row)=>headcountText(row)},
-  {label:'现客户经理',key:'clientManagerName'},
+  {label:'客户经理',key:'clientManagerName'},
   {label:'项目状态',key:'projectStatus',type:'status'},
   {label:'项目经理',key:'roleAssignments',formatter:(_value,row)=>roleAssignmentName(row,'project_manager')},
   {label:'项目专员',key:'roleAssignments',formatter:(_value,row)=>roleAssignmentName(row,'project_specialist')},

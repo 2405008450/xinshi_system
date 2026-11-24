@@ -7,6 +7,7 @@ from fastapi import HTTPException, FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import event, Uuid, inspect
 from tests.test_chat_participant_access import environment
+from business_mail_service import build_preview as real_mail_preview
 
 
 @pytest.fixture
@@ -56,6 +57,34 @@ def test_send_idempotent_own_folder_all_members_policy_mentions_and_private_cont
     assert len({row.room_id for row in db.query(DiscussionMessage)})==1
     with pytest.raises(HTTPException,match='发送请求标识'):
         service.send(db,users[1],module,project.id,key)
+
+
+def test_interpretation_chat_uses_saved_remarks_near_top_without_contact(delivery, monkeypatch):
+    import business_mail_service as mail
+    from interpretation_models import InterpretationLanguage, InterpretationProjectTimeRange, InterpretationProjectLanguageDirection
+    from discussion_chat_models import DiscussionMessage
+    db, users, projects, service = delivery
+    project = projects['interpretation']
+    project.remarks = '会话中的重点补充说明'
+    project.project_types = ['business_escort']
+    project.locations = ['广州']
+    project.required_interpreter_count = 1
+    languages = [InterpretationLanguage(id=uuid4(), label=label) for label in ['中文', '英语']]
+    db.add_all(languages)
+    project.time_ranges = [InterpretationProjectTimeRange(id=uuid4(), sequence_no=1,
+        scheduled_start=datetime(2026, 11, 23, 9), scheduled_end=datetime(2026, 11, 23, 18))]
+    project.language_directions = [InterpretationProjectLanguageDirection(id=uuid4(), sequence_no=1,
+        source_language_id=languages[0].id, target_language_id=languages[1].id, required_count=1)]
+    db.commit()
+    monkeypatch.setattr(mail, 'build_preview', real_mail_preview)
+    monkeypatch.setattr(mail, 'resolve_project_sender', lambda *_: (None, {}))
+    service.send(db, users[0], 'interpretation', project.id, uuid4())
+    content = db.query(DiscussionMessage).one().content
+    body = content.split('\n\n', 1)[1]
+    assert body.splitlines()[3] == '补充说明：会话中的重点补充说明'
+    assert content.count('会话中的重点补充说明') == 1
+    assert '13800001234' not in content
+    assert '客户经理联系方式' not in content
 
 
 def test_missing_core_fields_block_and_emergency_keeps_validation(delivery,monkeypatch):

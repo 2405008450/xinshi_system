@@ -46,6 +46,9 @@ router = APIRouter(
     dependencies=[Depends(require_module_access("projects:read", "projects:write"))],
 )
 
+from translation_project_work_report import install_routes as install_creation_report_routes
+install_creation_report_routes(router, 'interpretation')
+
 INTERPRETATION_TEXT_FIELDS = {
     "project_name": TextFieldRule(max_length=500),
     "task_description": TextFieldRule(),

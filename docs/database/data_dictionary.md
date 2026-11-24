@@ -2947,6 +2947,8 @@ id UUID 主键；client_id / sub_client_id UUID 分别关联 client / sub_client
 - 接口 contact_people[].department/company 可省略，省略时保留原值，空串清除。适用于客户和子客户。
 - 使用 tools/apply_client_contact_affiliation_migration.py 创建新表，启动时不自动迁移。
 
+口译、标注、招聘项目表单通过 `client_contact_job_title`、`client_contact_department`、`client_contact_company` 同步所选联系人的职位、部门与公司，复用上述联系人表，不新增项目表字段。字段省略时保留原值、空串时清除；`client_contact_version` 同时校验联系方式、说明和这三项资料，冲突返回 409。联系方式仍仅客户部、销售部、行政部可查看和维护。
+
 
 ### 特殊结算独立单据与多组开票资料（2026-11-22）
 

@@ -176,6 +176,8 @@ def create_requirement(db, project_id, payload, actor):
             raise HTTPException(409, '保存请求已使用，请重新添加简单需求')
         return {'item': data, **count_result(db,parent,bool(data.get('word_count_matrix'))), 'project_status': parent.project_status,
                 'project_updated_at': business_datetime(parent.updated_at).isoformat() if parent.updated_at else None}
+    if not payload.chargeable and counts.normalized(payload.word_count_matrix):
+        raise HTTPException(422, '不收费的简单需求无需登记工作量，请选择收费后填写')
     if parent.project_status != payload.expected_project_status or business_datetime(parent.updated_at) != business_datetime(payload.expected_updated_at):
         raise HTTPException(409, '项目已被修改，请重新加载简单需求后再保存')
     users = {u.id: u for u in eligible_recipients(db)}

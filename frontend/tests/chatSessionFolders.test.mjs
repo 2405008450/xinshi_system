@@ -6,9 +6,18 @@ import { sessionListKey } from '../src/utils/chatSessionList.js'
 
 const source = readFileSync(new URL('../src/utils/chatSessionFolders.js', import.meta.url), 'utf8')
 const defaults = JSON.parse(readFileSync(new URL('../../data/chat_session_folders.json', import.meta.url), 'utf8'))
+const companyChatRooms = JSON.parse(readFileSync(new URL('../../data/company_chat_rooms.json', import.meta.url), 'utf8'))
 const statusSource = readFileSync(new URL('../src/utils/annotationStatus.js', import.meta.url), 'utf8')
 const { annotationStatusLabels, normalizeAnnotationStatus } = runInNewContext(statusSource.replaceAll('export ', '') + '\n;({annotationStatusLabels, normalizeAnnotationStatus})')
-const api = runInNewContext(source.replace(/^import .*\r?\n/gm, '').replaceAll('export ', '') + '\n;({sessionFolderMentionUnread, sessionFolderNodes, sessionMatchesFolder, sessionFolderCount, assignableSessionFolders, annotationFolderId, resourceFolderId})', { defaults, annotationStatusLabels, normalizeAnnotationStatus, sessionListKey })
+const api = runInNewContext(source.replace(/^import .*\r?\n/gm, '').replaceAll('export ', '') + '\n;({sessionFolderMentionUnread, sessionFolderNodes, sessionMatchesFolder, sessionFolderCount, assignableSessionFolders, annotationFolderId, resourceFolderId, placeCompanyConversations})', { defaults, companyChatRooms, annotationStatusLabels, normalizeAnnotationStatus, sessionListKey })
+
+test('公司会话在已有个人排序中仍紧跟资源开拓讨论，保持一级及其他分组顺序', () => {
+  const rooms = companyChatRooms.map((name, index) => ({ id: `company-${index}`, name, isConversation: true }))
+  const roots = [{id:'other'}, ...rooms.slice().reverse(), {id:api.resourceFolderId}, {id:'annotation'}]
+  const sorted = api.placeCompanyConversations(roots)
+  assert.deepEqual(Array.from(sorted, row => row.id), ['other', api.resourceFolderId, ...rooms.map(row => row.id), 'annotation'])
+  assert.equal(roots[1].id, `company-${rooms.length - 1}`)
+})
 
 test('技术开发分组和所属会话按部门授权显示并汇总',()=>{
   const root=defaults.find(row=>row.ruleKey==='technical').id

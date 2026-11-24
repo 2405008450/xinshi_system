@@ -1,6 +1,7 @@
 import api from './index'
 
 export const getMyWorkItems = () => api.get('/work-items/my')
+export const getUnifiedProjectTasks = (params, config = {}) => api.get('/work-items/project-tasks', { ...config, params })
 
 export const getNonProjectTasks = (params) => api.get('/non-project-tasks', { params })
 export const createNonProjectTask = (data) => api.post('/non-project-tasks', data)

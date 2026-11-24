@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import create_engine,inspect,text
-from tests.test_translation_simple_requirements import context,payload
+from tests.test_translation_simple_requirements import context,payload as requirement_payload
 from tests.test_chat_participant_access import environment
 import translation_simple_requirements as service
 from translation_simple_requirement_counts import SimpleRequirementWordCount
@@ -12,6 +12,10 @@ from word_count_models import WordCountMetric
 from word_count_service import get_word_count_matrix,patch_word_count_matrix
 from word_count_schemas import WordCountMatrixPatch
 from models import TranslationSubOrder,AppNotification
+
+
+def payload(row, member, **overrides):
+ return requirement_payload(row, member, **({'chargeable': True} | overrides))
 
 
 def test_add_to_existing_counts_once_retry_and_history(context):
@@ -30,6 +34,16 @@ def test_add_to_existing_counts_once_retry_and_history(context):
  assert second['word_count_matrix']['company']['words']==130
  assert service.create_requirement(db,root.id,request,actor)['word_count_matrix']['company']['words']==130
  assert db.query(SimpleRequirementWordCount).count()==2
+ from translation_finance_audit import history
+ audit=history(db,root.id)
+ assert audit['total']==2
+ first=next(item for item in audit['items'] if item['after']['requirement_id']==str(result['item']['id']))
+ assert first['actor_name']==(actor.full_name or actor.username)
+ assert first['created_at'].endswith('+08:00')
+ assert first['after']['word_count_source']=='simple_requirement'
+ assert first['after']['word_count_additions']['company']['words']==23
+ assert next(cell['value'] for cell in first['before']['word_count_cells'] if cell['dimension']=='company')==100
+ assert next(cell['value'] for cell in first['after']['word_count_cells'] if cell['dimension']=='company')==123
 
 
 def test_parent_counts_include_direct_simple_requirements_without_overwriting_children(context):
@@ -42,6 +56,10 @@ def test_parent_counts_include_direct_simple_requirements_without_overwriting_ch
  db.commit()
  result=service.create_requirement(db,root.id,payload(root,member,word_count_matrix={'company':{'words':5}}),actor)
  assert result['word_count_matrix']['company']['words']==35
+ from translation_finance_audit import history
+ audit=history(db,root.id)['items'][0]
+ assert audit['before']['word_count_cells'][0]['value']==30
+ assert audit['after']['word_count_cells'][0]['value']==35
  import crud
  crud._attach_word_count_matrices(db,projects=[root]);assert root.word_count_matrix['company']['words']==35
  assert get_word_count_matrix(db,'project',root.id)['company']['words']==35
@@ -58,6 +76,20 @@ def test_failure_rolls_back_statistics_requirement_status_and_notifications(cont
  assert root.project_status==original_status
  assert db.query(SimpleRequirementWordCount).count()==0 and db.query(service.TranslationSimpleRequirement).count()==0
  assert get_word_count_matrix(db,'project',root.id)['company']['words'] is None
+ from translation_finance_audit import history
+ assert history(db,root.id)['total']==0
+
+
+def test_free_requirement_rejects_hidden_counts_and_keeps_project_unchanged(context):
+ db,actor,member,_,root,_=context
+ with pytest.raises(HTTPException,match='不收费'):
+  service.create_requirement(db,root.id,payload(root,member,chargeable=False,word_count_matrix={'company':{'words':9}}),actor)
+ db.rollback()
+ result=service.create_requirement(db,root.id,payload(root,member,chargeable=False),actor)
+ assert result['word_count_added'] is False
+ assert get_word_count_matrix(db,'project',root.id)['company']['words'] is None
+ from translation_finance_audit import history
+ assert history(db,root.id)['total']==0
 
 
 def test_mismatched_leaf_units_rejected_zero_preserved_and_migration_is_create_only(context):

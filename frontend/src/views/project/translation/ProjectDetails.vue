@@ -279,18 +279,23 @@
       @closed="onProjectDialogClosed"
     >
       <template #header>
-        <DialogFieldSearchHeader
-          ref="fieldSearchRef"
-          v-model="fieldSearchKeyword"
-          :title="dialogTitle"
-          :fetch-suggestions="fetchFieldSuggestions"
-          @select="locateDialogField"
-          @clear="clearFieldSearch"
-        >
-          <template v-if="form.id" #actions>
-            <span class="project-editor-identity" @mousedown.stop>{{ form.orderNo }} · {{ form.projectName }}</span>
-          </template>
-        </DialogFieldSearchHeader>
+        <div class="project-editor-header">
+          <DialogFieldSearchHeader
+            ref="fieldSearchRef"
+            v-model="fieldSearchKeyword"
+            :title="dialogTitle"
+            :fetch-suggestions="fetchFieldSuggestions"
+            @select="locateDialogField"
+            @clear="clearFieldSearch"
+          >
+            <template v-if="form.id" #actions>
+              <span class="project-editor-identity" @mousedown.stop>{{ form.orderNo }} · {{ form.projectName }}</span>
+            </template>
+          </DialogFieldSearchHeader>
+          <div class="project-editor-header__actions" @mousedown.stop>
+            <ProjectShortNotes :project-id="form.id" :project-updated-at="form.updatedAt" :can-write="canWriteProjects" :disabled="submitLoading" @saved="onSimpleRequirementSaved" />
+          </div>
+        </div>
       </template>
       <div ref="editorBodyRef" class="editor-body">
         <AppForm :key="createClearGeneration" number-scope="translation" number-field="orderNo" :number-active="dialogVisible && !form.id"  ref="formRef" :model="form" :rules="rules" :disabled="!canWriteProjects" :saved-sync-enabled="!!form.id" data-auto-draft="off" label-width="120px">
@@ -376,9 +381,8 @@
                               </div>
                             </template>
                           </el-autocomplete>
-                          <div class="client-autocomplete-hint">没有匹配客户时，填写客户全称及简称后，保存项目会自动新增客户。</div>
                         </div>
-                      <ClientNameGuidance compact />
+                      <ClientNameGuidance create-on-save />
 </el-form-item>
                     </el-col>
                     <el-col :xs="24" :md="12">
@@ -852,7 +856,6 @@
       <template #footer>
         <el-alert v-if="conversationError" :title="conversationError" type="error" :closable="false" show-icon />
         <el-button v-if="conversationError" type="primary" :loading="submitLoading" @click="retrySavedConversation">重试发送会话（无需再次保存）</el-button>
-        <ProjectShortNotes :project-id="form.id" :project-updated-at="form.updatedAt" :can-write="canWriteProjects" :disabled="submitLoading" @saved="onSimpleRequirementSaved" />
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button v-if="canWriteProjects" type="primary" :loading="submitLoading && submitAction === 'save'" :disabled="submitLoading" @click="handleSubmit(false)">保存</el-button>
         <el-button v-if="canWriteProjects" :loading="submitLoading && submitAction === 'mail'" :disabled="submitLoading" @click="handleSubmit(true)">保存并发送邮件{{ deliveryMailCount ? `（${deliveryMailCount}次）` : '' }}</el-button>
@@ -995,6 +998,7 @@
     />
 
     <TranslationCustomerFinance ref="customerFinanceEditorRef" editor-only @document-requirements-saved="onFinanceDocumentRequirementsSaved" />
+    <ConsultationWorkReportDialog v-if="pendingProjectReportId && !submitLoading" :key="pendingProjectReportId" :translation-project-id="pendingProjectReportId" @saved="onProjectReportSaved" />
   </el-card>
 </template>
 
@@ -1051,7 +1055,8 @@ import ProjectStatusExclusionControl from './components/ProjectStatusExclusionCo
 const arrangementHistoryVisible=ref(false),arrangementHistoryProject=ref(null)
 function openArrangementHistory(row,_column,event){if(normalizeStatus(row.projectStatus)!=='arranged')return;event.preventDefault();arrangementHistoryProject.value=row;arrangementHistoryVisible.value=true}
 function openArrangementFromStatus(event,row){if(normalizeStatus(row.projectStatus)!=='arranged')return;event.stopPropagation();openArrangementHistory(row,null,event)}
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
+import ConsultationWorkReportDialog from '@/views/client/components/ConsultationWorkReportDialog.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Check, MagicStick } from '@element-plus/icons-vue'
 import { getProjectPage, getProject, createProject, updateProject, updateProjectTextField, deleteProject } from '@/api/projects'
@@ -1137,6 +1142,26 @@ const canReadClients = hasPermission('clients:read')
 const canReadProjectFiles = hasPermission('project_files:read')
 const canWriteProjectFiles = hasPermission('project_files:write')
 const mailComposerVisible = ref(false)
+const pendingProjectReportId = ref('')
+const mailAfterProjectReport = ref(false)
+async function restorePendingProjectReports() {
+  try {
+    const rows = await deliveryApi.get('/projects/translation/work-report/pending')
+    pendingProjectReportId.value = rows[0]?.id || ''
+  } catch (error) { ElMessage.error(getLocalizedErrorMessage(error, '待填写工作报告加载失败，请刷新页面重试')) }
+}
+async function onProjectReportSaved() {
+  pendingProjectReportId.value = ''
+  if (mailAfterProjectReport.value) { mailAfterProjectReport.value = false; mailComposerVisible.value = true }
+  if (!props.editorOnly) await restorePendingProjectReports()
+  if (props.editorOnly && !dialogVisible.value && !mailComposerVisible.value) emit('editor-closed')
+}
+function preventPendingReportUnload(event) { if (pendingProjectReportId.value) { event.preventDefault(); event.returnValue = '' } }
+onBeforeRouteLeave(() => {
+  if (!pendingProjectReportId.value) return true
+  ElMessage.warning('请先填写并保存笔译客户来稿工作报告')
+  return false
+})
 const mailAlsoChat=ref(false),chatAudience=ref([])
 const deliveryMailCount=ref(0),deliveryChatCount=ref(0)
 const deliveryCountsLabel=computed(()=>deliveryMailCount.value||deliveryChatCount.value?`（邮件${deliveryMailCount.value}次，会话${deliveryChatCount.value}次）`:'')
@@ -2315,6 +2340,7 @@ async function clearNewProject(){
   ElMessage.success('已清空当前新增内容及草稿')
 }
 const handleAdd = async () => {
+  if (pendingProjectReportId.value) { ElMessage.warning('请先填写并保存笔译客户来稿工作报告'); return }
   reviewedSubOrderProject.value='';pendingReviewedKey.value=''
   const opening = ++projectCreateOpenGeneration
   const openingUser = localStorage.getItem('user_id')
@@ -2531,6 +2557,7 @@ const handleSubmit = async (sendAfterSave = false, emergency = false, sendChat =
       savedProject = await updateProject(payload.id, payload)
     }
     projectSaved = true
+    if (isCreate) pendingProjectReportId.value = savedProject.id
     if(isCreate){form.id=savedProject.id;form.orderNo=savedProject.orderNo;dialogTitle.value='编辑项目详情'}
     form.updatedAt=savedProject.updatedAt||form.updatedAt
     saveStage = '财务补充'
@@ -2569,7 +2596,8 @@ const handleSubmit = async (sendAfterSave = false, emergency = false, sendChat =
       mailAlsoChat.value=sendChat
       mailProjectId.value = savedProject?.id || payload.id
       mailConsultationId.value = savedProject?.consultationId || payload.consultationId || ''
-      mailComposerVisible.value = true
+      if (isCreate) mailAfterProjectReport.value = true
+      else mailComposerVisible.value = true
     }
 
     // 保存完成即退出录入；只有会话未确认发送时保留已保存订单供单独重试。
@@ -2593,7 +2621,7 @@ const handleSubmit = async (sendAfterSave = false, emergency = false, sendChat =
     submitLocked = false
   }
 }
-const onProjectDialogClosed = () => { if(dialogVisible.value)return;directionHistoryVisible.value=false; projectCreateOpenGeneration++;quotationVisible.value=false;statementVisible.value=false;quotationDraftDirty.value=false;documentNotesDirty.value=false;pauseDraft(); resetProjectForm(); resetSubOrderForm(); editorInlineChanges.value = new Map(); currentProjectSubOrders.value = []; if(props.editorOnly && !mailComposerVisible.value)emit('editor-closed') }
+const onProjectDialogClosed = () => { if(dialogVisible.value)return;directionHistoryVisible.value=false; projectCreateOpenGeneration++;quotationVisible.value=false;statementVisible.value=false;quotationDraftDirty.value=false;documentNotesDirty.value=false;pauseDraft(); resetProjectForm(); resetSubOrderForm(); editorInlineChanges.value = new Map(); currentProjectSubOrders.value = []; if(props.editorOnly && !mailComposerVisible.value && !pendingProjectReportId.value)emit('editor-closed') }
 const createSubOrderDefaultsFromProject = () => ({ serviceContent:form.serviceContent, customerRequirementProfessional:form.customerRequirementProfessional, customerRequirementSpecial:form.customerRequirementSpecial, remarks:form.remarks, fileTypeSecondary: form.fileTypeSecondary, languagePair: form.languagePair, priority: form.priority, wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], customerDeadlineTime: form.customerDeadlineTime, sentToClientTime: form.sentToClientTime, translatorId: form.translatorId, translatorAssignmentTime: form.translatorAssignmentTime, status: form.projectStatus || 'pending_confirmation', translatorDeliveryProgress: form.translatorDeliveryProgress, preReviewQcProgress: form.preReviewQcProgress, review1Progress: form.review1Progress, review2Progress: form.review2Progress, postReviewQcProgress: form.postReviewQcProgress, layoutProgress: form.layoutProgress, consolidationProgress: form.consolidationProgress, clientFeedback: form.clientFeedback })
 const openCreateSubOrderDialog = () => { resetSubOrderForm(); subOrderDialogTitle.value = '小量新增'; assignReactive(subOrderForm, createEmptySubOrderForm, { ...createSubOrderDefaultsFromProject(), parentProjectId: form.id }); subOrderDialogVisible.value = true }
 const handleEditSubOrder = (row) => { resetSubOrderForm(); subOrderDialogTitle.value = '编辑子订单'; assignReactive(subOrderForm, createEmptySubOrderForm, { ...row, parentProjectId: row.parentProjectId || form.id }); subOrderDialogVisible.value = true }
@@ -2764,6 +2792,8 @@ async function openStatementOrderEditor(){
 }
 const projectFieldContext=computed(()=>({openProjectDetails,getTranslationClientDetailItems,projectDetailItems,getStatusLabel,getStatusType,canWriteProjects,deleteMode:deleteMode.value,saveProjectTextField,fetchData,canReadProjectFiles,openOriginalPath,copyOriginalPath,projectStatusSavingIds:projectStatusSavingIds.value,changeProjectStatus,normalizeStatus,openArrangementFromStatus,projectStatusOptions,saveProjectTranslatorCompletions,getLanguagePairSummary,formatAssignedTranslators,getAssignedTranslatorSummary,getWordCountListSummary,formatTableColumnValue,headerFilterDefinition,searchForm,handleConfiguredTextInput,handleSearch,getTimeSortMode,getSortDirection,isTimeSortActive,getTimeSortTitle,toggleTimeSort}))
 onMounted(async () => {
+  window.addEventListener('beforeunload', preventPendingReportUnload)
+  if (!props.editorOnly) void restorePendingProjectReports()
   window.addEventListener('translation-statements-changed',onFinanceSettingsChanged)
   window.addEventListener('translation-word-count-saved',refreshProjectWordCounts)
   if(props.editorOnly) {
@@ -2789,6 +2819,7 @@ watch(mailComposerVisible,(value,previous)=>{
   if(props.editorOnly && previous && !value && !dialogVisible.value)emit('editor-closed')
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', preventPendingReportUnload)
   window.removeEventListener('translation-statements-changed',onFinanceSettingsChanged)
   window.removeEventListener('translation-word-count-saved',refreshProjectWordCounts)
   clearTimeout(searchTimer)
@@ -2830,6 +2861,13 @@ useProjectStatusSync('translation',tableData,{enabled:()=>!props.editorOnly,onCh
 </script>
 
 <style scoped>
+.project-editor-header { display: flex; align-items: center; gap: 12px; padding-right: 36px; min-width: 0; }
+.project-editor-header > :deep(.dialog-field-search-header) { flex: 1; min-width: 0; padding-right: 0; }
+.project-editor-header__actions { flex: none; }
+@media (max-width: 768px) {
+  .project-editor-header { align-items: flex-start; gap: 8px; }
+  .project-editor-header :deep(.dialog-field-search-header__search) { min-width: 0; }
+}
 .sub-order-action-note { color: var(--el-color-danger); }
 .project-editor-identity { user-select: text; cursor: text; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5; }
 :deep(.dialog-field-search-header__heading:has(.project-editor-identity)) { min-width: 0; flex: 1; }

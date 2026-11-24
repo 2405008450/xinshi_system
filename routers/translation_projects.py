@@ -36,6 +36,27 @@ from pagination_schemas import PageResponse, resolve_page_total
 router = APIRouter(prefix="/projects/translation", tags=["translation_projects"], dependencies=[Depends(require_module_access("projects:read", "projects:write"))])
 logger = logging.getLogger(__name__)
 
+
+@router.get('/work-report/pending')
+def pending_creation_reports(db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    from translation_project_work_report import pending
+    return pending(db, user)
+
+
+@router.get('/{project_id}/work-report')
+def creation_report_context(project_id: UUID, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    from translation_project_work_report import capture_context
+    return capture_context(db, user, project_id)
+
+
+from consultation_work_report import ConsultationReportWrite
+
+
+@router.post('/{project_id}/work-report')
+def save_creation_report(project_id: UUID, payload: ConsultationReportWrite, db: Session = Depends(get_db), user: AppUser = Depends(get_current_user)):
+    from translation_project_work_report import submit
+    return submit(db, user, project_id, payload)
+
 TRANSLATION_TEXT_FIELDS = {
     "project_name": TextFieldRule(max_length=255, required=True),
     "source_file_name": TextFieldRule(max_length=255, required=True),

@@ -68,6 +68,17 @@ def test_small_non_business_meeting_type_is_supported():
     assert PROJECT_TYPE_LABELS["small_non_business_meeting"] == "小型（非商务）会议口译"
 
 
+@pytest.mark.parametrize(("code", "label"), [
+    ("tourism_escort", "旅游陪同口译"),
+    ("business_escort", "商务陪同口译"),
+    ("other_escort", "其他陪同口译"),
+])
+def test_specific_escort_types_are_accepted_and_used_in_project_name(code, label):
+    payload = InterpretationNamePreviewRequest(project_types=[code], locations=['广州'],
+        time_ranges=[time_range(datetime(2026, 8, 2, 8), datetime(2026, 8, 2, 11))])
+    assert build_interpretation_project_name(payload, ['中文 ↔ 英语']).endswith(f"{label}项目")
+
+
 def test_date_ranges_compress_same_month_and_repeated_year():
     ranges = [
         time_range(datetime(2026, 8, 10, 9), datetime(2026, 8, 20, 18)),

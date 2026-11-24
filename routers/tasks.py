@@ -104,6 +104,25 @@ def my_work_items(
     return get_my_work_items(db, current_user)
 
 
+@work_items_router.get('/project-tasks', dependencies=[Depends(require_permission('tasks:read'))])
+def unified_project_tasks(day: date, keyword: str = Query('', max_length=200),
+                          filters: str = Query('{}', max_length=8000), statuses: str = Query('{}', max_length=8000),
+                          page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
+                          date_from: date | None = None, date_to: date | None = None,
+                          db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user)):
+    import json
+    from fastapi import HTTPException
+    from workbench_project_tasks import search
+    try:
+        fields, status_values = json.loads(filters), json.loads(statuses)
+        if not isinstance(fields, dict) or not isinstance(status_values, dict):
+            raise ValueError
+    except (ValueError, TypeError):
+        raise HTTPException(422, '筛选条件格式不正确')
+    return search(db, current_user, day, keyword=keyword, filters=fields, statuses=status_values,
+                  page=page, page_size=page_size, date_from=date_from, date_to=date_to)
+
+
 @work_items_router.get('/my-projects', dependencies=[Depends(require_permission('tasks:read'))])
 def my_project_tasks(group: str, keyword: str = '', page: int = Query(1, ge=1), page_size: int = Query(10, ge=1, le=100), db: Session = Depends(get_db), current_user: AppUser = Depends(get_current_user)):
     from my_project_tasks import search

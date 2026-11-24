@@ -86,6 +86,9 @@ router = APIRouter(
     dependencies=[Depends(_annotation_module_access)],
 )
 
+from translation_project_work_report import install_routes as install_creation_report_routes
+install_creation_report_routes(router, 'annotation')
+
 
 @router.get('/{project_id}/task-images')
 def task_images(project_id: UUID, db: Session = Depends(get_db)):

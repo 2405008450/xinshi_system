@@ -2,7 +2,7 @@
   <section v-loading="loading" class="translation-finance-history">
     <p>记录工作量统计、单价、调整后总价及下级继承导致的金额变化，保留修改人、时间和前后内容。从本功能启用后开始记录。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
-    <el-collapse><el-collapse-item v-for="event in items" :key="event.id" :title="`${event.orderNo} · ${event.actorName} · ${formatTime(event.createdAt)}`"><div v-if="event.after?.syncOperation" class="finance-sync-history"><p>{{event.after.syncOperation.type === 'project_child_prices' ? '本订单子订单单价同步' : '同月单价同步'}} · 第 {{event.after.syncOperation.count}} 次<span v-if="event.after.syncOperation.billingMonth"> · {{event.after.syncOperation.billingMonth}}</span></p><p>同步订单：{{event.after.syncOperation.targets.join('、')}}</p><p v-for="(price,index) in event.after.syncOperation.prices" :key="index">{{price.languagePair}} · {{price.currency}} {{price.amount}} / {{price.unitSize}} · {{metricLabel(price.metric)}}</p><p>本次仅同步目标订单，来源订单未保存内容仍保留在编辑窗口。</p></div><div v-else-if="event.after?.wordCountCells" class="finance-history-comparison">
+    <el-collapse><el-collapse-item v-for="event in items" :key="event.id" :title="`${event.orderNo} · ${event.after?.wordCountSource === 'simple_requirement' ? '简单需求新增工作量 · ' : ''}${event.actorName} · ${formatTime(event.createdAt)}`"><p v-if="event.after?.wordCountSource === 'simple_requirement'">来源：简单需求新增工作量；本次增加：{{formatWordCountMatrix(event.after.wordCountAdditions)}}</p><div v-if="event.after?.syncOperation" class="finance-sync-history"><p>{{event.after.syncOperation.type === 'project_child_prices' ? '本订单子订单单价同步' : '同月单价同步'}} · 第 {{event.after.syncOperation.count}} 次<span v-if="event.after.syncOperation.billingMonth"> · {{event.after.syncOperation.billingMonth}}</span></p><p>同步订单：{{event.after.syncOperation.targets.join('、')}}</p><p v-for="(price,index) in event.after.syncOperation.prices" :key="index">{{price.languagePair}} · {{price.currency}} {{price.amount}} / {{price.unitSize}} · {{metricLabel(price.metric)}}</p><p>本次仅同步目标订单，来源订单未保存内容仍保留在编辑窗口。</p></div><div v-else-if="event.after?.wordCountCells" class="finance-history-comparison">
   <div v-for="[label,data] in [['修改前',event.before],['修改后',event.after]]" :key="label">
     <strong>{{label}} · 工作量统计</strong>
     <p v-for="cell in data.wordCountCells" :key="cell.dimension + cell.metricType">{{wordCountDimensionLabels[cell.dimension]}} · {{wordCountMetricLabels[cell.metricType]}}：{{cell.value ?? '未填写'}}</p>
@@ -19,7 +19,7 @@ import {invoiceStatusLabels} from '@/utils/documentRequirements'
 import {getTranslationFinanceHistory} from '@/api/translationCustomerFinance'
 import {formatBusinessDateTime as formatTime} from '@/utils/dateTime'
 import {basisLabel} from '@/utils/translationQuantityBasis'
-import {WORD_COUNT_METRICS} from '@/utils/wordCountMatrix'
+import {WORD_COUNT_METRICS,formatWordCountMatrix} from '@/utils/wordCountMatrix'
 import {getLocalizedErrorMessage} from '@/utils/errorMessages'
 const props=defineProps({projectId:{type:String,required:true},orderId:{type:String,default:''}})
 const items=ref([]),page=ref(1),total=ref(0),loading=ref(false),error=ref('')

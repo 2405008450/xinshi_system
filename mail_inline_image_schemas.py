@@ -16,7 +16,7 @@ class MailInlineImageResponse(BaseModel):
 
 class InlineImagePayload(BaseModel):
     body_html: str | None = Field(default=None, max_length=100000)
-    inline_image_ids: list[UUID] = Field(default_factory=list, max_length=5)
+    inline_image_ids: list[UUID] = Field(default_factory=list)
 
     @field_validator("inline_image_ids")
     @classmethod

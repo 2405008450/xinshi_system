@@ -104,7 +104,7 @@
         show-sub-client
         :width="column.width"
         :min-width="column.minWidth"
-        :show-overflow-tooltip="!['projectName', 'projectStatus'].includes(column.key)"
+        :show-overflow-tooltip="!['projectName', 'projectStatus', 'taskDescription'].includes(column.key)"
       >
         <template #header>
           <ConfiguredColumnHeaderFilter v-if="headerFilterDefinition(column.key)" :definition="headerFilterDefinition(column.key)" :model-value="searchForm[headerFilterDefinition(column.key).key]" @update:model-value="searchForm[headerFilterDefinition(column.key).key] = $event" @text-input="handleConfiguredTextInput" @change="handleSearch" @enter="handleSearch" @clear="handleSearch">
@@ -131,6 +131,8 @@
               <el-icon class="status-switch-caret"><EditPen /></el-icon>
             </el-tag>
           </el-button>
+          <ProjectTaskPopover v-else-if="column.key==='taskDescription'" :row="row" module="interpretation"
+            :editable="canWrite&&!deleteMode" @saved="updated=>onTaskSaved(row,updated)" />
           <el-popover
             v-else-if="column.key === 'clientShortName' && row.clientShortName"
             trigger="click"
@@ -363,11 +365,17 @@
             <el-row :gutter="16">
               <el-col :xs="24" :md="12">
                 <el-form-item label="项目类型" prop="projectTypes">
-                  <el-select v-model="form.projectTypes" multiple clearable collapse-tags collapse-tags-tooltip style="width: 100%">
-                    <el-option v-for="item in projectTypeOptions" :key="item.value" :label="item.label" :value="item.value" />
-                  </el-select>
+                  <div class="interpretation-type-field">
+                    <el-select v-model="form.projectTypes" multiple clearable collapse-tags collapse-tags-tooltip style="flex: 1; min-width: 0">
+                      <el-option v-if="form.projectTypes.includes('escort')" label="陪同口译（历史类型）" value="escort" disabled />
+                      <el-option v-for="item in projectTypeOptions" :key="item.value" :label="item.label" :value="item.value" />
+                    </el-select>
+                    <InterpretationTypeHelp />
+                  </div>
                 </el-form-item>
               </el-col>
+            </el-row>
+            <el-row :gutter="16">
               <el-col :xs="24" :md="12">
                 <el-form-item label="客户简称" show-sub-client prop="clientShortName" data-field-key="clientShortName">
                   <div class="client-autocomplete-field">
@@ -390,19 +398,21 @@
                         </div>
                       </template>
                     </el-autocomplete>
-                    <div class="client-autocomplete-hint">没有匹配客户时，填写客户全称及简称后，保存项目会自动新增客户。</div>
                   </div>
-                <ClientNameGuidance />
+                <ClientNameGuidance create-on-save />
 </el-form-item>
               </el-col>
-            </el-row>
-            <el-row :gutter="16"><el-col :xs="24" :md="12"><el-form-item label="客户全称" prop="clientFullName"><ClientFullNameInput v-model="form.clientFullName" :client-id="form.clientId" include-sub-clients @select="handleClientSelect" /></el-form-item></el-col></el-row>
-            <ProjectClientContactFields :client-id="form.clientId" :sub-client-id="form.subClientId" v-model:contact-name="form.contactName" v-model:contact-method="form.clientContactMethod" v-model:contact-description="form.clientContactDescription" v-model:contact-version="form.clientContactVersion" v-model:contacts-visible="form.clientContactsVisible" />
+              <el-col :xs="24" :md="12"><el-form-item label="客户全称" prop="clientFullName"><ClientFullNameInput v-model="form.clientFullName" :client-id="form.clientId" include-sub-clients @select="handleClientSelect" /></el-form-item></el-col></el-row>
+            <ProjectClientContactFields :active="dialogVisible" v-model:contact-job-title="form.clientContactJobTitle" v-model:contact-department="form.clientContactDepartment" v-model:contact-company="form.clientContactCompany" :client-id="form.clientId" :sub-client-id="form.subClientId" v-model:contact-name="form.contactName" v-model:contact-method="form.clientContactMethod" v-model:contact-description="form.clientContactDescription" v-model:contact-version="form.clientContactVersion" v-model:contacts-visible="form.clientContactsVisible" />
             <ProjectCustomerRequirements module="interpretation" :project="form" @apply="values => Object.assign(form, values)" />
-            <el-form-item label="补充说明" class="remarks-form-item"><el-input v-model="form.remarks" type="textarea" :rows="5" /></el-form-item>
-            <el-form-item label="具体任务" prop="taskDescription">
-              <el-input v-model="form.taskDescription" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" placeholder="请输入具体任务，可填写详细的工作内容和要求" resize="vertical" />
-            </el-form-item>
+            <div class="interpretation-task-remarks">
+              <el-form-item label="具体任务" prop="taskDescription" label-position="top" label-width="auto">
+                <el-input v-model="form.taskDescription" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" placeholder="请输入具体任务，可填写详细的工作内容和要求" resize="vertical" />
+              </el-form-item>
+              <el-form-item label="补充说明" prop="remarks" label-position="top" label-width="auto">
+                <el-input v-model="form.remarks" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" placeholder="请输入补充说明（选填）" resize="vertical" />
+              </el-form-item>
+            </div>
             <div class="section-title-row"><h3>预定时间</h3><el-button type="primary" plain @click="addTimeRange">增加时间段</el-button></div>
             <div v-for="(item, index) in form.timeRanges" :key="index" class="repeat-card">
               <div class="repeat-title">时间段 {{ index + 1 }}<el-button v-if="form.timeRanges.length > 1" link type="danger" @click="form.timeRanges.splice(index, 1)">删除</el-button></div>
@@ -595,11 +605,15 @@
       :project-chat-audience="mailChatAudience"
       :emergency-notice="emergencyNotice"
     />
+    <ConsultationWorkReportDialog v-if="pendingReportId && !submitLoading" :key="pendingReportId" :project-id="pendingReportId" project-type="interpretation" @saved="completeReport" />
   </el-card>
   <ProjectStatisticsDialog v-model="statisticsVisible" module="interpretation" />
 </template>
 
 <script setup>
+import ConsultationWorkReportDialog from '@/views/client/components/ConsultationWorkReportDialog.vue'
+import { useProjectCreationReport } from '@/composables/useProjectCreationReport'
+
 import {useProjectDelivery} from '@/composables/useProjectDelivery'
 import ConversationAudiencePicker from '@/components/common/ConversationAudiencePicker.vue'
 const {mailAlsoChat,emergencyNotice,chatAudience,mailChatAudience,prepareDelivery,sendConversation}=useProjectDelivery('interpretation')
@@ -619,6 +633,7 @@ import OrderedTableColumns from '@/components/common/OrderedTableColumns.vue'
 const props=defineProps({embedded:Boolean,myProjects:Boolean})
 import { managedProjectFilters } from "@/utils/managedProjectFilters"
 import InterpretationProjectDetailContent from '@/components/project/InterpretationProjectDetailContent.vue'
+import InterpretationTypeHelp from '@/components/interpretation/InterpretationTypeHelp.vue'
 import { projectTypeOptions, ratingOptions, statusLabel, statusType, textValue, internalRolesText, arrayText, formatRange, timeRangesText, projectTypesText, ratingText, interpreterRatingsText } from '@/utils/interpretationProjectDetail'
 import ProjectExportMenu from '@/components/common/ProjectExportMenu.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
@@ -651,6 +666,7 @@ import InterpretationDirectionEditor from './components/InterpretationDirectionE
 import { useDialogFieldSearch } from '@/composables/useDialogFieldSearch'
 import { useBatchDelete } from '@/composables/useBatchDelete'
 import { useTableColumns } from '@/composables/useTableColumns'
+import ProjectTaskPopover from '@/components/common/ProjectTaskPopover.vue'
 import { useFormDraft } from '@/composables/useFormDraft'
 import InterpretationFinanceEditor from '@/components/common/InterpretationFinanceEditor.vue'
 import { useResourceRequestStatuses } from '@/composables/useResourceRequestStatuses'
@@ -665,6 +681,7 @@ import { countActiveFilters, createFilterModel, resetFilterModel, serializeField
 import { groupProjectProgressRows } from '@/utils/annotationProgress'
 
 const canWrite = hasPermission('projects:write')
+const {pendingReportId,requireReport,afterReportSaved,completeReport}=useProjectCreationReport('interpretation')
 const mailComposerVisible = ref(false)
 const mailProjectId = ref('')
 const mailConsultationId = ref('')
@@ -1064,6 +1081,7 @@ const loadDetail = async (id, force = false) => {
     detailLoadingId.value = null
   }
 }
+const onTaskSaved=(row,updated)=>{Object.assign(row,updated);detailCache[row.id]=updated}
 const detailRow = (row) => detailCache[row.id] || row
 const cancelInlineDetailEdit = () => window.dispatchEvent(new CustomEvent('business-inline-text-edit', { detail: 'popover-hidden' }))
 const saveDetailTextField = async (row, field, value) => {
@@ -1391,9 +1409,11 @@ const handleSubmit = async (sendAfterSave = false, emergency = false, sendChat =
   submitLoading.value = true
   try {
     const payload = buildPayload()
+    const wasNew = !form.id
     const saved = form.id
       ? await projectApi.updateInterpretationProject(form.id, payload)
       : await projectApi.createInterpretationProject(payload, projectCreateIdempotencyKey.value)
+    if (wasNew) requireReport(saved)
     if (form.id) delete detailCache[form.id]
     if (saved?.id) detailCache[saved.id] = saved
     ElMessage.success(form.id ? '口译项目已更新' : '口译项目已创建')
@@ -1402,9 +1422,13 @@ const handleSubmit = async (sendAfterSave = false, emergency = false, sendChat =
     prepareDelivery(emergency,sendChat)
     if(sendChat&&!sendAfterSave)await sendConversation(saved?.id||form.id,emergency)
     if (sendAfterSave) {
-      mailProjectId.value = saved?.id || form.id
-      mailConsultationId.value = saved?.consultationId || form.consultationId || ''
-      mailComposerVisible.value = true
+      const savedId = saved?.id || form.id
+      const consultationId = saved?.consultationId || form.consultationId || ''
+      afterReportSaved(() => {
+        mailProjectId.value = savedId
+        mailConsultationId.value = consultationId
+        mailComposerVisible.value = true
+      })
     }
     await fetchData()
   } catch (error) {
@@ -1712,4 +1736,11 @@ watch(dialogVisible,visible=>{if(visible)chatAudience.value=[]})
   .progress-note-control { align-items: stretch; flex-direction: column; }
   .progress-note-control .el-button { align-self: flex-end; }
 }
+</style>
+
+<style scoped>
+.interpretation-type-field { display: flex; align-items: center; gap: 12px; width: 100%; }
+.interpretation-task-remarks { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 1fr); gap: 16px; }
+.interpretation-task-remarks > .el-form-item { min-width: 0; }
+@media (max-width: 768px) { .interpretation-task-remarks { grid-template-columns: minmax(0, 1fr); gap: 0; } }
 </style>

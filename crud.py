@@ -2644,6 +2644,7 @@ def create_translation_project(
         project=db_project,
         actor_user_id=project.created_by,
         operation_source=operation_source,
+        snapshot_extra={'work_report_required': True} if operation_source == 'project_form' else None,
     )
     if commit:
         db.commit()

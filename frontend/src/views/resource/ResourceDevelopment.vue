@@ -18,7 +18,6 @@
           <template v-if="options.can_write">
             <template v-if="!deleteMode">
               <el-button @click="settingsRef.open()">平台与选项</el-button>
-              <el-button @click="openWork()">每日工作</el-button>
               <el-button type="primary" title="左键：表格录入；右键：原表单录入" @click="openBatchEditor" @contextmenu.prevent="openEditor()">新增</el-button>
             </template>
             <BatchDeleteToolbar :active="deleteMode" :selected-count="selectedRows.length" :loading="deleting" @enter="enterDeleteMode" @exit="exitDeleteMode" @confirm="confirmBatchDelete" />
@@ -26,6 +25,7 @@
         </div>
       </div>
     </template>
+    <Teleport :to="pageHeaderTarget||'body'" :disabled="!pageHeaderTarget"><el-button v-if="options.can_write" text @click="openWork()">工作报告</el-button></Teleport>
     <TalentResourceNav />
     <el-tabs v-model="activeSection" @tab-change="sectionChanged">
       <el-tab-pane v-if="canRequests" label="需求管理" name="requests" />
@@ -90,7 +90,7 @@
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useResourceIssues } from '@/composables/useResourceIssues'
 import { ElMessage } from 'element-plus'
@@ -115,6 +115,8 @@ import { hasPermission } from '@/utils/permission'
 import { resolveDevelopmentSection } from '@/utils/resourceDevelopmentNavigation'
 const ResourceRequests = defineAsyncComponent(() => import('./ResourceRequests.vue'))
 const options = reactive({ options: [], users: [], languages: [], user_id: '', is_admin: false, can_write: false })
+const pageHeaderTarget=ref(null)
+onMounted(()=>{pageHeaderTarget.value=document.getElementById('page-header-actions')})
 const developmentColumns = computed(() => buildDevelopmentColumns(options))
 const route = useRoute(), router = useRouter()
 const { access: issueAccess } = useResourceIssues()

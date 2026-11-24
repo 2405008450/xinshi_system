@@ -47,7 +47,7 @@ import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch }
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { ArrowDown, ArrowRight, ChatDotRound, Close, Edit, FolderAdd, Plus } from '@element-plus/icons-vue'
 import { useChatSessionCategories } from '@/composables/useChatSessionCategories'
-import { annotationFolderId, resourceFolderId, sessionFolderCount, sessionFolderMentionUnread, sessionFolderNodes } from '@/utils/chatSessionFolders'
+import { annotationFolderId, resourceFolderId, sessionFolderCount, sessionFolderMentionUnread, sessionFolderNodes, placeCompanyConversations } from '@/utils/chatSessionFolders'
 import { hasPermission } from '@/utils/permission'
 import { canStartChatNameEditing } from '@/composables/useChatNameEditing'
 import ChatInlineNameEditor from './ChatInlineNameEditor.vue'
@@ -94,7 +94,7 @@ let saved = {}
 try { saved = JSON.parse(localStorage.getItem(preferenceKey) || '{}') || {} } catch { /* 使用默认布局。 */ }
 const order = ref(Array.isArray(saved.order) ? saved.order.filter(id => typeof id === 'string') : [])
 const panel = ref(), panelHeight = ref(Math.max(100, Math.min(Number(saved.height) || 270, window.innerHeight * .55))), dragged = ref('')
-const roots = computed(() => nodes.value.filter(row => !row.parentKey).sort((a, b) => rank(a.id) - rank(b.id)))
+const roots = computed(() => placeCompanyConversations(nodes.value.filter(row => !row.parentKey).sort((a, b) => rank(a.id) - rank(b.id))))
 const rank = id => order.value.includes(id) ? order.value.indexOf(id) : order.value.length
 function persist() { try { localStorage.setItem(preferenceKey, JSON.stringify({ order: order.value, height: panelHeight.value })) } catch { /* 本次调整仍然生效。 */ } }
 function beginDrag(event, id) { dragged.value = id; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', id) }

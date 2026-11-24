@@ -44,7 +44,7 @@ import {matchesSearchFields} from '@/utils/searchMatching'
 import {financeHelpScreenshots as screenshots} from '@/utils/financeHelpScreenshots'
 const props = defineProps({
   modelValue: Boolean,
-  title: { type: String, default: '财务管理帮助 · 笔译' },
+  title: { type: String, default: '财务管理帮助' },
   searchPlaceholder: { type: String, default: '搜索流程、入口或问题，例如：字数 单价' },
   helpSections: Array,
 })

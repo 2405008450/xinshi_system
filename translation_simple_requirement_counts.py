@@ -50,9 +50,10 @@ def add(db,parent,requirement,matrix,actor_id):
     data=normalized(matrix)
     if not data:return False
     if not ready(db):raise HTTPException(503,'简单需求统计表尚未初始化')
-    from word_count_service import _entity_metric_rows, _apply_cell, _owner_filters, validate_matrix_regions, has_multiple_word_count_regions
+    from word_count_service import _entity_metric_rows, _apply_cell, _owner_filters, validate_matrix_regions, has_multiple_word_count_regions, hierarchy_matrix
     from word_count_schemas import WordCountCreateMatrix
     validate_matrix_regions(WordCountCreateMatrix.model_validate(data))
+    before = deepcopy(normalized(hierarchy_matrix(db, 'project', parent).word_count_matrix))
     base={}
     for row in _entity_metric_rows(db,'project',parent.id):base.setdefault(row.dimension,{})[row.metric_type]=row.count_value
     has_children=db.query(TranslationSubOrder.id).filter_by(parent_project_id=parent.id).first() is not None
@@ -73,7 +74,29 @@ def add(db,parent,requirement,matrix,actor_id):
             existing[actual]=total
     db.add(SimpleRequirementWordCount(requirement_id=requirement.id,project_id=parent.id,matrix=data))
     db.flush()
+    after = normalized(hierarchy_matrix(db, 'project', parent).word_count_matrix)
+    _record_addition(db, parent, requirement, before, after, data, actor_id)
     return True
+
+
+def _record_addition(db, parent, requirement, before, after, additions, actor_id):
+    from models import AppUser
+    from translation_finance_audit import append_snapshots
+    actor = db.get(AppUser, actor_id)
+    if actor is None:
+        raise HTTPException(403, '无法确认工作量修改人')
+    keys = sorted({(dimension, metric) for matrix in (before, after)
+                   for dimension, values in matrix.items() for metric in values
+                   if before.get(dimension, {}).get(metric) != after.get(dimension, {}).get(metric)})
+    def snapshot(matrix):
+        return {'order_no': parent.order_no, 'project_name': parent.project_name,
+                'word_count_cells': [{'dimension': dimension, 'metric_type': metric,
+                                      'value': matrix.get(dimension, {}).get(metric)}
+                                     for dimension, metric in keys]}
+    saved = snapshot(after)
+    saved.update(word_count_source='simple_requirement', requirement_id=str(requirement.id),
+                 word_count_additions=additions)
+    append_snapshots(db, actor, parent.id, {str(parent.id): snapshot(before)}, {str(parent.id): saved})
 
 
 def record(db,requirement_id):
