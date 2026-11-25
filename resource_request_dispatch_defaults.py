@@ -10,17 +10,18 @@ from resource_request_dispatch_models import ResourceRequestDispatchDefault as C
 from resource_development_models import DevelopmentAudit
 from business_time import business_now
 from chat_time import now
-KINDS={'circle':'发圈设置','post':'发帖设置','development':'需求设置'}
+from resource_request_dispatch_kinds import POSTING_KINDS
+KINDS={'circle':'发圈设置','post':'发帖设置','wechat_public':'公众号设置','xiaohongshu':'小红书设置','development':'需求设置'}
 class DefaultWrite(BaseModel):
     user_ids:list[UUID]|None=Field(default=None,max_length=500)
     revision:int=Field(ge=0)
 
 def ready(db):return inspect(db.connection()).has_table(Config.__tablename__)
 
-def eligible(db,kind):
+def eligible(db,kind,source_type='annotation'):
     if kind not in KINDS:raise HTTPException(422,'不支持的通知类型')
     query=db.query(AppUser).filter(AppUser.is_active.is_(True),AppUser.is_deleted.is_(False))
-    if kind!='post':query=query.filter(department_condition(db,['标注项目部']))
+    if kind not in POSTING_KINDS:query=query.filter(department_condition(db,['口译项目部' if source_type=='interpretation' and kind=='circle' else '标注项目部']))
     return query.order_by(AppUser.full_name,AppUser.id).all()
 
 def initial(db,kind):
@@ -30,7 +31,11 @@ def initial(db,kind):
     hr={uid for uid, in db.query(AppUser.id).filter(department_condition(db,['HR部']))}
     return [p.id for p in people if p.id in hr and p.username.casefold() not in {'zixia','williamzhao','lulu'}]
 
-def catalog(db,user,kind):
+def catalog(db,user,kind,source_type='annotation'):
+    if source_type not in {'annotation','interpretation','translation','recruitment','other'}:raise HTTPException(422,'不支持的项目类型')
+    if source_type=='interpretation' and kind=='circle':
+        people=eligible(db,kind,source_type)
+        return dict(kind=kind,label=KINDS[kind],user_ids=[],users=[dict(id=str(p.id),name=p.full_name or p.username,department=p.department or '') for p in people],revision=0,can_manage=False,ready=ready(db),rule_based=True)
     available=ready(db)
     people=eligible(db,kind);allowed={p.id for p in people}
     row=db.get(Config,kind) if available else None

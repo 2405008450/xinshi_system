@@ -9,7 +9,7 @@
         <el-button text @click="participantsVisible=true">默认参与人设置</el-button>
       </div>
     </div>
-    <div class="chat-settings__annotation"><el-button text class="chat-settings__section" :aria-expanded="businessExpanded" @click="businessExpanded=!businessExpanded">标注业务</el-button><div v-if="businessExpanded" class="chat-settings__children"><el-button text @click="defaultKind='circle'">发圈设置</el-button><el-button text @click="defaultKind='post'">发帖设置</el-button><el-button text @click="defaultKind='development'">需求设置</el-button></div></div>
+    <div class="chat-settings__annotation"><el-button text class="chat-settings__section" :aria-expanded="businessExpanded" @click="businessExpanded=!businessExpanded">标注业务</el-button><div v-if="businessExpanded" class="chat-settings__children"><el-button text @click="defaultKind='circle'">发圈设置</el-button><el-button text @click="defaultKind='post'">发帖设置</el-button><el-button text @click="defaultKind='wechat_public'">公众号设置</el-button><el-button text @click="defaultKind='xiaohongshu'">小红书设置</el-button><el-button text @click="defaultKind='development'">需求设置</el-button></div></div>
     <el-config-provider :z-index="10000"><ChatDispatchDefaultsDialog :kind="defaultKind" @close="defaultKind=''" /><ChatDefaultParticipantsDialog v-model="participantsVisible" /></el-config-provider>
   </section>
 </template>

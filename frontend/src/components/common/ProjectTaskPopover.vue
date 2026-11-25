@@ -36,7 +36,7 @@ const services={
   recruitment:{read:recruitment.getRecruitmentProject,write:recruitment.updateRecruitmentProjectTextField},
 }
 const field=computed(()=>props.module==='recruitment'?'jobDescription':'taskDescription')
-const label=computed(()=>props.module==='recruitment'?'职位说明':'具体任务')
+const label=computed(()=>props.module==='recruitment'?'职位说明':props.module==='interpretation'?'工作内容':'具体任务')
 const visible=ref(false),detail=ref(null),loading=ref(false),editing=ref(false),error=ref('')
 const current=computed(()=>detail.value||props.row)
 let sequence=0

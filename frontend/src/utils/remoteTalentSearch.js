@@ -1,5 +1,5 @@
 // 搜索结果独立于预加载目录及已选项；输入变化时立即失效旧请求和旧候选。
-export function createRemoteTalentSearch({fetchOptions,onUpdate,onError}){
+export function createRemoteTalentSearch({fetchOptions,onUpdate,onError,onSuccess}){
   let sequence=0,controller,disposed=false
   const publish=(keyword,items,loading)=>{if(!disposed)onUpdate({keyword,items,loading,active:true})}
   function input(value){
@@ -14,7 +14,9 @@ export function createRemoteTalentSearch({fetchOptions,onUpdate,onError}){
     try{
       const rows=await fetchOptions(keyword,controller.signal)
       if(disposed||request!==sequence)return
-      publish(keyword, Array.isArray(rows) ? rows : [], false)
+      const items=Array.isArray(rows)?rows:[]
+      publish(keyword,items,false)
+      onSuccess?.(keyword,items)
     }catch(error){
       if(disposed||request!==sequence)return
       publish(keyword,[],false)

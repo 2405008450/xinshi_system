@@ -1,3 +1,4 @@
+from resource_request_dispatch_kinds import DISPATCH_KINDS
 """取消作为独立通知批次保存，保留原需求快照及原收到／处理回执。"""
 from fastapi import HTTPException
 from resource_request_dispatch_models import ResourceRequestDispatch as Batch, ResourceRequestDispatchRecipient as Recipient
@@ -40,11 +41,11 @@ def assert_active(db, batch):
 
 
 def cancel_kind(db, user, request_id, kind):
-    if kind not in {'circle', 'post'}:
+    if kind not in DISPATCH_KINDS:
         raise HTTPException(422, '请使用取消需求入口取消资源开拓需求')
     request = lock_request(db, request_id)
-    if not request or request.source_type != 'annotation':
-        raise HTTPException(404, '标注资源需求不存在')
+    if not request or request.source_type not in {'annotation','interpretation'}:
+        raise HTTPException(404, '标注或口译资源需求不存在')
     count = cancel_batches(db, request_id, kind, user.id)
     from resource_request_dispatch import commit
     commit(db)

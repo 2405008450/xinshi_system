@@ -63,6 +63,8 @@ class ResourceDetailVersion(BaseModel):
 
 
 class ResourceRequestDispatchNotes(BaseModel):
+    wechat_public: str = Field(default='', max_length=10000)
+    xiaohongshu: str = Field(default='', max_length=10000)
     circle: str = Field(default='', max_length=10000)
     post: str = Field(default='', max_length=10000)
     development: str = Field(default='', max_length=10000)

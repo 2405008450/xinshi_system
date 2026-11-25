@@ -1,6 +1,6 @@
 <template>
 <section class="payment-registration-fields" data-dialog-field-search-group>
-        <PaymentConfirmationFields :section-prefix="sectionPrefix" :pricing-mode="form.pricingMode" :billing-tax-mode="effectiveBillingTaxMode(form)" :draft-totals="effectiveDraftTotals" :summary-label="summaryLabel" :model-value="confirmation" :project-id="projectId" :details-in-payments="depositSelected" :payments="payments" :prefix="prefix" @update:model-value="updateConfirmation" @reference-change="updateReference">
+        <PaymentConfirmationFields :history-url="historyUrl" :section-prefix="sectionPrefix" :pricing-mode="form.pricingMode" :billing-tax-mode="effectiveBillingTaxMode(form)" :draft-totals="effectiveDraftTotals" :summary-label="summaryLabel" :model-value="confirmation" :project-id="projectId" :details-in-payments="depositSelected" :payments="payments" :prefix="prefix" @update:model-value="updateConfirmation" @reference-change="updateReference">
           <template #actions><slot name="actions" /></template>
           <template v-if="matchOrders.length" #match-full>
             <el-button @click="openMatch()">{{matchLabel}}</el-button>
@@ -11,6 +11,8 @@
           </template>
         </PaymentConfirmationFields>
         <TranslationSettlementNumbers v-if="projectId && !depositSelected" :project-id="projectId" :show-empty="isFull" />
+        <el-form-item v-if="currencyOptions&&depositSelected" label="付款币种"><el-select v-model="confirmation.fullPaymentCurrency"><el-option v-for="currency in currencyOptions" :key="currency" :value="currency" /></el-select></el-form-item>
+        <el-form-item v-if="currencyOptions&&hasFinal&&new Set(payments.map(item=>item.currency)).size>1" label="付款差异说明" :prop="`${prefix}.mismatchReason`"><el-input v-model="confirmation.mismatchReason" type="textarea" :rows="2" maxlength="2000" placeholder="多币种尾款与项目计费合计不一致时填写原因" /></el-form-item>
         <p v-if="isFull" class="payment-help">已确认全款，无需填写分期明细；切换时确认清除的明细会记入历史。</p>
         <template v-if="depositSelected">
         <el-descriptions :column="3" border class="payment-summary"><el-descriptions-item label="预定合计">{{total('planned_amount')}}</el-descriptions-item><el-descriptions-item label="实际付款合计">{{total('actual_amount')}}</el-descriptions-item><el-descriptions-item label="付款状态">{{paymentStatus}}</el-descriptions-item></el-descriptions>
@@ -29,6 +31,7 @@
               <el-button link type="danger" @click="removePayment(index)">移除</el-button>
             </div>
           </div>
+          <el-form-item v-if="currencyOptions" label="付款币种"><el-select v-model="item.currency" @change="syncFromDetails"><el-option v-for="currency in currencyOptions" :key="currency" :value="currency" /></el-select></el-form-item>
           <el-row :gutter="12">
             <el-col :xs="12" :md="6"><el-form-item label="阶段"><ReadonlyField v-if="index===0&&depositSelected" model-value="定金" source="auto" /><el-select v-else v-model="item.stage_type" @change="syncFromDetails"><el-option label="中期款" value="mid" /><el-option label="尾款" value="final" :disabled="hasFinal && item.stage_type!=='final'" /></el-select></el-form-item></el-col>
             <el-col :xs="12" :md="6"><el-form-item label="期次"><ReadonlyField :model-value="String(index+1)" source="auto" /></el-form-item></el-col>
@@ -74,7 +77,7 @@ import TranslationSettlementNumbers from './TranslationSettlementNumbers.vue'
 import {collectMatchTotals,formatMatchTotals} from '@/utils/paymentOrderMatching'
 import {paymentConfirmationForm,fixFirstDepositStage,clearPaymentSelection} from '@/utils/paymentConfirmation'
 const form=defineModel({type:Object,required:true})
-const props=defineProps({sectionPrefix:{type:String,default:''},projectId:String,draftTotals:{type:Array,default:null},summaryLabel:String,prefix:{type:String,default:'paymentConfirmation'},canConfirm:Boolean,confirmDisabled:Boolean,matchOrders:{type:Array,default:()=>[]},matchLabel:String})
+const props=defineProps({sectionPrefix:{type:String,default:''},projectId:String,draftTotals:{type:Array,default:null},summaryLabel:String,prefix:{type:String,default:'paymentConfirmation'},canConfirm:Boolean,confirmDisabled:Boolean,matchOrders:{type:Array,default:()=>[]},matchLabel:String,historyUrl:{type:String,default:''},currencyOptions:{type:Array,default:null}})
 const emit=defineEmits(['confirm-payment'])
 const confirmation=computed({get:()=>form.value.paymentConfirmation,set:value=>{form.value.paymentConfirmation=value}})
 const payments=computed({get:()=>form.value.paymentDraft||[],set:value=>{form.value.paymentDraft=value}})
@@ -103,9 +106,9 @@ function applyMatch(ids){
 const hasFinal=computed(()=>depositSelected.value&&payments.value.some(item=>item.stage_type==='final'))
 const cents=value=>BigInt(Number(value||0).toFixed(2).replace('.',''))
 const totalCents=key=>payments.value.reduce((sum,item)=>sum+cents(item[key]),0n)
-const total=key=>{const value=totalCents(key);return `${value/100n}.${String(value%100n).padStart(2,'0')}`}
+const total=key=>{if(props.currencyOptions){const sums=new Map();for(const row of payments.value){const currency=row.currency||confirmation.value.fullPaymentCurrency;sums.set(currency,(sums.get(currency)||0n)+cents(row[key]))}return [...sums].map(([currency,value])=>`${currency} ${value/100n}.${String(value%100n).padStart(2,'0')}`).join(' / ')||'0.00'}const value=totalCents(key);return `${value/100n}.${String(value%100n).padStart(2,'0')}`}
 const paymentStatus=computed(()=>hasFinal.value?'尾款核对（累计实付）':totalCents('actual_amount')>0n?'已付定金／部分付款':'已确认定金（待补充明细）')
-function addPayment(){if(!depositSelected.value||payments.value.length>=100)return;const stage=payments.value.length?'mid':'deposit';payments.value=[...payments.value,{stage_type:stage,stage_no:payments.value.length+1,planned_amount:undefined,actual_amount:undefined,payment_time:null,payment_method:confirmation.value.paymentAccount||'',proofs:payments.value.length?'':confirmation.value.proofs||''}]}
+function addPayment(){if(!depositSelected.value||payments.value.length>=100)return;const stage=payments.value.length?'mid':'deposit';payments.value=[...payments.value,{...(props.currencyOptions?{currency:confirmation.value.fullPaymentCurrency||'CNY'}:{}),stage_type:stage,stage_no:payments.value.length+1,planned_amount:undefined,actual_amount:undefined,payment_time:null,payment_method:confirmation.value.paymentAccount||'',proofs:payments.value.length?'':confirmation.value.proofs||''}]}
 function ensureFirstDeposit(){if(!depositSelected.value)return;if(!payments.value.length)addPayment();fixFirstDepositStage(confirmation.value,payments.value);if(!payments.value[0].payment_method)payments.value[0].payment_method=confirmation.value.paymentAccount||''}
 function updateReference(key){
   // 核对口径异步载入只更新参考值，不能触发付款明细重算或标记人工修改。
@@ -123,7 +126,7 @@ function syncFromDetails(){
   if(isFull.value)return
   const actual=payments.value.filter(item=>Number(item.actual_amount||0)>0)
   const methods=[...new Set(actual.map(item=>item.payment_method).filter(Boolean))]
-  confirmation.value={...confirmation.value,paymentAccount:methods.length===1?methods[0]:methods.length>1?'':confirmation.value.paymentAccount,fullPaymentSource:hasFinal.value?'details':null,fullPaymentAmount:hasFinal.value&&payments.value.every(item=>item.actual_amount!=null)?Number(total('actual_amount')):null,fullMatchStatus:'pending'}
+  confirmation.value={...confirmation.value,paymentAccount:methods.length===1?methods[0]:methods.length>1?'':confirmation.value.paymentAccount,fullPaymentSource:hasFinal.value&&new Set(payments.value.map(item=>item.currency||'CNY')).size===1?'details':null,fullPaymentCurrency:props.currencyOptions&&hasFinal.value?payments.value[0]?.currency||confirmation.value.fullPaymentCurrency:confirmation.value.fullPaymentCurrency,fullPaymentAmount:hasFinal.value&&new Set(payments.value.map(item=>item.currency||'CNY')).size===1&&payments.value.every(item=>item.actual_amount!=null)?Number(totalCents('actual_amount'))/100:null,fullMatchStatus:'pending'}
 }
 function removePayment(index){payments.value=payments.value.filter((_item,i)=>i!==index).map((item,i)=>({...item,stage_no:i+1}));ensureFirstDeposit();syncFromDetails()}
 watch(()=>form.value.paymentConfirmation,ensureFirstDeposit,{immediate:true})

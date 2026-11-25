@@ -32,6 +32,10 @@ from resource_models import ResourcePerson
 
 class AnnotationProject(Base):
     __tablename__ = "annotation_project"
+
+    from project_customer_sources import customer_source_property as _source_property
+    client_source = _source_property('annotation')
+
     __table_args__ = (
         PrimaryKeyConstraint("id", name="annotation_project_pkey"),
         UniqueConstraint("order_no", name="uq_annotation_project_order_no"),

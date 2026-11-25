@@ -8,6 +8,7 @@
         </div>
         <div v-if="listTab === 'clients'" class="header-actions">
           <el-button link type="primary" @click="helpVisible = true">帮助</el-button>
+          <ClientNameHistory />
           <TableColumnSettings settings-key="client-information"
             v-model="visibleColumnKeys"
             :columns="clientColumnOptions"
@@ -305,6 +306,7 @@
       <div ref="clientEditorBodyRef">
         <el-tabs v-model="clientActiveTab" class="client-editor-tabs">
         <el-tab-pane label="基本信息" name="basic">
+        <ClientNameHistory v-if="form.id" :client-id="form.id" />
         <AppForm number-scope="client" number-field="client_code" :number-active="dialogVisible && !form.id"
           ref="formRef"
           :model="form"
@@ -504,6 +506,7 @@ import ClientShortNameInput from '@/components/common/ClientShortNameInput.vue'
 import FieldWorkPanel from '@/views/schedule/components/FieldWorkPanel.vue'
 import ClientNameGuidance from '@/components/common/ClientNameGuidance.vue'
 import ClientContactNamesEditor from '@/components/common/ClientContactNamesEditor.vue'
+import ClientNameHistory from '@/components/common/ClientNameHistory.vue'
 import { CUSTOMER_TYPES as customerTypes } from '@/utils/customerTypes'
 import CustomerCooperationProjects from '@/components/common/CustomerCooperationProjects.vue'
 import CustomerSourceAnalysis from '@/components/common/CustomerSourceAnalysis.vue'

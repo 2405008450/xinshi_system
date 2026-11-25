@@ -218,12 +218,14 @@
         </section>
         <ResourceRequestVersions v-model="form.requestContent.versions" editable :disabled="editorBusy" />
         <el-button link :loading="sendHistory.loading.value" @click="sendHistory.refresh">刷新发送及执行记录</el-button>
-        <template v-if="form.sourceType==='annotation'">
-          <ResourceRequestDispatchSection v-model="form.requestContent.dispatchNotes.circle" :request-id="form.id" :cancel-disabled="editorBusy || !!sendHistory.error.value" :active="dialogVisible" kind="circle" label="发圈需求" :prepare="prepareDispatch" :disabled="editorBusy || !!sendHistory.error.value" :records="sendHistory.records.value.circle" :history-loading="sendHistory.loading.value" @sent="sendHistory.refresh" @busy="dispatchBusy=$event" />
-          <ResourceRequestDispatchSection v-model="form.requestContent.dispatchNotes.post" :request-id="form.id" :cancel-disabled="editorBusy || !!sendHistory.error.value" :active="dialogVisible" kind="post" label="发帖需求" :prepare="prepareDispatch" :disabled="editorBusy || !!sendHistory.error.value" :records="sendHistory.records.value.post" :history-loading="sendHistory.loading.value" @sent="sendHistory.refresh" @busy="dispatchBusy=$event" />
+        <template v-if="['annotation','interpretation'].includes(form.sourceType)">
+          <ResourceRequestDispatchSection :source-type="form.sourceType" v-model="form.requestContent.dispatchNotes.circle" :request-id="form.id" :cancel-disabled="editorBusy || !!sendHistory.error.value" :active="dialogVisible" kind="circle" label="发圈需求" :prepare="prepareDispatch" :disabled="editorBusy || !!sendHistory.error.value" :records="sendHistory.records.value.circle" :history-loading="sendHistory.loading.value" @sent="sendHistory.refresh" @busy="dispatchBusy=$event" />
+          <ResourceRequestDispatchSection :source-type="form.sourceType" v-model="form.requestContent.dispatchNotes.post" :request-id="form.id" :cancel-disabled="editorBusy || !!sendHistory.error.value" :active="dialogVisible" kind="post" label="发帖需求" :prepare="prepareDispatch" :disabled="editorBusy || !!sendHistory.error.value" :records="sendHistory.records.value.post" :history-loading="sendHistory.loading.value" @sent="sendHistory.refresh" @busy="dispatchBusy=$event" />
+          <ResourceRequestDispatchSection :source-type="form.sourceType" v-model="form.requestContent.dispatchNotes.wechatPublic" :request-id="form.id" :cancel-disabled="editorBusy || !!sendHistory.error.value" :active="dialogVisible" kind="wechat_public" label="公众号需求" :prepare="prepareDispatch" :disabled="editorBusy || !!sendHistory.error.value" :records="sendHistory.records.value.wechatPublic" :history-loading="sendHistory.loading.value" @sent="sendHistory.refresh" @busy="dispatchBusy=$event" />
+          <ResourceRequestDispatchSection :source-type="form.sourceType" v-model="form.requestContent.dispatchNotes.xiaohongshu" :request-id="form.id" :cancel-disabled="editorBusy || !!sendHistory.error.value" :active="dialogVisible" kind="xiaohongshu" label="小红书需求" :prepare="prepareDispatch" :disabled="editorBusy || !!sendHistory.error.value" :records="sendHistory.records.value.xiaohongshu" :history-loading="sendHistory.loading.value" @sent="sendHistory.refresh" @busy="dispatchBusy=$event" />
         </template>
         <el-alert v-if="sendHistory.error.value" :title="sendHistory.error.value" type="error" :closable="false"><el-button link @click="sendHistory.refresh">重新加载发送记录</el-button></el-alert>
-        <ResourceRequestDispatchSection v-model="form.requestContent.dispatchNotes.development" :request-id="form.id" :cancel-disabled="editorBusy || !!sendHistory.error.value" :active="dialogVisible" kind="development" label="资源开拓 · 需求管理" @cancel="cancelDemand" :prepare="prepareDispatch" :disabled="editorBusy || !canSendDemand(form) || !!sendHistory.error.value" :records="sendHistory.records.value.development" :history-loading="sendHistory.loading.value" @sent="managementSent" @busy="dispatchBusy=$event" />
+        <ResourceRequestDispatchSection :source-type="form.sourceType" v-model="form.requestContent.dispatchNotes.development" :request-id="form.id" :cancel-disabled="editorBusy || !!sendHistory.error.value" :active="dialogVisible" kind="development" label="资源开拓 · 需求管理" @cancel="cancelDemand" :prepare="prepareDispatch" :disabled="editorBusy || !canSendDemand(form) || !!sendHistory.error.value" :records="sendHistory.records.value.development" :history-loading="sendHistory.loading.value" @sent="managementSent" @busy="dispatchBusy=$event" />
         </AppForm>
       </div>
       <template #footer>
@@ -505,7 +507,7 @@ let controller
 let requestId = 0
 let sourceOptionController = null
 let sourceOptionTimer = null
-const emptyForm = () => ({ id: '', sourceType: 'annotation', requestCategory: 'annotation_trial', sourceProjectId: '', otherProjectTypes: [], requestDetail: '', priority: 'medium', requestStatus: 'draft', demandStatus: 'draft', ownerId: '', requestContent:{versions:[{name:'发帖',content:''},{name:'询问',content:''}],dispatchNotes:{circle:'',post:'',development:''}}, partialRequested:false, partialSequence:0, items: [] })
+const emptyForm = () => ({ id: '', sourceType: 'annotation', requestCategory: 'annotation_trial', sourceProjectId: '', otherProjectTypes: [], requestDetail: '', priority: 'medium', requestStatus: 'draft', demandStatus: 'draft', ownerId: '', requestContent:{versions:[{name:'发帖',content:''},{name:'询问',content:''}],dispatchNotes:{circle:'',post:'',wechatPublic:'',xiaohongshu:'',development:''}}, partialRequested:false, partialSequence:0, items: [] })
 const { beginDraft, pauseDraft, clearDraft } = useFormDraft({ namespace: 'resource-request', form, createDefault: emptyForm, formRef })
 const resetSourceInfo = () => Object.assign(sourceInfo, { projectTypes: [], orderNo: '', projectName: '', projectStatus: '', clientCode: '', clientShortName: '' })
 const params = () => ({ keyword: searchForm.keyword.trim() || undefined, field_filters: serializeFieldFilters(filterModel, filterFields) })
@@ -635,7 +637,7 @@ const sourceProjectChanged = async (projectId) => {
     const sourceType=form.sourceType
     const value = await api.getResourceRequestSourcePrefill(sourceType, projectId)
     if(form.sourceType!==sourceType || form.sourceProjectId!==projectId)return
-    if(sourceType==='annotation'){
+    if(['annotation','interpretation'].includes(sourceType)){
       const sourceVersions=value.requestContent?.versions || []
       form.requestContent.versions=mergeTaskVersions(form.requestContent.versions,sourceVersions,previousTaskCopy)
       previousTaskCopy=sourceVersions[0]?.content || ''
@@ -659,7 +661,7 @@ const openEditor = async (row = null, source = null) => {
   previousTaskCopy=''
   editorLayoutKey.value++
   Object.assign(form, emptyForm(), value || {})
-  form.requestContent={versions:value?.requestContent?.versions?.length ? value.requestContent.versions : [{name:'发帖',content:''},{name:'询问',content:''}],dispatchNotes:{circle:'',post:'',development:'',...(value?.requestContent?.dispatchNotes || {})}}
+  form.requestContent={versions:value?.requestContent?.versions?.length ? value.requestContent.versions : [{name:'发帖',content:''},{name:'询问',content:''}],dispatchNotes:{circle:'',post:'',wechatPublic:'',xiaohongshu:'',development:'',...(value?.requestContent?.dispatchNotes || {})}}
   projectManagers.value=value?.projectManagers||[];collapseLanguages.value=Boolean(value?.collapseLanguages)
   resetSourceInfo()
   if (value) {
@@ -679,8 +681,8 @@ const openEditor = async (row = null, source = null) => {
   })])
   showRequestDetail.value = Boolean(form.requestDetail)
   if (source?.sourceProjectId) await sourceProjectChanged(source.sourceProjectId)
-  else if(value?.id && form.sourceType==='annotation' && form.sourceProjectId && form.requestContent.versions.some(v=>['发帖','询问'].includes(v.name.replace(/版$/,'')) && !String(v.content||'').trim())){
-    try{const prefill=await api.getResourceRequestSourcePrefill('annotation',form.sourceProjectId);form.requestContent.versions=mergeTaskVersions(form.requestContent.versions,prefill.requestContent?.versions || [])}catch(e){ElMessage.error(e.detail || '具体任务自动复制失败，可重新打开窗口重试')}
+  else if(value?.id && ['annotation','interpretation'].includes(form.sourceType) && form.sourceProjectId && form.requestContent.versions.some(v=>['发帖','询问'].includes(v.name.replace(/版$/,'')) && !String(v.content||'').trim())){
+    try{const prefill=await api.getResourceRequestSourcePrefill(form.sourceType,form.sourceProjectId);form.requestContent.versions=mergeTaskVersions(form.requestContent.versions,prefill.requestContent?.versions || [])}catch(e){ElMessage.error(e.detail || '需求文案自动带入失败，可重新打开窗口重试')}
   }
   if (form.sourceProjectId && !availableProjects.value.some((item) => item.id === form.sourceProjectId)) {
     projects[form.sourceType].unshift({ id: form.sourceProjectId, orderNo: sourceInfo.orderNo, projectName: sourceInfo.projectName, projectStatus: sourceInfo.projectStatus, clientShortName: sourceInfo.clientShortName })
@@ -694,8 +696,8 @@ const openEditor = async (row = null, source = null) => {
       : 'create'
   await beginDraft(draftKey)
   // 恢复旧草稿后补齐空版本，避免旧草稿把刚复制的两版内容覆盖为空。
-  if(form.sourceType==='annotation' && form.sourceProjectId && form.requestContent.versions.some(v=>['发帖','询问'].includes(v.name.replace(/版$/,'')) && !String(v.content||'').trim())){
-    try{const prefill=await api.getResourceRequestSourcePrefill('annotation',form.sourceProjectId);form.requestContent.versions=mergeTaskVersions(form.requestContent.versions,prefill.requestContent?.versions || [])}catch(e){ElMessage.error(e.detail || '具体任务自动复制失败，请重新打开窗口重试')}
+  if(['annotation','interpretation'].includes(form.sourceType) && form.sourceProjectId && form.requestContent.versions.some(v=>['发帖','询问'].includes(v.name.replace(/版$/,'')) && !String(v.content||'').trim())){
+    try{const prefill=await api.getResourceRequestSourcePrefill(form.sourceType,form.sourceProjectId);form.requestContent.versions=mergeTaskVersions(form.requestContent.versions,prefill.requestContent?.versions || [])}catch(e){ElMessage.error(e.detail || '需求文案自动带入失败，请重新打开窗口重试')}
   }
   editorRevision = 0
   savedRevision = 0

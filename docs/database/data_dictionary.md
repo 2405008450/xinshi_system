@@ -2988,3 +2988,36 @@ id UUID 主键；client_id / sub_client_id UUID 分别关联 client / sub_client
 - 笔译状态变更继续调用既有项目更新业务，进度记录与状态在同一事务提交，保留版本校验和项目状态继承规则。同状态追加记录不修改项目状态；重试使用 `request_id` 幂等识别。仅创建新表，不改写已有表结构，使用 `tools/apply_translation_project_progress_migration.py` 初始化，不开启启动自动迁移。
 - 口译、标注保留既有状态历史；统一“项目状态、节点时间、进度/说明”输入，说明上限统一 10000 字。选择历史流程节点补充进度时不回退当前状态；用户重新选择下拉状态才按新状态保存。
 - 招聘复用 `recruitment_project_progress`，状态与说明一次提交，保留当前状态及原历史。新的统一进度入口带项目版本进行并发校验。既有短记录、审计记录保持原用途，不挪用作进度存储。
+
+### 客户名称修改与删除记录（client_name_history）
+
+- id UUID 主键。client_id、parent_client_id、client_code 保存客户/子客户身份快照，无外键以保留删除历史。
+- operation 为 rename/delete，before_names/after_names JSON 保存中文及英文全称和简称。
+- actor_id、actor_name 保存操作人快照，occurred_at 为 UTC+8 业务时间。
+- 与名称修改或删除在同一事务内保存，无变化不记录。仅记录启用后的操作。
+- 初始化脚本 tools/apply_client_name_history_migration.py，仅创建新表及索引。
+
+
+### project_customer_source（项目客户来源）
+
+四类项目共用附表，不修改既有项目表。`module`（varchar(30)，四类项目枚举）与 `project_id`（UUID）为联合主键；`content`（varchar(500)，非空）记录来源，空字符串表示明确清空；`updated_at`（timestamptz，非空）使用 UTC+8 业务时钟。与项目在同一事务中保存；未设置时可展示关联咨询的来源，独立编辑不改写原咨询。
+
+
+口译地点结构：`interpretation_project_schedule_groups.groups[].location_details` 为可选 JSON 数组；每项含 `country_province`（国家省份，最多200字）、`city`（城市，最多200字）、`address`（详细地址，最多2000字）。同时维护原 `locations` 完整地址字符串用于列表、邮件、会话和名称生成。历史纯文本地址按详细地址回显，不推断国家或城市；无需结构迁移。
+
+
+### interpretation_demand_release_office（口译需求发布公司轮换）
+
+`request_key`（UUID主键）为编辑草稿/项目的幂等标识；`sequence`（integer，非空唯一）为非深圳/上海地点的轮换序号；`office`（varchar(10)，非空，限上海/深圳）；`created_at`（timestamptz，UTC+8业务时钟）。并发分配使用PostgreSQL事务咨询锁。每四项依次上海、上海、上海、深圳，同一项目重新生成沿用分配，不重复消耗序号；明确深圳/上海地点不消耗序号。文案沿用项目既有 `social_post_request` 字段保存，界面名称为“需求发布”，不自动发送。
+
+
+资源需求发送类别扩展：`resource_request_dispatch.kind` 与默认接收人配置的 `kind` 新增 `wechat_public`（公众号需求）、`xiaohongshu`（小红书需求），沿用现有 varchar(16)，无需 DDL。`resource_request.request_content.dispatch_notes` 同步增加同名可选说明字段。各类别独立计次、保存发送快照、回执及取消通知；平台执行回执与发帖共用既有执行表。
+
+
+### interpretation_client_selected_interpreter（口译客户选定译员）
+
+`project_id`（UUID，FK口译项目，删除级联）与 `translator_id`（UUID，FK译员，删除级联）组成联合主键；记录存在表示该项目中该译员为客户选定。`selected_at`（timestamptz，非空）使用UTC+8业务时钟。勾选状态随项目同事务保存、按项目批量回显；兼容未提交标记的旧客户端，未提交不清空原值。取消勾选或移除安排时删除对应标记。无需改动既有安排表。
+
+### 标注财务付款表单与笔译统一（2026-11-26）
+
+标注财务复用 PaymentRegistrationFields。现有 project_customer_finance_history.after._ledger 中增加 payment_registration JSON：confirmation 使用笔译付款确认输入字段；payments 使用笔译分期明细字段并保留 currency；full_payment_received_on 保留历史全款日期。付款金额与日期同步到 settlement.payments，财务总数、对账及追账继续使用同一收款口径。旧数据只在读取时转换，保存才写入；每次保存复用账簿修订号及历史，不新增表、不修改现有表结构、不回填业务数据。旧客户端保存其他财务字段时保留已登记的新付款信息。

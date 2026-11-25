@@ -300,7 +300,7 @@
                 <el-form-item label="项目名称" prop="projectName">
                   <GeneratedProjectNameInput
                     v-model="form.projectName"
-                    hint="填齐后，按「预定时间 + 项目地点 + 口译方向 + 项目类型 + 项目」生成。"
+                    hint="填齐后，按「预定时间 + 城市 + 口译方向 + 项目类型 + 项目」生成。"
                     :loading="nameLoading"
                     @manual-input="handleProjectNameInput"
                     @regenerate="generateProjectName"
@@ -321,9 +321,7 @@
                 </el-form-item>
               </el-col>
             </el-row>
-            <el-row :gutter="16">
-              <el-col :xs="24" :md="12">
-                <el-form-item label="客户简称" show-sub-client prop="clientShortName" data-field-key="clientShortName">
+            <el-row :gutter="16" class="project-client-identity-row"><el-col :xs="24" :md="8"><el-form-item label="客户简称" show-sub-client prop="clientShortName" data-field-key="clientShortName">
                   <div class="client-autocomplete-field">
                     <el-autocomplete
                       v-model="form.clientShortName"
@@ -346,16 +344,19 @@
                     </el-autocomplete>
                   </div>
                 <ClientNameGuidance create-on-save />
-</el-form-item>
-              </el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="客户全称" prop="clientFullName"><ClientFullNameInput v-model="form.clientFullName" :client-id="form.clientId" include-sub-clients @select="handleClientSelect" /></el-form-item></el-col></el-row>
+</el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="客户全称" prop="clientFullName"><ClientFullNameInput v-model="form.clientFullName" :client-id="form.clientId" include-sub-clients @select="handleClientSelect" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="客户来源" prop="clientSource"><el-input v-model="form.clientSource" maxlength="500" placeholder="请输入客户来源（选填）" /></el-form-item></el-col></el-row>
             <ProjectClientContactFields :active="dialogVisible" v-model:contact-job-title="form.clientContactJobTitle" v-model:contact-department="form.clientContactDepartment" v-model:contact-company="form.clientContactCompany" :client-id="form.clientId" :sub-client-id="form.subClientId" v-model:contact-name="form.contactName" v-model:contact-method="form.clientContactMethod" v-model:contact-description="form.clientContactDescription" v-model:contact-version="form.clientContactVersion" v-model:contacts-visible="form.clientContactsVisible" />
-            <ProjectCustomerRequirements module="interpretation" :project="form" @apply="values => Object.assign(form, values)" />
             <el-form-item label="口译领域" prop="interpretationDomain"><el-input v-model="form.interpretationDomain" type="textarea" :autosize="{minRows:1,maxRows:4}" placeholder="请输入口译领域，如商务、医疗、法律等" /></el-form-item>
             <el-form-item label="项目路径" prop="filePath"><PathInput v-model="form.filePath" placeholder="请输入项目路径" @open="openPathValue(form.filePath)" @copy="copyPathValue(form.filePath)" /></el-form-item>
             <div class="interpretation-task-remarks">
-              <el-form-item label="具体任务" prop="taskDescription" label-position="top" label-width="auto">
-                <el-input v-model="form.taskDescription" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" placeholder="请输入具体任务，可填写详细的工作内容和要求" resize="vertical" />
+              <el-form-item label="工作内容" prop="taskDescription" label-position="top" label-width="auto">
+                <el-input v-model="form.taskDescription" type="textarea" :autosize="{ minRows: 3, maxRows: 5 }" placeholder="请输入工作内容，可填写详细的工作内容和要求" resize="vertical" />
+              </el-form-item>
+              <el-form-item label="需求发布" prop="socialPostRequest" label-position="top" label-width="auto">
+                <div class="demand-release-editor">
+                  <el-input v-model="form.socialPostRequest" type="textarea" :autosize="{minRows:8,maxRows:18}" placeholder="填齐项目名称、时间、地点、方向人数、领域和工作内容后自动生成，可继续编辑" @input="demandReleaseManuallyEdited=true" />
+                  <el-button type="primary" plain :loading="demandReleaseLoading" @click="generateDemandRelease(false)">{{form.socialPostRequest?'重新生成':'生成需求发布'}}</el-button>
+                </div>
               </el-form-item>
               <el-form-item label="客户要求" prop="interpreterSpecialRequirements" label-position="top" label-width="auto">
                 <el-input v-model="form.interpreterSpecialRequirements" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" placeholder="请输入客户要求（选填）" resize="vertical" />
@@ -363,6 +364,7 @@
               <el-form-item label="补充说明" prop="remarks" label-position="top" label-width="auto">
                 <el-input v-model="form.remarks" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" placeholder="请输入补充说明（选填）" resize="vertical" />
               </el-form-item>
+              <ProjectCustomerRequirements class="interpretation-requirement-actions" module="interpretation" :project="form" @apply="values => Object.assign(form, values)" />
             </div>
             <div class="section-title-row"><h3>预定时间</h3><el-button type="primary" plain @click="addTimeRange">增加时间段</el-button></div>
             <div v-for="(item, index) in form.timeRanges" :key="index" class="repeat-card" data-dialog-field-search-group :data-dialog-field-search-group-title="`时间段 ${index + 1}`">
@@ -373,14 +375,18 @@
                 <el-col :xs="24" :md="12"><el-form-item label="实际开始"><el-date-picker v-model="item.actualStart" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" clearable format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
                 <el-col :xs="24" :md="12"><el-form-item label="实际结束"><el-date-picker v-model="item.actualEnd" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" clearable format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
               </el-row>
-              <el-form-item label="项目地点" :prop="`timeRanges.${index}.locations`" :rules="[{validator:validateLocations,trigger:'change'}]" class="composite-required-item">
+              <el-form-item label="项目地点" :prop="`timeRanges.${index}.locationDetails`" :rules="[{validator:validateLocations,trigger:'change'}]" class="composite-required-item">
                 <div class="location-panel">
-                  <div class="location-panel__header"><el-button type="primary" plain :icon="Plus" @click="item.locations.push('')">增加地点</el-button></div>
+                  <div class="location-panel__header"><el-button type="primary" plain :icon="Plus" @click="item.locationDetails.push(emptyInterpretationLocation())">增加地点</el-button></div>
                   <el-row :gutter="12" class="location-list">
-                    <el-col v-for="(location, locationIndex) in item.locations" :key="locationIndex" :xs="24" :md="12">
+                    <el-col v-for="(location, locationIndex) in item.locationDetails" :key="locationIndex" :xs="24" :md="24">
                       <div class="location-item">
-                        <div class="location-item__header"><span>地点 {{ locationIndex + 1 }}</span><el-button v-if="item.locations.length > 1" link type="danger" @click="item.locations.splice(locationIndex,1)">删除</el-button></div>
-                        <el-input v-model="item.locations[locationIndex]" :aria-label="`时间段 ${index + 1} 项目地点 ${locationIndex + 1}`" placeholder="请输入项目地点" clearable />
+                        <div class="location-item__header"><span>地点 {{ locationIndex + 1 }}</span><el-button v-if="item.locationDetails.length > 1" link type="danger" @click="item.locationDetails.splice(locationIndex,1)">删除</el-button></div>
+                        <div class="location-address-fields" data-dialog-field-search-group :data-dialog-field-search-group-title="`时间段 ${index + 1} 地点 ${locationIndex + 1}`">
+                          <div data-dialog-field-search-label="国家省份"><label>国家省份</label><el-input v-model="location.countryProvince" :aria-label="`时间段 ${index + 1} 地点 ${locationIndex + 1} 国家省份`" maxlength="200" placeholder="如：中国广东省" clearable /></div>
+                          <div data-dialog-field-search-label="城市"><label>城市</label><el-input v-model="location.city" :aria-label="`时间段 ${index + 1} 地点 ${locationIndex + 1} 城市`" maxlength="200" placeholder="如：深圳市" clearable /></div>
+                          <div data-dialog-field-search-label="详细地址"><label>详细地址</label><el-input v-model="location.address" :aria-label="`时间段 ${index + 1} 地点 ${locationIndex + 1} 详细地址`" maxlength="2000" placeholder="填写区县、街道、楼栋等详细地址" clearable /></div>
+                        </div>
                       </div>
                     </el-col>
                   </el-row>
@@ -447,23 +453,27 @@
           </section>
           <InternalProjectRolesForm v-model="form.roleAssignments" />
             </el-tab-pane>
-            <el-tab-pane label="译员安排与评价" name="interpreters">
-          <section class="form-section">
-            <div class="section-title-row"><h3>译员安排与评价</h3></div>
-            <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="译员性别"><el-select v-model="form.requiredInterpreterGender" clearable placeholder="不限" style="width: 100%"><el-option label="不限" value="不限" /><el-option label="男" value="男" /><el-option label="女" value="女" /></el-select></el-form-item></el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="口译水平"><el-select v-model="form.requiredInterpretationLevel" clearable placeholder="请选择" style="width: 100%"><el-option label="初级" value="初级" /><el-option label="中级" value="中级" /><el-option label="高级" value="高级" /></el-select></el-form-item></el-col>
+            <el-tab-pane label="译员要求与安排" name="interpreters">
+              <div class="interpreter-workspace">
+                <section class="form-section interpreter-workspace__region" data-dialog-field-search-group data-dialog-field-search-group-title="译员要求">
+                  <h3>译员要求</h3>
+<el-row :gutter="16">
+              <el-col :xs="24" :md="24"><el-form-item label="译员性别"><el-select v-model="form.requiredInterpreterGender" clearable placeholder="不限" style="width: 100%"><el-option label="不限" value="不限" /><el-option label="男" value="男" /><el-option label="女" value="女" /></el-select></el-form-item></el-col>
+              <el-col :xs="24" :md="24"><el-form-item label="口译水平"><el-select v-model="form.requiredInterpretationLevel" clearable placeholder="请选择" style="width: 100%"><el-option label="初级" value="初级" /><el-option label="中级" value="中级" /><el-option label="高级" value="高级" /></el-select></el-form-item></el-col>
             </el-row>
             <div class="interpreter-requirement-group">
               <div class="requirement-group-title">形象与着装要求</div>
               <el-row :gutter="16">
-                <el-col :xs="24" :md="8"><el-form-item label="译员身高"><el-input v-model="form.interpreterHeightRequirement" /></el-form-item></el-col>
-                <el-col :xs="24" :md="8"><el-form-item label="译员相貌"><el-input v-model="form.interpreterAppearanceRequirement" /></el-form-item></el-col>
-                <el-col :xs="24" :md="8"><el-form-item label="着装要求"><el-input v-model="form.interpreterDressRequirement" /></el-form-item></el-col>
+                <el-col :xs="24" :md="24"><el-form-item label="译员身高"><el-input v-model="form.interpreterHeightRequirement" /></el-form-item></el-col>
+                <el-col :xs="24" :md="24"><el-form-item label="译员相貌"><el-input v-model="form.interpreterAppearanceRequirement" /></el-form-item></el-col>
+                <el-col :xs="24" :md="24"><el-form-item label="着装要求"><el-input v-model="form.interpreterDressRequirement" /></el-form-item></el-col>
               </el-row>
             </div>
-            <div v-for="(item, index) in form.interpreterAssignments" :key="interpreterRowKey(item)" class="repeat-card">
-              <div class="repeat-title">译员 {{ index + 1 }}<el-button link type="danger" @click="form.interpreterAssignments.splice(index, 1)">删除</el-button></div>
+                            </section>
+                <section class="form-section interpreter-workspace__region" data-dialog-field-search-group data-dialog-field-search-group-title="译员安排">
+                  <h3>译员安排</h3>
+<div v-for="(item, index) in form.interpreterAssignments" :key="interpreterRowKey(item)" class="repeat-card">
+              <div class="repeat-title"><span class="interpreter-assignment-heading">译员 {{ index + 1 }}<el-checkbox v-model="item.clientSelected">客户选定</el-checkbox></span><el-button link type="danger" @click="form.interpreterAssignments.splice(index, 1)">删除</el-button></div>
               <el-row :gutter="12">
                 <el-col :xs="24" :md="12">
                   <el-form-item label="译员">
@@ -479,12 +489,14 @@
               </el-row>
             </div>
             <el-button class="interpreter-add-button" :icon="Plus" @click="addInterpreter">增加译员</el-button>
-          </section>
+                          </section>
+              </div>
             </el-tab-pane>
           </el-tabs>
         </AppForm>
       </div>
       <template #footer>
+        <el-button v-if="!form.id && canWrite" :disabled="submitLoading" type="warning" plain @click="clearNewProject">清空</el-button>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="submitLoading" @click="handleSubmit(false)">保存</el-button>
         <el-button :loading="submitLoading" @click="handleSubmit(true)">保存并发送邮件</el-button>
@@ -543,10 +555,16 @@
     />
     <ConsultationWorkReportDialog v-if="pendingReportId && !submitLoading" :key="pendingReportId" :project-id="pendingReportId" project-type="interpretation" @saved="completeReport" />
   </el-card>
+  <ResourceRequestEditor v-if="resourceRequestSource" editor-only :source-request="resourceRequestSource" @requests-changed="loadResourceRequestStatuses" @editor-closed="resourceRequestSource=null;loadResourceRequestStatuses()" />
   <ProjectStatisticsDialog v-model="statisticsVisible" module="interpretation" />
 </template>
 
 <script setup>
+import {generateInterpretationDemandRelease} from '@/api/interpretationProjects'
+import {createRequestUuid} from '@/utils/idempotency'
+
+import {emptyInterpretationLocation,interpretationLocationText,normalizeInterpretationLocations,interpretationLocationPayload} from '@/utils/interpretationLocations'
+
 import ConsultationWorkReportDialog from '@/views/client/components/ConsultationWorkReportDialog.vue'
 import { useProjectCreationReport } from '@/composables/useProjectCreationReport'
 
@@ -573,7 +591,7 @@ import InterpretationTypeHelp from '@/components/interpretation/InterpretationTy
 import { projectTypeOptions, ratingOptions, statusLabel, statusType, textValue, internalRolesText, arrayText, formatRange, timeRangesText, projectTypesText, ratingText, interpreterRatingsText } from '@/utils/interpretationProjectDetail'
 import ProjectExportMenu from '@/components/common/ProjectExportMenu.vue'
 import {businessDateTimeInputValue} from '@/utils/dateTime'
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { EditPen, MagicStick, Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -640,6 +658,8 @@ const selectedProgressStageKey = ref('')
 const statusForm = reactive({ projectStatus: '', effectiveOn: '', changeNote: '' })
 const nameLoading = ref(false)
 const nameManuallyEdited = ref(false)
+const demandReleaseManuallyEdited=ref(false), demandReleaseLoading=ref(false)
+let demandReleaseTimer, demandReleaseController, demandReleaseSequence=0
 const dialogVisible = ref(false)
 const editorTab = ref('project')
 const languageManagerVisible = ref(false)
@@ -649,12 +669,14 @@ const formRef = ref(null)
 const route = useRoute()
 const router = useRouter()
 const { load: loadResourceRequestStatuses, actionLabel: resourceRequestActionLabel } = useResourceRequestStatuses('interpretation')
+const ResourceRequestEditor=defineAsyncComponent(()=>import('@/views/resource/ResourceRequests.vue'))
+const resourceRequestSource=ref(null)
 const startResourceRequest = (row) => {
   if (!row.languageDirectionCountsComplete) {
     ElMessage.warning('该项目的语言方向人数尚未补齐，请先编辑项目后再发起需求')
     return
   }
-  router.push({ name: 'ResourceRequests', query: { sourceType: 'interpretation', sourceProjectId: row.id } })
+  if(!resourceRequestSource.value)resourceRequestSource.value={sourceType:'interpretation',sourceProjectId:row.id}
 }
 const highlightedProjectId = ref('')
 const dialogBodyRef = ref(null)
@@ -731,7 +753,7 @@ const tableColumns = [
   { key: 'orderNo', label: '订单号', width: PROJECT_LIST_COLUMN_WIDTHS.orderNo },
   { key: 'projectName', label: '项目名称', minWidth: PROJECT_LIST_COLUMN_WIDTHS.projectName },
   { key: 'projectTypes', label: '项目类型', minWidth: 150 },
-  { key: 'taskDescription', label: '具体任务', minWidth: PROJECT_LIST_COLUMN_WIDTHS.longText },
+  { key: 'taskDescription', label: '工作内容', minWidth: PROJECT_LIST_COLUMN_WIDTHS.longText },
   { key: 'currentClientManager', label: '客户经理', width: 92 },
   { key: 'projectStatus', label: '项目状态', width: PROJECT_LIST_COLUMN_WIDTHS.projectStatus },
   { key: 'clientShortName', label: '客户简称', minWidth: 180, clickHint: '点击客户简称查看关联信息' },
@@ -765,8 +787,6 @@ const tableColumns = [
   { key: 'interpreterAssignments', label: '客户对译员评价', minWidth: 180 },
   { key: 'remarks', label: '备注', minWidth: 180 },
   { key: 'emailSubjectPreview', label: '邮件主题预览', minWidth: 200 },
-  { key: 'socialPostRequest', label: '发圈请求', minWidth: 150 },
-  { key: 'resourceRequest', label: '资源请求', minWidth: 150 },
   { key: 'createdAt', label: '创建时间', minWidth: 150 },
   { key: 'updatedAt', label: '更新时间', minWidth: 150 },
 ]
@@ -805,7 +825,7 @@ const interpretationFilterFields = [
   { key: 'orderNo', label: '订单号', type: 'text' },
   { key: 'projectName', label: '项目名称', type: 'text' },
   { key: 'projectTypes', label: '项目类型', type: 'select', options: projectTypeOptions },
-  { key: 'taskDescription', label: '具体任务', type: 'text' },
+  { key: 'taskDescription', label: '工作内容', type: 'text' },
   { key: 'currentClientManager', label: '客户经理', type: 'text' },
   { key: 'projectStatus', label: '项目状态', type: 'select', options: statusOptions },
   { key: 'clientShortName', label: '客户简称', type: 'text' },
@@ -849,11 +869,11 @@ const headerFilterDefinition = (key) => {
   return interpretationFilterFields.find((item) => item.key === fieldKey) || null
 }
 
-const emptyTimeRange = () => ({ scheduledStart: '', scheduledEnd: '', actualStart: '', actualEnd: '', locations:[''], languageDirections:[emptyLanguageDirection()] })
+const emptyTimeRange = () => ({ scheduledStart: '', scheduledEnd: '', actualStart: '', actualEnd: '', locations:[''], locationDetails:[emptyInterpretationLocation()], languageDirections:[emptyLanguageDirection()] })
 const emptyLanguageDirection = () => ({ languageIds: ['', ''], requiredCount: null })
 const defaultForm = () => ({
-  ...emptyProjectContactDetails(),
-  id: '', orderNo: '', projectName: '', projectTypes: [], taskDescription: '',
+  ...emptyProjectContactDetails(),clientSource:'',
+  id: '', orderNo: '', projectName: '', socialPostRequest:'', demandReleaseKey:createRequestUuid(), projectTypes: [], taskDescription: '',
   financeDraft: null,
   clientId: '', subClientId: '', parentClientShortName: '', subClientName: '', clientShortName: '', clientFullName: '', clientCode: '',
   clientDomain: '', currentClientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', contactName: '', customerOrderNo: '', projectStatus: 'initial_follow_up',
@@ -861,18 +881,19 @@ const defaultForm = () => ({
   requiredInterpreterGender: '', requiredInterpretationLevel: '',
   interpreterSpecialRequirements: '', interpreterHeightRequirement: '',
   interpreterAppearanceRequirement: '', interpreterDressRequirement: '',
-  interpretationDomain: '', interpretationContent: '', filePath: '', quotationPath: '', contractPath: '',
-  clientRating: '', clientRatingNote: '', remarks: '', subjectPrefix: '', emailSubjectPreview: '', socialPostRequest: '', resourceRequest: '',
+  interpretationDomain: '', filePath: '', quotationPath: '', contractPath: '',
+  clientRating: '', clientRatingNote: '', remarks: '', subjectPrefix: '', emailSubjectPreview: '',
   timeRanges: [emptyTimeRange()], languageDirections: [emptyLanguageDirection()], interpreterAssignments: [], roleAssignments: [],
 })
-const normalizeScheduleRanges = (ranges, locations=[], directions=[]) => (ranges?.length?ranges:[emptyTimeRange()]).map(item=>({
+const normalizeScheduleRanges = (ranges, locations=[], directions=[]) => (ranges?.length?ranges:[{...emptyTimeRange(),locationDetails:null,locations:locations.length?locations:['']}]).map(item=>({
   ...item, locations:item.locations?.length?[...item.locations]:(locations.length?[...locations]:['']),
+  locationDetails:normalizeInterpretationLocations(item.locationDetails,item.locations?.length?item.locations:locations),
   languageDirections:(item.languageDirections?.length?item.languageDirections:directions.length?directions:[emptyLanguageDirection()]).map(direction=>({languageIds:[...(direction.languageIds?.length?direction.languageIds:[direction.sourceLanguageId||'',direction.targetLanguageId||''])],requiredCount:direction.requiredCount??null})),
 }))
 const form = reactive(defaultForm())
 const groupDirectionTotal = item => item.languageDirections.reduce((total,direction)=>total+(Number(direction.requiredCount)||0),0)
 const syncScheduleSummary = () => {
-  form.locations=[...new Set(form.timeRanges.flatMap(item=>item.locations||[]).map(value=>value.trim()).filter(Boolean))]
+  form.locations=[...new Set(form.timeRanges.flatMap(item=>normalizeInterpretationLocations(item.locationDetails,item.locations||[]).map(interpretationLocationText)).map(value=>value.trim()).filter(Boolean))]
   const directions=new Map()
   for(const item of form.timeRanges.flatMap(item=>item.languageDirections||[])){
     const key=[...item.languageIds].sort().join(':');const prior=directions.get(key)
@@ -893,15 +914,15 @@ const financeProject = computed(() => {
     projectName: form.projectName, projectStatus: form.projectStatus, directions,
   }
 })
-const { beginDraft, pauseDraft, clearDraft } = useFormDraft({
+const { beginDraft, pauseDraft, clearDraft, startFreshDraft } = useFormDraft({
   namespace: 'interpretation-project',
   form,
   createDefault: defaultForm,
   formRef,
   applyDraft: (draft) => {
-    Object.assign(form, defaultForm(), draft)
-    form.timeRanges=normalizeScheduleRanges(draft.timeRanges,draft.locations,draft.languageDirections)
+    Object.assign(form, defaultForm(), draft, {timeRanges:normalizeScheduleRanges(draft.timeRanges,draft.locations,draft.languageDirections)})
     nameManuallyEdited.value = Boolean(draft.projectName)
+    demandReleaseManuallyEdited.value=Boolean(draft.socialPostRequest)
   },
 })
 const showManagerContactInput = computed(() => (
@@ -917,7 +938,7 @@ const requiredTextValidator = (message) => (_rule, value, callback) => {
   callback()
 }
 const validateLocations = (_rule, value, callback) => {
-  if (!(value || []).some((item) => String(item || '').trim())) return callback(new Error('请至少填写一个地点'))
+  if (!(value || []).some((item) => (typeof item === 'object' && item ? interpretationLocationText(item) : String(item || '').trim()))) return callback(new Error('请至少填写一个地点'))
   callback()
 }
 const validateLanguageDirections = (_rule, value, callback) => {
@@ -938,7 +959,7 @@ const rules = {
   projectTypes: [{ type: 'array', required: true, min: 1, message: '请至少选择一个项目类型', trigger: 'change' }],
   interpretationDomain: [{required:true,validator:requiredTextValidator('请输入口译领域'),trigger:['blur','change']}],
   filePath: [{required:true,validator:requiredTextValidator('请输入项目路径'),trigger:['blur','change']}],
-  taskDescription: [{ validator: requiredTextValidator('请输入具体任务'), trigger: ['blur', 'change'] }],
+  taskDescription: [{ validator: requiredTextValidator('请输入工作内容'), trigger: ['blur', 'change'] }],
   clientShortName: [{ required: true, validator: requiredTextValidator('请选择或输入客户简称'), trigger: ['blur', 'change'] }],
   locations: [{ validator: validateLocations, trigger: 'change' }],
   languageDirections: [{ validator: validateLanguageDirections, trigger: 'change' }],
@@ -1107,7 +1128,7 @@ const clearSelectedClient = () => {
   form.managerContact = ''
 }
 const addTimeRange = () => form.timeRanges.push(emptyTimeRange())
-const addInterpreter = () => form.interpreterAssignments.push({ translatorId: '', customerRating: '', evaluationNote: '' })
+const addInterpreter = () => form.interpreterAssignments.push({ translatorId: '', clientSelected:false, customerRating: '', evaluationNote: '' })
 const sortLanguages = () => languages.value.sort((a, b) => (
   Number(a.isActive === false) - Number(b.isActive === false)
   || Number(a.isCustom) - Number(b.isCustom)
@@ -1183,7 +1204,8 @@ const normalizedNestedPayload = () => {
     scheduledEnd: item.scheduledEnd,
     actualStart: item.actualStart || null,
     actualEnd: item.actualEnd || null,
-    locations:item.locations.map(value=>value.trim()).filter(Boolean),
+    locations:interpretationLocationPayload(item.locationDetails).map(interpretationLocationText),
+    locationDetails:interpretationLocationPayload(item.locationDetails),
     languageDirections:item.languageDirections.map(direction=>({languageIds:direction.languageIds,requiredCount:direction.requiredCount})),
   })),
   languageDirections: form.languageDirections.filter((item) => item.languageIds.some(Boolean) || item.requiredCount).map((item) => ({
@@ -1192,6 +1214,7 @@ const normalizedNestedPayload = () => {
   })),
   interpreterAssignments: form.interpreterAssignments.filter((item) => item.translatorId).map((item) => ({
     translatorId: item.translatorId,
+    clientSelected:Boolean(item.clientSelected),
     customerRating: item.customerRating || null,
     evaluationNote: item.evaluationNote?.trim() || null,
   })),
@@ -1241,6 +1264,32 @@ const previewProjectName = async ({ automatic = false } = {}) => {
     if (!automatic) nameLoading.value = false
   }
 }
+const demandReleasePayload = () => ({...projectNamePayload(),requestKey:form.id||form.demandReleaseKey,
+  projectName:form.projectName?.trim(),interpretationDomain:form.interpretationDomain?.trim(),taskDescription:form.taskDescription?.trim()})
+const canGenerateDemandRelease = payload => hasCompleteProjectNameSource(payload)
+  && payload.projectName && payload.interpretationDomain && payload.taskDescription
+  && payload.timeRanges.every(item=>item.scheduledStart&&item.scheduledEnd&&item.languageDirections.every(direction=>direction.requiredCount>0))
+async function generateDemandRelease(automatic=false){
+  if(automatic&&demandReleaseManuallyEdited.value)return
+  const payload=demandReleasePayload()
+  if(!canGenerateDemandRelease(payload)){
+    if(!automatic){ElMessage.warning('请先填写项目名称、时间、地点、口译方向及人数、口译领域和工作内容');await locateDialogField(!payload.taskDescription?'工作内容':!payload.interpretationDomain?'口译领域':'项目名称')}
+    return
+  }
+  demandReleaseController?.abort();const controller=demandReleaseController=new AbortController();const sequence=++demandReleaseSequence
+  const signature=JSON.stringify(payload),initialContent=form.socialPostRequest;demandReleaseLoading.value=true
+  try{
+    const result=await generateInterpretationDemandRelease(payload,{signal:controller.signal})
+    if(sequence!==demandReleaseSequence||signature!==JSON.stringify(demandReleasePayload())||form.socialPostRequest!==initialContent||(automatic&&demandReleaseManuallyEdited.value))return
+    form.socialPostRequest=result.content
+    demandReleaseManuallyEdited.value=false
+  }catch(error){if(!controller.signal.aborted&&!automatic)ElMessage.error(getLocalizedErrorMessage(error,'生成需求发布失败'))}
+  finally{if(sequence===demandReleaseSequence)demandReleaseLoading.value=false}
+}
+watch(()=>JSON.stringify(demandReleasePayload()),()=>{
+  clearTimeout(demandReleaseTimer)
+  if(dialogVisible.value&&!demandReleaseManuallyEdited.value)demandReleaseTimer=setTimeout(()=>generateDemandRelease(true),400)
+})
 const generateProjectName = () => previewProjectName()
 const generateEmailSubject = () => notifyEmailSubjectGenerated(form, ElMessage, {includeManagerContact:false})
 const handleProjectNameInput = () => {
@@ -1259,6 +1308,8 @@ const buildPayload = () => {
     projectName: form.projectName?.trim() || null,
     projectTypes: form.projectTypes,
     taskDescription: form.taskDescription?.trim() || null,
+    socialPostRequest: form.socialPostRequest?.trim() || null,
+    clientSource: String(form.clientSource || '').trim(),
     clientId: form.clientId || null,
     subClientId: form.subClientId || null,
     clientName: form.clientFullName?.trim() || null,
@@ -1279,7 +1330,6 @@ const buildPayload = () => {
     customerConsultationTime: form.customerConsultationTime || null,
     customerConfirmationTime: form.customerConfirmationTime || null,
     interpretationDomain: form.interpretationDomain?.trim() || null,
-    interpretationContent: form.interpretationContent?.trim() || null,
     filePath: form.filePath?.trim() || null,
     quotationPath: form.quotationPath?.trim() || null,
     contractPath: form.contractPath?.trim() || null,
@@ -1288,8 +1338,6 @@ const buildPayload = () => {
     remarks: form.remarks?.trim() || null,
     emailSubjectPreview: form.emailSubjectPreview?.trim() || null,
     expectedUpdatedAt: form.updatedAt || null,
-    socialPostRequest: form.socialPostRequest?.trim() || null,
-    resourceRequest: form.resourceRequest?.trim() || null,
     roleAssignments: form.roleAssignments,
     ...nested,
   }
@@ -1332,6 +1380,7 @@ const assignForm = (detail) => {
       : [emptyLanguageDirection()],
     interpreterAssignments: (detail.interpreterAssignments || []).map(item => ({
       translatorId: item.translatorId,
+      clientSelected:Boolean(item.clientSelected),
       translatorLabel: translatorOptionLabel(item),
       customerRating: item.customerRating || '',
       evaluationNote: item.evaluationNote || '',
@@ -1340,8 +1389,23 @@ const assignForm = (detail) => {
   })
   form.subjectPrefix = extractSubjectPrefix(detail.emailSubjectPreview, form, {includeManagerContact:false}) || extractSubjectPrefix(detail.emailSubjectPreview, form)
   nameManuallyEdited.value = Boolean(detail.projectName)
+  demandReleaseManuallyEdited.value=Boolean(detail.socialPostRequest)
 }
 const resetEditorScroll = async () => { await nextTick(); dialogBodyRef.value?.parentElement?.scrollTo({ top: 0, behavior: 'auto' }) }
+const clearNewProject = async () => {
+  if(form.id||submitLoading.value||submitLocked)return
+  try{await ElMessageBox.confirm('清空当前新增内容及草稿，恢复新增时的默认值。是否继续？','清空新增项目',{type:'warning',confirmButtonText:'清空',cancelButtonText:'取消',closeOnClickModal:false})}catch{return}
+  if(form.id||submitLoading.value||submitLocked)return
+  clearDraft()
+  clearTimeout(autoNameTimer);namePreviewRequestId++;nameLoading.value=false
+  resetForm()
+  clientManagerBaseline.value=localStorage.getItem('user_id')||''
+  projectCreateIdempotencyKey.value=createIdempotencyKey()
+  await resetEditorScroll()
+  formRef.value?.clearValidate()
+  startFreshDraft('create')
+  ElMessage.success('已清空当前新增内容及草稿')
+}
 const handleAdd = async () => { dialogTitle.value = '新增口译项目'; resetForm(); clientManagerBaseline.value=localStorage.getItem('user_id')||''; projectCreateIdempotencyKey.value = createIdempotencyKey(); dialogVisible.value = true; await resetEditorScroll(); await beginDraft('create') }
 const handleEdit = async (row, useProvidedDetail = false, initialTab = 'project') => {
   const detail = useProvidedDetail ? row : await loadDetail(row.id, true)
@@ -1497,7 +1561,7 @@ const confirmStatusChange = async () => {
     setProjectStatusSaving(project.id, false)
   }
 }
-const resetForm = () => { Object.assign(form, defaultForm()); nameManuallyEdited.value = false; formRef.value?.clearValidate(); clearFieldSearch() }
+const resetForm = () => { Object.assign(form, defaultForm()); nameManuallyEdited.value = false; demandReleaseManuallyEdited.value=false; demandReleaseSequence++;demandReleaseController?.abort();demandReleaseLoading.value=false;clearTimeout(demandReleaseTimer); formRef.value?.clearValidate(); clearFieldSearch() }
 const onEditorClosed = () => { pauseDraft(); resetForm() }
 
 watch(
@@ -1546,7 +1610,7 @@ watch(
     }
   }
 )
-onBeforeUnmount(() => { clearTimeout(searchTimer); clearTimeout(autoNameTimer); requestController?.abort() })
+onBeforeUnmount(() => { clearTimeout(demandReleaseTimer);demandReleaseController?.abort();clearTimeout(searchTimer); clearTimeout(autoNameTimer); requestController?.abort() })
 useProjectStatusSync('interpretation',tableData,{onChanged:()=>{if(!loading.value&&!deleting.value&&!dialogVisible.value)void fetchData()}})
 watch(dialogVisible,visible=>{if(visible){chatAudience.value=[];editorTab.value='project'}})
 </script>
@@ -1691,7 +1755,25 @@ watch(dialogVisible,visible=>{if(visible){chatAudience.value=[];editorTab.value=
 
 <style scoped>
 .interpretation-type-field { display: flex; align-items: center; gap: 12px; width: 100%; }
-.interpretation-task-remarks { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.interpretation-task-remarks { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 3fr) minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
 .interpretation-task-remarks > .el-form-item { min-width: 0; }
-@media (max-width: 768px) { .interpretation-task-remarks { grid-template-columns: minmax(0, 1fr); gap: 0; } }
+.interpretation-requirement-actions { grid-column: 3 / -1; }
+.demand-release-editor{width:100%;display:flex;flex-direction:column;gap:8px}
+.demand-release-editor>.el-button{align-self:flex-end}
+@media (max-width: 768px) { .interpretation-task-remarks { grid-template-columns: minmax(0, 1fr); gap: 0; } .interpretation-requirement-actions { grid-column: 1 / -1; } }
 </style>
+
+<style scoped>
+.location-address-fields { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,2fr); gap:12px; }
+.location-address-fields > div { min-width:0; }
+.location-address-fields label { display:block; margin-bottom:6px; font-size:13px; color:var(--el-text-color-regular); }
+@media (max-width:768px) { .location-address-fields { grid-template-columns:minmax(0,1fr); } }
+</style>
+
+<style scoped>
+.interpreter-workspace { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; align-items:start; }
+.interpreter-workspace__region { min-width:0; margin-bottom:0; }
+@media(max-width:1000px) { .interpreter-workspace { grid-template-columns:minmax(0,1fr); } }
+</style>
+
+<style scoped>.interpreter-assignment-heading{display:inline-flex;align-items:center;gap:14px;flex-wrap:wrap}.interpreter-assignment-heading .el-checkbox{height:auto}</style>

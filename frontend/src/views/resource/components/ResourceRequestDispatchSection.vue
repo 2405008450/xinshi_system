@@ -1,13 +1,13 @@
 <template>
   <section class="request-dispatch" data-dialog-field-search-group :data-dialog-field-search-group-title="label">
     <el-checkbox v-model="enabled" :disabled="disabled || sending">{{ label }}</el-checkbox>
-    <el-form-item label="说明" :prop="`requestContent.dispatchNotes.${kind}`" :data-dialog-field-search-aliases="`${label}说明`" class="request-dispatch__note">
+    <el-form-item label="说明" :prop="`requestContent.dispatchNotes.${kind==='wechat_public'?'wechatPublic':kind}`" :data-dialog-field-search-aliases="`${label}说明`" class="request-dispatch__note">
       <el-input v-model="note" type="textarea" :rows="3" maxlength="10000" show-word-limit :aria-label="`${label}说明`" placeholder="可填写补充说明，也可留空" :disabled="disabled || sending" />
     </el-form-item>
     <p class="request-dispatch__defaults">默认接收人：{{ loading ? '加载中…' : defaultNames || '未设置' }}</p>
     <div v-if="enabled" class="request-dispatch__body">
       <div class="request-dispatch__quick"><el-button v-for="p in kind==='circle' ? defaultPeople : []" :key="p.id" size="small" :disabled="disabled || sending || loading" @click="ids=[p.id]">仅选 {{ p.name }}</el-button><el-button size="small" :disabled="disabled || sending || loading" @click="loadDefaults">恢复默认名单</el-button></div>
-      <el-select v-model="ids" multiple filterable collapse-tags collapse-tags-tooltip :max-collapse-tags="kind==='circle' ? 2 : 3" :placeholder="kind==='post' ? '选择全公司人员（可多选）' : '选择标注项目部人员（可多选）'" :disabled="disabled || sending" :loading="loading"><el-option v-for="p in people" :key="p.id" :value="p.id" :label="p.name" /></el-select>
+      <el-select v-model="ids" multiple filterable collapse-tags collapse-tags-tooltip :max-collapse-tags="kind==='circle' ? 2 : 3" :placeholder="postingDispatchKinds.includes(kind) ? '选择全公司人员（可多选）' : (sourceType==='interpretation' && kind==='circle' ? '选择口译项目部人员（可多选）' : '选择标注项目部人员（可多选）')" :disabled="disabled || sending" :loading="loading"><el-option v-for="p in people" :key="p.id" :value="p.id" :label="p.name" /></el-select>
       <el-button type="primary" :loading="sending" :disabled="disabled || !ids.length || loading || historyLoading || records.length >= 5" @click="send">{{ records.length >= 5 ? '已达到5次上限' : records.length ? '再次发送'+label : '发送'+label }}</el-button>
       <p>接收人可在会话左侧“通知”中查看完整需求并反馈“已收到”“已处理”。</p>
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
@@ -18,12 +18,13 @@
   </section>
 </template>
 <script setup>
+import {postingDispatchKinds} from '@/utils/resourceRequestDispatchKinds'
 import { computed,ref,watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api'
 import { sendResourceRequest, cancelResourceDispatches } from '@/api/resourceRequests'
 import ResourceRequestSendHistory from './ResourceRequestSendHistory.vue'
-const props=defineProps({modelValue:{type:String,default:''},requestId:String,cancelDisabled:Boolean,kind:{type:String,required:true},label:{type:String,required:true},prepare:{type:Function,required:true},disabled:Boolean,active:{type:Boolean,default:true},records:{type:Array,default:()=>[]},historyLoading:Boolean})
+const props=defineProps({modelValue:{type:String,default:''},requestId:String,sourceType:{type:String,default:'annotation'},cancelDisabled:Boolean,kind:{type:String,required:true},label:{type:String,required:true},prepare:{type:Function,required:true},disabled:Boolean,active:{type:Boolean,default:true},records:{type:Array,default:()=>[]},historyLoading:Boolean})
 const emit=defineEmits(['update:modelValue','busy','sent','cancel'])
 const note=computed({get:()=>props.modelValue,set:value=>emit('update:modelValue',value)})
 const enabled=ref(false),ids=ref([]),people=ref([]),defaultIds=ref([]),loading=ref(false),sending=ref(false),error=ref('')
@@ -41,8 +42,8 @@ async function cancel(){
   catch(e){error.value=e.detail||e.message||'取消失败，请重试'}
   finally{emit('sent');sending.value=false;emit('busy',false)}
 }
-async function loadDefaults(){const seq=++defaultsSequence;loading.value=true;error.value='';try{const result=await api.get(`/resource-requests/dispatch-defaults/${props.kind}`);if(seq!==defaultsSequence)return;people.value=result.users;defaultIds.value=result.user_ids;ids.value=[...defaultIds.value]}catch(e){if(seq===defaultsSequence)error.value=e.detail||e.message}finally{if(seq===defaultsSequence)loading.value=false}}
-watch(()=>[props.kind,props.active],([kind,active])=>{if(active){enabled.value=false;loadDefaults()}else{defaultsSequence++;loading.value=false}},{immediate:true})
+async function loadDefaults(){const seq=++defaultsSequence;loading.value=true;error.value='';try{const result=await api.get(`/resource-requests/dispatch-defaults/${props.kind}`,{params:{source_type:props.sourceType}});if(seq!==defaultsSequence)return;people.value=result.users;defaultIds.value=result.user_ids;ids.value=[...defaultIds.value]}catch(e){if(seq===defaultsSequence)error.value=e.detail||e.message}finally{if(seq===defaultsSequence)loading.value=false}}
+watch(()=>[props.kind,props.active,props.sourceType],([kind,active])=>{if(active){enabled.value=false;loadDefaults()}else{defaultsSequence++;loading.value=false}},{immediate:true})
 
 async function send(){
   if(sending.value||props.disabled||props.historyLoading||props.records.length>=5||!ids.value.length)return

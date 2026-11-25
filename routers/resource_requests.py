@@ -57,9 +57,9 @@ dispatch_router = APIRouter(prefix='/resource-request-dispatches', tags=['resour
 
 from resource_request_dispatch_defaults import DefaultWrite
 @router.get('/dispatch-defaults/{kind}')
-def dispatch_default_options(kind:str,db:Session=Depends(get_db),user:AppUser=Depends(get_current_user)):
+def dispatch_default_options(kind:str,db:Session=Depends(get_db),user:AppUser=Depends(get_current_user),source_type:str='annotation'):
     from resource_request_dispatch_defaults import catalog
-    return catalog(db,user,kind)
+    return catalog(db,user,kind,source_type)
 
 @router.put('/dispatch-defaults/{kind}')
 def dispatch_default_save(kind:str,payload:DefaultWrite,db:Session=Depends(get_db),user:AppUser=Depends(get_current_user)):

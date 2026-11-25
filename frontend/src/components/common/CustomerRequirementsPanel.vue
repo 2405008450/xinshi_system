@@ -21,9 +21,8 @@
       </div>
     </el-card>
       </el-collapse-item>
-    </el-collapse>
-    <el-card shadow="never" class="project-requirements-region">
-      <template #header><div class="project-requirements-heading"><strong>项目要求区域</strong><el-button link :loading="projectsLoading" @click="loadProjects">刷新</el-button></div></template>
+      <el-collapse-item title="项目要求区域" name="projects" data-dialog-field-search-label="项目要求区域">
+      <div class="project-requirements-heading"><span>按项目查看已填写的要求和说明</span><el-button link :loading="projectsLoading" @click="loadProjects">刷新</el-button></div>
       <el-alert v-if="projectsError" :title="projectsError" type="error" :closable="false"><el-button link @click="loadProjects">重试</el-button></el-alert>
       <div v-else v-loading="projectsLoading">
         <el-empty v-if="!projects.length && !projectsLoading" description="暂无已填写要求或说明的项目" :image-size="60" />
@@ -41,7 +40,8 @@
           :total="projectsTotal" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next"
           @current-change="loadProjects" @size-change="projectsPage=1;loadProjects()" />
       </div>
-    </el-card>
+      </el-collapse-item>
+    </el-collapse>
   </el-tabs>
 </template>
 
@@ -50,11 +50,11 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
-import { requirementModules, requirementPath } from '@/utils/customerRequirements'
+import { requirementModules, projectRequirementFields, requirementPath } from '@/utils/customerRequirements'
 
 const props = defineProps({ clientId: String, canWrite: Boolean })
 const active = ref('translation')
-const fields = computed(() => requirementModules[active.value].fields)
+const fields = computed(() => projectRequirementFields(active.value))
 const history = ref({})
 const draft = ref({})
 const loading = ref(false)
@@ -103,7 +103,9 @@ async function loadProjects() {
       signal: request.signal, params: { page: projectsPage.value, page_size: projectsPageSize.value },
     })
     if (request.signal.aborted) return
-    projects.value = data.items
+    projects.value = data.items.map(project => ({ ...project, values: Object.fromEntries(
+      Object.entries(project.values).filter(([field]) => Object.hasOwn(fields.value, field)),
+    ) }))
     projectsTotal.value = data.total
   } catch (error) {
     if (!request.signal.aborted) projectsError.value = getLocalizedErrorMessage(error, '读取项目要求失败')
@@ -149,7 +151,6 @@ onBeforeUnmount(() => { requestId++; historyRequest?.abort(); projectsRequest?.a
 .requirement-content { white-space: pre-wrap; overflow-wrap: anywhere; }
 small { color: var(--el-text-color-secondary); }
 .el-input + .el-button { margin-top: 8px; }
-.project-requirements-region { margin-top: 12px; }
-.project-requirements-heading { display: flex; align-items: center; justify-content: space-between; }
+.project-requirements-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; color: var(--el-text-color-secondary); }
 .el-pagination { margin-top: 12px; flex-wrap: wrap; }
 </style>

@@ -1,7 +1,7 @@
 <template>
   <div class="requirement-actions" data-dialog-field-search-label="同步客户要求">
     <el-button :disabled="!project.clientId || disabled" :loading="loading"
-      title="用客户档案各项的最新内容替换对应项目字段" @click="applyLatest">带入客户要求</el-button>
+      title="从客户对应项目类型的通用要求带入最新内容" @click="applyLatest">带入客户要求</el-button>
     <el-button v-if="canWriteClient" :disabled="!project.clientId || !project.id || disabled" @click="openPreview">
       同步要求至客户管理…
     </el-button>
@@ -9,7 +9,7 @@
     <small v-else-if="canWriteClient && !project.id">保存项目后可回传要求。</small>
     <DraggableFormDialog v-model="visible" append-to-body title="同步要求至客户管理" class="requirement-sync-dialog"
       width="min(680px, calc(100vw - 32px))" top="5vh" :close-on-click-modal="false" :before-close="beforeClose">
-      <p>可先编辑再同步。各项与客户档案最新内容不同才会新增历史，空白项不回传。</p>
+      <p>同步至客户管理 → {{ requirementModules[module].label }} → 通用要求。可先编辑；与通用要求最新内容不同时新增历史，空白项不回传。</p>
       <AppForm :model="draft" label-position="top" :disabled="saving">
         <el-form-item v-for="(label, field) in fields" :key="field" :label="label">
           <el-input v-model="draft[field]" type="textarea" :rows="3" maxlength="10000" />
@@ -29,11 +29,11 @@ import { ElMessage } from 'element-plus'
 import api from '@/api'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import { hasPermission } from '@/utils/permission'
-import { requirementModules, requirementPath } from '@/utils/customerRequirements'
+import { projectRequirementFields, requirementModules, requirementPath } from '@/utils/customerRequirements'
 
 const props = defineProps({ module: { type: String, required: true }, project: { type: Object, required: true }, disabled: Boolean })
 const emit = defineEmits(['apply'])
-const fields = computed(() => requirementModules[props.module].fields)
+const fields = computed(() => projectRequirementFields(props.module))
 const canWriteClient = hasPermission('clients:write')
 const draft = ref({})
 const visible = ref(false)
@@ -48,8 +48,9 @@ async function applyLatest() {
   try {
     const { values } = await api.get(requirementPath(clientId, props.module), { params: { latest: true } })
     if (props.project.clientId !== clientId || props.project.id !== id) return
-    if (!Object.keys(values).length) return ElMessage.info('客户档案暂无此类要求')
-    emit('apply', values)
+    const selected = Object.fromEntries(Object.entries(values).filter(([field]) => Object.hasOwn(fields.value, field)))
+    if (!Object.keys(selected).length) return ElMessage.info('客户档案暂无此类要求')
+    emit('apply', selected)
     ElMessage.success('已带入最新要求，保存项目后生效')
   } catch (error) {
     ElMessage.error(getLocalizedErrorMessage(error, '读取客户要求失败'))

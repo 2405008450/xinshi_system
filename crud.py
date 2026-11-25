@@ -630,10 +630,12 @@ def create_client(
     db.refresh(db_client)
     return get_client(db,db_client.id)
 
-def update_client(db: Session, client_id: UUID, client_update: ClientUpdate) -> Optional[Client]:
+def update_client(db: Session, client_id: UUID, client_update: ClientUpdate, *, actor_id=None) -> Optional[Client]:
     db_client = get_client(db, client_id)
     if not db_client:
         return None
+    from client_name_history import names, record
+    previous_names = names(db_client)
     update_data = client_update.model_dump(exclude_unset=True, exclude={VERSION_FIELD, 'customer_type','contact_names','contact_people'})
     if client_update.contact_people is not None:
         update_data.pop('manager_contact', None)
@@ -655,14 +657,20 @@ def update_client(db: Session, client_id: UUID, client_update: ClientUpdate) -> 
     if client_update.contact_people is not None:
         from client_contact_people import replace_details
         replace_details(db, db_client, client_update.contact_people)
+    record(db, db_client, previous_names, actor_id=actor_id)
     db.commit()
     db.refresh(db_client)
     return get_client(db,db_client.id)
 
-def delete_client(db: Session, client_id: UUID) -> bool:
+def delete_client(db: Session, client_id: UUID, *, actor_id=None) -> bool:
     db_client = get_client(db, client_id)
     if not db_client:
         return False
+    from client_name_history import names, record
+    previous_names = names(db_client)
+    for child in db_client.sub_clients:
+        record(db, child, names(child), actor_id=actor_id, deleted=True)
+    record(db, db_client, previous_names, actor_id=actor_id, deleted=True)
     db.delete(db_client)
     db.commit()
     return True
@@ -790,10 +798,12 @@ def create_sub_client(
     db.refresh(db_sub)
     return get_sub_client(db,db_sub.id)
 
-def update_sub_client(db: Session, sub_id: UUID, sub_update: SubClientUpdate) -> Optional[SubClient]:
+def update_sub_client(db: Session, sub_id: UUID, sub_update: SubClientUpdate, *, actor_id=None) -> Optional[SubClient]:
     db_sub = get_sub_client(db, sub_id)
     if not db_sub:
         return None
+    from client_name_history import names, record
+    previous_names = names(db_sub)
     update_data = sub_update.model_dump(exclude_unset=True, exclude={VERSION_FIELD, 'customer_type','contact_names','contact_people'})
     if sub_update.contact_people is not None:
         update_data.pop('manager_contact', None)
@@ -817,14 +827,18 @@ def update_sub_client(db: Session, sub_id: UUID, sub_update: SubClientUpdate) ->
     if sub_update.contact_people is not None:
         from client_contact_people import replace_details
         replace_details(db, db_sub, sub_update.contact_people)
+    record(db, db_sub, previous_names, actor_id=actor_id)
     db.commit()
     db.refresh(db_sub)
     return get_sub_client(db,db_sub.id)
 
-def delete_sub_client(db: Session, sub_id: UUID) -> bool:
+def delete_sub_client(db: Session, sub_id: UUID, *, actor_id=None) -> bool:
     db_sub = get_sub_client(db, sub_id)
     if not db_sub:
         return False
+    from client_name_history import names, record
+    previous_names = names(db_sub)
+    record(db, db_sub, previous_names, actor_id=actor_id, deleted=True)
     db.delete(db_sub)
     db.commit()
     return True
@@ -2519,6 +2533,10 @@ def create_translation_project(
     project_data['email_subject_preview'] = normalize_email_subject_order_no(
         project_data.get('email_subject_preview'), order_no
     )
+    from project_client_contact_details import DETAIL_FIELDS
+    contact_details_data = {key: project.model_dump().get(key) for key in DETAIL_FIELDS}
+    for key in DETAIL_FIELDS:
+        project_data.pop(key, None)
     project_data['language_pair'] = _normalize_catalog_language_pairs(
         db, project_data.get('language_pair')
     )
@@ -2570,6 +2588,8 @@ def create_translation_project(
     db.flush()
     if 'contact_name' in project.model_fields_set:
         save_project_contact(db, db_project, project.contact_name, project.created_by)
+    from project_client_contact_details import save_project_contact_details
+    save_project_contact_details(db, {**contact_details_data, 'client_id': db_project.client_id, 'sub_client_id': db_project.sub_client_id, 'contact_name': db_project.contact_name})
     from translation_customer_type import save as save_customer_type
     if 'customer_type' in project.model_fields_set:
         save_customer_type(db, db_project, project.customer_type)
@@ -2670,6 +2690,10 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
         exclude_unset=True,
         exclude={'submission_mode','sub_orders_reviewed','client_short_name', 'client_code', 'client_name', 'contact_name', 'sub_client_name', 'manager_contact', 'sub_client_short_name', 'word_count_matrix', 'customer_charge_items', 'role_assignments', 'assigned_translator_completions', 'client_manager_id', 'client_manager_change_reason', 'customer_type', 'statement_required', 'quotation_draft', 'document_notes', 'payment_draft', 'payment_version', 'payment_confirmation', VERSION_FIELD},
     )
+    from project_client_contact_details import DETAIL_FIELDS
+    contact_details_data = {key: project_update.model_dump().get(key) for key in DETAIL_FIELDS}
+    for key in DETAIL_FIELDS:
+        update_data.pop(key, None)
     update_data.pop('mother_split_reviewed', None)
     db.query(TranslationProject).filter(TranslationProject.id == project_id).with_for_update().populate_existing().one()
     assert_fresh(db_project, project_update.expected_updated_at)
@@ -2750,6 +2774,8 @@ def update_translation_project(db: Session, project_id: UUID, project_update: Tr
         setattr(db_project, field, value)
     if 'contact_name' in project_update.model_fields_set:
         save_project_contact(db, db_project, project_update.contact_name, actor_user_id)
+    from project_client_contact_details import save_project_contact_details
+    save_project_contact_details(db, {**contact_details_data, 'client_id': db_project.client_id, 'sub_client_id': db_project.sub_client_id, 'contact_name': db_project.contact_name})
     if 'customer_type' in project_update.model_fields_set:
         from translation_customer_type import save as save_customer_type
         save_customer_type(db, db_project, project_update.customer_type)

@@ -531,6 +531,10 @@ class EmployeeShiftLock(Base):
 
 class TranslationProject(Base):
     __tablename__ = 'translation_project'
+
+    from project_customer_sources import customer_source_property as _source_property
+    client_source = _source_property('translation')
+
     __table_args__ = (
         ForeignKeyConstraint(['client_id'], ['client.id'], ondelete='RESTRICT', name='fk_translation_project_client'),
         ForeignKeyConstraint(['sub_client_id'], ['sub_client.id'], ondelete='SET NULL', name='fk_translation_project_sub_client'),

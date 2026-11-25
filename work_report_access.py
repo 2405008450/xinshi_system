@@ -212,10 +212,19 @@ def received_reports(db, user, date_from, date_to, sender_id, page, page_size, d
     ).count()
     rows = query.order_by(DailyReport.report_date.desc(), DailyReport.id).offset((page - 1) * page_size).limit(page_size).all()
     period_totals = totals_for_reports(db, rows)
+    from attendance_service import shifts_for
+    people_by_day = {}
+    for row in rows:
+        people_by_day.setdefault(row.report_date, {})[row.user_id] = row.user
+    report_shifts = {
+        day: shifts_for(db, list(people.values()), day)
+        for day, people in people_by_day.items()
+    }
     return {'total': total, 'idle_over_limit_count': over_limit_count, 'items': [{
         'id': row.id, 'user_name': row.user.full_name or row.user.username, 'report_date': row.report_date,
         'finalized_at': api_time(row.finalized_at), 'duration_minutes': sum(item.duration_minutes for item in row.items),
         'saved_at': api_time(row.updated_at),
+        'shift': report_shifts[row.report_date].get(str(row.user_id)),
         'idle_minutes': declared_minutes(row.idle_declaration),
         'has_lunch_work': any((item.display_metadata or {}).get('lunch_overtime') is True for item in row.items),
         **period_totals[row.id],

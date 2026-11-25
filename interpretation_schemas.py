@@ -44,12 +44,27 @@ def _nullable_text(value):
     return value
 
 
+class InterpretationLocationInput(BaseModel):
+    country_province: str = Field(default='', max_length=200)
+    city: str = Field(default='', max_length=200)
+    address: str = Field(default='', max_length=2000)
+
+    @field_validator('country_province', 'city', 'address', mode='before')
+    @classmethod
+    def trim_location(cls, value):
+        return str(value or '').strip()
+
+    def display_text(self):
+        return ' '.join(value for value in (self.country_province, self.city, self.address) if value)
+
+
 class InterpretationTimeRangeInput(BaseModel):
     scheduled_start: datetime
     scheduled_end: datetime
     actual_start: Optional[datetime] = None
     actual_end: Optional[datetime] = None
     locations: Optional[list[str]] = None
+    location_details: Optional[list[InterpretationLocationInput]] = None
     language_directions: Optional[list['InterpretationLanguageDirectionInput']] = None
 
     @model_validator(mode="after")
@@ -60,6 +75,9 @@ class InterpretationTimeRangeInput(BaseModel):
             raise ValueError("填写实际结束时间前必须填写实际开始时间")
         if self.actual_start and self.actual_end and self.actual_end < self.actual_start:
             raise ValueError("实际结束时间不能早于实际开始时间")
+        if self.location_details is not None:
+            self.location_details = [item for item in self.location_details if item.display_text()]
+            self.locations = [item.display_text() for item in self.location_details]
         if self.locations is not None or self.language_directions is not None:
             self.locations = list(dict.fromkeys(str(value or '').strip() for value in (self.locations or []) if str(value or '').strip()))
             if not self.locations:raise ValueError('每个时间段请至少填写一个项目地点')
@@ -135,6 +153,7 @@ class InterpretationLanguageDirectionResponse(InterpretationLanguageDirectionInp
 
 
 class InterpretationInterpreterInput(BaseModel):
+    client_selected: Optional[bool] = None
     translator_id: UUID
     customer_rating: Optional[str] = None
     evaluation_note: Optional[str] = None
@@ -151,6 +170,7 @@ class InterpretationInterpreterInput(BaseModel):
 
 
 class InterpretationInterpreterResponse(InterpretationInterpreterInput):
+    client_selected: bool = False
     id: UUID
     sequence_no: int
     translator_name: str
@@ -167,6 +187,7 @@ class InterpretationInterpreterResponse(InterpretationInterpreterInput):
 
 
 class InterpretationProjectWrite(BaseModel):
+    client_source: Optional[str] = Field(default=None, max_length=500)
     finance_draft: InterpretationProjectFinanceDraft | None = None
     client_manager_id: Optional[UUID] = None
     client_manager_change_reason: Optional[str] = Field(default=None, max_length=500)
@@ -410,6 +431,7 @@ class InterpretationProjectListResponse(BaseModel):
 
 
 class InterpretationProjectDetailResponse(InterpretationProjectListResponse):
+    client_source: Optional[str] = Field(default=None, max_length=500)
     consultation_id: Optional[UUID] = None
     language_directions: list[InterpretationLanguageDirectionResponse] = Field(default_factory=list)
 

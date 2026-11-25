@@ -32,6 +32,10 @@ from resource_models import ResourcePerson
 
 class RecruitmentProject(TaxPriceMixin, Base):
     __tablename__ = "recruitment_project"
+
+    from project_customer_sources import customer_source_property as _source_property
+    client_source = _source_property('recruitment')
+
     __table_args__ = (
         PrimaryKeyConstraint("id", name="recruitment_project_pkey"),
         UniqueConstraint("order_no", name="uq_recruitment_project_order_no"),

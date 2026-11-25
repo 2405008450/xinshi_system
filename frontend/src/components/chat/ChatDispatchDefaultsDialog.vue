@@ -4,8 +4,8 @@
       <el-alert v-if="error" :title="error" type="error" :closable="false" />
       <el-alert v-if="data && !data.ready" title="共享配置表尚未初始化，当前展示初始规则" type="warning" :closable="false" />
       <p>所有标注项目共用；资源需求发送时可临时增减，不改变此处默认设置。</p>
-      <el-form-item label="默认被发送人"><el-select v-model="ids" multiple filterable collapse-tags collapse-tags-tooltip :max-collapse-tags="3" :disabled="!data?.can_manage" :placeholder="kind==='post' ? '选择全公司人员' : '选择标注项目部人员'"><el-option v-for="person in data?.users || []" :key="person.id" :label="person.name" :value="person.id" /></el-select></el-form-item>
-      <p v-if="kind==='post'">初始规则：HR 部成员，排除曾紫霞、赵震锋、Lulu。可以加入全公司其他人员。</p>
+      <el-form-item label="默认被发送人"><el-select v-model="ids" multiple filterable collapse-tags collapse-tags-tooltip :max-collapse-tags="3" :disabled="!data?.can_manage" :placeholder="postingDispatchKinds.includes(kind) ? '选择全公司人员' : '选择标注项目部人员'"><el-option v-for="person in data?.users || []" :key="person.id" :label="person.name" :value="person.id" /></el-select></el-form-item>
+      <p v-if="postingDispatchKinds.includes(kind)">初始规则：HR 部成员，排除曾紫霞、赵震锋、Lulu。可以加入全公司其他人员。</p>
       <p v-else-if="kind==='circle'">初始名单：黄杰、王露；可调整为标注项目部其他人员。</p>
       <p v-else>初始名单：欧阳靖琳、赵震锋；可加入标注项目部其他人员。</p>
     </AppForm>
@@ -13,6 +13,8 @@
   </DraggableFormDialog>
 </template>
 <script setup>
+import {postingDispatchKinds} from '@/utils/resourceRequestDispatchKinds'
+
 import {ref,watch} from 'vue'
 import {ElMessage} from 'element-plus'
 import api from '@/api'

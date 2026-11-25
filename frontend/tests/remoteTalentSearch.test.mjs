@@ -43,3 +43,15 @@ test('搜索失败会清空候选并显示错误，避免保留上一批无关�
   await search.search('曹柳云')
   assert.equal(state.loading,false);assert.deepEqual(state.items,[]);assert.equal(errors,1)
 })
+
+test('仅最新成功搜索触发无匹配回调，输入清空和错误不触发',async()=>{
+ const requests=[],completed=[]
+ const search=createRemoteTalentSearch({fetchOptions:()=>{const item=deferred();requests.push(item);return item.promise},onUpdate:()=>{},onSuccess:(keyword,items)=>completed.push([keyword,items])})
+ const first=search.search('旧名'),second=search.search('新名')
+ requests[1].resolve([]);await second;requests[0].resolve([]);await first
+ assert.deepEqual(completed,[['新名',[]]])
+ search.input('')
+ const failed=search.search('失败');requests[2].reject(new Error('offline'));await failed
+ assert.equal(completed.length,1)
+ search.dispose()
+})

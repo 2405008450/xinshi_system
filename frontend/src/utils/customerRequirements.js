@@ -20,3 +20,8 @@ export const requirementModules = {
 }
 
 export const requirementPath = (clientId, module) => `/clients/${clientId}/requirements/${module}`
+
+// 具体任务、岗位职责属于项目本身，不参与客户通用要求的双向传递。
+export const projectRequirementFields = module => Object.fromEntries(
+  Object.entries(requirementModules[module].fields).filter(([field]) => !['taskDescription', 'jobDescription'].includes(field)),
+)

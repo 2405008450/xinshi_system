@@ -25,12 +25,12 @@
         <el-table :data="data.snapshot.items" border><el-table-column label="语种"><template #default="{row}">{{ row.languageLabels?.join(' → ') || '-' }}</template></el-table-column><el-table-column prop="requiredCount" label="需求人数" width="100" /><el-table-column prop="requirementDetail" label="具体要求" /></el-table>
         <ResourceRequestVersions :model-value="data.snapshot.requestContent?.versions || []" />
         <ResourceRequestDispatchNotes :notes="data.snapshot.requestContent?.dispatchNotes || {}" :kind="data.kind" />
-        <RequestExecutionChannels v-if="data.kind==='post' && data.canRespond && !data.cancellation" ref="executionForm" :batch-id="batchId" :disabled="!mine?.receivedAt" @replied="data=$event" />
-        <template v-if="data.kind==='post'"><h4>平台执行回执</h4><RequestExecutionReplies :rows="data.executionReplies || []" /><p v-if="!data.executionReplies?.length">暂无执行回执</p></template>
+        <RequestExecutionChannels v-if="postingDispatchKinds.includes(data.kind) && data.canRespond && !data.cancellation" ref="executionForm" :batch-id="batchId" :disabled="!mine?.receivedAt" @replied="data=$event" />
+        <template v-if="postingDispatchKinds.includes(data.kind)"><h4>平台执行回执</h4><RequestExecutionReplies :rows="data.executionReplies || []" /><p v-if="!data.executionReplies?.length">暂无执行回执</p></template>
         <h4>接收与处理情况</h4>
-        <el-table :data="data.recipients" border><el-table-column prop="name" label="人员" width="100" /><el-table-column label="已收到" min-width="130"><template #default="{row}">{{ row.receivedAt ? formatTime(row.receivedAt) : '待确认' }}</template></el-table-column><el-table-column label="已处理" min-width="130"><template #default="{row}">{{ row.processedAt ? formatTime(row.processedAt) : '待处理' }}<small v-if="data.kind==='post' && row.processedAt && !recipientReplies(row.userId).length" class="dispatch-missing-reply">历史回执未填写处理详情</small></template></el-table-column>
-          <el-table-column v-if="data.kind==='post'" label="实际发布平台／账号" min-width="180"><template #default="{row}"><div v-for="reply in recipientReplies(row.userId)" :key="reply.id" class="dispatch-execution-detail"><span>{{ reply.platforms.map(p=>(p.parentName ? p.parentName+' / ' : '')+p.name).join('、') }}</span><small>{{ formatTime(reply.createdAt) }}</small></div><span v-if="!recipientReplies(row.userId).length">{{ row.processedAt ? '未登记平台' : '-' }}</span></template></el-table-column>
-          <el-table-column v-if="data.kind==='post'" label="具体处理／发布情况" min-width="220"><template #default="{row}"><div v-for="reply in recipientReplies(row.userId)" :key="reply.id" class="dispatch-execution-detail"><ScreenshotText :text="reply.content || '未填写处理说明'" /></div><span v-if="!recipientReplies(row.userId).length">{{ row.processedAt ? '未填写处理说明' : '-' }}</span></template></el-table-column>
+        <el-table :data="data.recipients" border><el-table-column prop="name" label="人员" width="100" /><el-table-column label="已收到" min-width="130"><template #default="{row}">{{ row.receivedAt ? formatTime(row.receivedAt) : '待确认' }}</template></el-table-column><el-table-column label="已处理" min-width="130"><template #default="{row}">{{ row.processedAt ? formatTime(row.processedAt) : '待处理' }}<small v-if="postingDispatchKinds.includes(data.kind) && row.processedAt && !recipientReplies(row.userId).length" class="dispatch-missing-reply">历史回执未填写处理详情</small></template></el-table-column>
+          <el-table-column v-if="postingDispatchKinds.includes(data.kind)" label="实际发布平台／账号" min-width="180"><template #default="{row}"><div v-for="reply in recipientReplies(row.userId)" :key="reply.id" class="dispatch-execution-detail"><span>{{ reply.platforms.map(p=>(p.parentName ? p.parentName+' / ' : '')+p.name).join('、') }}</span><small>{{ formatTime(reply.createdAt) }}</small></div><span v-if="!recipientReplies(row.userId).length">{{ row.processedAt ? '未登记平台' : '-' }}</span></template></el-table-column>
+          <el-table-column v-if="postingDispatchKinds.includes(data.kind)" label="具体处理／发布情况" min-width="220"><template #default="{row}"><div v-for="reply in recipientReplies(row.userId)" :key="reply.id" class="dispatch-execution-detail"><ScreenshotText :text="reply.content || '未填写处理说明'" /></div><span v-if="!recipientReplies(row.userId).length">{{ row.processedAt ? '未填写处理说明' : '-' }}</span></template></el-table-column>
         </el-table>
         <template v-if="data.cancellation"><h4>取消通知确认记录</h4><p>{{ data.cancellation.cancelledBy }} · {{ formatTime(data.cancellation.cancelledAt) }}</p><el-table :data="data.cancellation.recipients" border><el-table-column prop="name" label="人员" /><el-table-column label="确认收到取消通知"><template #default="{row}">{{ row.confirmedAt ? formatTime(row.confirmedAt) : '待确认' }}</template></el-table-column></el-table></template>
       </template>
@@ -40,13 +40,15 @@
       <el-button v-if="cancelMine" type="primary" :loading="busy" :disabled="!!cancelMine.confirmedAt || loading" @click="respond('cancel_received')">{{ cancelMine.confirmedAt ? '已确认收到取消通知' : '确认收到取消通知' }}</el-button>
       <template v-if="data?.canRespond && !data.cancellation">
         <el-button :loading="busy" :disabled="Boolean(mine?.receivedAt) || loading" @click="respond('received')">{{ mine?.receivedAt ? '已确认收到' : '已收到' }}</el-button>
-        <el-button v-if="data.kind==='post'" type="primary" :disabled="!mine?.receivedAt || loading" @click="executionForm?.reply()">{{ mine?.processedAt ? '补充处理回执' : '提交处理回执' }}</el-button>
+        <el-button v-if="postingDispatchKinds.includes(data.kind)" type="primary" :disabled="!mine?.receivedAt || loading" @click="executionForm?.reply()">{{ mine?.processedAt ? '补充处理回执' : '提交处理回执' }}</el-button>
         <el-button v-else type="primary" :loading="busy" :disabled="!mine?.receivedAt || Boolean(mine?.processedAt) || loading" @click="respond('processed')">{{ mine?.processedAt ? '已确认处理' : '已处理' }}</el-button>
       </template>
     </template>
   </DraggableFormDialog>
 </template>
 <script setup>
+import {postingDispatchKinds} from '@/utils/resourceRequestDispatchKinds'
+
 import { computed, ref, watch, reactive, onBeforeUnmount, nextTick, defineAsyncComponent } from 'vue'
 import { useRouter } from 'vue-router'
 import DraggableFormDialog from '@/components/common/DraggableFormDialog.vue'

@@ -358,7 +358,7 @@
                     </el-col>
                   </el-row>
                   <el-row :gutter="16">
-                    <el-col :xs="24" :md="12">
+                    <el-col :xs="24" :md="8">
                       <el-form-item label="客户简称" show-sub-client prop="clientShortName" data-field-key="clientShortName">
                         <div class="client-autocomplete-field">
                           <el-autocomplete
@@ -384,12 +384,10 @@
                         </div>
                       <ClientNameGuidance create-on-save />
 </el-form-item>
-                    </el-col>
-                    <el-col :xs="24" :md="12">
-                      <el-form-item label="客户联系人" prop="contactName" data-field-key="contactName">
-                        <ClientContactPersonSelect v-model="form.contactName" :client-id="form.clientId" :sub-client-id="form.subClientId" />
-                      </el-form-item>
-                    </el-col>
+                    </el-col><el-col :xs="24" :md="8"><el-form-item label="客户全称" prop="clientName" data-field-key="clientName">
+                        <ClientFullNameInput v-model="form.clientName" :client-id="form.clientId" @select="handleClientSelect" />
+                      </el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="客户来源" prop="clientSource"><el-input v-model="form.clientSource" maxlength="500" placeholder="请输入客户来源（选填）" /></el-form-item></el-col>
+
                     <el-col v-if="form.subClientShortName" :xs="24" :md="12">
                       <el-form-item label="子客户" prop="subClientShortName" data-field-key="subClientShortName">
                         <div class="client-autocomplete-field">
@@ -419,12 +417,9 @@
                       </el-form-item>
                     </el-col>
                   </el-row>
+<ProjectClientContactFields :active="dialogVisible" v-model:contact-job-title="form.clientContactJobTitle" v-model:contact-department="form.clientContactDepartment" v-model:contact-company="form.clientContactCompany" :client-id="form.clientId" :sub-client-id="form.subClientId" v-model:contact-name="form.contactName" v-model:contact-method="form.clientContactMethod" v-model:contact-description="form.clientContactDescription" v-model:contact-version="form.clientContactVersion" v-model:contacts-visible="form.clientContactsVisible" />
                   <el-row :gutter="16">
-                    <el-col :xs="24" :md="12">
-                      <el-form-item label="客户全称" prop="clientName" data-field-key="clientName">
-                        <ClientFullNameInput v-model="form.clientName" :client-id="form.clientId" @select="handleClientSelect" />
-                      </el-form-item>
-                    </el-col>
+
                     <el-col :xs="24" :md="12">
                       <el-form-item label="子客户全称" prop="subClientName" data-field-key="subClientName">
                         <ReadonlyField :model-value="form.subClientName" :source="form.subClientId ? 'auto' : 'editable'" maxlength="255" placeholder="子客户全称（选填）" @update:model-value="form.subClientName = $event" />
@@ -1023,7 +1018,8 @@ import ProjectCustomerRequirements from '@/components/common/ProjectCustomerRequ
 import OrderInheritedExtras from './components/OrderInheritedExtras.vue'
 import SubOrderManagement from './SubOrderManagement.vue'
 import ClientNameGuidance from '@/components/common/ClientNameGuidance.vue'
-import ClientContactPersonSelect from '@/components/common/ClientContactPersonSelect.vue'
+import ProjectClientContactFields from '@/components/common/ProjectClientContactFields.vue'
+import {emptyProjectContactDetails,projectContactPayload} from '@/utils/projectClientContacts'
 import {paymentConfirmationForm} from '@/utils/paymentConfirmation'
 import {getStatementPreference as getClientStatementPreference} from '@/api/customerStatements'
 import {linkSavedCollection} from '@/utils/savedDataRegistry'
@@ -1274,7 +1270,7 @@ async function applyDocumentDefaults(){
 }
 function applyQuotationDraft(value){form.quotationDraft=value;quotationDraftDirty.value=true}
 const customerTypes = CUSTOMER_TYPES
-const createEmptyProjectForm = () => ({ motherSplitReviewed:false, motherSplitReview:null, pendingFolderImport:null, folderRootPathVersion:0, folderRoot:false, simpleRequirementWordCountMatrix:{}, pendingSubOrderDetails:{}, pendingSubOrderDefaults:{}, childFieldDifferences:{}, createWithSubOrders: false, filePathDraft: null, wordCountPendingDraft: null, paymentConfirmation: null, statementRequired: true, statementRequiredExplicit: false, quotationDraft: null, documentNotes:{quotation:'',statement:'',invoice:''}, originalStoragePath: '', customerType: null, id: '', orderNo: '', projectName: '', sourceFileName: '', initialSubOrderNamesText: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', contactName: '', clientName: '', clientShortName: '', clientCode: '', subClientName: '', subClientShortName: '', subClientCode: '', customerOrderNo: '', clientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], wordCountMatrixSource: 'project', wordCountByDirection: [], wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', remarks: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
+const createEmptyProjectForm = () => ({...emptyProjectContactDetails(),clientSource:'', motherSplitReviewed:false, motherSplitReview:null, pendingFolderImport:null, folderRootPathVersion:0, folderRoot:false, simpleRequirementWordCountMatrix:{}, pendingSubOrderDetails:{}, pendingSubOrderDefaults:{}, childFieldDifferences:{}, createWithSubOrders: false, filePathDraft: null, wordCountPendingDraft: null, paymentConfirmation: null, statementRequired: true, statementRequiredExplicit: false, quotationDraft: null, documentNotes:{quotation:'',statement:'',invoice:''}, originalStoragePath: '', customerType: null, id: '', orderNo: '', projectName: '', sourceFileName: '', initialSubOrderNamesText: '', subjectPrefix: '', emailSubjectPreview: '', serviceContent: '', taskType: '笔译项目', consultationId: '', clientId: '', subClientId: '', contactName: '', clientName: '', clientShortName: '', clientCode: '', subClientName: '', subClientShortName: '', subClientCode: '', customerOrderNo: '', clientManager: '', clientManagerId: localStorage.getItem('user_id') || '', clientManagerChangeReason: '', managerContact: '', fileTypeSecondary: '', projectContractType: '', projectContractStatus: '', quotationRequired: false, quotationStatus: '', quotationPath: '', customerRequirementProfessional: '', customerRequirementSpecial: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), customerChargeItems: [], wordCountMatrixSource: 'project', wordCountByDirection: [], wordCountSubOrderCount: 0, projectStatus: 'confirmed', projectManagerId: '', projectManagerName: '', projectSpecialistId: '', projectAssistantId: '', layoutSpecialistId: '', customerReceptionTime: '', customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', remarks: '', pmConfirmedBy: '', majorProjectManagerConfirmation: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', translatorDeliveryProgress: 0, preReviewQcProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, referenceFilePathOne: '' })
 const createEmptySubOrderForm = () => ({ serviceContent:'', customerRequirementProfessional:'', customerRequirementSpecial:'', inheritedFields:[], childFieldDifferences:{}, id: '', parentProjectId: '', subOrderNo: '', subProjectName: '', fileTypeSecondary: '', languagePair: '', priority: '', wordCountMatrix: createEmptyWordCountMatrix(), wordCountMatrixSource: 'suborder', wordCountByDirection: [], wordCountParentOrderNo: null, wordCountMatchesParent: false, customerChargeItems: [], customerDeadlineTime: '', sentToClientTime: '', clientFeedback: '', translatorId: '', translatorName: '', assignedTranslators: [], translatorAssignmentTime: '', status: 'pending_confirmation', translatorDeliveryProgress: 0, preReviewQcProgress: 0, reviewProgress: 0, review1Progress: 0, review2Progress: 0, postReviewQcProgress: 0, layoutProgress: 0, consolidationProgress: 0, networkFilePath: '', remarks: '' })
 const loading = ref(false)
 const directionHistoryVisible=ref(false)
@@ -1857,7 +1853,7 @@ const applyPagination = () => {
   fetchData({ expandSubOrders: hasSubOrderListFilter() })
 }
 const cleanPayload = (payload) => {
-  const result = { ...payload }
+  const result = { ...payload, ...projectContactPayload(payload), clientSource: String(payload.clientSource || '').trim() }
   if (Object.hasOwn(result, 'sourceFileName')) {
     result.sourceFileName = String(result.sourceFileName || '').trim()
     result.projectName = result.sourceFileName
