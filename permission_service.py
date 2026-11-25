@@ -1,6 +1,7 @@
 from uuid import UUID
 from chat_catalog_read import catalog_cached
 
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from models import AppUser, Role, RolePermission, UserRole
@@ -72,3 +73,13 @@ def get_user_permission_codes(db: Session, user_id: UUID) -> list[str]:
 def user_has_permission(db: Session, user_id: UUID, permission_code: str) -> bool:
     permissions = get_user_permission_codes(db, user_id)
     return ALL_PERMISSION in permissions or permission_code in permissions
+
+
+def project_read_role_condition():
+    """给集合查询复用 projects:read 的角色口径，行政部门附加权限不包含此权限。"""
+    return select(UserRole.user_id).join(Role, UserRole.role_id == Role.id).outerjoin(
+        RolePermission, RolePermission.role_id == Role.id,
+    ).where(
+        UserRole.user_id == AppUser.id,
+        or_(Role.role_name.in_(SUPER_ROLE_NAMES), RolePermission.permission_code == 'projects:read'),
+    ).exists()

@@ -19,7 +19,7 @@ MAX_EVENT_AGE_SECONDS = 5
 CHAT_EVENTS = {
     'annotation_chat_changed', 'direct_chat_changed', 'chat_sessions_changed',
     'chat_conversation_removed', 'chat_topics_changed', 'chat_message_topic_changed',
-    'chat_message_acknowledgement', 'chat_remote_message_changed',
+    'chat_message_acknowledgement', 'chat_remote_message_changed', 'chat_mention_changed',
 }
 EVENT_FIELDS = (
     'type', 'projectType', 'projectId', 'messageId', 'kind', 'membersChanged',

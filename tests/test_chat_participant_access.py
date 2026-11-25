@@ -15,7 +15,7 @@ from sqlalchemy.pool import StaticPool
 @pytest.fixture
 def environment(monkeypatch):
     import main  # noqa: F401 只注册模型，不执行服务启动钩子。
-    from models import Base, AppUser
+    from models import Base, AppUser, Role, RolePermission, UserRole
     import annotation_chat_service as annotation
     import chat_session_category_service as categories
     import discussion_chat_service as discussions
@@ -35,7 +35,11 @@ def environment(monkeypatch):
             connection.execute(text(f'CREATE TABLE "{table.name}" (' + ','.join(columns) + ')'))
     db = Session(engine, expire_on_commit=False)
     users = [AppUser(id=uuid4(), username=name, full_name=name, password_hash='disabled', is_active=True) for name in ['owner', 'member', 'outsider']]
-    db.add_all(users); db.commit()
+    role = Role(id=uuid4(), role_name='验收项目人员')
+    db.add_all([*users, role])
+    db.add(RolePermission(id=uuid4(), role_id=role.id, permission_code='projects:read'))
+    db.add_all(UserRole(id=uuid4(), user_id=user.id, role_id=role.id) for user in users)
+    db.commit()
     monkeypatch.setattr(annotation, 'can_view', lambda db, user: bool(user and user.is_active))
     monkeypatch.setattr(annotation, 'eligible_users', lambda db, ids=None: db.query(AppUser).filter(AppUser.is_active.is_(True), AppUser.id.in_(ids) if ids is not None else True).all())
     monkeypatch.setattr(annotation, 'publish', lambda *a, **kw: None)
@@ -270,7 +274,6 @@ def test_message_mention_only_notifies_existing_member_and_is_unread(environment
     message = ChatProjectMessage(id=uuid4(), annotation_project_id=row.id, sender_user_id=owner.id, sender_name='owner', content='@member 测试', message_type='user', sequence_no=8)
     db.add(message); db.flush()
     # 内存表不带生产 PG 的 UUID 默认值。
-    monkeypatch.setattr(crud, 'ChatProjectMention', lambda **kw: ChatProjectMention(id=uuid4(), **kw))
     users = crud._create_chat_mentions(db, message, owner, mentioned_user_ids=[member.id])
     db.flush()
     assert [target.id for target in users] == [member.id]

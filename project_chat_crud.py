@@ -2,9 +2,9 @@ from search_matching import keyword_ilike
 import datetime as dt
 import json
 from typing import Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, insert, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -120,10 +120,15 @@ def _notification_payloads(notifications):
 
 
 def _dispatch_notifications(payloads):
+    mentions = []
     for user_id, payload in payloads:
         dispatch_personal_message(
             user_id, {'type': 'notification', 'notification': payload},
         )
+        if (payload['notification_type'] or '').endswith('_mention'):
+            mentions.append(user_id)
+    if mentions:
+        broadcast_to_users(mentions, {'type': 'chat_mention_changed'})
 
 
 def commit_chat_notifications(db, notifications):
@@ -645,14 +650,20 @@ def _create_chat_mentions(
         invite_mentioned_users(db, 'annotation' if message.annotation_project_id else 'translation',
             message.annotation_project_id or message.project_id, sender, ordered_users,
             baseline=max(0, (message.sequence_no or 0) - 1))
-    db.add_all([
-        ChatProjectMention(
+    mentions = [
+        dict(
+            id=uuid4(),
             message_id=message.id,
             mentioned_user_id=user.id,
             mentioned_user_name=(user.full_name or user.username),
         )
         for user in ordered_users
-    ])
+    ]
+    if len(mentions) > 1 and db.get_bind().dialect.name == 'postgresql':
+        for offset in range(0, len(mentions), 500):
+            db.execute(insert(ChatProjectMention).values(mentions[offset:offset + 500]))
+    else:
+        db.add_all(ChatProjectMention(**row) for row in mentions)
     return ordered_users
 
 
@@ -967,8 +978,10 @@ def create_project_chat_message(
         mentioned_user_ids if message_type == 'user' else None,
         max_mentions=max(20,len(mentioned_user_ids or [])) if mention_all else 20,
     )
+    mention_recipients = [user.id for user in mention_users]
 
     if commit:
+        message_id = message.id
         db.commit()
         created = (
             db.query(ChatProjectMessage)
@@ -977,7 +990,7 @@ def create_project_chat_message(
                 selectinload(ChatProjectMessage.acknowledgements),
                 selectinload(ChatProjectMessage.attachment_links).selectinload(ChatProjectMessageAttachment.attachment),
             )
-            .filter(ChatProjectMessage.id == message.id)
+            .filter(ChatProjectMessage.id == message_id)
             .first()
         )
         if created is None:
@@ -989,13 +1002,12 @@ def create_project_chat_message(
     if not notify:
         return created
 
-    mention_recipients = {user.id for user in mention_users}
     notifications = []
     if mention_recipients:
         notifications.extend(create_notifications_for_users(
-            db, recipient_user_ids=list(mention_recipients), title='项目沟通提醒',
+            db, recipient_user_ids=mention_recipients, title='项目沟通提醒',
             content=f'{created.sender_name} 在项目 {project.order_no} / {project.project_name} 中 @了你，点击查看消息',
-            notification_type='project_chat_mention', related_project_id=project.id, commit=False,
+            notification_type='project_chat_mention', related_project_id=project.id, commit=False, batch=True,
         ))
     from chat_message_notifications import ordinary_notifications
     notifications.extend(ordinary_notifications(db, 'translation', project_id, sender, mention_recipients, created))
@@ -1008,7 +1020,7 @@ def create_project_chat_message(
         db,
         created,
         project_type='translation',
-        mentioned_user_ids=[user.id for user in mention_users],
+        mentioned_user_ids=mention_recipients,
     )
 
     return created

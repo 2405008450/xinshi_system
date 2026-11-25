@@ -1,11 +1,11 @@
 from search_matching import keyword_ilike, keyword_like, keyword_or
 from typing import List, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload, joinedload
-from sqlalchemy import Integer, String, and_, case, cast, exists as db_exists, false, func, or_, select
+from sqlalchemy import Integer, String, and_, case, cast, exists as db_exists, false, func, insert, or_, select
 
 from models import AppUser, Role, TranslationProject, TranslationSubOrder, TranslationSubOrderChargeItem, UserRole, ProjectFile, Client, ClientContact, SubClient, Translator, Consultation, FinanceRecord, AppNotification, ProjectRoleAssignment
 from project_roles import (
@@ -3156,6 +3156,8 @@ def create_notifications_for_users(
     related_project_type: Optional[str] = None,
     related_entity_id: Optional[UUID] = None,
     commit: bool = True,
+    created_at: Optional[dt.datetime] = None,
+    batch: bool = False,
 ) -> List[AppNotification]:
     unique_user_ids = []
     seen = set()
@@ -3165,8 +3167,9 @@ def create_notifications_for_users(
         seen.add(user_id)
         unique_user_ids.append(user_id)
 
-    notifications = [
-        AppNotification(
+    values = [
+        dict(
+            id=uuid4(),
             recipient_user_id=user_id,
             title=title,
             content=content,
@@ -3174,9 +3177,23 @@ def create_notifications_for_users(
             related_project_id=related_project_id,
             related_project_type=related_project_type or ('translation' if related_project_id else None),
             related_entity_id=related_entity_id or related_project_id,
+            created_at=created_at,
         )
         for user_id in unique_user_ids
     ]
+    if batch and not commit and values and db.get_bind().dialect.name == 'postgresql':
+        # 显式多行写入避免 ORM 为匹配逐行 RETURNING 而拆成多次往返。
+        db.flush()
+        notifications = []
+        for offset in range(0, len(values), 500):
+            rows = values[offset:offset + 500]
+            if created_at is None:
+                for row in rows:
+                    del row['created_at']
+            notifications.extend(db.scalars(insert(AppNotification).values(rows).returning(AppNotification)).all())
+        return notifications
+
+    notifications = [AppNotification(**row) for row in values]
     if notifications:
         db.add_all(notifications)
         if commit:

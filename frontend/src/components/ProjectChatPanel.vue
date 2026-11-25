@@ -772,7 +772,7 @@ async function markVisibleRead() {
   readBusy = true
   try {
     await chatRequest(`sessions/${props.projectType}/${props.projectId}/preferences`, { method: 'put', data: { readMessageId: message.id } })
-    lastReadSequence = message.sequenceNo; await refreshSessions()
+    lastReadSequence = message.sequenceNo; void refreshSessions({ messageActivity: true })
   } catch { /* 下次回到前台时重试，不提前消除未读。 */ }
   finally { readBusy = false }
 }

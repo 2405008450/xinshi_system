@@ -49,19 +49,18 @@ def require_member(db, kind, conversation_id, user):
 def invite_mentioned_users(db, kind, conversation_id, actor, targets, baseline=0):
     """显式 @ 的可邀请人员随消息事务入群；发送失败时一并回滚。"""
     require_member(db, kind, conversation_id, actor)
-    import annotation_chat_service as annotation
-    if any(not target.is_active or not annotation.can_view(db, target) for target in targets):
+    from annotation_chat_service import project_chat_eligible_ids
+    target_ids = {target.id for target in targets}
+    if target_ids != project_chat_eligible_ids(db, target_ids, allow_annotation_department=True):
         raise ValueError('被提及的用户已停用或没有项目沟通权限')
-    existing = member_ids(db, kind, conversation_id)
-    for target in targets:
-        if target.id in existing:
-            continue
-        if kind == 'annotation':
-            annotation.add_member(db, conversation_id, target.id, baseline=baseline)
-        else:
-            from sqlalchemy.dialects.postgresql import insert as pg_insert
-            from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-            insert_member = pg_insert if db.get_bind().dialect.name == 'postgresql' else sqlite_insert
-            db.execute(insert_member(ChatProjectMemberPref).values(project_id=conversation_id, user_id=target.id,
-                last_read_sequence=baseline, pinned=False, starred=False).on_conflict_do_nothing())
+    new_ids = target_ids - member_ids(db, kind, conversation_id)
+    if new_ids:
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+        insert_member = pg_insert if db.get_bind().dialect.name == 'postgresql' else sqlite_insert
+        model, _ = MEMBERS[kind]
+        defaults = {'following': True} if kind == 'annotation' else {'pinned': False, 'starred': False}
+        rows = [dict(project_id=conversation_id, user_id=uid, last_read_sequence=baseline, **defaults)
+                for uid in sorted(new_ids)]
+        db.execute(insert_member(model).values(rows).on_conflict_do_nothing())
     db.flush()

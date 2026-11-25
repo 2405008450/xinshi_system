@@ -92,7 +92,7 @@ export function useChatNotifications() {
       if (item && (isChatNotification(item) || isConversationNotice(item)) && remember(item.id)) display(item)
     }))
     cleanups.push(subscribe('connected', () => poll(true)))
-    for (const event of ['chat_sessions_changed', 'annotation_chat_changed', 'direct_chat_changed', 'chat_remote_message_changed', 'chat_realtime_recovered']) {
+    for (const event of ['chat_sessions_changed', 'annotation_chat_changed', 'direct_chat_changed', 'chat_remote_message_changed', 'chat_realtime_recovered', 'chat_mention_changed']) {
       cleanups.push(subscribe(event, () => eventRefresh.schedule()))
     }
     cleanups.push(subscribe('foreground', () => poll(true, true)))

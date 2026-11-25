@@ -19,21 +19,31 @@ const error = ref('')
 let users = 0
 let timer = 0
 let refreshScheduler
+let messageRefreshTimer
 let retryTimer
 let retryPending = false
 let cleanup = []
 let generation = 0
 let controller
 let lastSuccessfulRefresh = 0
+let lastRefreshStarted = 0
 const RATE_LIMIT_STALE_MS = 60000
+const MESSAGE_REFRESH_GAP_MS = 12000
+const MESSAGE_REFRESH_BASE_DELAY_MS = 2000
+const MESSAGE_REFRESH_JITTER_MS = 4000
 
 function refresh(options = {}) {
   if (!refreshScheduler) return Promise.resolve()
+  if (options?.messageActivity === true) {
+    queueMessageRefresh()
+    return Promise.resolve()
+  }
   if (options?.force === true) {
     // 前台恢复时旧连接可能已挂起；废弃旧响应，恢复请求与随后的连接事件仍合并。
     ++generation
     cancelRetry()
     retryPending = false
+    clearMessageRefresh()
     controller?.abort()
     refreshScheduler.stop()
     refreshScheduler = createScheduler()
@@ -41,6 +51,26 @@ function refresh(options = {}) {
   return refreshScheduler.schedule()
 }
 
+function clearMessageRefresh() {
+  if (messageRefreshTimer !== undefined) window.clearTimeout(messageRefreshTimer)
+  messageRefreshTimer = undefined
+}
+
+function queueMessageRefresh() {
+  if (!refreshScheduler || document.visibilityState === 'hidden' || messageRefreshTimer !== undefined) return
+  const elapsed = Date.now() - lastRefreshStarted
+  const delay = Math.max(0, MESSAGE_REFRESH_GAP_MS - elapsed)
+    + MESSAGE_REFRESH_BASE_DELAY_MS + Math.floor(Math.random() * MESSAGE_REFRESH_JITTER_MS)
+  messageRefreshTimer = window.setTimeout(() => {
+    messageRefreshTimer = undefined
+    void refresh()
+  }, delay)
+}
+
+function refreshForStateEvent(event) {
+  if (!event?.membersChanged && ['message', 'read', 'state'].includes(event?.kind)) queueMessageRefresh()
+  else void refresh()
+}
 function createScheduler() {
   return createCoalescedRefresh(fetchSessions, {
     visible: () => document.visibilityState !== 'hidden',
@@ -60,6 +90,8 @@ function transientFailure(cause) {
 
 async function fetchSessions() {
   if (!localStorage.getItem('user_id')) return
+  lastRefreshStarted = Date.now()
+  clearMessageRefresh()
   const retry = retryPending
   retryPending = false
   cancelRetry()
@@ -115,21 +147,25 @@ function start() {
   refreshTopics().catch(() => {})
   ensureConnected()
   cleanup = [
-    subscribe('annotation_chat_changed', refresh),
-    subscribe('direct_chat_changed', refresh),
-    subscribe('chat_sessions_changed', refresh),
+    subscribe('annotation_chat_changed', refreshForStateEvent),
+    subscribe('direct_chat_changed', refreshForStateEvent),
+    subscribe('chat_sessions_changed', refreshForStateEvent),
     subscribe('chat_message_acknowledgement', refresh),
     subscribe('chat_conversation_removed', event => {
       window.dispatchEvent(new CustomEvent('chat-conversation-access-denied', { detail: { projectType: event.projectType, projectId: event.projectId } }))
       refresh()
     }),
     subscribe('chat_topics_changed', () => refreshTopics(true).catch(() => {})),
-    subscribe('chat_message', refresh),
-    subscribe('chat_remote_message_changed', refresh),
+    subscribe('chat_message', queueMessageRefresh),
+    subscribe('chat_remote_message_changed', refreshForStateEvent),
+    subscribe('chat_mention_changed', refresh),
     subscribe('chat_realtime_recovered', refresh),
     subscribe('notification', payload => {
       const item = payload?.notification
-      if (isChatNotification(item) || CONVERSATION_NOTIFICATION_TYPES.includes(item?.notification_type)) refresh()
+      const type = String(item?.notification_type || '').trim().toLowerCase()
+      if (CONVERSATION_NOTIFICATION_TYPES.includes(type) ||
+        (isChatNotification(item) && (type.endsWith('_mention') || type.endsWith('_invite')))) void refresh()
+      else if (isChatNotification(item)) queueMessageRefresh()
     }),
     subscribe('connected', refresh),
     subscribe('foreground', () => refresh({ force: true })),
@@ -149,8 +185,10 @@ function stop() {
   refreshScheduler = null
   controller?.abort()
   cancelRetry()
+  clearMessageRefresh()
   retryPending = false
   lastSuccessfulRefresh = 0
+  lastRefreshStarted = 0
   sessions.value = []
   applySessionCategories(null)
   total.value = 0

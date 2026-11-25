@@ -112,12 +112,14 @@ def require_room(db, user, room_id, *, storage=True):
     return row
 
 
-def publish(db, room=None, recipients=None, *, members_changed=False):
+def publish(db, room=None, recipients=None, *, members_changed=False, kind=None):
     event = {'type': 'chat_sessions_changed'}
     if room is None:
         recipients = [uid for uid, in db.query(AppUser.id).filter(AppUser.is_active.is_(True))]
     else:
         event.update(projectType='discussion', projectId=str(room['id']), membersChanged=members_changed)
+        if kind:
+            event['kind'] = kind
         if recipients is None:
             from chat_access_service import member_ids
             from discussion_mentions import eligible_users
@@ -265,7 +267,7 @@ def send(db, user, room_id, payload):
     from project_chat_crud import commit_chat_notifications
     commit_chat_notifications(db, notifications)
     db.refresh(row)
-    publish(db, room, notified | {user.id}, members_changed=members_changed)
+    publish(db, room, notified | {user.id}, members_changed=members_changed, kind='message')
     return serialize(db, row, user)
 
 

@@ -521,7 +521,10 @@ def preferences(kind: str, project_id: UUID, payload: PreferenceRequest, db: Ses
     from chat_message_notifications import settle_notifications
     settle_notifications(db, kind, project_id, user_id=user.id, sequence=member.last_read_sequence)
     db.commit()
-    broadcast_to_users([user.id], {'type': 'chat_sessions_changed'})
+    event = {'type': 'chat_sessions_changed'}
+    if payload.read_message_id and not payload.mark_read and payload.pinned is None and payload.starred is None:
+        event.update(projectType=kind, projectId=str(project_id), kind='read')
+    broadcast_to_users([user.id], event)
     return {'pinned': bool(ready and member.pinned), 'starred': bool(ready and member.starred), 'last_read_sequence': member.last_read_sequence}
 
 

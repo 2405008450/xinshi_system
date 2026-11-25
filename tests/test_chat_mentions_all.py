@@ -84,7 +84,7 @@ def test_project_all_exceeds_twenty_without_adding_nonmembers(chat_env):
     from schemas import AnnotationProjectChatMessageCreate
     import annotation_chat_service as service
     project=AnnotationProject(id=uuid4(),order_no='AP-TEST',project_name='全体测试',created_by=sender.id);db.add(project)
-    people=[receiver]+[AppUser(id=uuid4(),username=f'member-{index}',full_name=f'成员{index}',password_hash='disabled',is_active=True) for index in range(25)]
+    people=[receiver]+[AppUser(id=uuid4(),username=f'member-{index}',full_name=f'成员{index}',password_hash='disabled',is_active=True,department='标注项目部') for index in range(25)]
     db.add_all(people);db.flush()
     db.add_all([AnnotationChatMember(project_id=project.id,user_id=user.id,following=True,last_read_sequence=0) for user in [sender,*people]]);db.commit()
     message=service.send_message(db,project.id,sender,AnnotationProjectChatMessageCreate(content='@所有人 查看',mention_all=True,client_message_id=uuid4()))

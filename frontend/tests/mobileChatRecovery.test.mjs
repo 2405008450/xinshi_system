@@ -152,7 +152,9 @@ test('目录轮询降低频率，实时事件更新后跳过兜底，业务通�
   const source = readFileSync(new URL('../src/composables/useAnnotationFollowed.js', import.meta.url), 'utf8')
   const useStore = runInNewContext(source.replace(/^import .*\r?\n/gm, '').replace('export function ', 'function ') + '\n;useAnnotationFollowed', {
     ...h, ref, computed, document, Date: { now: () => 100000 + time },
-    window: { ...h.window, setInterval(fn, interval) { poll = fn; pollInterval = interval; return 1 } },
+    Math: Object.assign(Object.create(Math), { random: () => 0.5 }),
+    window: { ...h.window, setTimeout: clock.setTimer, clearTimeout: clock.clearTimer,
+      setInterval(fn, interval) { poll = fn; pollInterval = interval; return 1 } },
     createCoalescedRefresh: (run, options) => createCoalescedRefresh(run, { ...options, ...clock }),
     chatRequest: async () => { requests++; return { items: [], mentionTotal: 0 } },
     isChatNotification, CONVERSATION_NOTIFICATION_TYPES,
@@ -166,15 +168,24 @@ test('目录轮询降低频率，实时事件更新后跳过兜底，业务通�
   poll(); await advance(400); assert.equal(requests, 1)
   await advance(30000); poll(); await advance(400); assert.equal(requests, 2)
   assert.equal(topics, 2)
-  h.subscribers.get('chat_message')(); await advance(3000); assert.equal(requests, 3)
+  for (let count = 0; count < 20; count++) {
+    h.subscribers.get('chat_message')()
+    h.subscribers.get('chat_remote_message_changed')({ kind: 'message' })
+    h.subscribers.get('chat_sessions_changed')({ kind: 'message' })
+    h.subscribers.get('notification')({ notification: { notification_type: 'discussion_chat' } })
+  }
+  await advance(3000); assert.equal(requests, 2)
+  await advance(13000); await advance(400); assert.equal(requests, 3)
   assert.equal(topics, 2)
   await advance(20000); poll(); await advance(400); assert.equal(requests, 3)
   h.subscribers.get('notification')({ notification: { notification_type: 'workflow' } })
   await advance(3000); assert.equal(requests, 3)
   h.subscribers.get('notification')({ notification: { notification_type: 'direct_chat_mention' } })
   await advance(400); assert.equal(requests, 4)
+  h.subscribers.get('chat_mention_changed')({ relayed: true })
+  await advance(3000); assert.equal(requests, 5)
   document.visibilityState = 'hidden'
-  await advance(35000); poll(); await advance(400); assert.equal(requests, 4)
+  await advance(35000); poll(); await advance(400); assert.equal(requests, 5)
   h.unmounts.forEach(fn => fn())
 })
 

@@ -70,6 +70,52 @@ def test_notify_postgres_direct(pg_environment):
     check_direct(db, users)
 
 
+def test_group_recipient_permission_is_batched_and_matches_existing_rules(notify_env):
+    from annotation_chat_service import annotation_department_member, project_chat_eligible_ids
+    from department_models import Department, DepartmentMember
+    from models import AppUser, Role, RolePermission, UserRole
+    from permission_service import user_has_permission
+
+    db, users = notify_env
+    accounts = {
+        name: AppUser(id=uuid4(), username=name, password_hash='disabled', is_active=name != 'batch-inactive')
+        for name in ('batch-admin', 'batch-legacy', 'batch-department', 'batch-inactive', 'batch-wildcard', 'batch-denied')
+    }
+    accounts['batch-legacy'].department = '标注项目部'
+    accounts['batch-inactive'].department = '标注项目部'
+    department = Department(id=uuid4(), name='标注项目部')
+    admin = Role(id=uuid4(), role_name='admin')
+    wildcard = Role(id=uuid4(), role_name='历史通配符角色')
+    db.add_all([*accounts.values(), admin, wildcard, department])
+    db.add_all([
+        DepartmentMember(department_id=department.id, user_id=accounts['batch-department'].id),
+        RolePermission(id=uuid4(), role_id=wildcard.id, permission_code='*'),
+        UserRole(id=uuid4(), role_id=admin.id, user_id=accounts['batch-admin'].id),
+        UserRole(id=uuid4(), role_id=wildcard.id, user_id=accounts['batch-wildcard'].id),
+    ])
+    db.commit()
+    people = [*users, *accounts.values()]
+    ids = {person.id for person in people}
+    translation = {person.id for person in people if person.is_active and user_has_permission(db, person.id, 'projects:read')}
+    annotation = translation | {person.id for person in people if annotation_department_member(db, person)}
+    assert translation == {*(person.id for person in users), accounts['batch-admin'].id}
+    assert annotation - translation == {accounts['batch-legacy'].id, accounts['batch-department'].id}
+
+    statements = []
+
+    def capture(_conn, _cursor, statement, *_args):
+        statements.append(statement)
+
+    engine = db.get_bind()
+    event.listen(engine, 'before_cursor_execute', capture)
+    try:
+        assert project_chat_eligible_ids(db, ids) == translation
+        assert project_chat_eligible_ids(db, ids, allow_annotation_department=True) == annotation
+    finally:
+        event.remove(engine, 'before_cursor_execute', capture)
+    assert len(statements) == 2
+
+
 def test_notify_annotation_members_permissions_and_mentions(notify_env, monkeypatch):
     db, users = notify_env
     from models import AppUser, AppNotification, AnnotationChatMember
@@ -78,7 +124,7 @@ def test_notify_annotation_members_permissions_and_mentions(notify_env, monkeypa
     import annotation_chat_service as service
     from routers.annotation_chat import read, ReadRequest
     inactive = AppUser(id=uuid4(), username='disabled', password_hash='disabled', is_active=False)
-    extra = AppUser(id=uuid4(), username='extra', password_hash='disabled', is_active=True)
+    extra = AppUser(id=uuid4(), username='extra', password_hash='disabled', is_active=True, department='标注项目部')
     denied = AppUser(id=uuid4(), username='denied', password_hash='disabled', is_active=True)
     db.add_all([inactive, extra, denied])
     project = AnnotationProject(id=uuid4(), order_no='AP-NOTIFY', project_name='提醒测试', created_by=users[0].id)
@@ -112,7 +158,7 @@ def test_notify_discussion_members_read_and_recall(notify_env, monkeypatch):
     service.send(db, users[0], room, payload)
     assert broadcasts == [({users[0].id, users[1].id}, {
         'type': 'chat_sessions_changed', 'projectType': 'discussion',
-        'projectId': str(room), 'membersChanged': False,
+        'projectId': str(room), 'membersChanged': False, 'kind': 'message',
     })]
     notice = db.query(AppNotification).one()
     assert notice.notification_type == 'discussion_chat' and notice.recipient_user_id == users[1].id

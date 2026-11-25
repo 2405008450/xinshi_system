@@ -4,7 +4,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import selectinload
 
@@ -14,7 +14,7 @@ from models import (AppUser, AppNotification, AnnotationChatMember, ChatProjectM
                     ChatProjectAttachment, ChatProjectMessageAttachment, ChatProjectMessageFavorite,
                     ChatProjectMessageAcknowledgement, Role, RolePermission, UserRole)
 from notification_ws import broadcast_to_users, notification_manager
-from permission_service import user_has_permission
+from permission_service import project_read_role_condition, user_has_permission
 from permission_registry import SUPER_ROLE_NAMES
 
 
@@ -29,6 +29,17 @@ def annotation_department_member(db, user):
 
 def can_view(db, user):
     return bool(user and user.is_active and (user_has_permission(db, user.id, 'projects:read') or annotation_department_member(db, user)))
+
+
+def project_chat_eligible_ids(db, ids, *, allow_annotation_department=False):
+    if not ids:
+        return set()
+    permission = project_read_role_condition()
+    if allow_annotation_department:
+        from department_models import Department, DepartmentMember
+        department_ids = select(DepartmentMember.user_id).join(Department).where(Department.name == '标注项目部')
+        permission = or_(permission, AppUser.department == '标注项目部', AppUser.id.in_(department_ids))
+    return {uid for uid, in db.query(AppUser.id).filter(AppUser.id.in_(ids), AppUser.is_active.is_(True), permission)}
 
 
 def require_project(db, project_id, user, *, lock=False):
@@ -187,9 +198,8 @@ def send_message(db, project_id, user, payload, *, commit=True, max_mentions=20)
     mention_ids = set(payload.mentioned_user_ids or [])
     if payload.mentioned_user_id:
         mention_ids.add(payload.mentioned_user_id)
-    for user_id in mention_ids:
-        if not can_view(db, db.get(AppUser, user_id)):
-            raise HTTPException(400, '提及的用户无项目查看权限或已停用')
+    if mention_ids != project_chat_eligible_ids(db, mention_ids, allow_annotation_department=True):
+        raise HTTPException(400, '提及的用户无项目查看权限或已停用')
     all_members = bool(getattr(payload, 'mention_all', False))
     from chat_mention_recipients import resolve_mentions
     mention_ids = set(resolve_mentions(db, 'annotation', project_id, user, mention_ids, all_members))
@@ -214,7 +224,7 @@ def send_message(db, project_id, user, payload, *, commit=True, max_mentions=20)
         notifications = create_notifications_for_users(db, recipient_user_ids=[u.id for u in mentioned],
             title='标注项目沟通提醒', content=f'{message.sender_name} 在项目 {project.order_no} / {project.project_name or "-"} 中 @了你，点击查看消息',
             notification_type='annotation_project_chat_mention', related_project_type='annotation',
-            related_entity_id=project_id, commit=False)
+            related_entity_id=project_id, commit=False, batch=True)
     from chat_notification_target import link_notifications
     from chat_message_notifications import ordinary_notifications
     notifications.extend(ordinary_notifications(db, 'annotation', project_id, user, [p.id for p in mentioned], message))

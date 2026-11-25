@@ -17,26 +17,25 @@ def ordinary_notifications(db, kind, conversation_id, sender, mentioned_ids, mes
     ids = members - {sender.id} - set(mentioned_ids)
     if kind == 'discussion':
         from discussion_mentions import eligible_users
-        users = eligible_users(db, discussion_room, ids) if ids else []
+        recipients = [user.id for user in eligible_users(db, discussion_room, ids)] if ids else []
+    elif kind in {'annotation', 'translation'}:
+        from annotation_chat_service import project_chat_eligible_ids
+        recipients = project_chat_eligible_ids(db, ids, allow_annotation_department=kind == 'annotation')
     else:
-        users = db.query(AppUser).filter(AppUser.id.in_(ids), AppUser.is_active.is_(True)).all() if ids else []
-    if kind in {'annotation', 'translation'}:
-        from annotation_chat_service import can_view
-        from permission_service import user_has_permission
-        users = [u for u in users if (can_view(db, u) if kind == 'annotation' else user_has_permission(db, u.id, 'projects:read'))]
+        recipients = [uid for uid, in db.query(AppUser.id).filter(
+            AppUser.id.in_(ids), AppUser.is_active.is_(True),
+        )] if ids else []
     labels = {'direct': '私聊', 'translation': '项目群聊', 'annotation': '标注群聊', 'discussion': '讨论群聊'}
     types = {'direct': 'direct_chat', 'translation': 'project_chat', 'annotation': 'annotation_project_chat', 'discussion': 'discussion_chat'}
-    rows = create_notifications_for_users(db, [u.id for u in users], title=f'{labels[kind]}新消息',
-        content=f'{sender.full_name or sender.username} 发来了新消息，点击查看', notification_type=types[kind],
-        related_project_type=kind, related_entity_id=conversation_id,
-        related_project_id=conversation_id if kind == 'translation' else None, commit=False)
+    # 讨论使用独立整数消息 ID，同事务的业务时间用于同步阅读和撤回。
     stamp = message.created_at if kind == 'discussion' else now()
     if stamp.tzinfo:
         stamp = stamp.astimezone(BUSINESS_TIMEZONE).replace(tzinfo=None)
-    for row in rows:
-        # 讨论使用独立整数消息 ID；同事务的业务时间用于同步阅读和撤回。
-        row.created_at = stamp
-    return rows
+    return create_notifications_for_users(db, sorted(recipients), title=f'{labels[kind]}新消息',
+        content=f'{sender.full_name or sender.username} 发来了新消息，点击查看', notification_type=types[kind],
+        related_project_type=kind, related_entity_id=conversation_id,
+        related_project_id=conversation_id if kind == 'translation' else None,
+        commit=False, created_at=stamp, batch=kind in {'annotation', 'translation'})
 
 
 def settle_notifications(db, kind, conversation_id, *, user_id=None, sequence=None, message=None):
