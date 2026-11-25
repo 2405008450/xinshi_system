@@ -3,6 +3,19 @@ import assert from 'node:assert/strict'
 import {durationOptions,durationLabel,normalizeReportRow,rowTypes,updateRowTypes,shiftReportDate,reportWeekday,validQuantity,buildWorkTypeOptions,appendReportRows,requiresProjectIdentity,blockReportImages} from '../src/utils/workReportForm.js'
 import {layoutTaskContent,layoutTaskExtra} from '../src/utils/layoutReportTasks.js'
 import {mergeAnnotationOperationRows} from '../src/utils/workReportForm.js'
+import {isEmptyReportRow,newReportRow} from '../src/utils/workReportForm.js'
+test('只忽略新增的未填写空白行，不丢弃已填写、已保存、下级或中午工作行',()=>{
+ const empty=newReportRow()
+ empty.display_metadata._feedback_key='new'
+ empty.display_metadata.custom_work_types={}
+ assert.equal(isEmptyReportRow(empty),true)
+ for(const patch of [{progress_content:'任务'}, {task_name:'项目'}, {duration_minutes:10}, {id:'saved'}, {source_id:'source'}, {source_type:'system_event'}]){
+  assert.equal(isEmptyReportRow({...empty,...patch}),false)
+ }
+ for(const extra of [{report_types:['笔译项目']},{quantity:0},{quantity_unit:'页'},{parent_item_key:'parent'},{lunch_overtime:true},{order_no:'TP-001'},{project_id:'project'}]){
+  assert.equal(isEmptyReportRow({...empty,display_metadata:{...empty.display_metadata,...extra}}),false)
+ }
+})
 
 test('财务工作有四种对账分类，独立填写免订单，混选项目仍须订单',()=>{
  const group=buildWorkTypeOptions().find(row=>row.value==='财务工作')
@@ -44,9 +57,11 @@ test('自定义一级分类保留内容，固定任务多选不丢失自由文�
  assert.equal(layoutTaskExtra('原有人工填写内容',choices),'原有人工填写内容')
  assert.equal(layoutTaskExtra('专检',['专检']),'')
 })
-test('耗时按10分钟和0.1小时生成，存储仍为整数分钟',()=>{
- assert.deepEqual(durationOptions.slice(0,8),[10,20,30,40,50,60,66,72]);assert.equal(durationOptions.at(-1),1440)
- assert.equal(durationLabel(60),'60分钟');assert.equal(durationLabel(66),'1.1小时');assert.equal(durationLabel(72),'1.2小时')
+test('耗时全程按5分钟递进，跨小时及历史值显示准确分钟数',()=>{
+ assert.deepEqual(durationOptions.slice(0,8),[5,10,15,20,25,30,35,40]);assert.equal(durationOptions.at(-1),1440)
+ assert.ok(durationOptions.every((value,index)=>value===(index+1)*5))
+ assert.equal(durationLabel(60),'60分钟');assert.equal(durationLabel(65),'1小时5分钟');assert.equal(durationLabel(75),'1小时15分钟')
+ assert.equal(durationLabel(66),'1小时6分钟');assert.equal(durationLabel(120),'2小时')
 })
 test('多种项目类型、工作量和旧来源信息可同时保留',()=>{
  const row=normalizeReportRow({source_type:'manual',task_type:'旧类型',duration_minutes:20,display_metadata:{order_no:'AP-001',quantity:1.5,quantity_unit:'页'}})

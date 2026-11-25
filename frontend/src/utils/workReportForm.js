@@ -15,8 +15,8 @@ export function buildWorkTypeOptions(categories=defaultWorkCategories,rows=[]) {
   return Object.entries(groups).map(([parent,names])=>({value:parent,label:parent,children:[...names.map(name=>({value:categoryValue(parent,name),label:name})),...(parent!=='项目工作'?[{value:`${parent}::__custom__`,label:'其他（自定义）'}]:[]),...(rows.some(row=>rowTypes(row).includes(parent))?[{value:parent,label:parent}]:[])]}))
 }
 export const workTypeOptions = buildWorkTypeOptions()
-export const durationOptions = [...Array.from({length:6},(_,i)=>(i+1)*10),...Array.from({length:230},(_,i)=>66+i*6)]
-export function durationLabel(minutes) { const n=Number(minutes)||0;return n<=60?`${n}分钟`:`${Number((n/60).toFixed(1))}小时` }
+export const durationOptions = Array.from({length:288},(_,i)=>(i+1)*5)
+export function durationLabel(minutes) { const n=Number(minutes)||0;return n<=60?`${n}分钟`:`${Math.floor(n/60)}小时${n%60?`${n%60}分钟`:''}` }
 export function shiftReportDate(value,days) { const date=new Date(`${value}T12:00:00+08:00`);date.setUTCDate(date.getUTCDate()+days);return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Hong_Kong',year:'numeric',month:'2-digit',day:'2-digit'}).format(date) }
 export function reportWeekday(value) {return value?new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Hong_Kong',weekday:'long'}).format(new Date(`${value}T12:00:00+08:00`)):''}
 export function rowTypes(row) {
@@ -30,6 +30,19 @@ export function normalizeReportRow(row,{editable=false}={}) {
   return {...row,progress_content:initializationLog?'':row.progress_content,display_metadata:{...(row.display_metadata||{}),_feedback_key:row.display_metadata?._feedback_key||row.id,report_types:rowTypes(row)},duration_minutes:Number(row.duration_minutes)||0}
 }
 export function newReportRow() {return {source_type:'manual',source_id:null,task_type:'非项目工作',task_name:'',progress_content:'',result_content:'',duration_minutes:0,display_metadata:{report_types:[]}}}
+export function isEmptyReportRow(row) {
+  if (row.source_type !== 'manual' || row.id || row.source_id || Number(row.duration_minutes)) return false
+  if (row.task_type && row.task_type !== '非项目工作') return false
+  if ([row.task_name, row.progress_content, row.result_content].some(value => String(value || '').trim())) return false
+  const hasValue = value => {
+    if (value == null || value === '') return false
+    if (typeof value === 'string') return !!value.trim()
+    if (Array.isArray(value)) return value.some(hasValue)
+    if (typeof value === 'object') return Object.values(value).some(hasValue)
+    return true
+  }
+  return !Object.entries(row.display_metadata || {}).some(([key, value]) => key !== '_feedback_key' && hasValue(value))
+}
 export function mergeAnnotationOperationRows(draft,server) {
   const rows=[...draft],keys=new Set(rows.map(row=>row.display_metadata?.personal_task_id).filter(Boolean))
   for(const row of server){const metadata=row.display_metadata||{};if(metadata.operation_source==='annotation_daily_operation'&&metadata.personal_task_id&&!keys.has(metadata.personal_task_id)){rows.push(row);keys.add(metadata.personal_task_id)}}

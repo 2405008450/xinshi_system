@@ -11,6 +11,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
+from chat_time import api_time
 
 from models import AppUser, TranslationProject, TranslationSubOrder
 from permission_registry import ALL_PERMISSION
@@ -743,7 +744,8 @@ def _serialize_report(report: DailyReport) -> dict:
         "status": report.status,
         "supplemental_note": report.supplemental_note,
         "generated_at": report.generated_at,
-        "finalized_at": report.finalized_at,
+        "saved_at": api_time(report.updated_at),
+        "finalized_at": api_time(report.finalized_at),
         "items": [
             {
                 "id": item.id,
@@ -785,6 +787,7 @@ def preview_daily_report(
             "status": "draft",
             "supplemental_note": report.supplemental_note,
             "generated_at": business_now(),
+            "saved_at": api_time(report.updated_at),
             "finalized_at": None,
             "items": [
                 {**item, "id": None, "sort_order": index}

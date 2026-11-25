@@ -123,10 +123,10 @@ test('多条沟通消息按发送人整理后预填补充进度并保留两条�
   assert.match(annotationPage, /当前进度线有未保存内容/)
   assert.match(annotationPage, /progressDialogTab\.value='progress'/)
   assert.match(annotationPage, /已从项目沟通带入/)
-  assert.match(annotationPage, /:maxlength="statusEntryMode === 'progress' \? 10000 : 500"/)
+  assert.match(annotationPage, /aria-label="进度\/说明"[^>]*maxlength="10000"/)
   assert.match(annotationPage, /projectEntryDrafts\.drafts\.progress/)
   assert.doesNotMatch(annotationPage, /confirmProjectDraftDiscard/)
-  assert.match(annotationPage, /progressOnly=statusEntryMode\.value==='progress'/)
+  assert.match(annotationPage, /progressOnly=Boolean\(targetStage\)\|\|statusForm\.value\.projectStatus===project\.projectStatus/)
 })
 
 test('笔译聊天接入公共消息菜单并保留进度、多选、私有收藏处理', () => {

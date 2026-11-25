@@ -162,60 +162,10 @@
               <el-descriptions-item label="客户单号/项目标识">{{ textValue(row.customerOrderNo) }}</el-descriptions-item>
             </el-descriptions>
           </el-popover>
-          <el-popover
-            v-else-if="column.key === 'assignedInterpretersDisplay'"
-            trigger="click"
-            placement="left"
-            :width="760"
-            title="译员安排详情"
-            popper-class="interpretation-interpreter-popover"
-            @show="loadDetail(row.id)"
-          >
-            <template #reference>
-              <el-button type="primary" link class="business-clickable-cell" @click.stop>{{ row.assignedInterpretersDisplay || '查看要求' }}</el-button>
-            </template>
-            <div class="interpreter-detail-content" v-loading="detailLoadingId === row.id">
-              <div class="interpreter-detail-section-title">常用要求</div>
-              <el-descriptions :column="2" border size="small">
-                <el-descriptions-item label="总需求人数">{{ textValue(detailRow(row).requiredInterpreterCount) }}</el-descriptions-item>
-                <el-descriptions-item label="译员性别">{{ textValue(detailRow(row).requiredInterpreterGender) }}</el-descriptions-item>
-                <el-descriptions-item label="口译水平">{{ textValue(detailRow(row).requiredInterpretationLevel) }}</el-descriptions-item>
-                <el-descriptions-item label="特殊要求">{{ textValue(detailRow(row).interpreterSpecialRequirements) }}</el-descriptions-item>
-              </el-descriptions>
-              <div class="interpreter-detail-section-title">形象与着装要求</div>
-              <el-descriptions :column="3" border size="small">
-                <el-descriptions-item label="译员身高">{{ textValue(detailRow(row).interpreterHeightRequirement) }}</el-descriptions-item>
-                <el-descriptions-item label="译员相貌">{{ textValue(detailRow(row).interpreterAppearanceRequirement) }}</el-descriptions-item>
-                <el-descriptions-item label="着装要求">{{ textValue(detailRow(row).interpreterDressRequirement) }}</el-descriptions-item>
-              </el-descriptions>
-              <div class="interpreter-detail-section-title">
-                已安排译员（{{ detailRow(row).interpreterAssignments?.length || 0 }} 人）
-              </div>
-              <template v-if="detailRow(row).interpreterAssignments?.length">
-                <el-descriptions
-                  v-for="person in detailRow(row).interpreterAssignments"
-                  :key="person.id"
-                  :title="person.translatorName"
-                  :column="2"
-                  border
-                  size="small"
-                  class="translator-profile"
-                >
-                  <el-descriptions-item label="译员编号">{{ textValue(person.translatorCode) }}</el-descriptions-item>
-                  <el-descriptions-item label="口译水平">{{ textValue(person.translatorInterpretationLevel) }}</el-descriptions-item>
-                  <el-descriptions-item label="性别">{{ textValue(person.translatorGender) }}</el-descriptions-item>
-                  <el-descriptions-item label="身高">{{ textValue(person.translatorHeight) }}</el-descriptions-item>
-                  <el-descriptions-item label="相貌">{{ textValue(person.translatorAppearance) }}</el-descriptions-item>
-                  <el-descriptions-item label="语种">{{ textValue(person.translatorLanguages) }}</el-descriptions-item>
-                  <el-descriptions-item label="翻译类型">{{ textValue(person.translatorTranslationType) }}</el-descriptions-item>
-                  <el-descriptions-item label="方向">{{ textValue(person.translatorDirection) }}</el-descriptions-item>
-                  <el-descriptions-item label="简历路径" :span="2">{{ textValue(person.translatorResumePath) }}</el-descriptions-item>
-                  <el-descriptions-item label="客户评价" :span="2">{{ ratingText(person.customerRating, person.evaluationNote) }}</el-descriptions-item>
-                </el-descriptions>
-              </template>
-              <el-empty v-else description="暂未安排译员" :image-size="64" />
-            </div>
-          </el-popover>
+          <template v-else-if="column.key === 'assignedInterpretersDisplay'">
+            <el-button v-if="canWrite && !deleteMode" type="primary" link class="business-clickable-cell" @click.stop="handleEdit(row, false, 'interpreters')">{{ assignedInterpreterNames(row) }}</el-button>
+            <span v-else>{{ assignedInterpreterNames(row) }}</span>
+          </template>
           <ProjectClientManagerHistory v-else-if="column.key === 'currentClientManager'" project-type="interpretation" :project-id="row.id" :label="row.currentClientManager || '未分配'" />
           <el-button v-else-if="column.key === 'projectName'" type="primary" link class="project-name-ellipsis" :title="textValue(row.projectName)" @click.stop="openProgress(row)">{{ textValue(row.projectName) }}</el-button>
           <span v-else>{{ tableCellText(row, column.key) }}</span>
@@ -266,7 +216,7 @@
       <section v-if="canWrite" ref="progressEntryPanelRef" class="progress-entry-panel">
         <div class="progress-entry-panel__header">
           <div class="progress-entry-panel__title">
-            录入进度节点
+            项目进度
             <span v-if="statusEntryMode === 'progress' && statusForm.projectStatus" class="progress-entry-panel__selection">· {{ statusLabel(statusForm.projectStatus) }}</span>
           </div>
           <div class="progress-entry-mode">
@@ -280,23 +230,23 @@
         <AppForm ref="statusFormRef" :model="statusForm" :rules="statusRules" :disabled="statusSubmitting" label-width="76px" size="small" class="progress-entry-form">
           <el-row :gutter="14">
             <el-col :xs="24" :sm="12">
-              <el-form-item :label="statusEntryMode === 'progress' ? '所属状态' : '新状态'" prop="projectStatus">
+              <el-form-item label="项目状态" prop="projectStatus">
                 <el-select v-model="statusForm.projectStatus" :loading="statusEntryMode === 'progress' && progressLoading" style="width:100%" @change="handleProgressStatusSelect">
-                  <el-option v-for="item in availableEntryStatusOptions" :key="item.value" :label="item.label" :value="item.value" :disabled="statusEntryMode === 'status' && item.value === activeProgressProject?.projectStatus" />
+                  <el-option v-for="item in availableEntryStatusOptions" :key="item.value" :label="item.label" :value="item.value"  />
                 </el-select>
-                <div v-if="statusEntryMode === 'progress'" class="progress-status-hint">仅展示项目已经流转到的状态，也可在下方流程节点直接点击“补充进度”</div>
+                <div v-if="selectedProgressStageKey" class="progress-status-hint">正在补充所选流程节点，不改变当前状态；重新选择下拉状态可切换状态。</div>
+                <div v-else class="progress-status-hint">状态不变时追加进度，选择新状态时一并更新项目状态。</div>
               </el-form-item>
             </el-col>
             <el-col :xs="24" :sm="12">
-              <el-form-item :label="statusEntryMode === 'progress' ? '节点时间' : '生效时间'" prop="effectiveOn">
-                <el-date-picker v-model="statusForm.effectiveOn" type="datetime" format="YYYY-MM-DD HH:mm" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" />
+              <el-form-item label="节点时间" prop="effectiveOn">
+                <el-date-picker v-model="statusForm.effectiveOn" type="datetime" format="YYYY-MM-DD HH:mm" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" :show-now="true" :show-confirm="true" :show-footer="true" />
               </el-form-item>
             </el-col>
           </el-row>
-          <el-form-item :label="statusEntryMode === 'progress' ? '具体进度' : '变更说明'" prop="changeNote" class="progress-note-item">
+          <el-form-item label="进度/说明" prop="changeNote" class="progress-note-item">
             <div class="progress-note-control">
               <el-input ref="progressNoteInputRef" v-model="statusForm.changeNote" :disabled="statusSubmitting" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" :maxlength="statusEntryMode === 'progress' ? 10000 : 500" show-word-limit :placeholder="statusEntryMode === 'progress' ? '填写该时间节点的具体进展' : '填写本次项目状态变化的原因或说明'" />
-              <el-button type="primary" :loading="statusSubmitting" @click="confirmStatusChange">{{ statusEntryMode === 'progress' ? '添加具体进度' : '确认切换状态' }}</el-button>
             </div>
           </el-form-item>
         </AppForm>
@@ -336,7 +286,7 @@
         </el-timeline-item>
       </el-timeline>
       <el-empty v-if="!progressLoading && !progressGroups.length" description="暂无项目进度记录" :image-size="80" />
-      <template #footer><el-button @click="progressVisible = false">关闭</el-button></template>
+      <template #footer><el-button :disabled="statusSubmitting" @click="progressVisible = false">关闭</el-button><el-button v-if="canWrite" type="primary" :loading="statusSubmitting" @click="confirmStatusChange">{{ statusEntryMode === 'progress' ? '添加具体进度' : '确认切换状态' }}</el-button></template>
     </DraggableFormDialog>
 
     <DraggableFormDialog
@@ -358,6 +308,8 @@
       </template>
       <div ref="dialogBodyRef" class="editor-body unified-editor-body">
         <AppForm number-scope="interpretation" number-field="orderNo" :number-active="dialogVisible && !form.id"  ref="formRef" :model="form" :rules="rules" label-width="120px">
+          <el-tabs v-model="editorTab">
+            <el-tab-pane label="项目信息" name="project">
           <section class="form-section unified-form-section interpretation-key-fields unified-key-fields">
             <div class="interpretation-key-fields__header unified-section-header">
               <div><h3>关键必填信息</h3><p>请优先完成以下内容，再补充其余项目资料。</p></div>
@@ -419,16 +371,22 @@
               <el-col :xs="24" :md="12"><el-form-item label="客户全称" prop="clientFullName"><ClientFullNameInput v-model="form.clientFullName" :client-id="form.clientId" include-sub-clients @select="handleClientSelect" /></el-form-item></el-col></el-row>
             <ProjectClientContactFields :active="dialogVisible" v-model:contact-job-title="form.clientContactJobTitle" v-model:contact-department="form.clientContactDepartment" v-model:contact-company="form.clientContactCompany" :client-id="form.clientId" :sub-client-id="form.subClientId" v-model:contact-name="form.contactName" v-model:contact-method="form.clientContactMethod" v-model:contact-description="form.clientContactDescription" v-model:contact-version="form.clientContactVersion" v-model:contacts-visible="form.clientContactsVisible" />
             <ProjectCustomerRequirements module="interpretation" :project="form" @apply="values => Object.assign(form, values)" />
+            <el-form-item label="口译领域" prop="interpretationDomain"><el-input v-model="form.interpretationDomain" type="textarea" :autosize="{minRows:1,maxRows:4}" placeholder="请输入口译领域，如商务、医疗、法律等" /></el-form-item>
+            <el-form-item label="口译内容"><el-input v-model="form.interpretationContent" type="textarea" :rows="2" /></el-form-item>
+            <el-form-item label="项目路径" prop="filePath"><PathInput v-model="form.filePath" placeholder="请输入项目路径" @open="openPathValue(form.filePath)" @copy="copyPathValue(form.filePath)" /></el-form-item>
             <div class="interpretation-task-remarks">
               <el-form-item label="具体任务" prop="taskDescription" label-position="top" label-width="auto">
                 <el-input v-model="form.taskDescription" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" placeholder="请输入具体任务，可填写详细的工作内容和要求" resize="vertical" />
+              </el-form-item>
+              <el-form-item label="客户要求" prop="interpreterSpecialRequirements" label-position="top" label-width="auto">
+                <el-input v-model="form.interpreterSpecialRequirements" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" placeholder="请输入客户要求（选填）" resize="vertical" />
               </el-form-item>
               <el-form-item label="补充说明" prop="remarks" label-position="top" label-width="auto">
                 <el-input v-model="form.remarks" type="textarea" :autosize="{ minRows: 3, maxRows: 8 }" placeholder="请输入补充说明（选填）" resize="vertical" />
               </el-form-item>
             </div>
             <div class="section-title-row"><h3>预定时间</h3><el-button type="primary" plain @click="addTimeRange">增加时间段</el-button></div>
-            <div v-for="(item, index) in form.timeRanges" :key="index" class="repeat-card">
+            <div v-for="(item, index) in form.timeRanges" :key="index" class="repeat-card" data-dialog-field-search-group :data-dialog-field-search-group-title="`时间段 ${index + 1}`">
               <div class="repeat-title">时间段 {{ index + 1 }}<el-button v-if="form.timeRanges.length > 1" link type="danger" @click="form.timeRanges.splice(index, 1)">删除</el-button></div>
               <el-row :gutter="12">
                 <el-col :xs="24" :md="12"><el-form-item label="预定开始" :prop="`timeRanges.${index}.scheduledStart`" :rules="requiredScheduledStartRule"><el-date-picker v-model="item.scheduledStart" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
@@ -436,31 +394,34 @@
                 <el-col :xs="24" :md="12"><el-form-item label="实际开始"><el-date-picker v-model="item.actualStart" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" clearable format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
                 <el-col :xs="24" :md="12"><el-form-item label="实际结束"><el-date-picker v-model="item.actualEnd" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 100%" clearable format="YYYY-MM-DD HH:mm" time-format="HH:mm" :show-now="true" :show-confirm="true" :show-footer="true" /></el-form-item></el-col>
               </el-row>
-            </div>
-            <el-form-item label="地点" prop="locations" class="composite-required-item">
-              <div class="location-panel">
-                <div class="location-panel__header">
-                  <div><h4>项目地点</h4><div class="location-panel__hint">默认保留 1 个地点，最多可添加 {{ MAX_LOCATIONS }} 个</div></div>
-                  <el-button type="primary" plain :icon="Plus" :disabled="form.locations.length >= MAX_LOCATIONS" @click="addLocation">增加地点</el-button>
+              <el-form-item label="项目地点" :prop="`timeRanges.${index}.locations`" :rules="[{validator:validateLocations,trigger:'change'}]" class="composite-required-item">
+                <div class="location-panel">
+                  <div class="location-panel__header"><el-button type="primary" plain :icon="Plus" @click="item.locations.push('')">增加地点</el-button></div>
+                  <el-row :gutter="12" class="location-list">
+                    <el-col v-for="(location, locationIndex) in item.locations" :key="locationIndex" :xs="24" :md="12">
+                      <div class="location-item">
+                        <div class="location-item__header"><span>地点 {{ locationIndex + 1 }}</span><el-button v-if="item.locations.length > 1" link type="danger" @click="item.locations.splice(locationIndex,1)">删除</el-button></div>
+                        <el-input v-model="item.locations[locationIndex]" :aria-label="`时间段 ${index + 1} 项目地点 ${locationIndex + 1}`" placeholder="请输入项目地点" clearable />
+                      </div>
+                    </el-col>
+                  </el-row>
                 </div>
-                <el-row :gutter="12" class="location-list">
-                  <el-col v-for="(location, index) in form.locations" :key="index" :xs="24" :md="12">
-                    <div class="location-item">
-                      <div class="location-item__header"><span>地点 {{ index + 1 }}</span><el-button v-if="form.locations.length > 1" link type="danger" @click="removeLocation(index)">删除</el-button></div>
-                      <el-input v-model="form.locations[index]" :aria-label="`项目地点 ${index + 1}`" placeholder="请输入项目地点" clearable />
-                    </div>
-                  </el-col>
-                </el-row>
-              </div>
+              </el-form-item>
+              <el-form-item label="口译方向" :prop="`timeRanges.${index}.languageDirections`" :rules="[{validator:validateLanguageDirections,trigger:'change'}]" class="composite-required-item">
+                <InterpretationDirectionEditor v-model="item.languageDirections" :show-title="false" :languages="selectableLanguages" :required-total="groupDirectionTotal(item)" @manage-languages="openLanguageManager" @create-language="addLanguage" />
+              </el-form-item>
+            </div>
+            <el-form-item label="标题前缀">
+              <el-input v-model="form.subjectPrefix" maxlength="50" show-word-limit clearable placeholder="可选，例如：紧急、请优先处理" />
             </el-form-item>
-            <el-form-item label="口译方向" prop="languageDirections" class="composite-required-item">
-              <InterpretationDirectionEditor
-                v-model="form.languageDirections"
-                :languages="selectableLanguages"
-                :required-total="directionRequiredTotal"
-                @manage-languages="openLanguageManager"
-                @create-language="addLanguage"
-              />
+            <el-form-item label="邮件主题预览">
+              <div class="subject-preview-field">
+                <el-input v-model="form.emailSubjectPreview" type="textarea" :rows="3" />
+                <div class="subject-preview-toolbar">
+                  <span>按“标题前缀、订单号、客户简称、客户单号/标识、项目名称”顺序生成</span>
+                  <el-button class="soft-action-button" :icon="MagicStick" @click="generateEmailSubject">生成邮件主题</el-button>
+                </div>
+              </div>
             </el-form-item>
           </section>
 
@@ -497,12 +458,29 @@
             </el-row>
           </section>
 
+
+
+          <section class="form-section unified-form-section">
+            <h3>扩展信息</h3>
+            <el-form-item label="报价单路径"><PathInput v-model="form.quotationPath" @open="openPathValue(form.quotationPath)" @copy="copyPathValue(form.quotationPath)" /></el-form-item>
+            <el-form-item label="合同路径"><PathInput v-model="form.contractPath" @open="openPathValue(form.contractPath)" @copy="copyPathValue(form.contractPath)" /></el-form-item>
+            <el-row :gutter="16">
+              <el-col :xs="24" :md="12"><el-form-item label="客户对信实评价"><el-select v-model="form.clientRating" clearable style="width: 100%"><el-option v-for="rating in ratingOptions" :key="rating.value" :label="rating.label" :value="rating.value" /></el-select></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="评价备注"><el-input v-model="form.clientRatingNote" /></el-form-item></el-col>
+            </el-row>
+            <el-row :gutter="16">
+              <el-col :xs="24" :md="12"><el-form-item label="发圈请求"><el-input v-model="form.socialPostRequest" type="textarea" :rows="2" /></el-form-item></el-col>
+              <el-col :xs="24" :md="12"><el-form-item label="资源请求"><el-input v-model="form.resourceRequest" type="textarea" :rows="2" /></el-form-item></el-col>
+            </el-row>
+          </section>
+          <InternalProjectRolesForm v-model="form.roleAssignments" />
+            </el-tab-pane>
+            <el-tab-pane label="译员安排与评价" name="interpreters">
           <section class="form-section unified-form-section">
             <div class="section-title-row"><h3>译员安排与评价</h3></div>
             <el-row :gutter="16">
               <el-col :xs="24" :md="12"><el-form-item label="译员性别"><el-select v-model="form.requiredInterpreterGender" clearable placeholder="不限" style="width: 100%"><el-option label="不限" value="不限" /><el-option label="男" value="男" /><el-option label="女" value="女" /></el-select></el-form-item></el-col>
               <el-col :xs="24" :md="12"><el-form-item label="口译水平"><el-select v-model="form.requiredInterpretationLevel" clearable placeholder="请选择" style="width: 100%"><el-option label="初级" value="初级" /><el-option label="中级" value="中级" /><el-option label="高级" value="高级" /></el-select></el-form-item></el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="特殊要求"><el-input v-model="form.interpreterSpecialRequirements" type="textarea" :rows="2" /></el-form-item></el-col>
             </el-row>
             <div class="interpreter-requirement-group">
               <div class="requirement-group-title">形象与着装要求</div>
@@ -530,39 +508,8 @@
             </div>
             <el-button class="interpreter-add-button" :icon="Plus" @click="addInterpreter">增加译员</el-button>
           </section>
-
-          <section class="form-section unified-form-section">
-            <h3>扩展信息</h3>
-            <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="口译领域"><el-input v-model="form.interpretationDomain" type="textarea" :rows="2" /></el-form-item></el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="口译内容"><el-input v-model="form.interpretationContent" type="textarea" :rows="2" /></el-form-item></el-col>
-            </el-row>
-            <el-form-item label="项目文件路径"><PathInput v-model="form.filePath" @open="openPathValue(form.filePath)" @copy="copyPathValue(form.filePath)" /></el-form-item>
-            <el-form-item label="报价单路径"><PathInput v-model="form.quotationPath" @open="openPathValue(form.quotationPath)" @copy="copyPathValue(form.quotationPath)" /></el-form-item>
-            <el-form-item label="合同路径"><PathInput v-model="form.contractPath" @open="openPathValue(form.contractPath)" @copy="copyPathValue(form.contractPath)" /></el-form-item>
-            <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="客户对信实评价"><el-select v-model="form.clientRating" clearable style="width: 100%"><el-option v-for="rating in ratingOptions" :key="rating.value" :label="rating.label" :value="rating.value" /></el-select></el-form-item></el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="评价备注"><el-input v-model="form.clientRatingNote" /></el-form-item></el-col>
-            </el-row>
-            <el-row :gutter="16">
-              <el-col :xs="24" :md="12"><el-form-item label="发圈请求"><el-input v-model="form.socialPostRequest" type="textarea" :rows="2" /></el-form-item></el-col>
-              <el-col :xs="24" :md="12"><el-form-item label="资源请求"><el-input v-model="form.resourceRequest" type="textarea" :rows="2" /></el-form-item></el-col>
-            </el-row>
-
-            <el-form-item label="标题前缀">
-              <el-input v-model="form.subjectPrefix" maxlength="50" show-word-limit clearable placeholder="可选，例如：紧急、请优先处理" />
-            </el-form-item>
-            <el-form-item label="邮件主题预览">
-              <div class="subject-preview-field">
-                <el-input v-model="form.emailSubjectPreview" type="textarea" :rows="3" />
-                <div class="subject-preview-toolbar">
-                  <span>按“标题前缀、订单号、客户简称、客户经理联系方式、客户单号/标识、项目名称”顺序生成</span>
-                  <el-button class="soft-action-button" :icon="MagicStick" @click="generateEmailSubject">生成邮件主题</el-button>
-                </div>
-              </div>
-            </el-form-item>
-          </section>
-          <InternalProjectRolesForm v-model="form.roleAssignments" />
+            </el-tab-pane>
+          </el-tabs>
         </AppForm>
       </div>
       <template #footer>
@@ -653,6 +600,7 @@ import InterpretationProjectDetailContent from '@/components/project/Interpretat
 import InterpretationTypeHelp from '@/components/interpretation/InterpretationTypeHelp.vue'
 import { projectTypeOptions, ratingOptions, statusLabel, statusType, textValue, internalRolesText, arrayText, formatRange, timeRangesText, projectTypesText, ratingText, interpreterRatingsText } from '@/utils/interpretationProjectDetail'
 import ProjectExportMenu from '@/components/common/ProjectExportMenu.vue'
+import {businessDateTimeInputValue} from '@/utils/dateTime'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { EditPen, MagicStick, Plus } from '@element-plus/icons-vue'
@@ -732,6 +680,7 @@ const statusForm = reactive({ projectStatus: '', effectiveOn: '', changeNote: ''
 const nameLoading = ref(false)
 const nameManuallyEdited = ref(false)
 const dialogVisible = ref(false)
+const editorTab = ref('project')
 const languageManagerVisible = ref(false)
 const languageManagerLoading = ref(false)
 const dialogTitle = ref('新增口译项目')
@@ -805,14 +754,13 @@ const availableEntryStatusOptions = computed(() => statusEntryMode.value === 'pr
 const statusRules = {
   projectStatus: [
     { required: true, message: '请选择项目状态', trigger: 'change' },
-    { validator: (_rule, value, callback) => statusEntryMode.value === 'status' && value === activeProgressProject.value?.projectStatus ? callback(new Error('新状态不能与当前状态相同')) : callback(), trigger: 'change' },
   ],
   effectiveOn: [{ required: true, message: '请选择节点时间', trigger: 'change' }],
   changeNote: [{ validator: (_rule, value, callback) => {
     const note = String(value || '').trim()
-    if (!note) return callback(new Error(statusEntryMode.value === 'progress' ? '请填写具体进度' : '请填写变更说明'))
-    const maxLength = statusEntryMode.value === 'progress' ? 10000 : 500
-    return note.length <= maxLength ? callback() : callback(new Error(`${statusEntryMode.value === 'progress' ? '具体进度' : '变更说明'}不能超过 ${maxLength} 字`))
+    if (!note) return callback(new Error('请填写进度/说明'))
+    const maxLength = 10000
+    return note.length <= maxLength ? callback() : callback(new Error(`进度/说明不能超过 ${maxLength} 字`))
   }, trigger: ['blur', 'change'] }],
 }
 
@@ -847,7 +795,7 @@ const tableColumns = [
   { key: 'interpreterHeightRequirement', label: '译员身高', width: 100 },
   { key: 'interpreterAppearanceRequirement', label: '译员相貌', width: 100 },
   { key: 'interpreterDressRequirement', label: '着装要求', width: 110 },
-  { key: 'assignedInterpretersDisplay', label: '译员安排', width: 120, clickHint: '点击查看译员要求与安排详情' },
+  { key: 'assignedInterpretersDisplay', label: '译员安排', width: 120, clickHint: '点击译员姓名进入译员安排与评价' },
   { key: 'translatorCodes', label: '译员编号', width: 104 },
   { key: 'filePath', label: '项目文件路径', minWidth: 160 },
   { key: 'quotationPath', label: '报价单路径', minWidth: 160 },
@@ -914,11 +862,10 @@ const interpretationFilterFields = [
   { key: 'customerConsultationTime', label: '客户咨询时间', type: 'date-range', wide: true },
   { key: 'customerConfirmationTime', label: '客户确认时间', type: 'date-range', wide: true },
   { key: 'interpretationDomain', label: '口译领域', type: 'text' },
-  { key: 'interpretationContent', label: '口译内容', type: 'text' },
   { key: 'requiredInterpreterCount', label: '总需求人数', type: 'number-range', wide: true, min: 0 },
   { key: 'requiredInterpreterGender', label: '译员性别要求', type: 'text' },
   { key: 'requiredInterpretationLevel', label: '口译级别要求', type: 'text' },
-  { key: 'interpreterSpecialRequirements', label: '译员特殊要求', type: 'text' },
+  { key: 'interpreterSpecialRequirements', label: '客户要求', type: 'text' },
   { key: 'interpreterHeightRequirement', label: '身高要求', type: 'text' },
   { key: 'interpreterAppearanceRequirement', label: '形象要求', type: 'text' },
   { key: 'interpreterDressRequirement', label: '着装要求', type: 'text' },
@@ -942,8 +889,7 @@ const headerFilterDefinition = (key) => {
   return interpretationFilterFields.find((item) => item.key === fieldKey) || null
 }
 
-const MAX_LOCATIONS = 4
-const emptyTimeRange = () => ({ scheduledStart: '', scheduledEnd: '', actualStart: '', actualEnd: '' })
+const emptyTimeRange = () => ({ scheduledStart: '', scheduledEnd: '', actualStart: '', actualEnd: '', locations:[''], languageDirections:[emptyLanguageDirection()] })
 const emptyLanguageDirection = () => ({ languageIds: ['', ''], requiredCount: null })
 const defaultForm = () => ({
   ...emptyProjectContactDetails(),
@@ -959,7 +905,23 @@ const defaultForm = () => ({
   clientRating: '', clientRatingNote: '', remarks: '', subjectPrefix: '', emailSubjectPreview: '', socialPostRequest: '', resourceRequest: '',
   timeRanges: [emptyTimeRange()], languageDirections: [emptyLanguageDirection()], interpreterAssignments: [], roleAssignments: [],
 })
+const normalizeScheduleRanges = (ranges, locations=[], directions=[]) => (ranges?.length?ranges:[emptyTimeRange()]).map(item=>({
+  ...item, locations:item.locations?.length?[...item.locations]:(locations.length?[...locations]:['']),
+  languageDirections:(item.languageDirections?.length?item.languageDirections:directions.length?directions:[emptyLanguageDirection()]).map(direction=>({languageIds:[...(direction.languageIds?.length?direction.languageIds:[direction.sourceLanguageId||'',direction.targetLanguageId||''])],requiredCount:direction.requiredCount??null})),
+}))
 const form = reactive(defaultForm())
+const groupDirectionTotal = item => item.languageDirections.reduce((total,direction)=>total+(Number(direction.requiredCount)||0),0)
+const syncScheduleSummary = () => {
+  form.locations=[...new Set(form.timeRanges.flatMap(item=>item.locations||[]).map(value=>value.trim()).filter(Boolean))]
+  const directions=new Map()
+  for(const item of form.timeRanges.flatMap(item=>item.languageDirections||[])){
+    const key=[...item.languageIds].sort().join(':');const prior=directions.get(key)
+    if(!prior)directions.set(key,{languageIds:[...item.languageIds],requiredCount:item.requiredCount})
+    else if(Number(item.requiredCount)>Number(prior.requiredCount))prior.requiredCount=item.requiredCount
+  }
+  form.languageDirections=[...directions.values()]
+}
+watch(()=>form.timeRanges,syncScheduleSummary,{deep:true,flush:'sync'})
 const financeProject = computed(() => {
   const labels = new Map(languages.value.map(item => [item.id, item.label]))
   const directions = form.languageDirections
@@ -978,6 +940,7 @@ const { beginDraft, pauseDraft, clearDraft } = useFormDraft({
   formRef,
   applyDraft: (draft) => {
     Object.assign(form, defaultForm(), draft)
+    form.timeRanges=normalizeScheduleRanges(draft.timeRanges,draft.locations,draft.languageDirections)
     nameManuallyEdited.value = Boolean(draft.projectName)
   },
 })
@@ -1002,6 +965,9 @@ const validateLanguageDirections = (_rule, value, callback) => {
   if (!directions.length) return callback(new Error('请至少添加一个口译方向'))
   if (directions.some((item) => item.languageIds.length < 2 || item.languageIds.length > 5 || item.languageIds.some((id) => !id))) return callback(new Error('每个口译方向必须完整选择 2 至 5 个语种'))
   if (directions.some((item) => !Number.isInteger(item.requiredCount) || item.requiredCount < 1)) return callback(new Error('请填写每个口译方向的需求人数'))
+  if (directions.some(item=>new Set(item.languageIds).size!==item.languageIds.length)) return callback(new Error('同一口译方向内的语种不能重复'))
+  const keys=directions.map(item=>[...item.languageIds].sort().join(':'))
+  if(new Set(keys).size!==keys.length)return callback(new Error('同一时间段内的双向口译方向不能重复'))
   callback()
 }
 const requiredScheduledStartRule = [{ required: true, message: '请选择预定开始时间', trigger: 'change' }]
@@ -1010,6 +976,8 @@ const rules = {
   clientFullName: [{ required: true, validator: requiredTextValidator('请输入客户全称'), trigger: ['blur','change'] }],
   projectName: [{ validator: requiredTextValidator('请输入项目名称'), trigger: ['blur', 'change'] }],
   projectTypes: [{ type: 'array', required: true, min: 1, message: '请至少选择一个项目类型', trigger: 'change' }],
+  interpretationDomain: [{required:true,validator:requiredTextValidator('请输入口译领域'),trigger:['blur','change']}],
+  filePath: [{required:true,validator:requiredTextValidator('请输入项目路径'),trigger:['blur','change']}],
   taskDescription: [{ validator: requiredTextValidator('请输入具体任务'), trigger: ['blur', 'change'] }],
   clientShortName: [{ required: true, validator: requiredTextValidator('请选择或输入客户简称'), trigger: ['blur', 'change'] }],
   locations: [{ validator: validateLocations, trigger: 'change' }],
@@ -1024,6 +992,7 @@ const selectableLanguages = computed(() => languages.value.filter(
   (item) => item.isActive !== false || selectedLanguageIds.value.has(item.id)
 ))
 
+const assignedInterpreterNames = row => row.assignedInterpretersDisplay || (row.interpreterAssignments || []).map(item=>item.translatorName).filter(Boolean).join('；') || '待安排'
 const tableCellText = (row, key) => {
   if (key === 'projectTypes') return projectTypesText(row)
   if (key === 'timeRanges') return timeRangesText(row.timeRanges)
@@ -1192,12 +1161,6 @@ const clearSelectedClient = () => {
   form.managerContact = ''
 }
 const addTimeRange = () => form.timeRanges.push(emptyTimeRange())
-const addLocation = () => {
-  if (form.locations.length < MAX_LOCATIONS) form.locations.push('')
-}
-const removeLocation = (index) => {
-  if (form.locations.length > 1) form.locations.splice(index, 1)
-}
 const addInterpreter = () => form.interpreterAssignments.push({ translatorId: '', customerRating: '', evaluationNote: '' })
 const sortLanguages = () => languages.value.sort((a, b) => (
   Number(a.isActive === false) - Number(b.isActive === false)
@@ -1266,12 +1229,16 @@ const toggleLanguage = async (language, isActive) => {
   }
 }
 
-const normalizedNestedPayload = () => ({
+const normalizedNestedPayload = () => {
+  syncScheduleSummary()
+  return ({
   timeRanges: form.timeRanges.filter((item) => item.scheduledStart || item.scheduledEnd).map((item) => ({
     scheduledStart: item.scheduledStart,
     scheduledEnd: item.scheduledEnd,
     actualStart: item.actualStart || null,
     actualEnd: item.actualEnd || null,
+    locations:item.locations.map(value=>value.trim()).filter(Boolean),
+    languageDirections:item.languageDirections.map(direction=>({languageIds:direction.languageIds,requiredCount:direction.requiredCount})),
   })),
   languageDirections: form.languageDirections.filter((item) => item.languageIds.some(Boolean) || item.requiredCount).map((item) => ({
     languageIds: item.languageIds,
@@ -1282,7 +1249,7 @@ const normalizedNestedPayload = () => ({
     customerRating: item.customerRating || null,
     evaluationNote: item.evaluationNote?.trim() || null,
   })),
-})
+})}
 const validateNested = (nested) => {
   if (form.timeRanges.some((item) => (item.scheduledStart || item.scheduledEnd) && (!item.scheduledStart || !item.scheduledEnd))) throw new Error('每个时间段必须同时填写预定开始和预定结束')
   if (nested.timeRanges.some((item) => new Date(item.scheduledEnd) < new Date(item.scheduledStart))) throw new Error('预定结束时间不能早于预定开始时间')
@@ -1329,7 +1296,7 @@ const previewProjectName = async ({ automatic = false } = {}) => {
   }
 }
 const generateProjectName = () => previewProjectName()
-const generateEmailSubject = () => notifyEmailSubjectGenerated(form, ElMessage)
+const generateEmailSubject = () => notifyEmailSubjectGenerated(form, ElMessage, {includeManagerContact:false})
 const handleProjectNameInput = () => {
   nameManuallyEdited.value = true
   namePreviewRequestId += 1
@@ -1412,9 +1379,9 @@ const assignForm = (detail) => {
     interpreterHeightRequirement: detail.interpreterHeightRequirement || '',
     interpreterAppearanceRequirement: detail.interpreterAppearanceRequirement || '',
     interpreterDressRequirement: detail.interpreterDressRequirement || '',
-    locations: detail.locations?.length ? detail.locations.slice(0, MAX_LOCATIONS) : [''],
+    locations: detail.locations?.length ? detail.locations.slice() : [''],
     customerConsultationTime: detail.customerConsultationTime || '', customerConfirmationTime: detail.customerConfirmationTime || '',
-    timeRanges: detail.timeRanges?.length ? detail.timeRanges.map((item) => ({ scheduledStart: item.scheduledStart, scheduledEnd: item.scheduledEnd, actualStart: item.actualStart || '', actualEnd: item.actualEnd || '' })) : [emptyTimeRange()],
+    timeRanges: normalizeScheduleRanges(detail.timeRanges,detail.locations,detail.languageDirections),
     languageDirections: detail.languageDirections?.length
       ? detail.languageDirections.map((item) => ({ languageIds: item.languageIds?.length ? item.languageIds : [item.sourceLanguageId, item.targetLanguageId], requiredCount: item.requiredCount ?? null }))
       : [emptyLanguageDirection()],
@@ -1426,18 +1393,20 @@ const assignForm = (detail) => {
     })),
     roleAssignments: detail.roleAssignments || [],
   })
-  form.subjectPrefix = extractSubjectPrefix(detail.emailSubjectPreview, form)
+  form.subjectPrefix = extractSubjectPrefix(detail.emailSubjectPreview, form, {includeManagerContact:false}) || extractSubjectPrefix(detail.emailSubjectPreview, form)
   nameManuallyEdited.value = Boolean(detail.projectName)
 }
 const resetEditorScroll = async () => { await nextTick(); dialogBodyRef.value?.parentElement?.scrollTo({ top: 0, behavior: 'auto' }) }
-const handleAdd = async () => { dialogTitle.value = '新增口译项目'; resetForm(); clientManagerBaseline.value=localStorage.getItem('user_id')||''; projectCreateIdempotencyKey.value = createIdempotencyKey(); await beginDraft('create'); dialogVisible.value = true; await resetEditorScroll() }
-const handleEdit = async (row, useProvidedDetail = false) => {
+const handleAdd = async () => { dialogTitle.value = '新增口译项目'; resetForm(); editorTab.value = 'project'; clientManagerBaseline.value=localStorage.getItem('user_id')||''; projectCreateIdempotencyKey.value = createIdempotencyKey(); await beginDraft('create'); dialogVisible.value = true; await resetEditorScroll() }
+const handleEdit = async (row, useProvidedDetail = false, initialTab = 'project') => {
   const detail = useProvidedDetail ? row : await loadDetail(row.id, true)
   if (!detail) return
   dialogTitle.value = `编辑口译项目 · ${detail.orderNo}`
   assignForm(detail)
   clientManagerBaseline.value = detail.clientManagerId || ''
   dialogVisible.value = true
+  await nextTick()
+  editorTab.value = initialTab
   await resetEditorScroll()
   await beginDraft(`edit:${detail.id}`)
 }
@@ -1492,9 +1461,7 @@ const setProjectStatusSaving = (id, saving) => {
   projectStatusSavingIds.value = next
 }
 const padDatePart = (value) => String(value).padStart(2, '0')
-const localDateTimeValue = (value = new Date()) => (
-  `${value.getFullYear()}-${padDatePart(value.getMonth() + 1)}-${padDatePart(value.getDate())} ${padDatePart(value.getHours())}:${padDatePart(value.getMinutes())}:00`
-)
+const localDateTimeValue = (value = new Date()) => businessDateTimeInputValue(value)
 const resetProgressDialog = () => {
   activeProgressProject.value = null
   progressRows.value = []
@@ -1563,6 +1530,7 @@ const confirmStatusChange = async () => {
     setProjectStatusSaving(project.id, true)
     const updated = await projectApi.updateInterpretationProjectStatus(project.id, {
       ...statusForm,
+      effectiveOn:statusForm.effectiveOn.replace(' ','T')+'+08:00',
       changeNote: statusForm.changeNote.trim(),
       progressOnly,
     })
@@ -1733,13 +1701,8 @@ watch(dialogVisible,visible=>{if(visible)chatAudience.value=[]})
 </style>
 
 <style>
-.interpretation-advanced-popover, .interpretation-detail-popover, .interpretation-client-popover, .interpretation-interpreter-popover { max-width: calc(100vw - 32px) !important; }
+.interpretation-advanced-popover, .interpretation-detail-popover, .interpretation-client-popover { max-width: calc(100vw - 32px) !important; }
 .interpretation-client-popover .el-descriptions__content { white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
-.interpretation-interpreter-popover .interpreter-detail-content { max-height: min(560px, calc(100vh - 120px)); overflow-y: auto; }
-.interpretation-interpreter-popover .interpreter-detail-section-title { margin: 14px 0 8px; color: var(--el-text-color-primary); font-weight: 600; }
-.interpretation-interpreter-popover .interpreter-detail-section-title:first-child { margin-top: 0; }
-.interpretation-interpreter-popover .translator-profile { margin-bottom: 12px; }
-.interpretation-interpreter-popover .el-descriptions__content { white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
 .interpretation-detail-popover .detail-content { max-height: min(560px, calc(100vh - 120px)); overflow-y: auto; }
 .interpretation-detail-popover .el-descriptions__content { white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
 .interpretation-detail-popover .remarks-detail { min-height: 88px; white-space: pre-wrap; }
@@ -1775,7 +1738,7 @@ watch(dialogVisible,visible=>{if(visible)chatAudience.value=[]})
 
 <style scoped>
 .interpretation-type-field { display: flex; align-items: center; gap: 12px; width: 100%; }
-.interpretation-task-remarks { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 1fr); gap: 16px; }
+.interpretation-task-remarks { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
 .interpretation-task-remarks > .el-form-item { min-width: 0; }
 @media (max-width: 768px) { .interpretation-task-remarks { grid-template-columns: minmax(0, 1fr); gap: 0; } }
 </style>

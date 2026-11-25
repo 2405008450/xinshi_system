@@ -21,7 +21,7 @@
     <div class="tree-help" :class="{ 'is-dragging': draggingId }" @dragover.prevent @drop.prevent="dropTask(null)">
       拖动任务名称前的 ⠿ 到另一任务名称上，成为其子任务；拖到此处恢复为一级任务。最多支持三级。
     </div>
-    <el-table ref="tableRef" @selection-change="handleDeleteSelectionChange" v-loading="loading || moving || deleting" :key="appliedKeyword" :data="tree" row-key="id" border default-expand-all :tree-props="{ children: 'children', checkStrictly: true }">
+    <el-table ref="tableRef" @selection-change="handleDeleteSelectionChange" v-loading="loading || moving || deleting" :key="appliedKeyword" :data="pagedTree" row-key="id" border default-expand-all :tree-props="{ children: 'children', checkStrictly: true }">
       <el-table-column v-if="deleteMode" type="selection" width="48" />
       <el-table-column v-if="isVisible('task_no')" label="任务编号" min-width="230"><template #default="{ row }">
           <el-popover trigger="click" placement="left" :width="760" title="技术开发任务详情" @before-enter="loadDetail(row.id)">
@@ -70,7 +70,10 @@
         </template>
       </el-table-column>
     </el-table>
-    <div class="count">共 {{ rows.length }} 个任务，当前显示 {{ visibleCount }} 个（含子任务）</div>
+    <div class="task-pagination">
+      <span class="count">共 {{ rows.length }} 个任务，当前页 {{ visibleCount }} 个（含子任务）；按一级任务分页，子任务随母任务显示</span>
+      <el-pagination :current-page="page" :page-size="pageSize" :page-sizes="[10, 20, 50]" :total="tree.length" :disabled="deleting || moving" layout="total, sizes, prev, pager, next" @update:current-page="changePage" @update:page-size="changePageSize" />
+    </div>
 
     <DraggableFormDialog v-model="editorVisible" :title="editing ? '编辑技术开发任务' : '新增技术开发任务'" class="technical-task-dialog" width="min(960px, calc(100vw - 32px))" top="5vh" append-to-body :before-close="closeEditor" :close-on-click-modal="false" @closed="props.dialogOnly && emit('close')">
       <template #header><DialogFieldSearchHeader ref="fieldSearchRef" v-model="fieldSearchKeyword" :title="editing ? '编辑技术开发任务' : '新增技术开发任务'" :fetch-suggestions="fetchFieldSuggestions" @select="locateDialogField" @clear="clearFieldSearch" /></template>
@@ -241,9 +244,20 @@ function completionChanged(value) {
 const columns = [{ key: 'task_no', label: '任务编号' }, { key: 'name', label: '任务名称' }, { key: 'content', label: '具体任务' }, { key: 'arranger', label: '安排人' }, { key: 'executor', label: '执行人' }, { key: 'due_at', label: '预定完成时间' }, { key: 'completed_on', label: '完成日期' }, { key: 'on_time', label: '是否按时完成' }, { key: 'progress', label: '具体进度' }, { key: 'feedback', label: '反馈意见' }, { key: 'adjustment', label: '反馈后调整' }, { key: 'notes', label: '备注' }]
 const { selectedKeys: columnKeys, isVisible, reset: resetColumns } = useTableColumns('technical-development', columns, ['task_no', 'name', 'content', 'arranger', 'executor', 'due_at', 'completed_on', 'on_time', 'progress', 'feedback'], { legacyDefaultKeys: [['name', 'content', 'arranger', 'executor', 'due_at', 'progress', 'feedback'], ['task_no', 'name', 'content', 'arranger', 'executor', 'due_at', 'progress', 'feedback']] })
 const tree = computed(() => taskTree(rows.value, appliedKeyword.value))
+const page = ref(1), pageSize = ref(10)
+const pagedTree = computed(() => tree.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value))
+function changePage(value) {
+  if (deleting.value || moving.value) return
+  exitDeleteMode(); page.value = value
+}
+function changePageSize(value) {
+  if (deleting.value || moving.value) return
+  exitDeleteMode(); pageSize.value = value; page.value = 1
+}
+watch(() => tree.value.length, total => { page.value = Math.min(page.value, Math.max(1, Math.ceil(total / pageSize.value))) })
 const tableRef = ref(null)
 const { deleteMode, deleting, selectedRows, enterDeleteMode, exitDeleteMode, handleDeleteSelectionChange, confirmBatchDelete } = useBatchDelete({
-  rows: () => { const flatten = nodes => nodes.flatMap(row => [row, ...flatten(row.children || [])]); return flatten(tree.value) },
+  rows: () => { const flatten = nodes => nodes.flatMap(row => [row, ...flatten(row.children || [])]); return flatten(pagedTree.value) },
   tableRef, entityName: '开发任务', getLabel: row => `${row.task_no} ${row.name}`,
   deleteRow: row => api.deleteDevelopmentTask(row.id, row.revision), reload: load,
   onDeleted: () => { detail.value = null },
@@ -260,7 +274,7 @@ async function swapTasks() {
 }
 
 const countNodes = items => items.reduce((count, item) => count + 1 + countNodes(item.children), 0)
-const visibleCount = computed(() => countNodes(tree.value))
+const visibleCount = computed(() => countNodes(pagedTree.value))
 let controller, sequence = 0, timer, alive = true
 const message = (e, fallback) => typeof e?.detail === 'string' ? e.detail : e?.message || fallback
 async function load() {
@@ -270,7 +284,7 @@ async function load() {
   catch (e) { if (alive && current === sequence && e.code !== 'ERR_CANCELED') error.value = message(e, '加载任务失败') }
   finally { if (alive && current === sequence) loading.value = false }
 }
-function search() { if (deleting.value) return; if (deleteMode.value) exitDeleteMode(); clearTimeout(timer); appliedKeyword.value = keyword.value }
+function search() { if (deleting.value) return; if (deleteMode.value) exitDeleteMode(); clearTimeout(timer); page.value = 1; appliedKeyword.value = keyword.value }
 watch(keyword, value => { clearTimeout(timer); if (!value) search(); else timer = setTimeout(search, 400) })
 async function loadPeople() { Object.assign(people, await api.getDevelopmentPeople()) }
 onMounted(async () => {
@@ -388,7 +402,7 @@ async function performMove(row, parentId) {
 </script>
 
 <style scoped>
-.page-title{font-size:18px;font-weight:600}.page-header,.actions,.filters{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.page-header{justify-content:space-between}.filters{margin-bottom:12px}.filters>.el-input{width:450px;max-width:100%}.notice{margin-bottom:12px}.tree-help{padding:10px;margin-bottom:12px;border:1px dashed var(--el-border-color);color:var(--el-text-color-secondary);font-size:13px}.tree-help.is-dragging,.drop-target{background:var(--el-color-primary-light-9);outline:1px dashed var(--el-color-primary)}.task-name{display:inline-flex;align-items:center;gap:6px;min-width:120px;max-width:100%;overflow-wrap:anywhere}.drag-handle{border:0;background:transparent;color:var(--el-text-color-secondary);cursor:grab;font-size:20px;padding:0 4px}.drag-handle:active{cursor:grabbing}.progress-button{display:block;width:100%;border:0;background:transparent;cursor:pointer;text-align:left;padding:4px 0}.progress-button small{display:block;color:var(--el-text-color-secondary);margin-top:5px}.count{font-size:13px;color:var(--el-text-color-secondary);margin-top:12px}.task-detail{max-height:560px;overflow-y:auto;white-space:pre-wrap;overflow-wrap:anywhere}.task-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 20px}.full{grid-column:1/-1}.task-form :deep(.el-select),.task-form :deep(.el-date-editor){width:100%}.task-form small{color:var(--el-text-color-secondary)}.history-record{border:1px solid var(--el-border-color);border-radius:6px;padding:12px;margin:10px 0}.history-record>div{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}.history-record span{color:var(--el-text-color-secondary);font-size:12px}.history-record p,.activity-name{white-space:pre-wrap;overflow-wrap:anywhere}.move-entry{margin-top:12px}@media(max-width:680px){.task-form{grid-template-columns:1fr}}
+.page-title{font-size:18px;font-weight:600}.page-header,.actions,.filters{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.page-header{justify-content:space-between}.filters{margin-bottom:12px}.filters>.el-input{width:450px;max-width:100%}.notice{margin-bottom:12px}.tree-help{padding:10px;margin-bottom:12px;border:1px dashed var(--el-border-color);color:var(--el-text-color-secondary);font-size:13px}.tree-help.is-dragging,.drop-target{background:var(--el-color-primary-light-9);outline:1px dashed var(--el-color-primary)}.task-name{display:inline-flex;align-items:center;gap:6px;min-width:120px;max-width:100%;overflow-wrap:anywhere}.drag-handle{border:0;background:transparent;color:var(--el-text-color-secondary);cursor:grab;font-size:20px;padding:0 4px}.drag-handle:active{cursor:grabbing}.progress-button{display:block;width:100%;border:0;background:transparent;cursor:pointer;text-align:left;padding:4px 0}.progress-button small{display:block;color:var(--el-text-color-secondary);margin-top:5px}.task-pagination{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:12px;overflow-x:auto}.task-pagination .count{margin-top:0}.count{font-size:13px;color:var(--el-text-color-secondary);margin-top:12px}.task-detail{max-height:560px;overflow-y:auto;white-space:pre-wrap;overflow-wrap:anywhere}.task-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 20px}.full{grid-column:1/-1}.task-form :deep(.el-select),.task-form :deep(.el-date-editor){width:100%}.task-form small{color:var(--el-text-color-secondary)}.history-record{border:1px solid var(--el-border-color);border-radius:6px;padding:12px;margin:10px 0}.history-record>div{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}.history-record span{color:var(--el-text-color-secondary);font-size:12px}.history-record p,.activity-name{white-space:pre-wrap;overflow-wrap:anywhere}.move-entry{margin-top:12px}@media(max-width:680px){.task-form{grid-template-columns:1fr}}
 </style>
 
 <style>

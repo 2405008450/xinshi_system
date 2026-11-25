@@ -23,7 +23,7 @@
         <div>
 
           <strong>{{ readOnly ? '当前统计仅供查看' : '填写当前订单的统计数量' }}</strong>
-          <p>母订单与各级子订单独立填报，不再自动汇总或相互覆盖。{{ readOnly ? '当前入口为只读视图。' : '我司统计、客户统计每行可填写同一区域的多个字数项；可点击“清空本行”切换统计区域。空白表示未填写，0 表示数量为零。' }}</p>
+          <p>各级订单独立填报。字数类、份数、页数与时长可同时填写，分钟和小时可切换。0 表示已登记为零，预统计不用于计算费用。</p>
         </div>
         <el-tag size="small" :type="hasChanges ? 'warning' : 'info'">{{ hasChanges ? '未保存修改' : (readOnly ? '只读' : (localMode ? '随项目保存' : '本单独立统计')) }}</el-tag>
       </div>
@@ -126,7 +126,6 @@ import {
   createEmptyWordCountMatrix,
   createEmptyWordCountValues,
   formatWordCountMatrix,
-  hasMultipleWordCountRegions,
   isWordCountRegionLocked,
   normalizeWordCountMatrix,
   normalizeWordCountValues
@@ -383,20 +382,10 @@ function clearPending() {
   clearDraft()
   if (controlledDraft.value) emit('update:pendingDraft', null)
 }
-function validateMatrix(matrix) {
-  for (const dimension of ['company','customer']) {
-    if (hasMultipleWordCountRegions(matrix?.[dimension])) {
-      ElMessage.warning(`${dimension==='company'?'我司统计':'客户统计'}只能填写一个统计区域，请清空其他区域`)
-      return false
-    }
-  }
-  return true
-}
 // 外层保存新项目时，同步提交尚未点击统计弹窗“保存”的本账号输入。
 function prepareSubmit() {
   if (!controlledDraft.value || !validPending(props.pendingDraft)) return true
   const matrix = normalizeResponse(props.pendingDraft.matrix)
-  if (!validateMatrix(matrix)) return false
   publishMatrix(matrix)
   return true
 }
@@ -427,7 +416,6 @@ function notifySavedCounts(changes) {
 async function saveMatrix() {
   if(matrixOwner !== (localStorage.getItem('user_id')||'')){visible.value=false;return}
   if (!draft.value) return
-  if (!validateMatrix(draft.value)) return
   if (localMode.value) {
     if (saving.value) return
     saving.value = true

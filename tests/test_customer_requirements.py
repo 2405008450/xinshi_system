@@ -8,6 +8,36 @@ from models import Client, TranslationProject
 from tests.test_chat_participant_access import environment
 
 
+@pytest.mark.parametrize('module', ['translation', 'interpretation', 'annotation', 'recruitment'])
+def test_project_requirements_read_live_linked_content_only(environment, module):
+    import customer_requirements as requirements
+    from models import SubClient
+    db, _ = environment
+    client = Client(id=uuid4(), client_code='PROJECT-REQ', client_name='要求客户')
+    db.add(client)
+    db.flush()
+    sub = SubClient(id=uuid4(), parent_client_id=client.id, sub_client_code='REQ-SUB')
+    db.add(sub)
+    db.flush()
+    model = requirements.MODELS[module]
+    field, column = next(iter(requirements.PROJECT_FIELDS[module].items()))
+    project = model(id=uuid4(), sub_client_id=sub.id, order_no='REQ-02', project_name='已填要求',
+                    **{column: ' 项目原要求 '})
+    empty = model(id=uuid4(), client_id=client.id, order_no='REQ-01', project_name='空白项目',
+                  **{column: ' \n\t '})
+    foreign = model(id=uuid4(), order_no='REQ-03', project_name='其他客户', **{column: '无关要求'})
+    db.add_all([project, empty, foreign])
+    db.commit()
+    result = requirements.read_project_requirements(client.id, module, page=1, page_size=10, db=db)
+    assert result['total'] == 1
+    assert result['items'][0]['values'] == {field: '项目原要求'}
+    setattr(project, column, '项目更新要求')
+    db.commit()
+    result = requirements.read_project_requirements(client.id, module, page=1, page_size=10, db=db)
+    assert result['items'][0]['values'][field] == '项目更新要求'
+    assert requirements.read_project_requirements(client.id, module, page=2, page_size=1, db=db)['items'] == []
+
+
 def test_history_ignores_unchanged_appends_edits_and_returns_latest(environment, monkeypatch):
     import customer_requirements as requirements
     from tools.apply_customer_requirement_history_migration import apply_migration

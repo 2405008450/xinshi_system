@@ -12,7 +12,9 @@ setup=src[src.index('    compiled='):src.index('    with sync_playwright() as p:
 exec('def prepare():\n'+setup+'\n    return locals()\n',scope)
 fixture=dict(id='',orderNo='TEST-261110-999',projectName='隔离项目',clientId=str(uuid4()),clientName='测试客户',clientFullName='测试客户',clientShortName='测试',
 clientManagerId=USER,contactName='测试联系人',projectTypes=['translation'],taskDescription='具体任务',projectStatus='initial_follow_up',locations=['广州'],
-timeRanges=[{'scheduledStart':'2026-11-24T09:00:00','scheduledEnd':'2026-11-24T18:00:00','actualStart':'','actualEnd':''}],
+timeRanges=[{'scheduledStart':'2026-11-24T09:00:00','scheduledEnd':'2026-11-24T18:00:00','actualStart':'','actualEnd':'',
+             'locations':['广州'],'languageDirections':[{'languageIds':[USER,OTHER],'requiredCount':1}]}],
+interpretationDomain='商务',filePath=r'D:\fixture\test',
 languageDirections=[{'languageIds':[USER,OTHER],'requiredCount':1}],languageItems=[{'mode':'single','sourceLanguageId':USER,'targetLanguageId':'','regions':[]}],
 taskDispatchedAt='2026-11-24T09:00:00',taskSubmittedAtPending=True,taskSubmittedAt='',taskImageUploadIds=[],positionTitle='招聘岗位',headcountMin=1,headcountMax=1,
 employmentRange=['2026-11-24','2026-12-10'],workLocation='广州',roleAssignments=[])

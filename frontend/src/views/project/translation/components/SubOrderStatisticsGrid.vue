@@ -1,6 +1,6 @@
 <template>
   <section class="suborder-statistics-grid" data-auto-draft="off">
-    <div class="statistics-actions"><strong>工作量统计</strong><span>可直接输入、Tab切换，或从Excel粘贴多行四列。各订单独立填报，不自动汇总；我司统计和客户统计可填写同一区域的多个字数项。清空当前区域后可切换。方向子订单请通过“调整工作量统计”单独修改。</span><el-button :loading="saving" :disabled="!editable || !pendingCount" type="primary" @click="save">{{ local?'暂存工作量':'保存工作量' }}（{{ pendingCount }} 单）</el-button></div>
+    <div class="statistics-actions"><strong>工作量统计</strong><span>可直接输入、Tab切换，或从Excel粘贴多行四列。各订单独立填报，不自动汇总；字数类、份数、页数和时长可同时填写，分钟和小时可切换。方向子订单请通过“调整工作量统计”单独修改。</span><el-button :loading="saving" :disabled="!editable || !pendingCount" type="primary" @click="save">{{ local?'暂存工作量':'保存工作量' }}（{{ pendingCount }} 单）</el-button></div>
     <p v-if="failure" role="alert" class="statistics-error">{{ failure }}</p>
     <div class="statistics-scroll"><table ref="grid"><thead><tr>
       <th class="statistics-index">序号</th>

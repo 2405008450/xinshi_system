@@ -18,22 +18,7 @@ import translation_duration_metrics as duration
 
 METRIC_TYPES = ("words", "characters_no_spaces", "cjk_chars_korean_words", "foreign_words", "documents", "pages", "minutes", "hours")
 ENTITY_DIMENSIONS = ("company", "customer", "preliminary", "translator_estimate")
-WORD_COUNT_REGIONS = (
-    ("words", "characters_no_spaces", "cjk_chars_korean_words", "foreign_words"),
-    ("documents",),
-    ("pages",),
-    ("minutes", "hours"),
-)
-
-
-def has_multiple_word_count_regions(values):
-    return sum(any(values.get(key) is not None for key in region) for region in WORD_COUNT_REGIONS) > 1
-
-
 def validate_word_count_region(dimension, values):
-    if has_multiple_word_count_regions(values):
-        label = '我司统计' if dimension == 'company' else '客户统计'
-        raise HTTPException(422, f'{label}只能填写一个统计区域，请清空其他区域')
     if values.get('minutes') is not None and values.get('hours') is not None:
         raise HTTPException(422, '分钟和小时只能选择一种')
 

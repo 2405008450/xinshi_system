@@ -31,22 +31,9 @@ export const createEmptyWordCountMatrix = () => ({
 
 const hasValue = (value) => value !== null && value !== undefined && value !== ''
 
-const wordCountRegions = [
-  ['words', 'characters_no_spaces', 'cjk_chars_korean_words', 'foreign_words'],
-  ['documents'],
-  ['pages'],
-  ['minutes', 'hours']
-]
-
-export function hasMultipleWordCountRegions(values = {}) {
-  return wordCountRegions.filter(region => region.some(key => hasValue(values[key]))).length > 1
-}
-
-export function isWordCountRegionLocked(values, metric) {
-  if (hasValue(values[metric])) return false
-  return wordCountRegions.some(region =>
-    !region.includes(metric) && region.some(key => hasValue(values[key]))
-  )
+// 字数类、份数、页数与时长可同时登记；分钟和小时仍是同一时长的单位切换。
+export function isWordCountRegionLocked(values = {}, metric) {
+  return (metric === 'minutes' && hasValue(values.hours)) || (metric === 'hours' && hasValue(values.minutes))
 }
 
 function readMetricValue(values = {}, metricKey) {

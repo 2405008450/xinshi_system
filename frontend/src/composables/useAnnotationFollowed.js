@@ -47,6 +47,7 @@ function createScheduler() {
   })
 }
 
+
 function cancelRetry() {
   if (retryTimer !== undefined) window.clearTimeout(retryTimer)
   retryTimer = undefined

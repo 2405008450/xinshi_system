@@ -41,13 +41,17 @@ def test_duration_patch_single_row_finance_and_switching_units(environment):
     assert result['item']['totals']=={'CNY':'150.00'}
     charge=finance.primary(leaf)
     assert charge.metric_type in basis.LEGACY_METRICS
-    with pytest.raises(HTTPException):patch([cell('words',50)])
-    db.rollback()
+    saved=patch([cell('words',50),cell('documents',2),cell('pages',3)])
+    assert saved['company']['words']==50 and saved['company']['hours']==1.5
+    assert finance.read(db,root.id)['item']['totals']=={'CNY':'5000.00'}
+    patch([cell('words',None),cell('documents',None),cell('pages',None)])
     saved=patch([cell('hours',None),cell('minutes',90)])
     assert saved['company']['hours'] is None and saved['company']['minutes']==90
     assert db.query(duration.TranslationDurationMetric).count()==1
     assert finance.read(db,root.id)['item']['totals']=={'CNY':'9000.00'}
 
-def test_create_matrix_rejects_multiple_company_fields(environment):
+def test_create_matrix_preserves_multiple_company_fields(environment):
     db,(actor,*_)=environment;_,root,_,leaf=context(db,actor)
-    with pytest.raises(HTTPException):save_created_entity_matrix(db,'suborder',leaf.id,WordCountCreateMatrix(company={'words':0,'pages':1}),updated_by=actor.id)
+    save_created_entity_matrix(db,'suborder',leaf.id,WordCountCreateMatrix(company={'words':0,'pages':1,'documents':3,'hours':1.5}),updated_by=actor.id)
+    saved=get_word_count_matrix(db,'suborder',leaf.id)['company']
+    assert saved['words']==0 and saved['pages']==1 and saved['documents']==3 and saved['hours']==1.5

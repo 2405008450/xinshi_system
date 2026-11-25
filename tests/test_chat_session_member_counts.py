@@ -97,3 +97,30 @@ def test_read_notification_filter_keeps_other_recipients_and_unlinked_messages(e
     db.commit()
     stats = summaries(db, getattr(ChatProjectMessage, scope), [pid], {pid: 0}, member.id)
     assert stats[pid]['unread'] == 2
+
+
+def test_session_catalog_does_not_lazy_load_flags_for_each_project(environment):
+    from sqlalchemy import event
+    from models import AnnotationChatMember
+    from routers.chat_sessions import sessions
+
+    db, (owner, member, outsider) = environment
+    projects = [project(db, owner, f'AP-BATCH-{index:03d}') for index in range(8)]
+    for index, row in enumerate(projects):
+        db.add(AnnotationChatMember(project_id=row.id, user_id=member.id, following=True,
+            pinned=index == 0, starred=index == 1, last_read_sequence=0))
+    db.commit()
+    db.expire_all()
+    lazy_queries = []
+    def collect(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().startswith(('SELECT annotation_chat_member.pinned AS', 'SELECT annotation_chat_member.starred AS')):
+            lazy_queries.append(statement)
+    event.listen(db.get_bind(), 'before_cursor_execute', collect)
+    try:
+        rows = [row for row in sessions(db, member)['items'] if row['kind'] == 'annotation']
+    finally:
+        event.remove(db.get_bind(), 'before_cursor_execute', collect)
+    assert len(rows) == 8
+    assert sum(bool(row['pinned']) for row in rows) == 1
+    assert sum(bool(row['starred']) for row in rows) == 1
+    assert lazy_queries == []

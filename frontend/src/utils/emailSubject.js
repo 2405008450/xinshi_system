@@ -9,8 +9,8 @@ const EMAIL_SUBJECT_FIELDS = [
 
 export const COMMON_SUBJECT_PREFIX_OPTIONS = ['***急***']
 
-export const buildEmailSubject = (source = {}) => {
-  const values = EMAIL_SUBJECT_FIELDS.map(([label, key]) => [
+export const buildEmailSubject = (source = {}, {includeManagerContact=true} = {}) => {
+  const values = EMAIL_SUBJECT_FIELDS.filter(([,key])=>includeManagerContact || key!=='managerContact').map(([label, key]) => [
     label,
     String(source[key] || '').trim(),
   ])
@@ -22,8 +22,8 @@ export const buildEmailSubject = (source = {}) => {
   }
 }
 
-export const notifyEmailSubjectGenerated = (form, ElMessage) => {
-  const { subject, missingFields } = buildEmailSubject(form)
+export const notifyEmailSubjectGenerated = (form, ElMessage, options = {}) => {
+  const { subject, missingFields } = buildEmailSubject(form, options)
   if (!subject) {
     ElMessage.warning('暂无可用于生成邮件主题的内容')
     return false
@@ -39,7 +39,7 @@ export const notifyEmailSubjectGenerated = (form, ElMessage) => {
   return true
 }
 
-export const extractSubjectPrefix = (preview, form = {}) => {
+export const extractSubjectPrefix = (preview, form = {}, {includeManagerContact=true} = {}) => {
   const previewText = String(preview || '').trim()
   const existing = String(form.subjectPrefix || '').trim()
   if (existing && existing.length <= 50) return existing
@@ -47,7 +47,7 @@ export const extractSubjectPrefix = (preview, form = {}) => {
   const generatedParts = [
     form.orderNo,
     form.clientShortName,
-    form.managerContact,
+    includeManagerContact ? form.managerContact : undefined,
     form.customerOrderNo,
     form.projectName,
   ].map((value) => String(value || '').trim()).filter(Boolean)

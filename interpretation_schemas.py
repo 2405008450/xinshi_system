@@ -1,5 +1,6 @@
 """口译项目 API 数据契约。"""
 
+from annotation_progress_time import business_now, project_progress_datetime
 from datetime import datetime
 from typing import Literal, Optional
 from uuid import UUID
@@ -48,6 +49,8 @@ class InterpretationTimeRangeInput(BaseModel):
     scheduled_end: datetime
     actual_start: Optional[datetime] = None
     actual_end: Optional[datetime] = None
+    locations: Optional[list[str]] = None
+    language_directions: Optional[list['InterpretationLanguageDirectionInput']] = None
 
     @model_validator(mode="after")
     def validate_range(self):
@@ -57,6 +60,13 @@ class InterpretationTimeRangeInput(BaseModel):
             raise ValueError("填写实际结束时间前必须填写实际开始时间")
         if self.actual_start and self.actual_end and self.actual_end < self.actual_start:
             raise ValueError("实际结束时间不能早于实际开始时间")
+        if self.locations is not None or self.language_directions is not None:
+            self.locations = list(dict.fromkeys(str(value or '').strip() for value in (self.locations or []) if str(value or '').strip()))
+            if not self.locations:raise ValueError('每个时间段请至少填写一个项目地点')
+            if not self.language_directions:raise ValueError('每个时间段请至少填写一个口译方向')
+            keys = [frozenset(item.language_ids) for item in self.language_directions]
+            if len(set(keys)) != len(keys):raise ValueError('同一时间段内的双向口译方向不能重复')
+            if any(item.required_count is None for item in self.language_directions):raise ValueError('每个时间段的口译方向都必须填写需求人数')
         return self
 
 
@@ -98,6 +108,20 @@ class InterpretationLanguageDirectionInput(BaseModel):
         if len(set(self.language_ids)) != len(self.language_ids):
             raise ValueError("同一口译方向内的语种不能重复")
         return self
+
+
+def schedule_summary(ranges):
+    if not any(item.locations is not None or item.language_directions is not None for item in ranges):return None
+    if any(item.locations is None or item.language_directions is None for item in ranges):
+        raise ValueError('每个时间段都必须配置自己的项目地点和口译方向')
+    locations = list(dict.fromkeys(value for item in ranges for value in item.locations))
+    directions = {}
+    for group in ranges:
+        for item in group.language_directions:
+            key = frozenset(item.language_ids)
+            if key not in directions or item.required_count > directions[key].required_count:
+                directions[key] = item
+    return locations, list(directions.values())
 
 
 class InterpretationLanguageDirectionResponse(InterpretationLanguageDirectionInput):
@@ -165,7 +189,7 @@ class InterpretationProjectWrite(BaseModel):
     contact_name: Optional[str] = None
     customer_order_no: Optional[str] = None
     project_status: str = "initial_follow_up"
-    locations: list[str] = Field(default_factory=list, max_length=4)
+    locations: list[str] = Field(default_factory=list)
     customer_budget: Optional[str] = None
     required_interpreter_count: Optional[int] = Field(default=None, ge=0)
     required_interpreter_gender: Optional[str] = None
@@ -266,6 +290,8 @@ class InterpretationProjectWrite(BaseModel):
 
     @model_validator(mode="after")
     def validate_nested_duplicates(self):
+        grouped = schedule_summary(self.time_ranges)
+        if grouped:self.locations, self.language_directions = grouped
         direction_keys = []
         for item in self.language_directions:
             key = frozenset(item.language_ids)
@@ -290,9 +316,13 @@ class InterpretationProjectUpdate(InterpretationProjectWrite):
 
 class InterpretationProjectStatusUpdate(BaseModel):
     project_status: str
-    effective_on: datetime = Field(default_factory=datetime.now)
+    effective_on: datetime = Field(default_factory=lambda:project_progress_datetime(business_now()))
     change_note: Optional[str] = Field(default=None, max_length=10000)
     progress_only: bool = False
+
+    @field_validator('effective_on')
+    @classmethod
+    def normalize_progress_time(cls,value):return project_progress_datetime(value)
 
     @field_validator("project_status")
     @classmethod
@@ -310,8 +340,6 @@ class InterpretationProjectStatusUpdate(BaseModel):
     def validate_note(self):
         if self.progress_only and not self.change_note:
             raise ValueError("请填写具体进度")
-        if not self.progress_only and self.change_note and len(self.change_note) > 500:
-            raise ValueError("变更说明不能超过 500 字")
         return self
 
 
@@ -441,7 +469,7 @@ class InterpretationLanguageResponse(BaseModel):
 
 class InterpretationNamePreviewRequest(BaseModel):
     project_types: list[str] = Field(default_factory=list)
-    locations: list[str] = Field(default_factory=list, max_length=4)
+    locations: list[str] = Field(default_factory=list)
     time_ranges: list[InterpretationTimeRangeInput] = Field(default_factory=list)
     language_directions: list[InterpretationLanguageDirectionInput] = Field(default_factory=list)
 
@@ -457,6 +485,12 @@ class InterpretationNamePreviewRequest(BaseModel):
     @classmethod
     def normalize_preview_locations(cls, values):
         return list(dict.fromkeys(str(value or "").strip() for value in values if str(value or "").strip()))
+
+    @model_validator(mode='after')
+    def summarize_schedule(self):
+        grouped = schedule_summary(self.time_ranges)
+        if grouped:self.locations, self.language_directions = grouped
+        return self
 
 
 class InterpretationNamePreviewResponse(BaseModel):

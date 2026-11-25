@@ -1,8 +1,8 @@
 <template>
   <div class="direction-panel">
     <div class="direction-header">
-      <h4>
-        口译方向
+      <h4 v-if="showTitle || requiredTotal">
+        <span v-if="showTitle">口译方向</span>
         <el-tag v-if="requiredTotal" size="small" type="info">合计 {{ requiredTotal }} 人</el-tag>
       </h4>
       <div class="direction-header__actions">
@@ -76,6 +76,7 @@
 import { CircleClose, Plus } from '@element-plus/icons-vue'
 
 const props = defineProps({
+  showTitle: { type: Boolean, default: true },
   modelValue: { type: Array, default: () => [] },
   languages: { type: Array, default: () => [] },
   requiredTotal: { type: Number, default: 0 },

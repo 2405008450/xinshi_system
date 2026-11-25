@@ -374,6 +374,7 @@ def test_interpretation_preview_omits_contacts_and_places_remarks_fourth(monkeyp
         'project_types': ['business_escort'], 'time_ranges': ['2026-11-23'],
         'locations': ['广州'], 'language_directions': ['中英'], 'required_interpreter_count': 1,
         'remarks': '重点要求\n第二行说明',
+        'interpretation_content': '已删除的口译内容字段',
     })
     assert preview['body'].splitlines()[:5] == [
         '项目类型：口译', '订单号：IP-261123-001', '项目名称：测试项目',
@@ -382,6 +383,7 @@ def test_interpretation_preview_omits_contacts_and_places_remarks_fourth(monkeyp
     assert preview['body'].count('重点要求') == 1
     assert '13800009999' not in preview['body'] + preview['subject'] + preview['body_html']
     assert '客户经理联系方式' not in preview['body']
+    assert '已删除的口译内容字段' not in preview['body']
     assert not preview['missing_fields']
 
 

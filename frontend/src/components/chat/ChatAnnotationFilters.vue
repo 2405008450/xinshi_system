@@ -1,7 +1,7 @@
 <template>
   <span class="chat-annotation-filters" data-auto-draft="off" @mousedown.stop @dblclick.stop>
     <el-button size="small" :type="mine ? 'primary' : 'default'" :aria-pressed="mine"
-      @click="emit('change', { mine: !mine, statuses })">我是项目经理</el-button>
+      @click="emit('change', { mine: !mine })">我是项目经理</el-button>
     <el-popover v-model:visible="visible" title="项目状态筛选" :draft-filter="false" trigger="click" placement="bottom-end" :width="320" :z-index="popoverZ"
       popper-class="chat-annotation-status-popover" @show="draft = [...statuses]">
       <template #reference>
@@ -31,7 +31,7 @@ const draft = ref([])
 const popoverZ = ref(2120)
 function apply(statuses) {
   draft.value = [...statuses]
-  emit('change', { mine: props.mine, statuses: [...draft.value] })
+  emit('change', { statuses: [...draft.value] })
   visible.value = false
 }
 watch(visible, (open, wasOpen) => {

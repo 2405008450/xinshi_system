@@ -2,7 +2,7 @@
   <section class="word-count-inline" data-dialog-field-search-label="工作量统计">
     <strong>工作量统计</strong>
     <p v-if="aggregated">此订单由下级汇总，请在末级子订单修改统计。</p>
-    <p v-else>我司统计、客户统计每行可选字数类、份数、页数或时长。字数类可填多项，清空当前区域后可切换。预统计不用于计算费用。</p>
+    <p v-else>字数类、份数、页数与时长可同时填写；分钟和小时选择一种。预统计不用于计算费用。</p>
     <DocumentWordCounter v-if="!disabled && !aggregated" :current-matrix="matrix" @apply="applyFileCount" />
     <div class="word-count-inline-scroll"><table><thead><tr><th>统计维度</th><th v-for="metric in WORD_COUNT_METRICS" :key="metric.key">{{ metric.label }}</th></tr></thead><tbody>
       <tr v-for="dimension in dimensions" :key="dimension.key">

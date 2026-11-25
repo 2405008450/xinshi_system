@@ -553,6 +553,8 @@ def update_project_status(
 ):
     project = update_recruitment_project_status(
         db, project_id, payload.project_status, current_user.id,
+        note=payload.note, occurred_at=payload.occurred_at,
+        expected_updated_at=payload.expected_updated_at,
     )
     if not project:
         raise HTTPException(status_code=404, detail="招聘项目不存在")

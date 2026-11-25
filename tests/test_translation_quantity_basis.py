@@ -11,13 +11,22 @@ import translation_customer_finance as finance
 def test_automatic_basis_uses_source_and_metric_priority():
     assert basis.resolve({'customer':{'pages':0}},'customer_auto')[:3]==(0,'customer','pages')
     assert basis.resolve({'customer':{'foreign_words':120}},'customer_auto')[:3]==(120,'customer','foreign_words')
-    assert basis.resolve({'customer':{'words':10,'characters_no_spaces':30}},'customer_auto')[:3]==(30,'customer','characters_no_spaces')
+    assert basis.resolve({'customer':{'words':10,'characters_no_spaces':30}},'customer_auto')[:3]==(10,'customer','words')
     assert basis.resolve({'customer':{'documents':3},'company':{'words':90}},'customer_auto')[:3]==(3,'customer','documents')
     assert basis.resolve({'company':{'cjk_chars_korean_words':20,'words':10}},'customer_auto')[:3]==(10,'company','words')
     assert basis.resolve({'company':{'documents':2,'cjk_chars_korean_words':20}},'customer_auto')[:3]==(20,'company','cjk_chars_korean_words')
     assert basis.resolve({'customer':{'words':10,'characters_no_spaces':30}},'customer_auto:words')[0]==10
     assert basis.resolve({'customer':{'pages':5}},'customer_auto:words')==(None,'customer','words','未登记对应数量')
     assert basis.resolve({'customer':{}},'customer_auto')[0] is None
+
+
+def test_automatic_basis_falls_back_through_every_metric_and_keeps_zero():
+    priorities=('words','characters_no_spaces','cjk_chars_korean_words','foreign_words','documents','pages','minutes','hours')
+    values={metric:index+1 for index,metric in enumerate(priorities)}
+    for metric in priorities:
+        assert basis.resolve({'customer':values},'customer_auto')[:3]==(values[metric],'customer',metric)
+        values.pop(metric)
+    assert basis.resolve({'customer':{'words':0,'documents':3,'pages':7}},'customer_auto')[:3]==(0,'customer','words')
 
 
 @pytest.mark.parametrize('metric',basis.METRICS)

@@ -5,6 +5,7 @@ export const CLOUD_DRAFT_DELAY=3000
 export const cloudDraftState=reactive({pending:0,error:'',saving:false})
 const slots=new Map()
 let timer,running=false,failures=0
+const flushWaiters=[]
 let readers=0
 const readWaiters=[]
 function acquireRead(){return new Promise(resolve=>{if(readers<2){readers++;resolve()}else readWaiters.push(resolve)})}
@@ -14,6 +15,19 @@ const keyOf=key=>key.length<=220?key:`${draftHash(key)}:${key.slice(0,200)}`
 const clearedKey=item=>`xinshi.cloudDraftCleared:${item.user}:${item.namespace}:${item.key}`
 function slot(namespace,key){const user=owner(),normalized=keyOf(key),id=JSON.stringify([user,namespace,normalized]);if(!slots.has(id))slots.set(id,{user,namespace,key:normalized,generation:0,revision:null,hash:null,pending:undefined,blocked:false,status:reactive({state:'local',error:'',updatedAt:null})});return slots.get(id)}
 export const cloudDraftStatus=(namespace,key)=>slot(namespace,key).status
+export const cloudDraftRevision=(namespace,key)=>slot(namespace,key).revision
+export async function saveCloudDraft(namespace,key,value){
+ const item=slot(namespace,key)
+ queueCloudDraft(namespace,key,value)
+ for(;;){
+  if(item.user!==owner())throw new Error('账号已切换，草稿仍保留在原账号')
+  if(running){await new Promise(resolve=>flushWaiters.push(resolve));continue}
+  if(item.blocked)throw new Error(item.status.error||'另一窗口已修改草稿，请核对后再保存')
+  if(item.pending===undefined)return item.revision
+  await flushCloudDrafts()
+  if(item.status.error)throw new Error(item.status.error)
+ }
+}
 function updatePending(){cloudDraftState.pending=[...slots.values()].filter(item=>item.pending!==undefined).length}
 async function read(item){
  await acquireRead()
@@ -54,7 +68,7 @@ export async function flushCloudDrafts(){
   if(!batch.some(item=>item.blocked))cloudDraftState.error=''
   failures=0
  }catch(error){failures++;cloudDraftState.error=error.detail||error.message||'云端草稿同步失败，本机备份保留';batch.forEach(item=>{if(!item.blocked){item.status.state='local';item.status.error=cloudDraftState.error}})}
- finally{batch.forEach(item=>{item.sending=false});running=false;cloudDraftState.saving=false;updatePending();if(!timer&&[...slots.values()].some(item=>item.user===owner()&&item.pending!==undefined&&!item.blocked))timer=setTimeout(()=>void flushCloudDrafts(),failures?Math.min(30000,CLOUD_DRAFT_DELAY*2**Math.min(failures,4))+Math.random()*500:CLOUD_DRAFT_DELAY)}
+ finally{batch.forEach(item=>{item.sending=false});running=false;cloudDraftState.saving=false;updatePending();flushWaiters.splice(0).forEach(resolve=>resolve());if(!timer&&[...slots.values()].some(item=>item.user===owner()&&item.pending!==undefined&&!item.blocked))timer=setTimeout(()=>void flushCloudDrafts(),failures?Math.min(30000,CLOUD_DRAFT_DELAY*2**Math.min(failures,4))+Math.random()*500:CLOUD_DRAFT_DELAY)}
 }
 if(typeof window!=='undefined'){
  window.addEventListener('online',()=>void flushCloudDrafts())

@@ -2,7 +2,7 @@
 from sqlalchemy import Column,ForeignKey,String,Uuid,inspect
 from models import Base
 
-LEGACY_METRICS=('characters_no_spaces','words','cjk_chars_korean_words','foreign_words','documents','pages')
+LEGACY_METRICS=('words','characters_no_spaces','cjk_chars_korean_words','foreign_words','documents','pages')
 METRICS=(*LEGACY_METRICS,'minutes','hours')
 def storage_metric(metric):return metric if metric in LEGACY_METRICS else 'words'
 MODES={'customer_auto',*(f'company_{metric}' for metric in METRICS)}

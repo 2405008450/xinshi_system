@@ -323,5 +323,6 @@ class DailyReportResponse(BaseModel):
     status: Literal["draft", "finalized"]
     supplemental_note: Optional[str] = None
     generated_at: datetime
+    saved_at: Optional[datetime] = None
     finalized_at: Optional[datetime] = None
     items: list[DailyReportItemResponse] = Field(default_factory=list)
