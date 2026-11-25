@@ -35,7 +35,7 @@ def ordinary_notifications(db, kind, conversation_id, sender, mentioned_ids, mes
         content=f'{sender.full_name or sender.username} 发来了新消息，点击查看', notification_type=types[kind],
         related_project_type=kind, related_entity_id=conversation_id,
         related_project_id=conversation_id if kind == 'translation' else None,
-        commit=False, created_at=stamp, batch=kind in {'annotation', 'translation'})
+        commit=False, created_at=stamp, batch=kind in {'annotation', 'translation', 'discussion'})
 
 
 def settle_notifications(db, kind, conversation_id, *, user_id=None, sequence=None, message=None):

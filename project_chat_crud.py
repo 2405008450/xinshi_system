@@ -284,15 +284,14 @@ def _chat_participant_user_ids(db, *, annotation_project_id=None, project_id=Non
     return participants
 
 
-def _broadcast_live_message(db, message, project_type):
+def _broadcast_live_message(db, message, project_type, *, participants=None):
     """向当前会话成员发送完整消息；保留已有状态同步作为补偿。"""
     from chat_access_service import member_ids
     project_id = message.direct_conversation_id if project_type == 'direct' else message.annotation_project_id
-    if project_type == 'direct':
-        from models import ChatDirectMember
-        participants = {user_id for user_id, in db.query(ChatDirectMember.user_id).filter_by(conversation_id=project_id)}
-    else:
+    if participants is None:
         participants = member_ids(db, project_type, project_id)
+    if not participants:
+        return
     broadcast_to_users(participants - {message.sender_user_id}, {
         'type': 'chat_message', 'projectType': project_type, 'projectId': str(project_id),
         'message': _serialize_realtime_message(message, project_type),

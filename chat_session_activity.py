@@ -25,15 +25,18 @@ def active_project_scope(db, message_column, scope_column, baseline_column, user
     return or_(activity, *[flag.is_(True) for flag in (pinned, starred) if flag is not None])
 
 
-def active_discussion_ids(db, user_id):
+def active_discussion_ids(db, user_id, *, room_ids=None):
     from discussion_chat_models import DiscussionMember, DiscussionMessage
     message = DiscussionMessage
     member = DiscussionMember
     # 沿用讨论目录的未读口径，历史会话一旦收到新消息即回到默认目录。
-    return {str(uid) for uid, in db.query(message.room_id).join(
+    query = db.query(message.room_id).join(
         member, and_(member.room_id == message.room_id, member.user_id == user_id),
     ).filter(or_(
         message.created_at >= business_now() - timedelta(days=30),
         and_(message.id > func.coalesce(member.last_read_id, 0),
              message.sender_id != user_id, message.recalled_at.is_(None)),
-    )).distinct()}
+    ))
+    if room_ids is not None:
+        query = query.filter(message.room_id.in_(room_ids))
+    return {str(uid) for uid, in query.distinct()}

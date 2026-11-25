@@ -174,7 +174,8 @@ async function nextMention() {
   if (!message || !props.active || !document.hasFocus()) return
   try {
     await request(props.projectId, 'read', { method: 'put', data: { messageId: id } })
-    seenMentions.value.push(id); lastRead = Math.max(lastRead, message.sequenceNo); await refreshSessions()
+    seenMentions.value.push(id); lastRead = Math.max(lastRead, message.sequenceNo)
+    void refreshSessions({ projectType: props.projectType, projectId: props.projectId })
   } catch (e) { ElMessage.error(detail(e)) }
 }
 async function startDirect(member) {
@@ -540,6 +541,7 @@ async function send() {
   const payload = retryPayload.value || { content: outgoingContent(), mentionAll:mentionIds.value.includes('__all__') && content.value.includes('@所有人 '), mentionedUserIds: mentionIds.value.filter(id => [...group.eligibleUsers, ...group.invitableUsers].some(u => u.id === id && content.value.includes(`@${u.name} `))), attachmentIds: files.value.map(f => f.data.id), replyToMessageId: replyTo.value?.id || null, clientMessageId: newMessageId() }
   try {
     const message = await createProjectChatMessage(props.projectId, payload, props.projectType)
+    void refreshSessions({ projectType: props.projectType, projectId: props.projectId })
     retryPayload.value = null; content.value = ''; files.value = []; imageQueue.clear(); replyTo.value = null; mentionIds.value = []
     if (viewingHistory.value) await search()
 

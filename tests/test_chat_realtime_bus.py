@@ -201,6 +201,17 @@ def test_chat_relay_across_two_local_backends_and_catchup(environment, tmp_path)
                     assert response.status_code == 200
                     assert any(item['id'] == row['id'] and item['content'] == row['content']
                                for item in response.json()['items'])
+                    key = f'{kind}:{room}'
+                    response = reader.get('/chat/sessions/updates', params={'keys': f'{key},{key}'},
+                                          headers={'Authorization': f'Bearer {reader_token}'})
+                    assert response.status_code == 200, response.text
+                    summary, = response.json()['items']
+                    assert summary['key'] == key and summary['last_message']['id'] == row['id']
+                    assert summary['unread'] >= 1
+                response = lan[1].get('/chat/sessions/updates', params={'keys': f'{kind}:{room}'},
+                                      headers={'Authorization': f'Bearer {tokens[2]}'})
+                assert response.status_code == 200
+                assert response.json() == {'items': []}
             with pytest.raises(TimeoutError):
                 outsider.recv(timeout=.25)
 
@@ -222,6 +233,13 @@ def test_chat_relay_across_two_local_backends_and_catchup(environment, tmp_path)
                                   headers={'Authorization': f'Bearer {tokens[1]}'})
             assert response.status_code == 200
             assert [item['id'] for item in response.json()['items']] == [missing['id']]
+            response = lan[1].put(f'{direct_path}/read', json={'message_id': missing['id']},
+                                 headers={'Authorization': f'Bearer {tokens[1]}'})
+            assert response.status_code == 200
+            response = cloud[1].get('/chat/sessions/updates', params={'keys': f'direct:{rooms[0][1]}'},
+                                    headers={'Authorization': f'Bearer {tokens[1]}'})
+            assert response.status_code == 200
+            assert response.json()['items'][0]['unread'] == 0
 
         assert db.query(ChatProjectMessage).count() == 8
         assert db.query(DiscussionMessage).count() == 2

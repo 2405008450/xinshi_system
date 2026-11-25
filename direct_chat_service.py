@@ -42,10 +42,11 @@ def message_query(db, project_id):
     ).filter(ChatProjectMessage.direct_conversation_id == project_id)
 
 
-def publish(db, project_id, kind='changed', message_id=None):
-    row = db.get(ChatDirectConversation, project_id)
-    ids = [uid for uid in (row.user_low_id, row.user_high_id) if db.get(AppUser, uid).is_active]
-    broadcast_to_users(ids, {'type': 'direct_chat_changed', 'projectId': str(project_id),
+def publish(db, project_id, kind='changed', message_id=None, recipients=None):
+    if recipients is None:
+        row = db.get(ChatDirectConversation, project_id)
+        recipients = [uid for uid in (row.user_low_id, row.user_high_id) if db.get(AppUser, uid).is_active]
+    broadcast_to_users(recipients, {'type': 'direct_chat_changed', 'projectId': str(project_id),
         'kind': kind, 'messageId': str(message_id) if message_id else None})
 
 
@@ -77,6 +78,7 @@ def serialize_many(db, rows, user):
 def send_message(db, project_id, user, payload):
     conversation = require_project(db, project_id, user, lock=True)
     other_id = conversation.user_high_id if user.id == conversation.user_low_id else conversation.user_low_id
+    sender_id = user.id
     if not db.get(AppUser, other_id).is_active:
         raise HTTPException(400, '对方账号已停用')
     from chat_mention_recipients import resolve_mentions
@@ -117,15 +119,20 @@ def send_message(db, project_id, user, payload):
     notifications.extend(ordinary_notifications(db, 'direct', project_id, user, [p.id for p in mentioned], message))
     link_notifications(db,notifications,message.id)
     conversation.last_message_at = stamp
-    for member in db.query(ChatDirectMember).filter_by(conversation_id=project_id):
+    members = db.query(ChatDirectMember).filter_by(conversation_id=project_id).all()
+    for member in members:
         member.hidden_at = None
+    message_id = message.id
+    participants = {sender_id, other_id}
+    live_recipients = {member.user_id for member in members} & {other_id}
     commit_chat_notifications(db, notifications)
-    publish(db, project_id, 'message', message.id)
+    publish(db, project_id, 'message', message_id, participants)
+    message = message_query(db, project_id).filter_by(id=message_id).one()
     from project_chat_crud import _broadcast_live_message
-    _broadcast_live_message(db, message, 'direct')
+    _broadcast_live_message(db, message, 'direct', participants=live_recipients)
     from routers.push import queue_push_to_user
     queue_push_to_user(other_id, '收到一条新消息', '你有一条新的私聊消息，点击查看', '/workbench')
-    return message_query(db, project_id).filter_by(id=message.id).one()
+    return message
 
 
 def recall_message(db, project_id, message_id, user):

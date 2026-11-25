@@ -772,7 +772,7 @@ async function markVisibleRead() {
   readBusy = true
   try {
     await chatRequest(`sessions/${props.projectType}/${props.projectId}/preferences`, { method: 'put', data: { readMessageId: message.id } })
-    lastReadSequence = message.sequenceNo; void refreshSessions({ messageActivity: true })
+    lastReadSequence = message.sequenceNo; void refreshSessions({ projectType: props.projectType, projectId: props.projectId })
   } catch { /* 下次回到前台时重试，不提前消除未读。 */ }
   finally { readBusy = false }
 }
@@ -1603,6 +1603,7 @@ const handleSend = async () => {
     draft.persistNow()
     await createProjectChatMessage(props.projectId, { ...payload, clientMessageId: sendRequestId }, props.projectType)
     if (generation !== composerGeneration) return
+    void refreshSessions({ projectType: props.projectType, projectId: props.projectId })
     if (composer.mentionedUserIds.length) memberFreshness.invalidate()
     composer.content = ''; replyToMessage.value = null
     sendRequestId = ''; sendFingerprint = ''

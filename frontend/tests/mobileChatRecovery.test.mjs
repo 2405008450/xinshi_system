@@ -135,9 +135,15 @@ function lifecycle() {
   }
 }
 
-test('目录轮询降低频率，实时事件更新后跳过兜底，业务通知不重复刷新', async () => {
+test('新消息只合并更新受影响的会话，连接恢复保留全量校准', async () => {
   const h = lifecycle(), timers = new Map()
-  let time = 0, timerId = 0, poll, pollInterval, requests = 0, topics = 0
+  let time = 0, timerId = 0, poll, pollInterval, topics = 0
+  const requests = []
+  const projectId = 'aeabc012-3456-789a-bcde-123456789001'
+  const key = 'discussion:' + projectId
+  const unchanged = { key: 'annotation:unchanged', kind: 'annotation', unread: 7, mentionUnread: 1 }
+  const initial = { key, kind: 'discussion', unread: 1, mentionUnread: 0 }
+  const updated = { ...initial, unread: 3, mentionUnread: 2, lastMessage: { preview: '新消息' } }
   const document = { visibilityState: 'visible' }
   const clock = {
     now: () => time,
@@ -156,36 +162,44 @@ test('目录轮询降低频率，实时事件更新后跳过兜底，业务通�
     window: { ...h.window, setTimeout: clock.setTimer, clearTimeout: clock.clearTimer,
       setInterval(fn, interval) { poll = fn; pollInterval = interval; return 1 } },
     createCoalescedRefresh: (run, options) => createCoalescedRefresh(run, { ...options, ...clock }),
-    chatRequest: async () => { requests++; return { items: [], mentionTotal: 0 } },
+    chatRequest: async (path, options) => {
+      requests.push({ path, options })
+      return path === 'sessions/updates' ? { items: [updated] } : { items: [unchanged, initial], mentionTotal: 1 }
+    },
     isChatNotification, CONVERSATION_NOTIFICATION_TYPES,
     ensureConnected() {}, applySessionCategories() {},
     useChatTopics: () => ({ refresh: async () => { topics++ } }),
     useProjectChatDock: () => ({ state: { windows: [] } }), refreshOpenAnnotationStatuses: async () => {},
   })
-  useStore(); h.mounts.forEach(fn => fn()); await advance(0)
-  assert.equal(requests, 1); assert.equal(topics, 1)
-  assert.ok(pollInterval >= 30000 && pollInterval < 35000)
-  poll(); await advance(400); assert.equal(requests, 1)
-  await advance(30000); poll(); await advance(400); assert.equal(requests, 2)
-  assert.equal(topics, 2)
+  const store = useStore(); h.mounts.forEach(fn => fn()); await advance(0)
+  assert.equal(requests.length, 1); assert.equal(topics, 1)
+  assert.ok(pollInterval >= 60000 && pollInterval < 70000)
+  poll(); await advance(400); assert.equal(requests.length, 1)
   for (let count = 0; count < 20; count++) {
-    h.subscribers.get('chat_message')()
-    h.subscribers.get('chat_remote_message_changed')({ kind: 'message' })
-    h.subscribers.get('chat_sessions_changed')({ kind: 'message' })
-    h.subscribers.get('notification')({ notification: { notification_type: 'discussion_chat' } })
+    h.subscribers.get('chat_message')({ projectType: 'discussion', projectId })
+    h.subscribers.get('chat_remote_message_changed')({ kind: 'message', projectType: 'discussion', projectId })
+    h.subscribers.get('chat_sessions_changed')({ kind: 'read', projectType: 'discussion', projectId })
+    h.subscribers.get('notification')({ notification: {
+      notification_type: 'discussion_chat', related_project_type: 'discussion', related_entity_id: projectId,
+    } })
   }
-  await advance(3000); assert.equal(requests, 2)
-  await advance(13000); await advance(400); assert.equal(requests, 3)
-  assert.equal(topics, 2)
-  await advance(20000); poll(); await advance(400); assert.equal(requests, 3)
+  await advance(1999); assert.equal(requests.length, 1)
+  await advance(1); assert.equal(requests.length, 2)
+  assert.equal(requests[1].path, 'sessions/updates')
+  assert.equal(requests[1].options.params.keys, key)
+  assert.equal(store.sessions.value.find(row => row.key === key).lastMessage.preview, '新消息')
+  assert.equal(store.sessions.value.find(row => row.key === unchanged.key).unread, 7)
+  assert.equal(store.mentionTotal.value, 3)
   h.subscribers.get('notification')({ notification: { notification_type: 'workflow' } })
-  await advance(3000); assert.equal(requests, 3)
-  h.subscribers.get('notification')({ notification: { notification_type: 'direct_chat_mention' } })
-  await advance(400); assert.equal(requests, 4)
+  await advance(3000); assert.equal(requests.length, 2)
+  h.subscribers.get('chat_realtime_recovered')()
+  await advance(400); assert.equal(requests.length, 3)
+  assert.equal(requests[2].path, 'sessions')
   h.subscribers.get('chat_mention_changed')({ relayed: true })
-  await advance(3000); assert.equal(requests, 5)
+  await advance(3000); assert.equal(requests.length, 4)
   document.visibilityState = 'hidden'
-  await advance(35000); poll(); await advance(400); assert.equal(requests, 5)
+  await advance(70000); poll(); await advance(400); assert.equal(requests.length, 4)
+  assert.equal(topics, 1)
   h.unmounts.forEach(fn => fn())
 })
 

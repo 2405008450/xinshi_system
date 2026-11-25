@@ -128,17 +128,22 @@ def publish(db, room=None, recipients=None, *, members_changed=False, kind=None)
     broadcast_to_users(recipients, event)
 
 
-def catalog(db, user, *, recent_only=False):
+def catalog(db, user, *, recent_only=False, room_ids=None):
     if not user or not user.is_active:
         return []
     ready = schema_ready(db)
     if not ready:
         return []
-    members = {str(row.room_id): row for row in db.query(Member).filter_by(user_id=user.id)} if ready else {}
+    members_query = db.query(Member).filter_by(user_id=user.id)
+    if room_ids is not None:
+        members_query = members_query.filter(Member.room_id.in_(room_ids))
+    members = {str(row.room_id): row for row in members_query}
+    if not members:
+        return []
     rooms = visible_room_specs(db, user, [row for row in room_specs(db) if row['id'] in members])
     if recent_only:
         from chat_session_activity import active_discussion_ids
-        active = active_discussion_ids(db, user.id)
+        active = active_discussion_ids(db, user.id, room_ids=room_ids)
         rooms = [row for row in rooms if row['id'] in active or
                  members[row['id']].pinned or members[row['id']].starred]
     if not rooms:
@@ -298,7 +303,7 @@ def edit(db, user, room_id, message_id, payload):
 
 
 def preferences(db, user, room_id, payload):
-    require_room(db, user, room_id)
+    room = require_room(db, user, room_id)
     if db.get_bind().dialect.name == 'postgresql':
         from sqlalchemy.dialects.postgresql import insert
     else:
@@ -317,5 +322,10 @@ def preferences(db, user, room_id, payload):
         row.last_read_id = max(row.last_read_id, db.query(func.max(Message.id)).filter_by(room_id=room_id).scalar() or 0)
     from chat_message_notifications import settle_notifications
     settle_notifications(db, 'discussion', room_id, user_id=user.id, sequence=row.last_read_id)
-    db.commit(); publish(db)
+    user_id = user.id
+    db.commit()
+    if payload.pinned is None and payload.starred is None:
+        publish(db, room, {user_id}, kind='read')
+    else:
+        publish(db, recipients={user_id})
     return dict(last_read_id=str(row.last_read_id), pinned=row.pinned, starred=row.starred)

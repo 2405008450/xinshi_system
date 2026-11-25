@@ -70,13 +70,18 @@ def annotation_mention_counts(db, user):
     return [dict(project_id=pid, count=count) for pid, count in rows]
 
 
-def history_query(db,user,keyword='',*,project_type=None,project_status=None,project_id=None):
+def history_query(db,user,keyword='',*,project_type=None,project_status=None,project_id=None,scope=None):
     from datetime import datetime
     from sqlalchemy import String, cast, select, union_all
     from models import AppUser, ChatDirectConversation, ChatDirectMember
     sources=[]
-    if project_type in (None,'annotation','translation'):
+    if project_type in (None,'annotation','translation') and (scope is None or {'annotation','translation'} & scope.keys()):
         query=mention_query(db,user,keyword,project_type=project_type,project_status=project_status,project_id=project_id)
+        if scope is not None:
+            query = query.filter(or_(
+                ChatProjectMessage.annotation_project_id.in_(scope.get('annotation', ())),
+                ChatProjectMessage.project_id.in_(scope.get('translation', ())),
+            ))
         # 三类消息统一使用香港本地业务时间，排序与游标不依赖服务器时区。
         for_kind=case((ChatProjectMessage.annotation_project_id.is_not(None),literal('annotation')),else_=literal('translation'))
         pid=case((ChatProjectMessage.annotation_project_id.is_not(None),ChatProjectMessage.annotation_project_id),else_=ChatProjectMessage.project_id)
@@ -87,20 +92,25 @@ def history_query(db,user,keyword='',*,project_type=None,project_status=None,pro
             ChatProjectMessage.sender_name.label('sender_name'),ChatProjectMessage.content.label('content'),ChatProjectMessage.created_at.label('stamp'),ChatProjectMessage.sequence_no.label('sequence_no'),
             func.coalesce(ChatProjectMessage.event_data['mention_all'].as_boolean(), false()).label('mention_all'),
             and_(~received(db,ChatProjectMessage,user.id), ChatProjectMessage.sequence_no>case((ChatProjectMessage.annotation_project_id.is_not(None),func.coalesce(AnnotationChatMember.last_read_sequence,0)),else_=func.coalesce(ChatProjectMemberPref.last_read_sequence,0) if phase_one_ready(db) else literal(0))).label('unread')).statement)
-    if project_type in (None,'direct') and not project_status and phase_one_ready(db):
+    if project_type in (None,'direct') and not project_status and (scope is None or 'direct' in scope) and phase_one_ready(db):
         message=ChatProjectMessage
         query=db.query(message).join(ChatProjectMention,ChatProjectMention.message_id==message.id).join(ChatDirectConversation,ChatDirectConversation.id==message.direct_conversation_id).join(ChatDirectMember,and_(ChatDirectMember.conversation_id==ChatDirectConversation.id,ChatDirectMember.user_id==user.id)).filter(ChatProjectMention.mentioned_user_id==user.id,message.recalled_at.is_(None),or_(ChatDirectConversation.user_low_id==user.id,ChatDirectConversation.user_high_id==user.id))
         if project_id:query=query.filter(message.direct_conversation_id==project_id)
+        if scope is not None:
+            query = query.filter(message.direct_conversation_id.in_(scope['direct']))
         if keyword.strip():
             from search_matching import keyword_contains
             query=query.filter(or_(*[keyword_contains(column,keyword) for column in (message.content,message.sender_name)]))
         sources.append(query.with_entities(cast(message.id,String).label('message_id'),cast(message.direct_conversation_id,String).label('project_id'),literal('direct').label('kind'),literal('私聊').label('title'),literal('').label('subtitle'),func.coalesce(cast(message.sender_user_id,String),literal('')).label('sender_id'),message.sender_name.label('sender_name'),message.content.label('content'),message.created_at.label('stamp'),message.sequence_no.label('sequence_no'),func.coalesce(message.event_data['mention_all'].as_boolean(), false()).label('mention_all'),and_(~received(db,message,user.id),message.sequence_no>ChatDirectMember.last_read_sequence).label('unread')).statement)
     from discussion_mentions import ready
-    if project_type in (None,'discussion') and not project_status and ready(db):
+    if project_type in (None,'discussion') and not project_status and (scope is None or 'discussion' in scope) and ready(db):
         import discussion_chat_service as discussion
         from discussion_chat_models import DiscussionMessage as Message, DiscussionMention as Mention, DiscussionMember as Member
         from chat_session_category_models import ChatSessionCategory
         room_specs=discussion.room_specs(db)
+        if scope is not None:
+            room_ids = {str(uid) for uid in scope['discussion']}
+            room_specs = [room for room in room_specs if room['id'] in room_ids]
         visible=[__import__('uuid').UUID(room['id']) for room in discussion.visible_room_specs(db,user,room_specs)]
         query=db.query(Message).join(Mention,Mention.message_id==Message.id).join(Member,and_(Member.room_id==Message.room_id,Member.user_id==user.id)).outerjoin(ChatSessionCategory,ChatSessionCategory.id==Message.room_id).filter(Mention.user_id==user.id,Message.room_id.in_(visible),Message.recalled_at.is_(None))
         if project_id:query=query.filter(Message.room_id==project_id)
@@ -116,9 +126,9 @@ def history_query(db,user,keyword='',*,project_type=None,project_status=None,pro
     return union_all(*sources).subquery()
 
 
-def mention_session_statistics(db, user):
+def mention_session_statistics(db, user, *, scope=None):
     """目录总数、分组计数和排序时间共用一次权限过滤及聚合。"""
-    table = history_query(db, user)
+    table = history_query(db, user, scope=scope)
     from uuid import UUID
     return {(kind, str(UUID(pid))): (count, stamp) for kind, pid, count, stamp in db.query(
         table.c.kind, table.c.project_id, func.count(), func.max(table.c.stamp)

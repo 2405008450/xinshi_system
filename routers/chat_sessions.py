@@ -358,16 +358,51 @@ def session_catalog(db: Session = Depends(get_db), user: AppUser = Depends(get_c
     return sessions(db, user, recent_only=True)
 
 
+@router.get('/sessions/updates')
+@catalog_read
+def session_updates(db: Session = Depends(get_db), user: AppUser = Depends(get_current_user), *,
+                    keys: str = Query(min_length=1, max_length=587)):
+    parts = keys.split(',')
+    if len(parts) > 12:
+        raise HTTPException(422, '一次最多刷新 12 个会话')
+    scope = {}
+    try:
+        for key in parts:
+            kind, project_id = key.split(':', 1)
+            if kind not in {'annotation', 'translation', 'direct', 'discussion'}:
+                raise ValueError(kind)
+            scope.setdefault(kind, set()).add(UUID(project_id))
+    except ValueError:
+        raise HTTPException(422, '会话标识无效') from None
+
+    rows = session_rows(db, user, phase_one_ready(db), recent_only=True, scope=scope)
+    if rows:
+        decorate_mention_sessions(db, user, rows, mention_session_statistics(db, user, scope=scope))
+    return {'items': rows}
+
+
 @catalog_read
 def sessions(db, user, *, recent_only=False):
-    from chat_session_activity import active_project_scope
     ready = phase_one_ready(db)
     mention_stats = mention_session_statistics(db, user)
     history_total = sum(count for count, _stamp in mention_stats.values())
     annotation_counts = [dict(project_id=UUID(pid), count=count) for (kind, pid), (count, _stamp) in mention_stats.items() if kind == 'annotation']
+    rows = session_rows(db, user, ready, recent_only=recent_only)
+    decorate_mention_sessions(db, user, rows, mention_stats)
+    return {'phase_one_enabled': ready, 'items': rows, 'session_categories': session_categories.catalog(db, user),
+            'total': sum(row['unread'] for row in rows), 'mention_history_total': history_total,
+            'annotation_mention_counts': annotation_counts, 'mention_total': sum(row['mention_unread'] for row in rows)}
+
+
+def session_rows(db, user, ready, *, recent_only, scope=None):
+    from chat_session_activity import active_project_scope
+    import discussion_chat_service
+
     rows = []
-    if annotation.can_view(db, user):
+    if (scope is None or 'annotation' in scope) and annotation.can_view(db, user):
         projects_query = annotation_sessions_query(db, user, ready)
+        if scope is not None:
+            projects_query = projects_query.filter(AnnotationProject.id.in_(scope['annotation']))
         if recent_only:
             projects_query = projects_query.filter(active_project_scope(db,
                 ChatProjectMessage.annotation_project_id, AnnotationProject.id,
@@ -380,19 +415,13 @@ def sessions(db, user, *, recent_only=False):
             rows.append(dict(key=f'annotation:{p.id}', kind='annotation', project_id=p.id, title=p.project_name or '未命名项目',
                 subtitle=p.order_no, project_status=p.project_status, is_project_manager=is_project_manager,
                 following=bool(m and m.following), pinned=bool(ready and m and m.pinned), starred=bool(ready and m and m.starred), is_creator=user.id in (p.created_by, p.client_manager_id), **stats[p.id]))
-    if not ready:
-        import discussion_chat_service
-        rows.extend(discussion_chat_service.catalog(db, user, recent_only=recent_only))
-        decorate_member_counts(db, rows)
-        session_categories.decorate_sessions(db, rows)
-        decorate_mention_sessions(db, user, rows, mention_stats)
-        return {'phase_one_enabled': False, 'items': rows, 'total': sum(r['unread'] for r in rows), 'mention_history_total': history_total,
-            'session_categories': session_categories.catalog(db, user),
-            'annotation_mention_counts': annotation_counts,
-            'mention_total': sum(r['mention_unread'] for r in rows)}
-    if annotation.can_view(db, user):
-        prefs = {m.project_id: m for m in db.query(ChatProjectMemberPref).filter_by(user_id=user.id)}
+    if ready and (scope is None or 'translation' in scope) and annotation.can_view(db, user):
+        prefs_query = db.query(ChatProjectMemberPref).filter_by(user_id=user.id)
         projects_query = translation_sessions_query(db, user).options(selectinload(TranslationProject.client))
+        if scope is not None:
+            prefs_query = prefs_query.filter(ChatProjectMemberPref.project_id.in_(scope['translation']))
+            projects_query = projects_query.filter(TranslationProject.id.in_(scope['translation']))
+        prefs = {m.project_id: m for m in prefs_query}
         if recent_only:
             projects_query = projects_query.outerjoin(ChatProjectMemberPref, and_(
                 ChatProjectMemberPref.project_id == TranslationProject.id,
@@ -409,26 +438,29 @@ def sessions(db, user, *, recent_only=False):
             rows.append(dict(key=f'translation:{p.id}', kind='translation', project_id=p.id, title=title,
                 subtitle=p.order_no, pinned=bool(m and m.pinned), starred=bool(m and m.starred),
                 is_creator=user.id in (p.created_by, p.project_manager_id), **stats[p.id]))
-    conversations_query = direct_sessions_query(db, user)
-    if recent_only:
-        conversations_query = conversations_query.filter(active_project_scope(db,
-            ChatProjectMessage.direct_conversation_id, ChatDirectConversation.id,
-            ChatDirectMember.last_read_sequence, user.id, pinned=ChatDirectMember.pinned,
-            starred=ChatDirectMember.starred))
-    conversations = conversations_query.all()
-    target_ids = [p.user_high_id if p.user_low_id == user.id else p.user_low_id for p, m in conversations]
-    targets = {u.id: u for u in db.query(AppUser).filter(AppUser.id.in_(target_ids))} if target_ids else {}
-    stats = summaries(db, ChatProjectMessage.direct_conversation_id, [p.id for p, m in conversations], {p.id: m.last_read_sequence for p, m in conversations}, user.id)
-    for p, m in conversations:
-        target = targets[p.user_high_id if p.user_low_id == user.id else p.user_low_id]
-        rows.append(dict(key=f'direct:{p.id}', kind='direct', project_id=p.id, title=target.full_name or target.username,
-            subtitle=((target.department or '').strip() + ('' if target.is_active else '（账号已停用）')), department=_department(target.department), pinned=m.pinned, starred=m.starred, is_creator=False, **stats[p.id]))
-    import discussion_chat_service
-    rows.extend(discussion_chat_service.catalog(db, user, recent_only=recent_only))
+    if ready and (scope is None or 'direct' in scope):
+        conversations_query = direct_sessions_query(db, user)
+        if scope is not None:
+            conversations_query = conversations_query.filter(ChatDirectConversation.id.in_(scope['direct']))
+        if recent_only:
+            conversations_query = conversations_query.filter(active_project_scope(db,
+                ChatProjectMessage.direct_conversation_id, ChatDirectConversation.id,
+                ChatDirectMember.last_read_sequence, user.id, pinned=ChatDirectMember.pinned,
+                starred=ChatDirectMember.starred))
+        conversations = conversations_query.all()
+        target_ids = [p.user_high_id if p.user_low_id == user.id else p.user_low_id for p, m in conversations]
+        targets = {u.id: u for u in db.query(AppUser).filter(AppUser.id.in_(target_ids))} if target_ids else {}
+        stats = summaries(db, ChatProjectMessage.direct_conversation_id, [p.id for p, m in conversations], {p.id: m.last_read_sequence for p, m in conversations}, user.id)
+        for p, m in conversations:
+            target = targets[p.user_high_id if p.user_low_id == user.id else p.user_low_id]
+            rows.append(dict(key=f'direct:{p.id}', kind='direct', project_id=p.id, title=target.full_name or target.username,
+                subtitle=((target.department or '').strip() + ('' if target.is_active else '（账号已停用）')), department=_department(target.department), pinned=m.pinned, starred=m.starred, is_creator=False, **stats[p.id]))
+    if scope is None or 'discussion' in scope:
+        rows.extend(discussion_chat_service.catalog(db, user, recent_only=recent_only,
+                                                  room_ids=scope['discussion'] if scope is not None else None))
     decorate_member_counts(db, rows)
     session_categories.decorate_sessions(db, rows)
-    decorate_mention_sessions(db, user, rows, mention_stats)
-    return {'phase_one_enabled': True, 'items': rows, 'session_categories': session_categories.catalog(db, user), 'total': sum(r['unread'] for r in rows), 'mention_history_total': history_total, 'mention_total': sum(r['mention_unread'] for r in rows), 'annotation_mention_counts': annotation_counts}
+    return rows
 
 
 @router.get('/sessions/history')
