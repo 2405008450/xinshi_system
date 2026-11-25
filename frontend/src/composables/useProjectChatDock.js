@@ -305,7 +305,7 @@ const openChat = ({ projectId, projectType = 'translation', title = '', subtitle
     focusChat(existing.key)
     activateWorkspace(existing.key)
     enforceExpandedLimit(existing.key)
-    if (projectType === 'translation' || !title || !subtitle || (projectType === 'annotation' && !existing.projectStatus)) fillChatWindowMeta(existing, true)
+    if (!existing.metaLoaded) fillChatWindowMeta(existing)
     announce()
     return existing.key
   }

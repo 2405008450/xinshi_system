@@ -80,7 +80,7 @@ def discussion_env(local_db, monkeypatch):
     DiscussionMessage.__table__.create(engine, checkfirst=True)
     DiscussionMember.__table__.create(engine, checkfirst=True)
     published = []
-    monkeypatch.setattr(discussion_chat_service, 'publish', lambda db: published.append(True))
+    monkeypatch.setattr(discussion_chat_service, 'publish', lambda *args, **kwargs: published.append(True))
     monkeypatch.setattr(discussion_chat_service, 'get_user_permission_codes', lambda db, uid: ['talents:read'])
     monkeypatch.setattr(discussion_chat_service, 'user_has_permission', lambda db, uid, code: False)
     user = actor('alice')

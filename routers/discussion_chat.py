@@ -162,7 +162,7 @@ def preferences(room_id: UUID, payload: PreferenceWrite, db=Depends(get_db), use
 
 @router.put('/{room_id}/messages/{message_id}/recall')
 def recall(room_id: UUID, message_id: int, db=Depends(get_db), user=Depends(actor)):
-    service.require_room(db, user, room_id)
+    room = service.require_room(db, user, room_id)
     row = db.query(service.Message).filter_by(id=message_id, room_id=room_id).with_for_update().first()
     if not row:
         raise HTTPException(404, '消息不存在')
@@ -175,7 +175,7 @@ def recall(room_id: UUID, message_id: int, db=Depends(get_db), user=Depends(acto
     from chat_message_notifications import settle_notifications
     settle_notifications(db, 'discussion', room_id, message=row)
     row.recalled_at = service.category_now()
-    db.commit(); service.publish(db)
+    db.commit(); service.publish(db, room)
     return service.serialize(db, row, user)
 
 

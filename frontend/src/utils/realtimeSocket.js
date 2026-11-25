@@ -94,7 +94,7 @@ const scheduleReconnect = () => {
   reconnectTimer = window.setTimeout(() => {
     reconnectTimer = null
     ensureConnected()
-  }, 3000)
+  }, 3000 + Math.floor(Math.random() * 2000))
 }
 
 export const ensureConnected = ({ force = false } = {}) => {

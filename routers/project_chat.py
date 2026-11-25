@@ -331,7 +331,12 @@ def recall_translation_message(project_id: UUID, message_id: UUID, db: Session =
         db.commit()
         from notification_ws import broadcast_to_users
         from chat_access_service import member_ids
-        broadcast_to_users(member_ids(db,'translation',project_id),{'type':'chat_sessions_changed'})
+        recipients = member_ids(db, 'translation', project_id)
+        broadcast_to_users(recipients, {'type': 'chat_sessions_changed'})
+        broadcast_to_users(recipients, {
+            'type': 'chat_remote_message_changed', 'projectType': 'translation',
+            'projectId': str(project_id), 'messageId': str(row.id), 'kind': 'recall',
+        })
     return _serialize_message(row,'translation',None,current_user.id)
 
 

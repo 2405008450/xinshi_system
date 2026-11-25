@@ -18,7 +18,7 @@ def rooms(local_db, monkeypatch):
     engine = local_db.get_bind()
     Message.__table__.create(engine, checkfirst=True)
     Member.__table__.create(engine, checkfirst=True)
-    monkeypatch.setattr(service, 'publish', lambda db: None)
+    monkeypatch.setattr(service, 'publish', lambda *args, **kwargs: None)
     monkeypatch.setattr(service, 'get_user_permission_codes', lambda db, uid: ['talents:read'])
     monkeypatch.setattr(service, 'user_has_permission', lambda db, uid, code: False)
     user = actor()

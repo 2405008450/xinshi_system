@@ -56,6 +56,8 @@ import ChatTimeline from './ChatTimeline.vue'
 import ChatComposer from './ChatComposer.vue'
 import ChatHistorySearchPanel from '@/components/chat/ChatHistorySearchPanel.vue'
 import { subscribe, watchAnnotationChat } from '@/utils/realtimeSocket'
+import { createCoalescedRefresh } from '@/utils/coalescedRefresh'
+import { CHAT_MEMBERS_REFRESH_MS, CHAT_WINDOW_REFRESH_MS, createChatWindowFreshness } from '@/utils/chatWindowFreshness'
 import { copyTextToClipboard } from '@/utils/clipboard'
 import { formatBusinessDateTime as formatDateTime } from '@/utils/dateTime'
 import {useChatDraft} from '@/composables/useChatDraft'
@@ -139,8 +141,9 @@ const historySenders = computed(() => group.eligibleUsers.map(user => ({ id: use
 const canSend = computed(() => !sending.value && (retryPayload.value || (!files.value.some(f => f.status !== 'ready') && !pendingImages.some(f => f.status !== 'ready') && !contentTooLong.value && (!!content.value.trim() || files.value.length > 0 || pendingImages.length > 0))))
 const detail = e => e?.detail || e?.message || '操作失败，请重试'
 const sizeLabel = bytes => bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)}KB` : `${(bytes / 1024 / 1024).toFixed(1)}MB`
-let disposed = false, generation = 0, searchController, searchTimer, syncTimer, syncing = false, syncAgain = false, unwatch, observer, readTimer
+let disposed = false, generation = 0, searchController, searchTimer, syncTimer, unwatch, observer, readTimer
 let locateVersion = 0, locateController, initialized = false, resolveReady
+let syncedSequence = 0, refreshLoadedMessages = false
 const ready = new Promise(resolve => { resolveReady = resolve })
 function cancelLocate() {
   ++locateVersion
@@ -183,8 +186,28 @@ async function startDirect(member) {
 }
 watch(() => props.targetMessageId, id => { if (id) locate(id) })
 
+const messageFreshness = createChatWindowFreshness(CHAT_WINDOW_REFRESH_MS)
+const memberFreshness = createChatWindowFreshness(CHAT_MEMBERS_REFRESH_MS)
+let groupVersion = 0
 async function loadGroup() {
-  try { const data = await request(props.projectId, 'group'); if (!disposed) { Object.assign(group, data); lastRead = Math.max(lastRead, data.lastReadSequence || 0) } } catch (e) { error.value = detail(e) }
+  const version = ++groupVersion
+  const markFresh = memberFreshness.begin()
+  try {
+    const data = await request(props.projectId, 'group')
+    if (disposed || version !== groupVersion) return
+    Object.assign(group, data)
+    lastRead = Math.max(lastRead, data.lastReadSequence || 0)
+    markFresh()
+  } catch (e) { if (!disposed && version === groupVersion) error.value = detail(e) }
+}
+const canRefresh = () => !disposed && props.active && document.visibilityState === 'visible'
+const groupRefresh = createCoalescedRefresh(() => {
+  if (memberFreshness.isStale()) return loadGroup()
+}, { visible: canRefresh, minIntervalMs: 8000 })
+const messageRefresh = createCoalescedRefresh(sync, { visible: canRefresh })
+function scheduleFullSync() {
+  refreshLoadedMessages = true
+  return messageRefresh.schedule()
 }
 function merge(rows) {
   const merged = new Map(messages.value.map(m => [m.id, m]))
@@ -225,11 +248,14 @@ async function search() {
   searchController?.abort()
   searchController = new AbortController()
   const version = ++generation
+  const markFresh = messageFreshness.begin()
   loading.value = true; error.value = ''; viewingHistory.value = false
   try {
     const data = await request(props.projectId, 'timeline', { signal: searchController.signal })
     if (version !== generation || disposed) return
     messages.value = []; visibleMessages.clear(); merge(data.items); hasEarlier.value = data.hasMore
+    syncedSequence = data.items.at(-1)?.sequenceNo || 0
+    markFresh()
     await bottom()
   } catch (e) { if (version === generation && !searchController.signal.aborted) error.value = detail(e) }
   finally { if (version === generation) loading.value = false }
@@ -247,13 +273,14 @@ async function loadEarlier() {
   } catch (e) { error.value = detail(e) } finally { loadingEarlier.value = false }
 }
 async function sync() {
-  if (disposed || !initialized || !props.projectId || loading.value) return
-  if (syncing) { syncAgain = true; return }
-  syncing = true
+  if (!canRefresh() || !initialized || !props.projectId || loading.value) return
   const version = generation, wasBottom = atBottom()
+  const markFresh = messageFreshness.begin()
+  const refreshLoaded = refreshLoadedMessages || viewingHistory.value
+  refreshLoadedMessages = false
   try {
-    // 更新全部已加载消息，补偿历史消息撤回、引用摘要和收到状态的变化。
-    const ids = messages.value.map(m => m.id)
+    // 重连、定时兜底和消息操作会补查已加载历史。跨端新消息只读取增量。
+    const ids = refreshLoaded ? messages.value.map(m => m.id) : []
     for (let i = 0; i < ids.length; i += 200) {
       const data = await request(props.projectId, 'refresh', { method: 'post', data: { messageIds: ids.slice(i, i + 200) } })
       if (version !== generation || disposed) return
@@ -262,19 +289,23 @@ async function sync() {
     if (!viewingHistory.value) {
       let more = true
       while (more) {
-        const after = messages.value.at(-1)?.sequenceNo || 0
-        const data = await request(props.projectId, 'timeline', { params: { after, limit: 100 } })
+        // WebSocket 可能先收到后写入的消息，补拉的起点必须以 HTTP 确认的游标为准。
+        const data = await request(props.projectId, 'timeline', { params: { after: syncedSequence, limit: 100 } })
         if (version !== generation || disposed) return
         const incoming = data.items.filter(m => !messages.value.some(existing => existing.id === m.id))
         if (!props.active) incoming.filter(m => !m.recalledAt && m.senderUserId !== currentUserId).forEach(() => emit('unread'))
         merge(data.items); more = data.hasMore && data.items.length > 0
+        if (data.items.length) syncedSequence = data.items.at(-1).sequenceNo
         if (!wasBottom || !props.active) pendingNew.value += incoming.length
       }
     }
     if (wasBottom && !viewingHistory.value && props.active) await bottom()
     error.value = ''
-  } catch (e) { error.value = detail(e) }
-  finally { syncing = false; if (syncAgain) { syncAgain = false; sync() } }
+    markFresh()
+  } catch (e) {
+    refreshLoadedMessages ||= refreshLoaded
+    if (!disposed && version === generation) error.value = detail(e)
+  }
 }
 async function returnLatest() { await search(); await bottom() }
 async function locate(id) {
@@ -317,7 +348,7 @@ async function markRead() {
   const visible = [...visibleMessages.entries()].filter(([id]) => messages.value.some(m => m.id === id)).sort((a, b) => b[1] - a[1])[0]
   if (!visible || visible[1] <= lastRead) return
   readBusy = true
-  try { await request(props.projectId, 'read', { method: 'put', data: { messageId: visible[0] } }); lastRead = visible[1]; await loadGroup() }
+  try { await request(props.projectId, 'read', { method: 'put', data: { messageId: visible[0] } }); lastRead = Math.max(lastRead, visible[1]) }
   catch { /* 下次进入前台或轮询时重试，不提前清除未读。 */ }
   finally { readBusy = false }
 }
@@ -516,7 +547,11 @@ async function send() {
     if (message) {
       merge([message])
     }
-    await bottom(); await loadGroup()
+    if (!isDirect.value && payload.mentionedUserIds.length) {
+      memberFreshness.invalidate()
+      void groupRefresh.schedule()
+    }
+    await bottom()
 
   } catch (e) {
     retryPayload.value = payload; sendError.value = detail(e)
@@ -537,16 +572,16 @@ async function cancelRetry() {
   } catch (e) { sendError.value = `暂时无法确认发送结果，请重试：${detail(e)}` }
   finally { sending.value = false }
 }
-function foreground() {
+function foreground(force = false) {
   if (document.visibilityState !== 'visible' || !props.active) return
-  scheduleRead(); sync(); loadGroup()
+  scheduleRead()
+  if (force === true || messageFreshness.isStale()) void scheduleFullSync()
+  if (memberFreshness.isStale()) void groupRefresh.schedule()
 }
 function topicChanged(event) { const row = messages.value.find(value => value.id === event.detail.id); if (row) Object.assign(row, event.detail) }
 watch(() => props.active, active => {
-  if (active) {
-    if (initialized && !props.targetMessageId) { loadGroup(); returnLatest() }
-    else foreground()
-  } else closeMention()
+  if (active && initialized) foreground()
+  else if (!active) closeMention()
 })
 onMounted(async () => {
   window.addEventListener('chat-topic-message-changed', topicChanged)
@@ -554,7 +589,18 @@ onMounted(async () => {
   if (!isDirect.value) unwatch = watchAnnotationChat(props.projectId)
 
   // 监听通用的状态变更
-  cleanup.push(subscribe(isDirect.value ? 'direct_chat_changed' : 'annotation_chat_changed', event => { if (!initialized || event.projectId !== String(props.projectId)) return; if (event.kind === 'members' || event.kind === 'message') loadGroup(); if (event.kind !== 'state') sync() }))
+  cleanup.push(subscribe(isDirect.value ? 'direct_chat_changed' : 'annotation_chat_changed', event => {
+    if (!initialized || event.projectId !== String(props.projectId)) return
+    if (event.kind === 'members') {
+      memberFreshness.invalidate()
+      void groupRefresh.schedule()
+    }
+    if (event.kind === 'message' && event.relayed) void messageRefresh.schedule()
+    else if (event.kind !== 'message' && event.kind !== 'state') {
+      messageFreshness.invalidate()
+      void scheduleFullSync()
+    }
+  }))
 
   // 完整消息广播先更新当前会话，状态事件和轮询继续补偿断线。
   cleanup.push(subscribe('chat_message', event => {
@@ -562,28 +608,44 @@ onMounted(async () => {
     const isNew = !messages.value.some(row => row.id === event.message.id)
     const follow = atBottom() && props.active
     merge([event.message])
+    if (!isDirect.value && event.message.mentions?.some(mention => !group.members.some(member => member.id === mention.mentionedUserId))) {
+      memberFreshness.invalidate()
+      void groupRefresh.schedule()
+    }
     if (follow) nextTick(() => bottom())
     else if (isNew) pendingNew.value += 1
     if (props.active && document.hasFocus()) scheduleRead()
   }))
-  cleanup.push(subscribe('connected', () => { if (initialized) { sync(); loadGroup() } }))
-  cleanup.push(subscribe('chat_message_acknowledgement', event => { if (event.projectId === String(props.projectId)) sync() }))
+  const recoverRealtime = () => {
+    messageFreshness.invalidate(); memberFreshness.invalidate()
+    if (initialized) foreground(true)
+  }
+  cleanup.push(subscribe('connected', recoverRealtime), subscribe('chat_realtime_recovered', recoverRealtime))
+  cleanup.push(subscribe('chat_remote_message_changed', event => {
+    if (event.projectType === props.projectType && event.projectId === String(props.projectId)) void messageRefresh.schedule()
+  }))
+  cleanup.push(subscribe('chat_message_acknowledgement', event => {
+    if (event.projectType === props.projectType && event.projectId === String(props.projectId)) {
+      messageFreshness.invalidate()
+      void scheduleFullSync()
+    }
+  }))
   document.addEventListener('visibilitychange', foreground); window.addEventListener('focus', foreground)
   window.addEventListener('resize', closeMention)
   if (!isDirect.value) {
     try { await annotationChatRequest(props.projectId, 'start', { method: 'post' }) }
     catch (e) { error.value = detail(e); resolveReady(); return }
   }
-  await loadGroup(); await search()
+  await Promise.all([loadGroup(), search()])
   initialized = true; resolveReady()
   if (props.targetMessageId) await locate(props.targetMessageId)
   // WebSocket 事件即时同步；定时轮询仅兜底当前可见会话，避免最小化窗口持续请求。
   let pollCount = 0
   if (!disposed) syncTimer = setInterval(() => {
     if (!props.active || document.visibilityState !== 'visible') return
-    sync(); scheduleRead()
-    if (++pollCount % 2 === 0) loadGroup()
-  }, 30000)
+    void scheduleFullSync(); scheduleRead()
+    if (++pollCount % 2 === 0) void groupRefresh.schedule()
+  }, 30000 + Math.floor(Math.random() * 5000))
 })
 const draft = useChatDraft(
   computed(() => [props.projectType, props.projectId]),
@@ -606,6 +668,7 @@ onBeforeUnmount(() => {
   files.value.forEach(row => row.controller?.abort())
   imageQueue.clear()
   disposed = true; ++generation; searchController?.abort(); clearTimeout(searchTimer); clearTimeout(readTimer); clearInterval(syncTimer)
+  messageRefresh.stop(); groupRefresh.stop()
   cancelLocate(); resolveReady()
   unwatch?.(); cleanup.forEach(fn => fn()); observer?.disconnect()
   document.removeEventListener('visibilitychange', foreground); window.removeEventListener('focus', foreground)

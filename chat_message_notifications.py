@@ -5,7 +5,7 @@ from chat_time import now, BUSINESS_TIMEZONE
 from models import AppNotification, AppUser, ChatProjectMessage, ChatMentionNotificationTarget
 
 
-def ordinary_notifications(db, kind, conversation_id, sender, mentioned_ids, message):
+def ordinary_notifications(db, kind, conversation_id, sender, mentioned_ids, message, *, discussion_room=None):
     from crud import create_notifications_for_users
     from chat_access_service import member_ids
     if kind == 'direct':
@@ -15,15 +15,15 @@ def ordinary_notifications(db, kind, conversation_id, sender, mentioned_ids, mes
     else:
         members = member_ids(db, kind, conversation_id)
     ids = members - {sender.id} - set(mentioned_ids)
-    users = db.query(AppUser).filter(AppUser.id.in_(ids), AppUser.is_active.is_(True)).all() if ids else []
+    if kind == 'discussion':
+        from discussion_mentions import eligible_users
+        users = eligible_users(db, discussion_room, ids) if ids else []
+    else:
+        users = db.query(AppUser).filter(AppUser.id.in_(ids), AppUser.is_active.is_(True)).all() if ids else []
     if kind in {'annotation', 'translation'}:
         from annotation_chat_service import can_view
         from permission_service import user_has_permission
         users = [u for u in users if (can_view(db, u) if kind == 'annotation' else user_has_permission(db, u.id, 'projects:read'))]
-    elif kind == 'discussion':
-        from discussion_mentions import eligible_users
-        from discussion_chat_service import require_room
-        users = eligible_users(db, require_room(db, sender, conversation_id), ids) if ids else []
     labels = {'direct': '私聊', 'translation': '项目群聊', 'annotation': '标注群聊', 'discussion': '讨论群聊'}
     types = {'direct': 'direct_chat', 'translation': 'project_chat', 'annotation': 'annotation_project_chat', 'discussion': 'discussion_chat'}
     rows = create_notifications_for_users(db, [u.id for u in users], title=f'{labels[kind]}新消息',

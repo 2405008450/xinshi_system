@@ -74,3 +74,35 @@ def test_duty_retains_existing_lateness_grace(start, late):
     assert result['late_minutes'] == late
     if start == '09:30':
         assert result['overtime_minutes'] == 30
+
+
+def test_workbench_shift_reads_published_weekday_and_fixed_shifts(environment, monkeypatch):
+    import fixed_shift
+    db, users = environment
+    admin, person, other = users
+    setup(db, users)
+    monkeypatch.setattr('notification_ws.broadcast_to_users', lambda *args: None)
+    # 1. 新版月/周排班安排早班后，工作台顶部接口应直接返回早班，而非未安排
+    monthly_shift.save_plan(db, admin, '2026-11', payload(person, shift='early'))
+    weekday = date(2026, 11, 25)
+    header = get_my_employee_shift(weekday, False, db, person)['me']['days'][0]
+    assert header['shift_code'] == 'early'
+    assert header['shift_label'] == '早班'
+    assert (header['start_time'], header['end_time']) == ('09:00', '18:30')
+    assert header['periods'] == ['09:00–12:00', '13:30–18:30']
+    assert header['source'] == 'published_schedule'
+
+    # 2. 未排班的其他员工仍显示未安排，周末显示休息
+    other_header = get_my_employee_shift(weekday, False, db, other)['me']['days'][0]
+    assert other_header['shift_code'] == 'unassigned'
+    assert get_my_employee_shift(date(2026, 11, 28), False, db, person)['me']['days'][0]['shift_code'] == 'off'
+
+    # 3. 固定灵活班次（periods 为空）不报错且正确标记 fixed
+    fixed_shift.save_config(db, admin, fixed_shift.FixedWrite(
+        revision=0, assignments=[{'user_id': other.id, 'department': 'it', 'shift': 'flexible'}]))
+    flex = get_my_employee_shift(weekday, False, db, other)['me']['days'][0]
+    assert flex['shift_code'] == 'flexible'
+    assert flex['shift_label'] == '灵活班次'
+    assert (flex['start_time'], flex['end_time']) == (None, None)
+    assert flex['periods'] == []
+    assert flex['fixed'] is True

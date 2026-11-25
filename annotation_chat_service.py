@@ -157,7 +157,7 @@ def serialize_many(db, rows, user):
 
 
 def send_message(db, project_id, user, payload, *, commit=True, max_mentions=20):
-    from project_chat_crud import _create_chat_mentions, _push_notifications
+    from project_chat_crud import _create_chat_mentions, commit_chat_notifications
     project = require_project(db, project_id, user, lock=True)
     # 同一项目写入串行化，保证阅读序号和幂等重试不会越过尚未提交的消息。
     if payload.client_message_id:
@@ -220,8 +220,7 @@ def send_message(db, project_id, user, payload, *, commit=True, max_mentions=20)
     notifications.extend(ordinary_notifications(db, 'annotation', project_id, user, [p.id for p in mentioned], message))
     link_notifications(db, notifications, message.id)
     if commit:
-        db.commit()
-        _push_notifications(notifications)
+        commit_chat_notifications(db, notifications)
         publish(db, project_id, 'message', message.id)
         from project_chat_crud import _broadcast_live_message
         _broadcast_live_message(db, message, 'annotation')

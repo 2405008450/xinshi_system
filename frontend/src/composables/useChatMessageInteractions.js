@@ -1,15 +1,20 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { chatRequest } from '@/api/projectChat'
 import { subscribe } from '@/utils/realtimeSocket'
+import { createCoalescedRefresh } from '@/utils/coalescedRefresh'
 
 export function useChatMessageInteractions({ projectId, projectType, messages, active }) {
   const stats = reactive({}), viewsAvailable = ref(null), error = ref('')
   const base = computed(() => `conversations/${projectType.value}/${projectId.value}`)
   const elements = new Map(), visible = new Set(), recorded = new Set()
-  let observer, timer, refreshTimer, flushTimer, request, version = 0, disposed = false, posting = false, inflight = false, dirty = false
+  let observer, timer, flushTimer, request, version = 0, disposed = false, posting = false, inflight = false, dirty = false
   let unsubscribe = []
   const foreground = () => active.value && document.visibilityState === 'visible' && document.hasFocus()
-  function queueRefresh() { clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, 180) }
+  const scheduledRefresh = createCoalescedRefresh(refresh, {
+    debounceMs: 180, minIntervalMs: 3000,
+    visible: () => !disposed && active.value && document.visibilityState === 'visible',
+  })
+  function queueRefresh() { void scheduledRefresh.schedule() }
   async function refresh() {
     if (disposed || !active.value || !projectId.value) return
     const ids = [...new Set([...visible, ...messages.value.slice(-100).map(row => String(row.id))])].slice(0, 100)
@@ -69,13 +74,13 @@ export function useChatMessageInteractions({ projectId, projectType, messages, a
     for (const type of ['chat_message_interactions', 'annotation_chat_changed', 'direct_chat_changed', 'chat_message', 'chat_sessions_changed']) {
       unsubscribe.push(subscribe(type, event => { if ((!event.projectId || String(event.projectId) === String(projectId.value)) && (!event.projectType || event.projectType === projectType.value)) queueRefresh() }))
     }
-    timer = setInterval(() => { if (foreground()) { refresh(); queueFlush() } }, 8000)
+    timer = setInterval(() => { if (foreground()) { queueRefresh(); queueFlush() } }, 20000 + Math.floor(Math.random() * 5000))
     document.addEventListener('visibilitychange', onFocus); window.addEventListener('focus', onFocus)
     queueRefresh()
   })
   onBeforeUnmount(() => {
     disposed = true; ++version; request?.abort(); observer?.disconnect()
-    clearInterval(timer); clearTimeout(refreshTimer); clearTimeout(flushTimer); unsubscribe.forEach(fn => fn())
+    clearInterval(timer); scheduledRefresh.stop(); clearTimeout(flushTimer); unsubscribe.forEach(fn => fn())
     document.removeEventListener('visibilitychange', onFocus); window.removeEventListener('focus', onFocus)
   })
   return { stats, viewsAvailable, error, observe, refresh }

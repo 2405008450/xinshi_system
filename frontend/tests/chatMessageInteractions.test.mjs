@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
+import { createCoalescedRefresh } from '../src/utils/coalescedRefresh.js'
 
 const source=readFileSync(new URL('../src/composables/useChatMessageInteractions.js',import.meta.url),'utf8').replace(/^import .*\r?\n/gm,'').replace('export function','function')
 function harness({available=true}={}){
@@ -9,11 +10,16 @@ function harness({available=true}={}){
   let observer,sequence=0,focused=true
   const document={visibilityState:'visible',hasFocus:()=>focused,addEventListener(){},removeEventListener(){}}
   const window={addEventListener(){},removeEventListener(){}}
+  const setTimer = fn => { const id = ++sequence; timers.set(id, fn); return id }
   const api=runInNewContext(source+`;useChatMessageInteractions(options)`,{
     options:{projectId:{value:'project'},projectType:{value:'annotation'},messages:{value:[{id:'visible'},{id:'hidden'}]},active},
     computed:fn=>({get value(){return fn()}}),reactive:value=>value,ref:value=>({value}),watch(){},onMounted:fn=>mounted.push(fn),onBeforeUnmount:fn=>disposed.push(fn),
     document,window,AbortController,subscribe:()=>()=>{},
-    setTimeout:fn=>{const id=++sequence;timers.set(id,fn);return id},clearTimeout:id=>timers.delete(id),setInterval:()=>1,clearInterval(){},
+    setTimeout:setTimer,clearTimeout:id=>timers.delete(id),setInterval:()=>1,clearInterval(){},
+    createCoalescedRefresh: (task, options) => createCoalescedRefresh(task, {
+      ...options, setTimer: callback => setTimer(function refresh() { return callback() }),
+      clearTimer: id => timers.delete(id),
+    }),
     IntersectionObserver:class{constructor(callback,options){observer={callback,options}}observe(){}unobserve(){}disconnect(){}},
     chatRequest:async(path,options)=>{calls.push({path,options});return path.endsWith('message-stats')?{viewsAvailable:available,items:[]}:{}},
   })

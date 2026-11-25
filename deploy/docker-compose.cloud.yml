@@ -53,6 +53,8 @@ services:
       DB_LOCK_TIMEOUT_MS: "${DB_LOCK_TIMEOUT_MS:-5000}"
       DB_IDLE_TRANSACTION_TIMEOUT_MS: "${DB_IDLE_TRANSACTION_TIMEOUT_MS:-60000}"
       CHAT_UPLOAD_DIR: /app/data/chat_uploads
+      CHAT_REALTIME_REDIS_URL: "${CHAT_REALTIME_REDIS_URL:-}"
+      CHAT_REALTIME_CHANNEL: "${CHAT_REALTIME_CHANNEL:-xinshi:chat:events:v1}"
       COMPANY_MANAGEMENT_UPLOAD_DIR: /app/data/company_management_uploads
       COMPANY_MANAGEMENT_ATTACHMENT_STORAGE_MODE: local
       ANNOTATION_CUSTOM_FIELD_IMAGE_DIR: /app/data/annotation_custom_field_images

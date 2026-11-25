@@ -43,7 +43,7 @@ def environment(monkeypatch):
     monkeypatch.setattr(categories, 'can_manage_folders', lambda db, user: user.username == 'owner')
     monkeypatch.setattr(categories, 'changed', lambda *a: None)
     monkeypatch.setattr(discussions, 'can_view', lambda db, user: bool(user and user.is_active))
-    monkeypatch.setattr(discussions, 'publish', lambda *a: None)
+    monkeypatch.setattr(discussions, 'publish', lambda *args, **kwargs: None)
     yield db, users
     db.close(); engine.dispose()
 

@@ -1,6 +1,6 @@
 """补卡行政确认、权限及跨日顺延；仅隔离SQLite，不发送真实通知。"""
 from datetime import date
-from uuid import uuid4
+from uuid import UUID,uuid4
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -178,3 +178,39 @@ def test_update_checkout_preserves_declarations_and_next_start(prepared,monkeypa
  adjustment=db.query(correction.AttendanceStartAdjustment).one()
  assert attendance.stamp(adjustment.next_start)==at('2026-10-29T10:30')
  assert adjustment.reason=='更正后续上班时间'
+
+
+def test_confirm_checkin_ignores_prior_unclosed_and_later_completed_sessions(prepared,monkeypatch):
+ db,(admin,person,_)=prepared
+ # 历史日期存在未签退记录时，当日补上班应可正常确认
+ punch(db,person,monkeypatch,'2026-10-26T09:00')
+ monkeypatch.setattr(correction,'now',lambda:at('2026-10-28T10:00'))
+ today_uid=correction.submit(db,person,correction.CorrectionWrite(**{**request().model_dump(),'day':'2026-10-28','requested_at':at('2026-10-28T08:58')}))['record']['id']
+ assert correction.confirm(db,admin,today_uid)['record']['status']=='confirmed'
+ # 补过去日期上班卡且后续日期已有已完成打卡时，也应可正常确认
+ out(db,person,{'id':str(db.query(Clock).filter_by(day=date(2026,10,28)).one().id)},monkeypatch,'2026-10-28T18:30')
+ monkeypatch.setattr(correction,'now',lambda:at('2026-10-29T10:00'))
+ past_uid=correction.submit(db,person,correction.CorrectionWrite(**{**request().model_dump(),'day':'2026-10-27','requested_at':at('2026-10-27T09:00')}))['record']['id']
+ assert correction.confirm(db,admin,past_uid)['record']['status']=='confirmed'
+
+
+def test_confirm_still_rejects_real_interval_overlaps(prepared,monkeypatch):
+ db,(admin,person,_)=prepared
+ first=punch(db,person,monkeypatch,'2026-10-26T09:00')
+ second=punch(db,person,monkeypatch,'2026-10-27T09:00')
+ # 补下班跨越后一日未签退打卡组的上班时间时应拦截
+ monkeypatch.setattr(correction,'now',lambda:at('2026-10-28T10:00'))
+ bad_out=correction.submit(db,person,correction.CorrectionWrite(**{**request().model_dump(),'day':'2026-10-26','kind':'out','record_id':first['id'],'requested_at':at('2026-10-27T10:00'),'next_start':at('2026-10-27T11:00'),'dinner_eaten':False}))['record']['id']
+ with pytest.raises(HTTPException) as overlap_unclosed:correction.confirm(db,admin,bad_out)
+ assert overlap_unclosed.value.status_code==409
+ # 补下班跨越后一日已完成打卡组时也应拦截
+ out(db,person,second,monkeypatch,'2026-10-27T18:30')
+ with pytest.raises(HTTPException) as overlap_out:correction.confirm(db,admin,bad_out)
+ assert overlap_out.value.status_code==409
+ # 补上班时间落入已有已完成工作组时段内部时应拦截
+ third=punch(db,person,monkeypatch,'2026-10-28T09:00')
+ monkeypatch.setattr(correction,'now',lambda:at('2026-10-28T12:00'))
+ db.query(Clock).filter_by(id=UUID(second['id'])).update({'check_out':at('2026-10-28T11:00')});db.commit()
+ bad_in=correction.submit(db,person,correction.CorrectionWrite(**{**request().model_dump(),'day':'2026-10-28','record_id':third['id'],'requested_at':at('2026-10-28T10:00')}))['record']['id']
+ with pytest.raises(HTTPException) as overlap_in:correction.confirm(db,admin,bad_in)
+ assert overlap_in.value.status_code==409

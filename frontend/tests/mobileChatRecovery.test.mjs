@@ -289,6 +289,7 @@ test('恢复补查未读提醒，忽略旧响应并避免实时事件和补查�
     CONVERSATION_NOTIFICATION_TYPES, createChatNotificationFeed, isPersistentChatNotification, isVisibleConversation,
     isChatWindowVisible: () => false, document: { visibilityState: 'hidden', hasFocus: () => false },
     createVisiblePolling: () => ({ start() {}, stop() {}, trigger() {} }),
+    createCoalescedRefresh,
     ...h, h: (...args) => args, ElMessage: { info() {}, error() {} },
     ElNotification: options => { displayed.push(options); return { close() {} } },
     getNotifications: (params, options) => params.channel === 'business' ? Promise.resolve([]) : h.request({ params, ...options }),

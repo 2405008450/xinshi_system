@@ -258,7 +258,7 @@ app.include_router(editor_screenshots.router)
 app.add_middleware(EditorScreenshotMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
 from database_request_capacity import DatabaseRequestCapacityMiddleware
-app.add_middleware(DatabaseRequestCapacityMiddleware, transfer_limit=4)
+app.add_middleware(DatabaseRequestCapacityMiddleware, transfer_limit=4, chat_send_reserve=4, chat_catalog_limit=4)
 
 
 @app.middleware("http")

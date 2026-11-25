@@ -6,6 +6,7 @@ from search_matching import keyword_ilike, keyword_or
 from datetime import date, datetime, time, timedelta
 from io import BytesIO
 import json
+import re
 from typing import Optional, List
 from uuid import UUID
 
@@ -627,6 +628,16 @@ def _lock_for_date(lock_rows: dict, user_id, schedule_day: date):
     return next((row for row in reversed(candidates) if row.effective_from <= schedule_day), None)
 
 
+def _published_shift_bounds(periods: Optional[list]) -> tuple[Optional[str], Optional[str]]:
+    if not periods:
+        return None, None
+    first = re.split(r"[–—-]", str(periods[0]))
+    last = re.split(r"[–—-]", str(periods[-1]))
+    start_time = first[0].strip() if first else None
+    end_time = last[-1].strip() if last else None
+    return start_time or None, end_time or None
+
+
 def _resolve_employee_shift_rows(
     db: Session,
     users: list[AppUser],
@@ -673,16 +684,15 @@ def _resolve_employee_shift_rows(
     overrides = {(row.user_id, row.schedule_date): row for row in override_rows}
 
     dates = [date_from + timedelta(days=offset) for offset in range((date_to - date_from).days + 1)]
-    # 工作台与员工班次列表共用已同步的值班依据，不能被旧模板的周末休息覆盖。
+    # 工作台与员工班次列表统一复用新版排班与值班依据（每周排班、月排班、固定班次、周末值班），
+    # 避免工作台左上角与下方“排班与考勤”不一致；旧模板/临时调整仅在无新版排班时兜底。
     from attendance_service import shifts_for
     from attendance_recalculation import ScheduleInputs
-    weekend_dates = [day for day in dates if day.weekday() >= 5]
     schedule = ScheduleInputs(db)
-    schedule.prefetch(weekend_dates)
-    duty_shifts = {
-        day: {uid: shift for uid, shift in shifts_for(db, users, day, schedule=schedule).items()
-              if shift.get('weekend_duty')}
-        for day in weekend_dates
+    schedule.prefetch(dates)
+    published_shifts = {
+        day: shifts_for(db, users, day, schedule=schedule)
+        for day in dates
     }
     result = []
     for user in users:
@@ -707,13 +717,22 @@ def _resolve_employee_shift_rows(
                     value.update({"source": "template", "note": None})
                 else:
                     value = _default_shift_for_date(schedule_day)
-            duty = duty_shifts.get(schedule_day, {}).get(str(user.id))
-            if duty:
-                periods = duty['periods']
-                value = {'shift_code': duty['code'], 'shift_label': duty['label'],
-                         'start_time': periods[0].split('–')[0],
-                         'end_time': periods[-1].split('–')[-1],
-                         'periods': periods, 'source': 'weekend_duty_publication', 'note': None}
+            published = published_shifts.get(schedule_day, {}).get(str(user.id))
+            if published:
+                periods = published.get('periods') or []
+                start_time, end_time = _published_shift_bounds(periods)
+                value = {
+                    'shift_code': published['code'],
+                    'shift_label': published['label'],
+                    'start_time': start_time,
+                    'end_time': end_time,
+                    'periods': periods,
+                    'source': 'weekend_duty_publication' if published.get('weekend_duty') else 'published_schedule',
+                    'note': None,
+                    'fixed': bool(published.get('fixed')),
+                    'home_office_day': bool(published.get('home_office_day')),
+                    'home_rotation': bool(published.get('home_rotation')),
+                }
             days.append({
                 "date": schedule_day.isoformat(),
                 **value,

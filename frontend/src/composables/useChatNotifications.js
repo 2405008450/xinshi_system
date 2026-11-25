@@ -6,6 +6,7 @@ import { createChatNotificationFeed } from '@/utils/chatNotificationPolicy'
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
 import { subscribe } from '@/utils/realtimeSocket'
 import { createVisiblePolling } from '@/utils/visiblePolling'
+import { createCoalescedRefresh } from '@/utils/coalescedRefresh'
 import { showDesktopNotification } from '@/utils/desktopNotifications'
 import { isChatNotification, isChatMentionNotification, CONVERSATION_NOTIFICATION_TYPES } from '@/utils/notificationChannels'
 import { notificationAcknowledgements } from '@/utils/notificationAcknowledgements'
@@ -82,20 +83,21 @@ export function useChatNotifications() {
     } catch { /* 离线时保留会话未读与现有提醒，后续轮询重试。 */ }
     finally { if (version === generation) { loading = false; if (pendingInitial) { pendingInitial = false; poll(true) } } }
   }
+  const eventRefresh = createCoalescedRefresh(() => poll(), { minIntervalMs: 8000 })
   onMounted(() => {
     // 推送为主通道；轮询补偿跨后端推送，隐藏页面放慢但保留桌面提醒。
-    poll(true); polling = createVisiblePolling({ task: () => poll(), visibleMs: 30000, hiddenMs: 120000 }); polling.start()
+    poll(true); polling = createVisiblePolling({ task: () => eventRefresh.schedule(), visibleMs: 30000 + Math.floor(Math.random() * 5000), hiddenMs: 120000 }); polling.start()
     cleanups.push(subscribe('notification', payload => {
       const item = payload?.notification
       if (item && (isChatNotification(item) || isConversationNotice(item)) && remember(item.id)) display(item)
     }))
     cleanups.push(subscribe('connected', () => poll(true)))
-    for (const event of ['chat_sessions_changed', 'annotation_chat_changed', 'direct_chat_changed']) {
-      cleanups.push(subscribe(event, () => poll()))
+    for (const event of ['chat_sessions_changed', 'annotation_chat_changed', 'direct_chat_changed', 'chat_remote_message_changed', 'chat_realtime_recovered']) {
+      cleanups.push(subscribe(event, () => eventRefresh.schedule()))
     }
     cleanups.push(subscribe('foreground', () => poll(true, true)))
   })
   onBeforeUnmount(() => {
-    disposed = true; ++generation; controller?.abort(); polling?.stop(); cleanups.forEach(cleanup => cleanup())
+    disposed = true; ++generation; controller?.abort(); polling?.stop(); eventRefresh.stop(); cleanups.forEach(cleanup => cleanup())
   })
 }

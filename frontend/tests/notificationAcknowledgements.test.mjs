@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import { createNotificationAcknowledgements } from '../src/utils/notificationAcknowledgements.js'
+import { createCoalescedRefresh } from '../src/utils/coalescedRefresh.js'
 import { isChatNotification, isChatMentionNotification, isChatAttentionNotification, CONVERSATION_NOTIFICATION_TYPES } from '../src/utils/notificationChannels.js'
 
 test('系统通知先打开目标，已读接口未完成也会结束跳转等待提示', async () => {
@@ -84,6 +85,7 @@ function mountChat(browser, item, markRead = async () => {}, desktopEnabled = tr
     showDesktopNotification: (notification, onClick) => { if (!desktopEnabled) return false; desktops.push({notification,onClick}); return true }, isChatNotification, isChatMentionNotification, isChatAttentionNotification,
     // 轮询调度由 visiblePolling.test.mjs 覆盖；这里用惰性实现，由用例手动触发 poll。
     createVisiblePolling: () => ({ start() {}, stop() {}, trigger() {} }),
+    createCoalescedRefresh,
     localStorage: browser.storage, window: { focus() {}, setInterval() {}, clearInterval() {} }, AbortController, ...overrides,
   })
   mounts.forEach(fn => fn())

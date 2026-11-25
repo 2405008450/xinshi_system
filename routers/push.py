@@ -3,6 +3,8 @@ import ipaddress
 import json
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
+from threading import BoundedSemaphore
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -11,12 +13,14 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
-from database import get_db
+from database import SessionLocal, get_db
 from models import AppUser, PushSubscription
 from routers.auth import get_current_user
 
 router = APIRouter(prefix='/push', tags=['Push'])
 logger = logging.getLogger(__name__)
+_push_slots = BoundedSemaphore(32)
+_push_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='browser-push')
 
 
 class EndpointRequest(BaseModel):
@@ -81,6 +85,24 @@ def unsubscribe(req: EndpointRequest, db: Session = Depends(get_db), current_use
         db.query(PushSubscription).filter_by(user_id=current_user.id, endpoint=req.endpoint).delete(synchronize_session=False)
         db.commit()
     return {'status': 'ok'}
+
+
+def queue_push_to_user(user_id, title, body, url='/'):
+    # 浏览器离线提醒走独立的有界队列；消息与站内通知已经在发送事务中保存。
+    if not configured() or not _push_slots.acquire(blocking=False):
+        return
+
+    def deliver():
+        try:
+            with SessionLocal() as db:
+                send_push_to_user(db, user_id, title, body, url)
+        finally:
+            _push_slots.release()
+
+    try:
+        _push_executor.submit(deliver)
+    except RuntimeError:
+        _push_slots.release()
 
 
 def send_push_to_user(db, user_id, title, body, url='/'):

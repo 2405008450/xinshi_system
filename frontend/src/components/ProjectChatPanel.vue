@@ -23,6 +23,7 @@
           <el-popover title="项目筛选"
             v-if="collapsibleFilters"
             v-model:visible="filterPopoverVisible"
+            @show="ensureUsersLoaded"
             trigger="click"
             placement="bottom-end"
             width="min(560px, calc(100vw - 32px))"
@@ -600,6 +601,8 @@ import {draftImages} from '@/utils/chatDrafts'
 import { getLocalizedErrorMessage } from '@/utils/errorMessages'
 import { copyTextToClipboard } from '@/utils/clipboard'
 import { ensureConnected, subscribe } from '@/utils/realtimeSocket'
+import { createCoalescedRefresh } from '@/utils/coalescedRefresh'
+import { CHAT_MEMBERS_REFRESH_MS, CHAT_WINDOW_REFRESH_MS, createChatWindowFreshness } from '@/utils/chatWindowFreshness'
 import {
   acknowledgeProjectChatMessage,
   createProjectChatMessage,
@@ -695,13 +698,16 @@ const addComposerImages = files => {
 }
 const userOptions = ref([])
 const memberUserIds = ref([])
+const memberFreshness = createChatWindowFreshness(CHAT_MEMBERS_REFRESH_MS)
+const messageFreshness = createChatWindowFreshness(CHAT_WINDOW_REFRESH_MS)
 const desktopPresenceOpen = ref(false)
 const { statuses: desktopPresence, workStatuses, loading: desktopPresenceLoading } = useDesktopPresence(computed(() => userOptions.value.map(user => user.id)), computed(() => props.active && desktopPresenceOpen.value))
 const mentionProject = useAnnotationMentionManagers(computed(() => props.projectId), computed(() => props.projectType === 'annotation' && props.active && desktopPresenceOpen.value))
 const mentionSearchQuery = ref(''), showExternalMentions = ref(false)
 function handleMentionVisible(visible) {
   desktopPresenceOpen.value = visible
-  if (!visible) { mentionSearchQuery.value = ''; showExternalMentions.value = false }
+  if (visible) void ensureUsersLoaded()
+  else { mentionSearchQuery.value = ''; showExternalMentions.value = false }
 }
 const mentionUserGroups = computed(() => {
   const users = mentionAudience(
@@ -835,6 +841,10 @@ let unsubscribeChatMessage = null
 let unsubscribeChatMessageEdited = null
 let unsubscribeChatAcknowledgement = null
 let unsubscribeSocketConnected = null
+let unsubscribeRelayRecovered = null
+let unsubscribeRemoteMessage = null
+let unsubscribeMembersChanged = null
+let conversationLoadVersion = 0
 let newerMessageNoticeShown = false
 
 const clearProgressSelection = (exitMode = false) => {
@@ -1049,9 +1059,12 @@ const conversationLoadLatest = async ({ scrollToEnd = true } = {}) => {
     pagination.total = 0
     return
   }
+  const version = ++conversationLoadVersion
   messagesLoading.value = true
+  const markFresh = messageFreshness.begin()
   try {
     const res = await getProjectChatMessages(props.projectId, buildMessageParams(0, conversationPageSize), props.projectType)
+    if (version !== conversationLoadVersion) return
     settings.enabled = !!res?.enabled
     if (typeof res?.canManage === 'boolean') settings.canManage = res.canManage
     // 后端按时间倒序返回，会话视图反转为正序展示。
@@ -1060,18 +1073,19 @@ const conversationLoadLatest = async ({ scrollToEnd = true } = {}) => {
     viewingHistory.value = false
     historyHasOlder.value = false
     pendingNewCount.value = 0
+    markFresh()
     await ensureAttachmentUrls(messages.value)
     if (scrollToEnd) {
       await nextTick()
-      scrollConversationToBottom()
+      if (version === conversationLoadVersion) scrollConversationToBottom()
     }
   } catch (error) {
+    if (version !== conversationLoadVersion) return
     messages.value = []
     pagination.total = 0
     ElMessage.error(getLocalizedErrorMessage(error, '加载沟通记录失败'))
   } finally {
-    messagesLoading.value = false
-    scheduleRead()
+    if (version === conversationLoadVersion) { messagesLoading.value = false; scheduleRead() }
   }
 }
 
@@ -1148,33 +1162,62 @@ const loadEarlierMessages = async () => {
 }
 
 // 轮询与重连时静默合并最新消息，避免打断用户阅读历史消息。
+let refreshingLatest = false
 const mergeLatestConversationMessages = async () => {
-  if (!props.projectId || activeFilterCount.value || viewingHistory.value || messagesLoading.value || loadingEarlier.value) return
+  if (!props.projectId || activeFilterCount.value || viewingHistory.value || messagesLoading.value || loadingEarlier.value || refreshingLatest) return
+  const { projectId, projectType } = props
+  const version = conversationLoadVersion
+  const markFresh = messageFreshness.begin()
+  refreshingLatest = true
   try {
-    const res = await getProjectChatMessages(props.projectId, buildMessageParams(0, conversationPageSize), props.projectType)
+    const res = await getProjectChatMessages(projectId, buildMessageParams(0, conversationPageSize), projectType)
+    if (version !== conversationLoadVersion || viewingHistory.value || activeFilterCount.value) return
+    const wasEnabled = settings.enabled
     settings.enabled = !!res?.enabled
+    if (typeof res?.canManage === 'boolean') settings.canManage = res.canManage
     const latestItems = Array.isArray(res?.items) ? res.items : []
     const existingById = new Map(messages.value.map(item => [String(item.id), item]))
+    const wasDetached = existingById.size > 0 && latestItems.length > 0
+      && latestItems.every(item => !existingById.has(String(item.id)))
+    let reachedExisting = !wasDetached
+    // 最新页与已有记录完全错开时按锚点补齐断线期间的消息。
+    if (wasDetached && settings.enabled) {
+      for (let page = 0; page < 3 && !reachedExisting; page++) {
+        const oldest = latestItems.at(-1)
+        const gap = await getProjectChatMessages(projectId, {
+          before_created_at: oldest.createdAt, before_id: oldest.id, limit: 100,
+        }, projectType)
+        if (version !== conversationLoadVersion || viewingHistory.value || activeFilterCount.value) return
+        const older = gap?.items || []
+        reachedExisting = older.some(item => existingById.has(String(item.id)))
+        const lastIndex = older.findLastIndex(item => existingById.has(String(item.id)))
+        latestItems.push(...older.slice(Math.max(0, lastIndex)).reverse())
+        if (!gap?.hasOlder || !older.length) break
+      }
+    }
     latestItems.forEach((item) => {
       const existing = existingById.get(String(item.id))
-      if (existing) syncAcknowledgementState(existing, item)
+      if (!existing || Date.parse(existing.updatedAt) > Date.parse(item.updatedAt)) return
+      Object.assign(existing, item)
+      syncAcknowledgementState(existing, item)
     })
-    const existingIds = new Set(messages.value.map(item => String(item.id)))
-    const fresh = latestItems
-      .filter(item => !existingIds.has(String(item.id)))
-      .reverse()
-    pagination.total = Number(res?.total || pagination.total)
-    if (!fresh.length) return
+    const fresh = latestItems.filter(item => !existingById.has(String(item.id))).reverse()
+    const replacePage = (wasEnabled && !settings.enabled) || (wasDetached && !reachedExisting)
+      || (messages.value.length > 0 && !latestItems.length)
+    pagination.total = Number(res?.total ?? pagination.total)
+    markFresh()
+    if (!fresh.length && !replacePage) return
     const wasAtBottom = isConversationAtBottom()
-    messages.value = [...messages.value, ...fresh]
-    await ensureAttachmentUrls(fresh)
+    const incoming = replacePage ? latestItems.slice().reverse() : fresh
+    messages.value = replacePage ? incoming : [...messages.value, ...incoming]
+    await ensureAttachmentUrls(incoming)
     await nextTick()
-    if (!props.active) return
+    if (version !== conversationLoadVersion || !props.active) return
     if (wasAtBottom) scrollConversationToBottom()
     else pendingNewCount.value += fresh.length
   } catch (error) {
     console.error('刷新沟通消息失败', error)
-  }
+  } finally { refreshingLatest = false }
 }
 
 const handleConversationScroll = ({ scrollTop }) => {
@@ -1215,6 +1258,7 @@ const conversationItems = computed(() => {
 
 const toggleFilters = () => {
   conversationFiltersVisible.value = !conversationFiltersVisible.value
+  if (conversationFiltersVisible.value) void ensureUsersLoaded()
 }
 
 const openSearch = async () => {
@@ -1225,9 +1269,11 @@ const openSearch = async () => {
 const locateMessage = async (messageId) => {
   autoScroll.pause()
   if (!messageId || !props.projectId) return
+  const version = ++conversationLoadVersion
   messagesLoading.value = true
   try {
     const res = await getProjectChatMessages(props.projectId, { around: messageId, limit: 40 }, props.projectType)
+    if (version !== conversationLoadVersion) return
     messages.value = Array.isArray(res?.items) ? res.items : []
     pagination.total = Number(res?.total || messages.value.length)
     viewingHistory.value = true
@@ -1235,16 +1281,17 @@ const locateMessage = async (messageId) => {
     pendingNewCount.value = 0
     await ensureAttachmentUrls(messages.value)
     await nextTick()
+    if (version !== conversationLoadVersion) return
     const target = getScrollWrap()?.querySelector(`[data-message-id="${messageId}"]`)
     target?.scrollIntoView({ block: 'center', behavior: 'smooth' })
     highlightedMessageId.value = String(messageId)
     window.clearTimeout(highlightTimer)
     highlightTimer = window.setTimeout(() => { highlightedMessageId.value = '' }, 1800)
   } catch (error) {
+    if (version !== conversationLoadVersion) return
     ElMessage.error(getLocalizedErrorMessage(error, '定位消息失败'))
   } finally {
-    messagesLoading.value = false
-    scheduleRead()
+    if (version === conversationLoadVersion) { messagesLoading.value = false; scheduleRead() }
   }
 }
 
@@ -1352,6 +1399,14 @@ const { inputStyle: composerInputStyle, start: startComposerResize, resizeByKeyb
 defineExpose({ toggleFilters, openSearch, locateMessage, locate: locateMessage })
 
 const resetChatState = () => {
+  ++conversationLoadVersion
+  messagesLoading.value = false
+  messageFreshness.invalidate()
+  memberFreshness.invalidate()
+  ++userOptionsVersion
+  memberRequest = null
+  userOptions.value = []
+  memberUserIds.value = []
   settings.enabled = props.alwaysEnabled
   settings.canManage = false
   messages.value = []
@@ -1383,16 +1438,22 @@ const resetChatState = () => {
   clearPolling()
 }
 
-let userOptionsVersion = 0
-const ensureUsersLoaded = async () => {
-  if (!props.projectId) return
-  const version = ++userOptionsVersion
-  try {
-    const data = await chatRequest(`conversations/${props.projectType}/${props.projectId}/participants`)
-    if (version !== userOptionsVersion) return
-    memberUserIds.value = data.members.map(user => String(user.id))
-    userOptions.value = [...data.members, ...data.eligibleUsers].map(user => ({ ...user, full_name: user.name, username: user.username || user.name }))
-  } catch (error) { console.error('加载会话人员失败', error) }
+let userOptionsVersion = 0, memberRequest = null
+const ensureUsersLoaded = () => {
+  if (!props.projectId || !memberFreshness.isStale()) return Promise.resolve()
+  if (memberRequest) return memberRequest
+  const version = userOptionsVersion
+  const markFresh = memberFreshness.begin()
+  memberRequest = chatRequest(`conversations/${props.projectType}/${props.projectId}/participants`)
+    .then(data => {
+      if (version !== userOptionsVersion) return
+      memberUserIds.value = data.members.map(user => String(user.id))
+      userOptions.value = [...data.members, ...data.eligibleUsers].map(user => ({ ...user, full_name: user.name, username: user.username || user.name }))
+      markFresh()
+    })
+    .catch(error => console.error('加载会话人员失败', error))
+    .finally(() => { if (version === userOptionsVersion) memberRequest = null })
+  return memberRequest
 }
 
 const loadSettings = async () => {
@@ -1460,6 +1521,7 @@ const loadMessages = async () => {
 
 const refreshChat = async () => {
   if (!props.projectId) return
+  if (props.conversationMode) return loadMessages()
   await Promise.all([loadSettings(), ensureUsersLoaded()])
   await loadMessages()
 }
@@ -1541,6 +1603,7 @@ const handleSend = async () => {
     draft.persistNow()
     await createProjectChatMessage(props.projectId, { ...payload, clientMessageId: sendRequestId }, props.projectType)
     if (generation !== composerGeneration) return
+    if (composer.mentionedUserIds.length) memberFreshness.invalidate()
     composer.content = ''; replyToMessage.value = null
     sendRequestId = ''; sendFingerprint = ''
     composer.contentJson = { type: 'doc', content: [{ type: 'paragraph' }] }
@@ -1549,7 +1612,6 @@ const handleSend = async () => {
     closeMentionPopover()
     pagination.page = 1
     await loadMessages()
-    await ensureUsersLoaded()
     ElMessage.success('消息已发送')
   } catch (error) {
     ElMessage.error(getLocalizedErrorMessage(error, '发送消息失败'))
@@ -1718,9 +1780,34 @@ const handleRealtimeChatAcknowledgement = (payload) => {
 }
 
 const handleSocketConnected = () => {
-  if (!props.active || !props.projectId) return
-  if (props.conversationMode) mergeLatestConversationMessages()
-  else loadMessages()
+  messageFreshness.invalidate()
+  memberFreshness.invalidate()
+  if (!props.active || !props.projectId || document.visibilityState === 'hidden') return
+  void receiveRemoteMessages.schedule()
+}
+
+const receiveRemoteMessages = createCoalescedRefresh(
+  () => props.conversationMode ? mergeLatestConversationMessages() : loadMessages(),
+  { visible: () => props.active && !!props.projectId && document.visibilityState !== 'hidden', minIntervalMs: 1200 },
+)
+
+async function handleRemoteMessage(event) {
+  if (event.projectType !== props.projectType || String(event.projectId) !== String(props.projectId)) return
+  messageFreshness.invalidate()
+  if (!props.active && event.kind === 'message') { emit('unread'); return }
+  const displayed = messages.value.find(row => String(row.id) === String(event.messageId))
+  if (event.kind === 'message' || !displayed) {
+    if (viewingHistory.value && event.kind === 'message') pendingNewCount.value += 1
+    void receiveRemoteMessages.schedule()
+    return
+  }
+  try {
+    const snapshot = await getProjectChatMessages(props.projectId, { around: event.messageId, limit: 1 }, props.projectType)
+    const current = snapshot.items?.find(row => String(row.id) === String(event.messageId))
+    if (current && messages.value.includes(displayed) && !(Date.parse(displayed.updatedAt) > Date.parse(current.updatedAt))) {
+      Object.assign(displayed, current)
+    }
+  } catch { void receiveRemoteMessages.schedule() }
 }
 
 function localTopicChanged(event) { const row = messages.value.find(value => value.id === event.detail.id); if (row) Object.assign(row, event.detail) }
@@ -1734,6 +1821,7 @@ const setupPolling = () => {
   clearPolling()
   if (!props.active || !props.projectId) return
   pollTimer = window.setInterval(() => {
+    if (document.visibilityState === 'hidden') return
     if (props.conversationMode) mergeLatestConversationMessages()
     else loadMessages()
   }, 60000)
@@ -1741,6 +1829,7 @@ const setupPolling = () => {
 
 const draft=useChatDraft(computed(()=>[props.projectType,props.projectId]),()=>({content:composer.content,contentJson:composer.contentJson,mentionIds:composer.mentionedUserIds,replyTo:replyToMessage.value,images:draftImages(pendingImages),sendRequestId,sendFingerprint}),data=>{
  composer.content=data.content;composer.contentJson=data.contentJson||{type:'doc',content:[{type:'paragraph'}]};composer.mentionedUserIds=data.mentionIds||[];replyToMessage.value=data.replyTo||null;sendRequestId=data.sendRequestId||'';sendFingerprint=data.sendFingerprint||''
+ if (composer.mentionedUserIds.length) void ensureUsersLoaded()
  pendingImages.splice(0,pendingImages.length,...(data.images||[]))
  for(const item of pendingImages){getProjectChatAttachmentBlob(item.attachment.id).then(blob=>{if(pendingImages.includes(item))item.url=URL.createObjectURL(blob)}).catch(()=>{})}
 })
@@ -1764,7 +1853,11 @@ watch(() => props.active, () => {
   }
   setupPolling()
   if (props.active && props.projectId) {
-    loadMessages()
+    if (!props.conversationMode) void loadMessages()
+    else {
+      scheduleRead()
+      if (messageFreshness.isStale()) void mergeLatestConversationMessages()
+    }
   }
 })
 
@@ -1786,15 +1879,21 @@ onMounted(() => {
   if (props.targetMessageId) locateMessage(props.targetMessageId)
   document.addEventListener('visibilitychange', scheduleRead)
   window.addEventListener('focus', scheduleRead)
-  ensureUsersLoaded()
+  unsubscribeMembersChanged = subscribe('chat_sessions_changed', event => {
+    if (!event.projectType || (event.projectType === props.projectType && String(event.projectId) === String(props.projectId) && event.membersChanged)) memberFreshness.invalidate()
+  })
   unsubscribeChatMessage = subscribe('chat_message', handleRealtimeChatMessage)
   unsubscribeChatMessageEdited = subscribe('chat_message_edited', handleRealtimeChatMessageEdited)
   unsubscribeChatAcknowledgement = subscribe('chat_message_acknowledgement', handleRealtimeChatAcknowledgement)
   unsubscribeSocketConnected = subscribe('connected', handleSocketConnected)
+  unsubscribeRelayRecovered = subscribe('chat_realtime_recovered', handleSocketConnected)
+  unsubscribeRemoteMessage = subscribe('chat_remote_message_changed', handleRemoteMessage)
   ensureConnected()
 })
 
 onBeforeUnmount(() => {
+  ++userOptionsVersion
+  ++conversationLoadVersion
   window.removeEventListener('chat-topic-message-changed', localTopicChanged)
   unsubscribeTopicChanged?.()
   window.clearTimeout(readTimer)
@@ -1805,6 +1904,10 @@ onBeforeUnmount(() => {
   unsubscribeChatMessageEdited?.()
   unsubscribeChatAcknowledgement?.()
   unsubscribeSocketConnected?.()
+  unsubscribeRelayRecovered?.()
+  unsubscribeRemoteMessage?.()
+  receiveRemoteMessages.stop()
+  unsubscribeMembersChanged?.()
   clearPolling()
   clearAttachmentUrls()
 })

@@ -2,6 +2,7 @@
 from uuid import uuid4
 import pytest
 from sqlalchemy import event
+from discussion_chat_service import publish as publish_discussion
 
 from test_chat_participant_access import environment  # noqa: F401
 from test_chat_mentions_all import chat_env, setup_discussion  # noqa: F401
@@ -97,15 +98,22 @@ def test_notify_annotation_members_permissions_and_mentions(notify_env, monkeypa
     assert db.query(AppNotification).filter_by(recipient_user_id=extra.id, is_read=False).count() == 0
 
 
-def test_notify_discussion_members_read_and_recall(notify_env):
+def test_notify_discussion_members_read_and_recall(notify_env, monkeypatch):
     db, users = notify_env
     from models import AppNotification
     from routers.discussion_chat import MessageCreate, PreferenceWrite, recall
     import discussion_chat_service as service
     room = setup_discussion(db, users)
+    broadcasts = []
+    monkeypatch.setattr(service, 'publish', publish_discussion)
+    monkeypatch.setattr(service, 'broadcast_to_users', lambda ids, event: broadcasts.append((set(ids), event)))
     payload = MessageCreate(content='普通讨论', client_message_id=uuid4())
     first = service.send(db, users[0], room, payload)
     service.send(db, users[0], room, payload)
+    assert broadcasts == [({users[0].id, users[1].id}, {
+        'type': 'chat_sessions_changed', 'projectType': 'discussion',
+        'projectId': str(room), 'membersChanged': False,
+    })]
     notice = db.query(AppNotification).one()
     assert notice.notification_type == 'discussion_chat' and notice.recipient_user_id == users[1].id
     service.preferences(db, users[1], room, PreferenceWrite(read_message_id=int(first['id'])))

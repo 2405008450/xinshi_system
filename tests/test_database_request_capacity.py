@@ -88,3 +88,70 @@ def test_auth_can_run_when_business_capacity_is_full_and_remains_bounded():
         assert messages[-2]['status'] == 503
         assert middleware.auth_capacity.borrowed_tokens == 0
     anyio.run(check)
+
+
+def test_catalog_surge_leaves_capacity_for_all_four_chat_send_routes():
+    async def check():
+        catalog_started = anyio.Event()
+        all_sends_started = anyio.Event()
+        release = anyio.Event()
+        scopes = {
+            'catalog': ('GET', '/chat/sessions/'),
+            'history': ('GET', '/chat/sessions/history'),
+            'business': ('GET', '/work-items/my'),
+            'direct': ('POST', '/chat/direct/id/messages'),
+            'discussion': ('POST', '/chat/discussions/id/messages'),
+            'translation': ('POST', '/project-chat/id/messages'),
+            'annotation': ('POST', '/project-chat/annotation/id/messages/'),
+        }
+        sends = {'direct', 'discussion', 'translation', 'annotation'}
+        started_sends = set()
+        results = {}
+
+        async def endpoint(scope, receive, send):
+            name = scope['name']
+            if name == 'catalog':
+                catalog_started.set()
+            elif name in sends:
+                started_sends.add(name)
+                if started_sends == sends:
+                    all_sends_started.set()
+            await release.wait()
+            await send({'type': 'http.response.start', 'status': 200, 'headers': []})
+
+        async def invoke(name, index=0):
+            method, path = scopes[name]
+
+            async def send(message):
+                if message['type'] == 'http.response.start':
+                    results[name, index] = message
+
+            await middleware({'type': 'http', 'name': name, 'method': method, 'path': path}, None, send)
+
+        middleware = DatabaseRequestCapacityMiddleware(
+            endpoint, limit=5, chat_send_reserve=4, chat_catalog_limit=1, queue_timeout=.05,
+        )
+        async with anyio.create_task_group() as tasks:
+            tasks.start_soon(invoke, 'catalog')
+            await catalog_started.wait()
+            for index in range(44):
+                tasks.start_soon(invoke, 'history', index)
+            tasks.start_soon(invoke, 'business')
+            for name in sends:
+                tasks.start_soon(invoke, name)
+            with anyio.fail_after(1):
+                await all_sends_started.wait()
+                while len(results) < 45:
+                    await anyio.sleep(.005)
+            release.set()
+
+        assert len(results) == 50
+        assert all(results[name, 0]['status'] == 200 for name in sends | {'catalog'})
+        assert results['business', 0]['status'] == 503
+        assert all(results['history', index]['status'] == 429 for index in range(44))
+        assert (b'retry-after', b'3') in results['history', 0]['headers']
+        assert all(limiter.borrowed_tokens == 0 for limiter in [
+            middleware.capacity, middleware.non_send_capacity, middleware.catalog_capacity,
+        ])
+
+    anyio.run(check)

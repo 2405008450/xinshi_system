@@ -27,7 +27,7 @@
     <el-button v-if="pendingNew" class="discussion-chat__new" @click="goBottom()">有新消息，点击查看</el-button>
     <div class="discussion-chat__composer">
       <div v-if="replyTo" class="discussion-chat__reply">回复 {{ replyTo.senderName }}：{{ screenshotPreview(replyTo.content) }}<el-button link :disabled="sending || !!retryPayload" @click="cancelQuote">取消引用</el-button></div>
-      <DiscussionMentionInput :room-id="projectId" ref="input" v-model="content" :users="mentionUsers" :selected-users="mentionSelection.selectedUsers||[]" :disabled="!storageReady || sending || !!retryPayload" @selection="mentionSelection=$event" @uploading-change="screenshotUploading=$event" @send="send" />
+      <DiscussionMentionInput :room-id="projectId" ref="input" v-model="content" :users="mentionUsers" :selected-users="mentionSelection.selectedUsers||[]" :disabled="!storageReady || sending || !!retryPayload" @mention-open="ensureMentionUsers" @selection="mentionSelection=$event" @uploading-change="screenshotUploading=$event" @send="send" />
       <small v-if="draft.error.value" role="alert">{{draft.error.value}}</small>
       <div class="discussion-chat__footer"><span class="discussion-chat__shortcut">Enter 发送 · Shift+Enter 换行</span><el-button v-if="retryPayload" size="small" :disabled="sending" @click="retryPayload = null; sendError = ''">继续编辑</el-button><el-button type="primary" size="small" :disabled="!storageReady || !canSend" :loading="sending" @click="send">{{ retryPayload ? '重试发送' : '发送' }}</el-button></div>
       <p v-if="sendError" class="discussion-chat__error" role="alert">{{ sendError }}</p>
@@ -71,6 +71,8 @@ import { useChatTimeDisplay } from '@/composables/useChatTimeDisplay'
 const { formatMessageTime: chatMessageTime, formatMessageDay, showMessageTime, showMessageDates } = useChatTimeDisplay()
 import { formatBusinessDateTime } from '@/utils/dateTime'
 import { subscribe } from '@/utils/realtimeSocket'
+import { createCoalescedRefresh } from '@/utils/coalescedRefresh'
+import { CHAT_MEMBERS_REFRESH_MS, CHAT_WINDOW_REFRESH_MS, createChatWindowFreshness } from '@/utils/chatWindowFreshness'
 const props = defineProps({ projectId: { type: String, required: true }, roomTitle: { type: String, default: '' }, active: Boolean, targetMessageId: { type: String, default: '' } })
 const TechnicalTaskDialog = defineAsyncComponent(() => import('@/views/technology/TechnicalDevelopment.vue'))
 const taskDraft = ref(null)
@@ -97,13 +99,32 @@ const mentionUsers=ref([]),mentionSelection=ref({mentionedUserIds:[],mentionAll:
 const automaticQuoteMention=ref(null)
 function selectedMentionPeople(){return mentionSelection.value.selectedUsers || (mentionSelection.value.mentionedUserIds||[]).map(id=>mentionUsers.value.find(person=>person.id===id)||{id})}
 function applyQuoteMention(result){content.value=result.content;automaticQuoteMention.value=result.automatic;mentionSelection.value={selectedUsers:result.selectedUsers,mentionedUserIds:result.selectedUsers.filter(person=>!person.all&&person.id!=='__all__').map(person=>person.id),mentionAll:result.selectedUsers.some(person=>person.all||person.id==='__all__')};if(result.warning)ElMessage.warning(result.warning)}
-async function quoteMessage(message){if(sending.value||retryPayload.value)return;const result=quoteSpeakerMention({content:content.value,selectedUsers:selectedMentionPeople(),automatic:automaticQuoteMention.value,message,currentUserId,users:mentionUsers.value});replyTo.value=message;applyQuoteMention(result);await nextTick();input.value?.focus()}
+async function quoteMessage(message){if(sending.value||retryPayload.value)return;await ensureMentionUsers();if(!canRefresh()||sending.value||retryPayload.value)return;const result=quoteSpeakerMention({content:content.value,selectedUsers:selectedMentionPeople(),automatic:automaticQuoteMention.value,message,currentUserId,users:mentionUsers.value});replyTo.value=message;applyQuoteMention(result);await nextTick();input.value?.focus()}
 function cancelQuote(){if(sending.value||retryPayload.value)return;applyQuoteMention(clearAutomaticQuoteMention(content.value,selectedMentionPeople(),automaticQuoteMention.value));replyTo.value=null}
 watch(replyTo,value=>{if(!value&&automaticQuoteMention.value)applyQuoteMention(clearAutomaticQuoteMention(content.value,selectedMentionPeople(),automaticQuoteMention.value))})
-async function loadMentionUsers(){try{const group=await chatRequest(`${base}/group`);mentionUsers.value=[...(group.eligibleUsers||[]),...(group.invitableUsers||[]).map(person=>({...person,outside:true}))]}catch{mentionUsers.value=[]}}
+async function loadMentionUsers() {
+  const markFresh = memberFreshness.begin()
+  try {
+    const group = await chatRequest(`${base}/group`)
+    if (disposed) return
+    mentionUsers.value = [...(group.eligibleUsers || []), ...(group.invitableUsers || []).map(person => ({ ...person, outside: true }))]
+    markFresh()
+  } catch { /* 暂时繁忙时保留上次获得的候选人。 */ }
+}
 const canSend = computed(() => !screenshotUploading.value && !sending.value && (!!retryPayload.value || !!content.value.trim()))
 const base = `discussions/${props.projectId}`
 let disposed = false, reading = false, requestVersion = 0, controller, pollTimer, searchTimer, readVersion = '0'
+let pendingFilterReset = false
+const canRefresh = () => !disposed && props.active && document.visibilityState === 'visible'
+const messageFreshness = createChatWindowFreshness(CHAT_WINDOW_REFRESH_MS)
+const memberFreshness = createChatWindowFreshness(CHAT_MEMBERS_REFRESH_MS)
+const messageRefresh = createCoalescedRefresh(refresh, { visible: canRefresh, minIntervalMs: 1500 })
+let membersRequest
+function ensureMentionUsers() {
+  if (!canRefresh() || !memberFreshness.isStale()) return Promise.resolve()
+  membersRequest ??= loadMentionUsers().finally(() => { membersRequest = undefined })
+  return membersRequest
+}
 const atBottom = () => !list.value || list.value.scrollHeight - list.value.scrollTop - list.value.clientHeight < 50
 const merge = rows => {
   const map = new Map(messages.value.map(row => [row.id, row]))
@@ -114,7 +135,7 @@ const merge = rows => {
 }
 async function markRead() {
   const last = messages.value.at(-1)?.id
-  if (reading || !props.active || !storageReady.value || keyword.value || !last || BigInt(last) <= BigInt(readVersion)) return
+  if (reading || !canRefresh() || !document.hasFocus() || !storageReady.value || keyword.value || !last || BigInt(last) <= BigInt(readVersion)) return
   reading = true
   try { await chatRequest(`${base}/preferences`, { method: 'put', data: { readMessageId: last } }); readVersion = last } catch { /* 下轮重试，不能提前清除未读。 */ } finally { reading = false }
 }
@@ -124,13 +145,31 @@ function onScroll() { if (atBottom()) { pendingNew.value = false; markRead() } }
 async function refresh(reset = false) {
   if (!props.active || disposed || ((loading.value || loadingEarlier.value) && !reset)) return
   controller?.abort(); controller = new AbortController(); const version = ++requestVersion
+  const signal = controller.signal
+  if (reset) { pendingFilterReset = false; messageFreshness.invalidate() }
+  const markFresh = messageFreshness.begin()
   const follow = reset || atBottom(), previousLast = messages.value.at(-1)?.id
   if (reset) { loading.value = true; messages.value = []; replyTo.value = null; pendingNew.value = false }
   try {
-    const data = await chatRequest(`${base}/messages`, { params: { keyword: keyword.value.trim(), favorites_only:favoritesOnly.value || undefined }, signal: controller.signal })
+    const data = await chatRequest(`${base}/messages`, { params: { keyword: keyword.value.trim(), favorites_only:favoritesOnly.value || undefined }, signal })
     if (disposed || version !== requestVersion) return
+    const missed = []
+    const firstRecent = data.items[0]?.id
+    if (!reset && !keyword.value.trim() && !favoritesOnly.value && data.hasMore && previousLast && firstRecent) {
+      let after = previousLast
+      // 断线时最新一页可能与本地消息完全错开，按游标补齐中间的消息。
+      while (BigInt(after) < BigInt(firstRecent)) {
+        const page = await chatRequest(`${base}/messages`, { params: { after, limit: 100 }, signal })
+        if (disposed || version !== requestVersion) return
+        missed.push(...page.items.filter(row => BigInt(row.id) < BigInt(firstRecent)))
+        const last = page.items.at(-1)?.id
+        if (!page.hasMore || !last || BigInt(last) <= BigInt(after)) break
+        after = last
+      }
+    }
     storageReady.value = true; error.value = ''; if (reset || !messages.value.length) hasEarlier.value = data.hasMore
-    merge(data.items)
+    merge([...missed, ...data.items])
+    markFresh()
     if (follow) await goBottom()
     else if (previousLast !== messages.value.at(-1)?.id) pendingNew.value = true
   } catch (e) {
@@ -221,16 +260,49 @@ const menuHandlers=computed(()=>({
   ...(technicalRoom.value?{technical:message=>technicalPanel.value.append(message)}:{}),
   ...(canCreateDevelopmentTask.value ? { 'development-task': createDevelopmentTask } : {}),
 }))
-watch(favoritesOnly,()=>refresh(true))
-watch(keyword, value => { clearTimeout(searchTimer); controller?.abort(); ++requestVersion; searchTimer = setTimeout(() => refresh(true), value ? 400 : 0) })
-watch(() => props.active, active => { clearInterval(pollTimer); if (active) { loadMentionUsers();refresh(!props.targetMessageId || !messages.value.length); pollTimer = setInterval(() => refresh(), 5000) } else { controller?.abort(); ++requestVersion; loading.value = false } }, { immediate: true })
-const unsubscribe = subscribe('chat_sessions_changed', () => { if (props.active && !sending.value) {refresh();loadMentionUsers()} })
+watch(favoritesOnly, () => { pendingFilterReset = true; void refresh(true) })
+watch(keyword, value => {
+  pendingFilterReset = true
+  clearTimeout(searchTimer); controller?.abort(); ++requestVersion
+  searchTimer = setTimeout(() => refresh(true), value ? 400 : 0)
+})
+watch(() => props.active, active => {
+  clearInterval(pollTimer)
+  if (active) {
+    if (!storageReady.value || pendingFilterReset) {
+      clearTimeout(searchTimer)
+      void refresh(true)
+    }
+    else if (messageFreshness.isStale()) void messageRefresh.schedule({ immediate: true })
+    else if (atBottom()) void markRead()
+    pollTimer = setInterval(() => messageRefresh.schedule(), 15000 + Math.floor(Math.random() * 5000))
+  } else { controller?.abort(); ++requestVersion; loading.value = false }
+}, { immediate: true })
+const cleanup = [
+  subscribe('chat_sessions_changed', event => {
+    if (event.projectType && (event.projectType !== 'discussion' || String(event.projectId) !== String(props.projectId))) return
+    messageFreshness.invalidate()
+    void messageRefresh.schedule()
+    if (!event.projectType || event.membersChanged) memberFreshness.invalidate()
+  }),
+  ...['connected', 'chat_realtime_recovered'].map(event => subscribe(event, () => {
+    messageFreshness.invalidate(); memberFreshness.invalidate()
+    return messageRefresh.schedule()
+  })),
+  subscribe('foreground', () => {
+    if (messageFreshness.isStale()) void messageRefresh.schedule()
+    else if (atBottom()) void markRead()
+  }),
+]
 let locatedTarget = ''
 watch(() => [props.active, props.targetMessageId, loading.value, storageReady.value], ([active, id, busy, ready]) => {
   if (active && id && !busy && ready && locatedTarget !== id) { locatedTarget = id; locate(id) }
 }, { flush: 'post' })
 const draft=useChatDraft(computed(()=>['discussion',props.projectId]),()=>({content:content.value,mentionSelection:mentionSelection.value,replyTo:replyTo.value,automaticQuoteMention:automaticQuoteMention.value,retryPayload:retryPayload.value}),data=>{content.value=data.content;mentionSelection.value=data.mentionSelection||{mentionedUserIds:[],mentionAll:false};replyTo.value=data.replyTo||null;automaticQuoteMention.value=data.automaticQuoteMention||null;retryPayload.value=data.retryPayload||null})
-onBeforeUnmount(() => { disposed = true; controller?.abort(); clearInterval(pollTimer); clearTimeout(searchTimer); unsubscribe() })
+onBeforeUnmount(() => {
+  disposed = true; controller?.abort(); clearInterval(pollTimer); clearTimeout(searchTimer)
+  messageRefresh.stop(); cleanup.forEach(unsubscribe => unsubscribe())
+})
 async function locate(id) {
   autoScroll.pause()
   try {

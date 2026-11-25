@@ -112,10 +112,18 @@ def require_room(db, user, room_id, *, storage=True):
     return row
 
 
-def publish(db):
-    # 事件不携带消息内容；每个账号重新按自己的参与人权限读取目录。
-    ids = [uid for uid, in db.query(AppUser.id).filter(AppUser.is_active.is_(True))]
-    broadcast_to_users(ids, {'type': 'chat_sessions_changed'})
+def publish(db, room=None, recipients=None, *, members_changed=False):
+    event = {'type': 'chat_sessions_changed'}
+    if room is None:
+        recipients = [uid for uid, in db.query(AppUser.id).filter(AppUser.is_active.is_(True))]
+    else:
+        event.update(projectType='discussion', projectId=str(room['id']), membersChanged=members_changed)
+        if recipients is None:
+            from chat_access_service import member_ids
+            from discussion_mentions import eligible_users
+            ids = member_ids(db, 'discussion', UUID(str(room['id'])))
+            recipients = [user.id for user in eligible_users(db, room, ids)] if ids else []
+    broadcast_to_users(recipients, event)
 
 
 def catalog(db, user, *, recent_only=False):
@@ -230,7 +238,7 @@ def messages(db, user, room_id, before=None, after=None, limit=50, keyword='', f
 
 
 def send(db, user, room_id, payload):
-    require_room(db, user, room_id)
+    room = require_room(db, user, room_id)
     if db.get_bind().dialect.name == 'postgresql':
         db.execute(text('SELECT pg_advisory_xact_lock(:room)'), {'room': room_id.int & ((1 << 63) - 1)})
     row = db.query(Message).filter_by(room_id=room_id, sender_id=user.id, client_message_id=payload.client_message_id).first()
@@ -243,22 +251,26 @@ def send(db, user, room_id, payload):
     from discussion_mentions import recipients,create as create_mentions
     from discussion_chat_files import validate_files
     validate_files(db, user, room_id, payload.content)
-    people,members=recipients(db,user,room_id,payload)
+    people,members=recipients(db,user,room_id,payload,room=room)
     row = Message(room_id=room_id, sender_id=user.id, sender_name=user.full_name or user.username,
         client_message_id=payload.client_message_id, content=payload.content, reply_to_id=payload.reply_to_id)
     db.add(row); db.flush()
     notifications=create_mentions(db,user,row,payload,people,members)
     from chat_message_notifications import ordinary_notifications
-    notifications.extend(ordinary_notifications(db, 'discussion', room_id, user, [p.id for p in people], row))
-    db.commit(); db.refresh(row)
-    from project_chat_crud import _push_notifications
-    _push_notifications(notifications)
-    publish(db)
+    notifications.extend(ordinary_notifications(
+        db, 'discussion', room_id, user, [p.id for p in people], row, discussion_room=room,
+    ))
+    notified = {notification.recipient_user_id for notification in notifications}
+    members_changed = any(person.id not in members for person in people)
+    from project_chat_crud import commit_chat_notifications
+    commit_chat_notifications(db, notifications)
+    db.refresh(row)
+    publish(db, room, notified | {user.id}, members_changed=members_changed)
     return serialize(db, row, user)
 
 
 def edit(db, user, room_id, message_id, payload):
-    require_room(db, user, room_id)
+    room = require_room(db, user, room_id)
     row = db.query(Message).filter_by(id=message_id, room_id=room_id).with_for_update().first()
     if not row:
         raise HTTPException(404, '消息不存在')
@@ -279,7 +291,7 @@ def edit(db, user, room_id, message_id, payload):
         row.edited_at = category_now()
         db.commit()
         db.refresh(row)
-        publish(db)
+        publish(db, room)
     return serialize(db, row, user)
 
 

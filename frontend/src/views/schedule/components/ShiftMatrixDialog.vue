@@ -110,6 +110,7 @@
                           {{ dayOf(row, date)?.shift_label || '未安排' }}
                         </el-tag>
                         <small v-if="dayTime(dayOf(row, date))">{{ dayTime(dayOf(row, date)) }}</small>
+                        <small v-if="dayOf(row, date)?.home_office_day" class="home-mark">居家</small>
                         <small v-if="dayOf(row, date)?.source === 'override'" class="override-mark">临时调整</small>
                         <small v-if="dayOf(row, date)?.on_leave" class="leave-mark">
                           {{ dayOf(row, date)?.leave_type || '请假' }}
@@ -164,6 +165,7 @@ import { ElMessage } from 'element-plus'
 import { Close, Lock, Minus, Search, Unlock } from '@element-plus/icons-vue'
 import { getEmployeeShifts } from '@/api/schedule'
 import { getLeaveOverview } from '@/api/leave'
+import { useAttendanceScheduleRefresh } from '@/composables/useAttendanceScheduleRefresh'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -409,11 +411,20 @@ watch(() => props.modelValue, value => {
   syncBodyScroll()
 }, { immediate: true })
 
+function refreshWhenVisible() {
+  if (!visible.value) return
+  loadMatrix()
+  loadLeave()
+}
+
+useAttendanceScheduleRefresh(refreshWhenVisible)
+
 onMounted(() => {
   desktopMedia = window.matchMedia('(min-width: 900px)')
   canPin.value = desktopMedia.matches
   desktopMedia.addEventListener('change', handleDesktopChange)
   window.addEventListener('keydown', handleKeydown)
+  window.addEventListener('attendance-leave-changed', refreshWhenVisible)
 })
 
 onBeforeUnmount(() => {
@@ -422,6 +433,7 @@ onBeforeUnmount(() => {
   leaveRequestSequence += 1
   desktopMedia?.removeEventListener('change', handleDesktopChange)
   window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('attendance-leave-changed', refreshWhenVisible)
   document.body.classList.remove('shift-matrix-modal-open')
 })
 </script>
@@ -592,6 +604,10 @@ onBeforeUnmount(() => {
 
 .shift-cell small {
   color: var(--el-text-color-secondary);
+}
+
+.shift-cell .home-mark {
+  color: var(--el-color-success);
 }
 
 .shift-cell .override-mark {

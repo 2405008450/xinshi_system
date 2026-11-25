@@ -124,6 +124,8 @@ function start() {
     }),
     subscribe('chat_topics_changed', () => refreshTopics(true).catch(() => {})),
     subscribe('chat_message', refresh),
+    subscribe('chat_remote_message_changed', refresh),
+    subscribe('chat_realtime_recovered', refresh),
     subscribe('notification', payload => {
       const item = payload?.notification
       if (isChatNotification(item) || CONVERSATION_NOTIFICATION_TYPES.includes(item?.notification_type)) refresh()

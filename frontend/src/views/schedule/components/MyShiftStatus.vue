@@ -11,7 +11,8 @@
       <el-tag v-if="day.on_leave" type="danger" size="small" effect="plain">{{ leaveStatusText }}</el-tag>
       <el-tag v-else-if="day.shift_code === 'weekend_duty'" type="danger" size="small" effect="plain">周末值班</el-tag>
       <el-tag v-else-if="day.source === 'override'" type="warning" size="small" effect="plain">临时调整</el-tag>
-      <el-tag v-if="day.is_locked && !day.on_leave" type="primary" size="small" effect="plain">固定班次</el-tag>
+      <el-tag v-if="day.home_office_day && !day.on_leave" type="success" size="small" effect="plain">居家</el-tag>
+      <el-tag v-if="(day.is_locked || day.fixed) && !day.on_leave" type="primary" size="small" effect="plain">固定班次</el-tag>
     </template>
     <template v-else>
       <span class="my-shift-status__eyebrow">我的班次</span>

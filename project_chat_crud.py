@@ -112,14 +112,25 @@ def _serialize_notification(notification) -> dict:
 
 
 def _push_notifications(notifications: list) -> None:
-    for notification in notifications:
+    _dispatch_notifications(_notification_payloads(notifications))
+
+
+def _notification_payloads(notifications):
+    return [(row.recipient_user_id, _serialize_notification(row)) for row in notifications]
+
+
+def _dispatch_notifications(payloads):
+    for user_id, payload in payloads:
         dispatch_personal_message(
-            notification.recipient_user_id,
-            {
-                'type': 'notification',
-                'notification': _serialize_notification(notification),
-            },
+            user_id, {'type': 'notification', 'notification': payload},
         )
+
+
+def commit_chat_notifications(db, notifications):
+    # 提交后 ORM 对象会过期。先快照已写入的通知，提交成功后再推送，避免逐人重查。
+    payloads = _notification_payloads(notifications)
+    db.commit()
+    _dispatch_notifications(payloads)
 
 
 def _serialize_realtime_message(message: ChatProjectMessage, project_type: str) -> dict:
@@ -991,8 +1002,7 @@ def create_project_chat_message(
     if notifications:
         from chat_notification_target import link_notifications
         link_notifications(db, notifications, created.id)
-        db.commit()
-        _push_notifications(notifications)
+        commit_chat_notifications(db, notifications)
 
     _broadcast_chat_message(
         db,

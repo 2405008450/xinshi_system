@@ -6,11 +6,15 @@ from uuid import UUID
 from time import monotonic
 from threading import RLock
 import re
+import os
+import logging
+from contextlib import asynccontextmanager
 
 from fastapi import WebSocket
 
 
 _main_event_loop: asyncio.AbstractEventLoop | None = None
+_chat_bus = None
 
 
 def connection_client_type(websocket, client_type=''):
@@ -108,6 +112,39 @@ class NotificationConnectionManager:
 
 notification_manager = NotificationConnectionManager()
 
+
+@asynccontextmanager
+async def notification_realtime_lifespan():
+    global _main_event_loop, _chat_bus
+    loop = asyncio.get_running_loop()
+    _main_event_loop = loop
+    url = os.getenv('CHAT_REALTIME_REDIS_URL', '').strip()
+    bus = None
+    if url:
+        from chat_realtime_bus import ChatRealtimeBus, DEFAULT_CHANNEL
+
+        async def recovered():
+            await notification_manager.broadcast_to_users(
+                tuple(notification_manager.active_connections), {'type': 'chat_realtime_recovered'},
+            )
+
+        try:
+            channel = os.getenv('CHAT_REALTIME_CHANNEL', '').strip() or DEFAULT_CHANNEL
+            bus = ChatRealtimeBus(url, channel, notification_manager.broadcast_to_users, recovered)
+        except ValueError:
+            logging.getLogger(__name__).warning('聊天 Redis 连接配置无效，使用常规会话补拉')
+    _chat_bus = bus
+    try:
+        yield
+    finally:
+        if _chat_bus is bus:
+            _chat_bus = None
+        if _main_event_loop is loop:
+            _main_event_loop = None
+        if bus is not None:
+            await bus.close()
+
+
 def dispatch_project_status(items):
     _dispatch_on_main_loop(lambda:notification_manager.send_project_status(items))
 
@@ -142,3 +179,6 @@ def broadcast_to_users(user_ids: Iterable[UUID], payload: dict) -> None:
     if not recipients:
         return
     _dispatch_on_main_loop(lambda: notification_manager.broadcast_to_users(recipients, payload))
+    bus = _chat_bus
+    if bus is not None:
+        bus.enqueue(recipients, payload)

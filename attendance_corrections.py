@@ -210,11 +210,13 @@ def confirm(db,user,uid):
         policy=clock.clock_shift({**shift,**clock.home_office_day(db,person,request.day),**start_override(db,person,request.day,request.segment),'dinner_already_deducted':any(clock.serialize(item).get('dinner_deduction_minutes',0)>0 for item in completed)})
         row=Clock(id=uuid4(),user_id=person.id,day=request.day,segment=request.segment,check_in=request.requested_at,shift_snapshot=clock.snapshot(policy,request.segment),confirmations={});db.add(row);db.flush()
     # 不允许补卡与本人的其他工作组重叠，避免重复累计加班。
-    left=request.requested_at if request.kind=='in' else service.stamp(row.check_in)
-    right=service.stamp(row.check_out) if request.kind=='in' and row.check_out else request.requested_at if request.kind=='out' else None
-    for other in db.query(Clock).filter(Clock.user_id==person.id,Clock.id!=row.id,Clock.check_in<(right or now()),or_(Clock.check_out.is_(None),Clock.check_out>left)).all():
-        a=service.stamp(other.check_in);b=service.stamp(other.check_out) if other.check_out else now()
-        if left<(b) and (right or now())>a:raise HTTPException(409,'补卡时段与其他打卡组重叠，请核对后再申请')
+    left=service.stamp(request.requested_at) if request.kind=='in' else service.stamp(row.check_in)
+    right=service.stamp(row.check_out) if request.kind=='in' and row.check_out else service.stamp(request.requested_at) if request.kind=='out' else None
+    bound=right or left
+    for other in db.query(Clock).filter(Clock.user_id==person.id,Clock.id!=row.id,Clock.check_in<=bound,or_(Clock.check_out.is_(None),Clock.check_out>left)).all():
+        a=service.stamp(other.check_in);b=service.stamp(other.check_out) if other.check_out else None
+        overlap=(left<b and right>a if b is not None else left<=a<right) if right is not None else (a<=left<b if b is not None else a==left)
+        if overlap:raise HTTPException(409,'补卡时段与其他打卡组重叠，请核对后再申请')
     extra_events=[]
     if request.kind=='in':row.check_in=request.requested_at;row.confirmations={**row.confirmations,**{key:value for key,value in request.declarations.items() if key in ('early_work_confirmed','breakfast_after_eating')},'correction_id':str(request.id),'breakfast_notice_accepted':True}
     else:

@@ -106,7 +106,7 @@ def send_message(db, project_id, user, payload):
         from chat_topic_service import set_message_topic
         set_message_topic(db, user, message, payload.topic_id)
     db.add_all(ChatProjectMessageAttachment(message_id=message.id, attachment_id=a.id) for a in attachments)
-    from project_chat_crud import _create_chat_mentions, _push_notifications
+    from project_chat_crud import _create_chat_mentions, commit_chat_notifications
     from crud import create_notifications_for_users
     from chat_notification_target import link_notifications
     mentioned = _create_chat_mentions(db,message,user,mentioned_user_ids=mentioned_ids)
@@ -119,13 +119,12 @@ def send_message(db, project_id, user, payload):
     conversation.last_message_at = stamp
     for member in db.query(ChatDirectMember).filter_by(conversation_id=project_id):
         member.hidden_at = None
-    db.commit()
-    _push_notifications(notifications)
+    commit_chat_notifications(db, notifications)
     publish(db, project_id, 'message', message.id)
     from project_chat_crud import _broadcast_live_message
     _broadcast_live_message(db, message, 'direct')
-    from routers.push import send_push_to_user
-    send_push_to_user(db, other_id, '收到一条新消息', '你有一条新的私聊消息，点击查看', '/workbench')
+    from routers.push import queue_push_to_user
+    queue_push_to_user(other_id, '收到一条新消息', '你有一条新的私聊消息，点击查看', '/workbench')
     return message_query(db, project_id).filter_by(id=message.id).one()
 
 

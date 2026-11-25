@@ -191,6 +191,7 @@ import { getOnLeaveUsers } from '@/api/leave'
 import { getMyEmployeeShift } from '@/api/schedule'
 import { getAnnotationProject } from '@/api/annotationProjects'
 import { useProjectChatDock } from '@/composables/useProjectChatDock'
+import { useAttendanceScheduleRefresh } from '@/composables/useAttendanceScheduleRefresh'
 import { ElMessage } from 'element-plus'
 import { hasPermission, hasRole, isSuperAdmin } from '@/utils/permission'
 import { DEADLINE_STATE, getWorkItemDeadlineState, isWorkItemOpen } from '@/utils/workItemDeadline'
@@ -454,7 +455,16 @@ watch(() => scheduleDate.value, (value, previous) => {
   loadDayLeaveRecords(value)
 })
 
+function refreshHeaderShiftAndLeave() {
+  if (!scheduleDate.value) return
+  loadMyShift(scheduleDate.value)
+  loadDayLeaveRecords(scheduleDate.value)
+}
+
+useAttendanceScheduleRefresh(refreshHeaderShiftAndLeave)
+
 onBeforeUnmount(() => {
+  window.removeEventListener('attendance-leave-changed', refreshHeaderShiftAndLeave)
   if (shiftController) {
     try { shiftController.abort() } catch {}
   }
@@ -464,6 +474,7 @@ onBeforeUnmount(() => {
 })
 
 onMounted(() => {
+  window.addEventListener('attendance-leave-changed', refreshHeaderShiftAndLeave)
   initCurrentUserName()
   scheduleDate.value = businessDateTimeInputValue().slice(0,10)
   loadMyWorkItems()

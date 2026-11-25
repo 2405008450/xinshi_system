@@ -19,6 +19,7 @@ def cleanup_once():
 @asynccontextmanager
 async def material_lifespan(app):
     from annotation_chat_ai_lifecycle import chat_ai_lifespan
+    from notification_ws import notification_realtime_lifespan
     stop = asyncio.Event()
 
     async def worker():
@@ -35,7 +36,7 @@ async def material_lifespan(app):
     task = asyncio.create_task(worker())
     monitor = asyncio.create_task(monitor_event_loop(stop))
     try:
-        async with chat_ai_lifespan():
+        async with chat_ai_lifespan(), notification_realtime_lifespan():
             yield
     finally:
         stop.set()

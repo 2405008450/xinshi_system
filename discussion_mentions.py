@@ -33,9 +33,7 @@ def group(db, user, room_id):
     return dict(members=[serialize(person) for person in users if person.id in member_ids],eligible_users=[serialize(person) for person in users if person.id in member_ids],invitable_users=[serialize(person) for person in users if person.id not in member_ids])
 
 
-def recipients(db,user,room_id,payload):
-    import discussion_chat_service as service
-    room=service.require_room(db,user,room_id)
+def recipients(db,user,room_id,payload,*,room):
     explicit=set(getattr(payload,'mentioned_user_ids',[]) or [])-{user.id}
     members={uid for uid, in db.query(Member.user_id).filter_by(room_id=room_id)}
     requested=explicit|(members-{user.id} if getattr(payload,'mention_all',False) else set())
