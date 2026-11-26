@@ -4,7 +4,7 @@ import { subscribe } from '@/utils/realtimeSocket'
 import { createVisiblePolling } from '@/utils/visiblePolling'
 import { CONVERSATION_NOTIFICATION_TYPES, isBusinessNotification } from '@/utils/notificationChannels'
 
-const types = CONVERSATION_NOTIFICATION_TYPES
+const types = [...CONVERSATION_NOTIFICATION_TYPES, 'meeting_invitation', 'meeting_receipt', 'meeting_task']
 export function useChatRequestNotifications({ allBusiness = false } = {}) {
   const params = allBusiness ? { channel: 'business' } : { channel: 'business', notification_types: types }
   const items = ref([]), unread = ref(0), loading = ref(false), error = ref(''), total = ref(0), page = ref(1), pageSize = ref(30)

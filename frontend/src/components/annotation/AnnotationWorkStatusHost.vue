@@ -12,6 +12,7 @@ const AnnotationWorkStatusDialog=defineAsyncComponent(()=>import('./AnnotationWo
 const loaded=ref(false),visible=ref(false),request=ref({}),reminderVisible=ref(false),requestKey=ref(0)
 let timer,checking=false,reminderSlot=''
 function open(event){request.value={...event.detail};requestKey.value++;loaded.value=true;visible.value=true}
+function closeForReport(){visible.value=false;reminderVisible.value=false}
 function enterReport(){reminderVisible.value=false;open({detail:{mode:'report',slot:reminderSlot}})}
 async function check(){
   if(checking||document.visibilityState!=='visible')return
@@ -20,6 +21,6 @@ async function check(){
   catch{/* 后台提醒暂不可用时，保留手动汇报入口。 */}
   finally{checking=false}
 }
-onMounted(()=>{window.addEventListener('open-annotation-work-status',open);window.addEventListener('focus',check);timer=setInterval(check,30000);check()})
-onBeforeUnmount(()=>{clearInterval(timer);window.removeEventListener('open-annotation-work-status',open);window.removeEventListener('focus',check)})
+onMounted(()=>{window.addEventListener('open-annotation-work-status',open);window.addEventListener('project-work-report-opened',closeForReport);window.addEventListener('focus',check);timer=setInterval(check,30000);check()})
+onBeforeUnmount(()=>{clearInterval(timer);window.removeEventListener('open-annotation-work-status',open);window.removeEventListener('project-work-report-opened',closeForReport);window.removeEventListener('focus',check)})
 </script>

@@ -13,6 +13,7 @@
           </div>
         </transition>
       </div>
+      <div class="sidebar-system-updated" :title="`系统更新时间：${appUpdatedAt}（UTC+8）`"><span>系统更新时间</span><time>{{appUpdatedAt.split(' ')[0]}}<br v-if="isCollapse"><template v-else> </template>{{appUpdatedAt.split(' ')[1]}}</time></div>
       <el-menu
         :default-active="activeMenu"
         router
@@ -23,11 +24,12 @@
         <!-- 工作台 -->
         <SidebarNavigationItem v-if="showWorkbench" index="/workbench" :icon="DataBoard" label="工作台" />
         <SidebarNavigationItem index="/company-management" :icon="OfficeBuilding" label="公司管理" />
-        <li class="el-menu-item sidebar-session-item" role="menuitem" tabindex="0" aria-label="会话" title="会话" @click="openHeaderChat" @keydown.enter.prevent="openHeaderChat" @keydown.space.prevent="openHeaderChat"><el-badge :value="chatMentionTotal" :max="99" :hidden="!chatMentionTotal"><el-icon><ChatDotRound /></el-icon></el-badge><span v-show="!isCollapse" class="sidebar-session-title"><span>会话</span><a :href="sessionNewTabHref" target="_blank" rel="noopener noreferrer" class="sidebar-session-open" title="在新标签页打开" aria-label="会话：在新标签页打开" @click.stop @keydown.stop><TopRight aria-hidden="true" /></a></span></li>
+        <li class="el-menu-item sidebar-session-item" role="menuitem" tabindex="0" aria-label="会话" title="会话" @click="openHeaderChat" @keydown.enter.prevent="openHeaderChat" @keydown.space.prevent="openHeaderChat"><el-badge :value="chatMentionTotal" :max="99" :hidden="!chatMentionTotal"><el-icon><ChatDotRound /></el-icon></el-badge><button v-if="meetingBadge" type="button" class="sidebar-meeting-character" title="会议通知：点击查看会议安排与回执" aria-label="会：会议通知" @click.stop="openMeetingCenter" @keydown.stop>会</button><span v-show="!isCollapse" class="sidebar-session-title"><span>会话</span><a :href="sessionNewTabHref" target="_blank" rel="noopener noreferrer" class="sidebar-session-open" title="在新标签页打开" aria-label="会话：在新标签页打开" @click.stop @keydown.stop><TopRight aria-hidden="true" /></a></span></li>
 
         <!-- 业务链路：从新咨询到项目执行 -->
         <li v-if="showBusinessGroup && !isCollapse" class="menu-group-label" role="presentation"><span>业务管理</span></li>
         <SidebarNavigationItem v-if="showConsultations" index="/consultations" :icon="Phone" label="新咨询管理" />
+        <li class="el-menu-item sidebar-meeting-item" role="menuitem" tabindex="0" aria-label="会议安排" title="会议安排" @click="openMeetingCenter" @keydown.enter.prevent="openMeetingCenter" @keydown.space.prevent="openMeetingCenter"><el-badge :value="meetingBadge" :max="99" :hidden="!meetingBadge"><el-icon><Calendar /></el-icon></el-badge><span v-show="!isCollapse" style="margin-left:8px">会议安排</span></li>
         <SidebarNavigationItem v-if="showConsultations" index="/data-analysis" :icon="DataBoard" label="数据分析" />
 
         <SidebarNavigationItem v-if="canViewProjects" index="/translation-details" :icon="EditPen" label="笔译项目" />
@@ -142,14 +144,19 @@
     <AnnotationMaterialEditor v-if="materialEditor.loaded" />
     <AnnotationMaterialDialogs v-if="materialDialogs.loaded" />
     <AnnotationWorkStatusHost />
+    <MeetingHost @badge-change="meetingBadge=$event" />
   </el-container>
 </template>
 
 <script setup>
+import MeetingHost from '@/components/meetings/MeetingHost.vue'
+const meetingBadge=ref(0)
+function openMeetingCenter(){window.dispatchEvent(new CustomEvent('meeting-open'))}
+
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { ref, computed, defineAsyncComponent, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { User, Suitcase, Connection, Avatar, Management, Postcard, Setting, Document, EditPen, Headset, OfficeBuilding, ArrowDown, DataBoard, Phone, ChatDotRound, QuestionFilled, Fold, Expand, TopRight, Cpu, Wallet } from '@element-plus/icons-vue'
+import { User, Suitcase, Connection, Avatar, Management, Postcard, Setting, Document, EditPen, Headset, OfficeBuilding, ArrowDown, DataBoard, Phone, ChatDotRound, QuestionFilled, Fold, Expand, TopRight, Cpu, Wallet, Calendar } from '@element-plus/icons-vue'
 import {
   canViewTalentResourceLibrary,
   hasPermission
@@ -920,3 +927,5 @@ const handleLogout = async () => {
 
 <style scoped>.system-section-navigation{margin-bottom:8px}</style>
 <style scoped>.page-header-actions{display:inline-flex;align-items:center}.page-header-actions:empty{display:none}</style>
+
+<style scoped>.sidebar-system-updated{flex:none;padding:4px 6px 8px;text-align:center;color:#cbd5e1;line-height:1.45;font-size:10px;border-bottom:1px solid #334155}.sidebar-system-updated span{display:block;font-size:10px}.sidebar-system-updated time{font-variant-numeric:tabular-nums}.sidebar-session-item{position:relative}.sidebar-meeting-character{position:absolute;right:8px;top:4px;padding:1px 4px;border:1px solid #fca5a5;border-radius:4px;color:#dc2626;background:#fff1f2;font-size:12px;line-height:17px;font-weight:700;cursor:pointer}.sidebar--collapsed .sidebar-system-updated{font-size:9px}</style>

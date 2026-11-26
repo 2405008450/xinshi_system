@@ -24,24 +24,24 @@
     <div class="chat-folder-tree__scroll">
       <button type="button" class="chat-folder-tree__all" :aria-pressed="!selected" @click="$emit('select', '')">全部分组</button>
       <div v-for="root in roots" :key="root.id" class="chat-folder-tree__branch" :style="{'--folder-tint': folderTint(root)}">
-        <div class="chat-folder-tree__row" :class="{ 'is-active': selected === root.id }" @dragstart.stop="beginDrag($event, root.id)" @dragover.prevent @drop.stop.prevent="drop(root.id)" @dragend="dragged = ''" @contextmenu="openProjects($event, root)" @keydown.shift.f10="openProjects($event, root)">
-          <button v-if="!root.isConversation && root.id !== resourceFolderId" type="button" class="chat-folder-tree__toggle" :aria-label="`${expanded.has(root.id) ? '收起' : '展开'}${root.name}`" :aria-expanded="expanded.has(root.id)" @click="toggle(root.id)"><el-icon><ArrowDown v-if="expanded.has(root.id)" /><ArrowRight v-else /></el-icon></button>
+        <div class="chat-folder-tree__row" :data-folder-row="root.id" :class="{ 'is-active': selected === root.id, 'drop-before': dropTarget === root.id && dropSide === 'before', 'drop-after': dropTarget === root.id && dropSide === 'after' }" @dragstart.stop="beginDrag($event, root.id)" @dragover.prevent="dragOver($event, root.id)" @drop.stop.prevent="drop(root.id)" @dragend="endDrag" @contextmenu="openProjects($event, root)" @keydown.shift.f10="openProjects($event, root)">
+          <button v-if="!root.isConversation" type="button" class="chat-folder-tree__toggle" :aria-label="`${expanded.has(root.id) ? '收起' : '展开'}${root.name}`" :aria-expanded="expanded.has(root.id)" @click="toggle(root.id)"><el-icon><ArrowDown v-if="expanded.has(root.id)" /><ArrowRight v-else /></el-icon></button>
           <span v-else class="chat-folder-tree__toggle" aria-hidden="true"><el-icon v-if="root.isConversation"><ChatDotRound /></el-icon><template v-else>#</template></span>
-          <span class="chat-folder-tree__grip" :draggable="!editing && !root.fixedTop" @dragstart.stop="beginDrag($event, root.id)" title="拖动调整分组顺序" aria-hidden="true">⠿</span>
+          <span class="chat-folder-tree__grip" :draggable="!editing" @pointerdown="beginPointerDrag($event,root.id)" role="button" tabindex="0" :aria-label="`拖动调整${root.name}顺序`" title="拖动调整顺序，Alt+↑/↓ 微调" @keydown.alt.up.prevent="moveBy(root.id,-1)" @keydown.alt.down.prevent="moveBy(root.id,1)">⠿</span>
           <button type="button" class="chat-folder-tree__name" :aria-pressed="selected === root.id" :data-folder-id="root.id" :aria-haspopup="root.id === annotationFolderId ? 'dialog' : undefined" :title="root.id === annotationFolderId ? '右键搜索标注项目，加入会话' : undefined" @click="openChild(root)"><span class="chat-folder-tree__label">{{ root.name }}</span><span class="chat-folder-tree__badges"><b v-if="mentionCount(root.id)" class="chat-folder-tree__mention" :aria-label="`${mentionCount(root.id)} 条未读提及`" role="button" tabindex="0" @click.stop.prevent="emit('unread',root.id)" @keydown.enter.stop.prevent="emit('unread',root.id)" @keydown.space.stop.prevent="emit('unread',root.id)">{{ mentionCount(root.id) > 99 ? '99+' : mentionCount(root.id) }}</b><small v-if="!root.isConversation" class="chat-folder-tree__count" :aria-label="`${count(root.id)} 个对话`">{{ count(root.id) }}</small></span></button>
           <span v-if="categories.canManage && (!root.isConversation || !root.builtin)" class="chat-folder-tree__row-actions" @click.stop>
             <button v-if="!root.isConversation" type="button" class="chat-folder-tree__act-btn" :disabled="!!editing || !categories.hierarchyReady" :aria-label="`在${root.name}下新建${root.id === resourceFolderId ? '讨论' : '会话'}`" :title="root.id === resourceFolderId ? '新建讨论' : '创建会话'" @click="start(root.id, null, true)"><el-icon><Plus /></el-icon></button>
-            <button v-if="!root.isConversation && root.id !== resourceFolderId" type="button" class="chat-folder-tree__act-btn" :disabled="!!editing || !categories.hierarchyReady" :aria-label="`在${root.name}下创建二级菜单`" title="创建二级菜单" @click="start(root.id, null, false, true)"><el-icon><FolderAdd /></el-icon></button>
+            <button v-if="!root.isConversation" type="button" class="chat-folder-tree__act-btn" :disabled="!!editing || !categories.hierarchyReady" :aria-label="`在${root.name}下创建二级菜单`" title="创建二级菜单" @click="start(root.id, null, false, true)"><el-icon><FolderAdd /></el-icon></button>
             <button v-if="!root.builtin" type="button" class="chat-folder-tree__act-btn" :disabled="!!editing" :aria-label="`重命名${root.name}`" title="重命名" @click="start(root.parentKey, root)"><el-icon><Edit /></el-icon></button>
             <button v-if="!root.builtin && !root.deletionProtected" type="button" class="chat-folder-tree__act-btn is-danger" :disabled="!!editing || saving" :aria-label="`${root.isConversation ? '删除会话' : '移除'}${root.name}`" title="删除" @click="remove(root)"><el-icon><Close /></el-icon></button>
           </span>
         </div>
-        <div v-if="root.id !== resourceFolderId && expanded.has(root.id) || editing?.parentKey === root.id" class="chat-folder-tree__children">
-          <el-button v-if="root.id===annotationFolderId" link class="chat-technical-entry" @click="technicalPicker.open()">技术需求</el-button>
+        <div v-if="expanded.has(root.id) || editing?.parentKey === root.id" class="chat-folder-tree__children">
           <template v-for="(child, childIndex) in visibleChildren(root.id)" :key="child.id">
-          <div class="chat-folder-tree__row" :class="{ 'is-active': selected === child.id, 'is-subgroup': child.id === annotationStatusGroupId, 'is-nested': child.parentKey !== root.id, 'is-stripe': childIndex % 2 === 1 }" @contextmenu="openCategoryMenu($event, child)" @keydown.shift.f10="openCategoryMenu($event, child)" @dragstart.stop="beginDrag($event, child.id)" @dragover.prevent @drop.stop.prevent="drop(child.id)" @dragend="dragged = ''">
-            <button v-if="children(child.id).length" type="button" class="chat-folder-tree__toggle" :aria-expanded="expanded.has(child.id)" :aria-label="`${expanded.has(child.id) ? '收起' : '展开'}${child.name}`" @click="toggle(child.id)"><el-icon><ArrowDown v-if="expanded.has(child.id)" /><ArrowRight v-else /></el-icon></button><span v-if="!child.fixedTop && !child.builtin" class="chat-folder-tree__grip" :draggable="!editing && !child.fixedTop" @dragstart.stop="beginDrag($event, child.id)" title="拖动调整分类顺序" aria-hidden="true">⠿</span>
-            <button type="button" class="chat-folder-tree__name" :data-folder-id="child.id" :title="child.name" :aria-pressed="selected === child.id" @click="openChild(child)"><el-icon v-if="child.isConversation"><ChatDotRound /></el-icon><span class="chat-folder-tree__label">{{ child.name }}</span><span class="chat-folder-tree__badges"><b v-if="mentionCount(child.id)" class="chat-folder-tree__mention" :aria-label="`${mentionCount(child.id)} 条未读提及`" role="button" tabindex="0" @click.stop.prevent="emit('unread',child.id)" @keydown.enter.stop.prevent="emit('unread',child.id)" @keydown.space.stop.prevent="emit('unread',child.id)">{{ mentionCount(child.id) > 99 ? '99+' : mentionCount(child.id) }}</b><small v-if="!child.isConversation" class="chat-folder-tree__count" :aria-label="`${count(child.id)} 个对话`">{{ count(child.id) }}</small></span></button>
+          <el-button v-if="child.isTechnicalEntry" link class="chat-technical-entry" @click="technicalPicker.open()">技术需求</el-button>
+          <div v-else class="chat-folder-tree__row" :data-folder-row="child.id" :class="{ 'is-active': selected === child.id, 'is-subgroup': child.id === annotationStatusGroupId, 'is-nested': child.parentKey !== root.id, 'is-stripe': childIndex % 2 === 1, 'drop-before': dropTarget === child.id && dropSide === 'before', 'drop-after': dropTarget === child.id && dropSide === 'after' }" @contextmenu="openCategoryMenu($event, child)" @keydown.shift.f10="openCategoryMenu($event, child)" @dragstart.stop="beginDrag($event, child.id)" @dragover.prevent="dragOver($event, child.id)" @drop.stop.prevent="drop(child.id)" @dragend="endDrag">
+            <button v-if="children(child.id).length" type="button" class="chat-folder-tree__toggle" :aria-expanded="expanded.has(child.id)" :aria-label="`${expanded.has(child.id) ? '收起' : '展开'}${child.name}`" @click="toggle(child.id)"><el-icon><ArrowDown v-if="expanded.has(child.id)" /><ArrowRight v-else /></el-icon></button><span v-if="!child.builtin && !child.fixedTop" class="chat-folder-tree__grip" :draggable="!editing && !child.builtin" @pointerdown="beginPointerDrag($event,child.id)" role="button" tabindex="0" :aria-label="`拖动调整${child.name}顺序`" title="拖动调整顺序，Alt+↑/↓ 微调" @keydown.alt.up.prevent="moveBy(child.id,-1)" @keydown.alt.down.prevent="moveBy(child.id,1)">⠿</span>
+            <button type="button" class="chat-folder-tree__name" :data-folder-id="child.id" :title="child.name" :aria-pressed="selected === child.id" @click="openChild(child)"><el-icon v-if="child.statusIcon" aria-hidden="true"><component :is="statusIcons[child.statusIcon]" /></el-icon><el-icon v-else-if="child.ruleKey === 'project-status'" aria-hidden="true"><Folder /></el-icon><el-icon v-else-if="child.conversationIcon" aria-hidden="true"><component :is="statusIcons[child.conversationIcon]" /></el-icon><el-icon v-else-if="child.isConversation"><ChatDotRound /></el-icon><span class="chat-folder-tree__label">{{ child.name }}</span><span class="chat-folder-tree__badges"><b v-if="mentionCount(child.id)" class="chat-folder-tree__mention" :aria-label="`${mentionCount(child.id)} 条未读提及`" role="button" tabindex="0" @click.stop.prevent="emit('unread',child.id)" @keydown.enter.stop.prevent="emit('unread',child.id)" @keydown.space.stop.prevent="emit('unread',child.id)">{{ mentionCount(child.id) > 99 ? '99+' : mentionCount(child.id) }}</b><small v-if="!child.isConversation" class="chat-folder-tree__count" :aria-label="`${count(child.id)} 个对话`">{{ count(child.id) }}</small></span></button>
             <span v-if="categories.canManage && !child.builtin" class="chat-folder-tree__row-actions" @click.stop>
               <button v-if="!child.isConversation && child.parentKey === root.id" type="button" class="chat-folder-tree__act-btn" :disabled="!!editing || !categories.hierarchyReady" :aria-label="`在${child.name}下新建会话`" title="新建会话" @click="start(child.id, null, true)"><el-icon><Plus /></el-icon></button>
               <button type="button" class="chat-folder-tree__act-btn" :disabled="!!editing" :aria-label="`重命名${child.name}`" title="重命名" @click="start(child.parentKey, child)"><el-icon><Edit /></el-icon></button>
@@ -69,14 +69,15 @@
 <script setup>
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { ArrowDown, ArrowRight, ChatDotRound, Close, Edit, FolderAdd, Plus } from '@element-plus/icons-vue'
+import { FolderOpened, ChatDotRound, Close, Edit, FolderAdd, Plus, Loading, Clock, CircleClose, CircleCheck, Document, Folder, Grid, UserFilled, Promotion, School, MoreFilled } from '@element-plus/icons-vue'
 import { useChatSessionCategories } from '@/composables/useChatSessionCategories'
-import { annotationFolderId, annotationStatusGroupId, resourceFolderId, sessionFolderCount, sessionFolderMentionUnread, sessionFolderNodes, placeCompanyConversations } from '@/utils/chatSessionFolders'
+import { annotationFolderEntries, annotationFolderId, annotationStatusGroupId, resourceFolderId, sessionFolderCount, sessionFolderMentionUnread, sessionFolderNodes, placeCompanyConversations } from '@/utils/chatSessionFolders'
 import { hasPermission } from '@/utils/permission'
 import { canStartChatNameEditing } from '@/composables/useChatNameEditing'
 import ChatInlineNameEditor from './ChatInlineNameEditor.vue'
 import TechnicalRequirementsPicker from './TechnicalRequirementsPicker.vue'
 const technicalPicker=ref()
+const statusIcons = { Loading, Clock, CircleClose, CircleCheck, Document, Grid, UserFilled, Promotion, School, MoreFilled, ChatDotRound }
 const props = defineProps({ active: { type: Boolean, default: true }, selected: { type: String, default: '' }, sessions: { type: Array, default: () => [] }, compact: { type: Boolean, default: false } })
 const emit = defineEmits(['select', 'changed', 'browse-annotation', 'open-conversation', 'unread'])
 function openProjects(event, row) {
@@ -85,7 +86,7 @@ function openProjects(event, row) {
   showContextMenu(event)
 }
 function openCategoryMenu(event, row) {
-  if (!categories.canManage || row.builtin || row.parentKey === resourceFolderId || editing.value || saving.value) return
+  if (!categories.canManage || row.builtin || editing.value || saving.value) return
   showContextMenu(event, row)
 }
 function showContextMenu(event, row=null) {
@@ -117,20 +118,68 @@ const preferenceKey = `xinshi.chatFolderLayout.${localStorage.getItem('user_id')
 let saved = {}
 try { saved = JSON.parse(localStorage.getItem(preferenceKey) || '{}') || {} } catch { /* 使用默认布局。 */ }
 const order = ref(Array.isArray(saved.order) ? saved.order.filter(id => typeof id === 'string') : [])
-const panel = ref(), panelHeight = ref(Math.max(92, Math.min(Number(saved.height) || 200, window.innerHeight * .55))), dragged = ref('')
-const roots = computed(() => placeCompanyConversations(nodes.value.filter(row => !row.parentKey).sort((a, b) => rank(a.id) - rank(b.id))))
+const panel = ref(), panelHeight = ref(Math.max(100, Math.min(Number(saved.height) || 270, window.innerHeight * .55))), dragged = ref('')
+const manualOrder = ref(saved.orderVersion === 2 && saved.manualOrder === true)
+const dropTarget = ref(''), dropSide = ref('before')
+const roots = computed(() => { const rows = nodes.value.filter(row => !row.parentKey).sort((a,b)=>rank(a.id)-rank(b.id)); return manualOrder.value ? rows : placeCompanyConversations(rows) })
 const rank = id => order.value.includes(id) ? order.value.indexOf(id) : order.value.length
-function persist() { try { localStorage.setItem(preferenceKey, JSON.stringify({ order: order.value, height: panelHeight.value, expanded: [...expanded.value] })) } catch { /* 本次调整仍然生效。 */ } }
+function persist() { try { localStorage.setItem(preferenceKey, JSON.stringify({ order: order.value, height: panelHeight.value, manualOrder: manualOrder.value, orderVersion: 2, expanded: [...expanded.value] })) } catch { /* 本次调整仍然生效。 */ } }
 function folderTint(row) { const colors = ['#64748b','#0d9488','#334155','#7c3aed','#d97706','#0284c7']; const index = ['resource','annotation','translation','interpretation','recruitment','technical'].indexOf(row.ruleKey); return colors[index < 0 ? [...row.id].reduce((n,c)=>n+c.charCodeAt(0),0)%colors.length : index] }
-function beginDrag(event, id) { dragged.value = id; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', id) }
-function drop(id) {
-  if (!dragged.value || dragged.value === id) return
-  const parent = nodes.value.find(row => row.id === id)?.parentKey || ''
-  if ((nodes.value.find(row => row.id === dragged.value)?.parentKey || '') !== parent) return
-  const ids = (parent ? children(parent) : roots.value).map(row => row.id), from = ids.indexOf(dragged.value), to = ids.indexOf(id)
-  if (from < 0 || to < 0) return
-  ids.splice(from, 1); ids.splice(to, 0, dragged.value); order.value = [...order.value.filter(key => !ids.includes(key)), ...ids]; dragged.value = ''; persist()
+function beginDrag(event, id) {
+  const row=nodes.value.find(item=>item.id===id)
+  if (editing.value || row?.builtin && row.parentKey) { event.preventDefault(); return }
+  dragged.value=id;event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('application/x-xinshi-folder',id)
 }
+function endDrag(){dragged.value='';dropTarget.value=''}
+function dragOver(event,id){
+  if(!dragged.value)return
+  const source=nodes.value.find(row=>row.id===dragged.value),target=nodes.value.find(row=>row.id===id)
+  if(!target||target.id===source?.id||(source?.parentKey||'')!==(target.parentKey||''))return
+  dropTarget.value=id;dropSide.value=event.clientY<event.currentTarget.getBoundingClientRect().top+event.currentTarget.offsetHeight/2?'before':'after'
+  event.dataTransfer.dropEffect='move'
+  const scroll=panel.value?.querySelector('.chat-folder-tree__scroll'),rect=scroll?.getBoundingClientRect()
+  if(rect){if(event.clientY<rect.top+36)scroll.scrollTop-=18;else if(event.clientY>rect.bottom-36)scroll.scrollTop+=18}
+}
+function saveOrder(ids,parent){order.value=[...order.value.filter(key=>!ids.includes(key)),...ids];if(!parent)manualOrder.value=true;persist()}
+function drop(id) {
+  if(!dragged.value||dragged.value===id)return endDrag()
+  const parent=nodes.value.find(row=>row.id===id)?.parentKey||''
+  if((nodes.value.find(row=>row.id===dragged.value)?.parentKey||'')!==parent)return endDrag()
+  const ids=(parent?children(parent):roots.value).map(row=>row.id).filter(key=>key!==dragged.value)
+  const to=ids.indexOf(id);if(to<0)return endDrag()
+  ids.splice(to+(dropSide.value==='after'?1:0),0,dragged.value);saveOrder(ids,parent);endDrag()
+}
+function moveBy(id,delta){
+  const row=nodes.value.find(item=>item.id===id);if(!row||editing.value||row.builtin&&row.parentKey)return
+  const ids=(row.parentKey?children(row.parentKey):roots.value).map(item=>item.id),from=ids.indexOf(id),to=from+delta
+  if(from<0||to<0||to>=ids.length)return
+  ids.splice(from,1);ids.splice(to,0,id);saveOrder(ids,row.parentKey)
+}
+let stopPointerDrag=()=>{}
+function beginPointerDrag(event,id){
+  const row=nodes.value.find(item=>item.id===id)
+  if(event.button!==0||editing.value||!row||row.builtin&&row.parentKey)return
+  event.preventDefault();event.stopPropagation();stopPointerDrag()
+  const handle=event.currentTarget,startX=event.clientX,startY=event.clientY,pointer=event.pointerId
+  let moved=false,x=startX,y=startY
+  handle.setPointerCapture(pointer)
+  const update=()=>{
+    if(!moved)return
+    const scroll=panel.value?.querySelector('.chat-folder-tree__scroll'),rect=scroll?.getBoundingClientRect()
+    if(rect){if(y<rect.top+36)scroll.scrollTop-=14;else if(y>rect.bottom-36)scroll.scrollTop+=14}
+    const element=document.elementFromPoint(x,y)?.closest('.chat-folder-tree__row[data-folder-row]')
+    const target=nodes.value.find(item=>item.id===element?.dataset.folderRow)
+    if(!target||target.id===id||(row.parentKey||'')!==(target.parentKey||'')){dropTarget.value='';return}
+    dropTarget.value=target.id;const bounds=element.getBoundingClientRect();dropSide.value=y<bounds.top+bounds.height/2?'before':'after'
+  }
+  const move=e=>{x=e.clientX;y=e.clientY;if(!moved&&Math.hypot(x-startX,y-startY)>=4){moved=true;dragged.value=id}update()}
+  const up=()=>{if(moved&&dropTarget.value)drop(dropTarget.value);stopPointerDrag()}
+  const cancel=()=>stopPointerDrag()
+  const timer=window.setInterval(update,40)
+  stopPointerDrag=()=>{window.clearInterval(timer);handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',up);handle.removeEventListener('pointercancel',cancel);if(handle.hasPointerCapture(pointer))handle.releasePointerCapture(pointer);endDrag()}
+  handle.addEventListener('pointermove',move);handle.addEventListener('pointerup',up);handle.addEventListener('pointercancel',cancel)
+}
+onBeforeUnmount(()=>stopPointerDrag())
 function maxHeight() { return Math.max(100, Math.floor((panel.value?.parentElement?.clientHeight || window.innerHeight) - 220)) }
 function resizeBy(delta) { panelHeight.value = Math.max(100, Math.min(maxHeight(), panelHeight.value + delta)); persist() }
 let stopResize = () => {}
@@ -145,7 +194,7 @@ function beginResize(event) {
 }
 onBeforeUnmount(() => stopResize())
 const children = id => nodes.value.filter(row => row.parentKey === id).sort((a, b) => Number(!!b.fixedTop) - Number(!!a.fixedTop) || rank(a.id) - rank(b.id))
-const visibleChildren = id => children(id).flatMap(row => [row, ...(expanded.value.has(row.id) ? children(row.id) : [])])
+const visibleChildren = id => annotationFolderEntries(children(id), id).flatMap(row => [row, ...(expanded.value.has(row.id) ? children(row.id) : [])])
 const activeRootId = computed(() => {
   let row = nodes.value.find(item => item.id === props.selected)
   while (row?.parentKey) {
@@ -155,7 +204,7 @@ const activeRootId = computed(() => {
   }
   return row?.id || ''
 })
-const subFolders = computed(() => (activeRootId.value && activeRootId.value !== resourceFolderId ? visibleChildren(activeRootId.value) : []))
+const subFolders = computed(() => (activeRootId.value ? visibleChildren(activeRootId.value) : []))
 const count = id => sessionFolderCount(props.sessions, id, nodes.value)
 const expanded = ref(new Set(Array.isArray(saved.expanded) ? saved.expanded : []))
 const editing = ref(null), saving = ref(false), error = ref(''), editKey = ref(0)
@@ -216,8 +265,8 @@ async function save(name) {
   try {
     const target = editing.value
     const row = target.id ? await update(target, { name }) : await create(name, target.parentKey, !!target.conversation, !!target.directory)
-    editing.value = null; emit('changed'); emit('select', target.parentKey === resourceFolderId ? resourceFolderId : row.id)
-    if (!target.id && row.isConversation && target.parentKey !== resourceFolderId) openChild(row)
+    editing.value = null; emit('changed'); emit('select', row.id)
+    if (!target.id && row.isConversation) openChild(row)
   } catch (e) {
     error.value = e.message; await refresh().catch(() => {})
     const current = categories.items.find(row => row.id === editing.value?.id)
@@ -272,6 +321,8 @@ async function save(name) {
 .chat-folder-tree__children{margin:3px 0 2px 12px;padding-left:10px;border-left:1px solid #dce4ee}
 .chat-folder-tree__children .chat-folder-tree__row{min-height:28px;margin-bottom:2px;background:transparent;border:1px solid transparent;border-left:2px solid transparent;font-weight:400}
 .chat-folder-tree__children .chat-folder-tree__row.is-subgroup{font-weight:500;color:#334155}
+.chat-folder-tree__row.drop-before{box-shadow:inset 0 2px var(--color-primary)}
+.chat-folder-tree__row.drop-after{box-shadow:inset 0 -2px var(--color-primary)}
 .chat-folder-tree__children .chat-folder-tree__row.is-nested{margin-left:14px;padding-left:4px}
 .chat-folder-tree__children .chat-folder-tree__row.is-stripe{background:transparent}
 .chat-folder-tree__row:not(.is-active):hover,.chat-folder-tree__row:not(.is-active):has(:focus-visible){background:#eef3f8;border-color:#d8e2ee}

@@ -252,7 +252,7 @@ class DailyReportItemInput(BaseModel):
             if "其他项目" in types and not str(metadata.get("custom_project_type") or "").strip():
                 raise ValueError("其他项目须填写具体项目类型")
             if self.source_type != 'system_event':
-                needs_identity = any(value.split('::', 1)[0] not in {'非项目工作', '外勤工作', '财务工作'} for value in types)
+                needs_identity = any(value.split('::', 1)[0] not in {'非项目工作', '外勤工作', '财务工作', '会议'} and value != '培训工作::培训会议' for value in types)
                 if needs_identity and (not self.task_name.strip() or not str(metadata.get('order_no') or '').strip()):
                     raise ValueError('请填写订单号和项目名称')
                 if not self.progress_content.strip():

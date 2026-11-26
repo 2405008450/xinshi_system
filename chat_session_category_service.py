@@ -64,9 +64,17 @@ def catalog(db, user):
     from translation_chat_delivery import aliases as translation_aliases
     from project_delivery import aliases as project_aliases
     titles={**translation_aliases(db),**project_aliases(db)}
+    categories = db.query(Category).order_by(Category.created_at, Category.id).all() if ready else []
+    from technical_requirements import folder_catalog
+    technical_rooms, daily_folders, hidden_technical = folder_catalog(db, user, {str(row.id) for row in categories if row.active}) if ready and discussion_ready(db) else ({}, [], set())
+    hidden.update(hidden_technical)
+    task_rooms.update(technical_rooms)
+    existing_ids = {str(row.id) for row in categories}
     return dict(ready=ready, hierarchy_ready=hierarchy_ready, can_manage=ready and can_manage_folders(db, user), technical_access=technical_access,
                 items=[dict(serialize(row), name=titles.get(str(row.id),task_rooms.get(str(row.id),{}).get('name',row.name)), parent_key=task_rooms.get(str(row.id),{}).get('parent_key',parents.get(str(row.id))), is_conversation=str(row.id) in rooms, deletion_protected=str(row.id) in titles, fixed_top=row.name=='技术/开发沟通')
-                       for row in db.query(Category).order_by(Category.created_at, Category.id) if row.id not in hidden and (str(row.id) not in rooms or str(row.id) in accessible_rooms)] if ready else [])
+                       for row in categories if row.id not in hidden and str(row.id) not in hidden
+                        and (str(row.id) not in rooms or str(row.id) in accessible_rooms)]
+                + [row for row in daily_folders if row['id'] not in existing_ids] if ready else [])
 
 
 def validate_parent(db, parent_key, *, conversation=False):

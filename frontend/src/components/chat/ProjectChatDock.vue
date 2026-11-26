@@ -6,6 +6,8 @@
         <ChatWorkspace
           :active="workspaceVisible"
           :mobile="workspaceMobile"
+          @session-panel-width="sessionPanelWidth = $event"
+          @session-panel-dragging="sessionPanelDragging = $event"
           :annotation-filters="annotationFilters"
           @annotation-filters="applyAnnotationFilters"
           :wide-header="contentRect.wideHeader"
@@ -13,6 +15,8 @@
           :search-sessions="followed.map(row => ({...row,projectType:row.kind}))"
           :recent-closed="state.recentClosedSessions"
           @restore-closed="restoreClosedSession"
+          @remove-closed-history="removeClosedHistory"
+          @clear-closed-history="clearClosedHistory"
           @pane-change="workspacePane = $event"
           @context-empty="state.activeKey = ''"
           :mention-history-total="mentionHistoryTotal"
@@ -249,6 +253,8 @@ const {
   closeChat,
   closeSessionEntry,
   restoreClosedSession,
+  removeClosedHistory,
+  clearClosedHistory,
   syncClosedSessionCatalog,
   closeWorkspaceSession,
   closeAllChats,
@@ -367,6 +373,7 @@ const minimizedWindows = computed(() => (
     ? state.windows.filter(item => item.minimized && (!state.pinnedKey || state.pinnedKey === item.key))
     : []
 ))
+const sessionPanelDragging = ref(false)
 const workspaceSplitRoot = ref(null)
 const workspaceSplit = useChatWorkspaceSplit(workspaceSplitRoot, workspaceVisible, workspaceNarrow, computed(() => state.workspaceMaximized))
 const sidebarWidth = computed(() => !workspaceVisible.value || workspaceNarrow.value ? 0 : workspaceSplit.width.value)
@@ -438,13 +445,14 @@ const workspaceShellStyle = computed(() => {
     top: `${state.workspaceY}px`,
     width: `${size.width}px`,
     height: `${size.height}px`,
-    zIndex: state.workspaceZ,
+    zIndex: state.workspaceZ + (sessionPanelDragging.value ? 1 : 0),
   }
 })
+const sessionPanelWidth = ref(0)
 const contentRect = computed(() => {
   void viewportSize.value
   const size = !state.workspaceMaximized && workspaceRect.value || resolveChatSize(workspaceFrameMode.value)
-  const side = sidebarWidth.value + (state.workspaceMaximized && !workspaceNarrow.value ? 64 : 0)
+  const side = sessionPanelWidth.value + sidebarWidth.value + (state.workspaceMaximized && !workspaceNarrow.value ? 64 : 0)
   const width = Math.max(160, size.width - side)
   const wideHeader = width >= 560
   const headerHeight = wideHeader ? 60 : 76

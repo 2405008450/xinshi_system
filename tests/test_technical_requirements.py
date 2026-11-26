@@ -62,3 +62,49 @@ def test_technical_migration_is_create_only_repeatable(chat_env):
     from tools.apply_technical_requirements_migration import apply_migration
     for model in (TechnicalAppend,TechnicalRoom):model.__table__.drop(db.connection())
     apply_migration(db.connection());apply_migration(db.connection())
+
+
+def test_technical_rooms_use_creation_day_folder_without_flat_duplicates(environment, monkeypatch):
+    from datetime import datetime
+    from chat_time import BUSINESS_TIMEZONE
+    from technical_requirement_models import TechnicalRoom
+    from chat_session_category_service import catalog
+    from uuid import NAMESPACE_URL, uuid5
+    import technical_requirements as service
+    db, (actor, it_member, outsider) = environment
+    project = setup(db, [actor, it_member, outsider], monkeypatch)
+    opened = service.open_room(db, actor, project.id, [])
+    room = db.get(TechnicalRoom, project.id)
+    room.created_at = datetime(2026, 11, 25, 0, 30, tzinfo=BUSINESS_TIMEZONE)
+    db.commit()
+    day_id = str(uuid5(NAMESPACE_URL, 'xinshi:annotation:date:2026-11-25'))
+    nodes = catalog(db, actor)['items']
+    technical = [node for node in nodes if node['id'] == str(opened['room_id'])]
+    assert len(technical) == 1 and technical[0]['parent_key'] == day_id
+    folder = next(node for node in nodes if node['id'] == day_id)
+    assert folder['name'] == '261125' and folder['builtin'] is True
+    assert str(opened['room_id']) not in {node['id'] for node in catalog(db, outsider)['items']}
+    assert day_id not in {node['id'] for node in catalog(db, outsider)['items']}
+
+
+def test_directory_pagination_excludes_inactive_rooms_and_keeps_full_titles(environment, monkeypatch):
+    from chat_session_category_models import ChatSessionCategory
+    from discussion_chat_models import DiscussionMember
+    from technical_requirement_models import TechnicalRoom
+    from annotation_models import AnnotationProject
+    from routers.technical_requirements import listing
+    db, (actor, member, outsider) = environment
+    for index in range(5):
+        project = AnnotationProject(id=uuid4(), order_no=f'AP-PAGE-{index}', project_name='目录完整项目名称' * 8, created_by=actor.id)
+        category = ChatSessionCategory(id=uuid4(), name=f'技术需求 {index}', active=index != 4, updated_by=actor.id)
+        db.add_all([project, category]); db.flush()
+        db.add_all([TechnicalRoom(project_id=project.id, room_id=category.id, requirements='分页搜索', created_by=actor.id, updated_by=actor.id),
+            DiscussionMember(room_id=category.id, user_id=actor.id, last_read_id=0)])
+    db.commit()
+    first = listing(keyword='PAGE 目录', offset=0, limit=3, db=db, user=actor)
+    second = listing(keyword='目录 PAGE', offset=3, limit=3, db=db, user=actor)
+    assert first['total'] == second['total'] == 4
+    assert len(first['items']) == 3 and len(second['items']) == 1
+    assert not ({row['room_id'] for row in first['items']} & {row['room_id'] for row in second['items']})
+    assert all(row['title'].endswith('目录完整项目名称' * 8) and row['folder_day'] for row in first['items'])
+    assert listing(keyword='', offset=0, limit=50, db=db, user=outsider)['total'] == 0

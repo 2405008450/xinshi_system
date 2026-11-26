@@ -19,7 +19,7 @@
             <el-button type="primary" :loading="savingId==='availability'" @click="saveIdle">保存空闲状态</el-button>
           </section>
           <section v-for="(row,index) in formModel.entries" :key="row.id" class="status-project-card" data-dialog-field-search-group :data-dialog-field-search-group-title="`${row.orderNo} ${row.projectName}`">
-            <h4>{{row.orderNo}} · {{row.projectName}}</h4>
+            <ProjectIdentityHeader :project-id="row.id" :project-type="isInterpretation?'interpretation':'annotation'" :order-no="row.orderNo" :project-name="row.projectName" :report-disabled="saving" />
             <p v-if="row.cumulative_minutes">此前已汇报今日累计用时：{{durationLabel(row.cumulative_minutes)}}</p>
             <template v-if="submitted(row)">
               <el-tag type="success">{{workSlotLabel(slot)}}已提交</el-tag>
@@ -54,6 +54,7 @@ import {computed,nextTick,onBeforeUnmount,reactive,ref,watch} from 'vue'
 import {useRouter} from 'vue-router'
 import {ElMessage} from 'element-plus'
 import ScreenshotText from '@/components/common/ScreenshotText.vue'
+import ProjectIdentityHeader from '@/components/common/ProjectIdentityHeader.vue'
 import {getAnnotationWorkStatus,saveAnnotationWorkArrangement,submitAnnotationWorkStatus,saveAnnotationWorkAvailability,getInterpretationWorkArrangement,saveInterpretationWorkArrangement} from '@/api/projectArrangements'
 import {remainingTimeOptions,workSlotLabel} from '@/utils/annotationWorkStatus'
 import {durationOptions,durationLabel} from '@/utils/workReportForm'

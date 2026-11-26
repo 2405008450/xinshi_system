@@ -58,7 +58,7 @@ function search(folder, keyword) {
     { key: 'd', projectType: 'direct', title: 'AABB', folder: '' },
   ]
   return runInNewContext(expression + '; visibleSessions.value.map(row => row.key)', {
-    props: { sessions, searchSessions: [] }, annotationFiltersActive: { value: false }, computed: fn => ({ value: fn() }), annotationMode: { value: 'group' },
+    props: { sessions, searchSessions: [] }, allMentionSessions: { value: sessions }, annotationFiltersActive: { value: false }, computed: fn => ({ value: fn() }), annotationMode: { value: 'group' },
     selectedFolder: { value: folder }, folderNodes: { value: [] }, tab: { value: 'all' }, annotationMentionView: { value: false },
     appliedKeyword: { value: keyword }, compareSessionActivity, matchesSearch, groupSessionList, sessionStamp: () => 0,
     sessionMatchesFolder: (session, id) => !id || session.folder === id,

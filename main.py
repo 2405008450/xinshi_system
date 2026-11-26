@@ -426,6 +426,8 @@ app.include_router(tasks.tasks_router)
 app.include_router(tasks.entries_router)
 app.include_router(tasks.reports_router)
 app.include_router(editor_drafts.router)
+from routers import meetings
+app.include_router(meetings.router)
 from routers import thoughts_ai
 app.include_router(thoughts_ai.router)
 from routers.project_arrangements import router as project_arrangements_router

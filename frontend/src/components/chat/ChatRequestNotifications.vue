@@ -1,9 +1,9 @@
 <template>
   <section class="chat-request-notifications" aria-label="会话业务通知">
-    <header><div><h3>通知</h3><p>总结同步、资源需求、取消通知及回执。点击查看完整内容。</p></div><el-button :loading="feed.loading.value" @click="feed.pageChanged()">刷新</el-button></header>
+    <header><div><h3>通知</h3><p>会议安排、会议回执、总结同步、资源需求、取消通知及回执。点击查看完整内容。</p></div><el-button :loading="feed.loading.value" @click="feed.pageChanged()">刷新</el-button></header>
     <AppForm data-auto-draft="off" :model="feed.filters" :inline="true" class="chat-request-notifications__filters" @submit.prevent="feed.query()">
       <el-form-item label="关键词" class="notification-keyword"><el-input v-model="feed.filters.keyword" clearable maxlength="500" placeholder="搜索标题、内容、项目或需求编号" aria-label="搜索通知" @input="feed.keywordInput" @keyup.enter="feed.query()" /></el-form-item>
-      <el-form-item label="类型"><el-select v-model="feed.filters.notificationType" aria-label="通知类型" placeholder="全部类型" @change="feed.query()"><el-option label="全部类型" value="" /><el-option label="资源需求及回执" value="resource_request_dispatch" /><el-option label="总结同步" value="chat_summary" /></el-select></el-form-item>
+      <el-form-item label="类型"><el-select v-model="feed.filters.notificationType" aria-label="通知类型" placeholder="全部类型" @change="feed.query()"><el-option label="全部类型" value="" /><el-option label="资源需求及回执" value="resource_request_dispatch" /><el-option label="总结同步" value="chat_summary" /><el-option label="会议安排" value="meeting_invitation" /><el-option label="会议回执" value="meeting_receipt" /><el-option label="会议任务" value="meeting_task" /></el-select></el-form-item>
       <el-form-item label="阅读状态"><el-select v-model="feed.filters.readStatus" aria-label="通知阅读状态" @change="feed.query()"><el-option label="全部" value="all" /><el-option label="未读" value="unread" /><el-option label="已读" value="read" /></el-select></el-form-item>
       <el-form-item><el-button type="primary" @click="feed.query()">查询</el-button><el-button @click="feed.reset()">重置</el-button></el-form-item>
     </AppForm>
@@ -12,7 +12,7 @@
       <el-empty v-if="!feed.loading.value && !feed.items.value.length && !feed.error.value" description="暂无符合条件的通知" :image-size="64" />
       <article v-for="item in feed.items.value" :key="item.id" class="chat-request-notifications__item" :class="{'is-unread':!item.is_read}">
         <button type="button" class="chat-request-notifications__content" @click="open(item)">
-        <strong><i v-if="!item.is_read" aria-label="未读" />{{ item.title }}</strong><p>{{ item.content }}</p><time>{{ formatTime(item.created_at) }}</time>
+        <strong><i v-if="!item.is_read" aria-label="未读" /><span v-if="item.notification_type?.startsWith('meeting_')" class="meeting-notification-character">会</span>{{ item.title }}</strong><p>{{ item.content }}</p><time>{{ formatTime(item.created_at) }}</time>
         </button>
         <el-button v-if="item.can_open_resource_request && hasPermission('projects:write')" type="primary" plain class="chat-request-notifications__entry" @click="editRequest(item)">资源需求</el-button>
       </article>
@@ -26,6 +26,8 @@ import { defineAsyncComponent, ref } from 'vue'
 import { hasPermission } from '@/utils/permission'
 import { ElMessage } from 'element-plus'
 import { formatBusinessDateTime as formatTime } from '@/utils/dateTime'
+import {useRouter} from 'vue-router'
+const router=useRouter()
 const ResourceRequestDispatchDialog = defineAsyncComponent(() => import('@/views/resource/components/ResourceRequestDispatchDialog.vue'))
 const props = defineProps({ feed: { type: Object, required: true } })
 const ResourceRequestEditor = defineAsyncComponent(() => import('@/views/resource/ResourceRequests.vue'))
@@ -38,7 +40,7 @@ async function editRequest(item) {
 }
 async function open(item) {
   if (!item.related_entity_id) return
-  try { await props.feed.read(item);if(item.notification_type==='chat_summary'){window.dispatchEvent(new CustomEvent('chat-open-summary',{detail:{issueId:item.related_entity_id}}));return} batchId.value = String(item.related_entity_id) }
+  try { await props.feed.read(item);if(item.notification_type?.startsWith('meeting_')){if(item.notification_type==='meeting_task')await router.push({path:'/workbench',query:{section:'my-tasks'}});else window.dispatchEvent(new CustomEvent('meeting-open',{detail:{meetingId:String(item.related_entity_id)}}));window.dispatchEvent(new Event('meetings-changed'));return}if(item.notification_type==='chat_summary'){window.dispatchEvent(new CustomEvent('chat-open-summary',{detail:{issueId:item.related_entity_id}}));return} batchId.value = String(item.related_entity_id) }
   catch (e) { ElMessage.error(e.detail || e.message || '打开通知失败') }
 }
 </script>
@@ -55,3 +57,5 @@ header{display:flex;gap:12px;align-items:flex-start;justify-content:space-betwee
 .chat-request-notifications__item{display:flex;align-items:center;gap:16px;cursor:default}.chat-request-notifications__content{flex:1;min-width:0;text-align:left;border:0;padding:0;background:transparent;color:inherit;font:inherit;cursor:pointer}.chat-request-notifications__entry{flex:none}.chat-request-notifications__content:focus-visible{outline:2px solid #93c5fd;outline-offset:4px}
 @media(max-width:600px){.chat-request-notifications__item{flex-wrap:wrap}.chat-request-notifications__content{flex-basis:100%}.chat-request-notifications__entry{margin-left:auto}}
 </style>
+
+<style scoped>.meeting-notification-character{display:inline-block;color:#dc2626;border:1px solid #fecaca;background:#fff1f2;border-radius:4px;padding:1px 5px;margin-right:6px;font-weight:700}</style>

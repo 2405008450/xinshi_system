@@ -467,6 +467,8 @@ def session_rows(db, user, ready, *, recent_only, scope=None):
     if scope is None or 'discussion' in scope:
         rows.extend(discussion_chat_service.catalog(db, user, recent_only=recent_only,
                                                   room_ids=scope['discussion'] if scope is not None else None))
+    from chat_project_views import decorate_sessions as decorate_project_views
+    decorate_project_views(db, user, rows)
     decorate_member_counts(db, rows)
     session_categories.decorate_sessions(db, rows)
     return rows
@@ -474,10 +476,10 @@ def session_rows(db, user, ready, *, recent_only, scope=None):
 
 @router.get('/sessions/history')
 def session_history(keyword: str = Query('', max_length=200), offset: int = Query(0, ge=0),
-                    limit: int = Query(30, ge=1, le=100), db: Session = Depends(get_db),
+                    limit: int = Query(30, ge=1, le=100), mine: bool = False, db: Session = Depends(get_db),
                     user: AppUser = Depends(get_current_user)):
     from chat_session_history import history_page
-    return history_page(db, user, keyword=keyword, offset=offset, limit=limit)
+    return history_page(db, user, keyword=keyword, offset=offset, limit=limit, mine=mine)
 
 
 @router.get('/mentions')

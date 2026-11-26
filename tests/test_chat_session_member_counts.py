@@ -3,6 +3,41 @@ from uuid import uuid4
 import pytest
 
 
+def test_nested_internal_rooms_survive_explicit_null_root_location(environment):
+    from chat_session_category_models import ChatSessionCategory as Category, ChatSessionCategoryFolder as Folder
+    from discussion_chat_models import DiscussionMember
+    from routers.chat_sessions import sessions
+    db, (owner, member, outsider) = environment
+    root = Category(id=uuid4(), name='内部管理群', updated_by=owner.id, active=True)
+    children = [Category(id=uuid4(), name=name, updated_by=owner.id, active=True)
+                for name in ('新媒体 新技术', '催款追款群')]
+    db.add_all([root, *children]); db.flush()
+    db.add(Folder(category_id=root.id, parent_key=None))
+    for child in children:
+        db.add(Folder(category_id=child.id, parent_key=str(root.id)))
+        db.add(DiscussionMember(room_id=child.id, user_id=member.id, last_read_id=0))
+    db.commit()
+    rows = sessions(db, member)['items']
+    assert {str(row['project_id']) for row in rows if row['kind'] == 'discussion'} == {str(child.id) for child in children}
+    assert all(row['category_ids'] == [str(row['project_id'])] for row in rows if row['kind'] == 'discussion')
+    assert not [row for row in sessions(db, outsider)['items'] if row['kind'] == 'discussion']
+
+
+def test_favorites_are_per_account(environment):
+    from models import AnnotationChatMember
+    from routers.annotation_chat import follow, FollowRequest
+    from routers.chat_sessions import sessions
+    db, (owner, member, outsider) = environment
+    row = project(db, owner, 'AP-FAVORITES-ISOLATION')
+    db.add_all([AnnotationChatMember(project_id=row.id, user_id=user.id, following=True, last_read_sequence=0)
+                for user in (owner, member)])
+    db.commit()
+    follow(row.id, FollowRequest(following=False), db, owner)
+    assert db.get(AnnotationChatMember, (row.id, member.id)).following is True
+    assert not [item for item in sessions(db, owner)['items'] if item['kind'] == 'annotation' and item['following']]
+    assert [item for item in sessions(db, member)['items'] if item['kind'] == 'annotation' and item['following']]
+
+
 def test_annotation_session_manager_flag_uses_current_assigned_role(environment):
     from models import AnnotationChatMember
     from routers.chat_sessions import sessions

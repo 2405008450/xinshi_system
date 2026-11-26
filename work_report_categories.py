@@ -1,4 +1,4 @@
-"""工作报告分类：项目分类共享，其余自定义分类按用户隔离。"""
+"""工作报告分类：分类及二级内容共享可选，排版固定任务仍按用户隔离。"""
 from uuid import uuid4
 
 from sqlalchemy import String, UniqueConstraint, Uuid, inspect
@@ -15,7 +15,8 @@ DEFAULT_CATEGORIES = {
     '财务工作': ['客户对账', '资源对账', '供应商对账', '其他对账'],
     '外勤工作': ['拜访客户', '口译现场', '投标', '陪标', '行政类', '银行类', '供应商走访', '项目现场服务', '招聘外勤', '展会与会议', '文件与物资交接'],
     '管理工作': ['查看工作报告', '分析数据', '开发工作'],
-    '培训工作': ['AI知识培训', '客户部培训', '标注项目培训', '笔译项目培训', '口译项目培训', '招聘项目培训', '资源开拓培训', 'HR工作培训', '排版培训', '专检培训'],
+    '会议': ['项目会议', '管理会议', '部门会议', '客户会议', '开发会议', '其他会议'],
+    '培训工作': ['培训会议', 'AI知识培训', '客户部培训', '标注项目培训', '笔译项目培训', '口译项目培训', '招聘项目培训', '资源开拓培训', 'HR工作培训', '排版培训', '专检培训'],
 }
 
 
@@ -76,13 +77,13 @@ def category_catalog(db, user):
     preferred=[]
     ready = inspect(db.connection()).has_table(WorkReportCategory.__tablename__)
     if ready:
-        rows = db.query(WorkReportCategory).filter(WorkReportCategory.scope.in_(['*', str(user.id)])).order_by(WorkReportCategory.name).all()
+        rows = db.query(WorkReportCategory).order_by(WorkReportCategory.name, WorkReportCategory.id).all()
         for row in rows:
-            if row.parent==ROOT_CATEGORY_PARENT and row.scope==str(user.id):groups.setdefault(row.name,[])
+            if row.parent==ROOT_CATEGORY_PARENT:groups.setdefault(row.name,[])
         for row in rows:
             if row.parent in groups and row.name not in groups[row.parent]:
                 groups[row.parent].append(row.name)
-            if row.parent==LAYOUT_PRESET_PARENT and row.name not in presets:presets.append(row.name)
+            if row.parent==LAYOUT_PRESET_PARENT and row.scope in ('*',str(user.id)) and row.name not in presets:presets.append(row.name)
         allowed = catalog_type_values(groups)
         for row in rows:
             if row.parent==PREFERRED_TYPE_PARENT and row.scope==str(user.id) and row.name in allowed and row.name not in preferred:
