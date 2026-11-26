@@ -1,3 +1,4 @@
+from resource_request_dispatch_kinds import POSTING_KINDS
 """发帖接收人的渠道选择与不可变执行回执。"""
 from uuid import UUID
 from pydantic import BaseModel,Field
@@ -16,8 +17,8 @@ class ExecutionWrite(BaseModel):
 def access(db,user,batch_id,recipient_only=False):
     batch=db.get(Batch,batch_id)
     recipient=db.query(Recipient).filter_by(dispatch_id=batch_id,user_id=user.id).with_for_update().first() if recipient_only else db.get(Recipient,(batch_id,user.id))
-    if not batch or batch.kind!='post' or (not recipient and (recipient_only or batch.sender_id!=user.id)):
-        raise HTTPException(404,'发帖需求通知不存在')
+    if not batch or batch.kind not in POSTING_KINDS or (not recipient and (recipient_only or batch.sender_id!=user.id)):
+        raise HTTPException(404,'平台发布需求通知不存在')
     return batch,recipient
 
 def matched(db,user):
@@ -40,6 +41,8 @@ def send(db,user,batch_id,payload):
     candidate=db.get(Batch,batch_id)
     if candidate:lock_request(db,candidate.request_id)
     batch,recipient=access(db,user,batch_id,True)
+    if batch.kind=='wechat_public' and batch.snapshot.get('public_execution_workflow'):
+        raise HTTPException(422,'请填写公众号执行说明，完成后系统通知全体')
     assert_active(db,batch)
     ids=set(payload.platform_ids)
     old=db.query(Reply).filter_by(idempotency_key=payload.idempotency_key).first()

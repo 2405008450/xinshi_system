@@ -20,7 +20,7 @@ export const projectTypeDescriptions = {
   exhibition_escort: '译员随客户走访展馆或多个展位，协助观展、交流及现场洽谈。',
   tourism_escort: '围绕游览、交通、住宿、餐饮等旅游行程提供随行语言协助。',
   business_escort: '围绕商务拜访、工厂考察、采购及商务洽谈提供随行口译。',
-  other_escort: '旅游、商务及展会以外的陪同场景，例如就医、办事或生活事务陪同；请在具体任务中写明用途。',
+  other_escort: '旅游、商务及展会以外的陪同场景，例如就医、办事或生活事务陪同；请在工作内容中写明用途。',
   small_business_meeting: '小范围商务会议或谈判，以双方轮流交流、分段翻译为主。',
   small_non_business_meeting: '小范围非商务交流，例如学术讨论、文化交流或内部沟通，以轮流交流为主。',
   consecutive: '正式会议中的交替传译：发言人讲完一段后暂停，译员再翻译，需为翻译预留时间。',

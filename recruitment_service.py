@@ -300,6 +300,7 @@ def _resolve_client(db: Session, data: dict) -> None:
         data.get("client_code"),
         data.get("client_name"),
         data.get("manager_contact"),
+        registration_source="recruitment",
     )
     if client_id:
         data["client_id"] = client_id

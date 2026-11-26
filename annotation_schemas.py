@@ -266,6 +266,7 @@ class AnnotationAssigneeResponse(AnnotationAssigneeInput):
 
 
 class AnnotationProjectWrite(BaseModel):
+    client_source: Optional[str] = Field(default=None, max_length=500)
     task_image_upload_ids: list[UUID] | None = Field(default=None, max_length=9)
     area_id: Optional[UUID] = None
     material_changes: Optional[MaterialChanges] = None
@@ -578,6 +579,7 @@ class AnnotationDirectionSummary(BaseModel):
 
 
 class AnnotationProjectDetailResponse(AnnotationProjectListResponse):
+    client_source: Optional[str] = Field(default=None, max_length=500)
     task_image_upload_ids: list[UUID] = Field(default_factory=list)
     direction_summary: Optional[AnnotationDirectionSummary] = None
     consultation_id: Optional[UUID] = None

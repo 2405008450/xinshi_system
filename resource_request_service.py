@@ -115,6 +115,7 @@ def _source_detail(project, source_type: str) -> str:
         return _first_text(project.resource_request, project.job_description)
     if source_type == "interpretation":
         return _first_text(
+            project.social_post_request,
             project.resource_request,
             project.interpreter_special_requirements,
             project.task_description,
@@ -227,7 +228,7 @@ def get_resource_request_source_prefill(db: Session, source_type: str, source_pr
         "client_code": client_snapshot["client_code_snapshot"],
         "client_short_name": client_snapshot["client_short_name_snapshot"],
         "request_detail": detail,
-        "request_content": {"versions": [dict(name=name,content=project.task_description or '',copied_from_task=bool(project.task_description)) for name in ['发帖','询问']]} if source_type=='annotation' else {"versions":[]},
+        "request_content": {"versions": [dict(name=name,content=(project.task_description or '') if source_type=='annotation' else (project.social_post_request or project.task_description or ''),copied_from_task=bool(project.task_description) if source_type=='annotation' else False) for name in ['发帖','询问']]} if source_type in {'annotation','interpretation'} else {"versions":[]},
         "items": raw_items,
         **(__import__('resource_request_content').annotation_context(db, project.id) if source_type == 'annotation' else {}),
     }
@@ -433,7 +434,7 @@ def send_resource_request(db: Session, request_id: UUID, user_id: Optional[UUID]
     elif row.demand_status == 'confirmed':
         # 兼容旧客户端的重复请求；新入口每次显式发送使用独立幂等标识。
         return get_resource_request(db, row.id)
-    if ids and not ids <= {p.id for p in eligible(db)}:
+    if ids and not ids <= {p.id for p in eligible(db,'development')}:
         raise HTTPException(422, '部分人员已不在标注项目部或已停用，请重新选择')
     from resource_request_send_history import assert_limit, snapshot
     assert_limit(db, row.id, 'development')

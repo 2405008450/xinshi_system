@@ -27,6 +27,8 @@ from interpretation_models import (
     InterpretationProjectLanguageDirection,
     InterpretationProjectTimeRange,
 )
+from interpretation_interpreter_requirements import attach as attach_interpreter_requirements, save as save_interpreter_requirements
+from interpretation_client_selection import attach as attach_client_selection, save as save_client_selection
 from interpretation_schedule_groups import attach as attach_schedule_groups, save as save_schedule_groups
 from interpretation_schemas import (
     PROJECT_TYPE_LABELS,
@@ -169,10 +171,13 @@ def build_interpretation_project_name(
         raise ValueError(f"请先填写：{'、'.join(missing)}")
 
     date_text = format_interpretation_date_ranges(payload.time_ranges)
-    location_text = "、".join(payload.locations)
+    from interpretation_location_summary import interpretation_cities
+    location_text = "、".join(interpretation_cities(payload))
+    if not location_text:
+        raise ValueError('请填写项目地点的城市')
     direction_text = "；".join(direction_labels)
     type_text = "；".join(PROJECT_TYPE_LABELS[value] for value in payload.project_types)
-    return f"{date_text}{location_text}{direction_text}{type_text}项目"
+    return f"{date_text}{location_text}，{direction_text}{type_text}项目"
 
 
 def preview_interpretation_project_name(
@@ -227,6 +232,8 @@ def get_interpretation_project(db: Session, project_id: UUID) -> Optional[Interp
         from project_client_manager import attach
         attach(db, 'interpretation', [project])
         attach_schedule_groups(db, [project])
+        attach_client_selection(db, [project])
+        attach_interpreter_requirements(db, [project])
     return project
 
 
@@ -278,6 +285,7 @@ def get_interpretation_projects(
     from project_client_manager import attach
     attach(db, 'interpretation', projects)
     attach_schedule_groups(db, projects)
+    attach_client_selection(db, projects)
     return projects
 
 
@@ -466,6 +474,7 @@ def _resolve_client(db: Session, data: dict) -> None:
         data.get("client_code"),
         data.get("client_name"),
         data.get("manager_contact"),
+        registration_source="interpretation",
     )
     if client_id:
         data["client_id"] = client_id
@@ -474,7 +483,7 @@ def _resolve_client(db: Session, data: dict) -> None:
 
 
 WRITE_ONLY_CLIENT_FIELDS = {"client_name", "client_short_name", "client_code", "manager_contact", "client_contact_method", "client_contact_description", "client_contact_version", "current_client_manager"}
-NESTED_FIELDS = {"client_manager_id", "client_manager_change_reason", "time_ranges", "language_directions", "interpreter_assignments", "role_assignments", "finance_draft"}
+NESTED_FIELDS = {"client_manager_id", "client_manager_change_reason", "time_ranges", "language_directions", "interpreter_assignments", "interpreter_requirements", "role_assignments", "finance_draft"}
 
 
 def _save_finance_draft(db, project, draft, actor_id):
@@ -538,6 +547,9 @@ def _sync_nested(db: Session, project: InterpretationProject, payload) -> None:
     from interpretation_resource_selection import resolve_interpreter_resources
     translator_ids_by_resource = resolve_interpreter_resources(db,translator_ids,existing_translator_ids)
 
+    save_interpreter_requirements(db,project,getattr(payload,'interpreter_requirements',None))
+    save_client_selection(db,project,payload.interpreter_assignments,translator_ids_by_resource)
+
     # 先删除并落库旧关系，再按相同 sequence_no 重建，避免唯一约束下
     # SQLAlchemy 先 INSERT 后 DELETE 导致编辑已有项目时冲突。
     project.time_ranges.clear()
@@ -546,7 +558,7 @@ def _sync_nested(db: Session, project: InterpretationProject, payload) -> None:
     db.flush()
 
     project.time_ranges = [
-        InterpretationProjectTimeRange(sequence_no=index, **item.model_dump(exclude={'locations','language_directions'}))
+        InterpretationProjectTimeRange(sequence_no=index, **item.model_dump(exclude={'locations','location_details','language_directions'}))
         for index, item in enumerate(payload.time_ranges, start=1)
     ]
     directions = []
@@ -568,7 +580,7 @@ def _sync_nested(db: Session, project: InterpretationProject, payload) -> None:
     project.language_directions = directions
     save_schedule_groups(db, project, payload.time_ranges)
     project.interpreter_assignments = [
-        InterpretationProjectInterpreter(sequence_no=index, **{**item.model_dump(),'translator_id':translator_ids_by_resource[item.translator_id]})
+        InterpretationProjectInterpreter(sequence_no=index, **{**item.model_dump(exclude={'client_selected'}),'translator_id':translator_ids_by_resource[item.translator_id]})
         for index, item in enumerate(payload.interpreter_assignments, start=1)
     ]
 

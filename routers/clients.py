@@ -18,11 +18,14 @@ from crud import (
 from schemas import ClientCreate, ClientUpdate, ClientResponse, SubClientCreate, SubClientUpdate, SubClientResponse
 from routers.auth import get_current_user, require_module_access, require_permission, user_has_permission
 from models import Client, SubClient
+from client_registration_source import ClientRegistrationSource
 from field_filtering import ensure_filter_fields, ensure_filter_operators, parse_field_filters
 from pagination_schemas import ClientOptionResponse, PageResponse, resolve_page_total
 
 router = APIRouter(prefix="/clients", tags=["clients"], dependencies=[Depends(require_module_access("clients:read", "clients:write"))])
 logger = logging.getLogger(__name__)
+from client_name_history import router as name_history_router
+router.include_router(name_history_router)
 
 CLIENT_FILTER_FIELDS = {
     "client_code", "client_name", "client_short_name", "english_name", "english_short_name",
@@ -295,9 +298,9 @@ def read_client(
     return db_client
 
 @router.put("/{client_id}", response_model=ClientResponse)
-def update_client_endpoint(client_id: UUID, client_update: ClientUpdate, db: Session = Depends(get_db)):
+def update_client_endpoint(client_id: UUID, client_update: ClientUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     try:
-        db_client = update_client(db, client_id=client_id, client_update=client_update)
+        db_client = update_client(db, client_id=client_id, client_update=client_update, actor_id=current_user.id)
     except IntegrityError as exc:
         db.rollback()
         detail = integrity_error_detail(exc, '客户资料不符合保存要求，请检查后重试')
@@ -312,9 +315,9 @@ def update_client_endpoint(client_id: UUID, client_update: ClientUpdate, db: Ses
     return db_client
 
 @router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_client_endpoint(client_id: UUID, db: Session = Depends(get_db)):
+def delete_client_endpoint(client_id: UUID, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     try:
-        success = delete_client(db, client_id=client_id)
+        success = delete_client(db, client_id=client_id, actor_id=current_user.id)
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="无法删除该客户：仍被咨询或项目引用，请先处理关联记录")
@@ -357,9 +360,9 @@ def create_sub_client_endpoint(
         raise HTTPException(status_code=400, detail=integrity_error_detail(exc, "子客户数据不符合保存要求，请检查后重试"))
 
 @router.put("/sub_clients/{sub_id}", response_model=SubClientResponse)
-def update_sub_client_endpoint(sub_id: UUID, sub_client_update: SubClientUpdate, db: Session = Depends(get_db)):
+def update_sub_client_endpoint(sub_id: UUID, sub_client_update: SubClientUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     try:
-        db_sub = update_sub_client(db, sub_id=sub_id, sub_update=sub_client_update)
+        db_sub = update_sub_client(db, sub_id=sub_id, sub_update=sub_client_update, actor_id=current_user.id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     if not db_sub:
@@ -367,8 +370,8 @@ def update_sub_client_endpoint(sub_id: UUID, sub_client_update: SubClientUpdate,
     return db_sub
 
 @router.delete("/sub_clients/{sub_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_sub_client_endpoint(sub_id: UUID, db: Session = Depends(get_db)):
-    success = delete_sub_client(db, sub_id=sub_id)
+def delete_sub_client_endpoint(sub_id: UUID, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    success = delete_sub_client(db, sub_id=sub_id, actor_id=current_user.id)
     if not success:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="子客户不存在")
     return None

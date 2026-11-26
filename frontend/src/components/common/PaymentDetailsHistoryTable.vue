@@ -1,5 +1,6 @@
 <template>
   <el-table v-if="payments.length" :data="payments" border size="small" max-height="300">
+    <el-table-column v-if="payments.some(row=>row.currency)" prop="currency" label="币种" width="75" />
     <el-table-column label="阶段" width="80"><template #default="{row}">{{({deposit:'定金',mid:'中期款',final:'尾款'})[row.stage_type]||row.stage_type}}</template></el-table-column>
     <el-table-column prop="stage_no" label="期次" width="65" />
     <el-table-column label="预定金额" min-width="90"><template #default="{row}">{{row.planned_amount??'未填写'}}</template></el-table-column>

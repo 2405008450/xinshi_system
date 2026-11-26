@@ -6,6 +6,19 @@ export const customerManagementAccess = [
 
 export const customerManagementHelpSections = [
   {
+    id:'customer-registration-source',title:'登记来源与客户来源如何区分',paragraphs:[
+      '列表“字段设置”可勾选“登记来源”，查看该客户首次由客户管理、新咨询、笔译、口译、标注或招聘哪个入口建立。后续关联其他项目不会改变首次登记来源。',
+      '历史没有记录的客户显示“历史数据（未记录）”。这与客户来源选项卡中的业务来源、项目表单中的客户来源说明分别记录，请按实际含义填写和核对。',
+    ],
+  },
+  {
+    id:'customer-name-history',title:'查看客户名称修改与删除记录',paragraphs:[
+      '在客户列表顶部点击“名称修改/删除记录”，可核对名称修改和删除记录；已有客户编辑窗口内也可查看当前客户的名称记录。',
+      '记录保留客户编号、中文和英文全称及简称的变更前后内容、操作人与时间。只有实际名称变化才产生修改记录，删除后仍保留已记录的历史。',
+      '记录从该功能启用后开始累积；查看删除记录不会恢复被删除的客户档案。',
+    ],
+  },
+  {
     id: 'customer-entry', title: '从项目直接打开客户编辑窗口',
     paragraphs: customerManagementAccess,
   },

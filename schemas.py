@@ -295,6 +295,7 @@ class ClientResponse(ClientBase):
     operator_name: Optional[str] = None
     operator_source: Optional[str] = None
     operator_consultation_code: Optional[str] = None
+    registration_source: str = "历史数据（未记录）"
     project_managers: list[ClientProjectManagerResponse] = Field(default_factory=list)
     detailed_address: Optional[str] = Field(default=None, max_length=5000)
     full_address: Optional[str] = None
@@ -869,6 +870,14 @@ class TranslationSubOrderChargeItemResponse(TranslationSubOrderChargeItemInput):
 
 
 class TranslationProjectBase(BaseModel):
+    client_contact_method: Optional[str] = Field(default=None, max_length=5000)
+    client_contact_description: Optional[str] = Field(default=None, max_length=5000)
+    client_contact_job_title: Optional[str] = Field(default=None, max_length=100)
+    client_contact_department: Optional[str] = Field(default=None, max_length=100)
+    client_contact_company: Optional[str] = Field(default=None, max_length=200)
+    client_contact_version: Optional[str] = Field(default=None, max_length=64)
+
+    client_source: Optional[str] = Field(default=None, max_length=500)
     payment_confirmation: Optional[PaymentConfirmationWrite] = None
     statement_required: Optional[bool] = None
     quotation_draft: Optional[QuotationDraft] = None
@@ -1016,6 +1025,14 @@ class AssignedTranslatorCompletionUpdate(BaseModel):
 
 class TranslationProjectUpdate(BaseModel):
     selected_source_files: list[SelectedTranslationSourceFile] = Field(default_factory=list, max_length=100)
+    client_contact_method: Optional[str] = Field(default=None, max_length=5000)
+    client_contact_description: Optional[str] = Field(default=None, max_length=5000)
+    client_contact_job_title: Optional[str] = Field(default=None, max_length=100)
+    client_contact_department: Optional[str] = Field(default=None, max_length=100)
+    client_contact_company: Optional[str] = Field(default=None, max_length=200)
+    client_contact_version: Optional[str] = Field(default=None, max_length=64)
+
+    client_source: Optional[str] = Field(default=None, max_length=500)
     mother_split_reviewed: bool = False
     submission_mode: Optional[Literal['normal','normal_children','draft','emergency_notice']] = None
     sub_orders_reviewed: bool = False

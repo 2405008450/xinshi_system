@@ -10,7 +10,7 @@ from resource_request_dispatch_models import ResourceRequestDispatch as Batch, R
 from resource_request_models import ResourceRequest
 from chat_time import now
 
-LABELS = {'circle': '发圈需求', 'post': '发帖需求', 'development': '资源需求管理'}
+from resource_request_dispatch_kinds import LABELS, POSTING_KINDS, DISPATCH_KINDS
 
 
 class DispatchWrite(BaseModel):
@@ -27,9 +27,9 @@ class ReceiptWrite(BaseModel):
     status: str
 
 
-def eligible(db,kind="circle"):
+def eligible(db,kind="circle",source_type="annotation"):
     from resource_request_dispatch_defaults import eligible as eligible_people
-    return eligible_people(db,kind)
+    return eligible_people(db,kind,source_type)
 
 
 def options(db):
@@ -53,12 +53,12 @@ def commit(db):
 
 
 def send(db, user, request_id, payload):
-    if payload.kind not in {'circle', 'post'}:
+    if payload.kind not in DISPATCH_KINDS:
         raise HTTPException(422, '不支持的发送类型')
     # 同一需求串行化发送，重复点击或请求重试只创建一个批次。
     request = db.query(ResourceRequest).filter_by(id=request_id).with_for_update().first()
-    if not request or request.source_type != 'annotation':
-        raise HTTPException(404, '标注资源需求不存在')
+    if not request or request.source_type not in {'annotation','interpretation'}:
+        raise HTTPException(404, '标注或口译资源需求不存在')
     ids = set(payload.user_ids)
     previous = db.query(Batch).filter_by(idempotency_key=payload.idempotency_key).first()
     if previous:
@@ -66,8 +66,9 @@ def send(db, user, request_id, payload):
         if previous.sender_id != user.id or previous.request_id != request_id or previous.kind != payload.kind or targets != ids:
             raise HTTPException(409, '发送标识已被其他操作使用，请重新发送')
         return detail(db, user, previous.id)
-    if not ids <= {p.id for p in eligible(db,payload.kind)}:
-        raise HTTPException(422, '部分人员已不在标注项目部或已停用，请重新选择')
+    candidates=eligible(db,payload.kind,request.source_type) if request.source_type=='interpretation' else eligible(db,payload.kind)
+    if not ids <= {p.id for p in candidates}:
+        raise HTTPException(422, '部分人员已不在当前业务的候选范围内或已停用，请重新选择')
     from resource_request_send_history import assert_limit
     assert_limit(db, request_id, payload.kind)
     from resource_request_content import allocate_partial
@@ -75,6 +76,8 @@ def send(db, user, request_id, payload):
     db.flush()
     from resource_request_send_history import snapshot as request_snapshot
     snapshot = request_snapshot(db, request_id)
+    if payload.kind == 'wechat_public':
+        snapshot = {**snapshot, 'public_execution_workflow': True}
     batch = Batch(request_id=request_id, sender_id=user.id, kind=payload.kind, idempotency_key=payload.idempotency_key, snapshot=snapshot)
     db.add(batch); db.flush()
     db.add_all([Recipient(dispatch_id=batch.id, user_id=uid) for uid in ids])
@@ -97,7 +100,9 @@ def detail(db, user, batch_id):
     from resource_request_cancellation import summary
     cancelled = summary(db, batch)
     kind = batch.snapshot.get('cancelled_kind') if batch.kind == 'cancellation' else batch.kind
-    return dict(id=str(batch.id), kind=kind, label=LABELS.get(kind, '需求') + (' · 取消通知' if batch.kind == 'cancellation' else ''), snapshot=batch.snapshot, execution_replies=replies(db,[batch.id]) if batch.kind=="post" else [], is_sender=batch.sender_id==user.id,
+    from resource_request_public_execution import broadcast_summary
+    return dict(id=str(batch.id), kind=kind, label=LABELS.get(kind, '需求') + (' · 取消通知' if batch.kind == 'cancellation' else ''), snapshot=batch.snapshot, execution_replies=replies(db,[batch.id]) if batch.kind in POSTING_KINDS else [], is_sender=batch.sender_id==user.id,
+        public_execution=bool(batch.kind=='wechat_public' and batch.snapshot.get('public_execution_workflow')), broadcast=broadcast_summary(db,batch),
         is_cancellation=batch.kind=='cancellation', cancellation=cancelled,
         can_respond=recipient is not None and (batch.kind=='cancellation' or not cancelled), created_at=stamp(batch.created_at), recipients=[dict(user_id=str(r.user_id), name=users[r.user_id].full_name or users[r.user_id].username, received_at=stamp(r.received_at), processed_at=stamp(r.processed_at)) for r in db.query(Recipient).filter_by(dispatch_id=batch.id)])
 
@@ -123,7 +128,7 @@ def receipt(db, user, batch_id, status):
     if status == 'cancel_received':
         raise HTTPException(422, '该通知不是取消通知')
     assert_active(db, batch)
-    if batch.kind == 'post' and status == 'processed':
+    if batch.kind in POSTING_KINDS and status == 'processed':
         from resource_request_dispatch_models import ResourceRequestExecutionReply
         if not db.query(ResourceRequestExecutionReply.id).filter_by(dispatch_id=batch_id, user_id=user.id).first():
             raise HTTPException(409, '请先选择实际发布的平台并填写处理说明，提交执行回执后自动标记已处理')
@@ -132,7 +137,7 @@ def receipt(db, user, batch_id, status):
         if status=='processed' and not recipient.received_at:
             raise HTTPException(409, '请先点击已收到，再确认已处理')
         setattr(recipient, field, now())
-        publish(db, [batch.sender_id], f'{user.full_name or user.username} · {"已收到" if status=="received" else "已处理"} · {LABELS[batch.kind]}', batch)
+        publish(db, [batch.sender_id], f'{user.full_name or user.username} · {"已收到" if status=="received" else "已执行"} · {LABELS[batch.kind]}', batch)
         commit(db)
     return detail(db, user, batch_id)
 

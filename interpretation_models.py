@@ -103,6 +103,10 @@ class InterpretationLanguageAlias(Base):
 
 class InterpretationProject(Base):
     __tablename__ = "interpretation_project"
+
+    from project_customer_sources import customer_source_property as _source_property
+    client_source = _source_property('interpretation')
+
     __table_args__ = (
         PrimaryKeyConstraint("id", name="interpretation_project_pkey"),
         UniqueConstraint("order_no", name="uq_interpretation_project_order_no"),

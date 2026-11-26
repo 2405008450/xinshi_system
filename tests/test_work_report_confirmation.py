@@ -24,6 +24,12 @@ def test_confirm_persists_and_becomes_visible_only_after_success(environment, mo
     day = date(2026, 11, 22)
     actual_save_time = datetime(2026, 11, 25, 9, 15)
     monkeypatch.setattr(task_service, 'business_now', lambda: actual_save_time)
+    import attendance_service
+    shift_days=[]
+    def report_shifts(_db,people,shift_day):
+        shift_days.append(shift_day)
+        return {str(person.id):{'code':'early','label':'早班','periods':['09:00–12:00','13:30–18:30']} for person in people}
+    monkeypatch.setattr(attendance_service,'shifts_for',report_shifts)
     report = DailyReport(id=uuid4(), user_id=sender.id, report_date=day, status='draft',
                          generated_at=datetime(2026,11,23,12))
     db.add(report)
@@ -64,6 +70,8 @@ def test_confirm_persists_and_becomes_visible_only_after_success(environment, mo
         assert access.received_reports(db, viewer, actual_save_time.date(), actual_save_time.date(), None, 1, 20)['total'] == 0
         listed=access.received_reports(db, viewer, day, day, None, 1, 20)['items'][0]
         assert listed['saved_at'].date() == actual_save_time.date()
+        assert listed['shift']['label'] == '早班'
+        assert shift_days and all(shift_day==day for shift_day in shift_days)
         assert access.received_report(db,viewer,saved.id)['report_date'] == day
         assert client.post(endpoint, json=payload).status_code == 409
         db.rollback()

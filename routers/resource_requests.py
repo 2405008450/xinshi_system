@@ -57,9 +57,9 @@ dispatch_router = APIRouter(prefix='/resource-request-dispatches', tags=['resour
 
 from resource_request_dispatch_defaults import DefaultWrite
 @router.get('/dispatch-defaults/{kind}')
-def dispatch_default_options(kind:str,db:Session=Depends(get_db),user:AppUser=Depends(get_current_user)):
+def dispatch_default_options(kind:str,db:Session=Depends(get_db),user:AppUser=Depends(get_current_user),source_type:str='annotation'):
     from resource_request_dispatch_defaults import catalog
-    return catalog(db,user,kind)
+    return catalog(db,user,kind,source_type)
 
 @router.put('/dispatch-defaults/{kind}')
 def dispatch_default_save(kind:str,payload:DefaultWrite,db:Session=Depends(get_db),user:AppUser=Depends(get_current_user)):
@@ -91,6 +91,13 @@ def dispatch_detail(batch_id:UUID,db:Session=Depends(get_db),user:AppUser=Depend
 @dispatch_router.put('/{batch_id}/receipt')
 def dispatch_receipt(batch_id:UUID,payload:dispatch_service.ReceiptWrite,db:Session=Depends(get_db),user:AppUser=Depends(get_current_user)):
     return dispatch_service.receipt(db,user,batch_id,payload.status)
+
+
+from resource_request_public_execution import PublicExecutionWrite
+@dispatch_router.post('/{batch_id}/public-execution')
+def public_execution(batch_id:UUID,payload:PublicExecutionWrite,db:Session=Depends(get_db),user:AppUser=Depends(get_current_user)):
+    from resource_request_public_execution import execute
+    return execute(db,user,batch_id,payload)
 
 
 RESOURCE_REQUEST_TEXT_FIELDS = {

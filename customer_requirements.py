@@ -32,10 +32,9 @@ MODELS = {
 PROJECT_FIELDS = {
     'translation': {'customerRequirementProfessional': 'customer_requirement_professional',
                     'customerRequirementSpecial': 'customer_requirement_special', 'remarks': 'remarks'},
-    'interpretation': {'taskDescription': 'task_description',
-                       'interpreterSpecialRequirements': 'interpreter_special_requirements', 'remarks': 'remarks'},
-    'annotation': {'taskDescription': 'task_description', 'potentialDemand': 'potential_demand'},
-    'recruitment': {'jobDescription': 'job_description', 'remarks': 'remarks'},
+    'interpretation': {'interpreterSpecialRequirements': 'interpreter_special_requirements', 'remarks': 'remarks'},
+    'annotation': {'potentialDemand': 'potential_demand'},
+    'recruitment': {'remarks': 'remarks'},
 }
 
 
@@ -94,7 +93,7 @@ def read_requirements(client_id: UUID, module: Module, latest: bool = False,
     query = entries_query(db, client_id, module)
     if latest:
         return {'values': {
-            field: row.content for field in FIELDS[module]
+            field: row.content for field in PROJECT_FIELDS[module]
             if (row := query.filter_by(field=field).first()) is not None
         }}
     return {'items': [
@@ -144,6 +143,7 @@ def append_requirements(client_id: UUID, module: Module, draft: RequirementUpdat
         if not user_has_permission(db, user.id, 'projects:write'):
             raise HTTPException(403, '没有项目编辑权限')
         project = linked_project(db, client_id, module, draft.project_id)
+        values = {field: content for field, content in values.items() if field in PROJECT_FIELDS[module]}
     require_storage(db)
     added = 0
     now = business_now()

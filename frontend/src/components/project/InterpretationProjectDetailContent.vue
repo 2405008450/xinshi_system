@@ -5,7 +5,7 @@
                   <el-descriptions-item label="项目状态">{{ statusLabel(row.projectStatus) }}</el-descriptions-item>
                   <el-descriptions-item label="项目名称" :span="2">{{ textValue(row.projectName) }}</el-descriptions-item>
                   <el-descriptions-item label="内部协作角色" :span="2">{{ internalRolesText(row) }}</el-descriptions-item>
-                  <el-descriptions-item label="具体任务" :span="2"><InlineTextField :model-value="row.taskDescription" :editable="editable" label="具体任务" multiline :save-field="(value) => saveField('taskDescription', value)" @conflict="emit('conflict')" /></el-descriptions-item>
+                  <el-descriptions-item label="工作内容" :span="2"><InlineTextField :model-value="row.taskDescription" :editable="editable" label="工作内容" multiline :save-field="(value) => saveField('taskDescription', value)" @conflict="emit('conflict')" /></el-descriptions-item>
                   <el-descriptions-item label="项目类型" :span="2">{{ projectTypesText(row) }}</el-descriptions-item>
                   <el-descriptions-item label="客户简称" :client-row="row">{{ textValue(row.clientShortName) }}</el-descriptions-item>
                   <el-descriptions-item label="客户编号">{{ textValue(row.clientCode) }}</el-descriptions-item>
@@ -21,7 +21,7 @@
                   <el-descriptions-item label="客户预算" :span="2"><InlineTextField :model-value="row.customerBudget" :editable="editable" label="客户预算" multiline :maxlength="500" :save-field="(value) => saveField('customerBudget', value)" @conflict="emit('conflict')" /></el-descriptions-item>
                   <el-descriptions-item label="客户咨询时间">{{ formatDateTime(row.customerConsultationTime) }}</el-descriptions-item>
                   <el-descriptions-item label="客户确认时间">{{ formatDateTime(row.customerConfirmationTime) }}</el-descriptions-item>
-                  <el-descriptions-item label="口译领域" :span="2"><InlineTextField :model-value="row.interpretationDomain" :editable="editable" label="口译领域" required multiline :save-field="(value) => saveField('interpretationDomain', value)" @conflict="emit('conflict')" /></el-descriptions-item>
+                  <el-descriptions-item label="领域/行业/产品" :span="2"><InlineTextField :model-value="row.interpretationDomain" :editable="editable" label="领域/行业/产品" required multiline :save-field="(value) => saveField('interpretationDomain', value)" @conflict="emit('conflict')" /></el-descriptions-item>
                   <el-descriptions-item label="总需求人数">{{ textValue(row.requiredInterpreterCount) }}</el-descriptions-item>
                   <el-descriptions-item label="译员性别">{{ textValue(row.requiredInterpreterGender) }}</el-descriptions-item>
                   <el-descriptions-item label="口译水平">{{ textValue(row.requiredInterpretationLevel) }}</el-descriptions-item>
@@ -39,8 +39,6 @@
                   <el-descriptions-item label="客户对译员评价" :span="2">
                     {{ interpreterRatingsText(row.interpreterAssignments) }}
                   </el-descriptions-item>
-                  <el-descriptions-item label="发圈请求" :span="2"><InlineTextField :model-value="row.socialPostRequest" :editable="editable" label="发圈请求" multiline :save-field="(value) => saveField('socialPostRequest', value)" @conflict="emit('conflict')" /></el-descriptions-item>
-                  <el-descriptions-item label="资源请求" :span="2"><InlineTextField :model-value="row.resourceRequest" :editable="editable" label="资源请求" multiline :save-field="(value) => saveField('resourceRequest', value)" @conflict="emit('conflict')" /></el-descriptions-item>
                   <el-descriptions-item label="来源咨询 ID" :span="2">{{ textValue(row.consultationId) }}</el-descriptions-item>
                   <el-descriptions-item label="创建时间">{{ formatDateTime(row.createdAt) }}</el-descriptions-item>
                   <el-descriptions-item label="更新时间">{{ formatDateTime(row.updatedAt) }}</el-descriptions-item>

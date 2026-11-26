@@ -453,7 +453,7 @@ def _project_source(project_type: str, project) -> dict:
     }
     field_names = {
         "translation": ("service_content", "file_type_secondary", "language_pair", "customer_deadline_time", "priority", "customer_requirement_professional", "customer_requirement_special", "remarks"),
-        "interpretation": ("project_types", "task_description", "locations", "customer_budget", "required_interpreter_count", "required_interpreter_gender", "required_interpretation_level", "interpretation_domain", "interpretation_content", "interpreter_special_requirements", "remarks"),
+        "interpretation": ("project_types", "task_description", "locations", "customer_budget", "required_interpreter_count", "required_interpreter_gender", "required_interpretation_level", "interpretation_domain", "interpretation_content", "interpreter_special_requirements", "remarks", "interpreter_height_requirement", "interpreter_appearance_requirement", "interpreter_dress_requirement", "interpreter_requirements"),
         "annotation": ("project_types", "task_description", "potential_demand"),
         "recruitment": ("position_title", "job_description", "headcount_min", "headcount_max", "employment_start", "employment_end", "work_location", "target_onboard_date", "service_fee_type", "service_fee_amount", "service_fee_rate", "service_fee_note"),
     }
@@ -501,7 +501,7 @@ CORE_FIELDS = {
 
 BODY_LABELS = {
     "translation": (("服务内容", "service_content"), ("文本类型", "file_type_secondary"), ("翻译方向", "language_pair"), ("客户交稿时间", "customer_deadline_time"), ("优先级", "priority"), ("客户专业要求", "customer_requirement_professional"), ("客户特殊要求", "customer_requirement_special")),
-    "interpretation": (("口译类型", "project_types"), ("具体任务", "task_description"), ("预定时段", "time_ranges"), ("地点", "locations"), ("口译方向", "language_directions"), ("客户预算", "customer_budget"), ("总需求人数", "required_interpreter_count"), ("译员性别", "required_interpreter_gender"), ("口译水平", "required_interpretation_level"), ("口译领域", "interpretation_domain"), ("客户要求", "interpreter_special_requirements")),
+    "interpretation": (("口译类型", "project_types"), ("工作内容", "task_description"), ("预定时段", "time_ranges"), ("地点", "locations"), ("口译方向", "language_directions"), ("客户预算", "customer_budget"), ("总需求人数", "required_interpreter_count"), ("译员性别", "required_interpreter_gender"), ("口译水平", "required_interpretation_level"), ("领域/行业/产品", "interpretation_domain"), ("客户要求", "interpreter_special_requirements")),
     "annotation": (("项目类型", "project_types"), ("具体任务", "task_description"), ("潜在需求量", "potential_demand"), ("语言范围", "language_items"), ("客户价格", "price_items")),
     "recruitment": (("职位名称/类型", "position_title"), ("职位描述", "job_description"), ("招聘人数下限", "headcount_min"), ("招聘人数上限", "headcount_max"), ("外语/翻译方向", "language_directions"), ("拟履职开始", "employment_start"), ("拟履职结束", "employment_end"), ("任职工作属地", "work_location"), ("拟入职日期", "target_onboard_date"), ("服务费用类型", "service_fee_type"), ("服务费用金额", "service_fee_amount"), ("服务费用比例", "service_fee_rate"), ("费用说明", "service_fee_note")),
 }
@@ -613,6 +613,9 @@ def build_preview(
         if project_type == 'translation':
             from translation_folder_orders import attach as attach_folder_orders
             attach_folder_orders(db, project.sub_orders)
+        if project_type=='interpretation':
+            from interpretation_interpreter_requirements import attach as attach_interpreter_requirements
+            attach_interpreter_requirements(db,[project])
         project_values = _project_source(project_type, project)
         if project_type == "translation":
             project_values["word_count_matrix"] = get_word_count_matrix(db, "project", project.id)
@@ -715,6 +718,9 @@ def build_preview(
             f"项目金额：{values.get('project_amount_display') or '待完善'}",
             f"已付款金额：{values.get('paid_amount_display') or '待完善'}",
         ])
+    if project_type=='interpretation':
+        from interpretation_interpreter_requirements import requirement_lines
+        lines.extend(requirement_lines(values))
     word_count_lines = _format_word_count_lines(values.get("word_count_matrix")) if project_type == "translation" else []
     if word_count_lines:
         lines.extend(["项目工作量统计：", *word_count_lines])

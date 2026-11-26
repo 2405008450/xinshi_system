@@ -7,6 +7,8 @@ from resource_request_models import ResourceRequest, ResourceRequestProgressLog
 from resource_request_dispatch_models import ResourceRequestDispatch as Batch, ResourceRequestDispatchRecipient as Recipient
 from business_time import BUSINESS_TIMEZONE
 
+from resource_request_dispatch_kinds import POSTING_KINDS, DISPATCH_KINDS
+
 LIMIT = 5
 DEVELOPMENT_NOTE = '资源需求已发送'
 
@@ -46,20 +48,24 @@ def history(db, request_id):
     logs = management_logs(db, request_id)
     ids = {row.sender_id for row in batches} | {row.user_id for row in recipients} | {row.changed_by for row in logs if row.changed_by}
     names = {row.id: row.full_name or row.username for row in db.query(AppUser).filter(AppUser.id.in_(ids))} if ids else {}
-    result = {kind: [] for kind in ['circle', 'post', 'development']}
+    result = {kind: [] for kind in ['circle', 'post', 'wechat_public', 'xiaohongshu', 'development']}
     for batch in batches:
-        if batch.kind not in ['circle', 'post']:
+        if batch.kind not in DISPATCH_KINDS:
             continue
         targets = [row for row in recipients if row.dispatch_id == batch.id]
         result[batch.kind].append(dict(id=str(batch.id), number=len(result[batch.kind]) + 1, sender_name=names.get(batch.sender_id, '历史人员'), sent_at=stamp(batch.created_at), recipients=[names.get(row.user_id, '历史人员') for row in targets], received_count=sum(bool(row.received_at) for row in targets), processed_count=sum(bool(row.processed_at) for row in targets)))
+        if batch.kind == 'wechat_public':
+            from resource_request_public_execution import broadcast_summary
+            result[batch.kind][-1]['broadcast'] = broadcast_summary(db,batch)
     for log in logs:
         batch = next((b for b in batches if b.kind == 'development' and b.snapshot.get('send_log_id') == str(log.id)), None)
         targets = [r for r in recipients if batch and r.dispatch_id == batch.id]
         result['development'].append(dict(id=str(log.id), number=len(result['development']) + 1, sender_name=names.get(log.changed_by, '历史人员'), sent_at=stamp(log.changed_at), recipients=[names.get(r.user_id, '历史人员') for r in targets], received_count=sum(bool(r.received_at) for r in targets), processed_count=sum(bool(r.processed_at) for r in targets)))
     from resource_request_execution import replies
-    executions=replies(db,[b.id for b in batches if b.kind=='post'])
-    for record in result['post']:
-        record['execution_replies']=[r for r in executions if r['dispatch_id']==record['id']]
+    executions=replies(db,[b.id for b in batches if b.kind in POSTING_KINDS])
+    for kind in POSTING_KINDS:
+        for record in result[kind]:
+            record['execution_replies']=[r for r in executions if r['dispatch_id']==record['id']]
     from resource_request_cancellation import summary
     for kind, records in result.items():
         for record in records:

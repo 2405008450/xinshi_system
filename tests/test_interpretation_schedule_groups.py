@@ -45,7 +45,7 @@ def test_group_storage_readback_and_idempotent_migration(environment):
     project=InterpretationProject(id=uuid4(),order_no='IP-261101-999',project_name='分组测试')
     ranges=[InterpretationTimeRangeInput(**group(1)),InterpretationTimeRangeInput(**group(2))]
     project.time_ranges=[InterpretationProjectTimeRange(id=uuid4(),sequence_no=index+1,
-        **item.model_dump(exclude={'locations','language_directions'})) for index,item in enumerate(ranges)]
+        **item.model_dump(exclude={'locations','location_details','language_directions'})) for index,item in enumerate(ranges)]
     db.add(project);db.flush()
     save(db,project,ranges);db.commit();db.expire_all()
     attach(db,[project])
@@ -57,3 +57,31 @@ def test_group_storage_readback_and_idempotent_migration(environment):
     assert project.time_ranges[0].locations==[f'地点{i}' for i in range(7)]
     assert project.time_ranges[1].locations==['第二组新地点']
     assert db.query(InterpretationScheduleGroups).count()==1
+
+
+def test_structured_location_round_trip_and_legacy_compatibility(environment):
+    db,_=environment
+    raw=group()
+    raw['location_details']=[{'country_province':' 中国广东省 ', 'city':' 深圳市 ', 'address':' 南山区科苑路1号 '},
+                             {'country_province':'法国', 'city':'巴黎', 'address':'会展中心'}]
+    plan=InterpretationTimeRangeInput(**raw)
+    assert plan.locations==['中国广东省 深圳市 南山区科苑路1号','法国 巴黎 会展中心']
+    project=InterpretationProject(id=uuid4(),order_no='IP-ADDRESS',project_name='地点测试')
+    project.time_ranges=[InterpretationProjectTimeRange(id=uuid4(),sequence_no=1,
+        **plan.model_dump(exclude={'locations','location_details','language_directions'}))]
+    db.add(project);db.flush();save(db,project,[plan]);db.commit();db.expire_all();attach(db,[project])
+    restored=InterpretationTimeRangeResponse.model_validate(project.time_ranges[0])
+    assert restored.location_details[0].city=='深圳市'
+    assert restored.location_details[1].address=='会展中心'
+    # 旧客户端未修改完整地址时保留结构；修改后按完整文本兼容。
+    legacy=InterpretationTimeRangeInput(**{**raw,'location_details':None,'locations':plan.locations})
+    save(db,project,[legacy]);db.commit();attach(db,[project])
+    assert project.time_ranges[0].location_details[0]['city']=='深圳市'
+    legacy.locations=['旧客户端修改地点'];save(db,project,[legacy]);db.commit();attach(db,[project])
+    assert project.time_ranges[0].location_details is None
+    assert project.time_ranges[0].locations==['旧客户端修改地点']
+
+
+def test_blank_location_details_cannot_bypass_required_locations():
+    raw=group();raw['location_details']=[{'city':'  '}]
+    with pytest.raises(ValidationError):InterpretationTimeRangeInput(**raw)

@@ -1,6 +1,6 @@
 <template>
   <div class="payment-confirmation">
-    <div class="payment-confirmation-heading"><h3 data-dialog-field-search-group-title>{{sectionPrefix}}付款情况</h3><div><slot name="actions" /><el-button v-if="projectId" link @click="openHistory">付款修改记录</el-button></div></div>
+    <div class="payment-confirmation-heading"><h3 data-dialog-field-search-group-title>{{sectionPrefix}}付款情况</h3><div><slot name="actions" /><el-button v-if="projectId||historyUrl" link @click="openHistory">付款修改记录</el-button></div></div>
     <p v-if="summaryLabel" class="payment-confirmation-help">请按上方{{summaryLabel}}的计费合计付款，登记全款或尾款时按同一金额核对。</p>
     <el-form-item label="付款状态" :prop="`${prefix}.paymentOption`" :rules="value.isPaid?[{required:true,message:'请选择付款状态',trigger:'change'}]:[]">
       <div class="payment-status-controls">
@@ -46,7 +46,7 @@ import FullPaymentMatchFields from './FullPaymentMatchFields.vue'
 import ScreenshotText from './ScreenshotText.vue'
 import PaymentDetailsHistoryTable from './PaymentDetailsHistoryTable.vue'
 import DraggableFormDialog from './DraggableFormDialog.vue'
-const props=defineProps({sectionPrefix:{type:String,default:''},modelValue:Object,projectId:{type:String,default:''},prefix:{type:String,default:'confirmation'},detailsInPayments:Boolean,pricingMode:String,billingTaxMode:String,payments:{type:Array,default:null},draftTotals:{type:Array,default:null},summaryLabel:String})
+const props=defineProps({sectionPrefix:{type:String,default:''},modelValue:Object,projectId:{type:String,default:''},prefix:{type:String,default:'confirmation'},detailsInPayments:Boolean,pricingMode:String,billingTaxMode:String,payments:{type:Array,default:null},draftTotals:{type:Array,default:null},summaryLabel:String,historyUrl:{type:String,default:''}})
 const emit=defineEmits(['update:modelValue','reference-change'])
 const value=computed(()=>paymentConfirmationForm(props.modelValue))
 function update(key,data){emit('update:modelValue',{...value.value,[key]:data})}
@@ -63,7 +63,7 @@ async function selectStatus(option){
 }
 function clearStatus(){emit('update:modelValue',clearPaymentSelection(value.value))}
 const historyVisible=ref(false),historyLoading=ref(false),historyError=ref(''),historyItems=ref([]),historyPage=ref(1),historyTotal=ref(0)
-async function loadHistory(){historyLoading.value=true;historyError.value='';try{const data=await api.get(`/translation-payments/${props.projectId}/confirmation-history`,{params:{page:historyPage.value}});historyItems.value=data.items;historyTotal.value=data.total}catch(e){historyError.value=getLocalizedErrorMessage(e,'付款修改记录加载失败')}finally{historyLoading.value=false}}
+async function loadHistory(){historyLoading.value=true;historyError.value='';try{const data=await api.get(props.historyUrl||`/translation-payments/${props.projectId}/confirmation-history`,{params:{page:historyPage.value}});historyItems.value=data.items;historyTotal.value=data.total}catch(e){historyError.value=getLocalizedErrorMessage(e,'付款修改记录加载失败')}finally{historyLoading.value=false}}
 function openHistory(){historyPage.value=1;historyItems.value=[];historyVisible.value=true;void loadHistory()}
 </script>
 <style scoped>.payment-status-controls{display:flex;align-items:center;gap:20px;flex-wrap:wrap;min-width:0}.payment-status-controls>.el-button{flex:none;margin-left:0}.payment-confirmation-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}.payment-confirmation-heading>h3{font-size:14px;font-weight:700;margin:0}.payment-confirmation-heading>div{display:flex;gap:12px;flex-wrap:wrap}.payment-confirmation-help{font-size:12px;color:var(--el-text-color-secondary);line-height:1.6;margin:0}.confirmation-history-item{margin-bottom:14px}:global(.payment-confirmation-history){display:flex;flex-direction:column;max-height:90vh;overflow:hidden}:global(.payment-confirmation-history>.el-dialog__body){min-height:0;overflow:auto;flex:1}:global(.payment-confirmation-history>.el-dialog__header),:global(.payment-confirmation-history>.el-dialog__footer){flex:none}</style>

@@ -1,3 +1,4 @@
+from resource_request_dispatch_kinds import DISPATCH_KINDS
 """取消作为独立通知批次保存，保留原需求快照及原收到／处理回执。"""
 from fastapi import HTTPException
 from resource_request_dispatch_models import ResourceRequestDispatch as Batch, ResourceRequestDispatchRecipient as Recipient
@@ -13,6 +14,9 @@ def cancel_batches(db, request_id, kind, actor_id):
         raise HTTPException(422, '不支持的取消类型')
     # 调用方先锁定需求，所有发送、取消和执行回执遵循同一把需求锁。
     originals = db.query(Batch).filter_by(request_id=request_id, kind=kind).order_by(Batch.created_at, Batch.id).all()
+    if kind == 'wechat_public':
+        from resource_request_public_execution import broadcast
+        originals += [row for original in list(originals) if (row := broadcast(db, original))]
     count = 0
     for original in originals:
         if cancellation(db, original.id):
@@ -40,11 +44,11 @@ def assert_active(db, batch):
 
 
 def cancel_kind(db, user, request_id, kind):
-    if kind not in {'circle', 'post'}:
+    if kind not in DISPATCH_KINDS:
         raise HTTPException(422, '请使用取消需求入口取消资源开拓需求')
     request = lock_request(db, request_id)
-    if not request or request.source_type != 'annotation':
-        raise HTTPException(404, '标注资源需求不存在')
+    if not request or request.source_type not in {'annotation','interpretation'}:
+        raise HTTPException(404, '标注或口译资源需求不存在')
     count = cancel_batches(db, request_id, kind, user.id)
     from resource_request_dispatch import commit
     commit(db)

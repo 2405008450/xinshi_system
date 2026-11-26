@@ -13,6 +13,7 @@ from models import Client, SubClient
 from annotation_progress_time import business_now
 from interpretation_finance_schemas import StrictInput, InterpretationSettlement, InterpretationInvoice, SettlementAmountAdjustment
 import project_customer_finance as source
+from business_finance_payment import Registration, registration, apply_registration, history_snapshot
 
 Module = source.Module
 router = APIRouter(prefix='/business-finance', tags=['标注招聘财务'])
@@ -34,6 +35,7 @@ class Write(StrictInput):
     settlement_adjustments: list[SettlementAmountAdjustment] = Field(default_factory=list, max_length=20)
     explanation: str = Field(default='', max_length=5000)
     salary_basis: Decimal | None = Field(default=None, ge=0, max_digits=16, decimal_places=2)
+    payment_registration: Registration | None = None
 
 
 def latest(db, module, uid):
@@ -107,6 +109,9 @@ def records(db,module,projects):
 def context(db,module,project,payload=None,stored=None):
     stored=stored or record(db,module,project.id)
     payload=payload or stored.payload
+    if module == 'annotation':
+        payload=deepcopy(payload)
+        payload['payment_registration']=registration(payload)
     actual=normalized(module,project,payload)
     amounts=totals(actual)
     client=project.client or (project.sub_client.parent_client if project.sub_client else None)
@@ -164,9 +169,35 @@ def put(module:Module,uid:UUID,data:Write,db=Depends(get_db),user=Depends(source
     project=source.owner(db,module,uid,True);previous=record(db,module,uid)
     if data.revision!=previous.revision:raise HTTPException(409,'财务数据已更新，请重新加载')
     payload=data.model_dump(mode='json');payload['invoice']=previous.payload.get('invoice',{})
+    if data.payment_registration is not None:
+        if module != 'annotation':raise HTTPException(422,'该付款表单仅用于标注项目')
+        amounts=totals(normalized(module,project,payload))
+        basis=payload['settlement'].get('tax_basis','legacy')
+        apply_registration(payload,amounts['adjusted_totals' if basis=='legacy' else 'totals_'+basis])
+    elif previous.payload.get('payment_registration') is not None:
+        # 旧窗口不能覆盖新表单登记的付款。
+        payload['payment_registration']=previous.payload['payment_registration']
+        for key in ('payments','payment_status','payment_note'):
+            payload['settlement'][key]=previous.payload['settlement'][key]
     if len({row.currency for row in data.settlement_adjustments})!=len(data.settlement_adjustments):raise HTTPException(422,'同币种不能重复调整')
     append(db,module,project,payload,user);db.commit()
     return context(db,module,project)
+
+
+@router.get('/{module}/project/{uid}/payment-history')
+def payment_history(module:Module,uid:UUID,page:int=Query(1,ge=1),db=Depends(get_db),user=Depends(source.access)):
+    from chat_time import api_time
+    source.owner(db,module,uid)
+    query=db.query(source.ProjectCustomerFinanceHistory).filter_by(module=module,project_id=uid).order_by(
+        source.ProjectCustomerFinanceHistory.created_at.desc(),source.ProjectCustomerFinanceHistory.id.desc())
+    items=[]
+    for row in query:
+        before,after=row.before.get('_ledger'),row.after.get('_ledger')
+        if after is None:continue
+        old=history_snapshot(before or {})
+        new=history_snapshot(after)
+        if old!=new:items.append(api_time(dict(id=str(row.id),actor_name=row.actor_name,created_at=row.created_at,before=old,after=new)))
+    return dict(items=items[(page-1)*10:page*10],total=len(items))
 
 
 def invoice_scope(db,module,uid):

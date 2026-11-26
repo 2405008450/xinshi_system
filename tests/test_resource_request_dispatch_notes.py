@@ -10,7 +10,7 @@ from resource_request_content import prepare_data
 
 
 def test_notes_optional_independent_and_legacy_updates_preserve_values():
-    assert ResourceRequestContent().dispatch_notes.model_dump() == {'circle':'','post':'','development':''}
+    assert ResourceRequestContent().dispatch_notes.model_dump() == {'circle':'','post':'','wechat_public':'','xiaohongshu':'','development':''}
     previous=SimpleNamespace(request_content={'dispatch_notes':{'circle':'仅晚间联系','post':'请发指定平台','development':'先找熟手'}})
     payload=ResourceRequestWrite(source_type='other',request_category='other',other_source_name='测试',request_content={'versions':[]})
     data=prepare_data(None,payload,payload.model_dump(),previous)
@@ -30,8 +30,8 @@ def test_saved_notes_are_in_send_snapshot_and_later_changes_do_not_rewrite_histo
     db.commit();db.expire(request,['request_content'])
     assert db.get(ResourceRequest,request.id).request_content['dispatch_notes'] == notes
     result=service.send(db,sender,request.id,service.DispatchWrite(kind='circle',user_ids=[receiver.id],idempotency_key=str(uuid4())))
-    assert result['snapshot']['request_content']['dispatch_notes'] == notes
+    assert result['snapshot']['request_content']['dispatch_notes'] == {**notes,'wechat_public':'','xiaohongshu':''}
     request.request_content={'versions':[],'dispatch_notes':{'circle':'下一批的新说明'}}
     db.commit()
     from uuid import UUID
-    assert service.detail(db,receiver,UUID(result['id']))['snapshot']['request_content']['dispatch_notes'] == notes
+    assert service.detail(db,receiver,UUID(result['id']))['snapshot']['request_content']['dispatch_notes'] == {**notes,'wechat_public':'','xiaohongshu':''}

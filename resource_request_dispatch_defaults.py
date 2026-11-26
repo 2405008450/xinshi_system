@@ -10,30 +10,38 @@ from resource_request_dispatch_models import ResourceRequestDispatchDefault as C
 from resource_development_models import DevelopmentAudit
 from business_time import business_now
 from chat_time import now
-KINDS={'circle':'发圈设置','post':'发帖设置','development':'需求设置'}
+from resource_request_dispatch_kinds import POSTING_KINDS
+KINDS={'circle':'发圈设置','post':'发帖设置','wechat_public':'发圈（+公众号）设置','xiaohongshu':'小红书设置','development':'需求设置'}
 class DefaultWrite(BaseModel):
     user_ids:list[UUID]|None=Field(default=None,max_length=500)
     revision:int=Field(ge=0)
 
 def ready(db):return inspect(db.connection()).has_table(Config.__tablename__)
 
-def eligible(db,kind):
+def storage_key(kind):
+    # 新流程使用独立配置键，旧版本部门名单留作历史，不误用为全体通知默认值。
+    return 'v2_'+kind if kind in {'circle','wechat_public','xiaohongshu'} else kind
+
+def eligible(db,kind,source_type='annotation'):
     if kind not in KINDS:raise HTTPException(422,'不支持的通知类型')
     query=db.query(AppUser).filter(AppUser.is_active.is_(True),AppUser.is_deleted.is_(False))
-    if kind!='post':query=query.filter(department_condition(db,['标注项目部']))
+    if kind=='development':query=query.filter(department_condition(db,['标注项目部']))
     return query.order_by(AppUser.full_name,AppUser.id).all()
 
 def initial(db,kind):
     people=eligible(db,kind)
-    if kind=='circle':return [p.id for p in people if p.full_name in {'黄杰','王露'}]
+    if kind=='circle':return [p.id for p in people]
+    if kind=='wechat_public':return [p.id for p in people if p.full_name in {'黄杰','王露'} or p.username in {'wanglu','huangjie'}]
+    if kind=='xiaohongshu':return [p.id for p in people if p.full_name in {'舒婷','彭舒婷'} or p.username=='shuting']
     if kind=='development':return [p.id for p in people if p.username in {'jinglin','williamzhao'}]
     hr={uid for uid, in db.query(AppUser.id).filter(department_condition(db,['HR部']))}
     return [p.id for p in people if p.id in hr and p.username.casefold() not in {'zixia','williamzhao','lulu'}]
 
-def catalog(db,user,kind):
+def catalog(db,user,kind,source_type='annotation'):
+    if source_type not in {'annotation','interpretation','translation','recruitment','other'}:raise HTTPException(422,'不支持的项目类型')
     available=ready(db)
     people=eligible(db,kind);allowed={p.id for p in people}
-    row=db.get(Config,kind) if available else None
+    row=db.get(Config,storage_key(kind)) if available else None
     ids=initial(db,kind) if not row or row.user_ids is None else [UUID(i) for i in row.user_ids]
     return dict(kind=kind,label=KINDS[kind],user_ids=[str(i) for i in ids if i in allowed],users=[dict(id=str(p.id),name=p.full_name or p.username,department=p.department or '') for p in people],revision=row.revision if row else 0,can_manage=can_manage(db,user) and available,ready=available,rule_based=not row or row.user_ids is None)
 
@@ -43,12 +51,12 @@ def save(db,user,kind,payload):
     if kind not in KINDS:raise HTTPException(422,'不支持的通知类型')
     from resource_development_service import lock_writes
     lock_writes(db)
-    row=db.query(Config).filter_by(kind=kind).with_for_update().first()
+    row=db.query(Config).filter_by(kind=storage_key(kind)).with_for_update().first()
     if (row.revision if row else 0)!=payload.revision:raise HTTPException(409,'默认名单已被修改，请刷新后重试')
     ids=set(payload.user_ids) if payload.user_ids is not None else None
     if ids is not None and not ids<={p.id for p in eligible(db,kind)}:raise HTTPException(422,'部分人员已停用或不在候选范围内，请重新选择')
     before=catalog(db,user,kind)
-    if not row:row=Config(kind=kind,revision=0);db.add(row)
+    if not row:row=Config(kind=storage_key(kind),revision=0);db.add(row)
     row.user_ids=sorted([str(i) for i in ids]) if ids is not None else None
     row.revision+=1;row.updated_by=user.id;row.updated_at=now();db.flush()
     after=catalog(db,user,kind)

@@ -91,3 +91,7 @@ export const updateInterpretationLanguage = (id, data) => (
 export const previewInterpretationProjectName = (data) => (
   api.post('/projects/interpretation/name-preview', convertKeys(data, toSnakeCase)).then((res) => convertKeys(res, toCamelCase))
 )
+
+export const generateInterpretationDemandRelease = (data, config = {}) => api.post(
+  '/projects/interpretation-demand-release', convertKeys(data, toSnakeCase), config,
+)

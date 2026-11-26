@@ -26,7 +26,14 @@ def save(db, project, ranges):
     if not grouped:
         if existing:raise HTTPException(409, '该项目已按时间段分组，请重新打开项目窗口后保存')
         return
-    groups = [dict(locations=item.locations, language_directions=[direction.model_dump(mode='json') for direction in item.language_directions]) for item in ranges]
+    groups = []
+    for index, item in enumerate(ranges):
+        previous = existing.groups[index] if existing and index < len(existing.groups) else {}
+        details = ([location.model_dump() for location in item.location_details]
+                   if item.location_details is not None else
+                   previous.get('location_details') if previous.get('locations') == item.locations else None)
+        groups.append(dict(locations=item.locations, location_details=details,
+                           language_directions=[direction.model_dump(mode='json') for direction in item.language_directions]))
     if existing:existing.groups = groups
     else:db.add(InterpretationScheduleGroups(project_id=project.id, groups=groups))
 
@@ -39,4 +46,5 @@ def attach(db, projects):
         for index, item in enumerate(project.time_ranges):
             group = groups[index] if index < len(groups) else {}
             item.locations = group.get('locations')
+            item.location_details = group.get('location_details')
             item.language_directions = group.get('language_directions')

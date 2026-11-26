@@ -49,9 +49,11 @@ def test_snapshot_recipients_permission_idempotency_and_receipt_order(environmen
     with pytest.raises(HTTPException):service.receipt(db,outsider,batch_id,'received')
 
 
-def test_dispatch_requires_current_department_and_different_kinds_are_independent(environment, monkeypatch):
+def test_dispatch_requires_active_user_and_different_kinds_are_independent(environment, monkeypatch):
     db,sender,receiver,outsider,request,project,service,notices=setup_data(environment,monkeypatch)
+    outsider.is_active=False;db.commit()
     with pytest.raises(HTTPException):service.send(db,sender,request.id,service.DispatchWrite(kind='circle',user_ids=[outsider.id],idempotency_key=str(uuid4())))
+    outsider.is_active=True;db.commit()
     ids=[]
     for kind in ['circle','post']:
         result=service.send(db,sender,request.id,service.DispatchWrite(kind=kind,user_ids=[receiver.id],idempotency_key=str(uuid4())))

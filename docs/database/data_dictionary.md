@@ -2994,3 +2994,63 @@ id UUID 主键；client_id / sub_client_id UUID 分别关联 client / sub_client
 - 笔译状态变更继续调用既有项目更新业务，进度记录与状态在同一事务提交，保留版本校验和项目状态继承规则。同状态追加记录不修改项目状态；重试使用 `request_id` 幂等识别。仅创建新表，不改写已有表结构，使用 `tools/apply_translation_project_progress_migration.py` 初始化，不开启启动自动迁移。
 - 口译、标注保留既有状态历史；统一“项目状态、节点时间、进度/说明”输入，说明上限统一 10000 字。选择历史流程节点补充进度时不回退当前状态；用户重新选择下拉状态才按新状态保存。
 - 招聘复用 `recruitment_project_progress`，状态与说明一次提交，保留当前状态及原历史。新的统一进度入口带项目版本进行并发校验。既有短记录、审计记录保持原用途，不挪用作进度存储。
+
+### 客户名称修改与删除记录（client_name_history）
+
+- id UUID 主键。client_id、parent_client_id、client_code 保存客户/子客户身份快照，无外键以保留删除历史。
+- operation 为 rename/delete，before_names/after_names JSON 保存中文及英文全称和简称。
+- actor_id、actor_name 保存操作人快照，occurred_at 为 UTC+8 业务时间。
+- 与名称修改或删除在同一事务内保存，无变化不记录。仅记录启用后的操作。
+- 初始化脚本 tools/apply_client_name_history_migration.py，仅创建新表及索引。
+
+
+### project_customer_source（项目客户来源）
+
+四类项目共用附表，不修改既有项目表。`module`（varchar(30)，四类项目枚举）与 `project_id`（UUID）为联合主键；`content`（varchar(500)，非空）记录来源，空字符串表示明确清空；`updated_at`（timestamptz，非空）使用 UTC+8 业务时钟。与项目在同一事务中保存；未设置时可展示关联咨询的来源，独立编辑不改写原咨询。
+
+
+口译地点结构：`interpretation_project_schedule_groups.groups[].location_details` 为可选 JSON 数组；每项含 `country_province`（国家省份，最多200字）、`city`（城市，最多200字）、`address`（详细地址，最多2000字）。同时维护原 `locations` 完整地址字符串用于列表、邮件、会话和名称生成。历史纯文本地址按详细地址回显，不推断国家或城市；无需结构迁移。
+
+
+### interpretation_demand_release_office（口译需求发布公司轮换）
+
+`request_key`（UUID主键）为编辑草稿/项目的幂等标识；`sequence`（integer，非空唯一）为非深圳/上海地点的轮换序号；`office`（varchar(10)，非空，限上海/深圳）；`created_at`（timestamptz，UTC+8业务时钟）。并发分配使用PostgreSQL事务咨询锁。每四项依次上海、上海、上海、深圳，同一项目重新生成沿用分配，不重复消耗序号；明确深圳/上海地点不消耗序号。文案沿用项目既有 `social_post_request` 字段保存，界面名称为“需求发布”，不自动发送。
+
+
+资源需求发送类别扩展：`resource_request_dispatch.kind` 与默认接收人配置的 `kind` 新增 `wechat_public`（公众号需求）、`xiaohongshu`（小红书需求），沿用现有 varchar(16)，无需 DDL。`resource_request.request_content.dispatch_notes` 同步增加同名可选说明字段。各类别独立计次、保存发送快照、回执及取消通知；平台执行回执与发帖共用既有执行表。
+
+
+### interpretation_client_selected_interpreter（口译客户选定译员）
+
+`project_id`（UUID，FK口译项目，删除级联）与 `translator_id`（UUID，FK译员，删除级联）组成联合主键；记录存在表示该项目中该译员为客户选定。`selected_at`（timestamptz，非空）使用UTC+8业务时钟。勾选状态随项目同事务保存、按项目批量回显；兼容未提交标记的旧客户端，未提交不清空原值。取消勾选或移除安排时删除对应标记。无需改动既有安排表。
+
+### 标注财务付款表单与笔译统一（2026-11-26）
+
+标注财务复用 PaymentRegistrationFields。现有 project_customer_finance_history.after._ledger 中增加 payment_registration JSON：confirmation 使用笔译付款确认输入字段；payments 使用笔译分期明细字段并保留 currency；full_payment_received_on 保留历史全款日期。付款金额与日期同步到 settlement.payments，财务总数、对账及追账继续使用同一收款口径。旧数据只在读取时转换，保存才写入；每次保存复用账簿修订号及历史，不新增表、不修改现有表结构、不回填业务数据。旧客户端保存其他财务字段时保留已登记的新付款信息。
+
+### 客户登记来源（client_registration_source）
+
+- client_id UUID 主键及外键，客户删除时级联删除。
+- module VARCHAR(30) 保存首次登记入口 clients/consultation/translation/interpretation/annotation/recruitment，后续关联不覆盖。
+- ClientResponse.registration_source 返回中文来源名称。历史缺失记录显示“历史数据（未记录）”，不通过后续项目推断。
+- 初始化脚本 tools/apply_client_registration_source_migration.py，仅创建新表。
+
+
+### interpretation_interpreter_requirements（口译译员独立要求）
+
+`project_id`（UUID主键，FK口译项目，删除级联）、`values`（JSON非空）、`updated_at`（timestamptz，UTC+8业务时钟）。JSON键为 bring_vehicle、driving、driving_license、certificates、photos、audio、video、interview、guide_licenses、passport、visa、hong_kong_macau_permit，分别存储带车、开车、驾照、证书、照片、音频、视频、面试、导游证等证件、护照、签证、港澳通行证与签注要求，每项最多5000字。未提交保留原值，显式空串清空，与项目同事务保存。不修改既有项目表；原 interpretation_domain 字段仅显示名改为“领域/行业/产品”。
+
+
+### interpretation_project_settings（口译共享设置）
+
+`id`（integer主键，仅1）、`mention_user_ids`（JSON非空，默认@人员UUID字符串数组，显式空数组表示不默认@）、`revision`（integer乐观版本）、`updated_by`（UUID，FK用户）、`updated_at`（timestamptz，UTC+8）。表无记录时使用紫霞和旷娇账号，设置影响之后新发送的口译会话；候选人员沿用项目会话参与范围。保存设置使用事务锁及版本校验，不改历史通知。
+
+
+### 资源需求公众号执行与全体通知（2026-11-26）
+
+复用现有 `resource_request_dispatch`、`resource_request_dispatch_recipient`、`resource_request_execution_reply`、`resource_request_dispatch_default`，不新增或修改表结构。
+
+- 新发出的 `wechat_public` 批次在不可变 `snapshot` 中标记 `public_execution_workflow=true`；历史批次仍沿用原平台执行流程。
+- 指定执行人先确认收到，填写公众号执行说明；回执 `platforms=[]`、`content` 保存说明。首次执行后创建内部 `kind=wechat_broadcast` 批次，保留原批次 ID、执行人和说明快照，通知当时所有在用且未删除账号。唯一幂等键 `public-broadcast:<原批次UUID>` 与需求行锁共同避免重复广播。
+- 全体通知的逐人收到、已执行时间仍存于原回执表；取消公众号需求同时取消后续广播，保留历史执行与确认记录。
+- 新默认名单配置键为 `v2_circle`、`v2_wechat_public`、`v2_xiaohongshu`（均不超过原 `kind` 的16字符），与旧配置隔离。NULL 使用动态初始规则：发圈为全体在用账号，公众号为王露和黄杰，小红书为舒婷；显式空列表表示管理员清空。口译、标注共用，设置入口为资源需求管理的“需求发送设置”。

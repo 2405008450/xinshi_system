@@ -8,6 +8,7 @@
         </div>
         <div v-if="listTab === 'clients'" class="header-actions">
           <el-button link type="primary" @click="helpVisible = true">帮助</el-button>
+          <ClientNameHistory />
           <TableColumnSettings settings-key="client-information"
             v-model="visibleColumnKeys"
             :columns="clientColumnOptions"
@@ -312,6 +313,7 @@
         </el-descriptions>
         <el-tabs v-model="clientActiveTab" class="client-editor-tabs">
         <el-tab-pane label="基本信息" name="basic">
+        <ClientNameHistory v-if="form.id" :client-id="form.id" />
         <AppForm number-scope="client" number-field="client_code" :number-active="dialogVisible && !form.id"
           ref="formRef"
           :model="form"
@@ -511,6 +513,7 @@ import ClientShortNameInput from '@/components/common/ClientShortNameInput.vue'
 import FieldWorkPanel from '@/views/schedule/components/FieldWorkPanel.vue'
 import ClientNameGuidance from '@/components/common/ClientNameGuidance.vue'
 import ClientContactNamesEditor from '@/components/common/ClientContactNamesEditor.vue'
+import ClientNameHistory from '@/components/common/ClientNameHistory.vue'
 import { CUSTOMER_TYPES as customerTypes } from '@/utils/customerTypes'
 import CustomerCooperationProjects from '@/components/common/CustomerCooperationProjects.vue'
 import ReadonlyField from '@/components/common/ReadonlyField.vue'
@@ -596,6 +599,7 @@ const clientColumnOptions = [
   { key: 'client_code', label: '客户编号', width: 140 },
   { key: 'client_name', label: '客户全称', width: 175 },
   { key: 'client_short_name', label: '客户简称', width: 150 },
+  { key: 'registration_source', label: '登记来源', width: 160 },
   { key: 'project_managers', label: '客户经理', width: 160 },
   { key: 'customer_type', label: '客户类型', width: 150 },
   { key: 'english_name', label: '英文全称', width: 200 },
@@ -635,6 +639,7 @@ const defaultVisibleColumnKeys = [
   'client_code',
   'client_name',
   'client_short_name',
+  'registration_source',
   'project_managers',
   'client_manager',
   'manager_contact',
@@ -653,7 +658,9 @@ const loadVisibleColumnKeys = () => {
     const filteredKeys = savedKeys.filter((key) => availableKeys.has(key))
     const usesLegacyDefault = filteredKeys.length === legacyDefaultVisibleColumnKeys.length
       && filteredKeys.every((key, index) => key === legacyDefaultVisibleColumnKeys[index])
-    const previousDefault = defaultVisibleColumnKeys.filter(key => key !== 'project_managers')
+    const previousDefault = defaultVisibleColumnKeys.filter(key => key !== 'project_managers' && key !== 'registration_source')
+    const beforeRegistration = defaultVisibleColumnKeys.filter(key => key !== 'registration_source')
+    if (filteredKeys.length === beforeRegistration.length && filteredKeys.every((key,index)=>key===beforeRegistration[index])) return [...defaultVisibleColumnKeys]
     const usesPreviousDefault = filteredKeys.length === previousDefault.length
       && filteredKeys.every((key, index) => key === previousDefault[index])
     return usesLegacyDefault || (usesPreviousDefault && !localStorage.getItem(`${CLIENT_COLUMNS_STORAGE_KEY}:updated`))
