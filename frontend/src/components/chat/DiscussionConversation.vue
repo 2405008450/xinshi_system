@@ -1,5 +1,12 @@
 <template>
   <section class="discussion-chat" aria-label="资源讨论会话">
+    <template v-if="accessPending">
+      <el-alert v-if="error && !loading" :title="error" type="error" :closable="false">
+        <el-button link @click="refresh(true)">重试</el-button>
+      </el-alert>
+      <div v-else class="discussion-chat__pending" role="status">正在加载消息…</div>
+    </template>
+    <template v-else>
     <TechnicalRequirementsPanel ref="technicalPanel" :room-id="projectId" :active="active" @loaded="technicalRoom=$event" />
     <div v-if="searchOpen" class="discussion-chat__search"><el-input v-model="keyword" clearable placeholder="搜索此讨论的消息" maxlength="200" @keyup.enter="refresh(true)" /><el-checkbox v-model="favoritesOnly">只看收藏</el-checkbox><el-button @click="searchOpen = false; keyword = ''; favoritesOnly=false">关闭</el-button></div>
     <el-alert v-if="error" :title="error" type="error" :closable="false"><el-button v-if="!loading" link @click="refresh(true)">重试</el-button></el-alert>
@@ -42,6 +49,7 @@
     <ChatMessageContextMenu ref="messageMenu" :messages="messages" :current-user-id="currentUserId" :handlers="menuHandlers" project-type="discussion" :project-id="projectId" :active="active" />
     <ChatMessageReferences ref="references" :project-id="projectId" project-type="discussion" @locate="locate" />
     <TechnicalTaskDialog v-if="taskDraft" dialog-only :initial-content="taskDraft.content" @close="taskDraft = null" />
+    </template>
   </section>
 </template>
 <script setup>
@@ -84,7 +92,7 @@ import { createCoalescedRefresh } from '@/utils/coalescedRefresh'
 import { CHAT_MEMBERS_REFRESH_MS, CHAT_WINDOW_REFRESH_MS, createChatWindowFreshness } from '@/utils/chatWindowFreshness'
 import { createOptimisticMessage, isOptimisticMessage, mergeWithOptimistic } from '@/utils/chatOptimistic'
 import { loadOutboxMessages, markOutboxInFlight, removeOutboxMessage, sendWithAutoRetry, unmarkOutboxInFlight, upsertOutboxMessage } from '@/utils/chatOutbox'
-const props = defineProps({ projectId: { type: String, required: true }, roomTitle: { type: String, default: '' }, active: Boolean, targetMessageId: { type: String, default: '' } })
+const props = defineProps({ projectId: { type: String, required: true }, roomTitle: { type: String, default: '' }, active: Boolean, accessPending: Boolean, targetMessageId: { type: String, default: '' } })
 const TechnicalTaskDialog = defineAsyncComponent(() => import('@/views/technology/TechnicalDevelopment.vue'))
 const taskDraft = ref(null)
 const canCreateDevelopmentTask = computed(() => props.roomTitle.replace(/\s/g, '') === '技术/开发沟通' && canViewTechnicalDevelopment())
@@ -409,6 +417,7 @@ async function locate(id) {
 defineExpose({ openSearch: () => { searchOpen.value = true }, locate })
 </script>
 <style scoped>
+.discussion-chat__pending{display:grid;flex:1;place-items:center;padding:16px;color:var(--chat-text-muted,#64748b)}
 .discussion-chat__message-main{display:flex;align-items:center;gap:6px}.discussion-chat__message.is-own .discussion-chat__message-main{flex-direction:row-reverse}.discussion-chat__message-main .discussion-chat__bubble{margin-left:0;max-width:min(680px,calc(100% - 34px))}.discussion-chat__message:hover .chat-message-more,.discussion-chat__message:focus-within .chat-message-more{opacity:1}.discussion-mention-highlight{background:#fef3c7;color:#92400e;border-radius:4px;padding:0 3px;font-weight:500}.discussion-chat__meta{flex-wrap:wrap}.discussion-chat__meta time{overflow-wrap:anywhere}
 .discussion-chat{display:flex;flex-direction:column;height:100%;min-height:0;background:var(--chat-stage-bg,#f4f6f9);color:var(--chat-text,#1e293b);font-size:13.5px}.discussion-chat__search{display:flex;gap:8px;padding:8px 12px;background:#fff;border-bottom:1px solid var(--chat-border,#e2e8f0)}.discussion-chat__timeline{flex:1;min-height:0;overflow-y:auto;padding:16px 20px;overflow-anchor:none}.discussion-chat__date{display:flex;justify-content:center;margin:18px 0}.discussion-chat__date>span{padding:2px 10px;border-radius:10px;background:#e8edf4;color:#64748b;font-size:11px;line-height:1.5}.discussion-chat__message{position:relative;padding-left:42px;margin:14px 0}.discussion-chat__message.is-own{padding-left:0}.discussion-chat__message.is-grouped{margin-top:-6px}.discussion-chat__avatar{position:absolute;left:0;top:1px;display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:#e3ebf5;color:#3b526b;font-size:12.5px;font-weight:600;border:1px solid #d5e0ee}.discussion-chat__meta{display:flex;align-items:center;gap:8px;margin-bottom:4px;color:#64748b;font-size:12px}.discussion-chat__meta strong{font-weight:600;color:#334155}.discussion-chat__meta time{font-size:11px;color:#94a3b8;font-variant-numeric:tabular-nums}.discussion-chat__bubble{width:fit-content;max-width:min(680px,84%);padding:10px 13px;border:1px solid var(--chat-bubble-border,#e5eaf0);border-radius:4px 12px 12px 12px;background:var(--chat-bubble-bg,#fff);box-shadow:var(--chat-bubble-shadow,0 1px 2px rgba(15,23,42,.04));overflow-wrap:anywhere}.discussion-chat__bubble p{white-space:pre-wrap;line-height:1.65;margin:0;user-select:text;color:#1e293b}.discussion-chat__message.is-own .discussion-chat__meta,.discussion-chat__message.is-own .discussion-chat__message-actions{justify-content:flex-end}.discussion-chat__message.is-own .discussion-chat__bubble{margin-left:auto;border-radius:12px 4px 12px 12px;background:var(--chat-bubble-own-bg,#e3ecf6);border-color:var(--chat-bubble-own-border,#ccd9e8)}.discussion-chat__message.is-mentioned .discussion-chat__bubble{background:var(--chat-bubble-mention-bg,#fef9ec);border-color:#f3d99b;border-left:3px solid var(--chat-bubble-mention-accent,#d97706)}.chat-urgent-badge{display:inline-flex;align-items:center;justify-content:center;margin-right:5px;padding:0 5px;height:18px;border-radius:4px;background:#fee2e2;color:#dc2626;font-size:11px;font-weight:600;line-height:18px;vertical-align:1px}.discussion-chat__message-actions{display:flex;gap:8px;opacity:0}.discussion-chat__message:hover .discussion-chat__message-actions,.discussion-chat__message:focus-within .discussion-chat__message-actions{opacity:1}.discussion-chat__message-actions .el-button{font-size:10px;color:#94a3b8}.discussion-chat__recalled,.discussion-chat__hint{text-align:center;color:#94a3b8;font-size:12px}.discussion-chat__composer{flex:none;margin:10px 14px 14px;padding:8px 12px 10px;border:1px solid #dce4ee;border-radius:12px;background:#fff;box-shadow:0 2px 8px rgba(15,23,42,.03);transition:border-color .14s ease,box-shadow .14s ease}.discussion-chat__composer:focus-within{border-color:var(--color-primary,#334155);box-shadow:0 0 0 3px rgba(51,65,85,.08)}.discussion-chat__composer :deep(.el-textarea__inner){box-shadow:none;background:#fff;padding:4px 2px;line-height:1.6;color:#1e293b}.discussion-chat__footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:6px}.discussion-chat__shortcut{margin-right:auto;font-size:11px;color:#94a3b8}.discussion-chat__reply{display:flex;align-items:center;justify-content:space-between;max-height:65px;overflow:auto;padding:6px 8px;background:#f1f5f9;font-size:12px;overflow-wrap:anywhere}.discussion-chat__error{color:#b91c1c;font-size:12px;margin:5px 0}.discussion-chat__new{align-self:center}@media(max-width:600px){.discussion-chat__shortcut{display:none}.discussion-chat__bubble{max-width:94%}.discussion-chat__timeline{padding:12px 10px}}
 </style>
